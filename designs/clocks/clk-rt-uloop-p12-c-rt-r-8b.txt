@@ -1,0 +1,22 @@
+# archived 2026-10-19T16:32Z from /tmp/clk-in6/clk-rt--sweeps--uloop-k2--uloop-p12-c-rt-r.txt by mctas clock archive
+# CLOCK: clk-rt-uloop-p12-c-rt-r-8b period 12 gt (0.6 s), on 6/12, edges 1, warmup 10, family comparator+redstone_torch+repeater, 8 blocks, 3x2x2, robust
+# U-loop (clk-rt): a wall torch on block A -> top row [delay-3 repeater] -> block F -> a wall torch
+# on F -> bottom row [comparator] -> A; 2 torches = a pulse ring of loop delay 12 gt
+name: clk-rt-uloop-p12-c-rt-r-8b
+uloop: T-3-c-T
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on a block put under it) takes every pulse (was 0 0 0: with a repeater in the output cell, no signal (it never turns on))
+port output: 0 1 -2
+origin: 0 0 -1
+palette:
+  A minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  R minecraft:redstone_wall_torch[facing=north,lit=true]
+  S minecraft:stone
+  r minecraft:redstone_wall_torch[facing=south,lit=true]
+layer 0:
+  .S
+  .S
+layer 1:
+  RAS
+  SCr

@@ -1,0 +1,27 @@
+# archived 2026-10-23T06:29Z from /home/vjeux/ws5/strip1/staged/clk-obs-p11-note-obs-pis-rb-stk-7b-998fc8.txt by mctas clock archive
+# CLOCK: clk-obs-p11-note-obs-pis-rb-stk-7b-998fc8 period 11 gt (0.55 s), on 5/11, edges 1, warmup 6, family note_block+observer+piston+redstone_block+sticky_piston, 7 blocks, 1x4x3, robust
+# the irreducible core of clk-obs-p22-note-obs-pis-rb-stk-8b-b6a87b.txt (mctas clock strip, 2026-10-22): removed 0,1,1 observer[facing=north,powered=false]
+name: clk-obs-p11-note-obs-pis-rb-stk-7b-998fc8
+port output: -1 0 2
+port start: 0 0 2 last
+origin: 0 0 0
+palette:
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=north,powered=false]
+  P minecraft:piston[extended=false,facing=up]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=down]
+  o minecraft:observer[facing=south,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=up]
+layer 0:
+  N
+  o
+  s
+layer 1:
+  P
+  .
+  R
+layer 2:
+  .
+  O
+  S

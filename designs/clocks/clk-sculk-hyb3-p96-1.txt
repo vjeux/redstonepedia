@@ -1,0 +1,23 @@
+# archived 2026-10-19T20:17Z from /tmp/gen/arch2/hyb3-p96-1.txt by mctas clock archive
+# CLOCK: clk-sculk-hyb3-p96-1 period 96 gt (4.8 s), on 60/96, edges 2, warmup 31, family note_block+observer+sculk_sensor+sticky_piston, 7 blocks, 4x4x1, robust
+# A plain sculk sensor watched by a chain of 3 observer(s) (each watching the previous); the last observer powers a stone and a note block beside the stone, 1 from the sensor (travel time): the observers' pulse after the sensor re-arms is heard; plus a sticky piston beside the chain (moves parts of it: the hybrid)
+name: clk-sculk-hyb3-p96-1
+# how: obs plain k=3 path 1,0,0 1,-1,0 0,-1,0 stone at the output, emitter note beside it (travel 1) + sticky_piston[extended=false,facing=up] at -1,-2,0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was -1 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 0 0 -1
+port start: -2 0 0 minecraft:redstone_block 1
+origin: -1 0 0
+palette:
+  A minecraft:observer[facing=west,powered=false]
+  B minecraft:stone
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=up,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=up]
+layer -2:
+  s
+layer -1:
+  BOo
+layer 0:
+  NSA

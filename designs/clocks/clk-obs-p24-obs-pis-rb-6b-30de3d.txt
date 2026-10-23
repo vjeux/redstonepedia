@@ -1,0 +1,27 @@
+# archived 2026-10-19T18:54Z from designs/clocks/tracks/clk-obs/families/p24-obs-pis-rb-6b-30de3d.txt by mctas clock archive
+# CLOCK: clk-obs-p24-obs-pis-rb-6b-30de3d period 24 gt (1.2 s), on 14/24, edges 2, warmup 13, family observer+piston+redstone_block, 6 blocks, 1x7x1, robust
+name: clk-obs-p24-obs-pis-rb-6b-30de3d
+# P24: 1 copper bulb, 2 observers, 2 pistons, 1 redstone block; changing in place: observer, piston, redstone_block (copper bulb only moved or static). Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 4 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 2 0
+port start: 0 3 0 last
+palette:
+  A minecraft:piston[extended=false,facing=up]
+  B minecraft:waxed_copper_bulb[lit=false,powered=false]
+  C minecraft:redstone_block
+  D minecraft:piston[extended=false,facing=down]
+  E minecraft:observer[facing=up,powered=false]
+  F minecraft:observer[facing=down,powered=false]
+layer -1:
+  A
+layer 0:
+  B
+layer 1:
+  C
+layer 2:
+  D
+layer 3:
+  E
+layer 4:
+  F

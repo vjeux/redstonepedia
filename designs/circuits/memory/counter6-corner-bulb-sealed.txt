@@ -1,0 +1,36 @@
+# archived 2026-10-21T16:54Z from /tmp/clkm-ab/intr/sealed/counter6-corner-bulb-sealed.txt by mctas circuit archive
+# CIRCUIT: counter6-corner-bulb-sealed counter 6 N 6, output level every 6 pulses, counts one pulse per N, on 3 of 6, 14 blocks, 5x4x2, robust
+# Sealed by `mctas circuit seal` (the real-use audit's item intrusion, 2026-10-21): 3 glass on
+# the open hopper tops of counter6-corner-bulb (0 2 1, 1 1 1, 1 2 0), so no stray item reaches a hopper of its timing.
+name: counter6-corner-bulb-sealed
+circuit: counter 6
+group: ring-bulbs
+group note: a dropper ring whose comparator toggles K copper bulb T flip-flops in a line (`mctas circuit memory ring --n N --bulbs K`)
+group title: Dropper ring + copper bulbs (counter N x 2^K)
+port input: 0 0 0
+port output: 5 0 0
+nbt: 1 0 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: 0 0 0
+palette:
+  A minecraft:dropper[facing=up,triggered=false]
+  B minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  D minecraft:dropper[facing=east,triggered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=down]
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  d minecraft:dropper[facing=south,triggered=false]
+  h minecraft:hopper[enabled=true,facing=north]
+layer -1:
+  ..S.S
+  .
+layer 0:
+  .ACWC
+  Dh
+layer 1:
+  dB
+  HG
+layer 2:
+  .G
+  G

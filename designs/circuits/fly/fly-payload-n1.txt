@@ -1,0 +1,33 @@
+# archived 2026-10-20T01:05Z from designs/circuits/tracks/fly/payload/fly-payload-n1.txt by mctas circuit archive
+# CIRCUIT: fly-payload-n1 flying-machine speed 10 gt/block, period 10 gt, 1 cell(s), latency 2 gt, ground needs 1 block of air above the ground, 7 blocks, 4x3x1, robust
+# Payload family: the 6-block engine fly-horizontal-6b-10gt-e2cf52 carrying n blocks, 10 gt/block
+# for every n: a column up from the front slime (slime, each drags the next; the top block gold),
+# 9 at most (a piston moves at most 12 blocks: the 3-block part + 9), then a column down from the
+# rear slime; n = 18 is the most the engine moves (a 10th block on the rear: the pull fails).
+name: fly-payload-n1
+extend family: fly-payload-e2cf52
+extend axis: 10
+extend blocks: 6 + n
+extend rule: one more payload block: the slime column up from the front slime (9 at most), then the one down from the rear slime; the top block of a column is gold
+extend n: 1..18
+extend base: 1
+extend generator: mctas circuit fly gen payload --base designs/circuits/tracks/fly/layouts/fly-horizontal-6b-10gt-e2cf52.txt --from 2,1,0 --dir up --cap 9 --from2 1,0,0 --dir2 down --n {n} --block minecraft:gold_block --out {out}
+circuit: flying-machine
+distance: 24
+travel: 1 0 0
+port payload: 2 2 0
+port start: -1 0 0 minecraft:stone 1
+origin: 0 0 0
+palette:
+  G minecraft:gold_block
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:piston[extended=false,facing=east]
+  S minecraft:slime_block
+  o minecraft:observer[facing=west,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=west]
+layer 0:
+  oSs
+layer 1:
+  .PSO
+layer 2:
+  ..G

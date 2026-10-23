@@ -1,0 +1,69 @@
+# verified WORKS by door leaderboard: 39 blocks, category entity
+# archived 2026-10-18 18:38Z from HEAD:designs/piston-door-3x3/tracks/entities/test-static-armor.txt (repo at 2d248cd)
+name: test-static-armor
+port door: 0 0 0
+port lever: 1 5 -3
+entity: minecraft:armor_stand -1.5 3 0.5 {Rotation:[90f,0f]}
+origin: -2 0 -3
+palette:
+  A minecraft:observer[facing=north,powered=false]
+  B minecraft:observer[facing=up,powered=false]
+  C minecraft:observer[facing=west,powered=false]
+  D minecraft:sticky_piston[extended=false,facing=east]
+  E minecraft:sticky_piston[extended=false,facing=south]
+  F minecraft:sticky_piston[extended=false,facing=up]
+  G minecraft:sticky_piston[extended=false,facing=west]
+  H minecraft:stone
+  L minecraft:lever[face=wall,facing=north,powered=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  S minecraft:smooth_stone
+  o minecraft:observer[facing=east,powered=false]
+  r minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=down]
+layer -2:
+  .
+  .
+  .
+  ...F
+layer -1:
+  .
+  .
+  .
+  .BC
+layer 0:
+  .
+  .
+  .
+  D.HHH.G
+layer 1:
+  .
+  .
+  .
+  D.HHH.G
+layer 2:
+  .
+  .
+  .
+  SoHHHCS
+layer 3:
+  .
+  ...E
+  ..S.S
+  .
+layer 4:
+  ...N
+  ...A
+  ..RSR
+  ..sss
+layer 5:
+  ...L
+  ...B
+  ...B
+  ...s
+layer 6:
+  ...O
+  ...A
+  ...r
+  .

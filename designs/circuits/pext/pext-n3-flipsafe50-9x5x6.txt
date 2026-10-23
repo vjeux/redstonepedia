@@ -1,0 +1,72 @@
+# archived 2026-10-22T00:03Z from designs/circuits/pext/work/pext-n3-flipsafe50-9x5x6.txt by mctas circuit archive
+# CIRCUIT: pext-n3-flipsafe50-9x5x6 piston-extender 3 N 3, extend 55 gt, retract 55 gt, flips safe (the lever flipped back at any time), 50 blocks, 9x5x6, robust
+# A 3-piston extender you can flip back at any time (50 blocks, 9x5x6): the block goes out 3 cells
+# in 55 gt and back in 55 gt, and turning the lever off or on again early never strands a block.
+# How it works: it grew out of the slime-free stack of pext-n3-sf-v1, three sticky pistons in a
+# row: going out each one pushes the ones in front of it, and coming back a logic of observers and
+# pistons runs the single-cell moves it takes to pull every piston and the block home, one
+# at a time. `mctas circuit pext anneal --flip-soft` (each failed flip test of the real-use audit,
+# at all 4 rotations, costs more than any size) reworked that logic, adding a slime block, until
+# every early flip ends extended or at rest (pext).
+name: pext-n3-flipsafe50-9x5x6
+circuit: piston-extender 3
+travel: 1 0 0
+port input: -1 1 0 lever
+port payload: 4 1 0
+origin: -1 0 -2
+palette:
+  A minecraft:observer[facing=north,powered=false]
+  B minecraft:observer[facing=south,powered=false]
+  C minecraft:observer[facing=up,powered=false]
+  D minecraft:observer[facing=west,powered=false]
+  E minecraft:piston[extended=false,facing=south]
+  F minecraft:piston[extended=false,facing=up]
+  G minecraft:gold_block
+  H minecraft:piston[extended=false,facing=west]
+  I minecraft:sticky_piston[extended=false,facing=east]
+  J minecraft:sticky_piston[extended=false,facing=north]
+  K minecraft:sticky_piston[extended=false,facing=south]
+  L minecraft:lever[face=floor,facing=north]
+  M minecraft:sticky_piston[extended=false,facing=up]
+  N minecraft:stone
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=east]
+  S minecraft:slime_block
+  o minecraft:observer[facing=east,powered=false]
+  p minecraft:piston[extended=false,facing=north]
+  s minecraft:sticky_piston[extended=false,facing=down]
+layer -1:
+  .
+  .......B
+  ....P.DD
+  .
+  .
+  .
+layer 0:
+  .
+  ......CO
+  s.BD.OA
+  ..C...A
+  ......F
+  .
+layer 1:
+  .DDSI.H
+  p.....AM
+  LFIIIG
+  ..B.B
+  ..BEoo
+  ..o
+layer 2:
+  .
+  .......N
+  ..DCCoC
+  .....J
+  .
+  .
+layer 3:
+  .
+  ....oKo
+  ....A.B
+  ...JNND
+  .
+  .

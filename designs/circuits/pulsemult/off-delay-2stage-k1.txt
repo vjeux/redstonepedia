@@ -1,0 +1,40 @@
+# archived 2026-10-20T11:52Z from designs/circuits/pulsemult/tracks/timer/long/off-delay-2stage-k1.txt by mctas circuit archive
+# CIRCUIT: off-delay-2stage-k1 off-delay L 108 gt, latency 6 gt, min-pulse 3 gt, 28 blocks, 7x2x5, robust
+name: off-delay-2stage-k1
+circuit: off-delay
+group: off-delay-2stage
+group title: two-stage comparator-ring off-delay
+group note: stage 2 has 2k + 1 comparators (k per row): L grows by 56 gt per k, up to k = 7 (a longer stage-2 round than stage 1's shortest output is refilled unevenly); `mctas circuit timer long --k K`
+extend family: off-delay-2stage
+extend axis: 52 + 56n
+extend blocks: 24 + 4n
+extend rule: one more comparator (on its stone) in each row of stage 2's ring
+extend n: 1..7
+extend base: 1
+extend generator: mctas circuit timer long --k {n} --file {out}
+# Two comparator rings (crates/circuit-timer/src/long.rs). Stage 1 (two comparators, round 4 gt): the input beside the corner dust of stage 1's return line holds stage 1 up; once its charge stops it decays 2 per round, so its output lasts at least 28 gt. A repeater reading its stone A1 powers stage 2's stone I2: stage 2 is a ring of 3 comparators (round 6 gt) that loses 1 per round, refilled evenly at 15 by stage 1's long output; once stage 1 dies it counts its levels down, and the output lamp beside its stone A2 goes dark at 0.
+origin: -5 0 -2
+port input: 1 1 3
+port output: -5 1 0
+palette:
+  S minecraft:stone
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  E minecraft:comparator[facing=east,mode=compare,powered=false]
+  W minecraft:comparator[facing=west,mode=compare,powered=false]
+  n minecraft:comparator[facing=north,mode=compare,powered=false]
+  s minecraft:comparator[facing=south,mode=compare,powered=false]
+  R minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+layer 0:
+  ..SS....
+  .S.S....
+  ..S.S.S.
+  .....S.S
+  ......SS
+  ........
+layer 1:
+  .SWd....
+  .s.d....
+  .SESRSES
+  .....n.d
+  .....Sdd
+  ........

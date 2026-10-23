@@ -1,0 +1,29 @@
+# archived 2026-10-21T23:24Z from designs/circuits/rail/tracks/station/station-slope-v2.txt by mctas circuit archive
+# CIRCUIT: station-slope-v2 station 1 line one-way, stop distance 1.60 blocks, departure delay 1 gt, leaves at 0.22 b/t, 6 blocks, 3x3x2, robust
+# station-slope-v2 (clk-obs, 2026-10-21): a one-way minecart station.
+# The line drops two blocks through it on two powered rails sloping down in the direction of travel
+# (east). Unpowered, a powered rail halves a cart's speed every tick: a cart arriving with up to
+# 2.0 b/t of momentum comes to rest on one of the two slopes (a slower one on the first). The
+# button is a floor button on a stone beside the lower slope, below a rider's eyes wherever the
+# cart rests (the judge checks a look ray from the cart reaches it). A press strongly powers that
+# stone, which powers the lower slope, which powers the upper one: the cart slides down, the
+# powered rails boost it, and it leaves east.
+name: station-slope-v2
+circuit: station 1
+port line.in: -1 3 0
+port line.out: 2 1 0
+port input.go: 1 2 -1 button
+origin: -1 0 -1
+palette:
+  S minecraft:stone
+  A minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
+  B minecraft:stone_button[face=floor,facing=north,powered=false]
+layer 0:
+  ....
+  ..S.
+layer 1:
+  ..S.
+  .SA.
+layer 2:
+  ..B.
+  SA..

@@ -1,0 +1,48 @@
+# archived 2026-10-19T18:18Z from designs/clocks/tracks/clk-rt/counter/count-i4-o4.txt by mctas clock archive
+# CLOCK: clk-rt-count-i4-o4 period 3164 gt (2 min 38.2 s), on 3162/3164, edges 1, warmup 254, family comparator+redstone_torch+redstone_wire, 60 blocks, 9x2x11, robust
+# Comparator COUNTER clock (clk-rt): an inner comparator fading ring (4 + 4 compare comparators, one
+# level lost per lap, a wall torch refills it) whose refill pulse, turned into strength 1 by a
+# subtract comparator (side = 14 from a redstone block + 2 dust), decrements a LOSSLESS comparator
+# ring (4 + 4 comparators, one in subtract mode) by exactly one level; when the counter is empty its
+# own torch refills it: period = about 14 inner periods
+name: clk-rt-count-i4-o4
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 6 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 5 -1 0: the output [5, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 5 0 -1
+origin: -2 0 -1
+palette:
+  A minecraft:comparator[facing=north,mode=compare,powered=false]
+  B minecraft:comparator[facing=south,mode=compare,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:comparator[facing=south,mode=subtract,powered=false]
+  E minecraft:comparator[facing=west,mode=compare,powered=false]
+  F minecraft:redstone_wall_torch[facing=north,lit=true]
+  G minecraft:redstone_wire
+  R minecraft:redstone_block
+  S minecraft:stone
+  c minecraft:comparator[facing=east,mode=subtract,powered=false]
+  r minecraft:redstone_wall_torch[facing=east,lit=true]
+layer 0:
+  ..SSSSS
+  ...SSSSSS
+  ...S
+  .SSS
+  ....S
+  ....S
+  ...SS
+  ...SS
+  ...SS
+  ...SS
+  ...SS
+layer 1:
+  ..GEEEESr
+  ..ScCCCGG
+  ...G
+  RGGD
+  ...FG
+  ...SG
+  ...BA
+  ...BA
+  ...BA
+  ...BA
+  ...GG

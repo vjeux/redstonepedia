@@ -1,0 +1,51 @@
+# archived 2026-10-20T15:56Z from designs/circuits/tracks/pulse/wr/pulse-fall-hopper-oneshot-L32.txt by mctas circuit archive
+# CIRCUIT: pulse-fall-hopper-oneshot-L32 falling-edge L 32 gt, delay 6 gt, min-pulse 6 gt, 13 blocks, 3x4x3, robust
+name: pulse-fall-hopper-oneshot-L32
+circuit: falling-edge
+group: hopper-oneshot-fall
+group title: falling-edge pulse of any length: a copper bulb and a hopper item timer
+group note: L = 8 gt per item in the first hopper: one 13-block design for every L of the form 8n (8 gt to 24 s with 60 items)
+# One pulse of exactly 8 ticks per item in the first hopper (8 ticks to 24 seconds) every time the
+# input turns OFF, always 13 blocks: a copper bulb remembers the falling edge (the input makes a
+# piston lift an observer away from the bulb, and when it turns off the piston pulls the observer
+# back beside the bulb, where it fires once); while the bulb is lit, its comparator locks the
+# second hopper and unlocks the first, so the items pass one by one; when the first hopper is
+# empty, its comparator goes off and a torch toggles the bulb off; then the items flow back. This
+# one holds 4 items: 32 ticks.
+# Detail: the bulb's comparator powers the stone above the second hopper (locking it) and turns
+# off the torch on that stone, which locked the first hopper; the first hopper's comparator powers
+# the block whose torch lights the bulb from below when that hopper empties.
+origin: 0 0 0
+port input: 2 4 2
+port output: 1 2 1
+palette:
+  G minecraft:stone
+  S minecraft:hopper[enabled=false,facing=east]
+  U minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=north,mode=compare,powered=true]
+  F minecraft:stone
+  Y minecraft:stone
+  T minecraft:redstone_wall_torch[facing=east,lit=false]
+  W minecraft:redstone_wall_torch[facing=west,lit=true]
+  X minecraft:stone
+  K minecraft:comparator[facing=south,mode=compare,powered=false]
+  B minecraft:waxed_copper_bulb[lit=false,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:sticky_piston[extended=false,facing=down]
+layer 0:
+  ...
+  G..
+  ...
+layer 1:
+  SU.
+  CF.
+  YT.
+layer 2:
+  WX.
+  .K.
+  .BO
+layer 3:
+  ...
+  ...
+  ..P
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:4}]}

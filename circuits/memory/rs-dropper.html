@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>On/off memory: reacts in 6 ticks (0.3 s) · 4 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="On/off memory: reacts in 6 ticks (0.3 s) · 4 blocks. Two droppers face each other and hold one stone between them. s (next to the dropper by S) fires that dropper and the stone goes to the other one; r fires the d">
+<meta property="og:title" content="On/off memory: reacts in 6 ticks (0.3 s) · 4 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="On/off memory: reacts in 6 ticks (0.3 s) · 4 blocks. Two droppers face each other and hold one stone between them. s (next to the dropper by S) fires that dropper and the stone goes to the other one; r fires the d">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/memory/index.html">Memory and counters</a></p>
+<p class="kindline">On button + off button memory (RS latch)</p>
+<h1>reacts in 6 ticks (0.3 s) · 4 blocks</h1>
+<p class="oneliner">Press the set button (S) and the output turns on and stays on; press the reset button (R) and it turns off and stays off.</p>
+<p class="lede">passed at every position and facing we tested · made of comparator, dropper · fits in 2×2×2</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/memory/rs-dropper.txt" data-stimulus="r 88+ 92- 112+ 116- 160+ 164- 224+ 244- 314+ 344- 584+ 784-; s 40+ 44- 64+ 68- 136+ 140- 184+ 204- 264+ 294- 364+ 564-" data-phases="40-64 a 4-tick press on set (S); 64-88 a 4-tick press on set (S); 88-112 a 4-tick press on reset (R); 112-136 a 4-tick press on reset (R); 136-160 a 4-tick press on set (S); 160-184 a 4-tick press on reset (R); 184-224 a 20-tick press on set (S); 224-264 a 20-tick press on reset (R); 264-314 a 30-tick press on set (S); 314-364 a 30-tick press on reset (R); 364-584 a 200-tick press on set (S); 584-804 a 200-tick press on reset (R)" data-input-mode="pulse" data-circuit="rs-latch" data-kind="circuit"><div class="fallback"><span class="fb-big">On/off memory</span><span class="fb-small">On/off memory</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<p class="needs">Comes loaded with 1 stone in its containers: the download includes it; building it by hand, put it in first.</p>
+<section class="what plain"><h2>Try it</h2><p>Use the R and S buttons under the view to drive the inputs: the box marked OUT turns red while the output is on. Press play under the view to watch our test on a loop; touch any other control to take over.</p><p class="howdesign"><b>How this design does it:</b> Two droppers face each other and hold one stone between them.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/memory/rs-dropper.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/memory/rs-dropper.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=comparator">comparator</a> <a class="chip" href="../../index.html#with=dropper">dropper</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>A one-bit memory. A pulse on <b>S</b> (set) turns the output <b>on</b>, and it stays on; a pulse on <b>R</b> (reset) turns it <b>off</b>, and it stays off. It remembers which one came last.</p></section>
+<section><h2>How to try it</h2><p><b>Press play under the view to watch the judge's own test</b> on a loop (the badge reads <i>demo</i> with the step it is on; the same test is drawn as a timing diagram below). Touch any control to stop it and try the circuit yourself.</p><p>To try it: press and hold the <b>R</b> button of the bar (or the cell tagged R) to power that input; a quick tap sends a short 2 gt pulse; press and hold the <b>S</b> button of the bar (or the cell tagged S) to power that input; a quick tap sends a short 2 gt pulse.</p><p>Inputs are tagged in <span class="tag-in">lime</span>; the output is tagged <span class="tag-out">OUT</span>: the <b>redstone lamp</b> in that cell (the lamp the judge itself adds to read the output) <b>lights while the output is on</b> (the output strip by the demo badge shows its last 40 game ticks, 2 seconds). Drag to look around, pinch or scroll to zoom, step one game tick at a time with the step button.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the inputs with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="1032" height="146" viewBox="0 0 1032 146" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="111.7" y1="18.0" x2="111.7" y2="128.0"/><line class="ph" x1="140.3" y1="18.0" x2="140.3" y2="128.0"/><line class="ph" x1="168.9" y1="18.0" x2="168.9" y2="128.0"/><line class="ph" x1="197.6" y1="18.0" x2="197.6" y2="128.0"/><line class="ph" x1="226.2" y1="18.0" x2="226.2" y2="128.0"/><line class="ph" x1="254.8" y1="18.0" x2="254.8" y2="128.0"/><line class="ph" x1="283.4" y1="18.0" x2="283.4" y2="128.0"/><line class="ph" x1="331.1" y1="18.0" x2="331.1" y2="128.0"/><line class="ph" x1="378.8" y1="18.0" x2="378.8" y2="128.0"/><line class="ph" x1="438.5" y1="18.0" x2="438.5" y2="128.0"/><line class="ph" x1="498.1" y1="18.0" x2="498.1" y2="128.0"/><text class="phl" x="501.1" y="14.0">a 200-tick press on set (S)</text><line class="ph" x1="760.4" y1="18.0" x2="760.4" y2="128.0"/><text class="phl" x="763.4" y="14.0">a 200-tick press on reset (R)</text><text class="wl" x="4" y="46.0">R</text><line class="base" x1="64.0" y1="48.0" x2="1024.0" y2="48.0"/><polygon class="win" points="64.0,48.0 64.0,48.0 168.9,48.0 168.9,28.0 173.7,28.0 173.7,48.0 197.6,48.0 197.6,28.0 202.3,28.0 202.3,48.0 254.8,48.0 254.8,28.0 259.6,28.0 259.6,48.0 331.1,48.0 331.1,28.0 355.0,28.0 355.0,48.0 438.5,48.0 438.5,28.0 474.2,28.0 474.2,48.0 760.4,48.0 760.4,28.0 999.0,28.0 999.0,48.0 1024.0,48.0 1024.0,48.0"/><text class="wl" x="4" y="80.0">S</text><line class="base" x1="64.0" y1="82.0" x2="1024.0" y2="82.0"/><polygon class="win" points="64.0,82.0 64.0,82.0 111.7,82.0 111.7,62.0 116.5,62.0 116.5,82.0 140.3,82.0 140.3,62.0 145.1,62.0 145.1,82.0 226.2,82.0 226.2,62.0 231.0,62.0 231.0,82.0 283.4,82.0 283.4,62.0 307.3,62.0 307.3,82.0 378.8,82.0 378.8,62.0 414.6,62.0 414.6,82.0 498.1,82.0 498.1,62.0 736.6,62.0 736.6,82.0 1024.0,82.0 1024.0,82.0"/><text class="wl" x="4" y="114.0">OUT</text><line class="base" x1="64.0" y1="116.0" x2="1024.0" y2="116.0"/><polygon class="wout" points="64.0,116.0 64.0,116.0 118.9,116.0 118.9,107.2 176.1,107.2 176.1,116.0 233.3,116.0 233.3,107.2 262.0,107.2 262.0,116.0 290.6,116.0 290.6,107.2 338.3,107.2 338.3,116.0 386.0,116.0 386.0,107.2 445.6,107.2 445.6,116.0 505.2,116.0 505.2,107.2 767.6,107.2 767.6,116.0 1024.0,116.0 1024.0,116.0"/><text class="ax" x="4" y="140.0">ticks</text><text class="ax" x="64.0" y="140.0">0</text><text class="ax" x="123.6" y="140.0">50</text><text class="ax" x="183.3" y="140.0">100</text><text class="ax" x="242.9" y="140.0">150</text><text class="ax" x="302.5" y="140.0">200</text><text class="ax" x="362.1" y="140.0">250</text><text class="ax" x="421.8" y="140.0">300</text><text class="ax" x="481.4" y="140.0">350</text><text class="ax" x="541.0" y="140.0">400</text><text class="ax" x="600.6" y="140.0">450</text><text class="ax" x="660.3" y="140.0">500</text><text class="ax" x="719.9" y="140.0">550</text><text class="ax" x="779.5" y="140.0">600</text><text class="ax" x="839.2" y="140.0">650</text><text class="ax" x="898.8" y="140.0">700</text><text class="ax" x="958.4" y="140.0">750</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 805 ticks (40.25 s).</p><details><summary>Our test's report, step by step (12 lines)</summary><pre class="design">s pulse 4: q = 1 after 6 gt
+s pulse 4: q = 1
+r pulse 4: q = 0 after 6 gt
+r pulse 4: q = 0
+s pulse 4: q = 1 after 6 gt
+r pulse 4: q = 0 after 6 gt
+s pulse 20: q = 1 after 6 gt
+r pulse 20: q = 0 after 6 gt
+s pulse 30: q = 1 after 6 gt
+r pulse 30: q = 0 after 6 gt
+s pulse 200: q = 1 after 6 gt
+r pulse 200: q = 0 after 6 gt</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">latency</th><td>6 gt (0.3 s)</td><td class="def">the worst time from an input change to the output&#39;s change</td></tr>
+<tr><th scope="row">tileable</th><td>every 2 (0 2 0)</td><td class="def"></td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>Two droppers face each other and hold one stone between them. s (next to the dropper by S) fires that dropper and the stone goes to the other one; r fires the dropper by R and it comes back; firing the empty one does nothing, so repeated s or r change nothing. A comparator on stone reads the dropper by R: q is its output (1). Latency 6 gt (dropper 4 + comparator 2). A stack of them tiles with NO gap (`tile: 0 2 0`): a column of latches costs 4 blocks per bit.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/memory/index.html">Memory and counters</a></td></tr>
+<tr><th scope="row">Kind</th><td>On button + off button memory (RS latch)</td></tr>
+<tr><th scope="row">Blocks placed</th><td>4 (not counting the input levers or buttons and the test lamp the view adds)</td></tr>
+<tr><th scope="row">Box</th><td>2×2×2 (8 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>comparator, dropper</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>R (repeater), S (repeater) / OUT</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-20T14:32Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere</td></tr>
+<tr><th scope="row">Design file</th><td><code>rs-dropper</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/memory/archive/rs-dropper.txt">on GitHub</a></p><details><summary>Design file (22 lines)</summary><pre class="design"># archived 2026-10-20T14:32Z from designs/circuits/memory/tracks/memory/rs-dropper.txt by mctas circuit archive
+# CIRCUIT: rs-dropper rs-latch latency 6 gt, tileable every 2 (0 2 0), 4 blocks, 2x2x2, robust
+# Dropper RS latch, 4 blocks (track memory): two droppers face each other and hold one stone between them. s (next to the dropper by S) fires that dropper and the stone goes to the other one; r fires the dropper by R and it comes back; firing the empty one does nothing, so repeated s or r change nothing. A comparator on stone reads the dropper by R: q is its output (1). Latency 6 gt (dropper 4 + comparator 2). A stack of them tiles with NO gap (`tile: 0 2 0`): a column of latches costs 4 blocks per bit.
+name: rs-dropper
+circuit: rs-latch
+tile: 0 2 0
+port input.s: -1 1 0
+port input.r: 2 1 0
+port output: 1 1 2
+nbt: 0 1 0 {Items:[{Slot:0b,id:&quot;minecraft:stone&quot;,count:1}]}
+origin: 0 0 0
+palette:
+  S minecraft:stone
+  A minecraft:dropper[facing=east,triggered=false]
+  B minecraft:dropper[facing=west,triggered=false]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+layer 0:
+  ..
+  .S
+layer 1:
+  AB
+  .C
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/4802aeae549d7104ccc52e6162819b1f0c85df00">vjeux/redstonepedia@4802aeae5</a> on <span class="nowrap">2026-10-23</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=cddf7aad"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=528edeb5"});</script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+# archived 2026-10-19T17:54Z from designs/clocks/tracks/clk-item/droprep-p29.txt by mctas clock archive
+# CLOCK: droprep-p29 period 29 gt (1.45 s), on 7/29, edges 1, warmup 38, family comparator+dropper+hopper+repeater, 16 blocks, 4x2x4, robust
+# Dropper ring with a delayed fire (clock item sweep-dropring --delays): a hopper ring 4 or 5 deep with 1 or 2 droppers in the bottom row; the comparator in the inner column reads the top-row hopper above it and fires the dropper at the bottom through 1 or 2 repeaters (each on stone). Two stones: one waits in a dropper until the other passes the read hopper; the repeater delays (2 gt each step) shift the period off the multiples of 7, so ring size x dropper count x delays reach every P from 42 up (and 29-40 odd/even below). Here P = 29.
+# redsim: P=29 gt, warmup 38, family comparator+dropper+hopper+repeater, 14 blocks, output on 7/29 gt, 1 rising edge(s)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 1 1 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of a comparator facing west (on a block put under it) that reads the build, added at -1 1 1 (was 1 0 3: with a repeater in the output cell, no signal (it never turns on))
+name: droprep-p29
+port output: -2 1 1
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: 0 1 3 {Items:[{Slot:0b,id:"minecraft:stone",count:2}]}
+origin: -1 0 0
+palette:
+  A minecraft:hopper[enabled=true,facing=south]
+  B minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:dropper[facing=north,triggered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  R minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  S minecraft:stone
+  c minecraft:comparator[facing=north,mode=compare,powered=false]
+  d minecraft:dropper[facing=west,triggered=false]
+  h minecraft:hopper[enabled=true,facing=north]
+layer 0:
+  .
+  S.S
+  ..S
+  .
+layer 1:
+  .HHA
+  ChcA
+  .hRA
+  .DdB

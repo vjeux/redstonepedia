@@ -1,0 +1,24 @@
+# archived 2026-10-19T17:23Z from /tmp/clk-in7/clk-obs--best--p37-obs-stk-6b.txt by mctas clock archive
+# CLOCK: clk-obs-p37-obs-stk-6b period 37 gt (1.85 s), on 2/37, edges 1, warmup 3, family observer+sticky_piston, 6 blocks, 3x3x3, robust
+name: clk-obs-p37-obs-stk-6b
+# CLOCK: clk-obs-p37-obs-stk-6b period 37 gt (1.85 s), on 2/37, edges 1, warmup 3, family observer+sticky_piston, 6 blocks, 3x3x3, robust
+# (clk-obs, found by grow-p37-6b-0010.txt; output: the changing cell with the most rising edges, declared so every rotation reads the same cell)
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 0 1 2
+port start: 0 0 2 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=east]
+  B minecraft:observer[facing=south,powered=false]
+  C minecraft:observer[facing=down,powered=false]
+  D minecraft:sticky_piston[extended=false,facing=up]
+  E minecraft:observer[facing=north,powered=false]
+  F minecraft:sticky_piston[extended=false,facing=west]
+layer -1:
+  ..
+  ..
+  .D
+layer 0:
+  A.
+  BE
+  CF

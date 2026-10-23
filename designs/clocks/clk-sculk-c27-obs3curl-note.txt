@@ -1,0 +1,23 @@
+# archived 2026-10-19T16:01Z from /tmp/clk-in3/clk-sculk--c27-obs3curl-note.txt by mctas clock archive
+# CLOCK: clk-sculk-c27-obs3curl-note period 27 gt (1.35 s), on 10/27, edges 1, warmup 2, family calibrated_sculk_sensor+note_block+observer, 7 blocks, 3x2x3, robust
+# C, three observers curling back (O watches C, Q watches O, R watches Q), note block N diagonal to C: A+26, travel 1.
+# port output declared 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks
+# port output moved 2026-10-21 (usable-output rule): the output of a comparator facing west (on the ground) that reads the build, added at 0 0 0 (was 1 -1 0: the output [1, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+name: clk-sculk-c27-obs3curl-note
+port output: -1 0 0
+port start: 0 0 2 minecraft:redstone_block 1
+origin: 0 0 0
+palette:
+  A minecraft:observer[facing=west,powered=false]
+  C minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:stone
+  c minecraft:comparator[facing=east,mode=compare,powered=false]
+  o minecraft:observer[facing=north,powered=false]
+layer -1:
+  S
+  .
+layer 0:
+  cCA
+  NOo

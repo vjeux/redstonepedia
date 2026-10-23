@@ -1,0 +1,26 @@
+# archived 2026-10-19T19:36Z from designs/clocks/tracks/clk-obs/extend/trap-ring.txt by mctas clock archive
+# CLOCK: clk-obs-trap-ring period 10 gt (0.5 s), on 2/10, edges 1, warmup 4, family iron_trapdoor+observer, 6 blocks, 3x1x2, robust
+name: clk-obs-trap-ring
+# Extendable family trap-ring (n = 0): P = 10 + 4n gt, 6 + 2n blocks. an iron trapdoor after a straight observer opens and closes with its power at once and is watched by the next observer: a lattice cell without delay, so an odd number of observers closes the ring. Extension: insert 2 observers: one more column in the 2-wide ring. Generator: mctas clock obs family trap-ring --n N --out FILE.
+extend family: clk-obs-trap-ring
+extend group: observer-relay-ring
+extend group title: observer ring with a relay block
+extend period: 10 + 4n
+extend blocks: 6 + 2n
+extend rule: insert 2 observers: one more column in the 2-wide ring
+extend n: 0..47
+extend base: 0
+extend generator: mctas clock obs family trap-ring --n {n} --out {out}
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 0 1
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  D minecraft:observer[facing=north,powered=false]
+  E minecraft:observer[facing=east,powered=false]
+layer 0:
+  ABC
+  EED

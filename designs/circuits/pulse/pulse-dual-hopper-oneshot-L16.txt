@@ -1,0 +1,45 @@
+# archived 2026-10-20T17:31Z from designs/circuits/tracks/pulse/wr/pulse-dual-hopper-oneshot-L16.txt by mctas circuit archive
+# CIRCUIT: pulse-dual-hopper-oneshot-L16 dual-edge L 16 gt, delay 4 gt, min-pulse 30 gt, 13 blocks, 3x3x3, robust
+name: pulse-dual-hopper-oneshot-L16
+circuit: dual-edge
+group: hopper-oneshot-dual
+group title: pulse on both edges of any length: a copper bulb and a hopper item timer
+group note: L = 8 gt per item in the first hopper: one 13-block design for every L of the form 8n from 16 gt, for inputs about twice as long as the pulse (tested to 40 gt: longer pulses need inputs longer than the judge's longest test)
+# One pulse of exactly 8 ticks per item in the first hopper every time the input turns on and every
+# time it turns off, for inputs held about twice that long, always 13 blocks: a copper bulb in the
+# input cell changes state on both edges, an observer watching it toggles a second copper bulb,
+# and while that bulb is lit its comparator locks the second hopper and unlocks the first, so the
+# items pass one by one; when the first hopper is empty, its comparator goes off and a torch toggles
+# the bulb off; then the items flow back, ready for the next edge. This one holds 2 items: 16 ticks.
+# Detail: an edge that comes while the items are still moving toggles the bulb early and cuts that
+# pulse short (min-pulse about 2 L: the run plus the items' way back).
+origin: 0 0 0
+port input: 3 2 2
+port output: 1 2 1
+palette:
+  G minecraft:stone
+  S minecraft:hopper[enabled=false,facing=east]
+  U minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=north,mode=compare,powered=true]
+  F minecraft:stone
+  Y minecraft:stone
+  T minecraft:redstone_wall_torch[facing=east,lit=false]
+  W minecraft:redstone_wall_torch[facing=west,lit=true]
+  X minecraft:stone
+  K minecraft:comparator[facing=south,mode=compare,powered=false]
+  B minecraft:waxed_copper_bulb[lit=false,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  E minecraft:waxed_copper_bulb[lit=false,powered=false]
+layer 0:
+  ....
+  G...
+  ....
+layer 1:
+  SU..
+  CF..
+  YT..
+layer 2:
+  WX..
+  .K..
+  .BOE
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:2}]}

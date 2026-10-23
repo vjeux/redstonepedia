@@ -1,0 +1,42 @@
+# EXTENDABLE odd two-pulse ring, n = 8 (P = 23 + 8n): Rectangle ring (clk-rt): the 3x12 perimeter
+# clockwise from the north-west corner = [b, 4*, b, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, b, 4, b, 4, 4, 4,
+# 4, 4, 4, 4, 4, 4, 3] (number = repeater delay, * = powered at placement, b = block, d = dust, T =
+# wall torch on the block before it, c = comparator); 0 torches: a pulse ring of loop delay 174 gt;
+# the second pulse started by a redstone_wall_torch[facing=south,lit=true] at [0, 0, 11] for 1 gt at
+# tick 1 (an odd tick)
+name: clk-rt-odd-rect-x8
+port start: 0 0 11 minecraft:redstone_wall_torch[facing=south,lit=true] 1 at 1
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  C minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  R minecraft:repeater[delay=3,facing=south,locked=false,powered=false]
+  S minecraft:stone
+  r minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+layer 0:
+  .S
+  S.S
+  S.S
+  S.S
+  S.S
+  S.S
+  S.S
+  S.S
+  S.S
+  S.S
+  S.S
+  .S
+layer 1:
+  SCS
+  R.A
+  B.A
+  B.A
+  B.A
+  B.A
+  B.A
+  B.A
+  B.A
+  B.A
+  B.A
+  SrS

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decoder: lights 1 of 4 outputs from a 2-bit number · 24 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Decoder: lights 1 of 4 outputs from a 2-bit number · 24 blocks. A torch hung on each input gives its opposite. One wire touches both torches: it carries &quot;a0 or a1 is off&quot;, at full strength beside a lit torch and one level we">
+<meta property="og:title" content="Decoder: lights 1 of 4 outputs from a 2-bit number · 24 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Decoder: lights 1 of 4 outputs from a 2-bit number · 24 blocks. A torch hung on each input gives its opposite. One wire touches both torches: it carries &quot;a0 or a1 is off&quot;, at full strength beside a lit torch and one level we">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/compute/index.html">Circuits</a></p>
+<p class="kindline">Decoder: lights exactly one output, the one its input number names (binary decoder)</p>
+<h1>lights 1 of 4 outputs from a 2-bit number · 24 blocks</h1>
+<p class="oneliner">Its 2 inputs make a number from 0 to 3 in binary (A0 counts 1, A1 counts 2), and exactly one of its 4 outputs is lit: Q0 for 0, Q1 for 1, and so on.</p>
+<p class="lede">passed at every position and facing we tested · reacts in 8 ticks (0.4 s) · fits in 5×2×4</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/compute/dec2-24b.txt" data-stimulus="a0 40+ 80- 160+ 200- 220+ 260- 280+ 300- 340+ 360- 380+ 420-; a1 60+ 100- 120+ 140- 180+ 240- 280+ 300- 320+ 340- 380+ 400- 420+" data-phases="40-60 gray 1; 60-80 gray 3; 80-100 gray 2; 100-120 walk 0; 120-140 walk 2; 140-160 walk 0; 160-180 walk 1; 180-200 walk 3; 200-220 walk 2; 220-240 walk 3; 240-260 walk 1; 260-280 walk 0; 280-300 jump 3; 300-320 jump 0; 320-340 jump 2; 340-360 jump 1; 360-380 jump 0; 380-400 jump 3; 400-420 jump 1; 420-440 jump 2" data-input-mode="pulse" data-circuit="decoder 2" data-kind="circuit"><div class="fallback"><span class="fb-big">lights 1 of 4 outputs from a 2-bit number</span><span class="fb-small">Decoder</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<section class="what plain"><h2>Try it</h2><p>Turn the inputs on and off with the buttons under the view: both off lights Q0, A0 alone lights Q1, A1 alone lights Q2, both on lights Q3. The view first plays our test on a loop; touch any control to take over.</p><p class="howdesign"><b>How this design does it:</b> A torch hung on each input gives its opposite.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/compute/dec2-24b.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/compute/dec2-24b.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=comparator">comparator</a> <a class="chip" href="../../index.html#with=redstone_block">redstone block</a> <a class="chip" href="../../index.html#with=redstone_torch">redstone torch</a> <a class="chip" href="../../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../../index.html#with=repeater">repeater</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>its inputs make a number in binary; exactly one output is lit, the one with that number</p></section>
+<section><h2>How to try it</h2><p><b>Press play under the view to watch the judge's own test</b> on a loop (the badge reads <i>demo</i> with the step it is on; the same test is drawn as a timing diagram below). Touch any control to stop it and try the circuit yourself.</p><p>To try it: press and hold the <b>A0</b> button of the bar (or the cell tagged A0) to power that input; a quick tap sends a short 2 gt pulse; press and hold the <b>A1</b> button of the bar (or the cell tagged A1) to power that input; a quick tap sends a short 2 gt pulse.</p><p>Inputs are tagged in <span class="tag-in">lime</span>; the output is tagged <span class="tag-out">Q0, Q1, Q2, Q3</span>: the <b>redstone lamp</b> in that cell (the lamp the judge itself adds to read the output) <b>lights while the output is on</b> (the output strip by the demo badge shows its last 40 game ticks, 2 seconds). Drag to look around, pinch or scroll to zoom, step one game tick at a time with the step button.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the inputs with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="1032" height="248" viewBox="0 0 1032 248" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="151.1" y1="18.0" x2="151.1" y2="230.0"/><text class="phl" x="154.1" y="14.0">gray 1</text><line class="ph" x1="194.6" y1="18.0" x2="194.6" y2="230.0"/><text class="phl" x="197.6" y="14.0">gray 3</text><line class="ph" x1="238.1" y1="18.0" x2="238.1" y2="230.0"/><text class="phl" x="241.1" y="14.0">gray 2</text><line class="ph" x1="281.7" y1="18.0" x2="281.7" y2="230.0"/><text class="phl" x="284.7" y="14.0">walk 0</text><line class="ph" x1="325.2" y1="18.0" x2="325.2" y2="230.0"/><text class="phl" x="328.2" y="14.0">walk 2</text><line class="ph" x1="368.8" y1="18.0" x2="368.8" y2="230.0"/><text class="phl" x="371.8" y="14.0">walk 0</text><line class="ph" x1="412.3" y1="18.0" x2="412.3" y2="230.0"/><text class="phl" x="415.3" y="14.0">walk 1</text><line class="ph" x1="455.8" y1="18.0" x2="455.8" y2="230.0"/><text class="phl" x="458.8" y="14.0">walk 3</text><line class="ph" x1="499.4" y1="18.0" x2="499.4" y2="230.0"/><text class="phl" x="502.4" y="14.0">walk 2</text><line class="ph" x1="542.9" y1="18.0" x2="542.9" y2="230.0"/><text class="phl" x="545.9" y="14.0">walk 3</text><line class="ph" x1="586.4" y1="18.0" x2="586.4" y2="230.0"/><text class="phl" x="589.4" y="14.0">walk 1</text><line class="ph" x1="630.0" y1="18.0" x2="630.0" y2="230.0"/><text class="phl" x="633.0" y="14.0">walk 0</text><line class="ph" x1="673.5" y1="18.0" x2="673.5" y2="230.0"/><text class="phl" x="676.5" y="14.0">jump 3</text><line class="ph" x1="717.1" y1="18.0" x2="717.1" y2="230.0"/><text class="phl" x="720.1" y="14.0">jump 0</text><line class="ph" x1="760.6" y1="18.0" x2="760.6" y2="230.0"/><text class="phl" x="763.6" y="14.0">jump 2</text><line class="ph" x1="804.1" y1="18.0" x2="804.1" y2="230.0"/><text class="phl" x="807.1" y="14.0">jump 1</text><line class="ph" x1="847.7" y1="18.0" x2="847.7" y2="230.0"/><text class="phl" x="850.7" y="14.0">jump 0</text><line class="ph" x1="891.2" y1="18.0" x2="891.2" y2="230.0"/><text class="phl" x="894.2" y="14.0">jump 3</text><line class="ph" x1="934.7" y1="18.0" x2="934.7" y2="230.0"/><text class="phl" x="937.7" y="14.0">jump 1</text><line class="ph" x1="978.3" y1="18.0" x2="978.3" y2="230.0"/><text class="phl" x="981.3" y="14.0">jump 2</text><text class="wl" x="4" y="46.0">A0</text><line class="base" x1="64.0" y1="48.0" x2="1024.0" y2="48.0"/><polygon class="win" points="64.0,48.0 64.0,48.0 151.1,48.0 151.1,28.0 238.1,28.0 238.1,48.0 412.3,48.0 412.3,28.0 499.4,28.0 499.4,48.0 542.9,48.0 542.9,28.0 630.0,28.0 630.0,48.0 673.5,48.0 673.5,28.0 717.1,28.0 717.1,48.0 804.1,48.0 804.1,28.0 847.7,28.0 847.7,48.0 891.2,48.0 891.2,28.0 978.3,28.0 978.3,48.0 1024.0,48.0 1024.0,48.0"/><text class="wl" x="4" y="80.0">A1</text><line class="base" x1="64.0" y1="82.0" x2="1024.0" y2="82.0"/><polygon class="win" points="64.0,82.0 64.0,82.0 194.6,82.0 194.6,62.0 281.7,62.0 281.7,82.0 325.2,82.0 325.2,62.0 368.8,62.0 368.8,82.0 455.8,82.0 455.8,62.0 586.4,62.0 586.4,82.0 673.5,82.0 673.5,62.0 717.1,62.0 717.1,82.0 760.6,82.0 760.6,62.0 804.1,62.0 804.1,82.0 891.2,82.0 891.2,62.0 934.7,62.0 934.7,82.0 978.3,82.0 978.3,62.0 1024.0,62.0 1024.0,82.0"/><text class="wl" x="4" y="114.0">Q0</text><line class="base" x1="64.0" y1="116.0" x2="1024.0" y2="116.0"/><polygon class="wout" points="64.0,116.0 64.0,116.0 68.4,116.0 68.4,96.0 168.5,96.0 168.5,116.0 290.4,116.0 290.4,96.0 333.9,96.0 333.9,116.0 377.5,116.0 377.5,96.0 429.7,96.0 429.7,116.0 595.2,116.0 595.2,96.0 603.9,96.0 603.9,116.0 647.4,116.0 647.4,96.0 682.2,96.0 682.2,116.0 725.8,116.0 725.8,96.0 769.3,96.0 769.3,116.0 812.8,116.0 812.8,96.0 821.6,96.0 821.6,116.0 865.1,116.0 865.1,96.0 899.9,96.0 899.9,116.0 943.5,116.0 943.5,96.0 952.2,96.0 952.2,116.0 1024.0,116.0 1024.0,116.0"/><text class="wl" x="4" y="148.0">Q1</text><line class="base" x1="64.0" y1="150.0" x2="1024.0" y2="150.0"/><polygon class="wout" points="64.0,150.0 64.0,150.0 164.1,150.0 164.1,141.2 207.7,141.2 207.7,150.0 425.4,150.0 425.4,141.2 468.9,141.2 468.9,150.0 599.5,150.0 599.5,141.2 643.0,141.2 643.0,150.0 817.2,150.0 817.2,141.2 860.7,141.2 860.7,150.0 947.8,150.0 947.8,141.2 991.3,141.2 991.3,150.0 1024.0,150.0 1024.0,150.0"/><text class="wl" x="4" y="182.0">Q2</text><line class="base" x1="64.0" y1="184.0" x2="1024.0" y2="184.0"/><polygon class="wout" points="64.0,184.0 64.0,184.0 246.9,184.0 246.9,175.2 290.4,175.2 290.4,184.0 333.9,184.0 333.9,175.2 377.5,175.2 377.5,184.0 508.1,184.0 508.1,175.2 551.6,175.2 551.6,184.0 769.3,184.0 769.3,175.2 812.8,175.2 812.8,184.0 987.0,184.0 987.0,175.2 1024.0,175.2 1024.0,184.0"/><text class="wl" x="4" y="216.0">Q3</text><line class="base" x1="64.0" y1="218.0" x2="1024.0" y2="218.0"/><polygon class="wout" points="64.0,218.0 64.0,198.0 72.7,198.0 72.7,218.0 207.7,218.0 207.7,198.0 251.2,198.0 251.2,218.0 468.9,218.0 468.9,198.0 512.4,198.0 512.4,218.0 556.0,218.0 556.0,198.0 599.5,198.0 599.5,218.0 686.6,218.0 686.6,198.0 730.1,198.0 730.1,218.0 904.3,218.0 904.3,198.0 947.8,198.0 947.8,218.0 1024.0,218.0 1024.0,218.0"/><text class="ax" x="4" y="242.0">ticks</text><text class="ax" x="64.0" y="242.0">0</text><text class="ax" x="107.5" y="242.0">20</text><text class="ax" x="151.1" y="242.0">40</text><text class="ax" x="194.6" y="242.0">60</text><text class="ax" x="238.1" y="242.0">80</text><text class="ax" x="281.7" y="242.0">100</text><text class="ax" x="325.2" y="242.0">120</text><text class="ax" x="368.8" y="242.0">140</text><text class="ax" x="412.3" y="242.0">160</text><text class="ax" x="455.8" y="242.0">180</text><text class="ax" x="499.4" y="242.0">200</text><text class="ax" x="542.9" y="242.0">220</text><text class="ax" x="586.4" y="242.0">240</text><text class="ax" x="630.0" y="242.0">260</text><text class="ax" x="673.5" y="242.0">280</text><text class="ax" x="717.1" y="242.0">300</text><text class="ax" x="760.6" y="242.0">320</text><text class="ax" x="804.1" y="242.0">340</text><text class="ax" x="847.7" y="242.0">360</text><text class="ax" x="891.2" y="242.0">380</text><text class="ax" x="934.7" y="242.0">400</text><text class="ax" x="978.3" y="242.0">420</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 441 ticks (22.05 s).</p><details><summary>Our test's report, step by step (6 lines)</summary><pre class="design">  on-blip: a1 falls from a=11: q0
+  on-blip: 2 inputs change from a=10 to a=01: q0
+  on-blip: a1 falls from a=11: q0
+  gray: 3 states, worst latency 8 gt
+  walk: 9 states, worst latency 8 gt
+  jump: 8 states, worst latency 8 gt</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">latency</th><td>8 gt (a0 rises from a=00)</td><td class="def">the worst time from an input change to the output&#39;s change</td></tr>
+<tr><th scope="row">glitches</th><td>3</td><td class="def">extra output changes while the inputs change</td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>A torch hung on each input gives its opposite. One wire touches both torches: it carries &quot;a0 or a1 is off&quot;, at full strength beside a lit torch and one level weaker a block away. Comparators in subtract mode each read an input or an opposite at the back and a wire at a side, and an output stays lit only while its comparator&#39;s side is weaker than its back, so exactly one of the four outputs is lit for each pair of inputs.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/compute/index.html">compute</a></td></tr>
+<tr><th scope="row">Kind</th><td>Decoder: lights exactly one output, the one its input number names (binary decoder)</td></tr>
+<tr><th scope="row">Blocks placed</th><td>24 (not counting the input levers or buttons and the test lamp the view adds)</td></tr>
+<tr><th scope="row">Box</th><td>5×2×4 (40 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>comparator, redstone torch, redstone wire, repeater</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>A0 (repeater), A1 (repeater) / Q0, Q1, Q2, Q3</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-22T01:14Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere</td></tr>
+<tr><th scope="row">Design file</th><td><code>dec2-24b</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/compute/archive/dec2-24b.txt">on GitHub</a></p><details><summary>Design file (37 lines)</summary><pre class="design"># archived 2026-10-22T01:14Z from designs/circuits/compute/tracks/w86/dec2-24b.txt by mctas circuit archive
+# CIRCUIT: dec2-24b decoder 2 latency 8 gt (a0 rises from a=00), glitches 3, 24 blocks, 5x2x4, robust
+name: dec2-24b
+# A torch hung on each input gives its opposite. One wire touches both torches: it carries &quot;a0 or a1
+# is off&quot;, at full strength beside a lit torch and one level weaker a block away. Comparators in
+# subtract mode each read an input or an opposite at the back and a wire at a side, and an output
+# stays lit only while its comparator&#39;s side is weaker than its back, so exactly one of the four
+# outputs is lit for each pair of inputs. (w86, 2026-10-21, `circuit arith synth --r7`.)
+circuit: decoder 2
+port input.a0: -1 1 1
+port input.a1: 2 1 -1
+port output.q0: 4 1 -1
+port output.q1: 5 1 2
+port output.q2: 0 1 -1
+port output.q3: -1 1 3
+origin: 0 0 0
+palette:
+  A minecraft:comparator[facing=west,mode=subtract,powered=false]
+  B minecraft:redstone_wall_torch[facing=south,lit=true]
+  C minecraft:comparator[facing=north,mode=subtract,powered=false]
+  D minecraft:redstone_wall_torch[facing=west,lit=true]
+  E minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  F minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  R minecraft:redstone_block
+  S minecraft:stone
+  c minecraft:comparator[facing=south,mode=subtract,powered=false]
+  r minecraft:redstone_wall_torch[facing=east,lit=true]
+layer 0:
+  SS.S
+  .SSR
+  .S.SS
+  .
+layer 1:
+  cEBAS
+  rECF
+  .CSEA
+  DS
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/4802aeae549d7104ccc52e6162819b1f0c85df00">vjeux/redstonepedia@4802aeae5</a> on <span class="nowrap">2026-10-23</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=cddf7aad"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=528edeb5"});</script>
+</body>
+</html>

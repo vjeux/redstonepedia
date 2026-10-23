@@ -1,0 +1,37 @@
+# archived 2026-10-21T10:38Z from designs/circuits/tracks/clk-rt/compact/pulse/pulse-dual-lock-L18-22b.txt by mctas circuit archive
+# CIRCUIT: pulse-dual-lock-L18-v30-22b-0 dual-edge L 18 gt, delay 6 gt, min-pulse 40 gt, 22 blocks, 3x2x5, robust
+# clk-rt 2026-10-21 (`circuit compact --all`): dual-edge L = 18 gt in the record's 3x2x5 = 30 with 22 blocks (was 24:
+# pulse-dual-lock-L18), the annealing search on its own judge dropping two blocks.
+name: pulse-dual-lock-L18-v30-22b-0
+circuit: dual-edge
+group: pulse-dual-lock
+group note: L set by the repeater U's length
+group title: locked dual-edge bulb one-shot
+port input: 2 1 3
+port output: 3 1 0
+origin: 2 0 -2
+palette:
+  A minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  D minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  R minecraft:redstone_wire
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=south,powered=false]
+  r minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+layer 0:
+  SSS
+  S.S
+  .O
+  WSS
+  .
+  .
+layer 1:
+  RRR
+  B.D
+  WCS
+  ArR
+  o
+  W

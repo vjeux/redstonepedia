@@ -1,0 +1,30 @@
+# archived 2026-10-20T00:16Z from designs/clocks/tracks/clk-sculk/extend/hairpin-trapdoor.txt by mctas clock archive
+# CLOCK: clk-sculk-hairpin-trapdoor period 35 gt (1.75 s), on 10/35, edges 1, warmup 46, family calibrated_sculk_sensor+oak_trapdoor+observer+redstone_wire+repeater, 15 blocks, 5x2x2, robust
+# The hairpin with an oak trapdoor as the emitter, diagonal to the calibrated sensor: n delay-4 repeaters out, a two-dust U-turn, n back, an observer opening the trapdoor 16n+2 gt after the sensor fires, heard 1 gt later. Self-starting. P = 3 + 16n gt, 7 + 4n blocks (n = 2: P 35, 15 blocks). Built by `mctas clock sculk family hairpin-trapdoor --n 2`.
+name: clk-sculk-hairpin-trapdoor
+extend base: 2
+extend blocks: 7 + 4n
+extend family: clk-sculk-hairpin-trapdoor
+extend generator: mctas clock sculk family hairpin-trapdoor --n {n} --out {out}
+extend n: 2..12
+extend period: 3 + 16n
+extend rule: one more delay-4 repeater on a stone in each arm of the hairpin (the dust U-turn moves one block out)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 3 -1 0: the output [3, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 3 0 -1
+origin: -1 0 0
+palette:
+  A minecraft:repeater[delay=4,facing=east,locked=false,powered=true]
+  B minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  R minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+  S minecraft:stone
+  o minecraft:observer[facing=east,powered=false]
+  r minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+layer 0:
+  ..SSS
+  ..SSS
+layer 1:
+  .CBBR
+  OoAAr

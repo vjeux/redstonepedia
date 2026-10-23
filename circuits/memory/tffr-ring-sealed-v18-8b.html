@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Toggle switch with reset: reacts in 13 ticks (0.65 s) · 8 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Toggle switch with reset: reacts in 13 ticks (0.65 s) · 8 blocks. T flip-flop with reset, dropper ring, sealed: tffr-ring-sealed&#39;s mechanism (two droppers and two hoppers pass one stone around; a comparator reading the second ">
+<meta property="og:title" content="Toggle switch with reset: reacts in 13 ticks (0.65 s) · 8 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Toggle switch with reset: reacts in 13 ticks (0.65 s) · 8 blocks. T flip-flop with reset, dropper ring, sealed: tffr-ring-sealed&#39;s mechanism (two droppers and two hoppers pass one stone around; a comparator reading the second ">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/memory/index.html">Memory and counters</a></p>
+<p class="kindline">Toggle switch with a reset button (T flip-flop with reset)</p>
+<h1>reacts in 13 ticks (0.65 s) · 8 blocks</h1>
+<p class="oneliner">Each press flips the output on or off; a press on R turns it off.</p>
+<p class="lede">smallest of 2 tested · resets in 6 ticks (0.3 s) · fits in 3×3×2</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/memory/tffr-ring-sealed-v18-8b.txt" data-stimulus="r 115+ 119- 140+ 144- 190+ 194- 265+ 269- 331+ 351- 413+ 433- 505+ 535- 777+ 977- 1136+ 1140-; t 40+ 44- 65+ 69- 90+ 94- 165+ 169- 215+ 219- 240+ 244- 290+ 310- 372+ 392- 454+ 484- 556+ 756- 998+ 1001- 1022+ 1025- 1046+ 1048- 1069+ 1071-" data-phases="40-65 A t 4; 65-90 A t 4; 90-115 A t 4; 115-140 A r 4; 140-165 A r 4; 165-190 A t 4; 190-215 A r 4; 215-240 A t 4; 240-265 A t 4; 265-290 A r 4; 290-331 A t 20; 331-372 A r 20; 372-413 A t 20; 413-454 A r 20; 454-505 A t 30; 505-556 A r 30; 556-777 A t 200; 777-998 A r 200; 998-1022 B t 3; 1022-1046 B t 3; 1046-1069 B t 2; 1069-1092 B t 2; 1136-1161 B r 4" data-input-mode="pulse" data-circuit="tff-reset" data-kind="circuit"><div class="fallback"><span class="fb-big">Toggle switch with reset</span><span class="fb-small">Toggle switch with reset</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<p class="needs">Comes loaded with 1 stone in its containers: the download includes it; building it by hand, put it in first.</p>
+<section class="what plain"><h2>Try it</h2><p>Use the R and T buttons under the view to drive the inputs: each tap flips OUT on or off (the box marked OUT turns red while the output is on). Press play under the view to watch our test on a loop; touch any other control to take over.</p><p class="howdesign"><b>How this design does it:</b> T flip-flop with reset, dropper ring, sealed: tffr-ring-sealed&#39;s mechanism (two droppers and two hoppers pass one stone around; a comparator reading the second dropper is the output; every hopper top covered so no stray item reaches its timing) rearranged by clk-rt&#39;s circuit compact under the item-intrusion judge: judged box 18 (unchanged), 8 blocks (was 11); its blocks sit in 3x3x2.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/memory/tffr-ring-sealed-v18-8b.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/memory/tffr-ring-sealed-v18-8b.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=comparator">comparator</a> <a class="chip" href="../../index.html#with=dropper">dropper</a> <a class="chip" href="../../index.html#with=glass">glass</a> <a class="chip" href="../../index.html#with=hopper">hopper</a> <a class="chip" href="../../index.html#with=redstone_wire">redstone wire</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>a toggle switch with a reset input: each press flips the output, a press on R turns it off</p></section>
+<section><h2>How to try it</h2><p><b>Press play under the view to watch the judge's own test</b> on a loop (the badge reads <i>demo</i> with the step it is on; the same test is drawn as a timing diagram below). Touch any control to stop it and try the circuit yourself.</p><p>To try it: press and hold the <b>R</b> button of the bar (or the cell tagged R) to power that input; a quick tap sends a short 2 gt pulse; press and hold the <b>T</b> button of the bar (or the cell tagged T) to power that input; a quick tap sends a short 2 gt pulse.</p><p>Inputs are tagged in <span class="tag-in">lime</span>; the output is tagged <span class="tag-out">OUT</span>: the orange glass marker next to it <b>glows while the output is on</b> (the output strip by the demo badge shows its last 40 game ticks, 2 seconds). Drag to look around, pinch or scroll to zoom, step one game tick at a time with the step button.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the inputs with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="1032" height="146" viewBox="0 0 1032 146" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="97.0" y1="18.0" x2="97.0" y2="128.0"/><line class="ph" x1="117.7" y1="18.0" x2="117.7" y2="128.0"/><line class="ph" x1="138.4" y1="18.0" x2="138.4" y2="128.0"/><line class="ph" x1="159.0" y1="18.0" x2="159.0" y2="128.0"/><line class="ph" x1="179.7" y1="18.0" x2="179.7" y2="128.0"/><line class="ph" x1="200.3" y1="18.0" x2="200.3" y2="128.0"/><line class="ph" x1="221.0" y1="18.0" x2="221.0" y2="128.0"/><line class="ph" x1="241.6" y1="18.0" x2="241.6" y2="128.0"/><line class="ph" x1="262.3" y1="18.0" x2="262.3" y2="128.0"/><line class="ph" x1="282.9" y1="18.0" x2="282.9" y2="128.0"/><line class="ph" x1="303.6" y1="18.0" x2="303.6" y2="128.0"/><line class="ph" x1="337.5" y1="18.0" x2="337.5" y2="128.0"/><line class="ph" x1="371.3" y1="18.0" x2="371.3" y2="128.0"/><line class="ph" x1="405.2" y1="18.0" x2="405.2" y2="128.0"/><line class="ph" x1="439.1" y1="18.0" x2="439.1" y2="128.0"/><line class="ph" x1="481.2" y1="18.0" x2="481.2" y2="128.0"/><line class="ph" x1="523.3" y1="18.0" x2="523.3" y2="128.0"/><text class="phl" x="526.3" y="14.0">A t 200</text><line class="ph" x1="705.9" y1="18.0" x2="705.9" y2="128.0"/><text class="phl" x="708.9" y="14.0">A r 200</text><line class="ph" x1="888.5" y1="18.0" x2="888.5" y2="128.0"/><line class="ph" x1="908.3" y1="18.0" x2="908.3" y2="128.0"/><line class="ph" x1="928.2" y1="18.0" x2="928.2" y2="128.0"/><line class="ph" x1="947.2" y1="18.0" x2="947.2" y2="128.0"/><line class="ph" x1="1002.5" y1="18.0" x2="1002.5" y2="128.0"/><text class="wl" x="4" y="46.0">R</text><line class="base" x1="64.0" y1="48.0" x2="1024.0" y2="48.0"/><polygon class="win" points="64.0,48.0 64.0,48.0 159.0,48.0 159.0,28.0 162.3,28.0 162.3,48.0 179.7,48.0 179.7,28.0 183.0,28.0 183.0,48.0 221.0,48.0 221.0,28.0 224.3,28.0 224.3,48.0 282.9,48.0 282.9,28.0 286.2,28.0 286.2,48.0 337.5,48.0 337.5,28.0 354.0,28.0 354.0,48.0 405.2,48.0 405.2,28.0 421.7,28.0 421.7,48.0 481.2,48.0 481.2,28.0 506.0,28.0 506.0,48.0 705.9,48.0 705.9,28.0 871.2,28.0 871.2,48.0 1002.5,48.0 1002.5,28.0 1005.8,28.0 1005.8,48.0 1024.0,48.0 1024.0,48.0"/><text class="wl" x="4" y="80.0">T</text><line class="base" x1="64.0" y1="82.0" x2="1024.0" y2="82.0"/><polygon class="win" points="64.0,82.0 64.0,82.0 97.0,82.0 97.0,62.0 100.4,62.0 100.4,82.0 117.7,82.0 117.7,62.0 121.0,62.0 121.0,82.0 138.4,82.0 138.4,62.0 141.7,62.0 141.7,82.0 200.3,82.0 200.3,62.0 203.6,62.0 203.6,82.0 241.6,82.0 241.6,62.0 244.9,62.0 244.9,82.0 262.3,82.0 262.3,62.0 265.6,62.0 265.6,82.0 303.6,82.0 303.6,62.0 320.1,62.0 320.1,82.0 371.3,82.0 371.3,62.0 387.9,62.0 387.9,82.0 439.1,82.0 439.1,62.0 463.9,62.0 463.9,82.0 523.3,82.0 523.3,62.0 688.6,62.0 688.6,82.0 888.5,82.0 888.5,62.0 891.0,62.0 891.0,82.0 908.3,82.0 908.3,62.0 910.8,62.0 910.8,82.0 928.2,82.0 928.2,62.0 929.8,62.0 929.8,82.0 947.2,82.0 947.2,62.0 948.8,62.0 948.8,82.0 1024.0,82.0 1024.0,82.0"/><text class="wl" x="4" y="114.0">OUT</text><line class="base" x1="64.0" y1="116.0" x2="1024.0" y2="116.0"/><polygon class="wout" points="64.0,116.0 64.0,116.0 107.8,116.0 107.8,107.2 122.7,107.2 122.7,116.0 149.1,116.0 149.1,107.2 164.0,107.2 164.0,116.0 211.1,116.0 211.1,107.2 225.9,107.2 225.9,116.0 252.4,116.0 252.4,107.2 267.2,107.2 267.2,116.0 321.8,116.0 321.8,107.2 342.4,107.2 342.4,116.0 389.5,116.0 389.5,107.2 410.2,107.2 410.2,116.0 465.5,116.0 465.5,107.2 486.2,107.2 486.2,116.0 690.2,116.0 690.2,107.2 710.9,107.2 710.9,116.0 899.2,116.0 899.2,107.2 913.3,107.2 913.3,116.0 938.9,116.0 938.9,107.2 952.1,107.2 952.1,116.0 1024.0,116.0 1024.0,116.0"/><text class="ax" x="4" y="140.0">ticks</text><text class="ax" x="64.0" y="140.0">0</text><text class="ax" x="105.3" y="140.0">50</text><text class="ax" x="146.6" y="140.0">100</text><text class="ax" x="187.9" y="140.0">150</text><text class="ax" x="229.2" y="140.0">200</text><text class="ax" x="270.5" y="140.0">250</text><text class="ax" x="311.8" y="140.0">300</text><text class="ax" x="353.2" y="140.0">350</text><text class="ax" x="394.5" y="140.0">400</text><text class="ax" x="435.8" y="140.0">450</text><text class="ax" x="477.1" y="140.0">500</text><text class="ax" x="518.4" y="140.0">550</text><text class="ax" x="559.7" y="140.0">600</text><text class="ax" x="601.0" y="140.0">650</text><text class="ax" x="642.3" y="140.0">700</text><text class="ax" x="683.6" y="140.0">750</text><text class="ax" x="724.9" y="140.0">800</text><text class="ax" x="766.2" y="140.0">850</text><text class="ax" x="807.5" y="140.0">900</text><text class="ax" x="848.9" y="140.0">950</text><text class="ax" x="890.2" y="140.0">1000</text><text class="ax" x="931.5" y="140.0">1050</text><text class="ax" x="972.8" y="140.0">1100</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 1162 ticks (58.1 s).</p><details><summary>Our test's report, step by step (23 lines)</summary><pre class="design">A t 4: q 0 -&gt; 1 after 13 gt
+A t 4: q 1 -&gt; 0 after 6 gt
+A t 4: q 0 -&gt; 1 after 13 gt
+A r 4: q 1 -&gt; 0
+A r 4: q 0 -&gt; 0
+A t 4: q 0 -&gt; 1 after 13 gt
+A r 4: q 1 -&gt; 0
+A t 4: q 0 -&gt; 1 after 13 gt
+A t 4: q 1 -&gt; 0 after 6 gt
+A r 4: q 0 -&gt; 0
+A t 20: q 0 -&gt; 1 after 22 gt
+A r 20: q 1 -&gt; 0
+A t 20: q 0 -&gt; 1 after 22 gt
+A r 20: q 1 -&gt; 0
+A t 30: q 0 -&gt; 1 after 32 gt
+A r 30: q 1 -&gt; 0
+A t 200: q 0 -&gt; 1 after 202 gt
+A r 200: q 1 -&gt; 0
+B t 3: q 0 -&gt; 1 after 13 gt
+B t 3: q 1 -&gt; 0 after 6 gt
+B t 2: q 0 -&gt; 1 after 13 gt
+B t 2: q 1 -&gt; 0 after 6 gt
+B r 4: q 0 -&gt; 0</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">latency</th><td>13 gt (0.65 s)</td><td class="def">the worst time from an input change to the output&#39;s change</td></tr>
+<tr><th scope="row">reset</th><td>6 gt (0.3 s)</td><td class="def"></td></tr>
+<tr><th scope="row">min-pulse</th><td>2 gt (the shortest a real input makes)</td><td class="def">the shortest input pulse handled correctly (every longer one works too)</td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>T flip-flop with reset, dropper ring, sealed: tffr-ring-sealed&#39;s mechanism (two droppers and two hoppers pass one stone around; a comparator reading the second dropper is the output; every hopper top covered so no stray item reaches its timing) rearranged by clk-rt&#39;s circuit compact under the item-intrusion judge: judged box 18 (unchanged), 8 blocks (was 11); its blocks sit in 3x3x2.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/memory/index.html">Memory and counters</a></td></tr>
+<tr><th scope="row">Kind</th><td>Toggle switch with a reset button (T flip-flop with reset)</td></tr>
+<tr><th scope="row">Blocks placed</th><td>8 (not counting the input levers or buttons the view adds)</td></tr>
+<tr><th scope="row">Box</th><td>3×3×2 (18 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>comparator, dropper, hopper, redstone wire</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>R (repeater), T (repeater) / OUT</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-21T19:34Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere</td></tr>
+<tr><th scope="row">Design file</th><td><code>tffr-ring-sealed-v18-8b</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/memory/archive/tffr-ring-sealed-v18-8b.txt">on GitHub</a></p><details><summary>Design file (28 lines)</summary><pre class="design"># archived 2026-10-21T19:34Z from designs/circuits/tracks/clk-rt/compact/memory/tffr-ring-sealed-v18-8b.txt by mctas circuit archive
+# CIRCUIT: tffr-ring-sealed-v18-8b tff-reset latency 13 gt, reset 6 gt, min-pulse 2 gt (the shortest a real input makes), 8 blocks, 3x3x2, robust
+# T flip-flop with reset, dropper ring, sealed: tffr-ring-sealed&#39;s mechanism (two droppers and two hoppers pass one stone around; a comparator reading the second dropper is the output; every hopper top covered so no stray item reaches its timing) rearranged by clk-rt&#39;s circuit compact (2026-10-21) under the item-intrusion judge: judged box 18 (unchanged), 8 blocks (was 11); its blocks sit in 3x3x2.
+name: tffr-ring-sealed-v18-8b
+circuit: tff-reset
+port input.r: 1 0 2
+port input.t: 1 2 0
+port output: 2 0 1
+nbt: 0 0 0 {Items:[{Slot:0b,id:&quot;minecraft:stone&quot;,count:1}]}
+origin: 0 0 0
+palette:
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:dropper[facing=east,triggered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=north]
+  R minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  d minecraft:dropper[facing=west,triggered=false]
+  h minecraft:hopper[enabled=true,facing=south]
+layer -1:
+  .
+  ..G
+layer 0:
+  Dh
+  Hdc
+layer 1:
+  .R
+  C
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/4802aeae549d7104ccc52e6162819b1f0c85df00">vjeux/redstonepedia@4802aeae5</a> on <span class="nowrap">2026-10-23</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=cddf7aad"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=528edeb5"});</script>
+</body>
+</html>

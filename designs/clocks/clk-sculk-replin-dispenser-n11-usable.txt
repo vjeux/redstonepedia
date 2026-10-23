@@ -1,0 +1,17 @@
+# archived 2026-10-21T18:39Z from designs/clocks/tracks/clk-obs/usable/clk-sculk-replin-dispenser-n11-usable.txt by mctas clock archive
+# CLOCK: clk-sculk-replin-dispenser-n11-usable period 107 gt (5.35 s), on 10/107, edges 1, warmup 102, family calibrated_sculk_sensor+dispenser+observer+repeater, 25 blocks, 14x2x1, robust
+# The repeater line with an empty dispenser as the emitter: a calibrated sculk sensor, n delay-4 repeaters, an observer watching the last one and a dispenser behind it, whose failed dispense comes 4 gt after the observer's pulse (8n+6 gt after the sensor fires) and is heard n+2 gt later. Self-starting. P = 8 + 9n gt, 3 + 2n blocks (n = 11: P 107, 25 blocks). Built by `mctas clock sculk family replin-dispenser --n 11`.
+# usable tap (clk-obs `clock obs tap`): a repeater at [0, 1, -1] (on a block put under it), the output at [0, 1, -1]
+name: clk-sculk-replin-dispenser-n11-usable
+port output: 0 1 -1
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  D minecraft:dispenser[facing=up,triggered=false]
+  O minecraft:observer[facing=west,powered=false]
+  R minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  S minecraft:stone
+layer 0:
+  .SSSSSSSSSSS
+layer 1:
+  CRRRRRRRRRRROD

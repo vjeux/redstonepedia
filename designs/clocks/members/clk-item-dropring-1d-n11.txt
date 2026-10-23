@@ -1,0 +1,22 @@
+name: dropring14x3-1d
+period: 181
+port output: 1 0 2
+nbt: 1 1 2 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: 13 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: 0 0 0
+palette:
+  A minecraft:hopper[enabled=true,facing=south]
+  B minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  D minecraft:dropper[facing=east,triggered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=north]
+layer 0:
+  .
+  .S
+  .
+layer 1:
+  ABBBBBBBBBBBBB
+  AC...........h
+  HDHHHHHHHHHHHh

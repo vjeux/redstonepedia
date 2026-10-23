@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TNT duper, one at a time: 1 TNT per press · 17 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="TNT duper, one at a time: 1 TNT per press · 17 blocks. One TNT per BUTTON press. The engine of tnt-triggered-launch-16b with a one-shot hold instead: the obsidian beside the piston is strongly powered by a wall torc">
+<meta property="og:title" content="TNT duper, one at a time: 1 TNT per press · 17 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="TNT duper, one at a time: 1 TNT per press · 17 blocks. One TNT per BUTTON press. The engine of tnt-triggered-launch-16b with a one-shot hold instead: the obsidian beside the piston is strongly powered by a wall torc">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/tnt/index.html">TNT dupers</a></p>
+<p class="kindline">TNT duper, one TNT at a time</p>
+<h1>1 TNT per press · 17 blocks</h1>
+<p class="oneliner">Each press of its button lights 1 TNT without using up the TNT block.</p>
+<p class="lede">passed at every position and facing we tested · lights after 33 ticks (1.65 s) · presses at least 100 ticks (5 s) apart · fits in 3×4×4</p>
+<p class="badges"><span class="badge">has its own button</span></p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/tnt/tnt-button-17b.txt" data-stimulus="in 40+ 41- 170+ 171- 300+ 301- 430+ 431- 560+ 561- 690+ 691-" data-phases="40-170 press 1; 170-300 press 2; 300-430 press 3; 430-560 press 4; 560-690 press 5; 690-820 press 6; 820-920 explosions" data-input-mode="pulse" data-circuit="tnt-duper-triggered" data-kind="circuit"><div class="fallback"><span class="fb-big">1 TNT per press</span><span class="fb-small">TNT duper, one at a time</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<p class="needs">Works standing on the ground.</p>
+<section class="what plain"><h2>Try it</h2><p>Press its button (IN under the view): each press throws one lit TNT. The view first plays our test on a loop; touch any control to take over.</p><p class="howdesign"><b>How this design does it:</b> One TNT per BUTTON press.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/tnt/tnt-button-17b.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/tnt/tnt-button-17b.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=dead_tube_coral_fan">dead tube coral fan</a> <a class="chip" href="../../index.html#with=obsidian">obsidian</a> <a class="chip" href="../../index.html#with=redstone_block">redstone block</a> <a class="chip" href="../../index.html#with=redstone_torch">redstone torch</a> <a class="chip" href="../../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../../index.html#with=slime_block">slime block</a> <a class="chip" href="../../index.html#with=sticky_piston">sticky piston</a> <a class="chip" href="../../index.html#with=stone">stone</a> <a class="chip" href="../../index.html#with=tnt">tnt</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>Each input pulse <b>lights 1 TNT</b> (33 gt (1.65 s) after the pulse) and the TNT block is back in place for the next pulse: the TNT is never used up. Pulses must be at least 100 gt (5 s) apart.</p><p>How: a piston copies every block it moves before it clears the old cells, and a TNT that gets a block update while powered at that instant is lit where it stands while its moved copy lands as a TNT block again.</p></section>
+<section><h2>How to try it</h2><p><b>Press play under the view to watch the judge's own test</b> on a loop (the badge reads <i>demo</i> with the step it is on; the same test is drawn as a timing diagram below). Touch any control to stop it and try the circuit yourself.</p><p>To try it: click the <b>button</b> tagged <b>IN</b> (or the IN button of the bar) to press it.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the input with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="1032" height="78" viewBox="0 0 1032 78" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="105.7" y1="18.0" x2="105.7" y2="60.0"/><text class="phl" x="108.7" y="14.0">press 1</text><line class="ph" x1="241.2" y1="18.0" x2="241.2" y2="60.0"/><text class="phl" x="244.2" y="14.0">press 2</text><line class="ph" x1="376.7" y1="18.0" x2="376.7" y2="60.0"/><text class="phl" x="379.7" y="14.0">press 3</text><line class="ph" x1="512.2" y1="18.0" x2="512.2" y2="60.0"/><text class="phl" x="515.2" y="14.0">press 4</text><line class="ph" x1="647.7" y1="18.0" x2="647.7" y2="60.0"/><text class="phl" x="650.7" y="14.0">press 5</text><line class="ph" x1="783.2" y1="18.0" x2="783.2" y2="60.0"/><text class="phl" x="786.2" y="14.0">press 6</text><line class="ph" x1="918.7" y1="18.0" x2="918.7" y2="60.0"/><text class="phl" x="921.7" y="14.0">explosions</text><text class="wl" x="4" y="46.0">IN</text><line class="base" x1="64.0" y1="48.0" x2="1024.0" y2="48.0"/><polygon class="win" points="64.0,48.0 64.0,48.0 105.7,48.0 105.7,28.0 137.0,28.0 137.0,48.0 241.2,48.0 241.2,28.0 272.5,28.0 272.5,48.0 376.7,48.0 376.7,28.0 408.0,28.0 408.0,48.0 512.2,48.0 512.2,28.0 543.5,28.0 543.5,48.0 647.7,48.0 647.7,28.0 679.0,28.0 679.0,48.0 783.2,48.0 783.2,28.0 814.5,28.0 814.5,48.0 1024.0,48.0 1024.0,48.0"/><text class="ax" x="4" y="72.0">ticks</text><text class="ax" x="64.0" y="72.0">0</text><text class="ax" x="116.1" y="72.0">50</text><text class="ax" x="168.2" y="72.0">100</text><text class="ax" x="220.4" y="72.0">150</text><text class="ax" x="272.5" y="72.0">200</text><text class="ax" x="324.6" y="72.0">250</text><text class="ax" x="376.7" y="72.0">300</text><text class="ax" x="428.8" y="72.0">350</text><text class="ax" x="480.9" y="72.0">400</text><text class="ax" x="533.1" y="72.0">450</text><text class="ax" x="585.2" y="72.0">500</text><text class="ax" x="637.3" y="72.0">550</text><text class="ax" x="689.4" y="72.0">600</text><text class="ax" x="741.5" y="72.0">650</text><text class="ax" x="793.6" y="72.0">700</text><text class="ax" x="845.8" y="72.0">750</text><text class="ax" x="897.9" y="72.0">800</text><text class="ax" x="950.0" y="72.0">850</text><text class="ax" x="1002.1" y="72.0">900</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 921 ticks (46.05 s).</p><details><summary>Our test's report, step by step (14 lines)</summary><pre class="design">pulse 1 at frame 40: 1 primed (at +33 gt), TNT blocks at the end 1
+pulse 2 at frame 170: 1 primed (at +33 gt), TNT blocks at the end 1
+pulse 3 at frame 300: 1 primed (at +33 gt), TNT blocks at the end 1
+pulse 4 at frame 430: 1 primed (at +33 gt), TNT blocks at the end 1
+pulse 5 at frame 560: 1 primed (at +33 gt), TNT blocks at the end 1
+pulse 6 at frame 690: 1 primed (at +33 gt), TNT blocks at the end 1
+spread over 6 spawns: position 0.0000 across, 0.0000 up; motion 0.0000 across, 0.0000 up
+blast at frame 152 (2.50, -0.94, -15.22): would destroy 9 blocks on open ground
+blast at frame 282 (2.50, -3.94, -17.51): would destroy 9 blocks on open ground
+blast at frame 412 (2.50, -3.94, -19.24): would destroy 9 blocks on open ground
+blast at frame 542 (2.50, -3.94, -19.24): would destroy 9 blocks on open ground
+blast at frame 672 (2.50, -3.94, -19.24): would destroy 9 blocks on open ground
+blast at frame 802 (2.50, -3.94, -19.24): would destroy 9 blocks on open ground
+useful: every blast clear of fluids, the weakest destroys 9 blocks on open ground</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">per pulse</th><td>1</td><td class="def">TNT lit by each input pulse</td></tr>
+<tr><th scope="row">latency</th><td>33 gt (1.65 s)</td><td class="def">game ticks from the input pulse to the lit TNT</td></tr>
+<tr><th scope="row">gap</th><td>100 gt (5 s)</td><td class="def">the shortest time between two input pulses that both light their TNT</td></tr>
+<tr><th scope="row">safe drop</th><td>0 blocks (on the ground)</td><td class="def"></td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>One TNT per BUTTON press. The engine of tnt-triggered-launch-16b with a one-shot hold instead: the obsidian beside the piston is strongly powered by a wall torch under it, which holds the piston; the torch hangs on the stone under the piston (in the obsidian foot&#39;s place) and the button is on that stone. A press powers the stone: the stone holds the piston itself and the torch goes dark. At the release the stone goes quiet 2 ticks before the torch relights: the piston drops, the frame comes back, its redstone block repowers the piston through the dust and the push lights ONE TNT, however long the press. Latency: the press, then 5 ticks.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/tnt/index.html">TNT dupers</a></td></tr>
+<tr><th scope="row">Kind</th><td>TNT duper, one TNT at a time</td></tr>
+<tr><th scope="row">Blocks placed</th><td>17</td></tr>
+<tr><th scope="row">Box</th><td>3×4×4 (48 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>dead tube coral fan, redstone block, redstone torch, redstone wire, slime block, sticky piston, tnt</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>IN (button) (no output: it moves blocks)</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-21T13:41Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere, its own button as the input</td></tr>
+<tr><th scope="row">Design file</th><td><code>tnt-button-17b</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/tnt/archive/tnt-button-17b.txt">on GitHub</a></p><details><summary>Design file (44 lines)</summary><pre class="design"># archived 2026-10-21T13:41Z from designs/circuits/tracks/clk-misc/tnt-button-17b.txt by mctas circuit archive
+# CIRCUIT: tnt-button-17b tnt-duper-triggered per pulse 1, latency 33 gt, gap 100 gt, safe drop 0 blocks (on the ground), 17 blocks, 3x4x4, robust (survives its own explosions: 6 exploded, design intact; useful: every blast clear of fluids, each destroys blocks on open ground)
+# One TNT per BUTTON press (site QA 2026-10-21: a real button holds 20-30 gt, so the 16-block engine judged with a
+# 4-tick removal of its holding redstone block lit several TNT per press). The engine of tnt-triggered-launch-16b with a
+# one-shot hold instead: the obsidian beside the piston is strongly powered by a wall torch under it, which holds the
+# piston; the torch hangs on the stone under the piston (in the obsidian foot&#39;s place) and the button is on that
+# stone. A press powers the stone: the stone holds the piston itself and the torch goes dark. At the release the stone
+# goes quiet 2 ticks before the torch relights: the piston drops, the frame comes back, its redstone block repowers
+# the piston through the dust and the push lights ONE TNT, however long the press. Latency: the press, then 5 ticks.
+name: tnt-button-17b
+circuit: tnt-duper-triggered
+port input: 0 -1 1 button
+origin: 0 0 -1
+palette:
+  B minecraft:oak_button[face=wall,facing=west,powered=false]
+  D minecraft:dead_tube_coral_fan[waterlogged=false]
+  H minecraft:redstone_wall_torch[facing=east,lit=true]
+  N minecraft:stone
+  O minecraft:obsidian
+  R minecraft:redstone_block
+  S minecraft:slime_block
+  T minecraft:tnt[unstable=false]
+  r minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  s minecraft:sticky_piston[extended=false,facing=north]
+layer -1:
+  .
+  .
+  BNH
+  .
+layer 0:
+  .
+  .SSS
+  .sOS
+  ...S
+layer 1:
+  ..T
+  .D
+  ..rR
+  ...S
+layer 2:
+  .
+  .
+  ..S
+  ..SS
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/4802aeae549d7104ccc52e6162819b1f0c85df00">vjeux/redstonepedia@4802aeae5</a> on <span class="nowrap">2026-10-23</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=cddf7aad"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=528edeb5"});</script>
+</body>
+</html>

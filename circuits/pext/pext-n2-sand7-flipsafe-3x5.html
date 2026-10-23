@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sand elevator: lifts 2 up · 7 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Sand elevator: lifts 2 up · 7 blocks. ">
+<meta property="og:title" content="Sand elevator: lifts 2 up · 7 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Sand elevator: lifts 2 up · 7 blocks. ">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/pext/index.html">Piston extenders</a></p>
+<p class="kindline">Sand elevator: lifts a sand block and lets it fall back (gravity piston extender)</p>
+<h1>lifts 2 up · 7 blocks</h1>
+<p class="oneliner">Turn the input on and a block of sand is lifted 2 blocks up; turn it off and it falls back into place.</p>
+<p class="lede">safe to flip back any time, 1 block bigger than the pick of its size · out in 8 ticks (0.4 s), back in 12 ticks (0.6 s) · fits in 3×5×1</p>
+<p class="badges"><span class="badge">no slime</span><span class="badge">safe to flip back any time</span><span class="badge">has its own lever</span></p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/pext/pext-n2-sand7-flipsafe-3x5.txt" data-stimulus="in 40+ 62- 84+ 106- 128+ 150- 172+ 192- 216+ 232- 260+ 272- 304+ 314- 348+ 356- 392+ 398- 436+ 441- 480+ 484- 524+ 546- 566+ 588- 610+ 632- 648+ 670- 692+ 714- 726+ 748- 770+ 792- 802+ 824- 846+ 868- 876+ 898- 920+ 942- 948+ 970- 992+ 1014- 1019+ 1041- 1063+ 1085- 1089+ 1111- 1133+ 1155-" data-phases="40-84 cycle 1; 84-128 cycle 2; 128-172 cycle 3; 172-216 flip 20; 216-260 flip 16; 260-304 flip 12; 304-348 flip 10; 348-392 flip 8; 392-436 flip 6; 436-480 flip 5; 480-524 flip 4; 524-610 reflip 20; 610-692 reflip 16; 692-770 reflip 12; 770-846 reflip 10; 846-920 reflip 8; 920-992 reflip 6; 992-1063 reflip 5; 1063-1133 reflip 4; 1133-1177 after flips" data-input-mode="toggle" data-circuit="piston-extender 2" data-kind="circuit"><div class="fallback"><span class="fb-big">reach 2</span><span class="fb-small">Sand elevator</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<section class="what plain"><h2>Try it</h2><p>Flip the lever marked IN (or tap IN under the view): the sand rises 2 blocks; flip it back and it falls into place.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/pext/pext-n2-sand7-flipsafe-3x5.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/pext/pext-n2-sand7-flipsafe-3x5.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=observer">observer</a> <a class="chip" href="../../index.html#with=piston">piston</a> <a class="chip" href="../../index.html#with=sand">sand</a> <a class="chip" href="../../index.html#with=sticky_piston">sticky piston</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>Turning the input on pushes a block <b>2 cells out</b> of the machine; turning it off brings the block <b>back exactly</b> where it was, with nothing left behind. A plain piston only reaches 1.</p><p>Extending takes 8 gt (0.4 s), retracting 12 gt (0.6 s).</p></section>
+<section><h2>How to try it</h2><p><b>Press play under the view to watch the judge's own test</b> on a loop (the badge reads <i>demo</i> with the step it is on; the same test is drawn as a timing diagram below). Touch any control to stop it and try the circuit yourself.</p><p>To try it: click the <b>lever</b> tagged <b>IN</b> (or the IN button of the bar) to switch it on or off.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the input with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). <span class="tag-pos">Blue</span>: where the pushed block is, 0 = home, up to N = fully out (the dashed line); it must reach N while the input is on and come all the way back. Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="1032" height="148" viewBox="0 0 1032 148" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="96.6" y1="18.0" x2="96.6" y2="130.0"/><line class="ph" x1="132.5" y1="18.0" x2="132.5" y2="130.0"/><line class="ph" x1="168.3" y1="18.0" x2="168.3" y2="130.0"/><line class="ph" x1="204.2" y1="18.0" x2="204.2" y2="130.0"/><line class="ph" x1="240.0" y1="18.0" x2="240.0" y2="130.0"/><line class="ph" x1="275.9" y1="18.0" x2="275.9" y2="130.0"/><line class="ph" x1="311.7" y1="18.0" x2="311.7" y2="130.0"/><line class="ph" x1="347.6" y1="18.0" x2="347.6" y2="130.0"/><line class="ph" x1="383.5" y1="18.0" x2="383.5" y2="130.0"/><line class="ph" x1="419.3" y1="18.0" x2="419.3" y2="130.0"/><line class="ph" x1="455.2" y1="18.0" x2="455.2" y2="130.0"/><line class="ph" x1="491.0" y1="18.0" x2="491.0" y2="130.0"/><text class="phl" x="494.0" y="14.0">reflip 20</text><line class="ph" x1="561.1" y1="18.0" x2="561.1" y2="130.0"/><text class="phl" x="564.1" y="14.0">reflip 16</text><line class="ph" x1="627.9" y1="18.0" x2="627.9" y2="130.0"/><text class="phl" x="630.9" y="14.0">reflip 12</text><line class="ph" x1="691.5" y1="18.0" x2="691.5" y2="130.0"/><text class="phl" x="694.5" y="14.0">reflip 10</text><line class="ph" x1="753.4" y1="18.0" x2="753.4" y2="130.0"/><text class="phl" x="756.4" y="14.0">reflip 8</text><line class="ph" x1="813.7" y1="18.0" x2="813.7" y2="130.0"/><text class="phl" x="816.7" y="14.0">reflip 6</text><line class="ph" x1="872.4" y1="18.0" x2="872.4" y2="130.0"/><text class="phl" x="875.4" y="14.0">reflip 5</text><line class="ph" x1="930.3" y1="18.0" x2="930.3" y2="130.0"/><text class="phl" x="933.3" y="14.0">reflip 4</text><line class="ph" x1="987.3" y1="18.0" x2="987.3" y2="130.0"/><text class="wl" x="4" y="46.0">IN</text><line class="base" x1="64.0" y1="48.0" x2="1024.0" y2="48.0"/><polygon class="win" points="64.0,48.0 64.0,48.0 96.6,48.0 96.6,28.0 114.5,28.0 114.5,48.0 132.5,48.0 132.5,28.0 150.4,28.0 150.4,48.0 168.3,48.0 168.3,28.0 186.2,28.0 186.2,48.0 204.2,48.0 204.2,28.0 220.5,28.0 220.5,48.0 240.0,48.0 240.0,28.0 253.1,28.0 253.1,48.0 275.9,48.0 275.9,28.0 285.7,28.0 285.7,48.0 311.7,48.0 311.7,28.0 319.9,28.0 319.9,48.0 347.6,48.0 347.6,28.0 354.1,28.0 354.1,48.0 383.5,48.0 383.5,28.0 388.3,28.0 388.3,48.0 419.3,48.0 419.3,28.0 423.4,28.0 423.4,48.0 455.2,48.0 455.2,28.0 458.4,28.0 458.4,48.0 491.0,48.0 491.0,28.0 509.0,28.0 509.0,48.0 525.3,48.0 525.3,28.0 543.2,28.0 543.2,48.0 561.1,48.0 561.1,28.0 579.0,28.0 579.0,48.0 592.1,48.0 592.1,28.0 610.0,28.0 610.0,48.0 627.9,48.0 627.9,28.0 645.9,28.0 645.9,48.0 655.6,48.0 655.6,28.0 673.6,28.0 673.6,48.0 691.5,48.0 691.5,28.0 709.4,28.0 709.4,48.0 717.6,48.0 717.6,28.0 735.5,28.0 735.5,48.0 753.4,48.0 753.4,28.0 771.4,28.0 771.4,48.0 777.9,48.0 777.9,28.0 795.8,28.0 795.8,48.0 813.7,48.0 813.7,28.0 831.7,28.0 831.7,48.0 836.6,48.0 836.6,28.0 854.5,28.0 854.5,48.0 872.4,48.0 872.4,28.0 890.3,28.0 890.3,48.0 894.4,48.0 894.4,28.0 912.4,28.0 912.4,48.0 930.3,48.0 930.3,28.0 948.2,28.0 948.2,48.0 951.5,48.0 951.5,28.0 969.4,28.0 969.4,48.0 987.3,48.0 987.3,28.0 1005.3,28.0 1005.3,48.0 1024.0,48.0 1024.0,48.0"/><text class="wl" x="4" y="116.0">PAYLOAD</text><line class="base" x1="64.0" y1="118.0" x2="1024.0" y2="118.0"/><text class="ax" x="4" y="66.0">2</text><line class="tgt" x1="64.0" y1="62.0" x2="1024.0" y2="62.0"/><text class="tgtl" x="990.0" y="59.0">N = 2</text><path class="wpos" d="M64.0,118.0 L100.7,118.0 L100.7,90.0 L103.1,90.0 L103.1,62.0 L124.3,62.0 L124.3,118.0 L136.5,118.0 L136.5,90.0 L139.0,90.0 L139.0,62.0 L160.2,62.0 L160.2,118.0 L172.4,118.0 L172.4,90.0 L174.8,90.0 L174.8,62.0 L196.0,62.0 L196.0,118.0 L208.2,118.0 L208.2,90.0 L210.7,90.0 L210.7,62.0 L230.2,62.0 L230.2,118.0 L244.1,118.0 L244.1,90.0 L246.5,90.0 L246.5,62.0 L262.8,62.0 L262.8,118.0 L280.0,118.0 L280.0,90.0 L282.4,90.0 L282.4,62.0 L295.4,62.0 L295.4,118.0 L315.8,118.0 L315.8,90.0 L318.3,90.0 L318.3,62.0 L329.7,62.0 L329.7,118.0 L351.7,118.0 L351.7,90.0 L354.1,90.0 L354.1,62.0 L363.1,62.0 L363.1,118.0 L387.5,118.0 L387.5,90.0 L390.0,90.0 L390.0,62.0 L398.9,62.0 L398.9,118.0 L423.4,118.0 L423.4,90.0 L434.0,90.0 L434.0,118.0 L459.2,118.0 L459.2,90.0 L469.0,90.0 L469.0,118.0 L495.1,118.0 L495.1,90.0 L497.5,90.0 L497.5,62.0 L518.7,62.0 L518.7,118.0 L529.3,118.0 L529.3,90.0 L531.8,90.0 L531.8,62.0 L553.0,62.0 L553.0,118.0 L565.2,118.0 L565.2,90.0 L567.6,90.0 L567.6,62.0 L588.8,62.0 L588.8,118.0 L596.2,118.0 L596.2,90.0 L598.6,90.0 L598.6,62.0 L619.8,62.0 L619.8,118.0 L632.0,118.0 L632.0,90.0 L634.5,90.0 L634.5,62.0 L655.6,62.0 L655.6,118.0 L659.7,118.0 L659.7,90.0 L662.2,90.0 L662.2,62.0 L683.4,62.0 L683.4,118.0 L695.6,118.0 L695.6,90.0 L698.0,90.0 L698.0,62.0 L719.2,62.0 L719.2,118.0 L721.7,118.0 L721.7,90.0 L724.1,90.0 L724.1,62.0 L745.3,62.0 L745.3,118.0 L757.5,118.0 L757.5,90.0 L760.0,90.0 L760.0,62.0 L805.6,62.0 L805.6,118.0 L817.8,118.0 L817.8,90.0 L820.3,90.0 L820.3,62.0 L864.3,62.0 L864.3,118.0 L876.5,118.0 L876.5,90.0 L878.9,90.0 L878.9,62.0 L922.1,62.0 L922.1,118.0 L934.4,118.0 L934.4,90.0 L936.8,90.0 L936.8,62.0 L979.2,62.0 L979.2,118.0 L991.4,118.0 L991.4,90.0 L993.8,90.0 L993.8,62.0 L1015.0,62.0 L1015.0,118.0 L1024.0,118.0"/><text class="ax" x="4" y="142.0">ticks</text><text class="ax" x="96.6" y="142.0">40</text><text class="ax" x="168.3" y="142.0">128</text><text class="ax" x="240.0" y="142.0">216</text><text class="ax" x="311.7" y="142.0">304</text><text class="ax" x="383.5" y="142.0">392</text><text class="ax" x="455.2" y="142.0">480</text><text class="ax" x="526.9" y="142.0">568</text><text class="ax" x="598.6" y="142.0">656</text><text class="ax" x="670.3" y="142.0">744</text><text class="ax" x="742.0" y="142.0">832</text><text class="ax" x="813.7" y="142.0">920</text><text class="ax" x="885.5" y="142.0">1008</text><text class="ax" x="957.2" y="142.0">1096</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 1178 ticks (58.9 s).</p><p class="wave-note"><span class="tag-pos">PAYLOAD</span>: out to N = 2 in 8 gt, back in 12 gt.</p><details><summary>Our test's report, step by step (4 lines)</summary><pre class="design">cycle 1: extended at +8 gt, restored 12 gt after the off edge
+cycle 2: extended at +8 gt, restored 12 gt after the off edge
+cycle 3: extended at +8 gt, restored 12 gt after the off edge
+after flips: a full cycle works</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">N</th><td>2</td><td class="def">the reach: how many cells the block is pushed out</td></tr>
+<tr><th scope="row">extend</th><td>8 gt (0.4 s)</td><td class="def">game ticks from switching the input on until the block is fully out</td></tr>
+<tr><th scope="row">retract</th><td>12 gt (0.6 s)</td><td class="def">game ticks from switching the input off until the block is back</td></tr>
+<tr><th scope="row">flips</th><td>safe (the lever flipped back at any time)</td><td class="def">what happens when the lever is flipped back before the block is all the way out: safe (nothing is stranded at any time) or the earliest flip that strands blocks</td></tr>
+</tbody></table></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/pext/index.html">Piston extenders</a></td></tr>
+<tr><th scope="row">Kind</th><td>Piston extender</td></tr>
+<tr><th scope="row">Blocks placed</th><td>7</td></tr>
+<tr><th scope="row">Box</th><td>3×5×1 (15 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>observer, piston, sand, sticky piston</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>IN (lever) (no output: it moves blocks)</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-21T18:41Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere, flip-safe, its own lever as the input, no slime or honey, size</td></tr>
+<tr><th scope="row">Design file</th><td><code>pext-n2-sand7-flipsafe-3x5</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/pext/archive/pext-n2-sand7-flipsafe-3x5.txt">on GitHub</a></p><details><summary>Design file (34 lines)</summary><pre class="design"># archived 2026-10-21T18:41Z from designs/circuits/pext/work/pext-n2-sand7-flipsafe-3x5.txt by mctas circuit archive
+# CIRCUIT: pext-n2-sand7-flipsafe-3x5 piston-extender 2 N 2, extend 8 gt, retract 12 gt, flips safe (the lever flipped back at any time), 7 blocks, 3x5x1, robust
+# A 2-piston extender you can flip back at any time (7 blocks, 3x5x1, one block thick): it lifts a
+# sand block 2 cells (out in 8 gt, back in 12 gt), and turning the lever off or on again early
+# never strands a block.
+# How it works: the lever drives a small piston beside the column and, through the cell above it,
+# the upper piston. An observer watching the small piston&#39;s head fires once at each lever flip and
+# gives the sticky piston at the bottom a short pulse: when the upper piston is home, the pulse
+# lifts it and the sand one cell and leaves them there, and the upper piston, still powered by the
+# lever, pushes the sand one more; when the upper piston is up, the pulse pulls it back down, and
+# the sand falls home. Found by `mctas circuit pext anneal --flip-soft` from pext-n2-sand6 (pext).
+name: pext-n2-sand7-flipsafe-3x5
+circuit: piston-extender 2
+travel: 0 1 0
+port input: 1 3 0 lever
+port payload: 0 2 0
+origin: 0 0 0
+palette:
+  A minecraft:stone
+  L minecraft:lever[face=wall,facing=west]
+  O minecraft:observer[facing=up,powered=false]
+  P minecraft:piston[extended=false,facing=up]
+  S minecraft:sand
+  o minecraft:observer[facing=west,powered=false]
+  p minecraft:piston[extended=false,facing=west]
+  s minecraft:sticky_piston[extended=false,facing=up]
+layer 0:
+  sA
+layer 1:
+  PO
+layer 2:
+  S.p
+layer 3:
+  .Lo
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/4802aeae549d7104ccc52e6162819b1f0c85df00">vjeux/redstonepedia@4802aeae5</a> on <span class="nowrap">2026-10-23</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=cddf7aad"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=528edeb5"});</script>
+</body>
+</html>

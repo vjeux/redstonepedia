@@ -1,0 +1,28 @@
+# archived 2026-10-19T17:24Z from /tmp/clk-in7/clk-obs--best--p42-obs-pis-6b.txt by mctas clock archive
+# CLOCK: clk-obs-p42-obs-pis-6b period 42 gt (2.1 s), on 14/42, edges 7, warmup 8, family observer+piston, 7 blocks, 2x3x3, robust
+# CLOCK: clk-obs-p42-obs-pis-6b period 42 gt (2.1 s), on 14/42, edges 7, warmup 8, family observer+piston, 7 blocks, 2x3x3, robust
+# (clk-obs, found by grow-p42-6b-0008.txt; output: the changing cell with the most rising edges, declared so every rotation reads the same cell)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its east, added at -1 1 -1 (was 0 -1 -1: the output [0, -1, -1] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+name: clk-obs-p42-obs-pis-6b
+port output: -2 1 -1
+port start: 0 0 0 last
+origin: -1 0 -1
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=north]
+  o minecraft:observer[facing=east,powered=false]
+  p minecraft:piston[extended=false,facing=south]
+layer 0:
+  .
+  .A
+  .P
+layer 1:
+  oO
+  .O
+  .A
+layer 2:
+  .
+  .p
+  .

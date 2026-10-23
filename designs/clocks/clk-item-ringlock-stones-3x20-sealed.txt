@@ -1,0 +1,92 @@
+# archived 2026-10-21T19:58Z from designs/clocks/tracks/clk-obs/sealed/families/clk-item-ringlock-stones-3x20-sealed.txt by mctas clock archive
+# CLOCK: clk-item-ringlock-stones-3x20-sealed period 300 gt (15 s), on 39/300, edges 1, warmup 55, family comparator+hopper, 88 blocks, 4x3x20, robust
+# sealed (clk-obs `clock obs sealgen`): 44 glass block(s) on the open hopper tops, so no dropped item can reach a hopper
+# The sealed twin of clk-item-ringlock-stones-3x20 (clk-obs `clock obs seal-family`): each member is the original's, sealed.
+name: clk-item-ringlock-stones-3x20-sealed
+extend base: 0
+extend blocks: 88
+extend family: clk-item-ringlock-stones-3x20-sealed
+extend generator: mctas clock obs sealgen --family designs/clocks/archive/clk-item-ringlock-stones-3x20.txt --n {n} --out {out}
+extend group: clk-item-ringlock-sealed
+extend group note: a 3 x d hopper ring (L = 2d + 2 hoppers) locked by N stones in its corner, 5 <= N <= (7L - 2) / 8 - 3; glass on the open hopper tops
+extend group period: 7L + 8N - 34
+extend group title: ring lock, sealed
+extend n: 0..28
+extend period: 300 + 8n
+extend rule: one more stone in the corner hopper (same blocks); sealed: glass on the open hopper tops (no dropped item reaches a hopper)
+period: 300
+port output: -2 1 9
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:5}]}
+origin: -1 0 0
+palette:
+  A minecraft:hopper[enabled=true,facing=south]
+  B minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=east]
+  S minecraft:stone
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  h minecraft:hopper[enabled=true,facing=north]
+layer 0:
+  .
+  ..S
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  S
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 1:
+  .HHA
+  .hcA
+  .h.A
+  .h.A
+  .h.A
+  .h.A
+  .h.A
+  .h.A
+  .h.A
+  Ch.A
+  .h.A
+  .h.A
+  .h.A
+  .h.A
+  .h.A
+  .h.A
+  .h.A
+  .h.A
+  .h.A
+  .hBB
+layer 2:
+  .GGG
+  .G.G
+  .G.G
+  .G.G
+  .G.G
+  .G.G
+  .G.G
+  .G.G
+  .G.G
+  .G.G
+  .G.G
+  .G.G
+  .G.G
+  .G.G
+  .G.G
+  .G.G
+  .G.G
+  .G.G
+  .G.G
+  .GGG

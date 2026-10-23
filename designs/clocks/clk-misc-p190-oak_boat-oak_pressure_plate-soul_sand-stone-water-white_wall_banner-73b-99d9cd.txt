@@ -1,0 +1,48 @@
+# archived 2026-10-23T08:37Z from /home/vjeux/ws5/strip-game/staged/clk-misc-p190-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-73b-99d9cd.txt by mctas clock archive
+# CLOCK: clk-misc-p190-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-73b-99d9cd period 190 gt (9.5 s), on 20/190, edges 1, warmup 107, family oak_boat+oak_pressure_plate, 73 blocks, 11x7x4, robust
+# the irreducible core of clk-misc-boat-lift-l4h3.txt (mctas clock strip, 2026-10-22): removed -2,0,0 water[level=0]; -2,0,1 water[level=0]; -2,1,0 water[level=0]; -2,1,1 water[level=0]; -2,1,2 stone; -2,2,0 water[level=0]; -2,2,1 water[level=0]; -2,2,2 stone; -2,5,0 stone; -2,5,1 stone; -1,1,-1 stone; -1,1,2 stone; -1,2,0 water[level=0]; -1,2,1 water[level=0]; -1,2,2 stone; -1,5,0 stone; -1,5,1 stone; 0,-1,1 stone; 0,0,-1 stone; 0,0,2 stone; 0,1,0 white_wall_banner[facing=west]; 0,1,1 white_wall_banner[facing=west]; 0,5,0 stone; 0,5,1 stone; 1,1,0 stone; 1,5,0 stone; 5,3,-1 stone; 5,3,2 stone; 6,-1,0 stone; 6,-1,1 stone; 6,0,-1 stone; 6,0,2 stone; 6,3,-1 stone; 6,3,2 stone; 7,0,0 stone; 7,0,1 stone; 7,1,0 stone; 7,1,1 stone; 7,2,0 stone; 7,3,0 stone; 7,3,1 stone; -3,1,0 stone; -3,1,1 stone; -3,2,0 stone; -3,2,1 stone; -2,1,-1 stone; -2,2,-1 stone; -1,2,-1 stone
+name: clk-misc-p190-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-73b-99d9cd
+port output: 0 -1 -1
+entity: minecraft:oak_boat 3.5 0 1
+origin: -3 0 -1
+palette:
+  O minecraft:oak_pressure_plate[powered=false]
+  S minecraft:soul_sand
+  W minecraft:water[level=0]
+  s minecraft:stone
+  w minecraft:white_wall_banner[facing=west]
+layer -1:
+  .
+  .SSssssss
+  .SS.sssss
+  .
+layer 0:
+  .ss.sssss
+  s.WO.....O
+  s.WO.....O
+  .ss.sssss
+layer 1:
+  .
+  ..W
+  ..W.s
+  .
+layer 2:
+  .
+  ...wssss
+  ...wssss..s
+  .
+layer 3:
+  .sssssss
+  sWW
+  sWW
+  .sssssss
+layer 4:
+  .
+  .
+  .
+  .
+layer 5:
+  .
+  .
+  ....s
+  .

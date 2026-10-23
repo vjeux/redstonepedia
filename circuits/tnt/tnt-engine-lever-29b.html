@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TNT duper: stand it 4 blocks up · 200 TNT a minute · 29 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="TNT duper: stand it 4 blocks up · 200 TNT a minute · 29 blocks. The fast switchable TNT engine with the smallest EFFECTIVE volume: tnt-engine-lever-17b&#39;s engine (200 TNT/min) with its lever inverter UNDER the engine (the tor">
+<meta property="og:title" content="TNT duper: stand it 4 blocks up · 200 TNT a minute · 29 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="TNT duper: stand it 4 blocks up · 200 TNT a minute · 29 blocks. The fast switchable TNT engine with the smallest EFFECTIVE volume: tnt-engine-lever-17b&#39;s engine (200 TNT/min) with its lever inverter UNDER the engine (the tor">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/tnt/index.html">TNT dupers</a></p>
+<p class="kindline">TNT duper (runs by itself)</p>
+<h1>stand it 4 blocks up · 200 TNT a minute · 29 blocks</h1>
+<p class="oneliner">Lights 200 TNT a minute while its lever is on without ever using up its own TNT block.</p>
+<p class="lede">the smallest of 4 tested (counting the air it needs under it) that has an on/off lever and is safe at its own stand height · a push every 6 ticks (0.3 s) · fits in 3×5×4 + 4 blocks of air under it</p>
+<p class="badges"><span class="badge">on/off lever</span></p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/tnt/tnt-engine-lever-29b.txt" data-stimulus="in 200+ 500- 760+ 1071- 1331+ 1653- 1913+ 2246-" data-phases="0-200 rest; 200-500 on 1; 500-760 off 1; 760-1071 on 2; 1071-1331 off 2; 1331-1653 on 3; 1653-1913 off 3; 1913-2246 on 4; 2246-2506 off 4" data-input-mode="pulse" data-circuit="tnt-duper" data-kind="circuit"><div class="fallback"><span class="fb-big">stand it 4 blocks up</span><span class="fb-small">TNT duper</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<p class="needs">Stand it 4 blocks up, the lowest our test found safe: lower, its own TNT explodes close enough to destroy it.</p>
+<section class="what plain"><h2>Try it</h2><p>Flip its lever (the IN button under the view) to start it: watch it throw a lit TNT away each cycle while its TNT block stays in place; flip it back and it stops. The view first plays our test on a loop; touch any control to take over.</p><p class="howdesign"><b>How this design does it:</b> The fast switchable TNT engine with the smallest EFFECTIVE volume: tnt-engine-lever-17b&#39;s engine (200 TNT/min) with its lever inverter UNDER the engine (the torch under the sticky piston on a stone, the lever on that stone&#39;s side) and a floor of 12 stone under the whole footprint.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/tnt/tnt-engine-lever-29b.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/tnt/tnt-engine-lever-29b.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=dead_tube_coral_fan">dead tube coral fan</a> <a class="chip" href="../../index.html#with=obsidian">obsidian</a> <a class="chip" href="../../index.html#with=redstone_block">redstone block</a> <a class="chip" href="../../index.html#with=redstone_torch">redstone torch</a> <a class="chip" href="../../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../../index.html#with=slime_block">slime block</a> <a class="chip" href="../../index.html#with=sticky_piston">sticky piston</a> <a class="chip" href="../../index.html#with=stone">stone</a> <a class="chip" href="../../index.html#with=tnt">tnt</a></p></section>
+<p class="also-ground">For one that sits right on the ground, with no on/off switch: <a href="../../circuits/tnt/tnt-clocked-22b.html">TNT duper: safe standing on the ground · about 86 TNT a minute · 22 blocks</a>.</p>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>It <b>keeps lighting TNT forever without using up its TNT block</b>: <b>200 TNT a minute</b>. Every 6 gt (0.3 s) a piston pushes the TNT block: a piston copies every block it moves before it clears the old cells, and a TNT that gets a block update while powered at that instant is lit where it stands (a primed TNT that falls and explodes 80 gt, 4 s, later) while its moved copy lands as a TNT block again. Each push lights 1 TNT.</p></section>
+<section><h2>How to try it</h2><p>The duper runs by itself as soon as it is built: the view plays it from the start. Watch the piston push the TNT block every cycle and a lit TNT (flashing white) drop out of the machine each time, while the TNT block lands again in its place; a lit TNT vanishes when its fuse runs out instead of exploding. Pause and step one game tick at a time with the bar's buttons; drag to look around, pinch or scroll to zoom.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the input with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="1576" height="78" viewBox="0 0 1576 78" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="64.0" y1="18.0" x2="64.0" y2="60.0"/><text class="phl" x="67.0" y="14.0">rest</text><line class="ph" x1="184.0" y1="18.0" x2="184.0" y2="60.0"/><text class="phl" x="187.0" y="14.0">on 1</text><line class="ph" x1="364.0" y1="18.0" x2="364.0" y2="60.0"/><text class="phl" x="367.0" y="14.0">off 1</text><line class="ph" x1="520.0" y1="18.0" x2="520.0" y2="60.0"/><text class="phl" x="523.0" y="14.0">on 2</text><line class="ph" x1="706.6" y1="18.0" x2="706.6" y2="60.0"/><text class="phl" x="709.6" y="14.0">off 2</text><line class="ph" x1="862.6" y1="18.0" x2="862.6" y2="60.0"/><text class="phl" x="865.6" y="14.0">on 3</text><line class="ph" x1="1055.8" y1="18.0" x2="1055.8" y2="60.0"/><text class="phl" x="1058.8" y="14.0">off 3</text><line class="ph" x1="1211.8" y1="18.0" x2="1211.8" y2="60.0"/><text class="phl" x="1214.8" y="14.0">on 4</text><line class="ph" x1="1411.6" y1="18.0" x2="1411.6" y2="60.0"/><text class="phl" x="1414.6" y="14.0">off 4</text><text class="wl" x="4" y="46.0">IN</text><line class="base" x1="64.0" y1="48.0" x2="1568.2" y2="48.0"/><polygon class="win" points="64.0,48.0 64.0,48.0 184.0,48.0 184.0,28.0 364.0,28.0 364.0,48.0 520.0,48.0 520.0,28.0 706.6,28.0 706.6,48.0 862.6,48.0 862.6,28.0 1055.8,28.0 1055.8,48.0 1211.8,48.0 1211.8,28.0 1411.6,28.0 1411.6,48.0 1568.2,48.0 1568.2,48.0"/><text class="ax" x="4" y="72.0">ticks</text><text class="ax" x="64.0" y="72.0">0</text><text class="ax" x="124.0" y="72.0">100</text><text class="ax" x="184.0" y="72.0">200</text><text class="ax" x="244.0" y="72.0">300</text><text class="ax" x="304.0" y="72.0">400</text><text class="ax" x="364.0" y="72.0">500</text><text class="ax" x="424.0" y="72.0">600</text><text class="ax" x="484.0" y="72.0">700</text><text class="ax" x="544.0" y="72.0">800</text><text class="ax" x="604.0" y="72.0">900</text><text class="ax" x="664.0" y="72.0">1000</text><text class="ax" x="724.0" y="72.0">1100</text><text class="ax" x="784.0" y="72.0">1200</text><text class="ax" x="844.0" y="72.0">1300</text><text class="ax" x="904.0" y="72.0">1400</text><text class="ax" x="964.0" y="72.0">1500</text><text class="ax" x="1024.0" y="72.0">1600</text><text class="ax" x="1084.0" y="72.0">1700</text><text class="ax" x="1144.0" y="72.0">1800</text><text class="ax" x="1204.0" y="72.0">1900</text><text class="ax" x="1264.0" y="72.0">2000</text><text class="ax" x="1324.0" y="72.0">2100</text><text class="ax" x="1384.0" y="72.0">2200</text><text class="ax" x="1444.0" y="72.0">2300</text><text class="ax" x="1504.0" y="72.0">2400</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 2507 ticks (2 min 5.35 s).</p><details><summary>Our test's report, step by step (235 lines)</summary><pre class="design">rest 0..200: nothing primed, standing still
+on 1 200..500: 50 primed, the first 5 gt after the lever, then 1 per 6 gt
+off 1 500..760: 0 primed after the lever, standing still in the rest state
+on 2 760..1071: 51 primed, the first 5 gt after the lever, then 1 per 6 gt
+off 2 1071..1331: 1 primed after the lever, standing still in the rest state
+on 3 1331..1653: 53 primed, the first 5 gt after the lever, then 1 per 6 gt
+off 3 1653..1913: 1 primed after the lever, standing still in the rest state
+on 4 1913..2246: 55 primed, the first 5 gt after the lever, then 1 per 6 gt
+off 4 2246..2506: 1 primed after the lever, standing still in the rest state
+TNT 0: primed at frame 205, at fuse 1 at (2.5000, -6.0000, -21.0830)
+TNT 1: primed at frame 211, at fuse 1 at (2.5000, -9.0000, -21.0830)
+TNT 2: primed at frame 217, at fuse 1 at (2.5000, -9.0000, -21.0830)
+TNT 3: primed at frame 223, at fuse 1 at (2.5000, -9.0000, -21.0830)
+TNT 4: primed at frame 229, at fuse 1 at (2.5000, -9.0000, -21.0830)
+TNT 5: primed at frame 235, at fuse 1 at (2.5000, -9.0000, -26.1840)
+TNT 6: primed at frame 241, at fuse 1 at (2.5000, -9.0000, -14.4900)
+TNT 7: primed at frame 247, at fuse 1 at (2.5000, -9.0000, -14.4900)
+TNT 8: primed at frame 253, at fuse 1 at (2.5000, -9.0000, -14.4900)
+TNT 9: primed at frame 259, at fuse 1 at (2.5000, -9.0000, -20.3246)
+TNT 10: primed at frame 265, at fuse 1 at (2.5000, -9.0000, -25.9634)
+TNT 11: primed at frame 271, at fuse 1 at (2.5000, -6.0000, -38.9228)
+TNT 12: primed at frame 277, at fuse 1 at (2.5000, -6.0000, -33.2956)
+TNT 13: primed at frame 283, at fuse 1 at (2.5000, -9.0000, -22.1292)
+TNT 14: primed at frame 289, at fuse 1 at (2.5000, -9.0000, -25.1589)
+TNT 15: primed at frame 295, at fuse 1 at (2.5000, -9.0000, -31.0472)
+TNT 16: primed at frame 301, at fuse 1 at (2.5000, -9.0000, -29.8573)
+TNT 17: primed at frame 307, at fuse 1 at (2.5000, -9.0000, -36.0287)
+TNT 18: primed at frame 313, at fuse 1 at (2.5000, -9.0000, -25.1457)
+TNT 19: primed at frame 319, at fuse 1 at (2.5000, -9.0000, -22.0047)
+TNT 20: primed at frame 325, at fuse 1 at (2.5000, -9.0000, -24.3711)
+TNT 21: primed at frame 331, at fuse 1 at (2.5000, -9.0000, -26.0039)
+TNT 22: primed at frame 337, at fuse 1 at (2.5000, -9.0000, -16.6339)
+TNT 23: primed at frame 343, at fuse 1 at (2.5000, -9.0000, -19.7188)
+TNT 24: primed at frame 349, at fuse 1 at (2.5000, -9.0000, -20.4336)
+TNT 25: primed at frame 355, at fuse 1 at (2.5000, -9.0000, -24.7126)
+TNT 26: primed at frame 361, at fuse 1 at (2.5000, -9.0000, -28.0197)
+TNT 27: primed at frame 367, at fuse 1 at (2.5000, -9.0000, -31.3600)
+TNT 28: primed at frame 373, at fuse 1 at (2.5000, -9.0000, -29.0607)
+TNT 29: primed at frame 379, at fuse 1 at (2.5000, -9.0000, -35.0654)
+TNT 30: primed at frame 385, at fuse 1 at (2.5000, -9.0000, -38.5433)
+TNT 31: primed at frame 391, at fuse 1 at (2.5000, -9.0000, -41.2460)
+TNT 32: primed at frame 397, at fuse 1 at (2.5000, -6.0000, -47.4194)
+TNT 33: primed at frame 403, at fuse 1 at (2.5000, -9.0000, -19.5639)
+TNT 34: primed at frame 409, at fuse 1 at (2.5000, -9.0000, -23.5656)
+TNT 35: primed at frame 415, at fuse 1 at (2.5000, -9.0000, -27.0756)
+TNT 36: primed at frame 421, at fuse 1 at (2.5000, -9.0000, -26.6497)
+TNT 37: primed at frame 427, at fuse 1 at (2.5000, -9.0000, -32.2067)
+TNT 38: primed at frame 433, at fuse 1 at (2.5000, -9.0000, -30.3262)
+TNT 39: primed at frame 439, at fuse 1 at (2.5000, -9.0000, -32.4949)
+TNT 40: primed at frame 445, at fuse 1 at (2.5000, -9.0000, -36.0083)
+TNT 41: primed at frame 451, at fuse 1 at (2.5000, -9.0000, -40.1295)
+TNT 42: primed at frame 457, at fuse 1 at (2.5000, -8.3305, -34.3178)
+TNT 43: primed at frame 463, at fuse 1 at (2.5000, -9.0000, -20.2167)
+TNT 44: primed at frame 469, at fuse 1 at (2.5000, -9.0000, -24.0233)
+TNT 45: primed at frame 475, at fuse 1 at (2.5000, -9.0000, -27.5168)
+TNT 46: primed at frame 481, at fuse 1 at (2.5000, -9.0000, -30.1183)
+TNT 47: primed at frame 487, at fuse 1 at (2.5000, -9.0000, -33.6080)
+TNT 48: primed at frame 493, at fuse 1 at (2.5000, -9.0000, -31.4786)
+TNT 49: primed at frame 499, at fuse 1 at (2.5000, -9.0000, -33.7393)
+TNT 50: primed at frame 765, at fuse 1 at (2.5000, -9.0000, -23.3664)
+TNT 51: primed at frame 771, at fuse 1 at (2.5000, -9.0000, -23.3664)
+TNT 52: primed at frame 777, at fuse 1 at (2.5000, -9.0000, -23.3664)
+TNT 53: primed at frame 783, at fuse 1 at (2.5000, -9.0000, -23.3664)
+TNT 54: primed at frame 789, at fuse 1 at (2.5000, -9.0000, -23.3664)
+TNT 55: primed at frame 795, at fuse 1 at (2.5000, -9.0000, -23.3664)
+TNT 56: primed at frame 801, at fuse 1 at (2.5000, -9.0000, -15.9037)
+TNT 57: primed at frame 807, at fuse 1 at (2.5000, -9.0000, -13.1468)
+TNT 58: primed at frame 813, at fuse 1 at (2.5000, -9.0000, -11.4829)
+TNT 59: primed at frame 819, at fuse 1 at (2.5000, -9.0000, -17.7211)
+TNT 60: primed at frame 825, at fuse 1 at (2.5000, -9.0000, -22.0726)
+TNT 61: primed at frame 831, at fuse 1 at (2.5000, -9.0000, -24.4980)
+TNT 62: primed at frame 837, at fuse 1 at (2.5000, -9.0000, -28.1956)
+TNT 63: primed at frame 843, at fuse 1 at (2.5000, -9.0000, -30.7052)
+TNT 64: primed at frame 849, at fuse 1 at (2.5000, -9.0000, -34.5071)
+TNT 65: primed at frame 855, at fuse 1 at (2.5000, -9.0000, -37.8319)
+TNT 66: primed at frame 861, at fuse 1 at (2.5000, -9.0000, -34.9390)
+TNT 67: primed at frame 867, at fuse 1 at (2.5000, -9.0000, -37.6843)
+TNT 68: primed at frame 873, at fuse 1 at (2.5000, -9.0000, -43.6553)
+TNT 69: primed at frame 879, at fuse 1 at (2.5000, -9.0000, -19.5835)
+TNT 70: primed at frame 885, at fuse 1 at (2.5000, -9.0000, -23.7318)
+TNT 71: primed at frame 891, at fuse 1 at (2.5000, -9.0000, -27.4965)
+TNT 72: primed at frame 897, at fuse 1 at (2.5000, -9.0000, -25.3999)
+TNT 73: primed at frame 903, at fuse 1 at (2.5000, -9.0000, -27.3861)
+TNT 74: primed at frame 909, at fuse 1 at (2.5000, -9.0000, -26.2279)
+TNT 75: primed at frame 915, at fuse 1 at (2.5000, -9.0000, -31.9147)
+TNT 76: primed at frame 921, at fuse 1 at (2.5000, -9.0000, -35.2240)
+TNT 77: primed at frame 927, at fuse 1 at (2.5000, -9.0000, -38.8132)
+TNT 78: primed at frame 933, at fuse 1 at (2.5000, -9.0000, -30.9760)
+TNT 79: primed at frame 939, at fuse 1 at (2.5000, -9.0000, -19.0327)
+TNT 80: primed at frame 945, at fuse 1 at (2.5000, -9.0000, -22.1661)
+TNT 81: primed at frame 951, at fuse 1 at (2.5000, -9.0000, -25.5706)
+TNT 82: primed at frame 957, at fuse 1 at (2.5000, -9.0000, -29.0542)
+TNT 83: primed at frame 963, at fuse 1 at (2.5000, -9.0000, -32.3742)
+TNT 84: primed at frame 969, at fuse 1 at (2.5000, -9.0000, -30.4934)
+TNT 85: primed at frame 975, at fuse 1 at (2.5000, -9.0000, -32.9778)
+TNT 86: primed at frame 981, at fuse 1 at (2.5000, -9.0000, -36.6277)
+TNT 87: primed at frame 987, at fuse 1 at (2.5000, -9.0000, -40.6531)
+TNT 88: primed at frame 993, at fuse 1 at (2.5000, -9.0000, -49.1980)
+TNT 89: primed at frame 999, at fuse 1 at (2.5000, -9.0000, -20.1686)
+TNT 90: primed at frame 1005, at fuse 1 at (2.5000, -9.0000, -24.4576)
+TNT 91: primed at frame 1011, at fuse 1 at (2.5000, -9.0000, -27.7327)
+TNT 92: primed at frame 1017, at fuse 1 at (2.5000, -9.0000, -28.1202)
+TNT 93: primed at frame 1023, at fuse 1 at (2.5000, -9.0000, -32.5198)
+TNT 94: primed at frame 1029, at fuse 1 at (2.5000, -9.0000, -30.5294)
+TNT 95: primed at frame 1035, at fuse 1 at (2.5000, -9.0000, -33.3898)
+TNT 96: primed at frame 1041, at fuse 1 at (2.5000, -9.0000, -38.6235)
+TNT 97: primed at frame 1047, at fuse 1 at (2.5000, -9.0000, -41.6079)
+TNT 98: primed at frame 1053, at fuse 1 at (2.5000, -9.0000, -18.1200)
+TNT 99: primed at frame 1059, at fuse 1 at (2.5000, -9.0000, -22.8427)
+TNT 100: primed at frame 1065, at fuse 1 at (2.5000, -9.0000, -26.3854)
+TNT 101: primed at frame 1071, at fuse 1 at (2.5000, -9.0000, -29.5541)
+TNT 102: primed at frame 1336, at fuse 1 at (2.5000, -9.0000, -23.3664)
+TNT 103: primed at frame 1342, at fuse 1 at (2.5000, -9.0000, -23.3664)
+TNT 104: primed at frame 1348, at fuse 1 at (2.5000, -9.0000, -23.3664)
+TNT 105: primed at frame 1354, at fuse 1 at (2.5000, -9.0000, -23.3664)
+TNT 106: primed at frame 1360, at fuse 1 at (2.5000, -9.0000, -23.3664)
+TNT 107: primed at frame 1366, at fuse 1 at (2.5000, -9.0000, -23.3664)
+TNT 108: primed at frame 1372, at fuse 1 at (2.5000, -9.0000, -15.9037)
+TNT 109: primed at frame 1378, at fuse 1 at (2.5000, -9.0000, -13.1468)
+TNT 110: primed at frame 1384, at fuse 1 at (2.5000, -9.0000, -11.4829)
+TNT 111: primed at frame 1390, at fuse 1 at (2.5000, -9.0000, -17.7211)
+TNT 112: primed at frame 1396, at fuse 1 at (2.5000, -9.0000, -22.0726)
+TNT 113: primed at frame 1402, at fuse 1 at (2.5000, -9.0000, -24.4980)
+TNT 114: primed at frame 1408, at fuse 1 at (2.5000, -9.0000, -28.1956)
+TNT 115: primed at frame 1414, at fuse 1 at (2.5000, -9.0000, -30.7052)
+TNT 116: primed at frame 1420, at fuse 1 at (2.5000, -9.0000, -34.5071)
+TNT 117: primed at frame 1426, at fuse 1 at (2.5000, -9.0000, -37.8319)
+TNT 118: primed at frame 1432, at fuse 1 at (2.5000, -9.0000, -34.9390)
+TNT 119: primed at frame 1438, at fuse 1 at (2.5000, -9.0000, -37.6843)
+TNT 120: primed at frame 1444, at fuse 1 at (2.5000, -9.0000, -43.6553)
+TNT 121: primed at frame 1450, at fuse 1 at (2.5000, -9.0000, -19.5835)
+TNT 122: primed at frame 1456, at fuse 1 at (2.5000, -9.0000, -23.7318)
+TNT 123: primed at frame 1462, at fuse 1 at (2.5000, -9.0000, -27.4965)
+TNT 124: primed at frame 1468, at fuse 1 at (2.5000, -9.0000, -25.3999)
+TNT 125: primed at frame 1474, at fuse 1 at (2.5000, -9.0000, -27.3861)
+TNT 126: primed at frame 1480, at fuse 1 at (2.5000, -9.0000, -26.2279)
+TNT 127: primed at frame 1486, at fuse 1 at (2.5000, -9.0000, -31.9147)
+TNT 128: primed at frame 1492, at fuse 1 at (2.5000, -9.0000, -35.2240)
+TNT 129: primed at frame 1498, at fuse 1 at (2.5000, -9.0000, -38.8132)
+TNT 130: primed at frame 1504, at fuse 1 at (2.5000, -9.0000, -30.9760)
+TNT 131: primed at frame 1510, at fuse 1 at (2.5000, -9.0000, -19.0327)
+TNT 132: primed at frame 1516, at fuse 1 at (2.5000, -9.0000, -22.1661)
+TNT 133: primed at frame 1522, at fuse 1 at (2.5000, -9.0000, -25.5706)
+TNT 134: primed at frame 1528, at fuse 1 at (2.5000, -9.0000, -29.0542)
+TNT 135: primed at frame 1534, at fuse 1 at (2.5000, -9.0000, -32.3742)
+TNT 136: primed at frame 1540, at fuse 1 at (2.5000, -9.0000, -30.4934)
+TNT 137: primed at frame 1546, at fuse 1 at (2.5000, -9.0000, -32.9778)
+TNT 138: primed at frame 1552, at fuse 1 at (2.5000, -9.0000, -36.6277)
+TNT 139: primed at frame 1558, at fuse 1 at (2.5000, -9.0000, -40.6531)
+TNT 140: primed at frame 1564, at fuse 1 at (2.5000, -9.0000, -49.1980)
+TNT 141: primed at frame 1570, at fuse 1 at (2.5000, -9.0000, -20.1686)
+TNT 142: primed at frame 1576, at fuse 1 at (2.5000, -9.0000, -24.4576)
+TNT 143: primed at frame 1582, at fuse 1 at (2.5000, -9.0000, -27.7327)
+TNT 144: primed at frame 1588, at fuse 1 at (2.5000, -9.0000, -28.1202)
+TNT 145: primed at frame 1594, at fuse 1 at (2.5000, -9.0000, -32.5198)
+TNT 146: primed at frame 1600, at fuse 1 at (2.5000, -9.0000, -30.5294)
+TNT 147: primed at frame 1606, at fuse 1 at (2.5000, -9.0000, -33.3898)
+TNT 148: primed at frame 1612, at fuse 1 at (2.5000, -9.0000, -38.6235)
+TNT 149: primed at frame 1618, at fuse 1 at (2.5000, -9.0000, -41.6079)
+TNT 150: primed at frame 1624, at fuse 1 at (2.5000, -9.0000, -18.1200)
+TNT 151: primed at frame 1630, at fuse 1 at (2.5000, -9.0000, -22.8427)
+TNT 152: primed at frame 1636, at fuse 1 at (2.5000, -9.0000, -26.3854)
+TNT 153: primed at frame 1642, at fuse 1 at (2.5000, -9.0000, -29.5541)
+TNT 154: primed at frame 1648, at fuse 1 at (2.5000, -9.0000, -30.9049)
+TNT 155: primed at frame 1654, at fuse 1 at (2.5000, -9.0000, -34.8350)
+TNT 156: primed at frame 1918, at fuse 1 at (2.5000, -9.0000, -23.3664)
+TNT 157: primed at frame 1924, at fuse 1 at (2.5000, -9.0000, -23.3664)
+TNT 158: primed at frame 1930, at fuse 1 at (2.5000, -9.0000, -23.3664)
+TNT 159: primed at frame 1936, at fuse 1 at (2.5000, -9.0000, -23.3664)
+TNT 160: primed at frame 1942, at fuse 1 at (2.5000, -9.0000, -23.3664)
+TNT 161: primed at frame 1948, at fuse 1 at (2.5000, -9.0000, -23.3664)
+TNT 162: primed at frame 1954, at fuse 1 at (2.5000, -9.0000, -15.9037)
+TNT 163: primed at frame 1960, at fuse 1 at (2.5000, -9.0000, -13.1468)
+TNT 164: primed at frame 1966, at fuse 1 at (2.5000, -9.0000, -11.4829)
+TNT 165: primed at frame 1972, at fuse 1 at (2.5000, -9.0000, -17.7211)
+TNT 166: primed at frame 1978, at fuse 1 at (2.5000, -9.0000, -22.0726)
+TNT 167: primed at frame 1984, at fuse 1 at (2.5000, -9.0000, -24.4980)
+TNT 168: primed at frame 1990, at fuse 1 at (2.5000, -9.0000, -28.1956)
+TNT 169: primed at frame 1996, at fuse 1 at (2.5000, -9.0000, -30.7052)
+TNT 170: primed at frame 2002, at fuse 1 at (2.5000, -9.0000, -34.5071)
+TNT 171: primed at frame 2008, at fuse 1 at (2.5000, -9.0000, -37.8319)
+TNT 172: primed at frame 2014, at fuse 1 at (2.5000, -9.0000, -34.9390)
+TNT 173: primed at frame 2020, at fuse 1 at (2.5000, -9.0000, -37.6843)
+TNT 174: primed at frame 2026, at fuse 1 at (2.5000, -9.0000, -43.6553)
+TNT 175: primed at frame 2032, at fuse 1 at (2.5000, -9.0000, -19.5835)
+TNT 176: primed at frame 2038, at fuse 1 at (2.5000, -9.0000, -23.7318)
+TNT 177: primed at frame 2044, at fuse 1 at (2.5000, -9.0000, -27.4965)
+TNT 178: primed at frame 2050, at fuse 1 at (2.5000, -9.0000, -25.3999)
+TNT 179: primed at frame 2056, at fuse 1 at (2.5000, -9.0000, -27.3861)
+TNT 180: primed at frame 2062, at fuse 1 at (2.5000, -9.0000, -26.2279)
+TNT 181: primed at frame 2068, at fuse 1 at (2.5000, -9.0000, -31.9147)
+TNT 182: primed at frame 2074, at fuse 1 at (2.5000, -9.0000, -35.2240)
+TNT 183: primed at frame 2080, at fuse 1 at (2.5000, -9.0000, -38.8132)
+TNT 184: primed at frame 2086, at fuse 1 at (2.5000, -9.0000, -30.9760)
+TNT 185: primed at frame 2092, at fuse 1 at (2.5000, -9.0000, -19.0327)
+TNT 186: primed at frame 2098, at fuse 1 at (2.5000, -9.0000, -22.1661)
+TNT 187: primed at frame 2104, at fuse 1 at (2.5000, -9.0000, -25.5706)
+TNT 188: primed at frame 2110, at fuse 1 at (2.5000, -9.0000, -29.0542)
+TNT 189: primed at frame 2116, at fuse 1 at (2.5000, -9.0000, -32.3742)
+TNT 190: primed at frame 2122, at fuse 1 at (2.5000, -9.0000, -30.4934)
+TNT 191: primed at frame 2128, at fuse 1 at (2.5000, -9.0000, -32.9778)
+TNT 192: primed at frame 2134, at fuse 1 at (2.5000, -9.0000, -36.6277)
+TNT 193: primed at frame 2140, at fuse 1 at (2.5000, -9.0000, -40.6531)
+TNT 194: primed at frame 2146, at fuse 1 at (2.5000, -9.0000, -49.1980)
+TNT 195: primed at frame 2152, at fuse 1 at (2.5000, -9.0000, -20.1686)
+TNT 196: primed at frame 2158, at fuse 1 at (2.5000, -9.0000, -24.4576)
+TNT 197: primed at frame 2164, at fuse 1 at (2.5000, -9.0000, -27.7327)
+TNT 198: primed at frame 2170, at fuse 1 at (2.5000, -9.0000, -28.1202)
+TNT 199: primed at frame 2176, at fuse 1 at (2.5000, -9.0000, -32.5198)
+TNT 200: primed at frame 2182, at fuse 1 at (2.5000, -9.0000, -30.5294)
+TNT 201: primed at frame 2188, at fuse 1 at (2.5000, -9.0000, -33.3898)
+TNT 202: primed at frame 2194, at fuse 1 at (2.5000, -9.0000, -38.6235)
+TNT 203: primed at frame 2200, at fuse 1 at (2.5000, -9.0000, -41.6079)
+TNT 204: primed at frame 2206, at fuse 1 at (2.5000, -9.0000, -18.1200)
+TNT 205: primed at frame 2212, at fuse 1 at (2.5000, -9.0000, -22.8427)
+TNT 206: primed at frame 2218, at fuse 1 at (2.5000, -9.0000, -26.3854)
+TNT 207: primed at frame 2224, at fuse 1 at (2.5000, -9.0000, -29.5541)
+TNT 208: primed at frame 2230, at fuse 1 at (2.5000, -9.0000, -30.9049)
+TNT 209: primed at frame 2236, at fuse 1 at (2.5000, -9.0000, -34.8350)
+TNT 210: primed at frame 2242, at fuse 1 at (2.5000, -9.0000, -32.9044)
+TNT 211: primed at frame 2248, at fuse 1 at (2.5000, -9.0000, -38.6661)
+blast at frame 284 (2.50, -5.94, -21.08): would destroy 12 blocks on open ground
+blast at frame 290 (2.50, -8.94, -21.08): would destroy 12 blocks on open ground
+blast at frame 296 (2.50, -8.94, -21.08): would destroy 12 blocks on open ground
+blast at frame 302 (2.50, -8.94, -21.08): would destroy 12 blocks on open ground
+blast at frame 308 (2.50, -8.94, -21.08): would destroy 12 blocks on open ground
+blast at frame 314 (2.50, -8.94, -26.26): would destroy 9 blocks on open ground
+blast at frame 320 (2.50, -8.94, -14.49): would destroy 9 blocks on open ground
+blast at frame 326 (2.50, -8.94, -14.49): would destroy 9 blocks on open ground
+blast at frame 332 (2.50, -8.94, -14.49): would destroy 9 blocks on open ground
+blast at frame 338 (2.50, -8.94, -20.38): would destroy 9 blocks on open ground
+blast at frame 344 (2.50, -8.94, -26.02): would destroy 12 blocks on open ground
+blast at frame 350 (2.50, -5.94, -38.92): would destroy 12 blocks on open ground
+... 212 blasts in all
+useful: every blast clear of fluids, the weakest destroys 9 blocks on open ground</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">rate</th><td>200 TNT/min</td><td class="def">lit TNT per minute</td></tr>
+<tr><th scope="row">period</th><td>6 gt (0.3 s)</td><td class="def">game ticks between two pushes (the engine&#39;s cycle)</td></tr>
+<tr><th scope="row">per period</th><td>1</td><td class="def">TNT lit by each push</td></tr>
+<tr><th scope="row">runs</th><td>lever on</td><td class="def"></td></tr>
+<tr><th scope="row">switch</th><td>lever off: stops within 2 gt; on: restarts within 5 gt</td><td class="def"></td></tr>
+<tr><th scope="row">safe drop</th><td>4 blocks</td><td class="def"></td></tr>
+<tr><th scope="row">stands</th><td>4 blocks above the ground (stand: in the design)</td><td class="def"></td></tr>
+<tr><th scope="row">effective volume</th><td>108 (3x4 footprint x (5 + 4) high: the box and the air under it)</td><td class="def"></td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>The fast switchable TNT engine with the smallest EFFECTIVE volume: tnt-engine-lever-17b&#39;s engine (200 TNT/min) with its lever inverter UNDER the engine (the torch under the sticky piston on a stone, the lever on that stone&#39;s side) and a floor of 12 stone under the whole footprint. Why the floor: the safe drop of the floorless engines (6 for the 17b, 7 for the 3x3x5) is set by launched TNT that land about 20 blocks out and get knocked back by the explosions in their landing zone, exploding on the ground under the machine (per-spawn runs 58 and 51); the floor takes those blasts&#39; rays. 3x5x4 box: 12 x (5 + 4) = 108, vs 150 (3x3x5) and 160 (the 17b).</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/tnt/index.html">TNT dupers</a></td></tr>
+<tr><th scope="row">Kind</th><td>TNT duper (runs by itself)</td></tr>
+<tr><th scope="row">Blocks placed</th><td>29</td></tr>
+<tr><th scope="row">Box</th><td>3×5×4 (60 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>dead tube coral fan, redstone block, redstone torch, redstone wire, slime block, sticky piston, tnt</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>IN (lever) (no output: it moves blocks)</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-21T19:09Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere, its own lever as the input</td></tr>
+<tr><th scope="row">Design file</th><td><code>tnt-engine-lever-29b</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/tnt/archive/tnt-engine-lever-29b.txt">on GitHub</a></p><details><summary>Design file (51 lines)</summary><pre class="design"># archived 2026-10-21T19:09Z from designs/circuits/tracks/clk-misc/tnt-engine-lever-29b.txt by mctas circuit archive
+# CIRCUIT: tnt-engine-lever-29b tnt-duper rate 200 TNT/min, period 6 gt, per period 1, runs lever on, switch lever off: stops within 2 gt; on: restarts within 5 gt, safe drop 4 blocks, stands 4 blocks above the ground (stand: in the design), effective volume 108 (3x4 footprint x (5 + 4) high: the box and the air under it), 29 blocks, 3x5x4, robust (survives its own explosions: 212 exploded, design intact; launched at (-0.0093, 0.1516, -0.9939) blocks/gt, spread (1.9822, 0.6938, 0.8249); useful: every blast clear of fluids, each destroys blocks on open ground)
+# The fast switchable TNT engine with the smallest EFFECTIVE volume (the box + the air it needs
+# under it; coordinator 2026-10-21: &quot;beat 150 by changing the engine itself&quot;): tnt-engine-lever-17b&#39;s
+# engine (200 TNT/min) with its lever inverter UNDER the engine (the torch under the sticky piston on
+# a stone, the lever on that stone&#39;s side) and a floor of 12 stone under the whole footprint.
+# Why the floor: the safe drop of the floorless engines (6 for the 17b, 7 for the 3x3x5) is set by
+# launched TNT that land about 20 blocks out and get knocked back by the explosions in their landing
+# zone, exploding on the ground under the machine (per-spawn runs 58 and 51); the floor takes those
+# blasts&#39; rays. 3x5x4 box: 12 x (5 + 4) = 108, vs 150 (3x3x5) and 160 (the 17b).
+name: tnt-engine-lever-29b
+circuit: tnt-duper
+stand: 4
+port input: 2 -1 2 lever
+origin: 1 0 -1
+palette:
+  A minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  B minecraft:stone
+  D minecraft:dead_tube_coral_fan[waterlogged=false]
+  L minecraft:lever[face=wall,facing=east,powered=false]
+  O minecraft:obsidian
+  R minecraft:redstone_block
+  S minecraft:slime_block
+  T minecraft:tnt[unstable=false]
+  r minecraft:redstone_wall_torch[facing=north,lit=true]
+  s minecraft:sticky_piston[extended=false,facing=north]
+layer -2:
+  BBB
+  BBB
+  BBB
+  BBB
+layer -1:
+  .
+  .
+  r
+  BL
+layer 0:
+  .
+  SSS
+  sOS
+  ..S
+layer 1:
+  .T
+  D
+  .AR
+  ..S
+layer 2:
+  .
+  .
+  .S
+  .SS
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/4802aeae549d7104ccc52e6162819b1f0c85df00">vjeux/redstonepedia@4802aeae5</a> on <span class="nowrap">2026-10-23</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=cddf7aad"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=528edeb5"});</script>
+</body>
+</html>

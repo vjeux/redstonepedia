@@ -1,0 +1,20 @@
+# archived 2026-10-19T20:56Z from /tmp/gen/arch2/s4x1x2-k5-census-p29-calibrated_sculk_sensor-observer-piston-5b.txt by mctas clock archive
+# CLOCK: census-p29-calibrated_sculk_sensor-observer-piston-5b period 29 gt (1.45 s), on 10/29, edges 1, warmup 0, family calibrated_sculk_sensor+observer+piston, 5 blocks, 4x1x2, robust
+# Found by `mctas clock census` (box 4x1x2 k<=5) with a sculk palette: s4x1x2-k5-census-p29-calibrated_sculk_sensor-observer-piston-5b
+name: census-p29-calibrated_sculk_sensor-observer-piston-5b
+census: box 4x1x2 k<=5 (0,0,0=calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false];0,0,1=observer[facing=north,powered=false];1,0,1=observer[facing=west,powered=false];2,0,1=observer[facing=west,powered=false];3,0,1=piston[extended=false,facing=north])
+port start: 0 0 0 last
+# port output declared 2026-10-20 (clk-misc): the cell the judge measures as this clock's automatic output, so
+# clock sim reads it the same way (re-judged in the game: its CLOCK line is unchanged)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 3 0 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 0 -1 0: the output [0, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 0 0 -1
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:observer[facing=north,powered=false]
+  P minecraft:piston[extended=false,facing=north]
+  o minecraft:observer[facing=west,powered=false]
+layer 0:
+  C
+  OooP

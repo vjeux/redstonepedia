@@ -1,0 +1,17 @@
+# archived 2026-10-20T14:12Z from /tmp/clkobs-runs/tiled/pulse-extender-repeater-L8-self-tile1.txt by mctas circuit archive
+# CIRCUIT: pulse-extender-repeater-L8 pulse-extender L 8 gt, delay 8 gt, min-pulse 2 gt (the shortest a real input makes), tileable every 1 (1 0 0), 2 blocks, 1x2x1, robust
+name: pulse-extender-repeater-L8
+circuit: pulse-extender
+group: pulse-extender-repeater
+group title: pulse extender: one repeater (4 to 8 ticks)
+tile: 1 0 0
+port input: 0 1 1
+port output: 0 1 0
+origin: 0 0 0
+palette:
+  R minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  S minecraft:stone
+layer 0:
+  S
+layer 1:
+  R

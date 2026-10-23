@@ -1,0 +1,45 @@
+# archived 2026-10-23T08:37Z from /home/vjeux/ws5/strip-game/staged/clk-misc-p187-big_dripleaf-dirt-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-65b-b5933c.txt by mctas clock archive
+# CLOCK: clk-misc-p187-big_dripleaf-dirt-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-65b-b5933c period 187 gt (9.35 s), on 20/187, edges 1, warmup 84, family big_dripleaf+oak_boat+oak_pressure_plate, 65 blocks, 10x6x4, rotation-dependent
+# the irreducible core of clk-misc-boat-lift-l3h2-dripleaf.txt (mctas clock strip, 2026-10-22): removed -2,0,0 water[level=0]; -2,0,1 water[level=0]; -2,1,0 water[level=0]; -2,1,1 water[level=0]; -2,1,2 stone; -2,4,0 stone; -2,4,1 stone; -1,1,-1 stone; -1,1,2 stone; -1,2,0 water[level=0]; -1,4,0 stone; -1,4,1 stone; 0,-1,1 stone; 0,0,-1 stone; 0,0,2 stone; 0,4,0 stone; 0,4,1 stone; 1,4,0 stone; 4,2,-1 stone; 4,2,2 stone; 5,-1,0 stone; 5,-1,1 stone; 5,0,-1 stone; 5,0,2 stone; 5,2,-1 stone; 5,2,2 stone; 6,0,0 stone; 6,0,1 stone; 6,1,0 stone; 6,2,0 stone; 6,2,1 stone; -3,1,0 stone; -3,1,1 stone; -2,1,-1 stone
+name: clk-misc-p187-big_dripleaf-dirt-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-65b-b5933c
+port output: 0 -1 -1
+entity: minecraft:oak_boat 3 0 1
+origin: -3 0 -1
+palette:
+  B minecraft:big_dripleaf[facing=west,tilt=none,waterlogged=true]
+  D minecraft:dirt
+  O minecraft:oak_pressure_plate[powered=false]
+  S minecraft:soul_sand
+  W minecraft:water[level=0]
+  s minecraft:stone
+  w minecraft:white_wall_banner[facing=west]
+layer -1:
+  .
+  .SSssssD
+  .SS.sssD
+  .
+layer 0:
+  .ss.ssss
+  s.WO...BO
+  s.WO...BO
+  .ss.ssss
+layer 1:
+  .
+  ..Wwsss
+  ..Wwsss..s
+  .
+layer 2:
+  .ssssss
+  sW
+  sWW
+  .ssssss
+layer 3:
+  .
+  .
+  .
+  .
+layer 4:
+  .
+  .
+  ....s
+  .

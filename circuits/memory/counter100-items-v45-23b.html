@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Counter: toggles every 100th pulse · 23 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Counter: toggles every 100th pulse · 23 blocks. Counter 100, with items: counter100-items&#39;s mechanism rearranged by clk-rt&#39;s circuit compact, judged box 45 (was 60), 23 blocks (was 23); its blocks sit in 5x4x">
+<meta property="og:title" content="Counter: toggles every 100th pulse · 23 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Counter: toggles every 100th pulse · 23 blocks. Counter 100, with items: counter100-items&#39;s mechanism rearranged by clk-rt&#39;s circuit compact, judged box 45 (was 60), 23 blocks (was 23); its blocks sit in 5x4x">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/memory/index.html">Memory and counters</a></p>
+<p class="kindline">Counter: counts pulses and reacts on a set count</p>
+<h1>toggles every 100th pulse · 23 blocks</h1>
+<p class="oneliner">Every 100th input pulse the output flips: on for 100 pulses, off for the next 100.</p>
+<p class="lede">passed at every position and facing we tested · fits in 5×3×3</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/memory/counter100-items-v45-23b.txt" data-stimulus="in 40+ 44- 64+ 68- 88+ 92- 112+ 116- 136+ 140- 160+ 164- 184+ 188- 208+ 212- 232+ 236- 256+ 260- 280+ 284- 304+ 308- 328+ 332- 352+ 356- 376+ 380- 400+ 404- 424+ 428- 448+ 452- 472+ 476- 496+ 500- 520+ 524- 544+ 548- 568+ 572- 592+ 596- 616+ 620- 640+ 644- 664+ 668- 688+ 692- 712+ 716- 736+ 740- 760+ 764- 784+ 788- 808+ 812- 832+ 836- 856+ 860- 880+ 884- 904+ 908- 928+ 932- 952+ 956- 976+ 980- 1000+ 1004- 1024+ 1028- 1048+ 1052- 1072+ 1076- 1096+ 1100- 1120+ 1124- 1144+ 1148- 1168+ 1172- 1192+ 1196- 1216+ 1220- 1240+ 1244- 1264+ 1268- 1288+ 1292- 1312+ 1316- 1336+ 1340- 1360+ 1364- 1384+ 1388- 1408+ 1412- 1432+ 1436- 1456+ 1460- 1480+ 1484- 1504+ 1508- 1528+ 1532- 1552+ 1556- 1576+ 1580- 1600+ 1604- 1624+ 1628- 1648+ 1652- 1672+ 1676- 1696+ 1700- 1720+ 1724- 1744+ 1748- 1768+ 1772- 1792+ 1796- 1816+ 1820- 1840+ 1844- 1864+ 1868- 1888+ 1892- 1912+ 1916- 1936+ 1940- 1960+ 1964- 1984+ 1988- 2008+ 2012- 2032+ 2036- 2056+ 2060- 2080+ 2084- 2104+ 2108- 2128+ 2132- 2152+ 2156- 2176+ 2180- 2200+ 2204- 2224+ 2228- 2248+ 2252- 2272+ 2276- 2296+ 2300- 2320+ 2324- 2344+ 2348- 2368+ 2372- 2392+ 2396- 2416+ 2420- 2440+ 2444- 2464+ 2468- 2488+ 2492- 2512+ 2516- 2536+ 2540- 2560+ 2564- 2584+ 2588- 2608+ 2612- 2632+ 2636- 2656+ 2660- 2680+ 2684- 2704+ 2708- 2728+ 2732- 2752+ 2756- 2776+ 2780- 2800+ 2804- 2824+ 2828- 2848+ 2852- 2872+ 2876- 2896+ 2900- 2920+ 2924- 2944+ 2948- 2968+ 2972- 2992+ 2996- 3016+ 3020- 3040+ 3044- 3064+ 3068- 3088+ 3092- 3112+ 3116- 3136+ 3140- 3160+ 3164- 3184+ 3188- 3208+ 3212- 3232+ 3236- 3256+ 3260- 3280+ 3284- 3304+ 3308- 3328+ 3332- 3352+ 3356- 3376+ 3380- 3400+ 3404- 3424+ 3428- 3448+ 3452- 3472+ 3476- 3496+ 3500- 3520+ 3524- 3544+ 3548- 3568+ 3572- 3592+ 3596- 3616+ 3620- 3640+ 3644- 3664+ 3668- 3688+ 3692- 3712+ 3716- 3736+ 3740- 3760+ 3764- 3784+ 3788- 3808+ 3812- 3832+ 3836- 3856+ 3860- 3880+ 3884- 3904+ 3908- 3928+ 3932- 3952+ 3956- 3976+ 3980- 4000+ 4004- 4024+ 4028- 4048+ 4052- 4072+ 4076- 4096+ 4100- 4120+ 4124- 4144+ 4148- 4168+ 4172- 4192+ 4196- 4216+ 4220- 4240+ 4244- 4264+ 4268- 4288+ 4292- 4312+ 4316- 4336+ 4340- 4360+ 4364- 4384+ 4388- 4408+ 4412- 4432+ 4436- 4456+ 4460- 4480+ 4484- 4504+ 4508- 4528+ 4532- 4552+ 4556- 4576+ 4580- 4600+ 4604- 4624+ 4628- 4648+ 4652- 4672+ 4676- 4696+ 4700- 4720+ 4724- 4744+ 4748- 4768+ 4772- 4792+ 4796- 4816+ 4820- 4840+ 4844- 4864+ 4868- 4888+ 4892- 4912+ 4916- 4936+ 4940- 4960+ 4964- 4984+ 4988- 5008+ 5012- 5032+ 5036- 5056+ 5060- 5080+ 5084- 5104+ 5108- 5128+ 5132- 5152+ 5156- 5176+ 5180- 5200+ 5204- 5224+ 5228- 5248+ 5252- 5272+ 5276- 5296+ 5300- 5320+ 5324- 5344+ 5348- 5368+ 5372- 5392+ 5396- 5416+ 5420- 5440+ 5444- 5464+ 5468- 5488+ 5492- 5512+ 5516- 5536+ 5540- 5560+ 5564- 5584+ 5588- 5608+ 5612- 5632+ 5636- 5656+ 5660- 5680+ 5684- 5704+ 5708- 5728+ 5732- 5752+ 5756- 5776+ 5780- 5800+ 5804- 5824+ 5828- 5848+ 5852- 5872+ 5876- 5896+ 5900- 5920+ 5924- 5944+ 5948- 5968+ 5972- 5992+ 5996- 6016+ 6020- 6040+ 6044- 6064+ 6068- 6088+ 6092- 6112+ 6116- 6136+ 6140- 6160+ 6164- 6184+ 6188- 6208+ 6212- 6232+ 6236- 6256+ 6260- 6280+ 6284- 6304+ 6308- 6328+ 6332- 6352+ 6356- 6376+ 6380- 6400+ 6404- 6424+ 6428- 6448+ 6452- 6472+ 6476- 6496+ 6500- 6520+ 6524- 6544+ 6548- 6568+ 6572- 6592+ 6596- 6616+ 6620- 6640+ 6644- 6664+ 6668- 6688+ 6692- 6712+ 6716- 6736+ 6740- 6760+ 6764- 6784+ 6788- 6808+ 6812- 6832+ 6836- 6856+ 6860- 6880+ 6884- 6904+ 6908- 6928+ 6932- 6952+ 6956- 6976+ 6980- 7000+ 7004- 7024+ 7028- 7048+ 7052- 7072+ 7076- 7096+ 7100- 7120+ 7124- 7144+ 7148- 7168+ 7172- 7192+ 7196- 7216+ 7220- 7240+ 7244- 7264+ 7284- 7304+ 7334- 7354+ 7554- 7574+ 7594- 7614+ 7644- 7664+ 7684- 7704+ 7734- 7754+ 7774- 7794+ 7814- 7834+ 7864- 7884+ 8084- 8104+ 8124- 8144+ 8174- 8194+ 8214- 8234+ 8264- 8284+ 8304- 8324+ 8344- 8364+ 8394- 8414+ 8614- 8634+ 8654- 8674+ 8704- 8724+ 8744- 8764+ 8794- 8814+ 8834- 8854+ 8874- 8894+ 8924- 8944+ 9144- 9164+ 9184- 9204+ 9234- 9254+ 9274- 9294+ 9324- 9344+ 9364- 9384+ 9404- 9424+ 9454- 9474+ 9674- 9694+ 9714- 9734+ 9764- 9784+ 9804- 9824+ 9854- 9874+ 9894- 9914+ 9934- 9954+ 9984- 10004+ 10204- 10224+ 10244- 10264+ 10294- 10314+ 10334- 10354+ 10384- 10404+ 10424- 10444+ 10464- 10484+ 10514- 10534+ 10734- 10754+ 10774- 10794+ 10824- 10844+ 10864- 10884+ 10914- 10934+ 10954- 10974+ 10994- 11014+ 11044- 11064+ 11264- 11284+ 11304- 11324+ 11354- 11374+ 11394- 11414+ 11444- 11464+ 11484- 11504+ 11524- 11544+ 11574- 11594+ 11794- 11814+ 11834- 11854+ 11884- 11904+ 11924- 11944+ 11974- 11994+ 12014- 12034+ 12054- 12074+ 12104- 12124+ 12324- 12344+ 12364- 12384+ 12414- 12434+ 12454- 12474+ 12504- 12524+ 12544- 12564+ 12584- 12604+ 12634- 12654+ 12854- 12874+ 12894- 12914+ 12944- 12964+ 12984- 13004+ 13034- 13054+ 13074- 13094+ 13114- 13134+ 13164- 13184+ 13384- 13404+ 13424- 13444+ 13474- 13494+ 13514- 13534+ 13564- 13584+ 13604- 13624+ 13644- 13664+ 13694- 13714+ 13914- 13934+ 13954-" data-phases="40-64 pulse 1; 64-88 pulse 2; 88-112 pulse 3; 112-136 pulse 4; 136-160 pulse 5; 160-184 pulse 6; 184-208 pulse 7; 208-232 pulse 8; 232-256 pulse 9; 256-280 pulse 10; 280-304 pulse 11; 304-328 pulse 12; 328-352 pulse 13; 352-376 pulse 14; 376-400 pulse 15; 400-424 pulse 16; 424-448 pulse 17; 448-472 pulse 18; 472-496 pulse 19; 496-520 pulse 20; 520-544 pulse 21; 544-568 pulse 22; 568-592 pulse 23; 592-616 pulse 24; 616-640 pulse 25; 640-664 pulse 26; 664-688 pulse 27; 688-712 pulse 28; 712-736 pulse 29; 736-760 pulse 30; 760-784 pulse 31; 784-808 pulse 32; 808-832 pulse 33; 832-856 pulse 34; 856-880 pulse 35; 880-904 pulse 36; 904-928 pulse 37; 928-952 pulse 38; 952-976 pulse 39; 976-1000 pulse 40; 1000-1024 pulse 41; 1024-1048 pulse 42; 1048-1072 pulse 43; 1072-1096 pulse 44; 1096-1120 pulse 45; 1120-1144 pulse 46; 1144-1168 pulse 47; 1168-1192 pulse 48; 1192-1216 pulse 49; 1216-1240 pulse 50; 1240-1264 pulse 51; 1264-1288 pulse 52; 1288-1312 pulse 53; 1312-1336 pulse 54; 1336-1360 pulse 55; 1360-1384 pulse 56; 1384-1408 pulse 57; 1408-1432 pulse 58; 1432-1456 pulse 59; 1456-1480 pulse 60; 1480-1504 pulse 61; 1504-1528 pulse 62; 1528-1552 pulse 63; 1552-1576 pulse 64; 1576-1600 pulse 65; 1600-1624 pulse 66; 1624-1648 pulse 67; 1648-1672 pulse 68; 1672-1696 pulse 69; 1696-1720 pulse 70; 1720-1744 pulse 71; 1744-1768 pulse 72; 1768-1792 pulse 73; 1792-1816 pulse 74; 1816-1840 pulse 75; 1840-1864 pulse 76; 1864-1888 pulse 77; 1888-1912 pulse 78; 1912-1936 pulse 79; 1936-1960 pulse 80; 1960-1984 pulse 81; 1984-2008 pulse 82; 2008-2032 pulse 83; 2032-2056 pulse 84; 2056-2080 pulse 85; 2080-2104 pulse 86; 2104-2128 pulse 87; 2128-2152 pulse 88; 2152-2176 pulse 89; 2176-2200 pulse 90; 2200-2224 pulse 91; 2224-2248 pulse 92; 2248-2272 pulse 93; 2272-2296 pulse 94; 2296-2320 pulse 95; 2320-2344 pulse 96; 2344-2368 pulse 97; 2368-2392 pulse 98; 2392-2416 pulse 99; 2416-2440 pulse 100; 2440-2464 pulse 101; 2464-2488 pulse 102; 2488-2512 pulse 103; 2512-2536 pulse 104; 2536-2560 pulse 105; 2560-2584 pulse 106; 2584-2608 pulse 107; 2608-2632 pulse 108; 2632-2656 pulse 109; 2656-2680 pulse 110; 2680-2704 pulse 111; 2704-2728 pulse 112; 2728-2752 pulse 113; 2752-2776 pulse 114; 2776-2800 pulse 115; 2800-2824 pulse 116; 2824-2848 pulse 117; 2848-2872 pulse 118; 2872-2896 pulse 119; 2896-2920 pulse 120; 2920-2944 pulse 121; 2944-2968 pulse 122; 2968-2992 pulse 123; 2992-3016 pulse 124; 3016-3040 pulse 125; 3040-3064 pulse 126; 3064-3088 pulse 127; 3088-3112 pulse 128; 3112-3136 pulse 129; 3136-3160 pulse 130; 3160-3184 pulse 131; 3184-3208 pulse 132; 3208-3232 pulse 133; 3232-3256 pulse 134; 3256-3280 pulse 135; 3280-3304 pulse 136; 3304-3328 pulse 137; 3328-3352 pulse 138; 3352-3376 pulse 139; 3376-3400 pulse 140; 3400-3424 pulse 141; 3424-3448 pulse 142; 3448-3472 pulse 143; 3472-3496 pulse 144; 3496-3520 pulse 145; 3520-3544 pulse 146; 3544-3568 pulse 147; 3568-3592 pulse 148; 3592-3616 pulse 149; 3616-3640 pulse 150; 3640-3664 pulse 151; 3664-3688 pulse 152; 3688-3712 pulse 153; 3712-3736 pulse 154; 3736-3760 pulse 155; 3760-3784 pulse 156; 3784-3808 pulse 157; 3808-3832 pulse 158; 3832-3856 pulse 159; 3856-3880 pulse 160; 3880-3904 pulse 161; 3904-3928 pulse 162; 3928-3952 pulse 163; 3952-3976 pulse 164; 3976-4000 pulse 165; 4000-4024 pulse 166; 4024-4048 pulse 167; 4048-4072 pulse 168; 4072-4096 pulse 169; 4096-4120 pulse 170; 4120-4144 pulse 171; 4144-4168 pulse 172; 4168-4192 pulse 173; 4192-4216 pulse 174; 4216-4240 pulse 175; 4240-4264 pulse 176; 4264-4288 pulse 177; 4288-4312 pulse 178; 4312-4336 pulse 179; 4336-4360 pulse 180; 4360-4384 pulse 181; 4384-4408 pulse 182; 4408-4432 pulse 183; 4432-4456 pulse 184; 4456-4480 pulse 185; 4480-4504 pulse 186; 4504-4528 pulse 187; 4528-4552 pulse 188; 4552-4576 pulse 189; 4576-4600 pulse 190; 4600-4624 pulse 191; 4624-4648 pulse 192; 4648-4672 pulse 193; 4672-4696 pulse 194; 4696-4720 pulse 195; 4720-4744 pulse 196; 4744-4768 pulse 197; 4768-4792 pulse 198; 4792-4816 pulse 199; 4816-4840 pulse 200; 4840-4864 pulse 201; 4864-4888 pulse 202; 4888-4912 pulse 203; 4912-4936 pulse 204; 4936-4960 pulse 205; 4960-4984 pulse 206; 4984-5008 pulse 207; 5008-5032 pulse 208; 5032-5056 pulse 209; 5056-5080 pulse 210; 5080-5104 pulse 211; 5104-5128 pulse 212; 5128-5152 pulse 213; 5152-5176 pulse 214; 5176-5200 pulse 215; 5200-5224 pulse 216; 5224-5248 pulse 217; 5248-5272 pulse 218; 5272-5296 pulse 219; 5296-5320 pulse 220; 5320-5344 pulse 221; 5344-5368 pulse 222; 5368-5392 pulse 223; 5392-5416 pulse 224; 5416-5440 pulse 225; 5440-5464 pulse 226; 5464-5488 pulse 227; 5488-5512 pulse 228; 5512-5536 pulse 229; 5536-5560 pulse 230; 5560-5584 pulse 231; 5584-5608 pulse 232; 5608-5632 pulse 233; 5632-5656 pulse 234; 5656-5680 pulse 235; 5680-5704 pulse 236; 5704-5728 pulse 237; 5728-5752 pulse 238; 5752-5776 pulse 239; 5776-5800 pulse 240; 5800-5824 pulse 241; 5824-5848 pulse 242; 5848-5872 pulse 243; 5872-5896 pulse 244; 5896-5920 pulse 245; 5920-5944 pulse 246; 5944-5968 pulse 247; 5968-5992 pulse 248; 5992-6016 pulse 249; 6016-6040 pulse 250; 6040-6064 pulse 251; 6064-6088 pulse 252; 6088-6112 pulse 253; 6112-6136 pulse 254; 6136-6160 pulse 255; 6160-6184 pulse 256; 6184-6208 pulse 257; 6208-6232 pulse 258; 6232-6256 pulse 259; 6256-6280 pulse 260; 6280-6304 pulse 261; 6304-6328 pulse 262; 6328-6352 pulse 263; 6352-6376 pulse 264; 6376-6400 pulse 265; 6400-6424 pulse 266; 6424-6448 pulse 267; 6448-6472 pulse 268; 6472-6496 pulse 269; 6496-6520 pulse 270; 6520-6544 pulse 271; 6544-6568 pulse 272; 6568-6592 pulse 273; 6592-6616 pulse 274; 6616-6640 pulse 275; 6640-6664 pulse 276; 6664-6688 pulse 277; 6688-6712 pulse 278; 6712-6736 pulse 279; 6736-6760 pulse 280; 6760-6784 pulse 281; 6784-6808 pulse 282; 6808-6832 pulse 283; 6832-6856 pulse 284; 6856-6880 pulse 285; 6880-6904 pulse 286; 6904-6928 pulse 287; 6928-6952 pulse 288; 6952-6976 pulse 289; 6976-7000 pulse 290; 7000-7024 pulse 291; 7024-7048 pulse 292; 7048-7072 pulse 293; 7072-7096 pulse 294; 7096-7120 pulse 295; 7120-7144 pulse 296; 7144-7168 pulse 297; 7168-7192 pulse 298; 7192-7216 pulse 299; 7216-7240 pulse 300; 7240-7264 pulse 301; 7264-7304 press 1 20; 7304-7354 press 2 30; 7354-7574 press 3 200; 7574-7614 press 4 20; 7614-7664 press 5 30; 7664-7704 press 6 20; 7704-7754 press 7 30; 7754-7794 press 8 20; 7794-7834 press 9 20; 7834-7884 press 10 30; 7884-8104 press 11 200; 8104-8144 press 12 20; 8144-8194 press 13 30; 8194-8234 press 14 20; 8234-8284 press 15 30; 8284-8324 press 16 20; 8324-8364 press 17 20; 8364-8414 press 18 30; 8414-8634 press 19 200; 8634-8674 press 20 20; 8674-8724 press 21 30; 8724-8764 press 22 20; 8764-8814 press 23 30; 8814-8854 press 24 20; 8854-8894 press 25 20; 8894-8944 press 26 30; 8944-9164 press 27 200; 9164-9204 press 28 20; 9204-9254 press 29 30; 9254-9294 press 30 20; 9294-9344 press 31 30; 9344-9384 press 32 20; 9384-9424 press 33 20; 9424-9474 press 34 30; 9474-9694 press 35 200; 9694-9734 press 36 20; 9734-9784 press 37 30; 9784-9824 press 38 20; 9824-9874 press 39 30; 9874-9914 press 40 20; 9914-9954 press 41 20; 9954-10004 press 42 30; 10004-10224 press 43 200; 10224-10264 press 44 20; 10264-10314 press 45 30; 10314-10354 press 46 20; 10354-10404 press 47 30; 10404-10444 press 48 20; 10444-10484 press 49 20; 10484-10534 press 50 30; 10534-10754 press 51 200; 10754-10794 press 52 20; 10794-10844 press 53 30; 10844-10884 press 54 20; 10884-10934 press 55 30; 10934-10974 press 56 20; 10974-11014 press 57 20; 11014-11064 press 58 30; 11064-11284 press 59 200; 11284-11324 press 60 20; 11324-11374 press 61 30; 11374-11414 press 62 20; 11414-11464 press 63 30; 11464-11504 press 64 20; 11504-11544 press 65 20; 11544-11594 press 66 30; 11594-11814 press 67 200; 11814-11854 press 68 20; 11854-11904 press 69 30; 11904-11944 press 70 20; 11944-11994 press 71 30; 11994-12034 press 72 20; 12034-12074 press 73 20; 12074-12124 press 74 30; 12124-12344 press 75 200; 12344-12384 press 76 20; 12384-12434 press 77 30; 12434-12474 press 78 20; 12474-12524 press 79 30; 12524-12564 press 80 20; 12564-12604 press 81 20; 12604-12654 press 82 30; 12654-12874 press 83 200; 12874-12914 press 84 20; 12914-12964 press 85 30; 12964-13004 press 86 20; 13004-13054 press 87 30; 13054-13094 press 88 20; 13094-13134 press 89 20; 13134-13184 press 90 30; 13184-13404 press 91 200; 13404-13444 press 92 20; 13444-13494 press 93 30; 13494-13534 press 94 20; 13534-13584 press 95 30; 13584-13624 press 96 20; 13624-13664 press 97 20; 13664-13714 press 98 30; 13714-13934 press 99 200; 13934-13974 press 100 20" data-input-mode="pulse" data-circuit="counter 100" data-kind="circuit"><div class="fallback"><span class="fb-big">toggles every 100th pulse</span><span class="fb-small">Counter</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<section class="group kind" id="sizes"><h2>Every size <span class="count">39</span></h2><p class="hint">The best design we have for each size: pick one to see it.</p><div class="scroll-x"><table class="list kind-sizes"><thead><tr><th>size</th><th>blocks</th><th>numbers</th></tr></thead><tbody>
+<tr><td><a href="../../circuits/memory/counter2-bulb.html">every 2nd</a></td><td>3 blocks</td><td>smallest for its size of 2 tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter3-corner-sealed.html">every 3rd</a></td><td>11 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter4-bulb2.html">every 4th</a></td><td>6 blocks</td><td>the smallest for each count, of 42 designs tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter5-ring5-sealed.html">every 5th</a></td><td>19 blocks</td><td>smallest for its size of 2 tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter6-corner-bulb-sealed.html">every 6th</a></td><td>14 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter7-ring7-sealed.html">every 7th</a></td><td>25 blocks</td><td>smallest for its size of 2 tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter8-bulb3.html">every 8th</a></td><td>9 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter9-ring3-ring3-sealed.html">every 9th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter10-ring5-bulb1-sealed.html">every 10th</a></td><td>22 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter11-items-v45-23b-0.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter12-ring3-bulb2-sealed.html">every 12th</a></td><td>17 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter13-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter14-ring7-bulb1-sealed.html">every 14th</a></td><td>28 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter15-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter16-bulb4.html">every 16th</a></td><td>12 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter17-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter18-ring3-ring3-bulb1-sealed.html">every 18th</a></td><td>26 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter19-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter20-ring5-bulb2-sealed.html">every 20th</a></td><td>25 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter21-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter22-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter23-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter24-ring3-bulb3-sealed.html">every 24th</a></td><td>20 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter25-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter26-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter27-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter28-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter30-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter32-bulb5.html">every 32nd</a></td><td>15 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter33-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter34-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter36-ring3-ring3-bulb2-sealed.html">every 36th</a></td><td>29 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter38-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter39-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter40-ring5-bulb3-sealed.html">every 40th</a></td><td>28 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter45-items.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter48-ring3-bulb4-sealed.html">every 48th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr class="on"><td><b>every 0th</b> (this page)</td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter576-items.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+</tbody></table></div></section>
+<p class="needs">Comes loaded with 100 stone in its containers: the download includes them; building it by hand, put them in first.</p>
+<section class="what plain"><h2>Try it</h2><p>Hold IN under the view for a long press, tap it for a short one: the demo counts the 100 pulses for you: press the speed button until it shows 100× and watch OUT change (the box marked OUT turns red while the output is on). Press play under the view to watch our test on a loop; touch any other control to take over. Its count is the number of items in its droppers: they pass the items one way per pulse, and the numbers over them show how many each holds. Load another number of items (stone here) to make it react on that count.</p><p class="howdesign"><b>How this design does it:</b> Counter 100, with items: counter100-items&#39;s mechanism rearranged by clk-rt&#39;s circuit compact, judged box 45 (was 60), 23 blocks (was 23); its blocks sit in 5x4x3.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/memory/counter100-items-v45-23b.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/memory/counter100-items-v45-23b.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=comparator">comparator</a> <a class="chip" href="../../index.html#with=copper_bulb">copper bulb</a> <a class="chip" href="../../index.html#with=dropper">dropper</a> <a class="chip" href="../../index.html#with=redstone_torch">redstone torch</a> <a class="chip" href="../../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>It <b>counts input pulses</b>: the output <b>flips once every 100 input pulses</b>: on for 100 pulses, then off for 100. In other words, it divides the number of pulses by 100.</p><p>Use it to do something every 100th time, or to slow a fast clock down 100 times.</p></section>
+<section><h2>How to try it</h2><p><b>Press play under the view to watch the judge's own test</b> on a loop (the badge reads <i>demo</i> with the step it is on; the same test is drawn as a timing diagram below). Touch any control to stop it and try the circuit yourself.</p><p>To try it: press and hold the <b>IN</b> button of the bar (or the cell tagged IN) to power that input; a quick tap sends a short 2 gt pulse.</p><p>Inputs are tagged in <span class="tag-in">lime</span>; the output is tagged <span class="tag-out">OUT</span>: the <b>redstone lamp</b> in that cell (the lamp the judge itself adds to read the output) <b>lights while the output is on</b> (the output strip by the demo badge shows its last 40 game ticks, 2 seconds). Drag to look around, pinch or scroll to zoom, step one game tick at a time with the step button.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the input with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="8457" height="112" viewBox="0 0 8457 112" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="88.0" y1="18.0" x2="88.0" y2="94.0"/><line class="ph" x1="102.4" y1="18.0" x2="102.4" y2="94.0"/><line class="ph" x1="116.8" y1="18.0" x2="116.8" y2="94.0"/><line class="ph" x1="131.2" y1="18.0" x2="131.2" y2="94.0"/><line class="ph" x1="145.6" y1="18.0" x2="145.6" y2="94.0"/><line class="ph" x1="160.0" y1="18.0" x2="160.0" y2="94.0"/><line class="ph" x1="174.4" y1="18.0" x2="174.4" y2="94.0"/><line class="ph" x1="188.8" y1="18.0" x2="188.8" y2="94.0"/><line class="ph" x1="203.2" y1="18.0" x2="203.2" y2="94.0"/><line class="ph" x1="217.6" y1="18.0" x2="217.6" y2="94.0"/><line class="ph" x1="232.0" y1="18.0" x2="232.0" y2="94.0"/><line class="ph" x1="246.4" y1="18.0" x2="246.4" y2="94.0"/><line class="ph" x1="260.8" y1="18.0" x2="260.8" y2="94.0"/><line class="ph" x1="275.2" y1="18.0" x2="275.2" y2="94.0"/><line class="ph" x1="289.6" y1="18.0" x2="289.6" y2="94.0"/><line class="ph" x1="304.0" y1="18.0" x2="304.0" y2="94.0"/><line class="ph" x1="318.4" y1="18.0" x2="318.4" y2="94.0"/><line class="ph" x1="332.8" y1="18.0" x2="332.8" y2="94.0"/><line class="ph" x1="347.2" y1="18.0" x2="347.2" y2="94.0"/><line class="ph" x1="361.6" y1="18.0" x2="361.6" y2="94.0"/><line class="ph" x1="376.0" y1="18.0" x2="376.0" y2="94.0"/><line class="ph" x1="390.4" y1="18.0" x2="390.4" y2="94.0"/><line class="ph" x1="404.8" y1="18.0" x2="404.8" y2="94.0"/><line class="ph" x1="419.2" y1="18.0" x2="419.2" y2="94.0"/><line class="ph" x1="433.6" y1="18.0" x2="433.6" y2="94.0"/><line class="ph" x1="448.0" y1="18.0" x2="448.0" y2="94.0"/><line class="ph" x1="462.4" y1="18.0" x2="462.4" y2="94.0"/><line class="ph" x1="476.8" y1="18.0" x2="476.8" y2="94.0"/><line class="ph" x1="491.2" y1="18.0" x2="491.2" y2="94.0"/><line class="ph" x1="505.6" y1="18.0" x2="505.6" y2="94.0"/><line class="ph" x1="520.0" y1="18.0" x2="520.0" y2="94.0"/><line class="ph" x1="534.4" y1="18.0" x2="534.4" y2="94.0"/><line class="ph" x1="548.8" y1="18.0" x2="548.8" y2="94.0"/><line class="ph" x1="563.2" y1="18.0" x2="563.2" y2="94.0"/><line class="ph" x1="577.6" y1="18.0" x2="577.6" y2="94.0"/><line class="ph" x1="592.0" y1="18.0" x2="592.0" y2="94.0"/><line class="ph" x1="606.4" y1="18.0" x2="606.4" y2="94.0"/><line class="ph" x1="620.8" y1="18.0" x2="620.8" y2="94.0"/><line class="ph" x1="635.2" y1="18.0" x2="635.2" y2="94.0"/><line class="ph" x1="649.6" y1="18.0" x2="649.6" y2="94.0"/><line class="ph" x1="664.0" y1="18.0" x2="664.0" y2="94.0"/><line class="ph" x1="678.4" y1="18.0" x2="678.4" y2="94.0"/><line class="ph" x1="692.8" y1="18.0" x2="692.8" y2="94.0"/><line class="ph" x1="707.2" y1="18.0" x2="707.2" y2="94.0"/><line class="ph" x1="721.6" y1="18.0" x2="721.6" y2="94.0"/><line class="ph" x1="736.0" y1="18.0" x2="736.0" y2="94.0"/><line class="ph" x1="750.4" y1="18.0" x2="750.4" y2="94.0"/><line class="ph" x1="764.8" y1="18.0" x2="764.8" y2="94.0"/><line class="ph" x1="779.2" y1="18.0" x2="779.2" y2="94.0"/><line class="ph" x1="793.6" y1="18.0" x2="793.6" y2="94.0"/><line class="ph" x1="808.0" y1="18.0" x2="808.0" y2="94.0"/><line class="ph" x1="822.4" y1="18.0" x2="822.4" y2="94.0"/><line class="ph" x1="836.8" y1="18.0" x2="836.8" y2="94.0"/><line class="ph" x1="851.2" y1="18.0" x2="851.2" y2="94.0"/><line class="ph" x1="865.6" y1="18.0" x2="865.6" y2="94.0"/><line class="ph" x1="880.0" y1="18.0" x2="880.0" y2="94.0"/><line class="ph" x1="894.4" y1="18.0" x2="894.4" y2="94.0"/><line class="ph" x1="908.8" y1="18.0" x2="908.8" y2="94.0"/><line class="ph" x1="923.2" y1="18.0" x2="923.2" y2="94.0"/><line class="ph" x1="937.6" y1="18.0" x2="937.6" y2="94.0"/><line class="ph" x1="952.0" y1="18.0" x2="952.0" y2="94.0"/><line class="ph" x1="966.4" y1="18.0" x2="966.4" y2="94.0"/><line class="ph" x1="980.8" y1="18.0" x2="980.8" y2="94.0"/><line class="ph" x1="995.2" y1="18.0" x2="995.2" y2="94.0"/><line class="ph" x1="1009.6" y1="18.0" x2="1009.6" y2="94.0"/><line class="ph" x1="1024.0" y1="18.0" x2="1024.0" y2="94.0"/><line class="ph" x1="1038.4" y1="18.0" x2="1038.4" y2="94.0"/><line class="ph" x1="1052.8" y1="18.0" x2="1052.8" y2="94.0"/><line class="ph" x1="1067.2" y1="18.0" x2="1067.2" y2="94.0"/><line class="ph" x1="1081.6" y1="18.0" x2="1081.6" y2="94.0"/><line class="ph" x1="1096.0" y1="18.0" x2="1096.0" y2="94.0"/><line class="ph" x1="1110.4" y1="18.0" x2="1110.4" y2="94.0"/><line class="ph" x1="1124.8" y1="18.0" x2="1124.8" y2="94.0"/><line class="ph" x1="1139.2" y1="18.0" x2="1139.2" y2="94.0"/><line class="ph" x1="1153.6" y1="18.0" x2="1153.6" y2="94.0"/><line class="ph" x1="1168.0" y1="18.0" x2="1168.0" y2="94.0"/><line class="ph" x1="1182.4" y1="18.0" x2="1182.4" y2="94.0"/><line class="ph" x1="1196.8" y1="18.0" x2="1196.8" y2="94.0"/><line class="ph" x1="1211.2" y1="18.0" x2="1211.2" y2="94.0"/><line class="ph" x1="1225.6" y1="18.0" x2="1225.6" y2="94.0"/><line class="ph" x1="1240.0" y1="18.0" x2="1240.0" y2="94.0"/><line class="ph" x1="1254.4" y1="18.0" x2="1254.4" y2="94.0"/><line class="ph" x1="1268.8" y1="18.0" x2="1268.8" y2="94.0"/><line class="ph" x1="1283.2" y1="18.0" x2="1283.2" y2="94.0"/><line class="ph" x1="1297.6" y1="18.0" x2="1297.6" y2="94.0"/><line class="ph" x1="1312.0" y1="18.0" x2="1312.0" y2="94.0"/><line class="ph" x1="1326.4" y1="18.0" x2="1326.4" y2="94.0"/><line class="ph" x1="1340.8" y1="18.0" x2="1340.8" y2="94.0"/><line class="ph" x1="1355.2" y1="18.0" x2="1355.2" y2="94.0"/><line class="ph" x1="1369.6" y1="18.0" x2="1369.6" y2="94.0"/><line class="ph" x1="1384.0" y1="18.0" x2="1384.0" y2="94.0"/><line class="ph" x1="1398.4" y1="18.0" x2="1398.4" y2="94.0"/><line class="ph" x1="1412.8" y1="18.0" x2="1412.8" y2="94.0"/><line class="ph" x1="1427.2" y1="18.0" x2="1427.2" y2="94.0"/><line class="ph" x1="1441.6" y1="18.0" x2="1441.6" y2="94.0"/><line class="ph" x1="1456.0" y1="18.0" x2="1456.0" y2="94.0"/><line class="ph" x1="1470.4" y1="18.0" x2="1470.4" y2="94.0"/><line class="ph" x1="1484.8" y1="18.0" x2="1484.8" y2="94.0"/><line class="ph" x1="1499.2" y1="18.0" x2="1499.2" y2="94.0"/><line class="ph" x1="1513.6" y1="18.0" x2="1513.6" y2="94.0"/><line class="ph" x1="1528.0" y1="18.0" x2="1528.0" y2="94.0"/><line class="ph" x1="1542.4" y1="18.0" x2="1542.4" y2="94.0"/><line class="ph" x1="1556.8" y1="18.0" x2="1556.8" y2="94.0"/><line class="ph" x1="1571.2" y1="18.0" x2="1571.2" y2="94.0"/><line class="ph" x1="1585.6" y1="18.0" x2="1585.6" y2="94.0"/><line class="ph" x1="1600.0" y1="18.0" x2="1600.0" y2="94.0"/><line class="ph" x1="1614.4" y1="18.0" x2="1614.4" y2="94.0"/><line class="ph" x1="1628.8" y1="18.0" x2="1628.8" y2="94.0"/><line class="ph" x1="1643.2" y1="18.0" x2="1643.2" y2="94.0"/><line class="ph" x1="1657.6" y1="18.0" x2="1657.6" y2="94.0"/><line class="ph" x1="1672.0" y1="18.0" x2="1672.0" y2="94.0"/><line class="ph" x1="1686.4" y1="18.0" x2="1686.4" y2="94.0"/><line class="ph" x1="1700.8" y1="18.0" x2="1700.8" y2="94.0"/><line class="ph" x1="1715.2" y1="18.0" x2="1715.2" y2="94.0"/><line class="ph" x1="1729.6" y1="18.0" x2="1729.6" y2="94.0"/><line class="ph" x1="1744.0" y1="18.0" x2="1744.0" y2="94.0"/><line class="ph" x1="1758.4" y1="18.0" x2="1758.4" y2="94.0"/><line class="ph" x1="1772.8" y1="18.0" x2="1772.8" y2="94.0"/><line class="ph" x1="1787.2" y1="18.0" x2="1787.2" y2="94.0"/><line class="ph" x1="1801.6" y1="18.0" x2="1801.6" y2="94.0"/><line class="ph" x1="1816.0" y1="18.0" x2="1816.0" y2="94.0"/><line class="ph" x1="1830.4" y1="18.0" x2="1830.4" y2="94.0"/><line class="ph" x1="1844.8" y1="18.0" x2="1844.8" y2="94.0"/><line class="ph" x1="1859.2" y1="18.0" x2="1859.2" y2="94.0"/><line class="ph" x1="1873.6" y1="18.0" x2="1873.6" y2="94.0"/><line class="ph" x1="1888.0" y1="18.0" x2="1888.0" y2="94.0"/><line class="ph" x1="1902.4" y1="18.0" x2="1902.4" y2="94.0"/><line class="ph" x1="1916.8" y1="18.0" x2="1916.8" y2="94.0"/><line class="ph" x1="1931.2" y1="18.0" x2="1931.2" y2="94.0"/><line class="ph" x1="1945.6" y1="18.0" x2="1945.6" y2="94.0"/><line class="ph" x1="1960.0" y1="18.0" x2="1960.0" y2="94.0"/><line class="ph" x1="1974.4" y1="18.0" x2="1974.4" y2="94.0"/><line class="ph" x1="1988.8" y1="18.0" x2="1988.8" y2="94.0"/><line class="ph" x1="2003.2" y1="18.0" x2="2003.2" y2="94.0"/><line class="ph" x1="2017.6" y1="18.0" x2="2017.6" y2="94.0"/><line class="ph" x1="2032.0" y1="18.0" x2="2032.0" y2="94.0"/><line class="ph" x1="2046.4" y1="18.0" x2="2046.4" y2="94.0"/><line class="ph" x1="2060.8" y1="18.0" x2="2060.8" y2="94.0"/><line class="ph" x1="2075.2" y1="18.0" x2="2075.2" y2="94.0"/><line class="ph" x1="2089.6" y1="18.0" x2="2089.6" y2="94.0"/><line class="ph" x1="2104.0" y1="18.0" x2="2104.0" y2="94.0"/><line class="ph" x1="2118.4" y1="18.0" x2="2118.4" y2="94.0"/><line class="ph" x1="2132.8" y1="18.0" x2="2132.8" y2="94.0"/><line class="ph" x1="2147.2" y1="18.0" x2="2147.2" y2="94.0"/><line class="ph" x1="2161.6" y1="18.0" x2="2161.6" y2="94.0"/><line class="ph" x1="2176.0" y1="18.0" x2="2176.0" y2="94.0"/><line class="ph" x1="2190.4" y1="18.0" x2="2190.4" y2="94.0"/><line class="ph" x1="2204.8" y1="18.0" x2="2204.8" y2="94.0"/><line class="ph" x1="2219.2" y1="18.0" x2="2219.2" y2="94.0"/><line class="ph" x1="2233.6" y1="18.0" x2="2233.6" y2="94.0"/><line class="ph" x1="2248.0" y1="18.0" x2="2248.0" y2="94.0"/><line class="ph" x1="2262.4" y1="18.0" x2="2262.4" y2="94.0"/><line class="ph" x1="2276.8" y1="18.0" x2="2276.8" y2="94.0"/><line class="ph" x1="2291.2" y1="18.0" x2="2291.2" y2="94.0"/><line class="ph" x1="2305.6" y1="18.0" x2="2305.6" y2="94.0"/><line class="ph" x1="2320.0" y1="18.0" x2="2320.0" y2="94.0"/><line class="ph" x1="2334.4" y1="18.0" x2="2334.4" y2="94.0"/><line class="ph" x1="2348.8" y1="18.0" x2="2348.8" y2="94.0"/><line class="ph" x1="2363.2" y1="18.0" x2="2363.2" y2="94.0"/><line class="ph" x1="2377.6" y1="18.0" x2="2377.6" y2="94.0"/><line class="ph" x1="2392.0" y1="18.0" x2="2392.0" y2="94.0"/><line class="ph" x1="2406.4" y1="18.0" x2="2406.4" y2="94.0"/><line class="ph" x1="2420.8" y1="18.0" x2="2420.8" y2="94.0"/><line class="ph" x1="2435.2" y1="18.0" x2="2435.2" y2="94.0"/><line class="ph" x1="2449.6" y1="18.0" x2="2449.6" y2="94.0"/><line class="ph" x1="2464.0" y1="18.0" x2="2464.0" y2="94.0"/><line class="ph" x1="2478.4" y1="18.0" x2="2478.4" y2="94.0"/><line class="ph" x1="2492.8" y1="18.0" x2="2492.8" y2="94.0"/><line class="ph" x1="2507.2" y1="18.0" x2="2507.2" y2="94.0"/><line class="ph" x1="2521.6" y1="18.0" x2="2521.6" y2="94.0"/><line class="ph" x1="2536.0" y1="18.0" x2="2536.0" y2="94.0"/><line class="ph" x1="2550.4" y1="18.0" x2="2550.4" y2="94.0"/><line class="ph" x1="2564.8" y1="18.0" x2="2564.8" y2="94.0"/><line class="ph" x1="2579.2" y1="18.0" x2="2579.2" y2="94.0"/><line class="ph" x1="2593.6" y1="18.0" x2="2593.6" y2="94.0"/><line class="ph" x1="2608.0" y1="18.0" x2="2608.0" y2="94.0"/><line class="ph" x1="2622.4" y1="18.0" x2="2622.4" y2="94.0"/><line class="ph" x1="2636.8" y1="18.0" x2="2636.8" y2="94.0"/><line class="ph" x1="2651.2" y1="18.0" x2="2651.2" y2="94.0"/><line class="ph" x1="2665.6" y1="18.0" x2="2665.6" y2="94.0"/><line class="ph" x1="2680.0" y1="18.0" x2="2680.0" y2="94.0"/><line class="ph" x1="2694.4" y1="18.0" x2="2694.4" y2="94.0"/><line class="ph" x1="2708.8" y1="18.0" x2="2708.8" y2="94.0"/><line class="ph" x1="2723.2" y1="18.0" x2="2723.2" y2="94.0"/><line class="ph" x1="2737.6" y1="18.0" x2="2737.6" y2="94.0"/><line class="ph" x1="2752.0" y1="18.0" x2="2752.0" y2="94.0"/><line class="ph" x1="2766.4" y1="18.0" x2="2766.4" y2="94.0"/><line class="ph" x1="2780.8" y1="18.0" x2="2780.8" y2="94.0"/><line class="ph" x1="2795.2" y1="18.0" x2="2795.2" y2="94.0"/><line class="ph" x1="2809.6" y1="18.0" x2="2809.6" y2="94.0"/><line class="ph" x1="2824.0" y1="18.0" x2="2824.0" y2="94.0"/><line class="ph" x1="2838.4" y1="18.0" x2="2838.4" y2="94.0"/><line class="ph" x1="2852.8" y1="18.0" x2="2852.8" y2="94.0"/><line class="ph" x1="2867.2" y1="18.0" x2="2867.2" y2="94.0"/><line class="ph" x1="2881.6" y1="18.0" x2="2881.6" y2="94.0"/><line class="ph" x1="2896.0" y1="18.0" x2="2896.0" y2="94.0"/><line class="ph" x1="2910.4" y1="18.0" x2="2910.4" y2="94.0"/><line class="ph" x1="2924.8" y1="18.0" x2="2924.8" y2="94.0"/><line class="ph" x1="2939.2" y1="18.0" x2="2939.2" y2="94.0"/><line class="ph" x1="2953.6" y1="18.0" x2="2953.6" y2="94.0"/><line class="ph" x1="2968.0" y1="18.0" x2="2968.0" y2="94.0"/><line class="ph" x1="2982.4" y1="18.0" x2="2982.4" y2="94.0"/><line class="ph" x1="2996.8" y1="18.0" x2="2996.8" y2="94.0"/><line class="ph" x1="3011.2" y1="18.0" x2="3011.2" y2="94.0"/><line class="ph" x1="3025.6" y1="18.0" x2="3025.6" y2="94.0"/><line class="ph" x1="3040.0" y1="18.0" x2="3040.0" y2="94.0"/><line class="ph" x1="3054.4" y1="18.0" x2="3054.4" y2="94.0"/><line class="ph" x1="3068.8" y1="18.0" x2="3068.8" y2="94.0"/><line class="ph" x1="3083.2" y1="18.0" x2="3083.2" y2="94.0"/><line class="ph" x1="3097.6" y1="18.0" x2="3097.6" y2="94.0"/><line class="ph" x1="3112.0" y1="18.0" x2="3112.0" y2="94.0"/><line class="ph" x1="3126.4" y1="18.0" x2="3126.4" y2="94.0"/><line class="ph" x1="3140.8" y1="18.0" x2="3140.8" y2="94.0"/><line class="ph" x1="3155.2" y1="18.0" x2="3155.2" y2="94.0"/><line class="ph" x1="3169.6" y1="18.0" x2="3169.6" y2="94.0"/><line class="ph" x1="3184.0" y1="18.0" x2="3184.0" y2="94.0"/><line class="ph" x1="3198.4" y1="18.0" x2="3198.4" y2="94.0"/><line class="ph" x1="3212.8" y1="18.0" x2="3212.8" y2="94.0"/><line class="ph" x1="3227.2" y1="18.0" x2="3227.2" y2="94.0"/><line class="ph" x1="3241.6" y1="18.0" x2="3241.6" y2="94.0"/><line class="ph" x1="3256.0" y1="18.0" x2="3256.0" y2="94.0"/><line class="ph" x1="3270.4" y1="18.0" x2="3270.4" y2="94.0"/><line class="ph" x1="3284.8" y1="18.0" x2="3284.8" y2="94.0"/><line class="ph" x1="3299.2" y1="18.0" x2="3299.2" y2="94.0"/><line class="ph" x1="3313.6" y1="18.0" x2="3313.6" y2="94.0"/><line class="ph" x1="3328.0" y1="18.0" x2="3328.0" y2="94.0"/><line class="ph" x1="3342.4" y1="18.0" x2="3342.4" y2="94.0"/><line class="ph" x1="3356.8" y1="18.0" x2="3356.8" y2="94.0"/><line class="ph" x1="3371.2" y1="18.0" x2="3371.2" y2="94.0"/><line class="ph" x1="3385.6" y1="18.0" x2="3385.6" y2="94.0"/><line class="ph" x1="3400.0" y1="18.0" x2="3400.0" y2="94.0"/><line class="ph" x1="3414.4" y1="18.0" x2="3414.4" y2="94.0"/><line class="ph" x1="3428.8" y1="18.0" x2="3428.8" y2="94.0"/><line class="ph" x1="3443.2" y1="18.0" x2="3443.2" y2="94.0"/><line class="ph" x1="3457.6" y1="18.0" x2="3457.6" y2="94.0"/><line class="ph" x1="3472.0" y1="18.0" x2="3472.0" y2="94.0"/><line class="ph" x1="3486.4" y1="18.0" x2="3486.4" y2="94.0"/><line class="ph" x1="3500.8" y1="18.0" x2="3500.8" y2="94.0"/><line class="ph" x1="3515.2" y1="18.0" x2="3515.2" y2="94.0"/><line class="ph" x1="3529.6" y1="18.0" x2="3529.6" y2="94.0"/><line class="ph" x1="3544.0" y1="18.0" x2="3544.0" y2="94.0"/><line class="ph" x1="3558.4" y1="18.0" x2="3558.4" y2="94.0"/><line class="ph" x1="3572.8" y1="18.0" x2="3572.8" y2="94.0"/><line class="ph" x1="3587.2" y1="18.0" x2="3587.2" y2="94.0"/><line class="ph" x1="3601.6" y1="18.0" x2="3601.6" y2="94.0"/><line class="ph" x1="3616.0" y1="18.0" x2="3616.0" y2="94.0"/><line class="ph" x1="3630.4" y1="18.0" x2="3630.4" y2="94.0"/><line class="ph" x1="3644.8" y1="18.0" x2="3644.8" y2="94.0"/><line class="ph" x1="3659.2" y1="18.0" x2="3659.2" y2="94.0"/><line class="ph" x1="3673.6" y1="18.0" x2="3673.6" y2="94.0"/><line class="ph" x1="3688.0" y1="18.0" x2="3688.0" y2="94.0"/><line class="ph" x1="3702.4" y1="18.0" x2="3702.4" y2="94.0"/><line class="ph" x1="3716.8" y1="18.0" x2="3716.8" y2="94.0"/><line class="ph" x1="3731.2" y1="18.0" x2="3731.2" y2="94.0"/><line class="ph" x1="3745.6" y1="18.0" x2="3745.6" y2="94.0"/><line class="ph" x1="3760.0" y1="18.0" x2="3760.0" y2="94.0"/><line class="ph" x1="3774.4" y1="18.0" x2="3774.4" y2="94.0"/><line class="ph" x1="3788.8" y1="18.0" x2="3788.8" y2="94.0"/><line class="ph" x1="3803.2" y1="18.0" x2="3803.2" y2="94.0"/><line class="ph" x1="3817.6" y1="18.0" x2="3817.6" y2="94.0"/><line class="ph" x1="3832.0" y1="18.0" x2="3832.0" y2="94.0"/><line class="ph" x1="3846.4" y1="18.0" x2="3846.4" y2="94.0"/><line class="ph" x1="3860.8" y1="18.0" x2="3860.8" y2="94.0"/><line class="ph" x1="3875.2" y1="18.0" x2="3875.2" y2="94.0"/><line class="ph" x1="3889.6" y1="18.0" x2="3889.6" y2="94.0"/><line class="ph" x1="3904.0" y1="18.0" x2="3904.0" y2="94.0"/><line class="ph" x1="3918.4" y1="18.0" x2="3918.4" y2="94.0"/><line class="ph" x1="3932.8" y1="18.0" x2="3932.8" y2="94.0"/><line class="ph" x1="3947.2" y1="18.0" x2="3947.2" y2="94.0"/><line class="ph" x1="3961.6" y1="18.0" x2="3961.6" y2="94.0"/><line class="ph" x1="3976.0" y1="18.0" x2="3976.0" y2="94.0"/><line class="ph" x1="3990.4" y1="18.0" x2="3990.4" y2="94.0"/><line class="ph" x1="4004.8" y1="18.0" x2="4004.8" y2="94.0"/><line class="ph" x1="4019.2" y1="18.0" x2="4019.2" y2="94.0"/><line class="ph" x1="4033.6" y1="18.0" x2="4033.6" y2="94.0"/><line class="ph" x1="4048.0" y1="18.0" x2="4048.0" y2="94.0"/><line class="ph" x1="4062.4" y1="18.0" x2="4062.4" y2="94.0"/><line class="ph" x1="4076.8" y1="18.0" x2="4076.8" y2="94.0"/><line class="ph" x1="4091.2" y1="18.0" x2="4091.2" y2="94.0"/><line class="ph" x1="4105.6" y1="18.0" x2="4105.6" y2="94.0"/><line class="ph" x1="4120.0" y1="18.0" x2="4120.0" y2="94.0"/><line class="ph" x1="4134.4" y1="18.0" x2="4134.4" y2="94.0"/><line class="ph" x1="4148.8" y1="18.0" x2="4148.8" y2="94.0"/><line class="ph" x1="4163.2" y1="18.0" x2="4163.2" y2="94.0"/><line class="ph" x1="4177.6" y1="18.0" x2="4177.6" y2="94.0"/><line class="ph" x1="4192.0" y1="18.0" x2="4192.0" y2="94.0"/><line class="ph" x1="4206.4" y1="18.0" x2="4206.4" y2="94.0"/><line class="ph" x1="4220.8" y1="18.0" x2="4220.8" y2="94.0"/><line class="ph" x1="4235.2" y1="18.0" x2="4235.2" y2="94.0"/><line class="ph" x1="4249.6" y1="18.0" x2="4249.6" y2="94.0"/><line class="ph" x1="4264.0" y1="18.0" x2="4264.0" y2="94.0"/><line class="ph" x1="4278.4" y1="18.0" x2="4278.4" y2="94.0"/><line class="ph" x1="4292.8" y1="18.0" x2="4292.8" y2="94.0"/><line class="ph" x1="4307.2" y1="18.0" x2="4307.2" y2="94.0"/><line class="ph" x1="4321.6" y1="18.0" x2="4321.6" y2="94.0"/><line class="ph" x1="4336.0" y1="18.0" x2="4336.0" y2="94.0"/><line class="ph" x1="4350.4" y1="18.0" x2="4350.4" y2="94.0"/><line class="ph" x1="4364.8" y1="18.0" x2="4364.8" y2="94.0"/><line class="ph" x1="4379.2" y1="18.0" x2="4379.2" y2="94.0"/><line class="ph" x1="4393.6" y1="18.0" x2="4393.6" y2="94.0"/><line class="ph" x1="4408.0" y1="18.0" x2="4408.0" y2="94.0"/><line class="ph" x1="4422.4" y1="18.0" x2="4422.4" y2="94.0"/><line class="ph" x1="4446.4" y1="18.0" x2="4446.4" y2="94.0"/><line class="ph" x1="4476.4" y1="18.0" x2="4476.4" y2="94.0"/><text class="phl" x="4479.4" y="14.0">press 3 200</text><line class="ph" x1="4608.4" y1="18.0" x2="4608.4" y2="94.0"/><line class="ph" x1="4632.4" y1="18.0" x2="4632.4" y2="94.0"/><line class="ph" x1="4662.4" y1="18.0" x2="4662.4" y2="94.0"/><line class="ph" x1="4686.4" y1="18.0" x2="4686.4" y2="94.0"/><line class="ph" x1="4716.4" y1="18.0" x2="4716.4" y2="94.0"/><line class="ph" x1="4740.4" y1="18.0" x2="4740.4" y2="94.0"/><line class="ph" x1="4764.4" y1="18.0" x2="4764.4" y2="94.0"/><line class="ph" x1="4794.4" y1="18.0" x2="4794.4" y2="94.0"/><text class="phl" x="4797.4" y="14.0">press 11 200</text><line class="ph" x1="4926.4" y1="18.0" x2="4926.4" y2="94.0"/><line class="ph" x1="4950.4" y1="18.0" x2="4950.4" y2="94.0"/><line class="ph" x1="4980.4" y1="18.0" x2="4980.4" y2="94.0"/><line class="ph" x1="5004.4" y1="18.0" x2="5004.4" y2="94.0"/><line class="ph" x1="5034.4" y1="18.0" x2="5034.4" y2="94.0"/><line class="ph" x1="5058.4" y1="18.0" x2="5058.4" y2="94.0"/><line class="ph" x1="5082.4" y1="18.0" x2="5082.4" y2="94.0"/><line class="ph" x1="5112.4" y1="18.0" x2="5112.4" y2="94.0"/><text class="phl" x="5115.4" y="14.0">press 19 200</text><line class="ph" x1="5244.4" y1="18.0" x2="5244.4" y2="94.0"/><line class="ph" x1="5268.4" y1="18.0" x2="5268.4" y2="94.0"/><line class="ph" x1="5298.4" y1="18.0" x2="5298.4" y2="94.0"/><line class="ph" x1="5322.4" y1="18.0" x2="5322.4" y2="94.0"/><line class="ph" x1="5352.4" y1="18.0" x2="5352.4" y2="94.0"/><line class="ph" x1="5376.4" y1="18.0" x2="5376.4" y2="94.0"/><line class="ph" x1="5400.4" y1="18.0" x2="5400.4" y2="94.0"/><line class="ph" x1="5430.4" y1="18.0" x2="5430.4" y2="94.0"/><text class="phl" x="5433.4" y="14.0">press 27 200</text><line class="ph" x1="5562.4" y1="18.0" x2="5562.4" y2="94.0"/><line class="ph" x1="5586.4" y1="18.0" x2="5586.4" y2="94.0"/><line class="ph" x1="5616.4" y1="18.0" x2="5616.4" y2="94.0"/><line class="ph" x1="5640.4" y1="18.0" x2="5640.4" y2="94.0"/><line class="ph" x1="5670.4" y1="18.0" x2="5670.4" y2="94.0"/><line class="ph" x1="5694.4" y1="18.0" x2="5694.4" y2="94.0"/><line class="ph" x1="5718.4" y1="18.0" x2="5718.4" y2="94.0"/><line class="ph" x1="5748.4" y1="18.0" x2="5748.4" y2="94.0"/><text class="phl" x="5751.4" y="14.0">press 35 200</text><line class="ph" x1="5880.4" y1="18.0" x2="5880.4" y2="94.0"/><line class="ph" x1="5904.4" y1="18.0" x2="5904.4" y2="94.0"/><line class="ph" x1="5934.4" y1="18.0" x2="5934.4" y2="94.0"/><line class="ph" x1="5958.4" y1="18.0" x2="5958.4" y2="94.0"/><line class="ph" x1="5988.4" y1="18.0" x2="5988.4" y2="94.0"/><line class="ph" x1="6012.4" y1="18.0" x2="6012.4" y2="94.0"/><line class="ph" x1="6036.4" y1="18.0" x2="6036.4" y2="94.0"/><line class="ph" x1="6066.4" y1="18.0" x2="6066.4" y2="94.0"/><text class="phl" x="6069.4" y="14.0">press 43 200</text><line class="ph" x1="6198.4" y1="18.0" x2="6198.4" y2="94.0"/><line class="ph" x1="6222.4" y1="18.0" x2="6222.4" y2="94.0"/><line class="ph" x1="6252.4" y1="18.0" x2="6252.4" y2="94.0"/><line class="ph" x1="6276.4" y1="18.0" x2="6276.4" y2="94.0"/><line class="ph" x1="6306.4" y1="18.0" x2="6306.4" y2="94.0"/><line class="ph" x1="6330.4" y1="18.0" x2="6330.4" y2="94.0"/><line class="ph" x1="6354.4" y1="18.0" x2="6354.4" y2="94.0"/><line class="ph" x1="6384.4" y1="18.0" x2="6384.4" y2="94.0"/><text class="phl" x="6387.4" y="14.0">press 51 200</text><line class="ph" x1="6516.4" y1="18.0" x2="6516.4" y2="94.0"/><line class="ph" x1="6540.4" y1="18.0" x2="6540.4" y2="94.0"/><line class="ph" x1="6570.4" y1="18.0" x2="6570.4" y2="94.0"/><line class="ph" x1="6594.4" y1="18.0" x2="6594.4" y2="94.0"/><line class="ph" x1="6624.4" y1="18.0" x2="6624.4" y2="94.0"/><line class="ph" x1="6648.4" y1="18.0" x2="6648.4" y2="94.0"/><line class="ph" x1="6672.4" y1="18.0" x2="6672.4" y2="94.0"/><line class="ph" x1="6702.4" y1="18.0" x2="6702.4" y2="94.0"/><text class="phl" x="6705.4" y="14.0">press 59 200</text><line class="ph" x1="6834.4" y1="18.0" x2="6834.4" y2="94.0"/><line class="ph" x1="6858.4" y1="18.0" x2="6858.4" y2="94.0"/><line class="ph" x1="6888.4" y1="18.0" x2="6888.4" y2="94.0"/><line class="ph" x1="6912.4" y1="18.0" x2="6912.4" y2="94.0"/><line class="ph" x1="6942.4" y1="18.0" x2="6942.4" y2="94.0"/><line class="ph" x1="6966.4" y1="18.0" x2="6966.4" y2="94.0"/><line class="ph" x1="6990.4" y1="18.0" x2="6990.4" y2="94.0"/><line class="ph" x1="7020.4" y1="18.0" x2="7020.4" y2="94.0"/><text class="phl" x="7023.4" y="14.0">press 67 200</text><line class="ph" x1="7152.4" y1="18.0" x2="7152.4" y2="94.0"/><line class="ph" x1="7176.4" y1="18.0" x2="7176.4" y2="94.0"/><line class="ph" x1="7206.4" y1="18.0" x2="7206.4" y2="94.0"/><line class="ph" x1="7230.4" y1="18.0" x2="7230.4" y2="94.0"/><line class="ph" x1="7260.4" y1="18.0" x2="7260.4" y2="94.0"/><line class="ph" x1="7284.4" y1="18.0" x2="7284.4" y2="94.0"/><line class="ph" x1="7308.4" y1="18.0" x2="7308.4" y2="94.0"/><line class="ph" x1="7338.4" y1="18.0" x2="7338.4" y2="94.0"/><text class="phl" x="7341.4" y="14.0">press 75 200</text><line class="ph" x1="7470.4" y1="18.0" x2="7470.4" y2="94.0"/><line class="ph" x1="7494.4" y1="18.0" x2="7494.4" y2="94.0"/><line class="ph" x1="7524.4" y1="18.0" x2="7524.4" y2="94.0"/><line class="ph" x1="7548.4" y1="18.0" x2="7548.4" y2="94.0"/><line class="ph" x1="7578.4" y1="18.0" x2="7578.4" y2="94.0"/><line class="ph" x1="7602.4" y1="18.0" x2="7602.4" y2="94.0"/><line class="ph" x1="7626.4" y1="18.0" x2="7626.4" y2="94.0"/><line class="ph" x1="7656.4" y1="18.0" x2="7656.4" y2="94.0"/><text class="phl" x="7659.4" y="14.0">press 83 200</text><line class="ph" x1="7788.4" y1="18.0" x2="7788.4" y2="94.0"/><line class="ph" x1="7812.4" y1="18.0" x2="7812.4" y2="94.0"/><line class="ph" x1="7842.4" y1="18.0" x2="7842.4" y2="94.0"/><line class="ph" x1="7866.4" y1="18.0" x2="7866.4" y2="94.0"/><line class="ph" x1="7896.4" y1="18.0" x2="7896.4" y2="94.0"/><line class="ph" x1="7920.4" y1="18.0" x2="7920.4" y2="94.0"/><line class="ph" x1="7944.4" y1="18.0" x2="7944.4" y2="94.0"/><line class="ph" x1="7974.4" y1="18.0" x2="7974.4" y2="94.0"/><text class="phl" x="7977.4" y="14.0">press 91 200</text><line class="ph" x1="8106.4" y1="18.0" x2="8106.4" y2="94.0"/><line class="ph" x1="8130.4" y1="18.0" x2="8130.4" y2="94.0"/><line class="ph" x1="8160.4" y1="18.0" x2="8160.4" y2="94.0"/><line class="ph" x1="8184.4" y1="18.0" x2="8184.4" y2="94.0"/><line class="ph" x1="8214.4" y1="18.0" x2="8214.4" y2="94.0"/><line class="ph" x1="8238.4" y1="18.0" x2="8238.4" y2="94.0"/><line class="ph" x1="8262.4" y1="18.0" x2="8262.4" y2="94.0"/><line class="ph" x1="8292.4" y1="18.0" x2="8292.4" y2="94.0"/><text class="phl" x="8295.4" y="14.0">press 99 200</text><line class="ph" x1="8424.4" y1="18.0" x2="8424.4" y2="94.0"/><text class="wl" x="4" y="46.0">IN</text><line class="base" x1="64.0" y1="48.0" x2="8449.0" y2="48.0"/><polygon class="win" points="64.0,48.0 64.0,48.0 88.0,48.0 88.0,28.0 90.4,28.0 90.4,48.0 102.4,48.0 102.4,28.0 104.8,28.0 104.8,48.0 116.8,48.0 116.8,28.0 119.2,28.0 119.2,48.0 131.2,48.0 131.2,28.0 133.6,28.0 133.6,48.0 145.6,48.0 145.6,28.0 148.0,28.0 148.0,48.0 160.0,48.0 160.0,28.0 162.4,28.0 162.4,48.0 174.4,48.0 174.4,28.0 176.8,28.0 176.8,48.0 188.8,48.0 188.8,28.0 191.2,28.0 191.2,48.0 203.2,48.0 203.2,28.0 205.6,28.0 205.6,48.0 217.6,48.0 217.6,28.0 220.0,28.0 220.0,48.0 232.0,48.0 232.0,28.0 234.4,28.0 234.4,48.0 246.4,48.0 246.4,28.0 248.8,28.0 248.8,48.0 260.8,48.0 260.8,28.0 263.2,28.0 263.2,48.0 275.2,48.0 275.2,28.0 277.6,28.0 277.6,48.0 289.6,48.0 289.6,28.0 292.0,28.0 292.0,48.0 304.0,48.0 304.0,28.0 306.4,28.0 306.4,48.0 318.4,48.0 318.4,28.0 320.8,28.0 320.8,48.0 332.8,48.0 332.8,28.0 335.2,28.0 335.2,48.0 347.2,48.0 347.2,28.0 349.6,28.0 349.6,48.0 361.6,48.0 361.6,28.0 364.0,28.0 364.0,48.0 376.0,48.0 376.0,28.0 378.4,28.0 378.4,48.0 390.4,48.0 390.4,28.0 392.8,28.0 392.8,48.0 404.8,48.0 404.8,28.0 407.2,28.0 407.2,48.0 419.2,48.0 419.2,28.0 421.6,28.0 421.6,48.0 433.6,48.0 433.6,28.0 436.0,28.0 436.0,48.0 448.0,48.0 448.0,28.0 450.4,28.0 450.4,48.0 462.4,48.0 462.4,28.0 464.8,28.0 464.8,48.0 476.8,48.0 476.8,28.0 479.2,28.0 479.2,48.0 491.2,48.0 491.2,28.0 493.6,28.0 493.6,48.0 505.6,48.0 505.6,28.0 508.0,28.0 508.0,48.0 520.0,48.0 520.0,28.0 522.4,28.0 522.4,48.0 534.4,48.0 534.4,28.0 536.8,28.0 536.8,48.0 548.8,48.0 548.8,28.0 551.2,28.0 551.2,48.0 563.2,48.0 563.2,28.0 565.6,28.0 565.6,48.0 577.6,48.0 577.6,28.0 580.0,28.0 580.0,48.0 592.0,48.0 592.0,28.0 594.4,28.0 594.4,48.0 606.4,48.0 606.4,28.0 608.8,28.0 608.8,48.0 620.8,48.0 620.8,28.0 623.2,28.0 623.2,48.0 635.2,48.0 635.2,28.0 637.6,28.0 637.6,48.0 649.6,48.0 649.6,28.0 652.0,28.0 652.0,48.0 664.0,48.0 664.0,28.0 666.4,28.0 666.4,48.0 678.4,48.0 678.4,28.0 680.8,28.0 680.8,48.0 692.8,48.0 692.8,28.0 695.2,28.0 695.2,48.0 707.2,48.0 707.2,28.0 709.6,28.0 709.6,48.0 721.6,48.0 721.6,28.0 724.0,28.0 724.0,48.0 736.0,48.0 736.0,28.0 738.4,28.0 738.4,48.0 750.4,48.0 750.4,28.0 752.8,28.0 752.8,48.0 764.8,48.0 764.8,28.0 767.2,28.0 767.2,48.0 779.2,48.0 779.2,28.0 781.6,28.0 781.6,48.0 793.6,48.0 793.6,28.0 796.0,28.0 796.0,48.0 808.0,48.0 808.0,28.0 810.4,28.0 810.4,48.0 822.4,48.0 822.4,28.0 824.8,28.0 824.8,48.0 836.8,48.0 836.8,28.0 839.2,28.0 839.2,48.0 851.2,48.0 851.2,28.0 853.6,28.0 853.6,48.0 865.6,48.0 865.6,28.0 868.0,28.0 868.0,48.0 880.0,48.0 880.0,28.0 882.4,28.0 882.4,48.0 894.4,48.0 894.4,28.0 896.8,28.0 896.8,48.0 908.8,48.0 908.8,28.0 911.2,28.0 911.2,48.0 923.2,48.0 923.2,28.0 925.6,28.0 925.6,48.0 937.6,48.0 937.6,28.0 940.0,28.0 940.0,48.0 952.0,48.0 952.0,28.0 954.4,28.0 954.4,48.0 966.4,48.0 966.4,28.0 968.8,28.0 968.8,48.0 980.8,48.0 980.8,28.0 983.2,28.0 983.2,48.0 995.2,48.0 995.2,28.0 997.6,28.0 997.6,48.0 1009.6,48.0 1009.6,28.0 1012.0,28.0 1012.0,48.0 1024.0,48.0 1024.0,28.0 1026.4,28.0 1026.4,48.0 1038.4,48.0 1038.4,28.0 1040.8,28.0 1040.8,48.0 1052.8,48.0 1052.8,28.0 1055.2,28.0 1055.2,48.0 1067.2,48.0 1067.2,28.0 1069.6,28.0 1069.6,48.0 1081.6,48.0 1081.6,28.0 1084.0,28.0 1084.0,48.0 1096.0,48.0 1096.0,28.0 1098.4,28.0 1098.4,48.0 1110.4,48.0 1110.4,28.0 1112.8,28.0 1112.8,48.0 1124.8,48.0 1124.8,28.0 1127.2,28.0 1127.2,48.0 1139.2,48.0 1139.2,28.0 1141.6,28.0 1141.6,48.0 1153.6,48.0 1153.6,28.0 1156.0,28.0 1156.0,48.0 1168.0,48.0 1168.0,28.0 1170.4,28.0 1170.4,48.0 1182.4,48.0 1182.4,28.0 1184.8,28.0 1184.8,48.0 1196.8,48.0 1196.8,28.0 1199.2,28.0 1199.2,48.0 1211.2,48.0 1211.2,28.0 1213.6,28.0 1213.6,48.0 1225.6,48.0 1225.6,28.0 1228.0,28.0 1228.0,48.0 1240.0,48.0 1240.0,28.0 1242.4,28.0 1242.4,48.0 1254.4,48.0 1254.4,28.0 1256.8,28.0 1256.8,48.0 1268.8,48.0 1268.8,28.0 1271.2,28.0 1271.2,48.0 1283.2,48.0 1283.2,28.0 1285.6,28.0 1285.6,48.0 1297.6,48.0 1297.6,28.0 1300.0,28.0 1300.0,48.0 1312.0,48.0 1312.0,28.0 1314.4,28.0 1314.4,48.0 1326.4,48.0 1326.4,28.0 1328.8,28.0 1328.8,48.0 1340.8,48.0 1340.8,28.0 1343.2,28.0 1343.2,48.0 1355.2,48.0 1355.2,28.0 1357.6,28.0 1357.6,48.0 1369.6,48.0 1369.6,28.0 1372.0,28.0 1372.0,48.0 1384.0,48.0 1384.0,28.0 1386.4,28.0 1386.4,48.0 1398.4,48.0 1398.4,28.0 1400.8,28.0 1400.8,48.0 1412.8,48.0 1412.8,28.0 1415.2,28.0 1415.2,48.0 1427.2,48.0 1427.2,28.0 1429.6,28.0 1429.6,48.0 1441.6,48.0 1441.6,28.0 1444.0,28.0 1444.0,48.0 1456.0,48.0 1456.0,28.0 1458.4,28.0 1458.4,48.0 1470.4,48.0 1470.4,28.0 1472.8,28.0 1472.8,48.0 1484.8,48.0 1484.8,28.0 1487.2,28.0 1487.2,48.0 1499.2,48.0 1499.2,28.0 1501.6,28.0 1501.6,48.0 1513.6,48.0 1513.6,28.0 1516.0,28.0 1516.0,48.0 1528.0,48.0 1528.0,28.0 1530.4,28.0 1530.4,48.0 1542.4,48.0 1542.4,28.0 1544.8,28.0 1544.8,48.0 1556.8,48.0 1556.8,28.0 1559.2,28.0 1559.2,48.0 1571.2,48.0 1571.2,28.0 1573.6,28.0 1573.6,48.0 1585.6,48.0 1585.6,28.0 1588.0,28.0 1588.0,48.0 1600.0,48.0 1600.0,28.0 1602.4,28.0 1602.4,48.0 1614.4,48.0 1614.4,28.0 1616.8,28.0 1616.8,48.0 1628.8,48.0 1628.8,28.0 1631.2,28.0 1631.2,48.0 1643.2,48.0 1643.2,28.0 1645.6,28.0 1645.6,48.0 1657.6,48.0 1657.6,28.0 1660.0,28.0 1660.0,48.0 1672.0,48.0 1672.0,28.0 1674.4,28.0 1674.4,48.0 1686.4,48.0 1686.4,28.0 1688.8,28.0 1688.8,48.0 1700.8,48.0 1700.8,28.0 1703.2,28.0 1703.2,48.0 1715.2,48.0 1715.2,28.0 1717.6,28.0 1717.6,48.0 1729.6,48.0 1729.6,28.0 1732.0,28.0 1732.0,48.0 1744.0,48.0 1744.0,28.0 1746.4,28.0 1746.4,48.0 1758.4,48.0 1758.4,28.0 1760.8,28.0 1760.8,48.0 1772.8,48.0 1772.8,28.0 1775.2,28.0 1775.2,48.0 1787.2,48.0 1787.2,28.0 1789.6,28.0 1789.6,48.0 1801.6,48.0 1801.6,28.0 1804.0,28.0 1804.0,48.0 1816.0,48.0 1816.0,28.0 1818.4,28.0 1818.4,48.0 1830.4,48.0 1830.4,28.0 1832.8,28.0 1832.8,48.0 1844.8,48.0 1844.8,28.0 1847.2,28.0 1847.2,48.0 1859.2,48.0 1859.2,28.0 1861.6,28.0 1861.6,48.0 1873.6,48.0 1873.6,28.0 1876.0,28.0 1876.0,48.0 1888.0,48.0 1888.0,28.0 1890.4,28.0 1890.4,48.0 1902.4,48.0 1902.4,28.0 1904.8,28.0 1904.8,48.0 1916.8,48.0 1916.8,28.0 1919.2,28.0 1919.2,48.0 1931.2,48.0 1931.2,28.0 1933.6,28.0 1933.6,48.0 1945.6,48.0 1945.6,28.0 1948.0,28.0 1948.0,48.0 1960.0,48.0 1960.0,28.0 1962.4,28.0 1962.4,48.0 1974.4,48.0 1974.4,28.0 1976.8,28.0 1976.8,48.0 1988.8,48.0 1988.8,28.0 1991.2,28.0 1991.2,48.0 2003.2,48.0 2003.2,28.0 2005.6,28.0 2005.6,48.0 2017.6,48.0 2017.6,28.0 2020.0,28.0 2020.0,48.0 2032.0,48.0 2032.0,28.0 2034.4,28.0 2034.4,48.0 2046.4,48.0 2046.4,28.0 2048.8,28.0 2048.8,48.0 2060.8,48.0 2060.8,28.0 2063.2,28.0 2063.2,48.0 2075.2,48.0 2075.2,28.0 2077.6,28.0 2077.6,48.0 2089.6,48.0 2089.6,28.0 2092.0,28.0 2092.0,48.0 2104.0,48.0 2104.0,28.0 2106.4,28.0 2106.4,48.0 2118.4,48.0 2118.4,28.0 2120.8,28.0 2120.8,48.0 2132.8,48.0 2132.8,28.0 2135.2,28.0 2135.2,48.0 2147.2,48.0 2147.2,28.0 2149.6,28.0 2149.6,48.0 2161.6,48.0 2161.6,28.0 2164.0,28.0 2164.0,48.0 2176.0,48.0 2176.0,28.0 2178.4,28.0 2178.4,48.0 2190.4,48.0 2190.4,28.0 2192.8,28.0 2192.8,48.0 2204.8,48.0 2204.8,28.0 2207.2,28.0 2207.2,48.0 2219.2,48.0 2219.2,28.0 2221.6,28.0 2221.6,48.0 2233.6,48.0 2233.6,28.0 2236.0,28.0 2236.0,48.0 2248.0,48.0 2248.0,28.0 2250.4,28.0 2250.4,48.0 2262.4,48.0 2262.4,28.0 2264.8,28.0 2264.8,48.0 2276.8,48.0 2276.8,28.0 2279.2,28.0 2279.2,48.0 2291.2,48.0 2291.2,28.0 2293.6,28.0 2293.6,48.0 2305.6,48.0 2305.6,28.0 2308.0,28.0 2308.0,48.0 2320.0,48.0 2320.0,28.0 2322.4,28.0 2322.4,48.0 2334.4,48.0 2334.4,28.0 2336.8,28.0 2336.8,48.0 2348.8,48.0 2348.8,28.0 2351.2,28.0 2351.2,48.0 2363.2,48.0 2363.2,28.0 2365.6,28.0 2365.6,48.0 2377.6,48.0 2377.6,28.0 2380.0,28.0 2380.0,48.0 2392.0,48.0 2392.0,28.0 2394.4,28.0 2394.4,48.0 2406.4,48.0 2406.4,28.0 2408.8,28.0 2408.8,48.0 2420.8,48.0 2420.8,28.0 2423.2,28.0 2423.2,48.0 2435.2,48.0 2435.2,28.0 2437.6,28.0 2437.6,48.0 2449.6,48.0 2449.6,28.0 2452.0,28.0 2452.0,48.0 2464.0,48.0 2464.0,28.0 2466.4,28.0 2466.4,48.0 2478.4,48.0 2478.4,28.0 2480.8,28.0 2480.8,48.0 2492.8,48.0 2492.8,28.0 2495.2,28.0 2495.2,48.0 2507.2,48.0 2507.2,28.0 2509.6,28.0 2509.6,48.0 2521.6,48.0 2521.6,28.0 2524.0,28.0 2524.0,48.0 2536.0,48.0 2536.0,28.0 2538.4,28.0 2538.4,48.0 2550.4,48.0 2550.4,28.0 2552.8,28.0 2552.8,48.0 2564.8,48.0 2564.8,28.0 2567.2,28.0 2567.2,48.0 2579.2,48.0 2579.2,28.0 2581.6,28.0 2581.6,48.0 2593.6,48.0 2593.6,28.0 2596.0,28.0 2596.0,48.0 2608.0,48.0 2608.0,28.0 2610.4,28.0 2610.4,48.0 2622.4,48.0 2622.4,28.0 2624.8,28.0 2624.8,48.0 2636.8,48.0 2636.8,28.0 2639.2,28.0 2639.2,48.0 2651.2,48.0 2651.2,28.0 2653.6,28.0 2653.6,48.0 2665.6,48.0 2665.6,28.0 2668.0,28.0 2668.0,48.0 2680.0,48.0 2680.0,28.0 2682.4,28.0 2682.4,48.0 2694.4,48.0 2694.4,28.0 2696.8,28.0 2696.8,48.0 2708.8,48.0 2708.8,28.0 2711.2,28.0 2711.2,48.0 2723.2,48.0 2723.2,28.0 2725.6,28.0 2725.6,48.0 2737.6,48.0 2737.6,28.0 2740.0,28.0 2740.0,48.0 2752.0,48.0 2752.0,28.0 2754.4,28.0 2754.4,48.0 2766.4,48.0 2766.4,28.0 2768.8,28.0 2768.8,48.0 2780.8,48.0 2780.8,28.0 2783.2,28.0 2783.2,48.0 2795.2,48.0 2795.2,28.0 2797.6,28.0 2797.6,48.0 2809.6,48.0 2809.6,28.0 2812.0,28.0 2812.0,48.0 2824.0,48.0 2824.0,28.0 2826.4,28.0 2826.4,48.0 2838.4,48.0 2838.4,28.0 2840.8,28.0 2840.8,48.0 2852.8,48.0 2852.8,28.0 2855.2,28.0 2855.2,48.0 2867.2,48.0 2867.2,28.0 2869.6,28.0 2869.6,48.0 2881.6,48.0 2881.6,28.0 2884.0,28.0 2884.0,48.0 2896.0,48.0 2896.0,28.0 2898.4,28.0 2898.4,48.0 2910.4,48.0 2910.4,28.0 2912.8,28.0 2912.8,48.0 2924.8,48.0 2924.8,28.0 2927.2,28.0 2927.2,48.0 2939.2,48.0 2939.2,28.0 2941.6,28.0 2941.6,48.0 2953.6,48.0 2953.6,28.0 2956.0,28.0 2956.0,48.0 2968.0,48.0 2968.0,28.0 2970.4,28.0 2970.4,48.0 2982.4,48.0 2982.4,28.0 2984.8,28.0 2984.8,48.0 2996.8,48.0 2996.8,28.0 2999.2,28.0 2999.2,48.0 3011.2,48.0 3011.2,28.0 3013.6,28.0 3013.6,48.0 3025.6,48.0 3025.6,28.0 3028.0,28.0 3028.0,48.0 3040.0,48.0 3040.0,28.0 3042.4,28.0 3042.4,48.0 3054.4,48.0 3054.4,28.0 3056.8,28.0 3056.8,48.0 3068.8,48.0 3068.8,28.0 3071.2,28.0 3071.2,48.0 3083.2,48.0 3083.2,28.0 3085.6,28.0 3085.6,48.0 3097.6,48.0 3097.6,28.0 3100.0,28.0 3100.0,48.0 3112.0,48.0 3112.0,28.0 3114.4,28.0 3114.4,48.0 3126.4,48.0 3126.4,28.0 3128.8,28.0 3128.8,48.0 3140.8,48.0 3140.8,28.0 3143.2,28.0 3143.2,48.0 3155.2,48.0 3155.2,28.0 3157.6,28.0 3157.6,48.0 3169.6,48.0 3169.6,28.0 3172.0,28.0 3172.0,48.0 3184.0,48.0 3184.0,28.0 3186.4,28.0 3186.4,48.0 3198.4,48.0 3198.4,28.0 3200.8,28.0 3200.8,48.0 3212.8,48.0 3212.8,28.0 3215.2,28.0 3215.2,48.0 3227.2,48.0 3227.2,28.0 3229.6,28.0 3229.6,48.0 3241.6,48.0 3241.6,28.0 3244.0,28.0 3244.0,48.0 3256.0,48.0 3256.0,28.0 3258.4,28.0 3258.4,48.0 3270.4,48.0 3270.4,28.0 3272.8,28.0 3272.8,48.0 3284.8,48.0 3284.8,28.0 3287.2,28.0 3287.2,48.0 3299.2,48.0 3299.2,28.0 3301.6,28.0 3301.6,48.0 3313.6,48.0 3313.6,28.0 3316.0,28.0 3316.0,48.0 3328.0,48.0 3328.0,28.0 3330.4,28.0 3330.4,48.0 3342.4,48.0 3342.4,28.0 3344.8,28.0 3344.8,48.0 3356.8,48.0 3356.8,28.0 3359.2,28.0 3359.2,48.0 3371.2,48.0 3371.2,28.0 3373.6,28.0 3373.6,48.0 3385.6,48.0 3385.6,28.0 3388.0,28.0 3388.0,48.0 3400.0,48.0 3400.0,28.0 3402.4,28.0 3402.4,48.0 3414.4,48.0 3414.4,28.0 3416.8,28.0 3416.8,48.0 3428.8,48.0 3428.8,28.0 3431.2,28.0 3431.2,48.0 3443.2,48.0 3443.2,28.0 3445.6,28.0 3445.6,48.0 3457.6,48.0 3457.6,28.0 3460.0,28.0 3460.0,48.0 3472.0,48.0 3472.0,28.0 3474.4,28.0 3474.4,48.0 3486.4,48.0 3486.4,28.0 3488.8,28.0 3488.8,48.0 3500.8,48.0 3500.8,28.0 3503.2,28.0 3503.2,48.0 3515.2,48.0 3515.2,28.0 3517.6,28.0 3517.6,48.0 3529.6,48.0 3529.6,28.0 3532.0,28.0 3532.0,48.0 3544.0,48.0 3544.0,28.0 3546.4,28.0 3546.4,48.0 3558.4,48.0 3558.4,28.0 3560.8,28.0 3560.8,48.0 3572.8,48.0 3572.8,28.0 3575.2,28.0 3575.2,48.0 3587.2,48.0 3587.2,28.0 3589.6,28.0 3589.6,48.0 3601.6,48.0 3601.6,28.0 3604.0,28.0 3604.0,48.0 3616.0,48.0 3616.0,28.0 3618.4,28.0 3618.4,48.0 3630.4,48.0 3630.4,28.0 3632.8,28.0 3632.8,48.0 3644.8,48.0 3644.8,28.0 3647.2,28.0 3647.2,48.0 3659.2,48.0 3659.2,28.0 3661.6,28.0 3661.6,48.0 3673.6,48.0 3673.6,28.0 3676.0,28.0 3676.0,48.0 3688.0,48.0 3688.0,28.0 3690.4,28.0 3690.4,48.0 3702.4,48.0 3702.4,28.0 3704.8,28.0 3704.8,48.0 3716.8,48.0 3716.8,28.0 3719.2,28.0 3719.2,48.0 3731.2,48.0 3731.2,28.0 3733.6,28.0 3733.6,48.0 3745.6,48.0 3745.6,28.0 3748.0,28.0 3748.0,48.0 3760.0,48.0 3760.0,28.0 3762.4,28.0 3762.4,48.0 3774.4,48.0 3774.4,28.0 3776.8,28.0 3776.8,48.0 3788.8,48.0 3788.8,28.0 3791.2,28.0 3791.2,48.0 3803.2,48.0 3803.2,28.0 3805.6,28.0 3805.6,48.0 3817.6,48.0 3817.6,28.0 3820.0,28.0 3820.0,48.0 3832.0,48.0 3832.0,28.0 3834.4,28.0 3834.4,48.0 3846.4,48.0 3846.4,28.0 3848.8,28.0 3848.8,48.0 3860.8,48.0 3860.8,28.0 3863.2,28.0 3863.2,48.0 3875.2,48.0 3875.2,28.0 3877.6,28.0 3877.6,48.0 3889.6,48.0 3889.6,28.0 3892.0,28.0 3892.0,48.0 3904.0,48.0 3904.0,28.0 3906.4,28.0 3906.4,48.0 3918.4,48.0 3918.4,28.0 3920.8,28.0 3920.8,48.0 3932.8,48.0 3932.8,28.0 3935.2,28.0 3935.2,48.0 3947.2,48.0 3947.2,28.0 3949.6,28.0 3949.6,48.0 3961.6,48.0 3961.6,28.0 3964.0,28.0 3964.0,48.0 3976.0,48.0 3976.0,28.0 3978.4,28.0 3978.4,48.0 3990.4,48.0 3990.4,28.0 3992.8,28.0 3992.8,48.0 4004.8,48.0 4004.8,28.0 4007.2,28.0 4007.2,48.0 4019.2,48.0 4019.2,28.0 4021.6,28.0 4021.6,48.0 4033.6,48.0 4033.6,28.0 4036.0,28.0 4036.0,48.0 4048.0,48.0 4048.0,28.0 4050.4,28.0 4050.4,48.0 4062.4,48.0 4062.4,28.0 4064.8,28.0 4064.8,48.0 4076.8,48.0 4076.8,28.0 4079.2,28.0 4079.2,48.0 4091.2,48.0 4091.2,28.0 4093.6,28.0 4093.6,48.0 4105.6,48.0 4105.6,28.0 4108.0,28.0 4108.0,48.0 4120.0,48.0 4120.0,28.0 4122.4,28.0 4122.4,48.0 4134.4,48.0 4134.4,28.0 4136.8,28.0 4136.8,48.0 4148.8,48.0 4148.8,28.0 4151.2,28.0 4151.2,48.0 4163.2,48.0 4163.2,28.0 4165.6,28.0 4165.6,48.0 4177.6,48.0 4177.6,28.0 4180.0,28.0 4180.0,48.0 4192.0,48.0 4192.0,28.0 4194.4,28.0 4194.4,48.0 4206.4,48.0 4206.4,28.0 4208.8,28.0 4208.8,48.0 4220.8,48.0 4220.8,28.0 4223.2,28.0 4223.2,48.0 4235.2,48.0 4235.2,28.0 4237.6,28.0 4237.6,48.0 4249.6,48.0 4249.6,28.0 4252.0,28.0 4252.0,48.0 4264.0,48.0 4264.0,28.0 4266.4,28.0 4266.4,48.0 4278.4,48.0 4278.4,28.0 4280.8,28.0 4280.8,48.0 4292.8,48.0 4292.8,28.0 4295.2,28.0 4295.2,48.0 4307.2,48.0 4307.2,28.0 4309.6,28.0 4309.6,48.0 4321.6,48.0 4321.6,28.0 4324.0,28.0 4324.0,48.0 4336.0,48.0 4336.0,28.0 4338.4,28.0 4338.4,48.0 4350.4,48.0 4350.4,28.0 4352.8,28.0 4352.8,48.0 4364.8,48.0 4364.8,28.0 4367.2,28.0 4367.2,48.0 4379.2,48.0 4379.2,28.0 4381.6,28.0 4381.6,48.0 4393.6,48.0 4393.6,28.0 4396.0,28.0 4396.0,48.0 4408.0,48.0 4408.0,28.0 4410.4,28.0 4410.4,48.0 4422.4,48.0 4422.4,28.0 4434.4,28.0 4434.4,48.0 4446.4,48.0 4446.4,28.0 4464.4,28.0 4464.4,48.0 4476.4,48.0 4476.4,28.0 4596.4,28.0 4596.4,48.0 4608.4,48.0 4608.4,28.0 4620.4,28.0 4620.4,48.0 4632.4,48.0 4632.4,28.0 4650.4,28.0 4650.4,48.0 4662.4,48.0 4662.4,28.0 4674.4,28.0 4674.4,48.0 4686.4,48.0 4686.4,28.0 4704.4,28.0 4704.4,48.0 4716.4,48.0 4716.4,28.0 4728.4,28.0 4728.4,48.0 4740.4,48.0 4740.4,28.0 4752.4,28.0 4752.4,48.0 4764.4,48.0 4764.4,28.0 4782.4,28.0 4782.4,48.0 4794.4,48.0 4794.4,28.0 4914.4,28.0 4914.4,48.0 4926.4,48.0 4926.4,28.0 4938.4,28.0 4938.4,48.0 4950.4,48.0 4950.4,28.0 4968.4,28.0 4968.4,48.0 4980.4,48.0 4980.4,28.0 4992.4,28.0 4992.4,48.0 5004.4,48.0 5004.4,28.0 5022.4,28.0 5022.4,48.0 5034.4,48.0 5034.4,28.0 5046.4,28.0 5046.4,48.0 5058.4,48.0 5058.4,28.0 5070.4,28.0 5070.4,48.0 5082.4,48.0 5082.4,28.0 5100.4,28.0 5100.4,48.0 5112.4,48.0 5112.4,28.0 5232.4,28.0 5232.4,48.0 5244.4,48.0 5244.4,28.0 5256.4,28.0 5256.4,48.0 5268.4,48.0 5268.4,28.0 5286.4,28.0 5286.4,48.0 5298.4,48.0 5298.4,28.0 5310.4,28.0 5310.4,48.0 5322.4,48.0 5322.4,28.0 5340.4,28.0 5340.4,48.0 5352.4,48.0 5352.4,28.0 5364.4,28.0 5364.4,48.0 5376.4,48.0 5376.4,28.0 5388.4,28.0 5388.4,48.0 5400.4,48.0 5400.4,28.0 5418.4,28.0 5418.4,48.0 5430.4,48.0 5430.4,28.0 5550.4,28.0 5550.4,48.0 5562.4,48.0 5562.4,28.0 5574.4,28.0 5574.4,48.0 5586.4,48.0 5586.4,28.0 5604.4,28.0 5604.4,48.0 5616.4,48.0 5616.4,28.0 5628.4,28.0 5628.4,48.0 5640.4,48.0 5640.4,28.0 5658.4,28.0 5658.4,48.0 5670.4,48.0 5670.4,28.0 5682.4,28.0 5682.4,48.0 5694.4,48.0 5694.4,28.0 5706.4,28.0 5706.4,48.0 5718.4,48.0 5718.4,28.0 5736.4,28.0 5736.4,48.0 5748.4,48.0 5748.4,28.0 5868.4,28.0 5868.4,48.0 5880.4,48.0 5880.4,28.0 5892.4,28.0 5892.4,48.0 5904.4,48.0 5904.4,28.0 5922.4,28.0 5922.4,48.0 5934.4,48.0 5934.4,28.0 5946.4,28.0 5946.4,48.0 5958.4,48.0 5958.4,28.0 5976.4,28.0 5976.4,48.0 5988.4,48.0 5988.4,28.0 6000.4,28.0 6000.4,48.0 6012.4,48.0 6012.4,28.0 6024.4,28.0 6024.4,48.0 6036.4,48.0 6036.4,28.0 6054.4,28.0 6054.4,48.0 6066.4,48.0 6066.4,28.0 6186.4,28.0 6186.4,48.0 6198.4,48.0 6198.4,28.0 6210.4,28.0 6210.4,48.0 6222.4,48.0 6222.4,28.0 6240.4,28.0 6240.4,48.0 6252.4,48.0 6252.4,28.0 6264.4,28.0 6264.4,48.0 6276.4,48.0 6276.4,28.0 6294.4,28.0 6294.4,48.0 6306.4,48.0 6306.4,28.0 6318.4,28.0 6318.4,48.0 6330.4,48.0 6330.4,28.0 6342.4,28.0 6342.4,48.0 6354.4,48.0 6354.4,28.0 6372.4,28.0 6372.4,48.0 6384.4,48.0 6384.4,28.0 6504.4,28.0 6504.4,48.0 6516.4,48.0 6516.4,28.0 6528.4,28.0 6528.4,48.0 6540.4,48.0 6540.4,28.0 6558.4,28.0 6558.4,48.0 6570.4,48.0 6570.4,28.0 6582.4,28.0 6582.4,48.0 6594.4,48.0 6594.4,28.0 6612.4,28.0 6612.4,48.0 6624.4,48.0 6624.4,28.0 6636.4,28.0 6636.4,48.0 6648.4,48.0 6648.4,28.0 6660.4,28.0 6660.4,48.0 6672.4,48.0 6672.4,28.0 6690.4,28.0 6690.4,48.0 6702.4,48.0 6702.4,28.0 6822.4,28.0 6822.4,48.0 6834.4,48.0 6834.4,28.0 6846.4,28.0 6846.4,48.0 6858.4,48.0 6858.4,28.0 6876.4,28.0 6876.4,48.0 6888.4,48.0 6888.4,28.0 6900.4,28.0 6900.4,48.0 6912.4,48.0 6912.4,28.0 6930.4,28.0 6930.4,48.0 6942.4,48.0 6942.4,28.0 6954.4,28.0 6954.4,48.0 6966.4,48.0 6966.4,28.0 6978.4,28.0 6978.4,48.0 6990.4,48.0 6990.4,28.0 7008.4,28.0 7008.4,48.0 7020.4,48.0 7020.4,28.0 7140.4,28.0 7140.4,48.0 7152.4,48.0 7152.4,28.0 7164.4,28.0 7164.4,48.0 7176.4,48.0 7176.4,28.0 7194.4,28.0 7194.4,48.0 7206.4,48.0 7206.4,28.0 7218.4,28.0 7218.4,48.0 7230.4,48.0 7230.4,28.0 7248.4,28.0 7248.4,48.0 7260.4,48.0 7260.4,28.0 7272.4,28.0 7272.4,48.0 7284.4,48.0 7284.4,28.0 7296.4,28.0 7296.4,48.0 7308.4,48.0 7308.4,28.0 7326.4,28.0 7326.4,48.0 7338.4,48.0 7338.4,28.0 7458.4,28.0 7458.4,48.0 7470.4,48.0 7470.4,28.0 7482.4,28.0 7482.4,48.0 7494.4,48.0 7494.4,28.0 7512.4,28.0 7512.4,48.0 7524.4,48.0 7524.4,28.0 7536.4,28.0 7536.4,48.0 7548.4,48.0 7548.4,28.0 7566.4,28.0 7566.4,48.0 7578.4,48.0 7578.4,28.0 7590.4,28.0 7590.4,48.0 7602.4,48.0 7602.4,28.0 7614.4,28.0 7614.4,48.0 7626.4,48.0 7626.4,28.0 7644.4,28.0 7644.4,48.0 7656.4,48.0 7656.4,28.0 7776.4,28.0 7776.4,48.0 7788.4,48.0 7788.4,28.0 7800.4,28.0 7800.4,48.0 7812.4,48.0 7812.4,28.0 7830.4,28.0 7830.4,48.0 7842.4,48.0 7842.4,28.0 7854.4,28.0 7854.4,48.0 7866.4,48.0 7866.4,28.0 7884.4,28.0 7884.4,48.0 7896.4,48.0 7896.4,28.0 7908.4,28.0 7908.4,48.0 7920.4,48.0 7920.4,28.0 7932.4,28.0 7932.4,48.0 7944.4,48.0 7944.4,28.0 7962.4,28.0 7962.4,48.0 7974.4,48.0 7974.4,28.0 8094.4,28.0 8094.4,48.0 8106.4,48.0 8106.4,28.0 8118.4,28.0 8118.4,48.0 8130.4,48.0 8130.4,28.0 8148.4,28.0 8148.4,48.0 8160.4,48.0 8160.4,28.0 8172.4,28.0 8172.4,48.0 8184.4,48.0 8184.4,28.0 8202.4,28.0 8202.4,48.0 8214.4,48.0 8214.4,28.0 8226.4,28.0 8226.4,48.0 8238.4,48.0 8238.4,28.0 8250.4,28.0 8250.4,48.0 8262.4,48.0 8262.4,28.0 8280.4,28.0 8280.4,48.0 8292.4,48.0 8292.4,28.0 8412.4,28.0 8412.4,48.0 8424.4,48.0 8424.4,28.0 8436.4,28.0 8436.4,48.0 8449.0,48.0 8449.0,48.0"/><text class="wl" x="4" y="80.0">OUT</text><line class="base" x1="64.0" y1="82.0" x2="8449.0" y2="82.0"/><polygon class="wout" points="64.0,82.0 64.0,82.0 1519.6,82.0 1519.6,62.0 2959.6,62.0 2959.6,82.0 4399.6,82.0 4399.6,62.0 8298.4,62.0 8298.4,82.0 8449.0,82.0 8449.0,82.0"/><text class="ax" x="4" y="106.0">ticks</text><text class="ax" x="64.0" y="106.0">0</text><text class="ax" x="124.0" y="106.0">100</text><text class="ax" x="184.0" y="106.0">200</text><text class="ax" x="244.0" y="106.0">300</text><text class="ax" x="304.0" y="106.0">400</text><text class="ax" x="364.0" y="106.0">500</text><text class="ax" x="424.0" y="106.0">600</text><text class="ax" x="484.0" y="106.0">700</text><text class="ax" x="544.0" y="106.0">800</text><text class="ax" x="604.0" y="106.0">900</text><text class="ax" x="664.0" y="106.0">1000</text><text class="ax" x="724.0" y="106.0">1100</text><text class="ax" x="784.0" y="106.0">1200</text><text class="ax" x="844.0" y="106.0">1300</text><text class="ax" x="904.0" y="106.0">1400</text><text class="ax" x="964.0" y="106.0">1500</text><text class="ax" x="1024.0" y="106.0">1600</text><text class="ax" x="1084.0" y="106.0">1700</text><text class="ax" x="1144.0" y="106.0">1800</text><text class="ax" x="1204.0" y="106.0">1900</text><text class="ax" x="1264.0" y="106.0">2000</text><text class="ax" x="1324.0" y="106.0">2100</text><text class="ax" x="1384.0" y="106.0">2200</text><text class="ax" x="1444.0" y="106.0">2300</text><text class="ax" x="1504.0" y="106.0">2400</text><text class="ax" x="1564.0" y="106.0">2500</text><text class="ax" x="1624.0" y="106.0">2600</text><text class="ax" x="1684.0" y="106.0">2700</text><text class="ax" x="1744.0" y="106.0">2800</text><text class="ax" x="1804.0" y="106.0">2900</text><text class="ax" x="1864.0" y="106.0">3000</text><text class="ax" x="1924.0" y="106.0">3100</text><text class="ax" x="1984.0" y="106.0">3200</text><text class="ax" x="2044.0" y="106.0">3300</text><text class="ax" x="2104.0" y="106.0">3400</text><text class="ax" x="2164.0" y="106.0">3500</text><text class="ax" x="2224.0" y="106.0">3600</text><text class="ax" x="2284.0" y="106.0">3700</text><text class="ax" x="2344.0" y="106.0">3800</text><text class="ax" x="2404.0" y="106.0">3900</text><text class="ax" x="2464.0" y="106.0">4000</text><text class="ax" x="2524.0" y="106.0">4100</text><text class="ax" x="2584.0" y="106.0">4200</text><text class="ax" x="2644.0" y="106.0">4300</text><text class="ax" x="2704.0" y="106.0">4400</text><text class="ax" x="2764.0" y="106.0">4500</text><text class="ax" x="2824.0" y="106.0">4600</text><text class="ax" x="2884.0" y="106.0">4700</text><text class="ax" x="2944.0" y="106.0">4800</text><text class="ax" x="3004.0" y="106.0">4900</text><text class="ax" x="3064.0" y="106.0">5000</text><text class="ax" x="3124.0" y="106.0">5100</text><text class="ax" x="3184.0" y="106.0">5200</text><text class="ax" x="3244.0" y="106.0">5300</text><text class="ax" x="3304.0" y="106.0">5400</text><text class="ax" x="3364.0" y="106.0">5500</text><text class="ax" x="3424.0" y="106.0">5600</text><text class="ax" x="3484.0" y="106.0">5700</text><text class="ax" x="3544.0" y="106.0">5800</text><text class="ax" x="3604.0" y="106.0">5900</text><text class="ax" x="3664.0" y="106.0">6000</text><text class="ax" x="3724.0" y="106.0">6100</text><text class="ax" x="3784.0" y="106.0">6200</text><text class="ax" x="3844.0" y="106.0">6300</text><text class="ax" x="3904.0" y="106.0">6400</text><text class="ax" x="3964.0" y="106.0">6500</text><text class="ax" x="4024.0" y="106.0">6600</text><text class="ax" x="4084.0" y="106.0">6700</text><text class="ax" x="4144.0" y="106.0">6800</text><text class="ax" x="4204.0" y="106.0">6900</text><text class="ax" x="4264.0" y="106.0">7000</text><text class="ax" x="4324.0" y="106.0">7100</text><text class="ax" x="4384.0" y="106.0">7200</text><text class="ax" x="4444.0" y="106.0">7300</text><text class="ax" x="4504.0" y="106.0">7400</text><text class="ax" x="4564.0" y="106.0">7500</text><text class="ax" x="4624.0" y="106.0">7600</text><text class="ax" x="4684.0" y="106.0">7700</text><text class="ax" x="4744.0" y="106.0">7800</text><text class="ax" x="4804.0" y="106.0">7900</text><text class="ax" x="4864.0" y="106.0">8000</text><text class="ax" x="4924.0" y="106.0">8100</text><text class="ax" x="4984.0" y="106.0">8200</text><text class="ax" x="5044.0" y="106.0">8300</text><text class="ax" x="5104.0" y="106.0">8400</text><text class="ax" x="5164.0" y="106.0">8500</text><text class="ax" x="5224.0" y="106.0">8600</text><text class="ax" x="5284.0" y="106.0">8700</text><text class="ax" x="5344.0" y="106.0">8800</text><text class="ax" x="5404.0" y="106.0">8900</text><text class="ax" x="5464.0" y="106.0">9000</text><text class="ax" x="5524.0" y="106.0">9100</text><text class="ax" x="5584.0" y="106.0">9200</text><text class="ax" x="5644.0" y="106.0">9300</text><text class="ax" x="5704.0" y="106.0">9400</text><text class="ax" x="5764.0" y="106.0">9500</text><text class="ax" x="5824.0" y="106.0">9600</text><text class="ax" x="5884.0" y="106.0">9700</text><text class="ax" x="5944.0" y="106.0">9800</text><text class="ax" x="6004.0" y="106.0">9900</text><text class="ax" x="6064.0" y="106.0">10000</text><text class="ax" x="6124.0" y="106.0">10100</text><text class="ax" x="6184.0" y="106.0">10200</text><text class="ax" x="6244.0" y="106.0">10300</text><text class="ax" x="6304.0" y="106.0">10400</text><text class="ax" x="6364.0" y="106.0">10500</text><text class="ax" x="6424.0" y="106.0">10600</text><text class="ax" x="6484.0" y="106.0">10700</text><text class="ax" x="6544.0" y="106.0">10800</text><text class="ax" x="6604.0" y="106.0">10900</text><text class="ax" x="6664.0" y="106.0">11000</text><text class="ax" x="6724.0" y="106.0">11100</text><text class="ax" x="6784.0" y="106.0">11200</text><text class="ax" x="6844.0" y="106.0">11300</text><text class="ax" x="6904.0" y="106.0">11400</text><text class="ax" x="6964.0" y="106.0">11500</text><text class="ax" x="7024.0" y="106.0">11600</text><text class="ax" x="7084.0" y="106.0">11700</text><text class="ax" x="7144.0" y="106.0">11800</text><text class="ax" x="7204.0" y="106.0">11900</text><text class="ax" x="7264.0" y="106.0">12000</text><text class="ax" x="7324.0" y="106.0">12100</text><text class="ax" x="7384.0" y="106.0">12200</text><text class="ax" x="7444.0" y="106.0">12300</text><text class="ax" x="7504.0" y="106.0">12400</text><text class="ax" x="7564.0" y="106.0">12500</text><text class="ax" x="7624.0" y="106.0">12600</text><text class="ax" x="7684.0" y="106.0">12700</text><text class="ax" x="7744.0" y="106.0">12800</text><text class="ax" x="7804.0" y="106.0">12900</text><text class="ax" x="7864.0" y="106.0">13000</text><text class="ax" x="7924.0" y="106.0">13100</text><text class="ax" x="7984.0" y="106.0">13200</text><text class="ax" x="8044.0" y="106.0">13300</text><text class="ax" x="8104.0" y="106.0">13400</text><text class="ax" x="8164.0" y="106.0">13500</text><text class="ax" x="8224.0" y="106.0">13600</text><text class="ax" x="8284.0" y="106.0">13700</text><text class="ax" x="8344.0" y="106.0">13800</text><text class="ax" x="8404.0" y="106.0">13900</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 13975 ticks (11 min 38.75 s).</p><details><summary>Our test's report, step by step (401 lines)</summary><pre class="design">pulse 1: output 0 (level 0)
+pulse 2: output 0 (level 0)
+pulse 3: output 0 (level 0)
+pulse 4: output 0 (level 0)
+pulse 5: output 0 (level 0)
+pulse 6: output 0 (level 0)
+pulse 7: output 0 (level 0)
+pulse 8: output 0 (level 0)
+pulse 9: output 0 (level 0)
+pulse 10: output 0 (level 0)
+pulse 11: output 0 (level 0)
+pulse 12: output 0 (level 0)
+pulse 13: output 0 (level 0)
+pulse 14: output 0 (level 0)
+pulse 15: output 0 (level 0)
+pulse 16: output 0 (level 0)
+pulse 17: output 0 (level 0)
+pulse 18: output 0 (level 0)
+pulse 19: output 0 (level 0)
+pulse 20: output 0 (level 0)
+pulse 21: output 0 (level 0)
+pulse 22: output 0 (level 0)
+pulse 23: output 0 (level 0)
+pulse 24: output 0 (level 0)
+pulse 25: output 0 (level 0)
+pulse 26: output 0 (level 0)
+pulse 27: output 0 (level 0)
+pulse 28: output 0 (level 0)
+pulse 29: output 0 (level 0)
+pulse 30: output 0 (level 0)
+pulse 31: output 0 (level 0)
+pulse 32: output 0 (level 0)
+pulse 33: output 0 (level 0)
+pulse 34: output 0 (level 0)
+pulse 35: output 0 (level 0)
+pulse 36: output 0 (level 0)
+pulse 37: output 0 (level 0)
+pulse 38: output 0 (level 0)
+pulse 39: output 0 (level 0)
+pulse 40: output 0 (level 0)
+pulse 41: output 0 (level 0)
+pulse 42: output 0 (level 0)
+pulse 43: output 0 (level 0)
+pulse 44: output 0 (level 0)
+pulse 45: output 0 (level 0)
+pulse 46: output 0 (level 0)
+pulse 47: output 0 (level 0)
+pulse 48: output 0 (level 0)
+pulse 49: output 0 (level 0)
+pulse 50: output 0 (level 0)
+pulse 51: output 0 (level 0)
+pulse 52: output 0 (level 0)
+pulse 53: output 0 (level 0)
+pulse 54: output 0 (level 0)
+pulse 55: output 0 (level 0)
+pulse 56: output 0 (level 0)
+pulse 57: output 0 (level 0)
+pulse 58: output 0 (level 0)
+pulse 59: output 0 (level 0)
+pulse 60: output 0 (level 0)
+pulse 61: output 0 (level 0)
+pulse 62: output 0 (level 0)
+pulse 63: output 0 (level 0)
+pulse 64: output 0 (level 0)
+pulse 65: output 0 (level 0)
+pulse 66: output 0 (level 0)
+pulse 67: output 0 (level 0)
+pulse 68: output 0 (level 0)
+pulse 69: output 0 (level 0)
+pulse 70: output 0 (level 0)
+pulse 71: output 0 (level 0)
+pulse 72: output 0 (level 0)
+pulse 73: output 0 (level 0)
+pulse 74: output 0 (level 0)
+pulse 75: output 0 (level 0)
+pulse 76: output 0 (level 0)
+pulse 77: output 0 (level 0)
+pulse 78: output 0 (level 0)
+pulse 79: output 0 (level 0)
+pulse 80: output 0 (level 0)
+pulse 81: output 0 (level 0)
+pulse 82: output 0 (level 0)
+pulse 83: output 0 (level 0)
+pulse 84: output 0 (level 0)
+pulse 85: output 0 (level 0)
+pulse 86: output 0 (level 0)
+pulse 87: output 0 (level 0)
+pulse 88: output 0 (level 0)
+pulse 89: output 0 (level 0)
+pulse 90: output 0 (level 0)
+pulse 91: output 0 (level 0)
+pulse 92: output 0 (level 0)
+pulse 93: output 0 (level 0)
+pulse 94: output 0 (level 0)
+pulse 95: output 0 (level 0)
+pulse 96: output 0 (level 0)
+pulse 97: output 0 (level 0)
+pulse 98: output 0 (level 0)
+pulse 99: output 0 (level 0)
+pulse 100: output 1 (level 15), changed
+pulse 101: output 1 (level 15)
+pulse 102: output 1 (level 15)
+pulse 103: output 1 (level 15)
+pulse 104: output 1 (level 15)
+pulse 105: output 1 (level 15)
+pulse 106: output 1 (level 15)
+pulse 107: output 1 (level 15)
+pulse 108: output 1 (level 15)
+pulse 109: output 1 (level 15)
+pulse 110: output 1 (level 15)
+pulse 111: output 1 (level 15)
+pulse 112: output 1 (level 15)
+pulse 113: output 1 (level 15)
+pulse 114: output 1 (level 15)
+pulse 115: output 1 (level 15)
+pulse 116: output 1 (level 15)
+pulse 117: output 1 (level 15)
+pulse 118: output 1 (level 15)
+pulse 119: output 1 (level 15)
+pulse 120: output 1 (level 15)
+pulse 121: output 1 (level 15)
+pulse 122: output 1 (level 15)
+pulse 123: output 1 (level 15)
+pulse 124: output 1 (level 15)
+pulse 125: output 1 (level 15)
+pulse 126: output 1 (level 15)
+pulse 127: output 1 (level 15)
+pulse 128: output 1 (level 15)
+pulse 129: output 1 (level 15)
+pulse 130: output 1 (level 15)
+pulse 131: output 1 (level 15)
+pulse 132: output 1 (level 15)
+pulse 133: output 1 (level 15)
+pulse 134: output 1 (level 15)
+pulse 135: output 1 (level 15)
+pulse 136: output 1 (level 15)
+pulse 137: output 1 (level 15)
+pulse 138: output 1 (level 15)
+pulse 139: output 1 (level 15)
+pulse 140: output 1 (level 15)
+pulse 141: output 1 (level 15)
+pulse 142: output 1 (level 15)
+pulse 143: output 1 (level 15)
+pulse 144: output 1 (level 15)
+pulse 145: output 1 (level 15)
+pulse 146: output 1 (level 15)
+pulse 147: output 1 (level 15)
+pulse 148: output 1 (level 15)
+pulse 149: output 1 (level 15)
+pulse 150: output 1 (level 15)
+pulse 151: output 1 (level 15)
+pulse 152: output 1 (level 15)
+pulse 153: output 1 (level 15)
+pulse 154: output 1 (level 15)
+pulse 155: output 1 (level 15)
+pulse 156: output 1 (level 15)
+pulse 157: output 1 (level 15)
+pulse 158: output 1 (level 15)
+pulse 159: output 1 (level 15)
+pulse 160: output 1 (level 15)
+pulse 161: output 1 (level 15)
+pulse 162: output 1 (level 15)
+pulse 163: output 1 (level 15)
+pulse 164: output 1 (level 15)
+pulse 165: output 1 (level 15)
+pulse 166: output 1 (level 15)
+pulse 167: output 1 (level 15)
+pulse 168: output 1 (level 15)
+pulse 169: output 1 (level 15)
+pulse 170: output 1 (level 15)
+pulse 171: output 1 (level 15)
+pulse 172: output 1 (level 15)
+pulse 173: output 1 (level 15)
+pulse 174: output 1 (level 15)
+pulse 175: output 1 (level 15)
+pulse 176: output 1 (level 15)
+pulse 177: output 1 (level 15)
+pulse 178: output 1 (level 15)
+pulse 179: output 1 (level 15)
+pulse 180: output 1 (level 15)
+pulse 181: output 1 (level 15)
+pulse 182: output 1 (level 15)
+pulse 183: output 1 (level 15)
+pulse 184: output 1 (level 15)
+pulse 185: output 1 (level 15)
+pulse 186: output 1 (level 15)
+pulse 187: output 1 (level 15)
+pulse 188: output 1 (level 15)
+pulse 189: output 1 (level 15)
+pulse 190: output 1 (level 15)
+pulse 191: output 1 (level 15)
+pulse 192: output 1 (level 15)
+pulse 193: output 1 (level 15)
+pulse 194: output 1 (level 15)
+pulse 195: output 1 (level 15)
+pulse 196: output 1 (level 15)
+pulse 197: output 1 (level 15)
+pulse 198: output 1 (level 15)
+pulse 199: output 1 (level 15)
+pulse 200: output 0 (level 0), changed
+pulse 201: output 0 (level 0)
+pulse 202: output 0 (level 0)
+pulse 203: output 0 (level 0)
+pulse 204: output 0 (level 0)
+pulse 205: output 0 (level 0)
+pulse 206: output 0 (level 0)
+pulse 207: output 0 (level 0)
+pulse 208: output 0 (level 0)
+pulse 209: output 0 (level 0)
+pulse 210: output 0 (level 0)
+pulse 211: output 0 (level 0)
+pulse 212: output 0 (level 0)
+pulse 213: output 0 (level 0)
+pulse 214: output 0 (level 0)
+pulse 215: output 0 (level 0)
+pulse 216: output 0 (level 0)
+pulse 217: output 0 (level 0)
+pulse 218: output 0 (level 0)
+pulse 219: output 0 (level 0)
+pulse 220: output 0 (level 0)
+pulse 221: output 0 (level 0)
+pulse 222: output 0 (level 0)
+pulse 223: output 0 (level 0)
+pulse 224: output 0 (level 0)
+pulse 225: output 0 (level 0)
+pulse 226: output 0 (level 0)
+pulse 227: output 0 (level 0)
+pulse 228: output 0 (level 0)
+pulse 229: output 0 (level 0)
+pulse 230: output 0 (level 0)
+pulse 231: output 0 (level 0)
+pulse 232: output 0 (level 0)
+pulse 233: output 0 (level 0)
+pulse 234: output 0 (level 0)
+pulse 235: output 0 (level 0)
+pulse 236: output 0 (level 0)
+pulse 237: output 0 (level 0)
+pulse 238: output 0 (level 0)
+pulse 239: output 0 (level 0)
+pulse 240: output 0 (level 0)
+pulse 241: output 0 (level 0)
+pulse 242: output 0 (level 0)
+pulse 243: output 0 (level 0)
+pulse 244: output 0 (level 0)
+pulse 245: output 0 (level 0)
+pulse 246: output 0 (level 0)
+pulse 247: output 0 (level 0)
+pulse 248: output 0 (level 0)
+pulse 249: output 0 (level 0)
+pulse 250: output 0 (level 0)
+pulse 251: output 0 (level 0)
+pulse 252: output 0 (level 0)
+pulse 253: output 0 (level 0)
+pulse 254: output 0 (level 0)
+pulse 255: output 0 (level 0)
+pulse 256: output 0 (level 0)
+pulse 257: output 0 (level 0)
+pulse 258: output 0 (level 0)
+pulse 259: output 0 (level 0)
+pulse 260: output 0 (level 0)
+pulse 261: output 0 (level 0)
+pulse 262: output 0 (level 0)
+pulse 263: output 0 (level 0)
+pulse 264: output 0 (level 0)
+pulse 265: output 0 (level 0)
+pulse 266: output 0 (level 0)
+pulse 267: output 0 (level 0)
+pulse 268: output 0 (level 0)
+pulse 269: output 0 (level 0)
+pulse 270: output 0 (level 0)
+pulse 271: output 0 (level 0)
+pulse 272: output 0 (level 0)
+pulse 273: output 0 (level 0)
+pulse 274: output 0 (level 0)
+pulse 275: output 0 (level 0)
+pulse 276: output 0 (level 0)
+pulse 277: output 0 (level 0)
+pulse 278: output 0 (level 0)
+pulse 279: output 0 (level 0)
+pulse 280: output 0 (level 0)
+pulse 281: output 0 (level 0)
+pulse 282: output 0 (level 0)
+pulse 283: output 0 (level 0)
+pulse 284: output 0 (level 0)
+pulse 285: output 0 (level 0)
+pulse 286: output 0 (level 0)
+pulse 287: output 0 (level 0)
+pulse 288: output 0 (level 0)
+pulse 289: output 0 (level 0)
+pulse 290: output 0 (level 0)
+pulse 291: output 0 (level 0)
+pulse 292: output 0 (level 0)
+pulse 293: output 0 (level 0)
+pulse 294: output 0 (level 0)
+pulse 295: output 0 (level 0)
+pulse 296: output 0 (level 0)
+pulse 297: output 0 (level 0)
+pulse 298: output 0 (level 0)
+pulse 299: output 0 (level 0)
+pulse 300: output 1 (level 15), changed
+pulse 301: output 1 (level 15)
+press 1 20: output 1 (level 15)
+press 2 30: output 1 (level 15)
+press 3 200: output 1 (level 15)
+press 4 20: output 1 (level 15)
+press 5 30: output 1 (level 15)
+press 6 20: output 1 (level 15)
+press 7 30: output 1 (level 15)
+press 8 20: output 1 (level 15)
+press 9 20: output 1 (level 15)
+press 10 30: output 1 (level 15)
+press 11 200: output 1 (level 15)
+press 12 20: output 1 (level 15)
+press 13 30: output 1 (level 15)
+press 14 20: output 1 (level 15)
+press 15 30: output 1 (level 15)
+press 16 20: output 1 (level 15)
+press 17 20: output 1 (level 15)
+press 18 30: output 1 (level 15)
+press 19 200: output 1 (level 15)
+press 20 20: output 1 (level 15)
+press 21 30: output 1 (level 15)
+press 22 20: output 1 (level 15)
+press 23 30: output 1 (level 15)
+press 24 20: output 1 (level 15)
+press 25 20: output 1 (level 15)
+press 26 30: output 1 (level 15)
+press 27 200: output 1 (level 15)
+press 28 20: output 1 (level 15)
+press 29 30: output 1 (level 15)
+press 30 20: output 1 (level 15)
+press 31 30: output 1 (level 15)
+press 32 20: output 1 (level 15)
+press 33 20: output 1 (level 15)
+press 34 30: output 1 (level 15)
+press 35 200: output 1 (level 15)
+press 36 20: output 1 (level 15)
+press 37 30: output 1 (level 15)
+press 38 20: output 1 (level 15)
+press 39 30: output 1 (level 15)
+press 40 20: output 1 (level 15)
+press 41 20: output 1 (level 15)
+press 42 30: output 1 (level 15)
+press 43 200: output 1 (level 15)
+press 44 20: output 1 (level 15)
+press 45 30: output 1 (level 15)
+press 46 20: output 1 (level 15)
+press 47 30: output 1 (level 15)
+press 48 20: output 1 (level 15)
+press 49 20: output 1 (level 15)
+press 50 30: output 1 (level 15)
+press 51 200: output 1 (level 15)
+press 52 20: output 1 (level 15)
+press 53 30: output 1 (level 15)
+press 54 20: output 1 (level 15)
+press 55 30: output 1 (level 15)
+press 56 20: output 1 (level 15)
+press 57 20: output 1 (level 15)
+press 58 30: output 1 (level 15)
+press 59 200: output 1 (level 15)
+press 60 20: output 1 (level 15)
+press 61 30: output 1 (level 15)
+press 62 20: output 1 (level 15)
+press 63 30: output 1 (level 15)
+press 64 20: output 1 (level 15)
+press 65 20: output 1 (level 15)
+press 66 30: output 1 (level 15)
+press 67 200: output 1 (level 15)
+press 68 20: output 1 (level 15)
+press 69 30: output 1 (level 15)
+press 70 20: output 1 (level 15)
+press 71 30: output 1 (level 15)
+press 72 20: output 1 (level 15)
+press 73 20: output 1 (level 15)
+press 74 30: output 1 (level 15)
+press 75 200: output 1 (level 15)
+press 76 20: output 1 (level 15)
+press 77 30: output 1 (level 15)
+press 78 20: output 1 (level 15)
+press 79 30: output 1 (level 15)
+press 80 20: output 1 (level 15)
+press 81 20: output 1 (level 15)
+press 82 30: output 1 (level 15)
+press 83 200: output 1 (level 15)
+press 84 20: output 1 (level 15)
+press 85 30: output 1 (level 15)
+press 86 20: output 1 (level 15)
+press 87 30: output 1 (level 15)
+press 88 20: output 1 (level 15)
+press 89 20: output 1 (level 15)
+press 90 30: output 1 (level 15)
+press 91 200: output 1 (level 15)
+press 92 20: output 1 (level 15)
+press 93 30: output 1 (level 15)
+press 94 20: output 1 (level 15)
+press 95 30: output 1 (level 15)
+press 96 20: output 1 (level 15)
+press 97 20: output 1 (level 15)
+press 98 30: output 1 (level 15)
+press 99 200: output 0 (level 0), changed
+press 100 20: output 0 (level 0)</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">N</th><td>100</td><td class="def">how many input pulses one output cycle takes</td></tr>
+<tr><th scope="row">output</th><td>toggles every 100 pulses</td><td class="def">how the output shows the count: toggles (flips every N), pulses (one pulse every N) or level (its state repeats every N)</td></tr>
+<tr><th scope="row">counts</th><td>one pulse per 200 inputs (toggles every 100: a square wave</td><td class="def"></td></tr>
+<tr><th scope="row">a</th><td>divider by 200)</td><td class="def"></td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>Counter 100, with items: counter100-items&#39;s mechanism rearranged by clk-rt&#39;s circuit compact, judged box 45 (was 60), 23 blocks (was 23); its blocks sit in 5x4x3.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/memory/index.html">Memory and counters</a></td></tr>
+<tr><th scope="row">Kind</th><td>Counter: counts pulses and reacts on a set count</td></tr>
+<tr><th scope="row">Blocks placed</th><td>23 (not counting the input levers or buttons and the test lamp the view adds)</td></tr>
+<tr><th scope="row">Box</th><td>5×3×3 (45 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>comparator, copper bulb, dropper, redstone torch, redstone wire</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>IN (repeater) / OUT</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-21T20:44Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere</td></tr>
+<tr><th scope="row">Design file</th><td><code>counter100-items-v45-23b</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/memory/archive/counter100-items-v45-23b.txt">on GitHub</a></p><details><summary>Design file (41 lines)</summary><pre class="design"># archived 2026-10-21T20:44Z from designs/circuits/tracks/clk-rt/compact/memory/counter100-items-v45-23b.txt by mctas circuit archive
+# CIRCUIT: counter100-items-v45-23b counter 100 N 100, output toggles every 100 pulses, counts one pulse per 200 inputs (toggles every 100: a square wave, a divider by 200), 23 blocks, 5x3x3, robust
+# Counter 100, with items: counter100-items&#39;s mechanism rearranged by clk-rt&#39;s circuit compact (2026-10-21), judged box 45 (was 60), 23 blocks (was 23); its blocks sit in 5x4x3.
+name: counter100-items-v45-23b
+circuit: counter 100
+group: item-pair
+group note: two droppers facing each other hold N items; each pulse fires only the one the copper bulb phase does not hold, so each runs empty once every N pulses - 23 blocks for every N up to 576 (`mctas circuit memory items --n N`)
+group title: Item counter (counter N, any N)
+port input: 1 2 0
+port output: 0 0 1
+nbt: 0 1 0 {Items:[{Slot:0b,id:&quot;minecraft:stone&quot;,count:64},{Slot:1b,id:&quot;minecraft:stone&quot;,count:36}]}
+origin: -2 0 -2
+palette:
+  A minecraft:comparator[facing=south,mode=compare,powered=false]
+  B minecraft:dropper[facing=west,triggered=true]
+  C minecraft:comparator[facing=east,mode=compare,powered=true]
+  D minecraft:dropper[facing=east,triggered=false]
+  E minecraft:redstone_wall_torch[facing=west,lit=true]
+  F minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  R minecraft:redstone_torch[lit=true]
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=true]
+  c minecraft:comparator[facing=north,mode=compare,powered=false]
+  d minecraft:dropper[facing=up,triggered=true]
+  r minecraft:redstone_wall_torch[facing=north,lit=false]
+layer -1:
+  .
+  ..d
+  ...S
+layer 0:
+  DSW
+  ..cB
+  .SSFS
+layer 1:
+  FFES
+  r..A
+  SCDBR
+layer 2:
+  .
+  .
+  ...F
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/4802aeae549d7104ccc52e6162819b1f0c85df00">vjeux/redstonepedia@4802aeae5</a> on <span class="nowrap">2026-10-23</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../pkg/redstonepedia.js?v=efae9c7a"; init({module_or_path: "../../pkg/redstonepedia_bg.wasm?v=9e63a872"});</script>
+<script type="module">import init from "../../viewer/mcview.js?v=cddf7aad"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=528edeb5"});</script>
+</body>
+</html>

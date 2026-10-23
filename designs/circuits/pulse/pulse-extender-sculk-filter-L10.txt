@@ -1,0 +1,33 @@
+# archived 2026-10-20T13:32Z from designs/circuits/tracks/pulse/wr/pulse-extender-sculk-filter-L10.txt by mctas circuit archive
+# CIRCUIT: pulse-extender-sculk-filter-L10 pulse-extender L 10 gt, delay 1 gt, min-pulse 2 gt (the shortest a real input makes), vibration-proof yes, 5 blocks, 2x2x4, robust
+name: pulse-extender-sculk-filter-L10
+circuit: pulse-extender
+# Stretches any input, even a 1-tick blip, into exactly 10 ticks (half a second): the input makes
+# a note block play, a sound sensor (calibrated sculk sensor) hears it and switches on for exactly
+# 10 ticks however short or long the input was, and a comparator reading a chest tunes the sensor
+# to note blocks only, so footsteps, dropped items and a lever switching off never set it off. The
+# smallest vibration-proof 10 gt pulse extender (5 blocks).
+# Detail: the note block plays only when it becomes powered (note_block_play, frequency 10); the
+# chest's 1111 cobblestone make the comparator output 10 into the sensor's back, and a calibrated
+# sensor with a back signal accepts that frequency only (the lever's block_deactivate is 9,
+# footsteps 1, items landing 2, blocks broken or placed 12 and 13).
+origin: 0 0 0
+port input: 0 0 0
+port output: 3 0 1
+palette:
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  K minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  H minecraft:chest[facing=north,type=single,waterlogged=false]
+  S minecraft:stone
+layer -1:
+  ...
+  ...
+  ..S
+  ...
+layer 0:
+  .N.
+  ..K
+  ..C
+  ..H
+nbt: 2 0 3 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:64},{Slot:1b,id:"minecraft:cobblestone",count:64},{Slot:2b,id:"minecraft:cobblestone",count:64},{Slot:3b,id:"minecraft:cobblestone",count:64},{Slot:4b,id:"minecraft:cobblestone",count:64},{Slot:5b,id:"minecraft:cobblestone",count:64},{Slot:6b,id:"minecraft:cobblestone",count:64},{Slot:7b,id:"minecraft:cobblestone",count:64},{Slot:8b,id:"minecraft:cobblestone",count:64},{Slot:9b,id:"minecraft:cobblestone",count:64},{Slot:10b,id:"minecraft:cobblestone",count:64},{Slot:11b,id:"minecraft:cobblestone",count:64},{Slot:12b,id:"minecraft:cobblestone",count:64},{Slot:13b,id:"minecraft:cobblestone",count:64},{Slot:14b,id:"minecraft:cobblestone",count:64},{Slot:15b,id:"minecraft:cobblestone",count:64},{Slot:16b,id:"minecraft:cobblestone",count:64},{Slot:17b,id:"minecraft:cobblestone",count:23}]}

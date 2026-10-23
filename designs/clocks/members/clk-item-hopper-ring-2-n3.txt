@@ -1,0 +1,26 @@
+name: loop2x4-2stone
+period: 28
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 0 1 -2
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: 1 1 3 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: 0 0 -1
+palette:
+  A minecraft:hopper[enabled=true,facing=south]
+  B minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=north]
+layer 0:
+  S
+  .
+  .
+  .
+  .
+layer 1:
+  C
+  HA
+  hA
+  hA
+  hB

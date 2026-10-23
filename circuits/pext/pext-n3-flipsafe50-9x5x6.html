@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Piston extender: reach 3 · 50 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Piston extender: reach 3 · 50 blocks. A 3-piston extender you can flip back at any time (50 blocks, 9x5x6): the block goes out 3 cells in 55 gt and back in 55 gt, and turning the lever off or on aga">
+<meta property="og:title" content="Piston extender: reach 3 · 50 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Piston extender: reach 3 · 50 blocks. A 3-piston extender you can flip back at any time (50 blocks, 9x5x6): the block goes out 3 cells in 55 gt and back in 55 gt, and turning the lever off or on aga">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/pext/index.html">Piston extenders</a></p>
+<p class="kindline">Piston extender</p>
+<h1>reach 3 · 50 blocks</h1>
+<p class="oneliner">Turn the input on and a block is pushed 3 blocks out; turn it off and the block comes back exactly where it was. It goes out in 55 ticks (2.75 s) and comes back in 55 ticks (2.75 s).</p>
+<p class="lede">safe to flip back any time, 32 blocks bigger than the pick of its size · fits in 9×5×6</p>
+<p class="badges"><span class="badge">safe to flip back any time</span><span class="badge">has its own lever</span></p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/pext/pext-n3-flipsafe50-9x5x6.txt" data-stimulus="in 40+ 105- 170+ 235- 300+ 365- 430+ 450- 560+ 576- 690+ 702- 820+ 830- 950+ 958- 1080+ 1086- 1210+ 1215- 1340+ 1344- 1470+ 1535- 1555+ 1620- 1685+ 1750- 1766+ 1831- 1896+ 1961- 1973+ 2038- 2103+ 2168- 2178+ 2243- 2308+ 2373- 2381+ 2446- 2511+ 2576- 2582+ 2647- 2712+ 2777- 2782+ 2847- 2912+ 2977- 2981+ 3046- 3111+ 3176-" data-phases="40-170 cycle 1; 170-300 cycle 2; 300-430 cycle 3; 430-560 flip 20; 560-690 flip 16; 690-820 flip 12; 820-950 flip 10; 950-1080 flip 8; 1080-1210 flip 6; 1210-1340 flip 5; 1340-1470 flip 4; 1470-1685 reflip 20; 1685-1896 reflip 16; 1896-2103 reflip 12; 2103-2308 reflip 10; 2308-2511 reflip 8; 2511-2712 reflip 6; 2712-2912 reflip 5; 2912-3111 reflip 4; 3111-3241 after flips" data-input-mode="toggle" data-circuit="piston-extender 3" data-kind="circuit"><div class="fallback"><span class="fb-big">reach 3</span><span class="fb-small">Piston extender</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<section class="what plain"><h2>Try it</h2><p>Flip the lever marked IN (or tap IN under the view): turn it on and watch the block go 3 blocks out; turn it off and it comes back. Press play under the view to watch our test on a loop; touch any other control to take over.</p><p class="howdesign"><b>How this design does it:</b> A 3-piston extender you can flip back at any time (50 blocks, 9x5x6): the block goes out 3 cells in 55 gt and back in 55 gt, and turning the lever off or on again early never strands a block.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/pext/pext-n3-flipsafe50-9x5x6.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/pext/pext-n3-flipsafe50-9x5x6.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=gold_block">gold block</a> <a class="chip" href="../../index.html#with=observer">observer</a> <a class="chip" href="../../index.html#with=piston">piston</a> <a class="chip" href="../../index.html#with=slime_block">slime block</a> <a class="chip" href="../../index.html#with=sticky_piston">sticky piston</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>Turning the input on pushes a block <b>3 cells out</b> of the machine; turning it off brings the block <b>back exactly</b> where it was, with nothing left behind. A plain piston only reaches 1.</p><p>Extending takes 55 gt (2.75 s), retracting 55 gt (2.75 s).</p></section>
+<section><h2>How to try it</h2><p><b>Press play under the view to watch the judge's own test</b> on a loop (the badge reads <i>demo</i> with the step it is on; the same test is drawn as a timing diagram below). Touch any control to stop it and try the circuit yourself.</p><p>To try it: click the <b>lever</b> tagged <b>IN</b> (or the IN button of the bar) to switch it on or off.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the input with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). <span class="tag-pos">Blue</span>: where the pushed block is, 0 = home, up to N = fully out (the dashed line); it must reach N while the input is on and come all the way back. Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="2017" height="148" viewBox="0 0 2017 148" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="88.0" y1="18.0" x2="88.0" y2="130.0"/><text class="phl" x="91.0" y="14.0">cycle 1</text><line class="ph" x1="166.0" y1="18.0" x2="166.0" y2="130.0"/><text class="phl" x="169.0" y="14.0">cycle 2</text><line class="ph" x1="244.0" y1="18.0" x2="244.0" y2="130.0"/><text class="phl" x="247.0" y="14.0">cycle 3</text><line class="ph" x1="322.0" y1="18.0" x2="322.0" y2="130.0"/><text class="phl" x="325.0" y="14.0">flip 20</text><line class="ph" x1="400.0" y1="18.0" x2="400.0" y2="130.0"/><text class="phl" x="403.0" y="14.0">flip 16</text><line class="ph" x1="478.0" y1="18.0" x2="478.0" y2="130.0"/><text class="phl" x="481.0" y="14.0">flip 12</text><line class="ph" x1="556.0" y1="18.0" x2="556.0" y2="130.0"/><text class="phl" x="559.0" y="14.0">flip 10</text><line class="ph" x1="634.0" y1="18.0" x2="634.0" y2="130.0"/><text class="phl" x="637.0" y="14.0">flip 8</text><line class="ph" x1="712.0" y1="18.0" x2="712.0" y2="130.0"/><text class="phl" x="715.0" y="14.0">flip 6</text><line class="ph" x1="790.0" y1="18.0" x2="790.0" y2="130.0"/><text class="phl" x="793.0" y="14.0">flip 5</text><line class="ph" x1="868.0" y1="18.0" x2="868.0" y2="130.0"/><text class="phl" x="871.0" y="14.0">flip 4</text><line class="ph" x1="946.0" y1="18.0" x2="946.0" y2="130.0"/><text class="phl" x="949.0" y="14.0">reflip 20</text><line class="ph" x1="1075.0" y1="18.0" x2="1075.0" y2="130.0"/><text class="phl" x="1078.0" y="14.0">reflip 16</text><line class="ph" x1="1201.6" y1="18.0" x2="1201.6" y2="130.0"/><text class="phl" x="1204.6" y="14.0">reflip 12</text><line class="ph" x1="1325.8" y1="18.0" x2="1325.8" y2="130.0"/><text class="phl" x="1328.8" y="14.0">reflip 10</text><line class="ph" x1="1448.8" y1="18.0" x2="1448.8" y2="130.0"/><text class="phl" x="1451.8" y="14.0">reflip 8</text><line class="ph" x1="1570.6" y1="18.0" x2="1570.6" y2="130.0"/><text class="phl" x="1573.6" y="14.0">reflip 6</text><line class="ph" x1="1691.2" y1="18.0" x2="1691.2" y2="130.0"/><text class="phl" x="1694.2" y="14.0">reflip 5</text><line class="ph" x1="1811.2" y1="18.0" x2="1811.2" y2="130.0"/><text class="phl" x="1814.2" y="14.0">reflip 4</text><line class="ph" x1="1930.6" y1="18.0" x2="1930.6" y2="130.0"/><text class="phl" x="1933.6" y="14.0">after flips</text><text class="wl" x="4" y="46.0">IN</text><line class="base" x1="64.0" y1="48.0" x2="2009.2" y2="48.0"/><polygon class="win" points="64.0,48.0 64.0,48.0 88.0,48.0 88.0,28.0 127.0,28.0 127.0,48.0 166.0,48.0 166.0,28.0 205.0,28.0 205.0,48.0 244.0,48.0 244.0,28.0 283.0,28.0 283.0,48.0 322.0,48.0 322.0,28.0 334.0,28.0 334.0,48.0 400.0,48.0 400.0,28.0 409.6,28.0 409.6,48.0 478.0,48.0 478.0,28.0 485.2,28.0 485.2,48.0 556.0,48.0 556.0,28.0 562.0,28.0 562.0,48.0 634.0,48.0 634.0,28.0 638.8,28.0 638.8,48.0 712.0,48.0 712.0,28.0 715.6,28.0 715.6,48.0 790.0,48.0 790.0,28.0 793.0,28.0 793.0,48.0 868.0,48.0 868.0,28.0 870.4,28.0 870.4,48.0 946.0,48.0 946.0,28.0 985.0,28.0 985.0,48.0 997.0,48.0 997.0,28.0 1036.0,28.0 1036.0,48.0 1075.0,48.0 1075.0,28.0 1114.0,28.0 1114.0,48.0 1123.6,48.0 1123.6,28.0 1162.6,28.0 1162.6,48.0 1201.6,48.0 1201.6,28.0 1240.6,28.0 1240.6,48.0 1247.8,48.0 1247.8,28.0 1286.8,28.0 1286.8,48.0 1325.8,48.0 1325.8,28.0 1364.8,28.0 1364.8,48.0 1370.8,48.0 1370.8,28.0 1409.8,28.0 1409.8,48.0 1448.8,48.0 1448.8,28.0 1487.8,28.0 1487.8,48.0 1492.6,48.0 1492.6,28.0 1531.6,28.0 1531.6,48.0 1570.6,48.0 1570.6,28.0 1609.6,28.0 1609.6,48.0 1613.2,48.0 1613.2,28.0 1652.2,28.0 1652.2,48.0 1691.2,48.0 1691.2,28.0 1730.2,28.0 1730.2,48.0 1733.2,48.0 1733.2,28.0 1772.2,28.0 1772.2,48.0 1811.2,48.0 1811.2,28.0 1850.2,28.0 1850.2,48.0 1852.6,48.0 1852.6,28.0 1891.6,28.0 1891.6,48.0 1930.6,48.0 1930.6,28.0 1969.6,28.0 1969.6,48.0 2009.2,48.0 2009.2,48.0"/><text class="wl" x="4" y="116.0">PAYLOAD</text><line class="base" x1="64.0" y1="118.0" x2="2009.2" y2="118.0"/><text class="ax" x="4" y="66.0">3</text><line class="tgt" x1="64.0" y1="62.0" x2="2009.2" y2="62.0"/><text class="tgtl" x="1975.2" y="59.0">N = 3</text><path class="wpos" d="M64.0,118.0 L91.0,118.0 L91.0,99.3 L109.0,99.3 L109.0,80.7 L118.6,80.7 L118.6,62.0 L133.6,62.0 L133.6,80.7 L148.0,80.7 L148.0,99.3 L160.0,99.3 L160.0,118.0 L169.0,118.0 L169.0,99.3 L187.0,99.3 L187.0,80.7 L196.6,80.7 L196.6,62.0 L211.6,62.0 L211.6,80.7 L226.0,80.7 L226.0,99.3 L238.0,99.3 L238.0,118.0 L247.0,118.0 L247.0,99.3 L265.0,99.3 L265.0,80.7 L274.6,80.7 L274.6,62.0 L289.6,62.0 L289.6,80.7 L304.0,80.7 L304.0,99.3 L316.0,99.3 L316.0,118.0 L325.0,118.0 L325.0,99.3 L347.8,99.3 L347.8,118.0 L351.4,118.0 L351.4,99.3 L355.0,99.3 L355.0,118.0 L363.4,118.0 L363.4,99.3 L367.0,99.3 L367.0,118.0 L403.0,118.0 L403.0,99.3 L421.0,99.3 L421.0,80.7 L430.6,80.7 L430.6,99.3 L442.6,99.3 L442.6,118.0 L481.0,118.0 L481.0,99.3 L493.0,99.3 L493.0,118.0 L497.8,118.0 L497.8,99.3 L508.6,99.3 L508.6,118.0 L509.8,118.0 L509.8,99.3 L518.2,99.3 L518.2,118.0 L559.0,118.0 L559.0,99.3 L571.0,99.3 L571.0,118.0 L574.6,118.0 L574.6,99.3 L586.6,99.3 L586.6,118.0 L587.8,118.0 L587.8,99.3 L595.0,99.3 L595.0,118.0 L637.0,118.0 L637.0,99.3 L649.0,99.3 L649.0,118.0 L651.4,118.0 L651.4,99.3 L664.6,99.3 L664.6,118.0 L665.8,118.0 L665.8,99.3 L671.8,99.3 L671.8,118.0 L715.0,118.0 L715.0,99.3 L727.0,99.3 L727.0,118.0 L728.8,118.0 L728.8,99.3 L742.6,99.3 L742.6,118.0 L743.8,118.0 L743.8,99.3 L748.6,99.3 L748.6,118.0 L793.0,118.0 L793.0,99.3 L805.0,99.3 L805.0,118.0 L806.8,118.0 L806.8,99.3 L820.6,99.3 L820.6,118.0 L821.8,118.0 L821.8,99.3 L826.6,99.3 L826.6,118.0 L871.0,118.0 L871.0,99.3 L883.0,99.3 L883.0,118.0 L884.8,118.0 L884.8,99.3 L898.6,99.3 L898.6,118.0 L899.8,118.0 L899.8,99.3 L904.6,99.3 L904.6,118.0 L949.0,118.0 L949.0,99.3 L967.0,99.3 L967.0,80.7 L976.6,80.7 L976.6,62.0 L991.6,62.0 L991.6,80.7 L1006.0,80.7 L1006.0,99.3 L1014.4,99.3 L1014.4,80.7 L1027.6,80.7 L1027.6,62.0 L1042.6,62.0 L1042.6,80.7 L1057.0,80.7 L1057.0,99.3 L1069.0,99.3 L1069.0,118.0 L1078.0,118.0 L1078.0,99.3 L1096.0,99.3 L1096.0,80.7 L1105.6,80.7 L1105.6,62.0 L1120.6,62.0 L1120.6,80.7 L1135.0,80.7 L1135.0,99.3 L1143.4,99.3 L1143.4,80.7 L1154.2,80.7 L1154.2,62.0 L1169.2,62.0 L1169.2,80.7 L1183.6,80.7 L1183.6,99.3 L1195.6,99.3 L1195.6,118.0 L1204.6,118.0 L1204.6,99.3 L1222.6,99.3 L1222.6,80.7 L1232.2,80.7 L1232.2,62.0 L1247.2,62.0 L1247.2,80.7 L1261.6,80.7 L1261.6,99.3 L1268.8,99.3 L1268.8,80.7 L1278.4,80.7 L1278.4,62.0 L1293.4,62.0 L1293.4,80.7 L1307.8,80.7 L1307.8,99.3 L1319.8,99.3 L1319.8,118.0 L1328.8,118.0 L1328.8,99.3 L1346.8,99.3 L1346.8,80.7 L1356.4,80.7 L1356.4,62.0 L1371.4,62.0 L1371.4,80.7 L1377.4,80.7 L1377.4,62.0 L1395.4,62.0 L1395.4,80.7 L1401.4,80.7 L1401.4,62.0 L1416.4,62.0 L1416.4,80.7 L1430.8,80.7 L1430.8,99.3 L1442.8,99.3 L1442.8,118.0 L1451.8,118.0 L1451.8,99.3 L1469.8,99.3 L1469.8,80.7 L1479.4,80.7 L1479.4,62.0 L1494.4,62.0 L1494.4,80.7 L1499.2,80.7 L1499.2,62.0 L1518.4,62.0 L1518.4,80.7 L1523.2,80.7 L1523.2,62.0 L1538.2,62.0 L1538.2,80.7 L1552.6,80.7 L1552.6,99.3 L1564.6,99.3 L1564.6,118.0 L1573.6,118.0 L1573.6,99.3 L1591.6,99.3 L1591.6,80.7 L1601.2,80.7 L1601.2,62.0 L1616.2,62.0 L1616.2,80.7 L1619.8,80.7 L1619.8,62.0 L1658.8,62.0 L1658.8,80.7 L1673.2,80.7 L1673.2,99.3 L1685.2,99.3 L1685.2,118.0 L1694.2,118.0 L1694.2,99.3 L1712.2,99.3 L1712.2,80.7 L1721.8,80.7 L1721.8,62.0 L1736.8,62.0 L1736.8,80.7 L1739.8,80.7 L1739.8,62.0 L1778.8,62.0 L1778.8,80.7 L1793.2,80.7 L1793.2,99.3 L1805.2,99.3 L1805.2,118.0 L1814.2,118.0 L1814.2,99.3 L1832.2,99.3 L1832.2,80.7 L1841.8,80.7 L1841.8,62.0 L1856.8,62.0 L1856.8,80.7 L1859.2,80.7 L1859.2,62.0 L1898.2,62.0 L1898.2,80.7 L1912.6,80.7 L1912.6,99.3 L1924.6,99.3 L1924.6,118.0 L1933.6,118.0 L1933.6,99.3 L1951.6,99.3 L1951.6,80.7 L1961.2,80.7 L1961.2,62.0 L1976.2,62.0 L1976.2,80.7 L1990.6,80.7 L1990.6,99.3 L2002.6,99.3 L2002.6,118.0 L2009.2,118.0"/><text class="ax" x="4" y="142.0">ticks</text><text class="ax" x="88.0" y="142.0">40</text><text class="ax" x="166.0" y="142.0">170</text><text class="ax" x="244.0" y="142.0">300</text><text class="ax" x="322.0" y="142.0">430</text><text class="ax" x="400.0" y="142.0">560</text><text class="ax" x="478.0" y="142.0">690</text><text class="ax" x="556.0" y="142.0">820</text><text class="ax" x="634.0" y="142.0">950</text><text class="ax" x="712.0" y="142.0">1080</text><text class="ax" x="790.0" y="142.0">1210</text><text class="ax" x="868.0" y="142.0">1340</text><text class="ax" x="946.0" y="142.0">1470</text><text class="ax" x="1024.0" y="142.0">1600</text><text class="ax" x="1102.0" y="142.0">1730</text><text class="ax" x="1180.0" y="142.0">1860</text><text class="ax" x="1258.0" y="142.0">1990</text><text class="ax" x="1336.0" y="142.0">2120</text><text class="ax" x="1414.0" y="142.0">2250</text><text class="ax" x="1492.0" y="142.0">2380</text><text class="ax" x="1570.0" y="142.0">2510</text><text class="ax" x="1648.0" y="142.0">2640</text><text class="ax" x="1726.0" y="142.0">2770</text><text class="ax" x="1804.0" y="142.0">2900</text><text class="ax" x="1882.0" y="142.0">3030</text><text class="ax" x="1960.0" y="142.0">3160</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 3242 ticks (2 min 42.1 s).</p><p class="wave-note"><span class="tag-pos">PAYLOAD</span>: out to N = 3 in 55 gt, back in 55 gt.</p><details><summary>Our test's report, step by step (4 lines)</summary><pre class="design">cycle 1: extended at +55 gt, restored 55 gt after the off edge
+cycle 2: extended at +55 gt, restored 55 gt after the off edge
+cycle 3: extended at +55 gt, restored 55 gt after the off edge
+after flips: a full cycle works</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">N</th><td>3</td><td class="def">the reach: how many cells the block is pushed out</td></tr>
+<tr><th scope="row">extend</th><td>55 gt (2.75 s)</td><td class="def">game ticks from switching the input on until the block is fully out</td></tr>
+<tr><th scope="row">retract</th><td>55 gt (2.75 s)</td><td class="def">game ticks from switching the input off until the block is back</td></tr>
+<tr><th scope="row">flips</th><td>safe (the lever flipped back at any time)</td><td class="def">what happens when the lever is flipped back before the block is all the way out: safe (nothing is stranded at any time) or the earliest flip that strands blocks</td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>A 3-piston extender you can flip back at any time (50 blocks, 9x5x6): the block goes out 3 cells in 55 gt and back in 55 gt, and turning the lever off or on again early never strands a block. How it works: it grew out of the slime-free stack of pext-n3-sf-v1, three sticky pistons in a row: going out each one pushes the ones in front of it, and coming back a logic of observers and pistons runs the single-cell moves it takes to pull every piston and the block home, one at a time. mctas circuit pext anneal --flip-soft (each failed flip test of the real-use audit, at all 4 rotations, costs more than any size) reworked that logic, adding a slime block, until every early flip ends extended or at rest (pext).</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/pext/index.html">Piston extenders</a></td></tr>
+<tr><th scope="row">Kind</th><td>Piston extender</td></tr>
+<tr><th scope="row">Blocks placed</th><td>50</td></tr>
+<tr><th scope="row">Box</th><td>9×5×6 (270 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>gold block, observer, piston, sticky piston, stone</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>IN (lever) (no output: it moves blocks)</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-22T00:03Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere, flip-safe, its own lever as the input, size</td></tr>
+<tr><th scope="row">Design file</th><td><code>pext-n3-flipsafe50-9x5x6</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/pext/archive/pext-n3-flipsafe50-9x5x6.txt">on GitHub</a></p><details><summary>Design file (72 lines)</summary><pre class="design"># archived 2026-10-22T00:03Z from designs/circuits/pext/work/pext-n3-flipsafe50-9x5x6.txt by mctas circuit archive
+# CIRCUIT: pext-n3-flipsafe50-9x5x6 piston-extender 3 N 3, extend 55 gt, retract 55 gt, flips safe (the lever flipped back at any time), 50 blocks, 9x5x6, robust
+# A 3-piston extender you can flip back at any time (50 blocks, 9x5x6): the block goes out 3 cells
+# in 55 gt and back in 55 gt, and turning the lever off or on again early never strands a block.
+# How it works: it grew out of the slime-free stack of pext-n3-sf-v1, three sticky pistons in a
+# row: going out each one pushes the ones in front of it, and coming back a logic of observers and
+# pistons runs the single-cell moves it takes to pull every piston and the block home, one
+# at a time. `mctas circuit pext anneal --flip-soft` (each failed flip test of the real-use audit,
+# at all 4 rotations, costs more than any size) reworked that logic, adding a slime block, until
+# every early flip ends extended or at rest (pext).
+name: pext-n3-flipsafe50-9x5x6
+circuit: piston-extender 3
+travel: 1 0 0
+port input: -1 1 0 lever
+port payload: 4 1 0
+origin: -1 0 -2
+palette:
+  A minecraft:observer[facing=north,powered=false]
+  B minecraft:observer[facing=south,powered=false]
+  C minecraft:observer[facing=up,powered=false]
+  D minecraft:observer[facing=west,powered=false]
+  E minecraft:piston[extended=false,facing=south]
+  F minecraft:piston[extended=false,facing=up]
+  G minecraft:gold_block
+  H minecraft:piston[extended=false,facing=west]
+  I minecraft:sticky_piston[extended=false,facing=east]
+  J minecraft:sticky_piston[extended=false,facing=north]
+  K minecraft:sticky_piston[extended=false,facing=south]
+  L minecraft:lever[face=floor,facing=north]
+  M minecraft:sticky_piston[extended=false,facing=up]
+  N minecraft:stone
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=east]
+  S minecraft:slime_block
+  o minecraft:observer[facing=east,powered=false]
+  p minecraft:piston[extended=false,facing=north]
+  s minecraft:sticky_piston[extended=false,facing=down]
+layer -1:
+  .
+  .......B
+  ....P.DD
+  .
+  .
+  .
+layer 0:
+  .
+  ......CO
+  s.BD.OA
+  ..C...A
+  ......F
+  .
+layer 1:
+  .DDSI.H
+  p.....AM
+  LFIIIG
+  ..B.B
+  ..BEoo
+  ..o
+layer 2:
+  .
+  .......N
+  ..DCCoC
+  .....J
+  .
+  .
+layer 3:
+  .
+  ....oKo
+  ....A.B
+  ...JNND
+  .
+  .
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/4802aeae549d7104ccc52e6162819b1f0c85df00">vjeux/redstonepedia@4802aeae5</a> on <span class="nowrap">2026-10-23</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=cddf7aad"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=528edeb5"});</script>
+</body>
+</html>

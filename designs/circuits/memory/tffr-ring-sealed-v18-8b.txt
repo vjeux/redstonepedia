@@ -1,0 +1,28 @@
+# archived 2026-10-21T19:34Z from designs/circuits/tracks/clk-rt/compact/memory/tffr-ring-sealed-v18-8b.txt by mctas circuit archive
+# CIRCUIT: tffr-ring-sealed-v18-8b tff-reset latency 13 gt, reset 6 gt, min-pulse 2 gt (the shortest a real input makes), 8 blocks, 3x3x2, robust
+# T flip-flop with reset, dropper ring, sealed: tffr-ring-sealed's mechanism (two droppers and two hoppers pass one stone around; a comparator reading the second dropper is the output; every hopper top covered so no stray item reaches its timing) rearranged by clk-rt's circuit compact (2026-10-21) under the item-intrusion judge: judged box 18 (unchanged), 8 blocks (was 11); its blocks sit in 3x3x2.
+name: tffr-ring-sealed-v18-8b
+circuit: tff-reset
+port input.r: 1 0 2
+port input.t: 1 2 0
+port output: 2 0 1
+nbt: 0 0 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: 0 0 0
+palette:
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:dropper[facing=east,triggered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=north]
+  R minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  d minecraft:dropper[facing=west,triggered=false]
+  h minecraft:hopper[enabled=true,facing=south]
+layer -1:
+  .
+  ..G
+layer 0:
+  Dh
+  Hdc
+layer 1:
+  .R
+  C

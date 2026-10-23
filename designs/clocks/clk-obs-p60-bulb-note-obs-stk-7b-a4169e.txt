@@ -1,0 +1,25 @@
+# archived 2026-10-19T19:18Z from designs/clocks/tracks/clk-obs/families/p60-bulb-note-obs-stk-7b-a4169e.txt by mctas clock archive
+# CLOCK: clk-obs-p60-bulb-note-obs-stk-7b-a4169e period 60 gt (3 s), on 20/60, edges 10, warmup 19, family copper_bulb+note_block+observer+sticky_piston, 7 blocks, 1x2x5, robust
+name: clk-obs-p60-bulb-note-obs-stk-7b-a4169e
+# P60: 1 copper bulb, 1 note block, 4 observers, 1 sticky piston; changing in place: copper_bulb, note_block, observer, sticky_piston. Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+origin: 0 0 -1
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 0 1 -3
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:observer[facing=north,powered=false]
+  C minecraft:note_block[instrument=harp,note=0,powered=false]
+  D minecraft:observer[facing=south,powered=false]
+  E minecraft:waxed_copper_bulb[lit=false,powered=false]
+  F minecraft:sticky_piston[extended=false,facing=north]
+layer 0:
+  .
+  A
+  B
+  C
+layer 1:
+  D
+  B
+  E
+  F

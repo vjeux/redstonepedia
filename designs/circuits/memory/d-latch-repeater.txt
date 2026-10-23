@@ -1,0 +1,19 @@
+# archived 2026-10-19T23:48Z from designs/circuits/memory/tracks/memory/d-latch-repeater.txt by mctas circuit archive
+# CIRCUIT: d-latch-repeater d-latch latency 4 gt, enable low, 4 blocks, 1x2x2, robust
+# D latch, 4 blocks: the data input feeds a repeater (on a stone) whose output is q, and the enable input feeds a second repeater pointing into its side. While that second repeater is on, the first is locked and holds q; while it is off, q follows d. So it is transparent while e is OFF; for a latch that follows d while e is ON, hang the 1-block NOT (a wall torch) on the enable input and let it feed the side repeater (5 blocks). Latency 4 ticks.
+name: d-latch-repeater
+circuit: d-latch
+port input.d: -1 1 1
+port input.e: 0 1 -1
+port output: 1 1 1
+origin: 0 0 0
+palette:
+  R minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  S minecraft:stone
+  r minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+layer 0:
+  S
+  S
+layer 1:
+  R
+  r

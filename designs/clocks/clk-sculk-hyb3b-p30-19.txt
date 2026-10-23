@@ -1,0 +1,24 @@
+# archived 2026-10-19T19:55Z from /tmp/gen/arch2/hyb3b-p30-19.txt by mctas clock archive
+# CLOCK: clk-sculk-hyb3b-p30-19 period 30 gt (1.5 s), on 10/30, edges 1, warmup 5, family calibrated_sculk_sensor+observer+piston, 5 blocks, 2x6x1, robust
+# A calibrated sculk sensor watched by a chain of 3 observer(s) (each watching the previous); a piston at the last output, 4 from the sensor (travel time): the observers' pulse after the sensor re-arms is heard
+name: clk-sculk-hyb3b-p30-19
+# how: obs cal k=3 path 0,1,0 0,2,0 0,3,0 emitter piston-up at the output (travel 4)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing east (on the ground) takes every pulse (was 0 -1 0: the output [0, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 1 0 0
+port start: 1 4 0 minecraft:redstone_block 1
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=south,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=up]
+layer 0:
+  C
+layer 1:
+  O
+layer 2:
+  O
+layer 3:
+  O
+layer 4:
+  P

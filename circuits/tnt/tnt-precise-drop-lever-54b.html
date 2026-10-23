@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TNT duper: drops each TNT straight down to explode at one point · 30 TNT a minute · 54 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="TNT duper: drops each TNT straight down to explode at one point · 30 TNT a minute · 54 blocks. Precise drop with an on/off lever, ONE clock + ONE item-free delay: tnt-precise-drop (41b) with the 52b&#39;s lever inverter holding its clock, and its release chai">
+<meta property="og:title" content="TNT duper: drops each TNT straight down to explode at one point · 30 TNT a minute · 54 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="TNT duper: drops each TNT straight down to explode at one point · 30 TNT a minute · 54 blocks. Precise drop with an on/off lever, ONE clock + ONE item-free delay: tnt-precise-drop (41b) with the 52b&#39;s lever inverter holding its clock, and its release chai">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/tnt/index.html">TNT dupers</a></p>
+<p class="kindline">TNT duper (runs by itself)</p>
+<h1>drops each TNT straight down to explode at one point · 30 TNT a minute · 54 blocks</h1>
+<p class="oneliner">Lights 30 TNT a minute while its lever is on, and every TNT falls straight down and explodes at the same point under the machine, without ever using up its own TNT block.</p>
+<p class="lede">the smallest of 2 tested (counting the air it needs under it) that has an on/off lever · a push every 40 ticks (2 s) · fits in 8×5×8 + 14 blocks of air under it</p>
+<p class="badges"><span class="badge">on/off lever</span></p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/tnt/tnt-precise-drop-lever-54b.txt" data-stimulus="in 200+ 500- 760+ 1071- 1331+ 1653- 1913+ 2246-" data-phases="0-200 rest; 200-500 on 1; 500-760 off 1; 760-1071 on 2; 1071-1331 off 2; 1331-1653 on 3; 1653-1913 off 3; 1913-2246 on 4; 2246-2506 off 4" data-input-mode="pulse" data-circuit="tnt-duper" data-kind="circuit"><div class="fallback"><span class="fb-big">drops each TNT straight down to explode at one point</span><span class="fb-small">TNT duper</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<p class="needs">Every TNT explodes 13.5 blocks under the machine, so stand it at least 14 blocks up for the blast to be in mid-air (our test stood it 16 blocks up); the machine itself survives from 5 blocks up. Needs water where the view shows it.</p>
+<section class="what plain"><h2>Try it</h2><p>Flip its lever (the IN button under the view) to start it: watch a lit TNT come out of the machine each cycle while its TNT block stays in place; flip it back and it stops. The view first plays our test on a loop; touch any control to take over.</p><p class="howdesign"><b>How this design does it:</b> Precise drop with an on/off lever, ONE clock + ONE item-free delay: tnt-precise-drop (41b) with the 52b&#39;s lever inverter holding its clock, and its release chain made long enough that each TNT is released by its OWN push: the observer watching the engine&#39;s frame starts a line of six delay-4 repeaters (48 gt) to the repeater the trapdoor&#39;s observer watches.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/tnt/tnt-precise-drop-lever-54b.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/tnt/tnt-precise-drop-lever-54b.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=dead_tube_coral_fan">dead tube coral fan</a> <a class="chip" href="../../index.html#with=iron_trapdoor">iron trapdoor</a> <a class="chip" href="../../index.html#with=oak_fence">oak fence</a> <a class="chip" href="../../index.html#with=observer">observer</a> <a class="chip" href="../../index.html#with=obsidian">obsidian</a> <a class="chip" href="../../index.html#with=redstone_block">redstone block</a> <a class="chip" href="../../index.html#with=redstone_lamp">redstone lamp</a> <a class="chip" href="../../index.html#with=redstone_torch">redstone torch</a> <a class="chip" href="../../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../../index.html#with=repeater">repeater</a> <a class="chip" href="../../index.html#with=slime_block">slime block</a> <a class="chip" href="../../index.html#with=sticky_piston">sticky piston</a> <a class="chip" href="../../index.html#with=stone">stone</a> <a class="chip" href="../../index.html#with=tnt">tnt</a> <a class="chip" href="../../index.html#with=water">water</a></p></section>
+<p class="also-ground">Without the on/off switch, 13 blocks smaller: <a href="../../circuits/tnt/tnt-precise-drop.html">TNT duper: drops each TNT straight down to explode at one point · 30 TNT a minute · 41 blocks</a>.</p>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>It <b>keeps lighting TNT forever without using up its TNT block</b>: <b>30 TNT a minute</b>. Every 40 gt (2 s) a piston pushes the TNT block: a piston copies every block it moves before it clears the old cells, and a TNT that gets a block update while powered at that instant is lit where it stands (a primed TNT that falls and explodes 80 gt, 4 s, later) while its moved copy lands as a TNT block again. Each push lights 1 TNT.</p></section>
+<section><h2>How to try it</h2><p>The duper runs by itself as soon as it is built: the view plays it from the start. Watch the piston push the TNT block every cycle and a lit TNT (flashing white) drop out of the machine each time, while the TNT block lands again in its place; a lit TNT vanishes when its fuse runs out instead of exploding. Pause and step one game tick at a time with the bar's buttons; drag to look around, pinch or scroll to zoom.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the input with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="1576" height="78" viewBox="0 0 1576 78" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="64.0" y1="18.0" x2="64.0" y2="60.0"/><text class="phl" x="67.0" y="14.0">rest</text><line class="ph" x1="184.0" y1="18.0" x2="184.0" y2="60.0"/><text class="phl" x="187.0" y="14.0">on 1</text><line class="ph" x1="364.0" y1="18.0" x2="364.0" y2="60.0"/><text class="phl" x="367.0" y="14.0">off 1</text><line class="ph" x1="520.0" y1="18.0" x2="520.0" y2="60.0"/><text class="phl" x="523.0" y="14.0">on 2</text><line class="ph" x1="706.6" y1="18.0" x2="706.6" y2="60.0"/><text class="phl" x="709.6" y="14.0">off 2</text><line class="ph" x1="862.6" y1="18.0" x2="862.6" y2="60.0"/><text class="phl" x="865.6" y="14.0">on 3</text><line class="ph" x1="1055.8" y1="18.0" x2="1055.8" y2="60.0"/><text class="phl" x="1058.8" y="14.0">off 3</text><line class="ph" x1="1211.8" y1="18.0" x2="1211.8" y2="60.0"/><text class="phl" x="1214.8" y="14.0">on 4</text><line class="ph" x1="1411.6" y1="18.0" x2="1411.6" y2="60.0"/><text class="phl" x="1414.6" y="14.0">off 4</text><text class="wl" x="4" y="46.0">IN</text><line class="base" x1="64.0" y1="48.0" x2="1568.2" y2="48.0"/><polygon class="win" points="64.0,48.0 64.0,48.0 184.0,48.0 184.0,28.0 364.0,28.0 364.0,48.0 520.0,48.0 520.0,28.0 706.6,28.0 706.6,48.0 862.6,48.0 862.6,28.0 1055.8,28.0 1055.8,48.0 1211.8,48.0 1211.8,28.0 1411.6,28.0 1411.6,48.0 1568.2,48.0 1568.2,48.0"/><text class="ax" x="4" y="72.0">ticks</text><text class="ax" x="64.0" y="72.0">0</text><text class="ax" x="124.0" y="72.0">100</text><text class="ax" x="184.0" y="72.0">200</text><text class="ax" x="244.0" y="72.0">300</text><text class="ax" x="304.0" y="72.0">400</text><text class="ax" x="364.0" y="72.0">500</text><text class="ax" x="424.0" y="72.0">600</text><text class="ax" x="484.0" y="72.0">700</text><text class="ax" x="544.0" y="72.0">800</text><text class="ax" x="604.0" y="72.0">900</text><text class="ax" x="664.0" y="72.0">1000</text><text class="ax" x="724.0" y="72.0">1100</text><text class="ax" x="784.0" y="72.0">1200</text><text class="ax" x="844.0" y="72.0">1300</text><text class="ax" x="904.0" y="72.0">1400</text><text class="ax" x="964.0" y="72.0">1500</text><text class="ax" x="1024.0" y="72.0">1600</text><text class="ax" x="1084.0" y="72.0">1700</text><text class="ax" x="1144.0" y="72.0">1800</text><text class="ax" x="1204.0" y="72.0">1900</text><text class="ax" x="1264.0" y="72.0">2000</text><text class="ax" x="1324.0" y="72.0">2100</text><text class="ax" x="1384.0" y="72.0">2200</text><text class="ax" x="1444.0" y="72.0">2300</text><text class="ax" x="1504.0" y="72.0">2400</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 2507 ticks (2 min 5.35 s).</p><details><summary>Our test's report, step by step (56 lines)</summary><pre class="design">rest 0..200: nothing primed, standing still
+on 1 200..500: 8 primed, the first 13 gt after the lever, then 1 per 40 gt
+off 1 500..760: 0 primed after the lever, standing still in the rest state
+on 2 760..1071: 8 primed, the first 13 gt after the lever, then 1 per 40 gt
+off 2 1071..1331: 0 primed after the lever, standing still in the rest state
+on 3 1331..1653: 8 primed, the first 13 gt after the lever, then 1 per 40 gt
+off 3 1653..1913: 1 primed after the lever, standing still with its moving parts elsewhere than at rest
+on 4 1913..2246: 8 primed, the first 27 gt after the lever, then 1 per 40 gt
+off 4 2246..2506: 0 primed after the lever, standing still in the rest state
+TNT 0: primed at frame 213, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 1: primed at frame 247, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 2: primed at frame 287, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 3: primed at frame 327, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 4: primed at frame 367, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 5: primed at frame 407, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 6: primed at frame 447, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 7: primed at frame 487, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 8: primed at frame 773, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 9: primed at frame 807, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 10: primed at frame 847, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 11: primed at frame 887, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 12: primed at frame 927, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 13: primed at frame 967, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 14: primed at frame 1007, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 15: primed at frame 1047, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 16: primed at frame 1344, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 17: primed at frame 1378, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 18: primed at frame 1418, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 19: primed at frame 1458, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 20: primed at frame 1498, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 21: primed at frame 1538, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 22: primed at frame 1578, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 23: primed at frame 1618, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 24: primed at frame 1658, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 25: primed at frame 1940, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 26: primed at frame 1980, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 27: primed at frame 2020, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 28: primed at frame 2060, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 29: primed at frame 2100, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 30: primed at frame 2140, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 31: primed at frame 2180, at fuse 1 at (6.5100, -17.4575, -2.8850)
+TNT 32: primed at frame 2220, at fuse 1 at (6.5100, -17.4575, -2.8850)
+blast at frame 292 (6.51, -18.33, -2.88): would destroy 7 blocks on open ground
+blast at frame 326 (6.51, -18.33, -2.88): would destroy 7 blocks on open ground
+blast at frame 366 (6.51, -18.33, -2.88): would destroy 7 blocks on open ground
+blast at frame 406 (6.51, -18.33, -2.88): would destroy 7 blocks on open ground
+blast at frame 446 (6.51, -18.33, -2.88): would destroy 7 blocks on open ground
+blast at frame 486 (6.51, -18.33, -2.88): would destroy 7 blocks on open ground
+blast at frame 526 (6.51, -18.33, -2.88): would destroy 7 blocks on open ground
+blast at frame 566 (6.51, -18.33, -2.88): would destroy 7 blocks on open ground
+blast at frame 852 (6.51, -18.33, -2.88): would destroy 7 blocks on open ground
+blast at frame 886 (6.51, -18.33, -2.88): would destroy 7 blocks on open ground
+blast at frame 926 (6.51, -18.33, -2.88): would destroy 7 blocks on open ground
+blast at frame 966 (6.51, -18.33, -2.88): would destroy 7 blocks on open ground
+... 33 blasts in all
+useful: every blast clear of fluids, the weakest destroys 7 blocks on open ground</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">rate</th><td>30 TNT/min</td><td class="def">lit TNT per minute</td></tr>
+<tr><th scope="row">period</th><td>40 gt (2 s)</td><td class="def">game ticks between two pushes (the engine&#39;s cycle)</td></tr>
+<tr><th scope="row">per period</th><td>1</td><td class="def">TNT lit by each push</td></tr>
+<tr><th scope="row">runs</th><td>lever on</td><td class="def"></td></tr>
+<tr><th scope="row">switch</th><td>lever off: stops within 5 gt; on: restarts within 27 gt</td><td class="def"></td></tr>
+<tr><th scope="row">safe drop</th><td>5 blocks</td><td class="def"></td></tr>
+<tr><th scope="row">stands</th><td>16 blocks above the ground (stand: in the design)</td><td class="def"></td></tr>
+<tr><th scope="row">effective volume</th><td>1344 (8x8 footprint x (5 + 16) high: the box and the air under it)</td><td class="def"></td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>Precise drop with an on/off lever, ONE clock + ONE item-free delay: tnt-precise-drop (41b) with the 52b&#39;s lever inverter holding its clock, and its release chain made long enough that each TNT is released by its OWN push: the observer watching the engine&#39;s frame starts a line of six delay-4 repeaters (48 gt) to the repeater the trapdoor&#39;s observer watches. A stop never strands a TNT: the last push&#39;s delayed release still comes. Not compacted yet (clk-rt&#39;s compact).</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/tnt/index.html">TNT dupers</a></td></tr>
+<tr><th scope="row">Kind</th><td>TNT duper (runs by itself)</td></tr>
+<tr><th scope="row">Blocks placed</th><td>54</td></tr>
+<tr><th scope="row">Box</th><td>8×5×8 (320 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>dead tube coral fan, iron trapdoor, observer, redstone block, redstone lamp, redstone torch, redstone wire, repeater, slime block, sticky piston, tnt, water</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>IN (lever) (no output: it moves blocks)</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-21T17:51Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere, its own lever as the input</td></tr>
+<tr><th scope="row">Design file</th><td><code>tnt-precise-drop-lever-54b</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/tnt/archive/tnt-precise-drop-lever-54b.txt">on GitHub</a></p><details><summary>Design file (89 lines)</summary><pre class="design"># archived 2026-10-21T17:51Z from designs/circuits/tracks/clk-misc/tnt-precise-drop-lever-54b.txt by mctas circuit archive
+# CIRCUIT: tnt-precise-drop-lever-54b tnt-duper rate 30 TNT/min, period 40 gt, per period 1, runs lever on, switch lever off: stops within 5 gt; on: restarts within 27 gt, safe drop 5 blocks, stands 16 blocks above the ground (stand: in the design), effective volume 1344 (8x8 footprint x (5 + 16) high: the box and the air under it), 54 blocks, 8x5x8, robust (survives its own explosions: 33 exploded, design intact; precise: 33 TNT at one point at fuse 1, in mid-air 13.5 blocks below the machine, 2.5 blocks above the ground; launched at (-0.0015, 0.1568, -1.0000) blocks/gt, spread (0.0391, 0.0000, 0.0000); dropped: every TNT falls straight down, 16.6+ blocks by fuse 1; useful: every blast clear of fluids, each destroys blocks on open ground)
+# Precise drop with an on/off lever, ONE clock + ONE item-free delay (coordinator 2026-10-21 after
+# vjeux 15:24Z: no exposed hoppers; &quot;it&#39;s just one clock + delay circuit&quot;): tnt-precise-drop (41b)
+# with the 52b&#39;s lever inverter holding its clock, and its release chain made long enough that
+# each TNT is released by its OWN push: the observer watching the engine&#39;s frame starts a line of
+# six delay-4 repeaters (48 gt) to the repeater the trapdoor&#39;s observer watches. A stop never
+# strands a TNT: the last push&#39;s delayed release still comes. Not compacted yet (clk-rt&#39;s compact).
+name: tnt-precise-drop-lever-54b
+circuit: tnt-duper
+stand: 16
+port input: 2 -3 -1 lever
+port start: 2 -1 3 last
+origin: 2 0 -4
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  B minecraft:observer[facing=north,powered=false]
+  C minecraft:observer[facing=south,powered=false]
+  D minecraft:dead_tube_coral_fan[waterlogged=false]
+  E minecraft:observer[facing=up,powered=false]
+  F minecraft:observer[facing=west,powered=false]
+  G minecraft:obsidian
+  H minecraft:redstone_wall_torch[facing=east,lit=true]
+  I minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
+  J minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  K minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  M minecraft:sticky_piston[extended=false,facing=north]
+  N minecraft:stone
+  O minecraft:oak_fence[east=true,north=false,south=false,waterlogged=false,west=false]
+  U minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=true]
+  f minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=false]
+  P minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  Q minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  R minecraft:redstone_block
+  S minecraft:slime_block
+  T minecraft:tnt[unstable=false]
+  V minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  W minecraft:water[level=0]
+  X minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  Y minecraft:redstone_torch[lit=true]
+  Z minecraft:lever[face=wall,facing=north,powered=false]
+  o minecraft:observer[facing=down,powered=false]
+  r minecraft:redstone_lamp[lit=false]
+  s minecraft:sticky_piston[extended=false,facing=down]
+layer -4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .N
+  .
+layer -3:
+  .
+  ...NIN
+  .
+  Z
+  N
+  .
+  RKNH
+  M
+layer -2:
+  ...OU
+  ..fW.ENN
+  ...AC..N
+  .......N
+  Y......N
+  s.SSS.NN
+  B.MGS
+  r...S
+layer -1:
+  .
+  .....XXP
+  .......Q
+  .......Q
+  ...T...Q
+  ..D..FVP
+  C..JR
+  o...S
+layer 0:
+  .
+  .
+  .
+  .
+  .
+  .
+  ...SS
+  ....S
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/4802aeae549d7104ccc52e6162819b1f0c85df00">vjeux/redstonepedia@4802aeae5</a> on <span class="nowrap">2026-10-23</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=cddf7aad"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=528edeb5"});</script>
+</body>
+</html>

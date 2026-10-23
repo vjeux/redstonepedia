@@ -1,0 +1,15 @@
+# archived 2026-10-19T15:49Z from /tmp/clk-in/clk-sculk--c24s-obs-fencegate.txt by mctas clock archive
+# CLOCK: clk-sculk-c24s-obs-fencegate period 24 gt (1.2 s), on 10/24, edges 1, warmup 2, family calibrated_sculk_sensor+oak_fence_gate+observer, 3 blocks, 3x1x1, robust
+name: clk-sculk-c24s-obs-fencegate
+# Self-starting: fence gate E placed open+powered with no power closes on its placement update
+# (BLOCK_CLOSE); then observer O's 3rd pulse on C opens it each period.
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 0 -1 0: the output [0, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 0 0 -1
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:observer[facing=west,powered=false]
+  E minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=true]
+layer 0:
+  COE

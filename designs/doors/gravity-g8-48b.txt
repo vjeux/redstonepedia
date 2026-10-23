@@ -1,0 +1,78 @@
+# verified WORKS by door leaderboard: 48 blocks, category gravity
+# archived 2026-10-18 07:40Z from origin/explore/gravity:designs/piston-door-3x3/tracks/gravity/BEST.txt (repo at 35eb0eb)
+name: gravity-g8
+port door: 0 0 0
+port lever: 1 -1 -3
+origin: -1 0 -3
+palette:
+  A minecraft:piston_head[facing=up,short=false,type=sticky]
+  B minecraft:redstone_wire[east=none,north=side,power=15,south=side,west=none]
+  C minecraft:redstone_wire[east=side,north=none,power=13,south=none,west=up]
+  D minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  E minecraft:redstone_wire[east=side,north=up,power=12,south=none,west=none]
+  F minecraft:redstone_wire[east=side,north=up,power=14,south=none,west=side]
+  G minecraft:redstone_wire[east=up,north=none,power=13,south=side,west=none]
+  H minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  I minecraft:smooth_stone
+  J minecraft:sticky_piston[extended=false,facing=east]
+  K minecraft:sticky_piston[extended=false,facing=up]
+  L minecraft:lever[face=wall,facing=north,powered=false]
+  M minecraft:sticky_piston[extended=false,facing=west]
+  N minecraft:sticky_piston[extended=true,facing=up]
+  O minecraft:observer[facing=north,powered=false]
+  P minecraft:piston[extended=true,facing=up]
+  R minecraft:redstone_wall_torch[facing=north,lit=true]
+  S minecraft:sand
+  p minecraft:piston_head[facing=up,short=false,type=normal]
+  r minecraft:redstone_wall_torch[facing=south,lit=true]
+  s minecraft:slime_block
+layer -7:
+  .
+  .
+  II
+  .
+layer -6:
+  .
+  I.I
+  EHN
+  .
+layer -5:
+  .
+  GIC
+  ..A
+  .
+layer -4:
+  .I
+  .F
+  .Os
+  .IK
+layer -3:
+  .B
+  .
+  ..s
+  .
+layer -2:
+  .R
+  .I.I
+  .
+  ..P
+layer -1:
+  ..L
+  .DID
+  .IrI
+  sMpJs
+layer 0:
+  .
+  .
+  .
+  sSSSs
+layer 1:
+  .
+  .
+  .
+  sSSSs
+layer 2:
+  .
+  .
+  .
+  sSSSs

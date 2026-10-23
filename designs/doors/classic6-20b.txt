@@ -1,0 +1,23 @@
+# verified WORKS: 20 blocks, open after 1 ticks, closed after 3 ticks
+# archived 2026-10-21 22:41Z from designs/piston-door-2x2/tracks/clk-item/classic6.txt (repo at 083056780)
+name: classic6
+door-size: 2
+port door: 0 0 0
+port lever: 3 3 0
+origin: -2 0 0
+palette:
+  A minecraft:stone
+  L minecraft:lever[face=floor,facing=east,powered=true]
+  P minecraft:piston_head[facing=east,short=false,type=sticky]
+  R minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  S minecraft:sticky_piston[extended=true,facing=east]
+  p minecraft:piston_head[facing=west,short=false,type=sticky]
+  s minecraft:sticky_piston[extended=true,facing=west]
+layer 0:
+  SPAAps
+layer 1:
+  SPAAps
+layer 2:
+  AAAAAA
+layer 3:
+  RRRRRL

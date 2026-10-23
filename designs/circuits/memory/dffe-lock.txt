@@ -1,0 +1,31 @@
+# archived 2026-10-20T22:41Z from designs/circuits/memory/tracks/memory/dffe-lock.txt by mctas circuit archive
+# CIRCUIT: dffe-lock dff-enable latency 6 gt, edge rising, 12 blocks, 2x2x5, robust
+# D flip-flop with enable, 12 blocks: the 9-block flip-flop (two repeaters with lock repeaters beside them; the master's lock reads the clock block, a wall torch on that block feeds the slave's) plus one more lock on the slave's other side, fed by a wall torch on the enable block. A repeater is locked if EITHER side is powered, so while e is off the slave stays locked through any clock edge and q holds; no AND gate is needed.
+name: dffe-lock
+circuit: dff-enable
+port input.clk: 0 1 2
+port input.d: -1 1 0
+port input.e: 1 1 -3
+port output: 2 1 0
+origin: 0 0 -3
+palette:
+  A minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  B minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  E minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  N minecraft:redstone_wall_torch[facing=south,lit=true]
+  S minecraft:stone
+layer 0:
+  ..
+  ..
+  .S
+  SS
+  SS
+  ..
+layer 1:
+  ..
+  .N
+  .E
+  BB
+  AA
+  .R

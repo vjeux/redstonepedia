@@ -1,0 +1,23 @@
+# archived 2026-10-19T20:11Z from designs/clocks/tracks/clk-obs/mech2/p29-bulb-obs-stk-7b-b-d82d99.txt by mctas clock archive
+# CLOCK: clk-obs-p29-bulb-obs-stk-7b-b-d82d99 period 29 gt (1.45 s), on 2/29, edges 1, warmup 12, family copper_bulb+observer+sticky_piston, 7 blocks, 3x3x3, robust
+name: clk-obs-p29-bulb-obs-stk-7b-b-d82d99
+# P29: 1 copper bulb, 4 observers, 2 sticky pistons; changing in place: copper_bulb, observer, sticky_piston. Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 2 0 1
+port start: 0 0 0 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=up]
+  B minecraft:observer[facing=east,powered=false]
+  C minecraft:observer[facing=north,powered=false]
+  D minecraft:sticky_piston[extended=false,facing=east]
+  E minecraft:waxed_copper_bulb[lit=false,powered=false]
+  F minecraft:observer[facing=south,powered=false]
+layer -1:
+  ..
+  ..
+  A.
+layer 0:
+  BE
+  CF
+  DF

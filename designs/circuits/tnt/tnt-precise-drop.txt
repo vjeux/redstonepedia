@@ -1,0 +1,88 @@
+# archived 2026-10-21T17:01Z from /tmp/bed/shapes/tnt-precise-drop.txt by mctas circuit archive
+# CIRCUIT: tnt-precise-drop tnt-duper rate 30 TNT/min, period 40 gt, per period 1, latency 21 gt, safe drop 4 blocks, stands 23 blocks above the ground (stand: in the design), 41 blocks, 6x5x8, robust (survives its own explosions: 43 exploded, design intact; precise: 42 TNT at one point at fuse 1, in mid-air 10.0 blocks below the machine, 13.0 blocks above the ground; launched at (-0.0002, 0.1568, -1.0000) blocks/gt, spread (0.0385, 0.0000, 0.0000); dropped: every TNT falls straight down, 13.1+ blocks by fuse 1; useful: every blast clear of fluids, each destroys blocks on open ground)
+# Precise drop, 41 blocks in a 6x5x8 box (240), 30 TNT/min: every TNT falls straight down from one
+# point and explodes at one point in mid-air 10.0 blocks under the machine, 13.0 blocks above the ground
+# it stands 23 blocks over. clk-rt's minimum-volume search (explore/timer 3670274e4,
+# designs/circuits/tracks/clk-rt/tnt-precise-drop-240-41b.txt): the 240-volume version with 3 fewer
+# blocks. A 7-block catalog P40 clock, folded between the engine and the channel, moves its redstone
+# block in front of a repeater for 6 ticks every 40 and the torch under the engine piston goes dark:
+# one TNT. The TNT flies into fence posts over a water channel, the current pins it against an
+# observer on an iron trapdoor, and the next TNT's push, carried by observers and a delay-4 repeater,
+# opens the trapdoor.
+# material (clk-rt 2026-10-21, `circuit material`): 1 obsidian -> stone (the same kind, axis and metrics on its judge); obsidian at 5 -2 2 stays for immovability (pistons must not move it: the design fails or changes even with a blast-proof netherite block there)
+# 2026-10-21: 2 blocks stored as a player's placement shapes them (`mctas clock shapes`: a fence's arms, a gate's in_wall, a tripwire's connections)
+name: tnt-precise-drop
+circuit: tnt-duper
+stand: 23
+port start: 2 -1 3 last
+origin: 2 0 -4
+palette:
+  A minecraft:oak_fence[east=true,north=false,south=false,waterlogged=false,west=false]
+  B minecraft:observer[facing=down,powered=false]
+  C minecraft:observer[facing=east,powered=false]
+  D minecraft:dead_tube_coral_fan[waterlogged=false]
+  E minecraft:observer[facing=north,powered=false]
+  F minecraft:observer[facing=south,powered=false]
+  G minecraft:observer[facing=up,powered=false]
+  H minecraft:observer[facing=west,powered=false]
+  I minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
+  J minecraft:obsidian
+  K minecraft:redstone_wall_torch[facing=east,lit=true]
+  L minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  M minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  N minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  O minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=false]
+  P minecraft:sticky_piston[extended=false,facing=north]
+  Q minecraft:stone
+  R minecraft:redstone_block
+  S minecraft:slime_block
+  T minecraft:tnt[unstable=false]
+  W minecraft:water[level=0]
+  o minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=true]
+  r minecraft:redstone_lamp[lit=false]
+  s minecraft:sticky_piston[extended=false,facing=down]
+layer -4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .Q
+  .
+layer -3:
+  .
+  ...QIQ
+  .
+  .
+  .
+  .
+  RMQK
+  P
+layer -2:
+  ...Ao
+  ..OW.G
+  ...CF
+  .
+  .
+  s.SSS
+  E.PJS
+  r...S
+layer -1:
+  .
+  .....N
+  .....Q
+  .....F
+  ...T.F
+  ..D..H
+  F..LR
+  B...S
+layer 0:
+  .
+  .
+  .
+  .
+  .
+  .
+  ...SS
+  ....S

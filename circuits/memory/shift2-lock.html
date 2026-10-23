@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shift register: 2 bits · 27 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Shift register: 2 bits · 27 blocks. 2-bit shift register, 27 blocks: two repeater-lock flip-flops in a row, the first stage&#39;s output feeding the second stage&#39;s data. The first stage reads the cloc">
+<meta property="og:title" content="Shift register: 2 bits · 27 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Shift register: 2 bits · 27 blocks. 2-bit shift register, 27 blocks: two repeater-lock flip-flops in a row, the first stage&#39;s output feeding the second stage&#39;s data. The first stage reads the cloc">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/memory/index.html">Memory and counters</a></p>
+<p class="kindline">Moves bits along on each clock pulse (shift register)</p>
+<h1>2 bits · 27 blocks</h1>
+<p class="oneliner">Each clock pulse moves every stored bit one step along: what goes in comes out 2 clock pulses later.</p>
+<p class="lede">passed at every position and facing we tested · reacts in 6 ticks (0.3 s) · made of redstone torch, redstone wire, repeater · fits in 4×3×4</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/memory/shift2-lock.txt" data-stimulus="clk 60+ 100- 140+ 180- 220+ 260- 300+ 340- 380+ 420- 460+ 500- 540+ 580- 620+ 660- 700+ 740- 780+ 820- 860+ 900- 940+ 980- 1020+ 1060- 1100+ 1140-; d 40+ 80- 160+ 200- 240+ 280- 320+ 440- 600+ 640- 680+ 760- 840+ 880- 960+ 1120-" data-phases="40-60 M 1 d=1 clk=0; 60-80 M 1 clk rises; 80-100 M 1 d=0 clk=1; 100-120 M 1 clk falls; 120-140 M 2 d=0 clk=0; 140-160 M 2 clk rises; 160-180 M 2 d=1 clk=1; 180-200 M 2 clk falls; 200-220 M 3 d=0 clk=0; 220-240 M 3 clk rises; 240-260 M 3 d=1 clk=1; 260-280 M 3 clk falls; 280-300 M 4 d=0 clk=0; 300-320 M 4 clk rises; 320-340 M 4 d=1 clk=1; 340-360 M 4 clk falls; 360-380 M 5 d=1 clk=0; 380-400 M 5 clk rises; 400-420 M 5 d=1 clk=1; 420-440 M 5 clk falls; 440-460 M 6 d=0 clk=0; 460-480 M 6 clk rises; 480-500 M 6 d=0 clk=1; 500-520 M 6 clk falls; 520-540 M 7 d=0 clk=0; 540-560 M 7 clk rises; 560-580 M 7 d=0 clk=1; 580-600 M 7 clk falls; 600-620 M 8 d=1 clk=0; 620-640 M 8 clk rises; 640-660 M 8 d=0 clk=1; 660-680 M 8 clk falls; 680-700 M 9 d=1 clk=0; 700-720 M 9 clk rises; 720-740 M 9 d=1 clk=1; 740-760 M 9 clk falls; 760-780 M 10 d=0 clk=0; 780-800 M 10 clk rises; 800-820 M 10 d=0 clk=1; 820-840 M 10 clk falls; 840-860 M 11 d=1 clk=0; 860-880 M 11 clk rises; 880-900 M 11 d=0 clk=1; 900-920 M 11 clk falls; 920-940 M 12 d=0 clk=0; 940-960 M 12 clk rises; 960-980 M 12 d=1 clk=1; 980-1000 M 12 clk falls; 1000-1020 M 13 d=1 clk=0; 1020-1040 M 13 clk rises; 1040-1060 M 13 d=1 clk=1; 1060-1080 M 13 clk falls; 1080-1100 M 14 d=1 clk=0; 1100-1120 M 14 clk rises; 1120-1140 M 14 d=0 clk=1; 1140-1160 M 14 clk falls" data-input-mode="pulse" data-circuit="shift 2" data-kind="circuit"><div class="fallback"><span class="fb-big">2 bits</span><span class="fb-small">Shift register</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<section class="what plain"><h2>Try it</h2><p>Use the CLK and D buttons under the view to drive the inputs: the box marked OUT turns red while the output is on. Press play under the view to watch our test on a loop; touch any other control to take over.</p><p class="howdesign"><b>How this design does it:</b> 2-bit shift register, 27 blocks: two repeater-lock flip-flops in a row, the first stage&#39;s output feeding the second stage&#39;s data.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/memory/shift2-lock.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/memory/shift2-lock.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=redstone_torch">redstone torch</a> <a class="chip" href="../../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../../index.html#with=repeater">repeater</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>a row of memory cells: each clock pulse moves every bit one step along, so the data comes out a set number of clock pulses later</p></section>
+<section><h2>How to try it</h2><p><b>Press play under the view to watch the judge's own test</b> on a loop (the badge reads <i>demo</i> with the step it is on; the same test is drawn as a timing diagram below). Touch any control to stop it and try the circuit yourself.</p><p>To try it: press and hold the <b>CLK</b> button of the bar (or the cell tagged CLK) to power that input; a quick tap sends a short 2 gt pulse; press and hold the <b>D</b> button of the bar (or the cell tagged D) to power that input; a quick tap sends a short 2 gt pulse.</p><p>Inputs are tagged in <span class="tag-in">lime</span>; the output is tagged <span class="tag-out">OUT</span>: the <b>redstone lamp</b> in that cell (the lamp the judge itself adds to read the output) <b>lights while the output is on</b> (the output strip by the demo badge shows its last 40 game ticks, 2 seconds). Drag to look around, pinch or scroll to zoom, step one game tick at a time with the step button.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the inputs with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="1032" height="146" viewBox="0 0 1032 146" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="97.1" y1="18.0" x2="97.1" y2="128.0"/><line class="ph" x1="113.6" y1="18.0" x2="113.6" y2="128.0"/><line class="ph" x1="130.1" y1="18.0" x2="130.1" y2="128.0"/><line class="ph" x1="146.7" y1="18.0" x2="146.7" y2="128.0"/><line class="ph" x1="163.2" y1="18.0" x2="163.2" y2="128.0"/><line class="ph" x1="179.8" y1="18.0" x2="179.8" y2="128.0"/><line class="ph" x1="196.3" y1="18.0" x2="196.3" y2="128.0"/><line class="ph" x1="212.8" y1="18.0" x2="212.8" y2="128.0"/><line class="ph" x1="229.4" y1="18.0" x2="229.4" y2="128.0"/><line class="ph" x1="245.9" y1="18.0" x2="245.9" y2="128.0"/><line class="ph" x1="262.4" y1="18.0" x2="262.4" y2="128.0"/><line class="ph" x1="279.0" y1="18.0" x2="279.0" y2="128.0"/><line class="ph" x1="295.5" y1="18.0" x2="295.5" y2="128.0"/><line class="ph" x1="312.1" y1="18.0" x2="312.1" y2="128.0"/><line class="ph" x1="328.6" y1="18.0" x2="328.6" y2="128.0"/><line class="ph" x1="345.1" y1="18.0" x2="345.1" y2="128.0"/><line class="ph" x1="361.7" y1="18.0" x2="361.7" y2="128.0"/><line class="ph" x1="378.2" y1="18.0" x2="378.2" y2="128.0"/><line class="ph" x1="394.7" y1="18.0" x2="394.7" y2="128.0"/><line class="ph" x1="411.3" y1="18.0" x2="411.3" y2="128.0"/><line class="ph" x1="427.8" y1="18.0" x2="427.8" y2="128.0"/><line class="ph" x1="444.4" y1="18.0" x2="444.4" y2="128.0"/><line class="ph" x1="460.9" y1="18.0" x2="460.9" y2="128.0"/><line class="ph" x1="477.4" y1="18.0" x2="477.4" y2="128.0"/><line class="ph" x1="494.0" y1="18.0" x2="494.0" y2="128.0"/><line class="ph" x1="510.5" y1="18.0" x2="510.5" y2="128.0"/><line class="ph" x1="527.0" y1="18.0" x2="527.0" y2="128.0"/><line class="ph" x1="543.6" y1="18.0" x2="543.6" y2="128.0"/><line class="ph" x1="560.1" y1="18.0" x2="560.1" y2="128.0"/><line class="ph" x1="576.7" y1="18.0" x2="576.7" y2="128.0"/><line class="ph" x1="593.2" y1="18.0" x2="593.2" y2="128.0"/><line class="ph" x1="609.7" y1="18.0" x2="609.7" y2="128.0"/><line class="ph" x1="626.3" y1="18.0" x2="626.3" y2="128.0"/><line class="ph" x1="642.8" y1="18.0" x2="642.8" y2="128.0"/><line class="ph" x1="659.3" y1="18.0" x2="659.3" y2="128.0"/><line class="ph" x1="675.9" y1="18.0" x2="675.9" y2="128.0"/><line class="ph" x1="692.4" y1="18.0" x2="692.4" y2="128.0"/><line class="ph" x1="709.0" y1="18.0" x2="709.0" y2="128.0"/><line class="ph" x1="725.5" y1="18.0" x2="725.5" y2="128.0"/><line class="ph" x1="742.0" y1="18.0" x2="742.0" y2="128.0"/><line class="ph" x1="758.6" y1="18.0" x2="758.6" y2="128.0"/><line class="ph" x1="775.1" y1="18.0" x2="775.1" y2="128.0"/><line class="ph" x1="791.6" y1="18.0" x2="791.6" y2="128.0"/><line class="ph" x1="808.2" y1="18.0" x2="808.2" y2="128.0"/><line class="ph" x1="824.7" y1="18.0" x2="824.7" y2="128.0"/><line class="ph" x1="841.3" y1="18.0" x2="841.3" y2="128.0"/><line class="ph" x1="857.8" y1="18.0" x2="857.8" y2="128.0"/><line class="ph" x1="874.3" y1="18.0" x2="874.3" y2="128.0"/><line class="ph" x1="890.9" y1="18.0" x2="890.9" y2="128.0"/><line class="ph" x1="907.4" y1="18.0" x2="907.4" y2="128.0"/><line class="ph" x1="923.9" y1="18.0" x2="923.9" y2="128.0"/><line class="ph" x1="940.5" y1="18.0" x2="940.5" y2="128.0"/><line class="ph" x1="957.0" y1="18.0" x2="957.0" y2="128.0"/><line class="ph" x1="973.6" y1="18.0" x2="973.6" y2="128.0"/><line class="ph" x1="990.1" y1="18.0" x2="990.1" y2="128.0"/><line class="ph" x1="1006.6" y1="18.0" x2="1006.6" y2="128.0"/><text class="wl" x="4" y="46.0">CLK</text><line class="base" x1="64.0" y1="48.0" x2="1024.0" y2="48.0"/><polygon class="win" points="64.0,48.0 64.0,48.0 113.6,48.0 113.6,28.0 146.7,28.0 146.7,48.0 179.8,48.0 179.8,28.0 212.8,28.0 212.8,48.0 245.9,48.0 245.9,28.0 279.0,28.0 279.0,48.0 312.1,48.0 312.1,28.0 345.1,28.0 345.1,48.0 378.2,48.0 378.2,28.0 411.3,28.0 411.3,48.0 444.4,48.0 444.4,28.0 477.4,28.0 477.4,48.0 510.5,48.0 510.5,28.0 543.6,28.0 543.6,48.0 576.7,48.0 576.7,28.0 609.7,28.0 609.7,48.0 642.8,48.0 642.8,28.0 675.9,28.0 675.9,48.0 709.0,48.0 709.0,28.0 742.0,28.0 742.0,48.0 775.1,48.0 775.1,28.0 808.2,28.0 808.2,48.0 841.3,48.0 841.3,28.0 874.3,28.0 874.3,48.0 907.4,48.0 907.4,28.0 940.5,28.0 940.5,48.0 973.6,48.0 973.6,28.0 1006.6,28.0 1006.6,48.0 1024.0,48.0 1024.0,48.0"/><text class="wl" x="4" y="80.0">D</text><line class="base" x1="64.0" y1="82.0" x2="1024.0" y2="82.0"/><polygon class="win" points="64.0,82.0 64.0,82.0 97.1,82.0 97.1,62.0 130.1,62.0 130.1,82.0 196.3,82.0 196.3,62.0 229.4,62.0 229.4,82.0 262.4,82.0 262.4,62.0 295.5,62.0 295.5,82.0 328.6,82.0 328.6,62.0 427.8,62.0 427.8,82.0 560.1,82.0 560.1,62.0 593.2,62.0 593.2,82.0 626.3,82.0 626.3,62.0 692.4,62.0 692.4,82.0 758.6,82.0 758.6,62.0 791.6,62.0 791.6,82.0 857.8,82.0 857.8,62.0 990.1,62.0 990.1,82.0 1024.0,82.0 1024.0,82.0"/><text class="wl" x="4" y="114.0">OUT</text><line class="base" x1="64.0" y1="116.0" x2="1024.0" y2="116.0"/><polygon class="wout" points="64.0,116.0 64.0,116.0 184.7,116.0 184.7,96.0 250.9,96.0 250.9,116.0 449.3,116.0 449.3,96.0 515.5,96.0 515.5,116.0 647.8,116.0 647.8,96.0 780.1,96.0 780.1,116.0 846.2,116.0 846.2,96.0 912.4,96.0 912.4,116.0 978.5,116.0 978.5,96.0 1024.0,96.0 1024.0,116.0"/><text class="ax" x="4" y="140.0">ticks</text><text class="ax" x="64.0" y="140.0">0</text><text class="ax" x="105.3" y="140.0">50</text><text class="ax" x="146.7" y="140.0">100</text><text class="ax" x="188.0" y="140.0">150</text><text class="ax" x="229.4" y="140.0">200</text><text class="ax" x="270.7" y="140.0">250</text><text class="ax" x="312.1" y="140.0">300</text><text class="ax" x="353.4" y="140.0">350</text><text class="ax" x="394.7" y="140.0">400</text><text class="ax" x="436.1" y="140.0">450</text><text class="ax" x="477.4" y="140.0">500</text><text class="ax" x="518.8" y="140.0">550</text><text class="ax" x="560.1" y="140.0">600</text><text class="ax" x="601.5" y="140.0">650</text><text class="ax" x="642.8" y="140.0">700</text><text class="ax" x="684.2" y="140.0">750</text><text class="ax" x="725.5" y="140.0">800</text><text class="ax" x="766.8" y="140.0">850</text><text class="ax" x="808.2" y="140.0">900</text><text class="ax" x="849.5" y="140.0">950</text><text class="ax" x="890.9" y="140.0">1000</text><text class="ax" x="932.2" y="140.0">1050</text><text class="ax" x="973.6" y="140.0">1100</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 1161 ticks (58.05 s).</p><details><summary>Our test's report, step by step (56 lines)</summary><pre class="design">M 1 d=1 clk=0: q = 0
+M 1 clk rises: q = 0
+M 1 d=0 clk=1: q = 0
+M 1 clk falls: q = 0
+M 2 d=0 clk=0: q = 0
+M 2 clk rises: q = 1 after 6 gt
+M 2 d=1 clk=1: q = 1
+M 2 clk falls: q = 1
+M 3 d=0 clk=0: q = 1
+M 3 clk rises: q = 0 after 6 gt
+M 3 d=1 clk=1: q = 0
+M 3 clk falls: q = 0
+M 4 d=0 clk=0: q = 0
+M 4 clk rises: q = 0
+M 4 d=1 clk=1: q = 0
+M 4 clk falls: q = 0
+M 5 d=1 clk=0: q = 0
+M 5 clk rises: q = 0
+M 5 d=1 clk=1: q = 0
+M 5 clk falls: q = 0
+M 6 d=0 clk=0: q = 0
+M 6 clk rises: q = 1 after 6 gt
+M 6 d=0 clk=1: q = 1
+M 6 clk falls: q = 1
+M 7 d=0 clk=0: q = 1
+M 7 clk rises: q = 0 after 6 gt
+M 7 d=0 clk=1: q = 0
+M 7 clk falls: q = 0
+M 8 d=1 clk=0: q = 0
+M 8 clk rises: q = 0
+M 8 d=0 clk=1: q = 0
+M 8 clk falls: q = 0
+M 9 d=1 clk=0: q = 0
+M 9 clk rises: q = 1 after 6 gt
+M 9 d=1 clk=1: q = 1
+M 9 clk falls: q = 1
+M 10 d=0 clk=0: q = 1
+M 10 clk rises: q = 1
+M 10 d=0 clk=1: q = 1
+M 10 clk falls: q = 1
+M 11 d=1 clk=0: q = 1
+M 11 clk rises: q = 0 after 6 gt
+M 11 d=0 clk=1: q = 0
+M 11 clk falls: q = 0
+M 12 d=0 clk=0: q = 0
+M 12 clk rises: q = 1 after 6 gt
+M 12 d=1 clk=1: q = 1
+M 12 clk falls: q = 1
+M 13 d=1 clk=0: q = 1
+M 13 clk rises: q = 0 after 6 gt
+M 13 d=1 clk=1: q = 0
+M 13 clk falls: q = 0
+M 14 d=1 clk=0: q = 0
+M 14 clk rises: q = 1 after 6 gt
+M 14 d=0 clk=1: q = 1
+M 14 clk falls: q = 1</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">N</th><td>2</td><td class="def">the delay: how much later the output copies the input</td></tr>
+<tr><th scope="row">latency</th><td>6 gt (0.3 s)</td><td class="def">the worst time from an input change to the output&#39;s change</td></tr>
+<tr><th scope="row">edge</th><td>rising</td><td class="def">which input edge flips the output: rising = the input turning on, falling = turning off</td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>2-bit shift register, 27 blocks: two repeater-lock flip-flops in a row, the first stage&#39;s output feeding the second stage&#39;s data. The first stage reads the clock block directly (its master lock behind it, its slave&#39;s wall torch hanging on it); a dust on top of the clock block carries the clock round to the second stage&#39;s stone, which plays the same part for it. On each rising edge both stages shift at once.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/memory/index.html">Memory and counters</a></td></tr>
+<tr><th scope="row">Kind</th><td>Moves bits along on each clock pulse (shift register)</td></tr>
+<tr><th scope="row">Blocks placed</th><td>27 (not counting the input levers or buttons and the test lamp the view adds)</td></tr>
+<tr><th scope="row">Box</th><td>4×3×4 (48 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>redstone torch, redstone wire, repeater</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>CLK (repeater), D (repeater) / OUT</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-20T22:41Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere</td></tr>
+<tr><th scope="row">Design file</th><td><code>shift2-lock</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/memory/archive/shift2-lock.txt">on GitHub</a></p><details><summary>Design file (30 lines)</summary><pre class="design"># archived 2026-10-20T22:41Z from designs/circuits/memory/tracks/memory/shift2-lock.txt by mctas circuit archive
+# CIRCUIT: shift2-lock shift 2 N 2, latency 6 gt, edge rising, 27 blocks, 4x3x4, robust
+# 2-bit shift register, 27 blocks: two repeater-lock flip-flops in a row, the first stage&#39;s output feeding the second stage&#39;s data. The first stage reads the clock block directly (its master lock behind it, its slave&#39;s wall torch hanging on it); a dust on top of the clock block carries the clock round to the second stage&#39;s stone, which plays the same part for it. On each rising edge both stages shift at once.
+name: shift2-lock
+circuit: shift 2
+port input.clk: 0 1 2
+port input.d: -1 1 0
+port output: 4 1 0
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  B minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  r minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer 0:
+  SSSS
+  SSSS
+  ....
+  ....
+layer 1:
+  BBBB
+  AAAA
+  .RSR
+  SSS.
+layer 2:
+  ....
+  ....
+  r.r.
+  rrr.
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/4802aeae549d7104ccc52e6162819b1f0c85df00">vjeux/redstonepedia@4802aeae5</a> on <span class="nowrap">2026-10-23</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=cddf7aad"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=528edeb5"});</script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+# archived 2026-10-21T19:09Z from designs/circuits/tracks/clk-misc/tnt-engine-lever-29b.txt by mctas circuit archive
+# CIRCUIT: tnt-engine-lever-29b tnt-duper rate 200 TNT/min, period 6 gt, per period 1, runs lever on, switch lever off: stops within 2 gt; on: restarts within 5 gt, safe drop 4 blocks, stands 4 blocks above the ground (stand: in the design), effective volume 108 (3x4 footprint x (5 + 4) high: the box and the air under it), 29 blocks, 3x5x4, robust (survives its own explosions: 212 exploded, design intact; launched at (-0.0093, 0.1516, -0.9939) blocks/gt, spread (1.9822, 0.6938, 0.8249); useful: every blast clear of fluids, each destroys blocks on open ground)
+# The fast switchable TNT engine with the smallest EFFECTIVE volume (the box + the air it needs
+# under it; coordinator 2026-10-21: "beat 150 by changing the engine itself"): tnt-engine-lever-17b's
+# engine (200 TNT/min) with its lever inverter UNDER the engine (the torch under the sticky piston on
+# a stone, the lever on that stone's side) and a floor of 12 stone under the whole footprint.
+# Why the floor: the safe drop of the floorless engines (6 for the 17b, 7 for the 3x3x5) is set by
+# launched TNT that land about 20 blocks out and get knocked back by the explosions in their landing
+# zone, exploding on the ground under the machine (per-spawn runs 58 and 51); the floor takes those
+# blasts' rays. 3x5x4 box: 12 x (5 + 4) = 108, vs 150 (3x3x5) and 160 (the 17b).
+name: tnt-engine-lever-29b
+circuit: tnt-duper
+stand: 4
+port input: 2 -1 2 lever
+origin: 1 0 -1
+palette:
+  A minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  B minecraft:stone
+  D minecraft:dead_tube_coral_fan[waterlogged=false]
+  L minecraft:lever[face=wall,facing=east,powered=false]
+  O minecraft:obsidian
+  R minecraft:redstone_block
+  S minecraft:slime_block
+  T minecraft:tnt[unstable=false]
+  r minecraft:redstone_wall_torch[facing=north,lit=true]
+  s minecraft:sticky_piston[extended=false,facing=north]
+layer -2:
+  BBB
+  BBB
+  BBB
+  BBB
+layer -1:
+  .
+  .
+  r
+  BL
+layer 0:
+  .
+  SSS
+  sOS
+  ..S
+layer 1:
+  .T
+  D
+  .AR
+  ..S
+layer 2:
+  .
+  .
+  .S
+  .SS

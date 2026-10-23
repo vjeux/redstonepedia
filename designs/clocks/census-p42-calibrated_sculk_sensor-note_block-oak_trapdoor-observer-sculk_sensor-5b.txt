@@ -1,0 +1,24 @@
+# archived 2026-10-19T20:29Z from /tmp/gen/arch2/s3x1x2-k5-census-p42-calibrated_sculk_sensor-note_block-oak_trapdoor-observer-sculk_sensor-5b.txt by mctas clock archive
+# CLOCK: census-p42-calibrated_sculk_sensor-note_block-oak_trapdoor-observer-sculk_sensor-5b period 42 gt (2.1 s), on 10/42, edges 1, warmup 34, family calibrated_sculk_sensor+note_block+oak_trapdoor+observer+sculk_sensor, 7 blocks, 3x2x2, robust
+# Found by `mctas clock census` (box 3x1x2 k<=5) with a sculk palette: s3x1x2-k5-census-p42-calibrated_sculk_sensor-note_block-oak_trapdoor-observer-sculk_sensor-5b
+# port output declared 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks
+# port output moved 2026-10-21 (usable-output rule): the output of a comparator facing west (on the ground) that reads the build, added at 0 0 1 (was 2 -1 0: the output [2, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+name: census-p42-calibrated_sculk_sensor-note_block-oak_trapdoor-observer-sculk_sensor-5b
+census: box 3x1x2 k<=5 (0,0,0=note_block[instrument=harp,note=0,powered=false];1,0,0=observer[facing=east,powered=false];1,0,1=calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false];2,0,0=sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false];2,0,1=oak_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false])
+port output: -1 0 1
+port start: 2 0 0 last
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:oak_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  c minecraft:comparator[facing=east,mode=compare,powered=false]
+  o minecraft:observer[facing=east,powered=false]
+  s minecraft:stone
+layer -1:
+  .
+  s
+layer 0:
+  NoS
+  cCO

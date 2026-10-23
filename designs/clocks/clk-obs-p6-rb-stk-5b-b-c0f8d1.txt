@@ -1,0 +1,17 @@
+# archived 2026-10-19T20:34Z from designs/clocks/tracks/clk-obs/mech2/p6-rb-stk-5b-b-c0f8d1.txt by mctas clock archive
+# CLOCK: clk-obs-p6-rb-stk-5b-b-c0f8d1 period 6 gt (0.3 s), on 1/6, edges 1, warmup 0, family redstone_block+sticky_piston, 5 blocks, 2x1x4, robust
+name: clk-obs-p6-rb-stk-5b-b-c0f8d1
+# P6: 1 note block, 1 redstone block, 2 slime blocks, 1 sticky piston; changing in place: redstone_block, sticky_piston (note block, slime block only moved or static). Found by the clk-obs exhaustive census of every 5-block structure (all orientations, every block placed last as a kick); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 0 -1 2
+port start: 0 0 0 last
+palette:
+  A minecraft:note_block[instrument=harp,note=0,powered=false]
+  B minecraft:slime_block
+  C minecraft:redstone_block
+  D minecraft:sticky_piston[extended=false,facing=north]
+layer 0:
+  A.
+  BB
+  CD

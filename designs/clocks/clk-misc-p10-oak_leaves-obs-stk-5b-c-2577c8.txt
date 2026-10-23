@@ -1,0 +1,19 @@
+# archived 2026-10-19T21:30Z from designs/clocks/tracks/clk-misc/census/pick-leaves/p10-oak_leaves-obs-stk-5b-c-2577c8.txt by mctas clock archive
+# CLOCK: clk-misc-p10-oak_leaves-obs-stk-5b-c-2577c8 period 10 gt (0.5 s), on 4/10, edges 2, warmup 2, family oak_leaves+observer+sticky_piston, 6 blocks, 3x1x3, robust
+# clk-obs census (k=5, palette obs,sticky,stone,minecraft:oak_log,minecraft:oak_leaves[persistent=true]): P=10 (redsim), family oak_leaves+oak_log+observer+sticky_piston, kick last 0 0 1, swept volume 6.
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its east, added at -1 0 1 (was 0 -1 0: the output [0, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+name: clk-misc-p10-oak_leaves-obs-stk-5b-c-2577c8
+port output: -2 0 1
+port start: 0 0 1 last
+origin: -1 0 0
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  B minecraft:observer[facing=south,powered=false]
+  O minecraft:oak_leaves[distance=7,persistent=true,waterlogged=false]
+  S minecraft:sticky_piston[extended=false,facing=south]
+  o minecraft:oak_log[axis=y]
+layer 0:
+  .oS
+  AB
+  .Oo

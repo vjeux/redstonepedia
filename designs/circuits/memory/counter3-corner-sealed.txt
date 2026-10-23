@@ -1,0 +1,35 @@
+# archived 2026-10-21T16:53Z from /tmp/clkm-ab/intr/sealed/counter3-corner-sealed.txt by mctas circuit archive
+# CIRCUIT: counter3-corner-sealed counter 3 N 3, output level every 3 pulses, counts one pulse per N, 11 blocks, 3x4x2, robust
+# Sealed by `mctas circuit seal` (the real-use audit's item intrusion, 2026-10-21): 3 glass on
+# the open hopper tops of counter3-corner (0 2 1, 1 1 1, 1 2 0), so no stray item reaches a hopper of its timing.
+name: counter3-corner-sealed
+circuit: counter 3
+group: dropper-ring
+group note: N droppers the input fires (directly, through dust, dust relays or repeater relays) with N hoppers between them; one stone advances one dropper per pulse and a comparator reads one dropper (`mctas circuit memory ring --n N`)
+group title: Dropper ring (counter N)
+port input: 0 0 0
+port output: 3 0 0
+nbt: 1 0 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: 0 0 0
+palette:
+  A minecraft:dropper[facing=up,triggered=false]
+  B minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  D minecraft:dropper[facing=east,triggered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=down]
+  S minecraft:stone
+  d minecraft:dropper[facing=south,triggered=false]
+  h minecraft:hopper[enabled=true,facing=north]
+layer -1:
+  ..S
+  .
+layer 0:
+  .AC
+  Dh
+layer 1:
+  dB
+  HG
+layer 2:
+  .G
+  G

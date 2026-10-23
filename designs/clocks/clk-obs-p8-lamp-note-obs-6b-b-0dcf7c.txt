@@ -1,0 +1,23 @@
+# archived 2026-10-19T20:38Z from designs/clocks/tracks/clk-obs/mech2/p8-lamp-note-obs-6b-b-0dcf7c.txt by mctas clock archive
+# CLOCK: clk-obs-p8-lamp-note-obs-6b-b-0dcf7c period 8 gt (0.4 s), on 2/8, edges 1, warmup 2, family note_block+observer+redstone_lamp, 6 blocks, 1x2x3, robust
+name: clk-obs-p8-lamp-note-obs-6b-b-0dcf7c
+# P8: 1 note block, 4 observers, 1 redstone lamp; changing in place: note_block, observer, redstone_lamp. Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing west (on the ground) takes every pulse (was 0 -1 0: the output [0, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: -1 0 2
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:observer[facing=north,powered=false]
+  C minecraft:redstone_lamp[lit=false]
+  D minecraft:observer[facing=south,powered=false]
+  E minecraft:note_block[instrument=harp,note=0,powered=false]
+layer 0:
+  A
+  B
+  C
+layer 1:
+  D
+  D
+  E

@@ -1,0 +1,48 @@
+# archived 2026-10-23T08:35Z from /home/vjeux/ws5/strip-game/staged/clk-misc-p161-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-67b-2b32ca.txt by mctas clock archive
+# CLOCK: clk-misc-p161-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-67b-2b32ca period 161 gt (8.05 s), on 20/161, edges 1, warmup 104, family oak_boat+oak_pressure_plate, 67 blocks, 10x7x4, rotation-dependent
+# the irreducible core of clk-misc-boat-lift-l3h5.txt (mctas clock strip, 2026-10-22): removed -2,0,0 water[level=0]; -2,0,1 water[level=0]; -2,1,0 water[level=0]; -2,1,1 water[level=0]; -2,1,2 stone; -2,2,0 water[level=0]; -2,2,1 water[level=0]; -2,2,2 stone; -2,3,0 water[level=0]; -2,3,1 water[level=0]; -2,3,2 stone; -2,4,0 water[level=0]; -2,4,1 water[level=0]; -2,4,2 stone; -2,7,0 stone; -2,7,1 stone; -1,1,-1 stone; -1,1,2 stone; -1,2,0 water[level=0]; -1,3,-1 stone; -1,3,0 water[level=0]; -1,3,1 water[level=0]; -1,3,2 stone; -1,5,0 water[level=0]; -1,7,0 stone; -1,7,1 stone; 0,-1,1 stone; 0,0,-1 stone; 0,0,2 stone; 0,1,0 white_wall_banner[facing=west]; 0,1,1 white_wall_banner[facing=west]; 0,2,0 white_wall_banner[facing=west]; 0,3,0 white_wall_banner[facing=west]; 0,3,1 white_wall_banner[facing=west]; 0,7,0 stone; 0,7,1 stone; 1,1,0 stone; 1,2,0 stone; 1,2,1 stone; 1,3,0 stone; 1,3,1 stone; 1,7,0 stone; 1,7,1 stone; 4,5,-1 stone; 4,5,2 stone; 5,-1,0 stone; 5,-1,1 stone; 5,0,-1 stone; 5,0,2 stone; 5,5,-1 stone; 5,5,2 stone; 6,0,0 stone; 6,0,1 stone; 6,1,0 stone; 6,1,1 stone; 6,2,0 stone; 6,2,1 stone; 6,3,0 stone; 6,3,1 stone; 6,4,0 stone; 6,5,0 stone; 6,5,1 stone; -3,1,0 stone; -3,1,1 stone; -3,2,0 stone; -3,2,1 stone; -3,3,0 stone; -3,3,1 stone; -3,4,0 stone; -3,4,1 stone; -2,1,-1 stone; -2,2,-1 stone; -2,3,-1 stone; -2,4,-1 stone; -1,2,-1 stone; -1,2,1 water[level=0]; -1,2,2 stone; 0,2,1 white_wall_banner[facing=west]
+name: clk-misc-p161-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-67b-2b32ca
+port output: 0 -1 -1
+entity: minecraft:oak_boat 3 0 1
+origin: -3 0 -1
+palette:
+  O minecraft:oak_pressure_plate[powered=false]
+  S minecraft:soul_sand
+  W minecraft:water[level=0]
+  s minecraft:stone
+  w minecraft:white_wall_banner[facing=west]
+layer -1:
+  .
+  .SSsssss
+  .SS.ssss
+  .
+layer 0:
+  .ss.ssss
+  s.WO....O
+  s.WO....O
+  .ss.ssss
+layer 1:
+  .
+  ..W
+  ..W.s
+  .
+layer 2:
+  .
+  .
+  .
+  .
+layer 3:
+  .
+  .
+  .
+  .
+layer 4:
+  ..s
+  ..Wwsss
+  ..Wwsss..s
+  ..s
+layer 5:
+  .ssssss
+  sW
+  sWW
+  .ssssss

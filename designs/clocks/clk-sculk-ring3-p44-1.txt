@@ -1,0 +1,47 @@
+# archived 2026-10-19T22:30Z from /tmp/gen/arch3/ring3-p44-1.txt by mctas clock archive
+# CLOCK: clk-sculk-ring3-p44-1 period 44 gt (2.2 s), on 10/44, edges 1, warmup 21, family calibrated_sculk_sensor+note_block, 8 blocks, 18x2x14, robust
+# CLOCK: clk-sculk-ring3-p44-1 period 44 gt (2.2 s), on 10/44, edges 1, warmup 21, family calibrated_sculk_sensor+note_block, 8 blocks, 18x2x14, robust
+# built by `mctas clock sculk`: ring of 3 calibrated sensors, hops [15,13,16], the first sensor's resonator is a note block (the kick: right-click it)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of a comparator facing south (on the ground) that reads the build, added at -9 0 13 (was -16 -1 1: the output [-16, -1, 1] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+name: clk-sculk-ring3-p44-1
+port output: -9 0 14
+port start: 1 0 0 use
+origin: -16 0 0
+palette:
+  A minecraft:amethyst_block
+  B minecraft:comparator[facing=north,mode=compare,powered=false]
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  S minecraft:stone
+  c minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer -1:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .......S
+layer 0:
+  A...............CN
+  c
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .......cA
+  .......B

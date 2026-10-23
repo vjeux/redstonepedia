@@ -1,0 +1,17 @@
+# archived 2026-10-19T17:53Z from designs/clocks/tracks/clk-sculk/best/census-p43-calibrated_sculk_sensor-dispenser-observer-sculk_sensor-4b.txt by mctas clock archive
+# CLOCK: census-p43-calibrated_sculk_sensor-dispenser-observer-sculk_sensor-4b period 43 gt (2.15 s), on 30/43, edges 1, warmup 27, family calibrated_sculk_sensor+dispenser+observer+sculk_sensor, 4 blocks, 4x1x1, robust
+# Census find (4x1x2, k<=4): two sensors and one dispenser. An observer watching a plain sensor fires an empty dispenser beside a calibrated sensor; both sensors hear it, and the calibrated sensor, while active, powers the dispenser so pulses that come then are lost: the two dead times (20 and 40 gt) interlock into a 43 gt cycle.
+name: census-p43-calibrated_sculk_sensor-dispenser-observer-sculk_sensor-4b
+census: box 4x1x2 k<=4 (0,0,0=calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false];1,0,0=dispenser[facing=down,triggered=false];2,0,0=observer[facing=east,powered=false];3,0,0=sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false])
+port start: 3 0 0 last
+# port output declared 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 3 -1 0: the output [3, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 3 0 -1
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  D minecraft:dispenser[facing=down,triggered=false]
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer 0:
+  CDOS

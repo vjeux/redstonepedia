@@ -1,0 +1,19 @@
+# archived 2026-10-20T18:39Z from designs/circuits/tracks/pulse/wr/pulse-rising-edge-piston-observer-L2.txt by mctas circuit archive
+# CIRCUIT: pulse-rising-edge-piston-observer-L2 rising-edge L 2 gt, delay 4 gt, min-pulse 6 gt, tileable every 2 (2 0 0), 2 blocks, 1x3x1, robust
+name: pulse-rising-edge-piston-observer-L2
+circuit: rising-edge
+# The smallest rising-edge detector, 2 blocks: a sticky piston lifts an observer when the input
+# turns on, and the observer fires once as it lands, into the cell behind it (the output, a 2-tick
+# pulse); pulled back down when the input turns off, it fires under the output, into nothing.
+# Copies stand side by side every 2 blocks. Detail: inputs of 6 ticks or more.
+tile: 2 0 0
+port input: 0 0 1
+port output: 0 2 -1
+origin: 0 0 0
+palette:
+  O minecraft:observer[facing=south,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=up]
+layer 0:
+  S
+layer 1:
+  O

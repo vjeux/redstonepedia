@@ -1,0 +1,28 @@
+# archived 2026-10-19T18:15Z from designs/clocks/tracks/clk-obs/families/p16-obs-stk-5b-f1c527.txt by mctas clock archive
+# CLOCK: clk-obs-p16-obs-stk-5b-f1c527 period 16 gt (0.8 s), on 8/16, edges 4, warmup 11, family observer+sticky_piston, 6 blocks, 2x3x3, robust
+# P16: 1 copper bulb, 2 observers, 2 sticky pistons; changing in place: observer, sticky_piston (copper bulb only moved or static). Found by the clk-obs exhaustive census of every 5-block structure (all orientations, every block placed last as a kick); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its east, added at -1 2 1 (was 0 2 2: the output [0, 2, 2] has a moving or non-sturdy block under it: a repeater there has nothing to stand on)
+name: clk-obs-p16-obs-stk-5b-f1c527
+port output: -2 2 1
+port start: 0 1 2 last
+origin: -1 0 0
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=down]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=north,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=up]
+layer 0:
+  .s
+  .
+  .
+layer 1:
+  .W
+  .A
+  .S
+layer 2:
+  .
+  Oo
+  .

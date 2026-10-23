@@ -1,0 +1,21 @@
+# EXTENDABLE 1-torch inverter U-loop, n = 2 (P = 36 + 32n): U-loop (clk-rt): block A + dust beside
+# it -> top row [delay-4 repeater (powered at placement), delay-4 repeater (powered at placement),
+# delay-4 repeater (powered at placement)] -> block F -> a wall torch on F -> bottom row [delay-4
+# repeater (powered at placement), delay-4 repeater (powered at placement), delay-4 repeater
+# (powered at placement)] -> A; 1 torch(es) = an inverter loop of delay 50 gt (period 2 x delay)
+name: clk-rt-uloop1t-x2
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 0 -1 -1
+origin: 0 0 -1
+palette:
+  A minecraft:repeater[delay=4,facing=east,locked=false,powered=true]
+  B minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  R minecraft:redstone_wall_torch[facing=south,lit=true]
+  S minecraft:stone
+  r minecraft:redstone_wire
+layer 0:
+  SSSS
+  .SSS
+layer 1:
+  rBBBS
+  SAAAR

@@ -1,0 +1,24 @@
+# archived 2026-10-19T16:36Z from /tmp/clk-in6/clk-rt--sweeps--uloop-k2--uloop-p14-c-rw-r.txt by mctas clock archive
+# CLOCK: clk-rt-uloop-p14-c-rw-r-14b period 14 gt (0.7 s), on 6/14, edges 1, warmup 4, family comparator+redstone_wire+repeater, 14 blocks, 4x2x2, robust
+# U-loop (clk-rt): block A + dust beside it -> top row [delay-1 repeater (powered at placement),
+# delay-2 repeater (powered at placement)] -> block F -> dust beside F -> bottom row [delay-3
+# repeater, comparator] -> A; 0 torches = a pulse ring of loop delay 14 gt
+name: clk-rt-uloop-p14-c-rw-r-14b
+uloop: C-1*,2*-3,c-d
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing south (on the ground) takes every pulse (was 0 -1 -1: the output [0, -1, -1] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 0 0 0
+origin: 0 0 -1
+palette:
+  A minecraft:repeater[delay=2,facing=west,locked=false,powered=true]
+  B minecraft:repeater[delay=3,facing=east,locked=false,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  R minecraft:redstone_wire
+  S minecraft:stone
+  r minecraft:repeater[delay=1,facing=west,locked=false,powered=true]
+layer 0:
+  SSS
+  .SSS
+layer 1:
+  RrAS
+  SBCR

@@ -1,0 +1,31 @@
+# archived 2026-10-19T19:17Z from designs/clocks/tracks/clk-obs/families/p5-note-obs-pis-7b-356621.txt by mctas clock archive
+# CLOCK: clk-obs-p5-note-obs-pis-7b-356621 period 5 gt (0.25 s), on 2/5, edges 1, warmup 15, family note_block+observer+piston, 7 blocks, 1x4x3, robust
+name: clk-obs-p5-note-obs-pis-7b-356621
+# P5: 1 note block, 3 observers, 2 pistons, 1 sticky piston; changing in place: note_block, observer, piston (sticky piston only moved or static). Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing west (on a block put under it) takes every pulse (was 0 -1 0: with a repeater in the output cell, no signal (it never turns on))
+port output: -1 0 0
+port start: 0 1 0 last
+palette:
+  A minecraft:piston[extended=false,facing=up]
+  B minecraft:note_block[instrument=harp,note=0,powered=false]
+  C minecraft:observer[facing=south,powered=false]
+  D minecraft:observer[facing=north,powered=false]
+  E minecraft:sticky_piston[extended=false,facing=down]
+layer -1:
+  .
+  .
+  A
+layer 0:
+  B
+  C
+  .
+layer 1:
+  A
+  D
+  E
+layer 2:
+  .
+  C
+  .

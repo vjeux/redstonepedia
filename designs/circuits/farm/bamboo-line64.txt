@@ -1,0 +1,116 @@
+# archived 2026-10-22T17:34Z from designs/circuits/farm/tracks/w86/fuel/bamboo-line64.txt by mctas circuit archive
+# CIRCUIT: bamboo-line64 harvester bamboo items per hour per block 1.304, items per hour 1119.2, per cane 13.41 blocks, items per hour per cane 17.49, harvest height 3, wait 970 gt, items smelted per hour per block 0.326, items smelted per hour 279.8, game rts 24, bill 389 iron, 64 quartz, 256 redstone, 858 blocks, 66x6x4, robust
+name: bamboo-line64
+# The obvious bamboo farm: 64 stalks side by side on mud over a hopper line. A piston beside each
+# stalk's second block, an observer above it watching the third; the observers' dusts form one line,
+# so any stalk reaching three blocks fires every piston (bamboo has no memory). The second block
+# breaks and the third falls; the piston head shoves the items into a hopper line in front of the
+# stalks, and the hoppers under the mud take what falls. Both lines end in one chest. Written by
+# `circuit farm-gen --layout bamboo-line`.
+circuit: harvester minecraft:bamboo
+port crop.s0: 0 1 0
+port crop.s1: 1 1 0
+port crop.s2: 2 1 0
+port crop.s3: 3 1 0
+port crop.s4: 4 1 0
+port crop.s5: 5 1 0
+port crop.s6: 6 1 0
+port crop.s7: 7 1 0
+port crop.s8: 8 1 0
+port crop.s9: 9 1 0
+port crop.s10: 10 1 0
+port crop.s11: 11 1 0
+port crop.s12: 12 1 0
+port crop.s13: 13 1 0
+port crop.s14: 14 1 0
+port crop.s15: 15 1 0
+port crop.s16: 16 1 0
+port crop.s17: 17 1 0
+port crop.s18: 18 1 0
+port crop.s19: 19 1 0
+port crop.s20: 20 1 0
+port crop.s21: 21 1 0
+port crop.s22: 22 1 0
+port crop.s23: 23 1 0
+port crop.s24: 24 1 0
+port crop.s25: 25 1 0
+port crop.s26: 26 1 0
+port crop.s27: 27 1 0
+port crop.s28: 28 1 0
+port crop.s29: 29 1 0
+port crop.s30: 30 1 0
+port crop.s31: 31 1 0
+port crop.s32: 32 1 0
+port crop.s33: 33 1 0
+port crop.s34: 34 1 0
+port crop.s35: 35 1 0
+port crop.s36: 36 1 0
+port crop.s37: 37 1 0
+port crop.s38: 38 1 0
+port crop.s39: 39 1 0
+port crop.s40: 40 1 0
+port crop.s41: 41 1 0
+port crop.s42: 42 1 0
+port crop.s43: 43 1 0
+port crop.s44: 44 1 0
+port crop.s45: 45 1 0
+port crop.s46: 46 1 0
+port crop.s47: 47 1 0
+port crop.s48: 48 1 0
+port crop.s49: 49 1 0
+port crop.s50: 50 1 0
+port crop.s51: 51 1 0
+port crop.s52: 52 1 0
+port crop.s53: 53 1 0
+port crop.s54: 54 1 0
+port crop.s55: 55 1 0
+port crop.s56: 56 1 0
+port crop.s57: 57 1 0
+port crop.s58: 58 1 0
+port crop.s59: 59 1 0
+port crop.s60: 60 1 0
+port crop.s61: 61 1 0
+port crop.s62: 62 1 0
+port crop.s63: 63 1 0
+port output: 64 -2 0
+origin: -1 -1 -1
+palette:
+  S minecraft:stone
+  G minecraft:glass
+  M minecraft:mud
+  O minecraft:observer[facing=north,powered=false]
+  P minecraft:piston[extended=false,facing=north]
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  E minecraft:hopper[enabled=true,facing=east]
+  H minecraft:hopper[enabled=true,facing=down]
+  T minecraft:hopper[enabled=true,facing=south]
+layer 0:
+  ..................................................................
+  .EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEH
+  ..................................................................
+  ..................................................................
+layer 1:
+  SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+  SMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM.
+  ..................................................................
+  ..................................................................
+layer 2:
+  GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
+  G................................................................G
+  GSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSG
+  ..................................................................
+layer 3:
+  GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
+  G................................................................G
+  GPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPG
+  .SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS.
+layer 4:
+  GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
+  G................................................................G
+  GOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOG
+  .dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd.
+layer 5:
+  ..................................................................
+  GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
+  GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
+  ..................................................................

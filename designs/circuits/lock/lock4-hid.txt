@@ -1,0 +1,75 @@
+# archived 2026-10-21T11:49Z from designs/circuits/lock/tracks/lock/hid/lock4-hid.txt by mctas circuit archive
+# CIRCUIT: lock4-hid lock 4 dials 4, combinations tried 8192 (4096 per code, 2 codes), opens within 6 gt, closes within 8 gt, 99 blocks, 5x3x13, robust
+name: lock4-hid
+# Combination lock, 4 dials with the code hidden (study 14, `mctas circuit lock-gen --hidden --n 4`): the dials on the front (west) face, the code frames on the back (east) face facing away; two comparators per dial plus the code's reader.
+circuit: lock 4
+group: lock-hid
+group title: Combination lock with a hidden code (any number of dials)
+group note: the code frames hang on the back face, facing away from the player; per dial a code reader, two comparators (the dial at least the code, the code at least the dial) and a torch for each failure on one dust bus (`mctas circuit lock-gen --hidden --n N`)
+port input.d0: -3 2 0 frame
+port input.k0: 2 2 2 frame
+port input.d1: -3 2 5 frame
+port input.k1: 2 2 3 frame
+port input.d2: -3 2 7 frame
+port input.k2: 2 2 9 frame
+port input.d3: -3 2 12 frame
+port input.k3: 2 2 10 frame
+port output: 1 0 0
+entity: minecraft:item_frame -2.5 2.5 0.5 {Facing:4b,Item:{id:"minecraft:arrow",count:1},ItemRotation:0b}
+entity: minecraft:item_frame 2.5 2.5 2.5 {Facing:5b,Item:{id:"minecraft:arrow",count:1},ItemRotation:3b}
+entity: minecraft:item_frame -2.5 2.5 5.5 {Facing:4b,Item:{id:"minecraft:arrow",count:1},ItemRotation:0b}
+entity: minecraft:item_frame 2.5 2.5 3.5 {Facing:5b,Item:{id:"minecraft:arrow",count:1},ItemRotation:5b}
+entity: minecraft:item_frame -2.5 2.5 7.5 {Facing:4b,Item:{id:"minecraft:arrow",count:1},ItemRotation:0b}
+entity: minecraft:item_frame 2.5 2.5 9.5 {Facing:5b,Item:{id:"minecraft:arrow",count:1},ItemRotation:1b}
+entity: minecraft:item_frame -2.5 2.5 12.5 {Facing:4b,Item:{id:"minecraft:arrow",count:1},ItemRotation:0b}
+entity: minecraft:item_frame 2.5 2.5 10.5 {Facing:5b,Item:{id:"minecraft:arrow",count:1},ItemRotation:6b}
+origin: -3 0 0
+palette:
+  S minecraft:stone
+  w minecraft:redstone_wire
+  T minecraft:comparator[facing=west,mode=compare,powered=false]
+  K minecraft:comparator[facing=east,mode=compare,powered=false]
+  A minecraft:redstone_wall_torch[facing=east,lit=true]
+  O minecraft:redstone_wall_torch[facing=west,lit=true]
+layer 0:
+  ....OS
+  .....S
+  .....S
+  .....S
+  .....S
+  .....S
+  .....S
+  .....S
+  .....S
+  .....S
+  .....S
+  .....S
+  .....S
+layer 1:
+  ..SSAw
+  ..SS.w
+  ...S.w
+  ...S.w
+  ..SS.w
+  ..SSAw
+  .....w
+  ..SSAw
+  ..SS.w
+  ...S.w
+  ...S.w
+  ..SS.w
+  ..SSAw
+layer 2:
+  .STw
+  ..wTSA
+  ..SKS
+  ..SKS
+  ..wTSA
+  .STw
+  .
+  .STw
+  ..wTSA
+  ..SKS
+  ..SKS
+  ..wTSA
+  .STw

@@ -1,0 +1,31 @@
+# archived 2026-10-21T16:56Z from /tmp/clkm-ab/intr/sealed/pulse-limiter-hopper-timer-L31-sealed.txt by mctas circuit archive
+# CIRCUIT: pulse-limiter-hopper-timer-L31-sealed pulse-limiter L 31 gt, delay 4 gt, min-pulse 3 gt, 12 blocks, 4x3x2, robust
+# Sealed by `mctas circuit seal` (the real-use audit's item intrusion, 2026-10-21): 4 glass on
+# the open hopper tops of pulse-limiter-hopper-timer-L31 (0 2 0, 0 2 1, 1 2 0, 1 2 1), so no stray item reaches a hopper of its timing.
+name: pulse-limiter-hopper-timer-L31-sealed
+circuit: pulse-limiter
+group: hopper-item-timer
+group note: L = 8 gt per item in the first hopper, less 1: one 7-block design for every L of the form 8n - 1 (7 gt to 2559 gt with 320 items)
+group title: hopper item timer
+port input: -1 1 1 minecraft:redstone_block minecraft:stone
+port output: 3 1 0
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:4}]}
+origin: -1 0 0
+palette:
+  A minecraft:hopper[enabled=true,facing=south]
+  B minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=false,facing=east]
+  R minecraft:redstone_wall_torch[facing=north,lit=true]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=north]
+layer 0:
+  ...S
+  .
+layer 1:
+  RHAC
+  ShB
+layer 2:
+  .GG
+  .GG

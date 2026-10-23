@@ -1,0 +1,24 @@
+# archived 2026-10-23T06:36Z from /home/vjeux/ws5/strip1/staged/clk-obs-p28-note-obs-stk-7b-254f21.txt by mctas clock archive
+# CLOCK: clk-obs-p28-note-obs-stk-7b-254f21 period 28 gt (1.4 s), on 1/28, edges 1, warmup 46, family note_block+observer+sticky_piston, 7 blocks, 1x3x3, robust
+# the irreducible core of clk-obs-p56-bulb-note-obs-stk-8b-22fba6.txt (mctas clock strip, 2026-10-22): removed 0,2,-1 waxed_copper_bulb[lit=false,powered=false]
+name: clk-obs-p28-note-obs-stk-7b-254f21
+port output: -1 1 2
+port start: 0 1 0 last
+origin: 0 0 0
+palette:
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=north,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=up]
+  o minecraft:observer[facing=south,powered=false]
+layer 0:
+  S
+  o
+  S
+layer 1:
+  o
+  O
+  .
+layer 2:
+  .
+  O
+  N

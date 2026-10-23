@@ -1,0 +1,25 @@
+# archived 2026-10-21T20:43Z from designs/circuits/tracks/clk-rt/compact/pulsemult/off-delay-item-timer-L990-sealed-v12-8b.txt by mctas circuit archive
+# CIRCUIT: off-delay-item-timer-L990-sealed-v12-8b off-delay L 990 gt, latency 4 gt, min-pulse 1280 gt, 8 blocks, 2x3x2, robust
+# Keeps its output on for about 50 seconds (990 ticks) after the input turns off, in 8 blocks: two hoppers pass 125 cobblestone back and forth, and a comparator keeps the output on while the first hopper still holds any; it needs an input about as long as its delay to load the items back (one per 8 ticks), and no hopper top a stray item can reach. off-delay-item-timer-L990-sealed's mechanism rearranged by clk-rt's circuit compact (2026-10-21) under the item-intrusion judge: judged box 12 (was 18), 8 blocks (unchanged); its blocks sit in 2x3x2.
+name: off-delay-item-timer-L990-sealed-v12-8b
+circuit: off-delay
+port input: 0 0 0
+port output: 0 1 2
+nbt: 1 1 0 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:64},{Slot:1b,id:"minecraft:cobblestone",count:61}]}
+origin: 0 0 0
+palette:
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=east]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=west]
+layer 0:
+  SR
+  H
+layer 1:
+  Hh
+  C
+layer 2:
+  GG
+  .

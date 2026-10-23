@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clock: every 50 ticks (2.5 s) · 6 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Clock: every 50 ticks (2.5 s) · 6 blocks. Frequency filter: calibrated sensor C (back = west) watched by observer O, whose pulses reach an oak trapdoor E through a stone and a dust; a plain sensor S sit">
+<meta property="og:title" content="Clock: every 50 ticks (2.5 s) · 6 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Clock: every 50 ticks (2.5 s) · 6 blocks. Frequency filter: calibrated sensor C (back = west) watched by observer O, whose pulses reach an oak trapdoor E through a stone and a dust; a plain sensor S sit">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<meta property="og:image" content="https://raw.githubusercontent.com/vjeux/redstonepedia/main/designs/clocks/img/clk-sculk-filter9-trapdoor.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="../style.css?v=3fef2398">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top on" href="../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top" href="../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../index.html" method="get" role="search"><input type="hidden" name="kind" value="clock"><input id="hq" name="q" type="search" placeholder="Search: 48 ticks, 2.5 s…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../index.html">REDSTONEPEDIA</a> › <a href="../index.html#kind=clock">Clocks</a> › <a href="../index.html#kind=clock&amp;time=50">every 50 ticks (2.5 s)</a></p>
+<p class="kindline">Clock</p>
+<h1>every 50 ticks (2.5 s) · 6 blocks</h1>
+<p class="oneliner">Its output pulses by itself every 50 ticks (2.5 s), forever. It starts on its own once built.</p>
+<p class="warn">Uses a sculk sensor: other sounds nearby (footsteps, another machine) can add pulses, so keep noise away from it.</p>
+<p class="lede">made of calibrated sculk sensor, oak trapdoor, observer, redstone wire, sculk sensor · on for 30 of 50 ticks</p>
+<p class="badges"><span class="badge">starts by itself</span></p>
+<div class="viewer k-clock" data-mcview="full" data-src="../designs/clocks/clk-sculk-filter9-trapdoor.txt" data-kind="clock"><div class="fallback has-pic"><img class="pic contain" src="https://raw.githubusercontent.com/vjeux/redstonepedia/main/designs/clocks/img/clk-sculk-filter9-trapdoor.jpg" alt="Clock: every 50 ticks (2.5 s) · 6 blocks in the game" decoding="async"><span class="fb-big">every 50 ticks</span><span class="fb-small">Clock</span><span class="fb-note">picture from the real game; the live 3D view replaces it when available</span></div></div>
+<p class="hint">Every clock that pulses every 50 ticks (2.5 s): <a href="../index.html#kind=clock&amp;time=50">on the Clocks tab</a>, smallest first (the ones hard to wire into a circuit last).</p>
+<section class="what plain"><h2>Try it</h2><p>It runs by itself: the view plays it; pause and step one tick at a time with the buttons under it. To use it in a circuit, put a repeater where the view puts its lamp: it picks up every pulse.</p><p class="howdesign"><b>How this design does it:</b> Frequency filter: calibrated sensor C (back = west) watched by observer O, whose pulses reach an oak trapdoor E through a stone and a dust; a plain sensor S sits at C&#39;s back, sqrt(11) from E, so when S hears E its power is 9: while S is active C&#39;s filter is 9 and it ignores E opening (block_open, 10) and fires on E closing (block_close, 9) 2 gt later: cycles of 26 and 24 gt (S is deaf 40 gt, so it hears every other one).</p></section>
+<section><h2>Its output over time</h2><p class="hint">The output (orange) over the first 152 ticks, as the 3D view plays it: the grey part is the clock starting up, for 2 ticks (0.1 s); then it repeats every 50 ticks (2.5 s), on for 30 ticks (1.5 s) of them. 20 ticks = 1 second.</p><div class="wave-wrap fit"><svg class="wave fit" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 412 78" role="img" aria-label="timing diagram"><rect class="warm" x="64.0" y="18.0" width="4.5" height="42.0"/><line class="ph" x1="64.0" y1="18.0" x2="64.0" y2="60.0"/><line class="ph" x1="68.5" y1="18.0" x2="68.5" y2="60.0"/><text class="phl" x="71.5" y="14.0">cycle 1</text><line class="ph" x1="180.3" y1="18.0" x2="180.3" y2="60.0"/><text class="phl" x="183.3" y="14.0">cycle 2</text><line class="ph" x1="292.2" y1="18.0" x2="292.2" y2="60.0"/><text class="phl" x="295.2" y="14.0">cycle 3</text><text class="wl" x="4" y="46.0">OUT</text><line class="base" x1="64.0" y1="48.0" x2="404.0" y2="48.0"/><polygon class="wout" points="64.0,48.0 64.0,48.0 70.7,48.0 70.7,28.0 137.8,28.0 137.8,48.0 182.6,48.0 182.6,28.0 249.7,28.0 249.7,48.0 294.4,48.0 294.4,28.0 361.5,28.0 361.5,48.0 404.0,48.0 404.0,48.0"/><text class="ax" x="4" y="72.0">ticks</text><text class="ax" x="68.5" y="72.0">2</text><text class="ax" x="180.3" y="72.0">52</text><text class="ax" x="292.2" y="72.0">102</text></svg></div></section>
+<section><h2>Build it</h2><p><a class="button" href="../designs/clocks/clk-sculk-filter9-trapdoor.litematic" download>Download .litematic</a> <a class="button alt" href="../designs/clocks/clk-sculk-filter9-trapdoor.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../index.html#with=calibrated_sculk_sensor">calibrated sculk sensor</a> <a class="chip" href="../index.html#with=oak_trapdoor">oak trapdoor</a> <a class="chip" href="../index.html#with=observer">observer</a> <a class="chip" href="../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../index.html#with=sculk_sensor">sculk sensor</a> <a class="chip" href="../index.html#with=stone">stone</a></p></section>
+<section><h2>The same clock as another</h2><p>It is <a href="../clocks/clk-sculk-filter9-gate.html">this clock</a> (every 50 ticks (2.5 s) · 6 blocks) with oak trapdoor instead of oak fence gate: the same mechanism and period. The Clocks tab lists it under that one.</p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section><h2>Notes from its designer</h2><p>Frequency filter: calibrated sensor C (back = west) watched by observer O, whose pulses reach an oak trapdoor E through a stone and a dust; a plain sensor S sits at C&#39;s back, sqrt(11) from E, so when S hears E its power is 9: while S is active C&#39;s filter is 9 and it ignores E opening (block_open, 10) and fires on E closing (block_close, 9) 2 gt later: cycles of 26 and 24 gt (S is deaf 40 gt, so it hears every other one). Without S the same build runs at P24.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Pulses every</th><td>50 ticks (2.5 s)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>calibrated sculk sensor, oak trapdoor, observer, redstone wire, sculk sensor</td></tr>
+<tr><th scope="row">Blocks placed</th><td>6</td></tr>
+<tr><th scope="row">Box</th><td>4×2×2 (16 blocks of space)</td></tr>
+<tr><th scope="row">Output</th><td>on for 30 of every 50 ticks</td></tr>
+<tr><th scope="row">Settles after</th><td>2 ticks (0.1 s)</td></tr>
+<tr><th scope="row">To start it</th><td>nothing: it starts by itself once built</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Mirror image</th><td>a different design (listed separately)</td></tr>
+<tr><th scope="row">Same mechanism as</th><td><a href="../clocks/clk-sculk-filter9-gate.html">every 50 ticks (2.5 s) · 6 blocks</a> (the same period, other blocks in some cells)</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere, starts by itself, mirror image is a different design</td></tr>
+<tr><th scope="row">Design file</th><td><code>clk-sculk-filter9-trapdoor</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/clocks/archive/clk-sculk-filter9-trapdoor.txt">on GitHub</a></p><details><summary>Design file (24 lines)</summary><pre class="design"># archived 2026-10-19T21:22Z from designs/clocks/tracks/clk-sculk/filter/filter9-trapdoor.txt by mctas clock archive
+# CLOCK: clk-sculk-filter9-trapdoor period 50 gt (2.5 s), on 30/50, edges 1, warmup 2, family calibrated_sculk_sensor+oak_trapdoor+observer+redstone_wire+sculk_sensor, 6 blocks, 4x2x2, robust
+# Frequency filter: calibrated sensor C (back = west) watched by observer O, whose pulses reach an
+# oak trapdoor E through a stone and a dust; a plain sensor S sits at C&#39;s back, sqrt(11) from E, so
+# when S hears E its power is 9: while S is active C&#39;s filter is 9 and it ignores E opening
+# (block_open, 10) and fires on E closing (block_close, 9) 2 gt later: cycles of 26 and 24 gt
+# (S is deaf 40 gt, so it hears every other one). Without S the same build runs at P24.
+name: clk-sculk-filter9-trapdoor
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge&#39;s lamp lights at evenly spaced ticks (was 1 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing south (on the ground) takes every pulse (was 0 -1 0: the output [0, -1, 0] is under the build (the build&#39;s ground level is y = 0): a repeater there has nothing to stand on)
+port output: 0 0 1
+palette:
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:observer[facing=west,powered=false]
+  B minecraft:stone
+  W minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=none]
+  E minecraft:oak_trapdoor[facing=north,half=bottom,open=true,powered=true,waterlogged=false]
+layer 0:
+  SCOB
+layer 1:
+  ...W
+  ...E
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/4802aeae549d7104ccc52e6162819b1f0c85df00">vjeux/redstonepedia@4802aeae5</a> on <span class="nowrap">2026-10-23</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../viewer/mcview.js?v=cddf7aad"; init({module_or_path: "../viewer/mcview_bg.wasm?v=528edeb5"});</script>
+</body>
+</html>

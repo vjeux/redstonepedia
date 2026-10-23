@@ -1,0 +1,16 @@
+# archived 2026-10-19T15:50Z from /tmp/clk-in/clk-sculk--c24s-obs-trapdoor.txt by mctas clock archive
+# CLOCK: clk-sculk-c24s-obs-trapdoor period 24 gt (1.2 s), on 10/24, edges 1, warmup 2, family calibrated_sculk_sensor+oak_trapdoor+observer, 3 blocks, 3x1x1, robust
+name: clk-sculk-c24s-obs-trapdoor
+# Self-starting 3-block clock: calibrated C, observer O watching C, oak trapdoor E behind O placed
+# open+powered with no power: it closes on its placement update (BLOCK_CLOSE wakes C); then O's
+# pulses at A+2, A+12, A+22 open/close E and only the A+22 one is heard (C re-arms at A+20).
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 0 -1 0: the output [0, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 0 0 -1
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:observer[facing=west,powered=false]
+  E minecraft:oak_trapdoor[facing=north,half=bottom,open=true,powered=true,waterlogged=false]
+layer 0:
+  COE

@@ -1,0 +1,32 @@
+# archived 2026-10-19T23:20Z from designs/clocks/tracks/clk-obs/families9/p13-bulb-lamp-obs-stk-8b-09581a.txt by mctas clock archive
+# CLOCK: clk-obs-p13-bulb-lamp-obs-stk-8b-09581a period 13 gt (0.65 s), on 7/13, edges 1, warmup 2, family copper_bulb+observer+redstone_lamp+sticky_piston, 10 blocks, 2x3x3, robust
+# clk-obs grow: P=13 (redsim), family note_block+observer+redstone_lamp+sticky_piston+waxed_copper_bulb, kick last 0 0 0, swept volume 9.
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of a comparator facing west (on a block put under it) that reads the build, added at -1 2 1 (was -1 2 0: with a repeater in the output cell, it rises unevenly (gaps 6 to 7 gt))
+name: clk-obs-p13-bulb-lamp-obs-stk-8b-09581a
+port output: -2 2 1
+port start: 0 0 0 last
+origin: -1 0 -1
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:stone
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:sticky_piston[extended=false,facing=north]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=south,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=up]
+layer 0:
+  .s
+  .o
+  .A
+layer 1:
+  .
+  .O
+  BS
+layer 2:
+  .N
+  .R
+  CW

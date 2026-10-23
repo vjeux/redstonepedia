@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Displays · REDSTONEPEDIA</title>
+<meta name="description" content="Show how full a chest is as a digit you read at a glance: put any container behind the display, and its 3×5 lamp face shows 0 to 9 (one digit for now).">
+<meta property="og:title" content="Displays · REDSTONEPEDIA">
+<meta property="og:description" content="Show how full a chest is as a digit you read at a glance: put any container behind the display, and its 3×5 lamp face shows 0 to 9 (one digit for now).">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › Displays</p>
+<h1>Displays</h1>
+<p class="lede">Show how full a chest is as a digit you read at a glance: put any container behind the display, and its 3×5 lamp face shows 0 to 9 (one digit for now).</p>
+<p><a class="button alt" href="../../index.html#kind=circuit&amp;q=display">Filter them in the index</a></p>
+<p class="hint">The pictures show the display with the chest and the face's lamps our test adds, settled at the digit 5; the block counts leave those out.</p>
+<div class="kind-grid"><section class="kind-cell"><h2>7-segment display: one digit, 0 to 9, from a container&#39;s fill level</h2><p>One comparator reads a chest (or any container), and its 3×5 lamp face shows the signal as a digit, 0 to 9: the fuller the container, the higher the digit.</p><a class="card" href="../../circuits/display/seven-segment-decimal.html" aria-label="7-segment display: shows 0–9 from a container&#39;s fill level · 496 blocks · reads at a glance · one digit"><div class="thumb k-circuit" data-mcview="thumb" data-src="../../designs/stills/display/seven-segment-decimal.txt" data-still="0 box=-3,0,-21,9,9,2" data-kind="circuit"><div class="fallback"><span class="fb-big">shows 0–9 from a container&#39;s fill level</span><span class="fb-small">7-segment display decoder</span></div></div><div class="meta"><div class="title">shows 0⁠–⁠9 from a container&#39;s fill level · 496 blocks · reads at a glance · one digit</div><div class="sub">passed at every position and facing we tested · the digit changes within 1.6 s · no wrong lamp flashes between digits · fits in 13×10×22</div><div class="badges"></div></div></a></section></div>
+<details class="more"><summary>How we test and rank them</summary><p>A 7-segment display shows a number as a digit lit in lamps: its decoder turns a signal into the lit segments of a 3×5 lamp face with its corners lit (one lamp per segment does not read as a digit). The 0–9 display reads one signal, 0 to 15, from a container through one comparator, and shows 0 to 9. Our test, in the real game, fills the input chest to every level and makes every change between two digits (all 90), checks every lamp of the face after each change, measures the slowest change, and counts the lamps that light wrongly on the way: briefly (glitches) or long enough to see (on-blips). For each kind we keep the design with the fewest blocks placed (the face&#39;s lamps and the input chest not counted).</p></details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/4802aeae549d7104ccc52e6162819b1f0c85df00">vjeux/redstonepedia@4802aeae5</a> on <span class="nowrap">2026-10-23</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=cddf7aad"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=528edeb5"});</script>
+</body>
+</html>

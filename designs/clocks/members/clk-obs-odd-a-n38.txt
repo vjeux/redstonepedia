@@ -1,0 +1,97 @@
+name: clk-obs-odd-a-n38
+# Extendable family odd-a (n = 38): P = 11 + 4n gt, 8 + 2n blocks. the odd piston stage: observer O1 quasi-powers a sticky piston and O2 (watching O1) keeps it powered from above for 4 gt, so the redstone block it pushes LANDS under a normal piston that fires the next tick (+1 gt): the observer watching that piston's head fires 5 gt after O1; the tower carries the pulse back, 2 gt per observer. Extension: raise the observer tower by one: one more observer in each column. Generator: mctas clock obs family odd-a --n N --out FILE.
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 1 2 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 1 -1 0
+port start: 1 3 0 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=east]
+  B minecraft:observer[facing=up,powered=false]
+  C minecraft:redstone_block
+  D minecraft:piston[extended=false,facing=up]
+  E minecraft:observer[facing=east,powered=false]
+  F minecraft:observer[facing=down,powered=false]
+layer 0:
+  AC.
+layer 1:
+  B.D
+layer 2:
+  BE.
+layer 3:
+  BF.
+layer 4:
+  BF.
+layer 5:
+  BF.
+layer 6:
+  BF.
+layer 7:
+  BF.
+layer 8:
+  BF.
+layer 9:
+  BF.
+layer 10:
+  BF.
+layer 11:
+  BF.
+layer 12:
+  BF.
+layer 13:
+  BF.
+layer 14:
+  BF.
+layer 15:
+  BF.
+layer 16:
+  BF.
+layer 17:
+  BF.
+layer 18:
+  BF.
+layer 19:
+  BF.
+layer 20:
+  BF.
+layer 21:
+  BF.
+layer 22:
+  BF.
+layer 23:
+  BF.
+layer 24:
+  BF.
+layer 25:
+  BF.
+layer 26:
+  BF.
+layer 27:
+  BF.
+layer 28:
+  BF.
+layer 29:
+  BF.
+layer 30:
+  BF.
+layer 31:
+  BF.
+layer 32:
+  BF.
+layer 33:
+  BF.
+layer 34:
+  BF.
+layer 35:
+  BF.
+layer 36:
+  BF.
+layer 37:
+  BF.
+layer 38:
+  BF.
+layer 39:
+  BF.
+layer 40:
+  BF.
+layer 41:
+  EF.

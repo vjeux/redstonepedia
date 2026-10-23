@@ -1,0 +1,22 @@
+# archived 2026-10-19T23:51Z from designs/circuits/pext/work/n2-rider-flat.txt by mctas circuit archive
+# CIRCUIT: pext-n2-rider-flat piston-extender 2 N 2, extend 9 gt, retract 9 gt, 8 blocks, 6x2x1, robust
+# N=2, slime + observer, flat: A pushes a slime frame carrying B, the payload and an observer;
+# the observer fires 2 gt after every landing and pulses B (2 gt): out, B spits the payload one
+# more cell; back, the frame drags the payload back one cell (slime under its +1 spot) and B's
+# pulse reach-pulls it home.
+name: pext-n2-rider-flat
+circuit: piston-extender 2
+travel: 1 0 0
+port input: 0 0 0 lever
+port payload: 4 1 0
+palette:
+  L minecraft:lever[face=wall,facing=west]
+  A minecraft:sticky_piston[facing=east]
+  S minecraft:slime_block
+  O minecraft:observer[facing=west]
+  B minecraft:sticky_piston[facing=east]
+  G minecraft:gold_block
+layer 0:
+  LASSSS
+layer 1:
+  ..OBG.

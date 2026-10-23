@@ -1,0 +1,108 @@
+# archived 2026-10-21T20:09Z from designs/circuits/tracks/clk-misc/tnt-airburst-lever-66b.txt by mctas circuit archive
+# CIRCUIT: tnt-airburst-lever-66b tnt-duper rate 22.2 TNT/min, period 54 gt, per period 1, runs lever on, switch lever off: stops within 12 gt; on: restarts within 53 gt, safe drop 0 blocks (on the ground), effective volume 275 (5x11 footprint x (5 + 0) high: the box and the air under it), 66 blocks, 5x5x11, robust (survives its own explosions: 24 exploded, design intact; precise: 24 TNT at one point at fuse 1, in mid-air; launched at (0.0016, 0.1568, -1.0000) blocks/gt, spread (0.0363, 0.0000, 0.0000); useful: every blast clear of fluids, each destroys blocks on open ground)
+# Precise air burst with an on/off lever, ONE clock + ONE item-free delay (coordinator 2026-10-21
+# after vjeux 15:24Z: no exposed hoppers; "it's just one clock + delay circuit"), in the 56b's box
+# (5x5x11): the 56b's dropper stays, EMPTY (the engine's obsidian still fires it once per TNT, and
+# its `triggered` state starts the delay); an observer watching it starts 56 gt of repeaters laid
+# where the hopper ring was (y = 0 under the clock and up x = 7: out of reach of the bursts and of
+# the frame's slime), ending in the repeater whose observer pulses the launcher's obsidian. 42 gt
+# launches too late (the burst comes down onto the frame). Replaces tnt-airburst-lever-74b (the
+# same delay from the frame's observer, routed outside the box: 7x5x11).
+# material (clk-rt 2026-10-21, `circuit material`): 2 obsidian -> stone (the same kind, axis and metrics on its judge); obsidian at 5 1 -2 stays for immovability (pistons must not move it: the design fails or changes even with a blast-proof netherite block there); obsidian at 6 0 -7 stays for immovability (pistons must not move it: the design fails or changes even with a blast-proof netherite block there)
+name: tnt-airburst-lever-66b
+circuit: tnt-duper
+port input: 4 2 2 lever
+port start: 5 2 1 last
+origin: 3 0 -8
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  B minecraft:observer[facing=north,powered=false]
+  C minecraft:observer[facing=south,powered=false]
+  D minecraft:dead_tube_coral_fan[waterlogged=false]
+  E minecraft:observer[facing=west,powered=false]
+  F minecraft:obsidian
+  G minecraft:piston_head[facing=north,short=false,type=sticky]
+  H minecraft:redstone_wall_torch[facing=north,lit=true]
+  I minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  J minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  K minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  L minecraft:lever[face=ceiling,facing=north,powered=false]
+  M minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+  N minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  O minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=false]
+  P minecraft:piston[extended=false,facing=up]
+  Q minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  R minecraft:redstone_block
+  S minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  T minecraft:sticky_piston[extended=false,facing=up]
+  U minecraft:sticky_piston[extended=false,facing=west]
+  V minecraft:sticky_piston[extended=true,facing=down]
+  W minecraft:sticky_piston[extended=true,facing=north]
+  X minecraft:stone
+  d minecraft:dropper[facing=west,triggered=false]
+  o minecraft:observer[facing=down,powered=false]
+  p minecraft:piston_head[facing=down,short=false,type=sticky]
+  r minecraft:redstone_wall_torch[facing=east,lit=true]
+  s minecraft:slime_block
+  t minecraft:tnt[unstable=false]
+  w minecraft:water[level=0]
+layer -1:
+  .
+  ....T
+  ....E
+  .
+  ....X
+  ....X
+  ....X
+  ....X
+  ..X.X
+  ..X.X
+  ..XXX
+layer 0:
+  .
+  ...Fs
+  ....K
+  ....X
+  ....C
+  ....Q
+  ..d.Q
+  ..B.Q
+  ..I.Q
+  ..N.Q
+  ..ISI
+layer 1:
+  ...O
+  .oA.O
+  ..AX
+  .
+  .sss
+  .G.s
+  .WFs
+  .
+  .
+  ..U
+  .
+layer 2:
+  ..B
+  ..w
+  .
+  .
+  .Dt
+  ...R
+  ..Js
+  .
+  .X
+  o.pEP
+  .L
+layer 3:
+  .
+  .
+  .
+  .
+  .
+  ..ss
+  .H.s
+  .X
+  .M
+  .XVA
+  .Xr

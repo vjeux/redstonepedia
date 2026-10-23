@@ -1,0 +1,33 @@
+# archived 2026-10-19T19:44Z from designs/clocks/tracks/clk-rt/families/rect-inv.txt by mctas clock archive
+# CLOCK: clk-rt-rect-inv period 52 gt (2.6 s), on 26/52, edges 1, warmup 0, family redstone_torch+redstone_wire+repeater, 12 blocks, 3x2x3, robust
+# EXTENDABLE 1-torch inverter rectangle ring, n = 0 (P = 52 + 32n): Rectangle ring (clk-rt): the 3x3
+# perimeter clockwise from the north-west corner = [b, 4, b, 4, b, T, d, 4] (number = repeater
+# delay, * = powered at placement, b = block, d = dust, T = wall torch on the block before it, c =
+# comparator); 1 torch(es): an inverter loop, period 2 x 26 gt
+name: clk-rt-rect-inv
+extend base: 0
+extend blocks: 12 + 4n
+extend family: clk-rt-rect-inv
+extend generator: mctas clock rt family rect-inv --n {n} --out {out}
+extend n: 0..8
+extend period: 52 + 32n
+extend rule: lengthen the 3 x (3+n) inverter ring (delay-4 repeaters, corner blocks, a wall torch on one corner block, the next corner dust) by one row: one more repeater on each long side
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 1 1 2: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing west (on the ground) takes every pulse (was 0 -1 2: the output [0, -1, 2] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: -1 0 2
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  C minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  R minecraft:redstone_wall_torch[facing=west,lit=true]
+  S minecraft:stone
+  r minecraft:redstone_wire
+layer 0:
+  .S
+  S.S
+  S
+layer 1:
+  SCS
+  B.A
+  rRS

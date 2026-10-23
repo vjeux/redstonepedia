@@ -1,0 +1,24 @@
+# archived 2026-10-20T01:52Z from designs/clocks/tracks/clk-obs/families9/p62-bulb-note-obs-rb-stk-8b-603ebc.txt by mctas clock archive
+# CLOCK: clk-obs-p62-bulb-note-obs-rb-stk-8b-603ebc period 62 gt (3.1 s), on 4/62, edges 2, warmup 2, family copper_bulb+note_block+observer+redstone_block+sticky_piston, 8 blocks, 2x3x4, robust
+name: clk-obs-p62-bulb-note-obs-rb-stk-8b-603ebc
+# clk-obs grow: P=62 (redsim), family note_block+observer+redstone_block+sticky_piston+waxed_copper_bulb, kick last 0 0 0, swept volume 24.
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 1 0
+port start: 0 0 0 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=up]
+  B minecraft:sticky_piston[extended=false,facing=north]
+  C minecraft:observer[facing=east,powered=false]
+  D minecraft:observer[facing=north,powered=false]
+  E minecraft:note_block[instrument=harp,note=0,powered=false]
+  F minecraft:waxed_copper_bulb[lit=false,powered=false]
+  G minecraft:redstone_block
+layer -1:
+  AF
+  B.
+  ..
+layer 0:
+  C.
+  DG
+  EB

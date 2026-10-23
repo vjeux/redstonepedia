@@ -1,0 +1,33 @@
+# archived 2026-10-19T18:58Z from designs/clocks/tracks/clk-obs/families/p28-bulb-obs-pis-rb-stk-7b-7ca24d.txt by mctas clock archive
+# CLOCK: clk-obs-p28-bulb-obs-pis-rb-stk-7b-7ca24d period 28 gt (1.4 s), on 4/28, edges 2, warmup 12, family copper_bulb+observer+piston+redstone_block+sticky_piston, 8 blocks, 2x3x4, robust
+# P28: 1 copper bulb, 2 observers, 1 piston, 1 redstone block, 2 sticky pistons; changing in place: copper_bulb, observer, piston, redstone_block, sticky_piston. Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its east, added at -1 0 -1 (was 0 -2 1: the output [0, -2, 1] is under the build (the build's ground level is y = -1): a repeater there has nothing to stand on)
+name: clk-obs-p28-bulb-obs-pis-rb-stk-7b-7ca24d
+port output: -2 0 -1
+port start: 0 0 0 last
+origin: -1 0 -1
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:piston[extended=false,facing=up]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=down]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=north,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=north]
+layer -1:
+  .
+  .
+  .
+  .s
+layer 0:
+  OW
+  .R
+  .o
+  .P
+layer 1:
+  .
+  .S
+  .A
+  .

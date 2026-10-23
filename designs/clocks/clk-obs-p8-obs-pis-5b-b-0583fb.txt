@@ -1,0 +1,24 @@
+# archived 2026-10-19T20:39Z from designs/clocks/tracks/clk-obs/mech2/p8-obs-pis-5b-b-0583fb.txt by mctas clock archive
+# CLOCK: clk-obs-p8-obs-pis-5b-b-0583fb period 8 gt (0.4 s), on 2/8, edges 1, warmup 2, family observer+piston, 6 blocks, 2x3x2, robust
+# P8: 4 observers, 1 piston; changing in place: observer, piston. Found by the clk-obs exhaustive census of every 5-block structure (all orientations, every block placed last as a kick); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its east, added at -1 0 0 (was 0 -1 1: the output [0, -1, 1] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+name: clk-obs-p8-obs-pis-5b-b-0583fb
+port output: -2 0 0
+port start: 0 0 0 last
+origin: -1 0 0
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=up,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=south]
+  o minecraft:observer[facing=east,powered=false]
+layer 0:
+  oA
+  .B
+layer 1:
+  .O
+  .B
+layer 2:
+  .P
+  .

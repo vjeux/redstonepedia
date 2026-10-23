@@ -1,0 +1,54 @@
+# archived 2026-10-21T15:51Z from /tmp/mat/circuits-judged/tnt-clocked-22b.txt by mctas circuit archive
+# CIRCUIT: tnt-clocked-22b tnt-duper rate 85.7 TNT/min, period 14 gt, per period 1, latency 7 gt, safe drop 0 blocks (on the ground), 22 blocks, 4x4x4, robust (survives its own explosions: 123 exploded, design intact; launched at (0.0009, 0.1568, -1.0000) blocks/gt, spread (0.0392, 0.0000, 0.0000); useful: every blast clear of fluids, each destroys blocks on open ground)
+# The TNT duper (vjeux 2026-10-20: one world-best implementation, built from catalog parts): 86 lit
+# TNT a minute, standing right on the ground. Two catalog parts. The 16-block duplicator engine
+# (tnt-triggered-launch-16b's, without its input block) makes one TNT each time its sticky piston
+# loses power for a moment: held extended, released, it retracts, the redstone block on its slime
+# frame comes back next to its dust and pushes it out again, which primes a TNT and throws it north
+# at 1 block per tick. The clock is clk-obs-p14-lamp-obs-rb-stk-6b-b-0e0eb7 from the clock catalog
+# (6 blocks, period 14 gt): its sticky piston moves a redstone block that sits next to the engine's
+# piston (holding it) except for 4 ticks of every 14, so the engine dupes once per period. Each TNT
+# lands and explodes on the ground 9 to 30 blocks away (7.4 to 27 on unbreakable ground), beyond
+# the 6.9 blocks a blast can reach, so no explosion touches the machine and each one breaks ground
+# blocks. Found by `mctas circuit tnt hold-scan` (every archived clock and turn, the cells where a
+# piston is powered on all but one short window of the period, the engine's piston put there,
+# judged on redsim); the 120-TNT-a-minute version (a period-10 clock) lands blasts as close as 5.3
+# blocks and failed 1 of 16 game builds in 3 of 6 runs.
+# material (clk-rt 2026-10-21, `circuit material`): 1 obsidian -> stone (the same kind, axis and metrics on its judge); obsidian at 2 -1 2 stays for immovability (pistons must not move it: the design fails or changes even with a blast-proof netherite block there)
+name: tnt-clocked-22b
+circuit: tnt-duper
+port start: 0 1 0 last
+origin: 0 0 0
+palette:
+  A minecraft:obsidian
+  B minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  C minecraft:sticky_piston[extended=false,facing=north]
+  D minecraft:dead_tube_coral_fan[waterlogged=false]
+  E minecraft:stone
+  O minecraft:observer[facing=north,powered=false]
+  R minecraft:redstone_block
+  S minecraft:slime_block
+  T minecraft:tnt[unstable=false]
+  o minecraft:observer[facing=south,powered=false]
+  r minecraft:redstone_lamp[lit=false]
+  s minecraft:sticky_piston[extended=false,facing=down]
+layer -2:
+  .
+  .
+  .E
+  .
+layer -1:
+  .
+  .SSS
+  RCAS
+  ...S
+layer 0:
+  r.T
+  oD
+  ..BR
+  ...S
+layer 1:
+  r
+  O
+  s.S
+  ..SS

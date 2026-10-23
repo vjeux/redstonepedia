@@ -1,0 +1,14 @@
+# archived 2026-10-20T23:52Z from designs/circuits/gates/tracks/gates/gate-or.txt by mctas circuit archive
+# CIRCUIT: gate-or gate or function or, latency 0 gt, class instant, tileable every 2 (0 0 2), 1 blocks, 1x1x1, robust
+# OR gate, 1 block, instant: a dust lying on input B's block points into the output, and input A's block sits right beside the output too. Either powered input block lights the output, with no delay.
+name: gate-or
+circuit: gate or
+port input.b: 0 0 0
+port input.a: 2 1 0
+port output: 1 1 0
+tile: 0 0 2
+origin: 0 0 0
+palette:
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer 1:
+  d

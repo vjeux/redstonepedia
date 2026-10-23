@@ -1,0 +1,22 @@
+# archived 2026-10-19T23:49Z from /tmp/gen/arch4/s3x1x2-k6-census-p42-calibrated_sculk_sensor-oak_trapdoor-piston-sculk_sensor-sticky_piston-6b.txt by mctas clock archive
+# CLOCK: census-p42-calibrated_sculk_sensor-oak_trapdoor-piston-sculk_sensor-sticky_piston-6b period 42 gt (2.1 s), on 30/42, edges 1, warmup 24, family calibrated_sculk_sensor+oak_trapdoor+piston+sculk_sensor+sticky_piston, 6 blocks, 3x1x3, robust
+# Found by `mctas clock census` (box 3x1x2 k<=6) with a sculk palette: s3x1x2-k6-census-p42-calibrated_sculk_sensor-oak_trapdoor-piston-sculk_sensor-sticky_piston-6b
+name: census-p42-calibrated_sculk_sensor-oak_trapdoor-piston-sculk_sensor-sticky_piston-6b
+census: box 3x1x2 k<=6 (0,0,0=calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false];0,0,1=oak_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false];1,0,0=piston[extended=false,facing=south];1,0,1=observer[facing=west,powered=false];2,0,0=sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false];2,0,1=sticky_piston[extended=false,facing=south])
+port start: 0 0 1 last
+# port output declared 2026-10-20 (clk-misc): the cell the judge measures as this clock's automatic output, so
+# clock sim reads it the same way (re-judged in the game: its CLOCK line is unchanged)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 1 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 2 -1 0: the output [2, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 2 0 -1
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:oak_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false]
+  P minecraft:piston[extended=false,facing=south]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=west,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=south]
+layer 0:
+  CPS
+  Oos

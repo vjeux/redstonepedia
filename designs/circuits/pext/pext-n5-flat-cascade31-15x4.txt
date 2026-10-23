@@ -1,0 +1,41 @@
+# archived 2026-10-21T09:46Z from designs/circuits/pext/work/n5-flat-15x4.txt by mctas circuit archive
+# CIRCUIT: pext-n5-flat-cascade31-15x4 piston-extender 5 N 5, extend 50 gt, retract 55 gt, 31 blocks, 15x4x1, robust
+# Pushes a block out five cells from a one-block-wide wall, 31 blocks in a 15x4 box: a line of five
+# sticky pistons with a slime block between each pair; each piston fires itself whenever it is
+# moved (an observer rides on top of the slime behind it), and the blocks on the two rows above,
+# run by a chain from the lever, start each wave of pushes (out) or grabs (back).
+# How it works: a variant of pext-n5-flat-cascade31 (15x6) with the row under the line gone: the
+# observers that make the pistons fire themselves ride on top of the slimes instead of hanging under
+# them, and the search rearranged the wave starters above so nothing moves outside 4 rows. Extend
+# 50 gt, retract 55 gt (the cascade: 48 / 64, kept as the faster extend). Found by `mctas circuit
+# pext anneal --random-pick --free-lever` (random edits judged on redsim; the box of every cell over
+# the whole run counts, as in the game) from that cascade.
+name: pext-n5-flat-cascade31-15x4
+circuit: piston-extender 5
+travel: 1 0 0
+port input: 13 3 0 lever
+port payload: 10 1 0
+origin: 1 0 0
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:sticky_piston[extended=false,facing=up]
+  D minecraft:sticky_piston[extended=false,facing=west]
+  G minecraft:gold_block
+  L minecraft:lever[face=wall,facing=east,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=east]
+  R minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  S minecraft:slime_block
+  o minecraft:observer[facing=east,powered=false]
+  p minecraft:piston[extended=false,facing=west]
+  r minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer 1:
+  sSsSsSsSsG
+layer 2:
+  .A.B.A.A
+layer 3:
+  A.ACA.A..p.pL
+layer 4:
+  rSo.Roo.PDoO

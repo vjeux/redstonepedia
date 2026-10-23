@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Item sorter: takes one item kind out of a mixed line · 15 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Item sorter: takes one item kind out of a mixed line · 15 blocks. One slice per item kind, slices side by side under a line of hoppers: the hopper under the line holds 41 of its item and 4 renamed fillers, so each extra one of">
+<meta property="og:title" content="Item sorter: takes one item kind out of a mixed line · 15 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Item sorter: takes one item kind out of a mixed line · 15 blocks. One slice per item kind, slices side by side under a line of hoppers: the hopper under the line holds 41 of its item and 4 renamed fillers, so each extra one of">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/sorter/index.html">Item sorters</a></p>
+<p class="kindline">Item sorter: one item kind out of a line of mixed items (hopper filter)</p>
+<h1>takes one item kind out of a mixed line · 15 blocks</h1>
+<p class="oneliner">Takes every item of one kind out of a line of mixed items into its chest (set up for iron ingots; the items in its filter hopper choose the kind); everything else goes on along the line, 2.5 items a second.</p>
+<p class="warn">It cannot sort items that do not stack (tools, armour, potions) nor items renamed or enchanted unlike the ones in its filter: they pass by unsorted. A water stream must end on a hopper of the line before the first slice, not on the first slice itself: that slice&#39;s hopper would take whole stacks and pass some of its own kind on unsorted. Nor put a hopper pointing down on top of the first slice: it feeds the line twice as fast.</p>
+<p class="lede">smallest of 2 tested · its first item sorted within 1 s · fits in 1×5×5</p>
+<p class="badges"><span class="badge">a full chest never jams the line</span></p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/sorter/sorter-classic.txt" data-input-mode="pulse" data-circuit="sorter iron_ingot" data-kind="circuit"><div class="fallback"><span class="fb-big">takes one item kind out of a mixed line</span><span class="fb-small">Item sorter</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<p class="needs">Load it exactly like this (the download comes loaded): the upper hopper holds 41 iron ingots in its first slot and one paper named “filter” in each of the other four; the lower hopper holds 64 iron ingots in its first slot and one paper named “lock” in each of the other four.</p>
+<section class="what plain"><h2>Try it</h2><p>Watch the line of mixed items: the iron ingots drop into the chest, everything else goes on to the end of the line (the numbers over each container show what it holds).</p><p class="howdesign"><b>How this design does it:</b> One slice per item kind, slices side by side under a line of hoppers: the hopper under the line holds 41 of its item and 4 renamed fillers, so each extra one of that item it pulls in lets its comparator&#39;s signal reach the torch that locks the hopper below, which drops that item into the chest; everything else rides on along the line, even when a chest is full.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/sorter/sorter-classic.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/sorter/sorter-classic.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=comparator">comparator</a> <a class="chip" href="../../index.html#with=hopper">hopper</a> <a class="chip" href="../../index.html#with=redstone_torch">redstone torch</a> <a class="chip" href="../../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../../index.html#with=repeater">repeater</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>takes every item of one kind out of a line of mixed items into its chest and lets everything else go on; slices side by side sort one kind each</p></section>
+<section><h2>How to try it</h2><p><b>The sorter runs in the view</b> the way our test does: mixed items come in at the cell tagged ITEMS and travel along the line of hoppers; the iron ingots drop into the chest at OUT, and everything else goes on to the end of the line. The numbers over each container show what it holds; speed it up with the bar's speed button. Drag to look around, pinch or scroll to zoom.</p></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">items/s</th><td>2.50</td><td class="def">items moved per second at the steady rate (from 10% to 90% of the total)</td></tr>
+<tr><th scope="row">first item</th><td>by 20 gt</td><td class="def"></td></tr>
+<tr><th scope="row">hoppers awake</th><td>2</td><td class="def">hoppers left unlocked at rest: each one looks for items every game tick (lag on busy servers)</td></tr>
+<tr><th scope="row">slice</th><td>width 1</td><td class="def"></td></tr>
+<tr><th scope="row">badges</th><td>overflow-proof</td><td class="def">the extra scenarios it passes, each a separate run of the judge (see what it does above)</td></tr>
+<tr><th scope="row">bill</th><td>15 iron, 1 quartz, 10 redstone</td><td class="def">what its blocks cost to craft: iron, quartz, redstone, slime</td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>One slice per item kind, slices side by side under a line of hoppers: the hopper under the line holds 41 of its item and 4 renamed fillers, so each extra one of that item it pulls in lets its comparator&#39;s signal reach the torch that locks the hopper below, which drops that item into the chest; everything else rides on along the line, even when a chest is full. Details: the recipe (every item is required, none is a test load: 105 iron ingots and 8 papers in all): the filter hopper (under the line hopper) gets 41 of the item to sort in its first slot and 1 paper renamed &quot;filter&quot; in each of its 4 other slots (any item that never comes down the line); the drain hopper under it gets 64 of the item in its first slot and 4 items that cannot stack with the filter&#39;s fillers (here papers renamed &quot;lock&quot;). 16-stack items (snowballs, ender pearls): 10 in the filter and 16 in the drain, the same fillers. It cannot sort items that do not stack (tools, armour: they pass through) nor items renamed or enchanted unlike the recipe&#39;s. End a water stream on a hopper of the line before the first slice, not on the first slice itself.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/sorter/index.html">Item sorters</a></td></tr>
+<tr><th scope="row">Kind</th><td>Item sorter: one item kind out of a line of mixed items (hopper filter)</td></tr>
+<tr><th scope="row">Blocks placed</th><td>15 (not counting our test's chests the view adds)</td></tr>
+<tr><th scope="row">Box</th><td>1×5×5 (25 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>comparator, hopper, redstone torch, redstone wire, repeater, stone</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>no input / OUT</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-20T23:52Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere</td></tr>
+<tr><th scope="row">Design file</th><td><code>sorter-classic</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/sorter/archive/sorter-classic.txt">on GitHub</a></p><details><summary>Design file (56 lines)</summary><pre class="design"># archived 2026-10-20T23:52Z from designs/circuits/tracks/sorter/sorter-classic.txt by mctas circuit archive
+# CIRCUIT: sorter-classic sorter iron_ingot items/s 2.50, first item by 20 gt, hoppers awake 2, slice width 1, badges overflow-proof, bill 15 iron, 1 quartz, 10 redstone, 15 blocks, 1x5x5, robust
+# Item sorter slice, study 13 (designs/circuits/tracks/sorter/WR.md): the line hopper L feeds the
+# filter hopper A (41 iron + 4 named papers: comparator signal 2, 3 with one more iron, 3 when
+# full), which points down into the drain hopper B (64 iron + 4 other named papers: full, so A
+# cannot push into it while it is locked). Three dust (signal minus 2) let only signal 3 reach the
+# repeater, which powers the torch&#39;s block; the torch (under the comparator&#39;s block, which locks B)
+# turns off and B drops one iron into the chest and takes one from A.
+name: sorter-classic
+circuit: sorter iron_ingot
+tile: 1 0 0
+port items: 0 4 0
+port pass: 1 3 0
+port output: 0 0 0
+origin: 0 0 0
+palette:
+  L minecraft:hopper[enabled=true,facing=east]
+  A minecraft:hopper[enabled=true,facing=down]
+  B minecraft:hopper[enabled=false,facing=down]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  S minecraft:stone
+  T minecraft:redstone_wall_torch[facing=north,lit=true]
+  R minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  r minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer -1:
+  .
+  .
+  .
+  S
+  .
+layer 0:
+  .
+  T
+  S
+  R
+  S
+layer 1:
+  B
+  S
+  S
+  S
+  r
+layer 2:
+  A
+  C
+  r
+  r
+  .
+layer 3:
+  L
+  .
+  .
+  .
+  .
+nbt: 0 2 0 {Items:[{Slot:0b,id:&quot;minecraft:iron_ingot&quot;,count:41},{Slot:1b,id:&quot;minecraft:paper&quot;,count:1,components:{&quot;minecraft:custom_name&quot;:&quot;filter&quot;}},{Slot:2b,id:&quot;minecraft:paper&quot;,count:1,components:{&quot;minecraft:custom_name&quot;:&quot;filter&quot;}},{Slot:3b,id:&quot;minecraft:paper&quot;,count:1,components:{&quot;minecraft:custom_name&quot;:&quot;filter&quot;}},{Slot:4b,id:&quot;minecraft:paper&quot;,count:1,components:{&quot;minecraft:custom_name&quot;:&quot;filter&quot;}}]}
+nbt: 0 1 0 {Items:[{Slot:0b,id:&quot;minecraft:iron_ingot&quot;,count:64},{Slot:1b,id:&quot;minecraft:paper&quot;,count:1,components:{&quot;minecraft:custom_name&quot;:&quot;lock&quot;}},{Slot:2b,id:&quot;minecraft:paper&quot;,count:1,components:{&quot;minecraft:custom_name&quot;:&quot;lock&quot;}},{Slot:3b,id:&quot;minecraft:paper&quot;,count:1,components:{&quot;minecraft:custom_name&quot;:&quot;lock&quot;}},{Slot:4b,id:&quot;minecraft:paper&quot;,count:1,components:{&quot;minecraft:custom_name&quot;:&quot;lock&quot;}}]}
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/4802aeae549d7104ccc52e6162819b1f0c85df00">vjeux/redstonepedia@4802aeae5</a> on <span class="nowrap">2026-10-23</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=cddf7aad"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=528edeb5"});</script>
+</body>
+</html>

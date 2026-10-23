@@ -1,0 +1,64 @@
+# archived 2026-10-19T17:58Z from designs/clocks/tracks/clk-sculk/best/ringbig10-p136-1.txt by mctas clock archive
+# CLOCK: clk-sculk-ringbig10-p136-1 period 136 gt (6.8 s), on 10/136, edges 1, warmup 21, family calibrated_sculk_sensor+note_block, 21 blocks, 49x1x47, robust
+# Ring of 10 calibrated sensors on a circle (r 24.39), hops [14,14,13,13,14,14,14,13,13,14], first resonator a note block (the kick), the others amethyst, 1 wool: each sensor's resonator (amethyst, the first a note block) rings when it fires and the next sensor hears it floor(distance) gt later; the sensor two hops ahead is still dead
+name: clk-sculk-ringbig10-p136-1
+# how: ring of 10 calibrated sensors on a circle (r 24.39), hops [14,14,13,13,14,14,14,13,13,14], first resonator a note block (the kick), the others amethyst, 1 wool
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 20 0 14: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing south (on the ground) takes every pulse (was -24 -1 1: the output [-24, -1, 1] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: -7 0 24
+port start: 19 0 14 use
+origin: -24 0 -23
+palette:
+  A minecraft:amethyst_block
+  C minecraft:calibrated_sculk_sensor[facing=south,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  W minecraft:white_wool
+  c minecraft:calibrated_sculk_sensor[facing=west,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer 0:
+  ................CA.............CA
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...........................................C
+  ....CA.....................................A
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................................................C
+  A...............................................A
+  C
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...........................................W
+  .....A.....................................Nc
+  .....C
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................AC.............AC

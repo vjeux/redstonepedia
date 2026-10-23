@@ -1,0 +1,24 @@
+# archived 2026-10-23T09:24Z from designs/clocks/tracks/clockinfra/divider-tap.txt by mctas clock archive
+# CLOCK: clk-obs-divider-tap period 12 gt (0.6 s), on 6/12, edges 1, warmup 2, family comparator+copper_bulb+observer, 5 blocks, 4x2x1, robust
+name: clk-obs-divider-tap
+# Extendable family divider (n = 0): P = 12 x 2^n gt, 5 + 3n blocks. An observer pair (6 gt) toggles the copper bulb behind it on every pulse (12 gt); each comparator reading a bulb powers the next bulb only every other pulse, doubling the period; the last comparator, reading the last bulb, is the output a builder wires (clockinfra 2026-10-23: the archived divider's output got the pair's 6 gt pulses, its bulb chain had no tap). Generator: mctas clock obs family divider --n N --out FILE.
+extend family: clk-obs-divider
+extend period: 12 * 2^n
+extend blocks: 5 + 3n
+extend rule: add a stage behind the last bulb: a comparator (facing the clock, reading the bulb, on a stone floor) and a bulb; the tap at the end (a comparator reading the last bulb) moves back with it
+extend n: 0..8
+extend base: 0
+extend generator: mctas clock obs family divider --n {n} --out {out}
+origin: -2 0 0
+port output: -3 0 0
+port start: 1 0 0 last
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:waxed_copper_bulb[lit=false,powered=false]
+  D minecraft:comparator[facing=east,mode=compare,powered=false]
+  E minecraft:stone
+layer -1:
+  E...
+layer 0:
+  DCAB

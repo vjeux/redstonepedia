@@ -1,0 +1,29 @@
+# archived 2026-10-19T18:49Z from designs/clocks/tracks/clk-rt/ring/rect-pulse/rect-p62.txt by mctas clock archive
+# CLOCK: clk-rt-rect3x5-p62-20b period 62 gt (3.1 s), on 8/62, edges 1, warmup 4, family repeater, 20 blocks, 3x2x5, robust
+# Rectangle ring (clk-rt): the 3x5 perimeter clockwise from the north-west corner = [b, 4*, b, 4, 4,
+# 4, b, 4, b, 4, 4, 3] (number = repeater delay, * = powered at placement, b = block, d = dust, T =
+# wall torch on the block before it, c = comparator); 0 torches: a pulse ring of loop delay 62 gt
+name: clk-rt-rect3x5-p62-20b
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 1 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing west (on a block put under it) takes every pulse (was 0 0 0: with a repeater in the output cell, no signal (it never turns on))
+port output: -1 1 0
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  C minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  R minecraft:repeater[delay=3,facing=south,locked=false,powered=false]
+  S minecraft:stone
+  r minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+layer 0:
+  .S
+  S.S
+  S.S
+  S.S
+  .S
+layer 1:
+  SCS
+  R.A
+  B.A
+  B.A
+  SrS

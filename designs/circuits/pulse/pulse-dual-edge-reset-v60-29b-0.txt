@@ -1,0 +1,37 @@
+# archived 2026-10-21T10:39Z from designs/circuits/tracks/clk-rt/compact/pulse/pulse-dual-edge-reset-L30-29b.txt by mctas circuit archive
+# CIRCUIT: pulse-dual-edge-reset-v60-29b-0 dual-edge L 30 gt, delay 6 gt, min-pulse 40 gt, 29 blocks, 5x2x6, robust
+# clk-rt 2026-10-21 (`circuit compact --all`): dual-edge L = 30 gt in the record's 5x2x6 = 60 with 29 blocks (was 33:
+# pulse-dual-edge-reset), the annealing search on its own judge dropping four blocks.
+name: pulse-dual-edge-reset-v60-29b-0
+circuit: dual-edge
+group: pulse-dual-edge-reset
+port input: 2 1 3
+port output: 3 1 0
+origin: 0 0 -3
+palette:
+  A minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  O minecraft:observer[facing=south,powered=false]
+  R minecraft:redstone_wire
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  o minecraft:observer[facing=west,powered=false]
+  r minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+layer 0:
+  SSOSS
+  S...S
+  ....S
+  S..SS
+  ..S
+  .
+  .
+layer 1:
+  RRRRR
+  A...B
+  W...B
+  CoWcR
+  ..r
+  ..O
+  ..W

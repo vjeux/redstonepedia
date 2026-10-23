@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Randomizers · REDSTONEPEDIA</title>
+<meta name="description" content="Make a game random: a coin flip, a dice roll, a random door in a maze, a loot or lottery machine, a mob arena that picks its next wave.">
+<meta property="og:title" content="Randomizers · REDSTONEPEDIA">
+<meta property="og:description" content="Make a game random: a coin flip, a dice roll, a random door in a maze, a loot or lottery machine, a mob arena that picks its next wave.">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › Randomizers</p>
+<h1>Randomizers</h1>
+<p class="lede">Make a game random: a coin flip, a dice roll, a random door in a maze, a loot or lottery machine, a mob arena that picks its next wave.</p>
+<p><a class="button alt" href="../../index.html#kind=circuit&amp;q=random">Filter them in the index</a></p>
+<div class="kind-grid"><section class="kind-cell"><h2>Random picker: each press lights one output at random (randomizer)</h2><p>Each press lights exactly one of its outputs, picked at random, every output as often as the others.</p><a class="card" href="../../circuits/random/rand2-token.html" aria-label="Randomizer: 1 of 2 outputs at random · 19 blocks"><div class="thumb k-circuit" data-mcview="thumb" data-src="../../designs/circuits/random/rand2-token.txt" data-still="0 box=-4,-1,-1,5,2,0" data-kind="circuit"><div class="fallback"><span class="fb-big">1 of 2 outputs at random</span><span class="fb-small">Randomizer</span></div></div><div class="meta"><div class="title">1 of 2 to 4 outputs · 19 to 40 blocks</div><div class="sub">the smallest box for each number of outputs, of 5 designs tested · pictured, 1 of 2 outputs: the chosen output stays on until the next press · lights after 8 ticks (0.4 s) · tested fair over 768 presses · fits in 10×3×1</div><div class="badges"><span class="badge">2 versions</span><span class="badge">1 block wide</span></div></div></a></section></div>
+<p class="hint">A card that comes in several sizes lists every size, with the best design of each, on its page.</p>
+<details class="more"><summary>How we test and rank them</summary><p>A randomizer turns a press into a random choice: each press lights exactly one of its outputs, every output as often as the others (a coin flip with 2 outputs, a die with 6). The randomness is the game&#39;s own: a dropper or a dispenser fires a random one of its filled slots. Our test, in the real game, presses it like a button, 24 times per output at several paces, in 16 builds, and checks that every press lights exactly one output; then that the outputs came up equally often over all those presses (a chi-square test: a split as uneven as 1 in 1000 fair ones fails). For each number of outputs we keep the design with the smallest box.</p></details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/4802aeae549d7104ccc52e6162819b1f0c85df00">vjeux/redstonepedia@4802aeae5</a> on <span class="nowrap">2026-10-23</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=cddf7aad"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=528edeb5"});</script>
+</body>
+</html>

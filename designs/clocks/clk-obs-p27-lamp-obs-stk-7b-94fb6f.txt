@@ -1,0 +1,26 @@
+# archived 2026-10-20T00:33Z from designs/clocks/tracks/clk-obs/families9/p27-lamp-obs-stk-7b-94fb6f.txt by mctas clock archive
+# CLOCK: clk-obs-p27-lamp-obs-stk-7b-94fb6f period 27 gt (1.35 s), on 2/27, edges 1, warmup 16, family observer+redstone_lamp+sticky_piston, 7 blocks, 1x4x3, robust
+name: clk-obs-p27-lamp-obs-stk-7b-94fb6f
+# clk-obs grow: P=27 (redsim), family observer+redstone_lamp+sticky_piston, kick last 0 1 0, swept volume 12.
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 2 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 0 -1 3
+port start: 0 1 0 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=up]
+  B minecraft:observer[facing=north,powered=false]
+  C minecraft:redstone_lamp[lit=false]
+  D minecraft:observer[facing=south,powered=false]
+  E minecraft:sticky_piston[extended=false,facing=down]
+layer -1:
+  .
+  A
+  B
+layer 0:
+  C
+  D
+  .
+layer 1:
+  A
+  B
+  E

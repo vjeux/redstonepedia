@@ -1,0 +1,30 @@
+# archived 2026-10-19T18:52Z from designs/clocks/tracks/clk-obs/families/p21-obs-pis-stk-7b-e4d59c.txt by mctas clock archive
+# CLOCK: clk-obs-p21-obs-pis-stk-7b-e4d59c period 21 gt (1.05 s), on 2/21, edges 1, warmup 23, family observer+piston+sticky_piston, 7 blocks, 1x5x2, robust
+name: clk-obs-p21-obs-pis-stk-7b-e4d59c
+# P21: 4 observers, 1 piston, 2 sticky pistons; changing in place: observer, piston, sticky_piston. Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 0 3 -1
+port start: 0 2 0 last
+palette:
+  A minecraft:piston[extended=false,facing=south]
+  B minecraft:observer[facing=up,powered=false]
+  C minecraft:observer[facing=down,powered=false]
+  D minecraft:observer[facing=south,powered=false]
+  E minecraft:sticky_piston[extended=false,facing=up]
+  F minecraft:sticky_piston[extended=false,facing=down]
+layer 0:
+  A
+  .
+layer 1:
+  B
+  C
+layer 2:
+  D
+  E
+layer 3:
+  .
+  D
+layer 4:
+  F
+  .

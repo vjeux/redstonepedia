@@ -1,0 +1,28 @@
+# archived 2026-10-21T08:59Z from designs/circuits/delay/tracks/delay/delay-odd5.txt by mctas circuit archive
+# CIRCUIT: delay-odd5 delay N 5 gt, min-pulse 6 gt, min-gap 5 gt, 11 blocks, 6x4x3, robust
+name: delay-odd5
+circuit: delay
+port input: 0 1 0
+port output: 4 3 2
+origin: 0 0 0
+palette:
+  S minecraft:stone
+  R minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  E minecraft:sticky_piston[extended=false,facing=east]
+  B minecraft:redstone_block
+  Q minecraft:sticky_piston[extended=true,facing=east]
+  H minecraft:piston_head[facing=east,short=false,type=sticky]
+layer 0:
+  .
+  S
+layer 1:
+  .
+  R
+  S
+layer 2:
+  EB
+  ..EB
+  EB
+layer 3:
+  .
+  ...QHB

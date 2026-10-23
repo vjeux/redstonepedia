@@ -1,0 +1,24 @@
+# archived 2026-10-20T04:16Z from designs/clocks/tracks/clockinfra/kits/dripleaf/designs/kit-dripleaf-oak_boat-p4-8b.txt by mctas clock archive
+# CLOCK: kit-dripleaf-oak_boat-p4-8b period 4 gt (0.2 s), on 2/4, edges 1, warmup 3, family big_dripleaf+oak_boat+observer+redstone_wire, 8 blocks, 3x3x1, robust
+name: kit-dripleaf-oak_boat-p4-8b
+# Big dripleaf clock (clock kit K3, `mctas clock kit dripleaf`): a oak boat rests on a big dripleaf;
+# the leaf tilts under it, an observer watching the leaf pulses, and the pulse runs to the dirt under
+# the leaf: power resets the tilt (and blocks re-tilting while it lasts), then the leaf tilts again.
+kit: dripleaf (kit-dripleaf-2583170): period 4 gt, family big_dripleaf+oak_boat+observer+redstone_wire, minimal; 6 types with this period
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was -1 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing west (on the ground) takes every pulse (was -1 -2 0: the output [-1, -2, 0] is under the build (the build's ground level is y = -1): a repeater there has nothing to stand on)
+port output: -2 -1 0
+entity: minecraft:oak_boat 0.5 1.9375 0.5
+origin: -2 0 0
+palette:
+  B minecraft:big_dripleaf[facing=north,tilt=none]
+  D minecraft:dirt
+  O minecraft:observer[facing=east]
+  R minecraft:redstone_wire[east=side,north=side,south=side,west=side]
+  S minecraft:stone
+layer -1:
+  .S
+layer 0:
+  SRD
+layer 1:
+  ROB

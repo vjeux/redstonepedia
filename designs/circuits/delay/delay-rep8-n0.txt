@@ -1,0 +1,30 @@
+# archived 2026-10-20T22:15Z from designs/circuits/delay/tracks/delay/delay-rep8-n0.txt by mctas circuit archive
+# CIRCUIT: delay-rep8-n0 delay N 8 gt, min-pulse 8 gt, min-gap 8 gt, tileable every 1 (0 0 1), 2 blocks, 1x2x1, robust
+# One repeater set to 4: the signal comes out 8 ticks later; a pulse shorter than 8 ticks comes out
+# stretched to 8 (a line of repeaters set to 1 keeps it, at 2 blocks per 2 ticks). Each repeater
+# adds 2 ticks per notch of its setting, so any even delay is a line of them, 2 blocks (repeater +
+# stone) per started 8 ticks (track delay, family delay-rep8: N = 8 + 8n gt, n = 0)
+name: delay-rep8-n0
+circuit: delay
+extend axis: 8 + 8n
+extend base: 0
+extend blocks: 2 + 2n
+extend family: delay-rep8
+extend generator: mctas circuit delay family rep8 --n {n} --out {out}
+extend group: delay-repeater-line
+extend group note: 2 blocks (repeater + stone) per started 8 gt
+extend group period: N = 2 x the sum of the delays
+extend group title: repeater line
+extend n: 0..10
+extend rule: add one delay-4 repeater (on its stone) at the end
+tile: 0 0 1
+port input: 0 1 0
+port output: 1 1 0
+origin: 1 0 0
+palette:
+  R minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  S minecraft:stone
+layer 0:
+  S
+layer 1:
+  R

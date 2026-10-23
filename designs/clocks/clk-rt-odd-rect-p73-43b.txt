@@ -1,0 +1,45 @@
+# archived 2026-10-19T18:16Z from designs/clocks/tracks/clk-rt/odd/rect/odd-rect-p73.txt by mctas clock archive
+# CLOCK: clk-rt-odd-rect-p73-43b period 73 gt (3.65 s), on 8/73, edges 1, warmup 73, family repeater, 43 blocks, 3x2x11, robust
+# ODD period 73: Rectangle ring (clk-rt): the 3x11 perimeter clockwise from the north-west corner =
+# [b, 4*, b, 4, 4, 4, 4, b, 4, 4, 4, 4, b, 4, b, 4, 4, 4, 4, 4, 4, 4, 4, 1] (number = repeater
+# delay, * = powered at placement, b = block, d = dust, T = wall torch on the block before it, c =
+# comparator); 0 torches: a pulse ring of loop delay 146 gt; two pulses 73 gt apart: one loaded at
+# placement, the other started by a redstone_wall_torch[facing=north,lit=true] at [0, 0, 0] for 1 gt
+# at tick 65 (an odd tick: a second parity class; every redstone-tick delay is even)
+name: clk-rt-odd-rect-p73-43b
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 1 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing east (on a block put under it) takes every pulse (was 0 0 10: with a repeater in the output cell, no signal (it never turns on))
+port output: 3 1 5
+port start: 0 0 0 minecraft:redstone_wall_torch[facing=north,lit=true] 1 at 65
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  C minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  R minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  S minecraft:stone
+  r minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+layer 0:
+  .S
+  S.S
+  S.S
+  S.S
+  S.S
+  S
+  S.S
+  S.S
+  S.S
+  S.S
+  .S
+layer 1:
+  SCS
+  R.A
+  B.A
+  B.A
+  B.A
+  B.S
+  B.A
+  B.A
+  B.A
+  B.A
+  SrS

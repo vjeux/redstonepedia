@@ -1,0 +1,25 @@
+# archived 2026-10-19T17:33Z from designs/clocks/tracks/clk-rt/ring/3x3/ring3x3-p22-rw-r.txt by mctas clock archive
+# CLOCK: clk-rt-ring3x3-p22-rw-r-13b period 22 gt (1.1 s), on 8/22, edges 1, warmup 8, family redstone_wire+repeater, 13 blocks, 3x2x3, robust
+# Rectangle ring (clk-rt): the 3x3 perimeter clockwise from the north-west corner = [b, 1*, b, 2*,
+# b, 4, d, 4] (number = repeater delay, * = powered at placement, b = block, d = dust, T = wall
+# torch on the block before it, c = comparator); 0 torches: a pulse ring of loop delay 22 gt
+name: clk-rt-ring3x3-p22-rw-r-13b
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 1 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing west (on the ground) takes every pulse (was 0 -1 2: the output [0, -1, 2] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: -1 0 2
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=2,facing=north,locked=false,powered=true]
+  B minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  C minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  R minecraft:redstone_wire
+  S minecraft:stone
+  r minecraft:repeater[delay=1,facing=west,locked=false,powered=true]
+layer 0:
+  .S
+  S.S
+  SS
+layer 1:
+  SrS
+  C.A
+  RBS

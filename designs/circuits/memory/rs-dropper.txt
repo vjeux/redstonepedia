@@ -1,0 +1,22 @@
+# archived 2026-10-20T14:32Z from designs/circuits/memory/tracks/memory/rs-dropper.txt by mctas circuit archive
+# CIRCUIT: rs-dropper rs-latch latency 6 gt, tileable every 2 (0 2 0), 4 blocks, 2x2x2, robust
+# Dropper RS latch, 4 blocks (track memory): two droppers face each other and hold one stone between them. s (next to the dropper by S) fires that dropper and the stone goes to the other one; r fires the dropper by R and it comes back; firing the empty one does nothing, so repeated s or r change nothing. A comparator on stone reads the dropper by R: q is its output (1). Latency 6 gt (dropper 4 + comparator 2). A stack of them tiles with NO gap (`tile: 0 2 0`): a column of latches costs 4 blocks per bit.
+name: rs-dropper
+circuit: rs-latch
+tile: 0 2 0
+port input.s: -1 1 0
+port input.r: 2 1 0
+port output: 1 1 2
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: 0 0 0
+palette:
+  S minecraft:stone
+  A minecraft:dropper[facing=east,triggered=false]
+  B minecraft:dropper[facing=west,triggered=false]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+layer 0:
+  ..
+  .S
+layer 1:
+  AB
+  .C

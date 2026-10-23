@@ -1,0 +1,40 @@
+# archived 2026-10-20T00:23Z from designs/circuits/tracks/pulse/cards/oneshot-ext.txt by mctas circuit archive
+# CIRCUIT: pulse-oneshot-ext pulse-extender L 18 gt, delay 6 gt, min-pulse 4 gt, 17 blocks, 5x2x4, robust
+name: pulse-oneshot-ext
+# Extendable family oneshot-ext (n = 0): pulse-extender with L = 18 + 16n gt, 17 + 4n blocks. the rising-edge bulb one-shot (oneshot-rise) judged as an extender: every input pulse, short or long, gives one output pulse of L from its rising edge. Extension: lengthen the repeater U by one row: one more delay-4 repeater (on stone) in each column. Generator: mctas circuit pulse family oneshot-ext --n N --out FILE.
+circuit: pulse-extender
+group: pulse-oneshot-ext
+group title: bulb one-shot (piston trigger) as an extender
+group note: L set by the repeater delays and the U's length
+extend family: pulse-oneshot-ext
+extend axis: 18 + 16n
+extend blocks: 17 + 4n
+extend rule: lengthen the repeater U by one row: one more delay-4 repeater (on stone) in each column
+extend n: 0..10
+extend group title: long pulse extender: a piston-moved observer, a copper bulb and a loop of repeaters
+extend group note: Lengths of the form 8n (8, 16, 24, 32... ticks) come from the smaller 13-block hopper one-shot (a copper bulb holding a hopper item timer open), the same size for any length; this chain gives the lengths it can't (18, 34, 50... ticks).
+extend base: 0
+extend generator: mctas circuit pulse family oneshot-ext --n {n} --out {out}
+origin: -1 0 0
+port input: -1 1 0
+port output: 3 1 1
+palette:
+  S minecraft:stone
+  P minecraft:sticky_piston[extended=false,facing=east]
+  O minecraft:observer[facing=north,powered=false]
+  V minecraft:observer[facing=west,powered=false]
+  B minecraft:waxed_copper_bulb[lit=false,powered=false]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  W minecraft:redstone_wire
+  a minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  m minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+layer 0:
+  ......
+  ....SS
+  ...S.S
+  ...SSS
+layer 1:
+  .PO...
+  ...BCW
+  ...m.a
+  ...WWW

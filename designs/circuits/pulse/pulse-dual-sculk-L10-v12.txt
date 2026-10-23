@@ -1,0 +1,27 @@
+# archived 2026-10-21T10:38Z from designs/circuits/tracks/clk-rt/compact/pulse/pulse-dual-sculk-L10-v12.txt by mctas circuit archive
+# CIRCUIT: pulse-dual-sculk-L10-v12 dual-edge L 10 gt, delay 1 gt rising / 4 gt falling, min-pulse 20 gt, vibration-proof yes, 8 blocks, 2x2x3, robust
+# clk-rt 2026-10-21 (`circuit compact --all`, the minimum-volume sweep): the dual-edge pulse circuit L = 10 gt in
+# 2x2x3 = 12 (was 48: pulse-dual-sculk-filter-L10, 3x4x4), 8 blocks: the same sound filter (a calibrated sculk sensor
+# reading the note block the input plays, the chest-fed comparator setting its frequency, a torch for the falling edge)
+# folded into two columns.
+name: pulse-dual-sculk-L10-v12
+circuit: dual-edge
+port input: 1 -1 2 minecraft:redstone_block minecraft:stone
+port output: 3 0 1
+nbt: 2 0 3 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:64},{Slot:1b,id:"minecraft:cobblestone",count:64},{Slot:2b,id:"minecraft:cobblestone",count:64},{Slot:3b,id:"minecraft:cobblestone",count:64},{Slot:4b,id:"minecraft:cobblestone",count:64},{Slot:5b,id:"minecraft:cobblestone",count:64},{Slot:6b,id:"minecraft:cobblestone",count:64},{Slot:7b,id:"minecraft:cobblestone",count:64},{Slot:8b,id:"minecraft:cobblestone",count:64},{Slot:9b,id:"minecraft:cobblestone",count:64},{Slot:10b,id:"minecraft:cobblestone",count:64},{Slot:11b,id:"minecraft:cobblestone",count:64},{Slot:12b,id:"minecraft:cobblestone",count:64},{Slot:13b,id:"minecraft:cobblestone",count:64},{Slot:14b,id:"minecraft:cobblestone",count:64},{Slot:15b,id:"minecraft:cobblestone",count:64},{Slot:16b,id:"minecraft:cobblestone",count:64},{Slot:17b,id:"minecraft:cobblestone",count:23}]}
+origin: 1 0 1
+palette:
+  A minecraft:comparator[facing=south,mode=compare,powered=false]
+  C minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  R minecraft:redstone_torch[lit=true]
+  S minecraft:stone
+  c minecraft:chest[facing=north,type=single,waterlogged=false]
+layer -1:
+  N
+  SS
+  .
+layer 0:
+  .C
+  RA
+  Nc

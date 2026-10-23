@@ -1,0 +1,61 @@
+# A whole cart line (mctas circuit cart-line): designs/circuits/rail/archive/ul-gate.txt at the west end turned half a turn, 128 blocks of track with a powered rail every 8, designs/circuits/rail/archive/ld-chest.txt at the east end.
+name: line-b
+cart.dir: east
+port cart: 117 0 0
+port items: 133 2 0
+port items.b: 133 2 -1
+port output: -6 -1 0
+port output.b: -6 -1 1
+origin: -6 0 -3
+palette:
+  A minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  B minecraft:redstone_torch[lit=true]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  D minecraft:detector_rail[powered=false,shape=ascending_east,waterlogged=false]
+  E minecraft:redstone_wall_torch[facing=east,lit=true]
+  F minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=down]
+  I minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  J minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  K minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  L minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  M minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+  O minecraft:oak_fence_gate[facing=west,in_wall=false,open=false,powered=false]
+  P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
+  R minecraft:rail[shape=east_west,waterlogged=false]
+  S minecraft:stone
+  c minecraft:comparator[facing=south,mode=compare,powered=false]
+  d minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  h minecraft:hopper[enabled=true,facing=west]
+  o minecraft:oak_trapdoor[facing=west,half=bottom,open=true,powered=false,waterlogged=false]
+  p minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
+  r minecraft:redstone_block
+layer -1:
+  ...........................................................................................................................................S
+  ...........................................................................................................................................S
+  SS.S.......................................................................................................................................S
+  .hSSrSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSrSSS
+  .........S.......S.......S.......S.......S.......S.......S.......S.......S.......S.......S.......S.......S.......S.......S.......S
+  .
+layer 0:
+  SSSS.......................................................................................................................................FS
+  SE.S.......................................................................................................................................FS
+  cJ.M.......................................................................................................................................JSSS
+  HpRdAARRRARRRRRRRARRRRRRRARRRRRRRARRRRRRRARRRRRRRARRRRRRRARRRRRRRARRRRRRRARRRRRRRARRRRRRRARRRRRRRARRRRRRRARRRRRRRARRRRRRRARRRRRRRARRRRAAAARPG.S
+  .........B.......B.......B.......B.......B.......B.......B.......B.......B.......B.......B.......B.......B.......B.......B.......B
+  .
+layer 1:
+  FFFF........................................................................................................................................F
+  F..F........................................................................................................................................K
+  ............................................................................................................................................cIF
+  O...........................................................................................................................................DSF
+  ...........................................................................................................................................S.S
+  ............................................................................................................................................SS
+layer 2:
+  .
+  .
+  .
+  ............................................................................................................................................oF
+  ...........................................................................................................................................C.F
+  ...........................................................................................................................................SLF

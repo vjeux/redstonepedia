@@ -1,0 +1,38 @@
+# archived 2026-10-22T00:48Z from designs/circuits/rail/tracks/cartio/unload-t3.txt by mctas circuit archive
+# CIRCUIT: cart-unloader-t3 cart-unloader line terminus, unload rate 2.48 items/s, departure delay 15 gt, 22 blocks, 5x3x3, robust
+# cart-unloader terminus v3 (clk-obs, 2026-10-21): cart-unloader-t2 with the line coming in one
+# block higher and the detector rail sloping down from it instead of a booster: gravity brings even
+# a crawling cart down onto the parking rail inside the detector's hold (3 blocks fewer).
+# The cart rolls down the detector-rail slope and over a plain rail onto a powered rail E over a
+# hopper H, and stops against the end block. H pulls its items into the judge's chest below. E is
+# powered (a torch inverter, a dust line, a repeater into the end block) only when no item is in H
+# and the detector rail has been quiet for its 20 gt: an arriving cart parks, a loaded cart waits
+# while H keeps getting items, an empty (or just emptied) cart is kicked away from the end block,
+# back up the slope.
+name: cart-unloader-t3
+circuit: cart-unloader
+port line.in: -3 3 0
+port output: 0 0 0
+origin: -3 0 0
+palette:
+  S minecraft:stone
+  D minecraft:detector_rail[powered=false,shape=ascending_west,waterlogged=false]
+  L minecraft:rail[shape=east_west,waterlogged=false]
+  E minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+  H minecraft:hopper[enabled=true,facing=down]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  T minecraft:redstone_torch[lit=true]
+  R minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  W minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+layer 0:
+  .....
+  .S.S.
+  .SS..
+layer 1:
+  .SSH.
+  .W.CS
+  .WWSS
+layer 2:
+  SDLES
+  ....R
+  ...TW

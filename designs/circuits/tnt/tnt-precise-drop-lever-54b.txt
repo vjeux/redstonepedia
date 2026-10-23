@@ -1,0 +1,89 @@
+# archived 2026-10-21T17:51Z from designs/circuits/tracks/clk-misc/tnt-precise-drop-lever-54b.txt by mctas circuit archive
+# CIRCUIT: tnt-precise-drop-lever-54b tnt-duper rate 30 TNT/min, period 40 gt, per period 1, runs lever on, switch lever off: stops within 5 gt; on: restarts within 27 gt, safe drop 5 blocks, stands 16 blocks above the ground (stand: in the design), effective volume 1344 (8x8 footprint x (5 + 16) high: the box and the air under it), 54 blocks, 8x5x8, robust (survives its own explosions: 33 exploded, design intact; precise: 33 TNT at one point at fuse 1, in mid-air 13.5 blocks below the machine, 2.5 blocks above the ground; launched at (-0.0015, 0.1568, -1.0000) blocks/gt, spread (0.0391, 0.0000, 0.0000); dropped: every TNT falls straight down, 16.6+ blocks by fuse 1; useful: every blast clear of fluids, each destroys blocks on open ground)
+# Precise drop with an on/off lever, ONE clock + ONE item-free delay (coordinator 2026-10-21 after
+# vjeux 15:24Z: no exposed hoppers; "it's just one clock + delay circuit"): tnt-precise-drop (41b)
+# with the 52b's lever inverter holding its clock, and its release chain made long enough that
+# each TNT is released by its OWN push: the observer watching the engine's frame starts a line of
+# six delay-4 repeaters (48 gt) to the repeater the trapdoor's observer watches. A stop never
+# strands a TNT: the last push's delayed release still comes. Not compacted yet (clk-rt's compact).
+name: tnt-precise-drop-lever-54b
+circuit: tnt-duper
+stand: 16
+port input: 2 -3 -1 lever
+port start: 2 -1 3 last
+origin: 2 0 -4
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  B minecraft:observer[facing=north,powered=false]
+  C minecraft:observer[facing=south,powered=false]
+  D minecraft:dead_tube_coral_fan[waterlogged=false]
+  E minecraft:observer[facing=up,powered=false]
+  F minecraft:observer[facing=west,powered=false]
+  G minecraft:obsidian
+  H minecraft:redstone_wall_torch[facing=east,lit=true]
+  I minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
+  J minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  K minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  M minecraft:sticky_piston[extended=false,facing=north]
+  N minecraft:stone
+  O minecraft:oak_fence[east=true,north=false,south=false,waterlogged=false,west=false]
+  U minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=true]
+  f minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=false]
+  P minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  Q minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  R minecraft:redstone_block
+  S minecraft:slime_block
+  T minecraft:tnt[unstable=false]
+  V minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  W minecraft:water[level=0]
+  X minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  Y minecraft:redstone_torch[lit=true]
+  Z minecraft:lever[face=wall,facing=north,powered=false]
+  o minecraft:observer[facing=down,powered=false]
+  r minecraft:redstone_lamp[lit=false]
+  s minecraft:sticky_piston[extended=false,facing=down]
+layer -4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .N
+  .
+layer -3:
+  .
+  ...NIN
+  .
+  Z
+  N
+  .
+  RKNH
+  M
+layer -2:
+  ...OU
+  ..fW.ENN
+  ...AC..N
+  .......N
+  Y......N
+  s.SSS.NN
+  B.MGS
+  r...S
+layer -1:
+  .
+  .....XXP
+  .......Q
+  .......Q
+  ...T...Q
+  ..D..FVP
+  C..JR
+  o...S
+layer 0:
+  .
+  .
+  .
+  .
+  .
+  .
+  ...SS
+  ....S

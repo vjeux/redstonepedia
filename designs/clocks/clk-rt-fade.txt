@@ -1,0 +1,31 @@
+# archived 2026-10-19T19:45Z from designs/clocks/tracks/clk-rt/families/fade.txt by mctas clock archive
+# CLOCK: clk-rt-fade period 114 gt (5.7 s), on 112/114, edges 1, warmup 4, family comparator+redstone_torch+redstone_wire, 18 blocks, 5x2x2, robust
+# EXTENDABLE comparator fading ring, n = 0 (P = 114 + 56n): Comparator FADING ring (clk-rt): two
+# dust (one level lost per lap) -> top row [comparator, comparator] -> block F -> dust beside F (a
+# wall torch on F lights when the ring is empty and refills it through a dust beside it) -> bottom
+# row [comparator, comparator] -> back; the compare-mode comparators keep a signal strength, each
+# dust-to-dust step loses one level per lap, and the torch refills the ring at 0
+name: clk-rt-fade
+extend base: 0
+extend blocks: 18 + 4n
+extend family: clk-rt-fade
+extend generator: mctas clock rt family fade --n {n} --out {out}
+extend n: 0..10
+extend period: 114 + 56n
+extend rule: add one compare-mode comparator to each row of the comparator fading ring (2 + 2 comparators at n = 0, a lossy two-dust turn, a refill torch)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 4 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 3 -1 0: the output [3, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 3 0 -1
+origin: 0 0 -1
+palette:
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  r minecraft:redstone_wire
+layer 0:
+  SSS
+  SSSSS
+layer 1:
+  rccSR
+  rCCrr

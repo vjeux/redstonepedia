@@ -1,0 +1,38 @@
+# archived 2026-10-22T03:53Z from /tmp/fly/rearch/fly-payload-start-n1.txt by mctas circuit archive
+# CIRCUIT: fly-payload-start-n1 flying-machine speed 10 gt/block, period 10 gt, 1 cell(s), latency 2 gt, start flip the lever, ground flies along the ground, 8 blocks, 3x5x1, robust
+#
+name: fly-payload-start-n1
+circuit: flying-machine
+distance: 24
+travel: -1 0 0
+extend family: fly-payload-start-7b
+extend axis: 10
+extend blocks: 7 + n
+extend rule: one more payload block: the slime column up from the rear slime (9 at most); past 9 the blocks split evenly between it and a second column from the front slime (one block south, then up); the top block of each column is gold
+extend n: 1..18
+extend base: 1
+extend generator: mctas circuit fly gen payload --base designs/circuits/tracks/fly/start/fly-horizontal-start-7b-10gt.txt --from 2,1,0 --dir up --cap 9 --balance --from2 1,0,0 --dir2 south --bend2 up --n {n} --block minecraft:gold_block --out {out}
+port input: 1 -2 0 lever
+port payload: 2 2 0
+port station.0: 2 -2 0
+port station.1: 1 -2 0
+origin: 1 0 0
+palette:
+  A minecraft:stone
+  G minecraft:gold_block
+  L minecraft:lever[face=wall,facing=west,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=west]
+  S minecraft:slime_block
+  o minecraft:observer[facing=east,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer -2:
+  LA
+layer -1:
+  O
+layer 0:
+  SP
+layer 1:
+  sSo
+layer 2:
+  .G

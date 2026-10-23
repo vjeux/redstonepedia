@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minecart loader: fills a hopper minecart from a chest, then sends it back · 44 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Minecart loader: fills a hopper minecart from a chest, then sends it back · 44 blocks. The cart stops under the supply chest and pulls one item every tick: 20 items a second, a full cart in 16 seconds. It leaves when it is full, or when the chest ">
+<meta property="og:title" content="Minecart loader: fills a hopper minecart from a chest, then sends it back · 44 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Minecart loader: fills a hopper minecart from a chest, then sends it back · 44 blocks. The cart stops under the supply chest and pulls one item every tick: 20 items a second, a full cart in 16 seconds. It leaves when it is full, or when the chest ">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/rail/index.html">Minecart stations</a></p>
+<p class="kindline">Minecart loader: fills a hopper minecart from a chest, sends it off when full or when the chest runs dry (an empty cart waits for items)</p>
+<h1>fills a hopper minecart from a chest, then sends it back · 44 blocks</h1>
+<p class="oneliner">An empty hopper minecart arrives, stops, and fills from the supply chest (16.87 items a second); it leaves on its own once it is full, or once the chest runs dry with items in the cart, back the way it came. An empty cart at an empty chest waits there until items come.</p>
+<p class="lede">passed at every position and facing we tested · the cart leaves 0.85 s after it is full · fits in 9×4×6</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/rail/ld-chest.txt" data-input-mode="pulse" data-circuit="cart-loader" data-kind="circuit"><div class="fallback"><span class="fb-big">fills a hopper minecart from a chest, then sends it back</span><span class="fb-small">Minecart loader</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<p class="needs">After building it, put a chest where the view shows its supply and fill it with the items to load: the download has none (our test adds it, and it does not count in its blocks).</p>
+<section class="what plain"><h2>Try it</h2><p>The view shows the loader as built, without carts. In the game, fill its supply chest and send an empty hopper minecart down its line: it stops, fills, and leaves on its own once it is full or the chest runs dry with items in the cart. An empty cart at an empty chest waits until you add items.</p><p class="howdesign"><b>How this design does it:</b> The cart stops under the supply chest and pulls one item every tick: 20 items a second, a full cart in 16 seconds.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/rail/ld-chest.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/rail/ld-chest.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=comparator">comparator</a> <a class="chip" href="../../index.html#with=detector_rail">detector rail</a> <a class="chip" href="../../index.html#with=glass">glass</a> <a class="chip" href="../../index.html#with=oak_trapdoor">oak trapdoor</a> <a class="chip" href="../../index.html#with=powered_rail">powered rail</a> <a class="chip" href="../../index.html#with=rail">rail</a> <a class="chip" href="../../index.html#with=redstone_block">redstone block</a> <a class="chip" href="../../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../../index.html#with=repeater">repeater</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<p class="also-ground"><b>Part of a whole line:</b> <a href="../../circuits/rail/line-b.html">Minecart line: moves a double chest 128 blocks in 21 min · ~65 iron + 24 gold · the cart waits when there&#39;s nothing to carry</a>.</p>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>A hopper minecart holds 320 items (5 stacks) and pulls one item a tick, 20 items a second, from a chest right above its rail: stopped under the supply chest, it fills in 16 seconds. The station sends it off when it is full, or when the chest has run dry and it holds something; an empty cart at an empty chest stays, so an idle farm's cart does not shuttle back and forth.</p></section>
+<section><h2>How to try it</h2><p><b>The view shows the station as built, with our test's chest and no cart: the browser's simulator does not run hopper minecarts here.</b> Drag to look around, pinch or scroll to zoom. Its numbers are our test's, in the real game, below.</p></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">line</th><td>terminus</td><td class="def">terminus: the cart leaves back the way it came; through line: it goes on</td></tr>
+<tr><th scope="row">load rate</th><td>16.87 items/s</td><td class="def">items a second moved from the supply chest into the cart while the cart stands in the station</td></tr>
+<tr><th scope="row">departure delay</th><td>17 gt (0.85 s)</td><td class="def">game ticks from the cart being full, or the supply running dry, to its first move</td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>The cart stops under the supply chest and pulls one item every tick: 20 items a second, a full cart in 16 seconds. It leaves when it is full, or when the chest has run empty and it holds something; an empty cart at an empty chest waits there until items come, so an idle farm&#39;s cart does not shuttle. One comparator reads the cart&#39;s fill through the detector rail; its side input is the chest&#39;s own comparator lifted to full strength by a repeater, so it passes the fill only when the cart is full or the chest is empty, and then the slope under the cart turns on. Pair it with ul-gate and 128 blocks of track: a double chest delivered in 21 minutes.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/rail/index.html">Minecart stations</a></td></tr>
+<tr><th scope="row">Kind</th><td>Minecart loader: fills a hopper minecart from a chest, sends it off when full or when the chest runs dry (an empty cart waits for items)</td></tr>
+<tr><th scope="row">Blocks placed</th><td>44</td></tr>
+<tr><th scope="row">Box</th><td>9×4×6 (216 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>comparator, detector rail, glass, oak trapdoor, powered rail, rail, redstone block, redstone wire, repeater, stone</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-22T16:23Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere</td></tr>
+<tr><th scope="row">Design file</th><td><code>ld-chest</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/rail/archive/ld-chest.txt">on GitHub</a></p><details><summary>Design file (62 lines)</summary><pre class="design"># archived 2026-10-22T16:23Z from designs/circuits/tracks/cart-transport/ld-chest.txt by mctas circuit archive
+# CIRCUIT: ld-chest cart-loader line terminus, load rate 16.87 items/s, departure delay 17 gt, 44 blocks, 9x4x6, robust
+# The obvious fast loader (designs/briefs/cart-transport.md), dry-supply fix (coordinator and
+# reviewer 2026-10-22): the hopper minecart parks under the supply chest and pulls one item per tick
+# from it (MinecartHopper.tryConsumeItems: 20 items/s). Boosters send the cart up the halting
+# powered slope P and the detector slope D; it rolls back and rests on P under the chest, where D
+# still sees it (an open trapdoor over D stops the climb under the chest). One comparator C reads the
+# cart&#39;s fill through D (compare mode); its side is &quot;the chest has items&quot; at full strength: the
+# comparator K reads the chest through the block over D, the repeater after it lifts any signal to
+# 15, and a dust line and a repeater bring it into C&#39;s side. So C passes the cart&#39;s fill only when
+# the cart is full (15 against 15), or when the chest is empty and the cart holds something (fill
+# against 0); C then powers P and the cart leaves down the line. An empty cart at an empty chest
+# waits there until items come.
+name: ld-chest
+circuit: cart-loader
+port line.in: -6 0 0
+port items: 0 2 0
+origin: -6 0 -3
+palette:
+  S minecraft:stone
+  B minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  L minecraft:rail[shape=east_west,waterlogged=false]
+  P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
+  g minecraft:glass
+  D minecraft:detector_rail[powered=false,shape=ascending_east,waterlogged=false]
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  K minecraft:comparator[facing=north,mode=compare,powered=false]
+  Q minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  V minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  R minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  Y minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  W minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  Z minecraft:redstone_block
+  T minecraft:oak_trapdoor[facing=west,half=bottom,open=true,powered=false,waterlogged=false]
+layer -1:
+  ......S...
+  ......S...
+  ......S...
+  .SSZSSS...
+  ..........
+  ..........
+layer 0:
+  ......WS..
+  ......WS..
+  ......RSSS
+  .BBBBLPg.S
+  ..........
+  ..........
+layer 1:
+  .......W..
+  .......Y..
+  .......CQW
+  .......DSW
+  ......S.S.
+  .......SS.
+layer 2:
+  ..........
+  ..........
+  ..........
+  .......TW.
+  ......K.W.
+  ......SVW.
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/4802aeae549d7104ccc52e6162819b1f0c85df00">vjeux/redstonepedia@4802aeae5</a> on <span class="nowrap">2026-10-23</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=cddf7aad"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=528edeb5"});</script>
+</body>
+</html>

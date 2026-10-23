@@ -1,0 +1,24 @@
+# archived 2026-10-21T18:35Z from /tmp/wire/stage2/clockinfra-p19-wireable-7b.txt by mctas clock archive
+# CLOCK: clockinfra-p19-wireable-7b period 19 gt (0.95 s), on 2/19, edges 1, warmup 16, family observer+piston+sticky_piston, 7 blocks, 3x3x2, robust
+# A 19-tick clock a builder can wire, as small as the 7-block record (clockinfra, 2026-10-21, the wireable-clocks job: clock wire-search from clk-obs-p19-obs-pis-stk-6b-5bc2a3): an observer tap watching the build gives one pulse per cycle.
+name: clockinfra-p19-wireable-7b
+port output: 1 0 2
+port start: -1 0 4 last
+origin: -1 0 3
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=down]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:sticky_piston[extended=false,facing=up]
+  o minecraft:observer[facing=east,powered=false]
+layer -2:
+  .
+  So
+layer -1:
+  .
+  ..P
+layer 0:
+  ..A
+  OBR

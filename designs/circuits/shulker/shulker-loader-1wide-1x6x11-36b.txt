@@ -1,0 +1,116 @@
+# archived 2026-10-21T16:20Z from designs/circuits/shulker/tracks/pext/loader-1wide-1x6x11-36b.txt by mctas circuit archive
+# CIRCUIT: shulker-loader-1wide-1x6x11-36b shulker-loader boxes/min 0.087, items/s 2.50, first box 13861 gt, cycle 13847 gt, hoppers awake 4, badges always-on+16-stack+unstackable+colours+restart+top-up+box-starved+drop-free+tileable(1), bill 26 iron, 14 quartz, 48 redstone, 3 slime, 36 blocks, 1x6x11, robust
+# A one-block-wide shulker loader you can line up side by side with no gap (36 blocks, 1x6x11): a
+# dispenser under the box spot places an empty box, the hopper above fills it from the items chest,
+# and when the box is full a piston behind it breaks it; the dropped full box lands on the hopper
+# under the box's front, which sends it to the output chest.
+# How it works: a comparator reads the box and a copper bulb toggles once per full box; the
+# comparator reading the bulb starts a chain of sticky pistons and observers over the top that
+# ends at a dropper above the breaking piston, and the observer under that dropper fires the
+# piston. A comparator on the first hopper of the box line (it sees a box arrive even one at a
+# time, or from a chest kept full) and the observer next to the breaker both fire a dispenser
+# block; a sticky piston then moves an observer down, and observers and droppers pass the pulse
+# to a dropper under the box dispenser, which fires it without touching the hoppers beside it.
+# It passes the judge's full-chest, endless-supply, one-box and one-box burst checks. Found by
+# `mctas circuit shulker anneal --sweep 23,29,37` (every trickle phase required) from the
+# 41-block 1x6x11 loader (pext).
+name: shulker-loader-1wide-1x6x11-36b
+circuit: shulker-loader
+tile: 1 0 0
+port boxes: 0 0 -2
+port items: 0 2 0
+port output: 0 -2 1
+origin: 0 0 -4
+palette:
+  A minecraft:dropper[facing=down,triggered=false]
+  B minecraft:dropper[facing=north,triggered=false]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  D minecraft:dispenser[facing=north,triggered=false]
+  E minecraft:dropper[facing=up,triggered=false]
+  F minecraft:observer[facing=south,powered=false]
+  G minecraft:observer[facing=up,powered=false]
+  H minecraft:hopper[enabled=true,facing=down]
+  I minecraft:stone
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=north]
+  R minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  S minecraft:sticky_piston[extended=false,facing=down]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  c minecraft:comparator[facing=south,mode=compare,powered=false]
+  d minecraft:dispenser[facing=up,triggered=false]
+  h minecraft:hopper[enabled=true,facing=south]
+  o minecraft:observer[facing=north,powered=false]
+  p minecraft:piston[extended=false,facing=south]
+  s minecraft:sticky_piston[extended=false,facing=up]
+layer -2:
+  .
+  o
+  A
+  o
+  E
+  .
+  .
+  .
+  E
+  .
+  A
+layer -1:
+  G
+  c
+  h
+  h
+  d
+  H
+  D
+  I
+  C
+  W
+  C
+layer 0:
+  p
+  O
+  .
+  p
+  .
+  C
+  B
+  R
+  .
+  .
+  O
+layer 1:
+  S
+  D
+  F
+  G
+  H
+  .
+  .
+  .
+  .
+  .
+  s
+layer 2:
+  .
+  .
+  .
+  A
+  .
+  .
+  .
+  .
+  s
+  F
+  .
+layer 3:
+  .
+  .
+  .
+  .
+  .
+  F
+  P
+  F
+  .
+  .
+  .
