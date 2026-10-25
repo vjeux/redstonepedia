@@ -29,6 +29,14 @@ pub struct Live {
     label: HtmlElement,
     bar: HtmlElement,
     status: HtmlElement,
+    /// The scrubber (the timelapse, jump between states): its track, the activity strip
+    /// inside it, the thumb; a drag in progress; the activity version the strip was
+    /// built from.
+    scrub: HtmlElement,
+    scrub_strip: HtmlElement,
+    scrub_thumb: HtmlElement,
+    scrub_drag: bool,
+    scrub_version: u64,
     play: HtmlButtonElement,
     /// One tick back (the timelapse): disabled at the run's start.
     back: HtmlButtonElement,
@@ -330,6 +338,60 @@ pub fn start(app: &mut App, id: u32) {
     let _ = flip.set_attribute("data-mcview-input", "lever");
     let containers = button(ICON_BOXES, "Show what every container holds (or tap one)");
     let _ = containers.style().set_property("display", "none");
+    // the scrubber (the timelapse, jump between states): above the bar, clear of the
+    // Record pill on the right; its strip shows the run's active stretches bright and
+    // the idle ones (waits, holds, a settled world) dim, the thumb the tick now
+    let scrub = el("div");
+    scrub.set_class_name("mcview-scrub");
+    let _ = scrub.set_attribute("data-mcview-scrub", "");
+    let _ = scrub.set_attribute("role", "slider");
+    let _ = scrub.set_attribute("aria-label", "Scrub through the run (left: start, right: furthest tick reached)");
+    style(
+        &scrub,
+        &[
+            ("position", "absolute"),
+            ("left", "8px"),
+            ("right", "120px"),
+            ("bottom", "66px"),
+            ("height", "28px"),
+            ("z-index", "2"),
+            ("touch-action", "none"),
+            ("cursor", "pointer"),
+        ],
+    );
+    let scrub_strip = el("div");
+    style(
+        &scrub_strip,
+        &[
+            ("position", "absolute"),
+            ("left", "0"),
+            ("right", "0"),
+            ("top", "11px"),
+            ("height", "6px"),
+            ("border-radius", "3px"),
+            ("background", "rgba(255,255,255,0.18)"),
+            ("overflow", "hidden"),
+            ("pointer-events", "none"),
+        ],
+    );
+    let scrub_thumb = el("div");
+    style(
+        &scrub_thumb,
+        &[
+            ("position", "absolute"),
+            ("top", "7px"),
+            ("width", "14px"),
+            ("height", "14px"),
+            ("margin-left", "-7px"),
+            ("border-radius", "50%"),
+            ("background", "#fff"),
+            ("box-shadow", "0 1px 4px rgba(0,0,0,0.5)"),
+            ("pointer-events", "none"),
+        ],
+    );
+    let _ = scrub.append_child(&scrub_strip);
+    let _ = scrub.append_child(&scrub_thumb);
+    let _ = root.append_child(&scrub);
     // the tick counter: a badge at the top right, fixed width (tabular digits), so nothing moves
     // while it runs and the bar's buttons fit a phone
     let label = el("div");
@@ -432,6 +494,11 @@ pub fn start(app: &mut App, id: u32) {
         status,
         play: play.clone(),
         back: back.clone(),
+        scrub: scrub.clone(),
+        scrub_strip: scrub_strip.clone(),
+        scrub_thumb: scrub_thumb.clone(),
+        scrub_drag: false,
+        scrub_version: 0,
         flip: flip.clone(),
         speed: speed.clone(),
         speed_i: 0,
@@ -469,6 +536,36 @@ pub fn start(app: &mut App, id: u32) {
     on_click(&flip, id, |l| l.flip());
     on_click(&speed, id, |l| l.next_speed());
     on_click(&containers, id, |l| l.toggle_containers());
+    // the scrubber: drag or tap to jump to a tick (pauses first)
+    on(&scrub, "pointerdown", move |e: PointerEvent| {
+        with_live(id, |l, _, _| {
+            l.scrub_drag = true;
+            let _ = l.scrub.set_pointer_capture(e.pointer_id());
+            l.scrub_to_event(&e);
+        });
+        e.prevent_default();
+        ensure_frame();
+    });
+    on(&scrub, "pointermove", move |e: PointerEvent| {
+        let dragging = with_live(id, |l, _, _| {
+            if l.scrub_drag {
+                l.scrub_to_event(&e);
+                true
+            } else {
+                false
+            }
+        })
+        .unwrap_or(false);
+        if dragging {
+            e.prevent_default();
+            ensure_frame();
+        }
+    });
+    on(&scrub, "pointerup", move |e: PointerEvent| {
+        let _ = e;
+        with_live(id, |l, _, _| l.scrub_drag = false);
+        ensure_frame();
+    });
     // gestures
     on(&canvas, "pointerdown", move |e: PointerEvent| {
         let started = with_live(id, |l, atlas, v| {
@@ -516,6 +613,8 @@ pub fn start(app: &mut App, id: u32) {
                 " " => l.toggle_play(),
                 "ArrowRight" | "." => l.step(),
                 "ArrowLeft" | "," => l.step_back(),
+                "Home" => l.scrub_seek_floor(),
+                "End" => l.scrub_seek_end(),
                 "r" => l.reset(),
                 "f" => l.flip(),
                 _ => return false,
@@ -1139,6 +1238,8 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
             l.label.set_text_content(Some(&time_text(p, l.narrow)));
             // the back button is live once the run has a tick behind it
             l.back.set_disabled(!p.can_step_back());
+            // the scrubber follows the run
+            Live::update_scrub(&l.scrub, &l.scrub_strip, &l.scrub_thumb, &mut l.scrub_version, p);
             if crate::debug() {
                 // for `mctas web layout`: nothing may move while the counter runs (not counted
                 // while its session is built over frames: the still it shows then is not the view
@@ -1385,6 +1486,76 @@ impl Live {
             self.play.set_inner_html(&icon(ICON_PLAY));
             p.step_back();
             self.redraw = true;
+        }
+    }
+
+    /// Jump to a tick of the run (the scrubber): pauses first, like [`Live::step_back`].
+    fn scrub_seek(&mut self, tick: u32) {
+        if let Some(p) = self.player.as_mut() {
+            p.playing = false;
+            self.play.set_inner_html(&icon(ICON_PLAY));
+            if p.seek_to(tick) {
+                self.redraw = true;
+            }
+        }
+    }
+
+    /// The scrubber to a fraction of the run (a pointer on its track).
+    fn scrub_to_event(&mut self, e: &PointerEvent) {
+        let r = self.scrub.get_bounding_client_rect();
+        let frac = if r.width() > 0.0 { ((e.client_x() as f64 - r.x()) / r.width()).clamp(0.0, 1.0) } else { 0.0 };
+        if let Some(p) = self.player.as_ref() {
+            let (floor, high) = p.scrub_range();
+            let tick = floor + (frac * (high - floor) as f64).round() as u32;
+            self.scrub_seek(tick);
+        }
+    }
+
+    /// The scrubber to the run's start (Home).
+    fn scrub_seek_floor(&mut self) {
+        let floor = self.player.as_ref().map(|p| p.scrub_range().0).unwrap_or(0);
+        self.scrub_seek(floor);
+    }
+
+    /// The scrubber to the furthest tick reached (End).
+    fn scrub_seek_end(&mut self) {
+        let high = self.player.as_ref().map(|p| p.scrub_range().1).unwrap_or(0);
+        self.scrub_seek(high);
+    }
+
+    /// The scrubber follows the run: the thumb at the tick now, the strip rebuilt when
+    /// the activity changed; hidden for a view that does not simulate. A free function
+    /// (the frame holds the player borrowed from the Live): field borrows only.
+    fn update_scrub(scrub: &HtmlElement, strip: &HtmlElement, thumb: &HtmlElement, version: &mut u64, p: &mcview::player::Player) {
+        let _ = scrub.style().set_property("display", if p.session.simulated() { "block" } else { "none" });
+        let (floor, high) = p.scrub_range();
+        let frac = if high > floor { (p.session.tick.saturating_sub(floor)) as f64 / (high - floor) as f64 } else { 0.0 };
+        let _ = thumb.style().set_property("left", &format!("{}%", frac * 100.0));
+        let _ = scrub.set_attribute("aria-valuemin", &floor.to_string());
+        let _ = scrub.set_attribute("aria-valuemax", &high.to_string());
+        let _ = scrub.set_attribute("aria-valuenow", &p.session.tick.to_string());
+        if p.activity_version() == *version {
+            return;
+        }
+        *version = p.activity_version();
+        strip.set_inner_html("");
+        for (s, e, active) in p.activity_runs() {
+            if high <= floor {
+                break;
+            }
+            let seg = el("div");
+            style(
+                &seg,
+                &[
+                    ("position", "absolute"),
+                    ("top", "0"),
+                    ("bottom", "0"),
+                    ("left", &format!("{}%", (s - floor) as f64 / (high - floor) as f64 * 100.0)),
+                    ("width", &format!("{}%", (e - s) as f64 / (high - floor) as f64 * 100.0)),
+                    ("background", if active { "rgba(255,255,255,0.85)" } else { "rgba(255,255,255,0.22)" }),
+                ],
+            );
+            let _ = strip.append_child(&seg);
         }
     }
 

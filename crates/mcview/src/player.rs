@@ -79,6 +79,16 @@ pub struct Player {
     /// Rebuilding the run from a snapshot ([`Player::seek`]): the input log is not appended
     /// to, and deferred actions run at once.
     replaying: bool,
+    /// The run's (start, end, active) stretches, contiguous (the scrubber's strip): a tick
+    /// is active when the world was not idle after it, an input landed on it, or the door
+    /// demo changed on it; the rest (waits, holds, a settled world) is inactive, dim on
+    /// the strip. Rebuilt by replaying, truncated by rewinding.
+    activity_runs: Vec<(u32, u32, bool)>,
+    /// Bumped when [`Player::activity_runs`] changes (the strip's redraw signal).
+    activity_version: u64,
+    /// The furthest tick reached this run (the scrubber's end): only forward, never
+    /// rewound.
+    high_water: u32,
 }
 
 /// One of the person's input actions, for the timelapse: replayed from the run's start (or
@@ -279,6 +289,7 @@ impl Player {
         let pulse_inputs = crate::circuit::pulse_kind(&session.design);
         let n_in = session.circuit_inputs.len();
         let n_out = session.outputs.len();
+        let start = session.tick;
         let mut p = Player {
             session,
             look,
@@ -313,6 +324,9 @@ impl Player {
             input_log: Vec::new(),
             snapshots: Vec::new(),
             replaying: false,
+            activity_runs: Vec::new(),
+            activity_version: 0,
+            high_water: start,
         };
         p.follow_machine();
         p.record();
@@ -413,6 +427,7 @@ impl Player {
 
     /// The built session takes the still's place.
     fn finish_wake(&mut self, session: Session, cycle: Option<u32>) {
+        let start = session.tick;
         let marks = (self.session.outputs.clone(), self.session.picture);
         self.session = session;
         // the output cell and picture box the page gave (`data-still`) stay
@@ -432,6 +447,9 @@ impl Player {
         // a new run: the old run's input log and snapshots are gone
         self.input_log.clear();
         self.snapshots.clear();
+        self.activity_runs.clear();
+        self.activity_version += 1;
+        self.high_water = start;
         if let Some(d) = self.pending_demo.take() {
             self.session.attach_demo(d);
         }
@@ -893,10 +911,190 @@ impl Player {
     /// advance with it. [`Player::step`] and [`Player::update_with`] both go through here, so
     /// a replayed run (the timelapse) takes the same ticks as the played one.
     fn step_once(&mut self) {
+        let demo = self.door_demo;
+        let inputs = self.session.input_on.clone();
         self.session.step();
         self.record();
         self.door_demo_tick();
         self.note_fly_end();
+        // the tick just landed on changed something when the world is not idle after it, a
+        // demo edge landed on it (its input changed), or the door demo changed on it (its
+        // lever flipped, or the door finished opening/closing)
+        let active = !self.session.idle() || self.door_demo != demo || self.session.input_on != inputs;
+        self.record_activity(active);
+    }
+
+    /// Jump to a tick of this run (the scrubber): back rewinds (the future past it is
+    /// dropped, like [`Player::step_back`]), forward steps (re-simulating after a
+    /// rewind). Clamped to the run's earliest reachable tick. False when already there
+    /// or the view has not played. A pending fast-forward is dropped: the visitor took
+    /// control of the tick.
+    pub fn seek_to(&mut self, target: u32) -> bool {
+        if self.lazy.is_some() || self.waking.is_some() || !self.session.simulated() {
+            return false;
+        }
+        let (floor, _) = self.scrub_range();
+        let target = target.max(floor);
+        if target == self.session.tick {
+            return false;
+        }
+        self.fast_forward = None;
+        if target < self.session.tick {
+            self.seek(target);
+        } else {
+            while self.session.tick < target {
+                self.step_once();
+            }
+        }
+        self.acc = 0.0;
+        self.partial = 0.0;
+        self.follow_machine_with(false);
+        self.invalidate();
+        true
+    }
+
+    /// The scrubber's range: the earliest reachable tick (the oldest snapshot's), and the
+    /// furthest tick reached this run.
+    pub fn scrub_range(&self) -> (u32, u32) {
+        (self.rewind_floor(), self.high_water.max(self.session.tick))
+    }
+
+    /// The run's (start, end, active) stretches for the scrubber's strip, covering
+    /// [`Player::scrub_range`]: consecutive ticks with the same activity, inactive
+    /// stretches (waits, holds, a settled world) dim. `end` is exclusive.
+    pub fn activity_runs(&self) -> Vec<(u32, u32, bool)> {
+        let (floor, high) = self.scrub_range();
+        let end = high + 1;
+        let mut out: Vec<(u32, u32, bool)> = Vec::new();
+        let push = |out: &mut Vec<(u32, u32, bool)>, s: u32, e: u32, a: bool| {            if s >= e {
+                return;
+            }
+            if let Some((_, pe, pa)) = out.last_mut() {
+                if *pa == a && *pe == s {
+                    *pe = e;
+                    return;
+                }
+            }
+            out.push((s, e, a));
+        };
+        let mut cur = floor;
+        for &(s, e, a) in &self.activity_runs {
+            if e <= floor {
+                continue;
+            }
+            if s > cur {
+                push(&mut out, cur, s.min(end), false);
+            }
+            push(&mut out, s.max(cur), e.min(end), a);
+            cur = e.min(end);
+            if cur >= end {
+                break;
+            }
+        }
+        push(&mut out, cur, end, false);
+        out
+    }
+
+    /// A counter bumped when [`Player::activity_runs`] changes (the strip's redraw signal).
+    pub fn activity_version(&self) -> u64 {
+        self.activity_version
+    }
+
+    /// Extend the activity stretches to cover tick `t` (and any gap before it, a
+    /// fast-forward jump: never displayed, inactive).
+    fn record_activity(&mut self, active: bool) {
+        let t = self.session.tick;
+        self.high_water = self.high_water.max(t);
+        self.extend_activity(t, t + 1, active);
+    }
+
+    /// Extend the activity stretches to cover [s, e) with one activity, merging with the
+    /// last stretch when it matches and meets it.
+    fn extend_activity(&mut self, s: u32, e: u32, active: bool) {
+        if s >= e {
+            return;
+        }
+        if let Some((_, pe, pa)) = self.activity_runs.last_mut() {
+            if *pa == active && *pe == s {
+                *pe = e;
+                self.activity_version += 1;
+                return;
+            }
+        }
+        self.activity_runs.push((s, e, active));
+        self.activity_version += 1;
+    }
+
+    /// Mark tick `t` active (an input the visitor or a tap landed on it: logged in
+    /// [`Player::log_op`): split the stretch covering it.
+    fn mark_tick_active(&mut self, t: u32) {
+        // a gap before it (an input while waking, before any step): never displayed
+        if let Some((_, end, _)) = self.activity_runs.last() {
+            if *end < t {
+                self.extend_activity(*end, t, false);
+            }
+        }
+        let Some(idx) = self.activity_runs.iter().position(|&(s, e, _)| s <= t && t < e) else {
+            self.extend_activity(t, t + 1, true);
+            return;
+        };
+        if self.activity_runs[idx].2 {
+            return;
+        }
+        let (s, e, _) = self.activity_runs[idx];
+        self.activity_runs.remove(idx);
+        let mut at = idx;
+        if s < t {
+            self.activity_runs.insert(at, (s, t, false));
+            at += 1;
+        }
+        self.activity_runs.insert(at, (t, t + 1, true));
+        if t + 1 < e {
+            self.activity_runs.insert(at + 1, (t + 1, e, false));
+        }
+        self.activity_version += 1;
+    }
+
+    /// Drop the activity stretches at or past `to` (a rewind: the run is rebuilt from
+    /// there).
+    fn truncate_activity(&mut self, to: u32) {
+        let mut changed = false;
+        while let Some(&(s, e, _)) = self.activity_runs.last() {
+            if s >= to {
+                self.activity_runs.pop();
+                changed = true;
+            } else if e > to {
+                self.activity_runs.last_mut().unwrap().1 = to;
+                changed = true;
+                break;
+            } else {
+                break;
+            }
+        }
+        if changed {
+            self.activity_version += 1;
+        }
+    }
+
+    /// Drop the activity stretches before `floor` (the oldest snapshot fell off: the
+    /// rewind floor moved past them).
+    fn drain_activity(&mut self, floor: u32) {
+        let mut changed = false;
+        while let Some(&(s, e, _)) = self.activity_runs.first() {
+            if e <= floor {
+                self.activity_runs.remove(0);
+                changed = true;
+            } else if s < floor {
+                self.activity_runs.first_mut().unwrap().0 = floor;
+                changed = true;
+                break;
+            } else {
+                break;
+            }
+        }
+        if changed {
+            self.activity_version += 1;
+        }
     }
 
     /// Whether [`Player::step_back`] can go back: the run has a tick behind it, back to the
@@ -933,9 +1131,12 @@ impl Player {
     /// are dropped: that future is gone.
     fn seek(&mut self, target: u32) {
         let idx = self.snapshots.iter().rposition(|(t, _)| *t <= target).expect("the floor snapshot");
+        let snap_tick = self.snapshots[idx].0;
         let snap = self.snapshots[idx].1.clone();
         self.snapshots.truncate(idx + 1);
         self.input_log.retain(|(t, _)| *t < target);
+        // the activity past the restored snapshot is rebuilt by the replay below
+        self.truncate_activity(snap_tick);
         self.pending.clear();
         self.session.restore(snap.run);
         self.history = snap.history;
@@ -980,9 +1181,11 @@ impl Player {
     }
 
     /// Log the person's input action at this tick (the timelapse). Nothing while replaying.
+    /// The tick is marked active (the scrubber's strip): the input visibly changed the run.
     fn log_op(&mut self, op: InputOp) {
         if !self.replaying {
             self.input_log.push((self.session.tick, op));
+            self.mark_tick_active(self.session.tick);
         }
     }
 
@@ -997,6 +1200,10 @@ impl Player {
             self.snapshots.push((t, self.snapshot_state()));
             while self.snapshots.len() > MAX_SNAPSHOTS {
                 self.snapshots.remove(0);
+            }
+            // the rewind floor moved past the oldest snapshot: its activity is unreachable
+            if let Some(&(floor, _)) = self.snapshots.first() {
+                self.drain_activity(floor);
             }
         }
     }
@@ -1026,7 +1233,10 @@ impl Player {
         // a new run: the old run's input log and snapshots are gone
         self.input_log.clear();
         self.snapshots.clear();
+        self.activity_runs.clear();
+        self.activity_version += 1;
         self.session.reset();
+        self.high_water = self.session.tick;
         self.fast_forward = None;
         // the auto-demo comes back where it is shown from (its long wait skipped: played through
         // unseen, over frames with the browser's clock)
@@ -1690,6 +1900,78 @@ mod tests {
         assert!(p.step_back());
         assert_eq!(p.session.tick, 10);
         assert!(!p.session.is_on([0, 1, 0]), "back to tick 10: the flip at 10 is dropped");
+    }
+
+    /// The scrubber: jump between states both ways (back drops the future, forward
+    /// replays without it), and the idle stretches are marked (the settled tail dim).
+    #[test]
+    fn scrubber_seeks_between_states_and_marks_idle() {
+        let gadget = "name: g\norigin: 0 0 0\npalette:\n  S minecraft:stone\n  L minecraft:lever[face=floor,facing=east,powered=false]\n  B minecraft:waxed_copper_bulb[lit=false,powered=false]\nlayer 0:\n  SB\nlayer 1:\n  L\n";
+        let mut p = Player::new(gadget, 1.5).unwrap();
+        assert_eq!(p.scrub_range(), (0, 0));
+        p.step();
+        assert!(p.flip(), "the lever flips at tick 1");
+        for _ in 0..6 {
+            p.step();
+        }
+        assert_eq!(p.session.tick, 7);
+        assert_eq!(p.scrub_range(), (0, 7));
+        let runs = p.activity_runs();
+        assert_eq!(runs.first().map(|r| r.0), Some(0));
+        assert_eq!(runs.last().map(|r| r.1), Some(8));
+        for w in runs.windows(2) {
+            assert_eq!(w[0].1, w[1].0, "contiguous: {runs:?}");
+        }
+        assert!(runs.iter().any(|r| r.2), "the flip and the settling are active: {runs:?}");
+        assert!(!runs.last().unwrap().2, "settled: the last stretch is idle: {runs:?}");
+        // back to tick 2: the flip at tick 1 is kept, the lever stays on
+        assert!(p.seek_to(2));
+        assert_eq!(p.session.tick, 2);
+        assert!(p.session.is_on([0, 1, 0]));
+        // forward again: still on, the bulb still lights
+        assert!(p.seek_to(7));
+        assert_eq!(p.session.tick, 7);
+        assert!(p.session.is_on([0, 1, 0]));
+        assert!(p.session.is_on([1, 0, 0]));
+        // back before the flip: it is dropped, the lever stays off going forward
+        assert!(p.seek_to(1));
+        assert!(!p.session.is_on([0, 1, 0]), "the flip at tick 1 is dropped");
+        assert!(p.seek_to(7));
+        assert!(!p.session.is_on([0, 1, 0]));
+        // back to the floor: the furthest tick stays (the scrubber's end never rewinds)
+        assert!(p.seek_to(0));
+        assert_eq!(p.session.tick, 0);
+        assert_eq!(p.scrub_range(), (0, 7));
+        assert!(!p.seek_to(0), "already there");
+    }
+
+    /// The scrubber with the door demo: the waits are long idle stretches, the
+    /// opening/closing active; scrubbing back then forward again lands on the same
+    /// states as the runs that played straight there.
+    #[test]
+    fn scrubber_door_demo_marks_waits() {
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../designs/piston-door-3x3/archive/b38h-obs7-45b.txt")).unwrap();
+        let mut mk = |n: u32| {
+            let mut p = Player::new(&text, 1.5).unwrap();
+            p.start_door_demo();
+            for _ in 0..n {
+                p.step();
+            }
+            p
+        };
+        let mut a = mk(200);
+        let start = a.session.tick - 200;
+        assert_eq!(a.scrub_range(), (start, start + 200));
+        let runs = a.activity_runs();
+        assert!(runs.iter().any(|&(s, e, act)| !act && e - s >= 20), "a wait is a long idle stretch: {runs:?}");
+        assert!(runs.iter().any(|r| r.2), "the opening/closing is active: {runs:?}");
+        let b = mk(100);
+        let c = mk(200);
+        let Mode::Door { lever, .. } = a.session.mode else { panic!("a door") };
+        assert!(a.seek_to(start + 100));
+        assert_eq!((a.session.tick, a.session.door_blocks(), a.session.is_on(lever)), (b.session.tick, b.session.door_blocks(), b.session.is_on(lever)));
+        assert!(a.seek_to(start + 200));
+        assert_eq!((a.session.tick, a.session.door_blocks(), a.session.is_on(lever)), (c.session.tick, c.session.door_blocks(), c.session.is_on(lever)));
     }
 
     /// The timelapse with the door demo: rewound, then forward again, the door is where the
