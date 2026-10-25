@@ -1,0 +1,33 @@
+# archived 2026-10-21T11:12Z from designs/circuits/tracks/clk-rt/compact/pulse/pulse-oneshot-fall-falling-edge-L30-v40-20b.txt by mctas circuit archive
+# CIRCUIT: pulse-oneshot-fall-falling-edge-L30-v40-20b falling-edge L 30 gt, delay 6 gt, min-pulse 6 gt, 20 blocks, 4x2x5, robust
+# One fixed-length pulse every time the input turns OFF, however long it was on: pulse-oneshot-fall-falling-edge-L30's mechanism rearranged by clk-rt's circuit compact (2026-10-21), judged box 40 (was 40), 20 blocks (was 21); its blocks sit in 4x2x5.
+name: pulse-oneshot-fall-falling-edge-L30-v40-20b
+circuit: falling-edge
+group: pulse-oneshot-fall
+group note: the observer lights a copper bulb when pulled back, a repeater U turns it off; L set by the repeater delays and the U's length
+group title: falling-edge bulb one-shot
+port input: -1 1 0
+port output: 2 1 1
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  O minecraft:observer[facing=north,powered=false]
+  R minecraft:redstone_wire
+  S minecraft:sticky_piston[extended=false,facing=east]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  r minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+  s minecraft:stone
+layer 0:
+  .
+  ..s
+  .s.O
+  .s.s
+  .sss
+layer 1:
+  SO
+  .WCs
+  .r.A
+  .B.A
+  .RRR

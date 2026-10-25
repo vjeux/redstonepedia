@@ -1,0 +1,32 @@
+# archived 2026-10-19T19:47Z from designs/clocks/tracks/clk-sculk/extend/racetrack-plain.txt by mctas clock archive
+# CLOCK: clk-sculk-racetrack-plain period 60 gt (3 s), on 30/60, edges 1, warmup 41, family note_block+sculk_sensor, 16 blocks, 31x1x11, robust
+# The racetrack with plain sculk sensors (radius 8, deaf 40 gt): lines 10 apart, 9 between sensors (hop 8), turn sensors 6 out (hops 7); m >= 3 so the next sensor has re-armed. P = 12 + 16n gt, 4 + 4n blocks (n = 3: P 60, 16 blocks). Built by `mctas clock sculk family racetrack-plain --n 3`.
+name: clk-sculk-racetrack-plain
+extend base: 3
+extend blocks: 4 + 4n
+extend family: clk-sculk-racetrack-plain
+extend generator: mctas clock sculk family racetrack-plain --n {n} --out {out}
+extend n: 3..10
+extend period: 12 + 16n
+extend rule: one more plain sensor + amethyst block on each straight side, 9 blocks apart (the far turn sensor moves 9 out)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was -6 -1 5: the output [-6, -1, 5] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 9 0 -1
+port start: 1 0 0 use
+origin: -6 0 0
+palette:
+  A minecraft:amethyst_block
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer 0:
+  ......SN.......SA.......SA
+  .
+  .
+  .
+  A
+  S.............................S
+  ..............................A
+  .
+  .
+  .
+  .....AS.......AS.......AS

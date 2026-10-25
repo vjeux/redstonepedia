@@ -1,0 +1,70 @@
+# archived 2026-10-19T22:40Z from /tmp/gen/arch3/ringbig5-p69-1.txt by mctas clock archive
+# CLOCK: clk-sculk-ringbig5-p69-1 period 69 gt (3.45 s), on 10/69, edges 1, warmup 21, family calibrated_sculk_sensor+note_block, 13 blocks, 25x2x25, robust
+# CLOCK: clk-sculk-ringbig5-p69-1 period 69 gt (3.45 s), on 10/69, edges 1, warmup 21, family calibrated_sculk_sensor+note_block, 13 blocks, 25x2x25, robust
+# built by `mctas clock sculk`: ring of 5 calibrated sensors on a circle (r 12.86), hops [14,13,15,13,14], first resonator a note block (the kick), the others amethyst, 1 wool
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 13 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of a comparator facing east (on the ground) that reads the build, added at 14 0 0 (was -10 -1 -8: the output [-10, -1, -8] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+name: clk-sculk-ringbig5-p69-1
+port output: 15 0 0
+port start: 13 0 1 use
+origin: -10 0 -12
+palette:
+  A minecraft:amethyst_block
+  B minecraft:comparator[facing=west,mode=compare,powered=false]
+  C minecraft:calibrated_sculk_sensor[facing=south,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  S minecraft:stone
+  W minecraft:white_wool
+  c minecraft:calibrated_sculk_sensor[facing=west,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer -1:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ........................S
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 0:
+  ..............C
+  ..............A
+  .
+  .
+  CA
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ......................WcB
+  .......................N
+  .
+  .
+  .
+  .
+  .
+  A
+  C
+  .
+  .
+  .
+  .............AC

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shulker box unloader: 2.50 items a second · 22 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Shulker box unloader: 2.50 items a second · 22 blocks. A one-block-wide shulker unloader you can line up side by side with no gap (22 blocks): a dispenser drops each full box onto a hopper that empties it, and when ">
+<meta property="og:title" content="Shulker box unloader: 2.50 items a second · 22 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Shulker box unloader: 2.50 items a second · 22 blocks. A one-block-wide shulker unloader you can line up side by side with no gap (22 blocks): a dispenser drops each full box onto a hopper that empties it, and when ">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/shulker/index.html">Shulker box loaders and unloaders</a></p>
+<p class="kindline">Shulker box unloader</p>
+<h1>2.50 items a second · 22 blocks</h1>
+<p class="oneliner">Empties full shulker boxes into a chest and sends the empty boxes out (2.50 items a second).</p>
+<p class="lede">smallest box of 7 tested · timed with 64-stack items · empties a box in about 11½ min · fits in 1×7×6</p>
+<p class="badges"><span class="badge">always on, no lever</span><span class="badge">16-stack items too</span><span class="badge">unstackable items too</span><span class="badge">keeps box colours and names</span><span class="badge">+3 more</span></p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/shulker/shulker-unloader-1wide-22b.txt" data-input-mode="toggle" data-circuit="shulker-unloader" data-kind="circuit"><div class="fallback"><span class="fb-big">2.50 items a second</span><span class="fb-small">Shulker box unloader</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<section class="what plain"><h2>Try it</h2><p>Press play under the view to start it. Watch the items and boxes move between the chests (the numbers over each container show what it holds); the speed button goes up to 100×.</p><p class="howdesign"><b>How this design does it:</b> A one-block-wide shulker unloader you can line up side by side with no gap (22 blocks): a dispenser drops each full box onto a hopper that empties it, and when the box is empty a piston pushes a block into it, which breaks it into a second hopper that sends it on.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/shulker/shulker-unloader-1wide-22b.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/shulker/shulker-unloader-1wide-22b.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=comparator">comparator</a> <a class="chip" href="../../index.html#with=copper_bulb">copper bulb</a> <a class="chip" href="../../index.html#with=dispenser">dispenser</a> <a class="chip" href="../../index.html#with=hopper">hopper</a> <a class="chip" href="../../index.html#with=observer">observer</a> <a class="chip" href="../../index.html#with=piston">piston</a> <a class="chip" href="../../index.html#with=redstone_lamp">redstone lamp</a> <a class="chip" href="../../index.html#with=redstone_torch">redstone torch</a> <a class="chip" href="../../index.html#with=repeater">repeater</a> <a class="chip" href="../../index.html#with=sticky_piston">sticky piston</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>It <b>unpacks shulker boxes</b>. The judge puts a chest of full shulker boxes at the design's <b>BOXES</b> cell; the machine places a box, empties it into the chest at its <b>ITEMS</b> cell, and sends the empty box to the chest at its <b>OUTPUT</b> cell. In the test the judge supplies three full boxes of 64-stack items (1728 cobblestone a box) and every item and all three empty boxes must arrive, nothing lost or duplicated, at 4 positions and 4 rotations in the real game.</p><p>It moves <b>2.50 items per second</b>: one box every 13838 gt (11 min 31.9 s); the first box arrives 13859 gt (11 min 32.95 s) after the start.</p><p>It also passes these scenarios (each a separate run of the judge):</p><ul class="badgelist"><li><b>always-on</b>: no lever: it runs by itself</li><li><b>16-stack</b>: 16-stack items too (snowballs, ender pearls, eggs: 432 a box)</li><li><b>unstackable</b>: unstackable items too (tools, armour: 27 a box)</li><li><b>colours</b>: boxes keep their colour and their name</li><li><b>box-starved</b>: nothing is lost while the empty-box supply runs out; it resumes when boxes come back</li><li><b>drop-free</b>: box items never lie on the ground</li><li><b>tileable(1)</b>: </li></ul></section>
+<section><h2>How to try it</h2><p><b>The machine runs in the view.</b> The view runs it the way the judge does, without end: the chest at the cell tagged BOXES is kept full of full shulker boxes, and the chests at ITEMS and OUT are emptied as the items and the empty boxes arrive. The items are unstackable (27 fill a box). In the view the first box goes out 251 gt (12.55 s) after the machine starts, then one every 230 gt (11.5 s). The numbers over each chest, hopper and dispenser show what it holds. Speed it up with the bar's speed button (up to 100×).</p><p>It starts by itself (no lever to flip). Drag to look around, pinch or scroll to zoom.</p></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">boxes/min</th><td>0.087</td><td class="def">full boxes delivered per minute, at the steady rate</td></tr>
+<tr><th scope="row">items/s</th><td>2.50</td><td class="def">items moved per second at the steady rate (from 10% to 90% of the total)</td></tr>
+<tr><th scope="row">first box</th><td>13859 gt (11 min 32.95 s)</td><td class="def">game ticks from the start until the first box arrives</td></tr>
+<tr><th scope="row">cycle</th><td>13838 gt (11 min 31.9 s)</td><td class="def">game ticks per box at the steady rate</td></tr>
+<tr><th scope="row">hoppers awake</th><td>3</td><td class="def">hoppers left unlocked at rest: each one looks for items every game tick (lag on busy servers)</td></tr>
+<tr><th scope="row">badges</th><td>always-on, 16-stack, unstackable, colours, box-starved, drop-free, tileable(1)</td><td class="def">the extra scenarios it passes, each a separate run of the judge (see what it does above)</td></tr>
+<tr><th scope="row">bill</th><td>17 iron, 8 quartz, 33 redstone, 1 slime</td><td class="def">what its blocks cost to craft: iron, quartz, redstone, slime</td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>A one-block-wide shulker unloader you can line up side by side with no gap (22 blocks): a dispenser drops each full box onto a hopper that empties it, and when the box is empty a piston pushes a block into it, which breaks it into a second hopper that sends it on. How it works: as the 24-block unloader (a comparator reads the emptying hopper, a copper bulb remembers whether the box still has items, a torch fires the piston when it is empty, an observer on the piston fires the dispenser after each break, a comparator reading the dispenser starts it), with the search&#39;s savings: the pushed block is an observer that fires the dispenser itself, a lamp and a bulb stand in as the solid blocks, a piston and an observer serve as supports.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/shulker/index.html">Shulker box loaders and unloaders</a></td></tr>
+<tr><th scope="row">Kind</th><td>Shulker box unloader</td></tr>
+<tr><th scope="row">Blocks placed</th><td>22</td></tr>
+<tr><th scope="row">Box</th><td>1×7×6 (42 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>comparator, copper bulb, dispenser, hopper, observer, piston, redstone lamp, redstone torch, repeater, sticky piston</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>no input / OUT</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-21T06:47Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere</td></tr>
+<tr><th scope="row">Design file</th><td><code>shulker-unloader-1wide-22b</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/shulker/archive/shulker-unloader-1wide-22b.txt">on GitHub</a></p><details><summary>Design file (85 lines)</summary><pre class="design"># archived 2026-10-21T06:47Z from designs/circuits/shulker/tracks/pext/unloader-1wide-22b.txt by mctas circuit archive
+# CIRCUIT: shulker-unloader-1wide-22b shulker-unloader boxes/min 0.087, items/s 2.50, first box 13859 gt, cycle 13838 gt, hoppers awake 3, badges always-on+16-stack+unstackable+colours+box-starved+drop-free+tileable(1), bill 17 iron, 8 quartz, 33 redstone, 1 slime, 22 blocks, 1x7x6, robust
+# A one-block-wide shulker unloader you can line up side by side with no gap (22 blocks): a
+# dispenser drops each full box onto a hopper that empties it, and when the box is empty a piston
+# pushes a block into it, which breaks it into a second hopper that sends it on.
+# How it works: as the 24-block unloader (a comparator reads the emptying hopper, a copper bulb
+# remembers whether the box still has items, a torch fires the piston when it is empty, an observer
+# on the piston fires the dispenser after each break, a comparator reading the dispenser starts
+# it), with the search&#39;s savings: the pushed block is an observer that fires the dispenser itself,
+# a lamp and a bulb stand in as the solid blocks, a piston and an observer serve as supports.
+# Found by `mctas circuit shulker anneal` (random edits, each judged on redsim with the judge&#39;s own
+# scenarios) from the 24-block unloader: same box, same badges, same speed.
+name: shulker-unloader-1wide-22b
+circuit: shulker-unloader
+tile: 1 0 0
+port boxes: 0 4 0
+port items: 0 -1 0
+port output: 0 0 -2
+origin: 0 0 -2
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:redstone_torch[lit=true]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  D minecraft:dispenser[facing=down,triggered=false]
+  E minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  H minecraft:hopper[enabled=true,facing=down]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=south]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:sticky_piston[extended=false,facing=north]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  c minecraft:comparator[facing=south,mode=compare,powered=false]
+  d minecraft:dispenser[facing=south,triggered=false]
+  h minecraft:hopper[enabled=true,facing=north]
+  o minecraft:observer[facing=north,powered=false]
+  r minecraft:redstone_torch[lit=false]
+layer -3:
+  .
+  .
+  .
+  .
+  P
+  .
+layer -2:
+  .
+  .
+  .
+  W
+  C
+  d
+layer -1:
+  .
+  .
+  .
+  A
+  O
+  B
+layer 0:
+  .
+  h
+  H
+  C
+  E
+  D
+layer 1:
+  W
+  .
+  .
+  O
+  S
+  r
+layer 2:
+  c
+  R
+  D
+  .
+  .
+  .
+layer 3:
+  O
+  o
+  H
+  .
+  .
+  .
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/eabcc3ff4199f18fc0bb028ed641666b45b16ead">vjeux/redstonepedia@eabcc3ff4</a> on <span class="nowrap">2026-10-25</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=e5967917"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=3c6a179b"});</script>
+</body>
+</html>

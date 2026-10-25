@@ -1,0 +1,22 @@
+# EXTENDABLE comparator fading ring, n = 1 (P = 114 + 56n): Comparator FADING ring (clk-rt): two
+# dust (one level lost per lap) -> top row [comparator, comparator, comparator] -> block F -> dust
+# beside F (a wall torch on F lights when the ring is empty and refills it through a dust beside it)
+# -> bottom row [comparator, comparator, comparator] -> back; the compare-mode comparators keep a
+# signal strength, each dust-to-dust step loses one level per lap, and the torch refills the ring at
+# 0
+name: clk-rt-fade-x1
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 5 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 4 -1 0
+origin: 0 0 -1
+palette:
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  r minecraft:redstone_wire
+layer 0:
+  SSSS
+  SSSSSS
+layer 1:
+  rcccSR
+  rCCCrr

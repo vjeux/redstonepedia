@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tall flying machine: carries up to 18 extra blocks · 8 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Tall flying machine: carries up to 18 extra blocks · 8 blocks. Flying machine with a start lever that carries blocks, 7 + n blocks: the 6-block start-lever slime flying machine (a piston, a sticky piston, two slime blocks, ">
+<meta property="og:title" content="Tall flying machine: carries up to 18 extra blocks · 8 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Tall flying machine: carries up to 18 extra blocks · 8 blocks. Flying machine with a start lever that carries blocks, 7 + n blocks: the 6-block start-lever slime flying machine (a piston, a sticky piston, two slime blocks, ">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/fly/index.html">Flying machines</a></p>
+<p class="kindline">Tall flying machine</p>
+<h1>carries up to 18 extra blocks · 8 blocks</h1>
+<p class="oneliner">Flip its lever and it flies sideways by itself, one block every 10 ticks (2 blocks a second), until something stops it. It carries extra blocks stuck to it: 1 as built, up to 18.</p>
+<p class="lede">the smallest of 4 tested that starts with its own lever · flies sideways · starts in 2 ticks (0.1 s) · fits in 3×5×1</p>
+<p class="badges"><span class="badge">start lever</span></p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/fly/fly-payload-start-n1.txt" data-stimulus="in 60+ 64- 68+ 72- 112+ 172-" data-phases="0-60 rest; 60-1900 launch" data-input-mode="pulse" data-circuit="flying-machine" data-kind="circuit"><div class="fallback"><span class="fb-big">carries up to 18 extra blocks</span><span class="fb-small">Tall flying machine</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<section class="what plain"><h2>Try it</h2><p>Flip its lever (the IN button under the view): the machine sets off and flies until something stops it; reset to see it again. In the game, flip the lever the same way.</p><p class="howdesign"><b>How this design does it:</b> Flying machine with a start lever that carries blocks, 7 + n blocks: the 6-block start-lever slime flying machine (a piston, a sticky piston, two slime blocks, two observers) carrying n blocks, 1 to 18, on slime columns topped with gold, parked next to a lever on a stone.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/fly/fly-payload-start-n1.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/fly/fly-payload-start-n1.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=gold_block">gold block</a> <a class="chip" href="../../index.html#with=observer">observer</a> <a class="chip" href="../../index.html#with=piston">piston</a> <a class="chip" href="../../index.html#with=slime_block">slime block</a> <a class="chip" href="../../index.html#with=sticky_piston">sticky piston</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<p class="also-ground">Without the start lever, 1 block smaller: <a href="../../circuits/fly/fly-payload-n1.html">Tall flying machine: carries up to 18 extra blocks · 7 blocks</a>.</p>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>A <b>flying machine</b>: pistons, slime or honey and observers that push each other along. Once started (the start block is placed), it moves itself one block at a time and keeps going until something stops it.</p><p>It moves one block every 10 gt (2.0 blocks per second).</p></section>
+<section><h2>How to try it</h2><p>The machine starts by itself (its start block is placed when the view begins): press <b>play</b> and watch it shuttle between its docking stations. Flip its lever with the <span class="tag-in">IN</span> button under the view: off, it docks at the lever's station and stays; on, it leaves again. Drag to look around, pinch or scroll to zoom.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the input with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). <span class="tag-pos">Blue</span>: how far the machine has moved along its path, in blocks. Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="1032" height="148" viewBox="0 0 1032 148" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="64.0" y1="18.0" x2="64.0" y2="130.0"/><text class="phl" x="67.0" y="14.0">rest</text><line class="ph" x1="201.1" y1="18.0" x2="201.1" y2="130.0"/><text class="phl" x="204.1" y="14.0">launch</text><text class="wl" x="4" y="46.0">IN</text><line class="base" x1="64.0" y1="48.0" x2="1024.0" y2="48.0"/><polygon class="win" points="64.0,48.0 64.0,48.0 201.1,48.0 201.1,28.0 210.3,28.0 210.3,48.0 219.4,48.0 219.4,28.0 228.6,28.0 228.6,48.0 320.0,48.0 320.0,28.0 457.1,28.0 457.1,48.0 1024.0,48.0 1024.0,48.0"/><text class="wl" x="4" y="116.0">MOVED</text><line class="base" x1="64.0" y1="118.0" x2="1024.0" y2="118.0"/><text class="ax" x="4" y="66.0">30</text><path class="wpos" d="M64.0,118.0 L356.6,118.0 L356.6,116.1 L379.4,116.1 L379.4,114.3 L402.3,114.3 L402.3,112.4 L425.1,112.4 L425.1,110.5 L448.0,110.5 L448.0,108.7 L470.9,108.7 L470.9,106.8 L493.7,106.8 L493.7,104.9 L516.6,104.9 L516.6,103.1 L539.4,103.1 L539.4,101.2 L562.3,101.2 L562.3,99.3 L585.1,99.3 L585.1,97.5 L608.0,97.5 L608.0,95.6 L630.9,95.6 L630.9,93.7 L653.7,93.7 L653.7,91.9 L676.6,91.9 L676.6,90.0 L699.4,90.0 L699.4,88.1 L722.3,88.1 L722.3,86.3 L745.1,86.3 L745.1,84.4 L768.0,84.4 L768.0,82.5 L790.9,82.5 L790.9,80.7 L813.7,80.7 L813.7,78.8 L836.6,78.8 L836.6,76.9 L859.4,76.9 L859.4,75.1 L882.3,75.1 L882.3,73.2 L905.1,73.2 L905.1,71.3 L928.0,71.3 L928.0,69.5 L950.9,69.5 L950.9,67.6 L973.7,67.6 L973.7,65.7 L996.6,65.7 L996.6,63.9 L1019.4,63.9 L1019.4,62.0 L1024.0,62.0"/><text class="ax" x="4" y="142.0">ticks</text><text class="ax" x="64.0" y="142.0">0</text><text class="ax" x="109.7" y="142.0">20</text><text class="ax" x="155.4" y="142.0">40</text><text class="ax" x="201.1" y="142.0">60</text><text class="ax" x="246.9" y="142.0">80</text><text class="ax" x="292.6" y="142.0">100</text><text class="ax" x="338.3" y="142.0">120</text><text class="ax" x="384.0" y="142.0">140</text><text class="ax" x="429.7" y="142.0">160</text><text class="ax" x="475.4" y="142.0">180</text><text class="ax" x="521.1" y="142.0">200</text><text class="ax" x="566.9" y="142.0">220</text><text class="ax" x="612.6" y="142.0">240</text><text class="ax" x="658.3" y="142.0">260</text><text class="ax" x="704.0" y="142.0">280</text><text class="ax" x="749.7" y="142.0">300</text><text class="ax" x="795.4" y="142.0">320</text><text class="ax" x="841.1" y="142.0">340</text><text class="ax" x="886.9" y="142.0">360</text><text class="ax" x="932.6" y="142.0">380</text><text class="ax" x="978.3" y="142.0">400</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 420 ticks (21 s).</p><p class="wave-note"><span class="tag-pos">MOVED</span>: 1 block every 10 gt.</p><details><summary>Our test's report, step by step (10 lines)</summary><pre class="design">reached the corridor end at frame 420
+parked until the first flip (frame 60), first move at frame 62, farthest intact 30 cells along [-1, 0, 0]
+steady from frame 114: period 10 gt, 1 cell(s) per period along [-1, 0, 0] (29 periods seen)
+flips 5 gt apart: flies intact (speed 10 gt/block, period 10 gt, 1 cell(s), latency 2 gt, start flip the lever)
+flips 6 gt apart: flies intact (speed 10 gt/block, period 10 gt, 1 cell(s), latency 2 gt, start flip the lever)
+flips 8 gt apart: flies intact (speed 10 gt/block, period 10 gt, 1 cell(s), latency 2 gt, start flip the lever)
+flips 10 gt apart: flies intact (speed 10 gt/block, period 10 gt, 1 cell(s), latency 2 gt, start flip the lever)
+flips 12 gt apart: flies intact (speed 10 gt/block, period 10 gt, 1 cell(s), latency 2 gt, start flip the lever)
+flips 16 gt apart: flies intact (speed 10 gt/block, period 10 gt, 1 cell(s), latency 2 gt, start flip the lever)
+flips 20 gt apart: flies intact (speed 10 gt/block, period 10 gt, 1 cell(s), latency 2 gt, start flip the lever)</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">speed</th><td>10 gt/block</td><td class="def">game ticks per block travelled (20 gt = 1 second)</td></tr>
+<tr><th scope="row">period</th><td>10 gt, 1 cell(s)</td><td class="def">game ticks per cycle of the engine (one push of each piston)</td></tr>
+<tr><th scope="row">latency</th><td>2 gt (0.1 s)</td><td class="def">game ticks from the start until the machine first moves</td></tr>
+<tr><th scope="row">start</th><td>flip the lever</td><td class="def"></td></tr>
+<tr><th scope="row">ground</th><td>flies along the ground</td><td class="def"></td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>Flying machine with a start lever that carries blocks, 7 + n blocks: the 6-block start-lever slime flying machine (a piston, a sticky piston, two slime blocks, two observers) carrying n blocks, 1 to 18, on slime columns topped with gold, parked next to a lever on a stone. Start: flip the lever, and it flies away with its load at 10 ticks per block; flipping the lever again does nothing to it.  The start family on fly-horizontal-start-7b-10gt: up to 9 blocks in a column up from the rear slime (box 3 x (4 + n) x 1); past 9 the blocks split evenly between that column and a second one on the front part (one block south of its slime, then up), box 3 x (4 + ceil(n/2)) x 2. Each part pushes at most 12 blocks, 3 of its own plus 9 carried.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/fly/index.html">Flying machines</a></td></tr>
+<tr><th scope="row">Kind</th><td>Flying machine</td></tr>
+<tr><th scope="row">Blocks placed</th><td>8</td></tr>
+<tr><th scope="row">Box</th><td>3×5×1 (15 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>gold block, observer, piston, slime block, sticky piston</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>IN (lever) (no output: it moves blocks)</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-22T03:53Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere, its own lever as the input, carries extra blocks along (a flying machine with cargo)</td></tr>
+<tr><th scope="row">Design file</th><td><code>fly-payload-start-n1</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/fly/archive/fly-payload-start-n1.txt">on GitHub</a></p><details><summary>Design file (38 lines)</summary><pre class="design"># archived 2026-10-22T03:53Z from /tmp/fly/rearch/fly-payload-start-n1.txt by mctas circuit archive
+# CIRCUIT: fly-payload-start-n1 flying-machine speed 10 gt/block, period 10 gt, 1 cell(s), latency 2 gt, start flip the lever, ground flies along the ground, 8 blocks, 3x5x1, robust
+#
+name: fly-payload-start-n1
+circuit: flying-machine
+distance: 24
+travel: -1 0 0
+extend family: fly-payload-start-7b
+extend axis: 10
+extend blocks: 7 + n
+extend rule: one more payload block: the slime column up from the rear slime (9 at most); past 9 the blocks split evenly between it and a second column from the front slime (one block south, then up); the top block of each column is gold
+extend n: 1..18
+extend base: 1
+extend generator: mctas circuit fly gen payload --base designs/circuits/tracks/fly/start/fly-horizontal-start-7b-10gt.txt --from 2,1,0 --dir up --cap 9 --balance --from2 1,0,0 --dir2 south --bend2 up --n {n} --block minecraft:gold_block --out {out}
+port input: 1 -2 0 lever
+port payload: 2 2 0
+port station.0: 2 -2 0
+port station.1: 1 -2 0
+origin: 1 0 0
+palette:
+  A minecraft:stone
+  G minecraft:gold_block
+  L minecraft:lever[face=wall,facing=west,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=west]
+  S minecraft:slime_block
+  o minecraft:observer[facing=east,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer -2:
+  LA
+layer -1:
+  O
+layer 0:
+  SP
+layer 1:
+  sSo
+layer 2:
+  .G
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/eabcc3ff4199f18fc0bb028ed641666b45b16ead">vjeux/redstonepedia@eabcc3ff4</a> on <span class="nowrap">2026-10-25</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=e5967917"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=3c6a179b"});</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+# archived 2026-10-20T11:15Z from designs/circuits/pulsemult/tracks/pulsemult/pm-train-observers.txt by mctas circuit archive
+# CIRCUIT: pm-train-observers pulse-train P 4 gt, pulse 2 gt, latency 2 gt, stop 4 gt, 3 blocks, 2x1x3, robust
+name: pm-train-observers
+circuit: pulse-train
+port input: 3 1 3
+port output: 1 1 0
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  P minecraft:sticky_piston[extended=false,facing=north]
+layer 1:
+  ..A.
+  ...B
+  ...P

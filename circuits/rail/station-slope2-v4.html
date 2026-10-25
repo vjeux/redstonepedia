@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minecart station: a stop on a two-way line · 10 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Minecart station: a stop on a two-way line · 10 blocks. A two-way minecart station: the one-way station&#39;s two braking slopes, then a detector rail and an always-on booster. Carts going the station&#39;s way stop on the s">
+<meta property="og:title" content="Minecart station: a stop on a two-way line · 10 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Minecart station: a stop on a two-way line · 10 blocks. A two-way minecart station: the one-way station&#39;s two braking slopes, then a detector rail and an always-on booster. Carts going the station&#39;s way stop on the s">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/rail/index.html">Minecart stations</a></p>
+<p class="kindline">Minecart station on a two-way line: stops the carts going its way, lets the others through</p>
+<h1>a stop on a two-way line · 10 blocks</h1>
+<p class="oneliner">A cart arriving on its line stops at the platform, ridden or empty, and waits; press the button beside the rail and it rolls on. Carts coming the other way pass straight through without stopping.</p>
+<p class="lede">passed at every position and facing we tested · stops every cart within 1.60 blocks · sends it off at 7.4 blocks a second · the other way passes at 8.0 blocks a second · fits in 5×3×2</p>
+<p class="badges"><span class="badge">has its own button</span></p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/rail/station-slope2-v4.txt" data-input-mode="pulse" data-circuit="station 2" data-kind="circuit"><div class="fallback"><span class="fb-big">a stop on a two-way line</span><span class="fb-small">Minecart station</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<section class="what plain"><h2>Try it</h2><p>The view shows the station as built, without carts. In the game, send a cart down its line: it stops on the platform&#39;s rails; press the button beside them (in reach from the cart) and it leaves.</p><p class="howdesign"><b>How this design does it:</b> A two-way minecart station: the one-way station&#39;s two braking slopes, then a detector rail and an always-on booster.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/rail/station-slope2-v4.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/rail/station-slope2-v4.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=detector_rail">detector rail</a> <a class="chip" href="../../index.html#with=powered_rail">powered rail</a> <a class="chip" href="../../index.html#with=redstone_block">redstone block</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>a cart arriving the station&#39;s way stops at the platform, ridden or empty, and waits for the button; carts coming the other way pass straight through</p></section>
+<section><h2>How to try it</h2><p>To try it: click the <b>button</b> tagged <b>GO</b> (or the GO button of the bar) to press it.</p></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">line</th><td>two-way</td><td class="def">the kind of line: one-way (every cart goes the same way) or two-way</td></tr>
+<tr><th scope="row">stop distance</th><td>1.60 blocks</td><td class="def">how far the fastest cart rolls past the platform&#39;s first rail before it stops</td></tr>
+<tr><th scope="row">departure delay</th><td>1 gt (0.05 s)</td><td class="def">game ticks from the button press until the cart starts to move</td></tr>
+<tr><th scope="row">leaves at</th><td>0.37 b/t</td><td class="def">the cart&#39;s speed as it leaves the station, in blocks a game tick (20 game ticks a second)</td></tr>
+<tr><th scope="row">other way passes at</th><td>0.40 b/t</td><td class="def">the slowest a cart coming the other way crosses the station, in blocks a game tick</td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>A two-way minecart station: the one-way station&#39;s two braking slopes, then a detector rail and an always-on booster. Carts going the station&#39;s way stop on the slopes and leave when the button is pressed. Carts coming the other way are sped up by the booster, cross the detector rail quickly, and it switches the slopes on long enough for them to climb straight through.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/rail/index.html">Minecart stations</a></td></tr>
+<tr><th scope="row">Kind</th><td>Minecart station on a two-way line: stops the carts going its way, lets the others through</td></tr>
+<tr><th scope="row">Blocks placed</th><td>10</td></tr>
+<tr><th scope="row">Box</th><td>5×3×2 (30 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>detector rail, powered rail, redstone block, stone</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>GO (button) (no output: it moves blocks)</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-21T23:24Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere, its own button as the input</td></tr>
+<tr><th scope="row">Design file</th><td><code>station-slope2-v4</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/rail/archive/station-slope2-v4.txt">on GitHub</a></p><details><summary>Design file (34 lines)</summary><pre class="design"># archived 2026-10-21T23:24Z from designs/circuits/rail/tracks/station/station-slope2-v4.txt by mctas circuit archive
+# CIRCUIT: station-slope2-v4 station 2 line two-way, stop distance 1.60 blocks, departure delay 1 gt, leaves at 0.37 b/t, other way passes at 0.40 b/t, 10 blocks, 5x3x2, robust
+# station-slope2-v4 (clk-obs, 2026-10-21): a two-way minecart station.
+# Two powered rails sloping down eastward: a cart arriving eastbound comes to rest on them
+# (unpowered, a powered rail halves a cart&#39;s speed every tick). The button is a floor button on a
+# stone beside the lower slope, below a rider&#39;s eyes wherever the cart rests; a press powers that
+# stone, which powers both slopes: the cart slides down, crosses the detector rail and is boosted
+# again by the always-on powered rail on the redstone block. A cart coming the other way
+# (westbound) is boosted by that rail first, so it crosses the detector rail fast: the detector (on
+# for 20 gt after it last saw the cart) powers both slopes long enough for the cart to climb
+# through them. The detector rail also keeps the booster&#39;s power from running into the slopes
+# (powered rails pass power only to powered rails).
+name: station-slope2-v4
+circuit: station 2
+port line.in: -1 3 0
+port line.out: 4 1 0
+port input.go: 1 2 -1 button
+origin: -1 0 -1
+palette:
+  S minecraft:stone
+  R minecraft:redstone_block
+  A minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
+  P minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  B minecraft:stone_button[face=floor,facing=north,powered=false]
+layer 0:
+  ......
+  ..SSR.
+layer 1:
+  ..S...
+  .SADP.
+layer 2:
+  ..B...
+  SA....
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/eabcc3ff4199f18fc0bb028ed641666b45b16ead">vjeux/redstonepedia@eabcc3ff4</a> on <span class="nowrap">2026-10-25</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=e5967917"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=3c6a179b"});</script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+# archived 2026-10-19T19:38Z from designs/clocks/tracks/clk-obs/extend/odd-b.txt by mctas clock archive
+# CLOCK: clk-obs-odd-b period 13 gt (0.65 s), on 2/13, edges 1, warmup 3, family observer+piston+redstone_block+sticky_piston, 11 blocks, 4x4x2, robust
+# Extendable family odd-b (n = 0): P = 13 + 4n gt, 10 + 2n blocks. the odd piston stage with a slime block that drags the redstone block one cell further, which moves the head-watching observer by one cell so the tower has an odd number of observers. Extension: raise the observer tower by one: one more observer in each column. Generator: mctas clock obs family odd-b --n N --out FILE.
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 2 2 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its south, added at 0 1 -1 (was 3 -1 0: the output [3, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+name: clk-obs-odd-b
+extend base: 0
+extend blocks: 10 + 2n
+extend family: clk-obs-odd-b
+extend generator: mctas clock obs family odd-b --n {n} --out {out}
+extend n: 0..46
+extend period: 13 + 4n
+extend rule: raise the observer tower by one: one more observer in each column
+port output: 0 1 -2
+port start: 2 3 0 last
+origin: 0 0 -1
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=up,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=up]
+  R minecraft:redstone_block
+  S minecraft:slime_block
+  o minecraft:observer[facing=east,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer 0:
+  .
+  sSR
+layer 1:
+  A
+  B..P
+layer 2:
+  .
+  B.o
+layer 3:
+  .
+  ooO

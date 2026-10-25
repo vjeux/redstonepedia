@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>7-segment display: shows 0–9 from a container&#39;s fill level · 496 blocks · reads at a glance · one digit · REDSTONEPEDIA</title>
+<meta name="description" content="7-segment display: shows 0–9 from a container&#39;s fill level · 496 blocks · reads at a glance · one digit. One digit 0-9 from any container&#39;s fill level, read by one comparator: three stacked dust ladders turn the level into thresholds, and each segment ORs its runs ">
+<meta property="og:title" content="7-segment display: shows 0–9 from a container&#39;s fill level · 496 blocks · reads at a glance · one digit · REDSTONEPEDIA">
+<meta property="og:description" content="7-segment display: shows 0–9 from a container&#39;s fill level · 496 blocks · reads at a glance · one digit. One digit 0-9 from any container&#39;s fill level, read by one comparator: three stacked dust ladders turn the level into thresholds, and each segment ORs its runs ">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/display/index.html">Displays</a></p>
+<p class="kindline">7-segment display: one digit, 0 to 9, from a container&#39;s fill level</p>
+<h1>shows 0⁠–⁠9 from a container&#39;s fill level · 496 blocks · reads at a glance · one digit</h1>
+<p class="oneliner">One comparator reads a chest (or any container) beside it, and its 3×5 lamp face shows the signal, 0 to 9, as a digit: the fuller the container, the higher the digit. A new digit shows within 1.6 s, with no wrong lamp flickering on between digits.</p>
+<p class="lede">passed at every position and facing we tested · no wrong lamp flashes between digits · fits in 13×10×22</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/stills/display/seven-segment-decimal.txt" data-levels="40 a 1; 78 a 0; 116 a 2; 154 a 0; 192 a 3; 230 a 0; 268 a 4; 306 a 0; 344 a 5; 382 a 0; 420 a 6; 458 a 0; 496 a 7; 534 a 0; 572 a 8; 610 a 0; 648 a 9; 686 a 1; 724 a 2; 762 a 1; 800 a 3; 838 a 1; 876 a 4; 914 a 1; 952 a 5; 990 a 1; 1028 a 6; 1066 a 1; 1104 a 7; 1142 a 1; 1180 a 8; 1218 a 1; 1256 a 9; 1294 a 2; 1332 a 3; 1370 a 2; 1408 a 4; 1446 a 2; 1484 a 5; 1522 a 2; 1560 a 6; 1598 a 2; 1636 a 7; 1674 a 2; 1712 a 8; 1750 a 2; 1788 a 9; 1826 a 3; 1864 a 4; 1902 a 3; 1940 a 5; 1978 a 3; 2016 a 6; 2054 a 3; 2092 a 7; 2130 a 3; 2168 a 8; 2206 a 3; 2244 a 9; 2282 a 4; 2320 a 5; 2358 a 4; 2396 a 6; 2434 a 4; 2472 a 7; 2510 a 4; 2548 a 8; 2586 a 4; 2624 a 9; 2662 a 5; 2700 a 6; 2738 a 5; 2776 a 7; 2814 a 5; 2852 a 8; 2890 a 5; 2928 a 9; 2966 a 6; 3004 a 7; 3042 a 6; 3080 a 8; 3118 a 6; 3156 a 9; 3194 a 7; 3232 a 8; 3270 a 7; 3308 a 9; 3346 a 8; 3384 a 9; 3422 a 0" data-input-mode="pulse" data-circuit="seven-segment 4 hex decimal" data-kind="circuit"><div class="fallback"><span class="fb-big">shows 0–9 from a container&#39;s fill level</span><span class="fb-small">7-segment display</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<p class="needs">After building it, put a chest (or any container) where the view shows the chest tagged A, and a redstone lamp in each of the 13 cells of its face: the download has none of them (our test adds them, and they do not count in its blocks). One digit only: the build is 13 blocks wide (the face is 3 of them), so copies stand 13 blocks apart and cannot make a two-digit number yet. It is tested for signals 0 to 9; a fuller container (signal 10 to 15) shows no digit we checked.</p>
+<section class="what plain"><h2>Try it</h2><p>Press play under the view to watch our test on a loop: it fills the chest tagged A to every level from 0 to 9, one change at a time, and the face shows each digit. The A button under the view only empties the chest or fills it to the top (15, beyond the digits it shows).</p><p class="howdesign"><b>How this design does it:</b> One digit 0-9 from any container&#39;s fill level, read by one comparator: three stacked dust ladders turn the level into thresholds, and each segment ORs its runs (torches, taps and subtract comparators) on a dust bus into the face.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/display/seven-segment-decimal.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/display/seven-segment-decimal.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=comparator">comparator</a> <a class="chip" href="../../index.html#with=redstone_torch">redstone torch</a> <a class="chip" href="../../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../../index.html#with=repeater">repeater</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>one comparator reads a chest (or any container), and its 3×5 lamp face shows the signal as a digit, 0 to 9: the fuller the container, the higher the digit</p></section>
+<section><h2>How to try it</h2><p><b>Press play under the view to watch our test</b> on a loop: it fills the chest tagged A to every level from 0 to 9, one change at a time (every change between two digits), and the face shows each digit; the badge names the step. The A button under the view only empties the chest or fills it to the top (15, beyond the digits it shows). Drag to look around, pinch or scroll to zoom.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the input with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="2149" height="520" viewBox="0 0 2149 520" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="88.0" y1="18.0" x2="88.0" y2="502.0"/><line class="ph" x1="110.8" y1="18.0" x2="110.8" y2="502.0"/><line class="ph" x1="133.6" y1="18.0" x2="133.6" y2="502.0"/><line class="ph" x1="156.4" y1="18.0" x2="156.4" y2="502.0"/><line class="ph" x1="179.2" y1="18.0" x2="179.2" y2="502.0"/><line class="ph" x1="202.0" y1="18.0" x2="202.0" y2="502.0"/><line class="ph" x1="224.8" y1="18.0" x2="224.8" y2="502.0"/><line class="ph" x1="247.6" y1="18.0" x2="247.6" y2="502.0"/><line class="ph" x1="270.4" y1="18.0" x2="270.4" y2="502.0"/><line class="ph" x1="293.2" y1="18.0" x2="293.2" y2="502.0"/><line class="ph" x1="316.0" y1="18.0" x2="316.0" y2="502.0"/><line class="ph" x1="338.8" y1="18.0" x2="338.8" y2="502.0"/><line class="ph" x1="361.6" y1="18.0" x2="361.6" y2="502.0"/><line class="ph" x1="384.4" y1="18.0" x2="384.4" y2="502.0"/><line class="ph" x1="407.2" y1="18.0" x2="407.2" y2="502.0"/><line class="ph" x1="430.0" y1="18.0" x2="430.0" y2="502.0"/><line class="ph" x1="452.8" y1="18.0" x2="452.8" y2="502.0"/><line class="ph" x1="475.6" y1="18.0" x2="475.6" y2="502.0"/><line class="ph" x1="498.4" y1="18.0" x2="498.4" y2="502.0"/><line class="ph" x1="521.2" y1="18.0" x2="521.2" y2="502.0"/><line class="ph" x1="544.0" y1="18.0" x2="544.0" y2="502.0"/><line class="ph" x1="566.8" y1="18.0" x2="566.8" y2="502.0"/><line class="ph" x1="589.6" y1="18.0" x2="589.6" y2="502.0"/><line class="ph" x1="612.4" y1="18.0" x2="612.4" y2="502.0"/><line class="ph" x1="635.2" y1="18.0" x2="635.2" y2="502.0"/><line class="ph" x1="658.0" y1="18.0" x2="658.0" y2="502.0"/><line class="ph" x1="680.8" y1="18.0" x2="680.8" y2="502.0"/><line class="ph" x1="703.6" y1="18.0" x2="703.6" y2="502.0"/><line class="ph" x1="726.4" y1="18.0" x2="726.4" y2="502.0"/><line class="ph" x1="749.2" y1="18.0" x2="749.2" y2="502.0"/><line class="ph" x1="772.0" y1="18.0" x2="772.0" y2="502.0"/><line class="ph" x1="794.8" y1="18.0" x2="794.8" y2="502.0"/><line class="ph" x1="817.6" y1="18.0" x2="817.6" y2="502.0"/><line class="ph" x1="840.4" y1="18.0" x2="840.4" y2="502.0"/><line class="ph" x1="863.2" y1="18.0" x2="863.2" y2="502.0"/><line class="ph" x1="886.0" y1="18.0" x2="886.0" y2="502.0"/><line class="ph" x1="908.8" y1="18.0" x2="908.8" y2="502.0"/><line class="ph" x1="931.6" y1="18.0" x2="931.6" y2="502.0"/><line class="ph" x1="954.4" y1="18.0" x2="954.4" y2="502.0"/><line class="ph" x1="977.2" y1="18.0" x2="977.2" y2="502.0"/><line class="ph" x1="1000.0" y1="18.0" x2="1000.0" y2="502.0"/><line class="ph" x1="1022.8" y1="18.0" x2="1022.8" y2="502.0"/><line class="ph" x1="1045.6" y1="18.0" x2="1045.6" y2="502.0"/><line class="ph" x1="1068.4" y1="18.0" x2="1068.4" y2="502.0"/><line class="ph" x1="1091.2" y1="18.0" x2="1091.2" y2="502.0"/><line class="ph" x1="1114.0" y1="18.0" x2="1114.0" y2="502.0"/><line class="ph" x1="1136.8" y1="18.0" x2="1136.8" y2="502.0"/><line class="ph" x1="1159.6" y1="18.0" x2="1159.6" y2="502.0"/><line class="ph" x1="1182.4" y1="18.0" x2="1182.4" y2="502.0"/><line class="ph" x1="1205.2" y1="18.0" x2="1205.2" y2="502.0"/><line class="ph" x1="1228.0" y1="18.0" x2="1228.0" y2="502.0"/><line class="ph" x1="1250.8" y1="18.0" x2="1250.8" y2="502.0"/><line class="ph" x1="1273.6" y1="18.0" x2="1273.6" y2="502.0"/><line class="ph" x1="1296.4" y1="18.0" x2="1296.4" y2="502.0"/><line class="ph" x1="1319.2" y1="18.0" x2="1319.2" y2="502.0"/><line class="ph" x1="1342.0" y1="18.0" x2="1342.0" y2="502.0"/><line class="ph" x1="1364.8" y1="18.0" x2="1364.8" y2="502.0"/><line class="ph" x1="1387.6" y1="18.0" x2="1387.6" y2="502.0"/><line class="ph" x1="1410.4" y1="18.0" x2="1410.4" y2="502.0"/><line class="ph" x1="1433.2" y1="18.0" x2="1433.2" y2="502.0"/><line class="ph" x1="1456.0" y1="18.0" x2="1456.0" y2="502.0"/><line class="ph" x1="1478.8" y1="18.0" x2="1478.8" y2="502.0"/><line class="ph" x1="1501.6" y1="18.0" x2="1501.6" y2="502.0"/><line class="ph" x1="1524.4" y1="18.0" x2="1524.4" y2="502.0"/><line class="ph" x1="1547.2" y1="18.0" x2="1547.2" y2="502.0"/><line class="ph" x1="1570.0" y1="18.0" x2="1570.0" y2="502.0"/><line class="ph" x1="1592.8" y1="18.0" x2="1592.8" y2="502.0"/><line class="ph" x1="1615.6" y1="18.0" x2="1615.6" y2="502.0"/><line class="ph" x1="1638.4" y1="18.0" x2="1638.4" y2="502.0"/><line class="ph" x1="1661.2" y1="18.0" x2="1661.2" y2="502.0"/><line class="ph" x1="1684.0" y1="18.0" x2="1684.0" y2="502.0"/><line class="ph" x1="1706.8" y1="18.0" x2="1706.8" y2="502.0"/><line class="ph" x1="1729.6" y1="18.0" x2="1729.6" y2="502.0"/><line class="ph" x1="1752.4" y1="18.0" x2="1752.4" y2="502.0"/><line class="ph" x1="1775.2" y1="18.0" x2="1775.2" y2="502.0"/><line class="ph" x1="1798.0" y1="18.0" x2="1798.0" y2="502.0"/><line class="ph" x1="1820.8" y1="18.0" x2="1820.8" y2="502.0"/><line class="ph" x1="1843.6" y1="18.0" x2="1843.6" y2="502.0"/><line class="ph" x1="1866.4" y1="18.0" x2="1866.4" y2="502.0"/><line class="ph" x1="1889.2" y1="18.0" x2="1889.2" y2="502.0"/><line class="ph" x1="1912.0" y1="18.0" x2="1912.0" y2="502.0"/><line class="ph" x1="1934.8" y1="18.0" x2="1934.8" y2="502.0"/><line class="ph" x1="1957.6" y1="18.0" x2="1957.6" y2="502.0"/><line class="ph" x1="1980.4" y1="18.0" x2="1980.4" y2="502.0"/><line class="ph" x1="2003.2" y1="18.0" x2="2003.2" y2="502.0"/><line class="ph" x1="2026.0" y1="18.0" x2="2026.0" y2="502.0"/><line class="ph" x1="2048.8" y1="18.0" x2="2048.8" y2="502.0"/><line class="ph" x1="2071.6" y1="18.0" x2="2071.6" y2="502.0"/><line class="ph" x1="2094.4" y1="18.0" x2="2094.4" y2="502.0"/><line class="ph" x1="2117.2" y1="18.0" x2="2117.2" y2="502.0"/><text class="wl" x="4" y="46.0">A</text><line class="base" x1="64.0" y1="48.0" x2="2140.6" y2="48.0"/><polygon class="win" points="64.0,48.0 64.0,48.0 2140.6,48.0 2140.6,48.0"/><text class="wl" x="4" y="80.0">A</text><line class="base" x1="64.0" y1="82.0" x2="2140.6" y2="82.0"/><polygon class="wout" points="64.0,82.0 64.0,62.0 106.0,62.0 106.0,82.0 128.8,82.0 128.8,62.0 242.8,62.0 242.8,82.0 265.6,82.0 265.6,62.0 493.6,62.0 493.6,82.0 516.4,82.0 516.4,62.0 539.2,62.0 539.2,82.0 562.0,82.0 562.0,62.0 584.8,62.0 584.8,82.0 653.2,82.0 653.2,62.0 676.0,62.0 676.0,82.0 698.8,82.0 698.8,62.0 721.6,62.0 721.6,82.0 744.4,82.0 744.4,62.0 767.2,62.0 767.2,82.0 790.0,82.0 790.0,62.0 812.8,62.0 812.8,82.0 835.6,82.0 835.6,62.0 928.0,62.0 928.0,82.0 950.8,82.0 950.8,62.0 1201.6,62.0 1201.6,82.0 1224.4,82.0 1224.4,62.0 1451.2,62.0 1451.2,82.0 1474.0,82.0 1474.0,62.0 1496.8,62.0 1496.8,82.0 1519.6,82.0 1519.6,62.0 1542.4,62.0 1542.4,82.0 1565.2,82.0 1565.2,62.0 1588.0,62.0 1588.0,82.0 1610.8,82.0 1610.8,62.0 1633.6,62.0 1633.6,82.0 1656.4,82.0 1656.4,62.0 2140.6,62.0 2140.6,82.0"/><text class="wl" x="4" y="114.0">AB</text><line class="base" x1="64.0" y1="116.0" x2="2140.6" y2="116.0"/><polygon class="wout" points="64.0,116.0 64.0,96.0 650.8,96.0 650.8,116.0 653.2,116.0 653.2,96.0 696.4,96.0 696.4,116.0 698.8,116.0 698.8,96.0 1471.6,96.0 1471.6,116.0 1474.0,116.0 1474.0,96.0 1517.2,96.0 1517.2,116.0 1519.6,116.0 1519.6,96.0 2140.6,96.0 2140.6,116.0"/><text class="wl" x="4" y="148.0">AF</text><line class="base" x1="64.0" y1="150.0" x2="2140.6" y2="150.0"/><polygon class="wout" points="64.0,150.0 64.0,130.0 106.0,130.0 106.0,150.0 124.0,150.0 124.0,130.0 493.6,130.0 493.6,150.0 516.4,150.0 516.4,130.0 539.2,130.0 539.2,150.0 562.0,150.0 562.0,130.0 584.8,130.0 584.8,150.0 602.8,150.0 602.8,130.0 625.6,130.0 625.6,150.0 648.4,150.0 648.4,130.0 676.0,130.0 676.0,150.0 694.0,150.0 694.0,130.0 721.6,130.0 721.6,150.0 744.4,150.0 744.4,130.0 767.2,130.0 767.2,150.0 785.2,150.0 785.2,130.0 812.8,130.0 812.8,150.0 830.8,150.0 830.8,130.0 944.8,130.0 944.8,150.0 950.8,150.0 950.8,130.0 1218.4,130.0 1218.4,150.0 1224.4,150.0 1224.4,130.0 1561.6,130.0 1561.6,150.0 1565.2,150.0 1565.2,130.0 2140.6,130.0 2140.6,150.0"/><text class="wl" x="4" y="182.0">B</text><line class="base" x1="64.0" y1="184.0" x2="2140.6" y2="184.0"/><polygon class="wout" points="64.0,184.0 64.0,164.0 286.0,164.0 286.0,184.0 308.8,184.0 308.8,164.0 331.6,164.0 331.6,184.0 354.4,184.0 354.4,164.0 650.8,164.0 650.8,184.0 673.6,184.0 673.6,164.0 696.4,164.0 696.4,184.0 719.2,184.0 719.2,164.0 970.0,164.0 970.0,184.0 992.8,184.0 992.8,164.0 1015.6,164.0 1015.6,184.0 1038.4,184.0 1038.4,164.0 1243.6,164.0 1243.6,184.0 1266.4,184.0 1266.4,164.0 1289.2,164.0 1289.2,184.0 1312.0,184.0 1312.0,164.0 1471.6,164.0 1471.6,184.0 1494.4,184.0 1494.4,164.0 1517.2,164.0 1517.2,184.0 1540.0,184.0 1540.0,164.0 1676.8,164.0 1676.8,184.0 1745.2,184.0 1745.2,164.0 1768.0,164.0 1768.0,184.0 1790.8,184.0 1790.8,164.0 1813.6,164.0 1813.6,184.0 1836.4,184.0 1836.4,164.0 1859.2,164.0 1859.2,184.0 1882.0,184.0 1882.0,164.0 1904.8,164.0 1904.8,184.0 1927.6,184.0 1927.6,164.0 1950.4,164.0 1950.4,184.0 1973.2,184.0 1973.2,164.0 2140.6,164.0 2140.6,184.0"/><text class="wl" x="4" y="216.0">BCG</text><line class="base" x1="64.0" y1="218.0" x2="2140.6" y2="218.0"/><polygon class="wout" points="64.0,218.0 64.0,198.0 2140.6,198.0 2140.6,218.0"/><text class="wl" x="4" y="250.0">C</text><line class="base" x1="64.0" y1="252.0" x2="2140.6" y2="252.0"/><polygon class="wout" points="64.0,252.0 64.0,232.0 152.8,232.0 152.8,252.0 175.6,252.0 175.6,232.0 517.6,232.0 517.6,252.0 540.4,252.0 540.4,232.0 859.6,232.0 859.6,252.0 882.4,252.0 882.4,232.0 905.2,232.0 905.2,252.0 928.0,252.0 928.0,232.0 950.8,232.0 950.8,252.0 973.6,252.0 973.6,232.0 996.4,232.0 996.4,252.0 1019.2,252.0 1019.2,232.0 1042.0,232.0 1042.0,252.0 1064.8,252.0 1064.8,232.0 1087.6,232.0 1087.6,252.0 1110.4,252.0 1110.4,232.0 1133.2,232.0 1133.2,252.0 1156.0,252.0 1156.0,232.0 2140.6,232.0 2140.6,252.0"/><text class="wl" x="4" y="284.0">CD</text><line class="base" x1="64.0" y1="286.0" x2="2140.6" y2="286.0"/><polygon class="wout" points="64.0,286.0 64.0,266.0 530.8,266.0 530.8,286.0 540.4,286.0 540.4,266.0 919.6,266.0 919.6,286.0 928.0,286.0 928.0,266.0 1056.4,266.0 1056.4,286.0 1064.8,286.0 1064.8,266.0 2140.6,266.0 2140.6,286.0"/><text class="wl" x="4" y="318.0">D</text><line class="base" x1="64.0" y1="320.0" x2="2140.6" y2="320.0"/><polygon class="wout" points="64.0,320.0 64.0,300.0 97.6,300.0 97.6,320.0 120.4,320.0 120.4,300.0 234.4,300.0 234.4,320.0 257.2,320.0 257.2,300.0 371.2,300.0 371.2,320.0 394.0,320.0 394.0,300.0 485.2,300.0 485.2,320.0 508.0,320.0 508.0,300.0 530.8,300.0 530.8,320.0 553.6,320.0 553.6,300.0 576.4,300.0 576.4,320.0 644.8,320.0 644.8,300.0 667.6,300.0 667.6,320.0 690.4,320.0 690.4,300.0 713.2,300.0 713.2,320.0 781.6,320.0 781.6,300.0 804.4,300.0 804.4,320.0 827.2,320.0 827.2,300.0 850.0,300.0 850.0,320.0 851.2,320.0 851.2,300.0 919.6,300.0 919.6,320.0 942.4,320.0 942.4,300.0 986.8,300.0 986.8,320.0 988.0,320.0 988.0,300.0 1032.4,300.0 1032.4,320.0 1033.6,320.0 1033.6,300.0 1056.4,300.0 1056.4,320.0 1079.2,320.0 1079.2,300.0 1123.6,300.0 1123.6,320.0 1124.8,320.0 1124.8,300.0 1169.2,300.0 1169.2,320.0 1170.4,320.0 1170.4,300.0 1193.2,300.0 1193.2,320.0 1216.0,320.0 1216.0,300.0 1260.4,300.0 1260.4,320.0 1261.6,320.0 1261.6,300.0 1306.0,300.0 1306.0,320.0 1307.2,320.0 1307.2,300.0 1330.0,300.0 1330.0,320.0 1352.8,320.0 1352.8,300.0 1397.2,300.0 1397.2,320.0 1398.4,320.0 1398.4,300.0 1442.8,300.0 1442.8,320.0 1465.6,320.0 1465.6,300.0 1488.4,300.0 1488.4,320.0 1511.2,320.0 1511.2,300.0 1534.0,300.0 1534.0,320.0 1602.4,320.0 1602.4,300.0 1625.2,300.0 1625.2,320.0 1648.0,320.0 1648.0,300.0 1670.8,300.0 1670.8,320.0 1672.0,320.0 1672.0,300.0 1740.4,300.0 1740.4,320.0 1763.2,320.0 1763.2,300.0 1807.6,300.0 1807.6,320.0 1808.8,320.0 1808.8,300.0 1853.2,300.0 1853.2,320.0 1854.4,320.0 1854.4,300.0 1877.2,300.0 1877.2,320.0 1900.0,320.0 1900.0,300.0 1944.4,300.0 1944.4,320.0 1945.6,320.0 1945.6,300.0 1990.0,300.0 1990.0,320.0 2012.8,320.0 2012.8,300.0 2035.6,300.0 2035.6,320.0 2058.4,320.0 2058.4,300.0 2140.6,300.0 2140.6,320.0"/><text class="wl" x="4" y="352.0">DE</text><line class="base" x1="64.0" y1="354.0" x2="2140.6" y2="354.0"/><polygon class="wout" points="64.0,354.0 64.0,334.0 102.4,334.0 102.4,354.0 120.4,354.0 120.4,334.0 239.2,334.0 239.2,354.0 257.2,354.0 257.2,334.0 376.0,334.0 376.0,354.0 394.0,354.0 394.0,334.0 485.2,334.0 485.2,354.0 508.0,354.0 508.0,334.0 535.6,334.0 535.6,354.0 553.6,354.0 553.6,334.0 576.4,334.0 576.4,354.0 644.8,354.0 644.8,334.0 667.6,334.0 667.6,354.0 690.4,354.0 690.4,334.0 718.0,334.0 718.0,354.0 781.6,354.0 781.6,334.0 808.0,334.0 808.0,354.0 827.2,354.0 827.2,334.0 850.0,334.0 850.0,354.0 851.2,354.0 851.2,334.0 923.2,334.0 923.2,354.0 942.4,354.0 942.4,334.0 986.8,334.0 986.8,354.0 988.0,354.0 988.0,334.0 1060.0,334.0 1060.0,354.0 1079.2,354.0 1079.2,334.0 1169.2,334.0 1169.2,354.0 1170.4,354.0 1170.4,334.0 1193.2,334.0 1193.2,354.0 1216.0,354.0 1216.0,334.0 1260.4,334.0 1260.4,354.0 1261.6,354.0 1261.6,334.0 1330.0,334.0 1330.0,354.0 1352.8,354.0 1352.8,334.0 1442.8,334.0 1442.8,354.0 1465.6,354.0 1465.6,334.0 1488.4,334.0 1488.4,354.0 1511.2,354.0 1511.2,334.0 1538.8,334.0 1538.8,354.0 1602.4,354.0 1602.4,334.0 1628.8,334.0 1628.8,354.0 1648.0,354.0 1648.0,334.0 1670.8,334.0 1670.8,354.0 1672.0,354.0 1672.0,334.0 1740.4,334.0 1740.4,354.0 1763.2,354.0 1763.2,334.0 1853.2,334.0 1853.2,354.0 1854.4,354.0 1854.4,334.0 1880.8,334.0 1880.8,354.0 1900.0,354.0 1900.0,334.0 1990.0,334.0 1990.0,354.0 2012.8,354.0 2012.8,334.0 2039.2,334.0 2039.2,354.0 2058.4,354.0 2058.4,334.0 2140.6,334.0 2140.6,354.0"/><text class="wl" x="4" y="386.0">E</text><line class="base" x1="64.0" y1="388.0" x2="2140.6" y2="388.0"/><polygon class="wout" points="64.0,388.0 64.0,368.0 102.4,368.0 102.4,388.0 125.2,388.0 125.2,368.0 193.6,368.0 193.6,388.0 216.4,388.0 216.4,368.0 239.2,368.0 239.2,388.0 262.0,388.0 262.0,368.0 284.8,368.0 284.8,388.0 307.6,388.0 307.6,368.0 376.0,368.0 376.0,388.0 398.8,388.0 398.8,368.0 467.2,368.0 467.2,388.0 512.8,388.0 512.8,368.0 535.6,368.0 535.6,388.0 695.2,388.0 695.2,368.0 718.0,368.0 718.0,388.0 785.2,388.0 785.2,368.0 808.0,368.0 808.0,388.0 854.8,388.0 854.8,368.0 877.6,368.0 877.6,388.0 900.4,388.0 900.4,368.0 923.2,368.0 923.2,388.0 946.0,388.0 946.0,368.0 968.8,368.0 968.8,388.0 991.6,388.0 991.6,368.0 1060.0,368.0 1060.0,388.0 1082.8,388.0 1082.8,368.0 1151.2,368.0 1151.2,388.0 1288.0,388.0 1288.0,368.0 1310.8,368.0 1310.8,388.0 1378.0,388.0 1378.0,368.0 1400.8,368.0 1400.8,388.0 1516.0,388.0 1516.0,368.0 1538.8,368.0 1538.8,388.0 1606.0,388.0 1606.0,368.0 1628.8,368.0 1628.8,388.0 1698.4,388.0 1698.4,368.0 1721.2,368.0 1721.2,388.0 1788.4,388.0 1788.4,368.0 1811.2,368.0 1811.2,388.0 1858.0,388.0 1858.0,368.0 1880.8,368.0 1880.8,388.0 1903.6,388.0 1903.6,368.0 1972.0,368.0 1972.0,388.0 2016.4,388.0 2016.4,368.0 2039.2,368.0 2039.2,388.0 2086.0,388.0 2086.0,368.0 2108.8,368.0 2108.8,388.0 2131.6,388.0 2131.6,368.0 2140.6,368.0 2140.6,388.0"/><text class="wl" x="4" y="420.0">EFG</text><line class="base" x1="64.0" y1="422.0" x2="2140.6" y2="422.0"/><polygon class="wout" points="64.0,422.0 64.0,402.0 102.4,402.0 102.4,422.0 124.0,422.0 124.0,402.0 209.2,402.0 209.2,422.0 215.2,422.0 215.2,402.0 376.0,402.0 376.0,422.0 397.6,422.0 397.6,402.0 488.8,402.0 488.8,422.0 505.6,422.0 505.6,402.0 535.6,402.0 535.6,422.0 551.2,422.0 551.2,402.0 574.0,402.0 574.0,422.0 596.8,422.0 596.8,402.0 625.6,402.0 625.6,422.0 642.4,422.0 642.4,402.0 671.2,402.0 671.2,422.0 688.0,422.0 688.0,402.0 718.0,402.0 718.0,422.0 779.2,422.0 779.2,402.0 808.0,402.0 808.0,422.0 824.8,422.0 824.8,402.0 1060.0,402.0 1060.0,422.0 1076.8,422.0 1076.8,402.0 1327.6,402.0 1327.6,422.0 1350.4,422.0 1350.4,402.0 1561.6,402.0 1561.6,422.0 1578.4,422.0 1578.4,402.0 1744.0,402.0 1744.0,422.0 1760.8,422.0 1760.8,402.0 1880.8,402.0 1880.8,422.0 1897.6,422.0 1897.6,402.0 1993.6,402.0 1993.6,422.0 2010.4,422.0 2010.4,402.0 2039.2,402.0 2039.2,422.0 2056.0,422.0 2056.0,402.0 2140.6,402.0 2140.6,422.0"/><text class="wl" x="4" y="454.0">F</text><line class="base" x1="64.0" y1="456.0" x2="2140.6" y2="456.0"/><polygon class="wout" points="64.0,456.0 64.0,436.0 101.2,436.0 101.2,456.0 124.0,456.0 124.0,436.0 146.8,436.0 146.8,456.0 169.6,456.0 169.6,436.0 192.4,436.0 192.4,456.0 215.2,456.0 215.2,436.0 374.8,436.0 374.8,456.0 397.6,456.0 397.6,436.0 488.8,436.0 488.8,456.0 602.8,456.0 602.8,436.0 625.6,436.0 625.6,456.0 648.4,456.0 648.4,436.0 671.2,436.0 671.2,456.0 694.0,456.0 694.0,436.0 716.8,436.0 716.8,456.0 785.2,456.0 785.2,436.0 808.0,436.0 808.0,456.0 830.8,456.0 830.8,436.0 853.6,436.0 853.6,456.0 922.0,456.0 922.0,436.0 944.8,436.0 944.8,456.0 967.6,456.0 967.6,436.0 990.4,436.0 990.4,456.0 1013.2,456.0 1013.2,436.0 1036.0,436.0 1036.0,456.0 1104.4,456.0 1104.4,436.0 1127.2,436.0 1127.2,456.0 1150.0,456.0 1150.0,436.0 1172.8,436.0 1172.8,456.0 1195.6,456.0 1195.6,436.0 1218.4,436.0 1218.4,456.0 1241.2,456.0 1241.2,436.0 1264.0,436.0 1264.0,456.0 1286.8,456.0 1286.8,436.0 1309.6,436.0 1309.6,456.0 1378.0,456.0 1378.0,436.0 1400.8,436.0 1400.8,456.0 1423.6,456.0 1423.6,436.0 1446.4,436.0 1446.4,456.0 1447.6,456.0 1447.6,436.0 1561.6,436.0 1561.6,456.0 1584.4,456.0 1584.4,436.0 1628.8,436.0 1628.8,456.0 1630.0,456.0 1630.0,436.0 1674.4,436.0 1674.4,456.0 1675.6,456.0 1675.6,436.0 1744.0,436.0 1744.0,456.0 1766.8,456.0 1766.8,436.0 1811.2,436.0 1811.2,456.0 1812.4,456.0 1812.4,436.0 1856.8,436.0 1856.8,456.0 1858.0,456.0 1858.0,436.0 1880.8,436.0 1880.8,456.0 1903.6,456.0 1903.6,436.0 1948.0,436.0 1948.0,456.0 1949.2,456.0 1949.2,436.0 1993.6,436.0 1993.6,456.0 2016.4,456.0 2016.4,436.0 2039.2,436.0 2039.2,456.0 2062.0,456.0 2062.0,436.0 2140.6,436.0 2140.6,456.0"/><text class="wl" x="4" y="488.0">G</text><line class="base" x1="64.0" y1="490.0" x2="2140.6" y2="490.0"/><polygon class="wout" points="64.0,490.0 64.0,490.0 140.8,490.0 140.8,470.0 163.6,470.0 163.6,490.0 186.4,490.0 186.4,470.0 209.2,470.0 209.2,490.0 232.0,490.0 232.0,470.0 254.8,470.0 254.8,490.0 277.6,490.0 277.6,470.0 300.4,470.0 300.4,490.0 323.2,490.0 323.2,470.0 346.0,470.0 346.0,490.0 414.4,490.0 414.4,470.0 437.2,470.0 437.2,490.0 460.0,490.0 460.0,470.0 482.8,470.0 482.8,490.0 505.6,490.0 505.6,470.0 528.4,470.0 528.4,490.0 551.2,490.0 551.2,470.0 574.0,470.0 574.0,490.0 596.8,490.0 596.8,470.0 619.6,470.0 619.6,490.0 642.4,490.0 642.4,470.0 665.2,470.0 665.2,490.0 688.0,490.0 688.0,470.0 710.8,470.0 710.8,490.0 779.2,490.0 779.2,470.0 802.0,470.0 802.0,490.0 824.8,490.0 824.8,470.0 847.6,470.0 847.6,490.0 848.8,490.0 848.8,470.0 1054.0,470.0 1054.0,490.0 1076.8,490.0 1076.8,470.0 1121.2,470.0 1121.2,490.0 1122.4,490.0 1122.4,470.0 1166.8,470.0 1166.8,490.0 1168.0,490.0 1168.0,470.0 1327.6,470.0 1327.6,490.0 1350.4,490.0 1350.4,470.0 1394.8,470.0 1394.8,490.0 1396.0,490.0 1396.0,470.0 1440.4,470.0 1440.4,490.0 1441.6,490.0 1441.6,470.0 1555.6,470.0 1555.6,490.0 1578.4,490.0 1578.4,470.0 1622.8,470.0 1622.8,490.0 1624.0,490.0 1624.0,470.0 1668.4,470.0 1668.4,490.0 1669.6,490.0 1669.6,470.0 1738.0,470.0 1738.0,490.0 1760.8,490.0 1760.8,470.0 1805.2,470.0 1805.2,490.0 1806.4,490.0 1806.4,470.0 1850.8,470.0 1850.8,490.0 1852.0,490.0 1852.0,470.0 1874.8,470.0 1874.8,490.0 1897.6,490.0 1897.6,470.0 1942.0,470.0 1942.0,490.0 1943.2,490.0 1943.2,470.0 1987.6,470.0 1987.6,490.0 2010.4,490.0 2010.4,470.0 2033.2,470.0 2033.2,490.0 2056.0,490.0 2056.0,470.0 2124.4,470.0 2124.4,490.0 2140.6,490.0 2140.6,490.0"/><text class="ax" x="4" y="514.0">ticks</text><text class="ax" x="64.0" y="514.0">0</text><text class="ax" x="124.0" y="514.0">100</text><text class="ax" x="184.0" y="514.0">200</text><text class="ax" x="244.0" y="514.0">300</text><text class="ax" x="304.0" y="514.0">400</text><text class="ax" x="364.0" y="514.0">500</text><text class="ax" x="424.0" y="514.0">600</text><text class="ax" x="484.0" y="514.0">700</text><text class="ax" x="544.0" y="514.0">800</text><text class="ax" x="604.0" y="514.0">900</text><text class="ax" x="664.0" y="514.0">1000</text><text class="ax" x="724.0" y="514.0">1100</text><text class="ax" x="784.0" y="514.0">1200</text><text class="ax" x="844.0" y="514.0">1300</text><text class="ax" x="904.0" y="514.0">1400</text><text class="ax" x="964.0" y="514.0">1500</text><text class="ax" x="1024.0" y="514.0">1600</text><text class="ax" x="1084.0" y="514.0">1700</text><text class="ax" x="1144.0" y="514.0">1800</text><text class="ax" x="1204.0" y="514.0">1900</text><text class="ax" x="1264.0" y="514.0">2000</text><text class="ax" x="1324.0" y="514.0">2100</text><text class="ax" x="1384.0" y="514.0">2200</text><text class="ax" x="1444.0" y="514.0">2300</text><text class="ax" x="1504.0" y="514.0">2400</text><text class="ax" x="1564.0" y="514.0">2500</text><text class="ax" x="1624.0" y="514.0">2600</text><text class="ax" x="1684.0" y="514.0">2700</text><text class="ax" x="1744.0" y="514.0">2800</text><text class="ax" x="1804.0" y="514.0">2900</text><text class="ax" x="1864.0" y="514.0">3000</text><text class="ax" x="1924.0" y="514.0">3100</text><text class="ax" x="1984.0" y="514.0">3200</text><text class="ax" x="2044.0" y="514.0">3300</text><text class="ax" x="2104.0" y="514.0">3400</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 3461 ticks (2 min 53.05 s).</p><details><summary>Our test's report, step by step (1 lines)</summary><pre class="design">  pairs: 90 states, worst latency 32 gt</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">latency</th><td>32 gt (1.6 s; the slowest change: 0 to 2)</td><td class="def">the longest from the container&#39;s level changing to the whole face showing the new digit, over every change between two digits (the slowest change is named)</td></tr>
+<tr><th scope="row">glitches</th><td>25</td><td class="def">lamp changes that come and go within a change between two digits, too brief to see (under 4 game ticks); counted, not shown</td></tr>
+<tr><th scope="row">on-blips</th><td>0</td><td class="def">a lamp that lights wrongly for long enough to see (4 game ticks or more) during a change between two digits: 0 means no wrong lamp ever flashes</td></tr>
+</tbody></table><p>For comparison: a straightforward one-hot decoder built by our generator takes 1,668 blocks for the same digit.</p></section>
+<section><h2>Notes from its designer</h2><p>One digit 0-9 from any container&#39;s fill level, read by one comparator: three stacked dust ladders turn the level into thresholds, and each segment ORs its runs (torches, taps and subtract comparators) on a dust bus into the face. 496 blocks, 1.6 s, no wrong lamp flashes between values; two digits side by side need pitch 13. The obvious decoder (one-hot plus a 49-tap ROM) is 1668 blocks.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/display/index.html">Displays</a></td></tr>
+<tr><th scope="row">Kind</th><td>7-segment display: one digit, 0 to 9, from a container&#39;s fill level</td></tr>
+<tr><th scope="row">Blocks placed</th><td>496 (not counting the face's lamps and the input chest the view adds)</td></tr>
+<tr><th scope="row">Box</th><td>13×10×22 (2860 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>comparator, redstone torch, redstone wire, repeater</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>a chest (or any container) read by a comparator / the 13 lamps of its 3×5 face</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-22T09:16Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere</td></tr>
+<tr><th scope="row">Design file</th><td><code>seven-segment-decimal</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/display/archive/seven-segment-decimal.txt">on GitHub</a></p><details><summary>Design file (289 lines)</summary><pre class="design"># archived 2026-10-22T09:16Z from designs/circuits/tracks/display/decimal/decimal7-v2.txt by mctas circuit archive
+# CIRCUIT: seven-segment-decimal seven-segment 4 hex decimal latency 32 gt (a goes 0 -&gt; 2 from a=0), glitches 25, on-blips 0, 496 blocks, 13x10x22, robust
+# seven-segment-decimal (clk-obs, 2026-10-22): the 0-9 display, designs/briefs/display-7seg.md &quot;The 0-9 display, built&quot;: `mctas circuit display decimal7` (default layout: g d e f a cb, 513 blocks) -&gt; `display settle` -&gt; `display trim --all`; game: robust, 496 blocks, latency 32 gt, on-blips 0
+# trimmed (clk-obs `display trim`): 16 blocks the redsim judge does not need: [[-1, 5, -18], [-1, 5, -17], [-1, 7, -18], [-1, 7, -17], [0, 2, -9], [0, 4, -19], [0, 8, -18], [1, 9, -17], [2, 4, -19], [2, 8, -18], [3, 5, -18], [3, 5, -17], [3, 7, -18], [3, 7, -17], [6, 8, -12], [6, 8, -11]]
+name: seven-segment-decimal
+circuit: seven-segment 4 hex decimal
+port input.a: 0 2 2 strength
+port output.a: 1 8 -21
+port output.ab: 0 8 -21
+port output.af: 2 8 -21
+port output.b: 0 7 -21
+port output.bcg: 0 6 -21
+port output.c: 0 5 -21
+port output.cd: 0 4 -21
+port output.d: 1 4 -21
+port output.de: 2 4 -21
+port output.e: 2 5 -21
+port output.efg: 2 6 -21
+port output.f: 2 7 -21
+port output.g: 1 6 -21
+origin: -3 0 -20
+palette:
+  A minecraft:comparator[facing=south,mode=compare,powered=false]
+  B minecraft:comparator[facing=south,mode=subtract,powered=false]
+  C minecraft:chest[facing=south,type=single,waterlogged=false]
+  D minecraft:comparator[facing=west,mode=compare,powered=false]
+  E minecraft:comparator[facing=west,mode=subtract,powered=false]
+  F minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  G minecraft:redstone_wire[east=side,north=side,power=15,south=side,west=side]
+  H minecraft:redstone_wire[power=0]
+  I minecraft:redstone_wire[power=10]
+  J minecraft:redstone_wire[power=11]
+  K minecraft:redstone_wire[power=12]
+  L minecraft:redstone_wire[power=13]
+  M minecraft:redstone_wire[power=14]
+  N minecraft:redstone_wire[power=15]
+  O minecraft:redstone_wire[power=8]
+  P minecraft:redstone_wire[power=9]
+  Q minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:repeater[delay=1,facing=east,locked=false,powered=true]
+  T minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  U minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  V minecraft:repeater[delay=1,facing=south,locked=false,powered=true]
+  W minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  X minecraft:repeater[delay=1,facing=west,locked=false,powered=true]
+  c minecraft:comparator[facing=east,mode=subtract,powered=false]
+  r minecraft:redstone_wall_torch[facing=west,lit=true]
+  s minecraft:stone
+layer 0:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  s.....s
+  .
+  s.....s
+  sss.sss
+  ..s.ss
+  ss...s
+  sss..s
+  ..s..s
+  ss...ss
+  sss.sss
+  ss
+  .
+  .
+  .
+layer 1:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  s.....s
+  N.....H
+  s.....s
+  V..s..U
+  OQQsWWH
+  ssQsWHs
+  IT.s.Hs
+  JcQs.Hs
+  ssQs.Hs
+  LT.s.TH
+  McQsWEH
+  NSrs
+  .
+  ...s
+  .
+layer 2:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  s
+  M....sH
+  .
+  .
+  .
+  ...H
+  P..H.sH
+  ...H.sH
+  ...H.sH
+  K..H.sH
+  ...H
+  ...H
+  ...H
+  ...ss
+  ...A
+  ...C
+layer 3:
+  ....s
+  ...s.s
+  ....s
+  ....s
+  .
+  ....s
+  ss.s
+  L....s...s
+  .....H
+  ...s.....s
+  ..s...ssss
+  ..sss.s.ss
+  ...ss.ss.s
+  ...s..s..s
+  ..ss.....s
+  ..sss....s
+  ..s...ss.s
+  ..s...ssss
+  ..ss...sss
+  .....s
+  ...HDss
+  .
+  .
+layer 4:
+  ...sGs
+  ....s
+  ...sVs
+  ...sGs
+  ....s
+  ...sVs
+  KXsXs.s.ss
+  .s..sH...N
+  ...ss.ss.s
+  .ssN.....V
+  .sV..sWWHV
+  ..OQQsWsEO
+  ..sHQsWB.P
+  ..sH.sWs.I
+  ..JT.s...J
+  ..KcQs...K
+  ..L..sWH.L
+  ..M..sWEWM
+  ..NSrsRXXN
+  .....A.s
+  .....HDs
+  .
+  .
+layer 5:
+  ...GsG
+  ...s.s
+  ...VsV
+  ...GsG
+  ...s.s
+  ...VsV
+  .sXsssSsSM
+  .V..H..s
+  .s.MXsXN
+  .V
+  .Ls..H
+  .....H
+  ..Ps.H
+  ..Is.H
+  .....H
+  .....H
+  .....H
+  .....H
+  .....H.ss
+  .......A
+  .......H
+  .
+  .
+layer 6:
+  ...sFs
+  ...GsG
+  ...sUs
+  ...sFs
+  ....s
+  ...sUs
+  ....H.ss
+  ...s...M
+  ....ss
+  ......s.....s
+  ..Ms..sss
+  ....s.s.....s
+  ......ss..sss
+  ....s.....s
+  .....ssss..ss
+  ......ss..sss
+  ...........ss
+  .........s
+  .......HDs
+  .
+  .
+  .
+  .
+layer 7:
+  ...GsG
+  ...s.s
+  ...VsV
+  ...GsG
+  ...s.s
+  ...VsV
+  ...sssSL
+  ...V.ss
+  ...sSNs..s..s
+  ......V..s..N
+  ...Ns.LQQs..s
+  ....V.M..s..V
+  ....s.NSrsWWJ
+  ....V....sWss
+  ....sSMQQs.TL
+  ......NSrsWEM
+  .........sRXN
+  .........A
+  .........H
+  .
+  .
+  .
+  .
+layer 8:
+  ...sGs
+  ...GsG
+  ....V
+  ...sGs
+  ....s
+  ....V
+  ....V
+  ....sSMs.s.ss
+  ............M
+  .
+  .........H
+  .........H
+  .........H
+  .........H..K
+  .........H
+  .........H
+  .........H
+  .
+  .
+  .
+  .
+  .
+  .
+layer 9:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .......NsSsSL
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/eabcc3ff4199f18fc0bb028ed641666b45b16ead">vjeux/redstonepedia@eabcc3ff4</a> on <span class="nowrap">2026-10-25</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=e5967917"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=3c6a179b"});</script>
+</body>
+</html>

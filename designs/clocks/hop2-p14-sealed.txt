@@ -1,0 +1,21 @@
+# archived 2026-10-21T19:04Z from designs/clocks/tracks/clk-obs/sealed/hop2-p14-sealed.txt by mctas clock archive
+# CLOCK: hop2-p14-sealed period 14 gt (0.7 s), on 7/14, edges 1, warmup 7, family comparator+hopper, 6 blocks, 3x3x1, robust
+# Hopper slosh, 4 blocks (clk-item): two hoppers facing each other hold one item; it hops back and forth, 7 gt per hop (the receiving hopper was empty: TransferCooldown 8 - 1). A comparator reading the west hopper is on 7 gt, off 7 gt.
+# redsim: P=14 gt, warmup 3, family comparator+hopper, 4 blocks, output on 7/14 gt, 1 rising edge(s)
+# usable tap (clk-obs `clock obs tap`): a repeater at [-2, 1, 0] (on a block put under it), the output at [-2, 1, 0]; sealed: 2 block(s) added (glass on the open hopper tops)
+name: hop2-p14-sealed
+port output: -2 1 0
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: -1 0 0
+palette:
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=east]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=west]
+layer 0:
+  S
+layer 1:
+  CHh
+layer 2:
+  .GG

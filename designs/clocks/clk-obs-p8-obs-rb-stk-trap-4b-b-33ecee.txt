@@ -1,0 +1,21 @@
+# archived 2026-10-19T20:40Z from designs/clocks/tracks/clk-obs/mech2/p8-obs-rb-stk-trap-4b-b-33ecee.txt by mctas clock archive
+# CLOCK: clk-obs-p8-obs-rb-stk-trap-4b-b-33ecee period 8 gt (0.4 s), on 4/8, edges 1, warmup 4, family iron_trapdoor+observer+redstone_block+sticky_piston, 4 blocks, 1x2x3, robust
+name: clk-obs-p8-obs-rb-stk-trap-4b-b-33ecee
+# P8: 1 iron trapdoor, 1 observer, 1 redstone block, 1 sticky piston; changing in place: iron_trapdoor, observer, redstone_block, sticky_piston. Found by the clk-obs exhaustive census of every 4-block structure (all orientations, every block placed last as a kick); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 0 -1 2
+port start: 0 1 2 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=south]
+  B minecraft:redstone_block
+  C minecraft:observer[facing=south,powered=false]
+  D minecraft:iron_trapdoor[facing=south,half=top,open=false,powered=false,waterlogged=false]
+layer 0:
+  A
+  B
+  .
+layer 1:
+  .
+  C
+  D

@@ -1,0 +1,27 @@
+# archived 2026-10-19T20:20Z from /tmp/gen/arch2/obs-p23-3.txt by mctas clock archive
+# CLOCK: clk-sculk-obs-p23-3 period 23 gt (1.15 s), on 10/23, edges 1, warmup 13, family calibrated_sculk_sensor+oak_fence_gate+observer, 8 blocks, 3x2x4, robust
+# A calibrated sculk sensor watched by a chain of 4 observer(s) (each watching the previous); an oak fence gate at the last output, 3 from the sensor (travel time): the observers' pulse after the sensor re-arms is heard
+# how: obs cal k=4 path 1,0,0 1,0,1 0,0,1 0,0,2 emitter gate at the output (travel 3)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of a comparator facing west (on the ground) that reads the build, added at -1 0 0 (was 0 -1 0: the output [0, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+name: clk-sculk-obs-p23-3
+port output: -2 0 0
+origin: -1 0 0
+palette:
+  A minecraft:observer[facing=north,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=true]
+  S minecraft:stone
+  c minecraft:comparator[facing=east,mode=compare,powered=false]
+  o minecraft:observer[facing=east,powered=false]
+layer -1:
+  S
+  .
+  .
+  .
+layer 0:
+  cCB
+  .oA
+  .A
+  .O

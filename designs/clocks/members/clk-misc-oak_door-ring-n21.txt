@@ -1,0 +1,72 @@
+name: clk-misc-oak_door-ring-n21
+# Extendable family clk-misc-oak_door-ring (n = 21): P = 10 + 4n gt = 94 gt, 7 + 2n = 49 blocks. Relay: an oak door standing on the observer that powers its lower half: both halves open and close with that power at once.
+# It sits at the top of a 2-wide ring of 47 observers (each watches the one before it, 2 gt per observer); the observer under it
+# powers it and carries it, the next one watches it. The relay adds no delay but takes a lattice cell, so an odd number of
+# observers closes the ring. The door's upper half is one more block. Extension: insert 2 observers (the ring one row higher).
+# Generator: mctas clock misc ring --relay oak_door --n N --out FILE.
+extend base: 21
+extend blocks: 7 + 2n
+extend family: clk-misc-oak_door-ring
+extend generator: mctas clock misc ring --relay oak_door --n {n} --out {out}
+extend n: 0..47
+extend period: 10 + 4n
+extend rule: insert 2 observers: the 2-wide ring one row higher
+port start: 1 23 0 last
+origin: 0 0 0
+palette:
+  A minecraft:observer[facing=down,powered=false]
+  B minecraft:observer[facing=east,powered=false]
+  C minecraft:observer[facing=up,powered=false]
+  D minecraft:observer[facing=west,powered=false]
+  O minecraft:oak_door[facing=north,half=lower,hinge=left,open=false,powered=false]
+  o minecraft:oak_door[facing=north,half=upper,hinge=left,open=false,powered=false]
+layer 0:
+  BC
+layer 1:
+  AC
+layer 2:
+  AC
+layer 3:
+  AC
+layer 4:
+  AC
+layer 5:
+  AC
+layer 6:
+  AC
+layer 7:
+  AC
+layer 8:
+  AC
+layer 9:
+  AC
+layer 10:
+  AC
+layer 11:
+  AC
+layer 12:
+  AC
+layer 13:
+  AC
+layer 14:
+  AC
+layer 15:
+  AC
+layer 16:
+  AC
+layer 17:
+  AC
+layer 18:
+  AC
+layer 19:
+  AC
+layer 20:
+  AC
+layer 21:
+  AC
+layer 22:
+  AC
+layer 23:
+  OD
+layer 24:
+  o

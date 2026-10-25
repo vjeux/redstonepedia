@@ -1,0 +1,26 @@
+# archived 2026-10-19T21:45Z from designs/clocks/tracks/clk-misc/scaffold/scaffold-a.txt by mctas clock archive
+# CLOCK: clk-misc-scaffold-a period 10 gt (0.5 s), on 4/10, edges 2, warmup 8, family observer+scaffolding+sticky_piston, 7 blocks, 2x2x3, robust
+# A scaffolding clock: scaffolding S2 stands next to scaffolding S1 (on stone, distance 0); a sticky piston toggles a stone
+# under S2 (2 gt observer pulses spit / pull it), so S2's distance and bottom flip between 0 (supported) and 1 (held by S1)
+# one 1 gt scaffolding tick later; an observer watches S2, its back quasi-powering the piston through the air above it.
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 1 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its east, added at 0 1 -1 (was 1 1 -2: the output [1, 1, -2] has a moving or non-sturdy block under it: a repeater there has nothing to stand on)
+name: clk-misc-scaffold-a
+port output: -1 1 -1
+port start: 0 0 -2 minecraft:redstone_block 2
+origin: 0 0 -2
+palette:
+  A minecraft:sticky_piston[extended=false,facing=south]
+  B minecraft:stone
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:scaffolding[bottom=false,distance=0,waterlogged=false]
+  o minecraft:observer[facing=south,powered=false]
+  s minecraft:scaffolding[bottom=true,distance=1,waterlogged=false]
+layer 0:
+  .A
+  .B
+  B
+layer 1:
+  .
+  Oo
+  Ss

@@ -1,0 +1,27 @@
+# archived 2026-10-19T18:38Z from designs/clocks/tracks/clk-obs/families/p78-obs-pis-6b-e9cf91.txt by mctas clock archive
+# CLOCK: clk-obs-p78-obs-pis-6b-e9cf91 period 78 gt (3.9 s), on 26/78, edges 13, warmup 8, family observer+piston, 7 blocks, 2x4x3, robust
+# P78: 4 observers, 2 pistons; changing in place: observer, piston. Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its east, added at -1 2 1 (was 0 2 -1: the output [0, 2, -1] is next to a moving part)
+name: clk-obs-p78-obs-pis-6b-e9cf91
+port output: -2 2 1
+port start: 0 1 0 last
+origin: -1 0 0
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:piston[extended=false,facing=down]
+  o minecraft:observer[facing=north,powered=false]
+  p minecraft:piston[extended=false,facing=up]
+layer 0:
+  .p
+  .A
+  .P
+layer 1:
+  .A
+  .o
+  .
+layer 2:
+  .
+  Oo
+  .

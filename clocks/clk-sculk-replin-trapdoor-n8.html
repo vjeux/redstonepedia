@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clock: every 76 ticks (3.8 s) · 19 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Clock: every 76 ticks (3.8 s) · 19 blocks. ">
+<meta property="og:title" content="Clock: every 76 ticks (3.8 s) · 19 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Clock: every 76 ticks (3.8 s) · 19 blocks. ">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../style.css?v=3fef2398">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top on" href="../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top" href="../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../index.html" method="get" role="search"><input type="hidden" name="kind" value="clock"><input id="hq" name="q" type="search" placeholder="Search: 48 ticks, 2.5 s…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../index.html">REDSTONEPEDIA</a> › <a href="../index.html#kind=clock">Clocks</a> › <a href="../index.html#kind=clock&amp;time=76">every 76 ticks (3.8 s)</a></p>
+<p class="kindline">Clock</p>
+<h1>every 76 ticks (3.8 s) · 19 blocks</h1>
+<p class="oneliner">Its output pulses by itself every 76 ticks (3.8 s), forever. It starts on its own once built.</p>
+<p class="warn">Uses a sculk sensor: other sounds nearby (footsteps, another machine) can add pulses, so keep noise away from it.</p>
+<p class="lede">made of calibrated sculk sensor, oak trapdoor, observer, repeater · on for 10 of 76 ticks</p>
+<p class="badges"><span class="badge">extended (n = 8)</span><span class="badge">starts by itself</span></p>
+<div class="viewer k-clock" data-mcview="full" data-src="../designs/clocks/members/clk-sculk-replin-trapdoor-n8.txt" data-kind="clock"><div class="fallback"><span class="fb-big">every 76 ticks</span><span class="fb-small">Clock</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<p class="extended">A longer version of the tested <a href="../clocks/clk-sculk-replin-trapdoor.html">clk-sculk-replin (one block swapped: 2 versions) clock</a>, which pulses every 31 ticks (1.55 s) with 9 blocks; this one is 5 steps longer (n = 8). Each step: one more delay-4 repeater on a stone at the end of the line (the observer and trapdoor move one block out): +8 gt of delay and +1 gt of travel, which adds 9 ticks (0.45 s) and 2 blocks. Tested in the real game too.</p>
+<p class="hint">Every clock that pulses every 76 ticks (3.8 s): <a href="../index.html#kind=clock&amp;time=76">on the Clocks tab</a>, smallest first (the ones hard to wire into a circuit last).</p>
+<section class="what plain"><h2>Try it</h2><p>Press play under the view: it runs by itself: pause and step one tick at a time with the buttons under it. To use it in a circuit, put a repeater where the view puts its lamp: it picks up every pulse.</p></section>
+<section><h2>Its output over time</h2><p class="hint">The output (orange) over the first 306 ticks, as the 3D view plays it: the grey part is the clock starting up, for 78 ticks (3.9 s); then it repeats every 76 ticks (3.8 s), on for 10 ticks (0.5 s) of them. 20 ticks = 1 second.</p><div class="wave-wrap fit"><svg class="wave fit" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 412 78" role="img" aria-label="timing diagram"><rect class="warm" x="64.0" y="18.0" width="86.7" height="42.0"/><line class="ph" x1="64.0" y1="18.0" x2="64.0" y2="60.0"/><text class="phl" x="67.0" y="14.0">starting up</text><line class="ph" x1="150.7" y1="18.0" x2="150.7" y2="60.0"/><text class="phl" x="153.7" y="14.0">cycle 1</text><line class="ph" x1="235.1" y1="18.0" x2="235.1" y2="60.0"/><text class="phl" x="238.1" y="14.0">cycle 2</text><line class="ph" x1="319.6" y1="18.0" x2="319.6" y2="60.0"/><text class="phl" x="322.6" y="14.0">cycle 3</text><text class="wl" x="4" y="46.0">OUT</text><line class="base" x1="64.0" y1="48.0" x2="404.0" y2="48.0"/><polygon class="wout" points="64.0,48.0 64.0,48.0 148.4,48.0 148.4,28.0 159.6,28.0 159.6,48.0 232.9,48.0 232.9,28.0 244.0,28.0 244.0,48.0 317.3,48.0 317.3,28.0 328.4,28.0 328.4,48.0 401.8,48.0 401.8,28.0 404.0,28.0 404.0,48.0"/><text class="ax" x="4" y="72.0">ticks</text><text class="ax" x="64.0" y="72.0">0</text><text class="ax" x="150.7" y="72.0">78</text><text class="ax" x="235.1" y="72.0">154</text><text class="ax" x="319.6" y="72.0">230</text></svg></div></section>
+<section><h2>Build it</h2><p><a class="button" href="../designs/clocks/members/clk-sculk-replin-trapdoor-n8.litematic" download>Download .litematic</a> <a class="button alt" href="../designs/clocks/members/clk-sculk-replin-trapdoor-n8.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../index.html#with=calibrated_sculk_sensor">calibrated sculk sensor</a> <a class="chip" href="../index.html#with=oak_trapdoor">oak trapdoor</a> <a class="chip" href="../index.html#with=observer">observer</a> <a class="chip" href="../index.html#with=repeater">repeater</a> <a class="chip" href="../index.html#with=stone">stone</a></p></section>
+<section><h2>The same clock as another</h2><p>It is <a href="../clocks/clk-sculk-replin-n8.html">this clock</a> (every 76 ticks (3.8 s) · 19 blocks) with oak trapdoor instead of note block: the same mechanism and period. The Clocks tab lists it under that one.</p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Pulses every</th><td>76 ticks (3.8 s)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>calibrated sculk sensor, oak trapdoor, observer, repeater</td></tr>
+<tr><th scope="row">Blocks placed</th><td>19</td></tr>
+<tr><th scope="row">Box</th><td>11×2×1 (22 blocks of space)</td></tr>
+<tr><th scope="row">Output</th><td>on for 10 of every 76 ticks</td></tr>
+<tr><th scope="row">Settles after</th><td>78 ticks (3.9 s)</td></tr>
+<tr><th scope="row">To start it</th><td>nothing: it starts by itself once built</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Mirror image</th><td>a different design (listed separately)</td></tr>
+<tr><th scope="row">Same mechanism as</th><td><a href="../clocks/clk-sculk-replin-n8.html">every 76 ticks (3.8 s) · 19 blocks</a> (the same period, other blocks in some cells)</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere, starts by itself, mirror image is a different design, extended</td></tr>
+<tr><th scope="row">Design file</th><td><code>clk-sculk-replin-trapdoor-n8</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p>Generated from the tested design it extends, at build time.</p><details><summary>Design file (15 lines)</summary><pre class="design"># The repeater line with an oak trapdoor as the emitter: a calibrated sculk sensor, n delay-4 repeaters, an observer watching the last one and a trapdoor behind it, opened on the observer&#39;s pulse 8n+2 gt after the sensor fires and heard n+2 gt later. Self-starting. P = 4 + 9n gt, 3 + 2n blocks (n = 8: P 76, 19 blocks). Built by `mctas clock sculk family replin-trapdoor --n 8`.
+name: clk-sculk-replin-trapdoor-n8
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge&#39;s lamp lights at evenly spaced ticks (was 0 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 0 0 0
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  R minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  S minecraft:stone
+  o minecraft:observer[facing=west,powered=false]
+layer 0:
+  .SSSSSSSS
+layer 1:
+  CRRRRRRRRoO
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/eabcc3ff4199f18fc0bb028ed641666b45b16ead">vjeux/redstonepedia@eabcc3ff4</a> on <span class="nowrap">2026-10-25</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../viewer/mcview.js?v=e5967917"; init({module_or_path: "../viewer/mcview_bg.wasm?v=3c6a179b"});</script>
+</body>
+</html>

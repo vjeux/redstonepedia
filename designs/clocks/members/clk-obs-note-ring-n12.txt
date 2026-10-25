@@ -1,0 +1,15 @@
+name: clk-obs-note-ring-n12
+# Extendable family note-ring (n = 12): P = 10 + 4n gt, 6 + 2n blocks. a note block after a straight observer follows its power at once and is watched by the next observer: it takes a lattice cell but no time, so an odd number of observers closes the ring. Extension: insert 2 observers: one more column in the 2-wide ring. Generator: mctas clock obs family note-ring --n N --out FILE.
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 2 -1 0
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:note_block[instrument=harp,note=0,powered=false]
+  D minecraft:observer[facing=north,powered=false]
+  E minecraft:observer[facing=east,powered=false]
+layer 0:
+  ABCBBBBBBBBBBBB
+  EEEEEEEEEEEEEED

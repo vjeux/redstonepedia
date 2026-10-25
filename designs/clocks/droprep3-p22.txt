@@ -1,0 +1,36 @@
+# archived 2026-10-19T18:36Z from designs/clocks/tracks/clk-item/droprep3-p22.txt by mctas clock archive
+# CLOCK: droprep3-p22 period 22 gt (1.1 s), on 7/22, edges 1, warmup 57, family comparator+dropper+hopper+repeater, 20 blocks, 4x2x5, robust
+# Dropper ring with a delayed fire and three filled cells (clock item sweep-dropring --triples --delays): a hopper ring 5 deep with two droppers in the bottom row; the comparator in the inner column reads the top-row hopper above it and fires the droppers through two repeaters (delays 1 and 4, on stone). Stones in three cells (see the nbt lines): P = 22.
+# redsim: P=22 gt, warmup 57, family comparator+dropper+hopper+repeater, 18 blocks, output on 7/22 gt, 1 rising edge(s)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 1 1 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of a comparator facing west (on a block put under it) that reads the build, added at -1 1 2 (was 1 0 4: with a repeater in the output cell, no signal (it never turns on))
+name: droprep3-p22
+port output: -2 1 2
+nbt: 0 1 3 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: 1 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:2}]}
+nbt: 2 1 3 {Items:[{Slot:0b,id:"minecraft:stone",count:2}]}
+origin: -1 0 0
+palette:
+  A minecraft:hopper[enabled=true,facing=south]
+  B minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:dropper[facing=north,triggered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  R minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  S minecraft:stone
+  c minecraft:comparator[facing=north,mode=compare,powered=false]
+  d minecraft:dropper[facing=west,triggered=false]
+  h minecraft:hopper[enabled=true,facing=north]
+  r minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+layer 0:
+  .
+  ..S
+  S.S
+  ..S
+  .
+layer 1:
+  .HHA
+  .hcA
+  ChRA
+  .hrA
+  .DdB

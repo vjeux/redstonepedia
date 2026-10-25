@@ -1,0 +1,30 @@
+# archived 2026-10-21T12:51Z from designs/circuits/tracks/clk-rt/compact/pulse/pulse-limiter-u-L36-v20-17b.txt by mctas circuit archive
+# CIRCUIT: pulse-limiter-u-L36-v20-17b pulse-limiter L 36 gt, delay 2 gt, min-pulse 3 gt, 17 blocks, 2x2x5, robust
+# Cuts every input to one fixed length, from a comparator and a loop of repeaters: pulse-limiter-u-L36's mechanism rearranged by clk-rt's circuit compact (2026-10-21), judged box 20 (was 20), 17 blocks (was 18); its blocks sit in 2x2x5.
+name: pulse-limiter-u-L36-v20-17b
+circuit: pulse-limiter
+group: pulse-limiter-u
+group note: a subtract comparator whose side gets the input back through a U of repeaters; L set by the repeater delays and the U's length
+group title: subtract-comparator limiter
+port input: 0 1 0
+port output: 2 1 0
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  C minecraft:comparator[facing=west,mode=subtract,powered=false]
+  R minecraft:redstone_wire
+  S minecraft:stone
+  r minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+layer 0:
+  .S
+  SS
+  SS
+  SS
+  .S
+layer 1:
+  .C
+  Ar
+  Ar
+  AB
+  SR

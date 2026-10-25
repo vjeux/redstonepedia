@@ -1,0 +1,47 @@
+# archived 2026-10-19T19:16Z from designs/clocks/tracks/clk-rt/counter/count7-over-fade114.txt by mctas clock archive
+# CLOCK: clk-rt-count7-k2-over-fade114 period 798 gt (39.9 s), on 796/798, edges 1, warmup 10, family comparator+redstone_torch+redstone_wire, 46 blocks, 8x2x9, robust
+# Comparator COUNTER over another clock (clk-rt): a lossless comparator ring (2 + 2 comparators, one
+# in subtract mode) loses 2 level(s) per pulse of the inner clock (its pulse cut to strength 2 by a
+# subtract comparator with side 13) and its torch refills it to 14 at 0: period = 7 inner periods.
+# Inner clock: Comparator FADING ring (clk-rt): two dust (one level lost per lap) -> top row
+# [comparator, comparator] -> block F -> dust beside F (a wall torch on F lights when the ring is
+# empty and refills it through a dust beside it) -> bottom row [comparator, comparator] -> back; the
+# compare-mode comparators keep a signal strength, each dust-to-dust step loses one level per lap,
+# and the torch refills the ring at 0
+name: clk-rt-count7-k2-over-fade114
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 4 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 3 -1 0: the output [3, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 3 0 -1
+origin: -3 0 -1
+palette:
+  A minecraft:comparator[facing=north,mode=compare,powered=false]
+  B minecraft:comparator[facing=south,mode=compare,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:comparator[facing=south,mode=subtract,powered=false]
+  E minecraft:comparator[facing=west,mode=compare,powered=false]
+  F minecraft:redstone_wall_torch[facing=north,lit=true]
+  G minecraft:redstone_wire
+  R minecraft:redstone_block
+  S minecraft:stone
+  c minecraft:comparator[facing=east,mode=subtract,powered=false]
+  r minecraft:redstone_wall_torch[facing=east,lit=true]
+layer 0:
+  ...SSS
+  ....SSSS
+  ....S
+  .SSSS
+  .....S
+  .....S
+  ....SS
+  ....SS
+  ....SS
+layer 1:
+  ...GEESr
+  ...ScCGG
+  ....G
+  RGGGD
+  ....FG
+  ....SG
+  ....BA
+  ....BA
+  ....GG

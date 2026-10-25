@@ -1,0 +1,27 @@
+# archived 2026-10-21T00:07Z from designs/circuits/gates/tracks/gates/gate-xnor.txt by mctas circuit archive
+# CIRCUIT: gate-xnor gate xnor function xnor, latency 4 gt, 17 blocks, 5x4x2, robust
+# XNOR gate, 17 blocks, 4 ticks: the 15-block XOR (a dust on each input block, two subtract comparators in a square with them) whose two signals meet on a stone instead of the output; a wall torch on that stone is the output, lit unless exactly one input is on.
+name: gate-xnor
+circuit: gate xnor
+port input.a: 0 0 0
+port input.b: 1 0 1
+port output: 3 1 0
+origin: -1 0 0
+palette:
+  S minecraft:stone
+  C minecraft:comparator[facing=west,mode=subtract,powered=false]
+  K minecraft:comparator[facing=east,mode=subtract,powered=false]
+  T minecraft:redstone_wall_torch[facing=east,lit=true]
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer 0:
+  ..S..
+  .S...
+layer 1:
+  SdCST
+  SKd..
+layer 2:
+  dSSd.
+  d....
+layer 3:
+  .dd..
+  .....

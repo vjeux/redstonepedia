@@ -1,0 +1,26 @@
+# archived 2026-10-21T20:42Z from designs/circuits/tracks/clk-rt/compact/pext/pext-n4-flat-cascade23-12x4-v48-23b.txt by mctas circuit archive
+# CIRCUIT: pext-n4-flat-cascade23-12x4-v48-23b piston-extender 4 N 4, extend 38 gt, retract 38 gt, flips breaks: off 20 gt after on strands blocks, 22 blocks, 12x4x1, robust
+# Pushes a block out four cells from a one-block-wide wall, 23 blocks in a 12x4 box: pext-n4-flat-cascade23-12x4's mechanism rearranged by clk-rt's circuit compact (2026-10-21), judged box 48 (was 48), 23 blocks (was 24); its blocks sit in 9x4x1.
+name: pext-n4-flat-cascade23-12x4-v48-23b
+circuit: piston-extender 4
+travel: 1 0 0
+port input: 8 4 0 lever
+port payload: 8 1 0
+origin: 1 0 0
+palette:
+  A minecraft:sticky_piston[extended=false,facing=west]
+  G minecraft:gold_block
+  L minecraft:lever[face=wall,facing=east,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  R minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  S minecraft:slime_block
+  o minecraft:observer[facing=up,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer 1:
+  sSsSsSsG
+layer 2:
+  .o.o.o
+layer 3:
+  o.o.oo..A
+layer 4:
+  RSO.oAOL

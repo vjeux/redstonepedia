@@ -1,0 +1,34 @@
+# archived 2026-10-21T10:35Z from designs/circuits/pext/work/n3-flat-9x4.txt by mctas circuit archive
+# CIRCUIT: pext-n3-flat-cascade18-9x4 piston-extender 3 N 3, extend 27 gt, retract 27 gt, 18 blocks, 9x4x1, robust
+# Pushes a block out three cells from a one-block-wide wall, 18 blocks in a 9x4 box, 27 gt out and
+# 27 gt back: a line of three sticky pistons with a slime block between each pair; each piston fires
+# itself whenever it is moved (observers ride on top of the line), and a row of observers along the
+# top, run from the lever, starts each wave of pushes (out) or grabs (back).
+# How it works: a variant of pext-n3-flat-cascade19 (9x6, 19 blocks, which it replaces: one block
+# fewer, two rows lower, as fast) with the row under the line gone (its observers ride on top of
+# the line) and the wave starters rearranged by the search. Found by `mctas circuit pext anneal
+# --random-pick --free-lever` (random edits judged on redsim; the box of every cell over the whole
+# run counts, as in the game) from that cascade.
+name: pext-n3-flat-cascade18-9x4
+circuit: piston-extender 3
+travel: 1 0 0
+port input: 8 4 0 lever
+port payload: 6 1 0
+origin: 1 0 0
+palette:
+  A minecraft:sticky_piston[extended=false,facing=up]
+  G minecraft:gold_block
+  L minecraft:lever[face=floor,facing=north]
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:piston[extended=false,facing=west]
+  S minecraft:slime_block
+  o minecraft:observer[facing=up,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer 1:
+  sSsSsG
+layer 2:
+  oo.o
+layer 3:
+  A.P...oS
+layer 4:
+  .OOOO.PL

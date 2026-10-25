@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clock: every 17 ticks (0.85 s) · 8 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Clock: every 17 ticks (0.85 s) · 8 blocks. P17: 1 note block, 3 observers, 1 redstone block, 1 redstone lamp, 1 sticky piston; changing in place: note_block, observer, redstone_block, redstone_lamp, stic">
+<meta property="og:title" content="Clock: every 17 ticks (0.85 s) · 8 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Clock: every 17 ticks (0.85 s) · 8 blocks. P17: 1 note block, 3 observers, 1 redstone block, 1 redstone lamp, 1 sticky piston; changing in place: note_block, observer, redstone_block, redstone_lamp, stic">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<meta property="og:image" content="https://raw.githubusercontent.com/vjeux/redstonepedia/main/designs/clocks/img/clk-obs-p17-lamp-note-obs-rb-stk-7b-dd0ec4.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="../style.css?v=3fef2398">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top on" href="../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top" href="../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../index.html" method="get" role="search"><input type="hidden" name="kind" value="clock"><input id="hq" name="q" type="search" placeholder="Search: 48 ticks, 2.5 s…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../index.html">REDSTONEPEDIA</a> › <a href="../index.html#kind=clock">Clocks</a> › <a href="../index.html#kind=clock&amp;time=17">every 17 ticks (0.85 s)</a></p>
+<p class="kindline">Clock</p>
+<h1>every 17 ticks (0.85 s) · 8 blocks</h1>
+<p class="oneliner">Its output pulses by itself every 17 ticks (0.85 s), forever. Built in the game it needs one kick to start (the last block placed); then it keeps going.</p>
+<p class="lede">made of note block, observer, redstone block, redstone lamp, sticky piston · on for 2 of 17 ticks</p>
+<div class="viewer k-clock" data-mcview="full" data-src="../designs/clocks/clk-obs-p17-lamp-note-obs-rb-stk-7b-dd0ec4.txt" data-kind="clock"><div class="fallback has-pic"><img class="pic contain" src="https://raw.githubusercontent.com/vjeux/redstonepedia/main/designs/clocks/img/clk-obs-p17-lamp-note-obs-rb-stk-7b-dd0ec4.jpg" alt="Clock: every 17 ticks (0.85 s) · 8 blocks in the game" decoding="async"><span class="fb-big">every 17 ticks</span><span class="fb-small">Clock</span><span class="fb-note">picture from the real game; the live 3D view replaces it when available</span></div></div>
+<p class="hint">Every clock that pulses every 17 ticks (0.85 s): <a href="../index.html#kind=clock&amp;time=17">on the Clocks tab</a>, smallest first (the ones hard to wire into a circuit last).</p>
+<section class="what plain"><h2>Try it</h2><p>Press play under the view to start it; then it runs by itself: pause and step one tick at a time with the buttons under it. To use it in a circuit, take the signal from its observer (part of the download, where the view puts its lamp): it watches the clock and pulses every cycle.</p><p class="howdesign"><b>How this design does it:</b> P17: 1 note block, 3 observers, 1 redstone block, 1 redstone lamp, 1 sticky piston; changing in place: note_block, observer, redstone_block, redstone_lamp, sticky_piston.</p></section>
+<section><h2>Its output over time</h2><p class="hint">The output (orange) over the first 71 ticks, as the 3D view plays it: the grey part is the clock starting up, for 20 ticks (1 s); then it repeats every 17 ticks (0.85 s), on for 2 ticks (0.1 s) of them. 20 ticks = 1 second.</p><div class="wave-wrap fit"><svg class="wave fit" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 412 78" role="img" aria-label="timing diagram"><rect class="warm" x="64.0" y="18.0" width="95.8" height="42.0"/><line class="ph" x1="64.0" y1="18.0" x2="64.0" y2="60.0"/><text class="phl" x="67.0" y="14.0">starting up</text><line class="ph" x1="159.8" y1="18.0" x2="159.8" y2="60.0"/><text class="phl" x="162.8" y="14.0">cycle 1</text><line class="ph" x1="241.2" y1="18.0" x2="241.2" y2="60.0"/><text class="phl" x="244.2" y="14.0">cycle 2</text><line class="ph" x1="322.6" y1="18.0" x2="322.6" y2="60.0"/><text class="phl" x="325.6" y="14.0">cycle 3</text><text class="wl" x="4" y="46.0">OUT</text><line class="base" x1="64.0" y1="48.0" x2="404.0" y2="48.0"/><polygon class="wout" points="64.0,48.0 64.0,48.0 83.2,48.0 83.2,28.0 92.7,28.0 92.7,48.0 131.0,48.0 131.0,28.0 140.6,28.0 140.6,48.0 202.9,48.0 202.9,28.0 212.5,28.0 212.5,48.0 284.3,48.0 284.3,28.0 293.9,28.0 293.9,48.0 365.7,48.0 365.7,28.0 375.3,28.0 375.3,48.0 404.0,48.0 404.0,48.0"/><text class="ax" x="4" y="72.0">ticks</text><text class="ax" x="64.0" y="72.0">0</text><text class="ax" x="159.8" y="72.0">20</text><text class="ax" x="241.2" y="72.0">37</text><text class="ax" x="322.6" y="72.0">54</text></svg></div></section>
+<section><h2>Build it</h2><p><a class="button" href="../designs/clocks/clk-obs-p17-lamp-note-obs-rb-stk-7b-dd0ec4.litematic" download>Download .litematic</a> <a class="button alt" href="../designs/clocks/clk-obs-p17-lamp-note-obs-rb-stk-7b-dd0ec4.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../index.html#with=note_block">note block</a> <a class="chip" href="../index.html#with=observer">observer</a> <a class="chip" href="../index.html#with=redstone_block">redstone block</a> <a class="chip" href="../index.html#with=redstone_lamp">redstone lamp</a> <a class="chip" href="../index.html#with=sticky_piston">sticky piston</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section><h2>Notes from its designer</h2><p>P17: 1 note block, 3 observers, 1 redstone block, 1 redstone lamp, 1 sticky piston; changing in place: note_block, observer, redstone_block, redstone_lamp, sticky_piston. Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Pulses every</th><td>17 ticks (0.85 s)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>note block, observer, redstone block, redstone lamp, sticky piston</td></tr>
+<tr><th scope="row">Blocks placed</th><td>8</td></tr>
+<tr><th scope="row">Box</th><td>2×5×2 (20 blocks of space)</td></tr>
+<tr><th scope="row">Output</th><td>on for 2 of every 17 ticks</td></tr>
+<tr><th scope="row">Settles after</th><td>20 ticks (1 s)</td></tr>
+<tr><th scope="row">To start it</th><td>place the observer at (0, 0, 0) last: it starts ticking when that block goes down</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Mirror image</th><td>a different design (listed separately)</td></tr>
+<tr><th scope="row">Also found as</th><td>clk-obs-p68-bulb-lamp-note-obs-rb-stk-9b-832939-tap (slop: clk-obs-p17-lamp-note-obs-rb-stk-7b-dd0ec4 with 0,1,2 observer[facing=north,powered=false]; 0,1,3 waxed_copper_bulb[lit=false,powered=false], which changed nothing)</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere, needs one kick to start, mirror image is a different design</td></tr>
+<tr><th scope="row">Design file</th><td><code>clk-obs-p17-lamp-note-obs-rb-stk-7b-dd0ec4</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/clocks/archive/clk-obs-p17-lamp-note-obs-rb-stk-7b-dd0ec4.txt">on GitHub</a></p><details><summary>Design file (31 lines)</summary><pre class="design"># archived 2026-10-19T18:48Z from designs/clocks/tracks/clk-obs/families/p17-lamp-note-obs-rb-stk-7b-dd0ec4.txt by mctas clock archive
+# CLOCK: clk-obs-p17-lamp-note-obs-rb-stk-7b-dd0ec4 period 17 gt (0.85 s), on 2/17, edges 1, warmup 20, family note_block+observer+redstone_block+redstone_lamp+sticky_piston, 8 blocks, 2x5x2, robust
+# P17: 1 note block, 3 observers, 1 redstone block, 1 redstone lamp, 1 sticky piston; changing in place: note_block, observer, redstone_block, redstone_lamp, sticky_piston. Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its east, added at -1 2 0 (was 0 0 0: the output [0, 0, 0] is not free all cycle)
+name: clk-obs-p17-lamp-note-obs-rb-stk-7b-dd0ec4
+port output: -2 2 0
+port start: 0 0 0 last
+origin: -1 0 0
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  N minecraft:note_block[instrument=basedrum,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=down]
+  o minecraft:observer[facing=east,powered=false]
+  r minecraft:redstone_lamp[lit=false]
+layer 0:
+  .A
+  .
+layer 1:
+  .O
+  .R
+layer 2:
+  or
+  .S
+layer 3:
+  .
+  .O
+layer 4:
+  .
+  .N
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/eabcc3ff4199f18fc0bb028ed641666b45b16ead">vjeux/redstonepedia@eabcc3ff4</a> on <span class="nowrap">2026-10-25</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../viewer/mcview.js?v=e5967917"; init({module_or_path: "../viewer/mcview_bg.wasm?v=3c6a179b"});</script>
+</body>
+</html>

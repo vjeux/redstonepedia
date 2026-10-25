@@ -1,0 +1,19 @@
+# archived 2026-10-20T18:38Z from designs/circuits/tracks/pulse/wr/pulse-fall-piston-observer-L2.txt by mctas circuit archive
+# CIRCUIT: pulse-fall-piston-observer-L2 falling-edge L 2 gt, delay 4 gt, min-pulse 6 gt, tileable every 2 (2 0 0), 2 blocks, 1x1x3, robust
+name: pulse-fall-piston-observer-L2
+circuit: falling-edge
+# The smallest falling-edge detector, 2 blocks: the input pushes an observer away with a sticky
+# piston, and when the input turns off the piston pulls it back, where the observer fires once into
+# the cell under it (the output, a 2-tick pulse); pushed away, it fires beside the output. Copies
+# stand side by side every 2 blocks. Detail: inputs of 6 ticks or more (a shorter one pulls the
+# observer back before it has fired).
+tile: 2 0 0
+port input: 0 1 0
+port output: 0 -1 1
+origin: 0 0 0
+palette:
+  O minecraft:observer[facing=up,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=south]
+layer 0:
+  S
+  O

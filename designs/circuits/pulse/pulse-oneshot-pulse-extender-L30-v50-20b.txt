@@ -1,0 +1,33 @@
+# archived 2026-10-21T11:14Z from designs/circuits/tracks/clk-rt/compact/pulse/pulse-oneshot-pulse-extender-L30-v50-20b.txt by mctas circuit archive
+# CIRCUIT: pulse-oneshot-pulse-extender-L30-v50-20b pulse-extender L 30 gt, delay 6 gt, min-pulse 4 gt, 20 blocks, 5x2x5, robust
+# Stretches every input to one fixed length: pulse-oneshot-pulse-extender-L30's mechanism rearranged by clk-rt's circuit compact (2026-10-21), judged box 50 (was 50), 20 blocks (was 21); its blocks sit in 5x2x5.
+name: pulse-oneshot-pulse-extender-L30-v50-20b
+circuit: pulse-extender
+group: pulse-oneshot-ext
+group note: L set by the repeater delays and the U's length
+group title: bulb one-shot (piston trigger) as an extender
+port input: -1 1 0
+port output: 3 1 1
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  O minecraft:observer[facing=north,powered=false]
+  R minecraft:redstone_wire
+  S minecraft:sticky_piston[extended=false,facing=east]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  r minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+  s minecraft:stone
+layer 0:
+  .
+  ...sO
+  ..s.W
+  ..s.s
+  ..ss
+layer 1:
+  SO
+  ..WCR
+  ..r.A
+  ..B.A
+  ..RRs

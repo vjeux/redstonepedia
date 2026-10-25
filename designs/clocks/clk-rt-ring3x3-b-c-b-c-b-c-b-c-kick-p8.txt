@@ -1,0 +1,27 @@
+# archived 2026-10-19T18:34Z from designs/clocks/tracks/clk-rt/ring/cmp/p8/kick-p8.txt by mctas clock archive
+# CLOCK: clk-rt-ring3x3-b,c,b,c,b,c,b,c-kick-p8 period 8 gt (0.4 s), on 2/8, edges 1, warmup 8, family comparator, 13 blocks, 4x2x3, robust
+# Rectangle ring (clk-rt): the 3x3 perimeter clockwise from the north-west corner = [b, c, b, c, b,
+# c, b, c] (number = repeater delay, * = powered at placement, b = block, d = dust, T = wall torch
+# on the block before it, c = comparator); 0 torches: a pulse ring of loop delay 8 gt; kicked by a
+# redstone_wall_torch[facing=north,lit=true] at [0, 0, 0] for 2 gt at tick 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its east, added at -1 1 1 (was 0 0 2: with a repeater in the output cell, no signal (it never turns on))
+name: clk-rt-ring3x3-b,c,b,c,b,c,b,c-kick-p8
+port output: -2 1 1
+port start: 0 0 0 minecraft:redstone_wall_torch[facing=north,lit=true] 2
+origin: -1 0 0
+palette:
+  A minecraft:comparator[facing=south,mode=compare,powered=false]
+  B minecraft:comparator[facing=west,mode=compare,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:stone
+  c minecraft:comparator[facing=north,mode=compare,powered=false]
+layer 0:
+  ..S
+  .S.S
+  ..S
+layer 1:
+  .SBS
+  OA.c
+  .SCS

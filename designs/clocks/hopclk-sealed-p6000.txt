@@ -1,0 +1,31 @@
+# archived 2026-10-21T16:59Z from designs/clocks/tracks/clk-obs/hopclk-sealed/hopclk-sealed-p6000.txt by mctas clock archive
+# CLOCK: hopclk-sealed-p6000 period 6000 gt (5 min), on 3000/6000, edges 1, warmup 8, family comparator+copper_bulb+hopper+redstone_block+redstone_wire+repeater+sticky_piston, 24 blocks, 9x3x2, robust
+# Sealed hopper clock (clk-obs), period 6000 gt: two hoppers facing each other pass 188 stones, one per
+# 8 gt; each hopper's comparator powers a sticky piston through the dust behind it, and the two
+# pistons hold one redstone block BESIDE the hopper that receives (a locked hopper still receives);
+# a stone covers each hopper (no stray item can reach them). A repeater in a piston's path delays its letting go by 2 x its delay (west 2, east 0). 1 copper bulb divider(s) (x 2 each).
+name: hopclk-sealed-p6000
+port output: -4 0 0
+nbt: 2 0 0 {Items:[{Slot:0b,id:"minecraft:stone",count:64},{Slot:1b,id:"minecraft:stone",count:64},{Slot:2b,id:"minecraft:stone",count:60}]}
+origin: -3 0 0
+palette:
+  A minecraft:stone
+  B minecraft:comparator[facing=east,mode=compare,powered=false]
+  C minecraft:waxed_copper_bulb[lit=false,powered=false]
+  D minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  E minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  F minecraft:sticky_piston[extended=false,facing=east]
+  G minecraft:hopper[enabled=true,facing=east]
+  H minecraft:redstone_block
+  I minecraft:hopper[enabled=true,facing=west]
+  J minecraft:comparator[facing=west,mode=compare,powered=false]
+  K minecraft:sticky_piston[extended=false,facing=west]
+layer -1:
+  A..AA..A.
+  ..AA....A
+layer 0:
+  BCAEBGIJA
+  ..DDFH.KD
+layer 1:
+  .....AA..
+  .........

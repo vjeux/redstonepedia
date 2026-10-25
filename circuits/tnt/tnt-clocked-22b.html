@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TNT duper: safe standing on the ground · about 86 TNT a minute · 22 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="TNT duper: safe standing on the ground · about 86 TNT a minute · 22 blocks. The TNT duper: 86 lit TNT a minute, standing right on the ground. Two catalog parts. The 16-block duplicator engine (tnt-triggered-launch-16b&#39;s, without its inp">
+<meta property="og:title" content="TNT duper: safe standing on the ground · about 86 TNT a minute · 22 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="TNT duper: safe standing on the ground · about 86 TNT a minute · 22 blocks. The TNT duper: 86 lit TNT a minute, standing right on the ground. Two catalog parts. The 16-block duplicator engine (tnt-triggered-launch-16b&#39;s, without its inp">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/tnt/index.html">TNT dupers</a></p>
+<p class="kindline">TNT duper (runs by itself)</p>
+<h1>safe standing on the ground · about 86 TNT a minute · 22 blocks</h1>
+<p class="oneliner">Lights about 86 TNT a minute without ever using up its own TNT block.</p>
+<p class="lede">sits right on the ground, with no on/off switch (the pick of its kind stands 4 blocks up) · a push every 14 ticks (0.7 s) · first TNT after 7 ticks (0.35 s) · fits in 4×4×4</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/tnt/tnt-clocked-22b.txt" data-input-mode="pulse" data-circuit="tnt-duper" data-kind="circuit"><div class="fallback"><span class="fb-big">safe standing on the ground</span><span class="fb-small">TNT duper</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<p class="needs">Works standing on the ground.</p>
+<section class="what plain"><h2>Try it</h2><p>Press play under the view: it runs by itself: watch it throw a lit TNT away each cycle while its TNT block stays in place.</p><p class="howdesign"><b>How this design does it:</b> The TNT duper: 86 lit TNT a minute, standing right on the ground.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/tnt/tnt-clocked-22b.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/tnt/tnt-clocked-22b.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=dead_tube_coral_fan">dead tube coral fan</a> <a class="chip" href="../../index.html#with=observer">observer</a> <a class="chip" href="../../index.html#with=obsidian">obsidian</a> <a class="chip" href="../../index.html#with=redstone_block">redstone block</a> <a class="chip" href="../../index.html#with=redstone_lamp">redstone lamp</a> <a class="chip" href="../../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../../index.html#with=slime_block">slime block</a> <a class="chip" href="../../index.html#with=sticky_piston">sticky piston</a> <a class="chip" href="../../index.html#with=stone">stone</a> <a class="chip" href="../../index.html#with=tnt">tnt</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>It <b>keeps lighting TNT forever without using up its TNT block</b>: <b>about 86 TNT a minute</b>. Every 14 gt (0.7 s) a piston pushes the TNT block: a piston copies every block it moves before it clears the old cells, and a TNT that gets a block update while powered at that instant is lit where it stands (a primed TNT that falls and explodes 80 gt, 4 s, later) while its moved copy lands as a TNT block again. Each push lights 1 TNT.</p></section>
+<section><h2>How to try it</h2><p>The duper runs by itself as soon as it is built: press play under the view to watch it. Watch the piston push the TNT block every cycle and a lit TNT (flashing white) drop out of the machine each time, while the TNT block lands again in its place; a lit TNT vanishes when its fuse runs out instead of exploding. Pause and step one game tick at a time with the bar's buttons; drag to look around, pinch or scroll to zoom.</p></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">rate</th><td>85.7 TNT/min</td><td class="def">lit TNT per minute</td></tr>
+<tr><th scope="row">period</th><td>14 gt (0.7 s)</td><td class="def">game ticks between two pushes (the engine&#39;s cycle)</td></tr>
+<tr><th scope="row">per period</th><td>1</td><td class="def">TNT lit by each push</td></tr>
+<tr><th scope="row">latency</th><td>7 gt (0.35 s)</td><td class="def">game ticks from the start to the first lit TNT</td></tr>
+<tr><th scope="row">safe drop</th><td>0 blocks (on the ground)</td><td class="def"></td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>The TNT duper: 86 lit TNT a minute, standing right on the ground. Two catalog parts. The 16-block duplicator engine (tnt-triggered-launch-16b&#39;s, without its input block) makes one TNT each time its sticky piston loses power for a moment: held extended, released, it retracts, the redstone block on its slime frame comes back next to its dust and pushes it out again, which primes a TNT and throws it north at 1 block per tick. The clock is clk-obs-p14-lamp-obs-rb-stk-6b-b-0e0eb7 from the clock catalog (6 blocks, period 14 gt): its sticky piston moves a redstone block that sits next to the engine&#39;s piston (holding it) except for 4 ticks of every 14, so the engine dupes once per period. Each TNT lands and explodes on the ground 9 to 30 blocks away (7.4 to 27 on unbreakable ground), beyond the 6.9 blocks a blast can reach, so no explosion touches the machine and each one breaks ground blocks. material: 1 obsidian -&gt; stone (the same kind, axis and metrics on its judge); obsidian at 2 -1 2 stays for immovability (pistons must not move it: the design fails or changes even with a blast-proof netherite block there)</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/tnt/index.html">TNT dupers</a></td></tr>
+<tr><th scope="row">Kind</th><td>TNT duper (runs by itself)</td></tr>
+<tr><th scope="row">Blocks placed</th><td>22</td></tr>
+<tr><th scope="row">Box</th><td>4×4×4 (64 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>dead tube coral fan, observer, redstone block, redstone lamp, redstone wire, slime block, sticky piston, tnt</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>none: it runs by itself</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-21T15:51Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere, size</td></tr>
+<tr><th scope="row">Design file</th><td><code>tnt-clocked-22b</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/tnt/archive/tnt-clocked-22b.txt">on GitHub</a></p><details><summary>Design file (54 lines)</summary><pre class="design"># archived 2026-10-21T15:51Z from /tmp/mat/circuits-judged/tnt-clocked-22b.txt by mctas circuit archive
+# CIRCUIT: tnt-clocked-22b tnt-duper rate 85.7 TNT/min, period 14 gt, per period 1, latency 7 gt, safe drop 0 blocks (on the ground), 22 blocks, 4x4x4, robust (survives its own explosions: 123 exploded, design intact; launched at (0.0009, 0.1568, -1.0000) blocks/gt, spread (0.0392, 0.0000, 0.0000); useful: every blast clear of fluids, each destroys blocks on open ground)
+# The TNT duper (vjeux 2026-10-20: one world-best implementation, built from catalog parts): 86 lit
+# TNT a minute, standing right on the ground. Two catalog parts. The 16-block duplicator engine
+# (tnt-triggered-launch-16b&#39;s, without its input block) makes one TNT each time its sticky piston
+# loses power for a moment: held extended, released, it retracts, the redstone block on its slime
+# frame comes back next to its dust and pushes it out again, which primes a TNT and throws it north
+# at 1 block per tick. The clock is clk-obs-p14-lamp-obs-rb-stk-6b-b-0e0eb7 from the clock catalog
+# (6 blocks, period 14 gt): its sticky piston moves a redstone block that sits next to the engine&#39;s
+# piston (holding it) except for 4 ticks of every 14, so the engine dupes once per period. Each TNT
+# lands and explodes on the ground 9 to 30 blocks away (7.4 to 27 on unbreakable ground), beyond
+# the 6.9 blocks a blast can reach, so no explosion touches the machine and each one breaks ground
+# blocks. Found by `mctas circuit tnt hold-scan` (every archived clock and turn, the cells where a
+# piston is powered on all but one short window of the period, the engine&#39;s piston put there,
+# judged on redsim); the 120-TNT-a-minute version (a period-10 clock) lands blasts as close as 5.3
+# blocks and failed 1 of 16 game builds in 3 of 6 runs.
+# material (clk-rt 2026-10-21, `circuit material`): 1 obsidian -&gt; stone (the same kind, axis and metrics on its judge); obsidian at 2 -1 2 stays for immovability (pistons must not move it: the design fails or changes even with a blast-proof netherite block there)
+name: tnt-clocked-22b
+circuit: tnt-duper
+port start: 0 1 0 last
+origin: 0 0 0
+palette:
+  A minecraft:obsidian
+  B minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  C minecraft:sticky_piston[extended=false,facing=north]
+  D minecraft:dead_tube_coral_fan[waterlogged=false]
+  E minecraft:stone
+  O minecraft:observer[facing=north,powered=false]
+  R minecraft:redstone_block
+  S minecraft:slime_block
+  T minecraft:tnt[unstable=false]
+  o minecraft:observer[facing=south,powered=false]
+  r minecraft:redstone_lamp[lit=false]
+  s minecraft:sticky_piston[extended=false,facing=down]
+layer -2:
+  .
+  .
+  .E
+  .
+layer -1:
+  .
+  .SSS
+  RCAS
+  ...S
+layer 0:
+  r.T
+  oD
+  ..BR
+  ...S
+layer 1:
+  r
+  O
+  s.S
+  ..SS
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/eabcc3ff4199f18fc0bb028ed641666b45b16ead">vjeux/redstonepedia@eabcc3ff4</a> on <span class="nowrap">2026-10-25</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=e5967917"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=3c6a179b"});</script>
+</body>
+</html>

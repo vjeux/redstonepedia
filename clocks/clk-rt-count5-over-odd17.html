@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clock: every 85 ticks (4.25 s) · 46 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Clock: every 85 ticks (4.25 s) · 46 blocks. Comparator COUNTER over another clock: a lossless comparator ring (2 + 2 comparators, one in subtract mode) loses 3 level(s) per pulse of the inner clock (its p">
+<meta property="og:title" content="Clock: every 85 ticks (4.25 s) · 46 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Clock: every 85 ticks (4.25 s) · 46 blocks. Comparator COUNTER over another clock: a lossless comparator ring (2 + 2 comparators, one in subtract mode) loses 3 level(s) per pulse of the inner clock (its p">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<meta property="og:image" content="https://raw.githubusercontent.com/vjeux/redstonepedia/main/designs/clocks/img/clk-rt-count5-over-odd17.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="../style.css?v=3fef2398">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top on" href="../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top" href="../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../index.html" method="get" role="search"><input type="hidden" name="kind" value="clock"><input id="hq" name="q" type="search" placeholder="Search: 48 ticks, 2.5 s…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../index.html">REDSTONEPEDIA</a> › <a href="../index.html#kind=clock">Clocks</a> › <a href="../index.html#kind=clock&amp;time=85">every 85 ticks (4.25 s)</a></p>
+<p class="kindline">Clock</p>
+<h1>every 85 ticks (4.25 s) · 46 blocks</h1>
+<p class="oneliner">Its output pulses by itself every 85 ticks (4.25 s), forever. Built in the game it needs one kick to start (the last block placed); then it keeps going.</p>
+<p class="lede">made of comparator, redstone torch, redstone wire, repeater · on for 75 of 85 ticks</p>
+<div class="viewer k-clock" data-mcview="full" data-src="../designs/clocks/clk-rt-count5-over-odd17.txt" data-kind="clock"><div class="fallback has-pic"><img class="pic contain" src="https://raw.githubusercontent.com/vjeux/redstonepedia/main/designs/clocks/img/clk-rt-count5-over-odd17.jpg" alt="Clock: every 85 ticks (4.25 s) · 46 blocks in the game" decoding="async"><span class="fb-big">every 85 ticks</span><span class="fb-small">Clock</span><span class="fb-note">picture from the real game; the live 3D view replaces it when available</span></div></div>
+<p class="hint">Every clock that pulses every 85 ticks (4.25 s): <a href="../index.html#kind=clock&amp;time=85">on the Clocks tab</a>, smallest first (the ones hard to wire into a circuit last).</p>
+<section class="what plain"><h2>Try it</h2><p>Press play under the view to start it; then it runs by itself: pause and step one tick at a time with the buttons under it. To use it in a circuit, put a repeater where the view puts its lamp: it picks up every pulse.</p><p class="howdesign"><b>How this design does it:</b> Comparator COUNTER over another clock: a lossless comparator ring (2 + 2 comparators, one in subtract mode) loses 3 level(s) per pulse of the inner clock (its pulse cut to strength 3 by a subtract comparator with side 12) and its torch refills it to 14 at 0: period = 5 inner periods.</p></section>
+<section><h2>Its output over time</h2><p class="hint">The output (orange) over the first 284 ticks, as the 3D view plays it: the grey part is the clock starting up, for 29 ticks (1.45 s); then it repeats every 85 ticks (4.25 s), on for 75 ticks (3.75 s) of them. 20 ticks = 1 second.</p><div class="wave-wrap fit"><svg class="wave fit" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 412 78" role="img" aria-label="timing diagram"><rect class="warm" x="64.0" y="18.0" width="34.7" height="42.0"/><line class="ph" x1="64.0" y1="18.0" x2="64.0" y2="60.0"/><line class="ph" x1="98.7" y1="18.0" x2="98.7" y2="60.0"/><text class="phl" x="101.7" y="14.0">cycle 1</text><line class="ph" x1="200.5" y1="18.0" x2="200.5" y2="60.0"/><text class="phl" x="203.5" y="14.0">cycle 2</text><line class="ph" x1="302.2" y1="18.0" x2="302.2" y2="60.0"/><text class="phl" x="305.2" y="14.0">cycle 3</text><text class="wl" x="4" y="46.0">OUT</text><line class="base" x1="64.0" y1="48.0" x2="404.0" y2="48.0"/><polygon class="wout" points="64.0,48.0 64.0,48.0 68.8,48.0 68.8,28.0 181.3,28.0 181.3,48.0 193.3,48.0 193.3,28.0 283.1,28.0 283.1,48.0 295.1,48.0 295.1,28.0 384.8,28.0 384.8,48.0 396.8,48.0 396.8,28.0 404.0,28.0 404.0,48.0"/><text class="ax" x="4" y="72.0">ticks</text><text class="ax" x="64.0" y="72.0">0</text><text class="ax" x="98.7" y="72.0">29</text><text class="ax" x="200.5" y="72.0">114</text><text class="ax" x="302.2" y="72.0">199</text></svg></div></section>
+<section><h2>Build it</h2><p><a class="button" href="../designs/clocks/clk-rt-count5-over-odd17.litematic" download>Download .litematic</a> <a class="button alt" href="../designs/clocks/clk-rt-count5-over-odd17.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../index.html#with=comparator">comparator</a> <a class="chip" href="../index.html#with=redstone_block">redstone block</a> <a class="chip" href="../index.html#with=redstone_torch">redstone torch</a> <a class="chip" href="../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../index.html#with=repeater">repeater</a> <a class="chip" href="../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section><h2>Notes from its designer</h2><p>Comparator COUNTER over another clock: a lossless comparator ring (2 + 2 comparators, one in subtract mode) loses 3 level(s) per pulse of the inner clock (its pulse cut to strength 3 by a subtract comparator with side 12) and its torch refills it to 14 at 0: period = 5 inner periods. Inner clock: ODD period 17: Rectangle ring (clk-rt): the 3x4 perimeter clockwise from the north-west corner = [b, 4*, b, 4, 4, b, 4, b, 1, d] (number = repeater delay, * = powered at placement, b = block, d = dust, T = wall torch on the block before it, c = comparator); 0 torches: a pulse ring of loop delay 34 gt; two pulses 17 gt apart: one loaded at placement, the other started by a redstone_wall_torch[facing=south,lit=true] at [0, 0, 3] for 1 gt at tick 7 (an odd tick: a second parity class; every redstone-tick delay is even)</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Pulses every</th><td>85 ticks (4.25 s)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>comparator, redstone torch, redstone wire, repeater</td></tr>
+<tr><th scope="row">Blocks placed</th><td>46</td></tr>
+<tr><th scope="row">Box</th><td>9×2×8 (144 blocks of space)</td></tr>
+<tr><th scope="row">Output</th><td>on for 75 of every 85 ticks</td></tr>
+<tr><th scope="row">Settles after</th><td>29 ticks (1.45 s)</td></tr>
+<tr><th scope="row">To start it</th><td>a kick: redstone_wall_torch[facing=south,lit=true] 1 gt at 1,0,6 at tick 7</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Mirror image</th><td>a different design (listed separately)</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere, needs one kick to start, mirror image is a different design</td></tr>
+<tr><th scope="row">Design file</th><td><code>clk-rt-count5-over-odd17</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/clocks/archive/clk-rt-count5-over-odd17.txt">on GitHub</a></p><details><summary>Design file (48 lines)</summary><pre class="design"># archived 2026-10-19T20:26Z from designs/clocks/tracks/clk-rt/counter/count5-over-odd17.txt by mctas clock archive
+# CLOCK: clk-rt-count5-over-odd17 period 85 gt (4.25 s), on 75/85, edges 1, warmup 29, family comparator+redstone_torch+redstone_wire+repeater, 46 blocks, 9x2x8, robust
+# Comparator COUNTER over another clock (clk-rt): a lossless comparator ring (2 + 2 comparators, one
+# in subtract mode) loses 3 level(s) per pulse of the inner clock (its pulse cut to strength 3 by a
+# subtract comparator with side 12) and its torch refills it to 14 at 0: period = 5 inner periods.
+# Inner clock: ODD period 17: Rectangle ring (clk-rt): the 3x4 perimeter clockwise from the
+# north-west corner = [b, 4*, b, 4, 4, b, 4, b, 1, d] (number = repeater delay, * = powered at
+# placement, b = block, d = dust, T = wall torch on the block before it, c = comparator); 0 torches:
+# a pulse ring of loop delay 34 gt; two pulses 17 gt apart: one loaded at placement, the other
+# started by a redstone_wall_torch[facing=south,lit=true] at [0, 0, 3] for 1 gt at tick 7 (an odd
+# tick: a second parity class; every redstone-tick delay is even)
+name: clk-rt-count5-over-odd17
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge&#39;s lamp lights at evenly spaced ticks (was 4 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 3 -1 0: the output [3, -1, 0] is under the build (the build&#39;s ground level is y = 0): a repeater there has nothing to stand on)
+port output: 0 0 -2
+port start: 1 0 6 minecraft:redstone_wall_torch[facing=south,lit=true] 1 at 7
+origin: -4 0 -1
+palette:
+  A minecraft:comparator[facing=south,mode=subtract,powered=false]
+  B minecraft:comparator[facing=west,mode=compare,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:redstone_wire
+  E minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  F minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  G minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  H minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  R minecraft:redstone_block
+  S minecraft:stone
+  c minecraft:comparator[facing=east,mode=subtract,powered=false]
+  r minecraft:redstone_wall_torch[facing=east,lit=true]
+layer 0:
+  ....SSS
+  .....SSSS
+  .....S
+  .SSSSS
+  ......S
+  .....S.S
+  .....S.S
+  ......S
+layer 1:
+  ....DBBSr
+  ....ScCDD
+  .....D
+  RDDDDA
+  .....SHS
+  .....D.G
+  .....E.G
+  .....SFS
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/eabcc3ff4199f18fc0bb028ed641666b45b16ead">vjeux/redstonepedia@eabcc3ff4</a> on <span class="nowrap">2026-10-25</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../viewer/mcview.js?v=e5967917"; init({module_or_path: "../viewer/mcview_bg.wasm?v=3c6a179b"});</script>
+</body>
+</html>

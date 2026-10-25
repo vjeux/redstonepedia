@@ -1,0 +1,274 @@
+# archived 2026-10-22T10:18Z from designs/circuits/farm/tracks/w86/stem/pumpkin-lattice8.txt by mctas circuit archive
+# CIRCUIT: pumpkin-lattice8 harvester pumpkin items per hour per block 0.829, items per hour 663.5, per cane 12.5 blocks, items per hour per cane 10.37, wait 2 gt, game rts 37, bill 2187 iron, 64 quartz, 304 redstone, 800 blocks, 17x6x17, robust
+name: pumpkin-lattice8
+# A full-size pumpkin farm: 8 x 8 stems two blocks apart on wet farmland, wet farmland on every
+# diagonal and a fruit cell (on mud) on every side of every stem but the rim's, each shared by the two
+# stems beside it (a fruit that grows in an observer's 2 gt blind spot is broken by the other stem's
+# next harvest). Wet farmland around makes a stem roll 1 in 4 (CropBlock.getGrowthSpeed), and every
+# roll grows a pumpkin on a free side. An observer above each stem fires when it attaches; the dust on
+# its top powers the cells above the four pistons around it, which push down into the fruit cells.
+# The squeezed drop goes down through the mud into a hopper minecart, which a hopper empties into a
+# chest. Waterlogged grates on diagonals keep the farmland wet. Written by `circuit farm-gen`.
+circuit: harvester minecraft:pumpkin
+tile: 17 0 0
+port crop.s0: 0 1 0
+port crop.s1: 0 1 2
+port crop.s2: 0 1 4
+port crop.s3: 0 1 6
+port crop.s4: 0 1 8
+port crop.s5: 0 1 10
+port crop.s6: 0 1 12
+port crop.s7: 0 1 14
+port crop.s8: 2 1 0
+port crop.s9: 2 1 2
+port crop.s10: 2 1 4
+port crop.s11: 2 1 6
+port crop.s12: 2 1 8
+port crop.s13: 2 1 10
+port crop.s14: 2 1 12
+port crop.s15: 2 1 14
+port crop.s16: 4 1 0
+port crop.s17: 4 1 2
+port crop.s18: 4 1 4
+port crop.s19: 4 1 6
+port crop.s20: 4 1 8
+port crop.s21: 4 1 10
+port crop.s22: 4 1 12
+port crop.s23: 4 1 14
+port crop.s24: 6 1 0
+port crop.s25: 6 1 2
+port crop.s26: 6 1 4
+port crop.s27: 6 1 6
+port crop.s28: 6 1 8
+port crop.s29: 6 1 10
+port crop.s30: 6 1 12
+port crop.s31: 6 1 14
+port crop.s32: 8 1 0
+port crop.s33: 8 1 2
+port crop.s34: 8 1 4
+port crop.s35: 8 1 6
+port crop.s36: 8 1 8
+port crop.s37: 8 1 10
+port crop.s38: 8 1 12
+port crop.s39: 8 1 14
+port crop.s40: 10 1 0
+port crop.s41: 10 1 2
+port crop.s42: 10 1 4
+port crop.s43: 10 1 6
+port crop.s44: 10 1 8
+port crop.s45: 10 1 10
+port crop.s46: 10 1 12
+port crop.s47: 10 1 14
+port crop.s48: 12 1 0
+port crop.s49: 12 1 2
+port crop.s50: 12 1 4
+port crop.s51: 12 1 6
+port crop.s52: 12 1 8
+port crop.s53: 12 1 10
+port crop.s54: 12 1 12
+port crop.s55: 12 1 14
+port crop.s56: 14 1 0
+port crop.s57: 14 1 2
+port crop.s58: 14 1 4
+port crop.s59: 14 1 6
+port crop.s60: 14 1 8
+port crop.s61: 14 1 10
+port crop.s62: 14 1 12
+port crop.s63: 14 1 14
+port output: 15 -3 14
+origin: -1 -2 -1
+palette:
+  F minecraft:farmland[moisture=7]
+  M minecraft:mud
+  G minecraft:waxed_copper_grate[waterlogged=true]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=down]
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  E minecraft:hopper[enabled=true,facing=east]
+  N minecraft:hopper[enabled=true,facing=north]
+  S minecraft:hopper[enabled=true,facing=south]
+  H minecraft:hopper[enabled=true,facing=down]
+layer 0:
+  .................
+  .EEEEEEEEEEEEEEES
+  .N.N.N.N.N.N.N.NS
+  .EEEEEEEEEEEEEEES
+  .N.N.N.N.N.N.N.NS
+  .EEEEEEEEEEEEEEES
+  .N.N.N.N.N.N.N.NS
+  .EEEEEEEEEEEEEEES
+  .N.N.N.N.N.N.N.NS
+  .EEEEEEEEEEEEEEES
+  .N.N.N.N.N.N.N.NS
+  .EEEEEEEEEEEEEEES
+  .N.N.N.N.N.N.N.NS
+  .EEEEEEEEEEEEEEES
+  .N.N.N.N.N.N.N.NS
+  .EEEEEEEEEEEEEEEH
+  .................
+layer 2:
+  F.F.F.F.F.F.F.F.F
+  .FMFMFMFMFMFMFMF.
+  FMFMFMFMFMFMFMFMF
+  .FMFMFMFMFMFMFMF.
+  FMFMGMFMFMFMGMFMF
+  .FMFMFMFMFMFMFMF.
+  FMFMFMFMFMFMFMFMF
+  .FMFMFMFMFMFMFMF.
+  FMFMFMFMFMFMFMFMF
+  .FMFMFMFMFMFMFMF.
+  FMFMFMFMFMFMFMFMF
+  .FMFMFMFMFMFMFMF.
+  FMFMGMFMFMFMGMFMF
+  .FMFMFMFMFMFMFMF.
+  FMFMFMFMFMFMFMFMF
+  .FMFMFMFMFMFMFMF.
+  F.F.F.F.F.F.F.F.F
+layer 4:
+  .................
+  .OPOPOPOPOPOPOPO.
+  .P.P.P.P.P.P.P.P.
+  .OPOPOPOPOPOPOPO.
+  .P.P.P.P.P.P.P.P.
+  .OPOPOPOPOPOPOPO.
+  .P.P.P.P.P.P.P.P.
+  .OPOPOPOPOPOPOPO.
+  .P.P.P.P.P.P.P.P.
+  .OPOPOPOPOPOPOPO.
+  .P.P.P.P.P.P.P.P.
+  .OPOPOPOPOPOPOPO.
+  .P.P.P.P.P.P.P.P.
+  .OPOPOPOPOPOPOPO.
+  .P.P.P.P.P.P.P.P.
+  .OPOPOPOPOPOPOPO.
+  .................
+layer 5:
+  .................
+  .d.d.d.d.d.d.d.d.
+  .................
+  .d.d.d.d.d.d.d.d.
+  .................
+  .d.d.d.d.d.d.d.d.
+  .................
+  .d.d.d.d.d.d.d.d.
+  .................
+  .d.d.d.d.d.d.d.d.
+  .................
+  .d.d.d.d.d.d.d.d.
+  .................
+  .d.d.d.d.d.d.d.d.
+  .................
+  .d.d.d.d.d.d.d.d.
+  .................
+entity: minecraft:hopper_minecart 0.5 -1.0 1.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 0.5 -1.0 3.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 0.5 -1.0 5.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 0.5 -1.0 7.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 0.5 -1.0 9.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 0.5 -1.0 11.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 0.5 -1.0 13.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 1.5 -1.0 0.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 1.5 -1.0 2.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 1.5 -1.0 4.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 1.5 -1.0 6.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 1.5 -1.0 8.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 1.5 -1.0 10.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 1.5 -1.0 12.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 1.5 -1.0 14.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 2.5 -1.0 1.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 2.5 -1.0 3.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 2.5 -1.0 5.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 2.5 -1.0 7.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 2.5 -1.0 9.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 2.5 -1.0 11.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 2.5 -1.0 13.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 3.5 -1.0 0.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 3.5 -1.0 2.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 3.5 -1.0 4.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 3.5 -1.0 6.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 3.5 -1.0 8.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 3.5 -1.0 10.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 3.5 -1.0 12.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 3.5 -1.0 14.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 4.5 -1.0 1.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 4.5 -1.0 3.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 4.5 -1.0 5.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 4.5 -1.0 7.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 4.5 -1.0 9.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 4.5 -1.0 11.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 4.5 -1.0 13.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 5.5 -1.0 0.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 5.5 -1.0 2.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 5.5 -1.0 4.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 5.5 -1.0 6.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 5.5 -1.0 8.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 5.5 -1.0 10.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 5.5 -1.0 12.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 5.5 -1.0 14.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 6.5 -1.0 1.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 6.5 -1.0 3.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 6.5 -1.0 5.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 6.5 -1.0 7.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 6.5 -1.0 9.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 6.5 -1.0 11.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 6.5 -1.0 13.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 7.5 -1.0 0.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 7.5 -1.0 2.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 7.5 -1.0 4.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 7.5 -1.0 6.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 7.5 -1.0 8.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 7.5 -1.0 10.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 7.5 -1.0 12.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 7.5 -1.0 14.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 8.5 -1.0 1.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 8.5 -1.0 3.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 8.5 -1.0 5.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 8.5 -1.0 7.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 8.5 -1.0 9.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 8.5 -1.0 11.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 8.5 -1.0 13.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 9.5 -1.0 0.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 9.5 -1.0 2.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 9.5 -1.0 4.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 9.5 -1.0 6.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 9.5 -1.0 8.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 9.5 -1.0 10.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 9.5 -1.0 12.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 9.5 -1.0 14.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 10.5 -1.0 1.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 10.5 -1.0 3.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 10.5 -1.0 5.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 10.5 -1.0 7.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 10.5 -1.0 9.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 10.5 -1.0 11.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 10.5 -1.0 13.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 11.5 -1.0 0.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 11.5 -1.0 2.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 11.5 -1.0 4.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 11.5 -1.0 6.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 11.5 -1.0 8.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 11.5 -1.0 10.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 11.5 -1.0 12.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 11.5 -1.0 14.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 12.5 -1.0 1.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 12.5 -1.0 3.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 12.5 -1.0 5.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 12.5 -1.0 7.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 12.5 -1.0 9.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 12.5 -1.0 11.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 12.5 -1.0 13.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 13.5 -1.0 0.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 13.5 -1.0 2.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 13.5 -1.0 4.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 13.5 -1.0 6.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 13.5 -1.0 8.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 13.5 -1.0 10.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 13.5 -1.0 12.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 13.5 -1.0 14.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 14.5 -1.0 1.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 14.5 -1.0 3.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 14.5 -1.0 5.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 14.5 -1.0 7.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 14.5 -1.0 9.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 14.5 -1.0 11.5 {Rotation:[0f,0f]}
+entity: minecraft:hopper_minecart 14.5 -1.0 13.5 {Rotation:[0f,0f]}

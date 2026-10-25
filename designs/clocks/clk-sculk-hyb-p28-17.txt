@@ -1,0 +1,25 @@
+# archived 2026-10-19T20:17Z from /tmp/gen/arch2/hyb-p28-17.txt by mctas clock archive
+# CLOCK: clk-sculk-hyb-p28-17 period 28 gt (1.4 s), on 10/28, edges 1, warmup 5, family calibrated_sculk_sensor+observer+sticky_piston, 5 blocks, 2x6x1, robust
+# A calibrated sculk sensor watched by a chain of 2 observer(s) (each watching the previous); the last observer powers a stone and a sticky piston beside the stone, 4 from the sensor (travel time): the observers' pulse after the sensor re-arms is heard
+name: clk-sculk-hyb-p28-17
+# how: obs cal k=2 path 0,1,0 0,2,0 stone at the output, emitter sticky-up beside it (travel 4)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing east (on the ground) takes every pulse (was 0 -1 0: the output [0, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 1 0 0
+port start: 1 4 0 minecraft:redstone_block 1
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=south,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:observer[facing=down,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=up]
+  s minecraft:stone
+layer 0:
+  C
+layer 1:
+  O
+layer 2:
+  O
+layer 3:
+  s
+layer 4:
+  S

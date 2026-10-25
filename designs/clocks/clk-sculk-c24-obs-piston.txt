@@ -1,0 +1,21 @@
+# archived 2026-10-19T15:59Z from /tmp/clk-in3/clk-sculk--c24-obs-piston.txt by mctas clock archive
+# CLOCK: clk-sculk-c24-obs-piston period 24 gt (1.2 s), on 10/24, edges 1, warmup 6, family calibrated_sculk_sensor+observer+piston, 5 blocks, 3x3x2, robust
+# Calibrated C, observer O watching C, piston E behind O (dist 2): O's 3rd pulse (A+22) extends E.
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of a comparator facing south (on the ground) that reads the build, added at 0 0 1 (was 0 -1 0: the output [0, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+name: clk-sculk-c24-obs-piston
+port output: 0 0 2
+port start: 2 0 1 minecraft:redstone_block 1
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:observer[facing=west,powered=false]
+  P minecraft:piston[extended=false,facing=up]
+  S minecraft:stone
+  c minecraft:comparator[facing=north,mode=compare,powered=false]
+layer -1:
+  .
+  S
+layer 0:
+  COP
+  c

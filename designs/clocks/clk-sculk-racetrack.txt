@@ -1,0 +1,41 @@
+# archived 2026-10-19T19:45Z from designs/clocks/tracks/clk-sculk/extend/racetrack.txt by mctas clock archive
+# CLOCK: clk-sculk-racetrack period 60 gt (3 s), on 10/60, edges 1, warmup 21, family calibrated_sculk_sensor+note_block, 8 blocks, 27x1x19, robust
+# A pure vibration racetrack: calibrated sculk sensors on two straight lines 18 apart (17 between sensors: hop 16) joined by a turn sensor at each end (hops 15); each sensor's resonator (amethyst; the first a note block, right-clicked as the kick) rings when it fires and only the next sensor is within 16. P = 28 + 32n gt, 4 + 4n blocks (n = 1: P 60, 8 blocks). Built by `mctas clock sculk family racetrack --n 1`.
+name: clk-sculk-racetrack
+extend base: 1
+extend blocks: 4 + 4n
+extend family: clk-sculk-racetrack
+extend generator: mctas clock sculk family racetrack --n {n} --out {out}
+extend n: 1..8
+extend period: 28 + 32n
+extend rule: one more calibrated sensor + amethyst block on each straight side, 17 blocks apart (the far turn sensor moves 17 out)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was -13 -1 9: the output [-13, -1, 9] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 0 0 -1
+port start: 1 0 0 use
+origin: -13 0 0
+palette:
+  A minecraft:amethyst_block
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  c minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer 0:
+  .............CN
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  A
+  c.........................c
+  ..........................A
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ............Ac

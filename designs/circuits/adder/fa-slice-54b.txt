@@ -1,0 +1,47 @@
+# archived 2026-10-21T17:51Z from designs/circuits/adder/tracks/w86/fa-slice-54b.txt by mctas circuit archive
+# CIRCUIT: fa-slice-54b adder 1 latency 18 gt (a0 rises from a=0 b=1 cin=1), glitches 11, carry in and out, input fed through the build, slice 54 blocks per bit, latency 18 + 12 (N-1) gt, 54 blocks, 8x2x8, robust
+name: fa-slice-54b
+# Full adder bit slice, 54 blocks per bit: copies stacked every 7 blocks make a ripple-carry adder of any
+# width (judged at 1 to 4 and 8 bits). Each bit is two half adders side by side; each half adder's carry feeds a
+# repeater, the two lines join, and a last repeater lights a lamp that is the next bit's carry-in. (w86, 2026-10-21.)
+circuit: adder 1
+slice: 0 0 7
+port input.a0: 3 1 -1
+port input.b0: 2 1 3
+port input.cin: -4 1 -2
+port output.s0: -4 1 1
+port output.cout: -4 1 5
+origin: -4 0 -2
+palette:
+  R minecraft:redstone_block
+  S minecraft:stone
+  L minecraft:redstone_lamp[lit=false]
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  a minecraft:comparator[facing=south,mode=subtract,powered=false]
+  b minecraft:comparator[facing=east,mode=subtract,powered=false]
+  n minecraft:comparator[facing=north,mode=subtract,powered=false]
+  t minecraft:redstone_wall_torch[facing=south,lit=true]
+  u minecraft:redstone_wall_torch[facing=north,lit=true]
+  e minecraft:redstone_wall_torch[facing=east,lit=true]
+  w minecraft:redstone_wall_torch[facing=west,lit=true]
+  p minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  q minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  v minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+layer 0:
+  ........
+  .SSS....
+  .SSSRSS.
+  .R...SS.
+  ...S.SS.
+  SSSSS...
+  S..SS...
+  ........
+layer 1:
+  .e......
+  .nddS...
+  .dqnadbt
+  .bwSupd.
+  ...vSbd.
+  ddddv...
+  v..dd...
+  L.......

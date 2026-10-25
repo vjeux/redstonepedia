@@ -1,0 +1,20 @@
+# The hairpin with a plain sculk sensor (re-armed 40 gt after firing, so n >= 3): n delay-4 repeaters out, a two-dust U-turn, n back, an observer and a note block next to the sensor. Self-starting. P = 3 + 16n gt, 7 + 4n blocks (n = 12: P 195, 55 blocks). Built by `mctas clock sculk family hairpin-plain --n 12`.
+name: clk-sculk-hairpin-plain-n12
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 1 0
+origin: -1 0 0
+palette:
+  A minecraft:repeater[delay=4,facing=east,locked=false,powered=true]
+  B minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  R minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  r minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+  s minecraft:stone
+layer 0:
+  ..sssssssssssss
+  ..sssssssssssss
+layer 1:
+  .SBBBBBBBBBBBBR
+  NOAAAAAAAAAAAAr

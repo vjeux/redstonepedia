@@ -1,0 +1,28 @@
+# archived 2026-10-20T00:13Z from designs/clocks/tracks/clk-obs/families9/p23-note-obs-rb-stk-8b-f2475e.txt by mctas clock archive
+# CLOCK: clk-obs-p23-note-obs-rb-stk-8b-f2475e period 23 gt (1.15 s), on 2/23, edges 1, warmup 4, family note_block+observer+redstone_block+sticky_piston, 8 blocks, 1x3x4, robust
+name: clk-obs-p23-note-obs-rb-stk-8b-f2475e
+# clk-obs grow: P=23 (redsim), family note_block+observer+redstone_block+sticky_piston, kick last 0 0 0, swept volume 12.
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 0 -1 1
+port start: 0 0 0 last
+palette:
+  A minecraft:piston[extended=false,facing=down]
+  B minecraft:note_block[instrument=harp,note=0,powered=false]
+  C minecraft:sticky_piston[extended=false,facing=north]
+  D minecraft:observer[facing=down,powered=false]
+  E minecraft:observer[facing=up,powered=false]
+  F minecraft:sticky_piston[extended=false,facing=south]
+  G minecraft:redstone_block
+layer 0:
+  A
+  B
+  C
+layer 1:
+  D
+  E
+  E
+layer 2:
+  F
+  .
+  G

@@ -1,0 +1,31 @@
+# archived 2026-10-20T02:22Z from designs/clocks/tracks/clk-obs/families9/p8-note-obs-pis-rb-7b-d5d504.txt by mctas clock archive
+# CLOCK: clk-obs-p8-note-obs-pis-rb-7b-d5d504 period 8 gt (0.4 s), on 2/8, edges 1, warmup 15, family note_block+observer+piston+redstone_block, 7 blocks, 1x5x2, robust
+name: clk-obs-p8-note-obs-pis-rb-7b-d5d504
+# clk-obs grow: P=8 (redsim), family note_block+observer+piston+redstone_block, kick last 0 0 0, swept volume 10.
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 0 1
+port start: 0 0 0 last
+palette:
+  A minecraft:piston[extended=false,facing=up]
+  B minecraft:observer[facing=up,powered=false]
+  C minecraft:observer[facing=south,powered=false]
+  D minecraft:redstone_block
+  E minecraft:observer[facing=down,powered=false]
+  F minecraft:note_block[instrument=basedrum,note=0,powered=false]
+  G minecraft:piston[extended=false,facing=down]
+layer -2:
+  .
+  A
+layer -1:
+  .
+  B
+layer 0:
+  C
+  D
+layer 1:
+  E
+  .
+layer 2:
+  F
+  G

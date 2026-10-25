@@ -1,0 +1,540 @@
+# archived 2026-10-22T10:55Z from designs/circuits/tracks/clk-rt/cane/cane-sweeper-10x32.txt by mctas circuit archive
+# CIRCUIT: cane-sweeper-10x32 harvester sugar_cane items per hour per block 0.733, items per hour 800.1, per cane 4.26 blocks, items per hour per cane 3.13, harvest height 2, wait 654 gt, game rts 30, bill 2232 iron, 4 quartz, 12 redstone, 92 slime, 1091 blocks, 14x6x42, robust
+# material (clk-rt 2026-10-21, `circuit material`): 3 obsidian -> stone (the same kind, axis and metrics on its judge); obsidian at 1 3 -3 stays for blast resistance (the design keeps its verdict with a piston-movable netherite block there, not with stone); obsidian at 2 3 -3 stays for blast resistance (the design keeps its verdict with a piston-movable netherite block there, not with stone); obsidian at 3 3 -3 stays for blast resistance (the design keeps its verdict with a piston-movable netherite block there, not with stone); obsidian at 4 3 -3 stays for immovability (pistons must not move it: the design fails or changes even with a blast-proof netherite block there); obsidian at 5 3 34 stays for immovability (pistons must not move it: the design fails or changes even with a blast-proof netherite block there); obsidian at 7 3 34 stays for blast resistance (the design keeps its verdict with a piston-movable netherite block there, not with stone); obsidian at 8 3 34 stays for blast resistance (the design keeps its verdict with a piston-movable netherite block there, not with stone); obsidian at 9 3 34 stays for blast resistance (the design keeps its verdict with a piston-movable netherite block there, not with stone)
+name: cane-sweeper-10x32
+circuit: harvester sugar_cane
+tile: 15 0 0
+port crop.000: 1 1 0
+port crop.001: 2 1 0
+port crop.002: 3 1 0
+port crop.003: 4 1 0
+port crop.004: 6 1 0
+port crop.005: 7 1 0
+port crop.006: 8 1 0
+port crop.007: 9 1 0
+port crop.008: 0 1 1
+port crop.009: 1 1 1
+port crop.010: 2 1 1
+port crop.011: 4 1 1
+port crop.012: 5 1 1
+port crop.013: 6 1 1
+port crop.014: 7 1 1
+port crop.015: 9 1 1
+port crop.016: 0 1 2
+port crop.017: 2 1 2
+port crop.018: 3 1 2
+port crop.019: 4 1 2
+port crop.020: 5 1 2
+port crop.021: 7 1 2
+port crop.022: 8 1 2
+port crop.023: 9 1 2
+port crop.024: 0 1 3
+port crop.025: 1 1 3
+port crop.026: 2 1 3
+port crop.027: 3 1 3
+port crop.028: 5 1 3
+port crop.029: 6 1 3
+port crop.030: 7 1 3
+port crop.031: 8 1 3
+port crop.032: 0 1 4
+port crop.033: 1 1 4
+port crop.034: 3 1 4
+port crop.035: 4 1 4
+port crop.036: 5 1 4
+port crop.037: 6 1 4
+port crop.038: 8 1 4
+port crop.039: 9 1 4
+port crop.040: 1 1 5
+port crop.041: 2 1 5
+port crop.042: 3 1 5
+port crop.043: 4 1 5
+port crop.044: 6 1 5
+port crop.045: 7 1 5
+port crop.046: 8 1 5
+port crop.047: 9 1 5
+port crop.048: 0 1 6
+port crop.049: 1 1 6
+port crop.050: 2 1 6
+port crop.051: 4 1 6
+port crop.052: 5 1 6
+port crop.053: 6 1 6
+port crop.054: 7 1 6
+port crop.055: 9 1 6
+port crop.056: 0 1 7
+port crop.057: 2 1 7
+port crop.058: 3 1 7
+port crop.059: 4 1 7
+port crop.060: 5 1 7
+port crop.061: 7 1 7
+port crop.062: 8 1 7
+port crop.063: 9 1 7
+port crop.064: 0 1 8
+port crop.065: 1 1 8
+port crop.066: 2 1 8
+port crop.067: 3 1 8
+port crop.068: 5 1 8
+port crop.069: 6 1 8
+port crop.070: 7 1 8
+port crop.071: 8 1 8
+port crop.072: 0 1 9
+port crop.073: 1 1 9
+port crop.074: 3 1 9
+port crop.075: 4 1 9
+port crop.076: 5 1 9
+port crop.077: 6 1 9
+port crop.078: 8 1 9
+port crop.079: 9 1 9
+port crop.080: 1 1 10
+port crop.081: 2 1 10
+port crop.082: 3 1 10
+port crop.083: 4 1 10
+port crop.084: 6 1 10
+port crop.085: 7 1 10
+port crop.086: 8 1 10
+port crop.087: 9 1 10
+port crop.088: 0 1 11
+port crop.089: 1 1 11
+port crop.090: 2 1 11
+port crop.091: 4 1 11
+port crop.092: 5 1 11
+port crop.093: 6 1 11
+port crop.094: 7 1 11
+port crop.095: 9 1 11
+port crop.096: 0 1 12
+port crop.097: 2 1 12
+port crop.098: 3 1 12
+port crop.099: 4 1 12
+port crop.100: 5 1 12
+port crop.101: 7 1 12
+port crop.102: 8 1 12
+port crop.103: 9 1 12
+port crop.104: 0 1 13
+port crop.105: 1 1 13
+port crop.106: 2 1 13
+port crop.107: 3 1 13
+port crop.108: 5 1 13
+port crop.109: 6 1 13
+port crop.110: 7 1 13
+port crop.111: 8 1 13
+port crop.112: 0 1 14
+port crop.113: 1 1 14
+port crop.114: 3 1 14
+port crop.115: 4 1 14
+port crop.116: 5 1 14
+port crop.117: 6 1 14
+port crop.118: 8 1 14
+port crop.119: 9 1 14
+port crop.120: 1 1 15
+port crop.121: 2 1 15
+port crop.122: 3 1 15
+port crop.123: 4 1 15
+port crop.124: 6 1 15
+port crop.125: 7 1 15
+port crop.126: 8 1 15
+port crop.127: 9 1 15
+port crop.128: 0 1 16
+port crop.129: 1 1 16
+port crop.130: 2 1 16
+port crop.131: 4 1 16
+port crop.132: 5 1 16
+port crop.133: 6 1 16
+port crop.134: 7 1 16
+port crop.135: 9 1 16
+port crop.136: 0 1 17
+port crop.137: 2 1 17
+port crop.138: 3 1 17
+port crop.139: 4 1 17
+port crop.140: 5 1 17
+port crop.141: 7 1 17
+port crop.142: 8 1 17
+port crop.143: 9 1 17
+port crop.144: 0 1 18
+port crop.145: 1 1 18
+port crop.146: 2 1 18
+port crop.147: 3 1 18
+port crop.148: 5 1 18
+port crop.149: 6 1 18
+port crop.150: 7 1 18
+port crop.151: 8 1 18
+port crop.152: 0 1 19
+port crop.153: 1 1 19
+port crop.154: 3 1 19
+port crop.155: 4 1 19
+port crop.156: 5 1 19
+port crop.157: 6 1 19
+port crop.158: 8 1 19
+port crop.159: 9 1 19
+port crop.160: 1 1 20
+port crop.161: 2 1 20
+port crop.162: 3 1 20
+port crop.163: 4 1 20
+port crop.164: 6 1 20
+port crop.165: 7 1 20
+port crop.166: 8 1 20
+port crop.167: 9 1 20
+port crop.168: 0 1 21
+port crop.169: 1 1 21
+port crop.170: 2 1 21
+port crop.171: 4 1 21
+port crop.172: 5 1 21
+port crop.173: 6 1 21
+port crop.174: 7 1 21
+port crop.175: 9 1 21
+port crop.176: 0 1 22
+port crop.177: 2 1 22
+port crop.178: 3 1 22
+port crop.179: 4 1 22
+port crop.180: 5 1 22
+port crop.181: 7 1 22
+port crop.182: 8 1 22
+port crop.183: 9 1 22
+port crop.184: 0 1 23
+port crop.185: 1 1 23
+port crop.186: 2 1 23
+port crop.187: 3 1 23
+port crop.188: 5 1 23
+port crop.189: 6 1 23
+port crop.190: 7 1 23
+port crop.191: 8 1 23
+port crop.192: 0 1 24
+port crop.193: 1 1 24
+port crop.194: 3 1 24
+port crop.195: 4 1 24
+port crop.196: 5 1 24
+port crop.197: 6 1 24
+port crop.198: 8 1 24
+port crop.199: 9 1 24
+port crop.200: 1 1 25
+port crop.201: 2 1 25
+port crop.202: 3 1 25
+port crop.203: 4 1 25
+port crop.204: 6 1 25
+port crop.205: 7 1 25
+port crop.206: 8 1 25
+port crop.207: 9 1 25
+port crop.208: 0 1 26
+port crop.209: 1 1 26
+port crop.210: 2 1 26
+port crop.211: 4 1 26
+port crop.212: 5 1 26
+port crop.213: 6 1 26
+port crop.214: 7 1 26
+port crop.215: 9 1 26
+port crop.216: 0 1 27
+port crop.217: 2 1 27
+port crop.218: 3 1 27
+port crop.219: 4 1 27
+port crop.220: 5 1 27
+port crop.221: 7 1 27
+port crop.222: 8 1 27
+port crop.223: 9 1 27
+port crop.224: 0 1 28
+port crop.225: 1 1 28
+port crop.226: 2 1 28
+port crop.227: 3 1 28
+port crop.228: 5 1 28
+port crop.229: 6 1 28
+port crop.230: 7 1 28
+port crop.231: 8 1 28
+port crop.232: 0 1 29
+port crop.233: 1 1 29
+port crop.234: 3 1 29
+port crop.235: 4 1 29
+port crop.236: 5 1 29
+port crop.237: 6 1 29
+port crop.238: 8 1 29
+port crop.239: 9 1 29
+port crop.240: 1 1 30
+port crop.241: 2 1 30
+port crop.242: 3 1 30
+port crop.243: 4 1 30
+port crop.244: 6 1 30
+port crop.245: 7 1 30
+port crop.246: 8 1 30
+port crop.247: 9 1 30
+port crop.248: 0 1 31
+port crop.249: 1 1 31
+port crop.250: 2 1 31
+port crop.251: 4 1 31
+port crop.252: 5 1 31
+port crop.253: 6 1 31
+port crop.254: 7 1 31
+port crop.255: 9 1 31
+port output.a: -1 -1 33
+port output.b: 10 -1 33
+origin: -2 0 -5
+palette:
+  A minecraft:hopper[enabled=true,facing=north]
+  B minecraft:hopper[enabled=true,facing=south]
+  C minecraft:hopper[enabled=true,facing=west]
+  D minecraft:observer[facing=south,powered=false]
+  E minecraft:obsidian
+  F minecraft:sticky_piston[extended=false,facing=south]
+  G minecraft:stone
+  H minecraft:hopper[enabled=true,facing=down]
+  M minecraft:mud
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  S minecraft:slime_block
+  W minecraft:water[level=0]
+  h minecraft:hopper[enabled=true,facing=east]
+  o minecraft:observer[facing=north,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=north]
+layer -1:
+  .
+  .......B
+  .......B
+  .BBBBBBBBBBBB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  .BCCCCChhhhhB
+  ..AAAAAAAAAA
+  ......A
+  ......A
+  .
+layer 0:
+  .
+  .......H
+  .......H
+  .MMMMMMMMMMMM
+  .MMMWMMMMWMMM
+  .MWMMMMWMMMMWG
+  .MMMMWMMMMWMM
+  .MMWMMMMWMMMM
+  GWMMMMWMMMMWM
+  .MMMWMMMMWMMM
+  .MWMMMMWMMMMWG
+  .MMMMWMMMMWMM
+  .MMWMMMMWMMMM
+  GWMMMMWMMMMWM
+  .MMMWMMMMWMMM
+  .MWMMMMWMMMMWG
+  .MMMMWMMMMWMM
+  .MMWMMMMWMMMM
+  GWMMMMWMMMMWM
+  .MMMWMMMMWMMM
+  .MWMMMMWMMMMWG
+  .MMMMWMMMMWMM
+  .MMWMMMMWMMMM
+  GWMMMMWMMMMWM
+  .MMMWMMMMWMMM
+  .MWMMMMWMMMMWG
+  .MMMMWMMMMWMM
+  .MMWMMMMWMMMM
+  GWMMMMWMMMMWM
+  .MMMWMMMMWMMM
+  .MWMMMMWMMMMWG
+  .MMMMWMMMMWMM
+  .MMWMMMMWMMMM
+  GWMMMMWMMMMWM
+  .MMMWMMMMWMMM
+  .MWMMMMWMMMMWG
+  .MMMMWMMMMWMM
+  .MMWMMMMWMMMM
+  .HMMMMMMMMMMH
+  ......H
+  ......H
+  .
+layer 1:
+  .
+  .......H
+  GGGGGGGHGGGGGG
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  G............G
+  GGGGGGHGGGGGGG
+  ......H
+  .
+layer 2:
+  .
+  .......H
+  .GGGGGGMGGGGG
+  .......D
+  .
+  .
+  .
+  .
+  .
+  ..GGGGO
+  .......OGGGG
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ......o
+  .GGGGGMGGGGGG
+  ......H
+  .
+layer 3:
+  .......G
+  ......G.G
+  .GGEEEERGGGGG
+  .
+  .
+  .
+  .
+  .
+  .
+  ..SSSSSF
+  ......sSSSSS
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .GGGGGREGEEEG
+  .....G.G
+  ......G
+layer 4:
+  .
+  .......G
+  .GGGGGGGGGGGG
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .GGGGGGGGGGGG
+  ......G
+  .

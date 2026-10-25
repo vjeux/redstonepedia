@@ -1,0 +1,45 @@
+# archived 2026-10-19T17:24Z from designs/clocks/tracks/clk-rt/div/div-fade3-x3.txt by mctas clock archive
+# CLOCK: clk-rt-div-fade3-x3 period 1360 gt (1 min 8 s), on 680/1360, edges 1, warmup 16, family comparator+redstone_torch+redstone_wire+repeater, 76 blocks, 7x2x11, robust
+# Divider chain (clk-rt): a base comparator FADING ring (3 + 3 compare comparators keep a strength
+# that drops one level per lap; a wall torch refills the empty ring) and 3 master-slave T flip-flop
+# stage(s) (two latch repeaters locked alternately by repeaters reading the previous torch and its
+# block; the slave's dust bends into a target block holding a torch whose output runs back to the
+# master): period = the ring's x 2^3
+name: clk-rt-div-fade3-x3
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 2 1 -10: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing west (on the ground) takes every pulse (was 4 0 -8: the output [4, 0, -8] has no free line outward (the next cell taken, or next to the build))
+port output: 0 0 -9
+origin: 0 0 -10
+palette:
+  A minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  B minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  T minecraft:target
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  r minecraft:redstone_wire
+layer 0:
+  ...SS
+  .SSSS
+  ..SS
+  ....SS
+  ..SSSS
+  ...SS
+  .....SS
+  ...SSSS
+  ....SS
+  SSSS
+  SSSSSS
+layer 1:
+  .TRrr
+  .rAAr
+  ..BB
+  ..TRrr
+  ..rAAr
+  ...BB
+  ...TRrr
+  ...rAAr
+  ....BB
+  rcccSR
+  rCCCrr

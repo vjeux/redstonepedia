@@ -1,0 +1,28 @@
+name: dropring30x5-2d-r24
+period: 424
+port output: 1 0 4
+nbt: 1 1 4 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: 29 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: 0 0 0
+palette:
+  A minecraft:hopper[enabled=true,facing=south]
+  B minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  D minecraft:dropper[facing=east,triggered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  R minecraft:repeater[delay=2,facing=north,locked=false,powered=false]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=north]
+  r minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+layer 0:
+  .
+  .S
+  .S
+  .S
+  .
+layer 1:
+  ABBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+  AC...........................h
+  AR...........................h
+  Ar...........................h
+  HDDHHHHHHHHHHHHHHHHHHHHHHHHHHh

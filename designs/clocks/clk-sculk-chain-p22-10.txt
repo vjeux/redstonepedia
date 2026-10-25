@@ -1,0 +1,23 @@
+# archived 2026-10-19T17:54Z from designs/clocks/tracks/clk-sculk/best/chain-p22-10.txt by mctas clock archive
+# CLOCK: clk-sculk-chain-p22-10 period 22 gt (1.1 s), on 10/22, edges 1, warmup 12, family calibrated_sculk_sensor+oak_trapdoor+observer+repeater, 5 blocks, 2x4x1, robust
+# A calibrated sculk sensor drives repeater(s) of delay [3] placed powered (their first turn-off is the self-start), then observer on the top of the last repeater, trapdoor, 2 from the sensor (travel time)
+name: clk-sculk-chain-p22-10
+# how: chain cal line reps [3] placed powered, observer on the top of the last repeater, trapdoor (travel 2)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on a block put under it) takes every pulse (was 0 0 0: with a repeater in the output cell, no signal (it never turns on))
+port output: 0 1 -1
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:oak_trapdoor[facing=north,half=bottom,open=true,powered=true,waterlogged=false]
+  R minecraft:repeater[delay=3,facing=west,locked=false,powered=true]
+  S minecraft:stone
+  o minecraft:observer[facing=down,powered=false]
+layer 0:
+  .S
+layer 1:
+  CR
+layer 2:
+  .o
+layer 3:
+  .O

@@ -1,0 +1,18 @@
+# archived 2026-10-23T06:33Z from /home/vjeux/ws5/strip1/staged/clk-obs-p20-obs-rb-lamp-stk-6b-baf89c.txt by mctas clock archive
+# CLOCK: clk-obs-p20-obs-rb-lamp-stk-6b-baf89c period 20 gt (1 s), on 14/20, edges 1, warmup 10, family observer+redstone_block+redstone_lamp+sticky_piston, 6 blocks, 3x1x3, robust
+# the irreducible core of clk-obs-p40-bulb-lamp-obs-rb-stk-7b-3f3fff.txt (mctas clock strip, 2026-10-22): removed 2,0,1 waxed_copper_bulb[lit=false,powered=false]
+name: clk-obs-p20-obs-rb-lamp-stk-6b-baf89c
+port output: 2 -1 0
+port start: 0 0 2 last
+origin: 0 0 0
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=east]
+  o minecraft:observer[facing=north,powered=false]
+  r minecraft:redstone_lamp[lit=false]
+layer 0:
+  SR
+  Ao
+  Or

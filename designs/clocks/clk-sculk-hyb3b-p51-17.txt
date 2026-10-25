@@ -1,0 +1,25 @@
+# archived 2026-10-19T20:03Z from /tmp/gen/arch2/hyb3b-p51-17.txt by mctas clock archive
+# CLOCK: clk-sculk-hyb3b-p51-17 period 51 gt (2.55 s), on 30/51, edges 1, warmup 2, family iron_trapdoor+observer+sculk_sensor, 6 blocks, 1x6x1, robust
+# A plain sculk sensor watched by a chain of 3 observer(s) (each watching the previous); the last observer powers a stone and an iron trapdoor beside the stone, 5 from the sensor (travel time): the observers' pulse after the sensor re-arms is heard
+name: clk-sculk-hyb3b-p51-17
+# how: obs plain k=3 path 0,-1,0 0,-2,0 0,-3,0 stone at the output, emitter irontrapdoor beside it (travel 5)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 0 0
+origin: 0 0 0
+palette:
+  I minecraft:iron_trapdoor[facing=north,half=bottom,open=true,powered=true,waterlogged=false]
+  O minecraft:observer[facing=up,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  s minecraft:stone
+layer -5:
+  I
+layer -4:
+  s
+layer -3:
+  O
+layer -2:
+  O
+layer -1:
+  O
+layer 0:
+  S

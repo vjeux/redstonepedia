@@ -1,0 +1,28 @@
+# archived 2026-10-21T18:36Z from /tmp/wire/stage2/clockinfra-p55-wireable-9b.txt by mctas clock archive
+# CLOCK: clockinfra-p55-wireable-9b period 55 gt (2.75 s), on 28/55, edges 1, warmup 11, family calibrated_sculk_sensor+comparator+copper_bulb+observer+sticky_piston, 9 blocks, 3x4x2, robust
+# A 55-tick clock a builder can wire, as small as the 9-block record (clockinfra, 2026-10-21, the wireable-clocks job: clock wire-search from clk-sculk-hyb3-p55-2): a calibrated sculk sensor loop with an observer and a sticky piston; a comparator reads it.
+name: clockinfra-p55-wireable-9b
+port output: 1 2 -4
+origin: 0 0 -3
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:calibrated_sculk_sensor[facing=west,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:oak_trapdoor[facing=east,half=bottom,open=true,powered=true,waterlogged=false]
+  S minecraft:sticky_piston[extended=false,facing=up]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  c minecraft:comparator[facing=south,mode=compare,powered=false]
+  o minecraft:observer[facing=east,powered=false]
+  s minecraft:stone
+layer -1:
+  .
+  ..S
+layer 0:
+  .
+  AB
+layer 1:
+  .s
+  oCO
+layer 2:
+  .c
+  .W

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>REDSTONEPEDIA</title>
+<meta name="description" content="Redstone builds you can download: piston doors, clocks and circuits, each tested in the real game, filterable by their properties">
+<meta property="og:title" content="REDSTONEPEDIA">
+<meta property="og:description" content="Redstone builds you can download: piston doors, clocks and circuits, each tested in the real game, filterable by their properties">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="style.css?v=3fef2398">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top" href="index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="index.html" method="get" role="search"><input id="hq" name="q" type="search" placeholder="Search every build" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<h1 class="sr-only">REDSTONEPEDIA</h1><p id="lede" class="lede intro">Redstone builds you can download: the best 3×3 piston door for each of 10 records and the best 2×2 piston door, every clock that works (4742 clocks for 1096 periods) and the best design of 69 circuit kinds. Every base design was tested tick by tick in the real game; the longer versions of a clock were tested too, or simulated to their exact period.</p>
+<div id="app" class="app"><aside id="filters" class="filters" data-src="data/site.json?v=baf43dc0"><p class="loading">Loading the filters…</p></aside><div class="results"><div id="summary" class="summary"></div><div id="grid" class="grid"></div><p class="more-wrap"><button id="more" type="button" hidden>Show more</button></p></div></div>
+<noscript><p class="notice">The filters need JavaScript and WebAssembly. Without them, browse <a href="circuits/index.html">the circuits</a>: every design page works without them.</p></noscript>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/eabcc3ff4199f18fc0bb028ed641666b45b16ead">vjeux/redstonepedia@eabcc3ff4</a> on <span class="nowrap">2026-10-25</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "./pkg/redstonepedia.js?v=efae9c7a"; init({module_or_path: "./pkg/redstonepedia_bg.wasm?v=71708147"});</script>
+<script type="module">import init from "./viewer/mcview.js?v=e5967917"; init({module_or_path: "./viewer/mcview_bg.wasm?v=3c6a179b"});</script>
+</body>
+</html>

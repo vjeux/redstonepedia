@@ -1,0 +1,44 @@
+# archived 2026-10-21T13:41Z from designs/circuits/tracks/clk-misc/tnt-button-17b.txt by mctas circuit archive
+# CIRCUIT: tnt-button-17b tnt-duper-triggered per pulse 1, latency 33 gt, gap 100 gt, safe drop 0 blocks (on the ground), 17 blocks, 3x4x4, robust (survives its own explosions: 6 exploded, design intact; useful: every blast clear of fluids, each destroys blocks on open ground)
+# One TNT per BUTTON press (site QA 2026-10-21: a real button holds 20-30 gt, so the 16-block engine judged with a
+# 4-tick removal of its holding redstone block lit several TNT per press). The engine of tnt-triggered-launch-16b with a
+# one-shot hold instead: the obsidian beside the piston is strongly powered by a wall torch under it, which holds the
+# piston; the torch hangs on the stone under the piston (in the obsidian foot's place) and the button is on that
+# stone. A press powers the stone: the stone holds the piston itself and the torch goes dark. At the release the stone
+# goes quiet 2 ticks before the torch relights: the piston drops, the frame comes back, its redstone block repowers
+# the piston through the dust and the push lights ONE TNT, however long the press. Latency: the press, then 5 ticks.
+name: tnt-button-17b
+circuit: tnt-duper-triggered
+port input: 0 -1 1 button
+origin: 0 0 -1
+palette:
+  B minecraft:oak_button[face=wall,facing=west,powered=false]
+  D minecraft:dead_tube_coral_fan[waterlogged=false]
+  H minecraft:redstone_wall_torch[facing=east,lit=true]
+  N minecraft:stone
+  O minecraft:obsidian
+  R minecraft:redstone_block
+  S minecraft:slime_block
+  T minecraft:tnt[unstable=false]
+  r minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  s minecraft:sticky_piston[extended=false,facing=north]
+layer -1:
+  .
+  .
+  BNH
+  .
+layer 0:
+  .
+  .SSS
+  .sOS
+  ...S
+layer 1:
+  ..T
+  .D
+  ..rR
+  ...S
+layer 2:
+  .
+  .
+  ..S
+  ..SS

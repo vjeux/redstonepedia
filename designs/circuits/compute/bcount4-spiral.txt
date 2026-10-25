@@ -1,0 +1,50 @@
+# archived 2026-10-22T00:27Z from designs/circuits/compute/tracks/w86/bcount4-spiral.txt by mctas circuit archive
+# CIRCUIT: bcount4-spiral binary-counter 4 latency 14 gt, edge rising, per bit 3.8 blocks, 15 blocks, 4x5x3, robust
+name: bcount4-spiral
+# A ripple counter of copper bulbs wound up a spiral stair. A copper bulb flips (lit / unlit) each time
+# its power rises; the button on bulb 0 flips it at every press. A comparator reads each bulb (15 while
+# it is lit) into a stone, which powers that bit's output; a torch on the side of that stone is lit
+# while the bulb is unlit and powers the next bulb, which stands on the torch: when a bulb goes out,
+# its torch lights and flips the next bulb, so each bit flips when the bit below it goes from 1 to 0
+# (counting up). Each comparator stands on the stone of the stage below; only the first needs a floor.
+circuit: binary-counter 4
+port input.clk: -3 0 0 button
+port output.q0: 1 0 0
+port output.q1: 0 1 -2
+port output.q2: 2 2 -1
+port output.q3: 1 3 -2
+origin: -3 -1 -2
+palette:
+  S minecraft:stone
+  K minecraft:stone_button[face=wall,facing=west,powered=false]
+  b minecraft:waxed_copper_bulb[lit=false,powered=false]
+  B minecraft:waxed_copper_bulb[lit=false,powered=true]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  c minecraft:comparator[facing=south,mode=compare,powered=false]
+  t minecraft:redstone_wall_torch[facing=south,lit=true]
+  w minecraft:redstone_wall_torch[facing=west,lit=true]
+layer 0:
+  .....
+  .....
+  ..S..
+  .....
+layer 1:
+  .....
+  .....
+  KbCS.
+  ...t.
+layer 2:
+  .....
+  ..wS.
+  ...c.
+  ...B.
+layer 3:
+  .....
+  ..BCS
+  ....t
+  .....
+layer 4:
+  .....
+  ....c
+  ....B
+  .....

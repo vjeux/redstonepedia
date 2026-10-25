@@ -1,0 +1,64 @@
+# archived 2026-10-22T01:53Z from designs/circuits/elevator-items/tracks/clk-misc/lift20-pair-51b.txt by mctas circuit archive
+# CIRCUIT: lift20-pair-51b item-elevator 20 items/s 2.50, first item 106 gt, at rest no, bill 5 iron, 29 quartz, 79 redstone, 51 blocks, 4x21x1, robust
+name: lift20-pair-51b
+# The dropper-pair family's member n = 8, archived as a design of its own (`mctas circuit gen dropper-pair --n 8 --standalone lift20-pair-51b`).
+# A dropper elevator 20 blocks up (51 blocks): the hopper under the input chest feeds a column of
+# droppers facing up, the top one pushing into the output chest. One observer clock (6 gt) fires the
+# column: its observer at the second dropper is placed last (a player starts the clock by placing
+# it), so its partner leads by 2 gt; a chain of observers facing down climbs from the partner a block
+# every 2 gt, and an observer every two blocks fires the next three droppers 4 gt after the ones below
+# (a hard-powered dropper powers the ones above and below it). A dropper also reads the power of the
+# dropper two above (quasi-connectivity), so each group must be off whenever the group below turns off.
+circuit: item-elevator 20
+port items: 0 1 0
+port output: 1 21 0
+port start: 2 1 0 last
+origin: 0 0 0
+palette:
+  H minecraft:hopper[enabled=true,facing=east]
+  D minecraft:dropper[facing=up,triggered=false]
+  E minecraft:observer[facing=east,powered=false]
+  W minecraft:observer[facing=west,powered=false]
+  V minecraft:observer[facing=down,powered=false]
+layer 0:
+  HD..
+layer 1:
+  .DEW
+layer 2:
+  .D.V
+layer 3:
+  .DEV
+layer 4:
+  .D.V
+layer 5:
+  .DEV
+layer 6:
+  .D.V
+layer 7:
+  .DEV
+layer 8:
+  .D.V
+layer 9:
+  .DEV
+layer 10:
+  .D.V
+layer 11:
+  .DEV
+layer 12:
+  .D.V
+layer 13:
+  .DEV
+layer 14:
+  .D.V
+layer 15:
+  .DEV
+layer 16:
+  .D.V
+layer 17:
+  .DEV
+layer 18:
+  .D.V
+layer 19:
+  .DEV
+layer 20:
+  .D..

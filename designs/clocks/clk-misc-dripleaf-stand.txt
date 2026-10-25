@@ -1,0 +1,33 @@
+# archived 2026-10-20T14:13Z from designs/clocks/tracks/clk-misc/dripleaf/dripleaf-stand.txt by mctas clock archive
+# CLOCK: clk-misc-dripleaf-stand period 4 gt (0.2 s), on 2/4, edges 1, warmup 10, family armor_stand+big_dripleaf+observer+redstone_wire, 8 blocks, 1x3x3, robust
+name: clk-misc-dripleaf-stand
+# A big dripleaf clock: an armor stand rests on a big dripleaf; the dripleaf tilts under it (none -> unstable); an observer
+# watching the leaf pulses a redstone dust that steps down and powers the dirt under the leaf, and power resets the tilt
+# (and blocks re-tilting until it ends); then the stand tilts it again. The leaf never gets past unstable, so the stand
+# never falls. 7 blocks and the armor stand (a design entity).
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing west (on the ground) takes every pulse (was 0 -5 1: the output [0, -5, 1] is under the build (the build's ground level is y = -4): a repeater there has nothing to stand on)
+port output: -1 -4 1
+origin: -1 -2 -1
+entity: minecraft:armor_stand 0.5 0.9375 0.5
+palette:
+  S minecraft:stone
+  T minecraft:dirt
+  L minecraft:big_dripleaf[facing=north,tilt=none,waterlogged=false]
+  O minecraft:observer[facing=north,powered=false]
+  R minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+layer -2:
+  ...
+  ...
+  .S.
+  ...
+layer -1:
+  ...
+  .T.
+  .R.
+  .S.
+layer 0:
+  ...
+  .L.
+  .O.
+  .R.

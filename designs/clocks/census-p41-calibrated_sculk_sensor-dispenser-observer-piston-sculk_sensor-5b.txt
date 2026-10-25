@@ -1,0 +1,19 @@
+# archived 2026-10-19T20:57Z from /tmp/gen/arch2/s4x1x2-k5-census-p41-calibrated_sculk_sensor-dispenser-observer-piston-sculk_sensor-5b.txt by mctas clock archive
+# CLOCK: census-p41-calibrated_sculk_sensor-dispenser-observer-piston-sculk_sensor-5b period 41 gt (2.05 s), on 30/41, edges 1, warmup 38, family calibrated_sculk_sensor+dispenser+observer+piston+sculk_sensor, 5 blocks, 4x1x2, robust
+# Found by `mctas clock census` (box 4x1x2 k<=5) with a sculk palette: s4x1x2-k5-census-p41-calibrated_sculk_sensor-dispenser-observer-piston-sculk_sensor-5b
+name: census-p41-calibrated_sculk_sensor-dispenser-observer-piston-sculk_sensor-5b
+census: box 4x1x2 k<=5 (0,0,0=calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false];0,0,1=piston[extended=false,facing=east];1,0,0=sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false];2,0,0=observer[facing=west,powered=false];3,0,0=dispenser[facing=down,triggered=false])
+port start: 1 0 0 last
+# port output declared 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 1 -1 0: the output [1, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 1 0 -1
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  D minecraft:dispenser[facing=down,triggered=false]
+  O minecraft:observer[facing=west,powered=false]
+  P minecraft:piston[extended=false,facing=east]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer 0:
+  CSOD
+  P

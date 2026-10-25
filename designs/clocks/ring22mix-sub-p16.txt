@@ -1,0 +1,30 @@
+# archived 2026-10-19T19:52Z from designs/clocks/tracks/clk-item/ring22mix-sub-p16.txt by mctas clock archive
+# CLOCK: ring22mix-sub-p16 period 16 gt (0.8 s), on 7/16, edges 1, warmup 21, family comparator+hopper, 9 blocks, 3x2x4, rotation-dependent
+# Digital P=16, 2x2 hopper ring with mixed items (clk-item): 4 hoppers in a ring holding 2 swords and 2 stones (constructive census found it analog: the comparator reading one hopper sees a sword (3) or a stone (1), never 0). Here the reader is a SUBTRACT comparator whose side input is a constant 1 (a second comparator reading a dead-end hopper holding one stone): output max(s - 1, 0) = 2 or 0, digital, P = 16.
+name: ring22mix-sub-p16
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was -1 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -2 0 0
+nbt: 0 0 1 {Items:[{Slot:0b,id:"minecraft:diamond_sword",count:1}]}
+nbt: 1 0 0 {Items:[{Slot:0b,id:"minecraft:diamond_sword",count:1}]}
+nbt: 1 0 1 {Items:[{Slot:0b,id:"minecraft:stone",count:2}]}
+nbt: -1 0 -2 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: -1 0 -2
+palette:
+  A minecraft:hopper[enabled=true,facing=south]
+  B minecraft:hopper[enabled=true,facing=west]
+  X minecraft:comparator[facing=east,mode=subtract,powered=false]
+  K minecraft:comparator[facing=north,mode=compare,powered=false]
+  D minecraft:hopper[enabled=true,facing=down]
+  H minecraft:hopper[enabled=true,facing=east]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=north]
+layer -1:
+  .
+  S
+  S
+  .
+layer 0:
+  D
+  K
+  XAB
+  .Hh

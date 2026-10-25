@@ -1,0 +1,34 @@
+# archived 2026-10-21T23:24Z from designs/circuits/rail/tracks/station/station-slope2-v4.txt by mctas circuit archive
+# CIRCUIT: station-slope2-v4 station 2 line two-way, stop distance 1.60 blocks, departure delay 1 gt, leaves at 0.37 b/t, other way passes at 0.40 b/t, 10 blocks, 5x3x2, robust
+# station-slope2-v4 (clk-obs, 2026-10-21): a two-way minecart station.
+# Two powered rails sloping down eastward: a cart arriving eastbound comes to rest on them
+# (unpowered, a powered rail halves a cart's speed every tick). The button is a floor button on a
+# stone beside the lower slope, below a rider's eyes wherever the cart rests; a press powers that
+# stone, which powers both slopes: the cart slides down, crosses the detector rail and is boosted
+# again by the always-on powered rail on the redstone block. A cart coming the other way
+# (westbound) is boosted by that rail first, so it crosses the detector rail fast: the detector (on
+# for 20 gt after it last saw the cart) powers both slopes long enough for the cart to climb
+# through them. The detector rail also keeps the booster's power from running into the slopes
+# (powered rails pass power only to powered rails).
+name: station-slope2-v4
+circuit: station 2
+port line.in: -1 3 0
+port line.out: 4 1 0
+port input.go: 1 2 -1 button
+origin: -1 0 -1
+palette:
+  S minecraft:stone
+  R minecraft:redstone_block
+  A minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
+  P minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  B minecraft:stone_button[face=floor,facing=north,powered=false]
+layer 0:
+  ......
+  ..SSR.
+layer 1:
+  ..S...
+  .SADP.
+layer 2:
+  ..B...
+  SA....

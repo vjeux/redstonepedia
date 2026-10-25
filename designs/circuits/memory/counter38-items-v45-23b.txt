@@ -1,0 +1,41 @@
+# archived 2026-10-21T12:54Z from designs/circuits/tracks/clk-rt/compact/memory/counter38-items-v45-23b.txt by mctas circuit archive
+# CIRCUIT: counter38-items-v45-23b counter 38 N 38, output toggles every 38 pulses, counts one pulse per 76 inputs (toggles every 38: a square wave, a divider by 76), 23 blocks, 5x3x3, robust
+# Counter 38, with items: counter38-items's mechanism rearranged by clk-rt's circuit compact (2026-10-21), judged box 45 (was 60), 23 blocks (was 23); its blocks sit in 5x4x3.
+name: counter38-items-v45-23b
+circuit: counter 38
+group: item-pair
+group note: two droppers facing each other hold N items; each pulse fires only the one the copper bulb phase does not hold, so each runs empty once every N pulses - 23 blocks for every N up to 576 (`mctas circuit memory items --n N`)
+group title: Item counter (counter N, any N)
+port input: 1 2 0
+port output: 0 0 1
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:38}]}
+origin: -2 0 -2
+palette:
+  A minecraft:comparator[facing=south,mode=compare,powered=false]
+  B minecraft:dropper[facing=west,triggered=true]
+  C minecraft:comparator[facing=east,mode=compare,powered=true]
+  D minecraft:dropper[facing=east,triggered=false]
+  E minecraft:redstone_wall_torch[facing=west,lit=true]
+  F minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  R minecraft:redstone_torch[lit=true]
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=true]
+  c minecraft:comparator[facing=north,mode=compare,powered=false]
+  d minecraft:dropper[facing=up,triggered=true]
+  r minecraft:redstone_wall_torch[facing=north,lit=false]
+layer -1:
+  .
+  ..d
+  ...S
+layer 0:
+  DSW
+  ..cB
+  .SSFS
+layer 1:
+  FFES
+  r..A
+  SCDBR
+layer 2:
+  .
+  .
+  ...F

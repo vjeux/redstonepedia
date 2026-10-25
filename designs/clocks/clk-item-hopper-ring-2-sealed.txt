@@ -1,0 +1,40 @@
+# archived 2026-10-21T19:43Z from designs/clocks/tracks/clk-obs/sealed/families/clk-item-hopper-ring-2-sealed.txt by mctas clock archive
+# CLOCK: clk-item-hopper-ring-2-sealed period 14 gt (0.7 s), on 7/14, edges 1, warmup 3, family comparator+hopper, 12 blocks, 2x3x3, robust
+# sealed (clk-obs `clock obs sealgen`): 6 glass block(s) on the open hopper tops, so no dropped item can reach a hopper
+# The sealed twin of clk-item-hopper-ring-2 (clk-obs `clock obs seal-family`): each member is the original's, sealed.
+name: clk-item-hopper-ring-2-sealed
+extend base: 1
+extend blocks: 8 + 4n
+extend family: clk-item-hopper-ring-2-sealed
+extend generator: mctas clock obs sealgen --family designs/clocks/archive/clk-item-hopper-ring-2.txt --n {n} --out {out}
+extend group: clk-item-hopper-ring-sealed
+extend group note: one item going round (14 + 14n), or two items half a ring apart (7 + 7n); glass on the open hopper tops
+extend group title: hopper ring, sealed
+extend n: 1..40
+extend period: 7 + 7n
+extend rule: lengthen the 2-wide hopper ring by one column (2 hoppers); the two items stay half a ring apart; sealed: glass on the open hopper tops (no dropped item reaches a hopper)
+period: 14
+port output: 1 1 -2
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: 1 1 1 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: 0 0 -1
+palette:
+  A minecraft:hopper[enabled=true,facing=south]
+  B minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=east]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=north]
+layer 0:
+  SS
+  .
+  .
+layer 1:
+  CC
+  HA
+  hB
+layer 2:
+  .
+  GG
+  GG

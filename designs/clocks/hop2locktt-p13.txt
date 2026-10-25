@@ -1,0 +1,31 @@
+# archived 2026-10-19T17:36Z from designs/clocks/tracks/clk-item/hop2locktt-p13.txt by mctas clock archive
+# CLOCK: hop2locktt-p13 period 13 gt (0.65 s), on 7/13, edges 1, warmup 2, family comparator+hopper+redstone_torch+redstone_wire, 9 blocks, 2x3x3, robust
+# Hopper pair with a double-torch lock (fill k=5): 2 swords; the comparator reading the east-facing hopper A powers stone S; a torch standing on S lights the dust on the next stone, whose wall torch points into the west-facing hopper B: two inversions (2 + 2 gt) after the comparator, B is locked while A holds a sword. Same timing as hop2lockr2-p13 (repeater delay 2): P = 13.
+# redsim: P=13 gt, warmup 54, family comparator+hopper+redstone_torch+redstone_wall_torch+redstone_wire, 9 blocks, output on 7/13 gt, 1 rising edge(s)
+
+name: hop2locktt-p13
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing east (on a block put under it) takes every pulse (was 0 0 -2: with a repeater in the output cell, no signal (it never turns on))
+port output: 2 1 -1
+nbt: 1 1 0 {Items:[{Slot:0b,id:"minecraft:diamond_sword",count:1},{Slot:1b,id:"minecraft:diamond_sword",count:1}]}
+origin: 0 0 -2
+palette:
+  A minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  R minecraft:redstone_torch[lit=true]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=west]
+  r minecraft:redstone_wall_torch[facing=south,lit=true]
+layer 0:
+  .
+  S
+  .
+layer 1:
+  SS
+  Cr
+  Hh
+layer 2:
+  RA
+  .
+  .

@@ -1,0 +1,110 @@
+name: bamboo-line64
+circuit: harvester minecraft:bamboo
+port crop.s0: 0 1 0
+port crop.s1: 1 1 0
+port crop.s10: 10 1 0
+port crop.s11: 11 1 0
+port crop.s12: 12 1 0
+port crop.s13: 13 1 0
+port crop.s14: 14 1 0
+port crop.s15: 15 1 0
+port crop.s16: 16 1 0
+port crop.s17: 17 1 0
+port crop.s18: 18 1 0
+port crop.s19: 19 1 0
+port crop.s2: 2 1 0
+port crop.s20: 20 1 0
+port crop.s21: 21 1 0
+port crop.s22: 22 1 0
+port crop.s23: 23 1 0
+port crop.s24: 24 1 0
+port crop.s25: 25 1 0
+port crop.s26: 26 1 0
+port crop.s27: 27 1 0
+port crop.s28: 28 1 0
+port crop.s29: 29 1 0
+port crop.s3: 3 1 0
+port crop.s30: 30 1 0
+port crop.s31: 31 1 0
+port crop.s32: 32 1 0
+port crop.s33: 33 1 0
+port crop.s34: 34 1 0
+port crop.s35: 35 1 0
+port crop.s36: 36 1 0
+port crop.s37: 37 1 0
+port crop.s38: 38 1 0
+port crop.s39: 39 1 0
+port crop.s4: 4 1 0
+port crop.s40: 40 1 0
+port crop.s41: 41 1 0
+port crop.s42: 42 1 0
+port crop.s43: 43 1 0
+port crop.s44: 44 1 0
+port crop.s45: 45 1 0
+port crop.s46: 46 1 0
+port crop.s47: 47 1 0
+port crop.s48: 48 1 0
+port crop.s49: 49 1 0
+port crop.s5: 5 1 0
+port crop.s50: 50 1 0
+port crop.s51: 51 1 0
+port crop.s52: 52 1 0
+port crop.s53: 53 1 0
+port crop.s54: 54 1 0
+port crop.s55: 55 1 0
+port crop.s56: 56 1 0
+port crop.s57: 57 1 0
+port crop.s58: 58 1 0
+port crop.s59: 59 1 0
+port crop.s6: 6 1 0
+port crop.s60: 60 1 0
+port crop.s61: 61 1 0
+port crop.s62: 62 1 0
+port crop.s63: 63 1 0
+port crop.s7: 7 1 0
+port crop.s8: 8 1 0
+port crop.s9: 9 1 0
+port output: 64 -2 0
+origin: -1 0 -1
+palette:
+  A minecraft:bamboo[age=1,leaves=small,stage=0]
+  B minecraft:bamboo[age=1,leaves=large,stage=0]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=down]
+  M minecraft:mud
+  O minecraft:observer[facing=north,powered=false]
+  P minecraft:piston[extended=false,facing=north]
+  R minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  S minecraft:stone
+  b minecraft:bamboo[age=1,leaves=none,stage=0]
+  h minecraft:hopper[enabled=true,facing=east]
+layer -1:
+  .
+  .hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhH
+  .
+  .
+layer 0:
+  SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+  SMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM
+  .
+  .
+layer 1:
+  GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
+  GbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbG
+  GSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSG
+  .
+layer 2:
+  GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
+  GABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABG
+  GPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPG
+  .SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
+layer 3:
+  GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
+  GB.B.B.B.B.B.B.B.B.B.B.B.B.B.B.B.B.B.B.B.B.B.B.B.B.B.B.B.B.B.B.B.G
+  GOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOG
+  .RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR
+layer 4:
+  .
+  GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
+  GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG
+  .

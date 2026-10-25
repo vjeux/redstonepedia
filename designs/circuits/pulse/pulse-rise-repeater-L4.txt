@@ -1,0 +1,23 @@
+# archived 2026-10-20T00:29Z from designs/circuits/tracks/pulse/repeater/pulse-rise-repeater-L4.txt by mctas circuit archive
+# CIRCUIT: pulse-rise-repeater-L4 rising-edge L 4 gt, delay 8 gt, min-pulse 4 gt, 4 blocks, 3x2x2, robust
+name: pulse-rise-repeater-L4
+circuit: rising-edge
+group: pulse-rise-repeater
+group title: rising-edge pulse: a piston-moved observer and a repeater
+# A sticky piston pushes an observer (facing sideways) whose back then faces a repeater: the
+# observer fires 2 gt after it lands and the delay-2 repeater stretches its pulse to 4 gt; on the
+# falling edge the observer is pulled back and fires into the empty cell beside the repeater.
+origin: -1 0 0
+port input: -1 1 0
+port output: 2 1 2
+palette:
+  S minecraft:stone
+  P minecraft:sticky_piston[extended=false,facing=east]
+  O minecraft:observer[facing=north,powered=false]
+  R minecraft:repeater[delay=2,facing=north,locked=false,powered=false]
+layer 0:
+  ....
+  ...S
+layer 1:
+  .PO.
+  ...R

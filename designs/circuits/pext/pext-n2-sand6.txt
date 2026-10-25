@@ -1,0 +1,25 @@
+# archived 2026-10-20T00:07Z from designs/circuits/pext/work/n2-sand6.txt by mctas circuit archive
+# CIRCUIT: pext-n2-sand6 piston-extender 2 N 2, extend 7 gt, retract 12 gt, 6 blocks, 3x5x1, robust
+# N=2, GRAVITY (sand payload), travel up: an observer under the lever pulses A (through the stone
+# beside it) on both edges. On: A spits B + sand up one cell; B lands next to the lever, which holds
+# it extended (sand up one more). Off: B retracts and the sand falls onto it; A's pulse reach-pulls
+# B back down and the sand falls home on top of it.
+name: pext-n2-sand6
+circuit: piston-extender 2
+travel: 0 1 0
+port input: 1 2 0 lever
+port payload: 0 2 0
+palette:
+  A minecraft:sticky_piston[facing=up]
+  B minecraft:piston[facing=up]
+  X minecraft:sand
+  O minecraft:observer[facing=up]
+  P minecraft:stone
+  K minecraft:stone
+  L minecraft:lever[face=wall,facing=west]
+layer 0:
+  AP.
+layer 1:
+  BO.
+layer 2:
+  XLK

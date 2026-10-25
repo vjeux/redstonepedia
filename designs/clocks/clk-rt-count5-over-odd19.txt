@@ -1,0 +1,48 @@
+# archived 2026-10-19T20:26Z from designs/clocks/tracks/clk-rt/counter/count5-over-odd19.txt by mctas clock archive
+# CLOCK: clk-rt-count5-over-odd19 period 95 gt (4.75 s), on 85/95, edges 1, warmup 21, family comparator+redstone_torch+redstone_wire+repeater, 46 blocks, 9x2x8, robust
+# Comparator COUNTER over another clock (clk-rt): a lossless comparator ring (2 + 2 comparators, one
+# in subtract mode) loses 3 level(s) per pulse of the inner clock (its pulse cut to strength 3 by a
+# subtract comparator with side 12) and its torch refills it to 14 at 0: period = 5 inner periods.
+# Inner clock: ODD period 19: Rectangle ring (clk-rt): the 3x4 perimeter clockwise from the
+# north-west corner = [b, 4*, b, 4, 4, b, 4, b, 3, d] (number = repeater delay, * = powered at
+# placement, b = block, d = dust, T = wall torch on the block before it, c = comparator); 0 torches:
+# a pulse ring of loop delay 38 gt; two pulses 19 gt apart: one loaded at placement, the other
+# started by a redstone_wall_torch[facing=south,lit=true] at [0, 0, 3] for 1 gt at tick 5 (an odd
+# tick: a second parity class; every redstone-tick delay is even)
+name: clk-rt-count5-over-odd19
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 4 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 3 -1 0: the output [3, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 0 0 -2
+port start: 1 0 6 minecraft:redstone_wall_torch[facing=south,lit=true] 1 at 5
+origin: -4 0 -1
+palette:
+  A minecraft:comparator[facing=south,mode=subtract,powered=false]
+  B minecraft:comparator[facing=west,mode=compare,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:redstone_wire
+  E minecraft:repeater[delay=3,facing=south,locked=false,powered=false]
+  F minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  G minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  H minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  R minecraft:redstone_block
+  S minecraft:stone
+  c minecraft:comparator[facing=east,mode=subtract,powered=false]
+  r minecraft:redstone_wall_torch[facing=east,lit=true]
+layer 0:
+  ....SSS
+  .....SSSS
+  .....S
+  .SSSSS
+  ......S
+  .....S.S
+  .....S.S
+  ......S
+layer 1:
+  ....DBBSr
+  ....ScCDD
+  .....D
+  RDDDDA
+  .....SHS
+  .....D.G
+  .....E.G
+  .....SFS

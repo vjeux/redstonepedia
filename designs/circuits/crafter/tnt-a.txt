@@ -1,0 +1,53 @@
+# archived 2026-10-22T00:32Z from designs/circuits/crafter/tracks/clk-item/tnt-a.txt by mctas circuit archive
+# CIRCUIT: tnt-a crafter tnt crafts/min 18.8, first craft by 80 gt, crafts 21 (2 waiting sets checked), hoppers awake 1, recipe class multi, supply items.gunpowder + items.sand, bill 10 iron, 7 quartz, 27 redstone, 31 blocks, 5x3x5, robust
+# TNT auto-crafter, first layout (clk-item 2026-10-21): gunpowder and sand must enter the crafter M
+# alternately (TNT's pattern is G S G / S G S / G S G, and a crafter fills its slots in order).
+# The comparator A reads M's filled slots onto the dust d; two observers watch d, and each change
+# toggles both copper bulbs. B1 (lit while the count is even) locks the sand hopper through the
+# comparator C1 and the stone beside the hopper; B2 (lit while it is odd) locks the gunpowder
+# hopper through C2, the stone S2 and two dust, and the stone under that dust powers M: M tries a
+# craft each time the count turns odd (a part of TNT's pattern crafts nothing) and crafts at 9.
+# K compares M's count with a constant 9 (comparator J reading a crafter whose nine slots are
+# disabled) and, through a repeater, keeps the sand hopper locked from the ninth item until the
+# bulbs have turned back after the craft.
+name: tnt-a
+circuit: crafter tnt
+port items.gunpowder: 0 2 0
+port items.sand: -1 1 0
+port output: 0 -1 0
+origin: -2 0 -2
+palette:
+  M minecraft:crafter[crafting=false,orientation=down_north,triggered=false]
+  C minecraft:crafter[crafting=false,orientation=north_up,triggered=false]
+  G minecraft:hopper[enabled=true,facing=down]
+  H minecraft:hopper[enabled=false,facing=east]
+  A minecraft:comparator[facing=south,mode=compare,powered=false]
+  K minecraft:comparator[facing=north,mode=compare,powered=false]
+  J minecraft:comparator[facing=east,mode=compare,powered=false]
+  N minecraft:comparator[facing=north,mode=compare,powered=false]
+  E minecraft:observer[facing=east,powered=false]
+  W minecraft:observer[facing=west,powered=false]
+  L minecraft:waxed_copper_bulb[lit=true,powered=false]
+  U minecraft:waxed_copper_bulb[lit=false,powered=false]
+  R minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+  S minecraft:stone
+  r minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer -1:
+  ..S..
+  S.S.S
+  .....
+  .SSS.
+  .SS..
+layer 0:
+  LErWU
+  N.A.N
+  SHMSS
+  .RKJC
+  .rr..
+layer 1:
+  .....
+  .....
+  ..Grr
+  .....
+  .....
+nbt: 2 0 1 {disabled_slots:[I;0,1,2,3,4,5,6,7,8]}

@@ -1,0 +1,45 @@
+# archived 2026-10-20T04:00Z from designs/clocks/tracks/clockinfra/kits/bouncer/designs/kit-bouncer-oak_boat-p74-19b.txt by mctas clock archive
+# CLOCK: kit-bouncer-oak_boat-p74-19b period 74 gt (3.7 s), on 70/74, edges 1, warmup 91, family oak_boat+tripwire+tripwire_hook, 19 blocks, 4x5x4, robust
+name: kit-bouncer-oak_boat-p74-19b
+# Bubble-column bouncer (clock kit K2, `mctas clock kit bouncer`): a oak boat on a pool whose water
+# source sits on soul sand (an upward bubble column), under a lantern. The column launches it (or
+# drags it down) and it falls back, again and again; on its way it trips a tripwire stretched across
+# the pool, whose hooks are the output. No redstone.
+kit: bouncer (kit-bouncer-362): period 74 gt, family oak_boat+tripwire+tripwire_hook, minimal; 16 types with this period
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 1 -1
+entity: minecraft:oak_boat 1 1 1
+origin: -1 0 -1
+palette:
+  A minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+  L minecraft:lantern[hanging=true]
+  S minecraft:soul_sand
+  T minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,south=true,west=false,powered=false]
+  W minecraft:water[level=0]
+  s minecraft:stone
+  t minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+layer -1:
+  .
+  .Ss
+  .ss
+  .
+layer 0:
+  .ss
+  sW.s
+  s..s
+  .ss
+layer 1:
+  .A
+  .T
+  .T
+  .t
+layer 2:
+  .
+  .
+  .
+  .
+layer 3:
+  .
+  .L
+  .
+  .

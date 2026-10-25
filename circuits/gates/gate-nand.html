@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logic gate: NOT (A AND B) · 2 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Logic gate: NOT (A AND B) · 2 blocks. NAND gate, 2 blocks: a wall torch hanging on each input block, and the output lamp touching both torches. Each torch goes out when its own input is on, so the l">
+<meta property="og:title" content="Logic gate: NOT (A AND B) · 2 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Logic gate: NOT (A AND B) · 2 blocks. NAND gate, 2 blocks: a wall torch hanging on each input block, and the output lamp touching both torches. Each torch goes out when its own input is on, so the l">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/gates/index.html">Logic gates</a></p>
+<p class="kindline">Logic gate</p>
+<h1>NOT (A AND B) · 2 blocks</h1>
+<p class="oneliner">It has two inputs, A and B. The output is on unless both A and B are on.</p>
+<p class="lede">passed at every position and facing we tested · reacts in 2 ticks (0.1 s) · made of redstone torch · fits in 2×1×2</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/gates/gate-nand.txt" data-stimulus="a 80+ 100- 120+ 140- 160+ 180- 200+ 260-; b 40+ 60- 120+ 160- 180+ 220- 240+ 260-" data-phases="0-40 00 (rest); 40-60 01; 60-80 00; 80-100 10; 100-120 00; 120-140 11; 140-160 01; 160-180 10; 180-200 01; 200-220 11; 220-240 10; 240-260 11; 260-280 00" data-input-mode="toggle" data-circuit="gate nand" data-kind="circuit"><div class="fallback"><span class="fb-big">NOT (A AND B)</span><span class="fb-small">Logic gate</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<section class="what plain"><h2>Try it</h2><p>Use the A and B buttons under the view to drive the inputs: the box marked OUT turns red while the output is on. Press play under the view to watch our test on a loop; touch any other control to take over.</p><p class="howdesign"><b>How this design does it:</b> NAND gate, 2 blocks: a wall torch hanging on each input block, and the output lamp touching both torches.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/gates/gate-nand.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/gates/gate-nand.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=redstone_torch">redstone torch</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>A logic gate: the output depends only on the inputs right now. <b>NAND</b>: the output is off only while A and B are both on (NOT AND).</p><table class="truth"><thead><tr><th>A</th><th>B</th><th>OUT</th></tr></thead><tbody><tr><td class="off">off</td><td class="off">off</td><td class="on">on</td></tr><tr><td class="off">off</td><td class="on">on</td><td class="on">on</td></tr><tr><td class="on">on</td><td class="off">off</td><td class="on">on</td></tr><tr><td class="on">on</td><td class="on">on</td><td class="off">off</td></tr></tbody></table><p>The output settles 2 gt (0.1 s) after an input changes.</p></section>
+<section><h2>How to try it</h2><p><b>Press play under the view to watch the judge's own test</b> on a loop (the badge reads <i>demo</i> with the step it is on; the same test is drawn as a timing diagram below). Touch any control to stop it and try the circuit yourself.</p><p>To try it: tap the <b>A</b> button of the bar (or the cell tagged A) to turn that input on or off (it powers the cell with a redstone block); tap the <b>B</b> button of the bar (or the cell tagged B) to turn that input on or off (it powers the cell with a redstone block).</p><p>Inputs are tagged in <span class="tag-in">lime</span>; the output is tagged <span class="tag-out">OUT</span>: the <b>redstone lamp</b> in that cell (the lamp the judge itself adds to read the output) <b>lights while the output is on</b> (the output strip by the demo badge shows its last 40 game ticks, 2 seconds). Drag to look around, pinch or scroll to zoom, step one game tick at a time with the step button.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the inputs with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="1032" height="146" viewBox="0 0 1032 146" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="64.0" y1="18.0" x2="64.0" y2="128.0"/><text class="phl" x="67.0" y="14.0">00 (rest)</text><line class="ph" x1="200.7" y1="18.0" x2="200.7" y2="128.0"/><text class="phl" x="203.7" y="14.0">01</text><line class="ph" x1="269.0" y1="18.0" x2="269.0" y2="128.0"/><text class="phl" x="272.0" y="14.0">00</text><line class="ph" x1="337.3" y1="18.0" x2="337.3" y2="128.0"/><text class="phl" x="340.3" y="14.0">10</text><line class="ph" x1="405.6" y1="18.0" x2="405.6" y2="128.0"/><text class="phl" x="408.6" y="14.0">00</text><line class="ph" x1="474.0" y1="18.0" x2="474.0" y2="128.0"/><text class="phl" x="477.0" y="14.0">11</text><line class="ph" x1="542.3" y1="18.0" x2="542.3" y2="128.0"/><text class="phl" x="545.3" y="14.0">01</text><line class="ph" x1="610.6" y1="18.0" x2="610.6" y2="128.0"/><text class="phl" x="613.6" y="14.0">10</text><line class="ph" x1="678.9" y1="18.0" x2="678.9" y2="128.0"/><text class="phl" x="681.9" y="14.0">01</text><line class="ph" x1="747.3" y1="18.0" x2="747.3" y2="128.0"/><text class="phl" x="750.3" y="14.0">11</text><line class="ph" x1="815.6" y1="18.0" x2="815.6" y2="128.0"/><text class="phl" x="818.6" y="14.0">10</text><line class="ph" x1="883.9" y1="18.0" x2="883.9" y2="128.0"/><text class="phl" x="886.9" y="14.0">11</text><line class="ph" x1="952.3" y1="18.0" x2="952.3" y2="128.0"/><text class="phl" x="955.3" y="14.0">00</text><text class="wl" x="4" y="46.0">A</text><line class="base" x1="64.0" y1="48.0" x2="1024.0" y2="48.0"/><polygon class="win" points="64.0,48.0 64.0,48.0 337.3,48.0 337.3,28.0 405.6,28.0 405.6,48.0 474.0,48.0 474.0,28.0 542.3,28.0 542.3,48.0 610.6,48.0 610.6,28.0 678.9,28.0 678.9,48.0 747.3,48.0 747.3,28.0 952.3,28.0 952.3,48.0 1024.0,48.0 1024.0,48.0"/><text class="wl" x="4" y="80.0">B</text><line class="base" x1="64.0" y1="82.0" x2="1024.0" y2="82.0"/><polygon class="win" points="64.0,82.0 64.0,82.0 200.7,82.0 200.7,62.0 269.0,62.0 269.0,82.0 474.0,82.0 474.0,62.0 610.6,62.0 610.6,82.0 678.9,82.0 678.9,62.0 815.6,62.0 815.6,82.0 883.9,82.0 883.9,62.0 952.3,62.0 952.3,82.0 1024.0,82.0 1024.0,82.0"/><text class="wl" x="4" y="114.0">OUT</text><line class="base" x1="64.0" y1="116.0" x2="1024.0" y2="116.0"/><polygon class="wout" points="64.0,116.0 64.0,96.0 480.8,96.0 480.8,116.0 549.1,116.0 549.1,96.0 754.1,96.0 754.1,116.0 822.4,116.0 822.4,96.0 890.8,96.0 890.8,116.0 959.1,116.0 959.1,96.0 1024.0,96.0 1024.0,116.0"/><text class="ax" x="4" y="140.0">ticks</text><text class="ax" x="64.0" y="140.0">0</text><text class="ax" x="132.3" y="140.0">20</text><text class="ax" x="200.7" y="140.0">40</text><text class="ax" x="269.0" y="140.0">60</text><text class="ax" x="337.3" y="140.0">80</text><text class="ax" x="405.6" y="140.0">100</text><text class="ax" x="474.0" y="140.0">120</text><text class="ax" x="542.3" y="140.0">140</text><text class="ax" x="610.6" y="140.0">160</text><text class="ax" x="678.9" y="140.0">180</text><text class="ax" x="747.3" y="140.0">200</text><text class="ax" x="815.6" y="140.0">220</text><text class="ax" x="883.9" y="140.0">240</text><text class="ax" x="952.3" y="140.0">260</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 281 ticks (14.05 s).</p><details><summary>Our test's report, step by step (13 lines)</summary><pre class="design">00 (rest): output 1
+-&gt; 01: output 1
+-&gt; 00: output 1
+-&gt; 10: output 1
+-&gt; 00: output 1
+-&gt; 11: output 0 after 2 gt
+-&gt; 01: output 1 after 2 gt
+-&gt; 10: output 1
+-&gt; 01: output 1
+-&gt; 11: output 0 after 2 gt
+-&gt; 10: output 1 after 2 gt
+-&gt; 11: output 0 after 2 gt
+-&gt; 00: output 1 after 2 gt</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">function</th><td>nand</td><td class="def">the logic function the truth table names</td></tr>
+<tr><th scope="row">latency</th><td>2 gt (0.1 s)</td><td class="def">the worst time from an input change to the output&#39;s change</td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>NAND gate, 2 blocks: a wall torch hanging on each input block, and the output lamp touching both torches. Each torch goes out when its own input is on, so the lamp stays lit unless BOTH inputs are on.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/gates/index.html">Logic gates</a></td></tr>
+<tr><th scope="row">Kind</th><td>Logic gate</td></tr>
+<tr><th scope="row">Blocks placed</th><td>2 (not counting the input levers or buttons and the test lamp the view adds)</td></tr>
+<tr><th scope="row">Box</th><td>2×1×2 (4 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>redstone torch</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>A (repeater), B (repeater) / OUT</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-20T21:55Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere</td></tr>
+<tr><th scope="row">Design file</th><td><code>gate-nand</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/gates/archive/gate-nand.txt">on GitHub</a></p><details><summary>Design file (15 lines)</summary><pre class="design"># archived 2026-10-20T21:55Z from designs/circuits/gates/tracks/gates/gate-nand.txt by mctas circuit archive
+# CIRCUIT: gate-nand gate nand function nand, latency 2 gt, 2 blocks, 2x1x2, robust
+# NAND gate, 2 blocks: a wall torch hanging on each input block, and the output lamp touching both torches. Each torch goes out when its own input is on, so the lamp stays lit unless BOTH inputs are on.
+name: gate-nand
+circuit: gate nand
+port input.a: 0 1 0
+port input.b: 2 1 2
+port output: 2 1 0
+origin: 1 0 0
+palette:
+  E minecraft:redstone_wall_torch[facing=east,lit=true]
+  N minecraft:redstone_wall_torch[facing=north,lit=true]
+layer 1:
+  E.
+  .N
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/eabcc3ff4199f18fc0bb028ed641666b45b16ead">vjeux/redstonepedia@eabcc3ff4</a> on <span class="nowrap">2026-10-25</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=e5967917"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=3c6a179b"});</script>
+</body>
+</html>

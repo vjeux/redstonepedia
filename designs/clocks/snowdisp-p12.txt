@@ -1,0 +1,21 @@
+# archived 2026-10-19T18:22Z from designs/clocks/tracks/clk-item/snowdisp-p12.txt by mctas clock archive
+# CLOCK: snowdisp-p12 period 12 gt (0.6 s), on 4/12, edges 2, warmup 2, family dispenser+observer+redstone_wire, 5 blocks, 3x3x1, robust
+# Powder snow dispenser clock, 5 blocks (clk-item): a dispenser facing down holds one powder snow bucket; each fire toggles the cell under it (the bucket places powder snow and becomes an empty bucket; the empty bucket picks the powder snow back up). An observer watching that cell pulses (2 gt) into a dust behind it, which climbs onto the observer and powers the dispenser: each toggle re-fires the dispenser 2 + 4 gt later, P = 12. Kicked once (a stone flashed in the cell for 1 gt). JVM only (redsim does not model dispenser item behaviors).
+name: snowdisp-p12
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 2 -2 0: the output [2, -2, 0] is under the build (the build's ground level is y = -1): a repeater there has nothing to stand on)
+port output: 2 -1 -1
+port start: 0 0 0 minecraft:stone 1
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:powder_snow_bucket",count:1}]}
+origin: 0 0 0
+palette:
+  S minecraft:stone
+  D minecraft:dispenser[facing=down,triggered=false]
+  O minecraft:observer[facing=west,powered=false]
+  r minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+layer -1:
+  ..S
+layer 0:
+  .Or
+layer 1:
+  Dr

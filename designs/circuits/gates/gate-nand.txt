@@ -1,0 +1,15 @@
+# archived 2026-10-20T21:55Z from designs/circuits/gates/tracks/gates/gate-nand.txt by mctas circuit archive
+# CIRCUIT: gate-nand gate nand function nand, latency 2 gt, 2 blocks, 2x1x2, robust
+# NAND gate, 2 blocks: a wall torch hanging on each input block, and the output lamp touching both torches. Each torch goes out when its own input is on, so the lamp stays lit unless BOTH inputs are on.
+name: gate-nand
+circuit: gate nand
+port input.a: 0 1 0
+port input.b: 2 1 2
+port output: 2 1 0
+origin: 1 0 0
+palette:
+  E minecraft:redstone_wall_torch[facing=east,lit=true]
+  N minecraft:redstone_wall_torch[facing=north,lit=true]
+layer 1:
+  E.
+  .N

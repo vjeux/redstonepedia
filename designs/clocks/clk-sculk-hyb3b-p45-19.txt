@@ -1,0 +1,21 @@
+# archived 2026-10-19T19:59Z from /tmp/gen/arch2/hyb3b-p45-19.txt by mctas clock archive
+# CLOCK: clk-sculk-hyb3b-p45-19 period 45 gt (2.25 s), on 30/45, edges 1, warmup 2, family oak_fence_gate+observer+sculk_sensor, 4 blocks, 1x4x1, robust
+# A plain sculk sensor watched by a chain of 1 observer(s) (each watching the previous); the last observer powers a stone and an oak fence gate beside the stone, 3 from the sensor (travel time): the observers' pulse after the sensor re-arms is heard
+name: clk-sculk-hyb3b-p45-19
+# how: obs plain k=1 path 0,-1,0 stone at the output, emitter gate beside it (travel 3)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 0 0
+origin: 0 0 0
+palette:
+  O minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=true]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=up,powered=false]
+  s minecraft:stone
+layer -3:
+  O
+layer -2:
+  s
+layer -1:
+  o
+layer 0:
+  S

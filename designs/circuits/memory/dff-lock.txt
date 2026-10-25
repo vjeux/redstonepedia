@@ -1,0 +1,21 @@
+# archived 2026-10-20T22:41Z from designs/circuits/memory/tracks/memory/dff-lock.txt by mctas circuit archive
+# CIRCUIT: dff-lock dff latency 6 gt, edge rising, setup 1 gt, hold 1 gt, 9 blocks, 2x2x3, robust
+# D flip-flop, 9 blocks: the data runs through two repeaters, and each has a lock repeater beside it (a locked repeater holds its output). The master's lock reads the clock block itself, so the first repeater follows d only while the clock is LOW; a wall torch hanging on that same clock block feeds the slave's lock, so the second repeater passes only while the clock is HIGH. On the rising edge the master freezes on d and the slave opens: q takes d exactly at the edge. No clock wiring at all: the clock block is part of the circuit.
+name: dff-lock
+circuit: dff
+port input.clk: 0 1 2
+port input.d: -1 1 0
+port output: 2 1 0
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  B minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+layer 0:
+  SS
+  SS
+layer 1:
+  BB
+  AA
+  .R

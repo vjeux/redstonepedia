@@ -1,0 +1,24 @@
+# archived 2026-10-20T14:10Z from /tmp/clkobs-runs/tiled/pulse-dual-lamp-repeater-L8-self-tile1.txt by mctas circuit archive
+# CIRCUIT: pulse-dual-lamp-repeater-L8 dual-edge L 8 gt, delay 10 gt rising / 14 gt falling, min-pulse 15 gt, tileable every 1 (1 0 0), 4 blocks, 1x2x3, robust
+name: pulse-dual-lamp-repeater-L8
+circuit: dual-edge
+group: pulse-dual-lamp-repeater
+group note: the lamp's 4 gt fall separates the two edges of short inputs; L set by the repeater delay
+group title: lamp + observer + repeater dual-edge
+tile: 1 0 0
+port input: 0 0 2
+port output: 0 0 -1
+origin: 0 0 -1
+palette:
+  O minecraft:observer[facing=south,powered=false]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:stone
+  r minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+layer -1:
+  S
+  .
+  .
+layer 0:
+  r
+  O
+  R

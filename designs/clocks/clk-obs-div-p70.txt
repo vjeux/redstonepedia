@@ -1,0 +1,52 @@
+# archived 2026-10-21T17:12Z from designs/clocks/tracks/clk-obs/usable/div-p70.txt by mctas clock archive
+# CLOCK: clk-obs-div-p70 period 70 gt (3.5 s), on 35/70, edges 1, warmup 21, family calibrated_sculk_sensor+comparator+copper_bulb+note_block, 9 blocks, 8x2x17, robust
+# clock with 1 copper-bulb divider stage(s) (clk-obs `clock obs divide`): the bulb in the old output cell toggles on every pulse, a comparator reads it (x 2 per stage); the period is the base's x 2.
+name: clk-obs-div-p70
+name: clk-obs-div-p70
+port output: -1 0 -2
+port start: 0 0 -1 use
+origin: -1 0 -1
+palette:
+  A minecraft:amethyst_block
+  B minecraft:comparator[facing=south,mode=compare,powered=false]
+  C minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  c minecraft:calibrated_sculk_sensor[facing=west,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer -1:
+  S
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 0:
+  BN
+  Wc....AC
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ..A
+  ..C

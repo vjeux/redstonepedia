@@ -1,0 +1,17 @@
+# archived 2026-10-19T17:57Z from designs/clocks/tracks/clk-sculk/best/obsd-p52-1.txt by mctas clock archive
+# CLOCK: clk-sculk-obsd-p52-1 period 52 gt (2.6 s), on 30/52, edges 1, warmup 2, family dispenser+observer+sculk_sensor, 5 blocks, 6x1x1, robust
+# A plain sculk sensor watched by a chain of 2 observer(s) (each watching the previous); the last observer powers a stone and an empty dispenser (fires 4 gt after a rising edge) beside the stone, 4 from the sensor (travel time): the observers' pulse after the sensor re-arms is heard
+name: clk-sculk-obsd-p52-1
+# how: obs plain k=2 path 1,0,0 2,0,0 stone at the output, emitter dispenser beside it (travel 4)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 0 -1 0: the output [0, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 0 0 -1
+port start: 5 0 0 minecraft:redstone_block 1
+origin: 0 0 0
+palette:
+  D minecraft:dispenser[facing=up,triggered=false]
+  O minecraft:observer[facing=west,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  s minecraft:stone
+layer 0:
+  SOOsD

@@ -1,0 +1,18 @@
+# archived 2026-10-19T20:06Z from designs/clocks/tracks/clk-obs/mech2/p25-lamp-obs-stk-7b-b-0aeb4b.txt by mctas clock archive
+# CLOCK: clk-obs-p25-lamp-obs-stk-7b-b-0aeb4b period 25 gt (1.25 s), on 2/25, edges 1, warmup 23, family observer+redstone_lamp+sticky_piston, 7 blocks, 3x1x3, robust
+name: clk-obs-p25-lamp-obs-stk-7b-b-0aeb4b
+# P25: 3 observers, 2 redstone lamps, 2 sticky pistons; changing in place: observer, redstone_lamp, sticky_piston. Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 1 0 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 1 0 3
+port start: 0 0 0 last
+palette:
+  A minecraft:redstone_lamp[lit=false]
+  B minecraft:observer[facing=north,powered=false]
+  C minecraft:sticky_piston[extended=false,facing=east]
+  D minecraft:observer[facing=south,powered=false]
+  E minecraft:sticky_piston[extended=false,facing=south]
+layer 0:
+  AAE
+  BD.
+  CB.

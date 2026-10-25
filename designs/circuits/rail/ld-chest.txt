@@ -1,0 +1,62 @@
+# archived 2026-10-22T16:23Z from designs/circuits/tracks/cart-transport/ld-chest.txt by mctas circuit archive
+# CIRCUIT: ld-chest cart-loader line terminus, load rate 16.87 items/s, departure delay 17 gt, 44 blocks, 9x4x6, robust
+# The obvious fast loader (designs/briefs/cart-transport.md), dry-supply fix (coordinator and
+# reviewer 2026-10-22): the hopper minecart parks under the supply chest and pulls one item per tick
+# from it (MinecartHopper.tryConsumeItems: 20 items/s). Boosters send the cart up the halting
+# powered slope P and the detector slope D; it rolls back and rests on P under the chest, where D
+# still sees it (an open trapdoor over D stops the climb under the chest). One comparator C reads the
+# cart's fill through D (compare mode); its side is "the chest has items" at full strength: the
+# comparator K reads the chest through the block over D, the repeater after it lifts any signal to
+# 15, and a dust line and a repeater bring it into C's side. So C passes the cart's fill only when
+# the cart is full (15 against 15), or when the chest is empty and the cart holds something (fill
+# against 0); C then powers P and the cart leaves down the line. An empty cart at an empty chest
+# waits there until items come.
+name: ld-chest
+circuit: cart-loader
+port line.in: -6 0 0
+port items: 0 2 0
+origin: -6 0 -3
+palette:
+  S minecraft:stone
+  B minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  L minecraft:rail[shape=east_west,waterlogged=false]
+  P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
+  g minecraft:glass
+  D minecraft:detector_rail[powered=false,shape=ascending_east,waterlogged=false]
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  K minecraft:comparator[facing=north,mode=compare,powered=false]
+  Q minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  V minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  R minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  Y minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  W minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  Z minecraft:redstone_block
+  T minecraft:oak_trapdoor[facing=west,half=bottom,open=true,powered=false,waterlogged=false]
+layer -1:
+  ......S...
+  ......S...
+  ......S...
+  .SSZSSS...
+  ..........
+  ..........
+layer 0:
+  ......WS..
+  ......WS..
+  ......RSSS
+  .BBBBLPg.S
+  ..........
+  ..........
+layer 1:
+  .......W..
+  .......Y..
+  .......CQW
+  .......DSW
+  ......S.S.
+  .......SS.
+layer 2:
+  ..........
+  ..........
+  ..........
+  .......TW.
+  ......K.W.
+  ......SVW.

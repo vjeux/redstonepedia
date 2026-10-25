@@ -1,0 +1,18 @@
+# archived 2026-10-19T17:56Z from designs/clocks/tracks/clk-sculk/best/hyb-p54-3.txt by mctas clock archive
+# CLOCK: clk-sculk-hyb-p54-3 period 54 gt (2.7 s), on 20/54, edges 2, warmup 4, family calibrated_sculk_sensor+observer+sticky_piston, 5 blocks, 4x3x1, robust
+# A calibrated sculk sensor watched by a chain of 2 observer(s) (each watching the previous); an oak trapdoor (placed open+powered: it closes on placement, the self-start) at the last output, 3 from the sensor (travel time): the observers' pulse after the sensor re-arms is heard; plus a sticky piston beside the chain (moves parts of it: the hybrid)
+name: clk-sculk-hyb-p54-3
+# how: obs cal k=2 path 1,0,0 2,0,0 emitter trapdoor at the output (travel 3) + sticky_piston[extended=false,facing=up] at 3,-1,0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 3 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on a block put under it) takes every pulse (was 0 -1 0: with a repeater in the output cell, no signal (it never turns on))
+port output: 0 0 -1
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:oak_trapdoor[facing=north,half=bottom,open=true,powered=true,waterlogged=false]
+  S minecraft:sticky_piston[extended=false,facing=up]
+  o minecraft:observer[facing=west,powered=false]
+layer -1:
+  ...S
+layer 0:
+  CooO

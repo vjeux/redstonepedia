@@ -1,0 +1,85 @@
+# archived 2026-10-21T06:47Z from designs/circuits/shulker/tracks/pext/unloader-1wide-22b.txt by mctas circuit archive
+# CIRCUIT: shulker-unloader-1wide-22b shulker-unloader boxes/min 0.087, items/s 2.50, first box 13859 gt, cycle 13838 gt, hoppers awake 3, badges always-on+16-stack+unstackable+colours+box-starved+drop-free+tileable(1), bill 17 iron, 8 quartz, 33 redstone, 1 slime, 22 blocks, 1x7x6, robust
+# A one-block-wide shulker unloader you can line up side by side with no gap (22 blocks): a
+# dispenser drops each full box onto a hopper that empties it, and when the box is empty a piston
+# pushes a block into it, which breaks it into a second hopper that sends it on.
+# How it works: as the 24-block unloader (a comparator reads the emptying hopper, a copper bulb
+# remembers whether the box still has items, a torch fires the piston when it is empty, an observer
+# on the piston fires the dispenser after each break, a comparator reading the dispenser starts
+# it), with the search's savings: the pushed block is an observer that fires the dispenser itself,
+# a lamp and a bulb stand in as the solid blocks, a piston and an observer serve as supports.
+# Found by `mctas circuit shulker anneal` (random edits, each judged on redsim with the judge's own
+# scenarios) from the 24-block unloader: same box, same badges, same speed.
+name: shulker-unloader-1wide-22b
+circuit: shulker-unloader
+tile: 1 0 0
+port boxes: 0 4 0
+port items: 0 -1 0
+port output: 0 0 -2
+origin: 0 0 -2
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:redstone_torch[lit=true]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  D minecraft:dispenser[facing=down,triggered=false]
+  E minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  H minecraft:hopper[enabled=true,facing=down]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=south]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:sticky_piston[extended=false,facing=north]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  c minecraft:comparator[facing=south,mode=compare,powered=false]
+  d minecraft:dispenser[facing=south,triggered=false]
+  h minecraft:hopper[enabled=true,facing=north]
+  o minecraft:observer[facing=north,powered=false]
+  r minecraft:redstone_torch[lit=false]
+layer -3:
+  .
+  .
+  .
+  .
+  P
+  .
+layer -2:
+  .
+  .
+  .
+  W
+  C
+  d
+layer -1:
+  .
+  .
+  .
+  A
+  O
+  B
+layer 0:
+  .
+  h
+  H
+  C
+  E
+  D
+layer 1:
+  W
+  .
+  .
+  O
+  S
+  r
+layer 2:
+  c
+  R
+  D
+  .
+  .
+  .
+layer 3:
+  O
+  o
+  H
+  .
+  .
+  .

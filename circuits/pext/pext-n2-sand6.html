@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sand elevator: lifts 2 up · 6 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Sand elevator: lifts 2 up · 6 blocks. SAND ONLY, UPWARD ONLY: lifts a sand block two cells straight up and lets it fall back down by itself (gravity does half the work, so it is not a general extend">
+<meta property="og:title" content="Sand elevator: lifts 2 up · 6 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Sand elevator: lifts 2 up · 6 blocks. SAND ONLY, UPWARD ONLY: lifts a sand block two cells straight up and lets it fall back down by itself (gravity does half the work, so it is not a general extend">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/pext/index.html">Piston extenders</a></p>
+<p class="kindline">Sand elevator: lifts a sand block and lets it fall back (gravity piston extender)</p>
+<h1>lifts 2 up · 6 blocks</h1>
+<p class="oneliner">Turn the input on and a block of sand is lifted 2 blocks up; turn it off and it falls back into place.</p>
+<p class="lede">smallest of 3 tested · out in 7 ticks (0.35 s), back in 12 ticks (0.6 s) · fits in 3×5×1</p>
+<p class="badges"><span class="badge">no slime</span><span class="badge">has its own lever</span></p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/pext/pext-n2-sand6.txt" data-stimulus="in 40+ 62- 84+ 106- 128+ 150- 172+ 192- 216+ 232- 260+ 272- 304+ 314- 348+ 356- 392+ 398- 436+ 441- 480+ 484- 524+ 546- 566+ 588- 610+ 632- 648+ 670- 692+ 714- 726+ 748- 770+ 792- 802+ 824- 846+ 868- 876+ 898- 920+ 942- 948+ 970- 992+ 1014- 1019+ 1041- 1063+ 1085- 1089+ 1111- 1133+ 1155-" data-phases="40-84 cycle 1; 84-128 cycle 2; 128-172 cycle 3; 172-216 flip 20; 216-260 flip 16; 260-304 flip 12; 304-348 flip 10; 348-392 flip 8; 392-436 flip 6; 436-480 flip 5; 480-524 flip 4; 524-610 reflip 20; 610-692 reflip 16; 692-770 reflip 12; 770-846 reflip 10; 846-920 reflip 8; 920-992 reflip 6; 992-1063 reflip 5; 1063-1133 reflip 4; 1133-1177 after flips" data-input-mode="toggle" data-circuit="piston-extender 2" data-kind="circuit"><div class="fallback"><span class="fb-big">reach 2</span><span class="fb-small">Sand elevator</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<section class="what plain"><h2>Try it</h2><p>Flip the lever marked IN (or tap IN under the view): the sand rises 2 blocks; flip it back and it falls into place.</p><p class="howdesign"><b>How this design does it:</b> SAND ONLY, UPWARD ONLY: lifts a sand block two cells straight up and lets it fall back down by itself (gravity does half the work, so it is not a general extender).</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/pext/pext-n2-sand6.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/pext/pext-n2-sand6.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=observer">observer</a> <a class="chip" href="../../index.html#with=piston">piston</a> <a class="chip" href="../../index.html#with=sand">sand</a> <a class="chip" href="../../index.html#with=sticky_piston">sticky piston</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<p class="also-ground">Safe to flip back any time, 1 block bigger: <a href="../../circuits/pext/pext-n2-sand7-flipsafe-3x5.html">Sand elevator: lifts 2 up · 7 blocks</a>.</p>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>Turning the input on pushes a block <b>2 cells out</b> of the machine; turning it off brings the block <b>back exactly</b> where it was, with nothing left behind. A plain piston only reaches 1.</p><p>Extending takes 7 gt (0.35 s), retracting 12 gt (0.6 s).</p></section>
+<section><h2>How to try it</h2><p><b>Press play under the view to watch the judge's own test</b> on a loop (the badge reads <i>demo</i> with the step it is on; the same test is drawn as a timing diagram below). Touch any control to stop it and try the circuit yourself.</p><p>To try it: click the <b>lever</b> tagged <b>IN</b> (or the IN button of the bar) to switch it on or off.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the input with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). <span class="tag-pos">Blue</span>: where the pushed block is, 0 = home, up to N = fully out (the dashed line); it must reach N while the input is on and come all the way back. Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="1032" height="148" viewBox="0 0 1032 148" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="96.6" y1="18.0" x2="96.6" y2="130.0"/><line class="ph" x1="132.5" y1="18.0" x2="132.5" y2="130.0"/><line class="ph" x1="168.3" y1="18.0" x2="168.3" y2="130.0"/><line class="ph" x1="204.2" y1="18.0" x2="204.2" y2="130.0"/><line class="ph" x1="240.0" y1="18.0" x2="240.0" y2="130.0"/><line class="ph" x1="275.9" y1="18.0" x2="275.9" y2="130.0"/><line class="ph" x1="311.7" y1="18.0" x2="311.7" y2="130.0"/><line class="ph" x1="347.6" y1="18.0" x2="347.6" y2="130.0"/><line class="ph" x1="383.5" y1="18.0" x2="383.5" y2="130.0"/><line class="ph" x1="419.3" y1="18.0" x2="419.3" y2="130.0"/><line class="ph" x1="455.2" y1="18.0" x2="455.2" y2="130.0"/><line class="ph" x1="491.0" y1="18.0" x2="491.0" y2="130.0"/><text class="phl" x="494.0" y="14.0">reflip 20</text><line class="ph" x1="561.1" y1="18.0" x2="561.1" y2="130.0"/><text class="phl" x="564.1" y="14.0">reflip 16</text><line class="ph" x1="627.9" y1="18.0" x2="627.9" y2="130.0"/><text class="phl" x="630.9" y="14.0">reflip 12</text><line class="ph" x1="691.5" y1="18.0" x2="691.5" y2="130.0"/><text class="phl" x="694.5" y="14.0">reflip 10</text><line class="ph" x1="753.4" y1="18.0" x2="753.4" y2="130.0"/><text class="phl" x="756.4" y="14.0">reflip 8</text><line class="ph" x1="813.7" y1="18.0" x2="813.7" y2="130.0"/><text class="phl" x="816.7" y="14.0">reflip 6</text><line class="ph" x1="872.4" y1="18.0" x2="872.4" y2="130.0"/><text class="phl" x="875.4" y="14.0">reflip 5</text><line class="ph" x1="930.3" y1="18.0" x2="930.3" y2="130.0"/><text class="phl" x="933.3" y="14.0">reflip 4</text><line class="ph" x1="987.3" y1="18.0" x2="987.3" y2="130.0"/><text class="wl" x="4" y="46.0">IN</text><line class="base" x1="64.0" y1="48.0" x2="1024.0" y2="48.0"/><polygon class="win" points="64.0,48.0 64.0,48.0 96.6,48.0 96.6,28.0 114.5,28.0 114.5,48.0 132.5,48.0 132.5,28.0 150.4,28.0 150.4,48.0 168.3,48.0 168.3,28.0 186.2,28.0 186.2,48.0 204.2,48.0 204.2,28.0 220.5,28.0 220.5,48.0 240.0,48.0 240.0,28.0 253.1,28.0 253.1,48.0 275.9,48.0 275.9,28.0 285.7,28.0 285.7,48.0 311.7,48.0 311.7,28.0 319.9,28.0 319.9,48.0 347.6,48.0 347.6,28.0 354.1,28.0 354.1,48.0 383.5,48.0 383.5,28.0 388.3,28.0 388.3,48.0 419.3,48.0 419.3,28.0 423.4,28.0 423.4,48.0 455.2,48.0 455.2,28.0 458.4,28.0 458.4,48.0 491.0,48.0 491.0,28.0 509.0,28.0 509.0,48.0 525.3,48.0 525.3,28.0 543.2,28.0 543.2,48.0 561.1,48.0 561.1,28.0 579.0,28.0 579.0,48.0 592.1,48.0 592.1,28.0 610.0,28.0 610.0,48.0 627.9,48.0 627.9,28.0 645.9,28.0 645.9,48.0 655.6,48.0 655.6,28.0 673.6,28.0 673.6,48.0 691.5,48.0 691.5,28.0 709.4,28.0 709.4,48.0 717.6,48.0 717.6,28.0 735.5,28.0 735.5,48.0 753.4,48.0 753.4,28.0 771.4,28.0 771.4,48.0 777.9,48.0 777.9,28.0 795.8,28.0 795.8,48.0 813.7,48.0 813.7,28.0 831.7,28.0 831.7,48.0 836.6,48.0 836.6,28.0 854.5,28.0 854.5,48.0 872.4,48.0 872.4,28.0 890.3,28.0 890.3,48.0 894.4,48.0 894.4,28.0 912.4,28.0 912.4,48.0 930.3,48.0 930.3,28.0 948.2,28.0 948.2,48.0 951.5,48.0 951.5,28.0 969.4,28.0 969.4,48.0 987.3,48.0 987.3,28.0 1005.3,28.0 1005.3,48.0 1024.0,48.0 1024.0,48.0"/><text class="wl" x="4" y="116.0">PAYLOAD</text><line class="base" x1="64.0" y1="118.0" x2="1024.0" y2="118.0"/><text class="ax" x="4" y="66.0">2</text><line class="tgt" x1="64.0" y1="62.0" x2="1024.0" y2="62.0"/><text class="tgtl" x="990.0" y="59.0">N = 2</text><path class="wpos" d="M64.0,118.0 L99.9,118.0 L99.9,90.0 L102.3,90.0 L102.3,62.0 L124.3,62.0 L124.3,118.0 L135.7,118.0 L135.7,90.0 L138.2,90.0 L138.2,62.0 L160.2,62.0 L160.2,118.0 L171.6,118.0 L171.6,90.0 L174.0,90.0 L174.0,62.0 L196.0,62.0 L196.0,118.0 L207.4,118.0 L207.4,90.0 L209.9,90.0 L209.9,62.0 L230.2,62.0 L230.2,118.0 L243.3,118.0 L243.3,90.0 L245.7,90.0 L245.7,62.0 L262.8,62.0 L262.8,118.0 L279.1,118.0 L279.1,90.0 L281.6,90.0 L281.6,62.0 L295.4,62.0 L295.4,118.0 L315.0,118.0 L315.0,90.0 L317.4,90.0 L317.4,62.0 L329.7,62.0 L329.7,118.0 L350.9,118.0 L350.9,90.0 L353.3,90.0 L353.3,62.0 L363.9,62.0 L363.9,118.0 L386.7,118.0 L386.7,90.0 L389.2,90.0 L389.2,62.0 L398.1,62.0 L398.1,118.0 L422.6,118.0 L422.6,90.0 L425.0,90.0 L425.0,62.0 L434.0,62.0 L434.0,118.0 L458.4,118.0 L458.4,90.0 L468.2,90.0 L468.2,118.0 L494.3,118.0 L494.3,90.0 L496.7,90.0 L496.7,62.0 L518.7,62.0 L518.7,118.0 L528.5,118.0 L528.5,90.0 L531.0,90.0 L531.0,62.0 L553.0,62.0 L553.0,118.0 L564.4,118.0 L564.4,90.0 L566.8,90.0 L566.8,62.0 L588.8,62.0 L588.8,118.0 L595.3,118.0 L595.3,90.0 L597.8,90.0 L597.8,62.0 L619.8,62.0 L619.8,118.0 L631.2,118.0 L631.2,90.0 L633.6,90.0 L633.6,62.0 L655.6,62.0 L655.6,118.0 L658.9,118.0 L658.9,90.0 L661.4,90.0 L661.4,62.0 L683.4,62.0 L683.4,118.0 L694.8,118.0 L694.8,90.0 L697.2,90.0 L697.2,62.0 L745.3,62.0 L745.3,118.0 L756.7,118.0 L756.7,90.0 L759.1,90.0 L759.1,62.0 L805.6,62.0 L805.6,118.0 L817.0,118.0 L817.0,90.0 L819.4,90.0 L819.4,62.0 L864.3,62.0 L864.3,118.0 L875.7,118.0 L875.7,90.0 L878.1,90.0 L878.1,62.0 L897.7,62.0 L897.7,90.0 L919.7,90.0 L919.7,118.0 L933.5,118.0 L933.5,90.0 L936.0,90.0 L936.0,62.0 L955.5,62.0 L955.5,90.0 L976.7,90.0 L976.7,118.0 L990.6,118.0 L990.6,90.0 L993.0,90.0 L993.0,62.0 L1015.0,62.0 L1015.0,118.0 L1024.0,118.0"/><text class="ax" x="4" y="142.0">ticks</text><text class="ax" x="96.6" y="142.0">40</text><text class="ax" x="168.3" y="142.0">128</text><text class="ax" x="240.0" y="142.0">216</text><text class="ax" x="311.7" y="142.0">304</text><text class="ax" x="383.5" y="142.0">392</text><text class="ax" x="455.2" y="142.0">480</text><text class="ax" x="526.9" y="142.0">568</text><text class="ax" x="598.6" y="142.0">656</text><text class="ax" x="670.3" y="142.0">744</text><text class="ax" x="742.0" y="142.0">832</text><text class="ax" x="813.7" y="142.0">920</text><text class="ax" x="885.5" y="142.0">1008</text><text class="ax" x="957.2" y="142.0">1096</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 1178 ticks (58.9 s).</p><p class="wave-note"><span class="tag-pos">PAYLOAD</span>: out to N = 2 in 7 gt, back in 12 gt.</p><details><summary>Our test's report, step by step (5 lines)</summary><pre class="design">cycle 1: extended at +7 gt, restored 12 gt after the off edge
+cycle 2: extended at +7 gt, restored 12 gt after the off edge
+cycle 3: extended at +7 gt, restored 12 gt after the off edge
+reflip 5: off 5 gt then on again: not extended 22 gt later
+after flips: a full cycle works</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">N</th><td>2</td><td class="def">the reach: how many cells the block is pushed out</td></tr>
+<tr><th scope="row">extend</th><td>7 gt (0.35 s)</td><td class="def">game ticks from switching the input on until the block is fully out</td></tr>
+<tr><th scope="row">retract</th><td>12 gt (0.6 s)</td><td class="def">game ticks from switching the input off until the block is back</td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>SAND ONLY, UPWARD ONLY: lifts a sand block two cells straight up and lets it fall back down by itself (gravity does half the work, so it is not a general extender). How it works: two sticky pistons stacked under the sand; an observer under the lever blinks on every flip and pulses the bottom piston, which throws the top piston and the sand up one cell, and the lever holds the top piston up (sand one more cell); switching off, the top piston drops back, the sand falls onto it, and the bottom piston grabs the top one back down with the sand riding home.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/pext/index.html">Piston extenders</a></td></tr>
+<tr><th scope="row">Kind</th><td>Piston extender</td></tr>
+<tr><th scope="row">Blocks placed</th><td>6</td></tr>
+<tr><th scope="row">Box</th><td>3×5×1 (15 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>observer, piston, sand, sticky piston</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>IN (lever) (no output: it moves blocks)</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-20T00:07Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere, its own lever as the input, no slime or honey</td></tr>
+<tr><th scope="row">Design file</th><td><code>pext-n2-sand6</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/pext/archive/pext-n2-sand6.txt">on GitHub</a></p><details><summary>Design file (25 lines)</summary><pre class="design"># archived 2026-10-20T00:07Z from designs/circuits/pext/work/n2-sand6.txt by mctas circuit archive
+# CIRCUIT: pext-n2-sand6 piston-extender 2 N 2, extend 7 gt, retract 12 gt, 6 blocks, 3x5x1, robust
+# N=2, GRAVITY (sand payload), travel up: an observer under the lever pulses A (through the stone
+# beside it) on both edges. On: A spits B + sand up one cell; B lands next to the lever, which holds
+# it extended (sand up one more). Off: B retracts and the sand falls onto it; A&#39;s pulse reach-pulls
+# B back down and the sand falls home on top of it.
+name: pext-n2-sand6
+circuit: piston-extender 2
+travel: 0 1 0
+port input: 1 2 0 lever
+port payload: 0 2 0
+palette:
+  A minecraft:sticky_piston[facing=up]
+  B minecraft:piston[facing=up]
+  X minecraft:sand
+  O minecraft:observer[facing=up]
+  P minecraft:stone
+  K minecraft:stone
+  L minecraft:lever[face=wall,facing=west]
+layer 0:
+  AP.
+layer 1:
+  BO.
+layer 2:
+  XLK
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/eabcc3ff4199f18fc0bb028ed641666b45b16ead">vjeux/redstonepedia@eabcc3ff4</a> on <span class="nowrap">2026-10-25</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=e5967917"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=3c6a179b"});</script>
+</body>
+</html>

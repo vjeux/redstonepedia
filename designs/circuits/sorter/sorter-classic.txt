@@ -1,0 +1,56 @@
+# archived 2026-10-20T23:52Z from designs/circuits/tracks/sorter/sorter-classic.txt by mctas circuit archive
+# CIRCUIT: sorter-classic sorter iron_ingot items/s 2.50, first item by 20 gt, hoppers awake 2, slice width 1, badges overflow-proof, bill 15 iron, 1 quartz, 10 redstone, 15 blocks, 1x5x5, robust
+# Item sorter slice, study 13 (designs/circuits/tracks/sorter/WR.md): the line hopper L feeds the
+# filter hopper A (41 iron + 4 named papers: comparator signal 2, 3 with one more iron, 3 when
+# full), which points down into the drain hopper B (64 iron + 4 other named papers: full, so A
+# cannot push into it while it is locked). Three dust (signal minus 2) let only signal 3 reach the
+# repeater, which powers the torch's block; the torch (under the comparator's block, which locks B)
+# turns off and B drops one iron into the chest and takes one from A.
+name: sorter-classic
+circuit: sorter iron_ingot
+tile: 1 0 0
+port items: 0 4 0
+port pass: 1 3 0
+port output: 0 0 0
+origin: 0 0 0
+palette:
+  L minecraft:hopper[enabled=true,facing=east]
+  A minecraft:hopper[enabled=true,facing=down]
+  B minecraft:hopper[enabled=false,facing=down]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  S minecraft:stone
+  T minecraft:redstone_wall_torch[facing=north,lit=true]
+  R minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  r minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer -1:
+  .
+  .
+  .
+  S
+  .
+layer 0:
+  .
+  T
+  S
+  R
+  S
+layer 1:
+  B
+  S
+  S
+  S
+  r
+layer 2:
+  A
+  C
+  r
+  r
+  .
+layer 3:
+  L
+  .
+  .
+  .
+  .
+nbt: 0 2 0 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:41},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}}]}
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:64},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}}]}

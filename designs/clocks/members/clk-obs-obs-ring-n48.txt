@@ -1,0 +1,14 @@
+name: clk-obs-obs-ring-n48
+# Extendable family obs-ring (n = 48): P = 8 + 4n gt, 4 + 2n blocks. a single pulse runs around a ring of observers, 2 gt per observer; lattice rings have an even length. Extension: insert 2 observers: one more column in the 2-wide ring (each observer watches the previous one). Generator: mctas clock obs family obs-ring --n N --out FILE.
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 0 1
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:observer[facing=north,powered=false]
+  D minecraft:observer[facing=east,powered=false]
+layer 0:
+  ABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+  DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDC

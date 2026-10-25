@@ -1,0 +1,23 @@
+# archived 2026-10-23T06:31Z from /home/vjeux/ws5/strip1/staged/clk-obs-p9-comparator-bulb-note-obs-stk-stone-7b-55dc37.txt by mctas clock archive
+# CLOCK: clk-obs-p9-comparator-bulb-note-obs-stk-stone-7b-55dc37 period 9 gt (0.45 s), on 7/9, edges 1, warmup 6, family comparator+copper_bulb+note_block+observer+sticky_piston, 7 blocks, 3x2x3, robust
+# the irreducible core of clk-obs-p27-bulb-note-obs-rb-stk-8b-3fe1de.txt (mctas clock strip, 2026-10-22): removed 1,-1,0 sticky_piston[extended=false,facing=south]; 1,-1,2 observer[facing=south,powered=false]; 1,0,0 redstone_block
+name: clk-obs-p9-comparator-bulb-note-obs-stk-stone-7b-55dc37
+port output: 3 0 2
+port start: 0 0 2 last
+origin: 0 0 0
+palette:
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  N minecraft:note_block[instrument=basedrum,note=0,powered=false]
+  O minecraft:observer[facing=north,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=east]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=south,powered=false]
+  s minecraft:stone
+layer -1:
+  .
+  .
+  ..s
+layer 0:
+  S
+  oO
+  WNC

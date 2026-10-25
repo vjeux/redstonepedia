@@ -1,0 +1,35 @@
+# archived 2026-10-23T06:39Z from /home/vjeux/ws5/strip1/staged/jukebox9-p1446-comparator-dropper-hopper-jukebox-note-redstone_torch-redstone_wire-stone-10b-2318c8.txt by mctas clock archive
+# CLOCK: jukebox9-p1446-comparator-dropper-hopper-jukebox-note-redstone_torch-redstone_wire-stone-10b-2318c8 period 1446 gt (1 min 12.3 s), on 9/1446, edges 1, warmup 11, family comparator+dropper+hopper+jukebox+note_block+redstone_torch+redstone_wire, 10 blocks, 2x4x3, robust
+# the irreducible core of jukebox9-p1446.txt (mctas clock strip, 2026-10-22): removed 1,1,-1 redstone_wire[east=none,north=none,power=0,south=none,west=side]
+name: jukebox9-p1446-comparator-dropper-hopper-jukebox-note-redstone_torch-redstone_wire-stone-10b-2318c8
+port output: 1 0 -3
+nbt: 0 0 0 {Items:[{Slot:0b,id:"minecraft:music_disc_11",count:1}]}
+nbt: 0 1 0 {RecordItem:{id:"minecraft:music_disc_11",count:1},ticks_since_song_started:0L}
+nbt: 1 1 0 {Items:[{Slot:0b,id:"minecraft:music_disc_11",count:1}]}
+origin: 0 0 -2
+palette:
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  D minecraft:dropper[facing=up,triggered=true]
+  H minecraft:hopper[enabled=false,facing=east]
+  J minecraft:jukebox[has_record=true]
+  N minecraft:note_block[instrument=harp,note=0,powered=true]
+  R minecraft:redstone_torch[lit=false]
+  S minecraft:stone
+  d minecraft:dropper[facing=west,triggered=true]
+  r minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
+layer -1:
+  .S
+  .
+  .
+layer 0:
+  .C
+  SN
+  HD
+layer 1:
+  .
+  r
+  Jd
+layer 2:
+  .
+  .
+  R

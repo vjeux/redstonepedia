@@ -1,0 +1,42 @@
+# archived 2026-10-21T09:46Z from designs/circuits/pext/work/n6-flat-18x4.txt by mctas circuit archive
+# CIRCUIT: pext-n6-flat-cascade37-18x4 piston-extender 6 N 6, extend 59 gt, retract 63 gt, 37 blocks, 18x4x1, robust
+# Pushes a block out six cells from a one-block-wide wall, 37 blocks in an 18x4 box: a line of six
+# sticky pistons with a slime block between each pair; each piston fires itself whenever it is
+# moved (an observer rides on top of the slime behind it), and the blocks on the two rows above,
+# run by a chain from the lever, start each wave of pushes (out) or grabs (back).
+# How it works: a variant of pext-n6-flat-cascade37 (18x6, which it replaces: same blocks, same
+# extend, faster retract) with the row under the line gone: the observers that make the pistons
+# fire themselves ride on top of the slimes instead of hanging under them, and the search
+# rearranged the wave starters above so nothing moves outside 4 rows. Extend 59 gt, retract 63 gt
+# (the cascade: 59 / 75). Found by two runs of `mctas circuit pext anneal --random-pick
+# --free-lever` (random edits judged on redsim; the box of every cell over the whole run counts, as
+# in the game): 18x6 -> 18x5 -> 18x4.
+name: pext-n6-flat-cascade37-18x4
+circuit: piston-extender 6
+travel: 1 0 0
+port input: 16 4 0 lever
+port payload: 12 1 0
+origin: 1 0 0
+palette:
+  A minecraft:observer[facing=west,powered=false]
+  B minecraft:sticky_piston[extended=false,facing=east]
+  C minecraft:sticky_piston[extended=false,facing=up]
+  D minecraft:sticky_piston[extended=false,facing=west]
+  E minecraft:stone
+  G minecraft:gold_block
+  L minecraft:lever[face=wall,facing=east,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:piston[extended=false,facing=west]
+  R minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  S minecraft:slime_block
+  o minecraft:observer[facing=up,powered=false]
+  r minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=down]
+layer 1:
+  BSBSBSBSBSBG
+layer 2:
+  .o.A.o.o.A
+layer 3:
+  o.oCo.o.o...o..o
+layer 4:
+  rSO.RORO.sDEO.PL

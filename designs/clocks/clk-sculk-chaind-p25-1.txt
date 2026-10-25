@@ -1,0 +1,20 @@
+# archived 2026-10-19T19:16Z from /tmp/gen/arch1/chaind-p25-1.txt by mctas clock archive
+# CLOCK: clk-sculk-chaind-p25-1 period 25 gt (1.25 s), on 10/25, edges 1, warmup 2, family calibrated_sculk_sensor+dispenser+observer+repeater, 5 blocks, 5x2x1, robust
+# A calibrated sculk sensor drives repeater(s) of delay [3], then observer in line, dispenser, 3 from the sensor (travel time)
+name: clk-sculk-chaind-p25-1
+# how: chain cal line reps [3], observer in line, dispenser (travel 3)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on a block put under it) takes every pulse (was 0 0 0: with a repeater in the output cell, no signal (it never turns on))
+port output: 0 1 -1
+port start: 4 1 0 minecraft:redstone_block 1
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  D minecraft:dispenser[facing=up,triggered=false]
+  O minecraft:observer[facing=west,powered=false]
+  R minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  S minecraft:stone
+layer 0:
+  .S
+layer 1:
+  CROD

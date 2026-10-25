@@ -1,0 +1,30 @@
+# archived 2026-10-20T22:41Z from designs/circuits/memory/tracks/memory/shift2-lock.txt by mctas circuit archive
+# CIRCUIT: shift2-lock shift 2 N 2, latency 6 gt, edge rising, 27 blocks, 4x3x4, robust
+# 2-bit shift register, 27 blocks: two repeater-lock flip-flops in a row, the first stage's output feeding the second stage's data. The first stage reads the clock block directly (its master lock behind it, its slave's wall torch hanging on it); a dust on top of the clock block carries the clock round to the second stage's stone, which plays the same part for it. On each rising edge both stages shift at once.
+name: shift2-lock
+circuit: shift 2
+port input.clk: 0 1 2
+port input.d: -1 1 0
+port output: 4 1 0
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  B minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  r minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer 0:
+  SSSS
+  SSSS
+  ....
+  ....
+layer 1:
+  BBBB
+  AAAA
+  .RSR
+  SSS.
+layer 2:
+  ....
+  ....
+  r.r.
+  rrr.

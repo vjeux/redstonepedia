@@ -1,0 +1,16 @@
+# archived 2026-10-20T23:52Z from designs/circuits/gates/tracks/gates/gate-nor.txt by mctas circuit archive
+# CIRCUIT: gate-nor gate nor function nor, latency 2 gt, tileable every 2 (0 0 2), 2 blocks, 2x1x2, robust
+# NOR gate, 2 blocks: a dust lying on input B's block points into input A's block, so A's block is powered whenever A or B is on; the wall torch hanging on A's block is the output, lit only while both are off.
+name: gate-nor
+circuit: gate nor
+port input.b: 0 0 0
+port input.a: 1 1 0
+port output: 1 1 1
+tile: 0 0 2
+origin: 0 0 0
+palette:
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  W minecraft:redstone_wall_torch[facing=south,lit=true]
+layer 1:
+  d.
+  .W

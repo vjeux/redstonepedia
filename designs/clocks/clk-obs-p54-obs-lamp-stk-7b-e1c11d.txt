@@ -1,0 +1,26 @@
+# archived 2026-10-23T06:28Z from /home/vjeux/ws5/strip1/staged/clk-obs-p54-obs-lamp-stk-7b-e1c11d.txt by mctas clock archive
+# CLOCK: clk-obs-p54-obs-lamp-stk-7b-e1c11d period 54 gt (2.7 s), on 1/54, edges 1, warmup 9, family observer+redstone_lamp+sticky_piston, 7 blocks, 1x4x3, robust
+# the irreducible core of clk-obs-p108-bulb-lamp-obs-stk-8b-a2f4bc.txt (mctas clock strip, 2026-10-22): removed 0,2,3 waxed_copper_bulb[lit=false,powered=false]
+name: clk-obs-p54-obs-lamp-stk-7b-e1c11d
+port output: -1 2 2
+port start: 0 1 2 last
+origin: 0 0 0
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:sticky_piston[extended=false,facing=south]
+  o minecraft:observer[facing=north,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=up]
+layer 0:
+  s
+  .
+  .
+layer 1:
+  O
+  A
+  s
+layer 2:
+  S
+  o
+  R

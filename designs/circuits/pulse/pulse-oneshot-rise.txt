@@ -1,0 +1,40 @@
+# archived 2026-10-20T00:25Z from designs/circuits/tracks/pulse/cards/oneshot-rise.txt by mctas circuit archive
+# CIRCUIT: pulse-oneshot-rise rising-edge L 18 gt, delay 6 gt, min-pulse 4 gt, 17 blocks, 5x2x4, robust
+name: pulse-oneshot-rise
+# Extendable family oneshot-rise (n = 0): rising-edge with L = 18 + 16n gt, 17 + 4n blocks. a sticky piston pushes an observer whose back then faces a copper bulb; the observer fires on landing and lights the bulb; a comparator reads the bulb into a U of delay-4 repeaters that comes back into the bulb and turns it off one loop later (a bulb toggles only on rising edges of its power, so the loop's own falling edge does nothing); on the falling edge the observer is pulled back and fires into nothing. Extension: lengthen the repeater U by one row: one more delay-4 repeater (on stone) in each column. Generator: mctas circuit pulse family oneshot-rise --n N --out FILE.
+circuit: rising-edge
+group: pulse-oneshot-rise
+group title: bulb one-shot (piston trigger)
+group note: a pushed observer lights a copper bulb, a repeater U turns it off; L set by the repeater delays and the U's length
+extend family: pulse-oneshot-rise
+extend axis: 18 + 16n
+extend blocks: 17 + 4n
+extend rule: lengthen the repeater U by one row: one more delay-4 repeater (on stone) in each column
+extend n: 0..10
+extend group title: long rising-edge pulse: a piston-moved observer, a copper bulb and a loop of repeaters
+extend group note: Lengths of the form 8n (8, 16, 24, 32... ticks) come from the smaller 13-block hopper one-shot (a copper bulb holding a hopper item timer open), the same size for any length; this chain gives the lengths it can't (18, 34, 50... ticks).
+extend base: 0
+extend generator: mctas circuit pulse family oneshot-rise --n {n} --out {out}
+origin: -1 0 0
+port input: -1 1 0
+port output: 3 1 1
+palette:
+  S minecraft:stone
+  P minecraft:sticky_piston[extended=false,facing=east]
+  O minecraft:observer[facing=north,powered=false]
+  V minecraft:observer[facing=west,powered=false]
+  B minecraft:waxed_copper_bulb[lit=false,powered=false]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  W minecraft:redstone_wire
+  a minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  m minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+layer 0:
+  ......
+  ....SS
+  ...S.S
+  ...SSS
+layer 1:
+  .PO...
+  ...BCW
+  ...m.a
+  ...WWW

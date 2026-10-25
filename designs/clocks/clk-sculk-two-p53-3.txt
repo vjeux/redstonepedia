@@ -1,0 +1,20 @@
+# archived 2026-10-19T21:17Z from /tmp/gen/arch2/two-p53-3.txt by mctas clock archive
+# CLOCK: clk-sculk-two-p53-3 period 53 gt (2.65 s), on 30/53, edges 1, warmup 33, family calibrated_sculk_sensor+observer+sculk_sensor+sticky_piston, 7 blocks, 7x2x1, robust
+# A plain sculk sensor watched by a chain of 3 observer(s) (each watching the previous); the last observer powers a stone and a sticky piston beside the stone, 5 from the sensor (travel time): the observers' pulse after the sensor re-arms is heard; plus a calibrated sculk sensor beside the chain (moves parts of it: the hybrid)
+name: clk-sculk-two-p53-3
+# how: obs plain k=3 path 1,0,0 2,0,0 3,0,0 stone at the output, emitter sticky-up beside it (travel 5) + calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false] at 4,1,0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 0 -1 0: the output [0, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 0 0 -1
+port start: 6 0 0 minecraft:redstone_block 1
+origin: 0 0 0
+palette:
+  A minecraft:stone
+  C minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:observer[facing=west,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  s minecraft:sticky_piston[extended=false,facing=up]
+layer 0:
+  SOOOAs
+layer 1:
+  ....C

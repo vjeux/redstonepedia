@@ -1,0 +1,23 @@
+# archived 2026-10-20T03:36Z from designs/clocks/tracks/clk-misc/rearchive/census-p12-copper_bulb-redstone_block-sticky_piston-4b.txt by mctas clock archive
+# CLOCK: census-p12-copper_bulb-redstone_block-sticky_piston-4b period 12 gt (0.6 s), on 4/12, edges 2, warmup 2, family copper_bulb+redstone_block+sticky_piston, 5 blocks, 3x2x2, robust
+# port output declared 2026-10-20 (clk-misc): the copper bulb, the cell the judge measures as this clock's automatic
+# output. Re-archived with today's judge line: the line archived on 2026-10-19 (on 10/12, edges 2) predated the judge's
+# current auto-output rule; today's judge, with or without this port, says on 6/12, edges 1, like clock sim.
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its south, added at 0 1 -1 (was 1 1 -1: the output [1, 1, -1] is next to a moving part)
+name: census-p12-copper_bulb-redstone_block-sticky_piston-4b
+census: box 2x2x1 k<=4 (0,0,0=sticky_piston[extended=false,facing=east];0,1,0=waxed_copper_bulb[lit=false,powered=false];1,0,0=slime_block;1,1,0=redstone_block)
+port output: 0 1 -2
+origin: 0 0 -1
+palette:
+  O minecraft:observer[facing=south,powered=false]
+  R minecraft:redstone_block
+  S minecraft:slime_block
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer 0:
+  .
+  sS
+layer 1:
+  O
+  WR

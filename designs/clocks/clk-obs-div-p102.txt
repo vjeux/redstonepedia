@@ -1,0 +1,24 @@
+# archived 2026-10-21T17:09Z from designs/clocks/tracks/clk-obs/usable/div-p102.txt by mctas clock archive
+# CLOCK: clk-obs-div-p102 period 102 gt (5.1 s), on 51/102, edges 1, warmup 0, family comparator+copper_bulb+dispenser+observer+sculk_sensor, 7 blocks, 4x2x3, robust
+# clock with 1 copper-bulb divider stage(s) (clk-obs `clock obs divide`): the bulb in the old output cell toggles on every pulse, a comparator reads it (x 2 per stage); the period is the base's x 2.
+name: clk-obs-div-p102
+census: box 4x1x2 k<=4 (0,0,0=sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false];1,0,0=observer[facing=west,powered=false];2,0,0=observer[facing=west,powered=false];3,0,0=dispenser[facing=down,triggered=false])
+name: clk-obs-div-p102
+port output: 0 0 -3
+port start: 0 0 0 last
+origin: 0 0 -2
+palette:
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  D minecraft:dispenser[facing=down,triggered=false]
+  O minecraft:observer[facing=west,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  s minecraft:stone
+layer -1:
+  s
+  .
+  .
+layer 0:
+  C
+  W
+  SOOD

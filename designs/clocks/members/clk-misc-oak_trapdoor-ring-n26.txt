@@ -1,0 +1,79 @@
+name: clk-misc-oak_trapdoor-ring-n26
+# Extendable family clk-misc-oak_trapdoor-ring (n = 26): P = 10 + 4n gt = 114 gt, 6 + 2n = 58 blocks. Relay: an oak trapdoor: `open` and `powered` follow its power at once.
+# It sits at the top of a 2-wide ring of 57 observers (each watches the one before it, 2 gt per observer); the observer under it
+# powers it and carries it, the next one watches it. The relay adds no delay but takes a lattice cell, so an odd number of
+# observers closes the ring. Extension: insert 2 observers (the ring one row higher).
+# Generator: mctas clock misc ring --relay oak_trapdoor --n N --out FILE.
+extend base: 26
+extend blocks: 6 + 2n
+extend family: clk-misc-oak_trapdoor-ring
+extend generator: mctas clock misc ring --relay oak_trapdoor --n {n} --out {out}
+extend n: 0..47
+extend period: 10 + 4n
+extend rule: insert 2 observers: the 2-wide ring one row higher
+port start: 1 28 0 last
+origin: 0 0 0
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  B minecraft:observer[facing=up,powered=false]
+  C minecraft:observer[facing=west,powered=false]
+  O minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  o minecraft:observer[facing=down,powered=false]
+layer 0:
+  AB
+layer 1:
+  oB
+layer 2:
+  oB
+layer 3:
+  oB
+layer 4:
+  oB
+layer 5:
+  oB
+layer 6:
+  oB
+layer 7:
+  oB
+layer 8:
+  oB
+layer 9:
+  oB
+layer 10:
+  oB
+layer 11:
+  oB
+layer 12:
+  oB
+layer 13:
+  oB
+layer 14:
+  oB
+layer 15:
+  oB
+layer 16:
+  oB
+layer 17:
+  oB
+layer 18:
+  oB
+layer 19:
+  oB
+layer 20:
+  oB
+layer 21:
+  oB
+layer 22:
+  oB
+layer 23:
+  oB
+layer 24:
+  oB
+layer 25:
+  oB
+layer 26:
+  oB
+layer 27:
+  oB
+layer 28:
+  OC

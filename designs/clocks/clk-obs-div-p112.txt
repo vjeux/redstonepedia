@@ -1,0 +1,29 @@
+# archived 2026-10-21T17:09Z from designs/clocks/tracks/clk-obs/usable/div-p112.txt by mctas clock archive
+# CLOCK: clk-obs-div-p112 period 112 gt (5.6 s), on 56/112, edges 1, warmup 3, family calibrated_sculk_sensor+comparator+copper_bulb+dispenser+oak_trapdoor+observer+sculk_sensor, 9 blocks, 3x2x4, robust
+# clock with 1 copper-bulb divider stage(s) (clk-obs `clock obs divide`): the bulb in the old output cell toggles on every pulse, a comparator reads it (x 2 per stage); the period is the base's x 2.
+name: clk-obs-div-p112
+census: box 3x1x2 k<=6 (0,0,0=calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false];0,0,1=oak_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false];1,0,0=observer[facing=west,powered=false];1,0,1=sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false];2,0,0=dispenser[facing=down,triggered=false];2,0,1=calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false])
+name: clk-obs-div-p112
+port output: 1 0 4
+port start: 0 0 0 last
+origin: 0 0 0
+palette:
+  A minecraft:comparator[facing=north,mode=compare,powered=false]
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  D minecraft:dispenser[facing=down,triggered=false]
+  O minecraft:oak_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  c minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=west,powered=false]
+  s minecraft:stone
+layer -1:
+  .
+  .
+  .
+  .s
+layer 0:
+  coD
+  OSC
+  .W
+  .A

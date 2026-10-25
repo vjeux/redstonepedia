@@ -1,0 +1,27 @@
+# archived 2026-10-21T17:49Z from designs/circuits/random/tracks/clk-item/rand2-token.txt by mctas circuit archive
+# CIRCUIT: rand2-token randomizer 2 style hold, latency 8 gt, presses 48, 19 blocks, 10x3x1, robust (uniform: chi2 0.2 (limit 10.8) over 768 presses in 16 runs, counts 378/390)
+# Randomizer 2, token pair, hold style (clk-item 2026-10-21): two droppers face each other, one holds an iron shovel (the token), the other a cobblestone. A press fires both in the same tick (the dust on the first one powers it and, pointing at the cell above the second, fires that one too): whichever fires first hands its item over, and the other then fires one of its two items back at random, so the shovel ends in either dropper with chance 1/2 whatever came before. A comparator reads each dropper (2 with the shovel, 1 with the cobblestone); two dusts drop that to 1 or 0 and a repeater (the tap) lights its output while the shovel is there.
+name: rand2-token
+circuit: randomizer 2
+port input: 0 2 0
+port output.a: -4 0 0
+port output.b: 5 0 0
+nbt: 0 0 0 {Items:[{Slot:0b,id:"minecraft:iron_shovel",count:1}]}
+nbt: 1 0 0 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+origin: -4 0 0
+palette:
+  R minecraft:repeater[delay=1,facing=east]
+  r minecraft:repeater[delay=1,facing=west]
+  w minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  x minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  D minecraft:dropper[facing=east,triggered=false]
+  d minecraft:dropper[facing=west,triggered=false]
+  S minecraft:stone
+layer -1:
+  SSSS..SSSS
+layer 0:
+  RwwCDdcwwr
+layer 1:
+  ....x

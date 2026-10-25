@@ -1,0 +1,111 @@
+name: clk-misc-powered_rail-ring-n42
+# Extendable family clk-misc-powered_rail-ring (n = 42): P = 10 + 4n gt = 178 gt, 6 + 2n = 90 blocks. Relay: a powered rail standing on the observer that powers it: `powered` follows its power at once.
+# It sits at the top of a 2-wide ring of 89 observers (each watches the one before it, 2 gt per observer); the observer under it
+# powers it and carries it, the next one watches it. The relay adds no delay but takes a lattice cell, so an odd number of
+# observers closes the ring. Extension: insert 2 observers (the ring one row higher).
+# Generator: mctas clock misc ring --relay powered_rail --n N --out FILE.
+extend base: 42
+extend blocks: 6 + 2n
+extend family: clk-misc-powered_rail-ring
+extend generator: mctas clock misc ring --relay powered_rail --n {n} --out {out}
+extend n: 0..47
+extend period: 10 + 4n
+extend rule: insert 2 observers: the 2-wide ring one row higher
+port start: 1 44 0 last
+origin: 0 0 0
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+  o minecraft:observer[facing=east,powered=false]
+layer 0:
+  oA
+layer 1:
+  OA
+layer 2:
+  OA
+layer 3:
+  OA
+layer 4:
+  OA
+layer 5:
+  OA
+layer 6:
+  OA
+layer 7:
+  OA
+layer 8:
+  OA
+layer 9:
+  OA
+layer 10:
+  OA
+layer 11:
+  OA
+layer 12:
+  OA
+layer 13:
+  OA
+layer 14:
+  OA
+layer 15:
+  OA
+layer 16:
+  OA
+layer 17:
+  OA
+layer 18:
+  OA
+layer 19:
+  OA
+layer 20:
+  OA
+layer 21:
+  OA
+layer 22:
+  OA
+layer 23:
+  OA
+layer 24:
+  OA
+layer 25:
+  OA
+layer 26:
+  OA
+layer 27:
+  OA
+layer 28:
+  OA
+layer 29:
+  OA
+layer 30:
+  OA
+layer 31:
+  OA
+layer 32:
+  OA
+layer 33:
+  OA
+layer 34:
+  OA
+layer 35:
+  OA
+layer 36:
+  OA
+layer 37:
+  OA
+layer 38:
+  OA
+layer 39:
+  OA
+layer 40:
+  OA
+layer 41:
+  OA
+layer 42:
+  OA
+layer 43:
+  OA
+layer 44:
+  PB

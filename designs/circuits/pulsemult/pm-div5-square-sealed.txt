@@ -1,0 +1,54 @@
+# archived 2026-10-21T16:55Z from /tmp/clkm-ab/intr/sealed/pm-div5-square-sealed.txt by mctas circuit archive
+# CIRCUIT: pm-div5-square-sealed divider 5 N 5, duty 50%, output square, latency 39 gt, min-period 20 gt, input fed through the build, 23 blocks, 5x6x3, robust
+# Sealed by `mctas circuit seal` (the real-use audit's item intrusion, 2026-10-21): 5 glass on
+# the open hopper tops of pm-div5-square (-1 1 -1, -1 1 1, 0 2 -1, 1 1 1, 1 2 0), so no stray item reaches a hopper of its timing.
+name: pm-div5-square-sealed
+circuit: divider 5
+group: pm-square-divider
+group note: study 5's dropper ring of N with one copper bulb toggles once every N pulses; an observer feeds it on BOTH input edges, so the bulb toggles every N/2 input periods: a 50% duty for odd N too (`mctas circuit pulsemult square-divider --n N`)
+group title: Square /N divider (dropper ring + bulb, fed on both edges)
+port input: 0 -2 0
+port output: -4 1 0
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: -3 0 -1
+palette:
+  A minecraft:dropper[facing=south,triggered=false]
+  B minecraft:dropper[facing=up,triggered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:dropper[facing=east,triggered=false]
+  E minecraft:dropper[facing=west,triggered=false]
+  F minecraft:hopper[enabled=true,facing=north]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=down]
+  I minecraft:hopper[enabled=true,facing=south]
+  J minecraft:hopper[enabled=true,facing=west]
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  d minecraft:dropper[facing=north,triggered=false]
+  h minecraft:hopper[enabled=true,facing=east]
+layer -3:
+  .
+  ...S
+  .
+layer -2:
+  .
+  ...R
+  .
+layer -1:
+  .
+  ...O
+  .
+layer 0:
+  ..hB
+  S.dSA
+  ..FEJ
+layer 1:
+  ..GI
+  CWCDH
+  ..G.G
+layer 2:
+  ...G
+  ....G
+  .

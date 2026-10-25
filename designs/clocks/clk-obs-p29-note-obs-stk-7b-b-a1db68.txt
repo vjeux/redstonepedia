@@ -1,0 +1,27 @@
+# archived 2026-10-19T20:11Z from designs/clocks/tracks/clk-obs/mech2/p29-note-obs-stk-7b-b-a1db68.txt by mctas clock archive
+# CLOCK: clk-obs-p29-note-obs-stk-7b-b-a1db68 period 29 gt (1.45 s), on 2/29, edges 1, warmup 0, family note_block+observer+sticky_piston, 7 blocks, 2x4x3, robust
+name: clk-obs-p29-note-obs-stk-7b-b-a1db68
+# P29: 1 note block, 3 observers, 3 sticky pistons; changing in place: note_block, observer, sticky_piston. Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 1 0 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 0 -2 1
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=north,powered=false]
+  B minecraft:sticky_piston[extended=false,facing=up]
+  C minecraft:sticky_piston[extended=false,facing=down]
+  D minecraft:note_block[instrument=harp,note=0,powered=false]
+  E minecraft:observer[facing=east,powered=false]
+  F minecraft:sticky_piston[extended=false,facing=north]
+layer -2:
+  A.
+  ..
+  ..
+layer -1:
+  ..
+  B.
+  ..
+layer 0:
+  C.
+  AE
+  DF

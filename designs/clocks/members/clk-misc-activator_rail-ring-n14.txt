@@ -1,0 +1,55 @@
+name: clk-misc-activator_rail-ring-n14
+# Extendable family clk-misc-activator_rail-ring (n = 14): P = 10 + 4n gt = 66 gt, 6 + 2n = 34 blocks. Relay: an activator rail standing on the observer that powers it: `powered` follows its power at once.
+# It sits at the top of a 2-wide ring of 33 observers (each watches the one before it, 2 gt per observer); the observer under it
+# powers it and carries it, the next one watches it. The relay adds no delay but takes a lattice cell, so an odd number of
+# observers closes the ring. Extension: insert 2 observers (the ring one row higher).
+# Generator: mctas clock misc ring --relay activator_rail --n N --out FILE.
+extend base: 14
+extend blocks: 6 + 2n
+extend family: clk-misc-activator_rail-ring
+extend generator: mctas clock misc ring --relay activator_rail --n {n} --out {out}
+extend n: 0..47
+extend period: 10 + 4n
+extend rule: insert 2 observers: the 2-wide ring one row higher
+port start: 1 16 0 last
+origin: 0 0 0
+palette:
+  A minecraft:activator_rail[powered=false,shape=east_west,waterlogged=false]
+  B minecraft:observer[facing=up,powered=false]
+  C minecraft:observer[facing=west,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  o minecraft:observer[facing=east,powered=false]
+layer 0:
+  oB
+layer 1:
+  OB
+layer 2:
+  OB
+layer 3:
+  OB
+layer 4:
+  OB
+layer 5:
+  OB
+layer 6:
+  OB
+layer 7:
+  OB
+layer 8:
+  OB
+layer 9:
+  OB
+layer 10:
+  OB
+layer 11:
+  OB
+layer 12:
+  OB
+layer 13:
+  OB
+layer 14:
+  OB
+layer 15:
+  OB
+layer 16:
+  AC

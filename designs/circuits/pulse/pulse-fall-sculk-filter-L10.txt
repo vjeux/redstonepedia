@@ -1,0 +1,33 @@
+# archived 2026-10-20T13:32Z from designs/circuits/tracks/pulse/wr/pulse-fall-sculk-filter-L10.txt by mctas circuit archive
+# CIRCUIT: pulse-fall-sculk-filter-L10 falling-edge L 10 gt, delay 1 gt, min-pulse 2 gt (the shortest a real input makes), vibration-proof yes, 5 blocks, 2x2x4, robust
+name: pulse-fall-sculk-filter-L10
+circuit: falling-edge
+# One 10-tick pulse (half a second) every time the input turns OFF, and nothing else: the input
+# opens a trapdoor and closes it when it turns off, a sound sensor (calibrated sculk sensor)
+# switches on for exactly 10 ticks when it hears the trapdoor close, and a comparator reading a
+# chest tunes the sensor to closing sounds only, so the opening, footsteps and dropped items never
+# set it off. The smallest vibration-proof 10 gt falling-edge detector (5 blocks), and the first
+# falling-edge detector that sees 1-tick inputs.
+# Detail: a trapdoor emits block_open (frequency 10) and block_close (9); the chest's 988
+# cobblestone make the comparator output 9 into the sensor's back, and a calibrated sensor with a
+# back signal accepts that frequency only (a lever's switch-off is 9 too, on the same edge).
+origin: 0 0 0
+port input: 0 0 0
+port output: 3 0 1
+palette:
+  T minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  K minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  H minecraft:chest[facing=north,type=single,waterlogged=false]
+  S minecraft:stone
+layer -1:
+  ...
+  ...
+  ..S
+  ...
+layer 0:
+  .T.
+  ..K
+  ..C
+  ..H
+nbt: 2 0 3 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:64},{Slot:1b,id:"minecraft:cobblestone",count:64},{Slot:2b,id:"minecraft:cobblestone",count:64},{Slot:3b,id:"minecraft:cobblestone",count:64},{Slot:4b,id:"minecraft:cobblestone",count:64},{Slot:5b,id:"minecraft:cobblestone",count:64},{Slot:6b,id:"minecraft:cobblestone",count:64},{Slot:7b,id:"minecraft:cobblestone",count:64},{Slot:8b,id:"minecraft:cobblestone",count:64},{Slot:9b,id:"minecraft:cobblestone",count:64},{Slot:10b,id:"minecraft:cobblestone",count:64},{Slot:11b,id:"minecraft:cobblestone",count:64},{Slot:12b,id:"minecraft:cobblestone",count:64},{Slot:13b,id:"minecraft:cobblestone",count:64},{Slot:14b,id:"minecraft:cobblestone",count:64},{Slot:15b,id:"minecraft:cobblestone",count:28}]}

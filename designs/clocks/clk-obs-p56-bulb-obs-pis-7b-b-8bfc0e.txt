@@ -1,0 +1,28 @@
+# archived 2026-10-19T20:30Z from designs/clocks/tracks/clk-obs/mech2/p56-bulb-obs-pis-7b-b-8bfc0e.txt by mctas clock archive
+# CLOCK: clk-obs-p56-bulb-obs-pis-7b-b-8bfc0e period 56 gt (2.8 s), on 28/56, edges 14, warmup 10, family copper_bulb+observer+piston, 8 blocks, 2x3x3, robust
+# P56: 1 copper bulb, 4 observers, 2 pistons; changing in place: copper_bulb, observer, piston. Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its east, added at -1 0 -1 (was 0 3 -1: the output [0, 3, -1] has a moving or non-sturdy block under it: a repeater there has nothing to stand on)
+name: clk-obs-p56-bulb-obs-pis-7b-b-8bfc0e
+port output: -2 0 -1
+port start: 0 1 0 last
+origin: -1 0 -1
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=north]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=east,powered=false]
+  p minecraft:piston[extended=false,facing=south]
+layer 0:
+  oW
+  .p
+  .
+layer 1:
+  .A
+  .A
+  .O
+layer 2:
+  .
+  .O
+  .P

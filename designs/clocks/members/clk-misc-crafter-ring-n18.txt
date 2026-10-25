@@ -1,0 +1,63 @@
+name: clk-misc-crafter-ring-n18
+# Extendable family clk-misc-crafter-ring (n = 18): P = 10 + 4n gt = 82 gt, 6 + 2n = 42 blocks. Relay: an empty crafter: its `triggered` state follows its power at once (the craft scheduled 4 gt later finds no recipe and changes nothing).
+# It sits at the top of a 2-wide ring of 41 observers (each watches the one before it, 2 gt per observer); the observer under it
+# powers it and carries it, the next one watches it. The relay adds no delay but takes a lattice cell, so an odd number of
+# observers closes the ring. Extension: insert 2 observers (the ring one row higher).
+# Generator: mctas clock misc ring --relay crafter --n N --out FILE.
+extend base: 18
+extend blocks: 6 + 2n
+extend family: clk-misc-crafter-ring
+extend generator: mctas clock misc ring --relay crafter --n {n} --out {out}
+extend n: 0..47
+extend period: 10 + 4n
+extend rule: insert 2 observers: the 2-wide ring one row higher
+port start: 1 20 0 last
+origin: 0 0 0
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:crafter[crafting=false,orientation=north_up,triggered=false]
+  O minecraft:observer[facing=down,powered=false]
+  o minecraft:observer[facing=east,powered=false]
+layer 0:
+  oA
+layer 1:
+  OA
+layer 2:
+  OA
+layer 3:
+  OA
+layer 4:
+  OA
+layer 5:
+  OA
+layer 6:
+  OA
+layer 7:
+  OA
+layer 8:
+  OA
+layer 9:
+  OA
+layer 10:
+  OA
+layer 11:
+  OA
+layer 12:
+  OA
+layer 13:
+  OA
+layer 14:
+  OA
+layer 15:
+  OA
+layer 16:
+  OA
+layer 17:
+  OA
+layer 18:
+  OA
+layer 19:
+  OA
+layer 20:
+  CB

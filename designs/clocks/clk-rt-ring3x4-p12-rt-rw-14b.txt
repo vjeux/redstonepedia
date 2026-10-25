@@ -1,0 +1,26 @@
+# archived 2026-10-19T19:06Z from designs/clocks/tracks/clk-rt/ring/torch-dust/ring3x4-p12-rt-rw.txt by mctas clock archive
+# CLOCK: clk-rt-ring3x4-p12-rt-rw-14b period 12 gt (0.6 s), on 6/12, edges 1, warmup 2, family redstone_torch+redstone_wire, 14 blocks, 3x2x4, robust
+# Rectangle ring (clk-rt): the 3x4 perimeter clockwise from the north-west corner = [b, T, d, d, b,
+# T, d, b, T, d] (number = repeater delay, * = powered at placement, b = block, d = dust, T = wall
+# torch on the block before it, c = comparator); 3 torch(es): an inverter loop, period 2 x 6 gt
+name: clk-rt-ring3x4-p12-rt-rw-14b
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 1 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 1 0 1: the output [1, 0, 1] has no free line outward (the next cell taken, or next to the build))
+port output: 0 0 0
+origin: 0 0 0
+palette:
+  A minecraft:redstone_wall_torch[facing=south,lit=true]
+  B minecraft:redstone_wire
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  r minecraft:redstone_wall_torch[facing=north,lit=true]
+layer 0:
+  ..S
+  S.S
+  .
+  .S
+layer 1:
+  SRB
+  B.B
+  r.S
+  SBA
