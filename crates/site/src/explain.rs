@@ -1098,7 +1098,7 @@ pub fn how_to_try(c: &Circuit, has_viewer: bool) -> String {
             return s;
         }
         "tnt-duper" => {
-            s.push_str("<p>The duper runs by itself as soon as it is built: the view plays it from the start. Watch the piston push the TNT block every cycle and a lit TNT (flashing white) drop out of the machine each time, while the TNT block lands again in its place; a lit TNT vanishes when its fuse runs out instead of exploding. Pause and step one game tick at a time with the bar's buttons; drag to look around, pinch or scroll to zoom.</p>");
+            s.push_str("<p>The duper runs by itself as soon as it is built: press play under the view to watch it. Watch the piston push the TNT block every cycle and a lit TNT (flashing white) drop out of the machine each time, while the TNT block lands again in its place; a lit TNT vanishes when its fuse runs out instead of exploding. Pause and step one game tick at a time with the bar's buttons; drag to look around, pinch or scroll to zoom.</p>");
             return s;
         }
         "bud" => {

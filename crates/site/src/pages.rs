@@ -1945,6 +1945,10 @@ mod tests {
         assert!(p.contains("data-mcview=\"full\" data-src=\"../designs/clocks/obs2.txt\" data-kind=\"clock\""), "{p}");
         assert!(p.contains("<html lang=\"en\" data-mcview-textures=\"../textures/26.3\">"), "the viewer fetches the vendored textures from the site: {p}");
         assert!(!p.contains("data-autoplay"), "nothing plays at once (vjeux 21:29Z): {p}");
+        // ... and no text promises it does (the door page's Try it said "the view flips the
+        // lever for you" while the view sat paused: e78k-h5-41b)
+        assert!(!p.contains("starts it for you") && !p.contains("the view plays it"), "the clock's Try it must say press play: {p}");
+        assert!(p.contains("Press play under the view: it runs by itself"), "{p}");
         assert!(p.contains("Two observers face to face &lt;3"));
         assert!(p.contains("index.html#kind=clock&amp;time=6\">on the Clocks tab</a>"), "the other clocks of its period: on the Clocks tab: {p}");
         assert!(p.contains("import init from \"../viewer/mcview.js?v="), "{p}");
@@ -1953,6 +1957,8 @@ mod tests {
         let d = build_page(&s, &s.builds[2], "name: fc2\n", "designs/piston-door-3x3/archive/fc2-40b.txt", Scripts::default());
         assert!(d.contains("<h1>40\u{a0}blocks in a 8×9×2\u{a0}space</h1>"), "{d}");
         assert!(d.contains("14 / 16 gt"));
+        assert!(!d.contains("flips the lever for you"), "the door's Try it must say press play: {d}");
+        assert!(d.contains("Press play under the view: the door opens, stays open a moment and closes"), "{d}");
         assert!(!d.contains("mcview.js"), "no viewer script without the bundle");
     }
 

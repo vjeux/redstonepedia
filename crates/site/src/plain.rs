@@ -491,16 +491,16 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
         "flying-machine" => return "Press play under the view: it puts the start block in place and the machine flies off; reset to see it again. In the game, start it the same way: place a block where the view puts its start block, then break it.".to_string(),
         // a duper lit once per trigger: its button, else a short pulse (the card's "per short
         // pulse")
-        "tnt-duper-triggered" if c.devices.iter().any(|d| d == "button") => return "Press its button (IN under the view): each press throws one lit TNT. The view first plays our test on a loop; touch any control to take over.".to_string(),
-        "tnt-duper-triggered" => return "Tap IN under the view: a tap takes the redstone block away for a moment and one lit TNT flies out; held down, it keeps throwing them. The view first plays our test on a loop; touch any control to take over.".to_string(),
+        "tnt-duper-triggered" if c.devices.iter().any(|d| d == "button") => return "Press its button (IN under the view): each press throws one lit TNT. Press play under the view to watch our test on a loop; touch any other control to take over.".to_string(),
+        "tnt-duper-triggered" => return "Tap IN under the view: a tap takes the redstone block away for a moment and one lit TNT flies out; held down, it keeps throwing them. Press play under the view to watch our test on a loop; touch any other control to take over.".to_string(),
         "tnt-duper" => {
             // (the try-it matches the card: a launcher throws its TNT, critique)
             let what = if c.axis.contains("launched") { "watch it throw a lit TNT away each cycle" } else { "watch a lit TNT come out of the machine each cycle" };
             // (its on/off lever: the coordinator 14:08Z)
             return if c.devices.iter().any(|d| d == "lever") {
-                format!("Flip its lever (the IN button under the view) to start it: {what} while its TNT block stays in place; flip it back and it stops. The view first plays our test on a loop; touch any control to take over.")
+                format!("Flip its lever (the IN button under the view) to start it: {what} while its TNT block stays in place; flip it back and it stops. Press play under the view to watch our test on a loop; touch any other control to take over.")
             } else {
-                format!("It runs by itself: {what} while its TNT block stays in place.")
+                format!("Press play under the view: it runs by itself: {what} while its TNT block stays in place.")
             };
         }
         "shulker-loader" | "shulker-unloader" if !c.unmodeled.is_empty() => return "The view shows it as built, with our test's chests; download it to try it in the game.".to_string(),
@@ -513,10 +513,10 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
             let lever = c.inputs.iter().zip(c.devices.iter()).any(|(n, d)| d == "lever" && !(n == "mode" || n.starts_with("mode.")));
             return format!(
                 "{}Watch the items and boxes move between the chests (the numbers over each container show what it holds); the speed button goes up to 100×.",
-                if lever { "Flip its start lever (the lime IN button under the view). " } else { "It starts by itself. " }
+                if lever { "Flip its start lever (the lime IN button under the view). " } else { "Press play under the view to start it. " }
             );
         }
-        "bud" => return "The view replays our test: a block is placed, removed and changed at the cell marked TARGET, and a block next to it is updated with nothing changing (what only a true BUD notices); the box marked OUT turns red when it fires.".to_string(),
+        "bud" => return "Press play under the view to watch our test: a block is placed, removed and changed at the cell marked TARGET, and a block next to it is updated with nothing changing (what only a true BUD notices); the box marked OUT turns red when it fires.".to_string(),
         // an item sorter: what to watch (critique: the generic "the box marked OUT turns red")
         "sorter" => {
             let item = c.kind.split_whitespace().nth(1).map(|i| item_plural(&i.replace('_', " "), 2)).unwrap_or_else(|| "items of its kind".to_string());
@@ -584,7 +584,7 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
             return "Press play under the view to watch our test on a loop: it fills the chest tagged A to every level from 0 to 9, one change at a time, and the face shows each digit. The A button under the view only empties the chest or fills it to the top (15, beyond the digits it shows).".to_string();
         }
         "seven-segment" => {
-            return "Set a number with the A0 to A3 buttons under the view (A0 counts 1, A1 2, A2 4, A3 8: all four on is F) and watch the segment outputs light: A top, B upper right, C lower right, D bottom, E lower left, F upper left, G middle. The view first plays our test on a loop; touch any control to take over.".to_string();
+            return "Set a number with the A0 to A3 buttons under the view (A0 counts 1, A1 2, A2 4, A3 8: all four on is F) and watch the segment outputs light: A top, B upper right, C lower right, D bottom, E lower left, F upper left, G middle. Press play under the view to watch our test on a loop; touch any other control to take over.".to_string();
         }
         // a crop farm: the view runs it like its judge (webrender: the judge's chests, the crop
         // planted, growth by random ticks at the judge's 100 times, FARM_RTS 300 against the
@@ -636,16 +636,16 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
         // w86's computational circuits: which buttons, what lights
         "binary-counter" => {
             let clk = if c.input_labels.len() == c.inputs.len() && !c.input_labels.is_empty() { c.input_labels[0].clone() } else { c.inputs.first().map(|i| i.to_uppercase()).unwrap_or_else(|| "CLK".into()) };
-            return format!("Press {clk} under the view, again and again: the outputs count up in binary (Q0 lit is 1, Q1 lit is 2, both lit is 3...). The view first plays our test on a loop; touch any control to take over.");
+            return format!("Press {clk} under the view, again and again: the outputs count up in binary (Q0 lit is 1, Q1 lit is 2, both lit is 3...). Press play under the view to watch our test on a loop; touch any other control to take over.");
         }
         "decoder" => {
-            return "Turn the inputs on and off with the buttons under the view: both off lights Q0, A0 alone lights Q1, A1 alone lights Q2, both on lights Q3. The view first plays our test on a loop; touch any control to take over.".to_string();
+            return "Turn the inputs on and off with the buttons under the view: both off lights Q0, A0 alone lights Q1, A1 alone lights Q2, both on lights Q3. Press play under the view to watch our test on a loop; touch any other control to take over.".to_string();
         }
         // a player elevator: the two floors' buttons, as the view labels them
         "elevator" => {
             let names: Vec<String> = if c.input_labels.len() == c.inputs.len() { c.input_labels.clone() } else { c.inputs.iter().map(|n| n.to_uppercase()).collect() };
             let both = list_words(&names.iter().map(String::as_str).collect::<Vec<_>>(), "or");
-            return format!("Press {both} under the view, the buttons on the two floors: at the floor where the platform stands, a press sends it to the other floor; at the other floor, it calls the platform. The view first plays our test on a loop; touch any control to take over.");
+            return format!("Press {both} under the view, the buttons on the two floors: at the floor where the platform stands, a press sends it to the other floor; at the other floor, it calls the platform. Press play under the view to watch our test on a loop; touch any other control to take over.");
         }
         // an auto-crafter: the view does not feed it the judge's items yet: shown as built, how to
         // run it in the game
@@ -678,7 +678,7 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
                 "pulse" => "flashes once",
                 _ => "lights and stays lit until the next press picks again",
             };
-            return format!("Press IN under the view, holding it a moment like a button press: one of the outputs ({tags}) {after}, at random. The view first plays our test on a loop; touch any control to take over.");
+            return format!("Press IN under the view, holding it a moment like a button press: one of the outputs ({tags}) {after}, at random. Press play under the view to watch our test on a loop; touch any other control to take over.");
         }
         // an adder: what to try (which buttons, what lights), in binary
         "adder" => {
@@ -1308,9 +1308,9 @@ pub fn door(b: &Build) -> (String, String) {
     } else {
         format!("Flip the lever and the {n}×{n} doorway opens; flip it back and it closes.{timing}")
     };
-    // (the view plays the door by itself, its lever flipped like the record videos: webrender's door
-    // demo; any input of the visitor's ends it)
-    (what, "The view flips the lever for you, like our record video: the door opens, stays open a moment and closes, again and again. To take over, tap the lever or the Flip button under the view: once to open the door, again to close it.".to_string())
+    // (nothing plays at once, vjeux 21:29Z: the visitor presses play, then the door demo
+    // runs, its lever flipped like the record videos; any input of the visitor's ends it)
+    (what, "Press play under the view: the door opens, stays open a moment and closes, again and again, like our record video. To take over, tap the lever or the Flip button under the view: once to open the door, again to close it.".to_string())
 }
 
 /// A clock's plain lines: (what it does, why you would build it, how to try it).
@@ -1327,7 +1327,7 @@ pub fn clock(b: &Build) -> (String, String) {
     (
         // (not "forever" when something stops it: critique, the daylight clock stops at night)
         format!("Its output pulses by itself every {period}{cycle}{}.{start}", if b.kinds.iter().any(|k| k.starts_with("daylight_detector")) { " while the sun is up" } else { ", forever" }),
-        format!("{}{tap}", if kicked { "The view starts it for you, then it runs by itself: pause and step one tick at a time with the buttons under it." } else { "It runs by itself: the view plays it; pause and step one tick at a time with the buttons under it." }),
+        format!("{}{tap}", if kicked { "Press play under the view to start it; then it runs by itself: pause and step one tick at a time with the buttons under it." } else { "Press play under the view: it runs by itself: pause and step one tick at a time with the buttons under it." }),
     )
 }
 
