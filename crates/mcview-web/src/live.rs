@@ -1404,10 +1404,20 @@ impl Live {
         }
     }
 
-    /// After using a lever or button: run the simulation so it reacts (a door opens).
+    /// After using a lever or button: run the simulation so it reacts (a door opens) —
+    /// playing, but NOT the door demo. An explicit press of Play starts the demo; a flip
+    /// is one toggle, so the door toggles once and settles (before, a flip on the still
+    /// the view loaded as started the demo through `toggle_play`, and the door looped
+    /// open/closed forever instead of settling: e78k-h5-41b).
     fn play_after_input(&mut self) {
-        if self.player.as_ref().is_some_and(|p| !p.playing) {
-            self.toggle_play();
+        if let Some(p) = self.player.as_mut() {
+            if !p.session.playable() || p.playing {
+                return;
+            }
+            p.playing = true;
+            self.play.set_inner_html(&icon(ICON_PAUSE));
+            self.last_ts = None;
+            self.redraw = true;
         }
     }
 
