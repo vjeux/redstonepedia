@@ -7,7 +7,7 @@ use crate::camera::Camera;
 use crate::design::Pos;
 use crate::mesh::{Mesh, Vertex};
 use crate::scene::{self, Look};
-use crate::session::{Mode, Options, Session};
+use crate::session::{Mode, Options, RunState, Session};
 
 pub struct Player {
     pub session: Session,
@@ -67,7 +67,54 @@ pub struct Player {
     /// What the person did while the view was loading (pressed play, a button, a lever), done in
     /// order once it plays.
     pending: Vec<Box<dyn FnOnce(&mut Player)>>,
+    /// The person's input actions this run, (tick, op): replayed from the run's start (or its
+    /// nearest snapshot) to show an earlier tick (the timelapse). The demo's own edges are
+    /// not logged: the session replays them from its schedule.
+    input_log: Vec<(u32, InputOp)>,
+    /// Snapshots of the run (tick, state), every [`SNAPSHOT_EVERY`] ticks, at most
+    /// [`MAX_SNAPSHOTS`] (the oldest drops): the timelapse restores the nearest at or
+    /// before its target and replays the log from there, so going back costs at most
+    /// [`SNAPSHOT_EVERY`] ticks.
+    snapshots: Vec<(u32, Snapshot)>,
+    /// Rebuilding the run from a snapshot ([`Player::seek`]): the input log is not appended
+    /// to, and deferred actions run at once.
+    replaying: bool,
 }
+
+/// One of the person's input actions, for the timelapse: replayed from the run's start (or
+/// its nearest snapshot) to show an earlier tick. Logged at execution time (a deferred
+/// action logs when it runs, not when called): the tick it ran at.
+#[derive(Clone, Debug)]
+enum InputOp {
+    /// The auto-demo ended (the person's first input clears it, before the input itself).
+    StopDemo,
+    /// A tap on circuit input `i` ([`Player::tap_input`]).
+    TapInput(usize),
+    /// A press on input `i`'s button ([`Player::input_down`]).
+    InputDown(usize),
+    /// The release of input `i`'s button ([`Player::input_up`]).
+    InputUp(usize),
+    /// Press-and-hold on circuit input `i` ([`Player::hold_input`]).
+    HoldInput(usize, bool),
+    /// A click on a block that is not a circuit input ([`Player::click`], [`Player::flip`]).
+    Toggle(Pos),
+    /// The door demo started ([`Player::start_door_demo`]).
+    StartDoorDemo,
+}
+
+/// The player's state at a snapshot (the timelapse), beside the session's [`RunState`).
+#[derive(Clone)]
+struct Snapshot {
+    run: RunState,
+    history: Vec<std::collections::VecDeque<bool>>,
+    history_tick: Option<u32>,
+    door_demo: Option<DoorDemo>,
+    pressed: Vec<Option<u32>>,
+}
+
+/// Ticks between snapshots (the timelapse), and how many are kept.
+const SNAPSHOT_EVERY: u32 = 512;
+const MAX_SNAPSHOTS: usize = 16;
 
 /// A frame's time for building a waking view's session ([`Player::wake`]), ms.
 pub const WAKE_SLICE_MS: f64 = 10.0;
@@ -263,6 +310,9 @@ impl Player {
             cycle: None,
             fast_forward: None,
             pending: Vec::new(),
+            input_log: Vec::new(),
+            snapshots: Vec::new(),
+            replaying: false,
         };
         p.follow_machine();
         p.record();
@@ -379,6 +429,9 @@ impl Player {
         self.history_tick = None;
         self.pressed = vec![None; self.session.circuit_inputs.len()];
         self.cycle = Some(cycle);
+        // a new run: the old run's input log and snapshots are gone
+        self.input_log.clear();
+        self.snapshots.clear();
         if let Some(d) = self.pending_demo.take() {
             self.session.attach_demo(d);
         }
@@ -442,8 +495,12 @@ impl Player {
     }
 
     /// The view is loading (a still that wakes now, its session being built, ticks played
-    /// through): `f` waits for it (true); else nothing waits (false: do it now).
+    /// through): `f` waits for it (true); else nothing waits (false: do it now). While
+    /// replaying (the timelapse), nothing waits: the replayed action runs at once.
     fn defer(&mut self, f: impl FnOnce(&mut Player) + 'static) -> bool {
+        if self.replaying {
+            return false;
+        }
         if self.lazy.is_some() {
             self.wake();
         }
@@ -465,6 +522,9 @@ impl Player {
             self.pending_demo = Some(d);
         } else {
             self.session.attach_demo(d);
+            // the run's starting conditions changed: its snapshot at this tick is refreshed,
+            // so a rewind keeps the demo
+            self.snapshot_now();
         }
     }
 
@@ -609,10 +669,7 @@ impl Player {
                 self.acc = self.acc.min(1.0);
                 break;
             }
-            self.session.step();
-            self.record();
-            self.door_demo_tick();
-            self.note_fly_end();
+            self.step_once();
             self.acc -= 1.0;
             n += 1;
         }
@@ -658,6 +715,7 @@ impl Player {
                 h.pop_front();
             }
         }
+        self.maybe_snapshot();
     }
 
     /// How many ticks a recording from tick 0 shows (`max_ticks` at most): the auto-demo's whole
@@ -695,6 +753,9 @@ impl Player {
 
     /// Any input from the person ends the auto-demo (the inputs are theirs from then on).
     pub fn stop_demo(&mut self) {
+        // the person's first input ends the auto-demo (logged before the input itself, at
+        // this tick: a deferred stop still cleared it at call time)
+        self.log_op(InputOp::StopDemo);
         self.session.demo = None;
         self.pending_demo = None;
         self.pending_skip = false;
@@ -711,6 +772,7 @@ impl Player {
                 return;
             }
             self.door_demo = Some(DoorDemo::Wait(self.session.tick + DOOR_HOLD_CLOSED));
+            self.log_op(InputOp::StartDoorDemo);
         }
     }
 
@@ -749,6 +811,7 @@ impl Player {
         }) {
             return true;
         }
+        self.log_op(InputOp::TapInput(i));
         let ok = if self.pulse_inputs {
             if self.session.input_on.get(i).copied().unwrap_or(false) { self.session.set_input(i, false) } else { self.session.pulse_input(i, 2) }
         } else {
@@ -773,6 +836,7 @@ impl Player {
         }) {
             return true;
         }
+        self.log_op(InputOp::InputDown(i));
         if self.session.input_on.get(i).copied().unwrap_or(false) {
             let ok = self.session.set_input(i, false);
             if ok {
@@ -797,6 +861,7 @@ impl Player {
         if (self.waking.is_some() || self.fast_forward.is_some()) && self.defer(move |p| p.input_up(i)) {
             return;
         }
+        self.log_op(InputOp::InputUp(i));
         if i >= self.pressed.len() {
             return;
         }
@@ -816,15 +881,140 @@ impl Player {
         if self.defer(|p| p.step()) {
             return;
         }
-        self.session.step();
-        self.record();
-        self.door_demo_tick();
-        self.note_fly_end();
+        self.step_once();
         self.acc = 0.0;
         self.partial = 0.0;
         // paused: the camera stays (only a playing flying machine is followed)
         self.follow_machine_with(false);
         self.invalidate();
+    }
+
+    /// One tick of the run: the session steps, the history, the door demo and the fly end
+    /// advance with it. [`Player::step`] and [`Player::update_with`] both go through here, so
+    /// a replayed run (the timelapse) takes the same ticks as the played one.
+    fn step_once(&mut self) {
+        self.session.step();
+        self.record();
+        self.door_demo_tick();
+        self.note_fly_end();
+    }
+
+    /// Whether [`Player::step_back`] can go back: the run has a tick behind it, back to the
+    /// oldest snapshot.
+    pub fn can_step_back(&self) -> bool {
+        self.lazy.is_none() && self.waking.is_none() && self.session.simulated() && self.session.tick > self.rewind_floor()
+    }
+
+    /// The earliest tick the timelapse reaches: the oldest snapshot's (a fresh run's start).
+    fn rewind_floor(&self) -> u32 {
+        self.snapshots.first().map(|(t, _)| *t).unwrap_or(self.session.tick)
+    }
+
+    /// One tick back in time (the timelapse): the run is rebuilt from its nearest snapshot
+    /// and replayed to the tick before this one, with the person's inputs replayed to there;
+    /// later inputs are dropped (that future is gone: stepping forward again replays the
+    /// world without them, until the person acts again). False at the run's start, or for a
+    /// view that has not played: nothing to go back to. The camera stays.
+    pub fn step_back(&mut self) -> bool {
+        if !self.can_step_back() {
+            return false;
+        }
+        let target = self.session.tick.saturating_sub(1);
+        self.seek(target);
+        self.acc = 0.0;
+        self.partial = 0.0;
+        self.follow_machine_with(false);
+        self.invalidate();
+        true
+    }
+
+    /// Rebuild the run at `target` (at or behind the tick now): restore the nearest snapshot
+    /// at or before it, replay the logged inputs to it. The log and snapshots past `target`
+    /// are dropped: that future is gone.
+    fn seek(&mut self, target: u32) {
+        let idx = self.snapshots.iter().rposition(|(t, _)| *t <= target).expect("the floor snapshot");
+        let snap = self.snapshots[idx].1.clone();
+        self.snapshots.truncate(idx + 1);
+        self.input_log.retain(|(t, _)| *t < target);
+        self.pending.clear();
+        self.session.restore(snap.run);
+        self.history = snap.history;
+        self.history_tick = snap.history_tick;
+        self.door_demo = snap.door_demo;
+        self.pressed = snap.pressed;
+        self.hold = 0.0;
+        self.replaying = true;
+        while self.session.tick < target {
+            let t = self.session.tick;
+            let ops: Vec<InputOp> = self.input_log.iter().filter(|(at, _)| *at == t).map(|(_, op)| op.clone()).collect();
+            for op in ops {
+                self.apply_input_op(op);
+            }
+            self.step_once();
+        }
+        self.replaying = false;
+        self.follow_machine();
+    }
+
+    /// Run a logged input action again (the timelapse's replay): the same method the person
+    /// ran, so it lands the same way (its own log call is suppressed: [`Player::replaying`]).
+    fn apply_input_op(&mut self, op: InputOp) {
+        match op {
+            InputOp::StopDemo => self.stop_demo(),
+            InputOp::TapInput(i) => {
+                let _ = self.tap_input(i);
+            }
+            InputOp::InputDown(i) => {
+                let _ = self.input_down(i);
+            }
+            InputOp::InputUp(i) => self.input_up(i),
+            InputOp::HoldInput(i, on) => {
+                let _ = self.hold_input(i, on);
+            }
+            InputOp::Toggle(pos) => {
+                self.stop_demo();
+                let _ = self.session.toggle(pos);
+            }
+            InputOp::StartDoorDemo => self.start_door_demo(),
+        }
+    }
+
+    /// Log the person's input action at this tick (the timelapse). Nothing while replaying.
+    fn log_op(&mut self, op: InputOp) {
+        if !self.replaying {
+            self.input_log.push((self.session.tick, op));
+        }
+    }
+
+    /// Snapshot the run now, if due (every [`SNAPSHOT_EVERY`] ticks): the timelapse's
+    /// restore point. Called after every tick's [`Player::record`], and on a fresh run.
+    fn maybe_snapshot(&mut self) {
+        let t = self.session.tick;
+        if self.snapshots.last().is_some_and(|(s, _)| *s == t) {
+            return;
+        }
+        if self.snapshots.is_empty() || t >= self.snapshots.last().map(|(s, _)| *s).unwrap_or(0) + SNAPSHOT_EVERY {
+            self.snapshots.push((t, self.snapshot_state()));
+            while self.snapshots.len() > MAX_SNAPSHOTS {
+                self.snapshots.remove(0);
+            }
+        }
+    }
+
+    /// Snapshot the run now, replacing the snapshot at this tick if there is one (the run's
+    /// starting conditions changed after the tick's snapshot: [`Player::attach_demo`]).
+    fn snapshot_now(&mut self) {
+        let t = self.session.tick;
+        self.snapshots.retain(|(s, _)| *s != t);
+        self.snapshots.push((t, self.snapshot_state()));
+        while self.snapshots.len() > MAX_SNAPSHOTS {
+            self.snapshots.remove(0);
+        }
+    }
+
+    /// The run's state now (the session's plus the player's), for a snapshot.
+    fn snapshot_state(&self) -> Snapshot {
+        Snapshot { run: self.session.snapshot(), history: self.history.clone(), history_tick: self.history_tick, door_demo: self.door_demo, pressed: self.pressed.clone() }
     }
 
     pub fn reset(&mut self) {
@@ -833,6 +1023,9 @@ impl Player {
             self.invalidate();
             return;
         }
+        // a new run: the old run's input log and snapshots are gone
+        self.input_log.clear();
+        self.snapshots.clear();
         self.session.reset();
         self.fast_forward = None;
         // the auto-demo comes back where it is shown from (its long wait skipped: played through
@@ -896,6 +1089,7 @@ impl Player {
         }) {
             return true;
         }
+        self.log_op(InputOp::HoldInput(i, on));
         if on {
             if !self.session.set_input(i, true) {
                 return false;
@@ -927,12 +1121,14 @@ impl Player {
         }
         self.stop_demo();
         if self.defer(move |p| {
+            p.log_op(InputOp::Toggle(c));
             if p.session.toggle(c) {
                 p.invalidate();
             }
         }) {
             return Some(c);
         }
+        self.log_op(InputOp::Toggle(c));
         if self.session.toggle(c) {
             self.invalidate();
             Some(c)
@@ -997,7 +1193,10 @@ impl Player {
             Mode::Door { lever, .. } => Some(lever),
             _ => self.session.inputs.first().copied(),
         };
-        let ok = target.is_some_and(|p| self.session.toggle(p));
+        let ok = target.is_some_and(|p| {
+            self.log_op(InputOp::Toggle(p));
+            self.session.toggle(p)
+        });
         if ok {
             self.invalidate();
         }
@@ -1415,5 +1614,146 @@ mod tests {
         let after = p.triangles(&atlas).0;
         assert!(before.len() != after.len() || before.iter().zip(&after).any(|(a, b)| a.pos != b.pos), "the frame changed");
         assert!(p.session.is_on([0, 1, 0]));
+    }
+
+    /// The timelapse: going back in time tick by tick, then forward again, shows the same
+    /// states as the run that played straight through; back before a flip, the flip is
+    /// dropped (that future is gone) and forward again stays off.
+    #[test]
+    fn rewind_then_forward_replays_the_run() {
+        let gadget = "name: g\norigin: 0 0 0\npalette:\n  S minecraft:stone\n  L minecraft:lever[face=floor,facing=east,powered=false]\n  B minecraft:waxed_copper_bulb[lit=false,powered=false]\nlayer 0:\n  SB\nlayer 1:\n  L\n";
+        let powered = |p: &Player| p.session.design.blocks.keys().filter(|c| !p.session.inputs.contains(c) && p.session.is_on(**c)).count();
+        let mut a = Player::new(gadget, 1.5).unwrap();
+        a.step();
+        assert!(a.flip(), "the lever flips");
+        let mut states = Vec::new();
+        for _ in 0..10 {
+            states.push((a.session.tick, a.session.is_on([0, 1, 0]), a.session.is_on([1, 0, 0]), powered(&a)));
+            a.step();
+        }
+        let mut b = Player::new(gadget, 1.5).unwrap();
+        b.step();
+        assert!(b.flip());
+        for _ in 0..10 {
+            b.step();
+        }
+        assert_eq!(b.session.tick, 11);
+        for _ in 0..6 {
+            assert!(b.step_back(), "back to tick 5");
+        }
+        assert_eq!(b.session.tick, 5);
+        for (tick, lever, bulb, n) in states.iter().skip(4) {
+            assert_eq!((b.session.tick, b.session.is_on([0, 1, 0]), b.session.is_on([1, 0, 0]), powered(&b)), (*tick, *lever, *bulb, *n), "tick {tick}");
+            b.step();
+        }
+        assert_eq!(b.session.tick, 11);
+        while b.session.tick > 1 {
+            assert!(b.step_back());
+        }
+        assert_eq!(b.session.tick, 1);
+        assert!(!b.session.is_on([0, 1, 0]), "back before the flip at tick 1: the flip is dropped");
+        for _ in 0..5 {
+            b.step();
+        }
+        assert!(!b.session.is_on([0, 1, 0]), "forward again without it: still off");
+    }
+
+    /// The timelapse at the run's start: nothing to go back to.
+    #[test]
+    fn no_rewind_at_run_start() {
+        let gadget = "name: g\norigin: 0 0 0\npalette:\n  S minecraft:stone\n  L minecraft:lever[face=floor,facing=east,powered=false]\n  B minecraft:waxed_copper_bulb[lit=false,powered=false]\nlayer 0:\n  SB\nlayer 1:\n  L\n";
+        let mut p = Player::new(gadget, 1.5).unwrap();
+        assert!(!p.can_step_back());
+        assert!(!p.step_back());
+        assert_eq!(p.session.tick, 0);
+    }
+
+    /// The timelapse across a snapshot (every 512 ticks): back from 600, past 512, to the
+    /// flip at tick 10 — the flip survives until the rewind passes it.
+    #[test]
+    fn rewind_across_a_snapshot() {
+        let gadget = "name: g\norigin: 0 0 0\npalette:\n  S minecraft:stone\n  L minecraft:lever[face=floor,facing=east,powered=false]\n  B minecraft:waxed_copper_bulb[lit=false,powered=false]\nlayer 0:\n  SB\nlayer 1:\n  L\n";
+        let mut p = Player::new(gadget, 1.5).unwrap();
+        for _ in 0..10 {
+            p.step();
+        }
+        assert!(p.flip(), "the lever flips at tick 10");
+        for _ in 0..590 {
+            p.step();
+        }
+        assert_eq!(p.session.tick, 600);
+        while p.session.tick > 11 {
+            assert!(p.step_back());
+        }
+        assert_eq!(p.session.tick, 11);
+        assert!(p.session.is_on([0, 1, 0]), "the flip at tick 10 is still in");
+        assert!(p.step_back());
+        assert_eq!(p.session.tick, 10);
+        assert!(!p.session.is_on([0, 1, 0]), "back to tick 10: the flip at 10 is dropped");
+    }
+
+    /// The timelapse with the door demo: rewound, then forward again, the door is where the
+    /// run that played straight through has it.
+    #[test]
+    fn rewind_replays_the_door_demo() {
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../designs/piston-door-3x3/archive/b38h-obs7-45b.txt")).unwrap();
+        let mut a = Player::new(&text, 1.5).unwrap();
+        let start = a.session.tick;
+        a.start_door_demo();
+        for _ in 0..60 {
+            a.step();
+        }
+        let mut b = Player::new(&text, 1.5).unwrap();
+        b.start_door_demo();
+        for _ in 0..30 {
+            b.step();
+        }
+        for _ in 0..5 {
+            assert!(b.step_back());
+        }
+        assert_eq!(b.session.tick, start + 25);
+        for _ in 0..35 {
+            b.step();
+        }
+        assert_eq!(b.session.tick, start + 60);
+        let Mode::Door { lever, .. } = a.session.mode else { panic!("a door") };
+        assert_eq!(b.session.is_on(lever), a.session.is_on(lever), "the lever");
+        assert_eq!(b.session.door_blocks(), a.session.door_blocks(), "the door");
+    }
+
+    /// The timelapse with the auto-demo: rewound, then forward again, the demo's held input
+    /// is where the run that played straight through has it.
+    #[test]
+    fn rewind_replays_the_auto_demo() {
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../designs/circuits/memory/archive/dff-lock.txt")).unwrap();
+        let mut mk = |pulse: bool| {
+            let mut p = Player::new(&text, 0.8).unwrap();
+            p.pulse_inputs = pulse;
+            let names: Vec<String> = p.session.circuit_inputs.iter().map(|c| c.name.clone()).collect();
+            let clk = names.iter().position(|n| n == "clk").unwrap();
+            let demo = crate::circuit::parse_stimulus("clk 40+ 900-", &names, 40).unwrap();
+            p.attach_demo(demo);
+            (p, clk)
+        };
+        let (mut a, clk) = mk(true);
+        let start = a.session.tick;
+        for _ in 0..100 {
+            a.step();
+        }
+        let (mut b, _) = mk(true);
+        for _ in 0..60 {
+            b.step();
+        }
+        for _ in 0..10 {
+            assert!(b.step_back());
+        }
+        assert_eq!(b.session.tick, start + 50);
+        assert!(b.session.demo.is_some(), "the demo survived the rewind");
+        for _ in 0..50 {
+            b.step();
+        }
+        assert_eq!(b.session.tick, start + 100);
+        assert_eq!(b.session.input_on[clk], a.session.input_on[clk], "the demo holds CLK the same");
+        assert_eq!(b.session.demo.as_ref().map(|d| d.ticks), a.session.demo.as_ref().map(|d| d.ticks));
     }
 }

@@ -349,6 +349,31 @@ pub struct Session {
     pub still: bool,
 }
 
+/// The run's mutable state, for the timelapse ([`crate::player::Player::step_back`]): everything
+/// [`Session::step`] and its inputs change. The rest (the design, the placed state, the
+/// judge's stimulus except as [`Session`]'s `demo` below) is the run's and untouched by a
+/// rewind.
+#[derive(Clone)]
+pub struct RunState {
+    pub world: World,
+    pub tick: u32,
+    pub last_input: Option<u32>,
+    pub actions: Vec<(u32, Action)>,
+    pub input_on: Vec<bool>,
+    pub releases: Vec<(u32, usize)>,
+    pub prev_falling: Vec<(u32, [f64; 3])>,
+    pub halted: Option<String>,
+    pub shulker: Option<redsim::redstone::shulker::Chests>,
+    pub received: std::collections::BTreeMap<Pos, Vec<crate::labels::Entry>>,
+    pub visit_due: bool,
+    pub farm: Vec<(u32, FarmEvent)>,
+    pub outside: std::collections::BTreeMap<Pos, Block>,
+    pub end_tick: Option<u32>,
+    pub replay: Option<crate::replay::Replay>,
+    /// The judge's stimulus being replayed (cleared when the person takes over: `stop_demo`).
+    pub demo: Option<crate::circuit::Schedule>,
+}
+
 /// The corridor of a design with `travel:` (`circuit_fly::machine::Machine::corridor`): its
 /// blocks, kick cell and `stop:` blocks swept `distance:` cells (32 by default) along the travel,
 /// plus 3 free cells; a piston extender sweeps its N (`circuit: piston-extender N`) + 1.
@@ -1304,6 +1329,52 @@ impl Session {
             self.clear_writes();
             self.take_writes();
         }
+    }
+
+    /// Snapshot the run's mutable state (the timelapse).
+    pub fn snapshot(&self) -> RunState {
+        RunState {
+            world: self.world.clone(),
+            tick: self.tick,
+            last_input: self.last_input,
+            actions: self.actions.clone(),
+            input_on: self.input_on.clone(),
+            releases: self.releases.clone(),
+            prev_falling: self.prev_falling.clone(),
+            halted: self.halted.clone(),
+            shulker: self.shulker.clone(),
+            received: self.received.clone(),
+            visit_due: self.visit_due,
+            farm: self.farm.clone(),
+            outside: self.outside.clone(),
+            end_tick: self.end_tick,
+            replay: self.replay.clone(),
+            demo: self.demo.clone(),
+        }
+    }
+
+    /// Restore a snapshot (the timelapse): the run continues from there exactly, the
+    /// period cache and the write log cleared like [`Session::reset`].
+    pub fn restore(&mut self, s: RunState) {
+        self.world = s.world;
+        self.tick = s.tick;
+        self.last_input = s.last_input;
+        self.actions = s.actions;
+        self.input_on = s.input_on;
+        self.releases = s.releases;
+        self.prev_falling = s.prev_falling;
+        self.halted = s.halted;
+        self.shulker = s.shulker;
+        self.received = s.received;
+        self.visit_due = s.visit_due;
+        self.farm = s.farm;
+        self.outside = s.outside;
+        self.end_tick = s.end_tick;
+        self.replay = s.replay;
+        self.demo = s.demo;
+        self.period_memo = std::cell::RefCell::new(None);
+        self.clear_writes();
+        self.take_writes();
     }
 
     pub fn simulated(&self) -> bool {

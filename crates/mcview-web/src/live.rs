@@ -30,6 +30,8 @@ pub struct Live {
     bar: HtmlElement,
     status: HtmlElement,
     play: HtmlButtonElement,
+    /// One tick back (the timelapse): disabled at the run's start.
+    back: HtmlButtonElement,
     flip: HtmlButtonElement,
     speed: HtmlButtonElement,
     speed_i: usize,
@@ -191,6 +193,8 @@ fn style(e: &HtmlElement, props: &[(&str, &str)]) {
 const ICON_PLAY: &str = "M8 5v14l11-7z";
 const ICON_PAUSE: &str = "M6 5h4v14H6zM14 5h4v14h-4z";
 const ICON_STEP: &str = "M5 5v14l9-7zM15 5h3v14h-3z";
+/// One tick back in time (the timelapse): the step icon mirrored.
+const ICON_BACK: &str = "M9 5H6v14h3zM19 5v14l-9-7z";
 const ICON_RESET: &str = "M12 5V1.5L7 6l5 4.5V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z";
 const ICON_LEVER: &str = "M17 7H7a5 5 0 0 0 0 10h10a5 5 0 0 0 0-10zm0 8a3 3 0 1 1 0-6 3 3 0 0 1 0 6z";
 const ICON_BOXES: &str = "M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8zM5 5v4h4V5zM15 5v4h4V5zM5 15v4h4v-4zM15 15v4h4v-4z";
@@ -317,6 +321,8 @@ pub fn start(app: &mut App, id: u32) {
     let reset = button(ICON_RESET, "Back to the start (r)");
     let play = button(ICON_PLAY, "Play / pause (space)");
     let _ = play.style().set_property("min-width", "52px");
+    let back = button(ICON_BACK, "One game tick back (←)");
+    back.set_disabled(true);
     let step = button(ICON_STEP, "One game tick (→)");
     let speed = button(SPEEDS[0].0, "Speed (1× = 20 game ticks per second, real time)");
     let _ = speed.style().set_property("font-size", "15px");
@@ -351,7 +357,7 @@ pub fn start(app: &mut App, id: u32) {
         ],
     );
     label.set_text_content(Some("0.00 s · 0 ticks"));
-    for c in [reset.unchecked_ref::<HtmlElement>(), play.unchecked_ref(), step.unchecked_ref(), speed.unchecked_ref(), flip.unchecked_ref(), containers.unchecked_ref()] {
+    for c in [reset.unchecked_ref::<HtmlElement>(), play.unchecked_ref(), back.unchecked_ref(), step.unchecked_ref(), speed.unchecked_ref(), flip.unchecked_ref(), containers.unchecked_ref()] {
         let _ = bar.append_child(c);
     }
     let _ = root.append_child(&bar);
@@ -425,6 +431,7 @@ pub fn start(app: &mut App, id: u32) {
         bar: bar.clone(),
         status,
         play: play.clone(),
+        back: back.clone(),
         flip: flip.clone(),
         speed: speed.clone(),
         speed_i: 0,
@@ -457,6 +464,7 @@ pub fn start(app: &mut App, id: u32) {
     let _ = canvas.style().set_property("touch-action", "none");
     on_click(&reset, id, |l| l.reset());
     on_click(&play, id, |l| l.toggle_play());
+    on_click(&back, id, |l| l.step_back());
     on_click(&step, id, |l| l.step());
     on_click(&flip, id, |l| l.flip());
     on_click(&speed, id, |l| l.next_speed());
@@ -507,6 +515,7 @@ pub fn start(app: &mut App, id: u32) {
             match e.key().as_str() {
                 " " => l.toggle_play(),
                 "ArrowRight" | "." => l.step(),
+                "ArrowLeft" | "," => l.step_back(),
                 "r" => l.reset(),
                 "f" => l.flip(),
                 _ => return false,
@@ -1128,6 +1137,8 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
             }
             t_draw = perf.as_ref().map(|q| q.now()).unwrap_or(0.0);
             l.label.set_text_content(Some(&time_text(p, l.narrow)));
+            // the back button is live once the run has a tick behind it
+            l.back.set_disabled(!p.can_step_back());
             if crate::debug() {
                 // for `mctas web layout`: nothing may move while the counter runs (not counted
                 // while its session is built over frames: the still it shows then is not the view
@@ -1226,12 +1237,12 @@ impl Live {
         p.phases = live.phases.clone();
         p.pulse_inputs = live.pulse_inputs;
         if let Some(d) = &self.demo {
-            p.session.attach_demo(d.clone());
+            p.attach_demo(d.clone());
             p.skip_demo_wait();
         } else if let Some((d, phases)) = mcview::player::lock_demo(&p.session) {
             // a lock without a demo (its page stays paused): its dials turned to the code, open,
             // shut again
-            p.session.attach_demo(d);
+            p.attach_demo(d);
             p.phases = phases;
         }
         // a door: its demo (closed, opening, open, closing), one cycle
@@ -1363,6 +1374,16 @@ impl Live {
             p.playing = false;
             self.play.set_inner_html(&icon(ICON_PLAY));
             p.step();
+            self.redraw = true;
+        }
+    }
+
+    /// One tick back in time (the timelapse): pauses first, like [`Live::step`].
+    fn step_back(&mut self) {
+        if let Some(p) = self.player.as_mut() {
+            p.playing = false;
+            self.play.set_inner_html(&icon(ICON_PLAY));
+            p.step_back();
             self.redraw = true;
         }
     }
