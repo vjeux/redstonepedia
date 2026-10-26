@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clock: every 16 ticks (0.8 s) · 9 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Clock: every 16 ticks (0.8 s) · 9 blocks. Digital P=16, 2x2 hopper ring with mixed items: 4 hoppers in a ring holding 2 swords and 2 stones (constructive census found it analog: the comparator reading o">
+<meta property="og:title" content="Clock: every 16 ticks (0.8 s) · 9 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Clock: every 16 ticks (0.8 s) · 9 blocks. Digital P=16, 2x2 hopper ring with mixed items: 4 hoppers in a ring holding 2 swords and 2 stones (constructive census found it analog: the comparator reading o">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<meta property="og:image" content="https://raw.githubusercontent.com/vjeux/redstonepedia/main/designs/clocks/img/ring22mix-sub-p16.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="../style.css?v=3fef2398">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top on" href="../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top" href="../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../index.html" method="get" role="search"><input type="hidden" name="kind" value="clock"><input id="hq" name="q" type="search" placeholder="Search: 48 ticks, 2.5 s…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../index.html">REDSTONEPEDIA</a> › <a href="../index.html#kind=clock">Clocks</a> › <a href="../index.html#kind=clock&amp;time=16">every 16 ticks (0.8 s)</a></p>
+<p class="kindline">Clock</p>
+<h1>every 16 ticks (0.8 s) · 9 blocks</h1>
+<p class="oneliner">Its output pulses by itself every 16 ticks (0.8 s), forever. It starts on its own once built.</p>
+<p class="warn">Works only facing the way it is shown here: build it from the download without turning it; turned another way it stops or changes its timing (our test tried all 4 directions). If its chunk unloads mid-cycle (you walk away and come back), its period changes to 8 ticks (0.4 s) (in 3 of 8 of our test builds).</p>
+<p class="lede">made of comparator, hopper · on for 7 of 16 ticks</p>
+<p class="badges"><span class="badge">starts by itself</span></p>
+<div class="viewer k-clock" data-mcview="full" data-src="../designs/clocks/ring22mix-sub-p16.txt" data-kind="clock"><div class="fallback has-pic"><img class="pic contain" src="https://raw.githubusercontent.com/vjeux/redstonepedia/main/designs/clocks/img/ring22mix-sub-p16.jpg" alt="Clock: every 16 ticks (0.8 s) · 9 blocks in the game" decoding="async"><span class="fb-big">every 16 ticks</span><span class="fb-small">Clock</span><span class="fb-note">picture from the real game; the live 3D view replaces it when available</span></div></div>
+<p class="needs">Comes loaded with 2 diamond swords and 3 stone in its containers: the download includes them; building it by hand, put them in first.</p>
+<p class="hint">Every clock that pulses every 16 ticks (0.8 s): <a href="../index.html#kind=clock&amp;time=16">on the Clocks tab</a>, smallest first (the ones hard to wire into a circuit last).</p>
+<section class="what plain"><h2>Try it</h2><p>Press play under the view: it runs by itself: pause and step one tick at a time with the buttons under it. To use it in a circuit, put a repeater where the view puts its lamp: it picks up every pulse.</p><p class="howdesign"><b>How this design does it:</b> Digital P=16, 2x2 hopper ring with mixed items: 4 hoppers in a ring holding 2 swords and 2 stones (constructive census found it analog: the comparator reading one hopper sees a sword (3) or a stone (1), never 0).</p></section>
+<section><h2>Its output over time</h2><p class="hint">The output (orange) over the first 69 ticks, as the 3D view plays it: the grey part is the clock starting up, for 21 ticks (1.05 s); then it repeats every 16 ticks (0.8 s), on for 7 ticks (0.35 s) of them. 20 ticks = 1 second.</p><div class="wave-wrap fit"><svg class="wave fit" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 412 78" role="img" aria-label="timing diagram"><rect class="warm" x="64.0" y="18.0" width="103.5" height="42.0"/><line class="ph" x1="64.0" y1="18.0" x2="64.0" y2="60.0"/><text class="phl" x="67.0" y="14.0">starting up</text><line class="ph" x1="167.5" y1="18.0" x2="167.5" y2="60.0"/><text class="phl" x="170.5" y="14.0">cycle 1</text><line class="ph" x1="246.3" y1="18.0" x2="246.3" y2="60.0"/><text class="phl" x="249.3" y="14.0">cycle 2</text><line class="ph" x1="325.2" y1="18.0" x2="325.2" y2="60.0"/><text class="phl" x="328.2" y="14.0">cycle 3</text><text class="wl" x="4" y="46.0">OUT</text><line class="base" x1="64.0" y1="48.0" x2="404.0" y2="48.0"/><polygon class="wout" points="64.0,48.0 64.0,48.0 78.8,48.0 78.8,28.0 113.3,28.0 113.3,48.0 192.1,48.0 192.1,28.0 226.6,28.0 226.6,48.0 271.0,48.0 271.0,28.0 305.4,28.0 305.4,48.0 349.8,48.0 349.8,28.0 384.3,28.0 384.3,48.0 404.0,48.0 404.0,48.0"/><text class="ax" x="4" y="72.0">ticks</text><text class="ax" x="64.0" y="72.0">0</text><text class="ax" x="167.5" y="72.0">21</text><text class="ax" x="246.3" y="72.0">37</text><text class="ax" x="325.2" y="72.0">53</text></svg></div></section>
+<section><h2>Build it</h2><p><a class="button" href="../designs/clocks/ring22mix-sub-p16.litematic" download>Download .litematic</a> <a class="button alt" href="../designs/clocks/ring22mix-sub-p16.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../index.html#with=comparator">comparator</a> <a class="chip" href="../index.html#with=hopper">hopper</a> <a class="chip" href="../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section><h2>Notes from its designer</h2><p>Digital P=16, 2x2 hopper ring with mixed items: 4 hoppers in a ring holding 2 swords and 2 stones (constructive census found it analog: the comparator reading one hopper sees a sword (3) or a stone (1), never 0). Here the reader is a SUBTRACT comparator whose side input is a constant 1 (a second comparator reading a dead-end hopper holding one stone): output max(s - 1, 0) = 2 or 0, digital, P = 16.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Pulses every</th><td>16 ticks (0.8 s)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>comparator, hopper</td></tr>
+<tr><th scope="row">Blocks placed</th><td>9</td></tr>
+<tr><th scope="row">Box</th><td>3×2×4 (24 blocks of space)</td></tr>
+<tr><th scope="row">Output</th><td>on for 7 of every 16 ticks</td></tr>
+<tr><th scope="row">Settles after</th><td>21 ticks (1.05 s)</td></tr>
+<tr><th scope="row">To start it</th><td>nothing: it starts by itself once built</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>no: directional, it depends on which way it faces</td></tr>
+<tr><th scope="row">Mirror image</th><td>a different design (listed separately)</td></tr>
+<tr><th scope="row">Flags</th><td>starts by itself, mirror image is a different design</td></tr>
+<tr><th scope="row">Design file</th><td><code>ring22mix-sub-p16</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/clocks/archive/ring22mix-sub-p16.txt">on GitHub</a></p><details><summary>Design file (30 lines)</summary><pre class="design"># archived 2026-10-19T19:52Z from designs/clocks/tracks/clk-item/ring22mix-sub-p16.txt by mctas clock archive
+# CLOCK: ring22mix-sub-p16 period 16 gt (0.8 s), on 7/16, edges 1, warmup 21, family comparator+hopper, 9 blocks, 3x2x4, rotation-dependent
+# Digital P=16, 2x2 hopper ring with mixed items (clk-item): 4 hoppers in a ring holding 2 swords and 2 stones (constructive census found it analog: the comparator reading one hopper sees a sword (3) or a stone (1), never 0). Here the reader is a SUBTRACT comparator whose side input is a constant 1 (a second comparator reading a dead-end hopper holding one stone): output max(s - 1, 0) = 2 or 0, digital, P = 16.
+name: ring22mix-sub-p16
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge&#39;s lamp lights at evenly spaced ticks (was -1 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -2 0 0
+nbt: 0 0 1 {Items:[{Slot:0b,id:&quot;minecraft:diamond_sword&quot;,count:1}]}
+nbt: 1 0 0 {Items:[{Slot:0b,id:&quot;minecraft:diamond_sword&quot;,count:1}]}
+nbt: 1 0 1 {Items:[{Slot:0b,id:&quot;minecraft:stone&quot;,count:2}]}
+nbt: -1 0 -2 {Items:[{Slot:0b,id:&quot;minecraft:stone&quot;,count:1}]}
+origin: -1 0 -2
+palette:
+  A minecraft:hopper[enabled=true,facing=south]
+  B minecraft:hopper[enabled=true,facing=west]
+  X minecraft:comparator[facing=east,mode=subtract,powered=false]
+  K minecraft:comparator[facing=north,mode=compare,powered=false]
+  D minecraft:hopper[enabled=true,facing=down]
+  H minecraft:hopper[enabled=true,facing=east]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=north]
+layer -1:
+  .
+  S
+  S
+  .
+layer 0:
+  D
+  K
+  XAB
+  .Hh
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/dc8ec15a268a4ee1129517e8c16261cbd981c128">vjeux/redstonepedia@dc8ec15a2</a> on <span class="nowrap">2026-10-26</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../viewer/mcview.js?v=6436f4ee"; init({module_or_path: "../viewer/mcview_bg.wasm?v=41e34704"});</script>
+</body>
+</html>

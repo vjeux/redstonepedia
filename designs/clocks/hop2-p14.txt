@@ -1,0 +1,19 @@
+# archived 2026-10-19T16:05Z from /tmp/clk-in4/clk-item--hop2-p14.txt by mctas clock archive
+# CLOCK: hop2-p14 period 14 gt (0.7 s), on 7/14, edges 1, warmup 7, family comparator+hopper, 4 blocks, 3x2x1, robust
+# Hopper slosh, 4 blocks (clk-item): two hoppers facing each other hold one item; it hops back and forth, 7 gt per hop (the receiving hopper was empty: TransferCooldown 8 - 1). A comparator reading the west hopper is on 7 gt, off 7 gt.
+# redsim: P=14 gt, warmup 3, family comparator+hopper, 4 blocks, output on 7/14 gt, 1 rising edge(s)
+
+name: hop2-p14
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was -1 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -2 1 0
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: -1 0 0
+palette:
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=west]
+layer 0:
+  S
+layer 1:
+  CHh

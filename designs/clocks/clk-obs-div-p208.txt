@@ -1,0 +1,27 @@
+# archived 2026-10-21T17:11Z from designs/clocks/tracks/clk-obs/usable/div-p208.txt by mctas clock archive
+# CLOCK: clk-obs-div-p208 period 208 gt (10.4 s), on 104/208, edges 1, warmup 2, family comparator+copper_bulb+dispenser+observer+sculk_sensor, 11 blocks, 6x2x5, robust
+# clock with 2 copper-bulb divider stage(s) (clk-obs `clock obs divide`): the bulb in the old output cell toggles on every pulse, a comparator reads it (x 2 per stage); the period is the base's x 4.
+name: clk-obs-div-p208
+name: clk-obs-div-p208
+port output: 0 0 -5
+port start: 5 0 0 minecraft:redstone_block 1
+origin: 0 0 -4
+palette:
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  D minecraft:dispenser[facing=up,triggered=false]
+  O minecraft:observer[facing=west,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  s minecraft:stone
+layer -1:
+  s
+  .
+  s
+  .
+  .
+layer 0:
+  C
+  W
+  C
+  W
+  SOOsD

@@ -1,0 +1,33 @@
+# archived 2026-10-21T03:12Z from designs/clocks/tracks/clk-obs/hopclk/clk-obs-hopclk.txt by mctas clock archive
+# CLOCK: clk-obs-hopclk period 20 gt (1 s), on 18/20, edges 1, warmup 4, family comparator+hopper+redstone_block+redstone_wire+sticky_piston, 13 blocks, 6x3x1, robust
+# Compact hopper clock (clk-obs): two hoppers facing each other pass N stones, one per 8 gt; each
+# hopper's comparator lights the dust on the block in front of it, which powers a sticky piston;
+# the two pistons hold one redstone block over the hopper that receives (a locked hopper still
+# receives) and pull it over the other one when the sender runs empty. Period 16 N - 12 gt.
+name: clk-obs-hopclk
+extend family: clk-obs-hopclk
+extend period: 16n - 12
+extend blocks: 13
+extend rule: one more stone in the first hopper (same blocks; up to 5 stacks of 64)
+extend n: 2..320
+extend base: 2
+extend generator: mctas clock obs hopclk --n {n} --out {out}
+port output: -1 0 0
+nbt: 2 0 0 {Items:[{Slot:0b,id:"minecraft:stone",count:2}]}
+origin: 0 0 0
+palette:
+  S minecraft:stone
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:comparator[facing=west,mode=compare,powered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  I minecraft:hopper[enabled=true,facing=west]
+  P minecraft:sticky_piston[extended=false,facing=east]
+  Q minecraft:sticky_piston[extended=false,facing=west]
+  R minecraft:redstone_block
+  r minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer -1:
+  .S..S.
+layer 0:
+  SCHIDS
+layer 1:
+  rPR.Qr

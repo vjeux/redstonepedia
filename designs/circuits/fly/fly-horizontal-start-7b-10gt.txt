@@ -1,0 +1,27 @@
+# archived 2026-10-22T03:50Z from /tmp/fly/rearch/fly-horizontal-start-7b-10gt.txt by mctas circuit archive
+# CIRCUIT: fly-horizontal-start-7b-10gt flying-machine speed 10 gt/block, period 10 gt, 1 cell(s), latency 2 gt, start flip the lever, ground flies along the ground, 7 blocks, 3x4x1, robust
+#
+name: fly-horizontal-start-7b-10gt
+circuit: flying-machine
+distance: 24
+travel: -1 0 0
+port input: 1 -2 0 lever
+port station.0: 2 -2 0
+port station.1: 1 -2 0
+origin: 1 0 0
+palette:
+  A minecraft:stone
+  L minecraft:lever[face=wall,facing=west,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=west]
+  S minecraft:slime_block
+  o minecraft:observer[facing=east,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer -2:
+  LA
+layer -1:
+  O
+layer 0:
+  SP
+layer 1:
+  sSo

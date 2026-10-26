@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Half adder: half adder: two bits into a sum and a carry · 17 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Half adder: half adder: two bits into a sum and a carry · 17 blocks. A torch on input A and input B&#39;s wire meet in a comparator that is fully on when both are off, barely on when only B is on, and off when A is on. The carry ligh">
+<meta property="og:title" content="Half adder: half adder: two bits into a sum and a carry · 17 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Half adder: half adder: two bits into a sum and a carry · 17 blocks. A torch on input A and input B&#39;s wire meet in a comparator that is fully on when both are off, barely on when only B is on, and off when A is on. The carry ligh">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/adder/index.html">Adders</a></p>
+<p class="kindline">Half adder: adds two bits into a sum and a carry</p>
+<h1>half adder: two bits into a sum and a carry · 17 blocks</h1>
+<p class="oneliner">Adds two one-bit inputs, A and B: the sum output (S) is on when exactly one of them is on, the carry output (COUT) when both are.</p>
+<p class="lede">passed at every position and facing we tested · reacts in 12 ticks (0.6 s) · fits in 4×2×3</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/adder/ha-17b.txt" data-stimulus="a0 40+ 88- 184+ 232- 256+ 304- 328+ 352- 400+ 424- 448+ 496-; b0 64+ 112- 136+ 160- 208+ 280- 328+ 352- 376+ 400- 448+ 472- 496+" data-phases="40-64 gray 1; 64-88 gray 3; 88-112 gray 2; 112-136 walk 0; 136-160 walk 2; 160-184 walk 0; 184-208 walk 1; 208-232 walk 3; 232-256 walk 2; 256-280 walk 3; 280-304 walk 1; 304-328 walk 0; 328-352 jump 3; 352-376 jump 0; 376-400 jump 2; 400-424 jump 1; 424-448 jump 0; 448-472 jump 3; 472-496 jump 1; 496-520 jump 2" data-input-mode="pulse" data-circuit="adder 1" data-kind="circuit"><div class="fallback"><span class="fb-big">half adder: two bits into a sum and a carry</span><span class="fb-small">Half adder</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<section class="what plain"><h2>Try it</h2><p>Turn on A0, B0 or both with the buttons under the view: with one on, S0 (the sum) lights; with both, COUT (the carry) lights instead, because 1 + 1 = 10 in binary. Press play under the view to watch our test on a loop; touch any other control to take over.</p><p class="howdesign"><b>How this design does it:</b> A torch on input A and input B&#39;s wire meet in a comparator that is fully on when both are off, barely on when only B is on, and off when A is on.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/adder/ha-17b.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/adder/ha-17b.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=comparator">comparator</a> <a class="chip" href="../../index.html#with=redstone_block">redstone block</a> <a class="chip" href="../../index.html#with=redstone_torch">redstone torch</a> <a class="chip" href="../../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../../index.html#with=repeater">repeater</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>adds two binary numbers, bit by bit with the carry</p></section>
+<section><h2>How to try it</h2><p><b>Press play under the view to watch the judge's own test</b> on a loop (the badge reads <i>demo</i> with the step it is on; the same test is drawn as a timing diagram below). Touch any control to stop it and try the circuit yourself.</p><p>To try it: press and hold the <b>A0</b> button of the bar (or the cell tagged A0) to power that input; a quick tap sends a short 2 gt pulse; press and hold the <b>B0</b> button of the bar (or the cell tagged B0) to power that input; a quick tap sends a short 2 gt pulse.</p><p>Inputs are tagged in <span class="tag-in">lime</span>; the output is tagged <span class="tag-out">COUT, S0</span>: the <b>redstone lamp</b> in that cell (the lamp the judge itself adds to read the output) <b>lights while the output is on</b> (the output strip by the demo badge shows its last 40 game ticks, 2 seconds). Drag to look around, pinch or scroll to zoom, step one game tick at a time with the step button.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the inputs with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="1032" height="180" viewBox="0 0 1032 180" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="137.7" y1="18.0" x2="137.7" y2="162.0"/><text class="phl" x="140.7" y="14.0">gray 1</text><line class="ph" x1="181.9" y1="18.0" x2="181.9" y2="162.0"/><text class="phl" x="184.9" y="14.0">gray 3</text><line class="ph" x1="226.1" y1="18.0" x2="226.1" y2="162.0"/><text class="phl" x="229.1" y="14.0">gray 2</text><line class="ph" x1="270.4" y1="18.0" x2="270.4" y2="162.0"/><text class="phl" x="273.4" y="14.0">walk 0</text><line class="ph" x1="314.6" y1="18.0" x2="314.6" y2="162.0"/><text class="phl" x="317.6" y="14.0">walk 2</text><line class="ph" x1="358.8" y1="18.0" x2="358.8" y2="162.0"/><text class="phl" x="361.8" y="14.0">walk 0</text><line class="ph" x1="403.0" y1="18.0" x2="403.0" y2="162.0"/><text class="phl" x="406.0" y="14.0">walk 1</text><line class="ph" x1="447.3" y1="18.0" x2="447.3" y2="162.0"/><text class="phl" x="450.3" y="14.0">walk 3</text><line class="ph" x1="491.5" y1="18.0" x2="491.5" y2="162.0"/><text class="phl" x="494.5" y="14.0">walk 2</text><line class="ph" x1="535.7" y1="18.0" x2="535.7" y2="162.0"/><text class="phl" x="538.7" y="14.0">walk 3</text><line class="ph" x1="579.9" y1="18.0" x2="579.9" y2="162.0"/><text class="phl" x="582.9" y="14.0">walk 1</text><line class="ph" x1="624.2" y1="18.0" x2="624.2" y2="162.0"/><text class="phl" x="627.2" y="14.0">walk 0</text><line class="ph" x1="668.4" y1="18.0" x2="668.4" y2="162.0"/><text class="phl" x="671.4" y="14.0">jump 3</text><line class="ph" x1="712.6" y1="18.0" x2="712.6" y2="162.0"/><text class="phl" x="715.6" y="14.0">jump 0</text><line class="ph" x1="756.8" y1="18.0" x2="756.8" y2="162.0"/><text class="phl" x="759.8" y="14.0">jump 2</text><line class="ph" x1="801.0" y1="18.0" x2="801.0" y2="162.0"/><text class="phl" x="804.0" y="14.0">jump 1</text><line class="ph" x1="845.3" y1="18.0" x2="845.3" y2="162.0"/><text class="phl" x="848.3" y="14.0">jump 0</text><line class="ph" x1="889.5" y1="18.0" x2="889.5" y2="162.0"/><text class="phl" x="892.5" y="14.0">jump 3</text><line class="ph" x1="933.7" y1="18.0" x2="933.7" y2="162.0"/><text class="phl" x="936.7" y="14.0">jump 1</text><line class="ph" x1="977.9" y1="18.0" x2="977.9" y2="162.0"/><text class="phl" x="980.9" y="14.0">jump 2</text><text class="wl" x="4" y="46.0">A0</text><line class="base" x1="64.0" y1="48.0" x2="1024.0" y2="48.0"/><polygon class="win" points="64.0,48.0 64.0,48.0 137.7,48.0 137.7,28.0 226.1,28.0 226.1,48.0 403.0,48.0 403.0,28.0 491.5,28.0 491.5,48.0 535.7,48.0 535.7,28.0 624.2,28.0 624.2,48.0 668.4,48.0 668.4,28.0 712.6,28.0 712.6,48.0 801.0,48.0 801.0,28.0 845.3,28.0 845.3,48.0 889.5,48.0 889.5,28.0 977.9,28.0 977.9,48.0 1024.0,48.0 1024.0,48.0"/><text class="wl" x="4" y="80.0">B0</text><line class="base" x1="64.0" y1="82.0" x2="1024.0" y2="82.0"/><polygon class="win" points="64.0,82.0 64.0,82.0 181.9,82.0 181.9,62.0 270.4,62.0 270.4,82.0 314.6,82.0 314.6,62.0 358.8,62.0 358.8,82.0 447.3,82.0 447.3,62.0 579.9,62.0 579.9,82.0 668.4,82.0 668.4,62.0 712.6,62.0 712.6,82.0 756.8,82.0 756.8,62.0 801.0,62.0 801.0,82.0 889.5,82.0 889.5,62.0 933.7,62.0 933.7,82.0 977.9,82.0 977.9,62.0 1024.0,62.0 1024.0,82.0"/><text class="wl" x="4" y="114.0">COUT</text><line class="base" x1="64.0" y1="116.0" x2="1024.0" y2="116.0"/><polygon class="wout" points="64.0,116.0 64.0,116.0 185.6,116.0 185.6,96.0 240.9,96.0 240.9,116.0 450.9,116.0 450.9,96.0 506.2,96.0 506.2,116.0 550.4,116.0 550.4,96.0 583.6,96.0 583.6,116.0 679.4,116.0 679.4,96.0 716.3,96.0 716.3,116.0 900.5,116.0 900.5,96.0 937.4,96.0 937.4,116.0 981.6,116.0 981.6,96.0 992.7,96.0 992.7,116.0 1024.0,116.0 1024.0,116.0"/><text class="wl" x="4" y="148.0">S0</text><line class="base" x1="64.0" y1="150.0" x2="1024.0" y2="150.0"/><polygon class="wout" points="64.0,150.0 64.0,150.0 67.7,150.0 67.7,130.0 71.4,130.0 71.4,150.0 148.8,150.0 148.8,130.0 193.0,130.0 193.0,150.0 248.3,150.0 248.3,130.8 277.7,130.8 277.7,150.0 322.0,150.0 322.0,130.8 366.2,130.8 366.2,150.0 414.1,150.0 414.1,130.0 458.3,130.0 458.3,150.0 513.6,150.0 513.6,130.8 546.8,130.8 546.8,130.0 557.8,130.0 557.8,150.0 591.0,150.0 591.0,130.0 635.2,130.0 635.2,150.0 675.7,150.0 675.7,130.0 686.8,130.0 686.8,150.0 764.2,150.0 764.2,130.8 808.4,130.8 808.4,150.0 812.1,150.0 812.1,130.0 856.3,130.0 856.3,150.0 896.9,150.0 896.9,130.0 907.9,130.0 907.9,150.0 944.8,150.0 944.8,130.0 989.0,130.0 989.0,150.0 1000.0,150.0 1000.0,130.8 1024.0,130.8 1024.0,150.0"/><text class="ax" x="4" y="174.0">ticks</text><text class="ax" x="64.0" y="174.0">0</text><text class="ax" x="156.1" y="174.0">50</text><text class="ax" x="248.3" y="174.0">100</text><text class="ax" x="340.4" y="174.0">150</text><text class="ax" x="432.5" y="174.0">200</text><text class="ax" x="524.7" y="174.0">250</text><text class="ax" x="616.8" y="174.0">300</text><text class="ax" x="708.9" y="174.0">350</text><text class="ax" x="801.0" y="174.0">400</text><text class="ax" x="893.2" y="174.0">450</text><text class="ax" x="985.3" y="174.0">500</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 521 ticks (26.05 s).</p><details><summary>Our test's report, step by step (6 lines)</summary><pre class="design">  on-blip: 2 inputs change from a=0 b=0 to a=1 b=1: s0
+  on-blip: 2 inputs change from a=0 b=0 to a=1 b=1: s0
+  on-blip: 2 inputs change from a=1 b=0 to a=0 b=1: cout
+  gray: 3 states, worst latency 12 gt
+  walk: 9 states, worst latency 12 gt
+  jump: 8 states, worst latency 12 gt</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">latency</th><td>12 gt (a0 falls from a=1 b=1)</td><td class="def">the worst time from an input change to the output&#39;s change</td></tr>
+<tr><th scope="row">glitches</th><td>4</td><td class="def">extra output changes while the inputs change</td></tr>
+<tr><th scope="row">carry</th><td>out</td><td class="def">carry in and out: it takes a carry input and gives a carry output, so copies chain into wider adders; carry out: a carry output only</td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>A torch on input A and input B&#39;s wire meet in a comparator that is fully on when both are off, barely on when only B is on, and off when A is on. The carry lights when B is on and that comparator is off (both inputs on); the sum lights when exactly one input is on. Found by a SAT search.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/adder/index.html">Adders</a></td></tr>
+<tr><th scope="row">Kind</th><td>Half adder: adds two bits into a sum and a carry</td></tr>
+<tr><th scope="row">Blocks placed</th><td>17 (not counting the input levers or buttons and the test lamp the view adds)</td></tr>
+<tr><th scope="row">Box</th><td>4×2×3 (24 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>comparator, redstone torch, redstone wire, repeater</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>A0 (repeater), B0 (repeater) / COUT, S0</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-21T17:42Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere</td></tr>
+<tr><th scope="row">Design file</th><td><code>ha-17b</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/adder/archive/ha-17b.txt">on GitHub</a></p><details><summary>Design file (30 lines)</summary><pre class="design"># archived 2026-10-21T17:42Z from designs/circuits/adder/tracks/w86/ha-17b.txt by mctas circuit archive
+# CIRCUIT: ha-17b adder 1 latency 12 gt (a0 falls from a=1 b=1), glitches 4, carry out, 17 blocks, 4x2x3, robust
+name: ha-17b
+# Half adder, 17 blocks (4x2x3): adds two bits into a sum and a carry, found by a SAT search. A torch on input a
+# and input b&#39;s wire meet in a comparator that is fully on when both are off, barely on when only b is on and off
+# when a is on; the carry lights when b is on and that comparator is off (both inputs on), and the sum lights
+# when exactly one input is on. (w86, 2026-10-21, `circuit arith synth --r7`.)
+circuit: adder 1
+port input.a0: 3 1 -1
+port input.b0: 2 1 3
+port output.cout: -1 1 2
+port output.s0: 0 1 -1
+origin: 0 0 0
+palette:
+  A minecraft:redstone_wall_torch[facing=south,lit=true]
+  B minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  C minecraft:comparator[facing=east,mode=subtract,powered=false]
+  D minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  R minecraft:redstone_block
+  S minecraft:stone
+  c minecraft:comparator[facing=south,mode=subtract,powered=false]
+  r minecraft:redstone_wall_torch[facing=north,lit=true]
+layer 0:
+  RSS
+  .SS
+  .SS
+layer 1:
+  cBCA
+  rDB
+  SCB
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/dc8ec15a268a4ee1129517e8c16261cbd981c128">vjeux/redstonepedia@dc8ec15a2</a> on <span class="nowrap">2026-10-26</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=6436f4ee"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=41e34704"});</script>
+</body>
+</html>

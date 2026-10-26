@@ -1,0 +1,36 @@
+# archived 2026-10-21T16:53Z from /tmp/clkm-ab/intr/sealed/counter24-ring3-bulb3-sealed.txt by mctas circuit archive
+# CIRCUIT: counter24-ring3-bulb3-sealed counter 24 N 24, output level every 24 pulses, counts one pulse per N, on 12 of 24, 20 blocks, 9x4x2, robust
+# Sealed by `mctas circuit seal` (the real-use audit's item intrusion, 2026-10-21): 3 glass on
+# the open hopper tops of counter24-ring3-bulb3 (-1 1 -1, -1 2 0, 0 2 -1), so no stray item reaches a hopper of its timing.
+name: counter24-ring3-bulb3-sealed
+circuit: counter 24
+group: ring-bulbs
+group note: a dropper ring whose comparator toggles K copper bulb T flip-flops in a line (`mctas circuit memory ring --n N --bulbs K`)
+group title: Dropper ring + copper bulbs (counter N x 2^K)
+port input: 0 0 0
+port output: -9 0 0
+nbt: -1 0 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: -8 0 -1
+palette:
+  A minecraft:dropper[facing=west,triggered=false]
+  B minecraft:hopper[enabled=true,facing=south]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:dropper[facing=north,triggered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=down]
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  d minecraft:dropper[facing=up,triggered=false]
+  h minecraft:hopper[enabled=true,facing=east]
+layer -1:
+  .
+  S.S.S.S
+layer 0:
+  .......hd
+  CWCWCWCD
+layer 1:
+  .......GB
+  .......HA
+layer 2:
+  ........G
+  .......G

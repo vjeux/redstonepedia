@@ -1,0 +1,20 @@
+# archived 2026-10-19T20:11Z from /tmp/gen/arch2/hyb3-p42-5.txt by mctas clock archive
+# CLOCK: clk-sculk-hyb3-p42-5 period 42 gt (2.1 s), on 30/42, edges 1, warmup 33, family oak_trapdoor+observer+piston+sculk_sensor, 7 blocks, 4x2x1, robust
+# A plain sculk sensor watched by a chain of 3 observer(s) (each watching the previous); the last observer powers a stone and an oak trapdoor (placed open+powered: it closes on placement, the self-start) beside the stone, 3 from the sensor (travel time): the observers' pulse after the sensor re-arms is heard; plus a piston beside the chain (moves parts of it: the hybrid)
+name: clk-sculk-hyb3-p42-5
+# how: obs plain k=3 path 0,1,0 -1,1,0 -2,1,0 stone at the output, emitter trapdoor beside it (travel 3) + piston[extended=false,facing=east] at -2,0,0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 0 -1 0: the output [0, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 0 0 -1
+origin: -3 0 0
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  O minecraft:oak_trapdoor[facing=north,half=bottom,open=true,powered=true,waterlogged=false]
+  P minecraft:piston[extended=false,facing=east]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=down,powered=false]
+  s minecraft:stone
+layer 0:
+  OP.S
+layer 1:
+  sAAo

@@ -1,0 +1,24 @@
+# archived 2026-10-19T18:46Z from designs/clocks/tracks/clk-obs/families/p16-note-obs-pis-stk-6b-8aaab2.txt by mctas clock archive
+# CLOCK: clk-obs-p16-note-obs-pis-stk-6b-8aaab2 period 16 gt (0.8 s), on 8/16, edges 4, warmup 4, family note_block+observer+piston+sticky_piston, 6 blocks, 1x4x2, robust
+name: clk-obs-p16-note-obs-pis-stk-6b-8aaab2
+# P16: 1 copper bulb, 1 note block, 1 observer, 1 piston, 1 redstone block, 1 sticky piston; changing in place: note_block, observer, piston, sticky_piston (copper bulb, redstone block only moved or static). Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 2 0
+port start: 0 0 0 last
+palette:
+  A minecraft:piston[extended=false,facing=down]
+  B minecraft:redstone_block
+  C minecraft:observer[facing=down,powered=false]
+  D minecraft:waxed_copper_bulb[lit=false,powered=false]
+  E minecraft:note_block[instrument=basedrum,note=0,powered=false]
+  F minecraft:sticky_piston[extended=false,facing=down]
+layer 0:
+  A
+  B
+layer 1:
+  C
+  D
+layer 2:
+  E
+  F

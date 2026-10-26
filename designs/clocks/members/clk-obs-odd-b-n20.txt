@@ -1,0 +1,62 @@
+name: clk-obs-odd-b-n20
+# Extendable family odd-b (n = 20): P = 13 + 4n gt, 10 + 2n blocks. the odd piston stage with a slime block that drags the redstone block one cell further, which moves the head-watching observer by one cell so the tower has an odd number of observers. Extension: raise the observer tower by one: one more observer in each column. Generator: mctas clock obs family odd-b --n N --out FILE.
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 2 2 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 3 -1 0
+port start: 2 3 0 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=east]
+  B minecraft:observer[facing=up,powered=false]
+  C minecraft:slime_block
+  D minecraft:redstone_block
+  E minecraft:piston[extended=false,facing=up]
+  F minecraft:observer[facing=east,powered=false]
+  G minecraft:observer[facing=down,powered=false]
+layer 0:
+  ACD.
+layer 1:
+  B..E
+layer 2:
+  B.F.
+layer 3:
+  B.G.
+layer 4:
+  B.G.
+layer 5:
+  B.G.
+layer 6:
+  B.G.
+layer 7:
+  B.G.
+layer 8:
+  B.G.
+layer 9:
+  B.G.
+layer 10:
+  B.G.
+layer 11:
+  B.G.
+layer 12:
+  B.G.
+layer 13:
+  B.G.
+layer 14:
+  B.G.
+layer 15:
+  B.G.
+layer 16:
+  B.G.
+layer 17:
+  B.G.
+layer 18:
+  B.G.
+layer 19:
+  B.G.
+layer 20:
+  B.G.
+layer 21:
+  B.G.
+layer 22:
+  B.G.
+layer 23:
+  FFG.

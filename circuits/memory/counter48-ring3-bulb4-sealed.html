@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Counter: every 48th pulse · 23 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Counter: every 48th pulse · 23 blocks. ">
+<meta property="og:title" content="Counter: every 48th pulse · 23 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Counter: every 48th pulse · 23 blocks. ">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/memory/index.html">Memory and counters</a></p>
+<p class="kindline">Counter: counts pulses and reacts on a set count</p>
+<h1>every 48th pulse · 23 blocks</h1>
+<p class="oneliner">The output&#39;s on/off pattern repeats every 48 input pulses: on for 24 of them, off for the other 24.</p>
+<p class="lede">passed at every position and facing we tested · fits in 11×4×2</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/memory/counter48-ring3-bulb4-sealed.txt" data-stimulus="in 40+ 44- 73+ 77- 106+ 110- 139+ 143- 172+ 176- 205+ 209- 238+ 242- 271+ 275- 304+ 308- 337+ 341- 370+ 374- 403+ 407- 436+ 440- 469+ 473- 502+ 506- 535+ 539- 568+ 572- 601+ 605- 634+ 638- 667+ 671- 700+ 704- 733+ 737- 766+ 770- 799+ 803- 832+ 836- 865+ 869- 898+ 902- 931+ 935- 964+ 968- 997+ 1001- 1030+ 1034- 1063+ 1067- 1096+ 1100- 1129+ 1133- 1162+ 1166- 1195+ 1199- 1228+ 1232- 1261+ 1265- 1294+ 1298- 1327+ 1331- 1360+ 1364- 1393+ 1397- 1426+ 1430- 1459+ 1463- 1492+ 1496- 1525+ 1529- 1558+ 1562- 1591+ 1595- 1624+ 1628- 1657+ 1661- 1690+ 1694- 1723+ 1727- 1756+ 1760- 1789+ 1793- 1822+ 1826- 1855+ 1859- 1888+ 1892- 1921+ 1925- 1954+ 1958- 1987+ 1991- 2020+ 2024- 2053+ 2057- 2086+ 2090- 2119+ 2123- 2152+ 2156- 2185+ 2189- 2218+ 2222- 2251+ 2255- 2284+ 2288- 2317+ 2321- 2350+ 2354- 2383+ 2387- 2416+ 2420- 2449+ 2453- 2482+ 2486- 2515+ 2519- 2548+ 2552- 2581+ 2585- 2614+ 2618- 2647+ 2651- 2680+ 2684- 2713+ 2717- 2746+ 2750- 2779+ 2783- 2812+ 2816- 2845+ 2849- 2878+ 2882- 2911+ 2915- 2944+ 2948- 2977+ 2981- 3010+ 3014- 3043+ 3047- 3076+ 3080- 3109+ 3113- 3142+ 3146- 3175+ 3179- 3208+ 3212- 3241+ 3245- 3274+ 3278- 3307+ 3311- 3340+ 3344- 3373+ 3377- 3406+ 3410- 3439+ 3443- 3472+ 3476- 3505+ 3509- 3538+ 3542- 3571+ 3575- 3604+ 3608- 3637+ 3641- 3670+ 3674- 3703+ 3707- 3736+ 3740- 3769+ 3773- 3802+ 3806- 3835+ 3839- 3868+ 3872- 3901+ 3905- 3934+ 3938- 3967+ 3971- 4000+ 4004- 4033+ 4037- 4066+ 4070- 4099+ 4103- 4132+ 4136- 4165+ 4169- 4198+ 4202- 4231+ 4235- 4264+ 4268- 4297+ 4301- 4330+ 4334- 4363+ 4367- 4396+ 4400- 4429+ 4433- 4462+ 4466- 4495+ 4499- 4528+ 4532- 4561+ 4565- 4594+ 4598- 4627+ 4631- 4660+ 4664- 4693+ 4697- 4726+ 4730- 4759+ 4763- 4792+ 4796- 4825+ 4845- 4874+ 4904- 4933+ 5133- 5162+ 5182- 5211+ 5241- 5270+ 5290- 5319+ 5349- 5378+ 5398- 5427+ 5447- 5476+ 5506- 5535+ 5735- 5764+ 5784- 5813+ 5843- 5872+ 5892- 5921+ 5951- 5980+ 6000- 6029+ 6049- 6078+ 6108- 6137+ 6337- 6366+ 6386- 6415+ 6445- 6474+ 6494- 6523+ 6553- 6582+ 6602- 6631+ 6651- 6680+ 6710- 6739+ 6939- 6968+ 6988- 7017+ 7047- 7076+ 7096- 7125+ 7155- 7184+ 7204- 7233+ 7253- 7282+ 7312- 7341+ 7541- 7570+ 7590- 7619+ 7649- 7678+ 7698- 7727+ 7757- 7786+ 7806- 7835+ 7855- 7884+ 7914- 7943+ 8143- 8172+ 8192- 8221+ 8251- 8280+ 8300- 8329+ 8359- 8388+ 8408-" data-phases="40-73 pulse 1; 73-106 pulse 2; 106-139 pulse 3; 139-172 pulse 4; 172-205 pulse 5; 205-238 pulse 6; 238-271 pulse 7; 271-304 pulse 8; 304-337 pulse 9; 337-370 pulse 10; 370-403 pulse 11; 403-436 pulse 12; 436-469 pulse 13; 469-502 pulse 14; 502-535 pulse 15; 535-568 pulse 16; 568-601 pulse 17; 601-634 pulse 18; 634-667 pulse 19; 667-700 pulse 20; 700-733 pulse 21; 733-766 pulse 22; 766-799 pulse 23; 799-832 pulse 24; 832-865 pulse 25; 865-898 pulse 26; 898-931 pulse 27; 931-964 pulse 28; 964-997 pulse 29; 997-1030 pulse 30; 1030-1063 pulse 31; 1063-1096 pulse 32; 1096-1129 pulse 33; 1129-1162 pulse 34; 1162-1195 pulse 35; 1195-1228 pulse 36; 1228-1261 pulse 37; 1261-1294 pulse 38; 1294-1327 pulse 39; 1327-1360 pulse 40; 1360-1393 pulse 41; 1393-1426 pulse 42; 1426-1459 pulse 43; 1459-1492 pulse 44; 1492-1525 pulse 45; 1525-1558 pulse 46; 1558-1591 pulse 47; 1591-1624 pulse 48; 1624-1657 pulse 49; 1657-1690 pulse 50; 1690-1723 pulse 51; 1723-1756 pulse 52; 1756-1789 pulse 53; 1789-1822 pulse 54; 1822-1855 pulse 55; 1855-1888 pulse 56; 1888-1921 pulse 57; 1921-1954 pulse 58; 1954-1987 pulse 59; 1987-2020 pulse 60; 2020-2053 pulse 61; 2053-2086 pulse 62; 2086-2119 pulse 63; 2119-2152 pulse 64; 2152-2185 pulse 65; 2185-2218 pulse 66; 2218-2251 pulse 67; 2251-2284 pulse 68; 2284-2317 pulse 69; 2317-2350 pulse 70; 2350-2383 pulse 71; 2383-2416 pulse 72; 2416-2449 pulse 73; 2449-2482 pulse 74; 2482-2515 pulse 75; 2515-2548 pulse 76; 2548-2581 pulse 77; 2581-2614 pulse 78; 2614-2647 pulse 79; 2647-2680 pulse 80; 2680-2713 pulse 81; 2713-2746 pulse 82; 2746-2779 pulse 83; 2779-2812 pulse 84; 2812-2845 pulse 85; 2845-2878 pulse 86; 2878-2911 pulse 87; 2911-2944 pulse 88; 2944-2977 pulse 89; 2977-3010 pulse 90; 3010-3043 pulse 91; 3043-3076 pulse 92; 3076-3109 pulse 93; 3109-3142 pulse 94; 3142-3175 pulse 95; 3175-3208 pulse 96; 3208-3241 pulse 97; 3241-3274 pulse 98; 3274-3307 pulse 99; 3307-3340 pulse 100; 3340-3373 pulse 101; 3373-3406 pulse 102; 3406-3439 pulse 103; 3439-3472 pulse 104; 3472-3505 pulse 105; 3505-3538 pulse 106; 3538-3571 pulse 107; 3571-3604 pulse 108; 3604-3637 pulse 109; 3637-3670 pulse 110; 3670-3703 pulse 111; 3703-3736 pulse 112; 3736-3769 pulse 113; 3769-3802 pulse 114; 3802-3835 pulse 115; 3835-3868 pulse 116; 3868-3901 pulse 117; 3901-3934 pulse 118; 3934-3967 pulse 119; 3967-4000 pulse 120; 4000-4033 pulse 121; 4033-4066 pulse 122; 4066-4099 pulse 123; 4099-4132 pulse 124; 4132-4165 pulse 125; 4165-4198 pulse 126; 4198-4231 pulse 127; 4231-4264 pulse 128; 4264-4297 pulse 129; 4297-4330 pulse 130; 4330-4363 pulse 131; 4363-4396 pulse 132; 4396-4429 pulse 133; 4429-4462 pulse 134; 4462-4495 pulse 135; 4495-4528 pulse 136; 4528-4561 pulse 137; 4561-4594 pulse 138; 4594-4627 pulse 139; 4627-4660 pulse 140; 4660-4693 pulse 141; 4693-4726 pulse 142; 4726-4759 pulse 143; 4759-4792 pulse 144; 4792-4825 pulse 145; 4825-4874 press 1 20; 4874-4933 press 2 30; 4933-5162 press 3 200; 5162-5211 press 4 20; 5211-5270 press 5 30; 5270-5319 press 6 20; 5319-5378 press 7 30; 5378-5427 press 8 20; 5427-5476 press 9 20; 5476-5535 press 10 30; 5535-5764 press 11 200; 5764-5813 press 12 20; 5813-5872 press 13 30; 5872-5921 press 14 20; 5921-5980 press 15 30; 5980-6029 press 16 20; 6029-6078 press 17 20; 6078-6137 press 18 30; 6137-6366 press 19 200; 6366-6415 press 20 20; 6415-6474 press 21 30; 6474-6523 press 22 20; 6523-6582 press 23 30; 6582-6631 press 24 20; 6631-6680 press 25 20; 6680-6739 press 26 30; 6739-6968 press 27 200; 6968-7017 press 28 20; 7017-7076 press 29 30; 7076-7125 press 30 20; 7125-7184 press 31 30; 7184-7233 press 32 20; 7233-7282 press 33 20; 7282-7341 press 34 30; 7341-7570 press 35 200; 7570-7619 press 36 20; 7619-7678 press 37 30; 7678-7727 press 38 20; 7727-7786 press 39 30; 7786-7835 press 40 20; 7835-7884 press 41 20; 7884-7943 press 42 30; 7943-8172 press 43 200; 8172-8221 press 44 20; 8221-8280 press 45 30; 8280-8329 press 46 20; 8329-8388 press 47 30; 8388-8437 press 48 20" data-input-mode="pulse" data-circuit="counter 48" data-kind="circuit"><div class="fallback"><span class="fb-big">every 48th pulse</span><span class="fb-small">Counter</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<section class="group kind" id="sizes"><h2>Every size <span class="count">39</span></h2><p class="hint">The best design we have for each size: pick one to see it.</p><div class="scroll-x"><table class="list kind-sizes"><thead><tr><th>size</th><th>blocks</th><th>numbers</th></tr></thead><tbody>
+<tr><td><a href="../../circuits/memory/counter2-bulb.html">every 2nd</a></td><td>3 blocks</td><td>smallest for its size of 2 tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter3-corner-sealed.html">every 3rd</a></td><td>11 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter4-bulb2.html">every 4th</a></td><td>6 blocks</td><td>the smallest for each count, of 42 designs tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter5-ring5-sealed.html">every 5th</a></td><td>19 blocks</td><td>smallest for its size of 2 tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter6-corner-bulb-sealed.html">every 6th</a></td><td>14 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter7-ring7-sealed.html">every 7th</a></td><td>25 blocks</td><td>smallest for its size of 2 tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter8-bulb3.html">every 8th</a></td><td>9 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter9-ring3-ring3-sealed.html">every 9th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter10-ring5-bulb1-sealed.html">every 10th</a></td><td>22 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter11-items-v45-23b-0.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter12-ring3-bulb2-sealed.html">every 12th</a></td><td>17 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter13-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter14-ring7-bulb1-sealed.html">every 14th</a></td><td>28 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter15-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter16-bulb4.html">every 16th</a></td><td>12 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter17-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter18-ring3-ring3-bulb1-sealed.html">every 18th</a></td><td>26 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter19-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter20-ring5-bulb2-sealed.html">every 20th</a></td><td>25 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter21-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter22-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter23-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter24-ring3-bulb3-sealed.html">every 24th</a></td><td>20 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter25-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter26-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter27-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter28-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter30-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter32-bulb5.html">every 32nd</a></td><td>15 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter33-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter34-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter36-ring3-ring3-bulb2-sealed.html">every 36th</a></td><td>29 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter38-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter39-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter40-ring5-bulb3-sealed.html">every 40th</a></td><td>28 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter45-items.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr class="on"><td><b>every 48th</b> (this page)</td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter100-items-v45-23b.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/memory/counter576-items.html">every 0th</a></td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+</tbody></table></div></section>
+<p class="needs">Comes loaded with 1 stone in its containers: the download includes it; building it by hand, put it in first.</p>
+<section class="what plain"><h2>Try it</h2><p>Hold IN under the view for a long press, tap it for a short one: the demo counts the 48 pulses for you: pick 100× in the speed dropdown and watch OUT change (the box marked OUT turns red while the output is on). Press play under the view to watch our test on a loop; touch any other control to take over. Its count is the number of items in its droppers: they pass the items one way per pulse, and the numbers over them show how many each holds. Load another number of items (stone here) to make it react on that count.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/memory/counter48-ring3-bulb4-sealed.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/memory/counter48-ring3-bulb4-sealed.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=comparator">comparator</a> <a class="chip" href="../../index.html#with=copper_bulb">copper bulb</a> <a class="chip" href="../../index.html#with=dropper">dropper</a> <a class="chip" href="../../index.html#with=glass">glass</a> <a class="chip" href="../../index.html#with=hopper">hopper</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>It <b>counts input pulses</b>: the output's state <b>repeats every 48 input pulses</b>: after each pulse it is on for 24 of them and off for the other 24. In other words, it divides the number of pulses by 48.</p><p>Use it to do something every 48th time, or to slow a fast clock down 48 times.</p></section>
+<section><h2>How to try it</h2><p><b>Press play under the view to watch the judge's own test</b> on a loop (the badge reads <i>demo</i> with the step it is on; the same test is drawn as a timing diagram below). Touch any control to stop it and try the circuit yourself.</p><p>To try it: press and hold the <b>IN</b> button of the bar (or the cell tagged IN) to power that input; a quick tap sends a short 2 gt pulse.</p><p>Inputs are tagged in <span class="tag-in">lime</span>; the output is tagged <span class="tag-out">OUT</span>: the <b>redstone lamp</b> in that cell (the lamp the judge itself adds to read the output) <b>lights while the output is on</b> (the output strip by the demo badge shows its last 40 game ticks, 2 seconds). Drag to look around, pinch or scroll to zoom, step one game tick at a time with the step button.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the input with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="5135" height="112" viewBox="0 0 5135 112" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="88.0" y1="18.0" x2="88.0" y2="94.0"/><line class="ph" x1="107.8" y1="18.0" x2="107.8" y2="94.0"/><line class="ph" x1="127.6" y1="18.0" x2="127.6" y2="94.0"/><line class="ph" x1="147.4" y1="18.0" x2="147.4" y2="94.0"/><line class="ph" x1="167.2" y1="18.0" x2="167.2" y2="94.0"/><line class="ph" x1="187.0" y1="18.0" x2="187.0" y2="94.0"/><line class="ph" x1="206.8" y1="18.0" x2="206.8" y2="94.0"/><line class="ph" x1="226.6" y1="18.0" x2="226.6" y2="94.0"/><line class="ph" x1="246.4" y1="18.0" x2="246.4" y2="94.0"/><line class="ph" x1="266.2" y1="18.0" x2="266.2" y2="94.0"/><line class="ph" x1="286.0" y1="18.0" x2="286.0" y2="94.0"/><line class="ph" x1="305.8" y1="18.0" x2="305.8" y2="94.0"/><line class="ph" x1="325.6" y1="18.0" x2="325.6" y2="94.0"/><line class="ph" x1="345.4" y1="18.0" x2="345.4" y2="94.0"/><line class="ph" x1="365.2" y1="18.0" x2="365.2" y2="94.0"/><line class="ph" x1="385.0" y1="18.0" x2="385.0" y2="94.0"/><line class="ph" x1="404.8" y1="18.0" x2="404.8" y2="94.0"/><line class="ph" x1="424.6" y1="18.0" x2="424.6" y2="94.0"/><line class="ph" x1="444.4" y1="18.0" x2="444.4" y2="94.0"/><line class="ph" x1="464.2" y1="18.0" x2="464.2" y2="94.0"/><line class="ph" x1="484.0" y1="18.0" x2="484.0" y2="94.0"/><line class="ph" x1="503.8" y1="18.0" x2="503.8" y2="94.0"/><line class="ph" x1="523.6" y1="18.0" x2="523.6" y2="94.0"/><line class="ph" x1="543.4" y1="18.0" x2="543.4" y2="94.0"/><line class="ph" x1="563.2" y1="18.0" x2="563.2" y2="94.0"/><line class="ph" x1="583.0" y1="18.0" x2="583.0" y2="94.0"/><line class="ph" x1="602.8" y1="18.0" x2="602.8" y2="94.0"/><line class="ph" x1="622.6" y1="18.0" x2="622.6" y2="94.0"/><line class="ph" x1="642.4" y1="18.0" x2="642.4" y2="94.0"/><line class="ph" x1="662.2" y1="18.0" x2="662.2" y2="94.0"/><line class="ph" x1="682.0" y1="18.0" x2="682.0" y2="94.0"/><line class="ph" x1="701.8" y1="18.0" x2="701.8" y2="94.0"/><line class="ph" x1="721.6" y1="18.0" x2="721.6" y2="94.0"/><line class="ph" x1="741.4" y1="18.0" x2="741.4" y2="94.0"/><line class="ph" x1="761.2" y1="18.0" x2="761.2" y2="94.0"/><line class="ph" x1="781.0" y1="18.0" x2="781.0" y2="94.0"/><line class="ph" x1="800.8" y1="18.0" x2="800.8" y2="94.0"/><line class="ph" x1="820.6" y1="18.0" x2="820.6" y2="94.0"/><line class="ph" x1="840.4" y1="18.0" x2="840.4" y2="94.0"/><line class="ph" x1="860.2" y1="18.0" x2="860.2" y2="94.0"/><line class="ph" x1="880.0" y1="18.0" x2="880.0" y2="94.0"/><line class="ph" x1="899.8" y1="18.0" x2="899.8" y2="94.0"/><line class="ph" x1="919.6" y1="18.0" x2="919.6" y2="94.0"/><line class="ph" x1="939.4" y1="18.0" x2="939.4" y2="94.0"/><line class="ph" x1="959.2" y1="18.0" x2="959.2" y2="94.0"/><line class="ph" x1="979.0" y1="18.0" x2="979.0" y2="94.0"/><line class="ph" x1="998.8" y1="18.0" x2="998.8" y2="94.0"/><line class="ph" x1="1018.6" y1="18.0" x2="1018.6" y2="94.0"/><line class="ph" x1="1038.4" y1="18.0" x2="1038.4" y2="94.0"/><line class="ph" x1="1058.2" y1="18.0" x2="1058.2" y2="94.0"/><line class="ph" x1="1078.0" y1="18.0" x2="1078.0" y2="94.0"/><line class="ph" x1="1097.8" y1="18.0" x2="1097.8" y2="94.0"/><line class="ph" x1="1117.6" y1="18.0" x2="1117.6" y2="94.0"/><line class="ph" x1="1137.4" y1="18.0" x2="1137.4" y2="94.0"/><line class="ph" x1="1157.2" y1="18.0" x2="1157.2" y2="94.0"/><line class="ph" x1="1177.0" y1="18.0" x2="1177.0" y2="94.0"/><line class="ph" x1="1196.8" y1="18.0" x2="1196.8" y2="94.0"/><line class="ph" x1="1216.6" y1="18.0" x2="1216.6" y2="94.0"/><line class="ph" x1="1236.4" y1="18.0" x2="1236.4" y2="94.0"/><line class="ph" x1="1256.2" y1="18.0" x2="1256.2" y2="94.0"/><line class="ph" x1="1276.0" y1="18.0" x2="1276.0" y2="94.0"/><line class="ph" x1="1295.8" y1="18.0" x2="1295.8" y2="94.0"/><line class="ph" x1="1315.6" y1="18.0" x2="1315.6" y2="94.0"/><line class="ph" x1="1335.4" y1="18.0" x2="1335.4" y2="94.0"/><line class="ph" x1="1355.2" y1="18.0" x2="1355.2" y2="94.0"/><line class="ph" x1="1375.0" y1="18.0" x2="1375.0" y2="94.0"/><line class="ph" x1="1394.8" y1="18.0" x2="1394.8" y2="94.0"/><line class="ph" x1="1414.6" y1="18.0" x2="1414.6" y2="94.0"/><line class="ph" x1="1434.4" y1="18.0" x2="1434.4" y2="94.0"/><line class="ph" x1="1454.2" y1="18.0" x2="1454.2" y2="94.0"/><line class="ph" x1="1474.0" y1="18.0" x2="1474.0" y2="94.0"/><line class="ph" x1="1493.8" y1="18.0" x2="1493.8" y2="94.0"/><line class="ph" x1="1513.6" y1="18.0" x2="1513.6" y2="94.0"/><line class="ph" x1="1533.4" y1="18.0" x2="1533.4" y2="94.0"/><line class="ph" x1="1553.2" y1="18.0" x2="1553.2" y2="94.0"/><line class="ph" x1="1573.0" y1="18.0" x2="1573.0" y2="94.0"/><line class="ph" x1="1592.8" y1="18.0" x2="1592.8" y2="94.0"/><line class="ph" x1="1612.6" y1="18.0" x2="1612.6" y2="94.0"/><line class="ph" x1="1632.4" y1="18.0" x2="1632.4" y2="94.0"/><line class="ph" x1="1652.2" y1="18.0" x2="1652.2" y2="94.0"/><line class="ph" x1="1672.0" y1="18.0" x2="1672.0" y2="94.0"/><line class="ph" x1="1691.8" y1="18.0" x2="1691.8" y2="94.0"/><line class="ph" x1="1711.6" y1="18.0" x2="1711.6" y2="94.0"/><line class="ph" x1="1731.4" y1="18.0" x2="1731.4" y2="94.0"/><line class="ph" x1="1751.2" y1="18.0" x2="1751.2" y2="94.0"/><line class="ph" x1="1771.0" y1="18.0" x2="1771.0" y2="94.0"/><line class="ph" x1="1790.8" y1="18.0" x2="1790.8" y2="94.0"/><line class="ph" x1="1810.6" y1="18.0" x2="1810.6" y2="94.0"/><line class="ph" x1="1830.4" y1="18.0" x2="1830.4" y2="94.0"/><line class="ph" x1="1850.2" y1="18.0" x2="1850.2" y2="94.0"/><line class="ph" x1="1870.0" y1="18.0" x2="1870.0" y2="94.0"/><line class="ph" x1="1889.8" y1="18.0" x2="1889.8" y2="94.0"/><line class="ph" x1="1909.6" y1="18.0" x2="1909.6" y2="94.0"/><line class="ph" x1="1929.4" y1="18.0" x2="1929.4" y2="94.0"/><line class="ph" x1="1949.2" y1="18.0" x2="1949.2" y2="94.0"/><line class="ph" x1="1969.0" y1="18.0" x2="1969.0" y2="94.0"/><line class="ph" x1="1988.8" y1="18.0" x2="1988.8" y2="94.0"/><line class="ph" x1="2008.6" y1="18.0" x2="2008.6" y2="94.0"/><line class="ph" x1="2028.4" y1="18.0" x2="2028.4" y2="94.0"/><line class="ph" x1="2048.2" y1="18.0" x2="2048.2" y2="94.0"/><line class="ph" x1="2068.0" y1="18.0" x2="2068.0" y2="94.0"/><line class="ph" x1="2087.8" y1="18.0" x2="2087.8" y2="94.0"/><line class="ph" x1="2107.6" y1="18.0" x2="2107.6" y2="94.0"/><line class="ph" x1="2127.4" y1="18.0" x2="2127.4" y2="94.0"/><line class="ph" x1="2147.2" y1="18.0" x2="2147.2" y2="94.0"/><line class="ph" x1="2167.0" y1="18.0" x2="2167.0" y2="94.0"/><line class="ph" x1="2186.8" y1="18.0" x2="2186.8" y2="94.0"/><line class="ph" x1="2206.6" y1="18.0" x2="2206.6" y2="94.0"/><line class="ph" x1="2226.4" y1="18.0" x2="2226.4" y2="94.0"/><line class="ph" x1="2246.2" y1="18.0" x2="2246.2" y2="94.0"/><line class="ph" x1="2266.0" y1="18.0" x2="2266.0" y2="94.0"/><line class="ph" x1="2285.8" y1="18.0" x2="2285.8" y2="94.0"/><line class="ph" x1="2305.6" y1="18.0" x2="2305.6" y2="94.0"/><line class="ph" x1="2325.4" y1="18.0" x2="2325.4" y2="94.0"/><line class="ph" x1="2345.2" y1="18.0" x2="2345.2" y2="94.0"/><line class="ph" x1="2365.0" y1="18.0" x2="2365.0" y2="94.0"/><line class="ph" x1="2384.8" y1="18.0" x2="2384.8" y2="94.0"/><line class="ph" x1="2404.6" y1="18.0" x2="2404.6" y2="94.0"/><line class="ph" x1="2424.4" y1="18.0" x2="2424.4" y2="94.0"/><line class="ph" x1="2444.2" y1="18.0" x2="2444.2" y2="94.0"/><line class="ph" x1="2464.0" y1="18.0" x2="2464.0" y2="94.0"/><line class="ph" x1="2483.8" y1="18.0" x2="2483.8" y2="94.0"/><line class="ph" x1="2503.6" y1="18.0" x2="2503.6" y2="94.0"/><line class="ph" x1="2523.4" y1="18.0" x2="2523.4" y2="94.0"/><line class="ph" x1="2543.2" y1="18.0" x2="2543.2" y2="94.0"/><line class="ph" x1="2563.0" y1="18.0" x2="2563.0" y2="94.0"/><line class="ph" x1="2582.8" y1="18.0" x2="2582.8" y2="94.0"/><line class="ph" x1="2602.6" y1="18.0" x2="2602.6" y2="94.0"/><line class="ph" x1="2622.4" y1="18.0" x2="2622.4" y2="94.0"/><line class="ph" x1="2642.2" y1="18.0" x2="2642.2" y2="94.0"/><line class="ph" x1="2662.0" y1="18.0" x2="2662.0" y2="94.0"/><line class="ph" x1="2681.8" y1="18.0" x2="2681.8" y2="94.0"/><line class="ph" x1="2701.6" y1="18.0" x2="2701.6" y2="94.0"/><line class="ph" x1="2721.4" y1="18.0" x2="2721.4" y2="94.0"/><line class="ph" x1="2741.2" y1="18.0" x2="2741.2" y2="94.0"/><line class="ph" x1="2761.0" y1="18.0" x2="2761.0" y2="94.0"/><line class="ph" x1="2780.8" y1="18.0" x2="2780.8" y2="94.0"/><line class="ph" x1="2800.6" y1="18.0" x2="2800.6" y2="94.0"/><line class="ph" x1="2820.4" y1="18.0" x2="2820.4" y2="94.0"/><line class="ph" x1="2840.2" y1="18.0" x2="2840.2" y2="94.0"/><line class="ph" x1="2860.0" y1="18.0" x2="2860.0" y2="94.0"/><line class="ph" x1="2879.8" y1="18.0" x2="2879.8" y2="94.0"/><line class="ph" x1="2899.6" y1="18.0" x2="2899.6" y2="94.0"/><line class="ph" x1="2919.4" y1="18.0" x2="2919.4" y2="94.0"/><line class="ph" x1="2939.2" y1="18.0" x2="2939.2" y2="94.0"/><line class="ph" x1="2959.0" y1="18.0" x2="2959.0" y2="94.0"/><line class="ph" x1="2988.4" y1="18.0" x2="2988.4" y2="94.0"/><line class="ph" x1="3023.8" y1="18.0" x2="3023.8" y2="94.0"/><text class="phl" x="3026.8" y="14.0">press 3 200</text><line class="ph" x1="3161.2" y1="18.0" x2="3161.2" y2="94.0"/><line class="ph" x1="3190.6" y1="18.0" x2="3190.6" y2="94.0"/><line class="ph" x1="3226.0" y1="18.0" x2="3226.0" y2="94.0"/><line class="ph" x1="3255.4" y1="18.0" x2="3255.4" y2="94.0"/><line class="ph" x1="3290.8" y1="18.0" x2="3290.8" y2="94.0"/><line class="ph" x1="3320.2" y1="18.0" x2="3320.2" y2="94.0"/><line class="ph" x1="3349.6" y1="18.0" x2="3349.6" y2="94.0"/><line class="ph" x1="3385.0" y1="18.0" x2="3385.0" y2="94.0"/><text class="phl" x="3388.0" y="14.0">press 11 200</text><line class="ph" x1="3522.4" y1="18.0" x2="3522.4" y2="94.0"/><line class="ph" x1="3551.8" y1="18.0" x2="3551.8" y2="94.0"/><line class="ph" x1="3587.2" y1="18.0" x2="3587.2" y2="94.0"/><line class="ph" x1="3616.6" y1="18.0" x2="3616.6" y2="94.0"/><line class="ph" x1="3652.0" y1="18.0" x2="3652.0" y2="94.0"/><line class="ph" x1="3681.4" y1="18.0" x2="3681.4" y2="94.0"/><line class="ph" x1="3710.8" y1="18.0" x2="3710.8" y2="94.0"/><line class="ph" x1="3746.2" y1="18.0" x2="3746.2" y2="94.0"/><text class="phl" x="3749.2" y="14.0">press 19 200</text><line class="ph" x1="3883.6" y1="18.0" x2="3883.6" y2="94.0"/><line class="ph" x1="3913.0" y1="18.0" x2="3913.0" y2="94.0"/><line class="ph" x1="3948.4" y1="18.0" x2="3948.4" y2="94.0"/><line class="ph" x1="3977.8" y1="18.0" x2="3977.8" y2="94.0"/><line class="ph" x1="4013.2" y1="18.0" x2="4013.2" y2="94.0"/><line class="ph" x1="4042.6" y1="18.0" x2="4042.6" y2="94.0"/><line class="ph" x1="4072.0" y1="18.0" x2="4072.0" y2="94.0"/><line class="ph" x1="4107.4" y1="18.0" x2="4107.4" y2="94.0"/><text class="phl" x="4110.4" y="14.0">press 27 200</text><line class="ph" x1="4244.8" y1="18.0" x2="4244.8" y2="94.0"/><line class="ph" x1="4274.2" y1="18.0" x2="4274.2" y2="94.0"/><line class="ph" x1="4309.6" y1="18.0" x2="4309.6" y2="94.0"/><line class="ph" x1="4339.0" y1="18.0" x2="4339.0" y2="94.0"/><line class="ph" x1="4374.4" y1="18.0" x2="4374.4" y2="94.0"/><line class="ph" x1="4403.8" y1="18.0" x2="4403.8" y2="94.0"/><line class="ph" x1="4433.2" y1="18.0" x2="4433.2" y2="94.0"/><line class="ph" x1="4468.6" y1="18.0" x2="4468.6" y2="94.0"/><text class="phl" x="4471.6" y="14.0">press 35 200</text><line class="ph" x1="4606.0" y1="18.0" x2="4606.0" y2="94.0"/><line class="ph" x1="4635.4" y1="18.0" x2="4635.4" y2="94.0"/><line class="ph" x1="4670.8" y1="18.0" x2="4670.8" y2="94.0"/><line class="ph" x1="4700.2" y1="18.0" x2="4700.2" y2="94.0"/><line class="ph" x1="4735.6" y1="18.0" x2="4735.6" y2="94.0"/><line class="ph" x1="4765.0" y1="18.0" x2="4765.0" y2="94.0"/><line class="ph" x1="4794.4" y1="18.0" x2="4794.4" y2="94.0"/><line class="ph" x1="4829.8" y1="18.0" x2="4829.8" y2="94.0"/><text class="phl" x="4832.8" y="14.0">press 43 200</text><line class="ph" x1="4967.2" y1="18.0" x2="4967.2" y2="94.0"/><line class="ph" x1="4996.6" y1="18.0" x2="4996.6" y2="94.0"/><line class="ph" x1="5032.0" y1="18.0" x2="5032.0" y2="94.0"/><line class="ph" x1="5061.4" y1="18.0" x2="5061.4" y2="94.0"/><line class="ph" x1="5096.8" y1="18.0" x2="5096.8" y2="94.0"/><text class="wl" x="4" y="46.0">IN</text><line class="base" x1="64.0" y1="48.0" x2="5126.8" y2="48.0"/><polygon class="win" points="64.0,48.0 64.0,48.0 88.0,48.0 88.0,28.0 90.4,28.0 90.4,48.0 107.8,48.0 107.8,28.0 110.2,28.0 110.2,48.0 127.6,48.0 127.6,28.0 130.0,28.0 130.0,48.0 147.4,48.0 147.4,28.0 149.8,28.0 149.8,48.0 167.2,48.0 167.2,28.0 169.6,28.0 169.6,48.0 187.0,48.0 187.0,28.0 189.4,28.0 189.4,48.0 206.8,48.0 206.8,28.0 209.2,28.0 209.2,48.0 226.6,48.0 226.6,28.0 229.0,28.0 229.0,48.0 246.4,48.0 246.4,28.0 248.8,28.0 248.8,48.0 266.2,48.0 266.2,28.0 268.6,28.0 268.6,48.0 286.0,48.0 286.0,28.0 288.4,28.0 288.4,48.0 305.8,48.0 305.8,28.0 308.2,28.0 308.2,48.0 325.6,48.0 325.6,28.0 328.0,28.0 328.0,48.0 345.4,48.0 345.4,28.0 347.8,28.0 347.8,48.0 365.2,48.0 365.2,28.0 367.6,28.0 367.6,48.0 385.0,48.0 385.0,28.0 387.4,28.0 387.4,48.0 404.8,48.0 404.8,28.0 407.2,28.0 407.2,48.0 424.6,48.0 424.6,28.0 427.0,28.0 427.0,48.0 444.4,48.0 444.4,28.0 446.8,28.0 446.8,48.0 464.2,48.0 464.2,28.0 466.6,28.0 466.6,48.0 484.0,48.0 484.0,28.0 486.4,28.0 486.4,48.0 503.8,48.0 503.8,28.0 506.2,28.0 506.2,48.0 523.6,48.0 523.6,28.0 526.0,28.0 526.0,48.0 543.4,48.0 543.4,28.0 545.8,28.0 545.8,48.0 563.2,48.0 563.2,28.0 565.6,28.0 565.6,48.0 583.0,48.0 583.0,28.0 585.4,28.0 585.4,48.0 602.8,48.0 602.8,28.0 605.2,28.0 605.2,48.0 622.6,48.0 622.6,28.0 625.0,28.0 625.0,48.0 642.4,48.0 642.4,28.0 644.8,28.0 644.8,48.0 662.2,48.0 662.2,28.0 664.6,28.0 664.6,48.0 682.0,48.0 682.0,28.0 684.4,28.0 684.4,48.0 701.8,48.0 701.8,28.0 704.2,28.0 704.2,48.0 721.6,48.0 721.6,28.0 724.0,28.0 724.0,48.0 741.4,48.0 741.4,28.0 743.8,28.0 743.8,48.0 761.2,48.0 761.2,28.0 763.6,28.0 763.6,48.0 781.0,48.0 781.0,28.0 783.4,28.0 783.4,48.0 800.8,48.0 800.8,28.0 803.2,28.0 803.2,48.0 820.6,48.0 820.6,28.0 823.0,28.0 823.0,48.0 840.4,48.0 840.4,28.0 842.8,28.0 842.8,48.0 860.2,48.0 860.2,28.0 862.6,28.0 862.6,48.0 880.0,48.0 880.0,28.0 882.4,28.0 882.4,48.0 899.8,48.0 899.8,28.0 902.2,28.0 902.2,48.0 919.6,48.0 919.6,28.0 922.0,28.0 922.0,48.0 939.4,48.0 939.4,28.0 941.8,28.0 941.8,48.0 959.2,48.0 959.2,28.0 961.6,28.0 961.6,48.0 979.0,48.0 979.0,28.0 981.4,28.0 981.4,48.0 998.8,48.0 998.8,28.0 1001.2,28.0 1001.2,48.0 1018.6,48.0 1018.6,28.0 1021.0,28.0 1021.0,48.0 1038.4,48.0 1038.4,28.0 1040.8,28.0 1040.8,48.0 1058.2,48.0 1058.2,28.0 1060.6,28.0 1060.6,48.0 1078.0,48.0 1078.0,28.0 1080.4,28.0 1080.4,48.0 1097.8,48.0 1097.8,28.0 1100.2,28.0 1100.2,48.0 1117.6,48.0 1117.6,28.0 1120.0,28.0 1120.0,48.0 1137.4,48.0 1137.4,28.0 1139.8,28.0 1139.8,48.0 1157.2,48.0 1157.2,28.0 1159.6,28.0 1159.6,48.0 1177.0,48.0 1177.0,28.0 1179.4,28.0 1179.4,48.0 1196.8,48.0 1196.8,28.0 1199.2,28.0 1199.2,48.0 1216.6,48.0 1216.6,28.0 1219.0,28.0 1219.0,48.0 1236.4,48.0 1236.4,28.0 1238.8,28.0 1238.8,48.0 1256.2,48.0 1256.2,28.0 1258.6,28.0 1258.6,48.0 1276.0,48.0 1276.0,28.0 1278.4,28.0 1278.4,48.0 1295.8,48.0 1295.8,28.0 1298.2,28.0 1298.2,48.0 1315.6,48.0 1315.6,28.0 1318.0,28.0 1318.0,48.0 1335.4,48.0 1335.4,28.0 1337.8,28.0 1337.8,48.0 1355.2,48.0 1355.2,28.0 1357.6,28.0 1357.6,48.0 1375.0,48.0 1375.0,28.0 1377.4,28.0 1377.4,48.0 1394.8,48.0 1394.8,28.0 1397.2,28.0 1397.2,48.0 1414.6,48.0 1414.6,28.0 1417.0,28.0 1417.0,48.0 1434.4,48.0 1434.4,28.0 1436.8,28.0 1436.8,48.0 1454.2,48.0 1454.2,28.0 1456.6,28.0 1456.6,48.0 1474.0,48.0 1474.0,28.0 1476.4,28.0 1476.4,48.0 1493.8,48.0 1493.8,28.0 1496.2,28.0 1496.2,48.0 1513.6,48.0 1513.6,28.0 1516.0,28.0 1516.0,48.0 1533.4,48.0 1533.4,28.0 1535.8,28.0 1535.8,48.0 1553.2,48.0 1553.2,28.0 1555.6,28.0 1555.6,48.0 1573.0,48.0 1573.0,28.0 1575.4,28.0 1575.4,48.0 1592.8,48.0 1592.8,28.0 1595.2,28.0 1595.2,48.0 1612.6,48.0 1612.6,28.0 1615.0,28.0 1615.0,48.0 1632.4,48.0 1632.4,28.0 1634.8,28.0 1634.8,48.0 1652.2,48.0 1652.2,28.0 1654.6,28.0 1654.6,48.0 1672.0,48.0 1672.0,28.0 1674.4,28.0 1674.4,48.0 1691.8,48.0 1691.8,28.0 1694.2,28.0 1694.2,48.0 1711.6,48.0 1711.6,28.0 1714.0,28.0 1714.0,48.0 1731.4,48.0 1731.4,28.0 1733.8,28.0 1733.8,48.0 1751.2,48.0 1751.2,28.0 1753.6,28.0 1753.6,48.0 1771.0,48.0 1771.0,28.0 1773.4,28.0 1773.4,48.0 1790.8,48.0 1790.8,28.0 1793.2,28.0 1793.2,48.0 1810.6,48.0 1810.6,28.0 1813.0,28.0 1813.0,48.0 1830.4,48.0 1830.4,28.0 1832.8,28.0 1832.8,48.0 1850.2,48.0 1850.2,28.0 1852.6,28.0 1852.6,48.0 1870.0,48.0 1870.0,28.0 1872.4,28.0 1872.4,48.0 1889.8,48.0 1889.8,28.0 1892.2,28.0 1892.2,48.0 1909.6,48.0 1909.6,28.0 1912.0,28.0 1912.0,48.0 1929.4,48.0 1929.4,28.0 1931.8,28.0 1931.8,48.0 1949.2,48.0 1949.2,28.0 1951.6,28.0 1951.6,48.0 1969.0,48.0 1969.0,28.0 1971.4,28.0 1971.4,48.0 1988.8,48.0 1988.8,28.0 1991.2,28.0 1991.2,48.0 2008.6,48.0 2008.6,28.0 2011.0,28.0 2011.0,48.0 2028.4,48.0 2028.4,28.0 2030.8,28.0 2030.8,48.0 2048.2,48.0 2048.2,28.0 2050.6,28.0 2050.6,48.0 2068.0,48.0 2068.0,28.0 2070.4,28.0 2070.4,48.0 2087.8,48.0 2087.8,28.0 2090.2,28.0 2090.2,48.0 2107.6,48.0 2107.6,28.0 2110.0,28.0 2110.0,48.0 2127.4,48.0 2127.4,28.0 2129.8,28.0 2129.8,48.0 2147.2,48.0 2147.2,28.0 2149.6,28.0 2149.6,48.0 2167.0,48.0 2167.0,28.0 2169.4,28.0 2169.4,48.0 2186.8,48.0 2186.8,28.0 2189.2,28.0 2189.2,48.0 2206.6,48.0 2206.6,28.0 2209.0,28.0 2209.0,48.0 2226.4,48.0 2226.4,28.0 2228.8,28.0 2228.8,48.0 2246.2,48.0 2246.2,28.0 2248.6,28.0 2248.6,48.0 2266.0,48.0 2266.0,28.0 2268.4,28.0 2268.4,48.0 2285.8,48.0 2285.8,28.0 2288.2,28.0 2288.2,48.0 2305.6,48.0 2305.6,28.0 2308.0,28.0 2308.0,48.0 2325.4,48.0 2325.4,28.0 2327.8,28.0 2327.8,48.0 2345.2,48.0 2345.2,28.0 2347.6,28.0 2347.6,48.0 2365.0,48.0 2365.0,28.0 2367.4,28.0 2367.4,48.0 2384.8,48.0 2384.8,28.0 2387.2,28.0 2387.2,48.0 2404.6,48.0 2404.6,28.0 2407.0,28.0 2407.0,48.0 2424.4,48.0 2424.4,28.0 2426.8,28.0 2426.8,48.0 2444.2,48.0 2444.2,28.0 2446.6,28.0 2446.6,48.0 2464.0,48.0 2464.0,28.0 2466.4,28.0 2466.4,48.0 2483.8,48.0 2483.8,28.0 2486.2,28.0 2486.2,48.0 2503.6,48.0 2503.6,28.0 2506.0,28.0 2506.0,48.0 2523.4,48.0 2523.4,28.0 2525.8,28.0 2525.8,48.0 2543.2,48.0 2543.2,28.0 2545.6,28.0 2545.6,48.0 2563.0,48.0 2563.0,28.0 2565.4,28.0 2565.4,48.0 2582.8,48.0 2582.8,28.0 2585.2,28.0 2585.2,48.0 2602.6,48.0 2602.6,28.0 2605.0,28.0 2605.0,48.0 2622.4,48.0 2622.4,28.0 2624.8,28.0 2624.8,48.0 2642.2,48.0 2642.2,28.0 2644.6,28.0 2644.6,48.0 2662.0,48.0 2662.0,28.0 2664.4,28.0 2664.4,48.0 2681.8,48.0 2681.8,28.0 2684.2,28.0 2684.2,48.0 2701.6,48.0 2701.6,28.0 2704.0,28.0 2704.0,48.0 2721.4,48.0 2721.4,28.0 2723.8,28.0 2723.8,48.0 2741.2,48.0 2741.2,28.0 2743.6,28.0 2743.6,48.0 2761.0,48.0 2761.0,28.0 2763.4,28.0 2763.4,48.0 2780.8,48.0 2780.8,28.0 2783.2,28.0 2783.2,48.0 2800.6,48.0 2800.6,28.0 2803.0,28.0 2803.0,48.0 2820.4,48.0 2820.4,28.0 2822.8,28.0 2822.8,48.0 2840.2,48.0 2840.2,28.0 2842.6,28.0 2842.6,48.0 2860.0,48.0 2860.0,28.0 2862.4,28.0 2862.4,48.0 2879.8,48.0 2879.8,28.0 2882.2,28.0 2882.2,48.0 2899.6,48.0 2899.6,28.0 2902.0,28.0 2902.0,48.0 2919.4,48.0 2919.4,28.0 2921.8,28.0 2921.8,48.0 2939.2,48.0 2939.2,28.0 2941.6,28.0 2941.6,48.0 2959.0,48.0 2959.0,28.0 2971.0,28.0 2971.0,48.0 2988.4,48.0 2988.4,28.0 3006.4,28.0 3006.4,48.0 3023.8,48.0 3023.8,28.0 3143.8,28.0 3143.8,48.0 3161.2,48.0 3161.2,28.0 3173.2,28.0 3173.2,48.0 3190.6,48.0 3190.6,28.0 3208.6,28.0 3208.6,48.0 3226.0,48.0 3226.0,28.0 3238.0,28.0 3238.0,48.0 3255.4,48.0 3255.4,28.0 3273.4,28.0 3273.4,48.0 3290.8,48.0 3290.8,28.0 3302.8,28.0 3302.8,48.0 3320.2,48.0 3320.2,28.0 3332.2,28.0 3332.2,48.0 3349.6,48.0 3349.6,28.0 3367.6,28.0 3367.6,48.0 3385.0,48.0 3385.0,28.0 3505.0,28.0 3505.0,48.0 3522.4,48.0 3522.4,28.0 3534.4,28.0 3534.4,48.0 3551.8,48.0 3551.8,28.0 3569.8,28.0 3569.8,48.0 3587.2,48.0 3587.2,28.0 3599.2,28.0 3599.2,48.0 3616.6,48.0 3616.6,28.0 3634.6,28.0 3634.6,48.0 3652.0,48.0 3652.0,28.0 3664.0,28.0 3664.0,48.0 3681.4,48.0 3681.4,28.0 3693.4,28.0 3693.4,48.0 3710.8,48.0 3710.8,28.0 3728.8,28.0 3728.8,48.0 3746.2,48.0 3746.2,28.0 3866.2,28.0 3866.2,48.0 3883.6,48.0 3883.6,28.0 3895.6,28.0 3895.6,48.0 3913.0,48.0 3913.0,28.0 3931.0,28.0 3931.0,48.0 3948.4,48.0 3948.4,28.0 3960.4,28.0 3960.4,48.0 3977.8,48.0 3977.8,28.0 3995.8,28.0 3995.8,48.0 4013.2,48.0 4013.2,28.0 4025.2,28.0 4025.2,48.0 4042.6,48.0 4042.6,28.0 4054.6,28.0 4054.6,48.0 4072.0,48.0 4072.0,28.0 4090.0,28.0 4090.0,48.0 4107.4,48.0 4107.4,28.0 4227.4,28.0 4227.4,48.0 4244.8,48.0 4244.8,28.0 4256.8,28.0 4256.8,48.0 4274.2,48.0 4274.2,28.0 4292.2,28.0 4292.2,48.0 4309.6,48.0 4309.6,28.0 4321.6,28.0 4321.6,48.0 4339.0,48.0 4339.0,28.0 4357.0,28.0 4357.0,48.0 4374.4,48.0 4374.4,28.0 4386.4,28.0 4386.4,48.0 4403.8,48.0 4403.8,28.0 4415.8,28.0 4415.8,48.0 4433.2,48.0 4433.2,28.0 4451.2,28.0 4451.2,48.0 4468.6,48.0 4468.6,28.0 4588.6,28.0 4588.6,48.0 4606.0,48.0 4606.0,28.0 4618.0,28.0 4618.0,48.0 4635.4,48.0 4635.4,28.0 4653.4,28.0 4653.4,48.0 4670.8,48.0 4670.8,28.0 4682.8,28.0 4682.8,48.0 4700.2,48.0 4700.2,28.0 4718.2,28.0 4718.2,48.0 4735.6,48.0 4735.6,28.0 4747.6,28.0 4747.6,48.0 4765.0,48.0 4765.0,28.0 4777.0,28.0 4777.0,48.0 4794.4,48.0 4794.4,28.0 4812.4,28.0 4812.4,48.0 4829.8,48.0 4829.8,28.0 4949.8,28.0 4949.8,48.0 4967.2,48.0 4967.2,28.0 4979.2,28.0 4979.2,48.0 4996.6,48.0 4996.6,28.0 5014.6,28.0 5014.6,48.0 5032.0,48.0 5032.0,28.0 5044.0,28.0 5044.0,48.0 5061.4,48.0 5061.4,28.0 5079.4,28.0 5079.4,48.0 5096.8,48.0 5096.8,28.0 5108.8,28.0 5108.8,48.0 5126.8,48.0 5126.8,48.0"/><text class="wl" x="4" y="80.0">OUT</text><line class="base" x1="64.0" y1="82.0" x2="5126.8" y2="82.0"/><polygon class="wout" points="64.0,82.0 64.0,82.0 70.0,82.0 70.0,62.0 556.0,62.0 556.0,82.0 1031.2,82.0 1031.2,62.0 1506.4,62.0 1506.4,82.0 1981.6,82.0 1981.6,62.0 2456.8,62.0 2456.8,82.0 2932.0,82.0 2932.0,62.0 3990.4,62.0 3990.4,82.0 5074.0,82.0 5074.0,62.0 5126.8,62.0 5126.8,82.0"/><text class="ax" x="4" y="106.0">ticks</text><text class="ax" x="64.0" y="106.0">0</text><text class="ax" x="124.0" y="106.0">100</text><text class="ax" x="184.0" y="106.0">200</text><text class="ax" x="244.0" y="106.0">300</text><text class="ax" x="304.0" y="106.0">400</text><text class="ax" x="364.0" y="106.0">500</text><text class="ax" x="424.0" y="106.0">600</text><text class="ax" x="484.0" y="106.0">700</text><text class="ax" x="544.0" y="106.0">800</text><text class="ax" x="604.0" y="106.0">900</text><text class="ax" x="664.0" y="106.0">1000</text><text class="ax" x="724.0" y="106.0">1100</text><text class="ax" x="784.0" y="106.0">1200</text><text class="ax" x="844.0" y="106.0">1300</text><text class="ax" x="904.0" y="106.0">1400</text><text class="ax" x="964.0" y="106.0">1500</text><text class="ax" x="1024.0" y="106.0">1600</text><text class="ax" x="1084.0" y="106.0">1700</text><text class="ax" x="1144.0" y="106.0">1800</text><text class="ax" x="1204.0" y="106.0">1900</text><text class="ax" x="1264.0" y="106.0">2000</text><text class="ax" x="1324.0" y="106.0">2100</text><text class="ax" x="1384.0" y="106.0">2200</text><text class="ax" x="1444.0" y="106.0">2300</text><text class="ax" x="1504.0" y="106.0">2400</text><text class="ax" x="1564.0" y="106.0">2500</text><text class="ax" x="1624.0" y="106.0">2600</text><text class="ax" x="1684.0" y="106.0">2700</text><text class="ax" x="1744.0" y="106.0">2800</text><text class="ax" x="1804.0" y="106.0">2900</text><text class="ax" x="1864.0" y="106.0">3000</text><text class="ax" x="1924.0" y="106.0">3100</text><text class="ax" x="1984.0" y="106.0">3200</text><text class="ax" x="2044.0" y="106.0">3300</text><text class="ax" x="2104.0" y="106.0">3400</text><text class="ax" x="2164.0" y="106.0">3500</text><text class="ax" x="2224.0" y="106.0">3600</text><text class="ax" x="2284.0" y="106.0">3700</text><text class="ax" x="2344.0" y="106.0">3800</text><text class="ax" x="2404.0" y="106.0">3900</text><text class="ax" x="2464.0" y="106.0">4000</text><text class="ax" x="2524.0" y="106.0">4100</text><text class="ax" x="2584.0" y="106.0">4200</text><text class="ax" x="2644.0" y="106.0">4300</text><text class="ax" x="2704.0" y="106.0">4400</text><text class="ax" x="2764.0" y="106.0">4500</text><text class="ax" x="2824.0" y="106.0">4600</text><text class="ax" x="2884.0" y="106.0">4700</text><text class="ax" x="2944.0" y="106.0">4800</text><text class="ax" x="3004.0" y="106.0">4900</text><text class="ax" x="3064.0" y="106.0">5000</text><text class="ax" x="3124.0" y="106.0">5100</text><text class="ax" x="3184.0" y="106.0">5200</text><text class="ax" x="3244.0" y="106.0">5300</text><text class="ax" x="3304.0" y="106.0">5400</text><text class="ax" x="3364.0" y="106.0">5500</text><text class="ax" x="3424.0" y="106.0">5600</text><text class="ax" x="3484.0" y="106.0">5700</text><text class="ax" x="3544.0" y="106.0">5800</text><text class="ax" x="3604.0" y="106.0">5900</text><text class="ax" x="3664.0" y="106.0">6000</text><text class="ax" x="3724.0" y="106.0">6100</text><text class="ax" x="3784.0" y="106.0">6200</text><text class="ax" x="3844.0" y="106.0">6300</text><text class="ax" x="3904.0" y="106.0">6400</text><text class="ax" x="3964.0" y="106.0">6500</text><text class="ax" x="4024.0" y="106.0">6600</text><text class="ax" x="4084.0" y="106.0">6700</text><text class="ax" x="4144.0" y="106.0">6800</text><text class="ax" x="4204.0" y="106.0">6900</text><text class="ax" x="4264.0" y="106.0">7000</text><text class="ax" x="4324.0" y="106.0">7100</text><text class="ax" x="4384.0" y="106.0">7200</text><text class="ax" x="4444.0" y="106.0">7300</text><text class="ax" x="4504.0" y="106.0">7400</text><text class="ax" x="4564.0" y="106.0">7500</text><text class="ax" x="4624.0" y="106.0">7600</text><text class="ax" x="4684.0" y="106.0">7700</text><text class="ax" x="4744.0" y="106.0">7800</text><text class="ax" x="4804.0" y="106.0">7900</text><text class="ax" x="4864.0" y="106.0">8000</text><text class="ax" x="4924.0" y="106.0">8100</text><text class="ax" x="4984.0" y="106.0">8200</text><text class="ax" x="5044.0" y="106.0">8300</text><text class="ax" x="5104.0" y="106.0">8400</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 8438 ticks (7 min 1.9 s).</p><details><summary>Our test's report, step by step (193 lines)</summary><pre class="design">pulse 1: output 1 (level 15)
+pulse 2: output 1 (level 15)
+pulse 3: output 1 (level 15)
+pulse 4: output 1 (level 15)
+pulse 5: output 1 (level 15)
+pulse 6: output 1 (level 15)
+pulse 7: output 1 (level 15)
+pulse 8: output 1 (level 15)
+pulse 9: output 1 (level 15)
+pulse 10: output 1 (level 15)
+pulse 11: output 1 (level 15)
+pulse 12: output 1 (level 15)
+pulse 13: output 1 (level 15)
+pulse 14: output 1 (level 15)
+pulse 15: output 1 (level 15)
+pulse 16: output 1 (level 15)
+pulse 17: output 1 (level 15)
+pulse 18: output 1 (level 15)
+pulse 19: output 1 (level 15)
+pulse 20: output 1 (level 15)
+pulse 21: output 1 (level 15)
+pulse 22: output 1 (level 15)
+pulse 23: output 1 (level 15)
+pulse 24: output 0 (level 0), changed
+pulse 25: output 0 (level 0)
+pulse 26: output 0 (level 0)
+pulse 27: output 0 (level 0)
+pulse 28: output 0 (level 0)
+pulse 29: output 0 (level 0)
+pulse 30: output 0 (level 0)
+pulse 31: output 0 (level 0)
+pulse 32: output 0 (level 0)
+pulse 33: output 0 (level 0)
+pulse 34: output 0 (level 0)
+pulse 35: output 0 (level 0)
+pulse 36: output 0 (level 0)
+pulse 37: output 0 (level 0)
+pulse 38: output 0 (level 0)
+pulse 39: output 0 (level 0)
+pulse 40: output 0 (level 0)
+pulse 41: output 0 (level 0)
+pulse 42: output 0 (level 0)
+pulse 43: output 0 (level 0)
+pulse 44: output 0 (level 0)
+pulse 45: output 0 (level 0)
+pulse 46: output 0 (level 0)
+pulse 47: output 0 (level 0)
+pulse 48: output 1 (level 15), changed
+pulse 49: output 1 (level 15)
+pulse 50: output 1 (level 15)
+pulse 51: output 1 (level 15)
+pulse 52: output 1 (level 15)
+pulse 53: output 1 (level 15)
+pulse 54: output 1 (level 15)
+pulse 55: output 1 (level 15)
+pulse 56: output 1 (level 15)
+pulse 57: output 1 (level 15)
+pulse 58: output 1 (level 15)
+pulse 59: output 1 (level 15)
+pulse 60: output 1 (level 15)
+pulse 61: output 1 (level 15)
+pulse 62: output 1 (level 15)
+pulse 63: output 1 (level 15)
+pulse 64: output 1 (level 15)
+pulse 65: output 1 (level 15)
+pulse 66: output 1 (level 15)
+pulse 67: output 1 (level 15)
+pulse 68: output 1 (level 15)
+pulse 69: output 1 (level 15)
+pulse 70: output 1 (level 15)
+pulse 71: output 1 (level 15)
+pulse 72: output 0 (level 0), changed
+pulse 73: output 0 (level 0)
+pulse 74: output 0 (level 0)
+pulse 75: output 0 (level 0)
+pulse 76: output 0 (level 0)
+pulse 77: output 0 (level 0)
+pulse 78: output 0 (level 0)
+pulse 79: output 0 (level 0)
+pulse 80: output 0 (level 0)
+pulse 81: output 0 (level 0)
+pulse 82: output 0 (level 0)
+pulse 83: output 0 (level 0)
+pulse 84: output 0 (level 0)
+pulse 85: output 0 (level 0)
+pulse 86: output 0 (level 0)
+pulse 87: output 0 (level 0)
+pulse 88: output 0 (level 0)
+pulse 89: output 0 (level 0)
+pulse 90: output 0 (level 0)
+pulse 91: output 0 (level 0)
+pulse 92: output 0 (level 0)
+pulse 93: output 0 (level 0)
+pulse 94: output 0 (level 0)
+pulse 95: output 0 (level 0)
+pulse 96: output 1 (level 15), changed
+pulse 97: output 1 (level 15)
+pulse 98: output 1 (level 15)
+pulse 99: output 1 (level 15)
+pulse 100: output 1 (level 15)
+pulse 101: output 1 (level 15)
+pulse 102: output 1 (level 15)
+pulse 103: output 1 (level 15)
+pulse 104: output 1 (level 15)
+pulse 105: output 1 (level 15)
+pulse 106: output 1 (level 15)
+pulse 107: output 1 (level 15)
+pulse 108: output 1 (level 15)
+pulse 109: output 1 (level 15)
+pulse 110: output 1 (level 15)
+pulse 111: output 1 (level 15)
+pulse 112: output 1 (level 15)
+pulse 113: output 1 (level 15)
+pulse 114: output 1 (level 15)
+pulse 115: output 1 (level 15)
+pulse 116: output 1 (level 15)
+pulse 117: output 1 (level 15)
+pulse 118: output 1 (level 15)
+pulse 119: output 1 (level 15)
+pulse 120: output 0 (level 0), changed
+pulse 121: output 0 (level 0)
+pulse 122: output 0 (level 0)
+pulse 123: output 0 (level 0)
+pulse 124: output 0 (level 0)
+pulse 125: output 0 (level 0)
+pulse 126: output 0 (level 0)
+pulse 127: output 0 (level 0)
+pulse 128: output 0 (level 0)
+pulse 129: output 0 (level 0)
+pulse 130: output 0 (level 0)
+pulse 131: output 0 (level 0)
+pulse 132: output 0 (level 0)
+pulse 133: output 0 (level 0)
+pulse 134: output 0 (level 0)
+pulse 135: output 0 (level 0)
+pulse 136: output 0 (level 0)
+pulse 137: output 0 (level 0)
+pulse 138: output 0 (level 0)
+pulse 139: output 0 (level 0)
+pulse 140: output 0 (level 0)
+pulse 141: output 0 (level 0)
+pulse 142: output 0 (level 0)
+pulse 143: output 0 (level 0)
+pulse 144: output 1 (level 15), changed
+pulse 145: output 1 (level 15)
+press 1 20: output 1 (level 15)
+press 2 30: output 1 (level 15)
+press 3 200: output 1 (level 15)
+press 4 20: output 1 (level 15)
+press 5 30: output 1 (level 15)
+press 6 20: output 1 (level 15)
+press 7 30: output 1 (level 15)
+press 8 20: output 1 (level 15)
+press 9 20: output 1 (level 15)
+press 10 30: output 1 (level 15)
+press 11 200: output 1 (level 15)
+press 12 20: output 1 (level 15)
+press 13 30: output 1 (level 15)
+press 14 20: output 1 (level 15)
+press 15 30: output 1 (level 15)
+press 16 20: output 1 (level 15)
+press 17 20: output 1 (level 15)
+press 18 30: output 1 (level 15)
+press 19 200: output 1 (level 15)
+press 20 20: output 1 (level 15)
+press 21 30: output 1 (level 15)
+press 22 20: output 1 (level 15)
+press 23 30: output 0 (level 0), changed
+press 24 20: output 0 (level 0)
+press 25 20: output 0 (level 0)
+press 26 30: output 0 (level 0)
+press 27 200: output 0 (level 0)
+press 28 20: output 0 (level 0)
+press 29 30: output 0 (level 0)
+press 30 20: output 0 (level 0)
+press 31 30: output 0 (level 0)
+press 32 20: output 0 (level 0)
+press 33 20: output 0 (level 0)
+press 34 30: output 0 (level 0)
+press 35 200: output 0 (level 0)
+press 36 20: output 0 (level 0)
+press 37 30: output 0 (level 0)
+press 38 20: output 0 (level 0)
+press 39 30: output 0 (level 0)
+press 40 20: output 0 (level 0)
+press 41 20: output 0 (level 0)
+press 42 30: output 0 (level 0)
+press 43 200: output 0 (level 0)
+press 44 20: output 0 (level 0)
+press 45 30: output 0 (level 0)
+press 46 20: output 0 (level 0)
+press 47 30: output 1 (level 15), changed
+press 48 20: output 1 (level 15)</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">N</th><td>48</td><td class="def">how many input pulses one output cycle takes</td></tr>
+<tr><th scope="row">output</th><td>level every 48 pulses</td><td class="def">how the output shows the count: toggles (flips every N), pulses (one pulse every N) or level (its state repeats every N)</td></tr>
+<tr><th scope="row">counts</th><td>one pulse per N</td><td class="def"></td></tr>
+<tr><th scope="row">on</th><td>24 of 48</td><td class="def"></td></tr>
+</tbody></table></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/memory/index.html">Memory and counters</a></td></tr>
+<tr><th scope="row">Kind</th><td>Counter: counts pulses and reacts on a set count</td></tr>
+<tr><th scope="row">Blocks placed</th><td>23 (not counting the input levers or buttons and the test lamp the view adds)</td></tr>
+<tr><th scope="row">Box</th><td>11×4×2 (88 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>comparator, copper bulb, dropper, hopper</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>IN (repeater) / OUT</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-21T16:54Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere</td></tr>
+<tr><th scope="row">Design file</th><td><code>counter48-ring3-bulb4-sealed</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/memory/archive/counter48-ring3-bulb4-sealed.txt">on GitHub</a></p><details><summary>Design file (36 lines)</summary><pre class="design"># archived 2026-10-21T16:54Z from /tmp/clkm-ab/intr/sealed/counter48-ring3-bulb4-sealed.txt by mctas circuit archive
+# CIRCUIT: counter48-ring3-bulb4-sealed counter 48 N 48, output level every 48 pulses, counts one pulse per N, on 24 of 48, 23 blocks, 11x4x2, robust
+# Sealed by `mctas circuit seal` (the real-use audit&#39;s item intrusion, 2026-10-21): 3 glass on
+# the open hopper tops of counter48-ring3-bulb4 (-1 1 -1, -1 2 0, 0 2 -1), so no stray item reaches a hopper of its timing.
+name: counter48-ring3-bulb4-sealed
+circuit: counter 48
+group: ring-bulbs
+group note: a dropper ring whose comparator toggles K copper bulb T flip-flops in a line (`mctas circuit memory ring --n N --bulbs K`)
+group title: Dropper ring + copper bulbs (counter N x 2^K)
+port input: 0 0 0
+port output: -11 0 0
+nbt: -1 0 0 {Items:[{Slot:0b,id:&quot;minecraft:stone&quot;,count:1}]}
+origin: -10 0 -1
+palette:
+  A minecraft:dropper[facing=west,triggered=false]
+  B minecraft:hopper[enabled=true,facing=south]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:dropper[facing=north,triggered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=down]
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  d minecraft:dropper[facing=up,triggered=false]
+  h minecraft:hopper[enabled=true,facing=east]
+layer -1:
+  .
+  S.S.S.S.S
+layer 0:
+  .........hd
+  CWCWCWCWCD
+layer 1:
+  .........GB
+  .........HA
+layer 2:
+  ..........G
+  .........G
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/dc8ec15a268a4ee1129517e8c16261cbd981c128">vjeux/redstonepedia@dc8ec15a2</a> on <span class="nowrap">2026-10-26</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../pkg/redstonepedia.js?v=efae9c7a"; init({module_or_path: "../../pkg/redstonepedia_bg.wasm?v=71708147"});</script>
+<script type="module">import init from "../../viewer/mcview.js?v=6436f4ee"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=41e34704"});</script>
+</body>
+</html>

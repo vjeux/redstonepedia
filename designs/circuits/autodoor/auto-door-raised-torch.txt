@@ -1,0 +1,44 @@
+# archived 2026-10-22T16:05Z from designs/circuits/autodoor/tracks/clk-obs/auto-door-raised-torch.txt by mctas circuit archive
+# CIRCUIT: auto-door-raised-torch auto-door door 2x2, open wait 0 gt, close delay 27 gt, stop in doorway the door closes on them, 42 blocks, 8x5x3, robust
+# auto-door-raised-torch (clk-obs, 2026-10-22; track file designs/circuits/autodoor/tracks/clk-obs/raised-v1.txt): 42 blocks,
+# the obvious door (designs/briefs/auto-door.md, auto-door-plates, 44) with each torch one block higher. Any of the four
+# stone plates opens both halves: the plates strongly power their supports, the dust under the supports (y = -2) is one
+# network along z = 0 under the opening, and each side's end climbs to y = -1 under the bottom piston (dust never powers the
+# block above it) and points into the torch base (0,-1,0). The torch on it (0,0,0) powers the bottom piston beside it and
+# strongly powers the stone above it, which powers the top piston: 3 blocks per side instead of base, torch, stone and dust
+# cross. Passes the lateral sweep (every offset across the doorway, stand- and player-width).
+name: auto-door-raised-torch
+circuit: auto-door
+port door.a: 0 0 0
+port door.b: 1 1 0
+origin: -3 0 -1
+palette:
+  S minecraft:stone
+  A minecraft:smooth_stone
+  P minecraft:stone_pressure_plate[powered=false]
+  W minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  T minecraft:redstone_torch[lit=true]
+  K minecraft:sticky_piston[extended=true,facing=east]
+  k minecraft:piston_head[facing=east,short=false,type=sticky]
+  J minecraft:sticky_piston[extended=true,facing=west]
+  j minecraft:piston_head[facing=west,short=false,type=sticky]
+layer -3:
+  ...SS...
+  ..SSSS..
+  ...SS...
+layer -2:
+  ...WW...
+  .SWWWWS.
+  ...WW...
+layer -1:
+  ...SS...
+  SW....WS
+  ...SS...
+layer 0:
+  ...PP...
+  TKkAAjJT
+  ...PP...
+layer 1:
+  ........
+  SKkAAjJS
+  ........

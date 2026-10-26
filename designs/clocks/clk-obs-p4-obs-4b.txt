@@ -1,0 +1,23 @@
+# archived 2026-10-19T17:25Z from /tmp/clk-in7/clk-obs--best--p4-obs-4b.txt by mctas clock archive
+# CLOCK: clk-obs-p4-obs-4b period 4 gt (0.2 s), on 2/4, edges 1, warmup 5, family observer, 5 blocks, 2x2x3, robust
+# CLOCK: clk-obs-p4-obs-4b period 4 gt (0.2 s), on 2/4, edges 1, warmup 5, family observer, 5 blocks, 2x2x3, robust
+# (clk-obs, found by census-k4-p4-0000.txt; output: the changing cell with the most rising edges, declared so every rotation reads the same cell)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 2: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its east, added at -1 1 2 (was 0 -1 2: the output [0, -1, 2] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+name: clk-obs-p4-obs-4b
+port output: -2 1 2
+origin: -1 0 0
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=south]
+  R minecraft:redstone_block
+  o minecraft:observer[facing=east,powered=false]
+layer 0:
+  .P
+  .A
+  .
+layer 1:
+  .
+  .R
+  oO

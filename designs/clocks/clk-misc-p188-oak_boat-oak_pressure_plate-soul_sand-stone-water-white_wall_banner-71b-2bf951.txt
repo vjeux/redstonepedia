@@ -1,0 +1,43 @@
+# archived 2026-10-23T08:36Z from /home/vjeux/ws5/strip-game/staged/clk-misc-p188-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-71b-2bf951.txt by mctas clock archive
+# CLOCK: clk-misc-p188-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-71b-2bf951 period 188 gt (9.4 s), on 20/188, edges 1, warmup 102, family oak_boat+oak_pressure_plate, 71 blocks, 11x6x4, robust
+# the irreducible core of clk-misc-boat-lift-l4h2.txt (mctas clock strip, 2026-10-22): removed -2,0,0 water[level=0]; -2,0,1 water[level=0]; -2,1,0 water[level=0]; -2,1,1 water[level=0]; -2,1,2 stone; -2,4,0 stone; -2,4,1 stone; -1,1,-1 stone; -1,1,2 stone; -1,2,0 water[level=0]; -1,4,0 stone; -1,4,1 stone; 0,-1,1 stone; 0,0,-1 stone; 0,0,2 stone; 0,4,0 stone; 0,4,1 stone; 1,4,0 stone; 5,2,-1 stone; 5,2,2 stone; 6,-1,0 stone; 6,-1,1 stone; 6,0,-1 stone; 6,0,2 stone; 6,2,-1 stone; 6,2,2 stone; 7,0,0 stone; 7,0,1 stone; 7,1,0 stone; 7,2,0 stone; 7,2,1 stone; -3,1,0 stone; -3,1,1 stone; -2,1,-1 stone
+name: clk-misc-p188-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-71b-2bf951
+port output: 0 -1 -1
+entity: minecraft:oak_boat 3.5 0 1
+origin: -3 0 -1
+palette:
+  O minecraft:oak_pressure_plate[powered=false]
+  S minecraft:soul_sand
+  W minecraft:water[level=0]
+  s minecraft:stone
+  w minecraft:white_wall_banner[facing=west]
+layer -1:
+  .
+  .SSssssss
+  .SS.sssss
+  .
+layer 0:
+  .ss.sssss
+  s.WO.....O
+  s.WO.....O
+  .ss.sssss
+layer 1:
+  .
+  ..Wwssss
+  ..Wwssss..s
+  .
+layer 2:
+  .sssssss
+  sW
+  sWW
+  .sssssss
+layer 3:
+  .
+  .
+  .
+  .
+layer 4:
+  .
+  .
+  ....s
+  .

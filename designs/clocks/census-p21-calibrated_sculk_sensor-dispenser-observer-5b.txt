@@ -1,0 +1,24 @@
+# archived 2026-10-19T20:24Z from /tmp/gen/arch2/s3x1x2-k5-census-p21-calibrated_sculk_sensor-dispenser-observer-5b.txt by mctas clock archive
+# CLOCK: census-p21-calibrated_sculk_sensor-dispenser-observer-5b period 21 gt (1.05 s), on 10/21, edges 1, warmup 17, family calibrated_sculk_sensor+dispenser+observer, 7 blocks, 3x2x2, robust
+# Found by `mctas clock census` (box 3x1x2 k<=5) with a sculk palette: s3x1x2-k5-census-p21-calibrated_sculk_sensor-dispenser-observer-5b
+# port output declared 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks
+# port output moved 2026-10-21 (usable-output rule): the output of a comparator facing east (on the ground) that reads the build, added at 2 0 0 (was 1 -1 0: the output [1, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+name: census-p21-calibrated_sculk_sensor-dispenser-observer-5b
+census: box 3x1x2 k<=5 (0,0,0=observer[facing=east,powered=false];0,0,1=observer[facing=north,powered=false];1,0,0=calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false];1,0,1=observer[facing=west,powered=false];2,0,1=dispenser[facing=down,triggered=false])
+port output: 3 0 0
+port start: 0 0 0 last
+origin: 0 0 0
+palette:
+  A minecraft:observer[facing=west,powered=false]
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  D minecraft:dispenser[facing=down,triggered=false]
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:stone
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  o minecraft:observer[facing=north,powered=false]
+layer -1:
+  ..S
+  .
+layer 0:
+  OCc
+  oAD

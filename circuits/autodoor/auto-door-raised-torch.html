@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Automatic door: opens as you walk up, closes behind you · 42 blocks · no waiting, even sprinting · REDSTONEPEDIA</title>
+<meta name="description" content="Automatic door: opens as you walk up, closes behind you · 42 blocks · no waiting, even sprinting. Opens as you walk up, closes behind you, from either side: a stone plate in front of and behind each door column, any of them opening the whole door, their supp">
+<meta property="og:title" content="Automatic door: opens as you walk up, closes behind you · 42 blocks · no waiting, even sprinting · REDSTONEPEDIA">
+<meta property="og:description" content="Automatic door: opens as you walk up, closes behind you · 42 blocks · no waiting, even sprinting. Opens as you walk up, closes behind you, from either side: a stone plate in front of and behind each door column, any of them opening the whole door, their supp">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/autodoor/index.html">Automatic doors</a></p>
+<p class="kindline">Automatic door: opens as you walk up, closes behind you (2×2 piston door)</p>
+<h1>opens as you walk up, closes behind you · 42 blocks · no waiting, even sprinting</h1>
+<p class="oneliner">A 2×2 piston door that opens by itself when you walk up from either side and closes behind you, even when two people walk through close together. Stand still in the doorway and the door closes on you and hurts you (half a heart per hurt) until you step out.</p>
+<p class="warn">A mob on a plate opens it too: nothing in vanilla tells a player from a mob, so put the plates where mobs can&#39;t walk.</p>
+<p class="lede">smallest of 6 tested · it closes 1.35 s after you pass · fits in 8×5×3</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/autodoor/auto-door-raised-torch.txt" data-input-mode="pulse" data-circuit="auto-door" data-kind="circuit"><div class="fallback"><span class="fb-big">opens as you walk up, closes behind you</span><span class="fb-small">Automatic door</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<section class="what plain"><h2>Try it</h2><p>The view shows the door as built: the browser&#39;s simulator has no walkers to open it. In the game, walk up to it from either side: it opens before you reach it, even at a sprint, and closes once you have passed. Walk on through: if you stop in the doorway, it closes on you.</p><p class="howdesign"><b>How this design does it:</b> Opens as you walk up, closes behind you, from either side: a stone plate in front of and behind each door column, any of them opening the whole door, their supports wired under the floor into the torches that hold classic6&#39;s pistons closed; each torch sits beside its bottom piston and powers the top one through the stone above it.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/autodoor/auto-door-raised-torch.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/autodoor/auto-door-raised-torch.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=redstone_torch">redstone torch</a> <a class="chip" href="../../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../../index.html#with=smooth_stone">smooth stone</a> <a class="chip" href="../../index.html#with=sticky_piston">sticky piston</a> <a class="chip" href="../../index.html#with=stone">stone</a> <a class="chip" href="../../index.html#with=stone_pressure_plate">stone pressure plate</a></p></section>
+<p class="also-ground"><b>Which to build:</b> this door takes 42 blocks and opens before you reach it, even at a sprint, but it closes on anyone who stops in the doorway. For a door that also stays open for someone standing in the doorway: <a href="../../circuits/autodoor/auto-door-lock-v12.html">Automatic door: opens as you walk up, closes behind you · 91 blocks · you wait up to 0.65 s at the door</a>. If the entrance doesn&#39;t need to be hidden, two iron doors with pressure plates do the job in about 10 blocks.</p>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>A 2×2 piston door: four sticky pistons pull the four door blocks into the wall. Its detectors lie in the walkway on both sides of the door, where you step anyway: stone pressure plates, which feel players and mobs but never dropped items (a wooden plate would feel items too), or tripwire strings, which feel anything that crosses them. A plate powers the block under it, and the signal runs under the floor to the redstone that holds the pistons closed: step on a plate and the door opens.</p><p>A stone plate stays down for at least 1 second after it is pressed and checks again every second, letting go once nobody is on it, so the door closes a second or two after the last person has passed. The doorway itself is only one block deep: you cross it, between the plates on either side, in a fraction of a second.</p><p>Nothing can feel someone standing in the doorway: no detector fits there, since the pistons sweep it and a plate or a string pushed into pops off. A door with no memory, the simplest, closes on them; one with memory reads the order its plates were pressed in and stays open for them, for about twice the blocks.</p></section>
+<section><h2>How to try it</h2><p><b>The view shows the door as built</b>, closed: the browser's simulator has no walkers, so nothing steps on its plates here. Drag to look around, pinch or scroll to zoom. Its pressure plates lie in the walkway on both sides of the door, where you step anyway: in the game, walk through from either side.</p></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">door</th><td>2x2</td><td class="def">the size of the doorway it opens</td></tr>
+<tr><th scope="row">open wait</th><td>0 gt (0 s)</td><td class="def">the longest a walker waited at the closed door before it opened, in game ticks</td></tr>
+<tr><th scope="row">close delay</th><td>27 gt (1.35 s)</td><td class="def">game ticks from the last walker leaving the doorway to the door being flush again</td></tr>
+<tr><th scope="row">stop in doorway</th><td>the door closes on them</td><td class="def">what the door does when someone stops and stands still in the doorway: stays open for them, or closes on them (it squeezes them and hurts them, half a heart per hurt, until they step out); reported, not required</td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>Opens as you walk up, closes behind you, from either side: a stone plate in front of and behind each door column, any of them opening the whole door, their supports wired under the floor into the torches that hold classic6&#39;s pistons closed; each torch sits beside its bottom piston and powers the top one through the stone above it. 42 blocks (the obvious door is 44), no waiting even at a sprint, wherever you walk across the doorway. Stand still in the doorway and the door closes on you and hurts you (half a heart per hurt) until you step out. A mob on a plate opens it too: nothing vanilla tells a player from a mob, so put the plates where mobs can&#39;t walk. If the entrance doesn&#39;t need to be hidden, two iron doors with plates do the job in about 10 blocks.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/autodoor/index.html">Automatic doors</a></td></tr>
+<tr><th scope="row">Kind</th><td>Automatic door: opens as you walk up, closes behind you (2×2 piston door)</td></tr>
+<tr><th scope="row">Blocks placed</th><td>42</td></tr>
+<tr><th scope="row">Box</th><td>8×5×3 (120 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>redstone torch, redstone wire, smooth stone, sticky piston, stone, stone pressure plate</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-22T16:05Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere</td></tr>
+<tr><th scope="row">Design file</th><td><code>auto-door-raised-torch</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/autodoor/archive/auto-door-raised-torch.txt">on GitHub</a></p><details><summary>Design file (44 lines)</summary><pre class="design"># archived 2026-10-22T16:05Z from designs/circuits/autodoor/tracks/clk-obs/auto-door-raised-torch.txt by mctas circuit archive
+# CIRCUIT: auto-door-raised-torch auto-door door 2x2, open wait 0 gt, close delay 27 gt, stop in doorway the door closes on them, 42 blocks, 8x5x3, robust
+# auto-door-raised-torch (clk-obs, 2026-10-22; track file designs/circuits/autodoor/tracks/clk-obs/raised-v1.txt): 42 blocks,
+# the obvious door (designs/briefs/auto-door.md, auto-door-plates, 44) with each torch one block higher. Any of the four
+# stone plates opens both halves: the plates strongly power their supports, the dust under the supports (y = -2) is one
+# network along z = 0 under the opening, and each side&#39;s end climbs to y = -1 under the bottom piston (dust never powers the
+# block above it) and points into the torch base (0,-1,0). The torch on it (0,0,0) powers the bottom piston beside it and
+# strongly powers the stone above it, which powers the top piston: 3 blocks per side instead of base, torch, stone and dust
+# cross. Passes the lateral sweep (every offset across the doorway, stand- and player-width).
+name: auto-door-raised-torch
+circuit: auto-door
+port door.a: 0 0 0
+port door.b: 1 1 0
+origin: -3 0 -1
+palette:
+  S minecraft:stone
+  A minecraft:smooth_stone
+  P minecraft:stone_pressure_plate[powered=false]
+  W minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  T minecraft:redstone_torch[lit=true]
+  K minecraft:sticky_piston[extended=true,facing=east]
+  k minecraft:piston_head[facing=east,short=false,type=sticky]
+  J minecraft:sticky_piston[extended=true,facing=west]
+  j minecraft:piston_head[facing=west,short=false,type=sticky]
+layer -3:
+  ...SS...
+  ..SSSS..
+  ...SS...
+layer -2:
+  ...WW...
+  .SWWWWS.
+  ...WW...
+layer -1:
+  ...SS...
+  SW....WS
+  ...SS...
+layer 0:
+  ...PP...
+  TKkAAjJT
+  ...PP...
+layer 1:
+  ........
+  SKkAAjJS
+  ........
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/dc8ec15a268a4ee1129517e8c16261cbd981c128">vjeux/redstonepedia@dc8ec15a2</a> on <span class="nowrap">2026-10-26</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=6436f4ee"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=41e34704"});</script>
+</body>
+</html>

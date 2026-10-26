@@ -1,0 +1,62 @@
+# archived 2026-10-21T19:35Z from designs/circuits/tracks/clk-rt/compact/pulsemult/pm-div3-square-sealed-v60-18b.txt by mctas circuit archive
+# CIRCUIT: pm-div3-square-sealed-v60-18b divider 3 N 3, duty 50%, output square, latency 39 gt, min-period 20 gt, 18 blocks, 2x6x5, robust
+# Divide-by-3 square wave, dropper ring, sealed: turns a fast clock into one 3 times slower with an even on/off split. pm-div3-square-sealed's mechanism (a ring of 3 droppers passing one item around, one step per input edge, and a copper bulb that flips each time the item comes back around; no hopper top a stray item can reach) rearranged by clk-rt's circuit compact (2026-10-21) under the item-intrusion judge: judged box 60 (was 90), 18 blocks (was 20); its blocks sit in 2x6x5.
+name: pm-div3-square-sealed-v60-18b
+circuit: divider 3
+group: pm-square-divider
+group note: study 5's dropper ring of N with one copper bulb toggles once every N pulses; an observer feeds it on BOTH input edges, so the bulb toggles every N/2 input periods: a 50% duty for odd N too (`mctas circuit pulsemult square-divider --n N`)
+group title: Square /N divider (dropper ring + bulb, fed on both edges)
+port input: 0 -2 0
+port output: 0 0 -5
+nbt: 0 0 -1 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: 0 0 -4
+palette:
+  A minecraft:dropper[facing=north,triggered=false]
+  B minecraft:dropper[facing=up,triggered=false]
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  D minecraft:dropper[facing=down,triggered=false]
+  E minecraft:hopper[enabled=true,facing=west]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=down]
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  d minecraft:dropper[facing=east,triggered=false]
+  h minecraft:hopper[enabled=true,facing=south]
+layer -3:
+  .
+  .
+  .
+  .
+  D
+layer -2:
+  .
+  .
+  .
+  .
+  R
+layer -1:
+  A
+  .
+  S
+  .
+  O
+layer 0:
+  C
+  W
+  C
+  BE
+  SA
+layer 1:
+  .
+  .
+  .
+  hG
+  dH
+layer 2:
+  .
+  .
+  .
+  A
+  .S

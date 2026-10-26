@@ -1,0 +1,29 @@
+# archived 2026-10-21T00:17Z from designs/circuits/delay/tracks/delay/delay-piston-7.txt by mctas circuit archive
+# CIRCUIT: delay-piston-7 delay N 7 gt, min-pulse 6 gt, min-gap 5 gt, 10 blocks, 7x2x6, robust
+# Delay line, 7 ticks, 10 blocks: the odd delays a repeater line cannot make. Two stages of two sticky pistons with redstone blocks, joined by a repeater set to 1. In each stage the first piston pushes its block against the second piston, which pulls its own block away from the next part. A piston set off by a block ARRIVING acts one tick later than one set off by a signal, so each stage takes 3 ticks one way and 2 the other, and inverts; two stages in a row add up to the same odd number on both edges.
+name: delay-piston-7
+circuit: delay
+group: delay-piston-odd
+group title: Odd delays: two piston stages (7 to 13 ticks)
+group note: one 10-block layout; the repeater between the stages sets the delay: 1 = 7 ticks, 2 = 9, 3 = 11, 4 = 13
+port input: 0 1 0
+port output: 8 1 4
+origin: 0 0 0
+palette:
+  P minecraft:sticky_piston[extended=false,facing=east]
+  Q minecraft:sticky_piston[extended=false,facing=south]
+  R minecraft:redstone_block
+  D minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  S minecraft:stone
+layer 0:
+  .........
+  .........
+  ....S....
+  .........
+  .........
+layer 1:
+  .PR......
+  ...Q.....
+  ...RDPR..
+  .......Q.
+  .......R.

@@ -1,0 +1,31 @@
+# A pure vibration racetrack: calibrated sculk sensors on two straight lines 18 apart (17 between sensors: hop 16) joined by a turn sensor at each end (hops 15); each sensor's resonator (amethyst; the first a note block, right-clicked as the kick) rings when it fires and only the next sensor is within 16. P = 28 + 32n gt, 4 + 4n blocks (n = 4: P 156, 20 blocks). Built by `mctas clock sculk family racetrack --n 4`.
+name: clk-sculk-racetrack-n4
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -13 -1 9
+port start: 1 0 0 use
+origin: -13 0 0
+palette:
+  A minecraft:amethyst_block
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  c minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer 0:
+  .............CN...............cA...............cA...............cA
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  A
+  c............................................................................c
+  .............................................................................A
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ............Ac...............Ac...............Ac...............Ac

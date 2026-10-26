@@ -1,0 +1,42 @@
+# archived 2026-10-20T12:05Z from designs/circuits/pulsemult/tracks/timer/nonretrig/mono-nonretrig-ring-L38.txt by mctas circuit archive
+# CIRCUIT: mono-nonretrig-ring-L38 monostable non-retriggerable L 38 gt, delay 12 gt, retrigger non-retriggerable, re-arm 40 gt, min-pulse 2 gt (the shortest a real input makes), 25 blocks, 3x2x8, robust
+name: mono-nonretrig-ring-L38
+circuit: monostable non-retriggerable
+group: mono-nonretrig-ring
+group title: comparator-ring non-retriggerable monostable
+group note: a copper-bulb edge front gated by the ring's own level charging a two-comparator ring; L set by the return line's length and the cell the output reads
+# a comparator ring (crates/circuit-timer/src/rings.rs): 3 dust carry C2's output back to C1, losing 2 per round of 4 gt; a rising edge charges it through a gate (copper bulb, comparator K, observer O1, a delay-3 repeater R, a subtract comparator Cg into I); a dust beside A and a repeater Rb feed Cg's side, so while the ring is on Cg passes nothing and every edge is ignored; R's 6 gt outlast the ring's 4 gt to raise Cg's side, so each charge ends when the ring blocks it
+origin: -1 0 -6
+port input: 2 1 -6
+port output: -1 1 2
+palette:
+  S minecraft:stone
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  E minecraft:comparator[facing=east,mode=compare,powered=false]
+  n minecraft:comparator[facing=north,mode=compare,powered=false]
+  N minecraft:comparator[facing=north,mode=compare,powered=false]
+  G minecraft:comparator[facing=north,mode=subtract,powered=false]
+  o minecraft:observer[facing=north,powered=false]
+  R minecraft:repeater[delay=3,facing=north,locked=false,powered=false]
+  r minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  B minecraft:waxed_copper_bulb[lit=false,powered=false]
+layer 0:
+  ....
+  ....
+  ...S
+  ....
+  ...S
+  .SSS
+  ..S.
+  .S.S
+  ..SS
+layer 1:
+  ....
+  ...B
+  ...N
+  ...o
+  ...R
+  .drG
+  .SES
+  .n.d
+  .Sdd

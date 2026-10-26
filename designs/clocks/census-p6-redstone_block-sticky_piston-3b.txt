@@ -1,0 +1,15 @@
+# archived 2026-10-19T15:57Z from designs/clocks/census/2x2x1-k4/designs/census-p6-redstone_block-sticky_piston-3b.txt by mctas clock archive
+# CLOCK: census-p6-redstone_block-sticky_piston-3b period 6 gt (0.3 s), on 1/6, edges 1, warmup 0, family redstone_block+sticky_piston, 3 blocks, 3x2x1, robust
+name: census-p6-redstone_block-sticky_piston-3b
+# port output declared 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks
+port output: 1 1 -1
+census: box 2x2x1 k<=4 (0,0,0=sticky_piston[extended=false,facing=east];1,0,0=slime_block;1,1,0=redstone_block)
+origin: 0 0 0
+palette:
+  R minecraft:redstone_block
+  S minecraft:slime_block
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer 0:
+  sS
+layer 1:
+  .R

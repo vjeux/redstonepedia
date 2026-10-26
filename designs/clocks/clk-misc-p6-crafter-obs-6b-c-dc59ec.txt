@@ -1,0 +1,23 @@
+# archived 2026-10-19T20:08Z from designs/clocks/tracks/clk-misc/census/pick-crafter/p6-crafter-obs-6b-c-dc59ec.txt by mctas clock archive
+# CLOCK: clk-misc-p6-crafter-obs-6b-c-dc59ec period 6 gt (0.3 s), on 2/6, edges 1, warmup 6, family crafter+observer, 6 blocks, 1x3x2, robust
+name: clk-misc-p6-crafter-obs-6b-c-dc59ec
+# clk-obs census (k=6, palette obs,stone,minecraft:crafter[orientation=north_up]): P=6 (redsim), family crafter+observer, kick last 0 0 0, swept volume 6.
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing west (on the ground) takes every pulse (was 0 -1 1: the output [0, -1, 1] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: -1 0 1
+port start: 0 0 0 last
+palette:
+  A minecraft:crafter[crafting=false,orientation=north_up,triggered=false]
+  B minecraft:observer[facing=down,powered=false]
+  C minecraft:observer[facing=up,powered=false]
+  D minecraft:observer[facing=north,powered=false]
+layer 0:
+  A
+  A
+layer 1:
+  B
+  C
+layer 2:
+  A
+  D

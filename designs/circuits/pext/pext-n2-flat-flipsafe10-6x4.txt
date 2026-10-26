@@ -1,0 +1,32 @@
+# archived 2026-10-21T19:02Z from designs/circuits/pext/work/pext-n2-flat-flipsafe10-6x4.txt by mctas circuit archive
+# CIRCUIT: pext-n2-flat-flipsafe10-6x4 piston-extender 2 N 2, extend 9 gt, retract 15 gt, flips safe (the lever flipped back at any time), 10 blocks, 6x4x1, robust
+# A 2-piston extender you can flip back at any time, sideways and one block thick (10 blocks,
+# 6x4x1): the block goes out 2 cells in 9 gt and back in 15 gt, and turning the lever off or on
+# again early never strands a block.
+# How it works: the lever drives the back sticky piston, which pushes a second sticky piston and a
+# slime frame carrying a third sticky piston, the block and an observer. Each time the frame lands,
+# its observer gives the third piston a short pulse through the slime: going out it pushes the block
+# one more cell and leaves it there; coming back it pulls the block home. On the way back the back
+# piston only pulls the second piston home; an observer above that piston sees it arrive and gives it
+# a short pulse that reaches the frame and pulls it home. Found by `mctas circuit pext anneal
+# --flip-soft` (the flip tests at all 4 rotations in the energy) from pext-n2-rider-flat (pext).
+name: pext-n2-flat-flipsafe10-6x4
+circuit: piston-extender 2
+travel: 1 0 0
+port input: 1 1 0 lever
+port payload: 4 1 0
+origin: 1 0 0
+palette:
+  G minecraft:gold_block
+  L minecraft:lever[face=wall,facing=west]
+  O minecraft:observer[facing=down,powered=false]
+  S minecraft:slime_block
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer -1:
+  ..O
+layer 0:
+  ssSSS
+layer 1:
+  LOsG
+layer 2:
+  .S

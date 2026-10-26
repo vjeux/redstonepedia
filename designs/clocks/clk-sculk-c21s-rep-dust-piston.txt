@@ -1,0 +1,21 @@
+# archived 2026-10-19T15:48Z from /tmp/clk-in/clk-sculk--c21s-rep-dust-piston.txt by mctas clock archive
+# CLOCK: clk-sculk-c21s-rep-dust-piston period 21 gt (1.05 s), on 10/21, edges 1, warmup 4, family calibrated_sculk_sensor+piston+redstone_wire+repeater, 10 blocks, 4x2x2, robust
+name: clk-sculk-c21s-rep-dust-piston
+# port output declared 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 2 -1 0: the output [2, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 2 0 -1
+# C -> repeater(4) -> dust -> dust -> repeater(1) -> piston behind C: retraction at A+20, dist 1.
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  S minecraft:stone
+  R minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  Q minecraft:repeater[delay=1,facing=east,locked=false,powered=true]
+  W minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  P minecraft:piston[extended=false,facing=west]
+layer 0:
+  .SS
+  .SS
+layer 1:
+  CRW
+  PQW

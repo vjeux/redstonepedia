@@ -1,0 +1,24 @@
+# archived 2026-10-19T17:57Z from designs/clocks/tracks/clk-sculk/best/ring3-p38-1.txt by mctas clock archive
+# CLOCK: clk-sculk-ring3-p38-1 period 38 gt (1.9 s), on 10/38, edges 1, warmup 21, family calibrated_sculk_sensor+note_block, 6 blocks, 17x1x8, robust
+# Ring of 3 calibrated sensors, hops [7,16,15], the first sensor's resonator is a note block (the kick: right-click it): each sensor's resonator (amethyst, the first a note block) rings when it fires and the next sensor hears it floor(distance) gt later; the sensor two hops ahead is still dead
+name: clk-sculk-ring3-p38-1
+# how: ring of 3 calibrated sensors, hops [7,16,15], the first sensor's resonator is a note block (the kick: right-click it)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was -15 -1 -7: the output [-15, -1, -7] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 0 0 -8
+port start: 1 0 0 use
+origin: -15 0 -7
+palette:
+  A minecraft:amethyst_block
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  c minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer 0:
+  cA.............cA
+  .
+  .
+  .
+  .
+  .
+  .
+  ...............CN

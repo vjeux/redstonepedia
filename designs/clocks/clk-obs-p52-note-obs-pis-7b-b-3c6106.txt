@@ -1,0 +1,28 @@
+# archived 2026-10-19T20:29Z from designs/clocks/tracks/clk-obs/mech2/p52-note-obs-pis-7b-b-3c6106.txt by mctas clock archive
+# CLOCK: clk-obs-p52-note-obs-pis-7b-b-3c6106 period 52 gt (2.6 s), on 26/52, edges 13, warmup 10, family note_block+observer+piston, 8 blocks, 2x3x4, robust
+# P52: 1 note block, 4 observers, 2 pistons; changing in place: note_block, observer, piston. Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its east, added at -1 1 -1 (was 0 3 -1: the output [0, 3, -1] has a moving or non-sturdy block under it: a repeater there has nothing to stand on)
+name: clk-obs-p52-note-obs-pis-7b-b-3c6106
+port output: -2 1 -1
+port start: 0 1 0 last
+origin: -1 0 -1
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=north]
+  o minecraft:observer[facing=east,powered=false]
+  p minecraft:piston[extended=false,facing=south]
+layer 0:
+  .
+  .N
+  .p
+layer 1:
+  oA
+  .A
+  .O
+layer 2:
+  .
+  .O
+  .P

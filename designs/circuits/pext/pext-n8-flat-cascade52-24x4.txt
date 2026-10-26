@@ -1,0 +1,40 @@
+# archived 2026-10-21T09:46Z from designs/circuits/pext/work/n8-flat-24x4.txt by mctas circuit archive
+# CIRCUIT: pext-n8-flat-cascade52-24x4 piston-extender 8 N 8, extend 87 gt, retract 95 gt, 52 blocks, 24x4x1, robust
+# Pushes a block out eight cells from a one-block-wide wall, 52 blocks in a 24x4 box: a line of
+# eight sticky pistons with a slime block between each pair; each piston fires itself whenever it
+# is moved (an observer rides on top of the slime behind it), and the blocks on the two rows above,
+# run by a chain from the lever, start each wave of pushes (out) or grabs (back).
+# How it works: a variant of pext-n8-flat-cascade52 (24x5) with the row under the line gone: the
+# observers that make the pistons fire themselves ride on top of the slimes instead of hanging under
+# them, and the search rearranged the wave starters above so nothing moves outside 4 rows. Extend
+# 87 gt, retract 95 gt (the cascade: 85 / 107, kept as the faster extend). Found by `mctas circuit
+# pext anneal --random-pick --free-lever` (random edits judged on redsim; the box of every cell over
+# the whole run counts, as in the game) from that cascade.
+name: pext-n8-flat-cascade52-24x4
+circuit: piston-extender 8
+travel: 1 0 0
+port input: 22 4 0 lever
+port payload: 16 1 0
+origin: 1 0 0
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:sticky_piston[extended=false,facing=west]
+  G minecraft:gold_block
+  L minecraft:lever[face=wall,facing=east,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=down]
+  R minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  S minecraft:slime_block
+  o minecraft:observer[facing=east,powered=false]
+  p minecraft:piston[extended=false,facing=west]
+  r minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer 1:
+  sSsSsSsSsSsSsSsG
+layer 2:
+  .A.A.A.B.A.A.A
+layer 3:
+  AAooA.A.A.A.A..A..A..A
+layer 4:
+  roO..pRoRoRoo.PCooo.pL

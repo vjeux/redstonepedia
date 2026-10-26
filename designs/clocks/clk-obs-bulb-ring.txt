@@ -1,0 +1,25 @@
+# archived 2026-10-19T19:37Z from designs/clocks/tracks/clk-obs/extend/bulb-ring.txt by mctas clock archive
+# CLOCK: clk-obs-bulb-ring period 20 gt (1 s), on 4/20, edges 2, warmup 4, family copper_bulb+observer, 6 blocks, 3x1x2, robust
+name: clk-obs-bulb-ring
+# Extendable family bulb-ring (n = 0): P = 10 + 4n gt, 6 + 2n blocks. a copper bulb after a straight observer toggles on each pulse and the next observer fires on each toggle, so one pulse makes the round twice before the bulb is back: the output pulses once per round, every 10 + 4n gt (the bulb's own state repeats every 20 + 8n gt). Extension: insert 2 observers: one more column in the 2-wide ring. Generator: mctas clock obs family bulb-ring --n N --out FILE.
+# extend period re-declared 2026-10-23 (clockinfra, the coordinator): was 20 + 8n, the period of the whole state; a builder gets two even pulses per 20 + 8n at the output, i.e. one every 10 + 4n (the one-edge rule)
+extend family: clk-obs-bulb-ring
+extend period: 10 + 4n
+extend blocks: 6 + 2n
+extend rule: insert 2 observers: one more column in the 2-wide ring
+extend n: 0..22
+extend base: 0
+extend generator: mctas clock obs family bulb-ring --n {n} --out {out}
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 0 1
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:waxed_copper_bulb[lit=false,powered=false]
+  D minecraft:observer[facing=north,powered=false]
+  E minecraft:observer[facing=east,powered=false]
+layer 0:
+  ABC
+  EED

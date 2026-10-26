@@ -1,0 +1,38 @@
+# archived 2026-10-22T00:53Z from designs/circuits/elevator-items/tracks/clk-misc/lift-pair-n0.txt by mctas circuit archive
+# CIRCUIT: lift-pair-n0 item-elevator 4 items/s 2.50, first item 26 gt, at rest no, bill 5 iron, 5 quartz, 15 redstone, 11 blocks, 4x5x1, robust
+name: lift-pair-n0
+# A dropper elevator 4 blocks up (11 blocks): the hopper under the input chest feeds a column of
+# droppers facing up, the top one pushing into the output chest. One observer clock (6 gt) fires the
+# column: its observer at the second dropper is placed last (a player starts the clock by placing
+# it), so its partner leads by 2 gt; a chain of observers facing down climbs from the partner a block
+# every 2 gt, and an observer every two blocks fires the next three droppers 4 gt after the ones below
+# (a hard-powered dropper powers the ones above and below it). A dropper also reads the power of the
+# dropper two above (quasi-connectivity), so each group must be off whenever the group below turns off.
+circuit: item-elevator 4
+extend family: dropper-pair
+extend axis: 4 + 2n
+extend blocks: 11 + 5n
+extend rule: two more droppers on the column, two more chain observers and one observer firing the new top group
+extend n: 0..8
+extend base: 0
+extend generator: mctas circuit gen dropper-pair --n {n} --out {out}
+port items: 0 1 0
+port output: 1 5 0
+port start: 2 1 0 last
+origin: 0 0 0
+palette:
+  H minecraft:hopper[enabled=true,facing=east]
+  D minecraft:dropper[facing=up,triggered=false]
+  E minecraft:observer[facing=east,powered=false]
+  W minecraft:observer[facing=west,powered=false]
+  V minecraft:observer[facing=down,powered=false]
+layer 0:
+  HD..
+layer 1:
+  .DEW
+layer 2:
+  .D.V
+layer 3:
+  .DEV
+layer 4:
+  .D..

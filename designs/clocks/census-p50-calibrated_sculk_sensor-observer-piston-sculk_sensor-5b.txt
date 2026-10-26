@@ -1,0 +1,17 @@
+# archived 2026-10-19T20:35Z from /tmp/gen/arch2/s3x1x2-k5-census-p50-calibrated_sculk_sensor-observer-piston-sculk_sensor-5b.txt by mctas clock archive
+# CLOCK: census-p50-calibrated_sculk_sensor-observer-piston-sculk_sensor-5b period 50 gt (2.5 s), on 35/50, edges 1, warmup 23, family calibrated_sculk_sensor+observer+piston+sculk_sensor, 5 blocks, 4x1x2, robust
+# Found by `mctas clock census` (box 3x1x2 k<=5) with a sculk palette: s3x1x2-k5-census-p50-calibrated_sculk_sensor-observer-piston-sculk_sensor-5b
+name: census-p50-calibrated_sculk_sensor-observer-piston-sculk_sensor-5b
+census: box 3x1x2 k<=5 (0,0,0=calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false];1,0,0=observer[facing=west,powered=false];1,0,1=sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false];2,0,0=piston[extended=false,facing=east];2,0,1=calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false])
+port start: 0 0 0 last
+# port output declared 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks
+port output: 0 0 1
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:observer[facing=west,powered=false]
+  P minecraft:piston[extended=false,facing=east]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer 0:
+  COP
+  .SC

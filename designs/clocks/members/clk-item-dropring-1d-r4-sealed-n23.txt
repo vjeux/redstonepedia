@@ -1,0 +1,32 @@
+# sealed (clk-obs `clock obs sealgen`): 55 glass block(s) on the open hopper tops, so no dropped item can reach a hopper
+name: dropring26x4-1d-r4-sealed
+period: 364
+port output: 1 0 3
+nbt: 1 1 3 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: 25 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: 0 0 0
+palette:
+  A minecraft:hopper[enabled=true,facing=south]
+  B minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  D minecraft:dropper[facing=east,triggered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=east]
+  R minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=north]
+layer 0:
+  .
+  .S
+  .S
+  .
+layer 1:
+  ABBBBBBBBBBBBBBBBBBBBBBBBB
+  AC.......................h
+  AR.......................h
+  HDHHHHHHHHHHHHHHHHHHHHHHHh
+layer 2:
+  GGGGGGGGGGGGGGGGGGGGGGGGGG
+  G........................G
+  G........................G
+  G.GGGGGGGGGGGGGGGGGGGGGGGG

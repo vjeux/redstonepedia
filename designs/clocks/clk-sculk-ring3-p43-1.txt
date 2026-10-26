@@ -1,0 +1,33 @@
+# archived 2026-10-19T22:30Z from /tmp/gen/arch3/ring3-p43-1.txt by mctas clock archive
+# CLOCK: clk-sculk-ring3-p43-1 period 43 gt (2.15 s), on 10/43, edges 1, warmup 21, family calibrated_sculk_sensor+note_block, 6 blocks, 12x1x17, robust
+# CLOCK: clk-sculk-ring3-p43-1 period 43 gt (2.15 s), on 10/43, edges 1, warmup 21, family calibrated_sculk_sensor+note_block, 6 blocks, 12x1x17, robust
+# built by `mctas clock sculk`: ring of 3 calibrated sensors, hops [15,12,16], the first sensor's resonator is a note block (the kick: right-click it)
+name: clk-sculk-ring3-p43-1
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing east (on the ground) takes every pulse (was -1 -1 16: the output [-1, -1, 16] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 11 0 12
+port start: 1 0 0 use
+origin: -1 0 0
+palette:
+  A minecraft:amethyst_block
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  c minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer 0:
+  .CN
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...........A
+  ...........c
+  .
+  .
+  .
+  cA

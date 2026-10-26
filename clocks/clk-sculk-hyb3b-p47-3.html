@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clock: every 47 ticks (2.35 s) · 5 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Clock: every 47 ticks (2.35 s) · 5 blocks. A plain sculk sensor watched by a chain of 2 observer(s) (each watching the previous); an empty dispenser (fires 4 gt after a rising edge) at the last output, 3">
+<meta property="og:title" content="Clock: every 47 ticks (2.35 s) · 5 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Clock: every 47 ticks (2.35 s) · 5 blocks. A plain sculk sensor watched by a chain of 2 observer(s) (each watching the previous); an empty dispenser (fires 4 gt after a rising edge) at the last output, 3">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<meta property="og:image" content="https://raw.githubusercontent.com/vjeux/redstonepedia/main/designs/clocks/img/clk-sculk-hyb3b-p47-3.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="../style.css?v=3fef2398">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top on" href="../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top" href="../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../index.html" method="get" role="search"><input type="hidden" name="kind" value="clock"><input id="hq" name="q" type="search" placeholder="Search: 48 ticks, 2.5 s…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../index.html">REDSTONEPEDIA</a> › <a href="../index.html#kind=clock">Clocks</a> › <a href="../index.html#kind=clock&amp;time=47">every 47 ticks (2.35 s)</a></p>
+<p class="kindline">Clock</p>
+<h1>every 47 ticks (2.35 s) · 5 blocks</h1>
+<p class="oneliner">Its output pulses by itself every 47 ticks (2.35 s), forever. Built in the game it needs one kick to start (the last block placed); then it keeps going.</p>
+<p class="warn">Uses a sculk sensor: other sounds nearby (footsteps, another machine) can add pulses, so keep noise away from it.</p>
+<p class="lede">made of dispenser, observer, sculk sensor, sticky piston · on for 30 of 47 ticks</p>
+<div class="viewer k-clock" data-mcview="full" data-src="../designs/clocks/clk-sculk-hyb3b-p47-3.txt" data-kind="clock"><div class="fallback has-pic"><img class="pic contain" src="https://raw.githubusercontent.com/vjeux/redstonepedia/main/designs/clocks/img/clk-sculk-hyb3b-p47-3.jpg" alt="Clock: every 47 ticks (2.35 s) · 5 blocks in the game" decoding="async"><span class="fb-big">every 47 ticks</span><span class="fb-small">Clock</span><span class="fb-note">picture from the real game; the live 3D view replaces it when available</span></div></div>
+<p class="hint">Every clock that pulses every 47 ticks (2.35 s): <a href="../index.html#kind=clock&amp;time=47">on the Clocks tab</a>, smallest first (the ones hard to wire into a circuit last).</p>
+<section class="what plain"><h2>Try it</h2><p>Press play under the view to start it; then it runs by itself: pause and step one tick at a time with the buttons under it. To use it in a circuit, put a repeater where the view puts its lamp: it picks up every pulse.</p><p class="howdesign"><b>How this design does it:</b> A plain sculk sensor watched by a chain of 2 observer(s) (each watching the previous); an empty dispenser (fires 4 gt after a rising edge) at the last output, 3 from the sensor (travel time): the observers&#39; pulse after the sensor re-arms is heard; plus a sticky piston beside the chain (moves parts of it: the hybrid)</p></section>
+<section><h2>Its output over time</h2><p class="hint">The output (orange) over the first 149 ticks, as the 3D view plays it: the grey part is the clock starting up, for 8 ticks (0.4 s); then it repeats every 47 ticks (2.35 s), on for 30 ticks (1.5 s) of them. 20 ticks = 1 second.</p><div class="wave-wrap fit"><svg class="wave fit" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 412 78" role="img" aria-label="timing diagram"><rect class="warm" x="64.0" y="18.0" width="18.3" height="42.0"/><line class="ph" x1="64.0" y1="18.0" x2="64.0" y2="60.0"/><line class="ph" x1="82.3" y1="18.0" x2="82.3" y2="60.0"/><text class="phl" x="85.3" y="14.0">cycle 1</text><line class="ph" x1="189.5" y1="18.0" x2="189.5" y2="60.0"/><text class="phl" x="192.5" y="14.0">cycle 2</text><line class="ph" x1="296.8" y1="18.0" x2="296.8" y2="60.0"/><text class="phl" x="299.8" y="14.0">cycle 3</text><text class="wl" x="4" y="46.0">OUT</text><line class="base" x1="64.0" y1="48.0" x2="404.0" y2="48.0"/><polygon class="wout" points="64.0,48.0 64.0,48.0 80.0,48.0 80.0,28.0 148.4,28.0 148.4,48.0 187.2,48.0 187.2,28.0 255.7,28.0 255.7,48.0 294.5,48.0 294.5,28.0 362.9,28.0 362.9,48.0 401.7,48.0 401.7,28.0 404.0,28.0 404.0,48.0"/><text class="ax" x="4" y="72.0">ticks</text><text class="ax" x="82.3" y="72.0">8</text><text class="ax" x="189.5" y="72.0">55</text><text class="ax" x="296.8" y="72.0">102</text></svg></div></section>
+<section><h2>Build it</h2><p><a class="button" href="../designs/clocks/clk-sculk-hyb3b-p47-3.litematic" download>Download .litematic</a> <a class="button alt" href="../designs/clocks/clk-sculk-hyb3b-p47-3.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../index.html#with=dispenser">dispenser</a> <a class="chip" href="../index.html#with=observer">observer</a> <a class="chip" href="../index.html#with=sculk_sensor">sculk sensor</a> <a class="chip" href="../index.html#with=sticky_piston">sticky piston</a></p></section>
+<section><h2>The same clock as another</h2><p>It is <a href="../clocks/census-p47-dispenser-note_block-observer-sculk_sensor-5b.html">this clock</a> (every 47 ticks (2.35 s) · 5 blocks) with sticky piston instead of note block: the same mechanism and period. The Clocks tab lists it under that one.</p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section><h2>Notes from its designer</h2><p>A plain sculk sensor watched by a chain of 2 observer(s) (each watching the previous); an empty dispenser (fires 4 gt after a rising edge) at the last output, 3 from the sensor (travel time): the observers&#39; pulse after the sensor re-arms is heard; plus a sticky piston beside the chain (moves parts of it: the hybrid)</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Pulses every</th><td>47 ticks (2.35 s)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>dispenser, observer, sculk sensor, sticky piston</td></tr>
+<tr><th scope="row">Blocks placed</th><td>5</td></tr>
+<tr><th scope="row">Box</th><td>5×2×1 (10 blocks of space)</td></tr>
+<tr><th scope="row">Output</th><td>on for 30 of every 47 ticks</td></tr>
+<tr><th scope="row">Settles after</th><td>8 ticks (0.4 s)</td></tr>
+<tr><th scope="row">To start it</th><td>a kick: redstone_block 1 gt at 4,0,0</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Mirror image</th><td>the same design</td></tr>
+<tr><th scope="row">Same mechanism as</th><td><a href="../clocks/census-p47-dispenser-note_block-observer-sculk_sensor-5b.html">every 47 ticks (2.35 s) · 5 blocks</a> (the same period, other blocks in some cells)</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere, needs one kick to start</td></tr>
+<tr><th scope="row">Design file</th><td><code>clk-sculk-hyb3b-p47-3</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/clocks/archive/clk-sculk-hyb3b-p47-3.txt">on GitHub</a></p><details><summary>Design file (19 lines)</summary><pre class="design"># archived 2026-10-19T20:00Z from /tmp/gen/arch2/hyb3b-p47-3.txt by mctas clock archive
+# CLOCK: clk-sculk-hyb3b-p47-3 period 47 gt (2.35 s), on 30/47, edges 1, warmup 8, family dispenser+observer+sculk_sensor+sticky_piston, 5 blocks, 5x2x1, robust
+# A plain sculk sensor watched by a chain of 2 observer(s) (each watching the previous); an empty dispenser (fires 4 gt after a rising edge) at the last output, 3 from the sensor (travel time): the observers&#39; pulse after the sensor re-arms is heard; plus a sticky piston beside the chain (moves parts of it: the hybrid)
+name: clk-sculk-hyb3b-p47-3
+# how: obs plain k=2 path 1,0,0 2,0,0 emitter dispenser at the output (travel 3) + sticky_piston[extended=false,facing=east] at 3,1,0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge&#39;s lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 0 -1 0: the output [0, -1, 0] is under the build (the build&#39;s ground level is y = 0): a repeater there has nothing to stand on)
+port output: 0 0 -1
+port start: 4 0 0 minecraft:redstone_block 1
+origin: 0 0 0
+palette:
+  D minecraft:dispenser[facing=up,triggered=false]
+  O minecraft:observer[facing=west,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer 0:
+  SOOD
+layer 1:
+  ...s
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/dc8ec15a268a4ee1129517e8c16261cbd981c128">vjeux/redstonepedia@dc8ec15a2</a> on <span class="nowrap">2026-10-26</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../viewer/mcview.js?v=6436f4ee"; init({module_or_path: "../viewer/mcview_bg.wasm?v=41e34704"});</script>
+</body>
+</html>

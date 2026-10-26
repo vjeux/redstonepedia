@@ -1,0 +1,28 @@
+name: clk-misc-cart-pingpong-n10
+# Extendable family clk-misc-cart-pingpong (n = 10): P = 37 + 5n gt, 16 + 2n = 36 pieces (blocks, 1 lever and the cart). An empty minecart bounces between two stone bumpers on a
+# straight track: the powered rail at each end launches the resting cart away from the bumper behind it and speeds it up; it
+# coasts over the plain rails, is sped up by the east stretch of powered rails, stops against the far bumper and is launched back.
+# A switched-on lever on a support powers the east stretch; the detector rail next to the west end powers the west launcher: it
+# turns on as the cart passes and off at its next 20 gt check once the cart has left. The cart starts on the east launcher. Every
+# bounce clamps the cart against a bumper, so from the second lap its motion repeats exactly.
+extend base: 10
+extend blocks: 16 + 2n
+extend family: clk-misc-cart-pingpong
+extend generator: mctas clock misc cart-pingpong --n {n} --out {out}
+extend n: 0..14
+extend period: 37 + 5n
+extend rule: one more powered rail (on a stone support) in the east stretch
+entity: minecraft:minecart 16.5 0.0625 0.5
+origin: 0 0 -1
+palette:
+  D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  L minecraft:lever[face=wall,facing=north,powered=true]
+  P minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  R minecraft:rail[shape=east_west,waterlogged=false]
+  S minecraft:stone
+layer -1:
+  ..........L
+  .SSSSSSSSSSSSSSSS
+layer 0:
+  .
+  SPDRPPPPPPPPPPPPPS

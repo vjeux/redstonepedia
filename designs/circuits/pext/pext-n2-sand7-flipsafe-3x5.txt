@@ -1,0 +1,34 @@
+# archived 2026-10-21T18:41Z from designs/circuits/pext/work/pext-n2-sand7-flipsafe-3x5.txt by mctas circuit archive
+# CIRCUIT: pext-n2-sand7-flipsafe-3x5 piston-extender 2 N 2, extend 8 gt, retract 12 gt, flips safe (the lever flipped back at any time), 7 blocks, 3x5x1, robust
+# A 2-piston extender you can flip back at any time (7 blocks, 3x5x1, one block thick): it lifts a
+# sand block 2 cells (out in 8 gt, back in 12 gt), and turning the lever off or on again early
+# never strands a block.
+# How it works: the lever drives a small piston beside the column and, through the cell above it,
+# the upper piston. An observer watching the small piston's head fires once at each lever flip and
+# gives the sticky piston at the bottom a short pulse: when the upper piston is home, the pulse
+# lifts it and the sand one cell and leaves them there, and the upper piston, still powered by the
+# lever, pushes the sand one more; when the upper piston is up, the pulse pulls it back down, and
+# the sand falls home. Found by `mctas circuit pext anneal --flip-soft` from pext-n2-sand6 (pext).
+name: pext-n2-sand7-flipsafe-3x5
+circuit: piston-extender 2
+travel: 0 1 0
+port input: 1 3 0 lever
+port payload: 0 2 0
+origin: 0 0 0
+palette:
+  A minecraft:stone
+  L minecraft:lever[face=wall,facing=west]
+  O minecraft:observer[facing=up,powered=false]
+  P minecraft:piston[extended=false,facing=up]
+  S minecraft:sand
+  o minecraft:observer[facing=west,powered=false]
+  p minecraft:piston[extended=false,facing=west]
+  s minecraft:sticky_piston[extended=false,facing=up]
+layer 0:
+  sA
+layer 1:
+  PO
+layer 2:
+  S.p
+layer 3:
+  .Lo

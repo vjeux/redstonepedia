@@ -1,0 +1,19 @@
+# archived 2026-10-20T00:05Z from designs/circuits/memory/tracks/memory/counter8-bulb3.txt by mctas circuit archive
+# CIRCUIT: counter8-bulb3 counter 8 N 8, output level every 8 pulses, counts one pulse per N, on 4 of 8, 9 blocks, 6x2x1, robust
+# Counter 8, three copper bulbs, 9 blocks (track memory): a chain of three bulb T flip-flops (bulb + comparator each), each comparator toggling the next bulb; the last comparator is on for four pulse windows and off for four (level style, period 8).
+name: counter8-bulb3
+circuit: counter 8
+group: bulb-chain
+group title: Copper bulb chain (counter 2^K)
+group note: K copper bulb T flip-flops in a line, each read by a comparator that toggles the next bulb: 3K blocks
+port input: -1 1 0
+port output: 6 1 0
+origin: 0 0 0
+palette:
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+layer 0:
+  .S.S.S
+layer 1:
+  WCWCWC

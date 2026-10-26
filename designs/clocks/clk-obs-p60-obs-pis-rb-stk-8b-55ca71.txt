@@ -1,0 +1,36 @@
+# archived 2026-10-20T01:51Z from designs/clocks/tracks/clk-obs/families9/p60-obs-pis-rb-stk-8b-55ca71.txt by mctas clock archive
+# CLOCK: clk-obs-p60-obs-pis-rb-stk-8b-55ca71 period 60 gt (3 s), on 10/60, edges 5, warmup 5, family observer+piston+redstone_block+sticky_piston, 8 blocks, 1x3x6, robust
+name: clk-obs-p60-obs-pis-rb-stk-8b-55ca71
+# clk-obs grow: P=60 (redsim), family observer+piston+redstone_block+sticky_piston, kick last 0 1 3, swept volume 18.
+origin: 0 0 -2
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 0 1 -2
+port start: 0 1 3 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=up]
+  B minecraft:piston[extended=false,facing=south]
+  C minecraft:observer[facing=south,powered=false]
+  D minecraft:sticky_piston[extended=false,facing=south]
+  E minecraft:redstone_block
+  F minecraft:observer[facing=down,powered=false]
+layer -1:
+  .
+  A
+  .
+  .
+  .
+  .
+layer 0:
+  B
+  C
+  C
+  D
+  E
+  .
+layer 1:
+  .
+  .
+  .
+  .
+  C
+  F

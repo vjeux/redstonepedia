@@ -1,0 +1,37 @@
+# archived 2026-10-22T01:14Z from designs/circuits/compute/tracks/w86/dec2-24b.txt by mctas circuit archive
+# CIRCUIT: dec2-24b decoder 2 latency 8 gt (a0 rises from a=00), glitches 3, 24 blocks, 5x2x4, robust
+name: dec2-24b
+# A torch hung on each input gives its opposite. One wire touches both torches: it carries "a0 or a1
+# is off", at full strength beside a lit torch and one level weaker a block away. Comparators in
+# subtract mode each read an input or an opposite at the back and a wire at a side, and an output
+# stays lit only while its comparator's side is weaker than its back, so exactly one of the four
+# outputs is lit for each pair of inputs. (w86, 2026-10-21, `circuit arith synth --r7`.)
+circuit: decoder 2
+port input.a0: -1 1 1
+port input.a1: 2 1 -1
+port output.q0: 4 1 -1
+port output.q1: 5 1 2
+port output.q2: 0 1 -1
+port output.q3: -1 1 3
+origin: 0 0 0
+palette:
+  A minecraft:comparator[facing=west,mode=subtract,powered=false]
+  B minecraft:redstone_wall_torch[facing=south,lit=true]
+  C minecraft:comparator[facing=north,mode=subtract,powered=false]
+  D minecraft:redstone_wall_torch[facing=west,lit=true]
+  E minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  F minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  R minecraft:redstone_block
+  S minecraft:stone
+  c minecraft:comparator[facing=south,mode=subtract,powered=false]
+  r minecraft:redstone_wall_torch[facing=east,lit=true]
+layer 0:
+  SS.S
+  .SSR
+  .S.SS
+  .
+layer 1:
+  cEBAS
+  rECF
+  .CSEA
+  DS

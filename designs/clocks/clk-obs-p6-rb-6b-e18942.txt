@@ -1,0 +1,22 @@
+# archived 2026-10-20T01:45Z from designs/clocks/tracks/clk-obs/pist6/p6-rb-6b-e18942.txt by mctas clock archive
+# CLOCK: clk-obs-p6-rb-6b-e18942 period 6 gt (0.3 s), on 1/6, edges 1, warmup 9, family redstone_block, 6 blocks, 1x2x4, rotation-dependent
+name: clk-obs-p6-rb-6b-e18942
+# P6: 3 pistons, 1 redstone block, 1 slime block, 1 sticky piston; changing in place: redstone_block (piston, slime block, sticky piston only moved or static). Found by the clk-obs exhaustive census of every 6-block structure (all orientations, every block placed last as a kick); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 1 0
+port start: 0 0 0 last
+palette:
+  A minecraft:piston[extended=false,facing=south]
+  B minecraft:slime_block
+  C minecraft:sticky_piston[extended=false,facing=north]
+  D minecraft:piston[extended=false,facing=east]
+  E minecraft:redstone_block
+layer 0:
+  A
+  B
+  C
+layer 1:
+  D
+  E
+  A

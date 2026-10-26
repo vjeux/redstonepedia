@@ -1,0 +1,33 @@
+# archived 2026-10-21T12:53Z from designs/circuits/tracks/clk-rt/compact/pulse/pulse-oneshot-rising-edge-L28-v50-20b.txt by mctas circuit archive
+# CIRCUIT: pulse-oneshot-rising-edge-L28-v50-20b rising-edge L 28 gt, delay 6 gt, min-pulse 4 gt, 20 blocks, 5x2x5, robust
+# One fixed-length pulse every time the input turns on, however long it stays on: pulse-oneshot-rising-edge-L28's mechanism rearranged by clk-rt's circuit compact (2026-10-21), judged box 50 (was 50), 20 blocks (was 21); its blocks sit in 5x2x5.
+name: pulse-oneshot-rising-edge-L28-v50-20b
+circuit: rising-edge
+group: pulse-oneshot-rise
+group note: a pushed observer lights a copper bulb, a repeater U turns it off; L set by the repeater delays and the U's length
+group title: bulb one-shot (piston trigger)
+port input: -1 1 0
+port output: 3 1 1
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  O minecraft:observer[facing=north,powered=false]
+  R minecraft:redstone_wire
+  S minecraft:sticky_piston[extended=false,facing=east]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  r minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  s minecraft:stone
+layer 0:
+  .
+  ...sO
+  ..s.W
+  ..s.s
+  ..ss
+layer 1:
+  SO
+  ..WCR
+  ..r.A
+  ..B.A
+  ..RRs

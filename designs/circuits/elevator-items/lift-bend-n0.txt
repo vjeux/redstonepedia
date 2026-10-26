@@ -1,0 +1,41 @@
+# archived 2026-10-22T00:57Z from designs/circuits/elevator-items/tracks/clk-misc/lift-bend-n0.txt by mctas circuit archive
+# CIRCUIT: lift-bend-n0 item-elevator 5 items/s 2.50, first item 30 gt, at rest no, bill 5 iron, 7 quartz, 20 redstone, 14 blocks, 4x6x1, robust
+name: lift-bend-n0
+# A dropper elevator 5 blocks up (14 blocks): the hopper under the input chest feeds a column of
+# droppers facing up, the top one pushing into the output chest. One observer clock (6 gt) fires the
+# column: its observer at the second dropper fires droppers 0-2 and leads (its partner is placed last:
+# a player starts the clock by placing it); a four-observer bend from it fires droppers 3-5 4 gt later;
+# then a chain of observers facing down climbs a block every 2 gt and an observer every two blocks fires
+# the next three droppers 4 gt after the ones below (a hard-powered dropper powers the ones above and
+# below it). A dropper also reads the power of the dropper two above (quasi-connectivity), so each
+# group must be off whenever the group below turns off.
+circuit: item-elevator 5
+extend family: dropper-bend
+extend axis: 5 + 2n
+extend blocks: 14 + 5n
+extend rule: two more droppers on the column, two more chain observers and one observer firing the new top group
+extend n: 0..8
+extend base: 0
+extend generator: mctas circuit gen dropper-bend --n {n} --out {out}
+port items: 0 1 0
+port output: 1 6 0
+port start: 3 1 0 last
+origin: 0 0 0
+palette:
+  H minecraft:hopper[enabled=true,facing=east]
+  D minecraft:dropper[facing=up,triggered=false]
+  E minecraft:observer[facing=east,powered=false]
+  W minecraft:observer[facing=west,powered=false]
+  V minecraft:observer[facing=down,powered=false]
+layer 0:
+  HD..
+layer 1:
+  .DEW
+layer 2:
+  .DV.
+layer 3:
+  .DVW
+layer 4:
+  .DEV
+layer 5:
+  .D..

@@ -1,0 +1,25 @@
+# archived 2026-10-19T17:31Z from designs/clocks/tracks/clk-rt/ring/3x3/ring3x3-p16-c-rt-rw.txt by mctas clock archive
+# CLOCK: clk-rt-ring3x3-p16-c-rt-rw-12b period 16 gt (0.8 s), on 8/16, edges 1, warmup 0, family comparator+redstone_torch+redstone_wire, 12 blocks, 3x2x3, robust
+# Rectangle ring (clk-rt): the 3x3 perimeter clockwise from the north-west corner = [b, T, d, c, b,
+# c, b, c] (number = repeater delay, * = powered at placement, b = block, d = dust, T = wall torch
+# on the block before it, c = comparator); 1 torch(es): an inverter loop, period 2 x 8 gt
+name: clk-rt-ring3x3-p16-c-rt-rw-12b
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 1 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 2 -1 0: the output [2, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 2 0 -1
+origin: 0 0 0
+palette:
+  A minecraft:comparator[facing=south,mode=compare,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  c minecraft:comparator[facing=north,mode=compare,powered=false]
+  r minecraft:redstone_wire
+layer 0:
+  ..S
+  S.S
+  .S
+layer 1:
+  SRr
+  A.c
+  SCS

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tall flying machine: carries up to 18 extra blocks · 7 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Tall flying machine: carries up to 18 extra blocks · 7 blocks. Tall flying machine (carries cargo): the 6-block machine with a column of extra blocks stacked on its front half; every block rides along at the same speed, up ">
+<meta property="og:title" content="Tall flying machine: carries up to 18 extra blocks · 7 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Tall flying machine: carries up to 18 extra blocks · 7 blocks. Tall flying machine (carries cargo): the 6-block machine with a column of extra blocks stacked on its front half; every block rides along at the same speed, up ">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/fly/index.html">Flying machines</a></p>
+<p class="kindline">Tall flying machine</p>
+<h1>carries up to 18 extra blocks · 7 blocks</h1>
+<p class="oneliner">Once started it flies sideways by itself, one block every 10 ticks (2 blocks a second), until something stops it. It carries extra blocks stuck to it: 1 as built, up to 18.</p>
+<p class="lede">no start lever, 1 block smaller than the pick of its kind · flies sideways · starts in 2 ticks (0.1 s) · fits in 4×3×1</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/fly/fly-payload-n1.txt" data-input-mode="pulse" data-circuit="flying-machine" data-kind="circuit"><div class="fallback"><span class="fb-big">carries up to 18 extra blocks</span><span class="fb-small">Tall flying machine</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<section class="what plain"><h2>Try it</h2><p>Press play under the view: it puts the start block in place and the machine flies off; reset to see it again. In the game, start it the same way: place a block where the view puts its start block, then break it.</p><p class="howdesign"><b>How this design does it:</b> Tall flying machine (carries cargo): the 6-block machine with a column of extra blocks stacked on its front half; every block rides along at the same speed, up to 9 on each half.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/fly/fly-payload-n1.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/fly/fly-payload-n1.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=gold_block">gold block</a> <a class="chip" href="../../index.html#with=observer">observer</a> <a class="chip" href="../../index.html#with=piston">piston</a> <a class="chip" href="../../index.html#with=slime_block">slime block</a> <a class="chip" href="../../index.html#with=sticky_piston">sticky piston</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>A <b>flying machine</b>: pistons, slime or honey and observers that push each other along. Once started (the start block is placed), it moves itself one block at a time and keeps going until something stops it.</p><p>It moves one block every 10 gt (2.0 blocks per second).</p></section>
+<section><h2>How to try it</h2><p>The machine starts by itself (its start block is placed when the view begins): press <b>play</b> and watch it fly along its corridor; <b>reset</b> to see it again. Drag to look around, pinch or scroll to zoom.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the inputs with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). <span class="tag-pos">Blue</span>: how far the machine has moved along its path, in blocks. Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="1032" height="114" viewBox="0 0 1032 114" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="64.0" y1="18.0" x2="64.0" y2="96.0"/><text class="phl" x="67.0" y="14.0">flight</text><text class="wl" x="4" y="82.0">MOVED</text><line class="base" x1="64.0" y1="84.0" x2="1024.0" y2="84.0"/><text class="ax" x="4" y="32.0">30</text><path class="wpos" d="M64.0,84.0 L95.8,84.0 L95.8,82.1 L127.6,82.1 L127.6,80.3 L159.4,80.3 L159.4,78.4 L191.2,78.4 L191.2,76.5 L222.9,76.5 L222.9,74.7 L254.7,74.7 L254.7,72.8 L286.5,72.8 L286.5,70.9 L318.3,70.9 L318.3,69.1 L350.1,69.1 L350.1,67.2 L381.9,67.2 L381.9,65.3 L413.7,65.3 L413.7,63.5 L445.5,63.5 L445.5,61.6 L477.2,61.6 L477.2,59.7 L509.0,59.7 L509.0,57.9 L540.8,57.9 L540.8,56.0 L572.6,56.0 L572.6,54.1 L604.4,54.1 L604.4,52.3 L636.2,52.3 L636.2,50.4 L668.0,50.4 L668.0,48.5 L699.8,48.5 L699.8,46.7 L731.5,46.7 L731.5,44.8 L763.3,44.8 L763.3,42.9 L795.1,42.9 L795.1,41.1 L826.9,41.1 L826.9,39.2 L858.7,39.2 L858.7,37.3 L890.5,37.3 L890.5,35.5 L922.3,35.5 L922.3,33.6 L954.1,33.6 L954.1,31.7 L985.9,31.7 L985.9,29.9 L1017.6,29.9 L1017.6,28.0 L1024.0,28.0"/><text class="ax" x="4" y="108.0">ticks</text><text class="ax" x="64.0" y="108.0">0</text><text class="ax" x="127.6" y="108.0">20</text><text class="ax" x="191.2" y="108.0">40</text><text class="ax" x="254.7" y="108.0">60</text><text class="ax" x="318.3" y="108.0">80</text><text class="ax" x="381.9" y="108.0">100</text><text class="ax" x="445.5" y="108.0">120</text><text class="ax" x="509.0" y="108.0">140</text><text class="ax" x="572.6" y="108.0">160</text><text class="ax" x="636.2" y="108.0">180</text><text class="ax" x="699.8" y="108.0">200</text><text class="ax" x="763.3" y="108.0">220</text><text class="ax" x="826.9" y="108.0">240</text><text class="ax" x="890.5" y="108.0">260</text><text class="ax" x="954.1" y="108.0">280</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 302 ticks (15.1 s).</p><p class="wave-note"><span class="tag-pos">MOVED</span>: 1 block every 10 gt.</p><details><summary>Our test's report, step by step (3 lines)</summary><pre class="design">reached the corridor end at frame 302
+first move at frame 2, intact positions seen: 31, farthest 30 cells along [1, 0, 0]
+steady from frame 1: period 10 gt, 1 cell(s) per period along [1, 0, 0] (29 periods seen)</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">speed</th><td>10 gt/block</td><td class="def">game ticks per block travelled (20 gt = 1 second)</td></tr>
+<tr><th scope="row">period</th><td>10 gt, 1 cell(s)</td><td class="def">game ticks per cycle of the engine (one push of each piston)</td></tr>
+<tr><th scope="row">latency</th><td>2 gt (0.1 s)</td><td class="def">game ticks from the start until the machine first moves</td></tr>
+<tr><th scope="row">ground</th><td>needs 1 block of air above the ground</td><td class="def"></td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>Tall flying machine (carries cargo): the 6-block machine with a column of extra blocks stacked on its front half; every block rides along at the same speed, up to 9 on each half. Detail: the family carries n = 1 to 18 blocks in 6 + n blocks (a piston moves at most 12 blocks: the 3-block half plus 9); this card carries 1 block</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/fly/index.html">Flying machines</a></td></tr>
+<tr><th scope="row">Kind</th><td>Flying machine</td></tr>
+<tr><th scope="row">Blocks placed</th><td>7</td></tr>
+<tr><th scope="row">Box</th><td>4×3×1 (12 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>gold block, observer, piston, slime block, sticky piston</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-20T01:05Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere, carries extra blocks along (a flying machine with cargo), size</td></tr>
+<tr><th scope="row">Design file</th><td><code>fly-payload-n1</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/fly/archive/fly-payload-n1.txt">on GitHub</a></p><details><summary>Design file (33 lines)</summary><pre class="design"># archived 2026-10-20T01:05Z from designs/circuits/tracks/fly/payload/fly-payload-n1.txt by mctas circuit archive
+# CIRCUIT: fly-payload-n1 flying-machine speed 10 gt/block, period 10 gt, 1 cell(s), latency 2 gt, ground needs 1 block of air above the ground, 7 blocks, 4x3x1, robust
+# Payload family: the 6-block engine fly-horizontal-6b-10gt-e2cf52 carrying n blocks, 10 gt/block
+# for every n: a column up from the front slime (slime, each drags the next; the top block gold),
+# 9 at most (a piston moves at most 12 blocks: the 3-block part + 9), then a column down from the
+# rear slime; n = 18 is the most the engine moves (a 10th block on the rear: the pull fails).
+name: fly-payload-n1
+extend family: fly-payload-e2cf52
+extend axis: 10
+extend blocks: 6 + n
+extend rule: one more payload block: the slime column up from the front slime (9 at most), then the one down from the rear slime; the top block of a column is gold
+extend n: 1..18
+extend base: 1
+extend generator: mctas circuit fly gen payload --base designs/circuits/tracks/fly/layouts/fly-horizontal-6b-10gt-e2cf52.txt --from 2,1,0 --dir up --cap 9 --from2 1,0,0 --dir2 down --n {n} --block minecraft:gold_block --out {out}
+circuit: flying-machine
+distance: 24
+travel: 1 0 0
+port payload: 2 2 0
+port start: -1 0 0 minecraft:stone 1
+origin: 0 0 0
+palette:
+  G minecraft:gold_block
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:piston[extended=false,facing=east]
+  S minecraft:slime_block
+  o minecraft:observer[facing=west,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=west]
+layer 0:
+  oSs
+layer 1:
+  .PSO
+layer 2:
+  ..G
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/dc8ec15a268a4ee1129517e8c16261cbd981c128">vjeux/redstonepedia@dc8ec15a2</a> on <span class="nowrap">2026-10-26</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=6436f4ee"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=41e34704"});</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+# archived 2026-10-19T19:56Z from designs/clocks/tracks/clk-obs/mech2/p18-lamp-obs-rb-stk-7b-b-d06ca1.txt by mctas clock archive
+# CLOCK: clk-obs-p18-lamp-obs-rb-stk-7b-b-d06ca1 period 18 gt (0.9 s), on 12/18, edges 1, warmup 0, family observer+redstone_block+redstone_lamp+sticky_piston, 7 blocks, 1x3x3, robust
+name: clk-obs-p18-lamp-obs-rb-stk-7b-b-d06ca1
+# P18: 2 observers, 1 redstone block, 1 redstone lamp, 3 sticky pistons; changing in place: observer, redstone_block, redstone_lamp, sticky_piston. Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 1 0
+port start: 0 0 0 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=up]
+  B minecraft:sticky_piston[extended=false,facing=north]
+  C minecraft:observer[facing=up,powered=false]
+  D minecraft:observer[facing=north,powered=false]
+  E minecraft:redstone_lamp[lit=false]
+  F minecraft:redstone_block
+layer -1:
+  .
+  A
+  B
+layer 0:
+  C
+  D
+  E
+layer 1:
+  F
+  .
+  B

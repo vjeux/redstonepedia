@@ -1,0 +1,30 @@
+# archived 2026-10-21T23:54Z from designs/circuits/crafter/tracks/clk-item/ironblock-v24.txt by mctas circuit archive
+# CIRCUIT: ironblock-v24 crafter iron_block crafts/min 16.6, first craft by 100 gt, crafts 22 (2 waiting sets checked), hoppers awake 1, recipe class 3x3, supply items, bill 5 iron, 2 quartz, 12 redstone, 16 blocks, 4x2x3, robust
+# Iron block auto-crafter (clk-item 2026-10-21): the hopper H feeds the crafter M from the supply
+# chest above H; M's comparator K (compare mode) has a constant 9 at its side (comparator J reads
+# the crafter C, whose nine slots are all disabled, into the dust D beside K), so K turns on only
+# once all nine of M's slots are filled. Two dust carry K's signal round to the repeater R, which
+# powers the stone S beside M, and M crafts four game ticks later into the output chest below.
+name: ironblock-v24
+circuit: crafter iron_block
+port items: -1 1 0
+port output: 0 -1 0
+origin: -1 0 -1
+palette:
+  M minecraft:crafter[crafting=false,orientation=down_north,triggered=false]
+  C minecraft:crafter[crafting=false,orientation=north_up,triggered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  K minecraft:comparator[facing=west,mode=compare,powered=false]
+  J minecraft:comparator[facing=west,mode=compare,powered=false]
+  R minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  S minecraft:stone
+  r minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer -1:
+  ..SS
+  ..SS
+  .SS.
+layer 0:
+  .SRr
+  HMKr
+  CJr.
+nbt: -1 0 1 {disabled_slots:[I;0,1,2,3,4,5,6,7,8]}

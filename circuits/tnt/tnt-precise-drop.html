@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TNT duper: drops each TNT straight down to explode at one point · 30 TNT a minute · 41 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="TNT duper: drops each TNT straight down to explode at one point · 30 TNT a minute · 41 blocks. ">
+<meta property="og:title" content="TNT duper: drops each TNT straight down to explode at one point · 30 TNT a minute · 41 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="TNT duper: drops each TNT straight down to explode at one point · 30 TNT a minute · 41 blocks. ">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/tnt/index.html">TNT dupers</a></p>
+<p class="kindline">TNT duper (runs by itself)</p>
+<h1>drops each TNT straight down to explode at one point · 30 TNT a minute · 41 blocks</h1>
+<p class="oneliner">Lights 30 TNT a minute, and every TNT falls straight down and explodes at the same point under the machine, without ever using up its own TNT block.</p>
+<p class="lede">no on/off switch, 13 blocks smaller than the pick of its kind · a push every 40 ticks (2 s) · first TNT after 21 ticks (1.05 s) · fits in 6×5×8 + 11 blocks of air under it</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/tnt/tnt-precise-drop.txt" data-input-mode="pulse" data-circuit="tnt-duper" data-kind="circuit"><div class="fallback"><span class="fb-big">drops each TNT straight down to explode at one point</span><span class="fb-small">TNT duper</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<p class="needs">Every TNT explodes 10 blocks under the machine, so stand it at least 11 blocks up for the blast to be in mid-air (our test stood it 23 blocks up); the machine itself survives from 4 blocks up. Needs water where the view shows it.</p>
+<section class="what plain"><h2>Try it</h2><p>Press play under the view: it runs by itself: watch a lit TNT come out of the machine each cycle while its TNT block stays in place.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/tnt/tnt-precise-drop.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/tnt/tnt-precise-drop.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=dead_tube_coral_fan">dead tube coral fan</a> <a class="chip" href="../../index.html#with=iron_trapdoor">iron trapdoor</a> <a class="chip" href="../../index.html#with=oak_fence">oak fence</a> <a class="chip" href="../../index.html#with=observer">observer</a> <a class="chip" href="../../index.html#with=obsidian">obsidian</a> <a class="chip" href="../../index.html#with=redstone_block">redstone block</a> <a class="chip" href="../../index.html#with=redstone_lamp">redstone lamp</a> <a class="chip" href="../../index.html#with=redstone_torch">redstone torch</a> <a class="chip" href="../../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../../index.html#with=repeater">repeater</a> <a class="chip" href="../../index.html#with=slime_block">slime block</a> <a class="chip" href="../../index.html#with=sticky_piston">sticky piston</a> <a class="chip" href="../../index.html#with=stone">stone</a> <a class="chip" href="../../index.html#with=tnt">tnt</a> <a class="chip" href="../../index.html#with=water">water</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>It <b>keeps lighting TNT forever without using up its TNT block</b>: <b>30 TNT a minute</b>. Every 40 gt (2 s) a piston pushes the TNT block: a piston copies every block it moves before it clears the old cells, and a TNT that gets a block update while powered at that instant is lit where it stands (a primed TNT that falls and explodes 80 gt, 4 s, later) while its moved copy lands as a TNT block again. Each push lights 1 TNT.</p></section>
+<section><h2>How to try it</h2><p>The duper runs by itself as soon as it is built: press play under the view to watch it. Watch the piston push the TNT block every cycle and a lit TNT (flashing white) drop out of the machine each time, while the TNT block lands again in its place; a lit TNT vanishes when its fuse runs out instead of exploding. Pause and step one game tick at a time with the bar's buttons; drag to look around, pinch or scroll to zoom.</p></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">rate</th><td>30 TNT/min</td><td class="def">lit TNT per minute</td></tr>
+<tr><th scope="row">period</th><td>40 gt (2 s)</td><td class="def">game ticks between two pushes (the engine&#39;s cycle)</td></tr>
+<tr><th scope="row">per period</th><td>1</td><td class="def">TNT lit by each push</td></tr>
+<tr><th scope="row">latency</th><td>21 gt (1.05 s)</td><td class="def">game ticks from the start to the first lit TNT</td></tr>
+<tr><th scope="row">safe drop</th><td>4 blocks</td><td class="def"></td></tr>
+<tr><th scope="row">stands</th><td>23 blocks above the ground (stand: in the design)</td><td class="def"></td></tr>
+</tbody></table></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/tnt/index.html">TNT dupers</a></td></tr>
+<tr><th scope="row">Kind</th><td>TNT duper (runs by itself)</td></tr>
+<tr><th scope="row">Blocks placed</th><td>41</td></tr>
+<tr><th scope="row">Box</th><td>6×5×8 (240 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>dead tube coral fan, iron trapdoor, observer, redstone block, redstone lamp, redstone torch, redstone wire, repeater, slime block, sticky piston, tnt, water</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>none: it runs by itself</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-21T17:01Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere, size</td></tr>
+<tr><th scope="row">Design file</th><td><code>tnt-precise-drop</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/tnt/archive/tnt-precise-drop.txt">on GitHub</a></p><details><summary>Design file (88 lines)</summary><pre class="design"># archived 2026-10-21T17:01Z from /tmp/bed/shapes/tnt-precise-drop.txt by mctas circuit archive
+# CIRCUIT: tnt-precise-drop tnt-duper rate 30 TNT/min, period 40 gt, per period 1, latency 21 gt, safe drop 4 blocks, stands 23 blocks above the ground (stand: in the design), 41 blocks, 6x5x8, robust (survives its own explosions: 43 exploded, design intact; precise: 42 TNT at one point at fuse 1, in mid-air 10.0 blocks below the machine, 13.0 blocks above the ground; launched at (-0.0002, 0.1568, -1.0000) blocks/gt, spread (0.0385, 0.0000, 0.0000); dropped: every TNT falls straight down, 13.1+ blocks by fuse 1; useful: every blast clear of fluids, each destroys blocks on open ground)
+# Precise drop, 41 blocks in a 6x5x8 box (240), 30 TNT/min: every TNT falls straight down from one
+# point and explodes at one point in mid-air 10.0 blocks under the machine, 13.0 blocks above the ground
+# it stands 23 blocks over. clk-rt&#39;s minimum-volume search (explore/timer 3670274e4,
+# designs/circuits/tracks/clk-rt/tnt-precise-drop-240-41b.txt): the 240-volume version with 3 fewer
+# blocks. A 7-block catalog P40 clock, folded between the engine and the channel, moves its redstone
+# block in front of a repeater for 6 ticks every 40 and the torch under the engine piston goes dark:
+# one TNT. The TNT flies into fence posts over a water channel, the current pins it against an
+# observer on an iron trapdoor, and the next TNT&#39;s push, carried by observers and a delay-4 repeater,
+# opens the trapdoor.
+# material (clk-rt 2026-10-21, `circuit material`): 1 obsidian -&gt; stone (the same kind, axis and metrics on its judge); obsidian at 5 -2 2 stays for immovability (pistons must not move it: the design fails or changes even with a blast-proof netherite block there)
+# 2026-10-21: 2 blocks stored as a player&#39;s placement shapes them (`mctas clock shapes`: a fence&#39;s arms, a gate&#39;s in_wall, a tripwire&#39;s connections)
+name: tnt-precise-drop
+circuit: tnt-duper
+stand: 23
+port start: 2 -1 3 last
+origin: 2 0 -4
+palette:
+  A minecraft:oak_fence[east=true,north=false,south=false,waterlogged=false,west=false]
+  B minecraft:observer[facing=down,powered=false]
+  C minecraft:observer[facing=east,powered=false]
+  D minecraft:dead_tube_coral_fan[waterlogged=false]
+  E minecraft:observer[facing=north,powered=false]
+  F minecraft:observer[facing=south,powered=false]
+  G minecraft:observer[facing=up,powered=false]
+  H minecraft:observer[facing=west,powered=false]
+  I minecraft:iron_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
+  J minecraft:obsidian
+  K minecraft:redstone_wall_torch[facing=east,lit=true]
+  L minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  M minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  N minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  O minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=false]
+  P minecraft:sticky_piston[extended=false,facing=north]
+  Q minecraft:stone
+  R minecraft:redstone_block
+  S minecraft:slime_block
+  T minecraft:tnt[unstable=false]
+  W minecraft:water[level=0]
+  o minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=true]
+  r minecraft:redstone_lamp[lit=false]
+  s minecraft:sticky_piston[extended=false,facing=down]
+layer -4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .Q
+  .
+layer -3:
+  .
+  ...QIQ
+  .
+  .
+  .
+  .
+  RMQK
+  P
+layer -2:
+  ...Ao
+  ..OW.G
+  ...CF
+  .
+  .
+  s.SSS
+  E.PJS
+  r...S
+layer -1:
+  .
+  .....N
+  .....Q
+  .....F
+  ...T.F
+  ..D..H
+  F..LR
+  B...S
+layer 0:
+  .
+  .
+  .
+  .
+  .
+  .
+  ...SS
+  ....S
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/dc8ec15a268a4ee1129517e8c16261cbd981c128">vjeux/redstonepedia@dc8ec15a2</a> on <span class="nowrap">2026-10-26</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=6436f4ee"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=41e34704"});</script>
+</body>
+</html>

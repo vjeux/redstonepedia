@@ -1,0 +1,22 @@
+# archived 2026-10-21T10:43Z from designs/circuits/tracks/clk-rt/compact/pulse/pulse-fall-observer-qc-L1-v8-4b.txt by mctas circuit archive
+# CIRCUIT: pulse-fall-observer-qc-L1-v8-4b falling-edge L 1 gt, delay 2 gt, min-pulse 2 gt (the shortest a real input makes), tileable every 1 (1 0 0), 4 blocks, 1x4x2, robust
+# The only 1-tick falling-edge pulse: pulse-fall-observer-qc-L1's mechanism rearranged by clk-rt's circuit compact (2026-10-21), judged box 8 (was 9), 4 blocks (was 5); its blocks sit in 1x3x2.
+name: pulse-fall-observer-qc-L1-v8-4b
+circuit: falling-edge
+tile: 1 0 0
+port input: 0 2 0
+port output: 0 1 2
+origin: 0 0 0
+palette:
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=down]
+layer 0:
+  S
+  R
+layer 1:
+  O
+  .
+layer 2:
+  .
+  S

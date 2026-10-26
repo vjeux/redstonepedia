@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auto-crafter: crafts a TNT block from every 5 gunpowder and 4 sand · 31 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Auto-crafter: crafts a TNT block from every 5 gunpowder and 4 sand · 31 blocks. Crafts a TNT block from every 5 gunpowder and 4 sand. Gunpowder and sand must go into the crafter in turn, because TNT&#39;s pattern alternates them and a crafter f">
+<meta property="og:title" content="Auto-crafter: crafts a TNT block from every 5 gunpowder and 4 sand · 31 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Auto-crafter: crafts a TNT block from every 5 gunpowder and 4 sand · 31 blocks. Crafts a TNT block from every 5 gunpowder and 4 sand. Gunpowder and sand must go into the crafter in turn, because TNT&#39;s pattern alternates them and a crafter f">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/crafter/index.html">Auto-crafters</a></p>
+<p class="kindline">TNT crafter: crafts by itself from a supply chest (autocrafter)</p>
+<h1>crafts a TNT block from every 5 gunpowder and 4 sand · 31 blocks</h1>
+<p class="oneliner">Crafts a TNT block from every 5 gunpowder and 4 sand by itself: fill its supply chests and every full set is crafted into its output chest (18.8 crafts a minute). A partial set waits, without jamming, until the rest arrives.</p>
+<p class="lede">passed at every position and facing we tested · the first craft after 4 s · fits in 5×3×5</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/crafter/tnt-a.txt" data-input-mode="pulse" data-circuit="crafter tnt" data-kind="circuit"><div class="fallback"><span class="fb-big">crafts a TNT block from every 5 gunpowder and 4 sand</span><span class="fb-small">Auto-crafter</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<p class="needs">After building it, put a chest where the view shows each of its 2 supplies (gunpowder and sand) and one at its output: the download has none of them (our test adds them, and they do not count in its blocks). One of its crafters has all 9 slots disabled: the download keeps them; building it by hand, disable the same slots by clicking them in the crafter&#39;s screen.</p>
+<section class="what plain"><h2>Try it</h2><p>The view shows the crafter as built, without the items our test feeds it. In the game, fill each of its supply chests with its ingredient (5 gunpowder and 4 sand make one craft): every full set becomes a TNT block in the output chest.</p><p class="howdesign"><b>How this design does it:</b> Gunpowder and sand must go into the crafter in turn, because TNT&#39;s pattern alternates them and a crafter fills its slots in order.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/crafter/tnt-a.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/crafter/tnt-a.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=comparator">comparator</a> <a class="chip" href="../../index.html#with=copper_bulb">copper bulb</a> <a class="chip" href="../../index.html#with=crafter">crafter</a> <a class="chip" href="../../index.html#with=hopper">hopper</a> <a class="chip" href="../../index.html#with=observer">observer</a> <a class="chip" href="../../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../../index.html#with=repeater">repeater</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>crafts by itself: hoppers fill its crafter from a supply chest, and every full recipe is crafted into the output chest</p></section>
+<section><h2>How to try it</h2><p><b>The view shows the crafter as built, with our test's chests and none of the items our test feeds it.</b> Drag to look around, pinch or scroll to zoom. Its numbers are our test's, in the real game, below.</p></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">crafts/min</th><td>18.8</td><td class="def">crafts a minute at the steady rate, fed at hopper speed</td></tr>
+<tr><th scope="row">first craft</th><td>by 80 gt</td><td class="def">game ticks from the first item in until the first craft</td></tr>
+<tr><th scope="row">crafts</th><td>21 (2 waiting sets checked)</td><td class="def">crafts counted in our test, every one exact (and how many partial sets it was left waiting with, then completed)</td></tr>
+<tr><th scope="row">hoppers awake</th><td>1</td><td class="def">hoppers left unlocked at rest: each one looks for items every game tick (lag on busy servers)</td></tr>
+<tr><th scope="row">recipe class</th><td>multi</td><td class="def">3x3: a recipe that fills the whole crafting grid; 2x2: a smaller one (the crafter&#39;s other slots disabled)</td></tr>
+<tr><th scope="row">supply</th><td>items.gunpowder + items.sand</td><td class="def">the port its items come in by</td></tr>
+<tr><th scope="row">bill</th><td>10 iron, 7 quartz, 27 redstone</td><td class="def">what its blocks cost to craft: iron, quartz, redstone, slime</td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>Crafts a TNT block from every 5 gunpowder and 4 sand. Gunpowder and sand must go into the crafter in turn, because TNT&#39;s pattern alternates them and a crafter fills its slots in order. A comparator reads how many slots are filled; each change flips two copper bulbs, one locking the sand hopper while the count is even, the other locking the gunpowder hopper while it is odd. The second bulb also pulses the crafter, which crafts once all nine slots are full; an extra comparator keeps the sand hopper locked from the ninth item until the bulbs have flipped back after the craft.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/crafter/index.html">Auto-crafters</a></td></tr>
+<tr><th scope="row">Kind</th><td>TNT crafter: crafts by itself from a supply chest (autocrafter)</td></tr>
+<tr><th scope="row">Blocks placed</th><td>31 (not counting our test's chests the view adds)</td></tr>
+<tr><th scope="row">Box</th><td>5×3×5 (75 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>comparator, copper bulb, crafter, hopper, observer, redstone wire, repeater, stone</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>no input / OUT</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-22T00:32Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere</td></tr>
+<tr><th scope="row">Design file</th><td><code>tnt-a</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/crafter/archive/tnt-a.txt">on GitHub</a></p><details><summary>Design file (53 lines)</summary><pre class="design"># archived 2026-10-22T00:32Z from designs/circuits/crafter/tracks/clk-item/tnt-a.txt by mctas circuit archive
+# CIRCUIT: tnt-a crafter tnt crafts/min 18.8, first craft by 80 gt, crafts 21 (2 waiting sets checked), hoppers awake 1, recipe class multi, supply items.gunpowder + items.sand, bill 10 iron, 7 quartz, 27 redstone, 31 blocks, 5x3x5, robust
+# TNT auto-crafter, first layout (clk-item 2026-10-21): gunpowder and sand must enter the crafter M
+# alternately (TNT&#39;s pattern is G S G / S G S / G S G, and a crafter fills its slots in order).
+# The comparator A reads M&#39;s filled slots onto the dust d; two observers watch d, and each change
+# toggles both copper bulbs. B1 (lit while the count is even) locks the sand hopper through the
+# comparator C1 and the stone beside the hopper; B2 (lit while it is odd) locks the gunpowder
+# hopper through C2, the stone S2 and two dust, and the stone under that dust powers M: M tries a
+# craft each time the count turns odd (a part of TNT&#39;s pattern crafts nothing) and crafts at 9.
+# K compares M&#39;s count with a constant 9 (comparator J reading a crafter whose nine slots are
+# disabled) and, through a repeater, keeps the sand hopper locked from the ninth item until the
+# bulbs have turned back after the craft.
+name: tnt-a
+circuit: crafter tnt
+port items.gunpowder: 0 2 0
+port items.sand: -1 1 0
+port output: 0 -1 0
+origin: -2 0 -2
+palette:
+  M minecraft:crafter[crafting=false,orientation=down_north,triggered=false]
+  C minecraft:crafter[crafting=false,orientation=north_up,triggered=false]
+  G minecraft:hopper[enabled=true,facing=down]
+  H minecraft:hopper[enabled=false,facing=east]
+  A minecraft:comparator[facing=south,mode=compare,powered=false]
+  K minecraft:comparator[facing=north,mode=compare,powered=false]
+  J minecraft:comparator[facing=east,mode=compare,powered=false]
+  N minecraft:comparator[facing=north,mode=compare,powered=false]
+  E minecraft:observer[facing=east,powered=false]
+  W minecraft:observer[facing=west,powered=false]
+  L minecraft:waxed_copper_bulb[lit=true,powered=false]
+  U minecraft:waxed_copper_bulb[lit=false,powered=false]
+  R minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+  S minecraft:stone
+  r minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer -1:
+  ..S..
+  S.S.S
+  .....
+  .SSS.
+  .SS..
+layer 0:
+  LErWU
+  N.A.N
+  SHMSS
+  .RKJC
+  .rr..
+layer 1:
+  .....
+  .....
+  ..Grr
+  .....
+  .....
+nbt: 2 0 1 {disabled_slots:[I;0,1,2,3,4,5,6,7,8]}
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/dc8ec15a268a4ee1129517e8c16261cbd981c128">vjeux/redstonepedia@dc8ec15a2</a> on <span class="nowrap">2026-10-26</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=6436f4ee"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=41e34704"});</script>
+</body>
+</html>

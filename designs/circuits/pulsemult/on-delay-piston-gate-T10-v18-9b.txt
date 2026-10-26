@@ -1,0 +1,24 @@
+# archived 2026-10-21T20:43Z from designs/circuits/tracks/clk-rt/compact/pulsemult/on-delay-piston-gate-T10-v18-9b.txt by mctas circuit archive
+# CIRCUIT: on-delay-piston-gate-T10-v18-9b on-delay T 10 gt, shortening 8 gt, latency 0 gt, 9 blocks, 3x2x3, robust
+# Lights the output only after the input has stayed on for 10 ticks, and turns it off the moment the input stops: on-delay-piston-gate-T10's mechanism rearranged by clk-rt's circuit compact (2026-10-21), judged box 18 (was 18), 9 blocks (was 10); its blocks sit in 3x2x3.
+name: on-delay-piston-gate-T10-v18-9b
+circuit: on-delay
+group: on-delay-piston-gate
+group note: T = 4 + 2 x the repeater's delay (2, 3, 4: T 8, 10, 12); the output falls with the input (latency 0)
+group title: piston-gate on-delay
+port input: 0 1 0
+port output: 3 1 0
+origin: 0 0 -2
+palette:
+  R minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  S minecraft:sticky_piston[extended=false,facing=south]
+  r minecraft:repeater[delay=3,facing=south,locked=false,powered=false]
+  s minecraft:stone
+layer 0:
+  .s
+  s
+  .s
+layer 1:
+  sRS
+  r.s
+  .R

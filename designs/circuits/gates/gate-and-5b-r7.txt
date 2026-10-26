@@ -1,0 +1,20 @@
+# archived 2026-10-20T17:21Z from designs/circuits/gates/tracks/gates/gate-and-5b-r7.txt by mctas circuit archive
+# CIRCUIT: gate-and-5b-r7 gate and function and, latency 4 gt, 5 blocks, 3x2x2, robust
+# AND with real signal inputs: a torch stands on each input block, so each goes out when its input turns on; the dust between them is then off exactly when both inputs are on, and the wall torch hanging under that dust turns it back into AND. 4 gt, 5 blocks.
+name: gate-and-5b-r7
+circuit: gate and
+port input.a: 0 1 0
+port input.b: 2 1 0
+port output: 1 1 -1
+origin: 0 0 -1
+palette:
+  S minecraft:stone
+  T minecraft:redstone_torch[lit=true]
+  W minecraft:redstone_wall_torch[facing=north,lit=true]
+  r minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+layer 1:
+  .W.
+  .S.
+layer 2:
+  ...
+  TrT

@@ -1,0 +1,35 @@
+# archived 2026-10-19T19:45Z from designs/clocks/tracks/clk-rt/families/div.txt by mctas clock archive
+# CLOCK: clk-rt-div period 72 gt (3.6 s), on 36/72, edges 1, warmup 6, family redstone_torch+redstone_wire+repeater, 27 blocks, 6x2x4, robust
+# EXTENDABLE divider chain, n = 1 stages on a 1-torch U-loop (delays 4/4, P36): P = 36 x 2^n; each
+# stage a master-slave T flip-flop (18 blocks)
+name: clk-rt-div
+extend base: 1
+extend blocks: 9 + 18n
+extend family: clk-rt-div
+extend generator: mctas clock rt family div --n {n} --out {out}
+extend n: 1..7
+extend period: 36 * 2^n
+extend rule: append one master-slave T flip-flop stage (18 blocks: 2 latch repeaters, 2 lock repeaters, a target block with a wall torch, dust) to the chain on the P36 torch + repeater loop: the period doubles
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was -3 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing west (on the ground) takes every pulse (was -3 -1 -2: the output [-3, -1, -2] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: -3 0 1
+origin: -3 0 -2
+palette:
+  A minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  B minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  C minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  D minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  R minecraft:redstone_wall_torch[facing=north,lit=true]
+  S minecraft:stone
+  T minecraft:target
+  r minecraft:redstone_wire
+layer 0:
+  SS
+  SSS.S
+  .SS.SS
+  .S
+layer 1:
+  rr
+  rBARDS
+  RBASCr
+  Tr

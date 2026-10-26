@@ -1,0 +1,58 @@
+# archived 2026-10-21T17:26Z from designs/circuits/tracks/fly/two-way/fly-docking-15b-narrow.txt by mctas circuit archive
+# CIRCUIT: fly-docking-15b-narrow flying-machine two-way round trip 98 gt, switch docks within 87 gt, restarts within 0 gt, ground needs 1 block of air above the ground, 15 blocks, 4x2x9, robust
+# Flying machine with docking stations, 15 blocks, and an on/off lever: a 6-block flying machine (two sticky pistons, two slime blocks, two observers) shuttles between two docking stations, 98 ticks per round trip. Each station has a wall that stops the machine and an observer that sees it arrive and fires into a dust behind the leading piston, which pushes the machine back the other way. At the station with the lever, the observer stands on a sticky piston: lever off pulls it aside, so the machine docks there and stays; lever on pushes it back into place, and a moved observer fires, so the docked machine leaves at once. It survives the lever flipped back too soon.
+#
+# fly-docking-15b with its lever station tucked in (4 wide instead of 5): `circuit compact` on the
+# full docking judge (four on/off cycles, the real-use flips and reflips, the ground), track fly
+# 2026-10-21.
+# material (clk-rt 2026-10-21, `circuit material`): 1 obsidian -> stone (the same kind, axis and metrics on its judge); obsidian at 1 0 6 stays for immovability (pistons must not move it: the design fails or changes even with a blast-proof netherite block there)
+name: fly-docking-15b-narrow
+circuit: flying-machine
+distance: 8
+travel: 0 0 1
+port input: -2 0 4 lever
+port start: 0 -1 0 minecraft:stone 1
+port station.0: -2 0 5
+port station.1: -2 0 4
+port station.10: -1 0 4
+port station.2: -1 0 5
+port station.3: 0 0 5
+port station.4: 0 0 6
+port station.5: 0 1 6
+port station.6: 1 0 6
+port station.7: 1 0 -1
+port station.8: 1 0 -2
+port station.9: 1 1 -2
+origin: -2 0 -2
+palette:
+  A minecraft:observer[facing=south]
+  B minecraft:obsidian
+  C minecraft:sticky_piston[extended=false,facing=north]
+  D minecraft:sticky_piston[extended=false,facing=south]
+  E minecraft:stone
+  L minecraft:lever[face=wall,facing=west,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:redstone_wire[east=side,north=side,south=side,west=side]
+  S minecraft:slime_block
+  o minecraft:observer[facing=north]
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer 0:
+  ...E
+  ...A
+  ..O
+  ...O
+  .
+  .
+  LE
+  so
+  ..EB
+layer 1:
+  ...R
+  .
+  ..SD
+  ..CS
+  .
+  .
+  .
+  .
+  ..R

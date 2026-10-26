@@ -1,0 +1,26 @@
+# archived 2026-10-19T20:57Z from /tmp/gen/arch2/s4x1x2-k5-census-p42-calibrated_sculk_sensor-piston-sculk_sensor-5b.txt by mctas clock archive
+# CLOCK: census-p42-calibrated_sculk_sensor-piston-sculk_sensor-5b period 42 gt (2.1 s), on 30/42, edges 1, warmup 35, family calibrated_sculk_sensor+piston+sculk_sensor, 7 blocks, 4x2x3, robust
+# Found by `mctas clock census` (box 4x1x2 k<=5) with a sculk palette: s4x1x2-k5-census-p42-calibrated_sculk_sensor-piston-sculk_sensor-5b
+# port output declared 2026-10-20 (clk-misc): the cell the judge measures as this clock's automatic output, so
+# clock sim reads it the same way (re-judged in the game: its CLOCK line is unchanged)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 1 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of a comparator facing west (on the ground) that reads the build, added at 0 0 1 (was 1 -1 1: the output [1, -1, 1] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+name: census-p42-calibrated_sculk_sensor-piston-sculk_sensor-5b
+census: box 4x1x2 k<=5 (0,0,0=calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false];1,0,0=piston[extended=false,facing=north];1,0,1=sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false];2,0,0=observer[facing=east,powered=false];3,0,0=dispenser[facing=down,triggered=false])
+port output: -1 0 1
+port start: 3 0 0 last
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  D minecraft:dispenser[facing=down,triggered=false]
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:piston[extended=false,facing=north]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  c minecraft:comparator[facing=east,mode=compare,powered=false]
+  s minecraft:stone
+layer -1:
+  .
+  s
+layer 0:
+  CPOD
+  cS

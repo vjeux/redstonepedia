@@ -1,0 +1,30 @@
+# archived 2026-10-20T00:17Z from designs/clocks/tracks/clk-sculk/extend/hairpin-dispenser.txt by mctas clock archive
+# CLOCK: clk-sculk-hairpin-dispenser period 23 gt (1.15 s), on 10/23, edges 1, warmup 22, family calibrated_sculk_sensor+dispenser+observer+redstone_wire+repeater, 11 blocks, 4x2x2, robust
+# The hairpin with an empty dispenser as the emitter, diagonal to the calibrated sensor: n delay-4 repeaters out, a two-dust U-turn, n back, an observer firing the dispenser, whose failed dispense comes 16n+6 gt after the sensor fires, heard 1 gt later. Self-starting. P = 7 + 16n gt, 7 + 4n blocks (n = 1: P 23, 11 blocks). Built by `mctas clock sculk family hairpin-dispenser --n 1`.
+name: clk-sculk-hairpin-dispenser
+extend base: 1
+extend blocks: 7 + 4n
+extend family: clk-sculk-hairpin-dispenser
+extend generator: mctas clock sculk family hairpin-dispenser --n {n} --out {out}
+extend n: 1..12
+extend period: 7 + 16n
+extend rule: one more delay-4 repeater on a stone in each arm of the hairpin (the dust U-turn moves one block out)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 2 -1 0: the output [2, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 2 0 -1
+origin: -1 0 0
+palette:
+  A minecraft:repeater[delay=4,facing=east,locked=false,powered=true]
+  B minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  D minecraft:dispenser[facing=up,triggered=false]
+  O minecraft:observer[facing=east,powered=false]
+  R minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+  S minecraft:stone
+  r minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+layer 0:
+  ..SS
+  ..SS
+layer 1:
+  .CBR
+  DOAr

@@ -1,0 +1,41 @@
+# verified WORKS by door leaderboard: 38 blocks, category solid
+# archived 2026-10-19 19:51Z from origin/explore/pockets:designs/piston-door-3x3/tracks/pockets/svc/e78k-h3.txt (repo at f250dd1ec)
+name: e78k-h3
+port door: 0 0 0
+port lever: 1 5 0
+origin: -2 0 0
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:sticky_piston[extended=false,facing=west]
+  D minecraft:sticky_piston[extended=true,facing=down]
+  E minecraft:stone
+  L minecraft:lever[face=floor,facing=east,powered=true]
+  N minecraft:note_block[instrument=basedrum,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston_head[facing=down,short=false,type=sticky]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:sticky_piston[extended=false,facing=east]
+  T minecraft:target[power=0]
+  n minecraft:note_block[instrument=harp,note=0,powered=false]
+  o minecraft:observer[facing=east,powered=false]
+  r minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  s minecraft:sticky_piston[extended=false,facing=up]
+layer -3:
+  .sosonE
+layer -2:
+  ERBsOTr
+layer -1:
+  A....CA
+layer 0:
+  S.EEE.C
+layer 1:
+  S.EEE.C
+layer 2:
+  EoEEE.A
+layer 3:
+  ..PPPBN
+layer 4:
+  ..DDD
+layer 5:
+  ...L

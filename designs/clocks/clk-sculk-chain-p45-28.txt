@@ -1,0 +1,16 @@
+# archived 2026-10-19T17:54Z from designs/clocks/tracks/clk-sculk/best/chain-p45-28.txt by mctas clock archive
+# CLOCK: clk-sculk-chain-p45-28 period 45 gt (2.25 s), on 30/45, edges 1, warmup 2, family oak_fence_gate+observer+sculk_sensor, 4 blocks, 4x1x1, robust
+# A plain sculk sensor, then observer, stone, gate beside, 3 from the sensor (travel time)
+name: clk-sculk-chain-p45-28
+# how: chain plain line reps [], observer, stone, gate beside (travel 3)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 0 0 0: the output [0, 0, 0] is under the build (the build's ground level is y = 1): a repeater there has nothing to stand on)
+port output: 0 1 -1
+origin: 0 0 0
+palette:
+  O minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=true]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=west,powered=false]
+  s minecraft:stone
+layer 1:
+  SosO

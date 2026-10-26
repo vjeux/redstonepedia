@@ -1,0 +1,17 @@
+# archived 2026-10-19T20:58Z from /tmp/gen/arch2/s4x1x2-k5-census-p46-dispenser-observer-sculk_sensor-5b.txt by mctas clock archive
+# CLOCK: census-p46-dispenser-observer-sculk_sensor-5b period 46 gt (2.3 s), on 30/46, edges 1, warmup 47, family dispenser+observer+sculk_sensor, 5 blocks, 4x1x2, robust
+# Found by `mctas clock census` (box 4x1x2 k<=5) with a sculk palette: s4x1x2-k5-census-p46-dispenser-observer-sculk_sensor-5b
+name: census-p46-dispenser-observer-sculk_sensor-5b
+census: box 4x1x2 k<=5 (0,0,0=dispenser[facing=down,triggered=false];0,0,1=sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false];1,0,0=observer[facing=east,powered=false];2,0,0=observer[facing=east,powered=false];3,0,0=sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false])
+port start: 2 0 0 last
+# port output declared 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing south (on the ground) takes every pulse (was 0 -1 1: the output [0, -1, 1] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 3 0 1
+origin: 0 0 0
+palette:
+  D minecraft:dispenser[facing=down,triggered=false]
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer 0:
+  DOOS
+  S

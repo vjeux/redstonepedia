@@ -1,0 +1,22 @@
+# archived 2026-10-19T21:30Z from designs/clocks/tracks/clk-misc/census/pick-leaves/p10-oak_leaves-obs-stk-5b-a-545a69.txt by mctas clock archive
+# CLOCK: clk-misc-p10-oak_leaves-obs-stk-5b-a-545a69 period 10 gt (0.5 s), on 4/10, edges 2, warmup 3, family oak_leaves+observer+sticky_piston, 5 blocks, 1x3x2, robust
+name: clk-misc-p10-oak_leaves-obs-stk-5b-a-545a69
+# clk-obs census (k=5, palette obs,sticky,stone,minecraft:oak_log,minecraft:oak_leaves[persistent=true]): P=10 (redsim), family oak_leaves+oak_log+observer+sticky_piston, kick last 0 0 0, swept volume 6.
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 2 0
+port start: 0 0 0 last
+palette:
+  A minecraft:oak_leaves[distance=7,persistent=true,waterlogged=false]
+  B minecraft:oak_log[axis=y]
+  C minecraft:observer[facing=down,powered=false]
+  D minecraft:sticky_piston[extended=false,facing=down]
+layer 0:
+  A
+  B
+layer 1:
+  C
+  .
+layer 2:
+  B
+  D

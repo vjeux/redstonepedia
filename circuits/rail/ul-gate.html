@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minecart unloader: empties a hopper minecart into a chest, then sends it back · 31 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Minecart unloader: empties a hopper minecart into a chest, then sends it back · 31 blocks. The cart climbs a short powered slope and stops against a closed fence gate, which leaves it straddling two blocks: the hopper under the slope and the hopper be">
+<meta property="og:title" content="Minecart unloader: empties a hopper minecart into a chest, then sends it back · 31 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Minecart unloader: empties a hopper minecart into a chest, then sends it back · 31 blocks. The cart climbs a short powered slope and stops against a closed fence gate, which leaves it straddling two blocks: the hopper under the slope and the hopper be">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/rail/index.html">Minecart stations</a></p>
+<p class="kindline">Minecart unloader: empties a hopper minecart into a chest, then sends the cart back</p>
+<h1>empties a hopper minecart into a chest, then sends it back · 31 blocks</h1>
+<p class="oneliner">A hopper minecart full of items arrives, stops, and empties every item into the chest (4.79 items a second); once it is empty it leaves on its own, back the way it came.</p>
+<p class="lede">the fastest of 2 tested · the cart leaves 0.7 s after it is empty · fits in 6×3×4</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/rail/ul-gate.txt" data-input-mode="pulse" data-circuit="cart-unloader" data-kind="circuit"><div class="fallback"><span class="fb-big">empties a hopper minecart into a chest, then sends it back</span><span class="fb-small">Minecart unloader</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<p class="needs">After building it, put a chest where the view shows its output (the items it unloads): the download has none (our test adds it, and it does not count in its blocks).</p>
+<section class="what plain"><h2>Try it</h2><p>The view shows the unloader as built, without carts. In the game, send a hopper minecart full of items down its line: it stops, empties into the chest, and leaves on its own once it is empty.</p><p class="howdesign"><b>How this design does it:</b> The cart climbs a short powered slope and stops against a closed fence gate, which leaves it straddling two blocks: the hopper under the slope and the hopper beside it both pull from it, emptying a full cart in 64 seconds, twice as fast as one hopper.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/rail/ul-gate.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/rail/ul-gate.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=comparator">comparator</a> <a class="chip" href="../../index.html#with=detector_rail">detector rail</a> <a class="chip" href="../../index.html#with=hopper">hopper</a> <a class="chip" href="../../index.html#with=oak_fence_gate">oak fence gate</a> <a class="chip" href="../../index.html#with=powered_rail">powered rail</a> <a class="chip" href="../../index.html#with=rail">rail</a> <a class="chip" href="../../index.html#with=redstone_block">redstone block</a> <a class="chip" href="../../index.html#with=redstone_torch">redstone torch</a> <a class="chip" href="../../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../../index.html#with=repeater">repeater</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<p class="also-ground"><b>Part of a whole line:</b> <a href="../../circuits/rail/line-b.html">Minecart line: moves a double chest 128 blocks in 21 min · ~65 iron + 24 gold · the cart waits when there&#39;s nothing to carry</a>.</p>
+<p class="also-ground">Smaller by 9 blocks, 2.48 items a second against this one's 4.79: <a href="../../circuits/rail/cart-unloader-t3.html">Minecart unloader: empties a hopper minecart into a chest, then sends it back · 22 blocks</a>.</p>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>A hopper minecart holds 320 items (5 stacks). A hopper under the cart pulls one item every 8 game ticks, 2.5 items a second, so an unloader is as fast as the hoppers that reach the cart: one under the cart empties a full one in about 2 minutes; two, by holding the cart where it straddles two blocks, in about 1. The station sends the cart back only once its hoppers find nothing more in it.</p></section>
+<section><h2>How to try it</h2><p><b>The view shows the station as built, with our test's chest and no cart: the browser's simulator does not run hopper minecarts here.</b> Drag to look around, pinch or scroll to zoom. Its numbers are our test's, in the real game, below.</p></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">line</th><td>terminus</td><td class="def">terminus: the cart leaves back the way it came; through line: it goes on</td></tr>
+<tr><th scope="row">unload rate</th><td>4.79 items/s</td><td class="def">items a second moved from the cart into the chest while the cart stands in the station</td></tr>
+<tr><th scope="row">departure delay</th><td>14 gt (0.7 s)</td><td class="def">game ticks from the cart being empty to its first move</td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>The cart climbs a short powered slope and stops against a closed fence gate, which leaves it straddling two blocks: the hopper under the slope and the hopper beside it both pull from it, emptying a full cart in 64 seconds, twice as fast as one hopper. When the hoppers find nothing more, the slope turns on and the cart rolls back down the line. Pair it with ld-chest and 128 blocks of track: a double chest delivered in 21 minutes.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/rail/index.html">Minecart stations</a></td></tr>
+<tr><th scope="row">Kind</th><td>Minecart unloader: empties a hopper minecart into a chest, then sends the cart back</td></tr>
+<tr><th scope="row">Blocks placed</th><td>31</td></tr>
+<tr><th scope="row">Box</th><td>6×3×4 (72 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>comparator, detector rail, hopper, oak fence gate, powered rail, rail, redstone block, redstone torch, redstone wire, repeater, stone</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>no input / OUT</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-22T16:24Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere</td></tr>
+<tr><th scope="row">Design file</th><td><code>ul-gate</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/rail/archive/ul-gate.txt">on GitHub</a></p><details><summary>Design file (49 lines)</summary><pre class="design"># archived 2026-10-22T16:24Z from designs/circuits/tracks/cart-transport/ul-gate.txt by mctas circuit archive
+# CIRCUIT: ul-gate cart-unloader line terminus, unload rate 4.79 items/s, departure delay 14 gt, 31 blocks, 6x3x4, robust
+# B-unloader (designs/briefs/cart-transport.md, layout B; the reviewer&#39;s proof first): boosters
+# send the cart up the powered slope P toward a closed fence gate G. The detector rail D at the foot
+# of the slope cuts P&#39;s power through a repeater as the cart reaches the top: P then halts it. Any
+# rest point between 0.51 and 0.94 of P&#39;s cell puts the cart&#39;s box over two cells, so the hopper H1
+# under P and the hopper H2 beside it (P&#39;s support, pulling from the gate&#39;s cell) both pull from the
+# cart (HopperBlockEntity.getEntityContainer: a cell&#39;s box); the gate&#39;s plate (mid-cell) caps the
+# climb at 0.885. Both push into the storage chest. While items flow, the comparator on H2 keeps the
+# torch on Q off; when H2 stays empty the torch powers P through a repeater, and the cart rolls back
+# down the line.
+name: ul-gate
+circuit: cart-unloader
+port line.in: -5 0 0
+port output: 1 -1 0
+origin: -5 0 0
+palette:
+  S minecraft:stone
+  Q minecraft:stone
+  K minecraft:stone
+  g minecraft:glass
+  Z minecraft:redstone_block
+  B minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  L minecraft:rail[shape=east_west,waterlogged=false]
+  D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
+  G minecraft:oak_fence_gate[facing=east,in_wall=false,open=false,powered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  V minecraft:hopper[enabled=true,facing=down]
+  c minecraft:comparator[facing=north,mode=compare,powered=false]
+  t minecraft:redstone_wall_torch[facing=west,lit=true]
+  r minecraft:repeater[delay=2,facing=north,locked=false,powered=false]
+  p minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  W minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+layer -1:
+  .SZSSH.
+  ...S.SS
+  .......
+  .......
+layer 0:
+  .BBDLPV
+  ...r.pc
+  ...K.tQ
+  ...SSSS
+layer 1:
+  ......G
+  .......
+  ...W..W
+  ...WWWW
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/dc8ec15a268a4ee1129517e8c16261cbd981c128">vjeux/redstonepedia@dc8ec15a2</a> on <span class="nowrap">2026-10-26</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=6436f4ee"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=41e34704"});</script>
+</body>
+</html>

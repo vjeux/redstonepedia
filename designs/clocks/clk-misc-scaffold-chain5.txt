@@ -1,0 +1,32 @@
+# archived 2026-10-19T21:46Z from designs/clocks/tracks/clk-misc/scaffold/scaffold-chain5.txt by mctas clock archive
+# CLOCK: clk-misc-scaffold-chain5 period 18 gt (0.9 s), on 4/18, edges 2, warmup 3, family observer+scaffolding+sticky_piston, 11 blocks, 4x2x4, robust
+# A scaffolding delay line: a chain of 5 scaffolding blocks hangs from scaffolding S1 (on stone); a sticky piston toggles a stone
+# under the first one (2 gt observer pulses spit / pull it), so the chain's distances shift by one (0..4 <-> 1..5), one scaffold
+# per gt (1 gt scaffolding ticks); an observer watches the last one, its back quasi-powering the piston.
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 2 1 -2: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its north, added at 1 1 1 (was 1 1 -2: the output [1, 1, -2] has a moving or non-sturdy block under it: a repeater there has nothing to stand on)
+name: clk-misc-scaffold-chain5
+port output: 1 1 2
+port start: 0 0 -2 minecraft:redstone_block 2
+origin: 0 0 -2
+palette:
+  A minecraft:scaffolding[bottom=true,distance=2,waterlogged=false]
+  B minecraft:scaffolding[bottom=true,distance=3,waterlogged=false]
+  C minecraft:scaffolding[bottom=true,distance=4,waterlogged=false]
+  D minecraft:scaffolding[bottom=true,distance=5,waterlogged=false]
+  E minecraft:sticky_piston[extended=false,facing=south]
+  F minecraft:stone
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:scaffolding[bottom=false,distance=0,waterlogged=false]
+  o minecraft:observer[facing=north,powered=false]
+  s minecraft:scaffolding[bottom=true,distance=1,waterlogged=false]
+layer 0:
+  .E
+  .F
+  F
+  .
+layer 1:
+  ..OD
+  ...C
+  SsAB
+  .o

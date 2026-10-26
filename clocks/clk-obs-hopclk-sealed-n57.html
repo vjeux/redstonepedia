@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clock: every 900 ticks (45 s) · 17 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Clock: every 900 ticks (45 s) · 17 blocks. The compact hopper clock, sealed (period 16N - 12 gt, 17 blocks for 2..320 stones): two hoppers pass N stones back and forth and two sticky pistons move one red">
+<meta property="og:title" content="Clock: every 900 ticks (45 s) · 17 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Clock: every 900 ticks (45 s) · 17 blocks. The compact hopper clock, sealed (period 16N - 12 gt, 17 blocks for 2..320 stones): two hoppers pass N stones back and forth and two sticky pistons move one red">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../style.css?v=3fef2398">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top on" href="../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top" href="../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../index.html" method="get" role="search"><input type="hidden" name="kind" value="clock"><input id="hq" name="q" type="search" placeholder="Search: 48 ticks, 2.5 s…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../index.html">REDSTONEPEDIA</a> › <a href="../index.html#kind=clock">Clocks</a> › <a href="../index.html#kind=clock&amp;time=900">every 900 ticks (45 s)</a></p>
+<p class="kindline">Clock</p>
+<h1>every 900 ticks (45 s) · 17 blocks</h1>
+<p class="oneliner">Its output pulses by itself every 900 ticks (45 s), forever. It starts on its own once built.</p>
+<p class="warn">A lamp on its output stays lit: the output is off for only 2 ticks (0.1 s) at a time, and a redstone lamp goes dark only after more than 4 ticks (0.2 s) without power. Redstone dust there follows every pulse.</p>
+<p class="lede">made of comparator, hopper, redstone block, redstone wire, sticky piston · on for 898 of 900 ticks</p>
+<p class="badges"><span class="badge">extended (n = 57)</span><span class="badge">starts by itself</span></p>
+<div class="viewer k-clock" data-mcview="full" data-src="../designs/clocks/members/clk-obs-hopclk-sealed-n57.txt" data-kind="clock"><div class="fallback"><span class="fb-big">every 900 ticks</span><span class="fb-small">Clock</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<p class="needs">Comes loaded with 57 stone in its containers: the download includes them; building it by hand, put them in first.</p>
+<p class="extended">A longer version of the tested <a href="../clocks/clk-obs-hopclk-sealed.html">clk-obs-hopclk (one block swapped: 2 versions) clock</a>, which pulses every 20 ticks (1 s) with 17 blocks; this one is 55 steps longer (n = 57). Each step: one more stone in the first hopper (same blocks; up to 5 stacks of 64); sealed: stones over both hoppers, so no dropped item reaches them, which adds 16 ticks (0.8 s) (same blocks). This length was simulated to exactly its period; the base design was tested in the real game.</p>
+<p class="hint">Every clock that pulses every 900 ticks (45 s): <a href="../index.html#kind=clock&amp;time=900">on the Clocks tab</a>, smallest first (the ones hard to wire into a circuit last).</p>
+<section class="what plain"><h2>Try it</h2><p>Press play under the view: it runs by itself: pause and step one tick at a time with the buttons under it. To use it in a circuit, put a repeater where the view puts its lamp: it picks up every pulse.</p><p class="howdesign"><b>How this design does it:</b> The compact hopper clock, sealed (period 16N - 12 gt, 17 blocks for 2..320 stones): two hoppers pass N stones back and forth and two sticky pistons move one redstone block between them; stones over both hoppers so no dropped item can reach them (the open 13-block family&#39;s timing changes when an item lands on it).</p></section>
+<section><h2>Its output over time</h2><p class="hint">The output (orange) over the first 1804 ticks, as the 3D view plays it: the grey part is the clock starting up, for 4 ticks (0.2 s); then it repeats every 900 ticks (45 s), on for 898 ticks (44.9 s) of them. 20 ticks = 1 second.</p><div class="wave-wrap fit"><svg class="wave fit" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 433 78" role="img" aria-label="timing diagram"><rect class="warm" x="64.0" y="18.0" width="0.8" height="42.0"/><line class="ph" x1="64.0" y1="18.0" x2="64.0" y2="60.0"/><line class="ph" x1="64.8" y1="18.0" x2="64.8" y2="60.0"/><text class="phl" x="67.8" y="14.0">cycle 1</text><line class="ph" x1="244.8" y1="18.0" x2="244.8" y2="60.0"/><text class="phl" x="247.8" y="14.0">cycle 2</text><text class="wl" x="4" y="46.0">OUT</text><line class="base" x1="64.0" y1="48.0" x2="424.8" y2="48.0"/><polygon class="wout" points="64.0,48.0 64.0,48.0 64.4,48.0 64.4,28.0 154.4,28.0 154.4,48.0 154.8,48.0 154.8,28.0 334.4,28.0 334.4,48.0 334.8,48.0 334.8,28.0 424.8,28.0 424.8,48.0"/><text class="ax" x="4" y="72.0">ticks</text><text class="ax" x="64.8" y="72.0">4</text><text class="ax" x="244.8" y="72.0">904</text></svg></div></section>
+<section><h2>Build it</h2><p><a class="button" href="../designs/clocks/members/clk-obs-hopclk-sealed-n57.litematic" download>Download .litematic</a> <a class="button alt" href="../designs/clocks/members/clk-obs-hopclk-sealed-n57.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../index.html#with=comparator">comparator</a> <a class="chip" href="../index.html#with=hopper">hopper</a> <a class="chip" href="../index.html#with=redstone_block">redstone block</a> <a class="chip" href="../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../index.html#with=sticky_piston">sticky piston</a> <a class="chip" href="../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section><h2>Notes from its designer</h2><p>The compact hopper clock, sealed (period 16N - 12 gt, 17 blocks for 2..320 stones): two hoppers pass N stones back and forth and two sticky pistons move one redstone block between them; stones over both hoppers so no dropped item can reach them (the open 13-block family&#39;s timing changes when an item lands on it).</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Pulses every</th><td>900 ticks (45 s)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>comparator, hopper, redstone block, redstone wire, sticky piston</td></tr>
+<tr><th scope="row">Blocks placed</th><td>17</td></tr>
+<tr><th scope="row">Box</th><td>6×3×2 (36 blocks of space)</td></tr>
+<tr><th scope="row">Output</th><td>on for 898 of every 900 ticks</td></tr>
+<tr><th scope="row">Settles after</th><td>4 ticks (0.2 s)</td></tr>
+<tr><th scope="row">To start it</th><td>nothing: it starts by itself once built</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Mirror image</th><td>a different design (listed separately)</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere, starts by itself, mirror image is a different design, extended, simulated</td></tr>
+<tr><th scope="row">Design file</th><td><code>clk-obs-hopclk-sealed-n57</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p>Generated from the tested design it extends, at build time.</p><details><summary>Design file (27 lines)</summary><pre class="design"># Sealed hopper clock (clk-obs), period 900 gt: two hoppers facing each other pass 57 stones, one per
+# 8 gt; each hopper&#39;s comparator powers a sticky piston through the dust behind it, and the two
+# pistons hold one redstone block BESIDE the hopper that receives (a locked hopper still receives);
+# a stone covers each hopper (no stray item can reach them).
+name: hopclk-sealed-p900
+port output: -1 0 0
+nbt: 2 0 0 {Items:[{Slot:0b,id:&quot;minecraft:stone&quot;,count:57}]}
+origin: 0 0 0
+palette:
+  A minecraft:stone
+  B minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:sticky_piston[extended=false,facing=east]
+  E minecraft:hopper[enabled=true,facing=east]
+  F minecraft:redstone_block
+  G minecraft:hopper[enabled=true,facing=west]
+  H minecraft:comparator[facing=west,mode=compare,powered=false]
+  I minecraft:sticky_piston[extended=false,facing=west]
+layer -1:
+  .A..A.
+  A....A
+layer 0:
+  ACEGHA
+  BDF.IB
+layer 1:
+  ..AA..
+  ......
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/dc8ec15a268a4ee1129517e8c16261cbd981c128">vjeux/redstonepedia@dc8ec15a2</a> on <span class="nowrap">2026-10-26</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../viewer/mcview.js?v=6436f4ee"; init({module_or_path: "../viewer/mcview_bg.wasm?v=41e34704"});</script>
+</body>
+</html>

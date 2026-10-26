@@ -1,0 +1,40 @@
+# archived 2026-10-20T23:24Z from designs/circuits/memory/tracks/memory/items23/counter576-items.txt by mctas circuit archive
+# CIRCUIT: counter576-items counter 576 N 576, output toggles every 576 pulses, counts one pulse per 1152 inputs (toggles every 576: a square wave, a divider by 1152), 23 blocks, 5x4x3, robust
+# Counter 576, 23 blocks, with items (track memory, `mctas circuit memory items --n 576`): the output toggles once every 576 pulses, and the same 23 blocks count any N up to 576; only the number of items loaded changes. Two droppers face each other and hold 576 items between them; each pulse fires only one of them, so the pile walks from one to the other and each runs empty once every 576 pulses. A comparator reads each dropper, and the torch on its output block is lit exactly while that dropper is empty; both torches touch the copper bulb, which therefore toggles each time a dropper runs empty. The bulb is the phase: a comparator reading it powers the stone under the left dropper, which holds it (a dropper kept powered sees no new pulse), and through a dust under the right dropper switches off the torch beside it, which held the right one. The pulse reaches the right dropper through the input block on its lid and the left one through a dust on its own lid.
+name: counter576-items
+circuit: counter 576
+group: item-pair
+group title: Item counter (counter N, any N)
+group note: two droppers facing each other hold N items; each pulse fires only the one the copper bulb phase does not hold, so each runs empty once every N pulses - 23 blocks for every N up to 576 (`mctas circuit memory items --n N`)
+port input: 1 2 0
+port output: 0 0 1
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:64},{Slot:1b,id:"minecraft:stone",count:64},{Slot:2b,id:"minecraft:stone",count:64},{Slot:3b,id:"minecraft:stone",count:64},{Slot:4b,id:"minecraft:stone",count:64},{Slot:5b,id:"minecraft:stone",count:64},{Slot:6b,id:"minecraft:stone",count:64},{Slot:7b,id:"minecraft:stone",count:64},{Slot:8b,id:"minecraft:stone",count:64}]}
+origin: -2 -1 -2
+palette:
+  A minecraft:dropper[facing=east,triggered=false]
+  B minecraft:dropper[facing=west,triggered=true]
+  a minecraft:comparator[facing=east,mode=compare,powered=true]
+  b minecraft:comparator[facing=south,mode=compare,powered=false]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  W minecraft:waxed_copper_bulb[lit=false,powered=true]
+  t minecraft:redstone_torch[lit=true]
+  u minecraft:redstone_wall_torch[facing=west,lit=true]
+  v minecraft:redstone_wall_torch[facing=north,lit=false]
+  S minecraft:stone
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer 0:
+  .....
+  ..S..
+  ...S.
+layer 1:
+  SSW..
+  ..CS.
+  .SSdS
+layer 2:
+  dduS.
+  v..b.
+  SaABt
+layer 3:
+  .....
+  .....
+  ..d..

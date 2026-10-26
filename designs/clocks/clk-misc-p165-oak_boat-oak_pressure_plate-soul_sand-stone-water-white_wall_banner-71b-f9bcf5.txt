@@ -1,0 +1,53 @@
+# archived 2026-10-23T08:30Z from /home/vjeux/ws5/strip-game/staged/clk-misc-p165-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-71b-f9bcf5.txt by mctas clock archive
+# CLOCK: clk-misc-p165-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-71b-f9bcf5 period 165 gt (8.25 s), on 20/165, edges 1, warmup 99, family oak_boat+oak_pressure_plate, 71 blocks, 10x8x4, rotation-dependent
+# the irreducible core of clk-misc-boat-lift-l3h4.txt (mctas clock strip, 2026-10-22): removed -2,0,0 water[level=0]; -2,0,1 water[level=0]; -2,1,0 water[level=0]; -2,1,1 water[level=0]; -2,1,2 stone; -2,2,0 water[level=0]; -2,2,1 water[level=0]; -2,2,2 stone; -2,3,0 water[level=0]; -2,3,1 water[level=0]; -2,3,2 stone; -2,6,0 stone; -2,6,1 stone; -1,1,-1 stone; -1,1,2 stone; -1,3,-1 stone; -1,3,0 water[level=0]; -1,3,1 water[level=0]; -1,3,2 stone; -1,6,0 stone; -1,6,1 stone; 0,-1,1 stone; 0,0,-1 stone; 0,0,2 stone; 0,1,0 white_wall_banner[facing=west]; 0,1,1 white_wall_banner[facing=west]; 0,6,0 stone; 0,6,1 stone; 1,1,0 stone; 1,2,0 stone; 1,2,1 stone; 1,6,0 stone; 4,4,-1 stone; 4,4,2 stone; 5,-1,0 stone; 5,-1,1 stone; 5,0,-1 stone; 5,0,2 stone; 5,4,-1 stone; 5,4,2 stone; 6,0,0 stone; 6,0,1 stone; 6,1,0 stone; 6,1,1 stone; 6,2,0 stone; 6,2,1 stone; 6,3,0 stone; 6,4,0 stone; 6,4,1 stone; -3,1,0 stone; -3,1,1 stone; -3,2,0 stone; -3,2,1 stone; -3,3,0 stone; -3,3,1 stone; -2,1,-1 stone; -2,2,-1 stone; -2,3,-1 stone
+name: clk-misc-p165-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-71b-f9bcf5
+port output: 0 -1 -1
+entity: minecraft:oak_boat 3 0 1
+origin: -3 0 -1
+palette:
+  O minecraft:oak_pressure_plate[powered=false]
+  S minecraft:soul_sand
+  W minecraft:water[level=0]
+  s minecraft:stone
+  w minecraft:white_wall_banner[facing=west]
+layer -1:
+  .
+  .SSsssss
+  .SS.ssss
+  .
+layer 0:
+  .ss.ssss
+  s.WO....O
+  s.WO....O
+  .ss.ssss
+layer 1:
+  .
+  ..W
+  ..W.s
+  .
+layer 2:
+  ..s
+  ..Ww
+  ..Ww
+  ..s
+layer 3:
+  .
+  ...wsss
+  ...wsss..s
+  .
+layer 4:
+  .ssssss
+  sWW
+  sWW
+  .ssssss
+layer 5:
+  .
+  .
+  .
+  .
+layer 6:
+  .
+  .
+  ....s
+  .

@@ -1,0 +1,38 @@
+# archived 2026-10-21T10:39Z from designs/circuits/tracks/clk-rt/compact/pulse/pulse-dual-lock-L34-27b.txt by mctas circuit archive
+# CIRCUIT: pulse-dual-lock-L34-v36-27b-0 dual-edge L 34 gt, delay 6 gt, min-pulse 80 gt, 27 blocks, 3x2x6, robust
+# clk-rt 2026-10-21 (`circuit compact --all`): dual-edge L = 34 gt in the record's 3x2x6 = 36 with 27 blocks (was 28:
+# pulse-dual-lock-L34), the annealing search on its own judge dropping a block.
+name: pulse-dual-lock-L34-v36-27b-0
+circuit: dual-edge
+group: pulse-dual-lock
+group note: L set by the repeater U's length
+group title: locked dual-edge bulb one-shot
+port input: 2 1 3
+port output: 3 1 0
+origin: 2 0 -3
+palette:
+  A minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  D minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  O minecraft:observer[facing=south,powered=false]
+  R minecraft:redstone_wire
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  r minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+layer 0:
+  OSS
+  S.S
+  S.W
+  .SS
+  SWS
+  .
+  .
+layer 1:
+  RRR
+  B.D
+  B.D
+  WCR
+  ArR
+  O
+  W

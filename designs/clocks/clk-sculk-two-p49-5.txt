@@ -1,0 +1,16 @@
+# archived 2026-10-19T21:16Z from /tmp/gen/arch2/two-p49-5.txt by mctas clock archive
+# CLOCK: clk-sculk-two-p49-5 period 49 gt (2.45 s), on 30/49, edges 1, warmup 30, family calibrated_sculk_sensor+oak_trapdoor+observer+sculk_sensor, 5 blocks, 5x1x1, robust
+# A plain sculk sensor watched by a chain of 2 observer(s) (each watching the previous); an oak trapdoor (placed open+powered: it closes on placement, the self-start) at the last output, 3 from the sensor (travel time): the observers' pulse after the sensor re-arms is heard; plus a calibrated sculk sensor beside the chain (moves parts of it: the hybrid)
+name: clk-sculk-two-p49-5
+# how: obs plain k=2 path 1,0,0 2,0,0 emitter trapdoor at the output (travel 3) + calibrated_sculk_sensor[facing=south,power=0,sculk_sensor_phase=inactive,waterlogged=false] at 4,0,0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 0 -1 0: the output [0, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 0 0 -1
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=south,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:oak_trapdoor[facing=north,half=bottom,open=true,powered=true,waterlogged=false]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=west,powered=false]
+layer 0:
+  SooOC

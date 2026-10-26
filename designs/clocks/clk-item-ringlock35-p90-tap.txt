@@ -1,0 +1,30 @@
+# archived 2026-10-22T03:20Z from /tmp/wire/stage6/clk-item-ringlock35-p90-tap.txt by mctas clock archive
+# CLOCK: clk-item-ringlock35-p90-tap period 90 gt (4.5 s), on 39/90, edges 1, warmup 34, family comparator+hopper, 16 blocks, 4x2x5, robust
+# A 90-tick clock a builder can wire, one pulse per cycle (clockinfra, 2026-10-21, the wireable-clocks job under the one-edge rule): clk-item's hopper ring lock ringlock35-p90 with a usable tap.
+name: clk-item-ringlock35-p90-tap
+from: designs/clocks/tracks/clk-item/ringlock35-p90.txt (tapped by clock::usable)
+port output: -2 1 2
+nbt: 0 1 1 {Items:[{Slot:0b,id:"minecraft:diamond_sword",count:1},{Slot:1b,id:"minecraft:diamond_sword",count:1}]}
+nbt: 0 1 2 {Items:[{Slot:0b,id:"minecraft:diamond_sword",count:1},{Slot:1b,id:"minecraft:diamond_sword",count:1}]}
+nbt: 0 1 3 {Items:[{Slot:0b,id:"minecraft:diamond_sword",count:1}]}
+origin: -1 0 0
+palette:
+  A minecraft:hopper[enabled=true,facing=south]
+  B minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  S minecraft:stone
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  h minecraft:hopper[enabled=true,facing=north]
+layer 0:
+  .
+  ..S
+  S
+  .
+  .
+layer 1:
+  .HHA
+  .hcA
+  Ch.A
+  .h.A
+  .hBB

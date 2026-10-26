@@ -1,0 +1,17 @@
+# archived 2026-10-19T16:02Z from /tmp/clk-in3/clk-sculk--c30-obs2-disp.txt by mctas clock archive
+# CLOCK: clk-sculk-c30-obs2-disp period 30 gt (1.5 s), on 10/30, edges 1, warmup 2, family calibrated_sculk_sensor+dispenser+observer, 4 blocks, 3x1x3, robust
+name: clk-sculk-c30-obs2-disp
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing west (on the ground) takes every pulse (was 0 -1 0: the output [0, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: -1 0 0
+port start: 2 0 2 minecraft:redstone_block 1
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:observer[facing=west,powered=false]
+  Q minecraft:observer[facing=north,powered=false]
+  D minecraft:dispenser[facing=up,triggered=false]
+layer 0:
+  CO
+  .Q
+  .D

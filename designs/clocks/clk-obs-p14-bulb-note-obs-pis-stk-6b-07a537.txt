@@ -1,0 +1,25 @@
+# archived 2026-10-19T18:44Z from designs/clocks/tracks/clk-obs/families/p14-bulb-note-obs-pis-stk-6b-07a537.txt by mctas clock archive
+# CLOCK: clk-obs-p14-bulb-note-obs-pis-stk-6b-07a537 period 14 gt (0.7 s), on 4/14, edges 2, warmup 8, family copper_bulb+note_block+observer+piston+sticky_piston, 7 blocks, 3x2x3, robust
+# P14: 1 copper bulb, 1 note block, 2 observers, 1 piston, 1 sticky piston; changing in place: copper_bulb, note_block, observer, piston, sticky_piston. Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 1 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its south, added at 1 1 -1 (was 0 1 0: the output [0, 1, 0] has a moving or non-sturdy block under it: a repeater there has nothing to stand on)
+name: clk-obs-p14-bulb-note-obs-pis-stk-6b-07a537
+port output: 1 1 -2
+port start: 2 1 0 last
+origin: 0 0 -1
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=east]
+  S minecraft:sticky_piston[extended=false,facing=north]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=east,powered=false]
+layer 0:
+  .
+  PO
+  ..S
+layer 1:
+  .A
+  .oN
+  ..W

@@ -1,0 +1,26 @@
+# EXTENDABLE 2-torch U-ring, n = 8 (P = 20 + 16n): U-loop (clk-rt): a wall torch on block A -> top
+# row [delay-4 repeater (powered at placement), delay-4 repeater (powered at placement), delay-4
+# repeater (powered at placement), delay-4 repeater (powered at placement), delay-4 repeater
+# (powered at placement), delay-4 repeater (powered at placement), delay-4 repeater (powered at
+# placement), delay-4 repeater (powered at placement), delay-4 repeater (powered at placement)] ->
+# block F -> a wall torch on F -> bottom row [delay-4 repeater (powered at placement), delay-4
+# repeater (powered at placement), delay-4 repeater (powered at placement), delay-4 repeater
+# (powered at placement), delay-4 repeater (powered at placement), delay-4 repeater (powered at
+# placement), delay-4 repeater (powered at placement), delay-4 repeater (powered at placement),
+# delay-4 repeater (powered at placement)] -> A; 2 torches = a pulse ring of loop delay 148 gt
+name: clk-rt-uloop2t-x8
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 0 0 0
+origin: 0 0 -1
+palette:
+  A minecraft:repeater[delay=4,facing=east,locked=false,powered=true]
+  B minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  R minecraft:redstone_wall_torch[facing=north,lit=true]
+  S minecraft:stone
+  r minecraft:redstone_wall_torch[facing=south,lit=true]
+layer 0:
+  .SSSSSSSSS
+  .SSSSSSSSS
+layer 1:
+  RBBBBBBBBBS
+  SAAAAAAAAAr

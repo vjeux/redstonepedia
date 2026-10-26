@@ -1,0 +1,46 @@
+# archived 2026-10-21T23:01Z from designs/circuits/tracks/clk-rt/compact/random/rand4-compact-v112-40b.txt by mctas circuit archive
+# CIRCUIT: rand4-compact-v112-40b randomizer 4 style hold, latency 8 gt, presses 96, 40 blocks, 7x4x4, robust (uniform: chi2 2.5 (limit 16.3) over 1536 presses in 16 runs, counts 374/387/367/408)
+# Press the button and one of the four outputs turns on at random, each a quarter of the time, and stays on until the next press picks again. Two coin flips do the picking: rand4-compact's mechanism rearranged by clk-rt's circuit compact (2026-10-21), judged box 112 (was 140), 40 blocks (was 43); its blocks sit in 7x4x4.
+name: rand4-compact-v112-40b
+circuit: randomizer 4
+port input: -1 1 0
+port output.a: -3 1 -2
+port output.b: 3 1 -2
+port output.c: -2 1 -1
+port output.d: 2 1 -1
+nbt: 0 0 0 {Items:[{Slot:0b,id:"minecraft:iron_shovel",count:1}]}
+nbt: 0 2 -3 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+nbt: 0 2 -2 {Items:[{Slot:0b,id:"minecraft:iron_shovel",count:1}]}
+nbt: 1 0 0 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:1}]}
+origin: -3 0 -3
+palette:
+  A minecraft:comparator[facing=south,mode=subtract,powered=false]
+  B minecraft:comparator[facing=west,mode=compare,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:dropper[facing=east,triggered=false]
+  E minecraft:dropper[facing=south,triggered=false]
+  F minecraft:dropper[facing=west,triggered=false]
+  R minecraft:redstone_wire
+  S minecraft:stone
+  c minecraft:comparator[facing=north,mode=subtract,powered=false]
+  d minecraft:dropper[facing=north,triggered=false]
+layer -1:
+  .
+  .
+  .
+  SS...SS
+layer 0:
+  .
+  SD...SS
+  DS...SS
+  RCSDFBR
+layer 1:
+  .Sd.SS
+  AR...RA
+  Rc.S.cR
+  ...R
+layer 2:
+  .RCEBR
+  ...d
+  ...R
+  .

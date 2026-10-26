@@ -1,0 +1,27 @@
+# archived 2026-10-19T17:51Z from designs/clocks/tracks/clk-rt/odd/u3/p21/kick-p21.txt by mctas clock archive
+# CLOCK: clk-rt-uloop0t-C-4*,4,4-4,4,1-d-kick-p21 period 21 gt (1.05 s), on 8/21, edges 1, warmup 25, family redstone_wire+repeater, 18 blocks, 6x2x2, robust
+# ODD period: U-loop (clk-rt): block A + dust beside it -> top row [delay-4 repeater (powered at
+# placement), delay-4 repeater, delay-4 repeater] -> block F -> dust beside F -> bottom row [delay-4
+# repeater, delay-4 repeater, delay-1 repeater] -> A; 0 torches = a pulse ring of loop delay 42 gt;
+# kicked by a redstone_block at [-1, 1, -1] for 1 gt at tick 13 (an odd tick: a second parity class;
+# every redstone-tick delay is even)
+name: clk-rt-uloop0t-C-4*,4,4-4,4,1-d-kick-p21
+uloop: C-4*,4,4-4,4,1-d
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing south (on the ground) takes every pulse (was 0 -1 -1: the output [0, -1, -1] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 0 0 0
+port start: -1 1 -1 minecraft:redstone_block 1 at 13
+origin: 0 0 -1
+palette:
+  A minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  C minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  R minecraft:redstone_wire
+  S minecraft:stone
+  r minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+layer 0:
+  SSSS
+  .SSSS
+layer 1:
+  RCBBS
+  SAArR

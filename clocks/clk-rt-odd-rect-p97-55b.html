@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clock: every 97 ticks (4.85 s) · 55 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Clock: every 97 ticks (4.85 s) · 55 blocks. ODD period 97: Rectangle ring: the 3x14 perimeter clockwise from the north-west corner = [b, 4*, b, 4, 4, 4, 4, 4, 4, b, 4, 4, 4, 4, 4, b, 4, b, 4, 4, 4, 4, 4, ">
+<meta property="og:title" content="Clock: every 97 ticks (4.85 s) · 55 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Clock: every 97 ticks (4.85 s) · 55 blocks. ODD period 97: Rectangle ring: the 3x14 perimeter clockwise from the north-west corner = [b, 4*, b, 4, 4, 4, 4, 4, 4, b, 4, 4, 4, 4, 4, b, 4, b, 4, 4, 4, 4, 4, ">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<meta property="og:image" content="https://raw.githubusercontent.com/vjeux/redstonepedia/main/designs/clocks/img/clk-rt-odd-rect-p97-55b.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="../style.css?v=3fef2398">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top on" href="../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top" href="../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../index.html" method="get" role="search"><input type="hidden" name="kind" value="clock"><input id="hq" name="q" type="search" placeholder="Search: 48 ticks, 2.5 s…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../index.html">REDSTONEPEDIA</a> › <a href="../index.html#kind=clock">Clocks</a> › <a href="../index.html#kind=clock&amp;time=97">every 97 ticks (4.85 s)</a></p>
+<p class="kindline">Clock</p>
+<h1>every 97 ticks (4.85 s) · 55 blocks</h1>
+<p class="oneliner">Its output pulses by itself every 97 ticks (4.85 s), forever. Built in the game it needs one kick to start (the last block placed); then it keeps going.</p>
+<p class="lede">made of repeater · on for 8 of 97 ticks</p>
+<div class="viewer k-clock" data-mcview="full" data-src="../designs/clocks/clk-rt-odd-rect-p97-55b.txt" data-kind="clock"><div class="fallback has-pic"><img class="pic contain" src="https://raw.githubusercontent.com/vjeux/redstonepedia/main/designs/clocks/img/clk-rt-odd-rect-p97-55b.jpg" alt="Clock: every 97 ticks (4.85 s) · 55 blocks in the game" decoding="async"><span class="fb-big">every 97 ticks</span><span class="fb-small">Clock</span><span class="fb-note">picture from the real game; the live 3D view replaces it when available</span></div></div>
+<p class="hint">Every clock that pulses every 97 ticks (4.85 s): <a href="../index.html#kind=clock&amp;time=97">on the Clocks tab</a>, smallest first (the ones hard to wire into a circuit last).</p>
+<section class="what plain"><h2>Try it</h2><p>Press play under the view to start it; then it runs by itself: pause and step one tick at a time with the buttons under it. To use it in a circuit, put a repeater where the view puts its lamp: it picks up every pulse.</p><p class="howdesign"><b>How this design does it:</b> ODD period 97: Rectangle ring: the 3x14 perimeter clockwise from the north-west corner = [b, 4*, b, 4, 4, 4, 4, 4, 4, b, 4, 4, 4, 4, 4, b, 4, b, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 1] (number = repeater delay, * = powered at placement, b = block, d = dust, T = wall torch on the block before it, c = comparator); 0 torches: a pulse ring of loop delay 194 gt; two pulses 97 gt apart: one loaded at placement, the other started by a redstone_wall_torch[facing=north,lit=true] at [0, 0, 0] for 1 gt at tick 89 (an odd tick: a second parity class; every redstone-tick delay is even)</p></section>
+<section><h2>Its output over time</h2><p class="hint">The output (orange) over the first 388 ticks, as the 3D view plays it: the grey part is the clock starting up, for 97 ticks (4.85 s); then it repeats every 97 ticks (4.85 s), on for 8 ticks (0.4 s) of them. 20 ticks = 1 second.</p><div class="wave-wrap fit"><svg class="wave fit" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 412 78" role="img" aria-label="timing diagram"><rect class="warm" x="64.0" y="18.0" width="85.0" height="42.0"/><line class="ph" x1="64.0" y1="18.0" x2="64.0" y2="60.0"/><text class="phl" x="67.0" y="14.0">starting up</text><line class="ph" x1="149.0" y1="18.0" x2="149.0" y2="60.0"/><text class="phl" x="152.0" y="14.0">cycle 1</text><line class="ph" x1="234.0" y1="18.0" x2="234.0" y2="60.0"/><text class="phl" x="237.0" y="14.0">cycle 2</text><line class="ph" x1="319.0" y1="18.0" x2="319.0" y2="60.0"/><text class="phl" x="322.0" y="14.0">cycle 3</text><text class="wl" x="4" y="46.0">OUT</text><line class="base" x1="64.0" y1="48.0" x2="404.0" y2="48.0"/><polygon class="wout" points="64.0,48.0 64.0,48.0 106.1,48.0 106.1,28.0 113.1,28.0 113.1,48.0 191.1,48.0 191.1,28.0 198.1,28.0 198.1,48.0 276.1,48.0 276.1,28.0 283.1,28.0 283.1,48.0 361.1,48.0 361.1,28.0 368.1,28.0 368.1,48.0 404.0,48.0 404.0,48.0"/><text class="ax" x="4" y="72.0">ticks</text><text class="ax" x="64.0" y="72.0">0</text><text class="ax" x="149.0" y="72.0">97</text><text class="ax" x="234.0" y="72.0">194</text><text class="ax" x="319.0" y="72.0">291</text></svg></div></section>
+<section><h2>Build it</h2><p><a class="button" href="../designs/clocks/clk-rt-odd-rect-p97-55b.litematic" download>Download .litematic</a> <a class="button alt" href="../designs/clocks/clk-rt-odd-rect-p97-55b.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../index.html#with=repeater">repeater</a> <a class="chip" href="../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section><h2>Notes from its designer</h2><p>ODD period 97: Rectangle ring: the 3x14 perimeter clockwise from the north-west corner = [b, 4*, b, 4, 4, 4, 4, 4, 4, b, 4, 4, 4, 4, 4, b, 4, b, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 1] (number = repeater delay, * = powered at placement, b = block, d = dust, T = wall torch on the block before it, c = comparator); 0 torches: a pulse ring of loop delay 194 gt; two pulses 97 gt apart: one loaded at placement, the other started by a redstone_wall_torch[facing=north,lit=true] at [0, 0, 0] for 1 gt at tick 89 (an odd tick: a second parity class; every redstone-tick delay is even)</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Pulses every</th><td>97 ticks (4.85 s)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>repeater</td></tr>
+<tr><th scope="row">Blocks placed</th><td>55</td></tr>
+<tr><th scope="row">Box</th><td>3×2×14 (84 blocks of space)</td></tr>
+<tr><th scope="row">Output</th><td>on for 8 of every 97 ticks</td></tr>
+<tr><th scope="row">Settles after</th><td>97 ticks (4.85 s)</td></tr>
+<tr><th scope="row">To start it</th><td>a kick: redstone_wall_torch[facing=north,lit=true] 1 gt at 0,0,0 at tick 89</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Mirror image</th><td>a different design (listed separately)</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere, needs one kick to start, mirror image is a different design</td></tr>
+<tr><th scope="row">Design file</th><td><code>clk-rt-odd-rect-p97-55b</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/clocks/archive/clk-rt-odd-rect-p97-55b.txt">on GitHub</a></p><details><summary>Design file (52 lines)</summary><pre class="design"># archived 2026-10-19T18:17Z from designs/clocks/tracks/clk-rt/odd/rect/odd-rect-p97.txt by mctas clock archive
+# CLOCK: clk-rt-odd-rect-p97-55b period 97 gt (4.85 s), on 8/97, edges 1, warmup 97, family repeater, 55 blocks, 3x2x14, robust
+# ODD period 97: Rectangle ring (clk-rt): the 3x14 perimeter clockwise from the north-west corner =
+# [b, 4*, b, 4, 4, 4, 4, 4, 4, b, 4, 4, 4, 4, 4, b, 4, b, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 1]
+# (number = repeater delay, * = powered at placement, b = block, d = dust, T = wall torch on the
+# block before it, c = comparator); 0 torches: a pulse ring of loop delay 194 gt; two pulses 97 gt
+# apart: one loaded at placement, the other started by a redstone_wall_torch[facing=north,lit=true]
+# at [0, 0, 0] for 1 gt at tick 89 (an odd tick: a second parity class; every redstone-tick delay is
+# even)
+name: clk-rt-odd-rect-p97-55b
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge&#39;s lamp lights at evenly spaced ticks (was 1 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing east (on a block put under it) takes every pulse (was 0 0 13: with a repeater in the output cell, no signal (it never turns on))
+port output: 3 1 7
+port start: 0 0 0 minecraft:redstone_wall_torch[facing=north,lit=true] 1 at 89
+origin: 0 0 0
+palette:
+  A minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  B minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  C minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  R minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  S minecraft:stone
+  r minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+layer 0:
+  .S
+  S.S
+  S.S
+  S.S
+  S.S
+  S.S
+  S.S
+  S
+  S.S
+  S.S
+  S.S
+  S.S
+  S.S
+  .S
+layer 1:
+  SCS
+  R.A
+  B.A
+  B.A
+  B.A
+  B.A
+  B.A
+  B.S
+  B.A
+  B.A
+  B.A
+  B.A
+  B.A
+  SrS
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/dc8ec15a268a4ee1129517e8c16261cbd981c128">vjeux/redstonepedia@dc8ec15a2</a> on <span class="nowrap">2026-10-26</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../viewer/mcview.js?v=6436f4ee"; init({module_or_path: "../viewer/mcview_bg.wasm?v=41e34704"});</script>
+</body>
+</html>

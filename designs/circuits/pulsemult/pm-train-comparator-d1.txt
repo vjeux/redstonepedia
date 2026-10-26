@@ -1,0 +1,23 @@
+# archived 2026-10-20T10:40Z from designs/circuits/pulsemult/tracks/pulsemult/pm-train-comparator-d1.txt by mctas circuit archive
+# CIRCUIT: pm-train-comparator-d1 pulse-train P 8 gt, pulse 4 gt, latency 2 gt, stop 2 gt, 12 blocks, 2x2x3, robust
+name: pm-train-comparator-d1
+circuit: pulse-train
+group: pm-train-comparator
+group title: Gated comparator clock (subtract comparator, repeater feedback)
+group note: the input is the subtract comparator's rear; its output comes back to its side through dust and a repeater, so it pulses while the input is on and stops within 2 gt of the release; P = 4 + 4 x the repeater's delay
+port input: -1 1 0
+port output: 1 1 0
+origin: 0 0 0
+palette:
+  S minecraft:stone
+  C minecraft:comparator[facing=west,mode=subtract,powered=false]
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  r minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+layer 0:
+  SS
+  SS
+  SS
+layer 1:
+  Cd
+  rd
+  dd

@@ -1,0 +1,34 @@
+# archived 2026-10-21T18:40Z from designs/clocks/tracks/clk-obs/usable/clk-item-latch-n12-usable.txt by mctas clock archive
+# CLOCK: clk-item-latch-n12-usable period 222 gt (11.1 s), on 214/222, edges 1, warmup 4, family comparator+copper_bulb+hopper+redstone_torch+redstone_wire, 17 blocks, 2x4x3, robust
+# usable tap (clk-obs `clock obs tap`): a repeater at [-1, 1, -2] (on a block put under it), the output at [-1, 1, -2]
+name: clk-item-latch-n12-usable
+period: 222
+port output: -1 1 -2
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:14}]}
+origin: 0 0 -2
+palette:
+  A minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  R minecraft:redstone_torch[lit=true]
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=true,powered=false]
+  c minecraft:comparator[facing=south,mode=compare,powered=false]
+  h minecraft:hopper[enabled=true,facing=west]
+  r minecraft:redstone_wall_torch[facing=east,lit=true]
+layer 0:
+  .
+  SS
+  .
+layer 1:
+  SS
+  cc
+  Hh
+layer 2:
+  RR
+  S
+  Sr
+layer 3:
+  WS
+  C
+  A

@@ -1,0 +1,29 @@
+# archived 2026-10-20T11:10Z from designs/circuits/pulsemult/tracks/pulsemult/pm-burst4-taps.txt by mctas circuit archive
+# CIRCUIT: pm-burst4-taps burst 4 N 4, pulse 2 gt, period 4-6 gt, latency 6 gt, span 24 gt, min-pulse 2 gt (the shortest a real input makes), retrigger mixed, repeat 20 gt, 19 blocks, 7x2x4, robust
+name: pm-burst4-taps
+circuit: burst 4
+port input: 0 1 0
+port output: 7 1 0
+origin: 1 0 -2
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=up,powered=false]
+  C minecraft:comparator[facing=west,mode=subtract,powered=false]
+  D minecraft:observer[facing=west,powered=false]
+  E minecraft:repeater[delay=3,facing=south,locked=false,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=north,powered=false]
+  r minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer 0:
+  .
+  ...A
+  .B
+  ......O
+layer 1:
+  ...SRDW
+  ...E..o
+  WCDSAD
+  ...WDSr

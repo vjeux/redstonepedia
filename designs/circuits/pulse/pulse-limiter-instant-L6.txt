@@ -1,0 +1,28 @@
+# archived 2026-10-20T17:50Z from designs/circuits/tracks/pulse/wr/pulse-limiter-instant-L6.txt by mctas circuit archive
+# CIRCUIT: pulse-limiter-instant-L6 pulse-limiter L 6 gt, delay 0 gt, min-pulse 2 gt (the shortest a real input makes), 8 blocks, 3x2x3, robust
+name: pulse-limiter-instant-L6
+circuit: pulse-limiter
+group: pulse-limiter-instant
+group title: instant pulse limiter: two dusts, a stone a piston pushes away, a repeater
+group note: any input passes in its own tick; the repeater's delay sets the cut (4 to 8 ticks)
+# The fastest pulse limiter: any input reaches the output in the very same tick (delay 0) and is
+# cut to 6 ticks if it is longer, 8 blocks. The input lights the output at once through two dusts
+# and a stone beside the output; a repeater passes the input to a sticky piston 6 ticks later,
+# which pushes that stone away and cuts the output; when the input turns off, the piston pulls the
+# stone back. Detail: a pushed block conducts nothing from the moment it moves; the repeater's delay
+# sets the length.
+origin: 0 0 0
+port input: 0 0 0
+port output: 3 0 1
+palette:
+  D minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  K minecraft:stone
+  P minecraft:sticky_piston[extended=false,facing=south]
+  R minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  G minecraft:stone
+layer -1:
+  .G.
+  GG.
+layer 0:
+  .RP
+  DDK

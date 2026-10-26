@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Combination lock: 1 dial · 23 blocks · REDSTONEPEDIA</title>
+<meta name="description" content="Combination lock: 1 dial · 23 blocks. Put any item in each of the 2 item frames; a frame turns through 8 positions, one right-click each. The 1 dial hang on the front (west) face; the code frames ha">
+<meta property="og:title" content="Combination lock: 1 dial · 23 blocks · REDSTONEPEDIA">
+<meta property="og:description" content="Combination lock: 1 dial · 23 blocks. Put any item in each of the 2 item frames; a frame turns through 8 positions, one right-click each. The 1 dial hang on the front (west) face; the code frames ha">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/lock/index.html">Combination locks</a></p>
+<p class="kindline">Combination lock: item frames as dials, opens only at the code</p>
+<h1>1 dial · 23 blocks</h1>
+<p class="oneliner">Its output turns on only while its dial (an item frame, 8 positions) is turned to the same position as its code frame, on the other side of the machine; set the code by turning the code frame, and keep that side out of sight.</p>
+<p class="lede">passed at every position and facing we tested · made of comparator, redstone torch, redstone wire · fits in 5×3×3</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/lock/lock1-hid.txt" data-levels="80 d0 1; 120 d0 2; 160 d0 3; 200 d0 4; 240 d0 5; 280 d0 6; 320 d0 7; 380 k0 4; 384 k0 5; 388 k0 6; 472 d0 0; 512 d0 1; 552 d0 2; 592 d0 3; 632 d0 4; 672 d0 5; 712 d0 6" data-input-mode="pulse" data-circuit="lock 1" data-kind="circuit"><div class="fallback"><span class="fb-big">1 dial</span><span class="fb-small">Combination lock</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<section class="group kind" id="sizes"><h2>Every number of dials <span class="count">4</span></h2><p class="hint">The best design we have for each number of dials: pick one to see it.</p><div class="scroll-x"><table class="list kind-sizes"><thead><tr><th>number of dials</th><th>blocks</th><th>numbers</th></tr></thead><tbody>
+<tr class="on"><td><b>1 dial</b> (this page)</td><td>23 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/lock/lock2-hid.html">2 dials</a></td><td>49 blocks</td><td>passed at every position and facing we tested</td></tr>
+<tr><td><a href="../../circuits/lock/lock3-hid.html">3 dials</a></td><td>73 blocks</td><td>the smallest for each number of dials, of 4 designs tested</td></tr>
+<tr><td><a href="../../circuits/lock/lock4-hid.html">4 dials</a></td><td>99 blocks</td><td>passed at every position and facing we tested</td></tr>
+</tbody></table></div></section>
+<p class="needs">Its 2 item frames must each hold an item (arrows in the download; any item works): building it by hand, put one in each frame. A right-click turns a frame&#39;s item one step of 8.</p>
+<section class="what plain"><h2>Try it</h2><p>Tap the dial&#39;s tag in the view (DIAL 1) or the frame itself to turn it one step, 8 steps around; the CODE 1 tag sets the code the same way (on a wide screen, the Dial 1 and Code 1 buttons under the view do it too). The output turns on (open) only while the dial shows the same position as the code frame. In the game, right-click a frame to turn it. To open a door with it, run redstone dust from its output (where the view shows the lamp) to the door.</p><p class="howdesign"><b>How this design does it:</b> The 1 dial hang on the front (west) face; the code frames hang on the back (east) face, facing away, so a player at the dials sees only the dials and the output, never the code.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/lock/lock1-hid.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/lock/lock1-hid.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=comparator">comparator</a> <a class="chip" href="../../index.html#with=item_frame">item frame</a> <a class="chip" href="../../index.html#with=redstone_torch">redstone torch</a> <a class="chip" href="../../index.html#with=redstone_wire">redstone wire</a> <a class="chip" href="../../index.html#with=stone">stone</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>turns its output on only while every item-frame dial shows the same position as its own code frame; set the code by turning the code frames</p></section>
+<section><h2>How to try it</h2><p>The dial is the item frame tagged DIAL 1, the code frame the one tagged CODE 1: tap a tag, or its button under the view, to turn that frame one step (8 steps around). The output, tagged OUT, turns on only while the dial shows the same position as the code frame. Drag to look around, pinch or scroll to zoom.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the inputs with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="1032" height="146" viewBox="0 0 1032 146" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="113.7" y1="18.0" x2="113.7" y2="128.0"/><line class="ph" x1="163.4" y1="18.0" x2="163.4" y2="128.0"/><line class="ph" x1="213.0" y1="18.0" x2="213.0" y2="128.0"/><line class="ph" x1="262.7" y1="18.0" x2="262.7" y2="128.0"/><line class="ph" x1="312.4" y1="18.0" x2="312.4" y2="128.0"/><line class="ph" x1="362.1" y1="18.0" x2="362.1" y2="128.0"/><line class="ph" x1="411.7" y1="18.0" x2="411.7" y2="128.0"/><line class="ph" x1="461.4" y1="18.0" x2="461.4" y2="128.0"/><line class="ph" x1="600.5" y1="18.0" x2="600.5" y2="128.0"/><line class="ph" x1="650.2" y1="18.0" x2="650.2" y2="128.0"/><line class="ph" x1="699.9" y1="18.0" x2="699.9" y2="128.0"/><line class="ph" x1="749.5" y1="18.0" x2="749.5" y2="128.0"/><line class="ph" x1="799.2" y1="18.0" x2="799.2" y2="128.0"/><line class="ph" x1="848.9" y1="18.0" x2="848.9" y2="128.0"/><line class="ph" x1="898.6" y1="18.0" x2="898.6" y2="128.0"/><line class="ph" x1="948.2" y1="18.0" x2="948.2" y2="128.0"/><text class="wl" x="4" y="46.0">DIAL 1</text><line class="base" x1="64.0" y1="48.0" x2="1024.0" y2="48.0"/><polygon class="win" points="64.0,48.0 64.0,48.0 1024.0,48.0 1024.0,48.0"/><text class="wl" x="4" y="80.0">CODE 1</text><line class="base" x1="64.0" y1="82.0" x2="1024.0" y2="82.0"/><polygon class="win" points="64.0,82.0 64.0,82.0 1024.0,82.0 1024.0,82.0"/><text class="wl" x="4" y="114.0">OUT</text><line class="base" x1="64.0" y1="116.0" x2="1024.0" y2="116.0"/><polygon class="wout" points="64.0,116.0 64.0,96.0 66.5,96.0 66.5,116.0 270.2,116.0 270.2,96.0 322.3,96.0 322.3,116.0 955.7,116.0 955.7,96.0 1024.0,96.0 1024.0,116.0"/><text class="ax" x="4" y="140.0">ticks</text><text class="ax" x="64.0" y="140.0">0</text><text class="ax" x="126.1" y="140.0">50</text><text class="ax" x="188.2" y="140.0">100</text><text class="ax" x="250.3" y="140.0">150</text><text class="ax" x="312.4" y="140.0">200</text><text class="ax" x="374.5" y="140.0">250</text><text class="ax" x="436.6" y="140.0">300</text><text class="ax" x="498.7" y="140.0">350</text><text class="ax" x="560.8" y="140.0">400</text><text class="ax" x="622.9" y="140.0">450</text><text class="ax" x="685.0" y="140.0">500</text><text class="ax" x="747.1" y="140.0">550</text><text class="ax" x="809.1" y="140.0">600</text><text class="ax" x="871.2" y="140.0">650</text><text class="ax" x="933.3" y="140.0">700</text><text class="ax" x="995.4" y="140.0">750</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 773 ticks (38.65 s).</p><details><summary>Our test's report, step by step (3 lines)</summary><pre class="design">dials 3 code 3 open after 6 gt
+dials 4 code 3 shut after 8 gt
+dials 6 code 6 open after 6 gt</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">dials</th><td>1</td><td class="def"></td></tr>
+<tr><th scope="row">combinations</th><td>tried 16 (8 per code, 2 codes)</td><td class="def"></td></tr>
+<tr><th scope="row">opens within</th><td>6 gt (0.3 s)</td><td class="def"></td></tr>
+<tr><th scope="row">closes within</th><td>8 gt (0.4 s)</td><td class="def"></td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>Put any item in each of the 2 item frames; a frame turns through 8 positions, one right-click each. The 1 dial hang on the front (west) face; the code frames hang on the back (east) face, facing away, so a player at the dials sees only the dials and the output, never the code. Set the code from behind by turning the code frames, then turn the dials to match them: the torch at the north end, under the bus, lights (open) only when every dial shows the same position as its code frame, and never for a moment while you turn. Wire a piston door or an iron door to that torch. Inside, per dial: a comparator behind the code frame&#39;s block reads the code and powers a block beside the code dust, so the dust carries the code at full value; the dial&#39;s comparator passes the dial&#39;s value only if it is at least the code (else a torch under its dust lights), and a second comparator passes the code only if it is at least the dial&#39;s value (else a torch on its block lights). One dust line under all the torches joins every mismatch into the block under its north end, which turns the output torch off (opens within 6 ticks, closes within 8). A dial takes 3 rows; dials pair up back to back, with one empty row between pairs.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/lock/index.html">Combination locks</a></td></tr>
+<tr><th scope="row">Kind</th><td>Combination lock: item frames as dials, opens only at the code</td></tr>
+<tr><th scope="row">Blocks placed</th><td>23 (not counting the input levers or buttons the view adds)</td></tr>
+<tr><th scope="row">Box</th><td>5×3×3 (45 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>comparator, redstone torch, redstone wire</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>D0 (item frame), K0 (item frame) / OUT</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-21T11:44Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere</td></tr>
+<tr><th scope="row">Design file</th><td><code>lock1-hid</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/lock/archive/lock1-hid.txt">on GitHub</a></p><details><summary>Design file (33 lines)</summary><pre class="design"># archived 2026-10-21T11:44Z from designs/circuits/lock/tracks/lock/hid/lock1-hid.txt by mctas circuit archive
+# CIRCUIT: lock1-hid lock 1 dials 1, combinations tried 16 (8 per code, 2 codes), opens within 6 gt, closes within 8 gt, 23 blocks, 5x3x3, robust
+name: lock1-hid
+# Combination lock, 1 dial with the code hidden (study 14, `mctas circuit lock-gen --hidden --n 1`): the dials on the front (west) face, the code frames on the back (east) face facing away; two comparators per dial plus the code&#39;s reader.
+circuit: lock 1
+group: lock-hid
+group title: Combination lock with a hidden code (any number of dials)
+group note: the code frames hang on the back face, facing away from the player; per dial a code reader, two comparators (the dial at least the code, the code at least the dial) and a torch for each failure on one dust bus (`mctas circuit lock-gen --hidden --n N`)
+port input.d0: -3 2 0 frame
+port input.k0: 2 2 2 frame
+port output: 1 0 0
+entity: minecraft:item_frame -2.5 2.5 0.5 {Facing:4b,Item:{id:&quot;minecraft:arrow&quot;,count:1},ItemRotation:0b}
+entity: minecraft:item_frame 2.5 2.5 2.5 {Facing:5b,Item:{id:&quot;minecraft:arrow&quot;,count:1},ItemRotation:3b}
+origin: -3 0 0
+palette:
+  S minecraft:stone
+  w minecraft:redstone_wire
+  T minecraft:comparator[facing=west,mode=compare,powered=false]
+  K minecraft:comparator[facing=east,mode=compare,powered=false]
+  A minecraft:redstone_wall_torch[facing=east,lit=true]
+  O minecraft:redstone_wall_torch[facing=west,lit=true]
+layer 0:
+  ....OS
+  .....S
+  .
+layer 1:
+  ..SSAw
+  ..SS.w
+  ...S
+layer 2:
+  .STw
+  ..wTSA
+  ..SKS
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/dc8ec15a268a4ee1129517e8c16261cbd981c128">vjeux/redstonepedia@dc8ec15a2</a> on <span class="nowrap">2026-10-26</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../pkg/redstonepedia.js?v=efae9c7a"; init({module_or_path: "../../pkg/redstonepedia_bg.wasm?v=71708147"});</script>
+<script type="module">import init from "../../viewer/mcview.js?v=6436f4ee"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=41e34704"});</script>
+</body>
+</html>

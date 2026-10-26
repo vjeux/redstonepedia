@@ -1,0 +1,35 @@
+# archived 2026-10-21T18:36Z from designs/clocks/tracks/clk-obs/usable/clk-obs-p136-bulb-note-obs-stk-9b-fe6d9f-tap.txt by mctas clock archive
+# CLOCK: clk-obs-p136-bulb-note-obs-stk-9b-fe6d9f-tap period 136 gt (6.8 s), on 68/136, edges 1, warmup 6, family comparator+copper_bulb+note_block+observer+sticky_piston, 11 blocks, 2x3x5, robust
+# usable tap (clk-obs `clock obs tap`): a comparator at [-1, 2, 2] (on a block put under it), the output at [-2, 2, 2]
+name: clk-obs-p136-bulb-note-obs-stk-9b-fe6d9f-tap
+port output: -2 2 2
+port start: 0 1 0 last
+origin: -1 0 0
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:stone
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=south]
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  o minecraft:observer[facing=north,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=up]
+layer 0:
+  .N
+  .A
+  .S
+  .s
+  .
+layer 1:
+  .S
+  .o
+  B
+  .
+  .O
+layer 2:
+  .
+  .
+  CW
+  .A
+  .

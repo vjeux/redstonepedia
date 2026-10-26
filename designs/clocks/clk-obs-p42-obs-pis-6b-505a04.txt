@@ -1,0 +1,19 @@
+# archived 2026-10-19T18:35Z from designs/clocks/tracks/clk-obs/families/p42-obs-pis-6b-505a04.txt by mctas clock archive
+# CLOCK: clk-obs-p42-obs-pis-6b-505a04 period 42 gt (2.1 s), on 14/42, edges 7, warmup 8, family observer+piston, 7 blocks, 4x1x3, robust
+# P42: 4 observers, 2 pistons; changing in place: observer, piston. Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its east, added at -2 0 1 (was -1 0 -1: the output [-1, 0, -1] is next to a moving part)
+name: clk-obs-p42-obs-pis-6b-505a04
+port output: -3 0 1
+port start: 0 0 0 last
+origin: -2 0 0
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:piston[extended=false,facing=east]
+  o minecraft:observer[facing=north,powered=false]
+  p minecraft:piston[extended=false,facing=west]
+layer 0:
+  ..Ap
+  OooA
+  ..P

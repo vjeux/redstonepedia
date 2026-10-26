@@ -1,0 +1,19 @@
+# archived 2026-10-19T20:38Z from /tmp/gen/arch2/s3x2x2-k4-census-p46-calibrated_sculk_sensor-observer-piston-sculk_sensor-4b.txt by mctas clock archive
+# CLOCK: census-p46-calibrated_sculk_sensor-observer-piston-sculk_sensor-4b period 46 gt (2.3 s), on 30/46, edges 1, warmup 23, family calibrated_sculk_sensor+observer+piston+sculk_sensor, 4 blocks, 3x2x1, robust
+# Found by `mctas clock census` (box 3x2x2 k<=4) with a sculk palette: s3x2x2-k4-census-p46-calibrated_sculk_sensor-observer-piston-sculk_sensor-4b
+name: census-p46-calibrated_sculk_sensor-observer-piston-sculk_sensor-4b
+census: box 3x2x2 k<=4 (0,0,0=piston[extended=false,facing=east];0,1,0=calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false];1,1,0=observer[facing=east,powered=false];2,1,0=sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false])
+port start: 2 1 0 last
+# port output declared 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on a block put under it) takes every pulse (was 2 0 0: the output [2, 0, 0] is next to a moving part)
+port output: 2 1 -1
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:piston[extended=false,facing=east]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer 0:
+  P
+layer 1:
+  COS

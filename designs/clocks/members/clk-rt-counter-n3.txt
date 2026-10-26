@@ -1,0 +1,49 @@
+# EXTENDABLE comparator counters, n = 3 levels over a fading ring (P114): P = 114 x 14^n; each level
+# a lossless 2 + 2 comparator ring decremented by one level per pulse of the level inside it and
+# refilled by its own torch (26 blocks)
+name: clk-rt-count-x3
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 4 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 3 -1 0
+origin: -2 0 -2
+palette:
+  A minecraft:comparator[facing=north,mode=compare,powered=false]
+  B minecraft:comparator[facing=north,mode=subtract,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:comparator[facing=south,mode=compare,powered=false]
+  E minecraft:comparator[facing=south,mode=subtract,powered=false]
+  F minecraft:comparator[facing=west,mode=compare,powered=false]
+  G minecraft:comparator[facing=west,mode=subtract,powered=false]
+  H minecraft:redstone_wall_torch[facing=north,lit=true]
+  I minecraft:redstone_wall_torch[facing=south,lit=true]
+  J minecraft:redstone_wall_torch[facing=west,lit=true]
+  K minecraft:redstone_wire
+  R minecraft:redstone_block
+  S minecraft:stone
+  c minecraft:comparator[facing=east,mode=subtract,powered=false]
+  r minecraft:redstone_wall_torch[facing=east,lit=true]
+layer 0:
+  .........SS
+  ..SSS....SS
+  ...SSSS..SS
+  ...S.....S
+  .SSS.....S
+  ....S.....SSS
+  ....S.....S
+  ...SS..SSSS
+  ...SSSS..SSS
+  ...S..S
+  ......S
+  .
+layer 1:
+  .........KK
+  ..KFFSr..DA
+  ..ScCKK..DA
+  ...K.....KS
+  RKKE.....KI
+  ...HK.....BKKR
+  ...SK.....K
+  ...DA..KKFGS
+  ...DBKcJSCCK
+  ...KS.K
+  ......K
+  ......R

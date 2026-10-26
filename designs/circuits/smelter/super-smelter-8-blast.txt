@@ -1,0 +1,60 @@
+# archived 2026-10-22T07:16Z from designs/circuits/tracks/super-smelter/bs8-blast.txt by mctas circuit archive
+# CIRCUIT: super-smelter-8-blast smelter 8 minutes for a double chest 36.2, of the ceiling 100% (36.0 min: 8 furnaces always busy), first ingot by 240 gt, spread 432 each, coal left 64 (64 in the machine), at rest yes, hoppers awake 32, coal needed 496 (the load's 432 and a stack), bill 240 iron, 1 quartz, 30 redstone, 108 blocks, 11x6x4, robust
+# B-8, self-clocked (designs/briefs/super-smelter.md, layout B). Per furnace: the input line hopper,
+# a locked hopper that takes one raw iron per window, an open hopper under it that drains it into the
+# furnace top, a locked side hopper that takes one coal per window from the fuel line, the output
+# hopper. The last line hopper faces a comparator: when the line has filled up to it the comparator
+# (through a 4 gt repeater: the window opens 8 gt after the last hopper fills, when every line
+# hopper holds an item) turns the torch off for a few ticks, unlocking every locked hopper once.
+# The next window opens when the line is full again; with the chest empty nothing moves: it rests.
+name: super-smelter-8-blast
+circuit: smelter 8
+judge: chest
+port items: 0 4 0
+port items.b: -1 4 0
+port fuel: 0 2 1
+port output: 8 -1 0
+origin: 0 0 -1
+palette:
+  X minecraft:stone
+  r minecraft:redstone_wire
+  K minecraft:comparator[facing=west,mode=compare,powered=false]
+  P minecraft:repeater[delay=2,facing=west,locked=false,powered=false]
+  t minecraft:redstone_torch[lit=true]
+  O minecraft:hopper[enabled=true,facing=east]
+  F minecraft:blast_furnace[facing=north,lit=false]
+  Y minecraft:hopper[enabled=true,facing=north]
+  E minecraft:hopper[enabled=true,facing=down]
+  D minecraft:hopper[enabled=true,facing=down]
+  T minecraft:hopper[enabled=true,facing=east]
+  L minecraft:hopper[enabled=true,facing=east]
+layer -1:
+  ...........
+  OOOOOOOO...
+  ...........
+  ...........
+layer 0:
+  ...........
+  FFFFFFFF...
+  YYYYYYYY...
+  XXXXXXXXX..
+layer 1:
+  ...........
+  EEEEEEEE...
+  TTTTTTTT...
+  rrrrrrrrrX.
+layer 2:
+  XXXXXXXX...
+  DDDDDDDDXX.
+  ...........
+  .........rX
+layer 3:
+  rrrrrrrrXXX
+  LLLLLLLLKPX
+  ..........X
+  ..........r
+layer 4:
+  ........rrr
+  ..........t
+  ..........r
+  ...........

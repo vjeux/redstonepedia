@@ -1,0 +1,37 @@
+# archived 2026-10-23T08:32Z from /home/vjeux/ws5/strip-game/staged/clk-misc-p608-oak_boat-oak_pressure_plate-stone-water-114b-7feef1.txt by mctas clock archive
+# CLOCK: clk-misc-p608-oak_boat-oak_pressure_plate-stone-water-114b-7feef1 period 608 gt (30.4 s), on 120/608, edges 1, warmup 30, family oak_boat+oak_pressure_plate, 114 blocks, 10x2x12, rotation-dependent
+# the irreducible core of clk-misc-boat-ring-4x6.txt (mctas clock strip, 2026-10-22): removed -1,0,2 stone; 1,-1,2 stone; 2,-1,8 stone; 2,-1,9 stone; 2,0,10 stone; 3,0,3 stone; 3,0,4 stone; 3,0,5 stone; 3,0,6 stone; 4,0,3 stone; 4,0,4 stone; 4,0,5 stone; 4,0,6 stone; 5,-1,0 stone; 5,-1,1 stone; 5,0,-1 stone; 6,-1,7 stone; 7,-1,7 stone; 8,0,7 stone
+name: clk-misc-p608-oak_boat-oak_pressure_plate-stone-water-114b-7feef1
+port output: -1 -1 2
+entity: minecraft:oak_boat 6.8 0 1
+origin: -1 0 -1
+palette:
+  O minecraft:oak_pressure_plate[powered=false]
+  S minecraft:stone
+  W minecraft:water[level=0]
+layer -1:
+  .
+  .SSSSS.SS
+  .SSSSS.SS
+  .S.....SS
+  .SS....SS
+  .SS....SS
+  .SS....SS
+  .SS....SS
+  .SS
+  .SS.SSSSS
+  .SS.SSSSS
+  .
+layer 0:
+  .SSSSS.SS
+  S.....OW.S
+  SWW...OW.S
+  .OOSSSS..S
+  S..S..S..S
+  S..S..S..S
+  S..S..S..S
+  S..S..S..S
+  S..SSSSOO
+  S.WO...WWS
+  S.WO.....S
+  .SS.SSSSS

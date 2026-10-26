@@ -1,0 +1,24 @@
+# archived 2026-10-19T20:34Z from designs/clocks/tracks/clk-obs/mech2/p6-obs-stk-5b-b-cffd3f.txt by mctas clock archive
+# CLOCK: clk-obs-p6-obs-stk-5b-b-cffd3f period 6 gt (0.3 s), on 2/6, edges 1, warmup 4, family observer+sticky_piston, 5 blocks, 1x3x2, robust
+name: clk-obs-p6-obs-stk-5b-b-cffd3f
+# P6: 3 observers, 1 redstone lamp, 1 sticky piston; changing in place: observer, sticky_piston (redstone lamp only moved or static). Found by the clk-obs exhaustive census of every 5-block structure (all orientations, every block placed last as a kick); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing west (on the ground) takes every pulse (was 0 -1 1: the output [0, -1, 1] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: -1 0 1
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:redstone_lamp[lit=false]
+  C minecraft:observer[facing=down,powered=false]
+  D minecraft:observer[facing=up,powered=false]
+  E minecraft:sticky_piston[extended=false,facing=south]
+layer 0:
+  A
+  B
+layer 1:
+  C
+  D
+layer 2:
+  E
+  .

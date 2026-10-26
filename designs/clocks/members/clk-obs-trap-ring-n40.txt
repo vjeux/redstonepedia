@@ -1,0 +1,15 @@
+name: clk-obs-trap-ring-n40
+# Extendable family trap-ring (n = 40): P = 10 + 4n gt, 6 + 2n blocks. an iron trapdoor after a straight observer opens and closes with its power at once and is watched by the next observer: a lattice cell without delay, so an odd number of observers closes the ring. Extension: insert 2 observers: one more column in the 2-wide ring. Generator: mctas clock obs family trap-ring --n N --out FILE.
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 0 1
+port start: 0 0 0 last
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  D minecraft:observer[facing=north,powered=false]
+  E minecraft:observer[facing=east,powered=false]
+layer 0:
+  ABCBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+  EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEED

@@ -1,0 +1,25 @@
+# archived 2026-10-20T23:54Z from designs/clocks/tracks/clk-misc/cart/cart-pingpong-bare.txt by mctas clock archive
+# CLOCK: clk-misc-cart-pingpong-bare period 40 gt (2 s), on 20/40, edges 1, warmup 0, family detector_rail+minecart+powered_rail, 14 blocks, 7x2x2, robust
+name: clk-misc-cart-pingpong-bare
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (no output before)
+port output: 2 -1 -1
+# Minecart ping-pong, bare (track S P D L L P S, 14 pieces: blocks, 1 levers and the cart). An empty minecart bounces between two stone bumpers on a
+# straight track: the powered rail at each end launches the resting cart away from the bumper behind it and speeds it up; it
+# coasts over the plain rails, is sped up by the east stretch of powered rails, stops against the far bumper and is launched back.
+# A switched-on lever on a support powers the east stretch; the detector rail next to the west end powers the west launcher: it
+# turns on as the cart passes and off at its next 20 gt check once the cart has left. The cart starts on the east launcher. Every
+# bounce clamps the cart against a bumper, so from the second lap its motion repeats exactly.
+entity: minecraft:minecart 5.5 0.0625 0.5
+origin: 0 0 -1
+palette:
+  D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  L minecraft:lever[face=wall,facing=north,powered=true]
+  P minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  R minecraft:rail[shape=east_west,waterlogged=false]
+  S minecraft:stone
+layer -1:
+  .....L
+  .SSSSS
+layer 0:
+  .
+  SPDRRPS

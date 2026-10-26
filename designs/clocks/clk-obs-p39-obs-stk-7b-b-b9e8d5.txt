@@ -1,0 +1,24 @@
+# archived 2026-10-19T20:21Z from designs/clocks/tracks/clk-obs/mech2/p39-obs-stk-7b-b-b9e8d5.txt by mctas clock archive
+# CLOCK: clk-obs-p39-obs-stk-7b-b-b9e8d5 period 39 gt (1.95 s), on 2/39, edges 1, warmup 13, family observer+sticky_piston, 7 blocks, 3x3x3, rotation-dependent
+name: clk-obs-p39-obs-stk-7b-b-b9e8d5
+# P39: 3 observers, 3 sticky pistons, 1 stone; changing in place: observer, sticky_piston (stone only moved or static). Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 1 2 0
+port start: 0 0 0 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=up]
+  B minecraft:observer[facing=north,powered=false]
+  C minecraft:sticky_piston[extended=false,facing=east]
+  D minecraft:observer[facing=west,powered=false]
+  E minecraft:stone
+  F minecraft:observer[facing=south,powered=false]
+  G minecraft:sticky_piston[extended=false,facing=west]
+layer 0:
+  AE
+  BF
+  C.
+layer 1:
+  DG
+  ..
+  ..

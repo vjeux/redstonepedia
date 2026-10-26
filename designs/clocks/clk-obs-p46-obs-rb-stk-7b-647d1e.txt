@@ -1,0 +1,34 @@
+# archived 2026-10-19T19:13Z from designs/clocks/tracks/clk-obs/families/p46-obs-rb-stk-7b-647d1e.txt by mctas clock archive
+# CLOCK: clk-obs-p46-obs-rb-stk-7b-647d1e period 46 gt (2.3 s), on 23/46, edges 1, warmup 3, family observer+redstone_block+sticky_piston, 7 blocks, 1x3x5, robust
+name: clk-obs-p46-obs-rb-stk-7b-647d1e
+# P46: 2 observers, 1 redstone block, 4 sticky pistons; changing in place: observer, redstone_block, sticky_piston. Found by the clk-obs grow search (minimal clocks extended or changed one block at a time); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+origin: 0 0 -2
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 0 -2
+port start: 0 0 0 last
+palette:
+  A minecraft:sticky_piston[extended=false,facing=south]
+  B minecraft:redstone_block
+  C minecraft:sticky_piston[extended=false,facing=north]
+  D minecraft:observer[facing=north,powered=false]
+  E minecraft:sticky_piston[extended=false,facing=up]
+  F minecraft:sticky_piston[extended=false,facing=down]
+  G minecraft:observer[facing=south,powered=false]
+layer -1:
+  A
+  .
+  .
+  .
+  .
+layer 0:
+  .
+  B
+  C
+  D
+  E
+layer 1:
+  .
+  .
+  F
+  G
+  .

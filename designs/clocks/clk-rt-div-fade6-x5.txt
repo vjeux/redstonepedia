@@ -1,0 +1,57 @@
+# archived 2026-10-19T18:41Z from designs/clocks/tracks/clk-rt/div/div-fade6-x5.txt by mctas clock archive
+# CLOCK: clk-rt-div-fade6-x5 period 10816 gt (9 min 0.8 s), on 5408/10816, edges 1, warmup 24, family comparator+redstone_torch+redstone_wire+repeater, 124 blocks, 10x2x17, robust
+# Divider chain (clk-rt): a base comparator FADING ring (6 + 6 compare comparators keep a strength
+# that drops one level per lap; a wall torch refills the empty ring) and 5 master-slave T flip-flop
+# stage(s) (two latch repeaters locked alternately by repeaters reading the previous torch and its
+# block; the slave's dust bends into a target block holding a torch whose output runs back to the
+# master): period = the ring's x 2^5
+name: clk-rt-div-fade6-x5
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 3 1 -16: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 5 0 -14: the output [5, 0, -14] has no free line outward (the next cell taken, or next to the build))
+port output: 2 0 -16
+origin: 0 0 -16
+palette:
+  A minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  B minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  T minecraft:target
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  r minecraft:redstone_wire
+layer 0:
+  ....SS
+  ..SSSS
+  ...SS
+  .....SS
+  ...SSSS
+  ....SS
+  ......SS
+  ....SSSS
+  .....SS
+  .......SS
+  .....SSSS
+  ......SS
+  ........SS
+  ......SSSS
+  .......SS
+  SSSSSSS
+  SSSSSSSSS
+layer 1:
+  ..TRrr
+  ..rAAr
+  ...BB
+  ...TRrr
+  ...rAAr
+  ....BB
+  ....TRrr
+  ....rAAr
+  .....BB
+  .....TRrr
+  .....rAAr
+  ......BB
+  ......TRrr
+  ......rAAr
+  .......BB
+  rccccccSR
+  rCCCCCCrr

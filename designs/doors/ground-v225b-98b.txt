@@ -1,0 +1,49 @@
+# verified WORKS by door leaderboard: 98 blocks, category solid
+# archived 2026-10-18 22:54Z from HEAD:designs/piston-door-3x3/tracks/ground/BEST.txt (repo at f760dea)
+name: ground-v225b
+port door: 0 0 0
+port lever: 1 3 -1
+origin: -3 0 -2
+palette:
+  A minecraft:observer[facing=north,powered=false]
+  B minecraft:observer[facing=south,powered=false]
+  C minecraft:observer[facing=up,powered=false]
+  D minecraft:observer[facing=west,powered=false]
+  E minecraft:sticky_piston[extended=false,facing=south]
+  F minecraft:sticky_piston[extended=false,facing=west]
+  G minecraft:stone
+  L minecraft:lever[face=wall,facing=north,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  S minecraft:sticky_piston[extended=false,facing=east]
+  o minecraft:observer[facing=east,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=north]
+layer 0:
+  .......C
+  .......A
+  .S.GGG.FF
+  .B....sBB
+  .oC....CC
+layer 1:
+  ......CoB
+  ..E...A.C
+  SS.GGG.FC
+  ......COD
+  CDD....CA
+layer 2:
+  .C....BDD
+  .AE...C.A
+  SS.GGG.FA
+  BB....ooB
+  CO.....CD
+layer 3:
+  .ooCBD
+  ..C.LAB
+  C.C.GABCO
+  A....AO
+  A....ADD
+layer 4:
+  .ODoB
+  ooA.oO
+  ADD....oO
+  .
+  .

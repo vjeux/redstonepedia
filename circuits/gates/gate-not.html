@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en" data-mcview-textures="../../textures/26.3">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logic gate: NOT · 1 block · REDSTONEPEDIA</title>
+<meta name="description" content="Logic gate: NOT · 1 block. NOT gate, 1 block: a wall torch hanging on the input block itself. The input powers that block, the torch goes out, and the torch is the output: lit exactly whe">
+<meta property="og:title" content="Logic gate: NOT · 1 block · REDSTONEPEDIA">
+<meta property="og:description" content="Logic gate: NOT · 1 block. NOT gate, 1 block: a wall torch hanging on the input block itself. The input powers that block, the torch goes out, and the torch is the output: lit exactly whe">
+<meta property="og:site_name" content="REDSTONEPEDIA">
+<link rel="stylesheet" href="../../style.css?v=3fef2398">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+</head>
+<body>
+<header class="top"><a class="logo" href="../../index.html"><span class="logo-dot"></span>REDSTONEPEDIA</a><nav class="tabs-top" aria-label="kinds"><a id="tab-door" class="tab-top" href="../../index.html#kind=door">Doors <span class="count">11</span></a><a id="tab-clock" class="tab-top" href="../../index.html#kind=clock">Clocks <span class="count">4742</span></a><a id="tab-circuit" class="tab-top on" href="../../index.html#kind=circuit">Circuits <span class="count">69</span></a></nav><form id="hsearch" class="hsearch" action="../../index.html" method="get" role="search"><input type="hidden" name="kind" value="circuit"><input id="hq" name="q" type="search" placeholder="Search: toggle, timer, 12…" aria-label="Search" autocomplete="off"></form></header>
+<main>
+<p class="crumbs"><a href="../../index.html">REDSTONEPEDIA</a> › <a href="../../circuits/index.html">Circuits</a> › <a href="../../circuits/gates/index.html">Logic gates</a></p>
+<p class="kindline">Logic gate</p>
+<h1>NOT · 1 block</h1>
+<p class="oneliner">The output is on when the input is off, and off when the input is on.</p>
+<p class="lede">passed at every position and facing we tested · reacts in 2 ticks (0.1 s) · made of redstone torch · fits in 1×1×1</p>
+<div class="viewer k-circuit" data-mcview="full" data-src="../../designs/circuits/gates/gate-not.txt" data-stimulus="in 40+ 60-" data-phases="0-40 0 (rest); 40-60 1; 60-80 0" data-input-mode="toggle" data-circuit="gate not" data-kind="circuit"><div class="fallback"><span class="fb-big">NOT</span><span class="fb-small">Logic gate</span><span class="fb-note">3D view loading (or not available in this browser)</span></div></div>
+<section class="what plain"><h2>Try it</h2><p>Tap IN under the view to turn the input on, again to turn it off: the box marked OUT turns red while the output is on. Press play under the view to watch our test on a loop; touch any other control to take over.</p><p class="howdesign"><b>How this design does it:</b> NOT gate, 1 block: a wall torch hanging on the input block itself.</p></section>
+<section><h2>Build it</h2><p><a class="button" href="../../designs/circuits/gates/gate-not.litematic" download>Download .litematic</a> <a class="button alt" href="../../designs/circuits/gates/gate-not.txt" download>Download the design as text</a></p>
+<p class="hint">The .litematic opens in <a href="https://github.com/maruohon/litematica">Litematica</a> (Minecraft 26.3): every block of the design in one region. Verified in the real game. The text file is the same build written as plain text, block by block.</p>
+<p>Blocks used: <a class="chip" href="../../index.html#with=redstone_torch">redstone torch</a></p></section>
+<details class="more"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>
+<section class="what"><h2>In depth</h2><p>A logic gate: the output depends only on the input right now. <b>NOT</b>: the output is the opposite of the input: on while the input is off, off while it is on.</p><table class="truth"><thead><tr><th>IN</th><th>OUT</th></tr></thead><tbody><tr><td class="off">off</td><td class="on">on</td></tr><tr><td class="on">on</td><td class="off">off</td></tr></tbody></table><p>The output settles 2 gt (0.1 s) after an input changes.</p></section>
+<section><h2>How to try it</h2><p><b>Press play under the view to watch the judge's own test</b> on a loop (the badge reads <i>demo</i> with the step it is on; the same test is drawn as a timing diagram below). Touch any control to stop it and try the circuit yourself.</p><p>To try it: tap the <b>IN</b> button of the bar (or the cell tagged IN) to turn that input on or off (it powers the cell with a redstone block).</p><p>Inputs are tagged in <span class="tag-in">lime</span>; the output is tagged <span class="tag-out">OUT</span>: the orange glass marker next to it <b>glows while the output is on</b> (the output strip by the demo badge shows its last 40 game ticks, 2 seconds). Drag to look around, pinch or scroll to zoom, step one game tick at a time with the step button.</p></section>
+<section><h2>Our test in the real game</h2><p>The judge drives the input with this schedule and checks the output after every change; here it is simulated (the 3D view's demo plays the same). <span class="tag-in">Lime</span>: an input is on; <span class="tag-out">orange</span>: the output is on (taller = a stronger signal, 1 to 15). Time runs left to right in game ticks (20 gt = 1 s).</p><div class="wave-wrap"><svg class="wave" xmlns="http://www.w3.org/2000/svg" width="1032" height="112" viewBox="0 0 1032 112" role="img" aria-label="timing diagram of the judge's test"><line class="ph" x1="64.0" y1="18.0" x2="64.0" y2="94.0"/><text class="phl" x="67.0" y="14.0">0 (rest)</text><line class="ph" x1="538.1" y1="18.0" x2="538.1" y2="94.0"/><text class="phl" x="541.1" y="14.0">1</text><line class="ph" x1="775.1" y1="18.0" x2="775.1" y2="94.0"/><text class="phl" x="778.1" y="14.0">0</text><text class="wl" x="4" y="46.0">IN</text><line class="base" x1="64.0" y1="48.0" x2="1024.0" y2="48.0"/><polygon class="win" points="64.0,48.0 64.0,48.0 538.1,48.0 538.1,28.0 775.1,28.0 775.1,48.0 1024.0,48.0 1024.0,48.0"/><text class="wl" x="4" y="80.0">OUT</text><line class="base" x1="64.0" y1="82.0" x2="1024.0" y2="82.0"/><polygon class="wout" points="64.0,82.0 64.0,62.0 561.8,62.0 561.8,82.0 798.8,82.0 798.8,62.0 1024.0,62.0 1024.0,82.0"/><text class="ax" x="4" y="106.0">ticks</text><text class="ax" x="64.0" y="106.0">0</text><text class="ax" x="123.3" y="106.0">5</text><text class="ax" x="182.5" y="106.0">10</text><text class="ax" x="241.8" y="106.0">15</text><text class="ax" x="301.0" y="106.0">20</text><text class="ax" x="360.3" y="106.0">25</text><text class="ax" x="419.6" y="106.0">30</text><text class="ax" x="478.8" y="106.0">35</text><text class="ax" x="538.1" y="106.0">40</text><text class="ax" x="597.3" y="106.0">45</text><text class="ax" x="656.6" y="106.0">50</text><text class="ax" x="715.9" y="106.0">55</text><text class="ax" x="775.1" y="106.0">60</text><text class="ax" x="834.4" y="106.0">65</text><text class="ax" x="893.6" y="106.0">70</text><text class="ax" x="952.9" y="106.0">75</text><text class="ax" x="1012.1" y="106.0">80</text></svg></div><p class="hint phone-only">Swipe the diagram sideways: the whole test lasts 81 ticks (4.05 s).</p><details><summary>Our test's report, step by step (3 lines)</summary><pre class="design">0 (rest): output 1
+-&gt; 1: output 0 after 2 gt
+-&gt; 0: output 1 after 2 gt</pre></details></section>
+<section><h2>Measurements</h2><p class="hint">Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).</p><table class="props metrics"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody><tr><th scope="row">function</th><td>not</td><td class="def">the logic function the truth table names</td></tr>
+<tr><th scope="row">latency</th><td>2 gt (0.1 s)</td><td class="def">the worst time from an input change to the output&#39;s change</td></tr>
+<tr><th scope="row">tileable</th><td>every 1 (0 0 1)</td><td class="def"></td></tr>
+</tbody></table></section>
+<section><h2>Notes from its designer</h2><p>NOT gate, 1 block: a wall torch hanging on the input block itself. The input powers that block, the torch goes out, and the torch is the output: lit exactly when the input is off. A row of them side by side inverts a whole bus.</p></section>
+<section><h2>Properties</h2><table class="props">
+<tr><th scope="row">Study</th><td><a href="../../circuits/gates/index.html">Logic gates</a></td></tr>
+<tr><th scope="row">Kind</th><td>Logic gate</td></tr>
+<tr><th scope="row">Blocks placed</th><td>1 (not counting the input levers or buttons the view adds)</td></tr>
+<tr><th scope="row">Box</th><td>1×1×1 (1 blocks of space)</td></tr>
+<tr><th scope="row">Made of (the blocks that change state)</th><td>redstone torch</td></tr>
+<tr><th scope="row">Works in any direction, anywhere</th><td>yes: not directional or locational (the same behavior facing all 4 ways and at 4 different spots in the world, in the real game)</td></tr>
+<tr><th scope="row">Inputs / outputs</th><td>IN (repeater) / OUT</td></tr>
+<tr><th scope="row">Archived</th><td>2026-10-20T21:52Z</td></tr>
+<tr><th scope="row">Flags</th><td>works in any direction, anywhere</td></tr>
+<tr><th scope="row">Design file</th><td><code>gate-not</code></td></tr>
+</table></section>
+<section><h2>The design file</h2><p><a href="https://github.com/vjeux/redstonepedia/blob/main/designs/circuits/gates/archive/gate-not.txt">on GitHub</a></p><details><summary>Design file (13 lines)</summary><pre class="design"># archived 2026-10-20T21:52Z from designs/circuits/gates/tracks/gates/gate-not.txt by mctas circuit archive
+# CIRCUIT: gate-not gate not function not, latency 2 gt, tileable every 1 (0 0 1), 1 blocks, 1x1x1, robust
+# NOT gate, 1 block: a wall torch hanging on the input block itself. The input powers that block, the torch goes out, and the torch is the output: lit exactly when the input is off. A row of them side by side inverts a whole bus.
+name: gate-not
+circuit: gate not
+tile: 0 0 1
+port input: 0 1 0
+port output: 1 1 0
+origin: 1 0 0
+palette:
+  T minecraft:redstone_wall_torch[facing=east,lit=true]
+layer 1:
+  T
+</pre></details></section>
+</details>
+
+</main>
+<footer>Built from <a href="https://github.com/vjeux/redstonepedia/tree/dc8ec15a268a4ee1129517e8c16261cbd981c128">vjeux/redstonepedia@dc8ec15a2</a> on <span class="nowrap">2026-10-26</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>
+<script type="module">import init from "../../viewer/mcview.js?v=6436f4ee"; init({module_or_path: "../../viewer/mcview_bg.wasm?v=41e34704"});</script>
+</body>
+</html>

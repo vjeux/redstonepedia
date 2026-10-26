@@ -1,0 +1,28 @@
+# archived 2026-10-20T11:05Z from designs/circuits/tracks/bud/bud-slime-qc.txt by mctas circuit archive
+# CIRCUIT: bud-slime-qc bud detects place remove state update, latency 3 gt, pulse 1 gt, re-arm 6 gt, jams update pair 2 gt apart, footprint 5 cells, tileable every 2 (0 0 2), 3 blocks, 1x4x1, robust
+name: bud-slime-qc
+circuit: bud
+tile: 0 0 2
+# The observer-free BUD, armed by quasi-connectivity: a sticky piston facing up under a slime block
+# and a redstone block. The redstone block powers the piston only through the cell above it, and
+# nothing updates the piston when that power is there, so it sits armed until a block update
+# reaches its cell (a block placed, removed or changed beside it, or a pure update). Then it extends:
+# the slime block lifts the redstone block beside the output for 1 gt, where it no longer powers the
+# piston; the landing slime block updates the piston through its head, it retracts and pulls both
+# back, the redstone block landing last, so the piston is armed again without an update. A
+# shape-only change sends no block update: not detected. Two updates 2 gt apart jam it.
+origin: 0 0 0
+port target: 1 0 0
+port output: 1 3 0
+palette:
+  P minecraft:sticky_piston[extended=false,facing=up]
+  S minecraft:slime_block
+  R minecraft:redstone_block
+layer 0:
+  P.
+layer 1:
+  S.
+layer 2:
+  R.
+layer 3:
+  ..

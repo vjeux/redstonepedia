@@ -1,0 +1,34 @@
+# archived 2026-10-19T22:31Z from /tmp/gen/arch3/ring3p-p35-1.txt by mctas clock archive
+# CLOCK: clk-sculk-ring3p-p35-1 period 35 gt (1.75 s), on 10/35, edges 1, warmup 11, family calibrated_sculk_sensor, 8 blocks, 7x1x17, robust
+# CLOCK: clk-sculk-ring3p-p35-1 period 35 gt (1.75 s), on 10/35, edges 1, warmup 11, family calibrated_sculk_sensor, 8 blocks, 7x1x17, robust
+# built by `mctas clock sculk`: ring of 3 calibrated sensors, hops [15,5,15], kick: a note block behind the first sensor, 1 wool shielding the kick
+name: clk-sculk-ring3p-p35-1
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing west (on the ground) takes every pulse (was 0 -1 0: the output [0, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: -1 0 15
+port start: -1 0 0 use
+origin: -1 0 0
+palette:
+  A minecraft:amethyst_block
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  W minecraft:white_wool
+  c minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer 0:
+  NCA
+  .
+  .
+  W
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .c....A
+  .A....c

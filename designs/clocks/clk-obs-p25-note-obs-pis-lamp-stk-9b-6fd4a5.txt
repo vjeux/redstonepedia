@@ -1,0 +1,32 @@
+# archived 2026-10-23T06:35Z from /home/vjeux/ws5/strip1/staged/clk-obs-p25-note-obs-pis-lamp-stk-9b-6fd4a5.txt by mctas clock archive
+# CLOCK: clk-obs-p25-note-obs-pis-lamp-stk-9b-6fd4a5 period 25 gt (1.25 s), on 2/25, edges 1, warmup 24, family observer+piston+redstone_lamp+sticky_piston, 9 blocks, 2x4x3, robust
+# the irreducible core of clk-obs-p50-lamp-note-obs-pis-stk-9b-1a1e41.txt (mctas clock strip, 2026-10-22): removed 0,-1,1 observer[facing=north,powered=false]
+name: clk-obs-p25-note-obs-pis-lamp-stk-9b-6fd4a5
+port output: -2 2 1
+port start: 0 0 0 last
+origin: -1 0 0
+palette:
+  A minecraft:observer[facing=north,powered=false]
+  B minecraft:observer[facing=south,powered=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=down]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:sticky_piston[extended=false,facing=down]
+  o minecraft:observer[facing=east,powered=false]
+layer -1:
+  .
+  .
+  .N
+layer 0:
+  .P
+  .B
+  .
+layer 1:
+  .O
+  .A
+  .S
+layer 2:
+  .R
+  oA
+  .

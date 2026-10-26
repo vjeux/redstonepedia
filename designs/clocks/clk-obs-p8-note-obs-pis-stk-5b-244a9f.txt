@@ -1,0 +1,22 @@
+# archived 2026-10-19T18:21Z from designs/clocks/tracks/clk-obs/families/p8-note-obs-pis-stk-5b-244a9f.txt by mctas clock archive
+# CLOCK: clk-obs-p8-note-obs-pis-stk-5b-244a9f period 8 gt (0.4 s), on 2/8, edges 1, warmup 4, family note_block+observer+piston+sticky_piston, 5 blocks, 1x2x4, robust
+name: clk-obs-p8-note-obs-pis-stk-5b-244a9f
+# P8: 1 note block, 2 observers, 1 piston, 1 sticky piston; changing in place: note_block, observer, piston, sticky_piston. Found by the clk-obs exhaustive census of every 5-block structure (all orientations, every block placed last as a kick); minimal: no single block can be removed keeping the period. Output: the changing observer with the most rising edges (declared, so every rotation reads the same cell).
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 0 0 -1
+port start: 0 1 0 last
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:sticky_piston[extended=false,facing=north]
+  C minecraft:note_block[instrument=basedrum,note=0,powered=false]
+  D minecraft:observer[facing=north,powered=false]
+  E minecraft:piston[extended=false,facing=south]
+layer 0:
+  A
+  .
+  B
+layer 1:
+  C
+  D
+  E

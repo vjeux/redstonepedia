@@ -1,0 +1,22 @@
+# archived 2026-10-19T20:41Z from /tmp/gen/arch2/s3x3x1-k4-census-p44-note_block-observer-piston-sculk_sensor-4b.txt by mctas clock archive
+# CLOCK: census-p44-note_block-observer-piston-sculk_sensor-4b period 44 gt (2.2 s), on 30/44, edges 1, warmup 0, family note_block+observer+piston+sculk_sensor, 4 blocks, 2x3x1, robust
+# Found by `mctas clock census` (box 3x3x1 k<=4) with a sculk palette: s3x3x1-k4-census-p44-note_block-observer-piston-sculk_sensor-4b
+name: census-p44-note_block-observer-piston-sculk_sensor-4b
+census: box 3x3x1 k<=4 (0,0,0=note_block[instrument=harp,note=0,powered=false];0,1,0=observer[facing=up,powered=false];0,2,0=sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false];1,0,0=piston[extended=false,facing=up])
+port start: 0 2 0 last
+# port output declared 2026-10-20 (clk-misc): the cell the judge measures as this clock's automatic output, so
+# clock sim reads it the same way (re-judged in the game: its CLOCK line is unchanged)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 1 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 2 0
+origin: 0 0 0
+palette:
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=up,powered=false]
+  P minecraft:piston[extended=false,facing=up]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+layer 0:
+  NP
+layer 1:
+  O
+layer 2:
+  S

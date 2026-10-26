@@ -1,0 +1,20 @@
+# archived 2026-10-19T15:47Z from /tmp/clk-in/clk-rt--cmp-sub-4.txt by mctas clock archive
+# CLOCK: clk-rt-cmp-sub-4 period 4 gt (0.2 s), on 2/4, edges 1, warmup 2, family comparator+redstone_wire, 9 blocks, 3x2x2, robust
+# Comparator subtract clock (draft, clk-rt): rear = redstone block (15), output -> 3 dust -> side.
+# Expected: output alternates 15 / 2 every 2 gt (period 4), the last dust 13 / 0.
+name: clk-rt-cmp-sub-4
+origin: -1 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing west (on the ground) takes every pulse (was 0 -1 1: the output [0, -1, 1] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: -1 0 1
+palette:
+  S minecraft:stone
+  R minecraft:redstone_block
+  C minecraft:comparator[facing=west,mode=subtract,powered=false]
+  w minecraft:redstone_wire
+layer 0:
+  .SS
+  .SS
+layer 1:
+  RCw
+  .ww

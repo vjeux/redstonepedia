@@ -1,0 +1,25 @@
+# archived 2026-10-19T17:30Z from /tmp/clk-in7/clk-rt--fade--sweep--uloop-p142.txt by mctas clock archive
+# CLOCK: clk-rt-uloop-p142-21b period 142 gt (7.1 s), on 140/142, edges 1, warmup 6, family comparator+redstone_torch+redstone_wire, 21 blocks, 6x2x2, robust
+# Comparator FADING ring (clk-rt): block A + dust beside it -> top row [dust, comparator,
+# comparator] -> block F -> dust beside F (a wall torch on F lights when the ring is empty and
+# refills it through a dust beside it) -> bottom row [comparator, comparator, comparator] -> back;
+# the compare-mode comparators keep a signal strength, each dust-to-dust step loses one level per
+# lap, and the torch refills the ring at 0
+name: clk-rt-uloop-p142-21b
+uloop: C-d,c,c-c,c,c-F
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 5 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 4 -1 0: the output [4, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 4 0 -1
+origin: 0 0 -1
+palette:
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  r minecraft:redstone_wire
+layer 0:
+  SSSS
+  .SSSSS
+layer 1:
+  rrccSR
+  SCCCrr

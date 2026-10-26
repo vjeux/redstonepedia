@@ -1,0 +1,17 @@
+# archived 2026-10-20T14:27Z from designs/circuits/tff/tracks/tff/tff-bulb.txt by mctas circuit archive
+# CIRCUIT: tff-bulb tff latency 2 gt, edge rising, min-pulse 2 gt (the shortest a real input makes), min-period 4 gt (the shortest a real input makes), tileable every 2 (0 0 2), 3 blocks, 2x2x1, robust
+# T flip-flop, 3 blocks: the input powers a waxed copper bulb, which toggles on every rising edge of its power; a comparator on a stone reads the bulb and is the output. Latency 2 ticks, and it follows pulses every 4 ticks. For a toggle on the FALLING edge, hang the 1-block NOT (a wall torch) on the input block and let the torch power the bulb. A row of them tiles at pitch 2: at pitch 1 the comparators would sit side by side and each one's side input would suppress its neighbour (ComparatorBlock.getAlternateSignal).
+name: tff-bulb
+circuit: tff
+tile: 0 0 2
+port input: -1 1 0
+port output: 2 1 0
+origin: 0 0 0
+palette:
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+layer 0:
+  .S
+layer 1:
+  WC

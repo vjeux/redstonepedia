@@ -1,0 +1,20 @@
+# archived 2026-10-20T00:42Z from /tmp/gen/arch5/climb2-p308-1.txt by mctas clock archive
+# CLOCK: clk-sculk-climb2-p308-1 period 308 gt (15.4 s), on 210/308, edges 7, warmup 8, family calibrated_sculk_sensor+note_block+observer+piston+sculk_sensor, 7 blocks, 4x2x2, robust
+# Found by the long-period hunt `mctas clock sculk climb` (random one-block mutations that keep the period growing, composites refused) then reduced to a minimal design (climb from census-p260-calibrated_sculk_sensor-dispenser-note_block-observer-sculk_sensor-6b (walker 37))
+name: clk-sculk-climb2-p308-1
+# how: climb from census-p260-calibrated_sculk_sensor-dispenser-note_block-observer-sculk_sensor-6b (walker 37)
+port start: 0 0 0 last
+# port output declared 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing south (on a block put under it) takes every pulse (was 0 -1 1: with a repeater in the output cell, no signal (it never turns on))
+port output: 0 0 2
+origin: 0 0 0
+palette:
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=west,powered=false]
+  P minecraft:piston[extended=false,facing=down]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  s minecraft:stone
+layer 0:
+  COs
+  SONP

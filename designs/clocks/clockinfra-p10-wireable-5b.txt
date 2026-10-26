@@ -1,0 +1,18 @@
+# archived 2026-10-21T18:35Z from /tmp/wire/stage2/clockinfra-p10-wireable-5b.txt by mctas clock archive
+# CLOCK: clockinfra-p10-wireable-5b period 10 gt (0.5 s), on 2/10, edges 1, warmup 4, family observer+piston+sticky_piston, 5 blocks, 3x2x2, robust
+# A 10-tick clock a builder can wire, one block over the 4-block record (clockinfra, 2026-10-21, the wireable-clocks job: clock wire-search from clk-obs-p10-obs-pis-stk-4b-1426f2): a repeater facing out of its output cell takes every pulse.
+name: clockinfra-p10-wireable-5b
+port output: 0 -1 1
+port start: 2 -1 2 last
+origin: 0 0 1
+palette:
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=north]
+  S minecraft:sticky_piston[extended=false,facing=east]
+  o minecraft:observer[facing=east,powered=false]
+layer -2:
+  .
+  SO
+layer -1:
+  .o
+  .oP

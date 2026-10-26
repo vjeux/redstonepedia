@@ -1,0 +1,33 @@
+# archived 2026-10-20T01:59Z from designs/clocks/tracks/clk-obs/families9/p67-note-obs-stk-9b-11c222.txt by mctas clock archive
+# CLOCK: clk-obs-p67-note-obs-stk-9b-11c222 period 67 gt (3.35 s), on 2/67, edges 1, warmup 10, family note_block+observer+sticky_piston, 9 blocks, 1x3x5, robust
+name: clk-obs-p67-note-obs-stk-9b-11c222
+# clk-obs grow: P=67 (redsim), family note_block+observer+sticky_piston, kick last 0 1 0, swept volume 15.
+origin: 0 0 0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 2 2
+port start: 0 1 0 last
+palette:
+  A minecraft:note_block[instrument=harp,note=0,powered=false]
+  B minecraft:observer[facing=south,powered=false]
+  C minecraft:sticky_piston[extended=false,facing=south]
+  D minecraft:sticky_piston[extended=false,facing=up]
+  E minecraft:observer[facing=north,powered=false]
+  F minecraft:observer[facing=down,powered=false]
+layer 0:
+  A
+  B
+  C
+  D
+  .
+layer 1:
+  C
+  E
+  .
+  .
+  F
+layer 2:
+  .
+  .
+  A
+  B
+  .

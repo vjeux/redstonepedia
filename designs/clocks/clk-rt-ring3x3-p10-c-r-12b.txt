@@ -1,0 +1,25 @@
+# archived 2026-10-19T17:30Z from designs/clocks/tracks/clk-rt/ring/3x3/ring3x3-p10-c-r.txt by mctas clock archive
+# CLOCK: clk-rt-ring3x3-p10-c-r-12b period 10 gt (0.5 s), on 2/10, edges 1, warmup 4, family comparator+repeater, 13 blocks, 4x2x3, robust
+# Rectangle ring (clk-rt): the 3x3 perimeter clockwise from the north-west corner = [b, 1*, b, 1*,
+# b, 2, b, c] (number = repeater delay, * = powered at placement, b = block, d = dust, T = wall
+# torch on the block before it, c = comparator); 0 torches: a pulse ring of loop delay 10 gt
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 1 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its east, added at -1 1 1 (was 0 0 0: with a repeater in the output cell, no signal (it never turns on))
+name: clk-rt-ring3x3-p10-c-r-12b
+port output: -2 1 1
+origin: -1 0 0
+palette:
+  A minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  R minecraft:repeater[delay=1,facing=north,locked=false,powered=true]
+  S minecraft:stone
+  r minecraft:repeater[delay=1,facing=west,locked=false,powered=true]
+layer 0:
+  ..S
+  .S.S
+  ..S
+layer 1:
+  .SrS
+  OC.R
+  .SAS

@@ -1,0 +1,26 @@
+# archived 2026-10-23T06:37Z from /home/vjeux/ws5/strip1/staged/clk-obs-p17-obs-rb-stk-6b-c2b222.txt by mctas clock archive
+# CLOCK: clk-obs-p17-obs-rb-stk-6b-c2b222 period 17 gt (0.85 s), on 10/17, edges 1, warmup 2, family observer+redstone_block+sticky_piston, 6 blocks, 1x3x3, robust
+# the irreducible core of clk-obs-p68-obs-rb-stk-8b-800f78.txt (mctas clock strip, 2026-10-22): removed 0,-1,1 observer[facing=south,powered=false]; 0,0,2 observer[facing=north,powered=false]
+name: clk-obs-p17-obs-rb-stk-6b-c2b222
+port output: -1 0 2
+port start: 0 1 0 last
+origin: 0 0 0
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  O minecraft:observer[facing=north,powered=false]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=down]
+  o minecraft:observer[facing=south,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=up]
+layer 0:
+  .
+  s
+  .
+layer 1:
+  A
+  O
+  R
+layer 2:
+  o
+  .
+  S

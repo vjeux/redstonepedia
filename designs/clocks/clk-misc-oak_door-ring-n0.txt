@@ -1,0 +1,42 @@
+# archived 2026-10-19T20:02Z from designs/clocks/tracks/clk-misc/extend/oak_door-ring.txt by mctas clock archive
+# CLOCK: clk-misc-oak_door-ring-n0 period 10 gt (0.5 s), on 2/10, edges 1, warmup 4, family oak_door+observer, 8 blocks, 2x4x2, robust
+# Extendable family clk-misc-oak_door-ring (n = 0): P = 10 + 4n gt = 10 gt, 7 + 2n = 7 blocks. Relay: an oak door standing on the observer that powers its lower half: both halves open and close with that power at once.
+# It sits at the top of a 2-wide ring of 5 observers (each watches the one before it, 2 gt per observer); the observer under it
+# powers it and carries it, the next one watches it. The relay adds no delay but takes a lattice cell, so an odd number of
+# observers closes the ring. The door's upper half is one more block. Extension: insert 2 observers (the ring one row higher).
+# Generator: mctas clock misc ring --relay oak_door --n N --out FILE.
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 2 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of an observer watching the build to its south, added at 0 0 -1 (was 1 -1 0: the output [1, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+name: clk-misc-oak_door-ring-n0
+extend base: 0
+extend blocks: 7 + 2n
+extend family: clk-misc-oak_door-ring
+extend generator: mctas clock misc ring --relay oak_door --n {n} --out {out}
+extend group: observer-relay-ring
+extend group title: observer ring with a relay block
+extend n: 0..47
+extend period: 10 + 4n
+extend rule: insert 2 observers: the 2-wide ring one row higher
+port output: 0 0 -2
+port start: 1 2 0 last
+origin: 0 0 -1
+palette:
+  A minecraft:observer[facing=down,powered=false]
+  B minecraft:observer[facing=east,powered=false]
+  C minecraft:observer[facing=south,powered=false]
+  D minecraft:observer[facing=up,powered=false]
+  E minecraft:observer[facing=west,powered=false]
+  O minecraft:oak_door[facing=north,half=lower,hinge=left,open=false,powered=false]
+  o minecraft:oak_door[facing=north,half=upper,hinge=left,open=false,powered=false]
+layer 0:
+  C
+  BD
+layer 1:
+  .
+  AD
+layer 2:
+  .
+  OE
+layer 3:
+  .
+  o

@@ -1,0 +1,30 @@
+# archived 2026-10-19T19:57Z from designs/clocks/tracks/clk-item/cards/clk-item-hopper-ring.txt by mctas clock archive
+# CLOCK: clk-item-hopper-ring period 14 gt (0.7 s), on 7/14, edges 1, warmup 7, family comparator+hopper, 4 blocks, 2x2x2, robust
+# Hopper ring with one item (clk-item): hoppers in a 2-wide ring, each facing the next, one item, a comparator (on stone) reading one hopper. A hop through an empty hopper is 7 gt (cooldown 8, minus 1 because the sender already ticked), so the item goes around in 7 L gt; n = 0 is the hopper pair (P 14, 4 blocks).
+
+name: clk-item-hopper-ring
+extend base: 0
+extend blocks: 4 + 2n
+extend family: clk-item-hopper-ring
+extend group: clk-item-hopper-ring
+extend group title: hopper ring
+extend group note: one item going round (14 + 14n), or two items half a ring apart (7 + 7n)
+extend generator: mctas clock item gen loop --n {n} --out {out}
+extend n: 0..40
+extend period: 14 + 14n
+extend rule: lengthen the 2-wide hopper ring by one column (2 hoppers)
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 0 1 -2
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: 0 0 -1
+palette:
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  S minecraft:stone
+  h minecraft:hopper[enabled=true,facing=west]
+layer 0:
+  S
+  .
+layer 1:
+  C
+  Hh

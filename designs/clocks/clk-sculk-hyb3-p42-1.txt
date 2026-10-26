@@ -1,0 +1,24 @@
+# archived 2026-10-19T20:11Z from /tmp/gen/arch2/hyb3-p42-1.txt by mctas clock archive
+# CLOCK: clk-sculk-hyb3-p42-1 period 42 gt (2.1 s), on 30/42, edges 1, warmup 33, family note_block+observer+piston+sculk_sensor, 6 blocks, 2x4x1, robust
+# A plain sculk sensor watched by a chain of 3 observer(s) (each watching the previous); a note block at the last output, 3 from the sensor (travel time): the observers' pulse after the sensor re-arms is heard; plus a piston beside the chain (moves parts of it: the hybrid)
+name: clk-sculk-hyb3-p42-1
+# how: obs plain k=3 path 0,1,0 -1,1,0 -1,2,0 emitter note at the output (travel 3) + piston[extended=false,facing=up] at 0,2,0
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing west (on the ground) takes every pulse (was 0 -1 0: the output [0, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: -1 0 0
+port start: 0 3 0 minecraft:redstone_block 1
+origin: -1 0 0
+palette:
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=up]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=east,powered=false]
+layer 0:
+  .S
+layer 1:
+  oO
+layer 2:
+  OP
+layer 3:
+  N

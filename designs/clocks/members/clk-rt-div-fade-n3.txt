@@ -1,0 +1,37 @@
+name: clk-rt-div-fade2-x3
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 1 1 -10: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 3 0 -8
+origin: 0 0 -10
+palette:
+  A minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  B minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  T minecraft:target
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  r minecraft:redstone_wire
+layer 0:
+  ..SS
+  SSSS
+  .SS
+  ...SS
+  .SSSS
+  ..SS
+  ....SS
+  ..SSSS
+  ...S
+  SSS
+  SSSSS
+layer 1:
+  TRrr
+  rAAr
+  .BB
+  .TRrr
+  .rAAr
+  ..BB
+  ..TRrr
+  ..rAAr
+  ...B
+  rccSR
+  rCCrr

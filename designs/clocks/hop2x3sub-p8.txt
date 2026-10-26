@@ -1,0 +1,22 @@
+# archived 2026-10-19T19:50Z from designs/clocks/tracks/clk-item/hop2x3sub-p8.txt by mctas clock archive
+# CLOCK: hop2x3sub-p8 period 8 gt (0.4 s), on 5/8, edges 1, warmup 4, family comparator+hopper, 7 blocks, 4x2x2, robust
+# Digital P=8 hopper pair (clk-item): the analog pair (3 swords, cooldowns 5 apart: the east-facing hopper A holds 1 or 2 swords, strength 3 or 6) read by a SUBTRACT comparator whose side input is a constant 3 from a second comparator reading a dead-end hopper holding one sword (facing down into air, it never moves): output max(s(A) - 3, 0) = 0 or 3, digital, P = 8.
+name: hop2x3sub-p8
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 1 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: 0 1 -2
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:diamond_sword",count:1}],TransferCooldown:7}
+nbt: 1 1 0 {Items:[{Slot:0b,id:"minecraft:diamond_sword",count:1},{Slot:1b,id:"minecraft:diamond_sword",count:1}],TransferCooldown:2}
+nbt: -2 1 -1 {Items:[{Slot:0b,id:"minecraft:diamond_sword",count:1}]}
+origin: -2 0 -1
+palette:
+  S minecraft:stone
+  X minecraft:comparator[facing=south,mode=subtract,powered=false]
+  K minecraft:comparator[facing=west,mode=compare,powered=false]
+  D minecraft:hopper[enabled=true,facing=down]
+  A minecraft:hopper[enabled=true,facing=east]
+  B minecraft:hopper[enabled=true,facing=west]
+layer 0:
+  .SS
+layer 1:
+  DKX
+  ..AB

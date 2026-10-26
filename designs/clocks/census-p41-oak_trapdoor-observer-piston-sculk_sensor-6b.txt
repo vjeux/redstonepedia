@@ -1,0 +1,20 @@
+# archived 2026-10-19T23:45Z from /tmp/gen/arch4/s3x1x2-k6-census-p41-oak_trapdoor-observer-piston-sculk_sensor-6b.txt by mctas clock archive
+# CLOCK: census-p41-oak_trapdoor-observer-piston-sculk_sensor-6b period 41 gt (2.05 s), on 30/41, edges 1, warmup 15, family oak_trapdoor+observer+piston+sculk_sensor, 6 blocks, 4x1x2, robust
+# Found by `mctas clock census` (box 3x1x2 k<=6) with a sculk palette: s3x1x2-k6-census-p41-oak_trapdoor-observer-piston-sculk_sensor-6b
+name: census-p41-oak_trapdoor-observer-piston-sculk_sensor-6b
+census: box 3x1x2 k<=6 (0,0,0=oak_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false];0,0,1=sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false];1,0,0=observer[facing=east,powered=false];1,0,1=observer[facing=west,powered=false];2,0,0=observer[facing=south,powered=false];2,0,1=piston[extended=false,facing=east])
+port start: 2 0 0 last
+# port output declared 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing south (on the ground) takes every pulse (was 0 -1 1: the output [0, -1, 1] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 0 0 2
+origin: 0 0 0
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  O minecraft:oak_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false]
+  P minecraft:piston[extended=false,facing=east]
+  S minecraft:sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=east,powered=false]
+layer 0:
+  OoA
+  SBP
