@@ -1238,6 +1238,12 @@ pub fn cmd_layout(url: &str, seconds: u64, window: &str, scale: f32, min_ticks: 
             let mut k = 6;
             while k + 1 < w.len() && ["bar", "label", "status"].contains(&w[k]) {
                 match rect(w[k + 1]) {
+                    // the tick badge hugs its text: its left edge moves as it grows, so only
+                    // its right edge (anchored 8 px from the viewer's) and its height count;
+                    // the status line narrows as the badge grows, so only its left edge and
+                    // height count
+                    Some(r) if w[k] == "label" => parts.push(format!("label {:.1},{:.1},{:.1}", r[0] + r[2] - el[0], r[1] - el[1], r[3])),
+                    Some(r) if w[k] == "status" => parts.push(format!("status {:.1},{:.1},{:.1}", r[0] - el[0], r[1] - el[1], r[3])),
                     Some(r) => parts.push(format!("{} {:.1},{:.1},{:.1},{:.1}", w[k], r[0] - el[0], r[1] - el[1], r[2], r[3])),
                     None => parts.push(format!("{} {}", w[k], w[k + 1])),
                 }

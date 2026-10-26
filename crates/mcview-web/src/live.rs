@@ -11,7 +11,7 @@ use mcview::player::Player;
 use mcview::render::Frame;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
-use web_sys::{HtmlButtonElement, HtmlElement, KeyboardEvent, PointerEvent, WheelEvent};
+use web_sys::{HtmlButtonElement, HtmlElement, HtmlSelectElement, KeyboardEvent, PointerEvent, WheelEvent};
 
 /// A pointer down on the canvas (finger, pen or mouse).
 struct Touch {
@@ -41,9 +41,10 @@ pub struct Live {
     /// One tick back (the timelapse): disabled at the run's start.
     back: HtmlButtonElement,
     flip: HtmlButtonElement,
-    speed: HtmlButtonElement,
+    /// The speed: a dropdown (every speed of [`SPEEDS`]), not a button cycling them.
+    speed: HtmlSelectElement,
     speed_i: usize,
-    /// The person picked a speed (the speed button): a fast machine no longer starts slowed.
+    /// The person picked a speed (the speed dropdown): a fast machine no longer starts slowed.
     speed_chosen: bool,
     touches: Vec<Touch>,
     /// The current gesture moved (orbit, pan, pinch): not a tap.
@@ -169,7 +170,7 @@ struct Rec {
     cancel: bool,
 }
 
-/// Speeds the speed button cycles through: label, game ticks per second.
+/// Speeds the speed dropdown offers: label, game ticks per second.
 const SPEEDS: [(&str, f32); 7] = [("1×", 20.0), ("2×", 40.0), ("5×", 100.0), ("20×", 400.0), ("100×", 2000.0), ("¼×", 5.0), ("½×", 10.0)];
 /// The slow-motion speed a fast machine starts at (¼×).
 const SLOW: usize = 5;
@@ -332,15 +333,47 @@ pub fn start(app: &mut App, id: u32) {
     let back = button(ICON_BACK, "One game tick back (←)");
     back.set_disabled(true);
     let step = button(ICON_STEP, "One game tick (→)");
-    let speed = button(SPEEDS[0].0, "Speed (1× = 20 game ticks per second, real time)");
-    let _ = speed.style().set_property("font-size", "15px");
+    // the speed: a dropdown of every speed (a cycling button hid which speeds exist).
+    // appearance none + a drawn chevron: a native select's own chrome is a white
+    // box in WebKitGTK, and white text on it was invisible
+    let speed: HtmlSelectElement = document().create_element("select").unwrap().dyn_into().unwrap();
+    for (name, _) in SPEEDS {
+        let opt = web_sys::HtmlOptionElement::new_with_text_and_value(name, name).unwrap();
+        let _ = opt.style().set_property("background", "rgba(20,22,28,0.95)");
+        let _ = opt.style().set_property("color", "#fff");
+        let _ = speed.add_with_html_option_element(&opt);
+    }
+    speed.set_selected_index(0);
+    speed.set_title("Speed (1× = 20 game ticks per second, real time)");
+    let _ = speed.set_attribute("aria-label", "Speed");
+    style(
+        &speed,
+        &[
+            ("min-width", "52px"),
+            ("height", "44px"),
+            ("padding", "0 24px 0 8px"),
+            ("flex", "0 0 auto"),
+            ("box-sizing", "border-box"),
+            ("-webkit-appearance", "none"),
+            ("appearance", "none"),
+            ("background", "rgba(20,22,28,0.72)"),
+            ("background-image", "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='white' stroke-width='1.5' fill='none'/%3E%3C/svg%3E\")"),
+            ("background-repeat", "no-repeat"),
+            ("background-position", "right 8px center"),
+            ("color", "#fff"),
+            ("border", "1px solid rgba(255,255,255,0.22)"),
+            ("border-radius", "8px"),
+            ("font", "15px system-ui, sans-serif"),
+        ],
+    );
     let flip = button(ICON_LEVER, "Flip the lever (f), or tap the lever");
     let _ = flip.set_attribute("data-mcview-input", "lever");
     let containers = button(ICON_BOXES, "Show what every container holds (or tap one)");
     let _ = containers.style().set_property("display", "none");
-    // the scrubber (the timelapse, jump between states): above the bar, clear of the
-    // Record pill on the right; its strip shows the run's active stretches bright and
-    // the idle ones (waits, holds, a settled world) dim, the thumb the tick now
+    // the scrubber (the timelapse, jump between states): above the bar, full width now
+    // the Record pill sits above it, not beside it; its strip shows the run's active
+    // stretches bright and the idle ones (waits, holds, a settled world) dim, the
+    // thumb the tick now
     let scrub = el("div");
     scrub.set_class_name("mcview-scrub");
     let _ = scrub.set_attribute("data-mcview-scrub", "");
@@ -351,7 +384,7 @@ pub fn start(app: &mut App, id: u32) {
         &[
             ("position", "absolute"),
             ("left", "8px"),
-            ("right", "120px"),
+            ("right", "8px"),
             ("bottom", "66px"),
             ("height", "28px"),
             ("z-index", "2"),
@@ -394,6 +427,9 @@ pub fn start(app: &mut App, id: u32) {
     let _ = root.append_child(&scrub);
     // the tick counter: a badge at the top right, fixed width (tabular digits), so nothing moves
     // while it runs and the bar's buttons fit a phone
+    // the tick badge: its background hugs its text (no fixed width: a wide pill for
+    // "0.00 s · 0 ticks" was the site's noisiest badge), right-anchored so it grows
+    // left as the counter runs; the status line keeps clear of it
     let label = el("div");
     label.set_class_name("mcview-badge");
     style(
@@ -402,7 +438,7 @@ pub fn start(app: &mut App, id: u32) {
             ("position", "absolute"),
             ("right", "8px"),
             ("top", "8px"),
-            ("min-width", "21ch"),
+            ("width", "max-content"),
             ("height", "20px"),
             ("line-height", "20px"),
             ("padding", "0 8px"),
@@ -452,9 +488,11 @@ pub fn start(app: &mut App, id: u32) {
         ],
     );
     let _ = root.append_child(&status);
-    // the Record button: a labelled pill over the view's bottom right above the bar (a phone's
-    // bar is full; critique: a bare red dot read as a logo or a "live" light), where the browser
-    // can encode video (WebCodecs); while recording it shows the progress and a press stops it
+    // the Record button: a labelled pill over the view's bottom right, above the
+    // scrubber (its bottom tracks the bar's height in `frame`, so it never overlaps
+    // the scrubber or a wrapped bar; a phone's bar is full; critique: a bare red dot
+    // read as a logo or a "live" light), where the browser can encode video (WebCodecs);
+    // while recording it shows the progress and a press stops it
     let record = button(RECORD_TITLE, RECORD_TITLE);
     record.set_inner_html(RECORD_FACE);
     style(
@@ -534,7 +572,10 @@ pub fn start(app: &mut App, id: u32) {
     on_click(&back, id, |l| l.step_back());
     on_click(&step, id, |l| l.step());
     on_click(&flip, id, |l| l.flip());
-    on_click(&speed, id, |l| l.next_speed());
+    on(&speed, "change", move |_: web_sys::Event| {
+        with_live(id, |l, _, _| l.speed_changed());
+        ensure_frame();
+    });
     on_click(&containers, id, |l| l.toggle_containers());
     // the scrubber: drag or tap to jump to a tick (pauses first)
     on(&scrub, "pointerdown", move |e: PointerEvent| {
@@ -795,9 +836,9 @@ fn finish_load(app: &mut App, id: u32) {
             // on the left as wide as the rest of the top
             l.narrow = narrow_view;
             let time_style: &[(&str, &str)] = if l.narrow {
-                &[("height", "auto"), ("line-height", "16px"), ("padding", "2px 8px"), ("min-width", "11ch"), ("white-space", "pre-line")]
+                &[("height", "auto"), ("line-height", "16px"), ("padding", "2px 8px"), ("white-space", "pre-line")]
             } else {
-                &[("height", "20px"), ("line-height", "20px"), ("padding", "0 8px"), ("min-width", "21ch"), ("white-space", "nowrap")]
+                &[("height", "20px"), ("line-height", "20px"), ("padding", "0 8px"), ("white-space", "nowrap")]
             };
             style(&l.label, time_style);
             l.label.set_text_content(Some(&time_text(&p, l.narrow)));
@@ -1236,14 +1277,38 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
             }
             t_draw = perf.as_ref().map(|q| q.now()).unwrap_or(0.0);
             l.label.set_text_content(Some(&time_text(p, l.narrow)));
+            // the badge hugs its text and grows left as the counter runs: the status line
+            // keeps clear of however wide it is now (its left edge and height never move)
+            let _ = l.status.style().set_property("max-width", &format!("calc(100% - {}px)", l.label.offset_width() + 38));
+            // a narrow viewer (a phone): the bar wraps instead of clipping its buttons,
+            // and the scrubber + Record pill sit above however tall the bar is. The bar's
+            // gap and side padding shrink, so the seven buttons fit one row on a 390 px
+            // phone (the viewer's own width is a few px under the window's: it wrapped by
+            // 2 px before)
+            if l.narrow {
+                let _ = l.bar.style().set_property("flex-wrap", "wrap");
+                let _ = l.bar.style().set_property("height", "auto");
+                let _ = l.bar.style().set_property("gap", "4px");
+                let _ = l.bar.style().set_property("padding", "8px 6px");
+            } else {
+                let _ = l.bar.style().set_property("flex-wrap", "nowrap");
+                let _ = l.bar.style().set_property("height", "60px");
+                let _ = l.bar.style().set_property("gap", "6px");
+                let _ = l.bar.style().set_property("padding", "8px");
+            }
+            let bar_h = l.bar.offset_height() as f64;
+            let _ = l.scrub.style().set_property("bottom", &format!("{}px", bar_h + 6.0));
+            let _ = l.record.style().set_property("bottom", &format!("{}px", bar_h + 40.0));
             // the back button is live once the run has a tick behind it
             l.back.set_disabled(!p.can_step_back());
             // the scrubber follows the run
             Live::update_scrub(&l.scrub, &l.scrub_strip, &l.scrub_thumb, &mut l.scrub_version, p);
             if crate::debug() {
-                // for `mctas web layout`: nothing may move while the counter runs (not counted
+                // for `mctas web layout`: nothing may MOVE while the counter runs (not counted
                 // while its session is built over frames: the still it shows then is not the view
-                // that plays, whose speed badge comes with the session)
+                // that plays, whose speed badge comes with the session). The tick badge hugs
+                // its text, so its left edge moves as it grows: the check compares its right
+                // edge, and the status's left edge, instead of their widths.
                 let r = |e: &HtmlElement| {
                     let b = e.get_bounding_client_rect();
                     format!("{:.1},{:.1},{:.1},{:.1}", b.x(), b.y(), b.width(), b.height())
@@ -1659,13 +1724,17 @@ impl Live {
         }
     }
 
-    fn next_speed(&mut self) {
-        self.speed_chosen = true;
-        self.set_speed((self.speed_i + 1) % SPEEDS.len());
-        // the person picked a speed: the slow-motion note goes
-        if std::mem::take(&mut self.slowed_note) {
-            self.base_status.clear();
-            self.sync_status();
+    /// The speed dropdown changed: use the picked speed. (A fast machine no longer
+    /// starts slowed once the person picked one, and the slow-motion note goes.)
+    fn speed_changed(&mut self) {
+        let i = self.speed.selected_index().max(0) as usize;
+        if i < SPEEDS.len() {
+            self.speed_chosen = true;
+            self.set_speed(i);
+            if std::mem::take(&mut self.slowed_note) {
+                self.base_status.clear();
+                self.sync_status();
+            }
         }
     }
 
@@ -1673,7 +1742,7 @@ impl Live {
     fn set_speed(&mut self, i: usize) {
         self.speed_i = i;
         let (name, tps) = SPEEDS[self.speed_i];
-        self.speed.set_text_content(Some(name));
+        self.speed.set_selected_index(i as i32);
         self.speed.set_title(&format!("Speed: {name} = {tps} game ticks per second"));
         if let Some(p) = self.player.as_mut() {
             p.tps = tps;

@@ -512,7 +512,7 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
         "shulker-loader" | "shulker-unloader" => {
             let lever = c.inputs.iter().zip(c.devices.iter()).any(|(n, d)| d == "lever" && !(n == "mode" || n.starts_with("mode.")));
             return format!(
-                "{}Watch the items and boxes move between the chests (the numbers over each container show what it holds); the speed button goes up to 100×.",
+                "{}Watch the items and boxes move between the chests (the numbers over each container show what it holds); the speed dropdown goes up to 100×.",
                 if lever { "Flip its start lever (the lime IN button under the view). " } else { "Press play under the view to start it. " }
             );
         }
@@ -728,7 +728,7 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
         "piston-extender" => format!("turn it on and watch the block go {} blocks out; turn it off and it comes back", number(&c.kind)),
         "piston-bridge" => format!("turn it on and watch the bridge slide out across the {}-block gap; turn it off and it slides back into the wall", number(&c.kind)),
         "burst" => format!("each tap turns OUT red exactly {} times", number(&c.kind)),
-        "divider" | "counter" if number(&c.kind) > 16 => format!("the demo counts the {} pulses for you: press the speed button until it shows 100× and watch OUT change", number(&c.kind)),
+        "divider" | "counter" if number(&c.kind) > 16 => format!("the demo counts the {} pulses for you: pick 100× in the speed dropdown and watch OUT change", number(&c.kind)),
         "divider" | "counter" => format!("tap it {} times and OUT goes through one on-off cycle", number(&c.kind)),
         "monostable" if c.kind.contains("non-retriggerable") => "a tap keeps OUT red for a while; tapping again while it is red changes nothing".to_string(),
         "monostable" => "a tap keeps OUT red for a while; tap again while it is red and it stays red longer".to_string(),

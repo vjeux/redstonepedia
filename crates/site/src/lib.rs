@@ -157,8 +157,8 @@ pub enum SiteCmd {
         #[arg(long, default_value_t = 700)]
         interval: u64,
         /// With --page: press the buttons with these labels, in order, once the view is ready (a
-        /// viewer's input button: `INP` flips a shulker machine's start lever; `1×` then `2×` then
-        /// `5×` sets the speed to 20×), or `css:<selector>` (any element: a viewer's Record
+        /// viewer's input button: `INP` flips a shulker machine's start lever; `20×` picks that
+        /// speed in the speed dropdown), or `css:<selector>` (any element: a viewer's Record
         /// button is `css:[data-mcview-record]`).
         #[arg(long)]
         click: Vec<String>,

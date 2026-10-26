@@ -618,7 +618,7 @@ pub fn run_steps(dir: &Path, remote: Option<&str>, page: &str, size: (u32, u32),
 /// with each frame's colors and brightness in the view, how much of the view changed since the
 /// previous frame and since the first, and the page's console. `click`: press the buttons with
 /// these labels first, in order (a viewer's input button: `INP` turns a shulker machine's start
-/// lever on; `1×`, `2×`, `5×` step the speed to 20×; `css:<selector>`: any element).
+/// lever on; `20×` picks that speed in the speed dropdown; `css:<selector>`: any element).
 pub fn film(dir: &Path, remote: Option<&str>, pages: &[String], frames: u32, interval: u64, click: &[String]) -> Result<()> {
     let r = rig(dir, remote)?;
     let out = std::env::var_os("MCTAS_WEBKIT_SHOTS").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp/mctas-webkit-shots"));
@@ -687,7 +687,16 @@ fn press(s: &Session, label: &str) -> Result<()> {
             s.script(&format!("const e = document.querySelector('{css}'); if (e) e.scrollIntoView({{block: 'center'}}); return true;"))?;
             click(s, css)
         }
-        None => click_button(s, label),
+        None => {
+            // a speed: pick it in the speed dropdown (a select, not a button)
+            let picked = s.script(&format!(
+                "const s = document.querySelector('select[aria-label=\"Speed\"]'); if (!s) return false; const o = [...s.options].find(o => o.text === '{label}'); if (!o) return false; s.value = o.value; s.dispatchEvent(new Event('change', {{bubbles: true}})); return true;"
+            ))?;
+            if picked.as_bool() == Some(true) {
+                return Ok(());
+            }
+            click_button(s, label)
+        }
     }
 }
 

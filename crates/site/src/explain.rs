@@ -938,7 +938,7 @@ pub fn how_to_try(c: &Circuit, has_viewer: bool) -> String {
     // an item sorter: items in, a chest, no lamp (critique: the generic lamp text)
     if base(&c.kind) == "sorter" {
         let item = c.kind.split_whitespace().nth(1).map(|i| format!("the {}s", i.replace('_', " "))).unwrap_or_else(|| "the items of its kind".to_string());
-        s.push_str(&format!("<p><b>The sorter runs in the view</b> the way our test does: mixed items come in at the cell tagged ITEMS and travel along the line of hoppers; {item} drop into the chest at OUT, and everything else goes on to the end of the line. The numbers over each container show what it holds; speed it up with the bar's speed button. Drag to look around, pinch or scroll to zoom.</p>"));
+        s.push_str(&format!("<p><b>The sorter runs in the view</b> the way our test does: mixed items come in at the cell tagged ITEMS and travel along the line of hoppers; {item} drop into the chest at OUT, and everything else goes on to the end of the line. The numbers over each container show what it holds; speed it up with the bar's speed dropdown. Drag to look around, pinch or scroll to zoom.</p>"));
         return s;
     }
     // a whole minecart line: shown as built with our test's chests, no cart running in the view
@@ -981,22 +981,22 @@ pub fn how_to_try(c: &Circuit, has_viewer: bool) -> String {
         };
         let chests = if c.outputs.len() > 1 { format!("the {} chests at OUT", c.outputs.len()) } else { "the chest at OUT".to_string() };
         let faster = site_model::html::farm_speed_words(c);
-        s.push_str(&format!("<p><b>The farm runs in the view</b> the way our test does: the view plants the crop and puts our test's chests at its outputs, then grows it {faster} than the game; {what} into {chests}. The numbers over each chest show what it holds; speed it up with the bar's speed button. Drag to look around, pinch or scroll to zoom.</p>"));
+        s.push_str(&format!("<p><b>The farm runs in the view</b> the way our test does: the view plants the crop and puts our test's chests at its outputs, then grows it {faster} than the game; {what} into {chests}. The numbers over each chest show what it holds; speed it up with the bar's speed dropdown. Drag to look around, pinch or scroll to zoom.</p>"));
         return s;
     }
     // an auto-smelter: chests in and out, furnaces, no lamp
     if base(&c.kind) == "smelter" {
-        s.push_str("<p><b>The smelter runs in the view</b> the way our test does: items to smelt start in the chest tagged ITEMS and coal in the chest tagged FUEL; hoppers carry them into the furnaces, and every result drops into the chest at OUT. The numbers over each container show what it holds; speed it up with the bar's speed button. Drag to look around, pinch or scroll to zoom.</p>");
+        s.push_str("<p><b>The smelter runs in the view</b> the way our test does: items to smelt start in the chest tagged ITEMS and coal in the chest tagged FUEL; hoppers carry them into the furnaces, and every result drops into the chest at OUT. The numbers over each container show what it holds; speed it up with the bar's speed dropdown. Drag to look around, pinch or scroll to zoom.</p>");
         return s;
     }
     // an auto-brewer: its four supply chests and the output, no lamp
     if base(&c.kind) == "brewer" {
-        s.push_str("<p><b>The brewer runs in the view</b> the way our test does: water bottles start in the chest tagged BOTTLES, blaze powder in FUEL, nether wart in WART and sugar in SUGAR; the machine puts one wart, then one sugar, into each brewing stand for every three bottles, and every finished potion drops into the chest at OUT. The numbers over each container show what it holds; speed it up with the bar's speed button (a brew takes 20 seconds). Drag to look around, pinch or scroll to zoom.</p>");
+        s.push_str("<p><b>The brewer runs in the view</b> the way our test does: water bottles start in the chest tagged BOTTLES, blaze powder in FUEL, nether wart in WART and sugar in SUGAR; the machine puts one wart, then one sugar, into each brewing stand for every three bottles, and every finished potion drops into the chest at OUT. The numbers over each container show what it holds; speed it up with the bar's speed dropdown (a brew takes 20 seconds). Drag to look around, pinch or scroll to zoom.</p>");
         return s;
     }
     // an auto-composter: the input chest, the overflow chest, the bone meal chest, no lamp
     if base(&c.kind) == "composter" {
-        s.push_str("<p><b>The composter runs in the view</b> the way our test does: the farm's mixed output starts in the chest tagged ITEMS and travels along the line of hoppers; the slice's crop drops into the composter, the bone meal falls into the chest at OUT and everything else runs on to the chest tagged PASS (the overflow). The numbers over each container show what it holds; speed it up with the bar's speed button. Drag to look around, pinch or scroll to zoom.</p>");
+        s.push_str("<p><b>The composter runs in the view</b> the way our test does: the farm's mixed output starts in the chest tagged ITEMS and travels along the line of hoppers; the slice's crop drops into the composter, the bone meal falls into the chest at OUT and everything else runs on to the chest tagged PASS (the overflow). The numbers over each container show what it holds; speed it up with the bar's speed dropdown. Drag to look around, pinch or scroll to zoom.</p>");
         return s;
     }
     // a combination lock: the dials in words, never the raw port names (critique 058332315: "the
@@ -1076,7 +1076,7 @@ pub fn how_to_try(c: &Circuit, has_viewer: bool) -> String {
                 Some((Some(f), None, _)) => format!(" In the view the first box goes out {} after the machine starts.", gt(f as f64)),
                 _ => String::new(),
             };
-            s.push_str(&format!("<p><b>The machine runs in the view.</b> {supply}{what}{timing} The numbers over each chest, hopper and dispenser show what it holds. Speed it up with the bar's speed button (up to 100×).</p>"));
+            s.push_str(&format!("<p><b>The machine runs in the view.</b> {supply}{what}{timing} The numbers over each chest, hopper and dispenser show what it holds. Speed it up with the bar's speed dropdown (up to 100×).</p>"));
             // the start lever is the visitor's (the judge flips it at its start); the combo's
             // mode lever switches loading and unloading
             let mut levers: Vec<String> = Vec::new();
