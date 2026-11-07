@@ -423,6 +423,12 @@ impl Prod {
         Ok(())
     }
 
+    /// Bulk mining (held attack key, sweep): clearing and digging, never near blocks that matter.
+    fn mine_sweep(&mut self, p: Pos) -> Result<()> {
+        self.actor.cmd_timeout(&format!("mine {} {} {} sweep", p[0], p[1], p[2]), Duration::from_secs(60))?;
+        Ok(())
+    }
+
     fn place(&mut self, click: Pos, face: &str) -> Result<String> {
         self.actor.cmd(&format!("place {} {} {} {}", click[0], click[1], click[2], face))
     }
@@ -536,6 +542,12 @@ fn launch_client(version: &str, o: &VideoOptions, display: &mctas::video::Displa
 }
 
 fn start_prod(version: &str, plan: &Plan, o: &VideoOptions, world: PathBuf) -> Result<Prod> {
+    // The Nether at render distance 6 on llvmpipe runs at a few fps; 4 is plenty inside the fog.
+    // SAFETY: no other thread of this process is reading the environment yet (the server and
+    // client are child processes, spawned below).
+    if std::env::var_os("MCTAS_CLIENT_RENDER_DISTANCE").is_none() {
+        unsafe { std::env::set_var("MCTAS_CLIENT_RENDER_DISTANCE", "4") };
+    }
     let mut srv = VanillaServer::start(&server_opts(version, plan.seed, Some(world)))?;
     let port = srv.game_port();
     let display = mctas::video::Display::start(o.width, o.height)?;
@@ -641,7 +653,7 @@ impl Prod {
                 return Ok(());
             }
             let below = [f[0].floor() as i32, f[1].floor() as i32 - 1, f[2].floor() as i32];
-            self.mine(below)?;
+            self.mine_sweep(below)?;
             self.wait(4)?;
         }
         bail!("dig_down never reached y {target_y}")
@@ -681,7 +693,7 @@ impl Prod {
             self.select(SLOT_PICK)?;
             for p in todo {
                 self.stand_near(&blocks, p)?;
-                self.mine(p)?;
+                self.mine_sweep(p)?;
             }
         }
         bail!("clear_box {dim} {lo:?}..{hi:?} still not clear after 6 passes")

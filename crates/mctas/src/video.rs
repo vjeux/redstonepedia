@@ -245,11 +245,12 @@ impl Client {
         // First-launch screens and distractions off; small render distance (the scene is small);
         // particles minimal (`MCTAS_CLIENT_PARTICLES=0`: all, to picture an explosion's)
         let particles = std::env::var("MCTAS_CLIENT_PARTICLES").ok().filter(|v| matches!(v.as_str(), "0" | "1" | "2")).unwrap_or_else(|| "2".into());
+        let render_distance = std::env::var("MCTAS_CLIENT_RENDER_DISTANCE").ok().and_then(|v| v.parse::<u32>().ok()).filter(|v| (2..=16).contains(v)).unwrap_or(6);
         std::fs::write(
             game_dir.join("options.txt"),
             format!(
                 "onboardAccessibility:false\nskipMultiplayerWarning:true\njoinedFirstServer:true\ntutorialStep:none\n\
-             pauseOnLostFocus:false\nrenderDistance:6\nsimulationDistance:5\nfov:0.0\nnarrator:0\nsoundCategory_master:0.0\n\
+             pauseOnLostFocus:false\nrenderDistance:{render_distance}\nsimulationDistance:5\nfov:0.0\nnarrator:0\nsoundCategory_master:0.0\n\
              guiScale:2\nfovEffectScale:0.0\nfullscreen:false\nbobView:false\nrenderClouds:\"false\"\nparticles:{particles}\nentityShadows:true\n"
             ),
         )?;
