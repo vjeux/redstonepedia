@@ -1253,7 +1253,7 @@ fn prep_trip(p: &mut Prod, l: i32, row: i32) -> Result<()> {
     let mut blocks = p.nether_box([exit[0] - 19, 0, exit[2] - 19], [exit[0] + 19, 64, exit[2] + 19])?;
     for old in std::mem::take(&mut p.blockers) {
         if blocks.get(old).starts_with("minecraft:cobblestone") {
-            p.walk(old[0], old[2] + 1)?;
+            p.stand_near(&blocks, old)?;
             p.mine(old)?;
             blocks.set(old, "minecraft:air");
         }
@@ -1316,8 +1316,7 @@ fn place_blocker(p: &mut Prod, blocks: &mut Blocks, win: portal::Site, target: P
         .filter(|c| c[1] == l + 1 && (fx..=fx + 3).contains(&c[0]))
         .find(|c| blocks.kind([c[0], c[1] - 1, c[2]]) == Kind::Solid)
         .context("no placeable blocker cell")?;
-    let feet_z = if cand[2] >= p.plan.rz { cand[2] + 1 } else { cand[2] - 1 };
-    p.walk(cand[0], feet_z)?;
+    p.stand_near(blocks, [cand[0], cand[1] - 1, cand[2]])?;
     p.select(SLOT_COBBLE)?;
     p.place([cand[0], cand[1] - 1, cand[2]], "UP")?;
     p.assert_block("the_nether", cand, "minecraft:cobblestone", "blocker placed")?;
