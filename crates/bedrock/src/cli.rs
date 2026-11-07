@@ -86,6 +86,9 @@ pub enum BedrockCmd {
         height: u32,
         #[arg(long, default_value_t = 30)]
         fps: u32,
+        /// The v2 remake: batch sweep + stay-in-the-Nether remote trigger, tutorial cut.
+        #[arg(long)]
+        v2: bool,
     },
 }
 
@@ -139,8 +142,8 @@ pub fn run(version: &str, cmd: BedrockCmd) -> Result<()> {
                 println!("{}: vanilla, chord in window {w}{}: {}", sc.name, if split { " (split over two windows)" } else { "" }, format!("{o:?}").to_lowercase());
             }
         }
-        BedrockCmd::Video { seed, out, phase, driver, from, width, height, fps } => {
-            crate::video::run(version, crate::video::VideoOptions { seed, out, phase, driver, from, width, height, fps })?;
+        BedrockCmd::Video { seed, out, phase, driver, from, width, height, fps, v2 } => {
+            crate::video::run(version, crate::video::VideoOptions { seed, out, phase, driver, from, width, height, fps, v2 })?;
         }
     }
     Ok(())
