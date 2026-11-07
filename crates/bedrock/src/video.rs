@@ -817,7 +817,13 @@ impl Prod {
             }
         }
         match best {
-            Some((_, s)) => self.walk(s[0], s[2]),
+            Some((_, s)) => {
+                let r = self.walk(s[0], s[2]);
+                if let Err(e) = &r {
+                    self.loga(&format!("stand_near {target:?}: walk to {s:?} failed: {e:#}; player at {:?}", self.feet().ok()));
+                }
+                r
+            }
             None => {
                 // The pass-start read may lag the real cavity (sweep overshoot, earlier
                 // blocks): walk at the target anyway and re-check reach — but only at the
