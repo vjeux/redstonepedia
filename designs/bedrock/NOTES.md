@@ -270,6 +270,34 @@ x east, z south; everything at y >= 1 sits on the roof. All 11 blocks are what t
     probed), survival: 24 did nothing, 30 removed the bedrock, 25 did nothing; the bridge shows
     the same (armed windows 18 and 24 lost, back at 30).
 
+### Batch: one clock, up to six bedrock (`machines/uni4x3.txt`, `machines/uni4x6.txt`)
+
+Picture: https://artifacts.internalmeta.com/a/2223660898216879 (the 24-block, six-bedrock machine).
+
+* **Three pistons per stone.** X quasi-powers every piston whose cell above touches X. Of X's four
+  side neighbours, one is the swap piston's cell above, one is O, and the other two are free, so
+  two more swap pistons fit: each extra bedrock costs 2 blocks (a piston and the trapdoor over
+  its press spot). The nudge dust updates all three after the move out, and each piston's own base
+  landing after the move back, exactly like the single machine.
+  * piston facing east (0,1,2) on the bedrock (0,0,2); press spot (0,1,3) under a trapdoor (0,2,3);
+  * piston facing west (-1,1,1) on the bedrock (-1,0,1); press spot (-1,1,2) under a trapdoor (-1,2,2).
+* **Six per clock.** A second observer can watch the redstone block's home cell from the east, so
+  the mirror image of the whole thing fits on the clock's other side: observer facing west (3,2,1),
+  stone (4,2,1), dust (3,1,1), and pistons facing east (4,1,0), facing west (4,1,2), facing east
+  (5,1,1) on the bedrock (4,0,0), (4,0,2) and (5,0,1); press spots (4,1,-1), (4,1,3), (5,1,2)
+  under trapdoors (4,2,-1), (4,2,3), (5,2,2). 24 blocks for six bedrock.
+* **Pressing.** One press spot per piston: lie in it, look up at that piston's side face, press. A
+  used piston (its bedrock gone, the down-facing piston left on the hole) does not disturb the
+  others: the judge checks every piston both on the fresh machine and with all the other pistons
+  used. A repair after a miss: look the opposite way from where that piston's arm points, 10
+  degrees down, aimed at its face near that edge (`bedrock scenario --module N --miss-repair`).
+* **Verified**: redsim, 32 variants x 6 pistons, fresh and with the others used, armed every 6
+  ticks; the game code (`bedrock scan`): piston 1 fresh and piston 6 with the five others used,
+  windows 24, 30, 36, 42; the official server's real Nether roof in survival, pistons 3 and 6 with
+  the five others used: windows 12 and 18 removed the bedrock, 13 did nothing; piston 5 with the
+  five others used, a miss in window 15 and the one-press repair in 17: 30 removed the bedrock (24
+  skipped, as on the single machine).
+
 ### How it got small (45 -> 11 blocks), reusing the door and clock tools
 
 `crates/bedrock/src/machine.rs`: a machine design (the door design format, ports `target`, `swap`,

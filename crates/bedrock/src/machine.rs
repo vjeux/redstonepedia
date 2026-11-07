@@ -315,16 +315,67 @@ pub fn variants(offsets: &[Pos], rotations: bool, mirror: bool) -> Vec<(i32, boo
 }
 
 /// The worst gap over the variants, or the first failing variant's reason.
+/// The module suffixes of a design: "" (ports `target`/`swap`/`press`), then "2", "3", ... while
+/// `port target<N>` exists: a batch machine, several swap pistons on one clock.
+pub fn module_suffixes(d: &Design) -> Vec<String> {
+    let mut out = vec![String::new()];
+    for n in 2.. {
+        if !d.ports.contains_key(&format!("target{n}")) {
+            break;
+        }
+        out.push(n.to_string());
+    }
+    out
+}
+
+/// The design seen from module `suffix`: its ports as the plain `target`/`swap`/`press`.
+pub fn module_view(d: &Design, suffix: &str) -> Result<Design> {
+    let mut v = d.clone();
+    if !suffix.is_empty() {
+        for n in ["target", "swap", "press"] {
+            let p = d.ports.get(&format!("{n}{suffix}")).copied().with_context(|| format!("the design has no `port {n}{suffix}:`"))?;
+            v.ports.insert(n.to_string(), p);
+        }
+    }
+    Ok(v)
+}
+
+/// The design with every module other than `suffix` USED: its target bedrock gone and a piston
+/// facing down left on the hole (what a successful press leaves behind).
+pub fn others_used(d: &Design, suffix: &str) -> Result<Design> {
+    let mut v = d.clone();
+    for s in module_suffixes(d) {
+        if s == suffix {
+            continue;
+        }
+        let m = Machine::new(module_view(d, &s)?)?;
+        v.blocks.remove(&m.target);
+        v.blocks.insert(m.swap, "minecraft:piston[facing=down]".to_string());
+    }
+    Ok(v)
+}
+
 pub fn judge_all(d: &Design, vs: &[(i32, bool, Pos)], o: &JudgeOptions, max_gap: u32) -> std::result::Result<u32, String> {
     let mut worst = 0;
+    let modules = module_suffixes(d);
     for &(t, mi, off) in vs {
         let dv = transformed(d, t, mi, off).map_err(|e| e.to_string())?;
-        let m = Machine::new(dv).map_err(|e| e.to_string())?;
-        let v = judge(&m, o);
-        if !v.ok(max_gap) {
-            return Err(format!("turns {t} mirror {mi} offset {off:?}: {}", v.summary(o.steady)));
+        for s in &modules {
+            // A batch machine: each module fresh, and each module after all the others were used.
+            let mut views = vec![(module_view(&dv, s).map_err(|e| e.to_string())?, "")];
+            if modules.len() > 1 {
+                views.push((module_view(&others_used(&dv, s).map_err(|e| e.to_string())?, s).map_err(|e| e.to_string())?, " (the others used)"));
+            }
+            for (view, how) in views {
+                let m = Machine::new(view).map_err(|e| e.to_string())?;
+                let v = judge(&m, o);
+                if !v.ok(max_gap) {
+                    let which = if s.is_empty() && modules.len() == 1 { String::new() } else { format!("module {}{how}, ", if s.is_empty() { "1" } else { s }) };
+                    return Err(format!("{which}turns {t} mirror {mi} offset {off:?}: {}", v.summary(o.steady)));
+                }
+                worst = worst.max(v.gap.unwrap_or(0));
+            }
         }
-        worst = worst.max(v.gap.unwrap_or(0));
     }
     Ok(worst)
 }
@@ -347,13 +398,16 @@ pub struct MinimizeOptions {
 
 fn keep_and_forbidden(m: &Machine) -> (HashSet<Pos>, HashSet<Pos>) {
     let mut keep: HashSet<Pos> = m.design.blocks.iter().filter(|(_, s)| is_roof(s)).map(|(p, _)| *p).collect();
-    keep.insert(m.target);
-    keep.insert(m.swap);
-    keep.insert(add(m.press, [0, 1, 0]));
     let mut forbidden: HashSet<Pos> = HashSet::new();
-    forbidden.insert(m.press);
-    if let Some(h) = m.head() {
-        forbidden.insert(h);
+    for s in module_suffixes(&m.design) {
+        let Ok(mm) = module_view(&m.design, &s).and_then(Machine::new) else { continue };
+        keep.insert(mm.target);
+        keep.insert(mm.swap);
+        keep.insert(add(mm.press, [0, 1, 0]));
+        forbidden.insert(mm.press);
+        if let Some(h) = mm.head() {
+            forbidden.insert(h);
+        }
     }
     (keep, forbidden)
 }

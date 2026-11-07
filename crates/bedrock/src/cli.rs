@@ -77,6 +77,10 @@ pub enum BedrockCmd {
         start: String,
         #[arg(long)]
         out: PathBuf,
+        /// More swap modules on the same clock (a batch machine): `target/swap/press` cells, each
+        /// `x,y,z`; written as ports `target2`, `swap2`, `press2`, ... (repeatable).
+        #[arg(long)]
+        module: Vec<String>,
     },
     /// Judge a machine design on redsim (the exact model): the press tried in every window, a miss
     /// then the one-press repair; at the first `--offsets` positions of the door judge, in 4
@@ -140,6 +144,13 @@ pub enum BedrockCmd {
         /// Vanilla: the bot plays in survival (Haste II, Efficiency V netherite pickaxe).
         #[arg(long)]
         survival: bool,
+        /// Which swap module of a batch machine the chord and the stance are for (1, 2, ...).
+        #[arg(long, default_value_t = 1)]
+        module: usize,
+        /// Build the batch machine with every OTHER module already used (target gone, a piston
+        /// facing down left on the hole).
+        #[arg(long)]
+        others_used: bool,
         /// Add a MISS in window A (the press in a window that is not armed: the piston now faces
         /// the target) and the one-press REPAIR in window B (`--miss-repair A,B`): the same spot,
         /// looking along the swap piston's facing reversed and 10 degrees down, the original piston
@@ -253,14 +264,21 @@ pub fn run(version: &str, cmd: BedrockCmd) -> Result<()> {
                 println!("{}: vanilla, chord in window {w}{}: {}", sc.name, if split { " (split over two windows)" } else { "" }, format!("{o:?}").to_lowercase());
             }
         }
-        BedrockCmd::Design { scenario, press, start, out } => {
+        BedrockCmd::Design { scenario, press, start, out, module } => {
             let sc = Scenario::load(&scenario)?;
             let (pos, state) = start.split_once('=').ok_or_else(|| anyhow::anyhow!("--start x,y,z=state"))?;
             let pos = parse_cell(pos).map_err(|e| anyhow::anyhow!(e))?;
             let name = out.file_stem().and_then(|s| s.to_str()).unwrap_or("machine").to_string();
-            let d = crate::machine::design_from_scenario(&sc, &name, press, (pos, state.to_string()))?;
+            let mut d = crate::machine::design_from_scenario(&sc, &name, press, (pos, state.to_string()))?;
+            for (i, m) in module.iter().enumerate() {
+                let cells: Vec<[i32; 3]> = m.split('/').map(parse_cell).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!(e))?;
+                let [t, s, p] = cells[..] else { anyhow::bail!("--module target/swap/press, got `{m}`") };
+                for (n, c) in [("target", t), ("swap", s), ("press", p)] {
+                    d.ports.insert(format!("{n}{}", i + 2), c);
+                }
+            }
             d.save(&out)?;
-            println!("{}: {} blocks (roof not counted)", out.display(), crate::machine::Machine::new(d)?.blocks());
+            println!("{}: {} blocks (roof not counted), {} modules", out.display(), crate::machine::Machine::new(d.clone())?.blocks(), crate::machine::module_suffixes(&d).len());
         }
         BedrockCmd::Judge { design, offsets, rotations, mirror, ticks, steady } => judge_cmd(&design, offsets, rotations, mirror, ticks, steady)?,
         BedrockCmd::Minimize { design, out, moves, radius, offsets, rotations, mirror, max_gap, threads, plateau } => {
@@ -283,8 +301,11 @@ pub fn run(version: &str, cmd: BedrockCmd) -> Result<()> {
             best.save(&out)?;
             println!("{}: {} blocks", out.display(), crate::machine::Machine::new(best)?.blocks());
         }
-        BedrockCmd::Scenario { design, out, at, dimension, turns, mirror, survival, miss_repair } => {
+        BedrockCmd::Scenario { design, out, at, dimension, turns, mirror, survival, module, others_used, miss_repair } => {
             let d = crate::machine::transformed(&mctas::design::Design::load(&design)?, turns, mirror, [0, 0, 0])?;
+            let suffix = if module <= 1 { String::new() } else { module.to_string() };
+            let d = if others_used { crate::machine::others_used(&d, &suffix)? } else { d };
+            let d = crate::machine::module_view(&d, &suffix)?;
             let mut sc = crate::machine::scenario_from_design(&d, at, dimension.as_deref())?;
             sc.survival = survival;
             if let [miss, repair] = miss_repair[..] {
@@ -304,8 +325,12 @@ pub fn run(version: &str, cmd: BedrockCmd) -> Result<()> {
                 for t in 0..4 {
                     for mi in if mirror { vec![false, true] } else { vec![false] } {
                         let dv = crate::machine::transformed(&d, t, mi, [0, 0, 0])?;
-                        scs.push((crate::machine::scenario_from_design(&dv, *a, Some("the_nether"))?, windows.clone()));
-                        labels.push(format!("at {a:?} turns {t} mirror {mi}"));
+                        for s in crate::machine::module_suffixes(&dv) {
+                            let dm = crate::machine::module_view(&dv, &s)?;
+                            scs.push((crate::machine::scenario_from_design(&dm, *a, Some("the_nether"))?, windows.clone()));
+                            let which = if s.is_empty() { String::new() } else { format!(" module {s}") };
+                            labels.push(format!("at {a:?} turns {t} mirror {mi}{which}"));
+                        }
                     }
                 }
             }
@@ -375,14 +400,33 @@ fn judge_cmd(design: &std::path::Path, offsets: usize, rotations: bool, mirror: 
     let t0 = std::time::Instant::now();
     let mut ok = 0;
     let vs = crate::machine::variants(&offs, rotations, mirror);
+    let modules = crate::machine::module_suffixes(&d);
     for (t, mi, off) in &vs {
-        let m = crate::machine::Machine::new(crate::machine::transformed(&d, *t, *mi, *off)?)?;
-        let v = crate::machine::judge(&m, &o);
-        if v.ok(6) {
+        let dv = crate::machine::transformed(&d, *t, *mi, *off)?;
+        let mut all = true;
+        let mut line = String::new();
+        for s in &modules {
+            let mut views = vec![(crate::machine::module_view(&dv, s)?, "")];
+            if modules.len() > 1 {
+                views.push((crate::machine::module_view(&crate::machine::others_used(&dv, s)?, s)?, " others used"));
+            }
+            for (view, how) in views {
+                let m = crate::machine::Machine::new(view)?;
+                let v = crate::machine::judge(&m, &o);
+                all &= v.ok(6);
+                if modules.len() > 1 {
+                    line.push_str(&format!(" [module {}{how}] ", if s.is_empty() { "1" } else { s }));
+                } else {
+                    line.push_str(&format!(" {} blocks, ", m.blocks()));
+                }
+                line.push_str(&v.summary(steady));
+            }
+        }
+        if all {
             ok += 1;
         }
-        println!("turns {t} mirror {mi:<5} offset {off:?}: {} blocks, {}", m.blocks(), v.summary(steady));
+        println!("turns {t} mirror {mi:<5} offset {off:?}:{line}");
     }
-    println!("{ok}/{} variants pass (gap <= 6, repair ok) in {:.1}s", vs.len(), t0.elapsed().as_secs_f64());
+    println!("{ok}/{} variants pass (gap <= 6, repair ok{}) in {:.1}s", vs.len(), if modules.len() > 1 { format!(", all {} modules", modules.len()) } else { String::new() }, t0.elapsed().as_secs_f64());
     Ok(())
 }

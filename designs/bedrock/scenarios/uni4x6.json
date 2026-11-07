@@ -1,0 +1,42 @@
+{
+  "name": "uni4x6",
+  "notes": "One clock, six swap pistons: the three-piston machine (uni4x3) plus its mirror image on the clock's east side (a second observer watching the redstone block's home cell from the east, its own stone X', nudge dust and three pistons).",
+  "target": [0, 5, 0],
+  "blocks": [
+    [0, 5, 0, "minecraft:bedrock"],
+    [0, 5, 2, "minecraft:bedrock"],
+    [-1, 5, 1, "minecraft:bedrock"],
+    [4, 5, 0, "minecraft:bedrock"],
+    [4, 5, 2, "minecraft:bedrock"],
+    [5, 5, 1, "minecraft:bedrock"],
+    [0, 6, 0, "minecraft:piston[facing=west]"],
+    [0, 7, -1, "minecraft:oak_trapdoor[half=bottom,open=false,facing=north]"],
+    [0, 6, 2, "minecraft:piston[facing=east]"],
+    [0, 7, 3, "minecraft:oak_trapdoor[half=bottom,open=false,facing=south]"],
+    [-1, 6, 1, "minecraft:piston[facing=west]"],
+    [-1, 7, 2, "minecraft:oak_trapdoor[half=bottom,open=false,facing=south]"],
+    [0, 7, 1, "minecraft:stone"],
+    [1, 7, 1, "minecraft:observer[facing=east]"],
+    [1, 6, 1, "minecraft:redstone_wire"],
+    [2, 7, 0, "minecraft:sticky_piston[facing=south,extended=false]"],
+    [2, 7, 1, "minecraft:redstone_block"],
+    [2, 8, 1, "minecraft:observer[facing=south]"],
+    [2, 6, 1, "minecraft:redstone_wire"],
+    [2, 6, 2, "minecraft:redstone_wire"],
+    [3, 7, 1, "minecraft:observer[facing=west]"],
+    [3, 6, 1, "minecraft:redstone_wire"],
+    [4, 7, 1, "minecraft:stone"],
+    [4, 6, 0, "minecraft:piston[facing=east]"],
+    [4, 7, -1, "minecraft:oak_trapdoor[half=bottom,open=false,facing=north]"],
+    [4, 6, 2, "minecraft:piston[facing=west]"],
+    [4, 7, 3, "minecraft:oak_trapdoor[half=bottom,open=false,facing=south]"],
+    [5, 6, 1, "minecraft:piston[facing=east]"],
+    [5, 7, 2, "minecraft:oak_trapdoor[half=bottom,open=false,facing=south]"]
+  ],
+  "settle": 4,
+  "chord": [
+    {"do": "break", "pos": [0, 6, 0]},
+    {"do": "place", "pos": [0, 6, 0], "state": "minecraft:piston[facing=down]"}
+  ],
+  "horizon": 20
+}

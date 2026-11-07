@@ -1,0 +1,73 @@
+name: uni4x3
+port press: 0 6 -1
+port press2: 0 6 3
+port press3: -1 6 2
+port start: 2 8 2 last
+port swap: 0 6 0
+port swap2: 0 6 2
+port swap3: -1 6 1
+port target: 0 5 0
+port target2: 0 5 2
+port target3: -1 5 1
+origin: -4 0 -4
+palette:
+  A minecraft:observer[facing=east]
+  B minecraft:bedrock
+  C minecraft:observer[facing=south]
+  D minecraft:redstone_wire
+  O minecraft:oak_trapdoor[half=bottom,open=false,facing=north]
+  P minecraft:piston[facing=east]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[facing=south,extended=false]
+  o minecraft:oak_trapdoor[half=bottom,open=false,facing=south]
+  p minecraft:piston[facing=west]
+  r minecraft:redstone_lamp
+  s minecraft:stone
+layer 5:
+  BBBBBBBBBB
+  BBBBBBBBBB
+  BBBBBBBBBB
+  BBBBBBBBBB
+  BBBBBBBBBB
+  BBBBBBBBBB
+  BBBBBBBBBB
+  BBBBBBBBBB
+  BBBBBBBBBB
+  BBBBBBBBBB
+  BBBBBBBBBB
+layer 6:
+  .
+  .
+  .
+  .
+  ....p
+  ...p.DD
+  ....P.D
+  .
+  .
+  .
+  .
+layer 7:
+  .
+  .
+  .
+  ....O
+  ......S
+  ....sAR
+  ...o
+  ....o
+  .
+  .
+  .
+layer 8:
+  .
+  .
+  .
+  .
+  .
+  ......C
+  ......r
+  .
+  .
+  .
+  .
