@@ -324,6 +324,40 @@ public final class Actor {
             case "fillinto":
                 return fillInto(new BlockPos(Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3])), f[4],
                         f.length > 5 ? Integer.parseInt(f[5]) : 99);
+            case "dropall": {
+                // dropall <item-substr> <keep-stacks>: throw away whole junk stacks (mined
+                // deepslate/netherrack) so item entities never pile up and lag the server.
+                waitPlayer();
+                int keep = Integer.parseInt(f[2]);
+                return onClient(() -> {
+                    Minecraft mc = Minecraft.getInstance();
+                    var inv = mc.player.getInventory();
+                    int seen = 0;
+                    int dropped = 0;
+                    for (int i = 0; i < inv.getNonEquipmentItems().size(); i++) {
+                        var stack = inv.getItem(i);
+                        String id = String.valueOf(BuiltInRegistries.ITEM.getKey(stack.getItem()));
+                        if (stack.getCount() > 0 && id.contains(f[1])) {
+                            if (++seen <= keep) {
+                                continue;
+                            }
+                            if (i >= 9) {
+                                mc.gameMode.handleContainerInput(mc.player.inventoryMenu.containerId,
+                                        mc.player.inventoryMenu.slots.stream()
+                                                .filter(s -> s.container == inv && s.getContainerSlot() == i)
+                                                .findFirst().orElseThrow().index,
+                                        8, ContainerInput.SWAP, mc.player);
+                                inv.setSelectedSlot(8);
+                            } else {
+                                inv.setSelectedSlot(i);
+                            }
+                            dropped += stack.getCount();
+                            mc.gameMode.dropItem(mc.player, true);
+                        }
+                    }
+                    return "ok dropped=" + dropped;
+                });
+            }
             case "hotbar": {
                 // hotbar <slot> <item-substr>: end with a stack of that item in hotbar slot
                 // <slot> (a number-key SWAP in the inventory screen, the GUI's own action);

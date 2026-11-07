@@ -678,6 +678,10 @@ impl Prod {
         self.actor.cmd_timeout(&format!("fillinto {} {} {} {} 2", at[0], at[1], at[2], substr), Duration::from_secs(60))
     }
 
+    fn dropall(&mut self, substr: &str, keep: u32) -> Result<String> {
+        self.actor.cmd_timeout(&format!("dropall {substr} {keep}"), Duration::from_secs(90))
+    }
+
     fn invcount(&mut self, substr: &str) -> Result<i64> {
         let s = self.actor.cmd(&format!("invcount {substr}"))?;
         Ok(s.split("count=").nth(1).and_then(|v| v.split(' ').next()).and_then(|v| v.parse().ok()).unwrap_or(-1))
@@ -961,7 +965,7 @@ impl Prod {
                 continue;
             }
             let below = [x, f[1].floor() as i32 - 1, z];
-            self.mine_sweep(below)?;
+            self.mine(below)?;
         }
         bail!("dig_down2 never reached y {target_y}")
     }
@@ -991,6 +995,14 @@ impl Prod {
         let mut rescued = false;
         for pass in 0..200 {
             self.check_alive()?;
+            // Keep the inventory (and the floor) free of junk stacks: piles of drop
+            // entities are what slows the server to a crawl in a long clear.
+            if self.invcount("cobbled_deepslate")? > 192 {
+                self.dropall("cobbled_deepslate", 0)?;
+            }
+            if dim == "the_nether" && self.invcount("netherrack")? > 448 {
+                self.dropall("netherrack", 3)?;
+            }
             let blocks = if dim == "the_nether" { self.nether_box(rlo, rhi)? } else { self.overworld_box(rlo, rhi)? };
             let mut todo: Vec<Pos> = Vec::new();
             for y in lo[1]..=hi[1] {
@@ -1020,7 +1032,7 @@ impl Prod {
                     match self.place_at(dim, cell, "minecraft:netherrack", None) {
                         Ok(()) => {
                             self.select(SLOT_PICK)?;
-                            let _ = self.mine_sweep(cell);
+                            let _ = self.mine(cell);
                             self.select(SLOT_NETHERRACK)?;
                         }
                         Err(e) => self.loga(&format!("clear_box: seal {cell:?} failed: {e:#}")),
@@ -1052,7 +1064,10 @@ impl Prod {
                     break;
                 }
                 match self.stand_near(&blocks, p) {
-                    Ok(()) => match self.mine_sweep(p) {
+                    // Precise mine (direct per-tick calls), not the held key: at the client's
+                    // few fps under llvmpipe the held-key path costs several frame-gated
+                    // submits per block; the direct path needs two or three.
+                    Ok(()) => match self.mine(p) {
                         Ok(()) => mined += 1,
                         // The snapshot can be stale by the time we get here (overshoot mined
                         // it already; lava took its place): next pass re-reads anyway.
@@ -2460,6 +2475,9 @@ fn mine_obsidian_box(p: &mut Prod, lo: Pos, hi: Pos) -> Result<()> {
     let mut rescued = false;
     for pass in 0..80 {
         p.check_alive()?;
+        if p.invcount("obsidian")? > 320 {
+            p.dropall("obsidian", 1)?;
+        }
         let blocks = p.nether_box(rlo, rhi)?;
         let mut todo: Vec<Pos> = Vec::new();
         for y in lo[1]..=hi[1] {
