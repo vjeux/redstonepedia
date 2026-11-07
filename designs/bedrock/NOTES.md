@@ -188,11 +188,34 @@ head and the release removed the bedrock; window 13 (not armed) failed.
 So the odds are 1 in 8 per press, with free retries - a few seconds of pressing in rhythm, no lag,
 no macro, and the headless piston tells you the moment it worked.
 
-**Still to build:** the scenario drives SP and U from a script (the exact beat below). A survival
-build wires both to one clock: pull the carrier at t, push BOTH at t+3 (U's power arriving first,
-e.g. one repeater closer), pull U's block at t+7, pull the carrier at t+8 = t of the next cycle.
-Never retract U while its block is still moving: the spit finalises it in the block-event phase,
-and that update, with the power away, retracts A instead of arming it.
+### Wiring it (the waveform)
+
+The scenario drives the two pistons from a script. The carrier piston is only one way to toggle
+the quasi power; **a redstone torch is simpler and has the right phase**, as long as nothing it
+updates touches A. A wall torch at the quasi cell's side (attached to a block TWO cells from A,
+not to a cell beside A: a repeater powering a block beside A updates A through
+`DiodeBlock.updateNeighborsInFront`) goes off 2 gt after its support is powered and comes back
+2 gt after it is released, both in the scheduled-tick phase - which is exactly the phase between
+the landing and the event.
+
+With the clock's pulse at ticks `[p, p+3)` on the torch's support, and U's power the same pulse
+delayed 2 ticks:
+
+| tick | what | why |
+|---|---|---|
+| p | support powered | |
+| p+2 | torch OFF (phase 3); U pushes | quasi power away, A unaware |
+| p+3 | support released | |
+| p+4 | U's block LANDS (phase 8) | A updated with the power away: **armed**, and the window after this tick is the player's |
+| p+5 | torch ON (phase 3), then A's event (phase 5) | the event finds A powered: no-op, A keeps its head |
+| p+5 | U's power falls: U pulls its block back | the pull's phase-5 update finds A powered: harmless |
+| p+8 | next pulse | one armed window every 8 ticks |
+
+So the clock is a **3-tick pulse every 8 ticks** (the pulse study's limiters make one) feeding the
+torch's support directly and U's power through one repeater on 1 (2 gt). Two rules the timing
+must respect, both found the hard way: never retract U while its block is still moving (the spit
+finalises it in the block-event phase, and that update with the power away retracts A instead of
+arming it), and never let a repeater power a cell beside A.
 
 ## 4. Other ways to remove bedrock (audit)
 
