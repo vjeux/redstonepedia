@@ -803,7 +803,7 @@ impl Prod {
         if reach(cur) {
             return Ok(());
         }
-        let mut best: Option<(i32, Pos)> = None;
+        let mut cands: Vec<(i32, Pos)> = Vec::new();
         for dx in -3..=3 {
             for dz in -3..=3 {
                 // A stand can be up to 5 below the target (eye height + reach), e.g. the last
@@ -820,23 +820,30 @@ impl Prod {
                         && blocks.kind([s[0], s[1] + 1, s[2]]) == Kind::Replaceable
                         && reach(s)
                     {
-                        let d = (s[0] - cur[0]).abs() + (s[2] - cur[2]).abs() + (s[1] - cur[1]).abs() * 2;
-                        if best.is_none_or(|(bd, _)| d < bd) {
-                            best = Some((d, s));
-                        }
+                        // Same level as the player first: a same-height map stand on top of
+                        // unmined rock outside the room is usually unreachable on foot, while
+                        // the floor below the target is a short walk.
+                        let d = (s[0] - cur[0]).abs() + (s[2] - cur[2]).abs() + (s[1] - cur[1]).abs() * 4;
+                        cands.push((d, s));
                     }
                 }
             }
         }
-        match best {
-            Some((_, s)) => {
-                let r = self.walk(s[0], s[2]);
-                if r.is_err() {
-                    let at = self.feet().ok();
-                    let e = r.as_ref().unwrap_err();
-                    self.loga(&format!("stand_near {target:?}: walk to {s:?} failed: {e:#}; player at {at:?}"));
+        cands.sort_by_key(|(d, _)| *d);
+        cands.dedup_by_key(|(_, s)| *s);
+        match cands.first().copied() {
+            Some(_) => {
+                let mut last_err = None;
+                for (_, s) in cands.into_iter().take(4) {
+                    match self.walk(s[0], s[2]) {
+                        Ok(()) => return Ok(()),
+                        Err(e) => {
+                            self.loga(&format!("stand_near {target:?}: walk to {s:?} failed: {e:#}"));
+                            last_err = Some(e);
+                        }
+                    }
                 }
-                r
+                Err(last_err.unwrap())
             }
             None => {
                 // The pass-start read may lag the real cavity (sweep overshoot, earlier
