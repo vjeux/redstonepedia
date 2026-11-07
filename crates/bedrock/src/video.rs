@@ -912,8 +912,14 @@ impl Prod {
     /// `dig_down` hardened for caves in the shaft: wait for the fall to settle before
     /// choosing the next cell (mining a cell you are falling past times out — it ends up
     /// above you, out of reach), and re-centre on the column after a sideways landing.
-    fn dig_down2(&mut self, x: i32, z: i32, target_y: f64) -> Result<()> {
+    fn dig_down2(&mut self, dim: &str, x: i32, z: i32, target_y: f64) -> Result<()> {
         for _ in 0..400 {
+            // Death (a lava pocket flowing into the shaft) respawns the player at the
+            // world spawn: say so at once instead of mining on in the wrong place.
+            let pos = self.pos()?;
+            if !pos.contains(dim) || pos.contains("health=0") {
+                bail!("dig_down2: the player died or left {dim} ({pos})");
+            }
             let mut f = self.feet()?;
             for _ in 0..40 {
                 self.wait(3)?;
@@ -1971,15 +1977,18 @@ fn candidate2(floor: &Blocks, fx: i32, rz: i32) -> Option<V2Plan> {
     Some(V2Plan { z0, z1, exit_y: 3, hole_row, trips_total: trips, pass_rows })
 }
 
-/// A shaft stand for v2: solid footing and no lava anywhere in the column below, mostly
-/// solid rock (a small cave gap on the way down is a survivable drop in peaceful, and
-/// `dig_down` just keeps going from wherever the player lands).
+/// A shaft stand for v2: solid footing and no lava anywhere in the 3x3 columns around the
+/// shaft below (a pocket BESIDE the shaft flows in as soon as the digging updates it —
+/// that drowned the first shoot), mostly solid rock (a small cave gap on the way down is
+/// a survivable drop in peaceful, and `dig_down` keeps going from wherever it lands).
 fn shaft_stand2(col: &Blocks, x: i32, z: i32) -> Option<i32> {
     (6..=110).rev().find(|&y| {
         col.kind([x, y, z]) == Kind::Replaceable
             && col.kind([x, y + 1, z]) == Kind::Replaceable
             && col.kind([x, y - 1, z]) == Kind::Solid
-            && (5..y).all(|yy| !col.get([x, yy, z]).starts_with("minecraft:lava"))
+            && (5..y).all(|yy| {
+                (-1..=1).all(|dx| (-1..=1).all(|dz| !col.get([x + dx, yy, z + dz]).starts_with("minecraft:lava")))
+            })
             && (5..y).filter(|&yy| col.kind([x, yy, z]) == Kind::Solid).count() * 4 >= (y - 5).max(1) as usize * 3
     })
 }
@@ -2072,7 +2081,7 @@ fn scout2(version: &str, o: &VideoOptions) -> Result<Plan> {
         if shaft_found.is_none() {
             'shafts: for sx in [fx + 1, fx + 2, fx, fx + 3] {
                 for sz in [rz + 9, rz + 10, rz + 8, rz + 11] {
-                    let col = srv.read_dim_box("the_nether", [sx, 0, sz], [sx, 127, sz])?;
+                    let col = srv.read_dim_box("the_nether", [sx - 1, 0, sz - 1], [sx + 1, 127, sz + 1])?;
                     let col = Blocks::new(col.region);
                     if let Some(stand_y) = shaft_stand2(&col, sx, sz) {
                         shaft_found = Some(((sx, sz), stand_y));
@@ -2108,13 +2117,26 @@ fn scout2(version: &str, o: &VideoOptions) -> Result<Plan> {
             srv.cmd_ok(&format!("forceload remove {} {} {} {}", mx0 - 16, mz0 - 16, mx1 + 16, mz1 + 16))?;
             continue;
         }
-        let surf = srv.read_dim_box("overworld", [c.dix + 1, 0, c.doz_a + 3], [c.dix + 1, 200, c.doz_a + 3])?;
+        let surf = srv.read_dim_box("overworld", [c.dix, 0, c.doz_a + 2], [c.dix + 2, 200, c.doz_a + 4])?;
         let surfb = Blocks::new(surf.region);
         let Some(ow_stand_y) = surface_stand(&surfb, c.dix + 1, c.doz_a + 3) else {
             n_surface += 1;
             srv.cmd_ok(&format!("forceload remove {} {} {} {}", mx0 - 16, mz0 - 16, mx1 + 16, mz1 + 16))?;
             continue;
         };
+        // The dig shaft itself: no fluid in the column, no lava in its 3x3 neighbourhood
+        // (same shaft rules as the Nether side, learned the wet way).
+        let shaft_wet = (2..ow_stand_y).any(|y| {
+            let s = surfb.get([c.dix + 1, y, c.doz_a + 3]);
+            s.starts_with("minecraft:water")
+                || s.starts_with("minecraft:lava")
+                || (-1..=1).any(|dx| (-1..=1).any(|dz| surfb.get([c.dix + 1 + dx, y, c.doz_a + 3 + dz]).starts_with("minecraft:lava")))
+        });
+        if shaft_wet {
+            n_surface += 1;
+            srv.cmd_ok(&format!("forceload remove {} {} {} {}", mx0 - 16, mz0 - 16, mx1 + 16, mz1 + 16))?;
+            continue;
+        }
         chosen = Some(Plan {
             seed,
             fx,
@@ -2551,7 +2573,7 @@ fn scenes2(p: &mut Prod) -> Result<()> {
     if !p.done("field") {
         p.seg_step("dig-down", "field", &["Dig down to the Nether floor (bedrock lives at y 0-4)"], 6.0, S1)?;
         p.walk(plan.shaft_x, plan.shaft_z)?;
-        p.dig_down2(plan.shaft_x, plan.shaft_z, 5.0)?;
+        p.dig_down2("the_nether", plan.shaft_x, plan.shaft_z, 5.0)?;
         p.select(SLOT_PICK)?;
         for z in (v2.z1 + 2..plan.shaft_z).rev() {
             p.mine([plan.shaft_x, 5, z])?;
@@ -2605,7 +2627,7 @@ fn scenes2(p: &mut Prod) -> Result<()> {
             "Dig down: the machine sits with its portals' floors at y=2",
         ], 6.0, S3)?;
         p.walk(c.dix + 1, c.doz_a + 3)?;
-        p.dig_down2(c.dix + 1, c.doz_a + 3, 2.0)?;
+        p.dig_down2("overworld", c.dix + 1, c.doz_a + 3, 2.0)?;
         p.clear_box("overworld", [c.rox - 3, 2, c.doz_a - 3], [c.dix + 4, 8, c.doz_b + 4], false)?;
         // The generated twin must die or it would steal the trigger items.
         p.seg_step("twin-off", "machine", &[
@@ -2833,6 +2855,28 @@ fn run2(version: &str, o: &VideoOptions) -> Result<()> {
             Ok(())
         }
         "record" => record2(version, &load_plan(o)?, o),
+        "column" => {
+            // Debug: dump the plan's shaft column (block per y) of a saved world, no server.
+            let plan = load_plan(o)?;
+            let world = match &o.from {
+                Some(tag) => o.out.join("checkpoints").join(tag),
+                None => o.out.join("world-src"),
+            };
+            let dim = world.join("dimensions").join("minecraft").join("the_nether");
+            let snap = mctas::vanilla::read_box(&dim, [plan.shaft_x - 1, 0, plan.shaft_z - 1], [plan.shaft_x + 1, 110, plan.shaft_z + 1])?;
+            let b = Blocks::new(snap.region);
+            for y in (0..=105).rev() {
+                let row: Vec<String> = (-1..=1)
+                    .map(|dx| (-1..=1).map(|dz| match b.kind([plan.shaft_x + dx, y, plan.shaft_z + dz]) {
+                        Kind::Solid => "#",
+                        Kind::Replaceable => ".",
+                        Kind::Other => "?",
+                    }).collect::<Vec<_>>().join(""))
+                    .collect();
+                println!("y{y:3} {} {}", row.join(" "), b.get([plan.shaft_x, y, plan.shaft_z]));
+            }
+            Ok(())
+        }
         "compose" => compose2(version, &load_plan(o)?, o),
         "all" => {
             let plan = if o.out.join("plan.json").exists() { load_plan(o)? } else { scout2(version, o)? };
