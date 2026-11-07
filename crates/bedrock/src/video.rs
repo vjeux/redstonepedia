@@ -1866,7 +1866,9 @@ fn sim_field(b: &mut Blocks, fx: i32, rz: i32, z0: i32, z1: i32) -> Option<(usiz
             let exit = [fx + 1, EXIT_Y, rz + pass];
             let mut rows: Vec<i32> = Vec::new();
             loop {
-                let w = portal::winner(b, exit, 0, 20)?;
+                // Origins above y12 sit >9 above the exit: dist² > 81 beats no field row
+                // (max ~40), so capping the scan there cannot change who wins the field.
+                let w = portal::winner(b, exit, 0, 12)?;
                 let row = w.origin[2];
                 if !w.full || w.origin[0] != fx + 1 || w.origin[1] != l + 1 || !(z0 - 1..=z1 + 1).contains(&row) {
                     break;
@@ -1926,7 +1928,7 @@ fn candidate2(floor: &Blocks, fx: i32, rz: i32) -> Option<V2Plan> {
         }
     }
     // Clone the reads into a sim copy: flatten (air above, solid y4 sheet) like the shoot does.
-    let mut b = floor.subcopy([fx - 24, 0, rz - 24], [fx + 24, 20, rz + 24]);
+    let mut b = floor.subcopy([fx - 17, 0, rz - 17], [fx + 19, 12, rz + 19]);
     for x in fx - 2..=fx + 5 {
         for z in z0 - 1..=z1 + 1 {
             for y in 5..=12 {
@@ -1939,6 +1941,19 @@ fn candidate2(floor: &Blocks, fx: i32, rz: i32) -> Option<V2Plan> {
     }
     let (trips, pass_rows, hole_row) = sim_field(&mut b, fx, rz, z0, z1)?;
     Some(V2Plan { z0, z1, exit_y: 3, hole_row, trips_total: trips, pass_rows })
+}
+
+/// A shaft stand for v2: solid footing and no lava anywhere in the column below, mostly
+/// solid rock (a small cave gap on the way down is a survivable drop in peaceful, and
+/// `dig_down` just keeps going from wherever the player lands).
+fn shaft_stand2(col: &Blocks, x: i32, z: i32) -> Option<i32> {
+    (6..=110).rev().find(|&y| {
+        col.kind([x, y, z]) == Kind::Replaceable
+            && col.kind([x, y + 1, z]) == Kind::Replaceable
+            && col.kind([x, y - 1, z]) == Kind::Solid
+            && (5..y).all(|yy| !col.get([x, yy, z]).starts_with("minecraft:lava"))
+            && (5..y).filter(|&yy| col.kind([x, yy, z]) == Kind::Solid).count() * 4 >= (y - 5).max(1) as usize * 3
+    })
 }
 
 fn scout2(version: &str, o: &VideoOptions) -> Result<Plan> {
@@ -1962,14 +1977,25 @@ fn scout2(version: &str, o: &VideoOptions) -> Result<Plan> {
         }
     };
     eprintln!("scout2: floor read after {:.0}s", t0.elapsed().as_secs_f64());
-    let mut cands: Vec<(usize, i32, i32, i32, V2Plan)> = Vec::new();
-    for fx in -44..=40 {
-        for rz in -40..=40 {
-            if let Some(v2) = candidate2(&floor, fx, rz) {
-                cands.push((v2.trips_total, fx.abs() + rz.abs(), fx, rz, v2));
-            }
+    // The sweep simulation per candidate is the expensive part (the floor stack is solid
+    // almost everywhere, so many pass the cheap pre-filter): run the grid in parallel.
+    let grid: Vec<(i32, i32)> = (-44..=40).flat_map(|fx| (-40..=40).map(move |rz| (fx, rz))).collect();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let found: std::sync::Mutex<Vec<(usize, i32, i32, i32, V2Plan)>> = std::sync::Mutex::new(Vec::new());
+    let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).min(32);
+    std::thread::scope(|s| {
+        for _ in 0..workers {
+            s.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(&(fx, rz)) = grid.get(i) else { break };
+                if let Some(v2) = candidate2(&floor, fx, rz) {
+                    found.lock().unwrap().push((v2.trips_total, fx.abs() + rz.abs(), fx, rz, v2));
+                }
+            });
         }
-    }
+    });
+    let mut cands = found.into_inner().unwrap();
+    eprintln!("scout2: {} fields simulate a full pierce", cands.len());
     cands.sort_by_key(|c| (c.0, c.1));
     if cands.is_empty() {
         bail!("scout2: no field simulates a full pierce in the searched area");
@@ -1978,26 +2004,70 @@ fn scout2(version: &str, o: &VideoOptions) -> Result<Plan> {
         eprintln!("scout2: candidate fx={} rz={} trips={} hole_row={}", c.2, c.3, c.0, c.4.hole_row);
     }
     let mut chosen: Option<Plan> = None;
-    for (_, _, fx, rz, v2) in cands.into_iter().take(24) {
+    let (mut n_corridor, mut n_shaft, mut n_wet, mut n_surface) = (0, 0, 0, 0);
+    // Sorted by (trips, distance) the list starts with near-identical fields around the
+    // origin sharing one corridor's lava: spread the tries over the map instead.
+    let mut tried: Vec<(i32, i32)> = Vec::new();
+    let spread = cands.into_iter().filter(|c| {
+        if tried.iter().any(|&(tx, tz)| (tx - c.2).abs() < 7 && (tz - c.3).abs() < 7) {
+            false
+        } else {
+            tried.push((c.2, c.3));
+            true
+        }
+    });
+    for (_, _, fx, rz, v2) in spread.take(140) {
         let c = v2_coords(fx, rz);
-        // The walk west to R_N must not cross floor-level lava.
-        let corridor_lava = (c.rnx..fx).any(|x| (0..=6).any(|y| (rz - 1..=rz + 1).any(|z| floor.get([x, y, z]).starts_with("minecraft:lava"))));
+        // The walk west to R_N: lava in the walkway's air (y>=5) or flowing over it is the
+        // hazard; lava sealed in the y0..4 stack gets paved by the y4 sheet fill.
+        let corridor_lava = (c.rnx..fx).any(|x| (5..=9).any(|y| (rz - 2..=rz + 2).any(|z| floor.get([x, y, z]).starts_with("minecraft:lava"))));
         if corridor_lava {
+            n_corridor += 1;
             continue;
         }
-        let shaft = (fx + 1, rz + 9);
-        let col = srv.read_dim_box("the_nether", [shaft.0, 0, shaft.1], [shaft.0, 127, shaft.1])?;
-        let col = Blocks::new(col.region);
-        let Some(stand_y) = diggable_stand(&col, shaft.0, shaft.1) else { continue };
+        // Entry: best is a natural stand on the open floor just south of the field (feet
+        // y5, straight from the floor reads — the shoot then just tunnels north). Buried
+        // floors fall back to a dig-straight-down shaft column (v1's rule).
+        let mut shaft_found: Option<((i32, i32), i32)> = None;
+        'floor_stand: for sz in rz + 8..=rz + 14 {
+            for sx in fx..=fx + 3 {
+                let open = floor.kind([sx, 4, sz]) == Kind::Solid
+                    && floor.kind([sx, 5, sz]) == Kind::Replaceable
+                    && floor.kind([sx, 6, sz]) == Kind::Replaceable
+                    && (sx - 1..=sx + 1).all(|x| (sz - 1..=sz + 1).all(|z| !floor.get([x, 5, z]).starts_with("minecraft:lava")));
+                if open {
+                    shaft_found = Some(((sx, sz), 5));
+                    break 'floor_stand;
+                }
+            }
+        }
+        if shaft_found.is_none() {
+            'shafts: for sx in [fx + 1, fx + 2, fx, fx + 3] {
+                for sz in [rz + 9, rz + 10, rz + 8, rz + 11] {
+                    let col = srv.read_dim_box("the_nether", [sx, 0, sz], [sx, 127, sz])?;
+                    let col = Blocks::new(col.region);
+                    if let Some(stand_y) = shaft_stand2(&col, sx, sz) {
+                        shaft_found = Some(((sx, sz), stand_y));
+                        break 'shafts;
+                    }
+                }
+            }
+        }
+        let Some((shaft, stand_y)) = shaft_found else {
+            n_shaft += 1;
+            continue;
+        };
         let (mx0, mx1, mz0, mz1) = (c.rox - 3, c.dix + 4, c.doz_a - 3, c.doz_b + 4);
         srv.cmd_ok(&format!("forceload add {} {} {} {}", mx0 - 16, mz0 - 16, mx1 + 16, mz1 + 16))?;
         std::thread::sleep(Duration::from_secs(2));
         let ow = srv.read_dim_box("overworld", [mx0, 0, mz0], [mx1, 12, mz1])?;
         let owb = Blocks::new(ow.region);
+        // Only the room's own air volume (y2..8) must start dry; aquifers sealed under the
+        // y1 floor or beyond the walls never get opened.
         let mut bad = false;
         for x in mx0..=mx1 {
             for z in mz0..=mz1 {
-                for y in 0..=12 {
+                for y in 2..=8 {
                     let s = owb.get([x, y, z]);
                     if s.starts_with("minecraft:water") || s.starts_with("minecraft:lava") {
                         bad = true;
@@ -2006,12 +2076,14 @@ fn scout2(version: &str, o: &VideoOptions) -> Result<Plan> {
             }
         }
         if bad {
+            n_wet += 1;
             srv.cmd_ok(&format!("forceload remove {} {} {} {}", mx0 - 16, mz0 - 16, mx1 + 16, mz1 + 16))?;
             continue;
         }
         let surf = srv.read_dim_box("overworld", [c.dix + 1, 0, c.doz_a + 3], [c.dix + 1, 200, c.doz_a + 3])?;
         let surfb = Blocks::new(surf.region);
         let Some(ow_stand_y) = surface_stand(&surfb, c.dix + 1, c.doz_a + 3) else {
+            n_surface += 1;
             srv.cmd_ok(&format!("forceload remove {} {} {} {}", mx0 - 16, mz0 - 16, mx1 + 16, mz1 + 16))?;
             continue;
         };
@@ -2032,6 +2104,7 @@ fn scout2(version: &str, o: &VideoOptions) -> Result<Plan> {
         });
         break;
     }
+    eprintln!("scout2: rejected by corridor-lava {n_corridor}, shaft {n_shaft}, wet-room {n_wet}, surface {n_surface}");
     let plan = chosen.context("scout2: every candidate failed the shaft/overworld checks")?;
     let v2 = plan.v2.as_ref().unwrap();
     eprintln!(
@@ -2457,8 +2530,6 @@ fn scenes2(p: &mut Prod) -> Result<()> {
             p.mine([plan.shaft_x, 6, z])?;
             p.walk(plan.shaft_x, z)?;
         }
-        p.seg_step("field-top", "field", &["The raw floor before any prep (camera view)"], 1.0, S1)?;
-        p.spec_shot("the_nether", [fx as f64 + 1.5, 22.0, rz as f64 + 10.0], [fx as f64 + 1.5, 4.0, rz as f64 + 0.5], 70)?;
         p.seg_step("field-prep", "field", &[
             "Flatten one field: 4 blocks wide, 11 rows",
             "Solid floor over the bedrock, air above — once, for the whole job",
@@ -2471,6 +2542,8 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         p.fill_floor("the_nether", 4, c.rnx - 3, fx - 3, rz - 3, v2.z1 + 1, None)?;
         p.torch([fx - 1, 4, v2.z0 - 1])?;
         p.torch([fx + 4, 4, v2.z1 + 1])?;
+        p.seg_step("field-top", "field", &["The prepared field (camera view): 4 wide, 11 rows"], 1.0, S1)?;
+        p.spec_shot("the_nether", [fx as f64 + 1.5, 10.5, rz as f64 + 9.5], [fx as f64 + 1.5, 4.0, rz as f64 + 0.5], 70)?;
         p.seg_step("bedrock-before", "field", &[
             "The top bedrock layer, y=4 — unbreakable by hand",
             "Watch this spot",
