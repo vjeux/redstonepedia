@@ -342,9 +342,10 @@ public final class Actor {
                                 continue;
                             }
                             if (i >= 9) {
+                                final int containerSlot = i;
                                 mc.gameMode.handleContainerInput(mc.player.inventoryMenu.containerId,
                                         mc.player.inventoryMenu.slots.stream()
-                                                .filter(s -> s.container == inv && s.getContainerSlot() == i)
+                                                .filter(s -> s.container == inv && s.getContainerSlot() == containerSlot)
                                                 .findFirst().orElseThrow().index,
                                         8, ContainerInput.SWAP, mc.player);
                                 inv.setSelectedSlot(8);
