@@ -158,6 +158,7 @@ public final class Protocol {
             case "use_entity" -> useEntity(r);
             case "step" -> step(r);
             case "status" -> status(sandbox(r));
+            case "events" -> events(sandbox(r));
             case "entities" -> entities(r);
             case "summon" -> summon(r);
             case "update" -> update(r);
@@ -562,6 +563,26 @@ public final class Protocol {
         }
         JsonObject o = new JsonObject();
         o.add("results", results);
+        return o;
+    }
+
+    /** Pending block events in queue order: pos, block id, type (paramA) and data (paramB). */
+    private JsonObject events(Sandbox sb) {
+        JsonArray list = new JsonArray();
+        for (net.minecraft.world.level.BlockEventData e : sb.blockEvents()) {
+            JsonObject o = new JsonObject();
+            JsonArray p = new JsonArray();
+            p.add(e.pos().getX());
+            p.add(e.pos().getY());
+            p.add(e.pos().getZ());
+            o.add("pos", p);
+            o.addProperty("block", net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(e.block()).toString());
+            o.addProperty("a", e.paramA());
+            o.addProperty("b", e.paramB());
+            list.add(o);
+        }
+        JsonObject o = new JsonObject();
+        o.add("events", list);
         return o;
     }
 

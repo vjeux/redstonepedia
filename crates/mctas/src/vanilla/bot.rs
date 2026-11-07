@@ -256,10 +256,16 @@ impl Bot {
     /// sequence number: once [`Bot::wait_ack`] sees it, the server has handled the click and
     /// every packet the bot sent before it (one connection is handled in order).
     pub fn use_item_on_at(&mut self, pos: [i32; 3], face: u8, cursor: [f32; 3]) -> Result<i32> {
+        self.use_item_on_hand(0, pos, face, cursor)
+    }
+
+    /// Like [`Bot::use_item_on_at`] with the hand: 0 main hand, 1 offhand (a player holding a
+    /// pickaxe in the main hand places the offhand's block: the main-hand click passes first).
+    pub fn use_item_on_hand(&mut self, hand: u8, pos: [i32; 3], face: u8, cursor: [f32; 3]) -> Result<i32> {
         self.check_ready()?;
         self.sequence += 1;
         let mut p = Vec::new();
-        put_varint(&mut p, 0); // main hand
+        put_varint(&mut p, hand as i32);
         p.extend_from_slice(&packed_pos(pos).to_be_bytes());
         put_varint(&mut p, face as i32);
         for v in cursor {

@@ -543,6 +543,15 @@ final class Sandbox {
         return ((Collection<?>) get(BLOCK_EVENTS, this.level)).size();
     }
 
+    /** The pending block events, in queue order (the bedrock study reads which cells are armed). */
+    java.util.List<net.minecraft.world.level.BlockEventData> blockEvents() {
+        java.util.List<net.minecraft.world.level.BlockEventData> out = new java.util.ArrayList<>();
+        for (Object o : (Collection<?>) get(BLOCK_EVENTS, this.level)) {
+            out.add((net.minecraft.world.level.BlockEventData) o);
+        }
+        return out;
+    }
+
     @SuppressWarnings("unchecked")
     int movingPistonCount() {
         int count = 0;
