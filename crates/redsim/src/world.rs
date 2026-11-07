@@ -120,6 +120,10 @@ pub struct World {
     nu_current: CascadeStats,
     pub nu_last: CascadeStats,
     pub nu_history: Vec<CascadeStats>,
+    /// The cascade cap in force (`maxChainedNeighborUpdates` of this level): default
+    /// `MAX_CHAINED_NEIGHBOR_UPDATES`; a study may lower it (the update-suppressor judge
+    /// proves its rig geometry at a cap a small field can reach). Not in the state key.
+    pub nu_cap: u32,
     /// `ServerLevel.handlingTick`: true from the tick's start through the block-event phase.
     pub handling_tick: bool,
     /// Comparator block entities: their output signal.
@@ -251,6 +255,7 @@ impl World {
             nu_current: CascadeStats::default(),
             nu_last: CascadeStats::default(),
             nu_history: Vec::new(),
+            nu_cap: MAX_CHAINED_NEIGHBOR_UPDATES,
             handling_tick: false,
             comparator_out: HashMap::new(),
             containers: Default::default(),
@@ -665,7 +670,7 @@ impl World {
 
     fn add_and_run(&mut self, u: Nu) {
         let running = self.nu_count > 0;
-        let too_many = self.nu_count >= MAX_CHAINED_NEIGHBOR_UPDATES;
+        let too_many = self.nu_count >= self.nu_cap;
         self.nu_count += 1;
         if self.nu_stats_on {
             self.nu_current.counted += 1;
@@ -690,7 +695,7 @@ impl World {
             } else {
                 self.nu_stack.push(u);
             }
-        } else if self.nu_count - 1 == MAX_CHAINED_NEIGHBOR_UPDATES {
+        } else if self.nu_count - 1 == self.nu_cap {
             self.errors.push("too many chained neighbor updates".into());
         }
         if !running {

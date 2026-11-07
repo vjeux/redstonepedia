@@ -9,7 +9,9 @@
 //! (`World.nu_history`): counted calls, executions, dropped calls, and how many times each
 //! cell changed state (`World.writes`).
 
+pub mod bridge;
 pub mod cli;
+pub mod judge;
 
 use anyhow::{Result, bail};
 use redsim::block::{Block, Face, RailShape, Simple};
@@ -49,7 +51,7 @@ pub struct ProbeReport {
 }
 
 /// A world sized to `blocks` plus padding, with statistics on from the start.
-fn world_for(blocks: &[(BlockPos, Block)], at: BlockPos) -> World {
+pub(crate) fn world_for(blocks: &[(BlockPos, Block)], at: BlockPos) -> World {
     let mut lo = bp(i32::MAX, i32::MAX, i32::MAX);
     let mut hi = bp(i32::MIN, i32::MIN, i32::MIN);
     for (p, _) in blocks {
