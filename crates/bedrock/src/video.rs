@@ -704,6 +704,16 @@ impl Prod {
     /// neighbour from a fresh read (below first), stands in reach, places. `look` pins the
     /// player's view for the click (dropper/repeater facings).
     fn place_at(&mut self, dim: &str, pos: Pos, pred: &str, look: Option<(f32, f32)>) -> Result<()> {
+        self.place_at_s(dim, pos, pred, look, false)
+    }
+
+    /// `place_at` with the sneak key held for the click: how a player puts a plate on a
+    /// hopper instead of opening it.
+    fn place_at_sneak(&mut self, dim: &str, pos: Pos, pred: &str) -> Result<()> {
+        self.place_at_s(dim, pos, pred, None, true)
+    }
+
+    fn place_at_s(&mut self, dim: &str, pos: Pos, pred: &str, look: Option<(f32, f32)>, sneak: bool) -> Result<()> {
         let blocks = if dim == "the_nether" {
             self.nether_box([pos[0] - 2, pos[1] - 2, pos[2] - 2], [pos[0] + 2, pos[1] + 2, pos[2] + 2])?
         } else {
@@ -725,10 +735,16 @@ impl Prod {
             let click = [pos[0] + off[0], pos[1] + off[1], pos[2] + off[2]];
             if blocks.kind(click) == Kind::Solid {
                 self.stand_near(&blocks, click)?;
+                if sneak {
+                    self.actor.cmd("sneak 1")?;
+                }
                 let r = match look {
                     Some((yaw, pitch)) => self.placef(click, face, yaw, pitch)?,
                     None => self.place(click, face)?,
                 };
+                if sneak {
+                    self.actor.cmd("sneak 0")?;
+                }
                 self.loga(&format!("place_at {pos:?} via {click:?}/{face}: {r}"));
                 return self.assert_block(dim, pos, pred, "place_at");
             }
@@ -2119,7 +2135,7 @@ fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
     p.select(SLOT_SWAP)?;
     p.hold("oak_pressure_plate")?;
     for (x, z) in plate_cells {
-        p.place_at("overworld", [x, 3, z], "minecraft:oak_pressure_plate", None)?;
+        p.place_at_sneak("overworld", [x, 3, z], "minecraft:oak_pressure_plate")?;
     }
     // The back wall that keeps the arriving item on the plates.
     p.select(SLOT_STONE)?;
@@ -2662,7 +2678,7 @@ fn smoke2(version: &str, o: &VideoOptions) -> Result<()> {
     p.hold("hopper")?;
     p.place_at("overworld", [0, 70, 0], "minecraft:hopper", None)?;
     p.hold("oak_pressure_plate")?;
-    p.place_at("overworld", [0, 71, 0], "minecraft:oak_pressure_plate", None)?;
+    p.place_at_sneak("overworld", [0, 71, 0], "minecraft:oak_pressure_plate")?;
     p.loga("smoke2: plate sits on hopper");
     // Dropper facing north at (2,70,-1), dust from plate to it, loaded via its GUI.
     p.hold("dropper")?;
