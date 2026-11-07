@@ -541,7 +541,10 @@ impl Chunk {
     }
 }
 
-fn read_chunk(world: &Path, cx: i32, cz: i32, cache: &mut HashMap<(i32, i32), Vec<u8>>) -> Result<Option<Chunk>> {
+/// The raw NBT root of one saved chunk (the tag `SerializableChunkData.write` produced:
+/// `sections`, `Heightmaps`, `InhabitedTime`, `isLightOn`, ...), or None when the chunk was
+/// never saved. `world` is a dimension folder (the one holding `region/`).
+pub fn read_chunk_tag(world: &Path, cx: i32, cz: i32, cache: &mut HashMap<(i32, i32), Vec<u8>>) -> Result<Option<nbt::Tag>> {
     let (rx, rz) = (cx.div_euclid(32), cz.div_euclid(32));
     if let std::collections::hash_map::Entry::Vacant(e) = cache.entry((rx, rz)) {
         let path = world.join("region").join(format!("r.{rx}.{rz}.mca"));
@@ -577,7 +580,13 @@ fn read_chunk(world: &Path, cx: i32, cz: i32, cache: &mut HashMap<(i32, i32), Ve
         }
         k => bail!("chunk {cx},{cz}: unsupported compression {k}"),
     };
-    let root = nbt::parse_named(&bytes)?;
+    Ok(Some(nbt::parse_named(&bytes)?))
+}
+
+fn read_chunk(world: &Path, cx: i32, cz: i32, cache: &mut HashMap<(i32, i32), Vec<u8>>) -> Result<Option<Chunk>> {
+    let Some(root) = read_chunk_tag(world, cx, cz, cache)? else {
+        return Ok(None);
+    };
     let mut chunk = Chunk { sections: HashMap::new(), block_ticks: Vec::new(), fluid_ticks: 0, block_entities: Vec::new() };
     for sec in root.get("sections").map(|t| t.as_list()).unwrap_or(&[]) {
         let y = sec.get("Y").and_then(|t| t.as_i64()).unwrap_or(0) as i32;

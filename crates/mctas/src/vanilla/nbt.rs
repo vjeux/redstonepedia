@@ -67,6 +67,12 @@ impl Tag {
             _ => &[],
         }
     }
+    pub fn as_byte_array(&self) -> &[i8] {
+        match self {
+            Tag::ByteArray(b) => b,
+            _ => &[],
+        }
+    }
 }
 
 struct Reader<'a> {
