@@ -16,6 +16,14 @@ circuits/autodoor/auto-door-lock-v12.html	circuit	autodoor/auto-door		Auto door:
 circuits/autodoor/auto-door-plates.html	circuit	autodoor/auto-door 2x2		Automatic door: opens as you walk up, closes behind you · 44 blocks · no waiting, even sprinting	2026-10-22 16:09Z
 circuits/autodoor/auto-door-raised-torch.html	circuit	autodoor/auto-door 2x2		Automatic door: opens as you walk up, closes behind you · 42 blocks · no waiting, even sprinting	2026-10-22 16:21Z
 circuits/autodoor/index.html	page				2026-10-22 04:24Z
+circuits/bedrock/bedrock-breaker-11b.html	circuit	bedrock/bedrock-breaker	1	Bedrock breaker: 1 bedrock · 11 blocks	2026-11-07 21:34Z
+circuits/bedrock/bedrock-breaker-row15.html	circuit	bedrock/bedrock-breaker	15	Bedrock breaker: 15 bedrock · 93 blocks	2026-11-07 21:34Z
+circuits/bedrock/bedrock-breaker-row2.html	circuit	bedrock/bedrock-breaker	2	Bedrock breaker: 2 bedrock · 14 blocks	2026-11-07 21:34Z
+circuits/bedrock/bedrock-breaker-row3.html	circuit	bedrock/bedrock-breaker	3	Bedrock breaker: 3 bedrock · 21 blocks	2026-11-07 21:34Z
+circuits/bedrock/bedrock-breaker-row4.html	circuit	bedrock/bedrock-breaker	4	Bedrock breaker: 4 bedrock · 27 blocks	2026-11-07 21:34Z
+circuits/bedrock/bedrock-breaker-row5.html	circuit	bedrock/bedrock-breaker	5	Bedrock breaker: 5 bedrock · 33 blocks	2026-11-07 21:34Z
+circuits/bedrock/bedrock-breaker-row8.html	circuit	bedrock/bedrock-breaker	8	Bedrock breaker: 8 bedrock · 51 blocks	2026-11-07 21:34Z
+circuits/bedrock/index.html	page				2026-11-07 21:34Z
 circuits/brew/brewer-small.html	circuit	brew/brewer		Auto-brewer: 1 brewing stand · 42 blocks	2026-10-22 04:24Z
 circuits/brew/index.html	page				2026-10-22 04:24Z
 circuits/bud/bud-all-five.html	circuit	bud/bud		Block change detector: notices blocks placed, removed, changed, grown, updated · 13 blocks	2026-10-20 10:59Z
