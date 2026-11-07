@@ -757,6 +757,7 @@ impl Prod {
             todo.sort_by_key(|p| (std::cmp::Reverse(p[2]), p[0], std::cmp::Reverse(p[1])));
             self.loga(&format!("clear_box {dim} pass {pass}: {} blocks", todo.len()));
             self.select(SLOT_PICK)?;
+            let first: Vec<Pos> = todo.iter().take(8).copied().collect();
             let mut mined = 0;
             for p in todo {
                 if mined >= 40 {
@@ -771,7 +772,7 @@ impl Prod {
                 }
             }
             if mined == 0 {
-                self.loga(&format!("clear_box stuck; remaining: {:?}", &todo[..todo.len().min(8)]));
+                self.loga(&format!("clear_box stuck; first remaining: {first:?}"));
                 bail!("clear_box {dim} {lo:?}..{hi:?}: no reachable stand in a whole pass");
             }
         }
