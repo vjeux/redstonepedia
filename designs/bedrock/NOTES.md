@@ -11,9 +11,9 @@ Results in one line each:
 * **Floor bedrock (Nether floor, Overworld floor): the portal method.** No timing, no lag, no
   piston. Each portal trip turns a 1x4 line of bedrock into obsidian; repeated trips drill to the
   void. Verified on the official server, including the lowest layer.
-* **Nether roof (and anything else): the piston swap.** Works every time *if* three clicks land
-  inside one server tick; there is no vanilla way to hold that window open. Lag is what makes it
-  playable. Search for a forgiving setup continues (see "Next").
+* **Nether roof (and anything else): the piston swap, armed by a machine.** One key press, one
+  armed window every 8 ticks, free retries, no lag (section 3); verified on the official server.
+
 
 ## 1. The portal method (floors)
 
@@ -106,7 +106,6 @@ Every `execute if ...` in a scenario is an assertion: a failed test aborts the r
   height (~y 70), i.e. without a player-built site nothing happens to the floor.
 
 ## 2. The piston swap (anywhere, including the roof)
-
 ### The bug (`PistonBaseBlock.triggerEvent` 139-213)
 
 * A power change only QUEUES a block event (`checkIfExtend` 93-114): extended + unpowered ->
@@ -140,10 +139,62 @@ phase. Nothing in the game puts a piston into a cell in that window (pistons are
 players, by landings in the block-entity phase of a push that claimed the cell when it started, or
 by 0-tick finalTicks inside the block-event phase), and an extended piston cannot leave its cell
 inside the block-event phase except by a player, an explosion or another headless piston. So a
-player has to land three clicks inside one 50 ms tick; server lag widens that tick, which is why
-the lag method works.
+player has to land the swap inside one tick; server lag widens that tick, which is why the lag
+method works. **But the window can be made to come back on a beat, and the player's part can be
+one key press: section 3.**
 
-## 3. Other ways to remove bedrock (audit)
+## 3. The self-arming machine (the roof, lag-free)
+
+A retract event queued in the scheduled-tick or the block-event phase is consumed by the SAME
+tick's block-event phase, so it is gone before the server handles the player's packets (the
+connection is ticked after every level, `MinecraftServer.tickChildren` 1075-1147). Two phases run
+AFTER the block events: entities (7) and block entities (8). An event queued there is still
+pending when the player's next packets are handled. The machine uses that:
+
+* **A** is the piston next to the target bedrock, facing AWAY from it (so it can extend), powered
+  only by **quasi-connectivity** (a redstone block beside the cell above A). A QC-powered piston
+  does not re-check when its source goes away (`getNeighborSignal` 116-136): it stays extended,
+  silently unpowered, until something updates it.
+* **SP**, a sticky piston, carries that redstone block in and out of the quasi cell. The pull
+  empties the cell in the block-event phase and never updates A.
+* **U**, a second piston, pushes a block into a cell BESIDE A. A moved block lands in the
+  block-entity phase (`PistonMovingBlockEntity.tick` 294-327), and the landing calls
+  `setBlock(..., 67)` + `neighborChanged`: **that update reaches A after the tick's block events**,
+  so the retract event it queues on A is still pending in the player's window. ARMED.
+* Both pistons push in the same tick, U's event first, so in that one block-entity phase U's block
+  lands first (A armed while the power is away) and the carrier lands right after (power back).
+  The pending event then finds A powered at the next block-event phase and only re-sets
+  `extended` (144-146): a no-op, A keeps its head, and the machine repeats for ever.
+* The player's part is **one key press**: bind Attack and Use to the same key (`KeyMapping.MAP`
+  holds a list per key, and `Minecraft.handleKeybinds` 1966-1972 runs both `consumeClick` loops in
+  the same client tick), hold a pickaxe that instamines a piston and the piston in the offhand.
+  The press breaks A and places B facing the bedrock in one window. Pistons are
+  `mineable/pickaxe`, hardness 1.5, so instamine needs tool speed >= 45: **Efficiency V diamond or
+  netherite + Haste II** (47.6 / 49.0). Without Haste II the break takes more than one tick and the
+  pair cannot share a window.
+* **A miss costs nothing**: B is left unextended facing the bedrock. Break it, put A back facing
+  away, and the machine's next landing extends it again.
+* When the press lands in an armed window, the pending event fires on B. If B is powered (the
+  carrier has landed), it becomes a **headless piston facing the bedrock** - the visible win, an
+  arm-less piston. Cut its power (pull the carrier, then any update) and the bedrock is removed.
+
+Measured (`designs/bedrock/scenarios/qc-landing-roof-clock.json`): one armed window every 8 game
+ticks (0.4 s), for ever, A intact - `bedrock watch` prints
+`xxxxxxxxxxxxAxxxxxxxAxxxxxxxAxxxxxxxAxxxxxxxAxxxx`. `bedrock scan`: the press wins in 5/5 armed
+windows and in none of the others. On the **unmodified official server** with the bot pressing in
+one window: window 12 and window 20 (armed) both left `piston[extended=true,facing=up]` with no
+head and the release removed the bedrock; window 13 (not armed) failed.
+
+So the odds are 1 in 8 per press, with free retries - a few seconds of pressing in rhythm, no lag,
+no macro, and the headless piston tells you the moment it worked.
+
+**Still to build:** the scenario drives SP and U from a script (the exact beat below). A survival
+build wires both to one clock: pull the carrier at t, push BOTH at t+3 (U's power arriving first,
+e.g. one repeater closer), pull U's block at t+7, pull the carrier at t+8 = t of the next cycle.
+Never retract U while its block is still moving: the spit finalises it in the block-event phase,
+and that update, with the power away, retracts A instead of arming it.
+
+## 4. Other ways to remove bedrock (audit)
 
 Every play-time write that can change an existing block was checked (trees, fungi, mushrooms,
 plants, dripstone, moss, sculk, fluids, falling blocks, endermen, dispensers, buckets, snow and
@@ -157,9 +208,10 @@ only in the End at fixed places.
 
 * `mctas bedrock scan <scenario> [--from A --to B]`: the scenario's chord in every inter-tick
   window (fresh sandbox each), outcome per window and the fraction that works.
-* `mctas bedrock watch <scenario> [--to N]`: one run without the chord; per window, what the swap
-  cell holds (armed / moving / open / wasted), from the bridge's new `events` op (pending block
-  events).
+* `mctas bedrock watch <scenario> [--to N] [--verbose] [--cells x,y,z]`: one run without the
+  chord; per window, what the swap cell holds (armed / moving / open / wasted), from the bridge's
+  new `events` op (pending block events). `--verbose` prints every pending event and the blocks of
+  the `--cells` per window: that is how the machine of section 3 was phased.
 * `mctas bedrock vanilla <scenario> [--windows a,b] [--split]`: the same on the official server,
   the chord done by a network bot (break: `START_DESTROY_BLOCK`; place: `USE_ITEM_ON` with the
   offhand holding the block); `cmd` actions run vanilla commands in order (scenario setup and
@@ -167,7 +219,7 @@ only in the End at fixed places.
 
 ## Next
 
-* The roof: a machine that re-arms the swap periodically (an extended piston whose retract is
-  queued again every few ticks) so that missed tries cost nothing and the player only needs the
-  break + place pair inside one tick, measured with `bedrock watch` / `scan` and the bot.
+* Wire the section 3 machine from a clock (the beat is specified there) and verify the wired
+  build end to end, then measure how a human does against the 1-in-8 window.
+* Narrow the beat: two updater pistons out of phase would arm more often than once per 8 ticks.
 * The Overworld floor: a reliable recipe for clearing (or proving absent) the closer sites.

@@ -1,0 +1,42 @@
+{
+  "name": "clock-armed-roof",
+  "notes": "Roof case, ARMED-OFTEN machine: a repeater clock (2 repeaters at 4 ticks, a dust loop) powers the piston through a block beside it, so the piston extends and retracts every 16 gt. The chord is the ONE keypress a player makes (break the piston, place a piston facing the bedrock) and it only has to land in a window where the retract is already queued. Target: the bedrock ABOVE the piston (nether roof is above, so the piston faces up and the swap piston faces up too: the retract then removes the block in front = the roof).",
+  "target": [0, 4, 0],
+  "blocks": [
+    [0, 4, 0, "minecraft:bedrock"],
+    [0, 0, 0, "minecraft:stone"],
+    [0, 1, 0, "minecraft:stone"],
+    [0, 2, 0, "minecraft:piston[facing=up]"],
+    [1, 1, 0, "minecraft:stone"],
+    [1, 2, 0, "minecraft:redstone_wire[east=side,north=side,south=side,west=side]"],
+    [2, 1, 0, "minecraft:repeater[facing=west,delay=4]"],
+    [3, 1, 0, "minecraft:redstone_wire[east=side,north=side,south=side,west=side]"],
+    [4, 1, 0, "minecraft:repeater[facing=east,delay=4]"],
+    [5, 1, 0, "minecraft:redstone_wire[east=side,north=side,south=side,west=side]"],
+    [5, 0, 0, "minecraft:stone"],
+    [4, 0, 0, "minecraft:stone"],
+    [3, 0, 0, "minecraft:stone"],
+    [2, 0, 0, "minecraft:stone"],
+    [5, 1, 1, "minecraft:redstone_wire[east=side,north=side,south=side,west=side]"],
+    [5, 0, 1, "minecraft:stone"],
+    [4, 1, 1, "minecraft:redstone_wire[east=side,north=side,south=side,west=side]"],
+    [4, 0, 1, "minecraft:stone"],
+    [3, 1, 1, "minecraft:redstone_wire[east=side,north=side,south=side,west=side]"],
+    [3, 0, 1, "minecraft:stone"],
+    [2, 1, 1, "minecraft:redstone_wire[east=side,north=side,south=side,west=side]"],
+    [2, 0, 1, "minecraft:stone"],
+    [1, 1, 1, "minecraft:redstone_wire[east=side,north=side,south=side,west=side]"],
+    [1, 0, 1, "minecraft:stone"],
+    [-2, 1, 0, "minecraft:stone"]
+  ],
+  "settle": 60,
+  "stance": {"pos": [-1.5, 2.0, 0.5], "look": [270.0, -90.0]},
+  "chord": [
+    {"do": "break", "pos": [0, 2, 0]},
+    {"do": "place", "pos": [0, 2, 0], "state": "minecraft:piston[facing=up]"}
+  ],
+  "release": [
+    {"do": "break", "pos": [1, 2, 0]}
+  ],
+  "horizon": 40
+}

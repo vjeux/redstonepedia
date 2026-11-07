@@ -257,9 +257,26 @@ pub fn classify(state: &str, events: &[(Pos, String, i64)], cell: Pos) -> Cell {
 }
 
 /// One run of the scenario without the chord; the swap cell (the chord's first position) is
-/// classified in every window `0..=to` (before that window's script actions run, i.e. what the
-/// game left there; a chord pressed in that window would act after the script).
-pub fn watch(version: &str, sc: &Scenario, to: u32) -> Result<Vec<Cell>> {
+/// classified in every window `0..=to` (after that window's script actions, i.e. exactly what a
+/// chord pressed in that window would meet). `extra` cells are reported per window too.
+pub struct Watch {
+    pub cells: Vec<Cell>,
+    pub rows: Vec<WatchRow>,
+}
+
+pub struct WatchRow {
+    pub window: u32,
+    /// The swap cell's block and every pending block event.
+    pub state: String,
+    /// One `x,y,z=block` per extra cell.
+    pub extra: Vec<String>,
+}
+
+fn short(state: &str) -> String {
+    state.replace("minecraft:", "")
+}
+
+pub fn watch(version: &str, sc: &Scenario, to: u32, extra: &[Pos]) -> Result<Watch> {
     let mut w = Worker::spawn(&WorkerConfig { version: version.to_string(), ..Default::default() })?;
     let sandbox = w.create(&SandboxOptions::default())?;
     let cell = sc.chord.first().map(|a| a.pos).context("the scenario has no chord")?;
@@ -268,13 +285,19 @@ pub fn watch(version: &str, sc: &Scenario, to: u32) -> Result<Vec<Cell>> {
     if sc.settle > 0 {
         w.step(sandbox, sc.settle)?;
     }
-    let mut out = Vec::new();
+    let mut out = Watch { cells: Vec::new(), rows: Vec::new() };
     for window in 0..=to {
         let now: Vec<&Action> = sc.script.iter().filter(|a| a.at == window).collect();
         act(&mut w, sandbox, &now)?;
         let state = block_at(&mut w, sandbox, cell)?;
         let events = pending_events(&mut w, sandbox)?;
-        out.push(classify(&state, &events, cell));
+        out.cells.push(classify(&state, &events, cell));
+        let mut extras = Vec::new();
+        for p in extra {
+            extras.push(format!("{},{},{}={}", p[0], p[1], p[2], short(&block_at(&mut w, sandbox, *p)?)));
+        }
+        let ev: Vec<String> = events.iter().map(|(p, b, a)| format!("{}@{},{},{} t{a}", short(b), p[0], p[1], p[2])).collect();
+        out.rows.push(WatchRow { window, state: format!("{:<36} events[{}]", short(&state), ev.join(" ")), extra: extras });
         w.step(sandbox, 1)?;
     }
     Ok(out)

@@ -1,0 +1,22 @@
+{
+  "name": "sand-arm-roof",
+  "notes": "Roof geometry: bedrock ABOVE at [0,3,0]; piston [0,2,0] faces DOWN (head into air at [0,1,0]), powered by dust at [1,2,0]. A sand block falls onto that dust: FallingBlockEntity lands in the ENTITY phase (7), after the tick's block-event phase, so the retract event it queues survives to the NEXT tick's block events. The chord is the ONE key press a player makes with attack+use on the same key: break the piston, place a piston facing UP (toward the bedrock).",
+  "target": [0, 3, 0],
+  "blocks": [
+    [0, 3, 0, "minecraft:bedrock"],
+    [0, 2, 0, "minecraft:piston[facing=down]"],
+    [1, 1, 0, "minecraft:stone"],
+    [1, 2, 0, "minecraft:redstone_wire[east=side,north=side,south=side,west=side]"],
+    [-2, 2, 0, "minecraft:stone"]
+  ],
+  "settle": 20,
+  "stance": {"pos": [-1.5, 2.0, 0.5], "look": [270.0, 0.0]},
+  "script": [
+    {"do": "cmd", "pos": [0, 0, 0], "at": 0, "state": "setblock 1 8 0 minecraft:sand"}
+  ],
+  "chord": [
+    {"do": "break", "pos": [0, 2, 0]},
+    {"do": "place", "pos": [0, 2, 0], "state": "minecraft:piston[facing=up]"}
+  ],
+  "horizon": 30
+}

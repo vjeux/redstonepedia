@@ -5,6 +5,19 @@ use anyhow::Result;
 use clap::Subcommand;
 use std::path::PathBuf;
 
+/// `x,y,z` for `--cells`.
+fn parse_cell(s: &str) -> Result<[i32; 3], String> {
+    let n: Vec<&str> = s.split(',').collect();
+    if n.len() != 3 {
+        return Err(format!("expected x,y,z, got `{s}`"));
+    }
+    let mut out = [0i32; 3];
+    for (i, part) in n.iter().enumerate() {
+        out[i] = part.trim().parse().map_err(|_| format!("`{part}` is not a number"))?;
+    }
+    Ok(out)
+}
+
 #[derive(Subcommand)]
 pub enum BedrockCmd {
     /// Try the scenario's chord in every inter-tick window of a range (a fresh sandbox each) and
@@ -29,6 +42,13 @@ pub enum BedrockCmd {
         scenario: PathBuf,
         #[arg(long, default_value_t = 100)]
         to: u32,
+        /// Per window: the swap cell's block, every pending block event, and the blocks of the
+        /// cells named by `--cells` (each `x,y,z`), to see a machine's phase by phase.
+        #[arg(long)]
+        verbose: bool,
+        /// Extra cells to print with `--verbose`, e.g. `--cells 1,3,0 --cells 0,2,1`.
+        #[arg(long, value_parser = parse_cell)]
+        cells: Vec<[i32; 3]>,
     },
     /// The scenario on the UNMODIFIED official server: the chord done by a network bot (real
     /// break and place packets) in each given window, the server frozen and stepped one tick at a
@@ -62,12 +82,17 @@ pub fn run(version: &str, cmd: BedrockCmd) -> Result<()> {
             }
             println!("{good}/{} windows work", rep.windows.len());
         }
-        BedrockCmd::Watch { scenario, to } => {
+        BedrockCmd::Watch { scenario, to, verbose, cells } => {
             let sc = Scenario::load(&scenario)?;
-            let cells = crate::watch(version, &sc, to)?;
-            let line: String = cells.iter().map(|c| c.letter()).collect();
+            let w = crate::watch(version, &sc, to, &cells)?;
+            let line: String = w.cells.iter().map(|c| c.letter()).collect();
             println!("{}: {line}", sc.name);
-            let count = |c: crate::Cell| cells.iter().filter(|x| **x == c).count();
+            if verbose {
+                for row in &w.rows {
+                    println!("window {:>3}  {}  {}", row.window, row.state, row.extra.join("  "));
+                }
+            }
+            let count = |c: crate::Cell| w.cells.iter().filter(|x| **x == c).count();
             println!(
                 "armed {}  open-armed {}  moving {}  open {}  harmful {}  other {}  (of {})",
                 count(crate::Cell::Armed),
@@ -76,7 +101,7 @@ pub fn run(version: &str, cmd: BedrockCmd) -> Result<()> {
                 count(crate::Cell::Open),
                 count(crate::Cell::Harmful),
                 count(crate::Cell::Other),
-                cells.len()
+                w.cells.len()
             );
         }
         BedrockCmd::Vanilla { scenario, windows, split } => {
