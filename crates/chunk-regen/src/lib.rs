@@ -12,7 +12,7 @@ use mctas::vanilla::chunkfile::{self, ChunkEntry, Presence, Stream};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-const HEADER: &str = "stream\tcx\tcz\tpresence\tversion\tsectors\tstored\tdecompressed\tsha256\tstatus\tdata_version\tsections\tblock_entities\tblock_ticks\tfluid_ticks\tentities\tpoi_records\tinhabited\tlast_update\ttimestamp\tnote";
+const HEADER: &str = "stream\tcx\tcz\tpresence\tversion\tsectors\tstored\tdecompressed\tsha256\tcontent_sha256\tstatus\tdata_version\tsections\tblock_entities\tblock_ticks\tfluid_ticks\tentities\tpoi_records\tinhabited\tlast_update\ttimestamp\tnote";
 
 fn entry_row(e: &ChunkEntry) -> String {
     let s = e.summary.as_ref();
@@ -27,6 +27,7 @@ fn entry_row(e: &ChunkEntry) -> String {
         e.stored_len.to_string(),
         opt(e.decompressed_len.as_ref().map(|v| v as &dyn std::fmt::Display)),
         e.sha256.clone().unwrap_or_else(|| "-".into()),
+        e.content_sha256.clone().unwrap_or_else(|| "-".into()),
         s.and_then(|s| s.status.clone()).unwrap_or_else(|| "-".into()),
         opt(s.and_then(|s| s.data_version).as_ref().map(|v| v as &dyn std::fmt::Display)),
         s.map(|s| s.sections).unwrap_or(0).to_string(),
@@ -102,9 +103,9 @@ fn parse_manifest(text: &str) -> Result<BTreeMap<Key, Vec<String>>> {
     Ok(map)
 }
 
-/// What changed between two manifests. Identity is (presence, sha256): a re-save of an
-/// untouched chunk keeps both; InhabitedTime growth changes the hash, so a CHANGED line
-/// must be read with its counts (printed) before claiming a block changed.
+/// What changed between two manifests. Identity is (presence, content_sha256): the
+/// content hash skips LastUpdate/InhabitedTime, so a chunk that was merely re-saved
+/// counts as the same; raw `sha256` is the fallback when a tag did not parse.
 pub fn diff_manifests(before: &str, after: &str) -> Result<String> {
     let b = parse_manifest(before)?;
     let a = parse_manifest(after)?;
@@ -114,13 +115,13 @@ pub fn diff_manifests(before: &str, after: &str) -> Result<String> {
         match b.get(k) {
             None => {
                 added += 1;
-                lines.push(format!("ADDED {} {} {} presence={} sha={}", k.0, k.1, k.2, av[3], short(&av[8])));
+                lines.push(format!("ADDED {} {} {} presence={} content={}", k.0, k.1, k.2, av[3], short(identity(av))));
             }
-            Some(bv) if bv[3] != av[3] || bv[8] != av[8] => {
+            Some(bv) if bv[3] != av[3] || identity(bv) != identity(av) => {
                 changed += 1;
                 lines.push(format!(
-                    "CHANGED {} {} {} {}->{} sha {}->{} be {}->{} ent {}->{} poi {}->{}",
-                    k.0, k.1, k.2, bv[3], av[3], short(&bv[8]), short(&av[8]), bv[12], av[12], bv[15], av[15], bv[16], av[16]
+                    "CHANGED {} {} {} {}->{} content {}->{} be {}->{} ent {}->{} poi {}->{}",
+                    k.0, k.1, k.2, bv[3], av[3], short(identity(bv)), short(identity(av)), bv[13], av[13], bv[16], av[16], bv[17], av[17]
                 ));
             }
             Some(_) => same += 1,
@@ -139,6 +140,15 @@ pub fn diff_manifests(before: &str, after: &str) -> Result<String> {
         out.push('\n');
     }
     Ok(out)
+}
+
+/// The hash that decides "same chunk content": content_sha256 (field 9), else sha256.
+fn identity(fields: &[String]) -> &str {
+    if fields.len() > 9 && fields[9] != "-" {
+        &fields[9]
+    } else {
+        &fields[8]
+    }
 }
 
 fn short(sha: &str) -> &str {
@@ -216,6 +226,7 @@ mod tests {
             stored_len: 10,
             decompressed_len: Some(20),
             sha256: Some(sha.into()),
+            content_sha256: Some(sha.into()),
             summary: None,
             note: None,
         }

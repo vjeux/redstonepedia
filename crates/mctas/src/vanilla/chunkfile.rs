@@ -116,6 +116,10 @@ pub struct ChunkEntry {
     pub decompressed_len: Option<usize>,
     /// Hex sha256 of the decompressed bytes, when they decoded.
     pub sha256: Option<String>,
+    /// Hex sha256 of the parsed tag *content* (root `LastUpdate`/`InhabitedTime`
+    /// skipped): equal means the same blocks/entities/ticks even if the chunk was
+    /// re-saved later. This is the neighbour-intact proof; `sha256` alone is not.
+    pub content_sha256: Option<String>,
     pub summary: Option<TagSummary>,
     pub note: Option<String>,
 }
@@ -191,6 +195,7 @@ fn inspect_chunk_cached(dim: &Path, stream: Stream, cx: i32, cz: i32, cache: &mu
         stored_len: 0,
         decompressed_len: None,
         sha256: None,
+        content_sha256: None,
         summary: None,
         note: None,
     };
@@ -279,7 +284,10 @@ fn inspect_chunk_cached(dim: &Path, stream: Stream, cx: i32, cz: i32, cache: &mu
     e.sha256 = Some(hex_sha256(&bytes));
     e.presence = if external { Presence::External } else { Presence::Internal };
     match nbt::parse_named(&bytes) {
-        Ok(tag) => e.summary = Some(summarize(&tag)),
+        Ok(tag) => {
+            e.content_sha256 = Some(content_hash(&tag));
+            e.summary = Some(summarize(&tag));
+        }
         Err(err) => {
             e.presence = Presence::NbtFailed;
             e.note = Some(format!("{err:#}"));
@@ -381,6 +389,7 @@ pub fn scan_dimension(dim: &Path, streams: &[Stream]) -> Result<Vec<ChunkEntry>>
                     stored_len: size,
                     decompressed_len: None,
                     sha256: None,
+                    content_sha256: None,
                     summary: None,
                     note: Some("orphan .mcc (no region header entry)".into()),
                 });
@@ -389,6 +398,92 @@ pub fn scan_dimension(dim: &Path, streams: &[Stream]) -> Result<Vec<ChunkEntry>>
     }
     out.sort_by_key(|e| (e.stream, e.cx, e.cz));
     Ok(out)
+}
+
+/// Hash the tag tree deterministically (compound keys are BTreeMap-sorted), skipping the
+/// root bookkeeping fields that change on every re-save.
+fn content_hash(tag: &Tag) -> String {
+    let mut hasher = Sha256::new();
+    hash_tag(tag, true, &mut hasher);
+    let digest = hasher.finalize();
+    let mut s = String::with_capacity(64);
+    for b in digest.iter() {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
+}
+
+fn hash_tag(tag: &Tag, is_root: bool, hasher: &mut Sha256) {
+    match tag {
+        Tag::Byte(v) => {
+            hasher.update([1]);
+            hasher.update(v.to_be_bytes());
+        }
+        Tag::Short(v) => {
+            hasher.update([2]);
+            hasher.update(v.to_be_bytes());
+        }
+        Tag::Int(v) => {
+            hasher.update([3]);
+            hasher.update(v.to_be_bytes());
+        }
+        Tag::Long(v) => {
+            hasher.update([4]);
+            hasher.update(v.to_be_bytes());
+        }
+        Tag::Float(v) => {
+            hasher.update([5]);
+            hasher.update(v.to_bits().to_be_bytes());
+        }
+        Tag::Double(v) => {
+            hasher.update([6]);
+            hasher.update(v.to_bits().to_be_bytes());
+        }
+        Tag::ByteArray(v) => {
+            hasher.update([7]);
+            hasher.update((v.len() as u64).to_be_bytes());
+            hasher.update(v.iter().map(|b| *b as u8).collect::<Vec<u8>>());
+        }
+        Tag::String(v) => {
+            hasher.update([8]);
+            hasher.update((v.len() as u64).to_be_bytes());
+            hasher.update(v.as_bytes());
+        }
+        Tag::List(v) => {
+            hasher.update([9]);
+            hasher.update((v.len() as u64).to_be_bytes());
+            for item in v {
+                hash_tag(item, false, hasher);
+            }
+        }
+        Tag::Compound(m) => {
+            hasher.update([10]);
+            let kept: Vec<(&String, &Tag)> = m
+                .iter()
+                .filter(|(k, _)| !(is_root && (k.as_str() == "LastUpdate" || k.as_str() == "InhabitedTime")))
+                .collect();
+            hasher.update((kept.len() as u64).to_be_bytes());
+            for (k, v) in kept {
+                hasher.update((k.len() as u64).to_be_bytes());
+                hasher.update(k.as_bytes());
+                hash_tag(v, false, hasher);
+            }
+        }
+        Tag::IntArray(v) => {
+            hasher.update([11]);
+            hasher.update((v.len() as u64).to_be_bytes());
+            for i in v {
+                hasher.update(i.to_be_bytes());
+            }
+        }
+        Tag::LongArray(v) => {
+            hasher.update([12]);
+            hasher.update((v.len() as u64).to_be_bytes());
+            for i in v {
+                hasher.update(i.to_be_bytes());
+            }
+        }
+    }
 }
 
 fn summarize(tag: &Tag) -> TagSummary {

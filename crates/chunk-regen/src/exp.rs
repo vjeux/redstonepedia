@@ -122,7 +122,7 @@ fn setup_base(srv: &mut VanillaServer) -> Result<()> {
 fn setup_markers(srv: &mut VanillaServer) -> Result<()> {
     srv.cmd_ok(&format!("setblock {OX} {MARK_Y} {OZ} minecraft:diamond_block"))?;
     srv.cmd_ok(&format!("setblock {} {MARK_Y} {} minecraft:gold_block", OX + 15, OZ + 15))?;
-    srv.cmd_ok(&format!("setblock {} 0 {} minecraft:composter", OX + 2, OZ + 2))?;
+    srv.cmd_ok(&format!("setblock {} {MARK_Y} {} minecraft:composter", OX + 2, OZ + 2))?;
     let stand = format!(
         "summon minecraft:armor_stand {} {} {} {{CustomName:\"chunkreg-marker\",CustomNameVisible:1b,PersistenceRequired:1b}}",
         OX + 3,
@@ -246,6 +246,8 @@ fn log_hits(log: &PathBuf) -> BTreeMap<String, usize> {
         "ReportedException",
         "chunk/load",
         "chunk/save",
+        "Packet too large",
+        "lost connection",
     ];
     needles.iter().map(|n| (n.to_string(), text.matches(n).count())).filter(|(_, c)| *c > 0).collect()
 }
@@ -292,6 +294,9 @@ pub fn run_case(version: &str, case: &Case) -> Result<String> {
     setup_payload(&mut srv, &case.payload)?;
     setup_markers(&mut srv)?;
     srv.cmd_ok("forceload remove all")?;
+    // Park the bot far away: its saved position is where the reload leg rejoins, and a
+    // chunk that kicks joining players must not make the reload server unstartable.
+    let _ = srv.teleport_bot(1000.5, 4.0, 1000.5);
     let (world, setup_log) = finish_and_snapshot(srv)?;
     lines.push(format!("setup world={} log_hits={:?}", world.display(), log_hits(&setup_log)));
     let dim = chunkfile::dimension_dir(&world);
@@ -308,12 +313,38 @@ pub fn run_case(version: &str, case: &Case) -> Result<String> {
     let mut srv = VanillaServer::start(&opts(version, case, Some(world.clone())))?;
     let bot = srv.bot.as_ref().context("no bot")?.name.clone();
     let _ = srv.cmd(&format!("gamemode survival {bot}"));
-    srv.teleport_bot((OX + 8) as f64 + 0.5, 24.0, (OZ + 8) as f64 + 0.5)?;
+    // Entering the chunk can kick the bot (chunk-ban): that is a result, not a harness
+    // failure. Marker/entity reads below are RCON-side and stay valid without the bot.
+    let mut bot_kicked: Option<String> = None;
+    if let Err(e) = srv.teleport_bot((OX + 8) as f64 + 0.5, 24.0, (OZ + 8) as f64 + 0.5) {
+        bot_kicked = Some(format!("{e:#}"));
+        sleep_secs(1);
+        if let Some(bot) = srv.bot.as_ref() {
+            if let Some(err) = bot.error() {
+                bot_kicked = Some(err);
+            }
+        }
+    }
+    // Keep the area loaded for the RCON-side checks even if the bot was kicked.
+    let _ = srv.cmd(&format!("forceload add {} {} {} {}", OX - 16, OZ - 16, OX + 31, OZ + 31));
     sleep_secs(3);
+    if bot_kicked.is_none() {
+        // The kick can land after the teleport is acknowledged (the chunk packet is
+        // what overflows); the reader thread records it as a bot error.
+        if let Some(bot) = srv.bot.as_ref() {
+            if let Some(err) = bot.error() {
+                bot_kicked = Some(err);
+            }
+        }
+    }
+    if let Some(kick) = &bot_kicked {
+        lines.push(format!("bot_kicked={kick}"));
+    }
     let markers = marker_checks(&mut srv)?;
     let stands = srv.count_entities(&format!("@e[type=minecraft:armor_stand,x={OX},y={MARK_Y},z={OZ},distance=..24]"))?;
     let items_left = srv.count_entities(&format!("@e[type=minecraft:item,x={OX},y=0,z={OZ},distance=..32]")).unwrap_or(0);
     lines.push(format!("markers={markers:?} armor_stands={stands} ground_items={items_left}"));
+    let _ = srv.cmd("forceload remove all");
     let reload_world = srv.world_dir();
     let (stopped_world, reload_log) = finish_and_snapshot(srv)?;
     debug_assert_eq!(stopped_world, reload_world);
@@ -329,7 +360,7 @@ pub fn run_case(version: &str, case: &Case) -> Result<String> {
         let b = entry_for(&before, Stream::Region, ncx, ncz);
         let a = entry_for(&after, Stream::Region, ncx, ncz);
         let same = match (b, a) {
-            (Some(b), Some(a)) => b.sha256 == a.sha256 && b.presence == a.presence,
+            (Some(b), Some(a)) => b.content_sha256 == a.content_sha256 && b.presence == a.presence,
             (None, None) => true,
             _ => false,
         };
@@ -338,7 +369,8 @@ pub fn run_case(version: &str, case: &Case) -> Result<String> {
         }
     }
     let target_ok = markers.values().filter(|k| **k).count();
-    let outcome = classify(&before, &after, &markers, &neighbours_changed);
+    let classified = classify(&before, &after, &markers, &neighbours_changed);
+    let outcome = if bot_kicked.is_some() && classified.starts_with("normal") { "chunk-ban" } else { classified };
     lines.push(format!(
         "OUTCOME {} markers_ok={}/{} neighbours_changed=[{}] reload_log_hits={:?}",
         outcome,
