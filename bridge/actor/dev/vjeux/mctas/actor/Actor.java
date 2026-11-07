@@ -132,7 +132,8 @@ public final class Actor {
         long deadline = System.currentTimeMillis() + 30_000L + n * 200L;
         while (System.currentTimeMillis() < deadline) {
             int now = tickCount();
-            if (now >= target) {
+            // A fresh player (dimension change / respawn) restarts tickCount: count it as passed.
+            if (now >= target || now < from) {
                 return now;
             }
             Thread.sleep(4);
@@ -553,6 +554,7 @@ public final class Actor {
     /** Walks (forward key, steering each tick) until over (x, z); jumps when stuck against a step. */
     private static String walk(double tx, double tz) throws Exception {
         waitPlayer();
+        Object startLevel = onClient(() -> Minecraft.getInstance().level);
         try {
             int from = tickCount();
             double[] last = onClient(() -> {
@@ -566,8 +568,10 @@ public final class Actor {
                 Boolean arrived = onClient(() -> {
                     Minecraft mc = Minecraft.getInstance();
                     LocalPlayer p = mc.player;
-                    if (p == null) {
-                        return false;
+                    if (p == null || mc.level != startLevel) {
+                        // Stepped through a portal mid-walk: the walk is over by definition.
+                        keysOff();
+                        return true;
                     }
                     double dx = tx - p.getX();
                     double dz = tz - p.getZ();

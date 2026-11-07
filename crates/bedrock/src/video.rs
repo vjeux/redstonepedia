@@ -1033,7 +1033,9 @@ fn scenes(p: &mut Prod) -> Result<()> {
         p.walk(rx + 1, rz + 2)?;
         p.build_portal("the_nether", rx, 5, rz)?;
         p.torch([rx - 1, 4, rz + 2])?;
-        p.walk_path(&[(rx + 1, rz), (mouth, rz), (fx + 1, rz + 3)])?;
+        // East out of the room AROUND the lit frame (its interior would teleport us).
+        let around = if rx > fx { rx - 1 } else { rx + 4 };
+        p.walk_path(&[(around, rz + 2), (around, rz), (mouth, rz), (fx + 1, rz + 3)])?;
         p.checkpoint("return")?;
     }
     if !p.done("overworld") {
@@ -1162,7 +1164,7 @@ fn go_return(p: &mut Prod) -> Result<()> {
     let rx = p.plan.rx;
     let rz = p.plan.rz;
     let mouth = if rx > fx { fx + 4 } else { fx - 1 };
-    p.walk_path(&[(mouth, rz), (rx + 1, rz), (rx + 1, rz + 1), (rx + 1, rz)])?;
+    p.walk_path(&[(mouth, rz), (rx + 1, rz + 1), (rx + 1, rz)])?;
     p.actor.cmd_timeout("waitdim overworld", Duration::from_secs(90))?;
     p.wait(10)?;
     if p.state.twin.is_none() {
@@ -1183,10 +1185,11 @@ fn ensure_nether(p: &mut Prod) -> Result<()> {
     p.tp("overworld", twin[0], twin[1], twin[2], 0.0, 0.0)?;
     p.actor.cmd_timeout("waitdim the_nether", Duration::from_secs(90))?;
     p.wait(10)?;
-    // leave the return portal towards the patch
+    // leave the return portal towards the patch (around the frame, never back through it)
     let (fx, rx, rz) = (p.plan.fx, p.plan.rx, p.plan.rz);
     let mouth = if rx > fx { fx + 4 } else { fx - 1 };
-    p.walk_path(&[(rx + 1, rz + 1), (rx + 1, rz), (mouth, rz), (fx + 1, rz + 3)])?;
+    let around = if rx > fx { rx - 1 } else { rx + 4 };
+    p.walk_path(&[(rx + 1, rz + 1), (around, rz + 1), (around, rz), (mouth, rz), (fx + 1, rz + 3)])?;
     Ok(())
 }
 
