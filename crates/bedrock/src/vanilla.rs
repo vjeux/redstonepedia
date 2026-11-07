@@ -132,10 +132,29 @@ fn face_id(name: &str) -> Result<u8> {
 
 /// Perform actions with the bot (no tick between them); `place` puts the action's block in the
 /// offhand first (RCON, handled in order with the bot's packets) and clicks with the offhand.
-fn bot_actions(srv: &mut VanillaServer, stance: &Stance, actions: &[&Action]) -> Result<()> {
+fn bot_actions(srv: &mut VanillaServer, sc: &Scenario, stance: &Stance, actions: &[&Action]) -> Result<()> {
     let name = srv.bot.as_ref().context("no bot")?.name.clone();
     let mut last = 0;
+    let mut turned: Option<Stance> = None;
     for a in actions {
+        // A per-action look: turn the bot in place (a teleport to its own position with the new
+        // rotation, accepted before the click), and check the click against that look.
+        let stance: &Stance = match a.look {
+            Some(look) if a.what != "cmd" && a.what != "probe" => {
+                let mut s = stance.clone();
+                s.look = look;
+                if last > 0 {
+                    srv.bot.as_ref().unwrap().wait_ack(last, Duration::from_secs(10))?;
+                }
+                place_bot(srv, sc, &s, false)?;
+                turned = Some(s);
+                turned.as_ref().unwrap()
+            }
+            _ => match &turned {
+                Some(s) if a.what != "cmd" && a.what != "probe" => s,
+                _ => stance,
+            },
+        };
         match a.what.as_str() {
             "break" => {
                 let face = stance.click_face(a.pos)?;
@@ -167,11 +186,23 @@ fn bot_actions(srv: &mut VanillaServer, stance: &Stance, actions: &[&Action]) ->
             "cmd" => {
                 srv.cmd_ok(a.state.as_deref().unwrap_or(""))?;
             }
+            "probe" => {
+                // Print (never fail) whether the cell matches a block predicate: `state` holds the
+                // predicate, the scenario's dimension applies.
+                let pred = a.state.as_deref().unwrap_or("minecraft:air");
+                let dim = sc.dimension.as_deref().map(|d| format!("in minecraft:{d} ")).unwrap_or_default();
+                let out = srv.cmd(&format!("execute {dim}if block {} {} {} {pred}", a.pos[0], a.pos[1], a.pos[2]))?;
+                eprintln!("  probe at window {}: {:?} {pred}: {}", a.at, a.pos, if out.contains("passed") { "yes" } else { "no" });
+            }
             other => bail!("unknown action {other}"),
         }
     }
     if last > 0 {
         srv.bot.as_ref().unwrap().wait_ack(last, Duration::from_secs(10))?;
+    }
+    if turned.is_some() {
+        // Back to the stance's own look, so later clicks (another window) really use it.
+        place_bot(srv, sc, stance, false)?;
     }
     Ok(())
 }
@@ -201,7 +232,9 @@ fn in_dim(sc: &Scenario, cmd: &str) -> String {
 }
 
 /// Teleport the bot to the stance, in the scenario's dimension, and wait until it accepted.
-fn place_bot(srv: &mut VanillaServer, sc: &Scenario, stance: &Stance) -> Result<()> {
+/// `arrive`: let the server tick the arrival (2 ticks: the pose follows the space, a 1-tall gap =
+/// crawling); a turn in place mid-run passes false (no tick may pass between a window's clicks).
+fn place_bot(srv: &mut VanillaServer, sc: &Scenario, stance: &Stance, arrive: bool) -> Result<()> {
     if sc.dimension.is_none() {
         return srv.teleport_bot_to(stance.pos[0], stance.pos[1], stance.pos[2], Some((stance.look[0], stance.look[1])));
     }
@@ -221,8 +254,10 @@ fn place_bot(srv: &mut VanillaServer, sc: &Scenario, stance: &Stance) -> Result<
         }
         std::thread::sleep(Duration::from_millis(5));
     }
-    // Let the server tick the arrival (the pose follows the space: a 1-tall gap = crawling).
-    srv.step(2)?;
+    if arrive {
+        srv.step(2)?;
+    }
+    // The acceptance is handled on the server thread: make sure it ran before any click.
     srv.cmd("list")?;
     Ok(())
 }
@@ -240,6 +275,14 @@ pub fn trial(srv: &mut VanillaServer, sc: &Scenario, stance: &Stance, chord_at: 
     for c in &sc.setup {
         srv.cmd_ok(c)?;
     }
+    if sc.dimension.is_some() {
+        // Let the previous trial's pending block ticks (repeaters of the old build at the same
+        // positions) run out on the cleared air before rebuilding: trials stay independent. Chunk
+        // loading (forceload) is asynchronous, in wall-clock time: give it a moment first, or the
+        // first trial of a fresh server starts its clock before its chunks tick.
+        std::thread::sleep(Duration::from_millis(1500));
+        srv.step(30)?;
+    }
     for (x, y, z, s) in &sc.blocks {
         if sc.dimension.is_some() {
             // Re-runs find the build already there: "Could not set the block" is fine.
@@ -256,20 +299,20 @@ pub fn trial(srv: &mut VanillaServer, sc: &Scenario, stance: &Stance, chord_at: 
     if !is_bedrock(srv, sc, sc.target)? {
         bail!("{}: the target is not bedrock after the build settled", sc.name);
     }
-    place_bot(srv, sc, stance)?;
+    place_bot(srv, sc, stance, true)?;
     let last_script = sc.script.iter().map(|a| a.at).max().unwrap_or(0);
     let end = last_script.max(chord_at + 1) + sc.horizon;
     for window in 0..=end {
         let script: Vec<&Action> = sc.script.iter().filter(|a| a.at == window).collect();
-        bot_actions(srv, stance, &script)?;
+        bot_actions(srv, sc, stance, &script)?;
         if window == chord_at {
             let chord: Vec<&Action> = sc.chord.iter().collect();
             let n = if split { 1 } else { chord.len() };
-            bot_actions(srv, stance, &chord[..n])?;
+            bot_actions(srv, sc, stance, &chord[..n])?;
         }
         if split && window == chord_at + 1 {
             let chord: Vec<&Action> = sc.chord.iter().skip(1).collect();
-            bot_actions(srv, stance, &chord)?;
+            bot_actions(srv, sc, stance, &chord)?;
         }
         srv.step(1)?;
         if window == chord_at + 1 && sc.dimension.is_some() && std::env::var_os("MCTAS_BEDROCK_DEBUG").is_some() {
@@ -318,7 +361,7 @@ pub fn trial(srv: &mut VanillaServer, sc: &Scenario, stance: &Stance, chord_at: 
     if !sc.release.is_empty() {
         srv.step(20)?;
         let rel: Vec<&Action> = sc.release.iter().collect();
-        bot_actions(srv, stance, &rel)?;
+        bot_actions(srv, sc, stance, &rel)?;
         srv.step(sc.horizon)?;
         if all_gone(srv)? {
             return Ok(Outcome::Headless);

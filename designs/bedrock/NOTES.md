@@ -245,9 +245,45 @@ roof at (100, 127, 100), the bot crawling on the roof). Picture: `designs/bedroc
   press was the bot's real packets, crawling, legit. (A first run without a settle period missed
   once: freshly force-loaded chunks run no scheduled ticks or block entities until their entity
   sections load, so the machine's first cycle slipped; the scenario now settles 40 ticks.)
-* **Clock** (not built yet; the scripted beat): per 16-tick cycle, the block O watches changes
-  at t, U's power drops at t+2 (U pulls K away while O is on), U's power returns at t+10. One armed
-  window per cycle, at t+5.
+* **The complete build, clock included** (`machine-above-wired.txt`, scenario
+  `roof-above-wired2-real.json`; positions relative to the target T at (0, 0, 0) = the roof's top
+  layer, x east, z south, everything at y >= 1 sits on the roof):
+  * swap piston A (0,1,0) facing west; X stone (1,2,0); observer O (1,3,0) facing up; repeater Ro
+    (1,4,0) on O, delay 1, pointing west (O watches it);
+  * updater 1: sticky piston U (0,1,3) facing north, its block K (0,1,2), repeater Ru (0,1,4)
+    delay 2 pointing north into U;
+  * updater 2: sticky piston U2 (3,1,0) facing west, its block K2 (2,1,0), repeater Ru2 (4,1,0)
+    delay 2 pointing west into U2;
+  * clock: two repeaters at delay 3, R1 (8,1,0) pointing east and R2 (8,1,2) pointing west, dust
+    at (7,1,0..2) and (9,1,0..2) closing the loop; a starter observer (10,1,1) facing east;
+    place any block at (11,1,1) once to start it (one pulse; if the loop ever runs stuck on,
+    break and re-place one loop dust and start it again);
+  * the S line (R2's side of the loop): dust (6..3,1,2), a staircase to Ro (blocks (2,1,2),
+    (2,2,1), (2,3,0) with dust on each), and a branch (3,1,3..5), (2..0,1,5) into Ru;
+  * the S' line (R1's side, the opposite phase): dust (9,1,-1), (9..5,1,-2), (5,1,-1), (5,1,0)
+    into Ru2;
+  * the press spot (0,1,-1) under a closed bottom trapdoor at (0,2,-1) (place it open, step in,
+    close it: you are now crawling).
+* **Why both edges arm**: every clock edge flips Ro 2 ticks later and O fires 2 ticks after that.
+  On S's falling edge Ru falls in that same tick (U pulls K away from A), on S's rising edge S'
+  falls and Ru2 falls in that tick (U2 pulls K2 away): either way A is updated while O powers it,
+  extends, O switches off silently, and A's head landing arms it. **One armed window every 6
+  ticks** (0.3 s): a press at a random moment wins 1 time in 6.
+* **The press**, lying in the press spot: look up at A's side face (yaw 0 = facing south, pitch
+  -55) and press the Attack+Use key. **The repair after a miss**, same spot, one press: turn to
+  yaw -52 (south-east, mostly east) and pitch 10 (slightly down), aim at A's face near its east
+  edge, press the same key: the stuck piston breaks and a piston facing west goes back (a piston
+  faces away from where you look). The very next armed window works again.
+* **Tested on the real Nether roof** (official 26.3 server, fresh random world per run, bot
+  crawling, legit clicks, nothing but the bot touching the machine after the build):
+  windows 14, 20, 26, 32 armed and 13, 15, 19, 21 not: 3 runs, 12/12 armed presses removed the
+  real roof bedrock, 12/12 others did nothing; an earlier 20-window scan found exactly 14, 20, 26
+  armed. Miss + repair + retry (`roof-above-wired2-real-retry.json`: a miss in window 15, the
+  one-press repair in window 17, then presses): window 20 and 26 won 2/2 each, 21 failed 2/2.
+  (Harness notes: `/setblock` makes an observer fire once as it is placed, so the build's starter
+  observer starts the clock by itself in these runs, standing in for the player's one block; the
+  harness drains pending block ticks and waits for chunk loading between trials, and turns the
+  bot back to its stance after a per-action look.)
 
 ### The first version: under the roof (verified mechanism; needs dug-out side cells)
 

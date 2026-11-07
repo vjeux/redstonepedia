@@ -38,6 +38,10 @@ pub struct Action {
     pub click: Option<Pos>,
     #[serde(default)]
     pub face: Option<String>,
+    /// Vanilla bot only: look this way (yaw, pitch) for this click, from the stance's position
+    /// (the bot is turned in place between ticks; `legit` checks use this look).
+    #[serde(default)]
+    pub look: Option<[f32; 2]>,
     /// Repeat this script action `times` times, `every` windows apart (a batch of portal trips).
     #[serde(default)]
     pub every: u32,
@@ -188,6 +192,7 @@ fn block_at(w: &mut Worker, sandbox: u32, p: Pos) -> Result<String> {
 /// `horizon` ticks. Returns the outcome and the chord's results.
 pub fn trial(w: &mut Worker, sandbox: u32, sc: &Scenario, chord_at: Option<u32>) -> Result<WindowResult> {
     w.clear(sandbox)?;
+    run_setup(w, sandbox, sc)?;
     let blocks: Vec<(Pos, String)> = sc.blocks.iter().map(|(x, y, z, s)| ([*x, *y, *z], s.clone())).collect();
     w.set_blocks(sandbox, &blocks, PlaceMode::Update)?;
     if sc.settle > 0 {
@@ -321,10 +326,23 @@ fn short(state: &str) -> String {
     state.replace("minecraft:", "")
 }
 
+/// The scenario's setup commands, in the simulator (scenarios without a `dimension`: the sandbox
+/// is an overworld-type level), before the build: e.g. a `fill` of the ground the build stands on.
+fn run_setup(w: &mut Worker, sandbox: u32, sc: &Scenario) -> Result<()> {
+    if sc.dimension.is_some() {
+        return Ok(());
+    }
+    for c in &sc.setup {
+        w.call(json!({"op": "exec", "sandbox": sandbox, "command": c}))?;
+    }
+    Ok(())
+}
+
 pub fn watch(version: &str, sc: &Scenario, to: u32, extra: &[Pos]) -> Result<Watch> {
     let mut w = Worker::spawn(&WorkerConfig { version: version.to_string(), ..Default::default() })?;
     let sandbox = w.create(&SandboxOptions::default())?;
     let cell = sc.chord.first().map(|a| a.pos).context("the scenario has no chord")?;
+    run_setup(&mut w, sandbox, sc)?;
     let blocks: Vec<(Pos, String)> = sc.blocks.iter().map(|(x, y, z, s)| ([*x, *y, *z], s.clone())).collect();
     w.set_blocks(sandbox, &blocks, PlaceMode::Update)?;
     if sc.settle > 0 {
