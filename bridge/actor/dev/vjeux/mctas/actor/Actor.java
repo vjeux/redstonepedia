@@ -9,6 +9,7 @@ import java.util.Comparator;
 import java.util.Locale;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
+import net.minecraft.client.CameraType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
@@ -16,6 +17,9 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
@@ -31,8 +35,12 @@ import net.minecraft.world.phys.Vec3;
  * line); each answer lands in `done-<seq>.txt` (one line, `ok ...` or `error ...`) and the
  * command file is removed. Commands: `ping`, `pos`, `look x y z [ticks]`, `lookdir yaw pitch
  * [ticks]`, `select slot`, `mine x y z`, `place x y z FACE` (click that block's FACE with the
- * selected item), `use`, `walk x z`, `sneak 0|1`, `wait ticks`, `waitdim substr`, `waitblock x
- * y z substr`, `swing`, `keys_off`.
+ * selected item), `placef x y z FACE yaw pitch` (the same, but looking along yaw/pitch instead
+ * of at the face — how a dropper gets its facing), `use`, `toss` (the drop key: one item from
+ * the selected slot), `cam first|third`, `fillinto x y z substr` (open the container there and
+ * shift-click every matching stack of the player's inventory into it), `invcount substr`,
+ * `walk x z`, `sneak 0|1`, `wait ticks`, `waitdim substr`, `waitblock x y z substr`, `swing`,
+ * `keys_off`.
  */
 public final class Actor {
     private Actor() {}
@@ -286,7 +294,44 @@ public final class Actor {
                 return mine(new BlockPos(Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3])), f.length > 4 && f[4].equals("sweep"));
             case "place":
                 return place(new BlockPos(Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3])),
-                        Direction.valueOf(f[4].toUpperCase(Locale.ROOT)));
+                        Direction.valueOf(f[4].toUpperCase(Locale.ROOT)), null);
+            case "placef":
+                return place(new BlockPos(Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3])),
+                        Direction.valueOf(f[4].toUpperCase(Locale.ROOT)),
+                        new float[] {Float.parseFloat(f[5]), Float.parseFloat(f[6])});
+            case "toss": {
+                waitPlayer();
+                onClient(() -> {
+                    Minecraft mc = Minecraft.getInstance();
+                    mc.gameMode.dropItem(mc.player, false);
+                    return null;
+                });
+                return "ok tossed";
+            }
+            case "cam": {
+                waitPlayer();
+                onClient(() -> {
+                    Minecraft.getInstance().options.setCameraType(
+                            f[1].equals("third") ? CameraType.THIRD_PERSON_BACK : CameraType.FIRST_PERSON);
+                    return null;
+                });
+                return "ok cam=" + f[1];
+            }
+            case "fillinto":
+                return fillInto(new BlockPos(Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3])), f[4]);
+            case "invcount": {
+                waitPlayer();
+                return onClient(() -> {
+                    Minecraft mc = Minecraft.getInstance();
+                    int n = 0;
+                    for (var stack : mc.player.getInventory().getNonEquipmentItems()) {
+                        if (String.valueOf(BuiltInRegistries.ITEM.getKey(stack.getItem())).contains(f[1])) {
+                            n += stack.getCount();
+                        }
+                    }
+                    return "ok count=" + n;
+                });
+            }
             case "use": {
                 waitPlayer();
                 return onClient(() -> {
@@ -529,13 +574,19 @@ public final class Actor {
     }
 
     /** Looks at the clicked face, then the use key's own call: place (or light) with the held item. */
-    private static String place(BlockPos pos, Direction face) throws Exception {
+    private static String place(BlockPos pos, Direction face, float[] fixedLook) throws Exception {
         waitPlayer();
         double hx = pos.getX() + 0.5 + face.getStepX() * 0.5;
         double hy = pos.getY() + 0.5 + face.getStepY() * 0.5;
         double hz = pos.getZ() + 0.5 + face.getStepZ() * 0.5;
-        float[] a = onClient(() -> anglesTo(Minecraft.getInstance().player, hx, hy, hz));
-        lookSmooth(a[0], a[1], 4);
+        if (fixedLook != null) {
+            // A dropper's facing comes from where the player LOOKS, not from the clicked face:
+            // hold the given yaw/pitch for the click (the hit result still names the same face).
+            lookSmooth(fixedLook[0], fixedLook[1], 4);
+        } else {
+            float[] a = onClient(() -> anglesTo(Minecraft.getInstance().player, hx, hy, hz));
+            lookSmooth(a[0], a[1], 4);
+        }
         String r = onClient(() -> {
             Minecraft mc = Minecraft.getInstance();
             BlockHitResult hit = new BlockHitResult(new Vec3(hx, hy, hz), face, pos, false);
@@ -549,6 +600,64 @@ public final class Actor {
         BlockPos target = pos.relative(face);
         String there = onClient(() -> blockId(Minecraft.getInstance().level.getBlockState(target)));
         return "ok place=" + r + " target=" + there;
+    }
+
+    /**
+     * Opens the container at `pos` (a right-click, the use key's own call), shift-clicks every
+     * player-inventory stack whose item id contains `substr` into it, and closes it: how a
+     * player loads a dropper.
+     */
+    private static String fillInto(BlockPos pos, String substr) throws Exception {
+        waitPlayer();
+        float[] a = onClient(() -> anglesTo(Minecraft.getInstance().player,
+                pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5));
+        lookSmooth(a[0], a[1], 4);
+        onClient(() -> {
+            Minecraft mc = Minecraft.getInstance();
+            BlockHitResult hit = new BlockHitResult(
+                    new Vec3(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5), Direction.UP, pos, false);
+            mc.gameMode.useItemOn(mc.player, InteractionHand.MAIN_HAND, hit);
+            return null;
+        });
+        long deadline = System.currentTimeMillis() + 10_000;
+        AbstractContainerMenu menu = null;
+        while (System.currentTimeMillis() < deadline) {
+            menu = onClient(() -> {
+                Minecraft mc = Minecraft.getInstance();
+                AbstractContainerMenu m = mc.player.containerMenu;
+                return m != null && m != mc.player.inventoryMenu ? m : null;
+            });
+            if (menu != null) {
+                break;
+            }
+            Thread.sleep(60);
+        }
+        if (menu == null) {
+            return "error container at " + pos + " never opened";
+        }
+        AbstractContainerMenu open = menu;
+        int moved = onClient(() -> {
+            Minecraft mc = Minecraft.getInstance();
+            int n = 0;
+            // Slots of the player's own inventory inside a container menu hold stacks whose
+            // container is the Inventory; everything else is the opened container's side.
+            for (Slot slot : open.slots) {
+                var stack = slot.getItem();
+                String id = String.valueOf(BuiltInRegistries.ITEM.getKey(stack.getItem()));
+                if (slot.container == mc.player.getInventory() && id.contains(substr)) {
+                    n += stack.getCount();
+                    mc.gameMode.handleContainerInput(open.containerId, slot.index, 0, ContainerInput.QUICK_MOVE, mc.player);
+                }
+            }
+            return n;
+        });
+        waitTicks(tickCount(), 3);
+        onClient(() -> {
+            Minecraft mc = Minecraft.getInstance();
+            mc.player.closeContainer(); // also clears the screen (clientSideCloseContainer)
+            return null;
+        });
+        return "ok moved=" + moved;
     }
 
     /** Walks (forward key, steering each tick) until over (x, z); jumps when stuck against a step. */
