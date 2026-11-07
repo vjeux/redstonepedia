@@ -12,3 +12,6 @@ clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 mctas = { path = "../mctas" }
+clock = { path = "../clock" }
+redsim = { path = "../redsim" }
+piston-door = { path = "../piston-door" }

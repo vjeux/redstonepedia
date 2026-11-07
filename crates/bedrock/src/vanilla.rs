@@ -257,6 +257,11 @@ fn place_bot(srv: &mut VanillaServer, sc: &Scenario, stance: &Stance, arrive: bo
     if arrive {
         srv.step(2)?;
     }
+    if sc.survival {
+        // A teleport leaves the player in the air as far as the server knows: a survival player
+        // mining off the ground mines 5x slower (no instamine). Back on the ground.
+        srv.bot.as_mut().context("no bot")?.set_on_ground(true)?;
+    }
     // The acceptance is handled on the server thread: make sure it ran before any click.
     srv.cmd("list")?;
     Ok(())
@@ -286,7 +291,8 @@ pub fn trial(srv: &mut VanillaServer, sc: &Scenario, stance: &Stance, chord_at: 
     for (x, y, z, s) in &sc.blocks {
         if sc.dimension.is_some() {
             // Re-runs find the build already there: "Could not set the block" is fine.
-            let out = srv.cmd(&in_dim(sc, &format!("setblock {x} {y} {z} {s}")))?;
+            let strict = if sc.strict_observers && s.starts_with("minecraft:observer") { " strict" } else { "" };
+            let out = srv.cmd(&in_dim(sc, &format!("setblock {x} {y} {z} {s}{strict}")))?;
             let l = out.to_lowercase();
             if l.contains("not loaded") || l.contains("unknown") || l.contains("incorrect") || l.contains("expected") {
                 bail!("setblock {x} {y} {z} {s} -> {out}");
@@ -300,6 +306,14 @@ pub fn trial(srv: &mut VanillaServer, sc: &Scenario, stance: &Stance, chord_at: 
         bail!("{}: the target is not bedrock after the build settled", sc.name);
     }
     place_bot(srv, sc, stance, true)?;
+    if sc.survival {
+        let name = srv.bot.as_ref().context("no bot")?.name.clone();
+        srv.cmd_ok(&format!("gamemode survival {name}"))?;
+        srv.cmd_ok(&format!("effect give {name} minecraft:haste infinite 1 true"))?;
+        srv.cmd_ok(&format!("item replace entity {name} weapon.mainhand with minecraft:netherite_pickaxe[minecraft:enchantments={{\"minecraft:efficiency\":5}}]"))?;
+        srv.bot.as_mut().unwrap().set_on_ground(true)?;
+        srv.cmd("list")?;
+    }
     let last_script = sc.script.iter().map(|a| a.at).max().unwrap_or(0);
     let end = last_script.max(chord_at + 1) + sc.horizon;
     for window in 0..=end {
@@ -376,6 +390,20 @@ pub fn confirm(version: &str, sc: &Scenario, stance: &Stance, windows: &[u32], s
     let mut out = Vec::new();
     for &w in windows {
         out.push((w, trial(&mut srv, sc, stance, w, split)?));
+    }
+    Ok(out)
+}
+
+/// Several scenarios on ONE official server (a directional/positional matrix): each scenario's
+/// windows in turn; returns (scenario index, window, outcome).
+pub fn confirm_many(version: &str, scs: &[(Scenario, Vec<u32>)]) -> Result<Vec<(usize, u32, Outcome)>> {
+    let mut srv = VanillaServer::start(&VanillaOptions { version: version.to_string(), ..Default::default() })?;
+    let mut out = Vec::new();
+    for (i, (sc, windows)) in scs.iter().enumerate() {
+        let stance = sc.stance.clone().with_context(|| format!("{}: no stance", sc.name))?;
+        for &w in windows {
+            out.push((i, w, trial(&mut srv, sc, &stance, w, false)?));
+        }
     }
     Ok(out)
 }

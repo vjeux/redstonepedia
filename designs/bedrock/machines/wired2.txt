@@ -1,0 +1,77 @@
+name: wired2
+port press: 0 6 -1
+port start: 11 6 1 last
+port swap: 0 6 0
+port target: 0 5 0
+origin: -1 0 -3
+palette:
+  A minecraft:repeater[facing=east,delay=2]
+  B minecraft:bedrock
+  C minecraft:cobblestone
+  D minecraft:repeater[facing=east,delay=3]
+  E minecraft:repeater[facing=south,delay=2]
+  F minecraft:repeater[facing=west,delay=3]
+  G minecraft:sticky_piston[facing=west,extended=false]
+  H minecraft:stone
+  O minecraft:observer[facing=east]
+  P minecraft:piston[facing=west]
+  R minecraft:redstone_wire
+  S minecraft:smooth_stone_slab[type=bottom]
+  o minecraft:observer[facing=up]
+  r minecraft:repeater[facing=east,delay=1]
+  s minecraft:sticky_piston[facing=north,extended=false]
+layer 5:
+  BBBBBBBBBBBBBB
+  BBBBBBBBBBBBBB
+  BBBBBBBBBBBBBB
+  BBBBBBBBBBBBBB
+  BBBBBBBBBBBBBB
+  BBBBBBBBBBBBBB
+  BBBBBBBBBBBBBB
+  BBBBBBBBBBBBBB
+  BBBBBBBBBBBBBB
+  BBBBBBBBBBBBBB
+layer 6:
+  .
+  ......RRRRR
+  ......R...R
+  .P.HGAR.RFR
+  ........R.ROC
+  .H.HRRRRRDR
+  .s..R
+  .E..R
+  .RRRR
+  .
+layer 7:
+  .
+  .
+  .S
+  ..H
+  ...H
+  ...R
+  .
+  .
+  .
+  .
+layer 8:
+  .
+  .
+  .
+  ..oH
+  ...R
+  .
+  .
+  .
+  .
+  .
+layer 9:
+  .
+  .
+  .
+  ..rR
+  .
+  .
+  .
+  .
+  .
+  .

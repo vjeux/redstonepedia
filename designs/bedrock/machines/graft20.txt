@@ -1,0 +1,91 @@
+name: clk-obs-p12-lamp-obs-rb-stk-4b-2c0df9@t02,7,3
+port press: 0 6 -1
+port start: 2 8 5 last
+port swap: 0 6 0
+port target: 0 5 0
+origin: -1 0 -5
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:bedrock
+  C minecraft:redstone_wire
+  D minecraft:repeater[delay=1,facing=south]
+  E minecraft:stone
+  O minecraft:oak_trapdoor[facing=north,half=bottom,open=false]
+  P minecraft:piston[facing=west]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=north]
+  o minecraft:observer[facing=east]
+  r minecraft:redstone_lamp[lit=false]
+  s minecraft:sticky_piston[extended=false,facing=south]
+layer 5:
+  .BBBBBBBBBBBB
+  .BBBBBBBBBBBB
+  .BBBBBBBBBBBB
+  BBBBBBBBBBBBB
+  BBBBBBBBBBBBB
+  BBBBBBBBBBBBB
+  BBBBBBBBBBBBB
+  BBBBBBBBBBBBB
+  BBBBBBBBBBBBB
+  BBBBBBBBBBBBB
+  BBBBBBBBBBBBB
+  BBBBBBBBBBBBB
+  BBBBBBBBBBBBB
+  .BBBBBBBBBBBB
+  .BBBBBBBBBBBB
+  .BBBBBBBBBBBB
+  .BBBBBBBBBBBB
+layer 6:
+  .
+  .
+  .
+  .
+  .
+  .P
+  ...E
+  .E.C
+  .SCC
+  .D.C
+  .CCC
+  .
+  .
+  .
+  .
+  .
+  .
+layer 7:
+  .
+  .
+  .
+  .
+  .O
+  .
+  .EoC
+  .
+  ...s
+  ...R
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 8:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...A
+  ...r
+  .
+  .
+  .
+  .
+  .
+  .

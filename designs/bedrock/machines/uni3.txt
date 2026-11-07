@@ -1,0 +1,51 @@
+name: uni3
+port press: 0 6 -1
+port start: 7 6 5 last
+port swap: 0 6 0
+port target: 0 5 0
+origin: -1 0 -2
+palette:
+  A minecraft:repeater[facing=south,delay=1]
+  B minecraft:bedrock
+  C minecraft:cobblestone
+  D minecraft:repeater[facing=west,delay=3]
+  O minecraft:oak_trapdoor[half=bottom,open=false,facing=north]
+  P minecraft:piston[facing=west]
+  R minecraft:redstone_wire
+  S minecraft:sticky_piston[facing=north,extended=false]
+  o minecraft:observer[facing=east]
+  r minecraft:repeater[facing=east,delay=3]
+  s minecraft:stone
+layer 5:
+  BBBBBBBBBB
+  BBBBBBBBBB
+  BBBBBBBBBB
+  BBBBBBBBBB
+  BBBBBBBBBB
+  BBBBBBBBBB
+  BBBBBBBBBB
+  BBBBBBBBBB
+  BBBBBBBBBB
+  BBBBBBBBBB
+layer 6:
+  .
+  .
+  .P
+  ...s
+  .s.R
+  .SRR
+  .A.RRDR
+  .RRRR.RoC
+  ....RrR
+  .
+layer 7:
+  .
+  .O
+  .
+  .soR
+  .
+  .
+  .
+  .
+  .
+  .

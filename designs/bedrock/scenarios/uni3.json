@@ -1,0 +1,39 @@
+{
+  "name": "uni3",
+  "notes": "uni1 folded: X above the cell K lands in, O beside X watching the clock line, U's direct path from the side, the loop clock behind U.",
+  "target": [0, 5, 0],
+  "blocks": [
+    [0, 5, 0, "minecraft:bedrock"],
+    [0, 6, 0, "minecraft:piston[facing=west]"],
+    [0, 7, -1, "minecraft:oak_trapdoor[half=bottom,open=false,facing=north]"],
+    [0, 6, 2, "minecraft:stone"],
+    [0, 6, 3, "minecraft:sticky_piston[facing=north,extended=false]"],
+    [0, 6, 4, "minecraft:repeater[facing=south,delay=1]"],
+    [0, 7, 1, "minecraft:stone"],
+    [1, 7, 1, "minecraft:observer[facing=east]"],
+    [2, 6, 1, "minecraft:stone"],
+    [2, 7, 1, "minecraft:redstone_wire"],
+    [2, 6, 2, "minecraft:redstone_wire"],
+    [2, 6, 3, "minecraft:redstone_wire"],
+    [1, 6, 3, "minecraft:redstone_wire"],
+    [2, 6, 4, "minecraft:redstone_wire"],
+    [2, 6, 5, "minecraft:redstone_wire"],
+    [1, 6, 5, "minecraft:redstone_wire"],
+    [0, 6, 5, "minecraft:redstone_wire"],
+    [3, 6, 4, "minecraft:redstone_wire"],
+    [3, 6, 5, "minecraft:redstone_wire"],
+    [3, 6, 6, "minecraft:redstone_wire"],
+    [4, 6, 4, "minecraft:repeater[facing=west,delay=3]"],
+    [4, 6, 6, "minecraft:repeater[facing=east,delay=3]"],
+    [5, 6, 4, "minecraft:redstone_wire"],
+    [5, 6, 5, "minecraft:redstone_wire"],
+    [5, 6, 6, "minecraft:redstone_wire"],
+    [6, 6, 5, "minecraft:observer[facing=east]"]
+  ],
+  "settle": 4,
+  "chord": [
+    {"do": "break", "pos": [0, 6, 0]},
+    {"do": "place", "pos": [0, 6, 0], "state": "minecraft:piston[facing=down]"}
+  ],
+  "horizon": 20
+}

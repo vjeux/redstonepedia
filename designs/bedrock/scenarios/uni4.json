@@ -1,0 +1,24 @@
+{
+  "name": "uni4",
+  "notes": "The 15-block minimum folded by hand: the machine's observer O watches the clock's redstone block position P1 directly (no watched dust), the clock (sticky piston, redstone block, observer, lamp) right next to O, the W dust only under the two redstone block positions plus the dot dust that updates the swap piston at distance 2.",
+  "target": [0, 5, 0],
+  "blocks": [
+    [0, 5, 0, "minecraft:bedrock"],
+    [0, 6, 0, "minecraft:piston[facing=west]"],
+    [0, 7, -1, "minecraft:oak_trapdoor[half=bottom,open=false,facing=north]"],
+    [0, 7, 1, "minecraft:stone"],
+    [1, 7, 1, "minecraft:observer[facing=east]"],
+    [2, 7, 0, "minecraft:sticky_piston[facing=south,extended=false]"],
+    [2, 7, 1, "minecraft:redstone_block"],
+    [2, 8, 1, "minecraft:observer[facing=south]"],
+    [2, 6, 1, "minecraft:redstone_wire"],
+    [2, 6, 2, "minecraft:redstone_wire"],
+    [1, 6, 1, "minecraft:redstone_wire"]
+  ],
+  "settle": 4,
+  "chord": [
+    {"do": "break", "pos": [0, 6, 0]},
+    {"do": "place", "pos": [0, 6, 0], "state": "minecraft:piston[facing=down]"}
+  ],
+  "horizon": 20
+}

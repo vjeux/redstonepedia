@@ -11,8 +11,9 @@ Results in one line each:
 * **Floor bedrock (Nether floor, Overworld floor): the portal method.** No timing, no lag, no
   piston. Each portal trip turns a 1x4 line of bedrock into obsidian; repeated trips drill to the
   void. Verified on the official server, including the lowest layer.
-* **Nether roof (and anything else): the piston swap, armed by a machine.** One key press, one
-  armed window every 8 ticks, free retries, no lag (section 3); verified on the official server.
+* **Nether roof (and anything else): the piston swap, armed by an 11-block machine.** One key
+  press, one armed window every 6 ticks (0.3 s), a one-press fix after a miss, no lag (section 3);
+  verified on the official server's real Nether roof, in survival, in every orientation.
 
 
 ## 1. The portal method (floors)
@@ -211,7 +212,89 @@ one key press: section 3.**
 
 ## 3. The self-arming machine (the roof, lag-free)
 
-### Recommended: built ON TOP of the roof (tested on the real Nether roof)
+### Recommended: the 11-block machine (`machine-roof-11b.txt`)
+
+Picture: https://artifacts.internalmeta.com/a/1011326157909774 (mid-cycle: the redstone block
+under the lit lamp). Positions relative to the target T at (0, 0, 0) = a top-layer roof bedrock,
+x east, z south; everything at y >= 1 sits on the roof. All 11 blocks are what the player places:
+
+| # | block | position | role |
+|---|---|---|---|
+| 1 | piston, facing west | (0,1,0) | the swap piston A, on T |
+| 2 | oak trapdoor, closed, bottom half | (0,2,-1) | the ceiling of the press spot (0,1,-1): place it open, step in, close it, you crawl |
+| 3 | stone (any solid block) | (0,2,1) | X: diagonally above A, it quasi-powers A when powered |
+| 4 | observer, facing east | (1,2,1) | O: watches the redstone block's home cell, its output points west into X |
+| 5 | redstone dust | (1,1,1) | the nudge: diagonal to A, never powers it, its changes update A (dust updates two blocks away) |
+| 6 | redstone dust | (2,1,1) | under the redstone block's home cell |
+| 7 | redstone dust | (2,1,2) | under the redstone block's other cell |
+| 8 | sticky piston, facing south | (2,2,0) | the clock's piston |
+| 9 | redstone block | (2,2,1) | the clock's moving block (home cell) |
+| 10 | observer, facing south | (2,3,1) | the clock's observer, on the redstone block; its output points north into the cell above the sticky piston |
+| 11 | redstone lamp | (2,3,2) | placed LAST: the clock's observer sees it and the clock starts |
+
+* **How it runs.** The clock (an archived 12-tick clock, `clk-obs-p12-lamp-obs-rb-stk-4b-2c0df9`:
+  the lamp's changes fire the observer, whose pulse quasi-powers the sticky piston) moves the
+  redstone block between (2,2,1) and (2,2,2), one move every 6 ticks: out as a spit (the 2-tick
+  pulse ends while the block is still moving, and the retract finishes the move at once, in the
+  block-event phase), back as a pull. The dust is lit whenever the block stands still (it powers
+  the dust under it in both cells) and dark while it moves. O watches the home cell, so it is on
+  from 2 ticks after each change of that cell, powering A through X (quasi-connectivity, silently:
+  an observer updates only X and X's neighbours). Inside that pulse A gets an update and extends:
+  after the move out, the spit lands and relights the dust, and the dust at (1,1,1) (diagonal to
+  A, so it never powers A) updates A; after the move back, A's own base, retracting from the
+  previous arm, lands. Two ticks later O switches off (silent) as A's head lands, the landing
+  queues A's retract after the tick's block events: ARMED (`bedrock watch --verbose --cells`
+  shows each step). One armed window every 6 ticks, a press at a random moment wins 1 time in 6.
+* **Why not more often**: one try is one full cycle of A (extend 2 ticks, armed 1 window, retract
+  3 ticks); a queued event always runs in the next tick, so an armed window lasts one tick. The
+  clock-graft search (below) tried 195,198 machines with every archived clock of period 4 to 11:
+  none arms at least every 5 ticks.
+* **The press**, lying in the press spot: look up at A's side face (yaw 0 = facing south, pitch
+  -55) and press one key bound to Attack + Use (Efficiency V pickaxe + Haste II instamine the
+  piston). A breaks, a piston facing down goes in, its queued retract removes T.
+* **After a miss** (A now faces down into T): same spot, one press looking yaw -52 (mostly east)
+  and pitch 10 (slightly down), aimed at A's face near its east edge: the stuck piston breaks and a
+  piston facing west goes back. The machine then skips the next two armed windows (about 0.7 s)
+  and is back on its 6-tick rhythm.
+* **Verified**:
+  * redsim judge (`bedrock judge --offsets 32 --rotations --mirror`): 256/256 variants (32
+    positions x 4 turns x mirrored) armed on the same ticks, miss + repair recovers;
+  * the game code (`bedrock scan`, bridge): windows 24, 30, 36, 42, 48 of 20..50 work (5/31);
+  * official 26.3 server, the real Nether roof at (100, 127, 100), bot crawling, legit clicks:
+    windows 6, 12, 18, 24 removed the bedrock, 5, 7, 11, 13, 17, 19 did nothing;
+  * `bedrock vanilla-matrix` at (-2345, 127, 777) and (4011, 127, -1590), 4 turns x mirrored:
+    16/16 variants: windows 12 and 18 removed the bedrock, 13 did nothing;
+  * in survival (Haste II, Efficiency V netherite pickaxe, the survival break code): 12, 18, 24
+    removed the bedrock, 13, 19 did nothing;
+  * miss in window 15 (A faces down, probed) + the one-press repair in 17 (A faces west again,
+    probed), survival: 24 did nothing, 30 removed the bedrock, 25 did nothing; the bridge shows
+    the same (armed windows 18 and 24 lost, back at 30).
+
+### How it got small (45 -> 11 blocks), reusing the door and clock tools
+
+`crates/bedrock/src/machine.rs`: a machine design (the door design format, ports `target`, `swap`,
+`press` and the clock's `start`) judged on redsim. The judge places it like the clock study
+(`clock::sim::unsupported`, `clock::sim::drive_mut`), tries the press on a copy of the world in
+every window (break A, place a down-facing piston, 3 ticks, T gone?), requires an armed window at
+least every 6 ticks in the steady state, and checks the miss + repair sequence.
+
+* 45 -> 36: one updater piston for both clock edges (fed directly and through a delay-1 repeater:
+  on at once, off 2 ticks late) instead of two (`machines/uni1.txt`).
+* 36 -> 26: folded by hand: X above the cell the updater's block lands in, O beside X
+  (`machines/uni3.txt`).
+* 26 -> 20: `bedrock graft`: the clock replaced by every archived clock of period 12 (54 clocks) in
+  every orientation and position: 31,738 machines judged in 7 s, 529 pass; the best use a 4-block
+  observer + sticky piston + redstone block clock (`machines/graft20.txt`).
+* 20 -> 15: `bedrock minimize`: greedy descent over the door search's edit families
+  (`piston_door::search::generic_edits`, the door search's neighbourhood made door-independent:
+  removals of 1-3 blocks, swaps, relocations, delays, substitutions, compound edits), every edit
+  judged at 16 positions/orientations. It removed the updater piston, its block and its repeater:
+  the clock's moving block does the timing (`machines/min15.txt`).
+* 15 -> 11: folded by hand: O watches the redstone block itself (no watched dust), the clock right
+  beside O (`machines/uni4.txt` = `machine-roof-11b.txt`). The minimizer finds nothing smaller
+  (11 is a local minimum of its neighbourhood).
+
+### The 44-block wired version (superseded by the 11-block machine)
 
 Scenarios `roof-above.json` (slab) and `roof-above-real.json` (the official server's real Nether
 roof at (100, 127, 100), the bot crawling on the roof). Picture: `designs/bedrock/machine-above.txt`.
@@ -391,14 +474,34 @@ only in the End at fixed places.
   chord; per window, what the swap cell holds (armed / moving / open / wasted), from the bridge's
   new `events` op (pending block events). `--verbose` prints every pending event and the blocks of
   the `--cells` per window: that is how the machine of section 3 was phased.
-* `mctas bedrock vanilla <scenario> [--windows a,b] [--split]`: the same on the official server,
-  the chord done by a network bot (break: `START_DESTROY_BLOCK`; place: `USE_ITEM_ON` with the
-  offhand holding the block); `cmd` actions run vanilla commands in order (scenario setup and
-  `execute if` assertions). `MCTAS_BEDROCK_DEBUG=1` dumps the chord's cells after the chord.
+* `mctas bedrock vanilla <scenario> [--windows a,b] [--split] [--probe x,y,z=state --probe-to N]`:
+  the same on the official server, the chord done by a network bot (break:
+  `START_DESTROY_BLOCK`; place: `USE_ITEM_ON` with the offhand holding the block); `cmd` actions run
+  vanilla commands in order (scenario setup and `execute if` assertions); `--probe` prints whether
+  a cell matches in every window. `MCTAS_BEDROCK_DEBUG=1` dumps the chord's cells after the chord.
+* Machine designs (`designs/bedrock/machines/*.txt`, the door design format with ports `target`,
+  `swap`, `press`, `start`):
+  * `mctas bedrock design <scenario> --press x,y,z --start x,y,z=block --out <txt>`: a scenario's
+    build as a machine design;
+  * `mctas bedrock judge <txt> [--offsets N --rotations --mirror]`: the redsim judge above, at N
+    world positions in every orientation (`judge_offsets`, like `door verify`);
+  * `mctas bedrock minimize <txt> --out <txt> [--plateau N --threads N]`: the greedy descent;
+  * `mctas bedrock graft <txt> --remove box --region box --periods 12`: swap the clock for every
+    archived clock;
+  * `mctas bedrock scenario <txt> --out <json> [--at x,y,z] [--dimension the_nether] [--survival]
+    [--turns N --mirror] [--miss-repair A,B]`: a scenario for `scan`/`watch` (no dimension) or for
+    `vanilla` on the real roof; the start block is placed in window 0 as the player's last block;
+  * `mctas bedrock vanilla-matrix <txt> --at x,y,z --at ... --windows a,b --mirror`: every
+    orientation at every position on one official server.
+* Vanilla harness notes: generated scenarios place observers with `setblock ... strict` (a
+  command-placed observer fires once as it is placed, a player's never does; that pulse started the
+  4-block clock in the wrong phase); `--survival` puts the bot in survival with Haste II and an
+  Efficiency V netherite pickaxe and tells the server it is on the ground after every teleport
+  (`MOVE_PLAYER_STATUS_ONLY`; a player mining in the air mines 5x slower).
 
 ## Next
 
-* Wire the section 3 machine from a clock (the beat is specified there) and verify the wired
-  build end to end, then measure how a human does against the 1-in-8 window.
-* Narrow the beat: two updater pistons out of phase would arm more often than once per 8 ticks.
 * The Overworld floor: a reliable recipe for clearing (or proving absent) the closer sites.
+* A machine that keeps A extended between tries (power back before the queued retract runs, so it
+  is a no-op) could arm every 2-3 ticks; it needs block landings beside A every couple of ticks:
+  bigger, and none found among the archived fast clocks.

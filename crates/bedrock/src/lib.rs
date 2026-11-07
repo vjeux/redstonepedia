@@ -10,6 +10,7 @@
 //! work is the odds of a player who presses the chord at a random moment.
 
 pub mod cli;
+pub mod machine;
 pub mod vanilla;
 
 use anyhow::{Context, Result, bail};
@@ -104,6 +105,15 @@ pub struct Scenario {
     /// another dimension, so the build and the target check can reach them).
     #[serde(default)]
     pub setup: Vec<String>,
+    /// Vanilla runs: place observers with `setblock ... strict` (no shape update: a command-placed
+    /// observer otherwise fires once as it is placed, which a player's placement never does).
+    #[serde(default)]
+    pub strict_observers: bool,
+    /// Vanilla runs: the bot plays in SURVIVAL (not creative): Haste II, an Efficiency V
+    /// netherite pickaxe in the main hand (instamines a piston: speed 49 >= 1.5 x 30), on the
+    /// ground; its breaks go through the survival break code.
+    #[serde(default)]
+    pub survival: bool,
 }
 
 fn default_settle() -> u32 {
@@ -205,7 +215,8 @@ pub fn trial(w: &mut Worker, sandbox: u32, sc: &Scenario, chord_at: Option<u32>)
     let end = last_script.max(chord_at.unwrap_or(0)) + sc.horizon;
     let mut chord_results = Vec::new();
     for window in 0..=end {
-        let mut now: Vec<&Action> = sc.script.iter().filter(|a| a.at == window).collect();
+        // `probe` actions are the vanilla harness's diagnostics (`bedrock watch --cells` here).
+        let mut now: Vec<&Action> = sc.script.iter().filter(|a| a.at == window && a.what != "probe").collect();
         let n_script = now.len();
         if chord_at == Some(window) {
             now.extend(sc.chord.iter());
@@ -350,7 +361,7 @@ pub fn watch(version: &str, sc: &Scenario, to: u32, extra: &[Pos]) -> Result<Wat
     }
     let mut out = Watch { cells: Vec::new(), rows: Vec::new() };
     for window in 0..=to {
-        let now: Vec<&Action> = sc.script.iter().filter(|a| a.at == window).collect();
+        let now: Vec<&Action> = sc.script.iter().filter(|a| a.at == window && a.what != "probe").collect();
         act(&mut w, sandbox, &now)?;
         let state = block_at(&mut w, sandbox, cell)?;
         let events = pending_events(&mut w, sandbox)?;

@@ -130,7 +130,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "clock",
  "mctas",
+ "piston-door",
+ "redsim",
  "serde",
  "serde_json",
 ]

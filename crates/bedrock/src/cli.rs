@@ -59,7 +59,141 @@ pub enum BedrockCmd {
         windows: Vec<u32>,
         #[arg(long)]
         split: bool,
+        /// Print, in every window up to `--probe-to`, whether a cell matches a block predicate
+        /// (`x,y,z=minecraft:piston[extended=true]`); repeatable.
+        #[arg(long)]
+        probe: Vec<String>,
+        #[arg(long, default_value_t = 40)]
+        probe_to: u32,
     },
+    /// A machine design (layer format, ports target/swap/press/start) from a simulator scenario:
+    /// its blocks, a bedrock roof layer under them, the start kick (`--start x,y,z=state`, the
+    /// block placed last) and the press cell.
+    Design {
+        scenario: PathBuf,
+        #[arg(long, value_parser = parse_cell)]
+        press: [i32; 3],
+        #[arg(long)]
+        start: String,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Judge a machine design on redsim (the exact model): the press tried in every window, a miss
+    /// then the one-press repair; at the first `--offsets` positions of the door judge, in 4
+    /// quarter turns with `--rotations`, mirrored too with `--mirror`.
+    Judge {
+        design: PathBuf,
+        #[arg(long, default_value_t = 1)]
+        offsets: usize,
+        #[arg(long)]
+        rotations: bool,
+        #[arg(long)]
+        mirror: bool,
+        #[arg(long, default_value_t = 160)]
+        ticks: u32,
+        #[arg(long, default_value_t = 60)]
+        steady: u32,
+    },
+    /// Shrink a machine design with the door search's edit neighbourhood (removals of 1-3 blocks,
+    /// delays, substitutions, moves, swaps, relocations), keeping only edits that pass the redsim
+    /// judge at every test position (and orientation): the longest wait for an armed window at most
+    /// `--max-gap` ticks, and the repair working.
+    Minimize {
+        design: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        /// Edit families (the door search's names) or `all`.
+        #[arg(long, default_value = "all")]
+        moves: String,
+        #[arg(long, default_value_t = 2)]
+        radius: i32,
+        #[arg(long, default_value_t = 4)]
+        offsets: usize,
+        #[arg(long)]
+        rotations: bool,
+        #[arg(long)]
+        mirror: bool,
+        #[arg(long, default_value_t = 6)]
+        max_gap: u32,
+        #[arg(long, default_value_t = 24)]
+        threads: usize,
+        #[arg(long, default_value_t = 30)]
+        plateau: usize,
+    },
+    /// A scenario from a machine design, its target moved to `--at`: for `bedrock scan|watch` on
+    /// the game (no `--dimension`) or `bedrock vanilla` on the official server (`--dimension
+    /// the_nether`: the real Nether roof).
+    Scenario {
+        design: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, value_parser = parse_cell, default_value = "0,5,0")]
+        at: [i32; 3],
+        #[arg(long)]
+        dimension: Option<String>,
+        /// Quarter turns (clockwise from above) applied to the design first.
+        #[arg(long, default_value_t = 0)]
+        turns: i32,
+        /// Mirror the design (x -> -x) first.
+        #[arg(long)]
+        mirror: bool,
+        /// Vanilla: the bot plays in survival (Haste II, Efficiency V netherite pickaxe).
+        #[arg(long)]
+        survival: bool,
+        /// Add a MISS in window A (the press in a window that is not armed: the piston now faces
+        /// the target) and the one-press REPAIR in window B (`--miss-repair A,B`): the same spot,
+        /// looking along the swap piston's facing reversed and 10 degrees down, the original piston
+        /// placed back.
+        #[arg(long, value_delimiter = ',')]
+        miss_repair: Vec<u32>,
+    },
+    /// The machine design on the OFFICIAL server's real Nether roof in every orientation (4 turns,
+    /// mirrored too) at every `--at` target position, all on one server: the bot presses in each of
+    /// `--windows` (each trial rebuilt from scratch). A directional / positional check.
+    VanillaMatrix {
+        design: PathBuf,
+        #[arg(long, value_parser = parse_cell, required = true)]
+        at: Vec<[i32; 3]>,
+        #[arg(long, value_delimiter = ',')]
+        windows: Vec<u32>,
+        #[arg(long)]
+        mirror: bool,
+    },
+    /// Replace a design's clock (the cells inside `--remove`) by every clock of the clock study's
+    /// archive whose period is in `--periods`, in every orientation and position inside `--region`,
+    /// and judge each on redsim (`bedrock judge`'s rules): the passing grafts, fewest blocks first.
+    Graft {
+        design: PathBuf,
+        #[arg(long, value_parser = parse_box)]
+        remove: ([i32; 3], [i32; 3]),
+        #[arg(long, value_parser = parse_box)]
+        region: ([i32; 3], [i32; 3]),
+        #[arg(long, value_delimiter = ',', default_value = "12")]
+        periods: Vec<u32>,
+        #[arg(long, default_value = "designs/clocks/archive")]
+        clocks: PathBuf,
+        #[arg(long)]
+        mirror: bool,
+        #[arg(long, default_value_t = 2)]
+        offsets: usize,
+        #[arg(long)]
+        rotations: bool,
+        #[arg(long, default_value_t = 6)]
+        max_gap: u32,
+        #[arg(long, default_value_t = 32)]
+        threads: usize,
+        /// Write the best N grafts here (`<n>-<blocks>b.txt`).
+        #[arg(long)]
+        out_dir: Option<PathBuf>,
+        #[arg(long, default_value_t = 5)]
+        keep: usize,
+    },
+}
+
+/// `x,y,z:x,y,z`.
+fn parse_box(s: &str) -> Result<([i32; 3], [i32; 3]), String> {
+    let (a, b) = s.split_once(':').ok_or_else(|| format!("expected x,y,z:x,y,z, got `{s}`"))?;
+    Ok((parse_cell(a)?, parse_cell(b)?))
 }
 
 pub fn run(version: &str, cmd: BedrockCmd) -> Result<()> {
@@ -104,14 +238,151 @@ pub fn run(version: &str, cmd: BedrockCmd) -> Result<()> {
                 w.cells.len()
             );
         }
-        BedrockCmd::Vanilla { scenario, windows, split } => {
-            let sc = Scenario::load(&scenario)?;
+        BedrockCmd::Vanilla { scenario, windows, split, probe, probe_to } => {
+            let mut sc = Scenario::load(&scenario)?;
+            for p in &probe {
+                let (cell, pred) = p.split_once('=').ok_or_else(|| anyhow::anyhow!("--probe x,y,z=predicate"))?;
+                let pos = parse_cell(cell).map_err(|e| anyhow::anyhow!(e))?;
+                for k in 0..=probe_to {
+                    sc.script.push(crate::Action { what: "probe".into(), pos, state: Some(pred.to_string()), at: k, click: None, face: None, look: None, every: 0, times: 0 });
+                }
+            }
             let stance = sc.stance.clone().ok_or_else(|| anyhow::anyhow!("{}: no stance (where the bot stands)", sc.name))?;
             let res = crate::vanilla::confirm(version, &sc, &stance, &windows, split)?;
             for (w, o) in &res {
                 println!("{}: vanilla, chord in window {w}{}: {}", sc.name, if split { " (split over two windows)" } else { "" }, format!("{o:?}").to_lowercase());
             }
         }
+        BedrockCmd::Design { scenario, press, start, out } => {
+            let sc = Scenario::load(&scenario)?;
+            let (pos, state) = start.split_once('=').ok_or_else(|| anyhow::anyhow!("--start x,y,z=state"))?;
+            let pos = parse_cell(pos).map_err(|e| anyhow::anyhow!(e))?;
+            let name = out.file_stem().and_then(|s| s.to_str()).unwrap_or("machine").to_string();
+            let d = crate::machine::design_from_scenario(&sc, &name, press, (pos, state.to_string()))?;
+            d.save(&out)?;
+            println!("{}: {} blocks (roof not counted)", out.display(), crate::machine::Machine::new(d)?.blocks());
+        }
+        BedrockCmd::Judge { design, offsets, rotations, mirror, ticks, steady } => judge_cmd(&design, offsets, rotations, mirror, ticks, steady)?,
+        BedrockCmd::Minimize { design, out, moves, radius, offsets, rotations, mirror, max_gap, threads, plateau } => {
+            let base = mctas::design::Design::load(&design)?;
+            let offs: Vec<[i32; 3]> = piston_door::search::judge_offsets(28).into_iter().take(offsets.max(1)).collect();
+            let o = crate::machine::MinimizeOptions {
+                families: piston_door::search::parse_families(&moves)?,
+                radius,
+                variants: crate::machine::variants(&offs, rotations, mirror),
+                screen: 1,
+                max_gap,
+                judge: crate::machine::JudgeOptions::default(),
+                threads,
+                plateau,
+            };
+            let t0 = std::time::Instant::now();
+            let best = crate::machine::minimize(base, &o, &|s| println!("[{:>6.1}s] {s}", t0.elapsed().as_secs_f64()))?;
+            let mut best = best;
+            best.name = out.file_stem().and_then(|s| s.to_str()).unwrap_or("machine").to_string();
+            best.save(&out)?;
+            println!("{}: {} blocks", out.display(), crate::machine::Machine::new(best)?.blocks());
+        }
+        BedrockCmd::Scenario { design, out, at, dimension, turns, mirror, survival, miss_repair } => {
+            let d = crate::machine::transformed(&mctas::design::Design::load(&design)?, turns, mirror, [0, 0, 0])?;
+            let mut sc = crate::machine::scenario_from_design(&d, at, dimension.as_deref())?;
+            sc.survival = survival;
+            if let [miss, repair] = miss_repair[..] {
+                crate::machine::add_miss_repair(&mut sc, miss, repair)?;
+            }
+            std::fs::write(&out, serde_json::to_string_pretty(&sc)?)?;
+            println!("{}: {} blocks, target {:?}", out.display(), sc.blocks.len(), sc.target);
+        }
+        BedrockCmd::Graft { design, remove, region, periods, clocks, mirror, offsets, rotations, max_gap, threads, out_dir, keep } => {
+            graft_cmd(&design, remove, region, &periods, &clocks, mirror, offsets, rotations, max_gap, threads, out_dir.as_deref(), keep)?
+        }
+        BedrockCmd::VanillaMatrix { design, at, windows, mirror } => {
+            let d = mctas::design::Design::load(&design)?;
+            let mut scs = Vec::new();
+            let mut labels = Vec::new();
+            for a in &at {
+                for t in 0..4 {
+                    for mi in if mirror { vec![false, true] } else { vec![false] } {
+                        let dv = crate::machine::transformed(&d, t, mi, [0, 0, 0])?;
+                        scs.push((crate::machine::scenario_from_design(&dv, *a, Some("the_nether"))?, windows.clone()));
+                        labels.push(format!("at {a:?} turns {t} mirror {mi}"));
+                    }
+                }
+            }
+            let res = crate::vanilla::confirm_many(version, &scs)?;
+            let mut last = usize::MAX;
+            let mut line = String::new();
+            for (i, w, o) in res {
+                if i != last {
+                    if !line.is_empty() {
+                        println!("{line}");
+                    }
+                    line = format!("{:<40}", labels[i]);
+                    last = i;
+                }
+                line.push_str(&format!(" {w}:{}", format!("{o:?}").to_lowercase()));
+            }
+            println!("{line}");
+        }
     }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn graft_cmd(
+    design: &std::path::Path,
+    remove: ([i32; 3], [i32; 3]),
+    region: ([i32; 3], [i32; 3]),
+    periods: &[u32],
+    clocks: &std::path::Path,
+    mirror: bool,
+    offsets: usize,
+    rotations: bool,
+    max_gap: u32,
+    threads: usize,
+    out_dir: Option<&std::path::Path>,
+    keep: usize,
+) -> Result<()> {
+    let base = mctas::design::Design::load(design)?;
+    let mut files: Vec<PathBuf> = std::fs::read_dir(clocks)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "txt") && crate::machine::clock_period(p).is_some_and(|n| periods.contains(&n)))
+        .collect();
+    files.sort();
+    let t0 = std::time::Instant::now();
+    let cands = crate::machine::grafts(&base, remove, &files, region, mirror)?;
+    println!("{} clocks with period in {periods:?}: {} grafts to judge", files.len(), cands.len());
+    let offs: Vec<[i32; 3]> = piston_door::search::judge_offsets(28).into_iter().take(offsets.max(1)).collect();
+    let vs = crate::machine::variants(&offs, rotations, false);
+    let ok = crate::machine::judge_designs(cands, &vs, &crate::machine::JudgeOptions::default(), max_gap, threads);
+    println!("{} grafts pass at {} variants in {:.1}s", ok.len(), vs.len(), t0.elapsed().as_secs_f64());
+    for (i, (d, g, n)) in ok.iter().take(keep.max(1) * 4).enumerate() {
+        println!("{:>3}. {n} blocks, worst gap {g}: {}", i + 1, d.name);
+        if let Some(dir) = out_dir
+            && i < keep
+        {
+            std::fs::create_dir_all(dir)?;
+            d.save(&dir.join(format!("{:02}-{n}b.txt", i + 1)))?;
+        }
+    }
+    Ok(())
+}
+
+fn judge_cmd(design: &std::path::Path, offsets: usize, rotations: bool, mirror: bool, ticks: u32, steady: u32) -> Result<()> {
+    let d = mctas::design::Design::load(design)?;
+    let offs: Vec<[i32; 3]> = piston_door::search::judge_offsets(28).into_iter().take(offsets.max(1)).collect();
+    let o = crate::machine::JudgeOptions { ticks, steady, repair: true };
+    let t0 = std::time::Instant::now();
+    let mut ok = 0;
+    let vs = crate::machine::variants(&offs, rotations, mirror);
+    for (t, mi, off) in &vs {
+        let m = crate::machine::Machine::new(crate::machine::transformed(&d, *t, *mi, *off)?)?;
+        let v = crate::machine::judge(&m, &o);
+        if v.ok(6) {
+            ok += 1;
+        }
+        println!("turns {t} mirror {mi:<5} offset {off:?}: {} blocks, {}", m.blocks(), v.summary(steady));
+    }
+    println!("{ok}/{} variants pass (gap <= 6, repair ok) in {:.1}s", vs.len(), t0.elapsed().as_secs_f64());
     Ok(())
 }
