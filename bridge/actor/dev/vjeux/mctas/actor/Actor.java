@@ -678,6 +678,73 @@ public final class Actor {
     }
 
     /**
+     * A lean mine for `digBox`: aim + first hit in ONE client submit, then tick-gated
+     * direct calls (the same survival timing as `mine`'s precise path — `mine`'s own
+     * prelude costs ~5 extra frame-gated submits a block). Slow blocks (obsidian) defer
+     * to the full `mine` (held key).
+     */
+    private static String mineFast(BlockPos pos) throws Exception {
+        float perTick = onClient(() -> {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.level.getBlockState(pos).isAir()) {
+                return 1.0F;
+            }
+            float[] aim = anglesTo(mc.player, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
+            setLook(mc.player, aim[0], aim[1]);
+            float prog = mc.level.getBlockState(pos).getDestroyProgress(mc.player, mc.player.level(), pos);
+            if (prog >= 0.2F) {
+                Direction dir = faceToward(mc.player, pos);
+                if (mc.gameMode.startDestroyBlock(pos, dir)) {
+                    mc.player.swing(InteractionHand.MAIN_HAND, mc.player.getMainHandItem().getAttackAnimation(), false);
+                }
+            }
+            return prog;
+        });
+        if (perTick >= 1.0F) {
+            Thread.sleep(40);
+            String now = onClient(() -> blockId(Minecraft.getInstance().level.getBlockState(pos)));
+            return now.contains("air") ? "ok mined" : "error instamine left " + now;
+        }
+        if (perTick < 0.2F) {
+            return mine(pos, false);
+        }
+        Direction dir = onClient(() -> faceToward(Minecraft.getInstance().player, pos));
+        int[] lastTick = {-1};
+        long deadline = System.currentTimeMillis() + 15_000;
+        while (System.currentTimeMillis() < deadline) {
+            Boolean done = onClient(() -> {
+                Minecraft mc = Minecraft.getInstance();
+                if (mc.player == null || mc.level == null) {
+                    return false;
+                }
+                if (mc.level.getBlockState(pos).isAir()) {
+                    mc.gameMode.stopDestroyBlock();
+                    return true;
+                }
+                if (mc.player.tickCount == lastTick[0]) {
+                    return false;
+                }
+                lastTick[0] = mc.player.tickCount;
+                float[] aim = anglesTo(mc.player, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
+                setLook(mc.player, aim[0], aim[1]);
+                if (mc.gameMode.continueDestroyBlock(pos, dir)) {
+                    mc.player.swing(InteractionHand.MAIN_HAND, mc.player.getMainHandItem().getAttackAnimation(), false);
+                }
+                return false;
+            });
+            if (done) {
+                return "ok mined";
+            }
+            Thread.sleep(25);
+        }
+        onClient(() -> {
+            Minecraft.getInstance().gameMode.stopDestroyBlock();
+            return null;
+        });
+        return "error mine timed out";
+    }
+
+    /**
      * Digs out a whole box from inside the client: repeatedly mine the nearest target the
      * crosshair can reach, stepping to live-verified stands near the player when it cannot.
      * One command instead of one file round trip per block (the per-block IPC plus stale
@@ -732,7 +799,7 @@ public final class Actor {
                     return Math.sqrt(cell.distToCenterSqr(eye.x, eye.y, eye.z));
                 });
                 if (d <= 4.2) {
-                    String r = mine(cell, false);
+                    String r = mineFast(cell);
                     if (r.startsWith("ok")) {
                         progress = true;
                         break;
@@ -780,7 +847,7 @@ public final class Actor {
                 }
                 String wr = walk(stand.getX() + 0.5, stand.getZ() + 0.5);
                 if (wr.startsWith("ok")) {
-                    String r = mine(cell, false);
+                    String r = mineFast(cell);
                     if (r.startsWith("ok")) {
                         progress = true;
                         break;
