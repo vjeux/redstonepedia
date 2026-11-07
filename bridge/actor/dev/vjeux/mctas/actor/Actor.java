@@ -221,10 +221,10 @@ public final class Actor {
         if (p == null || mc.level == null) {
             return "ok noplayer";
         }
-        return String.format(Locale.ROOT, "ok dim=%s pos=%.2f,%.2f,%.2f look=%.1f,%.1f mode=%s creative=%s slot=%d held=%s tick=%d health=%.1f",
+        return String.format(Locale.ROOT, "ok dim=%s pos=%.2f,%.2f,%.2f look=%.1f,%.1f mode=%s creative=%s slot=%d held=%s tick=%d health=%.1f fps=%d grabbed=%s",
                 mc.level.dimension().identifier(), p.getX(), p.getY(), p.getZ(), p.getYRot(), p.getXRot(),
                 mc.gameMode == null ? "?" : mc.gameMode.getPlayerMode(), p.isCreative(),
-                p.getInventory().getSelectedSlot(), heldDesc(), p.tickCount, p.getHealth());
+                p.getInventory().getSelectedSlot(), heldDesc(), p.tickCount, p.getHealth(), mc.getFps(), mc.mouseHandler.isMouseGrabbed());
     }
 
     private static void keysOff() {
@@ -361,42 +361,131 @@ public final class Actor {
         }
     }
 
-    /** Looks at the block and holds attack — one destroy call per client tick — until it is air. */
+    /**
+     * Looks at the block and holds the attack key until it is air: the client's own per-tick
+     * `continueAttack` does the work (starting the break, swinging, survival timing), exactly
+     * like a held mouse button. The actor only aims, presses, and polls a few times a second
+     * (client-thread tasks run once per frame, so driving every tick from outside would mine
+     * at frame rate, not tick rate). Needs the mouse grabbed, like real play: on a headless
+     * display the window may never take focus, so grab it (and as a last resort set the flag
+     * the grab would set — the same state a focused window has).
+     */
     private static String mine(BlockPos pos) throws Exception {
         waitPlayer();
         float[] a = onClient(() -> anglesTo(Minecraft.getInstance().player, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5));
-        lookSmooth(a[0], a[1], 5);
-        Direction dir = onClient(() -> faceToward(Minecraft.getInstance().player, pos));
-        int from = tickCount();
-        long deadline = System.currentTimeMillis() + 45_000;
-        while (System.currentTimeMillis() < deadline) {
-            Boolean done = onClient(() -> {
+        lookSmooth(a[0], a[1], 3);
+        // Fast blocks (a few ticks: netherrack, deepslate) are mined with direct per-tick calls:
+        // precise (no overshoot into whatever is behind) and only a handful of round trips.
+        // Slow blocks (obsidian: ~31 ticks) hold the attack key instead, so the client's own
+        // per-tick path runs at full tick rate regardless of frame rate; overshoot there only
+        // starts a crack in the next obsidian, which resets when the key is released.
+        Float perTick = onClient(() -> {
+            Minecraft mc = Minecraft.getInstance();
+            BlockState s = mc.level.getBlockState(pos);
+            return s.isAir() ? 1.0F : s.getDestroyProgress(mc.player, mc.player.level(), pos);
+        });
+        if (perTick >= 1.0F) {
+            // already air, or one direct call breaks it (instamine)
+            onClient(() -> {
                 Minecraft mc = Minecraft.getInstance();
-                if (mc.player == null || mc.level == null) {
-                    return false;
+                if (!mc.level.getBlockState(pos).isAir()) {
+                    Direction dir = faceToward(mc.player, pos);
+                    if (mc.gameMode.startDestroyBlock(pos, dir)) {
+                        mc.player.swing(InteractionHand.MAIN_HAND, mc.player.getMainHandItem().getAttackAnimation(), false);
+                    }
                 }
-                if (mc.level.getBlockState(pos).isAir()) {
-                    mc.gameMode.stopDestroyBlock();
-                    return true;
-                }
-                float[] aim = anglesTo(mc.player, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
-                setLook(mc.player, aim[0], aim[1]);
-                if (mc.gameMode.continueDestroyBlock(pos, dir)) {
-                    mc.player.swing(InteractionHand.MAIN_HAND, mc.player.getMainHandItem().getAttackAnimation(), false);
-                }
-                return false;
+                return null;
             });
-            if (done) {
-                return "ok mined";
+            Thread.sleep(60);
+            String now = onClient(() -> blockId(Minecraft.getInstance().level.getBlockState(pos)));
+            return now.contains("air") ? "ok mined" : "error instamine left " + now;
+        }
+        if (perTick >= 0.2F) {
+            Direction dir = onClient(() -> faceToward(Minecraft.getInstance().player, pos));
+            int[] lastTick = {-1};
+            long deadline = System.currentTimeMillis() + 20_000;
+            while (System.currentTimeMillis() < deadline) {
+                Boolean done = onClient(() -> {
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc.player == null || mc.level == null) {
+                        return false;
+                    }
+                    if (mc.level.getBlockState(pos).isAir()) {
+                        mc.gameMode.stopDestroyBlock();
+                        return true;
+                    }
+                    if (mc.player.tickCount == lastTick[0]) {
+                        return false; // same game tick: a second call would mine faster than a held button
+                    }
+                    lastTick[0] = mc.player.tickCount;
+                    float[] aim = anglesTo(mc.player, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
+                    setLook(mc.player, aim[0], aim[1]);
+                    if (mc.gameMode.continueDestroyBlock(pos, dir)) {
+                        mc.player.swing(InteractionHand.MAIN_HAND, mc.player.getMainHandItem().getAttackAnimation(), false);
+                    }
+                    return false;
+                });
+                if (done) {
+                    return "ok mined";
+                }
+                Thread.sleep(30);
             }
-            from = waitTicks(from, 1);
+            onClient(() -> {
+                Minecraft.getInstance().gameMode.stopDestroyBlock();
+                return null;
+            });
+            return "error mine timed out";
         }
         onClient(() -> {
-            Minecraft.getInstance().gameMode.stopDestroyBlock();
+            Minecraft mc = Minecraft.getInstance();
+            if (!mc.mouseHandler.isMouseGrabbed()) {
+                mc.mouseHandler.grabMouse();
+            }
+            if (!mc.mouseHandler.isMouseGrabbed()) {
+                try {
+                    java.lang.reflect.Field f = mc.mouseHandler.getClass().getDeclaredField("mouseGrabbed");
+                    f.setAccessible(true);
+                    f.setBoolean(mc.mouseHandler, true);
+                    log("mine: mouse grab forced (window never focused)");
+                } catch (Throwable e) {
+                    log("mine: grab failed: " + e);
+                }
+            }
+            mc.options.keyAttack.setDown(true);
             return null;
         });
-        String held = onClient(() -> blockId(Minecraft.getInstance().level.getBlockState(pos)));
-        return "error mine timed out, block still " + held;
+        try {
+            long deadline = System.currentTimeMillis() + 45_000;
+            while (System.currentTimeMillis() < deadline) {
+                Boolean done = onClient(() -> {
+                    Minecraft mc = Minecraft.getInstance();
+                    if (mc.player == null || mc.level == null) {
+                        return false;
+                    }
+                    if (mc.level.getBlockState(pos).isAir()) {
+                        return true;
+                    }
+                    float[] aim = anglesTo(mc.player, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
+                    setLook(mc.player, aim[0], aim[1]);
+                    return false;
+                });
+                if (done) {
+                    return "ok mined";
+                }
+                Thread.sleep(120);
+            }
+            String held = onClient(() -> blockId(Minecraft.getInstance().level.getBlockState(pos)));
+            return "error mine timed out, block still " + held;
+        } finally {
+            onClient(() -> {
+                Minecraft mc = Minecraft.getInstance();
+                mc.options.keyAttack.setDown(false);
+                if (mc.gameMode != null) {
+                    mc.gameMode.stopDestroyBlock();
+                }
+                return null;
+            });
+        }
     }
 
     /** Looks at the clicked face, then the use key's own call: place (or light) with the held item. */
