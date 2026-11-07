@@ -3327,10 +3327,12 @@ fn compose2(version: &str, plan: &Plan, o: &VideoOptions) -> Result<()> {
         *inp += 2;
         Ok(())
     };
-    // 1) The hook first (filmed last, shown first).
-    let hook = timeline.segments.iter().find(|s| s.file.contains("hook")).context("no hook segment")?.clone();
-    chapters.push((0.0, "Hook: the finished hole".into()));
-    add_seg(&hook, &mut inputs, &mut graphs, &mut outs, &mut inp, &mut total)?;
+    // 1) The hook first (filmed last, shown first) — when the shoot reached it. A cut
+    // from an earlier checkpoint (time-boxed) simply opens on the title instead.
+    if let Some(hook) = timeline.segments.iter().find(|s| s.file.contains("hook")).cloned() {
+        chapters.push((0.0, "Hook: the finished hole".into()));
+        add_seg(&hook, &mut inputs, &mut graphs, &mut outs, &mut inp, &mut total)?;
+    }
     // 2) Title, kit, idea.
     let title = card(&font, &netherrack, w, h, &[
         ("Removing bedrock in survival:".into(), 4, WHITE),
