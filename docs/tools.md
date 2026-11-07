@@ -11,6 +11,9 @@ The bedrock study's commands (`mctas bedrock scan | watch | vanilla | vanilla-ma
 judge | minimize | graft | row | circuit | scenario`: bedrock breakers, the portal method, the
 official server's checks) are in [designs/bedrock/NOTES.md](../designs/bedrock/NOTES.md#tools); its
 circuit kind (`circuit: bedrock-breaker N`) is judged like every circuit (`mctas circuit verify`).
+The derived-data staleness audit's probes (`mctas corrupt light | inhabited | audit`: light save
+ordering, inhabited-time persistence, saved-heightmap consistency, on the official server) are in
+[designs/corrupt-derived/NOTES.md](../designs/corrupt-derived/NOTES.md#tools).
 
 ## The workflow behind the records
 

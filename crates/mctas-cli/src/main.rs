@@ -74,6 +74,12 @@ enum Cmd {
         #[command(subcommand)]
         command: bedrock::cli::BedrockCmd,
     },
+    /// Derived/saved world-data staleness audit (designs/corrupt-derived/NOTES.md):
+    /// light save ordering, inhabited-time persistence, heightmap consistency.
+    Corrupt {
+        #[command(subcommand)]
+        command: corrupt::cli::CorruptCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -154,6 +160,7 @@ fn main() -> Result<()> {
         Cmd::Litematic { command } => litematic::cli::run(command)?,
         Cmd::Web { command } => web_cli::run(&cli.version, command)?,
         Cmd::Bedrock { command } => bedrock::cli::run(&cli.version, command)?,
+        Cmd::Corrupt { command } => corrupt::cli::run(&cli.version, command)?,
     }
     Ok(())
 }

@@ -615,6 +615,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
+name = "corrupt"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "mctas",
+]
+
+[[package]]
 name = "cpu-time"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1218,6 +1227,7 @@ dependencies = [
  "circuit-cli",
  "clap",
  "clock-cli",
+ "corrupt",
  "door-judge",
  "door-mech",
  "door-redsim",
