@@ -1459,15 +1459,42 @@ fn compose(version: &str, plan: &Plan, o: &VideoOptions) -> Result<()> {
         ("Mine the obsidian, repeat, and drill layer by layer to the void.".into(), 2, WHITE),
     ]);
     add_card!("card-why", 8.0, &why);
+    // Screen-time budgets (seconds) per segment kind: bulk mining is sped up as much as it
+    // takes to fit (the recorded speed is the floor), so the cut lands at ~5-6 minutes.
+    let budget = |file: &str| -> Option<f64> {
+        let stem = file.splitn(2, '-').nth(1).unwrap_or(file).trim_end_matches(".mkv");
+        Some(match stem {
+            "intro" => 16.0,
+            "dig-down" => 20.0,
+            "patch-prep" => 32.0,
+            "bedrock-before" => 12.0,
+            "return-portal" => 32.0,
+            "to-overworld" => 14.0,
+            "overworld-dig" => 24.0,
+            "drill-build" => 30.0,
+            "first-trip" => 45.0,
+            "first-mine" => 30.0,
+            "second-trip" => 35.0,
+            "finale" => 20.0,
+            s if s.starts_with("mine-layer") => 10.0,
+            s if s.starts_with("trip-") => 14.0,
+            _ => return None,
+        })
+    };
     for seg in &timeline.segments {
         let path = o.out.join("segments").join(&seg.file);
-        let secs = duration(&path)? / seg.speed;
+        let raw = duration(&path)?;
+        let speed = match budget(&seg.file) {
+            Some(b) => seg.speed.max(raw / b),
+            None => seg.speed,
+        };
+        let secs = raw / speed;
         let label_png = work.join(format!("{}.label.png", seg.file));
         label(&font, w, h, &seg.caption).save_png(&label_png)?;
         inputs.extend(["-i".into(), path.display().to_string(), "-i".into(), label_png.display().to_string()]);
         graphs.push(format!(
-            "[{inp}:v]setpts=(PTS-STARTPTS)/{sp},fps={fps},scale={w}:{h},setsar=1[s{inp}];[s{inp}][{lp}:v]overlay=0:0,format=yuv420p[p{inp}]",
-            sp = seg.speed, lp = inp + 1
+            "[{inp}:v]setpts=(PTS-STARTPTS)/{sp:.3},fps={fps},scale={w}:{h},setsar=1[s{inp}];[s{inp}][{lp}:v]overlay=0:0,format=yuv420p[p{inp}]",
+            sp = speed, lp = inp + 1
         ));
         outs.push(format!("[p{inp}]"));
         total_secs += secs;
