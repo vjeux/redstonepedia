@@ -667,7 +667,7 @@ impl Prod {
         // the headroom over it.
         let rlo = [lo[0] - 3, lo[1] - 1, lo[2] - 3];
         let rhi = [hi[0] + 3, hi[1] + 2, hi[2] + 3];
-        for pass in 0..6 {
+        for pass in 0..60 {
             let blocks = if dim == "the_nether" { self.nether_box(rlo, rhi)? } else { self.overworld_box(rlo, rhi)? };
             let mut todo: Vec<Pos> = Vec::new();
             for y in lo[1]..=hi[1] {
@@ -686,17 +686,30 @@ impl Prod {
             if todo.is_empty() {
                 return Ok(());
             }
-            // Top first (falling gravel lands below and is caught next pass), south first (the
-            // player comes from the south in every scene here).
-            todo.sort_by_key(|p| (std::cmp::Reverse(p[1]), std::cmp::Reverse(p[2]), p[0]));
+            // Column by column from the south (where the player always enters), top-down within
+            // a column: stands are then in the just-cleared part. Small batches, because stands
+            // come from the pass-start read; blocks with no stand yet wait for the next read.
+            todo.sort_by_key(|p| (std::cmp::Reverse(p[2]), p[0], std::cmp::Reverse(p[1])));
             self.loga(&format!("clear_box {dim} pass {pass}: {} blocks", todo.len()));
             self.select(SLOT_PICK)?;
+            let mut mined = 0;
             for p in todo {
-                self.stand_near(&blocks, p)?;
-                self.mine_sweep(p)?;
+                if mined >= 24 {
+                    break;
+                }
+                match self.stand_near(&blocks, p) {
+                    Ok(()) => {
+                        self.mine_sweep(p)?;
+                        mined += 1;
+                    }
+                    Err(_) => continue,
+                }
+            }
+            if mined == 0 {
+                bail!("clear_box {dim} {lo:?}..{hi:?}: no reachable stand in a whole pass");
             }
         }
-        bail!("clear_box {dim} {lo:?}..{hi:?} still not clear after 6 passes")
+        bail!("clear_box {dim} {lo:?}..{hi:?} still not clear after 60 passes")
     }
 
     /// Walk to a standable cell within reach of `target` (from the last box read).
@@ -1233,7 +1246,7 @@ fn lower_drill_portal(p: &mut Prod, l: i32) -> Result<()> {
 fn mine_layer(p: &mut Prod, l: i32) -> Result<()> {
     let fx = p.plan.fx;
     let rz = p.plan.rz;
-    for _ in 0..4 {
+    for _ in 0..10 {
         let blocks = p.nether_box([fx, l, rz - l], [fx + 3, l, rz + l])?;
         let mut todo: Vec<Pos> = Vec::new();
         for z in rz - l..=rz + l {
@@ -1249,9 +1262,15 @@ fn mine_layer(p: &mut Prod, l: i32) -> Result<()> {
         todo.sort_by_key(|c| std::cmp::Reverse((c[2] - rz).abs()));
         p.select(SLOT_PICK)?;
         let wide = p.nether_box([fx - 3, l, rz - l - 3], [fx + 6, l + 2, rz + l + 3])?;
+        let mut mined = 0;
         for c in todo {
-            p.stand_near(&wide, c)?;
-            p.mine(c)?;
+            if p.stand_near(&wide, c).is_ok() {
+                p.mine(c)?;
+                mined += 1;
+            }
+        }
+        if mined == 0 {
+            bail!("layer {l}: no reachable stand in a whole pass");
         }
     }
     bail!("layer {l} still not mined out")
