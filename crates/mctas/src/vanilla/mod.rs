@@ -105,6 +105,10 @@ pub struct VanillaOptions {
     pub view_distance: u32,
     /// `level-name`: the world folder's name, and the name the game lists for a new world.
     pub level_name: String,
+    /// Extra `server.properties` lines (key, value), appended after the defaults (a
+    /// duplicate key overrides by coming last in the file, which is how the game's
+    /// properties loader reads it).
+    pub extra_properties: Vec<(String, String)>,
 }
 
 impl Default for VanillaOptions {
@@ -118,6 +122,7 @@ impl Default for VanillaOptions {
             world: None,
             view_distance: 3,
             level_name: "world".into(),
+            extra_properties: Vec::new(),
         }
     }
 }
@@ -229,7 +234,10 @@ impl VanillaServer {
             ("white-list", "false".to_string()),
             ("enforce-whitelist", "false".to_string()),
         ];
-        let text: String = props.iter().map(|(k, v)| format!("{k}={v}\n")).collect();
+        let mut text: String = props.iter().map(|(k, v)| format!("{k}={v}\n")).collect();
+        for (k, v) in &opts.extra_properties {
+            text.push_str(&format!("{k}={v}\n"));
+        }
         std::fs::write(dir.join("server.properties"), text)?;
         let log = dir.join("server.log");
         let out = std::fs::File::create(&log)?;
