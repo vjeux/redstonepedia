@@ -59,6 +59,28 @@ impl Blocks {
     pub fn set(&mut self, p: Pos, state: &str) {
         self.overlay.insert(p, state.to_string());
     }
+
+    /// An independent copy of the composite view (base + overlay) over `lo..=hi`, for
+    /// simulations that mutate without touching the source reads.
+    pub fn subcopy(&self, lo: Pos, hi: Pos) -> Blocks {
+        let size = [hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1];
+        let mut palette: Vec<String> = Vec::new();
+        let mut ids: std::collections::HashMap<String, u16> = std::collections::HashMap::new();
+        let mut data = vec![0u16; (size[0] * size[1] * size[2]) as usize];
+        for y in 0..size[1] {
+            for z in 0..size[2] {
+                for x in 0..size[0] {
+                    let s = self.get([lo[0] + x, lo[1] + y, lo[2] + z]).to_string();
+                    let id = *ids.entry(s.clone()).or_insert_with(|| {
+                        palette.push(s);
+                        (palette.len() - 1) as u16
+                    });
+                    data[((y * size[2] + z) * size[0] + x) as usize] = id;
+                }
+            }
+        }
+        Blocks::new(Region { from: lo, size, palette, flags: Vec::new(), data })
+    }
 }
 
 /// One candidate frame site: `origin` is the interior's bottom-west cell (the game's

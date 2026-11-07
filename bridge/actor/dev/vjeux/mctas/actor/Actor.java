@@ -318,7 +318,37 @@ public final class Actor {
                 return "ok cam=" + f[1];
             }
             case "fillinto":
-                return fillInto(new BlockPos(Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3])), f[4]);
+                return fillInto(new BlockPos(Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3])), f[4],
+                        f.length > 5 ? Integer.parseInt(f[5]) : 99);
+            case "hotbar": {
+                // hotbar <slot> <item-substr>: end with a stack of that item in hotbar slot
+                // <slot> (a number-key SWAP in the inventory screen, the GUI's own action);
+                // answers ok slot=<where it now sits>.
+                waitPlayer();
+                int want = Integer.parseInt(f[1]);
+                return onClient(() -> {
+                    Minecraft mc = Minecraft.getInstance();
+                    AbstractContainerMenu menu = mc.player.inventoryMenu;
+                    Slot found = null;
+                    for (Slot slot : menu.slots) {
+                        if (slot.container != mc.player.getInventory()) {
+                            continue;
+                        }
+                        String id = String.valueOf(BuiltInRegistries.ITEM.getKey(slot.getItem().getItem()));
+                        if (id.contains(f[2]) && slot.getItem().getCount() > 0) {
+                            if (slot.getContainerSlot() < 9) {
+                                return "ok slot=" + slot.getContainerSlot();
+                            }
+                            found = slot;
+                        }
+                    }
+                    if (found == null) {
+                        return "error no *" + f[2] + "* in inventory";
+                    }
+                    mc.gameMode.handleContainerInput(menu.containerId, found.index, want, ContainerInput.SWAP, mc.player);
+                    return "ok slot=" + want;
+                });
+            }
             case "invcount": {
                 waitPlayer();
                 return onClient(() -> {
@@ -603,11 +633,11 @@ public final class Actor {
     }
 
     /**
-     * Opens the container at `pos` (a right-click, the use key's own call), shift-clicks every
-     * player-inventory stack whose item id contains `substr` into it, and closes it: how a
-     * player loads a dropper.
+     * Opens the container at `pos` (a right-click, the use key's own call), shift-clicks up
+     * to `maxStacks` player-inventory stacks whose item id contains `substr` into it, and
+     * closes it: how a player loads a dropper (capped so the player keeps their own supply).
      */
-    private static String fillInto(BlockPos pos, String substr) throws Exception {
+    private static String fillInto(BlockPos pos, String substr, int maxStacks) throws Exception {
         waitPlayer();
         float[] a = onClient(() -> anglesTo(Minecraft.getInstance().player,
                 pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5));
@@ -639,13 +669,18 @@ public final class Actor {
         int moved = onClient(() -> {
             Minecraft mc = Minecraft.getInstance();
             int n = 0;
+            int stacks = 0;
             // Slots of the player's own inventory inside a container menu hold stacks whose
             // container is the Inventory; everything else is the opened container's side.
             for (Slot slot : open.slots) {
+                if (stacks >= maxStacks) {
+                    break;
+                }
                 var stack = slot.getItem();
                 String id = String.valueOf(BuiltInRegistries.ITEM.getKey(stack.getItem()));
-                if (slot.container == mc.player.getInventory() && id.contains(substr)) {
+                if (slot.container == mc.player.getInventory() && id.contains(substr) && stack.getCount() > 0) {
                     n += stack.getCount();
+                    stacks++;
                     mc.gameMode.handleContainerInput(open.containerId, slot.index, 0, ContainerInput.QUICK_MOVE, mc.player);
                 }
             }
