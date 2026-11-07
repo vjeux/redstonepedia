@@ -2496,6 +2496,77 @@ fn remote_trip(p: &mut Prod, l: i32, cur: i32, row: i32) -> Result<()> {
     Ok(())
 }
 
+/// Tunnel-clear a box the way a player digs: a boustrophedon (snake) of columns from the
+/// entry corner — mine the whole column ahead, step in, repeat. Stands are guaranteed
+/// (the previous column), so this cannot stall the way snapshot-stand search does in
+/// solid rock. The entry column comes first in its row (east leg, then west, then snake).
+/// Cells the start snapshot shows as air are skipped; a second sweep catches stragglers.
+fn tunnel_clear(p: &mut Prod, dim: &str, lo: Pos, hi: Pos, entry: (i32, i32)) -> Result<()> {
+    let mut order: Vec<(i32, i32)> = Vec::new();
+    let ez = entry.1;
+    order.extend((entry.0..=hi[0]).map(|x| (x, ez)));
+    // Walk back west over the just-mined row (cells east of the entry are air by now and
+    // simply walked through), ending at the row's west end.
+    order.extend((lo[0]..hi[0]).rev().map(|x| (x, ez)));
+    let mut west_end = true; // the entry row ends at lo.x
+    for z in (lo[2]..ez).rev() {
+        if west_end {
+            order.extend((lo[0]..=hi[0]).map(|x| (x, z)));
+        } else {
+            order.extend((lo[0]..=hi[0]).rev().map(|x| (x, z)));
+        }
+        west_end = !west_end;
+    }
+    for z in ez + 1..=hi[2] {
+        if west_end {
+            order.extend((lo[0]..=hi[0]).map(|x| (x, z)));
+        } else {
+            order.extend((lo[0]..=hi[0]).rev().map(|x| (x, z)));
+        }
+        west_end = !west_end;
+    }
+    p.select(SLOT_PICK)?;
+    for sweep in 0..2 {
+        let blocks = if dim == "the_nether" { p.nether_box(lo, hi)? } else { p.overworld_box(lo, hi)? };
+        let mut mined = 0usize;
+        for (i, &(x, z)) in order.iter().enumerate() {
+            if i % 40 == 0 {
+                p.check_alive()?;
+                if p.invcount("cobbled_deepslate")? > 192 {
+                    p.dropall("cobbled_deepslate", 0)?;
+                    p.select(SLOT_PICK)?;
+                }
+                if dim == "the_nether" && p.invcount("netherrack")? > 448 {
+                    p.dropall("netherrack", 3)?;
+                    p.select(SLOT_PICK)?;
+                }
+            }
+            for y in (lo[1]..=hi[1]).rev() {
+                let s = blocks.get([x, y, z]);
+                if blocks.kind([x, y, z]) == Kind::Solid && !s.starts_with("minecraft:bedrock") {
+                    p.mine([x, y, z])?;
+                    mined += 1;
+                }
+            }
+            p.walk(x, z)?;
+        }
+        p.loga(&format!("tunnel_clear {dim} sweep {sweep}: mined {mined}"));
+        if mined == 0 {
+            break;
+        }
+    }
+    // Verify: only bedrock (never in these boxes) may remain solid.
+    let check = if dim == "the_nether" { p.nether_box(lo, hi)? } else { p.overworld_box(lo, hi)? };
+    let left = (lo[1]..=hi[1])
+        .flat_map(|y| (lo[2]..=hi[2]).flat_map(move |z| (lo[0]..=hi[0]).map(move |x| [x, y, z])))
+        .filter(|&c| check.kind(c) == Kind::Solid && !check.get(c).starts_with("minecraft:bedrock"))
+        .count();
+    if left > 0 {
+        bail!("tunnel_clear {dim} {lo:?}..{hi:?}: {left} cells still solid");
+    }
+    Ok(())
+}
+
 /// Mine every obsidian cell in a box (frames and converted lines), re-reading until none
 /// is left. `skip` cells are spared (the y0 returns over the void handle themselves).
 fn mine_obsidian_box(p: &mut Prod, lo: Pos, hi: Pos) -> Result<()> {
@@ -2746,12 +2817,13 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         p.walk(c.dix + 1, c.doz_a + 3)?;
         p.dig_down2("overworld", c.dix + 1, c.doz_a + 3, 2.0)?;
         // A minimal cavity, not a whole rectangular room (a 1600-cell clear was eating the
-        // session): portal columns full height, the main band (aisle + strip) at working
-        // height, and the branch band south to portal B.
-        p.clear_box("overworld", [c.rox - 1, 2, c.doz_a - 2], [c.dix + 3, 4, c.doz_a + 3], false)?;
+        // session): tunnel-dig the main band (aisle + strip) and the branch band south to
+        // portal B, then clear the portal columns' tops from the open floor.
+        tunnel_clear(p, "overworld", [c.rox - 1, 2, c.doz_a - 2], [c.dix + 3, 4, c.doz_a + 3], (c.dix + 1, c.doz_a + 3))?;
+        p.walk(c.dix + 1, c.doz_a + 3)?;
+        tunnel_clear(p, "overworld", [c.dix - 1, 2, c.doz_a + 4], [c.dix + 3, 6, c.doz_b + 2], (c.dix + 1, c.doz_a + 4))?;
         p.clear_box("overworld", [c.rox - 1, 5, c.doz_a], [c.rox + 2, 6, c.doz_a], false)?;
         p.clear_box("overworld", [c.dix - 1, 5, c.doz_a], [c.dix + 2, 6, c.doz_a], false)?;
-        p.clear_box("overworld", [c.dix - 1, 2, c.doz_a + 4], [c.dix + 3, 6, c.doz_b + 2], false)?;
         // The generated twin must die or it would steal the trigger items.
         p.seg_step("twin-off", "machine", &[
             "The twin the game generated must go (one frame block)",
