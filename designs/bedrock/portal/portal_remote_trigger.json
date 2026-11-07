@@ -1,0 +1,60 @@
+{
+  "name": "portal-remote-trigger",
+  "notes": "Stay in the Nether: an item thrown into the return portal R_N (17+ blocks from the drill exit) comes out of its overworld twin R_O, lands on a wooden pressure plate, and the plate's redstone line fires a dropper of cobblestone into the drill portal D_O: a fresh item (no portal cooldown) that goes to the Nether and makes the game generate the next portal on the field. The overworld side has NO player and no forced chunk near it: the only thing loading it is the portal ticket the arriving item places around R_O (3x3 chunks entity-ticking for 300 ticks), which covers the plate, the line, the dropper and D_O. Overworld (x shifted 1600 from spawn): D_O interior x 1608..1609 y 59..61 z 0; R_O interior x 1621..1622; plates (1621, 59, 1..2) on hoppers; dust x 1609..1620 z 1; dropper (1608, 59, 1) facing north into D_O. Nether: field bedrock x 200..207 z -1..1 at y 58 (two lines: exit x 201), R_N interior x 218..219 (17 from the exit, so drill trips never link to it; its exit point 1748 is within 128 of R_O and 139 from D_O). Two trips, the generated portal's portal blocks removed between them (the player mines one frame block). Asserts: the overworld machine is unloaded before each throw; trip 1 converts x 200..203, trip 2 x 204..207.",
+  "target": [-3, -64, -3],
+  "blocks": [
+    [-3, -64, -3, "minecraft:bedrock"]
+  ],
+  "settle": 2,
+  "stance": {"pos": [3000.5, -60.0, 3000.5], "look": [0.0, 90.0]},
+  "script": [
+    {"do": "cmd", "pos": [0, 0, 0], "at": 0, "state": "forceload add -3 -3"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 0, "state": "forceload add 1600 -16 1631 15"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 0, "state": "execute in minecraft:the_nether run forceload add 192 -16 239 15"},
+
+    {"do": "cmd", "pos": [0, 0, 0], "at": 2, "state": "fill 1604 57 -3 1626 64 5 minecraft:air"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 2, "state": "fill 1607 58 0 1610 62 0 minecraft:obsidian"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 2, "state": "fill 1608 59 0 1609 61 0 minecraft:nether_portal[axis=x]"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 2, "state": "fill 1620 58 0 1623 62 0 minecraft:obsidian"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 2, "state": "fill 1621 59 0 1622 61 0 minecraft:nether_portal[axis=x]"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 2, "state": "fill 1608 58 1 1622 58 3 minecraft:stone"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 2, "state": "fill 1621 58 1 1622 58 2 minecraft:hopper[facing=down]"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 2, "state": "fill 1621 59 1 1622 59 2 minecraft:oak_pressure_plate"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 2, "state": "fill 1621 59 3 1622 60 3 minecraft:stone"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 2, "state": "fill 1609 59 1 1620 59 1 minecraft:redstone_wire"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 2, "state": "fill 1620 59 2 1620 59 2 minecraft:redstone_wire"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 2, "state": "setblock 1608 59 1 minecraft:dropper[facing=north]{Items:[{Slot:0b,id:\"minecraft:cobblestone\",count:64}]}"},
+
+    {"do": "cmd", "pos": [0, 0, 0], "at": 2, "state": "execute in minecraft:the_nether run fill 196 50 -6 224 70 6 minecraft:netherrack"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 3, "state": "execute in minecraft:the_nether run fill 200 58 -1 207 58 1 minecraft:bedrock"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 3, "state": "execute in minecraft:the_nether run fill 200 59 -1 207 63 1 minecraft:air"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 3, "state": "execute in minecraft:the_nether run fill 216 59 -2 221 63 2 minecraft:air"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 3, "state": "execute in minecraft:the_nether run fill 217 58 0 220 62 0 minecraft:obsidian"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 3, "state": "execute in minecraft:the_nether run fill 218 59 0 219 61 0 minecraft:nether_portal[axis=x]"},
+
+    {"do": "cmd", "pos": [0, 0, 0], "at": 5, "state": "execute if block 1608 59 0 minecraft:nether_portal"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 5, "state": "execute if block 1621 59 0 minecraft:nether_portal"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 5, "state": "execute in minecraft:the_nether if block 218 59 0 minecraft:nether_portal"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 6, "state": "forceload remove 1600 -16 1631 15"},
+
+    {"do": "cmd", "pos": [0, 0, 0], "at": 150, "state": "execute unless loaded 1608 59 1"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 150, "state": "execute unless loaded 1621 59 1"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 151, "state": "execute in minecraft:the_nether run summon minecraft:item 218.5 59.3 0.5 {Item:{id:\"minecraft:stone\",count:1},Motion:[0.0,0.0,0.3],PickupDelay:32767}"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 200, "state": "execute in minecraft:the_nether if block 201 59 0 minecraft:nether_portal"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 200, "state": "execute in minecraft:the_nether if block 200 58 0 minecraft:obsidian"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 200, "state": "execute in minecraft:the_nether if block 203 58 0 minecraft:obsidian"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 200, "state": "execute in minecraft:the_nether if block 204 58 0 minecraft:bedrock"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 201, "state": "execute in minecraft:the_nether run fill 200 59 -1 207 62 1 minecraft:air replace minecraft:nether_portal"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 201, "state": "execute in minecraft:the_nether run kill @e[type=item,x=200,y=59,z=-1,dx=8,dy=4,dz=3]"},
+
+    {"do": "cmd", "pos": [0, 0, 0], "at": 600, "state": "execute unless loaded 1608 59 1"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 601, "state": "execute in minecraft:the_nether run summon minecraft:item 218.5 59.3 0.5 {Item:{id:\"minecraft:stone\",count:1},Motion:[0.0,0.0,0.3],PickupDelay:32767}"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 650, "state": "execute in minecraft:the_nether if block 205 59 0 minecraft:nether_portal"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 650, "state": "execute in minecraft:the_nether if block 204 58 0 minecraft:obsidian"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 650, "state": "execute in minecraft:the_nether if block 207 58 0 minecraft:obsidian"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 650, "state": "execute in minecraft:the_nether if block 200 58 0 minecraft:obsidian"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 651, "state": "setblock -3 -64 -3 minecraft:air"}
+  ],
+  "chord": [],
+  "horizon": 2
+}

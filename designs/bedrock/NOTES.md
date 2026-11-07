@@ -109,6 +109,36 @@ field compact (radius ~6-8 blocks): as the near lines are used up, a natural cav
 4x3 floor and 4 air above that is closer to the exit point (3D) than the remaining field lines
 would win, and the portal appears there instead (then put a block in that spot and retry).
 
+### Stay in the Nether: the remote trigger
+
+Verified on the official server (`portal_remote_trigger.json`): **the player never leaves the
+Nether.** Per trip: mine one frame block of the new portal, walk to the return portal R_N, throw
+one item into it.
+
+* The item comes out of R_N's overworld twin R_O with its speed (a teleport keeps the motion) and
+  lands on a wooden pressure plate (wooden plates count items) on a hopper (which swallows it, so
+  the plate lets go after 20 ticks).
+* The plate's dust line fires a dropper of cobblestone aimed into the drill portal D_O. The
+  dropped cobblestone is a NEW item, so it has no portal cooldown (an item that just came through
+  a portal waits 300 ticks, `Entity.getDimensionChangingDelay`); it goes through at once and the
+  game builds the next portal on the field.
+* Nobody is in the overworld: what runs the plate, the line, the dropper and D_O is the portal
+  ticket the arriving item places around R_O (`Entity.placePortalTicket`: radius 3, 300 ticks,
+  `TicketType.PORTAL` flags 15 including keep-dimension-active, which `ServerLevel.tick` reads
+  through `hasActiveTickets`): 3x3 chunks entity-ticking around R_O's chunk. So R_O, the
+  plate, the line, the dropper and D_O must be within one chunk of R_O's chunk.
+* Placement: R_N >= 17 blocks (Chebyshev, x or z) from the drill exit point; R_O within 128 of
+  8x R_N's position and D_O outside it: with R_N at exactly 17, R_O sits 8+ blocks from D_O (the
+  test: 12). The dropper: one cobblestone per trip (a stack = 64 trips); the hopper under the plate
+  can feed it back.
+* Test: the overworld build is 1600 blocks from spawn with no forced chunk; before each throw the
+  harness asserts `execute unless loaded` at the dropper and at R_O (unloaded), then an item is
+  summoned moving into R_N in the Nether; trip 1 converted the field's first line, trip 2 (after
+  the generated portal's portal blocks were removed, as mining one frame block does) the next one.
+  (The harness's own bot stood 3000 blocks away in the overworld, so the overworld had a player;
+  that the portal ticket alone keeps an EMPTY overworld ticking is read from the code above, not
+  tested.)
+
 ### The Overworld floor
 
 Same mechanics, nether -> overworld trips. The catch is the site choice: the exit point's y is the
