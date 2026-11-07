@@ -1540,7 +1540,10 @@ fn compose(version: &str, plan: &Plan, o: &VideoOptions) -> Result<()> {
     let out_file = o.out.join("bedrock-portal-method.webm");
     let mut args = inputs;
     args.extend(["-filter_complex".into(), graph, "-map".into(), "[o]".into()]);
-    args.extend(["-c:v".into(), "libvpx-vp9".into(), "-b:v".into(), "0".into(), "-crf".into(), "30".into(), "-row-mt".into(), "1".into(), "-pix_fmt".into(), "yuv420p".into(), "-color_range".into(), "tv".into(), out_file.display().to_string()]);
+    args.extend([
+        "-c:v".into(), "libvpx-vp9".into(), "-b:v".into(), "0".into(), "-crf".into(), "30".into(), "-row-mt".into(), "1".into(),
+        "-deadline".into(), "good".into(), "-cpu-used".into(), "4".into(), "-pix_fmt".into(), "yuv420p".into(), "-color_range".into(), "tv".into(), out_file.display().to_string(),
+    ]);
     ffmpeg_run(&args)?;
     let final_secs = duration(&out_file)?;
     // Verification stills: every card middle + a spread across the video.
