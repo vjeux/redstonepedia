@@ -15,6 +15,8 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 const CLIENT_MAIN: &str = include_str!("../../../bridge/client/dev/vjeux/mctas/client/ClientMain.java");
+const ACTOR_MAIN: &str = include_str!("../../../bridge/client/dev/vjeux/mctas/client/ActorMain.java");
+const ACTOR_SRC: &str = include_str!("../../../bridge/actor/dev/vjeux/mctas/actor/Actor.java");
 const FFMPEG_URL: &str = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz";
 
 /// Client install + our launcher class.
@@ -56,6 +58,42 @@ pub fn build_client(version: &str) -> Result<ClientBuild> {
         .output()?;
     if !out.status.success() {
         bail!("javac (client launcher) failed: {}", String::from_utf8_lossy(&out.stderr));
+    }
+    std::fs::write(dir.join(".built"), b"ok")?;
+    Ok(build)
+}
+
+/// The client with the actor launcher (`dev.vjeux.mctas.client.ActorMain`: the scripted survival
+/// player of `mctas bedrock video`, HUD visible; the same driver as the Fabric mod of
+/// [`crate::fabric`], without the loader). Launch with
+/// [`Client::launch_main`] and main `dev.vjeux.mctas.client.ActorMain`.
+pub fn build_actor_client(version: &str) -> Result<ClientBuild> {
+    let install = setup::install_client(version)?;
+    let hash = &net::sha256_hex(format!("{version}{ACTOR_MAIN}{ACTOR_SRC}").as_bytes())[..12];
+    let dir = paths::version_dir(version).join(format!("actor-launcher-{hash}"));
+    let classes = dir.join("classes");
+    let build = ClientBuild { install, classes: classes.clone() };
+    if dir.join(".built").exists() {
+        return Ok(build);
+    }
+    let main_src = dir.join("src/dev/vjeux/mctas/client/ActorMain.java");
+    let actor_src = dir.join("src/dev/vjeux/mctas/actor/Actor.java");
+    for (src, text) in [(&main_src, ACTOR_MAIN), (&actor_src, ACTOR_SRC)] {
+        std::fs::create_dir_all(src.parent().unwrap())?;
+        std::fs::write(src, text)?;
+    }
+    std::fs::create_dir_all(&classes)?;
+    let mut cp = vec![build.install.client_jar.display().to_string()];
+    cp.extend(build.install.libs.iter().map(|p| p.display().to_string()));
+    let major = setup::required_java(version)?;
+    let out = Command::new(setup::javac_for(&build.install.java))
+        .args(["--release", &major.to_string(), "-nowarn", "-cp", &cp.join(":"), "-d"])
+        .arg(&classes)
+        .arg(&main_src)
+        .arg(&actor_src)
+        .output()?;
+    if !out.status.success() {
+        bail!("javac (actor launcher) failed: {}", String::from_utf8_lossy(&out.stderr));
     }
     std::fs::write(dir.join(".built"), b"ok")?;
     Ok(build)
@@ -207,11 +245,12 @@ impl Client {
         // First-launch screens and distractions off; small render distance (the scene is small);
         // particles minimal (`MCTAS_CLIENT_PARTICLES=0`: all, to picture an explosion's)
         let particles = std::env::var("MCTAS_CLIENT_PARTICLES").ok().filter(|v| matches!(v.as_str(), "0" | "1" | "2")).unwrap_or_else(|| "2".into());
+        let render_distance = std::env::var("MCTAS_CLIENT_RENDER_DISTANCE").ok().and_then(|v| v.parse::<u32>().ok()).filter(|v| (2..=16).contains(v)).unwrap_or(6);
         std::fs::write(
             game_dir.join("options.txt"),
             format!(
                 "onboardAccessibility:false\nskipMultiplayerWarning:true\njoinedFirstServer:true\ntutorialStep:none\n\
-             pauseOnLostFocus:false\nrenderDistance:6\nsimulationDistance:5\nfov:0.0\nnarrator:0\nsoundCategory_master:0.0\n\
+             pauseOnLostFocus:false\nrenderDistance:{render_distance}\nsimulationDistance:5\nfov:0.0\nnarrator:0\nsoundCategory_master:0.0\n\
              guiScale:2\nfovEffectScale:0.0\nfullscreen:false\nbobView:false\nrenderClouds:\"false\"\nparticles:{particles}\nentityShadows:true\n"
             ),
         )?;
@@ -273,16 +312,22 @@ pub struct Recorder {
 
 impl Recorder {
     pub fn start(display: &Display, width: u32, height: u32, fps: u32, raw: &Path) -> Result<Recorder> {
-        let child = Command::new(ffmpeg()?)
-            .args(["-loglevel", "error", "-y", "-f", "x11grab", "-draw_mouse", "0"])
+        Recorder::start_crf(display, width, height, fps, raw, None)
+    }
+
+    /// [`Recorder::start`] at x264 `crf` instead of lossless qp 0 (long recordings: the bedrock
+    /// tutorial's half hour of mining would be tens of gigabytes lossless).
+    pub fn start_crf(display: &Display, width: u32, height: u32, fps: u32, raw: &Path, crf: Option<u32>) -> Result<Recorder> {
+        let mut cmd = Command::new(ffmpeg()?);
+        cmd.args(["-loglevel", "error", "-y", "-f", "x11grab", "-draw_mouse", "0"])
             .args(["-framerate", &fps.to_string(), "-video_size", &format!("{width}x{height}")])
             .args(["-i", &display.name()])
-            .args(["-c:v", "libx264", "-preset", "ultrafast", "-qp", "0"])
-            .arg(raw)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .spawn()
-            .context("starting ffmpeg")?;
+            .args(["-c:v", "libx264", "-preset", "ultrafast"]);
+        match crf {
+            Some(c) => cmd.args(["-crf", &c.to_string(), "-pix_fmt", "yuv420p"]),
+            None => cmd.args(["-qp", "0"]),
+        };
+        let child = cmd.arg(raw).stdin(Stdio::piped()).stdout(Stdio::null()).spawn().context("starting ffmpeg")?;
         Ok(Recorder { child, raw: raw.to_path_buf() })
     }
 
@@ -293,6 +338,27 @@ impl Recorder {
         }
         let _ = self.child.wait();
         Ok(self.raw.clone())
+    }
+}
+
+impl Drop for Recorder {
+    fn drop(&mut self) {
+        // A recorder abandoned on an error path must not keep the display (and gigabyes of
+        // nothing) growing forever.
+        if self.child.try_wait().ok().flatten().is_none() {
+            if let Some(stdin) = self.child.stdin.as_mut() {
+                let _ = stdin.write_all(b"q");
+            }
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < deadline {
+                if self.child.try_wait().ok().flatten().is_some() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
     }
 }
 

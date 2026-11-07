@@ -11,7 +11,9 @@
 
 pub mod cli;
 pub mod machine;
+pub mod portal;
 pub mod vanilla;
+pub mod video;
 
 use anyhow::{Context, Result, bail};
 use mctas::sim::{PlaceMode, Pos, SandboxOptions, Worker, WorkerConfig};

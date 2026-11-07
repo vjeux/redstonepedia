@@ -14,6 +14,9 @@ use std::process::Command;
 
 const PROBE_SRC: &str = include_str!("../../../bridge/litematica-probe/dev/vjeux/mctas/probe/LitematicaProbe.java");
 const PROBE_MOD_JSON: &str = include_str!("../../../bridge/litematica-probe/fabric.mod.json");
+const ACTOR_SRC: &str = include_str!("../../../bridge/actor/dev/vjeux/mctas/actor/Actor.java");
+const ACTOR_MOD_SRC: &str = include_str!("../../../bridge/actor/dev/vjeux/mctas/actor/ActorMod.java");
+const ACTOR_MOD_JSON: &str = include_str!("../../../bridge/actor/fabric.mod.json");
 
 /// What the Fabric client needs besides the vanilla client.
 #[derive(Clone, Debug)]
@@ -144,6 +147,98 @@ fn build_probe(version: &str, dir: &Path, client: &ClientBuild, libs: &[PathBuf]
     let o = Command::new(&jar_tool).arg("cf").arg(&tmp).arg("-C").arg(&classes).arg(".").output()?;
     if !o.status.success() {
         bail!("jar (Litematica probe) failed: {}", String::from_utf8_lossy(&o.stderr));
+    }
+    std::fs::rename(&tmp, &jar)?;
+    Ok(jar)
+}
+
+/// Fabric Loader alone (no MaLiLib/Litematica/probe) for `version`, downloaded once and kept in
+/// `fabric/resolved-loader.json`; the loader's libraries are shared with [`install`]'s.
+pub fn install_loader(version: &str) -> Result<FabricInstall> {
+    let dir = paths::version_dir(version).join("fabric");
+    let resolved = dir.join("resolved-loader.json");
+    if let Ok(text) = std::fs::read_to_string(&resolved)
+        && let Ok(v) = serde_json::from_str::<serde_json::Value>(&text)
+    {
+        let strs = |k: &str| -> Vec<String> { v[k].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_string)).collect() };
+        let libs: Vec<PathBuf> = strs("libs").into_iter().map(PathBuf::from).collect();
+        if !libs.is_empty() && libs.iter().all(|p| p.exists()) {
+            return Ok(FabricInstall {
+                loader: v["loader"].as_str().unwrap_or_default().to_string(),
+                main_class: v["main_class"].as_str().unwrap_or_default().to_string(),
+                jvm_args: strs("jvm_args"),
+                libs,
+                mods: Vec::new(),
+            });
+        }
+    }
+    let loaders = net::get_json(&format!("https://meta.fabricmc.net/v2/versions/loader/{version}")).context("Fabric's version list")?;
+    let loader = loaders
+        .as_array()
+        .and_then(|a| a.first())
+        .and_then(|l| l["loader"]["version"].as_str())
+        .ok_or_else(|| anyhow!("no Fabric Loader for Minecraft {version}"))?
+        .to_string();
+    let profile = net::get_json(&format!("https://meta.fabricmc.net/v2/versions/loader/{version}/{loader}/profile/json")).context("Fabric's launcher profile")?;
+    let main_class = profile["mainClass"].as_str().ok_or_else(|| anyhow!("Fabric profile: no mainClass"))?.to_string();
+    let jvm_args: Vec<String> = profile["arguments"]["jvm"].as_array().into_iter().flatten().filter_map(|a| a.as_str().map(str::to_string)).collect();
+    let mut libs = Vec::new();
+    for lib in profile["libraries"].as_array().into_iter().flatten() {
+        let name = lib["name"].as_str().ok_or_else(|| anyhow!("Fabric profile: a library without a name"))?;
+        let base = lib["url"].as_str().unwrap_or("https://maven.fabricmc.net/");
+        let rel = maven_path(name)?;
+        let dest = dir.join("libs").join(&rel);
+        let sha1 = lib["sha1"].as_str().unwrap_or("");
+        net::download(&format!("{base}{rel}"), &dest, if sha1.is_empty() { Checksum::None } else { Checksum::Sha1(sha1) })?;
+        libs.push(dest);
+    }
+    let paths_json = |v: &[PathBuf]| serde_json::Value::Array(v.iter().map(|p| serde_json::Value::String(p.display().to_string())).collect());
+    let record = serde_json::json!({ "loader": loader, "main_class": main_class, "jvm_args": jvm_args, "libs": paths_json(&libs) });
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(&resolved, serde_json::to_string_pretty(&record)?)?;
+    Ok(FabricInstall { loader, main_class, jvm_args, libs, mods: Vec::new() })
+}
+
+/// The actor mod (`bridge/actor`: the scripted survival player of `mctas bedrock video`) as a
+/// jar, compiled against the client and the loader. Launch with [`launch`] on a
+/// [`FabricInstall`] of [`install_loader`] whose `mods` is this jar alone.
+pub fn build_actor(version: &str, client: &ClientBuild, libs: &[PathBuf]) -> Result<PathBuf> {
+    let dir = paths::version_dir(version).join("fabric");
+    let hash = &net::sha256_hex(format!("{version}{ACTOR_SRC}{ACTOR_MOD_SRC}{ACTOR_MOD_JSON}").as_bytes())[..12];
+    let out = dir.join(format!("actor-{hash}"));
+    let jar = out.join("mctas-actor.jar");
+    if jar.exists() {
+        return Ok(jar);
+    }
+    let mut sources = Vec::new();
+    for (name, text) in [("Actor.java", ACTOR_SRC), ("ActorMod.java", ACTOR_MOD_SRC)] {
+        let src = out.join("src/dev/vjeux/mctas/actor").join(name);
+        std::fs::create_dir_all(src.parent().unwrap())?;
+        std::fs::write(&src, text)?;
+        sources.push(src);
+    }
+    let classes = out.join("classes");
+    std::fs::create_dir_all(&classes)?;
+    std::fs::write(classes.join("fabric.mod.json"), ACTOR_MOD_JSON)?;
+    let mut cp = vec![client.install.client_jar.display().to_string()];
+    cp.extend(client.install.libs.iter().map(|p| p.display().to_string()));
+    cp.extend(libs.iter().map(|p| p.display().to_string()));
+    let major = crate::setup::required_java(version)?;
+    let javac = crate::setup::javac_for(&client.install.java);
+    let mut cmd = Command::new(&javac);
+    cmd.args(["--release", &major.to_string(), "-nowarn", "-cp", &cp.join(":"), "-d"]).arg(&classes);
+    for s in &sources {
+        cmd.arg(s);
+    }
+    let o = cmd.output()?;
+    if !o.status.success() {
+        bail!("javac (actor mod) failed: {}", String::from_utf8_lossy(&o.stderr));
+    }
+    let jar_tool = javac.with_file_name("jar");
+    let tmp = out.join("actor.jar.part");
+    let o = Command::new(&jar_tool).arg("cf").arg(&tmp).arg("-C").arg(&classes).arg(".").output()?;
+    if !o.status.success() {
+        bail!("jar (actor mod) failed: {}", String::from_utf8_lossy(&o.stderr));
     }
     std::fs::rename(&tmp, &jar)?;
     Ok(jar)
