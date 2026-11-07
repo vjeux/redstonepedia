@@ -1,0 +1,12 @@
+[package]
+name = "corrupt-poi-entity"
+description = "POI & entity-store desynchronization audit (designs/corrupt-poi-entity): official-server scenarios"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+mctas = { path = "../mctas" }

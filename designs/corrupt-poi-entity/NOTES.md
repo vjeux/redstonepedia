@@ -209,7 +209,7 @@ Files: `world/level/entity/PersistentEntitySectionManager.java`,
 - VILLAGE POI tag = `#acquirable_job_site` + home + meeting
   (`data/minecraft/tags/point_of_interest_type/village.json`): any occupied
   workstation/bed/bell section is a village center for raids/golem-adjacent logic.
-## 5. Ranked desyncs (pre-experiment; to be updated with verdicts)
+## 5. Ranked desyncs (verdicts in §6)
 
 Scored: survival reachability x persistence x usefulness. Citations in §1-4.
 
@@ -231,11 +231,41 @@ conversion in the die() chain), witch conversion, curing; portal phantom POIs
 (block recheck); POTENTIAL_JOB_SITE persistence (has codec in 26.3); all
 PoiManager.release callers guard existence (the throw is unreachable in vanilla paths).
 
-## 6. Experiments (official server, deterministic markers) — TODO
+## 6. Experiments (official server, deterministic markers)
 
-Plan: bridge sandbox for R3 window measurement; disposable official-server world +
-RCON-driven Rust scenarios for R1/R2/R4/R7 (markers: Brain memory NBT via data get,
-VillagerData profession, trade restock = MerchantOffers uses reset after WorkAtPoi,
-sleeping pose, portal POI/block counts); one controlled save/rollback for R5/R9
-classification. Setup commands are scaffolding only; desync steps are survival actions
-(break/place/piston/boat/portal/leash).
+Harness: `crates/corrupt-poi-entity` (`mctas corrupt-poi-entity scenario <name|all>`),
+driving `mctas::vanilla::VanillaServer` (unmodified 26.3 jar, tick freeze/step, RCON +
+bot). Markers: `Brain.memories` positions, `VillagerData.profession`, `LastRestock` /
+`RestocksToday`, trade `uses`. Commands only set scenes and read markers; breaks are the
+bot's real destroy packets, the push is a real piston+lever, claims are the villagers' own.
+
+- `bed-double` PASS. A claims bed head (2,64,0); A moved 30 away; bot breaks the bed;
+  same bed re-placed; B claims it. After replace: A.home=(2,64,0) AND B.home=(2,64,0).
+  After a full server restart on the saved world: both memories unchanged. (R1 verified,
+  including save/load persistence. The sleep-order ticket-leak sub-case was not separately
+  driven; the ghost-death release path bounds it — see §2.)
+- `job-double` PASS (2nd run; 1st run B's claim exceeded a 1600-tick wait — AcquirePoi
+  jitter/retry variance, budgets since raised to 3000). Separated: A.job=B.job=(2,64,0),
+  both librarian. After reunion in sensor range: B.job=None (PoiCompetitorScan: A had
+  the locked XP 10, B had 0 — loser erases, exactly as `selectWinner` reads). (R2 verified
+  with its mitigation.)
+- `piston-push` PASS. Farmer A's claimed composter piston-pushed (2,64,0)->(3,64,0) while
+  A was away; B claimed the landing cell; A returned to A.job=None, profession still
+  farmer: job stolen via ticket reset. (R4 verified.)
+- `phantom-workstation` PASS (classification). Controlled rollback (region files reverted,
+  poi+entities kept): lectern block absent, yet A.job=(2,64,0), profession librarian, and
+  with a used trade forced (scaffolding NBT) the villager **restocked at air**
+  (LastRestock 0->302, uses 1->0). A valid POI section is never rebuilt. (R5 effect
+  classified; trigger remains the chunk-persistence lane's.)
+- Not driven live (source verdict only): R3 same-tick window length (all scenarios pass
+  across ordinary multi-tick drains; the sub-tick window itself is unmeasured — reported
+  as bounded by the task drain, not as a verified sequence), R6 leash re-anchor,
+  R7 passenger bounce, R8 RootVehicle parking, R9/R10 classifications.
+
+### Final ranking adjustments
+
+R1 (bed) and R4 (piston) are the strongest *fully survival-owned* results (verified,
+persistent/simple). R2 is verified but self-mitigates in dense halls. R5 has the strongest
+effect but needs another lane's trigger. R3 drops to "plausible, unmeasured": its useful
+consequences all funnel into R1/R2-style ghosts that are already reachable without
+tick-perfect timing.

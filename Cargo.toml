@@ -59,6 +59,8 @@ opt-level = 0
 opt-level = 0
 [profile.release.package.web-cli]
 opt-level = 0
+[profile.release.package.corrupt-poi-entity]
+opt-level = 0
 
 # The browser viewer's wasm (`mctas web bundle`): small and fast, no debug info.
 [profile.web]

@@ -74,6 +74,11 @@ enum Cmd {
         #[command(subcommand)]
         command: bedrock::cli::BedrockCmd,
     },
+    /// POI & entity-store desync audit (designs/corrupt-poi-entity/NOTES.md): official-server scenarios.
+    CorruptPoiEntity {
+        #[command(subcommand)]
+        command: corrupt_poi_entity::cli::CorruptPoiEntityCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -154,6 +159,7 @@ fn main() -> Result<()> {
         Cmd::Litematic { command } => litematic::cli::run(command)?,
         Cmd::Web { command } => web_cli::run(&cli.version, command)?,
         Cmd::Bedrock { command } => bedrock::cli::run(&cli.version, command)?,
+        Cmd::CorruptPoiEntity { command } => corrupt_poi_entity::cli::run(&cli.version, command)?,
     }
     Ok(())
 }
