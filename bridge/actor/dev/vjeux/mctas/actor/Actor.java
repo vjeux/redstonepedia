@@ -296,6 +296,8 @@ public final class Actor {
             }
             case "mine":
                 return mine(new BlockPos(Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3])), f.length > 4 && f[4].equals("sweep"));
+            case "minef":
+                return mineFast(new BlockPos(Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3])));
             case "place":
                 return place(new BlockPos(Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3])),
                         Direction.valueOf(f[4].toUpperCase(Locale.ROOT)), null);

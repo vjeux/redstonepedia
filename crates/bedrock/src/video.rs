@@ -548,7 +548,9 @@ impl Prod {
     }
 
     fn mine(&mut self, p: Pos) -> Result<()> {
-        self.actor.cmd_timeout(&format!("mine {} {} {}", p[0], p[1], p[2]), Duration::from_secs(60))?;
+        // minef (aim+start in one submit, then tick-gated continues): the plain precise
+        // `mine` measured ~15 s a block here — its continue-only loop never gets going.
+        self.actor.cmd_timeout(&format!("minef {} {} {}", p[0], p[1], p[2]), Duration::from_secs(60))?;
         Ok(())
     }
 
