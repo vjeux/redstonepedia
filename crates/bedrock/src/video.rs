@@ -100,6 +100,41 @@ pub fn run(version: &str, o: VideoOptions) -> Result<()> {
     std::fs::create_dir_all(&o.out)?;
     match o.phase.as_str() {
         "smoke" => smoke(version, &o),
+        "inspect" => {
+            // Print the saved blocks around the patch floor of a world folder (no server).
+            let plan = load_plan(&o)?;
+            let world = match &o.from {
+                Some(tag) => o.out.join("checkpoints").join(tag),
+                None => o.out.join("world-src"),
+            };
+            let dim = world.join("dimensions").join("minecraft").join("the_nether");
+            let dim = if dim.exists() { dim } else { world.clone() };
+            let (ix0, ix1) = (plan.fx - 36, plan.fx + 12);
+            let snap = mctas::vanilla::read_box(&dim, [ix0, 0, plan.rz - 6], [ix1, 9, plan.rz + 6])?;
+            let b = Blocks::new(snap.region);
+            for y in [0, 4, 5] {
+                println!("y={y} (rows z, cols x {ix0}..{ix1}; # solid, . replaceable, ? other, L lava, B bedrock)");
+                for z in (plan.rz - 6)..=(plan.rz + 6) {
+                    let mut line = String::new();
+                    for x in ix0..=ix1 {
+                        let s = b.get([x, y, z]);
+                        line.push(if s.starts_with("minecraft:bedrock") {
+                            'B'
+                        } else if s.starts_with("minecraft:lava") {
+                            'L'
+                        } else {
+                            match b.kind([x, y, z]) {
+                                Kind::Solid => '#',
+                                Kind::Replaceable => '.',
+                                Kind::Other => '?',
+                            }
+                        });
+                    }
+                    println!("z={z:3} {line}");
+                }
+            }
+            Ok(())
+        }
         "scout" => {
             let plan = scout(version, &o)?;
             println!("plan: seed {} patch x {}..{} rows around z {}, {} trips", plan.seed, plan.fx, plan.fx + 3, plan.rz, plan.trips);
@@ -209,8 +244,21 @@ fn scout(version: &str, o: &VideoOptions) -> Result<Plan> {
             srv.cmd_ok(&format!("forceload remove {} {} {} {}", ox - 16, oz - 16, ox + 24, oz + 16))?;
             continue;
         };
+        // The return portal's corridor must not cross floor-level lava (east first, else west).
+        let strip_lava = |rx: i32| -> bool {
+            let (a, b) = if rx > fx { (fx + 4, rx + 4) } else { (rx, fx - 1) };
+            (a..=b).any(|x| (0..=6).any(|y| (rz..=rz + 1).any(|z| floor.get([x, y, z]).starts_with("minecraft:lava"))))
+        };
+        let rx = if !strip_lava(fx + 24) {
+            fx + 24
+        } else if !strip_lava(fx - 28) {
+            fx - 28
+        } else {
+            srv.cmd_ok(&format!("forceload remove {} {} {} {}", ox - 16, oz - 16, ox + 24, oz + 16))?;
+            continue;
+        };
         let trips: usize = layers.iter().map(|r| r.len()).sum();
-        chosen = Some(Plan { seed, fx, rz, layers: layers.clone(), trips, shaft_x: shaft.0, shaft_z: shaft.1, shaft_stand_y: stand_y, ox, oz, ow_stand_y, rx: fx + 24 });
+        chosen = Some(Plan { seed, fx, rz, layers: layers.clone(), trips, shaft_x: shaft.0, shaft_z: shaft.1, shaft_stand_y: stand_y, ox, oz, ow_stand_y, rx });
         break;
     }
     let plan = chosen.context("scout: every candidate failed the shaft/overworld checks")?;
@@ -970,17 +1018,18 @@ fn scenes(p: &mut Prod) -> Result<()> {
     if !p.done("return") {
         let rx = p.plan.rx;
         p.seg("return-portal", "return", &[
-            "A permanent return portal, 24 blocks east",
+            &format!("A permanent return portal, {} blocks {}", (rx - fx).abs(), if rx > fx { "east" } else { "west" }),
             "(17+ away: portal searches are 16 in the Nether, 128 in the Overworld — exactly 8×)",
         ], 6.0)?;
-        p.clear_box("the_nether", [fx + 4, 5, rz], [rx + 5, 6, rz + 1], false)?;
-        p.fill_floor("the_nether", 4, fx + 4, rx + 5, rz, rz + 1, None)?;
+        let mouth = if rx > fx { fx + 4 } else { fx - 1 };
+        p.clear_box("the_nether", [mouth.min(rx + 5), 5, rz], [mouth.max(rx + 5), 6, rz + 1], false)?;
+        p.fill_floor("the_nether", 4, mouth.min(rx + 5), mouth.max(rx + 5), rz, rz + 1, None)?;
         p.clear_box("the_nether", [rx - 2, 5, rz - 3], [rx + 5, 9, rz + 3], false)?;
         p.fill_floor("the_nether", 4, rx - 1, rx + 4, rz - 1, rz + 1, Some((rx, rx + 3, rz, rz)))?;
         p.walk(rx + 1, rz + 2)?;
         p.build_portal("the_nether", rx, 5, rz)?;
         p.torch([rx - 1, 4, rz + 2])?;
-        p.walk_path(&[(rx + 1, rz), (fx + 5, rz), (fx + 1, rz + 3)])?;
+        p.walk_path(&[(rx + 1, rz), (mouth, rz), (fx + 1, rz + 3)])?;
         p.checkpoint("return")?;
     }
     if !p.done("overworld") {
@@ -1108,7 +1157,8 @@ fn go_return(p: &mut Prod) -> Result<()> {
     let fx = p.plan.fx;
     let rx = p.plan.rx;
     let rz = p.plan.rz;
-    p.walk_path(&[(fx + 4, rz), (rx + 1, rz), (rx + 1, rz + 1), (rx + 1, rz)])?;
+    let mouth = if rx > fx { fx + 4 } else { fx - 1 };
+    p.walk_path(&[(mouth, rz), (rx + 1, rz), (rx + 1, rz + 1), (rx + 1, rz)])?;
     p.actor.cmd_timeout("waitdim overworld", Duration::from_secs(90))?;
     p.wait(10)?;
     if p.state.twin.is_none() {
@@ -1131,7 +1181,8 @@ fn ensure_nether(p: &mut Prod) -> Result<()> {
     p.wait(10)?;
     // leave the return portal towards the patch
     let (fx, rx, rz) = (p.plan.fx, p.plan.rx, p.plan.rz);
-    p.walk_path(&[(rx + 1, rz + 1), (rx + 1, rz), (fx + 5, rz), (fx + 1, rz + 3)])?;
+    let mouth = if rx > fx { fx + 4 } else { fx - 1 };
+    p.walk_path(&[(rx + 1, rz + 1), (rx + 1, rz), (mouth, rz), (fx + 1, rz + 3)])?;
     Ok(())
 }
 
