@@ -633,16 +633,22 @@ pub fn add_miss_repair(sc: &mut crate::Scenario, miss: u32, repair: u32) -> Resu
     let orig = sc.blocks.iter().find(|(x, y, z, _)| [*x, *y, *z] == swap).map(|b| b.3.clone()).context("no swap piston in the build")?;
     let facing = BlockState::parse(&orig)?.get("facing").context("swap piston without facing")?.to_string();
     let f = dir_vec(&facing).context("facing")?;
-    // Look against the facing (yaw of -f), turned toward the swap piston (whose face the bot sees)
-    // by 37.6 degrees: the nearest look direction stays -f.
-    let back = yaw_of([-f[0], 0, -f[2]]);
-    let to_swap = [(swap[0] as f64 + 0.5 - stance.pos[0]).signum() as i32, 0, (swap[2] as f64 + 0.5 - stance.pos[2]).signum() as i32];
-    let toward_yaw = yaw_of(if to_swap[0] != 0 && f[0] == 0 { [to_swap[0], 0, 0] } else { [0, 0, to_swap[2]] });
-    let mut delta = (toward_yaw - back).rem_euclid(360.0);
-    if delta > 180.0 {
-        delta -= 360.0;
-    }
-    let yaw = back + delta.signum() * 37.6;
+    let sgn = |d: f64| if d.abs() < 0.25 { 0 } else { d.signum() as i32 };
+    let to_swap = [sgn(swap[0] as f64 + 0.5 - stance.pos[0]), 0, sgn(swap[2] as f64 + 0.5 - stance.pos[2])];
+    // A piston facing up goes back by looking DOWN (more than 45 degrees) at the face it pressed.
+    let look_back = if facing == "up" {
+        [yaw_of(if to_swap[0] != 0 { [to_swap[0], 0, 0] } else { [0, 0, to_swap[2]] }), 50.0]
+    } else {
+        // Look against the facing (yaw of -f), turned toward the swap piston (whose face the bot
+        // sees) by 37.6 degrees: the nearest look direction stays -f.
+        let back = yaw_of([-f[0], 0, -f[2]]);
+        let toward_yaw = yaw_of(if to_swap[0] != 0 && f[0] == 0 { [to_swap[0], 0, 0] } else { [0, 0, to_swap[2]] });
+        let mut delta = (toward_yaw - back).rem_euclid(360.0);
+        if delta > 180.0 {
+            delta -= 360.0;
+        }
+        [back + delta.signum() * 37.6, 10.0]
+    };
     let act = |what: &str, state: Option<String>, at: u32, look: Option<[f32; 2]>| crate::Action {
         what: what.into(),
         pos: swap,
@@ -657,7 +663,7 @@ pub fn add_miss_repair(sc: &mut crate::Scenario, miss: u32, repair: u32) -> Resu
     sc.script.push(act("break", None, miss, None));
     sc.script.push(act("place", Some(toward.clone()), miss, None));
     sc.script.push(act("probe", Some(toward), miss + 1, None));
-    let look = Some([yaw, 10.0]);
+    let look = Some(look_back);
     sc.script.push(act("break", None, repair, look));
     sc.script.push(act("place", Some(format!("minecraft:piston[facing={facing}]")), repair, look));
     sc.script.push(act("probe", Some(format!("minecraft:piston[facing={facing}]")), repair + 1, None));
@@ -698,7 +704,17 @@ pub fn scenario_from_design(d: &Design, at: Pos, dimension: Option<&str>) -> Res
     if dimension.is_some() {
         setup.push(in_dim(format!("forceload add {} {} {} {}", lo[0] - 4, lo[2] - 4, hi[0] + 4, hi[2] + 4)));
         setup.push(in_dim(format!("fill {} {} {} {} {} {} minecraft:air", lo[0] - 3, at[1] + 1, lo[2] - 3, hi[0] + 3, hi[1] + 3, hi[2] + 3)));
-        setup.push(in_dim(format!("fill {0} {1} {2} {0} {1} {2} minecraft:bedrock", at[0], at[1], at[2])));
+        // The roof's top layer under the build back to bedrock (an earlier trial at the same place
+        // may have carved holes), then the holes of used modules (`others_used`): the real roof
+        // has a hole under a used module's down-facing piston. `fill` (not `setblock`): a fill
+        // that changes nothing is not an error.
+        setup.push(in_dim(format!("fill {} {} {} {} {} {} minecraft:bedrock", lo[0] - 3, at[1], lo[2] - 3, hi[0] + 3, at[1], hi[2] + 3)));
+        for (p, s) in &d.blocks {
+            let below = [p[0], p[1] - 1, p[2]];
+            if s.starts_with("minecraft:piston[") && s.contains("facing=down") && below[1] == at[1] && !d.blocks.contains_key(&below) {
+                setup.push(in_dim(format!("fill {0} {1} {2} {0} {1} {2} minecraft:air", below[0], below[1], below[2])));
+            }
+        }
     }
     // The kick, like the player's last block: placed with a command in window 0, after the build
     // has settled (a command-placed observer fires once as it is placed: those pulses are over by

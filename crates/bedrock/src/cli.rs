@@ -169,6 +169,15 @@ pub enum BedrockCmd {
         windows: Vec<u32>,
         #[arg(long)]
         mirror: bool,
+        /// Only these quarter turns (default: all four).
+        #[arg(long, value_delimiter = ',')]
+        turns: Vec<i32>,
+        /// Each module with every other module already used (a hole under a down-facing piston).
+        #[arg(long)]
+        others_used: bool,
+        /// The bot plays in survival (Haste II, Efficiency V netherite pickaxe).
+        #[arg(long)]
+        survival: bool,
     },
     /// Replace a design's clock (the cells inside `--remove`) by every clock of the clock study's
     /// archive whose period is in `--periods`, in every orientation and position inside `--region`,
@@ -317,19 +326,23 @@ pub fn run(version: &str, cmd: BedrockCmd) -> Result<()> {
         BedrockCmd::Graft { design, remove, region, periods, clocks, mirror, offsets, rotations, max_gap, threads, out_dir, keep } => {
             graft_cmd(&design, remove, region, &periods, &clocks, mirror, offsets, rotations, max_gap, threads, out_dir.as_deref(), keep)?
         }
-        BedrockCmd::VanillaMatrix { design, at, windows, mirror } => {
+        BedrockCmd::VanillaMatrix { design, at, windows, mirror, turns, others_used, survival } => {
             let d = mctas::design::Design::load(&design)?;
             let mut scs = Vec::new();
             let mut labels = Vec::new();
+            let turns = if turns.is_empty() { vec![0, 1, 2, 3] } else { turns };
             for a in &at {
-                for t in 0..4 {
+                for &t in &turns {
                     for mi in if mirror { vec![false, true] } else { vec![false] } {
                         let dv = crate::machine::transformed(&d, t, mi, [0, 0, 0])?;
                         for s in crate::machine::module_suffixes(&dv) {
-                            let dm = crate::machine::module_view(&dv, &s)?;
-                            scs.push((crate::machine::scenario_from_design(&dm, *a, Some("the_nether"))?, windows.clone()));
+                            let base = if others_used { crate::machine::others_used(&dv, &s)? } else { dv.clone() };
+                            let dm = crate::machine::module_view(&base, &s)?;
+                            let mut sc = crate::machine::scenario_from_design(&dm, *a, Some("the_nether"))?;
+                            sc.survival = survival;
+                            scs.push((sc, windows.clone()));
                             let which = if s.is_empty() { String::new() } else { format!(" module {s}") };
-                            labels.push(format!("at {a:?} turns {t} mirror {mi}{which}"));
+                            labels.push(format!("at {a:?} turns {t} mirror {mi}{which}{}", if others_used { " (others used)" } else { "" }));
                         }
                     }
                 }

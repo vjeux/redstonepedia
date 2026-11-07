@@ -1,0 +1,30 @@
+{
+  "name": "row2",
+  "notes": "Two bedrock side by side, (0,5,0) and (1,5,0). Each swap piston has its own powered stone X (south of its cell above) and observer O behind it; the clock's redstone block slides east-west right behind the observers, O1 watching its home cell and O2 its other cell. The dust under the redstone block and its two branches toward the pistons nudge both pistons.",
+  "target": [0, 5, 0],
+  "blocks": [
+    [0, 5, 0, "minecraft:bedrock"],
+    [1, 5, 0, "minecraft:bedrock"],
+    [0, 6, 0, "minecraft:piston[facing=west]"],
+    [1, 6, 0, "minecraft:piston[facing=east]"],
+    [0, 7, -1, "minecraft:oak_trapdoor[half=bottom,open=false,facing=north]"],
+    [1, 7, -1, "minecraft:oak_trapdoor[half=bottom,open=false,facing=north]"],
+    [0, 7, 1, "minecraft:stone"],
+    [1, 7, 1, "minecraft:stone"],
+    [0, 7, 2, "minecraft:observer[facing=south]"],
+    [1, 7, 2, "minecraft:observer[facing=south]"],
+    [-1, 7, 3, "minecraft:sticky_piston[facing=east,extended=false]"],
+    [0, 7, 3, "minecraft:redstone_block"],
+    [0, 8, 3, "minecraft:observer[facing=east]"],
+    [0, 6, 3, "minecraft:redstone_wire"],
+    [1, 6, 3, "minecraft:redstone_wire"],
+    [0, 6, 2, "minecraft:redstone_wire"],
+    [1, 6, 2, "minecraft:redstone_wire"]
+  ],
+  "settle": 4,
+  "chord": [
+    {"do": "break", "pos": [0, 6, 0]},
+    {"do": "place", "pos": [0, 6, 0], "state": "minecraft:piston[facing=down]"}
+  ],
+  "horizon": 20
+}

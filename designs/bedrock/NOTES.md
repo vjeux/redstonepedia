@@ -270,9 +270,49 @@ x east, z south; everything at y >= 1 sits on the roof. All 11 blocks are what t
     probed), survival: 24 did nothing, 30 removed the bedrock, 25 did nothing; the bridge shows
     the same (armed windows 18 and 24 lost, back at 30).
 
-### Batch: one clock, up to six bedrock (`machines/uni4x3.txt`, `machines/uni4x6.txt`)
+### Side by side: a row of 2 (14 blocks) or 3 (21 blocks), one clock
+
+`machine-roof-row2-14b.txt` and `machine-roof-row3-21b.txt` (search history: `machines/row2.txt` 16,
+`machines/row3.txt` 23, minimized by `bedrock minimize`). Picture of the row of 3:
+https://artifacts.internalmeta.com/a/1855748255436859
+
+Two touching bedrock can never share the powered stone (two touching cells have no common
+neighbour), so each piston has its own stone X and observer O; the clock is turned so its
+redstone block slides along the row right behind the observers, and each observer watches a cell
+that changes at every move.
+
+| block | row of 2 | row of 3 |
+|---|---|---|
+| swap pistons, on the bedrock below each | (0,1,0) facing west, (1,1,0) facing east | (0,1,0) facing west, (1,1,0) facing UP, (2,1,0) facing east |
+| trapdoors over the press spots (k,1,-1) | (0,2,-1), (1,2,-1) | (0,2,-1), (1,2,-1), (2,2,-1) |
+| stones X | (0,2,1), (1,2,1) | (0,2,1), (1,2,1), (2,2,1) |
+| observers facing south (watching the row behind) | (0,2,2), (1,2,2) | (0,2,2), (1,2,2), (2,2,2) |
+| clock | sticky piston facing east (-1,2,3), redstone block (0,2,3), observer facing east (0,3,3) on it, lamp (1,3,3) placed LAST | the same |
+| dust | (1,1,3), (1,1,2) | (0,1,3), (1,1,3), (2,1,2); a stone (2,1,3) with dust (2,2,3) on it |
+
+* The middle piston of the row of 3 faces UP: sideways it would push into a neighbour; its head
+  goes into its own cell above (still free). Its press is the same (look up at its north face);
+  its repair after a miss is one press looking DOWN (50 degrees) at the same face (a piston faces
+  away from the look: looking down places it facing up).
+* The observers over the redstone block's two cells (O1, O2) see every move; O3 watches the clock
+  line's dust on the stone at (2,1,3), lit except while the block moves. The minimizer found the
+  pistons nudge each other: the end piston's dust nudge (the dust at (1,1,2) for the row of 2,
+  (2,1,2) for the row of 3) starts it, and a piston changing state updates its neighbour in the
+  same phase.
+* **Verified** (both): redsim, 16 positions x 8 orientations x every piston, fresh and with the
+  others used, armed every 6 ticks; the official server's real Nether roof, survival (Haste II,
+  Efficiency V): row of 2 in 4 turns, both pistons, windows 12 and 18 removed the bedrock and 13
+  did nothing (8/8), and with the other piston used (2/2); row of 3 in 4 turns, all three pistons
+  (12/12), and with the others used (3/3); the 23-block row of 3 with the others used in 4 turns
+  (12/12); its middle piston after a miss in window 15 and the down-looking repair in 17: 24 and
+  30 removed the bedrock.
+
+### Three around one stone (15 blocks) and six per clock (`machines/uni4x3.txt`, `machines/uni4x6.txt`)
 
 Picture: https://artifacts.internalmeta.com/a/2223660898216879 (the 24-block, six-bedrock machine).
+The three bedrock are the arms of a plus around one bedrock that stays (north, south, west of
+it); the six are two such groups 4 apart. vjeux: the three can be worked with, the six-bedrock
+pattern makes no sense to break in a real game. The row machines above are the useful batch.
 
 * **Three pistons per stone.** X quasi-powers every piston whose cell above touches X. Of X's four
   side neighbours, one is the swap piston's cell above, one is O, and the other two are free, so
@@ -293,11 +333,13 @@ Picture: https://artifacts.internalmeta.com/a/2223660898216879 (the 24-block, si
   degrees down, aimed at its face near that edge (`bedrock scenario --module N --miss-repair`).
 * **Verified**: redsim, 32 variants x 6 pistons, fresh and with the others used, armed every 6
   ticks; the game code (`bedrock scan`): piston 1 fresh and piston 6 with the five others used,
-  windows 24, 30, 36, 42; the official server's real Nether roof in survival, pistons 3 and 6 with
-  the five others used: windows 12 and 18 removed the bedrock, 13 did nothing; piston 5 with the
-  five others used, a miss in window 15 and the one-press repair in 17: 30 removed the bedrock (24
-  skipped, as on the single machine); `bedrock vanilla-matrix` at (1500, 127, -700), all six
-  pistons in 4 turns: 24/24, windows 12 and 18 removed the bedrock, 13 did nothing.
+  windows 24, 30, 36, 42; the official server's real Nether roof in survival, each of the six
+  pistons with the five others used (holes carved under their down-facing pistons): windows 12 and
+  18 removed the bedrock, 13 did nothing (6/6); `bedrock vanilla-matrix` at (1500, 127, -700), all
+  six pistons fresh in 4 turns: 24/24. (A first run left the used pistons standing on intact
+  bedrock, the state an unrepaired miss leaves: the neighbours still armed every 6 ticks, one
+  tick later than the game code with holes; piston 5's miss + repair ran that way: 30 removed
+  the bedrock, 24 skipped.)
 
 ### How it got small (45 -> 11 blocks), reusing the door and clock tools
 
@@ -526,7 +568,9 @@ only in the End at fixed places.
   command-placed observer fires once as it is placed, a player's never does; that pulse started the
   4-block clock in the wrong phase); `--survival` puts the bot in survival with Haste II and an
   Efficiency V netherite pickaxe and tells the server it is on the ground after every teleport
-  (`MOVE_PLAYER_STATUS_ONLY`; a player mining in the air mines 5x slower).
+  (`MOVE_PLAYER_STATUS_ONLY`; a player mining in the air mines 5x slower); `--others-used`
+  scenarios first restore the real roof's top layer under the build, then carve the holes under
+  the used modules' down-facing pistons (`fill`, which is not an error when nothing changes).
 
 ## Next
 
