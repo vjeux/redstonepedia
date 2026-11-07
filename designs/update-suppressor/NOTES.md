@@ -76,6 +76,40 @@ on `World` updated in `add_and_run`/`run_next`, not part of any state key.
   pistons (the judge target) react to neighbour notifications, never gated by `updateLimit`.
 - Scaffolding/leaves distance fields: scheduled, per-cell cascades.
 - Piston 0-tick chains: block-event phase, every `moveBlocks` runs at cascade top level.
+- **Dust field fed from one trigger: radii, not fields.** The only instant signal medium is
+  dust, its power decays 1 per wire, and every instantaneous mirror block (note block, lamp,
+  bulb `powered`, dropper `triggered`) emits no signal; every true source besides dust
+  (torch, repeater, comparator, observer) changes output in a scheduled tick - there is no
+  instant repeater element in 26.3. So in one cascade only wires within 15 wire-steps of the
+  trigger's signal can flip: <= ~481 wires in a plane, <= ~4991 cells in a full 3D Manhattan
+  ball of radius 15 - at 13 counted calls/flip and 1-3 flips/wire that is tens of thousands
+  of counts, not a million, however big the field is built. Distributed static sources
+  (redstone blocks, torches) cannot change inside the cascade either (torches schedule).
+  The brief's layout 2/3 estimates die on this; layout 5 (rails) and the placement wave
+  below are the live candidates. Ceiling section of the brief to be rewritten from probe data.
+- Powered-rail power wave: `findPoweredRailSignal` reaches ~8-9 rails from a powered source
+  rail; intermediate rails have no neighbor signal, so the wave stops (counted in the source:
+  search depth caps at 8). Rails need a shape wave, not a power wave.
+
+## The wave candidates the probe tests (in order)
+
+1. **Rail shape wave (lever trigger).** A plain rail with exactly 3 potential connections
+   re-runs `RailState.place` when a *signal source* changes next to it
+   (`RailBlock.updateState`), and `place` chooses its curve by `hasNeighborSignal`;
+   `place` then rewrites its connected neighbours with `connectTo` (a different shape rule).
+   Detector rails are signal sources (`DetectorRailBlock.isSignalSource` = true), plain and
+   powered rails are not. In a mixed plain+detector junction mesh a lever flip next to one
+   junction could therefore propagate: plain flips curve -> `connectTo` setBlocks a detector
+   neighbour -> that setBlock's updates have a signal-source kind -> the next plain junction
+   re-places. Wave or oscillation is empirical: probe counts vs mesh size on small meshes.
+2. **Rail placement wave (place-one-rail trigger).** `onPlace` -> `place(first=true)` has no
+   signal-source gate for the placed rail and `connectTo`s neighbours; with detector rails in
+   the mesh the wave can continue as in (1). Trigger = place the last rail, reset = break it
+   (repeatability to measure: removal does not re-place plain neighbours, source = air).
+3. **Sponge absorption** (fallback): `SpongeBlock` absorbs up to 64 water cells with direct
+   `setBlock`s inside its `neighborChanged` - calls accumulate in the running cascade, and
+   neighbouring sponges may chain. One-shot (wet sponge), reset by drying: poor reset quality.
+4. Dust ball (3D, radius 15) measured as the bound case for the report's floor argument.
 
 ## Probe results
 

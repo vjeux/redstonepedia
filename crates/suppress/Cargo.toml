@@ -1,0 +1,14 @@
+[package]
+name = "suppress"
+description = "Update suppressor study (designs/update-suppressor): cascade probes, the judge rig, bridge and official-server checks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+mctas = { path = "../mctas" }
+redsim = { path = "../redsim" }

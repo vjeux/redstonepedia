@@ -31,6 +31,24 @@ pub const UPDATE_LIMIT: i32 = 512;
 /// Game rule `maxChainedNeighborUpdates` default.
 pub const MAX_CHAINED_NEIGHBOR_UPDATES: u32 = 1_000_000;
 
+/// What one outermost neighbor-updater cascade did (the update-suppressor study,
+/// `designs/briefs/update-suppressor.md`): counted = `CollectingNeighborUpdater.addAndRun`
+/// calls (the game's `count`, dropped calls included), executions = handler runs (a multi
+/// entry counts once per direction it delivers), dropped = calls skipped at the cap.
+/// Recorded only while `World.nu_stats_on`; never part of the state key.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct CascadeStats {
+    pub counted: u64,
+    pub counted_multi: u64,
+    pub counted_shape: u64,
+    pub counted_other: u64,
+    pub executions: u64,
+    pub dropped: u64,
+    /// The first dropped call's target cell (a multi entry: its source cell, whose neighbors
+    /// would have been updated; the game logs this one position).
+    pub first_dropped: Option<BlockPos>,
+}
+
 /// One pending entry of the neighbor updater (`CollectingNeighborUpdater.NeighborUpdates`).
 #[derive(Clone, Copy, Debug)]
 enum Nu {
@@ -95,6 +113,13 @@ pub struct World {
     nu_stack: Vec<Nu>,
     nu_added: Vec<Nu>,
     nu_count: u32,
+    /// Neighbor-updater cascade statistics (update-suppressor study): off by default (one
+    /// branch per added call); `nu_current` accumulates the cascade in flight, each finished
+    /// outermost cascade lands in `nu_history` and `nu_last`. Not part of the state key.
+    pub nu_stats_on: bool,
+    nu_current: CascadeStats,
+    pub nu_last: CascadeStats,
+    pub nu_history: Vec<CascadeStats>,
     /// `ServerLevel.handlingTick`: true from the tick's start through the block-event phase.
     pub handling_tick: bool,
     /// Comparator block entities: their output signal.
@@ -222,6 +247,10 @@ impl World {
             nu_stack: Vec::new(),
             nu_added: Vec::new(),
             nu_count: 0,
+            nu_stats_on: false,
+            nu_current: CascadeStats::default(),
+            nu_last: CascadeStats::default(),
+            nu_history: Vec::new(),
             handling_tick: false,
             comparator_out: HashMap::new(),
             containers: Default::default(),
@@ -638,6 +667,23 @@ impl World {
         let running = self.nu_count > 0;
         let too_many = self.nu_count >= MAX_CHAINED_NEIGHBOR_UPDATES;
         self.nu_count += 1;
+        if self.nu_stats_on {
+            self.nu_current.counted += 1;
+            match u {
+                Nu::Multi { .. } => self.nu_current.counted_multi += 1,
+                Nu::Shape { .. } => self.nu_current.counted_shape += 1,
+                Nu::Full { .. } | Nu::Simple { .. } => self.nu_current.counted_other += 1,
+            }
+            if too_many {
+                self.nu_current.dropped += 1;
+                if self.nu_current.first_dropped.is_none() {
+                    self.nu_current.first_dropped = Some(match u {
+                        Nu::Full { pos, .. } | Nu::Multi { pos, .. } | Nu::Simple { pos, .. } => pos,
+                        Nu::Shape { pos, .. } => pos,
+                    });
+                }
+            }
+        }
         if !too_many {
             if running {
                 self.nu_added.push(u);
@@ -650,6 +696,13 @@ impl World {
         if !running {
             self.run_updates();
         }
+    }
+
+    /// Clear the cascade statistics (`nu_last`, `nu_history`) without touching the world.
+    pub fn nu_stats_reset(&mut self) {
+        self.nu_current = CascadeStats::default();
+        self.nu_last = CascadeStats::default();
+        self.nu_history.clear();
     }
 
     fn run_updates(&mut self) {
@@ -674,10 +727,18 @@ impl World {
         self.nu_stack.clear();
         self.nu_added.clear();
         self.nu_count = 0;
+        if self.nu_stats_on {
+            self.nu_last = self.nu_current;
+            self.nu_history.push(self.nu_current);
+            self.nu_current = CascadeStats::default();
+        }
     }
 
     /// One step of an entry; false when it is finished.
     fn run_next(&mut self, u: &mut Nu) -> bool {
+        if self.nu_stats_on {
+            self.nu_current.executions += 1;
+        }
         match u {
             Nu::Full { state, pos, source, moved } => {
                 bh::neighbor_changed(self, *state, *pos, *source, *moved);

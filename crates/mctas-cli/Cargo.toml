@@ -29,3 +29,4 @@ site = { path = "../site" }
 litematic = { path = "../litematic" }
 web-cli = { path = "../web-cli" }
 bedrock = { path = "../bedrock" }
+suppress = { path = "../suppress" }
