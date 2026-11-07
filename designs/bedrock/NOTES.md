@@ -485,6 +485,54 @@ full removal of the y=4 and y=3 layers (5 trips, each conversion asserted by RCO
 before the recording box's lease expired, so the cut ends after layer y=3 with the
 rules-and-limits card.
 
+### The roof machine tutorial (`mctas bedrock yt`)
+
+A YouTube-style tutorial of the 11-block machine (section 3), made by `mctas bedrock yt`
+(`crates/bedrock/src/yt.rs` the production, `yt_scenes.rs` the shoot, `yt_cut.rs` the cut, the
+Short and the thumbnail): the real 26.3 client (Fabric + the actor mod) on the official 26.3
+server, a default-generated world (seed **1793149218542703947**), survival (peaceful), on the real
+Nether roof. Tutorial machine on T1 = (-26, 127, 1), slow-motion copy on T2 = (-14, 127, 1),
+beacon at (-38, 132, 2). Phases: `scout` (picks a top-layer roof bedrock with no bedrock under
+it, a 5-block netherrack shaft and a cavern floor 26 blocks down for the drop), `record`
+(checkpointed: `--from <tag>`), `review` (frames of every segment), `preview` (the overlays on
+real frames), `compose`, `short`, `thumb`, `upload` (the `videos` release), `presslab` (press
+timing experiments from a checkpoint, nothing kept).
+
+* What is real: every machine block, the 3 temporary netherrack and the beacon block are placed
+  by the client with the use key's own handler (`Minecraft.startUseItem`), after checking that
+  the crosshair (`hitResult`) is on the intended face; the temporary blocks are mined with the
+  attack key's handler. Haste II comes from that beacon, selected in the beacon screen (Haste,
+  then the II upgrade). The key binds are set on camera in Options > Controls > Key Binds
+  (Attack/Destroy and Use Item/Place Block both on R; 26.3 flags both with yellow conflict
+  bars), the pistons go to the offhand with F, and every press is a tap of R through
+  `KeyMapping.click` (one press clicks both mappings, attack first: the instamine, then the
+  offhand piston into the emptied cell, facing down from the pitch -55 look).
+* Commands: the kit (`item replace`), the beacon's 164-block iron pyramid (`fill`, said so on
+  screen), the second machine's kit, a Slow Falling potion for the drop, camera moves between
+  takes (`tp`), and `/tick freeze` + `/tick step` for the slow-motion explanation (captioned).
+* Build order a player can do (the design file's order cannot: X and the trapdoor float): the
+  piston on T (stand 3 west, look east), a netherrack where you will lie + the trapdoor on it
+  (bottom half from a top-face click) + mine the netherrack, the 3 dust, a netherrack at
+  (2,1,0) + the sticky piston on it looking north + mine it, the redstone block on the sticky
+  piston's face, the observer on the first dust (sneaking, looking east), the stone on its back,
+  a netherrack step at (2,1,-2) to stand on for the top observer (looking south), mine the step,
+  the lamp last. The clock starts with the lamp every time.
+* Findings on the way: a checkpoint reloaded into a new server stalls the clock (the piston
+  block events in flight are not saved): resume from before the build. The client never shows
+  `piston_head` at the swap piston's head cell (its moving-piston block entity lingers): the
+  press cue is the base turning `extended=true` (every 300 ms, client-side), and presses are
+  timed in rhythm from it (`pressat`). Real-time results on camera: press 1 off the beat on
+  purpose (miss), presses 2-7 at +50..+80 ms after the rise (4 misses, 2 did nothing: the piston
+  was moving), press 8 at +90 ms removed the bedrock; the frozen press at the armed tick (T2)
+  removed it at the next `/tick step 1`.
+* Output (Nov 7): the tutorial, 3:06 (VP9/Opus 1280x720, 9 chapters: the result, what you
+  need, the build, one key = Attack + Use, how to press, what if you miss, why it works, through
+  the roof, recap), a 27 s Short (1080x1920) and a 1280x720 thumbnail, on the `videos` release:
+  https://github.com/vjeux/redstonepedia/releases/download/videos/bedrock-roof-11-blocks.webm
+  (`-short.webm`, `-thumb.png`). Captions only (no TTS on the box), game audio only (no music).
+  Game audio sync (`--phase audiosync`): each press's sound peaks within -50..+10 ms of the
+  press's wall time.
+
 ## Tools
 
 * `mctas bedrock scan <scenario> [--from A --to B]`: the scenario's chord in every inter-tick

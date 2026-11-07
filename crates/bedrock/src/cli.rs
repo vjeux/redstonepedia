@@ -218,6 +218,32 @@ pub enum BedrockCmd {
         #[arg(long)]
         v2: bool,
     },
+    /// The YouTube tutorial of the 11-block roof machine, filmed in the real client on the
+    /// official server (see `bedrock::yt`): scout a world, record, cut the video, the Short and
+    /// the thumbnail, upload them to the `videos` release.
+    Yt {
+        /// World seed (scout only; default: from the clock).
+        #[arg(long)]
+        seed: Option<i64>,
+        #[arg(long, default_value = "bedrock-yt-production")]
+        out: PathBuf,
+        /// scout | record | smoke | presslab | review | audiosync | preview | compose | short |
+        /// thumb | upload | all.
+        #[arg(long, default_value = "all")]
+        phase: String,
+        /// fabric | launcher.
+        #[arg(long, default_value = "fabric")]
+        driver: String,
+        /// Resume the shoot from this checkpoint tag (review: from this segment name).
+        #[arg(long)]
+        from: Option<String>,
+        #[arg(long, default_value_t = 1280)]
+        width: u32,
+        #[arg(long, default_value_t = 720)]
+        height: u32,
+        #[arg(long, default_value_t = 30)]
+        fps: u32,
+    },
 }
 
 /// `x,y,z:x,y,z`.
@@ -356,6 +382,9 @@ pub fn run(version: &str, cmd: BedrockCmd) -> Result<()> {
         }
         BedrockCmd::Video { seed, out, phase, driver, from, width, height, fps, v2 } => {
             crate::video::run(version, crate::video::VideoOptions { seed, out, phase, driver, from, width, height, fps, v2 })?;
+        }
+        BedrockCmd::Yt { seed, out, phase, driver, from, width, height, fps } => {
+            crate::yt::run(version, crate::yt::YtOptions { seed, out, phase, driver, from, width, height, fps })?;
         }
     }
     Ok(())

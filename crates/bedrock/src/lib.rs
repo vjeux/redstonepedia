@@ -14,6 +14,9 @@ pub mod machine;
 pub mod portal;
 pub mod vanilla;
 pub mod video;
+pub mod yt;
+pub mod yt_cut;
+pub mod yt_scenes;
 
 use anyhow::{Context, Result, bail};
 use mctas::sim::{PlaceMode, Pos, SandboxOptions, Worker, WorkerConfig};
