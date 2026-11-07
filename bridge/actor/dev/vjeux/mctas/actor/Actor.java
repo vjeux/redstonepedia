@@ -85,7 +85,11 @@ public final class Actor {
                     result = "error " + e;
                     log("cmd " + seq + " [" + line + "] -> " + result);
                 }
-                Files.writeString(DIR.resolve("done-" + seq + ".txt"), result + "\n", StandardCharsets.UTF_8);
+                // Atomic publish (write + rename): the driver's 50 ms poll must never see a
+                // half-written (empty) answer — that race killed a take under CPU load.
+                Path doneTmp = DIR.resolve("done-" + seq + ".part");
+                Files.writeString(doneTmp, result + "\n", StandardCharsets.UTF_8);
+                Files.move(doneTmp, DIR.resolve("done-" + seq + ".txt"), java.nio.file.StandardCopyOption.ATOMIC_MOVE);
                 Files.deleteIfExists(cmd);
             } catch (InterruptedException e) {
                 return;
