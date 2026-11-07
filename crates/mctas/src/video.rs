@@ -341,6 +341,27 @@ impl Recorder {
     }
 }
 
+impl Drop for Recorder {
+    fn drop(&mut self) {
+        // A recorder abandoned on an error path must not keep the display (and gigabyes of
+        // nothing) growing forever.
+        if self.child.try_wait().ok().flatten().is_none() {
+            if let Some(stdin) = self.child.stdin.as_mut() {
+                let _ = stdin.write_all(b"q");
+            }
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < deadline {
+                if self.child.try_wait().ok().flatten().is_some() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+}
+
 /// Encode a browser-playable H.264 MP4 (optionally sped up by `speed`).
 pub fn encode(raw: &Path, out: &Path, speed: f64) -> Result<()> {
     encode_crf(raw, out, speed, 20)
