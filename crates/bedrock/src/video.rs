@@ -1347,13 +1347,18 @@ fn lower_drill_portal(p: &mut Prod, l: i32) -> Result<()> {
         p.select(SLOT_OBSIDIAN)?;
         for x in ox..=ox + 3 {
             p.walk(x, oz + 2)?;
-            p.place([x, old_bottom - 2, oz], "UP")?;
+            let r = p.place([x, old_bottom - 2, oz], "UP")?;
+            p.loga(&format!("lower place bottom [{x}, {}, {oz}]: {r}", old_bottom - 1));
+            p.assert_block("overworld", [x, old_bottom - 1, oz], "minecraft:obsidian", "lowered bottom row")?;
         }
         for x in [ox, ox + 3] {
-            p.place([x, old_bottom - 1, oz], "UP")?;
+            let r = p.place([x, old_bottom - 1, oz], "UP")?;
+            p.loga(&format!("lower place corner [{x}, {old_bottom}, {oz}]: {r}"));
+            p.assert_block("overworld", [x, old_bottom, oz], "minecraft:obsidian", "lowered corner")?;
         }
         p.select(SLOT_FLINT)?;
-        p.place([ox + 1, old_bottom - 1, oz], "UP")?;
+        let r = p.place([ox + 1, old_bottom - 1, oz], "UP")?;
+        p.loga(&format!("lower light: {r}"));
         p.assert_block("overworld", [ox + 1, old_bottom, oz], "minecraft:nether_portal", "lowered drill portal lit")?;
         p.select(SLOT_PICK)?;
         served -= 1;
