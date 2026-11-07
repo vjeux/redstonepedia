@@ -1,0 +1,33 @@
+{
+  "name": "roof-above-real",
+  "notes": "The roof-above machine on the REAL Nether roof of the official server's world (default Nether generation): the target is the real top-layer bedrock at (100, 127, 100), the machine sits on the roof at y 128+, and the bot stands ON the roof, crawling under a one-block ceiling beside the swap piston, its clicks checked against its real line of sight (legit). The machine is placed and driven by commands standing in for a build and a clock; the press (break + place a piston facing down) is the bot's real packets.",
+  "dimension": "the_nether",
+  "setup": ["execute in minecraft:the_nether run forceload add 96 96 104 104", "execute in minecraft:the_nether run fill 100 127 100 100 127 100 minecraft:bedrock", "execute in minecraft:the_nether run fill 99 128 100 100 128 100 minecraft:air"],
+  "target": [100, 127, 100],
+  "blocks": [
+    [101, 129, 100, "minecraft:stone"],
+    [101, 130, 100, "minecraft:observer[facing=up]"],
+    [100, 128, 103, "minecraft:sticky_piston[facing=north,extended=true]"],
+    [100, 128, 102, "minecraft:piston_head[facing=north,type=sticky]"],
+    [100, 128, 101, "minecraft:stone"],
+    [100, 128, 104, "minecraft:redstone_block"],
+    [100, 129, 99, "minecraft:stone"]
+  ],
+  "settle": 40,
+  "stance": {"pos": [100.5, 128.0, 99.7], "look": [0.0, -55.0], "pose": "crawling", "legit": true},
+  "script": [
+    {"do": "cmd", "pos": [0, 0, 0], "at": 0, "state": "execute in minecraft:the_nether run forceload add 96 96 104 104"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 0, "state": "execute in minecraft:the_nether if block 100 127 100 minecraft:bedrock"},
+
+    {"do": "cmd", "pos": [0, 0, 0], "at": 1, "state": "execute in minecraft:the_nether run setblock 100 128 100 minecraft:piston[facing=west]"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 10, "every": 32, "times": 3, "state": "execute in minecraft:the_nether run setblock 101 131 100 minecraft:stone"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 26, "every": 32, "times": 3, "state": "execute in minecraft:the_nether run setblock 101 131 100 minecraft:air"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 12, "every": 16, "times": 6, "state": "execute in minecraft:the_nether run setblock 100 128 104 minecraft:air"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 20, "every": 16, "times": 6, "state": "execute in minecraft:the_nether run setblock 100 128 104 minecraft:redstone_block"}
+  ],
+  "chord": [
+    {"do": "break", "pos": [100, 128, 100]},
+    {"do": "place", "pos": [100, 128, 100], "state": "minecraft:piston[facing=down]"}
+  ],
+  "horizon": 20
+}

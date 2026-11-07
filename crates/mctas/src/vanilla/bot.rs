@@ -49,6 +49,7 @@ const CB_KEEP_ALIVE: i32 = 45;
 const CB_LOGIN: i32 = 50;
 const CB_PING: i32 = 62;
 const CB_PLAYER_POSITION: i32 = 73;
+const CB_RESPAWN: i32 = 84;
 const CB_START_CONFIGURATION: i32 = 120;
 
 fn put_varint(out: &mut Vec<u8>, v: i32) {
@@ -381,6 +382,8 @@ fn play_loop(s: &mut TcpStream, w: &Mutex<TcpStream>, shared: &Mutex<Shared>, st
                 send(w, SB_PLAYER_LOADED, &[])?;
                 shared.lock().unwrap().joined = true;
             }
+            // A dimension change (or death): the client says it is loaded again, as after login.
+            CB_RESPAWN => send(w, SB_PLAYER_LOADED, &[])?,
             CB_PLAYER_POSITION => {
                 let mut i = 0;
                 let tid = get_varint(&payload, &mut i)?;

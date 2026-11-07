@@ -1,0 +1,38 @@
+name: bedrock-roof-pair-machine
+# The self-arming roof machine, two swap pistons served by one carrier and one landing cell
+# (designs/bedrock/NOTES.md section 3; scenario designs/bedrock/scenarios/qc-landing-roof-pair.json).
+# X = the target roof bedrock (y 3). A = the swap pistons, facing down (heads h at y 1).
+# R between the two targets = the carrier redstone block: it quasi-powers both A pistons.
+# S = the carrier sticky piston (head H), powered by the clock (here a redstone block R behind it).
+# U = the updater sticky piston: it pushes K into the cell between the two A pistons.
+origin: 0 0 -2
+palette:
+  X minecraft:bedrock
+  R minecraft:redstone_block
+  H minecraft:piston_head[facing=north,short=false,type=sticky]
+  S minecraft:sticky_piston[extended=true,facing=north]
+  U minecraft:sticky_piston[extended=false,facing=south]
+  K minecraft:stone
+  A minecraft:piston[extended=true,facing=down]
+  h minecraft:piston_head[facing=down,short=false,type=normal]
+layer 1:
+  ...
+  ...
+  h.h
+  ...
+  ...
+  ...
+layer 2:
+  .U.
+  .K.
+  A.A
+  ...
+  ...
+  ...
+layer 3:
+  ...
+  ...
+  XRX
+  .H.
+  .S.
+  .R.

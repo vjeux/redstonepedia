@@ -92,6 +92,14 @@ pub struct Scenario {
     /// Where the bot stands and looks for the vanilla confirmation (`bedrock vanilla`).
     #[serde(default)]
     pub stance: Option<vanilla::Stance>,
+    /// `the_nether` / `the_end`: the build, the target checks and the bot are in that dimension
+    /// (the official server's real terrain there, e.g. the Nether roof). Vanilla runs only.
+    #[serde(default)]
+    pub dimension: Option<String>,
+    /// Vanilla runs: commands run before the build (e.g. `forceload` the build's chunks in
+    /// another dimension, so the build and the target check can reach them).
+    #[serde(default)]
+    pub setup: Vec<String>,
 }
 
 fn default_settle() -> u32 {

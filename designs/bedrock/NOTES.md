@@ -211,6 +211,46 @@ one key press: section 3.**
 
 ## 3. The self-arming machine (the roof, lag-free)
 
+### Recommended: built ON TOP of the roof (tested on the real Nether roof)
+
+Scenarios `roof-above.json` (slab) and `roof-above-real.json` (the official server's real Nether
+roof at (100, 127, 100), the bot crawling on the roof). Picture: `designs/bedrock/machine-above.txt`.
+
+* **Where things go** (target T = a top-layer roof bedrock; everything else in the open air on the
+  roof): the swap piston A on T, facing sideways (west); X, any solid block, diagonally above A
+  (beside the cell above A); an observer O on X, facing up (its output face points down into X);
+  a sticky piston U holding a block K beside A; a one-block-high ceiling (a slab) over the cell
+  beside A on the other side, where the player lies to press.
+* **Why it arms** (no carrier piston): when O fires it strongly powers X, and X quasi-powers A.
+  An observer switches with flags 2 and updates only the block its output faces (X) and X's
+  neighbours, never A, so A's power comes and goes silently. In the tick O turns on, U pulls K
+  away; that block-event-phase update finds A powered: A extends. Two ticks later O turns off
+  (silent) and **A's own head lands** (block-entity phase): the landing forwards an update to A,
+  which finds it extended and unpowered: its retract is queued after the tick's block events, so it
+  is still pending in the player's next window. ARMED, once per cycle.
+* **The press**: crawling beside A (the slab forces the crawl: eye 0.4 blocks up), aim up at the
+  top edge of A's side face (about 55 degrees up; a piston placed while looking more up than 45
+  degrees faces down). One key with Attack + Use: A breaks and a piston facing DOWN goes in. Its
+  queued retract runs with no power and removes T directly (no headless step). A miss costs
+  nothing: put A back.
+* **Clicks a real player can make**: `bedrock vanilla` now has `legit` stances: the view ray from
+  the eye (by pose: standing 1.62, sneaking 1.27, crawling 0.4) along the stance's yaw and pitch
+  must reach the clicked block within 4.5 blocks and enter it through the face sent, and a placed
+  piston's facing must be what that look gives. (The earlier roof scenarios' bot claimed to look
+  straight down while standing level with its target: the server accepted it, a player could not
+  do it. Those results show the mechanism, not a human-possible press.)
+* **Real roof result**: 3 fresh servers (3 random worlds), presses in armed windows 15, 15, 15,
+  15, 31 each: 15/15 removed the real roof bedrock; the press one tick late (window 16) failed
+  3/3. The machine was placed and driven by commands standing in for the build and a clock; the
+  press was the bot's real packets, crawling, legit. (A first run without a settle period missed
+  once: freshly force-loaded chunks run no scheduled ticks or block entities until their entity
+  sections load, so the machine's first cycle slipped; the scenario now settles 40 ticks.)
+* **Clock** (not built yet; the scripted beat): per 16-tick cycle, the block O watches changes
+  at t, U's power drops at t+2 (U pulls K away while O is on), U's power returns at t+10. One armed
+  window per cycle, at t+5.
+
+### The first version: under the roof (verified mechanism; needs dug-out side cells)
+
 A retract event queued in the scheduled-tick or the block-event phase is consumed by the SAME
 tick's block-event phase, so it is gone before the server handles the player's packets (the
 connection is ticked after every level, `MinecraftServer.tickChildren` 1075-1147). Two phases run

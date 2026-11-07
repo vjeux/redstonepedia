@@ -1,0 +1,30 @@
+{
+  "name": "roof-above",
+  "notes": "Roof from ABOVE (the machine on top of the roof, in open air). Roof slab y 3..5 solid bedrock; target T [0,5,0] (top layer, bedrock on every side). A = swap piston [0,6,0] on top of T, facing WEST (head [-1,6,0]), retracted at rest. Its only power is quasi-connectivity through X [1,7,0] (a stone beside the cell above A), strongly powered from above by observer O [1,8,0] facing up (it watches [1,9,0], its output face points down into X). O switches with flags 2 and updates only X and X's neighbours, never A: A's power comes and goes silently. U [0,6,3] (sticky, facing north, extended, holding a stone at [0,6,1] beside A). Per cycle: [1,9,0] changes; 2 ticks later O turns ON; in that tick U's pull (its power removed just before) takes the stone away from [0,6,1] in the block-event phase and that update finds A powered: A extends. 2 ticks later O turns OFF (silent) and A's own head LANDS in the block-entity phase: the landing forwards an update to A, which finds it extended and unpowered: retract queued after that tick's block events = ARMED for the next window. The player's press there (break A, place a piston facing DOWN, i.e. looking up: crawling beside it) leaves a piston whose queued retract runs unpowered and removes T. Unswapped, A just retracts; U pushes its stone back and the next trigger repeats.",
+  "target": [0, 5, 0],
+  "blocks": [
+    [0, 5, 0, "minecraft:bedrock"],
+    [0, 7, -1, "minecraft:stone"],
+    [1, 7, 0, "minecraft:stone"],
+    [1, 8, 0, "minecraft:observer[facing=up]"],
+    [0, 6, 3, "minecraft:sticky_piston[facing=north,extended=true]"],
+    [0, 6, 2, "minecraft:piston_head[facing=north,type=sticky]"],
+    [0, 6, 1, "minecraft:stone"],
+    [0, 6, 4, "minecraft:redstone_block"]
+  ],
+  "settle": 4,
+  "stance": {"pos": [0.5, 6.0, -0.3], "look": [0.0, -55.0], "pose": "crawling", "legit": true},
+  "script": [
+    {"do": "cmd", "pos": [0, 0, 0], "at": 0, "state": "fill -4 3 -5 5 5 5 minecraft:bedrock"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 1, "state": "setblock 0 6 0 minecraft:piston[facing=west]"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 10, "every": 32, "times": 3, "state": "setblock 1 9 0 minecraft:stone"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 26, "every": 32, "times": 3, "state": "setblock 1 9 0 minecraft:air"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 12, "every": 16, "times": 6, "state": "setblock 0 6 4 minecraft:air"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 20, "every": 16, "times": 6, "state": "setblock 0 6 4 minecraft:redstone_block"}
+  ],
+  "chord": [
+    {"do": "break", "pos": [0, 6, 0]},
+    {"do": "place", "pos": [0, 6, 0], "state": "minecraft:piston[facing=down]"}
+  ],
+  "horizon": 20
+}

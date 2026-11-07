@@ -1,0 +1,51 @@
+name: bedrock-roof-above-machine
+# The roof machine built ON TOP of the Nether roof (designs/bedrock/NOTES.md section 3;
+# scenarios roof-above.json and roof-above-real.json). Shown at rest, one row of roof bedrock under it.
+# T = the target (roof top layer, y 127 in the Nether; here layer 0). A = swap piston, facing west.
+# X = a stone beside the cell above A; O = observer above X, facing up (its output face points
+# down into X). U = sticky piston holding the stone K beside A. C = the crawl ceiling: the player
+# lies in the gap under it, beside A, to press.
+origin: -2 0 -2
+palette:
+  B minecraft:bedrock
+  T minecraft:bedrock
+  A minecraft:piston[extended=false,facing=west]
+  X minecraft:stone
+  O minecraft:observer[facing=up]
+  U minecraft:sticky_piston[extended=true,facing=north]
+  H minecraft:piston_head[facing=north,short=false,type=sticky]
+  K minecraft:stone
+  R minecraft:redstone_block
+  C minecraft:smooth_stone_slab[type=bottom]
+layer 0:
+  BBBBB
+  BBBBB
+  BBTBB
+  BBBBB
+  BBBBB
+  BBBBB
+  BBBBB
+layer 1:
+  .....
+  .....
+  ..A..
+  ..K..
+  ..H..
+  ..U..
+  ..R..
+layer 2:
+  .....
+  ..C..
+  ...X.
+  .....
+  .....
+  .....
+  .....
+layer 3:
+  .....
+  .....
+  ...O.
+  .....
+  .....
+  .....
+  .....
