@@ -752,10 +752,12 @@ impl Prod {
             if todo.is_empty() {
                 return Ok(());
             }
-            // Column by column from the south (where the player always enters), top-down within
-            // a column: stands are then in the just-cleared part. Small batches, because stands
-            // come from the pass-start read; blocks with no stand yet wait for the next read.
-            todo.sort_by_key(|p| (std::cmp::Reverse(p[2]), p[0], std::cmp::Reverse(p[1])));
+            // Column by column from the south (where the player always enters), BOTTOM-UP
+            // within a column: from solid rock the only stands are mined-out cells, so each
+            // column is hollowed from its base standing in the previous one (top-down would
+            // need stands floating in unmined rock). Small batches, because stands come from
+            // the pass-start read; blocks with no stand yet wait for the next read.
+            todo.sort_by_key(|p| (std::cmp::Reverse(p[2]), p[0], p[1]));
             self.loga(&format!("clear_box {dim} pass {pass}: {} blocks", todo.len()));
             self.select(SLOT_PICK)?;
             let first: Vec<Pos> = todo.iter().take(8).copied().collect();

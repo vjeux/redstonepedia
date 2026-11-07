@@ -563,7 +563,7 @@ public final class Actor {
             });
             int[] stuck = {0};
             int[] sinceLog = {0};
-            long deadline = System.currentTimeMillis() + 60_000;
+            long deadline = System.currentTimeMillis() + 25_000;
             while (System.currentTimeMillis() < deadline) {
                 Boolean arrived = onClient(() -> {
                     Minecraft mc = Minecraft.getInstance();
