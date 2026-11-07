@@ -785,7 +785,10 @@ public final class Actor {
         long deadline = System.currentTimeMillis() + secs * 1000L;
         int mined = 0;
         int walks = 0;
+        int mineFail = 0;
+        int standNull = 0;
         java.util.Set<BlockPos> triedStands = new java.util.HashSet<>();
+        java.util.Set<BlockPos> failedCells = new java.util.HashSet<>();
         while (System.currentTimeMillis() < deadline) {
             // Stationary phase: mine everything the current eye can reach.
             Object[] scan = onClient(() -> {
@@ -833,13 +836,16 @@ public final class Actor {
             }
             boolean dug = false;
             for (BlockPos cell : reach) {
-                if (System.currentTimeMillis() > deadline) {
-                    break;
+                if (System.currentTimeMillis() > deadline || failedCells.contains(cell)) {
+                    continue;
                 }
                 String r = mineFast(cell);
                 if (r.startsWith("ok")) {
                     mined++;
                     dug = true;
+                } else {
+                    mineFail++;
+                    failedCells.add(cell);
                 }
             }
             if (dug) {
@@ -854,11 +860,16 @@ public final class Actor {
                 BlockPos best = null;
                 int bestCover = -1;
                 double bestDist = 1e9;
-                for (int y = y0; y <= y1 + 1; y++) {
+                // Stands only at the player's own level ±1: `walk` steers in 2D and
+                // "arrives" under a ledge it meant to stand on.
+                for (int y = Math.max(y0, p.getBlockY() - 1); y <= Math.min(y1 + 1, p.getBlockY() + 1); y++) {
                     for (int z = z0 - 1; z <= z1 + 1; z++) {
                         for (int x = x0 - 1; x <= x1 + 1; x++) {
                             BlockPos s = new BlockPos(x, y, z);
                             if (triedStands.contains(s) || s.equals(p.blockPosition())) {
+                                continue;
+                            }
+                            if (Math.abs(s.getX() - p.getBlockX()) + Math.abs(s.getZ() - p.getBlockZ()) > 8) {
                                 continue;
                             }
                             BlockState below = mc.level.getBlockState(s.below());
@@ -887,15 +898,18 @@ public final class Actor {
                 return bestCover > 0 ? best : null;
             });
             if (stand == null) {
-                log("digbox2 stuck: mined=" + mined + " walks=" + walks + " left=" + rest.size());
+                standNull++;
+                log("digbox2 stuck: mined=" + mined + " walks=" + walks + " mineFail=" + mineFail + " standNull=" + standNull + " left=" + rest.size());
                 return "ok left=" + rest.size() + " stuck";
             }
             triedStands.add(stand);
             walks++;
             walk(stand.getX() + 0.5, stand.getZ() + 0.5);
+            // A fresh stand = a fresh chance for cells that failed from the old one.
+            failedCells.clear();
         }
         int left = scanTargets(x0, y0, z0, x1, y1, z1, mode).size();
-        log("digbox2 done: mined=" + mined + " walks=" + walks + " left=" + left);
+        log("digbox2 done: mined=" + mined + " walks=" + walks + " mineFail=" + mineFail + " standNull=" + standNull + " left=" + left);
         return "ok left=" + left;
     }
 
