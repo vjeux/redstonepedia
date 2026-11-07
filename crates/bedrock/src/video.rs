@@ -1214,7 +1214,8 @@ fn go_return(p: &mut Prod) -> Result<()> {
     let rx = p.plan.rx;
     let rz = p.plan.rz;
     let mouth = if rx > fx { fx + 4 } else { fx - 1 };
-    p.walk_path(&[(mouth, rz), (rx + 1, rz + 1), (rx + 1, rz)])?;
+    // Out of the stepped pit first (its steps climb southward; the side walls are 2+ high).
+    p.walk_path(&[(fx + 1, rz + 5), (mouth, rz + 5), (mouth, rz), (rx + 1, rz + 1), (rx + 1, rz)])?;
     p.actor.cmd_timeout("waitdim overworld", Duration::from_secs(90))?;
     p.wait(10)?;
     if p.state.twin.is_none() {
