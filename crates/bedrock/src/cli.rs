@@ -158,6 +158,22 @@ pub enum BedrockCmd {
         #[arg(long, value_delimiter = ',')]
         miss_repair: Vec<u32>,
     },
+    /// The machine design as a circuit design (`circuit: bedrock-breaker N`, ports `bedrock[.k]`,
+    /// `swap[.k]`, `press[.k]`, `start`) for `mctas circuit verify | archive`.
+    Circuit {
+        design: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        /// The design's name in the archive.
+        #[arg(long)]
+        name: String,
+        /// The roof kept around the machine.
+        #[arg(long, default_value_t = 1)]
+        margin: i32,
+        /// The caption (the leading comment): how it works, in a few lines.
+        #[arg(long, default_value = "")]
+        caption: String,
+    },
     /// The row machine for N bedrock side by side (one clock; see NOTES section 3), written as a
     /// machine design.
     Row {
@@ -332,6 +348,11 @@ pub fn run(version: &str, cmd: BedrockCmd) -> Result<()> {
         }
         BedrockCmd::Graft { design, remove, region, periods, clocks, mirror, offsets, rotations, max_gap, threads, out_dir, keep } => {
             graft_cmd(&design, remove, region, &periods, &clocks, mirror, offsets, rotations, max_gap, threads, out_dir.as_deref(), keep)?
+        }
+        BedrockCmd::Circuit { design, out, name, margin, caption } => {
+            let d = mctas::design::Design::load(&design)?;
+            std::fs::write(&out, crate::machine::circuit_text(&d, &name, margin, &caption)?)?;
+            println!("{}: circuit design {name}", out.display());
         }
         BedrockCmd::Row { n, out } => {
             let d = crate::machine::row_design(n)?;

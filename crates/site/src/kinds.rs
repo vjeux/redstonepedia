@@ -457,7 +457,7 @@ const SIZE_PICKS: [(&str, i64, &str); 0] = [];
 pub fn parametric(kind: &str) -> bool {
     matches!(
         base(kind),
-        "piston-extender" | "counter" | "divider" | "burst" | "delay" | "rising-edge" | "falling-edge" | "dual-edge" | "pulse-limiter" | "pulse-extender" | "monostable" | "off-delay" | "on-delay" | "pulse-train" | "shift" | "lock" | "randomizer" | "item-elevator" | "smelter" | "elevator" | "binary-counter" | "decoder" | "mux" | "comparator" | "piston-bridge"
+        "piston-extender" | "counter" | "divider" | "burst" | "delay" | "rising-edge" | "falling-edge" | "dual-edge" | "pulse-limiter" | "pulse-extender" | "monostable" | "off-delay" | "on-delay" | "pulse-train" | "shift" | "lock" | "randomizer" | "item-elevator" | "smelter" | "elevator" | "binary-counter" | "decoder" | "mux" | "comparator" | "piston-bridge" | "bedrock-breaker"
     )
 }
 
@@ -1146,6 +1146,7 @@ pub fn select_circuits(builds: &mut Vec<Build>) -> Vec<String> {
             "decoder" | "mux" => "number of select bits",
             "smelter" => "number of furnaces",
             "lock" => "number of dials",
+            "bedrock-breaker" => "number of bedrock side by side",
             _ => "length",
         };
         // (the smallest box for the kinds ranked by it: [`by_box`]; a smelter timed on a double

@@ -279,6 +279,11 @@ pub struct Session {
     pub overlay: HashMap<Pos, String>,
     /// Cells a click toggles (levers, buttons, the input ports).
     pub inputs: Vec<Pos>,
+    /// A bedrock breaker's swap pistons (`port swap[.k]`, `circuit: bedrock-breaker N`) and each
+    /// one's state as built: a tap presses it (Attack + Use: it breaks and a piston facing down
+    /// goes in its cell), a tap on a piston facing down puts the built one back (the fix after a
+    /// miss).
+    pub swaps: Vec<(Pos, String)>,
     /// Output ports (the orange marker).
     pub outputs: Vec<Pos>,
     /// Everything as placed, for [`Session::reset`].
@@ -750,6 +755,16 @@ impl Session {
             }
             v
         };
+        let swaps: Vec<(Pos, String)> = if design.meta.get("circuit").is_some_and(|k| k.split_whitespace().next() == Some("bedrock-breaker")) {
+            design
+                .ports
+                .iter()
+                .filter(|(n, _)| *n == "swap" || n.starts_with("swap."))
+                .filter_map(|(_, (p, _))| design.blocks.get(p).map(|s| (*p, s.replace("extended=true", "extended=false"))))
+                .collect()
+        } else {
+            Vec::new()
+        };
         let mut s = Session {
             design,
             mode,
@@ -761,6 +776,7 @@ impl Session {
             unsimulated: None,
             overlay,
             inputs,
+            swaps,
             outputs,
             initial: None,
             replay: None,
@@ -1546,6 +1562,58 @@ impl Session {
     /// Ticks run since the last input (or since rest / placement).
     pub fn since_input(&self) -> u32 {
         self.tick - self.last_input.unwrap_or(self.rest_tick)
+    }
+
+    /// Is this cell a bedrock breaker's swap piston (a tap presses it)?
+    pub fn is_swap(&self, p: Pos) -> bool {
+        self.swaps.iter().any(|(q, _)| *q == p)
+    }
+
+    /// A bedrock breaker now, in words for the viewer's badge (`None`: not a bedrock breaker): every
+    /// bedrock removed; a swap piston ARMED (its retract is queued for the next tick: a press now
+    /// removes the bedrock under it); one left facing down on its bedrock (a miss: a tap puts it
+    /// back); else the machine is between two armed ticks.
+    pub fn swap_status(&self) -> Option<String> {
+        if self.swaps.is_empty() || !self.simulated() {
+            return None;
+        }
+        let bedrock = |p: Pos| self.world.get(bp([p[0], p[1] - 1, p[2]])).to_string().starts_with("minecraft:bedrock");
+        let left: Vec<usize> = (0..self.swaps.len()).filter(|&i| bedrock(self.swaps[i].0)).collect();
+        let name = |i: usize| if self.swaps.len() == 1 { "the piston".to_string() } else { format!("piston {}", i + 1) };
+        if left.is_empty() {
+            return Some(if self.swaps.len() == 1 { "bedrock removed".into() } else { format!("all {} bedrock removed", self.swaps.len()) });
+        }
+        let armed: Vec<usize> = left.iter().copied().filter(|&i| self.world.events.iter().any(|e| e.pos == bp(self.swaps[i].0) && matches!(e.kind, redsim::Kind::Piston(_)) && e.a != 0)).collect();
+        if let Some(&i) = armed.first() {
+            return Some(format!("ARMED: press now{}", if self.swaps.len() == 1 { String::new() } else { format!(" ({})", name(i)) }));
+        }
+        if let Some(&i) = left.iter().find(|&&i| self.world.get(bp(self.swaps[i].0)).to_string().contains("facing=down")) {
+            return Some(format!("missed: tap {} to put it back", name(i)));
+        }
+        Some("waiting for the armed tick (1 in 6)".into())
+    }
+
+    /// A bedrock breaker's press on swap piston `p` (between ticks, like the player's one key bound
+    /// to Attack and Use): the piston breaks (`removeBlock`) and a piston facing down is placed in
+    /// its cell (`setBlock`, every flag); in an armed tick the retract still queued for the old
+    /// piston runs on the new one and the bedrock under it disappears. On a piston already facing
+    /// down (a miss), the piston as built goes back instead. A moving piston (a player cannot break
+    /// it) or an empty cell: nothing. False when nothing happened.
+    pub fn press_swap(&mut self, p: Pos) -> bool {
+        if !self.simulated() {
+            return false;
+        }
+        let Some(built) = self.swaps.iter().find(|(q, _)| *q == p).map(|(_, s)| s.clone()) else { return false };
+        let now = self.world.get(bp(p)).to_string();
+        if !(now.starts_with("minecraft:piston[") || now.starts_with("minecraft:sticky_piston[")) {
+            return false;
+        }
+        let next = if now.contains("facing=down") { built } else { "minecraft:piston[extended=false,facing=down]".to_string() };
+        let Ok(b) = Block::parse(&next) else { return false };
+        self.world.remove_block(bp(p), false);
+        self.world.set_block(bp(p), b, flags::ALL | flags::IMMEDIATE);
+        self.last_input = Some(self.tick);
+        true
     }
 
     /// Is this cell clickable (a lever, a button, an input port)?
@@ -2482,6 +2550,7 @@ impl Session {
             unsimulated: None,
             overlay: HashMap::new(),
             inputs: Vec::new(),
+            swaps: self.swaps.clone(),
             outputs: Vec::new(),
             initial: None,
             replay: None,

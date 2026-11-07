@@ -29,6 +29,7 @@ smallest first, every one judged in the REAL game, archived and cataloged. The b
 | 21 automatic doors | clk-obs (autodoor) | auto-door | the door (2x2) | open wait, close delay, stop in doorway (reported); walkers both ways, walking and sprinting, two in a row, two at every gap ([board](../designs/circuits/autodoor/WR.md)) |
 | 21 auto-brewers | sorter | brewer N | N brewing stands / a tileable slice of N | potions/min per stand, first potion, blaze powder, hoppers awake, at rest, blocks per stand |
 | 22 auto-composters | sorter | composter N | N composters / a tileable slice of N (one crop a slice) | bone meal/h per composter, items composted/min, first bone meal, hoppers awake, at rest, blocks per composter |
+| 23 bedrock breakers | bedrock (`crate::bedrock`, [brief](../designs/briefs/bedrock-breaker.md)) | bedrock-breaker N | N bedrock side by side | armed every (the longest wait between two ticks a press removes the bedrock), miss (the one-press repair); ports `bedrock[.k]`, `swap[.k]`, `press[.k]`, `start`; bedrock is not counted |
 
 No pictures: the website renders every build with redsim (vjeux 2026-10-19: "we don't need images
 anymore, we should render them"); the input and output cells of a design are its markers.

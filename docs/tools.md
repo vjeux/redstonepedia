@@ -7,6 +7,10 @@ enforces are in [rules.md](rules.md); how the simulator, the bridge and the vide
 judge and its design format are in [clocks.md](clocks.md). The website of every build
 (`mctas site build | publish | serve | smoke | deploy`) is in [site.md](site.md); Litematica
 schematics of any design (`mctas litematic export | read | check | verify-ingame`) in [litematic.md](litematic.md).
+The bedrock study's commands (`mctas bedrock scan | watch | vanilla | vanilla-matrix | design |
+judge | minimize | graft | row | circuit | scenario`: bedrock breakers, the portal method, the
+official server's checks) are in [designs/bedrock/NOTES.md](../designs/bedrock/NOTES.md#tools); its
+circuit kind (`circuit: bedrock-breaker N`) is judged like every circuit (`mctas circuit verify`).
 
 ## The workflow behind the records
 

@@ -43,6 +43,7 @@ the ceiling), **too small** (fine per unit, but no full-size build), **at ceilin
 | 28 | Building parts for the above | gates, latches, T flip-flop, pulse shapers, counters, decoders | blocks; latency | — | hundreds (pulse 187, memory 69) | fine; parts, not needs |
 | 29 | Games, loot rooms | randomizer | blocks | — | 2- and 4-way | fine |
 | 30 | Doorbell, music | note block circuits | — | — | none | missing; low need |
+| 31 | Getting on top of the Nether roof, clearing bedrock (vjeux 2026-11-06) | bedrock breaker ([brief](bedrock-breaker.md)) | blocks; armed every (gt) | one swap piston arms at most once every 6 gt (its cycle: brief) | 11 b for one bedrock, rows of 2 to 15 side by side (6N + 3 b), armed every 6 gt | at the 6 gt ceiling; blocks near the ~9-10 b floor |
 
 ## Ceilings, from the code
 

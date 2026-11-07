@@ -666,6 +666,41 @@ pub fn row_design(n: usize) -> Result<Design> {
     Ok(d)
 }
 
+/// A machine design as a circuit design for the circuit study `bedrock` (crates/circuit
+/// `studies/bedrock.rs`, `circuit: bedrock-breaker N`): ports `target`/`targetN` -> `bedrock`/
+/// `bedrock.N`, `swapN` -> `swap.N`, `pressN` -> `press.N`; the roof trimmed to the machine's
+/// footprint plus `margin`; `caption` as the leading comment.
+pub fn circuit_text(d: &Design, name: &str, margin: i32, caption: &str) -> Result<String> {
+    let mut c = Design { name: name.to_string(), ..Default::default() };
+    let suffixes = module_suffixes(d);
+    for s in &suffixes {
+        let v = module_view(d, s)?;
+        let dot = if s.is_empty() { String::new() } else { format!(".{s}") };
+        for (from, to) in [("target", "bedrock"), ("swap", "swap"), ("press", "press")] {
+            c.ports.insert(format!("{to}{dot}"), v.ports[from]);
+        }
+    }
+    if let Some(p) = d.ports.get("start") {
+        c.ports.insert("start".into(), *p);
+        if let Some(a) = d.meta.get("port start") {
+            c.meta.insert("port start".into(), a.clone());
+        }
+    }
+    let cells: Vec<Pos> = d.blocks.iter().filter(|(_, s)| !is_roof(s)).map(|(p, _)| *p).collect();
+    let lo = |i: usize| cells.iter().map(|p| p[i]).min().unwrap_or(0) - margin;
+    let hi = |i: usize| cells.iter().map(|p| p[i]).max().unwrap_or(0) + margin;
+    let roof_y = d.ports.get("target").map(|t| t[1]).context("no `port target`")?;
+    for (p, s) in &d.blocks {
+        let keep = !is_roof(s) || (p[1] == roof_y && p[0] >= lo(0) && p[0] <= hi(0) && p[2] >= lo(2) && p[2] <= hi(2));
+        if keep {
+            c.blocks.insert(*p, s.clone());
+        }
+    }
+    c.meta.insert("circuit".into(), format!("bedrock-breaker {}", suffixes.len()));
+    let comment: String = caption.lines().map(|l| format!("# {l}\n")).collect();
+    Ok(format!("{comment}{}", c.to_text()))
+}
+
 /// The yaw (degrees) of a horizontal look along `v`.
 fn yaw_of(v: Pos) -> f32 {
     match v {

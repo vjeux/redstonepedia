@@ -1,0 +1,47 @@
+# One swap piston on the bedrock, facing sideways; a stone diagonally above it, powered by an observer that watches the clock's redstone block; a 4-block clock (sticky piston, redstone block, observer, and a lamp you place last to start it) and three redstone dust. Every move of the redstone block arms the swap piston for one game tick, every 6 ticks: lie under the trapdoor, look up at the piston's side and press Attack and Use (one key).
+name: bedrock-breaker-11b
+circuit: bedrock-breaker 1
+port bedrock: 0 5 0
+port press: 0 6 -1
+port start: 2 8 2 last
+port swap: 0 6 0
+origin: -1 0 -2
+palette:
+  A minecraft:observer[facing=south]
+  B minecraft:bedrock
+  C minecraft:redstone_wire
+  O minecraft:oak_trapdoor[facing=north,half=bottom,open=false]
+  P minecraft:piston[facing=west]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=south]
+  o minecraft:observer[facing=east]
+  r minecraft:redstone_lamp
+  s minecraft:stone
+layer 5:
+  BBBBB
+  BBBBB
+  BBBBB
+  BBBBB
+  BBBBB
+  BBBBB
+layer 6:
+  .
+  .
+  .P
+  ..CC
+  ...C
+  .
+layer 7:
+  .
+  .O
+  ...S
+  .soR
+  .
+  .
+layer 8:
+  .
+  .
+  .
+  ...A
+  ...r
+  .

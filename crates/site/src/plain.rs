@@ -429,6 +429,14 @@ pub fn one_liner(c: &Circuit) -> String {
             let n = c.kind.split_whitespace().nth(1).unwrap_or("");
             format!("Lifts the items of its input chest {n} blocks straight up into its output chest{}, as fast as a hopper feeds them.", rate(m(c, "items/s")))
         }
+        // a bedrock breaker (the bedrock study): what it removes, the press, the kit
+        "bedrock-breaker" => {
+            let what = match number(&c.kind) {
+                0 | 1 => "a bedrock block of the Nether roof's top layer".to_string(),
+                n => format!("{n} bedrock blocks side by side in the Nether roof's top layer"),
+            };
+            format!("Removes {what}, from on top of the roof. The machine arms the piston standing on each bedrock once every {}; one key press at that moment (Attack and Use bound to the same key, the piston breaks and a piston facing down goes in its place) and the bedrock under it disappears. A press at the wrong moment is undone with one more press. You need an Efficiency V pickaxe and Haste II from a full beacon, so that the piston breaks instantly.", ticks(m(c, "armed").trim_start_matches("every ")))
+        }
         // a randomizer (clk-item's study 16): its share in words, and how the chosen output shows
         "randomizer" => {
             let n = site_model::html::randomizer_n(c).unwrap_or(2);
@@ -661,6 +669,11 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
         // shown as built, how to use it in the game
         "station" => {
             return "The view shows the station as built, without carts. In the game, send a cart down its line: it stops on the platform's rails; press the button beside them (in reach from the cart) and it leaves.".to_string();
+        }
+        // a bedrock breaker: the viewer's Press (crates/mcview: a tap on a swap piston breaks it and
+        // places a piston facing down, like the player's one key)
+        "bedrock-breaker" => {
+            return "Press play, then press Press under the view (or the p key), or tap the piston standing on the bedrock: it breaks and a piston facing down goes in its place, as the key bound to Attack and Use does in the game. In an armed tick (one in every 6) the bedrock under it disappears; any other tick it stays and the piston is left facing down: tap it again to put it back. To hit the armed tick, pause and step one game tick at a time: it comes right after the piston's arm finishes extending.".to_string();
         }
         // an item elevator: the view does not load the judge's items yet (crate::lift fills the
         // input chest and empties the output chest every tick): shown as built, how to run it

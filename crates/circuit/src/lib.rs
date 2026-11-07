@@ -757,6 +757,8 @@ impl Circuit {
                 "line" => {}
                 // an automatic door's opening corners (crate::autodoor)
                 "door" => {}
+                // a bedrock breaker's target, swap piston and player cell (crate::bedrock)
+                "bedrock" | "swap" | "press" => {}
                 "items" | "boxes" | "reject" | "pass" | "feed" | "fuel" | "crop" | "bottles" | "wart" | "sugar" => {
                     // a smelter's input and fuel chests may stand where the design has a cover (a
                     // full block on its first line hopper, there for the copies after it: the
@@ -1442,9 +1444,10 @@ impl Circuit {
     /// cells (a lever or button there is the stimulus device), plus design entities.
     pub fn blocks(&self) -> usize {
         // a lever, button or judge-written input cell is the input device, not a design block; a
-        // driven input's own receiving block (R7 model B: dust, a repeater) is one
+        // driven input's own receiving block (R7 model B: dust, a repeater) is one; bedrock is the
+        // world's (a player cannot place it: a bedrock breaker's roof)
         let ins: BTreeSet<Pos> = self.inputs.iter().filter(|i| !matches!(i.how, InputHow::Driven { .. })).map(|i| i.pos).collect();
-        self.clock.design.blocks.iter().filter(|(p, s)| !ins.contains(*p) && !s.starts_with("minecraft:piston_head")).count() + self.clock.design.entities.len()
+        self.clock.design.blocks.iter().filter(|(p, s)| !ins.contains(*p) && !s.starts_with("minecraft:piston_head") && !s.starts_with("minecraft:bedrock")).count() + self.clock.design.entities.len()
     }
 
     /// The kinds of blocks it is built with (as `Clock::kinds`), input devices left out.

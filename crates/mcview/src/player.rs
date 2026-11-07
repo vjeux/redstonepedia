@@ -108,6 +108,8 @@ enum InputOp {
     HoldInput(usize, bool),
     /// A click on a block that is not a circuit input ([`Player::click`], [`Player::flip`]).
     Toggle(Pos),
+    /// A press on a bedrock breaker's swap piston ([`Player::click`], [`Player::press`]).
+    Swap(Pos),
     /// The door demo started ([`Player::start_door_demo`]).
     StartDoorDemo,
 }
@@ -1155,6 +1157,10 @@ impl Player {
                 self.stop_demo();
                 let _ = self.session.toggle(pos);
             }
+            InputOp::Swap(pos) => {
+                self.stop_demo();
+                let _ = self.session.press_swap(pos);
+            }
             InputOp::StartDoorDemo => self.start_door_demo(),
         }
     }
@@ -1305,6 +1311,10 @@ impl Player {
             return self.tap_input(i).then_some(p);
         }
         let c = self.pick(atlas, x, y, aspect)?;
+        // a bedrock breaker's swap piston: the press (or the fix after a miss)
+        if self.session.is_swap(c) {
+            return self.press_at(c).then_some(c);
+        }
         // only a block a click uses wakes the view (a lever, a button, a door, a note block)
         if !matches!(self.session.world.get(crate::session::bp(c)), redsim::Block::Lever { .. } | redsim::Block::Button { .. } | redsim::Block::Note { .. } | redsim::Block::Trapdoor { iron: false, .. } | redsim::Block::Door { iron: false, .. }) {
             return None;
@@ -1366,6 +1376,34 @@ impl Player {
         self.home = cam;
         self.dirty = true;
         window
+    }
+
+    /// A bedrock breaker's press on swap piston `c` (or the fix of one facing down), logged for the
+    /// timelapse like a lever's toggle.
+    pub fn press_at(&mut self, c: Pos) -> bool {
+        self.stop_demo();
+        if self.defer(move |p| {
+            p.log_op(InputOp::Swap(c));
+            if p.session.press_swap(c) {
+                p.invalidate();
+            }
+        }) {
+            return true;
+        }
+        self.log_op(InputOp::Swap(c));
+        let ok = self.session.press_swap(c);
+        if ok {
+            self.invalidate();
+        }
+        ok
+    }
+
+    /// The bar's Press button (and the `p` key): the first swap piston.
+    pub fn press(&mut self) -> bool {
+        match self.session.swaps.first().map(|(p, _)| *p) {
+            Some(c) => self.press_at(c),
+            None => false,
+        }
     }
 
     /// Flip a door's lever (or the first input).

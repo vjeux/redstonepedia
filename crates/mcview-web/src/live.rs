@@ -1,9 +1,10 @@
 //! The live viewer: its own WebGL2 context on the element's canvas, a touch-sized control bar
-//! (reset, play / pause, one game tick, speed, flip the lever, the tick counter in gt and seconds)
-//! and gestures: one finger or the mouse drags to orbit, two fingers pinch to zoom and drag to pan
-//! (right-drag / shift-drag with a mouse), the wheel zooms, a tap or click on a lever or button
-//! uses it, a double tap / double click resets the view. Keys: space play/pause, right arrow or
-//! `.` step, `r` reset, `f` flip.
+//! (reset, play / pause, one game tick, speed, flip the lever, a bedrock breaker's Press, the tick
+//! counter in gt and seconds) and gestures: one finger or the mouse drags to orbit, two fingers
+//! pinch to zoom and drag to pan (right-drag / shift-drag with a mouse), the wheel zooms, a tap or
+//! click on a lever or button uses it (on a bedrock breaker's swap piston: the player's Attack +
+//! Use press, `Session::press_swap`), a double tap / double click resets the view. Keys: space
+//! play/pause, right arrow or `.` step, `r` reset, `f` flip, `p` press.
 
 use crate::gpu::Gpu;
 use crate::{App, document, ensure_frame, log, next_task, window, with_app};
@@ -41,6 +42,8 @@ pub struct Live {
     /// One tick back (the timelapse): disabled at the run's start.
     back: HtmlButtonElement,
     flip: HtmlButtonElement,
+    /// A bedrock breaker's Press (Attack + Use on the first swap piston; a tap presses any).
+    press_btn: HtmlButtonElement,
     /// The speed: a dropdown (every speed of [`SPEEDS`]), not a button cycling them.
     speed: HtmlSelectElement,
     speed_i: usize,
@@ -206,6 +209,8 @@ const ICON_STEP: &str = "M5 5v14l9-7zM15 5h3v14h-3z";
 const ICON_BACK: &str = "M9 5H6v14h3zM19 5v14l-9-7z";
 const ICON_RESET: &str = "M12 5V1.5L7 6l5 4.5V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z";
 const ICON_LEVER: &str = "M17 7H7a5 5 0 0 0 0 10h10a5 5 0 0 0 0-10zm0 8a3 3 0 1 1 0-6 3 3 0 0 1 0 6z";
+/// A pickaxe (a bedrock breaker's Press: Attack + Use on the swap piston).
+const ICON_PICK: &str = "M14.8 3.2c2.9-.6 5.4.2 6.9 1.6l-1.4 1.4c-1.1-.9-2.6-1.3-4.3-1.1l1.9 1.9-1.4 1.4-1.9-1.9-9.9 9.9 1.4 1.4-2.8 2.8-1.4-1.4 1.4-1.4-1.4-1.4L12 6.4l-1.9-1.9 1.4-1.4z";
 const ICON_BOXES: &str = "M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8zM5 5v4h4V5zM15 5v4h4V5zM5 15v4h4v-4zM15 15v4h4v-4z";
 /// The Record button's face: a red dot and its word; while recording, a stop square and the
 /// progress.
@@ -368,6 +373,9 @@ pub fn start(app: &mut App, id: u32) {
     );
     let flip = button(ICON_LEVER, "Flip the lever (f), or tap the lever");
     let _ = flip.set_attribute("data-mcview-input", "lever");
+    // a bedrock breaker: the player's one key (Attack + Use) on the swap piston
+    let press = button(ICON_PICK, "Press Attack + Use on the piston (p), or tap a piston standing on the bedrock: in an armed tick the bedrock disappears; tap a piston left facing down to put it back");
+    let _ = press.set_attribute("data-mcview-input", "press");
     let containers = button(ICON_BOXES, "Show what every container holds (or tap one)");
     let _ = containers.style().set_property("display", "none");
     // the scrubber (the timelapse, jump between states): above the bar, full width now
@@ -455,12 +463,13 @@ pub fn start(app: &mut App, id: u32) {
         ],
     );
     label.set_text_content(Some("0.00 s · 0 ticks"));
-    for c in [reset.unchecked_ref::<HtmlElement>(), play.unchecked_ref(), back.unchecked_ref(), step.unchecked_ref(), speed.unchecked_ref(), flip.unchecked_ref(), containers.unchecked_ref()] {
+    for c in [reset.unchecked_ref::<HtmlElement>(), play.unchecked_ref(), back.unchecked_ref(), step.unchecked_ref(), speed.unchecked_ref(), flip.unchecked_ref(), press.unchecked_ref(), containers.unchecked_ref()] {
         let _ = bar.append_child(c);
     }
     let _ = root.append_child(&bar);
     let _ = root.append_child(&label);
     let _ = flip.style().set_property("display", "none");
+    let _ = press.style().set_property("display", "none");
     // what to do or what runs: up to two lines on a narrow viewer (a demo phase in words never
     // ends in an ellipsis), sized once from its longest text so it never resizes
     let status = el("div");
@@ -538,6 +547,7 @@ pub fn start(app: &mut App, id: u32) {
         scrub_drag: false,
         scrub_version: 0,
         flip: flip.clone(),
+        press_btn: press.clone(),
         speed: speed.clone(),
         speed_i: 0,
         speed_chosen: false,
@@ -572,6 +582,7 @@ pub fn start(app: &mut App, id: u32) {
     on_click(&back, id, |l| l.step_back());
     on_click(&step, id, |l| l.step());
     on_click(&flip, id, |l| l.flip());
+    on_click(&press, id, |l| l.press_swap());
     on(&speed, "change", move |_: web_sys::Event| {
         with_live(id, |l, _, _| l.speed_changed());
         ensure_frame();
@@ -658,6 +669,7 @@ pub fn start(app: &mut App, id: u32) {
                 "End" => l.scrub_seek_end(),
                 "r" => l.reset(),
                 "f" => l.flip(),
+                "p" => l.press_swap(),
                 _ => return false,
             }
             true
@@ -849,6 +861,9 @@ fn finish_load(app: &mut App, id: u32) {
             if p.session.simulated() && !circuit && (p.session.mode.is_door() || !p.session.inputs.is_empty()) {
                 let _ = l.flip.style().set_property("display", "inline-flex");
             }
+            if p.session.simulated() && !p.session.swaps.is_empty() {
+                let _ = l.press_btn.style().set_property("display", "inline-flex");
+            }
             if !p.session.playable() {
                 l.play.set_disabled(true);
                 let _ = l.play.style().set_property("opacity", "0.4");
@@ -993,6 +1008,7 @@ fn finish_load(app: &mut App, id: u32) {
             // the bar cannot hold goes, the flip button's first
             let word = |w: &str| format!("<span style=\"margin-left:4px;font-size:14px\">{w}</span>");
             l.flip.set_inner_html(&format!("{}{}", icon(ICON_LEVER), word("Flip")));
+            l.press_btn.set_inner_html(&format!("{}{}", icon(ICON_PICK), word("Press")));
             l.containers.set_inner_html(&format!("{}{}", icon(ICON_BOXES), word("Labels")));
             if l.bar.scroll_width() > l.bar.client_width() {
                 l.flip.set_inner_html(&icon(ICON_LEVER));
@@ -1125,6 +1141,8 @@ fn status_for(p: &Player, base: &str) -> String {
         _ if p.session.halted.is_some() => halted_words(p.session.halted.as_deref().unwrap_or_default()),
         _ if p.session.demo.is_some() => demo_text(p, p.phase()),
         _ if p.door_demo.is_some() => badge_words(p.door_demo.map(|d| d.words()).unwrap_or_default()),
+        // a bedrock breaker: armed now, missed, removed (the press needs the armed tick)
+        _ if p.session.swap_status().is_some() => p.session.swap_status().unwrap_or_default(),
         _ => base.to_string(),
     }
 }
@@ -1640,6 +1658,17 @@ impl Live {
         }
     }
 
+    /// A bedrock breaker's Press (the bar button, the `p` key): the first swap piston pressed (or
+    /// put back when it faces down); the machine keeps running so the bedrock goes, or not.
+    fn press_swap(&mut self) {
+        if let Some(p) = self.player.as_mut()
+            && p.press()
+        {
+            self.redraw = true;
+            self.play_after_input();
+        }
+    }
+
     /// After using a lever or button: run the simulation so it reacts (a door opens) —
     /// playing, but NOT the door demo. An explicit press of Play starts the demo; a flip
     /// is one toggle, so the door toggles once and settles (before, a flip on the still
@@ -1796,6 +1825,7 @@ impl Live {
             b.remove();
         }
         let _ = self.flip.style().set_property("display", "none");
+        let _ = self.press_btn.style().set_property("display", "none");
         let _ = self.containers.style().set_property("display", "none");
         self.play.set_disabled(false);
         let _ = self.play.style().set_property("opacity", "1");

@@ -549,6 +549,16 @@ only in the End at fixed places.
 
 ## Tools
 
+* On REDSTONEPEDIA (on this branch until the next merge into main and `site publish`): the
+  circuit study `bedrock` (`crates/circuit/src/studies/bedrock.rs`, kind `bedrock-breaker N`,
+  brief `designs/briefs/bedrock-breaker.md`) judges the machines in the real game (every tick of
+  two clock periods at every swap piston, 4 positions x 4 rotations, the miss + repair) and on
+  redsim; `mctas bedrock circuit <machine.txt> --out <circuit.txt> --name N` converts a machine
+  design. Archived (`designs/circuits/bedrock/archive/`): the 11-block machine and the rows of 2,
+  3, 4, 5, 8 and 15. The page's 3D view has a Press button (and the `p` key, or a tap on the
+  piston standing on the bedrock): the swap piston breaks and a piston facing down goes in, so a
+  press in an armed tick removes the bedrock in the view (the roof cells beside each target are
+  drawn see-through, so the hole shows); a tap on a piston left facing down puts it back.
 * `mctas bedrock scan <scenario> [--from A --to B]`: the scenario's chord in every inter-tick
   window (fresh sandbox each), outcome per window and the fraction that works.
 * `mctas bedrock watch <scenario> [--to N] [--verbose] [--cells x,y,z]`: one run without the

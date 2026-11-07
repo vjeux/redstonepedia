@@ -985,7 +985,7 @@ pub fn port_tags(d: &Design) -> Vec<(String, Pos, &'static str)> {
     let kind = d.meta.get("circuit").and_then(|k| k.split_whitespace().next()).unwrap_or("");
     let joined_out = STATIC_CHEST_KINDS.contains(&kind).then(|| double_chest(d, "output").map(|(_, b)| b)).flatten();
     let mut v: Vec<(String, Pos, &'static str)> = outputs(d).into_iter().filter(|(_, p)| joined_out != Some(*p)).map(|(l, p)| (l, p, "#ffb04a")).collect();
-    for (name, label, colour) in [("items", "ITEMS", "#ffd27a"), ("fuel", "FUEL", "#c9c9c9"), ("pass", "PASS", "#9ecbff"), ("boxes", "BOXES", "#d9a8ff"), ("reject", "REJECT", "#ff8f8f"), ("target", "TARGET", "#5ad1f0"), ("bottles", "BOTTLES", "#9ecbff"), ("wart", "WART", "#ff8f8f"), ("sugar", "SUGAR", "#f2f2f2")] {
+    for (name, label, colour) in [("items", "ITEMS", "#ffd27a"), ("fuel", "FUEL", "#c9c9c9"), ("pass", "PASS", "#9ecbff"), ("boxes", "BOXES", "#d9a8ff"), ("reject", "REJECT", "#ff8f8f"), ("target", "TARGET", "#5ad1f0"), ("bottles", "BOTTLES", "#9ecbff"), ("wart", "WART", "#ff8f8f"), ("sugar", "SUGAR", "#f2f2f2"), ("swap", "PRESS", "#7cf09a"), ("bedrock", "BEDROCK", "#b4b4ff")] {
         let mut ports: Vec<(&String, Pos)> = d.ports.iter().filter(|(n, _)| is_named(n, name)).map(|(n, (p, _))| (n, *p)).collect();
         ports.sort();
         // (the second half of a double chest the judge places joined is the same chest: no tag

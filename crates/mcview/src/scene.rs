@@ -133,6 +133,17 @@ pub fn default_look(s: &Session) -> Look {
             }
         }
     }
+    // a bedrock breaker: the roof cells beside each bedrock target drawn see-through (a cutaway),
+    // so the target shows from any side, and so does its disappearance
+    let targets: Vec<Pos> = s.design.ports.iter().filter(|(n, _)| crate::circuit::is_named(n, "bedrock")).map(|(_, (p, _))| *p).collect();
+    for t in &targets {
+        for d in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]] {
+            let c = [t[0] + d[0], t[1], t[2] + d[2]];
+            if !targets.contains(&c) && !ghost.contains(&c) && s.design.blocks.get(&c).is_some_and(|b| b.starts_with("minecraft:bedrock")) {
+                ghost.push(c);
+            }
+        }
+    }
     let (lo, _) = s.path_box();
     // the pictures' floor: `clock shot` fills grass at the box's lowest y - 2, its top one block
     // under the lowest cell
@@ -994,7 +1005,8 @@ fn targets(s: &Session, look: &Look, pts: &[[f32; 3]]) -> Targets {
             Some((crate::session::frame_position(f), [st[0] as f32, st[1] as f32, st[2] as f32], w))
         })
         .collect();
-    let inputs: Vec<Pos> = s.inputs.iter().copied().filter(|c| !code.contains(c)).collect();
+    // (a bedrock breaker's swap pistons are tapped like inputs: the camera keeps them tappable)
+    let inputs: Vec<Pos> = s.inputs.iter().copied().filter(|c| !code.contains(c)).chain(s.swaps.iter().map(|(c, _)| *c)).collect();
     Targets { ports, parts, inputs, outputs: s.outputs.clone(), middle, build, anchors, centers, frames }
 }
 
@@ -1089,7 +1101,7 @@ pub fn camera_candidates(atlas: &Atlas, s: &Session, look: &Look, aspect: f32, w
     let pts: &[[f32; 3]] = &shell;
     let picker = crate::pick::Picker::new(atlas, &s.render_blocks(0.0));
     let tg = targets(s, look, pts);
-    let tap = s.simulated() && !s.inputs.is_empty();
+    let tap = s.simulated() && (!s.inputs.is_empty() || !s.swaps.is_empty());
     let mut out: Vec<CameraCandidate> = Vec::new();
     // the way a lock's dials face (the frames one turns, not its code's), if it has any
     // the way a display's face faces (`circuit::display_face`), if it has one
