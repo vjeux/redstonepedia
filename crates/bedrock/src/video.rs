@@ -2279,8 +2279,11 @@ fn kit2(p: &mut Prod) -> Result<()> {
     p.rcon_ok(&format!("give {PLAYER} minecraft:dropper 2"))?;
     p.rcon_ok(&format!("give {PLAYER} minecraft:repeater 4"))?;
     p.rcon_ok(&format!("effect give {PLAYER} minecraft:haste infinite 1 true"))?;
+    // Fire Resistance: clearing a 700-block room in netherrack WILL breach a lava pocket
+    // (it drowned two takes); a player prepping a field brings a fire-res potion for this.
+    p.rcon_ok(&format!("effect give {PLAYER} minecraft:fire_resistance infinite 0 true"))?;
     p.rcon_ok("time set noon")?;
-    p.loga("kit given (captioned): Efficiency V pickaxe, obsidian, flint, redstone + dropper/hoppers/plates, Haste II");
+    p.loga("kit given (captioned): Efficiency V pickaxe, obsidian, flint, redstone + dropper/hoppers/plates, Haste II, Fire Resistance");
     Ok(())
 }
 
@@ -3206,7 +3209,8 @@ fn compose2(version: &str, plan: &Plan, o: &VideoOptions) -> Result<()> {
         ("Obsidian ~3 stacks · cobblestone ~2 stacks".into(), 3, WHITE),
         ("Redstone dust · 2 repeaters".into(), 3, WHITE),
         ("1 dropper · 4 hoppers · 4 wooden pressure plates".into(), 3, WHITE),
-        ("Building blocks · torches · Haste II helps".into(), 3, WHITE),
+        ("Building blocks · torches".into(), 3, WHITE),
+        ("Fire Resistance for the digging (lava pockets!) · Haste II helps".into(), 3, WHITE),
         ("".into(), 2, WHITE),
         ("(in this video the kit was given by command; every block after that is survival)".into(), 2, GRAY),
     ]);
