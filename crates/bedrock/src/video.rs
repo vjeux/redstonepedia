@@ -503,6 +503,23 @@ impl Prod {
         }
     }
 
+    /// Death leaves the client on its respawn screen with every actor wait stalling:
+    /// detect it on the server side (RCON works regardless) and fail the scene fast with a
+    /// clear message instead of grinding. Death on a shoot = resume from the checkpoint.
+    fn check_alive(&mut self) -> Result<()> {
+        let out = self.rcon(&format!("data get entity {PLAYER} Health"))?;
+        let health: f32 = out
+            .rsplit(':')
+            .next()
+            .map(|v| v.trim().trim_end_matches('f'))
+            .and_then(|v| v.parse().ok())
+            .with_context(|| format!("health parse: {out}"))?;
+        if health <= 0.0 {
+            bail!("the player is dead (Health {health}) — resume the shoot from the last checkpoint");
+        }
+        Ok(())
+    }
+
     fn tp(&mut self, dim: &str, x: f64, y: f64, z: f64, yaw: f32, pitch: f32) -> Result<()> {
         self.rcon_ok(&format!("execute in minecraft:{dim} run tp {PLAYER} {x:.2} {y:.2} {z:.2} {yaw} {pitch}"))?;
         self.actor.cmd_timeout("wait 10", Duration::from_secs(40))?;
@@ -574,6 +591,7 @@ impl Prod {
 
     /// `seg` with the v2 step indicator.
     fn seg_step(&mut self, name: &str, scene: &str, caption: &[&str], speed: f64, step: &str) -> Result<()> {
+        self.check_alive()?;
         if let Some(r) = self.rec.take() {
             r.stop()?;
         }
@@ -967,6 +985,7 @@ impl Prod {
         let rhi = [hi[0] + 3, hi[1] + 2, hi[2] + 3];
         let mut rescued = false;
         for pass in 0..60 {
+            self.check_alive()?;
             let blocks = if dim == "the_nether" { self.nether_box(rlo, rhi)? } else { self.overworld_box(rlo, rhi)? };
             let mut todo: Vec<Pos> = Vec::new();
             for y in lo[1]..=hi[1] {
@@ -1075,7 +1094,13 @@ impl Prod {
                     if s == target || (s[0] == target[0] && s[2] == target[2] && s[1] == target[1] + 1) {
                         continue;
                     }
-                    if blocks.kind([s[0], s[1] - 1, s[2]]) == Kind::Solid
+                    // Never stand in or directly beside lava at feet level (a pocket beside
+                    // the work area flows; the sealing shoot lost a player this way).
+                    let lava_adj = [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)]
+                        .iter()
+                        .any(|&(dx, dz)| blocks.get([s[0] + dx, s[1], s[2] + dz]).starts_with("minecraft:lava"));
+                    if !lava_adj
+                        && blocks.kind([s[0], s[1] - 1, s[2]]) == Kind::Solid
                         && blocks.kind(s) == Kind::Replaceable
                         && blocks.kind([s[0], s[1] + 1, s[2]]) == Kind::Replaceable
                         && reach(s)
@@ -1973,8 +1998,10 @@ fn sim_field(b: &mut Blocks, fx: i32, rz: i32, z0: i32, z1: i32) -> Option<(usiz
 /// flattened overlay. Field rows are rz-5..rz+5 (inside the NOTES' radius-6 guidance).
 fn candidate2(floor: &Blocks, fx: i32, rz: i32) -> Option<V2Plan> {
     let (z0, z1) = (rz - 5, rz + 5);
-    for x in fx - 2..=fx + 5 {
-        for z in z0 - 2..=z1 + 2 {
+    // Lava margin wider than the cleared box: a pocket just outside the wall flows in the
+    // moment the wall is mined (learned the wet way; Nether lava runs ~3 cells).
+    for x in fx - 4..=fx + 7 {
+        for z in z0 - 4..=z1 + 4 {
             for y in 0..=12 {
                 let s = floor.get([x, y, z]);
                 if s.starts_with("minecraft:lava") {
@@ -2081,8 +2108,9 @@ fn scout2(version: &str, o: &VideoOptions) -> Result<Plan> {
     for (_, _, fx, rz, v2) in spread.take(140) {
         let c = v2_coords(fx, rz);
         // The walk west to R_N: lava in the walkway's air (y>=5) or flowing over it is the
-        // hazard; lava sealed in the y0..4 stack gets paved by the y4 sheet fill.
-        let corridor_lava = (c.rnx..fx).any(|x| (5..=9).any(|y| (rz - 2..=rz + 2).any(|z| floor.get([x, y, z]).starts_with("minecraft:lava"))));
+        // hazard (checked a couple cells past the cleared footprint too); lava sealed in
+        // the y0..4 stack gets paved by the y4 sheet fill.
+        let corridor_lava = (c.rnx - 5..fx).any(|x| (5..=11).any(|y| (rz - 5..=v2.z1 + 3).any(|z| floor.get([x, y, z]).starts_with("minecraft:lava"))));
         if corridor_lava {
             n_corridor += 1;
             continue;
@@ -2415,6 +2443,7 @@ fn mine_obsidian_box(p: &mut Prod, lo: Pos, hi: Pos) -> Result<()> {
     let rhi = [hi[0] + 3, hi[1] + 2, hi[2] + 3];
     let mut rescued = false;
     for pass in 0..80 {
+        p.check_alive()?;
         let blocks = p.nether_box(rlo, rhi)?;
         let mut todo: Vec<Pos> = Vec::new();
         for y in lo[1]..=hi[1] {
@@ -2529,6 +2558,7 @@ fn sweep_pass(p: &mut Prod, l: i32, pass_b: bool) -> Result<()> {
     }
     let exit_row = rz + pass_b as i32;
     loop {
+        p.check_alive()?;
         let (next, cur) = predict_next(p, l, exit_row)?;
         let Some(row) = next else { break };
         let cur = cur.context("sweep: predictor wants a trip but no lit portal stands on the field")?;
