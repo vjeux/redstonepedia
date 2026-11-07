@@ -1,0 +1,31 @@
+# Copper-chest pair synchronization. The set below is the exact cross-block write the
+# survival transforms perform (axe scrape/wax: BlockTransformer level.setBlock(...,11);
+# oxidation: setBlockAndUpdate; honeycomb: setBlock(...,11)) with properties copied
+# (CopyPropertiesProvider/withPropertiesOf). Questions: does the partner adopt the new
+# block (CopperChestBlock.updateShape:91-96), do both BEs survive the identity change
+# (shouldChangedStateKeepBlockEntity), and does breaking one half unlink the other?
+place designs/corrupt-block-entity/scenarios/copper-chest.txt
+mark placed-exposed-pair
+expect_be 0 1 0 id:"minecraft:diamond"
+expect_be 1 1 0 id:"minecraft:emerald"
+set 0 1 0 minecraft:copper_chest[facing=north,type=left,waterlogged=false]
+mark after-scrape-left
+expect_state 0 1 0 minecraft:copper_chest
+expect_state 1 1 0 minecraft:copper_chest
+expect_state 1 1 0 type=right
+expect_be 0 1 0 id:"minecraft:diamond"
+expect_be 1 1 0 id:"minecraft:emerald"
+set 1 1 0 minecraft:waxed_oxidized_copper_chest[facing=north,type=right,waterlogged=false]
+mark after-wax-oxidize-right
+expect_state 0 1 0 minecraft:waxed_oxidized_copper_chest
+expect_state 0 1 0 type=left
+expect_state 1 1 0 minecraft:waxed_oxidized_copper_chest
+expect_be 0 1 0 id:"minecraft:diamond"
+expect_be 1 1 0 id:"minecraft:emerald"
+clear 1 1 0
+quiet 3
+mark after-break-right
+expect_state 0 1 0 type=single
+expect_be 0 1 0 id:"minecraft:diamond"
+expect_no_be 1 1 0
+print

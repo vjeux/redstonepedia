@@ -1,0 +1,25 @@
+# Baseline: powering all three shelves (redstone block on top of each) forms a
+# left/center/right chain; unpowering the middle must detach its neighbours.
+place designs/corrupt-block-entity/scenarios/shelf-chain.txt
+set 0 2 0 minecraft:redstone_block
+set 1 2 0 minecraft:redstone_block
+set 2 2 0 minecraft:redstone_block
+quiet 4
+mark powered
+expect_state 0 1 0 powered=true
+expect_state 1 1 0 powered=true
+expect_state 2 1 0 powered=true
+expect_state 0 1 0 side_chain=right
+expect_state 1 1 0 side_chain=center
+expect_state 2 1 0 side_chain=left
+expect_be 0 1 0 id:"minecraft:diamond"
+expect_be 1 1 0 id:"minecraft:emerald"
+expect_be 2 1 0 id:"minecraft:gold_ingot"
+clear 1 2 0
+quiet 4
+mark middle-unpowered
+expect_state 1 1 0 powered=false
+expect_state 1 1 0 side_chain=unconnected
+expect_state 0 1 0 side_chain=unconnected
+expect_state 2 1 0 side_chain=unconnected
+print

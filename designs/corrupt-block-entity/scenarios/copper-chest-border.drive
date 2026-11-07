@@ -1,0 +1,10 @@
+# Same pair as copper-chest-sync, translated so the halves sit in different chunks
+# (x=15 and x=16). Adoption must cross the chunk border.
+place designs/corrupt-block-entity/scenarios/copper-chest.txt 15 0 0
+set 15 1 0 minecraft:weathered_copper_chest[facing=north,type=left,waterlogged=false]
+expect_state 15 1 0 minecraft:weathered_copper_chest
+expect_state 16 1 0 minecraft:weathered_copper_chest
+expect_state 16 1 0 type=right
+expect_be 15 1 0 id:"minecraft:diamond"
+expect_be 16 1 0 id:"minecraft:emerald"
+print

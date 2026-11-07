@@ -1,0 +1,59 @@
+# Copper double chest: partner adoption and keep-BE under real player tools.
+# An exposed pair is waxed (bot, honeycomb), unwaxed and scraped (bot, axe); after every
+# single-sided touch BOTH halves must hold the new block and keep their items.
+# Then the placement rule: a waxed-exposed chest placed beside an oxidized single makes
+# the pair the least-oxidized unwaxed block - the placed chest loses its wax and the
+# existing chest is de-oxidized two stages, contents kept.
+cmd fill -3 -2 -3 9 6 5 minecraft:air
+cmd fill -1 0 -1 7 0 1 minecraft:stone
+cmd setblock 0 1 0 minecraft:exposed_copper_chest[facing=north,type=left,waterlogged=false]
+cmd setblock 1 1 0 minecraft:exposed_copper_chest[facing=north,type=right,waterlogged=false]
+cmd data merge block 0 1 0 {Items:[{Slot:0b,id:"minecraft:diamond",count:3}]}
+cmd data merge block 1 1 0 {Items:[{Slot:0b,id:"minecraft:emerald",count:5}]}
+step 2
+tp 0.5 1.5 -1.5 0 20
+hand minecraft:honeycomb
+sneak on
+use 0 1 0 north
+sneak off
+step 2
+mark waxed-via-left
+expect-block 0 1 0 minecraft:waxed_exposed_copper_chest
+expect-block 1 1 0 minecraft:waxed_exposed_copper_chest
+expect-data 0 1 0 minecraft:diamond
+expect-data 1 1 0 minecraft:emerald
+tp 1.5 1.5 -1.5 0 20
+hand minecraft:netherite_axe
+sneak on
+use 1 1 0 north
+step 2
+mark unwaxed-via-right
+expect-block 0 1 0 minecraft:exposed_copper_chest[
+expect-block 1 1 0 minecraft:exposed_copper_chest[
+use 1 1 0 north
+sneak off
+step 2
+mark scraped-via-right
+expect-block 0 1 0 minecraft:copper_chest[
+expect-block 1 1 0 minecraft:copper_chest[
+expect-data 0 1 0 minecraft:diamond
+expect-data 1 1 0 minecraft:emerald
+cmd setblock 5 1 0 minecraft:oxidized_copper_chest[facing=north,type=single,waterlogged=false]
+cmd data merge block 5 1 0 {Items:[{Slot:0b,id:"minecraft:gold_ingot",count:7}]}
+step 2
+tp 6.5 1.5 -1.5 0 20
+hand minecraft:waxed_exposed_copper_chest
+use 6 0 0 up
+step 2
+mark placed-second-half
+expect-block 6 1 0 minecraft:exposed_copper_chest[
+expect-block 6 1 0 type=right
+expect-block 5 1 0 minecraft:exposed_copper_chest[
+expect-block 5 1 0 type=left
+expect-data 5 1 0 minecraft:gold_ingot
+restart
+mark after-reload
+expect-block 5 1 0 minecraft:exposed_copper_chest[
+expect-block 6 1 0 minecraft:exposed_copper_chest[
+expect-data 0 1 0 minecraft:diamond
+expect-data 5 1 0 minecraft:gold_ingot

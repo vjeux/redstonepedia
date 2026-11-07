@@ -25,7 +25,8 @@
 //! (`design` and `place`); `place <path> [dx dy dz]` places like the clock judge WITHOUT settling
 //! (tick 0 = right after placement); `data x y z <snbt>` merges data now (the game's
 //! `data merge block`); `items x y z` prints a block entity's data; `probe_items <name> x y z`
-//! watches a container's total item count.
+//! watches a container's total item count; `expect_be`/`reject_be x y z <text>` assert on a
+//! block entity's printed data, `expect_no_be x y z` that there is none.
 
 use anyhow::{Context, Result, bail};
 use mctas::blockstate::BlockState;
@@ -501,6 +502,29 @@ fn run_in(w: &mut Worker, sb: u32, script: &str, verbose: bool, mut collect: Opt
                 out.checks += 1;
                 if !got.contains(want) {
                     out.failures.push(format!("line {}: t={tick} expect state containing {want}, got {got}", lineno + 1));
+                }
+            }
+            // `expect_be x y z <text>`: the block entity there exists and its data contains
+            // <text>; `reject_be` the converse (also true with no block entity there);
+            // `expect_no_be x y z`: no block entity there at all.
+            "expect_be" | "reject_be" => {
+                let want = line.splitn(5, char::is_whitespace).nth(4).context("expect_be needs x y z and text")?.trim();
+                let p = pos(1)?;
+                let be = w.block_entities(sb, p, p)?;
+                let got = be.first().map(|b| format!("{} {}", b.kind, b.nbt)).unwrap_or_else(|| "<no block entity>".to_string());
+                let has = got.contains(want);
+                let ok = if parts[0] == "expect_be" { has } else { !has };
+                out.checks += 1;
+                if !ok {
+                    out.failures.push(format!("line {}: t={tick} {} {p:?} containing {want}, got {got}", lineno + 1, parts[0]));
+                }
+            }
+            "expect_no_be" => {
+                let p = pos(1)?;
+                let be = w.block_entities(sb, p, p)?;
+                out.checks += 1;
+                if let Some(b) = be.first() {
+                    out.failures.push(format!("line {}: t={tick} expect_no_be {p:?}, got {} {}", lineno + 1, b.kind, b.nbt));
                 }
             }
             "expect_trace" => {

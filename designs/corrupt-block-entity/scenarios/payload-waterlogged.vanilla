@@ -1,0 +1,36 @@
+# Payload waterlogged divergence on the official server (twin of payload-waterlogged.drive).
+# Lane A (z=0): steady lever power, natural landing dries the stairs.
+# Lane B (z=2): 2gt observer pulse (spit), finalTick placement keeps phantom water.
+# The setup states are the survival states (stairs waterlogged by placing them in water);
+# the actions under test are the bot's two lever flips. Note the build order: a freshly
+# placed observer schedules a pulse from its own updateFromNeighbourShapes, so it is placed
+# (and allowed to pulse into the empty piston cell) before the piston exists.
+cmd fill -3 -2 -3 7 6 5 minecraft:air
+cmd setblock 0 0 0 minecraft:stone
+cmd setblock 0 0 2 minecraft:stone
+cmd setblock 0 1 0 minecraft:lever[face=floor,facing=east,powered=false]
+cmd setblock 1 1 0 minecraft:sticky_piston[extended=false,facing=east]
+cmd setblock 2 1 0 minecraft:oak_stairs[facing=east,half=bottom,shape=straight,waterlogged=true]
+cmd setblock 0 1 2 minecraft:lever[face=floor,facing=east,powered=false]
+cmd setblock 1 1 2 minecraft:observer[facing=west,powered=false]
+step 6
+cmd setblock 2 1 2 minecraft:sticky_piston[extended=false,facing=east]
+cmd setblock 3 1 2 minecraft:oak_stairs[facing=east,half=bottom,shape=straight,waterlogged=true]
+step 4
+expect-block 3 1 2 waterlogged=true
+expect-block 2 1 0 waterlogged=true
+hand -
+tp 0.5 2.5 0.5 0 45
+use 0 1 0 up
+tp 0.5 2.5 2.5 0 45
+use 0 1 2 up
+step 14
+mark landed
+expect-block 3 1 0 minecraft:oak_stairs
+expect-block 3 1 0 waterlogged=false
+expect-block 4 1 2 minecraft:oak_stairs
+expect-block 4 1 2 waterlogged=true
+restart
+mark after-reload
+expect-block 3 1 0 waterlogged=false
+expect-block 4 1 2 waterlogged=true

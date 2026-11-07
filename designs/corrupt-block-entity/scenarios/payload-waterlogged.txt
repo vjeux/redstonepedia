@@ -1,0 +1,19 @@
+# Two identical waterlogged-stairs pushes. Lane A (z=0): steady lever power, the payload
+# lands by the moving BE's natural tick. Lane B (z=2): the spit gadget's 2gt observer
+# pulse, the payload is placed early by a sticky retract (finalTick).
+name: payload-waterlogged
+origin: 0 0 0
+palette:
+  S minecraft:stone
+  L minecraft:lever[face=floor,facing=east,powered=false]
+  O minecraft:observer[facing=west,powered=false]
+  P minecraft:sticky_piston[extended=false,facing=east]
+  W minecraft:oak_stairs[facing=east,half=bottom,shape=straight,waterlogged=true]
+layer 0:
+  S
+  .
+  S
+layer 1:
+  LPW
+  ...
+  LOPW

@@ -69,7 +69,7 @@ fn parse(script: &str) -> Result<Script> {
             "expect_trace" => actions.push(Action::Step(parts.get(2).context("expect_trace needs values")?.chars().count() as u32)),
             "settle" => actions.push(Action::Settle(if parts.len() > 1 { int(1)? as u32 } else { 400 })),
             "set" | "clear" => bail!("line {}: `{}` has no vanilla twin; write ideal inputs with `setblock x y z <state>`", lineno + 1, parts[0]),
-            "plane" | "planex" | "probe" | "probe_signal" | "expect" | "expect_state" | "print" | "box" | "mark" => {}
+            "plane" | "planex" | "probe" | "probe_signal" | "probe_items" | "expect" | "expect_state" | "expect_be" | "reject_be" | "expect_no_be" | "items" | "print" | "box" | "mark" => {}
             other => bail!("line {}: unknown script command {other}", lineno + 1),
         }
     }

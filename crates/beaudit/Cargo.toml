@@ -1,0 +1,12 @@
+[package]
+name = "beaudit"
+description = "Block-entity desynchronization audit (designs/corrupt-block-entity): scripted checks on the unmodified official server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+mctas = { path = "../mctas" }

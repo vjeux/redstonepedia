@@ -1,0 +1,15 @@
+# Two loot-bearing suspicious sands at dusted=2: the left one (x=0) loses its support and
+# falls two cells onto the floor; the right one (x=2) is the never-falls control.
+name: brushable-fall
+origin: 0 0 0
+nbt: 0 3 0 {LootTable:"minecraft:archaeology/desert_pyramid",LootTableSeed:42L}
+nbt: 2 3 0 {LootTable:"minecraft:archaeology/desert_pyramid",LootTableSeed:42L}
+palette:
+  S minecraft:stone
+  A minecraft:suspicious_sand[dusted=2]
+layer 0:
+  S.S
+layer 2:
+  S.S
+layer 3:
+  A.A

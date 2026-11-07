@@ -1,0 +1,43 @@
+# Suspicious sand on the official server.
+# Part A: cut the support; the falling block BREAKS on landing by design
+# (disableDrop/cancelDrop), leaving air and no block entity - the control keeps its loot.
+# Part B: brush the control 3 strokes (dusted 0 -> 2), restart (brushCount is not saved,
+# only the dusted property is), then one more stroke must regress it to dusted=1: the
+# reloaded block looks stage-2 but its block entity counts from zero.
+cmd fill -3 -2 -3 7 7 5 minecraft:air
+cmd fill -1 0 -1 3 0 1 minecraft:stone
+cmd setblock 0 2 0 minecraft:stone
+cmd setblock 2 2 0 minecraft:stone
+cmd setblock 0 3 0 minecraft:suspicious_sand[dusted=2]
+cmd setblock 2 3 0 minecraft:suspicious_sand[dusted=0]
+cmd data merge block 0 3 0 {LootTable:"minecraft:archaeology/desert_pyramid",LootTableSeed:42L}
+cmd data merge block 2 3 0 {LootTable:"minecraft:archaeology/desert_pyramid",LootTableSeed:42L}
+step 3
+expect-data 0 3 0 desert_pyramid
+expect-data 2 3 0 desert_pyramid
+hand -
+tp 0.5 3.5 -1.5 0 35
+break 0 2 0 north
+step 40
+mark after-fall
+expect-block 0 3 0 minecraft:air
+expect-block 0 1 0 minecraft:air
+expect-no-be 0 1 0
+expect-data 2 3 0 desert_pyramid
+hand minecraft:brush
+tp 2.5 3.5 -1.5 0 35
+use 2 3 0 north
+step 45
+mark brushed
+expect-block 2 3 0 dusted=2
+restart
+mark after-reload
+expect-block 2 3 0 dusted=2
+reject-data 2 3 0 LootTable
+expect-data 2 3 0 item
+hand minecraft:brush
+tp 2.5 3.5 -1.5 0 35
+use 2 3 0 north
+step 15
+mark one-stroke-after-reload
+expect-block 2 3 0 dusted=1

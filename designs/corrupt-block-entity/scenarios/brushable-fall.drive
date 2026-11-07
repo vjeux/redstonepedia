@@ -1,0 +1,20 @@
+# Falling suspicious sand does NOT leave a desynced landed block in 26.3: BrushableBlock.tick
+# calls entity.disableDrop() (BrushableBlock.java:73), and FallingBlockEntity's cancelDrop
+# branch discards it on landing (FallingBlockEntity.java:190,244-247) - fragility by design,
+# loot destroyed with the block. This script pins that down: after the fall the landing cell
+# is air, no block entity remains, and the supported control keeps its LootTable.
+place designs/corrupt-block-entity/scenarios/brushable-fall.txt
+mark before
+expect_be 0 3 0 LootTable:"minecraft:archaeology/desert_pyramid"
+expect_be 2 3 0 LootTable:"minecraft:archaeology/desert_pyramid"
+items 0 3 0
+clear 0 2 0
+quiet 40
+mark after-fall
+expect_state 0 3 0 minecraft:air
+expect_state 0 2 0 minecraft:air
+expect_state 0 1 0 minecraft:air
+expect_no_be 0 1 0
+expect_be 2 3 0 LootTable:"minecraft:archaeology/desert_pyramid"
+items 2 3 0
+print

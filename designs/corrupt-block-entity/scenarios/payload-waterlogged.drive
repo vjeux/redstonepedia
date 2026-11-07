@@ -1,0 +1,15 @@
+# One payload, two landings. Natural landing strips waterlogged
+# (PistonMovingBlockEntity.tick:309-311); finalTick (262-283) does not - so the same
+# waterlogged stairs ends dry when pushed steadily and keeps its phantom water when spit.
+design designs/corrupt-block-entity/scenarios/payload-waterlogged.txt
+use 0 1 0
+use 0 1 2
+quiet 12
+expect_state 3 1 0 minecraft:oak_stairs
+expect_state 3 1 0 waterlogged=false
+expect_state 4 1 2 minecraft:oak_stairs
+expect_state 4 1 2 waterlogged=true
+plane 0 -1 -3 6 3
+print
+plane 2 -1 -3 6 3
+print

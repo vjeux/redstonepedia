@@ -74,6 +74,11 @@ enum Cmd {
         #[command(subcommand)]
         command: bedrock::cli::BedrockCmd,
     },
+    /// Block-entity desynchronization audit (designs/briefs/corrupt-block-entity.md).
+    Beaudit {
+        #[command(subcommand)]
+        command: beaudit::cli::BeauditCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -154,6 +159,7 @@ fn main() -> Result<()> {
         Cmd::Litematic { command } => litematic::cli::run(command)?,
         Cmd::Web { command } => web_cli::run(&cli.version, command)?,
         Cmd::Bedrock { command } => bedrock::cli::run(&cli.version, command)?,
+        Cmd::Beaudit { command } => beaudit::cli::run(&cli.version, command)?,
     }
     Ok(())
 }

@@ -1,0 +1,14 @@
+# An exposed copper double chest (facing north): left half at x=0 connects east,
+# right half at x=1 connects west. Each half holds one distinguishable item.
+name: copper-chest
+origin: 0 0 0
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:diamond",count:3}]}
+nbt: 1 1 0 {Items:[{Slot:0b,id:"minecraft:emerald",count:5}]}
+palette:
+  S minecraft:stone
+  L minecraft:exposed_copper_chest[facing=north,type=left,waterlogged=false]
+  R minecraft:exposed_copper_chest[facing=north,type=right,waterlogged=false]
+layer 0:
+  SS
+layer 1:
+  LR

@@ -1,0 +1,13 @@
+# Three unpowered oak shelves in a row, facing north, each holding one marker item.
+name: shelf-chain
+origin: 0 0 0
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:diamond",count:1}],align_items_to_bottom:0b}
+nbt: 1 1 0 {Items:[{Slot:0b,id:"minecraft:emerald",count:1}],align_items_to_bottom:0b}
+nbt: 2 1 0 {Items:[{Slot:0b,id:"minecraft:gold_ingot",count:1}],align_items_to_bottom:0b}
+palette:
+  S minecraft:stone
+  H minecraft:oak_shelf[facing=north,powered=false,side_chain=unconnected,waterlogged=false]
+layer 0:
+  SSS
+layer 1:
+  HHH

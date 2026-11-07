@@ -1,0 +1,49 @@
+# Shelf chain on the official server: three powered shelves hotbar-swap as one joined
+# container (eastmost shelf <-> hotbar 0-2, middle <-> 3-5, westmost <-> 6-8 for a
+# north-facing chain), and the chain parts and contents persist a restart.
+cmd fill -3 -2 -3 7 6 5 minecraft:air
+cmd fill -1 0 -1 3 0 1 minecraft:stone
+cmd setblock 0 1 0 minecraft:oak_shelf[facing=north,powered=false,side_chain=unconnected,waterlogged=false]
+cmd setblock 1 1 0 minecraft:oak_shelf[facing=north,powered=false,side_chain=unconnected,waterlogged=false]
+cmd setblock 2 1 0 minecraft:oak_shelf[facing=north,powered=false,side_chain=unconnected,waterlogged=false]
+cmd data merge block 0 1 0 {Items:[{Slot:0b,id:"minecraft:diamond",count:1}],align_items_to_bottom:0b}
+cmd data merge block 1 1 0 {Items:[{Slot:1b,id:"minecraft:emerald",count:1}],align_items_to_bottom:0b}
+cmd data merge block 2 1 0 {Items:[{Slot:2b,id:"minecraft:gold_ingot",count:1}],align_items_to_bottom:0b}
+cmd setblock 0 2 0 minecraft:redstone_block
+cmd setblock 1 2 0 minecraft:redstone_block
+cmd setblock 2 2 0 minecraft:redstone_block
+step 4
+expect-block 0 1 0 side_chain=right
+expect-block 1 1 0 side_chain=center
+expect-block 2 1 0 side_chain=left
+cmd item replace entity mctas_bot hotbar.1 with minecraft:stone 2
+cmd item replace entity mctas_bot hotbar.2 with minecraft:stone 3
+cmd item replace entity mctas_bot hotbar.3 with minecraft:stone 4
+cmd item replace entity mctas_bot hotbar.4 with minecraft:stone 5
+cmd item replace entity mctas_bot hotbar.5 with minecraft:stone 6
+cmd item replace entity mctas_bot hotbar.6 with minecraft:stone 7
+cmd item replace entity mctas_bot hotbar.7 with minecraft:stone 8
+tp 1.5 1.5 -1.5 0 20
+hand minecraft:stone 9
+use 1 1 0 north
+step 2
+mark swapped
+expect-data 2 1 0 count: 9, Slot: 0b
+expect-data 2 1 0 count: 2, Slot: 1b
+expect-data 2 1 0 count: 3, Slot: 2b
+expect-data 1 1 0 count: 4, Slot: 0b
+expect-data 1 1 0 count: 5, Slot: 1b
+expect-data 1 1 0 count: 6, Slot: 2b
+expect-data 0 1 0 count: 7, Slot: 0b
+expect-data 0 1 0 count: 8, Slot: 1b
+reject-data 0 1 0 diamond
+expect-cmd minecraft:gold_ingot :: data get entity mctas_bot Inventory
+expect-cmd minecraft:emerald :: data get entity mctas_bot Inventory
+expect-cmd minecraft:diamond :: data get entity mctas_bot Inventory
+restart
+mark after-reload
+expect-block 0 1 0 side_chain=right
+expect-block 1 1 0 side_chain=center
+expect-block 2 1 0 side_chain=left
+expect-data 1 1 0 count: 5, Slot: 1b
+expect-data 2 1 0 count: 9, Slot: 0b
