@@ -799,7 +799,11 @@ impl Prod {
             Some((_, s)) => self.walk(s[0], s[2]),
             None => {
                 // The pass-start read may lag the real cavity (sweep overshoot, earlier
-                // blocks): walk at the target anyway and re-check reach from wherever we end.
+                // blocks): walk at the target anyway and re-check reach — but only at the
+                // nearby frontier (a far target inside solid rock would burn the walk timeout).
+                if (target[0] - cur[0]).abs() + (target[2] - cur[2]).abs() > 6 {
+                    bail!("no stand within reach of {target:?} (player at {cur:?})");
+                }
                 self.walk(target[0], target[2]).ok();
                 let f = self.feet()?;
                 let cur = [f[0].floor() as i32, f[1].floor() as i32, f[2].floor() as i32];
