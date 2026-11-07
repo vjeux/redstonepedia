@@ -109,6 +109,23 @@ pub fn run(version: &str, o: VideoOptions) -> Result<()> {
             };
             let dim = world.join("dimensions").join("minecraft").join("the_nether");
             let dim = if dim.exists() { dim } else { world.clone() };
+            // The drill room too: every non-air cell (what a clear left behind).
+            let ow = world.join("dimensions").join("minecraft").join("overworld");
+            let ow = if ow.exists() { ow } else { world.clone() };
+            if let Ok(snap) = mctas::vanilla::read_box(&ow, [plan.ox - 2, 3, plan.oz - 3], [plan.ox + 5, 10, plan.oz + 3]) {
+                let b = Blocks::new(snap.region);
+                println!("overworld drill room non-air:");
+                for y in 3..=10 {
+                    for z in (plan.oz - 3)..=(plan.oz + 3) {
+                        for x in (plan.ox - 2)..=(plan.ox + 5) {
+                            let s = b.get([x, y, z]);
+                            if b.kind([x, y, z]) != Kind::Replaceable {
+                                println!("  [{x},{y},{z}] {s}");
+                            }
+                        }
+                    }
+                }
+            }
             let (ix0, ix1) = (plan.fx - 36, plan.fx + 12);
             let snap = mctas::vanilla::read_box(&dim, [ix0, 0, plan.rz - 6], [ix1, 9, plan.rz + 6])?;
             let b = Blocks::new(snap.region);
@@ -754,6 +771,7 @@ impl Prod {
                 }
             }
             if mined == 0 {
+                self.loga(&format!("clear_box stuck; remaining: {:?}", &todo[..todo.len().min(8)]));
                 bail!("clear_box {dim} {lo:?}..{hi:?}: no reachable stand in a whole pass");
             }
         }
@@ -775,9 +793,9 @@ impl Prod {
         let mut best: Option<(i32, Pos)> = None;
         for dx in -3..=3 {
             for dz in -3..=3 {
-                // A stand can be up to ~4 below the target (eye height + reach), e.g. the last
-                // ceiling block of a room mined from its floor.
-                for dy in -4..=2 {
+                // A stand can be up to 5 below the target (eye height + reach), e.g. the last
+                // ceiling-corner block of a room mined from its floor.
+                for dy in -5..=2 {
                     let s = [target[0] + dx, target[1] + dy, target[2] + dz];
                     // Never the target itself, and never standing ON it (mining the y=0 row
                     // while standing on it would drop the player through the new hole).
