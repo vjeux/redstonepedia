@@ -989,7 +989,7 @@ impl Prod {
         let rlo = [lo[0] - 3, lo[1] - 1, lo[2] - 3];
         let rhi = [hi[0] + 3, hi[1] + 2, hi[2] + 3];
         let mut rescued = false;
-        for pass in 0..60 {
+        for pass in 0..200 {
             self.check_alive()?;
             let blocks = if dim == "the_nether" { self.nether_box(rlo, rhi)? } else { self.overworld_box(rlo, rhi)? };
             let mut todo: Vec<Pos> = Vec::new();
@@ -1032,18 +1032,23 @@ impl Prod {
             if todo.is_empty() {
                 return Ok(());
             }
-            // Column by column from the south (where the player always enters), BOTTOM-UP
-            // within a column: from solid rock the only stands are mined-out cells, so each
-            // column is hollowed from its base standing in the previous one (top-down would
-            // need stands floating in unmined rock). Small batches, because stands come from
-            // the pass-start read; blocks with no stand yet wait for the next read.
-            todo.sort_by_key(|p| (std::cmp::Reverse(p[2]), p[0], p[1]));
+            // NEAREST to the player first (then column by column, bottom-up): from solid
+            // rock the only reachable stands are in the cavity already carved, so mining
+            // the near frontier keeps walks to a step or two. Far cells whose snapshot
+            // "stands" sit on unmined rock would otherwise burn a 25 s walk timeout each —
+            // that made a big room clear crawl. Small batches still (stands go stale).
+            let feet = self.feet()?;
+            let fc = [feet[0].floor() as i32, feet[1].floor() as i32, feet[2].floor() as i32];
+            todo.sort_by_key(|p| {
+                let d = (p[0] - fc[0]).abs() + (p[1] - fc[1]).abs() + (p[2] - fc[2]).abs();
+                (d, std::cmp::Reverse(p[2]), p[0], p[1])
+            });
             self.loga(&format!("clear_box {dim} pass {pass}: {} blocks", todo.len()));
             self.select(SLOT_PICK)?;
             let first: Vec<Pos> = todo.iter().take(8).copied().collect();
             let mut mined = 0;
             for p in todo {
-                if mined >= 40 {
+                if mined >= 60 {
                     break;
                 }
                 match self.stand_near(&blocks, p) {
@@ -1121,6 +1126,9 @@ impl Prod {
         }
         cands.sort_by_key(|(d, _)| *d);
         cands.dedup_by_key(|(_, s)| *s);
+        // Far "stands" from a snapshot (on top of unmined rock across the room) are almost
+        // never walkable yet — don't burn four walk timeouts proving it.
+        cands.retain(|(d, _)| *d <= 10);
         match cands.first().copied() {
             Some(_) => {
                 let mut last_err = None;
@@ -2466,7 +2474,9 @@ fn mine_obsidian_box(p: &mut Prod, lo: Pos, hi: Pos) -> Result<()> {
         if todo.is_empty() {
             return Ok(());
         }
-        todo.sort_by_key(|p| (p[2], p[0], p[1]));
+        let feet = p.feet()?;
+        let fc = [feet[0].floor() as i32, feet[1].floor() as i32, feet[2].floor() as i32];
+        todo.sort_by_key(|c| (c[0] - fc[0]).abs() + (c[1] - fc[1]).abs() + (c[2] - fc[2]).abs());
         p.loga(&format!("mine_obsidian_box pass {pass}: {} cells", todo.len()));
         p.select(SLOT_PICK)?;
         let mut mined = 0;
@@ -2691,7 +2701,7 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         ], 6.0, S3)?;
         p.walk(c.dix + 1, c.doz_a + 3)?;
         p.dig_down2("overworld", c.dix + 1, c.doz_a + 3, 2.0)?;
-        p.clear_box("overworld", [c.rox - 3, 2, c.doz_a - 3], [c.dix + 4, 8, c.doz_b + 4], false)?;
+        p.clear_box("overworld", [c.rox - 2, 2, c.doz_a - 2], [c.dix + 3, 7, c.doz_b + 3], false)?;
         // The generated twin must die or it would steal the trigger items.
         p.seg_step("twin-off", "machine", &[
             "The twin the game generated must go (one frame block)",
