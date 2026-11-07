@@ -515,7 +515,7 @@ impl Prod {
 
     fn feet(&mut self) -> Result<[f64; 3]> {
         let s = self.pos()?;
-        let p = s.split("pos=").nth(1).and_then(|r| r.split(' ').next()).context("pos line")?;
+        let p = s.split("pos=").nth(1).and_then(|r| r.split(' ').next()).with_context(|| format!("pos line: {s}"))?;
         let v: Vec<f64> = p.split(',').map(|x| x.parse()).collect::<std::result::Result<_, _>>()?;
         Ok([v[0], v[1], v[2]])
     }
@@ -982,6 +982,29 @@ impl Prod {
                     }
                 }
             }
+            // Seal any lava the clearing opened (a pocket behind a mined cell flows straight
+            // in): placing a block into lava consumes the source, then mine it back out.
+            let lavas: Vec<Pos> = (lo[1]..=hi[1])
+                .flat_map(|y| (lo[2]..=hi[2]).flat_map(move |z| (lo[0]..=hi[0]).map(move |x| [x, y, z])))
+                .filter(|&c| blocks.get(c).starts_with("minecraft:lava"))
+                .take(8)
+                .collect();
+            if !lavas.is_empty() {
+                self.loga(&format!("clear_box {dim}: sealing {} lava cells {lavas:?}", lavas.len()));
+                self.select(SLOT_NETHERRACK)?;
+                for cell in lavas {
+                    match self.place_at(dim, cell, "minecraft:netherrack", None) {
+                        Ok(()) => {
+                            self.select(SLOT_PICK)?;
+                            let _ = self.mine_sweep(cell);
+                            self.select(SLOT_NETHERRACK)?;
+                        }
+                        Err(e) => self.loga(&format!("clear_box: seal {cell:?} failed: {e:#}")),
+                    }
+                }
+                self.select(SLOT_PICK)?;
+                continue;
+            }
             if todo.is_empty() {
                 return Ok(());
             }
@@ -1000,10 +1023,12 @@ impl Prod {
                     break;
                 }
                 match self.stand_near(&blocks, p) {
-                    Ok(()) => {
-                        self.mine_sweep(p)?;
-                        mined += 1;
-                    }
+                    Ok(()) => match self.mine_sweep(p) {
+                        Ok(()) => mined += 1,
+                        // The snapshot can be stale by the time we get here (overshoot mined
+                        // it already; lava took its place): next pass re-reads anyway.
+                        Err(e) => self.loga(&format!("clear_box: mine {p:?} skipped: {e:#}")),
+                    },
                     Err(_) => continue,
                 }
             }
