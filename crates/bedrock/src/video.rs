@@ -90,6 +90,8 @@ struct State {
     done: Vec<String>,
     /// Which bedrock layer the overworld drill portal's height currently serves (4 = as built).
     drill_serves: Option<i32>,
+    /// Cobblestone blockers currently placed at the patch.
+    blockers: Vec<Pos>,
     /// Feet position inside the return portal's overworld twin (to walk back through it).
     twin: Option<[f64; 3]>,
 }
@@ -430,6 +432,14 @@ impl Prod {
         Ok(())
     }
 
+    /// Walk waypoints in order (the actor steers greedily: corridors need their corners named).
+    fn walk_path(&mut self, pts: &[(i32, i32)]) -> Result<()> {
+        for &(x, z) in pts {
+            self.walk(x, z)?;
+        }
+        Ok(())
+    }
+
     fn look(&mut self, x: f64, y: f64, z: f64, ticks: u32) -> Result<()> {
         self.actor.cmd(&format!("look {x:.2} {y:.2} {z:.2} {ticks}"))?;
         Ok(())
@@ -553,6 +563,7 @@ fn start_prod(version: &str, plan: &Plan, o: &VideoOptions, world: PathBuf) -> R
     let timeline: Timeline = std::fs::read_to_string(o.out.join("timeline.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
     let state: State = std::fs::read_to_string(o.out.join("state.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
     let seg_idx = timeline.segments.len();
+    let blockers = state.blockers.clone();
     Ok(Prod {
         srv,
         actor,
@@ -565,7 +576,7 @@ fn start_prod(version: &str, plan: &Plan, o: &VideoOptions, world: PathBuf) -> R
         state,
         log: o.out.join("production.log"),
         seg_idx,
-        blockers: Vec::new(),
+        blockers,
         width: o.width,
         height: o.height,
         fps: o.fps,
@@ -693,7 +704,9 @@ impl Prod {
             for dz in -3..=3 {
                 for dy in -2..=2 {
                     let s = [target[0] + dx, target[1] + dy, target[2] + dz];
-                    if s == target {
+                    // Never the target itself, and never standing ON it (mining the y=0 row
+                    // while standing on it would drop the player through the new hole).
+                    if s == target || (s[0] == target[0] && s[2] == target[2] && s[1] == target[1] + 1) {
                         continue;
                     }
                     if blocks.kind([s[0], s[1] - 1, s[2]]) == Kind::Solid
@@ -768,9 +781,51 @@ impl Prod {
     }
 
     fn torch(&mut self, floor: Pos) -> Result<()> {
+        self.walk(floor[0], floor[2] + 1)?;
         self.select(SLOT_TORCH)?;
         self.place(floor, "UP")?;
         self.select(SLOT_PICK)?;
+        Ok(())
+    }
+
+    /// Make every cell of the sheet (x0..=x1, y, z0..=z1) solid, filling holes with netherrack
+    /// (clicked on whatever solid face is available). Fails if a cell of the inner patch rect
+    /// `must` stays non-solid.
+    fn fill_floor(&mut self, dim: &str, y: i32, x0: i32, x1: i32, z0: i32, z1: i32, must: Option<(i32, i32, i32, i32)>) -> Result<()> {
+        let blocks = if dim == "the_nether" { self.nether_box([x0, y - 1, z0], [x1, y, z1])? } else { self.overworld_box([x0, y - 1, z0], [x1, y, z1])? };
+        self.select(SLOT_NETHERRACK)?;
+        for z in z0..=z1 {
+            for x in x0..=x1 {
+                if blocks.kind([x, y, z]) == Kind::Solid {
+                    continue;
+                }
+                let clicks: [(Pos, &str); 5] = [
+                    ([x, y - 1, z], "UP"),
+                    ([x, y, z + 1], "NORTH"),
+                    ([x, y, z - 1], "SOUTH"),
+                    ([x + 1, y, z], "WEST"),
+                    ([x - 1, y, z], "EAST"),
+                ];
+                for (click, face) in clicks {
+                    if blocks.kind(click) == Kind::Solid {
+                        self.stand_near(&blocks, click).or_else(|_| self.walk(x, z + 1))?;
+                        self.place(click, face)?;
+                        break;
+                    }
+                }
+            }
+        }
+        self.select(SLOT_PICK)?;
+        if let Some((mx0, mx1, mz0, mz1)) = must {
+            let check = if dim == "the_nether" { self.nether_box([mx0, y, mz0], [mx1, y, mz1])? } else { self.overworld_box([mx0, y, mz0], [mx1, y, mz1])? };
+            for z in mz0..=mz1 {
+                for x in mx0..=mx1 {
+                    if check.kind([x, y, z]) != Kind::Solid {
+                        bail!("fill_floor: {dim} [{x},{y},{z}] still not solid ({})", check.get([x, y, z]));
+                    }
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -857,23 +912,9 @@ fn scenes(p: &mut Prod) -> Result<()> {
             "Prepare a 4×3 patch on the top bedrock layer (y=4):",
             "the 12 bottom cells solid, the 4×4×3 box above them air",
         ], 6.0)?;
-        // walkable floor first: fill air in the y=4 sheet of the room with netherrack
-        let blocks = p.nether_box([fx - 1, 4, rz - 5], [fx + 4, 4, rz + 5])?;
-        p.select(SLOT_NETHERRACK)?;
-        for z in rz - 5..=rz + 5 {
-            for x in fx - 1..=fx + 4 {
-                if blocks.kind([x, 4, z]) != Kind::Solid {
-                    p.walk(x, z + 1)?;
-                    if blocks.kind([x, 3, z]) == Kind::Solid {
-                        p.place([x, 3, z], "UP")?;
-                    } else {
-                        p.place([x, 4, z + 1], "NORTH")?;
-                    }
-                }
-            }
-        }
-        p.select(SLOT_PICK)?;
         p.clear_box("the_nether", [fx - 1, 5, rz - 5], [fx + 4, 8, rz + 5], false)?;
+        // a walkable, fully solid floor sheet at y=4 (the patch rows must end solid)
+        p.fill_floor("the_nether", 4, fx - 1, fx + 4, rz - 5, rz + 5, Some((fx, fx + 3, rz - 4, rz + 4)))?;
         p.walk(fx + 1, rz + 4)?;
         p.torch([fx - 1, 4, rz - 3])?;
         p.torch([fx + 4, 4, rz + 3])?;
@@ -896,10 +937,11 @@ fn scenes(p: &mut Prod) -> Result<()> {
         ], 6.0)?;
         p.clear_box("the_nether", [fx + 4, 5, rz], [rx + 5, 6, rz], false)?;
         p.clear_box("the_nether", [rx - 2, 5, rz - 3], [rx + 5, 9, rz + 3], false)?;
+        p.fill_floor("the_nether", 4, rx - 1, rx + 4, rz - 1, rz + 1, Some((rx, rx + 3, rz, rz)))?;
         p.walk(rx + 1, rz + 2)?;
         p.build_portal("the_nether", rx, 5, rz)?;
         p.torch([rx - 1, 4, rz + 2])?;
-        p.walk(fx + 1, rz + 3)?;
+        p.walk_path(&[(rx + 1, rz), (fx + 5, rz), (fx + 1, rz + 3)])?;
         p.checkpoint("return")?;
     }
     if !p.done("overworld") {
@@ -918,6 +960,7 @@ fn scenes(p: &mut Prod) -> Result<()> {
             "so both columns land on the same Nether block. Light it.",
         ], 2.0)?;
         p.build_portal("overworld", p.plan.ox, 4, p.plan.oz)?;
+        p.state.drill_serves = Some(4);
         p.torch([p.plan.ox - 1, 3, p.plan.oz + 2])?;
         p.torch([p.plan.ox + 4, 3, p.plan.oz + 2])?;
         p.checkpoint("overworld")?;
@@ -959,7 +1002,7 @@ fn scenes(p: &mut Prod) -> Result<()> {
                 if is_second {
                     p.seg("second-trip", &ttag, &[
                         "Aim each trip: one cobblestone blocks the rows you don't want",
-                        &format!("(trip {trip_no} of {})", p.plan.trips),
+                        &format!("(trip {trip_no} of {} · travel between portals skipped)", p.plan.trips),
                     ], 2.0)?;
                 } else {
                     p.seg(&format!("trip-l{l}-r{row}"), &ttag, &[
@@ -1023,10 +1066,10 @@ fn row_order(rows: &[i32], rz: i32) -> Vec<i32> {
 
 /// In the Nether at the patch: walk the corridor, enter the return portal, land at its twin.
 fn go_return(p: &mut Prod) -> Result<()> {
+    let fx = p.plan.fx;
     let rx = p.plan.rx;
     let rz = p.plan.rz;
-    p.walk(rx + 1, rz + 1)?;
-    p.walk(rx + 1, rz)?;
+    p.walk_path(&[(fx + 4, rz), (rx + 1, rz), (rx + 1, rz + 1), (rx + 1, rz)])?;
     p.actor.cmd_timeout("waitdim overworld", Duration::from_secs(90))?;
     p.wait(10)?;
     if p.state.twin.is_none() {
@@ -1048,7 +1091,8 @@ fn ensure_nether(p: &mut Prod) -> Result<()> {
     p.actor.cmd_timeout("waitdim the_nether", Duration::from_secs(90))?;
     p.wait(10)?;
     // leave the return portal towards the patch
-    p.walk(p.plan.fx + 1, p.plan.rz + 3)?;
+    let (fx, rx, rz) = (p.plan.fx, p.plan.rx, p.plan.rz);
+    p.walk_path(&[(rx + 1, rz + 1), (rx + 1, rz), (fx + 5, rz), (fx + 1, rz + 3)])?;
     Ok(())
 }
 
@@ -1086,7 +1130,9 @@ fn prep_trip(p: &mut Prod, l: i32, row: i32) -> Result<()> {
     if win.origin != target || !win.full {
         bail!("predictor: winner {:?} full={} instead of target {target:?}", win.origin, win.full);
     }
-    p.blockers = want;
+    p.blockers.clone_from(&want);
+    p.state.blockers = want;
+    p.save_state()?;
     p.loga(&format!("layer {l} row {row}: blockers {:?}", p.blockers));
     Ok(())
 }
