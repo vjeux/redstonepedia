@@ -1,0 +1,13 @@
+{
+  "name": "tnt-place",
+  "notes": "TNT next to the extended piston: the explosion (entity phase) breaks the torch (queues the retract) and the piston; the player only places a piston facing down. Only the window right after the explosion can work.",
+  "target": [0, 1, 0],
+  "blocks": [[0, 1, 0, "minecraft:bedrock"], [1, 1, 0, "minecraft:stone"], [0, 2, 0, "minecraft:piston[facing=up]"], [1, 2, 0, "minecraft:redstone_torch"], [-1, 1, 0, "minecraft:obsidian"], [0, 1, 1, "minecraft:obsidian"], [0, 1, -1, "minecraft:obsidian"]],
+  "settle": 10,
+  "script": [
+    {"at": 0, "do": "cmd", "pos": [0, 0, 0], "state": "summon minecraft:tnt 0.5 2.0 1.5 {fuse:6}"}
+  ],
+  "chord": [
+    {"do": "place", "pos": [0, 2, 0], "state": "minecraft:piston[facing=down]"}
+  ]
+}

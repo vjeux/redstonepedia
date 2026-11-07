@@ -1,0 +1,43 @@
+{
+  "name": "portal-forcer-nether-floor-survival",
+  "notes": "Natural nether floor near (0,0), survival-style edits only: liquids, loose blocks and every air cell of y=1..14 filled with netherrack (placing blocks), then everything above y=4 mined out (netherrack only, bedrock untouched). The floor surface is now flat at y=4: natural bedrock where the floor reaches y=4, netherrack elsewhere. An item enters an overworld portal at y=5; the exit's frame bottom row lands on y=4. Asserts the portal, the four obsidian frame-bottom cells, and (masked compare against a copy) that at least one natural bedrock block of the floor changed.",
+  "target": [5, -64, 5],
+  "blocks": [
+    [5, -64, 5, "minecraft:bedrock"],
+    [12, -64, 12, "minecraft:stone"],
+    [-1, 4, 0, "minecraft:obsidian"], [0, 4, 0, "minecraft:obsidian"], [1, 4, 0, "minecraft:obsidian"], [2, 4, 0, "minecraft:obsidian"],
+    [-1, 5, 0, "minecraft:obsidian"], [2, 5, 0, "minecraft:obsidian"],
+    [-1, 6, 0, "minecraft:obsidian"], [2, 6, 0, "minecraft:obsidian"],
+    [-1, 7, 0, "minecraft:obsidian"], [2, 7, 0, "minecraft:obsidian"],
+    [-1, 8, 0, "minecraft:obsidian"], [0, 8, 0, "minecraft:obsidian"], [1, 8, 0, "minecraft:obsidian"], [2, 8, 0, "minecraft:obsidian"]
+  ],
+  "settle": 2,
+  "stance": {"pos": [12.5, -63.0, 12.5], "look": [0.0, 90.0]},
+  "script": [
+    {"do": "cmd", "pos": [0, 0, 0], "at": 0, "state": "execute in minecraft:the_nether run forceload add -16 -16 15 15"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 15, "state": "execute in minecraft:the_nether run fill -9 1 -9 9 14 9 minecraft:netherrack replace minecraft:lava"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 15, "state": "execute in minecraft:the_nether run fill -9 1 -9 9 14 9 minecraft:netherrack replace minecraft:gravel"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 15, "state": "execute in minecraft:the_nether run fill -9 1 -9 9 14 9 minecraft:netherrack replace minecraft:soul_sand"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 15, "state": "execute in minecraft:the_nether run fill -9 1 -9 9 14 9 minecraft:netherrack replace minecraft:soul_soil"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 15, "state": "execute in minecraft:the_nether run fill -9 1 -9 9 14 9 minecraft:netherrack replace minecraft:magma_block"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 15, "state": "execute in minecraft:the_nether run fill -9 1 -9 9 14 9 minecraft:netherrack replace minecraft:nether_quartz_ore"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 15, "state": "execute in minecraft:the_nether run fill -9 1 -9 9 14 9 minecraft:netherrack replace minecraft:nether_gold_ore"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 15, "state": "execute in minecraft:the_nether run fill -9 1 -9 9 14 9 minecraft:netherrack replace minecraft:air"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 16, "state": "execute in minecraft:the_nether run fill -8 5 -8 8 12 8 minecraft:air replace minecraft:netherrack"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 17, "state": "execute in minecraft:the_nether run clone -8 0 -8 8 4 8 -8 100 -8"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 18, "state": "execute in minecraft:the_nether if blocks -8 100 -8 8 104 8 -8 0 -8 masked"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 18, "state": "fill 0 5 0 1 7 0 minecraft:nether_portal[axis=x]"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 19, "state": "execute if block 0 5 0 minecraft:nether_portal"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 19, "state": "summon minecraft:item 0.5 5.3 0.5 {Item:{id:\"minecraft:stone\",count:1},NoGravity:1b,PickupDelay:32767}"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 50, "state": "execute unless entity @e[type=item,x=0,y=5,z=0,distance=..30]"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 50, "state": "execute in minecraft:the_nether if entity @e[type=item,x=0,y=5,z=0,distance=..12]"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 50, "state": "execute in minecraft:the_nether if block 0 5 0 minecraft:nether_portal"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 50, "state": "execute in minecraft:the_nether if block -1 4 0 minecraft:obsidian"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 50, "state": "execute in minecraft:the_nether if block 0 4 0 minecraft:obsidian"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 50, "state": "execute in minecraft:the_nether if block 1 4 0 minecraft:obsidian"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 50, "state": "execute in minecraft:the_nether if block 2 4 0 minecraft:obsidian"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 51, "state": "execute in minecraft:the_nether unless blocks -8 100 -8 8 104 8 -8 0 -8 masked"}
+  ],
+  "chord": [],
+  "horizon": 2
+}

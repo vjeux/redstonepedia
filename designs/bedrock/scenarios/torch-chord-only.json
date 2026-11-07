@@ -1,0 +1,10 @@
+{
+  "name": "torch-chord-only",
+  "notes": "Same build, but the player only has the left+right chord (break the piston, place one facing down) and nothing queues a retract: expected to fail in every window.",
+  "target": [0, 1, 0],
+  "blocks": [[0, 1, 0, "minecraft:bedrock"], [1, 1, 0, "minecraft:stone"], [0, 2, 0, "minecraft:piston[facing=up]"], [1, 2, 0, "minecraft:redstone_torch"]],
+  "chord": [
+    {"do": "break", "pos": [0, 2, 0]},
+    {"do": "place", "pos": [0, 2, 0], "state": "minecraft:piston[facing=down]"}
+  ]
+}

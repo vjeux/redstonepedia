@@ -28,3 +28,4 @@ circuit-cli = { path = "../circuit-cli" }
 site = { path = "../site" }
 litematic = { path = "../litematic" }
 web-cli = { path = "../web-cli" }
+bedrock = { path = "../bedrock" }

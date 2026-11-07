@@ -1,0 +1,12 @@
+{
+  "name": "torch-3-actions",
+  "notes": "The obvious swap: piston up on the bedrock, torch beside it. In ONE window: break the torch (queues the retract), break the piston, place a piston facing down. Works in every window but needs three clicks on two targets inside one tick.",
+  "target": [0, 1, 0],
+  "blocks": [[0, 1, 0, "minecraft:bedrock"], [1, 1, 0, "minecraft:stone"], [0, 2, 0, "minecraft:piston[facing=up]"], [1, 2, 0, "minecraft:redstone_torch"], [-2, 1, 0, "minecraft:stone"]],
+  "stance": {"pos": [-1.5, 2.0, 0.5], "look": [270.0, -90.0]},
+  "chord": [
+    {"do": "break", "pos": [1, 2, 0]},
+    {"do": "break", "pos": [0, 2, 0]},
+    {"do": "place", "pos": [0, 2, 0], "state": "minecraft:piston[facing=down]"}
+  ]
+}

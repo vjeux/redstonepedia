@@ -1,0 +1,30 @@
+{
+  "name": "portal-forcer-overworld-floor",
+  "notes": "An item goes through a nether portal in the Nether; PortalForcer.createPortal builds the exit in the void overworld on the only frame-capable spot: a 4x3 bedrock patch at y=-64. Asserts that the frame's bottom row turned the bedrock into obsidian.",
+  "target": [0, -64, 0],
+  "blocks": [
+    [-1, -64, -1, "minecraft:bedrock"], [0, -64, -1, "minecraft:bedrock"], [1, -64, -1, "minecraft:bedrock"], [2, -64, -1, "minecraft:bedrock"],
+    [-1, -64, 0, "minecraft:bedrock"], [0, -64, 0, "minecraft:bedrock"], [1, -64, 0, "minecraft:bedrock"], [2, -64, 0, "minecraft:bedrock"],
+    [-1, -64, 1, "minecraft:bedrock"], [0, -64, 1, "minecraft:bedrock"], [1, -64, 1, "minecraft:bedrock"], [2, -64, 1, "minecraft:bedrock"],
+    [12, -64, 12, "minecraft:stone"]
+  ],
+  "settle": 2,
+  "stance": {"pos": [12.5, -63.0, 12.5], "look": [0.0, 90.0]},
+  "script": [
+    {"do": "cmd", "pos": [0, 0, 0], "at": 0, "state": "execute in minecraft:the_nether run forceload add 0 0"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 10, "state": "execute in minecraft:the_nether run fill -3 98 -3 4 104 3 minecraft:air"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 10, "state": "execute in minecraft:the_nether run fill -1 99 0 2 103 0 minecraft:obsidian"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 10, "state": "execute in minecraft:the_nether run fill 0 100 0 1 102 0 minecraft:nether_portal[axis=x]"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 11, "state": "execute in minecraft:the_nether if block 0 100 0 minecraft:nether_portal"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 11, "state": "execute if block 0 -64 0 minecraft:bedrock"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 12, "state": "execute in minecraft:the_nether run summon minecraft:item 0.5 100.3 0.5 {Item:{id:\"minecraft:stone\",count:1},NoGravity:1b,PickupDelay:32767}"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 40, "state": "execute if block 0 -64 0 minecraft:obsidian"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 40, "state": "execute if block -1 -64 0 minecraft:obsidian"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 40, "state": "execute if block 2 -64 0 minecraft:obsidian"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 40, "state": "execute if block 0 -63 0 minecraft:nether_portal"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 40, "state": "execute if block 0 -64 1 minecraft:bedrock"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 40, "state": "execute if entity @e[type=item,x=0,y=-63,z=0,distance=..3]"}
+  ],
+  "chord": [],
+  "horizon": 2
+}

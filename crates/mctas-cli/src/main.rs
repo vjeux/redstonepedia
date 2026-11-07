@@ -69,6 +69,11 @@ enum Cmd {
         #[command(subcommand)]
         command: web_cli::WebCmd,
     },
+    /// Bedrock breaking study (designs/bedrock/NOTES.md): per-window swap scanner.
+    Bedrock {
+        #[command(subcommand)]
+        command: bedrock::cli::BedrockCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -148,6 +153,7 @@ fn main() -> Result<()> {
         Cmd::Site { command } => site::run(command)?,
         Cmd::Litematic { command } => litematic::cli::run(command)?,
         Cmd::Web { command } => web_cli::run(&cli.version, command)?,
+        Cmd::Bedrock { command } => bedrock::cli::run(&cli.version, command)?,
     }
     Ok(())
 }

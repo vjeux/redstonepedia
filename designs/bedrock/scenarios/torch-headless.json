@@ -1,0 +1,16 @@
+{
+  "name": "torch-headless",
+  "notes": "Headless variant: in one window break the torch, break the piston, place a piston facing down, put the torch back. The retract event then finds a POWERED piston facing down and only sets extended=true: a headless piston. Breaking the torch any time later removes the bedrock (release).",
+  "target": [0, 1, 0],
+  "blocks": [[0, 1, 0, "minecraft:bedrock"], [1, 1, 0, "minecraft:stone"], [0, 2, 0, "minecraft:piston[facing=up]"], [1, 2, 0, "minecraft:redstone_torch"], [-2, 1, 0, "minecraft:stone"]],
+  "stance": {"pos": [-1.5, 2.0, 0.5], "look": [270.0, -90.0]},
+  "chord": [
+    {"do": "break", "pos": [1, 2, 0]},
+    {"do": "break", "pos": [0, 2, 0]},
+    {"do": "place", "pos": [0, 2, 0], "state": "minecraft:piston[facing=down]"},
+    {"do": "place", "pos": [1, 2, 0], "state": "minecraft:redstone_torch", "click": [1, 1, 0], "face": "up"}
+  ],
+  "release": [
+    {"do": "break", "pos": [1, 2, 0]}
+  ]
+}
