@@ -431,6 +431,11 @@ impl Actor {
         let t0 = Instant::now();
         loop {
             if let Ok(text) = std::fs::read_to_string(&done) {
+                if text.trim().is_empty() {
+                    // Half-published answer (pre-atomic-write actor builds): keep waiting.
+                    std::thread::sleep(Duration::from_millis(50));
+                    continue;
+                }
                 let _ = std::fs::remove_file(&done);
                 let text = text.trim().to_string();
                 if let Some(err) = text.strip_prefix("error ") {
