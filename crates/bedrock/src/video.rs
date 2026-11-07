@@ -831,8 +831,10 @@ impl Prod {
         match best {
             Some((_, s)) => {
                 let r = self.walk(s[0], s[2]);
-                if let Err(e) = &r {
-                    self.loga(&format!("stand_near {target:?}: walk to {s:?} failed: {e:#}; player at {:?}", self.feet().ok()));
+                if r.is_err() {
+                    let at = self.feet().ok();
+                    let e = r.as_ref().unwrap_err();
+                    self.loga(&format!("stand_near {target:?}: walk to {s:?} failed: {e:#}; player at {at:?}"));
                 }
                 r
             }
@@ -1543,7 +1545,7 @@ fn compose(version: &str, plan: &Plan, o: &VideoOptions) -> Result<()> {
         ("Rules and limits".into(), 6, YELLOW),
         ("".into(), 2, WHITE),
         ("One 1x4 line per trip; a 1x4 hole through all 5 layers is about 20 trips".into(), 2, WHITE),
-        (format!("(this spot took {}). Mine the generated portal before every trip,", plan.trips), 2, WHITE),
+        (format!("(this spot needs {}). Mine the generated portal before every trip,", plan.trips), 2, WHITE),
         ("or the next trip just links to it.".into(), 2, WHITE),
         ("".into(), 2, WHITE),
         ("Cannot reach the Nether roof: the frame bottom is at most y=122,".into(), 2, WHITE),
