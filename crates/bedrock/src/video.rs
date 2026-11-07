@@ -732,6 +732,7 @@ impl Prod {
         // the headroom over it.
         let rlo = [lo[0] - 3, lo[1] - 1, lo[2] - 3];
         let rhi = [hi[0] + 3, hi[1] + 2, hi[2] + 3];
+        let mut rescued = false;
         for pass in 0..60 {
             let blocks = if dim == "the_nether" { self.nether_box(rlo, rhi)? } else { self.overworld_box(rlo, rhi)? };
             let mut todo: Vec<Pos> = Vec::new();
@@ -773,8 +774,19 @@ impl Prod {
             }
             if mined == 0 {
                 self.loga(&format!("clear_box stuck; first remaining: {first:?}"));
+                // The player can end up walled into a side pocket (a geode shell, say) with
+                // every walk failing: put them back in the middle of the room (travel, not a
+                // block edit) once; a second stuck pass in a row really is stuck.
+                if !rescued {
+                    rescued = true;
+                    let (cx, cz) = ((lo[0] + hi[0]) / 2, (lo[2] + hi[2]) / 2);
+                    self.loga(&format!("clear_box rescue: tp to room center ({cx}, {}, {cz})", lo[1]));
+                    self.tp(dim, cx as f64 + 0.5, lo[1] as f64, cz as f64 + 0.5, 0.0, 30.0)?;
+                    continue;
+                }
                 bail!("clear_box {dim} {lo:?}..{hi:?}: no reachable stand in a whole pass");
             }
+            rescued = false;
         }
         bail!("clear_box {dim} {lo:?}..{hi:?} still not clear after 60 passes")
     }
