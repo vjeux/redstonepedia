@@ -742,7 +742,7 @@ impl Prod {
             self.select(SLOT_PICK)?;
             let mut mined = 0;
             for p in todo {
-                if mined >= 24 {
+                if mined >= 40 {
                     break;
                 }
                 match self.stand_near(&blocks, p) {
@@ -775,7 +775,9 @@ impl Prod {
         let mut best: Option<(i32, Pos)> = None;
         for dx in -3..=3 {
             for dz in -3..=3 {
-                for dy in -2..=2 {
+                // A stand can be up to ~4 below the target (eye height + reach), e.g. the last
+                // ceiling block of a room mined from its floor.
+                for dy in -4..=2 {
                     let s = [target[0] + dx, target[1] + dy, target[2] + dz];
                     // Never the target itself, and never standing ON it (mining the y=0 row
                     // while standing on it would drop the player through the new hole).
