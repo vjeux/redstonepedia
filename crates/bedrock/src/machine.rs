@@ -611,6 +611,61 @@ pub fn design_from_scenario(sc: &crate::Scenario, name: &str, press: Pos, start:
     Ok(d)
 }
 
+/// The row machine for `n` bedrock side by side ((0..n, 5, 0), the roof's top layer at y 5): the
+/// end pistons face out (west, east), the middle ones face up; every piston has its own stone X
+/// (k,7,1) and observer O (k,7,2) facing south; the clock (sticky piston (-1,7,3) facing east,
+/// redstone block (0,7,3), observer (0,8,3) facing east, lamp (1,8,3) placed last) slides its
+/// redstone block behind O1 and O2; the clock line (dust under the block's two cells, then dust on
+/// blocks running east) passes behind every other observer; one dust nudges the east end piston.
+pub fn row_design(n: usize) -> Result<Design> {
+    anyhow::ensure!(n >= 2, "a row has at least 2 bedrock");
+    let n = n as i32;
+    let mut d = Design { name: format!("row{n}"), ..Default::default() };
+    let mut put = |p: Pos, s: &str| {
+        d.blocks.insert(p, format!("minecraft:{s}"));
+    };
+    for x in -4..=n + 3 {
+        for z in -4..=6 {
+            put([x, 5, z], "bedrock");
+        }
+    }
+    for k in 0..n {
+        let facing = if k == 0 {
+            "west"
+        } else if k == n - 1 {
+            "east"
+        } else {
+            "up"
+        };
+        put([k, 6, 0], &format!("piston[facing={facing}]"));
+        put([k, 7, -1], "oak_trapdoor[facing=north,half=bottom,open=false]");
+        put([k, 7, 1], "stone");
+        put([k, 7, 2], "observer[facing=south]");
+        if k >= 2 {
+            put([k, 6, 3], "stone");
+            put([k, 7, 3], "redstone_wire");
+        }
+    }
+    put([-1, 7, 3], "sticky_piston[extended=false,facing=east]");
+    put([0, 7, 3], "redstone_block");
+    put([0, 8, 3], "observer[facing=east]");
+    put([1, 8, 3], "redstone_lamp");
+    put([0, 6, 3], "redstone_wire");
+    put([1, 6, 3], "redstone_wire");
+    // The nudge next to the clock, where the line is strongest: it starts piston 2, and each
+    // piston changing state updates its neighbours (the whole row follows in the same phase).
+    put([1, 6, 2], "redstone_wire");
+    for k in 0..n {
+        let s = if k == 0 { String::new() } else { (k + 1).to_string() };
+        d.ports.insert(format!("target{s}"), [k, 5, 0]);
+        d.ports.insert(format!("swap{s}"), [k, 6, 0]);
+        d.ports.insert(format!("press{s}"), [k, 6, -1]);
+    }
+    d.ports.insert("start".into(), [1, 8, 3]);
+    d.meta.insert("port start".into(), "last".into());
+    Ok(d)
+}
+
 /// The yaw (degrees) of a horizontal look along `v`.
 fn yaw_of(v: Pos) -> f32 {
     match v {

@@ -294,6 +294,16 @@ that changes at every move.
   goes into its own cell above (still free). Its press is the same (look up at its north face);
   its repair after a miss is one press looking DOWN (50 degrees) at the same face (a piston faces
   away from the look: looking down places it facing up).
+* **Longer rows, up to 15** (`mctas bedrock row N --out <txt>` writes the row for any N): every
+  middle piston faces up; each extra bedrock adds its piston, trapdoor, stone, observer and one
+  more dust on a block continuing the clock line behind it: 6 blocks, a row of N is 6N + 3 blocks
+  (27 for 4, 33 for 5, 51 for 8, 93 for 15). The generator's nudge dust sits next to the clock at
+  (1,1,2), where the line is strongest; the rest of the row follows by neighbour updates. The
+  judge passes N = 2..15 (every piston, fresh and with the others used); at 16 the clock line's
+  signal (15 blocks of dust) no longer reaches the last observer in one of the redstone block's
+  two positions, and that piston stops arming. On the official server's real Nether roof in
+  survival: the row of 15 (turned once), all 15 pistons: windows 12 and 18 removed the bedrock, 13
+  did nothing (15/15); the row of 5 with the other four used (holes): 5/5.
 * The observers over the redstone block's two cells (O1, O2) see every move; O3 watches the clock
   line's dust on the stone at (2,1,3), lit except while the block moves. The minimizer found the
   pistons nudge each other: the end piston's dust nudge (the dust at (1,1,2) for the row of 2,
@@ -559,6 +569,7 @@ only in the End at fixed places.
   * `mctas bedrock minimize <txt> --out <txt> [--plateau N --threads N]`: the greedy descent;
   * `mctas bedrock graft <txt> --remove box --region box --periods 12`: swap the clock for every
     archived clock;
+  * `mctas bedrock row N --out <txt>`: the side-by-side row machine for N bedrock (2..15);
   * `mctas bedrock scenario <txt> --out <json> [--at x,y,z] [--dimension the_nether] [--survival]
     [--turns N --mirror] [--miss-repair A,B]`: a scenario for `scan`/`watch` (no dimension) or for
     `vanilla` on the real roof; the start block is placed in window 0 as the player's last block;

@@ -158,6 +158,13 @@ pub enum BedrockCmd {
         #[arg(long, value_delimiter = ',')]
         miss_repair: Vec<u32>,
     },
+    /// The row machine for N bedrock side by side (one clock; see NOTES section 3), written as a
+    /// machine design.
+    Row {
+        n: usize,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// The machine design on the OFFICIAL server's real Nether roof in every orientation (4 turns,
     /// mirrored too) at every `--at` target position, all on one server: the bot presses in each of
     /// `--windows` (each trial rebuilt from scratch). A directional / positional check.
@@ -325,6 +332,11 @@ pub fn run(version: &str, cmd: BedrockCmd) -> Result<()> {
         }
         BedrockCmd::Graft { design, remove, region, periods, clocks, mirror, offsets, rotations, max_gap, threads, out_dir, keep } => {
             graft_cmd(&design, remove, region, &periods, &clocks, mirror, offsets, rotations, max_gap, threads, out_dir.as_deref(), keep)?
+        }
+        BedrockCmd::Row { n, out } => {
+            let d = crate::machine::row_design(n)?;
+            d.save(&out)?;
+            println!("{}: {} blocks (roof not counted), {} bedrock side by side", out.display(), crate::machine::Machine::new(d.clone())?.blocks(), crate::machine::module_suffixes(&d).len());
         }
         BedrockCmd::VanillaMatrix { design, at, windows, mirror, turns, others_used, survival } => {
             let d = mctas::design::Design::load(&design)?;
