@@ -747,8 +747,21 @@ impl Prod {
                 }
             }
         }
-        let (_, s) = best.with_context(|| format!("no stand within reach of {target:?}"))?;
-        self.walk(s[0], s[2])
+        match best {
+            Some((_, s)) => self.walk(s[0], s[2]),
+            None => {
+                // The pass-start read may lag the real cavity (sweep overshoot, earlier
+                // blocks): walk at the target anyway and re-check reach from wherever we end.
+                self.walk(target[0], target[2]).ok();
+                let f = self.feet()?;
+                let cur = [f[0].floor() as i32, f[1].floor() as i32, f[2].floor() as i32];
+                if reach(cur) {
+                    Ok(())
+                } else {
+                    bail!("no stand within reach of {target:?} (player at {cur:?})")
+                }
+            }
+        }
     }
 
     /// A 4x5 nether portal frame with its bottom row at `ybase`, plane z = z0, west x = x0,
@@ -960,7 +973,8 @@ fn scenes(p: &mut Prod) -> Result<()> {
             "A permanent return portal, 24 blocks east",
             "(17+ away: portal searches are 16 in the Nether, 128 in the Overworld — exactly 8×)",
         ], 6.0)?;
-        p.clear_box("the_nether", [fx + 4, 5, rz], [rx + 5, 6, rz], false)?;
+        p.clear_box("the_nether", [fx + 4, 5, rz], [rx + 5, 6, rz + 1], false)?;
+        p.fill_floor("the_nether", 4, fx + 4, rx + 5, rz, rz + 1, None)?;
         p.clear_box("the_nether", [rx - 2, 5, rz - 3], [rx + 5, 9, rz + 3], false)?;
         p.fill_floor("the_nether", 4, rx - 1, rx + 4, rz - 1, rz + 1, Some((rx, rx + 3, rz, rz)))?;
         p.walk(rx + 1, rz + 2)?;
