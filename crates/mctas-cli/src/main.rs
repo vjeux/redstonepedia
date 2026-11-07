@@ -74,6 +74,13 @@ enum Cmd {
         #[command(subcommand)]
         command: bedrock::cli::BedrockCmd,
     },
+    /// Chunk regeneration study (designs/chunk-regen/NOTES.md): inspect the terrain,
+    /// entity and POI region streams of a saved world, and run the disposable-world
+    /// persistence experiments.
+    Chunk {
+        #[command(subcommand)]
+        command: chunk_regen::cli::ChunkCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -154,6 +161,7 @@ fn main() -> Result<()> {
         Cmd::Litematic { command } => litematic::cli::run(command)?,
         Cmd::Web { command } => web_cli::run(&cli.version, command)?,
         Cmd::Bedrock { command } => bedrock::cli::run(&cli.version, command)?,
+        Cmd::Chunk { command } => chunk_regen::cli::run(&cli.version, command)?,
     }
     Ok(())
 }

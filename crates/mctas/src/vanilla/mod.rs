@@ -11,6 +11,7 @@
 //!   pistons), i.e. everything the simulator's `idle` looks at except falling blocks.
 
 pub mod bot;
+pub mod chunkfile;
 pub mod nbt;
 
 use crate::sim::{Pos, Region};
@@ -105,6 +106,22 @@ pub struct VanillaOptions {
     pub view_distance: u32,
     /// `level-name`: the world folder's name, and the name the game lists for a new world.
     pub level_name: String,
+    /// `sync-chunk-writes` (dedicated servers default to true; the harness default is
+    /// false so `save-all flush` stays fast on a scratch world in /dev/shm).
+    pub sync_chunk_writes: bool,
+    /// `region-file-compression`: `deflate` (the dedicated default), `none` or `lz4`.
+    /// The harness default is `none` so region parsing needs no decompression luck.
+    pub region_file_compression: String,
+    /// `level-seed` of a fresh world.
+    pub level_seed: String,
+    /// Generate a normal world (`level-type=minecraft:normal`, structures on) instead of
+    /// the void superflat. Ignored when `world` re-opens a saved level (its generator is
+    /// already fixed in `level.dat`), but keep it the same for consistency.
+    pub normal_world: bool,
+    /// Freeze the tick loop and `save-off` at start (the door harness's needs). A study
+    /// of real saving wants both false: chunks save, unload and autosave like a server.
+    pub frozen_at_start: bool,
+    pub save_off_at_start: bool,
 }
 
 impl Default for VanillaOptions {
@@ -118,6 +135,12 @@ impl Default for VanillaOptions {
             world: None,
             view_distance: 3,
             level_name: "world".into(),
+            sync_chunk_writes: false,
+            region_file_compression: "none".into(),
+            level_seed: "0".into(),
+            normal_world: false,
+            frozen_at_start: true,
+            save_off_at_start: true,
         }
     }
 }
@@ -198,10 +221,17 @@ impl VanillaServer {
         }
         let props = [
             ("level-name", opts.level_name.clone()),
-            ("level-type", "minecraft\\:flat".to_string()),
-            ("generator-settings", r#"{"layers":[{"block":"minecraft:air","height":1}],"biome":"minecraft:the_void","features":false,"lakes":false}"#.to_string()),
-            ("generate-structures", "false".to_string()),
-            ("level-seed", "0".to_string()),
+            ("level-type", if opts.normal_world { "minecraft\\:normal".to_string() } else { "minecraft\\:flat".to_string() }),
+            (
+                "generator-settings",
+                if opts.normal_world {
+                    "{}".to_string()
+                } else {
+                    r#"{"layers":[{"block":"minecraft:air","height":1}],"biome":"minecraft:the_void","features":false,"lakes":false}"#.to_string()
+                },
+            ),
+            ("generate-structures", if opts.normal_world { "true".to_string() } else { "false".to_string() }),
+            ("level-seed", opts.level_seed.clone()),
             ("online-mode", "false".to_string()),
             ("enforce-secure-profile", "false".to_string()),
             ("server-ip", "127.0.0.1".to_string()),
@@ -223,8 +253,8 @@ impl VanillaServer {
             ("view-distance", opts.view_distance.to_string()),
             ("simulation-distance", "3".to_string()),
             ("network-compression-threshold", "-1".to_string()),
-            ("sync-chunk-writes", "false".to_string()),
-            ("region-file-compression", "none".to_string()),
+            ("sync-chunk-writes", opts.sync_chunk_writes.to_string()),
+            ("region-file-compression", opts.region_file_compression.clone()),
             ("log-ips", "false".to_string()),
             ("white-list", "false".to_string()),
             ("enforce-whitelist", "false".to_string()),
@@ -280,15 +310,21 @@ impl VanillaServer {
             std::thread::sleep(Duration::from_millis(200));
         };
         let mut server = VanillaServer { child, dir, rcon, bot: None, game_port, keep_dir: opts.keep_dir, log, stats: Stats::default(), tick_rate: opts.tick_rate, dirty: None, markers: HashMap::new(), markers_seen: 0, level_name: opts.level_name.clone() };
-        for c in [
-            "tick freeze",
-            "save-off",
+        let mut startup: Vec<&str> = Vec::new();
+        if opts.frozen_at_start {
+            startup.push("tick freeze");
+        }
+        if opts.save_off_at_start {
+            startup.push("save-off");
+        }
+        startup.extend([
             "gamerule spawn_mobs false",
             "gamerule spawn_monsters false",
             "gamerule advance_weather false",
             "gamerule advance_time false",
             "gamerule log_admin_commands false",
-        ] {
+        ]);
+        for c in startup {
             server.cmd_ok(c)?;
         }
         if opts.tick_rate != 20 {
@@ -302,6 +338,27 @@ impl VanillaServer {
 
     pub fn game_port(&self) -> u16 {
         self.game_port
+    }
+
+    /// The saved level's folder (`<run dir>/<level-name>`): pass it as `VanillaOptions.world`
+    /// to re-open the same world in a new server process.
+    pub fn world_dir(&self) -> PathBuf {
+        self.dir.join(&self.level_name)
+    }
+
+    /// The overworld dimension folder holding `region/`, `entities/` and `poi/`.
+    pub fn dimension_dir(&self) -> PathBuf {
+        chunkfile::dimension_dir(&self.dir)
+    }
+
+    /// Kill the server process *now* without saving, keeping the world directory.
+    /// Only for characterising crash/kill windows of our own disposable servers: a result
+    /// that needs this is never a survival trigger.
+    pub fn abort(&mut self) {
+        self.bot = None;
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        self.keep_dir = true;
     }
 
     /// Run a command; returns its output.
@@ -541,41 +598,11 @@ impl Chunk {
     }
 }
 
-fn read_chunk(world: &Path, cx: i32, cz: i32, cache: &mut HashMap<(i32, i32), Vec<u8>>) -> Result<Option<Chunk>> {
-    let (rx, rz) = (cx.div_euclid(32), cz.div_euclid(32));
-    if let std::collections::hash_map::Entry::Vacant(e) = cache.entry((rx, rz)) {
-        let path = world.join("region").join(format!("r.{rx}.{rz}.mca"));
-        e.insert(std::fs::read(&path).unwrap_or_default());
-    }
-    let file = &cache[&(rx, rz)];
-    if file.len() < 8192 {
+fn read_chunk(world: &Path, cx: i32, cz: i32, _cache: &mut HashMap<(i32, i32), Vec<u8>>) -> Result<Option<Chunk>> {
+    // `world` is the dimension folder; chunkfile handles internal and external (.mcc)
+    // storage and every compression version, like the game's RegionFile.
+    let Some(bytes) = chunkfile::read_chunk_bytes(world, chunkfile::Stream::Region, cx, cz)? else {
         return Ok(None);
-    }
-    let slot = 4 * ((cx.rem_euclid(32) + cz.rem_euclid(32) * 32) as usize);
-    let loc = u32::from_be_bytes(file[slot..slot + 4].try_into()?);
-    let (offset, count) = ((loc >> 8) as usize * 4096, (loc & 0xff) as usize);
-    if offset == 0 || count == 0 {
-        return Ok(None);
-    }
-    let len = u32::from_be_bytes(file.get(offset..offset + 4).context("region truncated")?.try_into()?) as usize;
-    let kind = *file.get(offset + 4).context("region truncated")?;
-    let raw = file.get(offset + 5..offset + 4 + len).context("region chunk truncated")?;
-    if kind & 0x80 != 0 {
-        bail!("chunk {cx},{cz} is stored in an external .mcc file (not supported)");
-    }
-    let bytes: Vec<u8> = match kind {
-        3 => raw.to_vec(),
-        2 => {
-            let mut v = Vec::new();
-            flate2::read::ZlibDecoder::new(raw).read_to_end(&mut v)?;
-            v
-        }
-        1 => {
-            let mut v = Vec::new();
-            flate2::read::GzDecoder::new(raw).read_to_end(&mut v)?;
-            v
-        }
-        k => bail!("chunk {cx},{cz}: unsupported compression {k}"),
     };
     let root = nbt::parse_named(&bytes)?;
     let mut chunk = Chunk { sections: HashMap::new(), block_ticks: Vec::new(), fluid_ticks: 0, block_entities: Vec::new() };

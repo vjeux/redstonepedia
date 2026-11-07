@@ -259,6 +259,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "chunk-regen"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "mctas",
+]
+
+[[package]]
 name = "circuit"
 version = "0.1.0"
 dependencies = [
@@ -1215,6 +1224,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bedrock",
+ "chunk-regen",
  "circuit-cli",
  "clap",
  "clock-cli",
