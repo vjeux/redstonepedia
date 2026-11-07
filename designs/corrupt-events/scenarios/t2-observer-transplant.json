@@ -1,0 +1,14 @@
+{
+  "name": "t2-observer-transplant",
+  "notes": "T2 (corrupt-events), watch-only, ideal swap: observer A (facing north, output to the south lamp) observes a stone placed in front of it at window 0 (2 gt tick pending). At window 1 the script breaks A and places observer B rotated (facing east, output to the west lamp). The pending tick must toggle B: a 2 gt pulse into the WEST lamp, nothing into the south lamp. The bridge swap is window-atomic; the survival timeline (2-tick mine in exactly the two windows a machine-caused observation leaves) is source-proven in the brief and attempted with the vanilla bot separately. Watch: --to 8 --verbose --cells 0,1,1 --cells -1,1,0.",
+  "target": [5, 5, 5],
+  "blocks": [[5, 5, 5, "minecraft:bedrock"], [0, 0, -1, "minecraft:stone"], [0, 0, 0, "minecraft:stone"], [0, 0, 1, "minecraft:stone"], [1, 0, 0, "minecraft:stone"], [-1, 0, 0, "minecraft:stone"], [0, 1, 0, "minecraft:observer[facing=north,powered=false]"], [0, 1, 1, "minecraft:redstone_lamp"], [-1, 1, 0, "minecraft:redstone_lamp"]],
+  "script": [
+    {"do": "place", "pos": [0, 1, -1], "state": "minecraft:stone", "at": 0},
+    {"do": "break", "pos": [0, 1, 0], "at": 1},
+    {"do": "place", "pos": [0, 1, 0], "state": "minecraft:observer[facing=east,powered=false]", "at": 1}
+  ],
+  "chord": [
+    {"do": "break", "pos": [0, 1, 0]}
+  ]
+}

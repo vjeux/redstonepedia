@@ -1,0 +1,14 @@
+{
+  "name": "p6-extend-swap",
+  "notes": "P6 (corrupt-events): a queued EXTEND executes along the swapped-in facing. Script window 0 places a torch west of piston A (facing up): checkIfExtend queues an extend during packet handling. The chord in the same window breaks A and places a piston facing east (still powered by the west torch: signal from the west counts for an east-facing piston). The event pushes the stone at (1,2,0) east. Baseline (no chord): A extends up, the stone stays. Scan window 0 only.",
+  "target": [1, 2, 0],
+  "target_block": "minecraft:stone",
+  "blocks": [[-1, 1, 0, "minecraft:stone"], [0, 1, 0, "minecraft:stone"], [1, 1, 0, "minecraft:stone"], [2, 1, 0, "minecraft:stone"], [0, 2, 0, "minecraft:piston[facing=up]"], [1, 2, 0, "minecraft:stone"]],
+  "script": [
+    {"do": "place", "pos": [-1, 2, 0], "state": "minecraft:redstone_torch", "at": 0}
+  ],
+  "chord": [
+    {"do": "break", "pos": [0, 2, 0]},
+    {"do": "place", "pos": [0, 2, 0], "state": "minecraft:piston[facing=east]"}
+  ]
+}

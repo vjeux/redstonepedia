@@ -1,0 +1,14 @@
+{
+  "name": "p2-reinforced-deepslate",
+  "notes": "P2 (corrupt-events): the bedrock breaker's swap against reinforced deepslate (survival-unbreakable, ancient-city frame). Same geometry, stance and chord as p2-end-portal-frame.json.",
+  "target": [0, 1, 0],
+  "target_block": "minecraft:reinforced_deepslate",
+  "blocks": [[0, 1, 0, "minecraft:reinforced_deepslate"], [1, 1, 0, "minecraft:stone"], [0, 2, 0, "minecraft:piston[facing=up]"], [1, 2, 0, "minecraft:redstone_torch"], [-2, 1, 0, "minecraft:stone"]],
+  "stance": {"pos": [-1.5, 2.0, 0.5], "look": [270.0, -90.0]},
+  "survival": true,
+  "chord": [
+    {"do": "break", "pos": [1, 2, 0]},
+    {"do": "break", "pos": [0, 2, 0]},
+    {"do": "place", "pos": [0, 2, 0], "state": "minecraft:piston[facing=down]"}
+  ]
+}

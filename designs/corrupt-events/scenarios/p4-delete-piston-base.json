@@ -1,0 +1,13 @@
+{
+  "name": "p4-delete-piston-base",
+  "notes": "P4 (corrupt-events): retract-delete aimed at an extended piston's BASE. Victim V at (0,2,0) faces east, powered by the redstone block behind it, head at (1,2,0). Swap piston SP at (0,3,0) faces up, torch-powered from (0,3,1). Chord: break torch, break SP, place piston facing down: the queued retract deletes V. Pass requires BOTH the base cell and the head cell empty of minecraft:piston* (target_block is a prefix on the bridge): the orphan head must collapse in the same update (PistonHeadBlock.updateShape), i.e. no survival headless piston by this route.",
+  "target": [0, 2, 0],
+  "target_block": "minecraft:piston",
+  "also": [[1, 2, 0]],
+  "blocks": [[-1, 2, 0, "minecraft:redstone_block"], [0, 2, 0, "minecraft:piston[facing=east]"], [0, 2, 1, "minecraft:stone"], [0, 3, 0, "minecraft:piston[facing=up]"], [0, 3, 1, "minecraft:redstone_torch"]],
+  "chord": [
+    {"do": "break", "pos": [0, 3, 1]},
+    {"do": "break", "pos": [0, 3, 0]},
+    {"do": "place", "pos": [0, 3, 0], "state": "minecraft:piston[facing=down]"}
+  ]
+}

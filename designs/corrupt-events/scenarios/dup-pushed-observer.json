@@ -1,0 +1,14 @@
+{
+  "name": "dup-pushed-observer",
+  "notes": "Position confusion (corrupt-events 3.4), watch-only. Observer A at (2,1,0) facing north; sticky piston P at (0,1,0) facing east, extended by the south torch, head at (1,1,0). Window 0 script: place a stone in front of A (A schedules its 2 gt tick AT (2,1,0)) and break P's torch (queues a type-1 retract: P pulls A to (1,1,0) in the next tick's block events, freeing (2,1,0)). Window 1: place observer C, also facing north, at A's old cell. Expect TWO pulses from one observation: the orphan tick fires on C at +2 gt (focus cell powered=true around window 2), and A, landing at (1,1,0) in the block-entity phase, re-schedules and pulses about 3 gt later (extra cell). A push cannot do this: the pusher's head occupies the old cell exactly at the trigger tick (push and observer delay are both 2 gt, scheduled ticks run before block events) — see dup-control-no-c and the first run in NOTES. Readout is the observers' own powered state; the two lamps are secondary (adjacent lamps relay direct signal through each other, SignalGetter 65-69). Watch: --to 10 --verbose --cells 1,1,0 --cells 2,1,1 --cells 1,1,1.",
+  "target": [5, 5, 5],
+  "blocks": [[5, 5, 5, "minecraft:bedrock"], [0, 0, 0, "minecraft:stone"], [1, 0, 0, "minecraft:stone"], [2, 0, 0, "minecraft:stone"], [2, 0, -1, "minecraft:stone"], [2, 0, 1, "minecraft:stone"], [1, 0, 1, "minecraft:stone"], [0, 0, 1, "minecraft:stone"], [0, 1, 0, "minecraft:sticky_piston[facing=east]"], [0, 1, 1, "minecraft:redstone_torch"], [2, 1, 0, "minecraft:observer[facing=north,powered=false]"], [2, 1, 1, "minecraft:redstone_lamp"], [1, 1, 1, "minecraft:redstone_lamp"]],
+  "script": [
+    {"do": "place", "pos": [2, 1, -1], "state": "minecraft:stone", "at": 0},
+    {"do": "break", "pos": [0, 1, 1], "at": 0},
+    {"do": "place", "pos": [2, 1, 0], "state": "minecraft:observer[facing=north,powered=false]", "at": 1}
+  ],
+  "chord": [
+    {"do": "break", "pos": [2, 1, 0]}
+  ]
+}

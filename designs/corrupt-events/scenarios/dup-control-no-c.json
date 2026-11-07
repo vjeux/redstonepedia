@@ -1,0 +1,13 @@
+{
+  "name": "dup-control-no-c",
+  "notes": "Control for dup-pushed-observer: identical, but NO observer C is ever placed at the old cell. If the (-2,1,1) lamp still lights when A pulses at its new position, that is a lamp power-path artifact of the layout (to be named), not the orphan tick firing.",
+  "target": [5, 5, 5],
+  "blocks": [[5, 5, 5, "minecraft:bedrock"], [-4, 0, 0, "minecraft:stone"], [-3, 0, 0, "minecraft:stone"], [-2, 0, 0, "minecraft:stone"], [-1, 0, 0, "minecraft:stone"], [-2, 0, -1, "minecraft:stone"], [-2, 0, 1, "minecraft:stone"], [-1, 0, 1, "minecraft:stone"], [-3, 1, 0, "minecraft:piston[facing=east]"], [-2, 1, 0, "minecraft:observer[facing=north,powered=false]"], [-2, 1, 1, "minecraft:redstone_lamp"], [-1, 1, 1, "minecraft:redstone_lamp"]],
+  "script": [
+    {"do": "place", "pos": [-2, 1, -1], "state": "minecraft:stone", "at": 0},
+    {"do": "place", "pos": [-4, 1, 0], "state": "minecraft:redstone_block", "at": 0}
+  ],
+  "chord": [
+    {"do": "break", "pos": [-2, 1, 0]}
+  ]
+}

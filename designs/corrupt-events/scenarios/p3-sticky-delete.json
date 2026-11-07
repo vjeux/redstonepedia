@@ -1,0 +1,11 @@
+{
+  "name": "p3-sticky-delete",
+  "notes": "P3 (corrupt-events): a STICKY swap piston also deletes. Sticky piston up on the bedrock (a second bedrock under the target makes the two-ahead cell unpullable), torch beside it. Chord: break torch (queues a type-1 retract), break the sticky piston, place a sticky piston facing down. At execution the sticky branch finds the two-ahead bedrock not pushable and removeBlocks the front cell (PistonBaseBlock 192-199): the target bedrock is deleted.",
+  "target": [0, 1, 0],
+  "blocks": [[0, 0, 0, "minecraft:bedrock"], [0, 1, 0, "minecraft:bedrock"], [1, 1, 0, "minecraft:stone"], [0, 2, 0, "minecraft:sticky_piston[facing=up]"], [1, 2, 0, "minecraft:redstone_torch"], [-2, 1, 0, "minecraft:stone"]],
+  "chord": [
+    {"do": "break", "pos": [1, 2, 0]},
+    {"do": "break", "pos": [0, 2, 0]},
+    {"do": "place", "pos": [0, 2, 0], "state": "minecraft:sticky_piston[facing=down]"}
+  ]
+}

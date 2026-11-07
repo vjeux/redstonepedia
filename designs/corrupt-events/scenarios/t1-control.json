@@ -1,0 +1,12 @@
+{
+  "name": "t1-control",
+  "notes": "T1 control (corrupt-events), watch-only: like t1-repeater-transplant but repeater A is left alone: the north lamp must light 8 gt after the input and stay lit (input held), the east lamp never. Confirms the FACING=input-side convention and the baseline timing the transplant is compared against.",
+  "target": [5, 5, 5],
+  "blocks": [[5, 5, 5, "minecraft:bedrock"], [0, 0, -1, "minecraft:stone"], [0, 0, 0, "minecraft:stone"], [0, 0, 1, "minecraft:stone"], [1, 0, 0, "minecraft:stone"], [-1, 0, 0, "minecraft:stone"], [0, 1, 0, "minecraft:repeater[delay=4,facing=south,locked=false,powered=false]"], [0, 1, -1, "minecraft:redstone_lamp"], [1, 1, 0, "minecraft:redstone_lamp"]],
+  "script": [
+    {"do": "place", "pos": [0, 1, 1], "state": "minecraft:redstone_block", "at": 0}
+  ],
+  "chord": [
+    {"do": "break", "pos": [0, 1, 0]}
+  ]
+}

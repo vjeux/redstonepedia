@@ -1,0 +1,12 @@
+{
+  "name": "p2-obsidian",
+  "notes": "P2 control (corrupt-events): the same swap against obsidian (minable, but the retract-delete does not care: removeBlock is unconditional). Same geometry and chord as p2-end-portal-frame.json. Bridge only (no stance needed).",
+  "target": [0, 1, 0],
+  "target_block": "minecraft:obsidian",
+  "blocks": [[0, 1, 0, "minecraft:obsidian"], [1, 1, 0, "minecraft:stone"], [0, 2, 0, "minecraft:piston[facing=up]"], [1, 2, 0, "minecraft:redstone_torch"], [-2, 1, 0, "minecraft:stone"]],
+  "chord": [
+    {"do": "break", "pos": [1, 2, 0]},
+    {"do": "break", "pos": [0, 2, 0]},
+    {"do": "place", "pos": [0, 2, 0], "state": "minecraft:piston[facing=down]"}
+  ]
+}

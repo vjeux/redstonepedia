@@ -1,0 +1,13 @@
+{
+  "name": "dup-pull-control",
+  "notes": "Control for dup-pushed-observer (pull geometry): identical, but observer C is never placed. Expect exactly ONE pulse: A after landing at (1,1,0); the focus cell (2,1,0) stays air and never shows a powered observer.",
+  "target": [5, 5, 5],
+  "blocks": [[5, 5, 5, "minecraft:bedrock"], [0, 0, 0, "minecraft:stone"], [1, 0, 0, "minecraft:stone"], [2, 0, 0, "minecraft:stone"], [2, 0, -1, "minecraft:stone"], [2, 0, 1, "minecraft:stone"], [1, 0, 1, "minecraft:stone"], [0, 0, 1, "minecraft:stone"], [0, 1, 0, "minecraft:sticky_piston[facing=east]"], [0, 1, 1, "minecraft:redstone_torch"], [2, 1, 0, "minecraft:observer[facing=north,powered=false]"], [2, 1, 1, "minecraft:redstone_lamp"], [1, 1, 1, "minecraft:redstone_lamp"]],
+  "script": [
+    {"do": "place", "pos": [2, 1, -1], "state": "minecraft:stone", "at": 0},
+    {"do": "break", "pos": [0, 1, 1], "at": 0}
+  ],
+  "chord": [
+    {"do": "break", "pos": [2, 1, 0]}
+  ]
+}

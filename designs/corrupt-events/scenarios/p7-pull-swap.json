@@ -1,0 +1,12 @@
+{
+  "name": "p7-pull-swap",
+  "notes": "P7 (corrupt-events): a queued sticky PULL (type 1) executes along the swapped-in facing. Sticky piston A faces up, extended by the west torch; stone at (2,2,0). Chord window 0: break the torch (queues a type-1 retract; the up two-ahead cell is air), break A, place a sticky piston facing east. The event pulls the stone from (2,2,0) to (1,2,0). Baseline (no chord): A retracts upward normally, the stone stays.",
+  "target": [2, 2, 0],
+  "target_block": "minecraft:stone",
+  "blocks": [[-1, 1, 0, "minecraft:stone"], [0, 1, 0, "minecraft:stone"], [1, 1, 0, "minecraft:stone"], [2, 1, 0, "minecraft:stone"], [-1, 2, 0, "minecraft:redstone_torch"], [0, 2, 0, "minecraft:sticky_piston[facing=up]"], [2, 2, 0, "minecraft:stone"]],
+  "chord": [
+    {"do": "break", "pos": [-1, 2, 0]},
+    {"do": "break", "pos": [0, 2, 0]},
+    {"do": "place", "pos": [0, 2, 0], "state": "minecraft:sticky_piston[facing=east]"}
+  ]
+}

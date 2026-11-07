@@ -1,0 +1,14 @@
+{
+  "name": "t1-repeater-transplant",
+  "notes": "T1 (corrupt-events), watch-only: repeater A (delay 4, FACING=south: input from the south cell, output to the north lamp) is triggered at window 0 (script places the redstone block: an 8 gt tick is pending). At window 3 the script breaks A and places repeater B rotated (FACING=west: input from the empty west cell, output to the east lamp, delay 1). DiodeBlock.tick turns an OFF repeater ON unconditionally, so at the pending tick B must pulse into the EAST lamp for its own 2 gt despite never having an input, and the north lamp must never light. Watch: mctas bedrock watch <this> --to 14 --verbose --cells 0,1,-1 --cells 1,1,0 --cells 0,1,1. The target/chord are dummies for the watch focus cell (the chord never runs under watch).",
+  "target": [5, 5, 5],
+  "blocks": [[5, 5, 5, "minecraft:bedrock"], [0, 0, -1, "minecraft:stone"], [0, 0, 0, "minecraft:stone"], [0, 0, 1, "minecraft:stone"], [1, 0, 0, "minecraft:stone"], [-1, 0, 0, "minecraft:stone"], [0, 1, 0, "minecraft:repeater[delay=4,facing=south,locked=false,powered=false]"], [0, 1, -1, "minecraft:redstone_lamp"], [1, 1, 0, "minecraft:redstone_lamp"]],
+  "script": [
+    {"do": "place", "pos": [0, 1, 1], "state": "minecraft:redstone_block", "at": 0},
+    {"do": "break", "pos": [0, 1, 0], "at": 3},
+    {"do": "place", "pos": [0, 1, 0], "state": "minecraft:repeater[delay=1,facing=west,locked=false,powered=false]", "at": 3}
+  ],
+  "chord": [
+    {"do": "break", "pos": [0, 1, 0]}
+  ]
+}
