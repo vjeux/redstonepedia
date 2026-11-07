@@ -282,7 +282,7 @@ public final class Actor {
                 return onClient(() -> "ok held=" + heldDesc());
             }
             case "mine":
-                return mine(new BlockPos(Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3])));
+                return mine(new BlockPos(Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3])), f.length > 4 && f[4].equals("sweep"));
             case "place":
                 return place(new BlockPos(Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3])),
                         Direction.valueOf(f[4].toUpperCase(Locale.ROOT)));
@@ -370,20 +370,26 @@ public final class Actor {
      * display the window may never take focus, so grab it (and as a last resort set the flag
      * the grab would set — the same state a focused window has).
      */
-    private static String mine(BlockPos pos) throws Exception {
+    private static String mine(BlockPos pos, boolean sweep) throws Exception {
         waitPlayer();
         float[] a = onClient(() -> anglesTo(Minecraft.getInstance().player, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5));
-        lookSmooth(a[0], a[1], 3);
+        lookSmooth(a[0], a[1], sweep ? 1 : 3);
         // Fast blocks (a few ticks: netherrack, deepslate) are mined with direct per-tick calls:
         // precise (no overshoot into whatever is behind) and only a handful of round trips.
         // Slow blocks (obsidian: ~31 ticks) hold the attack key instead, so the client's own
         // per-tick path runs at full tick rate regardless of frame rate; overshoot there only
         // starts a crack in the next obsidian, which resets when the key is released.
-        Float perTick = onClient(() -> {
+        // `sweep` (bulk clearing, digging down): always the held key — overshoot just mines
+        // more of the same rock, exactly like a player sweeping an instamine pick.
+        float perTickF = onClient(() -> {
             Minecraft mc = Minecraft.getInstance();
             BlockState s = mc.level.getBlockState(pos);
             return s.isAir() ? 1.0F : s.getDestroyProgress(mc.player, mc.player.level(), pos);
         });
+        float perTick = sweep ? 0.0F : perTickF;
+        if (sweep && perTickF >= 1.0F && onClient(() -> Minecraft.getInstance().level.getBlockState(pos).isAir())) {
+            return "ok mined";
+        }
         if (perTick >= 1.0F) {
             // already air, or one direct call breaks it (instamine)
             onClient(() -> {
