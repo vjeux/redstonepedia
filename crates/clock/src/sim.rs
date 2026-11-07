@@ -453,6 +453,30 @@ pub fn with_placed_shapes(text: &str, c: &Clock) -> Result<Option<String>, Strin
 /// the inputs due at t, `frame(t, world)`, one tick. Runs every tick even after a problem between
 /// ticks (a drop, an error: the first one is returned with its tick, like [`drive`]'s `stopped`);
 /// `Err` when redsim does not model the design.
+/// [`drive_custom`] with the world MUTABLE in the frame callback (called between ticks, after
+/// the kick's inputs due at that tick), for judges that act in the world themselves: the bedrock
+/// study clones it to try a player's press in every window. `frame` returns false to stop.
+pub fn drive_mut(c: &Clock, from: Pos, to: Pos, ticks: u32, mut frame: impl FnMut(u32, &mut World) -> bool) -> Result<Option<(u32, String)>, String> {
+    let mut blocks = parse_blocks(c).map_err(|e| format!("not modeled by redsim: {e}"))?;
+    blocks.sort_by_key(|(p, _)| *p);
+    let mut s = start_box(c, &blocks, from, to).map_err(|(_, why)| why)?;
+    let mut first: Option<(u32, String)> = None;
+    for t in 0..=ticks {
+        if let Err((_, why)) = between_ticks(&mut s, t)
+            && first.is_none()
+        {
+            first = Some((t, why));
+        }
+        if !frame(t, &mut s.world) {
+            break;
+        }
+        if t < ticks {
+            s.world.tick();
+        }
+    }
+    Ok(first)
+}
+
 pub fn drive_custom(c: &Clock, from: Pos, to: Pos, ticks: u32, config: impl FnOnce(&mut World), mut frame: impl FnMut(u32, &World)) -> Result<Option<(u32, String)>, String> {
     let mut blocks = parse_blocks(c).map_err(|e| format!("not modeled by redsim: {e}"))?;
     blocks.sort_by_key(|(p, _)| *p);

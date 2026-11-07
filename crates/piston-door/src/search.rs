@@ -429,7 +429,8 @@ fn support_ok(d: &Design, q: Pos, s: &str) -> bool {
 struct Ctx {
     keep: HashSet<Pos>,
     forbidden: HashSet<Pos>,
-    spec: DoorSpec,
+    /// The door (None for a non-door design searched with [`generic_edits`]).
+    spec: Option<DoorSpec>,
 }
 
 impl Ctx {
@@ -443,7 +444,7 @@ impl Ctx {
             }
         }
         let forbidden = crate::route::keep_clear(&spec).into_iter().collect();
-        Ok(Ctx { keep, forbidden, spec })
+        Ok(Ctx { keep, forbidden, spec: Some(spec) })
     }
 
     fn removable(&self, d: &Design) -> Vec<Pos> {
@@ -560,6 +561,31 @@ fn substitutes(d: &Design, p: Pos, b: &BlockState) -> Vec<String> {
 /// Count-neutral edits: repeater delays, substitutions, moves to a neighbor cell (an extended
 /// piston moves with its head), and the lever moved or re-attached nearby (its port follows).
 fn neutral_edits(ctx: &Ctx, d: &Design, opts: &SearchOptions) -> Vec<Edit> {
+    neutral_edits_by(ctx, d, &|f| opts.has(f))
+}
+
+/// The local-edit neighbourhood `door minimize` searches, for ANY design (the bedrock study's
+/// machine minimizer, `mctas bedrock minimize`): removals of 1-3 blocks (`Singles`, `Pairs`,
+/// `Triples`, triples within `radius`), repeater delays, substitutions, moves, and with `Swap`
+/// the swaps (two blocks out, one in), relocations and compounds. Cells in `keep` are never
+/// touched and nothing is put on `forbidden`. The door-only families (`Reroute`, `Renet`: they
+/// need the door's swept space) are ignored. Returns (improving: fewer blocks, neutral: the same
+/// count), as `search` splits them.
+pub fn generic_edits(d: &Design, keep: &HashSet<Pos>, forbidden: &HashSet<Pos>, families: &[Family], radius: i32) -> (Vec<Edit>, Vec<Edit>) {
+    let ctx = Ctx { keep: keep.clone(), forbidden: forbidden.clone(), spec: None };
+    let has = |f: Family| families.contains(&f);
+    let neutral = neutral_edits_by(&ctx, d, &has);
+    let mut improving = removals(&ctx, d, has(Family::Singles), has(Family::Pairs), has(Family::Triples), radius);
+    improving.extend(compounds(&ctx, d, &neutral, radius));
+    let mut neutral_all = neutral;
+    if has(Family::Swap) {
+        improving.extend(swaps(&ctx, d, radius));
+        neutral_all.extend(relocations(&ctx, d, radius));
+    }
+    (improving, neutral_all)
+}
+
+fn neutral_edits_by(ctx: &Ctx, d: &Design, has: &dyn Fn(Family) -> bool) -> Vec<Edit> {
     let mut out = Vec::new();
     let set1 = |p: Pos, s: String, desc: String| Edit { set: vec![(p, s)], desc, ..Default::default() };
     for (&p, s) in &d.blocks {
@@ -568,7 +594,7 @@ fn neutral_edits(ctx: &Ctx, d: &Design, opts: &SearchOptions) -> Vec<Edit> {
         }
         let Ok(b) = BlockState::parse(s) else { continue };
         let k = b.short_name().to_string();
-        if opts.has(Family::Delays) && k == "repeater" {
+        if has(Family::Delays) && k == "repeater" {
             let cur = b.get("delay").unwrap_or("1").to_string();
             for dl in ["1", "2", "3", "4"] {
                 if dl != cur {
@@ -576,7 +602,7 @@ fn neutral_edits(ctx: &Ctx, d: &Design, opts: &SearchOptions) -> Vec<Edit> {
                 }
             }
         }
-        if opts.has(Family::Subs) {
+        if has(Family::Subs) {
             for alt in substitutes(d, p, &b) {
                 out.push(set1(p, alt.clone(), format!("{} {} => {}", fmt_pos(p), short(s), short(&alt))));
             }
@@ -596,7 +622,7 @@ fn neutral_edits(ctx: &Ctx, d: &Design, opts: &SearchOptions) -> Vec<Edit> {
                 out.push(e);
             }
         }
-        if opts.has(Family::Moves) && movable(&k) && !supports_something(d, p) {
+        if has(Family::Moves) && movable(&k) && !supports_something(d, p) {
             // An extended piston moves with its head.
             let head = (b.get("extended") == Some("true"))
                 .then(|| b.get("facing").and_then(dir).map(|v| add(p, v)))
@@ -625,7 +651,7 @@ fn neutral_edits(ctx: &Ctx, d: &Design, opts: &SearchOptions) -> Vec<Edit> {
             }
         }
     }
-    if opts.has(Family::Moves) {
+    if has(Family::Moves) {
         out.extend(lever_moves(ctx, d));
     }
     out
@@ -1821,7 +1847,7 @@ pub fn search(
         if opts.has(Family::Reroute) || opts.has(Family::Renet) {
             let swept = {
                 let mut w = pool.worker(0);
-                sweep(&mut w, &cur, &ctx.spec)?
+                sweep(&mut w, &cur, ctx.spec.as_ref().expect("the door search needs a door design"))?
             };
             let tr = Instant::now();
             let (b, n) = routed(opts, std::slice::from_ref(&cur), std::slice::from_ref(&swept)).remove(0);
@@ -1934,7 +1960,7 @@ pub fn search(
         let n_removals = cands.len();
         if opts.has(Family::Reroute) || opts.has(Family::Renet) {
             let tr = Instant::now();
-            let spec = ctx.spec;
+            let spec = ctx.spec.expect("the door search needs a door design");
             let swept: Vec<Space> = pool
                 .map((0..pbases.len()).collect(), |w, _, i| sweep(w, &pbases[i], &spec))
                 .into_iter()

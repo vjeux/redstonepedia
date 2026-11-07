@@ -26,6 +26,7 @@ const SB_CFG_ACCEPT_COC: i32 = 9;
 const SB_ACCEPT_TELEPORT: i32 = 0;
 const SB_CHUNK_BATCH_RECEIVED: i32 = 11;
 const SB_KEEP_ALIVE: i32 = 28;
+const SB_MOVE_PLAYER_STATUS_ONLY: i32 = 33;
 const SB_PLAYER_ACTION: i32 = 41;
 const SB_PLAYER_INPUT: i32 = 43;
 const SB_PLAYER_LOADED: i32 = 44;
@@ -301,6 +302,13 @@ impl Bot {
             bail!("bot: {e}");
         }
         send(&self.writer, SB_PLAYER_INPUT, &[if sneak { 32 } else { 0 }])
+    }
+
+    /// Tell the server whether the player stands on the ground (`MOVE_PLAYER_STATUS_ONLY`): a
+    /// survival player mining in the air mines 5x slower (`Player.getDestroySpeed`).
+    pub fn set_on_ground(&mut self, on: bool) -> Result<()> {
+        self.check_ready()?;
+        send(&self.writer, SB_MOVE_PLAYER_STATUS_ONLY, &[if on { 1 } else { 0 }])
     }
 
     /// Wait until the server acknowledged block changes up to `sequence`.
