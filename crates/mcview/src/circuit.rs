@@ -1016,9 +1016,25 @@ pub struct PortGroup {
 /// The tags of a circuit's ports (besides the inputs): one per port ([`port_tags`]), except in a
 /// shulker design, where the same kind's chests that stand together (within 2 cells of one
 /// another) share ONE tag without letters (`ITEMS A`..`ITEMS F` in two rows of three: two
-/// `ITEMS` tags; the two output chests far apart: two `OUT` tags).
+/// `ITEMS` tags; the two output chests far apart: two `OUT` tags), and in a bedrock breaker,
+/// whose repeated swap pistons and target bedrock share one PRESS tag and one BEDROCK tag (each
+/// cell keeps its coloured outline, so a row stays readable at phone size).
 pub fn port_groups(d: &Design) -> Vec<PortGroup> {
     let tags = port_tags(d);
+    let bedrock_breaker = d.meta.get("circuit").is_some_and(|k| k.split_whitespace().next() == Some("bedrock-breaker"));
+    if bedrock_breaker {
+        let mut groups: Vec<PortGroup> = Vec::new();
+        for (label, colour) in [("PRESS", "#7cf09a"), ("BEDROCK", "#b4b4ff")] {
+            let mut cells: Vec<Pos> = tags.iter().filter(|(l, _, c)| *c == colour && l.split(' ').next() == Some(label)).map(|(_, p, _)| *p).collect();
+            cells.sort();
+            cells.dedup();
+            if !cells.is_empty() {
+                groups.push(PortGroup { label: label.to_string(), cells, colour });
+            }
+        }
+        groups.extend(tags.into_iter().filter(|(_, _, c)| *c != "#7cf09a" && *c != "#b4b4ff").map(|(label, p, colour)| PortGroup { label, cells: vec![p], colour }));
+        return groups;
+    }
     if !is_shulker(d) {
         return tags.into_iter().map(|(label, p, colour)| PortGroup { label, cells: vec![p], colour }).collect();
     }
@@ -1395,6 +1411,15 @@ mod tests {
         assert_eq!(ev.iter().map(|e| e.0).collect::<Vec<_>>(), vec![41, 45, 50, 60]);
         assert!(matches!(ev[0].2, EventOp::Place(_)) && ev[1].2 == EventOp::Clear && matches!(ev[2].2, EventOp::Shape(_)) && ev[3].2 == EventOp::Update);
         assert!(parse_events("41 smash 1 0 0").is_err());
+    }
+
+    #[test]
+    fn bedrock_breaker_port_groups_share_tags() {
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../designs/circuits/bedrock/archive/bedrock-breaker-row8.txt")).unwrap();
+        let d = Design::parse(&text).unwrap();
+        assert_eq!(port_tags(&d).len(), 16, "each target and piston still gets its own outline");
+        let groups = port_groups(&d);
+        assert_eq!(groups.iter().map(|g| (g.label.as_str(), g.cells.len())).collect::<Vec<_>>(), vec![("PRESS", 8), ("BEDROCK", 8)]);
     }
 
     #[test]
