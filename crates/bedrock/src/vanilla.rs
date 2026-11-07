@@ -207,11 +207,11 @@ fn bot_actions(srv: &mut VanillaServer, sc: &Scenario, stance: &Stance, actions:
     Ok(())
 }
 
-fn is_bedrock(srv: &mut VanillaServer, sc: &Scenario, p: [i32; 3]) -> Result<bool> {
+fn is_target_block(srv: &mut VanillaServer, sc: &Scenario, p: [i32; 3]) -> Result<bool> {
     match &sc.dimension {
-        None => srv.test_block(p, "minecraft:bedrock"),
+        None => srv.test_block(p, &sc.target_block),
         Some(d) => {
-            let out = srv.cmd(&format!("execute in minecraft:{d} if block {} {} {} minecraft:bedrock", p[0], p[1], p[2]))?;
+            let out = srv.cmd(&format!("execute in minecraft:{d} if block {} {} {} {}", p[0], p[1], p[2], sc.target_block))?;
             if out.contains("Test passed") {
                 Ok(true)
             } else if out.contains("Test failed") {
@@ -302,8 +302,8 @@ pub fn trial(srv: &mut VanillaServer, sc: &Scenario, stance: &Stance, chord_at: 
         srv.cmd_ok(&in_dim(sc, &format!("setblock {x} {y} {z} {s}")))?;
     }
     srv.step(sc.settle.max(1))?;
-    if !is_bedrock(srv, sc, sc.target)? {
-        bail!("{}: the target is not bedrock after the build settled", sc.name);
+    if !is_target_block(srv, sc, sc.target)? {
+        bail!("{}: the target is not {} after the build settled", sc.name, sc.target_block);
     }
     place_bot(srv, sc, stance, true)?;
     if sc.survival {
@@ -363,7 +363,7 @@ pub fn trial(srv: &mut VanillaServer, sc: &Scenario, stance: &Stance, chord_at: 
     }
     let all_gone = |srv: &mut VanillaServer| -> Result<bool> {
         for p in std::iter::once(sc.target).chain(sc.also.iter().copied()) {
-            if is_bedrock(srv, sc, p)? {
+            if is_target_block(srv, sc, p)? {
                 return Ok(false);
             }
         }

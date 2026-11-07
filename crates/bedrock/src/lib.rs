@@ -74,6 +74,11 @@ pub struct Scenario {
     pub notes: String,
     /// The bedrock block to remove.
     pub target: Pos,
+    /// The block expected at `target` (and at `also`): the trial passes when the cell no
+    /// longer holds it. A state-string prefix on the bridge (so `minecraft:piston` also
+    /// matches `minecraft:piston_head`); an exact block id in the vanilla runner.
+    #[serde(default = "default_target_block")]
+    pub target_block: String,
     /// The build, placed with block updates, then settled `settle` ticks.
     pub blocks: Vec<(i32, i32, i32, String)>,
     #[serde(default = "default_settle")]
@@ -121,6 +126,9 @@ fn default_settle() -> u32 {
 }
 fn default_horizon() -> u32 {
     40
+}
+fn default_target_block() -> String {
+    "minecraft:bedrock".to_string()
 }
 
 impl Scenario {
@@ -208,8 +216,8 @@ pub fn trial(w: &mut Worker, sandbox: u32, sc: &Scenario, chord_at: Option<u32>)
     if sc.settle > 0 {
         w.step(sandbox, sc.settle)?;
     }
-    if !block_at(w, sandbox, sc.target)?.starts_with("minecraft:bedrock") {
-        bail!("{}: the target {:?} is not bedrock after the build settled", sc.name, sc.target);
+    if !block_at(w, sandbox, sc.target)?.starts_with(&sc.target_block) {
+        bail!("{}: the target {:?} is not {} after the build settled", sc.name, sc.target, sc.target_block);
     }
     let last_script = sc.script.iter().map(|a| a.at).max().unwrap_or(0);
     let end = last_script.max(chord_at.unwrap_or(0)) + sc.horizon;
@@ -227,7 +235,7 @@ pub fn trial(w: &mut Worker, sandbox: u32, sc: &Scenario, chord_at: Option<u32>)
         }
         w.step(sandbox, 1)?;
     }
-    let gone = |w: &mut Worker, p: Pos| -> Result<bool> { Ok(!block_at(w, sandbox, p)?.starts_with("minecraft:bedrock")) };
+    let gone = |w: &mut Worker, p: Pos| -> Result<bool> { Ok(!block_at(w, sandbox, p)?.starts_with(&sc.target_block)) };
     let all_gone = |w: &mut Worker| -> Result<bool> {
         for p in std::iter::once(sc.target).chain(sc.also.iter().copied()) {
             if !gone(w, p)? {
