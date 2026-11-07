@@ -321,7 +321,7 @@ so no throw — size only.**) Also unswept: `TagValueOutput.buildResult` on >2^3
 (byte-array int overflow) — needs a >2 GiB chunk tag in memory, heap dies first (Error →
 crash-only). Family stays source-only until a named candidate appears.
 
-## 5. Harness plan (`mctas chunk` subcommands, Rust)
+## 5. Harness as built (`mctas chunk`, Rust)
 
 New crate area (mctas-cli subcommand, following `bedrock::cli` shape; work functions in a
 `crates/chunk-*`/mctas module, no fn >150 lines, editor-tool edits, Rust only):
@@ -368,14 +368,100 @@ a time on the shared box; worlds in `/dev/shm` default harness dir or track scra
 `keep_dir` for post-mortems; every leg ends with `snap` diff + log grep (Failed to load/
 save chunk, oversized/external lines).
 
-## 6. Experiments (T, in order)
+**As built (47fad2c2d + ecf52ef8b).** `mctas::vanilla::chunkfile`
+(`crates/mctas/src/vanilla/chunkfile.rs`) reads all three streams like `RegionFile`
+(internal + external `.mcc`, gzip/deflate/none; LZ4 reported, not decoded) and classifies
+absent/external-missing/truncated/bad-version/decode-failed/nbt-failed instead of
+throwing; `VanillaServer::read_box` now loads `.mcc` chunks through it (it used to bail).
+Every parsed chunk gets a raw `sha256` and a `content_sha256` (the tag tree hashed with
+root `LastUpdate`/`InhabitedTime` skipped — the "neighbours intact" proof, since a plain
+re-save changes the raw hash). New crate `crates/chunk-regen` = `mctas chunk
+inspect|snap|diff|control|exp` (manifest TSVs; `control` refuses without `--on-copy`).
+`VanillaOptions` gained `sync_chunk_writes`, `region_file_compression`, `level_seed`,
+`normal_world`, `frozen_at_start`, `save_off_at_start` (defaults preserve every existing
+caller), and `VanillaServer::{world_dir,dimension_dir,abort}`. Protocol deviation from
+the plan: RCON packets are a single ≤1460-byte read on the server
+(`server/rcon/thread/RconClient.java:24,48`), so payload states are built from *many
+small* legal objects (≤900-char single book pages, ≤90-char sign lines) instead of one
+large command; the `exp` setups log loudly if a command is rejected. Manifests of record:
+this clone's `target/chunk-regen/<case>/{before,after}.tsv` (not committed; ~0.3 MB each
+because they include spawn chunks).
 
-*(pending — filled as legs run; each: world seed/properties, setup, scored leg, snapshot
-diff, log lines, outcome class, n/n.)*
+## 6. Experiments (T, 2026-11-07, `mctas chunk exp <name>`)
+
+Common conditions unless a row says otherwise: 26.3 (DataVersion 5023), void superflat,
+seed 424242, view/simulation distance 3, `region-file-compression=deflate`,
+`sync-chunk-writes=false`, `network-compression-threshold=-1` (the harness's hardcoded
+value — matters only for the chunk-ban row), unfrozen, saving on, heap 2048 MiB. Target
+chunk (4,4); markers = diamond+gold at y=20 corners, a composter (POI), a named armor
+stand, a diamond in each neighbour; setup by RCON commands (legal-valued state, §5), then
+`save-all flush` + clean stop + manifest, then a fresh server process on a copy, survival
+bot teleports in, markers read back by RCON, clean stop, manifest. "Neighbours []" = no
+neighbour's content hash changed. Runs before ecf52ef8b compared raw hashes and reported
+`neighbours-resaved` for the same states (the pre-content-hash wording in the table).
+
+| case | payload / control | before (target) | outcome (n) | evidence |
+|---|---|---|---|---|
+| `baseline` | markers only | region internal 655 B stored / 20,589 decomp, `full` | **normal** (1/1) | markers 6/6, stand 1, all streams round-trip |
+| `control-header` | offline: zero terrain header entry | internal 717 B | **regen** (1/1 void) | markers gone (4/6 = neighbours only), regenerated chunk saved (501 B / 14,327, `full`); entities + POI streams untouched (stand fell into the void, POI record stale) |
+| `control-header --normal-world` | same, seeded normal world | internal 8,239 / 54,011, 43 block ticks | **regen** (1/1) | seed terrain back (6,989 / 40,308), markers gone, stand survived on regenerated terrain |
+| `control-garbage` | offline: scribble 64 stream bytes | internal 655 B | **regen** (1/1) | log `Failed to load chunk` + `Failed to read chunk` once each; same regenerated shape as header-zero |
+| `books-under` | 120 writable books (1 page × 900 random chars) in 256 barrels | internal 71,978 / 166,031, 256 BEs | **normal** (1/1) | negative control; neighbours [] |
+| `books --count 1400` | 1,400 such books | internal 800,691 / 1,446,508, 255 BEs | **normal** (1/1) | under the external threshold (deflate eats the first ~35%: 900 chars ≈ 570 stream bytes/book at 26-letter entropy) |
+| `books --count 2200` | 2,200 such books | **external** 1,266,208 / 2,264,108, 256 BEs, log `Saving oversized chunk [4, 4] … to external file … c.4.4.mcc` | **normal** (2/2: also with `--sync`, 1,281,897 / 2,291,791) | reload + re-save both external; markers 6/6; neighbours []; no failure log lines |
+| `control-dropmcc --count 2200` | the books world, then delete only `c.4.4.mcc` | external 1,266,209 → `external-missing` | **regen** (1/1) | log `External chunk` ×2; markers gone; entity stream kept its stand (fell), POI kept **256 stale barrel records** for barrels that no longer exist |
+| `signs` (3 layers) | 768 oak signs, 8×90-char random lines each | internal 369,515 / 750,994, 768 BEs | **normal** (1/1) | book-free oversized-BE data, well under every packet cap |
+| `signs --count 10` | 2,560 such signs | **external** 1,229,706 / 2,459,382, 2,560 BEs | **chunk-ban** (3/3 setups; disk **normal** every time) | joining/teleporting bot kicked: `EncoderException: Packet too large: size 2282103 is over 8` (`Varint21LengthFieldPrepender`: frame body ≥2²¹) + `Failed to deliver packet, sending fallback`; RCON-side markers 6/6, stand 1, chunk re-saved external; server did not crash. **Compression-off caveat in §9** |
+| `poi` | 2,048 composters + marker | POI stream 7,368 / 137,375, 2,049 records | **normal** (1/1) | POI compresses 19:1; terrain stream unaffected (667 B) |
+| `items` | 900 dropped writable books | entities 481,854 / 1,037,682, 871 entities | **normal** (1/1) | 870 items + stand counted after reload |
+| `items --count 2600` | 2,600 dropped books | entities **external** 1,394,643 / 3,003,290, 2,520 entities | **normal** (1/1) | external *entity* storage round-trips; terrain untouched (648 B); 2,519 items counted |
+| `control-entities` | offline: zero entity-stream header | entities internal 465 B | **entity-only** (1/1) | stand 0, region+POI content hashes identical, entity entry stays absent after re-save |
+| `control-poi` | offline: zero POI-stream header | POI internal 122 B, 1 record | **normal (self-heal)** (1/1) | record rebuilt from the composter block on load (`checkConsistencyWithBlocks` create-branch), byte-identical POI stream |
+
+**T-findings that cut across cases.**
+1. **Oversized by itself is normal on 26.3.** External (`.mcc`) terrain, entity and sign
+   chunks all survive stop → restart → reload → re-save, with `sync-chunk-writes` both
+   ways. The owner's book hypothesis, as a *size* claim, does not reproduce in 26.3: the
+   read path has no quota (`NbtIo.read → unlimitedHeap`), and oversized storage is a
+   designed path, logged at WARN (`Saving oversized chunk …`) — fatal only to tools that
+   don't follow `.mcc` (this repo's `read_box` bailed on it until this study).
+2. **The three streams are independent in both directions.** Deleting the entity chunk
+   costs exactly the entities; deleting the terrain chunk regenerates terrain but keeps
+   entities (they fall / persist) and keeps POI records **stale forever in practice**:
+   a saved POI section is `Valid=true`, and `PoiSection.refresh` (the re-derive from
+   blocks) only runs when `!isValid`, while `checkConsistencyWithBlocks`'s create-branch
+   only runs when the section is *missing* (`PoiManager.java` checkConsistency,
+   `PoiSection.refresh:127`). Missing POI + present blocks heals; present POI + missing
+   blocks does not — a villager-facing desync, not corruption, and the precise state a
+   kill between independent stream commits leaves too.
+3. **A joining player is the fragile consumer, not the disk.** The same 2,560-sign chunk
+   that saves/loads cleanly kicks the bot with a 2,282,103-byte chunk packet under
+   `network-compression-threshold=-1`. Server stays up, the chunk keeps saving. On a
+   dedicated server left at the default threshold 256
+   (`DedicatedServerProperties.java:107`) the same packet would be deflated first
+   (`network/CompressionEncoder.java:19-21` throws only above 8,388,608 *uncompressed*;
+   the 21-bit frame then applies to the compressed bytes), so this run proves the ban
+   *mechanism and its exact encoder*, not the dose under defaults. Our bot cannot speak
+   compression (`Bot::connect` bails on the SetCompression packet) — §10.
+4. Item entities: 900 summoned → 870 stored, 2,600 → 2,519 (the rest crossed borders or
+   merged while settling; the *stream* kept every stored entity). Not a loss mechanism:
+   the missing few moved before the first save, visible in `before`.
+5. Barrels are fisherman POIs: the books cases also exercised 256–257 POI records.
+   Noted so the books rows are not read as POI-free.
+6. No case produced `rollback`, `region-wide`, or `crash-only`, and no survival-built
+   case produced any load/save failure log line.
+7. Wall cost: each case ≈30–150 s end to end (two server starts dominate; setup RCONs:
+   books-2200 ≈2,200 commands). No tick freezes, timeouts, or heap incidents at 2 GiB.
 
 ## 7. Tools added / changed
 
-*(pending)*
+- `crates/mctas/src/vanilla/chunkfile.rs` (new) + `vanilla/mod.rs`: region/stream
+  reading as above; `VanillaOptions` knobs; `read_box` external-chunk fix.
+- `crates/chunk-regen` (new): `mctas chunk inspect|snap|diff|control|exp`.
+- Unit tests: `cargo test -p mctas -p chunk-regen --lib` (synthetic region files:
+  internal/external round-trip, missing-external, header-zero, garbage; manifest diff
+  kinds) — 10 passed.
+- Docs: this file + `designs/briefs/chunk-regeneration.md`.
 
 ## 8. Open source questions (cheap greps before their tests)
 
@@ -409,3 +495,65 @@ Still open:
 - `LevelStorageSource` dimension path + where `entities/` folder is created
   (`ServerLevel` constructor) for inspect's defaults.
 - Lectern book client sync path (only matters for chunk-ban scoring).
+
+## 9. Conclusions: every candidate, ranked by evidence (2026-11-07)
+
+**Answer in one line: no survival-reachable trigger for terrain regeneration, corruption
+or rollback was found in 26.3 — every stage that could produce one either encodes
+survival state symmetrically, caps it far below the failure threshold, or degrades to
+dropping just the offending object; the one repeatable survival-reachable *harm* in this
+area is the chunk-ban (a joining client is kicked while the chunk itself is fine), and
+the one true regeneration *mechanism* needs a process kill inside `RegionFile`'s
+external-file commit window.**
+
+| # | candidate | outcome class | evidence | survival legality | blast |
+|---|---|---|---|---|---|
+| 1 | Oversized chunk via books (barrels of written/writable books) | **normal** (incl. external `.mcc`, sync on/off) | T: `books` ×2 external + sub-threshold rows; F: `NbtIo.read → unlimitedHeap`, `RegionFile.write:294` external path is designed | legal values (≤1024 chars/page, ≤100 pages; we used 1×900); human cost of 2,200 distinct texts is the practical limit, not a rule | 0 |
+| 2 | Oversized via non-book block entities (signs) | **normal** on disk; **chunk-ban** for joiners under compression-off | T: signs normal ×1, ban ×3 setups (2,282,103-byte packet, `Packet too large`, server alive, chunk re-saves); F: `Varint21LengthFieldPrepender` 2²¹ frame, `CompressionEncoder:20` 8,388,608 uncompressed | signs legal (used 90/384 chars per line); ban dose under **default threshold 256 untested** (bot lacks compression) — do not quote 2,560 signs as a default-server recipe | players entering only |
+| 3 | Oversized entity stream (book item entities) | **normal** (incl. external) | T: 871 + 2,520 entities, entity `.mcc` round-trip | legal | 0 |
+| 4 | POI volume (2,049 records) | **normal** | T: `poi`; POI codec unbounded `listOf`, count bounded by blocks | legal | 0 |
+| 5 | Deterministic save exception (the `tryMarkSaved`-first shape) | **none found** — blocked at encode | F: no `throw` in any BE save path; `ValueOutput`/`ProblemReporter` collects codec errors and omits fields; `ChunkMap.save` would turn one into silent rollback/regen, which is why this family stays the top *source-watch* item | n/a | would be 1 chunk |
+| 6 | Nested-container NBT depth >512 | **unreachable** | F: shulker-in-container bans + bundle weight 1/16/layer ⇒ ≲16 layers ≈ <110 NBT levels vs 512 read cap | — | 0 |
+| 7 | Scheduled-tick list volume | **untested** (no cap found in source) | F: one tick per (pos,type) ⇒ ≤~196k/chunk, list codecs unbounded | legal | lag only (predicted) |
+| 8 | Status downgrade / feature re-entry over a built chunk | **blocked by construction** | F: statuses only advance (`acquireStatusBump`), `ChunkMap.save` refuses proto-over-full, FULL requires its pyramid radius already past features | — | 0 |
+| 9 | Kill `-9` inside an *internal* region write | **rollback of that one save** (characterisation) | F: new sectors written before the header commit; T by code-reading + the controls' disk states | not a survival action (process kill) | 1 chunk, latest save only |
+| 10 | Kill `-9` between external header commit and `.mcc` rename | **regen** (or rollback to a stale `.mcc`) — *characterisation only* | F: `RegionFile.write:294-334` ordering; T state-equivalent: `control-dropmcc` = **regen** 1/1 with the exact post-kill disk shape. The live window (one header write + one rename) was **not** raced in this study | not a survival action | 1 chunk (+stale entity/POI) |
+| 11 | Copying a world without its `c.*.mcc` files (backups/tools that take `region/*.mca` only) | **regen** of every oversized chunk in that copy | F+T: identical disk shape to #10 (`External chunk … is not file` → null → empty chunk) | operator/tool error, not a player trigger; the practical takeaway of this study | every oversized chunk copied |
+| 12 | DataFixer failure / unknown or empty `Status` / palette error | **regen by design** (`handleChunkLoadFailure` → empty chunk for any non-`Error`) | F + T (`control-garbage` exercises the decode branch) | unreachable from 26.3-born survival data (fixer skipped at current version; statuses/palettes are written by the same codecs that read them) | 1 chunk |
+| 13 | Block-entity / entity content that fails its own load | **object dropped, chunk normal** | F: `postLoadChunk` null-skip, `EntityType.loadEntitiesRecursive` reporter; T indirectly (2,560 BEs + 2,520 entities round-tripped) | — | 1 object |
+| 14 | Stream desync (stale POI, surviving entities after any regen) | **poi-only/entity-only desync** | T: dropmcc + both regen controls; F: `Valid=true` POI sections never re-derive | a *consequence*, not a trigger | 1 chunk's records |
+
+**Recovery / mitigation (every case).** A backup is only complete as the *set*
+`region/ + entities/ + poi/ + **all `c.*.mcc` siblings** + `level.dat` + `data/`; restore
+the set, never one file. Triage from logs: `Failed to load chunk` / `chunk/load` +
+stored crash reports ⇒ that chunk regenerated; `Failed to save chunk` ⇒ its last save
+was dropped after `tryMarkSaved` (rollback on next unload — re-touching the chunk
+re-dirties it and is the in-game retry); `Saving oversized chunk` is a WARN naming the
+`.mcc` path (check it exists; check your backup tool copies it); `Packet too large` /
+`Packet too big` on join ⇒ chunk-ban: the world is fine, operate from RCON/console or
+restore the chunk from backup, and prefer `network-compression-threshold=256` (default)
+over `-1`. `mctas chunk inspect <world> --chunk x,z` names the exact per-stream state
+offline.
+
+## 10. Next experiments worth doing (in order)
+
+1. **Bot network compression** (small, in `mctas::vanilla::bot`): speak SetCompression,
+   then rerun `signs --count 10` with `network-compression-threshold=256` and scale
+   lines/layers until the *uncompressed* 8,388,608 ceiling (`CompressionEncoder:20`) is
+   the kicker. Converts the chunk-ban row from mechanism to a default-server dose, and
+   sizes decorations (pots/shelves holding filled shulkers — far fewer placements per
+   packet byte than signs) against the same ceiling.
+2. **Scheduled-tick volume leg**: a chunk of continuously-scheduling blocks (fluid
+   flowing on a ledge, observer pairs) saved mid-flight; report tick counts + round-trip.
+   Cheap; closes the last untested family.
+3. **External-commit kill race, counted**: repeated abort()-during-save attempts on an
+   oversized chunk (own disposable server, `--sync`), report hits/attempts and the
+   measured window; today the state-equivalent control is 1/1 and the live race is
+   unrun, by design (bounded kills against our own process are allowed for exactly
+   this predicted race).
+4. **Save-throw sweep, continued**: component codecs whose constructors accept values
+   the codec rejects (`WrittenBookContent` pages was checked: codec also unbounded).
+   One named throwing (class, method) reachable from survival state would reopen
+   family 3 — the only identified shape that yields clean-stop regen without a kill.
+5. **Portal/logout entity races**: minecart-with-chest + passenger portal round-trips
+   under continuous saves; predicted entity-only duplication/loss, terrain normal.

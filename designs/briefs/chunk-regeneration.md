@@ -236,13 +236,25 @@ threshold) run in every batch.
 - Client rendering, chunk *sending* performance, or anti-cheat questions beyond the
   chunk-ban classification.
 
-## The obvious design's numbers and the ceiling (filled by measurement)
+## The obvious design, measured (2026-11-07) and the ceiling
 
-- Obvious (family 1) at threshold: *to be measured* — compressed bytes per max-size book
-  under `deflate` vs `none`, books/chests needed for 256 sectors, round-trip outcome.
-- Ceiling (from the mechanics): a saved chunk survives any size the heap can encode
-  (read quota unlimited, external storage unbounded but one file per chunk); the only hard
-  ceilings a survival player can hit are per-object codec caps (above), NBT *write* string
-  truncation at 65535 bytes (silent `""`), and NBT *read* depth 512 (unreachable by
-  survival nesting, §Mechanics). Every result is reported against those three numbers.
+- Obvious (family 1) at threshold, measured on the official server (`mctas chunk exp`,
+  NOTES §6): under `deflate`, one 900-random-char writable-book page costs ≈570 stream
+  bytes; 1,400 books in 256 barrels = 800,691 B stored (internal), 2,200 books =
+  1,266,208 B stored / 2,264,108 B decompressed — over the 256-sector line, saved to
+  `c.4.4.mcc`, and the outcome is **`normal`**: clean stop, fresh process, reload,
+  re-save (with `sync-chunk-writes` both ways), neighbours content-identical. The bar
+  was "oversized written books regenerate a chunk"; on 26.3 they do not. Deleting just
+  the `.mcc` from that world (the positive control) regenerates the chunk on next load.
+- Ceiling (from the mechanics, confirmed): a saved chunk survives any size the heap can
+  encode (read quota unlimited, external storage unbounded but one file per chunk); the
+  hard ceilings a survival player can hit are the per-object codec caps, NBT *write*
+  string truncation at 65535 bytes (silent `""`), NBT *read* depth 512 (unreachable by
+  survival nesting), and — for a *joining client*, measured with signs — the packet
+  frame (`Varint21LengthFieldPrepender`, 2²¹ body bytes; `CompressionEncoder` 8,388,608
+  uncompressed), which kicks the player while the chunk keeps saving normally. The
+  verdict over all five families and the ranked table are NOTES §9: no survival trigger
+  for terrain regeneration/rollback was found; the chunk-ban is real (dose under the
+  default compression threshold untested), and true regeneration needs a kill inside
+  the external-file commit window or a backup that drops the `.mcc` files.
 
