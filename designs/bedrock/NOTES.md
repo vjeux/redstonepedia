@@ -296,7 +296,8 @@ Picture: https://artifacts.internalmeta.com/a/2223660898216879 (the 24-block, si
   windows 24, 30, 36, 42; the official server's real Nether roof in survival, pistons 3 and 6 with
   the five others used: windows 12 and 18 removed the bedrock, 13 did nothing; piston 5 with the
   five others used, a miss in window 15 and the one-press repair in 17: 30 removed the bedrock (24
-  skipped, as on the single machine).
+  skipped, as on the single machine); `bedrock vanilla-matrix` at (1500, 127, -700), all six
+  pistons in 4 turns: 24/24, windows 12 and 18 removed the bedrock, 13 did nothing.
 
 ### How it got small (45 -> 11 blocks), reusing the door and clock tools
 
