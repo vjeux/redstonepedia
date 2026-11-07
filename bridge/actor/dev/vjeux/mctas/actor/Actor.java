@@ -461,7 +461,10 @@ public final class Actor {
             return null;
         });
         try {
-            long deadline = System.currentTimeMillis() + 45_000;
+            // The held key mines whatever the crosshair touches: if this block is occluded,
+            // it makes no progress — give it a few seconds, then finish with direct per-tick
+            // calls (which name the block, like the precise path).
+            long deadline = System.currentTimeMillis() + 6_000;
             while (System.currentTimeMillis() < deadline) {
                 Boolean done = onClient(() -> {
                     Minecraft mc = Minecraft.getInstance();
@@ -480,8 +483,6 @@ public final class Actor {
                 }
                 Thread.sleep(120);
             }
-            String held = onClient(() -> blockId(Minecraft.getInstance().level.getBlockState(pos)));
-            return "error mine timed out, block still " + held;
         } finally {
             onClient(() -> {
                 Minecraft mc = Minecraft.getInstance();
@@ -492,6 +493,38 @@ public final class Actor {
                 return null;
             });
         }
+        // Fallback for an occluded target: direct per-tick calls naming this block.
+        Direction dir2 = onClient(() -> faceToward(Minecraft.getInstance().player, pos));
+        int[] lastTick2 = {-1};
+        long deadline2 = System.currentTimeMillis() + 30_000;
+        while (System.currentTimeMillis() < deadline2) {
+            Boolean done = onClient(() -> {
+                Minecraft mc = Minecraft.getInstance();
+                if (mc.player == null || mc.level == null) {
+                    return false;
+                }
+                if (mc.level.getBlockState(pos).isAir()) {
+                    mc.gameMode.stopDestroyBlock();
+                    return true;
+                }
+                if (mc.player.tickCount == lastTick2[0]) {
+                    return false;
+                }
+                lastTick2[0] = mc.player.tickCount;
+                float[] aim = anglesTo(mc.player, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
+                setLook(mc.player, aim[0], aim[1]);
+                if (mc.gameMode.continueDestroyBlock(pos, dir2)) {
+                    mc.player.swing(InteractionHand.MAIN_HAND, mc.player.getMainHandItem().getAttackAnimation(), false);
+                }
+                return false;
+            });
+            if (done) {
+                return "ok mined";
+            }
+            Thread.sleep(30);
+        }
+        String held = onClient(() -> blockId(Minecraft.getInstance().level.getBlockState(pos)));
+        return "error mine timed out, block still " + held;
     }
 
     /** Looks at the clicked face, then the use key's own call: place (or light) with the held item. */
