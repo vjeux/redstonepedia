@@ -2811,8 +2811,11 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         p.tp("overworld", c.dix as f64 + 1.5, plan.ow_stand_y as f64, c.doz_a as f64 + 3.5, 180.0, 10.0)?;
         p.checkpoint("rn")?;
     }
-    if !p.done("machine") {
-        p.seg_step("overworld-dig", "machine", &[
+    // The machine-dig legs are separate checkpoints: the client's renderer falls behind
+    // after a few hundred edits (every submit waits a frame), so the shoot resumes with a
+    // FRESH client at each leg rather than crawling at ~1 fps by the third.
+    if !p.done("owdig") {
+        p.seg_step("overworld-dig", "owdig", &[
             "Travel skipped (teleport) — Overworld, 8x the field's coordinates",
             "Dig down: the machine sits with its portals' floors at y=2",
         ], 6.0, S3)?;
@@ -2822,10 +2825,17 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         // session): tunnel-dig the main band (aisle + strip) and the branch band south to
         // portal B, then clear the portal columns' tops from the open floor.
         tunnel_clear(p, "overworld", [c.rox - 1, 2, c.doz_a - 2], [c.dix + 3, 4, c.doz_a + 3], (c.dix + 1, c.doz_a + 3))?;
+        p.checkpoint("owdig")?;
+    }
+    if !p.done("owbranch") {
+        p.seg_step("ow-branch", "owbranch", &["Dig the second drill portal's bay (8 blocks south)"], 6.0, S3)?;
         p.walk(c.dix + 1, c.doz_a + 3)?;
         tunnel_clear(p, "overworld", [c.dix - 1, 2, c.doz_a + 4], [c.dix + 3, 6, c.doz_b + 2], (c.dix + 1, c.doz_a + 4))?;
         p.clear_box("overworld", [c.rox - 1, 5, c.doz_a], [c.rox + 2, 6, c.doz_a], false)?;
         p.clear_box("overworld", [c.dix - 1, 5, c.doz_a], [c.dix + 2, 6, c.doz_a], false)?;
+        p.checkpoint("owbranch")?;
+    }
+    if !p.done("machine") {
         // The generated twin must die or it would steal the trigger items.
         p.seg_step("twin-off", "machine", &[
             "The twin the game generated must go (one frame block)",
