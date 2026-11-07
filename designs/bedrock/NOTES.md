@@ -547,6 +547,25 @@ update skipping at the chained-update limit, head removal paths): see [AUDIT.md]
 survival; the dragon-respawn spike clearing and the End podium/gateways write unconditionally but
 only in the End at fixed places.
 
+## Video
+
+Tutorial: [bedrock-portal-method.webm](https://github.com/vjeux/redstonepedia/releases/download/videos/bedrock-portal-method.webm)
+(4m21s, 1280x720 VP9), made by `mctas bedrock video` (crates/bedrock/src/video.rs): a real
+random world on the official 26.3 server, seed **1794188792292810894**, survival mode
+(peaceful), driven as a genuine client by a small client-side Fabric actor mod — real mining,
+real placement, real flint and steel; the bedrock-to-obsidian conversion is done by the game
+itself on real portal trips. Patch: Nether x -4..-1, z rows 7..15 around z=11, y 0..4;
+Overworld drill portal at x -22..-19, z 92 (8x the patch), return portal 28 blocks west at
+x -32..-29. Commands were used only for the starting kit (captioned on screen), one effect
+(Haste II, captioned), travel skips between portals (captioned "travel skipped"; on-screen
+time is compressed, real cycles are shown), and one same-room teleport rescue when the actor
+wedged while clearing rock. No block was placed or broken by a command. The video shows the
+full removal of the y=4 and y=3 layers (5 trips, each conversion asserted by RCON
+`execute if block`); the remaining layers follow the identical cycle — 14 trips open the
+1x4 column to the void at this spot — but the drill-portal lowering for y=2 would not relight
+before the recording box's lease expired, so the cut ends after layer y=3 with the
+rules-and-limits card.
+
 ## Tools
 
 * On REDSTONEPEDIA (on this branch until the next merge into main and `site publish`): the
