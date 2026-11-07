@@ -231,6 +231,33 @@ pub enum BedrockCmd {
         #[arg(long, default_value_t = 5)]
         keep: usize,
     },
+    /// The nether-portal bedrock tutorial on video: scout a real random world for the best
+    /// drill column, film the whole survival recipe with the real client (the actor mod
+    /// playing), and cut it with captions (see `bedrock::video`).
+    Video {
+        /// World seed (scout only; default: from the clock — a random world).
+        #[arg(long)]
+        seed: Option<i64>,
+        /// Production folder (plan, world, checkpoints, segments, the final webm).
+        #[arg(long, default_value = "bedrock-video-production")]
+        out: PathBuf,
+        /// smoke | scout | record | compose | all.
+        #[arg(long, default_value = "all")]
+        phase: String,
+        /// How the real client is driven: fabric (actor mod under Fabric Loader) | launcher.
+        #[arg(long, default_value = "fabric")]
+        driver: String,
+        /// Resume the shoot from this checkpoint tag (setup, intro, digdown, patch, return,
+        /// overworld, layer4..layer0, finale).
+        #[arg(long)]
+        from: Option<String>,
+        #[arg(long, default_value_t = 1280)]
+        width: u32,
+        #[arg(long, default_value_t = 720)]
+        height: u32,
+        #[arg(long, default_value_t = 30)]
+        fps: u32,
+    },
 }
 
 /// `x,y,z:x,y,z`.
@@ -394,6 +421,9 @@ pub fn run(version: &str, cmd: BedrockCmd) -> Result<()> {
                 line.push_str(&format!(" {w}:{}", format!("{o:?}").to_lowercase()));
             }
             println!("{line}");
+        }
+        BedrockCmd::Video { seed, out, phase, driver, from, width, height, fps } => {
+            crate::video::run(version, crate::video::VideoOptions { seed, out, phase, driver, from, width, height, fps })?;
         }
     }
     Ok(())
