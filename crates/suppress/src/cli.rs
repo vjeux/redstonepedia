@@ -16,6 +16,17 @@ pub enum SuppressCmd {
     Bridge(BridgeArgs),
     /// Write the judge rig as a design file (for the record / the site pipeline).
     Emit(EmitArgs),
+    /// The judge rig on the official dedicated server (bot clicks the lever). The cap is a
+    /// server.properties knob; the default 5000 is where this rig's field suppresses.
+    Vanilla(VanillaArgs),
+}
+
+#[derive(Args)]
+pub struct VanillaArgs {
+    #[arg(long, default_value_t = 5000)]
+    cap: u32,
+    #[arg(long, default_value_t = 31)]
+    field: i32,
 }
 
 #[derive(Args)]
@@ -147,6 +158,18 @@ pub fn run(version: &str, cmd: SuppressCmd) -> Result<()> {
                     v.target_on_wake,
                     v.lever_ms,
                     if v.problems.is_empty() { String::new() } else { format!(" PROBLEMS: {}", v.problems.join("; ")) }
+                );
+            }
+        }
+        SuppressCmd::Vanilla(a) => {
+            for v in crate::vanilla::run_vanilla(version, a.cap, a.field)? {
+                println!(
+                    "vanilla cap={} {}: middle_flipped={} target_on_edge={} target_on_wake={}",
+                    v.cap,
+                    if v.control { "control" } else { "flood" },
+                    v.middle_flipped,
+                    v.target_on_edge,
+                    v.target_on_wake
                 );
             }
         }

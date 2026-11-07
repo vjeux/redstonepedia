@@ -12,6 +12,7 @@
 pub mod bridge;
 pub mod cli;
 pub mod judge;
+pub mod vanilla;
 
 use anyhow::{Result, bail};
 use redsim::block::{Block, Face, RailShape, Simple};
