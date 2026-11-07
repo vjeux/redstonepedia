@@ -325,7 +325,7 @@ public final class Actor {
                 return fillInto(new BlockPos(Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3])), f[4],
                         f.length > 5 ? Integer.parseInt(f[5]) : 99);
             case "digbox":
-                return digBox(
+                return digBox2(
                         Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3]),
                         Integer.parseInt(f[4]), Integer.parseInt(f[5]), Integer.parseInt(f[6]),
                         f.length > 7 ? f[7] : "any",
@@ -744,6 +744,161 @@ public final class Actor {
         return "error mine timed out";
     }
 
+    /** One box scan: target cells for `mode`, plus the eye position they were measured from. */
+    private static java.util.List<BlockPos> scanTargets(int x0, int y0, int z0, int x1, int y1, int z1, String mode) throws Exception {
+        return onClient(() -> {
+            Minecraft mc = Minecraft.getInstance();
+            java.util.List<BlockPos> out = new java.util.ArrayList<>();
+            for (int y = y0; y <= y1; y++) {
+                for (int z = z0; z <= z1; z++) {
+                    for (int x = x0; x <= x1; x++) {
+                        BlockPos p = new BlockPos(x, y, z);
+                        BlockState s = mc.level.getBlockState(p);
+                        if (s.isAir() || !s.getFluidState().isEmpty()) {
+                            continue;
+                        }
+                        String id = blockId(s);
+                        boolean want = switch (mode) {
+                            case "obsidian" -> id.equals("minecraft:obsidian");
+                            case "noobs" -> !id.equals("minecraft:bedrock") && !id.equals("minecraft:obsidian");
+                            default -> !id.equals("minecraft:bedrock");
+                        };
+                        if (want && !s.getCollisionShape(mc.level, p).isEmpty()) {
+                            out.add(p);
+                        }
+                    }
+                }
+            }
+            return out;
+        });
+    }
+
+    /**
+     * Digs a box STATIONARY-first: mine everything in reach of the current stand (one
+     * scan, then a pure mining loop), then take ONE step to the standable cell with the
+     * most remaining targets in reach. At this client's frame rate every walk and every
+     * client submit is precious: a stand is worth ~200 blocks here, where the previous
+     * frontier-chasing version spent its whole budget walking between single blocks.
+     */
+    private static String digBox2(int x0, int y0, int z0, int x1, int y1, int z1, String mode, int secs) throws Exception {
+        waitPlayer();
+        long deadline = System.currentTimeMillis() + secs * 1000L;
+        int mined = 0;
+        int walks = 0;
+        java.util.Set<BlockPos> triedStands = new java.util.HashSet<>();
+        while (System.currentTimeMillis() < deadline) {
+            // Stationary phase: mine everything the current eye can reach.
+            Object[] scan = onClient(() -> {
+                Minecraft mc = Minecraft.getInstance();
+                java.util.List<BlockPos> reach = new java.util.ArrayList<>();
+                int total = 0;
+                var eye = mc.player.getEyePosition();
+                BlockPos feet = mc.player.blockPosition();
+                for (int y = y0; y <= y1; y++) {
+                    for (int z = z0; z <= z1; z++) {
+                        for (int x = x0; x <= x1; x++) {
+                            BlockPos p = new BlockPos(x, y, z);
+                            BlockState s = mc.level.getBlockState(p);
+                            if (s.isAir() || !s.getFluidState().isEmpty()) {
+                                continue;
+                            }
+                            String id = blockId(s);
+                            boolean want = switch (mode) {
+                                case "obsidian" -> id.equals("minecraft:obsidian");
+                                case "noobs" -> !id.equals("minecraft:bedrock") && !id.equals("minecraft:obsidian");
+                                default -> !id.equals("minecraft:bedrock");
+                            };
+                            if (!want || s.getCollisionShape(mc.level, p).isEmpty()) {
+                                continue;
+                            }
+                            total++;
+                            // Never the support block under our own feet (we would drop).
+                            if (p.equals(feet.below())) {
+                                continue;
+                            }
+                            if (p.distToCenterSqr(eye.x, eye.y, eye.z) <= 4.2 * 4.2) {
+                                reach.add(p);
+                            }
+                        }
+                    }
+                }
+                return new Object[] {reach, total};
+            });
+            @SuppressWarnings("unchecked")
+            java.util.List<BlockPos> reach = (java.util.List<BlockPos>) scan[0];
+            int total = (Integer) scan[1];
+            if (total == 0) {
+                log("digbox2 done: mined=" + mined + " walks=" + walks + " left=0");
+                return "ok left=0";
+            }
+            boolean dug = false;
+            for (BlockPos cell : reach) {
+                if (System.currentTimeMillis() > deadline) {
+                    break;
+                }
+                String r = mineFast(cell);
+                if (r.startsWith("ok")) {
+                    mined++;
+                    dug = true;
+                }
+            }
+            if (dug) {
+                continue;
+            }
+            // Move phase: the standable cell (box ±1) with the most targets in reach,
+            // preferring near ones; walk there once.
+            java.util.List<BlockPos> rest = scanTargets(x0, y0, z0, x1, y1, z1, mode);
+            BlockPos stand = onClient(() -> {
+                Minecraft mc = Minecraft.getInstance();
+                LocalPlayer p = mc.player;
+                BlockPos best = null;
+                int bestCover = -1;
+                double bestDist = 1e9;
+                for (int y = y0; y <= y1 + 1; y++) {
+                    for (int z = z0 - 1; z <= z1 + 1; z++) {
+                        for (int x = x0 - 1; x <= x1 + 1; x++) {
+                            BlockPos s = new BlockPos(x, y, z);
+                            if (triedStands.contains(s) || s.equals(p.blockPosition())) {
+                                continue;
+                            }
+                            BlockState below = mc.level.getBlockState(s.below());
+                            if (below.getCollisionShape(mc.level, s.below()).isEmpty() || !below.getFluidState().isEmpty()) {
+                                continue;
+                            }
+                            if (!mc.level.getBlockState(s).getCollisionShape(mc.level, s).isEmpty()
+                                    || !mc.level.getBlockState(s.above()).getCollisionShape(mc.level, s.above()).isEmpty()) {
+                                continue;
+                            }
+                            int cover = 0;
+                            for (BlockPos t : rest) {
+                                if (t.distToCenterSqr(s.getX() + 0.5, s.getY() + 1.62, s.getZ() + 0.5) <= 4.2 * 4.2) {
+                                    cover++;
+                                }
+                            }
+                            double pd = Math.abs(s.getX() - p.getBlockX()) + Math.abs(s.getZ() - p.getBlockZ()) + 2.0 * Math.abs(s.getY() - p.getBlockY());
+                            if (cover > bestCover || (cover == bestCover && pd < bestDist)) {
+                                bestCover = cover;
+                                bestDist = pd;
+                                best = s;
+                            }
+                        }
+                    }
+                }
+                return bestCover > 0 ? best : null;
+            });
+            if (stand == null) {
+                log("digbox2 stuck: mined=" + mined + " walks=" + walks + " left=" + rest.size());
+                return "ok left=" + rest.size() + " stuck";
+            }
+            triedStands.add(stand);
+            walks++;
+            walk(stand.getX() + 0.5, stand.getZ() + 0.5);
+        }
+        int left = scanTargets(x0, y0, z0, x1, y1, z1, mode).size();
+        log("digbox2 done: mined=" + mined + " walks=" + walks + " left=" + left);
+        return "ok left=" + left;
+    }
+
     /**
      * Digs out a whole box from inside the client: repeatedly mine the nearest target the
      * crosshair can reach, stepping to live-verified stands near the player when it cannot.
@@ -756,6 +911,10 @@ public final class Actor {
         waitPlayer();
         long deadline = System.currentTimeMillis() + secs * 1000L;
         int stuckRounds = 0;
+        int mineOk = 0;
+        int mineFail = 0;
+        int walkFail = 0;
+        String firstFails = "";
         while (System.currentTimeMillis() < deadline) {
             // Scan (client thread): targets sorted by distance to the player's eye.
             java.util.List<BlockPos> targets = onClient(() -> {
@@ -801,8 +960,13 @@ public final class Actor {
                 if (d <= 4.2) {
                     String r = mineFast(cell);
                     if (r.startsWith("ok")) {
+                        mineOk++;
                         progress = true;
                         break;
+                    }
+                    mineFail++;
+                    if (firstFails.length() < 200) {
+                        firstFails += " [" + cell + " d=" + String.format(Locale.ROOT, "%.1f", d) + " " + r + "]";
                     }
                     continue;
                 }
@@ -849,12 +1013,20 @@ public final class Actor {
                 if (wr.startsWith("ok")) {
                     String r = mineFast(cell);
                     if (r.startsWith("ok")) {
+                        mineOk++;
                         progress = true;
                         break;
                     }
+                    mineFail++;
+                    if (firstFails.length() < 200) {
+                        firstFails += " [walked " + cell + " " + r + "]";
+                    }
+                } else {
+                    walkFail++;
                 }
             }
             if (!progress && ++stuckRounds >= 3) {
+                log("digbox stuck: mined=" + mineOk + " mineFail=" + mineFail + " walkFail=" + walkFail + " firstFails:" + firstFails + " | " + onClient(Actor::posLine));
                 return "ok left=" + targets.size() + " stuck";
             }
             if (progress) {
@@ -882,6 +1054,7 @@ public final class Actor {
             }
             return n;
         });
+        log("digbox done: mined=" + mineOk + " mineFail=" + mineFail + " walkFail=" + walkFail + " left=" + left + " firstFails:" + firstFails);
         return "ok left=" + left;
     }
 
