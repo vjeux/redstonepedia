@@ -1065,6 +1065,30 @@ impl Prod {
             if r.contains("left=0") {
                 return Ok(());
             }
+            // Fallback when digbox barely progresses (its stand walks are frame-bound and
+            // can stall in jagged cavities): mine a batch the direct per-cell way.
+            let dug: i64 = r.split("left=").nth(1).and_then(|v| v.split(' ').next()).and_then(|v| v.parse().ok()).unwrap_or(i64::MAX);
+            if dug > todo.len() as i64 * 3 / 4 {
+                self.loga("clear_box: digbox slow — per-cell batch");
+                let feet = self.feet()?;
+                let fc = [feet[0].floor() as i32, feet[1].floor() as i32, feet[2].floor() as i32];
+                let mut cells = todo.clone();
+                cells.sort_by_key(|c| (c[0] - fc[0]).abs() + (c[1] - fc[1]).abs() + (c[2] - fc[2]).abs());
+                let blocks2 = if dim == "the_nether" { self.nether_box(rlo, rhi)? } else { self.overworld_box(rlo, rhi)? };
+                let mut n = 0;
+                for cell in cells {
+                    if n >= 60 {
+                        break;
+                    }
+                    if blocks2.kind(cell) != Kind::Solid {
+                        continue;
+                    }
+                    if self.stand_near(&blocks2, cell).is_ok() && self.mine(cell).is_ok() {
+                        n += 1;
+                    }
+                }
+                self.loga(&format!("clear_box: per-cell batch mined {n}"));
+            }
             // Progress is judged by the next read; the actor reporting "stuck" or the count
             // not moving means the remaining cells need a fresh angle (rescue tp once).
             let after = if dim == "the_nether" { self.nether_box(rlo, rhi)? } else { self.overworld_box(rlo, rhi)? };
@@ -2319,16 +2343,25 @@ fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
     p.build_portal2("overworld", c.rox - 1, 2, c.doz_a, 3)?;
     p.build_portal2("overworld", c.dix - 1, 2, c.doz_a, 3)?;
     p.build_portal2("overworld", c.dix - 1, 2, c.doz_b, 3)?;
-    // The stone strip south of the portals (dust and plates sit on it at y3).
+    // Stone only where something sits or feet go: the dust rows, the branch column, the
+    // build-stand rows (a full rectangular slab was ~170 one-by-one placements).
     p.select(SLOT_STONE)?;
     let plate_cells: [(i32, i32); 4] = [(c.rox, c.doz_a + 1), (c.rox + 1, c.doz_a + 1), (c.rox, c.doz_a + 2), (c.rox + 1, c.doz_a + 2)];
-    for z in c.doz_a + 1..=c.doz_b + 2 {
-        for x in c.rox..=c.dix + 2 {
-            if plate_cells.contains(&(x, z)) {
-                continue;
-            }
-            p.place_at("overworld", [x, 2, z], "minecraft:stone", None)?;
+    let mut strip: Vec<(i32, i32)> = Vec::new();
+    for x in c.rox..=c.dix + 2 {
+        strip.push((x, c.doz_a + 1));
+        strip.push((x, c.doz_a + 2));
+    }
+    for z in c.doz_a + 3..=c.doz_b + 2 {
+        strip.push((c.dix, z));
+        strip.push((c.dix + 1, z));
+        strip.push((c.dix + 2, z));
+    }
+    for (x, z) in strip {
+        if plate_cells.contains(&(x, z)) {
+            continue;
         }
+        p.place_at("overworld", [x, 2, z], "minecraft:stone", None)?;
     }
     // Hoppers under the plates, then the plates themselves.
     p.hold("hopper")?;
@@ -2712,7 +2745,13 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         ], 6.0, S3)?;
         p.walk(c.dix + 1, c.doz_a + 3)?;
         p.dig_down2("overworld", c.dix + 1, c.doz_a + 3, 2.0)?;
-        p.clear_box("overworld", [c.rox - 2, 2, c.doz_a - 2], [c.dix + 3, 7, c.doz_b + 3], false)?;
+        // A minimal cavity, not a whole rectangular room (a 1600-cell clear was eating the
+        // session): portal columns full height, the main band (aisle + strip) at working
+        // height, and the branch band south to portal B.
+        p.clear_box("overworld", [c.rox - 1, 2, c.doz_a - 2], [c.dix + 3, 4, c.doz_a + 3], false)?;
+        p.clear_box("overworld", [c.rox - 1, 5, c.doz_a], [c.rox + 2, 6, c.doz_a], false)?;
+        p.clear_box("overworld", [c.dix - 1, 5, c.doz_a], [c.dix + 2, 6, c.doz_a], false)?;
+        p.clear_box("overworld", [c.dix - 1, 2, c.doz_a + 4], [c.dix + 3, 6, c.doz_b + 2], false)?;
         // The generated twin must die or it would steal the trigger items.
         p.seg_step("twin-off", "machine", &[
             "The twin the game generated must go (one frame block)",
@@ -2747,7 +2786,7 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         build_machine(p, &c)?;
         p.seg_step("machine-top", "machine", &["The finished machine (camera view): R_O left, the two drill portals right"], 1.0, S3)?;
         let midx = (c.rox + c.dix) as f64 / 2.0;
-        p.spec_shot("overworld", [midx, 8.5, c.doz_b as f64 + 6.0], [midx, 2.5, c.doz_a as f64 + 1.0], 80)?;
+        p.spec_shot("overworld", [midx, 6.3, c.doz_b as f64 + 2.5], [midx, 2.5, c.doz_a as f64 + 1.0], 80)?;
         p.checkpoint("machine")?;
     }
     if !p.done("firstdrill") {
