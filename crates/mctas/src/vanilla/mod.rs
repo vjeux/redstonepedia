@@ -105,6 +105,23 @@ pub struct VanillaOptions {
     pub view_distance: u32,
     /// `level-name`: the world folder's name, and the name the game lists for a new world.
     pub level_name: String,
+    /// `level-seed` of a fresh world (0 by default; ignored for a copied-in `world`).
+    pub seed: i64,
+    /// A default-generated world (`minecraft:normal`, structures on) instead of the void
+    /// superflat (the `bedrock video` tutorial: a real random world).
+    pub default_world: bool,
+    /// `gamemode` server property (players' default mode).
+    pub gamemode: String,
+    /// `force-gamemode` server property.
+    pub force_gamemode: bool,
+    /// `difficulty` server property.
+    pub difficulty: String,
+    /// Freeze time (`/tick freeze`, `save-off`) and step it by hand; false = real time.
+    pub frozen: bool,
+    /// Connect the network bot (a player in the world; the video's real client needs none).
+    pub with_bot: bool,
+    /// simulation-distance (ticking chunks around players).
+    pub simulation_distance: u32,
 }
 
 impl Default for VanillaOptions {
@@ -118,6 +135,14 @@ impl Default for VanillaOptions {
             world: None,
             view_distance: 3,
             level_name: "world".into(),
+            seed: 0,
+            default_world: false,
+            gamemode: "creative".into(),
+            force_gamemode: true,
+            difficulty: "peaceful".into(),
+            frozen: true,
+            with_bot: true,
+            simulation_distance: 3,
         }
     }
 }
@@ -196,12 +221,21 @@ impl VanillaServer {
         if let Some(src) = &opts.world {
             copy_tree(src, &dir.join(&opts.level_name))?;
         }
+        let (level_type, gen_settings, structures) = if opts.default_world {
+            ("minecraft\\:normal".to_string(), "{}".to_string(), "true".to_string())
+        } else {
+            (
+                "minecraft\\:flat".to_string(),
+                r#"{"layers":[{"block":"minecraft:air","height":1}],"biome":"minecraft:the_void","features":false,"lakes":false}"#.to_string(),
+                "false".to_string(),
+            )
+        };
         let props = [
             ("level-name", opts.level_name.clone()),
-            ("level-type", "minecraft\\:flat".to_string()),
-            ("generator-settings", r#"{"layers":[{"block":"minecraft:air","height":1}],"biome":"minecraft:the_void","features":false,"lakes":false}"#.to_string()),
-            ("generate-structures", "false".to_string()),
-            ("level-seed", "0".to_string()),
+            ("level-type", level_type),
+            ("generator-settings", gen_settings),
+            ("generate-structures", structures),
+            ("level-seed", opts.seed.to_string()),
             ("online-mode", "false".to_string()),
             ("enforce-secure-profile", "false".to_string()),
             ("server-ip", "127.0.0.1".to_string()),
@@ -213,18 +247,20 @@ impl VanillaServer {
             ("enable-query", "false".to_string()),
             ("enable-status", "true".to_string()),
             ("spawn-protection", "0".to_string()),
-            ("difficulty", "peaceful".to_string()),
-            ("gamemode", "creative".to_string()),
-            ("force-gamemode", "true".to_string()),
+            ("difficulty", opts.difficulty.clone()),
+            ("gamemode", opts.gamemode.clone()),
+            ("force-gamemode", opts.force_gamemode.to_string()),
             ("allow-flight", "true".to_string()),
             ("max-players", "4".to_string()),
             ("max-tick-time", "-1".to_string()),
             ("pause-when-empty-seconds", "0".to_string()),
             ("view-distance", opts.view_distance.to_string()),
-            ("simulation-distance", "3".to_string()),
+            ("simulation-distance", opts.simulation_distance.to_string()),
             ("network-compression-threshold", "-1".to_string()),
             ("sync-chunk-writes", "false".to_string()),
-            ("region-file-compression", "none".to_string()),
+            // A real world compresses its region files (26.3's `deflate`; read_box reads it);
+            // the void world's files stay raw (tiny, and snapshots parse them constantly).
+            ("region-file-compression", if opts.default_world { "deflate".to_string() } else { "none".to_string() }),
             ("log-ips", "false".to_string()),
             ("white-list", "false".to_string()),
             ("enforce-whitelist", "false".to_string()),
@@ -281,8 +317,6 @@ impl VanillaServer {
         };
         let mut server = VanillaServer { child, dir, rcon, bot: None, game_port, keep_dir: opts.keep_dir, log, stats: Stats::default(), tick_rate: opts.tick_rate, dirty: None, markers: HashMap::new(), markers_seen: 0, level_name: opts.level_name.clone() };
         for c in [
-            "tick freeze",
-            "save-off",
             "gamerule spawn_mobs false",
             "gamerule spawn_monsters false",
             "gamerule advance_weather false",
@@ -291,12 +325,18 @@ impl VanillaServer {
         ] {
             server.cmd_ok(c)?;
         }
-        if opts.tick_rate != 20 {
-            server.cmd_ok(&format!("tick rate {}", opts.tick_rate))?;
+        if opts.frozen {
+            server.cmd_ok("tick freeze")?;
+            server.cmd_ok("save-off")?;
+            if opts.tick_rate != 20 {
+                server.cmd_ok(&format!("tick rate {}", opts.tick_rate))?;
+            }
         }
-        let bot = bot::Bot::connect(game_port, &opts.bot_name)?;
-        server.bot = Some(bot);
-        server.cmd_ok(&format!("gamemode creative {}", opts.bot_name))?;
+        if opts.with_bot {
+            let bot = bot::Bot::connect(game_port, &opts.bot_name)?;
+            server.bot = Some(bot);
+            server.cmd_ok(&format!("gamemode creative {}", opts.bot_name))?;
+        }
         Ok(server)
     }
 
@@ -456,10 +496,26 @@ impl VanillaServer {
         if !out.to_lowercase().contains("saved") {
             bail!("save-all flush: {out}");
         }
-        // 26.x keeps each dimension under world/dimensions/<namespace>/<name>/.
-        let modern = self.dir.join(&self.level_name).join("dimensions").join("minecraft").join("overworld");
-        let dim = if modern.exists() { modern } else { self.dir.join(&self.level_name) };
-        read_box(&dim, lo, hi)
+        read_box(&self.dim_dir("overworld"), lo, hi)
+    }
+
+    /// A dimension's folder of this server's world (26.x: `world/dimensions/minecraft/<dim>/`,
+    /// e.g. `the_nether`; the overworld of older layouts is the world folder itself).
+    pub fn dim_dir(&self, dim: &str) -> PathBuf {
+        let modern = self.dir.join(&self.level_name).join("dimensions").join("minecraft").join(dim);
+        if modern.exists() || dim != "overworld" { modern } else { self.dir.join(&self.level_name) }
+    }
+
+    /// `save-all flush`, then read a box of a dimension from its region files. Unlike
+    /// [`VanillaServer::snapshot`] no marker blocks are flipped: right for plain block reads of
+    /// a live world, where the interesting chunks were just changed by players (and so are
+    /// written), but not for fresh scheduled-tick lists of untouched chunks.
+    pub fn read_dim_box(&mut self, dim: &str, lo: Pos, hi: Pos) -> Result<Snapshot> {
+        let out = self.cmd("save-all flush")?;
+        if !out.to_lowercase().contains("saved") {
+            bail!("save-all flush: {out}");
+        }
+        read_box(&self.dim_dir(dim), lo, hi)
     }
 }
 

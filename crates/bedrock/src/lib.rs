@@ -10,7 +10,9 @@
 //! work is the odds of a player who presses the chord at a random moment.
 
 pub mod cli;
+pub mod portal;
 pub mod vanilla;
+pub mod video;
 
 use anyhow::{Context, Result, bail};
 use mctas::sim::{PlaceMode, Pos, SandboxOptions, Worker, WorkerConfig};
