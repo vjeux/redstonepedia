@@ -38,6 +38,28 @@ pub struct Action {
     pub click: Option<Pos>,
     #[serde(default)]
     pub face: Option<String>,
+    /// Repeat this script action `times` times, `every` windows apart (a batch of portal trips).
+    #[serde(default)]
+    pub every: u32,
+    #[serde(default)]
+    pub times: u32,
+}
+
+impl Scenario {
+    /// The script with every repeated action unrolled.
+    pub fn expanded_script(&self) -> Vec<Action> {
+        let mut out = Vec::new();
+        for a in &self.script {
+            let n = a.times.max(1);
+            for k in 0..n {
+                let mut b = a.clone();
+                b.at = a.at + k * a.every;
+                b.times = 0;
+                out.push(b);
+            }
+        }
+        out
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -78,7 +100,9 @@ fn default_horizon() -> u32 {
 impl Scenario {
     pub fn load(path: &Path) -> Result<Scenario> {
         let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+        let mut sc: Scenario = serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        sc.script = sc.expanded_script();
+        Ok(sc)
     }
 }
 

@@ -73,6 +73,42 @@ Can not reach the **Nether roof**: `maxPlaceableY` = min(maxY, minY + logicalHei
 bedrock starts at y 123. The fallback platform (no site found, 107-135) is clamped to
 y 70..118.
 
+### Batch mode: one field, one portal, many lines
+
+Verified on the official server (`portal_sweep.json`): **prepare one big field once, keep ONE entry
+portal, and repeat trips with nothing re-aimed between them.** The trick is to NOT mine the whole
+generated frame between trips: break the portal by mining one frame block and leave the rest.
+
+* A site needs its own row and the rows on each side clear (4 air above). The leftover frame
+  (pillars + top row) fills its row's air space, so its row and both neighbours stop being sites;
+  the game's closest-site rule then picks the next free line by itself.
+* So with the exit on row 0 the trips convert rows 0, +2, -2, +4... across the whole width (the
+  frames tile every 4 blocks along the axis): **every other row, automatically**.
+* Pass 2: mine all the leftover frames (keep the converted lines), move the entry portal 8 blocks
+  (= one Nether row) so the exit is on an odd row, and repeat: the odd rows go the same way (the
+  converted even rows next to each new leftover frame are skipped for the same reason).
+* Test: a 12 x 9 bedrock field (rows -4..4; the two border rows are support, never converted).
+  Pass 1 = 9 trips, after which rows 0, 2, -2 are entirely obsidian and rows +-1, +-3 entirely
+  bedrock; pass 2 = 12 trips, after which rows -3..3 are entirely obsidian (84 bedrock in 21
+  trips, asserted against reference slabs). The only thing done between trips was removing the new
+  portal's portal blocks (what mining one frame block does).
+
+Player loop per trip (Nether floor): step into the overworld drill portal -> you arrive in the
+new portal on the field -> mine one of its pillar blocks (the portal goes out) -> walk to a return
+portal >= 17 blocks away (Chebyshev) from the exit point -> you come out at its overworld twin,
+which can sit 8 blocks from the drill portal (the Nether->Overworld search is 128 around 8x the
+return portal, and the drill portal at 136 is outside it) -> step back into the drill portal.
+About 25 blocks of walking and one obsidian per trip; all the leftover frames and converted lines
+are mined at the end of each pass (14 obsidian per line, about 1.5 s each with Efficiency V +
+Haste II).
+
+Limits: each trip still converts one 1x4 line (4 cells, whatever they are: on the Nether's upper
+layers most of a line is filler, since y 4 is only 20% bedrock, y 3 40%, y 2 60%, y 1 80%, y 0
+100%); the field must stay within +-16 blocks of the exit point (the search window); and keep the
+field compact (radius ~6-8 blocks): as the near lines are used up, a natural cave spot with a flat
+4x3 floor and 4 air above that is closer to the exit point (3D) than the remaining field lines
+would win, and the portal appears there instead (then put a block in that spot and retry).
+
 ### The Overworld floor
 
 Same mechanics, nether -> overworld trips. The catch is the site choice: the exit point's y is the
