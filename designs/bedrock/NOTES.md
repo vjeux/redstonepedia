@@ -549,7 +549,19 @@ only in the End at fixed places.
 
 ## Video
 
-Tutorial: [bedrock-portal-method.webm](https://github.com/vjeux/redstonepedia/releases/download/videos/bedrock-portal-method.webm)
+v2 (the sweep + remote-trigger remake, `mctas bedrock video --v2`): PARTIAL —
+[bedrock-portal-method-v2.webm](https://github.com/vjeux/redstonepedia/releases/download/videos/bedrock-portal-method-v2.webm)
+(98 s) covers the kit, the trick diagram, field prep and the return portal on the same
+seed (field x -8..-5, rows -7..3), then stops: the recording client's per-frame command
+latency collapsed during the Overworld machine-room dig and the recording box's lease
+ran out before the machine, the loop and the sweep could be filmed. The driver for the
+full shoot is in place (scout sweep-simulation, actor toss/cam/placef/fillinto/digbox,
+per-leg checkpoints `setup2`/`intro2`/`field`/`rn`/`owdig`/`owbranch`/`machine`/…):
+resume any later shoot with `--v2 --phase record --from rn`. The loop and sweep
+themselves are the verified scenarios `portal_sweep.json` / `portal_remote_trigger.json`
+above.
+
+v1 tutorial: [bedrock-portal-method.webm](https://github.com/vjeux/redstonepedia/releases/download/videos/bedrock-portal-method.webm)
 (4m21s, 1280x720 VP9), made by `mctas bedrock video` (crates/bedrock/src/video.rs): a real
 random world on the official 26.3 server, seed **1794188792292810894**, survival mode
 (peaceful), driven as a genuine client by a small client-side Fabric actor mod — real mining,

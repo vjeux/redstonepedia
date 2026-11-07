@@ -3295,7 +3295,7 @@ fn compose2(version: &str, plan: &Plan, o: &VideoOptions) -> Result<()> {
             "intro" => 7.0,
             "dig-down" => 9.0,
             "field-top" => 5.0,
-            "field-prep" => 13.0,
+            "field-prep" => 24.0,
             "bedrock-before" => 6.0,
             "return-portal" => 16.0,
             "overworld-dig" => 9.0,
@@ -3384,12 +3384,14 @@ fn compose2(version: &str, plan: &Plan, o: &VideoOptions) -> Result<()> {
         })
     };
     let mut trip_chapter_done = false;
+    let mut machine_card_done = false;
     for seg in &timeline.segments {
         if seg.file.contains("hook") {
             continue;
         }
         if seg.file.contains("machine-build") {
             add_card!("card-machine", 7.0, &machine_diagram, "The trigger machine (diagram)");
+            machine_card_done = true;
         }
         if seg.file.contains("trip") && !seg.file.contains("first-trip") && !trip_chapter_done {
             chapters.push((total, "The sweep (time-lapse)".into()));
@@ -3399,8 +3401,12 @@ fn compose2(version: &str, plan: &Plan, o: &VideoOptions) -> Result<()> {
         }
         add_seg(seg, &mut inputs, &mut graphs, &mut outs, &mut inp, &mut total)?;
     }
-    // 4) Recap.
-    let recap = card(&font, &netherrack, w, h, &[
+    let finished = timeline.segments.iter().any(|s| s.file.contains("reveal"));
+    if !machine_card_done {
+        add_card!("card-machine", 7.0, &machine_diagram, "The trigger machine (diagram)");
+    }
+    // 4) Recap. A time-boxed cut (no reveal filmed) says so on its last lines.
+    let mut recap_lines: Vec<(String, u32, [u8; 3])> = vec![
         ("Recap".into(), 6, YELLOW),
         ("".into(), 1, WHITE),
         ("1 · Flatten one field on the floor".into(), 3, WHITE),
@@ -3412,8 +3418,16 @@ fn compose2(version: &str, plan: &Plan, o: &VideoOptions) -> Result<()> {
         ("One 1x4 line per trip · keep the field within 16 of the exit".into(), 2, GRAY),
         ("The Nether roof is safe: frame bottom max y=122, roof starts 123".into(), 2, GRAY),
         ("Overworld floor: nearer cave/surface sites usually win instead".into(), 2, GRAY),
-        (format!("seed {} · github.com/vjeux/redstonepedia (designs/bedrock)", plan.seed), 2, GRAY),
-    ]);
+    ];
+    if finished {
+        recap_lines.push((format!("seed {} · github.com/vjeux/redstonepedia (designs/bedrock)", plan.seed), 2, GRAY));
+    } else {
+        recap_lines.push(("Filming stopped at the machine-room dig (recording-box lease).".into(), 2, YELLOW));
+        recap_lines.push(("The loop + sweep are verified on the official server:".into(), 2, GRAY));
+        recap_lines.push(("designs/bedrock/portal/portal_sweep.json + portal_remote_trigger.json".into(), 2, GRAY));
+        recap_lines.push((format!("seed {} · github.com/vjeux/redstonepedia (designs/bedrock)", plan.seed), 2, GRAY));
+    }
+    let recap = card(&font, &netherrack, w, h, &recap_lines);
     add_card!("card-recap", 8.0, &recap, "Recap: rules and limits");
     let n_parts = outs.len();
     let graph = format!("{};{}concat=n={n_parts}:v=1:a=0,scale=out_range=tv,format=yuv420p[o]", graphs.join(";"), outs.concat());
