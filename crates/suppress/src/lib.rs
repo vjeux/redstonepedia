@@ -250,6 +250,43 @@ pub fn plane(w: &World, y: i32) -> String {
     out
 }
 
+/// Flat dust fields stacked in layers (supports at y=0,3,6,..., wires one above), joined by
+/// a wire staircase at the east edge of each layer. The lever sits on the bottom field's
+/// center support.
+fn dust_stack(n: i32, layers: i32) -> (Vec<(BlockPos, Block)>, BlockPos) {
+    let mut v = Vec::new();
+    let c = n / 2;
+    for l in 0..layers {
+        let sy = l * 3;
+        for x in 0..n {
+            for z in 0..n {
+                // The ramp shaft: no support plane (it would block the staircase's
+                // diagonal reads) and no field wire in the three ramp columns.
+                if l > 0 && z == c && (c + 1..=c + 3).contains(&x) {
+                    continue;
+                }
+                v.push((bp(x, sy, z), stone()));
+                if !(l == 0 && x == c && z == c) {
+                    v.push((bp(x, sy + 1, z), redsim::redstone::wire::CROSS));
+                }
+            }
+        }
+        if l + 1 < layers {
+            // Central staircase (the powered diamond's middle): three step columns east of
+            // the center rising one wire per column from this layer's wires (sy+1) to the
+            // next layer's (sy+4); the bottom layer's own wires at those columns are
+            // replaced by the staircase supports.
+            for s in 0..3 {
+                let x = c + 1 + s;
+                v.retain(|(p, _)| !(*p == bp(x, sy + 1, c) && l == 0));
+                v.push((bp(x, sy + 1 + s, c), stone()));
+                v.push((bp(x, sy + 2 + s, c), redsim::redstone::wire::CROSS));
+            }
+        }
+    }
+    (v, bp(c, 1, c))
+}
+
 /// Probe one family/size at world offset `at`.
 /// Family: `dust`, or `rail:<pattern>:<kinds>:<geom>` (see `rail_mesh`; short forms
 /// `rail-comb` = rail:comb:checker:flat, `rail-t` = rail:t:jp:flat, `rail` = rail:full).
@@ -268,6 +305,11 @@ pub fn probe(family: &str, size: i32, at: BlockPos, trigger: &str) -> Result<Pro
             let (b, l) = dust_field(size);
             (b, l, bp(0, -99, 0), l)
         }
+        f if f.starts_with("dust-stack") => {
+            let layers: i32 = f.strip_prefix("dust-stack").and_then(|s| s.strip_prefix(':')).and_then(|s| s.parse().ok()).unwrap_or(3);
+            let (b, l) = dust_stack(size, layers);
+            (b, l, bp(0, -99, 0), l)
+        }
         f if f.starts_with("rail:") => {
             let p: Vec<&str> = f.split(':').collect();
             anyhow::ensure!(p.len() == 4, "family must be rail:<pattern>:<kinds>:<geom>");
@@ -282,6 +324,12 @@ pub fn probe(family: &str, size: i32, at: BlockPos, trigger: &str) -> Result<Pro
     place_player_like(&mut w, &blocks, at);
     w.run_until_idle(100);
     if std::env::var_os("SUPPRESS_DUMP").is_some() {
+        for y in w.min.y..w.min.y + w.size[1] {
+            let p = plane(&w, y);
+            if p.contains(|c: char| c.is_ascii_digit()) {
+                eprintln!("--- rest plane y={y} ---\n{p}");
+            }
+        }
         eprintln!("--- rest plane y={} ---\n{}", 1 + at.y, plane(&w, 1 + at.y));
     }
     let build_peak = w.nu_history.iter().map(|s| s.counted).max().unwrap_or(0);
