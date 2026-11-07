@@ -682,6 +682,15 @@ impl Prod {
         self.actor.cmd_timeout(&format!("dropall {substr} {keep}"), Duration::from_secs(90))
     }
 
+    /// Client-side box digging (see the actor's `digBox`): returns its answer line
+    /// ("ok left=N[ stuck]").
+    fn digbox(&mut self, lo: Pos, hi: Pos, mode: &str) -> Result<String> {
+        self.actor.cmd_timeout(
+            &format!("digbox {} {} {} {} {} {} {} 100", lo[0], lo[1], lo[2], hi[0], hi[1], hi[2], mode),
+            Duration::from_secs(160),
+        )
+    }
+
     fn invcount(&mut self, substr: &str) -> Result<i64> {
         let s = self.actor.cmd(&format!("invcount {substr}"))?;
         Ok(s.split("count=").nth(1).and_then(|v| v.split(' ').next()).and_then(|v| v.parse().ok()).unwrap_or(-1))
@@ -1044,43 +1053,30 @@ impl Prod {
             if todo.is_empty() {
                 return Ok(());
             }
-            // NEAREST to the player first (then column by column, bottom-up): from solid
-            // rock the only reachable stands are in the cavity already carved, so mining
-            // the near frontier keeps walks to a step or two. Far cells whose snapshot
-            // "stands" sit on unmined rock would otherwise burn a 25 s walk timeout each —
-            // that made a big room clear crawl. Small batches still (stands go stale).
-            let feet = self.feet()?;
-            let fc = [feet[0].floor() as i32, feet[1].floor() as i32, feet[2].floor() as i32];
-            todo.sort_by_key(|p| {
-                let d = (p[0] - fc[0]).abs() + (p[1] - fc[1]).abs() + (p[2] - fc[2]).abs();
-                (d, std::cmp::Reverse(p[2]), p[0], p[1])
-            });
+            // The digging itself runs inside the client (`digbox`): live stands, nearest
+            // reachable first, no per-block file round trips. Driving it from here cell by
+            // cell crawled at the client's frame rate and burned walk timeouts on stands
+            // that only existed in a stale snapshot.
             self.loga(&format!("clear_box {dim} pass {pass}: {} blocks", todo.len()));
             self.select(SLOT_PICK)?;
             let first: Vec<Pos> = todo.iter().take(8).copied().collect();
-            let mut mined = 0;
-            for p in todo {
-                if mined >= 60 {
-                    break;
-                }
-                match self.stand_near(&blocks, p) {
-                    // Precise mine (direct per-tick calls), not the held key: at the client's
-                    // few fps under llvmpipe the held-key path costs several frame-gated
-                    // submits per block; the direct path needs two or three.
-                    Ok(()) => match self.mine(p) {
-                        Ok(()) => mined += 1,
-                        // The snapshot can be stale by the time we get here (overshoot mined
-                        // it already; lava took its place): next pass re-reads anyway.
-                        Err(e) => self.loga(&format!("clear_box: mine {p:?} skipped: {e:#}")),
-                    },
-                    Err(_) => continue,
-                }
+            let r = self.digbox(lo, hi, if obsidian { "any" } else { "noobs" })?;
+            self.loga(&format!("clear_box {dim} digbox -> {r}"));
+            if r.contains("left=0") {
+                return Ok(());
             }
-            if mined == 0 {
+            // Progress is judged by the next read; the actor reporting "stuck" or the count
+            // not moving means the remaining cells need a fresh angle (rescue tp once).
+            let after = if dim == "the_nether" { self.nether_box(rlo, rhi)? } else { self.overworld_box(rlo, rhi)? };
+            let left = (lo[1]..=hi[1])
+                .flat_map(|y| (lo[2]..=hi[2]).flat_map(move |z| (lo[0]..=hi[0]).map(move |x| [x, y, z])))
+                .filter(|&c| {
+                    let s = after.get(c);
+                    after.kind(c) == Kind::Solid && !s.starts_with("minecraft:bedrock") && (obsidian || !s.starts_with("minecraft:obsidian"))
+                })
+                .count();
+            if left >= todo.len() {
                 self.loga(&format!("clear_box stuck; first remaining: {first:?}"));
-                // The player can end up walled into a side pocket (a geode shell, say) with
-                // every walk failing: put them back in the middle of the room (travel, not a
-                // block edit) once; a second stuck pass in a row really is stuck.
                 if !rescued {
                     rescued = true;
                     let (cx, cz) = ((lo[0] + hi[0]) / 2, (lo[2] + hi[2]) / 2);
@@ -2492,22 +2488,19 @@ fn mine_obsidian_box(p: &mut Prod, lo: Pos, hi: Pos) -> Result<()> {
         if todo.is_empty() {
             return Ok(());
         }
-        let feet = p.feet()?;
-        let fc = [feet[0].floor() as i32, feet[1].floor() as i32, feet[2].floor() as i32];
-        todo.sort_by_key(|c| (c[0] - fc[0]).abs() + (c[1] - fc[1]).abs() + (c[2] - fc[2]).abs());
         p.loga(&format!("mine_obsidian_box pass {pass}: {} cells", todo.len()));
         p.select(SLOT_PICK)?;
-        let mut mined = 0;
-        for cell in todo {
-            if mined >= 40 {
-                break;
-            }
-            if p.stand_near(&blocks, cell).is_ok() {
-                p.mine(cell)?;
-                mined += 1;
-            }
+        let r = p.digbox(lo, hi, "obsidian")?;
+        p.loga(&format!("mine_obsidian_box digbox -> {r}"));
+        if r.contains("left=0") {
+            return Ok(());
         }
-        if mined == 0 {
+        let after = p.nether_box(rlo, rhi)?;
+        let left = (lo[1]..=hi[1])
+            .flat_map(|y| (lo[2]..=hi[2]).flat_map(move |z| (lo[0]..=hi[0]).map(move |x| [x, y, z])))
+            .filter(|&c| after.get(c).starts_with("minecraft:obsidian"))
+            .count();
+        if left >= todo.len() {
             if !rescued {
                 rescued = true;
                 let (cx, cz) = ((lo[0] + hi[0]) / 2, hi[2] + 1);

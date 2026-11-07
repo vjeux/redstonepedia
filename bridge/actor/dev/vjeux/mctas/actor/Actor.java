@@ -324,6 +324,12 @@ public final class Actor {
             case "fillinto":
                 return fillInto(new BlockPos(Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3])), f[4],
                         f.length > 5 ? Integer.parseInt(f[5]) : 99);
+            case "digbox":
+                return digBox(
+                        Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3]),
+                        Integer.parseInt(f[4]), Integer.parseInt(f[5]), Integer.parseInt(f[6]),
+                        f.length > 7 ? f[7] : "any",
+                        f.length > 8 ? Integer.parseInt(f[8]) : 100);
             case "dropall": {
                 // dropall <item-substr> <keep-stacks>: throw away whole junk stacks (mined
                 // deepslate/netherrack) so item entities never pile up and lag the server.
@@ -669,6 +675,147 @@ public final class Actor {
         BlockPos target = pos.relative(face);
         String there = onClient(() -> blockId(Minecraft.getInstance().level.getBlockState(target)));
         return "ok place=" + r + " target=" + there;
+    }
+
+    /**
+     * Digs out a whole box from inside the client: repeatedly mine the nearest target the
+     * crosshair can reach, stepping to live-verified stands near the player when it cannot.
+     * One command instead of one file round trip per block (the per-block IPC plus stale
+     * snapshot stands made big clears crawl at this client's frame rate). `mode` "any"
+     * mines every solid block except bedrock; "obsidian" only obsidian. Runs at most
+     * `secs`, answers how many target cells remain.
+     */
+    private static String digBox(int x0, int y0, int z0, int x1, int y1, int z1, String mode, int secs) throws Exception {
+        waitPlayer();
+        long deadline = System.currentTimeMillis() + secs * 1000L;
+        int stuckRounds = 0;
+        while (System.currentTimeMillis() < deadline) {
+            // Scan (client thread): targets sorted by distance to the player's eye.
+            java.util.List<BlockPos> targets = onClient(() -> {
+                Minecraft mc = Minecraft.getInstance();
+                java.util.List<BlockPos> out = new java.util.ArrayList<>();
+                for (int y = y0; y <= y1; y++) {
+                    for (int z = z0; z <= z1; z++) {
+                        for (int x = x0; x <= x1; x++) {
+                            BlockPos p = new BlockPos(x, y, z);
+                            BlockState s = mc.level.getBlockState(p);
+                            if (s.isAir() || !s.getFluidState().isEmpty()) {
+                                continue;
+                            }
+                            String id = blockId(s);
+                            boolean want = switch (mode) {
+                                case "obsidian" -> id.equals("minecraft:obsidian");
+                                case "noobs" -> !id.equals("minecraft:bedrock") && !id.equals("minecraft:obsidian");
+                                default -> !id.equals("minecraft:bedrock");
+                            };
+                            if (want && !s.getCollisionShape(mc.level, p).isEmpty()) {
+                                out.add(p);
+                            }
+                        }
+                    }
+                }
+                var eye = mc.player.getEyePosition();
+                out.sort(Comparator.comparingDouble(p -> p.distToCenterSqr(eye.x, eye.y, eye.z)));
+                return out;
+            });
+            if (targets.isEmpty()) {
+                return "ok left=0";
+            }
+            boolean progress = false;
+            int walkTries = 0;
+            for (BlockPos cell : targets) {
+                if (System.currentTimeMillis() > deadline) {
+                    break;
+                }
+                double d = onClient(() -> {
+                    var eye = Minecraft.getInstance().player.getEyePosition();
+                    return Math.sqrt(cell.distToCenterSqr(eye.x, eye.y, eye.z));
+                });
+                if (d <= 4.2) {
+                    String r = mine(cell, false);
+                    if (r.startsWith("ok")) {
+                        progress = true;
+                        break;
+                    }
+                    continue;
+                }
+                // Step to a live stand within reach of the cell, close to where we are.
+                BlockPos stand = onClient(() -> {
+                    Minecraft mc = Minecraft.getInstance();
+                    LocalPlayer p = mc.player;
+                    BlockPos best = null;
+                    double bestD = 1e9;
+                    for (int dx = -3; dx <= 3; dx++) {
+                        for (int dz = -3; dz <= 3; dz++) {
+                            for (int dy = -4; dy <= 1; dy++) {
+                                BlockPos s = cell.offset(dx, dy, dz);
+                                if (s.equals(cell) || s.equals(cell.above())) {
+                                    continue;
+                                }
+                                BlockState below = mc.level.getBlockState(s.below());
+                                if (below.getCollisionShape(mc.level, s.below()).isEmpty() || !below.getFluidState().isEmpty()) {
+                                    continue;
+                                }
+                                if (!mc.level.getBlockState(s).getCollisionShape(mc.level, s).isEmpty()
+                                        || !mc.level.getBlockState(s.above()).getCollisionShape(mc.level, s.above()).isEmpty()) {
+                                    continue;
+                                }
+                                double eyeD = Math.sqrt(cell.distToCenterSqr(s.getX() + 0.5, s.getY() + 1.62, s.getZ() + 0.5));
+                                if (eyeD > 4.2) {
+                                    continue;
+                                }
+                                double pd = Math.abs(s.getX() - p.getBlockX()) + Math.abs(s.getZ() - p.getBlockZ())
+                                        + 3.0 * Math.abs(s.getY() - p.getBlockY());
+                                if (pd < bestD) {
+                                    bestD = pd;
+                                    best = s;
+                                }
+                            }
+                        }
+                    }
+                    return best != null && bestD <= 7 ? best : null;
+                });
+                if (stand == null || ++walkTries > 4) {
+                    continue;
+                }
+                String wr = walk(stand.getX() + 0.5, stand.getZ() + 0.5);
+                if (wr.startsWith("ok")) {
+                    String r = mine(cell, false);
+                    if (r.startsWith("ok")) {
+                        progress = true;
+                        break;
+                    }
+                }
+            }
+            if (!progress && ++stuckRounds >= 3) {
+                return "ok left=" + targets.size() + " stuck";
+            }
+            if (progress) {
+                stuckRounds = 0;
+            }
+        }
+        int left = onClient(() -> {
+            Minecraft mc = Minecraft.getInstance();
+            int n = 0;
+            for (int y = y0; y <= y1; y++) {
+                for (int z = z0; z <= z1; z++) {
+                    for (int x = x0; x <= x1; x++) {
+                        BlockState s = mc.level.getBlockState(new BlockPos(x, y, z));
+                        String id = blockId(s);
+                        boolean want = switch (mode) {
+                            case "obsidian" -> id.equals("minecraft:obsidian");
+                            case "noobs" -> !id.equals("minecraft:bedrock") && !id.equals("minecraft:obsidian");
+                            default -> !id.equals("minecraft:bedrock");
+                        };
+                        if (!s.isAir() && s.getFluidState().isEmpty() && want) {
+                            n++;
+                        }
+                    }
+                }
+            }
+            return n;
+        });
+        return "ok left=" + left;
     }
 
     /**
