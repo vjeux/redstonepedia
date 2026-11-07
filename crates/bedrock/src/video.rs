@@ -909,6 +909,34 @@ fn smoke(version: &str, o: &VideoOptions) -> Result<()> {
 // ---- record: shared player work -------------------------------------------------------------
 
 impl Prod {
+    /// `dig_down` hardened for caves in the shaft: wait for the fall to settle before
+    /// choosing the next cell (mining a cell you are falling past times out — it ends up
+    /// above you, out of reach), and re-centre on the column after a sideways landing.
+    fn dig_down2(&mut self, x: i32, z: i32, target_y: f64) -> Result<()> {
+        for _ in 0..400 {
+            let mut f = self.feet()?;
+            for _ in 0..40 {
+                self.wait(3)?;
+                let f2 = self.feet()?;
+                if (f2[1] - f[1]).abs() < 0.01 {
+                    f = f2;
+                    break;
+                }
+                f = f2;
+            }
+            if f[1] <= target_y + 0.05 {
+                return Ok(());
+            }
+            if f[0].floor() as i32 != x || f[2].floor() as i32 != z {
+                self.walk(x, z)?;
+                continue;
+            }
+            let below = [x, f[1].floor() as i32 - 1, z];
+            self.mine_sweep(below)?;
+        }
+        bail!("dig_down2 never reached y {target_y}")
+    }
+
     /// Mine straight down the player's column until their feet are at `target_y`.
     fn dig_down(&mut self, target_y: f64) -> Result<()> {
         for _ in 0..200 {
@@ -2523,7 +2551,7 @@ fn scenes2(p: &mut Prod) -> Result<()> {
     if !p.done("field") {
         p.seg_step("dig-down", "field", &["Dig down to the Nether floor (bedrock lives at y 0-4)"], 6.0, S1)?;
         p.walk(plan.shaft_x, plan.shaft_z)?;
-        p.dig_down(5.0)?;
+        p.dig_down2(plan.shaft_x, plan.shaft_z, 5.0)?;
         p.select(SLOT_PICK)?;
         for z in (v2.z1 + 2..plan.shaft_z).rev() {
             p.mine([plan.shaft_x, 5, z])?;
@@ -2577,7 +2605,7 @@ fn scenes2(p: &mut Prod) -> Result<()> {
             "Dig down: the machine sits with its portals' floors at y=2",
         ], 6.0, S3)?;
         p.walk(c.dix + 1, c.doz_a + 3)?;
-        p.dig_down(2.0)?;
+        p.dig_down2(c.dix + 1, c.doz_a + 3, 2.0)?;
         p.clear_box("overworld", [c.rox - 3, 2, c.doz_a - 3], [c.dix + 4, 8, c.doz_b + 4], false)?;
         // The generated twin must die or it would steal the trigger items.
         p.seg_step("twin-off", "machine", &[
