@@ -176,6 +176,7 @@ pub fn run(version: &str, cmd: SuppressCmd) -> Result<()> {
         SuppressCmd::Emit(a) => {
             let r = crate::judge::rig(a.field, !a.control, redsim::pos::Dir::East, false);
             let mut d = mctas::design::Design { name: format!("update-suppressor judge rig (field {}, {})", a.field, if a.control { "control" } else { "flood" }), ..Default::default() };
+            d.meta.insert("build".into(), "place the `redstone` port block LAST, after the rest settles (it quasi-powers the target piston without updating it)".into());
             let p3 = |p: BlockPos| [p.x, p.y, p.z];
             d.ports.insert("lever".into(), p3(r.lever));
             d.ports.insert("middle".into(), p3(r.middle));

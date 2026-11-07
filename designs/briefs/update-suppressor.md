@@ -5,8 +5,11 @@ smallest practical survival-buildable mechanism that reliably suppresses one spe
 neighbor update to one target cell (Minecraft Java 26.3), with bounded lag, no crash, a clear
 trigger and reset, robust across directions, positions, mirrorings and chunk borders. The work,
 the evidence and every tool are in `designs/update-suppressor/NOTES.md`; this brief is what the
-study's judge rests on. Numbers marked (est.) come from counting calls in the game source; the
-`suppress probe` measurements replace them as they land (NOTES keeps both).
+study's judge rests on. The probe and judge have run: the layouts/G2/ceiling below carry the
+measured numbers (the audit estimates they replaced are in NOTES). Headline: the suppressor
+rig works and is proven at a lowered cap on the official server, and no survival build's
+single trigger comes within a factor ~30 of the shipped 1,000,000 cap - the practical
+mechanism remains never sending the update (layout 1).
 
 ## Use
 
@@ -136,30 +139,42 @@ again.
   ~3 blocks and no lag. The suppressor is only for updates that *will* be sent by a change
   that must happen next to T.
 
-## Five layouts
+## Five layouts (measured with `suppress probe`, 2026-11-07)
 
-| # | layout | blocks (est.) | counted calls | % of the ceiling (blocks floor ~6.4k, below) | constraints |
-|---|---|---|---|---|---|
-| 1 | **Obvious: don't send it.** Feed/hold T silently (QC through a repeater-fed conductor, or move B's change one cell away and update T deliberately) | ~3 | n/a - no cascade | n/a | only when B's change next to T is itself optional; fails the stated use |
-| 2 | **Flat dust field** on solid supports, one lever feeds the head wire; the whole field flips in the lever's first cascade | 2 per wire; 13 calls/flip, 1 flip/wire on power-up => ~77k wires + 77k supports (probe measures flips/wire; power-down may flip more) | reaches 1,000,000 by construction (size searched) | ~4% | one high freeze per use; `HashSet` dust order is position-dependent, so the count varies by position - needs margin at every judge position |
-| 3 | **Stepped 3D dust lattice** (wires climbing steps so `updateIndirectNeighbourShapes` fires: up to +8 shape calls per flip), supports as note blocks (each also flips: +7) | up to ~28 calls per wire+support pair (est.) => ~36k pairs | same | ~9% | more placement work per cell; step geometry must survive rotations/mirror |
-| 4 | **Powered-rail field** (rails + supports, one powered flip per rail) | ~11 calls/flip => ~91k rails + supports | same | ~3.5% | worst tick cost per call (`findPoweredRailSignal` scans); rails pop if a support moves |
-| 5 | **Plain-rail junction mesh** (3-way junctions whose curve flips with power; `place`/`connectTo` rewrite neighbours) | unknown until probed: 7+ calls per shape flip, flips/rail is the question | same | ? | if `place` and `connectTo` can disagree cyclically this is the only compact candidate; the probe falsifies or finds it on small meshes first |
+| # | layout | measured | verdict |
+|---|---|---|---|
+| 1 | **Obvious: don't send it.** Feed/hold T silently (QC through a repeater-fed conductor, or move B's change one cell away and update T deliberately) | ~3 blocks; proven in the game already (gadgets `silent-hold`, `qc-bud`, mechanics.md sections 4/6) | **the pick wherever it applies** - but it cannot swallow an update a change next to T *does* send |
+| 2 | **Flat dust field** on solid supports, one lever at the center | counted **7,385 on / 19,345 off at 31x31 and identical at 45 and 63**: exactly the radius-15 diamond (481 wires) flips, the rest of the field is decoration. 1.9% of the cap | dead: one trigger's signal reaches 15 wire-steps and no farther, whatever is built |
+| 3 | **Stacked dust fields** (layers joined by central staircases; the `updateIndirectNeighbourShapes` stepped lattice) | 5 layers of 31x31 (9,606 blocks): **30,571 counted off, 874 cells flipped**; layers past the third add ~nothing (climbing spends the 15-step budget). 3.1% of the cap | dead, same bound |
+| 4 | **Powered-rail field** | not field-probed: a rail's `shouldPower` reaches 8 track steps to a rail with neighbour signal (`findPoweredRailSignal` 23-96) and that signal comes from dust - the same 15-step radius caps the flippable region, at ~11 counted calls per rail flip | dead, same bound |
+| 5 | **Plain-rail junction mesh** (3-way junctions whose curve flips with power; `place`/`connectTo` rewrite neighbours) | 9 patterns x kinds x flat/slope geometries x lever/place/break triggers, sizes 12-64, plus 600 random patches (two triggers each): **best cascade 40 counted calls, size-independent**. On a survival-settled mesh `place` recomputes the shape already there and nothing propagates past the touched junction | dead: no wave, no oscillation in 26.3 |
 
 Also considered and set aside from the source: a *shape-depth* suppressor (make a shape change
 travel > 512 hops so `updateLimit` starves it) - shape changes of fences/walls/wires are
 presence functions and do not travel cell to cell, and the judge's target reacts to neighbour
 notifications, which the 512 budget never gates. Scaffolding/leaves distance fields: their
 recompute is a scheduled tick per cell, a fresh cascade each - they cannot flood one cascade.
+Two theoretical exceptions, both outside survival-practical (NOTES has the arithmetic):
+**sponges** (`SpongeBlock.neighborChanged` absorbs up to 64 water cells with direct
+`setBlockAndUpdate`s inside the running cascade, ~460 counted calls per sponge, chaining
+through shared water: the cap needs >= ~2,174 dry sponges, one-shot, reset by smelting) and
+**frosted ice** (`FrostedIceBlock.neighborChanged` chain-melts a sparse line at ~8 counted
+calls per cell: 125,000 cells of a block that cannot be obtained as an item, is only made
+in place by Frost Walker trails, and random-tick ages into spontaneous melts).
 
 ## Decision
 
-Probe first (the tool is the deliverable either way): instrument redsim to report each
-cascade's counted calls, then measure calls per placed block and flips per cell for layouts 2-5
-at small sizes, extrapolate, and build the smallest field whose *minimum* count over the
-judge's positions/rotations clears 1,000,000 with margin. Layout 1 stays the documented answer
-whenever the update is optional. If layout 5 oscillates, it replaces the field; the probe on
-small junction meshes decides that before any large field is built.
+**There is no survival-practical cascade-flood suppressor in 26.3 at the shipped cap.**
+The mechanism itself works and is fully understood: the judge rig below suppresses cleanly
+whenever the cascade can reach the cap (proven on redsim at a lowered cap and on the
+official server with the stock `max-chained-neighbor-updates` property lowered - same rig,
+same counts). What does not exist is a survival build whose one trigger adds 1,000,000
+counted calls in one cascade: every instant amplifier in the game either converges inside
+the trigger's 15-step signal radius (dust, mirrors, powered rails), is a fixed point on any
+survival-settled build (rail shapes, fences), or exits into a later phase (scheduled ticks,
+block events). The practical answer to the use stays layout 1 - never send the update -
+with this study as the evidence for why the flooded kind is not on the table. The judge and
+tools stay: any future mechanic that *can* flood drops into the same rig.
 
 ## Must-haves
 
@@ -202,29 +217,53 @@ small junction meshes decides that before any large field is built.
   and remove a stone at `wake`), 10 gt: T extended.
 - Metrics printed per variant: blocks, footprint, counted calls and executions of the
   suppressing cascade, flips per flood cell (max/mean), dropped calls, redsim wall time.
-- Bridge judges the same script in the real game (one worker, isolated universe): the game's
-  own "Too many chained neighbor updates" error in the log is the drop evidence; the tick's
-  wall time is the freeze measurement. The official-server check replays the winning build
-  once (placement by `fill`/setblock commands of the same generated blocks is a stand-in for
-  the bot at field sizes; the lever flip and the wake are the bot's real clicks) - NOTES says
-  which parts were bot-placed.
+- Bridge judges the same script in the real game (one worker, isolated universe) at the
+  game's own cap: identical outcomes to redsim, and the lever call's wall time is the
+  cascade's game cost. `mctas suppress vanilla` runs it on the official dedicated server
+  (placement by `fill`/`setblock` of the same generated blocks - a stand-in for hand
+  placement at field sizes; the lever flip is the bot's real click between stepped ticks),
+  at a `--cap` written to `server.properties`: the geometry proof at lowered caps and the
+  no-suppression result at the shipped default.
 
 ## The obvious design, measured (G2)
 
-Layout 1 is the bar a player has today and it does not do the job (it avoids the update
-instead of suppressing a sent one). The first working flood and its measured numbers go here
-once `suppress probe` sizes it; until then the est. column above is the bar to beat.
+Layout 1 is the bar a player has today (silent hold: ~3 blocks, proven in the game by the
+gadget library, vanilla PASS in mechanics.md section 11) and it does not do the stated job.
+The first *working suppressor rig* is this study's judge rig (a lever on a note block over
+a 31x31 dust field, the middle note block over the lever, a quasi-powered piston beside it;
+`designs/update-suppressor/rig-flood-31.txt`, 1,927 blocks with the field), measured:
+
+- redsim, cap lowered to 5,000 (`World.nu_cap`): **96/96 variants pass** (6 positions incl.
+  chunk borders x 4 target arms x mirror, control + suppress each; suppress counts
+  5,475-5,748 attempts, target stale until the wake).
+- redsim, the game's cap: 48/48 controls pass, **0/48 suppress** (the rig's cascade attempts
+  6,580 counted calls; the target reacts like the control).
+- the bridge (real game, own cap): identical outcomes at all 4 arms; the lever-pull cascade
+  takes 18-38 ms of game time at 6.6k counted calls.
+- the official dedicated server, bot-clicked lever: at `max-chained-neighbor-updates` 5000
+  and 6000 the flood **suppresses** (middle flipped, target stale, wake extends it); at 7000
+  and at the shipped 1,000,000 it does not. The real-game threshold brackets **(6500, 6600]**
+  against redsim's 6,580 counted attempts for the identical cascade - the model and the
+  game agree to ~1%, and the rig's geometry (starter below the lever before the middle
+  above it in `UPDATE_ORDER`, target outside dust's two-step reach) is what a working
+  suppressor needs, at 152x the flood this build has.
 
 ## Ceiling
 
 - **Counted calls: exactly 1,000,000** must be added in one cascade before B's call - the
   game's own number, no slack either way.
-- **Blocks floor ~6.4k (est., by parts):** the best flip in the game is a dust power change
-  across a step: at most 6 + 8 shape calls and 7 neighbour calls = 21 counted calls
-  (`DefaultRedstoneWireEvaluator` 24-36, `Level.setBlock` 251-255), and on one source edge a
-  wire's power moves monotonically through at most 15 values, so one wire contributes at most
-  315 counted calls per cascade - at least ~3,175 wires, each on a support, plus the rig:
-  ~6.4k placed blocks even if every wire flipped the maximum. Real fields flip each wire
-  1-3 times (probe), which puts the practical floor in the tens of thousands. Any layout
-  claiming far fewer blocks must exhibit a non-monotone flip - the probe looks for one
-  (plain-rail junctions) before conceding the floor.
+- **What one cascade can reach (the bound the probes measured against).** A wire on one
+  source edge flips monotonically (no wire's power ever rises during a power-down from a
+  converged rest, by induction on the first riser; NOTES), so flips per wire <= its power,
+  and only wires within 15 wire-steps of the changed signal can flip at all. Even granting
+  every cell of that step-ball as a wire (14,911 cells), the flip-weighted sum is 50,625
+  flips; at the most a flip can count (7 neighbour calls + 6 shape calls + 16 indirect
+  shape calls across a step = 29, `DefaultRedstoneWireEvaluator` 24-36,
+  `RedstoneWireBlock` 204-227, `Level.setBlock` 251-255) that is 1.47M - and halving it for
+  the support every wire needs (at most every second cell of a column can be a wire) puts
+  the unreachable-perfect-packing bound at **~725k < 1,000,000**. Supportable lattices fall
+  far shorter (a conductor directly over a wire blocks its step reads, so layers is what
+  survives): measured best 30,571 (layout 3). Mirrors add one flip per cell in the same
+  region (~7 counted calls each as note-block supports), rails add nothing propagating
+  (layout 5), and the only in-cascade multi-block loops in the game are the sponge's
+  64-cell BFS and the frosted-ice melt chain - the two impractical exceptions above.
