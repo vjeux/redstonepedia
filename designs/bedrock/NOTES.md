@@ -226,32 +226,46 @@ no macro, and the headless piston tells you the moment it worked.
 
 ### Wiring it (the waveform)
 
-The scenario drives the two pistons from a script. The carrier piston is only one way to toggle
-the quasi power; **a redstone torch is simpler and has the right phase**, as long as nothing it
-updates touches A. A wall torch at the quasi cell's side (attached to a block TWO cells from A,
-not to a cell beside A: a repeater powering a block beside A updates A through
-`DiodeBlock.updateNeighborsInFront`) goes off 2 gt after its support is powered and comes back
-2 gt after it is released, both in the scheduled-tick phase - which is exactly the phase between
-the landing and the event.
-
-With the clock's pulse at ticks `[p, p+3)` on the torch's support, and U's power the same pulse
-delayed 2 ticks:
+The scenarios drive the machine from a script (commands standing in for a clock). The verified
+waveform, period 8 game ticks, with the carrier piston SP and the updater piston U:
 
 | tick | what | why |
 |---|---|---|
-| p | support powered | |
-| p+2 | torch OFF (phase 3); U pushes | quasi power away, A unaware |
-| p+3 | support released | |
-| p+4 | U's block LANDS (phase 8) | A updated with the power away: **armed**, and the window after this tick is the player's |
-| p+5 | torch ON (phase 3), then A's event (phase 5) | the event finds A powered: no-op, A keeps its head |
-| p+5 | U's power falls: U pulls its block back | the pull's phase-5 update finds A powered: harmless |
-| p+8 | next pulse | one armed window every 8 ticks |
+| t | SP unpowered: pulls the carrier out of the quasi cell (phase 5) | quasi power away, A never updated |
+| t+3 | SP and U powered, U's event FIRST (phase 5) | both blocks start moving |
+| t+5 | both land (phase 8): U's block first, then the carrier | A updated with the power away: **armed** for the window after this tick; the carrier lands right behind, so A's event (next phase 5) finds it powered: a no-op, A keeps its head |
+| t+7 | U unpowered: pulls its block back | the pull's update finds A powered: harmless |
+| t+8 | = next t | one armed window every 8 ticks |
 
-So the clock is a **3-tick pulse every 8 ticks** (the pulse study's limiters make one) feeding the
-torch's support directly and U's power through one repeater on 1 (2 gt). Two rules the timing
-must respect, both found the hard way: never retract U while its block is still moving (the spit
-finalises it in the block-event phase, and that update with the power away retracts A instead of
-arming it), and never let a repeater power a cell beside A.
+Rules found the hard way: U's event must run before SP's in the push tick (U one tick closer to
+the clock, or placed first); never retract U while its block is still moving (the spit finalises
+it in the block-event phase, and that update with the power away retracts A instead of arming
+it); never let a repeater or powered block sit beside A (it powers A directly). **Not a redstone
+torch for the quasi power at this beat:** a torch toggling twice per 8 ticks makes 15 toggles in
+60 ticks and burns out at 8 (`RedstoneTorchBlock`: `MAX_RECENT_TOGGLES` 8 per
+`RECENT_TOGGLE_TIMER` 60); a torch needs a period of 18 ticks or more.
+
+### Batch: many pistons, one machine, one release
+
+Verified on the official server (`qc-landing-roof-pair.json`): the carrier and the landing cell
+can sit BETWEEN two swap pistons and serve both. Row: `A . A . A ...` under a row of target
+bedrock, where each gap holds (one layer up, beside the two targets) a carrier redstone block and
+(at the pistons' level) the updater's landing cell. One landing updates both neighbours, one
+carrier quasi-powers both, so the whole row is armed in the same window, every 8 ticks, by one
+clock line.
+
+* Press once per piston (one key: break + place), in any armed window: each success leaves a
+  headless piston. Misses cost nothing and the others are unaffected.
+* **One release removes them all**: stop the carrier line with the carriers OUT, and the next
+  landing (or any block placed in the gaps) updates every headless piston while unpowered: they
+  all retract in the same tick and every target bedrock goes.
+* Test: A0 swapped by the bot's press in window 12, A2 swapped one cycle later (window 20); one
+  release (carriers out, one block placed in the gap) removed both bedrocks. The bot's press in
+  window 13 (not armed) failed. (The machine's own beat was driven by commands, standing in for
+  the clock; the player actions were real packets.)
+
+So for a roof row of N blocks: build the row machine once, walk along it pressing once per
+piston in rhythm (1 in 8 per press, free retries), then cut the carriers: N bedrock at once.
 
 ## 4. Other ways to remove bedrock (audit)
 

@@ -129,7 +129,15 @@ pub fn trial(srv: &mut VanillaServer, sc: &Scenario, stance: &Stance, chord_at: 
             }
         }
     }
-    if !is_bedrock(srv, sc.target)? {
+    let all_gone = |srv: &mut VanillaServer| -> Result<bool> {
+        for p in std::iter::once(sc.target).chain(sc.also.iter().copied()) {
+            if is_bedrock(srv, p)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    };
+    if all_gone(srv)? {
         return Ok(Outcome::Broken);
     }
     if !sc.release.is_empty() {
@@ -137,7 +145,7 @@ pub fn trial(srv: &mut VanillaServer, sc: &Scenario, stance: &Stance, chord_at: 
         let rel: Vec<&Action> = sc.release.iter().collect();
         bot_actions(srv, stance, &rel)?;
         srv.step(sc.horizon)?;
-        if !is_bedrock(srv, sc.target)? {
+        if all_gone(srv)? {
             return Ok(Outcome::Headless);
         }
     }

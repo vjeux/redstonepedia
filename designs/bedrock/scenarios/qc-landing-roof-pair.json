@@ -1,0 +1,43 @@
+{
+  "name": "qc-landing-roof-pair",
+  "notes": "Batch roof: TWO swap pistons armed by ONE machine, then ONE release removes both bedrocks. Targets [0,3,0] and [2,3,0]; A0 [0,2,0] and A2 [2,2,0] face down. The carrier redstone block [1,3,0] sits BETWEEN the two quasi cells (the bedrocks) and powers both by quasi-connectivity; the updater stone lands at [1,2,0], BETWEEN the two pistons, so one landing arms both. SP [1,3,2] (sticky, north, power block behind at [1,3,3]) carries the carrier; U [1,2,-2] (sticky, south, power block at [1,2,-3]) pushes the stone from [1,2,-1]; U sits on the far side so SP's power never quasi-powers it. Same 8-tick beat as qc-landing-roof-clock. The chord swaps A0 (one key press); the script swaps A2 one cycle later (the player's second press); the release pulls the carrier and lands one block between them: both headless pistons retract unpowered and both bedrocks go in the same tick.",
+  "target": [0, 3, 0],
+  "also": [[2, 3, 0]],
+  "blocks": [
+    [0, 3, 0, "minecraft:bedrock"],
+    [2, 3, 0, "minecraft:bedrock"],
+    [1, 3, 0, "minecraft:redstone_block"],
+    [1, 3, 2, "minecraft:sticky_piston[facing=north,extended=true]"],
+    [1, 3, 1, "minecraft:piston_head[facing=north,type=sticky]"],
+    [1, 3, 3, "minecraft:redstone_block"],
+    [1, 2, -2, "minecraft:sticky_piston[facing=south]"],
+    [1, 2, -1, "minecraft:stone"],
+    [0, 2, 0, "minecraft:piston[facing=down]"],
+    [2, 2, 0, "minecraft:piston[facing=down]"],
+    [-2, 2, 0, "minecraft:stone"]
+  ],
+  "settle": 10,
+  "stance": {"pos": [1.5, 2.0, 4.5], "look": [180.0, 90.0]},
+  "script": [
+    {"do": "cmd", "pos": [0, 0, 0], "at": 0, "state": "setblock 1 2 0 minecraft:stone"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 1, "state": "setblock 1 2 0 minecraft:air"},
+
+    {"do": "cmd", "pos": [0, 0, 0], "at": 6, "state": "setblock 1 3 3 minecraft:air"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 9, "every": 8, "times": 5, "state": "setblock 1 2 -3 minecraft:redstone_block"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 9, "every": 8, "times": 5, "state": "setblock 1 3 3 minecraft:redstone_block"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 13, "every": 8, "times": 5, "state": "setblock 1 2 -3 minecraft:air"},
+    {"do": "cmd", "pos": [0, 0, 0], "at": 14, "every": 8, "times": 5, "state": "setblock 1 3 3 minecraft:air"},
+
+    {"do": "break", "pos": [2, 2, 0], "at": 20},
+    {"do": "place", "pos": [2, 2, 0], "state": "minecraft:piston[facing=up]", "at": 20}
+  ],
+  "chord": [
+    {"do": "break", "pos": [0, 2, 0]},
+    {"do": "place", "pos": [0, 2, 0], "state": "minecraft:piston[facing=up]"}
+  ],
+  "release": [
+    {"do": "break", "pos": [1, 3, 3]},
+    {"do": "place", "pos": [1, 2, 0], "state": "minecraft:stone"}
+  ],
+  "horizon": 20
+}

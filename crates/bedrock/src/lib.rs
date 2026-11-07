@@ -85,6 +85,10 @@ pub struct Scenario {
     /// Ticks run after the chord before looking.
     #[serde(default = "default_horizon")]
     pub horizon: u32,
+    /// More cells that must be gone (not bedrock) too, checked with the target after the run
+    /// (batch scenarios: several headless pistons released at once).
+    #[serde(default)]
+    pub also: Vec<Pos>,
     /// Where the bot stands and looks for the vanilla confirmation (`bedrock vanilla`).
     #[serde(default)]
     pub stance: Option<vanilla::Stance>,
@@ -199,13 +203,22 @@ pub fn trial(w: &mut Worker, sandbox: u32, sc: &Scenario, chord_at: Option<u32>)
         }
         w.step(sandbox, 1)?;
     }
-    let mut outcome = if block_at(w, sandbox, sc.target)?.starts_with("minecraft:bedrock") { Outcome::Fail } else { Outcome::Broken };
+    let gone = |w: &mut Worker, p: Pos| -> Result<bool> { Ok(!block_at(w, sandbox, p)?.starts_with("minecraft:bedrock")) };
+    let all_gone = |w: &mut Worker| -> Result<bool> {
+        for p in std::iter::once(sc.target).chain(sc.also.iter().copied()) {
+            if !gone(w, p)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    };
+    let mut outcome = if all_gone(w)? { Outcome::Broken } else { Outcome::Fail };
     if outcome == Outcome::Fail && !sc.release.is_empty() {
         w.step(sandbox, 20)?;
         let rel: Vec<&Action> = sc.release.iter().collect();
         act(w, sandbox, &rel)?;
         w.step(sandbox, sc.horizon)?;
-        if !block_at(w, sandbox, sc.target)?.starts_with("minecraft:bedrock") {
+        if all_gone(w)? {
             outcome = Outcome::Headless;
         }
     }
