@@ -37,6 +37,14 @@ pub enum BoatLeadsCmd {
         /// Debugging only: skip official-game clock re-verification, not a full ship gate.
         #[arg(long)]
         skip_boat_verify: bool,
+        /// At most two official-game workers, per the shared-node budget.
+        #[arg(long, default_value_t = 2)]
+        workers: usize,
+    },
+    /// Validate a saved legacy report including already-hidden negatives; does not rerun it.
+    LegacyAudit {
+        #[arg(long, default_value = "target/boat-leads-legacy")]
+        out_dir: PathBuf,
     },
     /// Recheck existing exact fixture traces (no JVM).
     Compare { traces: Vec<PathBuf> },
@@ -68,7 +76,8 @@ pub fn run(version: &str, command: BoatLeadsCmd) -> Result<()> {
             drop(w);
             probe::require_all(&[path])?;
         }
-        BoatLeadsCmd::Legacy { baseline, out_dir, skip_boat_verify } => crate::legacy::run(&baseline, &out_dir, skip_boat_verify)?,
+        BoatLeadsCmd::Legacy { baseline, out_dir, skip_boat_verify, workers } => crate::legacy::run(&baseline, &out_dir, skip_boat_verify, workers)?,
+        BoatLeadsCmd::LegacyAudit { out_dir } => crate::legacy::audit(&out_dir)?,
         BoatLeadsCmd::Compare { traces } => {
             ensure!(!traces.is_empty(), "at least one trace required");
             probe::require_all(&traces)?;

@@ -1,0 +1,9 @@
+INVALID clk-misc-boat-bouncer-slab: the output cell [0, 1, -1] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it) (`clock retap` moves the output to the best exterior cell)
+INVALID clk-misc-boat-bouncer-trap: the output cell [0, 1, -1] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it) (`clock retap` moves the output to the best exterior cell)
+INVALID clk-misc-boat-bouncer: the output cell [0, 1, -1] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it) (`clock retap` moves the output to the best exterior cell)
+INVALID clk-misc-boat-ring-2x3: the output cell [3, 0, 0] is entered during the cycle (Boat(BoatState { chest: false, status: Some(UnderFlowingWater), old_status: Some(UnderFlowingWater), out_of_control_ticks: 339.0, delta_rotation: 0.0, water_level: 0.5625, land_friction: 0.0, last_yd: -0.0007, is_above_bubble_column: false, bubble_column_direction_is_down: false, bubble_time: 0 }) entity at tick 339): it must hold the same block all cycle, nothing moved into or through it, no entity in it (`clock retap` moves the output to a free cell that pulses evenly)
+
+39 of 43 designs: redsim prints the judge's line (0 differ, 4 not run to a line)
+     1  INVALID entity at: clk-misc-boat-ring-2x3
+     3  INVALID the output cell [0, 1, -1] holds stone: it must be an AIR cell where the signal arrives (a: clk-misc-boat-bouncer-slab clk-misc-boat-bouncer-trap clk-misc-boat-bouncer
+

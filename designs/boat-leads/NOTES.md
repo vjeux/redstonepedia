@@ -69,6 +69,11 @@ explicit model refusal, with valid live-boat no-op controls before and after.
 `mctas boat-leads compare <trace>...` rechecks existing recordings without regenerating them.
 `mctas boat-leads legacy --baseline <pristine-redsim-fuzz>` checks the complete old trace
 suite and every archived boat/raft clock; it identifies boats from entity content, not names.
+`mctas boat-leads legacy-audit --out-dir designs/boat-leads/evidence/legacy` validates the
+saved reports without pretending to run them again. [Evidence provenance](evidence/legacy/README.md)
+records the original base, the 39 positive plus four already-hidden negative records,
+existing dependency flags, and the narrowly approved reuse across a docs/standalone-tool
+main update. No claim of all 688 builds passing is made.
 
 ## Historical trace repair (separate change)
 

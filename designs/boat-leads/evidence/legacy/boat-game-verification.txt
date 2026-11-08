@@ -1,0 +1,498 @@
+INVALID: clk-misc-boat-bouncer-slab the output cell [0, 1, -1] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+  self-start; 0 builds periodic of 16 (27.1 s)
+    rotation 0 at [0, 0, 0]: FAIL the output cell [0, 1, -1] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 0 at [-7, 3, 5]: FAIL the output cell [-7, 4, 4] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 0 at [5, -11, -6]: FAIL the output cell [5, -10, -7] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 0 at [-3, 40, 2]: FAIL the output cell [-3, 41, 1] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 1 at [0, 0, 0]: FAIL the output cell [1, 1, 0] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 1 at [-7, 3, 5]: FAIL the output cell [-6, 4, 5] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 1 at [5, -11, -6]: FAIL the output cell [6, -10, -6] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 1 at [-3, 40, 2]: FAIL the output cell [-2, 41, 2] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 2 at [0, 0, 0]: FAIL the output cell [0, 1, 1] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 2 at [-7, 3, 5]: FAIL the output cell [-7, 4, 6] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 2 at [5, -11, -6]: FAIL the output cell [5, -10, -5] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 2 at [-3, 40, 2]: FAIL the output cell [-3, 41, 3] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 3 at [0, 0, 0]: FAIL the output cell [-1, 1, 0] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 3 at [-7, 3, 5]: FAIL the output cell [-8, 4, 5] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 3 at [5, -11, -6]: FAIL the output cell [4, -10, -6] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 3 at [-3, 40, 2]: FAIL the output cell [-4, 41, 2] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+  redsim: INVALID: clk-misc-boat-bouncer-slab the output cell [0, 1, -1] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it) (`clock retap` moves the output to the best exterior cell)
+INVALID: clk-misc-boat-bouncer-trap the output cell [0, 1, -1] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+  self-start; 0 builds periodic of 16 (40.2 s)
+    rotation 0 at [0, 0, 0]: FAIL the output cell [0, 1, -1] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 0 at [-7, 3, 5]: FAIL the output cell [-7, 4, 4] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 0 at [5, -11, -6]: FAIL the output cell [5, -10, -7] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 0 at [-3, 40, 2]: FAIL the output cell [-3, 41, 1] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 1 at [0, 0, 0]: FAIL the output cell [1, 1, 0] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 1 at [-7, 3, 5]: FAIL the output cell [-6, 4, 5] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 1 at [5, -11, -6]: FAIL the output cell [6, -10, -6] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 1 at [-3, 40, 2]: FAIL the output cell [-2, 41, 2] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 2 at [0, 0, 0]: FAIL the output cell [0, 1, 1] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 2 at [-7, 3, 5]: FAIL the output cell [-7, 4, 6] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 2 at [5, -11, -6]: FAIL the output cell [5, -10, -5] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 2 at [-3, 40, 2]: FAIL the output cell [-3, 41, 3] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 3 at [0, 0, 0]: FAIL the output cell [-1, 1, 0] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 3 at [-7, 3, 5]: FAIL the output cell [-8, 4, 5] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 3 at [5, -11, -6]: FAIL the output cell [4, -10, -6] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 3 at [-3, 40, 2]: FAIL the output cell [-4, 41, 2] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+  redsim: INVALID: clk-misc-boat-bouncer-trap the output cell [0, 1, -1] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it) (`clock retap` moves the output to the best exterior cell)
+INVALID: clk-misc-boat-bouncer the output cell [0, 1, -1] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+  self-start; 0 builds periodic of 16 (40.0 s)
+    rotation 0 at [0, 0, 0]: FAIL the output cell [0, 1, -1] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 0 at [-7, 3, 5]: FAIL the output cell [-7, 4, 4] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 0 at [5, -11, -6]: FAIL the output cell [5, -10, -7] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 0 at [-3, 40, 2]: FAIL the output cell [-3, 41, 1] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 1 at [0, 0, 0]: FAIL the output cell [1, 1, 0] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 1 at [-7, 3, 5]: FAIL the output cell [-6, 4, 5] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 1 at [5, -11, -6]: FAIL the output cell [6, -10, -6] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 1 at [-3, 40, 2]: FAIL the output cell [-2, 41, 2] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 2 at [0, 0, 0]: FAIL the output cell [0, 1, 1] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 2 at [-7, 3, 5]: FAIL the output cell [-7, 4, 6] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 2 at [5, -11, -6]: FAIL the output cell [5, -10, -5] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 2 at [-3, 40, 2]: FAIL the output cell [-3, 41, 3] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 3 at [0, 0, 0]: FAIL the output cell [-1, 1, 0] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 3 at [-7, 3, 5]: FAIL the output cell [-8, 4, 5] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 3 at [5, -11, -6]: FAIL the output cell [4, -10, -6] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 3 at [-3, 40, 2]: FAIL the output cell [-4, 41, 2] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+  redsim: INVALID: clk-misc-boat-bouncer the output cell [0, 1, -1] holds stone: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it) (`clock retap` moves the output to the best exterior cell)
+INVALID: clk-misc-boat-ring-2x3 the output cell [3, 0, 0] holds oak_pressure_plate[powered=false]: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+  self-start; 0 builds periodic of 16 (43.5 s)
+    rotation 0 at [0, 0, 0]: FAIL the output cell [3, 0, 0] holds oak_pressure_plate[powered=false]: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 0 at [-7, 3, 5]: FAIL the output cell [-4, 3, 5] holds oak_pressure_plate[powered=false]: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 0 at [5, -11, -6]: FAIL the output cell [8, -11, -6] holds oak_pressure_plate[powered=false]: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 0 at [-3, 40, 2]: FAIL the output cell [0, 40, 2] holds oak_pressure_plate[powered=false]: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 1 at [0, 0, 0]: FAIL the output cell [0, 0, 3] holds oak_pressure_plate[powered=false]: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 1 at [-7, 3, 5]: FAIL the output cell [-7, 3, 8] holds oak_pressure_plate[powered=false]: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 1 at [5, -11, -6]: FAIL the output cell [5, -11, -3] holds oak_pressure_plate[powered=false]: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 1 at [-3, 40, 2]: FAIL the output cell [-3, 40, 5] holds oak_pressure_plate[powered=false]: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 2 at [0, 0, 0]: FAIL the output cell [-3, 0, 0] holds oak_pressure_plate[powered=false]: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 2 at [-7, 3, 5]: FAIL the output cell [-10, 3, 5] holds oak_pressure_plate[powered=false]: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 2 at [5, -11, -6]: FAIL the output cell [2, -11, -6] holds oak_pressure_plate[powered=false]: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 2 at [-3, 40, 2]: FAIL the output cell [-6, 40, 2] holds oak_pressure_plate[powered=false]: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 3 at [0, 0, 0]: FAIL the output cell [0, 0, -3] holds oak_pressure_plate[powered=false]: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 3 at [-7, 3, 5]: FAIL the output cell [-7, 3, 2] holds oak_pressure_plate[powered=false]: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 3 at [5, -11, -6]: FAIL the output cell [5, -11, -9] holds oak_pressure_plate[powered=false]: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+    rotation 3 at [-3, 40, 2]: FAIL the output cell [-3, 40, -1] holds oak_pressure_plate[powered=false]: it must be an AIR cell where the signal arrives (a lamp, dust or repeater put there gets it)
+  redsim: INVALID: clk-misc-boat-ring-2x3 the output cell [3, 0, 0] is entered during the cycle (Boat(BoatState { chest: false, status: Some(UnderFlowingWater), old_status: Some(UnderFlowingWater), out_of_control_ticks: 339.0, delta_rotation: 0.0, water_level: 0.5625, land_friction: 0.0, last_yd: -0.0007, is_above_bubble_column: false, bubble_column_direction_is_down: false, bubble_time: 0 }) entity at tick 339): it must hold the same block all cycle, nothing moved into or through it, no entity in it (`clock retap` moves the output to a free cell that pulses evenly)
+CLOCK: clk-misc-p161-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-67b-2b32ca period 161 gt (8.05 s), on 20/161, edges 1, warmup 104, family oak_boat+oak_pressure_plate, 67 blocks, 10x7x4, rotation-dependent
+  self-start; 16 builds periodic of 16 (45.7 s)
+    rotation 0 at [0, 0, 0]: P=161 W=104 family oak_boat+oak_pressure_plate output on 20/161, 1 edge, pulses [20]
+    rotation 0 at [-7, 3, 5]: P=161 W=104 family oak_boat+oak_pressure_plate output on 20/161, 1 edge, pulses [20]
+    rotation 0 at [5, -11, -6]: P=161 W=104 family oak_boat+oak_pressure_plate output on 20/161, 1 edge, pulses [20]
+    rotation 0 at [-3, 40, 2]: P=161 W=104 family oak_boat+oak_pressure_plate output on 20/161, 1 edge, pulses [20]
+    rotation 1 at [0, 0, 0]: P=154 W=111 family oak_boat+oak_pressure_plate output on 20/154, 1 edge, pulses [20]
+    rotation 1 at [-7, 3, 5]: P=154 W=111 family oak_boat+oak_pressure_plate output on 20/154, 1 edge, pulses [20]
+    rotation 1 at [5, -11, -6]: P=154 W=111 family oak_boat+oak_pressure_plate output on 20/154, 1 edge, pulses [20]
+    rotation 1 at [-3, 40, 2]: P=154 W=111 family oak_boat+oak_pressure_plate output on 20/154, 1 edge, pulses [20]
+    rotation 2 at [0, 0, 0]: P=161 W=104 family oak_boat+oak_pressure_plate output on 20/161, 1 edge, pulses [20]
+    rotation 2 at [-7, 3, 5]: P=161 W=104 family oak_boat+oak_pressure_plate output on 20/161, 1 edge, pulses [20]
+    rotation 2 at [5, -11, -6]: P=161 W=104 family oak_boat+oak_pressure_plate output on 20/161, 1 edge, pulses [20]
+    rotation 2 at [-3, 40, 2]: P=161 W=104 family oak_boat+oak_pressure_plate output on 20/161, 1 edge, pulses [20]
+    rotation 3 at [0, 0, 0]: P=154 W=111 family oak_boat+oak_pressure_plate output on 20/154, 1 edge, pulses [20]
+    rotation 3 at [-7, 3, 5]: P=154 W=111 family oak_boat+oak_pressure_plate output on 20/154, 1 edge, pulses [20]
+    rotation 3 at [5, -11, -6]: P=154 W=111 family oak_boat+oak_pressure_plate output on 20/154, 1 edge, pulses [20]
+    rotation 3 at [-3, 40, 2]: P=154 W=111 family oak_boat+oak_pressure_plate output on 20/154, 1 edge, pulses [20]
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p165-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-71b-f9bcf5 period 165 gt (8.25 s), on 20/165, edges 1, warmup 99, family oak_boat+oak_pressure_plate, 71 blocks, 10x8x4, rotation-dependent
+  self-start; 16 builds periodic of 16 (37.4 s)
+    rotation 0 at [0, 0, 0]: P=165 W=99 family oak_boat+oak_pressure_plate output on 20/165, 1 edge, pulses [20]
+    rotation 0 at [-7, 3, 5]: P=165 W=99 family oak_boat+oak_pressure_plate output on 20/165, 1 edge, pulses [20]
+    rotation 0 at [5, -11, -6]: P=165 W=99 family oak_boat+oak_pressure_plate output on 20/165, 1 edge, pulses [20]
+    rotation 0 at [-3, 40, 2]: P=165 W=99 family oak_boat+oak_pressure_plate output on 20/165, 1 edge, pulses [20]
+    rotation 1 at [0, 0, 0]: P=160 W=101 family oak_boat+oak_pressure_plate output on 20/160, 1 edge, pulses [20]
+    rotation 1 at [-7, 3, 5]: P=160 W=101 family oak_boat+oak_pressure_plate output on 20/160, 1 edge, pulses [20]
+    rotation 1 at [5, -11, -6]: P=160 W=101 family oak_boat+oak_pressure_plate output on 20/160, 1 edge, pulses [20]
+    rotation 1 at [-3, 40, 2]: P=160 W=101 family oak_boat+oak_pressure_plate output on 20/160, 1 edge, pulses [20]
+    rotation 2 at [0, 0, 0]: P=165 W=99 family oak_boat+oak_pressure_plate output on 20/165, 1 edge, pulses [20]
+    rotation 2 at [-7, 3, 5]: P=165 W=99 family oak_boat+oak_pressure_plate output on 20/165, 1 edge, pulses [20]
+    rotation 2 at [5, -11, -6]: P=165 W=99 family oak_boat+oak_pressure_plate output on 20/165, 1 edge, pulses [20]
+    rotation 2 at [-3, 40, 2]: P=165 W=99 family oak_boat+oak_pressure_plate output on 20/165, 1 edge, pulses [20]
+    rotation 3 at [0, 0, 0]: P=160 W=101 family oak_boat+oak_pressure_plate output on 20/160, 1 edge, pulses [20]
+    rotation 3 at [-7, 3, 5]: P=160 W=101 family oak_boat+oak_pressure_plate output on 20/160, 1 edge, pulses [20]
+    rotation 3 at [5, -11, -6]: P=160 W=101 family oak_boat+oak_pressure_plate output on 20/160, 1 edge, pulses [20]
+    rotation 3 at [-3, 40, 2]: P=160 W=101 family oak_boat+oak_pressure_plate output on 20/160, 1 edge, pulses [20]
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p167-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-75b-676a2a period 167 gt (8.35 s), on 20/167, edges 1, warmup 114, family oak_boat+oak_pressure_plate, 75 blocks, 10x10x4, rotation-dependent
+  self-start; 16 builds periodic of 16 (48.2 s)
+    rotation 0 at [0, 0, 0]: P=167 W=114 family oak_boat+oak_pressure_plate output on 20/167, 1 edge, pulses [20]
+    rotation 0 at [-7, 3, 5]: P=167 W=114 family oak_boat+oak_pressure_plate output on 20/167, 1 edge, pulses [20]
+    rotation 0 at [5, -11, -6]: P=167 W=114 family oak_boat+oak_pressure_plate output on 20/167, 1 edge, pulses [20]
+    rotation 0 at [-3, 40, 2]: P=167 W=114 family oak_boat+oak_pressure_plate output on 20/167, 1 edge, pulses [20]
+    rotation 1 at [0, 0, 0]: P=173 W=110 family oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 1 at [-7, 3, 5]: P=173 W=110 family oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 1 at [5, -11, -6]: P=173 W=110 family oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 1 at [-3, 40, 2]: P=173 W=110 family oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 2 at [0, 0, 0]: P=167 W=114 family oak_boat+oak_pressure_plate output on 20/167, 1 edge, pulses [20]
+    rotation 2 at [-7, 3, 5]: P=167 W=114 family oak_boat+oak_pressure_plate output on 20/167, 1 edge, pulses [20]
+    rotation 2 at [5, -11, -6]: P=167 W=114 family oak_boat+oak_pressure_plate output on 20/167, 1 edge, pulses [20]
+    rotation 2 at [-3, 40, 2]: P=167 W=114 family oak_boat+oak_pressure_plate output on 20/167, 1 edge, pulses [20]
+    rotation 3 at [0, 0, 0]: P=173 W=110 family oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 3 at [-7, 3, 5]: P=173 W=110 family oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 3 at [5, -11, -6]: P=173 W=110 family oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 3 at [-3, 40, 2]: P=173 W=110 family oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p173-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-63b-93003b period 173 gt (8.65 s), on 20/173, edges 1, warmup 93, family oak_boat+oak_pressure_plate, 63 blocks, 10x6x4, rotation-dependent
+  self-start; 16 builds periodic of 16 (45.8 s)
+    rotation 0 at [0, 0, 0]: P=173 W=93 family oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 0 at [-7, 3, 5]: P=173 W=93 family oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 0 at [5, -11, -6]: P=173 W=93 family oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 0 at [-3, 40, 2]: P=173 W=93 family oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 1 at [0, 0, 0]: P=172 W=92 family oak_boat+oak_pressure_plate output on 20/172, 1 edge, pulses [20]
+    rotation 1 at [-7, 3, 5]: P=172 W=92 family oak_boat+oak_pressure_plate output on 20/172, 1 edge, pulses [20]
+    rotation 1 at [5, -11, -6]: P=172 W=92 family oak_boat+oak_pressure_plate output on 20/172, 1 edge, pulses [20]
+    rotation 1 at [-3, 40, 2]: P=172 W=92 family oak_boat+oak_pressure_plate output on 20/172, 1 edge, pulses [20]
+    rotation 2 at [0, 0, 0]: P=173 W=93 family oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 2 at [-7, 3, 5]: P=173 W=93 family oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 2 at [5, -11, -6]: P=173 W=93 family oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 2 at [-3, 40, 2]: P=173 W=93 family oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 3 at [0, 0, 0]: P=172 W=87 family oak_boat+oak_pressure_plate output on 20/172, 1 edge, pulses [20]
+    rotation 3 at [-7, 3, 5]: P=172 W=87 family oak_boat+oak_pressure_plate output on 20/172, 1 edge, pulses [20]
+    rotation 3 at [5, -11, -6]: P=172 W=87 family oak_boat+oak_pressure_plate output on 20/172, 1 edge, pulses [20]
+    rotation 3 at [-3, 40, 2]: P=172 W=87 family oak_boat+oak_pressure_plate output on 20/172, 1 edge, pulses [20]
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p173-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-63b-ad7e4b period 173 gt (8.65 s), on 60/173, edges 1, warmup 89, family oak_boat+oak_pressure_plate, 63 blocks, 10x6x4, rotation-dependent
+  self-start; 16 builds periodic of 16 (43.1 s)
+    rotation 0 at [0, 0, 0]: P=173 W=89 family oak_boat+oak_pressure_plate output on 60/173, 1 edge, pulses [60]
+    rotation 0 at [-7, 3, 5]: P=173 W=89 family oak_boat+oak_pressure_plate output on 60/173, 1 edge, pulses [60]
+    rotation 0 at [5, -11, -6]: P=173 W=89 family oak_boat+oak_pressure_plate output on 60/173, 1 edge, pulses [60]
+    rotation 0 at [-3, 40, 2]: P=173 W=89 family oak_boat+oak_pressure_plate output on 60/173, 1 edge, pulses [60]
+    rotation 1 at [0, 0, 0]: P=172 W=88 family oak_boat+oak_pressure_plate output on 60/172, 1 edge, pulses [60]
+    rotation 1 at [-7, 3, 5]: P=172 W=88 family oak_boat+oak_pressure_plate output on 60/172, 1 edge, pulses [60]
+    rotation 1 at [5, -11, -6]: P=172 W=88 family oak_boat+oak_pressure_plate output on 60/172, 1 edge, pulses [60]
+    rotation 1 at [-3, 40, 2]: P=172 W=88 family oak_boat+oak_pressure_plate output on 60/172, 1 edge, pulses [60]
+    rotation 2 at [0, 0, 0]: P=173 W=89 family oak_boat+oak_pressure_plate output on 60/173, 1 edge, pulses [60]
+    rotation 2 at [-7, 3, 5]: P=173 W=89 family oak_boat+oak_pressure_plate output on 60/173, 1 edge, pulses [60]
+    rotation 2 at [5, -11, -6]: P=173 W=89 family oak_boat+oak_pressure_plate output on 60/173, 1 edge, pulses [60]
+    rotation 2 at [-3, 40, 2]: P=173 W=89 family oak_boat+oak_pressure_plate output on 60/173, 1 edge, pulses [60]
+    rotation 3 at [0, 0, 0]: P=172 W=83 family oak_boat+oak_pressure_plate output on 60/172, 1 edge, pulses [60]
+    rotation 3 at [-7, 3, 5]: P=172 W=83 family oak_boat+oak_pressure_plate output on 60/172, 1 edge, pulses [60]
+    rotation 3 at [5, -11, -6]: P=172 W=83 family oak_boat+oak_pressure_plate output on 60/172, 1 edge, pulses [60]
+    rotation 3 at [-3, 40, 2]: P=172 W=83 family oak_boat+oak_pressure_plate output on 60/172, 1 edge, pulses [60]
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p175-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-65b-5d6c4a period 175 gt (8.75 s), on 20/175, edges 1, warmup 98, family oak_boat+oak_pressure_plate, 65 blocks, 10x7x4, rotation-dependent
+  self-start; 16 builds periodic of 16 (41.5 s)
+    rotation 0 at [0, 0, 0]: P=175 W=98 family oak_boat+oak_pressure_plate output on 20/175, 1 edge, pulses [20]
+    rotation 0 at [-7, 3, 5]: P=175 W=98 family oak_boat+oak_pressure_plate output on 20/175, 1 edge, pulses [20]
+    rotation 0 at [5, -11, -6]: P=175 W=98 family oak_boat+oak_pressure_plate output on 20/175, 1 edge, pulses [20]
+    rotation 0 at [-3, 40, 2]: P=175 W=98 family oak_boat+oak_pressure_plate output on 20/175, 1 edge, pulses [20]
+    rotation 1 at [0, 0, 0]: P=174 W=97 family oak_boat+oak_pressure_plate output on 20/174, 1 edge, pulses [20]
+    rotation 1 at [-7, 3, 5]: P=174 W=97 family oak_boat+oak_pressure_plate output on 20/174, 1 edge, pulses [20]
+    rotation 1 at [5, -11, -6]: P=174 W=97 family oak_boat+oak_pressure_plate output on 20/174, 1 edge, pulses [20]
+    rotation 1 at [-3, 40, 2]: P=174 W=97 family oak_boat+oak_pressure_plate output on 20/174, 1 edge, pulses [20]
+    rotation 2 at [0, 0, 0]: P=175 W=98 family oak_boat+oak_pressure_plate output on 20/175, 1 edge, pulses [20]
+    rotation 2 at [-7, 3, 5]: P=175 W=98 family oak_boat+oak_pressure_plate output on 20/175, 1 edge, pulses [20]
+    rotation 2 at [5, -11, -6]: P=175 W=98 family oak_boat+oak_pressure_plate output on 20/175, 1 edge, pulses [20]
+    rotation 2 at [-3, 40, 2]: P=175 W=98 family oak_boat+oak_pressure_plate output on 20/175, 1 edge, pulses [20]
+    rotation 3 at [0, 0, 0]: P=174 W=97 family oak_boat+oak_pressure_plate output on 20/174, 1 edge, pulses [20]
+    rotation 3 at [-7, 3, 5]: P=174 W=97 family oak_boat+oak_pressure_plate output on 20/174, 1 edge, pulses [20]
+    rotation 3 at [5, -11, -6]: P=174 W=97 family oak_boat+oak_pressure_plate output on 20/174, 1 edge, pulses [20]
+    rotation 3 at [-3, 40, 2]: P=174 W=97 family oak_boat+oak_pressure_plate output on 20/174, 1 edge, pulses [20]
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p178-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-79b-2b847a period 178 gt (8.9 s), on 20/178, edges 1, warmup 110, family oak_boat+oak_pressure_plate, 79 blocks, 11x8x4, rotation-dependent
+  self-start; 16 builds periodic of 16 (48.4 s)
+    rotation 0 at [0, 0, 0]: P=178 W=110 family oak_boat+oak_pressure_plate output on 20/178, 1 edge, pulses [20]
+    rotation 0 at [-7, 3, 5]: P=178 W=110 family oak_boat+oak_pressure_plate output on 20/178, 1 edge, pulses [20]
+    rotation 0 at [5, -11, -6]: P=178 W=110 family oak_boat+oak_pressure_plate output on 20/178, 1 edge, pulses [20]
+    rotation 0 at [-3, 40, 2]: P=178 W=110 family oak_boat+oak_pressure_plate output on 20/178, 1 edge, pulses [20]
+    rotation 1 at [0, 0, 0]: P=176 W=111 family oak_boat+oak_pressure_plate output on 20/176, 1 edge, pulses [20]
+    rotation 1 at [-7, 3, 5]: P=176 W=111 family oak_boat+oak_pressure_plate output on 20/176, 1 edge, pulses [20]
+    rotation 1 at [5, -11, -6]: P=176 W=111 family oak_boat+oak_pressure_plate output on 20/176, 1 edge, pulses [20]
+    rotation 1 at [-3, 40, 2]: P=176 W=111 family oak_boat+oak_pressure_plate output on 20/176, 1 edge, pulses [20]
+    rotation 2 at [0, 0, 0]: P=178 W=110 family oak_boat+oak_pressure_plate output on 20/178, 1 edge, pulses [20]
+    rotation 2 at [-7, 3, 5]: P=178 W=110 family oak_boat+oak_pressure_plate output on 20/178, 1 edge, pulses [20]
+    rotation 2 at [5, -11, -6]: P=178 W=110 family oak_boat+oak_pressure_plate output on 20/178, 1 edge, pulses [20]
+    rotation 2 at [-3, 40, 2]: P=178 W=110 family oak_boat+oak_pressure_plate output on 20/178, 1 edge, pulses [20]
+    rotation 3 at [0, 0, 0]: P=176 W=111 family oak_boat+oak_pressure_plate output on 20/176, 1 edge, pulses [20]
+    rotation 3 at [-7, 3, 5]: P=176 W=111 family oak_boat+oak_pressure_plate output on 20/176, 1 edge, pulses [20]
+    rotation 3 at [5, -11, -6]: P=176 W=111 family oak_boat+oak_pressure_plate output on 20/176, 1 edge, pulses [20]
+    rotation 3 at [-3, 40, 2]: P=176 W=111 family oak_boat+oak_pressure_plate output on 20/176, 1 edge, pulses [20]
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p181-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-80b-0821f4 period 181 gt (9.05 s), on 20/181, edges 1, warmup 116, family oak_boat+oak_pressure_plate, 80 blocks, 11x9x4, rotation-dependent
+  self-start; 16 builds periodic of 16 (39.8 s)
+    rotation 0 at [0, 0, 0]: P=181 W=116 family oak_boat+oak_pressure_plate output on 20/181, 1 edge, pulses [20]
+    rotation 0 at [-7, 3, 5]: P=181 W=116 family oak_boat+oak_pressure_plate output on 20/181, 1 edge, pulses [20]
+    rotation 0 at [5, -11, -6]: P=181 W=116 family oak_boat+oak_pressure_plate output on 20/181, 1 edge, pulses [20]
+    rotation 0 at [-3, 40, 2]: P=181 W=116 family oak_boat+oak_pressure_plate output on 20/181, 1 edge, pulses [20]
+    rotation 1 at [0, 0, 0]: P=175 W=118 family oak_boat+oak_pressure_plate output on 20/175, 1 edge, pulses [20]
+    rotation 1 at [-7, 3, 5]: P=175 W=118 family oak_boat+oak_pressure_plate output on 20/175, 1 edge, pulses [20]
+    rotation 1 at [5, -11, -6]: P=175 W=118 family oak_boat+oak_pressure_plate output on 20/175, 1 edge, pulses [20]
+    rotation 1 at [-3, 40, 2]: P=175 W=118 family oak_boat+oak_pressure_plate output on 20/175, 1 edge, pulses [20]
+    rotation 2 at [0, 0, 0]: P=181 W=116 family oak_boat+oak_pressure_plate output on 20/181, 1 edge, pulses [20]
+    rotation 2 at [-7, 3, 5]: P=181 W=116 family oak_boat+oak_pressure_plate output on 20/181, 1 edge, pulses [20]
+    rotation 2 at [5, -11, -6]: P=181 W=116 family oak_boat+oak_pressure_plate output on 20/181, 1 edge, pulses [20]
+    rotation 2 at [-3, 40, 2]: P=181 W=116 family oak_boat+oak_pressure_plate output on 20/181, 1 edge, pulses [20]
+    rotation 3 at [0, 0, 0]: P=175 W=118 family oak_boat+oak_pressure_plate output on 20/175, 1 edge, pulses [20]
+    rotation 3 at [-7, 3, 5]: P=175 W=118 family oak_boat+oak_pressure_plate output on 20/175, 1 edge, pulses [20]
+    rotation 3 at [5, -11, -6]: P=175 W=118 family oak_boat+oak_pressure_plate output on 20/175, 1 edge, pulses [20]
+    rotation 3 at [-3, 40, 2]: P=175 W=118 family oak_boat+oak_pressure_plate output on 20/175, 1 edge, pulses [20]
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p186-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-77b-96ead5 period 186 gt (9.3 s), on 20/186, edges 1, warmup 118, family oak_boat+oak_pressure_plate, 77 blocks, 11x10x4, rotation-dependent
+  self-start; 8 builds periodic of 16 (45.3 s)
+    rotation 0 at [0, 0, 0]: P=186 W=118 family oak_boat+oak_pressure_plate output on 20/186, 1 edge, pulses [20]
+    rotation 0 at [-7, 3, 5]: P=186 W=118 family oak_boat+oak_pressure_plate output on 20/186, 1 edge, pulses [20]
+    rotation 0 at [5, -11, -6]: P=186 W=118 family oak_boat+oak_pressure_plate output on 20/186, 1 edge, pulses [20]
+    rotation 0 at [-3, 40, 2]: P=186 W=118 family oak_boat+oak_pressure_plate output on 20/186, 1 edge, pulses [20]
+    rotation 1 at [0, 0, 0]: FAIL goes still at tick 310
+    rotation 1 at [-7, 3, 5]: FAIL goes still at tick 310
+    rotation 1 at [5, -11, -6]: FAIL goes still at tick 310
+    rotation 1 at [-3, 40, 2]: FAIL goes still at tick 310
+    rotation 2 at [0, 0, 0]: P=166 W=123 family oak_boat+oak_pressure_plate output on 20/166, 1 edge, pulses [20]
+    rotation 2 at [-7, 3, 5]: P=166 W=123 family oak_boat+oak_pressure_plate output on 20/166, 1 edge, pulses [20]
+    rotation 2 at [5, -11, -6]: P=166 W=123 family oak_boat+oak_pressure_plate output on 20/166, 1 edge, pulses [20]
+    rotation 2 at [-3, 40, 2]: P=166 W=123 family oak_boat+oak_pressure_plate output on 20/166, 1 edge, pulses [20]
+    rotation 3 at [0, 0, 0]: FAIL goes still at tick 305
+    rotation 3 at [-7, 3, 5]: FAIL goes still at tick 305
+    rotation 3 at [5, -11, -6]: FAIL goes still at tick 305
+    rotation 3 at [-3, 40, 2]: FAIL goes still at tick 305
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p187-big_dripleaf-dirt-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-65b-b5933c period 187 gt (9.35 s), on 20/187, edges 1, warmup 84, family big_dripleaf+oak_boat+oak_pressure_plate, 65 blocks, 10x6x4, rotation-dependent
+  self-start; 16 builds periodic of 16 (45.9 s)
+    rotation 0 at [0, 0, 0]: P=187 W=84 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/187, 1 edge, pulses [20]
+    rotation 0 at [-7, 3, 5]: P=187 W=84 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/187, 1 edge, pulses [20]
+    rotation 0 at [5, -11, -6]: P=187 W=84 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/187, 1 edge, pulses [20]
+    rotation 0 at [-3, 40, 2]: P=187 W=84 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/187, 1 edge, pulses [20]
+    rotation 1 at [0, 0, 0]: P=158 W=86 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/158, 1 edge, pulses [20]
+    rotation 1 at [-7, 3, 5]: P=158 W=86 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/158, 1 edge, pulses [20]
+    rotation 1 at [5, -11, -6]: P=158 W=86 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/158, 1 edge, pulses [20]
+    rotation 1 at [-3, 40, 2]: P=158 W=86 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/158, 1 edge, pulses [20]
+    rotation 2 at [0, 0, 0]: P=187 W=84 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/187, 1 edge, pulses [20]
+    rotation 2 at [-7, 3, 5]: P=187 W=84 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/187, 1 edge, pulses [20]
+    rotation 2 at [5, -11, -6]: P=187 W=84 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/187, 1 edge, pulses [20]
+    rotation 2 at [-3, 40, 2]: P=187 W=84 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/187, 1 edge, pulses [20]
+    rotation 3 at [0, 0, 0]: P=158 W=81 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/158, 1 edge, pulses [20]
+    rotation 3 at [-7, 3, 5]: P=158 W=81 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/158, 1 edge, pulses [20]
+    rotation 3 at [5, -11, -6]: P=158 W=81 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/158, 1 edge, pulses [20]
+    rotation 3 at [-3, 40, 2]: P=158 W=81 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/158, 1 edge, pulses [20]
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p188-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-71b-2bf951 period 188 gt (9.4 s), on 20/188, edges 1, warmup 102, family oak_boat+oak_pressure_plate, 71 blocks, 11x6x4, robust
+  self-start; 16 builds periodic of 16 (38.8 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p188-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-71b-403dd5 period 188 gt (9.4 s), on 60/188, edges 1, warmup 98, family oak_boat+oak_pressure_plate, 71 blocks, 11x6x4, robust
+  self-start; 16 builds periodic of 16 (46.4 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p190-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-73b-99d9cd period 190 gt (9.5 s), on 20/190, edges 1, warmup 107, family oak_boat+oak_pressure_plate, 73 blocks, 11x7x4, robust
+  self-start; 16 builds periodic of 16 (47.3 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p201-big_dripleaf-dirt-oak_boat-oak_pressure_plate-soul_sand-stone-water-white_wall_banner-73b-2b8048 period 201 gt (10.05 s), on 20/201, edges 1, warmup 94, family big_dripleaf+oak_boat+oak_pressure_plate, 73 blocks, 11x6x4, rotation-dependent
+  self-start; 16 builds periodic of 16 (38.2 s)
+    rotation 0 at [0, 0, 0]: P=201 W=94 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/201, 1 edge, pulses [20]
+    rotation 0 at [-7, 3, 5]: P=201 W=94 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/201, 1 edge, pulses [20]
+    rotation 0 at [5, -11, -6]: P=201 W=94 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/201, 1 edge, pulses [20]
+    rotation 0 at [-3, 40, 2]: P=201 W=94 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/201, 1 edge, pulses [20]
+    rotation 1 at [0, 0, 0]: P=173 W=96 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 1 at [-7, 3, 5]: P=173 W=96 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 1 at [5, -11, -6]: P=173 W=96 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 1 at [-3, 40, 2]: P=173 W=96 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 2 at [0, 0, 0]: P=201 W=94 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/201, 1 edge, pulses [20]
+    rotation 2 at [-7, 3, 5]: P=201 W=94 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/201, 1 edge, pulses [20]
+    rotation 2 at [5, -11, -6]: P=201 W=94 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/201, 1 edge, pulses [20]
+    rotation 2 at [-3, 40, 2]: P=201 W=94 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/201, 1 edge, pulses [20]
+    rotation 3 at [0, 0, 0]: P=173 W=91 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 3 at [-7, 3, 5]: P=173 W=91 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 3 at [5, -11, -6]: P=173 W=91 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+    rotation 3 at [-3, 40, 2]: P=173 W=91 family big_dripleaf+oak_boat+oak_pressure_plate output on 20/173, 1 edge, pulses [20]
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p380-oak_boat-oak_pressure_plate-stone-water-66b-082d25 period 380 gt (19 s), on 80/380, edges 1, warmup 516, family oak_boat+oak_pressure_plate, 66 blocks, 8x2x8, robust
+  self-start; 16 builds periodic of 16 (43.1 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p412-oak_boat-oak_pressure_plate-stone-water-82b-e58845 period 412 gt (20.6 s), on 80/412, edges 1, warmup 231, family oak_boat+oak_pressure_plate, 82 blocks, 9x2x9, robust
+  self-start; 16 builds periodic of 16 (42.0 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p476-oak_boat-oak_pressure_plate-stone-water-78b-6d6ae0 period 476 gt (23.8 s), on 80/476, edges 1, warmup 130, family oak_boat+oak_pressure_plate, 78 blocks, 9x2x9, robust
+  self-start; 16 builds periodic of 16 (40.8 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p488-oak_boat-oak_pressure_plate-stone-water-82b-8c0700 period 488 gt (24.4 s), on 120/488, edges 1, warmup 420, family oak_boat+oak_pressure_plate, 82 blocks, 8x2x10, rotation-dependent
+  self-start; 16 builds periodic of 16 (45.9 s)
+    rotation 0 at [0, 0, 0]: P=488 W=420 family oak_boat+oak_pressure_plate output on 120/488, 1 edge, pulses [120]
+    rotation 0 at [-7, 3, 5]: P=488 W=420 family oak_boat+oak_pressure_plate output on 120/488, 1 edge, pulses [120]
+    rotation 0 at [5, -11, -6]: P=488 W=420 family oak_boat+oak_pressure_plate output on 120/488, 1 edge, pulses [120]
+    rotation 0 at [-3, 40, 2]: P=488 W=420 family oak_boat+oak_pressure_plate output on 120/488, 1 edge, pulses [120]
+    rotation 1 at [0, 0, 0]: P=488 W=21 family oak_boat+oak_pressure_plate output on 100/488, 1 edge, pulses [100]
+    rotation 1 at [-7, 3, 5]: P=488 W=21 family oak_boat+oak_pressure_plate output on 100/488, 1 edge, pulses [100]
+    rotation 1 at [5, -11, -6]: P=488 W=21 family oak_boat+oak_pressure_plate output on 100/488, 1 edge, pulses [100]
+    rotation 1 at [-3, 40, 2]: P=488 W=21 family oak_boat+oak_pressure_plate output on 100/488, 1 edge, pulses [100]
+    rotation 2 at [0, 0, 0]: P=488 W=21 family oak_boat+oak_pressure_plate output on 100/488, 1 edge, pulses [100]
+    rotation 2 at [-7, 3, 5]: P=488 W=21 family oak_boat+oak_pressure_plate output on 100/488, 1 edge, pulses [100]
+    rotation 2 at [5, -11, -6]: P=488 W=21 family oak_boat+oak_pressure_plate output on 100/488, 1 edge, pulses [100]
+    rotation 2 at [-3, 40, 2]: P=488 W=21 family oak_boat+oak_pressure_plate output on 100/488, 1 edge, pulses [100]
+    rotation 3 at [0, 0, 0]: P=488 W=420 family oak_boat+oak_pressure_plate output on 120/488, 1 edge, pulses [120]
+    rotation 3 at [-7, 3, 5]: P=488 W=420 family oak_boat+oak_pressure_plate output on 120/488, 1 edge, pulses [120]
+    rotation 3 at [5, -11, -6]: P=488 W=420 family oak_boat+oak_pressure_plate output on 120/488, 1 edge, pulses [120]
+    rotation 3 at [-3, 40, 2]: P=488 W=420 family oak_boat+oak_pressure_plate output on 120/488, 1 edge, pulses [120]
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p494-oak_boat-oak_pressure_plate-stone-water-90b-35ab6f period 494 gt (24.7 s), on 100/494, edges 1, warmup 157, family oak_boat+oak_pressure_plate, 90 blocks, 9x2x10, robust
+  self-start; 16 builds periodic of 16 (40.2 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p506-oak_boat-oak_pressure_plate-stone-water-98b-4ecac5 period 506 gt (25.3 s), on 100/506, edges 1, warmup 423, family oak_boat+oak_pressure_plate, 98 blocks, 9x2x11, rotation-dependent
+  self-start; 16 builds periodic of 16 (45.5 s)
+    rotation 0 at [0, 0, 0]: P=506 W=423 family oak_boat+oak_pressure_plate output on 100/506, 1 edge, pulses [100]
+    rotation 0 at [-7, 3, 5]: P=506 W=423 family oak_boat+oak_pressure_plate output on 100/506, 1 edge, pulses [100]
+    rotation 0 at [5, -11, -6]: P=506 W=423 family oak_boat+oak_pressure_plate output on 100/506, 1 edge, pulses [100]
+    rotation 0 at [-3, 40, 2]: P=506 W=423 family oak_boat+oak_pressure_plate output on 100/506, 1 edge, pulses [100]
+    rotation 1 at [0, 0, 0]: P=508 W=186 family oak_boat+oak_pressure_plate output on 100/508, 1 edge, pulses [100]
+    rotation 1 at [-7, 3, 5]: P=508 W=186 family oak_boat+oak_pressure_plate output on 100/508, 1 edge, pulses [100]
+    rotation 1 at [5, -11, -6]: P=508 W=186 family oak_boat+oak_pressure_plate output on 100/508, 1 edge, pulses [100]
+    rotation 1 at [-3, 40, 2]: P=508 W=186 family oak_boat+oak_pressure_plate output on 100/508, 1 edge, pulses [100]
+    rotation 2 at [0, 0, 0]: P=506 W=186 family oak_boat+oak_pressure_plate output on 100/506, 1 edge, pulses [100]
+    rotation 2 at [-7, 3, 5]: P=506 W=186 family oak_boat+oak_pressure_plate output on 100/506, 1 edge, pulses [100]
+    rotation 2 at [5, -11, -6]: P=506 W=186 family oak_boat+oak_pressure_plate output on 100/506, 1 edge, pulses [100]
+    rotation 2 at [-3, 40, 2]: P=506 W=186 family oak_boat+oak_pressure_plate output on 100/506, 1 edge, pulses [100]
+    rotation 3 at [0, 0, 0]: P=508 W=166 family oak_boat+oak_pressure_plate output on 100/508, 1 edge, pulses [100]
+    rotation 3 at [-7, 3, 5]: P=508 W=166 family oak_boat+oak_pressure_plate output on 100/508, 1 edge, pulses [100]
+    rotation 3 at [5, -11, -6]: P=508 W=166 family oak_boat+oak_pressure_plate output on 100/508, 1 edge, pulses [100]
+    rotation 3 at [-3, 40, 2]: P=508 W=166 family oak_boat+oak_pressure_plate output on 100/508, 1 edge, pulses [100]
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p509-oak_boat-oak_pressure_plate-stone-water-90b-7ca6b9 period 509 gt (25.45 s), on 120/509, edges 1, warmup 184, family oak_boat+oak_pressure_plate, 90 blocks, 8x2x11, rotation-dependent
+  self-start; 16 builds periodic of 16 (46.1 s)
+    rotation 0 at [0, 0, 0]: P=509 W=184 family oak_boat+oak_pressure_plate output on 120/509, 1 edge, pulses [120]
+    rotation 0 at [-7, 3, 5]: P=509 W=184 family oak_boat+oak_pressure_plate output on 120/509, 1 edge, pulses [120]
+    rotation 0 at [5, -11, -6]: P=509 W=184 family oak_boat+oak_pressure_plate output on 120/509, 1 edge, pulses [120]
+    rotation 0 at [-3, 40, 2]: P=509 W=184 family oak_boat+oak_pressure_plate output on 120/509, 1 edge, pulses [120]
+    rotation 1 at [0, 0, 0]: P=510 W=193 family oak_boat+oak_pressure_plate output on 120/510, 1 edge, pulses [120]
+    rotation 1 at [-7, 3, 5]: P=510 W=193 family oak_boat+oak_pressure_plate output on 120/510, 1 edge, pulses [120]
+    rotation 1 at [5, -11, -6]: P=510 W=193 family oak_boat+oak_pressure_plate output on 120/510, 1 edge, pulses [120]
+    rotation 1 at [-3, 40, 2]: P=510 W=193 family oak_boat+oak_pressure_plate output on 120/510, 1 edge, pulses [120]
+    rotation 2 at [0, 0, 0]: P=509 W=190 family oak_boat+oak_pressure_plate output on 100/509, 1 edge, pulses [100]
+    rotation 2 at [-7, 3, 5]: P=509 W=190 family oak_boat+oak_pressure_plate output on 100/509, 1 edge, pulses [100]
+    rotation 2 at [5, -11, -6]: P=509 W=190 family oak_boat+oak_pressure_plate output on 100/509, 1 edge, pulses [100]
+    rotation 2 at [-3, 40, 2]: P=509 W=190 family oak_boat+oak_pressure_plate output on 100/509, 1 edge, pulses [100]
+    rotation 3 at [0, 0, 0]: P=510 W=185 family oak_boat+oak_pressure_plate output on 120/510, 1 edge, pulses [120]
+    rotation 3 at [-7, 3, 5]: P=510 W=185 family oak_boat+oak_pressure_plate output on 120/510, 1 edge, pulses [120]
+    rotation 3 at [5, -11, -6]: P=510 W=185 family oak_boat+oak_pressure_plate output on 120/510, 1 edge, pulses [120]
+    rotation 3 at [-3, 40, 2]: P=510 W=185 family oak_boat+oak_pressure_plate output on 120/510, 1 edge, pulses [120]
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p516-oak_boat-oak_pressure_plate-stone-water-98b-1d286a period 516 gt (25.8 s), on 100/516, edges 1, warmup 30, family oak_boat+oak_pressure_plate, 98 blocks, 8x2x12, rotation-dependent
+  self-start; 16 builds periodic of 16 (46.2 s)
+    rotation 0 at [0, 0, 0]: P=516 W=30 family oak_boat+oak_pressure_plate output on 100/516, 1 edge, pulses [100]
+    rotation 0 at [-7, 3, 5]: P=516 W=30 family oak_boat+oak_pressure_plate output on 100/516, 1 edge, pulses [100]
+    rotation 0 at [5, -11, -6]: P=516 W=30 family oak_boat+oak_pressure_plate output on 100/516, 1 edge, pulses [100]
+    rotation 0 at [-3, 40, 2]: P=516 W=30 family oak_boat+oak_pressure_plate output on 100/516, 1 edge, pulses [100]
+    rotation 1 at [0, 0, 0]: P=525 W=195 family oak_boat+oak_pressure_plate output on 120/525, 1 edge, pulses [120]
+    rotation 1 at [-7, 3, 5]: P=525 W=195 family oak_boat+oak_pressure_plate output on 120/525, 1 edge, pulses [120]
+    rotation 1 at [5, -11, -6]: P=525 W=195 family oak_boat+oak_pressure_plate output on 120/525, 1 edge, pulses [120]
+    rotation 1 at [-3, 40, 2]: P=525 W=195 family oak_boat+oak_pressure_plate output on 120/525, 1 edge, pulses [120]
+    rotation 2 at [0, 0, 0]: P=516 W=462 family oak_boat+oak_pressure_plate output on 100/516, 1 edge, pulses [100]
+    rotation 2 at [-7, 3, 5]: P=516 W=462 family oak_boat+oak_pressure_plate output on 100/516, 1 edge, pulses [100]
+    rotation 2 at [5, -11, -6]: P=516 W=462 family oak_boat+oak_pressure_plate output on 100/516, 1 edge, pulses [100]
+    rotation 2 at [-3, 40, 2]: P=516 W=462 family oak_boat+oak_pressure_plate output on 100/516, 1 edge, pulses [100]
+    rotation 3 at [0, 0, 0]: P=525 W=445 family oak_boat+oak_pressure_plate output on 120/525, 1 edge, pulses [120]
+    rotation 3 at [-7, 3, 5]: P=525 W=445 family oak_boat+oak_pressure_plate output on 120/525, 1 edge, pulses [120]
+    rotation 3 at [5, -11, -6]: P=525 W=445 family oak_boat+oak_pressure_plate output on 120/525, 1 edge, pulses [120]
+    rotation 3 at [-3, 40, 2]: P=525 W=445 family oak_boat+oak_pressure_plate output on 120/525, 1 edge, pulses [120]
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p522-oak_boat-oak_pressure_plate-stone-water-106b-d07b6f period 522 gt (26.1 s), on 100/522, edges 1, warmup 175, family oak_boat+oak_pressure_plate, 106 blocks, 9x2x12, rotation-dependent
+  self-start; 16 builds periodic of 16 (46.8 s)
+    rotation 0 at [0, 0, 0]: P=522 W=175 family oak_boat+oak_pressure_plate output on 100/522, 1 edge, pulses [100]
+    rotation 0 at [-7, 3, 5]: P=522 W=175 family oak_boat+oak_pressure_plate output on 100/522, 1 edge, pulses [100]
+    rotation 0 at [5, -11, -6]: P=522 W=175 family oak_boat+oak_pressure_plate output on 100/522, 1 edge, pulses [100]
+    rotation 0 at [-3, 40, 2]: P=522 W=175 family oak_boat+oak_pressure_plate output on 100/522, 1 edge, pulses [100]
+    rotation 1 at [0, 0, 0]: P=523 W=195 family oak_boat+oak_pressure_plate output on 100/523, 1 edge, pulses [100]
+    rotation 1 at [-7, 3, 5]: P=523 W=195 family oak_boat+oak_pressure_plate output on 100/523, 1 edge, pulses [100]
+    rotation 1 at [5, -11, -6]: P=523 W=195 family oak_boat+oak_pressure_plate output on 100/523, 1 edge, pulses [100]
+    rotation 1 at [-3, 40, 2]: P=523 W=195 family oak_boat+oak_pressure_plate output on 100/523, 1 edge, pulses [100]
+    rotation 2 at [0, 0, 0]: P=522 W=195 family oak_boat+oak_pressure_plate output on 100/522, 1 edge, pulses [100]
+    rotation 2 at [-7, 3, 5]: P=522 W=195 family oak_boat+oak_pressure_plate output on 100/522, 1 edge, pulses [100]
+    rotation 2 at [5, -11, -6]: P=522 W=195 family oak_boat+oak_pressure_plate output on 100/522, 1 edge, pulses [100]
+    rotation 2 at [-3, 40, 2]: P=522 W=195 family oak_boat+oak_pressure_plate output on 100/522, 1 edge, pulses [100]
+    rotation 3 at [0, 0, 0]: P=523 W=175 family oak_boat+oak_pressure_plate output on 100/523, 1 edge, pulses [100]
+    rotation 3 at [-7, 3, 5]: P=523 W=175 family oak_boat+oak_pressure_plate output on 100/523, 1 edge, pulses [100]
+    rotation 3 at [5, -11, -6]: P=523 W=175 family oak_boat+oak_pressure_plate output on 100/523, 1 edge, pulses [100]
+    rotation 3 at [-3, 40, 2]: P=523 W=175 family oak_boat+oak_pressure_plate output on 100/523, 1 edge, pulses [100]
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p572-oak_boat-oak_pressure_plate-stone-water-98b-0b1012 period 572 gt (28.6 s), on 100/572, edges 1, warmup 20, family oak_boat+oak_pressure_plate, 98 blocks, 10x2x10, robust
+  self-start; 16 builds periodic of 16 (38.8 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p586-oak_boat-oak_pressure_plate-stone-water-106b-6d8646 period 586 gt (29.3 s), on 100/586, edges 1, warmup 166, family oak_boat+oak_pressure_plate, 106 blocks, 10x2x11, robust
+  self-start; 16 builds periodic of 16 (47.9 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p600-oak_boat-oak_pressure_plate-stone-water-114b-bf6edd period 600 gt (30 s), on 100/600, edges 1, warmup 166, family oak_boat+oak_pressure_plate, 114 blocks, 11x2x11, robust
+  self-start; 16 builds periodic of 16 (49.0 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p608-oak_boat-oak_pressure_plate-stone-water-114b-7feef1 period 608 gt (30.4 s), on 120/608, edges 1, warmup 30, family oak_boat+oak_pressure_plate, 114 blocks, 10x2x12, rotation-dependent
+  self-start; 16 builds periodic of 16 (42.1 s)
+    rotation 0 at [0, 0, 0]: P=608 W=30 family oak_boat+oak_pressure_plate output on 120/608, 1 edge, pulses [120]
+    rotation 0 at [-7, 3, 5]: P=608 W=30 family oak_boat+oak_pressure_plate output on 120/608, 1 edge, pulses [120]
+    rotation 0 at [5, -11, -6]: P=608 W=30 family oak_boat+oak_pressure_plate output on 120/608, 1 edge, pulses [120]
+    rotation 0 at [-3, 40, 2]: P=608 W=30 family oak_boat+oak_pressure_plate output on 120/608, 1 edge, pulses [120]
+    rotation 1 at [0, 0, 0]: P=610 W=195 family oak_boat+oak_pressure_plate output on 100/610, 1 edge, pulses [100]
+    rotation 1 at [-7, 3, 5]: P=610 W=195 family oak_boat+oak_pressure_plate output on 100/610, 1 edge, pulses [100]
+    rotation 1 at [5, -11, -6]: P=610 W=195 family oak_boat+oak_pressure_plate output on 100/610, 1 edge, pulses [100]
+    rotation 1 at [-3, 40, 2]: P=610 W=195 family oak_boat+oak_pressure_plate output on 100/610, 1 edge, pulses [100]
+    rotation 2 at [0, 0, 0]: P=608 W=195 family oak_boat+oak_pressure_plate output on 100/608, 1 edge, pulses [100]
+    rotation 2 at [-7, 3, 5]: P=608 W=195 family oak_boat+oak_pressure_plate output on 100/608, 1 edge, pulses [100]
+    rotation 2 at [5, -11, -6]: P=608 W=195 family oak_boat+oak_pressure_plate output on 100/608, 1 edge, pulses [100]
+    rotation 2 at [-3, 40, 2]: P=608 W=195 family oak_boat+oak_pressure_plate output on 100/608, 1 edge, pulses [100]
+    rotation 3 at [0, 0, 0]: P=610 W=30 family oak_boat+oak_pressure_plate output on 120/610, 1 edge, pulses [120]
+    rotation 3 at [-7, 3, 5]: P=610 W=30 family oak_boat+oak_pressure_plate output on 120/610, 1 edge, pulses [120]
+    rotation 3 at [5, -11, -6]: P=610 W=30 family oak_boat+oak_pressure_plate output on 120/610, 1 edge, pulses [120]
+    rotation 3 at [-3, 40, 2]: P=610 W=30 family oak_boat+oak_pressure_plate output on 120/610, 1 edge, pulses [120]
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p622-oak_boat-oak_pressure_plate-stone-water-122b-200b42 period 622 gt (31.1 s), on 120/622, edges 1, warmup 30, family oak_boat+oak_pressure_plate, 122 blocks, 11x2x12, rotation-dependent
+  self-start; 16 builds periodic of 16 (40.5 s)
+    rotation 0 at [0, 0, 0]: P=622 W=30 family oak_boat+oak_pressure_plate output on 120/622, 1 edge, pulses [120]
+    rotation 0 at [-7, 3, 5]: P=622 W=30 family oak_boat+oak_pressure_plate output on 120/622, 1 edge, pulses [120]
+    rotation 0 at [5, -11, -6]: P=622 W=30 family oak_boat+oak_pressure_plate output on 120/622, 1 edge, pulses [120]
+    rotation 0 at [-3, 40, 2]: P=622 W=30 family oak_boat+oak_pressure_plate output on 120/622, 1 edge, pulses [120]
+    rotation 1 at [0, 0, 0]: P=624 W=195 family oak_boat+oak_pressure_plate output on 100/624, 1 edge, pulses [100]
+    rotation 1 at [-7, 3, 5]: P=624 W=195 family oak_boat+oak_pressure_plate output on 100/624, 1 edge, pulses [100]
+    rotation 1 at [5, -11, -6]: P=624 W=195 family oak_boat+oak_pressure_plate output on 100/624, 1 edge, pulses [100]
+    rotation 1 at [-3, 40, 2]: P=624 W=195 family oak_boat+oak_pressure_plate output on 100/624, 1 edge, pulses [100]
+    rotation 2 at [0, 0, 0]: P=622 W=195 family oak_boat+oak_pressure_plate output on 100/622, 1 edge, pulses [100]
+    rotation 2 at [-7, 3, 5]: P=622 W=195 family oak_boat+oak_pressure_plate output on 100/622, 1 edge, pulses [100]
+    rotation 2 at [5, -11, -6]: P=622 W=195 family oak_boat+oak_pressure_plate output on 100/622, 1 edge, pulses [100]
+    rotation 2 at [-3, 40, 2]: P=622 W=195 family oak_boat+oak_pressure_plate output on 100/622, 1 edge, pulses [100]
+    rotation 3 at [0, 0, 0]: P=624 W=30 family oak_boat+oak_pressure_plate output on 120/624, 1 edge, pulses [120]
+    rotation 3 at [-7, 3, 5]: P=624 W=30 family oak_boat+oak_pressure_plate output on 120/624, 1 edge, pulses [120]
+    rotation 3 at [5, -11, -6]: P=624 W=30 family oak_boat+oak_pressure_plate output on 120/624, 1 edge, pulses [120]
+    rotation 3 at [-3, 40, 2]: P=624 W=30 family oak_boat+oak_pressure_plate output on 120/624, 1 edge, pulses [120]
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p646-oak_boat-oak_pressure_plate-stone-water-130b-216f13 period 646 gt (32.3 s), on 120/646, edges 1, warmup 175, family oak_boat+oak_pressure_plate, 130 blocks, 12x2x12, rotation-dependent
+  self-start; 16 builds periodic of 16 (50.0 s)
+    rotation 0 at [0, 0, 0]: P=646 W=175 family oak_boat+oak_pressure_plate output on 120/646, 1 edge, pulses [120]
+    rotation 0 at [-7, 3, 5]: P=646 W=175 family oak_boat+oak_pressure_plate output on 120/646, 1 edge, pulses [120]
+    rotation 0 at [5, -11, -6]: P=646 W=175 family oak_boat+oak_pressure_plate output on 120/646, 1 edge, pulses [120]
+    rotation 0 at [-3, 40, 2]: P=646 W=175 family oak_boat+oak_pressure_plate output on 120/646, 1 edge, pulses [120]
+    rotation 1 at [0, 0, 0]: P=646 W=195 family oak_boat+oak_pressure_plate output on 100/646, 1 edge, pulses [100]
+    rotation 1 at [-7, 3, 5]: P=646 W=195 family oak_boat+oak_pressure_plate output on 100/646, 1 edge, pulses [100]
+    rotation 1 at [5, -11, -6]: P=646 W=195 family oak_boat+oak_pressure_plate output on 100/646, 1 edge, pulses [100]
+    rotation 1 at [-3, 40, 2]: P=646 W=195 family oak_boat+oak_pressure_plate output on 100/646, 1 edge, pulses [100]
+    rotation 2 at [0, 0, 0]: P=646 W=195 family oak_boat+oak_pressure_plate output on 100/646, 1 edge, pulses [100]
+    rotation 2 at [-7, 3, 5]: P=646 W=195 family oak_boat+oak_pressure_plate output on 100/646, 1 edge, pulses [100]
+    rotation 2 at [5, -11, -6]: P=646 W=195 family oak_boat+oak_pressure_plate output on 100/646, 1 edge, pulses [100]
+    rotation 2 at [-3, 40, 2]: P=646 W=195 family oak_boat+oak_pressure_plate output on 100/646, 1 edge, pulses [100]
+    rotation 3 at [0, 0, 0]: P=646 W=334 family oak_boat+oak_pressure_plate output on 120/646, 1 edge, pulses [120]
+    rotation 3 at [-7, 3, 5]: P=646 W=334 family oak_boat+oak_pressure_plate output on 120/646, 1 edge, pulses [120]
+    rotation 3 at [5, -11, -6]: P=646 W=334 family oak_boat+oak_pressure_plate output on 120/646, 1 edge, pulses [120]
+    rotation 3 at [-3, 40, 2]: P=646 W=334 family oak_boat+oak_pressure_plate output on 120/646, 1 edge, pulses [120]
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p73-oak_boat-soul_sand-stone-tripwire-tripwire_hook-water-18b-982299 period 73 gt (3.65 s), on 20/73, edges 1, warmup 33, family oak_boat+tripwire+tripwire_hook, 18 blocks, 4x5x4, robust
+  self-start; 16 builds periodic of 16 (41.5 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: clk-misc-p74-lantern-oak_boat-soul_sand-stone-tripwire-tripwire_hook-water-18b-c9c255 period 74 gt (3.7 s), on 20/74, edges 1, warmup 32, family oak_boat+tripwire+tripwire_hook, 18 blocks, 4x5x4, robust
+  self-start; 16 builds periodic of 16 (33.7 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: kit-bouncer-oak_boat-p134-19b period 134 gt (6.7 s), on 130/134, edges 1, warmup 151, family oak_boat+tripwire+tripwire_hook, 19 blocks, 4x4x4, robust
+  self-start; 16 builds periodic of 16 (39.4 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: kit-bouncer-oak_boat-p72-19b period 72 gt (3.6 s), on 70/72, edges 1, warmup 162, family oak_boat+tripwire+tripwire_hook, 19 blocks, 4x4x4, robust
+  self-start; 16 builds periodic of 16 (38.3 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: kit-bouncer-oak_boat-p73-19b period 73 gt (3.65 s), on 70/73, edges 1, warmup 91, family oak_boat+tripwire+tripwire_hook, 19 blocks, 4x5x4, robust
+  self-start; 16 builds periodic of 16 (27.2 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: kit-bouncer-oak_boat-p74-19b period 74 gt (3.7 s), on 70/74, edges 1, warmup 91, family oak_boat+tripwire+tripwire_hook, 19 blocks, 4x5x4, robust
+  self-start; 16 builds periodic of 16 (40.1 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: kit-bouncer-oak_boat-p77-19b period 77 gt (3.85 s), on 70/77, edges 1, warmup 95, family oak_boat+tripwire+tripwire_hook, 19 blocks, 4x5x4, robust
+  self-start; 16 builds periodic of 16 (38.2 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: kit-bouncer-oak_boat-p81-19b period 81 gt (4.05 s), on 70/81, edges 1, warmup 95, family oak_boat+tripwire+tripwire_hook, 19 blocks, 4x5x4, robust
+  self-start; 16 builds periodic of 16 (38.0 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: kit-bouncer-oak_boat-p82-18b period 82 gt (4.1 s), on 70/82, edges 1, warmup 95, family oak_boat+tripwire+tripwire_hook, 18 blocks, 4x3x4, robust
+  self-start; 16 builds periodic of 16 (40.7 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+CLOCK: kit-dripleaf-oak_boat-p4-8b period 4 gt (0.2 s), on 2/4, edges 1, warmup 3, family big_dripleaf+oak_boat+observer+redstone_wire, 8 blocks, 3x3x1, robust
+  self-start; 16 builds periodic of 16 (28.6 s)
+  redsim AGREES (period, warmup, output waveform, family, box)
+
