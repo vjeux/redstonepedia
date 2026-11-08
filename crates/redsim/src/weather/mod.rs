@@ -580,9 +580,9 @@ pub fn entity_in_rain(w: &mut World, i: usize) -> bool {
 
 /// The tail of `Entity.applyEffectsFromBlocks` for mob `i` (`fire_before`: its fire ticks before
 /// the inside-block effects): rain puts the fire out (`isInRain` -> `clearFire`), then a mob that
-/// is not burning and was not set on fire this tick goes back to `-getFireImmuneTicks()` (-1),
-/// from which a bolt's `thunderHit` sets 8 s of fire. Skipped for a removed mob
-/// (`isAffectedByBlocks`).
+/// is not burning and was not set on fire this tick goes back to `-getFireImmuneTicks()` (0 in
+/// 26.3 for every entity but a player, so a bolt's `thunderHit` (+1, 8 s of fire only from -1)
+/// burns a mob for a tick, not 8 s). Skipped for a removed mob (`isAffectedByBlocks`).
 pub fn after_block_effects(w: &mut World, i: usize, fire_before: i32) {
     let e = &w.entities.list[i];
     if e.removed || e.no_physics {
@@ -598,8 +598,10 @@ pub fn after_block_effects(w: &mut World, i: usize, fire_before: i32) {
     }
     let m = crate::entity::mob::mob_mut(w, i);
     let on_fire = !m.ty.def().fire_immune && m.fire_ticks > 0;
+    // `setRemainingFireTicks(-getFireImmuneTicks())`: 0 for every entity but a player in 26.3
+    // (ironfarm's tick-exact compare: the game's mobs keep fire 0, not -1)
     if !on_fire && m.fire_ticks <= fire_before {
-        m.fire_ticks = -1;
+        m.fire_ticks = 0;
     }
 }
 

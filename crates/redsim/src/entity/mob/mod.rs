@@ -172,7 +172,8 @@ impl MobState {
             hurt_time: 0,
             damage_cooldown: 0,
             last_hurt: 0.0,
-            fire_ticks: -1,
+            // `remainingFireTicks = -getFireImmuneTicks()`: 0 for a mob in 26.3
+            fire_ticks: 0,
             air: 300,
             sleeping_pos: None,
             follow_range: d.follow_range * (1.0 + bonus),

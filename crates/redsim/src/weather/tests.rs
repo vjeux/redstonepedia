@@ -278,7 +278,8 @@ fn fire_burns_and_lava_lights_it() {
     }
 }
 
-/// Rain puts a burning mob out; a burnt-out mob goes back to -1 (a bolt then sets 8 s of fire).
+/// Rain puts a burning mob out; a burnt-out mob goes back to 0 (`-getFireImmuneTicks()` in 26.3:
+/// a bolt's +1 then burns it for a tick, not 8 s).
 #[test]
 fn rain_puts_fire_out() {
     let mut w = stormy_world();
@@ -288,7 +289,7 @@ fn rain_puts_fire_out() {
     crate::entity::mob::mob_mut(&mut w, i).fire_ticks = 300;
     w.tick();
     let i = crate::entity::index_of(&w, g).unwrap();
-    assert_eq!(crate::entity::mob::mob(&w, i).fire_ticks, -1);
+    assert_eq!(crate::entity::mob::mob(&w, i).fire_ticks, 0);
     assert!(w.weather.events.iter().any(|e| matches!(e, WeatherEvent::RainedOut { .. })));
 }
 
