@@ -6,6 +6,7 @@
 
 pub mod float;
 pub mod golem;
+pub mod creeper;
 pub mod look;
 pub mod melee;
 pub mod stroll;
@@ -50,6 +51,10 @@ pub enum Goal {
     MoveTowardsTarget(golem::MoveTowardsTarget),
     OfferFlower(golem::OfferFlower),
     DefendVillage,
+    /// `SwellGoal` (the creeper's fuse).
+    Swell,
+    /// `AvoidEntityGoal` of cats or ocelots (none modeled).
+    AvoidEntity,
     ResetUniversalAnger,
     HurtByTarget(targets::HurtByTarget),
     NearestAttackableTarget(targets::NearestAttackableTarget),
@@ -71,6 +76,7 @@ impl Goal {
             Goal::MoveTowardsTarget(_) => MOVE,
             Goal::OfferFlower(_) => MOVE | LOOK,
             Goal::DefendVillage => TARGET,
+            Goal::Swell | Goal::AvoidEntity => MOVE,
             Goal::ResetUniversalAnger => 0,
             Goal::HurtByTarget(_) | Goal::NearestAttackableTarget(_) => TARGET,
         }
@@ -78,7 +84,7 @@ impl Goal {
 
     /// `requiresUpdateEveryTick()`.
     pub fn every_tick(&self) -> bool {
-        matches!(self, Goal::Float | Goal::RandomLookAround(_) | Goal::MeleeAttack(_) | Goal::ZombieAttackTurtleEgg(_) | Goal::BreakDoor(_))
+        matches!(self, Goal::Float | Goal::RandomLookAround(_) | Goal::MeleeAttack(_) | Goal::ZombieAttackTurtleEgg(_) | Goal::BreakDoor(_) | Goal::Swell)
     }
 
     /// `isInterruptable()`.
@@ -115,6 +121,8 @@ impl Goal {
             Goal::MoveTowardsTarget(_) => "MoveTowardsTargetGoal",
             Goal::OfferFlower(_) => "OfferFlowerGoal",
             Goal::DefendVillage => "DefendVillageTargetGoal",
+            Goal::Swell => "SwellGoal",
+            Goal::AvoidEntity => "AvoidEntityGoal",
             Goal::ResetUniversalAnger => "ResetUniversalAngerTargetGoal",
             Goal::HurtByTarget(_) => "HurtByTargetGoal",
             Goal::NearestAttackableTarget(_) => "NearestAttackableTargetGoal",
@@ -267,6 +275,8 @@ pub fn can_use(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::MoveTowardsTarget(g) => golem::towards_can_use(w, i, g),
         Goal::OfferFlower(g) => golem::flower_can_use(w, i, g),
         Goal::DefendVillage => golem::defend_can_use(w, i),
+        Goal::Swell => creeper::swell_can_use(w, i),
+        Goal::AvoidEntity => false,
         Goal::ResetUniversalAnger => false,
         Goal::HurtByTarget(h) => targets::hurt_by_can_use(w, i, h),
         Goal::NearestAttackableTarget(n) => targets::nearest_can_use(w, i, n),
@@ -288,6 +298,8 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::MoveTowardsTarget(g) => golem::towards_can_continue(w, i, g),
         Goal::OfferFlower(g) => g.tick > 0,
         Goal::DefendVillage | Goal::ResetUniversalAnger => false,
+        Goal::Swell => creeper::swell_can_use(w, i),
+        Goal::AvoidEntity => false,
         Goal::HurtByTarget(h) => targets::target_can_continue(w, i, &mut h.base),
         Goal::NearestAttackableTarget(n) => targets::target_can_continue(w, i, &mut n.base),
     }
@@ -308,6 +320,8 @@ pub fn start(w: &mut World, i: usize, g: &mut Goal) {
         Goal::MoveTowardsTarget(g) => golem::towards_start(w, i, g),
         Goal::OfferFlower(g) => golem::flower_start(w, i, g),
         Goal::DefendVillage | Goal::ResetUniversalAnger => {}
+        Goal::Swell => creeper::swell_start(w, i),
+        Goal::AvoidEntity => {}
         Goal::HurtByTarget(h) => targets::hurt_by_start(w, i, h),
         Goal::NearestAttackableTarget(n) => targets::nearest_start(w, i, n),
     }
@@ -328,6 +342,8 @@ pub fn stop(w: &mut World, i: usize, g: &mut Goal) {
         Goal::MoveTowardsTarget(g) => g.target = None,
         Goal::OfferFlower(g) => g.entity = None,
         Goal::DefendVillage | Goal::ResetUniversalAnger => {}
+        Goal::Swell => super::ai_mut(w, i).swell_target = None,
+        Goal::AvoidEntity => {}
         Goal::HurtByTarget(h) => targets::target_stop(w, i, &mut h.base),
         Goal::NearestAttackableTarget(n) => targets::target_stop(w, i, &mut n.base),
     }
@@ -347,6 +363,8 @@ pub fn tick(w: &mut World, i: usize, g: &mut Goal) {
         Goal::BreakDoor(d) => zombie::door_tick(w, i, d),
         Goal::OfferFlower(g) => golem::flower_tick(w, i, g),
         Goal::MoveTowardsTarget(_) | Goal::DefendVillage | Goal::ResetUniversalAnger => {}
+        Goal::Swell => creeper::swell_tick(w, i),
+        Goal::AvoidEntity => {}
         Goal::HurtByTarget(_) | Goal::NearestAttackableTarget(_) => {}
     }
 }
@@ -356,6 +374,7 @@ pub fn register_goals(ai: &mut MobAi, ty: MobType) {
     match ty.def().id {
         "zombie" | "baby_zombie" => zombie::register(ai),
         "iron_golem" => golem::register(ai),
+        "creeper" => creeper::register(ai),
         _ => {}
     }
     // FloatGoal's constructor: `mob.getNavigation().setCanFloat(true)`

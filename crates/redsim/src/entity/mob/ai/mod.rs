@@ -75,6 +75,10 @@ pub struct MobAi {
     /// `NeutralMob`: the persistent anger target and its end time (-1: none).
     pub anger_target: Option<u32>,
     pub anger_end: i64,
+    /// The creeper's fuse: `swell`, `DATA_SWELL_DIR` (-1 at creation) and SwellGoal's target.
+    pub swell: i32,
+    pub swell_dir: i32,
+    pub swell_target: Option<u32>,
 }
 
 impl MobAi {
@@ -119,6 +123,9 @@ impl MobAi {
             last_damage_entity: None,
             anger_target: None,
             anger_end: -1,
+            swell: 0,
+            swell_dir: -1,
+            swell_target: None,
         };
         goal::register_goals(&mut ai, ty);
         ai
@@ -611,6 +618,43 @@ pub fn after_base_tick(w: &mut World, i: usize) {
     ambient_sound_tick(w, i);
 }
 
+/// `Mob.checkDespawn()` where natural spawning (natural.rs, which owns it there) is off and the
+/// mob AI has players: the nearest non-spectator player within 32 resets `noActionTime`; a mob
+/// that is not persistent and would despawn (beyond 128, or the 1-in-800 roll past 600 idle
+/// ticks beyond 32: that roll is drawn) is refused.
+pub fn check_despawn(w: &mut World, i: usize) {
+    let m = mob(w, i);
+    if m.dead {
+        return;
+    }
+    if difficulty_id(w) == 0 && m.ty.def().monster {
+        refuse_once(w, "a monster in a peaceful world (discarded) is not modeled");
+        return;
+    }
+    let persistent = m.persistence_required;
+    let no_action = m.no_action_time;
+    let removes_far = !matches!(m.ty, MobType::Villager | MobType::IronGolem);
+    let p = w.entities.list[i].pos;
+    let near = w.mob.ai.players.iter().filter(|q| q.mode != GameMode::Spectator).map(|q| q.pos.distance_to_sqr(p)).fold(None, |a: Option<f64>, d| Some(a.map_or(d, |a| a.min(d))));
+    let Some(d2) = near else { return };
+    if !persistent && d2 > 128.0 * 128.0 && removes_far {
+        refuse_once(w, "a mob despawning (beyond 128 of every player) is not modeled");
+        return;
+    }
+    let roll = !persistent && no_action > 600 && w.entities.list[i].random.as_mut().expect("random").next_int(800) == 0;
+    if roll && d2 > 32.0 * 32.0 && removes_far {
+        refuse_once(w, "a mob despawning (the 1-in-800 roll) is not modeled");
+    } else if d2 < 32.0 * 32.0 {
+        mob_mut(w, i).no_action_time = 0;
+    }
+}
+
+fn refuse_once(w: &mut World, why: &str) {
+    if !w.errors.iter().any(|e| e == why) {
+        w.errors.push(why.to_string());
+    }
+}
+
 /// `Monster.updateNoActionTime()` (first in `Monster.aiStep`): bright light at the eye counts
 /// double.
 pub fn update_no_action_time(w: &mut World, i: usize) {
@@ -726,7 +770,17 @@ pub fn frame_path(a: &MobAi) -> String {
 /// The target as the bridge prints it (`getTarget()`, a valid one): `"#n"` or `"none"`.
 pub fn frame_target(w: &World, i: usize) -> String {
     match target::get_target(w, i) {
-        Some(id) => format!("#{id}"),
+        Some(id) => frame_ref(id),
         None => "none".into(),
+    }
+}
+
+/// An entity's reference in the exact frames (the bridge's `Exact.ref`: its number in the
+/// sandbox; the AFK player's id is the sandbox's numbering + 2^20 - 4).
+pub fn frame_ref(id: u32) -> String {
+    if id >= PLAYER_ID_BASE {
+        format!("#{}", (1i64 << 20) - 4 - (id - PLAYER_ID_BASE) as i64)
+    } else {
+        format!("#{id}")
     }
 }

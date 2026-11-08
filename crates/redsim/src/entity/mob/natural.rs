@@ -744,11 +744,15 @@ pub fn tick_chunks(w: &mut World) {
     }
     let Some(mut nat) = w.mob.natural.clone() else { return };
     nat.players = players_of(w, &nat);
-    if !nat.spawning || nat.players.is_empty() {
+    if nat.players.is_empty() {
         return;
     }
+    // (the mob-AI lane) the game collects and shuffles the spawning chunks every tick, spawn_mobs
+    // or not (`doMobSpawning` only empties the categories): the shuffle's draws stay
+    let spawning = nat.spawning;
     if let Some(l) = w.land.as_ref()
         && w.min.y > l.world_min_y
+        && spawning
     {
         let e = "natural spawning needs the whole height of the world (the terrain box starts above its min y)".to_string();
         if !w.errors.contains(&e) {
@@ -761,7 +765,7 @@ pub fn tick_chunks(w: &mut World) {
     let enemies = nat.difficulty != Difficulty::Peaceful && nat.spawn_enemies;
     let cats: Vec<Category> = Category::SPAWNING
         .into_iter()
-        .filter(|c| (enemies || c.friendly()) && (spawn_persistent || !c.persistent()) && st.counts[*c as usize] < c.max_instances() * st.chunk_count / 289)
+        .filter(|c| spawning && (enemies || c.friendly()) && (spawn_persistent || !c.persistent()) && st.counts[*c as usize] < c.max_instances() * st.chunk_count / 289)
         .collect();
     // collectSpawningChunks: the ticking chunks within 128 of a player — in a bridge sandbox the
     // game's own order (`World::chunk_order`), in a terrain box the candidate square (Chebyshev 8
@@ -1517,9 +1521,9 @@ pub fn check_despawn(w: &mut World, i: usize) {
         }
     }
     // `Monster.updateNoActionTime` (+2 in light above 0.5; `Mob.serverAiStep`'s +1 is the mob
-    // layer's, living.rs)
+    // layer's, living.rs); a mob with the AI on runs it in its aiStep (mob AI lane)
     let cell = BlockPos::new(pos.x.floor() as i32, (pos.y + eye as f64).floor() as i32, pos.z.floor() as i32);
-    let lit = k.category == Category::Monster && magic(w, cell) > 0.5;
+    let lit = k.category == Category::Monster && !super::ai::has_ai(w, i) && magic(w, cell) > 0.5;
     if lit && let EntityKind::Mob(m) = &mut w.entities.list[i].kind {
         m.no_action_time += 2;
     }

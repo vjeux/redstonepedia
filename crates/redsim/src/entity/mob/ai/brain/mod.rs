@@ -470,7 +470,7 @@ pub fn frame_memories(w: &World, i: usize) -> std::collections::BTreeMap<String,
     let x = ex(w, i);
     let e = &x.mem;
     let mut m = std::collections::BTreeMap::new();
-    let r = |id: u32| format!("#{id}");
+    let r = |id: u32| crate::entity::mob::ai::frame_ref(id);
     let p = |q: BlockPos| format!("{} {} {}", q.x, q.y, q.z);
     let list = |l: &[u32]| format!("[{}]", l.iter().map(|id| r(*id)).collect::<Vec<_>>().join(" "));
     let tracker = |t: &Tracker| match t {

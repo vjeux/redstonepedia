@@ -25,6 +25,10 @@ fn modified_friction(friction: f32) -> f32 {
 
 /// `Mob.tick` of entity `i` (`LivingEntity.tick`; `updateControlFlags` changes no modeled state).
 pub fn tick(w: &mut World, i: usize) {
+    // ---- mob AI (the mob-AI lane): Creeper.tick's fuse before super.tick ----
+    if super::ai::has_ai(w, i) && mob(w, i).ty.def().id == "creeper" {
+        super::ai::goal::creeper::creeper_tick(w, i);
+    }
     // LivingEntity.onClimbable (the block at its feet in BlockTags.CLIMBABLE; scaffolding is the
     // only one redsim has): climbing is not modeled, so it is refused wherever the mob came from,
     // and `isPushable` reads the flag

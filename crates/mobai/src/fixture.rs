@@ -33,6 +33,8 @@ pub struct Scene {
     pub mob_griefing: bool,
     /// The watched box (block changes), inclusive.
     pub watch: ([i32; 3], [i32; 3]),
+    /// A survival player hanging at this position (the bridge's player: no gravity, no moves).
+    pub player: Option<[f64; 3]>,
 }
 
 fn difficulty_name(d: Difficulty) -> &'static str {
@@ -118,6 +120,7 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Easy,
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
         });
     }
     // a zombie and a golem walled off from it (the golem stands still: no AI modeled for it yet,
@@ -137,6 +140,7 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Easy,
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
         });
     }
     // an iron golem and a zombie 12 apart at night: each targets the other (the golem: enemies
@@ -156,6 +160,7 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Easy,
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
         });
     }
     // a zombie pathing to a villager penned in fences beyond two low walls (the walls and the
@@ -181,6 +186,7 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Easy,
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
         });
     }
     // a zombie that breaks doors (Hard) going for a villager in a fence pen through its oak door
@@ -211,6 +217,7 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Hard,
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
         });
     }
     // three homeless villagers and three free beds before dusk: AcquirePoi claims the beds (the
@@ -236,6 +243,32 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Easy,
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+        });
+    }
+    // a creeper going for a survival player who stands inside a ring of fences 4 out (it never
+    // gets within the fuse's 3 blocks): the target, the path to the ring, the looks
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        for x in 32..=40 {
+            for z in 20..=28 {
+                let edge = x == 32 || x == 40 || z == 20 || z == 28;
+                if edge {
+                    b.push(([x, 64, z], "minecraft:oak_fence".to_string()));
+                }
+            }
+        }
+        v.push(Scene {
+            name: "creeper-player".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![("minecraft:creeper".into(), [20.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into()))],
+            day_time: 18000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: Some([36.5, 64.0, 24.5]),
         });
     }
     v
@@ -247,6 +280,10 @@ pub struct GameScene {
     sb: u32,
     lo: [i32; 3],
     hi: [i32; 3],
+    /// The block-ticking chunks in the bridge's order (a scene with a player; else empty).
+    pub ticking: Vec<[i32; 2]>,
+    /// The spawning chunks before the shuffle (a scene with a player).
+    pub spawning: Vec<[i32; 2]>,
 }
 
 impl GameScene {
@@ -261,10 +298,22 @@ impl GameScene {
             "rules": {"mob_griefing": if s.mob_griefing { "true" } else { "false" }},
             "trace_randoms": trace_randoms,
         }))?;
+        if let Some(p) = s.player {
+            w.call(json!({"op": "world", "sandbox": sb, "player": {"pos": p, "mode": "survival", "simulation": 6, "view": 6}}))?;
+        }
         if !s.blocks.is_empty() {
             w.set_blocks(sb, &s.blocks, PlaceMode::Raw)?;
         }
-        Ok(GameScene { w, sb, lo: s.watch.0, hi: s.watch.1 })
+        // the block-ticking and spawning chunks right before the first tick (a player's ring
+        // widens them; the spawning list is shuffled every tick, spawning or not)
+        let (ticking, spawning) = if s.player.is_some() {
+            let v = w.call(json!({"op": "chunk_lists", "sandbox": sb}))?;
+            let list = |k: &str| -> Vec<[i32; 2]> { v[k].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default() };
+            (list("ticking_chunks"), list("spawning_chunks"))
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        Ok(GameScene { w, sb, lo: s.watch.0, hi: s.watch.1, ticking, spawning })
     }
 
     /// Summon the scene's mobs (seeded); their numbers.
@@ -314,6 +363,9 @@ pub fn redsim_world(s: &Scene, seed: i64) -> Result<World> {
     w.mob.ai.exact_seed = Some(seed);
     w.mob.ai.difficulty = s.difficulty;
     w.mob.ai.mob_griefing = s.mob_griefing;
+    if let Some(p) = s.player {
+        w.mob.ai.players.push(redsim::entity::mob::ai::Player { pos: redsim::entity::Vec3::new(p[0], p[1], p[2]), mode: redsim::entity::mob::ai::GameMode::Survival, invulnerable: false });
+    }
     let mut list = Vec::new();
     for (p, st) in &s.blocks {
         list.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(st).map_err(|e| anyhow!("{st}: {e}"))?));
@@ -346,6 +398,15 @@ pub fn redsim_summon(w: &mut World, s: &Scene) -> Result<Vec<u64>> {
 pub fn compare(version: &str, s: &Scene, seed: i64, ticks: u32, batch: u32, full: bool, probe: bool, trace: Option<(i64, Option<u32>)>) -> Result<Compare> {
     let mut game = GameScene::start(version, s, seed, probe || trace.is_some())?;
     let mut ours = redsim_world(s, seed)?;
+    if !game.ticking.is_empty() {
+        ours.chunk_order = game.ticking.clone();
+    }
+    if let Some(p) = s.player {
+        // spawn_mobs off: natural spawning only shuffles its chunks (and checks despawning)
+        use redsim::entity::mob::natural::Natural;
+        let pos = redsim::entity::Vec3::new(p[0], p[1], p[2]);
+        ours.mob.natural = Some(Natural { spawning: false, spawn_enemies: false, void_biome: Some("minecraft:plains"), spawn_order: game.spawning.clone(), ..Natural::new(vec![pos], s.difficulty) });
+    }
     let game_ids = game.summon(s)?;
     let our_ids = redsim_summon(&mut ours, s)?;
     if game_ids != our_ids {

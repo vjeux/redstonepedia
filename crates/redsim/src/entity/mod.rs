@@ -543,11 +543,15 @@ pub fn tick_one(w: &mut World, i: usize) {
         return;
     }
     // `ServerLevel.tick`: `checkDespawn` before the ticking-range test (terrain mode's natural mobs)
-    if w.mob.natural.is_some() && matches!(w.entities.list[i].kind, EntityKind::Mob(_)) {
+    let natural_kind = matches!(&w.entities.list[i].kind, EntityKind::Mob(m) if matches!(m.ty, mob::types::MobType::Natural(_)));
+    if w.mob.natural.is_some() && natural_kind {
         mob::natural::check_despawn(w, i);
         if w.entities.list[i].removed {
             return;
         }
+    } else if w.mob.ai.on && !w.mob.ai.players.is_empty() && matches!(w.entities.list[i].kind, EntityKind::Mob(_)) {
+        // ---- mob AI (the mob-AI lane): checkDespawn with the AI's players ----
+        mob::ai::check_despawn(w, i);
     }
     let p = w.entities.list[i].pos;
     if !w.entity_ticks_at(p.x, p.z) {
