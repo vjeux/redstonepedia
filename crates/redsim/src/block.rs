@@ -922,8 +922,14 @@ impl Block {
         }
     }
 
+    /// `BlockState.isAir()`: air, and the natural air states (cave air, void air: the
+    /// natural-state table's `air` column; a terrain sample's caves hold cave air).
     pub fn is_air(&self) -> bool {
-        matches!(self, Block::Air)
+        match self {
+            Block::Air => true,
+            Block::Terrain(id) => crate::terrain::blocks::props(*id).air,
+            _ => false,
+        }
     }
 
     /// Parse `minecraft:name[k=v,...]` (the prefix is optional; missing properties take the
