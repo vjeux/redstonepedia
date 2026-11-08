@@ -18,8 +18,8 @@
 //!   files are content-addressed (`viewer/<hash>/`, `textures/<hash>/`, `css/<hash>/`), so each
 //!   preview keeps the viewer it was made with; `index.html` lists every preview from
 //!   `previews.tsv` (its time, its branch and commit, its design's hash).
-//! - Every preview page carries the status label "Preview: not judged / not verified" and its
-//!   card's status, `noindex, nofollow` (robots.txt says the same), no sitemap, and links back to
+//! - Every preview page leads with one plain status line ([`status_words`]: where its numbers come
+//!   from), `noindex, nofollow` (robots.txt says the same), no sitemap, and links back to
 //!   the site; the site never links to it. No claim of a test in the real game unless the design
 //!   was archived (`pages::Preview`). Nothing internal is published: every text file and the
 //!   commit message pass [`internal_names`] first.
@@ -45,8 +45,9 @@ const MANIFEST: &str = "previews.tsv";
 const MANIFEST_HEADER: &str = "slug\tpage\ttitle\tstatus\ttime\tbranch\tcommit\tdesign\tviewer\ttextures\tcss";
 /// The commits' identity (AGENTS.md).
 const AUTHOR: &str = "Christopher Chedeau <vjeuxx@gmail.com>";
-/// The status label every preview page carries (the coordinator's condition, 2026-11-08).
-pub const LABEL: &str = "Preview: not judged / not verified";
+/// The word every preview's status line starts with (the coordinator's condition, 2026-11-08: a
+/// status label on every preview; its words since: one plain line, [`status_words`]).
+pub const LABEL: &str = "Preview";
 
 /// The Pages URL of a repository `owner/name`: `https://owner.github.io/name/`.
 pub fn pages_url(repo: &str) -> String {
@@ -209,28 +210,18 @@ fn judge(text: &str) -> crate::preview_judge::Judged {
     crate::cache::get_or(crate::cache::Domain::Preview, &[b"preview-judge", text.as_bytes()], || crate::preview_judge::preview_judge(text))
 }
 
-/// The card's status in words, and the preview's sentence on where its numbers come from.
+/// The preview's status line (the banner's one plain line, the index's card column), and its
+/// sentence on where its numbers come from where the page would say it (empty: the banner said
+/// it); whether its numbers are the published ones. (vjeux's ask through the parent, 2026-11-08:
+/// one plain line, no "judge", "every build" or "robust", no duplicate under Build it.)
 fn status_words(v: &Verdict) -> (String, String, bool) {
     match v {
-        Verdict::Archived(r) => {
-            let how = if r.robustness.is_empty() { String::new() } else { format!(", {}", r.robustness) };
-            (format!("archived {} by its study's judge{how}", site_model::normalize_time(&r.archived)), String::new(), true)
-        }
-        Verdict::Judged(j) if j.pass => {
-            let how = if j.every_build { format!("every build, {}", if j.robustness.is_empty() { "no robustness verdict" } else { j.robustness.as_str() }) } else { "one build, no robustness verdict".to_string() };
-            (
-                format!("passes its kind's judge on our simulation of the game ({how}); not archived, not tested in the real game"),
-                format!("Its numbers come from its kind's judge, run for this preview on our simulation of the game ({how}); it has not been tested in the real game."),
-                false,
-            )
-        }
-        Verdict::Judged(j) if j.ran => (
-            format!("FAILS its kind's judge on our simulation of the game: {}", j.why),
-            format!("Its kind's judge, run on our simulation of the game for this preview, fails it ({}): it has no numbers.", j.why),
-            false,
-        ),
-        Verdict::Judged(j) => (format!("not judged: {}", j.why), format!("It has not been judged: {}.", j.why.trim_end_matches('.')), false),
-        Verdict::None { why, .. } => (format!("not judged: {why}"), format!("It has not been judged yet: {}.", why.trim_end_matches('.')), false),
+        Verdict::Archived(_) => ("Preview: a published design; its numbers are the site's".to_string(), String::new(), true),
+        Verdict::Judged(j) if j.pass => ("Preview: numbers from our simulator; not yet checked in the real game".to_string(), String::new(), false),
+        Verdict::Judged(j) if j.ran => (format!("Preview: it does not work yet in our simulator ({})", j.why), "It has no numbers yet.".to_string(), false),
+        Verdict::Judged(j) => (format!("Preview: no numbers yet ({})", j.why.trim_end_matches('.')), "It has no numbers yet.".to_string(), false),
+        Verdict::None { pending: true, .. } => ("Preview: its numbers are still being worked out; the page updates when they are ready".to_string(), "It has no numbers yet.".to_string(), false),
+        Verdict::None { why, .. } => (format!("Preview: no numbers ({})", why.trim_end_matches('.')), "It has no numbers yet.".to_string(), false),
     }
 }
 
@@ -305,8 +296,10 @@ fn build_of(study: &str, file: &str, text: &str, row: &Row, caption: Option<&str
     }
 }
 
-/// Render one design's page under `slug` with the verdict `v`.
-fn render(path: &Path, slug: &str, from: &From, assets: &Assets, v: &Verdict, site_url: &str, preview_url: &str) -> Result<Page> {
+/// Render one design's page under `slug` with the verdict `v` (`siblings`: the preview's other
+/// designs' fields, for a curated card that compares with one).
+#[allow(clippy::too_many_arguments)]
+fn render(path: &Path, slug: &str, from: &From, assets: &Assets, v: &Verdict, site_url: &str, preview_url: &str, siblings: &BTreeMap<(String, String), BTreeMap<String, String>>) -> Result<Page> {
     let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let c = circuit::Circuit::load(path)?;
     let Some(kind) = c.kind.clone() else { bail!("{}: no `circuit: <kind>` line (`site preview` renders circuit designs)", path.display()) };
@@ -323,11 +316,15 @@ fn render(path: &Path, slug: &str, from: &From, assets: &Assets, v: &Verdict, si
     let mut notes = Vec::new();
     let mut b = build_of(study, &file, &text, &row, caption.as_deref(), &mut notes)?;
     b.caption = crate::explain::scrub_attribution(&b.caption);
+    // its curated card, as the site would fill it (crates/site/src/cards.rs), compared with the
+    // preview's other designs when a line names one
+    crate::cards::apply_with(&from.repo, std::slice::from_mut(&mut b), siblings)?;
     // its place in the preview repository: the page, its design and schematic, its stills
     b.id = format!("preview/{slug}/{stem}");
     b.page = format!("{slug}/{stem}.html");
     b.design = format!("{slug}/{stem}.txt");
-    let mut files: Vec<(String, Vec<u8>)> = vec![(b.design.clone(), text.clone().into_bytes())];
+    // (the design text as the site would publish it: `pages::published_text`)
+    let mut files: Vec<(String, Vec<u8>)> = vec![(b.design.clone(), pages::published_text(&b, &text).into_bytes())];
     if let Some(cc) = b.circuit.as_mut() {
         if !cc.view_src.is_empty() {
             cc.view_src = format!("{slug}/stills/{stem}.txt");
@@ -362,7 +359,7 @@ fn render(path: &Path, slug: &str, from: &From, assets: &Assets, v: &Verdict, si
     let esc = site_model::html::esc;
     let when = format!("{} UTC", from.time.replacen('T', " ", 1).trim_end_matches('Z'));
     let banner = format!(
-        "<div class=\"preview-banner\" role=\"status\" data-build=\"{}\" style=\"border:2px solid #c2410c;background:#fff7ed;color:#431407;border-radius:8px;padding:10px 14px;margin:12px 0\"><p style=\"margin:0 0 6px\"><b style=\"background:#c2410c;color:#fff;border-radius:4px;padding:2px 8px\">{LABEL}</b> <span>Card: {}</span></p><p style=\"margin:0;font-size:0.9em\">A work in progress shown to its designer: not a page of <a href=\"{site_url}\">REDSTONEPEDIA</a>, which publishes one tested design per kind. From <code>{}</code>, {}, design <code>{}</code>. <a href=\"{preview_url}\">Every preview</a>.</p></div>\n",
+        "<div class=\"preview-banner\" role=\"status\" data-build=\"{}\" style=\"border:2px solid #c2410c;background:#fff7ed;color:#431407;border-radius:8px;padding:10px 14px;margin:12px 0\"><p style=\"margin:0 0 6px\"><b style=\"background:#c2410c;color:#fff;border-radius:4px;padding:2px 8px\">{}</b></p><p style=\"margin:0;font-size:0.9em\">Not on <a href=\"{site_url}\">REDSTONEPEDIA</a> yet. From <code>{}</code>, {}, design <code>{}</code>. <a href=\"{preview_url}\">Every preview</a>.</p></div>\n",
         esc(&from.build_id),
         esc(&status),
         esc(&from_line),
@@ -382,7 +379,7 @@ fn render(path: &Path, slug: &str, from: &From, assets: &Assets, v: &Verdict, si
     files.push((b.page.clone(), html.into_bytes()));
     // the Litematica schematic next to the design
     let d = mctas::design::Design::parse(&text).with_context(|| format!("parsing {}", path.display()))?;
-    let desc = format!("{} REDSTONEPEDIA preview (not verified): {preview_url}{}", crate::explain::caption_text(&b.caption), b.page);
+    let desc = format!("{} REDSTONEPEDIA preview: {preview_url}{}", crate::explain::caption_text(&b.caption, crate::explain::ticks_matter(&b)), b.page);
     let bytes = litematic::export(&d, &litematic::Meta::new(&stem, desc.trim(), litematic::now_ms())).with_context(|| format!("{}: litematic", path.display()))?;
     files.push((generate::litematic_path(&b.design), bytes));
     for n in notes {
@@ -465,7 +462,7 @@ fn index_page(rows: &[Vec<String>], css: &str, site_url: &str, older_than: u32) 
         .collect();
     let css_link = if css.is_empty() { String::new() } else { format!("<link rel=\"stylesheet\" href=\"css/{css}/style.css\">\n") };
     format!(
-        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"robots\" content=\"noindex, nofollow\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Previews · REDSTONEPEDIA</title>\n{css_link}<link rel=\"icon\" href=\"favicon.svg\" type=\"image/svg+xml\">\n</head>\n<body>\n<main>\n<h1>Previews</h1>\n<p><b>{LABEL}.</b> Work in progress shown to its designer: these pages are not part of <a href=\"{site_url}\">REDSTONEPEDIA</a>, which publishes one tested design per kind. A preview is replaced by the next one under its name and removed after {older_than} days.</p>\n<div class=\"scroll-x\"><table class=\"list\"><thead><tr><th>preview</th><th>page</th><th>card</th><th>when (UTC)</th><th>from</th><th>design</th></tr></thead><tbody>\n{body}</tbody></table></div>\n</main>\n</body>\n</html>\n"
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"robots\" content=\"noindex, nofollow\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Previews · REDSTONEPEDIA</title>\n{css_link}<link rel=\"icon\" href=\"favicon.svg\" type=\"image/svg+xml\">\n</head>\n<body>\n<main>\n<h1>Previews</h1>\n<p><b>{LABEL}s.</b> Work in progress shown to its designer, not part of <a href=\"{site_url}\">REDSTONEPEDIA</a> yet. A preview is replaced by the next one under its name and removed after {older_than} days.</p>\n<div class=\"scroll-x\"><table class=\"list\"><thead><tr><th>preview</th><th>page</th><th>status</th><th>when (UTC)</th><th>from</th><th>design</th></tr></thead><tbody>\n{body}</tbody></table></div>\n</main>\n</body>\n</html>\n"
     )
 }
 
@@ -765,6 +762,9 @@ pub fn preview(a: &PreviewArgs) -> Result<()> {
     }
     let site_url = crate::deploy::PAGES_URL;
     let preview_url = pages_url(&a.repo);
+    if !a.site_pages.is_empty() {
+        return preview_site_pages(a, &repo_root, t0);
+    }
     if a.designs.is_empty() {
         if !a.clean {
             bail!("no design given (`mctas site preview <design>... [--name <slug>]`; `--clean` alone prunes old previews)");
@@ -829,8 +829,19 @@ pub fn preview(a: &PreviewArgs) -> Result<()> {
         from.build_id = format!("{base_id}-{round}");
         let t_render = Instant::now();
         let mut pages_out: Vec<Page> = Vec::new();
+        // every design's fields, for a curated card comparing with another of the preview
+        let mut siblings: BTreeMap<(String, String), BTreeMap<String, String>> = BTreeMap::new();
         for (p, v) in a.designs.iter().zip(&verdicts) {
-            pages_out.push(render(p, &slug, &from, &assets, v, site_url, &preview_url)?);
+            if let Ok(c) = circuit::Circuit::load(p) {
+                let file = p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                let r = row_for(&c, &file, v);
+                if let Some(k) = c.kind.as_ref() {
+                    siblings.insert((k.study().to_string(), file.trim_end_matches(".txt").to_string()), crate::cards::fields(&circuits::parse_metrics(&r.metrics), r.blocks as u32, &r.dims));
+                }
+            }
+        }
+        for (p, v) in a.designs.iter().zip(&verdicts) {
+            pages_out.push(render(p, &slug, &from, &assets, v, site_url, &preview_url, &siblings)?);
         }
         let stems: BTreeSet<&String> = pages_out.iter().map(|p| &p.stem).collect();
         if stems.len() < pages_out.len() {
@@ -877,6 +888,98 @@ pub fn preview(a: &PreviewArgs) -> Result<()> {
         }
         round += 1;
     }
+}
+
+/// `--site-page`: pages of a local `site build`, as they are in that folder (a door's, a clock's,
+/// any page's new wording, for the owner to read before it is published: the 2026-11-08 page-copy
+/// pass). Its shared files move to the preview repository's like a design preview's ([`relink`]);
+/// its design and other files stay the live site's (the same origin, so the 3D view loads them).
+/// A banner says what it is and links the live page.
+fn preview_site_pages(a: &PreviewArgs, repo_root: &Path, t0: Instant) -> Result<()> {
+    let dir = a.site_dir.as_ref().context("--site-page needs --site-dir (a `mctas site build` output folder)")?;
+    let site_url = crate::deploy::PAGES_URL;
+    let preview_url = pages_url(&a.repo);
+    let first = a.site_pages[0].trim_start_matches('/').to_string();
+    let slug = slug_of(&a.name.clone().unwrap_or_else(|| Path::new(&first).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()));
+    let from = source(repo_root, t0);
+    let assets = assets(repo_root)?;
+    let esc = site_model::html::esc;
+    let mut pages_out: Vec<Page> = Vec::new();
+    for page in &a.site_pages {
+        let page = page.trim_start_matches('/');
+        let html = std::fs::read_to_string(dir.join(page)).with_context(|| format!("reading {} in {}", page, dir.display()))?;
+        let stem = slug_of(Path::new(page).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default().as_str());
+        // (a page deeper or shallower than one folder: its links are relative to the site root
+        // through its own prefix; the preview's pages sit one folder down)
+        let depth = page.matches('/').count();
+        let html = if depth == 1 {
+            html
+        } else {
+            let prefix = pages::prefix_of(page);
+            let mut h = html;
+            for attr in ["href", "src", "action", "data-src", "data-trace", "data-mcview-textures"] {
+                h = h.replace(&format!("{attr}=\"{prefix}"), &format!("{attr}=\"../"));
+                if prefix.is_empty() {
+                    // (a root page: its relative links gain the one folder)
+                    h = h.replace(&format!("{attr}=\"index.html"), &format!("{attr}=\"../index.html"));
+                }
+            }
+            h.replace(&format!("from \"{}viewer/", if prefix.is_empty() { "./" } else { prefix.as_str() }), "from \"../viewer/").replace(&format!("\"{}viewer/mcview_bg.wasm", if prefix.is_empty() { "./" } else { prefix.as_str() }), "\"../viewer/mcview_bg.wasm")
+        };
+        let html = relink(&html, &slug, &assets, site_url)?;
+        // the design, its traces and stills: the live site's own files (relink sent the links on)
+        let mut html = html;
+        for attr in ["data-src", "data-trace", "src", "data-card-src", "data-view-src"] {
+            html = html.replace(&format!("{attr}=\"../designs/"), &format!("{attr}=\"{site_url}designs/")).replace(&format!("{attr}=\"../img/"), &format!("{attr}=\"{site_url}img/"));
+        }
+        let title = html.split("<title>").nth(1).and_then(|s| s.split("</title>").next()).unwrap_or(page).replace("&amp;", "&");
+        let live = format!("{site_url}{page}");
+        let banner = format!(
+            "<div class=\"preview-banner\" role=\"status\" data-build=\"{}\" style=\"border:2px solid #c2410c;background:#fff7ed;color:#431407;border-radius:8px;padding:10px 14px;margin:12px 0\"><p style=\"margin:0 0 6px\"><b style=\"background:#c2410c;color:#fff;border-radius:4px;padding:2px 8px\">Preview: new wording</b> <span>this page as the next build of the site would write it</span></p><p style=\"margin:0;font-size:0.9em\">From <code>{}@{}</code>, {} UTC. The page live now: <a href=\"{}\">{}</a>. <a href=\"{preview_url}\">Every preview</a>.</p></div>\n",
+            esc(&from.build_id),
+            esc(&from.branch),
+            esc(&from.commit.chars().take(9).collect::<String>()),
+            esc(from.time.replacen('T', " ", 1).trim_end_matches('Z')),
+            esc(&live),
+            esc(&live)
+        );
+        let html = html.replacen("<main>\n", &format!("<main>\n{banner}"), 1).replacen("<meta charset=\"utf-8\">\n", "<meta charset=\"utf-8\">\n<meta name=\"robots\" content=\"noindex, nofollow\">\n", 1);
+        if !html.contains("data-build=") {
+            bail!("{page}: no <main> to put the preview banner in");
+        }
+        pages_out.push(Page { stem: stem.clone(), title, status: "new wording of a site page".into(), design_hash: short_hash(html.as_bytes()), files: vec![(format!("{slug}/{stem}.html"), html.into_bytes())], pending: false });
+    }
+    let stems: BTreeSet<&String> = pages_out.iter().map(|p| &p.stem).collect();
+    if stems.len() < pages_out.len() {
+        bail!("two pages with one file name in one preview: give them separate --name previews");
+    }
+    if let Some(out) = &a.out {
+        write_out(out, &slug, &pages_out, &assets, site_url, &preview_url, a.older_than, &from, &a.repo)?;
+        println!("wrote {} (not pushed): {} page(s) under {slug}/", out.display(), pages_out.len());
+        return Ok(());
+    }
+    let rows: Vec<Vec<String>> = pages_out
+        .iter()
+        .map(|p| vec![slug.clone(), format!("{slug}/{}.html", p.stem), p.title.clone(), p.status.clone(), from.time.clone(), from.branch.clone(), from.commit.chars().take(9).collect(), p.design_hash.clone(), assets.viewer.clone(), assets.textures.clone(), assets.css.clone()])
+        .map(|r| r.into_iter().map(|f| f.replace(['\t', '\n'], " ")).collect())
+        .collect();
+    let files: Vec<(String, Vec<u8>)> = pages_out.iter().flat_map(|p| p.files.iter().cloned()).collect();
+    let msg = format!("preview {slug}: site pages {} ({}@{})", pages_out.iter().map(|p| p.stem.as_str()).collect::<Vec<_>>().join(", "), from.branch, from.commit.chars().take(9).collect::<String>());
+    let ch = Change { slug: Some(slug.clone()), rows, files, assets: Some(Assets { viewer: assets.viewer.clone(), textures: assets.textures.clone(), css: assets.css.clone(), viewer_dir: assets.viewer_dir.clone(), textures_dir: assets.textures_dir.clone() }), older_than: a.older_than, msg };
+    let pushed = publish(&a.repo, &ch)?;
+    if let Some(c) = &pushed {
+        println!("pushed {} to {} ({:.1} s since the start)", &c[..9.min(c.len())], a.repo, t0.elapsed().as_secs_f64());
+    }
+    let first_url = format!("{preview_url}{slug}/{}.html", pages_out[0].stem);
+    if !a.no_wait && pushed.is_some() {
+        let secs = wait_live(&first_url, &format!("data-build=\"{}\"", from.build_id), t0, Duration::from_secs(600), &a.repo)?;
+        println!("live in {secs:.1} s from the start of the command");
+    }
+    for p in &pages_out {
+        println!("{preview_url}{slug}/{}.html  ({})", p.stem, p.status);
+    }
+    println!("every preview: {preview_url}");
+    Ok(())
 }
 
 /// `--out`: the preview as it would be served (its pages, the shared files, the index), written

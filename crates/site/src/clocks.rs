@@ -386,6 +386,7 @@ pub fn export(repo: &Path, o: &ClockOptions) -> Result<ClockExport> {
             still: None,
             picture: picture(repo, &st),
             archived: site_model::normalize_time(&crate::doors::archived_at(&text_of(&r.file))),
+            curated: Default::default(),
         });
     }
     builds.sort_by(|a, b| {

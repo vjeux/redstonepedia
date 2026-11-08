@@ -332,6 +332,7 @@ fn export_archive(repo: &Path, archive: &str, side: u32, o: &DoorOptions) -> Res
             still: None,
             picture,
             archived: site_model::normalize_time(&archived_at(&text)),
+            curated: Default::default(),
         });
     }
     out.sort_by(|a, b| (a.volume.unwrap_or(u32::MAX), a.blocks, &a.name).cmp(&(b.volume.unwrap_or(u32::MAX), b.blocks, &b.name)));

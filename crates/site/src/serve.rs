@@ -447,8 +447,8 @@ pub fn smoke(dir: &Path, chrome_path: Option<&Path>, budget_ms: u32, remote: Opt
     }
     if let Some(b) = site.builds.iter().find(|b| b.circuit.as_ref().is_some_and(|c| c.kind.starts_with("counter "))) {
         let page = std::fs::read_to_string(dir.join(&b.page)).unwrap_or_default();
-        let ok = ["<p class=\"oneliner\">", "<h2>Try it</h2>", "<details class=\"more\">", "<h2>How to try it</h2>", "data-stimulus=\"", "data-input-mode=\"pulse\"", "<svg class=\"wave\"", "<h2>Measurements</h2>", "gt = game tick"].iter().all(|s| page.contains(s));
-        check("circuit page explains itself: one plain sentence on top, try it under the view; our test and the measurements in the details", ok, b.page.clone());
+        let ok = ["<p class=\"oneliner\">", "<h2>Try it</h2>", "<details class=\"more\">", "<h2>How to try it</h2>", "data-stimulus=\"", "data-input-mode=\"pulse\"", "<svg class=\"wave\"", "<h2>Measurements</h2>"].iter().all(|s| page.contains(s));
+        check("circuit page explains itself: one plain sentence on top, try it under the view; the measurements in the details", ok, b.page.clone());
         // no "Why build it" line on any page (vjeux 23:52Z: "All these why build it have been
         // super useless. Please remove all of them")
         let with_why: Vec<String> = site
@@ -784,7 +784,7 @@ pub fn smoke(dir: &Path, chrome_path: Option<&Path>, budget_ms: u32, remote: Opt
     check("clocks tab: a period's heading links it and counts its clocks", first.contains("href=\"#kind=clock&amp;time=") && first.contains("<span class=\"count\">"), first.chars().take(120).collect());
     let title = first.split("<div class=\"title\">").nth(1).and_then(|s| s.split("</div>").next()).unwrap_or("");
     check("clocks tab: a card under its heading leads with its blocks, not the period", title.ends_with("blocks") && !title.contains("tick"), title.to_string());
-    check("clocks tab: its own opening line", dom.contains("smallest first, each tested in the real game or simulated to its exact period"), "lede".into());
+    check("clocks tab: its own opening line", dom.contains(", smallest first."), "lede".into());
     // a time no clock has: the nearest periods that exist (critique: "nothing else"); found in the
     // data, since the clock tracks fill the gaps (a clock at exactly 1 minute arrived 10-21)
     let periods: std::collections::BTreeSet<u32> = site.builds.iter().filter_map(|b| b.clock.as_ref().map(|c| c.every())).collect();

@@ -290,7 +290,7 @@ fn station_claim(station: &Build, pick: &Build) -> String {
         (Some(s), Some(p)) if p > 0.0 && s > p * 1.1 => {
             let r = s / p;
             let speed = if (1.8..=2.2).contains(&r) { "about twice as fast".to_string() } else { format!("{r:.1} times as fast") };
-            format!("{role} of the minecart line, {speed} as the pick of its kind ({s} items a second against {p})")
+            format!("{role} of the minecart line, {speed} as the main design ({s} items a second against {p})")
         }
         _ => format!("{role} of the minecart line"),
     }
@@ -324,7 +324,7 @@ fn smaller_station_claim(small: &Build, pick: &Build) -> String {
     let blocks = format!("{n} block{} smaller", if n == 1 { "" } else { "s" });
     match (station_rate(small), station_rate(pick)) {
         (Some(s), Some(p)) if p > 0.0 && (0.45..=0.55).contains(&(s / p)) => format!("{blocks}, half the speed"),
-        (Some(s), Some(p)) if p > 0.0 => format!("{blocks}, {s} items a second against the pick's {p}"),
+        (Some(s), Some(p)) if p > 0.0 => format!("{blocks}, {s} items a second against the main design's {p}"),
         _ => blocks,
     }
 }
@@ -598,22 +598,22 @@ fn speed(b: &Build) -> f64 {
     }
 }
 
-/// Why the one design of its kind (no other tested) is worth building, from its own facts (no
-/// "the only one tested": critique, said of a duper picked over seven that had left the archive).
+/// What the one design of its kind offers a builder, from its own facts (no "the only one
+/// tested": critique, said of a duper picked over seven that had left the archive; and no test
+/// talk at all, vjeux 2026-11-08 10:10: "The user doesn't care that you tested at all the
+/// positions": a design that works simply works).
 fn lone_reason(b: &Build) -> String {
     let Some(c) = &b.circuit else { return String::new() };
-    let mut why: Vec<&str> = Vec::new();
     // (standing on the ground is in a TNT duper's title already: not repeated)
     // (a sorter: what builders tile it for; "tiles side by side" is its chip)
-    if c.kind.starts_with("sorter") {
-        why.push("the classic one-block-wide slice");
-    }
-    // (a whole minecart line is one end-to-end run, not 4 facings at 4 spots: no such claim; a mob
-    // farm's page is written for the player building it, not about our tests, vjeux 2026-11-08)
-    if robust(b) && !c.kind.starts_with("cart-line") && !c.kind.starts_with("mob-farm") {
-        why.push("passed at every position and facing we tested");
-    }
-    why.join(", ")
+    if c.kind.starts_with("sorter") { "the classic one-block-wide slice".to_string() } else { String::new() }
+}
+
+/// A kind's rule ([`RULES`]) said as its pick's feature, or nothing when the card already says it
+/// (an on/off lever, a start lever: their chips; a TNT duper's stand height: its build steps; a
+/// full-size farm: its plants in the title).
+fn rule_claim(words: &str) -> &str {
+    if words.starts_with("has an on/off lever") || words.starts_with("starts with its own lever") || words.starts_with("is a full-size farm") { "" } else { words }
 }
 
 /// The candidates of one kind, best first: robust ones first, then the smallest ([`rank_size`]),
@@ -717,31 +717,6 @@ fn station_rate(b: &Build) -> Option<f64> {
         return None;
     };
     metric(b, k).split_whitespace().next()?.parse().ok()
-}
-
-/// How a pick's claim says "smallest" ([`rank_size`]): the word, and what it counts.
-fn small_words(b: &Build) -> (&'static str, &'static str) {
-    let air = b.circuit.as_ref().map(site_model::html::tnt_air).unwrap_or(0);
-    match b.circuit.as_ref().map(|c| c.kind.as_str()) {
-        Some(k) if k.starts_with("tnt-duper") && air > 0 => ("smallest", " (counting the air it needs under it)"),
-        // a crop farm ranks by its harvest an hour for each block placed (rank_size)
-        Some(k) if k.starts_with("harvester") => ("the biggest harvest per block,", ""),
-        // an auto-smelter timed on a double chest ranks by its minutes (rank_size); plain
-        // furnaces smelt anything, blast furnaces only ores (their version is a variant)
-        Some(k) if k.starts_with("smelter") && b.circuit.as_ref().and_then(site_model::html::double_chest_minutes).is_some() => {
-            if b.circuit.as_ref().is_some_and(site_model::html::smelter_blast) { ("the quickest with blast furnaces,", "") } else { ("the quickest that smelts anything,", "") }
-        }
-        // a minecart stop ranks by the items it moves a second (rank_size)
-        Some(k) if k.starts_with("cart-unloader") || k.starts_with("cart-loader") => ("the fastest", ""),
-        // an iron farm ranks by its tier's rule (rank_size)
-        Some(k) if k.starts_with("mob-farm ") => match k.split_whitespace().nth(2) {
-            Some("day-1") => ("the cheapest to build,", ""),
-            Some("middle") => ("the most iron for each block placed,", ""),
-            _ => ("the most iron for each group of villagers,", ""),
-        },
-        _ if by_box(b) => ("smallest box", ""),
-        _ => ("smallest", ""),
-    }
 }
 
 /// A kind whose pick is its smallest box (vjeux's minimum-volume rule, for the kinds he asked it
@@ -860,36 +835,22 @@ pub fn select_circuits(builds: &mut Vec<Build>) -> Vec<String> {
             missing.push(format!("rule {study}/{kind}: no full-size farm (64 plants or more) yet; showing {used}, the best module"));
         }
     }
-    // why each kept design is the one (critique: "cards don't say why they're the best"): the
-    // coordinator's reason for a pick, else smallest (or best) of the designs tested for its kind,
-    // or for its size
+    // what each kept design offers a builder (critique: "cards don't say why they're the best"):
+    // the feature its kind's rule asks for (it tiles side by side, it notices a pure update),
+    // never how we compared it (vjeux 2026-11-08 10:10: no "smallest of 15 designs tested"; its
+    // numbers say how small it is)
     let mut claims: BTreeMap<usize, String> = BTreeMap::new();
     for ((study, kind), keep) in &chosen {
         let cands = all.get(&(study.clone(), kind.clone())).cloned().unwrap_or_default();
-        let tested = |n: usize| format!("of {n} tested");
         for &i in keep {
             let row = row_of(&builds[i]).map(|r| r.0);
             let pool: Vec<usize> = if parametric(kind) { cands.iter().copied().filter(|&j| row_of(&builds[j]).map(|r| r.0) == row).collect() } else { cands.clone() };
-            // (the kinds ranked by their box first, [`by_box`]: "smallest" is their box's)
-            // (what "smallest" counts for its kind: [`rank_size`], [`small_words`])
-            let size = |j: usize| rank_size(&builds[j]);
-            let smallest = pool.iter().all(|&j| size(j) >= size(i));
-            let (small_word, counts) = small_words(&builds[i]);
             let path = format!("{study}/{kind}");
             let rule = rule_for(&path).filter(|(_, _, test)| test(&builds[i]));
-            // ("the smallest", "the biggest harvest per block,": one "the")
-            let the_small = if small_word.starts_with("the ") { small_word.to_string() } else { format!("the {small_word}") };
-            let reason = match (path.as_str(), builds[i].name.as_str()) {
-                // (the best of those that do what builders ask, said so: "the smallest box of 13
-                // tested that tiles side by side"; smallest of all, it is said plainly below)
-                _ if rule.is_some() && !smallest => format!("{the_small} {}{counts} that {}", tested(pool.len()), rule.map(|r| r.1).unwrap_or_default()),
-                // (one design left in the archive says nothing of the others tested before it:
-                // critique, "the only one tested" on a duper picked over seven; a pick says why)
-                _ if pool.len() == 1 => lone_reason(&builds[i]),
-                _ if parametric(kind) && smallest => format!("{small_word} for its size {}{counts}", tested(pool.len())),
-                _ if parametric(kind) => format!("best for its size {}", tested(pool.len())),
-                _ if smallest => format!("{small_word} {}{counts}", tested(pool.len())),
-                _ => format!("best {}", tested(pool.len())),
+            let reason = match rule {
+                Some((_, words, _)) => rule_claim(words).to_string(),
+                None if pool.len() == 1 => lone_reason(&builds[i]),
+                None => String::new(),
             };
             // the kind's one-line mention beside its pick (the BUD: the latched classic, the
             // observer)
@@ -1001,7 +962,7 @@ pub fn select_circuits(builds: &mut Vec<Build>) -> Vec<String> {
         let up = stand_height(&builds[pick]);
         builds[v].flags.push("size".into());
         if let Some(c) = builds[v].circuit.as_mut() {
-            c.claim = format!("sits right on the ground (the pick of its kind stands {up} blocks up)");
+            c.claim = format!("sits right on the ground (the main design stands {up} blocks up)");
         }
         if let Some(c) = builds[pick].circuit.as_mut() {
             c.ground = Some(ids[v].clone());
@@ -1018,7 +979,7 @@ pub fn select_circuits(builds: &mut Vec<Build>) -> Vec<String> {
                 // (one build both: the 22-block clocked duper beside the lever engine)
                 c.claim.replacen("sits right on the ground", &format!("sits right on the ground, with no {device}"), 1)
             } else if fewer > 0 {
-                format!("no {device}, {fewer} block{} smaller than the pick of its kind", if fewer == 1 { "" } else { "s" })
+                format!("no {device}, {fewer} block{} smaller than the main design", if fewer == 1 { "" } else { "s" })
             } else {
                 format!("no {device}")
             };
@@ -1033,7 +994,7 @@ pub fn select_circuits(builds: &mut Vec<Build>) -> Vec<String> {
             builds[v].flags.push("size".into());
         }
         if let Some(c) = builds[v].circuit.as_mut() {
-            c.claim = if more > 0 { format!("safe to flip back any time, {more} block{} bigger than the pick of its size", if more == 1 { "" } else { "s" }) } else { "safe to flip back any time".to_string() };
+            c.claim = if more > 0 { format!("safe to flip back any time, {more} block{} bigger than the main design", if more == 1 { "" } else { "s" }) } else { "safe to flip back any time".to_string() };
         }
         if let Some(c) = builds[pick].circuit.as_mut() {
             c.flip_safe = Some(ids[v].clone());
@@ -1049,8 +1010,8 @@ pub fn select_circuits(builds: &mut Vec<Build>) -> Vec<String> {
             let n = more.unsigned_abs();
             c.claim = match more {
                 0 => format!("a {word} walkway"),
-                m if m > 0 => format!("a {word} walkway, {n} block{} more than the pick of its gap", if n == 1 { "" } else { "s" }),
-                _ => format!("a {word} walkway, {n} block{} fewer than the pick of its gap", if n == 1 { "" } else { "s" }),
+                m if m > 0 => format!("a {word} walkway, {n} block{} more than the main design", if n == 1 { "" } else { "s" }),
+                _ => format!("a {word} walkway, {n} block{} fewer than the main design", if n == 1 { "" } else { "s" }),
             };
             c.alt_walkway = Some(ids[pick].clone());
         }
@@ -1066,9 +1027,9 @@ pub fn select_circuits(builds: &mut Vec<Build>) -> Vec<String> {
         }
         if let Some(c) = builds[v].circuit.as_mut() {
             let blocks = match more {
-                0 => "as many blocks as the pick of its size".to_string(),
-                m if m > 0 => format!("{n} block{} more than the pick of its size", if n == 1 { "" } else { "s" }),
-                _ => format!("{n} block{} fewer than the pick of its size", if n == 1 { "" } else { "s" }),
+                0 => "as many blocks as the main design".to_string(),
+                m if m > 0 => format!("{n} block{} more than the main design", if n == 1 { "" } else { "s" }),
+                _ => format!("{n} block{} fewer than the main design", if n == 1 { "" } else { "s" }),
             };
             c.claim = format!("blast furnaces: twice as fast, ores and raw metals only; {blocks}");
             c.blast_twin = Some(ids[pick].clone());
@@ -1085,7 +1046,7 @@ pub fn select_circuits(builds: &mut Vec<Build>) -> Vec<String> {
         if let Some(c) = builds[v].circuit.as_mut() {
             let plant = site_model::html::plant_word(c);
             let n = c.crops.max(1);
-            c.claim = format!("the best small farm, {n} {plant}{} (the pick of its crop is a full-size farm of {full} {plant}s)", if n == 1 { "" } else { "s" });
+            c.claim = format!("a small farm, {n} {plant}{} (the main farm has {full})", if n == 1 { "" } else { "s" });
             c.farm_twin = Some(ids[pick].clone());
         }
         if let Some(c) = builds[pick].circuit.as_mut() {
@@ -1100,7 +1061,7 @@ pub fn select_circuits(builds: &mut Vec<Build>) -> Vec<String> {
             builds[v].flags.push("size".into());
         }
         if let Some(c) = builds[v].circuit.as_mut() {
-            c.claim = format!("the scaled build: {modules} copies of the pick of its tier, {rate} iron an hour against one copy's {one}");
+            c.claim = format!("{modules} copies side by side: {rate} iron an hour against one copy's {one}");
             c.farm_twin = Some(ids[pick].clone());
         }
         if let Some(c) = builds[pick].circuit.as_mut() {
@@ -1114,7 +1075,7 @@ pub fn select_circuits(builds: &mut Vec<Build>) -> Vec<String> {
         let (n, of) = (builds[v].circuit.as_ref().map(|c| c.crops).unwrap_or(0), builds[pick].circuit.as_ref().map(|c| c.crops).unwrap_or(0));
         let plant = builds[v].circuit.as_ref().map(site_model::html::plant_word).unwrap_or("plant");
         if let Some(c) = builds[v].circuit.as_mut() {
-            c.claim = format!("half the field of the pick of its crop ({n} {plant}s against {of})");
+            c.claim = format!("half the field: {n} {plant}s against {of}");
             c.half_twin = Some(ids[pick].clone());
         }
         if let Some(c) = builds[pick].circuit.as_mut() {
@@ -1129,8 +1090,8 @@ pub fn select_circuits(builds: &mut Vec<Build>) -> Vec<String> {
         if let Some(c) = builds[v].circuit.as_mut() {
             let no_slime = site_model::html::bill_slime(c).is_none_or(|n| n < 9);
             let without = format!("no flying machine{}", if no_slime { ", no slime blocks" } else { "" });
-            // (the obvious design, the bar the pick is measured against: its caption says so)
-            c.claim = if bar { format!("the obvious design, the bar the pick of its crop is measured against: {without}") } else { format!("{without} (the pick of its crop sweeps its field with one)") };
+            // (the obvious design: its caption says so; the plain words for it, never "the bar")
+            c.claim = if bar { format!("the simple design: {without}") } else { format!("{without} (the main farm sweeps its field with one)") };
             c.machine_twin = Some(ids[pick].clone());
         }
         if let Some(c) = builds[pick].circuit.as_mut() {
@@ -1142,7 +1103,7 @@ pub fn select_circuits(builds: &mut Vec<Build>) -> Vec<String> {
             builds[v].flags.push("size".into());
         }
         if let Some(c) = builds[v].circuit.as_mut() {
-            c.claim = "stays open for someone standing in the doorway (the pick of its kind closes on them)".to_string();
+            c.claim = "stays open for someone standing in the doorway (the main design closes on them)".to_string();
             c.doorway_twin = Some(ids[pick].clone());
         }
         if let Some(c) = builds[pick].circuit.as_mut() {
@@ -1205,40 +1166,8 @@ pub fn select_circuits(builds: &mut Vec<Build>) -> Vec<String> {
         let rep = order.iter().copied().find(|&j| !twin(j)).unwrap_or(order[0]);
         pictured.insert(id_of(&builds[rep]));
         pictured.extend(builds[rep].circuit.as_ref().map(|c| c.same_build.clone()).unwrap_or_default());
-        // the card speaks for the kind: the smallest design for each size (critique: "the best
-        // of 42 designs tested" did not say best at what)
-        let tested = g.strip_prefix("kind:").and_then(|k| k.split_once(':')).and_then(|(s, k)| all.get(&(s.to_string(), k.to_string()))).map(|v| v.len()).unwrap_or(0);
-        let size_word = match builds[rep].circuit.as_ref().map(|c| c.kind.split_whitespace().next().unwrap_or("").to_string()).unwrap_or_default().as_str() {
-            "piston-extender" => "reach",
-            "piston-bridge" => "gap",
-            "counter" => "count",
-            "divider" => "factor",
-            "burst" => "number of pulses",
-            "delay" => "delay",
-            "on-delay" => "hold time",
-            "pulse-train" => "beat",
-            "flying-machine" => "direction and load",
-            "shift" => "length",
-            "randomizer" => "number of outputs",
-            "item-elevator" => "height",
-            "elevator" => "height",
-            "binary-counter" | "comparator" => "number of bits",
-            "decoder" | "mux" => "number of select bits",
-            "smelter" => "number of furnaces",
-            "lock" => "number of dials",
-            "bedrock-breaker" => "number of bedrock side by side",
-            _ => "length",
-        };
-        // (the smallest box for the kinds ranked by it: [`by_box`]; a smelter timed on a double
-        // chest, the quickest: [`small_words`])
-        let small = match small_words(&builds[rep]).0 {
-            w if w.starts_with("the quickest") => w,
-            _ if by_box(&builds[rep]) => "the smallest box",
-            _ => "the smallest",
-        };
-        if let Some(c) = builds[rep].circuit.as_mut() {
-            c.claim = format!("{small} for each {size_word}, of {tested} designs tested");
-        }
+        // (no "the smallest for each length, of 42 designs tested" on the card: vjeux 2026-11-08
+        // 10:10, how we compared designs is not the builder's business; its table lists the sizes)
         let values: BTreeSet<i64> = members.iter().filter_map(|&j| builds[j].circuit.as_ref().and_then(|c| c.value)).collect();
         let fly = builds[rep].circuit.as_ref().is_some_and(|c| c.kind.starts_with("flying-machine"));
         let axis = builds[rep].circuit.as_ref().map(|c| c.axis.clone()).unwrap_or_default();

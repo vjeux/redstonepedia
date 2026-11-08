@@ -89,6 +89,31 @@ pub struct Build {
     /// When it was archived (`YYYY-MM-DD HH:MMZ`; `""` unknown): the "newest first" sort.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub archived: String,
+    /// Its curated card (crates/site/src/cards.rs: lines an agent wrote for this design or its
+    /// kind, every number filled from its measurements), shown instead of the built-in lines.
+    #[serde(default, skip_serializing_if = "Curated::is_empty")]
+    pub curated: Curated,
+}
+
+/// A curated card's lines, filled (vjeux 2026-11-08 11:16: "Different farms have different
+/// tradeoffs... adapt what is shown based on the objective").
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct Curated {
+    /// The card's second line and the page's lede, its parts in order (joined with " · ").
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sub: Vec<String>,
+    /// The page's tradeoff sentences, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub facts: Vec<String>,
+    /// What sets it apart from its neighbours, said on its page's front.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diff: Vec<String>,
+}
+
+impl Curated {
+    pub fn is_empty(&self) -> bool {
+        self.sub.is_empty() && self.facts.is_empty() && self.diff.is_empty()
+    }
 }
 
 /// `2026-10-19T15:45Z` / `2026-10-19 15:45Z` -> `2026-10-19 15:45Z`.

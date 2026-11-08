@@ -140,11 +140,10 @@ pub fn badges(b: &Build) -> Vec<String> {
             v.push(seamless_words(&d.seamless));
         }
     }
-    // a longer version of a tested clock says so first (vjeux 01:24Z: "extended n = k")
-    if b.flags.iter().any(|x| x == "extended") {
-        if let Some(n) = b.clock.as_ref().and_then(|c| c.n) {
-            v.push(format!("extended (n = {n})"));
-        }
+    // a longer version of another clock says so first (vjeux 01:24Z: "extended n = k"; in words,
+    // 2026-11-08: no "n")
+    if b.flags.iter().any(|x| x == "extended") && b.clock.as_ref().and_then(|c| c.n).is_some() {
+        v.push("a longer version".to_string());
     }
     for (f, words) in [("slime-free", "no slime"), ("flat", "1 block thick"), ("eligible", "record-eligible"), ("extendable", "comes in every size"), ("self-starting", "starts by itself"), ("variant", "a bigger version of another design"), ("composite", "several clocks in one"), ("layout", "another layout"), ("flip-safe", "safe to flip back any time")] {
         if b.flags.iter().any(|x| x == f) {
@@ -316,9 +315,10 @@ pub fn value_words(kind: &str, axis: &str) -> String {
     if w.len() >= 2 && w[1] == "gt" {
         return tk(&format!("{} gt", w[0]));
     }
-    // the value's number: the first numeric word (`counter 2` -> `2`); a randomizer's axis is
-    // `1 of N`: its N is the last
-    let n = v.split_whitespace().find(|t| t.chars().next().is_some_and(|c| c.is_ascii_digit())).unwrap_or(v);
+    // the value's number: the first numeric word (`counter 2` -> `2`; `counter 11, one pulse per
+    // 22 inputs` -> `11`, its comma off: the counters' table read "every 0th"); a randomizer's axis
+    // is `1 of N`: its N is the last
+    let n = v.split_whitespace().find(|t| t.chars().next().is_some_and(|c| c.is_ascii_digit())).map(|t| t.trim_end_matches(|c: char| !c.is_ascii_digit())).unwrap_or(v);
     match kind.split_whitespace().next().unwrap_or("") {
         "randomizer" => {
             let n = v.split_whitespace().filter(|t| t.chars().all(|c| c.is_ascii_digit())).last().unwrap_or(n);
@@ -1076,11 +1076,13 @@ pub fn mob_farm_title_tail(c: &crate::Circuit) -> Option<String> {
         return None;
     }
     let mut parts: Vec<String> = Vec::new();
+    // (each number with its unit, the bill as a cost: vjeux 2026-11-08 10:10, "1.6 per block" and
+    // "11 iron" beside "295 iron an hour" read as two rates)
     if let Some(per_block) = cm(c, "iron per hour per block").split_whitespace().next().and_then(|v| v.parse::<f64>().ok()) {
-        parts.push(format!("{} per block", readable(per_block)));
+        parts.push(format!("{} an hour per block", readable(per_block)));
     }
     if let Some(iron) = bill_iron(c) {
-        parts.push(format!("{} iron", about_count(iron)));
+        parts.push(format!("{} iron to build", about_count(iron)));
     }
     if !c.feature.is_empty() {
         parts.push(c.feature.clone());
@@ -1099,12 +1101,13 @@ pub fn farm_title_tail(c: &crate::Circuit) -> Option<String> {
     // (a fuel farm: its iron and slime only, the coordinator's "· bamboo count, blocks, iron +
     // slime"; its fuel per block, flying machine and light need go on the second line)
     let fuel = fuel_rates(c).is_some();
-    let mut parts = if fuel { Vec::new() } else { vec![format!("{} per block", readable(per_block))] };
+    // (each number with its unit, the bill as a cost: vjeux 2026-11-08 10:10)
+    let mut parts = if fuel { Vec::new() } else { vec![format!("{} an hour per block", readable(per_block))] };
     if let Some(iron) = bill_iron(c).filter(|n| *n > 0) {
         // (slime from a slime block's worth up: a flying machine's, the coordinator's "~1,700
         // iron + 92 slime"; a sticky piston's one or two slimeballs are left out like the quartz)
         let slime = bill_slime(c).filter(|n| *n >= 9).map(|n| format!(" + {} slime", about_count(n))).unwrap_or_default();
-        parts.push(format!("{} iron{slime}", about_count(iron)));
+        parts.push(format!("{} iron{slime} to build", about_count(iron)));
     }
     if fuel {
         return (!parts.is_empty()).then(|| parts.join(" · "));
@@ -1487,20 +1490,20 @@ fn circuit_props(c: &crate::Circuit) -> (String, Vec<String>) {
             }
             rest.extend(sub(&[("lights after {}", "latency")]));
             if let Some((presses, ..)) = randomizer_fairness(c) {
-                rest.push(format!("tested fair over {presses} presses"));
+                rest.push(format!("fair over {presses} presses"));
             }
             (format!("1 of {n} outputs at random"), rest)
         }
         // a crop farm (w86's study 17): its crop, then its numbers in a builder's words
         "harvester" => {
-            let plant = plant_word(c);
-            let mut rest: Vec<String> = Vec::new();
             // the FARM's harvest leads (vjeux 21:39Z, "50 melon slices an hour is pitiful"; the
             // coordinator 2026-10-22: "3,300 melon slices an hour · 64 stems · 785 blocks · 4.2 per
             // block · ~2,100 iron · needs open sky or light 9": the blocks and what follows them
-            // are `props`' and [`farm_title_tail`]'s), at the game's normal speed
+            // are `props`' and [`farm_title_tail`]'s); at the game's normal speed, which a player
+            // assumes (vjeux 2026-11-08 10:10: "Normal speed is expected"), so not said
             let rates = farm_rates(c);
-            rest.push("at the game's normal growth speed (random tick speed 3)".to_string());
+            let plant = plant_word(c);
+            let mut rest: Vec<String> = Vec::new();
             // (2 tall: as soon as it grows, unless a block waits for another plant's step: w86's
             // two-cane farm harvests its west cane up to 91 gt later; 3 is a full sugar cane, a
             // bamboo grows on to 16)
@@ -1540,25 +1543,30 @@ fn circuit_props(c: &crate::Circuit) -> (String, Vec<String>) {
             };
             (main, rest)
         }
-        // an iron farm (ironfarm's study): its iron an hour and its share of the game's limit lead
-        // (the crop farms' "800 sugar cane an hour · 256 canes"); its blocks, iron per block, bill
-        // and how it works follow the blocks ([`mob_farm_title_tail`])
+        // an iron farm (ironfarm's study): its iron an hour leads (the crop farms' "800 sugar cane
+        // an hour · 256 canes"); its blocks, iron per block, bill and how it works follow the
+        // blocks ([`mob_farm_title_tail`]); then, in a player's words (vjeux 2026-11-08 10:10: for
+        // the player deciding to build it), its share of the game's limit, how often a golem comes
+        // and what it needs; the first night's hide is a build step, not a subtitle
         "mob-farm" => {
             let num = |k: &str| cm(c, k).split_whitespace().next().and_then(|v| v.trim_end_matches('%').parse::<f64>().ok());
-            let main = match (num("iron per hour"), cm(c, "share of ceiling").split_whitespace().next()) {
-                (Some(r), Some(share)) if !share.is_empty() => format!("{} iron an hour · {share} of the ceiling", readable(r)),
-                (Some(r), _) => format!("{} iron an hour", readable(r)),
-                _ => String::new(),
-            };
+            let main = num("iron per hour").map(|r| format!("{} iron an hour", readable(r))).unwrap_or_default();
             let mut rest: Vec<String> = Vec::new();
-            if let (Some(g), Some(s)) = (num("golems per hour"), num("seconds per golem")) {
-                rest.push(format!("{} golems an hour, one every {} s", readable(g), s.round()));
+            if let Some(share) = cm(c, "share of ceiling").split_whitespace().next().filter(|s| !s.is_empty()) {
+                rest.push(format!("{share} of the game's maximum"));
             }
-            let (villagers, zombies) = (bill_item(c, "villagers").or_else(|| bill_item(c, "villager")).unwrap_or(0), bill_item(c, "zombies").or_else(|| bill_item(c, "zombie")).unwrap_or(0));
+            if let Some(s) = num("seconds per golem") {
+                rest.push(format!("a golem every {} s", s.round()));
+            }
+            let item = |one: &str, many: &str| bill_item(c, many).or_else(|| bill_item(c, one)).unwrap_or(0);
+            let (villagers, beds, zombies) = (item("villager", "villagers"), item("bed", "beds"), item("zombie", "zombies"));
             if villagers > 0 {
-                rest.push(format!("{villagers} villagers and {}", if zombies == 1 { "a zombie".to_string() } else { format!("{zombies} zombies") }));
+                let zombie = if zombies == 1 { "a zombie".to_string() } else { format!("{zombies} zombies") };
+                rest.push(if beds > 0 { format!("needs {villagers} villagers, {beds} beds and {zombie}") } else { format!("needs {villagers} villagers and {zombie}") });
             }
-            rest.push(if cm(c, "restarts after a missed night").starts_with("yes") { "starts again by itself after a missed night".to_string() } else { "hide the zombie by hand the first night".to_string() });
+            if cm(c, "restarts after a missed night").starts_with("yes") {
+                rest.push("starts again by itself after a missed night".to_string());
+            }
             (main, rest)
         }
         // w86's computational circuits (the compute study): what it does with its bits leads
@@ -1821,9 +1829,8 @@ fn circuit_props(c: &crate::Circuit) -> (String, Vec<String>) {
             if let Some(o) = gt("closes within") {
                 rest.push(format!("closes within {}", crate::real_time(o)));
             }
-            if let Some(p) = cm(c, "presses tried").split_whitespace().next().filter(|p| !p.is_empty()) {
-                rest.push(format!("{p} press sequences tested"));
-            }
+            // (how many press sequences we tried is our business, not the builder's: vjeux
+            // 2026-11-08 10:10)
             (format!("a code of {l} presses on {n} buttons"), rest)
         }
         // an automatic door (clk-obs's autodoor study): what it does, then how soon it closes
@@ -1949,8 +1956,18 @@ fn circuit_props(c: &crate::Circuit) -> (String, Vec<String>) {
     }
 }
 
-/// The card of a build, by its properties ([`Props`]).
+/// The card of a build, by its properties ([`Props`]): its curated card's lines when it has one
+/// (`Build::card`, crates/site/src/cards.rs), else the built-in ones.
 pub fn props(b: &Build) -> Props {
+    let mut p = built_in_props(b);
+    if !b.curated.sub.is_empty() {
+        p.sub = b.curated.sub.join(" · ");
+    }
+    p
+}
+
+/// The built-in card of a build ([`props`] without its curated lines).
+fn built_in_props(b: &Build) -> Props {
     let flags = |list: &[&str]| -> Vec<String> { list.iter().filter(|f| b.flags.iter().any(|x| x == *f)).map(|f| f.to_string()).collect() };
     let dims = b.dims.as_deref().map(|d| d.replace('x', "×")).unwrap_or_default();
     match b.kind.as_str() {
@@ -1964,10 +1981,15 @@ pub fn props(b: &Build) -> Props {
                     chips.push(seamless_words(&d.seamless));
                 }
             }
-            for (f, words) in [("slime-free", "no slime"), ("flat", "1 block thick"), ("rotation-safe", "works facing any way"), ("variant", "a bigger version")] {
+            for (f, words) in [("slime-free", "no slime"), ("flat", "1 block thick"), ("variant", "a bigger version")] {
                 if b.flags.iter().any(|x| x == f) {
                     chips.push(words.into());
                 }
+            }
+            // (working facing any way is what a builder assumes: said only when a door does not,
+            // vjeux 2026-11-08 10:10)
+            if b.door.as_ref().is_some_and(|d| !d.rotation.is_empty() && d.rotation != "safe") && !b.flags.iter().any(|x| x == "rotation-safe") {
+                chips.push("works only facing one way".into());
             }
             let timing = b.door.as_ref().and_then(|d| Some(format!("opens in {} · closes in {}", crate::real_time(d.open?), crate::real_time(d.close?))));
             let mut sub = timing.unwrap_or_default();
@@ -2037,11 +2059,10 @@ pub fn props(b: &Build) -> Props {
             if let Some(c) = c.filter(|c| !c.lamp.is_empty()) {
                 chips.push(if c.lamp == "misses pulses" { "a lamp on it misses pulses".into() } else { "a lamp on it stays lit".into() });
             }
-            // a longer version of a tested clock says so first (vjeux 01:24Z: "extended n = k")
-            if b.flags.iter().any(|f| f == "extended") {
-                if let Some(n) = c.and_then(|c| c.n) {
-                    chips.insert(0, format!("extended (n = {n})"));
-                }
+            // a longer version of another clock says so first (vjeux 01:24Z: "extended n = k"; in
+            // words, 2026-11-08: no "n")
+            if b.flags.iter().any(|f| f == "extended") && c.and_then(|c| c.n).is_some() {
+                chips.insert(0, "a longer version".to_string());
             }
             // the one clock card: the periods its page's table covers (vjeux 21:47Z)
             if let Some(range) = c.map(|c| c.kind_range.clone()).filter(|r| !r.is_empty()) {
@@ -2051,16 +2072,16 @@ pub fn props(b: &Build) -> Props {
                 let archived = parts.next().unwrap_or("");
                 let (lo, hi) = span.split_once('-').unwrap_or((span, span));
                 let hi_words = hi.parse::<u32>().map(crate::real_time).unwrap_or_else(|_| format!("{hi} ticks"));
-                // (every clock of each period, the verified members included: vjeux 00:43Z; the
-                // periods only extended clocks reach said apart, and what pictures the card:
-                // critique a9f92b9c7)
+                // (every clock of each period, the longer versions included: vjeux 00:43Z; the
+                // periods only longer versions reach said apart, and what pictures the card:
+                // critique a9f92b9c7; nothing of how they were checked, vjeux 2026-11-08 10:10)
                 let only_ext = tested.parse::<u32>().ok().zip(archived.parse::<u32>().ok()).map(|(t, a)| t.saturating_sub(a)).filter(|n| *n > 0);
                 return Props {
                     kind: "Clock".into(),
                     title: format!("every clock that works, for each of {tested} periods from {lo} ticks to {hi_words}"),
                     sub: format!(
-                        "{}each tested in the game or simulated to exactly its period · pictured: the smallest that survives a chunk reload, {period}, {}",
-                        only_ext.map(|n| format!("{n} of the periods reached only by longer versions of a tested clock · ")).unwrap_or_default(),
+                        "{}pictured: the smallest that keeps going after a chunk reload, {period}, {}",
+                        only_ext.map(|n| format!("{n} of the periods reached only by longer versions of another clock · ")).unwrap_or_default(),
                         blocks_word(b.blocks)
                     ),
                     chips: Vec::new(),
@@ -2274,13 +2295,14 @@ pub fn lede(site: &Site, kind: &str) -> String {
         door_part.push_str(&if small == 1 { " and the best 2×2 piston door".to_string() } else { format!(" and the best 2×2 piston door for each of {small} records") });
     }
     let clock_part = format!("{clocks} clock{} for {periods} period{}", s(clocks), s(periods));
-    let tested = "Every base design was tested tick by tick in the real game; the longer versions of a clock were tested too, or simulated to their exact period.";
     match kind {
-        "door" if small > 0 => format!("{}{}, tested tick by tick in the real game: each card's page lists every record of its size.", door_part[..1].to_uppercase(), &door_part[1..]),
-        "door" => format!("{}{}, tested tick by tick in the real game: the card is the seamless one, its page lists every record.", door_part[..1].to_uppercase(), &door_part[1..]),
+        // (no test claims in the opening lines: vjeux 2026-11-08 10:10, "The user doesn't care
+        // that you tested")
+        "door" if small > 0 => format!("{}{}: each card's page lists every record of its size.", door_part[..1].to_uppercase(), &door_part[1..]),
+        "door" => format!("{}{}: the card is the seamless one, its page lists every record.", door_part[..1].to_uppercase(), &door_part[1..]),
         // (short: on a phone the tab's first screen showed one card under it, webrender's profile)
-        "clock" => format!("{clock_part}, smallest first, each tested in the real game or simulated to its exact period."),
-        "circuit" => format!("The best design of each of {kinds} circuit kind{}, each tested tick by tick in the real game.", s(kinds)),
+        "clock" => format!("{clock_part}, smallest first."),
+        "circuit" => format!("The best design of each of {kinds} circuit kind{}.", s(kinds)),
         _ => {
             let mut parts = vec![door_part];
             if clocks > 0 {
@@ -2293,7 +2315,7 @@ pub fn lede(site: &Site, kind: &str) -> String {
                 1 => parts[0].clone(),
                 n => format!("{} and {}", parts[..n - 1].join(", "), parts[n - 1]),
             };
-            format!("Redstone builds you can download: {list}. {tested}")
+            format!("Redstone builds you can download: {list}.")
         }
     }
 }
@@ -2528,7 +2550,7 @@ pub fn member_card(m: &Member, site: &Site, prefix: &str) -> String {
     let kind_line = base.and_then(|b| b.circuit.as_ref().map(|c| kind_words(&c.kind))).unwrap_or_else(|| "Clock".into());
     // (each number kept with its unit: critique, "2 / blocks" wrapped)
     format!(
-        "<a class=\"card member\" href=\"{}\" aria-label=\"{}: {} · {}\">{}<div class=\"meta\"><div class=\"kind\">{}</div><div class=\"title\">{} · {}</div><div class=\"sub\">{}</div><div class=\"badges\"><span class=\"badge\">extended (n = {})</span>{status}</div></div></a>",
+        "<a class=\"card member\" href=\"{}\" aria-label=\"{}: {} · {}\">{}<div class=\"meta\"><div class=\"kind\">{}</div><div class=\"title\">{} · {}</div><div class=\"sub\">{}</div><div class=\"badges\"><span class=\"badge\">a longer version</span>{status}</div></div></a>",
         esc(&format!("{prefix}{}", member_href(m, site))),
         esc(&kind_line),
         esc(&value),
@@ -2537,8 +2559,7 @@ pub fn member_card(m: &Member, site: &Site, prefix: &str) -> String {
         esc(&kind_line),
         esc(&keep_units(&value)),
         esc(&keep_units(&blocks_word(m.blocks))),
-        esc(&group),
-        m.n
+        esc(&group)
     )
 }
 

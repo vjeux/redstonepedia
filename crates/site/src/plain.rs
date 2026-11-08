@@ -287,7 +287,7 @@ pub fn one_liner(c: &Circuit) -> String {
             // the input on for a minute to give its 49.5 seconds)
             let need = m(c, "min-pulse").split_whitespace().next().and_then(|n| n.parse::<u32>().ok()).filter(|n| *n > 20);
             match need {
-                Some(n) => format!("The output turns on with the input and stays on {l} after the input turns off, as long as the input stayed on for at least {} first (our test tried no shorter input).", ticks(&format!("{n} gt"))),
+                Some(n) => format!("The output turns on with the input and stays on {l} after the input turns off, as long as the input stayed on for at least {} first.", ticks(&format!("{n} gt"))),
                 None => format!("The output turns on with the input and stays on {l} after the input turns off."),
             }
         }
@@ -325,12 +325,12 @@ pub fn one_liner(c: &Circuit) -> String {
             let sig2 = site_model::html::readable;
             let rate = match site_model::html::farm_rates(c) {
                 Some((per_block, total)) if total > 0.0 => format!(
-                    " At the game's normal growth speed (random tick speed 3) it gathers about {} {} an hour: {} for each block placed.",
+                    " It gathers about {} {} an hour: {} for each block placed.",
                     sig2(total),
                     site_model::html::harvest_words_at(c, total),
                     sig2(per_block)
                 ),
-                Some((per_block, _)) => format!(" At the game's normal growth speed (random tick speed 3) it gathers about {} {} an hour for each block placed.", sig2(per_block), site_model::html::harvest_words_at(c, per_block)),
+                Some((per_block, _)) => format!(" It gathers about {} {} an hour for each block placed.", sig2(per_block), site_model::html::harvest_words_at(c, per_block)),
                 None => String::new(),
             };
             let plant = site_model::html::plant_word(c);
@@ -478,12 +478,11 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
         return "Download the design below to build it in the game (the 3D view needs a browser with WebGL).".to_string();
     }
     // a mob farm: the view runs it (the mob rules' simulation, the judge's own first run); the
-    // chest goes at OUT. Written for the player building it (vjeux 2026-11-08)
+    // chest goes at OUT; the first night's hide is a build step (in "Build it")
     if crate::explain::mob_farm(c) {
         return format!(
-            "Press play to watch it work: the villagers sleep at night and panic at the zombie by day, golems spawn and die, and the hoppers carry their iron to the chest; the top right counts the game's time, the golems and the iron. The columns are where a golem can spawn, seen through the blocks: blue until one does, then yellow to red by how many have, and a flash at each spawn (Spawn spots hides them). {} Build it and wait near it.{}",
-            crate::explain::chest_words(c),
-            crate::explain::first_night(c)
+            "Press play to watch it work: the villagers sleep at night and panic at the zombie by day, golems spawn and die, and the hoppers carry their iron to the chest; the top right counts the game's time, the golems and the iron. The columns are where a golem can spawn, seen through the blocks: blue until one does, then yellow to red by how many have, and a flash at each spawn (Spawn spots hides them). {} In the game, build it and wait near it.",
+            crate::explain::chest_words(c)
         );
     }
     let b = base(&c.kind);
@@ -496,7 +495,7 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
         }
         if !c.view_halt.is_empty() {
             let (tick, why) = crate::explain::halt_words(&c.view_halt);
-            let at = tick.map(|t| format!(" at tick {t} of our test")).unwrap_or_default();
+            let at = tick.map(|t| format!(" after {t} ticks")).unwrap_or_default();
             return format!("The view shows it as built but stops{at}: {why}. Download it to try it in the game.");
         }
     }
@@ -508,23 +507,23 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
         "flying-machine" => return "Press play under the view: it puts the start block in place and the machine flies off; reset to see it again. In the game, start it the same way: place a block where the view puts its start block, then break it.".to_string(),
         // a duper lit once per trigger: its button, else a short pulse (the card's "per short
         // pulse")
-        "tnt-duper-triggered" if c.devices.iter().any(|d| d == "button") => return "Press its button (IN under the view): each press throws one lit TNT. Press play under the view to watch our test on a loop; touch any other control to take over.".to_string(),
-        "tnt-duper-triggered" => return "Tap IN under the view: a tap takes the redstone block away for a moment and one lit TNT flies out; held down, it keeps throwing them. Press play under the view to watch our test on a loop; touch any other control to take over.".to_string(),
+        "tnt-duper-triggered" if c.devices.iter().any(|d| d == "button") => return "Press its button (IN under the view): each press throws one lit TNT. Press play under the view to watch a demo on a loop; touch any other control to take over.".to_string(),
+        "tnt-duper-triggered" => return "Tap IN under the view: a tap takes the redstone block away for a moment and one lit TNT flies out; held down, it keeps throwing them. Press play under the view to watch a demo on a loop; touch any other control to take over.".to_string(),
         "tnt-duper" => {
             // (the try-it matches the card: a launcher throws its TNT, critique)
             let what = if c.axis.contains("launched") { "watch it throw a lit TNT away each cycle" } else { "watch a lit TNT come out of the machine each cycle" };
             // (its on/off lever: the coordinator 14:08Z)
             return if c.devices.iter().any(|d| d == "lever") {
-                format!("Flip its lever (the IN button under the view) to start it: {what} while its TNT block stays in place; flip it back and it stops. Press play under the view to watch our test on a loop; touch any other control to take over.")
+                format!("Flip its lever (the IN button under the view) to start it: {what} while its TNT block stays in place; flip it back and it stops. Press play under the view to watch a demo on a loop; touch any other control to take over.")
             } else {
                 format!("Press play under the view: it runs by itself: {what} while its TNT block stays in place.")
             };
         }
-        "shulker-loader" | "shulker-unloader" if !c.unmodeled.is_empty() => return "The view shows it as built, with our test's chests; download it to try it in the game.".to_string(),
+        "shulker-loader" | "shulker-unloader" if !c.unmodeled.is_empty() => return "The view shows it as built, with its chests; download it to try it in the game.".to_string(),
         // the view's own run (at build time) sent out no box: no promise of boxes moving (the
         // 28-block loader: its judge's redsim scenarios pass, the browser's run sends none)
         "shulker-loader" | "shulker-unloader" if c.view_run.as_ref().is_some_and(|v| v.boxes == 0) => {
-            return "The view runs it, but no box comes out there yet: the browser's simulator does not run this machine the way our test did. Download it to try it in the game.".to_string();
+            return "The view runs it, but no box comes out there yet: the browser's simulator does not run this machine the way the game does. Download it to try it in the game.".to_string();
         }
         "shulker-loader" | "shulker-unloader" => {
             let lever = c.inputs.iter().zip(c.devices.iter()).any(|(n, d)| d == "lever" && !(n == "mode" || n.starts_with("mode.")));
@@ -533,7 +532,7 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
                 if lever { "Flip its start lever (the lime IN button under the view). " } else { "Press play under the view to start it. " }
             );
         }
-        "bud" => return "Press play under the view to watch our test: a block is placed, removed and changed at the cell marked TARGET, and a block next to it is updated with nothing changing (what only a true BUD notices); the box marked OUT turns red when it fires.".to_string(),
+        "bud" => return "Press play under the view to watch the demo: a block is placed, removed and changed at the cell marked TARGET, and a block next to it is updated with nothing changing (what only a true BUD notices); the box marked OUT turns red when it fires.".to_string(),
         // an item sorter: what to watch (critique: the generic "the box marked OUT turns red")
         "sorter" => {
             let item = c.kind.split_whitespace().nth(1).map(|i| item_plural(&i.replace('_', " "), 2)).unwrap_or_else(|| "items of its kind".to_string());
@@ -598,10 +597,10 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
         // (the 0-9 display: its one input is a chest's level, which only our test's walk sets to
         // each digit; the view's A button empties or fills it)
         "seven-segment" if site_model::html::decimal_display(c) => {
-            return "Press play under the view to watch our test on a loop: it fills the chest tagged A to every level from 0 to 9, one change at a time, and the face shows each digit. The A button under the view only empties the chest or fills it to the top (15, beyond the digits it shows).".to_string();
+            return "Press play under the view to watch a demo on a loop: it fills the chest tagged A to every level from 0 to 9, one change at a time, and the face shows each digit. The A button under the view only empties the chest or fills it to the top (15, beyond the digits it shows).".to_string();
         }
         "seven-segment" => {
-            return "Set a number with the A0 to A3 buttons under the view (A0 counts 1, A1 2, A2 4, A3 8: all four on is F) and watch the segment outputs light: A top, B upper right, C lower right, D bottom, E lower left, F upper left, G middle. Press play under the view to watch our test on a loop; touch any other control to take over.".to_string();
+            return "Set a number with the A0 to A3 buttons under the view (A0 counts 1, A1 2, A2 4, A3 8: all four on is F) and watch the segment outputs light: A top, B upper right, C lower right, D bottom, E lower left, F upper left, G middle. Press play under the view to watch a demo on a loop; touch any other control to take over.".to_string();
         }
         // a crop farm: the view runs it like its judge (webrender: the judge's chests, the crop
         // planted, growth by random ticks at the judge's 100 times, FARM_RTS 300 against the
@@ -617,11 +616,11 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
                 let grown = if c.view_src.is_empty() { String::new() } else { format!(", with its {crop} grown") };
                 return format!("The view shows the build only{grown}: {why}. Download it to watch it harvest in the game.{tile}");
             }
-            let chests = if c.outputs.len() > 1 { "chests under its hoppers" } else { "chest under its hopper" };
+            let chests = if c.outputs.len() > 1 { "chests under its hoppers" } else { "a chest under its hopper" };
             // (its judge's speed: 100 times the game's for a small farm, slower for a big one so
             // its collection keeps up, `farm::game_rts`)
             let faster = site_model::html::farm_speed_words(c);
-            return format!("The view plants the {crop} and puts our test's {chests}, then runs it like our test, the {crop} growing {faster} than in the game: watch the farm break each block that grows and send its item into the chest (the tag over each chest shows what it holds).{tile}");
+            return format!("The view plants the {crop}, puts {chests} and grows the {crop} {faster} than the game does: watch the farm break each block that grows and send its item into the chest (the tag over each chest shows what it holds).{tile}");
         }
         // an automatic door: the browser's simulator has no walkers: shown as built, how to use it
         // (how long you wait at it and what it does if you stop in the doorway, from its verdict)
@@ -646,23 +645,23 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
         "cart-loader" => {
             return "The view shows the loader as built, without carts. In the game, fill its supply chest and send an empty hopper minecart down its line: it stops, fills, and leaves on its own once it is full or the chest runs dry with items in the cart. An empty cart at an empty chest waits until you add items.".to_string();
         }
-        // a whole minecart line: shown as built with our test's chests, no cart running
+        // a whole minecart line: shown as built with its chests, no cart running
         "cart-line" => {
-            return "The view shows the line as built, with our test's two double chests and no cart: the browser's simulator does not run it yet. In the game, put one hopper minecart on the track and items in the supply chest at the loader: the cart fills, carries them to the storage chest at the other end and comes back for more.".to_string();
+            return "The view shows the line as built, with its two double chests and no cart: the browser's simulator does not run it yet. In the game, put one hopper minecart on the track and items in the supply chest at the loader: the cart fills, carries them to the storage chest at the other end and comes back for more.".to_string();
         }
         // w86's computational circuits: which buttons, what lights
         "binary-counter" => {
             let clk = if c.input_labels.len() == c.inputs.len() && !c.input_labels.is_empty() { c.input_labels[0].clone() } else { c.inputs.first().map(|i| i.to_uppercase()).unwrap_or_else(|| "CLK".into()) };
-            return format!("Press {clk} under the view, again and again: the outputs count up in binary (Q0 lit is 1, Q1 lit is 2, both lit is 3...). Press play under the view to watch our test on a loop; touch any other control to take over.");
+            return format!("Press {clk} under the view, again and again: the outputs count up in binary (Q0 lit is 1, Q1 lit is 2, both lit is 3...). Press play under the view to watch a demo on a loop; touch any other control to take over.");
         }
         "decoder" => {
-            return "Turn the inputs on and off with the buttons under the view: both off lights Q0, A0 alone lights Q1, A1 alone lights Q2, both on lights Q3. Press play under the view to watch our test on a loop; touch any other control to take over.".to_string();
+            return "Turn the inputs on and off with the buttons under the view: both off lights Q0, A0 alone lights Q1, A1 alone lights Q2, both on lights Q3. Press play under the view to watch a demo on a loop; touch any other control to take over.".to_string();
         }
         // a player elevator: the two floors' buttons, as the view labels them
         "elevator" => {
             let names: Vec<String> = if c.input_labels.len() == c.inputs.len() { c.input_labels.clone() } else { c.inputs.iter().map(|n| n.to_uppercase()).collect() };
             let both = list_words(&names.iter().map(String::as_str).collect::<Vec<_>>(), "or");
-            return format!("Press {both} under the view, the buttons on the two floors: at the floor where the platform stands, a press sends it to the other floor; at the other floor, it calls the platform. Press play under the view to watch our test on a loop; touch any other control to take over.");
+            return format!("Press {both} under the view, the buttons on the two floors: at the floor where the platform stands, a press sends it to the other floor; at the other floor, it calls the platform. Press play under the view to watch a demo on a loop; touch any other control to take over.");
         }
         // an auto-crafter: the view does not feed it the judge's items yet: shown as built, how to
         // run it in the game
@@ -670,9 +669,9 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
             let (makes, from) = site_model::html::crafter_recipe(c);
             // (several ingredients: one supply chest each, clk-item's TNT crafter)
             if from.contains(" and ") {
-                return format!("The view shows the crafter as built, without the items our test feeds it. In the game, fill each of its supply chests with its ingredient ({from} make one craft): every full set becomes {makes} in the output chest.");
+                return format!("The view shows the crafter as built, without items. In the game, fill each of its supply chests with its ingredient ({from} make one craft): every full set becomes {makes} in the output chest.");
             }
-            return format!("The view shows the crafter as built, without the items our test feeds it. In the game, fill the chest on top of its hopper with {from} (or more): every full set becomes {makes} in the chest below.");
+            return format!("The view shows the crafter as built, without items. In the game, fill the chest on top of its hopper with {from} (or more): every full set becomes {makes} in the chest below.");
         }
         // a minecart station: the view has no carts yet (redsim models empty carts, not riders):
         // shown as built, how to use it in the game
@@ -689,9 +688,9 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
         "item-elevator" => {
             // (one whose clock runs only while items come, clk-misc's bubble-rest: no start block)
             if m(c, "at rest").starts_with("yes") {
-                return "The view shows the elevator as built, without the items our test loads into it. In the game, fill the bottom chest: the elevator starts by itself, every item rises into the top chest, and it rests again once the chest is empty.".to_string();
+                return "The view shows the elevator as built, without items. In the game, fill the bottom chest: the elevator starts by itself, every item rises into the top chest, and it rests again once the chest is empty.".to_string();
             }
-            return "The view shows the elevator as built, without the items our test loads into it. In the game, start its clock by placing its last block where the view puts its start block, then fill the bottom chest: every item rises into the top chest.".to_string();
+            return "The view shows the elevator as built, without items. In the game, start its clock by placing its last block where the view puts its start block, then fill the bottom chest: every item rises into the top chest.".to_string();
         }
         // a randomizer: a press like a button's (the judge holds it 20 to 30 ticks), what lights
         "randomizer" => {
@@ -700,11 +699,11 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
                 "pulse" => "flashes once",
                 _ => "lights and stays lit until the next press picks again",
             };
-            return format!("Press IN under the view, holding it a moment like a button press: one of the outputs ({tags}) {after}, at random. Press play under the view to watch our test on a loop; touch any other control to take over.");
+            return format!("Press IN under the view, holding it a moment like a button press: one of the outputs ({tags}) {after}, at random. Press play under the view to watch a demo on a loop; touch any other control to take over.");
         }
         // an adder: what to try (which buttons, what lights), in binary
         "adder" => {
-            let tail = " Press play under the view to watch our test on a loop; touch any other control to take over.";
+            let tail = " Press play under the view to watch a demo on a loop; touch any other control to take over.";
             return match site_model::html::adder_variant(c) {
                 "half" => format!("Turn on A0, B0 or both with the buttons under the view: with one on, S0 (the sum) lights; with both, COUT (the carry) lights instead, because 1 + 1 = 10 in binary.{tail}"),
                 "slice" => format!("Turn on A0, B0 and CIN (the carry in) with the buttons under the view: S0 lights when one or three are on, COUT when two or more are (1 + 1 + 1 = 11 in binary). To add longer numbers, stack copies side by side: each copy's COUT is the next copy's CIN.{tail}"),
@@ -720,7 +719,7 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
     // counters' droppers holding several stacks, webrender's QA): no demo promised
     if !c.view_halt.is_empty() {
         let (tick, why) = crate::explain::halt_words(&c.view_halt);
-        let at = tick.map(|t| format!(" at tick {t} of our test")).unwrap_or_default();
+        let at = tick.map(|t| format!(" after {t} ticks")).unwrap_or_default();
         return format!("The view shows it as built but stops{at}: {why}. Download it to try it in the game.");
     }
     let toggle = crate::explain::input_mode(&c.kind) == "toggle";
@@ -761,7 +760,7 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
         _ => String::new(),
     };
     // (nothing plays at once, vjeux 21:29Z: the view starts on play)
-    let demo = if c.stimulus.is_empty() { String::new() } else { " Press play under the view to watch our test on a loop; touch any other control to take over.".to_string() };
+    let demo = if c.stimulus.is_empty() { String::new() } else { " Press play under the view to watch a demo on a loop; touch any other control to take over.".to_string() };
     if press.is_empty() {
         return format!("Watch the view: {watch}.{demo}");
     }
@@ -808,31 +807,33 @@ fn first_cap(s: &str) -> String {
 }
 
 /// An automatic door's three page must-haves (the reviewer and the coordinator, via clk-obs
-/// 2026-10-22), word for word: what happens to someone who stands in the doorway of a door that
-/// closes on them, who else opens it, and the plain door when hiding does not matter. ("step out",
-/// not "pushed out": the client code that moves a player out of a block is not verified.)
+/// 2026-10-22): what happens to someone who stands in the doorway of a door that closes on them,
+/// who else opens it, and the plain door when hiding does not matter. ("step out", not "pushed
+/// out": the client code that moves a player out of a block is not verified.)
 pub const DOORWAY_HURTS: &str = "Stand still in the doorway and the door closes on you and hurts you (half a heart per hurt) until you step out.";
-pub const MOB_PLATES: &str = "A mob on a plate opens it too: nothing in vanilla tells a player from a mob, so put the plates where mobs can't walk.";
+pub const MOB_PLATES: &str = "Put its plates where mobs can't walk: a mob on a plate opens it too.";
 pub const IRON_DOORS: &str = "If the entrance doesn't need to be hidden, two iron doors with pressure plates do the job in about 10 blocks.";
 
-/// What a builder must know before building it, near the top (critique, coordinator 13:54Z):
-/// a sculk door can be set off by footsteps; a directional build works only facing one way.
-pub fn warning(b: &Build) -> Option<String> {
+/// How it behaves once built, in plain facts under its opening sentence (critique, coordinator
+/// 13:54Z: a sculk door can be set off by footsteps). No warning box (vjeux 2026-11-08 10:10: "the
+/// use of a tripwire is not a warning"): a mechanism is part of how it works, and what to do while
+/// building is a step in "Build it" ([`build_steps`]).
+pub fn facts(b: &Build) -> Option<String> {
     let mut out: Vec<String> = Vec::new();
     if b.kind == "door" && b.group == "sculk" {
-        out.push("Uses a sculk sensor: footsteps or other noises nearby can open or close it. Keep walkways away from it, or shield it with wool.".to_string());
+        out.push("Footsteps and other noises near its sculk sensor open or close it too: keep walkways away from it, or shield it with wool.".to_string());
     }
     // a sculk clock: sounds nearby can add pulses (critique fd51ca0d2: sculk builds "keep noise
-    // away"; the clocks' test runs in silence)
+    // away"; the clocks run in silence)
     if b.clock.is_some() && b.kinds.iter().any(|k| k.contains("sculk_sensor")) {
-        out.push("Uses a sculk sensor: other sounds nearby (footsteps, another machine) can add pulses, so keep noise away from it.".to_string());
+        out.push("Sounds near its sculk sensor (footsteps, another machine) add pulses: keep noise away from it.".to_string());
     }
     // a vibration-proof sculk circuit (clk-obs's vibration test; the sensitive ones are hidden)
     if let Some(c) = &b.circuit {
         let proof = c.metrics.iter().any(|(k, v)| k == "vibration-proof" && v.starts_with("yes"));
         if proof && b.kinds.iter().any(|k| k.contains("sculk_sensor")) {
             out.push(format!(
-                "Uses a sculk sensor tuned so footsteps and other noises don't trigger it{}.",
+                "Footsteps and other noises don't set off its sculk sensor{}.",
                 if b.kinds.iter().any(|k| k == "chest") { ": the items in its chest set the one sound it listens to" } else { "" }
             ));
         }
@@ -841,67 +842,48 @@ pub fn warning(b: &Build) -> Option<String> {
     // limitation said plainly instead of hidden)
     // a crop farm with a sculk sensor (w86's cactus farm hears the cactus block break): any noise
     // keeps the sensor busy, and a block grown in that time is lost (w86's correction: an extra
-    // push is harmless, a missed sweep is not)
+    // push is harmless, a missed sweep is not); how far apart copies stand is a build step
     if b.circuit.as_ref().is_some_and(|c| c.kind.starts_with("harvester")) && b.kinds.iter().any(|k| k.contains("sculk_sensor")) {
         let c = b.circuit.as_ref().unwrap();
         let crop = site_model::html::crop_words(c);
-        let apart = site_model::html::tile_step(c).map(|s| format!(" Copies must stand {s} blocks apart so one does not hear another.")).unwrap_or_default();
-        out.push(format!("Uses a sculk sensor that hears its crop break. Footsteps, mobs or other noises within 8 blocks keep it busy for 2 seconds; a {crop} that grows at the end of that time is lost.{apart}"));
+        out.push(format!("Its sculk sensor hears its crop break. Footsteps, mobs or other noises within 8 blocks keep it busy for 2 seconds; a {crop} that grows at the end of that time is lost."));
     }
-    // (an automatic door's tripwire is its walker sensor, there to be crossed: no "enclose it"; a
-    // mob farm's tripwire is part of the farm, inside it: a normal part, not a warning, vjeux
-    // 2026-11-08)
-    if b.kinds.iter().any(|k| k.starts_with("tripwire")) && !b.circuit.as_ref().is_some_and(|c| c.kind.starts_with("auto-door") || c.kind.starts_with("mob-farm")) {
-        out.push("Uses a tripwire: anything that crosses the string (a mob, a player, a dropped item) adds a pulse, so enclose it.".to_string());
-    }
-    // an automatic door: what else opens it (the reviewer's and the coordinator's page
-    // must-haves, 2026-10-22: no vanilla detector tells a player from a mob; a string feels
-    // dropped items too)
-    if b.circuit.as_ref().is_some_and(|c| c.kind.starts_with("auto-door")) {
-        out.push(MOB_PLATES.to_string());
-        if b.kinds.iter().any(|k| k.starts_with("tripwire")) {
-            out.push("Its outer rows are tripwire strings, which a dropped item presses too: keep items off them.".to_string());
-        }
-    }
-    if b.kinds.iter().any(|k| k.starts_with("daylight_detector")) {
+    // (a tripwire, an automatic door's plates, daylight detectors that need the sky: build steps)
+    if b.kinds.iter().any(|k| k.starts_with("daylight_detector")) && !b.circuit.as_ref().is_some_and(crate::explain::mob_farm) {
         // (an iron farm's inverted detectors are its dusk clock: they work at night and the farm
-        // runs day and night; rain darkens the sky, and the farm is tested through rain and thunder)
-        if b.circuit.as_ref().is_some_and(crate::explain::mob_farm) {
-            out.push("Uses daylight detectors as its dusk clock: they need open sky above them. Our test ran it through days of rain and thunder.".to_string());
-        } else {
-            out.push("Uses a daylight detector: it needs open sky and runs only in daytime; it stops at night and in rain.".to_string());
-        }
+        // runs day and night; its weather is in its own line, [`mob_farm_facts`])
+        out.push("It runs only in daytime: it stops at night and in rain.".to_string());
+    }
+    if let Some(c) = b.circuit.as_ref().filter(|c| crate::explain::mob_farm(c)) {
+        out.extend(mob_farm_facts(c));
     }
     // a piston extender that breaks when its lever is flipped back too soon (clk-misc's `flips
     // breaks: off 20 gt after on strands blocks`): said plainly, never hidden
     if let Some(v) = b.circuit.as_ref().and_then(|c| c.metrics.iter().find(|(k, v)| k == "flips" && v.starts_with("breaks")).map(|(_, v)| v.clone())) {
         let within = v.split_once("off ").and_then(|(_, r)| r.split_whitespace().next()).and_then(|g| g.parse::<u32>().ok());
         out.push(match within {
-            Some(g) => format!("Do not flip its lever back too soon: turned off within {} of being turned on, it leaves blocks stranded. Wait until the block is all the way out.", ticks(&format!("{g} gt"))),
-            None => "Do not flip its lever back before the block is all the way out: it leaves blocks stranded.".to_string(),
+            Some(g) => format!("Wait until the block is all the way out before flipping the lever back: turned off within {} of being turned on, it leaves blocks stranded.", ticks(&format!("{g} gt"))),
+            None => "Wait until the block is all the way out before flipping the lever back: sooner, it leaves blocks stranded.".to_string(),
         });
     }
-    // an auto-smelter: the fuel the test uses (other fuels fill a furnace differently)
+    // an auto-smelter: the fuel it is set up for (other fuels fill a furnace differently)
     if b.circuit.as_ref().is_some_and(|c| c.kind.starts_with("smelter")) {
-        out.push("Our test feeds it coal (charcoal works the same); other fuels such as lava buckets or blocks of coal may be shared out differently between the furnaces.".to_string());
+        out.push("Fuel it with coal or charcoal: other fuels, such as lava buckets or blocks of coal, may be shared out unevenly between the furnaces.".to_string());
     }
     // an auto-composter: composting is random (the bone meal varies run to run)
     if b.circuit.as_ref().is_some_and(|c| c.kind.starts_with("composter")) {
         out.push("Composting is random: each item fills the composter with its own chance (wheat seeds and kelp 30%, sugar cane 50%, wheat 65%), so the bone meal per crop varies from run to run; seven layers make one bone meal.".to_string());
     }
-    // an auto-brewer: the recipe the test brews (another second ingredient works the same way)
+    // an auto-brewer: the recipe it is set up for (another second ingredient works the same way)
     if b.circuit.as_ref().is_some_and(|c| c.kind.starts_with("brewer")) {
-        out.push("Our test brews potions of swiftness (nether wart, then sugar); another second ingredient in the sugar chest (a magma cream, a golden carrot...) brews its potion the same way. Keep the chests in order: sugar on water bottles makes useless mundane potions.".to_string());
+        out.push("Set up for potions of swiftness (nether wart, then sugar); another second ingredient in the sugar chest (a magma cream, a golden carrot...) brews its potion the same way. Keep the chests in order: sugar on water bottles makes useless mundane potions.".to_string());
     }
     // an item sorter: what it cannot sort (the coordinator 00:01Z: "it says plainly"; WR.md: a
-    // comparator cannot count non-stacking items, and other names or enchantments do not stack)
+    // comparator cannot count non-stacking items, and other names or enchantments do not stack);
+    // where its water stream ends is a build step
     if let Some(c) = b.circuit.as_ref().filter(|c| c.kind.starts_with("sorter")) {
         out.push("It cannot sort items that do not stack (tools, armour, potions) nor items renamed or enchanted unlike the ones in its filter: they pass by unsorted.".to_string());
-        // the judge's real-use runs (study 13, circuit::sorter): what a player must not do
         let badges = c.metrics.iter().find(|(k, _)| k == "badges").map(|(_, v)| v.clone()).unwrap_or_default();
-        if !badges.split('+').any(|w| w == "stream-direct") {
-            out.push("A water stream must end on a hopper of the line before the first slice, not on the first slice itself: that slice's hopper would take whole stacks and pass some of its own kind on unsorted. Nor put a hopper pointing down on top of the first slice: it feeds the line twice as fast.".to_string());
-        }
         if !badges.split('+').any(|w| w == "overflow-proof") {
             out.push("When one slice's chest is full the line stops until it is emptied.".to_string());
         }
@@ -912,6 +894,11 @@ pub fn warning(b: &Build) -> Option<String> {
         if !detects.split_whitespace().any(|w| w == "update") {
             out.push("It does not notice pure block updates: a neighbour changing while the watched block itself stays the same gives no pulse.".to_string());
         }
+    }
+    // a randomizer's fairness (the verdict's `uniform:` flag), in plain numbers
+    if let Some((presses, _, counts)) = b.circuit.as_ref().and_then(site_model::html::randomizer_fairness) {
+        let list = list_words(&counts.iter().map(|n| n.to_string()).collect::<Vec<_>>().iter().map(String::as_str).collect::<Vec<_>>(), "and");
+        out.push(format!("Fair: its outputs came up {list} times in {presses} presses."));
     }
     // a clock too fast for a lamp (critique a417977c3: a redstone lamp waits 4 ticks before going
     // dark, so on a clock whose output is off for less than that it stays lit): simulated at build
@@ -927,34 +914,132 @@ pub fn warning(b: &Build) -> Option<String> {
             _ => format!("A lamp on its output misses some pulses: its shortest gaps last only {gap}, and a redstone lamp goes dark only after more than 4 ticks (0.2 s) without power. Redstone dust there follows every pulse."),
         });
     }
-    let robustness = match (&b.circuit, &b.clock) {
-        (Some(c), _) => c.robustness.as_str(),
-        (None, Some(c)) => c.robustness.as_str(),
-        _ => "",
-    };
-    let directional = robustness.starts_with("rotation") || (b.kind == "door" && b.door.is_some() && !b.flags.iter().any(|f| f == "rotation-safe"));
-    if directional {
-        out.push("Works only facing the way it is shown here: build it from the download without turning it; turned another way it stops or changes its timing (our test tried all 4 directions).".to_string());
-    } else if (robustness.contains("position") || robustness.contains("offset")) && crate::explain::numbers_only_variation(robustness).is_none() {
-        // (one that passed the same way everywhere, a rate a little different at one spot, is
-        // no warning: its properties say the numbers; sorter 2026-10-22 on ld-chest)
-        out.push("Depends on where it is built: at another spot in the world its timing changed in our test, so try it where you build it.".to_string());
+    // (building it facing one way is a build step; where it is built, a fact)
+    let robustness = robustness_of(b);
+    if !directional(b) && (robustness.contains("position") || robustness.contains("offset")) && crate::explain::numbers_only_variation(robustness).is_none() {
+        // (one that works the same way everywhere, a rate a little different at one spot, says
+        // nothing here: its properties say the numbers; sorter 2026-10-22 on ld-chest)
+        out.push("Its timing changes with where it is built in the world: try it where you build it.".to_string());
     }
     // what a chunk reload does to a clock (clockinfra's `reload`: never a reason to hide)
     if let Some(w) = b.clock.as_ref().and_then(|c| reload_words(&c.reload)) {
         out.push(w);
     }
-    // no spot to take the output into a circuit (the judge's `usable`, vjeux 2026-10-21: a plain
-    // warning, never a reason to hide)
+    // no spot to take the output into a circuit (the judge's `usable`, vjeux 2026-10-21: said
+    // plainly, never a reason to hide)
     if b.clock.as_ref().is_some_and(|c| c.usable.starts_with("no")) {
         out.push(USABLE_WARNING.to_string());
     }
     if out.is_empty() { None } else { Some(out.join(" ")) }
 }
 
-/// The plain warning on a clock with no usable output (`clock::usable`: no cell beside it where a
+/// A design's robustness verdict (a circuit's, else a clock's).
+fn robustness_of(b: &Build) -> &str {
+    match (&b.circuit, &b.clock) {
+        (Some(c), _) => c.robustness.as_str(),
+        (None, Some(c)) => c.robustness.as_str(),
+        _ => "",
+    }
+}
+
+/// Works only facing one way (its verdict, or a door that is not rotation-safe).
+fn directional(b: &Build) -> bool {
+    robustness_of(b).starts_with("rotation") || (b.kind == "door" && b.door.is_some() && !b.flags.iter().any(|f| f == "rotation-safe"))
+}
+
+/// What a mob farm's card says about the world around it, in a player's words (the card's
+/// `rain`, `lightning`, `sunburn` and `restarts after days away` lines, mobinfra's and ironfarm's
+/// numbers): how weather changes its rate, how often lightning breaks it, what it needs from you.
+pub fn mob_farm_facts(c: &Circuit) -> Vec<String> {
+    let mut out = Vec::new();
+    // `clear day 305 iron/h; rain day 293 iron/h; thunder day 299 iron/h`
+    let rate = |part: &str| m(c, "rain").split("; ").find(|p| p.starts_with(part)).and_then(|p| p.split_whitespace().nth(2)).map(str::to_string);
+    if let (Some(clear), Some(rain), Some(thunder)) = (rate("clear day"), rate("rain day"), rate("thunder day")) {
+        out.push(format!("In rain it makes {rain} iron an hour and in thunder {thunder}, against {clear} on a clear day."));
+    }
+    // `…; the farm breaks in about 2871 game days (a fire first); …`
+    if let Some(part) = m(c, "lightning").split("; ").find(|p| p.starts_with("the farm breaks in about ")) {
+        let rest = part.trim_start_matches("the farm breaks in about ");
+        let days = rest.split_whitespace().next().and_then(|d| d.parse::<u64>().ok());
+        let first = rest.split_once('(').map(|(_, r)| r.trim_end_matches(')').trim_end_matches(" first").to_string()).filter(|f| !f.is_empty());
+        // (the judge's words for the first damage, as a cause: "a villager made a witch" reads
+        // "most likely by turning a villager into a witch")
+        let cause = |f: &str| match f {
+            "a villager made a witch" => "turning a villager into a witch".to_string(),
+            "the zombie's boat broken" => "breaking the zombie's boat".to_string(),
+            "a skeleton trap horse on the farm" => "a skeleton trap horse".to_string(),
+            f => f.to_string(),
+        };
+        if let Some(d) = days {
+            // (a game day lasts 20 minutes: 3 a played hour)
+            let hours = (d as f64 / 3.0).round() as u64;
+            out.push(format!(
+                "Lightning breaks it about once every {} game days ({} hours of play){}.",
+                thousands(d),
+                thousands(hours),
+                first.map(|f| format!(", most likely by {}", cause(&f))).unwrap_or_default()
+            ));
+        }
+    }
+    if m(c, "sunburn").starts_with("the zombie sees the sky") {
+        out.push("Its zombie sees the sky: it burns on its first clear day.".to_string());
+    }
+    if m(c, "restarts after days away").starts_with("no") {
+        out.push("After you have been away for 3 game days, it does not start again by itself.".to_string());
+    }
+    out
+}
+
+/// What to do while building it, for the "Build it" steps ([`needs`] ends with them): the build
+/// facts the warning box used to hold (vjeux 2026-11-08 10:10: a mechanism is not a warning).
+fn build_steps(b: &Build) -> Vec<String> {
+    let mut v = Vec::new();
+    if directional(b) {
+        v.push("Build it facing the way the download does, without turning it: turned another way it stops or changes its timing.".to_string());
+    }
+    // a tripwire it keeps for itself (an automatic door's strings are its walker sensor, there to
+    // be crossed; a mob farm's are inside the farm, a normal part)
+    let tripwire = b.kinds.iter().any(|k| k.starts_with("tripwire"));
+    if tripwire && !b.circuit.as_ref().is_some_and(|c| c.kind.starts_with("auto-door") || crate::explain::mob_farm(c)) {
+        v.push("Keep its tripwire string enclosed: a mob, a player or a dropped item crossing it adds a pulse.".to_string());
+    }
+    // an automatic door: what else opens it (the reviewer's and the coordinator's page
+    // must-haves, 2026-10-22: no detector tells a player from a mob; a string feels dropped items)
+    if b.circuit.as_ref().is_some_and(|c| c.kind.starts_with("auto-door")) {
+        v.push(MOB_PLATES.to_string());
+        if tripwire {
+            v.push("Its outer rows are tripwire strings, which a dropped item presses too: keep items off them.".to_string());
+        }
+    }
+    if b.kinds.iter().any(|k| k.starts_with("daylight_detector")) {
+        // (an iron farm's inverted detectors are its dusk clock)
+        v.push(if b.circuit.as_ref().is_some_and(crate::explain::mob_farm) { "Leave open sky above its daylight detectors: they are its dusk clock.".to_string() } else { "Leave open sky above its daylight detector.".to_string() });
+    }
+    if let Some(c) = b.circuit.as_ref() {
+        // a crop farm whose sculk sensor hears its crop: copies stand apart
+        if c.kind.starts_with("harvester") && b.kinds.iter().any(|k| k.contains("sculk_sensor"))
+            && let Some(s) = site_model::html::tile_step(c)
+        {
+            v.push(format!("Build copies {s} blocks apart, so one does not hear another."));
+        }
+        // the sorter's real-use runs (study 13, circuit::sorter): where its water stream may end
+        if c.kind.starts_with("sorter") && !m(c, "badges").split('+').any(|w| w == "stream-direct") {
+            v.push("End a water stream on a hopper of the line before the first slice, not on the first slice itself: that slice's hopper would take whole stacks and pass some of its own kind on unsorted. Nor put a hopper pointing down on top of the first slice: it feeds the line twice as fast.".to_string());
+        }
+        // a mob farm that needs the player's hand once (`restarts after a missed night: no`)
+        if crate::explain::mob_farm(c) {
+            let first = crate::explain::first_night(c).trim();
+            if !first.is_empty() {
+                v.push(first.to_string());
+            }
+        }
+    }
+    v
+}
+
+/// The plain line on a clock with no usable output (`clock::usable`: no cell beside it where a
 /// repeater, a comparator or an observer takes every pulse).
-pub const USABLE_WARNING: &str = "Hard to wire into a circuit: we found no spot beside it where a repeater, a comparator or an observer picks up every pulse.";
+pub const USABLE_WARNING: &str = "Hard to wire into a circuit: there is no spot beside it where a repeater, a comparator or an observer picks up every pulse.";
 
 /// What a build needs to work where you build it, for its opening lines (critique, real-world
 /// lens: a TNT duper that must stand 8 blocks up said so only deep in its notes): a TNT duper's
@@ -1034,24 +1119,24 @@ fn loading_recipe(design: &str) -> Option<String> {
 
 pub fn needs(b: &Build, design: &str) -> Vec<String> {
     let mut v = Vec::new();
-    // the 0-9 display: its input chest and its face's 13 lamps are our test's (the download has
-    // blocks of the decoder only), and its limits, plainly (the reviewer via the coordinator
+    // the 0-9 display: its input chest and its face's 13 lamps are not in the download (it has the
+    // decoder's blocks only), and its limits, plainly (the reviewer via the coordinator
     // 2026-10-22: one digit only; copies stand 13 blocks apart)
     if let Some(c) = b.circuit.as_ref().filter(|c| site_model::html::decimal_display(c)) {
         let lamps = c.outputs.len();
-        v.push(format!("After building it, put a chest (or any container) where the view shows the chest tagged A, and a redstone lamp in each of the {lamps} cells of its face: the download has none of them (our test adds them, and they do not count in its blocks)."));
+        v.push(format!("After building it, put a chest (or any container) where the view shows the chest tagged A, and a redstone lamp in each of the {lamps} cells of its face: none of them is in the download or its block count."));
         let wide = b.dims.as_deref().and_then(|d| d.split('x').next()).and_then(|w| w.trim().parse::<u32>().ok());
         v.push(match wide {
-            Some(w) => format!("One digit only: the build is {w} blocks wide (the face is 3 of them), so copies stand {w} blocks apart and cannot make a two-digit number yet. It is tested for signals 0 to 9; a fuller container (signal 10 to 15) shows no digit we checked."),
-            None => "One digit only: copies cannot stand close enough to make a two-digit number yet. It is tested for signals 0 to 9; a fuller container (signal 10 to 15) shows no digit we checked.".to_string(),
+            Some(w) => format!("One digit only: the build is {w} blocks wide (the face is 3 of them), so copies stand {w} blocks apart and cannot make a two-digit number yet. It shows the digits of signals 0 to 9 only."),
+            None => "One digit only: copies cannot stand close enough to make a two-digit number yet. It shows the digits of signals 0 to 9 only.".to_string(),
         });
     }
     if let Some(c) = &b.circuit {
         if let Some((_, drop)) = c.metrics.iter().find(|(k, _)| k == "safe drop") {
             // a precise drop: its blast's depth under the machine, from the judge's summary ("in
-            // mid-air 10.0 blocks below the machine"), and the height our test stood it at: one
-            // plain statement (critique b0fb9ae4e: "at least 4 up", "10 under the machine" and the
-            // view's "23 above the ground" read as three contradicting heights)
+            // mid-air 10.0 blocks below the machine"): one plain statement (critique b0fb9ae4e: "at
+            // least 4 up", "10 under the machine" and the view's "23 above the ground" read as three
+            // contradicting heights)
             let below = site_model::html::tnt_burst_depth(c);
             let stood = c.metrics.iter().find(|(k, _)| k == "stands").and_then(|(_, v)| v.split_whitespace().next()?.parse::<u32>().ok());
             match (drop.split_whitespace().next().and_then(|n| n.parse::<u32>().ok()), below) {
@@ -1059,22 +1144,21 @@ pub fn needs(b: &Build, design: &str) -> Vec<String> {
                     let need = depth.floor() as u32 + 1;
                     let num = |x: f64| if x.fract() == 0.0 { format!("{x:.0}") } else { format!("{x:.1}") };
                     v.push(format!(
-                        "Every TNT explodes {} blocks under the machine, so stand it at least {need} blocks up for the blast to be in mid-air{}; the machine itself survives from {safe} block{} up.",
+                        "Every TNT explodes {} blocks under the machine, so stand it at least {need} blocks up for the blast to be in mid-air; the machine itself survives from {safe} block{} up.",
                         num(depth),
-                        stood.map(|h| format!(" (our test stood it {h} blocks up)")).unwrap_or_default(),
                         if safe == 1 { "" } else { "s" }
                     ));
                 }
-                (Some(0), None) => v.push("Works standing on the ground.".to_string()),
+                (Some(0), None) => v.push("It works standing right on the ground.".to_string()),
                 // a design that declares its stand height (`stand: N`): said plainly (vjeux 11:49Z:
                 // "stand it 4 blocks up"), and whether that is the lowest it is safe at (vjeux
                 // 15:17Z: "is stand 6 the safe minimum?")
                 (Some(n), None) if stood.is_some_and(|h| h >= n) => {
                     let h = stood.unwrap_or(n);
                     v.push(if h == n {
-                        format!("Stand it {h} blocks up, the lowest our test found safe: lower, its own TNT explodes close enough to destroy it.")
+                        format!("Stand it {h} blocks up, the lowest it is safe at: lower, its own TNT explodes close enough to destroy it.")
                     } else {
-                        format!("Stand it {h} blocks up (our test found it safe from {n} block{} up: lower, its own TNT explodes close enough to destroy it).", if n == 1 { "" } else { "s" })
+                        format!("Stand it {h} blocks up (it is safe from {n} block{} up: lower, its own TNT explodes close enough to destroy it).", if n == 1 { "" } else { "s" })
                     });
                 }
                 // (true for launchers and droppers alike: critique, "lands under it" contradicted a
@@ -1127,12 +1211,11 @@ pub fn needs(b: &Build, design: &str) -> Vec<String> {
                 if hoppers > 2 * chests as usize { format!("put a chest under the end of each of its {chests} hopper lines") } else { format!("put a chest under each of its {chests} hoppers") }
             };
             // (a fuel farm's lines feed the super smelter: only the bamboo is missing from the
-            // download, and our test's chests stand in for the smelter's fuel chest)
+            // download, and the view's chests stand in for the smelter's fuel chest)
             if site_model::html::fuel_rates(c).is_some() {
-                let each = if chests == 1 { "a chest at the end of its line" } else { "a chest at the end of each line" };
-                v.push(format!("After building it, {plant} and {chest}: the download has no {} (our test adds it, and {each}, which do not count in its blocks).", site_model::html::crop_words(c)));
+                v.push(format!("After building it, {plant} and {chest}: the download has no {}.", site_model::html::crop_words(c)));
             } else {
-                v.push(format!("After building it, {plant} and {chest}: the download has neither (our test adds them, and they do not count in its blocks)."));
+                v.push(format!("After building it, {plant} and {chest}: neither is in the download or its block count."));
             }
             // (light: a stem or bamboo grows only at light 9 or more, fly's QA; the full-size
             // farms' line, w86)
@@ -1147,7 +1230,7 @@ pub fn needs(b: &Build, design: &str) -> Vec<String> {
         }
         // an item elevator: its two chests are our test's (not counted, not in the download)
         if c.kind.starts_with("item-elevator") {
-            v.push("After building it, put a chest on top of its hopper (the items to lift) and one at the top, where the view shows its output: the download has neither (our test adds them, and they do not count in its blocks).".to_string());
+            v.push("After building it, put a chest on top of its hopper (the items to lift) and one at the top, where the view shows its output: neither is in the download or its block count.".to_string());
         }
         // an auto-smelter: its input, fuel and output chests are our test's (fly's QA: a player
         // got furnaces and hoppers only); a double chest where the design names two halves
@@ -1156,7 +1239,7 @@ pub fn needs(b: &Build, design: &str) -> Vec<String> {
             let double = |p: &str| design.lines().any(|l| l.trim_start().starts_with(&format!("port {p}.b:")));
             let chest = |p: &str, what: &str| if double(p) { format!("a double chest at {what}") } else { format!("a chest at {what}") };
             v.push(format!(
-                "After building it, put {}, {} and a chest at OUT (the results): the download has none of them (our test adds them, and they do not count in its blocks).",
+                "After building it, put {}, {} and a chest at OUT (the results): none of them is in the download or its block count.",
                 chest("items", "ITEMS (the items to smelt)"),
                 chest("fuel", "FUEL (the coal)")
             ));
@@ -1164,16 +1247,16 @@ pub fn needs(b: &Build, design: &str) -> Vec<String> {
         // a hopper-minecart unloader / loader: its chest is our test's when the design names it
         // as a port (not counted, not in the download)
         if c.kind.starts_with("cart-unloader") && design.lines().any(|l| l.trim_start().starts_with("port output")) {
-            v.push("After building it, put a chest where the view shows its output (the items it unloads): the download has none (our test adds it, and it does not count in its blocks).".to_string());
+            v.push("After building it, put a chest where the view shows its output (the items it unloads): it is not in the download or its block count.".to_string());
         }
         if c.kind.starts_with("cart-loader") && design.lines().any(|l| l.trim_start().starts_with("port items")) {
-            v.push("After building it, put a chest where the view shows its supply and fill it with the items to load: the download has none (our test adds it, and it does not count in its blocks).".to_string());
+            v.push("After building it, put a chest where the view shows its supply and fill it with the items to load: it is not in the download or its block count.".to_string());
         }
         // a whole minecart line: its two double chests and its cart are our test's; both ends must
         // be running (designs/briefs/cart-transport.md: a cart in a chunk that is not ticking
         // stops)
         if site_model::html::cart_line(c) {
-            v.push("After building it, put a double chest at each end, the supply chest at the loader and the storage chest at the unloader (where the view shows them), and one hopper minecart on the track: the download has none of them (our test adds them, and they do not count in its blocks). A cart stops in chunks the game is not running: with a server's default simulation distance this line keeps working while you stand at either end.".to_string());
+            v.push("After building it, put a double chest at each end, the supply chest at the loader and the storage chest at the unloader (where the view shows them), and one hopper minecart on the track: none of them is in the download or its block count. A cart stops in chunks the game is not running: with a server's default simulation distance this line keeps working while you stand at either end.".to_string());
         }
         // an auto-crafter: its supply and output chests are our test's; its crafters' disabled
         // slots are part of the build (the download keeps them, a hand build must set them)
@@ -1184,9 +1267,9 @@ pub fn needs(b: &Build, design: &str) -> Vec<String> {
             let supplies: Vec<String> = design.lines().filter_map(|l| l.trim_start().strip_prefix("port items")).map(|r| r.split([':', ' ']).next().unwrap_or("").trim_start_matches('.').replace('_', " ")).collect();
             if supplies.len() > 1 {
                 let names = list_words(&supplies.iter().map(String::as_str).collect::<Vec<_>>(), "and");
-                v.push(format!("After building it, put a chest where the view shows each of its {} supplies ({names}) and one at its output: the download has none of them (our test adds them, and they do not count in its blocks).", supplies.len()));
+                v.push(format!("After building it, put a chest where the view shows each of its {} supplies ({names}) and one at its output: none of them is in the download or its block count.", supplies.len()));
             } else {
-                v.push("After building it, put a chest on top of its hopper (the supply) and one under it (the output): the download has neither (our test adds them, and they do not count in its blocks).".to_string());
+                v.push("After building it, put a chest on top of its hopper (the supply) and one under it (the output): neither is in the download or its block count.".to_string());
             }
             if !disabled.is_empty() {
                 // (which crafters: a design's working crafter and the one held as a constant 9,
@@ -1201,11 +1284,7 @@ pub fn needs(b: &Build, design: &str) -> Vec<String> {
                 });
             }
         }
-        // a randomizer's fairness, from our test (the verdict's `uniform:` flag), in plain numbers
-        if let Some((presses, runs, counts)) = site_model::html::randomizer_fairness(c) {
-            let list = list_words(&counts.iter().map(|n| n.to_string()).collect::<Vec<_>>().iter().map(String::as_str).collect::<Vec<_>>(), "and");
-            v.push(format!("Fair in the real game: over {presses} presses in {runs} builds, its outputs came up {list} times."));
-        }
+        // (a randomizer's fairness: a fact under its opening sentence, [`facts`])
         // a duper lit by one short pulse of a redstone block's removal: what its input is, and why
         // a button lights more (the judge's pulse is 4 ticks; a stone button holds 20); a duper with
         // its own button or lever says nothing here
@@ -1241,8 +1320,20 @@ pub fn needs(b: &Build, design: &str) -> Vec<String> {
             None => v.push(format!("Comes loaded with {} in its containers: the download includes {}; building it by hand, put {} in first.", list.join(" and "), if one { "it" } else { "them" }, if one { "it" } else { "them" })),
         }
     }
-    if b.kinds.iter().any(|k| k == "water") {
-        v.push("Needs water where the view shows it.".to_string());
+    // water and lava are poured in by hand (a bucket each source; a mob farm's card counts its
+    // lava sources)
+    let wet = b.kinds.iter().any(|k| k == "water");
+    let lava = b.kinds.iter().any(|k| k == "lava");
+    let sources = b.circuit.as_ref().and_then(|c| c.metrics.iter().find(|(k, _)| k == "lava sources")).and_then(|(_, v)| v.parse::<u32>().ok()).filter(|n| *n > 1);
+    let lava_words = match sources {
+        Some(n) => format!("lava ({n} bucketfuls)"),
+        None => "lava".to_string(),
+    };
+    match (wet, lava) {
+        (true, true) => v.push(format!("Pour in the water and the {lava_words} where the view shows them.")),
+        (true, false) => v.push("Pour in the water where the view shows it.".to_string()),
+        (false, true) => v.push(format!("Pour in the {lava_words} where the view shows it.")),
+        (false, false) => {}
     }
     // item frames hold an item each, or a comparator reads nothing from them (critique 41f1ec62a:
     // the lock's page never said to put an item in each frame)
@@ -1260,7 +1351,9 @@ pub fn needs(b: &Build, design: &str) -> Vec<String> {
             if n == 1 { "" } else { "s" }
         ));
     }
-    // (open sky for a daylight detector: said in its warning line)
+    // what the old warning box held that is a build step: facing, a tripwire kept enclosed, open
+    // sky, the plates of an automatic door, a sorter's water stream, a farm's first night
+    v.extend(build_steps(b));
     v
 }
 
@@ -1280,7 +1373,7 @@ pub fn slower_line(b: &Build) -> Option<String> {
         (true, db) if db > 0 => format!("; each step adds {} and {}", ticks(&format!("{} gt", e.dt)), site_model::html::blocks_word(db as u32)),
         (true, _) => format!("; each step adds {}", ticks(&format!("{} gt", e.dt))),
     };
-    Some(format!("To make it slower: {}{adds}, up to every {}.", e.rule, ticks(&format!("{} gt", e.hi))))
+    Some(format!("To make it slower: {}{adds}, up to every {}.", crate::explain::period_codes(&e.rule), ticks(&format!("{} gt", e.hi))))
 }
 
 /// `1111` -> `1,111`.
@@ -1302,20 +1395,21 @@ fn thousands(n: u64) -> String {
 pub fn reload_words(reload: &str) -> Option<String> {
     let r = reload.trim();
     let (what, some) = match r.split_once(" in ") {
-        Some((w, k)) if k.ends_with(" builds") => (w.trim(), Some(k.trim_end_matches(" builds").to_string())),
-        _ => (r, None),
+        Some((w, k)) if k.ends_with(" builds") => (w.trim(), true),
+        _ => (r, false),
     };
-    let some = some.map(|k| format!(" (in {k} of our test builds)")).unwrap_or_default();
+    // (it happened in some builds, not all: "can", "may"; never how many of our builds, vjeux
+    // 2026-11-08 10:10)
     let walk = "its chunk unloads mid-cycle (you walk away and come back)";
     Some(if what == "stops" {
-        format!("Stops for good if {walk}{some}: start it again the way you started it after building it.")
+        format!("{} for good if {walk}: start it again the way you started it after building it.", if some { "It can stop" } else { "Stops" })
     } else if what == "glitch then resumes" {
-        format!("If {walk}, it skips a beat, then keeps going{some}.")
+        format!("If {walk}, it {} a beat, then keeps going.", if some { "may skip" } else { "skips" })
     } else if let Some(p) = what.strip_prefix("changes period to ") {
         let gt = p.trim_end_matches(" gt").trim();
-        format!("If {walk}, its period changes to {}{some}.", ticks(&format!("{gt} gt")))
+        format!("If {walk}, its period {} to {}.", if some { "may change" } else { "changes" }, ticks(&format!("{gt} gt")))
     } else if let Some(why) = what.strip_prefix("fails: ") {
-        format!("A chunk reload breaks it{some}: {why}.")
+        format!("A chunk reload {} it: {why}.", if some { "can break" } else { "breaks" })
     } else {
         return None;
     })
@@ -1340,7 +1434,7 @@ pub fn door(b: &Build) -> (String, String) {
     };
     // (nothing plays at once, vjeux 21:29Z: the visitor presses play, then the door demo
     // runs, its lever flipped like the record videos; any input of the visitor's ends it)
-    (what, "Press play under the view: the door opens, stays open a moment and closes, again and again, like our record video. To take over, tap the lever or the Flip button under the view: once to open the door, again to close it.".to_string())
+    (what, "Press play under the view: the door opens, stays open a moment and closes, again and again. To take over, tap the lever or the Flip button under the view: once to open the door, again to close it.".to_string())
 }
 
 /// A clock's plain lines: (what it does, why you would build it, how to try it).
@@ -1390,7 +1484,14 @@ pub fn intro_box(b: &Build, has_viewer: bool) -> String {
         (None, "clock") => clock(b).1,
         _ => String::new(),
     };
-    let how = crate::explain::caption_plain(&b.caption);
+    let how = crate::explain::caption_plain(&b.caption, crate::explain::ticks_matter(b));
+    // (a mob farm's caption that opens on a summary of its card, "The day-1 iron farm: for 11
+    // iron … about 295 iron an hour (62% of the game's ceiling).", says how it works in its next
+    // sentence: that one, vjeux 2026-11-08 10:10, the page is for the player building it)
+    let how = match (&b.circuit, how.split_once(". ")) {
+        (Some(c), Some((head, rest))) if crate::explain::mob_farm(c) && head.contains(" iron an hour") && !rest.trim().is_empty() => rest.trim().to_string(),
+        _ => how,
+    };
     // (a caption opening on how to load or use it says the needs box or the opening line again:
     // its next sentence is how it works; the hidden-code locks: "Put any item in each of the 6
     // item frames; ...", the randomizers: "Press the button and one of the two outputs turns on
@@ -1407,6 +1508,12 @@ pub fn intro_box(b: &Build, has_viewer: bool) -> String {
     // ("Inside, two droppers ...": the how, without its lead-in)
     let how = how.strip_prefix("Inside, ").map(first_cap).unwrap_or(how);
     let how = first_sentence(&how);
+    // (a caption that was nothing but our notes, a design's working comments: its own `how:` line,
+    // the title's few words, said as a sentence; the parent 2026-11-08: no internal notes on a page)
+    let how = match &b.circuit {
+        Some(c) if how.is_empty() && !c.feature.is_empty() && crate::explain::internal_tokens(&c.feature).is_empty() => esc(&format!("{}.", first_cap(&c.feature))),
+        _ => how,
+    };
     if try_line.is_empty() && how.is_empty() {
         return String::new();
     }
@@ -1444,26 +1551,29 @@ mod tests {
     }
 
     #[test]
-    fn warnings_say_every_limitation() {
-        // a tripwire clock that only works facing one way says both, in plain words
+    fn facts_say_every_limitation() {
+        // a tripwire clock that only works facing one way: both are build steps, not warnings
+        // (vjeux 2026-11-08 10:10: "the use of a tripwire is not a warning")
         let b = Build {
             kind: "clock".into(),
             kinds: vec!["tripwire".into(), "tripwire_hook".into(), "oak_boat".into()],
             clock: Some(site_model::ClockInfo { period: 40, robustness: "rotation-dependent".into(), ..Default::default() }),
             ..Default::default()
         };
-        let w = warning(&b).unwrap_or_default();
-        assert!(w.contains("Uses a tripwire") && w.contains("Works only facing the way it is shown here"), "{w}");
+        assert!(facts(&b).is_none(), "{:?}", facts(&b));
+        let steps = needs(&b, "").join(" ");
+        assert!(steps.contains("Keep its tripwire string enclosed") && steps.contains("Build it facing the way the download does"), "{steps}");
         let day = Build { kind: "clock".into(), kinds: vec!["daylight_detector".into()], clock: Some(site_model::ClockInfo { period: 20, robustness: "robust".into(), ..Default::default() }), ..Default::default() };
-        assert!(warning(&day).unwrap_or_default().contains("stops at night and in rain"));
-        assert!(warning(&Build { kind: "clock".into(), clock: Some(site_model::ClockInfo { period: 4, robustness: "robust".into(), ..Default::default() }), ..Default::default() }).is_none());
-        // no usable output (the judge's usable column): a plain warning; usable: none
-        let hard = |u: &str| warning(&Build { kind: "clock".into(), clock: Some(site_model::ClockInfo { period: 4, robustness: "robust".into(), usable: u.into(), ..Default::default() }), ..Default::default() });
+        assert!(facts(&day).unwrap_or_default().contains("stops at night and in rain"));
+        assert!(needs(&day, "").iter().any(|s| s == "Leave open sky above its daylight detector."), "{:?}", needs(&day, ""));
+        assert!(facts(&Build { kind: "clock".into(), clock: Some(site_model::ClockInfo { period: 4, robustness: "robust".into(), ..Default::default() }), ..Default::default() }).is_none());
+        // no usable output (the judge's usable column): said plainly; usable: none
+        let hard = |u: &str| facts(&Build { kind: "clock".into(), clock: Some(site_model::ClockInfo { period: 4, robustness: "robust".into(), usable: u.into(), ..Default::default() }), ..Default::default() });
         assert_eq!(hard("no: the output [0, -1, 0] is under the build").as_deref(), Some(USABLE_WARNING));
         assert!(hard("yes").is_none() && hard("").is_none());
-        // a chunk reload, in plain words (clockinfra's reload column)
+        // a chunk reload, in plain words (clockinfra's reload column), never how many of our builds
         assert!(reload_words("stops").unwrap().starts_with("Stops for good if its chunk unloads mid-cycle"));
-        assert_eq!(reload_words("glitch then resumes in 2 of 4 builds").unwrap(), "If its chunk unloads mid-cycle (you walk away and come back), it skips a beat, then keeps going (in 2 of 4 of our test builds).");
+        assert_eq!(reload_words("glitch then resumes in 2 of 4 builds").unwrap(), "If its chunk unloads mid-cycle (you walk away and come back), it may skip a beat, then keeps going.");
         assert!(reload_words("changes period to 12 gt").unwrap().contains("its period changes to 12 ticks (0.6 s)"));
         assert!(reload_words("ok").is_none() && reload_words("").is_none());
     }
@@ -1473,10 +1583,13 @@ mod tests {
         // where the items go IS the build (critique): each hopper's slots in words, top first
         let design = "name: s\ncircuit: sorter iron_ingot\norigin: 0 0 0\npalette:\n  A minecraft:hopper[enabled=true,facing=down]\n  B minecraft:hopper[enabled=false,facing=down]\nlayer 1:\n  B\nlayer 2:\n  A\nnbt: 0 2 0 {Items:[{Slot:0b,id:\"minecraft:iron_ingot\",count:41},{Slot:1b,id:\"minecraft:paper\",count:1,components:{\"minecraft:custom_name\":\"filter\"}},{Slot:2b,id:\"minecraft:paper\",count:1,components:{\"minecraft:custom_name\":\"filter\"}},{Slot:3b,id:\"minecraft:paper\",count:1,components:{\"minecraft:custom_name\":\"filter\"}},{Slot:4b,id:\"minecraft:paper\",count:1,components:{\"minecraft:custom_name\":\"filter\"}}]}\nnbt: 0 1 0 {Items:[{Slot:0b,id:\"minecraft:iron_ingot\",count:64},{Slot:1b,id:\"minecraft:paper\",count:1,components:{\"minecraft:custom_name\":\"lock\"}},{Slot:2b,id:\"minecraft:paper\",count:1,components:{\"minecraft:custom_name\":\"lock\"}},{Slot:3b,id:\"minecraft:paper\",count:1,components:{\"minecraft:custom_name\":\"lock\"}},{Slot:4b,id:\"minecraft:paper\",count:1,components:{\"minecraft:custom_name\":\"lock\"}}]}\n";
         let b = Build { circuit: Some(circuit("sorter iron_ingot", &[])), ..Default::default() };
+        let v = needs(&b, design);
         assert_eq!(
-            needs(&b, design),
-            vec!["Load it exactly like this (the download comes loaded): the upper hopper holds 41 iron ingots in its first slot and one paper named “filter” in each of the other four; the lower hopper holds 64 iron ingots in its first slot and one paper named “lock” in each of the other four.".to_string()]
+            v[0],
+            "Load it exactly like this (the download comes loaded): the upper hopper holds 41 iron ingots in its first slot and one paper named “filter” in each of the other four; the lower hopper holds 64 iron ingots in its first slot and one paper named “lock” in each of the other four."
         );
+        // (where its water stream ends: a build step, its old warning box's line)
+        assert!(v[1].starts_with("End a water stream on a hopper of the line before the first slice"), "{v:?}");
     }
 
     #[test]
@@ -1491,11 +1604,11 @@ mod tests {
         let shovels = needs(&Build { circuit: Some(circuit("randomizer 4", &[])), ..Default::default() }, "nbt: 0 0 0 {Items:[{Slot:0b,id:\"minecraft:iron_shovel\",count:1}]}\nnbt: 2 0 0 {Items:[{Slot:0b,id:\"minecraft:iron_shovel\",count:1}]}");
         assert!(shovels.iter().any(|n| n.starts_with("Comes loaded with 2 iron shovels in its containers")), "{shovels:?}");
         let ground = Build { circuit: Some(circuit("tnt-duper", &[("safe drop", "0 blocks (on the ground)")])), ..Default::default() };
-        assert_eq!(needs(&ground, ""), vec!["Works standing on the ground.".to_string()]);
-        // a declared stand: whether it is the lowest safe one (vjeux 15:17Z)
+        assert_eq!(needs(&ground, ""), vec!["It works standing right on the ground.".to_string()]);
+        // a declared stand: whether it is the lowest safe one (vjeux 15:17Z), nothing of our test
         let at = |stands: &str| needs(&Build { circuit: Some(circuit("tnt-duper", &[("safe drop", "6 blocks"), ("stands", stands)])), ..Default::default() }, "")[0].clone();
-        assert_eq!(at("6 blocks above the ground"), "Stand it 6 blocks up, the lowest our test found safe: lower, its own TNT explodes close enough to destroy it.");
-        assert!(at("9 blocks above the ground").starts_with("Stand it 9 blocks up (our test found it safe from 6 blocks up"));
+        assert_eq!(at("6 blocks above the ground"), "Stand it 6 blocks up, the lowest it is safe at: lower, its own TNT explodes close enough to destroy it.");
+        assert!(at("9 blocks above the ground").starts_with("Stand it 9 blocks up (it is safe from 6 blocks up"));
     }
 
     #[test]
@@ -1530,18 +1643,18 @@ mod tests {
         };
         assert_eq!(c.metrics[0], ("per cane".to_string(), "8.0 blocks".to_string()));
         assert_eq!(c.metrics[1], ("items per hour per cane".to_string(), "2.89".to_string()));
-        assert_eq!(one_liner(&c), "Harvests sugar cane by itself, forever: every block that grows is broken and its item goes into a chest. At the game's normal growth speed (random tick speed 3) it gathers about 2.9 sugar cane an hour: 0.36 for each block placed.");
+        assert_eq!(one_liner(&c), "Harvests sugar cane by itself, forever: every block that grows is broken and its item goes into a chest. It gathers about 2.9 sugar cane an hour: 0.36 for each block placed.");
         let b = Build { circuit: Some(c.clone()), blocks: 8, ..Default::default() };
-        assert!(needs(&b, "").iter().any(|n| n.starts_with("After building it, plant one sugar cane on the dirt and put a chest under its hopper: the download has neither")), "{:?}", needs(&b, ""));
+        assert!(needs(&b, "").iter().any(|n| n.starts_with("After building it, plant one sugar cane on the dirt and put a chest under its hopper: neither is in the download or its block count")), "{:?}", needs(&b, ""));
         assert!(try_it(&c, true).ends_with("To farm more, build copies side by side, one every 5 blocks."));
         // (the view runs a farm like its judge: webrender's harvester view)
-        assert!(try_it(&c, true).starts_with("The view plants the sugar cane and puts our test's chest under its hopper, then runs it like our test"), "{}", try_it(&c, true));
+        assert!(try_it(&c, true).starts_with("The view plants the sugar cane, puts a chest under its hopper and grows the sugar cane"), "{}", try_it(&c, true));
         // the card leads with the farm's own harvest (vjeux 21:39Z; the coordinator 2026-10-22:
-        // "3,300 melon slices an hour · 64 stems · 785 blocks · 4.2 per block · ~2,100 iron · needs
+        // "3,300 melon slices an hour · 64 stems · 785 blocks · 4.2 an hour per block · ~2,100 iron to build · needs
         // open sky or light 9"), the efficiency after its blocks
         let card = site_model::html::props(&b);
-        assert_eq!(card.title, "2.9 sugar cane an hour · 1 cane · 8 blocks · 0.36 per block · 16 iron · needs nothing but water");
-        assert!(card.sub.starts_with("at the game's normal growth speed (random tick speed 3) · takes each block as soon as it grows"), "{}", card.sub);
+        assert_eq!(card.title, "2.9 sugar cane an hour · 1 cane · 8 blocks · 0.36 an hour per block · 16 iron to build · needs nothing but water");
+        assert!(card.sub.starts_with("takes each block as soon as it grows"), "{}", card.sub);
         // two canes, two chests; its west cane waits for the east cane's next growth step
         let two = Circuit {
             metrics: crate::circuits::parse_metrics("per cane 6.5 blocks, items per hour per cane 2.82, harvest height 2, wait 91 gt, bill 32 iron, 1 quartz, 5 redstone"),
@@ -1553,8 +1666,8 @@ mod tests {
         };
         let b2 = Build { circuit: Some(two.clone()), blocks: 13, ..Default::default() };
         let card = site_model::html::props(&b2);
-        assert_eq!(card.title, "5.6 sugar cane an hour · 2 canes · 13 blocks · 0.43 per block · 32 iron · needs nothing but water");
-        assert!(card.sub.contains("at the game's normal growth speed (random tick speed 3) · harvests each cane at 2 blocks tall"), "{}", card.sub);
+        assert_eq!(card.title, "5.6 sugar cane an hour · 2 canes · 13 blocks · 0.43 an hour per block · 32 iron to build · needs nothing but water");
+        assert!(card.sub.contains("harvests each cane at 2 blocks tall"), "{}", card.sub);
         assert!(needs(&b2, "").iter().any(|n| n.starts_with("After building it, plant a sugar cane on each of its 2 dirt blocks and put a chest under each of its 2 hoppers")), "{:?}", needs(&b2, ""));
         // (the judge's own efficiency numbers win when it gives them: w86, coming)
         let judged = Circuit { metrics: crate::circuits::parse_metrics("per cane 6.5 blocks, items per hour per cane 2.82, items per hour per block 0.40, items per hour 5.20, harvest height 2"), ..two.clone() };
@@ -1574,9 +1687,9 @@ mod tests {
         };
         let b3 = Build { circuit: Some(bamboo.clone()), blocks: 12, ..Default::default() };
         let card = site_model::html::props(&b3);
-        assert_eq!(card.title, "17 bamboo an hour · 1 stalk · 12 blocks · 1.4 per block · 31 iron · needs open sky or light 9");
-        assert!(card.sub.contains("at the game's normal growth speed (random tick speed 3) · harvests each stalk at 3 blocks tall") && !card.sub.contains("cane"), "{}", card.sub);
-        assert!(one_liner(&bamboo).contains("it gathers about 17 bamboo an hour: 1.4 for each block placed"), "{}", one_liner(&bamboo));
+        assert_eq!(card.title, "17 bamboo an hour · 1 stalk · 12 blocks · 1.4 an hour per block · 31 iron to build · needs open sky or light 9");
+        assert!(card.sub.contains("harvests each stalk at 3 blocks tall") && !card.sub.contains("cane"), "{}", card.sub);
+        assert!(one_liner(&bamboo).contains("It gathers about 17 bamboo an hour: 1.4 for each block placed"), "{}", one_liner(&bamboo));
         assert!(needs(&b3, "").iter().any(|n| n.starts_with("After building it, plant one bamboo on the mud and put a chest under each of its 2 hoppers")), "{:?}", needs(&b3, ""));
         // (bamboo grows only at light 9: fly's QA)
         assert!(needs(&b3, "").iter().any(|n| n.starts_with("It needs open sky, or light 9 at every stalk")), "{:?}", needs(&b3, ""));
@@ -1599,7 +1712,7 @@ mod tests {
         };
         let b4 = Build { circuit: Some(kelp.clone()), blocks: 17, ..Default::default() };
         let card = site_model::html::props(&b4);
-        assert!(card.title == "7.1 kelp an hour · 1 plant · 17 blocks · 0.42 per block · 11 iron · needs nothing but water" && card.sub.contains("at the game's normal growth speed (random tick speed 3) · takes each block as soon as it grows") && !card.sub.contains("cane"), "{} | {}", card.title, card.sub);
+        assert!(card.title == "7.1 kelp an hour · 1 plant · 17 blocks · 0.42 an hour per block · 11 iron to build · needs nothing but water" && card.sub.contains("takes each block as soon as it grows") && !card.sub.contains("cane"), "{} | {}", card.title, card.sub);
         // (kelp grows in the dark)
         assert!(!needs(&b4, "").iter().any(|n| n.contains("light 9")), "{:?}", needs(&b4, ""));
         assert!(needs(&b4, "").iter().any(|n| n.starts_with("After building it, plant one kelp in the water on top of its hopper and put a chest under each of its 2 hoppers")), "{:?}", needs(&b4, ""));
@@ -1622,9 +1735,9 @@ mod tests {
         };
         let b5 = Build { circuit: Some(melon.clone()), blocks: 7, ..Default::default() };
         let card = site_model::html::props(&b5);
-        assert_eq!(card.title, "4.8 melon slices an hour · 1 stem · 7 blocks · 0.69 per block · 16 iron · needs open sky or light 9");
-        assert!(card.sub.contains("at the game's normal growth speed (random tick speed 3)") && !card.sub.contains("tall"), "{}", card.sub);
-        assert_eq!(one_liner(&melon), "Harvests melons by itself, forever: every melon that grows beside its stem is broken and its slices go into a chest. At the game's normal growth speed (random tick speed 3) it gathers about 4.8 melon slices an hour: 0.69 for each block placed.");
+        assert_eq!(card.title, "4.8 melon slices an hour · 1 stem · 7 blocks · 0.69 an hour per block · 16 iron to build · needs open sky or light 9");
+        assert!(!card.sub.contains("normal growth speed") && !card.sub.contains("tall"), "{}", card.sub);
+        assert_eq!(one_liner(&melon), "Harvests melons by itself, forever: every melon that grows beside its stem is broken and its slices go into a chest. It gathers about 4.8 melon slices an hour: 0.69 for each block placed.");
         assert!(needs(&b5, "").iter().any(|n| n.starts_with("After building it, plant one melon seed on the farmland and put a chest under its hopper")), "{:?}", needs(&b5, ""));
         assert!(try_it(&melon, true).starts_with("The view shows the build only: the browser's simulator does not grow melons yet. Download it to watch it harvest in the game."), "{}", try_it(&melon, true));
         // a cactus farm (w86's cactus-wool-9b): per plant, on sand, its sculk sensor said plainly
@@ -1643,9 +1756,10 @@ mod tests {
         };
         let b6 = Build { circuit: Some(cactus.clone()), blocks: 9, kinds: vec!["sculk_sensor".into(), "hopper".into()], ..Default::default() };
         let card = site_model::html::props(&b6);
-        assert!(card.title == "2.9 cactus an hour · 1 plant · 9 blocks · 0.32 per block" && card.sub.contains("at the game's normal growth speed (random tick speed 3) · takes each block as soon as it grows"), "{} | {}", card.title, card.sub);
+        assert!(card.title == "2.9 cactus an hour · 1 plant · 9 blocks · 0.32 an hour per block" && card.sub.contains("takes each block as soon as it grows"), "{} | {}", card.title, card.sub);
         assert!(needs(&b6, "").iter().any(|n| n.starts_with("After building it, plant one cactus on the sand and put a chest under its hopper")));
-        assert_eq!(warning(&b6).as_deref(), Some("Uses a sculk sensor that hears its crop break. Footsteps, mobs or other noises within 8 blocks keep it busy for 2 seconds; a cactus that grows at the end of that time is lost. Copies must stand 9 blocks apart so one does not hear another."));
+        assert_eq!(facts(&b6).as_deref(), Some("Its sculk sensor hears its crop break. Footsteps, mobs or other noises within 8 blocks keep it busy for 2 seconds; a cactus that grows at the end of that time is lost."));
+        assert!(needs(&b6, "").iter().any(|n| n == "Build copies 9 blocks apart, so one does not hear another."), "{:?}", needs(&b6, ""));
     }
 
     /// clk-obs's 0-9 display (the coordinator 2026-10-22, with the reviewer's limits): the card,
@@ -1671,11 +1785,11 @@ mod tests {
         let n = needs(&b, "");
         assert!(n[0].starts_with("After building it, put a chest (or any container) where the view shows the chest tagged A, and a redstone lamp in each of the 13 cells of its face"), "{n:?}");
         assert!(n[1].starts_with("One digit only: the build is 13 blocks wide (the face is 3 of them), so copies stand 13 blocks apart and cannot make a two-digit number yet."), "{n:?}");
-        assert!(try_it(&c, true).starts_with("Press play under the view to watch our test on a loop: it fills the chest tagged A to every level from 0 to 9"), "{}", try_it(&c, true));
-        assert_eq!(crate::explain::obvious_line(&c), Some("For comparison: a straightforward one-hot decoder built by our generator takes 1,668 blocks for the same digit."));
+        assert!(try_it(&c, true).starts_with("Press play under the view to watch a demo on a loop: it fills the chest tagged A to every level from 0 to 9"), "{}", try_it(&c, true));
+        assert_eq!(crate::explain::obvious_line(&c), Some("For comparison: a straightforward one-hot decoder takes 1,668 blocks for the same digit."));
         assert_eq!(crate::explain::kind_title(&c.kind), "7-segment display: one digit, 0 to 9, from a container's fill level");
         assert_eq!(site_model::html::value_words(&c.kind, &c.axis), "one digit, 0 to 9");
-        assert_eq!(crate::explain::metric_value("32 gt (a goes 0 -> 2 from a=0)"), "32 gt (1.6 s; the slowest change: 0 to 2)");
+        assert_eq!(crate::explain::metric_value("32 gt (a goes 0 -> 2 from a=0)", true), "32 ticks (1.6 s); the slowest change: 0 to 2");
     }
 
     /// A full-size farm (w86's melon-lattice8, the coordinator 2026-10-22): the farm's own harvest
@@ -1698,8 +1812,8 @@ mod tests {
         assert!(site_model::html::full_size_farm(&c));
         let b = Build { circuit: Some(c.clone()), blocks: 785, ..Default::default() };
         let card = site_model::html::props(&b);
-        assert_eq!(card.title, "3,300 melon slices an hour · 64 stems · 785 blocks · 4.2 per block · ~2,100 iron · needs open sky or light 9");
-        assert!(one_liner(&c).starts_with("Harvests melons by itself, forever, from its 64 stems: every melon that grows beside a stem is broken and its slices go into a chest. At the game's normal growth speed (random tick speed 3) it gathers about 3,300 melon slices an hour: 4.2 for each block placed."), "{}", one_liner(&c));
+        assert_eq!(card.title, "3,300 melon slices an hour · 64 stems · 785 blocks · 4.2 an hour per block · ~2,100 iron to build · needs open sky or light 9");
+        assert!(one_liner(&c).starts_with("Harvests melons by itself, forever, from its 64 stems: every melon that grows beside a stem is broken and its slices go into a chest. It gathers about 3,300 melon slices an hour: 4.2 for each block placed."), "{}", one_liner(&c));
         let design = "name: melon-lattice8\ncircuit: harvester melon\nport crop.s0: 0 1 0\nport output.r0: 7 -3 0\nport output.r2: 7 -3 2\norigin: 0 0 0\npalette:\n  H minecraft:hopper[enabled=true,facing=east]\nentity: minecraft:hopper_minecart 0.5 -1.0 1.5 {Rotation:[0f,0f]}\nlayer -2:\n  HHHHHHH\n  HHHHHHH\n  HHHHHHH\n";
         let n = needs(&b, design);
         assert!(n.iter().any(|l| l.starts_with("After building it, plant a melon seed on each of its 64 farmland blocks and put a chest under the end of each of its 8 hopper lines")), "{n:?}");
@@ -1722,7 +1836,7 @@ mod tests {
             ..c.clone()
         };
         let bc = Build { circuit: Some(cane), blocks: 1234, ..Default::default() };
-        assert_eq!(site_model::html::props(&bc).title, "646 sugar cane an hour · 204 canes · 1,234 blocks · 0.52 per block · ~1,800 iron · needs nothing but water");
+        assert_eq!(site_model::html::props(&bc).title, "646 sugar cane an hour · 204 canes · 1,234 blocks · 0.52 an hour per block · ~1,800 iron to build · needs nothing but water");
         // the sweeper (clk-rt's cane-sweeper-10x24): its slime and its one flying machine
         let sweeper = Circuit {
             metrics: crate::circuits::parse_metrics("items per hour per block 0.678, items per hour 595.4, per cane 4.57 blocks, items per hour per cane 3.10, harvest height 2, wait 494 gt, bill 1732 iron, 4 quartz, 12 redstone, 92 slime"),
@@ -1732,7 +1846,7 @@ mod tests {
             ..bc.circuit.clone().unwrap()
         };
         let bs = Build { circuit: Some(sweeper), blocks: 878, ..Default::default() };
-        assert_eq!(site_model::html::props(&bs).title, "595 sugar cane an hour · 192 canes · 878 blocks · 0.68 per block · ~1,700 iron + 92 slime · one flying machine sweeps the field");
+        assert_eq!(site_model::html::props(&bs).title, "595 sugar cane an hour · 192 canes · 878 blocks · 0.68 an hour per block · ~1,700 iron + 92 slime to build · one flying machine sweeps the field");
         assert_eq!(crate::circuits::flying_machines(include_str!("../../../designs/circuits/farm/archive/cane-sweeper-10x24.txt")), 1);
         assert_eq!(crate::circuits::flying_machines(include_str!("../../../designs/circuits/farm/archive/cane-lattice-16x16.txt")), 0);
         assert_eq!(site_model::html::about_count(64), "64");
@@ -1752,11 +1866,12 @@ mod tests {
         };
         assert_eq!(one_liner(&c), "Each press lights one of its 2 outputs, picked at random, each half the time, and it stays on until the next press picks again.");
         let b = Build { circuit: Some(c.clone()), blocks: 19, ..Default::default() };
-        assert_eq!(needs(&b, ""), vec!["Fair in the real game: over 768 presses in 16 builds, its outputs came up 378 and 390 times.".to_string()]);
+        assert!(needs(&b, "").is_empty(), "{:?}", needs(&b, ""));
+        assert_eq!(facts(&b).as_deref(), Some("Fair: its outputs came up 378 and 390 times in 768 presses."));
         assert!(try_it(&c, true).contains("one of the outputs (A or B) lights and stays lit"), "{}", try_it(&c, true));
         let card = site_model::html::props(&b);
         assert_eq!(card.title, "1 of 2 outputs at random · 19 blocks");
-        assert!(card.sub.contains("the chosen output stays on until the next press · lights after 8 ticks (0.4 s) · tested fair over 768 presses"), "{}", card.sub);
+        assert!(card.sub.contains("the chosen output stays on until the next press · lights after 8 ticks (0.4 s) · fair over 768 presses"), "{}", card.sub);
         assert_eq!(site_model::html::value_words("randomizer 2", "1 of 2"), "1 of 2 outputs");
     }
 
@@ -1790,7 +1905,7 @@ mod tests {
         let (hits, _) = site.run(&site_model::Query::from_fragment("kind=door")).unwrap();
         let names: Vec<&str> = hits.iter().filter_map(|h| if let site_model::Hit::Build(i) = h { Some(site.builds[*i].name.as_str()) } else { None }).collect();
         assert_eq!(names, vec!["big", "classic6"]);
-        assert!(site_model::html::lede(&site, "door").starts_with("The best 3×3 piston door for each of 2 records and the best 2×2 piston door, tested"), "{}", site_model::html::lede(&site, "door"));
+        assert_eq!(site_model::html::lede(&site, "door"), "The best 3×3 piston door for each of 2 records and the best 2×2 piston door: each card's page lists every record of its size.");
     }
 
     #[test]
@@ -1868,9 +1983,11 @@ mod tests {
         // a farm in no tier (the brief's obvious design) is no published kind
         let bar = Build { circuit: Some(Circuit { kind: "mob-farm iron_ingot".into(), ..c.clone() }), ..Default::default() };
         assert!(crate::kinds::kind_key(&bar).starts_with('-'));
-        // the day-1 farm that needs the zombie hidden the first night says so
+        // the day-1 farm that needs the zombie hidden the first night says so, as a build step
         let day1 = Circuit { kind: "mob-farm iron_ingot day-1".into(), metrics: crate::circuits::parse_metrics("modules 1, restarts after a missed night no (hide the zombie by hand the first night)"), ..c };
-        assert!(try_it(&day1, true).contains("On the first night, hide the zombie"));
+        assert!(!try_it(&day1, true).contains("first night"), "{}", try_it(&day1, true));
+        let b1 = Build { circuit: Some(day1), ..Default::default() };
+        assert!(needs(&b1, "").iter().any(|n| n.starts_with("On the first night, hide the zombie")), "{:?}", needs(&b1, ""));
     }
 
     #[test]
@@ -1880,19 +1997,17 @@ mod tests {
         let c = Circuit { kind: "mob-farm iron_ingot day-1".into(), axis: "day 1".into(), study: "mobfarm".into(), metrics: crate::circuits::parse_metrics(metrics), feature: "golems burn in lava pits".into(), ..Default::default() };
         let b = Build { kind: "circuit".into(), circuit: Some(c), blocks: 189, ..Default::default() };
         let p = site_model::html::props(&b);
-        assert_eq!(p.title, "295 iron an hour · 62% of the ceiling · 189 blocks · 1.6 per block · 9 iron · golems burn in lava pits");
+        // (written for the player deciding to build it, vjeux 2026-11-08 10:10: each number with its
+        // unit, the cost as a cost, no "normal speed", the first night's hide a build step)
+        assert_eq!(p.title, "295 iron an hour · 189 blocks · 1.6 an hour per block · 9 iron to build · golems burn in lava pits");
         assert_eq!(p.kind, "Iron farm");
-        assert!(p.sub.contains("74 golems an hour, one every 49 s"), "{}", p.sub);
-        // (written for the player: no "at the game's normal speed", vjeux 2026-11-08)
-        assert!(!p.sub.contains("normal speed"), "{}", p.sub);
-        assert!(p.sub.contains("3 villagers and a zombie"), "{}", p.sub);
-        assert!(p.sub.contains("hide the zombie by hand the first night"), "{}", p.sub);
+        assert_eq!(p.sub, "62% of the game's maximum · a golem every 49 s · needs 3 villagers, 3 beds and a zombie");
         // the scaled build: its zombies plural, its how
         let scaled = Circuit { kind: "mob-farm iron_ingot fastest".into(), metrics: crate::circuits::parse_metrics("iron per hour per block 0.74, iron per hour 1836, share of ceiling 96%, modules 4, restarts after a missed night yes, bill 43 iron, 24 quartz, 16 villagers, 16 beds, 4 zombies"), feature: "4 copies of the fastest module".into(), ..Default::default() };
         let b = Build { kind: "circuit".into(), circuit: Some(scaled), blocks: 2492, ..Default::default() };
         let p = site_model::html::props(&b);
-        assert_eq!(p.title, "1,800 iron an hour · 96% of the ceiling · 2,492 blocks · 0.74 per block · 43 iron · 4 copies of the fastest module");
-        assert!(p.sub.contains("16 villagers and 4 zombies"), "{}", p.sub);
+        assert_eq!(p.title, "1,800 iron an hour · 2,492 blocks · 0.74 an hour per block · 43 iron to build · 4 copies of the fastest module");
+        assert!(p.sub.contains("needs 16 villagers, 16 beds and 4 zombies") && p.sub.contains("starts again by itself after a missed night"), "{}", p.sub);
     }
 
     #[test]
@@ -2026,11 +2141,12 @@ mod tests {
         assert_eq!(t3.claim, "9 blocks smaller, half the speed");
         assert_eq!(t3.station_twin.as_deref(), Some("circuits/rail/ul-gate"));
         assert_eq!(gate.station_twin.as_deref(), Some("circuits/rail/cart-unloader-t3"));
-        assert!(gate.claim.starts_with("the fastest of 2 tested"), "{}", gate.claim);
+        // (how many we compared is not the builder's business: no "the fastest of 2 tested")
+        assert!(gate.claim.is_empty(), "{}", gate.claim);
         assert_eq!(gate.part_of.as_deref(), Some("circuits/rail/line-b"));
         assert_eq!(ld.part_of.as_deref(), Some("circuits/rail/line-b"));
-        // (the loader passed the same way everywhere: no "locational" warning, its numbers said)
-        assert!(warning(&Build { circuit: Some(ld.clone()), ..Default::default() }).is_none());
+        // (the loader works the same way everywhere: no "locational" line, its numbers said)
+        assert!(facts(&Build { circuit: Some(ld.clone()), ..Default::default() }).is_none());
         assert!(crate::explain::direction_words(&ld.robustness).starts_with("yes: it passed the same way"), "{}", crate::explain::direction_words(&ld.robustness));
         assert!(one_liner(&ld).ends_with("An empty cart at an empty chest waits there until items come."));
     }
@@ -2047,7 +2163,7 @@ mod tests {
         let c = Circuit { study: "farm".into(), kind: "harvester bamboo".into(), crops: 63, flying_machines: 1, metrics, ..Default::default() };
         let b = Build { circuit: Some(c.clone()), blocks: 472, ..Default::default() };
         let p = site_model::html::props(&b);
-        assert_eq!(p.title, "fuels ~250 items smelted an hour: a double chest of ore every 14 h, a twelfth of an 8-furnace super smelter at full speed · 63 bamboo stalks · 472 blocks · 672 iron + 74 slime");
+        assert_eq!(p.title, "fuels ~250 items smelted an hour: a double chest of ore every 14 h, a twelfth of an 8-furnace super smelter at full speed · 63 bamboo stalks · 472 blocks · 672 iron + 74 slime to build");
         assert!(p.sub.starts_with("0.52 items smelted an hour per block · 984 bamboo an hour · one flying machine sweeps the field · needs open sky or light 9"), "{}", p.sub);
         assert!(one_liner(&c).ends_with("As furnace fuel, its bamboo smelts about 250 items an hour: a double chest of ore every 14 h, a twelfth of an 8-furnace super smelter at full speed."), "{}", one_liner(&c));
         assert!(crate::explain::metric_definition("harvester bamboo", "items smelted per hour per block").contains("a quarter of an item each"));
@@ -2076,16 +2192,16 @@ mod tests {
     fn an_as_built_view_says_the_build_only() {
         let replay = mcview::circuit::NOT_REPLAYED;
         let farm = Circuit { study: "farm".into(), kind: "harvester minecraft:sugar_cane".into(), crops: 256, outputs: vec!["a".into(), "b".into()], unmodeled: format!("{replay} (a crop farm)"), ..Default::default() };
-        assert_eq!(try_it(&farm, true), "The view shows the build only: it does not replay our test exactly yet. Download it to watch it harvest in the game.");
+        assert_eq!(try_it(&farm, true), "The view shows the build only: the browser's simulator does not run it exactly yet. Download it to watch it harvest in the game.");
         let grown = Circuit { view_src: "designs/stills/farm/x.txt".into(), ..farm.clone() };
-        assert!(try_it(&grown, true).starts_with("The view shows the build only, with its sugar cane grown: it does not replay our test exactly yet."), "{}", try_it(&grown, true));
+        assert!(try_it(&grown, true).starts_with("The view shows the build only, with its sugar cane grown: the browser's simulator does not run it exactly yet."), "{}", try_it(&grown, true));
         let how = crate::explain::how_to_try(&farm, true);
-        assert!(how.contains("shows the build only (<b>as built</b>): it does not replay our test exactly yet.") && how.contains("download the design (below) to watch it run in the game") && !how.contains("ress play"), "{how}");
+        assert!(how.contains("shows the build only (<b>as built</b>): the browser&#39;s simulator does not run it exactly yet.") && how.contains("download the design (below) to watch it run in the game") && !how.contains("ress play"), "{how}");
         // (made exact again: the live words come back by themselves)
         let live = Circuit { unmodeled: String::new(), ..farm.clone() };
         assert!(try_it(&live, true).starts_with("The view plants the sugar cane"), "{}", try_it(&live, true));
         let smelter = Circuit { study: "smelter".into(), kind: "smelter 8".into(), unmodeled: format!("{replay} (a super smelter)"), ..Default::default() };
-        assert_eq!(try_it(&smelter, true), "The view shows the build only: it does not replay our test exactly yet. Download it to watch it run in the game.");
+        assert_eq!(try_it(&smelter, true), "The view shows the build only: the browser's simulator does not run it exactly yet. Download it to watch it run in the game.");
         assert!(!crate::explain::how_to_try(&smelter, true).contains("ress play"));
         // (what the browser's simulator does not run comes first)
         let blast = Circuit { unmodeled: format!("block \"blast_furnace\" is not modeled; {replay} (a super smelter)"), ..smelter.clone() };
@@ -2103,7 +2219,7 @@ mod tests {
         assert_eq!(site_model::html::farm_speed_words(&farm(Some(4))), "1.3 times faster");
         assert_eq!(site_model::html::farm_speed_words(&farm(Some(30))), "10 times faster");
         assert_eq!(site_model::html::farm_speed_words(&farm(Some(37))), "about 12 times faster");
-        assert!(try_it(&farm(Some(8)), true).contains("the melons growing about 3 times faster than in the game"), "{}", try_it(&farm(Some(8)), true));
+        assert!(try_it(&farm(Some(8)), true).contains("grows the melons about 3 times faster than the game does"), "{}", try_it(&farm(Some(8)), true));
         assert!(crate::explain::how_to_try(&farm(Some(8)), true).contains("grows it about 3 times faster than the game"));
     }
 
@@ -2117,9 +2233,9 @@ mod tests {
             ..Default::default()
         };
         let breaks = mk("breaks: off 20 gt after on strands blocks");
-        assert_eq!(warning(&breaks).as_deref(), Some("Do not flip its lever back too soon: turned off within 20 ticks (1 s) of being turned on, it leaves blocks stranded. Wait until the block is all the way out."));
+        assert_eq!(facts(&breaks).as_deref(), Some("Wait until the block is all the way out before flipping the lever back: turned off within 20 ticks (1 s) of being turned on, it leaves blocks stranded."));
         let safe = mk("safe (the lever flipped back at any time)");
-        assert!(warning(&safe).is_none());
+        assert!(facts(&safe).is_none());
         assert!(site_model::html::props(&safe).chips.iter().any(|c| c == "safe to flip back any time"), "{:?}", site_model::html::props(&safe).chips);
     }
 
@@ -2179,7 +2295,7 @@ mod tests {
         assert_eq!(small2.circuit.as_ref().unwrap().flip_safe.as_deref(), Some("circuits/pext/safe2"));
         let safe2 = get("safe2").expect("the flip-safe design keeps its page");
         assert!(safe2.flags.iter().any(|f| f == "size"));
-        assert_eq!(safe2.circuit.as_ref().unwrap().claim, "safe to flip back any time, 2 blocks bigger than the pick of its size");
+        assert_eq!(safe2.circuit.as_ref().unwrap().claim, "safe to flip back any time, 2 blocks bigger than the main design");
         // reach 3 has no flip-safe design: no link
         assert!(get("small3").unwrap().circuit.as_ref().unwrap().flip_safe.is_none());
     }
@@ -2220,13 +2336,15 @@ mod tests {
             one_liner(&plates),
             "A 2×2 piston door that opens by itself when you walk up from either side and closes behind you, even when two people walk through close together. Stand still in the doorway and the door closes on you and hurts you (half a heart per hurt) until you step out."
         );
-        assert_eq!(warning(&b).as_deref(), Some("A mob on a plate opens it too: nothing in vanilla tells a player from a mob, so put the plates where mobs can't walk."));
+        assert!(facts(&b).is_none(), "{:?}", facts(&b));
+        assert!(needs(&b, "").iter().any(|n| n == MOB_PLATES), "{:?}", needs(&b, ""));
+        assert_eq!(MOB_PLATES, "Put its plates where mobs can't walk: a mob on a plate opens it too.");
         assert!(try_it(&plates, true).contains("it opens before you reach it, even at a sprint, and closes once you have passed. Walk on through: if you stop in the doorway, it closes on you."));
         let v12 = door("door 2x2, open wait 13 gt, close delay 40 gt, stop in doorway the door stays open");
         assert_eq!(site_model::html::door_stays_open(&v12), Some(true));
         assert!(one_liner(&v12).ends_with("It also stays open for someone standing in the doorway, but if someone else walks through while you stand there, it can still close on you and hurt you (half a heart per hurt) until you step out."));
         let bv = Build { circuit: Some(v12.clone()), blocks: 91, kinds: vec!["stone_pressure_plate".into(), "tripwire".into(), "tripwire_hook".into()], ..Default::default() };
-        let w = warning(&bv).unwrap_or_default();
+        let w = needs(&bv, "").join(" ");
         assert!(w.starts_with(MOB_PLATES) && w.contains("Its outer rows are tripwire strings, which a dropped item presses too: keep items off them.") && !w.contains("enclose"), "{w}");
         assert!(try_it(&v12, true).contains("(you may wait up to 0.65 s at the door)") && try_it(&v12, true).ends_with("Stop in the doorway and it stays open for you."));
         assert_eq!(IRON_DOORS, "If the entrance doesn't need to be hidden, two iron doors with pressure plates do the job in about 10 blocks.");
@@ -2253,7 +2371,7 @@ mod tests {
         let b = Build { circuit: Some(c.clone()), blocks: 753, ..Default::default() };
         let card = site_model::html::props(&b);
         assert_eq!(card.title, "a code of 3 presses on 2 buttons · 753 blocks");
-        assert!(card.sub.contains("opens within 0.9 s · closes within 0.9 s · 84 press sequences tested"), "{}", card.sub);
+        assert!(card.sub.contains("opens within 0.9 s · closes within 0.9 s") && !card.sub.contains("tested"), "{}", card.sub);
         assert_eq!(crate::kinds::kind_key(&b), "sequence-lock 2 3");
         assert!(one_liner(&c).starts_with("Press its 2 buttons in the order set by the item frames on its back, 3 presses"));
         assert!(try_it(&c, true).starts_with("With its frames as built the code is A, B, A: press them in that order under the view"), "{}", try_it(&c, true));
@@ -2308,7 +2426,7 @@ mod tests {
         assert_eq!(get("bridge-slime-3").circuit.unwrap().alt_walkway.as_deref(), Some("circuits/bridge/bridge-stone-3"));
         let stone = get("bridge-stone-3");
         assert_eq!(stone.circuit.as_ref().unwrap().alt_walkway.as_deref(), Some("circuits/bridge/bridge-slime-3"));
-        assert_eq!(stone.circuit.as_ref().unwrap().claim, "a stone walkway, 3 blocks more than the pick of its gap");
+        assert_eq!(stone.circuit.as_ref().unwrap().claim, "a stone walkway, 3 blocks more than the main design");
         assert!(stone.flags.iter().any(|f| f == "size"));
     }
 

@@ -266,7 +266,7 @@ video.video { width: 100%; max-height: 560px; background: #000; border-radius: v
 p.kindline { margin: 0 0 2px; color: var(--muted); font-size: 13px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
 p.oneliner { margin: 4px 0 6px; font-size: 16px; line-height: 1.45; max-width: 760px; }
 p.why { margin: 0 0 6px; font-size: 14.5px; line-height: 1.45; max-width: 760px; color: var(--fg); }
-p.warn { margin: 6px 0 8px; padding: 7px 11px; max-width: 760px; font-size: 14px; border-left: 3px solid #d39e00; background: rgba(255, 193, 7, .16); border-radius: 4px; }
+p.facts { margin: 4px 0 8px; max-width: 760px; font-size: 15px; line-height: 1.45; }
 details.more { margin: 20px 0; border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 14px; background: var(--card); }
 details.more > summary { cursor: pointer; padding: 8px 0; font-weight: 650; }
 p.design-name { margin: 2px 0 8px; color: var(--muted); font-size: 13px; }

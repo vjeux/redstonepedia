@@ -187,11 +187,15 @@ work in progress for the owner to look at. Publishing to the site itself stays t
 - **Never the site**: a preview never touches `gh-pages`, `crates/site/published.tsv` or the site's
   Pages build budget, and the site never links to it. The no-dead-links rule is the site's, not the
   previews'.
-- **Labelled**: every preview page leads with the status label "Preview: not judged / not verified"
-  and its card's status (archived; passes or fails its kind's judge on redsim; not judged), and says
-  where its numbers come from instead of the site's "tested in the real game" sentences
-  (`pages::Preview`, `pages::claims_game`). This is the status of unpublished work, not a caveat on
-  a published page.
+- **Labelled**: every preview page leads with one plain status line: "Preview: numbers from our
+  simulator; not yet checked in the real game" (it passes its kind's judge on redsim), "Preview: a
+  published design; its numbers are the site's" (archived), or why it has no numbers yet
+  (`preview::status_words`, `pages::Preview`, `pages::claims_game`). This is the status of
+  unpublished work, not a caveat on a published page.
+- **Site pages**: `--site-dir <a site build> --site-page <path>...` previews pages of a local `site
+  build` instead of designs (a door's, a clock's, any page's new wording, for the owner to read
+  before it is published): the page as that build wrote it, a banner linking the live page, its
+  design files and other links the live site's.
 - **Out of search**: `noindex, nofollow` on every page, `robots.txt` disallows everything, no
   sitemap.
 - **Nothing internal**: the repository is public. Every text file a push writes and its commit

@@ -462,11 +462,12 @@ pub fn note(e: &Entry, target: &Target, repo: &Path) -> Option<String> {
             // (no design of its kind left, only an overview to send to: "replaced by the circuits"
             // said nothing; the 7-segment decoders, all rejudged out by the display-face rule)
             let overview = target.path.ends_with("index.html");
-            if let Some(why) = rejudged_reason(repo, study, stem) {
+            if let Some(_why) = rejudged_reason(repo, study, stem) {
+                // (why it failed is our retest's business, not the reader's: vjeux 2026-11-08 10:10)
                 if overview {
-                    return Some(format!("This design failed a retest: {why}. No design of its kind has passed it yet: {to} lists the others."));
+                    return Some(format!("This design is no longer on the site, and no design of its kind is listed now: {to} lists the others."));
                 }
-                return Some(format!("This design was replaced by {to}, because it failed a retest ({why})."));
+                return Some(format!("This design was replaced by {to}."));
             }
             if overview {
                 return Some(format!("This design is no longer in the archive, and no design of its kind is listed now: {to} lists the others."));
@@ -479,7 +480,7 @@ pub fn note(e: &Entry, target: &Target, repo: &Path) -> Option<String> {
         "clock" if target.path.starts_with("clocks/") => Some(format!("This clock is no longer listed: {to} has the same period.")),
         "clock" => Some("No listed clock has this period any more: the Clocks tab shows the nearest ones.".to_string()),
         "door" => Some(format!("This door is no longer listed: the site shows each board's record, and {to} is the one for its board ({}) now.", e.key)),
-        "family" => Some(format!("The family pages were removed: {to}, its tested base design, says every size it comes in.")),
+        "family" => Some(format!("The family pages were removed: {to}, its base design, says every size it comes in.")),
         // a collection's page with no design left on the site (the 7-segment decoders')
         _ if e.path.starts_with("circuits/") && e.path.ends_with("/index.html") && e.path.matches('/').count() == 2 => {
             Some(format!("No design of this collection is on the site right now: {to} lists the others."))

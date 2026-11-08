@@ -279,7 +279,7 @@ fn write_litematics(site: &Site, repo: &Path, out: &Path) -> Result<usize> {
         let path = if is_member(b) { b.design.clone() } else { repo_design_path(b) };
         let text = read_design(b, repo, out)?;
         let d = mctas::design::Design::parse(&text).with_context(|| format!("parsing {path}"))?;
-        let desc = [crate::explain::caption_text(&b.caption).as_str(), &usage_note(b), &format!("REDSTONEPEDIA: {}{}", crate::deploy::PAGES_URL, b.page)].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join(" ");
+        let desc = [crate::explain::caption_text(&b.caption, crate::explain::ticks_matter(b)).as_str(), &usage_note(b), &format!("REDSTONEPEDIA: {}{}", crate::deploy::PAGES_URL, b.page)].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join(" ");
         let bytes = litematic::export(&d, &litematic::Meta::new(&b.name, &desc, time)).with_context(|| format!("{path}: litematic"))?;
         write_bytes(&out.join(litematic_path(&b.design)), &bytes)
     });
@@ -633,6 +633,10 @@ pub fn build(a: &BuildArgs) -> Result<()> {
     for b in &mut builds {
         b.caption = crate::explain::scrub_attribution(&b.caption);
     }
+    // the curated cards (crates/site/src/cards.rs): an unknown field, a written-out number or a
+    // failing check fails the build here
+    let curated = crate::cards::apply(&repo, &mut builds)?;
+    eprintln!("cards: {curated} designs with a curated card");
     // only the published builds' design files (the others stay in the repository): doors,
     // clocks and circuits alike (a member's was generated in place)
     for b in builds.iter().filter(|b| !is_member(b)) {
@@ -641,7 +645,9 @@ pub fn build(a: &BuildArgs) -> Result<()> {
             std::fs::create_dir_all(p)?;
         }
         let from = repo.join(repo_design_path(b));
-        std::fs::copy(&from, &to).with_context(|| format!("copying {}", from.display()))?;
+        // (the player's header in place of the repository's notes: `pages::published_text`)
+        let text = std::fs::read_to_string(&from).with_context(|| format!("reading {}", from.display()))?;
+        write(&to, &pages::published_text(b, &text))?;
         // a display's lit still beside it (`Circuit::view_src`: its card and its view show it)
         if let Some(c) = b.circuit.as_ref().filter(|c| !c.view_src.is_empty() && !c.view_text.is_empty()) {
             write(&out.join(&c.view_src), &c.view_text)?;
@@ -748,14 +754,34 @@ pub fn build(a: &BuildArgs) -> Result<()> {
     eprintln!("litematic: {n} schematics ({:.1}s)", t0.elapsed().as_secs_f64());
     // every build's page on the build's threads (beside the schematics, the other serial part of
     // a warm build)
-    let written = crate::circuits::par_map(&site.builds, |b| -> Result<()> {
+    let written = crate::circuits::par_map(&site.builds, |b| -> Result<Vec<String>> {
         // (a member's design is the generated one; it has no repository file to link)
         let repo_path = if is_member(b) { String::new() } else { repo_design_path(b) };
         let text = read_design(b, &repo, out).unwrap_or_default();
-        write(&out.join(&b.page), &pages::build_page(&site, b, &text, &repo_path, scripts))
+        let html = pages::build_page(&site, b, &text, &repo_path, scripts);
+        // what a visitor reads holds none of our internal names (the parent's ask, 2026-11-08:
+        // "U1/U2, L2d, D1U, M2, redsim, mctas, gt"): every hit fails the build below
+        let hits: Vec<String> = crate::explain::internal_tokens(&pages::visible_text(&html)).into_iter().map(|t| format!("{}: {t}", b.page)).collect();
+        write(&out.join(&b.page), &html)?;
+        Ok(hits)
     });
+    let mut internal: Vec<String> = Vec::new();
     for r in written {
-        r?;
+        internal.extend(r?);
+    }
+    if !internal.is_empty() {
+        for h in &internal {
+            eprintln!("  internal name: {h}");
+        }
+        bail!("internal names on {} page(s) a visitor reads (crates/site/src/explain.rs::internal_tokens; say it in the player's words or drop it): {}", internal.len(), internal.iter().take(20).cloned().collect::<Vec<_>>().join("; "));
+    }
+    // the generated members' design files as published too (read above as generated: their pages
+    // and schematics are made; now the player's header in place of the repository's notes)
+    for b in site.builds.iter().filter(|b| is_member(b)) {
+        let path = out.join(&b.design);
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            write(&path, &pages::published_text(b, &text))?;
+        }
     }
     // the obvious per-kind URLs resolve (/doors/, /clocks/); /circuits/ is the studies' overview
     for (folder, title, kind) in [("doors", "Doors", "door"), ("clocks", "Clocks", "clock")] {

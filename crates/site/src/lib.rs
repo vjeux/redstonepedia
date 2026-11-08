@@ -11,6 +11,7 @@
 
 pub mod audit;
 pub mod cache;
+pub mod cards;
 pub mod circuits;
 pub mod clocks;
 pub mod deploy;
@@ -276,6 +277,14 @@ pub struct PreviewArgs {
     /// The preview repository (`owner/name`; its pages: https://owner.github.io/name/).
     #[arg(long, default_value = "vjeux/redstonepedia-preview")]
     pub repo: String,
+    /// A page of a local `site build` to preview instead of a design (any page: a door, a clock,
+    /// a circuit, an index), as it is in that folder, for the owner to read new wording before it
+    /// is published (repeatable; needs --site-dir).
+    #[arg(long = "site-page")]
+    pub site_pages: Vec<String>,
+    /// The `site build` output folder the --site-page pages come from.
+    #[arg(long)]
+    pub site_dir: Option<PathBuf>,
 }
 
 #[derive(Args)]
