@@ -233,6 +233,16 @@ pub enum MobfarmCmd {
         #[arg(long)]
         census: bool,
     },
+    /// Each design's tick-exactness as `circuit verify` finds it: run 0 of every judge build on
+    /// the deterministic bridge against redsim for the judge's days (each build's result and the
+    /// lane owning its first difference); `--record` writes it to the ratchet's table
+    /// (designs/circuits/mobfarm/exact.tsv: a design recorded exact fails a later verify that
+    /// differs).
+    Exact {
+        designs: Vec<PathBuf>,
+        #[arg(long)]
+        record: bool,
+    },
     /// The brief's game check: the design run in the real server for `--days`, its golems (time
     /// and cell) and the iron in the chest, against redsim's runs of the same design.
     Validate {
@@ -518,6 +528,21 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
         }
         MobfarmCmd::Validate { design, days, kill, seeds, trace, repeat } => validate_cmd(version, &design, days, kill, seeds, trace, repeat)?,
+        MobfarmCmd::Exact { designs, record } => {
+            let o = circuit::verify::Options { version: version.to_string(), ..Default::default() };
+            for d in &designs {
+                let c = circuit::Circuit::load(d)?;
+                let g = circuit::mobfarm_exact::gate(&c, &o, 1, circuit::mobfarm::JUDGE_DAYS)?;
+                println!("{}: {} ({:.0} s)", d.display(), g.summary(), g.seconds);
+                for r in &g.runs {
+                    println!("{}", r.line());
+                }
+                if record {
+                    let r = circuit::mobfarm_exact::write_record(&std::env::current_dir()?, &c, &d.to_string_lossy(), &g)?;
+                    println!("  recorded in {}: exact {}", circuit::mobfarm_exact::RECORD, if r.exact { "yes" } else { "no" });
+                }
+            }
+        }
         MobfarmCmd::Probe { design, row } => {
             let (_, spec) = load(version, &design)?;
             let o = redsim::entity::mob::farm::RunOpts::steady(1, 0, redsim::entity::mob::farm::WalkMode::Random);

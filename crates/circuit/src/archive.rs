@@ -771,6 +771,13 @@ pub fn archive(pool: &Pool, path: &Path, o: &Options, root: &Path, caption: Opti
         Some(f) => format!("{summary}; extend family {}: {} = {}, n = {}..{} (judged: n = {})", f.id, axis_label(&axis(&kind, &base.outcome, &base.family)).0, f.period.text(), f.n_lo, f.n_hi, instances.iter().map(|i| i.n.to_string()).collect::<Vec<_>>().join(", ")),
         None => summary,
     };
+    // a mob farm's tick-exactness as its gate found it (the ratchet's record: a design recorded
+    // exact fails its later verifies when a build differs; the site does not read it)
+    if let Some(g) = crate::mobfarm_exact::last_report(&c) {
+        let rel = dir.join(&file);
+        let rel = rel.strip_prefix(std::env::current_dir()?).unwrap_or(&rel).to_string_lossy().to_string();
+        crate::mobfarm_exact::write_record(&std::env::current_dir()?, &c, &rel, &g)?;
+    }
     Ok(Archived { file: dir.join(file), summary, new: true })
 }
 

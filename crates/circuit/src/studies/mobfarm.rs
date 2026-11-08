@@ -1367,11 +1367,14 @@ pub fn judge(c: &Circuit, o: &Options, jo: &JudgeOpts) -> std::result::Result<Ve
     Ok(crate::verify::verdict(VerifyReport { name: c.name().to_string(), kind: Some(kind), blocks: c.blocks(), schedule, builds, verdict: String::new(), pass: false, note: String::new() }))
 }
 
-/// `circuit verify` (and so `circuit archive`): the redsim judge (the card), confirmed in the real
-/// 26.3 server by the mob farms' game gate (mobinfra, `crate::mobfarm_game`: each build for game
-/// days with the weather on, on Hard).
+/// `circuit verify` (and so `circuit archive`): the redsim judge (the card), compared tick for tick
+/// on the deterministic bridge (tickexact, `crate::mobfarm_exact`: run 0 of every judge build, each
+/// build's result printed; a design recorded exact fails when a build differs), then confirmed in
+/// the unmodified 26.3 server by the mob farms' game gate (mobinfra, `crate::mobfarm_game`: each
+/// build for game days with the weather on, on Hard).
 pub fn verify_in_pool(_pool: &Pool, c: &Circuit, o: &Options) -> Result<VerifyReport> {
     let rep = sim_verify(c, o).map_err(|e| anyhow!(e))?;
+    let rep = crate::mobfarm_exact::confirm(c, o, rep)?;
     crate::mobfarm_game::confirm(c, &o.version, rep)
 }
 

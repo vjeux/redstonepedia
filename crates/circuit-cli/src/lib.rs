@@ -977,7 +977,7 @@ pub fn run(version: &str, cmd: CircuitCmd) -> Result<()> {
             }
         }
         CircuitCmd::Shrink { design, out, free_ports, positions, no_rotations, workers, margin } => {
-            let o = Options { positions, rotations: !no_rotations, workers, stimulus: None, gap: None, margin, version: version.to_string(), sim_threads: 0 };
+            let o = Options { positions, rotations: !no_rotations, workers, stimulus: None, gap: None, margin, version: version.to_string(), sim_threads: 0, exact_runs: 1 };
             let out = out.unwrap_or_else(|| {
                 let stem = design.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
                 design.with_file_name(format!("{stem}-shrunk.txt"))
@@ -985,7 +985,7 @@ pub fn run(version: &str, cmd: CircuitCmd) -> Result<()> {
             shrink::shrink(&design, &out, !free_ports, &o)?;
         }
         CircuitCmd::Verify { designs, positions, no_rotations, workers, stimulus, gap, table, margin } => {
-            let o = Options { positions, rotations: !no_rotations, workers, stimulus, gap, margin, version: version.to_string(), sim_threads: 0 };
+            let o = Options { positions, rotations: !no_rotations, workers, stimulus, gap, margin, version: version.to_string(), sim_threads: 0, exact_runs: 1 };
             let pool = circuit::verify::spawn_pool(&o)?;
             // the designs side by side (clk-misc 2026-10-23: the selftest's calibration list grew
             // with every study and verified its designs one after another, each waiting for its

@@ -21,6 +21,22 @@ run ... --ticks-only` (the time a game day takes), and the weather model's check
 the official server: the cycle's statistics, lava's fire in a design, summoned bolts' outcomes) are in the ironfarm track notes
 ([NOTES.md](../designs/circuits/mobfarm/tracks/ironfarm/NOTES.md#commands)); the kind
 (`circuit: mob-farm iron_ingot day-1|middle|fastest`) is judged on redsim and confirmed in the real game by `circuit verify` like every circuit ([circuits.md](circuits.md)).
+The mob farms' tick-exactness (vjeux 2026-11-08: "why don't we have tick perfect precision?"):
+`circuit verify` and `circuit archive` play run 0 of every build the card averages over on the
+deterministic bridge and on redsim, every entity, block, container, memory and random state
+compared every game tick for the judge's whole run, and print each build's result (exact, or its
+first difference and the lane that owns it; `circuit::mobfarm_exact`). It is a ratchet: a design
+whose recorded exactness ([exact.tsv](../designs/circuits/mobfarm/exact.tsv), written by `circuit
+archive` and `mctas mobfarm exact <design>... --record`) says every build was exact fails when one
+now differs; a design not yet exact keeps the verdict of the unmodified server's statistical gate
+above. The site shows none of it. One run by hand: `mctas mobfarm compare
+<design> [--build K --run I] [--days 5] [--terrain <sample>] [--weather] [--no-spawning] [--only
+world,blocks,entities,<category>] [--full] [--probe] [--draws-at T] [--twin]` (`--build`: the
+judge's build K and run I, its seed, walking and weather; `--no-spawning`: no mob spawning on
+either side, the random ticks alone, terrain's regression check `sim:terrain-ticks-*`; `--only`:
+only those kinds of difference count; `--twin`: the bridge against itself), and the level
+random's draws of one tick by call site on both sides: `mctas mobai farm-trace <design> --seed S
+--at T` (`MCTAS_NATURAL_LOG=T` prints redsim's natural spawner calls of that tick).
 Real terrain and natural spawning (`mctas terrain gen | find | info | crop | map | spot | light |
 probe | chunk | blockinfo | biomes | paste-check | biome-check | spawn-check | spawn-explain |
 hostile | slab-fixture`, and `mctas mobfarm exposures | spawn-rules`: the official server's world

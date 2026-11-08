@@ -28,6 +28,10 @@ pub struct Options {
     /// passes 1 (clk-rt 2026-10-21: 32 annealing threads x 32 judge threads put a box's load
     /// average at ~1000 and its node agent stopped answering).
     pub sim_threads: usize,
+    /// The mob farms' tick-exact gate ([`crate::mobfarm_exact`]): the judge runs of every build it
+    /// compares on the bridge (1: run 0 of each build, what `circuit verify` and `circuit archive`
+    /// compare and record).
+    pub exact_runs: u32,
 }
 
 impl Options {
@@ -39,7 +43,7 @@ impl Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Options { positions: 4, rotations: true, workers: 8, version: mctas::DEFAULT_VERSION.to_string(), margin: 3, gap: None, stimulus: None, sim_threads: 0 }
+        Options { positions: 4, rotations: true, workers: 8, version: mctas::DEFAULT_VERSION.to_string(), margin: 3, gap: None, stimulus: None, sim_threads: 0, exact_runs: 1 }
     }
 }
 
