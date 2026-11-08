@@ -49,7 +49,19 @@ pub fn spawn_golem_if_needed(w: &mut World, i: usize, needed: usize) {
 
 /// `SpawnUtil.trySpawnMob(IRON_GOLEM, .., start, 10, 8, 6, LEGACY_IRON_GOLEM, false)`: the id of
 /// the golem it added, if any. Each try records the cell its column scan stopped at.
+///
+/// (tickexact) In an exact world (`World::exact_seed`) every draw is the game's, from the level
+/// random in its order: each try's `Mth.randomBetweenInclusive(random, -8, 8)` twice; where the
+/// column scan finds a cell, `EntityType.create` (a construction: `World::construct`), its snap
+/// yaw (`wrapDegrees(nextFloat() * 360)`, the head and body set to it) and `Mob.finalizeSpawn`'s
+/// follow-range triangle and left-handedness; a golem that passes `checkSpawnObstruction` enters
+/// with its own random seeded as its entity number (`World::entering_random`, the constructor's
+/// UUID and yaw replayed: an iron golem has no sensors). Elsewhere the seeded stand-ins of the
+/// mob layer's random, unchanged.
 pub fn try_spawn_golem(w: &mut World, start: BlockPos) -> Option<u32> {
+    if w.exact_seed.is_some() && w.level_random.is_some() {
+        return try_spawn_golem_exact(w, start);
+    }
     let mut tries = Vec::new();
     let mut spawned = None;
     for _ in 0..10 {
@@ -80,6 +92,54 @@ pub fn try_spawn_golem(w: &mut World, start: BlockPos) -> Option<u32> {
             let id = w.entities.add(EntityKind::Mob(Box::new(st)), pos, y_rot);
             if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
                 e.random = Some(crate::rng::LegacyRandom::new(seed));
+            }
+            spawned = Some(id);
+            break;
+        }
+    }
+    w.mob.spawn_tries.push((start, tries, spawned.and_then(|id| crate::entity::index_of(w, id)).map(|g| w.entities.list[g].block_position())));
+    spawned
+}
+
+/// [`try_spawn_golem`] in an exact world: the game's draws, from the level random.
+fn try_spawn_golem_exact(w: &mut World, start: BlockPos) -> Option<u32> {
+    let mut tries = Vec::new();
+    let mut spawned = None;
+    for _ in 0..10 {
+        let (dx, dz) = {
+            let r = w.level_random.as_mut().expect("an exact world mirrors the level random");
+            (r.next_int(17) - 8, r.next_int(17) - 8)
+        };
+        let top = BlockPos::new(start.x + dx, start.y + 6, start.z + dz);
+        let Some(cell) = possible_spawn_position(w, top, 6) else {
+            tries.push(None);
+            continue;
+        };
+        tries.push(Some(cell));
+        // EntityType.create(level, null, pos, MOB_SUMMONED, false, false): the construction, then
+        // snapTo with the level random's yaw (head and body follow it), then finalizeSpawn
+        let _ = w.construct();
+        let (y_rot, bonus) = {
+            let r = w.level_random.as_mut().expect("an exact world mirrors the level random");
+            let y_rot = crate::entity::mth::wrap_degrees(r.next_float() * 360.0);
+            let bonus = r.triangle(0.0, 0.11485000000000001);
+            r.next_float();
+            (y_rot, bonus)
+        };
+        let pos = Vec3::new(cell.x as f64 + 0.5, cell.y as f64, cell.z as f64 + 0.5);
+        if check_spawn_obstruction(w, cell, pos) {
+            let mut st = super::MobState::new(MobType::IronGolem, bonus);
+            st.walk = w.mob.golem_walk;
+            // the golem enters (addFreshEntityWithPassengers): its own random seeded as its
+            // number, the constructor's UUID and yaw replayed (the yaw thrown away: the snap set
+            // the head and body); no sound draw (an iron golem has no ambient sound)
+            let n = w.entities.next_id;
+            let mut own = w.entering_random(n);
+            crate::rng::replay_uuid(&mut own);
+            own.next_float();
+            let id = w.entities.add(EntityKind::Mob(Box::new(st)), pos, y_rot);
+            if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
+                e.random = Some(own);
             }
             spawned = Some(id);
             break;

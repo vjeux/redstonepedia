@@ -29,6 +29,7 @@ pub const SOURCES: &[(&str, &str)] = &[
     bridge_source!("BlockInfo.java"),
     bridge_source!("Exact.java"),
     bridge_source!("Terrain.java"),
+    bridge_source!("ExactVillageSiege.java"),
 ];
 
 /// Logging configuration: Minecraft's logs go to stderr so stdout stays the protocol channel.

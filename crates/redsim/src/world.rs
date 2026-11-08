@@ -171,6 +171,13 @@ pub struct World {
     /// default): nothing is drawn and anything that would choose by it stays a model error.
     /// Never part of the state key.
     pub level_random: Option<crate::rng::LegacyRandom>,
+    /// (tickexact) The bridge sandbox's seed when the world mirrors one (set with the level
+    /// random): every entity's stream comes from it ([`World::construct`],
+    /// [`World::entering_random`]).
+    pub exact_seed: Option<i64>,
+    /// (tickexact) Entities constructed so far (`EntityType.create`: spawn attempts that were then
+    /// rejected included): the next [`World::construct`]'s k.
+    pub constructions: u64,
     /// Random ticks of blocks (`crops::RandomTicks`: `gamerule random_tick_speed` and
     /// `Level.randValue`, the position generator, seeded like the bridge's sandboxes:
     /// [`crate::crops::bridge_rand_value`]). `None` (the default): no block random ticks (the
@@ -269,6 +276,8 @@ impl World {
             loot_salt: None,
             loot_sequences: std::collections::BTreeMap::new(),
             level_random: None,
+            exact_seed: None,
+            constructions: 0,
             random_ticks: None,
             tick_speed: 3,
             chunk_order: Vec::new(),
@@ -294,11 +303,41 @@ impl World {
     /// order, `chunk_order`).
     pub fn mirror_level_random(&mut self, seed: i64, chunks: [i32; 4]) {
         self.level_random = Some(crate::rng::LegacyRandom::new(seed));
+        self.exact_seed = Some(seed);
+        self.constructions = 0;
         self.chunk_order = crate::crops::tick_order(chunks);
         self.entity_chunks = Some(chunks);
         // the bridge reseeds the loot random sequences with the level random (Sandbox.lootSaltOf)
         self.loot_salt = Some(crate::stems::loot_salt(seed));
         self.loot_sequences.clear();
+    }
+
+    /// (tickexact) A new entity's own random right after its constructor (`EntityType.create`;
+    /// the bridge's `Sandbox.onConstructed`): the sandbox's next construction seed
+    /// ([`crate::rng::construct_seed`]), k counting every construction, spawn attempts that are
+    /// then rejected included. What the entity draws from its own random before it enters
+    /// (`finalizeSpawn`: a zombie's `handleAttributes`, a salmon's variant) comes from it. Without
+    /// an exact world: a stand-in drawn from the mob layer's random.
+    pub fn construct(&mut self) -> crate::rng::LegacyRandom {
+        match self.exact_seed {
+            Some(s) => {
+                let k = self.constructions;
+                self.constructions += 1;
+                crate::rng::LegacyRandom::new(crate::rng::construct_seed(s, k))
+            }
+            None => crate::rng::LegacyRandom::new(self.mob.rng_mut().next_long()),
+        }
+    }
+
+    /// (tickexact) Entity `n`'s own random when it enters the level (the bridge's
+    /// `Exact.entitySeed`: n = its id, the n-th entity to enter), before its constructor's draws
+    /// are replayed (the caller replays them: [`crate::rng::replay_uuid`], a living entity's yaw,
+    /// its sensors, ...). Without an exact world: a stand-in drawn from the mob layer's random.
+    pub fn entering_random(&mut self, n: u32) -> crate::rng::LegacyRandom {
+        match self.exact_seed {
+            Some(s) => crate::rng::LegacyRandom::new(crate::rng::entity_seed(s, n)),
+            None => crate::rng::LegacyRandom::new(self.mob.rng_mut().next_long()),
+        }
     }
 
     /// Does an entity at (x, z) tick? Only in the sandbox's forced chunks when they are known

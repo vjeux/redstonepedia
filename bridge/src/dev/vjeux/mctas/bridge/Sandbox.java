@@ -174,7 +174,7 @@ final class Sandbox {
                     new net.minecraft.world.level.levelgen.PhantomSpawner(),
                     new net.minecraft.world.level.levelgen.PatrolSpawner(),
                     new net.minecraft.world.entity.npc.CatSpawner(),
-                    new net.minecraft.world.entity.ai.village.VillageSiege(),
+                    new ExactVillageSiege(),
                     trader);
         }
         ServerLevel level = new ServerLevel(
