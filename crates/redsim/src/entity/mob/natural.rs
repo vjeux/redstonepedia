@@ -329,11 +329,13 @@ pub struct Natural {
     /// Riders a `finalizeSpawn` put on a mob (rider, vehicle): passengers, so persistent.
     pub riders: Vec<(u32, u32)>,
     pub log: Vec<NaturalEvent>,
+    /// Ticks the spawner has run (the spawning chunks' inhabited time: `incrementInhabitedTime`).
+    pub ticks: u64,
 }
 
 impl Natural {
     pub fn new(players: Vec<Vec3>, difficulty: Difficulty) -> Natural {
-        Natural { players, difficulty, spawning: true, riders: Vec::new(), log: Vec::new() }
+        Natural { players, difficulty, spawning: true, riders: Vec::new(), log: Vec::new(), ticks: 0 }
     }
 }
 
@@ -590,6 +592,10 @@ fn create_state(w: &World, nat: &Natural) -> State {
 
 /// `ServerChunkCache.tickChunks`' spawning, once a tick (the world tick's chunk slot).
 pub fn tick_chunks(w: &mut World) {
+    // the spawning chunks' inhabited time (`tickSpawningChunk`: every tick, spawning or not)
+    if let Some(n) = w.mob.natural.as_mut() {
+        n.ticks += 1;
+    }
     let Some(nat) = w.mob.natural.clone() else { return };
     if !nat.spawning || nat.players.is_empty() {
         return;
@@ -763,7 +769,7 @@ fn spawn_category_for_position(w: &mut World, nat: &Natural, st: &mut State, cat
             if !valid_position_for_mob(w, k, k.ty, Vec3::new(xx, start.y as f64, zz), d2) {
                 continue;
             }
-            let ty = choose_row(w, k, &mut group);
+            let ty = choose_row(w, nat, k, &mut group);
             cluster += 1;
             group_size += 1;
             let id = spawn_mob(w, nat, k, ty, Vec3::new(xx, start.y as f64, zz), yaw, &mut group);
@@ -816,9 +822,39 @@ struct GroupData {
     ageable: Option<u32>,
 }
 
+/// `DifficultyInstance.getSpecialMultiplier` at the current time (`ServerLevel.getCurrentDifficultyAt`:
+/// the overworld clock, the chunk's inhabited time (the ticks the spawner has run near a player:
+/// the samples' chunks were never near one), the moon's brightness (by phase; it only counts after
+/// 72000 ticks)).
+fn special_multiplier(w: &World, nat: &Natural) -> f32 {
+    let base = match nat.difficulty {
+        Difficulty::Peaceful => return 0.0,
+        Difficulty::Easy => 1.0f32,
+        Difficulty::Normal => 2.0,
+        Difficulty::Hard => 3.0,
+    };
+    let total = w.day_time() as f32;
+    let global = ((total - 72000.0) / 1440000.0).clamp(0.0, 1.0) * 0.25;
+    let mut local = (nat.ticks as f32 / 3600000.0).clamp(0.0, 1.0) * if nat.difficulty == Difficulty::Hard { 1.0 } else { 0.75 };
+    const MOON: [f32; 8] = [1.0, 0.75, 0.5, 0.25, 0.0, 0.25, 0.5, 0.75];
+    let moon = MOON[(w.day_time().div_euclid(24000).rem_euclid(8)) as usize];
+    local += (moon * 0.25).clamp(0.0, global);
+    if nat.difficulty == Difficulty::Easy {
+        local *= 0.5;
+    }
+    let effective = base * (0.75 + global + local);
+    if effective < 2.0 {
+        0.0
+    } else if effective > 4.0 {
+        1.0
+    } else {
+        (effective - 2.0) / 2.0
+    }
+}
+
 /// The row a spawn takes: its baby or size row when its `finalizeSpawn` draws one (the draws in
 /// the game's order: the group's baby flag, the ageable baby chance, the slime size).
-fn choose_row(w: &mut World, k: &Kind, g: &mut GroupData) -> MobType {
+fn choose_row(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData) -> MobType {
     match k.finalize {
         Finalize::Zombie => {
             let baby = *g.zombie_baby.get_or_insert_with(|| w.mob.rng_mut().next_float() < 0.05);
@@ -831,11 +867,10 @@ fn choose_row(w: &mut World, k: &Kind, g: &mut GroupData) -> MobType {
             if baby { k.baby.unwrap_or(k.ty) } else { k.ty }
         }
         Finalize::Slime => {
+            let special = special_multiplier(w, nat);
             let r = w.mob.rng_mut();
             let mut scale = r.next_int(3);
-            // `0.5 * difficulty.getSpecialMultiplier()`: 0 below the regional difficulty's 2.0 (a
-            // fresh area: special multiplier 0)
-            if scale < 2 && r.next_float() < 0.0 {
+            if scale < 2 && r.next_float() < 0.5 * special {
                 scale += 1;
             }
             let big = k.id == "minecraft:sulfur_cube";
