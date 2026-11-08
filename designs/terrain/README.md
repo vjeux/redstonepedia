@@ -33,14 +33,21 @@ kept world; `terrain info A --same-as B` compares two files).
 - `gen --seed S --at=X,Z --radius R [--days N] [--keep] [--world W]`: generate (or re-read a kept
   world) into `$MCTAS_HOME/terrain/S_X_Z_rR.mcterrain`; `find --seed S --what structure:village_plains`.
 - `info FILE [--palette] [--locate TEXT] [--ticking] [--same-as F]`, `map FILE --around=X,Z`, `crop FILE --around=X,Z --radius R --out F`.
-- `blockinfo FILES... [--design D] [--block B] [--state S] [--keep-existing]`: the natural-state table (`crates/redsim/src/terrain/blocks.tsv`),
-  the game's own answers per state (the bridge's `blockinfo` op); `biomes`: `biomes.tsv` and
+- `blockinfo FILES... [--design D] [--block B] [--state S] [--keep-existing] [--slabs]`: the natural-state table (`crates/redsim/src/terrain/blocks.tsv`),
+  the game's own answers per state (the bridge's `blockinfo` op; `--slabs`: every state of the
+  slab family redsim models, `redsim::slab::SLABS`); `biomes`: `biomes.tsv` and
   `structures.tsv` from the game's data (spawn lists, tags, resolved colours, structure spawn overrides).
 - `light FILE [--column=X,Z]`: redsim's light engine vs the saved light; `probe --world W --at=X,Y,Z [--times T,...]`:
   the running server's light; `chunk --world W --chunk=X,Z`: a saved chunk's sections.
 - `paste-check FILE --world W --design D --at=X,Z`: a design pasted in redsim and in the official
-  server (strict writes), every block and light value compared.
+  server (strict writes), every block and light value compared. Fixtures: `fixtures/lights.txt`
+  (placed light sources), `fixtures/slabs.txt` (every slab state, written by `slab-fixture`).
 - `biome-check FILE --world W`: redsim's biome lookup vs `execute if biome`.
 - `spawn-check AREA --world W --afk=X,Y,Z [--nights N --seeds N --ticks T --day-time D --fill T --trace --game-dump F --out F]`:
   natural spawning, the official server vs redsim; `spawn-explain FILE --type T --at=X,Y,Z`.
 - `hostile FILE --design D --at=X,Z --afk=x,y,z`: the worst-case checks for natural mobs (C1-C16).
+  `mctas mobfarm exposures <design> [--cells]` runs them on the farm at its site after its settle,
+  as its card does; `mctas mobfarm spawn-rules <design> [--tries N] [--day-time T]` checks C1
+  against the game's own `SpawnPlacements` (`isSpawnPositionOk`, `noCollision`, `checkSpawnRules`
+  over N randoms, the bridge's `spawnrules` op) at every interior cell for every listed type, with
+  a positive control beside the farm.

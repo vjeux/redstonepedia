@@ -23,9 +23,10 @@ the official server: the cycle's statistics, lava's fire in a design, summoned b
 (`circuit: mob-farm iron_ingot day-1|middle|fastest`) is judged on redsim and confirmed in the real game by `circuit verify` like every circuit ([circuits.md](circuits.md)).
 Real terrain and natural spawning (`mctas terrain gen | find | info | crop | map | spot | light |
 probe | chunk | blockinfo | biomes | paste-check | biome-check | spawn-check | spawn-explain |
-hostile`: the official server's world generation read back into `.mcterrain` samples, the
-natural-state and biome tables, a design pasted at a spot, the checks against the official server,
-the worst-case checks for natural mobs) are in [designs/terrain/README.md](../designs/terrain/README.md).
+hostile | slab-fixture`, and `mctas mobfarm exposures | spawn-rules`: the official server's world
+generation read back into `.mcterrain` samples, the natural-state and biome tables, a design pasted
+at a spot, the checks against the official server, the worst-case checks for natural mobs and C1
+against the game's own spawn rules) are in [designs/terrain/README.md](../designs/terrain/README.md).
 One tool is not a `mctas` subcommand: `trends` (`./target/release/trends suggest | related | rank`,
 crates/trends), the Google autocomplete and Google Trends ranking of the farms and redstone builds
 people search for. It needs the internet, so it is never used for design work; it is in
