@@ -331,6 +331,14 @@ fn holds(check: &str, mine: &BTreeMap<String, String>) -> Result<bool, String> {
     })
 }
 
+/// A card row as a sentence: its first letter up, a full stop at its end unless it has one.
+fn sentence(s: &str) -> String {
+    let s = s.trim();
+    let mut chars = s.chars();
+    let up = chars.next().map(|f| f.to_uppercase().collect::<String>() + chars.as_str()).unwrap_or_default();
+    if up.is_empty() || up.ends_with(['.', '!', '?']) { up } else { format!("{up}.") }
+}
+
 /// A design's card from the rows that are its own (its stem's), else its kind's; None when it
 /// has none. An unknown field, a written-out digit or a failing check fails, naming the row.
 pub fn card_of(rows: &[Row], file: &str, stem: &str, kind: &str, mine: &BTreeMap<String, String>, other: &dyn Fn(&str) -> Option<BTreeMap<String, String>>) -> Result<Option<Curated>> {
@@ -352,8 +360,11 @@ pub fn card_of(rows: &[Row], file: &str, stem: &str, kind: &str, mine: &BTreeMap
                 let text = render(&r.line, mine, other).map_err(fail)?;
                 match slot {
                     "sub" => card.sub.push(text),
-                    "fact" => card.facts.push(text),
-                    _ => card.diff.push(text),
+                    // (a fact or a diff row is a sentence of its own: its first letter up, its
+                    // full stop added, so rows written as fragments or as one phrase field read
+                    // one after the other)
+                    "fact" => card.facts.push(sentence(&text)),
+                    _ => card.diff.push(sentence(&text)),
                 }
             }
         }
@@ -486,5 +497,9 @@ mod tests {
         assert!(card_of(&rows, "cards.tsv", "x", "mob-farm iron_ingot middle", &f, &none).unwrap().is_none());
         let flipped = vec![row("iron-day1", "if", "restart_missed_night = yes")];
         assert!(card_of(&flipped, "cards.tsv", "iron-day1", "k", &f, &none).unwrap_err().to_string().contains("does not hold"));
+        // (fact rows read as sentences one after the other, written as fragments or not)
+        let facts = vec![row("k", "fact", "To build it: {bill_iron} iron in hand"), row("k", "fact", "{first_night}"), row("k", "fact", "Its storage holds {storage_hours} hours of iron.")];
+        let card = card_of(&facts, "cards.tsv", "x", "k", &f, &none).unwrap().unwrap();
+        assert_eq!(card.facts.join(" "), "To build it: 11 iron in hand. Hide the zombie by hand the first night. Its storage holds 5.2 hours of iron.");
     }
 }
