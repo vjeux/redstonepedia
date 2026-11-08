@@ -1,0 +1,68 @@
+# Day-1 falling-edge pulse for the iron farm's day-1 redstone fork (brief: designs/briefs/pulse-fall-day1.md, G1 APPROVED v2.1).
+# Layout A: Out = (NOT S) AND (S delayed 20 gt). B_out is powered by repeater A (S branch)
+# OR by repeater B (T_inv branch); T_out is the torch on B_out, lit exactly while B_out is
+# unpowered: after a falling edge, S is low and delayed S is still high, so both repeaters are
+# off and B_out is unpowered for one pulse, then T_inv (NOT delayed S) turns repeater B on.
+#
+# BUILD DEVIATIONS from the brief (pulse stays 22 gt, accept window 20-100, all must-haves):
+# (1) A wall torch cannot directly power a plain solid block beside it (26.3:
+# RedstoneTorchBlock.getDirectSignal is non-zero only DOWN; a solid block takes power only
+# via direct signal, and dust does not connect sideways to a plain block), so T_inv feeds
+# repeater B (delay-1, 2 gt), not B_out directly. (2) A dust wire from the input stone to
+# B_out forms a feedback loop: B_out's power travels back along the dust to the input stone,
+# the chain re-amplifies it (repeater output 15 for any input > 0) and the chain sticks on.
+# So S reaches B_out only through repeater A (a diode, delay-1, 2 gt), never through dust
+# into a block. The only dust is a wire from the input stone to repeater A; it touches no
+# block B_out could feed back into. (3) Repeater delays are NOTCHES: getDelay = DELAY*2 gt
+# (delay=1 -> 2 gt, delay=2 -> 4 gt). Chain = 5 repeaters @ delay 2 = 20 gt.
+# Timing: B_out loses A at fall + 2 gt (repeater A), T_out on at fall + 4 gt; B_out gains B
+# at fall + 24 gt (chain 20 + T_inv 2 + repeater B 2), T_out off at fall + 26 gt.
+# Pulse = 26 - 4 = 22 gt. Nominal 22 needs H >= 24 (delayed path settle time); H in
+# [20,24) gives a pulse of H gt (still >= 20); H < 20 gives 0 (chain never rose). The
+# judge's min-pulse is therefore 24 gt; the farm's H ~= 12,000 gt, so this is not a use limit.
+#
+# Day-1 only: dust, torches, repeaters, stone. No quartz/comparator/observer, no slime/sticky, no sculk.
+# S: bed plate (wooden pressure plate under U1), HIGH day / LOW night, H ~= L ~= 12,000 gt.
+# Out: T_out torch itself, drives 1-3 oak trapdoors of the hide (OPEN trapdoor blocks the zombie ray).
+#
+# Wiring rules from the 26.3 source (verified, not folklore):
+# - RepeaterBlock/DiodeBlock.getInputSignal reads the block in its FACING direction, so a
+#   repeater's FACING points at its input and it outputs opposite FACING. A repeater chain
+#   cannot turn by adjacency (output is opposite input); turns use dust between repeaters.
+# - RedstoneWallTorchBlock.hasNeighborSignal senses the block OPPOSITE its FACING (its
+#   attachment block), and its getSignal is 0 in the FACING direction, 15 elsewhere.
+# - Dust on top of a block powers that block below it; dust does not connect sideways to a
+#   plain solid block (RedstoneWireBlock.getConnectingSide returns NONE for a conductor).
+name: pulse-fall-torch-delay-L22
+circuit: falling-edge
+group: pulse-fall-torch-delay
+group title: falling-edge pulse: torch NOR + repeater delay chain, day-1 only
+# Grid (x east, z south, y up). IN (0,1,0) is the judge stone.
+# Chain (straight east): C1-C5 (1..5,1,0), facing west, delay 2 each = 20 gt, into B_inv (6,1,0).
+# T_inv on B_inv (6,1,1, facing south) feeds repeater B (6,1,2, delay 1, facing north),
+# which points into B_out (6,1,3). Repeater A (5,1,3, delay 1, facing west) reads dust
+# (4,1,3) and points into B_out. Dust wire (0,1,1)-(0,1,2)-(0,1,3)-(1,1,3)-(2,1,3)-
+# (3,1,3)-(4,1,3), fed by the input stone from the side, feeds repeater A.
+# T_out on B_out (6,1,4, facing south) is the output.
+port input: 0 1 0
+port output: 6 1 4
+origin: 0 0 0
+palette:
+  S minecraft:stone
+  R minecraft:repeater[delay=2,facing=west,locked=false,powered=false]
+  A minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  B minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  I minecraft:redstone_wall_torch[facing=south,lit=true]
+  O minecraft:redstone_wall_torch[facing=south,lit=false]
+layer 0:
+  SSSSSSS
+  S......
+  S.....S
+  SSSSSSS
+layer 1:
+  .RRRRRS
+  d.....I
+  d.....B
+  dddddAS
+  ......O
