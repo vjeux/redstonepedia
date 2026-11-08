@@ -7,10 +7,10 @@
 //! origin/main>` (committed, staged and unstaged) plus the untracked files. Each touched file
 //! picks pieces through [`RULES`] (explicit, conservative inside a study, local across them):
 //! * the SIMULATOR (redsim with its mob, entity, fluid and light code, redsim-fuzz, the bridge,
-//!   mctas' sim code) picks the simulator pieces: every recorded game answer replayed on redsim
-//!   (`sim:recorded-*`, seconds, no JVM, stale recordings fail: [`mctas::recorded`]), redsim's
-//!   own tests, and the live differential fuzzers of the areas it touched (`sim:fuzz-*`). Never
-//!   a judge;
+//!   mctas' sim and vanilla code) picks the simulator pieces: every recorded game answer replayed
+//!   on redsim (`sim:recorded-*`, seconds, no JVM, stale recordings fail: [`mctas::recorded`]),
+//!   redsim's own tests, the live differential fuzzers of the areas it touched (`sim:fuzz-*`)
+//!   and, for the bridge, the official-server cross-checks (`sim:vanilla-*`). Never a judge;
 //! * a JUDGE or STUDY's code picks that study's checks on its calibration designs (the
 //!   selftest's checks of that study, on redsim and in the game), and the recorded pieces when
 //!   the recordings replay through its code (the clock crate, the circuit judge, the four exact
@@ -97,7 +97,7 @@ impl Group {
 
 /// The simulator's areas (the live fuzzers of the areas a change touched). Every simulator
 /// change replays every recording (`traces`, seconds).
-pub const AREAS: [&str; 5] = ["traces", "redstone", "pistons", "containers", "sculk"];
+pub const AREAS: [&str; 6] = ["traces", "redstone", "pistons", "containers", "sculk", "vanilla"];
 
 /// What a touched path picks.
 #[derive(Clone, Copy, Debug)]
@@ -116,6 +116,8 @@ pub enum Pick {
 
 /// The engine of redsim: a change there touches every area.
 const ENGINE: &[&str] = &["traces", "redstone", "pistons", "containers", "sculk"];
+/// The bridge: the engine's areas and the official-server cross-checks.
+const EVERY_AREA: &[&str] = &["traces", "redstone", "pistons", "containers", "sculk", "vanilla"];
 const CIRCUITS: &[Group] = &Group::CIRCUITS;
 
 /// The file -> piece table, most specific prefix first (the first match wins). Explicit and
@@ -132,18 +134,18 @@ pub const RULES: &[(&str, Pick)] = &[
     ("Cargo.toml", Pick::Everything),
     ("Cargo.lock", Pick::Everything),
     ("crates/mctas-cli/", Pick::Everything),
-    // mctas: the bridge is the simulator; the official server's harness, videos, fonts and
-    // downloads pick nothing; the rest (the design format, block states, paths, setup) everything
-    ("crates/mctas/src/sim.rs", Pick::Sim(ENGINE)),
-    ("crates/mctas/src/bridge.rs", Pick::Sim(ENGINE)),
+    // mctas: the bridge and the official server are the simulator; videos, fonts and downloads
+    // pick nothing; the rest (the design format, block states, paths, setup) everything
+    ("crates/mctas/src/sim.rs", Pick::Sim(EVERY_AREA)),
+    ("crates/mctas/src/bridge.rs", Pick::Sim(EVERY_AREA)),
     ("crates/mctas/src/recorded.rs", Pick::Sim(&["traces"])),
-    ("crates/mctas/src/vanilla/", Pick::Nothing("the official server's harness (door vanilla-check / -gadget / -fuzz, terrain): no piece; run `door vanilla-check` by hand")),
+    ("crates/mctas/src/vanilla/", Pick::Sim(&["vanilla"])),
     ("crates/mctas/src/video.rs", Pick::Nothing("videos")),
     ("crates/mctas/src/mcfont.rs", Pick::Nothing("videos (the client font)")),
     ("crates/mctas/src/fabric.rs", Pick::Nothing("videos (the client launcher)")),
     ("crates/mctas/src/net.rs", Pick::Nothing("downloads (setup)")),
     ("crates/mctas/", Pick::Everything),
-    ("bridge/", Pick::Sim(ENGINE)),
+    ("bridge/", Pick::Sim(EVERY_AREA)),
     // redsim, by area: the engine touches every area; the entity, fluid, crop, TNT, rail, light
     // and weather code is covered by the recorded traces (no live fuzzer generates entities)
     ("crates/redsim/src/piston/", Pick::Sim(&["traces", "pistons"])),
@@ -172,9 +174,9 @@ pub const RULES: &[(&str, Pick)] = &[
     ("crates/boat-leads/", Pick::Sim(&["traces"])),
     // piston-door: the differential tools are the simulator's, the rest is the door study
     ("crates/piston-door/src/pistfuzz.rs", Pick::Sim(&["traces", "pistons", "sculk"])),
-    ("crates/piston-door/src/vanilla_", Pick::Nothing("the official-server cross-check tools: no piece; run `door vanilla-check` by hand")),
+    ("crates/piston-door/src/vanilla_", Pick::Sim(&["vanilla"])),
     ("crates/piston-door/", Pick::Groups(&[Group::Door])),
-    ("crates/door-vanilla/", Pick::Nothing("the official-server cross-check tools: no piece; run `door vanilla-check` by hand")),
+    ("crates/door-vanilla/", Pick::Sim(&["vanilla"])),
     ("crates/door-redsim/", Pick::SimAnd(&["traces", "redstone", "pistons", "containers", "sculk"], &[Group::Door])),
     ("crates/door-video/", Pick::Nothing("videos")),
     ("crates/door-", Pick::Groups(&[Group::Door])),
@@ -214,6 +216,7 @@ pub const RULES: &[(&str, Pick)] = &[
     ("crates/mobfarm/", Pick::Nothing("the mob farm tools: no calibration pieces; a mob farm design runs its own judge and game gate")),
     ("crates/bedrock/", Pick::Nothing("the bedrock tools: no calibration pieces; a bedrock design runs its own judge")),
     ("crates/terrain/", Pick::Nothing("the terrain tools (the official server's terrain samples): no calibration pieces")),
+    ("crates/farmopt", Pick::Nothing("the farm optimizer (farmopt, farmopt-iron): no calibration pieces; the farms it finds run their own judge")),
     // the site, the viewer, docs: nothing (publishing runs no tests)
     ("crates/site/", Pick::Nothing("the site")),
     ("crates/site-model/", Pick::Nothing("the site")),
@@ -244,6 +247,7 @@ pub const ROWS: &[(&str, Group, &str, usize, usize, u32)] = &[
     ("sim:fuzz-containers", Group::Sim, "containers", 8, 16, 90),
     ("sim:fuzz-pistons", Group::Sim, "pistons", 8, 16, 90),
     ("sim:fuzz-sculk", Group::Sim, "sculk", 8, 16, 90),
+    ("sim:vanilla-", Group::Sim, "vanilla", 2, 4, 150),
     ("judge:redsim-", Group::Door, "", 0, 1, 30),
     ("judge:verify-", Group::Door, "", 1, 2, 90),
     ("judge:2x2-", Group::Door, "", 1, 2, 90),

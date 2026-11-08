@@ -196,7 +196,7 @@ fn run_at(w: &mut Worker, v: &mut VanillaServer, oracle: &mut Oracle, s: &Script
                     let spot = bot_spot(&rest.blocks, *p, lo, hi);
                     v.teleport_bot(spot[0], spot[1], spot[2])?;
                     if before.starts_with("minecraft:lever") {
-                        flip(v, *p, !before.contains("powered=true"))?;
+                        flip(v, *p)?;
                     } else {
                         v.bot_use(*p, 1)?;
                         std::thread::sleep(std::time::Duration::from_millis(300));

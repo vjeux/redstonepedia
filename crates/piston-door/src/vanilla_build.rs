@@ -1017,11 +1017,11 @@ fn check_at(w: &mut Worker, v: &mut VanillaServer, oracle: &mut Oracle, d: &Desi
         for i in 0..opts.cycles as usize {
             let s = sim.run.cycles.get(i);
             let mut c = CycleRun::default();
-            crate::vanilla_check::flip(v, spec.lever, true)?;
+            crate::vanilla_check::flip(v, spec.lever)?;
             let t = s.and_then(|s| target(&s.open, s.open_idle));
             (c.open, c.open_idle, c.open_pending) = crate::vanilla_check::vanilla_record(v, wlo, whi, opts.max_ticks, t)?;
             c.open_entities = crate::vanilla_check::vanilla_entities(v)?;
-            crate::vanilla_check::flip(v, spec.lever, false)?;
+            crate::vanilla_check::flip(v, spec.lever)?;
             let t = s.and_then(|s| target(&s.close, s.close_idle));
             (c.close, c.close_idle, c.close_pending) = crate::vanilla_check::vanilla_record(v, wlo, whi, opts.max_ticks, t)?;
             c.close_entities = crate::vanilla_check::vanilla_entities(v)?;

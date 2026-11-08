@@ -269,21 +269,27 @@ pub(crate) fn vanilla_entities(v: &mut VanillaServer) -> Result<u32> {
     Ok(n)
 }
 
-/// Right-click the lever with the bot and wait until it shows the new state.
-pub(crate) fn flip(v: &mut VanillaServer, lever: Pos, on: bool) -> Result<()> {
+/// Right-click the lever with the bot and wait until it shows the OTHER state: a lever toggles,
+/// and a design whose lever rests powered opens by switching it off. (Waiting for a fixed
+/// `powered=on` returned at once on such a door, c79 among them, and the click then landed
+/// whenever the server got to the bot's packet: before the next `tick step` on an idle box, a
+/// tick later under load, so vanilla ran a phase one tick behind the simulator.) Returns the
+/// lever's new state.
+pub(crate) fn flip(v: &mut VanillaServer, lever: Pos) -> Result<bool> {
     if !v.test_block(lever, "minecraft:lever")? {
         // The lever is gone (a broken build popped it). The judge then right-clicks whatever is
         // there with a mock player (nothing, for air); the bot does the same and moves on.
         v.bot_use(lever, 1)?;
         std::thread::sleep(std::time::Duration::from_millis(200));
         v.cmd("list")?;
-        return Ok(());
+        return Ok(false);
     }
+    let on = !v.test_block(lever, "minecraft:lever[powered=true]")?;
     v.bot_use(lever, 1)?;
     let t0 = std::time::Instant::now();
     loop {
         if v.test_block(lever, &format!("minecraft:lever[powered={on}]"))? {
-            return Ok(());
+            return Ok(on);
         }
         if let Some(e) = v.bot.as_ref().and_then(|b| b.error()) {
             bail!("bot: {e}");
@@ -373,7 +379,7 @@ fn vanilla_run(v: &mut VanillaServer, placed: &[(Pos, String)], d: &Design, spec
     for i in 0..opts.cycles as usize {
         let s = sim.cycles.get(i);
         let mut c = CycleRun::default();
-        if let Err(e) = flip(v, spec.lever, true) {
+        if let Err(e) = flip(v, spec.lever) {
             // Say what vanilla's rest looked like next to the simulator's (bare names unexpanded).
             let d = frame_diff(&sim.rest, &rest, 6);
             bail!("{e:#} | vanilla rest vs simulator rest: {}", if d.is_empty() { "same".into() } else { d.join("; ") });
@@ -381,7 +387,7 @@ fn vanilla_run(v: &mut VanillaServer, placed: &[(Pos, String)], d: &Design, spec
         let t = s.and_then(|s| target(&s.open, s.open_idle));
         (c.open, c.open_idle, c.open_pending) = vanilla_record(v, wlo, whi, opts.max_ticks, t)?;
         c.open_entities = vanilla_entities(v)?;
-        flip(v, spec.lever, false)?;
+        flip(v, spec.lever)?;
         let t = s.and_then(|s| target(&s.close, s.close_idle));
         (c.close, c.close_idle, c.close_pending) = vanilla_record(v, wlo, whi, opts.max_ticks, t)?;
         c.close_entities = vanilla_entities(v)?;
@@ -533,12 +539,12 @@ fn vanilla_free_run(v: &mut VanillaServer, oracle: &mut Oracle, w: &mut Worker, 
     let (wlo, whi) = watch_box(d, spec);
     let c0 = sim.cycles.first().context("no cycles")?;
     let (Some(sim_open), Some(sim_closed)) = (c0.open.last(), c0.close.last()) else { bail!("no simulator frames") };
-    let run_until = |v: &mut VanillaServer, on: bool, ticks: usize| -> Result<(Region, u32, bool)> {
+    let run_until = |v: &mut VanillaServer, ticks: usize| -> Result<(Region, u32, bool)> {
         if rate != 20 {
             v.cmd_ok("tick rate 20")?;
         }
         v.cmd_ok("tick unfreeze")?;
-        flip(v, spec.lever, on)?;
+        flip(v, spec.lever)?;
         let t0 = v.game_time()?;
         let started = std::time::Instant::now();
         while v.game_time()? < t0 + ticks as i64 {
@@ -556,8 +562,8 @@ fn vanilla_free_run(v: &mut VanillaServer, oracle: &mut Oracle, w: &mut Worker, 
         let entities = vanilla_entities(v)?;
         Ok((snap.region, entities, !busy))
     };
-    let (mut open, open_entities, open_idle) = run_until(v, true, c0.open.len() + 20)?;
-    let (mut closed, close_entities, close_idle) = run_until(v, false, c0.close.len() + 20)?;
+    let (mut open, open_entities, open_idle) = run_until(v, c0.open.len() + 20)?;
+    let (mut closed, close_entities, close_idle) = run_until(v, c0.close.len() + 20)?;
     oracle.apply(w, &mut [&mut open, &mut closed])?;
     let mut problems = Vec::new();
     let d_open = frame_diff(sim_open, &open, 6);

@@ -59,7 +59,7 @@ slowest five, and ends with the line for the commit message (`Tests: mctas test 
 
 | the change touches | the pieces |
 |---|---|
-| the simulator: `crates/redsim` (its mob, entity, fluid, light and weather code too), `crates/redsim-fuzz`, `bridge/`, mctas' `sim.rs` / `bridge.rs`, the differential tools (`pistfuzz.rs`, `crates/door-redsim`) | `sim:recorded-*`: every recorded game run replayed on redsim, no JVM, seconds (below); `sim:redsim-tests`: redsim's own known answers; `sim:fuzz-<area>`: the live differential fuzzers (the bridge's game against redsim) of the areas the files belong to (redstone, pistons and moving blocks, containers, sculk; redsim's engine, `world.rs`, `ticks.rs`, `block.rs`..., the bridge: all of them). The official server against the bridge (`door vanilla-check`, `vanilla-gadget`, `vanilla-fuzz`) is not a piece (a harness race under load, filed): a session changing the bridge or the official-server harness runs `door vanilla-check` on a door by hand |
+| the simulator: `crates/redsim` (its mob, entity, fluid, light and weather code too), `crates/redsim-fuzz`, `bridge/`, mctas' `sim.rs` / `bridge.rs` / `vanilla/`, the differential tools (`pistfuzz.rs`, `vanilla_*.rs`, `crates/door-redsim`, `crates/door-vanilla`) | `sim:recorded-*`: every recorded game run replayed on redsim, no JVM, seconds (below); `sim:redsim-tests`: redsim's own known answers; `sim:fuzz-<area>`: the live differential fuzzers (the bridge's game against redsim) of the areas the files belong to (redstone, pistons and moving blocks, containers, sculk; redsim's engine, `world.rs`, `ticks.rs`, `block.rs`..., all of them); `sim:vanilla-*`: the unmodified official server against the bridge (the bridge or the official-server code) |
 | a judge's or a study's code (`crates/piston-door`, `crates/door-*`, `crates/clock*`, `crates/circuit*`) | that study's checks on its calibration designs, on redsim and in the game (`door selftest`'s checks of the study); a circuit study's module also picks the studies whose modules call into it, the circuit judge's shared code every circuit study; code the recordings replay through (the clock crate, the circuit judge, the sorter / smelter / brewer / composter modules, the shulker replayer) also the recorded pieces (seconds); never a live fuzzer |
 | a design: a door, clock, circuit, farm or gadget | its own judge: `door verify <f> --extra-offsets 28`, `clock verify <f>`, `circuit verify <f>`, `door drive <gadget>.drive`; a calibration or selftest file: the checks that read it; an archive table: `archive:tables`; a recording or its frozen design: `sim:recorded-*` |
 | docs/, web/, the site, the viewer, litematic, videos, downloads | nothing (`site publish` / `deploy` run no tests) |
@@ -72,8 +72,9 @@ each check's group and JVM workers; crates/piston-door/src/selftest.rs). Flags: 
 the plan and stop), `--all` (every piece, on demand: never a scheduled job), `--pick sim,sorter`
 (add groups), `--design <f>` (add a design's judge), `--only <names>`, `--fail-fast` (stop at the
 first FAIL), `--from <ref>`, `--jobs` / `--jvms` (override the machine's sizing), `--keep`.
-Typical times on a 166-core box (2026-11-08): a redsim or bridge change 47 s (11 pieces: the
-recordings, redsim's tests and the live fuzzers of its areas); a study's code its study's checks
+Typical times on a 166-core box (2026-11-08): a redsim change 47 s (11 pieces: the recordings,
+redsim's tests and the live fuzzers of its areas); with the bridge or the official-server code,
+the `sim:vanilla-*` pieces too: 2.6 min; a study's code its study's checks
 (the slowest, the shulker study, about 5 min); a
 design its own judge (a door: about 35 s); docs nothing. The old single gate took 28 min.
 

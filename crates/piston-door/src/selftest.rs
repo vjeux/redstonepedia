@@ -1768,11 +1768,53 @@ fn sim_checks(v: &mut Vec<Check>) {
         "`door pistfuzz --sculk` (sculk sensors, calibrated sensors with frequency filters, wool, amethyst, comparators and observers on sensors, among pistons and wiring) in the game and on redsim: 0 mismatching",
         vec![args("door pistfuzz --count 600 --seed 9501 --sculk --workers {workers} --out-dir {tmp}/sculk")],
     ));
-    // The official-server cross-checks (`door vanilla-check`, `vanilla-gadget`, `vanilla-fuzz`:
-    // the unmodified 26.3 server against the bridge) are not pieces: c79's vanilla-check once
-    // diverged by one tick at one of its 8 positions on an oversubscribed box (2026-11-08; 6 of 6
-    // re-runs at that position identical), a race of the harness, not of the simulator, filed with
-    // its owner. They stay tools a bridge session runs by hand (docs/tools.md).
+    // the official-server cross-checks (the unmodified 26.3 server jar, RCON, a bot player
+    // clicking the lever, region files read back): the bridge = the official server, on small
+    // focused fixtures (internals.md#the-official-server-cross-checks). The bot's click waits for
+    // the lever's OTHER state (vanilla_check::flip; 2026-11-08: waiting for a fixed state let a
+    // click land a tick late under load on c79, whose lever rests powered)
+    v.push(Check {
+        name: "sim:vanilla-check".into(),
+        what: "`door vanilla-check` on the community 7x9 (c79): the unmodified official server and the simulator identical tick for tick under the judge's rules at 8 positions x 3 cycles, plus a real-time cycle",
+        quick: false,
+        jvm: true,
+        steps: vec![args("door vanilla-check designs/piston-door-3x3/archive/c79-community-63b-51b.txt")],
+        timeout: 900,
+        pred: Box::new(|o| {
+            let l = o[0].lines().find(|l| l.starts_with("vanilla-check: ")).ok_or(format!("no verdict: {}", tail(&o[0])))?;
+            if l.contains("PASS") && !l.contains("DIVERGES") { Ok(l.chars().take(140).collect()) } else { Err(l.chars().take(240).collect()) }
+        }),
+    });
+    // the official server steps slowly (a snapshot per tick: ~45 s per gadget position, ~75 s per
+    // fuzz case), so these are one piece per gadget and per pair of fuzz cases, all in parallel
+    for (g, what) in [("bulb-toggle", "a copper bulb toggle"), ("comparator-odd", "an odd comparator"), ("dispenser-qc", "a dispenser's quasi-connectivity"), ("double-move", "a double piston move"), ("dust-reach", "dust reach"), ("early-window", "an early window")] {
+        v.push(Check {
+            name: format!("sim:vanilla-gadget-{g}"),
+            what: Box::leak(format!("`door vanilla-gadget` on {what} (designs/gadgets/{g}.drive) at 2 positions: its drive script replayed on the unmodified official server, identical tick for tick with the simulator, every expect true").into_boxed_str()),
+            quick: false,
+            jvm: true,
+            steps: vec![args(&format!("door vanilla-gadget designs/gadgets/{g}.drive --positions 2"))],
+            timeout: 600,
+            pred: Box::new(|o| {
+                let l = o[0].lines().find(|l| l.starts_with("vanilla-gadget: ")).ok_or(format!("no verdict: {}", tail(&o[0])))?;
+                if l.contains(" PASS: ") && l.contains("drive PASS") { Ok(l.chars().take(160).collect()) } else { Err(l.chars().take(300).collect()) }
+            }),
+        });
+    }
+    for seed in [7, 9, 11, 13] {
+        v.push(Check {
+            name: format!("sim:vanilla-fuzz-{seed}"),
+            what: "`door vanilla-fuzz` (2 random small contraptions run on the unmodified official server and in the simulator, a fixed seed): none diverges, no error",
+            quick: false,
+            jvm: true,
+            steps: vec![args(&format!("door vanilla-fuzz --count 2 --seed {seed} --out-dir {{tmp}}/vfuzz"))],
+            timeout: 600,
+            pred: Box::new(|o| {
+                let l = o[0].lines().find(|l| l.starts_with("vanilla-fuzz: ")).ok_or(format!("no summary: {}", tail(&o[0])))?;
+                if l.contains(" 0 diverging") && l.contains(" 0 errors") { Ok(l.to_string()) } else { Err(l.to_string()) }
+            }),
+        });
+    }
 }
 
 /// Run one command with a timeout; stdout + stderr. A first argument starting with `?` marks a

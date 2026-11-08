@@ -150,12 +150,15 @@ differential fuzzer, or redsim's own known answers.
 | `sim:recorded-ideal` | `door ideal-rs` against the game's recorded `door ideal` verdicts and ticks on the c78z, c78z-u1, s25 and observer-driven s25 plans, tile phase and between ticks |
 | `sim:redsim-tests` | `cargo test --release -p redsim --lib --tests`: the mob layer's known answers (the golem sensor's memory, the 600 gt cycle, spawn spots, villager schedules), weather, item and fall physics, leashes, links, shapes, the game frames of crates/redsim/tests/fixtures |
 | `sim:fuzz-redstone`, `-containers`, `-pistons`, `-sculk` | the live differential fuzzers (fixed seeds): random circuits with every component family and the core palette in a bigger box; droppers and hoppers with items; random piston setups (flat and boxed, observers, redstone around them, slime, shaped blocks); sculk scenes |
+| `sim:vanilla-check`, `-gadget-*`, `-fuzz-*` | the unmodified official server against the bridge: c79 at 8 positions x 3 cycles plus a real-time cycle, six gadgets, random small contraptions (one piece per gadget and per pair of fuzz cases: the official server steps slowly) |
 
-The official server against the bridge (`door vanilla-check`, `vanilla-gadget`, `vanilla-fuzz`) is
-not a piece: on a box oversubscribed by other sessions' game servers, c79's vanilla-check once
-diverged by one tick at one of its 8 positions (vanilla a tick ahead in the third cycle's opening;
-6 of 6 re-runs at that position identical): a race of the official-server harness, filed. A
-session that changes the bridge or that harness runs it by hand.
+The official-server pieces were out of `mctas test` for an hour on 2026-11-08: c79's vanilla-check
+diverged twice in about 20 runs on a loaded box, vanilla one tick behind at a cycle's opening.
+The cause was the harness, not the game or the simulator: the bot's lever click waited for a fixed
+`powered=true`, and c79's lever rests powered (it opens by switching it off), so the wait returned
+at once and the click landed whenever the server got to the bot's packet, a tick late under load.
+`vanilla_check::flip` now waits for the lever's other state; 30 runs of the 8 positions under
+load 80-120 beside an 8-server game gate were all identical.
 
 What the game-running checks exercised and what covers it now:
 
@@ -175,7 +178,7 @@ What the game-running checks exercised and what covers it now:
 | flying machines, slime and honey (the flyers, the elevator) | the two-way machine, the elevator and the watcher-stays recordings, the horizontal flyer trace, the slime and honey scenes, `sim:fuzz-pistons` (slime) |
 | crops and random ticks (circuit:farm-run) | the cane, melon, bamboo, cactus, kelp and stem traces (random ticks mirrored) |
 | mobs (no game check) | `sim:redsim-tests` |
-| the bridge itself | the live fuzzers (the bridge's game against redsim: a bridge that breaks the game's behavior diverges); the official server against the bridge by hand (`door vanilla-check`) |
+| the bridge itself | `sim:vanilla-*`; the live fuzzers (the bridge's game against redsim) |
 | chunk reload (clock:verify-reload) | not a simulator behavior: redsim does not model reload; the clock judge's own check |
 | walkers and pressure plates (circuit:verify-autodoor) | not modeled (redsim declines walkers); the autodoor judge's own check |
 | the unwaxed copper bulb (bulb-toggle-bud) | not modeled (`copper_bulb`); the circuit judge's own check |
