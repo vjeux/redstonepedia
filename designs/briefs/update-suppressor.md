@@ -176,6 +176,44 @@ block events). The practical answer to the use stays layout 1 - never send the u
 with this study as the evidence for why the flooded kind is not on the table. The judge and
 tools stay: any future mechanic that *can* flood drops into the same rig.
 
+## Phase 2: the exponential hunt (2026-11-07, after the first report)
+
+Asked explicitly for a branching/exponential sequence instead of more blocks, phase 2
+re-did the search as a census: every `neighborChanged` (24 classes) and `updateShape`
+(~118) override in the 26.3 source, classified by downstream state changes per execution,
+revisit possibility, and monotonic / one-shot / phase-exit behaviour (the table and the
+three derivations - walls, chest adoption, wire shape x power - are in
+`designs/update-suppressor/NOTES.md`). Probes were extended to match
+(`suppress probe shape:fence|bamboo|trip`, `fence-rand`, and `suppress bprobe` bridge
+snapshot diffs for walls, stairs, dripstone, chests, snow, chorus, vines, panes, pale
+moss and portals - the families redsim does not model).
+
+**Result: no family branches.** Every cascade handler in the game is one of: exit to a
+later phase; a signal mirror (one flip); a static function of static inputs (stairs -
+neighbour FACING/HALF are immutable in a cascade; fences/panes/chorus/fire/multiface -
+presence); a pair or capped line (chests provably stop after one adoption from the
+connected-direction asymmetry; shelves cap at 3; tripwire scans <= 41 cells once);
+a downward/linear automaton with branching factor 1 (walls' post rule, vine/moss face
+inheritance, dripstone thickness, bamboo AGE - measured exactly: wall run n+1 changed
+cells, bamboo 6n+1 counted calls, flips per cell <= 2 everywhere); a one-shot survival
+pop; or one of exactly two multi-block loops - the sponge's 64-cell BFS and the frosted-
+ice melt line (below). Growth is at best linear, and per *trigger* it is worse than
+linear in build size for most families (a 1D automaton walks one column per trigger,
+however wide the field is built).
+
+Smallest assemblies that would arithmetically cross 1,000,000 counted calls in one
+cascade, for the record (none is a survival build):
+
+| family | counted per placed block | assembly to cross | why not survival |
+|---|---|---|---|
+| sponge lattice in existing ocean water | ~454 per dry sponge (64 water removals x 7 + its wet write) | **>= 2,203 dry sponges** (water is terrain) chained by one placement | a monument yields at most a few dozen sponges; one-shot, reset = smelt 2,203 wet sponges |
+| frosted-ice melt line | ~8 per cell | ~125,000 frosted-ice cells in a <= 2-neighbour line | no item form; Frost Walker trails only, and random-tick ageing melts it unprompted |
+| dust (best measured lattice) | ball-capped | does not exist: 30,571 counted is the most any build measured, ~725k is the unreachable packing bound | signal dies 15 wire-steps from the trigger |
+
+The lowered-cap suppressor result and the judge rig are unchanged and remain the
+deliverable mechanism; phase 2 closes the "maybe a cleverer automaton exists" gap the
+first phase's family sampling left open.
+
 ## Must-haves
 
 - Default world: cap 1,000,000 as shipped (no `max-chained-neighbor-updates` edit, no

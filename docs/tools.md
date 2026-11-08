@@ -11,7 +11,7 @@ The bedrock study's commands (`mctas bedrock scan | watch | vanilla | vanilla-ma
 judge | minimize | graft | row | circuit | scenario`: bedrock breakers, the portal method, the
 official server's checks) are in [designs/bedrock/NOTES.md](../designs/bedrock/NOTES.md#tools); its
 circuit kind (`circuit: bedrock-breaker N`) is judged like every circuit (`mctas circuit verify`).
-The update-suppressor study's commands (`mctas suppress probe | judge | bridge | vanilla | emit`:
+The update-suppressor study's commands (`mctas suppress probe | bprobe | judge | bridge | vanilla | emit`:
 neighbor-cascade flood probes, the suppression judge rig on redsim, in the bridge and on the
 official server) are in [designs/update-suppressor/NOTES.md](../designs/update-suppressor/NOTES.md#tools);
 its brief is [designs/briefs/update-suppressor.md](../designs/briefs/update-suppressor.md).

@@ -223,6 +223,73 @@ a block that (i) has no item form, (ii) is only created by Frost Walker on water
 (iii) random-tick ages toward melting on its own). Everything else schedules a tick,
 queues a block event, or waits for a block-entity/entity phase - fresh cascades.
 
+## Phase 2 (2026-11-07): the exponential hunt - a source-wide census
+
+Owner's direction: no more block spam; find a branching (superlinear) update sequence or
+prove there is none family by family. Every `neighborChanged` override (24 block classes),
+every `updateShape` override (~118, minus level/chunk bookkeeping), `onPlace` loops, and
+the `updateNeighborsAt`/`neighborChanged` callers were (re)read. (`onNeighborChange` does
+not exist in 26.3 - zero grep hits. `handlePrecipitation` runs from weather/chunk ticks,
+never inside a neighbor cascade.) Classification of every family that can change a block
+state inside a cascade, by what one execution can cause downstream:
+
+| class of behaviour | families | downstream per execution | revisit bound per cell per cascade |
+|---|---|---|---|
+| schedules a tick / queues an event / block-entity (phase exit) | observer, repeater, comparator, torch, lamps-off, buttons/plates, diodes' outputs, pistons (events), droppers/crafter (events), sculk, daylight, hopper/container analog, leaves + scaffolding distance, cactus/cane/bamboo-survival, coral death, frosted aging, fire spread/burnout, fluids, gravity, kelp/bamboo growth, command blocks | 0 state changes in this cascade (scheduling is free and uncounted) | n/a |
+| mirror of neighbour signal (one flip per edge; signal is monotone inside a cascade - emitters are dust (monotone), static sources, and scheduled devices frozen mid-cascade) | note block, lamp (on), copper bulb `powered` (+ <= 1 `lit` toggle), dropper/dispenser/crafter `triggered`, skull, shelf `powered`, bell `powered`, doors/trapdoors/fence gates (+/- the second half), big dripleaf tilt-reset, hopper `enabled` | own 1 setBlock (~7-9 counted calls) | 1 |
+| static shape function of static inputs (neighbour *presence/type/facing/half*, own static props) | **stairs** (`getStairsShape` reads neighbours' FACING/HALF only - both immutable in a cascade), fences, iron bars/panes, glass panes, chorus plant, huge mushroom, fence-gate in-wall, wire connection sides, fire faces, snow/grass `snowy`, multiface (glow lichen/sculk vein face support), chest *shape*, campfire | <= 1 correction, only in the ring around a presence change (the correction cannot change any other cell's inputs) | 1 |
+| pairs / bounded lines | chest + copper chest adoption (below), beds, doors' halves, double plants/pitcher, piston head, end portal frames, shelf side-chains (max 3, `getMaxChainLength`), tripwire lines (<= 41 cells scanned, attached flips once per line), nether portals (interior <= 21x21, one-shot air) | <= 1 partner, or <= 41 setBlocks (tripwire `calculateState`) | 1-2 |
+| vertical/linear automatons (branching factor 1) | **walls** (below), pale moss carpet (2-high), vines (face inherited from above), pointed dripstone thickness (TIP->FRUSTUM->MIDDLE->BASE by distance from tip), bamboo AGE (0->1 downwards), kelp head/body conversion (one cell), snow-layer support pops, big-dripleaf stems | 1 cell (the next in line) | <= 2 (derived for walls; measured 1) |
+| survival pops (one-shot, the cell leaves) | torches, rails, levers/buttons, signs, plants, corals, cake, snow, attached everything | the cell's own removal + its updates | 1 (gone) |
+| signal propagation (phase 1) | dust powers (<= 15 steps, monotone flips), powered rails (<= ~9 track steps to a signalled rail), rail junction curves (fixed point on settled meshes) | bounded ball, see phase 1 | dust <= its power; rails 1 |
+| **in-cascade multi-block loops (the only branching > 1 executions in the game)** | **sponge** BFS (<= 64 water cells, ~7 counted calls each + wet-sponge write; neighbour sponge executions chain through shared water), frosted-ice melt condition (< 2 frosted neighbours: ~8 counted per melted cell, sparse lines only), rail `RailState.place` (self + <= 2 `connectTo` writes - never observed to take a second step on settled meshes, phase 1 + this phase's meshes) | sponge <= 64, frosted 1 (next in line), rails <= 2 | sponge 1 (wet), frosted 1 (gone), rails measured <= 2 |
+
+Derivations for the three families a reader would doubt:
+
+- **Walls** (`WallBlock.updateShape` 128-247). A wall's new state is
+  F(presence pattern (static in a cascade), above-cell summary (its UP + arm presence,
+  through `topNeighbourHasPost` and the down-face `isCovered` tests)). Shape updates from
+  BELOW are ignored (`directionToNeighbour == DOWN` -> super), and a horizontal
+  neighbour's recompute reads the changed cell only through `connectsTo` (wall tag /
+  sturdy face / gate facing - all presence-level, unchanged by a same-block flip). So
+  changes propagate strictly downward, one column at a time; the topmost changed cell's
+  inputs are final after the trigger, so it flips <= 1 time to its final value, and by
+  induction each cell below sees its above-input change at most once and flips <= 2 times
+  even if a stray horizontal delivery makes it evaluate early against the stale above.
+  Measured (bridge `wallrun`): n+1 cells change in an n-high run - exactly the placed wall
+  plus one UP flip per wall under it.
+- **Chest adoption** (`ChestBlock.updateShape` 144-172). A SINGLE chest adopts only when
+  the changed neighbour is non-SINGLE and *its* connected direction points back. LEFT's
+  partner is clockwise of its facing, RIGHT's counter-clockwise, so after one adoption
+  both outer neighbours fail the direction equality on both sides: adoption extends a
+  pair by exactly one cell and stops. Measured: 2 changed cells at every row length.
+- **Wire shape x power.** Stored wire sides only change in `updateShape`, whose writes go
+  through `updateOrDestroy` with neighbour bit cleared and never re-enter the evaluator;
+  power obeys the phase-1 monotonicity proof regardless of sides (incoming signal reads
+  neighbour *powers* and conductor presence, both static/monotone in a cascade;
+  `getIncomingWireSignal` 29-47). Presence changes inside a cascade (the only thing that
+  could rewrite sides) come from pops/removals/destruction in the same one-shot families.
+
+Phase-2 probes (`suppress probe shape:*`, `fence-rand`, `suppress bprobe`):
+fence fields constant 7 counted (600 random patches likewise, flips_max 1); bamboo column
+counted = 6n+1 exactly (one AGE flip per segment); tripwire completion fires up to its
+41-cell scan cap as many small cascades (hook `calculateState` runs from `onPlace`, at
+cascade top level, like the game) and dies whole at line length 64; bridge snapshot diffs:
+walls 1 (column) / **n+1 (run)** / 10 (field), stairs 1, dripstone 3 (tip-local), chests
+2, snow tower n (instant pop wave up one column), chorus 2 after 1 tick then scheduled
+falls only (12-27 by idle), vines 2 at a top break, panes 5, moss 2, portal interiors
+3(n-2)+1 (19/43/64 at widths 8/16/23) - every entry constant or exactly linear in **one**
+line/column, flips per cell <= 2 everywhere.
+
+Conclusion: no recurrence with branching factor > 1 exists among survival blocks' cascade
+handlers in 26.3. The only executions that touch > 2 cells are the sponge BFS (capped at
+64 one-shot cells) and tripwire's 41-cell scan (one-shot `attached`); both are linear in
+placed blocks with small constants, as is every other family (signal ball included). The
+phase-1 verdict stands, now by census instead of sampling: exceeding 1,000,000 counted
+calls in one cascade needs on the order of 10^5-10^6 placed blocks through the linear
+families (dust's own ball caps at ~31k counted no matter the build), or the two named
+impractical exceptions (≥ ~2,174 dry sponges in ~140k water; ~125k frosted-ice cells).
+
 ## Next highest-value steps (not done)
 
 1. Sponge threshold hunt in the bridge sandbox (fill-built sponge/water volume, watch for
