@@ -48,8 +48,18 @@ impl Gpu {
         crate::next_task().await;
         let t2 = clock();
         let mut r = Renderer::new(device, queue, format, atlas, samples);
+        let t3 = clock();
+        // the programs' first use and the frame targets at the canvas's size, each in a task of
+        // its own (not in the page's first frame)
+        crate::next_task().await;
+        let t4 = clock();
+        r.warm_up();
+        let t5 = clock();
+        crate::next_task().await;
+        let t6 = clock();
+        r.warm_up_targets(canvas.width(), canvas.height());
         if crate::debug() {
-            crate::log(&format!("a WebGL context: the context {:.0} ms, the adapter {:.0} ms, the device {:.0} ms, the renderer {:.0} ms", ta - t0, tc - tb, t1 - td, clock() - t2));
+            crate::log(&format!("a WebGL context: the context {:.0} ms, the adapter {:.0} ms, the device {:.0} ms, the renderer {:.0} ms, its programs {:.0} ms, its targets {:.0} ms", ta - t0, tc - tb, t1 - td, t3 - t2, t5 - t4, clock() - t6));
         }
         // a player's client with a long render distance: the ground's fogged end at the horizon
         r.view_chunks = Some(VIEW_CHUNKS);

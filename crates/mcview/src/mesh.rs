@@ -214,6 +214,23 @@ fn adjacency((axis, s): (usize, i32)) -> [(usize, i32); 4] {
 /// How opaque a ghosted cell's faces are ([`Builder::ghost`]: the judge's test rig).
 pub const GHOST_ALPHA: u8 = 80;
 
+/// A [`Builder`] without its atlas (carried between frames: [`Builder::into_parts`]).
+pub struct BuilderParts {
+    occ: HashSet<Pos>,
+    names: HashMap<Pos, String>,
+    wet: HashSet<Pos>,
+    ground: Option<i32>,
+    extra_occ: HashSet<Pos>,
+    ghost: HashSet<Pos>,
+    cache: HashMap<String, Option<Model>>,
+    mesh: Mesh,
+    xf: Option<crate::entitymodel::M>,
+    white: bool,
+    light: Option<crate::light::Light>,
+    light_floor: Option<i32>,
+    light_holes: HashSet<Pos>,
+}
+
 pub struct Builder<'a> {
     pub atlas: &'a Atlas,
     /// Cells holding an opaque full block (not moving).
@@ -332,11 +349,17 @@ impl<'a> Builder<'a> {
 
     /// Add blocks (call once per frame with every block).
     pub fn blocks(&mut self, items: &[Item]) {
+        self.blocks_begin(items);
+        self.blocks_from(items, 0, &mut || false);
+    }
+
+    /// [`Builder::blocks`]' first pass: every still cell's name, occupancy and light (the game's
+    /// light over them all); then [`Builder::blocks_from`] draws them.
+    pub fn blocks_begin(&mut self, items: &[Item]) {
         self.occ.clear();
         self.names.clear();
         self.wet.clear();
         self.light = None;
-        let states: HashMap<Pos, &str> = items.iter().filter(|it| it.offset == [0.0; 3]).map(|it| (it.cell, it.state)).collect();
         let mut light_cells: Vec<(Pos, crate::light::Cell, u8)> = Vec::with_capacity(items.len() + self.extra_occ.len());
         let mut low = i32::MAX;
         for it in items {
@@ -374,33 +397,92 @@ impl<'a> Builder<'a> {
         // the game's light around them: the build stands on the judge's grass (one block of air
         // under its lowest cell) or on its own ground
         self.light = if light_cells.is_empty() { None } else { Some(crate::light::Light::compute(&light_cells, self.light_floor.or(self.ground).unwrap_or(low - 1), &self.light_holes)) };
-        for it in items {
-            // water: the game's sloped surface (corner heights from the neighbouring cells), not
-            // cuboids (their steps showed as lines across a pool)
-            if it.offset == [0.0; 3] && matches!(base_name(it.state), "minecraft:water" | "minecraft:bubble_column") {
-                self.water(it.cell, &states);
-                continue;
+    }
+
+    /// [`Builder::blocks`]' second pass from item `from`, in order, until the last or until
+    /// `out_of_time` says so (asked every 16 blocks): the next item to draw (`items.len()`: done).
+    /// The same faces in the same order whether it runs at once or over several calls (a big
+    /// design's still is built over several frames: [`crate::scene::Staged`]).
+    pub fn blocks_from(&mut self, items: &[Item], from: usize, out_of_time: &mut dyn FnMut() -> bool) -> usize {
+        let states: HashMap<Pos, &str> = items.iter().filter(|it| it.offset == [0.0; 3]).map(|it| (it.cell, it.state)).collect();
+        let mut i = from;
+        while i < items.len() {
+            self.block_item(&items[i], &states);
+            i += 1;
+            if i % 16 == 0 && i < items.len() && out_of_time() {
+                break;
             }
-            // water under water fills its cell (the game's surface is only at the top)
-            let state = if it.offset == [0.0; 3] && base_name(it.state) == "minecraft:water" && self.names.get(&[it.cell[0], it.cell[1] + 1, it.cell[2]]).is_some_and(|n| n == "minecraft:water") {
-                "minecraft:water[level=8]"
-            } else {
-                it.state
-            };
-            // chests and shulker boxes: the game's block-entity models (ChestModel, ShulkerModel)
-            // with its entity textures, once loaded
-            if it.offset == [0.0; 3] && self.block_entity(state, it.cell) {
-                continue;
-            }
-            if let Some(m) = self.model_at(state, Some(it.cell)) {
-                let base = [it.cell[0] as f32 + it.offset[0], it.cell[1] as f32 + it.offset[1], it.cell[2] as f32 + it.offset[2]];
-                let still = it.offset == [0.0; 3];
-                self.add_model(&m, base, if still { Some(it.cell) } else { None }, None);
-            }
-            // a waterlogged block's water, in its cell
-            if it.offset == [0.0; 3] && self.wet.contains(&it.cell) {
-                self.water(it.cell, &states);
-            }
+        }
+        i
+    }
+
+    /// One block of [`Builder::blocks_from`].
+    fn block_item(&mut self, it: &Item, states: &HashMap<Pos, &str>) {
+        // water: the game's sloped surface (corner heights from the neighbouring cells), not
+        // cuboids (their steps showed as lines across a pool)
+        if it.offset == [0.0; 3] && matches!(base_name(it.state), "minecraft:water" | "minecraft:bubble_column") {
+            self.water(it.cell, states);
+            return;
+        }
+        // water under water fills its cell (the game's surface is only at the top)
+        let state = if it.offset == [0.0; 3] && base_name(it.state) == "minecraft:water" && self.names.get(&[it.cell[0], it.cell[1] + 1, it.cell[2]]).is_some_and(|n| n == "minecraft:water") {
+            "minecraft:water[level=8]"
+        } else {
+            it.state
+        };
+        // chests and shulker boxes: the game's block-entity models (ChestModel, ShulkerModel)
+        // with its entity textures, once loaded
+        if it.offset == [0.0; 3] && self.block_entity(state, it.cell) {
+            return;
+        }
+        if let Some(m) = self.model_at(state, Some(it.cell)) {
+            let base = [it.cell[0] as f32 + it.offset[0], it.cell[1] as f32 + it.offset[1], it.cell[2] as f32 + it.offset[2]];
+            let still = it.offset == [0.0; 3];
+            self.add_model(&m, base, if still { Some(it.cell) } else { None }, None);
+        }
+        // a waterlogged block's water, in its cell
+        if it.offset == [0.0; 3] && self.wet.contains(&it.cell) {
+            self.water(it.cell, states);
+        }
+    }
+
+    /// The builder without its atlas, to carry it from one frame to the next
+    /// ([`Builder::from_parts`]).
+    pub fn into_parts(self) -> BuilderParts {
+        BuilderParts {
+            occ: self.occ,
+            names: self.names,
+            wet: self.wet,
+            ground: self.ground,
+            extra_occ: self.extra_occ,
+            ghost: self.ghost,
+            cache: self.cache,
+            mesh: self.mesh,
+            xf: self.xf,
+            white: self.white,
+            light: self.light,
+            light_floor: self.light_floor,
+            light_holes: self.light_holes,
+        }
+    }
+
+    /// A builder again from [`Builder::into_parts`].
+    pub fn from_parts(atlas: &'a Atlas, p: BuilderParts) -> Builder<'a> {
+        Builder {
+            atlas,
+            occ: p.occ,
+            names: p.names,
+            wet: p.wet,
+            ground: p.ground,
+            extra_occ: p.extra_occ,
+            ghost: p.ghost,
+            cache: p.cache,
+            mesh: p.mesh,
+            xf: p.xf,
+            white: p.white,
+            light: p.light,
+            light_floor: p.light_floor,
+            light_holes: p.light_holes,
         }
     }
 

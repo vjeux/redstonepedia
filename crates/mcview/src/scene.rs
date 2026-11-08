@@ -221,98 +221,161 @@ pub fn build_part(atlas: &Atlas, s: &Session, partial: f32, look: &Look, part: P
         entities_into(&mut b, s, partial);
         return b.mesh;
     }
-    let mut blocks = s.render_blocks(partial);
-    // a TNT duper's ground (real blocks of its world, `Session::floor`): what changed in it (a
-    // crater, something fallen in) and the ground cells next to that are drawn as blocks, the rest
-    // by its intact faces (`mesh::floor`); the intact cells around the drawn ones occlude and
-    // shade them like the blocks they are
-    let floor = s.floor.as_ref().filter(|_| s.simulated() && s.replay.is_none());
-    let mut skip: HashSet<Pos> = HashSet::new();
-    let mut extra_occ: HashSet<Pos> = HashSet::new();
-    const NEXT: [[i32; 3]; 6] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
-    let add = |c: Pos, d: [i32; 3]| [c[0] + d[0], c[1] + d[1], c[2] + d[2]];
-    if let Some(f) = floor {
-        let mut as_blocks: HashSet<Pos> = HashSet::new();
-        for (c, _) in &f.changed {
-            skip.insert(*c);
-            for n in std::iter::once(*c).chain(NEXT.iter().map(|d| add(*c, *d))) {
-                if f.contains(n) && f.shown(n).is_some() {
-                    as_blocks.insert(n);
+    let mut st = Staged::new(s, partial, look, part);
+    loop {
+        if let Some(m) = st.step(atlas, s, partial, look, &mut || false) {
+            return m;
+        }
+    }
+}
+
+/// [`build_part`] over several calls ([`Staged::step`]), each within its caller's time: a big
+/// design's still took 45-60 ms in one task in a software GL, its first frame over 100 ms with the
+/// draw (the coordinator: no main-thread task over ~50 ms). The blocks are the session's when it
+/// starts; the mesh is the very one [`build_part`] makes (the same faces in the same order: it is
+/// [`build_part`]'s own path).
+pub struct Staged {
+    part: Part,
+    blocks: Vec<crate::session::RBlock>,
+    /// A TNT duper's ground cells drawn as blocks (not by its intact faces) and the cells around
+    /// them that cull and shade like blocks.
+    skip: HashSet<Pos>,
+    extra_occ: HashSet<Pos>,
+    /// The builder between calls, once its first pass ran.
+    builder: Option<mesh::BuilderParts>,
+    /// The next block to draw.
+    next: usize,
+}
+
+impl Staged {
+    /// The blocks to draw now (moving ones at `partial`) and a TNT duper's ground cells.
+    pub fn new(s: &Session, partial: f32, _look: &Look, part: Part) -> Staged {
+        let mut blocks = s.render_blocks(partial);
+        // a TNT duper's ground (real blocks of its world, `Session::floor`): what changed in it (a
+        // crater, something fallen in) and the ground cells next to that are drawn as blocks, the
+        // rest by its intact faces (`mesh::floor`); the intact cells around the drawn ones occlude
+        // and shade them like the blocks they are
+        let floor = s.floor.as_ref().filter(|_| s.simulated() && s.replay.is_none());
+        let mut skip: HashSet<Pos> = HashSet::new();
+        let mut extra_occ: HashSet<Pos> = HashSet::new();
+        const NEXT: [[i32; 3]; 6] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+        let add = |c: Pos, d: [i32; 3]| [c[0] + d[0], c[1] + d[1], c[2] + d[2]];
+        if let Some(f) = floor {
+            let mut as_blocks: HashSet<Pos> = HashSet::new();
+            for (c, _) in &f.changed {
+                skip.insert(*c);
+                for n in std::iter::once(*c).chain(NEXT.iter().map(|d| add(*c, *d))) {
+                    if f.contains(n) && f.shown(n).is_some() {
+                        as_blocks.insert(n);
+                    }
+                }
+            }
+            for c in &as_blocks {
+                skip.insert(*c);
+                if let Some(state) = f.shown(*c) {
+                    blocks.push(crate::session::RBlock { cell: *c, offset: [0.0; 3], state });
+                }
+            }
+            for c in &as_blocks {
+                for d in NEXT {
+                    let n = add(*c, d);
+                    if f.contains(n) && !skip.contains(&n) {
+                        extra_occ.insert(n);
+                    }
                 }
             }
         }
-        for c in &as_blocks {
-            skip.insert(*c);
-            if let Some(state) = f.shown(*c) {
-                blocks.push(crate::session::RBlock { cell: *c, offset: [0.0; 3], state });
-            }
-        }
-        for c in &as_blocks {
-            for d in NEXT {
-                let n = add(*c, d);
-                if f.contains(n) && !skip.contains(&n) {
-                    extra_occ.insert(n);
+        Staged { part, blocks, skip, extra_occ, builder: None, next: 0 }
+    }
+
+    /// The blocks it draws.
+    pub fn len(&self) -> usize {
+        self.blocks.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.blocks.is_empty()
+    }
+
+    /// Build on until done or `out_of_time` (the first pass, the light, then the blocks in order,
+    /// asked every 16): the mesh once done (the session and look must be the ones it started
+    /// with: its entities, outlines and ground are added at the end).
+    pub fn step(&mut self, atlas: &Atlas, s: &Session, partial: f32, look: &Look, out_of_time: &mut dyn FnMut() -> bool) -> Option<Mesh> {
+        let floor = s.floor.as_ref().filter(|_| s.simulated() && s.replay.is_none());
+        let items: Vec<Item> = self.blocks.iter().map(|b| Item { cell: b.cell, offset: b.offset, state: &b.state }).collect();
+        let mut b = match self.builder.take() {
+            Some(p) => Builder::from_parts(atlas, p),
+            None => {
+                let mut b = Builder::new(atlas);
+                b.ground = look.ground.map(|y| y.floor() as i32);
+                // a TNT duper stands on its own ground (its top layer's air above it is lit), its
+                // craters open to the air
+                b.light_floor = floor.map(|f| f.hi[1] + 1);
+                b.light_holes = floor.map(|f| f.changed.keys().copied().collect()).unwrap_or_default();
+                b.extra_occ = std::mem::take(&mut self.extra_occ);
+                b.ghost = look.ghost.iter().copied().collect();
+                b.blocks_begin(&items);
+                if out_of_time() {
+                    self.builder = Some(b.into_parts());
+                    return None;
                 }
+                b
+            }
+        };
+        self.next = b.blocks_from(&items, self.next, out_of_time);
+        if self.next < items.len() {
+            self.builder = Some(b.into_parts());
+            return None;
+        }
+        if self.part == Part::All {
+            entities_into(&mut b, s, partial);
+        }
+        if let Some(m) = look.marker {
+            b.marker(m, true, [255, 255, 255], look.lit_marker && s.output_on().unwrap_or(false));
+        }
+        for o in &look.outlines {
+            b.marker(*o, false, [110, 230, 40], false);
+        }
+        for (lo, hi) in &look.input_spans {
+            b.marker_span(*lo, *hi, [110, 230, 40]);
+        }
+        for (o, c) in &look.port_outlines {
+            // an output's box: red while it is powered (redsim's state this tick), filled red but
+            // over a lamp (the clock judge's): the lamp shows its own state, the game's 4 gt
+            // off-delay and all (critique: a 4-tick clock's lamp seemed to go dark under the box's
+            // fill, while the game keeps it lit)
+            if s.outputs.contains(o) && s.output_powered(*o) {
+                b.marker(*o, false, OUT_POWERED, false);
+                let lamp = s.simulated() && matches!(s.world.get(bp(*o)), Block::Lamp { .. });
+                if !lamp {
+                    b.out_fill(*o);
+                }
+            } else {
+                b.marker(*o, false, *c, false);
             }
         }
-    }
-    let items: Vec<Item> = blocks.iter().map(|b| Item { cell: b.cell, offset: b.offset, state: &b.state }).collect();
-    let mut b = Builder::new(atlas);
-    b.ground = look.ground.map(|y| y.floor() as i32);
-    // a TNT duper stands on its own ground (its top layer's air above it is lit), its craters open
-    // to the air
-    b.light_floor = floor.map(|f| f.hi[1] + 1);
-    b.light_holes = floor.map(|f| f.changed.keys().copied().collect()).unwrap_or_default();
-    b.extra_occ = extra_occ;
-    b.ghost = look.ghost.iter().copied().collect();
-    b.blocks(&items);
-    if part == Part::All {
-        entities_into(&mut b, s, partial);
-    }
-    if let Some(m) = look.marker {
-        b.marker(m, true, [255, 255, 255], look.lit_marker && s.output_on().unwrap_or(false));
-    }
-    for o in &look.outlines {
-        b.marker(*o, false, [110, 230, 40], false);
-    }
-    for (lo, hi) in &look.input_spans {
-        b.marker_span(*lo, *hi, [110, 230, 40]);
-    }
-    for (o, c) in &look.port_outlines {
-        // an output's box: red while it is powered (redsim's state this tick), filled red but over
-        // a lamp (the clock judge's): the lamp shows its own state, the game's 4 gt off-delay and
-        // all (critique: a 4-tick clock's lamp seemed to go dark under the box's fill, while the
-        // game keeps it lit)
-        if s.outputs.contains(o) && s.output_powered(*o) {
-            b.marker(*o, false, OUT_POWERED, false);
-            let lamp = s.simulated() && matches!(s.world.get(bp(*o)), Block::Lamp { .. });
-            if !lamp {
-                b.out_fill(*o);
-            }
-        } else {
-            b.marker(*o, false, *c, false);
+        if let Some((lo, hi, axis, normal)) = look.track {
+            b.track(lo, hi, axis, normal, TRACK_COLOUR);
         }
+        let light = b.take_light();
+        let light_at = |c: Pos| -> (u8, u8) { light.as_ref().map_or((15, 0), |l| l.at(c)) };
+        let mut m = b.mesh;
+        if let Some(f) = floor {
+            m.solid.extend_from_slice(&mesh::floor(atlas, f.lo, f.hi, &FLOOR_SIDES, &self.skip, f.design_box, &light_at));
+        }
+        if let Some(y) = look.ground {
+            // the floor: past the fog's end in the viewer (no edge ever shows: the far grass fades
+            // into the sky like the game's render distance); `web compare` passes the real-game
+            // pictures' own reach (`clock shot` fills grass around a batch of clocks: 56 is the
+            // best mean over its pictures, their sky shows beyond the edge); a travelling design's
+            // whole path
+            let (lo, hi) = if s.corridor.is_some() { s.path_box() } else { s.frame_box() };
+            let margin = look.floor_margin.unwrap_or(GROUND_REACH);
+            let g = mesh::ground(atlas, [lo[0] as f32, 0.0, lo[2] as f32], [hi[0] as f32 + 1.0, 0.0, hi[2] as f32 + 1.0], y, margin, &light_at);
+            m.solid.extend_from_slice(&g);
+        }
+        Some(m)
     }
-    if let Some((lo, hi, axis, normal)) = look.track {
-        b.track(lo, hi, axis, normal, TRACK_COLOUR);
-    }
-    let light = b.take_light();
-    let light_at = |c: Pos| -> (u8, u8) { light.as_ref().map_or((15, 0), |l| l.at(c)) };
-    let mut m = b.mesh;
-    if let Some(f) = floor {
-        m.solid.extend_from_slice(&mesh::floor(atlas, f.lo, f.hi, &FLOOR_SIDES, &skip, f.design_box, &light_at));
-    }
-    if let Some(y) = look.ground {
-        // the floor: past the fog's end in the viewer (no edge ever shows: the far grass fades into
-        // the sky like the game's render distance); `web compare` passes the real-game pictures'
-        // own reach (`clock shot` fills grass around a batch of clocks: 56 is the best mean over
-        // its pictures, their sky shows beyond the edge); a travelling design's whole path
-        let (lo, hi) = if s.corridor.is_some() { s.path_box() } else { s.frame_box() };
-        let margin = look.floor_margin.unwrap_or(GROUND_REACH);
-        let g = mesh::ground(atlas, [lo[0] as f32, 0.0, lo[2] as f32], [hi[0] as f32 + 1.0, 0.0, hi[2] as f32 + 1.0], y, margin, &light_at);
-        m.solid.extend_from_slice(&g);
-    }
-    m
 }
 
 /// The frame's entities (a recording's, a still's design entities, else redsim's) and an
@@ -754,6 +817,18 @@ pub fn live_window_css(w: f32, h: f32) -> (f32, f32, f32) {
 /// right, [`PILL`]), the window starts above the pill instead (a build clear of it keeps the
 /// lower window: critique, a BUD sat in the top half with 40% empty below).
 pub fn live_camera(atlas: &Atlas, s: &Session, look: &Look, w: f32, h: f32) -> (Camera, (f32, f32, f32)) {
+    let mut search = LiveCameraSearch::new(atlas, s, look, w, h);
+    loop {
+        if let Some(r) = search.step(atlas, s, look, &mut || false) {
+            return r;
+        }
+    }
+}
+
+/// [`live_camera`] before it was staged (kept for the test that the staged search finds the
+/// same camera).
+#[cfg(test)]
+pub fn live_camera_at_once(atlas: &Atlas, s: &Session, look: &Look, w: f32, h: f32) -> (Camera, (f32, f32, f32)) {
     let aspect = w / h.max(1.0);
     let window = live_window_css(w, h);
     let cam = camera_showing_inputs(atlas, s, look, aspect, window);
@@ -1137,93 +1212,205 @@ pub struct CameraCandidate {
 /// Every candidate [`best_camera`] weighs, in [`candidate_dirs`] order (`mctas web camera`
 /// prints them).
 pub fn camera_candidates(atlas: &Atlas, s: &Session, look: &Look, aspect: f32, window: (f32, f32, f32), pts: &[[f32; 3]]) -> Vec<CameraCandidate> {
-    // every candidate fits and scores the framed points by their projected extremes: the points
-    // that can be extreme, once for all of them (the same cameras and scores, exactly)
-    let shell = crate::camera::hull_candidates(pts);
-    let pts: &[[f32; 3]] = &shell;
-    let picker = crate::pick::Picker::new(atlas, &s.render_blocks(0.0));
-    let tg = targets(s, look, pts);
-    let tap = s.simulated() && (!s.inputs.is_empty() || !s.swaps.is_empty());
-    let mut out: Vec<CameraCandidate> = Vec::new();
-    // the way a lock's dials face (the frames one turns, not its code's), if it has any
-    // the way a display's face faces (`circuit::display_face`), if it has one
-    let face_way = crate::circuit::display_face(&s.design);
-    let dial_way: Option<[f32; 3]> = {
-        let sum = tg.frames.iter().filter(|f| f.2 >= 1.0).fold([0.0f32; 3], |a, f| [a[0] + f.1[0], a[1] + f.1[1], a[2] + f.1[2]]);
-        let len = (sum[0] * sum[0] + sum[1] * sum[1] + sum[2] * sum[2]).sqrt();
-        (len > 1e-3).then(|| sum.map(|v| v / len))
-    };
-    // the build's thickness along x and z (a face-on view suits a one-block-thick wall only): of
-    // every block drawn as it stands, the judge's chests too (a sorter's PASS chest sticks out of
-    // its one-block line), not the judge's see-through rig
-    let drawn: Vec<Pos> = s.render_blocks(0.0).into_iter().filter(|b| b.offset == [0.0; 3] && !look.ghost.contains(&b.cell)).map(|b| b.cell).collect();
-    let ext = |k: usize| {
-        let lo = drawn.iter().map(|p| p[k]).min().unwrap_or(0);
-        let hi = drawn.iter().map(|p| p[k]).max().unwrap_or(0);
-        (hi - lo + 1) as f32
-    };
-    let (thick_x, thick_y, thick_z) = (ext(0), ext(1), ext(2));
-    // a wall: one block thick along x (or z), at least 3 by 3 and 12 cells across its face (a
-    // small thin build, a NOT gate or a BUD switch, reads better from three sides)
-    let wall = |along_x: bool| {
-        let (thick, wide) = if along_x { (thick_x, thick_z) } else { (thick_z, thick_x) };
-        thick <= 1.01 && wide >= 3.0 && thick_y >= 3.0 && wide * thick_y >= 12.0
-    };
-    // a TNT duper on its judge's ground: the pictures' side-on direction alone, the duper in front
-    // and its landing zone beyond it (critique on tnt-clocked-22b: "frame the duper plus its
-    // landing zone from the side-ish angle used before"; from elsewhere the zone came in front and
-    // left the duper small in a corner of a phone's view)
-    // a display's face: one direction, from the front, a little above and to the side (the
-    // coordinator 2026-10-22: "its camera looks at the face from the front, slightly above and to
-    // the side, so the digit reads"; the 29-degree candidates showed its digit too obliquely)
-    let dirs: Vec<[f32; 3]> = if let Some(f) = face_way {
-        vec![face_front_dir(s, f)]
-    } else if s.floor.is_some() {
-        candidate_dirs().into_iter().take(1).collect()
-    } else {
-        candidate_dirs()
-    };
-    for (k, dir) in dirs.into_iter().enumerate() {
-        let cam = view_camera_at(s, look, pts, aspect, dir, window);
-        // tappable inputs first (a side every input's centre can be tapped from, then one each
-        // can be tapped somewhere from)
-        let tier = if !tap {
-            2
-        } else if tg.inputs.iter().all(|c| click_point_with(&picker, &cam, *c, aspect, &[0.5]).is_some()) {
-            2
-        } else if tg.inputs.iter().all(|c| click_point_with(&picker, &cam, *c, aspect, &[0.5, 0.3, 0.7, 0.15, 0.85]).is_some()) {
-            1
-        } else {
-            0
+    let mut cs = CameraSearch::new(atlas, s, look, aspect, window, pts);
+    while !cs.step(s, look, &mut || false) {}
+    cs.out
+}
+
+/// [`camera_candidates`] over several calls ([`CameraSearch::step`], a few directions each): a
+/// big farm's camera search took 80-90 ms in one task in a software GL (the coordinator: no
+/// main-thread task over ~50 ms). The same candidates in the same order, so the same camera.
+pub struct CameraSearch {
+    aspect: f32,
+    window: (f32, f32, f32),
+    /// The framed points (for the fallback camera) and those of them that can be extreme.
+    all: Vec<[f32; 3]>,
+    shell: Vec<[f32; 3]>,
+    picker: crate::pick::Picker,
+    tg: Targets,
+    tap: bool,
+    face_way: Option<[f32; 3]>,
+    dial_way: Option<[f32; 3]>,
+    thick: (f32, f32, f32),
+    dirs: Vec<[f32; 3]>,
+    next: usize,
+    out: Vec<CameraCandidate>,
+}
+
+impl CameraSearch {
+    pub fn new(atlas: &Atlas, s: &Session, look: &Look, aspect: f32, window: (f32, f32, f32), pts: &[[f32; 3]]) -> CameraSearch {
+        // every candidate fits and scores the framed points by their projected extremes: the
+        // points that can be extreme, once for all of them (the same cameras and scores, exactly)
+        let shell = crate::camera::hull_candidates(pts);
+        let blocks = s.render_blocks(0.0);
+        let picker = crate::pick::Picker::new(atlas, &blocks);
+        let tg = targets(s, look, &shell);
+        let tap = s.simulated() && (!s.inputs.is_empty() || !s.swaps.is_empty());
+        // the way a lock's dials face (the frames one turns, not its code's), if it has any
+        // the way a display's face faces (`circuit::display_face`), if it has one
+        let face_way = crate::circuit::display_face(&s.design);
+        let dial_way: Option<[f32; 3]> = {
+            let sum = tg.frames.iter().filter(|f| f.2 >= 1.0).fold([0.0f32; 3], |a, f| [a[0] + f.1[0], a[1] + f.1[1], a[2] + f.1[2]]);
+            let len = (sum[0] * sum[0] + sum[1] * sum[1] + sum[2] * sum[2]).sqrt();
+            (len > 1e-3).then(|| sum.map(|v| v / len))
         };
-        // a face-on candidate (looking along x or z): preferred for a one-block-thick wall seen
-        // from its face (its pattern reads like a drawing), at a cost otherwise
-        let face_on = if k >= 16 {
-            let along_x = dir[0].abs() > dir[2].abs();
-            if wall(along_x) {
-                -FACE_ON_BONUS
-            } else {
-                // (a long build seen end-on from low: its near end hides the rest, END_ON_COST)
-                let (depth, width) = if along_x { (thick_x, thick_z) } else { (thick_z, thick_x) };
-                FACE_ON_COST + if depth >= END_ON_RATIO * width { END_ON_COST } else { 0.0 }
-            }
-        } else {
-            0.0
+        // the build's thickness along x and z (a face-on view suits a one-block-thick wall only):
+        // of every block drawn as it stands, the judge's chests too (a sorter's PASS chest sticks
+        // out of its one-block line), not the judge's see-through rig
+        let drawn: Vec<Pos> = blocks.into_iter().filter(|b| b.offset == [0.0; 3] && !look.ghost.contains(&b.cell)).map(|b| b.cell).collect();
+        let ext = |k: usize| {
+            let lo = drawn.iter().map(|p| p[k]).min().unwrap_or(0);
+            let hi = drawn.iter().map(|p| p[k]).max().unwrap_or(0);
+            (hi - lo + 1) as f32
         };
-        let parts = score_parts(&picker, &cam, aspect, window, pts, &tg);
-        let score = parts.total() + if k == 0 { 0.01 } else { 0.0 } - face_on;
-        // a lock's dials seen from the side they face, first (critique on lock3-q85: "the dials
-        // show as thin brown frames seen edge-on"; lock2-hid's eye came 70 degrees off them)
-        let dials_seen = dial_way.is_none_or(|w| w[0] * dir[0] + w[1] * dir[1] + w[2] * dir[2] >= DIALS_SEEN);
-        // a display's face read from the front, first, before its input can be tapped (the
-        // coordinator 2026-10-22: the 0-9 display seen from its input chest's side, its digit
-        // unreadable; its input chest sits behind the decoder)
-        let face_seen = face_way.is_none_or(|w| w[0] * dir[0] + w[1] * dir[1] + w[2] * dir[2] >= FACE_SEEN);
-        let dials_seen = dials_seen && face_seen;
-        let key = (dials_seen, tier, (score * 1000.0).round() as i64);
-        out.push(CameraCandidate { dir, cam, key, parts, face_on });
+        let thick = (ext(0), ext(1), ext(2));
+        // a TNT duper on its judge's ground: the pictures' side-on direction alone, the duper in
+        // front and its landing zone beyond it (critique on tnt-clocked-22b: "frame the duper plus
+        // its landing zone from the side-ish angle used before"; from elsewhere the zone came in
+        // front and left the duper small in a corner of a phone's view)
+        // a display's face: one direction, from the front, a little above and to the side (the
+        // coordinator 2026-10-22: "its camera looks at the face from the front, slightly above and
+        // to the side, so the digit reads"; the 29-degree candidates showed its digit too
+        // obliquely)
+        let dirs: Vec<[f32; 3]> = if let Some(f) = face_way {
+            vec![face_front_dir(s, f)]
+        } else if s.floor.is_some() {
+            candidate_dirs().into_iter().take(1).collect()
+        } else {
+            candidate_dirs()
+        };
+        CameraSearch { aspect, window, all: pts.to_vec(), shell, picker, tg, tap, face_way, dial_way, thick, dirs, next: 0, out: Vec::new() }
     }
-    out
+
+    /// Weigh candidates until all are weighed (true) or `out_of_time` (asked after each).
+    pub fn step(&mut self, s: &Session, look: &Look, out_of_time: &mut dyn FnMut() -> bool) -> bool {
+        let (aspect, window) = (self.aspect, self.window);
+        let (thick_x, thick_y, thick_z) = self.thick;
+        // a wall: one block thick along x (or z), at least 3 by 3 and 12 cells across its face (a
+        // small thin build, a NOT gate or a BUD switch, reads better from three sides)
+        let wall = |along_x: bool| {
+            let (thick, wide) = if along_x { (thick_x, thick_z) } else { (thick_z, thick_x) };
+            thick <= 1.01 && wide >= 3.0 && thick_y >= 3.0 && wide * thick_y >= 12.0
+        };
+        while self.next < self.dirs.len() {
+            let k = self.next;
+            let dir = self.dirs[k];
+            self.next += 1;
+            let (picker, tg, pts) = (&self.picker, &self.tg, &self.shell[..]);
+            let cam = view_camera_at(s, look, pts, aspect, dir, window);
+            // tappable inputs first (a side every input's centre can be tapped from, then one each
+            // can be tapped somewhere from)
+            let tier = if !self.tap {
+                2
+            } else if tg.inputs.iter().all(|c| click_point_with(picker, &cam, *c, aspect, &[0.5]).is_some()) {
+                2
+            } else if tg.inputs.iter().all(|c| click_point_with(picker, &cam, *c, aspect, &[0.5, 0.3, 0.7, 0.15, 0.85]).is_some()) {
+                1
+            } else {
+                0
+            };
+            // a face-on candidate (looking along x or z): preferred for a one-block-thick wall
+            // seen from its face (its pattern reads like a drawing), at a cost otherwise
+            let face_on = if k >= 16 {
+                let along_x = dir[0].abs() > dir[2].abs();
+                if wall(along_x) {
+                    -FACE_ON_BONUS
+                } else {
+                    // (a long build seen end-on from low: its near end hides the rest, END_ON_COST)
+                    let (depth, width) = if along_x { (thick_x, thick_z) } else { (thick_z, thick_x) };
+                    FACE_ON_COST + if depth >= END_ON_RATIO * width { END_ON_COST } else { 0.0 }
+                }
+            } else {
+                0.0
+            };
+            let parts = score_parts(picker, &cam, aspect, window, pts, tg);
+            let score = parts.total() + if k == 0 { 0.01 } else { 0.0 } - face_on;
+            // a lock's dials seen from the side they face, first (critique on lock3-q85: "the
+            // dials show as thin brown frames seen edge-on"; lock2-hid's eye came 70 degrees off
+            // them)
+            let dials_seen = self.dial_way.is_none_or(|w| w[0] * dir[0] + w[1] * dir[1] + w[2] * dir[2] >= DIALS_SEEN);
+            // a display's face read from the front, first, before its input can be tapped (the
+            // coordinator 2026-10-22: the 0-9 display seen from its input chest's side, its digit
+            // unreadable; its input chest sits behind the decoder)
+            let face_seen = self.face_way.is_none_or(|w| w[0] * dir[0] + w[1] * dir[1] + w[2] * dir[2] >= FACE_SEEN);
+            let dials_seen = dials_seen && face_seen;
+            let key = (dials_seen, tier, (score * 1000.0).round() as i64);
+            self.out.push(CameraCandidate { dir, cam, key, parts, face_on });
+            if self.next < self.dirs.len() && out_of_time() {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// [`best_camera`]'s pick once every candidate is weighed.
+    pub fn best(&self, s: &Session, look: &Look) -> Camera {
+        let mut best: Option<&CameraCandidate> = None;
+        for c in &self.out {
+            if best.is_none_or(|b| c.key > b.key) {
+                best = Some(c);
+            }
+        }
+        best.map(|c| c.cam).unwrap_or_else(|| view_camera_at(s, look, &self.all, self.aspect, CAM_DIR, self.window))
+    }
+}
+
+/// [`live_camera`] over several calls ([`LiveCameraSearch::step`]): the same camera and window.
+pub struct LiveCameraSearch {
+    w: f32,
+    h: f32,
+    window: (f32, f32, f32),
+    search: CameraSearch,
+    /// On a phone, the search again in the window raised above the Record pill.
+    raised: bool,
+}
+
+impl LiveCameraSearch {
+    pub fn new(atlas: &Atlas, s: &Session, look: &Look, w: f32, h: f32) -> LiveCameraSearch {
+        let aspect = w / h.max(1.0);
+        let window = live_window_css(w, h);
+        let search = CameraSearch::new(atlas, s, look, aspect, window, &view_points_for(s, look, aspect));
+        LiveCameraSearch { w, h, window, search, raised: false }
+    }
+
+    /// Search on; the camera and its window once found.
+    pub fn step(&mut self, atlas: &Atlas, s: &Session, look: &Look, out_of_time: &mut dyn FnMut() -> bool) -> Option<(Camera, (f32, f32, f32))> {
+        if !self.search.step(s, look, out_of_time) {
+            return None;
+        }
+        let cam = self.search.best(s, look);
+        if self.raised || self.w >= NARROW_PX {
+            return Some((cam, self.window));
+        }
+        let (w, h) = (self.w, self.h);
+        let aspect = w / h.max(1.0);
+        // the pill's box in view coordinates (x right, y up, -1..1)
+        let (right, pw, bottom, ph) = PILL;
+        let px0 = 1.0 - 2.0 * (right + pw + 4.0) / w;
+        let py1 = -1.0 + 2.0 * (bottom + ph + 4.0) / h;
+        let (f, r, u) = cam.basis();
+        let eye = cam.eye();
+        let t = (cam.vfov.to_radians() / 2.0).tan();
+        let covered = view_points_for(s, look, aspect).iter().any(|p| {
+            let v = [p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]];
+            let dot = |a: [f32; 3]| a[0] * v[0] + a[1] * v[1] + a[2] * v[2];
+            let z = dot(f).max(0.01);
+            let (x, y) = (dot(r) / (z * t * aspect), dot(u) / (z * t));
+            x > px0 && y < py1
+        });
+        if !covered {
+            return Some((cam, self.window));
+        }
+        let window = self.window;
+        let raised = (window.0, (-1.0 + 2.0 * (bottom + ph + 10.0) / h.max(120.0)).min(window.2 - 0.4), window.2);
+        self.window = raised;
+        self.raised = true;
+        self.search = CameraSearch::new(atlas, s, look, aspect, raised, &view_points_for(s, look, aspect));
+        if out_of_time() {
+            return None;
+        }
+        self.step(atlas, s, look, out_of_time)
+    }
 }
 
 /// How far a default camera may look off a lock's dials: the cosine of its direction (target to

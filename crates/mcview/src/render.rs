@@ -480,9 +480,43 @@ impl Renderer {
         }
         self.queue.submit(Some(enc.finish()));
     }
-}
 
-/// A buffer of vertices for tests and tools.
+    /// Draw one tiny frame offscreen with every pipeline (the sky, the solid and the translucent
+    /// pass), so a page's first real frame does not also pay for the GL programs' first use.
+    pub fn warm_up(&mut self) {
+        let view = self.offscreen(1, 1);
+        let v = Vertex { pos: [0.0; 3], uv: [0.0; 2], layer: 0, color: [0; 4] };
+        let tri = [v, v, v];
+        let targets = self.targets.take();
+        let camera = Camera { target: [0.0; 3], yaw: 0.5, pitch: 0.5, dist: 10.0, vfov: 0.8 };
+        self.draw(&view, &Frame { solid: &tri, translucent: &tri, camera, width: 1, height: 1 });
+        // (the page's own size comes back with its first frame)
+        self.targets = targets;
+    }
+
+    /// The frame targets at the canvas's size, made and cleared once (offscreen, the sky only), so
+    /// the first real frame does not make them.
+    pub fn warm_up_targets(&mut self, width: u32, height: u32) {
+        let (w, h) = (width.max(1), height.max(1));
+        let view = self.offscreen(w, h);
+        let camera = Camera { target: [0.0; 3], yaw: 0.5, pitch: 0.5, dist: 10.0, vfov: 0.8 };
+        self.draw(&view, &Frame { solid: &[], translucent: &[], camera, width: w, height: h });
+    }
+
+    fn offscreen(&self, w: u32, h: u32) -> wgpu::TextureView {
+        let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("warm-up"),
+            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        tex.create_view(&Default::default())
+    }
+}
 pub fn vertex_buffer(device: &wgpu::Device, v: &[Vertex]) -> wgpu::Buffer {
     device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("v"), contents: bytemuck::cast_slice(v), usage: wgpu::BufferUsages::VERTEX })
 }

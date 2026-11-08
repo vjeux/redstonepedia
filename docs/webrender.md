@@ -197,9 +197,22 @@ each build's page.
   PNG encoded in Rust (`labels::png_data_url`: a canvas's `toDataURL` took 300-450 ms the first
   time in Chromium). What stays over 50 ms in a fresh headless Chromium: the browser's own GPU
   set-up in a page's first second, which lands in the view's first context or adapter step
-  (50-110 ms; a context made a second later takes 5 ms), the renderer's shaders and textures
-  (~50 ms) and the camera search (40-60 ms). `web wakecost` times it all natively (`--slices`:
-  every slice of the wake).
+  (50-110 ms; a context made a second later takes 5 ms). `web wakecost` times it all natively
+  (`--slices`: every slice of the wake). A big build's start is split further (the 2x2 iron farm,
+  2026-11-08: its camera task 86-98 ms and its first frame 104-124 ms in WebKitGTK, both before
+  and after the mob layer came): the live camera's search weighs a few candidate directions a
+  task (`scene::LiveCameraSearch`, `CAMERA_BUDGET_MS` 20; the same candidates in the same order:
+  the `--ignored` test `every_archived_design_keeps_its_live_camera`, 4462 cameras of every
+  archived circuit and door on a desktop and a phone, the same), the first picture's mesh is built over frames
+  (`scene::Staged`, `Player::triangles_within`, `MESH_BUDGET_MS` 24: the first pass and the
+  light, then 16 blocks between checks; the same faces in the same order: test
+  `a_staged_still_is_the_one_shot_mesh`) and drawn in a frame of its own, and the renderer's
+  programs and the frame targets at the canvas's size are made by a draw offscreen in two tasks of
+  their own (`Renderer::warm_up`, `warm_up_targets`), not in the first frame. A mob farm's blocks'
+  mesh, when one changes, is staged the same way while its previous blocks keep being drawn. The
+  2x2 farm's longest task in WebKitGTK went from 124 ms to 35 ms; `web perf --engine webkit` (no
+  task list in that engine) gives its slowest load frame 69-73 ms (was 110: two tasks with no
+  frame between them).
 * Doors with `data-autoplay`: the door demo flips the lever like the record videos (`door
   video`): 1.5 s closed, the lever on until the door settles open (`Session::idle`), 1.2 s open,
   the lever off until it settles closed, again; lever uses only (what runs is redsim's), the

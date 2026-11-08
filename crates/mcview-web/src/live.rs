@@ -87,6 +87,8 @@ pub struct Live {
     /// The badge's text when no demo runs.
     base_status: String,
     shown_status: String,
+    /// The live camera's search while the load waits for it (a few candidates a task).
+    camera_search: Option<mcview::scene::LiveCameraSearch>,
     /// With `?mcview-debug`: the played frames' times since the last summary.
     frame_stats: FrameStats,
     /// The design's text and name (a recording replays it from tick 0, a file named after it),
@@ -200,6 +202,15 @@ const SLOW: usize = 6;
 /// ticks it could not play are dropped (the coordinator 2026-10-21: never block the page over
 /// ~50 ms a frame, with every card a live view).
 const STEP_BUDGET_MS: f64 = 12.0;
+
+/// A frame's time, from its start, for the mesh work of a staged mesh
+/// ([`mcview::player::Player::triangles_within`]); one that took more than half of it is drawn in
+/// the next frame (the draw of a big build takes 15-25 ms in a software GL).
+const MESH_BUDGET_MS: f64 = 24.0;
+
+/// A task's time for the live camera's search ([`mcview::scene::LiveCameraSearch`]): the
+/// candidates past it are weighed in the next task.
+const CAMERA_BUDGET_MS: f64 = 20.0;
 
 /// A press on an input longer than this (ms) holds it on (shorter: a tap).
 const HOLD_MS: f64 = 250.0;
@@ -585,6 +596,7 @@ pub fn start(app: &mut App, id: u32) {
         containers: containers.clone(),
         base_status: String::new(),
         shown_status: String::from("\u{0}"),
+        camera_search: None,
         frame_stats: FrameStats::default(),
         text: None,
         name: String::from("design"),
@@ -850,8 +862,28 @@ fn finish_load(app: &mut App, id: u32) {
                 let (lo, hi) = mcview::scene::frame_bounds(&p.session, &p.look);
                 p.camera.fit(lo, hi, aspect, 0.85);
                 p.home = p.camera;
-            } else {
-                window = p.frame_live(&app.atlas, css_w, css_h);
+            } else if let Some(l) = v.live.as_mut() {
+                // the live camera, a few candidates a task (`scene::LiveCameraSearch`: a big
+                // farm's search took 80-90 ms in one task in a software GL; the coordinator, no
+                // main-thread task over ~50 ms); the rest of the load once it is found
+                let search = l.camera_search.get_or_insert_with(|| mcview::scene::LiveCameraSearch::new(&app.atlas, &p.session, &p.look, css_w, css_h));
+                let deadline = clock() + CAMERA_BUDGET_MS;
+                match search.step(&app.atlas, &p.session, &p.look, &mut || clock() > deadline) {
+                    None => {
+                        l.loading = Some((p, text, t0));
+                        wasm_bindgen_futures::spawn_local(async move {
+                            next_task().await;
+                            with_app(|a| finish_load(a, id));
+                            ensure_frame();
+                        });
+                        return;
+                    }
+                    Some((cam, win)) => {
+                        l.camera_search = None;
+                        p.set_live_camera(cam);
+                        window = win;
+                    }
+                }
             }
             marks[1] = clock();
             if let Some(t) = v.tick {
@@ -1313,12 +1345,23 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
         let (mut t_mesh, mut t_draw, mut t_over) = (t_pick, t_pick, t_pick);
         let (Some(p), Some(g)) = (l.player.as_mut(), l.gpu.as_mut()) else { return false };
         p.tps = SPEEDS[l.speed_i].1;
+        // a mesh too big for one frame is built over several (`Player::triangles_within`) and
+        // drawn in a frame of its own: no task over ~50 ms (the coordinator; a 2x2 iron farm's
+        // first frame took 105 ms in one task)
+        let mut staging = false;
         if changed {
-            let (solid, translucent) = p.triangles(&atlas);
+            let mut mesh_out_of_time = || perf.as_ref().is_some_and(|q| q.now() - t0 > MESH_BUDGET_MS);
+            let tris = p.triangles_within(&atlas, &mut mesh_out_of_time);
             t_mesh = perf.as_ref().map(|q| q.now()).unwrap_or(0.0);
-            match g.draw(&Frame { solid: &solid, translucent: &translucent, camera: p.camera, width: w, height: h }) {
-                Ok(()) => need_ready = true,
-                Err(e) => log(&e),
+            let tris = tris.filter(|_| !(p.staged_now() && t_mesh - t0 > MESH_BUDGET_MS / 2.0));
+            staging = tris.is_none();
+            if let Some((solid, translucent)) = tris {
+                match g.draw(&Frame { solid: &solid, translucent: &translucent, camera: p.camera, width: w, height: h }) {
+                    Ok(()) => need_ready = true,
+                    Err(e) => log(&e),
+                }
+            } else {
+                l.redraw = true;
             }
             t_draw = perf.as_ref().map(|q| q.now()).unwrap_or(0.0);
             l.label.set_text_content(Some(&time_text(p, l.narrow)));
@@ -1443,7 +1486,8 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
                 *st = FrameStats::default();
             }
         }
-        playing
+        // (a staged mesh keeps the frames coming until it is drawn)
+        playing || staging
     };
     if need_ready {
         app.ready(id);

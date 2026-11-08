@@ -24,9 +24,9 @@ use redsim::entity::EntityKind;
 use redsim::{Block, BlockPos, World};
 use std::collections::HashMap;
 
-/// The judge's first seed (`studies::mobfarm::JudgeOpts::default().seed0`): build 0 (the design as
-/// written: no turn, offset 0), run 0.
-pub const JUDGE_SEED: i64 = 0x6972_6f6e;
+/// The judge's first seed, its run 0 of build 0 (the design as written: no turn, offset 0):
+/// redsim's `farm::judge_seed(0, 0)`, the judge's own.
+pub const JUDGE_SEED: i64 = redsim::entity::mob::farm::JUDGE_SEED0;
 /// The judge's days per run (`studies::mobfarm::JUDGE_DAYS`).
 pub const JUDGE_DAYS: u32 = 5;
 /// The judge's world box margin (`spec_of`: `run::watch_box(c, 4)`).
@@ -64,7 +64,9 @@ pub fn spec(d: &Design) -> Result<FarmSpec, String> {
 /// The judge's run of the base build with seed `seed` (steady state, random walking policies): for
 /// [`JUDGE_SEED`] its first run (`studies::mobfarm::build_runs`' first job).
 pub fn run_opts_seeded(seed: i64) -> RunOpts {
-    RunOpts::steady(seed, JUDGE_DAYS * 24000, WalkMode::Random)
+    // the judge's base run options, from redsim (`farm::judge_opts`: the circuit crate builds every
+    // run from it; weather and random ticks come with it when the judge switches them on)
+    redsim::entity::mob::farm::judge_opts(seed, JUDGE_DAYS * 24000, WalkMode::Random)
 }
 
 /// The judge's first run of the base build ([`JUDGE_SEED`]).
@@ -393,6 +395,22 @@ mod tests {
         std::fs::read_to_string(format!("{}/../../designs/circuits/mobfarm/archive/{name}.txt", env!("CARGO_MANIFEST_DIR"))).unwrap()
     }
 
+    /// Every archived mob farm's name (the archive's `circuit: mob-farm` designs, sorted): the
+    /// print tests follow the archive as farms come and go.
+    fn archived_farms() -> Vec<String> {
+        let dir = format!("{}/../../designs/circuits/mobfarm/archive", env!("CARGO_MANIFEST_DIR"));
+        let mut names: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "txt"))
+            .filter(|p| std::fs::read_to_string(p).ok().and_then(|t| Design::parse(&t).ok()).is_some_and(|d| is_mob_farm(&d)))
+            .filter_map(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
+            .collect();
+        names.sort();
+        names
+    }
+
     /// vjeux 2026-11-08 ("Just do the real work!?"): the view runs the farm as its judge does,
     /// tick for tick (redsim's own runner, the judge's spec and first run), and golems spawn.
     #[test]
@@ -405,6 +423,105 @@ mod tests {
         assert_eq!(first, None, "the view leaves the judge's run at tick {first:?}");
         assert_eq!(golems, view_golems);
         assert!(golems >= 2, "{golems} golems in 6000 ticks");
+    }
+
+    /// The staged camera search finds the very camera of the search at once on every archived
+    /// circuit and door, desktop and phone (`--ignored`: a few hundred designs).
+    #[test]
+    #[ignore]
+    fn every_archived_design_keeps_its_live_camera() {
+        let atlas = crate::atlas::Atlas::build();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../designs");
+        let mut files = Vec::new();
+        for dir in ["circuits", "piston-door-3x3"] {
+            let mut stack = vec![root.join(dir)];
+            while let Some(d) = stack.pop() {
+                for e in std::fs::read_dir(&d).unwrap().flatten() {
+                    let p = e.path();
+                    if p.is_dir() {
+                        if p.file_name().is_some_and(|n| n != "tracks") {
+                            stack.push(p);
+                        }
+                    } else if p.extension().is_some_and(|x| x == "txt") && p.parent().is_some_and(|q| q.ends_with("archive")) {
+                        files.push(p);
+                    }
+                }
+            }
+        }
+        files.sort();
+        let (mut n, mut bad) = (0, Vec::new());
+        for f in &files {
+            let text = std::fs::read_to_string(f).unwrap();
+            let Ok(s) = crate::session::Session::new(&text, &crate::session::Options::still()) else { continue };
+            let look = crate::scene::viewer_look(&s);
+            for (w, h) in [(1232.0, 480.0), (399.0, 480.0)] {
+                let once = crate::scene::live_camera_at_once(&atlas, &s, &look, w, h);
+                let mut search = crate::scene::LiveCameraSearch::new(&atlas, &s, &look, w, h);
+                let staged = loop {
+                    if let Some(r) = search.step(&atlas, &s, &look, &mut || true) {
+                        break r;
+                    }
+                };
+                n += 1;
+                if format!("{once:?}") != format!("{staged:?}") {
+                    bad.push(format!("{} at {w}x{h}", f.display()));
+                }
+            }
+        }
+        eprintln!("{n} cameras, {} differ", bad.len());
+        assert!(bad.is_empty(), "{bad:?}");
+    }
+
+    /// A big design's first frame is built over several frames ([`crate::scene::Staged`]) and gives
+    /// the very mesh of one build.
+    #[test]
+    fn a_staged_live_camera_is_the_one_found_at_once() {
+        // the 2x2 farm's camera search took 80-90 ms in one task in a software GL; staged, it
+        // weighs one candidate a call and must find the same camera, on a desktop and a phone
+        let atlas = crate::atlas::Atlas::build();
+        for name in ["iron-day1"] {
+            let text = archived(name);
+            let s = crate::session::Session::new(&text, &crate::session::Options::still()).unwrap();
+            let look = crate::scene::viewer_look(&s);
+            for (w, h) in [(1232.0, 480.0), (399.0, 480.0)] {
+                let once = crate::scene::live_camera_at_once(&atlas, &s, &look, w, h);
+                let mut search = crate::scene::LiveCameraSearch::new(&atlas, &s, &look, w, h);
+                let mut calls = 0;
+                let staged = loop {
+                    calls += 1;
+                    if let Some(r) = search.step(&atlas, &s, &look, &mut || true) {
+                        break r;
+                    }
+                };
+                assert!(calls > 10, "{calls} calls");
+                assert_eq!(format!("{once:?}"), format!("{staged:?}"), "{name} at {w}x{h}");
+            }
+        }
+    }
+
+    /// The page's view before it plays (a still: nothing ticks) draws the mobs as placed with the
+    /// client's models (it drew the zombie as the stand-in box).
+    #[test]
+    fn a_staged_still_is_the_one_shot_mesh() {
+        // a still built 16 blocks a call (a big farm's first frame no longer one 45-60 ms task)
+        // gives the very mesh of one call
+        let atlas = crate::atlas::Atlas::build();
+        let text = archived("iron-day1");
+        let s = crate::session::Session::new(&text, &crate::session::Options::still()).unwrap();
+        let look = crate::scene::viewer_look(&s);
+        let whole = crate::scene::build(&atlas, &s, 0.0, &look);
+        let mut st = crate::scene::Staged::new(&s, 0.0, &look, crate::scene::Part::All);
+        let mut calls = 0;
+        let parts = loop {
+            calls += 1;
+            if let Some(m) = st.step(&atlas, &s, 0.0, &look, &mut || true) {
+                break m;
+            }
+        };
+        assert!(calls > 10, "{calls} calls");
+        assert_eq!(bytemuck::cast_slice::<_, u8>(&whole.solid), bytemuck::cast_slice::<_, u8>(&parts.solid));
+        assert_eq!(format!("{:?}", whole.translucent), format!("{:?}", parts.translucent));
+        assert_eq!((whole.lo, whole.hi), (parts.lo, parts.hi));
     }
 
     /// The page's view before it plays (a still: nothing ticks) draws the mobs as placed with the
@@ -423,8 +540,8 @@ mod tests {
     #[test]
     #[ignore]
     fn print_villager_states() {
-        for name in ["iron-day1", "iron-middle"] {
-            let text = archived(name);
+        for name in archived_farms() {
+            let text = archived(&name);
             let mut s = crate::session::Session::new(&text, &crate::session::Options::live()).unwrap();
             for k in 0..=48 {
                 if k > 0 {
@@ -438,14 +555,36 @@ mod tests {
     /// The still's mesh of the smallest and the biggest farm, natively (`--nocapture`).
     #[test]
     #[ignore]
+    fn print_camera_costs() {
+        let mut atlas = crate::atlas::Atlas::build();
+        let (png, idx, defs, models) = crate::tools::vanilla_assets().unwrap();
+        atlas.apply_vanilla_png(&png, &idx).unwrap();
+        let (rgba, w, h) = crate::tools::decode_png(&png).unwrap();
+        atlas.set_game(&rgba, w, h, &idx, &defs, &models).unwrap();
+        let loops: u32 = std::env::var("MCVIEW_MESH_LOOPS").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+        for name in archived_farms() {
+            let text = archived(&name);
+            let s = crate::session::Session::new(&text, &crate::session::Options::still()).unwrap();
+            let look = crate::scene::viewer_look(&s);
+            let t = std::time::Instant::now();
+            for _ in 0..loops {
+                std::hint::black_box(crate::scene::live_camera(&atlas, &s, &look, 1232.0, 480.0));
+            }
+            eprintln!("{name}: the live camera {:.1} ms", t.elapsed().as_secs_f64() * 1000.0 / loops as f64);
+        }
+    }
+
+    /// The still's mesh of the smallest and the biggest farm, natively (`--nocapture`).
+    #[test]
+    #[ignore]
     fn print_still_mesh_costs() {
         let mut atlas = crate::atlas::Atlas::build();
         let (png, idx, defs, models) = crate::tools::vanilla_assets().unwrap();
         atlas.apply_vanilla_png(&png, &idx).unwrap();
         let (rgba, w, h) = crate::tools::decode_png(&png).unwrap();
         atlas.set_game(&rgba, w, h, &idx, &defs, &models).unwrap();
-        for name in ["iron-day1", "iron-scaled-2x2"] {
-            let text = archived(name);
+        for name in archived_farms() {
+            let text = archived(&name);
             let t = std::time::Instant::now();
             let s = crate::session::Session::new(&text, &crate::session::Options::still()).unwrap();
             let t_new = t.elapsed().as_secs_f64() * 1000.0;
@@ -479,8 +618,8 @@ mod tests {
         let (er, ew, eh) = crate::tools::decode_png(&ep).unwrap();
         let (ir, iw, ih) = crate::tools::decode_png(&ip).unwrap();
         atlas.add_game_entities((&er, ew, eh, &ei), (&ir, iw, ih, &ii)).unwrap();
-        for name in ["iron-day1", "iron-middle", "iron-fast-module", "iron-scaled-2x2"] {
-            let text = archived(name);
+        for name in archived_farms() {
+            let text = archived(&name);
             let mut p = crate::player::Player::new_web(&text, 1.5).unwrap();
             let t = std::time::Instant::now();
             let _ = p.triangles(&atlas);
@@ -507,8 +646,8 @@ mod tests {
     #[test]
     #[ignore]
     fn print_golem_ticks() {
-        for name in ["iron-day1", "iron-middle", "iron-fast-module", "iron-scaled-2x2"] {
-            let mut s = crate::session::Session::new(&archived(name), &crate::session::Options::live()).unwrap();
+        for name in archived_farms() {
+            let mut s = crate::session::Session::new(&archived(&name), &crate::session::Options::live()).unwrap();
             let (mut seen, mut ticks) = (0, Vec::new());
             for _ in 0..3000 {
                 s.step();

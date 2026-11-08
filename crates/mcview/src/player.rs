@@ -27,6 +27,9 @@ pub struct Player {
     /// and its key (`Session::blocks_version`, the outputs' boxes).
     block_mesh: Option<Mesh>,
     block_key: (u64, u64),
+    /// A mesh being built over several frames ([`Player::triangles_within`]) and what it is of.
+    staged: Option<(scene::Staged, (u64, u64))>,
+    staged_now: bool,
     /// Something changed since the last frame.
     pub dirty: bool,
     /// Seconds spent at a flying machine's end before it starts again.
@@ -309,6 +312,8 @@ impl Player {
             mesh_key: (u32::MAX, 0),
             block_mesh: None,
             block_key: (u64::MAX, 0),
+            staged: None,
+            staged_now: false,
             dirty: true,
             hold: 0.0,
             follow: None,
@@ -1378,10 +1383,16 @@ impl Player {
     /// of the Record pill when the build would come out under it); returns the window it used.
     pub fn frame_live(&mut self, atlas: &Atlas, w: f32, h: f32) -> (f32, f32, f32) {
         let (cam, window) = scene::live_camera(atlas, &self.session, &self.look, w, h);
+        self.set_live_camera(cam);
+        window
+    }
+
+    /// The live view's default camera, found ([`scene::live_camera`], or over several tasks
+    /// [`scene::LiveCameraSearch`]): the camera and the one the home button comes back to.
+    pub fn set_live_camera(&mut self, cam: crate::camera::Camera) {
         self.camera = cam;
         self.home = cam;
         self.dirty = true;
-        window
     }
 
     /// A bedrock breaker's press on swap piston `c` (or the fix of one facing down), logged for the
@@ -1439,6 +1450,20 @@ impl Player {
 
     /// The frame's triangles (solid, translucent sorted for the camera).
     pub fn triangles(&mut self, atlas: &Atlas) -> (Vec<Vertex>, Vec<Vertex>) {
+        loop {
+            if let Some(t) = self.triangles_within(atlas, &mut || false) {
+                return t;
+            }
+        }
+    }
+
+    /// [`Player::triangles`] within the caller's time: a mesh too big for one frame (a big
+    /// design's first still; a mob farm's blocks when one changed) is built over several calls
+    /// ([`scene::Staged`]: the coordinator, no main-thread task over ~50 ms). None while it is not
+    /// done and there is nothing to show yet (call again next frame); a mob farm keeps drawing its
+    /// previous blocks meanwhile. [`Player::staged_now`] says whether this call built some of it.
+    pub fn triangles_within(&mut self, atlas: &Atlas, out_of_time: &mut dyn FnMut() -> bool) -> Option<(Vec<Vertex>, Vec<Vertex>)> {
+        self.staged_now = false;
         let key = (self.session.tick, (self.partial * 64.0) as u32);
         if self.session.mob.is_some() {
             // a mob farm: its blocks change seldom (a bed taken, a trapdoor, the dusk pulse), its
@@ -1447,9 +1472,19 @@ impl Player {
             let powered: u64 = self.session.outputs.iter().enumerate().map(|(i, o)| (self.session.output_powered(*o) as u64) << (i % 64)).fold(0, |a, b| a ^ b);
             let bkey = (self.session.blocks_version, powered);
             if self.block_mesh.is_none() || bkey != self.block_key {
-                self.block_mesh = Some(scene::build_part(atlas, &self.session, self.partial, &self.look, scene::Part::Blocks));
-                self.block_key = bkey;
+                if self.staged.as_ref().is_none_or(|(_, k)| *k != bkey) {
+                    self.staged = Some((scene::Staged::new(&self.session, self.partial, &self.look, scene::Part::Blocks), bkey));
+                }
+                self.staged_now = true;
+                let (st, k) = self.staged.as_mut().unwrap();
+                if let Some(m) = st.step(atlas, &self.session, self.partial, &self.look, out_of_time) {
+                    self.block_mesh = Some(m);
+                    self.block_key = *k;
+                    self.staged = None;
+                }
             }
+            // (its first blocks not done yet: nothing to show)
+            self.block_mesh.as_ref()?;
             if self.mesh.is_none() || key != self.mesh_key {
                 self.mesh = Some(scene::build_part(atlas, &self.session, self.partial, &self.look, scene::Part::Entities));
                 self.mesh_key = key;
@@ -1458,19 +1493,37 @@ impl Player {
             let (s2, t2) = scene::triangles(self.mesh.as_ref().unwrap(), &self.camera);
             solid.extend(s2);
             translucent.extend(t2);
-            return (solid, translucent);
+            return Some((solid, translucent));
         }
-        if self.mesh.is_none() || key != self.mesh_key {
+        if self.mesh.is_none() {
+            // the first picture: over as many frames as it takes
+            if self.staged.is_none() {
+                self.staged = Some((scene::Staged::new(&self.session, self.partial, &self.look, scene::Part::All), (key.0 as u64, key.1 as u64)));
+            }
+            self.staged_now = true;
+            let (st, k) = self.staged.as_mut().unwrap();
+            let m = st.step(atlas, &self.session, self.partial, &self.look, out_of_time)?;
+            self.mesh_key = (k.0 as u32, k.1 as u32);
+            self.mesh = Some(m);
+            self.staged = None;
+        } else if key != self.mesh_key {
             self.mesh = Some(scene::build(atlas, &self.session, self.partial, &self.look));
             self.mesh_key = key;
         }
-        scene::triangles(self.mesh.as_ref().unwrap(), &self.camera)
+        Some(scene::triangles(self.mesh.as_ref().unwrap(), &self.camera))
+    }
+
+    /// Whether the last [`Player::triangles_within`] built some of a staged mesh (the caller may
+    /// draw the result in the next frame instead, keeping each task short).
+    pub fn staged_now(&self) -> bool {
+        self.staged_now
     }
 
     /// Forget the cached mesh (the look changed).
     pub fn invalidate(&mut self) {
         self.mesh = None;
         self.block_mesh = None;
+        self.staged = None;
         self.dirty = true;
     }
 

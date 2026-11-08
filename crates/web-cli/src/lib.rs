@@ -2520,7 +2520,7 @@ fn cmd_mobrate(designs: &[PathBuf], threads: usize) -> Result<()> {
             }
         }
         let ticks = jo.days * 24000;
-        let jobs: Vec<(usize, i64)> = (0..builds.len()).flat_map(|b| (0..jo.seeds).map(move |k| (b, jo.seed0 + b as i64 * 1000 + k as i64))).collect();
+        let jobs: Vec<(usize, i64)> = (0..builds.len()).flat_map(|b| (0..jo.seeds).map(move |k| (b, redsim::entity::mob::farm::judge_seed(b as u32, k)))).collect();
         let t0 = std::time::Instant::now();
         let per = jobs.len().div_ceil(threads.max(1));
         let mut results: Vec<std::result::Result<(u32, u32, u32), String>> = vec![Err(String::new()); jobs.len()];
