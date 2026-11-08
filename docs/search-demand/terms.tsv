@@ -1,62 +1,21 @@
-# Minecraft searches about farms and redstone, ranked by `trends rank` (docs/search-demand.md).
+# Minecraft builds people search for: farms and redstone machines, ranked by `trends rank`
+# (docs/search-demand.md). Only builds (vjeux 2026-11-07: "keep only the ones that are about
+# builds we can do, not individual items"): single blocks and items (TNT, hopper, piston...),
+# catch-all searches ("minecraft farm", "minecraft redstone builds", "auto farm"), decorative
+# builds (barn, farm house), mods and tools, ores, mechanics and "diamond farm" (diamonds are
+# mined, not farmed) are left out. Netherite is in: TNT tunnel bores farm ancient debris.
 # One search per line: `term<TAB>kind`. A term counts every Google search containing all of its
 # words in any order ("minecraft iron farm" also counts "how to build an iron farm in minecraft
 # bedrock"); `a + b` counts searches for either, and words in double quotes must appear as that
-# exact phrase (`minecraft "create mod"` leaves out "how to create a mod in minecraft"). Every
-# term says "minecraft" so that other games' farms (Fortnite XP maps, WoW gold farming) stay out.
-# Checked for strays: a term whose words also mean something else ("minecraft calculator" =
-# enchantment and portal calculators, "minecraft buttons" = controller buttons) is narrowed.
+# exact phrase. Every term says "minecraft" so that other games' farms (Fortnite XP maps, WoW
+# gold farming) stay out.
 # Candidates: what players build and ask about, plus Google autocomplete of "minecraft redstone",
 # "minecraft auto" and "minecraft automatic" and Trends' related queries (trends suggest/related).
 
-# The biggest terms first: batched together, so they do not squeeze the anchor of a batch of
-# small terms (the tool re-measures any batch that still gets squeezed).
-minecraft farm + minecraft farms	Umbrella: every farm search
-minecraft redstone	Umbrella: every redstone search
-minecraft tnt	Redstone component (TNT)
-minecraft command block	Adjacent (command blocks)
-minecraft redstone y level + minecraft redstone level	Redstone ore
-minecraft piston	Redstone component
-minecraft "create mod"	Mod (contraptions)
-minecraft xp farm + minecraft exp farm	Mob farm
-minecraft hopper	Redstone component
-minecraft mob farm	Mob farm
-minecraft auto farm + minecraft automatic farm	Farm (general)
-minecraft elevator	Build (elevators, mostly water)
-minecraft crafter	Redstone component
-minecraft dispenser	Redstone component
-minecraft observer	Redstone component
-minecraft redstone ore	Redstone ore
-minecraft slime block	Redstone component
-minecraft lever	Redstone component
-minecraft rail + minecraft rails	Rails
-minecraft stone button + minecraft wooden button + minecraft button recipe	Redstone component
-minecraft pressure plate	Redstone component
-minecraft redstone dust	Redstone component
-minecraft redstone block	Redstone component
-minecraft dropper	Redstone component
-minecraft repeater	Redstone component
-minecraft comparator	Redstone component
-minecraft target block	Redstone component
-minecraft sculk sensor	Redstone component
-minecraft note block	Redstone component
-minecraft redstone lamp	Redstone component
-minecraft redstone torch	Redstone component
-minecraft daylight sensor	Redstone component
-minecraft sticky piston	Redstone component
-minecraft honey block	Redstone component
-minecraft calibrated sculk sensor	Redstone component
-minecraft tripwire + minecraft tripwire hook	Redstone component
-minecraft powered rail	Redstone component
-minecraft detector rail	Redstone component
-minecraft activator rail	Redstone component
-minecraft hopper minecart	Redstone component
-minecraft trapped chest	Redstone component
-minecraft lightning rod	Redstone component
-minecraft copper bulb	Redstone component
-
 # Mob farms
+minecraft xp farm + minecraft exp farm	Mob farm
 minecraft iron farm	Mob farm
+minecraft mob farm	Mob farm
 minecraft gold farm	Mob farm
 minecraft creeper farm	Mob farm
 minecraft gunpowder farm	Mob farm
@@ -98,6 +57,7 @@ minecraft villager farm	Villagers
 minecraft emerald farm	Villagers
 
 # Animals and fishing
+minecraft animal farm	Animal farm
 minecraft cow farm	Animal farm
 minecraft chicken farm	Animal farm
 minecraft egg farm	Animal farm
@@ -112,14 +72,13 @@ minecraft honey farm	Animal farm
 minecraft sniffer farm	Animal farm
 minecraft squid farm + minecraft ink farm	Animal farm
 minecraft leather farm	Animal farm
-minecraft animal farm	Animal farm
 minecraft fish farm	Fishing
 minecraft afk fish farm	Fishing
 minecraft auto fisher + minecraft auto fishing	Fishing
 
 # Crops and plants
-minecraft wheat farm	Crop farm
 minecraft crop farm	Crop farm
+minecraft wheat farm	Crop farm
 minecraft carrot farm	Crop farm
 minecraft potato farm	Crop farm
 minecraft beetroot farm	Crop farm
@@ -158,90 +117,68 @@ minecraft dirt farm	Block farm
 minecraft amethyst farm	Block farm
 minecraft sand duper + minecraft sand farm	Block farm
 minecraft concrete converter + minecraft concrete farm	Block farm
-minecraft diamond farm	Farm (general)
-minecraft netherite farm	Farm (general)
-minecraft afk farm	Farm (general)
-minecraft food farm	Farm (general)
-minecraft redstone farm	Farm (general)
 
-# Farm builds and farming
-minecraft farm house	Farm build
-minecraft farm design	Farm build
-minecraft farm ideas	Farm build
-minecraft barn	Farm build
-minecraft animal pen	Farm build
-minecraft chicken coop	Farm build
-minecraft farmland	Farming
-minecraft farmers delight	Mod (farming)
-minecraft farming mod + minecraft farming mods	Mod (farming)
+# Doors
+minecraft piston door	Door
+minecraft 2x2 piston door	Door
+minecraft 3x3 piston door	Door
+minecraft 2x2 door	Door
+minecraft 3x3 door	Door
+minecraft redstone door	Door
+minecraft secret door + minecraft hidden door	Door
+minecraft hidden staircase + minecraft secret staircase	Door
+minecraft automatic door	Door
+minecraft vault door	Door
+minecraft keycard door	Door
+minecraft drawbridge	Door
 
-# Redstone builds
-minecraft piston door	Redstone build
-minecraft 2x2 piston door	Redstone build
-minecraft 3x3 piston door	Redstone build
-minecraft 2x2 door	Redstone build
-minecraft 3x3 door	Redstone build
-minecraft redstone door	Redstone build
-minecraft secret door + minecraft hidden door	Redstone build
-minecraft hidden staircase + minecraft secret staircase	Redstone build
-minecraft automatic door	Redstone build
-minecraft vault door	Redstone build
-minecraft keycard door	Redstone build
-minecraft drawbridge	Redstone build
-minecraft water elevator	Redstone build
-minecraft redstone elevator	Redstone build
-minecraft flying machine	Redstone build
-minecraft item sorter + minecraft auto sorter	Redstone build
-minecraft storage system + minecraft sorting system	Redstone build
-minecraft auto smelter + minecraft super smelter + minecraft automatic smelter	Redstone build
-minecraft autocrafter + minecraft auto crafter	Redstone build
-minecraft auto brewer + minecraft automatic brewing	Redstone build
-minecraft trash can	Redstone build
-minecraft vending machine	Redstone build
-minecraft automatic lights	Redstone build
-minecraft tnt cannon	Redstone build
-minecraft orbital strike cannon + minecraft orbital cannon	Redstone build
-minecraft tnt duper	Redstone build
-minecraft redstone trap + minecraft redstone traps	Redstone build
-minecraft piston trap	Redstone build
-minecraft arrow trap	Redstone build
-minecraft redstone clock	Redstone build
-minecraft hopper clock	Redstone build
-minecraft observer clock	Redstone build
-minecraft redstone timer + minecraft redstone delay	Redstone build
-minecraft redstone switch + minecraft redstone toggle	Redstone build
-minecraft redstone computer	Redstone build
-minecraft redstone calculator	Redstone build
-minecraft 7 segment display + minecraft seven segment display	Redstone build
-minecraft combination lock	Redstone build
-minecraft redstone music + minecraft note block song	Redstone build
-minecraft redstone house	Redstone build
-minecraft redstone games + minecraft redstone minigames	Redstone build
-minecraft bedrock breaker + minecraft break bedrock	Redstone build
-minecraft chunk loader	Redstone build
-minecraft tunnel bore	Redstone build
-minecraft quarry	Machine (redstone or mod)
-minecraft world eater	Redstone build
-minecraft redstone builds	Redstone build
-minecraft redstone ideas	Redstone build
-minecraft redstone contraptions	Redstone build
+# Elevators
+minecraft elevator	Elevator
+minecraft water elevator	Elevator
+minecraft redstone elevator	Elevator
 
-# Redstone concepts and learning
-minecraft redstone tutorial	Redstone concept
-minecraft redstone basics	Redstone concept
-minecraft redstone circuits	Redstone concept
-minecraft logic gates	Redstone concept
-minecraft "and gate"	Redstone concept
-minecraft "not gate" + minecraft "redstone inverter"	Redstone concept
-minecraft xor gate	Redstone concept
-minecraft t flip flop	Redstone concept
-minecraft pulse extender	Redstone concept
-minecraft wireless redstone	Redstone concept
-minecraft quasi connectivity	Redstone concept
-minecraft zero tick	Redstone concept
-minecraft redstone handbook + minecraft redstone book	Redstone concept
-minecraft redstone simulator	Mod/tool
-minecraft redstone schematics	Mod/tool
-minecraft redstone mods	Mod/tool
-minecraft litematica	Mod/tool
-minecraft carpet mod	Mod/tool
+# Storage, crafting, smelting
+minecraft item sorter + minecraft auto sorter	Storage and sorting
+minecraft storage system + minecraft sorting system	Storage and sorting
+minecraft trash can	Storage and sorting
+minecraft auto smelter + minecraft super smelter + minecraft automatic smelter	Crafting and smelting
+minecraft autocrafter + minecraft auto crafter	Crafting and smelting
+minecraft auto brewer + minecraft automatic brewing	Crafting and smelting
+
+# TNT, flying machines, digging
+minecraft orbital strike cannon + minecraft orbital cannon	TNT and flying machines
+minecraft tnt cannon	TNT and flying machines
+minecraft tnt duper	TNT and flying machines
+minecraft flying machine	TNT and flying machines
+minecraft bedrock breaker + minecraft break bedrock	TNT and flying machines
+minecraft quarry	TNT and flying machines
+minecraft tunnel bore	TNT and flying machines
+minecraft netherite farm + minecraft netherite miner + minecraft ancient debris farm	TNT and flying machines
+minecraft world eater	TNT and flying machines
+
+# Circuits
+minecraft redstone clock	Circuit
+minecraft hopper clock	Circuit
+minecraft observer clock	Circuit
+minecraft redstone timer + minecraft redstone delay	Circuit
+minecraft redstone switch + minecraft redstone toggle	Circuit
+minecraft t flip flop	Circuit
+minecraft pulse extender	Circuit
+minecraft logic gates	Circuit
+minecraft "and gate"	Circuit
+minecraft "not gate" + minecraft "redstone inverter"	Circuit
+minecraft xor gate	Circuit
+minecraft wireless redstone	Circuit
+minecraft combination lock	Circuit
+minecraft 7 segment display + minecraft seven segment display	Circuit
+minecraft redstone computer	Circuit
+minecraft redstone calculator	Circuit
+
+# Traps and utilities
+minecraft redstone trap + minecraft redstone traps	Trap
+minecraft piston trap	Trap
+minecraft arrow trap	Trap
+minecraft chunk loader	Utility
+minecraft vending machine	Utility
+minecraft automatic lights	Utility
+minecraft redstone music + minecraft note block song	Utility

@@ -12,8 +12,8 @@ judge | minimize | graft | row | circuit | scenario`: bedrock breakers, the port
 official server's checks) are in [designs/bedrock/NOTES.md](../designs/bedrock/NOTES.md#tools); its
 circuit kind (`circuit: bedrock-breaker N`) is judged like every circuit (`mctas circuit verify`).
 One tool is not a `mctas` subcommand: `trends` (`./target/release/trends suggest | related | rank`,
-crates/trends), the Google autocomplete and Google Trends ranking of what people search about
-farms and redstone. It needs the internet, so it is never used for design work; it is in
+crates/trends), the Google autocomplete and Google Trends ranking of the farms and redstone builds
+people search for. It needs the internet, so it is never used for design work; it is in
 [search-demand.md](search-demand.md).
 
 ## The workflow behind the records

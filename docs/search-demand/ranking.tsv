@@ -1,219 +1,150 @@
 rank	search	kind	interest	raw	anchor_raw	measured_against
-1	minecraft farm + minecraft farms	Umbrella: every farm search	1327.0	72.74	5.48	minecraft iron farm
-2	minecraft redstone	Umbrella: every redstone search	298.3	16.35	5.48	minecraft iron farm
-3	minecraft tnt	Redstone component (TNT)	239.5	13.13	5.48	minecraft iron farm
-4	minecraft command block	Adjacent (command blocks)	164.1	76.63	46.70	minecraft iron farm
-5	minecraft rail + minecraft rails	Rails	161.7	64.67	39.98	minecraft iron farm
-6	minecraft litematica	Mod/tool	127.6	81.09	63.54	minecraft iron farm
-7	minecraft "create mod"	Mod (contraptions)	127.5	74.85	58.69	minecraft iron farm
-8	minecraft xp farm + minecraft exp farm	Mob farm	121.9	40.69	33.39	minecraft iron farm
-9	minecraft piston	Redstone component	114.6	38.28	33.39	minecraft iron farm
-10	minecraft iron farm	Mob farm	100.0			minecraft iron farm
-11	minecraft hopper	Redstone component	97.2	68.30	70.30	minecraft iron farm
-12	minecraft mob farm	Mob farm	90.1	63.35	70.30	minecraft iron farm
-13	minecraft auto farm + minecraft automatic farm	Farm (general)	88.9	62.48	70.30	minecraft iron farm
-14	minecraft elevator	Build (elevators, mostly water)	84.9	59.70	70.30	minecraft iron farm
-15	minecraft crafter	Redstone component	82.7	58.15	70.30	minecraft iron farm
-16	minecraft dispenser	Redstone component	71.4	50.19	70.30	minecraft iron farm
-17	minecraft observer	Redstone component	68.9	48.41	70.30	minecraft iron farm
-18	minecraft barn	Farm build	60.5	42.54	70.26	minecraft iron farm
-19	minecraft dropper	Redstone component	43.5	30.56	70.30	minecraft iron farm
-20	minecraft repeater	Redstone component	43.2	30.39	70.30	minecraft iron farm
-21	minecraft comparator	Redstone component	37.6	26.43	70.30	minecraft iron farm
-22	minecraft gold farm	Mob farm	36.3	25.52	70.28	minecraft iron farm
-23	minecraft creeper farm	Mob farm	34.6	24.31	70.28	minecraft iron farm
-24	minecraft orbital strike cannon + minecraft orbital cannon	Redstone build	34.4	24.17	70.28	minecraft iron farm
-25	minecraft spawner farm + minecraft mob spawner farm	Mob farm	34.2	24.02	70.28	minecraft iron farm
-26	minecraft villager farm	Villagers	33.8	23.76	70.30	minecraft iron farm
-27	minecraft lever	Redstone component	31.4	12.56	39.98	minecraft iron farm
-28	minecraft trading hall	Villagers	30.3	21.31	70.30	minecraft iron farm
-29	minecraft tree farm	Crop farm	29.3	20.61	70.26	minecraft iron farm
-30	minecraft autocrafter + minecraft auto crafter	Redstone build	29.0	20.41	70.28	minecraft iron farm
-31	minecraft chunk loader	Redstone build	28.4	19.96	70.19	minecraft iron farm
-32	minecraft storage system + minecraft sorting system	Redstone build	27.9	19.65	70.31	minecraft iron farm
-33	minecraft chicken farm	Animal farm	26.7	18.80	70.30	minecraft iron farm
-34	minecraft water elevator	Redstone build	26.7	18.78	70.31	minecraft iron farm
-35	minecraft bedrock breaker + minecraft break bedrock	Redstone build	26.1	18.35	70.28	minecraft iron farm
-36	minecraft tripwire + minecraft tripwire hook	Redstone component	25.2	17.69	70.30	minecraft iron farm
-37	minecraft sugar cane farm	Crop farm	25.1	17.61	70.26	minecraft iron farm
-38	minecraft note block	Redstone component	24.5	17.24	70.30	minecraft iron farm
-39	minecraft farm house	Farm build	22.8	16.00	70.26	minecraft iron farm
-40	minecraft secret door + minecraft hidden door	Redstone build	22.6	15.87	70.30	minecraft iron farm
-41	minecraft item sorter + minecraft auto sorter	Redstone build	21.6	15.17	70.31	minecraft iron farm
-42	minecraft raid farm	Mob farm	20.8	14.63	70.26	minecraft iron farm
-43	minecraft piston door	Redstone build	20.7	14.57	70.30	minecraft iron farm
-44	minecraft lava farm	Block farm	20.7	14.54	70.26	minecraft iron farm
-45	minecraft flying machine	Redstone build	20.6	14.48	70.31	minecraft iron farm
-46	minecraft kelp farm	Crop farm	19.7	13.87	70.26	minecraft iron farm
-47	minecraft wheat farm	Crop farm	19.3	13.54	70.26	minecraft iron farm
-48	minecraft cobblestone generator + minecraft cobble generator	Block farm	19.1	13.44	70.28	minecraft iron farm
-49	minecraft auto smelter + minecraft super smelter + minecraft automatic smelter	Redstone build	19.1	13.43	70.31	minecraft iron farm
-50	minecraft redstone block	Redstone component	18.7	13.17	70.30	minecraft iron farm
-51	minecraft farmers delight	Mod (farming)	18.3	12.89	70.30	minecraft iron farm
-52	minecraft lightning rod	Redstone component	17.9	12.61	70.28	minecraft iron farm
-53	minecraft powered rail	Redstone component	17.7	12.43	70.28	minecraft iron farm
-54	minecraft farm design	Farm build	17.4	12.22	70.26	minecraft iron farm
-55	minecraft bamboo farm	Crop farm	16.8	11.81	70.26	minecraft iron farm
-56	minecraft zombie farm	Mob farm	16.7	11.76	70.26	minecraft iron farm
-57	minecraft villager breeder	Villagers	16.6	11.65	70.30	minecraft iron farm
-58	minecraft wood farm	Crop farm	16.4	11.52	70.26	minecraft iron farm
-59	minecraft redstone door	Redstone build	16.2	11.39	70.30	minecraft iron farm
-60	minecraft pressure plate	Redstone component	16.1	11.31	70.30	minecraft iron farm
-61	minecraft sticky piston	Redstone component	16.0	11.24	70.30	minecraft iron farm
-62	minecraft food farm	Farm (general)	15.9	11.19	70.26	minecraft iron farm
-63	minecraft skeleton farm	Mob farm	14.9	10.48	70.26	minecraft iron farm
-64	minecraft gunpowder farm	Mob farm	14.6	10.24	70.28	minecraft iron farm
-65	minecraft enderman farm	Mob farm	14.5	10.22	70.26	minecraft iron farm
-66	minecraft copper bulb	Redstone component	14.2	9.98	70.28	minecraft iron farm
-67	minecraft redstone farm	Farm (general)	14.0	9.85	70.26	minecraft iron farm
-68	minecraft carpet mod	Mod/tool	14.0	9.81	70.31	minecraft iron farm
-69	minecraft fish farm	Fishing	13.9	9.80	70.35	minecraft iron farm
-70	minecraft slime farm	Mob farm	13.9	9.78	70.26	minecraft iron farm
-71	minecraft cow farm	Animal farm	13.6	9.57	70.30	minecraft iron farm
-72	minecraft spider farm	Mob farm	13.6	9.56	70.26	minecraft iron farm
-73	minecraft cactus farm	Crop farm	13.5	9.48	70.26	minecraft iron farm
-74	minecraft bee farm	Animal farm	13.4	9.46	70.37	minecraft iron farm
-75	minecraft farm ideas	Farm build	13.4	9.43	70.26	minecraft iron farm
-76	minecraft obsidian farm + minecraft obsidian generator	Block farm	13.3	9.35	70.26	minecraft iron farm
-77	minecraft quarry	Machine (redstone or mod)	13.2	9.28	70.19	minecraft iron farm
-78	minecraft afk farm	Farm (general)	13.0	9.11	70.26	minecraft iron farm
-79	minecraft pumpkin farm	Crop farm	12.9	9.07	70.26	minecraft iron farm
-80	minecraft sculk sensor	Redstone component	12.9	9.06	70.30	minecraft iron farm
-81	minecraft farmland	Farming	12.9	9.04	70.26	minecraft iron farm
-82	minecraft tnt cannon	Redstone build	12.2	8.57	70.28	minecraft iron farm
-83	minecraft farming mod + minecraft farming mods	Mod (farming)	12.1	8.52	70.30	minecraft iron farm
-84	minecraft sand duper + minecraft sand farm	Block farm	11.8	8.30	70.26	minecraft iron farm
-85	minecraft redstone clock	Redstone build	11.8	8.28	70.26	minecraft iron farm
-86	minecraft animal farm	Animal farm	11.6	8.15	70.35	minecraft iron farm
-87	minecraft armadillo farm	Mob farm	11.3	7.94	70.30	minecraft iron farm
-88	minecraft redstone lamp	Redstone component	10.9	7.63	70.30	minecraft iron farm
-89	minecraft drowned farm + minecraft trident farm	Mob farm	10.6	7.43	70.28	minecraft iron farm
-90	minecraft honey farm	Animal farm	10.6	7.43	70.37	minecraft iron farm
-91	minecraft sheep farm	Animal farm	10.5	7.37	70.37	minecraft iron farm
-92	minecraft diamond farm	Farm (general)	10.2	7.17	70.26	minecraft iron farm
-93	minecraft target block	Redstone component	10.0	7.04	70.30	minecraft iron farm
-94	minecraft crop farm	Crop farm	10.0	7.02	70.26	minecraft iron farm
-95	minecraft wool farm	Animal farm	9.9	7.00	70.37	minecraft iron farm
-96	minecraft bone farm	Mob farm	9.7	6.81	70.26	minecraft iron farm
-97	minecraft redstone torch	Redstone component	9.5	6.67	70.30	minecraft iron farm
-98	minecraft hopper minecart	Redstone component	9.4	6.61	70.28	minecraft iron farm
-99	minecraft honey block	Redstone component	9.4	6.61	70.30	minecraft iron farm
-100	minecraft slime block	Redstone component	9.4	21.57	69.69	minecraft trading hall
-101	minecraft trash can	Redstone build	9.4	6.59	70.28	minecraft iron farm
-102	minecraft mob grinder	Mob farm	9.1	6.39	70.28	minecraft iron farm
-103	minecraft chicken coop	Farm build	9.0	6.31	70.26	minecraft iron farm
-104	minecraft apple farm	Crop farm	8.9	6.28	70.26	minecraft iron farm
-105	minecraft copper farm	Mob farm	8.9	6.28	70.28	minecraft iron farm
-106	minecraft moss farm	Crop farm	8.7	6.09	70.28	minecraft iron farm
-107	minecraft blaze farm	Mob farm	8.6	6.06	70.26	minecraft iron farm
-108	minecraft string farm	Mob farm	8.5	5.96	70.26	minecraft iron farm
-109	minecraft melon farm	Crop farm	8.2	5.76	70.26	minecraft iron farm
-110	minecraft mushroom farm	Crop farm	8.1	5.72	70.28	minecraft iron farm
-111	minecraft piglin farm + minecraft bartering farm	Mob farm	8.1	5.70	70.26	minecraft iron farm
-112	minecraft redstone tutorial	Redstone concept	8.0	5.63	70.19	minecraft iron farm
-113	minecraft redstone y level + minecraft redstone level	Redstone ore	7.9	18.20	69.69	minecraft trading hall
-114	minecraft emerald farm	Villagers	7.9	5.54	70.30	minecraft iron farm
-115	minecraft tnt duper	Redstone build	7.6	5.37	70.28	minecraft iron farm
-116	minecraft activator rail	Redstone component	7.5	5.24	70.28	minecraft iron farm
-117	minecraft daylight sensor	Redstone component	7.5	5.24	70.30	minecraft iron farm
-118	minecraft netherite farm	Farm (general)	7.4	5.22	70.26	minecraft iron farm
-119	minecraft stone generator	Block farm	7.4	5.19	70.26	minecraft iron farm
-120	minecraft squid farm + minecraft ink farm	Animal farm	7.3	5.17	70.35	minecraft iron farm
-121	minecraft bone meal farm	Crop farm	7.2	5.06	70.28	minecraft iron farm
-122	minecraft 3x3 door	Redstone build	7.2	5.06	70.30	minecraft iron farm
-123	minecraft auto fisher + minecraft auto fishing	Fishing	7.0	15.78	68.17	minecraft trading hall
-124	minecraft clay farm	Block farm	6.7	14.69	66.54	minecraft trading hall
-125	minecraft redstone dust	Redstone component	6.5	14.98	69.69	minecraft trading hall
-126	minecraft totem farm	Mob farm	6.5	15.11	70.57	minecraft trading hall
-127	minecraft ice farm	Block farm	6.4	14.07	66.54	minecraft trading hall
-128	minecraft "not gate" + minecraft "redstone inverter"	Redstone concept	6.3	14.74	70.52	minecraft trading hall
-129	minecraft silverfish farm	Mob farm	6.3	14.24	68.35	minecraft trading hall
-130	minecraft automatic door	Redstone build	6.3	13.89	67.20	minecraft trading hall
-131	minecraft dirt farm	Block farm	6.1	13.39	66.54	minecraft trading hall
-132	minecraft leather farm	Animal farm	6.0	13.39	68.17	minecraft trading hall
-133	minecraft egg farm	Animal farm	5.9	13.30	68.35	minecraft trading hall
-134	minecraft flower farm	Crop farm	5.9	13.39	69.30	minecraft trading hall
-135	minecraft dripstone farm	Block farm	5.8	13.30	69.30	minecraft trading hall
-136	minecraft redstone builds	Redstone build	5.7	13.35	70.56	minecraft trading hall
-137	minecraft vending machine	Redstone build	5.7	13.30	70.44	minecraft trading hall
-138	minecraft detector rail	Redstone component	5.7	13.13	69.69	minecraft trading hall
-139	minecraft calibrated sculk sensor	Redstone component	5.7	13.04	69.69	minecraft trading hall
-140	minecraft snow farm	Block farm	5.7	12.43	66.54	minecraft trading hall
-141	minecraft guardian farm	Mob farm	5.5	12.54	69.67	minecraft trading hall
-142	minecraft shulker farm	Mob farm	5.4	12.63	70.57	minecraft trading hall
-143	minecraft concrete converter + minecraft concrete farm	Block farm	5.4	12.02	67.20	minecraft trading hall
-144	minecraft carrot farm	Crop farm	5.2	11.65	68.17	minecraft trading hall
-145	minecraft wither skeleton farm	Mob farm	5.1	11.81	69.67	minecraft trading hall
-146	minecraft stone button + minecraft wooden button + minecraft button recipe	Redstone component	5.0	11.70	70.52	minecraft trading hall
-147	minecraft frog farm + minecraft froglight farm	Mob farm	4.9	11.43	70.57	minecraft trading hall
-148	minecraft turtle farm	Animal farm	4.6	10.41	68.35	minecraft trading hall
-149	minecraft trapped chest	Redstone component	4.3	9.91	69.69	minecraft trading hall
-150	minecraft redstone timer + minecraft redstone delay	Redstone build	4.2	9.87	70.57	minecraft trading hall
-151	minecraft witch farm	Mob farm	4.2	9.59	69.67	minecraft trading hall
-152	minecraft redstone switch + minecraft redstone toggle	Redstone build	4.1	9.61	70.57	minecraft trading hall
-153	minecraft redstone handbook + minecraft redstone book	Redstone concept	3.9	8.85	69.46	minecraft trading hall
-154	minecraft amethyst farm	Block farm	3.8	8.43	67.20	minecraft trading hall
-155	minecraft auto brewer + minecraft automatic brewing	Redstone build	3.7	8.69	70.44	minecraft trading hall
-156	minecraft redstone mods	Mod/tool	3.6	8.26	69.11	minecraft trading hall
-157	minecraft redstone house	Redstone build	3.5	8.19	70.57	minecraft trading hall
-158	minecraft redstone music + minecraft note block song	Redstone build	3.5	8.09	70.57	minecraft trading hall
-159	minecraft sweet berry farm + minecraft berry farm	Crop farm	3.5	7.94	69.30	minecraft trading hall
-160	minecraft hopper clock	Redstone build	3.5	8.04	70.44	minecraft trading hall
-161	minecraft 2x2 door	Redstone build	3.5	7.65	67.20	minecraft trading hall
-162	minecraft potato farm	Crop farm	3.3	7.65	69.63	minecraft trading hall
-163	minecraft piston trap	Redstone build	3.3	7.56	70.44	minecraft trading hall
-164	minecraft t flip flop	Redstone concept	3.0	6.96	69.46	minecraft trading hall
-165	minecraft nether wart farm	Crop farm	3.0	6.81	69.63	minecraft trading hall
-166	minecraft auto composter + minecraft automatic composter	Crop farm	2.9	6.70	69.30	minecraft trading hall
-167	minecraft redstone computer	Redstone build	2.8	6.63	70.57	minecraft trading hall
-168	minecraft redstone ore	Redstone ore	2.7	6.11	69.69	minecraft trading hall
-169	minecraft resin farm	Mob farm	2.5	5.70	68.35	minecraft trading hall
-170	minecraft animal pen	Farm build	2.5	5.57	67.20	minecraft trading hall
-171	minecraft "and gate"	Redstone concept	2.5	5.72	70.52	minecraft trading hall
-172	minecraft redstone elevator	Redstone build	2.4	5.67	70.44	minecraft trading hall
-173	minecraft tunnel bore	Redstone build	2.4	5.65	70.56	minecraft trading hall
-174	minecraft afk fish farm	Fishing	2.4	5.43	68.17	minecraft trading hall
-175	minecraft 3x3 piston door	Redstone build	2.3	5.09	67.20	minecraft trading hall
-176	minecraft pulse extender	Redstone concept	2.3	5.24	69.46	minecraft trading hall
-177	minecraft pig farm	Animal farm	2.0	4.57	68.35	minecraft trading hall
-178	minecraft redstone trap + minecraft redstone traps	Redstone build	1.9	4.50	70.44	minecraft trading hall
-179	minecraft logic gates	Redstone concept	1.7	3.87	70.56	minecraft trading hall
-180	minecraft world eater	Redstone build	1.5	3.56	70.56	minecraft trading hall
-181	minecraft chicken cooker	Animal farm	1.5	3.39	68.35	minecraft trading hall
-182	minecraft cocoa bean farm + minecraft cocoa farm	Crop farm	1.5	3.44	69.63	minecraft trading hall
-183	minecraft redstone ideas	Redstone build	1.4	3.30	70.56	minecraft trading hall
-184	minecraft basalt generator	Block farm	1.0	2.31	69.30	minecraft trading hall
-185	minecraft vault door	Redstone build	0.8	1.93	70.44	minecraft trading hall
-186	minecraft redstone games + minecraft redstone minigames	Redstone build	0.8	1.81	70.57	minecraft trading hall
-187	minecraft 2x2 piston door	Redstone build	0.8	1.70	67.20	minecraft trading hall
-188	minecraft wireless redstone	Redstone concept	0.7	1.61	69.46	minecraft trading hall
-189	minecraft trial chamber farm	Mob farm	0.7	1.54	70.57	minecraft trading hall
-190	minecraft rabbit farm	Animal farm	0.7	1.48	68.35	minecraft trading hall
-191	minecraft zero tick	Redstone concept	0.6	1.46	69.46	minecraft trading hall
-192	minecraft drawbridge	Redstone build	0.5	1.22	70.44	minecraft trading hall
-193	minecraft phantom farm	Mob farm	0.5	1.17	70.57	minecraft trading hall
-194	minecraft xor gate	Redstone concept	0.5	1.11	69.46	minecraft trading hall
-195	minecraft warden farm	Mob farm	0.5	1.09	70.57	minecraft trading hall
-196	minecraft redstone schematics	Mod/tool	0.4	0.93	69.11	minecraft trading hall
-197	minecraft ender pearl farm	Mob farm	0.4	0.85	69.69	minecraft trading hall
-198	minecraft observer clock	Redstone build	0.3	0.76	70.44	minecraft trading hall
-199	minecraft hidden staircase + minecraft secret staircase	Redstone build	0.3	0.72	67.20	minecraft trading hall
-200	minecraft redstone contraptions	Redstone build	0.3	0.72	70.56	minecraft trading hall
-201	minecraft sniffer farm	Animal farm	0.3	0.69	68.35	minecraft trading hall
-202	minecraft redstone calculator	Redstone build	0.3	0.63	70.52	minecraft trading hall
-203	minecraft quasi connectivity	Redstone concept	0.3	0.59	69.46	minecraft trading hall
-204	minecraft combination lock	Redstone build	0.3	0.59	70.57	minecraft trading hall
-205	minecraft magma cube farm + minecraft magma cream farm	Mob farm	0.2	0.54	69.67	minecraft trading hall
-206	minecraft vine farm	Crop farm	0.2	0.50	69.30	minecraft trading hall
-207	minecraft chorus fruit farm + minecraft chorus farm	Crop farm	0.1	0.33	69.30	minecraft trading hall
-208	minecraft 7 segment display + minecraft seven segment display	Redstone build	0.1	0.30	70.57	minecraft trading hall
-209	minecraft arrow trap	Redstone build	0.1	0.20	70.44	minecraft trading hall
-210	minecraft keycard door	Redstone build	0.1	0.20	70.44	minecraft trading hall
-211	minecraft redstone simulator	Mod/tool	0.1	0.19	69.46	minecraft trading hall
-212	minecraft breeze farm	Mob farm	0.0	0.11	70.57	minecraft trading hall
-213	minecraft beetroot farm	Crop farm	0.0	0.06	69.63	minecraft trading hall
-214	minecraft glow berry farm	Crop farm	0.0	0.04	69.30	minecraft trading hall
-215	minecraft redstone circuits	Redstone concept	0.0	0.04	70.56	minecraft trading hall
-216	minecraft wind charge farm	Mob farm	0.0	0.04	70.57	minecraft trading hall
-217	minecraft automatic lights	Redstone build	0.0	0.02	70.44	minecraft trading hall
-218	minecraft redstone basics	Redstone concept	0.0	0.02	70.56	minecraft trading hall
+1	minecraft xp farm + minecraft exp farm	Mob farm	121.9	40.69	33.39	minecraft iron farm
+2	minecraft iron farm	Mob farm	100.0			minecraft iron farm
+3	minecraft mob farm	Mob farm	90.1	63.35	70.30	minecraft iron farm
+4	minecraft elevator	Elevator	84.9	59.70	70.30	minecraft iron farm
+5	minecraft gold farm	Mob farm	36.3	25.52	70.28	minecraft iron farm
+6	minecraft creeper farm	Mob farm	34.6	24.31	70.28	minecraft iron farm
+7	minecraft orbital strike cannon + minecraft orbital cannon	TNT and flying machines	34.4	24.17	70.28	minecraft iron farm
+8	minecraft spawner farm + minecraft mob spawner farm	Mob farm	34.2	24.02	70.28	minecraft iron farm
+9	minecraft villager farm	Villagers	33.8	23.76	70.30	minecraft iron farm
+10	minecraft trading hall	Villagers	30.3	21.31	70.30	minecraft iron farm
+11	minecraft tree farm	Crop farm	29.3	20.61	70.26	minecraft iron farm
+12	minecraft autocrafter + minecraft auto crafter	Crafting and smelting	29.0	20.41	70.28	minecraft iron farm
+13	minecraft chunk loader	Utility	28.4	19.96	70.19	minecraft iron farm
+14	minecraft storage system + minecraft sorting system	Storage and sorting	27.9	19.65	70.31	minecraft iron farm
+15	minecraft chicken farm	Animal farm	26.7	18.80	70.30	minecraft iron farm
+16	minecraft water elevator	Elevator	26.7	18.78	70.31	minecraft iron farm
+17	minecraft bedrock breaker + minecraft break bedrock	TNT and flying machines	26.1	18.35	70.28	minecraft iron farm
+18	minecraft sugar cane farm	Crop farm	25.1	17.61	70.26	minecraft iron farm
+19	minecraft secret door + minecraft hidden door	Door	22.6	15.87	70.30	minecraft iron farm
+20	minecraft item sorter + minecraft auto sorter	Storage and sorting	21.6	15.17	70.31	minecraft iron farm
+21	minecraft raid farm	Mob farm	20.8	14.63	70.26	minecraft iron farm
+22	minecraft piston door	Door	20.7	14.57	70.30	minecraft iron farm
+23	minecraft lava farm	Block farm	20.7	14.54	70.26	minecraft iron farm
+24	minecraft flying machine	TNT and flying machines	20.6	14.48	70.31	minecraft iron farm
+25	minecraft kelp farm	Crop farm	19.7	13.87	70.26	minecraft iron farm
+26	minecraft wheat farm	Crop farm	19.3	13.54	70.26	minecraft iron farm
+27	minecraft cobblestone generator + minecraft cobble generator	Block farm	19.1	13.44	70.28	minecraft iron farm
+28	minecraft auto smelter + minecraft super smelter + minecraft automatic smelter	Crafting and smelting	19.1	13.43	70.31	minecraft iron farm
+29	minecraft bamboo farm	Crop farm	16.8	11.81	70.26	minecraft iron farm
+30	minecraft zombie farm	Mob farm	16.7	11.76	70.26	minecraft iron farm
+31	minecraft villager breeder	Villagers	16.6	11.65	70.30	minecraft iron farm
+32	minecraft wood farm	Crop farm	16.4	11.52	70.26	minecraft iron farm
+33	minecraft redstone door	Door	16.2	11.39	70.30	minecraft iron farm
+34	minecraft skeleton farm	Mob farm	14.9	10.48	70.26	minecraft iron farm
+35	minecraft gunpowder farm	Mob farm	14.6	10.24	70.28	minecraft iron farm
+36	minecraft enderman farm	Mob farm	14.5	10.22	70.26	minecraft iron farm
+37	minecraft fish farm	Fishing	13.9	9.80	70.35	minecraft iron farm
+38	minecraft slime farm	Mob farm	13.9	9.78	70.26	minecraft iron farm
+39	minecraft cow farm	Animal farm	13.6	9.57	70.30	minecraft iron farm
+40	minecraft spider farm	Mob farm	13.6	9.56	70.26	minecraft iron farm
+41	minecraft cactus farm	Crop farm	13.5	9.48	70.26	minecraft iron farm
+42	minecraft bee farm	Animal farm	13.4	9.46	70.37	minecraft iron farm
+43	minecraft obsidian farm + minecraft obsidian generator	Block farm	13.3	9.35	70.26	minecraft iron farm
+44	minecraft quarry	TNT and flying machines	13.2	9.28	70.19	minecraft iron farm
+45	minecraft pumpkin farm	Crop farm	12.9	9.07	70.26	minecraft iron farm
+46	minecraft tnt cannon	TNT and flying machines	12.2	8.57	70.28	minecraft iron farm
+47	minecraft sand duper + minecraft sand farm	Block farm	11.8	8.30	70.26	minecraft iron farm
+48	minecraft redstone clock	Circuit	11.8	8.28	70.26	minecraft iron farm
+49	minecraft animal farm	Animal farm	11.6	8.15	70.35	minecraft iron farm
+50	minecraft armadillo farm	Mob farm	11.3	7.94	70.30	minecraft iron farm
+51	minecraft drowned farm + minecraft trident farm	Mob farm	10.6	7.43	70.28	minecraft iron farm
+52	minecraft honey farm	Animal farm	10.6	7.43	70.37	minecraft iron farm
+53	minecraft sheep farm	Animal farm	10.5	7.37	70.37	minecraft iron farm
+54	minecraft crop farm	Crop farm	10.0	7.02	70.26	minecraft iron farm
+55	minecraft wool farm	Animal farm	9.9	7.00	70.37	minecraft iron farm
+56	minecraft bone farm	Mob farm	9.7	6.81	70.26	minecraft iron farm
+57	minecraft trash can	Storage and sorting	9.4	6.59	70.28	minecraft iron farm
+58	minecraft mob grinder	Mob farm	9.1	6.39	70.28	minecraft iron farm
+59	minecraft apple farm	Crop farm	8.9	6.28	70.26	minecraft iron farm
+60	minecraft copper farm	Mob farm	8.9	6.28	70.28	minecraft iron farm
+61	minecraft netherite farm + minecraft netherite miner + minecraft ancient debris farm	TNT and flying machines	8.9	6.26	70.28	minecraft iron farm
+62	minecraft moss farm	Crop farm	8.7	6.09	70.28	minecraft iron farm
+63	minecraft blaze farm	Mob farm	8.6	6.06	70.26	minecraft iron farm
+64	minecraft string farm	Mob farm	8.5	5.96	70.26	minecraft iron farm
+65	minecraft melon farm	Crop farm	8.2	5.76	70.26	minecraft iron farm
+66	minecraft mushroom farm	Crop farm	8.1	5.72	70.28	minecraft iron farm
+67	minecraft piglin farm + minecraft bartering farm	Mob farm	8.1	5.70	70.26	minecraft iron farm
+68	minecraft emerald farm	Villagers	7.9	5.54	70.30	minecraft iron farm
+69	minecraft tnt duper	TNT and flying machines	7.6	5.37	70.28	minecraft iron farm
+70	minecraft stone generator	Block farm	7.4	5.19	70.26	minecraft iron farm
+71	minecraft squid farm + minecraft ink farm	Animal farm	7.3	5.17	70.35	minecraft iron farm
+72	minecraft bone meal farm	Crop farm	7.2	5.06	70.28	minecraft iron farm
+73	minecraft 3x3 door	Door	7.2	5.06	70.30	minecraft iron farm
+74	minecraft auto fisher + minecraft auto fishing	Fishing	7.0	15.78	68.17	minecraft trading hall
+75	minecraft clay farm	Block farm	6.7	14.69	66.54	minecraft trading hall
+76	minecraft totem farm	Mob farm	6.5	15.11	70.57	minecraft trading hall
+77	minecraft ice farm	Block farm	6.4	14.07	66.54	minecraft trading hall
+78	minecraft "not gate" + minecraft "redstone inverter"	Circuit	6.3	14.74	70.52	minecraft trading hall
+79	minecraft silverfish farm	Mob farm	6.3	14.24	68.35	minecraft trading hall
+80	minecraft automatic door	Door	6.3	13.89	67.20	minecraft trading hall
+81	minecraft dirt farm	Block farm	6.1	13.39	66.54	minecraft trading hall
+82	minecraft leather farm	Animal farm	6.0	13.39	68.17	minecraft trading hall
+83	minecraft egg farm	Animal farm	5.9	13.30	68.35	minecraft trading hall
+84	minecraft flower farm	Crop farm	5.9	13.39	69.30	minecraft trading hall
+85	minecraft dripstone farm	Block farm	5.8	13.30	69.30	minecraft trading hall
+86	minecraft vending machine	Utility	5.7	13.30	70.44	minecraft trading hall
+87	minecraft snow farm	Block farm	5.7	12.43	66.54	minecraft trading hall
+88	minecraft guardian farm	Mob farm	5.5	12.54	69.67	minecraft trading hall
+89	minecraft shulker farm	Mob farm	5.4	12.63	70.57	minecraft trading hall
+90	minecraft concrete converter + minecraft concrete farm	Block farm	5.4	12.02	67.20	minecraft trading hall
+91	minecraft carrot farm	Crop farm	5.2	11.65	68.17	minecraft trading hall
+92	minecraft wither skeleton farm	Mob farm	5.1	11.81	69.67	minecraft trading hall
+93	minecraft frog farm + minecraft froglight farm	Mob farm	4.9	11.43	70.57	minecraft trading hall
+94	minecraft turtle farm	Animal farm	4.6	10.41	68.35	minecraft trading hall
+95	minecraft redstone timer + minecraft redstone delay	Circuit	4.2	9.87	70.57	minecraft trading hall
+96	minecraft witch farm	Mob farm	4.2	9.59	69.67	minecraft trading hall
+97	minecraft redstone switch + minecraft redstone toggle	Circuit	4.1	9.61	70.57	minecraft trading hall
+98	minecraft amethyst farm	Block farm	3.8	8.43	67.20	minecraft trading hall
+99	minecraft auto brewer + minecraft automatic brewing	Crafting and smelting	3.7	8.69	70.44	minecraft trading hall
+100	minecraft redstone music + minecraft note block song	Utility	3.5	8.09	70.57	minecraft trading hall
+101	minecraft sweet berry farm + minecraft berry farm	Crop farm	3.5	7.94	69.30	minecraft trading hall
+102	minecraft hopper clock	Circuit	3.5	8.04	70.44	minecraft trading hall
+103	minecraft 2x2 door	Door	3.5	7.65	67.20	minecraft trading hall
+104	minecraft potato farm	Crop farm	3.3	7.65	69.63	minecraft trading hall
+105	minecraft piston trap	Trap	3.3	7.56	70.44	minecraft trading hall
+106	minecraft t flip flop	Circuit	3.0	6.96	69.46	minecraft trading hall
+107	minecraft nether wart farm	Crop farm	3.0	6.81	69.63	minecraft trading hall
+108	minecraft auto composter + minecraft automatic composter	Crop farm	2.9	6.70	69.30	minecraft trading hall
+109	minecraft redstone computer	Circuit	2.8	6.63	70.57	minecraft trading hall
+110	minecraft resin farm	Mob farm	2.5	5.70	68.35	minecraft trading hall
+111	minecraft "and gate"	Circuit	2.5	5.72	70.52	minecraft trading hall
+112	minecraft redstone elevator	Elevator	2.4	5.67	70.44	minecraft trading hall
+113	minecraft tunnel bore	TNT and flying machines	2.4	5.65	70.56	minecraft trading hall
+114	minecraft afk fish farm	Fishing	2.4	5.43	68.17	minecraft trading hall
+115	minecraft 3x3 piston door	Door	2.3	5.09	67.20	minecraft trading hall
+116	minecraft pulse extender	Circuit	2.3	5.24	69.46	minecraft trading hall
+117	minecraft pig farm	Animal farm	2.0	4.57	68.35	minecraft trading hall
+118	minecraft redstone trap + minecraft redstone traps	Trap	1.9	4.50	70.44	minecraft trading hall
+119	minecraft logic gates	Circuit	1.7	3.87	70.56	minecraft trading hall
+120	minecraft world eater	TNT and flying machines	1.5	3.56	70.56	minecraft trading hall
+121	minecraft chicken cooker	Animal farm	1.5	3.39	68.35	minecraft trading hall
+122	minecraft cocoa bean farm + minecraft cocoa farm	Crop farm	1.5	3.44	69.63	minecraft trading hall
+123	minecraft basalt generator	Block farm	1.0	2.31	69.30	minecraft trading hall
+124	minecraft vault door	Door	0.8	1.93	70.44	minecraft trading hall
+125	minecraft 2x2 piston door	Door	0.8	1.70	67.20	minecraft trading hall
+126	minecraft wireless redstone	Circuit	0.7	1.61	69.46	minecraft trading hall
+127	minecraft trial chamber farm	Mob farm	0.7	1.54	70.57	minecraft trading hall
+128	minecraft rabbit farm	Animal farm	0.7	1.48	68.35	minecraft trading hall
+129	minecraft drawbridge	Door	0.5	1.22	70.44	minecraft trading hall
+130	minecraft phantom farm	Mob farm	0.5	1.17	70.57	minecraft trading hall
+131	minecraft xor gate	Circuit	0.5	1.11	69.46	minecraft trading hall
+132	minecraft warden farm	Mob farm	0.5	1.09	70.57	minecraft trading hall
+133	minecraft ender pearl farm	Mob farm	0.4	0.85	69.69	minecraft trading hall
+134	minecraft observer clock	Circuit	0.3	0.76	70.44	minecraft trading hall
+135	minecraft hidden staircase + minecraft secret staircase	Door	0.3	0.72	67.20	minecraft trading hall
+136	minecraft sniffer farm	Animal farm	0.3	0.69	68.35	minecraft trading hall
+137	minecraft redstone calculator	Circuit	0.3	0.63	70.52	minecraft trading hall
+138	minecraft combination lock	Circuit	0.3	0.59	70.57	minecraft trading hall
+139	minecraft magma cube farm + minecraft magma cream farm	Mob farm	0.2	0.54	69.67	minecraft trading hall
+140	minecraft vine farm	Crop farm	0.2	0.50	69.30	minecraft trading hall
+141	minecraft chorus fruit farm + minecraft chorus farm	Crop farm	0.1	0.33	69.30	minecraft trading hall
+142	minecraft 7 segment display + minecraft seven segment display	Circuit	0.1	0.30	70.57	minecraft trading hall
+143	minecraft arrow trap	Trap	0.1	0.20	70.44	minecraft trading hall
+144	minecraft keycard door	Door	0.1	0.20	70.44	minecraft trading hall
+145	minecraft breeze farm	Mob farm	0.0	0.11	70.57	minecraft trading hall
+146	minecraft beetroot farm	Crop farm	0.0	0.06	69.63	minecraft trading hall
+147	minecraft glow berry farm	Crop farm	0.0	0.04	69.30	minecraft trading hall
+148	minecraft wind charge farm	Mob farm	0.0	0.04	70.57	minecraft trading hall
+149	minecraft automatic lights	Utility	0.0	0.02	70.44	minecraft trading hall
