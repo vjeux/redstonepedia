@@ -145,6 +145,29 @@ pub fn fields(metrics: &[(String, String)], blocks: u32, dims: &str) -> BTreeMap
             }
         }
     }
+    // the build's own card lines (ca45f3a02): `build time 47 min (185 placed, 0 dug, 16 lava
+    // trips, 3 villagers moved)`, `time to an iron kit 54 min (...)`; the ironspec's names
+    let build = m("build time");
+    if let Some(n) = lead_number(&build) {
+        f.insert("build_minutes".into(), n);
+        let inner = build.split_once('(').map(|(_, r)| r.trim_end_matches(')')).unwrap_or("");
+        for part in inner.split(", ") {
+            let (n, what) = part.split_once(' ').unwrap_or(("", ""));
+            if n.parse::<f64>().is_ok() {
+                let name = match what.trim() {
+                    "placed" => "build_placed",
+                    "dug" => "blocks_dug",
+                    "lava trips" | "lava trip" => "lava_trips",
+                    "villagers moved" | "villager moved" => "villagers_moved",
+                    _ => continue,
+                };
+                f.insert(name.to_string(), n.to_string());
+            }
+        }
+    }
+    if let Some(n) = lead_number(&m("time to an iron kit")) {
+        f.insert("t_kit_minutes".into(), n);
+    }
     let storage = m("storage");
     if let Some(h) = storage.strip_suffix(')').and_then(|s| s.split_once(" h (")).map(|(h, _)| h.trim().to_string()).or_else(|| lead_number(&storage)) {
         f.insert("storage_hours".into(), h);
@@ -388,7 +411,7 @@ mod tests {
     use super::*;
 
     fn day1() -> BTreeMap<String, String> {
-        let metrics = crate::circuits::parse_metrics("iron per hour per block 1.56, iron per hour 295, iron range 95% 292-298 (64 runs), golems per hour 74.1, seconds per golem 48.6, share of ceiling 62%, modules 1, kill 241 gt, restarts after a missed night no (hide the zombie by hand the first night), restarts after days away no, rain clear day 305 iron/h; rain day 293 iron/h; thunder day 299 iron/h, lightning about 0.00032 iron lost per thunderstorm; a witch about every 5332 game days; the farm breaks in about 2871 game days (a fire first); thunderstorms 1.4% of the time (6211 gt each on average), sunburn never (the zombie never sees the sky), fire never, bill 11 iron, 0 quartz, 3 villagers, 3 beds, 1 zombie, lava sources 16, storage 5.2 h (32 slots; 74 poppies/h), hoppers per 1000 iron/h 3.4");
+        let metrics = crate::circuits::parse_metrics("iron per hour per block 1.56, iron per hour 295, iron range 95% 292-298 (64 runs), golems per hour 74.1, seconds per golem 48.6, share of ceiling 62%, modules 1, kill 241 gt, restarts after a missed night no (hide the zombie by hand the first night), restarts after days away no, rain clear day 305 iron/h; rain day 293 iron/h; thunder day 299 iron/h, lightning about 0.00032 iron lost per thunderstorm; a witch about every 5332 game days; the farm breaks in about 2871 game days (a fire first); thunderstorms 1.4% of the time (6211 gt each on average), sunburn never (the zombie never sees the sky), fire never, bill 11 iron, 0 quartz, 3 villagers, 3 beds, 1 zombie, build time 47 min (185 placed, 0 dug, 16 lava trips, 3 villagers moved), time to an iron kit 54 min (the build, then (bill + 24) / rate), lava sources 16, storage 5.2 h (32 slots; 74 poppies/h), hoppers per 1000 iron/h 3.4");
         fields(&metrics, 189, "16x7x10")
     }
 
@@ -421,6 +444,11 @@ mod tests {
             ("fire", "nothing in the lava's reach can burn"),
             ("blocks", "189"),
             ("dims", "16×7×10"),
+            ("build_minutes", "47"),
+            ("blocks_dug", "0"),
+            ("lava_trips", "16"),
+            ("villagers_moved", "3"),
+            ("t_kit_minutes", "54"),
         ] {
             assert_eq!(f.get(k).map(String::as_str), Some(v), "{k}");
         }
@@ -434,7 +462,8 @@ mod tests {
         assert_eq!(render("lightning breaks it about every {lightning_break_days|thousands} game days", &f, &none).unwrap(), "lightning breaks it about every 2,871 game days");
         assert_eq!(render("{lava_sources|plural:lava trip}", &f, &none).unwrap(), "16 lava trips");
         assert!(render("takes {villagers} of the village's 8 villagers", &f, &none).unwrap_err().contains("written out"));
-        assert!(render("{t_kit_minutes} minutes to an iron kit", &f, &none).unwrap_err().contains("no field \"t_kit_minutes\""));
+        assert!(render("{iron_per_hour_sleeping} iron an hour if you sleep", &f, &none).unwrap_err().contains("no field \"iron_per_hour_sleeping\""));
+        assert_eq!(render("{t_kit_minutes} minutes from the first block to a full set of iron armour", &f, &none).unwrap(), "54 minutes from the first block to a full set of iron armour");
         // another design's value, the difference and the ratio
         let mut m2 = f.clone();
         m2.insert("iron_per_hour".into(), "439".into());
