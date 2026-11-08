@@ -360,18 +360,25 @@ says what beats it. D1U in terrain at iteration 3's prices (the day-1 lane): a 2
 
 **Open lever: hostile suppression around the farm** (the parent, from D1U's thunder days; vjeux
 14:04: "Seems legit that iron golems go after mobs?"). A golem targets the nearest hostile
-(`Enemy`, not a creeper) within its follow range, 16 x (1 + triangle(0, 0.11485)) = 14.2-17.8
-blocks, through walls (`IronGolem.registerGoals`: `NearestAttackableTargetGoal<Mob>`, mustSee
-false; `Mob.finalizeSpawn`'s spawn bonus), and walks toward it instead of on into the kill: it
-lingers in the villagers' follow cubes and holds back the next summon. In a thunderstorm the
-surface is dark enough for monsters by day too (`Monster.isDarkEnoughToSpawn` reads the local
-brightness with the sky darkened by 10), so more spawn around a dug-in farm: D1U made about 58
-golems an hour in the game on thunder days against 63 predicted. Monsters need block light 0
-(the overworld's `monster_spawn_block_light_limit`), so torches lighting every spawnable cell
-within the golems' reach (a torch reaches block light 1 at 13 steps) remove the loss for a few
-torches at the stage's prices. Role `hostile_suppression` (`designs/farms/roles.tsv`): it enters
-the optimizer's grammar, torches weighed against the loss, once the judge runs golem targeting
-with natural hostiles on (mob AI, 8a0201dc); until then the card's thunder-day rate measures it.
+(`Enemy`, not a creeper) it can SEE within its follow range, 16 x (1 + triangle(0, 0.11485)) =
+14.2-17.8 blocks (`IronGolem.registerGoals`: `NearestAttackableTargetGoal<Mob>` with
+`TargetingConditions.forCombat()`, which checks line of sight: a COLLIDER ray eye to eye; once
+acquired it keeps chasing behind walls; or one that pushes into it, 1 time in 20,
+`IronGolem.doPush`), and walks toward it instead of on into the kill: it lingers in the villagers'
+follow cubes and holds back the next summon. In a thunderstorm the surface is dark enough for
+monsters by day too (`Monster.isDarkEnoughToSpawn` reads the local brightness with the sky
+darkened by 10). D1U made about 58 golems an hour in the game on thunder days against 63
+predicted; the cause is not yet attributed: a golem in a walled pit sees no surface mob, so the
+other channel is as likely: a hostile within 8 of the blind villager U1 and in its sight at the
+start of REST keeps U1 panicking (`VillagerHostilesSensor`), so it never lies down, the plate
+holds the hide open, the scared villager never sleeps, and the night is missed (the farm
+restarts, but loses the gap). The game gate attributes it first (each golem's `setTarget` with
+its target's type and position; U1's panics at REST). Monsters need block light 0 (the
+overworld's `monster_spawn_block_light_limit`), so torches lighting the cells that matter (a
+torch reaches block light 1 at 13 steps) remove whichever loss it is. Role
+`hostile_suppression` (`designs/farms/roles.tsv`): it enters the optimizer's grammar, torches
+weighed against the loss, once the loss is attributed and the judge runs golem targeting with
+natural hostiles on (mob AI, 8a0201dc); until then the card's thunder-day rate measures it.
 
 ### Middle
 
@@ -723,8 +730,14 @@ its seeds (LS-open, the first measured gain from sharing, first).
   `ItemEntity` at the golem's feet with motion (`random.nextDouble() * 0.2 - 0.1, 0.2, ...`)
   from the item's own random, and a pickup delay of 10. Items burn in lava and fire, so the
   drops must not reach the blade. Iron golems do not despawn.
-- **The golem's targets.** `IronGolem.registerGoals` targets the zombie through walls
-  (`NearestAttackableTargetGoal<Mob>`, mustSee false, `Enemy && !Creeper`).
+- **The golem's targets.** `IronGolem.registerGoals`'s `NearestAttackableTargetGoal<Mob>`
+  (`Enemy && !Creeper`) acquires a hostile only in sight: its conditions are
+  `TargetingConditions.forCombat()`, which keeps `checkLineOfSight`, so `test` needs a COLLIDER
+  ray from the golem's eye (2.295) to the target's eye (`Mob.getSensing().hasLineOfSight`) and
+  the feet-to-feet distance within the follow range times the target's visibility percent.
+  mustSee false only keeps a target already acquired (`TargetGoal.canContinueToUse` skips the
+  unseen-ticks drop: once seen, a hostile is chased behind walls). The one sight-free path is
+  contact: `IronGolem.doPush` targets an Enemy that pushes into it, 1 time in 20.
 
 ### The zombie
 
@@ -1122,4 +1135,4 @@ the spec was, what came back (the front's size before and after merging), what c
 | 4 | Every hard limit is a real fact about the player or the game, one line each in the spec files: day 1 the day-1 materials, the village's 8 villagers, real terrain by the village (vjeux 04:22); middle the Nether-tier materials, more than one module (vjeux 10:48), one AFK spot; late any item, one AFK spot, the world's build height. Out: middle's 120 build minutes, its 4-module maximum and its shared part; late's comparison at exactly 8 modules, its 5% stacking gains and its 8 h of storage; day 1's 1-2 modules (the 8 villagers already allow at most 2 clusters). The copies bar is printed beside the middle and late fronts instead of being a limit; N is searched up to 16 (a search boundary: past the sharing's period each added module repeats the last one's numbers) | vjeux 12:18: "You just invented the two hours build limit. This is not a real restriction"; farmopt's run 1 middle front was cut at exactly 120 minutes (#1: 4 modules, 1716 iron/h at 120 min, under run 1's old effort formula) | A cap the player never chose hides the farms past it; build minutes is already an objective, so the front itself shows what each extra hour buys, and the number of modules is the player's choice. Some of the removed limits were the parent's earlier stage constraints, treated the same. With N free, a farm is its stacked unit (the G1 review): builds that differ only in copies of one unit are one farm, compared at its own N (the smallest N whose iron/h per build minute is within 10% of its best on the curve), by per-module numbers in middle and late (iron/h per module, build minutes per module, and late's volume per module) and at one unit on day 1; the card prints the curve over N. Previews stopped (vjeux 12:18: "Just upload them to the website"): presented farms go to the site through the coordinator |
 | 5 | Every price is the item's full chain at its stage, tools included: stone is smelted cobblestone (no silk touch on day 1: 6.5 s), stone slabs 3.25 s, cobblestone and its slabs filler; leaves a tree trip with shears (2 iron, once; without shears they drop saplings); a lightning rod 3 copper; stone tools in hand on day 1. Material roles (designs/farms/roles.tsv): a design says what each block is for, the cheapest block that does the job at the stage is placed and named, the judge checks its behaviour | vjeux 13:09: "We use leaves to prevent mob spawning but to get leaves you need sheers for which you need iron. It uses stone but you need silk touch or smelt which you're not going to do day 1" | The table priced a placed stone block as filler on the assumption the player builds it of cobblestone; the design must say cobblestone instead, and stone costs its smelting. Roles let a day-1 farm cap stray golem cells with a cobblestone bottom slab (0.5 s: its top face is not full, so IronGolem.checkSpawnObstruction and a hostile's isValidSpawn both fail) or a button on top where the scan must reach the pad, instead of glass (7 s) or leaves (2 s and shears) |
 | 6 | Every price per realistic action, not per block: lava = trips (120 / 60 / 30 s) + a fill per source (5 / 3 / 2 s), a trip carrying the buckets the player has (day 1 one, an extra bucket 90 s where it saves a trip; middle and late a stack of 16); villagers by the cheapest route per stage: 180 s moved from the village on day 1; 120 s by minecart or boat in the middle, or bred at the farm (the pair moved, 30 s of actions per further villager, the code's game time where it outlasts the build: a pair breeds only by day, calm and out of the zombie's sight, at most 2 births per pair per game day, 275-324 gt to a birth, a free reachable bed before each birth, 24000 gt to grow up, the pod sealed after the baby walks in: the G1 review); 30 s delivered by a breeder late; water 1 s a source (a refill). The copies bar and every seed are re-materialized by roles before they are compared again | vjeux 13:56 on the middle copies bar (m2-open-ring at middle prices): "What takes 38min to build?"; its breakdown: 4 villagers 12.0 min, 199 stone 6.3, placing 365 blocks 6.1, 4 lava 4.0, 99 glass 3.3, the zombie 2.0, 2 hoppers 1.7, the rest 2.8 | A source of lava is not a trip once the player carries a stack of buckets, and a middle player breeds villagers or carts them on paths they have; the bar still carried the stone and glass of before the roles (iteration 5), which the roles replace with cobblestone and slab or button caps |
-| 7 | An open lever, recorded until the judge models it: hostile suppression around the farm (role hostile_suppression: every spawnable cell within a golem's targeting reach, up to 17.84 blocks through walls, lit to block light 1 or capped), weighed against the thunder-day loss once the judge runs golem targeting with natural hostiles (mob AI 8a0201dc) | D1U's thunder days in the game: about 58 golems/h against 63 predicted: golems target hostiles near the farm (no sight needed) and linger instead of walking into the kill; thunder darkens the surface so more hostiles spawn; vjeux 14:04: "Seems legit that iron golems go after mobs?" | Legit game behaviour (IronGolem.registerGoals, Monster.isDarkEnoughToSpawn), so it is a tradeoff the search should weigh (a few torches against the loss), not a model gap to hide |
+| 7 | An open lever, recorded until the judge models it: hostile suppression around the farm (role hostile_suppression: the cells from which a spawned hostile can come into a golem's sight or touch it, or within 8 of a calm-critical villager and into its sight, lit to block light 1 or capped), weighed against the thunder-day loss once the game gate attributes it and the judge runs golem targeting with natural hostiles (mob AI 8a0201dc). The golem's targeting restated (G1, correcting an error carried since the first review): acquisition needs line of sight (forCombat conditions, a COLLIDER ray eye to eye), mustSee false only keeps an acquired target, contact targets 1 time in 20 | D1U's thunder days in the game: about 58 golems/h against 63 predicted; thunder darkens the surface so more hostiles spawn; vjeux 14:04: "Seems legit that iron golems go after mobs?" | Legit game behaviour (IronGolem.registerGoals, Monster.isDarkEnoughToSpawn), so it is a tradeoff the search should weigh (a few torches against the loss), not a model gap to hide; but which channel loses the golems (a golem drawn off by a hostile it sees, or the blind villager kept panicking at REST by one it sees) is attributed in the game gate before torches are priced, and only cells in sight count, so a dug-in farm pays for no torch its rock already covers |
