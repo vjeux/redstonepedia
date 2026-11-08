@@ -65,25 +65,6 @@ fn emission(b: &Block) -> i32 {
     }
 }
 
-/// A light source within 15 blocks (taxicab) of `p`: the block light there may not be 0.
-fn source_near(w: &World, p: BlockPos) -> Option<(BlockPos, Block)> {
-    for dy in -15..=15i32 {
-        for dz in -15..=15i32 {
-            for dx in -15..=15i32 {
-                if dx.abs() + dy.abs() + dz.abs() > 15 {
-                    continue;
-                }
-                let q = p.offset(dx, dy, dz);
-                let b = w.get(q);
-                if emission(&b) > dx.abs() + dy.abs() + dz.abs() {
-                    return Some((q, b));
-                }
-            }
-        }
-    }
-    None
-}
-
 /// `Entity.isInWaterOrRain`: touching water (`wasTouchingWater`) or rain at its feet's block or at
 /// the block of its box's top (`isInRain`).
 pub fn in_water_or_rain(w: &mut World, i: usize) -> bool {
@@ -119,7 +100,10 @@ pub fn burn_undead(w: &mut World, i: usize) {
     }
 }
 
-/// `Mob.isSunBurnTick`.
+/// `Mob.isSunBurnTick`, in the game's order (tick-exact lane 2026-11-08): the brightness at the
+/// eye (`getLightLevelDependentMagicValue`), whether it stands in water, rain or powder snow, then
+/// `br > 0.5`, the mob's own random's `nextFloat` (drawn whenever br passes 0.5, whether it then
+/// burns or not), and `canSeeSky` last.
 fn is_sun_burn_tick(w: &mut World, i: usize) -> bool {
     if !monsters_burn(w.day_time()) {
         return false;
@@ -127,47 +111,20 @@ fn is_sun_burn_tick(w: &mut World, i: usize) -> bool {
     let e = &w.entities.list[i];
     let eye_y = e.pos.y + mob(w, i).eye() as f64;
     let eye = BlockPos::new(e.pos.x.floor() as i32, eye_y.floor() as i32, e.pos.z.floor() as i32);
-    // canSeeSky decides first here (no burn without it whatever br is: the draw it skips is the
-    // stand-in random's)
-    let sky = match crate::weather::can_see_sky(w, eye) {
-        Ok(v) => v,
-        Err(e) => {
-            let why = format!("sunburn: the sky light at the zombie's eye {eye}: {e}");
-            if !w.errors.contains(&why) {
-                w.errors.push(why);
-            }
-            return false;
-        }
-    };
-    if !sky {
-        return false;
-    }
-    let sky_part = 15 - w.sky_darken();
-    // ---- terrain lane: a terrain world models block light (the sample's saved light, relit
-    // locally after every change: a fire, a torch), so getMaxLocalRawBrightness is read exactly ----
-    let raw = if w.land.is_some() {
-        match w.raw_brightness(eye, 15 - sky_part) {
-            Ok(v) => v,
-            Err(e) => {
-                let why = format!("sunburn: the light at the zombie's eye {eye}: {e}");
-                if !w.errors.contains(&why) {
-                    w.errors.push(why);
-                }
-                return false;
-            }
-        }
-    } else if sky_part >= 12 {
-        sky_part
-    } else if let Some((q, b)) = source_near(w, eye) {
-        let why = format!("sunburn: the block light at the zombie's eye {eye} (the light of {b} at {q}) under the sky at a darkening of {}: the block light engine is not modeled", 15 - sky_part);
+    let note = |w: &mut World, why: String| {
         if !w.errors.contains(&why) {
             w.errors.push(why);
         }
-        return false;
-    } else {
-        sky_part
+    };
+    let raw = match raw_brightness(w, eye) {
+        Ok(v) => v,
+        Err(e) => {
+            note(w, format!("sunburn: the light at the zombie's eye {eye}: {e}"));
+            return false;
+        }
     };
     let br = magic_value(raw);
+    let sheltered = in_water_or_rain(w, i) || in_powder_snow(w, i);
     if br <= 0.5f32 {
         return false;
     }
@@ -175,10 +132,34 @@ fn is_sun_burn_tick(w: &mut World, i: usize) -> bool {
         Some(r) => r.next_float(),
         None => w.mob.rng_mut().next_float(),
     };
-    if roll * 30.0f32 >= (br - 0.4f32) * 2.0f32 {
+    if roll * 30.0f32 >= (br - 0.4f32) * 2.0f32 || sheltered {
         return false;
     }
-    !(in_water_or_rain(w, i) || in_powder_snow(w, i))
+    match crate::weather::can_see_sky(w, eye) {
+        Ok(v) => v,
+        Err(e) => {
+            note(w, format!("sunburn: the sky light at the zombie's eye {eye}: {e}"));
+            false
+        }
+    }
+}
+
+/// `getMaxLocalRawBrightness` at `p` (max of the sky light less the darkening and the block
+/// light) where only 12 and up matter (raw 12 is the first brightness over 0.5): a terrain
+/// world's light engine (exact); else the void's sky light (`daylight::sky_light_bounds_from`)
+/// and block light (`daylight::block_light_from`) over the cubes such readings come from. Below 12
+/// it is only a lower bound.
+fn raw_brightness(w: &World, p: BlockPos) -> Result<i32, String> {
+    let darken = w.sky_darken();
+    if w.land.is_some() {
+        return w.raw_brightness(p, darken);
+    }
+    let (lo, hi) = crate::daylight::sky_light_bounds_from(w, p, (12 + darken).min(15));
+    if lo != hi && hi - darken >= 12 {
+        return Err(format!("the sky light reads {lo}..{hi} (an unclassified block within its reach)"));
+    }
+    let block = crate::daylight::block_light_from(w, p, 12, &emission)?;
+    Ok((lo - darken).max(block).max(0))
 }
 
 #[cfg(test)]

@@ -363,6 +363,36 @@ fn lightning_fire_counts_the_farms_blocks() {
     assert_eq!(elsewhere.fire, 0.0, "{elsewhere:?}");
 }
 
+/// Java's Float.toString for the bridge's weather text.
+#[test]
+fn java_float_text() {
+    for (x, s) in [(0.0f32, "0.0"), (1.0, "1.0"), (0.5, "0.5"), (0.01, "0.01"), (0.29999998, "0.29999998"), (7.450581e-9, "7.450581E-9"), (1.0e7, "1.0E7"), (0.001, "0.001"), (0.000_999, "9.99E-4")] {
+        assert_eq!(java_float(x), s, "{x}");
+    }
+}
+
+/// Mirroring the bridge (the level random and its chunk order), the cycle draws from the level
+/// random in the game's order (thunder first, then rain: `UniformInt.sample`); the bridge's text
+/// of it.
+#[test]
+fn weather_on_the_level_random() {
+    let mut w = World::new(BlockPos::new(-8, 0, -8), [16, 16, 16]);
+    w.mirror_level_random(7, [-1, -1, 0, 0]);
+    w.weather = Weather::new(Plan::Cycle, 3);
+    w.weather.data = WeatherData { clear_weather_time: 0, rain_time: 0, thunder_time: 0, raining: false, thundering: false };
+    (w.weather.o_rain_level, w.weather.rain_level, w.weather.o_thunder_level, w.weather.thunder_level) = (0.0, 0.0, 0.0, 0.0);
+    let mut r = crate::rng::LegacyRandom::new(7);
+    let thunder = uniform(&mut r, THUNDER_DELAY);
+    let rain = uniform(&mut r, RAIN_DELAY);
+    tick(&mut w);
+    assert_eq!((w.weather.data.thunder_time, w.weather.data.rain_time), (thunder, rain));
+    assert_eq!(w.level_random.as_ref().unwrap().state(), r.state());
+    assert_eq!(w.weather.bridge_text(), format!("clear 0 rain {rain} thunder {thunder} levels 0.0 0.0"));
+    w.weather.command(Command::Rain(6000));
+    tick(&mut w);
+    assert!(w.weather.bridge_text().contains(" raining levels 0.01 0.0"), "{}", w.weather.bridge_text());
+}
+
 /// The cycle's thunderstorms: rain about 15.8% of the time and the thunder flag 9.1%, independent,
 /// so about 1.4% (a little less: the levels ramp); a storm lasts a few thousand gt.
 #[test]

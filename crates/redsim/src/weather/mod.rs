@@ -62,6 +62,25 @@ pub fn lerp(alpha: f32, p0: f32, p1: f32) -> f32 {
     p0 + alpha * (p1 - p0)
 }
 
+/// Java's `Float.toString`: the shortest decimal that tells the float apart (the digits Rust's
+/// `Display` gives), in plain form with at least one decimal between 10^-3 and 10^7 ("1.0",
+/// "0.29999998"), else in Java's scientific form ("7.450581E-9").
+pub fn java_float(x: f32) -> String {
+    if x == 0.0 {
+        return if x.is_sign_negative() { "-0.0".into() } else { "0.0".into() };
+    }
+    let a = x.abs();
+    if (1.0e-3..1.0e7).contains(&a) {
+        let s = format!("{x}");
+        if s.contains('.') { s } else { format!("{s}.0") }
+    } else {
+        let s = format!("{x:e}");
+        let (m, e) = s.split_once('e').unwrap_or((&s, "0"));
+        let m = if m.contains('.') { m.to_string() } else { format!("{m}.0") };
+        format!("{m}E{e}")
+    }
+}
+
 /// `WeatherData`: the timers and flags.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct WeatherData {
@@ -247,7 +266,18 @@ impl Weather {
     }
 
     /// `ServerLevel.advanceWeatherCycle` (`advance_weather` on), then the levels.
+    /// `ServerLevel.advanceWeatherCycle` on the weather's stand-in random (a run without a
+    /// mirrored level random).
     pub fn advance(&mut self) {
+        let mut r = self.rng.clone();
+        self.advance_with(&mut r);
+        self.rng = r;
+    }
+
+    /// `ServerLevel.advanceWeatherCycle` drawing from `r` (the level random when the world mirrors
+    /// the bridge's: `UniformInt.sample` -> `nextIntBetweenInclusive`, in the game's order: thunder
+    /// first, then rain; tick-exact lane 2026-11-08).
+    pub fn advance_with(&mut self, r: &mut LegacyRandom) {
         if !self.on {
             return;
         }
@@ -265,9 +295,9 @@ impl Weather {
                     d.thundering = !d.thundering;
                 }
             } else if d.thundering {
-                d.thunder_time = uniform(&mut self.rng, THUNDER_DURATION);
+                d.thunder_time = uniform(r, THUNDER_DURATION);
             } else {
-                d.thunder_time = uniform(&mut self.rng, THUNDER_DELAY);
+                d.thunder_time = uniform(r, THUNDER_DELAY);
             }
             if d.rain_time > 0 {
                 d.rain_time -= 1;
@@ -275,9 +305,9 @@ impl Weather {
                     d.raining = !d.raining;
                 }
             } else if d.raining {
-                d.rain_time = uniform(&mut self.rng, RAIN_DURATION);
+                d.rain_time = uniform(r, RAIN_DURATION);
             } else {
-                d.rain_time = uniform(&mut self.rng, RAIN_DELAY);
+                d.rain_time = uniform(r, RAIN_DELAY);
             }
         }
         self.o_thunder_level = self.thunder_level;
@@ -296,6 +326,31 @@ impl Weather {
     /// `Level.getThunderLevel(a)`.
     pub fn thunder(&self, a: f32) -> f32 {
         lerp(a, self.o_thunder_level, self.thunder_level) * self.rain(a)
+    }
+
+    /// The `WeatherData` and levels the tick-exact bridge starts from (`(clear, rain, thunder,
+    /// raining, thundering, rain level, thunder level)`): the harness hands redsim's to the bridge
+    /// so both begin equal without a shared draw.
+    pub fn bridge_state(&self) -> (i32, i32, i32, bool, bool, f32, f32) {
+        let d = &self.data;
+        (d.clear_weather_time, d.rain_time, d.thunder_time, d.raining, d.thundering, self.rain_level, self.thunder_level)
+    }
+
+    /// The weather as the bridge's traced frame prints it (`Exact.java`: `"clear C rain R thunder
+    /// T[ raining][ thundering] levels <getRainLevel(1)> <getThunderLevel(1)>"`, Java's
+    /// `Float.toString` for the levels).
+    pub fn bridge_text(&self) -> String {
+        let d = &self.data;
+        format!(
+            "clear {} rain {} thunder {}{}{} levels {} {}",
+            d.clear_weather_time,
+            d.rain_time,
+            d.thunder_time,
+            if d.raining { " raining" } else { "" },
+            if d.thundering { " thundering" } else { "" },
+            java_float(self.rain(1.0)),
+            java_float(self.thunder(1.0))
+        )
     }
 
     /// `Level.isRaining()`.
@@ -371,7 +426,15 @@ pub fn tick(w: &mut World) {
         w.weather.command(c);
         w.weather.pending.remove(0);
     }
-    w.weather.advance();
+    // the level random when the world mirrors a bridge sandbox (`exact_seed`: set with the level
+    // random by `mirror_level_random`): its draws in the game's place, first in the tick; else
+    // the weather's stand-in (a farm run's level random is a stand-in too: its weather keeps its
+    // own stream)
+    let mirrored = w.exact_seed.is_some();
+    match w.level_random.as_mut() {
+        Some(r) if mirrored => w.weather.advance_with(r),
+        _ => w.weather.advance(),
+    }
 }
 
 /// The weather over `ticks` game ticks from `w.time` while the farm's chunks do not tick (an
@@ -390,7 +453,11 @@ pub fn skip(w: &mut World, ticks: i64) {
             w.weather.command(c);
             w.weather.pending.remove(0);
         }
-        w.weather.advance();
+        let mirrored = w.exact_seed.is_some();
+        match w.level_random.as_mut() {
+            Some(r) if mirrored => w.weather.advance_with(r),
+            _ => w.weather.advance(),
+        }
     }
 }
 

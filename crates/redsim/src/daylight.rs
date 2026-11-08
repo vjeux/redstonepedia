@@ -373,6 +373,58 @@ fn sky_light_with(w: &World, p: BlockPos, unknown: Option<Props>, r: i32) -> Res
     Ok(level[idx(r, r, r)] as i32)
 }
 
+/// The block light at `p` where only whether it reaches `need` matters, and its exact value
+/// when it does (mobinfra 2026-11-08: a zombie's sunburn reads the brightness at its eye only
+/// when it can pass 0.5, raw 12): the block-light engine's propagation (`emission` of each
+/// source cell, minus `max(1, dampening)` a step, stopped by occluding faces) over the cube of
+/// radius `15 - need` around `p` (a reading of `need` or more comes from a source no farther:
+/// every step costs at least 1), so below `need` it is only a lower bound.
+pub fn block_light_from(w: &World, p: BlockPos, need: i32, emission: &dyn Fn(&Block) -> i32) -> Result<i32, String> {
+    let r = (15 - need).clamp(0, 15);
+    let n = 2 * r + 1;
+    let lo = p.offset(-r, -r, -r);
+    let idx = |x: i32, y: i32, z: i32| ((y * n + z) * n + x) as usize;
+    let mut cell_props: Vec<Props> = Vec::with_capacity((n * n * n) as usize);
+    let mut level = vec![0i8; (n * n * n) as usize];
+    let mut queue: Vec<Vec<(i32, i32, i32)>> = vec![Vec::new(); 16];
+    for y in 0..n {
+        for z in 0..n {
+            for x in 0..n {
+                let b = w.get(lo.offset(x, y, z));
+                cell_props.push(props(&b)?);
+                let e = emission(&b).clamp(0, 15);
+                if e > 0 {
+                    level[idx(x, y, z)] = e as i8;
+                    queue[e as usize].push((x, y, z));
+                }
+            }
+        }
+    }
+    for l in (2..=15).rev() {
+        while let Some((x, y, z)) = queue[l].pop() {
+            if level[idx(x, y, z)] as usize != l {
+                continue;
+            }
+            for d in [Dir::Down, Dir::Up, Dir::North, Dir::South, Dir::West, Dir::East] {
+                let [dx, dy, dz] = d.step();
+                let (qx, qy, qz) = (x + dx, y + dy, z + dz);
+                if !(0..n).contains(&qx) || !(0..n).contains(&qy) || !(0..n).contains(&qz) {
+                    continue;
+                }
+                let (from, to) = (&cell_props[idx(x, y, z)], &cell_props[idx(qx, qy, qz)]);
+                let new = l as i32 - to.dampening.max(1);
+                if new > level[idx(qx, qy, qz)] as i32 && !shape_occludes(from, to, d) {
+                    level[idx(qx, qy, qz)] = new as i8;
+                    if new > 1 {
+                        queue[new as usize].push((qx, qy, qz));
+                    }
+                }
+            }
+        }
+    }
+    Ok(level[idx(r, r, r)] as i32)
+}
+
 // ----------------------------------------------------------------------------- the detector
 
 /// Whether a block change can change the sky light (different dampening or occluding faces; an
