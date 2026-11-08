@@ -521,7 +521,23 @@ pub fn slime_chunk(x: i32, z: i32, seed: i64) -> bool {
 // ---------------------------------------------------------------------------- the spawner
 
 /// The box of a type at a spawn position (`EntityType.getSpawnAABB`: its default dimensions).
+/// `EntityType.getSpawnAABB(x, y, z)`: the type's base box scaled by its `spawnDimensionsScale`
+/// (slime and magma cube 4, sulfur cube 2, every other type 1: `EntityTypes`), whatever size the
+/// mob gets in `finalizeSpawn`.
 fn spawn_box(ty: MobType, x: f64, y: f64, z: f64) -> Aabb {
+    let d = ty.def();
+    let scale = match d.game_id {
+        "minecraft:slime" | "minecraft:magma_cube" => 4.0f32,
+        "minecraft:sulfur_cube" => 2.0,
+        _ => 1.0,
+    };
+    let hw = (scale * d.width / 2.0) as f64;
+    Aabb::new(x - hw, y, z - hw, x + hw, y + (scale * d.height) as f64, z + hw)
+}
+
+/// The constructed mob's own box (`getBoundingBox` before `finalizeSpawn`: an adult, a cube mob at
+/// size 1), for `checkSpawnObstruction` and the liquid test.
+fn entity_box(ty: MobType, x: f64, y: f64, z: f64) -> Aabb {
     let d = ty.def();
     let hw = d.width as f64 / 2.0;
     Aabb::new(x - hw, y, z - hw, x + hw, y + d.height as f64, z + hw)
@@ -555,12 +571,18 @@ fn players_near_chunk(nat: &Natural, cx: i32, cz: i32) -> Vec<usize> {
 }
 
 fn create_state(w: &World, nat: &Natural) -> State {
+    // `getNaturalSpawnChunkCount`: the chunks within 8 of a player's chunk; a terrain box smaller
+    // than that area loads only some of them, and the count is the loaded ones (so a cropped sample
+    // keeps the game's mobs per chunk; a box covering the whole area is the game's count, 289 for
+    // one player)
     let mut chunks = std::collections::HashSet::new();
     for p in &nat.players {
         let (pcx, pcz) = ((p.x.floor() as i32).div_euclid(16), (p.z.floor() as i32).div_euclid(16));
         for cz in pcz - 8..=pcz + 8 {
             for cx in pcx - 8..=pcx + 8 {
-                chunks.insert((cx, cz));
+                if loaded_chunk(w, cx, cz) {
+                    chunks.insert((cx, cz));
+                }
             }
         }
     }
@@ -906,7 +928,7 @@ fn valid_position_for_mob(w: &mut World, k: &Kind, ty: MobType, pos: Vec3, d2: f
     if !walk_ok {
         return false;
     }
-    let bb = spawn_box(ty, pos.x, pos.y, pos.z);
+    let bb = entity_box(ty, pos.x, pos.y, pos.z);
     if !k.water_obstruction && super::blocks::box_has_liquid(w, bb) {
         return false;
     }

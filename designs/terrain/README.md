@@ -10,9 +10,9 @@ validation results are in the brief: [designs/briefs/terrain-and-spawning.md](..
 
 | file | crop | what is there | the cached world (re-made by) |
 |---|---|---|---|
-| `village-edge.mcterrain` | 120 x 120 columns around (-372, 250), y 30..86 | plains east of a plains village: bells (-411, 70, 241/249), 8 villagers asleep in their beds, the iron golem, 2 cats | `2_-416_240_r192` (`mctas terrain gen --seed 2 --at=-416,240 --radius 192 --margin 2 --days 1 --keep`) |
-| `plains.mcterrain` | 96 x 96 around (-280, 230), y 25..89 | open plains | the same |
-| `forest.mcterrain` | 96 x 96 around (-16, 0), y 37..92 | forest and a river | `2_16_0_r80` (`mctas terrain gen --seed 2 --at=16,0 --radius 80 --margin 2 --days 1 --keep`) |
+| `village-edge.mcterrain` | 120 x 120 columns (x -432..-313, z 190..309), the full height y -64..319 (698 KB) | plains east of a plains village: bells (-411, 70, 241/249), 8 villagers asleep in their beds, the iron golem, 2 cats | `2_-416_240_r192` (`mctas terrain gen --seed 2 --at=-416,240 --radius 192 --margin 2 --days 1 --keep`) |
+| `plains.mcterrain` | 96 x 96 (x -328..-233, z 182..277), full height (431 KB) | open plains | the same |
+| `forest.mcterrain` | 96 x 96 (x -64..31, z -48..47), full height (381 KB) | forest and a river | `2_16_0_r80` (`mctas terrain gen --seed 2 --at=16,0 --radius 80 --margin 2 --days 1 --keep`) |
 
 `redsim::terrain::samples::STANDARD` lists them with each one's spot-search start. A design's spot
 (`mctas terrain spot <sample> --size X,Z --below N`; `terrain::place::best_spot`) is deterministic,

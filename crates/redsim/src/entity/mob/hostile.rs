@@ -1,19 +1,20 @@
-//! The worst-case checks for natural mobs' unmodeled behaviour (the terrain lane; brief
+//! The exposure checks for natural mobs' unmodeled behaviour (the terrain lane; brief
 //! `designs/briefs/terrain-and-spawning.md`, "The checks", channels C1-C16). Natural mobs' walking
-//! and targeting is unmodeled AI, so a farm in terrain is refused whenever any mob could, by any
-//! path, reach, see, attack or enter it:
+//! and targeting is not modeled yet, so these checks report, for each channel, which mob could do
+//! what to the farm and from which cells (vjeux: "it's all about tradeoffs": exposures are card
+//! lines, never refusals, until natural mobs' AI turns them into measured losses):
 //!
 //! * a **flood** per body class (the types' boxes and step heights) over the terrain plus the farm,
 //!   started at every standable position outside the farm whatever its light (natural spawns,
 //!   sieges, the village's own mobs, the box's edges all start somewhere in it); spiders climb,
 //!   endermen teleport (every standable position), flyers take any air;
 //! * the channels read the flood: entry into the farm's interior, a villager-hostile's sight of a
-//!   farm villager, melee and ranged reach, the village golem's and villagers' presence, the golem
-//!   search outside the farm's floors, creepers near the AFK player, endermen, fire, lightning, bed
+//!   farm villager, melee reach, the village golem's and villagers' presence, the golem search
+//!   outside the farm's floors, creepers near the AFK player, endermen, fire, lightning, bed
 //!   claims, natural spawns inside.
 //!
 //! Every channel is a superset of what the game can do (a position counts if the mob's box fits
-//! anywhere in the cell), so a farm that passes cannot be reached by any natural mob.
+//! anywhere in the cell), so a farm with no exposure cannot be reached by any natural mob.
 
 use crate::block::Block;
 use crate::entity::{Aabb, Vec3};
@@ -73,13 +74,51 @@ pub struct Farm {
     pub beds: Vec<BlockPos>,
     /// The AFK player's feet.
     pub afk: Vec3,
+    /// The villagers that can summon golems (a villager panics, and so searches for a golem spot,
+    /// only when it sees a farm zombie: `VillagerPanicTrigger` -> `spawnGolemIfNeeded`), by their
+    /// block position; empty: every villager box counts.
+    pub summoners: Vec<BlockPos>,
 }
 
-/// One refusal: the channel and why.
+/// One exposure: a channel, the mob, what it can do there, and every cell it can do it from (the
+/// mob's cell; for C11 and C16 the farm's own cell), sorted.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Refusal {
+pub struct Exposure {
     pub channel: &'static str,
-    pub why: String,
+    pub mob: &'static str,
+    pub what: &'static str,
+    pub cells: Vec<BlockPos>,
+}
+
+impl Exposure {
+    /// The card line: `C3 sight: a zombie can see a farm villager from 37 cells (e.g. (-333,69,248))`.
+    pub fn line(&self) -> String {
+        let n = self.cells.len();
+        let e = self.cells.first().map(|c| format!(" (e.g. ({},{},{}))", c.x, c.y, c.z)).unwrap_or_default();
+        format!("{}: {} {} from {n} cell{}{e}", self.channel, self.mob, self.what, if n == 1 { "" } else { "s" })
+    }
+}
+
+/// The exposures found so far, by (channel, mob, what).
+#[derive(Default)]
+struct Exposures(std::collections::BTreeMap<(&'static str, &'static str, &'static str), std::collections::BTreeSet<(i32, i32, i32)>>);
+
+impl Exposures {
+    fn add(&mut self, channel: &'static str, mob: &'static str, what: &'static str, c: BlockPos) {
+        self.0.entry((channel, mob, what)).or_default().insert((c.x, c.y, c.z));
+    }
+
+    fn done(self) -> Vec<Exposure> {
+        let mut v: Vec<Exposure> = self
+            .0
+            .into_iter()
+            .map(|((channel, mob, what), cells)| Exposure { channel, mob, what, cells: cells.into_iter().map(|(x, y, z)| BlockPos::new(x, y, z)).collect() })
+            .collect();
+        // by channel number (C1, C2, ... C16), then as found
+        let num = |c: &str| c[1..].split(' ').next().and_then(|n| n.parse::<u32>().ok()).unwrap_or(99);
+        v.sort_by_key(|e| num(e.channel));
+        v
+    }
 }
 
 // ------------------------------------------------------------------------------- the boxes
@@ -201,13 +240,52 @@ pub fn flood(w: &World, b: Body, exclude: &HashSet<BlockPos>, bounds: (BlockPos,
             if fits(w, &b, p, f) { Some(f) } else { None }
         }
     };
-    // the starts: every standable position outside the farm (inside the bounds: their edge is a
-    // start too, so nothing beyond them reaches further than the flood shows)
+    // the starts: where a mob of the body can appear inside the bounds — the bounds' outer ring
+    // (anything from beyond walks in across it), every position a natural type of the body can
+    // spawn at whatever the light (its spawn floor below: `isValidSpawn` for that type), the
+    // sample's own villagers and golems for those bodies, every position for endermen (they
+    // teleport) and flyers' air below the surface
+    let ring = |p: BlockPos| p.x == lo.x || p.x == hi.x || p.z == lo.z || p.z == hi.z || p.y == lo.y || p.y == hi.y;
+    let types: &[&str] = match b.name {
+        "zombie" | "baby zombie" => &["minecraft:zombie", "minecraft:zombie_villager", "minecraft:drowned", "minecraft:husk", "minecraft:witch"],
+        "skeleton" => &["minecraft:skeleton", "minecraft:stray", "minecraft:bogged"],
+        "creeper" => &["minecraft:creeper"],
+        "spider" | "cave spider" => &["minecraft:spider", "minecraft:cave_spider"],
+        "slime" => &["minecraft:slime", "minecraft:sulfur_cube"],
+        "bat" => &["minecraft:bat"],
+        _ => &[],
+    };
+    let residents: Vec<BlockPos> = w
+        .entities
+        .list
+        .iter()
+        .filter(|e| match &e.kind {
+            crate::entity::EntityKind::Mob(m) => match b.name {
+                "villager" => matches!(m.ty, super::MobType::Villager),
+                "iron golem" => matches!(m.ty, super::MobType::IronGolem),
+                _ => false,
+            },
+            _ => false,
+        })
+        .map(|e| e.block_position())
+        .collect();
+    let may_start = |p: BlockPos| -> bool {
+        if ring(p) || b.name == "enderman" {
+            return true;
+        }
+        if !residents.is_empty() || matches!(b.name, "villager" | "iron golem") {
+            return residents.contains(&p);
+        }
+        if b.flies && p.y >= w.height(crate::terrain::Heightmap::WorldSurface, p.x, p.z) {
+            return false;
+        }
+        types.iter().any(|t| valid_spawn_floor(w, p.below(), t))
+    };
     for y in lo.y..=hi.y {
         for z in lo.z..=hi.z {
             for x in lo.x..=hi.x {
                 let p = BlockPos::new(x, y, z);
-                if exclude.contains(&p) {
+                if exclude.contains(&p) || !may_start(p) {
                     continue;
                 }
                 if let Some(f) = pos_of(p) {
@@ -278,15 +356,12 @@ fn dist2(a: Vec3, b: Vec3) -> f64 {
     (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) + (a.z - b.z) * (a.z - b.z)
 }
 
-/// Run every channel; returns the refusals (empty: the farm passes).
-pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Refusal> {
-    let mut out = Vec::new();
+/// Run every channel; returns the exposures (empty: no natural mob can do anything to the farm).
+/// Nothing here refuses a design: each exposure is a card line (which mob can do what, from which
+/// cells) until natural mobs' AI is modeled and the losses can be measured.
+pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Exposure> {
+    let mut ex = Exposures::default();
     let interior: HashSet<BlockPos> = farm.interior.iter().copied().collect();
-    let refuse = |out: &mut Vec<Refusal>, channel: &'static str, why: String| {
-        if !out.iter().any(|r: &Refusal| r.channel == channel) {
-            out.push(Refusal { channel, why });
-        }
-    };
     // C1: a natural spawn inside: any type listed at the cell (structure overrides included) whose
     // placement passes and whose rule can pass at the worst light: monsters need block light 0
     // (the night's darkening and the gates' best draws do the rest), sulfur cubes and slimes no
@@ -318,7 +393,7 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Refusal> {
                     let hw = d.width as f64 / 2.0;
                     let bb = Aabb::new(p.x as f64 + 0.5 - hw, p.y as f64, p.z as f64 + 0.5 - hw, p.x as f64 + 0.5 + hw, p.y as f64 + d.height as f64, p.z as f64 + 0.5 + hw);
                     if !collides(w, bb, false) {
-                        refuse(&mut out, "C1 natural spawn inside", format!("a {} can spawn at {p} inside the farm", s.ty));
+                        ex.add("C1 natural spawn inside", k.id.trim_start_matches("minecraft:"), "can spawn inside the farm", p);
                     }
                 }
             }
@@ -326,11 +401,11 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Refusal> {
     }
     // the floods, over the farm's surroundings (24 columns around its blocks and villagers, the
     // whole height)
-    let mut lo = BlockPos::new(i32::MAX, w.min.y, i32::MAX);
-    let mut hi = BlockPos::new(i32::MIN, w.min.y + w.size[1] - 1, i32::MIN);
+    let mut lo = BlockPos::new(i32::MAX, i32::MAX, i32::MAX);
+    let mut hi = BlockPos::new(i32::MIN, i32::MIN, i32::MIN);
     for p in farm.blocks.iter().copied().chain(farm.villagers.iter().map(|v| BlockPos::new(v.min_x.floor() as i32, v.min_y.floor() as i32, v.min_z.floor() as i32))) {
-        lo = BlockPos::new(lo.x.min(p.x - 24), lo.y, lo.z.min(p.z - 24));
-        hi = BlockPos::new(hi.x.max(p.x + 24), hi.y, hi.z.max(p.z + 24));
+        lo = BlockPos::new(lo.x.min(p.x - 24), lo.y.min(p.y - 24), lo.z.min(p.z - 24));
+        hi = BlockPos::new(hi.x.max(p.x + 24), hi.y.max(p.y + 24), hi.z.max(p.z + 24));
     }
     let bounds = (lo, hi);
     let walkers = [ZOMBIE, BABY_ZOMBIE, SKELETON, CREEPER, SPIDER, CAVE_SPIDER, SLIME];
@@ -338,8 +413,8 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Refusal> {
     reaches.push(flood(w, BAT, &interior, bounds));
     // C2: entry into the interior (and contact with the farm's villagers)
     for r in &reaches {
-        if let Some((p, _)) = r.cells.iter().find(|(p, _)| interior.contains(p)) {
-            refuse(&mut out, "C2 entry", format!("a {} gets into the farm at {p}", r.body.name));
+        for (p, _) in r.cells.iter().filter(|(p, _)| interior.contains(p)) {
+            ex.add("C2 entry", r.body.name, "can get into the farm", *p);
         }
     }
     // C3: a villager hostile's sight (`VillagerHostilesSensor`: the zombie family within 8 blocks
@@ -356,20 +431,31 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Refusal> {
         for (p, f) in &r.cells {
             let feet = Vec3::new(p.x as f64 + 0.5, *f, p.z as f64 + 0.5);
             let eye = Vec3::new(feet.x, feet.y + r.body.height * 0.85, feet.z);
-            for (vf, ve) in villager_feet.iter().zip(farm.villager_eyes.iter()) {
-                if dist2(feet, *vf).sqrt() <= range + 0.71 && super::los::has_line_of_sight(w, eye, *ve) {
-                    refuse(&mut out, "C3 sight", format!("a {who} at {p} sees the farm villager at {:.1},{:.1},{:.1}", ve.x, ve.y, ve.z));
-                }
+            if villager_feet.iter().zip(farm.villager_eyes.iter()).any(|(vf, ve)| dist2(feet, *vf).sqrt() <= range + 0.71 && super::los::has_line_of_sight(w, eye, *ve)) {
+                ex.add("C3 sight", who, "can see a farm villager (it panics, its sleep breaks)", *p);
             }
         }
     }
-    // C5: melee reach (the attack box: the mob's box inflated by sqrt(2.04) - 0.6 horizontally)
+    // C5: melee reach (the attack box: the mob's box inflated by sqrt(2.04) - 0.6 horizontally).
+    // Villagers: the zombie family only (`Zombie` targets `AbstractVillager`; `Spider` targets
+    // players and iron golems only). The farm's golems (a box at each golem cell): any hostile but a
+    // creeper (`IronGolem` targets every `Enemy` but creepers; zombies and spiders target golems)
     let reach = 2.04f64.sqrt() - 0.6;
-    for r in reaches.iter().filter(|r| matches!(r.body.name, "zombie" | "baby zombie" | "spider" | "cave spider")) {
+    let golem_boxes: Vec<Aabb> = farm.golem_cells.iter().map(|c| reach_box(&GOLEM, *c, c.y as f64)).collect();
+    for r in &reaches {
+        let villagers = matches!(r.body.name, "zombie" | "baby zombie");
+        let golems = !matches!(r.body.name, "creeper" | "bat");
+        if !villagers && !golems {
+            continue;
+        }
         for (p, f) in &r.cells {
-            let ab = reach_box(&r.body, *p, *f).inflate(reach, 0.0, reach);
-            if let Some(v) = farm.villagers.iter().find(|v| v.intersects(ab)) {
-                refuse(&mut out, "C5 reach", format!("a {} at {p} reaches the farm villager at {:.1},{:.1},{:.1}", r.body.name, v.min_x, v.min_y, v.min_z));
+            let mb = reach_box(&r.body, *p, *f);
+            let ab = mb.inflate(reach, 0.0, reach);
+            if villagers && farm.villagers.iter().any(|v| v.intersects(ab)) {
+                ex.add("C5 reach", r.body.name, "can hit a farm villager", *p);
+            }
+            if golems && golem_boxes.iter().any(|g| g.intersects(ab) || g.inflate(reach, 0.0, reach).intersects(mb)) {
+                ex.add("C5 reach", r.body.name, "and a farm golem can hit each other", *p);
             }
         }
     }
@@ -382,22 +468,24 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Refusal> {
             // follow range (16 plus `finalizeSpawn`'s bonus: up to 17.84) on all three axes, no sight
             let r = 17.84;
             if farm.villagers.iter().any(|v| gb.intersects(v.inflate(r, r, r))) {
-                refuse(&mut out, "C4 presence", format!("the village golem can stand at {p}, within the farm villagers' golem sensor"));
-                break;
+                ex.add("C4 presence", "the village golem", "can stand within the farm villagers' golem sensor (they stop spawning golems)", *p);
             }
             let ab = gb.inflate(reach, 0.0, reach);
             if farm.zombie.iter().any(|z| z.intersects(ab)) {
-                refuse(&mut out, "C5 reach", format!("the village golem at {p} reaches the farm's zombie"));
-                break;
+                ex.add("C5 reach", "the village golem", "can hit the farm's zombie", *p);
             }
         }
     }
-    // C7: the golem search from each farm villager finds a spot outside the farm's floors
+    // C7: the golem search from each summoning farm villager finds a spot outside the farm's floors
     let floors: HashSet<BlockPos> = farm.golem_cells.iter().copied().collect();
-    let mut starts: Vec<BlockPos> = farm.villagers.iter().map(|v| BlockPos::new(v.center().x.floor() as i32, v.min_y.floor() as i32, v.center().z.floor() as i32)).collect();
+    let mut starts: Vec<BlockPos> = if farm.summoners.is_empty() {
+        farm.villagers.iter().map(|v| BlockPos::new(v.center().x.floor() as i32, v.min_y.floor() as i32, v.center().z.floor() as i32)).collect()
+    } else {
+        farm.summoners.clone()
+    };
     starts.sort_by_key(|p| (p.x, p.y, p.z));
     starts.dedup();
-    'c7: for s in &starts {
+    for s in &starts {
         for dz in -8..=8 {
             for dx in -8..=8 {
                 if let Some(c) = super::spawn::possible_spawn_position(w, s.offset(dx, 6, dz), 6)
@@ -405,8 +493,7 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Refusal> {
                 {
                     let pos = Vec3::new(c.x as f64 + 0.5, c.y as f64, c.z as f64 + 0.5);
                     if super::spawn::check_spawn_obstruction(w, c, pos) {
-                        refuse(&mut out, "C7 golem search", format!("a farm villager at {s} can spawn a golem at {c}, outside the farm's spawn floors"));
-                        break 'c7;
+                        ex.add("C7 golem search", "a farm golem", "can spawn outside the farm's spawn floors", c);
                     }
                 }
             }
@@ -419,9 +506,8 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Refusal> {
             if dist2(c, farm.afk) > 49.0 {
                 continue;
             }
-            if let Some(b) = farm.blocks.iter().find(|b| dist2(Vec3::new(b.x as f64 + 0.5, b.y as f64 + 0.5, b.z as f64 + 0.5), c) <= 10.4 * 10.4) {
-                refuse(&mut out, "C8 creepers", format!("a creeper at {p} near the AFK player can blow up the farm block at {b}"));
-                break;
+            if farm.blocks.iter().any(|b| dist2(Vec3::new(b.x as f64 + 0.5, b.y as f64 + 0.5, b.z as f64 + 0.5), c) <= 10.4 * 10.4) {
+                ex.add("C8 creepers", "a creeper", "near the AFK player can blow up farm blocks", *p);
             }
         }
     }
@@ -429,17 +515,61 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Refusal> {
     let holdable: Vec<BlockPos> = farm.blocks.iter().copied().filter(|b| holdable(w, *b)).collect();
     if !holdable.is_empty() {
         let e = flood(w, ENDERMAN, &interior, bounds);
-        'c9: for (p, _) in &e.cells {
-            for b in &holdable {
-                if (b.x - p.x).abs() <= 2 && (b.z - p.z).abs() <= 2 && b.y - p.y >= 0 && b.y - p.y <= 3 {
-                    refuse(&mut out, "C9 endermen", format!("an enderman at {p} can take the farm block {} at {b}", w.get(*b)));
-                    break 'c9;
+        for (p, _) in &e.cells {
+            if holdable.iter().any(|b| (b.x - p.x).abs() <= 2 && (b.z - p.z).abs() <= 2 && b.y - p.y >= 0 && b.y - p.y <= 3) {
+                ex.add("C9 endermen", "an enderman", "can take a farm block", *p);
+            }
+        }
+    }
+    // C10: flyers inside (bats: the bat flood above, reported by C2); phantoms: they spawn over a
+    // player who has not slept for 3 days (`PhantomSpawner`) when the player's cell sees the sky,
+    // and the AFK player never sleeps
+    let afk_cell = BlockPos::new(farm.afk.x.floor() as i32, farm.afk.y.floor() as i32, farm.afk.z.floor() as i32);
+    if afk_cell.y >= 63 && w.can_see_sky(afk_cell).unwrap_or(false) {
+        ex.add("C10 flyers", "a phantom", "spawns over the AFK player (no sleep for 3 days; the AFK cell sees the sky)", afk_cell);
+    }
+    // C5 ranged: a skeleton shoots an iron golem (`AbstractSkeleton` targets players, iron golems
+    // and turtles; range 15), a pillager shoots a villager (its crossbow, 8), a drowned throws a
+    // trident at a villager (10; drowned take the zombie's body): a clear COLLIDER ray from its eye
+    let golem_eyes: Vec<Vec3> = farm.golem_cells.iter().map(|c| Vec3::new(c.x as f64 + 0.5, c.y as f64 + 2.295, c.z as f64 + 0.5)).collect();
+    for r in &reaches {
+        let (mob, targets, range, what): (&'static str, &Vec<Vec3>, f64, &'static str) = match r.body.name {
+            "skeleton" => ("skeleton", &golem_eyes, 15.0, "can shoot a farm golem"),
+            "zombie" => ("drowned", &farm.villager_eyes, 10.0, "can throw a trident at a farm villager (from water)"),
+            _ => continue,
+        };
+        for (p, f) in &r.cells {
+            let eye = Vec3::new(p.x as f64 + 0.5, *f + r.body.height * 0.85, p.z as f64 + 0.5);
+            if targets.iter().any(|t| dist2(eye, *t) <= range * range && super::los::has_line_of_sight(w, eye, *t)) {
+                ex.add("C5 ranged", mob, what, *p);
+            }
+            if r.body.name == "skeleton" && farm.villager_eyes.iter().any(|t| dist2(eye, *t) <= 64.0 && super::los::has_line_of_sight(w, eye, *t)) {
+                ex.add("C5 ranged", "pillager", "can shoot a farm villager", *p);
+            }
+        }
+    }
+    // C12 sculk: a sculk sensor of the design within 8 of a mob position (steps are vibrations)
+    let sensors: Vec<BlockPos> = farm.blocks.iter().copied().filter(|b| w.get(*b).to_string().contains("sculk_sensor")).collect();
+    if !sensors.is_empty() {
+        for r in &reaches {
+            for (p, _) in &r.cells {
+                if sensors.iter().any(|s| (s.x - p.x).pow(2) + (s.y - p.y).pow(2) + (s.z - p.z).pow(2) <= 64) {
+                    ex.add("C12 sculk", r.body.name, "can make a farm sculk sensor fire (its steps)", *p);
                 }
             }
         }
     }
-    // C10: flyers inside (bats)
-    // (the flood above includes the bat: C2 reports it)
+    // C4 presence (villagers): a village villager within 10 of a farm villager's box joins their
+    // golem count (`Villager.spawnGolemIfNeeded` counts the villagers near the one that spawns)
+    let villager_flood = if !farm.beds.is_empty() || !farm.villagers.is_empty() { Some(flood(w, VILLAGER, &interior, bounds)) } else { None };
+    if let Some(v) = &villager_flood {
+        for (p, f) in v.cells.iter().filter(|(p, _)| !interior.contains(p)) {
+            let vb = reach_box(&VILLAGER, *p, *f);
+            if farm.villagers.iter().any(|fv| vb.intersects(fv.inflate(10.0, 10.0, 10.0))) {
+                ex.add("C4 presence", "a village villager", "can come within 10 of a farm villager (it joins their golem count)", *p);
+            }
+        }
+    }
     // C11: fire: a flammable farm block that lightning can reach (its top sees the sky)
     for b in &farm.blocks {
         let st = w.get(*b);
@@ -448,17 +578,109 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Refusal> {
             _ => blocks::id_of(&st.to_string()).is_some_and(|id| blocks::props(id).burn_odds > 0),
         };
         if flammable && w.can_see_sky(b.above()).unwrap_or(false) {
-            refuse(&mut out, "C11 fire", format!("the flammable farm block {st} at {b} is open to the sky (lightning fire)"));
-            break;
+            ex.add("C11 fire", "lightning", "can set fire to a flammable farm block open to the sky", *b);
+        }
+    }
+    // C11: lava's fire (`LavaFluid.randomTick`, `doFireTick` on): up to 3 steps up (each +1 y and
+    // -1..1 in x and z) through cells that do not block motion, the first air cell with an
+    // `ignitedByLava` neighbour catching fire; or, with no step, a cell of the 3 x 3 at the lava's
+    // level that is `ignitedByLava` with air above it, the fire above. Every lava cell within 4 of
+    // the farm counts (the farm's own blades and the terrain's pools)
+    let lava_flammable = |p: BlockPos| -> bool {
+        let b = w.get(p);
+        match b {
+            Block::Terrain(id) => blocks::props(id).ignited_by_lava,
+            Block::Air => false,
+            _ => blocks::id_of(&b.to_string()).is_some_and(|id| blocks::props(id).ignited_by_lava),
+        }
+    };
+    let near_farm = |p: BlockPos| farm.blocks.iter().any(|b| (b.x - p.x).abs() <= 4 && (b.y - p.y).abs() <= 4 && (b.z - p.z).abs() <= 4);
+    let is_lava = |p: BlockPos| match w.get(p) {
+        Block::Lava { .. } => true,
+        Block::Terrain(id) => blocks::props(id).fluid == blocks::FluidKind::Lava,
+        _ => false,
+    };
+    let farm_set: HashSet<BlockPos> = farm.blocks.iter().copied().collect();
+    let mut lava_cells: Vec<BlockPos> = Vec::new();
+    for b in &farm.blocks {
+        for dy in -4..=4 {
+            for dz in -4..=4 {
+                for dx in -4..=4 {
+                    let p = b.offset(dx, dy, dz);
+                    if w.contains(p) && is_lava(p) {
+                        lava_cells.push(p);
+                    }
+                }
+            }
+        }
+    }
+    lava_cells.sort_by_key(|p| (p.x, p.y, p.z));
+    lava_cells.dedup();
+    for l in lava_cells.iter().copied().filter(|l| near_farm(*l)) {
+        // the walk up: every path of up to 3 steps
+        let mut layer = vec![l];
+        for _ in 0..3 {
+            let mut next = Vec::new();
+            for p in &layer {
+                for dz in -1..=1 {
+                    for dx in -1..=1 {
+                        let t = p.offset(dx, 1, dz);
+                        if !w.contains(t) {
+                            continue;
+                        }
+                        let tb = w.get(t);
+                        if tb.is_air() {
+                            if let Some(n) = crate::pos::Dir::ALL.iter().map(|d| t.rel(*d)).find(|n| lava_flammable(*n) && (farm_set.contains(n) || interior.contains(&t))) {
+                                let _ = n;
+                                ex.add("C11 fire", "lava", "can light a fire beside a flammable block of the farm", t);
+                            }
+                        } else if !crate::behavior::collides(&tb) {
+                            next.push(t);
+                        }
+                    }
+                }
+            }
+            layer = next;
+        }
+        // no step: the 3 x 3 at the lava's level
+        for dz in -1..=1 {
+            for dx in -1..=1 {
+                let t = l.offset(dx, 0, dz);
+                if w.contains(t.above()) && w.get(t.above()).is_air() && lava_flammable(t) && (farm_set.contains(&t) || interior.contains(&t.above())) {
+                    ex.add("C11 fire", "lava", "can light a fire on a flammable block of the farm", t.above());
+                }
+            }
+        }
+    }
+    // C14 patrols (`PatrolSpawner`, after day 5, during the day): none when the AFK player's section
+    // is within 2 sections of a village center (`isCloseToVillage(pos, 2)`); else a patrol leader
+    // can stand 24-47 blocks out in x and z on the MOTION_BLOCKING_NO_LEAVES surface where a
+    // pillager passes `isValidEmptySpawnBlock`, block light <= 8 and its floor's `isValidSpawn`
+    let afk_block = BlockPos::new(farm.afk.x.floor() as i32, farm.afk.y.floor() as i32, farm.afk.z.floor() as i32);
+    if sections_to_village(w, afk_block, &farm.beds) > 2 {
+        for sx in [-1, 1] {
+            for sz in [-1, 1] {
+                for ax in 24..48 {
+                    for az in 24..48 {
+                        let (x, z) = (afk_block.x + sx * ax, afk_block.z + sz * az);
+                        if x - 10 < w.min.x || z - 10 < w.min.z || x + 10 >= w.min.x + w.size[0] || z + 10 >= w.min.z + w.size[2] {
+                            continue;
+                        }
+                        let y = w.height(crate::terrain::Heightmap::MotionBlockingNoLeaves, x, z);
+                        let p = BlockPos::new(x, y, z);
+                        if empty_ok(w, p) && w.block_light(p).unwrap_or(0) <= 8 && valid_spawn_floor(w, p.below(), "minecraft:pillager") {
+                            ex.add("C14 patrols", "a pillager patrol", "can spawn 24-47 blocks from the AFK player (it is more than 2 sections from a village; from day 5)", p);
+                        }
+                    }
+                }
+            }
         }
     }
     // C13: village villagers reach a farm bed
-    if !farm.beds.is_empty() {
-        let v = flood(w, VILLAGER, &interior, bounds);
-        for bed in &farm.beds {
-            if let Some((p, _)) = v.cells.iter().find(|(p, _)| (p.x - bed.x).abs() <= 1 && (p.z - bed.z).abs() <= 1 && (p.y - bed.y).abs() <= 1 && !interior.contains(p)) {
-                refuse(&mut out, "C13 bed claims", format!("a village villager can walk to {p}, next to the farm bed at {bed}"));
-                break;
+    if let Some(v) = villager_flood.as_ref().filter(|_| !farm.beds.is_empty()) {
+        for (p, _) in v.cells.iter().filter(|(p, _)| !interior.contains(p)) {
+            if farm.beds.iter().any(|bed| (p.x - bed.x).abs() <= 1 && (p.z - bed.z).abs() <= 1 && (p.y - bed.y).abs() <= 1) {
+                ex.add("C13 bed claims", "a village villager", "can walk next to a farm bed (and claim it)", *p);
             }
         }
     }
@@ -466,11 +688,10 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Refusal> {
     for e in &farm.villager_eyes {
         let c = BlockPos::new(e.x.floor() as i32, e.y.floor() as i32, e.z.floor() as i32);
         if w.can_see_sky(c).unwrap_or(false) {
-            refuse(&mut out, "C16 lightning", format!("the farm villager's eye at {c} sees the sky"));
-            break;
+            ex.add("C16 lightning", "lightning", "can strike a farm villager whose eye sees the sky (a witch)", c);
         }
     }
-    out
+    ex.done()
 }
 
 fn valid_spawn_floor(w: &World, below: BlockPos, type_id: &str) -> bool {
@@ -499,4 +720,39 @@ fn holdable(w: &World, p: BlockPos) -> bool {
         _ => blocks::id_of(&b.to_string()),
     };
     id.is_some_and(|id| blocks::props(id).has_tag("minecraft:enderman_holdable"))
+}
+
+/// `PoiManager.sectionsToVillage`: the distance in sections (26 neighbours, 1 per step: the 3D
+/// Chebyshev distance) from `p`'s section to the nearest village center (a section holding an
+/// OCCUPIED `#village` POI: a bed head, a bell, an acquirable job site), as far as 2 (what
+/// `isCloseToVillage(pos, 2)` asks; anything farther reads 7). Counted as occupied: the bed heads
+/// and bells of the world (the samples' villagers sleep in their beds and meet at their bells) and
+/// the farm's own beds (`extra`, its villagers sleep there); job sites are not counted (their
+/// claims are not in the sample), the side that never hides a patrol.
+pub fn sections_to_village(w: &World, p: BlockPos, extra: &[BlockPos]) -> i32 {
+    let sec = |q: BlockPos| (q.x.div_euclid(16), q.y.div_euclid(16), q.z.div_euclid(16));
+    let (px, py, pz) = sec(p);
+    let mut best = 7;
+    let mut consider = |q: BlockPos| {
+        let (x, y, z) = sec(q);
+        best = best.min((x - px).abs().max((y - py).abs()).max((z - pz).abs()));
+    };
+    for b in extra {
+        consider(*b);
+    }
+    // the sections within 2 (what `isCloseToVillage(pos, 2)` asks); farther POIs read as 7
+    let (x0, y0, z0) = ((px - 2) * 16, (py - 2) * 16, (pz - 2) * 16);
+    for y in y0.max(w.min.y)..(y0 + 80).min(w.min.y + w.size[1]) {
+        for z in z0.max(w.min.z)..(z0 + 80).min(w.min.z + w.size[2]) {
+            for x in x0.max(w.min.x)..(x0 + 80).min(w.min.x + w.size[0]) {
+                let q = BlockPos::new(x, y, z);
+                let Block::Terrain(id) = w.get(q) else { continue };
+                let name = blocks::props(id).name.as_str();
+                if name.starts_with("minecraft:bell[") || (name.contains("_bed[") && name.contains("part=head")) {
+                    consider(q);
+                }
+            }
+        }
+    }
+    best
 }

@@ -45,6 +45,9 @@ pub struct Land {
     pub light_changes: Vec<(i64, BlockPos)>,
     /// The structure starts (their boxes and pieces: the spawn overrides).
     pub structures: Vec<crate::terrain::format::Structure>,
+    /// What the light engine approximated (changes within 15 of the box's sides or bottom, whose
+    /// light from outside the box is not known), once each.
+    pub notes: Vec<String>,
 }
 
 /// The redsim block of a natural state: air, the fluids redsim models (water, lava, bubble
@@ -122,6 +125,7 @@ pub fn build_world(t: &Terrain) -> Result<World, String> {
         dirty: Vec::new(),
         light_changes: Vec::new(),
         structures: t.structures.clone(),
+        notes: Vec::new(),
     }));
     Ok(w)
 }
@@ -222,7 +226,11 @@ impl World {
                 }
             }
         }
-        let relevant = light::props_of(&old) != light::props_of(&new);
+        let relevant = match (light::props_of(&old), light::props_of(&new)) {
+            (Ok(a), Ok(b)) => a != b,
+            // a state the table does not know: settle_light reports it
+            _ => true,
+        };
         let now = self.time;
         if let Some(l) = self.land.as_mut() {
             for (m, h) in heights.into_iter().enumerate() {
@@ -266,7 +274,16 @@ impl World {
             hi[a] = hi[a].min(boxhi[a]);
         }
         if touches_side {
-            self.errors.push(format!("a light change within 15 of the terrain box's side or bottom ({lo:?}..{hi:?}): the light outside the box is not known"));
+            // the crop's limit: light from outside the box is not known, so cells within 15 of the
+            // box's sides or bottom keep their stored values as the border (an approximation there;
+            // a farm far from the edges is unaffected); reported, not an error
+            let what: Vec<String> = self.land.as_ref().map(|l| l.dirty.iter().take(3).map(|p| format!("{p} now {}", self.get(*p))).collect()).unwrap_or_default();
+            let note = format!("a light change within 15 of the terrain box's side or bottom ({lo:?}..{hi:?}; {}): the light outside the box is not known, the edge cells stay as stored", what.join(", "));
+            if let Some(l) = self.land.as_mut()
+                && !l.notes.contains(&note)
+            {
+                l.notes.push(note);
+            }
         }
         self.relight(lo, hi);
         if let Some(l) = self.land.as_mut() {

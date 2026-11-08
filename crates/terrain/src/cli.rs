@@ -194,7 +194,11 @@ pub enum TerrainCmd {
         /// More states to describe (game strings).
         #[arg(long)]
         state: Vec<String>,
-        /// Design files whose states are pasted into terrain (their palettes join the table).
+        /// Block ids whose every state joins the table (the designs' block ids join too).
+        #[arg(long)]
+        block: Vec<String>,
+        /// Design files whose states are pasted into terrain (their palettes, and every state of
+        /// their block ids, join the table).
         #[arg(long)]
         design: Vec<PathBuf>,
         #[arg(long, default_value = "crates/redsim/src/terrain/blocks.tsv")]
@@ -332,7 +336,7 @@ pub fn run(version: &str, cmd: TerrainCmd) -> Result<()> {
             let t = read(&file)?;
             let des = mctas::design::Design::load(&design)?;
             let t0 = std::time::Instant::now();
-            let (paste, farm, refusals) = crate::hostilecheck::run(&t, &des, [at[0], at[1]], ground, [afk[0], afk[1], afk[2]])?;
+            let (paste, farm, exposures) = crate::hostilecheck::run(&t, &des, [at[0], at[1]], ground, [afk[0], afk[1], afk[2]])?;
             println!(
                 "footprint {}..{}, {} blocks dug; farm: {} blocks, {} villager boxes, {} interior cells, {} golem cells, {} beds ({:.1} s)",
                 paste.lo,
@@ -345,11 +349,11 @@ pub fn run(version: &str, cmd: TerrainCmd) -> Result<()> {
                 farm.beds.len(),
                 t0.elapsed().as_secs_f64()
             );
-            if refusals.is_empty() {
-                println!("no refusal: no natural mob can reach, see, attack or enter the farm");
+            if exposures.is_empty() {
+                println!("no exposure: no natural mob can reach, see, attack or enter the farm");
             }
-            for r in refusals {
-                println!("REFUSED {}: {}", r.channel, r.why);
+            for e in exposures {
+                println!("exposure {}", e.line());
             }
         }
         TerrainCmd::Spot { sample, size, below, near: near_arg, radius: radius_arg } => {
@@ -425,11 +429,20 @@ pub fn run(version: &str, cmd: TerrainCmd) -> Result<()> {
                 println!("section {y:>3}: palette {:>3}, {}, block light {}", s.palette.len(), sky.unwrap_or_else(|| "no sky layer".into()), s.block_light.is_some());
             }
         }
-        TerrainCmd::Blockinfo { files, mut state, design, out, check } => {
+        TerrainCmd::Blockinfo { files, mut state, mut block, design, out, check } => {
             for d in &design {
                 let des = mctas::design::Design::load(d)?;
-                state.extend(des.blocks.values().cloned());
+                for s in des.blocks.values() {
+                    block.push(s.split('[').next().unwrap_or(s).to_string());
+                    state.push(s.clone());
+                }
             }
+            block.sort();
+            block.dedup();
+            // air, and the blocks whose light is the same in every state (redstone dust's 1296 and
+            // tripwire's 128: light.rs reads any of their rows)
+            block.retain(|b| !matches!(b.as_str(), "minecraft:air" | "minecraft:redstone_wire" | "minecraft:tripwire"));
+            state.extend(crate::blockinfo::expand(version, &block)?);
             crate::blockinfo::run(version, &files, &state, &out, check)?
         }
         TerrainCmd::Find { seed, from, what } => {
