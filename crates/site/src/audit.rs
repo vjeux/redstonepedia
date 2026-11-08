@@ -25,6 +25,9 @@ fn speed_metrics(kind: &str) -> &'static [(&'static str, bool)] {
         // (a crop farm: its harvest per block, per plant and in all; without them a farm of more
         // blocks read as dominated by any smaller one: melon-x by the dry 7-block melon farm)
         "harvester" => &[("items per hour per block", true), ("items per hour per cane", true), ("items per hour", true)],
+        // (an iron farm: its iron per block and in all; without them its tier's scaled build, 4
+        // copies of the pick, read as dominated by the pick itself)
+        "mob-farm" => &[("iron per hour per block", true), ("iron per hour", true)],
         "composter" => &[("items composted/min", true), ("first bone meal", false)],
         // (an automatic door: without them every bigger door read as dominated by the smallest,
         // lock-v9's 6 gt wait by the 44-block door's 0, and by lock-v12's 13)

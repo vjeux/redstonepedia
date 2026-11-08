@@ -27,6 +27,10 @@ pub enum MobfarmCmd {
         /// Modules per side of the grid (l5).
         #[arg(long, default_value_t = 2)]
         grid: i32,
+        /// The tier the design is published in (`day-1`, `middle`, `fastest`: the kind's last
+        /// word, `circuit: mob-farm iron_ingot middle`); none: a farm in no tier (catalog only).
+        #[arg(long)]
+        tier: Option<String>,
         #[arg(long)]
         out: PathBuf,
     },
@@ -83,7 +87,7 @@ fn load(_version: &str, path: &PathBuf) -> Result<(circuit::Circuit, redsim::ent
 
 pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
     match cmd {
-        MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, out } => {
+        MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, tier, out } => {
             let text = match layout.as_str() {
                 "l3" => crate::layouts::l3(pits),
                 "l1" => crate::layouts::l1(),
@@ -91,7 +95,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "l2d" => crate::layouts::l2d(villagers, pad),
                 "l5" => crate::layouts::l5(villagers, pad, grid),
                 "l4" => crate::layouts::l4(),
-                other => bail!("no layout {other:?} (l3)"),
+                other => bail!("no layout {other:?} (l1, l2, l2d, l3, l4, l5)"),
+            };
+            let text = match tier {
+                Some(t) => crate::layouts::set_tier(&text, &t)?,
+                None => text,
             };
             std::fs::write(&out, text)?;
             println!("{}", out.display());

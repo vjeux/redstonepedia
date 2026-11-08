@@ -477,6 +477,14 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
     if !has_viewer {
         return "Download the design below to build it in the game (the 3D view needs a browser with WebGL).".to_string();
     }
+    // a mob farm: the view runs no mob, so nothing happens in it; the chest goes at OUT
+    if crate::explain::mob_farm(c) {
+        return format!(
+            "The view shows the farm as built: it does not run the villagers, the zombie or the golems, so nothing happens in it. {} Build it, place the chest and wait near it.{}",
+            crate::explain::chest_words(c),
+            crate::explain::first_night(c)
+        );
+    }
     let b = base(&c.kind);
     // a view that cannot run the design, or stops early, promises no try-it of its kind (the
     // per-kind lines below assume a live view; the shulker machines and the locks say it their
@@ -853,7 +861,13 @@ pub fn warning(b: &Build) -> Option<String> {
         }
     }
     if b.kinds.iter().any(|k| k.starts_with("daylight_detector")) {
-        out.push("Uses a daylight detector: it needs open sky and runs only in daytime; it stops at night and in rain.".to_string());
+        // (an iron farm's inverted detectors are its dusk clock: they work at night and the farm
+        // runs day and night; rain darkens the sky like dusk, and our test is in clear weather)
+        if b.circuit.as_ref().is_some_and(crate::explain::mob_farm) {
+            out.push("Uses daylight detectors as its dusk clock: they need open sky above them. Rain darkens the sky like dusk and can make them act early; our test runs in clear weather.".to_string());
+        } else {
+            out.push("Uses a daylight detector: it needs open sky and runs only in daytime; it stops at night and in rain.".to_string());
+        }
     }
     // a piston extender that breaks when its lever is flipped back too soon (clk-misc's `flips
     // breaks: off 20 gt after on strands blocks`): said plainly, never hidden
@@ -1821,6 +1835,29 @@ mod tests {
         assert!(try_it(&c, true).starts_with("The view shows the station as built, without carts."));
         assert_eq!(crate::kinds::kind_key(&b), "station 2");
         assert!(crate::explain::kind_title("station 1").starts_with("Minecart station on a one-way line"));
+    }
+
+    #[test]
+    fn an_iron_farm_is_one_kind_per_tier() {
+        // the archive's iron-middle (study mobfarm): its tier is its kind, its metrics split whole
+        let metrics = "iron per hour per block 0.77, iron per hour 443, iron range 95% 439-447 (64 runs), golems per hour 111.6, seconds per golem 32.3, share of ceiling 93%, modules 1, iron per hour per module 443, kill 333 gt, worst policy 400 iron/h (still), restarts after a missed night yes, bill 13 iron, 6 quartz, 4 villagers, 4 beds, 1 zombie, payback 2 min";
+        let c = Circuit { kind: "mob-farm iron_ingot middle".into(), axis: "middle ground".into(), study: "mobfarm".into(), metrics: crate::circuits::parse_metrics(metrics), ..Default::default() };
+        assert_eq!(c.metrics[0], ("iron per hour per block".to_string(), "0.77".to_string()));
+        assert_eq!(c.metrics[1], ("iron per hour".to_string(), "443".to_string()));
+        assert_eq!(c.metrics[7], ("iron per hour per module".to_string(), "443".to_string()));
+        assert_eq!(c.metrics[10], ("restarts after a missed night".to_string(), "yes".to_string()));
+        let b = Build { circuit: Some(c.clone()), blocks: 578, ..Default::default() };
+        assert_eq!(crate::kinds::kind_key(&b), "mob-farm iron_ingot middle");
+        assert!(crate::explain::kind_title("mob-farm iron_ingot middle").starts_with("Middle-ground iron farm"));
+        // judged on our simulation, not in the game: no lamp, no "real game" on its page
+        assert!(try_it(&c, true).starts_with("The view shows the farm as built"), "{}", try_it(&c, true));
+        assert!(!try_it(&c, true).contains("first night"));
+        // a farm in no tier (the brief's obvious design) is no published kind
+        let bar = Build { circuit: Some(Circuit { kind: "mob-farm iron_ingot".into(), ..c.clone() }), ..Default::default() };
+        assert!(crate::kinds::kind_key(&bar).starts_with('-'));
+        // the day-1 farm that needs the zombie hidden the first night says so
+        let day1 = Circuit { kind: "mob-farm iron_ingot day-1".into(), metrics: crate::circuits::parse_metrics("modules 1, restarts after a missed night no (hide the zombie by hand the first night)"), ..c };
+        assert!(try_it(&day1, true).contains("On the first night, hide the zombie"));
     }
 
     #[test]

@@ -219,6 +219,40 @@ pub fn numbers_only_variation(r: &str) -> Option<Vec<(String, String, String)>> 
     (!diffs.is_empty()).then_some(diffs)
 }
 
+/// A mob farm (the iron farms): judged on our simulation of the game's mob rules, not in the game
+/// (its notes give the game check), and the 3D view does not run its mobs.
+pub fn mob_farm(c: &Circuit) -> bool {
+    c.kind.starts_with("mob-farm")
+}
+
+/// A mob farm that needs the player's hand once (its `restarts after a missed night` metric says
+/// no): the sentence that says so, else nothing.
+pub fn first_night(c: &Circuit) -> &'static str {
+    let restarts = c.metrics.iter().find(|(k, _)| k == "restarts after a missed night").map(|(_, v)| v.as_str()).unwrap_or("");
+    if restarts.starts_with("no") { " On the first night, hide the zombie from the villagers by hand (a block in front of it) and take the block away in the morning: the villagers need one night's sleep before they summon the first golem." } else { "" }
+}
+
+/// Where a mob farm's chest goes: OUT, where the view draws its test lamp (the judge's chest); a
+/// farm of several copies has the other copies' chests in its download.
+pub fn chest_words(c: &Circuit) -> &'static str {
+    let copies = c.metrics.iter().find(|(k, _)| k == "modules").and_then(|(_, v)| v.parse::<u32>().ok()).unwrap_or(1);
+    if copies > 1 {
+        "The box tagged OUT is where the first copy's chest goes (the download has the other copies' chests, not that one)."
+    } else {
+        "The box tagged OUT is where the chest goes (the download has none)."
+    }
+}
+
+/// [`direction_words`] for a design: a mob farm's builds are 4 facings at 2 spots, on our
+/// simulation of the mob rules.
+pub fn direction_words_of(c: &Circuit) -> String {
+    let w = direction_words(&c.robustness);
+    if mob_farm(c) {
+        return w.replace("at 4 different spots in the world, in the real game)", "at 2 different spots in the world, on our simulation of the game's mob rules)");
+    }
+    w
+}
+
 /// A design's "works in any direction, anywhere" line (vjeux 13:08Z: "robustness feels wrong"):
 /// the community's terms, directional / locational.
 pub fn direction_words(robustness: &str) -> String {
@@ -904,6 +938,16 @@ pub fn how_to_try(c: &Circuit, has_viewer: bool) -> String {
         return "<p>Download the design (below) to build it in the game; the 3D view needs a browser with WebGL.</p>".into();
     }
     let mut s = String::new();
+    // a mob farm: the view draws its blocks, villagers and boat, but runs no mob (no golem ever
+    // appears in it) and no lava; its chest goes where the view draws its test lamp
+    if mob_farm(c) {
+        s.push_str(&format!(
+            "<p>The 3D view shows the farm <b>as built</b>: it does not run mobs or lava, so no golem appears in it. {} The view draws a lamp at <span class=\"tag-out\">OUT</span>, under the last hopper, where that chest stands. Our test ran the farm on our simulation of the game's mob rules; its numbers are in the measurements below, and its notes give its check in the real game.{} Drag to look around, pinch or scroll to zoom.</p>",
+            esc(chest_words(c)),
+            first_night(c)
+        ));
+        return s;
+    }
     // a design the browser's simulator cannot run yet (the shulker study has its own words); the
     // reason in words, not the simulator's raw data (critique 41f1ec62a)
     if !c.unmodeled.is_empty() && !base(&c.kind).starts_with("shulker") {

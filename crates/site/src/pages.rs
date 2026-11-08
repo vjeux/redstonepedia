@@ -99,9 +99,11 @@ pub fn shell_full(title: &str, description: &str, prefix: &str, body: &str, scri
     s.push_str(body);
     s.push_str("\n</main>\n");
     // no page links in the footer (vjeux 13:35Z: "it's not to put them back in the footer"); the
-    // date without the time, so it does not wrap on a phone (critique C52)
+    // date without the time, so it does not wrap on a phone (critique C52); the mob farms are
+    // tested on our simulation of the mob rules (their captions give the game check)
+    let mob = if site.builds.iter().any(|b| b.circuit.as_ref().is_some_and(crate::explain::mob_farm)) { ", except the mob farms: those on our simulation of the game's mob rules, each with a check in the game" } else { "" };
     s.push_str(&format!(
-        "<footer>Built from <a href=\"{REPO_URL}/tree/{}\">vjeux/redstonepedia@{}</a> on <span class=\"nowrap\">{}</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>\n",
+        "<footer>Built from <a href=\"{REPO_URL}/tree/{}\">vjeux/redstonepedia@{}</a> on <span class=\"nowrap\">{}</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick){mob}; the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>\n",
         esc(&site.commit),
         esc(&site.commit.chars().take(9).collect::<String>()),
         esc(site.generated.split('T').next().unwrap_or(&site.generated))
@@ -271,6 +273,8 @@ fn circuit_sections(c: &site_model::Circuit, has_viewer: bool) -> String {
             // 2026-10-22: the game and our simulator give the same numbers)
             if site_model::html::cart_line(c) {
                 "Measured by our test of the whole line, run on our simulator, which gives the same numbers as the real game for this line: the supply double chest filled with 3,456 items, one empty hopper minecart started on the track, every item counted until the last one is in the storage chest."
+            } else if crate::explain::mob_farm(c) {
+                "Measured by our test on our simulation of the game's mob rules (game days are too slow to test in the game itself): the farm built facing all 4 ways at 2 spots in the world, each build run 8 times for 5 game days from the farm's steady state. Its notes give its check in the real game. gt = game tick = 1/20 s (20 gt = 1 second)."
             } else {
                 "Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second)."
             },
@@ -462,7 +466,14 @@ pub fn build_page(site: &Site, b: &Build, design_text: &str, repo_path: &str, sc
         "<section><h2>Build it</h2><p><a class=\"button\" href=\"{prefix}{}\" download>Download .litematic</a> <a class=\"button alt\" href=\"{prefix}{}\" download>Download the design as text</a></p>\n<p class=\"hint\">The .litematic opens in <a href=\"https://github.com/maruohon/litematica\">Litematica</a> (Minecraft 26.3): every block of the design in one region.{} The text file is the same build written as plain text, block by block.</p>\n<p>Blocks used: {}</p></section>\n",
         esc(&crate::generate::litematic_path(&b.design)),
         esc(&b.design),
-        if b.kind == "door" || b.circuit.is_some() || b.clock.is_some() { " Verified in the real game." } else { "" },
+        if b.circuit.as_ref().is_some_and(crate::explain::mob_farm) {
+            // (a mob farm is judged on our simulation of the mob rules; its notes give the game check)
+            " Tested on our simulation of the game's mob rules and checked in the real game (its notes give the check)."
+        } else if b.kind == "door" || b.circuit.is_some() || b.clock.is_some() {
+            " Verified in the real game."
+        } else {
+            ""
+        },
         chips(&b.kinds, prefix, "with")
     ));
     if let Some(c) = &b.clock {
@@ -691,11 +702,19 @@ pub fn build_page(site: &Site, b: &Build, design_text: &str, repo_path: &str, sc
         body.push_str(&format!("<p class=\"also-ground\">{text}</p>\n"));
     }
     // a crop farm's full-size pick and its crop's best small module, both linked (the coordinator
-    // via w86 2026-10-22: the modules stay as variants)
+    // via w86 2026-10-22: the modules stay as variants); an iron farm's one-module pick and its
+    // tier's scaled build (vjeux via the decisions inbox 2026-11-08)
     if let Some(o) = find(b.circuit.as_ref().and_then(|c| c.farm_twin.as_ref())) {
         let full = b.circuit.as_ref().is_some_and(site_model::html::full_size_farm);
+        let modules = |x: &Build| x.circuit.as_ref().and_then(|c| c.metrics.iter().find(|(k, _)| k == "modules")).and_then(|(_, v)| v.parse::<u32>().ok()).unwrap_or(1);
         // (the link's own title says its numbers)
-        let what = if full { "For a small farm" } else { "The full-size farm" };
+        let what = if b.circuit.as_ref().is_some_and(crate::explain::mob_farm) {
+            if modules(o) > modules(b) { format!("Scaled up to {} copies", modules(o)) } else { "One copy of it, the pick of its tier".to_string() }
+        } else if full {
+            "For a small farm".to_string()
+        } else {
+            "The full-size farm".to_string()
+        };
         body.push_str(&format!("<p class=\"also-ground\">{what}: {}.</p>\n", link(o)));
     }
     // a full-size farm that tiles: its family is its copies side by side (the coordinator
@@ -724,7 +743,8 @@ pub fn build_page(site: &Site, b: &Build, design_text: &str, repo_path: &str, sc
             site_model::html::readable(per_block)
         ));
     }
-    body.push_str("<details class=\"more\"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>\n");
+    let in_game = if b.circuit.as_ref().is_some_and(crate::explain::mob_farm) { "" } else { " in the real game" };
+    body.push_str(&format!("<details class=\"more\"><summary>Details: how it works in depth, our test{in_game}, measurements and properties</summary>\n"));
     if let Some(c) = &b.circuit {
         body.push_str(&format!("<section class=\"what\"><h2>In depth</h2>{}</section>\n", crate::explain::what_it_does(c)));
         body.push_str(&circuit_sections(c, scripts.viewer));
@@ -1086,6 +1106,9 @@ fn properties(site: &Site, b: &Build, prefix: &str, design_text: &str) -> String
             extra.push("the two double chests");
         }
         let count = if extra.is_empty() { b.blocks.to_string() } else { format!("{} (not counting {} the view adds)", b.blocks, extra.join(" and ")) };
+        // (a mob farm: its chest goes at OUT, where the view draws its test lamp; the download
+        // has no chest)
+        let count = if crate::explain::mob_farm(c) { format!("{} (not counting the chest that goes at OUT, where the view draws a lamp)", b.blocks) } else { count };
         s.push_str(&row("Blocks placed", &count));
         if let (Some(v), Some(dm)) = (b.volume, &b.dims) {
             s.push_str(&row("Box", &format!("{} ({v} blocks of space)", esc(&dm.replace('x', "×")))));
@@ -1094,7 +1117,7 @@ fn properties(site: &Site, b: &Build, prefix: &str, design_text: &str) -> String
             s.push_str(&row("Made of (the blocks that change state)", &esc(&site_model::html::human_blocks(&c.family))));
         }
         if !c.robustness.is_empty() {
-            s.push_str(&row("Works in any direction, anywhere", &esc(&crate::explain::direction_words(&c.robustness))));
+            s.push_str(&row("Works in any direction, anywhere", &esc(&crate::explain::direction_words_of(c))));
         }
         if !c.inputs.is_empty() || !c.outputs.is_empty() || c.kind == "tnt-duper" || site_model::html::cart_line(c) {
             let ins: Vec<String> = c.inputs.iter().enumerate().map(|(i, n)| format!("{} ({})", n.to_uppercase(), c.devices.get(i).map(String::as_str).unwrap_or("redstone block"))).collect();
@@ -1701,6 +1724,9 @@ pub fn study_page(site: &Site, folder: &str, scripts: Scripts) -> String {
             if !list.is_empty() && list.iter().all(|b| b.circuit.as_ref().is_some_and(site_model::html::decimal_display)) {
                 // (the 0-9 display: its face's lamps and its input chest are our test's)
                 "<p class=\"hint\">The pictures show the display with the chest and the face's lamps our test adds, settled at the digit 5; the block counts leave those out.</p>\n"
+            } else if !list.is_empty() && list.iter().all(|b| b.circuit.as_ref().is_some_and(crate::explain::mob_farm)) {
+                // (an iron farm: the view's lamp stands where its chest goes; no input)
+                "<p class=\"hint\">The pictures show each farm with a lamp where its chest goes; the block counts leave the chest out.</p>\n"
             } else if list.iter().any(|b| b.circuit.as_ref().is_some_and(|c| c.output_lamp && !chest_out(c))) {
                 "<p class=\"hint\">The pictures show each design with its inputs and a test lamp; the block counts leave those out.</p>\n"
             } else if list.iter().any(|b| b.circuit.as_ref().is_some_and(chest_out)) {
@@ -1818,8 +1844,9 @@ fn first_upper(s: &str) -> String {
 /// card each, its best design's picture, what you would use it for, its count.
 pub fn circuits_index(site: &Site, scripts: Scripts) -> String {
     let prefix = "../";
+    let mob = if site.builds.iter().any(|b| b.circuit.as_ref().is_some_and(crate::explain::mob_farm)) { " (the mob farms on our simulation of the game's mob rules, each with a check in the game)" } else { "" };
     let mut body = format!(
-        "<p class=\"crumbs\"><a href=\"{prefix}index.html\">{SITE_NAME}</a> › Circuits</p>\n<h1>Circuits</h1>\n<p class=\"lede\">The classic redstone contraptions, one collection each. Every design was tested in the real game; each page says what it does, why you would build it, and lets you try it in 3D.</p>\n"
+        "<p class=\"crumbs\"><a href=\"{prefix}index.html\">{SITE_NAME}</a> › Circuits</p>\n<h1>Circuits</h1>\n<p class=\"lede\">The classic redstone contraptions, one collection each. Every design was tested in the real game{mob}; each page says what it does, why you would build it, and lets you try it in 3D.</p>\n"
     );
     let mut cards: Vec<String> = Vec::new();
     let mut pictured: Vec<String> = Vec::new();

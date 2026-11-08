@@ -520,6 +520,11 @@ pub fn kind_key(b: &Build) -> String {
         "auto-door" => format!("auto-door {}", c.axis.split_whitespace().next().unwrap_or("2x2")),
         // a button sequence lock: one kind per (buttons, presses) (clk-item's board)
         "sequence-lock" => c.kind.clone(),
+        // an iron farm: one kind per tier (`mob-farm iron_ingot middle`; vjeux via the decisions
+        // inbox 2026-11-08: one page per tier, as a crop farm has one kind per crop); a farm in no
+        // tier (the brief's obvious design, the bar to beat) is no published kind: catalog only
+        "mob-farm" if c.kind.split_whitespace().count() >= 3 => c.kind.clone(),
+        "mob-farm" => format!("-{}", c.kind),
         // a piston bridge: one kind per walkway width (pext: the 2-wide stone bridges are their
         // own table; a 1-wide stone walkway is a property beside the slime one, `walkway_variants`)
         "piston-bridge" => match bridge_width(c) {
@@ -623,6 +628,10 @@ pub fn ranked<'a>(list: &[&'a Build]) -> Vec<&'a Build> {
 /// asked by volume ([`by_box`]), a TNT duper's box with the air it needs under it
 /// (`html::effective_volume`: the coordinator 15:18Z).
 fn rank_size(b: &Build) -> (u32, u32) {
+    // an iron farm: its tier's rank (designs/briefs/farm-iron.md), then blocks
+    if let Some(r) = mob_farm_rank(b) {
+        return r;
+    }
     // a crop farm: the most harvest an hour for each block placed first (vjeux 19:03Z: "farm
     // efficiency = items gathered per hour ÷ blocks placed"), then its box
     if let Some((per_block, _)) = b.circuit.as_ref().and_then(site_model::html::farm_rates) {
@@ -649,6 +658,49 @@ fn rank_size(b: &Build) -> (u32, u32) {
     } else {
         (b.blocks, b.volume.unwrap_or(u32::MAX))
     }
+}
+
+/// An iron farm's rank in its tier (designs/briefs/farm-iron.md revision 3), as a sort key: the
+/// day-1 farm the least iron to build, the middle-ground farm the most iron an hour for each block
+/// placed, the fastest the most iron an hour for each group of villagers; then the fewest blocks.
+fn mob_farm_rank(b: &Build) -> Option<(u32, u32)> {
+    let c = b.circuit.as_ref()?;
+    if !c.kind.starts_with("mob-farm ") {
+        return None;
+    }
+    let num = |k: &str| metric(b, k).split_whitespace().next().and_then(|v| v.parse::<f64>().ok());
+    let most = |v: Option<f64>| v.map(|v| u32::MAX - (v * 1000.0).round().clamp(0.0, (u32::MAX - 1) as f64) as u32).unwrap_or(u32::MAX);
+    Some(match c.kind.split_whitespace().nth(2) {
+        Some("day-1") => (num("bill").map(|v| v.round() as u32).unwrap_or(u32::MAX), b.blocks),
+        Some("middle") => (most(num("iron per hour per block")), b.blocks),
+        _ => (most(num("iron per hour per module")), b.blocks),
+    })
+}
+
+/// An iron farm's fastest pick (one group of villagers): its tier's fastest build of several
+/// (copies of the module side by side, the brief's "N x module"), a page linked from the pick's
+/// and back (vjeux via the decisions inbox 2026-11-08: the scaled build shown on the fastest
+/// tier's page): (variant, pick).
+fn scaled_variants(builds: &[Build], chosen: &BTreeMap<(String, String), Vec<usize>>) -> Vec<(usize, usize)> {
+    let all = kinds_of(builds);
+    let modules = |b: &Build| metric(b, "modules").parse::<u32>().unwrap_or(1);
+    let rate = |b: &Build| metric(b, "iron per hour").split_whitespace().next().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+    let mut out = Vec::new();
+    for ((study, kind), keep) in chosen {
+        if !kind.starts_with("mob-farm ") {
+            continue;
+        }
+        for &pick in keep {
+            if modules(&builds[pick]) != 1 {
+                continue;
+            }
+            let scaled = all.get(&(study.clone(), kind.clone())).into_iter().flatten().copied().filter(|&i| modules(&builds[i]) > 1 && robust(&builds[i]));
+            if let Some(v) = scaled.max_by(|&a, &b| rate(&builds[a]).total_cmp(&rate(&builds[b]))) {
+                out.push((v, pick));
+            }
+        }
+    }
+    out
 }
 
 /// A minecart loader's or unloader's items a second (`load rate` / `unload rate`).
@@ -678,6 +730,12 @@ fn small_words(b: &Build) -> (&'static str, &'static str) {
         }
         // a minecart stop ranks by the items it moves a second (rank_size)
         Some(k) if k.starts_with("cart-unloader") || k.starts_with("cart-loader") => ("the fastest", ""),
+        // an iron farm ranks by its tier's rule (rank_size)
+        Some(k) if k.starts_with("mob-farm ") => match k.split_whitespace().nth(2) {
+            Some("day-1") => ("the cheapest to build,", ""),
+            Some("middle") => ("the most iron for each block placed,", ""),
+            _ => ("the most iron for each group of villagers,", ""),
+        },
         _ if by_box(b) => ("smallest box", ""),
         _ => ("smallest", ""),
     }
@@ -886,6 +944,10 @@ pub fn select_circuits(builds: &mut Vec<Build>) -> Vec<String> {
     // 2026-10-22)
     let small_stations = smaller_station_variants(builds, &chosen);
     kept.extend(small_stations.iter().map(|(v, _)| *v));
+    // an iron farm's one-module pick: its tier's scaled build, linked both ways (vjeux via the
+    // decisions inbox 2026-11-08)
+    let scaled = scaled_variants(builds, &chosen);
+    kept.extend(scaled.iter().map(|(v, _)| *v));
     let before = builds.iter().filter(|b| b.circuit.is_some()).count();
     // the kinds' groups: the records of a parametric kind form one group, its smallest design the
     // card (flying machines: the sideways one first), one entry per group
@@ -1021,6 +1083,21 @@ pub fn select_circuits(builds: &mut Vec<Build>) -> Vec<String> {
             let plant = site_model::html::plant_word(c);
             let n = c.crops.max(1);
             c.claim = format!("the best small farm, {n} {plant}{} (the pick of its crop is a full-size farm of {full} {plant}s)", if n == 1 { "" } else { "s" });
+            c.farm_twin = Some(ids[pick].clone());
+        }
+        if let Some(c) = builds[pick].circuit.as_mut() {
+            c.farm_twin = Some(ids[v].clone());
+        }
+    }
+    for &(v, pick) in &scaled {
+        let modules = metric(&builds[v], "modules").to_string();
+        let rate = metric(&builds[v], "iron per hour").split_whitespace().next().unwrap_or("").to_string();
+        let one = metric(&builds[pick], "iron per hour").split_whitespace().next().unwrap_or("").to_string();
+        if !builds[v].flags.iter().any(|f| f == "size") {
+            builds[v].flags.push("size".into());
+        }
+        if let Some(c) = builds[v].circuit.as_mut() {
+            c.claim = format!("the scaled build: {modules} copies of the pick of its tier, {rate} iron an hour against one copy's {one}");
             c.farm_twin = Some(ids[pick].clone());
         }
         if let Some(c) = builds[pick].circuit.as_mut() {

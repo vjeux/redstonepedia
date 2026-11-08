@@ -627,7 +627,8 @@ pub fn film(dir: &Path, remote: Option<&str>, pages: &[String], frames: u32, int
         let tag = if phone { "phone" } else { "desktop" };
         let s = Session::start(&r.display, phone)?;
         for page in pages {
-            let sel = if page.starts_with("index.html") { ".thumb[data-mcview]" } else { "[data-mcview=\"full\"]" };
+            // (an index or a study page: its first thumbnail; a design page: its 3D view)
+            let sel = if page.starts_with("index.html") || page.ends_with("/index.html") { ".thumb[data-mcview]" } else { "[data-mcview=\"full\"]" };
             match check_page(&s, &r.base, page, sel) {
                 Ok(d) => println!("{tag} {page}: ready, {d}"),
                 Err(e) => println!("{tag} {page}: {e:#}"),

@@ -36,7 +36,10 @@ fn comment_caption(text: &str) -> String {
 }
 
 /// Metric names of more than one word.
-const MULTI_WORD_METRICS: [&str; 49] = [
+const MULTI_WORD_METRICS: [&str; 58] = [
+    // (a mob farm's, the ironfarm track: split at their first space they read `iron` = `per hour
+    // per block 1.57`; the longer names first, `iron per hour` is a prefix of two others)
+    "iron per hour per block", "iron per hour per module", "iron per hour", "iron range", "golems per hour", "seconds per golem", "share of ceiling", "worst policy", "restarts after a missed night",
     "first box", "first item", "per pulse", "per period", "hoppers awake", "safe drop", "effective volume", "items smelted per hour per block", "items smelted per hour", "items per hour per cane", "per cane", "harvest height", "game rts", "at rest", "stop distance", "departure delay", "leaves at", "other way passes at", "first craft", "recipe class", "trip up", "calls and sends", "unload rate", "load rate", "per bit", "items per hour per block", "items per hour", "open wait", "close delay", "stop in doorway", "presses tried", "opens within", "closes within",
     // (an auto-smelter's, study 17, and sorter's `chest` run: split at their first space they read
     // `items/min` = `per furnace 6.0` and the card lost its rate; the brewer's and the composter's

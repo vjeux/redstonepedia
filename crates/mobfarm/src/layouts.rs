@@ -77,6 +77,31 @@ fn wall_sign(b: &mut Builder, x: i32, y: i32, z: i32, facing: &str) {
     b.set(x, y, z, &format!("oak_wall_sign[facing={facing},waterlogged=false]"));
 }
 
+/// A design text with its tier on its `circuit:` line (`circuit: mob-farm iron_ingot middle`):
+/// the published kind (one site page per tier).
+pub fn set_tier(text: &str, tier: &str) -> anyhow::Result<String> {
+    let tiers = circuit::mobfarm::TIERS;
+    if !tiers.iter().any(|(t, _)| *t == tier) {
+        anyhow::bail!("no tier {tier:?} ({})", tiers.iter().map(|(t, _)| *t).collect::<Vec<_>>().join(", "));
+    }
+    let mut found = false;
+    let out: Vec<String> = text
+        .lines()
+        .map(|l| match l.strip_prefix("circuit: mob-farm ") {
+            Some(rest) if !found => {
+                found = true;
+                let item = rest.split_whitespace().next().unwrap_or("iron_ingot");
+                format!("circuit: mob-farm {item} {tier}")
+            }
+            _ => l.to_string(),
+        })
+        .collect();
+    if !found {
+        anyhow::bail!("no `circuit: mob-farm` line to give the tier to");
+    }
+    Ok(out.join("\n") + "\n")
+}
+
 /// The dusk pulse: the zombie's trapdoor opens for about 46 gt when night falls, then shuts for
 /// the rest of the night, so the villagers fall asleep once (`LAST_SLEPT`) and wake up scared
 /// again. Two inverted daylight detectors switch on together at nightfall: D2 (through a dust

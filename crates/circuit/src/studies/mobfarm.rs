@@ -36,12 +36,12 @@ use redsim::entity::mob::farm::{self, FarmSpec, RunOpts, RunReport, WalkMode};
 use redsim::entity::mob::walk::Walk;
 use redsim::{Block, BlockPos};
 
-/// The study's registration (crate::registry): `circuit: mob-farm iron_ingot`.
+/// The study's registration (crate::registry): `circuit: mob-farm iron_ingot [tier]`.
 pub static STUDY: StudyDef = StudyDef {
     id: "mobfarm",
     title: "Mob farms",
     site_title: "Mob farms",
-    site_intro: "Iron golems spawn when three villagers that slept in the last game day are scared by a zombie: one golem per 600 game ticks for each group of villagers at most, on a solid block within 8 blocks of them. These farms hold the villagers and a zombie in place, let the villagers sleep each night (a panicking villager never sleeps), kill each golem and carry its 3 to 5 iron ingots into a chest. Our test runs every farm for days of game time on our own simulation of the game's mob rules, in every orientation, and checks that the villagers stay safe, the zombie stays put, every golem dies in the farm and every ingot reaches the chest.",
+    site_intro: "Iron golems spawn when three villagers that slept in the last game day are scared by a zombie: one golem per 600 game ticks for each group of villagers at most, on a solid block within 8 blocks of them. These farms hold the villagers and a zombie in place, let the villagers sleep each night (a panicking villager never sleeps), kill each golem and carry its 3 to 5 iron ingots into a chest. Our test runs every farm for days of game time on our own simulation of the game's mob rules, in every orientation, and checks that the villagers stay safe, the zombie stays put, every golem dies in the farm and every ingot reaches the chest; each farm's notes give its check in the real game. Three farms, one per need: the day-1 farm costs the least iron, the middle-ground farm gives the most iron for each block placed, the fastest farm the most iron for each group of villagers, and copies of it scale it up.",
     site_uses: "Iron for hoppers, rails and beacons without mining: AFK near the farm and empty its chest.",
     site_blurb: "Iron golem farms: villagers, a zombie and beds, rated in iron ingots per hour.",
     kinds: &[KindDef {
@@ -53,32 +53,57 @@ pub static STUDY: StudyDef = StudyDef {
         twin: Twin::Exact(sim_verify),
         agree: Agree::Rate { key: "iron per hour", tol: 0.2 },
         ticks: |_| JUDGE_DAYS * 24000,
-        axis: |_, m| {
-            let n = m("modules");
-            if n == "1" { "1 module".to_string() } else { format!("{n} modules") }
+        axis: |args, m| match tier(args) {
+            Some((_, words)) => words.to_string(),
+            None => {
+                let n = m("modules");
+                if n == "1" { "1 module".to_string() } else { format!("{n} modules") }
+            }
         },
         runs: &["base", "still"],
         run: run_kind,
         site: Site {
-            title: |k| match k.split_whitespace().nth(1) {
-                Some("iron_ingot") | None => "Iron farm".to_string(),
-                Some(item) => format!("Mob farm: {}", item.replace('_', " ")),
+            title: |k| {
+                let w: Vec<&str> = k.split_whitespace().collect();
+                match (w.get(1).copied(), w.get(2).copied()) {
+                    (Some("iron_ingot") | None, Some("day-1")) => "Day-1 iron farm (the cheapest to build)".to_string(),
+                    (Some("iron_ingot") | None, Some("middle")) => "Middle-ground iron farm (the most iron for each block placed)".to_string(),
+                    (Some("iron_ingot") | None, Some("fastest")) => "Fastest iron farm (the most iron for each group of villagers; copies scale it)".to_string(),
+                    (Some("iron_ingot") | None, _) => "Iron farm".to_string(),
+                    (Some(item), _) => format!("Mob farm: {}", item.replace('_', " ")),
+                }
             },
             summary: |_| "villagers scared by a zombie summon iron golems; the farm kills them and collects their iron in a chest".into(),
             metric: |m| match m {
-                "iron" => Some("iron ingots per hour at the game's normal speed: the mean over every simulated day, with its 95% interval"),
-                "golems" => Some("iron golems per hour"),
-                "seconds" => Some("the mean time between two golems"),
-                "share" => Some("the rate as a share of the game's limit: one golem per 600 game ticks for each group of villagers"),
-                "modules" => Some("groups of villagers that summon golems independently"),
-                "worst" => Some("the rate when every golem walks the same way, the worst of standing still and the 8 directions"),
-                "bill" => Some("what the build costs in survival: iron ingots (hoppers, pistons, the lava bucket...), quartz, villagers, beds"),
+                "iron per hour per block" => Some("iron ingots an hour for each block placed: the board's rank, and the middle-ground farm's"),
+                "iron per hour" => Some("iron ingots an hour at the game's normal speed: the mean over every simulated day of every build"),
+                "iron range" => Some("the 95% interval of that mean (how sure the number is), and how many simulated runs it is over"),
+                "golems per hour" => Some("iron golems an hour"),
+                "seconds per golem" => Some("the mean time between two golems"),
+                "share of ceiling" => Some("the rate as a share of the game's limit: one golem per 600 game ticks for each group of villagers"),
+                "modules" => Some("groups of villagers that summon golems independently (copies of the farm count one each)"),
+                "iron per hour per module" => Some("iron ingots an hour for each group of villagers: the fastest farm's rank"),
+                "kill" => Some("the longest a golem lived from any spot it can spawn or stand on, standing still or walking any of 8 ways"),
+                "worst policy" => Some("the rate when every golem walks the same way, the worst of standing still and the 8 directions"),
+                "restarts after a missed night" => Some("whether the farm starts again by itself after a night the villagers could not sleep"),
+                "misses" => Some("summons that found no spot for the golem, and the golems the villagers saw (each one delays the next summon)"),
+                "bill" => Some("what the build costs in survival: iron ingots (hoppers, the lava bucket...), quartz, villagers, beds"),
                 "payback" => Some("the time the farm takes to give back the iron it cost"),
                 _ => None,
             },
         },
     }],
 };
+
+/// The brief's tiers (designs/briefs/farm-iron.md revision 3), each a kind of its own so each
+/// gets its own site page (vjeux via the decisions inbox 2026-11-08, after the crop farms' one
+/// kind per crop): the word on the `circuit:` line, and in words.
+pub const TIERS: [(&str, &str); 3] = [("day-1", "day 1"), ("middle", "middle ground"), ("fastest", "fastest")];
+
+/// The tier a kind's words name (none: a farm in no tier, like the brief's obvious design).
+pub fn tier(args: &[String]) -> Option<(&'static str, &'static str)> {
+    args.get(1).and_then(|t| TIERS.iter().copied().find(|(w, _)| w == t))
+}
 
 /// Seeds each build runs.
 pub const JUDGE_SEEDS: u32 = 8;
@@ -87,12 +112,19 @@ pub const JUDGE_DAYS: u32 = 5;
 /// Game days of the restart probe.
 pub const RESTART_DAYS: u32 = 2;
 
-/// `mob-farm <item>`: only `iron_ingot` so far.
+/// `mob-farm <item> [tier]`: only `iron_ingot` so far; the tier one of [`TIERS`] (none: a farm
+/// in no tier, published nowhere but the catalog).
 fn parse_kind(w: &[&str]) -> Result<Vec<String>> {
-    match w.first().copied() {
-        Some("iron_ingot") | Some("minecraft:iron_ingot") => Ok(vec!["iron_ingot".into()]),
+    let item = match w.first().copied() {
+        Some("iron_ingot") | Some("minecraft:iron_ingot") => "iron_ingot".to_string(),
         Some(other) => bail!("mob-farm: no farm for {other:?} yet (iron_ingot)"),
         None => bail!("mob-farm: give the product (`circuit: mob-farm iron_ingot`)"),
+    };
+    match w[1..] {
+        [] => Ok(vec![item]),
+        [t] if TIERS.iter().any(|(k, _)| *k == t) => Ok(vec![item, t.to_string()]),
+        [t] => bail!("mob-farm: no tier {t:?} ({})", TIERS.iter().map(|(k, _)| *k).collect::<Vec<_>>().join(", ")),
+        _ => bail!("mob-farm: at most a product and a tier (`circuit: mob-farm iron_ingot middle`)"),
     }
 }
 
@@ -465,4 +497,27 @@ fn run_kind(_pool: Option<&Pool>, c: &Circuit, at: &RunAt) -> Result<Outcome> {
     let base = base_checks(&rc, &spec, &jo).map_err(|e| anyhow!(e))?;
     let runs = build_runs(&spec, &jo, 0, walk).map_err(|e| anyhow!(e))?;
     Ok(outcome(&rc, &spec, &runs, &[], Some(&base)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The tier is the kind's last word (one site page per tier): day-1, middle, fastest, or none.
+    #[test]
+    fn the_tier_is_part_of_the_kind() {
+        assert_eq!(parse_kind(&["iron_ingot", "middle"]).unwrap(), vec!["iron_ingot".to_string(), "middle".to_string()]);
+        assert_eq!(parse_kind(&["minecraft:iron_ingot"]).unwrap(), vec!["iron_ingot".to_string()]);
+        assert!(parse_kind(&["iron_ingot", "slowest"]).is_err());
+        assert!(parse_kind(&["iron_ingot", "middle", "extra"]).is_err());
+        let args = |t: &[&str]| t.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let m = |k: &str| if k == "modules" { "4".to_string() } else { String::new() };
+        let axis = STUDY.kinds[0].axis;
+        assert_eq!(axis(&args(&["iron_ingot", "day-1"]), &m), "day 1");
+        assert_eq!(axis(&args(&["iron_ingot", "fastest"]), &m), "fastest");
+        assert_eq!(axis(&args(&["iron_ingot"]), &m), "4 modules");
+        let title = STUDY.kinds[0].site.title;
+        assert!(title("mob-farm iron_ingot fastest").starts_with("Fastest iron farm"));
+        assert_eq!(title("mob-farm iron_ingot"), "Iron farm");
+    }
 }
