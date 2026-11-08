@@ -150,6 +150,15 @@ pub struct RunReport {
     pub golem_cells: Vec<([i32; 3], u32)>,
     pub drop_cells: Vec<([i32; 3], u32)>,
     pub cell_ticks: u32,
+    /// Golems spawned before day time 12642 (beds work from 12542 in clear weather; once every
+    /// player has slept 100 ticks the day time jumps to the next morning): the golems a player
+    /// who sleeps through every night still gets (brief revision 9, `iron per hour sleeping`).
+    pub golems_by_day: u32,
+    /// The farm's entities alive (villagers, the zombie, vehicles, golems, item entities), summed
+    /// over one sample every 20 gt, the samples, and the most at once.
+    pub entities_sum: u64,
+    pub entity_samples: u32,
+    pub entities_peak: u32,
 }
 
 /// The weather of one run (mobinfra): ticks raining (`isRaining`) and thundering, bolts, what they
@@ -214,6 +223,11 @@ pub fn judge_opts(seed: i64, ticks: u32, walk: WalkMode) -> RunOpts {
 /// Game ticks the built farm runs before its entities arrive, so its water has spread (a
 /// player's farm is built long before it runs; each flowing step takes 5 gt).
 pub const SETTLE_TICKS: i64 = 200;
+
+/// The day time a player who sleeps every night plays to: beds work from 12542 in clear
+/// weather, and 100 ticks asleep later the day time jumps to the next morning. A sleeper's game
+/// day lasts this many ticks.
+pub const SLEEPER_DAY: i64 = 12642;
 
 /// One farm run, tick by tick: the judge's runner and the 3D viewer's (one runner, so the view
 /// cannot drift from the judge; mobviewer 2026-11-08). [`Run::start`] builds the farm up to its
@@ -508,6 +522,9 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
             MobEvent::GolemTry { golem: Some(id), at, .. } => {
                 rep.golems += 1;
                 rep.spawn_times.push(t);
+                if w.day_time().rem_euclid(24000) < SLEEPER_DAY {
+                    rep.golems_by_day += 1;
+                }
                 if let Some(a) = at {
                     rep.spawn_cells.push(a);
                 }
@@ -621,6 +638,13 @@ pub fn golem_breaks_rule(w: &World, g: usize, inner: Aabb, t: i64) -> Option<Str
 
 /// The per-tick checks.
 fn check_tick(w: &World, rep: &mut RunReport, tr: &mut Track, spec: &FarmSpec, t: i64) {
+    // the entities alive, one sample every 20 gt (the lag a farm costs: brief revision 9)
+    if t.rem_euclid(20) == 0 {
+        let alive = w.entities.list.iter().filter(|e| !e.removed).count() as u32;
+        rep.entities_sum += alive as u64;
+        rep.entity_samples += 1;
+        rep.entities_peak = rep.entities_peak.max(alive);
+    }
     let zombie = w.entities.list.iter().find(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Zombie));
     let zbox = zombie.map(|z| z.bb);
     let inner = spec.inner();

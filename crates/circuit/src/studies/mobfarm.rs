@@ -601,6 +601,23 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
     if iron > 0.0 {
         metrics.push(("time to an iron kit".to_string(), format!("{:.0} min (the build, then (bill + 24) / rate)", build_s / 60.0 + (b.iron + 24.0) / iron * 60.0)));
     }
+    // the numeric lines the stage cards bind to (brief revision 9, Stages: Common)
+    metrics.push(("build minutes".to_string(), format!("{:.1}", build_s / 60.0)));
+    if iron > 0.0 {
+        metrics.push(("t kit minutes".to_string(), format!("{:.1}", build_s / 60.0 + (b.iron + 24.0) / iron * 60.0)));
+    }
+    // a player who sleeps through every night (brief revision 9): only the golems before day
+    // time 12642 come, and each game day lasts 12642 ticks of play
+    let (by_day, golems_n): (u32, u32) = all.iter().fold((0, 0), |(d, g), r| (d + r.golems_by_day, g + r.golems));
+    metrics.push(("iron per hour sleeping".to_string(), format!("{:.0}", if golems_n > 0 { iron * by_day as f64 / golems_n as f64 * 24000.0 / farm::SLEEPER_DAY as f64 } else { 0.0 })));
+    let (lo, hi) = c.bounds();
+    let volume = ((hi[0] - lo[0] + 1) * (hi[1] - lo[1] + 1) * (hi[2] - lo[2] + 1)).max(1) as f64;
+    metrics.push(("volume per module".to_string(), format!("{:.0}", volume / modules as f64)));
+    let (sum, samples, peak) = all.iter().fold((0u64, 0u32, 0u32), |(s, n, p), r| (s + r.entities_sum, n + r.entity_samples, p.max(r.entities_peak)));
+    if samples > 0 {
+        metrics.push(("entities alive".to_string(), format!("{:.1}", sum as f64 / samples as f64)));
+        metrics.push(("entities peak".to_string(), peak.to_string()));
+    }
     // the stage lines (brief, Stages: What every card reports)
     metrics.push(("tools".to_string(), b.tools_text()));
     metrics.push(("lava sources".to_string(), b.lava.to_string()));
