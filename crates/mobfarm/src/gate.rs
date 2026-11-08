@@ -52,7 +52,7 @@ pub fn gate_cmd(version: &str, design: &Path, a: GateArgs) -> Result<()> {
             .map(|w| format!("{}: {:.1} golems/h ({} golems, raining {}%, thundering {}%)", w.name, w.golems_per_hour(), w.golems, 100 * w.rain_samples / w.samples.max(1), 100 * w.thunder_samples / w.samples.max(1)))
             .collect();
         println!(
-            "build rotation {} offset {:?}: {} golems, {} dead, iron {} in the chest + {} in containers + {} loose ({:.2} per dead golem), {} poppies, {} bolts seen, {:.0} s{}",
+            "build rotation {} offset {:?}: {} golems, {} dead, iron {} in the chest + {} in containers + {} loose{} ({:.2} per dead golem), {} poppies, {} bolts seen, {:.0} s{}",
             b.turns,
             b.offset,
             b.golems,
@@ -60,6 +60,7 @@ pub fn gate_cmd(version: &str, design: &Path, a: GateArgs) -> Result<()> {
             b.iron_chest,
             b.iron_containers,
             b.iron_loose,
+            if b.iron_start > 0 { format!(" - {} the design placed", b.iron_start) } else { String::new() },
             b.iron() as f64 / b.deaths.max(1) as f64,
             b.poppies,
             b.bolts_seen.len(),

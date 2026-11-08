@@ -127,6 +127,9 @@ pub struct BuildRun {
     pub iron_chest: u32,
     pub iron_containers: u32,
     pub iron_loose: u32,
+    /// The design's own iron in its containers as placed (its `nbt:` lines: a sorter's lock and
+    /// filter stacks), not the farm's output.
+    pub iron_start: u32,
     pub poppies: u32,
     /// Bolts seen at a sample (a bolt lives 2..30 gt: most are missed).
     pub bolts_seen: Vec<[i32; 3]>,
@@ -168,8 +171,10 @@ impl BuildRun {
         }
     }
 
+    /// The farm's iron: what the chest, its containers and the floor hold, less what the design
+    /// placed in its containers.
     pub fn iron(&self) -> u32 {
-        self.iron_chest + self.iron_containers + self.iron_loose
+        (self.iron_chest + self.iron_containers + self.iron_loose).saturating_sub(self.iron_start)
     }
 }
 
@@ -238,6 +243,52 @@ fn count_item(nbt: &str, id: &str) -> u32 {
 /// The iron in an item list's NBT as ingots: ingots and 9 per iron block (a farm's crafter).
 fn count_iron(nbt: &str) -> u32 {
     count_item(nbt, "minecraft:iron_ingot") + 9 * count_item(nbt, "minecraft:iron_block")
+}
+
+/// The game's `data get block` reply (`back`) holds every field of the design's SNBT (`want`).
+fn check_block_entity(back: &str, want: &str) -> Result<()> {
+    use redsim::redstone::container::parse_snbt;
+    let data = back.split_once("block data: ").map(|(_, d)| d).ok_or_else(|| anyhow!("no block data in `{back}`"))?;
+    let got = parse_snbt(data.trim()).map_err(|e| anyhow!("the game's data `{data}`: {e}"))?;
+    let want_v = parse_snbt(want).map_err(|e| anyhow!("the design's `{want}`: {e}"))?;
+    if snbt_holds(&got, &want_v) {
+        Ok(())
+    } else {
+        bail!("the game holds {data}")
+    }
+}
+
+/// Does `got` hold every field of `want`: a compound its keys (more allowed), a list the same
+/// length with each element of `want` held by a distinct one of `got`, numbers by value whatever
+/// their suffix (a boolean as 1 or 0), ids with or without `minecraft:`.
+fn snbt_holds(got: &redsim::redstone::container::Snbt, want: &redsim::redstone::container::Snbt) -> bool {
+    use redsim::redstone::container::Snbt;
+    let text = |s: &str| s.trim_start_matches("minecraft:").to_string();
+    let flag = |w: &str| match w {
+        "true" => Some(1),
+        "false" => Some(0),
+        _ => None,
+    };
+    match (got, want) {
+        (Snbt::Compound(g), Snbt::Compound(w)) => w.iter().all(|(k, wv)| g.iter().any(|(gk, gv)| gk == k && snbt_holds(gv, wv))),
+        (Snbt::List(g), Snbt::List(w)) => {
+            if g.len() != w.len() {
+                return false;
+            }
+            let mut used = vec![false; g.len()];
+            w.iter().all(|wv| match (0..g.len()).find(|&j| !used[j] && snbt_holds(&g[j], wv)) {
+                Some(j) => {
+                    used[j] = true;
+                    true
+                }
+                None => false,
+            })
+        }
+        (Snbt::Int(a), Snbt::Int(b)) => a == b,
+        (Snbt::Int(a), Snbt::Word(b)) | (Snbt::Word(b), Snbt::Int(a)) => flag(b) == Some(*a),
+        (Snbt::Str(a) | Snbt::Word(a), Snbt::Str(b) | Snbt::Word(b)) => text(a) == text(b),
+        _ => false,
+    }
 }
 /// A golem as the gate tracks it.
 #[derive(Clone, Debug)]
@@ -320,6 +371,14 @@ struct Built {
     blocks: Vec<([i32; 3], String)>,
     detectors: Vec<([i32; 3], String)>,
     watch: Vec<([i32; 3], String)>,
+    /// The comparators' outputs as redsim settled them (`ComparatorBlockEntity.OutputSignal`: a
+    /// pasted comparator's starts at 0 whatever its state).
+    comparators: Vec<([i32; 3], u8)>,
+}
+
+/// The comparators among `blocks` with their settled output in `w`.
+fn comparator_outputs(w: &redsim::World, blocks: &[([i32; 3], String)]) -> Vec<([i32; 3], u8)> {
+    blocks.iter().filter(|(_, st)| st.starts_with("minecraft:comparator")).map(|(p, _)| (*p, w.comparator_out.get(&redsim::BlockPos::new(p[0], p[1], p[2])).copied().unwrap_or(0))).collect()
 }
 
 fn built_blocks(spec: &FarmSpec, seed: i64) -> Result<Built> {
@@ -344,7 +403,8 @@ fn built_blocks(spec: &FarmSpec, seed: i64) -> Result<Built> {
         }
     }
     let detectors = spec.blocks.iter().filter(|(_, b)| matches!(b, redsim::Block::DaylightDetector { .. })).map(|(p, b)| ([p.x, p.y, p.z], b.to_string())).collect();
-    Ok(Built { blocks, detectors, watch })
+    let comparators = comparator_outputs(w, &blocks);
+    Ok(Built { blocks, detectors, watch, comparators })
 }
 
 /// The containers of the farm that can hold its drops (hoppers, chests, barrels...), not the
@@ -485,7 +545,8 @@ fn terrain_built(spec: &FarmSpec, site: &redsim::entity::mob::site::Site, o: &Ru
         }
         blocks.push(([p.x, p.y, p.z], st));
     }
-    Ok(Built { blocks, detectors, watch })
+    let comparators = comparator_outputs(w, &blocks);
+    Ok(Built { blocks, detectors, watch, comparators })
 }
 
 /// The game run of one build: `c` turned and moved.
@@ -493,7 +554,7 @@ pub fn run_build(c: &Circuit, turns: u8, offset: [i32; 3], o: &GateOpts) -> Resu
     let t0 = std::time::Instant::now();
     let spec = crate::mobfarm::spec_of(c).map_err(|e| anyhow!(e))?;
     let seed = o.seed.wrapping_mul(1000) + turns as i64 * 10 + (offset[0] & 7) as i64;
-    let Built { blocks, detectors, watch } = built_blocks(&spec, seed)?;
+    let Built { blocks, detectors, watch, comparators } = built_blocks(&spec, seed)?;
     let seats = rider_seats(&spec, &RunOpts::steady(seed, 0, WalkMode::Random))?;
     if o.trace {
         eprintln!("build {turns} {offset:?}: redsim's seats {seats:?}");
@@ -508,7 +569,7 @@ pub fn run_build(c: &Circuit, turns: u8, offset: [i32; 3], o: &GateOpts) -> Resu
     step(&mut s, warm)?;
     let entities = c.clock.design.entities.iter().map(|e| (e.kind.clone(), e.pos, e.nbt.clone())).collect();
     let day0 = RunOpts::steady(seed, 0, WalkMode::Random).day0;
-    let p = Prepared { spec, built: Built { blocks, detectors, watch }, seats, entities, day0, scope: Scope::void(), label: format!("build {turns} {offset:?}"), output, boxes };
+    let p = Prepared { spec, built: Built { blocks, detectors, watch, comparators }, seats, entities, day0, scope: Scope::void(), label: format!("build {turns} {offset:?}"), output, boxes };
     run_farm(s, p, run, o, t0)
 }
 
@@ -553,12 +614,35 @@ impl Scope {
 /// detectors, the entities (each tagged `mf`), then the natural days and the forced ones sampled
 /// every 20 gt, and the iron at the end.
 fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, t0: std::time::Instant) -> Result<BuildRun> {
-    let Prepared { spec, built: Built { blocks, detectors, mut watch }, seats, entities, day0, scope, label, output, boxes } = p;
+    let Prepared { spec, built: Built { blocks, detectors, mut watch, comparators }, seats, entities, day0, scope, label, output, boxes } = p;
     for (p, st) in &blocks {
         let out = s.cmd(&format!("setblock {} {st} strict", xyz(*p)))?;
         if !out.contains("Changed the block") {
             bail!("setblock {p:?} {st}: {out}");
         }
+    }
+    // the design's block entities (its `nbt:` lines: a crafter's disabled slots, a sorter's lock
+    // and filter items), merged as the judge merges them (`farm::Run::start`) and read back: the
+    // game must hold every field the design gives; then the comparators' outputs as redsim
+    // settled them (a pasted comparator's block entity starts at 0 whatever its state)
+    for (q, snbt) in &spec.block_entities {
+        let at = [q.x, q.y, q.z];
+        let out = s.cmd(&format!("data merge block {} {snbt}", xyz(at)))?;
+        if !out.contains("Modified block data") && !out.contains("Nothing changed") {
+            bail!("data merge block {at:?} {snbt}: {out}");
+        }
+        let back = s.cmd_long(&format!("data get block {}", xyz(at)))?;
+        check_block_entity(&back, snbt).with_context(|| format!("the block entity at {at:?} (`nbt: {snbt}`) after the paste"))?;
+    }
+    for (at, n) in &comparators {
+        let out = s.cmd(&format!("data merge block {} {{OutputSignal:{n}}}", xyz(*at)))?;
+        if !out.contains("Modified block data") && !out.contains("Nothing changed") {
+            bail!("the comparator at {at:?}: output {n}: {out}");
+        }
+    }
+    // the iron the design placed in its containers (not the farm's output)
+    for p in &boxes {
+        run.iron_start += count_iron(&s.cmd_long(&format!("data get block {} Items", xyz(*p)))?);
     }
     // the judge's steady state: a day time in the day, LAST_SLEPT at the end of the last rest
     s.cmd_ok(&format!("time set {day0}"))?;
@@ -739,8 +823,9 @@ fn sample(
     // against the card's rates in `gate`; what follows a break is its consequence, unchecked):
     // new witches are villagers a bolt struck (one bolt converts every villager in its box: a
     // sample's new witches are one witch-making bolt, the card's unit), a lost vehicle one a bolt
-    // broke
-    let witches = s.count_entities(&format!("@e[type=minecraft:witch{near}]"))?;
+    // broke; only the farm's own (a converted villager keeps its tags, `ConversionType`: a natural
+    // witch near a terrain farm is not the farm's)
+    let witches = s.count_entities(&format!("@e[type=minecraft:witch{own}]"))?;
     if witches > run.witches_now {
         let w = windows.last_mut().unwrap();
         w.witches += 1;
@@ -842,7 +927,9 @@ fn sample(
     if vs.iter().any(|a| a.trim().trim_end_matches('f').parse::<f64>().unwrap_or(20.0) < 20.0) {
         run.fail(format!("gt {t}: a villager was hurt"));
     }
-    if s.count_entities(&format!("@e[type=minecraft:zombie_villager{near}]"))? > 0 {
+    // a farm villager a zombie converted (it keeps its tags: in a terrain sample the natural
+    // zombie villagers, 5% of the night's zombies, are not the farm's)
+    if s.count_entities(&format!("@e[type=minecraft:zombie_villager{own}]"))? > 0 {
         run.fail(format!("gt {t}: a zombie villager in the world"));
     }
     let zs = entity_answers(&s.cmd_long(&format!("execute as @e[type=minecraft:zombie{own}] run data get entity @s Health"))?);
@@ -1162,6 +1249,18 @@ mod tests {
         let items = r#"[{count: 5, Slot: 0b, id: "minecraft:iron_ingot"}, {count: 2, Slot: 1b, id: "minecraft:iron_block"}, {count: 3, Slot: 2b, id: "minecraft:poppy"}]"#;
         assert_eq!(count_iron(items), 5 + 18);
         assert_eq!(count_item(items, "minecraft:poppy"), 3);
+    }
+
+    /// The game's read-back of a merged block entity holds the design's fields (its own format:
+    /// spaces, typed arrays, ids with their namespace, more fields), and a lost field is caught.
+    #[test]
+    fn block_entities_read_back() {
+        let back = "34, -27, 0 has the following block data: {crafting_ticks_remaining: 0, disabled_slots: [I; 0, 1, 2, 3, 4, 5, 6, 7, 8], triggered: 0, Items: []}";
+        check_block_entity(back, "{disabled_slots:[I;0,1,2,3,4,5,6,7,8]}").unwrap();
+        assert!(check_block_entity(back, "{disabled_slots:[I;0,1,2]}").is_err());
+        let hopper = r#"34, -25, 1 has the following block data: {TransferCooldown: 0, Items: [{count: 64, Slot: 0b, id: "minecraft:iron_ingot"}, {components: {"minecraft:custom_name": "iron lock"}, count: 1, Slot: 1b, id: "minecraft:paper"}]}"#;
+        check_block_entity(hopper, r#"{Items:[{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}},{Slot:0b,id:"iron_ingot",count:64}]}"#).unwrap();
+        assert!(check_block_entity("34, -25, 1 has the following block data: {Items: []}", r#"{Items:[{Slot:0b,id:"iron_ingot",count:64}]}"#).is_err());
     }
 
     /// A vehicle's riders split from its data, a turned build's Rotation kept.
