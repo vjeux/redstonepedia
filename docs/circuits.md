@@ -1304,7 +1304,14 @@ kick) before the first input.
   the loot (3..5 uniform: a leak shows, a few unlucky draws do not). The rates: each window's
   golems per hour, the mean of the builds unbroken by then, must fall within redsim's interval for 8 builds of that
   window under the same schedule (the judge's `farm::run` from the stationary weather with the same
-  forced windows, 64 runs; a reference run that fails fails the gate): 95% for the natural days, 99% for each forced day.
+  forced windows, 64 runs; a reference run that fails fails the gate): Bonferroni over the k
+  windows checked, the natural days at a family-wise 95% and each forced day at a family-wise 99%
+  (z of 0.05/k and 0.01/k two-sided: 2.394 and 2.935 for the three windows; about 2.3% of good
+  farms refused by chance, where 95/99/99 per window refused about 7%: ironfarm 2026-11-08). The
+  design's block entities (its `nbt:` lines) are merged after the paste and read back (the gate
+  fails unless the game holds every field the design gives), each comparator gets redsim's
+  settled output, and the iron the design placed in its containers (a sorter's lock and filter
+  stacks) is not counted as the farm's.
 
   **In a terrain sample** (`--terrain village-edge`, mobinfra 2026-11-08: D1U must pass the real
   game in its own world): the farm at its Site (the terrain judge's spot, offset and C7 glass

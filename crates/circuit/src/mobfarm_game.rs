@@ -46,8 +46,10 @@
 //! **The rates**: each window's golems per hour, the builds' mean, must fall within redsim's
 //! interval for that many builds under the same schedule: the judge's own runs (`farm::run` from
 //! the cycle's stationary state, `Plan::Windows` with the same forced days, 64 runs), their mean
-//! plus or minus z standard errors of the game's mean and of redsim's (z = 1.96 for the natural
-//! days, 2.576 for each forced day: three tests, about 3% of good farms refused by chance).
+//! plus or minus z standard errors of the game's mean and of redsim's (Bonferroni over the k
+//! windows checked: the natural days at a family-wise 95%, each forced day at a family-wise 99%,
+//! z of 0.05/k and 0.01/k two-sided: 2.394 and 2.935 for the three windows, about 2.3% of good
+//! farms refused by chance).
 
 use crate::Circuit;
 use anyhow::{Context, Result, anyhow, bail};
@@ -1019,8 +1021,9 @@ impl WindowCheck {
     }
 
     fn text(&self) -> String {
-        // (no ", " inside: the site splits a card's metrics there)
-        format!("{} {:.1} golems/h (redsim {:.1}; {}% {:.1}-{:.1})", self.name, self.game, self.sim, if self.z > 2.0 { 99 } else { 95 }, self.interval.0.max(0.0), self.interval.1)
+        // (no ", " inside: the site splits a card's metrics there); the level is the family's
+        // (natural days 95%, forced days 99%: each window's interval is Bonferroni-widened)
+        format!("{} {:.1} golems/h (redsim {:.1}; {}% {:.1}-{:.1})", self.name, self.game, self.sim, if self.name.contains("natural") { 95 } else { 99 }, self.interval.0.max(0.0), self.interval.1)
     }
 }
 
@@ -1137,13 +1140,19 @@ pub fn gate(c: &Circuit, o: &GateOpts) -> Result<GateReport> {
         (false, true) => Plan::Force { at: natural, cmd: redsim::weather::Command::Thunder(day as i32) },
         (false, false) => Plan::Cycle,
     };
-    let mut spans: Vec<(String, i64, i64, f64)> = vec![(format!("{} days of natural weather", o.days), 0, natural, 1.96)];
+    // Bonferroni over the windows the gate checks (ironfarm 2026-11-08: three windows at 95/99/99%
+    // refused about 7% of good farms by chance; a big farm's tight intervals made it bite): the
+    // natural days at a family-wise 95%, each forced day at a family-wise 99%, split over the k
+    // windows (two-sided z of 0.05/k and 0.01/k)
+    let k = 1 + o.rain_day as usize + o.thunder_day as usize;
+    let (z_natural, z_forced) = [(1.960, 2.576), (2.241, 2.807), (2.394, 2.935)][k - 1];
+    let mut spans: Vec<(String, i64, i64, f64)> = vec![(format!("{} days of natural weather", o.days), 0, natural, z_natural)];
     if o.rain_day {
-        spans.push(("a forced day of rain".into(), natural, natural + day, 2.576));
+        spans.push(("a forced day of rain".into(), natural, natural + day, z_forced));
     }
     if o.thunder_day {
         let a = natural + if o.rain_day { day } else { 0 };
-        spans.push(("a forced day of thunder".into(), a, a + day, 2.576));
+        spans.push(("a forced day of thunder".into(), a, a + day, z_forced));
     }
     let total = spans.last().map(|s| s.2).unwrap_or(natural);
     let sims: Vec<RunOpts> = (0..64)
