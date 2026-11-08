@@ -1391,19 +1391,6 @@ impl Block {
                 };
                 Block::Chest { facing: hdir_of("facing", Dir::North)?, kind, waterlogged: bool_of("waterlogged", false)? }
             }
-            // a passive block a day-1 player crafts from what he digs (vjeux 2026-11-08 13:09:
-            // "stone ... you need silk touch or smelt which you're not going to do day 1"): the
-            // natural-state table's row (the game's own shape, light and spawn rules), inert
-            // like a natural state (`mctas terrain blockinfo --block` adds its states)
-            "cobblestone_slab" => {
-                let mut kv: Vec<(&str, &str)> = kv.clone();
-                if !kv.iter().any(|(k, _)| *k == "waterlogged") {
-                    kv.push(("waterlogged", "false"));
-                }
-                kv.sort_by_key(|(k, _)| *k);
-                let state = format!("minecraft:{name}[{}]", kv.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(","));
-                Block::Terrain(crate::terrain::blocks::id_of(&state).ok_or_else(|| format!("{state} is not in the natural-state table (mctas terrain blockinfo --block minecraft:{name})"))?)
-            }
             _ => return Err(format!("block {name:?} is not modeled by redsim")),
         })
     }
