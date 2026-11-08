@@ -177,6 +177,25 @@ pub fn l6p_pad(n: i32) -> String {
     b.text(&["Day 1 (candidate): the bed-plate calm; golems spawn on a pad 6 below the villagers, fall through its", "center into a 4 x 4 pit and burn in its corner under one lava source, over one hopper."])
 }
 
+/// Day 1, candidate D4: D1 with its second pod open too (S2 at x 0 sees the zombie). S2's line
+/// to the zombie crosses the same hide cell (2, 1, -6) as S's, 1.78-1.84 up (from z -5 to -6 it
+/// runs x 2.01-2.28), and its sleeping eye passes under the slab like S's: one plate and one
+/// trapdoor hide the zombie from both, and two panicking villagers make 20 tries a mark.
+pub fn d4_two_scared(n: i32) -> String {
+    let mut b = Builder::new(&format!("iron-day1-two-scared-{n}"));
+    pod(&mut b, 0, true);
+    pod(&mut b, 2, true);
+    zombie(&mut b);
+    // the hide facing west: opened, its slab stands against the cell's east side, clear of both
+    // lines (S2's runs x 2.01-2.28 through the cell, S's x 2.5); shut, its top slab crosses both
+    b.set(2, 1, -6, "oak_trapdoor[facing=west,half=top,open=false,powered=false,waterlogged=false]");
+    plate_pod(&mut b);
+    pit_kill(&mut b, n);
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.meta.insert("restart".into(), "yes".into());
+    b.text(&["Day 1 (candidate D4): the bed plate hides the zombie from two scared villagers through one trapdoor;", "golems fall through the pad's center into a 4 x 4 pit and burn in its corner under one lava source."])
+}
+
 /// L2d's chamber without its fire: lava only in the north row (x 1..4, head height k + 2, z 1),
 /// open fence gates under it and south of it (z 2) right under the ceiling, no mouth gates. Lava's
 /// random tick (`LavaFluid.randomTick`) then never lights anything: every first step up is the

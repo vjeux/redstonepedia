@@ -116,6 +116,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "l4" => (crate::layouts::l4(), "golems fall from fence-gated platforms to a lava blade".to_string()),
                 "l6p-dry" => (crate::day1::l6p_dry(pad), "the bed-plate calm over a dry drop".to_string()),
                 "l6p-pad" => (crate::day1::l6p_pad(pad), "golems burn in a corner of their pad".to_string()),
+                "d4" => (crate::day1::d4_two_scared(pad), "golems burn in a corner of their pit".to_string()),
                 "m3" => (crate::day1::m3_bedplate(pad), "golems fall out of sight to a lava blade".to_string()),
                 "m2" => (crate::day1::m2_observer(pad), "golems fall out of sight to a lava blade".to_string()),
                 "m2open" => (crate::day1::m2_open(pad), "golems fall out of sight to a lava blade".to_string()),
