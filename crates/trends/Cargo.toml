@@ -1,0 +1,12 @@
+[package]
+name = "trends"
+description = "Search demand for Redstonepedia's topics on the open web (docs/search-demand.md): Google autocomplete and Google Trends interest of a list of searches on one anchor-normalized scale (`trends suggest | related | rank`). Talks to Google through curl, so it runs on a box with internet access; a standalone binary so such a box builds it without the SAT crates"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
