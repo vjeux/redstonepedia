@@ -28,6 +28,13 @@ pub fn random_tick(w: &mut World, id: u16, p: BlockPos) {
             }
         }
         "minecraft:budding_amethyst" => budding_amethyst(w, p),
+        // FarmlandBlock.randomTick (no draws): water within 4 (or rain above) wets it to 7, else it
+        // dries by 1, at 0 turns to dirt unless the block above keeps it (#maintains_farmland)
+        "minecraft:farmland" => {
+            let name = blocks::props(id).name.clone();
+            let moisture: u8 = prop(&name, "moisture").and_then(|m| m.parse().ok()).unwrap_or(0);
+            farmland(w, p, moisture);
+        }
         "minecraft:red_mushroom" | "minecraft:brown_mushroom" => mushroom(w, p, id, &name),
         "minecraft:pointed_dripstone" => {
             // PointedDripstoneBlock.randomTick: maybeTransferFluid(nextFloat), then the speleothem's
@@ -38,6 +45,15 @@ pub fn random_tick(w: &mut World, id: u16, p: BlockPos) {
         "minecraft:sulfur_spike" => speleothem(w, p, id, "minecraft:potent_sulfur"),
         _ => error(w, format!("the random tick of {} is not modeled", blocks::props(id).name)),
     }
+}
+
+/// The grass block's random tick (a modeled `Simple::GrassBlock` too).
+pub fn grass_tick(w: &mut World, p: BlockPos) {
+    if w.level_random.is_none() {
+        error(w, "a grass block's random tick draws from the level random (World::mirror_level_random)".into());
+        return;
+    }
+    grass(w, p);
 }
 
 fn r(w: &mut World) -> &mut crate::rng::LegacyRandom {
@@ -129,6 +145,41 @@ fn grass(w: &mut World, p: BlockPos) {
             let snowy = matches!(block_id(&w.get(q.above())).as_str(), "minecraft:snow" | "minecraft:snow_block" | "minecraft:powder_snow");
             set(w, q, if snowy { "minecraft:grass_block[snowy=true]" } else { "minecraft:grass_block[snowy=false]" }, flags::ALL);
         }
+    }
+}
+
+// ----------------------------------------------------------------------------------- farmland
+
+/// `FarmlandBlock.randomTick` for a natural farmland state.
+fn farmland(w: &mut World, p: BlockPos, moisture: u8) {
+    let mut near = false;
+    'scan: for dy in 0..=1 {
+        for dz in -4..=4 {
+            for dx in -4..=4 {
+                if crate::fluid::fluid_state(w, p.offset(dx, dy, dz)).fluid.is_water() {
+                    near = true;
+                    break 'scan;
+                }
+            }
+        }
+    }
+    let rain = !near && w.weather.on && w.is_raining_at(p.above());
+    if !near && !rain {
+        if moisture > 0 {
+            set(w, p, &format!("minecraft:farmland[moisture={}]", moisture - 1), flags::CLIENTS);
+        } else {
+            let above = block_id(&w.get(p.above()));
+            let keeps = matches!(
+                above.as_str(),
+                "minecraft:pumpkin_stem" | "minecraft:attached_pumpkin_stem" | "minecraft:melon_stem" | "minecraft:attached_melon_stem" | "minecraft:beetroots" | "minecraft:carrots" | "minecraft:potatoes" | "minecraft:torchflower_crop" | "minecraft:torchflower" | "minecraft:pitcher_crop" | "minecraft:wheat" | "minecraft:moving_piston"
+            ) || above.ends_with("_fence_gate");
+            if !keeps {
+                // turnToDirt (pushEntitiesUp: no entity stands on a natural farmland in the runs)
+                set(w, p, "minecraft:dirt", flags::ALL);
+            }
+        }
+    } else if moisture < 7 {
+        set(w, p, "minecraft:farmland[moisture=7]", flags::CLIENTS);
     }
 }
 

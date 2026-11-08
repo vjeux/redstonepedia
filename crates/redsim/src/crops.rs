@@ -184,7 +184,8 @@ pub fn tick_chunks(w: &mut World) {
                 let Some(rt) = w.random_ticks.as_mut() else { return };
                 let p = rt.position(cx * 16, sy * 16, cz * 16);
                 let s = w.get(p);
-                if randomly_ticking(&s) {
+                // isRandomlyTicking (its block's or its fluid's): natural states by the table
+                if ticks_in_section(&s) {
                     random_tick(w, s, p);
                 }
             }
@@ -317,6 +318,7 @@ pub fn random_tick(w: &mut World, s: Block, p: BlockPos) {
         }
         // ---- terrain lane: the natural states' own random ticks (grass, crops, amethyst...) ----
         Block::Terrain(id) => return crate::terrain::ticks::random_tick(w, id, p),
+        Block::Simple(crate::block::Simple::GrassBlock) => return crate::terrain::ticks::grass_tick(w, p),
         _ => {}
     }
     if !matches!(s, Block::SugarCane { .. }) {
