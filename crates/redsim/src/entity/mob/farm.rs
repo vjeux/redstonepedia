@@ -463,11 +463,37 @@ pub fn run(spec: &FarmSpec, o: &RunOpts) -> Result<RunReport, String> {
 /// the ticks it ran) and the ticks from the arrival to the tick the chest first held `iron`
 /// (`None`: not within `o.ticks`, or the run broke).
 pub fn run_until_iron(spec: &FarmSpec, o: &RunOpts, iron: u32) -> Result<(RunReport, Option<u32>), String> {
+    run_t(spec, o, iron, false)
+}
+
+/// [`run_until_iron`] with the player's hand step for a farm that cannot restart by itself (its
+/// card: "hide the zombie by hand the first night"; brief farm-iron.md revision 9 iteration 2, G1
+/// 8146b8db: the T run performs every hand step the card prints): at the first REST start after the
+/// arrival (day time 12000) he flips the farm's trapdoors to a state where no farm villager sees the
+/// farm's zombie (each as a player's use: `TrapDoorBlock.useWithoutItem`, a flag-2 set), and flips
+/// them back once every farm villager sleeps, at least 20 gt and at most 600 gt later.
+pub fn run_t(spec: &FarmSpec, o: &RunOpts, iron: u32, hand_hide: bool) -> Result<(RunReport, Option<u32>), String> {
     let mut r = Run::new(spec, o)?;
     let mut rep = RunReport { ticks: o.ticks, ..Default::default() };
     let mut tr = Track::new(&r, spec);
     let mut reached = None;
+    let mut hide: Option<(i64, Vec<(BlockPos, Block)>)> = None;
+    let mut hid = !hand_hide;
     for k in 0..o.ticks {
+        if !hid && r.world.day_time().rem_euclid(24000) == 12000 {
+            hid = true;
+            hide = hand_hide_start(&mut r.world, spec, &tr.own).map(|orig| (r.world.time, orig));
+        }
+        if let Some((since, orig)) = &hide {
+            let asleep = r.world.entities.list.iter().enumerate().filter(|(_, e)| tr.own.contains(&e.id) && matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Villager)).all(|(i, _)| mob(&r.world, i).sleeping_pos.is_some());
+            let t = r.world.time - since;
+            if (t >= 20 && asleep) || t >= 600 {
+                for (p, b) in orig {
+                    r.world.set_block(*p, *b, crate::world::flags::CLIENTS);
+                }
+                hide = None;
+            }
+        }
         r.tick();
         let t = r.world.time;
         absorb_events(&mut r.world, &mut rep, &mut tr, t);
@@ -484,6 +510,37 @@ pub fn run_until_iron(spec: &FarmSpec, o: &RunOpts, iron: u32) -> Result<(RunRep
     }
     finish(&r.world, &mut rep, &tr, spec);
     Ok((rep, reached))
+}
+
+/// The hand hide's trapdoor flip: the farm's trapdoors all flipped, else all shut, else all open,
+/// the first state in which no farm villager sees the farm's zombie (eye to eye, the hostile
+/// sensor's line of sight); their states before (`None`: no state hides it).
+fn hand_hide_start(w: &mut World, spec: &FarmSpec, own: &std::collections::HashSet<u32>) -> Option<Vec<(BlockPos, Block)>> {
+    let doors: Vec<(BlockPos, Block)> = spec.blocks.iter().filter_map(|(p, _)| match w.get(*p) { b @ Block::Trapdoor { iron: false, .. } => Some((*p, b)), _ => None }).collect();
+    if doors.is_empty() {
+        return None;
+    }
+    let ids: Vec<usize> = (0..w.entities.list.len()).filter(|&i| own.contains(&w.entities.list[i].id)).collect();
+    let villagers: Vec<usize> = ids.iter().copied().filter(|&i| matches!(&w.entities.list[i].kind, EntityKind::Mob(m) if m.ty == MobType::Villager)).collect();
+    let zombies: Vec<usize> = ids.iter().copied().filter(|&i| matches!(&w.entities.list[i].kind, EntityKind::Mob(m) if m.ty == MobType::Zombie)).collect();
+    let sees = |w: &World| villagers.iter().any(|&v| zombies.iter().any(|&z| super::los::has_line_of_sight(w, super::villager::eye_pos(w, v), super::villager::eye_pos(w, z))));
+    let with = |b: Block, open: Option<bool>| match b {
+        Block::Trapdoor { iron, facing, top, open: o, powered } => Block::Trapdoor { iron, facing, top, open: open.unwrap_or(!o), powered },
+        b => b,
+    };
+    for open in [None, Some(false), Some(true)] {
+        let set: Vec<(BlockPos, Block)> = doors.iter().map(|(p, b)| (*p, with(*b, open))).collect();
+        w.place_raw(&set);
+        if !sees(w) {
+            w.place_raw(&doors);
+            for (p, b) in &set {
+                w.set_block(*p, *b, crate::world::flags::CLIENTS);
+            }
+            return Some(doors);
+        }
+        w.place_raw(&doors);
+    }
+    None
 }
 
 /// The iron in the output chest (`ingots + 9 x blocks`).

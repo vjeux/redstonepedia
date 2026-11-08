@@ -64,8 +64,12 @@ pub fn item_of(state: &str) -> Option<String> {
     let props = state.split('[').nth(1).unwrap_or("");
     Some(match id {
         "air" | "cave_air" | "void_air" | "lava" | "fire" => return None,
-        "stone" | "cobblestone" | "dirt" | "deepslate" | "cobbled_deepslate" | "grass_block" | "andesite" | "granite" | "diorite" | "tuff" | "gravel" => "filler".into(),
-        "stone_slab" | "cobblestone_slab" => "stone_slab".into(),
+        // (iteration 5, vjeux 13:09: mining stone without silk touch gives cobblestone, so a placed
+        // stone or deepslate block is smelted: the `stone` row; cobblestone and dirt are filler)
+        "stone" | "deepslate" => "stone".into(),
+        "cobblestone" | "dirt" | "cobbled_deepslate" | "grass_block" | "andesite" | "granite" | "diorite" | "tuff" | "gravel" => "filler".into(),
+        "stone_slab" => "stone_slab".into(),
+        "cobblestone_slab" => "cobblestone_slab".into(),
         "wall_torch" | "torch" => "torch".into(),
         "redstone_wall_torch" | "redstone_torch" => "redstone_torch".into(),
         "stone_button" => "stone_button".into(),
@@ -195,10 +199,10 @@ mod tests {
     use super::*;
 
     /// The table prices the M2 build's items; glass costs 7 s on day 1 and 2 s in the middle; a dug
-    /// block pays for one filler block.
+    /// block pays for one filler block; a placed stone block is smelted (iteration 5).
     #[test]
     fn a_build_is_priced_from_the_table() {
-        let blocks = ["minecraft:glass", "minecraft:stone", "minecraft:stone", "minecraft:red_bed[facing=north,occupied=false,part=head]", "minecraft:red_bed[facing=north,occupied=false,part=foot]", "minecraft:lava[level=0]"];
+        let blocks = ["minecraft:glass", "minecraft:cobblestone", "minecraft:cobblestone", "minecraft:red_bed[facing=north,occupied=false,part=head]", "minecraft:red_bed[facing=north,occupied=false,part=foot]", "minecraft:lava[level=0]"];
         let d1 = bill(&blocks, &[("villager", ""), ("oak_boat", "{Passengers:[{id:\"minecraft:zombie\"}]}")], 1, &[], 0).unwrap();
         // place 6 (1 s each) + dig 1 + 1 filler paid + lava 120 + glass 7 + bed 5 + villager 180 +
         // boat 2.5 + zombie 180 + bucket 90
@@ -206,5 +210,8 @@ mod tests {
         let mid = bill(&["minecraft:glass"], &[], 0, &[], 1).unwrap();
         assert!((mid.seconds - 3.0).abs() < 1e-9);
         assert!(bill(&["minecraft:unobtainium"], &[], 0, &[], 0).is_err());
+        // stone: place 1 + 6.5 smelted; a cobblestone slab 0.5, a stone slab 3.25
+        let stone = bill(&["minecraft:stone", "minecraft:cobblestone_slab[type=bottom,waterlogged=false]", "minecraft:stone_slab[type=bottom,waterlogged=false]"], &[], 0, &[], 0).unwrap();
+        assert!((stone.seconds - (3.0 + 6.5 + 0.5 + 3.25)).abs() < 1e-9, "{:?}", stone.items);
     }
 }

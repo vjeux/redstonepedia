@@ -322,7 +322,8 @@ fn terrain_judge(c: &Circuit, jo: &JudgeOpts, sample: &'static redsim::terrain::
         let ex = s.spawn(|| exposures_of(jobs[0].0, &jobs[0].1));
         let base = s.spawn(|| base_checks(c, &jobs[0].1, &jobs[0].2));
         let hs: Vec<_> = jobs.iter().enumerate().map(|(k, (_, spec, o))| s.spawn(move || build_runs(spec, o, k as u32, WalkMode::Random))).collect();
-        let ts: Vec<_> = jobs.iter().zip(&build_s).map(|((site, spec, _), bs)| s.spawn(move || bs.map_or_else(Vec::new, |bs| t_kit_runs(spec, site, bs, kit, 8)))).collect();
+        let hand = c.clock.design.meta.get("restart").map(|r| r.trim()) != Some("yes");
+        let ts: Vec<_> = jobs.iter().zip(&build_s).map(|((site, spec, _), bs)| s.spawn(move || bs.map_or_else(Vec::new, |bs| t_kit_runs(spec, site, bs, kit, 8, hand)))).collect();
         let runs: Vec<std::result::Result<Vec<RunReport>, String>> = hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("a build panicked".to_string()))).collect();
         let tkit: Vec<Vec<Option<f64>>> = ts.into_iter().map(|h| h.join().unwrap_or_default()).collect();
         (base.join().unwrap_or_else(|_| Err("the base checks panicked".to_string())), runs, ex.join().unwrap_or_else(|_| ("the exposure checks panicked".to_string(), vec!["the exposure checks panicked".to_string()])), tkit)
@@ -466,15 +467,17 @@ pub fn site_effort(c: &Circuit, site: Option<&redsim::entity::mob::site::Site>, 
 /// 20 x `build_s` (mod 24000), its villagers arriving with the `LAST_SLEPT` of their last night in
 /// the village (the start of the last REST) and the zombie parked; the judge's terrain run from
 /// there (the weather's cycle, natural spawning on Hard) until the chest holds `iron`, for each of
-/// `seeds` seeds (at most 3 game days): T in minutes, `None` for a run that did not get there.
-pub fn t_kit_runs(spec: &FarmSpec, site: &'static redsim::entity::mob::site::Site, build_s: f64, iron: u32, seeds: u32) -> Vec<Option<f64>> {
+/// `seeds` seeds (at most 3 game days): T in minutes, `None` for a run that did not get there. A
+/// farm that cannot restart by itself (`hand_hide`: its design does not claim `restart: yes`) gets
+/// the first-night hide by hand its card prints (redsim `farm::run_t`).
+pub fn t_kit_runs(spec: &FarmSpec, site: &'static redsim::entity::mob::site::Site, build_s: f64, iron: u32, seeds: u32, hand_hide: bool) -> Vec<Option<f64>> {
     let day0 = ((build_s * 20.0).round() as i64).rem_euclid(24000);
     std::thread::scope(|s| {
         let hs: Vec<_> = (0..seeds)
             .map(|k| {
                 s.spawn(move || {
                     let o = RunOpts { day0, slept: true, slept_rest: true, ..farm::judge_opts_in(0x7d1 + k as i64, 3 * 24000, WalkMode::Random, Some(site)) };
-                    match farm::run_until_iron(spec, &o, iron) {
+                    match farm::run_t(spec, &o, iron, hand_hide) {
                         Ok((_, Some(t))) => Some(build_s / 60.0 + t as f64 / 1200.0),
                         _ => None,
                     }
