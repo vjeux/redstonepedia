@@ -159,9 +159,14 @@ Numbers, never refusals by themselves; each stage weighs them in its own rank:
   player keeps a stack of 16); villagers go by the cheapest route the stage has: moved from a
   village bed by boat on day 1 (180 s), by minecart or boat on the player's own paths in the
   middle (120 s) or bred at the farm (the first pair moved, then 30 s of actions per villager:
-  bread, a bed, sealing its pod; the code's game time, a birth 275-324 gt after the pair meets,
-  6000 gt between a pair's births and 24000 gt to grow up, counted only where it outlasts the
-  rest of the build), and delivered by a breeder's rail or water line late (30 s); the zombie
+  bread, a bed, sealing its pod; the code's game time, counted only where it outlasts the rest of
+  the build: a pair breeds only by day, calm and out of the zombie's sight (breeding runs only in
+  IDLE, day time 10 to 12000 for a villager with no job site, never while it panics), a birth
+  275-324 gt after the pair meets, then 6000 gt before the pair breeds again, so at most 2 births
+  per pair per game day; a free bed the parent can path to stands before each birth (without it
+  the food is eaten and no baby comes); the baby grows up in 24000 gt and walks to its bed at its
+  first REST, and only then is its pod sealed), and delivered by a breeder's rail or water line
+  late (30 s); the zombie
   180 / 120 / 60 s (lured at night into its boat). An item the table does not price fails the
   line (no silent default). Blocks alone would count a villager, a lava trip, an iron ingot and a
   smelted glass block as free; these prices make a glass-capped or hopper-heavy day-1 farm lose
