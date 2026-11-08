@@ -659,6 +659,15 @@ Commands: `mctas terrain light|paste-check|biome-check|probe|spawn-check|hostile
    mob-AI's) and, on d1u-underground at t3, one biome at a zoom border ((-421,-1,304): river in the
    game, plains in redsim's zoom with the sample's seed; under investigation with the tick-exact
    lane). The statistical V1 (above) stays the check against the unmodified server.
+   **Later the same day**: the zoom border was the sandbox's (its environment attributes kept the
+   old BiomeManager: fixed by the tick-exact lane), a biome cell past the sample's chunks and cave
+   air were redsim's (fixed): with spawning on, d1u-underground's level random is equal through
+   t90 in village-edge and t121 in plains, every later break a natural mob's AI (a bat or skeleton
+   the game moves past 128 blocks despawns). **With natural spawning and the custom spawners off
+   on both sides** (mob AI out of the level random), the level random is **equal draw for draw
+   for a whole day (24,200 ticks)** in village-edge and in plains — every natural random tick,
+   precipitation, lava's fire and the spawn shuffle — and through t1792 in forest (t1793: villager
+   brains on the level random, mob-AI's).
 
 ## File split (agreed)
 
