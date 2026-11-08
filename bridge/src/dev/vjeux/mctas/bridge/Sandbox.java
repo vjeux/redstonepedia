@@ -1114,6 +1114,11 @@ final class Sandbox {
         for (net.minecraft.world.level.storage.ValueInput passengerInput : input.childrenListOrEmpty("Passengers")) {
             Entity passenger = buildSeeded(passengerInput, x, y, z, next, tree, seedAll);
             passenger.startRiding(e, true, false);
+            // seated before its first tick, like the real-game gate summons a rider at its seat
+            // and mounts it (`ride`): startRiding alone leaves it where it was made, and its first
+            // rideTick would tick it there (an eye in a block: one in_wall hit no farm deals)
+            e.positionRider(passenger);
+            passenger.setOldPosAndRot();
         }
         return e;
     }

@@ -130,8 +130,8 @@ pub struct MobState {
     /// `damageCooldownTime` and `lastHurt`.
     pub damage_cooldown: i32,
     pub last_hurt: f32,
-    /// `remainingFireTicks`: 0 at creation and load (`Entity.load` reads `Fire` with default 0);
-    /// a mob's first tick out of fire sets it to `-getFireImmuneTicks()` (-1).
+    /// `remainingFireTicks`: `-getFireImmuneTicks()`, 0 for a mob in 26.3, at creation, at load
+    /// (`Entity.load` reads `Fire` with default 0) and after a fire.
     pub fire_ticks: i32,
     /// `airSupply` (300).
     pub air: i32,
@@ -148,11 +148,6 @@ pub struct MobState {
     pub no_action_time: i32,
     /// `persistenceRequired` (a name tag, or picked-up loot).
     pub persistence_required: bool,
-    /// A rider summoned with its vehicle (`Passengers`) that has not ticked yet, and the summon
-    /// position: the game creates it there and `startRiding` does not seat it, so its first
-    /// `rideTick` runs its tick there (an eye inside a block is hurt `in_wall`) before
-    /// `positionRider`.
-    pub unseated: Option<Vec3>,
     /// `LivingEntity.onClimbable()` at its last tick (refused: climbing is not modeled).
     pub on_climbable: bool,
     /// The lava tracker's height (`getFluidHeight(LAVA)`; `isInLava` when positive).
@@ -192,7 +187,6 @@ impl MobState {
             no_jump_delay: 0,
             no_action_time: 0,
             persistence_required: false,
-            unseated: None,
             on_climbable: false,
             lava_height: 0.0,
             inside: Inside::default(),
@@ -358,11 +352,6 @@ pub fn spawn_hook(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>
         if let Err(e) = mount(w, rider, vehicle) {
             return Some(Err(e));
         }
-        // (seated for every static check that reads the rider before a tick; its first rideTick
-        // still runs its tick at the summon position, as the game's does: `MobState::unseated`)
-        if let Some(ri) = crate::entity::index_of(w, rider) {
-            mob_mut(w, ri).unseated = Some(Vec3::new(pos[0], pos[1], pos[2]));
-        }
     }
     Some(Ok(vehicle))
 }
@@ -509,11 +498,6 @@ pub fn mount(w: &mut World, rider: u32, vehicle: u32) -> Result<(), String> {
 /// (`positionRider`), its fall distance reset (`LivingEntity.rideTick`).
 pub fn ride_tick(w: &mut World, j: usize) {
     w.entities.list[j].delta_movement = Vec3::ZERO;
-    // a rider summoned with its vehicle ticks once where the summon put it (`startRiding` does
-    // not seat it), then `positionRider` seats it
-    if let Some(at) = mob_mut(w, j).unseated.take() {
-        w.entities.set_pos(j, at);
-    }
     living::tick(w, j);
     if let Some(v) = w.entities.list[j].vehicle
         && let Some(vi) = crate::entity::index_of(w, v)
