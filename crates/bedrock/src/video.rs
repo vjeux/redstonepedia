@@ -2382,6 +2382,9 @@ fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
         strip.push((x, c.doz_a + 2));
     }
     for z in c.doz_a + 3..=c.doz_b + 2 {
+        if z == c.doz_b {
+            continue; // portal B's own bottom frame row already occupies these cells
+        }
         strip.push((c.dix, z));
         strip.push((c.dix + 1, z));
         strip.push((c.dix + 2, z));
