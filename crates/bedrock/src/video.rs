@@ -784,6 +784,16 @@ impl Prod {
             let click = [pos[0] + off[0], pos[1] + off[1], pos[2] + off[2]];
             if blocks.kind(click) == Kind::Solid {
                 self.stand_near(&blocks, click)?;
+                // A stand can be the placement cell itself (feet where the block must
+                // go): the game refuses to place into the player, so step south first.
+                for _ in 0..2 {
+                    let f = self.feet()?;
+                    let cur = [f[0].floor() as i32, f[1].floor() as i32, f[2].floor() as i32];
+                    if cur != pos {
+                        break;
+                    }
+                    self.walk(pos[0], pos[2] + 1)?;
+                }
                 if sneak {
                     self.actor.cmd("sneak 1")?;
                 }
@@ -795,10 +805,13 @@ impl Prod {
                     self.actor.cmd("sneak 0")?;
                 }
                 self.loga(&format!("place_at {pos:?} via {click:?}/{face}: {r}"));
-                return self.assert_block(dim, pos, pred, "place_at");
+                match self.assert_block(dim, pos, pred, "place_at") {
+                    Ok(()) => return Ok(()),
+                    Err(e) => self.loga(&format!("place_at {pos:?} via {click:?}/{face} failed ({e:#}); trying another face")),
+                }
             }
         }
-        bail!("place_at {dim} {pos:?}: no solid neighbour to click")
+        bail!("place_at {dim} {pos:?}: no solid neighbour click placed {pred}")
     }
 
     /// `build_portal` with an interior height (the v1 helper fixes 3). Bottom row at `ybase`
