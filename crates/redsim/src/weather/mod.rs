@@ -541,6 +541,10 @@ pub fn world_surface_height(w: &World, x: i32, z: i32) -> i32 {
 /// `BlockAndLightGetter.canSeeSky`: sky light 15, which is being a sky light source
 /// (`daylight::sky_source`: a column scan; outside the box, the open sky above the farm).
 pub fn can_see_sky(w: &World, p: BlockPos) -> Result<bool, String> {
+    // a terrain world: the land's sky light map (`Level.canSeeSky`: the cell's sky light is 15)
+    if w.land.is_some() {
+        return w.sky_light(p).map(|l| l >= 15);
+    }
     if !w.contains(p) {
         return Ok(p.y >= w.min.y + w.size[1] || motion_blocking_height(w, p.x, p.z) <= p.y);
     }

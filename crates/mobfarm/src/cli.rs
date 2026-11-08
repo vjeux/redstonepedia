@@ -33,6 +33,16 @@ pub enum MobfarmCmd {
         /// The stack's vertical pitch (stack).
         #[arg(long, default_value_t = 43)]
         pitch: i32,
+        /// The stack's step in x and z (stack: side by side).
+        #[arg(long, default_value_t = 0)]
+        dx: i32,
+        #[arg(long, default_value_t = 0)]
+        dz: i32,
+        /// LP: the gap from a lower cluster up to its upper one, and the pairs' period.
+        #[arg(long, default_value_t = 15)]
+        gap: i32,
+        #[arg(long, default_value_t = 62)]
+        period: i32,
         /// The tier the design is published in (`day-1`, `middle`, `fastest`: the kind's last
         /// word, `circuit: mob-farm iron_ingot middle`); none: a farm in no tier (catalog only).
         #[arg(long)]
@@ -66,6 +76,19 @@ pub enum MobfarmCmd {
     /// The built farm's lines of sight: each villager's eye to the zombie's eye (the hostile
     /// sensor's test), as built and with every trapdoor forced shut and forced open.
     Sight { design: PathBuf },
+    /// The late stage's coupling, exactly: the villager clusters (villagers within each other's
+    /// 10-box), and every golem spawn spot of a cluster against every foreign villager's follow
+    /// cube at the largest follow range (16 x 1.11485), with the smallest margin (negative:
+    /// a foreign villager lists that golem).
+    Cubes { design: PathBuf },
+    /// The farm built into a terrain sample, then the terrain track's worst-case checks for
+    /// natural mobs (`hostile::check`): each channel's exposure (brief revision 8: a card line,
+    /// never a refusal).
+    Exposures {
+        design: PathBuf,
+        #[arg(long, default_value = "village-edge")]
+        terrain: String,
+    },
     /// mobinfra: the real-game gate (what `circuit verify` and `circuit archive` run for a mob
     /// farm): each build in the 26.3 server for `--days` of natural weather, a forced day of rain
     /// and one of thunder, on Hard, every must-have checked, the rate against redsim's.
@@ -163,7 +186,7 @@ fn load(_version: &str, path: &PathBuf) -> Result<(circuit::Circuit, redsim::ent
 
 pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
     match cmd {
-        MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, modules, pitch, tier, out } => {
+        MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, modules, pitch, dx, dz, gap, period, tier, out } => {
             let (text, how) = match layout.as_str() {
                 "l3" => (crate::layouts::l3(pits), "golems burn in lava pits".to_string()),
                 "l1" => (crate::layouts::l1(), "water carries golems to a lava blade in the villagers' sight".to_string()),
@@ -178,7 +201,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "m3" => (crate::day1::m3_bedplate(pad), "golems fall out of sight to a lava blade".to_string()),
                 "m2" => (crate::day1::m2_observer(pad), "golems fall out of sight to a lava blade".to_string()),
                 "m2open" => (crate::day1::m2_open(pad), "golems fall out of sight to a lava blade".to_string()),
-                "stack" => (crate::day1::m2_stack(modules, pitch, pad), format!("{modules} middle modules stacked")),
+                "stack" => (crate::day1::m2_stack(modules, [dx, pitch, dz], pad), format!("{modules} middle modules")),
+                "lp" => (crate::day1::lp(modules / 2, gap, period, pad), format!("{modules} clusters in up/down pairs")),
+                "twin" => (crate::day1::twin(pad, villagers - 4), "two clusters share a pad, a drop and a chamber".to_string()),
+                "tz" => (crate::day1::tz(pad), "two clusters share one zombie and one calm".to_string()),
+                "shared" => (crate::day1::stack_collect(modules, pitch, pad), format!("{modules} modules share one collection")),
                 other => bail!("no layout {other:?} (l1, l2, l2d, l3, l4, l5, l6p-dry, l6p-pad, m3, m2, stack)"),
             };
             // (every farm holds its chest, so the download is the whole farm; its `how:` line ends
@@ -213,7 +240,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let spec = match &terrain {
                 Some(name) => {
                     let site: &'static redsim::entity::mob::site::Site = Box::leak(Box::new(circuit::mobfarm::site_of(&c, &spec, name).map_err(|e| anyhow::anyhow!(e))?));
-                    println!("terrain {}: offset {:?}, {} blocks placed, {} dug, AFK at {:.1} {:.1} {:.1}", site.sample, site.offset, site.placed, site.dug, site.afk.x, site.afk.y, site.afk.z);
+                    println!("terrain {}: offset {:?}, {} blocks placed + {} filled, {} dug, AFK at {:.1} {:.1} {:.1}; the cheapest of {} spots (block time {:.0}-{:.0} s)", site.sample, site.offset, site.placed, site.fills.len(), site.dug, site.afk.x, site.afk.y, site.afk.z, site.spots, site.build_range.0, site.build_range.1);
                     o.site = Some(site);
                     site.spec(&spec)
                 }
@@ -224,6 +251,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             // (the day time of a spawn: the mob layer starts at day0 - SETTLE_TICKS at game time 0)
             let night = r.spawn_times.iter().filter(|t| (o.day0 - redsim::entity::mob::farm::SETTLE_TICKS + **t).rem_euclid(24000) >= 12000).count();
             println!("golems by day (day time 0..12000) {}, by night {night}", r.spawn_times.len() - night);
+            println!("containers at the end: {}", r.contents.join("; "));
             println!(
                 "day0 {}: {} golems ({:.1}/h), {} iron ({:.0}/h), {} in the chest, kill {:?} gt, {} tries without a spot, {} sightings, {} sleeps, longest without sleep {} gt, {:.1} s",
                 o.day0,
@@ -260,12 +288,108 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{}", design.display());
         }
         MobfarmCmd::Sight { design } => sight_cmd(version, &design)?,
+        MobfarmCmd::Cubes { design } => cubes_cmd(version, &design)?,
+        MobfarmCmd::Exposures { design, terrain } => {
+            let (c, spec) = load(version, &design)?;
+            let site = circuit::mobfarm::site_of(&c, &spec, &terrain).map_err(|e| anyhow::anyhow!(e))?;
+            let moved = site.spec(&spec);
+            let mut w = site.world_for(&moved);
+            w.place_raw(&moved.blocks);
+            w.settle_light();
+            let mut farm = circuit::mobfarm::hostile_farm(&w, &moved, site.afk);
+            {
+                let mut with = w.clone();
+                for (k, p, n) in &moved.entities {
+                    let _ = redsim::entity::spawn(&mut with, k, *p, n.as_deref());
+                }
+                farm.summoners = redsim::entity::mob::site::panicking(&with, &moved.blocks);
+            }
+            let ex = redsim::entity::mob::hostile::check(&w, &farm, true);
+            println!("{} in {} at offset {:?}: {} placed + {} filled, {} dug (the cheapest of {} spots, block time {:.0}-{:.0} s); {} golem cells, {} interior cells", design.display(), site.sample, site.offset, site.placed, site.fills.len(), site.dug, site.spots, site.build_range.0, site.build_range.1, farm.golem_cells.len(), farm.interior.len());
+            if ex.is_empty() {
+                println!("no exposure");
+            }
+            for e in ex {
+                println!("{}", e.line());
+            }
+        }
         MobfarmCmd::Gate { design, days, builds, no_rain_day, no_thunder_day, seed, parallel, warmup, keep, trace } => {
             crate::gate::gate_cmd(version, &design, crate::gate::GateArgs { days, builds, rain_day: !no_rain_day, thunder_day: !no_thunder_day, seed, parallel, warmup: (warmup[0], warmup[1]), keep, trace })?
         }
         MobfarmCmd::WeatherStats { days, servers, dt, sim_runs } => crate::weathercheck::weather_stats_cmd(version, days, servers, dt, sim_runs)?,
         MobfarmCmd::FireBurn { design, servers, max, seeds } => crate::weathercheck::fire_burn_cmd(version, &design, servers, max, seeds)?,
         MobfarmCmd::BoltCheck => crate::weathercheck::bolt_check_cmd(version)?,
+    }
+    Ok(())
+}
+
+/// `mobfarm cubes`: clusters by the spawn's 10-box (`Villager.spawnGolemIfNeeded`: the summoner's
+/// box inflated by 10), each golem spawn spot (`exit::spawn_spots`) owned by the clusters whose
+/// villagers' spawn search reaches it (8 columns, 6 up or down from the villager's block), and its
+/// golem box (1.4 x 2.7 at the cell's center) against the follow cube of every villager of the
+/// other clusters (`NearestLivingEntitySensor`: the villager's box inflated by FOLLOW_RANGE on all
+/// three axes; the range at its largest, 16 x (1 + 0.11485)).
+fn cubes_cmd(version: &str, design: &PathBuf) -> Result<()> {
+    use redsim::entity::mob::farm::{RunOpts, WalkMode, build};
+    use redsim::entity::{Aabb, EntityKind};
+    const R: f64 = 16.0 * 1.11485;
+    let (_, spec) = load(version, design)?;
+    let w = build(&spec, &RunOpts::steady(1, 0, WalkMode::Random)).map_err(|e| anyhow::anyhow!(e))?;
+    let vs: Vec<(Aabb, redsim::BlockPos)> = w
+        .entities
+        .list
+        .iter()
+        .filter(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager))
+        .map(|e| (e.bb, e.block_position()))
+        .collect();
+    // clusters: union-find over "inside the other's 10-box"
+    let mut parent: Vec<usize> = (0..vs.len()).collect();
+    fn root(p: &mut [usize], i: usize) -> usize {
+        let mut i = i;
+        while p[i] != i {
+            p[i] = p[p[i]];
+            i = p[i];
+        }
+        i
+    }
+    for i in 0..vs.len() {
+        for j in 0..vs.len() {
+            if i != j && vs[i].0.inflate(10.0, 10.0, 10.0).intersects(vs[j].0) {
+                let (a, b) = (root(&mut parent, i), root(&mut parent, j));
+                parent[a] = b;
+            }
+        }
+    }
+    let cluster: Vec<usize> = (0..vs.len()).map(|i| root(&mut parent, i)).collect();
+    let mut ids: Vec<usize> = cluster.clone();
+    ids.sort();
+    ids.dedup();
+    println!("{} villagers in {} clusters (by the spawn's 10-box)", vs.len(), ids.len());
+    let spots = redsim::entity::mob::exit::spawn_spots(&w);
+    let mut worst: Option<(f64, redsim::BlockPos, usize)> = None;
+    let mut inside = 0;
+    for c in &spots {
+        let owners: Vec<usize> = (0..vs.len()).filter(|&i| (c.x - vs[i].1.x).abs() <= 8 && (c.z - vs[i].1.z).abs() <= 8 && (c.y - vs[i].1.y).abs() <= 6).map(|i| cluster[i]).collect();
+        let (x, y, z) = (c.x as f64 + 0.5, c.y as f64, c.z as f64 + 0.5);
+        let g = Aabb::new(x - 0.7, y, z - 0.7, x + 0.7, y + 2.7, z + 0.7);
+        for (i, (vb, _)) in vs.iter().enumerate() {
+            if owners.contains(&cluster[i]) {
+                continue;
+            }
+            let cube = vb.inflate(R, R, R);
+            let sep = [cube.min_x - g.max_x, g.min_x - cube.max_x, cube.min_y - g.max_y, g.min_y - cube.max_y, cube.min_z - g.max_z, g.min_z - cube.max_z].into_iter().fold(f64::NEG_INFINITY, f64::max);
+            if sep < 0.0 {
+                inside += 1;
+            }
+            if worst.is_none_or(|(s, _, _)| sep < s) {
+                worst = Some((sep, *c, i));
+            }
+        }
+    }
+    println!("{} spawn spots; {} (spot, foreign villager) pairs inside the follow cube", spots.len(), inside);
+    match worst {
+        Some((sep, c, i)) => println!("smallest margin {sep:.4} blocks: the spot {} {} {} against villager {} (feet {:.4})", c.x, c.y, c.z, i, vs[i].0.min_y),
+        None => println!("no spot near a foreign cluster"),
     }
     Ok(())
 }
@@ -280,7 +404,10 @@ fn sight_cmd(version: &str, design: &PathBuf) -> Result<()> {
     let o = redsim::entity::mob::farm::RunOpts::steady(1, 0, redsim::entity::mob::farm::WalkMode::Random);
     let base = redsim::entity::mob::farm::build(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
     let eye = |w: &redsim::world::World, i: usize| redsim::entity::mob::villager::eye_pos(w, i);
-    let Some(z) = base.entities.list.iter().position(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Zombie)) else { bail!("no zombie") };
+    let zombies: Vec<usize> = base.entities.list.iter().enumerate().filter(|(_, e)| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Zombie)).map(|(i, _)| i).collect();
+    if zombies.is_empty() {
+        bail!("no zombie");
+    }
     let trapdoors: Vec<redsim::BlockPos> = spec.blocks.iter().filter(|(_, b)| matches!(b, Block::Trapdoor { .. })).map(|(p, _)| *p).collect();
     for (label, open) in [("as built", None), ("trapdoors shut", Some(false)), ("trapdoors open", Some(true))] {
         let mut w = base.clone();
@@ -291,19 +418,21 @@ fn sight_cmd(version: &str, design: &PathBuf) -> Result<()> {
                 }
             }
         }
-        let ze = eye(&w, z);
-        println!("{label}: zombie eye {:.4} {:.4} {:.4}", ze.x, ze.y, ze.z);
+        println!("{label}:");
         for (i, e) in w.entities.list.iter().enumerate() {
             if !matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Villager) {
                 continue;
             }
+            // the nearest zombie (one per cluster)
+            let z = *zombies.iter().min_by(|a, b| w.entities.list[**a].pos.distance_to_sqr(e.pos).total_cmp(&w.entities.list[**b].pos.distance_to_sqr(e.pos))).unwrap_or(&zombies[0]);
+            let ze = eye(&w, z);
             let ve = eye(&w, i);
             let hit = redsim::entity::mob::los::first_hit(&w, ve, ze);
             let what = match hit {
-                None => "SEES the zombie".to_string(),
+                None => "SEES its zombie".to_string(),
                 Some(p) => format!("blind (stopped at {} {} {}: {})", p.x, p.y, p.z, w.get(p)),
             };
-            println!("  villager at {:.2} {:.2} {:.2}, eye {:.4}: {what}", e.pos.x, e.pos.y, e.pos.z, ve.y);
+            println!("  villager at {:.2} {:.2} {:.2}, eye {:.4}, zombie eye {:.2} {:.2} {:.2}: {what}", e.pos.x, e.pos.y, e.pos.z, ve.y, ze.x, ze.y, ze.z);
         }
     }
     Ok(())

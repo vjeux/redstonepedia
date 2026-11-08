@@ -168,20 +168,73 @@ fn bp(p: Pos) -> BlockPos {
 pub fn site_of(c: &Circuit, spec: &FarmSpec, sample: &str) -> std::result::Result<redsim::entity::mob::site::Site, String> {
     let d = &c.clock.design;
     let s = redsim::terrain::samples::sample(sample).ok_or_else(|| format!("no terrain sample {sample}"))?;
-    let ground = d.meta.get("ground").map(|v| v.trim().parse::<i32>()).transpose().map_err(|e| format!("ground: {e}"))?.unwrap_or(-1);
-    let (lo, hi) = spec.blocks.iter().fold((spec.blocks[0].0, spec.blocks[0].0), |(lo, hi), (p, _)| (BlockPos::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z)), BlockPos::new(hi.x.max(p.x), hi.y.max(p.y), hi.z.max(p.z))));
-    let afk = match d.meta.get("afk") {
-        Some(v) => {
-            let p: Vec<f64> = v.split_whitespace().map(|t| t.parse::<f64>()).collect::<std::result::Result<_, _>>().map_err(|e| format!("afk: {e}"))?;
-            if p.len() != 3 {
-                return Err("afk: x y z".into());
-            }
-            [p[0], p[1], p[2]]
+    let (ground, afk, clear_box) = redsim::entity::mob::site::params(spec, d.meta.get("ground").map(String::as_str), d.meta.get("afk").map(String::as_str), d.meta.get("terrain").map(String::as_str))?;
+    redsim::entity::mob::site::Site::new(s, spec, ground, afk, clear_box)
+}
+
+/// The farm the terrain track's worst-case checks read (`hostile::Farm`), from a spec already
+/// built into `w`: its blocks and beds, its villagers' standing and sleeping boxes and eyes, its
+/// zombie and vehicle, the golem spawn cells its villagers' search finds inside its box, and the
+/// interior (the cells those occupy, the golem cells and the two above them).
+pub fn hostile_farm(w: &redsim::World, spec: &FarmSpec, afk: redsim::entity::Vec3) -> redsim::entity::mob::hostile::Farm {
+    use redsim::entity::{Aabb, Vec3};
+    let mut farm = redsim::entity::mob::hostile::Farm { afk, ..Default::default() };
+    for (q, _) in &spec.blocks {
+        farm.blocks.push(*q);
+        if let Block::Bed { head: true, .. } = w.get(*q) {
+            farm.beds.push(*q);
         }
-        None => [(lo.x + hi.x) as f64 / 2.0 + 0.5, hi.y as f64 + 1.0, (lo.z + hi.z) as f64 / 2.0 + 0.5],
-    };
-    let cells = d.meta.get("terrain").is_some_and(|v| v.trim() == "cells");
-    redsim::entity::mob::site::Site::new(s, spec, ground, afk, !cells)
+    }
+    for (kind, p, nbt) in &spec.entities {
+        let (x, y, z) = (p[0], p[1], p[2]);
+        let kind = kind.trim_start_matches("minecraft:");
+        if kind == "villager" {
+            farm.villagers.push(Aabb::new(x - 0.3, y, z - 0.3, x + 0.3, y + 1.95, z + 0.3));
+            farm.villagers.push(Aabb::new(x - 0.1, y, z - 0.1, x + 0.1, y + 0.2, z + 0.1));
+            farm.villager_eyes.push(Vec3::new(x, y + 1.62, z));
+            farm.villager_eyes.push(Vec3::new(x, y + 0.2, z));
+        } else if kind.ends_with("_boat") || kind.ends_with("_raft") || kind.contains("minecart") {
+            farm.zombie.push(Aabb::new(x - 0.6875, y, z - 0.6875, x + 0.6875, y + 0.5625, z + 0.6875));
+            if nbt.as_deref().is_some_and(|n| n.contains("zombie")) {
+                farm.zombie.push(Aabb::new(x - 0.3, y + 0.2, z - 0.3, x + 0.3, y + 2.15, z + 0.3));
+            }
+        } else if kind == "zombie" {
+            farm.zombie.push(Aabb::new(x - 0.3, y, z - 0.3, x + 0.3, y + 1.95, z + 0.3));
+        }
+    }
+    let starts: Vec<BlockPos> = farm.villagers.iter().step_by(2).map(|v| BlockPos::new(v.center().x.floor() as i32, v.min_y.floor() as i32, v.center().z.floor() as i32)).collect();
+    for s in starts {
+        for dz in -8..=8 {
+            for dx in -8..=8 {
+                if let Some(c) = redsim::entity::mob::spawn::possible_spawn_position(w, s.offset(dx, 6, dz), 6)
+                    && (spec.lo.x..=spec.hi.x).contains(&c.x)
+                    && (spec.lo.z..=spec.hi.z).contains(&c.z)
+                    && !farm.golem_cells.contains(&c)
+                {
+                    farm.golem_cells.push(c);
+                }
+            }
+        }
+    }
+    let mut interior: Vec<BlockPos> = Vec::new();
+    for b in farm.villagers.iter().chain(farm.zombie.iter()) {
+        for y in b.min_y.floor() as i32..=(b.max_y - 1.0e-6).floor() as i32 {
+            for z in b.min_z.floor() as i32..=(b.max_z - 1.0e-6).floor() as i32 {
+                for x in b.min_x.floor() as i32..=(b.max_x - 1.0e-6).floor() as i32 {
+                    interior.push(BlockPos::new(x, y, z));
+                }
+            }
+        }
+    }
+    for c in &farm.golem_cells {
+        for dy in 0..3 {
+            interior.push(c.offset(0, dy, 0));
+        }
+    }
+    interior.sort_by_key(|p| (p.x, p.y, p.z));
+    interior.dedup();
+    farm.interior = interior;
+    farm
 }
 
 /// The redsim farm of a (turned, moved) design: its blocks, entities, output chest and box.
@@ -195,7 +248,8 @@ pub fn spec_of(c: &Circuit) -> std::result::Result<FarmSpec, String> {
     }
     blocks.sort_by_key(|(q, _)| [q.x, q.y, q.z]);
     let entities = d.entities.iter().map(|e| (e.kind.clone(), e.pos, e.nbt.clone())).collect();
-    Ok(FarmSpec { blocks, entities, output: bp(out), lo: bp(from), hi: bp(to) })
+    let block_entities = d.block_entities.iter().map(|(p, s)| (bp(*p), s.clone())).collect();
+    Ok(FarmSpec { blocks, entities, output: bp(out), lo: bp(from), hi: bp(to), block_entities })
 }
 
 /// What the judge runs.
@@ -515,6 +569,15 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
     metrics.push(("misses".to_string(), format!("{no_spot} of {tries} tries found no spot, {seen} golem sightings")));
     metrics.push(("bill".to_string(), b.text()));
     metrics.push(("payback".to_string(), format!("{payback:.0} min")));
+    // the build effort and day 1's rank (brief revision 8, Stages: Day 1): 2 s a block placed
+    // (gathering included), 1 s a block dug (none in the void), 120 s a lava trip, 180 s a
+    // villager moved; then the minutes to own a 24-iron kit at the card's rate
+    let placed = c.clock.design.blocks.values().filter(|s| !matches!(s.split('[').next().unwrap_or("").trim_start_matches("minecraft:"), "air" | "cave_air" | "void_air")).count();
+    let build_s = 2.0 * placed as f64 + 120.0 * b.lava as f64 + 180.0 * b.villagers as f64;
+    metrics.push(("build time".to_string(), format!("{:.0} min ({placed} placed, 0 dug, {} lava trips, {} villagers moved)", build_s / 60.0, b.lava, b.villagers)));
+    if iron > 0.0 {
+        metrics.push(("time to an iron kit".to_string(), format!("{:.0} min (the build, then (bill + 24) / rate)", build_s / 60.0 + (b.iron + 24.0) / iron * 60.0)));
+    }
     // the stage lines (brief, Stages: What every card reports)
     metrics.push(("tools".to_string(), b.tools_text()));
     metrics.push(("lava sources".to_string(), b.lava.to_string()));

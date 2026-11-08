@@ -140,7 +140,11 @@ pub fn obstruction(w: &World, cell: BlockPos, pos: Vec3) -> Result<(), &'static 
 /// (`checkSpawnObstruction`); `Err` names the first rule that fails, and a column with no cell
 /// gives its lowest scanned cell. For the viewer (a live world: recompute when the farm changes).
 pub fn golem_spawn_cells(w: &World, i: usize) -> Vec<(BlockPos, Result<(), &'static str>)> {
-    let start = w.entities.list[i].block_position();
+    golem_spawn_cells_from(w, w.entities.list[i].block_position())
+}
+
+/// [`golem_spawn_cells`] of a search started at the villager cell `start`.
+pub fn golem_spawn_cells_from(w: &World, start: BlockPos) -> Vec<(BlockPos, Result<(), &'static str>)> {
     let mut out = Vec::with_capacity(289);
     for dz in -8..=8 {
         for dx in -8..=8 {
