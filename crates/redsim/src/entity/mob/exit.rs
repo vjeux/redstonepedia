@@ -184,15 +184,11 @@ pub fn golem_exit_in(spec: &FarmSpec, site: Option<&'static super::site::Site>, 
     base.mob.natural = None;
     // (a lone golem in the farm: a terrain sample's village and natural mobs left out)
     base.entities.list.retain(|e| own.contains(&e.id));
-    // in terrain, the spots of the villagers that panic (only they summon: a blind villager's
-    // search reaches natural ground the glass covers leave, but it never runs); in the void, every
-    // villager's (as archived)
-    let starters: Vec<u32> = if site.is_some() {
-        let summoners = super::site::panicking(&base, &spec.blocks);
-        own.iter().copied().filter(|id| crate::entity::index_of(&base, *id).is_some_and(|i| summoners.contains(&base.entities.list[i].block_position()))).collect()
-    } else {
-        own.clone()
-    };
+    // every villager's spots, in terrain too: a blind villager panics as well when it is hurt or
+    // sees any hostile (mobinfra's gate, run 5: a golem the third villager of D1U summoned onto the
+    // surface escaped), and the site's caps cover every villager's search (`site::covers_at`)
+    let starters: Vec<u32> = own.clone();
+    let _ = site;
     let spots = spawn_spots_of(&base, &starters);
     if spots.is_empty() {
         return Err("no golem can spawn anywhere in the build".into());

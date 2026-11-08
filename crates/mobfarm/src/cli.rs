@@ -131,6 +131,13 @@ pub enum MobfarmCmd {
         terrain: String,
         #[arg(long, default_value_t = 1)]
         repeat: u32,
+        /// The caps for the panicking villagers' golem searches only (the judge caps every
+        /// villager's, `site::covers_at`), to compare.
+        #[arg(long)]
+        panicking_only: bool,
+        /// List the cheapest spot's capped cells in design coordinates.
+        #[arg(long)]
+        caps: bool,
     },
     /// mobinfra: the real-game gate (what `circuit verify` and `circuit archive` run for a mob
     /// farm): each build in the 26.3 server for `--days` of natural weather, a forced day of rain
@@ -465,11 +472,24 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 for (k, p, n) in &moved.entities {
                     let _ = redsim::entity::spawn(&mut with, k, *p, n.as_deref());
                 }
-                redsim::entity::mob::site::panicking(&with, &moved.blocks)
+                redsim::entity::mob::site::villager_cells(&with)
             };
             let farm = circuit::mobfarm::hostile_farm(&w, &moved, site.afk, &summoners);
             let ex = redsim::entity::mob::hostile::check(&w, &farm, true);
             println!("{} in {} at offset {:?}: {} placed + {} filled + {} sealed, {} dug (the cheapest of {} spots, block time {:.0}-{:.0} s); {} golem cells, {} interior cells", design.display(), site.sample, site.offset, site.placed, site.fills.len(), site.seals.len(), site.dug, site.spots, site.build_range.0, site.build_range.1, farm.golem_cells.len(), farm.interior.len());
+            // the village's saved mobs against the farm's villagers: a village villager within the
+            // 10-box of a farm summoner (`spawnGolemIfNeeded`: inflate 10, 10, 10) counts toward
+            // its 3; any golem within 16 of a farm villager stalls it (GolemSensor)
+            if let Some(sample) = redsim::terrain::samples::sample(site.sample) {
+                let ents = redsim::entity::mob::site::sample_entities(sample).map_err(|e| anyhow::anyhow!(e))?;
+                let farm_v: Vec<[f64; 3]> = moved.entities.iter().filter(|(k, _, _)| k.trim_start_matches("minecraft:") == "villager").map(|(_, p, _)| *p).collect();
+                let near = |p: &[f64; 3], r: f64, ry: f64| farm_v.iter().any(|v| (v[0] - p[0]).abs() < r && (v[2] - p[2]).abs() < r && (v[1] - p[1]).abs() < ry);
+                for kind in ["villager", "iron_golem", "cat"] {
+                    let of: Vec<&[f64; 3]> = ents.iter().filter(|(k, _)| k == kind).map(|(_, p)| p).collect();
+                    let nearest = of.iter().map(|p| farm_v.iter().map(|v| ((v[0] - p[0]).powi(2) + (v[1] - p[1]).powi(2) + (v[2] - p[2]).powi(2)).sqrt()).fold(f64::INFINITY, f64::min)).fold(f64::INFINITY, f64::min);
+                    println!("village {kind}s as saved: {} (nearest {:.1} blocks from a farm villager; {} within the 10-box of one, {} within 16)", of.len(), nearest, of.iter().filter(|p| near(p, 10.6, 11.95)).count(), of.iter().filter(|p| near(p, 16.0, 16.0)).count());
+                }
+            }
             if ex.is_empty() {
                 println!("no exposure");
             }
@@ -481,7 +501,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
             }
         }
-        MobfarmCmd::Spots { design, terrain, repeat } => spots_cmd(version, &design, &terrain, repeat)?,
+        MobfarmCmd::Spots { design, terrain, repeat, panicking_only, caps } => spots_cmd(version, &design, &terrain, repeat, !panicking_only, caps)?,
         MobfarmCmd::Gate { design, days, builds, no_rain_day, no_thunder_day, seed, parallel, warmup, keep, trace, terrain, world } => {
             crate::gate::gate_cmd(version, &design, crate::gate::GateArgs { days, builds, rain_day: !no_rain_day, thunder_day: !no_thunder_day, seed, parallel, warmup: (warmup[0], warmup[1]), keep, trace, terrain, world })?
         }
@@ -528,7 +548,7 @@ fn compare_cmd(version: &str, design: &std::path::Path, opts: &crate::exact::Opt
 }
 
 /// `mobfarm spots`: the design priced at each spot of a terrain sample, cheapest first.
-fn spots_cmd(version: &str, design: &PathBuf, terrain: &str, repeat: u32) -> Result<()> {
+fn spots_cmd(version: &str, design: &PathBuf, terrain: &str, repeat: u32, all: bool, list_caps: bool) -> Result<()> {
     use redsim::entity::mob::site;
     let (c, spec) = load(version, design)?;
     let d = &c.clock.design;
@@ -548,12 +568,16 @@ fn spots_cmd(version: &str, design: &PathBuf, terrain: &str, repeat: u32) -> Res
     }
     let t_cheap = t2.elapsed().as_secs_f64() / repeat.max(1) as f64;
     let t3 = std::time::Instant::now();
-    let mut priced: Vec<site::Priced> = cheap.iter().map(|p| site::Priced { price: *p, covers: site::covers_at(&w, &spec, p.offset, clear_box), seals: site::seals_at(&w, &spec, p.offset, clear_box) }).collect();
+    let mut priced: Vec<site::Priced> = cheap.iter().map(|p| site::Priced { price: *p, covers: site::covers_from(&w, &spec, p.offset, clear_box, all), seals: site::seals_at(&w, &spec, p.offset, clear_box) }).collect();
     let t_covers = t3.elapsed().as_secs_f64();
     priced.sort_by(|a, b| a.seconds().total_cmp(&b.seconds()));
     println!("{} in {terrain} ({}): footprint {}x{}, {} deep, {} spots", design.display(), if clear_box { "its box cleared" } else { "its cells written, natural rock for the rest" }, fp.size[0], fp.size[1], fp.below, spots.len());
     for (k, p) in priced.iter().enumerate() {
         println!("  {k:2}: offset {:?}: {} placed + {} covers + {} seals ({} dug first), {} dug: {:.0} s", p.price.offset, p.price.placed, p.covers.len(), p.seals.len(), p.seals.iter().filter(|(_, d)| *d).count(), p.price.dug, p.seconds());
+        if list_caps && k == 0 {
+            let o = p.price.offset;
+            println!("      caps (design cells): {}", p.covers.iter().map(|c| format!("({},{},{})", c.x - o[0], c.y - o[1], c.z - o[2])).collect::<Vec<_>>().join(" "));
+        }
     }
     println!("times: sample world {:.3} s (once a process), spots {:.4} s (per footprint and depth), cheap part {:.6} s a call, covers {:.4} s for {} spots", t_world, t_spots, t_cheap, t_covers, priced.len());
     Ok(())

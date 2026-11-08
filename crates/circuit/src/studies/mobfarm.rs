@@ -279,7 +279,7 @@ pub fn exposures_of(site: &'static redsim::entity::mob::site::Site, moved: &Farm
         for (k, p, n) in &moved.entities {
             let _ = redsim::entity::spawn(&mut with, k, *p, n.as_deref());
         }
-        redsim::entity::mob::site::panicking(&with, &moved.blocks)
+        redsim::entity::mob::site::villager_cells(&with)
     };
     let farm = hostile_farm(&w, moved, site.afk, &summoners);
     let ex = redsim::entity::mob::hostile::check(&w, &farm, true);
@@ -547,10 +547,10 @@ pub fn t_kit_runs(spec: &FarmSpec, site: &'static redsim::entity::mob::site::Sit
 }
 
 /// The farm the terrain track's worst-case checks read (`hostile::Farm`), from a spec already
-/// built into `w` (its site's seals and glass covers in): its blocks and beds, its villagers'
+/// built into `w` (its site's seals and caps in): its blocks and beds, its villagers'
 /// standing and sleeping boxes and eyes, its zombie and vehicle, the golem spawn cells (where a
-/// golem can spawn, `checkSpawnObstruction` passing, for the searches of `summoners`, the
-/// villagers that panic: `site::panicking`), and the interior: the cells those occupy, the golem
+/// golem can spawn, `checkSpawnObstruction` passing, for the searches of `summoners`: every farm
+/// villager, `site::villager_cells`), and the interior: the cells those occupy, the golem
 /// cells and the two above them, and every open cell of the design (its dug air, beds, trapdoors,
 /// water...: the farm's own space, where a natural spawn is C1 and which no flood starts from).
 pub fn hostile_farm(w: &redsim::World, spec: &FarmSpec, afk: redsim::entity::Vec3, summoners: &[BlockPos]) -> redsim::entity::mob::hostile::Farm {

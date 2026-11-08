@@ -230,9 +230,15 @@ pub fn sample_world_shared(sample: &Sample) -> Result<std::sync::Arc<std::sync::
 /// The villagers a sample's world holds (its village's: village-edge has 8), from its saved
 /// entities.
 pub fn sample_villagers(sample: &Sample) -> Result<usize, String> {
+    Ok(sample_entities(sample)?.iter().filter(|(id, _)| id == "villager").count())
+}
+
+/// A sample's saved entities (the village's villagers, golem, cats...): (type without the
+/// `minecraft:` prefix, position).
+pub fn sample_entities(sample: &Sample) -> Result<Vec<(String, [f64; 3])>, String> {
     let bytes = std::fs::read(sample.file).map_err(|e| format!("terrain sample {}: {e}", sample.file))?;
     let t = crate::terrain::format::Terrain::decode(&bytes)?;
-    Ok(t.entities.iter().filter(|e| e.id.trim_start_matches("minecraft:") == "villager").count())
+    Ok(t.entities.iter().map(|e| (e.id.trim_start_matches("minecraft:").to_string(), e.pos)).collect())
 }
 
 /// The cheap part of a build's price at each of `spots` (from [`spots_for`]): blocks placed and
@@ -267,12 +273,20 @@ pub fn price_spots(w: &World, spec: &FarmSpec, fp: Footprint, ground: i32, clear
         .collect()
 }
 
-/// The glass covers of a build at `offset` (LEGACY_IRON_GOLEM excludes glass: one block a spot,
-/// nothing new above it): every natural cell the panicking villagers' golem search could spawn a
-/// golem on outside the farm's own floors, covered until none is left. Reads a crop of the world
+/// The caps of a build at `offset`: every natural cell a farm villager's golem search could spawn
+/// a golem on outside the farm's own floors, capped until none is left ([`cover_block`]). Every
+/// villager's search, not only those that panic at the farm's zombie: a villager panics too when
+/// it is hurt or sees any hostile (mobinfra's game gate of D1U, run 5: a golem the blind third
+/// villager summoned onto the surface escaped and stalled the farm). Reads a crop of the world
 /// around the farm (the golem searches reach 8 columns and 7 layers from their villager), so it
 /// costs a few milliseconds, not a copy of the sample.
 pub fn covers_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bool) -> Vec<BlockPos> {
+    covers_from(world, spec, offset, clear_box, true)
+}
+
+/// [`covers_at`] for every farm villager's search (`all`) or only the panicking ones' (the
+/// searches that run at the farm's own zombie: `panicking`).
+pub fn covers_from(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bool, all: bool) -> Vec<BlockPos> {
     let at = |p: BlockPos| BlockPos::new(p.x + offset[0], p.y + offset[1], p.z + offset[2]);
     let (lo, hi) = blocks_box(spec);
     let (mut clo, mut chi) = (at(lo).offset(-1, -1, -1), at(hi).offset(1, 1, 1));
@@ -298,7 +312,7 @@ pub fn covers_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bo
     for (k, p, n) in &spec.entities {
         let _ = crate::entity::spawn(&mut w, k, [p[0] + offset[0] as f64, p[1] + offset[1] as f64, p[2] + offset[2] as f64], n.as_deref());
     }
-    let starts = panicking(&w, &moved);
+    let starts = if all { villager_cells(&w) } else { panicking(&w, &moved) };
     let mut fills = Vec::new();
     for _ in 0..64 {
         let cells: Vec<BlockPos> = spawn_cells(&w, &starts).into_iter().filter(|c| !own.contains(&c.below())).collect();
@@ -405,6 +419,12 @@ pub fn valid_spots(w: &World, size: [i32; 2], below: i32, near: [i32; 2], radius
         }
     }
     keep
+}
+
+/// Every villager's block position in `w` (the starts of their golem searches: any of them can
+/// summon, [`covers_at`]).
+pub fn villager_cells(w: &World) -> Vec<BlockPos> {
+    (0..w.entities.list.len()).filter(|&i| matches!(&w.entities.list[i].kind, crate::entity::EntityKind::Mob(m) if m.ty == super::types::MobType::Villager)).map(|i| w.entities.list[i].block_position()).collect()
 }
 
 /// The villagers that panic in a farm built in `w` (its entities in), by block position: each
