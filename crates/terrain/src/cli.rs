@@ -332,7 +332,7 @@ pub fn run(version: &str, cmd: TerrainCmd) -> Result<()> {
             let t = read(&file)?;
             let des = mctas::design::Design::load(&design)?;
             let t0 = std::time::Instant::now();
-            let (paste, farm, refusals) = crate::hostilecheck::run(&t, &des, [at[0], at[1]], ground, [afk[0], afk[1], afk[2]])?;
+            let (paste, farm, exposures) = crate::hostilecheck::run(&t, &des, [at[0], at[1]], ground, [afk[0], afk[1], afk[2]])?;
             println!(
                 "footprint {}..{}, {} blocks dug; farm: {} blocks, {} villager boxes, {} interior cells, {} golem cells, {} beds ({:.1} s)",
                 paste.lo,
@@ -345,11 +345,11 @@ pub fn run(version: &str, cmd: TerrainCmd) -> Result<()> {
                 farm.beds.len(),
                 t0.elapsed().as_secs_f64()
             );
-            if refusals.is_empty() {
-                println!("no refusal: no natural mob can reach, see, attack or enter the farm");
+            if exposures.is_empty() {
+                println!("no exposure: no natural mob can reach, see, attack or enter the farm");
             }
-            for r in refusals {
-                println!("REFUSED {}: {}", r.channel, r.why);
+            for e in exposures {
+                println!("exposure {}", e.line());
             }
         }
         TerrainCmd::Spot { sample, size, below, near: near_arg, radius: radius_arg } => {

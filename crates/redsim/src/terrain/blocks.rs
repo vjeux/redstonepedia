@@ -77,6 +77,8 @@ pub struct Props {
     /// dirt into air changes this state (`updateShape`: it pops off or reshapes); every direction
     /// when the state cannot stand among dirt at all (the bridge's `blockinfo`).
     pub support: [bool; 6],
+    /// `BlockState.ignitedByLava()` (`LavaFluid.randomTick`'s flammable test).
+    pub ignited_by_lava: bool,
 }
 
 impl Props {
@@ -111,7 +113,7 @@ fn bits(s: &str) -> Vec<bool> {
 
 fn parse_row(line: &str) -> Result<(Props, Vec<String>), String> {
     let f: Vec<&str> = line.split('\t').collect();
-    if f.len() != 40 {
+    if f.len() != 41 {
         return Err(format!("{} fields in {}", f.len(), line.chars().take(80).collect::<String>()));
     }
     let list = |s: &str, sep: char| -> Vec<String> { if s == "-" { Vec::new() } else { s.split(sep).map(|x| x.to_string()).collect() } };
@@ -197,6 +199,7 @@ fn parse_row(line: &str) -> Result<(Props, Vec<String>), String> {
             }
             [s[0], s[1], s[2], s[3], s[4], s[5]]
         },
+        ignited_by_lava: f[40] == "1",
     };
     Ok((p, list(f[1], ' ')))
 }

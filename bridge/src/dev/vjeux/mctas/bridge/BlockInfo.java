@@ -75,6 +75,7 @@ final class BlockInfo {
                 sb.level.setBlock(pos.relative(d), air, Sandbox.RAW_FLAGS);
             }
             o.addProperty("support", support.toString());
+            o.addProperty("ignited_by_lava", st.ignitedByLava());
             out.add(o);
             sb.level.setBlock(pos, Blocks.AIR.defaultBlockState(), Sandbox.RAW_FLAGS);
         }
