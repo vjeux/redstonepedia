@@ -18,12 +18,23 @@ pub struct RandomStroll {
     pub check_no_action_time: bool,
     pub wanted: Vec3,
     pub water_avoiding: Option<f32>,
+    pub variant: Variant,
+}
+
+/// Which `RandomStrollGoal` subclass (its `canUse` gate and `getPosition`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Variant {
+    Plain,
+    /// `MoveBackToVillageGoal`: only outside a village, toward the closest village section.
+    MoveBackToVillage,
+    /// `GolemRandomStrollInVillageGoal`: its choices from the level random.
+    GolemInVillage,
 }
 
 impl RandomStroll {
     /// `new WaterAvoidingRandomStrollGoal(mob, speed)` (interval 120, probability 0.001).
     pub fn water_avoiding(speed: f64) -> RandomStroll {
-        RandomStroll { speed_modifier: speed, interval: 120, force_trigger: false, check_no_action_time: true, wanted: Vec3::ZERO, water_avoiding: Some(0.001) }
+        RandomStroll { speed_modifier: speed, interval: 120, force_trigger: false, check_no_action_time: true, wanted: Vec3::ZERO, water_avoiding: Some(0.001), variant: Variant::Plain }
     }
 }
 
@@ -33,6 +44,9 @@ fn rnd(w: &mut World, i: usize) -> &mut crate::rng::LegacyRandom {
 
 /// `canUse()`.
 pub fn can_use(w: &mut World, i: usize, g: &mut RandomStroll) -> bool {
+    if g.variant == Variant::MoveBackToVillage && !super::golem::back_to_village_gate(w, i) {
+        return false;
+    }
     // hasControllingPassenger: no mob here controls another
     if !g.force_trigger {
         if g.check_no_action_time && mob(w, i).no_action_time >= 100 {
@@ -51,6 +65,11 @@ pub fn can_use(w: &mut World, i: usize, g: &mut RandomStroll) -> bool {
 
 /// `getPosition()`.
 fn position(w: &mut World, i: usize, g: &RandomStroll) -> Option<Vec3> {
+    match g.variant {
+        Variant::MoveBackToVillage => return super::golem::back_to_village_position(w, i),
+        Variant::GolemInVillage => return super::golem::golem_village_position(w, i),
+        Variant::Plain => {}
+    }
     match g.water_avoiding {
         None => default_random_pos(w, i, 10, 7),
         Some(prob) => {
@@ -181,12 +200,17 @@ fn light_source_near(w: &mut World, p: BlockPos) -> Option<BlockPos> {
 }
 
 /// `RandomPos.generateRandomPos(supplier, weight)`: the best of 10 tries, its bottom centre.
-fn best_of_ten(w: &mut World, i: usize, mut supplier: impl FnMut(&mut World) -> Option<BlockPos>) -> Option<Vec3> {
+fn best_of_ten(w: &mut World, i: usize, supplier: impl FnMut(&mut World) -> Option<BlockPos>) -> Option<Vec3> {
+    best_of_ten_by(w, i, supplier, |w, p| walk_target_value(w, i, p))
+}
+
+/// `RandomPos.generateRandomPos(supplier, positionWeight)`: ten tries, the first best weight.
+fn best_of_ten_by(w: &mut World, _i: usize, mut supplier: impl FnMut(&mut World) -> Option<BlockPos>, mut weight: impl FnMut(&mut World, BlockPos) -> f64) -> Option<Vec3> {
     let mut best_w = f64::NEG_INFINITY;
     let mut best: Option<BlockPos> = None;
     for _ in 0..10 {
         if let Some(p) = supplier(w) {
-            let v = walk_target_value(w, i, p);
+            let v = weight(w, p);
             if v > best_w {
                 best_w = v;
                 best = Some(p);
@@ -194,6 +218,23 @@ fn best_of_ten(w: &mut World, i: usize, mut supplier: impl FnMut(&mut World) -> 
         }
     }
     best.map(|p| Vec3::new(p.x as f64 + 0.5, p.y as f64, p.z as f64 + 0.5))
+}
+
+/// `LandRandomPos.getPos(mob, h, v, positionWeight)`.
+pub fn land_random_pos_by(w: &mut World, i: usize, h: i32, v: i32, weight: impl FnMut(&mut World, BlockPos) -> f64) -> Option<Vec3> {
+    best_of_ten_by(
+        w,
+        i,
+        |w| {
+            let d = random_direction(w, i, h, v);
+            let p = toward_direction(w, i, d);
+            if outside_build_height(p.y) || !is_stable_destination(w, p) {
+                return None;
+            }
+            move_up_out_of_solid(w, i, p)
+        },
+        weight,
+    )
 }
 
 /// `DefaultRandomPos.getPos(mob, h, v)`.
@@ -245,6 +286,11 @@ pub fn land_pos_away(w: &mut World, i: usize, min_h: f64, max_h: f64, v: i32, av
         let b = rnd(w, i).next_double() - 0.5;
         dir = Vec3::new(a, 0.0, b);
     }
+    land_pos_in_direction(w, i, min_h, max_h, v, dir)
+}
+
+/// `LandRandomPos.getPosInDirection(mob, minH, maxH, v, dir, restrict)` (no home: no restriction).
+pub fn land_pos_in_direction(w: &mut World, i: usize, min_h: f64, max_h: f64, v: i32, dir: Vec3) -> Option<Vec3> {
     best_of_ten(w, i, |w| {
         let d = random_direction_within_radians(w, i, min_h, max_h, v, 0, dir.x, dir.z, (std::f64::consts::PI / 2.0) as f32 as f64)?;
         let p = toward_direction(w, i, d);

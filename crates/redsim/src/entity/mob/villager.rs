@@ -518,7 +518,8 @@ pub fn stop_sleeping(w: &mut World, i: usize) {
         let yaw = w.entities.list[i].y_rot;
         let stand = find_stand_up_position(w, ty, bed, facing, yaw).unwrap_or(Vec3::new(bed.x as f64 + 0.5, bed.y as f64 + 1.0 + 0.1, bed.z as f64 + 0.5));
         let look = Vec3::new(bed.x as f64 + 0.5, bed.y as f64, bed.z as f64 + 0.5).subtract_v(stand).normalize();
-        let yaw = mth::wrap_degrees_d(mth::atan2(look.z, look.x) * 180.0f32 as f64 / std::f32::consts::PI as f64 - 90.0) as f32;
+        // the bytecode: `Mth.wrapDegrees(Mth.atan2(z, x) * (double)Mth.RAD_TO_DEG - 90.0)`
+        let yaw = mth::wrap_degrees_d(mth::atan2(look.z, look.x) * 57.2957763671875 - 90.0) as f32;
         mob_mut(w, i).sleeping_pos = None;
         w.entities.set_pos(i, stand);
         w.entities.list[i].y_rot = yaw;

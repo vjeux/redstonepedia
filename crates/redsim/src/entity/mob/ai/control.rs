@@ -25,11 +25,16 @@ pub fn rotate_if_necessary(base: f32, target: f32, max_diff: f32) -> f32 {
 /// `(float)Math.PI`.
 pub const PI_F: f32 = std::f32::consts::PI;
 
-/// The controls' angle formula `(float)(Mth.atan2(y, x) * 180.0F / (float)Math.PI)`.
+/// The controls' angle formula: the decompiled `(float)(Mth.atan2(y, x) * 180.0F / (float)Math.PI)`
+/// is, in the bytecode, `(float)(Mth.atan2(y, x) * (double)Mth.RAD_TO_DEG)` (javac inlines the
+/// float constant `180.0F / (float)Math.PI` = 57.295776f): one multiply by 57.2957763671875.
 #[inline]
 pub fn atan2_degrees(y: f64, x: f64) -> f32 {
-    (mth::atan2(y, x) * 180.0f32 as f64 / PI_F as f64) as f32
+    (mth::atan2(y, x) * RAD_TO_DEG_D) as f32
 }
+
+/// `(double)Mth.RAD_TO_DEG` (`180.0F / (float)Math.PI` as a float, widened).
+pub const RAD_TO_DEG_D: f64 = 57.2957763671875;
 
 /// `MoveControl.Operation`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]

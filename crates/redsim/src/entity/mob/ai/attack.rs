@@ -42,11 +42,26 @@ pub fn do_hurt_target(w: &mut World, i: usize, t: Who) -> bool {
     if !matches!(w.entities.list[j].kind, crate::entity::EntityKind::Mob(_)) {
         return false;
     }
-    let dmg = attack_damage(w, i);
+    let golem = mob(w, i).ty == crate::entity::mob::types::MobType::IronGolem;
+    let dmg = if golem {
+        // IronGolem.doHurtTarget: half the damage plus nextInt(damage) from its own random
+        let a = attack_damage(w, i);
+        let r = w.entities.list[i].random.as_mut().expect("random").next_int(a as i32);
+        a / 2.0 + r as f32
+    } else {
+        attack_damage(w, i)
+    };
     let attacker = w.entities.list[i].id;
     let prev = w.mob.ai.attacker.replace(attacker);
     let hurt = living::hurt(w, j, Damage::MobAttack, dmg);
     w.mob.ai.attacker = prev;
+    if hurt && golem {
+        // the toss: +0.4 up, scaled by the target's knockback resistance
+        let resist = if mob(w, j).ty == crate::entity::mob::types::MobType::IronGolem { 1.0 } else { 0.0 };
+        let scale = (1.0f64 - resist).max(0.0);
+        let e = &mut w.entities.list[j];
+        e.delta_movement = e.delta_movement.add(0.0, (0.4f32 as f64) * scale, 0.0);
+    }
     if hurt {
         // causeExtraKnockback: no ATTACK_KNOCKBACK on the modeled melee mobs; setLastHurtMob
         if has_ai(w, i) {
@@ -96,7 +111,7 @@ pub fn after_hurt(w: &mut World, i: usize, src: Damage, took_full: bool) {
     {
         let src_pos = w.entities.list[ai_idx].pos;
         let e = &w.entities.list[i];
-        knockback(w, i, 0.4, src_pos.x - e.pos.x, src_pos.z - e.pos.z);
+        knockback(w, i, 0.4f32 as f64, src_pos.x - e.pos.x, src_pos.z - e.pos.z);
     }
     if mob(w, i).health <= 0.0 {
         if took_full {
@@ -118,13 +133,13 @@ pub fn knockback(w: &mut World, i: usize, power: f64, mut xd: f64, mut zd: f64) 
     if power <= 0.0 {
         return;
     }
-    if xd * xd + zd * zd < 1.0e-5f32 as f64 {
-        let why = "a knockback from the victim's own position (Math.random direction) is not modeled".to_string();
-        if !w.errors.contains(&why) {
-            w.errors.push(why);
-        }
-        xd = 0.01;
-        zd = 0.0;
+    // a victim at the attacker's very position: a random direction from its own random
+    while xd * xd + zd * zd < 1.0e-5f32 as f64 {
+        let r = w.entities.list[i].random.as_mut().expect("random");
+        let (a, b) = (r.next_double(), r.next_double());
+        xd = (a - b) * 0.01;
+        let (a, b) = (r.next_double(), r.next_double());
+        zd = (a - b) * 0.01;
     }
     let e = &mut w.entities.list[i];
     let d = e.delta_movement;

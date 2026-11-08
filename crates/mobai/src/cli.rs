@@ -88,6 +88,15 @@ pub enum MobaiCmd {
         #[arg(long)]
         terrain: Option<String>,
     },
+    /// redsim's math ports (Math.sin/cos, Mth.atan2, Mth.sin/cos) against the game JVM, bit for
+    /// bit, on random inputs (and the given ones: decimals or 0x raw bits).
+    Mathfuzz {
+        #[arg(long, default_value_t = 20000)]
+        n: usize,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        inputs: Vec<String>,
+    },
 }
 
 pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
@@ -97,5 +106,6 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::Pathfuzz { cases, seed, density, verbose } => crate::pathfuzz::pathfuzz(version, cases, seed, density, verbose),
         MobaiCmd::Fixture { name, seed, ticks, full, probe, trace_at, entity } => crate::fixture::run(version, &name, seed, ticks, full, probe, trace_at, entity),
         MobaiCmd::FarmTrace { design, seed, at, entity, terrain } => crate::farmtrace::run(version, &design, seed, at, entity, terrain),
+        MobaiCmd::Mathfuzz { n, seed, inputs } => crate::mathfuzz::run(version, n, seed, &inputs),
     }
 }

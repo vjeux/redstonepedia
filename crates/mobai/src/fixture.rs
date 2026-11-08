@@ -102,6 +102,50 @@ pub fn scenes() -> Vec<Scene> {
             watch: ([0, 60, 0], [47, 70, 47]),
         });
     }
+    // an iron golem and a zombie 12 apart at night: each targets the other (the golem: enemies
+    // but creepers, every 3 ticks; the zombie: iron golems, mustSee), the chase, the hits
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        v.push(Scene {
+            name: "golem-zombie".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:iron_golem".into(), [8.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:zombie".into(), [20.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+        });
+    }
+    // a zombie pathing to a villager penned in fences beyond two low walls (the walls and the
+    // fences do not block the sight between their eyes): the target, the path around the walls,
+    // the hits through the fence; the villager panics (its brain's PANIC)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        wall(&mut b, (16, 12), (16, 36), 63, 1, stone);
+        wall(&mut b, (26, 20), (26, 44), 63, 1, stone);
+        for (x, z) in [(35, 23), (36, 23), (37, 23), (35, 24), (37, 24), (35, 25), (36, 25), (37, 25)] {
+            b.push(([x, 64, z], "minecraft:oak_fence".to_string()));
+        }
+        v.push(Scene {
+            name: "zombie-villager".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:zombie".into(), [6.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:villager".into(), [36.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+        });
+    }
     v
 }
 
@@ -114,7 +158,7 @@ pub struct GameScene {
 }
 
 impl GameScene {
-    pub fn start(version: &str, s: &Scene, seed: i64) -> Result<GameScene> {
+    pub fn start(version: &str, s: &Scene, seed: i64, trace_randoms: bool) -> Result<GameScene> {
         let mut w = Worker::spawn(&WorkerConfig { version: version.to_string(), heap_mb: 2048, ..Default::default() })?;
         let sb = w.create(&SandboxOptions { chunks: s.chunks, seed })?;
         w.call(json!({
@@ -123,6 +167,7 @@ impl GameScene {
             "advance_weather": false, "spawn_mobs": false, "spawn_monsters": false,
             "difficulty": difficulty_name(s.difficulty),
             "rules": {"mob_griefing": if s.mob_griefing { "true" } else { "false" }},
+            "trace_randoms": trace_randoms,
         }))?;
         if !s.blocks.is_empty() {
             w.set_blocks(sb, &s.blocks, PlaceMode::Raw)?;
@@ -141,6 +186,29 @@ impl GameScene {
         let v = self.w.call(json!({"op": "trace", "sandbox": self.sb, "ticks": ticks, "draws": draws, "box": {"from": self.lo, "to": self.hi}}))?;
         v["frames"].as_array().ok_or_else(|| anyhow!("trace: no frames"))?.iter().map(mobfarm::exact::parse_frame).collect()
     }
+
+    /// The bridge's `mobstate` (debugging): each mob's controls and path, one line each.
+    pub fn mob_state(&mut self) -> Result<Vec<String>> {
+        let v = self.w.call(json!({"op": "mobstate", "sandbox": self.sb}))?;
+        Ok(v["mobs"].as_array().map(|a| a.iter().map(|m| m.to_string()).collect()).unwrap_or_default())
+    }
+}
+
+/// redsim's side of `mobstate`: each AI mob's controls and path.
+fn redsim_mob_state(w: &World) -> Vec<String> {
+    let mut out = Vec::new();
+    for e in w.entities.list.iter().filter(|e| !e.removed) {
+        if let EntityKind::Mob(m) = &e.kind
+            && let Some(a) = m.ai.as_deref()
+        {
+            let path = a.nav.path.as_ref().map(|p| format!("{}:{}", p.next_node_index, p.nodes.iter().map(|n| format!(" {},{},{}", n.x, n.y, n.z)).collect::<String>()));
+            out.push(format!(
+                "{} x {:?} y {:?} z {:?} yaw {:?} move {:?} {:?} {:?} {:?} {:?} look {:?} {:?} {:?} {} path {:?}",
+                m.ty.def().id, e.pos.x, e.pos.y, e.pos.z, e.y_rot, a.move_ctl.wanted_x, a.move_ctl.wanted_y, a.move_ctl.wanted_z, a.move_ctl.operation, a.move_ctl.speed_modifier, a.look.wanted_x, a.look.wanted_y, a.look.wanted_z, a.look.look_at_cooldown, path
+            ));
+        }
+    }
+    out
 }
 
 /// redsim's side of a scene: the world over the chunk box (y -64..319), the blocks raw, the mob
@@ -184,7 +252,7 @@ pub fn redsim_summon(w: &mut World, s: &Scene) -> Result<Vec<u64>> {
 /// the entity's own random) printed by call site.
 #[allow(clippy::too_many_arguments)]
 pub fn compare(version: &str, s: &Scene, seed: i64, ticks: u32, batch: u32, full: bool, probe: bool, trace: Option<(i64, Option<u32>)>) -> Result<Compare> {
-    let mut game = GameScene::start(version, s, seed)?;
+    let mut game = GameScene::start(version, s, seed, probe || trace.is_some())?;
     let mut ours = redsim_world(s, seed)?;
     let game_ids = game.summon(s)?;
     let our_ids = redsim_summon(&mut ours, s)?;
@@ -194,11 +262,26 @@ pub fn compare(version: &str, s: &Scene, seed: i64, ticks: u32, batch: u32, full
     let mut watch = Watch::new(&ours, BlockPos::new(s.watch.0[0], s.watch.0[1], s.watch.0[2]), BlockPos::new(s.watch.1[0], s.watch.1[1], s.watch.1[2]));
     let mut cmp = Compare { probe_at: trace.map(|t| t.0), ..Default::default() };
     let show = std::env::var("MOBAI_SHOW").is_ok();
+    let show_until: Option<i64> = std::env::var("MOBAI_SHOW_UNTIL").ok().and_then(|v| v.parse().ok());
     let mut left = ticks;
     let mut first = true;
+    let state_range: Option<(i64, i64)> = std::env::var("MOBAI_STATE").ok().and_then(|v| {
+        let (a, b) = v.split_once(',')?;
+        Some((a.parse().ok()?, b.parse().ok()?))
+    });
+    let mut done: i64 = 0;
     while left > 0 {
-        let n = left.min(batch);
-        for f in game.trace(n, probe || trace.is_some())? {
+        // one tick per traced step inside the state window (the controls between ticks)
+        let in_window = state_range.is_some_and(|(a, b)| done + 1 >= a && done < b);
+        let n = match state_range {
+            _ if in_window => 1,
+            Some((a, _)) if done + 1 < a => (left.min(batch) as i64).min(a - 1 - done).max(1) as u32,
+            _ => left.min(batch),
+        };
+        let frames = game.trace(n, probe || trace.is_some())?;
+        done += n as i64;
+        let game_state = if in_window { game.mob_state()? } else { Vec::new() };
+        for f in frames {
             if first {
                 // the sandbox's clock: redsim's game time before the first traced tick
                 ours.time = f.t - 1;
@@ -224,7 +307,22 @@ pub fn compare(version: &str, s: &Scene, seed: i64, ticks: u32, batch: u32, full
                     eprintln!("t {} #{} {} pos {:?} goals {:?} path {:?} target {:?} no_action {:?}", o.t, e.n, e.ty, e.pos, e.goals, e.path, e.target, e.no_action);
                 }
             }
+            if let Some(n) = show_until
+                && o.t <= n
+            {
+                for (g, e) in f.entities.iter().zip(o.entities.iter()) {
+                    eprintln!("t {} #{} game: yaw {} head {:?} body {:?} pitch {} goals {:?} path {:?} pos {:?} | redsim: yaw {} head {:?} body {:?} pitch {} goals {:?} path {:?} pos {:?}", o.t, e.n, g.yaw, g.head, g.body, g.pitch, g.goals, g.path, g.pos, e.yaw, e.head, e.body, e.pitch, e.goals, e.path, e.pos);
+                }
+            }
             cmp.tick(&f, &o);
+            if in_window {
+                for l in &game_state {
+                    eprintln!("state t {} game   {l}", o.t);
+                }
+                for l in redsim_mob_state(&ours) {
+                    eprintln!("state t {} redsim {l}", o.t);
+                }
+            }
         }
         left -= n;
         if cmp.first.is_some() && !full {

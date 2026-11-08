@@ -73,6 +73,10 @@ fn base_tick(w: &mut World, i: usize) {
         }
     }
     let was_in_lava = mob(w, i).lava_height > 0.0;
+    // ---- mob AI (the mob-AI lane): canSpawnSprintParticle's draw (iron golems) ----
+    if super::ai::has_ai(w, i) {
+        super::ai::before_base_tick(w, i);
+    }
     // Entity.baseTick: computeSpeed, wasEyeInWater, updateFluidInteraction (water current 0.014),
     // checkBelowWorld, firstTick
     entity::base_tick(w, i);
@@ -591,8 +595,10 @@ fn actually_hurt(w: &mut World, i: usize, src: Damage, mut dmg: f32) {
         dmg *= 1.0f32 - real / 25.0f32;
     }
     if dmg != 0.0 {
+        // setHealth: clamped to [0, max]
+        let max = mob(w, i).ty.def().max_health;
         let m = mob_mut(w, i);
-        m.health -= dmg;
+        m.health = (m.health - dmg).clamp(0.0, max);
     }
 }
 
@@ -708,7 +714,9 @@ fn push_entities(w: &mut World, i: usize) {
         return;
     }
     let cram = w.mob.cramming;
-    if cram > 0 && others.len() as i32 > cram - 1 && w.mob.rng_mut().next_int(4) == 0 {
+    // the cramming roll is the mob's own random (the stand-in without the mob AI's seeding)
+    let roll = |w: &mut World| if super::ai::has_ai(w, i) { w.entities.list[i].random.as_mut().expect("random").next_int(4) } else { w.mob.rng_mut().next_int(4) };
+    if cram > 0 && others.len() as i32 > cram - 1 && roll(w) == 0 {
         let count = others.iter().filter(|&&j| w.entities.list[j].vehicle.is_none()).count() as i32;
         if count > cram - 1 {
             hurt(w, i, Damage::Cramming, 6.0);
@@ -721,6 +729,9 @@ fn push_entities(w: &mut World, i: usize) {
                 w.errors.push(why);
             }
             continue;
+        }
+        if super::ai::has_ai(w, i) {
+            super::ai::before_do_push(w, i, j);
         }
         push_pair(w, j, i);
     }

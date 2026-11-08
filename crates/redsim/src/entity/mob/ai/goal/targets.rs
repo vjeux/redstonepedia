@@ -104,6 +104,8 @@ fn can_reach(w: &mut World, i: usize, b: &mut TargetBase, t: Who) -> bool {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TargetType {
     Player,
+    /// `Player` with the iron golem's `isAngryAt` selector (its anger target).
+    AngryPlayer,
     /// `AbstractVillager` (villagers, wandering traders).
     Villager,
     IronGolem,
@@ -129,7 +131,8 @@ impl NearestAttackableTarget {
     }
 }
 
-fn is_enemy(ty: MobType) -> bool {
+/// `Enemy` among the modeled mobs, creepers aside (the iron golem's and the zombie's selectors).
+pub fn is_enemy(ty: MobType) -> bool {
     ty.def().monster && ty.def().id != "creeper"
 }
 
@@ -149,6 +152,10 @@ fn find_target(w: &mut World, i: usize, g: &mut NearestAttackableTarget) {
     let at = super::super::eye_pos(w, i);
     let list: Vec<Who> = match g.target_type {
         TargetType::Player => target::players(w),
+        TargetType::AngryPlayer => {
+            let anger = ai(w, i).anger_target;
+            target::players(w).into_iter().filter(|p| Some(target::id_of(w, *p)) == anger).collect()
+        }
         t => {
             let area: Aabb = w.entities.list[i].bb.inflate(d, d, d);
             target::mobs_in(w, area, |ty| match t {
@@ -156,7 +163,7 @@ fn find_target(w: &mut World, i: usize, g: &mut NearestAttackableTarget) {
                 TargetType::IronGolem => ty == MobType::IronGolem,
                 TargetType::BabyTurtle => false,
                 TargetType::EnemyNotCreeper => is_enemy(ty),
-                TargetType::Player => false,
+                TargetType::Player | TargetType::AngryPlayer => false,
             })
         }
     };

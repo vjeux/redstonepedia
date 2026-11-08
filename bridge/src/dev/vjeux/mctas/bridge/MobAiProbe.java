@@ -25,6 +25,32 @@ final class MobAiProbe {
     private MobAiProbe() {
     }
 
+    /**
+     * {@code math}: the game JVM's own answers for the math the mob AI uses (no sandbox): for each
+     * input (a double's raw bits, as a decimal string), {@code Math.sin}, {@code Math.cos},
+     * {@code Math.sqrt}, {@code Mth.sin}/{@code Mth.cos} of it as a float, and {@code Mth.atan2(x, y)}
+     * against the next input; results as raw bits (decimal strings).
+     */
+    static JsonObject math(JsonObject r) {
+        JsonArray in = r.getAsJsonArray("x");
+        JsonArray out = new JsonArray();
+        for (int k = 0; k < in.size(); k++) {
+            double x = Double.longBitsToDouble(Long.parseLong(in.get(k).getAsString()));
+            double y = Double.longBitsToDouble(Long.parseLong(in.get((k + 1) % in.size()).getAsString()));
+            JsonArray row = new JsonArray();
+            row.add(Long.toString(Double.doubleToRawLongBits(Math.sin(x))));
+            row.add(Long.toString(Double.doubleToRawLongBits(Math.cos(x))));
+            row.add(Long.toString(Double.doubleToRawLongBits(Math.sqrt(Math.abs(x)))));
+            row.add(Integer.toString(Float.floatToRawIntBits(net.minecraft.util.Mth.sin((float) x))));
+            row.add(Integer.toString(Float.floatToRawIntBits(net.minecraft.util.Mth.cos((float) x))));
+            row.add(Long.toString(Double.doubleToRawLongBits(net.minecraft.util.Mth.atan2(x, y))));
+            out.add(row);
+        }
+        JsonObject res = new JsonObject();
+        res.add("out", out);
+        return res;
+    }
+
     static JsonObject path(Sandbox sb, JsonObject r) throws ReflectiveOperationException {
         EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.parse(r.get("mob").getAsString()));
         Entity e = type.create(sb.level, EntitySpawnReason.COMMAND);
@@ -73,5 +99,45 @@ final class MobAiProbe {
         o.addProperty("in_water", mob.isInWater());
         o.addProperty("min_y", sb.level.getMinY());
         return o;
+    }
+
+    /**
+     * {@code mobstate}: every mob of the sandbox's level (debugging the mob AI between ticks): its
+     * position and rotations as raw bits, its move control's wanted position and operation, its
+     * look control's wanted position, and its path (nodes, next index).
+     */
+    static JsonObject mobState(Sandbox sb) throws ReflectiveOperationException {
+        java.lang.reflect.Field op = net.minecraft.world.entity.ai.control.MoveControl.class.getDeclaredField("operation");
+        op.setAccessible(true);
+        JsonArray out = new JsonArray();
+        for (Entity e : sb.level.getAllEntities()) {
+            if (!(e instanceof Mob mob)) {
+                continue;
+            }
+            JsonObject m = new JsonObject();
+            m.addProperty("type", BuiltInRegistries.ENTITY_TYPE.getKey(e.getType()).toString());
+            m.addProperty("x", Double.toString(e.getX()));
+            m.addProperty("y", Double.toString(e.getY()));
+            m.addProperty("z", Double.toString(e.getZ()));
+            m.addProperty("yaw", Float.toString(e.getYRot()));
+            var mc = mob.getMoveControl();
+            m.addProperty("move", mc.getWantedX() + " " + mc.getWantedY() + " " + mc.getWantedZ() + " " + op.get(mc) + " " + mc.getSpeedModifier());
+            var lc = mob.getLookControl();
+            m.addProperty("look", lc.getWantedX() + " " + lc.getWantedY() + " " + lc.getWantedZ() + " " + lc.isLookingAtTarget());
+            Path path = mob.getNavigation().getPath();
+            if (path != null) {
+                StringBuilder sbuf = new StringBuilder();
+                sbuf.append(path.getNextNodeIndex()).append(":");
+                for (int i = 0; i < path.getNodeCount(); i++) {
+                    Node n = path.getNode(i);
+                    sbuf.append(" ").append(n.x).append(",").append(n.y).append(",").append(n.z);
+                }
+                m.addProperty("path", sbuf.toString());
+            }
+            out.add(m);
+        }
+        JsonObject res = new JsonObject();
+        res.add("mobs", out);
+        return res;
     }
 }

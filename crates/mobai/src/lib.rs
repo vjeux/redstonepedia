@@ -4,4 +4,5 @@ pub mod bench;
 pub mod cli;
 pub mod farmtrace;
 pub mod fixture;
+pub mod mathfuzz;
 pub mod pathfuzz;

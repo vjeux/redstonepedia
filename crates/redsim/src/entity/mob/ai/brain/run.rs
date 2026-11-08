@@ -670,26 +670,75 @@ pub fn trigger(w: &mut World, i: usize, n: usize, t: i64) -> bool {
             false
         }
         Kind::StrollToPoiList { .. } => false,
-        Kind::SetClosestHomeAsWalkTarget { .. } => {
+        Kind::SetClosestHomeAsWalkTarget { last_update } => {
             if !check(w, i, M::WalkTarget, Absent) || !check(w, i, M::Home, Absent) {
                 return false;
             }
-            refuse(w, "a villager without a home in REST (SetClosestHomeAsWalkTarget) is not modeled");
-            false
+            if w.time - last_update < 20 {
+                return false;
+            }
+            // poiManager.findClosest(HOME, pos, 48, ANY): none, or within 2 blocks: nothing to do
+            let pos = w.entities.list[i].block_position();
+            let d2 = |p: &BlockPos| {
+                let (dx, dy, dz) = ((p.x - pos.x) as f64, (p.y - pos.y) as f64, (p.z - pos.z) as f64);
+                dx * dx + dy * dy + dz * dz
+            };
+            let homes: Vec<BlockPos> = crate::entity::mob::ai::poi::index(w).iter().filter(|(_, k)| *k == crate::entity::mob::ai::poi::PoiKind::Home).map(|(p, _)| *p).collect();
+            let near = homes.iter().filter(|p| p.x.abs_diff(pos.x) <= 48 && p.z.abs_diff(pos.z) <= 48 && d2(p) <= 48.0 * 48.0).min_by(|a, b| d2(a).total_cmp(&d2(b)));
+            match near {
+                Some(p) if d2(p) > 4.0 => {
+                    refuse(w, "a homeless villager walking to the closest bed (SetClosestHomeAsWalkTarget's path to several POIs) is not modeled");
+                    false
+                }
+                _ => false,
+            }
         }
         Kind::InsideBrownianWalk => {
             if !check(w, i, M::WalkTarget, Absent) {
                 return false;
             }
-            refuse(w, "a villager without a home in REST (InsideBrownianWalk) is not modeled");
-            false
+            let pos = w.entities.list[i].block_position();
+            match crate::weather::can_see_sky(w, pos) {
+                Ok(true) => false,
+                Ok(false) => {
+                    // Collections.shuffle without a random: the JVM's unseeded one
+                    refuse(w, "a homeless villager indoors at night (InsideBrownianWalk: an unseeded shuffle) is not modeled");
+                    false
+                }
+                Err(e) => {
+                    refuse(w, &format!("InsideBrownianWalk: the sky at {pos}: {e}"));
+                    false
+                }
+            }
         }
         Kind::GoToClosestVillage => {
             if !check(w, i, M::WalkTarget, Absent) {
                 return false;
             }
-            refuse(w, "a villager without a home in REST (GoToClosestVillage) is not modeled");
-            false
+            use crate::entity::mob::ai::poi;
+            let pos = w.entities.list[i].block_position();
+            if poi::is_village(w, pos) {
+                return false;
+            }
+            let here = poi::sections_to_village(w, pos);
+            let mut target = None;
+            for _ in 0..5 {
+                let lp = crate::entity::mob::ai::goal::stroll::land_random_pos_by(w, i, 15, 7, |w, p| -(poi::sections_to_village(w, p) as f64));
+                if let Some(lp) = lp {
+                    let d = poi::sections_to_village(w, super::containing(lp));
+                    if d < here {
+                        target = Some(lp);
+                        break;
+                    }
+                    if d == here {
+                        target = Some(lp);
+                    }
+                }
+            }
+            if let Some(t) = target {
+                ex_mut(w, i).mem.walk_target = Some(WalkTarget::at_point(t, 0.5, 4));
+            }
+            true
         }
         Kind::VillagerCalmDown => {
             let me = w.entities.list[i].pos;

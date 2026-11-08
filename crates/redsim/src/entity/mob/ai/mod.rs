@@ -72,6 +72,9 @@ pub struct MobAi {
     pub last_hurt_mob: Option<u32>,
     /// The attacker of the last damage (`lastDamageSource.getEntity()`).
     pub last_damage_entity: Option<u32>,
+    /// `NeutralMob`: the persistent anger target and its end time (-1: none).
+    pub anger_target: Option<u32>,
+    pub anger_end: i64,
 }
 
 impl MobAi {
@@ -105,6 +108,8 @@ impl MobAi {
             can_break_doors: false,
             last_hurt_mob: None,
             last_damage_entity: None,
+            anger_target: None,
+            anger_end: -1,
         };
         goal::register_goals(&mut ai, ty);
         ai
@@ -352,8 +357,13 @@ pub fn move_control_tick(w: &mut World, i: usize) {
             }
         }
         Operation::Jumping => {
+            // Mob.setSpeed: the speed and the forward input
             let speed = (ai(w, i).move_ctl.speed_modifier * movement_speed(w, i)) as f32;
-            mob_mut(w, i).speed = speed;
+            {
+                let m = mob_mut(w, i);
+                m.speed = speed;
+                m.zza = speed;
+            }
             let e = &w.entities.list[i];
             let in_liquid = e.fluid.in_water() || mob(w, i).lava_height > 0.0;
             if e.on_ground || in_liquid {
@@ -486,6 +496,11 @@ pub fn body_rotation_tick(w: &mut World, i: usize) {
 /// The rest of `LivingEntity.tick` after `aiStep` for a mob with AI (`tickHeadTurn`, the rotation
 /// range checks) and `Mob.tick`'s `updateControlFlags` every 5 ticks.
 pub fn after_ai_step(w: &mut World, i: usize) {
+    // IronGolem.aiStep's tail (after Mob.aiStep): attackAnimationTick/offerFlowerTick (client
+    // looks) and the persistent anger update
+    if mob(w, i).ty == MobType::IronGolem {
+        goal::golem::update_anger(w, i);
+    }
     body_rotation_tick(w, i);
     {
         let e = &mut w.entities.list[i];
@@ -538,6 +553,41 @@ fn update_control_flags(w: &mut World, i: usize) {
     a.goals.set_control_flag(goal::Flag::Move, true);
     a.goals.set_control_flag(goal::Flag::Jump, !in_boat);
     a.goals.set_control_flag(goal::Flag::Look, true);
+}
+
+/// `Entity.baseTick`'s `canSpawnSprintParticle()` (before the fluid update): the iron golem's
+/// override draws `nextInt(5)` from its own random whenever it moves sideways; on a hit,
+/// `spawnSprintParticle` draws two `nextDouble`s (the particle's x and z) unless the block 0.2
+/// below (`getOnPosLegacy`) renders invisible (air, liquids, bubble columns, moving pistons...).
+pub fn before_base_tick(w: &mut World, i: usize) {
+    if mob(w, i).ty == MobType::IronGolem {
+        let d = w.entities.list[i].delta_movement;
+        if d.x * d.x + d.z * d.z > 2.5000003e-7f32 as f64 && w.entities.list[i].random.as_mut().expect("random").next_int(5) == 0 {
+            let p = crate::entity::collide::get_on_pos(w, &w.entities.list[i], 0.2);
+            let invisible = matches!(w.get(p), crate::block::Block::Air | crate::block::Block::Water { .. } | crate::block::Block::Lava { .. } | crate::block::Block::BubbleColumn { .. } | crate::block::Block::MovingPiston { .. });
+            if !invisible {
+                let r = w.entities.list[i].random.as_mut().expect("random");
+                r.next_double();
+                r.next_double();
+            }
+        }
+    }
+}
+
+/// `IronGolem.doPush(entity)` before the push itself: an enemy (not a creeper) it pushes becomes
+/// its target one time in 20 (its own random).
+pub fn before_do_push(w: &mut World, i: usize, j: usize) {
+    if mob(w, i).ty != MobType::IronGolem {
+        return;
+    }
+    let ty = mob(w, j).ty;
+    if !goal::targets::is_enemy(ty) {
+        return;
+    }
+    if w.entities.list[i].random.as_mut().expect("random").next_int(20) == 0 {
+        let id = w.entities.list[j].id;
+        target::set_target(w, i, Some(id));
+    }
 }
 
 /// The rest of `LivingEntity.baseTick` (the attacker memory, the old head and body yaw) and

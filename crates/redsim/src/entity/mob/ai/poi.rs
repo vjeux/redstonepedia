@@ -74,19 +74,44 @@ pub fn on_block_changed(w: &mut World, old: &Block, new: &Block) {
     }
 }
 
-/// The POIs a villager holds (taken tickets).
+/// The POIs a villager holds (taken tickets): its home, and with the exact brain its job site,
+/// potential job site and meeting point.
 pub fn claimed(w: &World) -> Vec<BlockPos> {
     let mut out = Vec::new();
     for e in w.entities.list.iter().filter(|e| !e.removed) {
         if let EntityKind::Mob(m) = &e.kind
             && let Some(b) = m.brain.as_deref()
-            && let Some(h) = b.home
-            && !out.contains(&h)
         {
-            out.push(h);
+            let mut held: Vec<BlockPos> = b.home.into_iter().collect();
+            if let Some(x) = b.ex.as_deref() {
+                held.extend(x.mem.job_site);
+                held.extend(x.mem.potential_job_site);
+                held.extend(x.mem.meeting_point);
+            }
+            for h in held {
+                if !out.contains(&h) {
+                    out.push(h);
+                }
+            }
         }
     }
     out
+}
+
+/// `PoiManager.getInRange(any type, center, radius, IS_OCCUPIED)`'s positions (the order among
+/// several is the POI manager's: callers that pick one refuse when there are several).
+pub fn occupied_in_range(w: &mut World, center: BlockPos, radius: i32) -> Vec<BlockPos> {
+    let taken = claimed(w);
+    let r2 = (radius as i64) * (radius as i64);
+    index(w)
+        .iter()
+        .filter(|(p, _)| taken.contains(p))
+        .filter(|(p, _)| {
+            let (dx, dy, dz) = ((p.x - center.x) as i64, (p.y - center.y) as i64, (p.z - center.z) as i64);
+            dx * dx + dy * dy + dz * dz <= r2
+        })
+        .map(|(p, _)| *p)
+        .collect()
 }
 
 /// The claimed village POIs (the village centres' POIs).

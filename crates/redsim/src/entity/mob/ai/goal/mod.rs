@@ -5,6 +5,7 @@
 //! the mob (its navigation, controls, target) through the world.
 
 pub mod float;
+pub mod golem;
 pub mod look;
 pub mod melee;
 pub mod stroll;
@@ -46,6 +47,10 @@ pub enum Goal {
     SpearUse,
     MoveThroughVillage(zombie::MoveThroughVillage),
     BreakDoor(zombie::BreakDoor),
+    MoveTowardsTarget(golem::MoveTowardsTarget),
+    OfferFlower(golem::OfferFlower),
+    DefendVillage,
+    ResetUniversalAnger,
     HurtByTarget(targets::HurtByTarget),
     NearestAttackableTarget(targets::NearestAttackableTarget),
 }
@@ -63,6 +68,10 @@ impl Goal {
             Goal::SpearUse => MOVE | LOOK,
             Goal::MoveThroughVillage(_) => MOVE,
             Goal::BreakDoor(_) => 0,
+            Goal::MoveTowardsTarget(_) => MOVE,
+            Goal::OfferFlower(_) => MOVE | LOOK,
+            Goal::DefendVillage => TARGET,
+            Goal::ResetUniversalAnger => 0,
             Goal::HurtByTarget(_) | Goal::NearestAttackableTarget(_) => TARGET,
         }
     }
@@ -85,13 +94,17 @@ impl Goal {
     pub fn name(&self) -> &'static str {
         match self {
             Goal::Float => "FloatGoal",
-            Goal::RandomStroll(s) => {
-                if s.water_avoiding.is_some() {
-                    "WaterAvoidingRandomStrollGoal"
-                } else {
-                    "RandomStrollGoal"
+            Goal::RandomStroll(s) => match s.variant {
+                stroll::Variant::MoveBackToVillage => "MoveBackToVillageGoal",
+                stroll::Variant::GolemInVillage => "GolemRandomStrollInVillageGoal",
+                stroll::Variant::Plain => {
+                    if s.water_avoiding.is_some() {
+                        "WaterAvoidingRandomStrollGoal"
+                    } else {
+                        "RandomStrollGoal"
+                    }
                 }
-            }
+            },
             Goal::LookAtPlayer(_) => "LookAtPlayerGoal",
             Goal::RandomLookAround(_) => "RandomLookAroundGoal",
             Goal::MeleeAttack(m) => m.kind.name(),
@@ -99,6 +112,10 @@ impl Goal {
             Goal::SpearUse => "SpearUseGoal",
             Goal::MoveThroughVillage(_) => "MoveThroughVillageGoal",
             Goal::BreakDoor(_) => "BreakDoorGoal",
+            Goal::MoveTowardsTarget(_) => "MoveTowardsTargetGoal",
+            Goal::OfferFlower(_) => "OfferFlowerGoal",
+            Goal::DefendVillage => "DefendVillageTargetGoal",
+            Goal::ResetUniversalAnger => "ResetUniversalAngerTargetGoal",
             Goal::HurtByTarget(_) => "HurtByTargetGoal",
             Goal::NearestAttackableTarget(_) => "NearestAttackableTargetGoal",
         }
@@ -247,6 +264,10 @@ pub fn can_use(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::SpearUse => zombie::spear_can_use(w, i),
         Goal::MoveThroughVillage(v) => zombie::village_can_use(w, i, v),
         Goal::BreakDoor(d) => zombie::door_can_use(w, i, d),
+        Goal::MoveTowardsTarget(g) => golem::towards_can_use(w, i, g),
+        Goal::OfferFlower(g) => golem::flower_can_use(w, i, g),
+        Goal::DefendVillage => golem::defend_can_use(w, i),
+        Goal::ResetUniversalAnger => false,
         Goal::HurtByTarget(h) => targets::hurt_by_can_use(w, i, h),
         Goal::NearestAttackableTarget(n) => targets::nearest_can_use(w, i, n),
     }
@@ -264,6 +285,9 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::SpearUse => false,
         Goal::MoveThroughVillage(v) => zombie::village_can_continue(w, i, v),
         Goal::BreakDoor(d) => zombie::door_can_continue(w, i, d),
+        Goal::MoveTowardsTarget(g) => golem::towards_can_continue(w, i, g),
+        Goal::OfferFlower(g) => g.tick > 0,
+        Goal::DefendVillage | Goal::ResetUniversalAnger => false,
         Goal::HurtByTarget(h) => targets::target_can_continue(w, i, &mut h.base),
         Goal::NearestAttackableTarget(n) => targets::target_can_continue(w, i, &mut n.base),
     }
@@ -281,6 +305,9 @@ pub fn start(w: &mut World, i: usize, g: &mut Goal) {
         Goal::SpearUse => {}
         Goal::MoveThroughVillage(v) => zombie::village_start(w, i, v),
         Goal::BreakDoor(d) => zombie::door_start(w, i, d),
+        Goal::MoveTowardsTarget(g) => golem::towards_start(w, i, g),
+        Goal::OfferFlower(g) => golem::flower_start(w, i, g),
+        Goal::DefendVillage | Goal::ResetUniversalAnger => {}
         Goal::HurtByTarget(h) => targets::hurt_by_start(w, i, h),
         Goal::NearestAttackableTarget(n) => targets::nearest_start(w, i, n),
     }
@@ -298,6 +325,9 @@ pub fn stop(w: &mut World, i: usize, g: &mut Goal) {
         Goal::SpearUse => {}
         Goal::MoveThroughVillage(v) => zombie::village_stop(w, i, v),
         Goal::BreakDoor(d) => zombie::door_stop(w, i, d),
+        Goal::MoveTowardsTarget(g) => g.target = None,
+        Goal::OfferFlower(g) => g.entity = None,
+        Goal::DefendVillage | Goal::ResetUniversalAnger => {}
         Goal::HurtByTarget(h) => targets::target_stop(w, i, &mut h.base),
         Goal::NearestAttackableTarget(n) => targets::target_stop(w, i, &mut n.base),
     }
@@ -315,6 +345,8 @@ pub fn tick(w: &mut World, i: usize, g: &mut Goal) {
         Goal::SpearUse => {}
         Goal::MoveThroughVillage(_) => {}
         Goal::BreakDoor(d) => zombie::door_tick(w, i, d),
+        Goal::OfferFlower(g) => golem::flower_tick(w, i, g),
+        Goal::MoveTowardsTarget(_) | Goal::DefendVillage | Goal::ResetUniversalAnger => {}
         Goal::HurtByTarget(_) | Goal::NearestAttackableTarget(_) => {}
     }
 }
@@ -323,6 +355,7 @@ pub fn tick(w: &mut World, i: usize, g: &mut Goal) {
 pub fn register_goals(ai: &mut MobAi, ty: MobType) {
     match ty.def().id {
         "zombie" | "baby_zombie" => zombie::register(ai),
+        "iron_golem" => golem::register(ai),
         _ => {}
     }
 }
