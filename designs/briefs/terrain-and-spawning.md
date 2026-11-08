@@ -383,7 +383,16 @@ effects, babies), Easy where that is worse; any day time; thunder. The positions
 come from a **flood** per body class (the types' boxes; a position = a cell and the box anywhere in
 it that fits, standing on a face with a collision top within step/jump/fall reach; climbing for
 spiders; any air for flyers) over the **farm's surroundings** (`hostile::check`): the box of every
-farm block and villager cell grown by 24 in x, y and z (clipped to the sample). It **starts** where a
+farm block and villager cell grown by 24 in x, y and z (clipped to the sample). **Shared floods**:
+a flood shared by several types moves with the smallest width and the smallest height among them
+(so it reaches every position any of them can) and tests reach and proximity with the largest box
+among them at each position it reaches (`Body.reach_width/height`): zombie (zombie, drowned, husk,
+zombie villager, witch: all 0.6 x 1.95), baby zombie (0.3 x 0.975, their babies), skeleton
+(skeleton, stray, bogged: 0.6 x 1.99), pillager (0.6 x 1.95, its own), creeper, spider, cave spider,
+cube (moves as a baby size-1 sulfur cube, 0.245; reaches as a size-4 slime, 2.08; slimes are never
+babies), fox (moves as a baby, 0.3 x 0.35; reaches as an adult, 0.6 x 0.7), village villager (moves
+as a baby, 0.3 x 0.975; reaches as an adult, 0.6 x 1.95), iron golem, enderman, bat — no flood uses a
+box larger than one of its types, so no clearance is missed. It **starts** where a
 mob of the body can appear in that region:
 
 - every position on the region's **faces** (its 4 sides, its top and its bottom layer): a mob from
@@ -391,8 +400,9 @@ mob of the body can appear in that region:
   every path that enters;
 - every position where a natural type of the body can spawn **whatever the light**: its floor's
   `isValidSpawn` for that type (the table's per-type flag; zombie body: zombie, zombie villager,
-  drowned, husk, witch; skeleton body: skeleton, stray, bogged; creeper; spider body: spider, cave
-  spider; cube: slime, sulfur cube; bat: bat, and only below the WORLD_SURFACE height);
+  drowned, husk, witch; skeleton body: skeleton, stray, bogged; pillager; creeper; spider body:
+  spider, cave spider; cube: slime, sulfur cube; fox; bat: bat, and only below the WORLD_SURFACE
+  height);
 - for the village's villagers and golem: the positions of the sample's own villagers and golem
   (they walk in from there or across a face);
 - for endermen: every standable position (they teleport).
@@ -403,7 +413,8 @@ region either spawned at a start, stood there in the sample, or crossed a face, 
 covers every walk from those; every channel's reach is within 24 of the farm horizontally and
 vertically (sight 15 (the pillager's, the longest), the golem sensor 17.84 + boxes, melee 0.83,
 ranged 15, the golem search 8, a creeper's 7 to the AFK spot, beds 1, patrols are a separate rule).
-Bound: ~120k cells x 9 body classes; ~5 s per placement measured on the full-height samples.
+Bound: ~120k cells x 13 floods (11 walkers and flyers, the village golem and villagers, the
+endermen); ~6.5 s per placement measured on the full-height samples.
 
 The result, `hostile::check(&world, &farm, village_golem) -> Vec<Exposure>`: one
 `Exposure { channel, mob, what, cells }` per channel, mob and what it can do, with **every** cell it
@@ -422,8 +433,8 @@ that passes it; a farm's verdict never refuses.)
 | C2 entry and contact | a position of any body class overlaps the interior (pushing, plates, tripwires, target blocks, `isUnobstructed` golem spots, beds, items) — doors a mob opens (villagers) or breaks (zombies on Hard) count as open |
 | C3 sight | a hostile-sensor type's eye at one of its positions within its distance of a farm villager (standing or sleeping, any position in its pod) with a clear COLLIDER ray |
 | C4 presence | an iron golem position (the village's golem: the golem flood) whose box meets a farm villager's box inflated by 17.84 on all three axes (`GolemSensor` reads `NearestLivingEntitySensor`: the follow range 16 plus `finalizeSpawn`'s bonus, no sight: the farm's villagers stop spawning golems for 600 ticks); or a village villager position (the villager flood) whose box meets a farm villager's box inflated by 10 (it joins their count in `Villager.spawnGolemIfNeeded`) |
-| C5 melee and ranged reach | **melee** (the attack box: the attacker's box inflated by sqrt(2.04) - 0.6 horizontally): the zombie family (zombie, baby zombie; drowned and husks share the body) against a farm villager (`Zombie` targets `AbstractVillager`); every hostile walker but the creeper (zombie, baby zombie, skeleton, spider, cave spider, slime) against the farm's golems — either attack box meeting the other's box (`IronGolem` targets every `Enemy` but creepers; zombies and spiders target golems; spiders do not target villagers); the village golem against the farm's zombie or its vehicle. **Ranged** (a clear COLLIDER ray from the attacker's eye within range): a skeleton against a farm golem's eye (15; skeletons target players, golems and turtles), a pillager (the skeleton body) against a farm villager's eye (8, its crossbow), a drowned (the zombie body) throwing a trident at a farm villager (10). Witches target players and raiders only (no channel) |
-| C6 pickup | a looting mob's position outside the interior whose pickup box (its box inflated by 1, 0, 1: `getItemPickUpReach`) meets an interior cell — the zombie family, skeletons and pillagers (their bodies), the village's villagers (their flood), foxes (the cube body's flood: smaller in both sizes, so it reaches every fox position). A superset: every interior cell counts as a cell the farm's items may occupy; it narrows to the cells the farm's items occupied in the runs once the farm spec carries them (ironfarm), a later brief |
+| C5 melee and ranged reach | **melee** (the attack box: the attacker's box inflated by sqrt(2.04) - 0.6 horizontally): the zombie family (zombie, baby zombie; drowned and husks share the body) against a farm villager (`Zombie` targets `AbstractVillager`); every hostile walker but the creeper (zombie, baby zombie, skeleton, pillager, spider, cave spider, cubes) against the farm's golems — either attack box meeting the other's box (`IronGolem` targets every `Enemy` but creepers; zombies and spiders target golems; spiders do not target villagers); the village golem against the farm's zombie or its vehicle. **Ranged** (a clear COLLIDER ray from the attacker's eye within range): a skeleton against a farm golem's eye (15; skeletons target players, golems and turtles), a pillager (its own body) against a farm villager's eye (8, its crossbow), a drowned (the zombie body) throwing a trident at a farm villager (10). Witches target players and raiders only (no channel) |
+| C6 pickup | a looting mob's position outside the interior whose pickup box (its box inflated by 1, 0, 1: `getItemPickUpReach`) meets an interior cell — the zombie family and its babies, skeletons, pillagers, the village's villagers, foxes (each its own flood; the shared ones move as their smallest member and reach as their largest, see the floods). A superset: every interior cell counts as a cell the farm's items may occupy; it narrows to the cells the farm's items occupied in the runs once the farm spec carries them (ironfarm), a later brief |
 | C7 golem search | `LEGACY_IRON_GOLEM` from a summoning farm villager (`Farm.summoners`: the villagers that can see a farm zombie, since only a panicking villager calls `spawnGolemIfNeeded`; empty: every farm villager) finds, in any of its 17 x 17 columns, a first matching cell outside the farm's own spawn floors that passes `checkSpawnObstruction` (exhaustive, deterministic) |
 | C8 creepers | a creeper position within 7 of the AFK spot (a creeper explodes at a player; no ray test, a superset) whose power-6 explosion reaches the farm: a farm block within 10.4 (the blocks the blast can break at the worst factor 1.3) — "can blow up farm blocks"; or a farm entity (a villager, the zombie, a golem at a golem cell) within 12 (the entity radius: damage and knockback, exposure taken as 1) — "can hurt a farm villager, zombie or golem" |
 | C9 endermen | from an enderman position (every standable position: they teleport): **take** — a farm block in `ENDERMAN_HOLDABLE` within the take box (x and z within 2, 0..3 above: `EndermanTakeBlockGoal`); **place** — a farm air cell (an interior cell holding air) within the place box (x and z within 1, 0..2 above: `EndermanLeaveBlockGoal`), the carried block taken anywhere outside; both supersets (no OUTLINE ray, no test of the block under the placed one) |
@@ -571,10 +582,12 @@ Commands: `mctas terrain light|paste-check|biome-check|probe|spawn-check|hostile
    sulfur cube and the bee added to the table's types.
 3. **V2 (walking)**: not run (natural mobs' walking is not modeled; the checks cover it).
 4. **The checks**: `terrain hostile` on the archived iron-day1 at the village edge (an open void
-   design) reports exposures on C1, C2, C3, C4, C5 and C7 (e.g. C3: zombies see a farm villager
-   from 218 cells, pillagers from 708; C4: the village golem within the golem sensor from 1,209
-   cells; C5: baby zombies hit a villager from 3 cells; C7: golems can spawn outside the floors at
-   158 cells; C6 pickup, C9 placing, as revision 4c added), as it must; ~5.6 s per placement
+   design) reports exposures on C1-C7 and C9 (revision 4d: e.g. C3: zombies see a farm villager
+   from 193 cells, pillagers from 676; C4: the village golem within the golem sensor from 1,109
+   cells, village villagers within 10 from 445; C5: baby zombies hit a villager from 3 cells; C6:
+   the zombie family, skeletons, pillagers, foxes and village villagers can pick up an item inside
+   from 60-95 cells (villagers 61); C7: golems can spawn outside the floors at
+   158 cells; C9: endermen can place a block into a farm air cell from 204), as it must; ~6.5 s per placement
    (revision 4c: floods over the farm's box grown by 24 in x, y and z, the full-height sample).
 
 ## File split (agreed)
@@ -668,3 +681,4 @@ Commands: `mctas terrain light|paste-check|biome-check|probe|spawn-check|hostile
 | 2 | C8: both cases (code and table): a farm block within 10.4, or a farm entity (villager, zombie, golem cell) within 12, of a creeper within 7 of the AFK spot |
 | 3 | C9: take and place (code and table): place = a farm air cell within x/z 1 and 0..2 above an enderman position, the carried block taken anywhere |
 | minor | Results §4: the revision-4c measurement (~5.6 s, the farm's box grown by 24); the patrol range 24-47 inclusive in § Mechanics too |
+| 4d | the shared-flood rule (d60ee61d): a flood shared by several types moves with the smallest width and height among them and reaches with the largest (`Body.reach_width/height`); foxes and pillagers get their own floods; the cube flood moves as a baby size-1 sulfur cube (0.245) and reaches as a size-4 slime (2.08); the village villagers' flood moves as a baby (0.3 x 0.975) and reaches as an adult; every flood listed in § Checks with its types — none uses a box larger than one of its types (~6.5 s per placement) |

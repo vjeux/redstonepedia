@@ -23,7 +23,10 @@ use crate::terrain::blocks;
 use crate::world::World;
 use std::collections::{HashSet, VecDeque};
 
-/// A body class: a box and how it moves.
+/// A body class: a box and how it moves. A flood shared by several types (adults and babies, a
+/// cube's sizes) moves with the smallest width and the smallest height among them (`width`,
+/// `height`: its reachable set is a superset of each type's) and tests reach and proximity with
+/// the largest box among them (`reach_width`, `reach_height`) at every position it reaches.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Body {
     pub name: &'static str,
@@ -35,22 +38,37 @@ pub struct Body {
     pub flies: bool,
     /// Opens wooden doors (villagers) or breaks them (zombies on Hard).
     pub doors: bool,
+    pub reach_width: f64,
+    pub reach_height: f64,
 }
 
 const fn body(name: &'static str, width: f64, height: f64, step: f64, climbs: bool, flies: bool, doors: bool) -> Body {
-    Body { name, width, height, step, climbs, flies, doors }
+    Body { name, width, height, step, climbs, flies, doors, reach_width: width, reach_height: height }
 }
 
-/// The body classes of the natural mobs, the village's villagers and golem (`EntityTypes` sizes).
+const fn shared(b: Body, reach_width: f64, reach_height: f64) -> Body {
+    Body { reach_width, reach_height, ..b }
+}
+
+/// The body classes of the natural mobs, the village's villagers and golem (`EntityTypes` sizes;
+/// a baby is half its adult's size, `AgeableMob.getAgeScale`).
+/// zombie, drowned, husk, zombie villager, witch: all 0.6 x 1.95 (their babies: `BABY_ZOMBIE`)
 pub const ZOMBIE: Body = body("zombie", 0.6, 1.95, 0.6, false, false, true);
 pub const BABY_ZOMBIE: Body = body("baby zombie", 0.3, 0.975, 0.6, false, false, true);
+/// skeleton, stray, bogged: 0.6 x 1.99
 pub const SKELETON: Body = body("skeleton", 0.6, 1.99, 0.6, false, false, false);
+pub const PILLAGER: Body = body("pillager", 0.6, 1.95, 0.6, false, false, false);
 pub const CREEPER: Body = body("creeper", 0.6, 1.7, 0.6, false, false, false);
 pub const SPIDER: Body = body("spider", 1.4, 0.9, 0.6, true, false, false);
 pub const CAVE_SPIDER: Body = body("cave spider", 0.7, 0.5, 0.6, true, false, false);
 pub const ENDERMAN: Body = body("enderman", 0.6, 2.9, 1.0, false, false, false);
-pub const SLIME: Body = body("slime", 0.52, 0.52, 0.6, false, false, false);
-pub const VILLAGER: Body = body("villager", 0.6, 1.95, 0.6, false, false, true);
+/// cubes: moves as a baby size-1 sulfur cube (0.49 x 0.5 = 0.245; slimes are never babies:
+/// `Slime.finalizeSpawn`), reaches as a size-4 slime (0.52 x 4 = 2.08)
+pub const SLIME: Body = shared(body("slime", 0.245, 0.245, 0.6, false, false, false), 2.08, 2.08);
+/// the village's villagers: moves as a baby (0.3 x 0.975), reaches as an adult (0.6 x 1.95)
+pub const VILLAGER: Body = shared(body("villager", 0.3, 0.975, 0.6, false, false, true), 0.6, 1.95);
+/// foxes: moves as a baby (0.3 x 0.35), reaches as an adult (0.6 x 0.7)
+pub const FOX: Body = shared(body("fox", 0.3, 0.35, 0.6, false, false, false), 0.6, 0.7);
 pub const GOLEM: Body = body("iron golem", 1.4, 2.7, 1.0, false, false, false);
 pub const BAT: Body = body("bat", 0.5, 0.9, 0.0, false, true, false);
 
@@ -199,11 +217,12 @@ pub fn box_at(b: &Body, p: BlockPos, feet: f64) -> Aabb {
     Aabb::new(p.x as f64 + 0.5 - hw, feet, p.z as f64 + 0.5 - hw, p.x as f64 + 0.5 + hw, feet + b.height, p.z as f64 + 0.5 + hw)
 }
 
-/// The box covering every placement of a body in a cell (for reach tests: the superset).
+/// The box covering every placement of a body in a cell, at its largest size (for reach tests:
+/// the superset).
 pub fn reach_box(b: &Body, p: BlockPos, feet: f64) -> Aabb {
-    let hw = b.width / 2.0;
+    let hw = b.reach_width / 2.0;
     let slack = (0.5 - hw).max(0.0);
-    Aabb::new(p.x as f64 + 0.5 - hw - slack, feet, p.z as f64 + 0.5 - hw - slack, p.x as f64 + 0.5 + hw + slack, feet + b.height, p.z as f64 + 0.5 + hw + slack)
+    Aabb::new(p.x as f64 + 0.5 - hw - slack, feet, p.z as f64 + 0.5 - hw - slack, p.x as f64 + 0.5 + hw + slack, feet + b.reach_height, p.z as f64 + 0.5 + hw + slack)
 }
 
 // ------------------------------------------------------------------------------- the flood
@@ -253,6 +272,8 @@ pub fn flood(w: &World, b: Body, exclude: &HashSet<BlockPos>, bounds: (BlockPos,
         "spider" | "cave spider" => &["minecraft:spider", "minecraft:cave_spider"],
         "slime" => &["minecraft:slime", "minecraft:sulfur_cube"],
         "bat" => &["minecraft:bat"],
+        "pillager" => &["minecraft:pillager"],
+        "fox" => &["minecraft:fox"],
         _ => &[],
     };
     let residents: Vec<BlockPos> = w
@@ -408,7 +429,7 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Exposure> {
         hi = BlockPos::new(hi.x.max(p.x + 24), hi.y.max(p.y + 24), hi.z.max(p.z + 24));
     }
     let bounds = (lo, hi);
-    let walkers = [ZOMBIE, BABY_ZOMBIE, SKELETON, CREEPER, SPIDER, CAVE_SPIDER, SLIME];
+    let walkers = [ZOMBIE, BABY_ZOMBIE, SKELETON, PILLAGER, CREEPER, SPIDER, CAVE_SPIDER, SLIME, FOX];
     let mut reaches: Vec<Reach> = walkers.iter().map(|b| flood(w, *b, &interior, bounds)).collect();
     reaches.push(flood(w, BAT, &interior, bounds));
     // C2: entry into the interior (and contact with the farm's villagers)
@@ -418,16 +439,16 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Exposure> {
         }
     }
     // C3: a villager hostile's sight (`VillagerHostilesSensor`: the zombie family within 8 blocks
-    // between feet, a pillager (patrols) within 15 — its body is the skeleton's: 0.6 wide, ~2 high,
-    // no doors; a clear COLLIDER ray between eyes, `hasLineOfSight`); the mob anywhere in its cell
+    // between feet, a pillager (patrols, outposts) within 15, its own body; a clear COLLIDER ray
+    // between eyes, `hasLineOfSight`); the mob anywhere in its cell
     let villager_feet: Vec<Vec3> = farm.villagers.iter().map(|v| Vec3::new(v.center().x, v.min_y, v.center().z)).collect();
     for r in &reaches {
         let range = match r.body.name {
             "zombie" | "baby zombie" => 8.0,
-            "skeleton" => 15.0,
+            "pillager" => 15.0,
             _ => continue,
         };
-        let who = if r.body.name == "skeleton" { "pillager" } else { r.body.name };
+        let who = r.body.name;
         for (p, f) in &r.cells {
             let feet = Vec3::new(p.x as f64 + 0.5, *f, p.z as f64 + 0.5);
             let eye = Vec3::new(feet.x, feet.y + r.body.height * 0.85, feet.z);
@@ -444,7 +465,7 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Exposure> {
     let golem_boxes: Vec<Aabb> = farm.golem_cells.iter().map(|c| reach_box(&GOLEM, *c, c.y as f64)).collect();
     for r in &reaches {
         let villagers = matches!(r.body.name, "zombie" | "baby zombie");
-        let golems = !matches!(r.body.name, "creeper" | "bat");
+        let golems = !matches!(r.body.name, "creeper" | "bat" | "fox");
         if !villagers && !golems {
             continue;
         }
@@ -543,15 +564,16 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Exposure> {
     }
     // C6 pickup: a looting mob whose pickup box (its box inflated by 1, 0, 1:
     // `Mob.aiStep`'s `getItemPickUpReach`) meets a farm interior cell, where the farm's items can
-    // be — the zombie family, skeletons and pillagers (their bodies), the village's villagers,
-    // foxes (the cube body's flood: smaller in both sizes, so it reaches every fox position); a
-    // superset until the farm spec carries its items' cells
+    // be — the zombie family, skeletons, pillagers, the village's villagers and foxes (each its own
+    // flood; the shared ones move as their smallest member and reach as their largest); a superset
+    // until the farm spec carries its items' cells
     let interior_boxes: Vec<Aabb> = farm.interior.iter().map(|c| Aabb::of_block(*c)).collect();
     let mut looters: Vec<(&Reach, &'static str)> = reaches.iter().filter_map(|r| match r.body.name {
         "zombie" => Some((r, "zombie")),
         "baby zombie" => Some((r, "baby zombie")),
-        "skeleton" => Some((r, "skeleton or pillager")),
-        "slime" => Some((r, "fox")),
+        "skeleton" => Some((r, "skeleton")),
+        "pillager" => Some((r, "pillager")),
+        "fox" => Some((r, "fox")),
         _ => None,
     }).collect();
     let villager_flood = if !farm.beds.is_empty() || !farm.villagers.is_empty() { Some(flood(w, VILLAGER, &interior, bounds)) } else { None };
@@ -578,11 +600,12 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Exposure> {
     }
     // C5 ranged: a skeleton shoots an iron golem (`AbstractSkeleton` targets players, iron golems
     // and turtles; range 15), a pillager shoots a villager (its crossbow, 8), a drowned throws a
-    // trident at a villager (10; drowned take the zombie's body): a clear COLLIDER ray from its eye
+    // trident at a villager (10; drowned share the zombie's body): a clear COLLIDER ray from its eye
     let golem_eyes: Vec<Vec3> = farm.golem_cells.iter().map(|c| Vec3::new(c.x as f64 + 0.5, c.y as f64 + 2.295, c.z as f64 + 0.5)).collect();
     for r in &reaches {
         let (mob, targets, range, what): (&'static str, &Vec<Vec3>, f64, &'static str) = match r.body.name {
             "skeleton" => ("skeleton", &golem_eyes, 15.0, "can shoot a farm golem"),
+            "pillager" => ("pillager", &farm.villager_eyes, 8.0, "can shoot a farm villager"),
             "zombie" => ("drowned", &farm.villager_eyes, 10.0, "can throw a trident at a farm villager (from water)"),
             _ => continue,
         };
@@ -590,9 +613,6 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Exposure> {
             let eye = Vec3::new(p.x as f64 + 0.5, *f + r.body.height * 0.85, p.z as f64 + 0.5);
             if targets.iter().any(|t| dist2(eye, *t) <= range * range && super::los::has_line_of_sight(w, eye, *t)) {
                 ex.add("C5 ranged", mob, what, *p);
-            }
-            if r.body.name == "skeleton" && farm.villager_eyes.iter().any(|t| dist2(eye, *t) <= 64.0 && super::los::has_line_of_sight(w, eye, *t)) {
-                ex.add("C5 ranged", "pillager", "can shoot a farm villager", *p);
             }
         }
     }
