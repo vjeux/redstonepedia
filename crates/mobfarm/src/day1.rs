@@ -11,7 +11,7 @@
 
 use crate::layouts::Builder;
 
-const STONE: &str = "stone";
+const STONE: &str = "cobblestone";
 const GLASS: &str = "glass";
 
 /// A villager on the head of its bed (facing north) in a closed 1-cell glass pod at (x, 0, 0), a
@@ -55,7 +55,7 @@ fn pod_at(b: &mut Builder, x: i32, z0: i32, sees: bool) {
 /// crosses that cell 1.78-1.84 up, through the shut trapdoor's slab; opened (powered), the
 /// trapdoor stands against the cell's west side and the line passes.
 fn zombie(b: &mut Builder) {
-    b.set(2, 0, -7, "stone_slab[type=bottom,waterlogged=false]");
+    b.set(2, 0, -7, "cobblestone_slab[type=bottom,waterlogged=false]");
     b.set(2, 2, -7, STONE);
     // (the stone roof capped with glass: no golem spawns on it)
     b.set(2, 3, -7, GLASS);
@@ -239,14 +239,14 @@ pub fn d1u(n: i32) -> String {
     for x in [0, 2] {
         for z in [-1, -2] {
             b.set(x, 0, z, air);
-            b.set(x, 1, z, "stone_slab[type=top,waterlogged=false]");
+            b.set(x, 1, z, "cobblestone_slab[type=top,waterlogged=false]");
         }
     }
     // a torch on the tunnel's west wall lights the tunnel, the pods and the cells under the slabs
     // (no monster spawns at block light 1 or more); it has no collision, so both rays pass
     b.set(0, 2, -3, "wall_torch[facing=east]");
     // the zombie (D1's) and the hide facing west (D4's)
-    b.set(2, 0, -7, "stone_slab[type=bottom,waterlogged=false]");
+    b.set(2, 0, -7, "cobblestone_slab[type=bottom,waterlogged=false]");
     b.set(2, 1, -7, air);
     // (the zombie's eye box reaches z -7.04: the cell north of it dug too, or it suffocates)
     b.set(2, 1, -8, air);
@@ -300,12 +300,12 @@ pub fn d1u(n: i32) -> String {
     b.set(lx, k + 1, lz, "oak_wall_sign[facing=south,waterlogged=false]");
     b.set(lx + 1, k + 2, lz, "oak_wall_sign[facing=south,waterlogged=false]");
     b.set(lx, k + 2, lz + 1, "oak_wall_sign[facing=east,waterlogged=false]");
-    // the fire shield: the cells over the two signs beside the lava hold stone buttons (on the
-    // pit's natural walls: no collision, not flammable), so lava's random tick
-    // (`LavaFluid.randomTick`: fire goes only into an air cell beside a block lava ignites, or an
-    // empty cell above one) never lights a fire beside a sign; a golem falls through them
-    b.set(lx, k + 3, lz + 1, "stone_button[face=wall,facing=east,powered=false]");
-    b.set(lx + 1, k + 3, lz, "stone_button[face=wall,facing=south,powered=false]");
+    // the fire shield: the cells over the two signs beside the lava hold oak buttons (on the pit's
+    // natural walls: no collision, not ignited by lava, made of planks on day 1), so lava's random
+    // tick (`LavaFluid.randomTick`: fire goes only into an air cell beside a block lava ignites, or
+    // an empty cell above one) never lights a fire beside a sign; a golem falls through them
+    b.set(lx, k + 3, lz + 1, "oak_button[face=wall,facing=east,powered=false]");
+    b.set(lx + 1, k + 3, lz, "oak_button[face=wall,facing=south,powered=false]");
     b.set(lx, k - 1, lz, "hopper[enabled=true,facing=down]");
     b.d.ports.insert("output".into(), [lx, k - 2, lz]);
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
@@ -406,7 +406,7 @@ fn m2_front_rep(n: i32, d: i32) -> Builder {
         pod(&mut b, x, true);
     }
     pod(&mut b, 6, false);
-    b.set(2, 0, -7, "stone_slab[type=bottom,waterlogged=false]");
+    b.set(2, 0, -7, "cobblestone_slab[type=bottom,waterlogged=false]");
     b.set(2, 2, -7, STONE);
     b.set(2, 3, -7, GLASS);
     b.entity("oak_boat", [2.5, 0.5, -6.8], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
@@ -458,7 +458,7 @@ fn m2_front_loop(n: i32, d1: i32, d2: i32) -> Builder {
         pod(&mut b, x, true);
     }
     pod(&mut b, 6, false);
-    b.set(2, 0, -7, "stone_slab[type=bottom,waterlogged=false]");
+    b.set(2, 0, -7, "cobblestone_slab[type=bottom,waterlogged=false]");
     b.set(2, 2, -7, STONE);
     b.set(2, 3, -7, GLASS);
     b.entity("oak_boat", [2.5, 0.5, -6.8], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
@@ -541,7 +541,7 @@ fn m2_front_timer(n: i32, t: &crate::parts::Timer) -> Option<(Builder, Vec<[i32;
         if cage.d.blocks.len() < before + 15 {
             continue;
         }
-        cage.set(2, 0, -7, "stone_slab[type=bottom,waterlogged=false]");
+        cage.set(2, 0, -7, "cobblestone_slab[type=bottom,waterlogged=false]");
         cage.set(2, 2, -7, STONE);
         cage.set(2, 3, -7, GLASS);
         cage.entity("oak_boat", [2.5, 0.5, -6.8], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
@@ -649,7 +649,7 @@ fn m2_front_hide(n: i32, hide: i32) -> Builder {
         pod(&mut b, x, true);
     }
     pod(&mut b, 6, false);
-    b.set(2, 0, -7, "stone_slab[type=bottom,waterlogged=false]");
+    b.set(2, 0, -7, "cobblestone_slab[type=bottom,waterlogged=false]");
     b.set(2, 2, -7, STONE);
     b.set(2, 3, -7, GLASS);
     b.entity("oak_boat", [2.5, 0.5, -6.8], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
@@ -1062,7 +1062,7 @@ pub fn tz(n: i32) -> String {
     let _ = n;
     let mut b = Builder::new("iron-late-tz");
     // the zombie and the hide
-    b.set(0, 0, 0, "stone_slab[type=bottom,waterlogged=false]");
+    b.set(0, 0, 0, "cobblestone_slab[type=bottom,waterlogged=false]");
     b.set(0, 2, 0, STONE);
     b.set(0, 3, 0, GLASS);
     b.entity("oak_boat", [0.5, 0.5, 0.5], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));

@@ -314,13 +314,14 @@ pub fn covers_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bo
     fills
 }
 
-/// The block that caps a stray golem spawn cell (rev 9 iteration 3: the cheapest at day-1 prices):
-/// a torch standing on the cell's floor (its floor is a golem's, so solid: the torch stands, and
-/// `LEGACY_IRON_GOLEM`'s scan no longer finds air above the floor; it also lights the cell against
-/// hostile spawns), or glass where the cell holds water or lava (no torch stands in a fluid).
+/// The block that caps a stray golem spawn cell (rev 9 iterations 3-5: the cheapest at day-1
+/// prices that stops `LEGACY_IRON_GOLEM`'s scan there): a bottom cobblestone slab (solid with air
+/// above, so the scan stops on it, and its half top fails the golem's spawn: 3 cobblestone make 6),
+/// or glass where the cell holds water or lava. [`covers_at`] scans again after each round of caps,
+/// so a cap that let the scan reach a lower top would get one there too.
 pub fn cover_block(w: &World, cell: BlockPos) -> crate::block::Block {
     if crate::fluid::fluid_state(w, cell).is_empty() {
-        crate::block::Block::PlainTorch { soul: false }
+        crate::block::Block::parse("minecraft:cobblestone_slab[type=bottom,waterlogged=false]").unwrap_or(crate::block::Block::Simple(crate::block::Simple::Glass))
     } else {
         crate::block::Block::Simple(crate::block::Simple::Glass)
     }
@@ -585,8 +586,8 @@ impl Site {
         out
     }
 
-    /// The caps of its stray golem spawn cells, as [`Site::world_for`] places them: (torches,
-    /// glass blocks).
+    /// The caps of its stray golem spawn cells, as [`Site::world_for`] places them: (cobblestone
+    /// slabs, glass blocks).
     pub fn cover_counts(&self) -> (usize, usize) {
         let w = self.world.lock().map(|w| w.clone()).unwrap_or_else(|e| e.into_inner().clone());
         let glass = self.fills.iter().filter(|p| !crate::fluid::fluid_state(&w, **p).is_empty()).count();

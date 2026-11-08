@@ -312,16 +312,17 @@ fn terrain_judge(c: &Circuit, jo: &JudgeOpts, sample: &'static redsim::terrain::
     let family = c.kinds().into_iter().collect::<Vec<_>>().join("+");
     let sites = terrain_sites(c, &spec, sample)?;
     let jobs: Vec<(&'static redsim::entity::mob::site::Site, FarmSpec, JudgeOpts)> = sites.iter().map(|s| (*s, s.spec(&spec), JudgeOpts { site: Some(*s), ..*jo })).collect();
-    // day 1's measured T at each spot (brief revision 9, iteration 2: until the chest holds the
-    // bill + 24 iron; the build minutes do not mine the bill's iron yet)
+    // day 1's measured T at each spot (brief revision 9, iterations 2-3: from dawn of day 1, the
+    // build minutes at the stage's prices mining the build's own iron, until the chest holds 24)
     let b = bill(c);
-    let kit = (b.iron + redsim::entity::mob::site::KIT_IRON).ceil() as u32;
-    let build_s: Vec<f64> = jobs.iter().map(|(s, _, _)| site_effort(c, Some(*s), &b).0.seconds()).collect();
+    let kit = redsim::entity::mob::site::KIT_IRON as u32;
+    let stage = price_stage(c);
+    let build_s: Vec<Option<f64>> = jobs.iter().map(|(s, _, _)| site_bill(c, Some(*s), stage).ok().map(|bill| bill.seconds)).collect();
     let (base, runs, exposures, tkit) = std::thread::scope(|s| {
         let ex = s.spawn(|| exposures_of(jobs[0].0, &jobs[0].1));
         let base = s.spawn(|| base_checks(c, &jobs[0].1, &jobs[0].2));
         let hs: Vec<_> = jobs.iter().enumerate().map(|(k, (_, spec, o))| s.spawn(move || build_runs(spec, o, k as u32, WalkMode::Random))).collect();
-        let ts: Vec<_> = jobs.iter().zip(&build_s).map(|((site, spec, _), bs)| s.spawn(move || t_kit_runs(spec, site, *bs, kit, 8))).collect();
+        let ts: Vec<_> = jobs.iter().zip(&build_s).map(|((site, spec, _), bs)| s.spawn(move || bs.map_or_else(Vec::new, |bs| t_kit_runs(spec, site, bs, kit, 8)))).collect();
         let runs: Vec<std::result::Result<Vec<RunReport>, String>> = hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("a build panicked".to_string()))).collect();
         let tkit: Vec<Vec<Option<f64>>> = ts.into_iter().map(|h| h.join().unwrap_or_default()).collect();
         (base.join().unwrap_or_else(|_| Err("the base checks panicked".to_string())), runs, ex.join().unwrap_or_else(|_| ("the exposure checks panicked".to_string(), vec!["the exposure checks panicked".to_string()])), tkit)
@@ -383,7 +384,7 @@ fn terrain_judge(c: &Circuit, jo: &JudgeOpts, sample: &'static redsim::terrain::
         // the stage cards' day-1 lines (brief revision 9, iteration 2): the same build's minutes on
         // flat plains (its cheapest of the 12 nearest spots there), the sample village's villagers
         // the farm leaves, the channels that can break it
-        let flat = site_of(c, &spec, "plains").map(|p| site_effort(c, Some(&p), &b).0.seconds() / 60.0);
+        let flat = site_of(c, &spec, "plains").and_then(|p| site_bill(c, Some(&p), stage)).map(|bill| bill.seconds / 60.0);
         k.outcome.metrics.push(("build minutes flat".to_string(), flat.map_or_else(|e| format!("none ({e})"), |m| format!("{m:.1}"))));
         let village = redsim::entity::mob::site::sample_villagers(sample).unwrap_or(0);
         k.outcome.metrics.push(("villagers left".to_string(), format!("{}", village.saturating_sub(b.villagers as usize))));
@@ -392,6 +393,55 @@ fn terrain_judge(c: &Circuit, jo: &JudgeOpts, sample: &'static redsim::terrain::
     let mut schedule = Schedule::new(0);
     schedule.ticks = jo.days * 24000;
     Ok(crate::verify::verdict(VerifyReport { name: c.name().to_string(), kind: Some(kind), blocks: c.blocks(), schedule, builds, verdict: String::new(), pass: false, note: String::new() }))
+}
+
+/// The stage whose prices a design's build pays (redsim `prices::stage_ix`): its kind's tier
+/// (`mob-farm iron_ingot middle`; the fastest farm pays the late stage's), day 1 for an untiered
+/// design.
+pub fn price_stage(c: &Circuit) -> usize {
+    match c.clock.design.meta.get("circuit").map(|k| k.split_whitespace().nth(2).unwrap_or("day-1").to_string()).as_deref() {
+        Some("middle") => 1,
+        Some("fastest") | Some("late") => 2,
+        _ => 0,
+    }
+}
+
+/// A build's bill at the stage's prices (brief farm-iron.md revision 9, iteration 3: redsim
+/// `prices::bill`, designs/farms/prices.tsv): every block the design places; the natural blocks dug
+/// (in a site: the spot's, the seals' dug first and the way down to the chest's); the site's own
+/// blocks (its cobblestone seals, its torch or glass caps) and the stair's (a torch every 8 steps, a
+/// fence gate); its entities (each villager moved, the zombie and its boat); each lava source; the
+/// tools once (a bucket, the shears for leaves).
+pub fn site_bill(c: &Circuit, site: Option<&redsim::entity::mob::site::Site>, stage: usize) -> std::result::Result<redsim::entity::mob::prices::Bill, String> {
+    let blocks: Vec<String> = c.clock.design.block_list().into_iter().map(|(_, s)| s).collect();
+    let blocks: Vec<&str> = blocks.iter().map(String::as_str).collect();
+    let ents: Vec<(String, String)> = c.clock.design.entities.iter().map(|e| (e.kind.clone(), e.nbt.clone().unwrap_or_default())).collect();
+    let ents: Vec<(&str, &str)> = ents.iter().map(|(k, n)| (k.as_str(), n.as_str())).collect();
+    let (dug, extra): (u32, Vec<String>) = match site {
+        Some(s) => {
+            let mut extra: Vec<String> = s.site_blocks().into_iter().map(|(_, b)| b.to_string()).collect();
+            let (adug, aplaced) = access_of(c, s);
+            if aplaced > 0 {
+                extra.extend((1..aplaced).map(|_| "minecraft:torch".to_string()));
+                extra.push("minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]".to_string());
+            }
+            (s.dug + s.seals.iter().filter(|(_, d)| *d).count() as u32 + adug, extra)
+        }
+        None => (0, Vec::new()),
+    };
+    let extra: Vec<&str> = extra.iter().map(String::as_str).collect();
+    redsim::entity::mob::prices::bill(&blocks, &ents, dug, &extra, stage)
+}
+
+/// A dug-in farm's way down to its chest at a site (redsim `site::access_stair`: the ground layer,
+/// the design's `ground:`, to the chest's layer): (dug, placed); none for a void design.
+fn access_of(c: &Circuit, s: &redsim::entity::mob::site::Site) -> (u32, u32) {
+    if s.clear_box {
+        return (0, 0);
+    }
+    let ground = c.clock.design.meta.get("ground").and_then(|g| g.trim().parse::<i32>().ok()).unwrap_or(-1);
+    let chest = c.clock.design.ports.get("output").map_or(ground, |p| p[1]);
+    redsim::entity::mob::site::access_stair(ground - chest)
 }
 
 /// A build's effort (redsim `site::Effort`): in a terrain site the blocks placed (with its seals
@@ -405,12 +455,8 @@ pub fn site_effort(c: &Circuit, site: Option<&redsim::entity::mob::site::Site>, 
         None => Effort { placed: c.clock.design.blocks.values().filter(|s| !matches!(s.split('[').next().unwrap_or("").trim_start_matches("minecraft:"), "air" | "cave_air" | "void_air")).count() as u32, dug: 0, lava: b.lava, villagers: b.villagers },
     };
     let access = match site {
-        Some(s) if !s.clear_box => {
-            let ground = c.clock.design.meta.get("ground").and_then(|g| g.trim().parse::<i32>().ok()).unwrap_or(-1);
-            let chest = c.clock.design.ports.get("output").map_or(ground, |p| p[1]);
-            redsim::entity::mob::site::access_stair(ground - chest)
-        }
-        _ => (0, 0),
+        Some(s) => access_of(c, s),
+        None => (0, 0),
     };
     (Effort { dug: effort.dug + access.0, placed: effort.placed + access.1, ..effort }, access)
 }
@@ -882,9 +928,17 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
     } else {
         let seals = site.map_or(0, |s| s.seals.len());
         let (torches, glass) = site.map_or((0, 0), |s| s.cover_counts());
-        let extras: Vec<String> = [(torches, "torches capping stray golem spots"), (glass, "glass caps in water"), (seals, "cobblestone seals")].into_iter().filter(|(n, _)| *n > 0).map(|(n, w)| format!("{n} {w}")).collect();
+        let extras: Vec<String> = [(torches, "cobblestone slabs capping stray golem spots"), (glass, "glass caps in water"), (seals, "cobblestone seals")].into_iter().filter(|(n, _)| *n > 0).map(|(n, w)| format!("{n} {w}")).collect();
         let way = if access.0 > 0 { format!(" (the stair down to the chest: {} dug, {} placed)", access.0, access.1) } else { String::new() };
-        metrics.push(("build time".to_string(), format!("{:.0} min ({} placed{}, {} dug{way}, {} lava trips, {} villagers moved)", effort.seconds() / 60.0, effort.placed, if extras.is_empty() { String::new() } else { format!(" with {}", extras.join(" and ")) }, effort.dug, b.lava, b.villagers)));
+        // the build minutes at the stage's prices (iteration 3): placing, digging and getting
+        // every item; an item the table does not price fails the line
+        let priced = site_bill(c, site, price_stage(c));
+        let head = match &priced {
+            Ok(bill) => format!("{:.0} min at day-1 prices", bill.seconds / 60.0),
+            Err(e) => format!("none ({e})"),
+        };
+        let most = priced.as_ref().map(|bill| format!("; the most: {}", bill.line())).unwrap_or_default();
+        metrics.push(("build time".to_string(), format!("{head} ({} placed{}, {} dug{way}, {} lava trips, {} villagers moved{most})", effort.placed, if extras.is_empty() { String::new() } else { format!(" with {}", extras.join(" and ")) }, effort.dug, b.lava, b.villagers)));
         if iron > 0.0 {
             let loss_per_hour = metrics.iter().find(|(k, _)| k == "thunder loss").and_then(|(_, v)| v.parse::<f64>().ok()).unwrap_or(0.0) * redsim::weather::storms().share;
             let t0 = day1_minutes(&effort, b.iron, iron, 0.0);
@@ -892,11 +946,18 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
             metrics.push(("time to an iron kit".to_string(), format!("{t:.0} min")));
         }
     }
-    // the numeric lines the stage cards bind to (brief revision 9, Stages: Common)
-    let build_s = effort.seconds();
-    metrics.push(("build minutes".to_string(), format!("{:.1}", build_s / 60.0)));
-    if iron > 0.0 {
-        metrics.push(("t kit minutes".to_string(), format!("{:.1}", build_s / 60.0 + (b.iron + 24.0) / iron * 60.0)));
+    // the numeric lines the stage cards bind to (brief revision 9, Stages: Common): the build
+    // minutes at the stage's prices (iteration 3: the build's own iron mined in them, so the kit
+    // owes the chest only its 24 iron)
+    let priced = site_bill(c, site, price_stage(c));
+    match &priced {
+        Ok(bill) => {
+            metrics.push(("build minutes".to_string(), format!("{:.1}", bill.seconds / 60.0)));
+            if iron > 0.0 {
+                metrics.push(("t kit minutes".to_string(), format!("{:.1}", bill.seconds / 60.0 + redsim::entity::mob::site::KIT_IRON / iron * 60.0)));
+            }
+        }
+        Err(e) => metrics.push(("build minutes".to_string(), format!("none ({e})"))),
     }
     // a player who sleeps through every night (brief revision 9): only the golems before day
     // time 12642 come, and each game day lasts 12642 ticks of play
