@@ -976,7 +976,7 @@ impl Prod {
                 continue;
             }
             let below = [x, f[1].floor() as i32 - 1, z];
-            self.mine(below)?;
+            self.mine_sweep(below)?;
         }
         bail!("dig_down2 never reached y {target_y}")
     }
@@ -1085,7 +1085,7 @@ impl Prod {
                     if blocks2.kind(cell) != Kind::Solid {
                         continue;
                     }
-                    if self.stand_near(&blocks2, cell).is_ok() && self.mine(cell).is_ok() {
+                    if self.stand_near(&blocks2, cell).is_ok() && self.mine_sweep(cell).is_ok() {
                         n += 1;
                     }
                 }
@@ -2546,7 +2546,10 @@ fn tunnel_clear(p: &mut Prod, dim: &str, lo: Pos, hi: Pos, entry: (i32, i32)) ->
             for y in (lo[1]..=hi[1]).rev() {
                 let s = blocks.get([x, y, z]);
                 if blocks.kind([x, y, z]) == Kind::Solid && !s.starts_with("minecraft:bedrock") {
-                    p.mine([x, y, z])?;
+                    // Held-key sweep: a handful of frame-gated submits per block, where the
+                    // precise path needs ~15 (measured ~15 s/block when the client's tick
+                    // rate sags with its frame time under llvmpipe).
+                    p.mine_sweep([x, y, z])?;
                     mined += 1;
                 }
             }
@@ -2864,8 +2867,8 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         p.loga("generated twin's frame block mined (its portal blocks die with it)");
         p.tp("overworld", c.dix as f64 + 1.5, 3.0, c.doz_a as f64 - 1.5, 0.0, 20.0)?;
         p.seg_step("machine-build", "machine", &[
-            "Build the trigger: twin portal, plate on hoppers, redstone, dropper, drill portals",
-            "One item on the plate = one fresh stone into the drill portal",
+            "Build the trigger at R_O (the return twin): plate on hoppers, redstone, dropper",
+            "One item on the plate = one fresh stone into D_O, the drill portal",
         ], 5.0, S3)?;
         build_machine(p, &c)?;
         p.seg_step("machine-top", "machine", &["The finished machine (camera view): R_O left, the two drill portals right"], 1.0, S3)?;
@@ -2880,7 +2883,7 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         }
         let want = want.context("firstdrill: predictor sees no site on the field")?;
         p.seg_step("first-trip", "firstdrill", &[
-            "Through the drill portal: no exit portal exists, so the game builds one…",
+            "Through D_O (the drill portal): no exit portal exists, so the game builds one…",
             "…writing obsidian OVER the bedrock row",
         ], 1.0, S4)?;
         // Around the east side to the portal's front (never through R_O or D_O), then in
@@ -2911,10 +2914,10 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         p.mine([fx, 5, cur])?;
         p.assert_block("the_nether", [fx + 1, 5, cur], "minecraft:air", "portal out (loop)")?;
         p.wait(15)?;
-        p.seg_step("loop-throw", "loop1", &["2: throw ONE item into the return portal"], 1.0, S5)?;
+        p.seg_step("loop-throw", "loop1", &["2: throw ONE item into R_N, the return portal — and stay in the Nether"], 1.0, S5)?;
         throw_trigger(p)?;
         p.seg_step("loop-result", "loop1", &[
-            "3: the machine fires — new portal, new obsidian line",
+            "3: item exits at R_O → plate → dropper fires into D_O → new portal here",
             "The leftover frame blocks its own row, so the game picks the next",
         ], 1.0, S5)?;
         p.poll_block("the_nether", [fx + 1, 5, next], "minecraft:nether_portal", 25)?;
