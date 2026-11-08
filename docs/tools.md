@@ -16,6 +16,11 @@ layouts, a design's chest and `how:` line, the golem exit flood, single redsim r
 blocks, and the design run in the real server against redsim) are in the ironfarm track notes
 ([NOTES.md](../designs/circuits/mobfarm/tracks/ironfarm/NOTES.md#commands)); the kind
 (`circuit: mob-farm iron_ingot day-1|middle|fastest`) is judged on redsim like every circuit ([circuits.md](circuits.md)).
+Real terrain and natural spawning (`mctas terrain gen | find | info | crop | map | spot | light |
+probe | chunk | blockinfo | biomes | paste-check | biome-check | spawn-check | spawn-explain |
+hostile`: the official server's world generation read back into `.mcterrain` samples, the
+natural-state and biome tables, a design pasted at a spot, the checks against the official server,
+the worst-case checks for natural mobs) are in [designs/terrain/README.md](../designs/terrain/README.md).
 One tool is not a `mctas` subcommand: `trends` (`./target/release/trends suggest | related | rank`,
 crates/trends), the Google autocomplete and Google Trends ranking of the farms and redstone builds
 people search for. It needs the internet, so it is never used for design work; it is in
