@@ -429,3 +429,70 @@ pub fn fire_in(w: &World, bb: crate::entity::Aabb) -> Option<BlockPos> {
     }
     None
 }
+
+/// The block FireBlock burns beside a fire lit at `f` with state `fire` (it stays there, it is
+/// not soul fire), if any.
+fn burns_beside(w: &World, f: BlockPos, fire: &Block) -> Option<(BlockPos, Block)> {
+    if matches!(fire, Block::Fire { soul: true, .. }) || !can_survive(w, fire, f) {
+        return None;
+    }
+    Dir::ALL.iter().map(|d| f.rel(*d)).find_map(|q| {
+        let b = w.get(q);
+        flammable(&b).map(|_| (q, b))
+    })
+}
+
+/// Whether lava's random tick can ever burn a block of a built farm (mobinfra: the card's `fire`
+/// line, vjeux 2026-11-08 "It's all about tradeoffs"): every path [`lava_random_tick`] can take
+/// from every lava cell (1 or 2 steps up with an x/z jitter, lighting the first air cell beside
+/// an `ignitedByLava` block and ending there, stopped by a `#blocks_lava_fire_spread` block; or
+/// the 3 tries at its level), a fire lit where it stays beside a block FireBlock burns. The first
+/// such lava cell, fire cell and block.
+pub fn lava_can_burn(w: &World) -> Option<(BlockPos, BlockPos, BlockPos, Block)> {
+    for (i, b) in w.cells.iter().enumerate() {
+        if !matches!(b, Block::Lava { .. }) {
+            continue;
+        }
+        let i = i as i32;
+        let (sx, sz) = (w.size[0], w.size[2]);
+        let p = BlockPos::new(w.min.x + i % sx, w.min.y + i / (sx * sz), w.min.z + (i / sx) % sz);
+        let mut frontier = vec![p];
+        for _ in 0..2 {
+            let mut next = Vec::new();
+            for from in &frontier {
+                for dz in -1..=1 {
+                    for dx in -1..=1 {
+                        let tp = from.offset(dx, 1, dz);
+                        let st = w.get(tp);
+                        if st.is_air() {
+                            if has_flammable_neighbours(w, tp) {
+                                if let Some((q, burnt)) = burns_beside(w, tp, &state_at(w, tp)) {
+                                    return Some((p, tp, q, burnt));
+                                }
+                            } else {
+                                next.push(tp);
+                            }
+                        } else if !super::blocks_motion(&st) {
+                            next.push(tp);
+                        }
+                    }
+                }
+            }
+            next.sort_by_key(|q| (q.x, q.y, q.z));
+            next.dedup();
+            frontier = next;
+        }
+        for dz in -1..=1 {
+            for dx in -1..=1 {
+                let tp = p.offset(dx, 0, dz);
+                if w.get(tp.above()).is_air()
+                    && lava_flammable(w, tp)
+                    && let Some((q, burnt)) = burns_beside(w, tp.above(), &state_at(w, tp))
+                {
+                    return Some((p, tp.above(), q, burnt));
+                }
+            }
+        }
+    }
+    None
+}

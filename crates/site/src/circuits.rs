@@ -36,10 +36,11 @@ fn comment_caption(text: &str) -> String {
 }
 
 /// Metric names of more than one word.
-const MULTI_WORD_METRICS: [&str; 62] = [
+const MULTI_WORD_METRICS: [&str; 64] = [
     // (a mob farm's, the ironfarm track: split at their first space they read `iron` = `per hour
-    // per block 1.57`; the longer names first, `iron per hour` is a prefix of two others)
-    "iron per hour per block", "iron per hour per module", "iron per hour", "iron range", "golems per hour", "seconds per golem", "share of ceiling", "worst policy", "restarts after a missed night", "restarts after days away", "lava sources", "chunk columns", "hoppers per 1000 iron/h",
+    // per block 1.57`; the longer names first, `iron per hour` is a prefix of two others; the
+    // mobinfra track's `real game` and `thunder loss`)
+    "iron per hour per block", "iron per hour per module", "iron per hour", "iron range", "golems per hour", "seconds per golem", "share of ceiling", "worst policy", "restarts after a missed night", "restarts after days away", "lava sources", "chunk columns", "hoppers per 1000 iron/h", "real game", "thunder loss",
     "first box", "first item", "per pulse", "per period", "hoppers awake", "safe drop", "effective volume", "items smelted per hour per block", "items smelted per hour", "items per hour per cane", "per cane", "harvest height", "game rts", "at rest", "stop distance", "departure delay", "leaves at", "other way passes at", "first craft", "recipe class", "trip up", "calls and sends", "unload rate", "load rate", "per bit", "items per hour per block", "items per hour", "open wait", "close delay", "stop in doorway", "presses tried", "opens within", "closes within",
     // (an auto-smelter's, study 17, and sorter's `chest` run: split at their first space they read
     // `items/min` = `per furnace 6.0` and the card lost its rate; the brewer's and the composter's
@@ -2006,6 +2007,10 @@ mod tests {
         assert_eq!(s[2], ("hoppers awake".to_string(), "3".to_string()));
         assert_eq!(s[4], ("bill".to_string(), "16 iron, 3 quartz, 1 slime".to_string()));
         assert_eq!(parse_metrics("rate 200 TNT/min, period 6 gt, per period 1")[2], ("per period".to_string(), "1".to_string()));
+        // a mob farm's weather lines (mobinfra): `real game` and `thunder loss` are one name each,
+        // and their values keep their own `;`-joined parts
+        let f = parse_metrics("iron per hour 300, real game 8 builds in the 26.3 server on Hard: 3 days of natural weather 74.8 golems/h (redsim 75.0; 95% 72.4-77.6); a forced day of rain 75.1 golems/h (redsim 74.0; 99% 70.0-78.0); 4.06 iron per dead golem, thunder loss 3.2, rain clear day 300 iron/h; rain day 298 iron/h; thunder day 297 iron/h");
+        assert_eq!(f.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(), ["iron per hour", "real game", "thunder loss", "rain"]);
         // an auto-smelter's names keep their words (they read `items/min` = `per furnace 6.0`)
         let sm = parse_metrics("items/min per furnace 6.0, first item by 220 gt, items per coal 6.0, spread 18 each, hoppers awake 3, at rest yes, blocks per furnace 4.0, minutes for a double chest 72.2, of the ceiling 100% (72.2 min: 8 furnaces always busy), first ingot by 312 gt, coal left 64 (0 in the machine)");
         let get = |k: &str| sm.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone()).unwrap_or_default();

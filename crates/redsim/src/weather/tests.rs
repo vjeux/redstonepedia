@@ -319,3 +319,39 @@ fn every_bolt_that_can_fall() {
     let rod = lightning::static_check(&w, &[], &[], Aabb::new(-3.0, 0.0, -3.0, 3.0, 9.0, 3.0));
     assert!(rod.is_empty(), "{rod:?}");
 }
+
+/// The card's lightning numbers (vjeux 2026-11-08: tradeoffs, measured): a villager in the open
+/// is struck by every strike in the 7 x 7 columns around it (1e-5 / 256 each a tick of thunder),
+/// and the iron in a cell beside it burns with it; under a stone roof 5 above its feet, none.
+#[test]
+fn lightning_measure() {
+    let mut w = World::new(BlockPos::new(-8, 0, -8), [16, 24, 16]);
+    w.mob.seed(3, 6000);
+    put(&mut w, 0, 1, 0, "minecraft:stone");
+    crate::entity::mob::add(&mut w, MobType::Villager, Vec3::new(0.5, 2.0, 0.5), true);
+    let inner = Aabb::new(-8.0, 0.0, -8.0, 8.0, 24.0, 8.0);
+    let q = lightning::CHUNK_STRIKE / 256.0;
+    let open = lightning::measure(&w, &[], &[(BlockPos::new(2, 2, 0), 2.0)], inner);
+    assert!((open.witch / q - 49.0).abs() < 1e-6, "{open:?}");
+    assert!((open.iron / q - 98.0).abs() < 1e-6, "{open:?}");
+    assert_eq!(open.vehicle, 0.0);
+    assert!((open.breaks - open.witch).abs() < 1e-12);
+    for x in -2..=2 {
+        for z in -2..=2 {
+            put(&mut w, x, 7, z, "minecraft:stone");
+        }
+    }
+    let roofed = lightning::measure(&w, &[], &[], inner);
+    assert_eq!(roofed.witch, 0.0, "{roofed:?}");
+    // the roof's top is on the farm: a trap horse can land there (6.4% of those bolts on Hard)
+    assert!((roofed.trap / q - 25.0 * lightning::trap_chance(&lightning::Settings::default())).abs() < 1e-6, "{roofed:?}");
+}
+
+/// The cycle's thunderstorms: rain about 15.8% of the time and the thunder flag 9.1%, independent,
+/// so about 1.4% (a little less: the levels ramp); a storm lasts a few thousand gt.
+#[test]
+fn thunderstorm_share() {
+    let s = storm_stats(1, 20_000);
+    assert!((0.010..0.018).contains(&s.share), "{s:?}");
+    assert!((2000.0..12000.0).contains(&s.mean_len), "{s:?}");
+}

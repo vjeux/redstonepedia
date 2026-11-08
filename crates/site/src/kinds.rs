@@ -476,12 +476,6 @@ pub fn title_key(b: &Build) -> String {
     }
 }
 
-/// mobinfra: a mob farm is published only when its card carries the real-game gate's `real game`
-/// line (`circuit verify` of a mob farm since the gate). Off until iron-day1, the site's one mob
-/// farm (it passed the gate's 8 builds), is re-archived through the gate with its measured
-/// tradeoffs; then the rule holds for every mob farm and the switch goes.
-pub const MOB_FARMS_NEED_THE_GAME_GATE: bool = false;
-
 /// A circuit's kind as a builder asks for it: a gate's function (a mirror pair is one kind), a
 /// timer's restart rule, a two-way flying machine, a sand elevator; else the kind's first word.
 pub fn kind_key(b: &Build) -> String {
@@ -531,7 +525,7 @@ pub fn kind_key(b: &Build) -> String {
         // tier (the brief's obvious design, the bar to beat) is no published kind: catalog only;
         // so is one archived before the real-game gate (mobinfra 2026-11-08: its card carries the
         // gate's `real game` line, the page's "Verified in the real game")
-        "mob-farm" if c.kind.split_whitespace().count() >= 3 && (!MOB_FARMS_NEED_THE_GAME_GATE || c.metrics.iter().any(|(k, _)| k == "real game")) => c.kind.clone(),
+        "mob-farm" if c.kind.split_whitespace().count() >= 3 && c.metrics.iter().any(|(k, _)| k == "real game") => c.kind.clone(),
         "mob-farm" => format!("-{}", c.kind),
         // a piston bridge: one kind per walkway width (pext: the 2-wide stone bridges are their
         // own table; a 1-wide stone walkway is a property beside the slime one, `walkway_variants`)

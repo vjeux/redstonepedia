@@ -94,6 +94,12 @@ pub struct Window {
     pub rain_samples: u32,
     pub thunder_samples: u32,
     pub samples: u32,
+    /// mobinfra (vjeux 2026-11-08: "It's all about tradeoffs"): lightning's breaks seen in the
+    /// window, checked against the card's rates (`GateReport::tradeoffs`): new witches, vehicles
+    /// lost, skeleton trap horses on the farm.
+    pub witches: u32,
+    pub vehicles: u32,
+    pub traps: u32,
 }
 
 impl Window {
@@ -122,6 +128,13 @@ pub struct BuildRun {
     pub changed: Vec<String>,
     pub failures: Vec<String>,
     pub seconds: f64,
+    /// The window the build first broke in (a witch, a lost vehicle: tradeoffs the card measures);
+    /// what follows a break is its consequence, not checked.
+    pub broken: Option<usize>,
+    /// Witches, vehicles and trap horses on the farm at the last sample.
+    pub witches_now: u32,
+    pub vehicles_now: u32,
+    pub traps_now: u32,
 }
 
 /// What block is at `p` now, among the ones a farm turns into when it breaks.
@@ -365,6 +378,7 @@ pub fn run_build(c: &Circuit, turns: u8, offset: [i32; 3], o: &GateOpts) -> Resu
     let zombies0 = s.count_entities("@e[type=minecraft:zombie]")?;
     let vehicles0 = s.count_entities("@e[type=#minecraft:boat]")? + s.count_entities("@e[type=minecraft:minecart]")?;
     let villagers0 = villager_spots.len() as u32;
+    run.vehicles_now = vehicles0;
     let inner = spec.inner();
     let mut golems: BTreeMap<String, Golem> = BTreeMap::new();
     let mut t: u32 = 0;
@@ -388,7 +402,7 @@ pub fn run_build(c: &Circuit, turns: u8, offset: [i32; 3], o: &GateOpts) -> Resu
             let w = windows.last_mut().unwrap();
             w.ticks += 20;
             w.samples += 1;
-            sample(&mut s, &mut run, &mut golems, t, k, inner, &spec, villagers0, zombies0, vehicles0, &mut windows)?;
+            sample(&mut s, &mut run, &mut golems, t, k, inner, &spec, villagers0, zombies0, &mut windows)?;
             // the flammable blocks and the lava: burned away or flowed
             if t % 1000 == 0 {
                 let mut still = Vec::new();
@@ -440,7 +454,7 @@ pub fn run_build(c: &Circuit, turns: u8, offset: [i32; 3], o: &GateOpts) -> Resu
     if run.golems == 0 {
         run.fail("no golem spawned".into());
     }
-    if run.deaths > 0 {
+    if run.deaths > 0 && run.broken.is_none() {
         let n = run.deaths as f64;
         let floor = 4.0 * n - 3.0 * (2.0 * n / 3.0).sqrt();
         if (run.iron() as f64) < floor {
@@ -460,12 +474,11 @@ fn sample(
     run: &mut BuildRun,
     golems: &mut BTreeMap<String, Golem>,
     t: u32,
-    _window: usize,
+    window: usize,
     inner: redsim::entity::Aabb,
     spec: &FarmSpec,
     villagers0: u32,
     zombies0: u32,
-    vehicles0: u32,
     windows: &mut [Window],
 ) -> Result<()> {
     let w = windows.last_mut().unwrap();
@@ -476,6 +489,40 @@ fn sample(
     if s.cmd("execute if predicate {type:\"minecraft:weather_check\",thundering:true}")?.contains("passed") {
         w.thunder_samples += 1;
     }
+    // lightning's breaks (tradeoffs the card measures, vjeux 2026-11-08: counted here and checked
+    // against the card's rates in `gate`; what follows a break is its consequence, unchecked):
+    // a new witch is a villager a bolt struck, a lost vehicle one a bolt broke
+    let witches = s.count_entities("@e[type=minecraft:witch]")?;
+    if witches > run.witches_now {
+        windows.last_mut().unwrap().witches += witches - run.witches_now;
+        run.witches_now = witches;
+        run.broken.get_or_insert(window);
+    }
+    let vehicles = s.count_entities("@e[type=#minecraft:boat]")? + s.count_entities("@e[type=minecraft:minecart]")?;
+    if vehicles < run.vehicles_now {
+        windows.last_mut().unwrap().vehicles += run.vehicles_now - vehicles;
+        run.vehicles_now = vehicles;
+        run.broken.get_or_insert(window);
+    }
+    let mut traps = 0;
+    for a in entity_answers(&s.cmd_long("execute as @e[type=minecraft:skeleton_horse] run data get entity @s Pos")?) {
+        if let Some(p) = list_after(&format!("Pos:{}", a.trim()), "Pos")
+            && p.len() == 3
+            && p[0] >= spec.lo.x as f64 - 2.0
+            && p[0] <= spec.hi.x as f64 + 3.0
+            && p[1] >= spec.lo.y as f64 - 2.0
+            && p[1] <= spec.hi.y as f64 + 3.0
+            && p[2] >= spec.lo.z as f64 - 2.0
+            && p[2] <= spec.hi.z as f64 + 3.0
+        {
+            traps += 1;
+        }
+    }
+    if traps > run.traps_now {
+        windows.last_mut().unwrap().traps += traps - run.traps_now;
+    }
+    run.traps_now = traps;
+    let checking = run.broken.is_none();
     // golems
     for g in golems.values_mut() {
         g.seen = false;
@@ -500,7 +547,7 @@ fn sample(
             g.dead = true;
             run.deaths += 1;
         }
-        if !g.dead && !g.reported {
+        if !g.dead && !g.reported && checking {
             if p[0] < inner.min_x || p[0] > inner.max_x || p[1] < inner.min_y || p[1] > inner.max_y || p[2] < inner.min_z || p[2] > inner.max_z {
                 g.reported = true;
                 run.fail(format!("gt {t}: a golem left the farm at {:.1} {:.1} {:.1}", p[0], p[1], p[2]));
@@ -518,14 +565,20 @@ fn sample(
         let g = &golems[&k];
         let p = g.last;
         if p[0] < inner.min_x || p[0] > inner.max_x || p[1] < inner.min_y || p[1] > inner.max_y || p[2] < inner.min_z || p[2] > inner.max_z {
-            run.fail(format!("gt {t}: a golem vanished outside the farm at {:.1} {:.1} {:.1} (it left the world)", p[0], p[1], p[2]));
+            if checking {
+                run.fail(format!("gt {t}: a golem vanished outside the farm at {:.1} {:.1} {:.1} (it left the world)", p[0], p[1], p[2]));
+            }
         } else {
             run.deaths += 1;
         }
         golems.remove(&k);
     }
     golems.retain(|_, g| g.seen);
-    // the villagers: as many, unhurt, unconverted
+    // the villagers: as many (but the witches), unhurt; the zombie: unhurt in its vehicle; no
+    // drop outside the box (until the build breaks)
+    if !checking {
+        return Ok(());
+    }
     let vs = entity_answers(&s.cmd_long("execute as @e[type=minecraft:villager] run data get entity @s Health")?);
     if vs.len() as u32 != villagers0 {
         run.fail(format!("gt {t}: {} villagers of {villagers0}", vs.len()));
@@ -533,36 +586,15 @@ fn sample(
     if vs.iter().any(|a| a.trim().trim_end_matches('f').parse::<f64>().unwrap_or(20.0) < 20.0) {
         run.fail(format!("gt {t}: a villager was hurt"));
     }
-    for (ty, what) in [("witch", "a witch (a villager struck by lightning)"), ("zombie_villager", "a zombie villager")] {
-        if s.count_entities(&format!("@e[type=minecraft:{ty}]"))? > 0 {
-            run.fail(format!("gt {t}: {what} in the world"));
-        }
+    if s.count_entities("@e[type=minecraft:zombie_villager]")? > 0 {
+        run.fail(format!("gt {t}: a zombie villager in the world"));
     }
-    // a trap horse on the farm (one that fell where a bolt hit the void is harmless)
-    for a in entity_answers(&s.cmd_long("execute as @e[type=minecraft:skeleton_horse] run data get entity @s Pos")?) {
-        if let Some(p) = list_after(&format!("Pos:{}", a.trim()), "Pos")
-            && p.len() == 3
-            && p[0] >= spec.lo.x as f64 - 2.0
-            && p[0] <= spec.hi.x as f64 + 3.0
-            && p[1] >= spec.lo.y as f64 - 2.0
-            && p[1] <= spec.hi.y as f64 + 3.0
-            && p[2] >= spec.lo.z as f64 - 2.0
-            && p[2] <= spec.hi.z as f64 + 3.0
-        {
-            run.fail(format!("gt {t}: a skeleton trap horse on the farm at {:.1} {:.1} {:.1}", p[0], p[1], p[2]));
-        }
-    }
-    // the zombie: unhurt, in its vehicle
     let zs = entity_answers(&s.cmd_long("execute as @e[type=minecraft:zombie] run data get entity @s Health")?);
     if zs.len() as u32 != zombies0 {
         run.fail(format!("gt {t}: {} zombies of {zombies0}", zs.len()));
     }
     if zs.iter().any(|a| a.trim().trim_end_matches('f').parse::<f64>().unwrap_or(20.0) < 20.0) {
         run.fail(format!("gt {t}: the zombie was hurt"));
-    }
-    let vehicles = s.count_entities("@e[type=#minecraft:boat]")? + s.count_entities("@e[type=minecraft:minecart]")?;
-    if vehicles != vehicles0 {
-        run.fail(format!("gt {t}: {vehicles} vehicles of {vehicles0} (one was destroyed)"));
     }
     // drops outside the farm's box
     let (lo, hi) = (spec.lo, spec.hi);
@@ -635,7 +667,8 @@ impl WindowCheck {
     }
 
     fn text(&self) -> String {
-        format!("{} {:.1} golems/h (redsim {:.1}, {}% {:.1}-{:.1})", self.name, self.game, self.sim, if self.z > 2.0 { 99 } else { 95 }, self.interval.0.max(0.0), self.interval.1)
+        // (no ", " inside: the site splits a card's metrics there)
+        format!("{} {:.1} golems/h (redsim {:.1}; {}% {:.1}-{:.1})", self.name, self.game, self.sim, if self.z > 2.0 { 99 } else { 95 }, self.interval.0.max(0.0), self.interval.1)
     }
 }
 
@@ -647,6 +680,8 @@ pub struct GateReport {
     pub windows: Vec<WindowCheck>,
     pub sim_runs: usize,
     pub failures: Vec<String>,
+    /// Lightning's breaks the builds saw against the card's rates.
+    pub tradeoffs: Vec<Tradeoff>,
 }
 
 impl GateReport {
@@ -658,12 +693,16 @@ impl GateReport {
     pub fn line(&self) -> String {
         let iron: u32 = self.builds.iter().map(|b| b.iron()).sum();
         let deaths: u32 = self.builds.iter().map(|b| b.deaths).sum();
+        let tradeoffs = match self.tradeoffs.first() {
+            Some(t) => format!("; lightning over its {:.0} gt of thunder: {}", t.thunder, self.tradeoffs.iter().map(|t| format!("{} {} (the card {:.2})", t.seen, t.what, t.expected)).collect::<Vec<_>>().join("; ")),
+            None => String::new(),
+        };
         format!(
-            "{} builds in the 26.3 server on Hard: {}; {:.2} iron per dead golem{}",
+            "{} builds in the 26.3 server on Hard: {}; {:.2} iron per dead golem{tradeoffs}{}",
             self.builds.len(),
-            self.windows.iter().map(|w| w.text()).collect::<Vec<_>>().join(", "),
+            self.windows.iter().map(|w| w.text()).collect::<Vec<_>>().join("; "),
             iron as f64 / deaths.max(1) as f64,
-            if self.passed() { "; every build works in rain and thunder" } else { "" }
+            if self.passed() { "; every build works in rain and thunder as its card says" } else { "" }
         )
     }
 }
@@ -734,7 +773,7 @@ pub fn gate(c: &Circuit, o: &GateOpts) -> Result<GateReport> {
     for (k, (name, a, b, z)) in spans.iter().enumerate() {
         let per_hour = |n: usize| n as f64 * 72000.0 / (b - a) as f64;
         let sim: Vec<f64> = sim_runs.iter().map(|r| per_hour(r.spawn_times.iter().filter(|t| (arrive + a..arrive + b).contains(*t)).count())).collect();
-        let game: Vec<f64> = rep.builds.iter().filter_map(|bu| bu.windows.get(k)).map(|w| w.golems_per_hour()).collect();
+        let game: Vec<f64> = rep.builds.iter().filter(|bu| bu.broken.is_none_or(|b| b > k)).filter_map(|bu| bu.windows.get(k)).map(|w| w.golems_per_hour()).collect();
         let (m, s) = (mean(&sim), sd(&sim));
         let half = z * (s * s / game.len().max(1) as f64 + s * s / sim.len().max(1) as f64).sqrt();
         let w = WindowCheck { name: name.clone(), game: mean(&game), sim: m, interval: (m - half, m + half), z: *z };
@@ -743,5 +782,60 @@ pub fn gate(c: &Circuit, o: &GateOpts) -> Result<GateReport> {
         }
         rep.windows.push(w);
     }
+    // the card's tradeoffs the game can show (vjeux 2026-11-08: "It's all about tradeoffs"):
+    // lightning's breaks over the thunder the game's builds saw, against the card's rates
+    // (`lightning::measure_farm` over redsim's runs of the same schedule), 99% Poisson
+    if let Ok((m, _)) = redsim::weather::lightning::measure_farm(&spec, &sim_runs) {
+        let thunder: f64 = rep.builds.iter().flat_map(|b| b.windows.iter()).map(|w| w.thunder_samples as f64 * 20.0).sum();
+        let seen = |f: fn(&Window) -> u32| rep.builds.iter().flat_map(|b| b.windows.iter()).map(f).sum::<u32>();
+        let checks = [("witches", m.witch, seen(|w| w.witches)), ("boats broken", m.vehicle, seen(|w| w.vehicles)), ("skeleton trap horses on the farm", m.trap, seen(|w| w.traps))];
+        for (what, rate, n) in checks {
+            let lambda = rate * thunder;
+            let (lo, hi) = poisson_band(lambda, 0.005);
+            if n < lo || n > hi {
+                rep.failures.push(format!("lightning: {n} {what} over the game's {thunder:.0} gt of thunder; the card expects {lambda:.2} (99% {lo}-{hi})"));
+            }
+            rep.tradeoffs.push(Tradeoff { what: what.to_string(), seen: n, expected: lambda, thunder });
+        }
+    }
     Ok(rep)
+}
+
+/// A tradeoff of the card the gate saw in the game: how many, and how many the card expects over
+/// the same thunder.
+#[derive(Clone, Debug, Default)]
+pub struct Tradeoff {
+    pub what: String,
+    pub seen: u32,
+    pub expected: f64,
+    pub thunder: f64,
+}
+
+/// The counts a Poisson(`lambda`) variable stays within but for `alpha` on each side: the
+/// largest `lo` with P(X < lo) <= alpha and the smallest `hi` with P(X > hi) <= alpha.
+pub fn poisson_band(lambda: f64, alpha: f64) -> (u32, u32) {
+    if lambda <= 0.0 {
+        return (0, 0);
+    }
+    let (mut pmf, mut cdf) = ((-lambda).exp(), 0.0f64);
+    let (mut lo, mut hi) = (0u32, 0u32);
+    let mut k = 0u32;
+    loop {
+        // cdf = P(X < k) before adding k's mass
+        if cdf <= alpha {
+            lo = k;
+        }
+        cdf += pmf;
+        if 1.0 - cdf <= alpha {
+            hi = k;
+            break;
+        }
+        k += 1;
+        pmf *= lambda / k as f64;
+        if k > 100_000 {
+            hi = k;
+            break;
+        }
+    }
+    (lo, hi)
 }

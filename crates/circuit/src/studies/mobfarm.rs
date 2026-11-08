@@ -100,6 +100,11 @@ pub static STUDY: StudyDef = StudyDef {
                 "storage" => Some("how long the farm's chests and hoppers hold its iron and poppies at this rate"),
                 "hoppers per 1000 iron/h" => Some("hoppers for each 1000 iron an hour (each hopper costs the server work every tick)"),
                 "real game" => Some("the farm run in the real game (the official 26.3 server, on Hard) in every orientation for game days with the weather on, then a day of rain and a day of thunder: it works in each, and its rate agrees with our simulation's"),
+                "lightning" => Some("what thunderstorms cost the farm, summed exactly over every place a strike can land (the game's 1 in 100000 a chunk a tick while it rains and thunders, aimed at a lightning rod, a living mob that sees the sky or the column's top), over our test's runs: the iron the bolts burn, how often a bolt makes a villager a witch, breaks the zombie's boat, lights a fire beside a flammable block or brings a skeleton trap horse onto the farm, and the game days until one breaks the farm"),
+                "thunder loss" => Some("iron lost for each hour of thunder: what the bolts burn and, when one breaks the farm, its rate until the end of that game day"),
+                "rain" => Some("iron an hour on a clear day, a day of rain and a day of thunder (rain darkens the sky, which some calm devices read)"),
+                "sunburn" => Some("whether the zombie can see the sky: a zombie that sees it burns in daylight"),
+                "fire" => Some("whether lava's fire can burn one of the farm's blocks (with a player within 128 blocks, lava lights fires beside the blocks lava ignites)"),
                 _ => None,
             },
         },
@@ -288,6 +293,8 @@ pub struct BaseChecks {
     /// The player away for days, each way and back by day and at night (farms that claim to
     /// restart): [`absence_probe`].
     pub away: Vec<(Away, i64, RunReport, AwayReport)>,
+    /// mobinfra: a natural day, a forced day of rain, a forced day of thunder: [`windows_probe`].
+    pub windows: Vec<RunReport>,
 }
 
 impl BaseChecks {
@@ -347,7 +354,83 @@ pub fn base_checks(c: &Circuit, spec: &FarmSpec, o: &JudgeOpts) -> std::result::
     let worst = if exit.failures.is_empty() { worst_policy(spec, o)? } else { Vec::new() };
     let restart = if claims_restart(c) { Some(restart_probe(spec, o)?) } else { None };
     let away = if claims_restart(c) { absence_probe(spec, o)? } else { Vec::new() };
-    Ok(BaseChecks { exit, worst, restart, away })
+    let windows = windows_probe(spec, o)?;
+    Ok(BaseChecks { exit, worst, restart, away, windows })
+}
+
+/// Runs of the rain and thunder probe.
+pub const WINDOW_RUNS: u32 = 16;
+
+/// The rain and thunder probe (mobinfra; the card's `rain` line): [`WINDOW_RUNS`] runs of a
+/// natural day, then a forced day of rain, then a forced day of thunder (`weather::Plan::Windows`,
+/// from the cycle's stationary state, as the game gate runs them).
+pub fn windows_probe(spec: &FarmSpec, o: &JudgeOpts) -> std::result::Result<Vec<RunReport>, String> {
+    let plan = redsim::weather::Plan::Windows { at: 24000, rain: 24000, thunder: 24000 };
+    let jobs: Vec<RunOpts> = (0..WINDOW_RUNS).map(|k| farm::judge_opts(o.seed0 + 4242 + k as i64, 72000, WalkMode::Random).with_weather(plan)).collect();
+    run_all(spec, &jobs).into_iter().collect()
+}
+
+/// "about every N game days" (or "never") for a rate a game day.
+fn every(per_day: f64) -> String {
+    if per_day <= 0.0 { "never".to_string() } else { format!("about every {} game days", days(1.0 / per_day)) }
+}
+
+fn days(d: f64) -> String {
+    if d >= 9.5 { format!("{d:.0}") } else { format!("{d:.1}") }
+}
+
+/// A small expected count with two significant digits (0.0041, 0.27, 3.6, 12).
+fn small(x: f64) -> String {
+    if x >= 9.5 {
+        format!("{x:.0}")
+    } else if x >= 0.095 || x == 0.0 {
+        format!("{x:.1}")
+    } else {
+        let digits = (-(x.log10().floor()) as usize) + 1;
+        format!("{x:.digits$}")
+    }
+}
+
+/// The card's `lightning` line (one sentence, `;` between its parts: the site splits a card's
+/// metrics at ", ").
+pub fn lightning_line(m: &redsim::weather::lightning::Measure) -> String {
+    let s = redsim::weather::storms();
+    let per_day = s.share * 24000.0;
+    let mut v = vec![
+        format!("about {} iron lost per thunderstorm", small(m.iron * s.mean_len)),
+        format!("a witch {}", every(m.witch * per_day)),
+        format!("the zombie's boat broken {}", every(m.vehicle * per_day)),
+        format!("a fire beside a flammable block {}", every(m.fire * per_day)),
+        format!("a skeleton trap horse on the farm {}", every(m.trap * per_day)),
+    ];
+    if m.breaks > 0.0 {
+        let first = [(m.witch, "a villager made a witch"), (m.vehicle, "the zombie's boat broken"), (m.fire, "a fire")].into_iter().max_by(|a, b| a.0.total_cmp(&b.0)).map(|x| x.1).unwrap_or("");
+        v.push(format!("the farm breaks in about {} game days ({first} first)", days(1.0 / (m.breaks * per_day))));
+    } else {
+        v.push("lightning never breaks the farm".to_string());
+    }
+    v.push(format!("thunderstorms {:.1}% of the time ({:.0} gt each on average)", 100.0 * s.share, s.mean_len));
+    v.join("; ")
+}
+
+/// Iron lost for each hour of thunder: the bolts' and, when one breaks the farm, its rate `iron`
+/// (an hour) until the end of that game day (half a day on average: 1/6 h).
+pub fn thunder_loss(m: &redsim::weather::lightning::Measure, iron: f64) -> f64 {
+    72000.0 * (m.iron + m.breaks * iron / 6.0)
+}
+
+/// The card's `fire` line: whether lava's random tick can ever burn one of the farm's blocks.
+fn fire_line(spec: &FarmSpec, runs: &[RunReport]) -> String {
+    let Ok(run) = farm::Run::new(spec, &RunOpts::steady(0, 0, WalkMode::Random)) else { return "never".to_string() };
+    match redsim::weather::fire::lava_can_burn(&run.world) {
+        None => "never".to_string(),
+        Some((lava, at, q, b)) => {
+            let name = b.to_string();
+            let name = name.split('[').next().unwrap_or("").trim_start_matches("minecraft:").to_string();
+            let hours: f64 = runs.iter().map(|r| r.hours()).sum();
+            format!("lava at {} {} {} can light a fire at {} {} {} beside the {name} at {} {} {} (not within the runs' {hours:.0} h)", lava.x, lava.y, lava.z, at.x, at.y, at.z, q.x, q.y, q.z)
+        }
+    }
 }
 
 /// A build's outcome from its runs (`pooled`: every build's runs, for the base build's card;
@@ -411,6 +494,23 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
             format!("yes (unloaded or not ticking, back by day or at night: the first golem {:.1}-{:.1} h after the return)", firsts.iter().cloned().fold(f64::INFINITY, f64::min), firsts.iter().cloned().fold(0.0, f64::max))
         };
         metrics.push(("restarts after days away".to_string(), away));
+        // mobinfra: the weather's tradeoffs, measured (vjeux 2026-11-08 08:26: "You can't expect
+        // day 1 farm to pass everything. It's all about tradeoffs")
+        let (golems_all, iron_all): (u32, u32) = all.iter().fold((0, 0), |(g, i), r| (g + r.golems, i + r.iron_dropped));
+        let per_golem = if golems_all > 0 { iron_all as f64 / golems_all as f64 } else { 4.0 };
+        if !bc.windows.is_empty() {
+            let rate = |a: i64| {
+                let a = farm::SETTLE_TICKS + a;
+                mean(&bc.windows.iter().map(|r| r.spawn_times.iter().filter(|t| (a..a + 24000).contains(*t)).count() as f64 * 3.0 * per_golem).collect::<Vec<_>>())
+            };
+            metrics.push(("rain".to_string(), format!("clear day {:.0} iron/h; rain day {:.0} iron/h; thunder day {:.0} iron/h", rate(0), rate(24000), rate(48000))));
+        }
+        if let Ok((m, sky)) = redsim::weather::lightning::measure_farm(spec, runs) {
+            metrics.push(("lightning".to_string(), lightning_line(&m)));
+            metrics.push(("thunder loss".to_string(), format!("{:.1}", thunder_loss(&m, iron))));
+            metrics.push(("sunburn".to_string(), if sky { "the zombie sees the sky: it burns on its first clear day".to_string() } else { "never (the zombie never sees the sky)".to_string() }));
+        }
+        metrics.push(("fire".to_string(), fire_line(spec, all)));
     }
     metrics.push(("misses".to_string(), format!("{no_spot} of {tries} tries found no spot, {seen} golem sightings")));
     metrics.push(("bill".to_string(), b.text()));
