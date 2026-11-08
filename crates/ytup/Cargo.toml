@@ -1,0 +1,28 @@
+[package]
+name = "ytup"
+description = "Upload a video to the owner's YouTube channel through the YouTube Data API (OAuth consent in the owner's own Chrome on the box, resumable upload, private by default)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+base64.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Storage_Xps",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Console",
+    "Win32_System_Ole",
+    "Win32_System_Variant",
+    "Win32_UI_Accessibility",
+    "Win32_UI_WindowsAndMessaging",
+] }

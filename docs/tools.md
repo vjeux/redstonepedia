@@ -124,6 +124,25 @@ plus the hallway check, footsteps for sculk designs, QUART SEAMLESS or better an
 | `door montage --videos DIR --out <f.mp4> [--board solid] [--upload videos]` | a board's record progression by blocks placed (the history before sizes were volumes) as one video: every record filmed by the same camera, labeled with its blocks placed and how it got there (solid: `archive/records.tsv`) |
 | `door world --out DIR` | one Minecraft world (a save folder for the real game) with every working archived design in rows by board, smallest volume first, its size in red concrete above it, to try them by hand |
 
+## Uploading to YouTube (`ytup`, on the WhiteStick box)
+
+`crates/ytup` is the one tool that is not a `mctas` subcommand: a Windows binary (`cargo xwin
+build --release --target x86_64-pc-windows-msvc -p ytup` in WSL), because the owner's browser and
+Google account live on that box. It uploads through the YouTube Data API v3: YouTube's Terms of
+Service forbid driving the YouTube site with automation, the API is the supported way. The OAuth
+client and the owner's consent happen in his own Chrome (default profile, where he is signed in),
+read and pressed through Windows UI Automation, the accessibility API screen readers use: no
+DevTools port (Chrome refuses one on the default profile), no copied profile, no cookie or stored
+password read. State: `C:\Users\vjeux\yt-upload\state` (`client.json`, `token.json`,
+`uploads/<hash>.json`), the owner's Windows profile; secrets are never printed.
+
+| command | when to use it |
+|---|---|
+| `ytup upload --file F --title T --description-file D [--tags a,b] [--category 20] [--privacy private\|unlisted\|public] [--thumbnail P] [--made-for-kids] [--allow-duplicate]` | upload a video, **private unless told otherwise** (since Nov 2 2026 an API upload without a privacy status goes public), then the thumbnail, then read the video back (privacy, processing). Resumable (8 MiB chunks, the session in `uploads/<hash>.json`): rerun the same command after any failure. Never uploads twice: the same file (by hash) or a video with the same title already on the channel is reported, not sent again |
+| `ytup whoami` / `ytup list [--max N]` | the authorized channel (title, id, handle; check it before an upload) / its latest uploads with their privacy |
+| `ytup auth --auto` | the OAuth consent: opens Google's consent page in the owner's Chrome and presses the account (the personal one, never a brand account such as React's), the Testing-app notice, the scope checkboxes, Continue; the refresh token lands in `token.json`. The app is in Testing (publishing needs a privacy policy page), so Google expires the token after 7 days: when a command says so, run this again. It stops, and asks for the owner, if Google wants his password or a second factor |
+| `ytup chrome-open --url U`, `windows`, `dump --title S [--grep S]`, `press --name S\|@account [--role R] --title S`, `type`, `save-client`, `remember-account`, `close` | the UI Automation steps the one-time setup used in the owner's Cloud console (Nov 7 2026: project `ytup-youtube-uploader`, YouTube Data API v3 enabled, Google Auth Platform "Redstonepedia Uploader", External, Testing, the owner as test user, Desktop client "ytup desktop (AI agent)" marked agentic). `@account` stands for the signed-in account's e-mail (never printed); `dump` masks e-mails and client secrets |
+
 ## Generated files
 
 Never edit these by hand; change their generator or its inputs and regenerate:
