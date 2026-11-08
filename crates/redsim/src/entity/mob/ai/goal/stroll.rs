@@ -156,11 +156,19 @@ pub fn light_magic(w: &mut World, p: BlockPos) -> f32 {
             }
         }
     } else {
-        // a solid-rendering block holds no light (the engine's getLightBlock 15)
+        // a solid-rendering block holds no light (the engine's getLightBlock 15); the rest from
+        // the world's sky light (cached until a block changes: daylight's per-query fixed point
+        // is costly under a roof)
         let sky = if is_solid_render(&w.get(p)) {
             Ok(0)
+        } else if let Some(v) = w.mob.ai.sky_cache.get(&p) {
+            Ok(*v)
         } else {
-            crate::daylight::sky_light(w, p)
+            let v = crate::daylight::sky_light(w, p);
+            if let Ok(s) = v {
+                w.mob.ai.sky_cache.insert(p, s);
+            }
+            v
         };
         let sky = match sky {
             Ok(v) => v,

@@ -182,7 +182,10 @@ fn apply_current(e: &mut Entity, lava: bool, scale: f64) {
 /// distance reset in water, `wasTouchingWater`, the water current (0.014; every modeled entity
 /// is pushed by fluids). Returns `inAnyFluid`.
 pub fn update_fluid_interaction(w: &mut World, i: usize) -> bool {
-    let mut e = w.entities.list[i].clone();
+    // the entity leaves the list while it reads the world and comes back to its place below
+    // (O(1): a clone of a villager's brain every tick was a fifth of the mob AI's time); nothing
+    // here reads the entity list
+    let mut e = w.entities.list.swap_remove(i);
     let in_any = update(w, &mut e, false);
     let in_water = e.fluid.in_water();
     if in_water {
@@ -228,6 +231,8 @@ pub fn update_fluid_interaction(w: &mut World, i: usize) -> bool {
     if e.fluid.lava_height() > 0.0 {
         apply_current(&mut e, true, 0.0023333333333333335);
     }
-    w.entities.list[i] = e;
+    w.entities.list.push(e);
+    let last = w.entities.list.len() - 1;
+    w.entities.list.swap(i, last);
     in_any
 }

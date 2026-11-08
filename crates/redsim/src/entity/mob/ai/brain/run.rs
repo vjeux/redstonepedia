@@ -771,11 +771,12 @@ pub fn trigger(w: &mut World, i: usize, n: usize, t: i64) -> bool {
                 return false;
             }
             let here = poi::sections_to_village(w, pos);
+            let v = poi::village_sections(w);
             let mut target = None;
             for _ in 0..5 {
-                let lp = crate::entity::mob::ai::goal::stroll::land_random_pos_by(w, i, 15, 7, |w, p| -(poi::sections_to_village(w, p) as f64));
+                let lp = crate::entity::mob::ai::goal::stroll::land_random_pos_by(w, i, 15, 7, |_, p| -(poi::sections_to_village_in(&v, poi::section(p)) as f64));
                 if let Some(lp) = lp {
-                    let d = poi::sections_to_village(w, super::containing(lp));
+                    let d = poi::sections_to_village_in(&v, poi::section(super::containing(lp)));
                     if d < here {
                         target = Some(lp);
                         break;

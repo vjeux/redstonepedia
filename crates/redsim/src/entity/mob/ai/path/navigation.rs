@@ -55,6 +55,10 @@ pub enum NavKind {
     WallClimber,
 }
 
+/// Every path search's count and the time spent in them (benchmarks read them).
+pub static SEARCHES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static SEARCH_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// A `PathNavigation`'s state.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Navigation {
@@ -230,10 +234,13 @@ impl Navigation {
             return Some(p.clone());
         }
         let max_visited = (self.max_visited_nodes as f32 * self.max_visited_nodes_multiplier) as i32;
+        let t0 = std::time::Instant::now();
         let path = {
             let mut eval = WalkEval::new(w, m.path_mob(), self.flags, arena);
             finder::find_path(&mut eval, targets, max_path_length, reach, max_visited)
         };
+        SEARCH_NANOS.fetch_add(t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+        SEARCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.searches += 1;
         if let Some(p) = &path {
             self.target_pos = Some(p.target);

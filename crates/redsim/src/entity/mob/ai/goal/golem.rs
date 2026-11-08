@@ -133,10 +133,11 @@ fn towards_poi(w: &mut World, i: usize) -> Option<Vec3> {
     let p = w.entities.list[i].block_position();
     let s = (p.x.div_euclid(16), p.y.div_euclid(16), p.z.div_euclid(16));
     let mut sections = Vec::new();
+    let v = poi::village_sections(w);
     for z in s.2 - 2..=s.2 + 2 {
         for y in s.1 - 2..=s.1 + 2 {
             for x in s.0 - 2..=s.0 + 2 {
-                if poi::sections_to_village_of(w, (x, y, z)) == 0 {
+                if poi::sections_to_village_in(&v, (x, y, z)) == 0 {
                     sections.push((x, y, z));
                 }
             }

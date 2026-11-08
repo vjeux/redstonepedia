@@ -72,6 +72,9 @@ pub fn on_block_changed(w: &mut World, old: &Block, new: &Block) {
     if crate::entity::mob::sun::emission(old) != crate::entity::mob::sun::emission(new) {
         w.mob.ai.lights = None;
     }
+    if !w.mob.ai.sky_cache.is_empty() && old != new {
+        w.mob.ai.sky_cache.clear();
+    }
 }
 
 /// The POIs a villager holds (taken tickets): its home, and with the exact brain its job site,
@@ -120,15 +123,25 @@ pub fn claimed_village_pois(w: &World) -> Vec<BlockPos> {
 }
 
 /// `SectionPos.of(pos)`.
-fn section(p: BlockPos) -> (i32, i32, i32) {
+pub fn section(p: BlockPos) -> (i32, i32, i32) {
     (p.x.div_euclid(16), p.y.div_euclid(16), p.z.div_euclid(16))
 }
 
 /// `PoiManager.sectionsToVillage(section)`.
 pub fn sections_to_village_of(w: &World, s: (i32, i32, i32)) -> i32 {
+    sections_to_village_in(&village_sections(w), s)
+}
+
+/// The sections of the claimed village POIs (what `sectionsToVillage` measures from): callers
+/// asking about many sections take them once.
+pub fn village_sections(w: &World) -> Vec<(i32, i32, i32)> {
+    claimed_village_pois(w).into_iter().map(section).collect()
+}
+
+/// `sectionsToVillage` against precomputed [`village_sections`] (7 when none is within 6).
+pub fn sections_to_village_in(v: &[(i32, i32, i32)], s: (i32, i32, i32)) -> i32 {
     let mut best = 7;
-    for p in claimed_village_pois(w) {
-        let c = section(p);
+    for c in v {
         let d = (c.0 - s.0).abs().max((c.1 - s.1).abs()).max((c.2 - s.2).abs());
         best = best.min(d);
     }
@@ -154,14 +167,15 @@ pub fn is_village(w: &World, pos: BlockPos) -> bool {
 /// cube (`SectionPos.cube`: x, then y, then z... as `betweenClosedStream` walks), one closer to a
 /// village with the smallest distance (the first such), else the centre.
 pub fn section_closest_to_village(w: &World, center: (i32, i32, i32), radius: i32) -> (i32, i32, i32) {
-    let d0 = sections_to_village_of(w, center);
+    let v = village_sections(w);
+    let d0 = sections_to_village_in(&v, center);
     let mut best: Option<((i32, i32, i32), i32)> = None;
     // `Cursor3D`: x fastest, then y, then z
     for z in center.2 - radius..=center.2 + radius {
         for y in center.1 - radius..=center.1 + radius {
             for x in center.0 - radius..=center.0 + radius {
                 let s = (x, y, z);
-                let d = sections_to_village_of(w, s);
+                let d = sections_to_village_in(&v, s);
                 if d < d0 && best.is_none_or(|(_, b)| d < b) {
                     best = Some((s, d));
                 }

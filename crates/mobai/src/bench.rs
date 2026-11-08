@@ -87,11 +87,21 @@ fn redsim_arena(half: i32) -> redsim::world::World {
 /// (the mobs as the layer runs them today: physics and the villager brain, no walking).
 pub fn bench_redsim(mob: &str, count: u32, ticks: u32, half: i32, seed: i64) -> Result<()> {
     use redsim::entity::Vec3;
+    use redsim::entity::mob::ai::path::navigation::{SEARCHES, SEARCH_NANOS};
     use redsim::entity::mob::types::MobType;
+    use std::sync::atomic::Ordering::Relaxed;
     let ty = MobType::from_id(mob).ok_or_else(|| anyhow!("{mob}: not a modeled mob type"))?;
-    let time = |with: bool| -> f64 {
+    // the mob AI on, as the exact compares run it (the bridge's seeding, the mirrored level random)
+    let time = |with: bool, ai: bool| -> (f64, u64, u64) {
         let mut w = redsim_arena(half);
         w.mob.seed(seed, 6000);
+        if ai {
+            w.mob.ai.on = true;
+            w.mob.ai.exact_seed = Some(seed);
+            w.mob.ai.difficulty = redsim::entity::mob::natural::Difficulty::Normal;
+            let c = half.div_euclid(16) + 1;
+            w.mirror_level_random(seed, [-c, -c, c - 1, c - 1]);
+        }
         if with {
             let mut r = redsim::rng::LegacyRandom::new(seed);
             for _ in 0..count {
@@ -103,15 +113,28 @@ pub fn bench_redsim(mob: &str, count: u32, ticks: u32, half: i32, seed: i64) -> 
         for _ in 0..100 {
             w.tick();
         }
+        let (s0, n0) = (SEARCHES.load(Relaxed), SEARCH_NANOS.load(Relaxed));
         let t0 = Instant::now();
         for _ in 0..ticks {
             w.tick();
         }
-        t0.elapsed().as_secs_f64()
+        let el = t0.elapsed().as_secs_f64();
+        if !w.errors.is_empty() {
+            eprintln!("model errors: {:?}", w.errors);
+        }
+        (el, SEARCHES.load(Relaxed) - s0, SEARCH_NANOS.load(Relaxed) - n0)
     };
-    let base = time(false);
-    let with = time(true);
-    let per = (with - base) / (count as f64 * ticks as f64) * 1.0e6;
-    println!("redsim: {count} {mob}, {ticks} ticks: {with:.3} s with mobs, {base:.3} s without: {per:.2} us per mob per tick");
+    for ai in [false, true] {
+        let (base, _, _) = time(false, ai);
+        let (with, searches, nanos) = time(true, ai);
+        let per = (with - base) / (count as f64 * ticks as f64) * 1.0e6;
+        let rate = if nanos > 0 { searches as f64 / (nanos as f64 * 1e-9) } else { 0.0 };
+        println!(
+            "redsim{}: {count} {mob}, {ticks} ticks: {with:.3} s with mobs, {base:.3} s without: {per:.2} us per mob per tick; {searches} path searches ({:.1} per mob per 100 ticks), {rate:.0} searches per second, {:.1}% of the time",
+            if ai { " (mob AI)" } else { " (no AI)" },
+            searches as f64 / count as f64 / ticks as f64 * 100.0,
+            nanos as f64 * 1e-9 / with.max(1e-9) * 100.0
+        );
+    }
     Ok(())
 }
