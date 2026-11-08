@@ -273,6 +273,21 @@ tree and pack: 6.5 s; a 2 MB push with the transport commit) and GitHub's Pages 
 median 29 s): a design-only publish is about 50 s, one after a merge that changes the simulators'
 crates about 7 minutes, that member's.
 
+Then (2026-11-08, the same tree, cold 352 s before): `clock::sim::simulate` records a period
+cell by cell only where a cell's block or extras change (its state string made and interned once
+per change; the frame digest the sum of the cells' keyed hashes, updated per change: frames are
+only compared with each other), `exterior_scan` reads its run as it goes instead of keeping every
+frame's strings, `lamp_output_for` runs its candidates four at a time, the judges' runs (`drive`)
+make a cell's state string once per change and `circuit::trace::Trace::new` keeps an unchanged
+cell's id, and a mob farm's page runs no judge run (`NO_RUN`: nothing on its page came from it,
+and `site preview` ran it again). The same site byte for byte (every page and site.json; every
+archived clock's `clock sim --json`; every archived circuit's `circuit sim --table --wave`).
+`clk-rt-counter` n = 3: 319 s → 94 s (its base run, its exterior scan and its first candidates'
+runs, ~31 s each, one after the other; one run was 137 s); the members' work 2786 → 870
+thread-s; fa-slice-54b 64 s → 36 s, the circuits' pass 81 s → 54 s; cold **128 s** (36 GB);
+`clock sim` of the whole clock archive 97 s → 38 s; `site preview`'s first render of a new
+mob-farm text 54 s → 0.1 s.
+
 ### No dead links: every page ever published (`crates/site/src/published.rs`)
 
 `crates/site/published.tsv` lists every page path the site ever deployed (8490 on 2026-10-21,

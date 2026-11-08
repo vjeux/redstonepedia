@@ -50,12 +50,14 @@ pub struct Details {
 
 /// The kinds whose page uses nothing from the judge's run: a long throughput or yield test (a
 /// farm's growth, an item elevator's 193 items, a crafter's or a smelter's supply, a shulker
-/// machine's boxes, a minecart station's carts) with no input to drive it, no timing diagram and
-/// no report on its page (their pages read the judge's own numbers from verdicts.tsv; a shulker
-/// machine's run is the 3D view's, `view::view_check`). Their simulation was the build's long
-/// pole (the coordinator 2026-10-21: a publish at 1458 s, one farm's yield test running for
-/// minutes alone on one core while every other core waited).
-const NO_RUN: [&str; 10] = ["harvester", "item-elevator", "crafter", "smelter", "station", "shulker-loader", "shulker-unloader", "cart-unloader", "cart-loader", "auto-door"];
+/// machine's boxes, a minecart station's carts, a mob farm's game days on redsim) with no input to
+/// drive it, no timing diagram and no report on its page (their pages read the judge's own numbers
+/// from verdicts.tsv; a shulker machine's run is the 3D view's, `view::view_check`). Their
+/// simulation was the build's long pole (the coordinator 2026-10-21: a publish at 1458 s, one
+/// farm's yield test running for minutes alone on one core while every other core waited; a mob
+/// farm's was its whole 8-build judge again, ~45 s each since redsim's fire and random ticks,
+/// 2026-11-08, which `mctas site preview` waited for on every new farm text).
+const NO_RUN: [&str; 11] = ["harvester", "item-elevator", "crafter", "smelter", "station", "shulker-loader", "shulker-unloader", "cart-unloader", "cart-loader", "auto-door", "mob-farm"];
 
 /// Whether the site runs the judge's test of a kind (`NO_RUN`).
 pub fn runs_judge(kind: &str) -> bool {
