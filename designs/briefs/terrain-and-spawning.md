@@ -649,8 +649,16 @@ Commands: `mctas terrain light|paste-check|biome-check|probe|spawn-check|hostile
    positions at t1; the open sandbox differences found (the tick-exact lane's to fix): the sandbox's
    structures (now imported), its entity-ticking chunks captured before t1 (the game spawns in more
    chunks), its sea level (FlatLevelSource's -63 instead of the world's 63: no glow squid, drowned or
-   surface-water rule can match). The statistical V1 (above) stays the check against the unmodified
-   server.
+   surface-water rule can match). **Revision 5c** (those fixed by the tick-exact lane — structures,
+   block entities and inhabited time imported, the chunk lists captured, sea level 63, the saved
+   heightmaps, the sample's zoom seed, natural spawns on the bridge's entity seeds — and this lane's
+   natural random ticks, `finalizeSpawn`'s draws, the outside-sample biome): the **level random
+   equals the game's draw for draw** through game time 3 on d1-bed-plate in village-edge (all
+   monsters on, the full 289-chunk world, 978 positions a tick) and through game time 2 on
+   d1u-underground; the first differences are now natural mobs' own AI (a bat's flight at t1:
+   mob-AI's) and, on d1u-underground at t3, one biome at a zoom border ((-421,-1,304): river in the
+   game, plains in redsim's zoom with the sample's seed; under investigation with the tick-exact
+   lane). The statistical V1 (above) stays the check against the unmodified server.
 
 ## File split (agreed)
 
