@@ -228,6 +228,10 @@ pub struct BuildArgs {
     /// Threads for generating and simulating members.
     #[arg(long, default_value_t = 32)]
     pub threads: usize,
+    /// Run the clocks' and the circuits' simulation passes one after the other even on a box with
+    /// the memory for both at once (by default beside each other from 96 GB available).
+    #[arg(long)]
+    pub serial_passes: bool,
     /// `publish` only: wait for GitHub's Pages build budget instead of failing.
     #[arg(long)]
     pub wait: bool,
