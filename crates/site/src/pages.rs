@@ -39,22 +39,24 @@ pub fn header(prefix: &str, kind: Option<&str>) -> String {
 }
 
 /// What each tab's one card holds: the door records, the clock periods, the circuit kinds.
-fn kind_counts(site: &Site) -> [usize; 3] {
+fn kind_counts(site: &Site) -> [usize; 4] {
     site.holds()
 }
 
 /// The tabs' counts, computed once per build.
-fn tab_counts(site: &Site) -> [usize; 3] {
-    static COUNTS: std::sync::OnceLock<[usize; 3]> = std::sync::OnceLock::new();
+fn tab_counts(site: &Site) -> [usize; 4] {
+    static COUNTS: std::sync::OnceLock<[usize; 4]> = std::sync::OnceLock::new();
     *COUNTS.get_or_init(|| kind_counts(site))
 }
 
 /// [`header`] with the tabs' counts: every page's header reads like the index's (critique C44:
 /// the study pages' tabs lost their counts and the search said just "Search").
-pub fn header_with(prefix: &str, kind: Option<&str>, counts: Option<[usize; 3]>) -> String {
+pub fn header_with(prefix: &str, kind: Option<&str>, counts: Option<[usize; 4]>) -> String {
     let tab = |k: &str, label: &str, frag: &str, n: Option<usize>| -> String {
         let count = n.map(|n| format!(" <span class=\"count\">{n}</span>")).unwrap_or_default();
-        format!("<a id=\"tab-{k}\" class=\"tab-top{}\" href=\"{prefix}index.html#{frag}\">{label}{count}</a>", if kind == Some(k) { " on" } else { "" })
+        // (the Farms tab opens its overview, the farm types: a few kinds, each with its own page)
+        let href = if k == "farm" { format!("{prefix}farms/index.html") } else { format!("{prefix}index.html#{frag}") };
+        format!("<a id=\"tab-{k}\" class=\"tab-top{}\" href=\"{href}\">{label}{count}</a>", if kind == Some(k) { " on" } else { "" })
     };
     let hidden = match kind {
         Some(k) => format!("<input type=\"hidden\" name=\"kind\" value=\"{}\">", esc(k)),
@@ -65,14 +67,16 @@ pub fn header_with(prefix: &str, kind: Option<&str>, counts: Option<[usize; 3]>)
         Some("clock") => "Search: 48 ticks, 2.5 s…",
         Some("door") => "Search doors",
         Some("circuit") => "Search: toggle, timer, 12…",
+        Some("farm") => "Search: iron, sugar cane, melon…",
         _ => "Search every build",
     };
     format!(
-        "<header class=\"top\"><a class=\"logo\" href=\"{prefix}index.html\"><span class=\"logo-dot\"></span>{SITE_NAME}</a><nav class=\"tabs-top\" aria-label=\"kinds\">{}{}{}</nav>\
+        "<header class=\"top\"><a class=\"logo\" href=\"{prefix}index.html\"><span class=\"logo-dot\"></span>{SITE_NAME}</a><nav class=\"tabs-top\" aria-label=\"kinds\">{}{}{}{}</nav>\
          <form id=\"hsearch\" class=\"hsearch\" action=\"{prefix}index.html\" method=\"get\" role=\"search\">{hidden}<input id=\"hq\" name=\"q\" type=\"search\" placeholder=\"{placeholder}\" aria-label=\"Search\" autocomplete=\"off\"></form></header>\n",
         tab("door", "Doors", "kind=door", counts.map(|c| c[0])),
         tab("clock", "Clocks", "kind=clock", counts.map(|c| c[1])),
-        tab("circuit", "Circuits", "kind=circuit", counts.map(|c| c[2]))
+        tab("circuit", "Circuits", "kind=circuit", counts.map(|c| c[2])),
+        tab("farm", "Farms", "kind=farm", counts.map(|c| c[3]))
     )
 }
 
@@ -245,7 +249,7 @@ fn chips(items: &[String], prefix: &str, param: &str) -> String {
         .join(" ")
 }
 
-fn grid(cards: &[String]) -> String {
+pub(crate) fn grid(cards: &[String]) -> String {
     format!("<div class=\"grid\">{}</div>\n", cards.concat())
 }
 
@@ -456,7 +460,14 @@ pub fn build_page(site: &Site, b: &Build, design_text: &str, repo_path: &str, sc
     let prefix_s = prefix_of(&b.page);
     let prefix = prefix_s.as_str();
     let mut body = String::new();
-    if let Some(c) = &b.circuit {
+    if let Some(c) = b.circuit.as_ref().filter(|c| site_model::farm_folder(&c.study).is_some()) {
+        // a farm: Farms › its farm (vjeux 2026-11-08 12:14: the farms' own top-level section)
+        let folder = site_model::farm_folder(&c.study).unwrap_or("");
+        body.push_str(&format!(
+            "<p class=\"crumbs\"><a href=\"{prefix}index.html\">{SITE_NAME}</a> › <a href=\"{prefix}farms/index.html\">Farms</a> › <a href=\"{prefix}farms/{folder}/index.html\">{}</a></p>\n",
+            esc(crate::farms::farm_title(folder))
+        ));
+    } else if let Some(c) = &b.circuit {
         // circuits: Circuits › study (the kind is the line right under: critique, "Piston
         // extender" three times at the top)
         let (study_title, _) = crate::explain::study(&c.study).unwrap_or(("Circuits", ""));
@@ -805,6 +816,9 @@ pub fn build_page(site: &Site, b: &Build, design_text: &str, repo_path: &str, sc
             site_model::html::readable(per_block)
         ));
     }
+    // a full farm's components, each linking to its member on the component's page (the parent,
+    // 2026-11-08: full farm pages link to the components they're built from)
+    body.push_str(&crate::farms::parts_section(b, prefix));
     body.push_str("<details class=\"more\"><summary>Details: how it works, measurements and properties</summary>\n");
     if let Some(c) = &b.circuit {
         body.push_str(&format!("<section class=\"what\"><h2>In depth</h2>{}</section>\n", crate::explain::what_it_does(c)));
@@ -853,7 +867,8 @@ pub fn build_page(site: &Site, b: &Build, design_text: &str, repo_path: &str, sc
     // (no "gt" anywhere on the page: ticks with their seconds where builders count ticks, else
     // seconds; vjeux 2026-11-08 10:10, "game ticks become seconds")
     let body = crate::explain::gt_words(&body, crate::explain::ticks_matter(b));
-    shell_full(&page_title(b), &desc, prefix, &body, scripts, site, b.picture.as_deref(), Some(&b.kind))
+    let kind = if site_model::is_farm(b) { "farm" } else { b.kind.as_str() };
+    shell_full(&page_title(b), &desc, prefix, &body, scripts, site, b.picture.as_deref(), Some(kind))
 }
 
 /// A build page's `<title>`: its kind and properties first, the design's name after
@@ -1827,8 +1842,14 @@ pub fn index_page(site: &Site, scripts: Scripts) -> String {
 
 /// The circuits of one study folder (`pulse`, `tff`, ...), representatives first.
 fn study_builds<'a>(site: &'a Site, folder: &str) -> Vec<&'a Build> {
-    // (a family's base design kept only as its generator is no card: one card per kind)
-    let mut v: Vec<&Build> = site.builds.iter().filter(|b| b.page.starts_with(&format!("circuits/{folder}/")) && !b.flags.iter().any(|f| f == "generator")).collect();
+    // (a family's base design kept only as its generator is no card: one card per kind; a farm
+    // study's designs live under farms/: its builds by study, its variations aside)
+    let mut v: Vec<&Build> = site
+        .builds
+        .iter()
+        .filter(|b| b.page.starts_with(&format!("circuits/{folder}/")) || (b.circuit.as_ref().is_some_and(|c| c.study == folder && site_model::farm_folder(folder).is_some()) && !crate::farms::is_variation(b)))
+        .filter(|b| !b.flags.iter().any(|f| f == "generator"))
+        .collect();
     v.sort_by(|a, b| {
         let key = |x: &Build| {
             let c = x.circuit.as_ref();
@@ -1864,14 +1885,19 @@ pub fn study_page(site: &Site, folder: &str, scripts: Scripts) -> String {
     } else {
         String::new()
     };
-    // what you would use them for first; the designs right after (critique C6 / P5); how we test
-    // and rank them folds at the end
+    // what you would use them for first; the designs right after (critique C6 / P5); a farm
+    // study's page sits under Farms (vjeux 2026-11-08 12:14)
+    let farm = site_model::farm_folder(folder);
+    let crumbs = match farm {
+        Some(_) => format!("<a href=\"{prefix}index.html\">{SITE_NAME}</a> › <a href=\"{prefix}farms/index.html\">Farms</a> › {}", esc(&title)),
+        None => format!("<a href=\"{prefix}index.html\">{SITE_NAME}</a> › <a href=\"{prefix}circuits/index.html\">Circuits</a> › {}", esc(&title)),
+    };
     let mut body = format!(
-        "<p class=\"crumbs\"><a href=\"{prefix}index.html\">{SITE_NAME}</a> › <a href=\"{prefix}circuits/index.html\">Circuits</a> › {}</p>\n<h1>{}</h1>\n<p class=\"lede\">{}{}</p>\n<p><a class=\"button alt\" href=\"{prefix}index.html#kind=circuit&amp;q={}\">Filter them in the index</a></p>\n{}",
-        esc(&title),
+        "<p class=\"crumbs\">{crumbs}</p>\n<h1>{}</h1>\n<p class=\"lede\">{}{}</p>\n<p><a class=\"button alt\" href=\"{prefix}index.html#kind={}&amp;q={}\">Filter them in the index</a></p>\n{}",
         esc(&title),
         esc(uses),
         esc(&missing),
+        if farm.is_some() { "farm" } else { "circuit" },
         site_model::encode(folder),
         // (only where the view adds a test lamp: critique, not on flying machines or extenders; a
         // smelter's or a crop farm's output is the judge's chest, which the view shows as a chest)
@@ -1983,7 +2009,7 @@ pub fn study_page(site: &Site, folder: &str, scripts: Scripts) -> String {
         body.push_str("<p>No design archived yet.</p>\n");
     }
     body.push_str(&after);
-    shell_full(&title, if uses.is_empty() { &intro } else { uses }, prefix, &body, scripts, site, None, Some("circuit"))
+    shell_full(&title, if uses.is_empty() { &intro } else { uses }, prefix, &body, scripts, site, None, Some(if farm.is_some() { "farm" } else { "circuit" }))
 }
 
 fn first_upper(s: &str) -> String {
@@ -2004,6 +2030,10 @@ pub fn circuits_index(site: &Site, scripts: Scripts) -> String {
     let mut cards: Vec<String> = Vec::new();
     let mut pictured: Vec<String> = Vec::new();
     for (folder, title, _) in crate::explain::studies().iter() {
+        // (the farms have their own section: vjeux 2026-11-08 12:14)
+        if site_model::farm_folder(folder).is_some() {
+            continue;
+        }
         let list = study_builds(site, folder);
         // the designs the study page shows (critique C1: tiles added up to more than the tab)
         let shown: Vec<&&Build> = list.iter().filter(|b| b.circuit.as_ref().is_some_and(|c| c.host.is_none() && c.layout_of.is_none() && !c.card_member && (c.tunable.is_empty() || !c.span.is_empty()))).collect();

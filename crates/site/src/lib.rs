@@ -17,6 +17,7 @@ pub mod clocks;
 pub mod deploy;
 pub mod doors;
 pub mod explain;
+pub mod farms;
 pub mod generate;
 pub mod kinds;
 pub mod mechanism;
@@ -52,6 +53,12 @@ pub enum SiteCmd {
     /// repository (vjeux/redstonepedia-preview, its own GitHub Pages), never to the site. Any lane,
     /// from its own branch: no merge, no GO, no tests. Prints the URL and the seconds it took.
     Preview(PreviewArgs),
+    /// Put a farm design on the site as one of its stage's variations (vjeux 2026-11-08 12:15:
+    /// every promising variation on the site, the stage's pick first): judged on redsim first, then
+    /// written to designs/farms/<farm>/<stage>/ with its judge's line and row; `--pick` makes it
+    /// the stage's pick, `--name` gives it a player-facing name. Commit the folder; the next deploy
+    /// shows it.
+    Variation(VariationArgs),
     /// Download Chrome for Testing's headless shell into ~/.cache/mctas (for the optional smoke).
     Chrome,
     /// The circuits a builder has no reason to pick: another design of the same kind and main
@@ -288,6 +295,25 @@ pub struct PreviewArgs {
 }
 
 #[derive(Args)]
+pub struct VariationArgs {
+    /// Farm design files (each passes its kind's judge on redsim).
+    #[arg(required = true)]
+    pub designs: Vec<PathBuf>,
+    /// The farm (its folder under designs/farms/).
+    #[arg(long, default_value = "iron")]
+    pub farm: String,
+    /// The stage: day-1, middle or late.
+    #[arg(long)]
+    pub stage: String,
+    /// Make it the stage's pick (listed first; the stage's other variations stay).
+    #[arg(long)]
+    pub pick: bool,
+    /// A player-facing name for its card (default: the design's `how:` line).
+    #[arg(long)]
+    pub name: Option<String>,
+}
+
+#[derive(Args)]
 pub struct DeployArgs {
     /// The generated site folder.
     #[arg(long, default_value = "site")]
@@ -415,6 +441,7 @@ pub fn run(cmd: SiteCmd) -> Result<()> {
             Ok(())
         }
         SiteCmd::Chrome => serve::install_chrome().map(|_| ()),
+        SiteCmd::Variation(a) => farms::variation(&a),
         SiteCmd::Dominated { repo, all, hide } => {
             let (builds, _notes) = circuits::export_with(&repo, all)?;
             if hide {

@@ -206,7 +206,7 @@ fn archived_row(root: &Path, c: &circuit::Circuit) -> Option<Row> {
 }
 
 /// The judge's verdict on `text` (cached: src/cache.rs, the preview domain).
-fn judge(text: &str) -> crate::preview_judge::Judged {
+pub(crate) fn judge(text: &str) -> crate::preview_judge::Judged {
     crate::cache::get_or(crate::cache::Domain::Preview, &[b"preview-judge", text.as_bytes()], || crate::preview_judge::preview_judge(text))
 }
 
@@ -266,11 +266,11 @@ fn row_for(c: &circuit::Circuit, file: &str, v: &Verdict) -> Row {
 }
 
 /// The verdicts.tsv header (circuit::archive's columns, in its order).
-const VERDICTS_HEADER: &str = "archived\tfile\tkind\taxis\tmetrics\tblocks\tdims\tvolume\tfamily\trobustness\tkinds\ttype_key\thash\tsummary";
+pub(crate) const VERDICTS_HEADER: &str = "archived\tfile\tkind\taxis\tmetrics\tblocks\tdims\tvolume\tfamily\trobustness\tkinds\ttype_key\thash\tsummary";
 
 /// One verdicts.tsv line of `r` (tabs and line breaks inside a field become spaces, as the archive
 /// writes them).
-fn verdicts_line(r: &Row) -> String {
+pub(crate) fn verdicts_line(r: &Row) -> String {
     [r.archived.clone(), r.file.clone(), r.kind.clone(), r.axis.clone(), r.metrics.clone(), r.blocks.to_string(), r.dims.clone(), r.volume.to_string(), r.family.clone(), r.robustness.clone(), r.kinds.clone(), r.type_key.clone(), r.hash.clone(), r.summary.clone()]
         .map(|s| s.replace(['\t', '\n'], " "))
         .join("\t")

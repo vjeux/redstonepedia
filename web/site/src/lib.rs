@@ -45,8 +45,8 @@ struct App {
     all_groups: bool,
     /// How many of the hits name what the search's words name (the rest only mention them).
     named: usize,
-    /// What each tab's cards hold with no filter (Site::holds): the tab counts then.
-    holds: [usize; 3],
+    /// What each tab's cards hold with no filter (Site::holds: doors, clocks, circuits, farms).
+    holds: [usize; 4],
 }
 
 thread_local! {
@@ -604,7 +604,7 @@ fn draw_dynamic() {
         // kinds: critique, "Doors 1 · Clocks 1" read as one door and one clock)
         let r0 = |r: &site_model::Range| r.min.is_none() && r.max.is_none();
         let plain = q.text.trim().is_empty() && q.time.trim().is_empty() && q.value.trim().is_empty() && q.groups.is_empty() && q.kinds_in.is_empty() && q.kinds_out.is_empty() && q.flags_in.is_empty() && q.flags_out.is_empty() && r0(&q.blocks) && r0(&q.volume) && r0(&q.period) && r0(&q.open) && r0(&q.close);
-        let tabs: Vec<(String, bool, usize)> = ["door", "clock", "circuit"].iter().enumerate().map(|(i, k)| (k.to_string(), q.kind == *k, if plain { a.holds[i] } else { f.kinds.get(*k).copied().unwrap_or(0) })).collect();
+        let tabs: Vec<(String, bool, usize)> = ["door", "clock", "circuit", "farm"].iter().enumerate().map(|(i, k)| (k.to_string(), q.kind == *k, if plain { a.holds[i] } else { f.kinds.get(*k).copied().unwrap_or(0) })).collect();
         // groups: the selected first, then by count
         let mut groups: Vec<(&String, usize)> = f.groups.iter().map(|(k, v)| (k, *v)).collect();
         for g in &q.groups {
@@ -741,6 +741,7 @@ fn draw_dynamic() {
             "clock" => "Search: 48 ticks, 2.5 s…",
             "door" => "Search doors",
             "circuit" => "Search: toggle, timer, 12…",
+            "farm" => "Search: iron, sugar cane, melon…",
             _ => "Search every build",
         };
         (tabs, groups_html, groups_title, blocks_html, flags_html, placeholder, count)
@@ -758,6 +759,7 @@ fn draw_dynamic() {
             let label = match k.as_str() {
                 "door" => "Doors",
                 "clock" => "Clocks",
+                "farm" => "Farms",
                 _ => "Circuits",
             };
             e.set_inner_html(&format!("{label} <span class=\"count\">{n}</span>"));

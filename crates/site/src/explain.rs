@@ -1553,8 +1553,8 @@ pub fn metric_value(v: &str, ticks: bool) -> String {
         let to = to.split_whitespace().next().unwrap_or(to);
         return format!("{}; the slowest change: {from} to {to}", time(n));
     }
-    // ("gt" is our shorthand: the word, vjeux 2026-11-08 10:10, "No jargon")
-    gt_words(v, ticks)
+    // ("gt" is our shorthand: the word, vjeux 2026-11-08 10:10, "No jargon"; big numbers grouped)
+    group_numbers(&gt_words(v, ticks))
 }
 
 /// The studies, in order: (folder, title, how we test and rank them). What a visitor would use
@@ -1940,6 +1940,29 @@ pub fn internal_tokens(text: &str) -> Vec<String> {
     out
 }
 
+/// Every standalone whole number of 1,000 or more in a text, grouped by thousands (`5332 game days`
+/// -> `5,332 game days`; the parent 2026-11-08: "1700 iron an hour" beside a title's "1,700"); a
+/// number inside a range, a size, a time or a decimal (`292-298`, `16x7x10`, `12:00`, `1234.5`), a
+/// year-like id or one with a leading zero stays.
+pub fn group_numbers(s: &str) -> String {
+    s.split(' ')
+        .map(|w| {
+            let start = w.find(|c: char| c.is_ascii_digit());
+            let Some(start) = start else { return w.to_string() };
+            let end = w[start..].find(|c: char| !c.is_ascii_digit()).map(|e| start + e).unwrap_or(w.len());
+            let (head, num, tail) = (&w[..start], &w[start..end], &w[end..]);
+            let plain_head = head.chars().all(|c| matches!(c, '(' | '~' | '"' | '“' | '[' | '<' | '>'));
+            let plain_tail = tail.chars().all(|c| matches!(c, ',' | ';' | ':' | ')' | '.' | '%' | '"' | '”' | ']' | '<' | '!' | '?')) && !tail.starts_with(':') && !(tail.starts_with('.') && tail.len() > 1);
+            if num.len() >= 4 && !num.starts_with('0') && plain_head && plain_tail && num.parse::<u64>().is_ok() {
+                format!("{head}{}{tail}", site_model::html::group_thousands(num.parse::<u64>().unwrap_or(0)))
+            } else {
+                w.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// "gt" (our shorthand for a game tick) after a number, in words (vjeux 2026-11-08 10:10: "No
 /// jargon", "game ticks become seconds"): for a design whose builders count ticks ([`ticks_matter`]:
 /// clocks, doors, the redstone circuits) `48 gt` -> `48 ticks (2.4 s)`, else (farms, machines)
@@ -1978,7 +2001,7 @@ pub fn gt_words(s: &str, ticks: bool) -> String {
             // (a negative one, `-8 gt`: a difference, the bare unit)
             let negative = num.strip_prefix('-').and_then(|x| x.parse::<u32>().ok());
             if let Some(n) = num.parse::<u32>().ok().or(range.and_then(|(_, b)| b.parse().ok())).or(negative) {
-                let unit = format!("{num} tick{}", if n == 1 && range.is_none() { "" } else { "s" });
+                let unit = format!("{} tick{}", group_numbers(num), if n == 1 && range.is_none() { "" } else { "s" });
                 let formula = range.is_some() || negative.is_some() || (i >= 2 && matches!(words[i - 2], "-" | "+" | "×" | "*" | "="));
                 // seconds already beside it: `2 gt (0.1 s)`, `1280 gt (1 min 4 s)`
                 let paren = (rest.is_empty() && words.get(i + 1).is_some_and(|x| x.starts_with('(')))

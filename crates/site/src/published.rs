@@ -308,6 +308,11 @@ pub fn resolve(e: &Entry, site: &Site) -> Option<Target> {
         "deleted" => None,
         "circuit" => {
             let circuits: Vec<&Build> = site.builds.iter().filter(|b| b.circuit.is_some()).collect();
+            // a farm's page that moved under farms/ (vjeux 2026-11-08 12:14): the same design's
+            // new page
+            if let Some(b) = circuits.iter().find(|b| b.circuit.as_ref().is_some_and(|c| site_model::farm_folder(&c.study).is_some() && e.path == format!("circuits/{}/{}.html", c.study, b.name))) {
+                return Some(to(b));
+            }
             let key_of = |b: &Build| format!("{}/{}", b.circuit.as_ref().map(|c| c.study.as_str()).unwrap_or(""), kinds::kind_key(b));
             let (study, kind) = e.key.split_once('/').unwrap_or((e.key.as_str(), ""));
             // the same kind: the same size when it has one, else its card
@@ -331,8 +336,11 @@ pub fn resolve(e: &Entry, site: &Site) -> Option<Target> {
                     return Some(to(b));
                 }
             }
-            // its study's page, else the circuits' overview
+            // its study's page (a farm study's under farms/), else the circuits' overview
             if circuits.iter().any(|b| b.circuit.as_ref().is_some_and(|c| c.study == study)) {
+                if let Some(folder) = site_model::farm_folder(study) {
+                    return Some(Target { path: format!("farms/{folder}/index.html"), title: format!("the {} page", crate::farms::farm_title(folder).to_lowercase()) });
+                }
                 let title = crate::explain::studies().iter().find(|s| s.0 == study).map(|s| format!("the {} page", s.1)).unwrap_or_else(|| format!("the {study} page"));
                 return Some(Target { path: format!("circuits/{study}/index.html"), title });
             }
@@ -375,6 +383,13 @@ pub fn resolve(e: &Entry, site: &Site) -> Option<Target> {
             }
         }
         _ => {
+            // a farm study's old collection page: its farm's page under Farms (vjeux 2026-11-08
+            // 12:14, the farms' own section)
+            if let Some((study, _)) = e.path.strip_prefix("circuits/").and_then(|r| r.split_once("/index.html"))
+                && let Some(folder) = site_model::farm_folder(study)
+            {
+                return Some(Target { path: format!("farms/{folder}/index.html"), title: format!("the {} page", crate::farms::farm_title(folder).to_lowercase()) });
+            }
             if e.path.starts_with("circuits/") {
                 Some(Target { path: "circuits/index.html".into(), title: "the circuits page".into() })
             } else {

@@ -287,7 +287,9 @@ fn fill(spec: &str, mine: &BTreeMap<String, String>, other: &dyn Fn(&str) -> Opt
             other => return Err(format!("unknown filter {other:?} (round, thousands, plural:<word>)")),
         };
     }
-    Ok(value)
+    // (a number of 1,000 or more is grouped, filter or not, as the titles write it: the parent
+    // 2026-11-08, "1700 iron an hour" beside "1,700")
+    Ok(crate::explain::group_numbers(&value))
 }
 
 /// A card line filled from the design's fields: every placeholder replaced, or why not (no such

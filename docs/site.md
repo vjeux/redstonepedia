@@ -129,6 +129,36 @@ vjeux/minecraft-tas until 2026-10-21, and GitHub does not redirect a renamed pro
   stay in the repository. `mctas site kinds` prints the plan (every kind, its pick or its rows,
   how many designs it leaves out).
 
+## Farms (`crates/site/src/farms.rs`)
+
+The farms have their own top-level section (vjeux 2026-11-08 12:14: "a new farms top level
+category, and you can drill down with iron farm and then full farm / individual components"),
+the fourth tab: Doors · Clocks · Circuits · Farms. Inside, a farm is still a circuit build of a farm
+study (`site_model::FARM_STUDIES`: `mobfarm` → `farms/iron/`, `farm` → `farms/crops/`); the index's
+`kind=farm` lists them, and `kind=circuit` no longer does. Their old `circuits/<study>/` pages
+redirect to the new ones (`published::resolve`).
+
+- `farms/index.html`: the farm types. `farms/crops/index.html`: the crop farms' collection.
+- `farms/iron/index.html`: the iron farm's hub. **Full farms** by stage (Day 1, Middle, Late), every
+  variation of each stage on the site (vjeux 12:15: "ALL the promising variations"), the stage's
+  pick first (a variation picked in its `variations.tsv`, else the archived design), then by iron
+  an hour. **Components**, once the optimizer's catalog has members: one page each.
+- **Variations**: `designs/farms/<farm>/<stage>/` (stage `day-1`, `middle` or `late`) holds each
+  design (`<stem>.txt`, the judge's line on top), its judge row (`verdicts.tsv`, the archive's
+  format) and `variations.tsv` (`file`, `pick` = `yes` for the stage's pick, `name` = a
+  player-facing name for its card, else its `how:` line). Add or update one with
+  `mctas site variation <design>... --stage <stage> [--pick] [--name "..."] [--farm iron]`: it runs
+  the kind's judge on redsim (a design that fails it is refused) and writes the three. Commit the
+  folder; the next deploy shows it, at `farms/iron/<stem>.html`.
+- **Components**: `designs/farms/<farm>/parts/<part>/` (part `cage`, `spawn-area`, `kill`,
+  `collection`, `sleep-trigger`) holds each member alone (`<stem>.txt`, no judge) and
+  `members.tsv` (`file`, `name`, `stage`, `metrics` as `key value, key value`, `used_by` = the full
+  farms' stems, space-separated), best first, written by the farm optimizer. Each part with
+  members gets `farms/<farm>/parts/<part>/index.html` (each member's 3D view, its numbers and the
+  full farms built with it), and each full farm's page lists the members it is built from.
+- Curated cards (`designs/circuits/<study>/cards.tsv`) and the internal-names check apply to every
+  farm page, the hub and the components' pages included.
+
 Everything is Rust: `crates/site` (the generator, `mctas site ...`), `crates/site-model` (the data
 model, the query engine and the card markup, shared by both sides and unit-tested natively) and
 `web/site` (the filtering UI: Rust compiled to WebAssembly with wasm-bindgen; its own cargo

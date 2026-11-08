@@ -21,7 +21,7 @@ pub fn ticks(v: &str) -> String {
         return v.to_string();
     }
     if let Ok(x) = n.parse::<u32>() {
-        return format!("{x} tick{} ({})", if x == 1 { "" } else { "s" }, real_time(x));
+        return format!("{} tick{} ({})", site_model::html::group_thousands(x as u64), if x == 1 { "" } else { "s" }, real_time(x));
     }
     match n.split_once('-') {
         Some((a, b)) => format!("{a} to {b} ticks"),
@@ -955,7 +955,9 @@ pub fn mob_farm_facts(c: &Circuit) -> Vec<String> {
     // `clear day 305 iron/h; rain day 293 iron/h; thunder day 299 iron/h`
     let rate = |part: &str| m(c, "rain").split("; ").find(|p| p.starts_with(part)).and_then(|p| p.split_whitespace().nth(2)).map(str::to_string);
     if let (Some(clear), Some(rain), Some(thunder)) = (rate("clear day"), rate("rain day"), rate("thunder day")) {
-        out.push(format!("In rain it makes {rain} iron an hour and in thunder {thunder}, against {clear} on a clear day."));
+        // (big numbers grouped, as in the title: "1,700 iron an hour", the parent 2026-11-08)
+        let g = |s: &str| crate::explain::group_numbers(s);
+        out.push(format!("In rain it makes {} iron an hour and in thunder {}, against {} on a clear day.", g(&rain), g(&thunder), g(&clear)));
     }
     // `…; the farm breaks in about 2871 game days (a fire first); …`
     if let Some(part) = m(c, "lightning").split("; ").find(|p| p.starts_with("the farm breaks in about ")) {
@@ -1508,10 +1510,12 @@ pub fn intro_box(b: &Build, has_viewer: bool) -> String {
     // ("Inside, two droppers ...": the how, without its lead-in)
     let how = how.strip_prefix("Inside, ").map(first_cap).unwrap_or(how);
     let how = first_sentence(&how);
-    // (a caption that was nothing but our notes, a design's working comments: its own `how:` line,
-    // the title's few words, said as a sentence; the parent 2026-11-08: no internal notes on a page)
+    // (a caption that was nothing but our notes, a design's working comments, or whose first
+    // sentence lost its head to them (a fragment, "the dry hole, the open drop..."): its own `how:`
+    // line, the title's few words, said as a sentence; the parent 2026-11-08: no internal notes)
+    let fragment = how.starts_with(|ch: char| ch.is_lowercase());
     let how = match &b.circuit {
-        Some(c) if how.is_empty() && !c.feature.is_empty() && crate::explain::internal_tokens(&c.feature).is_empty() => esc(&format!("{}.", first_cap(&c.feature))),
+        Some(c) if (how.is_empty() || fragment) && !c.feature.is_empty() && crate::explain::internal_tokens(&c.feature).is_empty() => esc(&format!("{}.", first_cap(&c.feature))),
         _ => how,
     };
     if try_line.is_empty() && how.is_empty() {

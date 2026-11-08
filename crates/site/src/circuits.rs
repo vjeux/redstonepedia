@@ -534,20 +534,33 @@ fn simulate_row(dir: &Path, r: &circuit::archive::Row) -> Simulated {
 /// preview` (src/preview.rs) runs it on a folder of its own holding one design and its row.
 pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) -> Vec<Build> {
     let mut out = Vec::new();
-    // every published design of every study simulated in one parallel pass (study after study,
-    // the cores waited behind each study's slowest design: the TNT dupers' 25 s, the bursts' 16 s)
-    let jobs: Vec<(String, PathBuf, circuit::archive::Row)> = studies()
+    // every study's archive, then a farm study's variation folders (designs/farms/<farm>/<stage>/:
+    // every promising design of a stage, all on the site, vjeux 2026-11-08 12:15): (study, folder,
+    // its stage when it is a variation folder)
+    let dirs: Vec<(String, PathBuf, Option<String>)> = studies()
         .into_iter()
         .flat_map(|(study, _)| {
-            let dir = archive_dir(root, study);
-            read_rows(&dir).unwrap_or_default().into_iter().filter(|r| keep_hidden || hidden_design(study, &r.file, &r.axis).is_none()).map(move |r| (study.to_string(), dir.clone(), r))
+            let mut v = vec![(study.to_string(), archive_dir(root, study), None)];
+            v.extend(crate::farms::variation_dirs(root, study).into_iter().map(|(stage, d)| (study.to_string(), d, Some(stage))));
+            v
         })
         .collect();
-    let mut pre: BTreeMap<(String, String), Simulated> = jobs.iter().map(|(s, _, r)| (s.clone(), r.file.clone())).zip(par_map(&jobs, |(_, dir, r)| simulate_row(dir, r))).collect();
+    // every published design of every study simulated in one parallel pass (study after study,
+    // the cores waited behind each study's slowest design: the TNT dupers' 25 s, the bursts' 16 s)
+    let jobs: Vec<(String, PathBuf, circuit::archive::Row)> = dirs
+        .iter()
+        .flat_map(|(study, dir, _)| {
+            read_rows(dir).unwrap_or_default().into_iter().filter(|r| keep_hidden || hidden_design(study, &r.file, &r.axis).is_none()).map(|r| (study.clone(), dir.clone(), r)).collect::<Vec<_>>()
+        })
+        .collect();
+    let mut pre: BTreeMap<(PathBuf, String), Simulated> = jobs.iter().map(|(_, d, r)| (d.clone(), r.file.clone())).zip(par_map(&jobs, |(_, dir, r)| simulate_row(dir, r))).collect();
     // every archived (study, file, class), to report hidden.tsv lines that match nothing
     let mut all_rows: Vec<(String, String, String)> = Vec::new();
-    for (study, _title) in studies() {
-        let dir = archive_dir(root, study);
+    for (study, dir, stage) in &dirs {
+        let (study, dir) = (study.as_str(), dir.clone());
+        let farm = site_model::farm_folder(study);
+        // (a variation folder's player-facing names and its stage's pick: variations.tsv)
+        let vars = if stage.is_some() { crate::farms::read_variations(&dir) } else { Vec::new() };
         let rows = match read_rows(&dir) {
             Ok(r) => r,
             Err(e) => {
@@ -555,7 +568,9 @@ pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) 
                 continue;
             }
         };
-        all_rows.extend(rows.iter().map(|r| (study.to_string(), r.file.clone(), r.axis.clone())));
+        if stage.is_none() {
+            all_rows.extend(rows.iter().map(|r| (study.to_string(), r.file.clone(), r.axis.clone())));
+        }
         // the designs the site does not publish (crates/site/hidden.tsv)
         let before = rows.len();
         let rows: Vec<circuit::archive::Row> = rows.into_iter().filter(|r| keep_hidden || hidden_design(study, &r.file, &r.axis).is_none()).collect();
@@ -584,7 +599,8 @@ pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) 
             groups.entry((r.kind.clone(), r.axis.clone())).or_default().push(i);
         }
         let mut host: BTreeMap<usize, usize> = BTreeMap::new();
-        for g in groups.values() {
+        // (a stage's variations are all shown: no fold among them)
+        for g in groups.values().filter(|_| stage.is_none()) {
             // as `mctas circuit catalog` folds (palette alone is never a distinction)
             let items: Vec<(usize, i64, String)> = g.iter().map(|&i| (rows[i].blocks, rows[i].volume, rows[i].file.clone())).collect();
             let robust: Vec<bool> = g.iter().map(|&i| circuit::archive::is_robust(&rows[i])).collect();
@@ -594,9 +610,13 @@ pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) 
                 }
             }
         }
-        let id_of = |r: &circuit::archive::Row| format!("circuits/{study}/{}", r.file.trim_end_matches(".txt"));
+        // (a variation's id is its page under farms/: it has no circuits/ page)
+        let id_of = |r: &circuit::archive::Row| match (stage, farm) {
+            (Some(_), Some(f)) => format!("farms/{f}/{}", r.file.trim_end_matches(".txt")),
+            _ => format!("circuits/{study}/{}", r.file.trim_end_matches(".txt")),
+        };
         // each design's judge test and 3D view check, from the pass over every study above
-        let loaded_all: Vec<Simulated> = rows.iter().map(|r| pre.remove(&(study.to_string(), r.file.clone())).unwrap_or_else(|| simulate_row(&dir, r))).collect();
+        let loaded_all: Vec<Simulated> = rows.iter().map(|r| pre.remove(&(dir.clone(), r.file.clone())).unwrap_or_else(|| simulate_row(&dir, r))).collect();
         for (i, (r, (loaded, det, took, raw))) in rows.iter().zip(loaded_all).enumerate() {
             let path = dir.join(&r.file);
             let text = std::fs::read_to_string(&path).unwrap_or_default();
@@ -658,18 +678,35 @@ pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) 
             if stations && flying {
                 flags.push("there-and-back".into());
             }
+            // a stage's variation, and the stage's pick (designs/farms/<farm>/<stage>/variations.tsv)
+            let var = vars.iter().find(|v| v.file == r.file);
+            if stage.is_some() {
+                flags.push("variation".into());
+                if var.is_some_and(|v| v.pick) {
+                    flags.push("pick".into());
+                }
+            }
             let id = id_of(r);
             let basics = (study == "gates" && flags.iter().any(|f| f == "lever")) || (r.kind.starts_with("piston-extender") && r.kinds.split('+').any(|k| k == "sand" || k == "gravel" || k == "red_sand"));
             let kinds = parsed.as_ref().map(|p| p.kinds.clone()).unwrap_or_else(|| r.kinds.split('+').filter(|k| !k.is_empty()).map(String::from).collect());
+            let stem = r.file.trim_end_matches(".txt");
             out.push(Build {
                 id: id.clone(),
                 kind: "circuit".into(),
                 // a piston extender that lifts sand and lets it fall back is its own thing (critique:
                 // "SAND ONLY, UPWARD ONLY ... not a general extender")
                 group: if r.kind.starts_with("piston-extender") && r.kinds.split('+').any(|k| k == "sand" || k == "gravel" || k == "red_sand") { "Sand elevator".to_string() } else { site_model::html::kind_words(&r.kind) },
-                name: r.file.trim_end_matches(".txt").to_string(),
-                page: format!("{id}.html"),
-                design: format!("designs/circuits/{study}/{}", r.file),
+                name: stem.to_string(),
+                // a farm's page is under farms/ (vjeux 2026-11-08 12:14: the farms' own section;
+                // its old circuits/ page redirects there, crates/site/published.tsv)
+                page: match farm {
+                    Some(f) => format!("farms/{f}/{stem}.html"),
+                    None => format!("{id}.html"),
+                },
+                design: match (stage, farm) {
+                    (Some(s), Some(f)) => format!("designs/farms/{f}/{s}/{}", r.file),
+                    _ => format!("designs/circuits/{study}/{}", r.file),
+                },
                 blocks: r.blocks as u32,
                 volume: Some(r.volume.max(0) as u32),
                 dims: Some(r.dims.clone()).filter(|d| !d.is_empty()),
@@ -734,8 +771,9 @@ pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) 
                         Some((fam, n)) if r.kind.starts_with("flying-machine") && fam.starts_with("fly-train") => format!("pulls {n} trailer{}", if *n == 1 { "" } else { "s" }),
                         // (no family: its own payload ports, fly-payload-start-1-11b's one block)
                         _ if r.kind.starts_with("flying-machine") && payloads > 0 && !r.axis.contains("two-way") => format!("carries {payloads} extra block{}", if payloads == 1 { "" } else { "s" }),
-                        // (an iron farm: how it works, its design's `how:` line, the end of its title)
-                        _ if r.kind.starts_with("mob-farm") => text.lines().find_map(|l| l.trim().strip_prefix("how:")).map(|v| v.trim().to_string()).unwrap_or_default(),
+                        // (an iron farm: how it works, its design's `how:` line, the end of its
+                        // title; a variation's player-facing name first, variations.tsv)
+                        _ if r.kind.starts_with("mob-farm") => var.map(|v| v.name.clone()).filter(|n| !n.is_empty()).or_else(|| text.lines().find_map(|l| l.trim().strip_prefix("how:")).map(|v| v.trim().to_string())).unwrap_or_default(),
                         _ => String::new(),
                     },
                     ..Default::default()
@@ -797,9 +835,13 @@ pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) 
 /// (`designs/circuits/calibration/`, `selftest/`) stay in the repository for the judge and are
 /// not published (vjeux: "They are not useful to people").
 pub fn export(repo: &Path) -> Result<(Vec<Build>, Vec<String>)> {
-    let (mut builds, mut notes) = export_with(repo, false)?;
-    // one world-best design per kind (vjeux 21:47Z); the rest stay in the repository
+    let (builds, mut notes) = export_with(repo, false)?;
+    // one world-best design per kind (vjeux 21:47Z); the rest stay in the repository; a farm
+    // stage's variations all stay (vjeux 2026-11-08 12:15: "ALL the promising variations")
+    let (variations, mut builds): (Vec<Build>, Vec<Build>) = builds.into_iter().partition(crate::farms::is_variation);
     notes.extend(crate::kinds::select_circuits(&mut builds));
+    notes.push(format!("farms: {} variations", variations.len()));
+    builds.extend(variations);
     Ok((builds, notes))
 }
 
@@ -1805,7 +1847,11 @@ pub fn families(repo: &Path, builds: &[Build], clock_cards: &[site_model::Card],
 /// The repository path of a circuit build's design (for the GitHub link and the page's text).
 pub fn repo_path(b: &Build) -> String {
     // designs/circuits/<study>/<file> on the site, <study>/archive/<file> in the repository; a
-    // whole line, designs/circuits/<study>/system/<file>, the same path in both
+    // whole line, designs/circuits/<study>/system/<file>, the same path in both; a farm's
+    // variation, designs/farms/<farm>/<stage>/<file>, the same path in both
+    if b.design.starts_with("designs/farms/") {
+        return b.design.clone();
+    }
     let rest = b.design.trim_start_matches("designs/circuits/");
     match rest.split_once('/') {
         Some((study, f)) if f.starts_with("system/") => format!("{ROOT}/{study}/{f}"),

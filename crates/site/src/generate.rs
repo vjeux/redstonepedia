@@ -754,6 +754,8 @@ pub fn build(a: &BuildArgs) -> Result<()> {
     eprintln!("litematic: {n} schematics ({:.1}s)", t0.elapsed().as_secs_f64());
     // every build's page on the build's threads (beside the schematics, the other serial part of
     // a warm build)
+    // the iron farm's components, so a full farm's page links to the ones it is built from
+    let parts = crate::farms::load_parts(&repo);
     let written = crate::circuits::par_map(&site.builds, |b| -> Result<Vec<String>> {
         // (a member's design is the generated one; it has no repository file to link)
         let repo_path = if is_member(b) { String::new() } else { repo_design_path(b) };
@@ -798,6 +800,34 @@ pub fn build(a: &BuildArgs) -> Result<()> {
         let html = pages::study_page(&site, sub, scripts);
         write(&out.join("circuits").join(sub).join("index.html"), &html)?;
         overviews.push((format!("circuits/{sub}/index.html"), html));
+    }
+    // the Farms section (vjeux 2026-11-08 12:14): the farm types, the iron farm's hub with its
+    // stages and components, the crop farms' collection, each component's page
+    let farms_index = crate::farms::farms_index(&site, scripts);
+    write(&out.join("farms/index.html"), &farms_index)?;
+    overviews.push(("farms/index.html".into(), farms_index));
+    let hub = crate::farms::iron_hub(&site, &parts, scripts);
+    write(&out.join("farms/iron/index.html"), &hub)?;
+    overviews.push(("farms/iron/index.html".into(), hub));
+    if site.builds.iter().any(|b| b.circuit.as_ref().is_some_and(|c| c.study == "farm")) {
+        let crops = pages::study_page(&site, "farm", scripts);
+        write(&out.join("farms/crops/index.html"), &crops)?;
+        overviews.push(("farms/crops/index.html".into(), crops));
+    }
+    for (part, _, _) in crate::farms::PARTS {
+        let members: Vec<crate::farms::Member> = parts.iter().filter(|m| m.part == part).cloned().collect();
+        if members.is_empty() {
+            continue;
+        }
+        for m in &members {
+            let from = repo.join(crate::farms::member_design("iron", m));
+            let text = std::fs::read_to_string(&from).with_context(|| format!("reading {}", from.display()))?;
+            write(&out.join(crate::farms::member_design("iron", m)), &text)?;
+        }
+        let path = crate::farms::part_page_path("iron", part);
+        let html = crate::farms::part_page(&site, "iron", part, &members, scripts);
+        write(&out.join(&path), &html)?;
+        overviews.push((path, html));
     }
     let internal: Vec<String> = overviews.iter().flat_map(|(p, html)| crate::explain::internal_tokens(&pages::visible_text(html)).into_iter().map(move |t| format!("{p}: {t}"))).collect();
     if !internal.is_empty() {

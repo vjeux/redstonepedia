@@ -121,6 +121,21 @@ pub fn normalize_time(s: &str) -> String {
     s.trim().replacen('T', " ", 1)
 }
 
+/// The circuit studies that are farms (vjeux 2026-11-08 12:14: "a new farms top level category,
+/// and you can drill down with iron farm..."): the crop farms and the mob farms, with the folder
+/// each has under `farms/` on the site.
+pub const FARM_STUDIES: [(&str, &str); 2] = [("mobfarm", "iron"), ("farm", "crops")];
+
+/// The `farms/` folder of a farm study (`mobfarm` -> `iron`), or None for any other study.
+pub fn farm_folder(study: &str) -> Option<&'static str> {
+    FARM_STUDIES.iter().find(|(s, _)| *s == study).map(|(_, f)| *f)
+}
+
+/// Whether a build is a farm (its circuit's study is one of [`FARM_STUDIES`]).
+pub fn is_farm(b: &Build) -> bool {
+    b.circuit.as_ref().is_some_and(|c| farm_folder(&c.study).is_some())
+}
+
 /// A 3x3 piston door's facts (designs/piston-door-3x3/archive and its caches).
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct Door {
@@ -868,7 +883,8 @@ pub fn real_time(gt: u32) -> String {
 
 /// `20 ticks (1 s)`: visitor text says ticks, not gt (critique: the search's count line).
 pub fn gt_time(gt: u32) -> String {
-    format!("{gt} {} ({})", if gt == 1 { "tick" } else { "ticks" }, real_time(gt))
+    // (1,000 and up grouped, as every number of the site: the parent 2026-11-08)
+    format!("{} {} ({})", html::group_thousands(gt as u64), if gt == 1 { "tick" } else { "ticks" }, real_time(gt))
 }
 
 /// Parse a clock time search: a period in game ticks (`48`, `48 gt`, `48 ticks`), a time
@@ -1251,7 +1267,9 @@ impl Site {
             Hit::Build(i) => {
                 let b = self.builds.get(i)?;
                 Some(View {
-                    kind: &b.kind,
+                    // (a farm is its own top-level kind on the site, vjeux 2026-11-08 12:14: "a new
+                    // farms top level category"; its build stays a circuit inside)
+                    kind: if is_farm(b) { "farm" } else { &b.kind },
                     group: &b.group,
                     order: b.circuit.as_ref().map(|c| c.order).unwrap_or(0),
                     rank: b.circuit.as_ref().map(|c| c.rank).unwrap_or(0),
@@ -1312,11 +1330,12 @@ impl Site {
     /// What each tab's cards hold (vjeux 21:47Z: one card per kind; critique: "Doors 1 · Clocks 1"
     /// read as one door and one clock): the door records, every clock (each a card under its
     /// period: vjeux 01:24Z), the circuit kinds (the shown circuit cards).
-    pub fn holds(&self) -> [usize; 3] {
+    pub fn holds(&self) -> [usize; 4] {
         let doors = self.builds.iter().filter(|b| b.door.is_some()).count();
         let clocks = self.builds.iter().filter(|b| b.clock.is_some()).count();
         let kinds = self.run(&Query::from_fragment("kind=circuit")).map(|(h, _)| h.len()).unwrap_or(0);
-        [doors, clocks, kinds]
+        let farms = self.run(&Query::from_fragment("kind=farm")).map(|(h, _)| h.len()).unwrap_or(0);
+        [doors, clocks, kinds, farms]
     }
 
     /// The distinct periods of the clocks (the Clocks tab's headings).

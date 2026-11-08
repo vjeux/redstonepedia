@@ -1319,10 +1319,11 @@ fn tk(v: &str) -> String {
     }
     match n.parse::<u32>() {
         Ok(1) => format!("1 tick ({})", crate::real_time(1)),
-        Ok(x) => format!("{x} ticks ({})", crate::real_time(x)),
+        // (1,000 and up grouped, as every number of the site: the parent 2026-11-08)
+        Ok(x) => format!("{} ticks ({})", group_thousands(x as u64), crate::real_time(x)),
         // a range with its seconds too (critique: "4 to 6 ticks apart" had none)
         Err(_) => match n.split_once('-').and_then(|(a, b)| Some((a.parse::<u32>().ok()?, b.parse::<u32>().ok()?))) {
-            Some((a, b)) => format!("{a} to {b} ticks ({} to {})", crate::real_time(a), crate::real_time(b)),
+            Some((a, b)) => format!("{} to {} ticks ({} to {})", group_thousands(a as u64), group_thousands(b as u64), crate::real_time(a), crate::real_time(b)),
             None => format!("{} ticks", n.replace('-', " to ")),
         },
     }
@@ -2289,7 +2290,7 @@ pub fn clock_card_in_period(b: &Build, prefix: &str, shared: &[String]) -> Strin
 /// circuits, and said in one breath that every design was tested in the game and that some were
 /// simulated).
 pub fn lede(site: &Site, kind: &str) -> String {
-    let [doors, clocks, kinds] = site.holds();
+    let [doors, clocks, kinds, farms] = site.holds();
     let periods = site.clock_periods();
     let s = |n: usize| if n == 1 { "" } else { "s" };
     // the 3x3 doors' records, and the 2x2 doors' (their own boards: designs/piston-door-2x2)
@@ -2308,6 +2309,7 @@ pub fn lede(site: &Site, kind: &str) -> String {
         // (short: on a phone the tab's first screen showed one card under it, webrender's profile)
         "clock" => format!("{clock_part}, smallest first."),
         "circuit" => format!("The best design of each of {kinds} circuit kind{}.", s(kinds)),
+        "farm" => format!("{farms} farm{} you can download: iron farms for every stage of the game and crop farms.", s(farms)),
         _ => {
             let mut parts = vec![door_part];
             if clocks > 0 {
@@ -2315,6 +2317,9 @@ pub fn lede(site: &Site, kind: &str) -> String {
             }
             if kinds > 0 {
                 parts.push(format!("the best design of {kinds} circuit kind{}", s(kinds)));
+            }
+            if farms > 0 {
+                parts.push(format!("{farms} farm{}", s(farms)));
             }
             let list = match parts.len() {
                 1 => parts[0].clone(),
