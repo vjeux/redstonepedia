@@ -18,7 +18,7 @@ use redsim::entity::mob::natural::{Category, kind_of, mobs_at};
 use redsim::pos::BlockPos;
 
 pub fn run(version: &str, design: &std::path::Path, terrain: &str, tries: u32, day_time: i64) -> Result<()> {
-    let opts = Opts { seed: 1, ticks: 0, weather: false, probe: false, batch: 100, full: false, bare: false, draws_at: None, terrain: Some(terrain.to_string()), day0: None };
+    let opts = Opts { seed: 1, ticks: 0, weather: false, probe: false, batch: 100, full: false, bare: false, draws_at: None, terrain: Some(terrain.to_string()), day0: None, build: None, no_spawning: false, only: Vec::new() };
     let (c, spec, place) = load_place(design, &opts)?;
     let Place::Terrain { site, .. } = place else { bail!("spawn-rules needs a terrain sample") };
     let mut o = opts_of(&opts);

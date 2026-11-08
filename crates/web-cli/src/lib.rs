@@ -2804,6 +2804,9 @@ fn mob_spots_game(path: &Path, ticks: u32) -> Result<mobfarm::exact::SpotsCheck,
         draws_at: None,
         terrain: mcview::terrain::sample_of(&d).map(|s| s.name.to_string()),
         day0: None,
+        build: None,
+        no_spawning: false,
+        only: Vec::new(),
     };
     mobfarm::exact::spots_check("26.3", path, &opts, |w, _| {
         let starts: Vec<[i32; 3]> = w.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, redsim::entity::EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager)).map(|e| e.block_position().arr()).collect();

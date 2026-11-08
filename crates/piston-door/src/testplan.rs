@@ -115,9 +115,9 @@ pub enum Pick {
 }
 
 /// The engine of redsim: a change there touches every area.
-const ENGINE: &[&str] = &["traces", "redstone", "pistons", "containers", "sculk"];
+const ENGINE: &[&str] = &["traces", "redstone", "pistons", "containers", "sculk", "terrain"];
 /// The bridge: the engine's areas and the official-server cross-checks.
-const EVERY_AREA: &[&str] = &["traces", "redstone", "pistons", "containers", "sculk", "vanilla"];
+const EVERY_AREA: &[&str] = &["traces", "redstone", "pistons", "containers", "sculk", "vanilla", "terrain"];
 const CIRCUITS: &[Group] = &Group::CIRCUITS;
 
 /// The file -> piece table, most specific prefix first (the first match wins). Explicit and
@@ -155,17 +155,19 @@ pub const RULES: &[(&str, Pick)] = &[
     ("crates/redsim/src/redstone/dropper", Pick::Sim(&["traces", "containers"])),
     ("crates/redsim/src/redstone/", Pick::Sim(&["traces", "redstone", "pistons", "containers"])),
     ("crates/redsim/src/sculk.rs", Pick::Sim(&["traces", "sculk"])),
-    ("crates/redsim/src/entity/", Pick::Sim(&["traces"])),
-    ("crates/redsim/src/fluid/", Pick::Sim(&["traces"])),
-    ("crates/redsim/src/weather/", Pick::Sim(&["traces"])),
+    // the random ticks of real terrain (`sim:terrain-ticks-*`: the bridge against redsim for a
+    // day with spawning off): the entities' level draws, fluids (lava's fire), weather and crops
+    ("crates/redsim/src/entity/", Pick::Sim(&["traces", "terrain"])),
+    ("crates/redsim/src/fluid/", Pick::Sim(&["traces", "terrain"])),
+    ("crates/redsim/src/weather/", Pick::Sim(&["traces", "terrain"])),
     ("crates/redsim/src/tnt.rs", Pick::Sim(&["traces"])),
     ("crates/redsim/src/explosion.rs", Pick::Sim(&["traces"])),
     ("crates/redsim/src/rails.rs", Pick::Sim(&["traces"])),
-    ("crates/redsim/src/crops.rs", Pick::Sim(&["traces"])),
-    ("crates/redsim/src/stems.rs", Pick::Sim(&["traces"])),
-    ("crates/redsim/src/bamboo.rs", Pick::Sim(&["traces"])),
-    ("crates/redsim/src/cactus.rs", Pick::Sim(&["traces"])),
-    ("crates/redsim/src/kelp.rs", Pick::Sim(&["traces"])),
+    ("crates/redsim/src/crops.rs", Pick::Sim(&["traces", "terrain"])),
+    ("crates/redsim/src/stems.rs", Pick::Sim(&["traces", "terrain"])),
+    ("crates/redsim/src/bamboo.rs", Pick::Sim(&["traces", "terrain"])),
+    ("crates/redsim/src/cactus.rs", Pick::Sim(&["traces", "terrain"])),
+    ("crates/redsim/src/kelp.rs", Pick::Sim(&["traces", "terrain"])),
     ("crates/redsim/src/daylight.rs", Pick::Sim(&["traces"])),
     ("crates/redsim/src/loot", Pick::Sim(&["traces"])),
     ("crates/redsim/src/fence.rs", Pick::Sim(&["traces", "redstone"])),
@@ -209,12 +211,15 @@ pub const RULES: &[(&str, Pick)] = &[
     ("crates/circuit/src/elevator.rs", Pick::Groups(&[Group::Circuit])),
     ("crates/circuit/src/studies/mobfarm.rs", Pick::Nothing("the mob farm study: no calibration pieces; a mob farm design runs its own judge and game gate")),
     ("crates/circuit/src/mobfarm_game.rs", Pick::Nothing("the mob farms' real-game gate: no calibration pieces; a mob farm design runs its own judge and game gate (circuit verify)")),
+    ("crates/circuit/src/mobfarm_exact.rs", Pick::Nothing("the mob farms' tick-exact gate: no calibration pieces; a mob farm design runs its own judge and its gates (circuit verify)")),
     ("crates/circuit/src/studies/bedrock.rs", Pick::Nothing("the bedrock study: no calibration pieces; a bedrock design runs its own judge")),
     ("crates/circuit/", Pick::SimAnd(&["traces"], CIRCUITS)),
     ("crates/circuit-cli/", Pick::SimAnd(&["traces"], CIRCUITS)),
     ("crates/circuit-shulker/", Pick::SimAnd(&["traces"], &[Group::Shulker])),
     ("crates/circuit-tnt/", Pick::Groups(&[Group::Tnt, Group::Circuit])),
     ("crates/circuit-", Pick::Groups(&[Group::Circuit])),
+    // the exact compare's harness (the bridge's world, redsim's mirror of it)
+    ("crates/mobfarm/src/exact.rs", Pick::Sim(&["terrain"])),
     ("crates/mobfarm/", Pick::Nothing("the mob farm tools: no calibration pieces; a mob farm design runs its own judge and game gate")),
     ("crates/bedrock/", Pick::Nothing("the bedrock tools: no calibration pieces; a bedrock design runs its own judge")),
     ("crates/terrain/", Pick::Nothing("the terrain tools (the official server's terrain samples): no calibration pieces")),
@@ -250,6 +255,7 @@ pub const ROWS: &[(&str, Group, &str, usize, usize, u32)] = &[
     ("sim:fuzz-pistons", Group::Sim, "pistons", 8, 16, 90),
     ("sim:fuzz-sculk", Group::Sim, "sculk", 8, 16, 90),
     ("sim:vanilla-", Group::Sim, "vanilla", 2, 4, 150),
+    ("sim:terrain-ticks-", Group::Sim, "terrain", 1, 2, 330),
     ("judge:redsim-", Group::Door, "", 0, 1, 30),
     ("judge:verify-", Group::Door, "", 1, 2, 90),
     ("judge:2x2-", Group::Door, "", 1, 2, 90),

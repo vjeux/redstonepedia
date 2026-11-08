@@ -41,20 +41,47 @@ pub struct Opts {
     pub terrain: Option<String>,
     /// The day time the farm starts at (the steady state's when `None`).
     pub day0: Option<i64>,
+    /// The judge's build `k` (`circuit::mobfarm::judge`: rotation k / 2 at the k % 2-th position
+    /// in the void, the k-th site in a terrain sample) and its run `i`: the seed
+    /// `JUDGE_SEED0 + 1000 k + i` and the judge's walking (random) and weather (a terrain
+    /// sample's natural cycle).
+    pub build: Option<(u32, u32)>,
+    /// No mob spawning on either side (the bridge's `spawn_mobs` and custom spawners off; redsim's
+    /// natural spawner off, its chunk shuffle still drawn, no custom spawners): the random ticks,
+    /// weather and fire alone (terrain's regression check).
+    pub no_spawning: bool,
+    /// Only these kinds of difference count (`redsim::exact::Compare::only`: world, blocks,
+    /// entities, or a category's name); empty: every one.
+    pub only: Vec<String>,
+}
+
+/// The judge's seed of build `k`'s run `i` (`circuit::mobfarm::build_runs`).
+pub fn judge_seed(k: u32, i: u32) -> i64 {
+    redsim::entity::mob::farm::JUDGE_SEED0 + k as i64 * 1000 + i as i64
 }
 
 /// The judge's run options with the compare's day time.
 pub(crate) fn opts_of(opts: &Opts) -> RunOpts {
-    let mut o = run_opts(opts.seed, opts.ticks);
+    let mut o = match opts.build {
+        // the judge's run: its seed, its random walking policy
+        Some((k, i)) => redsim::entity::mob::farm::judge_opts(judge_seed(k, i), opts.ticks, redsim::entity::mob::farm::WalkMode::Random),
+        None => run_opts(opts.seed, opts.ticks),
+    };
     if let Some(d) = opts.day0 {
         o.day0 = d;
     }
     // the weather cycle on both sides (mobinfra): redsim's from its stationary state, handed to
-    // the bridge at the start (`GameFarm::start_with`), then each side's cycle on its level random
-    if opts.weather {
+    // the bridge at the start (`GameFarm::start_with`), then each side's cycle on its level random;
+    // the judge's terrain runs have it on
+    if weather_on(opts) {
         o.weather = redsim::weather::Plan::Cycle;
     }
     o
+}
+
+/// The compare runs the weather: asked for, or a judge's terrain run (the judge's weather).
+pub fn weather_on(opts: &Opts) -> bool {
+    opts.weather || (opts.build.is_some() && opts.terrain.is_some())
 }
 
 /// The game's side alone over `seeds` (no redsim): each run's custom spawner events seen as
@@ -93,7 +120,7 @@ fn scan_one(version: &str, design: &std::path::Path, opts: &Opts, want: &str) ->
     if let Place::Terrain { site, .. } = place {
         o.site = Some(site);
     }
-    let mut game = GameFarm::start(version, &c, &spec, &o, opts.weather, false, place)?;
+    let mut game = GameFarm::start(version, &c, &spec, &o, weather_on(opts), false, place)?;
     let mut run = redsim_start(&spec, &o, &game, opts.bare)?;
     let mut first = None;
     let mut count = 0usize;
@@ -134,7 +161,14 @@ fn scan_one(version: &str, design: &std::path::Path, opts: &Opts, want: &str) ->
 pub fn load_place(design: &std::path::Path, opts: &Opts) -> Result<(circuit::Circuit, FarmSpec, Place<'static>)> {
     match &opts.terrain {
         None => {
-            let c = load_lifted(design)?;
+            // the judge's build k: rotation k / 2 at the (k % 2)-th position (then lifted)
+            let c = match opts.build {
+                Some((k, _)) => {
+                    let off = clock::offsets(2)[(k % 2) as usize];
+                    circuit::Circuit::load(design)?.turned_pure((k / 2) as u8)?.translated(off)?.translated([0, LIFT, 0])?
+                }
+                None => load_lifted(design)?,
+            };
             let spec = circuit::mobfarm::spec_of(&c).map_err(|e| anyhow!(e))?;
             Ok((c, spec, Place::Void { bare: opts.bare }))
         }
@@ -142,7 +176,11 @@ pub fn load_place(design: &std::path::Path, opts: &Opts) -> Result<(circuit::Cir
             let c = circuit::Circuit::load(design)?;
             let spec = circuit::mobfarm::spec_of(&c).map_err(|e| anyhow!(e))?;
             let sample = redsim::terrain::samples::sample(name).ok_or_else(|| anyhow!("no terrain sample {name}"))?;
-            let site: &'static redsim::entity::mob::site::Site = Box::leak(Box::new(circuit::mobfarm::site_of(&c, &spec, name).map_err(|e| anyhow!(e))?));
+            // the judge's build k: the k-th site (`terrain_sites`); else the first
+            let site: &'static redsim::entity::mob::site::Site = match opts.build {
+                Some((k, _)) => *circuit::mobfarm::terrain_sites(&c, &spec, sample).map_err(|e| anyhow!(e))?.get(k as usize).ok_or_else(|| anyhow!("no site {k} in {name}"))?,
+                None => Box::leak(Box::new(circuit::mobfarm::site_of(&c, &spec, name).map_err(|e| anyhow!(e))?)),
+            };
             let terrain: &'static redsim::terrain::format::Terrain = Box::leak(Box::new(redsim::terrain::format::Terrain::decode(&std::fs::read(sample.file)?).map_err(|e| anyhow!(e))?));
             eprintln!("terrain {}: offset {:?}, {} blocks placed, {} dug, AFK at {:.1} {:.1} {:.1}", site.sample, site.offset, site.placed, site.dug, site.afk.x, site.afk.y, site.afk.z);
             let moved = site.spec(&spec);
@@ -187,6 +225,11 @@ pub struct GameFarm {
     pub spawners: bool,
     /// (mob-AI) The game JVM's POI holder identity hashes (the bridge's `identity_hashes`).
     pub poi_hashes: std::collections::HashMap<String, i32>,
+    /// The server's respawn position (`getRespawnData`), which natural spawning keeps 24 blocks
+    /// clear (`isRightDistanceToPlayerAndSpawnPoint`).
+    pub respawn: Option<[i32; 3]>,
+    /// The level spawns mobs naturally (`spawn_mobs`; off: `--no-spawning`, or the bare scenario).
+    pub natural: bool,
 }
 
 /// The design's block states at the spec's cells (moved to the site in terrain).
@@ -265,7 +308,7 @@ pub fn import_terrain(w: &mut Worker, sb: u32, t: &redsim::terrain::format::Terr
     let mut req = json!({
         "op": "terrain", "sandbox": sb, "sections": sections,
         "biomes": {"origin": t.biome_origin, "size": t.biome_size, "palette": t.biome_palette, "cells": b64.encode(&biome_cells)},
-        "structures": structures, "inhabited": inhabited, "block_entities": block_entities, "zoom_seed": t.zoom_seed,
+        "structures": structures, "inhabited": inhabited, "block_entities": block_entities, "zoom_seed": t.zoom_seed, "spawn": t.spawn,
         "heightmaps": {"maps": maps, "origin": [ox, oz], "size": [sx, sz], "data": heights},
     });
     // (a bisect switch: the sandbox's own zoom seed)
@@ -354,10 +397,12 @@ impl GameFarm {
         Self::start_with(version, c, spec, o, weather, trace_randoms, place, true)
     }
 
-    /// [`GameFarm::start`]; `spawners`: the level runs the five custom spawners (the real game's
-    /// overworld does; the void gate's rules leave the cats, terrain's every one).
+    /// [`GameFarm::start`]; `spawning`: the level spawns mobs, naturally (`spawn_mobs`) and by its
+    /// five custom spawners (the real game's overworld does; the void gate's rules leave the cats,
+    /// terrain's every one). Off (`mobfarm compare --no-spawning`): neither, the chunk shuffle still
+    /// drawn (terrain's regression check of the random ticks).
     #[allow(clippy::too_many_arguments)]
-    pub fn start_with(version: &str, c: &circuit::Circuit, spec: &FarmSpec, o: &RunOpts, weather: bool, trace_randoms: bool, place: Place, spawners: bool) -> Result<GameFarm> {
+    pub fn start_with(version: &str, c: &circuit::Circuit, spec: &FarmSpec, o: &RunOpts, weather: bool, trace_randoms: bool, place: Place, spawn_on: bool) -> Result<GameFarm> {
         let mut w = Worker::spawn(&WorkerConfig { version: version.to_string(), heap_mb: 4096, ..Default::default() })?;
         let (chunks, biome, bare) = match place {
             Place::Void { bare } => (forced_chunks(spec), if bare { Value::Null } else { json!("minecraft:plains") }, bare),
@@ -367,7 +412,7 @@ impl GameFarm {
                 ([ox.div_euclid(16), oz.div_euclid(16), (ox + sx - 1).div_euclid(16), (oz + sz - 1).div_euclid(16)], json!("minecraft:plains"), false)
             }
         };
-        let spawners = spawners && !bare;
+        let spawners = spawn_on && !bare;
         // a terrain sample's sandbox reports its world's sea level (the overworld's 63)
         let sea_level = if matches!(place, Place::Terrain { .. }) { json!(63) } else { Value::Null };
         let v = w.call(json!({"op": "create", "chunks": chunks, "seed": o.seed, "biome": biome, "custom_spawners": spawners, "sea_level": sea_level}))?;
@@ -375,7 +420,7 @@ impl GameFarm {
         let mut world = json!({
             "op": "world", "sandbox": sb,
             "advance_time": true, "day_time": o.day0 - SETTLE_TICKS,
-            "advance_weather": weather, "spawn_mobs": !bare, "spawn_monsters": false,
+            "advance_weather": weather, "spawn_mobs": !bare && spawn_on, "spawn_monsters": false,
             "rules": {"spawn_phantoms": "false", "spawn_patrols": "false", "spawn_wandering_traders": "false"},
             "difficulty": "hard",
             "trace_randoms": trace_randoms,
@@ -407,7 +452,7 @@ impl GameFarm {
                 if !added.is_empty() {
                     w.set_blocks(sb, &added, PlaceMode::Raw)?;
                 }
-                world["spawn_monsters"] = json!(true);
+                world["spawn_monsters"] = json!(spawn_on);
                 // the game's default rules: every custom spawner may fire
                 world["rules"] = json!({"spawn_phantoms": "true", "spawn_patrols": "true", "spawn_wandering_traders": "true"});
                 world["player"] = json!({"pos": [site.afk.x, site.afk.y, site.afk.z], "mode": "creative", "simulation": 6, "view": 6});
@@ -432,7 +477,7 @@ impl GameFarm {
         // (mob-AI) the POI holders' identity hashes: this JVM's, fixed for its life
         let hv = w.call(json!({"op": "identity_hashes"}))?;
         let poi_hashes: std::collections::HashMap<String, i32> = hv["poi_types"].as_object().map(|m| m.iter().filter_map(|(k, v)| v.as_i64().map(|h| (k.clone(), h as i32))).collect()).unwrap_or_default();
-        let mut g = GameFarm { w, sb, lo: pos(spec.lo), hi: pos(spec.hi), ticking, spawning, entity_ticking, spawn_chunk_count, text, full, spawners, poi_hashes };
+        let mut g = GameFarm { w, sb, lo: pos(spec.lo), hi: pos(spec.hi), ticking, spawning, entity_ticking, spawn_chunk_count, text, full, spawners, poi_hashes, respawn: None, natural: spawn_on && !bare };
         let bes: Vec<([i32; 3], String)> = spec.block_entities.iter().map(|(p, s)| (pos(*p), s.clone())).collect();
         g.place_with(&rest, &bes)?;
         let out = pos(spec.output);
@@ -449,7 +494,8 @@ impl GameFarm {
         g.entity_ticking = list("entity_ticking_chunks");
         g.full = list("full_chunks");
         g.spawn_chunk_count = v["spawn_chunk_count"].as_u64().unwrap_or(0) as u32;
-        eprintln!("chunk lists at the first tick: {} ticking, {} spawning, {} entity ticking, {} loaded, spawn chunk count {}", g.ticking.len(), g.spawning.len(), g.entity_ticking.len(), g.full.len(), g.spawn_chunk_count);
+        g.respawn = v["respawn"].as_array().map(|a| [a[0].as_i64().unwrap_or(0) as i32, a[1].as_i64().unwrap_or(0) as i32, a[2].as_i64().unwrap_or(0) as i32]);
+        eprintln!("chunk lists at the first tick: {} ticking, {} spawning, {} entity ticking, {} loaded, spawn chunk count {}, respawn {:?}", g.ticking.len(), g.spawning.len(), g.entity_ticking.len(), g.full.len(), g.spawn_chunk_count, g.respawn);
         if std::env::var("MCTAS_EXACT_LISTS").is_ok() {
             eprintln!("entity ticking: {:?}", g.entity_ticking);
             eprintln!("ticking: {:?}", g.ticking);
@@ -589,6 +635,7 @@ pub fn parse_frame(v: &Value) -> Result<Frame> {
         .map(|a| a.iter().map(|c| ([c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32, c[2].as_i64().unwrap_or(0) as i32], c[3].as_str().unwrap_or("").to_string())).collect())
         .unwrap_or_default();
     f.containers.sort();
+    f.player = v["player"].as_array().map(|a| [a[0].as_f64().unwrap_or(0.0), a[1].as_f64().unwrap_or(0.0), a[2].as_f64().unwrap_or(0.0)]);
     Ok(f)
 }
 
@@ -685,6 +732,15 @@ pub fn redsim_start(spec: &FarmSpec, o: &RunOpts, game: &GameFarm, bare: bool) -
         run.world.mob.natural = None;
         return Ok(run);
     }
+    // the void gate's stone over its AFK player (`GameFarm::start`), outside redsim's box
+    if o.site.is_none() {
+        let bot = afk_spot(spec);
+        run.world.outside.push((redsim::BlockPos::new(bot[0], bot[1] + 3, bot[2]), redsim::Block::parse("minecraft:stone").map_err(|e| anyhow!(e))?));
+    }
+    // the bridge's AFK player is a real creative player: the brains sense it (NEAREST_PLAYERS)
+    if let Some(a) = run.world.afk {
+        run.world.mob.ai.players.push(redsim::entity::mob::ai::Player { pos: a, mode: redsim::entity::mob::ai::GameMode::Creative, invulnerable: false });
+    }
     let base = match o.site {
         // a terrain site: monsters on around its AFK spot, the level's own biome outside the
         // sample (the bridge's terrain sandbox: plains), from the first settle tick like the
@@ -694,7 +750,18 @@ pub fn redsim_start(spec: &FarmSpec, o: &RunOpts, game: &GameFarm, bare: bool) -
     };
     let _ = run.world.mob.natural.take();
     let spawn_enemies = base.spawn_enemies;
-    run.world.mob.natural = Some(Natural { spawn_order: game.spawning.clone(), spawn_chunk_count: Some(game.spawn_chunk_count as i32), entity_ticking: game.entity_ticking.clone(), ..base });
+    run.world.mob.natural = Some(Natural {
+        spawn_order: game.spawning.clone(),
+        spawn_chunk_count: Some(game.spawn_chunk_count as i32),
+        entity_ticking: game.entity_ticking.clone(),
+        // `--no-spawning`: the spawner off, its chunk shuffle still drawn (as the game's
+        // tickChunks shuffles with spawn_mobs off)
+        spawning: game.natural,
+        // (the server's respawn position is the overworld's: a sandbox's own dimension skips
+        // `isRightDistanceToPlayerAndSpawnPoint`'s 24-block check, `respawnData.dimension() ==
+        // level.dimension()`, so the void needs none; a terrain site keeps its sample's spawn)
+        ..base
+    });
     if game.spawners {
         // the void gate's rules: no phantoms, patrols or traders; terrain: the game's defaults
         let all = o.site.is_some();
@@ -724,10 +791,10 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
     if let Place::Terrain { site, .. } = place {
         o.site = Some(site);
     }
-    let mut game = GameFarm::start(version, &c, &spec, &o, opts.weather, draws_at.is_some() || opts.draws_at.is_some(), place)?;
+    let mut game = GameFarm::start_with(version, &c, &spec, &o, weather_on(opts), draws_at.is_some() || opts.draws_at.is_some(), place, !opts.no_spawning)?;
     let mut run = redsim_start(&spec, &o, &game, opts.bare)?;
     let mut watch = Watch::new(&run.world, spec.lo, spec.hi);
-    let mut cmp = Compare::default();
+    let mut cmp = Compare { only: opts.only.clone(), ..Compare::default() };
     let window = |t0: i64, n: u32| [draws_at, opts.draws_at].iter().flatten().any(|d| *d >= t0 && *d < t0 + n as i64 + 3);
     let spawn_order = game.spawning.clone();
     let print = |f: &Frame| {
@@ -817,6 +884,16 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
         for (c, g) in cols.iter().zip(v["heights"].as_array().cloned().unwrap_or_default()) {
             let ours = run.world.height(redsim::terrain::Heightmap::WorldSurface, c[0], c[1]) - 1;
             eprintln!("column {} {}: the game's WORLD_SURFACE {} | redsim's {ours}", c[0], c[1], g[2]);
+            // the column's top blocks on both sides
+            let top = ours.max(g[2].as_i64().unwrap_or(0) as i32);
+            let (a, b) = ([c[0], top - 3, c[1]], [c[0], top + 1, c[1]]);
+            if let Ok(region) = game.w.get_region(game.sb, a, b) {
+                for y in (a[1]..=b[1]).rev() {
+                    let gs = region.get([c[0], y, c[1]]).map(|s| s.to_string()).unwrap_or_default();
+                    let rs = run.world.get(redsim::BlockPos::new(c[0], y, c[1])).to_string();
+                    eprintln!("  y {y}: game {gs} | redsim {rs}");
+                }
+            }
         }
     }
     Ok(cmp)
@@ -932,8 +1009,8 @@ pub fn twin(version: &str, design: &std::path::Path, opts: &Opts, draws_at: Opti
     if let Place::Terrain { site, .. } = place {
         o.site = Some(site);
     }
-    let mut a = GameFarm::start(version, &c, &spec, &o, opts.weather, draws_at.is_some(), place)?;
-    let mut b = GameFarm::start(version, &c, &spec, &o, opts.weather, draws_at.is_some(), place)?;
+    let mut a = GameFarm::start_with(version, &c, &spec, &o, weather_on(opts), draws_at.is_some(), place, !opts.no_spawning)?;
+    let mut b = GameFarm::start_with(version, &c, &spec, &o, weather_on(opts), draws_at.is_some(), place, !opts.no_spawning)?;
     if a.ticking != b.ticking {
         println!("twin: the two runs tick different chunks: {} vs {} (first {:?} vs {:?})", a.ticking.len(), b.ticking.len(), a.ticking.first(), b.ticking.first());
     }

@@ -300,6 +300,22 @@ pub enum MobfarmCmd {
         /// Ticks per traced step.
         #[arg(long, default_value_t = 100)]
         batch: u32,
+        /// The judge's build K (the card's: rotation K / 2 at the (K % 2)-th position in the void,
+        /// the K-th site in a terrain sample), with `--run`: its seed, walking and weather.
+        #[arg(long)]
+        build: Option<u32>,
+        /// With `--build`: the judge's run I of that build (seed JUDGE_SEED0 + 1000 K + I).
+        #[arg(long, default_value_t = 0)]
+        run: u32,
+        /// No mob spawning on either side (natural and the custom spawners; the chunk shuffle
+        /// still drawn): the random ticks, weather and fire alone.
+        #[arg(long)]
+        no_spawning: bool,
+        /// Only these kinds of difference count, comma separated: `world` (times, the AFK player,
+        /// the level random, randValue, weather), `blocks` (blocks, containers), `entities`, or
+        /// a category's own name ("level random", "villager pos").
+        #[arg(long, value_delimiter = ',')]
+        only: Vec<String>,
     },
 }
 
@@ -567,9 +583,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         MobfarmCmd::WeatherStats { days, servers, dt, sim_runs } => crate::weathercheck::weather_stats_cmd(version, days, servers, dt, sim_runs)?,
         MobfarmCmd::FireBurn { design, servers, max, seeds } => crate::weathercheck::fire_burn_cmd(version, &design, servers, max, seeds)?,
         MobfarmCmd::BoltCheck => crate::weathercheck::bolt_check_cmd(version)?,
-        MobfarmCmd::Compare { design, seed, days, ticks, weather, probe, twin, full, bare, draws_at, terrain, day0, scan, batch } => {
+        MobfarmCmd::Compare { design, seed, days, ticks, weather, probe, twin, full, bare, draws_at, terrain, day0, scan, batch, build, run, no_spawning, only } => {
             let ticks = ticks.unwrap_or((days * 24000.0).round() as u32);
-            let opts = crate::exact::Opts { seed, ticks, weather, probe, batch: batch.max(1), full, bare, draws_at, terrain, day0 };
+            let opts = crate::exact::Opts { seed, ticks, weather, probe, batch: batch.max(1), full, bare, draws_at, terrain, day0, build: build.map(|k| (k, run)), no_spawning, only };
             if let Some(s) = scan {
                 let (from, to): (i64, i64) = (s[1].parse()?, s[2].parse()?);
                 let hits = crate::exact::scan(version, &design, &opts, from..=to, &s[0])?;

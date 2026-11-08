@@ -78,6 +78,8 @@ pub struct Frame {
     /// Container changes in the watched box since the previous frame: (cell, its items as
     /// [`container_text`] prints them; empty when the container went).
     pub containers: Vec<([i32; 3], String)>,
+    /// The game's AFK player's position (the bridge's frames; redsim's is `World::afk`).
+    pub player: Option<[f64; 3]>,
 }
 
 /// A container's items, slot by slot (`slot:item:count`, empty slots left out) and, for a
@@ -139,6 +141,7 @@ impl Watch {
         f.rng = w.level_random.as_ref().map(|r| r.state());
         f.rv = w.random_ticks.as_ref().map(|r| r.value);
         f.weather = weather_text(w);
+        f.player = w.afk.map(|a| [a.x, a.y, a.z]);
         let mut now = BTreeSet::new();
         for e in w.entities.list.iter().filter(|e| !e.removed) {
             now.insert(e.id);
@@ -205,7 +208,9 @@ pub fn entity_frame(w: &World, e: &crate::entity::Entity) -> EntityFrame {
     let mut f = EntityFrame {
         n: e.id,
         ty: match &e.kind {
-            EntityKind::Mob(m) => m.ty.def().game_id.trim_start_matches("minecraft:").to_string(),
+            // the game's entity type (a size or a baby is the same type there: sulfur_cube_2 and
+            // baby_zombie are redsim's rows of minecraft:sulfur_cube and minecraft:zombie)
+            EntityKind::Mob(m) => m.ty.game_id().trim_start_matches("minecraft:").to_string(),
             EntityKind::Item(_) => "item".into(),
             EntityKind::Boat(b) => if b.chest { "chest_boat".into() } else { "boat".into() },
             EntityKind::Minecart(m) => if m.hopper { "hopper_minecart".into() } else { "minecart".into() },
@@ -306,6 +311,21 @@ pub struct Compare {
     /// mob AI (the mob-AI lane): keep the game's draws of this tick (`--probe-at`).
     pub probe_at: Option<i64>,
     pub probe: Vec<String>,
+    /// Only these kinds of difference count (`mobfarm compare --only`; empty: every one):
+    /// `world` (game and day time, the AFK player, the level random, randValue, the weather),
+    /// `blocks` (blocks and containers), `entities` (everything of the entities), or a category's
+    /// own name ("level random", "villager pos", ...). The others are still printed as gaps of
+    /// their kind, never as the first difference.
+    pub only: Vec<String>,
+}
+
+/// The kind of a difference's category, for [`Compare::only`].
+pub fn kind_of_category(category: &str) -> &'static str {
+    match category {
+        "game time" | "AFK player" | "level random" | "randValue" | "day time" | "weather" => "world",
+        "block" | "container" => "blocks",
+        _ => "entities",
+    }
 }
 
 /// A difference of a compare.
@@ -355,6 +375,13 @@ impl Compare {
         };
         if game.t != ours.t {
             push("game time".into(), "game time", game.t.to_string(), ours.t.to_string(), Vec::new());
+        }
+        // the AFK player (the bridge's real player; redsim's `World::afk`): natural spawning's
+        // distances, fire spread and the despawn rules all read it
+        if let (Some(g), Some(o)) = (game.player, ours.player)
+            && g != o
+        {
+            push("AFK player".into(), "AFK player", format!("{g:?}"), format!("{o:?}"), Vec::new());
         }
         if let Some((g, o)) = opt_cmp("level random", &game.rng, &ours.rng, self, "world") {
             let ctx = match (game.rng, ours.rng) {
@@ -420,6 +447,9 @@ impl Compare {
             }
         }
         for mut x in ds {
+            if !self.only.is_empty() && !self.only.iter().any(|k| k == kind_of_category(&x.category) || *k == x.category) {
+                continue;
+            }
             if self.first.is_none() {
                 for (stream, site, n) in game.draws.iter().take(80) {
                     x.context.push(format!("game draw: {stream} {site} x{n}"));

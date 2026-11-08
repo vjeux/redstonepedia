@@ -279,7 +279,11 @@ fn opaque(b: &Block, map: usize) -> bool {
         Block::Terrain(id) => blocks::props(id).heightmaps[map],
         _ => match blocks::id_of(&b.to_string()) {
             Some(id) => blocks::props(id).heightmaps[map],
-            // a modeled block missing from the table: anything with a collision box or a fluid
+            // a modeled block missing from the table (a placed one: redstone dust, a torch, a
+            // rail): WORLD_SURFACE takes every block that is not air (`Heightmap.Types` NOT_AIR,
+            // tickexact: redsim left dust out of it, so natural spawning's getRandomPosWithin read
+            // a column one block low); the others anything with a collision box or a fluid
+            None if map == Heightmap::WorldSurface.index() => !b.is_air(),
             None => crate::behavior::collides(b) || !crate::fluid::fluid_state_of(b).is_empty(),
         },
     }

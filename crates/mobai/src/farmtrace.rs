@@ -8,7 +8,7 @@ use redsim::entity::EntityKind;
 use redsim::entity::mob::farm::SETTLE_TICKS;
 
 pub fn run(version: &str, design: &std::path::Path, seed: i64, at: i64, entity: Option<u32>, terrain: Option<String>) -> Result<()> {
-    let opts = Opts { seed, ticks: (at + 1).max(1) as u32, weather: false, probe: false, batch: 100, full: true, bare: false, draws_at: Some(at), terrain, day0: None };
+    let opts = Opts { seed, ticks: (at + 1).max(1) as u32, weather: false, probe: false, batch: 100, full: true, bare: false, draws_at: Some(at), terrain, day0: None, build: None, no_spawning: false, only: Vec::new() };
     let (c, spec, place) = load_place(design, &opts)?;
     let mut o = run_opts(opts.seed, opts.ticks);
     if let Place::Terrain { site, .. } = place {

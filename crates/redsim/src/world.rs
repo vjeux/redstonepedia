@@ -225,6 +225,10 @@ pub struct World {
     /// only within 128 blocks of a player (`ServerLevel.canSpreadFireAround`). `None` (the
     /// default, as in the bridge's sandboxes): no player.
     pub afk: Option<crate::entity::Vec3>,
+    /// (tickexact) Blocks of the world outside redsim's box that the natural spawner reads: the
+    /// void gate's stone 3 above its AFK player (the bridge places it; a cell `getRandomPosWithin`
+    /// can pick, a redstone conductor that stops a spawn group there).
+    pub outside: Vec<(BlockPos, Block)>,
     /// mobinfra: each chunk section's randomly ticking cells (`LevelChunkSection.tickingBlockCount`
     /// + `tickingFluidCount`, recalculated on load and kept by every write: [`World::put`]); built
     /// on the first chunk tick (`crops::tick_chunks`), `None` until then and after `load_cells`.
@@ -293,6 +297,7 @@ impl World {
             land: None,
             weather: Default::default(),
             afk: None,
+            outside: Vec::new(),
             ticking_sections: None,
         }
     }

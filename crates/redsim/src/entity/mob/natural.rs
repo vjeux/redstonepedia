@@ -834,9 +834,27 @@ fn spawn_category_for_chunk(w: &mut World, nat: &Natural, st: &mut State, cat: C
     let h = if in_box { w.height(crate::terrain::Heightmap::WorldSurface, x, z) } else { min_y };
     let top = if w.land.is_none() && h <= w.min.y { min_y } else { h };
     let y = rng(w).next_int(top - min_y + 1) + min_y;
+    if probing(w) {
+        let b = outside_or_get(w, BlockPos::new(x, y, z));
+        eprintln!("natural t{} chunk {cx},{cz} {:?}: {x},{y},{z} top {top} in_box {in_box} block {b} -> {}", w.time, cat, y >= min_y + 1 && !crate::behavior::conductor_of(&b));
+    }
     if y >= min_y + 1 {
         spawn_category_for_position(w, nat, st, cat, cx, cz, BlockPos::new(x, y, z));
     }
+}
+
+/// The probe of one game tick's natural spawning (`MCTAS_NATURAL_LOG=T`: every
+/// `getRandomPosWithin` call of game time T and every step of its groups, on stderr; how the
+/// exact compare's spawner differences were found).
+fn probing(w: &World) -> bool {
+    static LOG: std::sync::OnceLock<Option<i64>> = std::sync::OnceLock::new();
+    LOG.get_or_init(|| std::env::var("MCTAS_NATURAL_LOG").ok().and_then(|s| s.parse().ok())) == &Some(w.time)
+}
+
+/// A cell's block, the world's blocks outside redsim's box included ([`World::outside`]: the void
+/// gate's stone over its AFK player).
+fn outside_or_get(w: &World, p: BlockPos) -> crate::block::Block {
+    w.outside.iter().find(|(q, _)| *q == p).map(|(_, b)| *b).unwrap_or_else(|| w.get(p))
 }
 
 /// The nearest player's squared distance to a point (3D), if any.
@@ -848,7 +866,9 @@ fn right_distance(w: &World, nat: &Natural, pos: BlockPos, d2: f64, cx: i32, cz:
     if d2 <= 576.0 {
         return false;
     }
-    if let Some(s) = w.land.as_ref().map(|l| l.spawn).or(nat.world_spawn) {
+    // the respawn position kept 24 blocks clear: the bridge's (the server's, `getRespawnData`) when
+    // the exact compare gives it, else a terrain sample's own spawn
+    if let Some(s) = nat.world_spawn.or(w.land.as_ref().map(|l| l.spawn)) {
         let (dx, dy, dz) = (s.x as f64 + 0.5 - (pos.x as f64 + 0.5), s.y as f64 + 0.5 - pos.y as f64, s.z as f64 + 0.5 - (pos.z as f64 + 0.5));
         if dx * dx + dy * dy + dz * dz < 576.0 {
             return false;
@@ -923,7 +943,8 @@ fn random_spawn_mob_at(w: &mut World, cat: Category, pos: BlockPos) -> Option<Sp
 }
 
 fn spawn_category_for_position(w: &mut World, nat: &Natural, st: &mut State, cat: Category, cx: i32, cz: i32, start: BlockPos) {
-    if crate::behavior::conductor_of(&w.get(start)) {
+    // (a block of the world outside redsim's box: the void gate's stone over its AFK player)
+    if crate::behavior::conductor_of(&outside_or_get(w, start)) {
         return;
     }
     let mut cluster = 0u32;
@@ -942,6 +963,9 @@ fn spawn_category_for_position(w: &mut World, nat: &Natural, st: &mut State, cat
             let pos = BlockPos::new(x, start.y, z);
             let (xx, zz) = (x as f64 + 0.5, z as f64 + 0.5);
             let Some(d2) = nearest_player(nat, xx, start.y as f64, zz) else { continue };
+            if probing(w) {
+                eprintln!("  step {pos} d2 {d2:.1} right_distance {} data {:?}", right_distance(w, nat, pos, d2, cx, cz), data.as_ref().map(|s| s.ty.clone()));
+            }
             if !right_distance(w, nat, pos, d2, cx, cz) {
                 continue;
             }

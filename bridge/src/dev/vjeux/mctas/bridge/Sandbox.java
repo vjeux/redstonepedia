@@ -1120,8 +1120,19 @@ final class Sandbox {
             passenger.startRiding(e, true, false);
             // seated before its first tick, like the real-game gate summons a rider at its seat
             // and mounts it (`ride`): startRiding alone leaves it where it was made, and its first
-            // rideTick would tick it there (an eye in a block: one in_wall hit no farm deals)
+            // rideTick would tick it there (an eye in a block: one in_wall hit no farm deals). The
+            // gate's `ride` runs no positionRider, so the rider keeps its own rotations until its
+            // first tick: a boat's positionRider would clamp them first (AbstractBoat.clampRotation;
+            // a turned build's boat at yaw 90 and its rider at 0: mob-AI, 2026-11-08)
+            float yRot = passenger.getYRot();
+            float headRot = passenger.getYHeadRot();
+            float bodyRot = passenger instanceof net.minecraft.world.entity.LivingEntity l ? l.yBodyRot : 0.0F;
             e.positionRider(passenger);
+            passenger.setYRot(yRot);
+            passenger.setYHeadRot(headRot);
+            if (passenger instanceof net.minecraft.world.entity.LivingEntity l) {
+                l.yBodyRot = bodyRot;
+            }
             passenger.setOldPosAndRot();
         }
         return e;

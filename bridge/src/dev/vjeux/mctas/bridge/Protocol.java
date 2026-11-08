@@ -828,6 +828,13 @@ public final class Protocol {
         }
         o.add("spawning_chunks", spawning);
         o.addProperty("spawn_chunk_count", sb.level.getChunkSource().chunkMap.getDistanceManager().getNaturalSpawnChunkCount());
+        // (tickexact) the respawn position NaturalSpawner keeps 24 blocks clear (the server's)
+        net.minecraft.core.BlockPos respawn = sb.level.getRespawnData().pos();
+        JsonArray rs = new JsonArray();
+        rs.add(respawn.getX());
+        rs.add(respawn.getY());
+        rs.add(respawn.getZ());
+        o.add("respawn", rs);
         // the chunks where entities may be spawned and tick (ServerLevel.canSpawnEntitiesInChunk:
         // the entity manager's ticking sections, within the world border), over the spawn
         // candidates' square around the player and the forced box

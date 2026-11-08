@@ -1807,6 +1807,26 @@ fn sim_checks(v: &mut Vec<Check>) {
     });
     // the official server steps slowly (a snapshot per tick: ~45 s per gadget position, ~75 s per
     // fuzz case), so these are one piece per gadget and per pair of fuzz cases, all in parallel
+    // terrain's regression check of the random ticks (tickexact, 2026-11-08): a terrain sample's
+    // world on the deterministic bridge and on redsim for a full game day with mob spawning off on
+    // both sides (`mobfarm compare --no-spawning`): every random tick (grass, crops, farmland,
+    // amethyst, mushrooms, speleothems), precipitation, lava's fire and the chunk shuffle draw the
+    // level random identically, every block identical, every tick. The design is the AFK-pad
+    // fixture (no villager, no golem: the terrain's draws alone, not a farm's brains)
+    for sample in ["village-edge", "plains"] {
+        v.push(Check {
+            name: format!("sim:terrain-ticks-{sample}"),
+            what: Box::leak(format!("`mobfarm compare --no-spawning` of the AFK-pad fixture in the {sample} sample: a full game day (24,200 ticks) on the deterministic 26.3 bridge and on redsim, the level random, randValue, weather and every block identical every tick (the random ticks, precipitation and lava's fire of real terrain)").into_boxed_str()),
+            quick: false,
+            jvm: true,
+            steps: vec![args(&format!("mobfarm compare designs/circuits/mobfarm/fixtures/afk-pad.txt --terrain {sample} --no-spawning --only world,blocks --days 1 --batch 1000"))],
+            timeout: 1200,
+            pred: Box::new(|o| {
+                let l = o[0].lines().find(|l| l.ends_with(" ticks compared: 0 differences") || l.starts_with("FIRST DIFFERENCE")).ok_or(format!("no verdict: {}", tail(&o[0])))?;
+                if l == "24200 ticks compared: 0 differences" { Ok(l.to_string()) } else { Err(l.chars().take(240).collect()) }
+            }),
+        });
+    }
     for (g, what) in [("bulb-toggle", "a copper bulb toggle"), ("comparator-odd", "an odd comparator"), ("dispenser-qc", "a dispenser's quasi-connectivity"), ("double-move", "a double piston move"), ("dust-reach", "dust reach"), ("early-window", "an early window")] {
         v.push(Check {
             name: format!("sim:vanilla-gadget-{g}"),

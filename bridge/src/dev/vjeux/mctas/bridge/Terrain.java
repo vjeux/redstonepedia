@@ -61,6 +61,14 @@ final class Terrain {
             f.setAccessible(true);
             f.setLong(sb.level.getBiomeManager(), r.get("zoom_seed").getAsLong());
         }
+        // the real world's spawn point, in this sandbox's dimension: NaturalSpawner keeps 24 blocks
+        // around it clear only when the respawn's dimension is the level's (the server's default,
+        // the overworld's origin, never is a sandbox's)
+        if (r.has("spawn")) {
+            JsonArray sp = r.getAsJsonArray("spawn");
+            sb.level.getServer().setRespawnData(new net.minecraft.world.level.storage.LevelData.RespawnData(
+                    net.minecraft.core.GlobalPos.of(sb.level.dimension(), new BlockPos(sp.get(0).getAsInt(), sp.get(1).getAsInt(), sp.get(2).getAsInt())), 0.0F, 0.0F));
+        }
         // the biome cells: origin and size in quart coordinates, palette, ids (u16 LE, x fastest,
         // then z, then y)
         BiomeCells biomes = r.has("biomes") ? new BiomeCells(sb, r.getAsJsonObject("biomes")) : null;
