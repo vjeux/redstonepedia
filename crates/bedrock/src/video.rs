@@ -2686,7 +2686,7 @@ fn remote_trip(p: &mut Prod, l: i32, cur: i32, row: i32) -> Result<()> {
     p.walk_path(&[(fx + 1, cur + 1)])?;
     p.select(SLOT_PICK)?;
     p.mine([fx, l + 1, cur])?;
-    p.assert_block("the_nether", [fx + 1, l + 1, cur], "minecraft:air", "portal out after mining one frame block")?;
+    p.poll_block("the_nether", [fx + 1, l + 1, cur], "minecraft:air", 10)?;
     let row = trigger_until(p, l, row)?;
     assert_conversion(p, l, row)?;
     // Walk back beside the new portal (for the next mine, and for the camera).
@@ -3126,7 +3126,7 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         p.look(fx as f64 + 0.5, 5.5, cur as f64 + 0.5, 10)?;
         p.wait(20)?;
         p.mine([fx, 5, cur])?;
-        p.assert_block("the_nether", [fx + 1, 5, cur], "minecraft:air", "portal out (loop)")?;
+        p.poll_block("the_nether", [fx + 1, 5, cur], "minecraft:air", 10)?;
         p.wait(15)?;
         p.seg_step("loop-throw", "loop1", &["2: throw ONE item into R_N, the return portal — and stay in the Nether"], 1.0, S5)?;
         throw_trigger(p)?;
