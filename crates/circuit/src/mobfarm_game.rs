@@ -235,6 +235,10 @@ fn count_item(nbt: &str, id: &str) -> u32 {
     total
 }
 
+/// The iron in an item list's NBT as ingots: ingots and 9 per iron block (a farm's crafter).
+fn count_iron(nbt: &str) -> u32 {
+    count_item(nbt, "minecraft:iron_ingot") + 9 * count_item(nbt, "minecraft:iron_block")
+}
 /// A golem as the gate tracks it.
 #[derive(Clone, Debug)]
 struct Golem {
@@ -443,22 +447,28 @@ pub fn run_terrain(c: &Circuit, name: &str, k: u8, o: &GateOpts) -> Result<Build
 }
 
 /// The farm the terrain judge builds at its Site (`farm::Run::start` with the site, its water
-/// settled) as the cells it changed from the sample's world: the farm's box and the fills (C7's
-/// glass), air where it dug; the detectors held back; the farm's flammable blocks and lava watched.
+/// settled) as the cells it changed from the sample's world: the farm's box and 3 around it (the
+/// site's seals) and the fills (C7's glass), air where it dug; the detectors held back; the farm's
+/// flammable blocks and lava watched.
 fn terrain_built(spec: &FarmSpec, site: &redsim::entity::mob::site::Site, o: &RunOpts) -> Result<Built> {
     let mut run = farm::Run::start(spec, o).map_err(|e| anyhow!(e))?;
     while run.settle_tick() {}
     let before = site.world.lock().map_err(|_| anyhow!("the site's world lock is poisoned"))?;
     let w = &run.world;
+    // every cell the build changed: the farm's box and 3 around it (the site's cobblestone seals
+    // of natural openings next to the farm, its digging at the edges), and the fills (C7's glass,
+    // wherever the golem search reached)
     let mut cells: Vec<redsim::BlockPos> = Vec::new();
-    for y in spec.lo.y..=spec.hi.y {
-        for z in spec.lo.z..=spec.hi.z {
-            for x in spec.lo.x..=spec.hi.x {
+    let (lo, hi) = (spec.lo.offset(-3, -3, -3), spec.hi.offset(3, 3, 3));
+    let inside = |p: &redsim::BlockPos| (lo.x..=hi.x).contains(&p.x) && (lo.y..=hi.y).contains(&p.y) && (lo.z..=hi.z).contains(&p.z);
+    for y in lo.y..=hi.y {
+        for z in lo.z..=hi.z {
+            for x in lo.x..=hi.x {
                 cells.push(redsim::BlockPos::new(x, y, z));
             }
         }
     }
-    cells.extend(site.fills.iter().copied().filter(|p| !(spec.lo.x..=spec.hi.x).contains(&p.x) || !(spec.lo.y..=spec.hi.y).contains(&p.y) || !(spec.lo.z..=spec.hi.z).contains(&p.z)));
+    cells.extend(site.fills.iter().copied().filter(|p| !inside(p)));
     let detectors: Vec<([i32; 3], String)> = spec.blocks.iter().filter(|(_, b)| matches!(b, redsim::Block::DaylightDetector { .. })).map(|(p, b)| ([p.x, p.y, p.z], b.to_string())).collect();
     let mut blocks = Vec::new();
     let mut watch = Vec::new();
@@ -667,13 +677,15 @@ fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, 
             break;
         }
     }
-    // the drops: the chest, the farm's containers, the items on the floor
-    run.iron_chest = count_item(&s.cmd_long(&format!("data get block {} Items", xyz(output)))?, "minecraft:iron_ingot");
-    run.poppies = count_item(&s.cmd_long(&format!("data get block {} Items", xyz(output)))?, "minecraft:poppy");
+    // the drops: the chest, the farm's containers, the items on the floor (iron as ingots: a block
+    // a crafter made counts 9, as redsim's farm counts it)
+    let chest = s.cmd_long(&format!("data get block {} Items", xyz(output)))?;
+    run.iron_chest = count_iron(&chest);
+    run.poppies = count_item(&chest, "minecraft:poppy");
     for p in &boxes {
-        run.iron_containers += count_item(&s.cmd_long(&format!("data get block {} Items", xyz(*p)))?, "minecraft:iron_ingot");
+        run.iron_containers += count_iron(&s.cmd_long(&format!("data get block {} Items", xyz(*p)))?);
     }
-    run.iron_loose = count_item(&s.cmd_long(&format!("execute as @e[type=minecraft:item{}] run data get entity @s Item", scope.near))?, "minecraft:iron_ingot");
+    run.iron_loose = count_iron(&s.cmd_long(&format!("execute as @e[type=minecraft:item{}] run data get entity @s Item", scope.near))?);
     // what changed in the build: every cell's block type against the paste
     for (p, st) in &blocks {
         let id = st.split('[').next().unwrap_or(st);
@@ -856,7 +868,7 @@ fn sample(
             let p = list_after(&a, "Pos").unwrap_or_default();
             if p.len() == 3 && (p[0] < lo.x as f64 || p[0] > hi.x as f64 + 1.0 || p[1] < lo.y as f64 || p[1] > hi.y as f64 + 1.0 || p[2] < lo.z as f64 || p[2] > hi.z as f64 + 1.0) {
                 let id = a.split("id: \"").nth(1).or_else(|| a.split("id:\"").nth(1)).and_then(|r| r.split('"').next()).unwrap_or("?").trim_start_matches("minecraft:").to_string();
-                if matches!(id.as_str(), "iron_ingot" | "poppy") {
+                if matches!(id.as_str(), "iron_ingot" | "iron_block" | "poppy") {
                     out.push(format!("{id} at {:.1} {:.1} {:.1}", p[0], p[1], p[2]));
                 }
             }
@@ -1143,6 +1155,14 @@ pub fn poisson_band(lambda: f64, alpha: f64) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The iron of a chest as ingots: a crafted block counts 9 (ironfarm's row farm).
+    #[test]
+    fn iron_blocks_count_nine() {
+        let items = r#"[{count: 5, Slot: 0b, id: "minecraft:iron_ingot"}, {count: 2, Slot: 1b, id: "minecraft:iron_block"}, {count: 3, Slot: 2b, id: "minecraft:poppy"}]"#;
+        assert_eq!(count_iron(items), 5 + 18);
+        assert_eq!(count_item(items, "minecraft:poppy"), 3);
+    }
 
     /// A vehicle's riders split from its data, a turned build's Rotation kept.
     #[test]
