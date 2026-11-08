@@ -504,6 +504,16 @@ impl World {
         self.ticking_sections = None;
     }
 
+    /// A world over the box holding these cells (x fastest, then z, then y), without filling it
+    /// with air first (a terrain box: 5.5M cells).
+    pub fn with_cells(min: BlockPos, size: [i32; 3], cells: Vec<Block>) -> World {
+        assert_eq!(cells.len(), (size[0] * size[1] * size[2]) as usize, "with_cells: the box needs {} cells", size[0] * size[1] * size[2]);
+        let mut w = World::new(min, [0, 0, 0]);
+        w.size = size;
+        w.cells = cells;
+        w
+    }
+
     // ------------------------------------------------------------------ setBlock
 
     pub fn set_block(&mut self, pos: BlockPos, state: Block, fl: u32) -> bool {

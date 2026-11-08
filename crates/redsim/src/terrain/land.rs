@@ -80,6 +80,144 @@ fn cells_of(t: &Terrain) -> Result<Vec<Block>, String> {
 
 /// A world holding a terrain file's whole box, its light, heightmaps and biomes.
 pub fn build_world(t: &Terrain) -> Result<World, String> {
+    if !t.sky.is_empty() && !t.block.is_empty() {
+        let mut b = Builder::new(t)?;
+        while !b.step(usize::MAX) {}
+        return Ok(b.finish());
+    }
+    let min = BlockPos::new(t.origin[0], t.origin[1], t.origin[2]);
+    let mut w = World::new(min, t.size);
+    let cells = cells_of(t)?;
+    w.load_cells(cells);
+    let g = light::grid_of_world(&w)?;
+    let (sky, block) = light::compute(&g);
+    let sources = sky_sources(t, &sky, 0, (t.size[0] * t.size[2]) as usize);
+    w.land = Some(Box::new(land_of(t, sky, block, sources)));
+    Ok(w)
+}
+
+/// `build_world` in resumable steps, for a file with its saved light (the viewer keeps every
+/// main-thread task under 50 ms): `Builder::new(&t)?`, `step(max_cells)` until it returns true,
+/// then `finish()` — the very world `build_world(&t)` returns.
+pub struct Builder<'a> {
+    t: &'a Terrain,
+    palette: Vec<Block>,
+    cells: Vec<Block>,
+    sky: Vec<u8>,
+    block: Vec<u8>,
+    sources: Vec<i32>,
+}
+
+impl<'a> Builder<'a> {
+    pub fn new(t: &'a Terrain) -> Result<Builder<'a>, String> {
+        if t.sky.is_empty() || t.block.is_empty() {
+            return Err("a terrain file without its saved light (build_world computes it in one step)".into());
+        }
+        let palette: Vec<Block> = t.palette.iter().map(|s| block_of(s)).collect::<Result<_, _>>()?;
+        let n = t.cells.len();
+        let cols = (t.size[0] * t.size[2]) as usize;
+        Ok(Builder { t, palette, cells: Vec::with_capacity(n), sky: Vec::with_capacity(n), block: Vec::with_capacity(n), sources: Vec::with_capacity(cols) })
+    }
+
+    /// Up to `max_cells` cells of work (a cell's block; 8 cells of saved light count as one; a
+    /// column's sky-source scan counts as its height); true when all is done.
+    pub fn step(&mut self, max_cells: usize) -> bool {
+        let t = self.t;
+        let n = t.cells.len();
+        let mut budget = max_cells.max(1);
+        if self.cells.len() < n {
+            let (a, b) = (self.cells.len(), self.cells.len().saturating_add(budget).min(n));
+            let palette = &self.palette;
+            self.cells.extend(t.cells[a..b].iter().map(|&c| palette[c as usize]));
+            budget -= b - a;
+            if budget == 0 {
+                return false;
+            }
+        }
+        while self.sky.len() < n || self.block.len() < n {
+            let take = budget.saturating_mul(8).max(1);
+            let (a, b) = (self.sky.len(), self.sky.len().saturating_add(take).min(n));
+            self.sky.extend_from_slice(&t.sky[a..b]);
+            self.block.extend_from_slice(&t.block[a..b]);
+            budget = budget.saturating_sub((b - a).div_ceil(8));
+            if budget == 0 {
+                return self.sky.len() == n && self.sources.len() == (t.size[0] * t.size[2]) as usize;
+            }
+        }
+        let cols = (t.size[0] * t.size[2]) as usize;
+        while self.sources.len() < cols {
+            let per = (t.size[1] as usize).max(1);
+            let k = (budget / per).max(1).min(cols - self.sources.len());
+            let from = self.sources.len();
+            let more = sky_sources(t, &self.sky, from, from + k);
+            self.sources.extend(more);
+            budget = budget.saturating_sub(k * per);
+            if budget == 0 {
+                return self.sources.len() == cols;
+            }
+        }
+        true
+    }
+
+    /// The world (after `step` returned true).
+    pub fn finish(self) -> World {
+        let t = self.t;
+        assert!(self.cells.len() == t.cells.len() && self.sources.len() == (t.size[0] * t.size[2]) as usize, "Builder::finish before its last step");
+        let mut w = World::with_cells(BlockPos::new(t.origin[0], t.origin[1], t.origin[2]), t.size, self.cells);
+        w.land = Some(Box::new(land_of(t, self.sky, self.block, self.sources)));
+        w
+    }
+}
+
+/// Columns `from..to` (x fastest, then z): the lowest y of the run of full sky light from the top
+/// (`ChunkSkyLightSources`' source y).
+fn sky_sources(t: &Terrain, sky: &[u8], from: usize, to: usize) -> Vec<i32> {
+    let [sx, sy, sz] = t.size;
+    (from..to)
+        .map(|c| {
+            let (x, z) = ((c as i32) % sx, (c as i32) / sx);
+            let mut y = sy - 1;
+            while y >= 0 && sky[((y * sz + z) * sx + x) as usize] == 15 {
+                y -= 1;
+            }
+            t.origin[1] + y + 1
+        })
+        .collect()
+}
+
+/// The land of a terrain file with its light and sky sources.
+fn land_of(t: &Terrain, sky: Vec<u8>, block: Vec<u8>, sources: Vec<i32>) -> Land {
+    let cols = (t.size[0] * t.size[2]) as usize;
+    let heights = (0..4)
+        .map(|m| match t.heightmaps.get(m) {
+            Some(h) if h.len() == cols => h.iter().map(|v| *v as i32).collect(),
+            _ => vec![t.origin[1]; cols],
+        })
+        .collect();
+    Land {
+        seed: t.seed,
+        zoom_seed: t.zoom_seed,
+        spawn: BlockPos::new(t.spawn[0], t.spawn[1], t.spawn[2]),
+        world_min_y: t.world_min_y,
+        world_height: t.world_height,
+        biome_names: t.biome_palette.clone(),
+        biome_origin: t.biome_origin,
+        biome_size: t.biome_size,
+        biomes: t.biomes.clone(),
+        sky,
+        block,
+        sources,
+        heights,
+        dirty: Vec::new(),
+        light_changes: Vec::new(),
+        structures: t.structures.clone(),
+        notes: Vec::new(),
+    }
+}
+
+/// The one-step body `Builder` replaced (the test compares the two).
+#[cfg(test)]
+fn build_world_one_step(t: &Terrain) -> Result<World, String> {
     let min = BlockPos::new(t.origin[0], t.origin[1], t.origin[2]);
     let mut w = World::new(min, t.size);
     let cells = cells_of(t)?;
@@ -540,4 +678,35 @@ pub fn can_see_sky_from_below_water(w: &World, p: BlockPos) -> Result<bool, Stri
         q = q.below();
     }
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `Builder` in small steps builds the very world the one-step body built.
+    #[test]
+    fn the_builder_in_steps_equals_the_one_step_world() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../designs/terrain/forest.mcterrain");
+        let t = Terrain::decode(&std::fs::read(path).unwrap()).unwrap();
+        let mut b = Builder::new(&t).unwrap();
+        let mut steps = 0;
+        while !b.step(97_000) {
+            steps += 1;
+        }
+        assert!(steps > 10, "{steps} steps");
+        let a = b.finish();
+        let o = build_world_one_step(&t).unwrap();
+        assert_eq!((a.min, a.size), (o.min, o.size));
+        let (la, lo) = (a.land.as_ref().unwrap(), o.land.as_ref().unwrap());
+        assert!(la.sky == lo.sky && la.block == lo.block && la.sources == lo.sources && la.heights == lo.heights);
+        for y in 0..t.size[1] {
+            for z in 0..t.size[2] {
+                for x in 0..t.size[0] {
+                    let p = BlockPos::new(t.origin[0] + x, t.origin[1] + y, t.origin[2] + z);
+                    assert_eq!(a.get(p), o.get(p), "at {p}");
+                }
+            }
+        }
+    }
 }
