@@ -4,12 +4,15 @@
 # The player: everything, End included (shulker boxes, crafters); villagers from a breeder. They
 # AFK at one spot for hours (overnight) and want the most iron from a compact build (vjeux 04:26:
 # "stack multiple modules next to each other and increase efficiency while keeping it small").
+#
+# Hard limits are only real facts about the player or the game (iteration 4, vjeux 12:18). The
+# number of modules is the player's choice: the three objectives trade it, and every member
+# prints its curve over N (iron per hour per block and the volume per module at N = 1, 2, 4, 8,
+# 16).
 
 farm: iron
 stage: late
 
-# Every number is the whole build at N = 8 modules; the curve at N = 1, 2, 4 (and 16 when it
-# fits) is printed with each member.
 # 1. Net iron per hour over 8 h AFK: from the running farm, the weather cycle and natural
 #    spawning on Hard included; a break stops it for the rest of the 8 h; iron the storage
 #    cannot hold is lost. Player: "what one night AFK brings".
@@ -21,23 +24,21 @@ objective: max iron_per_hour
 #    and the per-block best is listed beside the front when it falls off it.
 objective: min build_minutes
 # 3. The bounding box's volume per module. Player: "the room it takes beside the other farms
-#    around the AFK spot".
+#    around the AFK spot"; it falls as modules share parts (vjeux 04:26: "keeping it small").
 objective: min volume_per_module
 
-constraint: modules in 8..8
-# stacking must pay (vjeux 04:26): iron per hour per block at N = 8 at least 5% above the module
-# alone, and the volume per module at N = 8 at least 5% below it; copies at a no-coupling pitch
-# are the bar, printed beside the front
-constraint: per_block_gain >= 1.05
-constraint: volume_gain >= 1.05
-# every module ticks from one AFK spot (simulation distance 10, DistanceManager)
+# real: entities tick only within the simulation distance of a player (DistanceManager, a
+# dedicated server's default 10), so every module runs from the one spot the player AFKs at
 constraint: afk_spots <= 1
-# the collection holds the night: 8 h of the whole farm's output (iron packed into blocks by the
-# catalog's crafter, or chests; poppies composted or destroyed). A part-level limit (vjeux 11:23:
-# parts searched on their own): a collection that fills sooner only loses iron over the night.
-constraint: storage_hours >= 8
+# real (no line needed: the grammar never builds past it): the world's build height, y -64..319
 
-space: placement void
+# Search boundary, not a player limit: N up to 16 modules; past the sharing's period each added
+# module repeats the last one's numbers, so a larger N is the same farm with more copies of its
+# stacked unit (the curve is printed). Copies at a no-coupling pitch (no shared part) are the bar,
+# printed beside the front: a member that does not beat it on volume per module or iron per hour
+# per build minute is reported as no gain from stacking. Placement: built in the open (the void:
+# every wall placed) or dug into flat ground (the plains sample) where the grammar has it;
+# neither is forbidden.
 
 merge: 10%
 

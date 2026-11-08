@@ -28,12 +28,15 @@ objective: min t_kit_minutes
 #    running for days after the kit: tools, a shield, buckets, hoppers, rails, an anvil".
 objective: max iron_per_hour
 
+# real: the day-1 player has no Nether (no quartz, so no comparator, observer or daylight
+# detector) and no slime
 constraint: materials <= day-1
-# what the village-edge sample's village has (8 villagers asleep in their beds)
+# real: the village-edge sample's village has 8 villagers (asleep in their 8 beds); at least 3
+# make a cluster, so this also allows at most 2 clusters (no separate module limit)
 constraint: villagers <= 8
-constraint: modules in 1..2
 
-# real terrain (vjeux 04:22): village-edge.mcterrain, natural rock as walls where it helps
+# real (vjeux 04:22): a day-1 farm stands in real terrain by the village it takes its villagers
+# from: village-edge.mcterrain, natural rock as walls where it helps
 space: placement dug
 
 # none: no redstone dust (the bed plate drives the hide); dust: the player has dived for

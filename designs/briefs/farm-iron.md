@@ -315,23 +315,29 @@ says what beats it.
 ### Middle
 
 The player has a base, iron gear and the Nether (quartz, redstone, magma, slime), villagers from a
-village or a small breeder; no End. They build it in an evening, near the base.
+village or a small breeder; no End.
 
-Hard limits:
-- **Nether-tier items**: nothing from the End (no shulker box, no end rod).
-- **More than one module** (vjeux 10:48: "middle one should have more than one module"): 2 to 4
-  villager clusters that **share at least one part** (the zombie, the calm, the drop, the kill or
-  the collection). Copies at the no-coupling pitch are the bar, printed beside the front, never a
-  member.
-- **An evening's build**: at most 120 build minutes. A bigger build is the late farm's job.
-- Built in the open (the void: every wall is placed).
+Hard limits (each a real fact, iteration 4: vjeux 12:18, "You just invented the two hours build
+limit. This is not a real restriction"):
+- **Nether-tier items**: nothing from the End (no shulker box, no end rod): what the player has.
+- **More than one module** (vjeux 10:48: "middle one should have more than one module"), with no
+  maximum: how many is the player's choice, traded by the objectives.
+- **One AFK spot**: entities tick only within a player's simulation distance (`DistanceManager`),
+  so every module runs from where the player stands.
+
+Not limits (iteration 4 took them out): the build's size (build minutes is an objective: the front
+shows what each extra hour buys), a maximum module count, a shared part (copies at the no-coupling
+pitch are the bar, printed beside the front; a member that shares nothing says so), the placement
+(built in the open, or dug into flat ground where the grammar has it). The search tiles N up to 16:
+a search boundary, not a player limit, since past the sharing's period each added module repeats
+the last one's numbers.
 
 Objectives:
 
 | objective | the player's reason |
 |---|---|
 | **max net iron per hour** (W = one game day) | a steady supply: hoppers for the other farms, rails, anvils, a beacon's blocks (a full pyramid is 164 iron blocks) |
-| **min build minutes** | an evening, not a week |
+| **min build minutes** | the time it takes to build |
 
 Why these two. Revision 8 ranked the middle by iron per hour among builds of at most an hour, and
 the first cut of revision 9's task by iron per hour per block: a ratio that ranks a farm without
@@ -345,7 +351,7 @@ between; a fork is kept only for what the player cannot trade on the spot (day 1
 
 Parts: one calm trigger may serve every module (every cluster rests at the same day time), its
 pulse a catalog part with the stage's materials; the kill chamber, the drop and the collection
-are shared wherever the search finds it pays (at least one shared part is a hard limit).
+are shared wherever the search finds it pays.
 
 Shown on the card, in this order (the stage's default rows): the iron per hour and the build
 minutes; the rain and thunder day rates (a middle farm runs through the weather); the quartz and
@@ -354,7 +360,7 @@ long the storage lasts. No time to a kit and no iron up front: a middle player h
 Measured and kept under all measurements: iron per hour per block, the share of the ceiling, the
 lava trips, the exposures, the poppies, hoppers per 1000 iron per hour.
 
-Seeds (one module each but M4; the space builds their 2-4 module versions with shared parts):
+Seeds (one module each but M4; the space builds their multi-module versions, sharing parts or not):
 
 | # | the calm moment | module | iron | estimate | blocks |
 |---|---|---|---|---|---|
@@ -366,48 +372,51 @@ Seeds (one module each but M4; the space builds their 2-4 module versions with s
 
 **Pick: the search.** Revision 8's pick, M2-open (one module, 439 iron/h, a 33-minute build), is
 out of the stage now: one module, and its 48 gt hide is 12 hand-placed repeaters where the catalog
-has smaller parts. Its 2-4 module versions with shared parts and a catalog pulse are seeds.
+has smaller parts. Its multi-module versions with a catalog pulse are seeds.
 
 ### Late
 
 The player has everything, End included; villagers come from breeding. The challenge (vjeux,
 04:26): stack modules next to each other and gain efficiency while keeping the build small. Copies
-at a pitch where they never interact gain nothing: that is the bar, not a candidate.
+at a pitch where they never interact gain nothing: they are the bar, printed beside the front.
 
-Hard limits:
+Hard limits (each a real fact, iteration 4):
 - **Any survival item.**
 - **The whole build runs from one AFK spot**: entities tick only in chunks within the simulation
   distance of a player (`DistanceManager`: the player ticket at level `ENTITY_TICKING -
   simulationDistance`). A dedicated server defaults to 10 (`simulation-distance`). (This is what
   "works as its card says" means for a farm of N modules.)
-- **Compared at N = 8 modules**; every member prints its curve at N = 1, 2, 4 and 8 (and 16 when
-  it fits).
-- **Stacking must pay** (vjeux 04:26): iron per hour per block at N = 8 at least 5% above the
-  module alone (N = 1), and the volume per module at N = 8 at least 5% below it. Copies at the
-  no-coupling pitch are the bar, printed beside the front, never a member.
+- **The world's build height**, y -64..319, for a stack.
 
-Objectives (the whole build at N = 8):
+Not limits (iteration 4 took them out): a fixed module count (revisions 6-9 compared at N = 8:
+the number of modules is the player's choice, traded by the objectives; every member prints its
+curve at N = 1, 2, 4, 8 and 16), a minimum gain from stacking (the copies bar beside the front
+shows it: a member that does not beat the bar on volume per module or iron per hour per build
+minute is reported as gaining nothing from stacking), 8 h of storage (the 8-h net rate already
+loses what overflows). The search tiles N up to 16: a search boundary, not a player limit, since
+past the sharing's period each added module repeats the last one's numbers.
+
+Objectives (the whole build, at its own N):
 
 | objective | the player's reason |
 |---|---|
 | **max net iron per hour** (W = 8 h: a break stops it for the rest of the night; iron the storage cannot hold is lost) | what one night AFK brings |
-| **min build minutes** | the effort: 24-40 villagers moved, the lava trips, the blocks |
-| **min volume per module** | the room it takes around the AFK spot, beside the other farms; height is not free (the 15:01 miss: footprint metrics rewarded it) |
+| **min build minutes** | the effort: the villagers moved, the lava trips, the blocks |
+| **min volume per module** | the room it takes around the AFK spot, beside the other farms; height is not free (the 15:01 miss: footprint metrics rewarded it); it falls as modules share parts |
 
-Why not iron per hour per block alone (revisions 6-8): at a fixed N it ranks a 150-block module at
-70% of the ceiling over a 400-block module at 92%, although the second brings about 30% more iron
-every night for a one-time hour of building, and a late farm runs for many nights. The three axes
-keep both, iron per hour per block is printed on every member, and the 5% gains keep the stacking
-honest. Robustness weighs heavily here through W: a farm that stalls in rain, loses a villager to
-lightning or fills its chests at hour 3 collects that much less over the night.
+Why not iron per hour per block alone (revisions 6-8): it ranks a 150-block module at 70% of the
+ceiling over a 400-block module at 92%, although the second brings about 30% more iron every night
+for a one-time hour of building, and a late farm runs for many nights. The three axes keep both,
+and iron per hour per block is printed on every member. Robustness weighs heavily here through W:
+a farm that stalls in rain, loses a villager to lightning or fills its chests at hour 3 collects
+that much less over the night.
 
 Forks: none (the tiling, the storage, the kill and the villagers per cluster are on the front).
 
-Parts: the collection holds 8 h of the whole farm's output (iron packed into blocks by the
-catalog's crafter, or chests; the poppies composted or destroyed): a limit, not only a cost, since
-a collection that fills sooner only loses iron over the night, so the search drops it at the part
-level. The kill chamber, the collection, the zombie and the calm trigger are shared between
-modules wherever the search finds it pays.
+Parts: the collection's hours and hoppers are part metrics (iron packed into blocks by the
+catalog's crafter, or chests; the poppies composted or destroyed); a collection that fills before
+the night ends loses iron in the net rate. The kill chamber, the collection, the zombie and the
+calm trigger are shared between modules wherever the search finds it pays.
 
 Shown on the card, in this order (the stage's default rows): the iron per hour and what a night
 AFK brings; the hours it runs AFK before its storage fills (iron packed into blocks by a crafter,
@@ -1036,3 +1045,4 @@ the spec was, what came back (the front's size before and after merging), what c
 | 1b | the same objectives and constraints | G1 APPROVE (8146b8db, f1a42990) | After the approval: late.spec's comment corrected (the reviewer's note: the best iron/h per build minute is on the front, the per-block best is listed beside it when it falls off); the merge written as greedy around the best (no twins on either side of a fixed box's edge; still no chaining); a gap over 10% is printed with its cause and worked on in the next iteration instead of holding the presented set (vjeux 10:59: "I want your process to be autonomous"); the card adapts to the stage and the farm (vjeux 11:17): each stage's shown facts, in order, as default rows (the page-copy lane's format, staged in designs/farms/iron/cards.tsv until the site reads them), lava trips and iron up front only where the player cares (day 1); the day-1 hide pulse's window is L >= 20 gt with no hard upper bound (answered to the pulse lane: the zombie's ray is cast only by the hostile sensor, once per 20 gt list); the re-check (8146b8db, the parent's rule): a pick replaces the live page when it passes the game gate and beats the live farm (more than 10% better on one objective, not more than 10% worse on any), the search keeps closing any gap, a gap is never printed on a page, nothing waits on vjeux; parts searched on their own (vjeux 11:23), the late collection holding the night |
 | 2 | Day 1's T measured: from the first block at dawn of day 1 until the chest holds bill + 24 iron; the farm stands complete after the build minutes (day time 1200 x minutes), the villagers arrive willing (their village's `LAST_SLEPT`), the zombie parked in its boat; the judge's terrain run, mean over seeds | D1U's first full terrain day (the day-1 lane, seed 3): 13 golems, 50 iron, against about 84 at D4's steady 252 iron/h; D1U in terrain 153 iron/h (32%): golems by day only, the sleeping villagers' ray to the zombie runs through the natural rock floor (air in the void), so they never wake scared at night | T = build + (bill + 24) / rate assumed the steady rate from the last block on; the start-up (willing villagers, the first calm, when in the day the build ends) is real for a fresh player and is what T is for. Objective 2 stays the steady rate. The T run performs every hand step the card prints (the first-night hide at the first REST start, at least 20 gt: G1, 8146b8db), so a golem-triggered calm cannot leave a seed's T infinite. The day-1 lane prints build minutes flat, villagers left and hostile break days ("never", or the channels that reach a villager, the zombie or its boat: no invented rate) |
 | 3 | Build minutes place, dig and GET every item at the stage's prices (designs/farms/prices.tsv, seconds per item per stage, each row argued from its recipe and the stage's tools): day 1 glass 7 s (sand, fuel, half of a furnace's 10 s: 2 furnaces), an iron ingot 30 s (caving with a stone pickaxe), a hopper 154 s, the tools the build needs once (bucket 90 s), filler 1 s and free for every dug block, the zombie 180 s; middle (iron tools, 8 furnaces, the Nether, a day-1 farm's iron) and late (farms for everything) cheaper; lava 120 / 60 / 30 s and villagers 180 / 180 / 60 s by stage. Day 1's T stops at 24 iron in the chest (the build's iron is mined in the build minutes) | vjeux 12:01 on d1-bed-plate: "this amount of glass is def not accessible day 1" (98 glass; D1U uses 5) | Placing 2 s "gathering included" priced a glass block like a dirt block and an iron ingot not at all; at day-1 prices d1-bed-plate's 98 glass alone add about 11 minutes. The terrain pricing caps stray spawn cells with the cheapest block at the stage's prices (a torch or button on top stops the golem's scan as glass does) |
+| 4 | Every hard limit is a real fact about the player or the game, one line each in the spec files: day 1 the day-1 materials, the village's 8 villagers, real terrain by the village (vjeux 04:22); middle the Nether-tier materials, more than one module (vjeux 10:48), one AFK spot; late any item, one AFK spot, the world's build height. Out: middle's 120 build minutes, its 4-module maximum and its shared part; late's comparison at exactly 8 modules, its 5% stacking gains and its 8 h of storage; day 1's 1-2 modules (the 8 villagers already allow at most 2 clusters). The copies bar is printed beside the middle and late fronts instead of being a limit; N is searched up to 16 (a search boundary: past the sharing's period each added module repeats the last one's numbers) | vjeux 12:18: "You just invented the two hours build limit. This is not a real restriction"; farmopt's run 1 middle front was cut at exactly 120 minutes (#1: 4 modules, 1716 iron/h at 120 min, under run 1's old effort formula) | A cap the player never chose hides the farms past it; build minutes is already an objective, so the front itself shows what each extra hour buys, and the number of modules is the player's choice. Some of the removed limits were the parent's earlier stage constraints, treated the same |

@@ -2,7 +2,12 @@
 # Argued in designs/briefs/farm-iron.md, Stages: Middle (revision 9). Owner: the stage-spec session.
 #
 # The player: a base, iron gear, the Nether (quartz, redstone, magma, slime); villagers from a
-# village or a small breeder. No End. They build it in an evening, near the base.
+# village or a small breeder. No End.
+#
+# Hard limits are only real facts about the player or the game (iteration 4, vjeux 12:18: "You
+# just invented the two hours build limit. This is not a real restriction"). How big a build the
+# player takes on is theirs to choose: build minutes is an objective, so the front shows what
+# each extra hour of building buys.
 
 farm: iron
 stage: middle
@@ -14,19 +19,22 @@ stage: middle
 objective: max iron_per_hour
 # 2. The build in minutes: placing, digging and getting every item at MIDDLE prices
 #    (designs/farms/prices.tsv: iron tools, 8 furnaces, the Nether, a day-1 farm's iron; a lava
-#    trip 60 s, a villager moved 180 s). Player: "an evening, not a week".
+#    trip 60 s, a villager moved 180 s). Player: "the time it takes to build".
 objective: min build_minutes
 
+# real: the middle player has the Nether but not the End (no shulker box, no end rod)
 constraint: materials <= nether
-# vjeux 10:48: "middle one should have more than one module"
-constraint: modules in 2..4
-# the modules share at least one part (the zombie, the calm, the drop, the kill or the
-# collection); copies at a no-coupling pitch are the bar, printed beside the front
-constraint: shared_parts >= 1
-# an evening's build; anything bigger is the late farm's job
-constraint: build_minutes <= 120
+# vjeux 10:48, the owner's word: "middle one should have more than one module"; no maximum
+constraint: modules >= 2
+# real: entities tick only within the simulation distance of a player (DistanceManager), so
+# every module runs from the one spot the player stands at
+constraint: afk_spots <= 1
 
-space: placement void
+# Search boundary, not a player limit: N up to 16 modules; past the sharing's period each added
+# module repeats the last one's numbers, so a larger N is the same farm with more copies of its
+# stacked unit (the curve is printed). Placement: built in the open (the void: every wall placed)
+# or dug into flat ground (the plains sample) where the grammar has it; neither is forbidden.
+# Copies at a no-coupling pitch (no shared part) are the bar, printed beside the front.
 
 merge: 10%
 
