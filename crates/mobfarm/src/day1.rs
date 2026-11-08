@@ -198,7 +198,7 @@ pub fn d4_two_scared(n: i32) -> String {
 }
 
 /// Day 1, candidate D1U: D4's mechanism dug into the ground (brief revision 8: day 1 in terrain).
-/// The villagers stand 6 below the ground layer (design y 6), so the golem search of a scared
+/// The villagers stand 8 below the ground layer (design y 8), so the golem search of a scared
 /// villager (y + 5 down to y - 7) never meets a natural surface; natural rock is every wall,
 /// floor and roof, so the design lists only the cells it digs (`air`) and the blocks it places
 /// (beds, trapdoors, the plate, the zombie's slab, the pad's floor and gates, water, lava, signs,
@@ -227,6 +227,8 @@ pub fn d1u(n: i32) -> String {
     // the zombie (D1's) and the hide facing west (D4's)
     b.set(2, 0, -7, "stone_slab[type=bottom,waterlogged=false]");
     b.set(2, 1, -7, air);
+    // (the zombie's eye box reaches z -7.04: the cell north of it dug too, or it suffocates)
+    b.set(2, 1, -8, air);
     b.entity("oak_boat", [2.5, 0.5, -6.8], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
     b.set(2, 1, -6, "oak_trapdoor[facing=west,half=top,open=false,powered=false,waterlogged=false]");
     // U1: the plate on stone by the hide, its bed east of it, the cells it stands in
@@ -282,8 +284,8 @@ pub fn d1u(n: i32) -> String {
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     b.d.meta.insert("restart".into(), "yes".into());
     b.d.meta.insert("terrain".into(), "cells".into());
-    b.d.meta.insert("ground".into(), "6".into());
-    b.d.meta.insert("afk".into(), "2.5 7 4.5".into());
+    b.d.meta.insert("ground".into(), "8".into());
+    b.d.meta.insert("afk".into(), "2.5 9 4.5".into());
     b.text(&["Day 1 (candidate D1U): D4 dug into the ground, natural rock for every wall: the bed plate hides the zombie", "from two scared villagers 6 below the surface; golems fall from the pad into a pit and burn under one lava source."])
 }
 

@@ -164,6 +164,71 @@ pub fn site_of(c: &Circuit, spec: &FarmSpec, sample: &str) -> std::result::Resul
     redsim::entity::mob::site::Site::new(s, spec, ground, afk, clear_box)
 }
 
+/// The farm the terrain track's worst-case checks read (`hostile::Farm`), from a spec already
+/// built into `w`: its blocks and beds, its villagers' standing and sleeping boxes and eyes, its
+/// zombie and vehicle, the golem spawn cells its villagers' search finds inside its box, and the
+/// interior (the cells those occupy, the golem cells and the two above them).
+pub fn hostile_farm(w: &redsim::World, spec: &FarmSpec, afk: redsim::entity::Vec3) -> redsim::entity::mob::hostile::Farm {
+    use redsim::entity::{Aabb, Vec3};
+    let mut farm = redsim::entity::mob::hostile::Farm { afk, ..Default::default() };
+    for (q, _) in &spec.blocks {
+        farm.blocks.push(*q);
+        if let Block::Bed { head: true, .. } = w.get(*q) {
+            farm.beds.push(*q);
+        }
+    }
+    for (kind, p, nbt) in &spec.entities {
+        let (x, y, z) = (p[0], p[1], p[2]);
+        let kind = kind.trim_start_matches("minecraft:");
+        if kind == "villager" {
+            farm.villagers.push(Aabb::new(x - 0.3, y, z - 0.3, x + 0.3, y + 1.95, z + 0.3));
+            farm.villagers.push(Aabb::new(x - 0.1, y, z - 0.1, x + 0.1, y + 0.2, z + 0.1));
+            farm.villager_eyes.push(Vec3::new(x, y + 1.62, z));
+            farm.villager_eyes.push(Vec3::new(x, y + 0.2, z));
+        } else if kind.ends_with("_boat") || kind.ends_with("_raft") || kind.contains("minecart") {
+            farm.zombie.push(Aabb::new(x - 0.6875, y, z - 0.6875, x + 0.6875, y + 0.5625, z + 0.6875));
+            if nbt.as_deref().is_some_and(|n| n.contains("zombie")) {
+                farm.zombie.push(Aabb::new(x - 0.3, y + 0.2, z - 0.3, x + 0.3, y + 2.15, z + 0.3));
+            }
+        } else if kind == "zombie" {
+            farm.zombie.push(Aabb::new(x - 0.3, y, z - 0.3, x + 0.3, y + 1.95, z + 0.3));
+        }
+    }
+    let starts: Vec<BlockPos> = farm.villagers.iter().step_by(2).map(|v| BlockPos::new(v.center().x.floor() as i32, v.min_y.floor() as i32, v.center().z.floor() as i32)).collect();
+    for s in starts {
+        for dz in -8..=8 {
+            for dx in -8..=8 {
+                if let Some(c) = redsim::entity::mob::spawn::possible_spawn_position(w, s.offset(dx, 6, dz), 6)
+                    && (spec.lo.x..=spec.hi.x).contains(&c.x)
+                    && (spec.lo.z..=spec.hi.z).contains(&c.z)
+                    && !farm.golem_cells.contains(&c)
+                {
+                    farm.golem_cells.push(c);
+                }
+            }
+        }
+    }
+    let mut interior: Vec<BlockPos> = Vec::new();
+    for b in farm.villagers.iter().chain(farm.zombie.iter()) {
+        for y in b.min_y.floor() as i32..=(b.max_y - 1.0e-6).floor() as i32 {
+            for z in b.min_z.floor() as i32..=(b.max_z - 1.0e-6).floor() as i32 {
+                for x in b.min_x.floor() as i32..=(b.max_x - 1.0e-6).floor() as i32 {
+                    interior.push(BlockPos::new(x, y, z));
+                }
+            }
+        }
+    }
+    for c in &farm.golem_cells {
+        for dy in 0..3 {
+            interior.push(c.offset(0, dy, 0));
+        }
+    }
+    interior.sort_by_key(|p| (p.x, p.y, p.z));
+    interior.dedup();
+    farm.interior = interior;
+    farm
+}
+
 /// The redsim farm of a (turned, moved) design: its blocks, entities, output chest and box.
 pub fn spec_of(c: &Circuit) -> std::result::Result<FarmSpec, String> {
     let d = &c.clock.design;

@@ -126,12 +126,13 @@ fn row(v: &Value, aliases: &[String]) -> String {
         num(v, "ignite_odds"),
         num(v, "resistance"),
         v["support"].as_str().unwrap_or("111111").into(),
+        b(v, "ignited_by_lava").into(),
     ];
     fields.join("\t")
 }
 
 /// The table's columns (its header line).
-pub const COLUMNS: &str = "name\taliases\tclasses\treactive\tcollision\tcan_occlude\tshape_occlusion\tfaces\tdampening\temission\tskylight_down\tsolid\tsolid_render\tconductor\tfull_collision\tsturdy\tsignal\tair\tliquid\treplaceable\tsuffocating\tpath\tfluid\tfluid_amount\tfluid_source\ttags\tleaves_block\trandom_ticking\tfriction\tspeed_factor\tjump_factor\tpush\tblock_entity\theightmaps\tvalid_spawn\tdangerous\tburn_odds\tignite_odds\tresistance\tsupport";
+pub const COLUMNS: &str = "name\taliases\tclasses\treactive\tcollision\tcan_occlude\tshape_occlusion\tfaces\tdampening\temission\tskylight_down\tsolid\tsolid_render\tconductor\tfull_collision\tsturdy\tsignal\tair\tliquid\treplaceable\tsuffocating\tpath\tfluid\tfluid_amount\tfluid_source\ttags\tleaves_block\trandom_ticking\tfriction\tspeed_factor\tjump_factor\tpush\tblock_entity\theightmaps\tvalid_spawn\tdangerous\tburn_odds\tignite_odds\tresistance\tsupport\tignited_by_lava";
 
 /// Build the table text from the files' palettes (and `extra` states).
 pub fn table(version: &str, files: &[std::path::PathBuf], extra: &[String]) -> Result<String> {

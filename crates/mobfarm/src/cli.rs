@@ -81,6 +81,14 @@ pub enum MobfarmCmd {
     /// cube at the largest follow range (16 x 1.11485), with the smallest margin (negative:
     /// a foreign villager lists that golem).
     Cubes { design: PathBuf },
+    /// The farm built into a terrain sample, then the terrain track's worst-case checks for
+    /// natural mobs (`hostile::check`): each channel's exposure (brief revision 8: a card line,
+    /// never a refusal).
+    Exposures {
+        design: PathBuf,
+        #[arg(long, default_value = "village-edge")]
+        terrain: String,
+    },
     /// One judge run of a design on redsim: its table.
     Run {
         design: PathBuf,
@@ -179,7 +187,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let spec = match &terrain {
                 Some(name) => {
                     let site: &'static redsim::entity::mob::site::Site = Box::leak(Box::new(circuit::mobfarm::site_of(&c, &spec, name).map_err(|e| anyhow::anyhow!(e))?));
-                    println!("terrain {}: offset {:?}, {} blocks placed, {} dug, AFK at {:.1} {:.1} {:.1}", site.sample, site.offset, site.placed, site.dug, site.afk.x, site.afk.y, site.afk.z);
+                    println!("terrain {}: offset {:?}, {} blocks placed + {} filled, {} dug, AFK at {:.1} {:.1} {:.1}; the cheapest of {} spots (block time {:.0}-{:.0} s)", site.sample, site.offset, site.placed, site.fills.len(), site.dug, site.afk.x, site.afk.y, site.afk.z, site.spots, site.build_range.0, site.build_range.1);
                     o.site = Some(site);
                     site.spec(&spec)
                 }
@@ -228,6 +236,23 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         }
         MobfarmCmd::Sight { design } => sight_cmd(version, &design)?,
         MobfarmCmd::Cubes { design } => cubes_cmd(version, &design)?,
+        MobfarmCmd::Exposures { design, terrain } => {
+            let (c, spec) = load(version, &design)?;
+            let site = circuit::mobfarm::site_of(&c, &spec, &terrain).map_err(|e| anyhow::anyhow!(e))?;
+            let moved = site.spec(&spec);
+            let mut w = site.world_for(&moved);
+            w.place_raw(&moved.blocks);
+            w.settle_light();
+            let farm = circuit::mobfarm::hostile_farm(&w, &moved, site.afk);
+            let ex = redsim::entity::mob::hostile::check(&w, &farm, true);
+            println!("{} in {} at offset {:?}: {} placed + {} filled, {} dug (the cheapest of {} spots, block time {:.0}-{:.0} s); {} golem cells, {} interior cells", design.display(), site.sample, site.offset, site.placed, site.fills.len(), site.dug, site.spots, site.build_range.0, site.build_range.1, farm.golem_cells.len(), farm.interior.len());
+            if ex.is_empty() {
+                println!("no exposure");
+            }
+            for e in ex {
+                println!("{}", e.line());
+            }
+        }
     }
     Ok(())
 }
