@@ -1042,16 +1042,18 @@ fn ageable(w: &mut World, g: &mut GroupData, should: bool, chance: f32) -> bool 
     baby
 }
 
-/// `Mob.populateDefaultEquipmentSlots`' armor: the pieces it gives, a prefix of head, chest, legs,
-/// feet (`EQUIPMENT_POPULATION_ORDER`).
-fn mob_armor(w: &mut World, special: f32, hard: bool) -> usize {
+/// `Mob.populateDefaultEquipmentSlots`' armor: (the pieces it gives — a prefix of head, chest,
+/// legs, feet (`EQUIPMENT_POPULATION_ORDER`) — and their material: `getEquipmentForSlot`'s type).
+fn mob_armor(w: &mut World, special: f32, hard: bool) -> (usize, u8) {
     let r = rng(w);
     if r.next_float() >= 0.15 * special {
-        return 0;
+        return (0, 0);
     }
-    r.next_int(3);
+    let mut material = r.next_int(3);
     for _ in 0..3 {
-        r.next_float();
+        if r.next_float() < 0.1087 {
+            material += 1;
+        }
     }
     let partial = if hard { 0.1 } else { 0.25 };
     let mut n = 0;
@@ -1061,26 +1063,28 @@ fn mob_armor(w: &mut World, special: f32, hard: bool) -> usize {
         }
         n += 1;
     }
-    n
+    (n, material as u8)
 }
 
 /// `Mob.populateDefaultEquipmentEnchantments`: the weapon (0.25), then each armor piece (0.5) in
-/// `EquipmentSlot.VALUES` order (feet, legs, chest, head), times the special multiplier; an
-/// enchantment's own draws (`EnchantmentHelper.enchantItemFromProvider`) are a model error.
-fn enchant_draws(w: &mut World, special: f32, weapon: bool, armor: usize, who: &str) {
-    if weapon && rng(w).next_float() < 0.25 * special {
-        model_error(w, format!("natural spawning: a {who}'s weapon enchantment at spawn (EnchantmentHelper) is not modeled draw for draw"));
+/// `EquipmentSlot.VALUES` order (feet, legs, chest, head), times the special multiplier, each
+/// enchanted by `MOB_SPAWN_EQUIPMENT` (`enchant::mob_spawn_equipment`, its draws in order).
+fn enchant_draws(w: &mut World, special: f32, weapon: Option<super::enchant::Item>, armor: (usize, u8)) {
+    if let Some(item) = weapon
+        && rng(w).next_float() < 0.25 * special
+    {
+        super::enchant::mob_spawn_equipment(rng(w), item, special);
     }
-    for slot in (0..4).rev() {
-        if slot < armor && rng(w).next_float() < 0.5 * special {
-            model_error(w, format!("natural spawning: a {who}'s armor enchantment at spawn (EnchantmentHelper) is not modeled draw for draw"));
+    for slot in (0..4u8).rev() {
+        if (slot as usize) < armor.0 && rng(w).next_float() < 0.5 * special {
+            super::enchant::mob_spawn_equipment(rng(w), super::enchant::Item::Armor { slot, material: armor.1 }, special);
         }
     }
 }
 
 /// `Zombie.finalizeSpawn` (`drowned`: with `Drowned`'s equipment and its extra rolls); returns
 /// (baby, jockey).
-fn zombie_finalize(w: &mut World, nat: &Natural, g: &mut GroupData, drowned: bool, who: &str, pos: BlockPos) -> (bool, Jockey) {
+fn zombie_finalize(w: &mut World, nat: &Natural, g: &mut GroupData, drowned: bool, pos: BlockPos) -> (bool, Jockey) {
     let special = special_multiplier(w, nat);
     let hard = nat.difficulty == Difficulty::Hard;
     mob_base(w);
@@ -1105,25 +1109,35 @@ fn zombie_finalize(w: &mut World, nat: &Natural, g: &mut GroupData, drowned: boo
         }
     }
     rng(w).next_float(); // setCanBreakDoors
+    use super::enchant::Item;
     let (armor, weapon) = if drowned {
         // Drowned.populateDefaultEquipmentSlots (no armor): a trident (10 in 16) or a rod
-        if rng(w).next_float() > 0.9 { (0, Some(rng(w).next_int(16) < 10)) } else { (0, None) }
+        if rng(w).next_float() > 0.9 {
+            let trident = rng(w).next_int(16) < 10;
+            ((0, 0), Some(if trident { Item::Trident } else { Item::FishingRod }))
+        } else {
+            ((0, 0), None)
+        }
     } else {
         let armor = mob_armor(w, special, hard);
+        // Zombie.populateDefaultEquipmentSlots: an iron sword, spear (1 in 6 each) or shovel
         let weapon = if rng(w).next_float() < if hard { 0.05 } else { 0.01 } {
-            rng(w).next_int(6);
-            Some(false)
+            Some(match rng(w).next_int(6) {
+                0 => Item::IronSword,
+                1 => Item::IronSpear,
+                _ => Item::IronShovel,
+            })
         } else {
             None
         };
         (armor, weapon)
     };
-    enchant_draws(w, special, weapon.is_some(), armor, who);
+    enchant_draws(w, special, weapon, armor);
     // SpecialDates.isHalloween: the server's date is outside it (no draw); handleAttributes draws
     // from the zombie's own random
     if drowned {
         rng(w).next_float(); // the nautilus shell (0.03)
-        if weapon == Some(true) && rng(w).next_float() < 0.5 && !baby {
+        if weapon == Some(Item::Trident) && rng(w).next_float() < 0.5 && !baby {
             // ... && !level.getBiome(pos).is(MORE_FREQUENT_DROWNED_SPAWNS) (rivers: no jockey)
             let frequent = biome_name(w, pos).and_then(|b| biome::biome(&b)).is_some_and(|b| b.has_tag("minecraft:more_frequent_drowned_spawns"));
             if !frequent {
@@ -1135,12 +1149,12 @@ fn zombie_finalize(w: &mut World, nat: &Natural, g: &mut GroupData, drowned: boo
 }
 
 /// `AbstractSkeleton.finalizeSpawn`.
-fn skeleton_finalize(w: &mut World, nat: &Natural, who: &str) {
+fn skeleton_finalize(w: &mut World, nat: &Natural) {
     let special = special_multiplier(w, nat);
     let hard = nat.difficulty == Difficulty::Hard;
     mob_base(w);
     let armor = mob_armor(w, special, hard);
-    enchant_draws(w, special, true, armor, who); // the bow
+    enchant_draws(w, special, Some(super::enchant::Item::Bow), armor);
     rng(w).next_float(); // setCanPickUpLoot
 }
 
@@ -1168,14 +1182,14 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
         Finalize::Mob | Finalize::Cod => mob_base(w),
         Finalize::Salmon => mob_base(w),
         Finalize::Zombie | Finalize::Drowned => {
-            (baby, jockey) = zombie_finalize(w, nat, g, k.finalize == Finalize::Drowned, k.id, pos);
+            (baby, jockey) = zombie_finalize(w, nat, g, k.finalize == Finalize::Drowned, pos);
         }
-        Finalize::Skeleton => skeleton_finalize(w, nat, k.id),
+        Finalize::Skeleton => skeleton_finalize(w, nat),
         Finalize::Spider => {
             mob_base(w);
             if rng(w).next_int(100) == 0 {
                 // the skeleton rider: constructed, its finalizeSpawn (NATURAL, no group data)
-                skeleton_finalize(w, nat, "minecraft:skeleton");
+                skeleton_finalize(w, nat);
                 jockey = Jockey::SpiderSkeleton;
             }
             if !g.spider {
@@ -1258,7 +1272,7 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
             // the zombie rider: constructed, its finalizeSpawn (NATURAL, no group data); a baby's
             // chicken would be left behind when it mounts the horse
             let mut zg = GroupData::default();
-            let (zbaby, zj) = zombie_finalize(w, nat, &mut zg, false, "minecraft:zombie", pos);
+            let (zbaby, zj) = zombie_finalize(w, nat, &mut zg, false, pos);
             if zj != Jockey::None {
                 model_error(w, "natural spawning: a zombie horse rider's chicken jockey is not modeled".into());
             }

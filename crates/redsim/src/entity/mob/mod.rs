@@ -19,6 +19,7 @@
 
 pub mod absence;
 pub mod blocks;
+pub mod enchant;
 pub mod exit;
 pub mod farm;
 pub mod hostile;
