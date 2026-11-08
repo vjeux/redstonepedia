@@ -295,7 +295,15 @@ pole, the doors', circuits' and archived clocks' after the circuits' pass and ea
 the member (`warm_stills`; the still-frame pass after the clocks 25 s → 1 s), and a comparator's
 extras are compared as its strength (`wave::comparator_read`, `wave::reads_extras`): cold **90 s**
 (members 80 s, its long member's base run, exterior scan and candidates' runs ~25 s each; the
-circuits 52 s beside them, their slowest a memory 40 s and fa-slice-54b 38 s), the same site.
+circuits 52 s beside them, their slowest a memory 40 s and fa-slice-54b 38 s), the same site. Then
+`simulate`'s period record and `exterior_scan` read only the cells that change: the world's write
+log (`World::log_writes`) names the cells a write changed, the comparators' and containers' are read
+at every tick (their extras change with no write), a candidate's power is read again only when a
+cell within `SIGNAL_REACH` of it changes, and every cell and candidate is read at the first tick, at
+W, at the last and every `TRACK_CHECK` ticks (a change neither named sends the run back to reading
+everything at every tick; none in the archive or the site build). The long member: 80 s → 37 s
+(its base run 25 s → 14 s, its exterior scan 23 s → 7 s); cold **62 s**, now the circuits' pass
+(50 s) after which the build writes for 8 s; `clock sim` of the whole clock archive 30 s.
 
 ### No dead links: every page ever published (`crates/site/src/published.rs`)
 
