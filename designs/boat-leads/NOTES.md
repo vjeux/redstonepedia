@@ -26,13 +26,20 @@ source-derived hypotheses until their actual game evidence says otherwise.
   and assert holder/angular state as well as all pre-existing positions, motions, rotations,
   blocks and random state. Old trace formats remain readable.
 
-Still explicitly unsupported: ordinary mobs and their AI, player-controlled boats,
-quad holders/happy ghasts, unresolved saved UUID restoration, and stochastic dropped-lead
-item motion. Snap/invalid-holder/void removal unlink and fail closed; an explicit `/kill`
-of a leashed entity is refused atomically before that unsupported drop. A remove operation
-on a missing, removed or non-leashable entity is rejected, while a live unlinked boat is
-a valid no-op. These limits are not hidden behind omitted drops, a fake moving holder or
-a zero-velocity approximation.
+The boat-lead calibration remains narrower than the separate Mob layer: **Mob holders and
+boats with passengers at either endpoint are explicitly refused**, not certified by adding a
+new enum arm. Player-controlled boats, quad holders/happy ghasts, unresolved saved UUID
+restoration and stochastic dropped-lead item motion also remain unsupported. Snap,
+invalid-holder/void removal unlink and fail closed; `/kill` of a leashed entity is refused
+atomically before that unsupported drop. A remove operation on a missing, removed or
+non-leashable entity is rejected, while a live unlinked boat is a valid no-op. These limits
+are not hidden behind omitted drops, a fake moving holder or a zero-velocity approximation.
+
+After the Mob registration, a pickup-eligible nearby Mob causes an explicit model error in
+the boat's nearby-entity loop: vanilla would board it, not just push it. Too-wide Mobs and
+full boats retain the source's horizontal-push path, with same-root passengers excluded.
+The eligibility check uses the verified 26.3 entity-type tag, strict width comparison, and
+two-seat/one-seat boat/chest-boat capacities, before the generic push-height test.
 
 ## Measured evidence so far
 

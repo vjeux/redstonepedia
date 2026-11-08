@@ -17,7 +17,34 @@ pub struct LeashData {
     pub angular_momentum: f64,
 }
 
-/// No self-link or unresolved/removed endpoint. Only server-owned boats as leasees.
+/// Keep the calibrated domain closed when new entity kinds become representable.
+fn domain_error(entity: &Entity, holder: &Entity) -> Option<&'static str> {
+    if !matches!(entity.kind, EntityKind::Boat(_)) {
+        Some("leash: only server-owned boats are modeled as leasees")
+    } else if entity.vehicle.is_some() {
+        Some("leash: a riding boat's leash dynamics are not modeled")
+    } else if matches!(holder.kind, EntityKind::Mob(_)) {
+        Some("leash: Mob holders are outside the calibrated boat-lead domain")
+    } else if !entity.passengers.is_empty()
+        || (matches!(holder.kind, EntityKind::Boat(_)) && !holder.passengers.is_empty())
+    {
+        Some("leash: boats with passengers are outside the calibrated boat-lead domain")
+    } else {
+        None
+    }
+}
+
+/// `Entity.canInteractWithLevel`: every represented kind is nonspectating. A Mob's dying
+/// body remains present for 20 gt, but `LivingEntity.isAlive` already rejects health <= 0.
+fn can_interact(entity: &Entity) -> bool {
+    !entity.removed && match &entity.kind {
+        EntityKind::Mob(m) => m.health > 0.0,
+        EntityKind::Boat(_) | EntityKind::Minecart(_) | EntityKind::Item(_)
+        | EntityKind::ArmorStand(_) | EntityKind::PrimedTnt(_) => true,
+    }
+}
+
+/// No self-link or unresolved/removed endpoint. Only unoccupied server-owned boats as leasees.
 /// Higher-level survival transfer eligibility is separate from this physics fixture API.
 /// Changing holder preserves angular momentum; cycles are legal, as in the game.
 pub fn attach(w: &mut World, entity: u32, holder: u32) -> Result<(), String> {
@@ -34,6 +61,9 @@ pub fn attach(w: &mut World, entity: u32, holder: u32) -> Result<(), String> {
     }
     if w.entities.list[i].vehicle.is_some() {
         return Err("leash: attaching a riding boat would dismount it (not modeled)".into());
+    }
+    if let Some(why) = domain_error(&w.entities.list[i], &w.entities.list[j]) {
+        return Err(why.into());
     }
     let angular_momentum = w.entities.list[i].leash.map_or(0.0, |l| l.angular_momentum);
     w.entities.list[i].leash = Some(LeashData { holder, angular_momentum });
@@ -54,12 +84,15 @@ fn center_distance(entity: &Entity, holder: &Entity) -> f64 {
     entity.bb.center().distance_to_sqr(holder.bb.center()).sqrt()
 }
 
-/// All current kinds have no Player controller or NoAI Mob branch. An added kind must
-/// explicitly implement Entity.getKnownMovement / Leashable.getHolderMovement here.
+/// `getKnownMovement` for the represented ordinary kinds. The Mob arm is explicit for enum
+/// integration, not a Mob/leash certification: domain_error rejects Mob holders and boats with
+/// passengers before spring evaluation. Enabling them requires separate calibration and NoAI /
+/// controller handling, not a zero-motion fallback.
 fn known_movement(e: &Entity) -> Vec3 {
     match e.kind {
         EntityKind::Boat(_) | EntityKind::Minecart(_) | EntityKind::Item(_)
         | EntityKind::ArmorStand(_) | EntityKind::PrimedTnt(_) => e.delta_movement,
+        EntityKind::Mob(_) => e.delta_movement,
     }
 }
 
@@ -104,8 +137,12 @@ pub fn tick(w: &mut World, i: usize) {
         drop_lead(w, i);
         return;
     };
-    if w.entities.list[i].removed || w.entities.list[j].removed {
+    if !can_interact(&w.entities.list[i]) || !can_interact(&w.entities.list[j]) {
         drop_lead(w, i);
+        return;
+    }
+    if let Some(why) = domain_error(&w.entities.list[i], &w.entities.list[j]) {
+        w.errors.push(why.into());
         return;
     }
     let e = &w.entities.list[i];

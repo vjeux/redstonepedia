@@ -55,12 +55,32 @@ pub fn generic(w: &mut World, i: usize, j: usize) {
     }
 }
 
+/// The new Mob kinds enter AbstractBoat's automatic-boarding branch before its push-height
+/// test. They are all absent from Java 26.3's `cannot_be_pushed_onto_boats` entity-type tag.
+/// Keep the type match exhaustive: adding a Mob type requires checking that tag again.
+fn pickup_eligible(boat: &super::Entity, other: &super::Entity) -> bool {
+    use super::mob::types::MobType;
+    let EntityKind::Boat(state) = &boat.kind else { return false };
+    let EntityKind::Mob(mob) = &other.kind else { return false };
+    let tag_allows = match mob.ty {
+        MobType::Villager | MobType::Zombie | MobType::IronGolem => true,
+    };
+    let capacity = if state.chest { 1 } else { 2 };
+    // This model is server-owned and has no Player controller. `hasEnoughSpaceFor` is strict.
+    tag_allows && boat.passengers.len() < capacity && other.vehicle.is_none()
+        && other.kind.dims().0 < boat.kind.dims().0
+}
+
 /// AbstractBoat's final nearby-entity loop, in EntitySectionStorage query order.
 pub fn boat_neighbors(w: &mut World, i: usize) {
     let bb = w.entities.list[i].bb.inflate(0.2f32 as f64, -0.01f32 as f64, 0.2f32 as f64);
     let nearby = w.get_entities(bb, minecart::is_pushable);
     for j in nearby {
         if i == j || same_vehicle(w, i, j) {
+            continue;
+        }
+        if pickup_eligible(&w.entities.list[i], &w.entities.list[j]) {
+            w.errors.push("boat: picking up a mob is not modeled".into());
             continue;
         }
         let boat = &w.entities.list[i];
