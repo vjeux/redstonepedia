@@ -568,7 +568,7 @@ pub fn l4() -> String {
 /// 2x2 center has open fence gates at the water level (dry). Water from the pad's corners pushes
 /// each golem off the stone while it is still in water (no step back onto land) and on into the
 /// dry center, where it falls freely down a 4x4 shaft.
-fn dry_hole(b: &mut Builder, n: i32, wl: i32, k: i32) {
+pub(crate) fn dry_hole(b: &mut Builder, n: i32, wl: i32, k: i32) {
     let fl = wl - 1;
     let ring = |x: i32, z: i32| (1..=4).contains(&x) && (3..=6).contains(&z);
     let center = |x: i32, z: i32| (2..=3).contains(&x) && (4..=5).contains(&z);
@@ -621,7 +621,7 @@ fn dry_hole(b: &mut Builder, n: i32, wl: i32, k: i32) {
 /// feet k), so no golem meets a corner: lava at head height held by open fence gates below it and
 /// at its mouth (z 3), a ceiling right above it. The water enters from the shaft's south corners,
 /// so its levels fall toward the middle columns: drops drift to the 2 hoppers under x 2..3.
-fn chamber2(b: &mut Builder, k: i32) {
+pub(crate) fn chamber2(b: &mut Builder, k: i32) {
     for x in 1..=4 {
         for y in k..=k + 3 {
             b.set(x, y, 0, STONE);

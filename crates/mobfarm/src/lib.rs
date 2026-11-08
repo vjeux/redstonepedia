@@ -4,5 +4,6 @@
 //! circuit study `mobfarm` (crates/circuit/src/studies/mobfarm.rs).
 
 pub mod cli;
+pub mod day1;
 pub mod layouts;
 pub mod validate;

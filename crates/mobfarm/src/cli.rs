@@ -57,6 +57,9 @@ pub enum MobfarmCmd {
         #[arg(long)]
         how: Option<String>,
     },
+    /// The built farm's lines of sight: each villager's eye to the zombie's eye (the hostile
+    /// sensor's test), as built and with every trapdoor forced shut and forced open.
+    Sight { design: PathBuf },
     /// One judge run of a design on redsim: its table.
     Run {
         design: PathBuf,
@@ -105,7 +108,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "l2d" => (crate::layouts::l2d(villagers, pad), "golems fall out of sight to a lava blade".to_string()),
                 "l5" => (crate::layouts::l5(villagers, pad, grid), format!("{} copies of the fastest module", grid * grid)),
                 "l4" => (crate::layouts::l4(), "golems fall from fence-gated platforms to a lava blade".to_string()),
-                other => bail!("no layout {other:?} (l1, l2, l2d, l3, l4, l5)"),
+                "l6p-dry" => (crate::day1::l6p_dry(pad), "the bed-plate calm over a dry drop".to_string()),
+                "l6p-pad" => (crate::day1::l6p_pad(pad), "golems burn in a corner of their pad".to_string()),
+                other => bail!("no layout {other:?} (l1, l2, l2d, l3, l4, l5, l6p-dry, l6p-pad)"),
             };
             // (every farm holds its chest, so the download is the whole farm; its `how:` line ends
             // its site title)
@@ -138,6 +143,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let o = RunOpts::steady(seed, days * 24000, walk);
             let t0 = std::time::Instant::now();
             let r = run(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
+            // (the day time of a spawn: the mob layer starts at day0 - SETTLE_TICKS at game time 0)
+            let night = r.spawn_times.iter().filter(|t| (o.day0 - redsim::entity::mob::farm::SETTLE_TICKS + **t).rem_euclid(24000) >= 12000).count();
+            println!("golems by day (day time 0..12000) {}, by night {night}", r.spawn_times.len() - night);
             println!(
                 "day0 {}: {} golems ({:.1}/h), {} iron ({:.0}/h), {} in the chest, kill {:?} gt, {} tries without a spot, {} sightings, {} sleeps, longest without sleep {} gt, {:.1} s",
                 o.day0,
@@ -172,6 +180,42 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let out = crate::layouts::edit(&text, chest, how.as_deref())?;
             std::fs::write(&design, out)?;
             println!("{}", design.display());
+        }
+        MobfarmCmd::Sight { design } => sight_cmd(version, &design)?,
+    }
+    Ok(())
+}
+
+/// `mobfarm sight`: each villager's eye to the zombie's eye in the built farm, as built and with
+/// every trapdoor of the farm forced shut, then forced open.
+fn sight_cmd(version: &str, design: &PathBuf) -> Result<()> {
+    use redsim::block::Block;
+    use redsim::entity::EntityKind;
+    use redsim::entity::mob::types::MobType;
+    let (_, spec) = load(version, design)?;
+    let o = redsim::entity::mob::farm::RunOpts::steady(1, 0, redsim::entity::mob::farm::WalkMode::Random);
+    let base = redsim::entity::mob::farm::build(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
+    let eye = |w: &redsim::world::World, i: usize| redsim::entity::mob::villager::eye_pos(w, i);
+    let Some(z) = base.entities.list.iter().position(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Zombie)) else { bail!("no zombie") };
+    let trapdoors: Vec<redsim::BlockPos> = spec.blocks.iter().filter(|(_, b)| matches!(b, Block::Trapdoor { .. })).map(|(p, _)| *p).collect();
+    for (label, open) in [("as built", None), ("trapdoors shut", Some(false)), ("trapdoors open", Some(true))] {
+        let mut w = base.clone();
+        if let Some(o) = open {
+            for p in &trapdoors {
+                if let Block::Trapdoor { iron, facing, top, powered, .. } = w.get(*p) {
+                    w.set_block(*p, Block::Trapdoor { iron, facing, top, open: o, powered }, redsim::world::flags::RAW);
+                }
+            }
+        }
+        let ze = eye(&w, z);
+        println!("{label}: zombie eye {:.4} {:.4} {:.4}", ze.x, ze.y, ze.z);
+        for (i, e) in w.entities.list.iter().enumerate() {
+            if !matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Villager) {
+                continue;
+            }
+            let ve = eye(&w, i);
+            let sees = redsim::entity::mob::los::clear(&w, ve, ze);
+            println!("  villager at {:.2} {:.2} {:.2}, eye {:.4}: {}", e.pos.x, e.pos.y, e.pos.z, ve.y, if sees { "SEES the zombie" } else { "blind" });
         }
     }
     Ok(())
