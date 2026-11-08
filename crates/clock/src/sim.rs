@@ -157,6 +157,23 @@ struct H128 {
     b: u64,
 }
 
+/// Cell `k`'s share of a frame digest ([`simulate`]: the frame's digest is the sum of its cells'
+/// shares): its state (block and block-entity extras) hashed with the cell's index, each half
+/// mixed through splitmix64's finalizer, so that shares summed look random.
+fn cell_share(k: usize, b: &Block, extra: &Option<String>) -> u128 {
+    use std::hash::Hash;
+    let mut h = H128 { a: 0xcbf29ce484222325, b: 0x84222325cbf29ce4 };
+    h.write_u64(k as u64);
+    b.hash(&mut h);
+    extra.hash(&mut h);
+    let mix = |mut z: u64| {
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+        z ^ (z >> 31)
+    };
+    ((mix(h.a) as u128) << 64) | mix(h.b ^ 0x9e3779b97f4a7c15) as u128
+}
+
 impl Hasher for H128 {
     fn finish(&self) -> u64 {
         self.a
@@ -579,6 +596,56 @@ pub fn drive_with(c: &Clock, extra: &[(u32, Action)], ticks: u32, probes: &[Pos]
 /// so a dropper's random slot is modeled; the randomizer judge, crates/circuit/src/random.rs).
 #[allow(clippy::too_many_arguments)]
 pub fn drive_seeded(c: &Clock, extra: &[(u32, Action)], ticks: u32, probes: &[Pos], from: Pos, to: Pos, remove_primed: bool, level: Option<(i64, [i32; 4])>) -> Result<Driven, (Verdict, String)> {
+    let mut out = Driven { cells: Vec::with_capacity(ticks as usize + 1), signals: Vec::with_capacity(ticks as usize + 1), stopped: None, primed: Vec::new(), entities: Vec::new() };
+    let mut primed_seen = 0usize;
+    // each cell's last block and extras read and their state string, made again only when they
+    // change (the same block and extras make the same string): the judges' runs formatted every
+    // non-air cell at every tick (a full adder's 64 s, 2026-11-08); the box read x, y, z, which
+    // is the frames' order (by position)
+    let mut seen: Vec<Option<(Block, Option<String>, String)>> = Vec::new();
+    out.stopped = drive_each(c, extra, ticks, from, to, remove_primed, level, |t, world| {
+        for &(_, p) in &world.primed[primed_seen..] {
+            out.primed.push((t, p.arr()));
+        }
+        primed_seen = world.primed.len();
+        let size = world.size;
+        let n = (size[0] * size[1] * size[2]).max(0) as usize;
+        if seen.len() != n {
+            seen = vec![None; n];
+        }
+        let mut v: Vec<(Pos, String)> = Vec::new();
+        for x in 0..size[0] {
+            for y in 0..size[1] {
+                for z in 0..size[2] {
+                    let p = world.min.offset(x, y, z);
+                    let b = world.get(p);
+                    if b.is_air() {
+                        continue;
+                    }
+                    let i = ((x * size[1] + y) * size[2] + z) as usize;
+                    let extra = wave::be_extra_redsim(world, p, &b);
+                    if !matches!(&seen[i], Some((sb, se, _)) if *sb == b && *se == extra) {
+                        let s = wave::with_extra(&b.to_string(), extra.as_deref());
+                        seen[i] = Some((b, extra, s));
+                    }
+                    let Some((_, _, s)) = &seen[i] else { unreachable!("read above") };
+                    v.push((p.arr(), s.clone()));
+                }
+            }
+        }
+        out.cells.push(v);
+        out.signals.push(probes.iter().map(|q| world.best_neighbor_signal(bp(*q)).clamp(0, 15) as u8).collect());
+        if !world.entities.list.is_empty() {
+            out.entities.push(entity_snapshot(world));
+        }
+    })?;
+    Ok(out)
+}
+
+/// The run [`drive_seeded`] makes, each tick's world handed to `each` (after the tick's actions,
+/// before the world ticks) instead of kept; returns where it stopped early (the tick and why).
+#[allow(clippy::too_many_arguments)]
+fn drive_each(c: &Clock, extra: &[(u32, Action)], ticks: u32, from: Pos, to: Pos, remove_primed: bool, level: Option<(i64, [i32; 4])>, mut each: impl FnMut(u32, &World)) -> Result<Option<(u32, String)>, (Verdict, String)> {
     let mut blocks = parse_blocks(c).map_err(|e| (Verdict::Unmodeled, format!("not modeled by redsim: {e}")))?;
     for (_, a) in extra {
         if let Action::Place { state, .. } | Action::ShapeSet { state, .. } = a {
@@ -593,29 +660,16 @@ pub fn drive_seeded(c: &Clock, extra: &[(u32, Action)], ticks: u32, probes: &[Po
     s.world.remove_primed = remove_primed;
     s.actions.extend(extra.iter().cloned());
     s.actions.sort_by_key(|(t, _)| *t);
-    let mut out = Driven { cells: Vec::with_capacity(ticks as usize + 1), signals: Vec::with_capacity(ticks as usize + 1), stopped: None, primed: Vec::new(), entities: Vec::new() };
-    let mut primed_seen = 0usize;
     for t in 0..=ticks {
         if let Err((_, why)) = between_ticks(&mut s, t) {
-            out.stopped = Some((t, why));
-            break;
+            return Ok(Some((t, why)));
         }
-        for &(_, p) in &s.world.primed[primed_seen..] {
-            out.primed.push((t, p.arr()));
-        }
-        primed_seen = s.world.primed.len();
-        let mut v: Vec<(Pos, String)> = s.world.blocks().into_iter().map(|(p, b)| (p.arr(), wave::with_extra(&b.to_string(), wave::be_extra_redsim(&s.world, p, &b).as_deref()))).collect();
-        v.sort_by_key(|(p, _)| *p);
-        out.cells.push(v);
-        out.signals.push(probes.iter().map(|q| s.world.best_neighbor_signal(bp(*q)).clamp(0, 15) as u8).collect());
-        if !s.world.entities.list.is_empty() {
-            out.entities.push(entity_snapshot(&s.world));
-        }
+        each(t, &s.world);
         if t < ticks {
             s.world.tick();
         }
     }
-    Ok(out)
+    Ok(None)
 }
 
 /// Why a declared output cell is not where a builder can take the signal (vjeux / coordinator,
@@ -675,53 +729,80 @@ pub fn exterior_scan(c: &Clock, w: u32, period: u32, swept: (Pos, Pos), occupied
     }
     let (lo, hi) = c.bounds();
     let (from, to) = ([lo[0].min(slo[0]) - 4, lo[1].min(slo[1]) - 4, lo[2].min(slo[2]) - 4], [hi[0].max(shi[0]) + 4, hi[1].max(shi[1]) + 4, hi[2].max(shi[2]) + 4]);
-    let Ok(d) = drive(c, &[], w + period, &cand, from, to) else { return Vec::new() };
-    if d.stopped.is_some() || d.cells.len() <= (w + period) as usize {
+    // the run read as it goes, no frame kept (a long family member's kept every non-air cell's
+    // state as a string at every tick, then a map of each tick to compare: 312,887 gt of
+    // clk-rt-counter n = 3, 2026-11-08): every cell a block ever stands in and the cells holding
+    // tripwire / rails / water at any tick; the cells whose state differs from the period's first
+    // tick at some tick of the period; each candidate's power over the period. A cell's state
+    // string is made again only when its block or extras change (the same block and extras make
+    // the same string); cells are indexed in the run's box (every block of the run stands in it).
+    let end = w + period;
+    let dims = [to[0] - from[0] + 1, to[1] - from[1] + 1, to[2] - from[2] + 1];
+    let idx = |q: Pos| -> Option<usize> {
+        let r = [q[0] - from[0], q[1] - from[1], q[2] - from[2]];
+        (0..3).all(|k| r[k] >= 0 && r[k] < dims[k]).then(|| ((r[1] * dims[2] + r[2]) * dims[0] + r[0]) as usize)
+    };
+    let n = (dims[0] * dims[1] * dims[2]).max(0) as usize;
+    let mut filled = vec![false; n];
+    let mut bad_floor = vec![false; n];
+    let mut changing = vec![false; n];
+    let mut base: Vec<Option<String>> = vec![None; n];
+    let mut base_cells: Vec<(usize, Pos)> = Vec::new();
+    // a cell's last block and extras read, their state string, whether it is tripwire / rails / water
+    let mut seen: Vec<Option<(Block, Option<String>, String, bool)>> = vec![None; n];
+    let mut signals: Vec<Vec<bool>> = vec![Vec::with_capacity(period as usize); cand.len()];
+    let run = drive_each(c, &[], end, from, to, false, None, |t, world| {
+        let in_period = t > w && t < end;
+        for (p, b) in world.blocks() {
+            let q = p.arr();
+            let i = idx(q).expect("a block of the run stands in its box");
+            let extra = wave::be_extra_redsim(world, p, &b);
+            if !matches!(&seen[i], Some((sb, se, _, _)) if *sb == b && *se == extra) {
+                let s = wave::with_extra(&b.to_string(), extra.as_deref());
+                let bad = s.contains("tripwire") || s.contains("rail") || s.contains("water");
+                seen[i] = Some((b, extra, s, bad));
+            }
+            let Some((_, _, s, bad)) = &seen[i] else { unreachable!("read above") };
+            filled[i] = true;
+            if *bad {
+                bad_floor[i] = true;
+            }
+            if t == w {
+                base[i] = Some(s.clone());
+                base_cells.push((i, q));
+            } else if in_period && !changing[i] && base[i].as_deref() != Some(s.as_str()) {
+                changing[i] = true;
+            }
+        }
+        if in_period {
+            for &(i, q) in &base_cells {
+                if !changing[i] && world.get(bp(q)).is_air() {
+                    changing[i] = true;
+                }
+            }
+        }
+        if t >= w && t < end {
+            for (i, q) in cand.iter().enumerate() {
+                signals[i].push(world.best_neighbor_signal(bp(*q)).clamp(0, 15) > 0);
+            }
+        }
+    });
+    if !matches!(run, Ok(None)) {
         return Vec::new();
-    }
-    // every cell a block ever stands in, the cells whose state changes in the period, and the
-    // cells holding tripwire / rails / water at any tick
-    let mut filled: std::collections::HashSet<Pos> = std::collections::HashSet::new();
-    let mut bad_floor: std::collections::HashSet<Pos> = std::collections::HashSet::new();
-    for frame in &d.cells {
-        for (p, s) in frame {
-            filled.insert(*p);
-            if s.contains("tripwire") || s.contains("rail") || s.contains("water") {
-                bad_floor.insert(*p);
-            }
-        }
-    }
-    let mut changing: std::collections::HashSet<Pos> = std::collections::HashSet::new();
-    {
-        let at = |t: usize| -> std::collections::HashMap<Pos, &String> { d.cells[t].iter().map(|(p, s)| (*p, s)).collect() };
-        let base = at(w as usize);
-        for t in w as usize + 1..(w + period) as usize {
-            let now = at(t);
-            for (p, s) in &now {
-                if base.get(p) != Some(s) {
-                    changing.insert(*p);
-                }
-            }
-            for p in base.keys() {
-                if !now.contains_key(p) {
-                    changing.insert(*p);
-                }
-            }
-        }
     }
     let mut out: Vec<((bool, u32, u32, i32, usize, u8, Pos), Pos, CellWave)> = Vec::new();
     for (i, q) in cand.iter().enumerate() {
-        if filled.contains(q) || bad_floor.contains(&[q[0], q[1] - 1, q[2]]) {
+        if idx(*q).is_some_and(|i| filled[i]) || idx([q[0], q[1] - 1, q[2]]).is_some_and(|i| bad_floor[i]) {
             continue;
         }
-        let seq: Vec<bool> = (w..w + period).map(|t| d.signals[t as usize][i] > 0).collect();
+        let seq: &[bool] = &signals[i];
         let gaps = wave::rise_gaps(&seq);
         let Some(&g0) = gaps.first() else { continue };
         if !all && gaps.iter().any(|&g| g != g0) {
             continue;
         }
         let (on, edges, widths) = wave::bool_wave(&seq);
-        let moving = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].iter().filter(|dd: &&[i32; 3]| changing.contains(&[q[0] + dd[0], q[1] + dd[1], q[2] + dd[2]])).count();
+        let moving = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].iter().filter(|dd: &&[i32; 3]| idx([q[0] + dd[0], q[1] + dd[1], q[2] + dd[2]]).is_some_and(|i| changing[i])).count();
         // side over top over bottom: where its free face looks
         let side = if [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].iter().any(|dd: &[i32; 3]| !inside([q[0] + dd[0], q[1] + dd[1], q[2] + dd[2]])) && q[1] >= slo[1] && q[1] <= shi[1] {
             0
@@ -773,24 +854,43 @@ pub fn lamp_output_for(free: &Clock, period: u32, o: &SimOptions) -> Option<(Pos
     if base.verdict != Verdict::Clock {
         return None;
     }
+    let candidates: Vec<Pos> = exterior_outputs(free, base.state_warmup, base.period, base.swept, &base.occupied).into_iter().take(40).map(|(q, _)| q).collect();
+    // the candidates' runs a few at a time on threads of their own, read in their order: the same
+    // pick as one after the other (a long family member's runs were a site build's long pole:
+    // clk-rt-counter n = 3, its base and its first candidate at 940,448 gt, 2026-11-08)
     let mut first = None;
-    for (q, _) in exterior_outputs(free, base.state_warmup, base.period, base.swept, &base.occupied).into_iter().take(40) {
-        let mut d = free.design.clone();
-        d.ports.insert("output".into(), q);
-        let Ok(v) = Clock::from_design(d) else { continue };
-        let r = simulate(&v, o);
-        let even = r.output.as_ref().is_some_and(|w| !w.wave.gaps.is_empty() && w.wave.irregular().is_none());
-        if r.verdict == Verdict::Clock && r.period == base.period && even {
-            if crate::extend::builder_period_of(&r) == Some(period) {
-                return Some((q, r));
-            }
-            if first.is_none() {
-                first = Some((q, r));
+    for chunk in candidates.chunks(LAMP_CANDIDATES_AT_ONCE) {
+        let runs: Vec<Option<SimReport>> = std::thread::scope(|s| {
+            let hs: Vec<_> = chunk
+                .iter()
+                .map(|q| {
+                    s.spawn(move || {
+                        let mut d = free.design.clone();
+                        d.ports.insert("output".into(), *q);
+                        Clock::from_design(d).ok().map(|v| simulate(&v, o))
+                    })
+                })
+                .collect();
+            hs.into_iter().map(|h| h.join().ok().flatten()).collect()
+        });
+        for (q, r) in chunk.iter().zip(runs) {
+            let Some(r) = r else { continue };
+            let even = r.output.as_ref().is_some_and(|w| !w.wave.gaps.is_empty() && w.wave.irregular().is_none());
+            if r.verdict == Verdict::Clock && r.period == base.period && even {
+                if crate::extend::builder_period_of(&r) == Some(period) {
+                    return Some((*q, r));
+                }
+                if first.is_none() {
+                    first = Some((*q, r));
+                }
             }
         }
     }
     first
 }
+
+/// The candidates [`lamp_output_for`] runs at once.
+const LAMP_CANDIDATES_AT_ONCE: usize = 4;
 
 /// TNT dupers with explosions on (track tnt, all-randoms judge): how [`drive_tnt`] runs them.
 #[derive(Clone, Debug)]
@@ -1219,14 +1319,14 @@ impl PeriodStates {
     }
 
     /// Record the next tick's frame (one state id per cell).
-    fn push(&mut self, frame: Vec<u32>) {
+    fn push(&mut self, frame: &[u32]) {
         if self.len == 0 {
-            self.frame0 = frame.clone();
-            self.prev = frame;
+            self.frame0 = frame.to_vec();
+            self.prev = frame.to_vec();
             self.len = 1;
             return;
         }
-        for (i, (&a, &b)) in self.prev.iter().zip(&frame).enumerate() {
+        for (i, (&a, &b)) in self.prev.iter().zip(frame).enumerate() {
             if a != b && !self.seqs.contains_key(&i) {
                 // unchanged until now: its first state at every tick so far
                 self.seqs.insert(i, vec![self.frame0[i]; self.len]);
@@ -1235,7 +1335,7 @@ impl PeriodStates {
         for (i, s) in self.seqs.iter_mut() {
             s.push(frame[*i]);
         }
-        self.prev = frame;
+        self.prev.copy_from_slice(frame);
         self.len += 1;
     }
 
@@ -1327,6 +1427,19 @@ pub fn simulate(c: &Clock, o: &SimOptions) -> SimReport {
     // a digest of the full cell states after every tick (block state + comparator strength +
     // container contents): the clock's warmup and period
     let mut frames: Vec<u128> = Vec::with_capacity((w0 + p + 1) as usize);
+    // each cell's state as last read (its block and block-entity extras), its share of the frame
+    // digest and, while recording, its interned state: a cell that keeps its state costs a read and
+    // a compare (a long member's period record formatted, interned and hashed every cell at every
+    // tick: clk-rt-counter n = 3, 312,816 gt x 4,400 cells, the site build's long pole,
+    // 2026-11-08). An unchanged cell interns to the same id, so reusing it changes nothing; the
+    // frame digest is the sum of the cells' keyed shares ([`cell_share`]), which equal frames
+    // share and other frames do not but by a 2^-128 chance: frames are only compared with each
+    // other.
+    let mut cur: Vec<Option<(Block, Option<String>)>> = vec![None; cells.len()];
+    let mut shares: Vec<u128> = vec![0; cells.len()];
+    let mut ids: Vec<Option<u32>> = vec![None; cells.len()];
+    let mut digest_sum: u128 = 0;
+    let mut frame: Vec<u32> = Vec::with_capacity(cells.len());
     for t in 0..=(w0 + p) {
         if let Err((v, why)) = between_ticks(&mut s, t) {
             return SimReport::fail(c, v, why);
@@ -1336,28 +1449,37 @@ pub fn simulate(c: &Clock, o: &SimOptions) -> SimReport {
                 crate::grow(&mut slo, &mut shi, q.arr());
             }
         }
-        {
-            use std::hash::Hash;
-            let mut h = H128 { a: 0xcbf29ce484222325, b: 0x84222325cbf29ce4 };
-            for q in &cells {
-                let b = s.world.get(bp(*q));
-                b.hash(&mut h);
-                wave::be_extra_redsim(&s.world, bp(*q), &b).hash(&mut h);
+        let recording = t >= w0 && t < w0 + p;
+        frame.clear();
+        for (k, q) in cells.iter().enumerate() {
+            let b = s.world.get(bp(*q));
+            let extra = wave::be_extra_redsim(&s.world, bp(*q), &b);
+            if !matches!(&cur[k], Some((cb, ce)) if *cb == b && *ce == extra) {
+                let share = cell_share(k, &b, &extra);
+                digest_sum = digest_sum.wrapping_sub(shares[k]).wrapping_add(share);
+                shares[k] = share;
+                cur[k] = Some((b, extra));
+                ids[k] = None;
             }
-            frames.push(((h.a as u128) << 64) | h.b as u128);
+            if recording {
+                let id = match ids[k] {
+                    Some(id) => id,
+                    None => {
+                        let (cb, ce) = cur[k].as_ref().expect("read above");
+                        let id = ps.intern(wave::with_extra(&cb.to_string(), ce.as_deref()));
+                        ids[k] = Some(id);
+                        id
+                    }
+                };
+                frame.push(id);
+            }
         }
+        frames.push(digest_sum);
         if t == w0 {
             key_w = s.world.state_key();
         }
-        if t >= w0 && t < w0 + p {
-            let frame: Vec<u32> = cells
-                .iter()
-                .map(|q| {
-                    let b = s.world.get(bp(*q));
-                    ps.intern(wave::with_extra(&b.to_string(), wave::be_extra_redsim(&s.world, bp(*q), &b).as_deref()))
-                })
-                .collect();
-            ps.push(frame);
+        if recording {
+            ps.push(&frame);
             if let Some(op) = out_pos {
                 let st = s.world.get(bp(op));
                 let level = s.world.best_neighbor_signal(bp(op));

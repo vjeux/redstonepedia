@@ -104,6 +104,10 @@ impl Trace {
             })
             .flatten()
             .collect();
+        // the previous frame's cells with their ids: a cell holding the same state as in the
+        // previous frame keeps its id without a lookup (frames are sorted by position; a full
+        // adder's run hashed every cell's state at every frame, 2026-11-08)
+        let mut prev: Vec<(Pos, String, u32)> = Vec::new();
         for (f, frame) in cells.into_iter().enumerate() {
             let get = |p: Pos| frame.binary_search_by_key(&p, |(q, _)| *q).ok().map(|i| frame[i].1.as_str());
             for (k, inp) in c.inputs.iter().enumerate() {
@@ -124,22 +128,30 @@ impl Trace {
                 let best = signals.get(f).and_then(|v| v.get(k)).copied().unwrap_or(0);
                 t.levels[k].push(level(get(out.pos), best));
             }
-            let v: Vec<(Pos, u32)> = frame
-                .into_iter()
-                .filter(|(p, _)| !judge.contains(p))
-                .map(|(p, s)| {
-                    let id = match ids.get(&s) {
+            let mut cur: Vec<(Pos, String, u32)> = Vec::with_capacity(frame.len());
+            let mut v: Vec<(Pos, u32)> = Vec::with_capacity(frame.len());
+            let mut j = 0;
+            for (p, s) in frame.into_iter().filter(|(p, _)| !judge.contains(p)) {
+                while j < prev.len() && prev[j].0 < p {
+                    j += 1;
+                }
+                let id = if j < prev.len() && prev[j].0 == p && prev[j].1 == s {
+                    prev[j].2
+                } else {
+                    match ids.get(&s) {
                         Some(id) => *id,
                         None => {
                             let id = names.len() as u32;
                             ids.insert(s.clone(), id);
-                            names.push(s);
+                            names.push(s.clone());
                             id
                         }
-                    };
-                    (p, id)
-                })
-                .collect();
+                    }
+                };
+                v.push((p, id));
+                cur.push((p, s, id));
+            }
+            prev = cur;
             t.cells.push(v);
         }
         t.names = names;
