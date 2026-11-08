@@ -52,6 +52,13 @@ final class Terrain {
     private Terrain() {}
 
     static JsonObject load(Protocol p, Sandbox sb, JsonObject r) throws Exception {
+        // the real world's biome zoom seed (BiomeManager.obfuscateSeed of its seed): getBiome's
+        // fuzzy zoom near a border picks the sample's cell, not the sandbox seed's
+        if (r.has("zoom_seed")) {
+            java.lang.reflect.Field f = net.minecraft.world.level.Level.class.getDeclaredField("biomeManager");
+            f.setAccessible(true);
+            f.set(sb.level, new net.minecraft.world.level.biome.BiomeManager(sb.level, r.get("zoom_seed").getAsLong()));
+        }
         // the biome cells: origin and size in quart coordinates, palette, ids (u16 LE, x fastest,
         // then z, then y)
         BiomeCells biomes = r.has("biomes") ? new BiomeCells(sb, r.getAsJsonObject("biomes")) : null;

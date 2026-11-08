@@ -255,12 +255,17 @@ pub fn import_terrain(w: &mut Worker, sb: u32, t: &redsim::terrain::format::Terr
     let block_entities: Vec<Value> = t.block_entities.iter().map(|b| json!({"pos": b.pos, "snbt": b.snbt})).collect();
     let heights: Vec<String> = t.heightmaps.iter().map(|m| b64.encode(m.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>())).collect();
     let maps: Vec<&str> = redsim::terrain::Heightmap::ALL.iter().take(t.heightmaps.len()).map(|m| m.key()).collect();
-    let v = w.call(json!({
+    let mut req = json!({
         "op": "terrain", "sandbox": sb, "sections": sections,
         "biomes": {"origin": t.biome_origin, "size": t.biome_size, "palette": t.biome_palette, "cells": b64.encode(&biome_cells)},
-        "structures": structures, "inhabited": inhabited, "block_entities": block_entities,
+        "structures": structures, "inhabited": inhabited, "block_entities": block_entities, "zoom_seed": t.zoom_seed,
         "heightmaps": {"maps": maps, "origin": [ox, oz], "size": [sx, sz], "data": heights},
-    }))?;
+    });
+    // (a bisect switch: the sandbox's own zoom seed)
+    if std::env::var_os("MCTAS_EXACT_SANDBOX_ZOOM").is_some() {
+        req.as_object_mut().map(|o| o.remove("zoom_seed"));
+    }
+    let v = w.call(req)?;
     eprintln!("terrain: {n} sections in {} chunks, {} structures, {} block entities, {} chunks' inhabited time", v["chunks"], v["structures"], v["block_entities"], t.inhabited.len());
     // the check: every cell's block and light as the level reads them
     let from = t.origin;
