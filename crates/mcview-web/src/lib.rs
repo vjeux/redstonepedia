@@ -81,6 +81,15 @@ pub(crate) fn debug() -> bool {
     DEBUG.with(|d| *d)
 }
 
+/// `?mcview-perf` in the page URL: every 5 s of play, the frames' count and times in the console
+/// (without `?mcview-debug`'s per-frame lines).
+pub(crate) fn perf_log() -> bool {
+    thread_local! {
+        static PERF: bool = web_sys::window().and_then(|w| w.location().search().ok()).is_some_and(|s| s.contains("mcview-perf"));
+    }
+    PERF.with(|d| *d)
+}
+
 pub(crate) fn window() -> web_sys::Window {
     web_sys::window().expect("no window")
 }
@@ -819,6 +828,22 @@ pub unsafe extern "C" fn mcview_frames_digest(ptr: *mut u8, len: usize, ticks: u
     match Session::new(&text, &Options::default()) {
         Ok(s) if s.simulated() => s.frames_digest(ticks),
         _ => 0,
+    }
+}
+
+/// For `mctas web check --wasm`: a mob farm's run in THIS wasm (the browser's session: its
+/// placement, the water's settle, `ticks` judged ticks), as one number
+/// ([`mcview::mobfarm::chain`] of every tick's world digest and the golems summoned), or 0.
+///
+/// # Safety
+/// `ptr` must come from `mcview_alloc(len)` with `len` bytes written.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn mcview_mob_digest(ptr: *mut u8, len: usize, ticks: u32) -> u64 {
+    let bytes = unsafe { Vec::from_raw_parts(ptr, len, len.max(1)) };
+    let text = String::from_utf8_lossy(&bytes);
+    match mcview::mobfarm::view_digests(&text, ticks) {
+        Ok((v, golems)) => mcview::mobfarm::chain(&v, golems),
+        Err(_) => 0,
     }
 }
 

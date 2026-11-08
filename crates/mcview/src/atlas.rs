@@ -898,6 +898,10 @@ fn paint_all() -> Vec<(&'static str, Tile)> {
     add("water", &|t| {
         t.fill(rgba(0x3f76e4, 170)).vary(0.05);
     });
+    // lava's stand-in until the game's texture loads (`lava_still`: orange, opaque)
+    add("lava", &|t| {
+        t.fill(rgb(0xd5600f)).vary(0.12).map(|x, y, c| if (x * 5 + y * 3) % 7 == 0 { rgb(0xf6b23a) } else { c });
+    });
     // the game's water sides use the flowing texture (its top-left quarter: `FluidRenderer`)
     add("water_flow", &|t| {
         t.fill(rgba(0x3f76e4, 170)).vary(0.05);
@@ -1006,6 +1010,11 @@ pub struct Atlas {
 /// A vertex `layer` that samples the game texture instead of the tile array.
 pub const GAME_LAYER: u32 = 65535;
 
+/// [`GAME_LAYER`] with the game's red overlay (`OverlayTexture`'s hurt row: a hurt or dying mob,
+/// `color = mix(red, color, 0xB2 / 255)`): the solid shader mixes toward red, not white, by
+/// 1 - the vertex alpha.
+pub const GAME_LAYER_RED: u32 = 65534;
+
 /// The game's models with its block atlas as one 2D texture and that texture's mip levels (and,
 /// once loaded, the game's entity and item textures packed below the block atlas).
 pub struct GameAssets {
@@ -1086,24 +1095,54 @@ impl Atlas {
             }
             Ok(v)
         };
-        let ent_rects: Vec<(String, [u32; 4])> = parse(ent.3)?
-            .into_iter()
-            .filter(|(k, r)| (k.starts_with("entity/boat/") || k.starts_with("entity/chest_boat/") || k == "entity/minecart/minecart" || k == "entity/armorstand/armorstand" || k == "entity/chest/normal" || k.starts_with("entity/shulker/shulker")) && r[0] + r[2] <= ent.1 && r[1] + r[3] <= ent.2)
+        let all_ent = parse(ent.3)?;
+        let ent_rects: Vec<(String, [u32; 4])> = all_ent
+            .iter()
+            .filter(|(k, r)| (k.starts_with("entity/boat/") || k.starts_with("entity/chest_boat/") || k == "entity/minecart/minecart" || k == "entity/armorstand/armorstand" || k == "entity/chest/normal" || k.starts_with("entity/shulker/shulker") || k == "entity/zombie/zombie") && r[0] + r[2] <= ent.1 && r[1] + r[3] <= ent.2)
+            .cloned()
             .collect();
+        // the mob farms' mobs: each texture with its overlay layers composited in
+        // (`entitymodel::MOB_COMPOSITES`), packed like the others
+        let crop = |r: [u32; 4]| -> Vec<u8> {
+            let mut v = Vec::with_capacity((r[2] * r[3] * 4) as usize);
+            for row in 0..r[3] {
+                let s = (((r[1] + row) * ent.1 + r[0]) * 4) as usize;
+                v.extend_from_slice(&ent.0[s..s + (r[2] * 4) as usize]);
+            }
+            v
+        };
+        let fits = |r: &[u32; 4]| r[0] + r[2] <= ent.1 && r[1] + r[3] <= ent.2;
+        let find = |k: &str| all_ent.iter().find(|(n, r)| n == k && fits(r)).map(|(_, r)| *r);
+        let mut composites: Vec<(String, Vec<u8>, [u32; 4])> = Vec::new();
+        for (name, base, over) in crate::entitymodel::MOB_COMPOSITES {
+            let Some(b) = find(base) else { continue };
+            let mut img = crop(b);
+            if let Some(o) = over.and_then(find).filter(|o| o[2] == b[2] && o[3] == b[3]) {
+                // the layer is drawn again over the model with a cutout (alpha under 0.1 dropped)
+                for (d, s) in img.chunks_exact_mut(4).zip(crop(o).chunks_exact(4)) {
+                    if s[3] as f32 / 255.0 >= 0.1 {
+                        d.copy_from_slice(&[s[0], s[1], s[2], 255]);
+                    }
+                }
+            }
+            composites.push((name.to_string(), img, b));
+        }
         // items: the whole atlas at (0, bh); entities shelf-packed at x >= its width
         let (iw, ih) = (items.1, items.2);
         let x_start = iw.div_ceil(64) * 64;
-        let mut order = ent_rects.clone();
+        // (name, rect, index of its composited image or None: a rect of the entity atlas)
+        let mut order: Vec<(String, [u32; 4], Option<usize>)> = ent_rects.iter().map(|(k, r)| (k.clone(), *r, None)).collect();
+        order.extend(composites.iter().enumerate().map(|(i, (k, _, r))| (k.clone(), *r, Some(i))));
         order.sort_by(|a, b| b.1[3].cmp(&a.1[3]).then(a.0.cmp(&b.0)));
         let (mut x, mut y, mut row_h) = (x_start, bh, 0u32);
-        let mut placed: Vec<(String, [u32; 4], [u32; 2])> = Vec::new();
-        for (k, r) in order {
+        let mut placed: Vec<(String, [u32; 4], [u32; 2], Option<usize>)> = Vec::new();
+        for (k, r, src) in order {
             if x + r[2] > bw {
                 x = x_start;
                 y += row_h;
                 row_h = 0;
             }
-            placed.push((k, r, [x, y]));
+            placed.push((k, r, [x, y], src));
             x += r[2];
             row_h = row_h.max(r[3]);
         }
@@ -1124,8 +1163,11 @@ impl Atlas {
                 tex.insert(k, crate::gamemodel::TexRect { rect: [r[0], bh + r[1], r[2], r[2].min(r[3])], transparent: true });
             }
         }
-        for (k, r, [dx, dy]) in &placed {
-            blit(ent.0, ent.1, r[0], r[1], r[2], r[3], *dx, *dy);
+        for (k, r, [dx, dy], src) in &placed {
+            match src {
+                Some(i) => blit(&composites[*i].1, r[2], 0, 0, r[2], r[3], *dx, *dy),
+                None => blit(ent.0, ent.1, r[0], r[1], r[2], r[3], *dx, *dy),
+            }
             tex.insert(k.clone(), crate::gamemodel::TexRect { rect: [*dx, *dy, r[2], r[3]], transparent: true });
         }
         let n = placed.len();

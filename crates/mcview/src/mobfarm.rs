@@ -1,0 +1,622 @@
+//! Mob farms in the viewer (mobviewer, 2026-11-08; vjeux on the iron farms' "the view shows the
+//! farm as built" caveat: "Why all of these caveats? Just do the real work!?"): the farm runs in
+//! the view exactly as its judge runs it, through redsim's own farm runner
+//! (`redsim::entity::mob::farm::Run`, the code `circuit::studies::mobfarm` judges with), never a
+//! viewer-side approximation:
+//!
+//! * the judge's farm of the design as written ([`spec`] = `studies::mobfarm::spec_of`: its blocks,
+//!   its entities, the judge's output chest, the watch box with its margin of 4);
+//! * the judge's first run of its base build ([`run_opts`]: seed [`JUDGE_SEED`], the steady state,
+//!   every golem walking under the judge's random policy), run on past the judge's 5 days;
+//! * the water's settle (`farm::SETTLE_TICKS`) paused between ticks in the browser
+//!   (`crate::staged`), the same ticks in the same order.
+//!
+//! `mctas web check` holds the viewer's farm to the circuit crate's spec and its world to redsim's
+//! run tick for tick, natively and in the shipped wasm. What the view adds is the game client's
+//! own drawing of that state ([`MobRun::draw`]: `LivingEntityRenderer`'s render state, the walk
+//! animation from position deltas, `entitymodel` draws the models) and the readout's counts.
+
+use crate::design::{Design, Pos};
+use redsim::entity::mob::farm::{FarmSpec, Run, RunOpts, WalkMode};
+use redsim::entity::mob::types::MobType;
+use redsim::entity::mob::MobEvent;
+use redsim::entity::EntityKind;
+use redsim::{Block, BlockPos, World};
+use std::collections::HashMap;
+
+/// The judge's first seed (`studies::mobfarm::JudgeOpts::default().seed0`): build 0 (the design as
+/// written: no turn, offset 0), run 0.
+pub const JUDGE_SEED: i64 = 0x6972_6f6e;
+/// The judge's days per run (`studies::mobfarm::JUDGE_DAYS`).
+pub const JUDGE_DAYS: u32 = 5;
+/// The judge's world box margin (`spec_of`: `run::watch_box(c, 4)`).
+pub const WATCH_MARGIN: i32 = 4;
+
+/// A mob farm (`circuit: mob-farm <item> [tier]`).
+pub fn is_mob_farm(d: &Design) -> bool {
+    d.meta.get("circuit").is_some_and(|k| k.split_whitespace().next() == Some("mob-farm"))
+}
+
+/// The judge's farm of a design as written (`circuit::studies::mobfarm::spec_of`): its blocks
+/// (sorted by x, y, z), its entities in file order, the chest at `port output`, and the world box:
+/// the circuit's bounds (blocks and ports) plus [`WATCH_MARGIN`].
+pub fn spec(d: &Design) -> Result<FarmSpec, String> {
+    let out = d.ports.get("output").map(|(p, _)| *p).ok_or("no `port output`")?;
+    let mut pts = d.blocks.keys().copied().chain(d.ports.values().map(|(p, _)| *p));
+    let first = pts.next().ok_or("an empty design")?;
+    let (mut lo, mut hi) = (first, first);
+    for p in pts {
+        for i in 0..3 {
+            lo[i] = lo[i].min(p[i]);
+            hi[i] = hi[i].max(p[i]);
+        }
+    }
+    let m = WATCH_MARGIN;
+    let mut blocks = Vec::with_capacity(d.blocks.len());
+    for (q, s) in &d.blocks {
+        blocks.push((bp(*q), Block::parse(s).map_err(|e| format!("not modeled by redsim: {e}"))?));
+    }
+    blocks.sort_by_key(|(q, _)| [q.x, q.y, q.z]);
+    let entities = d.entities.iter().map(|e| (e.kind.clone(), e.pos, e.nbt.clone())).collect();
+    Ok(FarmSpec { blocks, entities, output: bp(out), lo: BlockPos::new(lo[0] - m, lo[1] - m, lo[2] - m), hi: BlockPos::new(hi[0] + m, hi[1] + m, hi[2] + m) })
+}
+
+/// The judge's run of the base build with seed `seed` (steady state, random walking policies): for
+/// [`JUDGE_SEED`] its first run (`studies::mobfarm::build_runs`' first job).
+pub fn run_opts_seeded(seed: i64) -> RunOpts {
+    RunOpts::steady(seed, JUDGE_DAYS * 24000, WalkMode::Random)
+}
+
+/// The judge's first run of the base build ([`JUDGE_SEED`]).
+pub fn run_opts() -> RunOpts {
+    run_opts_seeded(JUDGE_SEED)
+}
+
+fn bp(p: Pos) -> BlockPos {
+    BlockPos::new(p[0], p[1], p[2])
+}
+
+/// `WalkAnimationState` as the client keeps it for a living entity (`LivingEntity
+/// .calculateEntityAnimation(false)` after each tick: the horizontal distance moved, x4, capped at
+/// 1, eased by 0.4; stopped for a passenger or a dead mob).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct WalkAnim {
+    pub speed_old: f32,
+    pub speed: f32,
+    pub position: f32,
+}
+
+impl WalkAnim {
+    fn update(&mut self, distance: f32) {
+        let target = (distance * 4.0).min(1.0);
+        self.speed_old = self.speed;
+        self.speed += (target - self.speed) * 0.4;
+        self.position += self.speed;
+    }
+
+    fn stop(&mut self) {
+        *self = WalkAnim::default();
+    }
+
+    /// `position(partialTicks)`.
+    pub fn position_at(&self, partial: f32) -> f32 {
+        self.position - self.speed * (1.0 - partial)
+    }
+
+    /// `speed(partialTicks)`.
+    pub fn speed_at(&self, partial: f32) -> f32 {
+        (self.speed_old + (self.speed - self.speed_old) * partial).min(1.0)
+    }
+}
+
+/// A mob farm's run in the view: redsim's runner (its world lives in `Session::world` between
+/// ticks and is swapped in for each tick, [`MobRun::tick`]) and what the readout counts.
+#[derive(Clone)]
+pub struct MobRun {
+    pub run: Run,
+    /// The judge's output chest and every chest of the design (a scaled farm's copies have their
+    /// own): where the readout counts the iron.
+    pub chests: Vec<BlockPos>,
+    /// Golems summoned since the farm's mobs arrived, and the iron and poppies dropped.
+    pub golems: u32,
+    pub iron_dropped: u32,
+    pub poppies_dropped: u32,
+    /// The game time the mobs arrived (the end of the settle).
+    pub arrived: i64,
+    /// Each living mob's walk animation (the client's, from its moves), by entity id.
+    pub walk: HashMap<u32, WalkAnim>,
+}
+
+impl MobRun {
+    /// Start the judge's run of `d` with `seed` ([`JUDGE_SEED`]: its first): blocks placed, the
+    /// chest, the settle left to run ([`MobRun::settle_tick`]); then [`MobRun::arrive`].
+    pub fn start(d: &Design, seed: i64) -> Result<MobRun, String> {
+        let spec = spec(d)?;
+        let refused = redsim::entity::mob::refuse::static_checks(&spec);
+        if !refused.is_empty() {
+            return Err(format!("refused by its judge: {}", refused.join("; ")));
+        }
+        let run = Run::start(&spec, &run_opts_seeded(seed))?;
+        let mut chests = vec![spec.output];
+        for (p, b) in &spec.blocks {
+            if matches!(b, Block::Chest { .. }) && !chests.contains(p) {
+                chests.push(*p);
+            }
+        }
+        Ok(MobRun { run, chests, golems: 0, iron_dropped: 0, poppies_dropped: 0, arrived: 0, walk: HashMap::new() })
+    }
+
+    /// One tick of the water's settle; false once none is left.
+    pub fn settle_tick(&mut self) -> bool {
+        self.run.settle_tick()
+    }
+
+    /// The mobs arrive (the design's entities, their beds, the steady state's last sleep).
+    pub fn arrive(&mut self) -> Result<(), String> {
+        self.run.arrive()?;
+        self.arrived = self.run.world.time;
+        Ok(())
+    }
+
+    /// Take the run's world out (the session holds it between ticks); a 1-cell world stays.
+    pub fn take_world(&mut self) -> World {
+        let min = self.run.world.min;
+        std::mem::replace(&mut self.run.world, World::new(min, [1, 1, 1]))
+    }
+
+    /// One judged tick of the farm on `w` (the session's world: swapped into the runner for the
+    /// tick), then the record taken: the counts, each mob's walk animation.
+    pub fn tick(&mut self, w: &mut World) {
+        std::mem::swap(w, &mut self.run.world);
+        self.run.tick();
+        std::mem::swap(w, &mut self.run.world);
+        self.absorb(w);
+    }
+
+    /// The mob layer's record of the tick (it keeps growing unless taken: the judge's runs take it
+    /// every tick too): golems summoned, drops; and the client's walk animations.
+    fn absorb(&mut self, w: &mut World) {
+        for ev in std::mem::take(&mut w.mob.events) {
+            match ev {
+                MobEvent::GolemTry { golem: Some(_), .. } => self.golems += 1,
+                MobEvent::Drop { what, count, .. } => match what {
+                    "minecraft:iron_ingot" => self.iron_dropped += count,
+                    "minecraft:poppy" => self.poppies_dropped += count,
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+        w.mob.spawn_tries.clear();
+        let mut seen: Vec<u32> = Vec::new();
+        for e in w.entities.list.iter().filter(|e| !e.removed) {
+            let EntityKind::Mob(m) = &e.kind else { continue };
+            seen.push(e.id);
+            let a = self.walk.entry(e.id).or_default();
+            if e.vehicle.is_none() && !m.dead && m.health > 0.0 {
+                let (dx, dz) = (e.pos.x - e.xo, e.pos.z - e.zo);
+                a.update((dx * dx + dz * dz).sqrt() as f32);
+            } else {
+                a.stop();
+            }
+        }
+        self.walk.retain(|id, _| seen.contains(id));
+    }
+
+    /// Iron ingots in the farm's chests now.
+    pub fn iron_in_chests(&self, w: &World) -> u32 {
+        let iron = redsim::redstone::container::item_id("iron_ingot");
+        self.chests
+            .iter()
+            .filter_map(|p| w.containers.map.get(p))
+            .flat_map(|c| c.slots.iter().flatten())
+            .filter(|s| Some(s.item) == iron)
+            .map(|s| s.count as u32)
+            .sum()
+    }
+
+    /// How the client draws a mob (its `LivingEntityRenderState`) at `partial`: [`draw_mob`] with
+    /// this run's walk animations.
+    pub fn draw(&self, w: &World, v: &redsim::entity::mob::view::MobView, partial: f32) -> crate::mesh::MobDraw {
+        draw_mob(w, v, partial, self.walk.get(&v.id).copied().unwrap_or_default())
+    }
+}
+
+/// How the client draws a mob (its `LivingEntityRenderState`) at `partial`: from the mob layer's
+/// view of it ([`redsim::entity::mob::view::MobView`]: pose, yaw, death, hurt, fire), its core
+/// entity (position, pitch, age), its state's health (a golem's crackiness) and box (the flames'
+/// size), and the client's walk animation `a` (a still before it plays: none, the mobs as placed).
+pub fn draw_mob(w: &World, v: &redsim::entity::mob::view::MobView, partial: f32, a: WalkAnim) -> crate::mesh::MobDraw {
+    use redsim::entity::mob::view::MobPose;
+    let e = &w.entities.list[v.index];
+    let EntityKind::Mob(m) = &e.kind else { return crate::mesh::MobDraw::default() };
+    let def = v.ty.def();
+    let lerp_deg = |a: f32, b: f32| a + wrap_degrees(b - a) * partial;
+    let mut body = lerp_deg(v.body_yaw_o, v.body_yaw);
+    let mut head = wrap_degrees(lerp_deg(v.head_yaw_o, v.head_yaw) - body);
+    let riding = matches!(v.pose, MobPose::Riding { .. });
+    // a mob in a boat: `AbstractBoat.positionRider` keeps its body at the boat's yaw and its head
+    // within 105 degrees of it (`clampRotation`); the mob layer keeps one yaw for the mob
+    if let MobPose::Riding { vehicle } = v.pose
+        && let Some(b) = w.entities.list.iter().find(|x| x.id == vehicle && !x.removed)
+        && matches!(b.kind, EntityKind::Boat(_))
+    {
+        let boat = lerp_deg(b.y_rot_o, b.y_rot);
+        head = wrap_degrees(body + head - boat).clamp(-105.0, 105.0);
+        body = boat;
+    }
+    let sleeping = match v.pose {
+        MobPose::Sleeping { facing, .. } => Some(facing),
+        _ => None,
+    };
+    let alive = !v.dead && m.health > 0.0;
+    crate::mesh::MobDraw {
+        body_yaw: body,
+        head_yaw: head,
+        head_pitch: e.x_rot_o + (e.x_rot - e.x_rot_o) * partial,
+        walk_pos: if alive && !riding { a.position_at(partial) } else { 0.0 },
+        walk_speed: if alive && !riding { a.speed_at(partial) } else { 0.0 },
+        death_time: if v.death_time > 0 { v.death_time as f32 + partial } else { 0.0 },
+        red: v.hurt_time > 0 || v.death_time > 0,
+        fire: v.on_fire && !def.fire_immune,
+        sleeping,
+        eye_standing: def.eye,
+        riding,
+        crack: if v.ty == MobType::IronGolem { crackiness(m.health / def.max_health) } else { 0 },
+        age: e.tick_count as f32 + partial,
+        width: m.dims().0,
+        height: m.dims().1,
+    }
+}
+
+/// `Crackiness.GOLEM.byFraction` (0.75, 0.5, 0.25): 0 none, 1 low, 2 medium, 3 high.
+pub fn crackiness(fraction: f32) -> u8 {
+    if fraction < 0.25 {
+        3
+    } else if fraction < 0.5 {
+        2
+    } else if fraction < 0.75 {
+        1
+    } else {
+        0
+    }
+}
+
+/// `Mth.wrapDegrees` (float).
+pub fn wrap_degrees(a: f32) -> f32 {
+    let mut r = a % 360.0;
+    if r >= 180.0 {
+        r -= 360.0;
+    }
+    if r < -180.0 {
+        r += 360.0;
+    }
+    r
+}
+
+/// Everything of a farm's world a tick can change, as one number (the same on every platform,
+/// so the wasm's equals the native's): the world's state key (cells, scheduled ticks, block
+/// events, containers...), every entity (kind, position, motion, rotation, vehicle) and a mob's
+/// whole state (health, fire, sleep, brain...), the game time, the day offset and the mob layer's
+/// random.
+pub fn world_digest(w: &World) -> u64 {
+    let mut h = crate::session::H128::default();
+    w.state_key_into(&mut h);
+    let mut x = crate::session::entity_hash(h.a ^ h.b.rotate_left(1), w);
+    let mut eat = |s: &str| {
+        for b in s.bytes() {
+            x ^= b as u64;
+            x = x.wrapping_mul(0x100000001b3);
+        }
+    };
+    eat(&format!("{} {} {:?}", w.time, w.mob.day_offset, w.mob.rng));
+    for e in w.entities.list.iter().filter(|e| !e.removed) {
+        eat(&format!("{} {} {} {:?} {:?}", e.id, e.y_rot.to_bits(), e.x_rot.to_bits(), e.vehicle, e.passengers));
+        if let EntityKind::Mob(m) = &e.kind {
+            eat(&format!("{m:?}"));
+        }
+    }
+    x
+}
+
+/// The judge's run of a design's farm on redsim alone (`farm::Run::new` on the circuit-free
+/// spec, [`run_opts`]), `ticks` judged ticks: the digest after placement and after every tick
+/// ([`world_digest`]), and the golems summoned. The reference the view is held to.
+pub fn reference_digests(d: &Design, ticks: u32) -> Result<(Vec<u64>, u32), String> {
+    let spec = spec(d)?;
+    let mut r = Run::new(&spec, &run_opts())?;
+    let mut v = vec![world_digest(&r.world)];
+    let mut golems = 0;
+    for _ in 0..ticks {
+        r.tick();
+        golems += std::mem::take(&mut r.world.mob.events).iter().filter(|e| matches!(e, MobEvent::GolemTry { golem: Some(_), .. })).count() as u32;
+        v.push(world_digest(&r.world));
+    }
+    Ok((v, golems))
+}
+
+/// The view's run of a design's farm (`Session::new` with the browser's live options, then
+/// `Session::step`): the same digests and golems as [`reference_digests`] when the view is exact.
+pub fn view_digests(text: &str, ticks: u32) -> Result<(Vec<u64>, u32), String> {
+    let mut s = crate::session::Session::new(text, &crate::session::Options::live())?;
+    if let Some(why) = &s.unsimulated {
+        return Err(format!("not simulated: {why}"));
+    }
+    let mut v = vec![world_digest(&s.world)];
+    for _ in 0..ticks {
+        s.step();
+        if let Some(h) = &s.halted {
+            return Err(format!("stopped: {h}"));
+        }
+        v.push(world_digest(&s.world));
+    }
+    Ok((v, s.mob.as_ref().map(|m| m.golems).unwrap_or(0)))
+}
+
+/// The view's run of a design's farm for `ticks` judged ticks: the golems summoned, the iron
+/// dropped and the iron in the farm's chests at the end (the readout's numbers).
+pub fn view_counts(text: &str, ticks: u32) -> Result<(u32, u32, u32), String> {
+    view_counts_seeded(text, JUDGE_SEED, ticks)
+}
+
+/// [`view_counts`] of the judge's run with seed `seed` (`mctas web mobrate`: the judge's other
+/// runs, played through the view's own session).
+pub fn view_counts_seeded(text: &str, seed: i64, ticks: u32) -> Result<(u32, u32, u32), String> {
+    let mut s = crate::session::Session::new(text, &crate::session::Options { mob_seed: Some(seed), ..crate::session::Options::live() })?;
+    if let Some(why) = &s.unsimulated {
+        return Err(format!("not simulated: {why}"));
+    }
+    for _ in 0..ticks {
+        s.step();
+        if let Some(h) = &s.halted {
+            return Err(format!("stopped: {h}"));
+        }
+    }
+    let m = s.mob.as_ref().ok_or("not a mob farm")?;
+    Ok((m.golems, m.iron_dropped, m.iron_in_chests(&s.world)))
+}
+
+/// A run's digests and golems as one number (the shipped wasm's answer: `mcview_mob_digest`).
+pub fn chain(digests: &[u64], golems: u32) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for d in digests.iter().copied().chain(std::iter::once(golems as u64)) {
+        h = (h ^ d).wrapping_mul(0x100000001b3).rotate_left(23);
+    }
+    h
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn archived(name: &str) -> String {
+        std::fs::read_to_string(format!("{}/../../designs/circuits/mobfarm/archive/{name}.txt", env!("CARGO_MANIFEST_DIR"))).unwrap()
+    }
+
+    /// vjeux 2026-11-08 ("Just do the real work!?"): the view runs the farm as its judge does,
+    /// tick for tick (redsim's own runner, the judge's spec and first run), and golems spawn.
+    #[test]
+    fn a_mob_farm_runs_like_its_judge() {
+        let text = archived("iron-day1");
+        let d = Design::parse(&text).unwrap();
+        let (want, golems) = reference_digests(&d, 6000).unwrap();
+        let (got, view_golems) = view_digests(&text, 6000).unwrap();
+        let first = want.iter().zip(&got).position(|(a, b)| a != b);
+        assert_eq!(first, None, "the view leaves the judge's run at tick {first:?}");
+        assert_eq!(golems, view_golems);
+        assert!(golems >= 2, "{golems} golems in 6000 ticks");
+    }
+
+    /// The page's view before it plays (a still: nothing ticks) draws the mobs as placed with the
+    /// client's models (it drew the zombie as the stand-in box).
+    #[test]
+    fn a_mob_farm_still_draws_its_mobs_with_their_models() {
+        let text = archived("iron-day1");
+        let s = crate::session::Session::new(&text, &crate::session::Options::still()).unwrap();
+        let mobs: Vec<_> = s.entities(0.0).into_iter().filter(|e| e.kind.ends_with("villager") || e.kind.ends_with("zombie")).collect();
+        assert_eq!(mobs.len(), 4, "{:?}", mobs.iter().map(|e| &e.kind).collect::<Vec<_>>());
+        assert!(mobs.iter().all(|e| e.mob.is_some()));
+        assert!(mobs.iter().any(|e| e.mob.as_ref().is_some_and(|m| m.riding)), "the zombie rides its boat");
+    }
+
+    /// What the readout and the left badge say every 500 ticks of two farms (`--nocapture`).
+    #[test]
+    #[ignore]
+    fn print_villager_states() {
+        for name in ["iron-day1", "iron-middle"] {
+            let text = archived(name);
+            let mut s = crate::session::Session::new(&text, &crate::session::Options::live()).unwrap();
+            for k in 0..=48 {
+                if k > 0 {
+                    s.run(500);
+                }
+                eprintln!("{name} tick {}: {} · {}", s.tick, readout(&s), status_words(&s));
+            }
+        }
+    }
+
+    /// The still's mesh of the smallest and the biggest farm, natively (`--nocapture`).
+    #[test]
+    #[ignore]
+    fn print_still_mesh_costs() {
+        let mut atlas = crate::atlas::Atlas::build();
+        let (png, idx, defs, models) = crate::tools::vanilla_assets().unwrap();
+        atlas.apply_vanilla_png(&png, &idx).unwrap();
+        let (rgba, w, h) = crate::tools::decode_png(&png).unwrap();
+        atlas.set_game(&rgba, w, h, &idx, &defs, &models).unwrap();
+        for name in ["iron-day1", "iron-scaled-2x2"] {
+            let text = archived(name);
+            let t = std::time::Instant::now();
+            let s = crate::session::Session::new(&text, &crate::session::Options::still()).unwrap();
+            let t_new = t.elapsed().as_secs_f64() * 1000.0;
+            let look = crate::scene::viewer_look(&s);
+            let t = std::time::Instant::now();
+            let blocks = s.render_blocks(0.0);
+            let t_rb = t.elapsed().as_secs_f64() * 1000.0;
+            let t = std::time::Instant::now();
+            let m = crate::scene::build(&atlas, &s, 0.0, &look);
+            let t_build = t.elapsed().as_secs_f64() * 1000.0;
+            // (more builds for a profiler: MCVIEW_MESH_LOOPS=n)
+            let loops: u32 = std::env::var("MCVIEW_MESH_LOOPS").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+            for _ in 0..loops {
+                std::hint::black_box(crate::scene::build(&atlas, &s, 0.0, &look));
+            }
+            eprintln!("{name}: session {t_new:.1} ms, {} blocks drawn ({t_rb:.1} ms), mesh {t_build:.1} ms: {} solid, {} translucent vertices", blocks.len(), m.solid.len(), m.translucent.len());
+        }
+    }
+
+    /// Each archived farm's view: a tick's and a frame's cost natively (`--nocapture`).
+    #[test]
+    #[ignore]
+    fn print_frame_costs() {
+        // the browser's atlas: the game's textures, block models and entity textures
+        let mut atlas = crate::atlas::Atlas::build();
+        let (png, idx, defs, models) = crate::tools::vanilla_assets().unwrap();
+        atlas.apply_vanilla_png(&png, &idx).unwrap();
+        let (rgba, w, h) = crate::tools::decode_png(&png).unwrap();
+        atlas.set_game(&rgba, w, h, &idx, &defs, &models).unwrap();
+        let ((ep, ei), (ip, ii)) = crate::tools::vanilla_entity_assets().unwrap();
+        let (er, ew, eh) = crate::tools::decode_png(&ep).unwrap();
+        let (ir, iw, ih) = crate::tools::decode_png(&ip).unwrap();
+        atlas.add_game_entities((&er, ew, eh, &ei), (&ir, iw, ih, &ii)).unwrap();
+        for name in ["iron-day1", "iron-middle", "iron-fast-module", "iron-scaled-2x2"] {
+            let text = archived(name);
+            let mut p = crate::player::Player::new_web(&text, 1.5).unwrap();
+            let t = std::time::Instant::now();
+            let _ = p.triangles(&atlas);
+            let first = t.elapsed().as_secs_f64() * 1000.0;
+            let (mut ticks, mut frames, mut rebuilt) = (0.0, 0.0, 0);
+            let mut version = p.session.blocks_version;
+            for _ in 0..600 {
+                let t = std::time::Instant::now();
+                p.session.step();
+                ticks += t.elapsed().as_secs_f64() * 1000.0;
+                if p.session.blocks_version != version {
+                    rebuilt += 1;
+                    version = p.session.blocks_version;
+                }
+                let t = std::time::Instant::now();
+                let _ = p.triangles(&atlas);
+                frames += t.elapsed().as_secs_f64() * 1000.0;
+            }
+            eprintln!("{name}: first frame {first:.1} ms; 600 ticks: {:.3} ms a tick, {:.2} ms a frame, the blocks' mesh rebuilt {rebuilt} times", ticks / 600.0, frames / 600.0);
+        }
+    }
+
+    /// When each archived farm's view summons its golems (a picture's moments: `--nocapture`).
+    #[test]
+    #[ignore]
+    fn print_golem_ticks() {
+        for name in ["iron-day1", "iron-middle", "iron-fast-module", "iron-scaled-2x2"] {
+            let mut s = crate::session::Session::new(&archived(name), &crate::session::Options::live()).unwrap();
+            let (mut seen, mut ticks) = (0, Vec::new());
+            for _ in 0..3000 {
+                s.step();
+                let g = s.mob.as_ref().unwrap().golems;
+                if g > seen {
+                    seen = g;
+                    ticks.push(s.tick - s.rest_tick);
+                }
+            }
+            eprintln!("{name}: golems at {ticks:?}");
+        }
+        // where the day-1 farm's first golem goes, every 10 ticks of its life
+        let mut s = crate::session::Session::new(&archived("iron-day1"), &crate::session::Options::live()).unwrap();
+        for _ in 0..100 {
+            s.step();
+        }
+        for k in 0..30 {
+            for _ in 0..10 {
+                s.step();
+            }
+            for e in s.world.entities.list.iter().filter(|e| !e.removed) {
+                if let EntityKind::Mob(m) = &e.kind
+                    && m.ty == MobType::IronGolem
+                {
+                    eprintln!("t+{} golem {} at {:.2} {:.2} {:.2} health {:.1} fire {} hurt {} dead {} {}", 100 + 10 * (k + 1), e.id, e.pos.x, e.pos.y, e.pos.z, m.health, m.fire_ticks, m.hurt_time, m.dead, m.death_time);
+                }
+            }
+        }
+    }
+}
+
+/// The game's day time as the readout says it: the day (from 1) and the clock (day time 0 is
+/// 6:00, 1000 a game hour).
+pub fn clock_words(day_time: i64) -> String {
+    let d = day_time.rem_euclid(24000);
+    let day = day_time.div_euclid(24000) + 1;
+    let minutes = (d * 60 / 1000 + 6 * 60) % (24 * 60);
+    format!("day {day}, {:02}:{:02}", minutes / 60, minutes % 60)
+}
+
+/// The view's readout for a mob farm (the time badge, vjeux's brief: the in-game time, the golems
+/// so far, the iron in the chest): `day 2, 18:30 · 12 golems, 47 iron` (one part per line on a
+/// phone). Before it plays (a still): the judge's start, nothing yet.
+pub fn readout(s: &crate::session::Session) -> String {
+    let (day_time, golems, iron) = match &s.mob {
+        Some(m) => (s.world.day_time(), m.golems, m.iron_in_chests(&s.world)),
+        None => (run_opts().day0, 0, 0),
+    };
+    let plural = |n: u32, one: &str, many: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {many}") };
+    format!("{} · {}, {} iron", clock_words(day_time), plural(golems, "golem", "golems"), iron)
+}
+
+/// What the villagers do now, from redsim's state (the left badge): `villagers: 3 asleep`,
+/// `villagers: 2 panicking, 2 calm`.
+pub fn status_words(s: &crate::session::Session) -> String {
+    let (mut asleep, mut panic, mut calm) = (0, 0, 0);
+    for e in s.world.entities.list.iter().filter(|e| !e.removed) {
+        let EntityKind::Mob(m) = &e.kind else { continue };
+        if m.ty != MobType::Villager {
+            continue;
+        }
+        if m.sleeping_pos.is_some() {
+            asleep += 1;
+        } else if m.brain.as_deref().is_some_and(|b| b.activity == redsim::entity::mob::villager::Activity::Panic) {
+            panic += 1;
+        } else {
+            calm += 1;
+        }
+    }
+    status_text(asleep, panic, calm)
+}
+
+fn status_text(asleep: u32, panic: u32, calm: u32) -> String {
+    let parts: Vec<String> = [(asleep, "asleep"), (panic, "panicking"), (calm, "calm")].iter().filter(|(n, _)| *n > 0).map(|(n, w)| format!("{n} {w}")).collect();
+    if parts.is_empty() { String::new() } else { format!("villagers: {}", parts.join(", ")) }
+}
+
+/// The widest texts [`status_words`] can say for a farm of `n` villagers (the badge is sized once
+/// from them, never resizing as the night comes).
+pub fn status_texts(n: u32) -> Vec<String> {
+    let mut v = vec![status_text(n, 0, 0), status_text(0, n, 0), status_text(0, 0, n)];
+    if n >= 3 {
+        let a = n / 3;
+        v.push(status_text(a, a, n - 2 * a));
+    }
+    if n >= 2 {
+        v.push(status_text(n / 2, n - n / 2, 0));
+        v.push(status_text(0, n / 2, n - n / 2));
+    }
+    v
+}
+
+/// The villagers a design brings (its `entity:` lines).
+pub fn villagers(d: &Design) -> u32 {
+    d.entities.iter().filter(|e| e.kind.trim_start_matches("minecraft:") == "villager").count() as u32
+}
+
+/// The speed a mob farm plays at first (game ticks a second; vjeux's brief: a golem every few
+/// seconds): its card's seconds per golem (the archived `# CIRCUIT:` line) over about 4 s, the
+/// nearest of `speeds` (log scale, at least real time); 10x when the card says nothing.
+pub fn default_tps(d: &Design, speeds: &[f32]) -> f32 {
+    let secs = d.comments.iter().find_map(|c| {
+        let rest = c.split("seconds per golem ").nth(1)?;
+        rest.split([',', ' ']).next()?.parse::<f32>().ok()
+    });
+    let want = match secs {
+        Some(s) if s > 0.0 => (s / 4.0).max(1.0) * 20.0,
+        _ => 200.0,
+    };
+    speeds.iter().copied().filter(|t| *t >= 20.0).min_by(|a, b| (a.ln() - want.ln()).abs().total_cmp(&(b.ln() - want.ln()).abs())).unwrap_or(200.0)
+}

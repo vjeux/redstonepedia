@@ -8,27 +8,47 @@
 use crate::atlas::GameAssets;
 use crate::mesh::Vertex;
 
-/// A box of a model part (`CubeListBuilder.texOffs(u, v).addBox(x, y, z, w, h, d)`).
+/// A box of a model part (`CubeListBuilder.texOffs(u, v).addBox(x, y, z, w, h, d[, grow])`): a
+/// `CubeDeformation` grows the box on every side, never its texture.
 struct Cube {
     tex: [f32; 2],
     from: [f32; 3],
     size: [f32; 3],
     mirror: bool,
+    grow: f32,
 }
 
-/// A model part: its boxes, its pose (offset in pixels, rotations in radians, `PartPose`).
+/// A model part: its boxes, its pose (offset in pixels, rotations in radians, scale: `PartPose`)
+/// and its children (`PartDefinition.addOrReplaceChild`), posed relative to it.
 struct EPart {
     cubes: Vec<Cube>,
     offset: [f32; 3],
     rot: [f32; 3],
+    scale: f32,
+    children: Vec<EPart>,
 }
 
 fn cube(u: f32, v: f32, from: [f32; 3], size: [f32; 3]) -> Cube {
-    Cube { tex: [u, v], from, size, mirror: false }
+    Cube { tex: [u, v], from, size, mirror: false, grow: 0.0 }
+}
+
+/// A box with a `CubeDeformation` of `grow` on every side.
+fn cube_grown(u: f32, v: f32, from: [f32; 3], size: [f32; 3], grow: f32) -> Cube {
+    Cube { grow, ..cube(u, v, from, size) }
+}
+
+/// A mirrored box (`.mirror()`).
+fn cube_mirrored(u: f32, v: f32, from: [f32; 3], size: [f32; 3]) -> Cube {
+    Cube { mirror: true, ..cube(u, v, from, size) }
 }
 
 fn part(cubes: Vec<Cube>, offset: [f32; 3], rot: [f32; 3]) -> EPart {
-    EPart { cubes, offset, rot }
+    EPart { cubes, offset, rot, scale: 1.0, children: Vec::new() }
+}
+
+/// A part with its children.
+fn part_with(cubes: Vec<Cube>, offset: [f32; 3], rot: [f32; 3], children: Vec<EPart>) -> EPart {
+    EPart { children, ..part(cubes, offset, rot) }
 }
 
 const PI: f32 = std::f32::consts::PI;
@@ -159,14 +179,19 @@ pub fn entity_light(n: [f32; 3]) -> f32 {
     ((d(l0) + d(l1)) * 0.6 + 0.4).min(1.0)
 }
 
-/// The triangles of a model's parts (`ModelPart.Cube`'s polygons and UVs, mirror included) under
-/// `m`, textured from `rect` (x, y, w, h in the game texture) of a `tex_size` texture.
+/// The triangles of a model's parts (`ModelPart.Cube`'s polygons and UVs, mirror and growth
+/// included; children posed relative to their parent, `ModelPart.translateAndRotate`) under `m`,
+/// textured from `rect` (x, y, w, h in the game texture) of a `tex_size` texture.
 fn emit(out: &mut Vec<Vertex>, parts: &[EPart], m: &M, tex_size: [f32; 2], rect: [u32; 4], tw: f32, th: f32) {
     for p in parts {
-        let pm = m.translate([p.offset[0] / 16.0, p.offset[1] / 16.0, p.offset[2] / 16.0]).rot(2, p.rot[2]).rot(1, p.rot[1]).rot(0, p.rot[0]);
+        let mut pm = m.translate([p.offset[0] / 16.0, p.offset[1] / 16.0, p.offset[2] / 16.0]).rot(2, p.rot[2]).rot(1, p.rot[1]).rot(0, p.rot[0]);
+        if p.scale != 1.0 {
+            pm = pm.scale([p.scale, p.scale, p.scale]);
+        }
         for c in &p.cubes {
-            let (mut x0, y0, z0) = (c.from[0], c.from[1], c.from[2]);
-            let (mut x1, y1, z1) = (x0 + c.size[0], y0 + c.size[1], z0 + c.size[2]);
+            let g = c.grow;
+            let (mut x0, y0, z0) = (c.from[0] - g, c.from[1] - g, c.from[2] - g);
+            let (mut x1, y1, z1) = (c.from[0] + c.size[0] + g, c.from[1] + c.size[1] + g, c.from[2] + c.size[2] + g);
             if c.mirror {
                 std::mem::swap(&mut x0, &mut x1);
             }
@@ -214,6 +239,7 @@ fn emit(out: &mut Vec<Vertex>, parts: &[EPart], m: &M, tex_size: [f32; 2], rect:
                 out.extend_from_slice(&[vx[0], vx[1], vx[2], vx[0], vx[2], vx[3]]);
             }
         }
+        emit(out, &p.children, &pm, tex_size, rect, tw, th);
     }
 }
 
@@ -382,6 +408,197 @@ pub fn entity_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], yaw: f32, pit
     None
 }
 
+/// `Mth.triangleWave`.
+fn triangle_wave(index: f32, period: f32) -> f32 {
+    ((index % period - period * 0.5).abs() - period * 0.25) / (period * 0.25)
+}
+
+/// `IronGolemModel.createBodyLayer` (texture 128 x 128) posed by `setupAnim`: the head's yaw and
+/// pitch, the arms and legs swinging with the walk (no attack, no flower offered: the farms' golems
+/// never fight).
+fn iron_golem(d: &crate::mesh::MobDraw) -> Vec<EPart> {
+    let (pos, speed) = (d.walk_pos, d.walk_speed);
+    let tri = triangle_wave(pos, 13.0);
+    let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
+    vec![
+        part(vec![cube(0.0, 0.0, [-4.0, -12.0, -5.5], [8.0, 10.0, 8.0]), cube(24.0, 0.0, [-1.0, -5.0, -7.5], [2.0, 4.0, 2.0])], [0.0, -7.0, -2.0], [hx, hy, 0.0]),
+        part(vec![cube(0.0, 40.0, [-9.0, -2.0, -6.0], [18.0, 12.0, 11.0]), cube_grown(0.0, 70.0, [-4.5, 10.0, -3.0], [9.0, 5.0, 6.0], 0.5)], [0.0, -7.0, 0.0], [0.0; 3]),
+        part(vec![cube(60.0, 21.0, [-13.0, -2.5, -3.0], [4.0, 30.0, 6.0])], [0.0, -7.0, 0.0], [(-0.2 + 1.5 * tri) * speed, 0.0, 0.0]),
+        part(vec![cube(60.0, 58.0, [9.0, -2.5, -3.0], [4.0, 30.0, 6.0])], [0.0, -7.0, 0.0], [(-0.2 - 1.5 * tri) * speed, 0.0, 0.0]),
+        part(vec![cube(37.0, 0.0, [-3.5, -3.0, -3.0], [6.0, 16.0, 5.0])], [-4.0, 11.0, 0.0], [-1.5 * tri * speed, 0.0, 0.0]),
+        part(vec![cube_mirrored(60.0, 0.0, [-3.5, -3.0, -3.0], [6.0, 16.0, 5.0])], [5.0, 11.0, 0.0], [1.5 * tri * speed, 0.0, 0.0]),
+    ]
+}
+
+/// `VillagerModel.createBodyModel` (texture 64 x 64) with the villagers' `MeshTransformer.scaling
+/// (0.9375)` (`LayerDefinitions`: the root part scaled, 1.501 px down), posed by `setupAnim`: the
+/// head's yaw and pitch, the legs swinging with the walk (never unhappy: no trades).
+fn villager(d: &crate::mesh::MobDraw) -> Vec<EPart> {
+    let (pos, speed) = (d.walk_pos, d.walk_speed);
+    let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
+    let hat = part_with(vec![cube_grown(32.0, 0.0, [-4.0, -10.0, -4.0], [8.0, 10.0, 8.0], 0.51)], [0.0; 3], [0.0; 3], vec![part(vec![cube(30.0, 47.0, [-8.0, -8.0, -6.0], [16.0, 16.0, 1.0])], [0.0; 3], [-PI / 2.0, 0.0, 0.0])]);
+    let nose = part(vec![cube(24.0, 0.0, [-1.0, -1.0, -6.0], [2.0, 4.0, 2.0])], [0.0, -2.0, 0.0], [0.0; 3]);
+    let head = part_with(vec![cube(0.0, 0.0, [-4.0, -10.0, -4.0], [8.0, 10.0, 8.0])], [0.0; 3], [hx, hy, 0.0], vec![hat, nose]);
+    let body = part_with(vec![cube(16.0, 20.0, [-4.0, 0.0, -3.0], [8.0, 12.0, 6.0])], [0.0; 3], [0.0; 3], vec![part(vec![cube_grown(0.0, 38.0, [-4.0, 0.0, -3.0], [8.0, 20.0, 6.0], 0.5)], [0.0; 3], [0.0; 3])]);
+    let arms = part(vec![cube(44.0, 22.0, [-8.0, -2.0, -2.0], [4.0, 8.0, 4.0]), cube_mirrored(44.0, 22.0, [4.0, -2.0, -2.0], [4.0, 8.0, 4.0]), cube(40.0, 38.0, [-4.0, 2.0, -2.0], [8.0, 4.0, 4.0])], [0.0, 3.0, -1.0], [-0.75, 0.0, 0.0]);
+    let swing = |phase: f32| (pos * 0.6662 + phase).cos() * 1.4 * speed * 0.5;
+    let right_leg = part(vec![cube(0.0, 22.0, [-2.0, 0.0, -2.0], [4.0, 12.0, 4.0])], [-2.0, 12.0, 0.0], [swing(0.0), 0.0, 0.0]);
+    let left_leg = part(vec![cube_mirrored(0.0, 22.0, [-2.0, 0.0, -2.0], [4.0, 12.0, 4.0])], [2.0, 12.0, 0.0], [swing(PI), 0.0, 0.0]);
+    let scale = 0.9375f32;
+    vec![EPart { scale, ..part_with(Vec::new(), [0.0, 24.016 * (1.0 - scale), 0.0], [0.0; 3], vec![head, body, arms, right_leg, left_leg]) }]
+}
+
+/// `HumanoidModel.createMesh(NONE, 0)` (the zombie's layer, texture 64 x 64) posed by
+/// `HumanoidModel.setupAnim` and `ZombieModel.setupAttackAnimation`: the head's yaw and pitch, the
+/// walk, a passenger's legs forward (`isPassenger`), the zombie's arms held out
+/// (`AnimationUtils.animateZombieArms`, not aggressive: the farm's zombie targets nothing it can
+/// reach) and bobbing with its age (`bobModelPart`).
+fn zombie(d: &crate::mesh::MobDraw) -> Vec<EPart> {
+    let (pos, speed) = (d.walk_pos, d.walk_speed);
+    let (hx, hy) = (d.head_pitch.to_radians(), d.head_yaw.to_radians());
+    let mut right_leg = [(pos * 0.6662).cos() * 1.4 * speed, 0.005, 0.005];
+    let mut left_leg = [(pos * 0.6662 + PI).cos() * 1.4 * speed, -0.005, -0.005];
+    if d.riding {
+        right_leg = [-1.4137167, PI / 10.0, 0.07853982];
+        left_leg = [-1.4137167, -PI / 10.0, -0.07853982];
+    }
+    // animateZombieArms (an adult: arms raised to -pi / 2.25; no swing), then the arms' bob
+    let arm_x = -PI / 2.25;
+    let bob = |sign: f32| [sign * ((d.age * 0.067).sin() * 0.05), 0.0, sign * ((d.age * 0.09).cos() * 0.05 + 0.05)];
+    let (rb, lb) = (bob(1.0), bob(-1.0));
+    let right_arm = [arm_x + rb[0], -0.1, rb[2]];
+    let left_arm = [arm_x + lb[0], 0.1, lb[2]];
+    let head = part_with(vec![cube(0.0, 0.0, [-4.0, -8.0, -4.0], [8.0, 8.0, 8.0])], [0.0; 3], [hx, hy, 0.0], vec![part(vec![cube_grown(32.0, 0.0, [-4.0, -8.0, -4.0], [8.0, 8.0, 8.0], 0.5)], [0.0; 3], [0.0; 3])]);
+    vec![
+        head,
+        part(vec![cube(16.0, 16.0, [-4.0, 0.0, -2.0], [8.0, 12.0, 4.0])], [0.0; 3], [0.0; 3]),
+        part(vec![cube(40.0, 16.0, [-3.0, -2.0, -2.0], [4.0, 12.0, 4.0])], [-5.0, 2.0, 0.0], right_arm),
+        part(vec![cube_mirrored(40.0, 16.0, [-1.0, -2.0, -2.0], [4.0, 12.0, 4.0])], [5.0, 2.0, 0.0], left_arm),
+        part(vec![cube(0.0, 16.0, [-2.0, 0.0, -2.0], [4.0, 12.0, 4.0])], [-1.9, 12.0, 0.0], right_leg),
+        part(vec![cube_mirrored(0.0, 16.0, [-2.0, 0.0, -2.0], [4.0, 12.0, 4.0])], [1.9, 12.0, 0.0], left_leg),
+    ]
+}
+
+/// The game texture each mob is drawn with (with its overlay layers composited in once the atlas
+/// is packed, `Atlas::add_game_entities`): an iron golem's base under its crackiness
+/// (`IronGolemCrackinessLayer`), a villager's base under its plains type (`VillagerProfessionLayer`:
+/// no profession, so the type's layer covers the whole model, hat included), a zombie's own.
+pub fn mob_texture(kind: &str, crack: u8) -> Option<(String, [f32; 2])> {
+    match kind.strip_prefix("minecraft:").unwrap_or(kind) {
+        "iron_golem" => Some((format!("mob/iron_golem/{}", crack.min(3)), [128.0, 128.0])),
+        "villager" => Some(("mob/villager/plains".to_string(), [64.0, 64.0])),
+        "zombie" => Some(("entity/zombie/zombie".to_string(), [64.0, 64.0])),
+        _ => None,
+    }
+}
+
+/// The composited mob textures [`mob_texture`] names: (name, base, overlay), the overlay drawn
+/// over the base wherever it is opaque (the game draws the layer again over the model with a
+/// cutout: alpha under 0.1 discarded).
+pub const MOB_COMPOSITES: [(&str, &str, Option<&str>); 5] = [
+    ("mob/iron_golem/0", "entity/iron_golem/iron_golem", None),
+    ("mob/iron_golem/1", "entity/iron_golem/iron_golem", Some("entity/iron_golem/iron_golem_crackiness_low")),
+    ("mob/iron_golem/2", "entity/iron_golem/iron_golem", Some("entity/iron_golem/iron_golem_crackiness_medium")),
+    ("mob/iron_golem/3", "entity/iron_golem/iron_golem", Some("entity/iron_golem/iron_golem_crackiness_high")),
+    ("mob/villager/plains", "entity/villager/villager", Some("entity/villager/type/plains")),
+];
+
+/// `LivingEntityRenderer.sleepDirectionToRotation`.
+fn sleep_rotation(d: redsim::Dir) -> f32 {
+    match d {
+        redsim::Dir::South => 90.0,
+        redsim::Dir::West => 0.0,
+        redsim::Dir::North => 270.0,
+        redsim::Dir::East => 180.0,
+        _ => 0.0,
+    }
+}
+
+/// A mob drawn like the game (`LivingEntityRenderer.submit` with its renderer's model and
+/// `setupRotations`): a sleeper moved toward its pillow and laid on its bed, a dying mob falling
+/// sideways over 20 ticks, a walking golem's sway, the model flipped and lowered 1.501, then the
+/// red overlay of a hurt or dying mob (`OverlayTexture`: 30% red, [`crate::atlas::GAME_LAYER_RED`]).
+/// None: not a mob the viewer has, or its texture is not packed.
+pub fn mob_triangles(g: &GameAssets, kind: &str, pos: [f32; 3], d: &crate::mesh::MobDraw) -> Option<Vec<Vertex>> {
+    let k = kind.strip_prefix("minecraft:").unwrap_or(kind);
+    let (tex, size) = mob_texture(k, d.crack)?;
+    let r = rect(g, &tex)?;
+    let parts = match k {
+        "iron_golem" => iron_golem(d),
+        "villager" => villager(d),
+        "zombie" => zombie(d),
+        _ => return None,
+    };
+    let mut m = M::id().translate(pos);
+    if let Some(dir) = d.sleeping {
+        let off = d.eye_standing - 0.1;
+        let s = dir.step();
+        m = m.translate([-s[0] as f32 * off, 0.0, -s[2] as f32 * off]);
+    }
+    if d.sleeping.is_none() {
+        m = m.rot(1, (180.0 - d.body_yaw).to_radians());
+    }
+    if d.death_time > 0.0 {
+        let fall = ((d.death_time - 1.0) / 20.0 * 1.6).max(0.0).sqrt().min(1.0);
+        m = m.rot(2, (fall * 90.0).to_radians());
+    } else if let Some(dir) = d.sleeping {
+        m = m.rot(1, sleep_rotation(dir).to_radians()).rot(2, PI / 2.0).rot(1, 270f32.to_radians());
+    }
+    // IronGolemRenderer.setupRotations: a walking golem sways
+    if k == "iron_golem" && d.walk_speed >= 0.01 {
+        let wp = d.walk_pos + 6.0;
+        let tri = ((wp % 13.0 - 6.5).abs() - 3.25) / 3.25;
+        m = m.rot(2, (6.5 * tri).to_radians());
+    }
+    let m = m.scale([-1.0, -1.0, 1.0]).translate([0.0, -1.501, 0.0]);
+    let (tw, th) = (g.width as f32, g.height as f32);
+    let mut out = Vec::new();
+    emit(&mut out, &parts, &m, size, r, tw, th);
+    if d.red {
+        for v in &mut out {
+            v.layer = crate::atlas::GAME_LAYER_RED;
+            v.color[3] = 178;
+        }
+    }
+    Some(out)
+}
+
+/// The game texture UVs of `block/fire_0` and `fire_1` (a burning entity's flames), if packed.
+pub fn fire_uvs(g: &GameAssets) -> Option<[[f32; 4]; 2]> {
+    let (tw, th) = (g.width as f32, g.height as f32);
+    let uvs = |r: [u32; 4]| [(r[0] as f32 + 0.02) / tw, (r[1] as f32 + 0.02) / th, (r[0] as f32 + r[2] as f32 - 0.02) / tw, (r[1] as f32 + r[2].min(r[3]) as f32 - 0.02) / th];
+    Some([uvs(rect(g, "block/fire_0")?), uvs(rect(g, "block/fire_1")?)])
+}
+
+/// A burning entity's flames (`FlameFeatureRenderer`): squares of `block/fire_0` and `fire_1`
+/// turned about the vertical toward the camera (`right`: the camera's horizontal right, `back`:
+/// toward the camera), scaled to 1.4 x the box's width, stacked every 0.45 up its height (each 0.9
+/// as wide and 0.03 further back, every other pair mirrored), lit by full block light.
+pub fn flame_triangles(f: &crate::mesh::Flame, right: [f32; 3], back: [f32; 3]) -> Vec<Vertex> {
+    let (pos, s) = (f.pos, f.width * 1.4);
+    let mut h = f.height / s;
+    let at = |x: f32, y: f32, z: f32| [pos[0] + s * (x * right[0] + z * back[0]), pos[1] + s * y, pos[2] + s * (x * right[2] + z * back[2])];
+    let (mut r, mut yo) = (0.5f32, 0.0f32);
+    let mut zo = 0.3 - (h as i32) as f32 * 0.02;
+    let mut out = Vec::new();
+    let mut ss = 0;
+    while h > 0.0 {
+        let [mut u0, v0, mut u1, v1] = f.uv[ss % 2];
+        if (ss / 2) % 2 == 0 {
+            std::mem::swap(&mut u0, &mut u1);
+        }
+        let v = |p: [f32; 3], u: f32, vv: f32| Vertex { pos: p, uv: [u, vv], layer: crate::atlas::GAME_LAYER, color: [255, 255, 255, 255] };
+        let q = [v(at(-r, -yo, zo), u1, v1), v(at(r, -yo, zo), u0, v1), v(at(r, 1.4 - yo, zo), u0, v0), v(at(-r, 1.4 - yo, zo), u1, v0)];
+        out.extend_from_slice(&[q[0], q[1], q[2], q[0], q[2], q[3]]);
+        h -= 0.45;
+        yo -= 0.45;
+        r *= 0.9;
+        zo -= 0.03;
+        ss += 1;
+    }
+    out
+}
+
 /// `TntRenderer`: a primed TNT's swell over the last 10 ticks of its fuse (`fuse` = the fuse left
 /// as drawn: `getFuse() - partialTicks + 1`), and whether it flashes white (every 5 ticks).
 pub fn tnt_look(fuse: f32) -> (f32, bool) {
@@ -415,10 +632,19 @@ pub fn item_block_transform(pos: [f32; 3], age: f32) -> M {
 /// A dropped item that is not a block: its item sprite as a flat double-sided square (the
 /// `ground` display: 0.5 scale, 2 px up), bobbing and spinning.
 pub fn item_sprite_triangles(g: &GameAssets, item: &str, pos: [f32; 3], age: f32) -> Option<Vec<Vertex>> {
-    let bob = (age / 10.0).sin() * 0.1 + 0.1;
-    let m = M::id().translate(pos).translate([0.0, bob + 0.0625, 0.0]).rot(1, age / 20.0).translate([0.0, 0.125, 0.0]).scale([0.5, 0.5, 0.5]).translate([-0.5, -0.5, 0.0]);
+    let m = M::id().translate(pos).translate([0.0, (age / 10.0).sin() * 0.1 + 0.1 + 0.0625, 0.0]).rot(1, age / 20.0).translate([0.0, 0.125, 0.0]).scale([0.5, 0.5, 0.5]).translate([-0.5, -0.5, 0.0]);
+    let name = item.strip_prefix("minecraft:").unwrap_or(item);
+    // a flower's item is `item/generated` from its block texture (`models/item/poppy.json`:
+    // layer0 `block/poppy`): a golem's poppy
+    if !g.tex.contains_key(&format!("item/{name}")) && BLOCK_SPRITE_ITEMS.contains(&name) {
+        return sprite_triangles_of(g, &format!("block/{name}"), &m);
+    }
     sprite_triangles(g, item, &m)
 }
+
+/// Items whose model is `item/generated` from their block's texture (the small flowers), not an
+/// `item/` sprite.
+pub const BLOCK_SPRITE_ITEMS: &[&str] = &["poppy", "dandelion", "blue_orchid", "allium", "azure_bluet", "red_tulip", "orange_tulip", "white_tulip", "pink_tulip", "oxeye_daisy", "cornflower", "lily_of_the_valley", "wither_rose"];
 
 /// An item frame's transform (`ItemFrameRenderer`) for a frame facing `d` hanging in the cell
 /// whose centre is `center`: turned so the `item_frame` block model (built facing north, its back
@@ -448,8 +674,12 @@ pub fn framed_item_transform(frame: &M, rotation: u8) -> M {
 /// An item's sprite as a flat double-sided square: the unit square (z 0, its texture upright
 /// seen from +z) through `m`.
 pub fn sprite_triangles(g: &GameAssets, item: &str, m: &M) -> Option<Vec<Vertex>> {
-    let name = format!("item/{}", item.strip_prefix("minecraft:").unwrap_or(item));
-    let r = rect(g, &name)?;
+    sprite_triangles_of(g, &format!("item/{}", item.strip_prefix("minecraft:").unwrap_or(item)), m)
+}
+
+/// [`sprite_triangles`] of a texture of the game texture by its name (`item/...`, `block/...`).
+pub fn sprite_triangles_of(g: &GameAssets, name: &str, m: &M) -> Option<Vec<Vertex>> {
+    let r = rect(g, name)?;
     let (tw, th) = (g.width as f32, g.height as f32);
     let q = [[0.0, 1.0, 0.0], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0]].map(|p| m.point(p));
     let uv = |u: f32, v: f32| [(r[0] as f32 + 0.02 + u * (r[2] as f32 - 0.04)) / tw, (r[1] as f32 + 0.02 + v * (r[3] as f32 - 0.04)) / th];

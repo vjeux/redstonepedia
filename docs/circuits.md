@@ -1252,7 +1252,8 @@ kick) before the first input.
   most per group of villagers); the fastest tier's pick links its scaled build (several copies)
   both ways; a farm in no tier (the brief's obvious design) stays in the catalog only. The site's
   pages of a mob farm say it is tested on our simulation of the mob rules (its caption gives the
-  game check) and that the 3D view shows it as built (the view runs no mob).
+  game check) and that the 3D view runs it with that simulation (its judge's first run, tick for
+  tick: [webrender.md](webrender.md)).
 
 ### Real use (the audit of 2026-10-21)
 

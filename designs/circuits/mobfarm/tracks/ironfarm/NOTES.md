@@ -16,8 +16,9 @@ the most iron an hour per block, the most per group of villagers; then blocks), 
 tier's pick is the module and its scaled build is linked from its page and back (`scaled_variants`).
 Pages: `circuits/mobfarm/iron-day1.html` (its live URL kept), `iron-middle.html`,
 `iron-fast-module.html`, `iron-scaled-2x2.html`. A mob farm's page says it is tested on our
-simulation of the mob rules (its caption gives the game check), that the 3D view shows it as built
-(the browser's viewer runs no mob; its badge names a block it does not simulate), where the chest
+simulation of the mob rules (its caption gives the game check), that the 3D view runs it with that
+simulation (the judge's own `farm::Run`, its first run, tick for tick: mobviewer, docs/webrender.md),
+where the chest
 goes, and, for the day-1 farm, the first night's hand. Re-judged with the tiers, every card is the
 same (the metrics byte for byte; only the kind and axis columns changed).
 

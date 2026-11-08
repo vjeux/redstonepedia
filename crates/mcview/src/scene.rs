@@ -198,8 +198,29 @@ pub fn viewer_look(s: &Session) -> Look {
     look
 }
 
+/// Which part of a frame [`build_part`] makes: everything, or (a mob farm's view: its blocks change
+/// seldom, its mobs every tick) the blocks with the outlines and ground, or the entities alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Part {
+    All,
+    Blocks,
+    Entities,
+}
+
 /// The frame of a session at `partial` (0..1) after its current tick.
 pub fn build(atlas: &Atlas, s: &Session, partial: f32, look: &Look) -> Mesh {
+    build_part(atlas, s, partial, look, Part::All)
+}
+
+/// [`build`]'s blocks, outlines and ground, or its entities, or both: the two parts together are
+/// the whole frame.
+pub fn build_part(atlas: &Atlas, s: &Session, partial: f32, look: &Look, part: Part) -> Mesh {
+    if part == Part::Entities {
+        let mut b = Builder::new(atlas);
+        b.ground = look.ground.map(|y| y.floor() as i32);
+        entities_into(&mut b, s, partial);
+        return b.mesh;
+    }
     let mut blocks = s.render_blocks(partial);
     // a TNT duper's ground (real blocks of its world, `Session::floor`): what changed in it (a
     // crater, something fallen in) and the ground cells next to that are drawn as blocks, the rest
@@ -245,31 +266,8 @@ pub fn build(atlas: &Atlas, s: &Session, partial: f32, look: &Look) -> Mesh {
     b.extra_occ = extra_occ;
     b.ghost = look.ghost.iter().copied().collect();
     b.blocks(&items);
-    if let Some(r) = &s.replay {
-        for e in r.entities(partial) {
-            b.entity(&e);
-        }
-    } else if !s.simulated() {
-        for e in &s.design.entities {
-            b.entity(&EntityDraw { kind: e.kind.clone(), pos: [e.pos[0] as f32, e.pos[1] as f32, e.pos[2] as f32], yaw: entity_yaw(e.nbt.as_deref()), ..Default::default() });
-        }
-    } else {
-        for e in s.entities(partial) {
-            b.entity(&e);
-        }
-        // an explosion's cloud for 10 ticks after each of redsim's blasts (the game client draws
-        // its particles; a blast in mid-air breaks nothing and showed nothing at all: critique on
-        // the precise drop, "no TNT falls or explodes")
-        let now = s.world.time as f32 + partial;
-        for x in s.world.explosions.iter().rev() {
-            let age = now - x.time as f32;
-            if age >= crate::particles::SHOWS_FOR {
-                break;
-            }
-            if age >= 0.0 {
-                b.explosion([x.center.x as f32, x.center.y as f32, x.center.z as f32], x.time as u64, age);
-            }
-        }
+    if part == Part::All {
+        entities_into(&mut b, s, partial);
     }
     if let Some(m) = look.marker {
         b.marker(m, true, [255, 255, 255], look.lit_marker && s.output_on().unwrap_or(false));
@@ -315,6 +313,37 @@ pub fn build(atlas: &Atlas, s: &Session, partial: f32, look: &Look) -> Mesh {
         m.solid.extend_from_slice(&g);
     }
     m
+}
+
+/// The frame's entities (a recording's, a still's design entities, else redsim's) and an
+/// explosion's cloud for 10 ticks after each of redsim's blasts.
+fn entities_into(b: &mut Builder, s: &Session, partial: f32) {
+    if let Some(r) = &s.replay {
+        for e in r.entities(partial) {
+            b.entity(&e);
+        }
+    } else if !s.simulated() {
+        for e in &s.design.entities {
+            b.entity(&EntityDraw { kind: e.kind.clone(), pos: [e.pos[0] as f32, e.pos[1] as f32, e.pos[2] as f32], yaw: entity_yaw(e.nbt.as_deref()), ..Default::default() });
+        }
+    } else {
+        for e in s.entities(partial) {
+            b.entity(&e);
+        }
+        // an explosion's cloud for 10 ticks after each of redsim's blasts (the game client draws
+        // its particles; a blast in mid-air breaks nothing and showed nothing at all: critique on
+        // the precise drop, "no TNT falls or explodes")
+        let now = s.world.time as f32 + partial;
+        for x in s.world.explosions.iter().rev() {
+            let age = now - x.time as f32;
+            if age >= crate::particles::SHOWS_FOR {
+                break;
+            }
+            if age >= 0.0 {
+                b.explosion([x.center.x as f32, x.center.y as f32, x.center.z as f32], x.time as u64, age);
+            }
+        }
+    }
 }
 
 /// The floor [`build`] draws, with nothing on it (`web compare`: the pixels that differ from it
@@ -614,6 +643,19 @@ pub fn triangles(m: &Mesh, cam: &Camera) -> (Vec<Vertex>, Vec<Vertex>) {
         solid.reserve(m.sprites.len() * 6);
         for s in &m.sprites {
             solid.extend_from_slice(&s.quad(r, u));
+        }
+    }
+    if !m.flames.is_empty() {
+        // a burning entity's flames turn about the vertical toward the camera
+        // (`Mth.rotationAroundAxis(Y, camera.orientation)`)
+        let (f, r, _) = cam.basis();
+        let flat = |v: [f32; 3]| {
+            let l = (v[0] * v[0] + v[2] * v[2]).sqrt().max(1e-6);
+            [v[0] / l, 0.0, v[2] / l]
+        };
+        let (right, back) = (flat(r), flat([-f[0], -f[1], -f[2]]));
+        for fl in &m.flames {
+            solid.extend(crate::entitymodel::flame_triangles(fl, right, back));
         }
     }
     (solid, m.sorted_translucent(cam.eye()))

@@ -231,7 +231,7 @@ pub fn consumer_cells(d: &Design) -> Vec<Pos> {
     // (an item sorter's, an auto-smelter's, an auto-brewer's, an auto-composter's, a harvester's
     // ports and those of the kinds shown with static judge chests (`STATIC_CHEST_KINDS`) are the
     // judge's chests: no lamp there, the coordinator and site 2026-10-21)
-    if matches!(kind, "piston-extender" | "flying-machine" | "shulker-loader" | "shulker-unloader" | "sorter" | "smelter" | "brewer" | "composter" | "harvester") || STATIC_CHEST_KINDS.contains(&kind) {
+    if matches!(kind, "piston-extender" | "flying-machine" | "shulker-loader" | "shulker-unloader" | "sorter" | "smelter" | "brewer" | "composter" | "harvester" | "mob-farm") || STATIC_CHEST_KINDS.contains(&kind) {
         return Vec::new();
     }
     let ins: Vec<Pos> = inputs(d).iter().map(|i| i.pos).collect();
@@ -481,6 +481,13 @@ pub fn still_judge_blocks(d: &Design) -> Vec<(redsim::BlockPos, Block)> {
         v.extend(d.ports.iter().filter(|(n, _)| is_named(n, "output")).map(|(_, (p, _))| (bp(*p), chest)));
     }
     v.extend(static_judge_chest_blocks(d));
+    // a mob farm: the judge's chest on its `port output` (an air cell; `farm::build` places it)
+    if crate::mobfarm::is_mob_farm(d)
+        && let Some((p, _)) = d.ports.get("output")
+        && !d.blocks.contains_key(p)
+    {
+        v.push((bp(*p), chest));
+    }
     v
 }
 

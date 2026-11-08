@@ -73,11 +73,14 @@ pub struct Options {
     /// A harvester's random tick speed (`circuit::farm::game_rts`, the judge's for its runs: the
     /// page's `data-farm-rts`); None: [`crate::circuit::farm_rts_for`].
     pub farm_rts: Option<u32>,
+    /// A mob farm's run seed (None: the judge's first, [`crate::mobfarm::JUDGE_SEED`]; `mctas web
+    /// mobrate` plays the judge's other runs through the view).
+    pub mob_seed: Option<i64>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { margin: 4, settle: 400, ground_reach: None, simulate: true, probe: true, unverified: false, farm_rts: None }
+        Options { margin: 4, settle: 400, ground_reach: None, simulate: true, probe: true, unverified: false, farm_rts: None, mob_seed: None }
     }
 }
 
@@ -352,6 +355,13 @@ pub struct Session {
     /// A still ([`Options::simulate`] false): the design as placed, never stepped (the browser's
     /// cards; a page's view until it plays: `Player::wake`).
     pub still: bool,
+    /// A mob farm's run (`circuit: mob-farm ...`): redsim's own farm runner, the judge's run
+    /// ([`crate::mobfarm`]); its world is `world` between ticks.
+    pub mob: Option<crate::mobfarm::MobRun>,
+    mob_initial: Option<crate::mobfarm::MobRun>,
+    /// Bumped whenever a block drawn may have changed (a write the world logged, a reset or a
+    /// rewind): a mob farm's view keeps its blocks' mesh until then (`Player::triangles`).
+    pub blocks_version: u64,
 }
 
 /// The run's mutable state, for the timelapse ([`crate::player::Player::step_back`]): everything
@@ -377,6 +387,8 @@ pub struct RunState {
     pub replay: Option<crate::replay::Replay>,
     /// The judge's stimulus being replayed (cleared when the person takes over: `stop_demo`).
     pub demo: Option<crate::circuit::Schedule>,
+    /// A mob farm's runner and counts.
+    pub mob: Option<crate::mobfarm::MobRun>,
 }
 
 /// The corridor of a design with `travel:` (`circuit_fly::machine::Machine::corridor`): its
@@ -803,6 +815,9 @@ impl Session {
             outside: Default::default(),
             period_memo: Default::default(),
             still: false,
+            mob: None,
+            mob_initial: None,
+            blocks_version: 0,
         };
         if !o.simulate {
             // a still (vjeux 2026-10-21: "Why is it simulating everything?"; the coordinator:
@@ -837,6 +852,44 @@ impl Session {
             s.circuit_inputs.clear();
             s.input_on.clear();
             s.floor = None;
+            return Ok(s);
+        }
+        // a mob farm runs as its judge runs it (`crate::mobfarm`; vjeux 2026-11-08 on the caveat
+        // "the view shows the farm as built": "Just do the real work!?"): redsim's own farm runner
+        // (`entity::mob::farm::Run`) on the judge's farm of the design (its chest, its box), the
+        // judge's first run, its water's settle paused between ticks; nothing else of the session's
+        // placement applies
+        if crate::mobfarm::is_mob_farm(&s.design) {
+            let started = match crate::mobfarm::MobRun::start(&s.design, o.mob_seed.unwrap_or(crate::mobfarm::JUDGE_SEED)) {
+                Ok(mut m) => {
+                    while m.settle_tick() {
+                        b.pause().await;
+                    }
+                    m.arrive().map(|_| m)
+                }
+                Err(e) => Err(e),
+            };
+            match started {
+                Ok(mut m) => {
+                    s.world = m.take_world();
+                    // its blocks change seldom: the world logs the cells it changes, so the view
+                    // keeps its blocks' mesh until one does (no effect on the run)
+                    s.world.log_writes = true;
+                    s.world.writes.clear();
+                    s.tick = s.world.time as u32;
+                    s.rest_tick = s.tick;
+                    s.mob_initial = Some(m.clone());
+                    s.mob = Some(m);
+                    s.initial = Some((s.world.clone(), s.actions.clone(), s.tick));
+                }
+                Err(e) => {
+                    world.place_raw(&as_built(&blocks));
+                    s.world = world;
+                    s.unsimulated = Some(e);
+                    s.circuit_inputs.clear();
+                    s.input_on.clear();
+                }
+            }
             return Ok(s);
         }
         // the look-ahead for something redsim does not model in a judged run (`Options::probe`:
@@ -1181,6 +1234,9 @@ impl Session {
             return;
         }
         let writes = std::mem::take(&mut self.world.writes);
+        if !writes.is_empty() {
+            self.blocks_version += 1;
+        }
         let (min, size) = self.machine();
         let in_machine = |p: BlockPos| p.x >= min.x && p.y >= min.y && p.z >= min.z && p.x < min.x + size[0] && p.y < min.y + size[1] && p.z < min.z + size[2];
         for p in writes {
@@ -1210,6 +1266,7 @@ impl Session {
     fn clear_writes(&mut self) {
         self.world.writes.clear();
         self.outside.clear();
+        self.blocks_version += 1;
         if let Some(f) = self.floor.as_mut() {
             f.changed.clear();
         }
@@ -1338,6 +1395,7 @@ impl Session {
             self.prev_falling.clear();
             self.halted = None;
             self.shulker = self.shulker_initial.clone();
+            self.mob = self.mob_initial.clone();
             self.received.clear();
             self.visit_due = false;
             self.apply_due();
@@ -1366,6 +1424,7 @@ impl Session {
             end_tick: self.end_tick,
             replay: self.replay.clone(),
             demo: self.demo.clone(),
+            mob: self.mob.clone(),
         }
     }
 
@@ -1388,6 +1447,7 @@ impl Session {
         self.end_tick = s.end_tick;
         self.replay = s.replay;
         self.demo = s.demo;
+        self.mob = s.mob;
         self.period_memo = std::cell::RefCell::new(None);
         self.clear_writes();
         self.take_writes();
@@ -1546,7 +1606,11 @@ impl Session {
             }
         }
         self.prev_falling = self.world.gravity.entities.iter().filter(|f| !f.removed).map(|f| (f.id, [f.x, f.y, f.z])).collect();
-        self.world.tick();
+        match self.mob.as_mut() {
+            // a mob farm: the judge's tick (its golems' walking policy, then the world's tick)
+            Some(m) => m.tick(&mut self.world),
+            None => self.world.tick(),
+        }
         self.tick += 1;
         // the judge visits after every tick (a shulker design's) or every SORTER_SEG (a sorter's)
         self.visit_due = self.shulker.is_some() && self.tick > self.judge_from && (self.tick - self.judge_from) % self.judge_every.max(1) == 0;
@@ -1843,8 +1907,8 @@ impl Session {
     /// nor an item sorter, smelter or brewer (their judge's stream moves at a hopper's pace).
     pub fn wants_cycle_check(&self) -> bool {
         // (a crop farm grows by random ticks: no short cycle; its look took a big farm's wake
-        // 300+ ms natively)
-        self.circuit_inputs.is_empty() && !self.mode.is_door() && !is_tnt_design(&self.design) && !crate::circuit::is_sorter(&self.design) && !crate::circuit::is_smelter(&self.design) && !crate::circuit::is_brewer(&self.design) && !crate::circuit::is_composter(&self.design) && !crate::circuit::is_harvester(&self.design)
+        // 300+ ms natively; a mob farm plays at its own speed: `mobfarm::default_tps`)
+        self.circuit_inputs.is_empty() && !self.mode.is_door() && !is_tnt_design(&self.design) && !crate::circuit::is_sorter(&self.design) && !crate::circuit::is_smelter(&self.design) && !crate::circuit::is_brewer(&self.design) && !crate::circuit::is_composter(&self.design) && !crate::circuit::is_harvester(&self.design) && !crate::mobfarm::is_mob_farm(&self.design)
     }
 
     /// The shortest cycle, 2 to `max_p` ticks, the blocks repeat in over the second half of the
@@ -1990,6 +2054,10 @@ impl Session {
         // the design's entities by id: item frames take none (redsim keeps them as comparator
         // inputs, `World::frames`)
         let specs: Vec<&crate::design::Entity> = self.design.entities.iter().filter(|d| !d.kind.ends_with("item_frame")).collect();
+        // a mob farm's mobs as the mob layer gives them to the viewer (`mob::view`), by entity index
+        // (also in its still before it plays: the mobs as placed, drawn with their models)
+        let has_mobs = self.world.entities.list.iter().any(|e| matches!(e.kind, EntityKind::Mob(_)));
+        let mob_views: Vec<redsim::entity::mob::view::MobView> = if has_mobs { redsim::entity::mob::view::view(&self.world) } else { Vec::new() };
         self.world
             .entities
             .list
@@ -2028,6 +2096,14 @@ impl Session {
                     let p64 = [e.xo + (e.pos.x - e.xo) * partial as f64, e.yo + (e.pos.y - e.yo) * partial as f64, e.zo + (e.pos.z - e.zo) * partial as f64];
                     let (p, rot, xrot) = crate::entitymodel::minecart_pose(&self.world, p64, yaw, pitch);
                     return crate::mesh::EntityDraw { kind, pos: [p[0] as f32, p[1] as f32, p[2] as f32], yaw: rot, pitch: xrot, age, ..Default::default() };
+                }
+                // a mob farm's mob: its render state (the game client's, from redsim's state)
+                if let Some(v) = mob_views.iter().find(|v| v.id == e.id) {
+                    let draw = match self.mob.as_ref() {
+                        Some(run) => run.draw(&self.world, v, partial),
+                        None => crate::mobfarm::draw_mob(&self.world, v, partial, Default::default()),
+                    };
+                    return crate::mesh::EntityDraw { kind, pos, yaw, pitch, age, mob: Some(draw), ..Default::default() };
                 }
                 crate::mesh::EntityDraw { kind, pos, yaw, pitch, age, ..Default::default() }
             })
@@ -2453,6 +2529,11 @@ impl Session {
         if let Some(why) = &self.unsimulated {
             return Err(format!("not modeled by redsim: {why}"));
         }
+        // a mob farm has no period (its mobs and their seeded random never repeat), and only its
+        // judge's runner may tick it
+        if self.mob.is_some() {
+            return Err("a mob farm has no period".into());
+        }
         let end = self.free_from();
         let found = if !self.design.entities.is_empty() || self.world.tnt_kick.is_some() {
             // designs with entities never repeat their exact state (an entity's doubles drift;
@@ -2578,6 +2659,9 @@ impl Session {
             outside: Default::default(),
             period_memo: Default::default(),
             still: self.still,
+            mob: self.mob_initial.clone(),
+            mob_initial: None,
+            blocks_version: 0,
         };
         // the world as placed: its ground intact
         if let Some(f) = s.floor.as_mut() {
@@ -2605,7 +2689,8 @@ impl Session {
     /// The clock's (warmup, period) for pictures: the exact detector like `clock::sim::activity`
     /// (whole-state warmup, visible period), else the archive's judge line.
     pub fn picture_period(&self, horizon: u32) -> Option<(u32, u32)> {
-        if !self.simulated() || self.mode.is_door() {
+        // (a mob farm never repeats: its still is the farm as it arrives)
+        if !self.simulated() || self.mode.is_door() || self.mob.is_some() {
             return None;
         }
         match self.period(horizon) {

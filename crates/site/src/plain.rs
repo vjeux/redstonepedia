@@ -477,10 +477,11 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
     if !has_viewer {
         return "Download the design below to build it in the game (the 3D view needs a browser with WebGL).".to_string();
     }
-    // a mob farm: the view runs no mob, so nothing happens in it; the chest goes at OUT
+    // a mob farm: the view runs it (our test's own simulation of the mob rules, its first run);
+    // the chest goes at OUT
     if crate::explain::mob_farm(c) {
         return format!(
-            "The view shows the farm as built: it does not run the villagers, the zombie or the golems, so nothing happens in it. {} Build it and wait near it.{}",
+            "Press play: the view runs the farm as our test runs it, so the villagers sleep at night and panic at the zombie by day, golems spawn and die, and the hoppers carry their iron to the chest; the top right counts the game's time, the golems and the iron. {} Build it and wait near it.{}",
             crate::explain::chest_words(c),
             crate::explain::first_night(c)
         );
@@ -1849,8 +1850,10 @@ mod tests {
         let b = Build { circuit: Some(c.clone()), blocks: 578, ..Default::default() };
         assert_eq!(crate::kinds::kind_key(&b), "mob-farm iron_ingot middle");
         assert!(crate::explain::kind_title("mob-farm iron_ingot middle").starts_with("Middle-ground iron farm"));
-        // judged on our simulation, not in the game: no lamp, no "real game" on its page
-        assert!(try_it(&c, true).starts_with("The view shows the farm as built"), "{}", try_it(&c, true));
+        // judged on our simulation, not in the game: no lamp, no "real game" on its page; the view
+        // runs the farm (mobviewer 2026-11-08: no "as built" caveat)
+        assert!(try_it(&c, true).starts_with("Press play: the view runs the farm as our test runs it"), "{}", try_it(&c, true));
+        assert!(!try_it(&c, true).contains("as built"));
         assert!(!try_it(&c, true).contains("first night"));
         // a farm in no tier (the brief's obvious design) is no published kind
         let bar = Build { circuit: Some(Circuit { kind: "mob-farm iron_ingot".into(), ..c.clone() }), ..Default::default() };

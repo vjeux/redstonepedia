@@ -24,6 +24,15 @@ struct Touch {
     sy: f64,
 }
 
+/// Played frames' times (`?mcview-perf`: a summary every 5 s of play).
+#[derive(Clone, Debug, Default)]
+struct FrameStats {
+    first_tick: u32,
+    since: f64,
+    /// Each played frame's task, in ms.
+    times: Vec<f64>,
+}
+
 pub struct Live {
     gpu: Option<Gpu>,
     player: Option<Player>,
@@ -78,6 +87,8 @@ pub struct Live {
     /// The badge's text when no demo runs.
     base_status: String,
     shown_status: String,
+    /// With `?mcview-debug`: the played frames' times since the last summary.
+    frame_stats: FrameStats,
     /// The design's text and name (a recording replays it from tick 0, a file named after it),
     /// and the auto-demo's schedule (a recording plays it whole).
     text: Option<std::rc::Rc<str>>,
@@ -147,17 +158,24 @@ fn fit_badge(status: &HtmlElement, texts: &[String]) {
     if widest <= 0.0 {
         return;
     }
-    // the box counts the paddings (8 px each side, 3 px top and bottom)
-    let _ = s.set_property("width", &format!("{}px", (widest - 16.0).ceil() + 1.0));
+    // the box counts the paddings (8 px each side, 3 px top and bottom) unless the page sizes
+    // boxes by their border (`box-sizing: border-box`, the site's: the badge came out 15 px short
+    // of its widest text, which wrapped, and the badge went as wide as it may be)
+    let border_box = window().get_computed_style(status).ok().flatten().and_then(|c| c.get_property_value("box-sizing").ok()).is_some_and(|v| v == "border-box");
+    let (pad_w, pad_h) = if border_box { (0.0, 0.0) } else { (16.0, 6.0) };
+    let _ = s.set_property("width", &format!("{}px", (widest - pad_w).ceil() + 1.0));
     let mut fixed = measure(status);
     if fixed.iter().zip(&free).any(|((_, h), (_, h0))| *h > *h0 + 1.0) {
+        if crate::debug() {
+            log(&format!("fit_badge: widest {widest:.1}, free {free:?}, at that width {fixed:?}: as wide as it may be"));
+        }
         // as wide as it may be (its max-width: both count the content box)
         let max = s.get_property_value("max-width").unwrap_or_default();
         let _ = s.set_property("width", if max.is_empty() { "100%" } else { &max });
         fixed = measure(status);
     }
     let tallest = fixed.iter().map(|(_, h)| *h).fold(0.0, f64::max);
-    let _ = s.set_property("min-height", &format!("{}px", (tallest - 6.0).ceil()));
+    let _ = s.set_property("min-height", &format!("{}px", (tallest - pad_h).ceil()));
 }
 
 /// A recording (the Record button: vjeux 2026-10-20 "add a record video button using
@@ -174,9 +192,9 @@ struct Rec {
 }
 
 /// Speeds the speed dropdown offers: label, game ticks per second.
-const SPEEDS: [(&str, f32); 7] = [("1×", 20.0), ("2×", 40.0), ("5×", 100.0), ("20×", 400.0), ("100×", 2000.0), ("¼×", 5.0), ("½×", 10.0)];
+const SPEEDS: [(&str, f32); 8] = [("1×", 20.0), ("2×", 40.0), ("5×", 100.0), ("10×", 200.0), ("20×", 400.0), ("100×", 2000.0), ("¼×", 5.0), ("½×", 10.0)];
 /// The slow-motion speed a fast machine starts at (¼×).
-const SLOW: usize = 5;
+const SLOW: usize = 6;
 
 /// A frame's time for a live view's ticks ([`mcview::player::Player::update_with`]): past it the
 /// ticks it could not play are dropped (the coordinator 2026-10-21: never block the page over
@@ -567,6 +585,7 @@ pub fn start(app: &mut App, id: u32) {
         containers: containers.clone(),
         base_status: String::new(),
         shown_status: String::from("\u{0}"),
+        frame_stats: FrameStats::default(),
         text: None,
         name: String::from("design"),
         demo: None,
@@ -995,6 +1014,12 @@ fn finish_load(app: &mut App, id: u32) {
                 fit_badge(&l.status, &words);
                 l.shown_status = String::from("\u{0}");
             }
+            // a mob farm: the badge says what the villagers do, sized once from its widest texts
+            if mcview::mobfarm::is_mob_farm(&p.session.design) && p.session.simulated() {
+                let words: Vec<String> = mcview::mobfarm::status_texts(mcview::mobfarm::villagers(&p.session.design)).iter().map(|t| badge_words(t)).collect();
+                fit_badge(&l.status, &words);
+                l.shown_status = String::from("\u{0}");
+            }
             l.overlays.setup(&p);
             marks[2] = clock();
             // the output strip under the time badge, however tall it is
@@ -1143,6 +1168,8 @@ fn status_for(p: &Player, base: &str) -> String {
         _ if p.door_demo.is_some() => badge_words(p.door_demo.map(|d| d.words()).unwrap_or_default()),
         // a bedrock breaker: armed now, missed, removed (the press needs the armed tick)
         _ if p.session.swap_status().is_some() => p.session.swap_status().unwrap_or_default(),
+        // a mob farm: what its villagers do now (asleep, panicking at the zombie, calm)
+        _ if p.session.mob.is_some() => badge_words(&mcview::mobfarm::status_words(&p.session)),
         _ => base.to_string(),
     }
 }
@@ -1388,6 +1415,34 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
                 t_end - t0
             ));
         }
+        // and with `?mcview-perf`, every 5 s of play, its frames: how many the page gave it, how
+        // long they took (a mob farm's numbers: its ticks, its meshes, the draw)
+        if (crate::perf_log() || crate::debug()) && playing {
+            let tick = l.player.as_ref().map(|p| p.session.tick).unwrap_or(0);
+            let st = &mut l.frame_stats;
+            if st.times.is_empty() {
+                st.first_tick = tick;
+                st.since = t0;
+            }
+            st.times.push(t_end - t0);
+            let secs = (t_end - st.since) / 1000.0;
+            if secs >= 5.0 {
+                let mut t = std::mem::take(&mut st.times);
+                t.sort_by(|a, b| a.total_cmp(b));
+                let at = |q: f64| t[((t.len() as f64 - 1.0) * q).round() as usize];
+                let mean = t.iter().sum::<f64>() / t.len() as f64;
+                log(&format!(
+                    "live view {id} frames: {} played in {secs:.1} s ({:.0} a second), {} ticks, p50 {:.1} ms, p95 {:.1} ms, mean {mean:.1} ms, longest {:.1} ms (tick {tick})",
+                    t.len(),
+                    t.len() as f64 / secs,
+                    tick - st.first_tick,
+                    at(0.5),
+                    at(0.95),
+                    t[t.len() - 1]
+                ));
+                *st = FrameStats::default();
+            }
+        }
         playing
     };
     if need_ready {
@@ -1523,6 +1578,13 @@ impl Live {
             return;
         }
         let Some(p) = self.player.as_ref() else { return };
+        // a mob farm plays fast enough that a golem comes every few seconds (vjeux's brief): its
+        // card's seconds per golem over ~4 s (`mobfarm::default_tps`)
+        if mcview::mobfarm::is_mob_farm(&p.session.design) {
+            let tps = mcview::mobfarm::default_tps(&p.session.design, &SPEEDS.map(|s| s.1));
+            self.set_speed(SPEEDS.iter().position(|s| s.1 == tps).unwrap_or(3));
+            return;
+        }
         // looked for as the view woke, over its frames (`Player::wake`; a still has none)
         let fast = p.cycle_found().flatten();
         self.set_speed(if fast.is_some() { SLOW } else { 0 });

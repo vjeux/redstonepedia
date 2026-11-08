@@ -62,6 +62,10 @@ pub enum WebCmd {
         /// a phone: --width 654 --height 960 --dpr 2).
         #[arg(long, default_value_t = 1.0)]
         dpr: f32,
+        /// Keep only this part of the picture, `x,y,w,h` in its pixels (a detail: a mob model,
+        /// a flame), written at that size.
+        #[arg(long)]
+        crop: Option<String>,
     },
     /// Check the viewer against the repo's tools: its design parser against `mctas::design` on
     /// every block and port, and its clock period detector (the code the browser runs) against
@@ -456,6 +460,18 @@ pub enum WebCmd {
         #[arg(long, default_value = "/usr/lib64/chromium-browser/headless_shell")]
         browser: PathBuf,
     },
+    /// A mob farm's rate in the 3D view (vjeux's brief, 2026-11-08: the view's golem count over
+    /// fixed days must match the card): the judge's every run (its 8 builds, 4 turns x 2 places,
+    /// each 8 seeds of 5 days) played through the viewer's own session, natively; their mean iron
+    /// and golems an hour against the card's (the archived `# CIRCUIT:` line), and the view's
+    /// first run (the page's) alone. Fails when a build's farm is not the judge's or the means
+    /// differ from the card's.
+    Mobrate {
+        designs: Vec<PathBuf>,
+        /// Runs at once.
+        #[arg(long, default_value_t = 32)]
+        threads: usize,
+    },
     /// Fit the default camera to the real-game pictures: renders each design under camera tweaks
     /// (zoom, pitch, yaw, height, distance) and prints the best by mean pixel difference.
     Fit {
@@ -578,7 +594,7 @@ fn atlas(procedural: bool) -> mcview::atlas::Atlas {
 
 pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
     match cmd {
-        WebCmd::Shot { designs, out, width, height, tick, flips, yaw, pitch, procedural, live, dpr } => cmd_shot(&designs, &out, mcview::tools::ShotOptions { width, height, tick, flips, yaw, pitch, picture: false, floor_margin: None, live, dpr, as_written: false, full_frame: false }, procedural),
+        WebCmd::Shot { designs, out, width, height, tick, flips, yaw, pitch, procedural, live, dpr, crop } => cmd_shot(&designs, &out, mcview::tools::ShotOptions { width, height, tick, flips, yaw, pitch, picture: false, floor_margin: None, live, dpr, as_written: false, full_frame: false }, procedural, crop.as_deref()),
         WebCmd::Check { designs, horizon, quiet, wasm, unverified } => cmd_check(&designs, horizon, quiet, wasm.as_deref(), unverified),
         WebCmd::Bundle { out } => cmd_bundle(&out),
         WebCmd::Demo { designs, out, viewer, live, autoplay } => cmd_demo(&designs, &out, &viewer, live, autoplay),
@@ -750,6 +766,7 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
         }
         WebCmd::Lose { url, window, browser } => crate::cdp::cmd_lose(&url, &window, &browser),
         WebCmd::Swap { url, to, window, browser } => crate::cdp::cmd_swap(&url, &to, &window, &browser),
+        WebCmd::Mobrate { designs, threads } => cmd_mobrate(&designs, threads),
         WebCmd::Luma { designs, url, min, window, browser } => match url {
             Some(u) => crate::cdp::cmd_luma(&u, &window, min, &browser),
             None => cmd_luma_native(&designs, min),
@@ -1325,10 +1342,21 @@ fn cmd_serve(dir: &Path, port: u16) -> Result<()> {
     Ok(())
 }
 
-fn cmd_shot(designs: &[PathBuf], out: &Path, o: mcview::tools::ShotOptions, procedural: bool) -> Result<()> {
+fn cmd_shot(designs: &[PathBuf], out: &Path, o: mcview::tools::ShotOptions, procedural: bool, crop: Option<&str>) -> Result<()> {
     if designs.is_empty() {
         bail!("no design given");
     }
+    let crop: Option<[u32; 4]> = match crop {
+        None => None,
+        Some(s) => {
+            let v: Vec<u32> = s.split(',').map(|x| x.trim().parse::<u32>()).collect::<Result<_, _>>().with_context(|| format!("--crop {s}: x,y,w,h"))?;
+            let [x, y, w, h] = v[..] else { bail!("--crop {s}: x,y,w,h") };
+            if w == 0 || h == 0 || x + w > o.width || y + h > o.height {
+                bail!("--crop {s}: outside the {}x{} picture", o.width, o.height);
+            }
+            Some([x, y, w, h])
+        }
+    };
     let atlas = atlas(procedural);
     let mut off = mcview::render::headless::Offscreen::new(&atlas).map_err(anyhow::Error::msg)?;
     let to_dir = designs.len() > 1 || out.is_dir();
@@ -1341,7 +1369,18 @@ fn cmd_shot(designs: &[PathBuf], out: &Path, o: mcview::tools::ShotOptions, proc
         let t = std::time::Instant::now();
         match mcview::tools::shot(&mut off, &atlas, &text, &o) {
             Ok((rgba, what)) => {
-                mcview::render::headless::write_png(&path, o.width, o.height, &rgba).map_err(anyhow::Error::msg)?;
+                let (rgba, w, h) = match crop {
+                    Some([x, y, w, h]) => {
+                        let mut v = Vec::with_capacity((w * h * 4) as usize);
+                        for row in y..y + h {
+                            let s = ((row * o.width + x) * 4) as usize;
+                            v.extend_from_slice(&rgba[s..s + (w * 4) as usize]);
+                        }
+                        (v, w, h)
+                    }
+                    None => (rgba, o.width, o.height),
+                };
+                mcview::render::headless::write_png(&path, w, h, &rgba).map_err(anyhow::Error::msg)?;
                 println!("{} -> {} ({what}, {:.0} ms)", d.display(), path.display(), t.elapsed().as_secs_f64() * 1000.0);
             }
             Err(e) => println!("{}: ERROR {e}", d.display()),
@@ -1408,7 +1447,9 @@ fn cmd_check(designs: &[PathBuf], horizon: u32, quiet: bool, wasm: Option<&Path>
         }
         // piston doors (3x3, 2x2): the door judge's lever cycles in redsim (`door_pair`)
         let door = text.lines().any(|l| l.starts_with("port door:")) && text.lines().any(|l| l.starts_with("port lever:"));
-        let fly = !door && is_flying_machine(&text);
+        // mob farms: the judge's farm and run through redsim's own runner (`mob_pair`)
+        let mob = !door && text.lines().any(|l| l.starts_with("circuit: mob-farm"));
+        let fly = !door && !mob && is_flying_machine(&text);
         // circuits judged under a stimulus: inputs, BUD targets (data-events); shulker designs run
         // with the judge's chests (`shulker_pair`); designs with TNT run with exploding TNT
         // (`tnt_pair`)
@@ -1429,6 +1470,8 @@ fn cmd_check(designs: &[PathBuf], horizon: u32, quiet: bool, wasm: Option<&Path>
         let circ = !door && !fly && !shulker && !sorter && !smelter && !farm && !tnt && !statics && text.lines().any(|l| l.starts_with("circuit:")) && text.lines().any(|l| l.starts_with("port input") || l.starts_with("port target"));
         let run = if door {
             door_pair(&text)
+        } else if mob {
+            mob_pair(&text, probe.as_mut())
         } else if statics {
             static_pair(&text)
         } else if fly {
@@ -1480,7 +1523,7 @@ fn cmd_check(designs: &[PathBuf], horizon: u32, quiet: bool, wasm: Option<&Path>
             flyers += 1;
         } else if tnt {
             tnts += 1;
-        } else if circ || shulker || sorter || smelter || farm || chest_twin {
+        } else if circ || shulker || sorter || smelter || farm || chest_twin || mob {
             circuits += 1;
         } else {
             ok += 1;
@@ -2452,6 +2495,151 @@ const FARM_WASM_TICKS: u32 = 2000;
 /// native viewer's when given. The twin's record (growths, the chests, the intruders) is
 /// printed. None when neither runs it (a crop redsim does not model: the viewer shows the build
 /// as built).
+/// `mctas web mobrate`: each mob farm's judge runs played through the viewer's session (see
+/// [`WebCmd::Mobrate`]).
+fn cmd_mobrate(designs: &[PathBuf], threads: usize) -> Result<()> {
+    use circuit::mobfarm as judge;
+    let mut bad = 0;
+    for d in designs {
+        let text = std::fs::read_to_string(d).with_context(|| format!("reading {}", d.display()))?;
+        let c = circuit::Circuit::from_design(mctas::design::Design::parse(&text)?)?;
+        let jo = judge::JudgeOpts::default();
+        // the judge's builds (`judge`: every turn, then both places) as design texts
+        let offsets = clock::offsets(2);
+        let mut builds: Vec<String> = Vec::new();
+        for t in 0..4u8 {
+            for off in &offsets {
+                let rc = c.turned_pure(t)?.translated(*off)?;
+                let text = rc.clock.design.to_text();
+                let ours = mcview::mobfarm::spec(&mcview::Design::parse(&text).map_err(anyhow::Error::msg)?).map_err(anyhow::Error::msg)?;
+                let theirs = judge::spec_of(&rc).map_err(anyhow::Error::msg)?;
+                if format!("{ours:?}") != format!("{theirs:?}") {
+                    bail!("{}: build {} (turn {t}, offset {off:?}): the viewer's farm is not the judge's", d.display(), builds.len());
+                }
+                builds.push(text);
+            }
+        }
+        let ticks = jo.days * 24000;
+        let jobs: Vec<(usize, i64)> = (0..builds.len()).flat_map(|b| (0..jo.seeds).map(move |k| (b, jo.seed0 + b as i64 * 1000 + k as i64))).collect();
+        let t0 = std::time::Instant::now();
+        let per = jobs.len().div_ceil(threads.max(1));
+        let mut results: Vec<std::result::Result<(u32, u32, u32), String>> = vec![Err(String::new()); jobs.len()];
+        std::thread::scope(|s| {
+            for (chunk, slots) in jobs.chunks(per).zip(results.chunks_mut(per)) {
+                let builds = &builds;
+                s.spawn(move || {
+                    for ((b, seed), slot) in chunk.iter().zip(slots.iter_mut()) {
+                        *slot = mcview::mobfarm::view_counts_seeded(&builds[*b], *seed, ticks);
+                    }
+                });
+            }
+        });
+        let mut iron_rates = Vec::new();
+        let mut golem_rates = Vec::new();
+        for (r, (b, seed)) in results.iter().zip(&jobs) {
+            let (g, i, _) = r.clone().map_err(|e| anyhow::anyhow!("{}: build {b} seed {seed}: {e}", d.display()))?;
+            let hours = ticks as f64 / 72000.0;
+            iron_rates.push(i as f64 / hours);
+            golem_rates.push(g as f64 / hours);
+        }
+        let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len().max(1) as f64;
+        let (iron, golems) = (mean(&iron_rates), mean(&golem_rates));
+        // a card metric (`key value` items of the `# CIRCUIT:` line; a value starts with a digit:
+        // `iron per hour 295`, not `iron per hour per block 1.56`)
+        let card = |key: &str| {
+            let line = text.lines().find(|l| l.starts_with("# CIRCUIT:"))?;
+            line.split(", ").find_map(|item| item.split_once(&format!("{key} ")).map(|(_, rest)| rest).filter(|rest| rest.starts_with(|c: char| c.is_ascii_digit())).map(|s| s.trim().to_string()))
+        };
+        let (card_iron, card_golems, card_range) = (card("iron per hour"), card("golems per hour"), card("iron range"));
+        let ours = (format!("{iron:.0}"), format!("{golems:.1}"));
+        let same = card_iron.as_deref() == Some(ours.0.as_str()) && card_golems.as_deref() == Some(ours.1.as_str());
+        if !same {
+            bad += 1;
+        }
+        println!(
+            "{} {}: the view's {} runs ({} builds x {} seeds, {} days each, {:.0} s): {} iron/h, {} golems/h; the card: {} iron/h ({}), {} golems/h; the page's run (build 0, seed {}): {:.0} iron/h, {:.1} golems/h",
+            if same { "ok  " } else { "FAIL" },
+            d.display(),
+            jobs.len(),
+            builds.len(),
+            jo.seeds,
+            jo.days,
+            t0.elapsed().as_secs_f64(),
+            ours.0,
+            ours.1,
+            card_iron.unwrap_or_default(),
+            card_range.unwrap_or_default(),
+            card_golems.unwrap_or_default(),
+            jo.seed0,
+            iron_rates[0],
+            golem_rates[0]
+        );
+    }
+    if bad > 0 {
+        bail!("{bad} farms whose view does not reproduce their card");
+    }
+    Ok(())
+}
+
+/// Mob farms' native tick-for-tick span ([`mob_pair`]: the viewer's world against redsim's run), and
+/// the shipped wasm's (the interpreter is slow).
+const MOB_TICKS: u32 = 6000;
+const MOB_WASM_TICKS: u32 = 1200;
+
+/// Mob farms (`circuit: mob-farm`; mobviewer 2026-11-08, vjeux: "Just do the real work!?"): the
+/// viewer runs the farm through redsim's own runner (`entity::mob::farm::Run`) on the judge's farm,
+/// the judge's first run: its constants are the judge's, its farm the circuit crate's
+/// (`studies::mobfarm::spec_of`), its world redsim's run's every tick ([`MOB_TICKS`]; in the
+/// shipped wasm [`MOB_WASM_TICKS`]), and over the judge's days its golems and iron are the judge's
+/// run 0's (`farm::run`: the judge's own loop, with its checks).
+fn mob_pair(text: &str, probe: Option<&mut mcview::tools::WasmProbe>) -> Result<Option<String>, String> {
+    use circuit::mobfarm as judge;
+    use redsim::entity::mob::farm::{RunOpts, WalkMode};
+    let d = mctas::design::Design::parse(text).map_err(|e| format!("{e:#}"))?;
+    let c = circuit::Circuit::from_design(d).map_err(|e| format!("{e:#}"))?;
+    let md = mcview::design::Design::parse(text)?;
+    let jo = judge::JudgeOpts::default();
+    if (jo.seed0, judge::JUDGE_DAYS) != (mcview::mobfarm::JUDGE_SEED, mcview::mobfarm::JUDGE_DAYS) {
+        return Err(format!("the viewer plays seed {} for {} days, the judge's first run is seed {} for {} days", mcview::mobfarm::JUDGE_SEED, mcview::mobfarm::JUDGE_DAYS, jo.seed0, judge::JUDGE_DAYS));
+    }
+    let theirs = judge::spec_of(&c)?;
+    let ours = mcview::mobfarm::spec(&md)?;
+    let (a, b) = (format!("{theirs:?}"), format!("{ours:?}"));
+    if a != b {
+        let at = a.chars().zip(b.chars()).position(|(x, y)| x != y).unwrap_or(a.len().min(b.len()));
+        let lo = at.saturating_sub(60);
+        return Err(format!("the viewer's farm is not the judge's: ...{} vs ...{}", &a[lo..(at + 60).min(a.len())], &b[lo..(at + 60).min(b.len())]));
+    }
+    let (want, _) = mcview::mobfarm::reference_digests(&md, MOB_TICKS)?;
+    let (got, _) = mcview::mobfarm::view_digests(text, MOB_TICKS)?;
+    if let Some(t) = want.iter().zip(&got).position(|(x, y)| x != y) {
+        return Err(format!("the viewer's world leaves redsim's run at tick {t} after the mobs arrive"));
+    }
+    let ticks = judge::JUDGE_DAYS * 24000;
+    let rep = redsim::entity::mob::farm::run(&theirs, &RunOpts::steady(jo.seed0, ticks, WalkMode::Random))?;
+    let (golems, iron, chest) = mcview::mobfarm::view_counts(text, ticks)?;
+    if (golems, iron) != (rep.golems, rep.iron_dropped) {
+        return Err(format!("over {} days the viewer summons {golems} golems dropping {iron} iron, the judge's run 0 {} and {}", judge::JUDGE_DAYS, rep.golems, rep.iron_dropped));
+    }
+    let wasm = match probe {
+        Some(p) => {
+            let (v, g) = mcview::mobfarm::view_digests(text, MOB_WASM_TICKS)?;
+            let native = mcview::mobfarm::chain(&v, g);
+            let w = p.mob_digest(text, MOB_WASM_TICKS)?;
+            if w != native {
+                return Err(format!("the wasm viewer's mob farm run ({MOB_WASM_TICKS} ticks) differs from the native one ({w:x} vs {native:x})"));
+            }
+            format!(", wasm = native over {MOB_WASM_TICKS} ticks")
+        }
+        None => String::new(),
+    };
+    Ok(Some(format!(
+        "mob farm: the judge's farm and run; redsim's world every tick over {MOB_TICKS}; {} days = the judge's run 0: {golems} golems ({:.1}/h), {iron} iron ({chest} in the chests){wasm}",
+        judge::JUDGE_DAYS,
+        golems as f64 * 72000.0 / ticks as f64
+    )))
+}
+
 fn farm_pair(text: &str, probe: Option<&mut mcview::tools::WasmProbe>) -> Result<Option<String>, String> {
     use circuit::farm;
     let d = mctas::design::Design::parse(text).map_err(|e| format!("{e:#}"))?;

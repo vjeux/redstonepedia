@@ -466,8 +466,12 @@ pub fn hand_model(state: &str, atlas: &Atlas) -> Option<Model> {
             // under another water cell)
             let level = st.i("level", 0);
             let h = if name == "bubble_column" || level >= 8 { 16.0 } else if level == 0 { 16.0 * 8.0 / 9.0 } else { (16.0 * (8 - level.min(7)) as f32 / 9.0).max(1.0) };
-            let tint = if name == "lava" { [255, 120, 30] } else { [255, 255, 255] };
-            Model::one(Part::new([0.0, 0.0, 0.0], [16.0, h, 16.0]).all("water").tint(tint).layer(Layer::Translucent))
+            if name == "lava" {
+                // lava: its still texture, in the solid layer (`ItemBlockRenderTypes.getRenderLayer`:
+                // only water is translucent), lit by its own light 15 (`LiquidBlockRenderer`)
+                return Some(Model { parts: vec![Part::new([0.0, 0.0, 0.0], [16.0, h, 16.0]).all("lava").emissive(true)], full: false, ..Default::default() });
+            }
+            Model::one(Part::new([0.0, 0.0, 0.0], [16.0, h, 16.0]).all("water").layer(Layer::Translucent))
         }
         "magma_block" => {
             let mut m = cube_all("magma");

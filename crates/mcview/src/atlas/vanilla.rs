@@ -213,6 +213,7 @@ const MAP: &[(&str, &str, Op)] = &[
     ("jukebox_top", "jukebox_top", Op::Plain),
     ("water", "water_still", Op::Tint(0x3f76e4)),
     ("water_flow", "water_flow", Op::Tint(0x3f76e4)),
+    ("lava", "lava_still", Op::Plain),
     ("magma", "magma", Op::Plain),
     ("dripleaf_top", "big_dripleaf_top", Op::Plain),
     ("tripwire", "tripwire", Op::Plain),

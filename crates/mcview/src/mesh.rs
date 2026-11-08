@@ -37,6 +37,40 @@ pub struct EntityDraw {
     pub pitch: f32,
     pub age: f32,
     pub fuse: f32,
+    /// A mob's render state (`LivingEntityRenderState`: the mob farms' villagers, zombies and
+    /// golems, [`crate::mobfarm::MobRun::draw`]).
+    pub mob: Option<MobDraw>,
+}
+
+/// What `LivingEntityRenderer` draws a mob from (its render state, from redsim's state of the tick
+/// and the client's walk animation): angles in degrees.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MobDraw {
+    /// `bodyRot` (the yaw the body turns by) and `yRot` (the head's yaw relative to it).
+    pub body_yaw: f32,
+    pub head_yaw: f32,
+    pub head_pitch: f32,
+    pub walk_pos: f32,
+    pub walk_speed: f32,
+    /// `deathTime + partialTicks` (0: alive).
+    pub death_time: f32,
+    /// `hasRedOverlay`: hurt or dying.
+    pub red: bool,
+    /// `displayFireAnimation`.
+    pub fire: bool,
+    /// Sleeping: the bed's orientation.
+    pub sleeping: Option<redsim::Dir>,
+    /// The standing eye height (a sleeper's head offset: `eyeHeight - 0.1`).
+    pub eye_standing: f32,
+    /// A passenger (`isPassenger`: a rider's legs forward).
+    pub riding: bool,
+    /// An iron golem's crackiness (0 none .. 3 high).
+    pub crack: u8,
+    /// `ageInTicks`.
+    pub age: f32,
+    /// The bounding box (the flames' size).
+    pub width: f32,
+    pub height: f32,
 }
 
 /// Everything a frame needs.
@@ -49,9 +83,21 @@ pub struct Mesh {
     /// Camera-facing squares (the game's particles), turned to the camera when the frame is drawn
     /// ([`Sprite::quad`]), cut out like the solid faces.
     pub sprites: Vec<Sprite>,
+    /// Burning entities' flames, turned about the vertical toward the camera when the frame is
+    /// drawn (`crate::entitymodel::flame_triangles`).
+    pub flames: Vec<Flame>,
     /// Bounds of everything drawn (blocks), for framing.
     pub lo: [f32; 3],
     pub hi: [f32; 3],
+}
+
+/// A burning entity's flames (`FlameFeatureRenderer`): its feet, its box, the fire textures' UVs.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Flame {
+    pub pos: [f32; 3],
+    pub width: f32,
+    pub height: f32,
+    pub uv: [[f32; 4]; 2],
 }
 
 /// A camera-facing square: its centre, half its size (blocks), its texture (layer, UV rect) and
@@ -524,7 +570,7 @@ impl<'a> Builder<'a> {
         };
         if let Some(id) = e.kind.strip_prefix("item:") {
             let name = id.strip_prefix("minecraft:").unwrap_or(id);
-            if g.tex.contains_key(&format!("item/{name}")) {
+            if g.tex.contains_key(&format!("item/{name}")) || (em::BLOCK_SPRITE_ITEMS.contains(&name) && g.tex.contains_key(&format!("block/{name}"))) {
                 if let Some(t) = em::item_sprite_triangles(g, id, e.pos, e.age) {
                     push(self, t);
                     return true;
@@ -536,6 +582,17 @@ impl<'a> Builder<'a> {
                 return true;
             }
             return false;
+        }
+        // a mob farm's mob: its model, texture and renderer's transforms, and its flames
+        if let Some(mob) = &e.mob {
+            let Some(tris) = em::mob_triangles(g, &e.kind, e.pos, mob) else { return false };
+            push(self, tris);
+            if mob.fire
+                && let Some(uv) = em::fire_uvs(g)
+            {
+                self.mesh.flames.push(Flame { pos: e.pos, width: mob.width, height: mob.height, uv });
+            }
+            return true;
         }
         let Some(tris) = em::entity_triangles(g, &e.kind, e.pos, e.yaw, e.pitch) else { return false };
         push(self, tris);

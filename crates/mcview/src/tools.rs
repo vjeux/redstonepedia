@@ -684,6 +684,8 @@ pub struct WasmProbe {
     period: wasmi::TypedFunc<(u32, u32, u32), u64>,
     fly_end: wasmi::TypedFunc<(u32, u32), u32>,
     digest: wasmi::TypedFunc<(u32, u32, u32), u64>,
+    /// `mcview_mob_digest` (a bundle from before the mob farms ran has none).
+    mob: Option<wasmi::TypedFunc<(u32, u32, u32), u64>>,
 }
 
 impl WasmProbe {
@@ -704,7 +706,16 @@ impl WasmProbe {
         let period = instance.get_typed_func::<(u32, u32, u32), u64>(&store, "mcview_clock_period").map_err(|e| format!("mcview_clock_period: {e}"))?;
         let fly_end = instance.get_typed_func::<(u32, u32), u32>(&store, "mcview_fly_end").map_err(|e| format!("mcview_fly_end: {e}"))?;
         let digest = instance.get_typed_func::<(u32, u32, u32), u64>(&store, "mcview_frames_digest").map_err(|e| format!("mcview_frames_digest: {e}"))?;
-        Ok(WasmProbe { store, memory, alloc, period, fly_end, digest })
+        let mob = instance.get_typed_func::<(u32, u32, u32), u64>(&store, "mcview_mob_digest").ok();
+        Ok(WasmProbe { store, memory, alloc, period, fly_end, digest, mob })
+    }
+
+    /// A mob farm's run in the wasm over `ticks` judged ticks (`mcview::mobfarm::chain`; 0: not
+    /// simulated there). Err when the bundle has no such export.
+    pub fn mob_digest(&mut self, text: &str, ticks: u32) -> Result<u64, String> {
+        let (ptr, len) = self.put(text)?;
+        let f = self.mob.ok_or("the bundle has no mcview_mob_digest (rebuild it: mctas web bundle)")?;
+        f.call(&mut self.store, (ptr, len, ticks)).map_err(|e| format!("mob_digest: {e}"))
     }
 
     /// Copy a text into the wasm's memory: (pointer, length).

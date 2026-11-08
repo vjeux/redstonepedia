@@ -96,8 +96,9 @@ vjeux/minecraft-tas until 2026-10-21, and GitHub does not redirect a renamed pro
   villagers (then the fewest blocks: `kinds::mob_farm_rank`); the fastest pick (one module) and
   its tier's scaled build (several copies) link each other. A tierless mob farm (the brief's
   obvious design, the bar) is not published. Their pages say the farms are tested on our
-  simulation of the game's mob rules (the caption gives the game check), that the view shows them
-  as built (the browser's viewer runs no mob), where the chest goes, and the day-1 farm's first
+  simulation of the game's mob rules (the caption gives the game check), that the view runs them
+  with that same simulation (the judge's first run, tick for tick: [webrender.md](webrender.md),
+  mob farms), where the chest goes, and the day-1 farm's first
   night by hand. Their titles read like a crop farm's (`html::circuit_props`' `mob-farm` arm and
   `mob_farm_title_tail`): "295 iron an hour · 62% of the ceiling · 189 blocks · 1.6 per block · 9
   iron · golems burn in lava pits", the last words from the design's `how:` line

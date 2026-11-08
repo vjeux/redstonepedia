@@ -25,7 +25,8 @@ struct U {
 @group(0) @binding(3) var gtex: texture_2d<f32>;
 
 fn texel(uv: vec2<f32>, layer: u32) -> vec4<f32> {
-    let game = layer == 65535u;
+    // layer 65535 (and 65534: the same with the game's red overlay) samples the game texture
+    let game = layer >= 65534u;
     // both sampled (uniform control flow), one kept
     let a = textureSample(tex, samp, uv, select(layer, 0u, game));
     let b = textureSample(gtex, samp, uv);
@@ -78,8 +79,10 @@ fn fs_solid(i: VOut) -> @location(0) vec4<f32> {
             discard;
         }
     }
-    // a white flash (a primed TNT) rides in the vertex alpha of solid faces: 1 = none
-    let lit = mix(t.rgb * i.color.rgb, vec3<f32>(1.0, 1.0, 1.0), 1.0 - i.color.a);
+    // a white flash (a primed TNT) rides in the vertex alpha of solid faces: 1 = none; a hurt or
+    // dying mob's red overlay the same way (layer 65534: `OverlayTexture`'s red)
+    let flash = select(vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 0.0, 0.0), i.layer == 65534u);
+    let lit = mix(t.rgb * i.color.rgb, flash, 1.0 - i.color.a);
     return vec4<f32>(fogged(lit, i.world), 1.0);
 }
 

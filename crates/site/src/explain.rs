@@ -938,11 +938,12 @@ pub fn how_to_try(c: &Circuit, has_viewer: bool) -> String {
         return "<p>Download the design (below) to build it in the game; the 3D view needs a browser with WebGL.</p>".into();
     }
     let mut s = String::new();
-    // a mob farm: the view draws its blocks, villagers and boat, but runs no mob (no golem ever
-    // appears in it) and no lava; its chest goes where the view draws its test lamp
+    // a mob farm: the view runs it with our test's own simulation of the mob rules (`mcview::
+    // mobfarm`: the judge's farm and its first run, tick for tick; vjeux 2026-11-08, "Just do the
+    // real work!?")
     if mob_farm(c) {
         s.push_str(&format!(
-            "<p>The 3D view shows the farm <b>as built</b>: it does not run mobs or lava, so no golem appears in it. {} Our test ran the farm on our simulation of the game's mob rules; its numbers are in the measurements below, and its notes give its check in the real game.{} Drag to look around, pinch or scroll to zoom.</p>",
+            "<p>Press play to run the farm: the 3D view runs our test's own simulation of the game's mob rules, the very run our test made first, tick for tick. The villagers sleep in their beds at night and panic at the zombie by day, golems spawn, fall and die in the lava, and the hoppers carry their iron and poppies to the chest. {} The top right shows the game's time, the golems so far and the iron in the chest; the speed menu plays it faster or slower. Our test's numbers are in the measurements below, and its notes give its check in the real game.{} Drag to look around, pinch or scroll to zoom.</p>",
             esc(chest_words(c)),
             first_night(c)
         ));

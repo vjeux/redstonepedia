@@ -23,6 +23,10 @@ pub struct Player {
     pub partial: f32,
     mesh: Option<Mesh>,
     mesh_key: (u32, u32),
+    /// A mob farm's blocks' mesh, kept apart from its entities' (`mesh`) while no block changes,
+    /// and its key (`Session::blocks_version`, the outputs' boxes).
+    block_mesh: Option<Mesh>,
+    block_key: (u64, u64),
     /// Something changed since the last frame.
     pub dirty: bool,
     /// Seconds spent at a flying machine's end before it starts again.
@@ -303,6 +307,8 @@ impl Player {
             partial: 0.0,
             mesh: None,
             mesh_key: (u32::MAX, 0),
+            block_mesh: None,
+            block_key: (u64::MAX, 0),
             dirty: true,
             hold: 0.0,
             follow: None,
@@ -1434,6 +1440,26 @@ impl Player {
     /// The frame's triangles (solid, translucent sorted for the camera).
     pub fn triangles(&mut self, atlas: &Atlas) -> (Vec<Vertex>, Vec<Vertex>) {
         let key = (self.session.tick, (self.partial * 64.0) as u32);
+        if self.session.mob.is_some() {
+            // a mob farm: its blocks change seldom (a bed taken, a trapdoor, the dusk pulse), its
+            // mobs every tick: the blocks' mesh (70 ms natively for the 2x2 farm) is kept until a
+            // block changes (`Session::blocks_version`) or an output's box turns red
+            let powered: u64 = self.session.outputs.iter().enumerate().map(|(i, o)| (self.session.output_powered(*o) as u64) << (i % 64)).fold(0, |a, b| a ^ b);
+            let bkey = (self.session.blocks_version, powered);
+            if self.block_mesh.is_none() || bkey != self.block_key {
+                self.block_mesh = Some(scene::build_part(atlas, &self.session, self.partial, &self.look, scene::Part::Blocks));
+                self.block_key = bkey;
+            }
+            if self.mesh.is_none() || key != self.mesh_key {
+                self.mesh = Some(scene::build_part(atlas, &self.session, self.partial, &self.look, scene::Part::Entities));
+                self.mesh_key = key;
+            }
+            let (mut solid, mut translucent) = scene::triangles(self.block_mesh.as_ref().unwrap(), &self.camera);
+            let (s2, t2) = scene::triangles(self.mesh.as_ref().unwrap(), &self.camera);
+            solid.extend(s2);
+            translucent.extend(t2);
+            return (solid, translucent);
+        }
         if self.mesh.is_none() || key != self.mesh_key {
             self.mesh = Some(scene::build(atlas, &self.session, self.partial, &self.look));
             self.mesh_key = key;
@@ -1444,6 +1470,7 @@ impl Player {
     /// Forget the cached mesh (the look changed).
     pub fn invalidate(&mut self) {
         self.mesh = None;
+        self.block_mesh = None;
         self.dirty = true;
     }
 
@@ -1461,6 +1488,10 @@ impl Player {
     /// the last flip for a door.
     pub fn label(&self) -> String {
         let s = &self.session;
+        // a mob farm: the game's time, the golems so far and the iron in the chest
+        if crate::mobfarm::is_mob_farm(&s.design) && s.simulated() {
+            return crate::mobfarm::readout(s);
+        }
         let t = s.tick.saturating_sub(s.rest_tick);
         let mut out = format!("{} · {t} ticks", seconds(t));
         // the person's flip of a door: the ticks since (the door demo's badge says its stage)

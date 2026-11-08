@@ -498,6 +498,44 @@ each build's page.
   intakes and constants against the judge's and prints the twin's record: every
   farm in the archive and w86's track agrees. Tests `a_harvester_grows_and_harvests_like_its_judge`,
   `a_melon_farm_grows_and_harvests_like_its_judge`.
+* Mob farms (ironfarm's iron farms, `circuit: mob-farm iron_ingot <tier>`; vjeux 2026-11-08 on
+  the pages' "the view shows the farm as built" caveat: "Why all of these caveats? Just do the
+  real work!?") run their judge's own run (`mcview::mobfarm`): the view builds the judge's farm of
+  the design as written (`mobfarm::spec`, the circuit crate's `spec_of`: its blocks, entities,
+  output chest and watch box) and steps it with redsim's one runner, `entity::mob::farm::Run`,
+  the code the judge runs (`start`, its 200-tick water settle paused between ticks over the wake's
+  frames, `arrive`, then `tick`: the golems' random walking policy, then the world's tick), seed
+  `JUDGE_SEED` = the judge's first run of its base build, played on past its 5 days. Nothing of
+  the mob layer is approximated in the view: what it adds is the client's drawing of redsim's
+  state (`MobRun::draw` over `mob::view`): `LivingEntityRenderer`'s transforms (a sleeper laid on
+  its bed toward its pillow, a dying mob falling sideways over 20 ticks, a walking golem's sway,
+  a mob in a boat at the boat's yaw, its head within 105 degrees), the client's walk animation
+  from the position deltas (`LivingEntity.calculateEntityAnimation`, client side), the 26.3
+  client's models (`IronGolemModel`, `VillagerModel` with the villagers' 0.9375 scaling and its
+  plains type layer, the zombie's `HumanoidModel` riding, arms out and bobbing:
+  `entitymodel::{iron_golem, villager, zombie}`, with `CubeDeformation` growth and child parts),
+  a golem's crackiness layer by its health (`Crackiness.GOLEM`), the red overlay of a hurt or
+  dying mob (`OverlayTexture`'s 0xB2 red: vertex layer `GAME_LAYER_RED`), the flames of a burning
+  mob (`FlameFeatureRenderer`: `fire_0`/`fire_1` squares turned about the vertical to the camera,
+  `Mesh::flames`), the drops (iron ingots, poppies: a flower's item is its block texture's sprite,
+  `BLOCK_SPRITE_ITEMS`), all from the vendored atlases (the overlay layers composited into one
+  texture each at packing: `MOB_COMPOSITES`). Lava is drawn as the game draws it: its
+  `lava_still` texture, solid, lit by its own light 15 (it was water tinted orange). The time
+  badge is the readout (`mobfarm::readout`): the game's day and clock, the golems so far and the
+  iron in the farm's chests (`day 1, 13:23 · 2 golems, 9 iron`, two lines on a phone); the left
+  badge says what the villagers do (`villagers: 3 asleep`, `2 panicking, 1 calm`), sized once
+  from its widest texts. A farm plays at the speed that brings a golem every few seconds
+  (`mobfarm::default_tps`: its card's seconds per golem over ~4 s: 10x for one module, 2x for
+  the 2x2 farm; the speed menu gained 10x). Its blocks change seldom (a bed taken, a trapdoor,
+  the dusk pulse) and its mobs every tick, so its blocks' mesh is kept apart from its entities'
+  until the world logs a changed cell (`Session::blocks_version`, `World::log_writes`;
+  `scene::Part`): the 2x2 farm's block mesh takes ~70 ms natively. `web check` (`mob_pair`)
+  holds each archived farm's view to its judge: the viewer's constants and farm are the judge's,
+  its world is redsim's run every tick (6000 ticks natively, 1200 in the shipped wasm through
+  `mcview_mob_digest`), and over the judge's 5 days its golems and iron are the judge's run 0's
+  (`farm::run`, with its checks); `mctas web mobrate` plays all 64 of the judge's runs (8 builds
+  x 8 seeds) through the view's own session (`Options::mob_seed`) and requires the card's iron
+  and golems an hour exactly. Test `a_mob_farm_runs_like_its_judge`.
 * Minecart stations, auto-crafters and item elevators (clk-obs's rail study `circuit:
   cart-unloader|cart-loader`, clk-item's `circuit: crafter <result>`, clk-misc's `circuit:
   item-elevator N`; site 2026-10-21) are shown as built with their judge's chests standing on
@@ -735,8 +773,9 @@ clocks 120 gt; entity, TNT and shulker designs 400 gt) and fails on any differen
 
 | command | what |
 |---|---|
-| `mctas web shot <designs> -o <png or dir> [--live [--dpr 2]]` | offscreen PNG with the browser's renderer (Vulkan; lavapipe on a GPU-less box: `dnf install mesa-vulkan-drivers`): a thumbnail's picture, or with `--live` a live viewer's of that size (the camera it frames on load, and its outlines; `--dpr 2`: a phone's, its CSS size half the picture's, e.g. `--width 654 --height 960`) |
+| `mctas web shot <designs> -o <png or dir> [--live [--dpr 2]] [--crop x,y,w,h]` | offscreen PNG with the browser's renderer (Vulkan; lavapipe on a GPU-less box: `dnf install mesa-vulkan-drivers`): a thumbnail's picture, or with `--live` a live viewer's of that size (the camera it frames on load, and its outlines; `--dpr 2`: a phone's, its CSS size half the picture's, e.g. `--width 654 --height 960`); `--crop` keeps a part of it (a mob model, a flame) |
 | `mctas web check <designs> [--wasm <mcview_bg.wasm>]` | parser and clock-period agreement with the repo's tools (and with the shipped wasm) |
+| `mctas web mobrate <designs> [--threads 32]` | a mob farm's judge runs (8 builds x 8 seeds, 5 days each) played through the viewer's own session: their mean iron and golems an hour against the card's, and the page's run alone; fails unless they equal the card's |
 | `mctas web compare <designs> -o <dir> [--zoom x,y,w,h] [--floor-margin m] [--still] [--before <dir>]` | real-game picture (`designs/clocks/img`) next to the viewer's frame of the same moment and camera (without the viewer's input outlines) and where they differ (red), with the pixel difference, the difference over the build alone (the grass's noise left out) and the edge offset (where ours sits against the picture, 1/8 px steps); ours is the game's whole window passed through the pictures' own encoder (`clock::shot::encode_picture`: the same integer crop, lanczos and JPEG; resampled apart, it sat a third of a pixel off); `<dir>/sheet.png` and `report.tsv` hold them all; `--zoom` writes a 4x crop of both and their mean colours, `--floor-margin` tries another floor reach, `--still` takes still frames from `web snapshot` as written (tick 0), `--before` an earlier run's folder (another viewer build): `before-after.png` and both means |
 | `mctas web snapshot <designs> -o <dir>` | each design's still frame in the viewer (a door at rest, a circuit settled with its judge's rig, a clock at its still moment) as a plain design of the blocks drawn there, at the height the real game pictures it (lowest cell y = 72: the same random block variants); `mctas clock shot --still` pictures them in the game, `web compare --still` in the viewer: the fidelity pass's pairs (same blocks, same camera) |
 | `mctas web strip <design> -o <png>` | a grid of frames over time (a door from its flip, a clock from its still moment), half ticks apart: the animation |
@@ -763,4 +802,10 @@ A page can be checked without a desktop: `headless_shell --use-angle=swiftshader
 `chromium-headless`) runs the bundle with WebGL2 in software (`--window-size=390,844
 --force-device-scale-factor=2` for a phone); add `?mcview-debug` to the page URL for timings in the
 console (`--enable-logging=stderr`). Animation frames do not advance under a virtual time budget,
-so a screenshot shows tick 0 of a playing viewer.
+so a screenshot shows tick 0 of a playing viewer. `?mcview-perf` logs a playing view's frames every
+5 s of play (how many, the ticks they ran, their mean and longest time) without the per-frame
+lines of `?mcview-debug`: `mctas site smoke --engine webkit --page '<page>?mcview-perf' --frames 2
+--interval 8000 --click 'css:.mcview-bar button[title="Play / pause (space)"]'` prints them (the
+iron farms, 2026-11-08, WebKitGTK in Xvfb: one module at 10x 60 frames a second, 6-11 ms a frame,
+the longest 46 ms past the wake; the 2x2 farm at 2x 42-54 a second, 14-18 ms, the longest 57 ms,
+its first block mesh).
