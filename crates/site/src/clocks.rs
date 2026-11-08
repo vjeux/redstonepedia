@@ -562,7 +562,22 @@ fn run_one(job: &Job, fams: &[(Row, ExtFamily)], dir: &Path, o: &ClockOptions) -
     if let Err(e) = std::fs::create_dir_all(out_dir).and_then(|_| std::fs::write(out_dir.join(&name), &m.text)) {
         return Gen::Failed(format!("{e}"));
     }
+    // its thumbnail's still frame into the cache now, beside the pass's long pole (the still-frame
+    // pass reads it: generate.rs `warm_stills`)
+    crate::generate::warm_stills(std::slice::from_ref(&m.text));
     Gen::Made { rel: format!("designs/clocks/members/{name}"), dims: m.dims, volume: m.volume, sim: m.sim, blocks: m.blocks, run: m.run, measured: m.measured }
+}
+
+/// The archived clocks the site shows (the catalog's rule, composites aside), their design texts:
+/// their thumbnails' still frames are found while the members' pass runs (generate.rs).
+pub fn shown_texts(repo: &Path) -> Vec<String> {
+    let dir = repo.join(ARCHIVE);
+    let Ok(rows) = catalog::read_rows(&dir) else { return Vec::new() };
+    rows.iter()
+        .filter(|r| r.shown())
+        .filter_map(|r| std::fs::read_to_string(dir.join(&r.file)).ok())
+        .filter(|t| !t.lines().any(|l| l.trim_start().starts_with("# composite")))
+        .collect()
 }
 
 /// Generate (and simulate) every member, in parallel, the costliest first (a long tail of one big

@@ -182,6 +182,29 @@ fn read_design(b: &Build, repo: &Path, out: &Path) -> Result<String> {
     std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))
 }
 
+/// The text a build's thumbnail still frame is found in: a design shown from its own view file (a
+/// display's lit still or a minecart line's chests), or a card's own still (a crop farm's field
+/// grown), from that file, which the card loads; else its design file.
+fn still_text(b: &Build, repo: &Path, out: &Path) -> Option<String> {
+    if b.design.is_empty() {
+        return None;
+    }
+    match b.circuit.as_ref().map(|c| if c.card_text.is_empty() { c.view_text.as_str() } else { c.card_text.as_str() }).filter(|t| !t.is_empty()) {
+        Some(t) => Some(t.to_string()),
+        None => read_design(b, repo, out).ok(),
+    }
+}
+
+/// The thumbnails' still frames of these texts into the cache ([`still_text`]; the still-frame
+/// pass then reads them): run while the clocks' pass waits on its long pole, its other threads
+/// idle (2026-11-08: cold, the members' pass was one member long for its last ~65 s, and the
+/// stills' 25 s came after it).
+pub(crate) fn warm_stills(texts: &[String]) {
+    crate::circuits::par_map(texts, |t| {
+        let _ = crate::cache::get_or(crate::cache::Domain::View, &[b"still", t.as_bytes()], || crate::simulate::still(t));
+    });
+}
+
 /// The repository path of a build's design file.
 pub fn repo_design_path(b: &Build) -> String {
     match b.kind.as_str() {
@@ -386,7 +409,16 @@ pub fn build(a: &BuildArgs) -> Result<()> {
             let circuits_pass = s.spawn(|| {
                 let t = std::time::Instant::now();
                 let r = circuits::export(&repo);
-                (r, t.elapsed().as_secs_f64())
+                let secs = t.elapsed().as_secs_f64();
+                // then, while the clocks' pass runs on, the doors', the circuits' and the archived
+                // clocks' thumbnails' still frames (the members' after each member: clocks.rs)
+                let mut texts: Vec<String> = door_builds.iter().filter_map(|b| still_text(b, &repo, out)).collect();
+                if let Ok((cb, _)) = &r {
+                    texts.extend(cb.iter().filter_map(|b| still_text(b, &repo, out)));
+                }
+                texts.extend(clocks::shown_texts(&repo));
+                warm_stills(&texts);
+                (r, secs)
             });
             let ce = clocks::export(&repo, &clock_opts);
             let clock_s = t.elapsed().as_secs_f64();
@@ -528,18 +560,7 @@ pub fn build(a: &BuildArgs) -> Result<()> {
         .filter(|(_, b)| b.clock.is_some())
         .map(|(i, b)| (i, read_design(b, &repo, out).unwrap_or_default()))
         .collect();
-    let texts: Vec<(usize, String)> = builds
-        .iter()
-        .enumerate()
-        .filter(|(_, b)| !b.design.is_empty())
-        // (a design shown from its own view file, a display's lit still or a minecart line's
-        // chests, or a card's own still, a crop farm's field grown: its thumbnail's still frame
-        // from that file, which the card loads)
-        .filter_map(|(i, b)| match b.circuit.as_ref().map(|c| if c.card_text.is_empty() { c.view_text.as_str() } else { c.card_text.as_str() }).filter(|t| !t.is_empty()) {
-            Some(t) => Some((i, t.to_string())),
-            None => read_design(b, &repo, out).ok().map(|t| (i, t)),
-        })
-        .collect();
+    let texts: Vec<(usize, String)> = builds.iter().enumerate().filter_map(|(i, b)| still_text(b, &repo, out).map(|t| (i, t))).collect();
     let (checks, stills) = std::thread::scope(|s| {
         let stills = s.spawn(|| crate::circuits::par_map(&texts, |(i, text)| (*i, crate::cache::get_or(crate::cache::Domain::View, &[b"still", text.as_bytes()], || crate::simulate::still(text)))));
         let checks: Vec<(usize, Option<crate::simulate::Lamp>)> = crate::circuits::par_map(&jobs, |(i, text)| (*i, builds[*i].clock.as_ref().and_then(|c| pages::clock_view(text, c).lamp)));
