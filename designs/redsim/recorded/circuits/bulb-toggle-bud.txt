@@ -1,0 +1,19 @@
+name: cal-bulb-toggle-bud
+circuit: bud
+# Refusal: an observer facing the target toggles a copper bulb (read by a comparator); the reset
+# input toggles it back. A toggle, not a latch: a removal while it holds turns it off.
+origin: 0 0 0
+port target: 0 1 0
+port output: 4 1 0
+port input.reset: 2 1 1
+palette:
+  O minecraft:observer[facing=west,powered=false]
+  B minecraft:copper_bulb[lit=true,powered=false]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  S minecraft:stone
+layer 0:
+  ...S.
+  .....
+layer 1:
+  .OBC.
+  .....

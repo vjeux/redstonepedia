@@ -10,6 +10,7 @@ pub mod behavior;
 pub mod bamboo;
 pub mod block;
 pub mod classes;
+pub mod copper;
 pub mod entity;
 pub mod exact;
 pub mod fluid;

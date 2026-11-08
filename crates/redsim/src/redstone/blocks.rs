@@ -102,11 +102,11 @@ pub mod bulb {
 
     /// `CopperBulbBlock.checkAndFlip`.
     pub fn check_and_flip(w: &mut World, s: Block, pos: BlockPos) {
-        if let Block::Bulb { oxid, lit, powered } = s {
+        if let Block::Bulb { oxid, waxed, lit, powered } = s {
             let signal = w.has_neighbor_signal(pos);
             if signal != powered {
                 let lit = if !powered { !lit } else { lit };
-                w.set_block_and_update(pos, Block::Bulb { oxid, lit, powered: signal });
+                w.set_block_and_update(pos, Block::Bulb { oxid, waxed, lit, powered: signal });
             }
         }
     }

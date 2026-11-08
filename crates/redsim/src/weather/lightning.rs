@@ -352,6 +352,9 @@ pub fn tick_bolt(w: &mut World, k: usize) {
             spawn_fire(w, k, 4);
         }
         power_rod(w, k);
+        // clearCopperOnLightningStrike at the struck block (`getStrikePosition`)
+        let p = w.weather.bolts[k].pos;
+        crate::copper::clear_on_strike(w, BlockPos::new(p.x.floor() as i32, (p.y - 1.0e-6).floor() as i32, p.z.floor() as i32));
     }
     let b = &mut w.weather.bolts[k];
     b.life -= 1;
@@ -478,8 +481,8 @@ fn rod_update_neighbours(w: &mut World, s: &Block, p: BlockPos) {
 /// `LightningRodBlock.onLightningStrike`: powered (`setBlockAndUpdate`), the neighbours of its
 /// support, off again in 8 gt.
 pub fn rod_strike(w: &mut World, p: BlockPos) {
-    let Block::LightningRod { facing, waxed, .. } = w.get(p) else { return };
-    let on = Block::LightningRod { facing, powered: true, waxed };
+    let Block::LightningRod { facing, waxed, oxid, .. } = w.get(p) else { return };
+    let on = Block::LightningRod { facing, powered: true, waxed, oxid };
     w.set_block_and_update(p, on);
     rod_update_neighbours(w, &on, p);
     w.schedule_tick(p, on.kind(), 8, crate::ticks::Priority::Normal);
@@ -487,8 +490,8 @@ pub fn rod_strike(w: &mut World, p: BlockPos) {
 
 /// `LightningRodBlock.tick`: off (`setBlockAndUpdate`), the neighbours of its support.
 pub fn rod_tick(w: &mut World, s: Block, p: BlockPos) {
-    let Block::LightningRod { facing, waxed, .. } = s else { return };
-    w.set_block_and_update(p, Block::LightningRod { facing, powered: false, waxed });
+    let Block::LightningRod { facing, waxed, oxid, .. } = s else { return };
+    w.set_block_and_update(p, Block::LightningRod { facing, powered: false, waxed, oxid });
     rod_update_neighbours(w, &s, p);
 }
 

@@ -64,6 +64,8 @@ pub fn randomly_ticking(b: &Block) -> bool {
         Block::Cactus { .. } => true,
         // ---- mob farms (mobinfra): lava, the randomly ticking fluid (its fire, `weather::fire`) ----
         Block::Lava { .. } => true,
+        // ---- weathering copper (mobinfra): an unwaxed bulb or rod with a stage left ----
+        Block::Bulb { .. } | Block::LightningRod { .. } => crate::copper::randomly_ticking(b),
         _ => false,
     }
 }
@@ -319,6 +321,8 @@ pub fn random_tick(w: &mut World, s: Block, p: BlockPos) {
         // ---- terrain lane: the natural states' own random ticks (grass, crops, amethyst...) ----
         Block::Terrain(id) => return crate::terrain::ticks::random_tick(w, id, p),
         Block::Simple(crate::block::Simple::GrassBlock) => return crate::terrain::ticks::grass_tick(w, p),
+        // weathering copper: `ChangeOverTimeBlock.changeOverTime`
+        Block::Bulb { .. } | Block::LightningRod { .. } => return crate::copper::change_over_time(w, s, p),
         _ => {}
     }
     if !matches!(s, Block::SugarCane { .. }) {

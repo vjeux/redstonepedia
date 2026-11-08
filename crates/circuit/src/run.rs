@@ -74,8 +74,19 @@ pub fn sim_trace_with(c: &Circuit, s: &Schedule, margin: i32, consumers: bool) -
         return sim_tnt(c, &cc, &actions, s, &probes, margin, KICK_DEFAULT, &[], crate::Ground::Grass, false);
     }
     // a randomizer: the level random mirrored from the build's seed (the game sandbox's, so a
-    // dropper's random slot is the game's; crate::random)
-    let level = matches!(c.kind, Some(Kind::Randomizer(_))).then(|| (crate::random::seed(from, to, c.salt), crate::random::chunks(from, to)));
+    // dropper's random slot is the game's; crate::random); a design holding a block that ticks at
+    // random (an unwaxed copper bulb oxidizing: mobinfra 2026-11-08): the sandbox's seed 0
+    // mirrored and its random ticks (randomTickSpeed 3) run, as the bridge's sandbox does (the
+    // design's own blocks: the judge's grass ground under a flying machine draws but changes
+    // nothing it watches)
+    let ticking = c.clock.design.block_list().iter().any(|(_, s)| redsim::Block::parse(s).is_ok_and(|b| redsim::crops::randomly_ticking(&b)));
+    let level = if matches!(c.kind, Some(Kind::Randomizer(_))) {
+        Some((crate::random::seed(from, to, c.salt), crate::random::chunks(from, to)))
+    } else if ticking {
+        Some((0, crate::random::chunks(from, to)))
+    } else {
+        None
+    };
     match clock::sim::drive_seeded(&cc.clock, &actions, s.ticks, &probes, from, to, tnt && !c.explodes(), level) {
         Ok(d) => {
             let ended = match d.stopped {

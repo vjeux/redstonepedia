@@ -754,6 +754,10 @@ fn drive_each(c: &Clock, extra: &[(u32, Action)], ticks: u32, from: Pos, to: Pos
     let mut s = start_box(c, &blocks, from, to)?;
     if let Some((seed, chunks)) = level {
         s.world.mirror_level_random(seed, chunks);
+        // the sandbox's random ticks (randomTickSpeed 3) on the mirrored randValue: only the
+        // sections holding a randomly ticking block take positions (mobinfra: an unwaxed copper
+        // bulb's oxidation in a circuit's trace)
+        s.world.random_ticks = Some(redsim::crops::RandomTicks::new(3, seed));
     }
     s.world.remove_primed = remove_primed;
     s.actions.extend(extra.iter().cloned());

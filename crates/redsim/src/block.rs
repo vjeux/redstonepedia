@@ -368,7 +368,7 @@ impl Simple {
     }
 }
 
-/// Copper oxidation stages (waxed bulbs).
+/// Copper oxidation stages (`WeatheringCopper.WeatherState`, in its order).
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Oxid {
     Unaffected,
@@ -377,13 +377,54 @@ pub enum Oxid {
     Oxidized,
 }
 impl Oxid {
-    fn bulb_name(self) -> &'static str {
+    /// The stage's block-id prefix ("", "exposed_", "weathered_", "oxidized_").
+    pub fn prefix(self) -> &'static str {
         match self {
-            Oxid::Unaffected => "waxed_copper_bulb",
-            Oxid::Exposed => "waxed_exposed_copper_bulb",
-            Oxid::Weathered => "waxed_weathered_copper_bulb",
-            Oxid::Oxidized => "waxed_oxidized_copper_bulb",
+            Oxid::Unaffected => "",
+            Oxid::Exposed => "exposed_",
+            Oxid::Weathered => "weathered_",
+            Oxid::Oxidized => "oxidized_",
         }
+    }
+
+    /// `WeatheringCopper.getNext`: the next stage (none after oxidized).
+    pub fn next(self) -> Option<Oxid> {
+        match self {
+            Oxid::Unaffected => Some(Oxid::Exposed),
+            Oxid::Exposed => Some(Oxid::Weathered),
+            Oxid::Weathered => Some(Oxid::Oxidized),
+            Oxid::Oxidized => None,
+        }
+    }
+
+    /// `WeatheringCopper.getPrevious`: the stage before (none before unaffected).
+    pub fn previous(self) -> Option<Oxid> {
+        match self {
+            Oxid::Unaffected => None,
+            Oxid::Exposed => Some(Oxid::Unaffected),
+            Oxid::Weathered => Some(Oxid::Exposed),
+            Oxid::Oxidized => Some(Oxid::Weathered),
+        }
+    }
+
+    /// A weathering copper block id (without `minecraft:`) split into (stage, waxed, the base id:
+    /// `copper_bulb`, `lightning_rod`...).
+    pub fn split(name: &str) -> (Oxid, bool, &str) {
+        let (waxed, rest) = match name.strip_prefix("waxed_") {
+            Some(r) => (true, r),
+            None => (false, name),
+        };
+        for o in [Oxid::Exposed, Oxid::Weathered, Oxid::Oxidized] {
+            if let Some(r) = rest.strip_prefix(o.prefix()) {
+                return (o, waxed, r);
+            }
+        }
+        (Oxid::Unaffected, waxed, rest)
+    }
+
+    /// The `Kind` byte of a weathering block: the stage, and 4 when waxed.
+    fn kind_byte(self, waxed: bool) -> u8 {
+        self as u8 | if waxed { 4 } else { 0 }
     }
 }
 
@@ -459,7 +500,9 @@ pub enum Block {
     Comparator { facing: Dir, subtract: bool, powered: bool },
     Observer { facing: Dir, powered: bool },
     Lamp { lit: bool },
-    Bulb { oxid: Oxid, lit: bool, powered: bool },
+    /// A copper bulb (`CopperBulbBlock`), waxed or not (`WeatheringCopperBulbBlock`: an unwaxed one
+    /// oxidizes by random ticks, `ChangeOverTimeBlock.changeOverTime`; mobinfra 2026-11-08).
+    Bulb { oxid: Oxid, waxed: bool, lit: bool, powered: bool },
     Note { instrument: Instrument, note: u8, powered: bool },
     Target { power: u8 },
     /// Iron (redstone only) or oak trapdoor.
@@ -641,10 +684,11 @@ pub enum Block {
     Terrain(u16),
     // ---- weather (mobinfra, `weather/lightning.rs`) ----
     /// A lightning rod (`LightningRodBlock`, a `RodBlock`: a 4 x 4 px column along `facing`'s
-    /// axis), plain or waxed (both stay unoxidized here: oxidizing changes no rule), never
-    /// waterlogged: bolts within 128 go to the one that tops its column, and a struck rod powers
-    /// for 8 gt (strongly into the block it hangs on).
-    LightningRod { facing: Dir, powered: bool, waxed: bool },
+    /// axis) at an oxidation stage, waxed or not (an unwaxed one, `WeatheringLightningRodBlock`,
+    /// oxidizes by random ticks like every weathering copper block), never waterlogged: bolts
+    /// within 128 go to the one that tops its column, and a struck rod powers for 8 gt (strongly
+    /// into the block it hangs on).
+    LightningRod { facing: Dir, powered: bool, waxed: bool, oxid: Oxid },
     // ---- fire (mobinfra, `weather/fire.rs`) ----
     /// Fire (`FireBlock`: `age` 0..15; `sides` its north, east, south, west, up properties, bits
     /// 0..4, the sides it burns toward: none on a floor it stands on) or soul fire (`SoulFireBlock`,
@@ -768,8 +812,8 @@ pub enum Kind {
     // ---- terrain ----
     /// By the natural-state table's row.
     Terrain(u16),
-    // ---- weather (mobinfra): plain or waxed ----
-    LightningRod(bool),
+    // ---- weather (mobinfra): the oxidation stage, 4 when waxed ----
+    LightningRod(u8),
     // ---- fire (mobinfra): fire or soul fire ----
     Fire(bool),
 }
@@ -794,7 +838,7 @@ impl Block {
             Block::Comparator { .. } => Kind::Comparator,
             Block::Observer { .. } => Kind::Observer,
             Block::Lamp { .. } => Kind::Lamp,
-            Block::Bulb { oxid, .. } => Kind::Bulb(oxid as u8),
+            Block::Bulb { oxid, waxed, .. } => Kind::Bulb(oxid.kind_byte(waxed)),
             Block::Note { .. } => Kind::Note,
             Block::Target { .. } => Kind::Target,
             Block::Trapdoor { iron, .. } => Kind::Trapdoor(iron),
@@ -868,7 +912,7 @@ impl Block {
             Block::Bed { colour, .. } => Kind::Bed(colour),
             Block::Sign { wall, .. } => Kind::Sign(wall),
             Block::Terrain(id) => Kind::Terrain(id),
-            Block::LightningRod { waxed, .. } => Kind::LightningRod(waxed),
+            Block::LightningRod { waxed, oxid, .. } => Kind::LightningRod(oxid.kind_byte(waxed)),
             Block::Fire { soul, .. } => Kind::Fire(soul),
         }
     }
@@ -974,16 +1018,10 @@ impl Block {
             },
             "observer" => Block::Observer { facing: dir_of("facing", Dir::South)?, powered: bool_of("powered", false)? },
             "redstone_lamp" => Block::Lamp { lit: bool_of("lit", false)? },
-            "waxed_copper_bulb" | "waxed_exposed_copper_bulb" | "waxed_weathered_copper_bulb" | "waxed_oxidized_copper_bulb" => Block::Bulb {
-                oxid: match name {
-                    "waxed_copper_bulb" => Oxid::Unaffected,
-                    "waxed_exposed_copper_bulb" => Oxid::Exposed,
-                    "waxed_weathered_copper_bulb" => Oxid::Weathered,
-                    _ => Oxid::Oxidized,
-                },
-                lit: bool_of("lit", false)?,
-                powered: bool_of("powered", false)?,
-            },
+            n if Oxid::split(n).2 == "copper_bulb" => {
+                let (oxid, waxed, _) = Oxid::split(n);
+                Block::Bulb { oxid, waxed, lit: bool_of("lit", false)?, powered: bool_of("powered", false)? }
+            }
             "note_block" => Block::Note {
                 instrument: match get("instrument") {
                     None => Instrument::Harp,
@@ -1250,9 +1288,10 @@ impl Block {
             // ---- mob farms (ironfarm) ----
             "lava" => Block::Lava { level: int_of("level", 0, 0, 15)? },
             // ---- weather (mobinfra) ----
-            "lightning_rod" | "waxed_lightning_rod" => {
+            n if Oxid::split(n).2 == "lightning_rod" => {
                 waterlogged_ok()?;
-                Block::LightningRod { facing: dir_of("facing", Dir::Up)?, powered: bool_of("powered", false)?, waxed: name == "waxed_lightning_rod" }
+                let (oxid, waxed, _) = Oxid::split(n);
+                Block::LightningRod { facing: dir_of("facing", Dir::Up)?, powered: bool_of("powered", false)?, waxed, oxid }
             }
             // ---- fire (mobinfra) ----
             "fire" => {
@@ -1369,7 +1408,7 @@ impl fmt::Display for Block {
             ),
             Block::Observer { facing, powered } => write!(f, "minecraft:observer[facing={},powered={}]", facing.name(), b(powered)),
             Block::Lamp { lit } => write!(f, "minecraft:redstone_lamp[lit={}]", b(lit)),
-            Block::Bulb { oxid, lit, powered } => write!(f, "minecraft:{}[lit={},powered={}]", oxid.bulb_name(), b(lit), b(powered)),
+            Block::Bulb { oxid, waxed, lit, powered } => write!(f, "minecraft:{}{}copper_bulb[lit={},powered={}]", if waxed { "waxed_" } else { "" }, oxid.prefix(), b(lit), b(powered)),
             Block::Note { instrument, note, powered } => write!(f, "minecraft:note_block[instrument={},note={note},powered={}]", instrument.name(), b(powered)),
             Block::Target { power } => write!(f, "minecraft:target[power={power}]"),
             Block::Trapdoor { iron, facing, top, open, powered } => write!(
@@ -1525,7 +1564,7 @@ impl fmt::Display for Block {
             Block::Sign { wall: false, rotation, .. } => write!(f, "minecraft:oak_sign[rotation={rotation},waterlogged=false]"),
             Block::Sign { wall: true, facing, .. } => write!(f, "minecraft:oak_wall_sign[facing={},waterlogged=false]", facing.name()),
             Block::Terrain(id) => write!(f, "{}", crate::terrain::blocks::props(id).name),
-            Block::LightningRod { facing, powered, waxed } => write!(f, "minecraft:{}lightning_rod[facing={},powered={},waterlogged=false]", if waxed { "waxed_" } else { "" }, facing.name(), b(powered)),
+            Block::LightningRod { facing, powered, waxed, oxid } => write!(f, "minecraft:{}{}lightning_rod[facing={},powered={},waterlogged=false]", if waxed { "waxed_" } else { "" }, oxid.prefix(), facing.name(), b(powered)),
             Block::Fire { soul: true, .. } => write!(f, "minecraft:soul_fire"),
             Block::Fire { age, sides, soul: false } => write!(
                 f,
