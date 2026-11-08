@@ -110,8 +110,12 @@ pub fn game_night(o: &Opts, world: &Path, scratch: &Path) -> Result<(Night, i64)
             let up = s.cmd(&format!("execute if entity @e[{sel},x={x0},y=60,z={z0},dx=320,dy=200,dz=320]"))?;
             let down = s.cmd(&format!("execute if entity @e[{sel},x={x0},y=-64,z={z0},dx=320,dy=123.99,dz=320]"))?;
             let num = |t: &str| if t.contains("Test failed") { 0 } else { t.rsplit(' ').next().unwrap_or("0").trim().parse::<i32>().unwrap_or(-1) };
+            // the mobs that appeared since the last sample (untagged), then tag every mob
+            let new_up = s.cmd(&format!("execute if entity @e[{sel},tag=!seen,x={x0},y=60,z={z0},dx=320,dy=200,dz=320]"))?;
+            let new_down = s.cmd(&format!("execute if entity @e[{sel},tag=!seen,x={x0},y=-64,z={z0},dx=320,dy=123.99,dz=320]"))?;
+            s.cmd("tag @e[type=!player] add seen")?;
             let day = s.cmd("time query time")?;
-            eprintln!("game tick {}: monsters at the surface {}, below {} ({day})", (k + 1) * 100, num(&up), num(&down));
+            eprintln!("game tick {}: monsters at the surface {}, below {}; new since the last sample: surface {}, below {} ({day})", (k + 1) * 100, num(&up), num(&down), num(&new_up), num(&new_down));
         }
         s.step(o.ticks % 100)?;
     } else {

@@ -371,7 +371,10 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Refusal> {
         let g = flood(w, GOLEM, &interior, bounds);
         for (p, f) in &g.cells {
             let gb = reach_box(&GOLEM, *p, *f);
-            if farm.villagers.iter().any(|v| (gb.center().x - v.center().x).abs() < 17.84 + 0.3 + 0.7 && (gb.center().z - v.center().z).abs() < 17.84 + 0.3 + 0.7 && (gb.min_y - v.max_y) < 8.0 && (v.min_y - gb.max_y) < 8.0) {
+            // `GolemSensor` reads `NearestLivingEntitySensor`: the villager's box inflated by its
+            // follow range (16 plus `finalizeSpawn`'s bonus: up to 17.84) on all three axes, no sight
+            let r = 17.84;
+            if farm.villagers.iter().any(|v| gb.intersects(v.inflate(r, r, r))) {
                 refuse(&mut out, "C4 presence", format!("the village golem can stand at {p}, within the farm villagers' golem sensor"));
                 break;
             }

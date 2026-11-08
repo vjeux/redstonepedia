@@ -54,6 +54,27 @@ final class BlockInfo {
             JsonObject o = describe(p, sb, st, pos, types);
             o.addProperty("burn_odds", (int) burn.invoke(fire, st));
             o.addProperty("ignite_odds", (int) ignite.invoke(fire, st));
+            // support: per direction, whether the neighbour there turning from dirt into air changes
+            // the state (`updateShape`: a plant or a wall light popping off, a fence, wall, pane,
+            // stair, bed or door reshaping); a state that cannot even stand among dirt counts every
+            // direction
+            BlockState dirt = Blocks.DIRT.defaultBlockState();
+            BlockState air = Blocks.AIR.defaultBlockState();
+            for (Direction d : DIRS) {
+                sb.level.setBlock(pos.relative(d), dirt, Sandbox.RAW_FLAGS);
+            }
+            StringBuilder support = new StringBuilder();
+            for (Direction d : DIRS) {
+                BlockState baseline = st.updateShape(sb.level, sb.level, pos, d, pos.relative(d), dirt, sb.level.getRandom());
+                sb.level.setBlock(pos.relative(d), air, Sandbox.RAW_FLAGS);
+                BlockState after = st.updateShape(sb.level, sb.level, pos, d, pos.relative(d), air, sb.level.getRandom());
+                sb.level.setBlock(pos.relative(d), dirt, Sandbox.RAW_FLAGS);
+                support.append(baseline.isAir() || !after.equals(baseline) ? '1' : '0');
+            }
+            for (Direction d : DIRS) {
+                sb.level.setBlock(pos.relative(d), air, Sandbox.RAW_FLAGS);
+            }
+            o.addProperty("support", support.toString());
             out.add(o);
             sb.level.setBlock(pos, Blocks.AIR.defaultBlockState(), Sandbox.RAW_FLAGS);
         }

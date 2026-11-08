@@ -73,6 +73,10 @@ pub struct Props {
     pub ignite_odds: i32,
     /// `Block.getExplosionResistance()`.
     pub resistance: f32,
+    /// Per direction (down, up, north, south, west, east): whether the neighbour there turning from
+    /// dirt into air changes this state (`updateShape`: it pops off or reshapes); every direction
+    /// when the state cannot stand among dirt at all (the bridge's `blockinfo`).
+    pub support: [bool; 6],
 }
 
 impl Props {
@@ -107,7 +111,7 @@ fn bits(s: &str) -> Vec<bool> {
 
 fn parse_row(line: &str) -> Result<(Props, Vec<String>), String> {
     let f: Vec<&str> = line.split('\t').collect();
-    if f.len() != 39 {
+    if f.len() != 40 {
         return Err(format!("{} fields in {}", f.len(), line.chars().take(80).collect::<String>()));
     }
     let list = |s: &str, sep: char| -> Vec<String> { if s == "-" { Vec::new() } else { s.split(sep).map(|x| x.to_string()).collect() } };
@@ -186,6 +190,13 @@ fn parse_row(line: &str) -> Result<(Props, Vec<String>), String> {
         burn_odds: num(f[36])? as i32,
         ignite_odds: num(f[37])? as i32,
         resistance: num(f[38])? as f32,
+        support: {
+            let s: Vec<bool> = f[39].chars().map(|c| c == '1').collect();
+            if s.len() != 6 {
+                return Err(format!("support {} in {}", f[39], f[0]));
+            }
+            [s[0], s[1], s[2], s[3], s[4], s[5]]
+        },
     };
     Ok((p, list(f[1], ' ')))
 }

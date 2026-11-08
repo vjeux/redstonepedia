@@ -1,14 +1,15 @@
 //! Placing a design on a terrain sample the way a player builds it (brief "Placement"): the
-//! design's ground layer one above the spot's surface, the footprint cleared (every cell of the
-//! design box's columns from its lowest layer up to the box's top: the site cleared), the design
-//! pasted by the judge's usual code, the outside left natural. The game check writes the same cells
+//! design's ground layer at the spot's ground, the footprint cleared (every cell of the design box's
+//! columns from its lowest layer up to the box's top: the site cleared), the design pasted by the
+//! judge's usual code, the outside left natural. The game check writes the same cells
 //! (`setblock ... strict`), so both worlds are the same.
 //!
-//! A spot is refused when the clearing would leave the world inconsistent with what the game does
-//! when a player digs (`UPDATE_ALL`): a natural fluid beside a cleared cell (it would flow in), a log
-//! or leaves in the footprint (the tree's leaves would decay), or a natural state beside a cleared
-//! cell that hangs on it or reshapes with it (wall-attached plants and lights, fences, walls, panes,
-//! stairs, beds, chests, doors: their classes from the natural-state table).
+//! A spot is refused ([`refusal`]) when a footprint cell's change could make the game differ from
+//! these strict writes: a natural state beside a footprint cell whose shape depends on that
+//! neighbour (its support flag toward it in the natural-state table: the game's own `updateShape`
+//! changes it when the neighbour turns from dirt into air: plants and wall lights pop off, fences,
+//! walls, panes, stairs, beds, chests and doors reshape), a fluid beside or in the footprint or under
+//! it, a tree trunk in it, a structure piece in its columns.
 
 use super::blocks;
 use crate::block::Block;
@@ -23,32 +24,6 @@ pub struct Placement {
     /// The world y of the design's ground layer (the layer that stands on the surface).
     pub y: i32,
 }
-
-/// The classes of natural states that hang on a neighbour or reshape with it.
-const ATTACHED: &[&str] = &[
-    "VineBlock",
-    "LadderBlock",
-    "WallTorchBlock",
-    "RedstoneWallTorchBlock",
-    "CocoaBlock",
-    "MultifaceBlock",
-    "WallSignBlock",
-    "WallHangingSignBlock",
-    "WallBannerBlock",
-    "TripWireHookBlock",
-    "FaceAttachedHorizontalDirectionalBlock",
-    "WallSkullBlock",
-    "FenceBlock",
-    "WallBlock",
-    "IronBarsBlock",
-    "CrossCollisionBlock",
-    "StairBlock",
-    "BedBlock",
-    "ChestBlock",
-    "DoorBlock",
-    "LanternBlock",
-    "BellBlock",
-];
 
 fn is_fluid(b: &Block) -> bool {
     match *b {
@@ -112,9 +87,6 @@ pub fn refusal(w: &World, lo: BlockPos, hi: BlockPos) -> Option<String> {
         if is_fluid(&b) {
             return Some(format!("{b} at {p} is in the footprint"));
         }
-        if air_like(&b) {
-            continue;
-        }
         if let Some(props) = natural_class(&b) {
             // a trunk: felling it is a player's choice the judge does not make for them (leaves
             // overhanging the site are cleared with it: strict writes, so no leaf's distance changes
@@ -123,6 +95,9 @@ pub fn refusal(w: &World, lo: BlockPos, hi: BlockPos) -> Option<String> {
                 return Some(format!("{} at {p} is in the footprint (a tree trunk)", props.name));
             }
         }
+        // every footprint cell may change (cleared, or written by the design): a natural state
+        // beside it whose shape depends on that neighbour (its support flag toward it: dirt to air
+        // changes it, `updateShape`), or a fluid, refuses the spot
         for d in crate::pos::Dir::ALL {
             let q = p.rel(d);
             if inside(q) || !w.contains(q) {
@@ -130,12 +105,12 @@ pub fn refusal(w: &World, lo: BlockPos, hi: BlockPos) -> Option<String> {
             }
             let n = w.get(q);
             if is_fluid(&n) {
-                return Some(format!("{n} at {q} would flow into the cleared cell {p}"));
+                return Some(format!("{n} at {q} is beside the footprint cell {p}"));
             }
             if let Some(np) = natural_class(&n)
-                && np.classes.iter().any(|c| ATTACHED.contains(&c.as_str()))
+                && np.support[blocks::dir_index(d.opposite())]
             {
-                return Some(format!("{} at {q} hangs on or reshapes with the cleared cell {p}", np.name));
+                return Some(format!("{} at {q} depends on its neighbour {p} in the footprint (updateShape)", np.name));
             }
         }
     }

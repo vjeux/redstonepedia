@@ -90,8 +90,14 @@ committed samples a few hundred KB. Each layout's estimate below is given agains
 - Spawn lists: `data/minecraft/worldgen/biome/<b>.json`, attribute
   `minecraft:gameplay/natural_mob_spawns` (per category: type, `count` constant or uniform,
   `weight`; `spawn_costs`), read through `EnvironmentAttributes.NATURAL_MOB_SPAWNS`.
-  `NoiseBasedChunkGenerator.getMobsAt` replaces the list inside a structure with spawn overrides
-  (swamp hut, monument, outpost, fortress...): a sample holding one is refused.
+  `NoiseBasedChunkGenerator.getMobsAt` replaces the list inside a structure with its spawn override
+  (`spawn_overrides` per category: the bounding box type `piece` or `full`, and the spawns). **All
+  overrides are modeled**: `crates/redsim/src/terrain/structures.tsv` holds every structure's
+  overrides from the game's data (`mctas terrain biomes`), the samples hold each structure start's
+  pieces, and `natural::mobs_at` returns the override's list when the cell is in a piece (or the
+  whole box, as the override says), else the biome's: trial chambers (all categories empty, by
+  piece), swamp huts (witch and cat), outposts (pillagers, whole box), monuments, fortresses, ancient
+  cities.
 - Colours: `Biome.getGrassColor(x, z)` = the modifier applied to (the override, or
   `GrassColor.get(clamp(temperature), clamp(downfall))`), `getFoliageColor`, `getDryFoliageColor`,
   `getWaterColor` (checked by mobviewer in the 26.3 client: not environment attributes); modifiers
@@ -218,7 +224,7 @@ the ceiling (fidelity part 1 = cells equal and spawn tests; part 2 = channels co
 | L1 | **The obvious design**: a hand-built world (a grass plane, placed oak trees), only states redsim knows, daylight.rs's per-query light, the full spawner in every rate run with spawned mobs standing still, no checks | 0% (not the game's world) | not testable (no game twin) | 0 of 16 (a mob that would walk to the villagers never does) | + ~2.5 h (~800 spawn tries a tick x 38M judge ticks) | ~10 KB | ~5% | fake ground; slow; proves nothing |
 | L2 | The game's ground from the region files, light taken from the saved arrays and never updated, the spawner in every run, no checks | 100% at load; light wrong wherever the farm or its box changed it (~1-5% of a crop's cells) | pass at load, drift after the paste | 0 of 16 | + ~2.5 h | ~300 KB | ~35% | light wrong after any change |
 | L3 | The game's ground, an exact light engine, the spawner in every run, natural mobs moved by walking policies like the golems' (still + 8 directions) | 100% | pass | ~5 of 16 (policies walk straight lines; a path around a corner to a window is never tried) | + ~25 h (9 policies x the spawner) | ~300 KB | ~55% | policies prove nothing about paths |
-| **L4** | **The game's ground, a natural-state table dumped from the game, the exact light engine, static worst-case checks over every reachable position (C1-C16), the spawner where it is the outcome** | 100% (test) | pass (validation) | 16 of 16 (each modeled or refused) | + seconds (the checks; rate runs unchanged) | ~250 KB per sample | ~100% | refuses farms whose safety depends on mob AI (sound, conservative) |
+| **L4** | **The game's ground, a natural-state table dumped from the game, light from the game's saved arrays with local updates after each change, static worst-case checks over every reachable position (C1-C16), the spawner where it is the outcome** | 100% (test) | pass (validation) | 16 of 16 (each modeled or refused) | + seconds (the checks; rate runs unchanged) | ~250 KB per sample | ~100% | refuses farms whose safety depends on mob AI (sound, conservative) |
 | L5 | L4 plus natural mobs' AI modeled exactly (goal selectors, `PathFinder` / `WalkNodeEvaluator`, targeting, attacks) | 100% | pass | 16 of 16, modeled instead of refused | + hours (every mob pathfinds) | ~250 KB | ~100% and fewer refusals | weeks of work; out of this time box |
 
 ## Trade-offs
@@ -232,8 +238,9 @@ the ceiling (fidelity part 1 = cells equal and spawn tests; part 2 = channels co
   to an unmodeled guess.
 - **Exactness vs effort for natural states**: one variant + a table the game dumps (exact by
   construction, minutes per new state) vs hand-modeling ~100 states (weeks, error-prone).
-- **Light timing**: recomputing at once is exact for every read except in the tick of a nearby
-  light change, which is reported (iron farms make no light-relevant change while running).
+- **Light timing**: `World::settle_light` between ticks (the changed region relit to the fixed
+  point with its unchanged surroundings as the border) is exact for every read except in the tick of
+  a nearby light change, which is reported (iron farms make no light-relevant change while running).
 
 ## Decision
 
@@ -244,13 +251,20 @@ the ceiling (fidelity part 1 = cells equal and spawn tests; part 2 = channels co
   sandboxes cannot generate (void levels).
 - **Natural states (B)**: `Block::Terrain(u16)` with the dumped table, because hand-modeling is
   weeks and a guessed default (stone/air) fakes collisions, light and spawn floors.
-- **Light (C)**: an engine with incremental updates, because the saved arrays (L2) are wrong after
-  the paste and the per-query fixed point costs ~10^4 cells per read (spawning reads millions).
+- **Light (C)**: the game's saved arrays as the starting map (the game's own runtime light, stale in
+  a few cells, which the fixed point would not reproduce) plus local updates after each change
+  (`settle_light`), because the saved arrays alone (L2) are wrong after the paste and the per-query
+  fixed point costs ~10^4 cells per read (spawning reads millions).
 - **Spawning in the judge (D)**: static worst-case checks, because unmodeled walking makes any
   simulated run say nothing about safety (L1-L3) and modeling AI (L5) is out of the time box; when
   every check passes no natural or village mob has any channel to the farm, so rate runs without the
   spawner are exact; the spawner runs where it IS the outcome (mob towers: their spawn rate on the
   tower's floors, an upper bound until a later brief models the walk-off) and in the validation.
+  **Scope of the spawner's approval**: full-night rates (validated: Results V1) and the checks; not
+  dusk-specific rates — at dusk, after the first despawns, the game was observed refilling more
+  underground than redsim (surface monsters 12.6 vs 16.2 per night at the end, sulfur cubes 5.5 vs
+  2.8, raw p 0.06; post-hoc, unexplained, the Holm-corrected tests passed). A judge rule that needs
+  a dusk rate waits for that difference's cause.
 - **Extent (E)**: crops committed, full areas cached, because the checks reach a known distance
   (golem search 8, sight 15, follow box 18.84, creeper 7 + its explosion: blocks within 10.4,
   entities within 12) and the spawner's validation needs the full 128-block radius.
@@ -262,18 +276,34 @@ Seed **2** (`level-seed=2`, 26.3, default world). `/locate` from (0, 0): `villag
 
 | sample | generated area (cached) | farm spot | committed crop |
 |---|---|---|---|
-| `village-edge` (the day-1 set) | centre (-416, 240), radius 192 blocks (384 x 384 = 24 x 24 chunks, y -64..319) + 2 margin chunks, 1 game day run: world `2_-416_240_r192` | `place::best_spot` from (-352, 238), radius 14 (an 8 x 16 footprint, 5 layers below ground: min column (-360, 248), ground y 72, 656 blocks dug) | 120 x 120 columns around (-372, 250), y 30..86 (285 KB): the bells (-411, 70, 241/249), 8 villagers in their beds, the iron golem, 2 cats |
+| `village-edge` (the day-1 set) | centre (-416, 240), radius 192 blocks (384 x 384 = 24 x 24 chunks, y -64..319) + 2 margin chunks, 1 game day run: world `2_-416_240_r192` | `place::best_spot` from (-352, 238), radius 14 (an 8 x 16 footprint, 5 layers below ground: min column (-360, 248), ground y 72, 656 blocks dug) | 120 x 120 columns around (-372, 250), y 30..86 (287 KB): the bells (-411, 70, 241/249), 8 villagers in their beds, the iron golem, 2 cats |
 | `plains` | the same area | from (-292, 222), radius 14 (8 x 16: (-306, 233), y 71, 580 dug) | 96 x 96 around (-280, 230), y 25..89 (149 KB) |
-| `forest` | centre (16, 0), radius 80 + 2 margin chunks, 1 day: world `2_16_0_r80` | from (-43, -6), radius 14 (8 x 16: (-43, -6), y 67, 643 dug) | 96 x 96 around (-16, 0), y 37..88 (167 KB): forest and a river |
+| `forest` | centre (16, 0), radius 80 + 2 margin chunks, 1 day: world `2_16_0_r80` | from (-43, -6), radius 14 (8 x 16: (-43, -6), y 67, 643 dug) | 96 x 96 around (-16, 0), y 37..92 (168 KB): forest and a river |
 
 `redsim::terrain::samples::STANDARD` records each (file, seed, world and the `gen` line that
 re-makes it, the search start). The spot rule (`place::refusal` + `best_spot`, deterministic, the
-judge and the game check use the same): the ground level (the highest ground over the footprint:
-down from MOTION_BLOCKING_NO_LEAVES past logs, leaves and blocks without collision) within 2 blocks
-everywhere in it; no structure piece in its columns; no fluid in them nor at their surface; no tree
-trunk in the cleared cells (overhanging leaves are cleared with the site); no fluid or attached state
-(wall plants and lights, fences, walls, panes, stairs, beds, chests, doors, lanterns, bells) beside a
-cleared cell; then the fewest blocks dug, then the nearest to the start.
+judge and the game check use the same), for a footprint of columns [x0..x1] x [z0..z1] whose box
+reaches `below` layers under its ground layer:
+
+- **Ground**: per column, the ground = the first free y above the highest block that is not a log,
+  leaves or a block without collision (down from MOTION_BLOCKING_NO_LEAVES); the spot's ground G =
+  the highest per-column ground; the spread (G minus the lowest per-column ground) must be <= 2. The
+  design's ground layer sits at y = G, its box from G - `below` up; the cells of a lower column
+  between its ground and the box's bottom stay natural (a gap of at most 2, or air), and the placed
+  world, gaps included, is what every check judges.
+- **Footprint cells** = every cell of the columns from G - `below` to the world top. Refused when:
+  a structure piece's box meets the columns (above the box's bottom); a fluid cell is in a footprint
+  cell, or right under the footprint (y = G - `below` - 1), or is the top MOTION_BLOCKING block of a
+  footprint column; a tree trunk (`#logs`) is in a footprint cell (leaves are cleared with the site);
+  **a natural state beside a footprint cell** (any of its 6 neighbours outside the footprint) is a
+  fluid, or **has its support flag toward that cell**. The support flag is the game's own answer
+  (the bridge's `blockinfo`, per state and direction): the state's `updateShape` changes when that
+  neighbour turns from dirt into air (with dirt on its other sides), or the state cannot stand among
+  dirt at all (then every direction is flagged). This catches by mechanism, not by a list, every
+  state that pops off (plants on that side, wall torches, lanterns, vines, ladders, wall signs, bells)
+  or reshapes (fences, walls, panes, bars, stairs, beds, chests, doors) — including light emitters,
+  which a strict write would otherwise leave floating.
+- Then the fewest blocks dug, then the nearest to the start.
 
 ### Placement
 
@@ -310,7 +340,7 @@ the sulfur cube and the bee: listed in the header) two bitsets: `isValidSpawn(le
 
 - A **light-relevant change**: a cell whose state changes dampening, emission, occlusion faces or
   sky-source status. The map starts as **the game's own saved light** (the region files' arrays:
-  the game's runtime light is not the engines' fixed point everywhere: in 0.0075-0.04% of open
+  the game's runtime light is not the engines' fixed point everywhere: in 0.005-0.05% of open
   cells, under leaves grown by a neighbouring chunk's decoration, the game keeps a stale 15, read
   back by `mctas terrain probe` from the running server, so the fixed point would be wrong there),
   and after changes it is updated like `LightEngine`: the column sky sources move as
@@ -319,7 +349,7 @@ the sulfur cube and the bee: listed in the header) two bitsets: `isValidSpawn(le
   border (`World::settle_light`, run between ticks; `terrain/land.rs`).
 - **Exact**: after every change the map is what the game has once its queued light work ran
   (validated: the iron-day1 farm pasted into the village sample in redsim and in the official
-  server, 744,192 cells compared, 0 sky and 0 block light differences). **Reported**: a read (spawn
+  server, 746,496 cells compared, 0 sky and 0 block light differences). **Reported**: a read (spawn
   check, daylight detector, sunburn) at a cell within 15 of a light-relevant change made in the same
   tick or the previous one is a model error that invalidates the run (as daylight.rs does today).
 
@@ -331,11 +361,15 @@ occupy in the judge's runs, and the air cells connected to them through cells wi
 effects, babies), Easy where that is worse; any day time; thunder. The positions each mob can take
 come from a **flood** per body class (the types' boxes; a position = a cell and the box anywhere in
 it that fits, standing on a face with a collision top within step/jump/fall reach; climbing for
-spiders; any air for flyers; every valid teleport target for endermen), started at **every standable
-position of the sample whatever its light** (this covers natural spawns, custom spawners' walkers,
-the village's mobs and the edges) and every air cell for flyers. Bound: ~1M cells x 9 body classes,
-26-neighbour steps: ~2 x 10^8 operations, ~1-2 s; sight rays from the cells within 15 of a
-villager: ~10^5 rays.
+spiders; any air for flyers; every standable position for endermen, which teleport) over the
+**farm's surroundings**: the columns within 24 of any farm block or villager, the whole height of
+the sample (`hostile::check`). It starts at **every standable position in that region whatever its
+light** (natural spawns, custom spawners' walkers, the village's mobs) and every air cell for
+flyers; the region's outer ring is itself all starts, so a mob arriving from farther away enters the
+region at a position the flood already starts from: any path into the farm, its sight or its reach
+crosses the ring. 24 columns covers every channel's reach (sight 8, golem sensor 17.84 + boxes,
+melee 0.83, the golem search 8, a creeper's 7 to the AFK spot, beds 1). Bound: ~250k cells x 9 body
+classes; ~7 s per placement measured.
 
 | channel | refusal rule |
 |---|---|
@@ -366,17 +400,20 @@ Little-endian, no compression inside, decoded by pure-Rust redsim code (no depen
 wasm): magic `MCTERRv1`, tagged sections (HEAD: seed, zoom seed, world spawn, min y, height, game
 and day time, origin, size; PALT + CELL: palette and u16 cells, x fastest then z then y, in varint
 runs; BPAL + BIOM: biome palette and the 4x4x4 cells the box reads; HMAP: four heightmaps; SKYL,
-BLKL: saved light in runs; STRU: structure boxes; ENTS: entities (id, position, SNBT); NOTE:
-provenance). **Size**: a 96 x 96 x ~60 crop (550k cells) ~150-250 KB raw, ~60 KB in git; three
-samples under 1 MB. Full areas (28M+ cells) stay in the cache. Measured sizes replace these.
+BLKL: saved light in runs; STR2: structure starts (id, box, pieces; STRU without pieces is still
+read); ENTS: entities (id, position, SNBT); NOTE: provenance). **Size** (measured): village-edge
+120 x 57 x 120 = 820,800 cells, 287 KB; plains 96 x 65 x 96, 149 KB; forest 96 x 56 x 96, 168 KB
+(all three 604 KB in git). Full areas (40M+ cells, 5-7 MB) stay in the cache.
 
 ## Must-haves
 
 - The terrain equals the game's (blocks, biomes, heightmaps, light, entities) cell for cell; the
   table equals the game's re-dump.
-- The design placed like a player builds: footprint cleared, outside natural, unsupported natural
-  states removed; the game check writes the same cells.
-- Light reproduces the saved arrays; exact after every change, reads in the timing window reported.
+- The design placed like a player builds: footprint cleared, outside natural; no unsupported
+  natural state remains (a natural state whose shape depends on a footprint cell, by its support
+  flag toward it, refuses the spot); the game check writes the same cells.
+- Light starts from the saved arrays and is exact after every change (the paste check), reads in
+  the timing window reported.
 - Natural spawning and despawning rule for rule (sections 4-6), the game's unmirrorable draws from
   the seeded stand-in with the same distribution (the mob layer's policy).
 - Difficulty Normal for rates (the singleplayer default); refusals at the worst difficulty per rule.
@@ -388,7 +425,10 @@ samples under 1 MB. Full areas (28M+ cells) stay in the cache. Measured sizes re
 ## Not goals
 
 - Generating terrain in Rust; other dimensions.
-- Natural mobs' AI (walking, targeting, attacks): refused by C1-C16 instead (L5 later).
+- Natural mobs' AI (walking, targeting, attacks): refused by C1-C16 instead (L5 later); so V2 (the
+  validation with mobs walking in the game) is not run: there is nothing walking in redsim to
+  compare, and the checks cover every walk.
+- Dusk-specific spawn rates (see the Decision's scope note).
 - A mob tower's full rate (walk-off into water and drops): its spawn rate only, until a later brief.
 - Random ticks of natural states: redsim skips them (natural states are inert by declaration; the
   farm runs' random ticks touch only the design's own blocks). The randomly ticking states in the
@@ -408,21 +448,24 @@ samples under 1 MB. Full areas (28M+ cells) stay in the cache. Measured sizes re
 ## Validation (pass/fail; results recorded here)
 
 1. **Terrain and light**: every cell of every sample: the file vs a fresh read of the region files
-   (0 diffs), redsim's light engine vs the saved arrays (0 diffs; a diff is a model bug until
-   explained by the game's own code).
-2. **Natural spawning, V1 (exact)**: the `village-edge` area (cached, full), the farm spot as the
-   AFK spot. The game: the official server on that world, the bot (creative) at the spot,
-   simulation distance 10, difficulty Normal, weather clear, `spawn_mobs` on, 8 nights (day time
-   13000 to 23000 = 10000 ticks each), every non-persistent mob removed at each dusk; a datapack
-   (written by Rust) sets each new mob's movement speed to 0 at its first tick (so nothing walks,
-   as in redsim) and logs (type, block, game time) to a storage read over RCON. redsim: the same world,
-   spot and nights, 32 seeds of the stand-in random. Tests, each at 5% with Holm's correction across
-   them: monsters per night (Welch), type mix (chi-square), cluster sizes (chi-square), spawn cells by
-   16-block ring x height band (cave / surface / above; chi-square), monsters alive at each 1000-tick
-   mark (Welch per mark). Pass = no rejection. A rejection is a model bug, fixed before any push of
-   the spawner.
-3. **V2 (walking on in the game)**: the same, mobs walking: the tests on the first 1200 ticks of
-   each night (pass at 5%, Holm); after that only the alive-count difference is reported.
+   (0 diffs); the **initial** light map is the saved arrays (0 diffs by construction); the light
+   **after changes** is the criterion: a design pasted in redsim and in the official server (the same
+   strict writes), every block and light value of the box compared (0 diffs; a diff is a model bug).
+   The engines' fixed point vs the saved arrays is reported per sample as an explained deviation (the
+   game's own stale light), not as the criterion.
+2. **Natural spawning, V1 (as run)**: the area around the village-edge spot (cached, full height),
+   the spot as the AFK spot. The game: the official server on that world, the bot (creative) at the
+   spot, simulation and view distance 10, Normal, clear weather, `spawn_mobs` on; a one-line data
+   pack (written by Rust) sets every mob's movement speed to 0 each tick (nothing walks, as in
+   redsim); after the night the world is saved and the mobs read back from the region files. redsim:
+   the same world and spot, 32 seeds of the stand-in random. Nights: 300 ticks at full darkness (day
+   18000, 6 game nights) and 1200 ticks from dusk (day 13000, 8 game nights); the despawn curve with
+   spawning stopped after 300 ticks; per-100-tick counts over RCON (`--trace`). Tests: the mobs alive
+   at each night's end per type (Welch, Holm across the types), the surface/cave split and height
+   bands, the mean height and distance. Pass = no Holm rejection; a rejection is a model bug, fixed
+   before the spawner's push.
+3. **V2 (walking on in the game)**: not run — natural mobs' walking is not modeled, so there is no
+   redsim walk to compare; the worst-case checks (C1-C16) cover every walk.
 4. **The checks' fixtures** (`designs/terrain/fixtures/`, each on `village-edge`): F1 a closed dark
    5x5 room (C1 refuses), F2 a villager pod with an open side 6 blocks from grass (C3), F3 villager
    pods at ground level (C7: grass columns), F4 an AFK spot on open ground 3 blocks from the farm
@@ -434,13 +477,16 @@ samples under 1 MB. Full areas (28M+ cells) stay in the cache. Measured sizes re
 Commands: `mctas terrain light|paste-check|biome-check|probe|spawn-check|hostile|spot`.
 
 1. **Terrain and light** — the files are the region files read back (blocks, biomes, heightmaps,
-   saved light, structure pieces, entities). Light vs the engines' fixed point over the whole
-   village area (47,579,136 cells, 32,674,816 open): block light 0 differences; sky light 2,437 open
-   cells (0.0075%), all where the game's own light is stale under leaves (probed in the running
-   server: it reads the saved value) — redsim therefore starts from the saved arrays (exact by
-   construction) and relights around changes. **Paste check** (`terrain paste-check`): the archived
+   saved light, structure pieces, entities). The initial map is the saved arrays. The engines' fixed
+   point vs the saved arrays (an explained deviation, not the criterion): block light 0 differences
+   over the full areas; sky light, open cells: the village area 1,521 of 32,674,884 (0.0047%), the
+   forest area 1,428 of 4,210,998 (0.034%); inside the committed crops (16 columns in from their
+   edges) village-edge 0 of 148,969, plains 0 of 78,770, forest 61 of 119,772 (0.051%) — all where
+   the game's own light is stale under leaves (probed in the running server: it reads the saved
+   value). (A crop's bottom layers show block light from sources under the crop: the reason relight
+   refuses a change whose region reaches the box's bottom or sides.) **Paste check** (`terrain paste-check`, the criterion after changes): the archived
    iron-day1 pasted at (-335, 255) of the village sample in redsim and in the official server (the
-   same 639 strict writes, 454 blocks dug): 744,192 cells, **0 block, 0 sky, 0 block-light
+   same 639 strict writes, 454 blocks dug): 746,496 cells, **0 block, 0 sky, 0 block-light
    differences**. **Biomes** (`terrain biome-check`): redsim's `biome_at` vs `execute if biome` at 300
    random cells of the validation area: **0 differences**. **Darkening** (`terrain probe --times`):
    the game's surface light at day 12000-23000 equals 15 - redsim's `sky_darken` at every probe.
@@ -509,9 +555,22 @@ Commands: `mctas terrain light|paste-check|biome-check|probe|spawn-check|hostile
 | nit a | random ticks: the explicit list of the committed samples' randomly ticking states (`terrain info --ticking`) with reasons; leaves' decay argued from strict writes; the brown mushroom's light 1 cited (Blocks.java:1146) |
 | nit b | the creeper's reach stated once: 7 to start, its explosion 10.4 for blocks, 12 for entities |
 | nit c | §1's missing sky layer rule rewritten as implemented and probed; C16 reworded (the villager's eye cell; the zombie: no channel) |
-| light | the initial map is the game's saved light (the game's runtime light is stale in 0.0075-0.04% of open cells); updates as `ChunkSkyLightSources.update` + the local fixed point |
+| light | the initial map is the game's saved light (the game's runtime light is stale in 0.005-0.05% of open cells); updates as `ChunkSkyLightSources.update` + the local fixed point |
 | samples | the actual crops (village-edge 120 x 120 around (-372, 250); forest re-cropped around (-16, 0) for a clearing), the spot rule as `best_spot` (level ground, no trunk, no fluid, no structure piece) |
 | placement | full-column clearing; the removal set is empty (attached states beside cleared cells are refused); blocks dug excludes cave air |
 | table | 59 types (the sulfur cube and the bee added) |
 | spawner | structure spawn overrides (`structures.tsv` from the game's data); `mobsAt`; the regional difficulty's special multiplier for cube-mob sizes |
 | results | the Results section: light, paste, biomes, darkening, V1 (full dark: pass; despawn: match; dusk: one open difference) |
+
+## Changelog (revision 3b, after the focused re-review by d60ee61d)
+
+| point | change |
+|---|---|
+| 1 | the spot's neighbour refusal is defined by mechanism: a natural state beside any footprint cell (6 neighbours) refuses when its **support flag** toward that cell is set — the game's own `updateShape` changes it when that neighbour turns from dirt into air, or it cannot stand among dirt (then all six); the table gained the `support` column (the bridge's `blockinfo`) and `place::refusal` uses it (the class list is gone) |
+| 2 | Must-haves: no unsupported natural state remains (refused by the support flags), the removal step is gone |
+| 3 | Validation §1: the initial map is the saved arrays (0 by construction); the criterion after changes is the paste check vs the game (0 diffs over 746,496 cells); the fixed-point comparison reported per sample (village area 0.0047%, forest area 0.034%, crops 0 / 0 / 0.051%) as an explained deviation; the caches were re-made on a new box (the re-made worlds' day-1 details differ: villagers, crops; the committed crops were re-cut from them, the same spots) |
+| 4 | V2 not run (nothing walks in redsim; the checks cover every walk) in Validation and Not goals; the dusk observation scoped in the Decision (the spawner approved for full-night rates and the checks, not dusk rates) and Not goals |
+| 5 | §3: every structure spawn override is modeled (`structures.tsv`, the pieces, `natural::mobs_at`), none refused |
+| 6 | the checks' flood: its actual region (24 columns around the farm's blocks and villagers, the whole height), why it suffices (the region's ring is all starts; every channel's reach is within 24) and its measured cost |
+| 7 | the spot rule written exactly: the per-column ground, the spot's ground G and the ≤2 spread, the ground layer at G, the gaps judged as placed; the fluid rules (in a footprint cell, right under the footprint, a column's top MOTION_BLOCKING block, beside a footprint cell) |
+| 8 | Size: the measured crops; L4 and the Decision's light: saved start + local updates; Trade-offs: `settle_light` between ticks |
