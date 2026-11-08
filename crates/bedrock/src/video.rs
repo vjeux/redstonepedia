@@ -2513,9 +2513,9 @@ fn go_throw_spot(p: &mut Prod) -> Result<()> {
     let cur = [f[0].floor() as i32, f[2].floor() as i32];
     // Already west of the field on the north lane? Just walk east to the spot.
     if cur[1] <= rz - 2 && cur[0] <= c.rnx + 2 {
-        return p.walk_path(&[(c.rnx + 2, rz - 2)]);
+        return p.walk_path(&[(c.rnx + 2, rz - 2), (c.rnx + 2, rz - 1)]);
     }
-    p.walk_path(&[(fx + 1, v2.z1 + 1), (c.rnx - 2, v2.z1 + 1), (c.rnx - 2, rz - 2), (c.rnx + 2, rz - 2)])
+    p.walk_path(&[(fx + 1, v2.z1 + 1), (c.rnx - 2, v2.z1 + 1), (c.rnx - 2, rz - 2), (c.rnx + 2, rz - 2), (c.rnx + 2, rz - 1)])
 }
 
 /// Throw one cobblestone into R_N from the throw spot.
@@ -2524,8 +2524,12 @@ fn throw_trigger(p: &mut Prod) -> Result<()> {
     let c = v2_coords(fx, rz);
     go_throw_spot(p)?;
     p.select(SLOT_COBBLE)?;
-    p.look(c.rnx as f64 + 2.5, 6.6, rz as f64 + 0.5, 8)?;
+    // One block from the plane, aimed at the low interior cell: the item crosses
+    // with its full southward speed and emerges low in R_O, over the plates (from
+    // two blocks out it sometimes fell inside R_O's portal column instead).
+    p.look(c.rnx as f64 + 2.5, 6.2, rz as f64 + 0.5, 8)?;
     p.toss()?;
+    p.walk(c.rnx + 2, rz - 2)?;
     p.wait(15)?;
     p.select(SLOT_PICK)?;
     Ok(())
