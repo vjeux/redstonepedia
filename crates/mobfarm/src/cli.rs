@@ -75,6 +75,10 @@ pub enum MobfarmCmd {
         chest: bool,
         #[arg(long)]
         how: Option<String>,
+        /// A meta line to set, `key=value` (repeatable; an empty value removes it): `--meta
+        /// sample=village-edge` judges a void design in that terrain sample.
+        #[arg(long)]
+        meta: Vec<String>,
     },
     /// The built farm's lines of sight: each villager's eye to the zombie's eye (the hostile
     /// sensor's test), standing and asleep on its bed (bed + 0.8875), as built and with every
@@ -421,9 +425,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{x} {y} {z}: {}", w.get(redsim::BlockPos::new(x, y, z)));
             }
         }
-        MobfarmCmd::Edit { design, chest, how } => {
+        MobfarmCmd::Edit { design, chest, how, meta } => {
             let text = std::fs::read_to_string(&design)?;
-            let out = crate::layouts::edit(&text, chest, how.as_deref())?;
+            let out = crate::layouts::edit_meta(&text, chest, how.as_deref(), &meta)?;
             std::fs::write(&design, out)?;
             println!("{}", design.display());
         }

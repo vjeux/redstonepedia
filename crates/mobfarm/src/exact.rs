@@ -387,6 +387,13 @@ impl GameFarm {
                 for part in air.chunks(4096) {
                     w.set_blocks(sb, part, PlaceMode::Raw)?;
                 }
+                // the site's own blocks before the farm, as redsim's site world has them
+                // (`Site::site_blocks`: the cobblestone seals, the torch or glass caps)
+                let added: Vec<([i32; 3], String)> = site.site_blocks().into_iter().map(|(p, b)| (pos(p), b.to_string())).collect();
+                let added: Vec<([i32; 3], &str)> = added.iter().map(|(p, s)| (*p, s.as_str())).collect();
+                if !added.is_empty() {
+                    w.set_blocks(sb, &added, PlaceMode::Raw)?;
+                }
                 world["spawn_monsters"] = json!(true);
                 // the game's default rules: every custom spawner may fire
                 world["rules"] = json!({"spawn_phantoms": "true", "spawn_patrols": "true", "spawn_wandering_traders": "true"});

@@ -573,6 +573,18 @@ impl Site {
         w
     }
 
+    /// The blocks the site adds to its world before the farm, in [`Site::world_for`]'s order: its
+    /// cobblestone seals, then the caps of its stray golem spawn cells (a torch, or glass in a
+    /// fluid). The game's side of a run in the site (the exact compare, the game gate) places the
+    /// same, raw.
+    pub fn site_blocks(&self) -> Vec<(BlockPos, crate::block::Block)> {
+        let mut w = self.world.lock().map(|w| w.clone()).unwrap_or_else(|e| e.into_inner().clone());
+        let mut out: Vec<(BlockPos, crate::block::Block)> = self.seals.iter().map(|(p, _)| (*p, SEAL)).collect();
+        w.place_raw(&out);
+        out.extend(self.fills.iter().map(|p| (*p, cover_block(&w, *p))));
+        out
+    }
+
     /// The caps of its stray golem spawn cells, as [`Site::world_for`] places them: (torches,
     /// glass blocks).
     pub fn cover_counts(&self) -> (usize, usize) {

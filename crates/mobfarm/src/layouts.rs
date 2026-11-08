@@ -83,8 +83,22 @@ pub const CHEST: &str = "minecraft:chest[facing=north,type=single,waterlogged=fa
 /// A design text edited, its leading comment block (the caption) kept: `chest` puts the farm's
 /// single chest at its `port output`, `how` sets its `how:` line.
 pub fn edit(text: &str, chest: bool, how: Option<&str>) -> anyhow::Result<String> {
+    edit_meta(text, chest, how, &[])
+}
+
+/// [`edit`], and each `key=value` of `meta` set as a meta line (`sample=village-edge`: judge a
+/// void design in that terrain sample; an empty value removes the line).
+pub fn edit_meta(text: &str, chest: bool, how: Option<&str>, meta: &[String]) -> anyhow::Result<String> {
     let caption: Vec<&str> = text.lines().take_while(|l| l.starts_with('#')).collect();
     let mut d = Design::parse(text)?;
+    for kv in meta {
+        let (k, v) = kv.split_once('=').ok_or_else(|| anyhow::anyhow!("--meta {kv:?}: not key=value"))?;
+        if v.trim().is_empty() {
+            d.meta.remove(k.trim());
+        } else {
+            d.meta.insert(k.trim().to_string(), v.trim().to_string());
+        }
+    }
     if chest {
         let out = *d.ports.get("output").ok_or_else(|| anyhow::anyhow!("no `port output` for the chest"))?;
         match d.blocks.get(&out) {

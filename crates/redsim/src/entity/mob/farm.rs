@@ -279,8 +279,12 @@ impl Run {
             None => World::new(spec.lo, size),
         };
         w.mob.seed(o.seed, o.day0 - SETTLE_TICKS);
-        // (a terrain site's natural spawning starts at the arrival, [`Run::arrive`]: the settle is
-        // the farm's construction, its water spreading, before the player stands AFK)
+        // a terrain site: natural spawning on Hard around its AFK spot from the first tick (the
+        // game's spawner runs while the farm's water settles, as in the game gate and the exact
+        // compare); outside the sample, the level's own biome (the bridge's terrain sandbox: plains)
+        if let Some(s) = o.site {
+            w.mob.natural = Some(super::natural::Natural { void_biome: Some("minecraft:plains"), ..super::natural::Natural::new(vec![s.afk], super::natural::Difficulty::Hard) });
+        }
         // the level random (`Level.random`): a composter's chance, a dropper's slot (the shared
         // collection's), drawn from a stand-in seeded from the run like the mob layer's
         w.level_random = Some(crate::rng::LegacyRandom::new(o.seed ^ 0x6c76_6c72));
@@ -323,10 +327,6 @@ impl Run {
     /// LAST_SLEPT at the end of the last REST (day time 10); a fixed walking policy.
     pub fn arrive(&mut self) -> Result<(), String> {
         while self.settle_tick() {}
-        if let Some(s) = self.o.site {
-            // outside the sample: the level's own biome (the bridge's terrain sandbox: plains)
-            self.world.mob.natural = Some(super::natural::Natural { void_biome: Some("minecraft:plains"), ..super::natural::Natural::new(vec![s.afk], super::natural::Difficulty::Hard) });
-        }
         let w = &mut self.world;
         w.place_raw(&self.detectors);
         w.place_updates(&self.detectors);
