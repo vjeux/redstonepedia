@@ -85,6 +85,15 @@ impl<K: TickKey> LevelTicks<K> {
         self.containers.values().map(|c| c.queue.len()).sum()
     }
 
+    /// Every pending tick moved `delta` ticks later, in the same order: a chunk saved and loaded
+    /// again (`LevelChunkTicks.save` keeps each tick's delay, `SavedTick`; the load schedules it
+    /// at the new game time + that delay).
+    pub fn shift(&mut self, delta: i64) {
+        for c in self.containers.values_mut() {
+            c.queue = std::mem::take(&mut c.queue).into_iter().map(|(t, p, s, pos, k)| (t + delta, p, s, pos, k)).collect();
+        }
+    }
+
     /// Every pending tick, for debugging and comparisons.
     pub fn all(&self) -> Vec<Tick<K>> {
         let mut v: Vec<Tick<K>> = self

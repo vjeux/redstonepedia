@@ -357,14 +357,7 @@ pub fn run_away(spec: &FarmSpec, o: &RunOpts, plan: AwayPlan) -> Result<(RunRepo
     for _ in 0..plan.before {
         step(&mut r, &mut rep, &mut tr);
     }
-    let mut quiet = 0;
-    while r.world.ticks.count() + r.world.fluid_ticks.count() > 0 {
-        if quiet == 200 {
-            return Err(format!("no tick without a pending block tick in the 200 after gt {}", plan.before));
-        }
-        step(&mut r, &mut rep, &mut tr);
-        quiet += 1;
-    }
+    // (pending block ticks go with the absence: `absence::away`)
     let lands = r.world.day_time() + plan.days * 24000;
     let len = plan.days * 24000 + (plan.back_at - lands).rem_euclid(24000);
     super::absence::away(&mut r.world, len, plan.how)?;

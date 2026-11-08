@@ -253,6 +253,20 @@ pub fn m2_stack(modules: i32, pitch: i32, n: i32) -> String {
 
 /// M2 without its rod (the stack puts one on its top module).
 fn m2_module(n: i32) -> Builder {
+    m2_module_walls(n, -7)
+}
+
+/// Middle, M2-open (the pick, brief revision 8): M2 with its drop walled only in its bottom 4
+/// layers (below y -19): in the void a golem leaving the dry center falls straight down the
+/// open shaft, so 234 of M2's blocks were walls nothing touches.
+pub fn m2_open(n: i32) -> String {
+    let mut b = m2_module_walls(n, -19);
+    b.d.name = format!("iron-middle-open-{n}");
+    b.text(&["Middle (M2-open): the bed observer hides the zombie for 48 gt when U1 lies down; L2d's dry hole over an", "open 16-block drop (walled in its bottom 4 layers) and a chamber whose lava cannot light anything."])
+}
+
+/// M2's module with its drop's shaft walled below `top` (`dry_hole_walls`).
+fn m2_module_walls(n: i32, top: i32) -> Builder {
     let mut b = Builder::new(&format!("iron-middle-observer-{n}"));
     for x in [0, 2, 4] {
         pod(&mut b, x, true);
@@ -316,7 +330,7 @@ fn m2_module(n: i32) -> Builder {
     b.set(3, 0, -6, STONE);
     b.set(3, 1, -6, "redstone_wire[east=side,north=none,power=0,south=none,west=side]");
     let (wl, k) = (-6, -22);
-    crate::layouts::dry_hole(&mut b, n, wl, k);
+    crate::layouts::dry_hole_walls(&mut b, n, wl, k, top);
     chamber_safe(&mut b, k);
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     b.d.meta.insert("restart".into(), "yes".into());

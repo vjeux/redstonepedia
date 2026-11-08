@@ -133,7 +133,7 @@ full iron kit (24 iron: the armour)**:
     build time = 2 s x blocks placed (gathering included) + 1 s x blocks dug
                + 120 s x lava sources (a bucket trip each) + 180 s x villagers moved
 
-The expected losses add the iron the farm is expected to lose in those first hours (lightning,
+The expected losses add the iron the farm is expected to lose during T itself (lightning,
 weather, hostiles), divided by its rate. Fragility is shown but weighs little: a day-1 player is
 right there to fix it. A farm that needs the zombie hidden by hand the first night says so; it
 adds nothing to T (the player is there).
@@ -158,7 +158,8 @@ day-1 calm above needs it.
 **Pick: by T.** L3: build 2 x 189 + 120 x 16 + 180 x 3 = 2,838 s, plus (11 + 24) / 295 h: about
 54 minutes, 34 of them lava trips. D1: 2 x 318 + 120 + 540 = 1,296 s, plus (8 + 24) / 243 h:
 about 30 minutes. **D1**, by 24 minutes; its tradeoffs (lightning, hostiles, days away) are
-measured and printed; the terrain sample sets its final blocks placed and dug.
+measured and printed; the terrain sample sets its final blocks placed and dug. By the one rule it
+is archived only after it passes the game gate (L3 has passed it).
 
 ### Middle
 
@@ -168,8 +169,9 @@ Hard limit: **Nether-tier items**: nothing from the End (no shulker box, no end 
 
 Ranked by: **the most iron per hour for an evening's build, with the losses expected over a game
 day subtracted**: among the builds whose build time (Day 1's formula) is at most one hour, the
-highest `iron per hour - expected iron lost per day / 24` (rain stalls, thunderstorms, lightning,
-hostiles, a night missed and not restarted), then the shortest build. One chunk column, the
+highest `iron per hour - expected iron lost per day / 24` over a steady-state game day (rain
+stalls, thunderstorms, lightning, hostiles; a farm that does not restart after a missed night
+loses its whole rate in that steady state), then the shortest build. One chunk column, the
 2 h of storage, the poppies, the restart after days away and the modularity of revisions 4-7 are
 printed tradeoffs now; the late farm still starts from this module.
 

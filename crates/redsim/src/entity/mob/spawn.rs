@@ -110,20 +110,48 @@ pub fn possible_spawn_position(w: &World, top: BlockPos, range_y: i32) -> Option
 /// can be stood on, the two cells above are valid empty spawn blocks (no fluid), the feet cell too
 /// (its fluid ignored), and no entity that blocks building meets its box.
 pub fn check_spawn_obstruction(w: &World, cell: BlockPos, pos: Vec3) -> bool {
+    obstruction(w, cell, pos).is_ok()
+}
+
+/// [`check_spawn_obstruction`] with the first rule that fails.
+pub fn obstruction(w: &World, cell: BlockPos, pos: Vec3) -> Result<(), &'static str> {
     if !super::blocks::entity_can_stand_on(w, cell.below()) {
-        return false;
+        return Err("the block below cannot be stood on");
     }
     for k in 1..3 {
         if !super::blocks::is_valid_empty_spawn_block(w, cell.offset(0, k, 0), true, false) {
-            return false;
+            return Err("the 2 cells above the feet are not empty (a block, a fluid, a rail or a dangerous block)");
         }
     }
     if !super::blocks::is_valid_empty_spawn_block(w, cell, false, false) {
-        return false;
+        return Err("the feet cell is not empty (a block, a rail or a dangerous block)");
     }
     let d = MobType::IronGolem.def();
     let bb = crate::entity::make_bounding_box(pos, d.width, d.height);
-    is_unobstructed(w, bb)
+    if !is_unobstructed(w, bb) {
+        return Err("an entity is in the golem's box");
+    }
+    Ok(())
+}
+
+/// Every column the golem search of villager `i` can pick (`trySpawnMob(IRON_GOLEM, .., 10, 8, 6,
+/// LEGACY_IRON_GOLEM)`: the 17 x 17 columns around its cell, each scanned from y + 5 down to
+/// y - 7) with the cell the scan stops at and whether a golem spawns there
+/// (`checkSpawnObstruction`); `Err` names the first rule that fails, and a column with no cell
+/// gives its lowest scanned cell. For the viewer (a live world: recompute when the farm changes).
+pub fn golem_spawn_cells(w: &World, i: usize) -> Vec<(BlockPos, Result<(), &'static str>)> {
+    let start = w.entities.list[i].block_position();
+    let mut out = Vec::with_capacity(289);
+    for dz in -8..=8 {
+        for dx in -8..=8 {
+            let top = BlockPos::new(start.x + dx, start.y + 6, start.z + dz);
+            match possible_spawn_position(w, top, 6) {
+                None => out.push((top.offset(0, -13, 0), Err("no cell in the column: no solid block with air or a fluid above it from y+5 to y-7 (LEGACY_IRON_GOLEM)"))),
+                Some(cell) => out.push((cell, obstruction(w, cell, Vec3::new(cell.x as f64 + 0.5, cell.y as f64, cell.z as f64 + 0.5)))),
+            }
+        }
+    }
+    out
 }
 
 /// `EntityGetter.isUnobstructed(null, Shapes.create(box))`: no unremoved entity with

@@ -118,6 +118,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "l6p-pad" => (crate::day1::l6p_pad(pad), "golems burn in a corner of their pad".to_string()),
                 "m3" => (crate::day1::m3_bedplate(pad), "golems fall out of sight to a lava blade".to_string()),
                 "m2" => (crate::day1::m2_observer(pad), "golems fall out of sight to a lava blade".to_string()),
+                "m2open" => (crate::day1::m2_open(pad), "golems fall out of sight to a lava blade".to_string()),
                 "stack" => (crate::day1::m2_stack(modules, pitch, pad), format!("{modules} middle modules stacked")),
                 other => bail!("no layout {other:?} (l1, l2, l2d, l3, l4, l5, l6p-dry, l6p-pad, m3, m2, stack)"),
             };

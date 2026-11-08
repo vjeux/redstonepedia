@@ -1,9 +1,21 @@
 # ironfarm track notes (iron farms on redsim's mob layer)
 
-Brief: [designs/briefs/farm-iron.md](../../../../briefs/farm-iron.md) (G1 approved, revision 3).
-Judge: `circuit: mob-farm iron_ingot [day-1|middle|fastest]` (crates/circuit/src/studies/mobfarm.rs)
-on redsim's mob layer (crates/redsim/src/entity/mob/). Tools: `mctas mobfarm gen|exit|run|probe|validate`
-(crates/mobfarm).
+Brief: [designs/briefs/farm-iron.md](../../../../briefs/farm-iron.md) (G1 approved, revision 8:
+tradeoffs, not pass/fail). Judge: `circuit: mob-farm iron_ingot [day-1|middle|fastest]`
+(crates/circuit/src/studies/mobfarm.rs) on redsim's mob layer (crates/redsim/src/entity/mob/).
+Tools: `mctas mobfarm gen|exit|run|probe|validate|sight` (crates/mobfarm).
+
+## The stage picks (brief revision 8), design files with their redsim cards in the header
+
+| stage | file | layout | redsim card | rank |
+| --- | --- | --- | --- | --- |
+| day 1 | `d1-bed-plate.txt` (`gen l6p-pad`) | the bed plate: U1's wooden plate holds the hide open by day; at REST it lies down, the plate lets go, the scared villager sleeps and wakes scared; golems burn in a 4 x 4 pit's corner under 1 lava source | 243 iron/h (241-245), 51%, 8 iron, 1 lava, 318 blocks, restarts after a missed night and after days away, robust | about 30 min to a 24-iron kit (the archived L3: about 54, 34 of them its 16 lava trips) |
+| middle | `m2-open.txt` (`gen m2open`) | the bed observer (a 48 gt hide when U1 lies down) over L2d's dry hole, the drop walled only in its bottom 4 layers | 439 iron/h (435-443), 92%, 16 iron + 2 quartz, 4 lava, 404 blocks, restarts both ways, robust | a 33-min build at 439 iron/h |
+| middle (walled) | `m2-bed-observer.txt` (`gen m2`) | M2, the drop fully walled | the same rate, 638 blocks | a 41-min build |
+
+Both picks still need the game gate before they are archived (the one rule). The late search
+(LB 0.69 iron/h per block flat, M2-open copies 1.09, LS-open 0.94 at N = 1, LT 0.84, TZ 0.63) is in
+the brief's Late table.
 
 ## The tiers are kinds (site pages)
 

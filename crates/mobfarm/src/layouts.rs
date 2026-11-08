@@ -569,6 +569,12 @@ pub fn l4() -> String {
 /// each golem off the stone while it is still in water (no step back onto land) and on into the
 /// dry center, where it falls freely down a 4x4 shaft.
 pub(crate) fn dry_hole(b: &mut Builder, n: i32, wl: i32, k: i32) {
+    dry_hole_walls(b, n, wl, k, wl - 1);
+}
+
+/// [`dry_hole`] with the shaft walled only below `top` (M2-open: in the void a golem leaving the
+/// dry center falls straight, so only the drop's bottom layers need walls).
+pub(crate) fn dry_hole_walls(b: &mut Builder, n: i32, wl: i32, k: i32, top: i32) {
     let fl = wl - 1;
     let ring = |x: i32, z: i32| (1..=4).contains(&x) && (3..=6).contains(&z);
     let center = |x: i32, z: i32| (2..=3).contains(&x) && (4..=5).contains(&z);
@@ -599,7 +605,7 @@ pub(crate) fn dry_hole(b: &mut Builder, n: i32, wl: i32, k: i32) {
         }
     }
     // the shaft (x 1..4, z 3..6) down to feet level k
-    for y in (k - 1)..fl {
+    for y in (k - 1)..fl.min(top) {
         for x in 0..=5 {
             for z in 2..=7 {
                 let inside = ring(x, z) && y >= k;

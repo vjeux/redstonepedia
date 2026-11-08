@@ -37,18 +37,17 @@ impl Away {
     }
 }
 
-/// The farm's world after `ticks` game ticks away. `Err` when a block tick is pending: the
-/// caller starts the absence at a quiet tick (a pending tick's delay would move with
-/// [`Away::Unloaded`] and come due at once with [`Away::NotTicking`]; neither is needed then).
+/// The farm's world after `ticks` game ticks away. Pending block ticks move with the chunk
+/// ([`Away::Unloaded`]: saved with their delays, `SavedTick`, they come due that long after the
+/// load) or stay where they were ([`Away::NotTicking`]: the chunk's ticks wait, and every overdue
+/// one runs at the first tick back, `LevelTicks.tick` skipping containers that are not ticking).
 pub fn away(w: &mut World, ticks: i64, how: Away) -> Result<(), String> {
-    let pending = w.ticks.count() + w.fluid_ticks.count();
-    if pending > 0 {
-        return Err(format!("{pending} block ticks pending at gt {}", w.time));
-    }
     w.time += ticks;
     if how == Away::NotTicking {
         return Ok(());
     }
+    w.ticks.shift(ticks);
+    w.fluid_ticks.shift(ticks);
     let (t, day) = (w.time, w.day_time());
     for i in 0..w.entities.list.len() {
         if !matches!(w.entities.list[i].kind, EntityKind::Mob(_)) {
