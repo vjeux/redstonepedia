@@ -412,8 +412,9 @@ fn players_of(w: &World, nat: &Natural) -> Vec<Vec3> {
 
 // ----------------------------------------------------------------------------- the light
 
+/// `Level.getSkyDarken()`: the day time with this level's rain and thunder (`World::sky_darken`).
 fn darken(w: &World) -> i32 {
-    crate::daylight::sky_darken(w.day_time())
+    w.sky_darken()
 }
 
 /// `getMaxLocalRawBrightness(pos)` with the level's darkening (or `skyDarken` given).
@@ -508,7 +509,8 @@ pub(crate) fn dark_enough(w: &mut World, p: BlockPos) -> bool {
     if block > 0 {
         return false;
     }
-    let thundering = false;
+    // Level.isThundering: the thunder level above 0.9 (then the light test darkens by 10)
+    let thundering = w.is_thundering();
     let b = if thundering { brightness(w, p, 10) } else { let d = darken(w); brightness(w, p, d) };
     let sample = rng(w).next_int(8);
     b <= sample
