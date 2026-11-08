@@ -112,8 +112,19 @@ impl Rcon {
     }
 }
 
-fn free_port() -> Result<u16> {
-    Ok(TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
+/// Two distinct free ports (the game's and RCON's): both listeners held until both are chosen,
+/// so the kernel cannot hand out the same port twice here.
+fn free_ports() -> Result<(u16, u16)> {
+    let a = TcpListener::bind("127.0.0.1:0")?;
+    let b = TcpListener::bind("127.0.0.1:0")?;
+    Ok((a.local_addr()?.port(), b.local_addr()?.port()))
+}
+
+/// The server log's sign that a port it was given got taken between our choice and its bind
+/// (another server started at the same moment: `mctas test` runs many at once): start again.
+fn port_taken(log: &Path) -> bool {
+    let text = std::fs::read_to_string(log).unwrap_or_default();
+    text.contains("FAILED TO BIND") || text.contains("Unable to initialise RCON") || text.contains("Address already in use")
 }
 
 /// Knobs of [`VanillaServer::start`].
@@ -282,8 +293,20 @@ pub struct VanillaServer {
 }
 
 impl VanillaServer {
-    /// Start the official server jar in a fresh world directory and connect RCON.
+    /// Start the official server jar in a fresh world directory and connect RCON (again on new
+    /// ports, up to 3 times, when a port was taken before the server bound it).
     pub fn start(opts: &VanillaOptions) -> Result<VanillaServer> {
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            match Self::start_once(opts) {
+                Err(e) if attempt < 3 && e.to_string().contains("port taken") => eprintln!("vanilla server: {e:#}; starting again on new ports"),
+                r => return r,
+            }
+        }
+    }
+
+    fn start_once(opts: &VanillaOptions) -> Result<VanillaServer> {
         let install = crate::setup::install_server(&opts.version)?;
         let bundle = crate::paths::downloads().join(format!("server-bundle-{}.jar", opts.version));
         if !bundle.exists() {
@@ -298,8 +321,7 @@ impl VanillaServer {
         };
         let dir = base.join(format!("mctas-vanilla-{}-{:x}", std::process::id(), rand_u64()));
         std::fs::create_dir_all(&dir)?;
-        let game_port = free_port()?;
-        let rcon_port = free_port()?;
+        let (game_port, rcon_port) = free_ports()?;
         let password = format!("p{:x}", rand_u64());
         std::fs::write(dir.join("eula.txt"), "eula=true\n")?;
         if let Some(src) = &opts.world {
@@ -388,7 +410,17 @@ impl VanillaServer {
         let t0 = Instant::now();
         let rcon = loop {
             if let Some(status) = child.try_wait()? {
+                if port_taken(&log) {
+                    let _ = std::fs::remove_dir_all(&dir);
+                    bail!("port taken: the vanilla server could not bind {game_port} / {rcon_port} ({status})");
+                }
                 bail!("the vanilla server exited ({status}); see {}", log.display());
+            }
+            if port_taken(&log) {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = std::fs::remove_dir_all(&dir);
+                bail!("port taken: the vanilla server could not bind {game_port} / {rcon_port}");
             }
             let ready = std::fs::read_to_string(&log).unwrap_or_default().contains("RCON running on");
             if ready {
