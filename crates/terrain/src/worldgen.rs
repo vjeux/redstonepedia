@@ -168,7 +168,7 @@ pub fn generate(o: &GenOpts, keep_world: Option<&std::path::Path>) -> Result<Ter
 }
 
 /// Copy a saved world folder (no `session.lock`).
-fn copy_world(from: &std::path::Path, to: &std::path::Path) -> Result<()> {
+pub fn copy_world(from: &std::path::Path, to: &std::path::Path) -> Result<()> {
     std::fs::create_dir_all(to)?;
     for e in std::fs::read_dir(from)? {
         let e = e?;
@@ -334,6 +334,12 @@ fn biomes(t: &mut Terrain, chunks: &HashMap<(i32, i32), Chunk>, ring: &HashMap<(
 /// at noon so the sky darkens nothing) at cells of a saved world, by bisection on
 /// `execute if predicate` location checks.
 pub fn probe_light(version: &str, world: &std::path::Path, cells: &[[i32; 3]]) -> Result<Vec<u8>> {
+    Ok(probe_light_at(version, world, cells, &[6000])?.remove(0))
+}
+
+/// `getMaxLocalRawBrightness` (the light with the sky's darkening) of cells at day times: per
+/// time, per cell (a tick runs after each `time set` so the level's `skyDarken` follows).
+pub fn probe_light_at(version: &str, world: &std::path::Path, cells: &[[i32; 3]], times: &[i64]) -> Result<Vec<Vec<u8>>> {
     let mut s = VanillaServer::start(&VanillaOptions {
         version: version.to_string(),
         heap_mb: 4096,
@@ -345,30 +351,76 @@ pub fn probe_light(version: &str, world: &std::path::Path, cells: &[[i32; 3]]) -
         simulation_distance: 2,
         ..VanillaOptions::default()
     })?;
-    s.cmd_ok("time set 6000")?;
-    let mut out = Vec::new();
     for c in cells {
         s.cmd_ok(&format!("forceload add {} {}", c[0], c[2]))?;
-        let (mut lo, mut hi) = (0u8, 15u8);
-        while lo < hi {
-            let mid = (lo + hi).div_ceil(2);
-            let r = s.cmd(&format!(
-                "execute positioned {} {} {} if predicate {{type:\"minecraft:location_check\",predicate:{{light:{{light:{{min:{mid}}}}}}}}}",
-                c[0] as f64 + 0.5,
-                c[1] as f64 + 0.5,
-                c[2] as f64 + 0.5
-            ))?;
-            if r.contains("Test passed") {
-                lo = mid;
-            } else if r.contains("Test failed") {
-                hi = mid - 1;
-            } else {
-                bail!("light probe at {c:?}: {r}");
+    }
+    let mut all = Vec::new();
+    for t in times {
+        s.cmd_ok(&format!("time set {t}"))?;
+        s.step(1)?;
+        let mut out = Vec::new();
+        for c in cells {
+            let (mut lo, mut hi) = (0u8, 15u8);
+            while lo < hi {
+                let mid = (lo + hi).div_ceil(2);
+                let r = s.cmd(&format!(
+                    "execute positioned {} {} {} if predicate {{type:\"minecraft:location_check\",predicate:{{light:{{light:{{min:{mid}}}}}}}}}",
+                    c[0] as f64 + 0.5,
+                    c[1] as f64 + 0.5,
+                    c[2] as f64 + 0.5
+                ))?;
+                if r.contains("Test passed") {
+                    lo = mid;
+                } else if r.contains("Test failed") {
+                    hi = mid - 1;
+                } else {
+                    bail!("light probe at {c:?}: {r}");
+                }
+            }
+            out.push(lo);
+        }
+        all.push(out);
+    }
+    Ok(all)
+}
+
+/// `mctas terrain biome-check`: redsim's `biome_at` (the noise biomes read back and
+/// `BiomeManager.getBiome`'s zoom) against the game's `execute if biome` at seeded random cells
+/// of the area; returns (cells, mismatches, examples).
+pub fn biome_check(version: &str, world: &std::path::Path, t: &Terrain, samples: usize) -> Result<(usize, usize, Vec<String>)> {
+    let w = redsim::terrain::build_world(t).map_err(anyhow::Error::msg)?;
+    let mut s = VanillaServer::start(&VanillaOptions {
+        version: version.to_string(),
+        heap_mb: 4096,
+        world: Some(world.to_path_buf()),
+        default_world: true,
+        frozen: true,
+        with_bot: false,
+        view_distance: 2,
+        simulation_distance: 2,
+        ..VanillaOptions::default()
+    })?;
+    let mut r = redsim::rng::LegacyRandom::new(77);
+    let (mut bad, mut ex) = (0, Vec::new());
+    let mut n = 0;
+    while n < samples {
+        let x = t.origin[0] + 8 + r.next_int(t.size[0] - 16);
+        let z = t.origin[2] + 8 + r.next_int(t.size[2] - 16);
+        let y = t.origin[1] + r.next_int(t.size[1]);
+        let p = redsim::pos::BlockPos::new(x, y, z);
+        let Some(ours) = w.biome_at(p) else { continue };
+        s.cmd_ok(&format!("forceload add {x} {z}"))?;
+        let out = s.cmd(&format!("execute if biome {x} {y} {z} {ours}"))?;
+        if !out.contains("Test passed") {
+            bad += 1;
+            if ex.len() < 10 {
+                ex.push(format!("{p}: redsim {ours}, the game says {out}"));
             }
         }
-        out.push(lo);
+        s.cmd_ok(&format!("forceload remove {x} {z}"))?;
+        n += 1;
     }
-    Ok(out)
+    Ok((n, bad, ex))
 }
 
 /// `mctas terrain find`: the nearest structures and biomes of a seed's world (the game's own

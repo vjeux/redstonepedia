@@ -18,6 +18,8 @@ pub struct Paste {
     pub lo: BlockPos,
     pub hi: BlockPos,
     pub dug: u32,
+    /// Design coordinates + this = world coordinates.
+    pub offset: [i32; 3],
 }
 
 /// Build the redsim world around a spot and paste a design (its layer `ground_layer` one above the
@@ -44,7 +46,7 @@ pub fn paste_redsim(t: &Terrain, design: &mctas::design::Design, at: [i32; 2], g
     }
     w.place_raw(&blocks);
     w.settle_light();
-    Ok((w, Paste { cells, lo, hi, dug }))
+    Ok((w, Paste { cells, lo, hi, dug, offset: [at[0], dy, at[1]] }))
 }
 
 /// The same cells written in the official server on a copy of `world`; returns the box `lo..=hi`

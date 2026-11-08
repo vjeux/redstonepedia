@@ -43,6 +43,8 @@ pub struct Land {
     pub dirty: Vec<BlockPos>,
     /// Light-relevant changes: (game time, cell) of the last two ticks (the light engine's timing).
     pub light_changes: Vec<(i64, BlockPos)>,
+    /// The structure starts (their boxes and pieces: the spawn overrides).
+    pub structures: Vec<crate::terrain::format::Structure>,
 }
 
 /// The redsim block of a natural state: air, the fluids redsim models (water, lava, bubble
@@ -119,6 +121,7 @@ pub fn build_world(t: &Terrain) -> Result<World, String> {
         heights,
         dirty: Vec::new(),
         light_changes: Vec::new(),
+        structures: t.structures.clone(),
     }));
     Ok(w)
 }

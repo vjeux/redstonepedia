@@ -21,6 +21,7 @@ pub mod absence;
 pub mod blocks;
 pub mod exit;
 pub mod farm;
+pub mod hostile;
 pub mod living;
 pub mod los;
 pub mod natural;
@@ -218,11 +219,13 @@ pub struct MobWorld {
     pub golem_walk: walk::Walk,
     /// Villagers spawn golems (`false`: the judge's golem exit flood, which adds its own golem).
     pub golem_spawning: bool,
+    /// Natural spawning and despawning (the terrain lane: [`natural::Natural`]); `None`: off.
+    pub natural: Option<natural::Natural>,
 }
 
 impl Default for MobWorld {
     fn default() -> MobWorld {
-        MobWorld { rng: None, day_offset: 0, cramming: 24, events: Vec::new(), spawn_tries: Vec::new(), golem_walk: walk::Walk::Still, golem_spawning: true }
+        MobWorld { rng: None, day_offset: 0, cramming: 24, events: Vec::new(), spawn_tries: Vec::new(), golem_walk: walk::Walk::Still, golem_spawning: true, natural: None }
     }
 }
 

@@ -16,7 +16,7 @@ pub const TYPES: &[&str] = &[
     "zombie", "zombie_villager", "husk", "drowned", "skeleton", "stray", "bogged", "creeper", "spider", "cave_spider", "enderman", "witch", "slime", "phantom", "pillager", "vindicator", "evoker",
     "ravager", "vex", "illusioner", "bat", "sheep", "pig", "chicken", "cow", "horse", "donkey", "mule", "rabbit", "wolf", "fox", "cat", "ocelot", "parrot", "llama", "trader_llama", "polar_bear", "goat",
     "frog", "armadillo", "camel", "panda", "mooshroom", "squid", "glow_squid", "cod", "salmon", "tropical_fish", "pufferfish", "dolphin", "axolotl", "turtle", "iron_golem", "villager",
-    "wandering_trader", "zombie_horse", "skeleton_horse",
+    "wandering_trader", "zombie_horse", "skeleton_horse", "sulfur_cube", "bee",
 ];
 
 /// The block methods whose override makes a state react to its surroundings (the inert flag).

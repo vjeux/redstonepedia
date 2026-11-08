@@ -65,6 +65,10 @@ pub enum TerrainCmd {
         world: PathBuf,
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         at: Vec<i32>,
+        /// Day times to probe at (the light with the sky's darkening; default 6000), each next to
+        /// redsim's `daylight::sky_darken`.
+        #[arg(long, value_delimiter = ',')]
+        times: Vec<i64>,
     },
     /// Paste a design at a spot in redsim and in the official server (the sample's own world, the
     /// same cells by `setblock ... strict`) and compare every block and light value around it.
@@ -85,6 +89,79 @@ pub enum TerrainCmd {
         /// Columns compared around the spot.
         #[arg(long, default_value_t = 24)]
         radius: i32,
+    },
+    /// Paste a design at a spot of a sample and run the worst-case checks for natural mobs
+    /// (entry, sight, reach, the village golem, the golem search, creepers, endermen, fire, bed
+    /// claims, lightning, natural spawns inside).
+    Hostile {
+        file: PathBuf,
+        #[arg(long)]
+        design: PathBuf,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        at: Vec<i32>,
+        #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+        ground: i32,
+        /// The AFK player's feet in design coordinates.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        afk: Vec<f64>,
+    },
+    /// redsim's biome_at against the game's `execute if biome` at random cells of an area.
+    BiomeCheck {
+        file: PathBuf,
+        #[arg(long)]
+        world: PathBuf,
+        #[arg(long, default_value_t = 300)]
+        samples: usize,
+    },
+    /// Explain, cell by cell, whether a type can naturally spawn there in redsim.
+    SpawnExplain {
+        file: PathBuf,
+        #[arg(long = "type")]
+        ty: String,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        at: Vec<f64>,
+        #[arg(long, default_value_t = 14000)]
+        day_time: i64,
+    },
+    /// Natural spawning, the official server vs redsim: nights around an AFK player on the same
+    /// saved world, the mobs alive at each night's end compared per type (Welch, Holm).
+    SpawnCheck {
+        /// The world's full-height area (`terrain gen` output).
+        area: PathBuf,
+        /// The saved world folder it came from.
+        #[arg(long)]
+        world: PathBuf,
+        /// The AFK player's feet position.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        afk: Vec<f64>,
+        #[arg(long, default_value_t = 1200)]
+        ticks: u32,
+        #[arg(long, default_value_t = 13000)]
+        day_time: i64,
+        #[arg(long, default_value_t = 4)]
+        nights: u32,
+        #[arg(long, default_value_t = 16)]
+        seeds: u32,
+        #[arg(long, default_value_t = 144)]
+        radius: i32,
+        /// Also write every mob (game and redsim) here.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Take the game's nights from an earlier run's `--out` dump (redsim only is run).
+        #[arg(long)]
+        game_dump: Option<PathBuf>,
+        /// Print redsim's counts every 100 ticks.
+        #[arg(long)]
+        trace: bool,
+        /// Turn spawning off after this many ticks (a multiple of 100; 0: never).
+        #[arg(long, default_value_t = 0)]
+        fill: u32,
+    },
+    /// Write the biome table (default `crates/redsim/src/terrain/biomes.tsv`) from the game's biome
+    /// data and tags.
+    Biomes {
+        #[arg(long, default_value = "crates/redsim/src/terrain/biomes.tsv")]
+        out: PathBuf,
     },
     /// Print a saved chunk's sections (light layers present, palette sizes) from a world folder.
     Chunk {
@@ -202,11 +279,15 @@ pub fn run(version: &str, cmd: TerrainCmd) -> Result<()> {
                 println!("  {which} at {x} {y} {z}: ours {ours}, game {game}  ({})", t.state(*x, *y, *z).unwrap_or("?"));
             }
         }
-        TerrainCmd::Probe { world, at } => {
+        TerrainCmd::Probe { world, at, times } => {
             anyhow::ensure!(at.len() % 3 == 0 && !at.is_empty(), "--at takes X,Y,Z triples");
             let cells: Vec<[i32; 3]> = at.chunks(3).map(|c| [c[0], c[1], c[2]]).collect();
-            for (c, l) in cells.iter().zip(worldgen::probe_light(version, &world, &cells)?) {
-                println!("{} {} {}: light {l}", c[0], c[1], c[2]);
+            let times = if times.is_empty() { vec![6000] } else { times };
+            let all = worldgen::probe_light_at(version, &world, &cells, &times)?;
+            for (t, row) in times.iter().zip(all) {
+                for (c, l) in cells.iter().zip(row) {
+                    println!("day {t}: {} {} {}: light {l} (redsim skyDarken {})", c[0], c[1], c[2], redsim::daylight::sky_darken(*t));
+                }
             }
         }
         TerrainCmd::PasteCheck { file, world, design, at, ground, radius } => {
@@ -225,6 +306,64 @@ pub fn run(version: &str, cmd: TerrainCmd) -> Result<()> {
             for e in ex {
                 println!("  {e}");
             }
+        }
+        TerrainCmd::Hostile { file, design, at, ground, afk } => {
+            anyhow::ensure!(at.len() == 2 && afk.len() == 3, "--at takes X,Z and --afk X,Y,Z");
+            let t = read(&file)?;
+            let des = mctas::design::Design::load(&design)?;
+            let t0 = std::time::Instant::now();
+            let (paste, farm, refusals) = crate::hostilecheck::run(&t, &des, [at[0], at[1]], ground, [afk[0], afk[1], afk[2]])?;
+            println!(
+                "footprint {}..{}, {} blocks dug; farm: {} blocks, {} villager boxes, {} interior cells, {} golem cells, {} beds ({:.1} s)",
+                paste.lo,
+                paste.hi,
+                paste.dug,
+                farm.blocks.len(),
+                farm.villagers.len(),
+                farm.interior.len(),
+                farm.golem_cells.len(),
+                farm.beds.len(),
+                t0.elapsed().as_secs_f64()
+            );
+            if refusals.is_empty() {
+                println!("no refusal: no natural mob can reach, see, attack or enter the farm");
+            }
+            for r in refusals {
+                println!("REFUSED {}: {}", r.channel, r.why);
+            }
+        }
+        TerrainCmd::BiomeCheck { file, world, samples } => {
+            let t = read(&file)?;
+            let (n, bad, ex) = worldgen::biome_check(version, &world, &t, samples)?;
+            println!("{n} cells: {bad} biomes differ");
+            for e in ex {
+                println!("  {e}");
+            }
+        }
+        TerrainCmd::SpawnExplain { file, ty, at, day_time } => {
+            anyhow::ensure!(at.len() % 3 == 0 && !at.is_empty(), "--at takes X,Y,Z triples");
+            let t = read(&file)?;
+            let mut w = redsim::terrain::build_world(&t).map_err(anyhow::Error::msg)?;
+            w.mob.seed(1, day_time);
+            for c in at.chunks(3) {
+                let p = redsim::pos::BlockPos::new(c[0].floor() as i32, c[1].floor() as i32, c[2].floor() as i32);
+                println!("{}", redsim::entity::mob::natural::explain(&mut w, &ty, p));
+            }
+        }
+        TerrainCmd::SpawnCheck { area, world, afk, ticks, day_time, nights, seeds, radius, out, game_dump, trace, fill } => {
+            anyhow::ensure!(afk.len() == 3, "--afk takes X,Y,Z");
+            let o = crate::spawncheck::Opts { version: version.to_string(), afk: [afk[0], afk[1], afk[2]], ticks, day_time, radius, trace, fill };
+            let text = crate::spawncheck::run(&o, &area, &world, nights, seeds, out.as_deref(), game_dump.as_deref())?;
+            print!("{text}");
+        }
+        TerrainCmd::Biomes { out } => {
+            let text = crate::biomes::table(version)?;
+            std::fs::write(&out, &text)?;
+            println!("wrote {} ({} biomes)", out.display(), text.lines().count() - 2);
+            let st = crate::biomes::structures_table(version)?;
+            let path = out.with_file_name("structures.tsv");
+            std::fs::write(&path, &st)?;
+            println!("wrote {} ({} structures)", path.display(), st.lines().count() - 2);
         }
         TerrainCmd::Chunk { world, chunk } => {
             anyhow::ensure!(chunk.len() == 2, "--chunk takes CX,CZ");

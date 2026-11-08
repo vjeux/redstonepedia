@@ -114,10 +114,11 @@ fn byte_array(t: Option<&Tag>) -> Option<Vec<u8>> {
     }
 }
 
-/// A structure start's bounding box: the union of its pieces' `BB`.
+/// A structure start's bounding box: the union of its pieces' `BB` (and the pieces).
 fn structure_of(id: &str, start: &Tag) -> Option<Structure> {
     let mut lo = [i32::MAX; 3];
     let mut hi = [i32::MIN; 3];
+    let mut pieces = Vec::new();
     for piece in start.get("Children").map(|c| c.as_list()).unwrap_or(&[]) {
         let bb = int_array(piece.get("BB"));
         if bb.len() == 6 {
@@ -125,9 +126,10 @@ fn structure_of(id: &str, start: &Tag) -> Option<Structure> {
                 lo[a] = lo[a].min(bb[a]);
                 hi[a] = hi[a].max(bb[a + 3]);
             }
+            pieces.push([bb[0], bb[1], bb[2], bb[3], bb[4], bb[5]]);
         }
     }
-    (lo[0] <= hi[0]).then(|| Structure { id: id.to_string(), min: lo, max: hi })
+    (lo[0] <= hi[0]).then(|| Structure { id: id.to_string(), min: lo, max: hi, pieces })
 }
 
 /// Decode one chunk of a dimension folder (`None`: never saved).

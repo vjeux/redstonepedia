@@ -4,6 +4,7 @@
 //! * `format.rs`: the `.mcterrain` file (blocks, biomes, heightmaps, saved light, structures,
 //!   entities), pure Rust so the viewer decodes it in wasm.
 
+pub mod biome;
 pub mod blocks;
 pub mod format;
 pub mod land;

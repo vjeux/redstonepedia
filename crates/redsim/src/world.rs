@@ -880,6 +880,10 @@ impl World {
         // ServerChunkCache.tickChunks (after raids, before block events): ServerLevel.tickChunk of
         // every forced chunk in the game's order: the precipitation draws, then the random ticks
         // of its randomly ticking sections (crops::tick_chunks)
+        // terrain mode: NaturalSpawner's cycle first (`tickChunks` spawns before ticking chunks)
+        if self.mob.natural.is_some() {
+            crate::entity::mob::natural::tick_chunks(self);
+        }
         crate::crops::tick_chunks(self);
         while let Some(e) = self.events.pop() {
             let s = self.get(e.pos);

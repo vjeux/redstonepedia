@@ -61,6 +61,8 @@ pub struct Structure {
     pub id: String,
     pub min: [i32; 3],
     pub max: [i32; 3],
+    /// Its pieces' boxes (inclusive): `structureHasPieceAt` (empty in files written before them).
+    pub pieces: Vec<[i32; 6]>,
 }
 
 /// A terrain sample in memory.
@@ -313,8 +315,14 @@ impl Terrain {
             for v in st.min.iter().chain(st.max.iter()) {
                 s.i64(*v as i64);
             }
+            s.u64(st.pieces.len() as u64);
+            for p in &st.pieces {
+                for v in p {
+                    s.i64(*v as i64);
+                }
+            }
         }
-        section(&mut out, b"STRU", s);
+        section(&mut out, b"STR2", s);
         let mut e = Writer::default();
         e.u64(self.entities.len() as u64);
         for en in &self.entities {
@@ -391,7 +399,8 @@ impl Terrain {
                 }
                 b"SKYL" => t.sky = s.runs8(t.volume())?,
                 b"BLKL" => t.block = s.runs8(t.volume())?,
-                b"STRU" => {
+                b"STRU" | b"STR2" => {
+                    let with_pieces = &tag == b"STR2";
                     let n = s.u64()? as usize;
                     for _ in 0..n {
                         let id = s.str()?;
@@ -399,7 +408,18 @@ impl Terrain {
                         for x in v.iter_mut() {
                             *x = s.i64()? as i32;
                         }
-                        t.structures.push(Structure { id, min: [v[0], v[1], v[2]], max: [v[3], v[4], v[5]] });
+                        let mut pieces = Vec::new();
+                        if with_pieces {
+                            let np = s.u64()? as usize;
+                            for _ in 0..np {
+                                let mut p = [0i32; 6];
+                                for x in p.iter_mut() {
+                                    *x = s.i64()? as i32;
+                                }
+                                pieces.push(p);
+                            }
+                        }
+                        t.structures.push(Structure { id, min: [v[0], v[1], v[2]], max: [v[3], v[4], v[5]], pieces });
                     }
                 }
                 b"ENTS" => {
@@ -594,7 +614,7 @@ mod tests {
             heightmaps: vec![vec![63; 30], vec![64; 30], vec![64; 30], vec![62; 30]],
             sky: (0..n).map(|i| (i % 16) as u8).collect(),
             block: vec![0; n],
-            structures: vec![Structure { id: "minecraft:village_plains".into(), min: [-10, 60, 0], max: [40, 80, 50] }],
+            structures: vec![Structure { id: "minecraft:village_plains".into(), min: [-10, 60, 0], max: [40, 80, 50], pieces: vec![[-10, 60, 0, 5, 70, 9]] }],
             entities: vec![Entity { id: "minecraft:villager".into(), pos: [-1.5, 61.0, 9.25], snbt: "{Health:20.0f}".into() }],
             notes: vec![("command".into(), "mctas terrain gen".into())],
         }

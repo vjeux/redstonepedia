@@ -542,6 +542,13 @@ pub fn tick_one(w: &mut World, i: usize) {
     if w.entities.list[i].removed {
         return;
     }
+    // `ServerLevel.tick`: `checkDespawn` before the ticking-range test (terrain mode's natural mobs)
+    if w.mob.natural.is_some() && matches!(w.entities.list[i].kind, EntityKind::Mob(_)) {
+        mob::natural::check_despawn(w, i);
+        if w.entities.list[i].removed {
+            return;
+        }
+    }
     let p = w.entities.list[i].pos;
     if !w.entity_ticks_at(p.x, p.z) {
         let id = w.entities.list[i].id;

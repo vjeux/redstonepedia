@@ -3,10 +3,13 @@
 //! chunks are read back (`region`) into an `.mcterrain` file (`redsim::terrain::format`), cached
 //! under `$MCTAS_HOME/terrain/`; crops of it are committed under `designs/terrain/`.
 
+pub mod biomes;
 pub mod blockinfo;
 pub mod cli;
+pub mod hostilecheck;
 pub mod map;
 pub mod pastecheck;
+pub mod spawncheck;
 pub mod region;
 pub mod worldgen;
 
