@@ -143,7 +143,7 @@ differential fuzzer, or redsim's own known answers.
 
 | simulator piece | what it replays or runs |
 |---|---|
-| `sim:recorded-traces` | 232 exact real-game traces (every cell and entity, bit for bit, every tick): the clock, entity, crop, TNT, rail, item and boat scenes (196); the door anchors' lever cycles (3 open/close cycles) as built, at a second position and turned, the periodic bulb door, the broken c79, c88-s26, bridge-p2-sculk-r and its stone variant turned 180 degrees (the break material:archive-guards finds in the game: redsim breaks it the same way), the white-concrete door and the classic 2x2 (22); the clock calibration and selftest clocks, the cart clock and the falling cart (11); the item elevators of circuit:lift-verify (the dropper chain, the bubble column that rests, the two clocks that jam) running on a loaded hopper (3). First `recorded check`: every recording of the 13 directories current |
+| `sim:recorded-traces` | 237 exact real-game traces (every cell and entity, bit for bit, every tick): the clock, entity, crop, TNT, rail, item and boat scenes (196); the door anchors' lever cycles (3 open/close cycles) as built, at a second position and turned, the periodic bulb door, the broken c79, c88-s26, bridge-p2-sculk-r and its stone variant turned 180 degrees (the break material:archive-guards finds in the game: redsim breaks it the same way), the white-concrete door and the classic 2x2 (22); the clock calibration and selftest clocks, the cart clock and the falling cart (11); the item elevators of circuit:lift-verify (the dropper chain, the bubble column that rests, the two clocks that jam) running on a loaded hopper (3); 5 recordings with a chunk reload mid-run (designs/redsim/recorded/clocks: the observer pair across a chunk border that the game runs at 4 gt afterwards, a piston mid-retraction, a hopper pair across a border, the torch loop, the sculk piston). First `recorded check`: every recording of the 13 directories current |
 | `sim:recorded-boats` | the 16 boat and lead fixtures' exact traces |
 | `sim:recorded-mobai` | the mob AI's 7 scenes recorded in the game (`mobai record`, 3,000 ticks each: zombies strolling, round walls, to a penned villager and through its door on Hard; an iron golem and a zombie fighting; three villagers claiming beds and sleeping; a creeper going for a player in a fence ring), every mob's state, the blocks and the level random every tick (`mobai replay`) |
 | `circuit:shulker-compare` | the 20 exact shulker loader and unloader traces |
@@ -181,7 +181,7 @@ What the game-running checks exercised and what covers it now:
 | crops and random ticks (circuit:farm-run) | the cane, melon, bamboo, cactus, kelp and stem traces (random ticks mirrored) |
 | mobs (no game check) | `sim:redsim-tests` |
 | the bridge itself | `sim:vanilla-*`; the live fuzzers (the bridge's game against redsim) |
-| chunk reload (clock:verify-reload) | not a simulator behavior: redsim does not model reload; the clock judge's own check |
+| chunk reload (clock:verify-reload) | the 5 reload recordings (`redsim::reload`: each chunk's scheduled ticks numbered -N..-1 again and run in `LevelTicks`' container order, block entities registered again in their chunk map's order, a moving block saved by its progressO); a model error: entities across a reload, block-entity kinds interleaved |
 | walkers and pressure plates (circuit:verify-autodoor) | not modeled (redsim declines walkers); the autodoor judge's own check |
 | the unwaxed copper bulb (bulb-toggle-bud) | not modeled (`copper_bulb`); the circuit judge's own check |
 
@@ -200,7 +200,7 @@ replay what it ran in the game (all in `sim:recorded-*`, plus the live fuzzers o
 | clock:verify-negative | the observer pair placed without its kick |
 | clock:verify-entities | the cart clock and the falling cart |
 | clock:archive-refuses-slop, clock:archive-refuses-family-period | the decorated observer pair and the untapped bulb divider |
-| clock:verify-reload | not modeled (chunk reload, filed) |
+| clock:verify-reload | the 5 reload recordings (designs/redsim/recorded/clocks: the observer pair across a chunk border, a piston mid-retraction, a hopper pair across a border, the torch loop, the sculk piston); still model errors: entities across a reload (new objects, ids and randoms) and a reload that interleaves block-entity kinds (redsim ticks hoppers, then sensors, then moving blocks) |
 | circuit:verify-calibration-1 to -5 | the 36 calibration circuits' stimulus runs (`sim:recorded-circuits`); fly-start and flying-machine are not recorded (their game run stops at the corridor's end 10 frames before redsim's; every frame identical until then), the flying-machine mechanics are in the recorded two-way machine, elevator and watcher-stays flyers and clk-misc's horizontal flyer; bulb-toggle-bud: not modeled (filed) |
 | circuit:verify-station | the judged station-slope-v2 and the cart loader/unloader traces (clk-misc) |
 | circuit:verify-autodoor | not modeled (the walkers, filed) |
@@ -217,13 +217,13 @@ is now three pieces, one per design, run side by side): it runs when its study's
 changes (the door, clock and circuit judges' checks on their calibration designs), with
 `mctas test --all`, and a design's own judge runs when the design changes.
 
-The three behaviors redsim does not model are filed with their owners (2026-11-08): chunk
-save/unload/reload for redstone (scheduled ticks, block entities; clock:verify-reload is the
-repro) and the automatic doors' walkers (scripted armor stands teleported every tick;
-circuit:verify-autodoor) with the tick-exact lane, the unwaxed copper bulb and its oxidation
-(bulb-toggle-bud in circuit:verify-calibration-*) with the mob-farm infrastructure lane. When
-redsim models one, its game run is recorded into designs/redsim/recorded/ and the simulator
-pieces cover it.
+Two behaviors redsim does not model are filed with their owners (2026-11-08): the automatic
+doors' walkers (scripted armor stands teleported every tick; circuit:verify-autodoor), queued
+with the tick-exact lane, and the unwaxed copper bulb and its oxidation (bulb-toggle-bud in
+circuit:verify-calibration-*) with the mob-farm infrastructure lane. Chunk save/unload/reload
+for redstone, the third, is modeled (tickexact, `redsim::reload`: scheduled ticks, block
+entities; clock:verify-reload's repro is recorded). When redsim models one, its game run is
+recorded into designs/redsim/recorded/ and the simulator pieces cover it.
 
 **The mutation test** (2026-11-08, `mctas test --mutants designs/redsim/mutants.tsv`,
 crates/piston-door/src/mutate.rs): ten one-line redsim bugs, each applied in a worktree, built,
