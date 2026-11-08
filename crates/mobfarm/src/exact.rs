@@ -108,7 +108,7 @@ fn scan_one(version: &str, design: &std::path::Path, opts: &Opts, want: &str) ->
         see(&f);
     }
     while run.settle_tick() {}
-    run.arrive().map_err(|e| anyhow!(e))?;
+    arrive(&mut run)?;
     let mobs = run.world.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Mob(_))).count();
     let bonus = follow_bonuses(opts.seed, mobs);
     set_bonuses(&mut run.world, &bonus);
@@ -592,6 +592,19 @@ pub fn run_opts(seed: i64, ticks: u32) -> RunOpts {
     redsim::entity::mob::farm::judge_opts(seed, ticks, redsim::entity::mob::farm::WalkMode::Fixed(redsim::entity::mob::walk::Walk::Still))
 }
 
+/// `Run::arrive` with the compare's natural spawner kept: a terrain site's arrival makes a fresh
+/// spawner (`Run::arrive`: the judge spawns naturally from its arrival on), while the bridge's world
+/// has spawned since its first settle tick with the game's chunk lists, which redsim's keeps.
+pub fn arrive(run: &mut Run) -> Result<()> {
+    while run.settle_tick() {}
+    let natural = run.world.mob.natural.take();
+    run.arrive().map_err(|e| anyhow!("{e}"))?;
+    if natural.is_some() {
+        run.world.mob.natural = natural;
+    }
+    Ok(())
+}
+
 /// redsim's side: the runner with the exact streams on (the level random mirrored on the
 /// sandbox's forced box, random ticks at speed 3 from the bridge's randValue), its chunks ticked in
 /// the game's order (the forced box and the AFK player's square, from the bridge), natural
@@ -614,10 +627,14 @@ pub fn redsim_start(spec: &FarmSpec, o: &RunOpts, game: &GameFarm, bare: bool) -
         run.world.mob.natural = None;
         return Ok(run);
     }
-    let base = match (o.site, run.world.mob.natural.take()) {
-        (Some(_), Some(n)) => n,
-        _ => Natural { spawn_enemies: false, void_biome: Some("minecraft:plains"), ..Natural::new(vec![], Difficulty::Hard) },
+    let base = match o.site {
+        // a terrain site: monsters on around its AFK spot, the level's own biome outside the
+        // sample (the bridge's terrain sandbox: plains), from the first settle tick like the
+        // bridge's world (`Run::start` leaves a site's spawner to `Run::arrive`: see `arrive`)
+        Some(s) => Natural { void_biome: Some("minecraft:plains"), ..Natural::new(vec![s.afk], Difficulty::Hard) },
+        None => Natural { spawn_enemies: false, void_biome: Some("minecraft:plains"), ..Natural::new(vec![], Difficulty::Hard) },
     };
+    let _ = run.world.mob.natural.take();
     let spawn_enemies = base.spawn_enemies;
     run.world.mob.natural = Some(Natural { spawn_order: game.spawning.clone(), spawn_chunk_count: Some(game.spawn_chunk_count as i32), entity_ticking: game.entity_ticking.clone(), ..base });
     if game.spawners {
@@ -688,7 +705,7 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
             return Ok(cmp);
         }
     }
-    run.arrive().map_err(|e| anyhow!(e))?;
+    arrive(&mut run)?;
     let mobs = run.world.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Mob(_))).count();
     let bonus = follow_bonuses(opts.seed, mobs);
     set_bonuses(&mut run.world, &bonus);
@@ -781,7 +798,7 @@ pub fn twin(version: &str, design: &std::path::Path, opts: &Opts, draws_at: Opti
         left -= n;
     }
     while run.settle_tick() {}
-    run.arrive().map_err(|e| anyhow!(e))?;
+    arrive(&mut run)?;
     let mobs = run.world.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Mob(_))).count();
     let bonus = follow_bonuses(opts.seed, mobs);
     set_bonuses(&mut run.world, &bonus);
