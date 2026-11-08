@@ -164,6 +164,7 @@ public final class Protocol {
             case "entities" -> entities(r);
             case "summon" -> summon(r);
             case "world" -> world(r);
+            case "chunk_lists" -> chunkLists(r);
             case "memory" -> memory(r);
             case "trace" -> trace(r);
             case "terrain" -> Terrain.load(this, sandbox(r), r);
@@ -224,7 +225,8 @@ public final class Protocol {
         boolean customSpawners = r.has("custom_spawners") && r.get("custom_spawners").getAsBoolean();
         String biome = r.has("biome") && !r.get("biome").isJsonNull() ? r.get("biome").getAsString() : null;
         int id = this.nextSandboxId++;
-        Sandbox sb = Sandbox.create(this.server, id, minCX, minCZ, maxCX, maxCZ, seed, customSpawners, biome);
+        Integer seaLevel = r.has("sea_level") && !r.get("sea_level").isJsonNull() ? r.get("sea_level").getAsInt() : null;
+        Sandbox sb = Sandbox.create(this.server, id, minCX, minCZ, maxCX, maxCZ, seed, customSpawners, biome, seaLevel);
         this.sandboxes.put(id, sb);
         JsonObject o = new JsonObject();
         o.addProperty("sandbox", id);
@@ -849,6 +851,13 @@ public final class Protocol {
         }
         o.add("full_chunks", full);
         return o;
+    }
+
+    /** The chunk lists the level ticks by, now (the world op's, again: before a compare starts). */
+    private JsonObject chunkLists(JsonObject r) {
+        JsonObject w = new JsonObject();
+        w.addProperty("sandbox", r.get("sandbox").getAsInt());
+        return world(w);
     }
 
     /** Set the game rule named {@code name} (its registry id: "spawn_phantoms", ...) from text. */

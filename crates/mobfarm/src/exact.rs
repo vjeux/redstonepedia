@@ -39,6 +39,84 @@ pub struct Opts {
     pub draws_at: Option<i64>,
     /// A terrain sample (village-edge, plains, forest): the design built at its site.
     pub terrain: Option<String>,
+    /// The day time the farm starts at (the steady state's when `None`).
+    pub day0: Option<i64>,
+}
+
+/// The judge's run options with the compare's day time.
+fn opts_of(opts: &Opts) -> RunOpts {
+    let mut o = run_opts(opts.seed, opts.ticks);
+    if let Some(d) = opts.day0 {
+        o.day0 = d;
+    }
+    o
+}
+
+/// The game's side alone over `seeds` (no redsim): each run's custom spawner events seen as
+/// entities entering (a siege's zombies, a patrol's pillagers, phantoms, cats, a trader), to find
+/// a seed where one fires (the siege and patrol fixtures).
+pub fn scan(version: &str, design: &std::path::Path, opts: &Opts, seeds: std::ops::RangeInclusive<i64>, want: &str) -> Result<Vec<(i64, i64, usize)>> {
+    let seeds: Vec<i64> = seeds.collect();
+    let results = std::sync::Mutex::new(Vec::new());
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|s| {
+        for _ in 0..4 {
+            s.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let Some(&seed) = seeds.get(i) else { break };
+                    let o2 = Opts { seed, ..opts.clone() };
+                    let r = scan_one(version, design, &o2, want);
+                    match r {
+                        Ok(Some((t, n))) => {
+                            println!("seed {seed}: {n} {want} entered from game time {t}");
+                            results.lock().unwrap().push((seed, t, n));
+                        }
+                        Ok(None) => println!("seed {seed}: no {want}"),
+                        Err(e) => println!("seed {seed}: {e:#}"),
+                    }
+                }
+            });
+        }
+    });
+    Ok(results.into_inner().unwrap())
+}
+
+fn scan_one(version: &str, design: &std::path::Path, opts: &Opts, want: &str) -> Result<Option<(i64, usize)>> {
+    let (c, spec, place) = load_place(design, opts)?;
+    let mut o = opts_of(opts);
+    if let Place::Terrain { site, .. } = place {
+        o.site = Some(site);
+    }
+    let mut game = GameFarm::start(version, &c, &spec, &o, opts.weather, false, place)?;
+    let mut run = redsim_start(&spec, &o, &game, opts.bare)?;
+    game.trace(SETTLE_TICKS as u32, false)?;
+    while run.settle_tick() {}
+    run.arrive().map_err(|e| anyhow!(e))?;
+    let mobs = run.world.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Mob(_))).count();
+    let bonus = follow_bonuses(opts.seed, mobs);
+    set_bonuses(&mut run.world, &bonus);
+    game.arrive(&c, &spec, &run.world, &bonus)?;
+    let mut left = opts.ticks;
+    let mut first = None;
+    let mut count = 0usize;
+    let arrival = SETTLE_TICKS + 1;
+    while left > 0 {
+        let n = left.min(opts.batch);
+        for f in game.trace(n, false)? {
+            // after the arrival (the design's own mobs enter there)
+            if f.t <= arrival {
+                continue;
+            }
+            let entered: Vec<&redsim::exact::EntityFrame> = f.entities.iter().filter(|e| f.entered.contains(&e.n) && e.ty.contains(want)).collect();
+            if !entered.is_empty() {
+                first.get_or_insert(f.t);
+                count += entered.len();
+            }
+        }
+        left -= n;
+    }
+    Ok(first.map(|t| (t, count)))
 }
 
 /// The design and its spec where the compare runs: lifted in the void, moved to its site in a
@@ -270,7 +348,9 @@ impl GameFarm {
             }
         };
         let spawners = spawners && !bare;
-        let v = w.call(json!({"op": "create", "chunks": chunks, "seed": o.seed, "biome": biome, "custom_spawners": spawners}))?;
+        // a terrain sample's sandbox reports its world's sea level (the overworld's 63)
+        let sea_level = if matches!(place, Place::Terrain { .. }) { json!(63) } else { Value::Null };
+        let v = w.call(json!({"op": "create", "chunks": chunks, "seed": o.seed, "biome": biome, "custom_spawners": spawners, "sea_level": sea_level}))?;
         let sb = v["sandbox"].as_u64().ok_or_else(|| anyhow!("create: no sandbox"))? as u32;
         let mut world = json!({
             "op": "world", "sandbox": sb,
@@ -324,6 +404,19 @@ impl GameFarm {
             g.w.set_blocks(sb, &[(out, "minecraft:chest[facing=north,type=single,waterlogged=false]")], PlaceMode::Raw)?;
         }
         g.w.merge_block_entity(sb, out, "{Items:[]}")?;
+        // the lists again, right before the first tick (the farm built, nothing ticked since)
+        let v = g.w.call(json!({"op": "chunk_lists", "sandbox": sb}))?;
+        let list = |k: &str| -> Vec<[i32; 2]> { v[k].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default() };
+        g.ticking = list("ticking_chunks");
+        g.spawning = list("spawning_chunks");
+        g.entity_ticking = list("entity_ticking_chunks");
+        g.full = list("full_chunks");
+        g.spawn_chunk_count = v["spawn_chunk_count"].as_u64().unwrap_or(0) as u32;
+        eprintln!("chunk lists at the first tick: {} ticking, {} spawning, {} entity ticking, {} loaded, spawn chunk count {}", g.ticking.len(), g.spawning.len(), g.entity_ticking.len(), g.full.len(), g.spawn_chunk_count);
+        if std::env::var("MCTAS_EXACT_LISTS").is_ok() {
+            eprintln!("entity ticking: {:?}", g.entity_ticking);
+            eprintln!("ticking: {:?}", g.ticking);
+        }
         Ok(g)
     }
 
@@ -504,6 +597,9 @@ pub fn redsim_start(spec: &FarmSpec, o: &RunOpts, game: &GameFarm, bare: bool) -
         let all = o.site.is_some();
         let mut c = redsim::entity::mob::custom::Custom::new(o.seed, spawn_enemies, all, all, all);
         c.full_chunks = game.full.iter().copied().collect();
+        if all {
+            c.sea_level = 63;
+        }
         run.world.mob.custom = Some(c);
     }
     Ok(run)
@@ -521,7 +617,7 @@ fn game_chunks(game: &GameFarm) -> [i32; 4] {
 /// Compare a farm design over `opts.ticks` game ticks after the settle; the compare's result.
 pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: Option<i64>) -> Result<Compare> {
     let (c, spec, place) = load_place(design, opts)?;
-    let mut o = run_opts(opts.seed, opts.ticks);
+    let mut o = opts_of(opts);
     if let Place::Terrain { site, .. } = place {
         o.site = Some(site);
     }
@@ -600,7 +696,7 @@ pub fn set_bonuses(w: &mut redsim::world::World, bonus: &[f64]) {
 /// field the game reports), the determinism check of the bridge's seeding.
 pub fn twin(version: &str, design: &std::path::Path, opts: &Opts, draws_at: Option<i64>) -> Result<Compare> {
     let (c, spec, place) = load_place(design, opts)?;
-    let mut o = run_opts(opts.seed, opts.ticks);
+    let mut o = opts_of(opts);
     if let Place::Terrain { site, .. } = place {
         o.site = Some(site);
     }

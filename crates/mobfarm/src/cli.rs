@@ -242,6 +242,13 @@ pub enum MobfarmCmd {
         /// spawning on Hard around its AFK spot.
         #[arg(long)]
         terrain: Option<String>,
+        /// The day time the farm starts at (default: the steady state's).
+        #[arg(long)]
+        day0: Option<i64>,
+        /// Scan seeds FROM..=TO on the game's side alone for entities of this type entering (a
+        /// siege's zombie, a patrol's pillager): the fixtures' seeds.
+        #[arg(long, num_args = 3, value_names = ["TYPE", "FROM", "TO"])]
+        scan: Option<Vec<String>>,
         /// Ticks per traced step.
         #[arg(long, default_value_t = 100)]
         batch: u32,
@@ -444,9 +451,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         MobfarmCmd::WeatherStats { days, servers, dt, sim_runs } => crate::weathercheck::weather_stats_cmd(version, days, servers, dt, sim_runs)?,
         MobfarmCmd::FireBurn { design, servers, max, seeds } => crate::weathercheck::fire_burn_cmd(version, &design, servers, max, seeds)?,
         MobfarmCmd::BoltCheck => crate::weathercheck::bolt_check_cmd(version)?,
-        MobfarmCmd::Compare { design, seed, days, ticks, weather, probe, twin, full, bare, draws_at, terrain, batch } => {
+        MobfarmCmd::Compare { design, seed, days, ticks, weather, probe, twin, full, bare, draws_at, terrain, day0, scan, batch } => {
             let ticks = ticks.unwrap_or((days * 24000.0).round() as u32);
-            let opts = crate::exact::Opts { seed, ticks, weather, probe, batch: batch.max(1), full, bare, draws_at, terrain };
+            let opts = crate::exact::Opts { seed, ticks, weather, probe, batch: batch.max(1), full, bare, draws_at, terrain, day0 };
+            if let Some(s) = scan {
+                let (from, to): (i64, i64) = (s[1].parse()?, s[2].parse()?);
+                let hits = crate::exact::scan(version, &design, &opts, from..=to, &s[0])?;
+                println!("{} of {} seeds: {:?}", hits.len(), to - from + 1, hits);
+                return Ok(());
+            }
             compare_cmd(version, &design, &opts, twin)?;
         }
     }

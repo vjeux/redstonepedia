@@ -68,6 +68,9 @@ pub struct Custom {
     /// The player's `TIME_SINCE_REST` (`ServerPlayer.doTick` adds one a tick it is not asleep,
     /// after the level's tick: the spawners read last tick's value).
     pub time_since_rest: i32,
+    /// `Level.getSeaLevel()` (the phantoms' height test): a bridge sandbox's flat source reports
+    /// -63, a terrain sample's sandbox its world's 63.
+    pub sea_level: i32,
     phantom_next: i32,
     patrol_next: i32,
     cat_next: i32,
@@ -88,6 +91,7 @@ impl Custom {
             traders,
             full_chunks: Default::default(),
             time_since_rest: 0,
+            sea_level: -63,
             phantom_next: 0,
             patrol_next: 0,
             cat_next: 0,
@@ -240,7 +244,7 @@ fn phantoms(w: &mut World, c: &mut Custom) {
     }
     let Some(p) = player_block(w) else { return };
     let sky = crate::weather::can_see_sky(w, p).unwrap_or(true);
-    if p.y < SANDBOX_SEA_LEVEL || !sky {
+    if p.y < c.sea_level || !sky {
         return;
     }
     let eff = effective_difficulty(w, p);
@@ -490,9 +494,6 @@ fn enter_spawned(w: &mut World, ty: MobType, pos: Vec3, yaw: f32, bonus: f64) ->
     }
     id
 }
-
-/// A bridge sandbox's sea level (`FlatLevelSource.getSeaLevel()`: -63), the phantoms' height test.
-const SANDBOX_SEA_LEVEL: i32 = -63;
 
 /// `WanderingTraderSpawner.tick`: its own random; the player from the level's.
 fn trader(w: &mut World, c: &mut Custom) {

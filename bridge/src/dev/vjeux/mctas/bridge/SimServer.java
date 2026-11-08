@@ -207,15 +207,31 @@ public final class SimServer extends MinecraftServer {
      * overworld's dimension type like the void stem's.
      */
     LevelStem stemFor(String biome) {
-        if (biome == null || biome.equals("minecraft:the_void")) {
+        return stemFor(biome, null);
+    }
+
+    /**
+     * {@code seaLevel}: what the level reports ({@code ServerLevel.getSeaLevel}: a flat source's
+     * -63 when null; a terrain sample's sandbox reports its world's, the overworld's 63, which
+     * natural spawning's rules read: glow squids, drowned, turtles, axolotls, water animals).
+     */
+    LevelStem stemFor(String biome, Integer seaLevel) {
+        if ((biome == null || biome.equals("minecraft:the_void")) && seaLevel == null) {
             return this.voidStem;
         }
-        return this.stems.computeIfAbsent(biome, id -> {
+        String id = biome == null ? "minecraft:the_void" : biome;
+        return this.stems.computeIfAbsent(id + "@" + seaLevel, k -> {
             Holder<Biome> b = this.registryAccess().lookupOrThrow(Registries.BIOME)
                     .getOrThrow(ResourceKey.create(Registries.BIOME, net.minecraft.resources.Identifier.parse(id)));
             FlatLevelGeneratorSettings flat = new FlatLevelGeneratorSettings(Optional.empty(), b, List.of());
             flat.updateLayers();
-            return new LevelStem(this.voidStem.type(), new FlatLevelSource(flat));
+            FlatLevelSource source = seaLevel == null ? new FlatLevelSource(flat) : new FlatLevelSource(flat) {
+                @Override
+                public int getSeaLevel() {
+                    return seaLevel;
+                }
+            };
+            return new LevelStem(this.voidStem.type(), source);
         });
     }
 

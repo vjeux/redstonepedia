@@ -152,16 +152,21 @@ final class Sandbox {
     }
 
     static Sandbox create(SimServer server, int id, int minChunkX, int minChunkZ, int maxChunkX, int maxChunkZ, long seed) {
-        return create(server, id, minChunkX, minChunkZ, maxChunkX, maxChunkZ, seed, false, null);
+        return create(server, id, minChunkX, minChunkZ, maxChunkX, maxChunkZ, seed, false, null, null);
+    }
+
+    static Sandbox create(SimServer server, int id, int minChunkX, int minChunkZ, int maxChunkX, int maxChunkZ, long seed, boolean customSpawners, String biome) {
+        return create(server, id, minChunkX, minChunkZ, maxChunkX, maxChunkZ, seed, customSpawners, biome, null);
     }
 
     /**
      * {@code customSpawners} (tickexact, a world sandbox): the level runs the overworld's custom
      * spawners in vanilla's order (phantoms, patrols, cats, the village siege, the wandering trader:
      * {@code MinecraftServer} 421), the trader spawner's own random seeded ({@link Exact#traderSeed}).
-     * {@code biome}: the biome of every chunk (null: the void's).
+     * {@code biome}: the biome of every chunk (null: the void's). {@code seaLevel}: what the level
+     * reports (null: the flat source's -63; a terrain sample's sandbox: its world's 63).
      */
-    static Sandbox create(SimServer server, int id, int minChunkX, int minChunkZ, int maxChunkX, int maxChunkZ, long seed, boolean customSpawners, String biome) {
+    static Sandbox create(SimServer server, int id, int minChunkX, int minChunkZ, int maxChunkX, int maxChunkZ, long seed, boolean customSpawners, String biome, Integer seaLevel) {
         ResourceKey<Level> key = ResourceKey.create(Registries.DIMENSION, Identifier.fromNamespaceAndPath("mctas", "sandbox_" + id));
         PrimaryLevelData data = new PrimaryLevelData(server.levelSettings, PrimaryLevelData.SpecialWorldProperty.FLAT, Lifecycle.stable());
         data.setInitialized(true);
@@ -183,7 +188,7 @@ final class Sandbox {
                 server.storage(),
                 data,
                 key,
-                server.stemFor(biome),
+                server.stemFor(biome, seaLevel),
                 false,
                 BiomeManager.obfuscateSeed(seed),
                 spawners,
@@ -1289,18 +1294,26 @@ final class Sandbox {
         // same for 20 rounds
         String last = "";
         int stable = 0;
-        while (stable < 20) {
+        while (stable < 100) {
             server.pumpTasks();
             this.level.getChunkSource().tick(() -> true, false);
             this.level.getChunkSource().pollTask();
             entityManager.tick();
-            String now = tickingChunks().size() + "/" + spawningChunks().size();
+            int entityTicking = 0;
+            for (int cx = center.x() - 9; cx <= center.x() + 9; cx++) {
+                for (int cz = center.z() - 9; cz <= center.z() + 9; cz++) {
+                    if (this.level.canSpawnEntitiesInChunk(new ChunkPos(cx, cz))) {
+                        entityTicking++;
+                    }
+                }
+            }
+            String now = tickingChunks().size() + "/" + spawningChunks().size() + "/" + entityTicking;
             stable = playerChunksReady(center, simulation) && now.equals(last) ? stable + 1 : 0;
             last = now;
             if (System.nanoTime() > deadline) {
                 throw new IllegalStateException("the chunks around the player did not load (" + now + ")");
             }
-            LockSupport.parkNanos(1_000_000L);
+            LockSupport.parkNanos(2_000_000L);
         }
         drainLight();
         return p;
