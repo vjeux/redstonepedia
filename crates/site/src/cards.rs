@@ -12,7 +12,8 @@
 //!   page's front), `if` (a check on the design: `<field> <op> <value>` with op `=`, `!=`, `>=` or
 //!   `<=`; the build fails when it does not hold, so a re-judge that flips a fact breaks the build
 //!   instead of leaving a card that lies).
-//! - Placeholders: `{field}`, `{field|round}`, `{field|thousands}`, `{field|plural:trip}` (`16
+//! - Placeholders: `{field}`, `{field|round}`, `{field|about}` (rounded as the titles round a
+//!   rate: `3,200`), `{field|thousands}`, `{field|plural:trip}` (`16
 //!   trips`, `1 trip`); `{field@stem}` is another design's value (same study), `{delta:field@stem}`
 //!   the difference between the two, `{ratio:field@stem}` this one's over the other's. The fields:
 //!   [`fields`].
@@ -279,12 +280,15 @@ fn fill(spec: &str, mine: &BTreeMap<String, String>, other: &dyn Fn(&str) -> Opt
                 format!("{}{}", num(&value)?.round() as i64, if pct { "%" } else { "" })
             }
             "thousands" => thousands(&value),
+            // (as the titles round a rate: "3,200 melon slices an hour", two figures from 1,000 up,
+            // site_model::html::readable; so a card's line and its neighbour's title agree)
+            "about" => site_model::html::readable(num(&value)?),
             "plural" => {
                 let word = arg.filter(|w| !w.is_empty()).ok_or("plural needs its word (`|plural:trip`)")?;
                 let one = num(&value).is_ok_and(|x| x == 1.0);
                 format!("{value} {word}{}", if one { "" } else { "s" })
             }
-            other => return Err(format!("unknown filter {other:?} (round, thousands, plural:<word>)")),
+            other => return Err(format!("unknown filter {other:?} (round, about, thousands, plural:<word>)")),
         };
     }
     // (a number of 1,000 or more is grouped, filter or not, as the titles write it: the parent
@@ -473,6 +477,7 @@ mod tests {
         let none = |_: &str| None;
         assert_eq!(render("{iron_per_hour} iron an hour, a golem every {seconds_per_golem|round} s", &f, &none).unwrap(), "295 iron an hour, a golem every 49 s");
         assert_eq!(render("lightning breaks it about every {lightning_break_days|thousands} game days", &f, &none).unwrap(), "lightning breaks it about every 2,871 game days");
+        assert_eq!(render("about {lightning_break_days|about} game days", &f, &none).unwrap(), "about 2,900 game days");
         assert_eq!(render("{lava_sources|plural:lava trip}", &f, &none).unwrap(), "16 lava trips");
         assert!(render("takes {villagers} of the village's 8 villagers", &f, &none).unwrap_err().contains("written out"));
         assert!(render("{iron_per_hour_sleeping} iron an hour if you sleep", &f, &none).unwrap_err().contains("no field \"iron_per_hour_sleeping\""));

@@ -195,11 +195,12 @@ pub fn built_pages(site: &Site) -> Vec<Entry> {
     for p in fixed.chain(studies.iter().map(|s| format!("circuits/{s}/index.html"))) {
         v.push(Entry { path: p, what: "page".into(), ..Default::default() });
     }
-    // the Farms section's overviews (crates/site/src/farms.rs): the farm types, the iron hub, the
-    // crop farms' collection when there are crop farms, each component's page with members
-    let mut farms = vec!["farms/index.html".to_string(), "farms/iron/index.html".to_string()];
-    if site.builds.iter().any(|b| b.circuit.as_ref().is_some_and(|c| c.study == "farm")) {
-        farms.push("farms/crops/index.html".into());
+    // the Farms section's overviews (crates/site/src/farms.rs): the farm types, each farm type's
+    // page (the iron farm's, one per crop), each component's page with members
+    let mut farms = vec!["farms/index.html".to_string()];
+    farms.extend(crate::farms::farm_folders(site).into_iter().map(|f| format!("farms/{f}/index.html")));
+    if !farms.iter().any(|p| p == "farms/iron/index.html") {
+        farms.push("farms/iron/index.html".into());
     }
     farms.extend(crate::farms::loaded_part_pages());
     for p in farms {
@@ -310,6 +311,15 @@ fn card_first<'a>(v: &[&'a Build]) -> Option<&'a Build> {
     v.iter().copied().min_by_key(|b| (!b.flags.iter().any(|f| f == "tunable"), b.flags.iter().any(|f| f == "generator"), b.blocks, b.name.clone()))
 }
 
+/// The page a farm study's old collection page now leads to: the iron farm's for the mob farms,
+/// the farm types for the crop farms (one farm type per crop: vjeux 2026-11-08 13:14).
+fn farm_study_page(study: &str) -> Target {
+    match study {
+        "mobfarm" => Target { path: "farms/iron/index.html".into(), title: "the iron farm page".into() },
+        _ => Target { path: "farms/index.html".into(), title: "the farms page".into() },
+    }
+}
+
 /// The current page for `e` in `site` (None: a page vjeux deleted, no redirect).
 pub fn resolve(e: &Entry, site: &Site) -> Option<Target> {
     let to = |b: &Build| Target { path: b.page.clone(), title: pages::page_title(b) };
@@ -318,9 +328,10 @@ pub fn resolve(e: &Entry, site: &Site) -> Option<Target> {
         "deleted" => None,
         "circuit" => {
             let circuits: Vec<&Build> = site.builds.iter().filter(|b| b.circuit.is_some()).collect();
-            // a farm's page that moved under farms/ (vjeux 2026-11-08 12:14): the same design's
-            // new page
-            if let Some(b) = circuits.iter().find(|b| b.circuit.as_ref().is_some_and(|c| site_model::farm_folder(&c.study).is_some() && e.path == format!("circuits/{}/{}.html", c.study, b.name))) {
+            // a farm's page that moved (vjeux 2026-11-08 12:14: under farms/; 13:14: one folder per
+            // product, farms/crops/ split): the same design's new page
+            let stem = e.path.rsplit('/').next().and_then(|f| f.strip_suffix(".html")).unwrap_or("");
+            if let Some(b) = circuits.iter().find(|b| b.circuit.as_ref().is_some_and(|c| site_model::is_farm_study(&c.study) && (e.path == format!("circuits/{}/{}.html", c.study, b.name) || (e.path.starts_with("farms/") && stem == b.name)))) {
                 return Some(to(b));
             }
             let key_of = |b: &Build| format!("{}/{}", b.circuit.as_ref().map(|c| c.study.as_str()).unwrap_or(""), kinds::kind_key(b));
@@ -348,8 +359,8 @@ pub fn resolve(e: &Entry, site: &Site) -> Option<Target> {
             }
             // its study's page (a farm study's under farms/), else the circuits' overview
             if circuits.iter().any(|b| b.circuit.as_ref().is_some_and(|c| c.study == study)) {
-                if let Some(folder) = site_model::farm_folder(study) {
-                    return Some(Target { path: format!("farms/{folder}/index.html"), title: format!("the {} page", crate::farms::farm_title(folder).to_lowercase()) });
+                if site_model::is_farm_study(study) {
+                    return Some(farm_study_page(study));
                 }
                 let title = crate::explain::studies().iter().find(|s| s.0 == study).map(|s| format!("the {} page", s.1)).unwrap_or_else(|| format!("the {study} page"));
                 return Some(Target { path: format!("circuits/{study}/index.html"), title });
@@ -396,9 +407,14 @@ pub fn resolve(e: &Entry, site: &Site) -> Option<Target> {
             // a farm study's old collection page: its farm's page under Farms (vjeux 2026-11-08
             // 12:14, the farms' own section)
             if let Some((study, _)) = e.path.strip_prefix("circuits/").and_then(|r| r.split_once("/index.html"))
-                && let Some(folder) = site_model::farm_folder(study)
+                && site_model::is_farm_study(study)
             {
-                return Some(Target { path: format!("farms/{folder}/index.html"), title: format!("the {} page", crate::farms::farm_title(folder).to_lowercase()) });
+                return Some(farm_study_page(study));
+            }
+            // a farm type's page this build no longer makes (farms/crops/, split one per crop on
+            // 2026-11-08 13:14): the farm types
+            if e.path.starts_with("farms/") {
+                return Some(Target { path: "farms/index.html".into(), title: "the farms page".into() });
             }
             if e.path.starts_with("circuits/") {
                 Some(Target { path: "circuits/index.html".into(), title: "the circuits page".into() })

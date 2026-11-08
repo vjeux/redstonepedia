@@ -134,11 +134,16 @@ vjeux/minecraft-tas until 2026-10-21, and GitHub does not redirect a renamed pro
 The farms have their own top-level section (vjeux 2026-11-08 12:14: "a new farms top level
 category, and you can drill down with iron farm and then full farm / individual components"),
 the fourth tab: Doors · Clocks · Circuits · Farms. Inside, a farm is still a circuit build of a farm
-study (`site_model::FARM_STUDIES`: `mobfarm` → `farms/iron/`, `farm` → `farms/crops/`); the index's
-`kind=farm` lists them, and `kind=circuit` no longer does. Their old `circuits/<study>/` pages
-redirect to the new ones (`published::resolve`).
+study (`site_model::FARM_STUDIES`: `mobfarm`, `farm`), and its folder is what it produces
+(`site_model::farm_folder_of`; vjeux 13:14: "Melons and sugarcane are two different farms"):
+`farms/iron/`, one folder per crop (`farms/sugar-cane/`, `farms/bamboo/`...), melons and pumpkins
+together (`farms/melon-pumpkin/`; vjeux 13:16: they grow the same way, one farm grows either). The
+index's `kind=farm` lists them, and `kind=circuit` no longer does. Their old pages
+(`circuits/<study>/`, `farms/crops/`) redirect to the new ones (`published::resolve`).
 
-- `farms/index.html`: the farm types. `farms/crops/index.html`: the crop farms' collection.
+- `farms/index.html`: the farm types, the iron farm first, then the crops as players search for
+  them. `farms/<crop>/index.html`: a crop's farms, each kind's pick first. A crop's card can carry
+  its twin's yield (`designs/circuits/farm/cards.tsv`: the melon farm planted with pumpkins).
 - `farms/iron/index.html`: the iron farm's hub. **Full farms** by stage (Day 1, Middle, Late), every
   variation of each stage on the site (vjeux 12:15: "ALL the promising variations"), the stage's
   pick first (a variation picked in its `variations.tsv`, else the archived design), then by iron

@@ -122,18 +122,39 @@ pub fn normalize_time(s: &str) -> String {
 }
 
 /// The circuit studies that are farms (vjeux 2026-11-08 12:14: "a new farms top level category,
-/// and you can drill down with iron farm..."): the crop farms and the mob farms, with the folder
-/// each has under `farms/` on the site.
-pub const FARM_STUDIES: [(&str, &str); 2] = [("mobfarm", "iron"), ("farm", "crops")];
+/// and you can drill down with iron farm..."): the mob farms and the crop farms. A farm's own
+/// `farms/` folder is what it produces ([`farm_folder_of`]; vjeux 13:14: "Melons and sugarcane are
+/// two different farms, we should not bundle them together").
+pub const FARM_STUDIES: [&str; 2] = ["mobfarm", "farm"];
 
-/// The `farms/` folder of a farm study (`mobfarm` -> `iron`), or None for any other study.
-pub fn farm_folder(study: &str) -> Option<&'static str> {
-    FARM_STUDIES.iter().find(|(s, _)| *s == study).map(|(_, f)| *f)
+/// Whether a study is a farm study ([`FARM_STUDIES`]).
+pub fn is_farm_study(study: &str) -> bool {
+    FARM_STUDIES.contains(&study)
+}
+
+/// The `farms/` folder of a farm, by what it produces: `iron` for an iron farm, its crop for a
+/// crop farm (`harvester sugar_cane` -> `sugar-cane`; melons and pumpkins grow the same way, a
+/// stem that sets its fruit beside it, so one farm grows either: `melon-pumpkin`, vjeux 13:16);
+/// None for any other build.
+pub fn farm_folder_of(study: &str, kind: &str) -> Option<String> {
+    match study {
+        "mobfarm" => Some("iron".to_string()),
+        "farm" => kind.split_whitespace().nth(1).map(|c| match c {
+            "melon" | "pumpkin" => "melon-pumpkin".to_string(),
+            c => c.replace('_', "-"),
+        }),
+        _ => None,
+    }
+}
+
+/// [`farm_folder_of`] a build.
+pub fn build_farm_folder(b: &Build) -> Option<String> {
+    b.circuit.as_ref().and_then(|c| farm_folder_of(&c.study, &c.kind))
 }
 
 /// Whether a build is a farm (its circuit's study is one of [`FARM_STUDIES`]).
 pub fn is_farm(b: &Build) -> bool {
-    b.circuit.as_ref().is_some_and(|c| farm_folder(&c.study).is_some())
+    b.circuit.as_ref().is_some_and(|c| is_farm_study(&c.study))
 }
 
 /// A 3x3 piston door's facts (designs/piston-door-3x3/archive and its caches).
@@ -1653,6 +1674,18 @@ pub fn decode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_farm_s_folder_is_what_it_produces() {
+        // (vjeux 2026-11-08 13:14: melons and sugar cane are two farms; 13:16: melons and pumpkins
+        // grow the same way, one farm)
+        assert_eq!(farm_folder_of("mobfarm", "mob-farm iron_ingot middle").as_deref(), Some("iron"));
+        assert_eq!(farm_folder_of("farm", "harvester melon").as_deref(), Some("melon-pumpkin"));
+        assert_eq!(farm_folder_of("farm", "harvester pumpkin").as_deref(), Some("melon-pumpkin"));
+        assert_eq!(farm_folder_of("farm", "harvester sugar_cane").as_deref(), Some("sugar-cane"));
+        assert_eq!(farm_folder_of("farm", "harvester bamboo").as_deref(), Some("bamboo"));
+        assert_eq!(farm_folder_of("gates", "and"), None);
+    }
 
     #[test]
     fn time_queries() {

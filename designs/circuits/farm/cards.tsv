@@ -1,0 +1,5 @@
+key	slot	line
+melon-lattice8	sub	planted with pumpkins instead: {items_per_hour@pumpkin-lattice8|about} pumpkins an hour
+melon-lattice8	sub	fits in {dims}
+pumpkin-lattice8	sub	planted with melons instead: {items_per_hour@melon-lattice8|about} melon slices an hour
+pumpkin-lattice8	sub	fits in {dims}

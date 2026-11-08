@@ -1,12 +1,16 @@
 //! The Farms section (vjeux 2026-11-08 12:14: "a new farms top level category, and you can drill
 //! down with iron farm and then full farm / individual components"; 12:15: every promising
-//! variation of a stage on the site, the stage's pick first, its numbers the numbers).
+//! variation of a stage on the site, the stage's pick first, its numbers the numbers; 13:14: a
+//! farm type is what it produces, "Melons and sugarcane are two different farms"; 13:16: melons and
+//! pumpkins together, "They can be together").
 //!
-//! - `farms/index.html`: the farm types (the iron farm, the crop farms), the Farms tab's page.
+//! - `farms/index.html`: the farm types (the iron farm, then one per crop), the Farms tab's page.
 //! - `farms/iron/index.html`: the iron farm's hub: its full farms by stage (Day 1, Middle, Late),
 //!   every variation of each stage with its pick first, then its components.
-//! - A full farm's page, `farms/iron/<stem>.html`: an archived design's or a variation's, the same
-//!   page as any design's; the crop farms' collection is `farms/crops/index.html`.
+//! - `farms/<crop>/index.html` (`melon-pumpkin`, `sugar-cane`, `bamboo`...): a crop's farms, the
+//!   kind's pick first ([`site_model::farm_folder_of`]).
+//! - A farm's page, `farms/<farm>/<stem>.html`: an archived design's or a variation's, the same
+//!   page as any design's.
 //! - Variations: `designs/farms/<farm>/<stage>/` holds every promising design of a stage
 //!   (`<stem>.txt` with the judge's line on top), `verdicts.tsv` (the judge's rows, the archive's
 //!   format) and `variations.tsv` (`file`, `pick`, `name`), all written by `mctas site variation`.
@@ -37,13 +41,48 @@ pub const PARTS: [(&str, &str, &str); 5] = [
     ("sleep-trigger", "Sleep trigger", "What hides the zombie at night, so the villagers can sleep."),
 ];
 
-/// The title of a farm folder (`iron` -> `Iron farm`).
-pub fn farm_title(folder: &str) -> &'static str {
+/// The title of a farm folder, by what it produces (`iron` -> `Iron farm`, `sugar-cane` ->
+/// `Sugar cane farm`, `melon-pumpkin` -> `Melon and pumpkin farm`: the names players search for,
+/// docs/search-demand/terms.tsv).
+pub fn farm_title(folder: &str) -> String {
     match folder {
-        "iron" => "Iron farm",
-        "crops" => "Crop farms",
-        _ => "Farms",
+        "iron" => "Iron farm".to_string(),
+        "melon-pumpkin" => "Melon and pumpkin farm".to_string(),
+        "" => "Farms".to_string(),
+        f => {
+            let words = f.replace('-', " ");
+            let mut ch = words.chars();
+            ch.next().map(|c| c.to_uppercase().collect::<String>() + ch.as_str()).unwrap_or_default() + " farm"
+        }
     }
+}
+
+/// What a farm type gives, one line for its tile and its page.
+pub fn farm_blurb(folder: &str) -> String {
+    match folder {
+        "iron" => crate::explain::study_blurb("mobfarm").to_string(),
+        "melon-pumpkin" => "Melons and pumpkins without replanting or collecting: one farm grows either, to trade or eat.".to_string(),
+        "sugar-cane" => "Sugar cane without replanting or collecting: paper, books and rockets.".to_string(),
+        "bamboo" => "Bamboo without replanting or collecting: scaffolding, and fuel for furnaces.".to_string(),
+        "kelp" => "Kelp without replanting or collecting: dry it into fuel blocks.".to_string(),
+        "cactus" => "Cactus without replanting or collecting: green dye.".to_string(),
+        _ => "Crops without replanting or collecting.".to_string(),
+    }
+}
+
+/// The farm types' order on the Farms page: iron first, then the crops as players search for them
+/// (docs/search-demand/terms.tsv), any other crop after, by name.
+fn farm_order(folder: &str) -> (usize, String) {
+    let known = ["iron", "melon-pumpkin", "sugar-cane", "bamboo", "cactus", "kelp"];
+    (known.iter().position(|k| *k == folder).unwrap_or(known.len()), folder.to_string())
+}
+
+/// Every farm folder the site's builds make, in [`farm_order`].
+pub fn farm_folders(site: &Site) -> Vec<String> {
+    let mut v: Vec<String> = site.builds.iter().filter_map(site_model::build_farm_folder).collect();
+    v.sort_by_key(|f| farm_order(f));
+    v.dedup();
+    v
 }
 
 /// A variation of a farm stage (`designs/farms/<farm>/<stage>/`), not an archived design.
@@ -73,10 +112,13 @@ fn farms_root(circuits_root: &Path) -> PathBuf {
     circuits_root.parent().map(|p| p.join("farms")).unwrap_or_else(|| PathBuf::from("designs/farms"))
 }
 
-/// A farm study's variation folders that have designs: (stage, folder).
+/// A farm study's variation folders that have designs: (stage, folder). Only the iron farm has
+/// stages (designs/farms/iron/<stage>/).
 pub fn variation_dirs(circuits_root: &Path, study: &str) -> Vec<(String, PathBuf)> {
-    let Some(farm) = site_model::farm_folder(study) else { return Vec::new() };
-    let base = farms_root(circuits_root).join(farm);
+    if study != "mobfarm" {
+        return Vec::new();
+    }
+    let base = farms_root(circuits_root).join("iron");
     STAGES.iter().map(|s| (s.0.to_string(), base.join(s.0))).filter(|(_, d)| d.join(circuit::archive::VERDICTS).exists()).collect()
 }
 
@@ -198,7 +240,7 @@ pub fn loaded_part_pages() -> Vec<String> {
 /// A full farm page's "Its parts" section: the components it is built from, each linking to its
 /// member on the component's page (empty when it names none).
 pub fn parts_section(b: &Build, prefix: &str) -> String {
-    let farm = b.circuit.as_ref().and_then(|c| site_model::farm_folder(&c.study)).unwrap_or("");
+    let farm = site_model::build_farm_folder(b).unwrap_or_default();
     let used = parts_of(&b.name);
     if used.is_empty() || farm.is_empty() {
         return String::new();
@@ -206,14 +248,14 @@ pub fn parts_section(b: &Build, prefix: &str) -> String {
     let items: String = PARTS
         .iter()
         .flat_map(|(p, title, _)| used.iter().filter(move |m| m.part == *p).map(move |m| (title, m)))
-        .map(|(title, m)| format!("<li><b>{}</b>: <a href=\"{prefix}{}#{}\">{}</a></li>", esc(title), esc(&part_page_path(farm, &m.part)), esc(m.stem()), esc(&m.name)))
+        .map(|(title, m)| format!("<li><b>{}</b>: <a href=\"{prefix}{}#{}\">{}</a></li>", esc(title), esc(&part_page_path(&farm, &m.part)), esc(m.stem()), esc(&m.name)))
         .collect();
     format!("<section><h2>What it is made of</h2><ul class=\"parts\">{items}</ul></section>\n")
 }
 
-/// The builds of a farm study, the variations included.
-fn farm_builds<'a>(site: &'a Site, study: &str) -> Vec<&'a Build> {
-    site.builds.iter().filter(|b| b.circuit.as_ref().is_some_and(|c| c.study == study)).collect()
+/// The builds of a farm folder (`iron`, `melon-pumpkin`...), the variations included.
+fn farm_builds<'a>(site: &'a Site, folder: &str) -> Vec<&'a Build> {
+    site.builds.iter().filter(|b| site_model::build_farm_folder(b).as_deref() == Some(folder)).collect()
 }
 
 /// A farm build's iron an hour (for the order under its stage), if measured.
@@ -221,34 +263,61 @@ fn rate(b: &Build) -> f64 {
     b.circuit.as_ref().and_then(|c| c.metrics.iter().find(|(k, _)| k == "iron per hour")).and_then(|(_, v)| v.split_whitespace().next()?.parse().ok()).unwrap_or(0.0)
 }
 
-/// `farms/index.html`: the farm types, each a tile with a picture of one of its farms.
+/// A crop farm's order on its page: each kind's pick first (a design kept beside it, flag
+/// `size`, after), then the larger farm.
+fn crop_key(b: &Build) -> (bool, String, i64) {
+    (b.flags.iter().any(|f| f == "size"), b.circuit.as_ref().map(|c| c.kind.clone()).unwrap_or_default(), -(b.blocks as i64))
+}
+
+/// `farms/index.html`: the farm types, each a tile with a picture of one of its farms: the iron
+/// farm first, then one per crop (vjeux 2026-11-08 13:14: a farm type is what it produces).
 pub fn farms_index(site: &Site, scripts: Scripts) -> String {
     let prefix = "../";
     let mut tiles: Vec<String> = Vec::new();
-    for (study, folder) in site_model::FARM_STUDIES {
-        let list = farm_builds(site, study);
-        // (the picture: the iron farm's first stage pick, a crop farm's smallest full design)
-        let Some(first) = list.iter().find(|b| b.flags.iter().any(|f| f == "pick")).or_else(|| list.iter().find(|b| !is_variation(b))).or(list.first()) else { continue };
+    for folder in farm_folders(site) {
+        let mut list = farm_builds(site, &folder);
+        list.sort_by_key(|b| crop_key(b));
+        // (the picture: the iron farm's first stage pick, else its archived design; a crop's pick)
+        let first = if folder == "iron" { list.iter().find(|b| b.flags.iter().any(|f| f == "pick")).or_else(|| list.iter().find(|b| !is_variation(b))).or(list.first()) } else { list.first() };
+        let Some(first) = first else { continue };
         tiles.push(format!(
             "<a class=\"card study\" href=\"{prefix}farms/{folder}/index.html\" aria-label=\"{}\">{}<div class=\"meta\"><div class=\"title\">{}</div><div class=\"sub\">{}</div></div></a>",
-            esc(farm_title(folder)),
+            esc(&farm_title(&folder)),
             site_model::html::thumb(prefix, site_model::html::card_src(first), first.trace.as_deref(), first.still.as_deref(), first.picture.as_deref(), &first.kind, "", ""),
-            esc(farm_title(folder)),
-            esc(crate::explain::study_blurb(study))
+            esc(&farm_title(&folder)),
+            esc(&farm_blurb(&folder))
         ));
     }
     let body = format!(
         "<p class=\"crumbs\"><a href=\"{prefix}index.html\">{SITE_NAME}</a> › Farms</p>\n<h1>Farms</h1>\n<p class=\"lede\">Farms make resources by themselves: build one, stay near it and empty its chests. Each page says what it makes, what it costs and how to build it, and lets you watch it work in 3D.</p>\n{}",
         pages::grid(&tiles)
     );
-    pages::shell_full("Farms", "Redstone farms you can download: iron farms for every stage of the game, and crop farms.", prefix, &body, scripts, site, None, Some("farm"))
+    pages::shell_full("Farms", "Redstone farms you can download: iron farms for every stage of the game, and a farm for each crop.", prefix, &body, scripts, site, None, Some("farm"))
+}
+
+/// `farms/<crop>/index.html`: a crop's farms (`melon-pumpkin`, `sugar-cane`, `bamboo`...), each
+/// kind's pick first.
+pub fn crop_hub(site: &Site, folder: &str, scripts: Scripts) -> String {
+    let prefix = "../../";
+    let mut list = farm_builds(site, folder);
+    list.sort_by_key(|b| crop_key(b));
+    let cards: Vec<String> = list.iter().map(|b| build_card(b, prefix)).collect();
+    let title = farm_title(folder);
+    let body = format!(
+        "<p class=\"crumbs\"><a href=\"{prefix}index.html\">{SITE_NAME}</a> › <a href=\"{prefix}farms/index.html\">Farms</a> › {}</p>\n<h1>{}</h1>\n<p class=\"lede\">{}</p>\n<p class=\"hint\">The pictures show each farm with its chests; the block counts leave those out.</p>\n{}",
+        esc(&title),
+        esc(&title),
+        esc(&farm_blurb(folder)),
+        pages::grid(&cards)
+    );
+    pages::shell_full(&title, &farm_blurb(folder), prefix, &body, scripts, site, None, Some("farm"))
 }
 
 /// `farms/iron/index.html`: the iron farm's full farms by stage, every variation, each stage's pick
 /// first; then its components.
 pub fn iron_hub(site: &Site, parts: &[Member], scripts: Scripts) -> String {
     let prefix = "../../";
-    let list = farm_builds(site, "mobfarm");
+    let list = farm_builds(site, "iron");
     let mut stages = String::new();
     for (k, (_, title, _, line)) in STAGES.iter().enumerate() {
         let mut of: Vec<&&Build> = list.iter().filter(|b| stage_of(b) == Some(k)).collect();
@@ -302,7 +371,7 @@ pub fn part_page(site: &Site, farm: &str, part: &str, members: &[Member], script
     let (title, what) = PARTS.iter().find(|p| p.0 == part).map(|p| (p.1, p.2)).unwrap_or((part, ""));
     let mut body = format!(
         "<p class=\"crumbs\"><a href=\"{prefix}index.html\">{SITE_NAME}</a> › <a href=\"{prefix}farms/index.html\">Farms</a> › <a href=\"{prefix}farms/{farm}/index.html\">{}</a> › {}</p>\n<h1>{}</h1>\n<p class=\"lede\">{}</p>\n",
-        esc(farm_title(farm)),
+        esc(&farm_title(farm)),
         esc(title),
         esc(title),
         esc(what)
@@ -336,7 +405,11 @@ pub fn variation(a: &crate::VariationArgs) -> Result<()> {
     if !STAGES.iter().any(|s| s.0 == a.stage) {
         bail!("--stage {}: one of {}", a.stage, STAGES.iter().map(|s| s.0).collect::<Vec<_>>().join(", "));
     }
-    let study = site_model::FARM_STUDIES.iter().find(|(_, f)| *f == a.farm).map(|(s, _)| *s).with_context(|| format!("--farm {}: no such farm", a.farm))?;
+    // (only the iron farm has stages: designs/farms/iron/<stage>/)
+    if a.farm != "iron" {
+        bail!("--farm {}: only the iron farm has stage variations (designs/farms/iron/<stage>/)", a.farm);
+    }
+    let study = "mobfarm";
     let dir = repo.join("designs/farms").join(&a.farm).join(&a.stage);
     std::fs::create_dir_all(&dir)?;
     let mut rows = circuit::archive::read_rows(&dir)?;

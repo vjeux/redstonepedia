@@ -464,12 +464,12 @@ pub fn build_page(site: &Site, b: &Build, design_text: &str, repo_path: &str, sc
     let prefix_s = prefix_of(&b.page);
     let prefix = prefix_s.as_str();
     let mut body = String::new();
-    if let Some(c) = b.circuit.as_ref().filter(|c| site_model::farm_folder(&c.study).is_some()) {
-        // a farm: Farms › its farm (vjeux 2026-11-08 12:14: the farms' own top-level section)
-        let folder = site_model::farm_folder(&c.study).unwrap_or("");
+    if let Some(folder) = site_model::build_farm_folder(b) {
+        // a farm: Farms › its farm, by what it produces (vjeux 2026-11-08 12:14: the farms' own
+        // top-level section; 13:14: one farm per product)
         body.push_str(&format!(
             "<p class=\"crumbs\"><a href=\"{prefix}index.html\">{SITE_NAME}</a> › <a href=\"{prefix}farms/index.html\">Farms</a> › <a href=\"{prefix}farms/{folder}/index.html\">{}</a></p>\n",
-            esc(crate::farms::farm_title(folder))
+            esc(&crate::farms::farm_title(&folder))
         ));
     } else if let Some(c) = &b.circuit {
         // circuits: Circuits › study (the kind is the line right under: critique, "Piston
@@ -1865,7 +1865,7 @@ fn study_builds<'a>(site: &'a Site, folder: &str) -> Vec<&'a Build> {
     let mut v: Vec<&Build> = site
         .builds
         .iter()
-        .filter(|b| b.page.starts_with(&format!("circuits/{folder}/")) || (b.circuit.as_ref().is_some_and(|c| c.study == folder && site_model::farm_folder(folder).is_some()) && !crate::farms::is_variation(b)))
+        .filter(|b| b.page.starts_with(&format!("circuits/{folder}/")) || (b.circuit.as_ref().is_some_and(|c| c.study == folder && site_model::is_farm_study(folder)) && !crate::farms::is_variation(b)))
         .filter(|b| !b.flags.iter().any(|f| f == "generator"))
         .collect();
     v.sort_by(|a, b| {
@@ -1905,7 +1905,7 @@ pub fn study_page(site: &Site, folder: &str, scripts: Scripts) -> String {
     };
     // what you would use them for first; the designs right after (critique C6 / P5); a farm
     // study's page sits under Farms (vjeux 2026-11-08 12:14)
-    let farm = site_model::farm_folder(folder);
+    let farm = site_model::is_farm_study(folder).then_some(());
     let crumbs = match farm {
         Some(_) => format!("<a href=\"{prefix}index.html\">{SITE_NAME}</a> › <a href=\"{prefix}farms/index.html\">Farms</a> › {}", esc(&title)),
         None => format!("<a href=\"{prefix}index.html\">{SITE_NAME}</a> › <a href=\"{prefix}circuits/index.html\">Circuits</a> › {}", esc(&title)),
@@ -2049,7 +2049,7 @@ pub fn circuits_index(site: &Site, scripts: Scripts) -> String {
     let mut pictured: Vec<String> = Vec::new();
     for (folder, title, _) in crate::explain::studies().iter() {
         // (the farms have their own section: vjeux 2026-11-08 12:14)
-        if site_model::farm_folder(folder).is_some() {
+        if site_model::is_farm_study(folder) {
             continue;
         }
         let list = study_builds(site, folder);

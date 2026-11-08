@@ -558,7 +558,8 @@ pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) 
     let mut all_rows: Vec<(String, String, String)> = Vec::new();
     for (study, dir, stage) in &dirs {
         let (study, dir) = (study.as_str(), dir.clone());
-        let farm = site_model::farm_folder(study);
+        // (a farm's folder under farms/ is what it produces, by its kind: below, per row)
+        let farm_of = |kind: &str| site_model::farm_folder_of(study, kind);
         // (a variation folder's player-facing names and its stage's pick: variations.tsv)
         let vars = if stage.is_some() { crate::farms::read_variations(&dir) } else { Vec::new() };
         let rows = match read_rows(&dir) {
@@ -611,10 +612,12 @@ pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) 
             }
         }
         // (a variation's id is its page under farms/: it has no circuits/ page)
-        let id_of = |r: &circuit::archive::Row| match (stage, farm) {
+        let id_of = |r: &circuit::archive::Row| match (stage, farm_of(&r.kind)) {
             (Some(_), Some(f)) => format!("farms/{f}/{}", r.file.trim_end_matches(".txt")),
             _ => format!("circuits/{study}/{}", r.file.trim_end_matches(".txt")),
         };
+        // (a variation folder's farm: designs/farms/<farm>/<stage>/)
+        let vfarm: Option<String> = stage.as_ref().and_then(|_| dir.parent().and_then(|p| p.file_name()).map(|s| s.to_string_lossy().to_string()));
         // each design's judge test and 3D view check, from the pass over every study above
         let loaded_all: Vec<Simulated> = rows.iter().map(|r| pre.remove(&(dir.clone(), r.file.clone())).unwrap_or_else(|| simulate_row(&dir, r))).collect();
         for (i, (r, (loaded, det, took, raw))) in rows.iter().zip(loaded_all).enumerate() {
@@ -697,13 +700,14 @@ pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) 
                 // "SAND ONLY, UPWARD ONLY ... not a general extender")
                 group: if r.kind.starts_with("piston-extender") && r.kinds.split('+').any(|k| k == "sand" || k == "gravel" || k == "red_sand") { "Sand elevator".to_string() } else { site_model::html::kind_words(&r.kind) },
                 name: stem.to_string(),
-                // a farm's page is under farms/ (vjeux 2026-11-08 12:14: the farms' own section;
-                // its old circuits/ page redirects there, crates/site/published.tsv)
-                page: match farm {
+                // a farm's page is under farms/<what it produces>/ (vjeux 2026-11-08 12:14: the
+                // farms' own section; 13:14, one farm per product; its old pages redirect there,
+                // crates/site/published.tsv)
+                page: match farm_of(&r.kind) {
                     Some(f) => format!("farms/{f}/{stem}.html"),
                     None => format!("{id}.html"),
                 },
-                design: match (stage, farm) {
+                design: match (stage, &vfarm) {
                     (Some(s), Some(f)) => format!("designs/farms/{f}/{s}/{}", r.file),
                     _ => format!("designs/circuits/{study}/{}", r.file),
                 },

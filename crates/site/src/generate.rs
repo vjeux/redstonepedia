@@ -813,17 +813,19 @@ pub fn build(a: &BuildArgs) -> Result<()> {
         overviews.push((format!("circuits/{sub}/index.html"), html));
     }
     // the Farms section (vjeux 2026-11-08 12:14): the farm types, the iron farm's hub with its
-    // stages and components, the crop farms' collection, each component's page
+    // stages and components, one page per crop (13:14: a farm type is what it produces; 13:16:
+    // melons and pumpkins together), each component's page
     let farms_index = crate::farms::farms_index(&site, scripts);
     write(&out.join("farms/index.html"), &farms_index)?;
     overviews.push(("farms/index.html".into(), farms_index));
     let hub = crate::farms::iron_hub(&site, &parts, scripts);
     write(&out.join("farms/iron/index.html"), &hub)?;
     overviews.push(("farms/iron/index.html".into(), hub));
-    if site.builds.iter().any(|b| b.circuit.as_ref().is_some_and(|c| c.study == "farm")) {
-        let crops = pages::study_page(&site, "farm", scripts);
-        write(&out.join("farms/crops/index.html"), &crops)?;
-        overviews.push(("farms/crops/index.html".into(), crops));
+    for folder in crate::farms::farm_folders(&site).into_iter().filter(|f| f != "iron") {
+        let path = format!("farms/{folder}/index.html");
+        let html = crate::farms::crop_hub(&site, &folder, scripts);
+        write(&out.join(&path), &html)?;
+        overviews.push((path, html));
     }
     for (part, _, _) in crate::farms::PARTS {
         let members: Vec<crate::farms::Member> = parts.iter().filter(|m| m.part == part).cloned().collect();
