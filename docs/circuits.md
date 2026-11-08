@@ -1253,9 +1253,13 @@ kick) before the first input.
   pick ranked by the tier's rule: the least iron to build, the most iron an hour per block, the
   most per group of villagers); the fastest tier's pick links its scaled build (several copies)
   both ways; a farm in no tier (the brief's obvious design) stays in the catalog only. The site's
-  pages of a mob farm say "Verified in the real game" like every study's; once iron-day1 is
-  re-archived through the real-game gate (`kinds::MOB_FARMS_NEED_THE_GAME_GATE`), a farm without
-  the gate's `real game` line on its card is catalog only. The 3D view runs the
+  pages of a mob farm say "Verified in the real game" like every study's; a farm without the
+  real-game gate's `real game` line on its card is catalog only. Its card measures its
+  tradeoffs (vjeux 2026-11-08: "It's all about tradeoffs"): `lightning` (exact sums over every
+  strike column: iron burned per thunderstorm, how often a witch, a broken boat, a fire, a trap
+  horse, the game days until it breaks), `thunder loss` (iron per hour of thunder, breaks
+  included), `rain` (a clear, a rain and a thunder day's rates), `sunburn` and `fire` (lava's).
+  The 3D view runs the
   farm with that simulation (its judge's first run, tick for tick: [webrender.md](webrender.md)).
 
   **The real-game gate** (mobinfra 2026-11-08; vjeux: "Why all of these caveats? Just do the real
@@ -1275,13 +1279,18 @@ kick) before the first input.
   24000`, then `weather thunder 24000`, stepped at `tick rate 10000` (about 15 s per build-day;
   the 8 builds in parallel take about 2 minutes). Every 20 gt it reads every golem, villager,
   witch, zombie villager, zombie, vehicle, trap horse and item, and every 1000 gt the farm's
-  flammable blocks and lava. A build passes when golems spawn; no golem leaves the farm's box,
-  vanishes outside it or lives over 1200 gt; the villagers stay as many, unhurt and unconverted;
-  the zombie stays unhurt in its vehicle; no trap horse lands on the farm; no drop is ever outside
+  flammable blocks and lava. The gate checks the card, not perfection (vjeux 2026-11-08: "You
+  can't expect day 1 farm to pass everything. It's all about tradeoffs"). Lightning's breaks (a
+  new witch, a lost vehicle, a trap horse on the farm) are counted, and their numbers over the
+  thunder the 8 builds saw must fall within the 99% Poisson band of the card's `lightning` rates
+  (`lightning::measure_farm` over redsim's runs of the same schedule); what follows a break is its
+  consequence and goes unchecked. Until a build breaks it must hold the rest of its card: golems
+  spawn; no golem leaves the farm's box, vanishes outside it or lives over 1200 gt; the villagers
+  stay as many and unhurt; the zombie stays unhurt in its vehicle; no drop is ever outside
   the box; no flammable block burns and no lava moves; and at the end the iron in the farm's
   containers and on its floor is at least 4 ingots per dead golem minus 3 standard deviations of
   the loot (3..5 uniform: a leak shows, a few unlucky draws do not). The rates: each window's
-  golems per hour, the 8 builds' mean, must fall within redsim's interval for 8 builds of that
+  golems per hour, the mean of the builds unbroken by then, must fall within redsim's interval for 8 builds of that
   window under the same schedule (the judge's `farm::run` from the stationary weather with the same
   forced windows, 64 runs): 95% for the natural days, 99% for each forced day. Why this size: one
   build-day costs about 15 s of a server (the parent's budget was 45 s); 8 builds keep every

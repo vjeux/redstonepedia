@@ -309,6 +309,54 @@ impl Weather {
     }
 }
 
+/// The cycle's thunderstorms in the long run (lightning strikes only while `isRaining()` and
+/// `isThundering()`, `ServerLevel.tickChunk`): their share of the ticks and their mean length (gt).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Storms {
+    pub share: f64,
+    pub mean_len: f64,
+}
+
+/// [`storm_stats`] over 200,000 game days, once per process.
+pub fn storms() -> Storms {
+    static S: std::sync::OnceLock<Storms> = std::sync::OnceLock::new();
+    *S.get_or_init(|| storm_stats(0x5354_4f52_4d53, 200_000))
+}
+
+/// The thunderstorms of [`Weather::advance`] from the stationary state of `seed` over `days` game
+/// days: exact, skipping only the stretches where no timer ends and both levels sit at their
+/// bound (nothing is drawn and nothing changes there).
+pub fn storm_stats(seed: i64, days: i64) -> Storms {
+    let mut wx = Weather::new(Plan::Cycle, seed);
+    let total = days * 24000;
+    let (mut t, mut on, mut ticks, mut storms) = (0i64, false, 0i64, 0i64);
+    let settled = |level: f32, up: bool| if up { level >= 1.0 } else { level <= 0.0 };
+    while t < total {
+        let d = wx.data;
+        if d.clear_weather_time == 0 && d.thunder_time > 1 && d.rain_time > 1 && settled(wx.thunder_level, d.thundering) && settled(wx.rain_level, d.raining) && wx.o_thunder_level == wx.thunder_level && wx.o_rain_level == wx.rain_level {
+            let n = ((d.thunder_time.min(d.rain_time) - 1) as i64).min(total - t);
+            wx.data.thunder_time -= n as i32;
+            wx.data.rain_time -= n as i32;
+            if on {
+                ticks += n;
+            }
+            t += n;
+            continue;
+        }
+        wx.advance();
+        t += 1;
+        let now = wx.is_raining() && wx.is_thundering();
+        if now {
+            ticks += 1;
+            if !on {
+                storms += 1;
+            }
+        }
+        on = now;
+    }
+    Storms { share: ticks as f64 / total as f64, mean_len: if storms > 0 { ticks as f64 / storms as f64 } else { 0.0 } }
+}
+
 /// The weather's part of `ServerLevel.tick`, first in it (after the world border, which redsim
 /// does not model): a `weather` command due now (commands run before the levels tick:
 /// `MinecraftServer.tickChildren`), then `advanceWeatherCycle`. (`updateSkyBrightness` follows in

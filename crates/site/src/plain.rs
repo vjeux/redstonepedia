@@ -1848,13 +1848,8 @@ mod tests {
         assert_eq!(c.metrics[7], ("iron per hour per module".to_string(), "443".to_string()));
         assert_eq!(c.metrics[10], ("restarts after a missed night".to_string(), "yes".to_string()));
         let b = Build { circuit: Some(c.clone()), blocks: 578, ..Default::default() };
-        // archived before the real-game gate (no `real game` line): published only while the
-        // switch is off (kinds::MOB_FARMS_NEED_THE_GAME_GATE)
-        if crate::kinds::MOB_FARMS_NEED_THE_GAME_GATE {
-            assert!(crate::kinds::kind_key(&b).starts_with('-'));
-        } else {
-            assert_eq!(crate::kinds::kind_key(&b), "mob-farm iron_ingot middle");
-        }
+        // without the real-game gate's `real game` line: no published kind
+        assert!(crate::kinds::kind_key(&b).starts_with('-'));
         let mut gated = c.clone();
         gated.metrics.push(("real game".to_string(), "8 builds in the 26.3 server on Hard: 3 days of natural weather 111.6 golems/h (redsim 110.2, 95% 95.0-125.4)".to_string()));
         let b = Build { circuit: Some(gated), blocks: 578, ..Default::default() };

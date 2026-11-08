@@ -230,11 +230,16 @@ fn rods(w: &World) -> Vec<BlockPos> {
 /// `findLightningRod(center)`: the closest such rod within 128 (squared block distance), one
 /// above it. Ties: every tied rod (the game takes the first of its section order).
 pub fn rod_targets(w: &World, center: BlockPos) -> Vec<BlockPos> {
+    closest_rods(&rods(w), center)
+}
+
+/// [`rod_targets`] over the rods [`rods`] found.
+fn closest_rods(rods: &[BlockPos], center: BlockPos) -> Vec<BlockPos> {
     let d2 = |p: &BlockPos| {
         let (dx, dy, dz) = ((p.x - center.x) as f64, (p.y - center.y) as f64, (p.z - center.z) as f64);
         dx * dx + dy * dy + dz * dz
     };
-    let near: Vec<BlockPos> = rods(w).into_iter().filter(|p| d2(p) <= 128.0 * 128.0).collect();
+    let near: Vec<BlockPos> = rods.iter().copied().filter(|p| d2(p) <= 128.0 * 128.0).collect();
     let Some(best) = near.iter().map(d2).min_by(f64::total_cmp) else { return Vec::new() };
     near.into_iter().filter(|p| d2(p) == best).map(|p| p.offset(0, 1, 0)).collect()
 }
@@ -545,10 +550,10 @@ pub fn check_farm(spec: &crate::entity::mob::farm::FarmSpec, runs: &[crate::enti
         Ok(r) => r,
         Err(e) => return vec![format!("lightning: the farm does not build: {e}")],
     };
-    let mut golems: Vec<BlockPos> = runs.iter().flat_map(|r| r.golem_cells.iter()).map(|c| BlockPos::new(c[0], c[1], c[2])).collect();
+    let mut golems: Vec<BlockPos> = runs.iter().flat_map(|r| r.golem_cells.iter()).map(|(c, _)| BlockPos::new(c[0], c[1], c[2])).collect();
     golems.sort_by_key(|p| (p.x, p.y, p.z));
     golems.dedup();
-    let mut drops: Vec<BlockPos> = runs.iter().flat_map(|r| r.drop_cells.iter()).map(|c| BlockPos::new(c[0], c[1], c[2])).collect();
+    let mut drops: Vec<BlockPos> = runs.iter().flat_map(|r| r.drop_cells.iter()).map(|(c, _)| BlockPos::new(c[0], c[1], c[2])).collect();
     drops.sort_by_key(|p| (p.x, p.y, p.z));
     drops.dedup();
     static_check(&run.world, &golems, &drops, spec.inner())
@@ -683,4 +688,226 @@ pub fn static_check(w: &World, golem_cells: &[BlockPos], drop_cells: &[BlockPos]
         }
     }
     out
+}
+
+/// `ServerLevel.tickChunk`: `random.nextInt(100000) == 0` a chunk a tick while it rains and
+/// thunders, at a uniform column of the chunk (`getBlockRandomPos`).
+pub const CHUNK_STRIKE: f64 = 1.0 / 100000.0;
+
+/// What lightning costs a built farm, a tick of thunder (mobinfra; vjeux 2026-11-08 08:26: "It's
+/// all about tradeoffs": measured on the card, never a refusal). Exact sums over every strike
+/// column within 3 blocks of the farm's box ([`CHUNK_STRIKE`] / 256 each), its strike aimed as
+/// `findLightningTargetAround` aims it, over the runs' time-weighted occupancy.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Measure {
+    /// Bolts that fall (rain at their block).
+    pub bolts: f64,
+    /// Expected iron destroyed (each drop in a bolt's box: `ItemEntity.thunderHit` burns it).
+    pub iron: f64,
+    /// The chance a bolt makes a villager a witch (its box meets a villager's cell).
+    pub witch: f64,
+    /// The chance a bolt breaks the zombie's vehicle (its box meets the vehicle or the zombie in it).
+    pub vehicle: f64,
+    /// The chance a bolt's fires (`spawnFire`: its block, then 4 of the 27 around it) light one
+    /// beside a flammable block or in a villager's or the zombie's cell.
+    pub fire: f64,
+    /// The chance a bolt brings a skeleton trap horse onto the farm (Hard, `spawn_mobs`, no rod
+    /// under it; the effective difficulty's mean over the moon's phases).
+    pub trap: f64,
+    /// The chance the farm breaks (a witch, the vehicle, or such a fire).
+    pub breaks: f64,
+}
+
+/// The mean trap chance of a bolt off a rod: `effectiveDifficulty * 0.01` over the 8 moon phases.
+pub fn trap_chance(s: &Settings) -> f64 {
+    if !s.spawn_mobs {
+        return 0.0;
+    }
+    (0..8).map(|d| (effective_difficulty(s, d * 24000) * 0.01f32) as f64).sum::<f64>() / 8.0
+}
+
+/// A fire cell's danger: air, a fire can stay there, and a flammable block beside it (not soul
+/// fire: it burns nothing) or a protected box in it (a fire's cell burns whoever is inside).
+fn fire_danger(w: &World, p: BlockPos, protect: &[Aabb]) -> bool {
+    if !w.get(p).is_air() {
+        return false;
+    }
+    let fire = super::fire::state_at(w, p);
+    if !super::fire::can_survive(w, &fire, p) {
+        return false;
+    }
+    let soul = matches!(fire, Block::Fire { soul: true, .. });
+    (!soul && flammable_neighbour(w, p).is_some()) || protect.iter().any(|bb| Aabb::of_block(p).intersects(*bb))
+}
+
+/// The chance a bolt at `b` lights a dangerous fire (Normal and Hard: `spawnFire(4)` on its first
+/// tick: its block, then 4 cells drawn uniformly from the 27 around it).
+fn fire_chance(w: &World, b: BlockPos, protect: &[Aabb]) -> f64 {
+    if fire_danger(w, b, protect) {
+        return 1.0;
+    }
+    let mut d = 0;
+    for dy in -1..=1 {
+        for dz in -1..=1 {
+            for dx in -1..=1 {
+                if fire_danger(w, b.offset(dx, dy, dz), protect) {
+                    d += 1;
+                }
+            }
+        }
+    }
+    1.0 - (1.0 - d as f64 / 27.0).powi(4)
+}
+
+/// [`Measure`] of a built farm: `golems` the blocks a living golem is in with the chance it is
+/// there at a tick, `iron` the blocks a drop is in with the iron there at a tick on average.
+pub fn measure(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)], inner: Aabb) -> Measure {
+    use crate::entity::mob::types::MobType;
+    let q = CHUNK_STRIKE / 256.0;
+    let mut villagers: Vec<Aabb> = Vec::new();
+    let mut vehicle: Vec<Aabb> = Vec::new();
+    let mut zombie: Vec<Aabb> = Vec::new();
+    let mut statics: Vec<(BlockPos, Aabb)> = Vec::new();
+    for e in &w.entities.list {
+        match &e.kind {
+            EntityKind::Mob(m) if m.ty == MobType::Villager => {
+                let c = e.block_position();
+                villagers.push(Aabb::new(c.x as f64, e.pos.y.min(c.y as f64), c.z as f64, (c.x + 1) as f64, e.pos.y + 1.95 + 0.5625, (c.z + 1) as f64));
+                if can_see_sky(w, c).unwrap_or(false) {
+                    statics.push((c, e.bb));
+                }
+            }
+            EntityKind::Mob(m) if m.ty == MobType::Zombie => {
+                zombie.push(e.bb);
+                vehicle.push(e.bb);
+                if can_see_sky(w, e.block_position()).unwrap_or(false) {
+                    statics.push((e.block_position(), e.bb));
+                }
+            }
+            EntityKind::Boat(_) | EntityKind::Minecart(_) => vehicle.push(e.bb),
+            _ => {}
+        }
+    }
+    let protect: Vec<Aabb> = villagers.iter().chain(zombie.iter()).copied().collect();
+    let golem_boxes: Vec<(BlockPos, Aabb, f64)> = golems
+        .iter()
+        .filter(|(c, _)| can_see_sky(w, *c).unwrap_or(false))
+        .map(|(c, p)| (*c, Aabb::new(c.x as f64 + 0.5 - 0.7, c.y as f64, c.z as f64 + 0.5 - 0.7, c.x as f64 + 0.5 + 0.7, c.y as f64 + 2.7, c.z as f64 + 0.5 + 0.7), p.min(1.0)))
+        .collect();
+    let trap = trap_chance(&Settings::default());
+    let on_farm = inner.inflate(1.0, 1.0, 1.0);
+    let mut m = Measure::default();
+    let (x0, x1) = (w.min.x - 3, w.min.x + w.size[0] + 2);
+    let (z0, z1) = (w.min.z - 3, w.min.z + w.size[2] + 2);
+    // a rod takes the strikes of every column within 128 of it whose closest rod it is, in the
+    // AFK player's spawning chunks (`anyPlayerCloseEnoughForSpawning`: the chunk's center within
+    // 128 of the player, here the farm's middle); outside redsim's box a column's top is the
+    // farm's floor
+    let mut rod_far: Vec<(BlockPos, f64)> = Vec::new();
+    let all_rods = rods(w);
+    if !all_rods.is_empty() {
+        let (px, pz) = ((x0 + x1) as f64 / 2.0, (z0 + z1) as f64 / 2.0);
+        let floor = w.min.y;
+        for z in (pz as i32 - 128)..=(pz as i32 + 128) {
+            for x in (px as i32 - 128)..=(px as i32 + 128) {
+                if (x0..=x1).contains(&x) && (z0..=z1).contains(&z) {
+                    continue;
+                }
+                let (cx, cz) = ((x.div_euclid(16) * 16 + 8) as f64, (z.div_euclid(16) * 16 + 8) as f64);
+                if (cx - px).powi(2) + (cz - pz).powi(2) >= 128.0 * 128.0 {
+                    continue;
+                }
+                let tied = closest_rods(&all_rods, BlockPos::new(x, floor, z));
+                let n = tied.len() as f64;
+                for r in tied {
+                    match rod_far.iter_mut().find(|(p, _)| *p == r) {
+                        Some((_, c)) => *c += 1.0 / n,
+                        None => rod_far.push((r, 1.0 / n)),
+                    }
+                }
+            }
+        }
+    }
+    let mut columns: Vec<(Vec<(BlockPos, f64, bool)>, f64)> = rod_far.into_iter().map(|(r, n)| (vec![(r, 1.0, true)], n)).collect();
+    for z in z0..=z1 {
+        for x in x0..=x1 {
+            let center = BlockPos::new(x, motion_blocking_height(w, x, z), z);
+            // the bolts this column's strike makes, each with its chance, and whether a rod is under it
+            let mut bolts: Vec<(BlockPos, f64, bool)> = Vec::new();
+            let rods = closest_rods(&all_rods, center);
+            if !rods.is_empty() {
+                let n = rods.len() as f64;
+                bolts.extend(rods.into_iter().map(|r| (r, 1.0 / n, true)));
+            } else {
+                let search = Aabb::new(center.x as f64, center.y as f64, center.z as f64, (center.x + 1) as f64, (WORLD_MAX_Y + 2) as f64, (center.z + 1) as f64).inflate(3.0, 3.0, 3.0);
+                let ns = statics.iter().filter(|(_, bb)| bb.intersects(search)).count() as f64;
+                let gs: Vec<&(BlockPos, Aabb, f64)> = golem_boxes.iter().filter(|g| g.1.intersects(search)).collect();
+                let eg: f64 = gs.iter().map(|g| g.2).sum();
+                // the static targets (the villagers and the zombie that see the sky) are always
+                // there; a golem in its block with its chance; one of them uniformly
+                if ns > 0.0 {
+                    let den = ns + eg;
+                    for (c, _) in statics.iter().filter(|(_, bb)| bb.intersects(search)) {
+                        bolts.push((*c, 1.0 / den, false));
+                    }
+                    bolts.extend(gs.iter().map(|g| (g.0, g.2 / den, false)));
+                } else {
+                    let none: f64 = gs.iter().map(|g| 1.0 - g.2).product();
+                    bolts.push((center, none, false));
+                    if eg > 0.0 {
+                        bolts.extend(gs.iter().map(|g| (g.0, (1.0 - none) * g.2 / eg, false)));
+                    }
+                }
+            }
+            columns.push((bolts, 1.0));
+        }
+    }
+    for (bolts, columns) in columns {
+        for (b, p, rod) in bolts {
+            if p <= 0.0 || !rain_reaches(w, b) {
+                continue;
+            }
+            let wgt = q * columns * p;
+            let hit = hit_box_at(Vec3::new(b.x as f64 + 0.5, b.y as f64, b.z as f64 + 0.5));
+            m.bolts += wgt;
+            let witch = villagers.iter().any(|v| hit.intersects(*v));
+            let broke = vehicle.iter().any(|v| hit.intersects(*v));
+            m.witch += if witch { wgt } else { 0.0 };
+            m.vehicle += if broke { wgt } else { 0.0 };
+            m.iron += wgt * iron.iter().filter(|(c, _)| hit.intersects(Aabb::of_block(*c))).map(|(_, n)| n).sum::<f64>();
+            let fire = fire_chance(w, b, &protect);
+            m.fire += wgt * fire;
+            m.breaks += wgt * if witch || broke { 1.0 } else { fire };
+            let (hx, hy, hz) = (b.x as f64, b.y as f64, b.z as f64);
+            if !rod && (on_farm.min_x..on_farm.max_x).contains(&hx) && (on_farm.min_y..on_farm.max_y).contains(&hy) && (on_farm.min_z..on_farm.max_z).contains(&hz) {
+                m.trap += wgt * trap;
+            }
+        }
+    }
+    m
+}
+
+/// [`measure`] of a farm as the judge builds it, over the occupancy of `runs` (the judge's runs of
+/// that build); with whether its zombie sees the sky (it burns by day: `Zombie.isSunBurnTick`).
+pub fn measure_farm(spec: &crate::entity::mob::farm::FarmSpec, runs: &[crate::entity::mob::farm::RunReport]) -> Result<(Measure, bool), String> {
+    use crate::entity::mob::farm::{Run, RunOpts, WalkMode};
+    use crate::entity::mob::types::MobType;
+    let run = Run::new(spec, &RunOpts::steady(0, 0, WalkMode::Random))?;
+    let ticks: f64 = runs.iter().map(|r| r.cell_ticks as f64).sum::<f64>().max(1.0);
+    let mut golems: std::collections::BTreeMap<[i32; 3], f64> = Default::default();
+    let mut iron: std::collections::BTreeMap<[i32; 3], f64> = Default::default();
+    for r in runs {
+        for (c, n) in &r.golem_cells {
+            *golems.entry(*c).or_insert(0.0) += *n as f64 / ticks;
+        }
+        for (c, n) in &r.drop_cells {
+            *iron.entry(*c).or_insert(0.0) += *n as f64 / ticks;
+        }
+    }
+    let at = |c: &[i32; 3]| BlockPos::new(c[0], c[1], c[2]);
+    let golems: Vec<(BlockPos, f64)> = golems.iter().map(|(c, p)| (at(c), *p)).collect();
+    let iron: Vec<(BlockPos, f64)> = iron.iter().filter(|(_, n)| **n > 0.0).map(|(c, n)| (at(c), *n)).collect();
+    let w = &run.world;
+    let sky = w.entities.list.iter().any(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Zombie) && can_see_sky(w, e.block_position()).unwrap_or(false));
+    Ok((measure(w, &golems, &iron, spec.inner()), sky))
 }
