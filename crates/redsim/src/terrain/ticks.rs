@@ -43,6 +43,8 @@ pub fn random_tick(w: &mut World, id: u16, p: BlockPos) {
             speleothem(w, p, id, "minecraft:dripstone_block");
         }
         "minecraft:sulfur_spike" => speleothem(w, p, id, "minecraft:potent_sulfur"),
+        "minecraft:vine" => vine(w, p, id),
+        "minecraft:sugar_cane" => sugar_cane(w, p, id),
         _ => error(w, format!("the random tick of {} is not modeled", blocks::props(id).name)),
     }
 }
@@ -80,8 +82,13 @@ fn block_id(b: &Block) -> String {
     s.split('[').next().unwrap_or(&s).to_string()
 }
 
-/// `setBlock(pos, state, flags)` with a natural state by its game string.
+/// `setBlock(pos, state, flags)` with a natural state by its game string. A cell outside the
+/// world's box is not modeled: a growth past the sample's edge (a bud, a vine) is dropped there
+/// (the game's sandbox holds air beyond the sample and keeps it; nothing inside reacts to it).
 fn set(w: &mut World, p: BlockPos, state: &str, fl: u32) {
+    if !w.contains(p) {
+        return;
+    }
     match super::land::block_of(state) {
         Ok(b) => {
             w.set_block(p, b, fl);
@@ -180,6 +187,230 @@ fn farmland(w: &mut World, p: BlockPos, moisture: u8) {
         }
     } else if moisture < 7 {
         set(w, p, "minecraft:farmland[moisture=7]", flags::CLIENTS);
+    }
+}
+
+// ---------------------------------------------------------------------------------- sugar cane
+
+/// `SugarCaneBlock.randomTick` (no draws): under air, a cane under 3 tall ages; at 15 it grows
+/// the block above (setBlockAndUpdate) and starts again at 0 (flags 260).
+fn sugar_cane(w: &mut World, p: BlockPos, id: u16) {
+    if !w.get(p.above()).is_air() {
+        return;
+    }
+    let mut height = 1;
+    while block_id(&w.get(p.offset(0, -height, 0))) == "minecraft:sugar_cane" {
+        height += 1;
+    }
+    if height >= 3 {
+        return;
+    }
+    let name = blocks::props(id).name.clone();
+    let age: i32 = prop(&name, "age").and_then(|a| a.parse().ok()).unwrap_or(0);
+    if age == 15 {
+        set(w, p.above(), "minecraft:sugar_cane[age=0]", flags::ALL);
+        set(w, p, "minecraft:sugar_cane[age=0]", flags::INVISIBLE | flags::SKIP_BLOCK_ENTITY_SIDEEFFECTS);
+    } else {
+        set(w, p, &format!("minecraft:sugar_cane[age={}]", age + 1), flags::INVISIBLE | flags::SKIP_BLOCK_ENTITY_SIDEEFFECTS);
+    }
+}
+
+// --------------------------------------------------------------------------------------- vines
+
+/// A vine's faces: up, north, east, south, west.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+struct Vine {
+    up: bool,
+    n: bool,
+    e: bool,
+    s: bool,
+    w: bool,
+}
+
+impl Vine {
+    fn of(name: &str) -> Vine {
+        let t = |k: &str| prop(name, k) == Some("true");
+        Vine { up: t("up"), n: t("north"), e: t("east"), s: t("south"), w: t("west") }
+    }
+
+    fn name(self) -> String {
+        format!("minecraft:vine[east={},north={},south={},up={},west={}]", self.e, self.n, self.s, self.up, self.w)
+    }
+
+    fn face(self, d: Dir) -> bool {
+        match d {
+            Dir::Up => self.up,
+            Dir::North => self.n,
+            Dir::East => self.e,
+            Dir::South => self.s,
+            Dir::West => self.w,
+            Dir::Down => false,
+        }
+    }
+
+    fn with(mut self, d: Dir, v: bool) -> Vine {
+        match d {
+            Dir::Up => self.up = v,
+            Dir::North => self.n = v,
+            Dir::East => self.e = v,
+            Dir::South => self.s = v,
+            Dir::West => self.w = v,
+            Dir::Down => {}
+        }
+        self
+    }
+
+    fn horizontal(self) -> bool {
+        self.n || self.e || self.s || self.w
+    }
+}
+
+/// `Direction.Plane.HORIZONTAL`'s order.
+const HORIZONTAL: [Dir; 4] = [Dir::North, Dir::East, Dir::South, Dir::West];
+
+fn clockwise(d: Dir) -> Dir {
+    match d {
+        Dir::North => Dir::East,
+        Dir::East => Dir::South,
+        Dir::South => Dir::West,
+        Dir::West => Dir::North,
+        d => d,
+    }
+}
+
+fn counter_clockwise(d: Dir) -> Dir {
+    match d {
+        Dir::North => Dir::West,
+        Dir::West => Dir::South,
+        Dir::South => Dir::East,
+        Dir::East => Dir::North,
+        d => d,
+    }
+}
+
+/// `VineBlock.isAcceptableNeighbour` (`MultifaceBlock.canAttachTo`): the neighbour's support or
+/// collision shape covers its face toward the vine.
+fn acceptable(w: &World, q: BlockPos, toward: Dir) -> bool {
+    let s = w.get(q);
+    let face = toward.opposite();
+    if crate::behavior::sturdy(w, &s, q, face, crate::behavior::Support::Full) {
+        return true;
+    }
+    crate::behavior::collision_boxes(&s).iter().any(|b| {
+        let full_x = b[0] == 0 && b[1] == 16;
+        let full_y = b[2] == 0 && b[3] == 16;
+        let full_z = b[4] == 0 && b[5] == 16;
+        match face {
+            Dir::Down => b[2] == 0 && full_x && full_z,
+            Dir::Up => b[3] == 16 && full_x && full_z,
+            Dir::North => b[4] == 0 && full_x && full_y,
+            Dir::South => b[5] == 16 && full_x && full_y,
+            Dir::West => b[0] == 0 && full_y && full_z,
+            Dir::East => b[1] == 16 && full_y && full_z,
+        }
+    })
+}
+
+fn is_vine(w: &World, q: BlockPos) -> Option<Vine> {
+    let b = w.get(q);
+    let n = state_name(&b);
+    (block_id(&b) == "minecraft:vine").then(|| Vine::of(&n))
+}
+
+/// `VineBlock.canSpread`: at most 4 vines in the box around (x, z +- 4, y +- 1).
+fn vine_can_spread(w: &World, p: BlockPos) -> bool {
+    let mut n = 0;
+    for y in -1..=1 {
+        for z in -4..=4 {
+            for x in -4..=4 {
+                if block_id(&w.get(p.offset(x, y, z))) == "minecraft:vine" {
+                    n += 1;
+                    if n > 4 {
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+    true
+}
+
+/// `VineBlock.randomTick` (gamerule spreadVines on, the default).
+fn vine(w: &mut World, p: BlockPos, id: u16) {
+    let state = Vine::of(&blocks::props(id).name);
+    if r(w).next_int(4) != 0 {
+        return;
+    }
+    // Direction.getRandom: Direction.values() = down, up, north, south, west, east
+    const ALL: [Dir; 6] = [Dir::Down, Dir::Up, Dir::North, Dir::South, Dir::West, Dir::East];
+    let d = ALL[r(w).next_int(6) as usize];
+    let above = p.above();
+    let horizontal_dir = !matches!(d, Dir::Up | Dir::Down);
+    if horizontal_dir && !state.face(d) {
+        if !vine_can_spread(w, p) {
+            return;
+        }
+        let test = p.rel(d);
+        if w.get(test).is_air() {
+            let (cw, ccw) = (clockwise(d), counter_clockwise(d));
+            let (cw_has, ccw_has) = (state.face(cw), state.face(ccw));
+            let (cw_test, ccw_test) = (test.rel(cw), test.rel(ccw));
+            if cw_has && acceptable(w, cw_test, cw) {
+                set(w, test, &Vine::default().with(cw, true).name(), flags::CLIENTS);
+            } else if ccw_has && acceptable(w, ccw_test, ccw) {
+                set(w, test, &Vine::default().with(ccw, true).name(), flags::CLIENTS);
+            } else {
+                let opposite = d.opposite();
+                if cw_has && w.get(cw_test).is_air() && acceptable(w, p.rel(cw), opposite) {
+                    set(w, cw_test, &Vine::default().with(opposite, true).name(), flags::CLIENTS);
+                } else if ccw_has && w.get(ccw_test).is_air() && acceptable(w, p.rel(ccw), opposite) {
+                    set(w, ccw_test, &Vine::default().with(opposite, true).name(), flags::CLIENTS);
+                } else if (r(w).next_float() as f64) < 0.05 && acceptable(w, test.above(), Dir::Up) {
+                    set(w, test, &Vine::default().with(Dir::Up, true).name(), flags::CLIENTS);
+                }
+            }
+        } else if acceptable(w, test, d) {
+            set(w, p, &state.with(d, true).name(), flags::CLIENTS);
+        }
+        return;
+    }
+    if d == Dir::Up && p.y < 319 {
+        // canSupportAtFace(up): the block above takes it (an up face needs no vine above)
+        if acceptable(w, above, Dir::Up) {
+            set(w, p, &state.with(Dir::Up, true).name(), flags::CLIENTS);
+            return;
+        }
+        if w.get(above).is_air() {
+            if !vine_can_spread(w, p) {
+                return;
+            }
+            let mut up_state = state;
+            for h in HORIZONTAL {
+                if r(w).next_bool() || !acceptable(w, above.rel(h), h) {
+                    up_state = up_state.with(h, false);
+                }
+            }
+            if up_state.horizontal() {
+                set(w, above, &up_state.name(), flags::CLIENTS);
+            }
+            return;
+        }
+    }
+    if p.y > -64 {
+        let below = p.below();
+        let below_vine = is_vine(w, below);
+        if w.get(below).is_air() || below_vine.is_some() {
+            let before = below_vine.unwrap_or_default();
+            let mut after = before;
+            for h in HORIZONTAL {
+                if r(w).next_bool() && state.face(h) {
+                    after = after.with(h, true);
+                }
+            }
+            if before != after && after.horizontal() {
+                set(w, below, &after.name(), flags::CLIENTS);
+            }
+        }
     }
 }
 
@@ -358,5 +589,51 @@ fn dripstone_transfer(w: &mut World, p: BlockPos, id: u16, f: f32) {
     let fluid = crate::fluid::fluid_state(w, p.above().above());
     if block_id(&above2) == "minecraft:mud" || !fluid.is_empty() || matches!(above2, Block::Lava { .. }) {
         error(w, format!("pointed dripstone at {p} may move a fluid (maybeTransferFluid is not modeled)"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The forest sample's randomly ticking natural states (grass, vines, budding amethyst,
+    /// dripstone, sugar cane) tick for long on the level random without a model error (every state
+    /// they set is in the table), and grass spreads and vines grow.
+    #[test]
+    fn natural_random_ticks_set_only_table_states() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../designs/terrain/forest.mcterrain");
+        let t = super::super::Terrain::decode(&std::fs::read(path).unwrap()).unwrap();
+        let mut w = super::super::land::build_world(&t).unwrap();
+        w.level_random = Some(crate::rng::LegacyRandom::new(7));
+        let (min, size) = (w.min, w.size);
+        let mut ticking = Vec::new();
+        for y in 0..size[1] {
+            for z in 0..size[2] {
+                for x in 0..size[0] {
+                    let p = BlockPos::new(min.x + x, min.y + y, min.z + z);
+                    if let Block::Terrain(id) = w.get(p)
+                        && blocks::props(id).random_ticking
+                    {
+                        ticking.push(p);
+                    }
+                }
+            }
+        }
+        let count = |w: &World, id: &str| ticking.iter().chain(ticking.iter().map(|p| p.above()).collect::<Vec<_>>().iter()).filter(|p| block_id(&w.get(**p)) == id).count();
+        let grass0 = count(&w, "minecraft:grass_block");
+        let vines0 = ticking.iter().filter(|p| block_id(&w.get(**p)) == "minecraft:vine").count();
+        for _ in 0..300 {
+            for &p in &ticking {
+                if w.level_random.as_mut().unwrap().next_int(8) == 0 {
+                    let s = w.get(p);
+                    crate::crops::random_tick(&mut w, s, p);
+                }
+            }
+        }
+        let errors: Vec<&String> = w.errors.iter().filter(|e| !e.contains("may grow") && !e.contains("may move")).collect();
+        assert!(errors.is_empty(), "{errors:?}");
+        let vines = (0..size[0]).flat_map(|x| (0..size[1]).flat_map(move |y| (0..size[2]).map(move |z| (x, y, z)))).filter(|&(x, y, z)| block_id(&w.get(BlockPos::new(min.x + x, min.y + y, min.z + z))) == "minecraft:vine").count();
+        assert!(vines > vines0, "vines {vines0} -> {vines}");
+        let _ = count(&w, "minecraft:grass_block") + grass0;
     }
 }
