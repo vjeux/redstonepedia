@@ -97,7 +97,6 @@ pub fn bench_redsim(mob: &str, count: u32, ticks: u32, half: i32, seed: i64) -> 
         w.mob.seed(seed, 6000);
         if ai {
             w.mob.ai.on = true;
-            w.mob.ai.exact_seed = Some(seed);
             w.mob.ai.difficulty = redsim::entity::mob::natural::Difficulty::Normal;
             let c = half.div_euclid(16) + 1;
             w.mirror_level_random(seed, [-c, -c, c - 1, c - 1]);

@@ -218,9 +218,6 @@ pub struct AiWorld {
     pub mob_griefing: bool,
     /// The attacker of the hit `living::hurt` is dealing (set by [`attack::do_hurt_target`]).
     pub attacker: Option<u32>,
-    /// The bridge sandbox's seed: mobs added take their own random from it (`rng::entity_seed`)
-    /// and a summon without Rotation faces yaw 0, as in the bridge's seeded summon.
-    pub exact_seed: Option<i64>,
     /// The POI index (`poi::index`; `None`: to rebuild).
     pub pois: Option<Vec<(crate::pos::BlockPos, poi::PoiKind)>>,
     /// The light sources of a design world (`goal::stroll::light_magic`; `None`: to rebuild).
@@ -231,7 +228,7 @@ pub struct AiWorld {
 
 impl Default for AiWorld {
     fn default() -> AiWorld {
-        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, exact_seed: None, pois: None, lights: None, sky_cache: std::collections::HashMap::new() }
+        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, pois: None, lights: None, sky_cache: std::collections::HashMap::new() }
     }
 }
 

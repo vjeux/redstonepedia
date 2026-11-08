@@ -877,7 +877,8 @@ pub fn set_door_open(w: &mut World, i: usize, p: BlockPos, open: bool) {
         return;
     }
     w.set_block(p, crate::block::Block::Door { iron, facing, upper, hinge_right, open, powered }, crate::world::flags::CLIENTS | crate::world::flags::IMMEDIATE);
-    level_rng(w).next_float();
+    // `playSound(entity, ..., level.getRandom().nextFloat() * 0.1F + 0.9F)`
+    w.draw_sound_pitch();
     let _ = i;
     let at = [p.x as f64 + 0.5, p.y as f64 + 0.5, p.z as f64 + 0.5];
     w.game_event_at(if open { "block_open" } else { "block_close" }, at, None, false);

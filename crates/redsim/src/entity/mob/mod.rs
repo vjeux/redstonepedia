@@ -483,11 +483,9 @@ pub fn add(w: &mut World, ty: MobType, pos: Vec3, persistent: bool) -> u32 {
         st.speed = 0.0;
     }
     let mut own = LegacyRandom::new(seed);
-    // ---- mob AI (the mob-AI lane): the bridge's seeding (`rng::entity_seed`), the constructor's
-    // draws redone: the UUID, the LivingEntity yaw (a summon's data then sets the yaw) ----
-    if w.mob.ai.on
-        && let Some(s) = w.mob.ai.exact_seed
-    {
+    // ---- the bridge's seeding in an exact world (`rng::entity_seed`, the mob-AI lane's): the
+    // constructor's draws redone: the UUID, the LivingEntity yaw (a summon's data then sets it) ----
+    if let Some(s) = w.exact_seed {
         own = crate::rng::entity_random(s, w.entities.next_id);
         own.next_float();
     }
@@ -495,7 +493,7 @@ pub fn add(w: &mut World, ty: MobType, pos: Vec3, persistent: bool) -> u32 {
         st.brain = Some(Box::new(villager::Brain::new(&mut own, w.time, w.day_time())));
         // ---- mob AI (the mob-AI lane): the exact brain, the live brain's sensors drawn again ----
         if w.mob.ai.on
-            && let Some(s) = w.mob.ai.exact_seed
+            && let Some(s) = w.exact_seed
             && let Some(b) = st.brain.as_deref_mut()
         {
             let es = crate::rng::entity_seed(s, w.entities.next_id);

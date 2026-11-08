@@ -644,9 +644,9 @@ pub fn redsim_start(spec: &FarmSpec, o: &RunOpts, game: &GameFarm, bare: bool) -
         Some(_) => run.world.mirror_level_random(o.seed, game_chunks(game)),
     }
     run.world.random_ticks = Some(redsim::crops::RandomTicks::new(3, o.seed));
-    // the mob AI (the mob-AI lane): goals, brains and the bridge's seeding of every mob
+    // the mob AI (the mob-AI lane): goals and brains (every mob seeded from w.exact_seed, which
+    // mirror_level_random set)
     run.world.mob.ai.on = true;
-    run.world.mob.ai.exact_seed = Some(o.seed);
     if !game.ticking.is_empty() {
         run.world.chunk_order = game.ticking.clone();
     }

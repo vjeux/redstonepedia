@@ -360,7 +360,6 @@ pub fn redsim_world(s: &Scene, seed: i64) -> Result<World> {
     let mut w = World::new(lo, size);
     w.mob.seed(seed, s.day_time);
     w.mob.ai.on = true;
-    w.mob.ai.exact_seed = Some(seed);
     w.mob.ai.difficulty = s.difficulty;
     w.mob.ai.mob_griefing = s.mob_griefing;
     if let Some(p) = s.player {
