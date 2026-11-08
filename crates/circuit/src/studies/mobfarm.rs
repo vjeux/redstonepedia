@@ -160,20 +160,8 @@ fn bp(p: Pos) -> BlockPos {
 pub fn site_of(c: &Circuit, spec: &FarmSpec, sample: &str) -> std::result::Result<redsim::entity::mob::site::Site, String> {
     let d = &c.clock.design;
     let s = redsim::terrain::samples::sample(sample).ok_or_else(|| format!("no terrain sample {sample}"))?;
-    let ground = d.meta.get("ground").map(|v| v.trim().parse::<i32>()).transpose().map_err(|e| format!("ground: {e}"))?.unwrap_or(-1);
-    let (lo, hi) = spec.blocks.iter().fold((spec.blocks[0].0, spec.blocks[0].0), |(lo, hi), (p, _)| (BlockPos::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z)), BlockPos::new(hi.x.max(p.x), hi.y.max(p.y), hi.z.max(p.z))));
-    let afk = match d.meta.get("afk") {
-        Some(v) => {
-            let p: Vec<f64> = v.split_whitespace().map(|t| t.parse::<f64>()).collect::<std::result::Result<_, _>>().map_err(|e| format!("afk: {e}"))?;
-            if p.len() != 3 {
-                return Err("afk: x y z".into());
-            }
-            [p[0], p[1], p[2]]
-        }
-        None => [(lo.x + hi.x) as f64 / 2.0 + 0.5, hi.y as f64 + 1.0, (lo.z + hi.z) as f64 / 2.0 + 0.5],
-    };
-    let cells = d.meta.get("terrain").is_some_and(|v| v.trim() == "cells");
-    redsim::entity::mob::site::Site::new(s, spec, ground, afk, !cells)
+    let (ground, afk, clear_box) = redsim::entity::mob::site::params(spec, d.meta.get("ground").map(String::as_str), d.meta.get("afk").map(String::as_str), d.meta.get("terrain").map(String::as_str))?;
+    redsim::entity::mob::site::Site::new(s, spec, ground, afk, clear_box)
 }
 
 /// The redsim farm of a (turned, moved) design: its blocks, entities, output chest and box.
@@ -412,6 +400,15 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
     metrics.push(("misses".to_string(), format!("{no_spot} of {tries} tries found no spot, {seen} golem sightings")));
     metrics.push(("bill".to_string(), b.text()));
     metrics.push(("payback".to_string(), format!("{payback:.0} min")));
+    // the build effort and day 1's rank (brief revision 8, Stages: Day 1): 2 s a block placed
+    // (gathering included), 1 s a block dug (none in the void), 120 s a lava trip, 180 s a
+    // villager moved; then the minutes to own a 24-iron kit at the card's rate
+    let placed = c.clock.design.blocks.values().filter(|s| !matches!(s.split('[').next().unwrap_or("").trim_start_matches("minecraft:"), "air" | "cave_air" | "void_air")).count();
+    let build_s = 2.0 * placed as f64 + 120.0 * b.lava as f64 + 180.0 * b.villagers as f64;
+    metrics.push(("build time".to_string(), format!("{:.0} min ({placed} placed, 0 dug, {} lava trips, {} villagers moved)", build_s / 60.0, b.lava, b.villagers)));
+    if iron > 0.0 {
+        metrics.push(("time to an iron kit".to_string(), format!("{:.0} min (the build, then (bill + 24) / rate)", build_s / 60.0 + (b.iron + 24.0) / iron * 60.0)));
+    }
     // the stage lines (brief, Stages: What every card reports)
     metrics.push(("tools".to_string(), b.tools_text()));
     metrics.push(("lava sources".to_string(), b.lava.to_string()));

@@ -47,6 +47,29 @@ fn blocks_box(spec: &FarmSpec) -> (BlockPos, BlockPos) {
     (lo, hi)
 }
 
+/// A design's site parameters from its meta values: `ground: <y>` (the design y lying at the
+/// ground layer; default -1, a void design's floor under its villagers), `afk: x y z` (the AFK
+/// player's feet; default on top of the build's middle), `terrain: cells` (written cell by cell,
+/// natural rock for the rest; otherwise its box is cleared first): (ground, afk, clear_box).
+pub fn params(spec: &FarmSpec, ground: Option<&str>, afk: Option<&str>, terrain: Option<&str>) -> Result<(i32, [f64; 3], bool), String> {
+    if spec.blocks.is_empty() {
+        return Err("an empty design".into());
+    }
+    let ground = ground.map(|v| v.trim().parse::<i32>()).transpose().map_err(|e| format!("ground: {e}"))?.unwrap_or(-1);
+    let (lo, hi) = blocks_box(spec);
+    let afk = match afk {
+        Some(v) => {
+            let p: Vec<f64> = v.split_whitespace().map(|t| t.parse::<f64>()).collect::<Result<_, _>>().map_err(|e| format!("afk: {e}"))?;
+            if p.len() != 3 {
+                return Err("afk: x y z".into());
+            }
+            [p[0], p[1], p[2]]
+        }
+        None => [(lo.x + hi.x) as f64 / 2.0 + 0.5, hi.y as f64 + 1.0, (lo.z + hi.z) as f64 / 2.0 + 0.5],
+    };
+    Ok((ground, afk, terrain.map(str::trim) != Some("cells")))
+}
+
 impl Site {
     /// The site of `spec` (design coordinates) in `sample`: its world from the sample's committed
     /// file (read relative to the working directory, the repository root), the spot for the
@@ -56,7 +79,12 @@ impl Site {
     pub fn new(sample: &'static Sample, spec: &FarmSpec, ground: i32, afk: [f64; 3], clear_box: bool) -> Result<Site, String> {
         let bytes = std::fs::read(sample.file).map_err(|e| format!("terrain sample {}: {e}", sample.file))?;
         let t = crate::terrain::format::Terrain::decode(&bytes)?;
-        let world = crate::terrain::land::build_world(&t)?;
+        Site::from_terrain(&t, sample, spec, ground, afk, clear_box)
+    }
+
+    /// [`Site::new`] from the sample's decoded file (the 3D viewer, compiled to wasm, reads no file).
+    pub fn from_terrain(t: &crate::terrain::format::Terrain, sample: &'static Sample, spec: &FarmSpec, ground: i32, afk: [f64; 3], clear_box: bool) -> Result<Site, String> {
+        let world = crate::terrain::land::build_world(t)?;
         if spec.blocks.is_empty() {
             return Err("an empty design".into());
         }
