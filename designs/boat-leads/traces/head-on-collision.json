@@ -1,0 +1,42 @@
+{
+  "name": "head-on-collision",
+  "vessels": [
+    {
+      "type": "minecraft:oak_boat",
+      "pos": [
+        -1.5,
+        1.0,
+        0.0
+      ],
+      "yaw": 0.0,
+      "motion": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "type": "minecraft:oak_boat",
+      "pos": [
+        1.5,
+        1.0,
+        0.0
+      ],
+      "yaw": 0.0,
+      "motion": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "links": [],
+  "events": [],
+  "ticks": 100,
+  "floor": "stone",
+  "origin": [
+    0,
+    0,
+    0
+  ]
+}

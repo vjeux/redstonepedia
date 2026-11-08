@@ -1,0 +1,6 @@
+name: boat-lead-fixture
+origin: 0 0 0
+palette:
+  S minecraft:stone
+layer 0:
+  S

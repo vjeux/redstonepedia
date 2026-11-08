@@ -36,6 +36,8 @@ pub trait Rig {
     fn summon(&mut self, specs: &[EntitySpec]) -> Result<Vec<String>>;
     /// `ride <rider> mount <vehicle>`.
     fn ride(&mut self, rider: &str, vehicle: &str) -> Result<()>;
+    /// Attach a lead, or remove it without dropping an item when holder is None.
+    fn leash(&mut self, entity: &str, holder: Option<&str>) -> Result<()>;
     /// `kill <entity>`.
     fn kill(&mut self, h: &str) -> Result<()>;
     /// `data merge entity <entity> {Items:[]}`: a container entity emptied.
@@ -97,7 +99,8 @@ impl Recorder {
             let n = self.ids.len();
             let id = *self.ids.entry(e.uuid.clone()).or_insert(n);
             self.net.insert(e.uuid.clone(), e.net_id);
-            ents.push(json!({"id": id, "net_id": e.net_id, "type": e.kind, "pos": e.pos, "motion": e.motion, "yaw": e.yaw, "pitch": e.pitch}));
+            ents.push(json!({"id": id, "net_id": e.net_id, "type": e.kind, "pos": e.pos, "motion": e.motion, "yaw": e.yaw, "pitch": e.pitch,
+                "leash_holder": e.leash_holder, "angular_momentum": e.angular_momentum}));
         }
         let (rng, rv) = w.random_states(sb)?;
         self.frames.push(json!({"t": t, "blocks": blocks, "entities": ents, "rng": rng, "rv": rv}).to_string());
@@ -186,6 +189,15 @@ impl Rig for GameRig<'_> {
         if self.rec.is_some() {
             let (a, b) = (self.net_of(rider)?, self.net_of(vehicle)?);
             self.script(json!(["ride", a, b]));
+        }
+        Ok(())
+    }
+    fn leash(&mut self, entity: &str, holder: Option<&str>) -> Result<()> {
+        self.w.call(json!({"op": "leash", "sandbox": self.sb, "entity": entity, "holder": holder}))?;
+        if self.rec.is_some() {
+            let e = self.net_of(entity)?;
+            let h = holder.map(|h| self.net_of(h)).transpose()?;
+            self.script(json!(["leash", e, h]));
         }
         Ok(())
     }
@@ -345,6 +357,13 @@ impl Rig for SimRig {
     }
     fn ride(&mut self, rider: &str, vehicle: &str) -> Result<()> {
         redsim::entity::ride(&mut self.w, sim_id(rider)?, sim_id(vehicle)?).map_err(|e| anyhow!("redsim: {e}"))
+    }
+    fn leash(&mut self, entity: &str, holder: Option<&str>) -> Result<()> {
+        let e = sim_id(entity)?;
+        match holder {
+            Some(h) => redsim::entity::leash::attach(&mut self.w, e, sim_id(h)?),
+            None => redsim::entity::leash::remove(&mut self.w, e),
+        }.map_err(|e| anyhow!("redsim: {e}"))
     }
     fn kill(&mut self, h: &str) -> Result<()> {
         redsim::entity::kill(&mut self.w, sim_id(h)?).map_err(|e| anyhow!("redsim: {e}"))

@@ -170,7 +170,7 @@ pub fn entity_collisions(w: &World, i: usize, bb: Aabb) -> Vec<Vec<Aabb>> {
     let vehicle = matches!(w.entities.list[i].kind, super::EntityKind::Boat(_) | super::EntityKind::Minecart(_));
     w.get_entities(query, |e| matches!(e.kind, super::EntityKind::Boat(_)) || (vehicle && super::minecart::is_pushable(e)))
         .into_iter()
-        .filter(|&j| j != i)
+        .filter(|&j| j != i && !super::push::same_vehicle(w, i, j))
         .map(|j| vec![w.entities.list[j].bb])
         .collect()
 }

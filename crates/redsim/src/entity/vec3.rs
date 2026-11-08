@@ -79,6 +79,13 @@ impl Vec3 {
         self.multiply(s, s, s)
     }
 
+    /// `Vec3.yRot(float)`: Mth's float sine/cosine, widened for the double products.
+    pub fn y_rot(self, radians: f32) -> Vec3 {
+        let cos = super::mth::cos(radians as f64) as f64;
+        let sin = super::mth::sin(radians as f64) as f64;
+        Vec3::new(self.x * cos + self.z * sin, self.y, self.z * cos - self.x * sin)
+    }
+
     pub fn reverse(self) -> Vec3 {
         self.scale(-1.0)
     }

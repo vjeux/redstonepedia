@@ -1,0 +1,51 @@
+{
+  "name": "taut-on-ground",
+  "vessels": [
+    {
+      "type": "minecraft:oak_boat",
+      "pos": [
+        -4.0,
+        1.0,
+        0.0
+      ],
+      "yaw": 0.0,
+      "motion": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "type": "minecraft:oak_boat",
+      "pos": [
+        4.0,
+        1.0,
+        0.0
+      ],
+      "yaw": 0.0,
+      "motion": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "links": [
+    [
+      0,
+      1
+    ],
+    [
+      1,
+      0
+    ]
+  ],
+  "events": [],
+  "ticks": 100,
+  "floor": "stone",
+  "origin": [
+    0,
+    0,
+    0
+  ]
+}

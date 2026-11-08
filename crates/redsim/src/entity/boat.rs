@@ -368,10 +368,5 @@ pub fn tick(w: &mut World, i: usize) {
     entity::apply_effects_from_blocks(w, i);
     entity::apply_effects_from_blocks(w, i);
     tick_bubble_column(w, i);
-    // pushing the entities around it (`getEntities(this, bb.inflate(0.2, -0.01, 0.2),
-    // pushableBy(this))`): only one entity in every traced design so far
-    let bb = w.entities.list[i].bb.inflate(0.2f32 as f64, -0.01f32 as f64, 0.2f32 as f64);
-    if w.get_entities(bb, |_| true).iter().any(|&j| j != i) {
-        w.errors.push("boat: pushing other entities is not modeled yet".into());
-    }
+    entity::push::boat_neighbors(w, i);
 }

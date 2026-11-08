@@ -1,0 +1,42 @@
+{
+  "name": "stacked-collision",
+  "vessels": [
+    {
+      "type": "minecraft:oak_boat",
+      "pos": [
+        -0.0,
+        1.0,
+        0.0
+      ],
+      "yaw": 0.0,
+      "motion": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "type": "minecraft:oak_boat",
+      "pos": [
+        0.0,
+        1.5625,
+        0.0
+      ],
+      "yaw": 0.0,
+      "motion": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "links": [],
+  "events": [],
+  "ticks": 100,
+  "floor": "stone",
+  "origin": [
+    0,
+    0,
+    0
+  ]
+}

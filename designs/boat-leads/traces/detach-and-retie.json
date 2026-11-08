@@ -1,0 +1,62 @@
+{
+  "name": "detach-and-retie",
+  "vessels": [
+    {
+      "type": "minecraft:oak_boat",
+      "pos": [
+        -4.0,
+        5.0,
+        0.0
+      ],
+      "yaw": 0.0,
+      "motion": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "type": "minecraft:oak_boat",
+      "pos": [
+        4.0,
+        5.0,
+        0.0
+      ],
+      "yaw": 0.0,
+      "motion": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "links": [
+    [
+      0,
+      1
+    ],
+    [
+      1,
+      0
+    ]
+  ],
+  "events": [
+    {
+      "tick": 10,
+      "entity": 0,
+      "holder": null
+    },
+    {
+      "tick": 12,
+      "entity": 0,
+      "holder": 1
+    }
+  ],
+  "ticks": 100,
+  "floor": "stone",
+  "origin": [
+    0,
+    0,
+    0
+  ]
+}

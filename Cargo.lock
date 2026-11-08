@@ -187,6 +187,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "boat-leads"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "circuit",
+ "clap",
+ "mctas",
+ "redsim",
+ "redsim-fuzz",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1215,6 +1229,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bedrock",
+ "boat-leads",
  "circuit-cli",
  "clap",
  "clock-cli",

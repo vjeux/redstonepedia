@@ -29,6 +29,9 @@ pub struct TraceEntity {
     pub pitch: f32,
     /// The game's network id (`getId()`), when the trace has it (`net_id`).
     pub net_id: Option<i32>,
+    /// Present in new boat-lead traces; angular_momentum's presence enables both checks.
+    pub leash_holder: Option<i32>,
+    pub angular_momentum: Option<f64>,
 }
 
 /// A parsed exact trace.
@@ -129,6 +132,8 @@ pub fn load_trace(path: &Path) -> Result<Trace> {
                 yaw: e["yaw"].as_f64().unwrap_or(0.0) as f32,
                 pitch: e["pitch"].as_f64().unwrap_or(0.0) as f32,
                 net_id: e["net_id"].as_i64().map(|n| n as i32),
+                leash_holder: e["leash_holder"].as_i64().map(|n| n as i32),
+                angular_momentum: e["angular_momentum"].as_f64(),
             });
         }
         t.frames.push((blocks, ents));
@@ -204,6 +209,8 @@ fn entities_of(w: &World) -> Vec<TraceEntity> {
                     yaw: e.y_rot,
                     pitch: e.x_rot,
                     net_id: Some(e.network_id),
+                    leash_holder: e.leash.and_then(|l| redsim::entity::index_of(w, l.holder).map(|i| w.entities.list[i].network_id)),
+                    angular_momentum: Some(e.leash.map_or(0.0, |l| l.angular_momentum)),
                 },
             )
         })
@@ -219,6 +226,8 @@ fn entities_of(w: &World) -> Vec<TraceEntity> {
                 yaw: 0.0,
                 pitch: 0.0,
                 net_id: Some(f.id as i32),
+                leash_holder: None,
+                angular_momentum: Some(0.0),
             },
         )
     }));
@@ -245,6 +254,12 @@ fn entity_diffs(want: &[TraceEntity], have: &[TraceEntity], out: &mut Vec<String
         }
         if g.yaw.to_bits() != r.yaw.to_bits() || g.pitch.to_bits() != r.pitch.to_bits() {
             out.push(format!("{} {i} rotation: game ({}, {}), redsim ({}, {})", short(&g.kind), g.yaw, g.pitch, r.yaw, r.pitch));
+        }
+        if let Some(ga) = g.angular_momentum {
+            let ra = r.angular_momentum.unwrap_or(0.0);
+            if g.leash_holder != r.leash_holder || (ga.to_bits() != ra.to_bits() && !(ga == 0.0 && ra == 0.0)) {
+                out.push(format!("{} {i} leash: game {:?}/{ga}, redsim {:?}/{ra}", short(&g.kind), g.leash_holder, r.leash_holder));
+            }
         }
         // the bridge numbers each sandbox's entities from 0 in the order they enter (the game's
         // tick order; `(tickCount + id) % 4` paces an item at rest): redsim's ids must agree
@@ -278,6 +293,15 @@ fn apply_script(w: &mut World, op: &serde_json::Value) -> Result<(), String> {
         "ride" => {
             let (r, v) = (ent(w, a.get(1))?, ent(w, a.get(2))?);
             redsim::entity::ride(w, r, v)
+        }
+        "leash" => {
+            let id = ent(w, a.get(1))?;
+            if a.get(2).is_none_or(|v| v.is_null()) {
+                redsim::entity::leash::remove(w, id)
+            } else {
+                let holder = ent(w, a.get(2))?;
+                redsim::entity::leash::attach(w, id, holder)
+            }
         }
         "kill" => {
             let id = ent(w, a.get(1))?;

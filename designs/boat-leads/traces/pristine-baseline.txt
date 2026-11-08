@@ -1,0 +1,29 @@
+status: exit status: 1
+stdout:
+OK no-lead-control: 101 ticks identical
+UNMODELED slack-pair: tick 0: script ["leash",0,1]: unknown script op leash
+UNMODELED taut-open: tick 0: script ["leash",0,1]: unknown script op leash
+UNMODELED taut-mutual: tick 0: script ["leash",0,1]: unknown script op leash
+UNMODELED taut-reverse-order: tick 0: script ["leash",0,1]: unknown script op leash
+UNMODELED taut-oblique-yaws: tick 0: script ["leash",0,1]: unknown script op leash
+UNMODELED taut-height-difference: tick 0: script ["leash",0,1]: unknown script op leash
+UNMODELED taut-on-ground: tick 0: script ["leash",0,1]: unknown script op leash
+UNMODELED taut-on-ice: tick 0: script ["leash",0,1]: unknown script op leash
+UNMODELED taut-chest-boats: tick 0: script ["leash",0,1]: unknown script op leash
+UNMODELED taut-water: tick 0: script ["leash",0,1]: unknown script op leash
+DIVERGES nearby-push-control at tick 1 (warmup 0, period 0):
+  oak_boat 0 motion: game [-0.10000000149011613, 0.0, 0.0], redsim [0.0, 0.0, 0.0]
+  oak_boat 1 pos: game [0.7800000016391277, 1.0, 0.0], redsim [0.75, 1.0, 0.0]
+  oak_boat 1 motion: game [0.08000000238418581, 0.0, 0.0], redsim [0.0, 0.0, 0.0]
+  (redsim's model note this tick: boat: pushing other entities is not modeled yet)
+DIVERGES head-on-collision at tick 2 (warmup 0, period 0):
+  oak_boat 0 motion: game [0.25999999135732565, 0.0, 0.0], redsim [0.3599999928474418, 0.0, 0.0]
+  oak_boat 1 motion: game [0.05000000074505806, 0.0, 0.0], redsim [0.0, 0.0, 0.0]
+  (redsim's model note this tick: boat: pushing other entities is not modeled yet)
+OK stacked-collision: 101 ticks identical
+UNMODELED detach-and-retie: tick 0: script ["leash",0,1]: unknown script op leash
+UNMODELED taut-far-position: tick 0: script ["leash",0,1]: unknown script op leash
+2 of 16 traces tick-identical
+
+stderr:
+Error: 14 traces differ or are not modeled

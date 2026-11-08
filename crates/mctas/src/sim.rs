@@ -294,6 +294,12 @@ pub struct EntityInfo {
     /// a minecart is on).
     #[serde(default)]
     pub state: String,
+    /// Resolved leash holder's sandbox network id, if any.
+    #[serde(default)]
+    pub leash_holder: Option<i32>,
+    /// `LeashData.angularMomentum` (zero without leash data).
+    #[serde(default)]
+    pub angular_momentum: f64,
 }
 
 /// Entity checks of a recorded step ([`Worker::step_record_watch`]): `watch` is the box every

@@ -161,6 +161,7 @@ public final class Protocol {
             case "events" -> events(sandbox(r));
             case "entities" -> entities(r);
             case "summon" -> summon(r);
+            case "leash" -> leash(r);
             case "update" -> update(r);
             case "build" -> build(r);
             case "signals" -> signals(r);
@@ -652,6 +653,15 @@ public final class Protocol {
         box.add(bb.maxZ);
         j.add("box", box);
         j.addProperty("state", sb.keyState(e));
+        Entity holder = e instanceof net.minecraft.world.entity.Leashable leashed ? leashed.getLeashHolder() : null;
+        if (holder == null) {
+            j.add("leash_holder", com.google.gson.JsonNull.INSTANCE);
+        } else {
+            j.addProperty("leash_holder", holder.getId() - sb.entityIdBase());
+        }
+        net.minecraft.world.entity.Leashable.LeashData leashData =
+                e instanceof net.minecraft.world.entity.Leashable leashed ? leashed.getLeashData() : null;
+        j.addProperty("angular_momentum", leashData == null ? 0.0 : leashData.angularMomentum);
         return j;
     }
 
@@ -665,6 +675,25 @@ public final class Protocol {
         JsonObject o = new JsonObject();
         o.add("uuids", uuids);
         return o;
+    }
+
+    /** Direct attachment fixture: normal canHaveALeashAttachedTo/setLeashedTo semantics. */
+    private JsonObject leash(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        Entity e = sb.level.getEntity(java.util.UUID.fromString(r.get("entity").getAsString()));
+        if (!(e instanceof net.minecraft.world.entity.Leashable leashed)) {
+            throw new IllegalArgumentException("leash: missing or non-leashable entity");
+        }
+        if (!r.has("holder") || r.get("holder").isJsonNull()) {
+            leashed.removeLeash();
+        } else {
+            Entity holder = sb.level.getEntity(java.util.UUID.fromString(r.get("holder").getAsString()));
+            if (holder == null || !leashed.canHaveALeashAttachedTo(holder)) {
+                throw new IllegalArgumentException("leash: invalid holder, self-link or outside attachment range");
+            }
+            leashed.setLeashedTo(holder, false);
+        }
+        return new JsonObject();
     }
 
     /** Continuous box [from, to + 1] of an inclusive block range. */

@@ -20,12 +20,14 @@ pub mod frame;
 pub mod item;
 pub mod jmath;
 pub mod kinds;
+pub mod leash;
 pub mod minecart;
 pub mod mth;
 pub mod piston_push;
 pub mod primed_tnt;
 // ---- mob farms (ironfarm): villagers, iron golems, zombies (`mob/`) ----
 pub mod mob;
+pub mod push;
 pub mod vec3;
 
 use crate::block::Block;
@@ -169,6 +171,8 @@ pub struct Entity {
     pub vehicle: Option<u32>,
     /// `passengers`: the ids of the entities riding it, in order.
     pub passengers: Vec<u32>,
+    /// Resolved server-side `LeashData` (ordinary boat-to-entity attachments).
+    pub leash: Option<leash::LeashData>,
 }
 
 /// The entity section of a position (`SectionPos.asLong(BlockPos.containing(pos))`'s x, y, z).
@@ -242,6 +246,7 @@ impl Entity {
             section_seq: 0,
             vehicle: None,
             passengers: Vec::new(),
+            leash: None,
         }
     }
 
@@ -707,6 +712,9 @@ pub fn kill(w: &mut World, id: u32) -> Result<(), String> {
     if w.entities.list[i].removed {
         return Ok(());
     }
+    if w.entities.list[i].leash.is_some() {
+        return Err("kill: a leashed entity drops an unseeded lead ItemEntity (not modeled)".into());
+    }
     if let Some(c) = w.containers.entities.get(&id) {
         if c.slots.iter().any(|s| s.is_some()) {
             return Err("kill: a container minecart that holds items would drop them (not modeled): empty it first".into());
@@ -799,6 +807,7 @@ pub fn base_tick(w: &mut World, i: usize) {
         e.removed = true;
     }
     e.first_tick = false;
+    leash::tick(w, i);
 }
 
 /// `Entity.move(type, delta)` of entity `i` (index in the list): `collide::move_`.

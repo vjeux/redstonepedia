@@ -1,0 +1,17 @@
+[package]
+name = "boat-leads"
+description = "Source-driven boat/lead mechanics probes and exact game calibration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+mctas = { path = "../mctas" }
+circuit = { path = "../circuit" }
+redsim = { path = "../redsim" }
+redsim-fuzz = { path = "../redsim-fuzz" }

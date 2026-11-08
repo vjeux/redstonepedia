@@ -69,6 +69,11 @@ enum Cmd {
         #[command(subcommand)]
         command: web_cli::WebCmd,
     },
+    /// Boat/lead physics fixtures and exact game calibration (designs/briefs/boat-leads.md).
+    BoatLeads {
+        #[command(subcommand)]
+        command: boat_leads::cli::BoatLeadsCmd,
+    },
     /// Bedrock breaking study (designs/bedrock/NOTES.md): per-window swap scanner.
     Bedrock {
         #[command(subcommand)]
@@ -158,6 +163,7 @@ fn main() -> Result<()> {
         Cmd::Site { command } => site::run(command)?,
         Cmd::Litematic { command } => litematic::cli::run(command)?,
         Cmd::Web { command } => web_cli::run(&cli.version, command)?,
+        Cmd::BoatLeads { command } => boat_leads::cli::run(&cli.version, command)?,
         Cmd::Bedrock { command } => bedrock::cli::run(&cli.version, command)?,
         Cmd::Mobfarm { command } => mobfarm::cli::run(&cli.version, command)?,
     }
