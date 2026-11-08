@@ -325,6 +325,43 @@ fn check_page(s: &Session, base: &str, page: &str, selector: &str) -> Result<Str
 /// The longest a trivial script may wait for a group page's main thread (seconds).
 const RESPONSIVE_S: f64 = 2.0;
 
+/// Every control of a page's 3D view takes a tap where it is drawn (vjeux 2026-11-08: "On mobile
+/// you can't select the 10x dropdown": the speed dropdown sat in the bar's `pointer-events: none`,
+/// so a tap went through it to the canvas): each visible button, the speed dropdown and the
+/// scrubber is what the page finds under its centre (`elementFromPoint`, the hit test a tap
+/// takes); then 10× picked in the dropdown (the change a phone's own picker sends) is the view's
+/// speed (its title says so: `Live::set_speed`), and play's tap starts the clock.
+fn check_controls(s: &Session, base: &str, page: &str) -> Result<String> {
+    check_page(s, base, page, "[data-mcview=\"full\"]")?;
+    let v = s.script(
+        "const root = document.querySelector('[data-mcview=\"full\"]'); root.scrollIntoView({block: 'center'}); \
+         const ctl = [...root.querySelectorAll('button, select, [data-mcview-scrub]')].filter(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(e).visibility !== 'hidden'; }); \
+         const missed = []; const names = []; \
+         for (const e of ctl) { const r = e.getBoundingClientRect(); const h = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); \
+           const name = e.getAttribute('aria-label') || e.title || e.textContent.trim() || e.tagName; names.push(name.split(' (')[0]); \
+           if (!h || !(h === e || e.contains(h))) missed.push(name + ' -> ' + (h ? h.tagName.toLowerCase() + (h.className ? '.' + h.className : '') : 'nothing')); } \
+         return {names, missed};",
+    )?;
+    let missed: Vec<String> = v["missed"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+    let names: Vec<String> = v["names"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+    if names.is_empty() {
+        bail!("no control found in the view");
+    }
+    if !missed.is_empty() {
+        bail!("{} of {} controls do not take a tap where they are drawn: {}", missed.len(), names.len(), missed.join("; "));
+    }
+    let speed = s.script(
+        "const sel = document.querySelector('[data-mcview=\"full\"] select[aria-label=\"Speed\"]'); if (!sel) return 'no speed dropdown'; \
+         const i = [...sel.options].findIndex(o => o.value.startsWith('10')); if (i < 0) return 'no 10x speed'; \
+         sel.selectedIndex = i; sel.dispatchEvent(new Event('change', {bubbles: true})); return sel.title;",
+    )?;
+    let speed = speed.as_str().unwrap_or_default().to_string();
+    if !speed.contains("10×") {
+        bail!("picking 10× in the speed dropdown left it at {speed:?}");
+    }
+    Ok(format!("{} controls take a tap where they are drawn ({}); the dropdown's 10×: {speed}", names.len(), names.join(", ")))
+}
+
 /// A group page (a tab of the index, a study's cards) must stay responsive while its thumbnails
 /// draw (the coordinator 2026-10-21: the Auto-brewer group page froze vjeux's browser, its cards
 /// simulating their designs up to their still frames on the page's one thread): loaded, then
@@ -818,6 +855,36 @@ pub fn responsive(dir: &Path, remote: Option<&str>, only: Option<&str>) -> Resul
     Ok(fails)
 }
 
+/// Just the viewer controls' check (`mctas site smoke --engine webkit --controls [--page P]...`:
+/// [`check_controls`]) on `pages` (none: a mob farm's page, else the first circuit's), desktop and
+/// phone (`only`: one of them). Returns the number of failed checks.
+pub fn controls(dir: &Path, remote: Option<&str>, pages: &[String], only: Option<&str>) -> Result<usize> {
+    let r = rig(dir, remote, pages.is_empty())?;
+    let pages: Vec<String> = if pages.is_empty() {
+        r.site.builds.iter().find(|b| b.circuit.as_ref().is_some_and(|c| c.kind.starts_with("mob-farm"))).or_else(|| r.site.builds.iter().find(|b| b.kind == "circuit")).map(|b| vec![b.page.clone()]).unwrap_or_default()
+    } else {
+        pages.to_vec()
+    };
+    let mut fails = 0;
+    for phone in [false, true] {
+        if only.is_some_and(|o| o != if phone { "phone" } else { "desktop" }) {
+            continue;
+        }
+        let label = if phone { "phone 390x844 @2x, iPhone UA" } else { "desktop 1280x900" };
+        let s = Session::start(&r.display, phone)?;
+        for page in &pages {
+            match check_controls(&s, &r.base, page) {
+                Ok(d) => println!("PASS webkit {label}: viewer controls ({page}): {d}"),
+                Err(e) => {
+                    println!("FAIL webkit {label}: viewer controls ({page}): {e:#}");
+                    fails += 1;
+                }
+            }
+        }
+    }
+    Ok(fails)
+}
+
 /// Run the WebKit smoke on a generated site folder, or on the deployed site at `remote` (its
 /// pages and bundles; the pages to check come from its own data/site.json). Returns the number of
 /// failed checks.
@@ -899,6 +966,9 @@ pub fn smoke(dir: &Path, remote: Option<&str>) -> Result<usize> {
     });
     let family_page = site.cards.first().map(|c| c.page.clone());
     let groups = group_pages(site);
+    // a mob farm's page (its viewer has every control: play, step, speed, labels, spawn spots,
+    // record, the scrubber), else the first circuit's
+    let controls_page = site.builds.iter().find(|b| b.circuit.as_ref().is_some_and(|c| c.kind.starts_with("mob-farm"))).or_else(|| site.builds.iter().find(|b| b.kind == "circuit")).map(|b| b.page.clone());
     for phone in [false, true] {
         let label = if phone { "phone 390x844 @2x, iPhone UA" } else { "desktop 1280x900" };
         let s = match Session::start(&display, phone) {
@@ -937,6 +1007,15 @@ pub fn smoke(dir: &Path, remote: Option<&str>) -> Result<usize> {
                 Ok(d) => println!("PASS webkit {label}: family member swap ({page}): {d}"),
                 Err(e) => {
                     println!("FAIL webkit {label}: family member swap ({page}): {e:#}");
+                    fails += 1;
+                }
+            }
+        }
+        if let Some(page) = &controls_page {
+            match check_controls(&s, &base, page) {
+                Ok(d) => println!("PASS webkit {label}: viewer controls ({page}): {d}"),
+                Err(e) => {
+                    println!("FAIL webkit {label}: viewer controls ({page}): {e:#}");
                     fails += 1;
                 }
             }

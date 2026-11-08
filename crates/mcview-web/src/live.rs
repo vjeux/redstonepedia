@@ -254,7 +254,7 @@ const ICON_BOXES: &str = "M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8zM5 5
 /// The "Spawn spots" toggle: a plate on the floor seen from above, a spot in its middle.
 const ICON_SPAWN: &str = "M3 15l9-5 9 5-9 5zM6.6 15L12 18l5.4-3L12 12zM10 15l2-1.1 2 1.1-2 1.1zM11 3h2v6h-2z";
 /// What the spawn spots' colours say (the toggle's title).
-const SPAWN_TITLE: &str = "Spawn spots: every cell the game's golem search reaches around the villagers. Blue: a golem can spawn there and none has yet; yellow to red: how many golems spawned there so far; grey: the search reaches it but a golem cannot spawn there. A flash: a golem spawning.";
+const SPAWN_TITLE: &str = "Spawn spots: the blue floor is where the game lets a golem spawn, from every villager's golem search (seen through the blocks).";
 /// The Record button's face: a red dot and its word; while recording, a stop square and the
 /// progress.
 const RECORD_FACE: &str = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 14 14\" aria-hidden=\"true\" style=\"display:block\"><circle cx=\"7\" cy=\"7\" r=\"6\" fill=\"#ff3b30\"/></svg><span>Record</span>";
@@ -412,6 +412,12 @@ pub fn start(app: &mut App, id: u32) {
             ("border", "1px solid rgba(255,255,255,0.22)"),
             ("border-radius", "8px"),
             ("font", "15px system-ui, sans-serif"),
+            // the bar takes no pointer (a tap on the scene behind it reaches the canvas): its
+            // controls take it back, the dropdown too (vjeux 2026-11-08: "On mobile you can't
+            // select the 10x dropdown": a tap went through it to the canvas); a tap opens the
+            // phone's own picker at once (no double-tap zoom wait)
+            ("pointer-events", "auto"),
+            ("touch-action", "manipulation"),
         ],
     );
     let flip = button(ICON_LEVER, "Flip the lever (f), or tap the lever");

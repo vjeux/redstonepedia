@@ -2713,7 +2713,10 @@ fn mob_pair(text: &str, path: &Path, probe: Option<&mut mcview::tools::WasmProbe
     let (runs, spawned, most) = mob_spawn_spots_check(&c)?;
     // the converse (vjeux 2026-11-08, "can golems really spawn in the air?"): every spot drawn is a
     // place a golem can spawn by the game's rule, read afresh, and every such place is drawn
-    let (looks, drawn, bad) = mcview::mobfarm::spots_rule_check_seeded(text, jo.seed0, pair_ticks, 100)?;
+    let (looks, drawn, bad, stopped) = mcview::mobfarm::spots_rule_check_seeded(text, jo.seed0, pair_ticks, 100)?;
+    if let Some(why) = stopped {
+        return Err(format!("the view's run: {why}"));
+    }
     if let Some(first) = bad.first() {
         return Err(format!("{} differences between the drawn spawn spots and the game's rule, the first at {first}", bad.len()));
     }
@@ -2742,9 +2745,9 @@ const MOB_GAME_TICKS: u32 = 24000;
 
 /// The view's golem spawn cells against the game's over `ticks` ticks of the farm's exact run in
 /// the bridge (`mobfarm::exact::spots_check`; vjeux 2026-11-08, "why is the spawning ui not
-/// respecting the game mechanics?"): the view's summoning villagers (`mobfarm::summoner_cells`
-/// on the farm as built) and drawn cells read on redsim's world, which the game's run matches
-/// tick for tick.
+/// respecting the game mechanics?"): every villager's golem search (any of them summons when it
+/// panics), the view's drawn cells read on redsim's world as the mobs arrive, the game's on its
+/// own.
 fn mob_spots_game(path: &Path, ticks: u32) -> Result<mobfarm::exact::SpotsCheck, String> {
     let d = mcview::design::Design::parse(&std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?)?;
     let opts = mobfarm::exact::Opts {
@@ -2759,13 +2762,9 @@ fn mob_spots_game(path: &Path, ticks: u32) -> Result<mobfarm::exact::SpotsCheck,
         terrain: mcview::terrain::sample_of(&d).map(|s| s.name.to_string()),
         day0: None,
     };
-    let mut summoners: Option<Vec<u32>> = None;
-    mobfarm::exact::spots_check("26.3", path, &opts, |w, spec| {
-        // (the villagers that can summon, as they arrive: the view's own rule on the farm as the
-        // run built it)
-        let ids = summoners.get_or_insert_with(|| mcview::mobfarm::summoner_ids(w, &mcview::mobfarm::summoner_cells(spec, w)));
-        let starts: Vec<[i32; 3]> = w.entities.list.iter().filter(|e| !e.removed && ids.contains(&e.id)).map(|e| e.block_position().arr()).collect();
-        let drawn = mcview::mobfarm::spawn_spots(w, Some(ids)).into_iter().filter(|(_, r)| mcview::mobfarm::spot_open(r)).map(|(c, _)| c.arr()).collect();
+    mobfarm::exact::spots_check("26.3", path, &opts, |w, _| {
+        let starts: Vec<[i32; 3]> = w.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, redsim::entity::EntityKind::Mob(m) if m.ty == redsim::entity::mob::types::MobType::Villager)).map(|e| e.block_position().arr()).collect();
+        let drawn = mcview::mobfarm::spawn_spots(w).into_iter().filter(|(_, r)| mcview::mobfarm::spot_open(r)).map(|(c, _)| c.arr()).collect();
         (starts, drawn)
     })
     .map_err(|e| format!("in the game: {e:#}"))

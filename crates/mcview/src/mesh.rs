@@ -990,7 +990,10 @@ impl<'a> Builder<'a> {
         const EDGE: [u8; 4] = [255, 255, 255, 235];
         const EDGE_W: f32 = 0.08;
         let tile = self.atlas.tile("spawn_spot") as u32 | XRAY;
+        // (each cell once, whichever villagers' searches reach it: one uniform sheet)
         let at: HashSet<Pos> = cells.iter().copied().collect();
+        let mut cells: Vec<Pos> = at.iter().copied().collect();
+        cells.sort();
         let quad = |b: &mut Self, pts: [[f32; 3]; 4], col: [u8; 4]| {
             let uv = [[0.3, 0.3], [0.3, 0.7], [0.7, 0.7], [0.7, 0.3]];
             let center = [(pts[0][0] + pts[2][0]) / 2.0, (pts[0][1] + pts[2][1]) / 2.0, (pts[0][2] + pts[2][2]) / 2.0];
@@ -1000,7 +1003,7 @@ impl<'a> Builder<'a> {
                 b.mesh.translucent.push(Quad { v, center });
             }
         };
-        for c in cells {
+        for c in &cells {
             let (x, y, z) = (c[0] as f32, c[1] as f32 + LIFT, c[2] as f32);
             quad(self, [[x, y, z], [x, y, z + 1.0], [x + 1.0, y, z + 1.0], [x + 1.0, y, z]], SHEET);
             // the area's outer edges: a cell's side with no spawn cell beside it at its height

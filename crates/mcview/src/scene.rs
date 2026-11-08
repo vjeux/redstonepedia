@@ -446,29 +446,16 @@ fn entities_into(b: &mut Builder, s: &Session, partial: f32, look: &Look) {
 /// A mob farm's golem spawn area (vjeux 2026-11-08: "show the places where golems spawn"; "Can you
 /// make areas continuous for spawn targets"; "What's up with the spawning slots changing color"):
 /// every cell where the judge's golem search ([`crate::mobfarm::spawn_spots`]) finds a golem can
-/// spawn around the villagers that can summon, as one steady sheet on the floor its feet would
-/// stand on ([`Builder::spawn_sheet`]). A still (before its run plays) shows its area too.
+/// spawn around every villager (any of them summons when it panics), as one steady sheet on the
+/// floor its feet would stand on ([`Builder::spawn_sheet`]). A still (before its run plays) shows
+/// its area too.
 fn spawn_spots_into(b: &mut Builder, s: &Session) {
     use crate::mobfarm::spot_open;
     let found;
     let spots = match &s.mob {
         Some(run) => &run.spots[..],
         None if crate::mobfarm::is_mob_farm(&s.design) => {
-            // (a still: the villagers that can summon, where the design puts them)
-            let off = s.view_offset();
-            let only = crate::mobfarm::spec(&s.design).ok().map(|spec| {
-                let at = |p: redsim::BlockPos| redsim::BlockPos::new(p.x + off[0], p.y + off[1], p.z + off[2]);
-                let moved = redsim::entity::mob::farm::FarmSpec {
-                    blocks: spec.blocks.iter().map(|(p, b)| (at(*p), *b)).collect(),
-                    entities: spec.entities.iter().map(|(k, p, n)| (k.clone(), [p[0] + off[0] as f64, p[1] + off[1] as f64, p[2] + off[2] as f64], n.clone())).collect(),
-                    output: at(spec.output),
-                    lo: at(spec.lo),
-                    hi: at(spec.hi),
-                    block_entities: spec.block_entities.clone(),
-                };
-                crate::mobfarm::summoner_ids(&s.world, &crate::mobfarm::summoner_cells(&moved, &s.world))
-            });
-            found = crate::mobfarm::spawn_spots(&s.world, only.as_deref());
+            found = crate::mobfarm::spawn_spots(&s.world);
             &found[..]
         }
         None => return,

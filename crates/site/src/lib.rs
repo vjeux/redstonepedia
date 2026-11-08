@@ -194,6 +194,12 @@ pub enum SiteCmd {
         /// step), desktop and phone (`--only` one); the full WebKit smoke runs it too.
         #[arg(long)]
         responsive: bool,
+        /// `--engine webkit` only: just the viewer controls (every button, the speed dropdown and
+        /// the scrubber must take a tap where it is drawn, and 10× picked in the dropdown must be
+        /// the view's speed) on the --page pages (none: a mob farm's page), desktop and phone
+        /// (`--only` one); the full WebKit smoke runs it too.
+        #[arg(long)]
+        controls: bool,
     },
 }
 
@@ -524,7 +530,17 @@ pub fn run(cmd: SiteCmd) -> Result<()> {
             }
             Ok(())
         }
-        SiteCmd::Smoke { dir, chrome, budget, url, engine, page, frames, interval, click, full, only, responsive } => {
+        SiteCmd::Smoke { dir, chrome, budget, url, engine, page, frames, interval, click, full, only, responsive, controls } => {
+            if controls {
+                if engine != "webkit" {
+                    bail!("--controls taps the viewer in WebKit: add --engine webkit");
+                }
+                let fails = webkit::controls(&dir, url.as_deref(), &page, only.as_deref())?;
+                if fails > 0 {
+                    bail!("{fails} viewer control checks failed");
+                }
+                return Ok(());
+            }
             if responsive {
                 if engine != "webkit" {
                     bail!("--responsive loads the pages in WebKit: add --engine webkit");
