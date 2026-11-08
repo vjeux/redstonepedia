@@ -85,8 +85,14 @@ impl Picker {
         let mut list: Vec<(Pos, &str)> = cells.iter().map(|(c, s)| (*c, *s)).collect();
         list.sort_by_key(|(c, _)| *c);
         let mut out = Picker { boxes: Vec::new(), by_cell: HashMap::default(), still: cells.keys().copied().collect(), occupied };
+        // each state's boxes once, at the origin, then moved to each cell (the same floats: `boxes`
+        // adds the cell last; a model lookup per block was 16 ms of a 2492-block farm's camera)
+        let mut of_state: HashMap<&str, Vec<([f32; 3], [f32; 3])>, FxBuild> = HashMap::default();
         for (c, st) in list {
-            for (lo, hi) in boxes(atlas, st, c) {
+            let rel = of_state.entry(st).or_insert_with(|| boxes(atlas, st, [0, 0, 0]));
+            for (lo0, hi0) in rel.iter() {
+                let lo: [f32; 3] = std::array::from_fn(|k| lo0[k] + c[k] as f32);
+                let hi: [f32; 3] = std::array::from_fn(|k| hi0[k] + c[k] as f32);
                 let i = out.boxes.len() as u32;
                 out.boxes.push((lo, hi, c));
                 for x in lo[0].floor() as i32..=hi[0].floor() as i32 {
@@ -180,6 +186,23 @@ pub fn pick(atlas: &Atlas, blocks: &[RBlock], origin: [f32; 3], dir: [f32; 3], m
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Each state's boxes found once and moved to each cell are the very boxes found per block
+    /// (the same floats in the same order).
+    #[test]
+    fn a_picker_built_per_state_is_the_one_built_per_block() {
+        let atlas = Atlas::build();
+        let text = std::fs::read_to_string(format!("{}/../../designs/circuits/mobfarm/archive/iron-day1.txt", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let s = crate::session::Session::new(&text, &crate::session::Options::still()).unwrap();
+        let blocks = s.render_blocks(0.0);
+        let p = Picker::new(&atlas, &blocks);
+        let mut list: Vec<(Pos, &str)> = blocks.iter().filter(|b| b.offset == [0.0; 3]).map(|b| (b.cell, b.state.as_str())).collect();
+        list.sort_by_key(|(c, _)| *c);
+        list.dedup_by_key(|(c, _)| *c);
+        let per_block: Vec<([f32; 3], [f32; 3], Pos)> = list.iter().flat_map(|(c, st)| boxes(&atlas, st, *c).into_iter().map(move |(lo, hi)| (lo, hi, *c))).collect();
+        assert!(per_block.len() > 100);
+        assert_eq!(format!("{:?}", p.boxes), format!("{per_block:?}"));
+    }
 
     #[test]
     fn picks_the_nearest_block() {

@@ -107,9 +107,9 @@ pub fn emission(state: &str) -> u8 {
                 15
             }
         }
-        "glowstone" | "sea_lantern" | "shroomlight" | "jack_o_lantern" | "lantern" | "beacon" | "conduit" | "end_gateway" | "lava" | "pearlescent_froglight" | "verdant_froglight" | "ochre_froglight" => 15,
+        "glowstone" | "sea_lantern" | "shroomlight" | "jack_o_lantern" | "lantern" | "beacon" | "conduit" | "end_gateway" | "lava" | "fire" | "pearlescent_froglight" | "verdant_froglight" | "ochre_froglight" => 15,
         "torch" | "wall_torch" | "end_rod" => 14,
-        "soul_torch" | "soul_wall_torch" | "soul_lantern" | "crying_obsidian" => 10,
+        "soul_torch" | "soul_wall_torch" | "soul_lantern" | "soul_fire" | "crying_obsidian" => 10,
         "magma_block" => 3,
         "sculk_sensor" | "calibrated_sculk_sensor" | "brewing_stand" | "brown_mushroom" | "dragon_egg" | "end_portal_frame" => 1,
         _ => 0,

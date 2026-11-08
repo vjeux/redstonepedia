@@ -396,6 +396,10 @@ pub enum WebCmd {
         speed: f64,
         #[arg(long, default_value = "/usr/lib64/chromium-browser/headless_shell")]
         browser: PathBuf,
+        /// With `--engine webkit`: the viewer's trace (`?mcview-trace`) beside each load frame
+        /// over 50 ms: what the viewer did in it.
+        #[arg(long)]
+        trace: bool,
     },
     /// A screenshot of a page in headless Chromium after some seconds of real time (playing
     /// viewers and demos advance), e.g. to check a live viewer's overlays.
@@ -784,7 +788,7 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
         WebCmd::Wakecost { designs, ticks, procedural, slices } => cmd_wakecost(&designs, ticks, procedural, slices),
         WebCmd::Camera { designs, size, procedural, picked, thumb } => cmd_camera(&designs, &size, procedural, picked, thumb),
         WebCmd::Stall { urls, window, scale, cpu, load, play, budget, show, browser } => crate::cdp::cmd_stall(&urls, &window, scale, cpu, load, play, budget, show, &browser),
-        WebCmd::Perf { url, engine, dir, window, scale, cpu, load, scroll, speed, browser } => crate::cdp::cmd_perf(&url, &engine, dir.as_deref(), &window, scale, cpu, load, scroll, speed, &browser),
+        WebCmd::Perf { url, engine, dir, window, scale, cpu, load, scroll, speed, browser, trace } => crate::cdp::cmd_perf(&url, &engine, dir.as_deref(), &window, scale, cpu, load, scroll, speed, &browser, trace),
         WebCmd::Snap { url, out, seconds, window, scale, scroll, eval, before, before_at, browser } => crate::cdp::cmd_snap(&url, &window, scale, seconds, scroll, eval.as_deref(), before.as_deref().map(|b| (b, before_at)), &out, &browser),
         WebCmd::Click { url, window, scale, touch, hold, wait, browser } => {
             if hold {

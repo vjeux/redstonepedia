@@ -869,12 +869,20 @@ pub fn thumbnail_look(s: &Session, look: &mut Look) {
 
 /// A thumbnail's camera: [`best_camera`] of the still ([`still_points`]) in [`THUMB_WINDOW`].
 pub fn thumb_camera(atlas: &Atlas, s: &Session, look: &Look, aspect: f32) -> Camera {
+    let mut search = thumb_camera_search(atlas, s, look, aspect);
+    while !search.step(s, look, &mut || false) {}
+    search.best(s, look)
+}
+
+/// [`thumb_camera`]'s search, to weigh a few candidates at a time ([`CameraSearch::step`]: a card's
+/// picture over several work slices).
+pub fn thumb_camera_search(atlas: &Atlas, s: &Session, look: &Look, aspect: f32) -> CameraSearch {
     // (a display: its face fills the card, so its digit reads at a glance; the coordinator
     // 2026-10-22: the card's digit came out a fifth of its picture)
     if let Some(pts) = face_points(s) {
-        return best_camera(atlas, s, look, aspect, THUMB_WINDOW, &pts);
+        return CameraSearch::new(atlas, s, look, aspect, THUMB_WINDOW, &pts);
     }
-    best_camera(atlas, s, look, aspect, THUMB_WINDOW, &still_points(s, look))
+    CameraSearch::new(atlas, s, look, aspect, THUMB_WINDOW, &still_points(s, look))
 }
 
 /// A display face's frame for a card (`circuit::display_face`): the box of its lamps, a block

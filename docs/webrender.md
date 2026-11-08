@@ -212,7 +212,28 @@ each build's page.
   mesh, when one changes, is staged the same way while its previous blocks keep being drawn. The
   2x2 farm's longest task in WebKitGTK went from 124 ms to 35 ms; `web perf --engine webkit` (no
   task list in that engine) gives its slowest load frame 69-73 ms (was 110: two tasks with no
-  frame between them).
+  frame between them). So that no load frame goes over 50 ms either (the parent, 2026-11-08), a
+  frame comes between pieces of work: `next_task` waits for the browser's next frame (`next_frame`:
+  an animation frame, then a task after it; 100 ms at most in a hidden page) once 12 ms of work ran
+  since the last one (`YIELD_AFTER_MS`; a live view's frame marks its start, `mark_frame`), and
+  again when a live frame ran long meanwhile; a card's work slice waits for a frame the same way,
+  and a card's camera and mesh pause between candidates and blocks (`Budget::over`). And the
+  steps that were one task each: a still never looks for a harvester's intruder drops (13 ms of a
+  2492-block sweeper's still natively), the picker finds each state's boxes once (16 ms to 3 of a
+  big farm's camera; test `a_picker_built_per_state_is_the_one_built_per_block`), the live
+  camera's search set-up is a task of its own, the demo badge measures at most its 48 longest
+  texts (a counter's 2306 labels took 269 ms of layouts), the game's block models are parsed in one
+  task and their texture's mip levels made in the next, the entity atlases, the particle sprites
+  and their upload are three tasks. `web perf --engine webkit --trace` prints each load frame over
+  50 ms and what the viewer did in it (`?mcview-trace`: its frames, card slices, staged slices,
+  WebGL steps, its work by where it runs and its debug lines, timed, in `window.__mcTrace`), and
+  when its module started: a slow frame before that is the browser's own (the page, the module's
+  compile). WebKitGTK, three loads of each page (devvm69723, 2026-11-08), frames over 50 ms before
+  → after: iron-day1 2-3 (66-67 ms) → 0 (41-44); bamboo-sweeper-10x64 4-6 (73-87) → 0-1;
+  cane-lattice-16x16 2-4 (66-71) → 0-1; counter576-items 2 (305-324) → 0 (42-44); bamboo-line64
+  2-3 (67-70) → 0-1; melon-lattice8 2-3 (68-70) → 0-1. Every remaining one (52-73 ms) but one
+  ended before the viewer's module started; the one (52 ms) was the block models in one task,
+  since split.
 * Doors with `data-autoplay`: the door demo flips the lever like the record videos (`door
   video`): 1.5 s closed, the lever on until the door settles open (`Session::idle`), 1.2 s open,
   the lever off until it settles closed, again; lever uses only (what runs is redsim's), the
@@ -799,7 +820,7 @@ clocks 120 gt; entity, TNT and shulker designs 400 gt) and fails on any differen
 | `mctas web layout <url> [--window 390,844 --scale 2]` | layout-shift check: the page's live viewers (give them `data-autoplay`) in headless Chromium, each brought on screen in turn until it ran `--min-ticks` (a viewer plays only on screen); fails if any viewer, bar, counter or badge box moved (relative to the viewer) |
 | `mctas web still <designs...>` | each design's thumbnail `data-still` attribute (`mcview::tools::still_attr`: the still frame found ahead), one `<path>\t<attribute>` line each (`-`: the design does not load in the viewer) |
 | `mctas web qa --dir site/ [--kinds] [pages...] --out <dir> [--window 390,844 --at 2,8 --watch 24 --shards 4]` | the live viewer's visual QA at phone size in WebKit (WebKitGTK through the site's rig): each page's first live viewer on screen, screenshotted `--at` s after it is ready and cropped to the viewer; its tags (none over another, the badge or the status line, under the bar or cut by the view's edge); its ticks over `--watch` s (it plays; a demo restarts: when); the picture's brightness; every input control pressed once (the build reacts: its input levels, powered blocks, door or frames change); the console. `--kinds`: every circuit kind of the site's `data/site.json` (up to 4 designs: smallest, middle, largest), every door, a clock per common mechanism (`--clocks 18`). Writes `<page>-<k>.png`, `sheet.png` (every page's viewer and findings) and `report.txt` (2026-10-21: 104 pages, 16 with findings before, the lock tags, the pulse inputs, the dropper stop; see the commit) |
-| `mctas web perf <url> [--engine webkit --dir site/] [--window 375,812 --scale 3 --cpu 4] [--load 20 --scroll 8 --speed 2500]` | a page on a phone profile: DOMContentLoaded, load, first cards, first 3D view, the first screen's views all drawn, long tasks and frames over 50 ms; then a scroll at `--speed` px/s: its frame times, the views drawn meanwhile (and how many already off screen), how long the views on screen when it stops take; with `?mcview-debug` each thumbnail's time. Chromium (the CPU slowed `--cpu` times, touch, an iPhone user agent) or WebKitGTK (`--engine webkit`: the site's WebKit rig, `url` a page path in `--dir`) |
+| `mctas web perf <url> [--engine webkit --dir site/ [--trace]] [--window 375,812 --scale 3 --cpu 4] [--load 20 --scroll 8 --speed 2500]` | a page on a phone profile: DOMContentLoaded, load, first cards, first 3D view, the first screen's views all drawn, long tasks and frames over 50 ms; then a scroll at `--speed` px/s: its frame times, the views drawn meanwhile (and how many already off screen), how long the views on screen when it stops take; with `?mcview-debug` each thumbnail's time; with `--trace` (WebKit) each load frame over 50 ms and the viewer's work in it (`?mcview-trace`), and when the viewer's module started. Chromium (the CPU slowed `--cpu` times, touch, an iPhone user agent) or WebKitGTK (`--engine webkit`: the site's WebKit rig, `url` a page path in `--dir`) |
 | `mctas web click <url> [--touch --window 390,844 --scale 2]` | input check through real browser input events (DevTools protocol over a pipe): clicks (or taps) each live viewer's lever or button while paused and requires it to flip, the simulation to start and the build to react (a door opens, a lamp lights) |
 | `mctas web snap <url> -o <png> [--seconds 6 --scroll 900 --eval <js> --before <js> --before-at 4]` | a screenshot after some seconds of real time (playing viewers and demos advance), with the page's console lines (and a JavaScript value); `--before` runs JavaScript after `--before-at` seconds, then waits `--seconds` (an in-place swap: set `data-keep-camera` and `data-src`) |
 | `mctas web click --hold <url> [--touch ...]` | presses and holds each live viewer's circuit input in the 3D view: on while held, off once released, the camera unchanged |

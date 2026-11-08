@@ -1070,10 +1070,16 @@ impl Atlas {
     /// Take the game's block models (the vendored block definitions and models) with its block atlas.
     pub fn set_game(&mut self, rgba: &[u8], w: u32, h: u32, index: &str, defs: &str, models: &str) -> Result<usize, String> {
         let m = crate::gamemodel::GameModels::parse(defs, models, index, rgba, w, h)?;
+        Ok(self.set_game_models(m, rgba, w, h))
+    }
+
+    /// [`Atlas::set_game`] with its models already parsed (the browser parses them in a task and
+    /// makes the texture's mip levels in the next: 45 ms in one task in a software GL's page).
+    pub fn set_game_models(&mut self, m: crate::gamemodel::GameModels, rgba: &[u8], w: u32, h: u32) -> usize {
         let n = m.tex.len();
         let tex = m.tex.clone();
         self.game = Some(std::rc::Rc::new(GameAssets { models: std::rc::Rc::new(m), tex, width: w, height: h, mips: image_mips(rgba, w, h, MIPS), entities: false, wants_entities: Default::default() }));
-        Ok(n)
+        n
     }
 
     /// Pack the game's entity textures (boats, chest boats, the minecart, the armor stand: from

@@ -611,7 +611,9 @@ impl Session {
         // from its vanilla twin run: the page's `data-farm-rts`; else `farm_rts_for`) and its run
         let farm_rts = o.farm_rts.unwrap_or_else(|| crate::circuit::farm_rts_for(&design));
         let farm_ticks = crate::circuit::farm_ticks(&design, farm_rts);
-        let farm_drops = if farm_box.is_some() { crate::circuit::farm_drops(&design, farm_ticks) } else { Vec::new() };
+        // (a still never runs the farm: no drops to find, the intakes' search alone took 13 ms
+        // natively for a 2492-block sweeper, a 65 ms task in a software GL's page)
+        let farm_drops = if farm_box.is_some() && o.simulate { crate::circuit::farm_drops(&design, farm_ticks) } else { Vec::new() };
         // a circuit runs as its judge builds it: a lamp (the consumer) in every air output cell
         let consumers = crate::circuit::consumer_cells(&design);
         for p in &consumers {

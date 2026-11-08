@@ -33,12 +33,52 @@ thread_local! {
 }
 
 /// Run `f` on the app (None when it is not up yet or already borrowed).
+#[track_caller]
 pub(crate) fn with_app<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
-    APP.with(|a| a.try_borrow_mut().ok().and_then(|mut g| g.as_mut().map(f)))
+    // (`?mcview-trace`: the viewer's work, by where it runs, when it takes a while)
+    let at = std::panic::Location::caller();
+    let t0 = if trace_on() { now_ms() } else { 0.0 };
+    let r = APP.with(|a| a.try_borrow_mut().ok().and_then(|mut g| g.as_mut().map(f)));
+    if trace_on() {
+        let dt = now_ms() - t0;
+        if dt >= 4.0 {
+            trace_at(t0, dt, &format!("{}:{}", at.file().rsplit('/').next().unwrap_or(""), at.line()));
+        }
+    }
+    r
 }
 
 pub(crate) fn log(s: &str) {
     web_sys::console::log_1(&JsValue::from_str(&format!("mcview: {s}")));
+    trace_at(now_ms(), 0.0, s);
+}
+
+/// `?mcview-trace` in the page URL: the viewer's tasks and frames (start, length, what) and its
+/// log lines, timed, in `window.__mcTrace` (`mctas web perf --trace` reads it beside the frames).
+pub(crate) fn trace_on() -> bool {
+    thread_local! {
+        static TRACE: bool = web_sys::window().and_then(|w| w.location().search().ok()).is_some_and(|s| s.contains("mcview-trace"));
+    }
+    TRACE.with(|d| *d)
+}
+
+/// One entry of the trace: `ms` long from `start` (0: a moment, a log line).
+pub(crate) fn trace_at(start: f64, ms: f64, what: &str) {
+    if !trace_on() {
+        return;
+    }
+    let w = window();
+    let key = JsValue::from_str("__mcTrace");
+    let list = match js_sys::Reflect::get(&w, &key) {
+        Ok(v) if v.is_object() => v,
+        _ => {
+            let a: JsValue = js_sys::Array::new().into();
+            let _ = js_sys::Reflect::set(&w, &key, &a);
+            a
+        }
+    };
+    let list: js_sys::Array = list.unchecked_into();
+    list.push(&js_sys::Array::of3(&JsValue::from_f64(start), &JsValue::from_f64(ms), &JsValue::from_str(what)));
 }
 
 /// A visible note on the page when the game's textures fall back or the GPU errors: the
@@ -99,7 +139,53 @@ pub(crate) fn window() -> web_sys::Window {
 /// tasks, the page answering in between (the coordinator 2026-10-22: the page's start-up ran
 /// 120-190 ms in one task).
 pub(crate) async fn next_task() {
+    // a frame between two pieces of work when the last one ran long since the browser last drew
+    // (the parent, 2026-11-08: two 30-35 ms tasks back to back made one 70 ms frame on the 2x2
+    // iron farm's page; a timeout alone let them run with no frame between), and again when a
+    // live view's frame ran long meanwhile (its own work comes first)
+    loop {
+        if since_frame() > YIELD_AFTER_MS {
+            next_frame().await;
+        } else {
+            sleep_ms(0).await;
+        }
+        if since_frame() <= YIELD_AFTER_MS {
+            break;
+        }
+    }
+}
+
+/// Work since the browser last drew that makes [`next_task`] wait for a frame (ms).
+const YIELD_AFTER_MS: f64 = 12.0;
+
+thread_local! {
+    /// When a frame last came ([`next_frame`], a live view's animation frame).
+    static FRAME_MARK: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
+}
+
+fn now_ms() -> f64 {
+    window().performance().map(|p| p.now()).unwrap_or(0.0)
+}
+
+/// A frame came now (its work starts).
+pub(crate) fn mark_frame() {
+    FRAME_MARK.with(|m| m.set(now_ms()));
+}
+
+fn since_frame() -> f64 {
+    now_ms() - FRAME_MARK.with(|m| m.get())
+}
+
+/// Wait for the browser's next frame (its animation frame, or 100 ms in a hidden page that draws
+/// none), then a task after it: the page draws in between.
+pub(crate) async fn next_frame() {
+    let p = js_sys::Promise::new(&mut |resolve, _| {
+        let _ = window().request_animation_frame(&resolve);
+        let _ = window().set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 100);
+    });
+    let _ = wasm_bindgen_futures::JsFuture::from(p).await;
     sleep_ms(0).await;
+    mark_frame();
 }
 
 /// Wait `ms` milliseconds (a timeout).
@@ -120,7 +206,10 @@ pub(crate) async fn run_staged<T>(ms: f64, make: impl FnOnce(mcview::staged::Bud
     let mut task = make(b.clone());
     loop {
         b.give(ms);
-        if let Some(v) = task.poll() {
+        let t = now_ms();
+        let done = task.poll();
+        trace_at(t, now_ms() - t, "a staged work slice");
+        if let Some(v) = done {
             return v;
         }
         next_task().await;
@@ -270,10 +359,12 @@ struct ThumbPicture {
 #[allow(clippy::too_many_arguments)]
 async fn thumb_picture(atlas: Rc<Atlas>, text: Rc<str>, still: Option<String>, yaw: Option<f32>, pitch: Option<f32>, w: u32, h: u32, b: mcview::staged::Budget) -> Result<ThumbPicture, String> {
     let clock = || window().performance().map(|p| p.now()).unwrap_or(0.0);
+    let t = clock();
     let mut s = Session::new(&text, &Options::still())?;
     if let Some(a) = still.as_deref() {
         let _ = s.take_still_marks(a);
     }
+    trace_at(t, clock() - t, "a card's still");
     let m0 = clock();
     b.pause().await;
     let mut look = scene::viewer_look(&s);
@@ -281,7 +372,17 @@ async fn thumb_picture(atlas: Rc<Atlas>, text: Rc<str>, still: Option<String>, y
     // a thumbnail is a picture, nothing to press: no outlines over a small build (the live viewer
     // has them, with its tags) but a BUD switch's TARGET, and it frames what it draws
     scene::thumbnail_look(&s, &mut look);
-    let mut cam = scene::thumb_camera(&atlas, &s, &look, aspect);
+    b.pause().await;
+    // its camera a few candidates at a time and its mesh a few blocks at a time, pausing when the
+    // slice's time is up (a big farm's card took 60-100 ms in one slice; the same camera and mesh)
+    let t = clock();
+    let mut search = scene::thumb_camera_search(&atlas, &s, &look, aspect);
+    trace_at(t, clock() - t, "a card's camera search set up");
+    b.pause().await;
+    while !search.step(&s, &look, &mut || b.over()) {
+        b.pause().await;
+    }
+    let mut cam = search.best(&s, &look);
     if yaw.is_some() || pitch.is_some() {
         if let Some(y) = yaw {
             cam.yaw = y.to_radians();
@@ -294,9 +395,17 @@ async fn thumb_picture(atlas: Rc<Atlas>, text: Rc<str>, still: Option<String>, y
     }
     let m1 = clock();
     b.pause().await;
-    let mesh = scene::build(&atlas, &s, 0.0, &look);
+    let mut staged = scene::Staged::new(&s, 0.0, &look, scene::Part::All);
+    let mesh = loop {
+        if let Some(m) = staged.step(&atlas, &s, 0.0, &look, &mut || b.over()) {
+            break m;
+        }
+        b.pause().await;
+    };
     b.pause().await;
+    let t = clock();
     let (solid, translucent) = scene::triangles(&mesh, &cam);
+    trace_at(t, clock() - t, "a card's triangles");
     Ok(ThumbPicture { solid, translucent, cam, w, h, marks: [m0, m1, clock()] })
 }
 
@@ -375,10 +484,11 @@ async fn load_entity_textures() {
             }
         }
     }
-    // (added and uploaded in a task of its own)
+    // (added in a task of its own, the particle sprites in the next, and the upload to the views'
+    // GPUs in a third: all three in one task made a 55 ms frame)
     next_task().await;
     let t3 = now();
-    with_app(|a| match got {
+    let built = with_app(|a| match got {
         Ok((er, ew, eh, ei, ir, iw, ih, ii)) => {
             let mut atlas = (*a.atlas).clone();
             match atlas.add_game_entities((&er, ew, eh, &ei), (&ir, iw, ih, &ii)) {
@@ -386,21 +496,35 @@ async fn load_entity_textures() {
                     if debug() {
                         log(&format!("the game's entity textures ({n}) and items ({:.0} ms)", now() - t3));
                     }
-                    match sprite_err {
-                        None => {
-                            if let Err(e) = atlas.add_game_particles(&sprites) {
-                                log(&format!("the game's particle sprites: {e} (the viewer's stand-ins)"));
-                            }
-                        }
-                        Some(e) => log(&format!("the game's particle sprites unavailable: {e} (the viewer's stand-ins)")),
-                    }
-                    a.set_atlas(atlas);
+                    Some(atlas)
                 }
-                Err(e) => log(&format!("the game's entity textures: {e} (the viewer's stand-ins)")),
+                Err(e) => {
+                    log(&format!("the game's entity textures: {e} (the viewer's stand-ins)"));
+                    None
+                }
             }
         }
-        Err(e) => log(&format!("the game's entity textures unavailable: {e} (the viewer's stand-ins)")),
-    });
+        Err(e) => {
+            log(&format!("the game's entity textures unavailable: {e} (the viewer's stand-ins)"));
+            None
+        }
+    })
+    .flatten();
+    if let Some(mut atlas) = built {
+        next_task().await;
+        let tp = now_ms();
+        match sprite_err {
+            None => {
+                if let Err(e) = atlas.add_game_particles(&sprites) {
+                    log(&format!("the game's particle sprites: {e} (the viewer's stand-ins)"));
+                }
+            }
+            Some(e) => log(&format!("the game's particle sprites unavailable: {e} (the viewer's stand-ins)")),
+        }
+        trace_at(tp, now_ms() - tp, "the particle sprites added");
+        next_task().await;
+        with_app(|a| a.set_atlas(atlas));
+    }
     ensure_frame();
 }
 
@@ -494,6 +618,7 @@ async fn load_textures() {
                 match decode_png_over_tasks(png).await {
                     Ok((rgba, w, h)) => {
                         next_task().await;
+                        let ta = now_ms();
                         match atlas.apply_vanilla(&rgba, w, h, &index) {
                             Ok(n) => {
                                 tiles_ok = true;
@@ -506,10 +631,17 @@ async fn load_textures() {
                                 texture_note(&format!("showing hand-drawn tiles: the game's textures failed: {e}"));
                             }
                         }
+                        trace_at(ta, now_ms() - ta, "the game's textures on the tiles");
                         next_task().await;
-                        // the game's own block models (the viewer's when they cannot be read)
+                        // the game's own block models (the viewer's when they cannot be read):
+                        // parsed in a task, the texture's mip levels made in the next
                         let t1 = now();
-                        match game_text.and_then(|(defs, models)| atlas.set_game(&rgba, w, h, &index, &defs, &models)) {
+                        let tm = now_ms();
+                        let parsed = game_text.and_then(|(defs, models)| mcview::gamemodel::GameModels::parse(&defs, &models, &index, &rgba, w, h));
+                        trace_at(tm, now_ms() - tm, "the game's block models parsed");
+                        next_task().await;
+                        let tm = now_ms();
+                        match parsed.map(|m| atlas.set_game_models(m, &rgba, w, h)) {
                             Ok(n) => {
                                 models_ok = true;
                                 if debug() {
@@ -521,6 +653,7 @@ async fn load_textures() {
                                 texture_note(&format!("showing the game's tiles on the viewer's models: the game's block models failed: {e}"));
                             }
                         }
+                        trace_at(tm, now_ms() - tm, "the game's texture's mip levels");
                         next_task().await;
                         let t2 = now();
                         with_app(|a| a.set_atlas(atlas));
@@ -607,6 +740,9 @@ fn start_thumb_gpu(canvas: HtmlCanvasElement, atlas: Rc<Atlas>) {
 
 #[wasm_bindgen(start)]
 pub fn start() {
+    // (`?mcview-trace`: the frames before this one are the browser's own, the module's compile
+    // and instantiation among them)
+    trace_at(now_ms(), 0.0, "the viewer's module starts");
     std::panic::set_hook(Box::new(|info| {
         web_sys::console::error_1(&JsValue::from_str(&format!("mcview panic: {info}")));
     }));
@@ -890,11 +1026,23 @@ pub(crate) fn ensure_frame() {
     let work = with_app(|a| !std::mem::replace(&mut a.work_scheduled, true)).unwrap_or(false);
     if work {
         let cb = Closure::once_into_js(move || {
+            // (a frame first when the page has not drawn for a while: no two slices, nor a slice
+            // after a long frame, in one frame)
+            if since_frame() > YIELD_AFTER_MS {
+                with_app(|a| a.work_scheduled = false);
+                wasm_bindgen_futures::spawn_local(async {
+                    next_frame().await;
+                    ensure_frame();
+                });
+                return;
+            }
+            let t0 = now_ms();
             let more = with_app(|a| {
                 a.work_scheduled = false;
                 a.thumbs()
             })
             .unwrap_or(false);
+            trace_at(t0, now_ms() - t0, "thumbs");
             maybe_load_entities();
             if more {
                 ensure_frame();
@@ -905,11 +1053,16 @@ pub(crate) fn ensure_frame() {
     let go = with_app(|a| a.views.values().any(|v| v.full) && !std::mem::replace(&mut a.frame_scheduled, true)).unwrap_or(false);
     if go {
         let cb = Closure::once_into_js(move |ts: f64| {
+            // (the frame's start: work queued behind `next_task` waits for the next one when
+            // this one runs long)
+            mark_frame();
+            let t0 = now_ms();
             let more = with_app(|a| {
                 a.frame_scheduled = false;
                 a.live_frames(ts)
             })
             .unwrap_or(false);
+            trace_at(t0, now_ms() - t0, "frame");
             maybe_load_entities();
             if more {
                 ensure_frame();

@@ -141,6 +141,14 @@ fn badge_words(s: &str) -> String {
 /// as the tallest at that width (a minimum, never a clip: critique, WebKit cut the text at the
 /// pill's bottom).
 fn fit_badge(status: &HtmlElement, texts: &[String]) {
+    // (at most the 48 longest distinct texts are measured, each a layout: a counter's demo had
+    // 2306 labels, 269 ms of layouts in one task; the widest text is among the longest)
+    let mut distinct: Vec<&String> = texts.iter().collect();
+    distinct.sort_by(|a, b| b.chars().count().cmp(&a.chars().count()).then_with(|| a.cmp(b)));
+    distinct.dedup();
+    distinct.truncate(48);
+    let texts: Vec<String> = distinct.into_iter().cloned().collect();
+    let texts = &texts[..];
     let s = status.style();
     let _ = s.remove_property("width");
     let _ = s.remove_property("height");
@@ -865,10 +873,13 @@ fn finish_load(app: &mut App, id: u32) {
             } else if let Some(l) = v.live.as_mut() {
                 // the live camera, a few candidates a task (`scene::LiveCameraSearch`: a big
                 // farm's search took 80-90 ms in one task in a software GL; the coordinator, no
-                // main-thread task over ~50 ms); the rest of the load once it is found
+                // main-thread task over ~50 ms), its set-up (the picker over every block) in a
+                // task of its own; the rest of the load once it is found
+                let fresh = l.camera_search.is_none();
                 let search = l.camera_search.get_or_insert_with(|| mcview::scene::LiveCameraSearch::new(&app.atlas, &p.session, &p.look, css_w, css_h));
                 let deadline = clock() + CAMERA_BUDGET_MS;
-                match search.step(&app.atlas, &p.session, &p.look, &mut || clock() > deadline) {
+                let found = if fresh { None } else { search.step(&app.atlas, &p.session, &p.look, &mut || clock() > deadline) };
+                match found {
                     None => {
                         l.loading = Some((p, text, t0));
                         wasm_bindgen_futures::spawn_local(async move {
@@ -1034,7 +1045,11 @@ fn finish_load(app: &mut App, id: u32) {
                     // while the demo plays
                     let mut labels = vec![demo_text(&p, None)];
                     labels.extend(p.phases.iter().map(|(_, _, ph)| demo_text(&p, Some(ph))));
+                    let tb = clock();
                     fit_badge(&l.status, &labels);
+                    if crate::debug() {
+                        log(&format!("live view {id}: the demo badge fitted to {} labels in {:.0} ms", labels.len(), clock() - tb));
+                    }
                     l.shown_status = String::from("\u{0}");
                 }
             }

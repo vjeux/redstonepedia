@@ -919,6 +919,8 @@ struct PerfRun {
     ready: Vec<(f64, f64)>,
     scroll: Option<ScrollRun>,
     console: Vec<String>,
+    /// The viewer's own trace (`?mcview-trace`: `[start, ms, what]` each), with `--trace`.
+    trace: Vec<Value>,
 }
 
 /// The scroll part of a [`PerfRun`]: the probe's result, the sample when it stopped, the samples
@@ -949,16 +951,66 @@ const NAV_JS: &str = "(function(){ var n = performance.getEntriesByType('navigat
 /// screen when drawn), and how long the views on screen when it stops take to be drawn. In
 /// headless Chromium (the window's CSS size, the device scale, a touch screen, an iPhone user
 /// agent, the CPU slowed `cpu` times) or in WebKitGTK (`engine` `webkit`: the site folder `dir`
-/// served, `url` a page path in it; an iPhone user agent, device scale 2).
+/// served, `url` a page path in it; an iPhone user agent, device scale 2). With `trace` (WebKit),
+/// the page runs with `?mcview-debug&mcview-trace` and each load frame over 50 ms is printed with
+/// what the viewer did in it.
 #[allow(clippy::too_many_arguments)]
-pub fn cmd_perf(url: &str, engine: &str, dir: Option<&Path>, window: &str, scale: f32, cpu: f64, load: f64, scroll: f64, speed: f64, browser: &Path) -> Result<()> {
+pub fn cmd_perf(url: &str, engine: &str, dir: Option<&Path>, window: &str, scale: f32, cpu: f64, load: f64, scroll: f64, speed: f64, browser: &Path, trace: bool) -> Result<()> {
     let (w, h) = window.split_once(',').and_then(|(a, b)| Some((a.trim().parse::<u32>().ok()?, b.trim().parse::<u32>().ok()?))).context("--window w,h")?;
     let run = match engine {
-        "webkit" => perf_webkit(url, dir.context("--engine webkit needs --dir (the site folder)")?, (w, h), load, scroll, speed)?,
-        _ => perf_chromium(url, window, (w, h), scale, cpu, load, scroll, speed, browser)?,
+        "webkit" => {
+            let page = if trace { format!("{url}{}mcview-debug&mcview-trace", if url.contains('?') { "&" } else { "?" }) } else { url.to_string() };
+            perf_webkit(&page, dir.context("--engine webkit needs --dir (the site folder)")?, (w, h), load, scroll, speed)?
+        }
+        _ => {
+            if trace {
+                bail!("--trace needs --engine webkit");
+            }
+            perf_chromium(url, window, (w, h), scale, cpu, load, scroll, speed, browser)?
+        }
     };
     perf_report(&run);
+    if trace {
+        trace_report(&run);
+    }
     Ok(())
+}
+
+/// `web perf --trace`: each load frame over 50 ms and the viewer's trace entries in it (its
+/// frames, card slices, work by where it runs, log lines), and how much of the frame they cover:
+/// a slow frame they do not cover is the browser's own.
+fn trace_report(run: &PerfRun) {
+    let entries: Vec<(f64, f64, String)> = run.trace.iter().filter_map(|e| Some((e[0].as_f64()?, e[1].as_f64()?, e[2].as_str()?.to_string()))).collect();
+    println!("  trace: {} entries from the viewer", entries.len());
+    if let Some((s, _, _)) = entries.iter().find(|(_, _, w)| w == "the viewer's module starts") {
+        println!("  the viewer's module started at {s:.0} ms (a frame before it is the browser's own: the page, the module's compile)");
+    }
+    for p in run.frames.windows(2) {
+        let (a, z) = (p[0], p[1]);
+        if z - a <= 50.0 {
+            continue;
+        }
+        println!("  frame {a:.0}..{z:.0} ms: {:.0} ms", z - a);
+        let mut covered: Vec<(f64, f64)> = Vec::new();
+        for (s, ms, what) in &entries {
+            if *s < z && s + ms >= a {
+                println!("    {s:.0} +{ms:.0} ms {what}");
+                if *ms > 0.0 {
+                    covered.push((s.max(a), (s + ms).min(z)));
+                }
+            }
+        }
+        // the union of the viewer's spans in the frame
+        covered.sort_by(|x, y| x.0.total_cmp(&y.0));
+        let (mut sum, mut end) = (0.0, f64::NEG_INFINITY);
+        for (s, e) in covered {
+            if e > end {
+                sum += e - s.max(end);
+                end = e;
+            }
+        }
+        println!("    (the viewer's tasks and frames: {sum:.0} ms of it)");
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -987,7 +1039,7 @@ fn perf_chromium(url: &str, window: &str, (w, h): (u32, u32), scale: f32, cpu: f
     }
     let nav = b.eval(NAV_JS)?;
     let probe = b.eval("({frames: __perf.frames, long: __perf.long, ready: __perf.ready})")?;
-    let mut run = PerfRun { label: format!("Chromium {window} at {scale}x, CPU /{cpu}"), samples, nav, frames: nums(&probe["frames"]), long: Some(pairs(&probe["long"])), ready: pairs(&probe["ready"]), scroll: None, console: Vec::new() };
+    let mut run = PerfRun { label: format!("Chromium {window} at {scale}x, CPU /{cpu}"), samples, nav, frames: nums(&probe["frames"]), long: Some(pairs(&probe["long"])), ready: pairs(&probe["ready"]), scroll: None, console: Vec::new(), trace: Vec::new() };
     if scroll > 0.0 {
         let r = b.call("Runtime.evaluate", json!({ "expression": format!("__perf.scroll({scroll}, {speed})"), "returnByValue": true, "awaitPromise": true }))?;
         let result = r["result"]["value"].clone();
@@ -1015,7 +1067,7 @@ fn perf_webkit(page: &str, dir: &Path, (w, h): (u32, u32), load: f64, scroll: f6
     let mut steps: Vec<(String, u64)> = vec![(format!("{PERF_PROBE}; return true;"), 0)];
     let n = (load / 0.25).ceil() as usize;
     steps.extend(std::iter::repeat_n((sample.clone(), 250), n));
-    steps.push((format!("return {{nav: {NAV_JS}, frames: __perf.frames, ready: __perf.ready}};"), 0));
+    steps.push((format!("return {{nav: {NAV_JS}, frames: __perf.frames, ready: __perf.ready, trace: window.__mcTrace || []}};"), 0));
     if scroll > 0.0 {
         steps.push((format!("__perf.scrollStart({scroll}, {speed}); return true;"), 0));
         steps.push(("return __perf.scrolled;".to_string(), (scroll * 1000.0) as u64 + 400));
@@ -1026,7 +1078,7 @@ fn perf_webkit(page: &str, dir: &Path, (w, h): (u32, u32), load: f64, scroll: f6
     let (out, console) = site::webkit::run_steps(dir, None, page, (w, h), &steps)?;
     let samples: Vec<Value> = out[1..=n].iter().filter(|v| !v.is_null()).cloned().collect();
     let end = &out[n + 1];
-    let mut run = PerfRun { label: format!("WebKitGTK {w},{h} at 2x"), samples, nav: end["nav"].clone(), frames: nums(&end["frames"]), long: None, ready: pairs(&end["ready"]), scroll: None, console };
+    let mut run = PerfRun { label: format!("WebKitGTK {w},{h} at 2x"), samples, nav: end["nav"].clone(), frames: nums(&end["frames"]), long: None, ready: pairs(&end["ready"]), scroll: None, console, trace: end["trace"].as_array().cloned().unwrap_or_default() };
     if scroll > 0.0 {
         let k = n + 2;
         let settle: Vec<Value> = out[k + 3..k + 3 + 150].to_vec();

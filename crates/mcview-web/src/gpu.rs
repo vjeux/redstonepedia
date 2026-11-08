@@ -61,6 +61,10 @@ impl Gpu {
         if crate::debug() {
             crate::log(&format!("a WebGL context: the context {:.0} ms, the adapter {:.0} ms, the device {:.0} ms, the renderer {:.0} ms, its programs {:.0} ms, its targets {:.0} ms", ta - t0, tc - tb, t1 - td, t3 - t2, t5 - t4, clock() - t6));
         }
+        // (`?mcview-trace`: each step's span)
+        for (s, e, what) in [(t0, ta, "WebGL: the context"), (tb, tc, "WebGL: the adapter"), (td, t1, "WebGL: the device"), (t2, t3, "WebGL: the renderer"), (t4, t5, "WebGL: its programs"), (t6, clock(), "WebGL: its targets")] {
+            crate::trace_at(s, e - s, what);
+        }
         // a player's client with a long render distance: the ground's fogged end at the horizon
         r.view_chunks = Some(VIEW_CHUNKS);
         r.void_below = true;

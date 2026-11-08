@@ -42,6 +42,12 @@ impl Budget {
         self.pauses.get()
     }
 
+    /// Whether the time is up (a [`Budget::pause`] now would yield): for work that checks the
+    /// clock itself between its own steps (`scene::Staged`, `scene::CameraSearch`).
+    pub fn over(&self) -> bool {
+        self.clock.as_ref().is_some_and(|c| c() >= self.deadline.get())
+    }
+
     /// A pause point: yields to the executor when the time is up (the next poll goes on from here).
     pub async fn pause(&self) {
         let Some(c) = &self.clock else { return };
