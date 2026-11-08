@@ -575,7 +575,10 @@ impl World {
         y + 1
     }
 
-    /// `BiomeManager.getBiome(pos)` (a world without land: `None`).
+    /// `BiomeManager.getBiome(pos)` (a world without land: `None`). The zoomed quart cell reads
+    /// the sample's biome cells only inside the chunks the sample's box covers (the bridge's
+    /// terrain sandbox imports the cells chunk by chunk; a cell of a chunk past the box has the
+    /// level's own biome: `None` here, `Natural::void_biome` for the spawner).
     pub fn biome_at(&self, p: BlockPos) -> Option<&str> {
         let l = self.land.as_ref()?;
         let (qx, qy, qz) = zoom(l.zoom_seed, p.x, p.y, p.z);
@@ -583,6 +586,11 @@ impl World {
         let [sx, sy, sz] = l.biome_size;
         let qy = qy.clamp(l.world_min_y >> 2, ((l.world_min_y + l.world_height) >> 2) - 1);
         if qx < ox || qy < oy || qz < oz || qx >= ox + sx || qy >= oy + sy || qz >= oz + sz {
+            return None;
+        }
+        let (cx, cz) = ((qx * 4).div_euclid(16), (qz * 4).div_euclid(16));
+        let (lo, hi) = (self.min, self.min.offset(self.size[0] - 1, 0, self.size[2] - 1));
+        if cx < lo.x.div_euclid(16) || cx > hi.x.div_euclid(16) || cz < lo.z.div_euclid(16) || cz > hi.z.div_euclid(16) {
             return None;
         }
         let i = (((qy - oy) * sz + (qz - oz)) * sx + (qx - ox)) as usize;
