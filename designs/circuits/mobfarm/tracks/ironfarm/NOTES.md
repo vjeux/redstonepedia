@@ -86,7 +86,25 @@ signs, over one hopper. The whole judge: 243 iron/h (241-245), 61 golems/h, 51%,
 missed night, robust; 8 iron (bucket, hopper), 1 lava source, no quartz, 318 blocks in the void.
 The same golems with the weather cycle and a forced day of rain or thunder (the infra track's
 model, merged locally): the calm reads no sky. `mctas mobfarm sight <design>` shows each
-villager's line of sight to the zombie with the trapdoors shut and open.
+villager's line of sight to the zombie with the trapdoors shut and open (and the first block that
+stops a blind one).
+
+Middle under the stages (revision 5), measured by the whole judge (64 runs, 8 builds), each the same
+with the weather cycle and a forced day of rain or thunder (the infra track's model, merged
+locally); both over L2d's dry hole and a chamber whose lava cannot light anything (lava only in
+its north row, the open gates beside it right under the ceiling, no mouth gates: every first step of
+`LavaFluid.randomTick` is the ceiling or the wall):
+- M2, the bed observer (`gen m2`): an observer watching blind U1's bed head toggles a copper bulb
+  when U1 lies down; a comparator reading the bulb opens the hide trapdoor and feeds 12 repeaters
+  (48 gt) back into the bulb, which toggles it off. The three scared villagers fall asleep in the
+  48 gt, then panic all night: 439 iron/h (435-443), 110.5 golems/h, 92% of the ceiling, robust,
+  restarts after a missed night; 16 iron (bucket, iron pickaxe, 2 hoppers), 2 quartz, 4 lava
+  sources, one chunk column (16 x 16), 638 blocks, 4.1 h of storage. The middle pick.
+- M3, the bed plate (`gen m3`): 378 iron/h (372-383), 79%, robust, restarts; 13 iron, no quartz.
+  The hide's open slab stops the x 0 villager's line (it meets the cell's west edge), so 2 see.
+- The sleep check now fails a run when a villager has missed a night (no sleep for 30000 gt): M2's
+  villagers sleep once a night, a few ticks later some nights, and the old 24000 gt bound failed
+  2 of 8 builds on a tick or two of unwillingness that the rate already counts.
 
 | design | file (gen) | villagers | iron/h (95%) | share of ceiling | blocks | iron/h per block | bill |
 | --- | --- | --- | --- | --- | --- | --- | --- |

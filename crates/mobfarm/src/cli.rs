@@ -110,7 +110,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "l4" => (crate::layouts::l4(), "golems fall from fence-gated platforms to a lava blade".to_string()),
                 "l6p-dry" => (crate::day1::l6p_dry(pad), "the bed-plate calm over a dry drop".to_string()),
                 "l6p-pad" => (crate::day1::l6p_pad(pad), "golems burn in a corner of their pad".to_string()),
-                other => bail!("no layout {other:?} (l1, l2, l2d, l3, l4, l5, l6p-dry, l6p-pad)"),
+                "m3" => (crate::day1::m3_bedplate(pad), "golems fall out of sight to a lava blade".to_string()),
+                "m2" => (crate::day1::m2_observer(pad), "golems fall out of sight to a lava blade".to_string()),
+                other => bail!("no layout {other:?} (l1, l2, l2d, l3, l4, l5, l6p-dry, l6p-pad, m3, m2)"),
             };
             // (every farm holds its chest, so the download is the whole farm; its `how:` line ends
             // its site title)
@@ -214,8 +216,12 @@ fn sight_cmd(version: &str, design: &PathBuf) -> Result<()> {
                 continue;
             }
             let ve = eye(&w, i);
-            let sees = redsim::entity::mob::los::clear(&w, ve, ze);
-            println!("  villager at {:.2} {:.2} {:.2}, eye {:.4}: {}", e.pos.x, e.pos.y, e.pos.z, ve.y, if sees { "SEES the zombie" } else { "blind" });
+            let hit = redsim::entity::mob::los::first_hit(&w, ve, ze);
+            let what = match hit {
+                None => "SEES the zombie".to_string(),
+                Some(p) => format!("blind (stopped at {} {} {}: {})", p.x, p.y, p.z, w.get(p)),
+            };
+            println!("  villager at {:.2} {:.2} {:.2}, eye {:.4}: {what}", e.pos.x, e.pos.y, e.pos.z, ve.y);
         }
     }
     Ok(())

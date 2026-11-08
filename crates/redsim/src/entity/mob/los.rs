@@ -34,14 +34,25 @@ fn shape_hits(boxes: &[Aabb], p: BlockPos, from: Vec3, to: Vec3) -> bool {
 /// `level.clip(COLLIDER, Fluid.NONE)` between two points is a MISS: no collision box along the
 /// way.
 pub fn clear(w: &World, from: Vec3, to: Vec3) -> bool {
-    !collide::traverse_blocks(from, to, |p| {
+    first_hit(w, from, to).is_none()
+}
+
+/// The first cell whose collision shape stops the segment (`None`: [`clear`]).
+pub fn first_hit(w: &World, from: Vec3, to: Vec3) -> Option<BlockPos> {
+    let mut hit = None;
+    collide::traverse_blocks(from, to, |p| {
         let s = w.get(p);
         if s.is_air() {
             return false;
         }
         let boxes = collide::boxes_at(w, &s, p);
-        shape_hits(&boxes, p, from, to)
-    })
+        let stop = shape_hits(&boxes, p, from, to);
+        if stop {
+            hit = Some(p);
+        }
+        stop
+    });
+    hit
 }
 
 /// `LivingEntity.hasLineOfSight(target)` from the eye `from` to the target's eye `to` (the

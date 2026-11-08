@@ -142,6 +142,21 @@ impl RunReport {
     }
 }
 
+/// The judge's first seed: its run k of build b is seeded [`judge_seed`]`(b, k)`.
+pub const JUDGE_SEED0: i64 = 0x6972_6f6e;
+
+/// The seed of the judge's run `k` of build `build` (circuit::mobfarm; the 3D viewer plays run 0
+/// of build 0).
+pub fn judge_seed(build: u32, k: u32) -> i64 {
+    JUDGE_SEED0 + build as i64 * 1000 + k as i64
+}
+
+/// The judge's options for one base run (circuit::mobfarm builds every run from it, and the 3D
+/// viewer, which cannot link the circuit crate, calls it too): today the steady state of `seed`.
+pub fn judge_opts(seed: i64, ticks: u32, walk: WalkMode) -> RunOpts {
+    RunOpts::steady(seed, ticks, walk)
+}
+
 /// Game ticks the built farm runs before its entities arrive, so its water has spread (a
 /// player's farm is built long before it runs; each flowing step takes 5 gt).
 pub const SETTLE_TICKS: i64 = 200;
@@ -423,10 +438,12 @@ fn check_tick(w: &World, rep: &mut RunReport, tr: &mut Track, spec: &FarmSpec, t
             rep.fail(format!("gt {t}: a drop at {:.1} {:.1} {:.1} is about to despawn (never collected)", e.pos.x, e.pos.y, e.pos.z));
         }
     }
-    // the night's sleep
+    // the night's sleep: a villager that sleeps every night, a few ticks later than the night
+    // before, is unwilling for those ticks only (`golemSpawnConditionsMet`, which the rate counts);
+    // the run fails when one has missed a night (half a day past the 24000 gt)
     if t % 1000 == 0 {
         for (id, last) in &tr.last_sleep {
-            if t - last > super::villager::SLEPT_WITHIN {
+            if t - last > super::villager::SLEPT_WITHIN + 6000 {
                 rep.fail(format!("gt {t}: villager {id} has not slept for {} gt (no golems: golemSpawnConditionsMet)", t - last));
             }
         }

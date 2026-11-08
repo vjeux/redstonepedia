@@ -177,7 +177,7 @@ pub struct JudgeOpts {
 
 impl Default for JudgeOpts {
     fn default() -> JudgeOpts {
-        JudgeOpts { seeds: JUDGE_SEEDS, days: JUDGE_DAYS, seed0: 0x6972_6f6e, threads: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).min(32) }
+        JudgeOpts { seeds: JUDGE_SEEDS, days: JUDGE_DAYS, seed0: farm::JUDGE_SEED0, threads: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).min(32) }
     }
 }
 
@@ -195,7 +195,7 @@ pub fn build_runs(spec: &FarmSpec, o: &JudgeOpts, build: u32, walk: WalkMode) ->
     if !refused.is_empty() {
         return Err(format!("refused: {}", refused.join("; ")));
     }
-    let jobs: Vec<RunOpts> = (0..o.seeds).map(|k| RunOpts::steady(o.seed0 + build as i64 * 1000 + k as i64, o.days * 24000, walk)).collect();
+    let jobs: Vec<RunOpts> = (0..o.seeds).map(|k| farm::judge_opts(o.seed0 + build as i64 * 1000 + k as i64, o.days * 24000, walk)).collect();
     run_all(spec, &jobs).into_iter().collect()
 }
 
@@ -203,7 +203,7 @@ pub fn build_runs(spec: &FarmSpec, o: &JudgeOpts, build: u32, walk: WalkMode) ->
 /// policy, all on the same seed.
 pub fn worst_policy(spec: &FarmSpec, o: &JudgeOpts) -> std::result::Result<Vec<(Walk, RunReport)>, String> {
     let policies = Walk::golem_policies();
-    let jobs: Vec<RunOpts> = policies.iter().map(|p| RunOpts::steady(o.seed0 + 777, o.days * 24000, WalkMode::Fixed(*p))).collect();
+    let jobs: Vec<RunOpts> = policies.iter().map(|p| farm::judge_opts(o.seed0 + 777, o.days * 24000, WalkMode::Fixed(*p))).collect();
     let runs: Vec<RunReport> = run_all(spec, &jobs).into_iter().collect::<std::result::Result<_, _>>()?;
     Ok(policies.into_iter().zip(runs).collect())
 }
@@ -211,7 +211,7 @@ pub fn worst_policy(spec: &FarmSpec, o: &JudgeOpts) -> std::result::Result<Vec<(
 /// The restart probe: a run whose villagers have no `LAST_SLEPT` must spawn a golem within
 /// [`RESTART_DAYS`] days.
 pub fn restart_probe(spec: &FarmSpec, o: &JudgeOpts) -> std::result::Result<RunReport, String> {
-    let mut ro = RunOpts::steady(o.seed0 + 999, RESTART_DAYS * 24000, WalkMode::Random);
+    let mut ro = farm::judge_opts(o.seed0 + 999, RESTART_DAYS * 24000, WalkMode::Random);
     ro.slept = false;
     farm::run(spec, &ro)
 }
