@@ -431,6 +431,8 @@ circuits/memory/tffr-dropring.html	circuit	memory/tff-reset		Toggle switch with 
 circuits/memory/tffr-ring-sealed-v18-8b.html	circuit	memory/tff-reset		Toggle switch with reset: reacts in 13 ticks (0.65 s) · 8 blocks	2026-10-21 20:03Z
 circuits/memory/tffr-ring-sealed.html	circuit	memory/tff-reset		Toggle switch with reset: reacts in 13 ticks (0.65 s) · 11 blocks	2026-10-21 18:46Z
 circuits/memory/tffr-ring.html	circuit	memory/tff-reset		Toggle switch with reset: reacts in 13 ticks (0.65 s) · 7 blocks	2026-10-20 23:52Z
+circuits/mobfarm/index.html	page				2026-11-08 10:08Z
+circuits/mobfarm/iron-day1.html	circuit	mobfarm/mob-farm		Mob farm: iron_ingot · 1 module · 188 blocks	2026-11-08 10:08Z
 circuits/pext/index.html	page				2026-10-20 00:04Z
 circuits/pext/pext-cascade-flat-r0-n0.html	circuit	pext/piston-extender	3	Piston extender: reach 3 · 25 blocks	2026-10-20 01:32Z
 circuits/pext/pext-cascade-flat-r1-n0.html	circuit	pext/piston-extender	4	Piston extender: reach 4 · 34 blocks	2026-10-20 01:32Z
