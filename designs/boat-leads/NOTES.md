@@ -73,7 +73,10 @@ suite and every archived boat/raft clock; it identifies boats from entity conten
 saved reports without pretending to run them again. [Evidence provenance](evidence/legacy/README.md)
 records the original base, the 39 positive plus four already-hidden negative records,
 existing dependency flags, and the narrowly approved reuse across a docs/standalone-tool
-main update. No claim of all 688 builds passing is made.
+main update. No claim of all 688 builds passing is made. The auditor requires the complete
+four-position/four-rotation grid: exactly 16 builds for every record, including existing
+negatives and dependent records. Reduced-grid regressions cover 1/1 robust, 8/8 dependent,
+and 0/1 negative reports; internally consistent counts are not enough.
 
 ## Historical trace repair (separate change)
 

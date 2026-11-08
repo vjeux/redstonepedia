@@ -25,7 +25,10 @@ rejects later boat entry at the same output cell. Both are the already registere
 output condition. The raw messages remain distinct. The auditor only accepts the
 recognized occupied/entered forms at the same coordinate and an existing `no output`
 hidden reason. It rejects unrelated/new failures, missing/duplicate names, changed
-robustness flags and incomplete robust builds.
+robustness flags and incomplete robust builds. Every record, including dependent and
+negative records, must report all 16 builds; 1/1 robust, 8/8 dependent and 0/1 negative
+reports are rejected even though their individual counters are internally consistent.
+The runner explicitly requests the same four positions used by that audit contract.
 
 ## Narrow reuse across the main rebase
 

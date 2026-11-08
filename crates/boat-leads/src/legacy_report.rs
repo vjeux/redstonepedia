@@ -3,6 +3,10 @@
 use anyhow::{Context, Result, bail, ensure};
 use std::collections::BTreeMap;
 
+/// The legacy runner explicitly requests these positions and leaves all four rotations on.
+pub(crate) const POSITIONS: usize = 4;
+const ROTATIONS: usize = 4;
+
 fn output_cell(reason: &str) -> Result<[i32; 3]> {
     let tail = reason.strip_prefix("the output cell [").context("not a non-free-output failure")?;
     let (cell, detail) = tail.split_once(']').context("output coordinate")?;
@@ -79,6 +83,8 @@ pub fn check(names: &[String], baseline: &str, game: &str, hidden: &BTreeMap<Str
         let periodic: usize = counts.0.split_whitespace().last().context("periodic count")?.parse()?;
         let total: usize = counts.1.split_whitespace().next().context("total count")?.parse()?;
         ensure!(total > 0 && periodic <= total, "invalid build counts for {name}");
+        let expected_total = POSITIONS * ROTATIONS;
+        ensure!(total == expected_total, "wrong build grid for {name}: expected {expected_total} builds ({POSITIONS} positions x {ROTATIONS} rotations), got {total}");
         builds += total;
         match failure_cell {
             None => {
@@ -130,6 +136,27 @@ mod tests {
         assert!(check(&n, &b, &g, &BTreeMap::new(), &declared()).is_err());
         assert!(check(&n, &b, &g.replace("16 builds", "15 builds"), &h, &declared()).is_err());
         assert!(check(&n, &b, &g.replace("CLOCK: good", "INVALID: good"), &h, &declared()).is_err());
+    }
+    #[test]
+    fn rejects_reduced_robust_grid() {
+        let (n, b, g, h) = inputs();
+        let g = g.replace("16 builds periodic of 16", "1 builds periodic of 1");
+        assert!(check(&n, &b, &g, &h, &declared()).is_err());
+    }
+    #[test]
+    fn rejects_reduced_dependent_grid() {
+        let (n, b, g, h) = inputs();
+        let g = g.replace(", robust", ", rotation-dependent")
+            .replace("16 builds periodic of 16", "8 builds periodic of 8");
+        let mut r = declared();
+        r.insert("good".into(), "rotation-dependent".into());
+        assert!(check(&n, &b, &g, &h, &r).is_err());
+    }
+    #[test]
+    fn rejects_reduced_negative_grid() {
+        let (n, b, g, h) = inputs();
+        let g = g.replace("0 builds periodic of 16", "0 builds periodic of 1");
+        assert!(check(&n, &b, &g, &h, &declared()).is_err());
     }
     #[test]
     fn dependent_is_allowed_only_when_already_declared_and_not_promoted() {

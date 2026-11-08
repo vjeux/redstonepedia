@@ -64,7 +64,7 @@ pub fn run(baseline: &Path, out: &Path, skip_boat_verify: bool, workers: usize) 
     if skip_boat_verify {
         println!("GAME RE-VERIFICATION SKIPPED explicitly; this is NOT the complete legacy gate");
     } else {
-        let output = Command::new(&current).args(["clock", "verify", "--workers", &workers.to_string()]).args(&boats)
+        let output = Command::new(&current).args(["clock", "verify", "--positions", &crate::legacy_report::POSITIONS.to_string(), "--workers", &workers.to_string()]).args(&boats)
             .env("MCTAS_MAX_WORKERS", workers.to_string()).output()?;
         let text = format!("{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
         std::fs::write(out.join("boat-game-verification.txt"), text)?;
