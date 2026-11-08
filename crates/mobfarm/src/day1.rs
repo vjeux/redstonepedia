@@ -13,6 +13,36 @@ use crate::layouts::Builder;
 
 const STONE: &str = "cobblestone";
 const GLASS: &str = "glass";
+/// A day-1 cap (vjeux 2026-11-08 13:09: day-1 materials): a bottom cobblestone slab on a top no
+/// golem may spawn on (`LEGACY_IRON_GOLEM`'s scan stops on it and its half top fails the spawn).
+const CAP: &str = "cobblestone_slab[type=bottom,waterlogged=false]";
+
+/// A day-1 build (its name `iron-day1-...`) uses what a fresh player has: cobblestone walls where
+/// the other stages use glass walls, and [`CAP`] where they cap a top with glass.
+fn day1_build(b: &Builder) -> bool {
+    b.d.name.starts_with("iron-day1")
+}
+
+/// The wall block of a pod, the plate pod and the pad's rim: cobblestone on day 1, else glass.
+fn wall_of(b: &Builder) -> &'static str {
+    if day1_build(b) { STONE } else { GLASS }
+}
+
+/// The cap on a roof: [`CAP`] on day 1, else glass.
+fn cap_of(b: &Builder) -> &'static str {
+    if day1_build(b) { CAP } else { GLASS }
+}
+
+/// A day-1 void build's cobblestone tops: glass walls never held a golem, cobblestone ones do, so
+/// every cobblestone block above the pad's floor (y -7, the farm's only spawn floor) with nothing on
+/// top gets a [`CAP`].
+fn cap_tops(b: &mut Builder) {
+    let stone = format!("minecraft:{STONE}");
+    let tops: Vec<[i32; 3]> = b.d.blocks.iter().filter(|(p, s)| **s == stone && p[1] > -7 && !b.d.blocks.contains_key(&[p[0], p[1] + 1, p[2]])).map(|(p, _)| *p).collect();
+    for p in tops {
+        b.set(p[0], p[1] + 1, p[2], CAP);
+    }
+}
 
 /// A villager on the head of its bed (facing north) in a closed 1-cell glass pod at (x, 0, 0), a
 /// glass roof; `sees`: its north face at y + 1 is an open trapdoor (it sees over it, it cannot
@@ -23,28 +53,29 @@ pub fn pod(b: &mut Builder, x: i32, sees: bool) {
 
 /// [`pod`] with its bed head at (x, 0, z) (the foot south of it).
 pub fn pod_at(b: &mut Builder, x: i32, z0: i32, sees: bool) {
+    let (wall, cap) = (wall_of(b), cap_of(b));
     b.set(x, 0, z0, "red_bed[facing=north,occupied=false,part=head]");
     b.set(x, 0, z0 + 1, "red_bed[facing=north,occupied=false,part=foot]");
     for z in z0..z0 + 2 {
         b.set(x, -1, z, STONE);
     }
-    b.set(x, 1, z0 + 1, GLASS);
-    b.set(x, 2, z0 + 1, GLASS);
+    b.set(x, 1, z0 + 1, wall);
+    b.set(x, 2, z0 + 1, wall);
     for w in [x - 1, x + 1] {
-        b.set(w, 1, z0, GLASS);
-        b.set(w, 2, z0, GLASS);
+        b.set(w, 1, z0, wall);
+        b.set(w, 2, z0, wall);
     }
     if sees {
         b.set(x, 1, z0, "oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]");
     } else {
-        b.set(x, 1, z0 - 1, GLASS);
-        b.set(x, 2, z0 - 1, GLASS);
+        b.set(x, 1, z0 - 1, wall);
+        b.set(x, 2, z0 - 1, wall);
     }
     for dx in -1..=1 {
         for z in z0..z0 + 2 {
-            // (an opaque roof, its sky light under 15, capped with glass: no golem spawns on it)
+            // (an opaque roof, its sky light under 15, capped: no golem spawns on it)
             b.set(x + dx, 3, z, STONE);
-            b.set(x + dx, 4, z, GLASS);
+            b.set(x + dx, 4, z, cap);
         }
     }
     b.entity("villager", [x as f64 + 0.5, 0.5625, z0 as f64 + 0.5], None);
@@ -84,18 +115,20 @@ pub fn pod_bare(b: &mut Builder, x: i32, z0: i32, sees: bool) {
 /// crosses that cell 1.78-1.84 up, through the shut trapdoor's slab; opened (powered), the
 /// trapdoor stands against the cell's west side and the line passes.
 fn zombie(b: &mut Builder) {
+    let cap = cap_of(b);
     b.set(2, 0, -7, "cobblestone_slab[type=bottom,waterlogged=false]");
     b.set(2, 2, -7, STONE);
-    // (the stone roof capped with glass: no golem spawns on it)
-    b.set(2, 3, -7, GLASS);
+    // (the stone roof capped: no golem spawns on it)
+    b.set(2, 3, -7, cap);
     b.entity("oak_boat", [2.5, 0.5, -6.8], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
     b.set(2, 1, -6, "oak_trapdoor[facing=east,half=top,open=false,powered=false,waterlogged=false]");
 }
 
 /// U1's pod east of the hide: a wooden pressure plate at (3, 2, -6) on the stone (3, 1, -6) next to
-/// the trapdoor, U1's bed head east of the plate (facing west), glass walls, a glass roof at y 4
+/// the trapdoor, U1's bed head east of the plate (facing west), walls, a capped roof at y 4..6
 /// (U1 cannot stand on its bed: the plate cell is its only standing cell).
 fn plate_pod(b: &mut Builder) {
+    let (wall, cap) = (wall_of(b), cap_of(b));
     b.set(3, 1, -6, STONE);
     b.set(3, 2, -6, "oak_pressure_plate[powered=false]");
     b.set(4, 2, -6, "red_bed[facing=west,occupied=false,part=head]");
@@ -105,16 +138,16 @@ fn plate_pod(b: &mut Builder) {
     }
     for y in 2..=3 {
         for x in 3..=5 {
-            b.set(x, y, -7, GLASS);
-            b.set(x, y, -5, GLASS);
+            b.set(x, y, -7, wall);
+            b.set(x, y, -5, wall);
         }
-        b.set(2, y, -6, GLASS);
-        b.set(6, y, -6, GLASS);
+        b.set(2, y, -6, wall);
+        b.set(6, y, -6, wall);
     }
     for x in 3..=5 {
         b.set(x, 4, -6, STONE);
         b.set(x, 5, -6, STONE);
-        b.set(x, 6, -6, GLASS);
+        b.set(x, 6, -6, cap);
     }
     b.entity("villager", [3.5, 2.0, -5.5], None);
 }
@@ -167,14 +200,26 @@ fn pit_kill(b: &mut Builder, n: i32) {
             }
         }
     }
+    let (wall, day1) = (wall_of(b), day1_build(b));
     for y in -6..=-5 {
         for x in (x0 - 1)..=(x1 + 1) {
-            b.set(x, y, z0 - 1, GLASS);
-            b.set(x, y, z1 + 1, GLASS);
+            b.set(x, y, z0 - 1, wall);
+            b.set(x, y, z1 + 1, wall);
         }
         for z in z0..=z1 {
-            b.set(x0 - 1, y, z, GLASS);
-            b.set(x1 + 1, y, z, GLASS);
+            b.set(x0 - 1, y, z, wall);
+            b.set(x1 + 1, y, z, wall);
+        }
+    }
+    // (a day-1 rim is cobblestone, a golem's floor: each rim cell gets a cap on top)
+    if day1 {
+        for x in (x0 - 1)..=(x1 + 1) {
+            b.set(x, -4, z0 - 1, CAP);
+            b.set(x, -4, z1 + 1, CAP);
+        }
+        for z in z0..=z1 {
+            b.set(x0 - 1, -4, z, CAP);
+            b.set(x1 + 1, -4, z, CAP);
         }
     }
     for (x, z) in [(x0, z0), (x1, z0), (x0, z1), (x1, z1)] {
@@ -207,6 +252,7 @@ pub fn l6p_pad(n: i32) -> String {
     let mut b = Builder::new(&format!("iron-day1-bedplate-pit-{n}"));
     front(&mut b);
     pit_kill(&mut b, n);
+    cap_tops(&mut b);
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     b.d.meta.insert("restart".into(), "yes".into());
     b.text(&["Day 1 (candidate): the bed-plate calm; golems spawn on a pad 6 below the villagers, fall through its", "center into a 4 x 4 pit and burn in its corner under one lava source, over one hopper."])
@@ -226,6 +272,7 @@ pub fn d4_two_scared(n: i32) -> String {
     b.set(2, 1, -6, "oak_trapdoor[facing=west,half=top,open=false,powered=false,waterlogged=false]");
     plate_pod(&mut b);
     pit_kill(&mut b, n);
+    cap_tops(&mut b);
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     b.d.meta.insert("restart".into(), "yes".into());
     b.text(&["Day 1 (candidate D4): the bed plate hides the zombie from two scared villagers through one trapdoor;", "golems fall through the pad's center into a 4 x 4 pit and burn in its corner under one lava source."])
