@@ -10077,6 +10077,9 @@ farms/iron/parts/collection/index.html	page				2026-11-08 21:21Z
 farms/iron/parts/kill/index.html	page				2026-11-08 21:21Z
 farms/iron/parts/sleep-trigger/index.html	page				2026-11-08 21:21Z
 farms/iron/parts/spawn-area/index.html	page				2026-11-08 21:21Z
+farms/iron/row-2x27.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 886 iron an hour · 812 blocks · 1.1 an hour per block · 226 iron to build · two farms side by side share one sorter, one iron-block crafter and one composter	2026-11-08 22:43Z
+farms/iron/stack-2x43.html	circuit	mobfarm/-mob-farm iron_ingot fastest		Iron farm: 886 iron an hour · 748 blocks · 1.2 an hour per block · 46 iron to build · two farms stacked, each with its own chests	2026-11-08 22:43Z
+farms/iron/stack-8x43.html	circuit	mobfarm/-mob-farm iron_ingot fastest		Iron farm: 3,600 iron an hour · 2,992 blocks · 1.2 an hour per block · 166 iron to build · eight farms stacked, each with its own chests	2026-11-08 22:43Z
 farms/melon-pumpkin/index.html	page				2026-11-08 21:37Z
 farms/melon-pumpkin/melon-lattice8.html	circuit	farm/harvester melon		Crop farm: 3,200 melon slices an hour · 64 stems · 800 blocks · 4.0 an hour per block · ~2,200 iron to build · needs open sky or light 9	2026-11-08 21:37Z
 farms/melon-pumpkin/pumpkin-lattice8.html	circuit	farm/harvester pumpkin		Crop farm: 664 pumpkins an hour · 64 stems · 800 blocks · 0.83 an hour per block · ~2,200 iron to build · needs open sky or light 9	2026-11-08 21:37Z
