@@ -1077,6 +1077,12 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
         metrics.push(("entities alive".to_string(), format!("{:.1}", sum as f64 / samples as f64)));
         metrics.push(("entities peak".to_string(), peak.to_string()));
     }
+    // burnt iron (brief revision 9, iteration 11: a measured tradeoff, not a refusal): the iron
+    // lost per dead golem, its share of the loot, how often a golem's iron burns
+    let (burnt, drops_burnt, dropped, deaths) = all.iter().fold((0u32, 0u32, 0u32, 0u32), |(b, n, d, k), r| (b + r.iron_burnt, n + r.drops_burnt, d + r.iron_dropped, k + r.deaths));
+    if burnt > 0 && deaths > 0 {
+        metrics.push(("iron burnt per golem".to_string(), format!("{:.2} ({:.1}% of the loot; 1 golem in {:.0})", burnt as f64 / deaths as f64, 100.0 * burnt as f64 / dropped.max(1) as f64, deaths as f64 / drops_burnt.max(1) as f64)));
+    }
     // the stage lines (brief, Stages: What every card reports)
     metrics.push(("tools".to_string(), b.tools_text()));
     metrics.push(("lava sources".to_string(), b.lava.to_string()));

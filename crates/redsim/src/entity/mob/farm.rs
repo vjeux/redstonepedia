@@ -170,6 +170,11 @@ pub struct RunReport {
     /// Golems whose AI target was the farm's zombie at some tick (each once; brief rev 9
     /// iteration 13: printed per run).
     pub golems_at_zombie: u32,
+    /// Iron-bearing drops that touched lava or a fire (each once) and the iron they carried: a
+    /// measured loss (brief farm-iron.md revision 9, iteration 11: burnt iron is a tradeoff, not
+    /// a refusal; the rate counts only what reaches the containers).
+    pub drops_burnt: u32,
+    pub iron_burnt: u32,
 }
 
 /// The weather of one run (mobinfra): ticks raining (`isRaining`) and thundering, bolts, what they
@@ -436,13 +441,15 @@ struct Track {
     own: std::collections::HashSet<u32>,
     /// The golems already counted in `RunReport::golems_at_zombie`.
     at_zombie: std::collections::HashSet<u32>,
+    /// The drops counted as burnt (once each).
+    burnt: std::collections::HashSet<u32>,
 }
 
 impl Track {
     /// The tracking of a run that just arrived: its own villagers' homes and last sleeps.
     fn new(r: &Run, spec: &FarmSpec) -> Track {
         let own: std::collections::HashSet<u32> = r.own.iter().copied().collect();
-        let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0, own, at_zombie: Default::default() };
+        let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0, own, at_zombie: Default::default(), burnt: Default::default() };
         for e in &r.world.entities.list {
             if let EntityKind::Mob(m) = &e.kind
                 && m.ty == MobType::Villager
@@ -854,12 +861,12 @@ fn check_tick(w: &World, rep: &mut RunReport, tr: &mut Track, spec: &FarmSpec, t
         {
             rep.fail(format!("gt {t}: a drop at {:.1} {:.1} {:.1} is within the zombie's pickup reach", e.pos.x, e.pos.y, e.pos.z));
         }
-        if touches_lava(w, e.bb) {
-            rep.fail(format!("gt {t}: a drop touched lava at {:.1} {:.1} {:.1} (it burns)", e.pos.x, e.pos.y, e.pos.z));
-        }
-        // mobinfra: a fire burns a drop (`ItemEntity.hurtServer`: 1 a tick, health 5)
-        if let Some(p) = crate::weather::fire::fire_in(w, e.bb) {
-            rep.fail(format!("gt {t}: a drop touched a fire at {p} (it burns)"));
+        // a drop in lava or a fire burns (`ItemEntity.hurtServer`): its iron is lost, a measured
+        // tradeoff (iteration 11), counted once
+        let burns = touches_lava(w, e.bb) || crate::weather::fire::fire_in(w, e.bb).is_some();
+        if burns && tr.burnt.insert(*id) && iron > 0 {
+            rep.drops_burnt += 1;
+            rep.iron_burnt += iron;
         }
         if let EntityKind::Item(s) = &e.kind
             && s.age > 5800
