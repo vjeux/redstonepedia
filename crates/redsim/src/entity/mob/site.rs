@@ -113,6 +113,7 @@ impl Site {
             output: at(spec.output),
             lo: at(spec.lo),
             hi: at(spec.hi),
+            block_entities: spec.block_entities.iter().map(|(p, s)| (at(*p), s.clone())).collect(),
         }
     }
 

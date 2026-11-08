@@ -53,7 +53,14 @@ fn block_checks(w: &World, spec: &FarmSpec) -> Vec<String> {
                     }
                 }
             }
-            Block::Composter { .. } | Block::BrewingStand { .. } => out.push(format!("a job site block at {p}: an unemployed villager could take a profession (not modeled)")),
+            // a job site: `AcquirePoi` claims one (JOB_SITE, POTENTIAL_JOB_SITE) only along a path
+            // that ends within 1 of it, and every villager is confined to one cell
+            // (`villager_checks` refuses the rest), so only a job site touching a villager's
+            // cell could give it a profession (its working is not modeled)
+            Block::Composter { .. } | Block::BrewingStand { .. } if villagers(w).iter().any(|&i| {
+                let c = w.entities.list[i].block_position();
+                (p.x - c.x).abs() <= 2 && (p.y - c.y).abs() <= 2 && (p.z - c.z).abs() <= 2
+            }) => out.push(format!("a job site block at {p} within 2 of a villager: it could take a profession (not modeled)")),
             Block::Scaffolding { .. } => out.push(format!("scaffolding at {p}: a mob in a climbable climbs and is not pushable (not modeled)")),
             Block::Bed { head: true, .. } if matches!(w.get(p.below()), Block::Bed { .. }) => out.push(format!("a bunk bed at {p}: its stand-up search is not modeled")),
             _ => {}

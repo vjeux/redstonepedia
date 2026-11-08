@@ -175,7 +175,8 @@ pub fn spec_of(c: &Circuit) -> std::result::Result<FarmSpec, String> {
     }
     blocks.sort_by_key(|(q, _)| [q.x, q.y, q.z]);
     let entities = d.entities.iter().map(|e| (e.kind.clone(), e.pos, e.nbt.clone())).collect();
-    Ok(FarmSpec { blocks, entities, output: bp(out), lo: bp(from), hi: bp(to) })
+    let block_entities = d.block_entities.iter().map(|(p, s)| (bp(*p), s.clone())).collect();
+    Ok(FarmSpec { blocks, entities, output: bp(out), lo: bp(from), hi: bp(to), block_entities })
 }
 
 /// What the judge runs.

@@ -40,6 +40,9 @@ pub struct FarmSpec {
     /// The simulated world box (inclusive): the design's box with a margin.
     pub lo: BlockPos,
     pub hi: BlockPos,
+    /// Its block entities (`nbt:` lines: position, SNBT), applied after the raw paste and before
+    /// the updates, like the game check's placement (a sorter's filter items).
+    pub block_entities: Vec<(BlockPos, String)>,
 }
 
 impl FarmSpec {
@@ -110,6 +113,10 @@ pub struct RunReport {
     pub poppies_dropped: u32,
     pub iron_in_chest: u32,
     pub iron_in_containers: u32,
+    /// Every container holding iron at the end (position, iron as ingots: blocks x 9).
+    pub iron_where: Vec<([i32; 3], u32)>,
+    /// Every non-empty container's contents at the end (`x y z: count item, ...`).
+    pub contents: Vec<String>,
     /// The game time of every golem spawn.
     pub spawn_times: Vec<i64>,
     /// The cell of every golem spawn.
@@ -202,8 +209,12 @@ impl Run {
         if let Some(s) = o.site {
             w.mob.natural = Some(super::natural::Natural::new(vec![s.afk], super::natural::Difficulty::Hard));
         }
+        // the level random (`Level.random`): a composter's chance, a dropper's slot (the shared
+        // collection's), drawn from a stand-in seeded from the run like the mob layer's
+        w.level_random = Some(crate::rng::LegacyRandom::new(o.seed ^ 0x6c76_6c72));
         let (detectors, rest): (Vec<_>, Vec<_>) = spec.blocks.iter().cloned().partition(|(_, b)| matches!(b, Block::DaylightDetector { .. }));
         w.place_raw(&rest);
+        crate::redstone::container::apply_block_entities(&mut w, spec.block_entities.iter().map(|(p, s)| (*p, s.as_str())))?;
         w.place_updates(&rest);
         let chest = Block::parse("minecraft:chest[facing=north,type=single,waterlogged=false]")?;
         if !matches!(w.get(spec.output), Block::Chest { .. }) {
@@ -296,13 +307,34 @@ struct Track {
     golem_born: Vec<(u32, i64)>,
     drops: Vec<u32>,
     last_sleep: Vec<(u32, i64)>,
+    /// The iron the farm's containers hold when it starts (a sorter's filter items).
+    seed_iron: u32,
+}
+
+/// The iron in the farm's containers (`ingots + 9 x blocks`): (in the output chest, in the others).
+fn container_iron(w: &World, output: BlockPos) -> (u32, u32) {
+    use crate::redstone::container as rc;
+    let (ingot, block) = (rc::item_id("iron_ingot"), rc::item_id("iron_block"));
+    let count = |c: &rc::ContainerBe| c.slots.iter().flatten().map(|s| if Some(s.item) == ingot { s.count as u32 } else if Some(s.item) == block { 9 * s.count as u32 } else { 0 }).sum::<u32>();
+    let (mut out, mut rest) = (0, 0);
+    for (p, c) in &w.containers.map {
+        if *p == output {
+            out += count(c);
+        } else {
+            rest += count(c);
+        }
+    }
+    for c in w.containers.entities.values() {
+        rest += count(c);
+    }
+    (out, rest)
 }
 
 /// Run a farm: `o.ticks` game ticks, every check as it goes.
 pub fn run(spec: &FarmSpec, o: &RunOpts) -> Result<RunReport, String> {
     let mut r = Run::new(spec, o)?;
     let mut rep = RunReport { ticks: o.ticks, ..Default::default() };
-    let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new() };
+    let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1 };
     for e in &r.world.entities.list {
         if let EntityKind::Mob(m) = &e.kind
             && m.ty == MobType::Villager
@@ -354,7 +386,7 @@ pub struct AwayReport {
 pub fn run_away(spec: &FarmSpec, o: &RunOpts, plan: AwayPlan) -> Result<(RunReport, AwayReport), String> {
     let mut r = Run::new(spec, o)?;
     let mut rep = RunReport { ticks: (plan.before + plan.after) as u32, ..Default::default() };
-    let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new() };
+    let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1 };
     for e in &r.world.entities.list {
         if let EntityKind::Mob(m) = &e.kind
             && m.ty == MobType::Villager
@@ -569,18 +601,20 @@ pub fn touches_lava(w: &World, bb: Aabb) -> bool {
 
 /// The end of a run: the iron in the chest and in the farm's containers against what dropped.
 fn finish(w: &World, rep: &mut RunReport, tr: &Track, spec: &FarmSpec) {
-    use crate::redstone::container as rc;
-    let iron = rc::item_id("iron_ingot");
-    let count = |c: &rc::ContainerBe| c.slots.iter().flatten().filter(|s| Some(s.item) == iron).map(|s| s.count as u32).sum::<u32>();
-    for (p, c) in &w.containers.map {
-        if *p == spec.output {
-            rep.iron_in_chest += count(c);
-        } else {
-            rep.iron_in_containers += count(c);
+    let (out, rest) = container_iron(w, spec.output);
+    rep.iron_in_chest += out;
+    rep.iron_in_containers += rest.saturating_sub(tr.seed_iron);
+    {
+        use crate::redstone::container as rc;
+        let (ingot, block) = (rc::item_id("iron_ingot"), rc::item_id("iron_block"));
+        for (p, c) in &w.containers.map {
+            let n: u32 = c.slots.iter().flatten().map(|s| if Some(s.item) == ingot { s.count as u32 } else if Some(s.item) == block { 9 * s.count as u32 } else { 0 }).sum();
+            if n > 0 || c.slots.iter().flatten().count() > 0 {
+                rep.iron_where.push(([p.x, p.y, p.z], n));
+                rep.contents.push(format!("{} {} {}: {}", p.x, p.y, p.z, c.slots.iter().flatten().map(|s| format!("{} {}", s.count, rc::item_name(s.item))).collect::<Vec<_>>().join(", ")));
+            }
         }
-    }
-    for c in w.containers.entities.values() {
-        rep.iron_in_containers += count(c);
+        rep.iron_where.sort();
     }
     let loose: u32 = tr
         .drops
