@@ -989,12 +989,13 @@ the vehicle's `Passengers`), its beds as blocks, and `port output` (the chest).
 - **Golem exit (before the runs).** The positions a golem can stand on come from a flood: it
   starts at every spawn spot the farm offers, and each step runs the golem's own physics (its
   1.4 x 2.7 box, step height 1, a jump when blocked, falls). From every such position the
-  golem's drift runs under still and the 8 constant inputs, alone in the built farm. Each of
-  those runs must reach a kill (the golem dead) within 1200 gt without breaking a must-have.
-  This is what proves that no input pins a golem: it catches cancelling currents, dead ends
-  and side pockets. A summed-current test (a standable top whose touched cells sum to a current
-  below 1e-5) only refuses early. The flood keeps every position a run visits on the ground as
-  a new start, until none is new.
+  golem's drift runs under still and the 8 constant inputs, alone in the built farm. Under the
+  still policy each run must reach a kill (the golem dead) within 1200 gt (no dead water: it
+  catches cancelling currents, dead ends and side pockets); under every input no run may leave
+  the build or break another must-have; the 8 walking inputs' kill times are reported, not
+  refused (iteration 13: the AI-on runs and the game gate judge walking). A summed-current test
+  (a standable top whose touched cells sum to a current below 1e-5) only refuses early. The
+  flood keeps every position a run visits on the ground as a new start, until none is new.
 - **Checks** (the must-haves, as it runs; a failure names what, where and when):
   - a villager outside its cell or hurt;
   - the zombie hurt;
@@ -1063,13 +1064,17 @@ whenever a world mirrors the level random: `World::exact_seed`).
     the cell): the bed within 2.0 (`SleepInBed`), Manhattan 1 to HOME, the zombie out of reach;
   - the stand-up spot for both bed sides (the yaw that picks it is not modeled) lands in the
     cell.
-- **Golem walking.** Not modeled as AI; instead the golem exit check above runs the drift from
-  every position a golem can stand on, under still and the 8 constant inputs, and refuses the
-  design unless every run reaches a kill within 1200 gt. Inputs that change direction are
-  sequences of those 9 at positions the flood already covers. In water the golem's input (at
-  most about 0.005/gt) never beats the current (0.014), so a design passes only where the
-  currents carry it out from everywhere. The base runs give each golem a random policy, and
-  the rate is also reported under the worst constant policy (above).
+- **Golem walking** (iteration 13: the mob AI is now modeled, 26.3's goals tick for tick, on
+  main). Judged by the AI-on runs and the game gate, as every other robustness property is
+  measured (vjeux 08:26), with two static guards kept from the exit flood, under every input:
+  no reachable position leaves the build (an escape breaks the one rule), and no dead water
+  (under the still policy every reachable position reaches a kill: a golem that stops walking
+  always arrives). The 8 constant walking inputs no longer refuse a design: their kill times and
+  the worst policy's rate are reported. A golem alive past 1200 gt in any AI-on run or in the
+  game gate fails the build, and the card prints the kill-time tail. (Before the AI was modeled,
+  a constant input stood in for it and refused every water channel a walking golem could
+  out-walk; the real goals, a stroll toward a random village position or a target in sight,
+  are what the runs now play.)
 - **Golem targeting** (refused if a golem gets within melee reach of the zombie) and
   **zombie attacks** (refused if a villager's cell meets the zombie's attack box with its
   vehicle).
@@ -1189,3 +1194,4 @@ the spec was, what came back (the front's size before and after merging), what c
 | 10 | The Farms section lists only presented farms and the variations named here as promising; a bar is never listed, only quoted as the reference line; a stage with nothing that beats its bar lists nothing. Off the site: late stack-8x43 and stack-2x43 (the copies bar), middle four-modules-one-timer and its tight version (worse per module than one module), row-2x27 (443 iron/h per module for more blocks and build per module than two copies; its 18 h of storage is no middle objective, the middle window being a game day), m2-open (dominated by m2-open-ring: the same rate, more blocks, a hand-built repeater pulse), day-1 d1-bed-plate (its real-game gate passes only in the void; in terrain with the mob AI on it fails, its drops burning). m2-open-ring moves to Components as the middle module (the unit of the middle and late farms and of the copies bar), not a middle farm; Middle and Late list nothing until a search result beats copies (empty sections hidden, no placeholder line: our process stays off pages, vjeux 10:10). The archived iron-day1 stays the live day-1 farm | vjeux 14:51 on farms/iron/stack-8x43.html: "Sounds like a stupid design, why does each module have their own kill chamber?"; the parent: "never a bar" | The stacks were put up by a lane outside this loop: the spec already called copies the bar. The late search must find sharing the coupling allows (one shaft, one kill chamber and one collection fed by every module, each golem's fall kept out of every other module's follow cube; a zombie and calm shared by 2-4 clusters) |
 | 11 | Burnt drops are a measured tradeoff, not a failure: the judge's "a drop touches lava" check becomes a measured line (iron lost per golem), the card's iron per hour counts only what reaches the chest, and a kill that loses none competes on the objectives. Spot pricing against the village's own villagers: no rule until a measured run shows coupling | The day-1 lane: the pit family's burnt drops come from golems bobbing in the corner's floor water (their goals' jumps, jumpInLiquid), dying anywhere from the floor to about 3.6 up; the AI-on judge burns drops on d1-bed-plate in 4 of 8 seeds; the game: D1U 3.95 iron a golem (about 1.2% lost); lava higher stalls the farm, a corner pillar pins golems on the hole's corner. At D1U's spot the village's villagers are at least 47.8 blocks from any farm villager (no 10-box coupling) | The parent's ruling on vjeux 08:26 ("It's all about tradeoffs"): about 1% of the iron for a design that is otherwise the T-optimal day-1 farm is a number a player weighs, not a refusal; the blade kill of day-1 run 2 competes with it on T and the rate |
 | 12 | Middle run 2 judged: nothing to present. "Where a middle farm can win" added to Middle (the module is at 92% of the ceiling, so a middle farm beats copies only on build minutes per module, at most 90% of theirs at 90% of their rate, by sharing the kill chamber and collection with almost free transport). Asked of run 3: current prices and roles (iron-v5), the copies bar priced the same way; families that share the kill and collection (iron-v5's shared-kill stack, the ironfarm lane's shared chamber, modules around one central shaft and chamber with every pad outside every foreign follow cube); candidates that cannot beat the bar pruned before their runs; the low-build end measured first; a sight blocker between pods so 5-villager clusters pass the gossip rule; one calm per module where routing a shared one fails | 230,419 builds (iron-v4: pre-roles materials, the old lava and villager prices), 3,000 quick runs, 4 full judges, 62,066 left open. Front 2, merged 1: two copies stacked 43 apart with 10 x 10 pads, 454 iron/h per module, 42.8 build minutes per module, against the copies bar's 444 and 31.8 under the same pricing: 2% more iron for 35% more build. The best per build minute (4 modules in a row sharing one calm, a pit kill) only ties the bar (420 iron/h per module at 30.1 minutes). About 130,000 candidates refused by the gossip rule (5+ villagers in a 10-box with sight), 25,758 by a shared calm with no route | The front's member is the bar's own shape (copies at a no-coupling pitch), so the middle section stays empty; run 2's space lacked the families where sharing can pay, and its build minutes are stale (glass and stone priced, one lava trip per source, 180 s a villager), so its numbers are not compared with run 3's |
+| 13 | Golem walking is judged by the AI-on runs and the game gate (a golem alive past 1200 gt in any run or the gate fails the build; the card prints the kill-time tail), with the exit flood's static guards kept under every input (no escape) and under the still policy (no dead water); the 8 constant walking inputs are reported, not refused | The ironfarm lane's shared kill: its water channel carries AI-driven golems (N = 2 at pitch 27: 880 iron/h, 92%) but fails the drift check under a constant walking input that out-walks the current; farmopt: that check alone blocks every family with horizontal golem transport to a shared chamber (the central-shaft ring) | The constant inputs stood in for walking AI before it was modeled (the brief's "not modeled as AI; instead ..."); now that the goals run tick for tick, a refusal on an input the real AI may never sustain contradicts vjeux 08:26 (robustness is measured, never a refusal by itself) and hides the families where sharing can pay. The game gate stays the backstop where the AI-on model still differs from the game (m2-open-ring reads about 5% low with the AI on, under investigation) |
