@@ -249,14 +249,14 @@ impl Client {
         // Escape hatch for headless boxes where the Vulkan present stalls the render
         // thread (llvmpipe/Xvfb): MCTAS_CLIENT_GRAPHICS_API=opengl|vulkan.
         let graphics_api = std::env::var("MCTAS_CLIENT_GRAPHICS_API").ok().filter(|v| matches!(v.as_str(), "opengl" | "vulkan"));
-        let graphics_line = graphics_api.as_deref().map(|v| format!("preferredGraphicsBackend:{v}\n")).unwrap_or_default();
+        let graphics_line = graphics_api.as_deref().map(|v| format!("preferredGraphicsBackend:\"{v}\"\n")).unwrap_or_default();
         std::fs::write(
             game_dir.join("options.txt"),
             format!(
                 "onboardAccessibility:false\nskipMultiplayerWarning:true\njoinedFirstServer:true\ntutorialStep:none\n\
              pauseOnLostFocus:false\nrenderDistance:{render_distance}\nsimulationDistance:5\nfov:0.0\nnarrator:0\nsoundCategory_master:0.0\n\
              guiScale:2\nfovEffectScale:0.0\nfullscreen:false\nbobView:false\nrenderClouds:\"false\"\nparticles:{particles}\nentityShadows:true\n\
-             framerateLimit:260\nenableVsync:false\ninactivityFpsLimit:minimized\n{graphics_line}"
+             maxFps:260\nenableVsync:false\ninactivityFpsLimit:minimized\n{graphics_line}"
             ),
         )?;
         let natives = game_dir.join("natives");

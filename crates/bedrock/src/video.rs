@@ -554,9 +554,13 @@ impl Prod {
         Ok(())
     }
 
-    /// Bulk mining (held attack key, sweep): clearing and digging, never near blocks that matter.
+    /// Bulk mining (clearing and digging, never near blocks that matter): the lean
+    /// `minef` path (aim+start in one client submit, then tick-gated continues — the
+    /// same per-tick survival timing). The held-key sweep measured far slower here:
+    /// its prelude costs ~5 frame-gated submits a block, then a 6 s keyhold deadline
+    /// routinely expired unbroken on deepslate before the direct fallback even ran.
     fn mine_sweep(&mut self, p: Pos) -> Result<()> {
-        self.actor.cmd_timeout(&format!("mine {} {} {} sweep", p[0], p[1], p[2]), Duration::from_secs(60))?;
+        self.actor.cmd_timeout(&format!("minef {} {} {}", p[0], p[1], p[2]), Duration::from_secs(60))?;
         Ok(())
     }
 
