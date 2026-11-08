@@ -59,7 +59,9 @@ impl Builder {
     }
 }
 
-const STONE: &str = "stone";
+// (roles, designs/farms/roles.tsv: a structural, floor or fluid-holding block is cobblestone, the
+// cheapest at every stage's prices; mining stone without silk touch gives cobblestone)
+const STONE: &str = "cobblestone";
 const GLASS: &str = "glass";
 const LAVA: &str = "lava[level=0]";
 const SHUT: &str = "oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]";
@@ -608,14 +610,16 @@ pub fn dry_hole_walls(b: &mut Builder, n: i32, wl: i32, k: i32, top: i32) {
     for (x, z) in [(x0, z0), (x0, z1), (x1, z0), (x1, z1)] {
         b.set(x, wl, z, "water[level=0]");
     }
+    // the pad's walls: they hold its water and keep golems on it (fluid holder and walk blocker);
+    // a wall top a golem could spawn on gets its cap from the judge's spot check (parts::cap_spawns)
     for y in wl..=wl + 1 {
         for x in (x0 - 1)..=(x1 + 1) {
-            b.set(x, y, z0 - 1, GLASS);
-            b.set(x, y, z1 + 1, GLASS);
+            b.set(x, y, z0 - 1, STONE);
+            b.set(x, y, z1 + 1, STONE);
         }
         for z in z0..=z1 {
-            b.set(x0 - 1, y, z, GLASS);
-            b.set(x1 + 1, y, z, GLASS);
+            b.set(x0 - 1, y, z, STONE);
+            b.set(x1 + 1, y, z, STONE);
         }
     }
     // the shaft (x 1..4, z 3..6) down to feet level k

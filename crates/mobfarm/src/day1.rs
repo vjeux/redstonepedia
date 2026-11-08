@@ -50,6 +50,35 @@ pub fn pod_at(b: &mut Builder, x: i32, z0: i32, sees: bool) {
     b.entity("villager", [x as f64 + 0.5, 0.5625, z0 as f64 + 0.5], None);
 }
 
+/// [`pod_at`] by roles (designs/farms/roles.tsv): its walls cobblestone (walk blockers; a blind
+/// pod's front a sight blocker), its roof cobblestone (a sky cap), and no caps on the roof: the
+/// module's spot check caps every top a golem could spawn on by its role ([`crate::parts::cap_spawns`]).
+pub fn pod_bare(b: &mut Builder, x: i32, z0: i32, sees: bool) {
+    b.set(x, 0, z0, "red_bed[facing=north,occupied=false,part=head]");
+    b.set(x, 0, z0 + 1, "red_bed[facing=north,occupied=false,part=foot]");
+    for z in z0..z0 + 2 {
+        b.set(x, -1, z, STONE);
+    }
+    b.set(x, 1, z0 + 1, STONE);
+    b.set(x, 2, z0 + 1, STONE);
+    for w in [x - 1, x + 1] {
+        b.set(w, 1, z0, STONE);
+        b.set(w, 2, z0, STONE);
+    }
+    if sees {
+        b.set(x, 1, z0, "oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]");
+    } else {
+        b.set(x, 1, z0 - 1, STONE);
+        b.set(x, 2, z0 - 1, STONE);
+    }
+    for dx in -1..=1 {
+        for z in z0..z0 + 2 {
+            b.set(x + dx, 3, z, STONE);
+        }
+    }
+    b.entity("villager", [x as f64 + 0.5, 0.5625, z0 as f64 + 0.5], None);
+}
+
 /// The zombie in a boat on a slab 7 north of S (x = 2) under a stone roof (its eyes never see the
 /// sky), and the hide: a closed top-half trapdoor facing east at (2, 1, -6). S's line of sight
 /// crosses that cell 1.78-1.84 up, through the shut trapdoor's slab; opened (powered), the
@@ -530,20 +559,19 @@ pub fn m2_front_timer(n: i32, t: &crate::parts::Timer) -> Option<(Builder, Vec<[
     for u1 in u1s {
         let mut cage = Builder::new(&format!("iron-middle-{}-{n}", t.row.name));
         for x in [0, 2, 4] {
-            pod(&mut cage, x, true);
+            pod_bare(&mut cage, x, 0, true);
         }
         if (0..=4).contains(&u1[0]) && u1[2] >= -1 {
             continue;
         }
         let before = cage.d.blocks.len();
-        pod_at(&mut cage, u1[0], u1[2], false);
+        pod_bare(&mut cage, u1[0], u1[2], false);
         // (a pod overlapping another's cells: refused)
-        if cage.d.blocks.len() < before + 15 {
+        if cage.d.blocks.len() < before + 12 {
             continue;
         }
         cage.set(2, 0, -7, "cobblestone_slab[type=bottom,waterlogged=false]");
         cage.set(2, 2, -7, STONE);
-        cage.set(2, 3, -7, GLASS);
         cage.entity("oak_boat", [2.5, 0.5, -6.8], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
         cage.set(2, 1, -6, "oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]");
         // the bed observer on any side of U1's bed head but its foot's: (cell, facing, its pulse's
@@ -753,16 +781,32 @@ fn m2_front(n: i32) -> Builder {
 /// [`m2_front`] with its delay line's 12 repeaters set to `hide` gt in all (12..=48): the hide
 /// stays open about that long after U1's bed changes.
 fn m2_front_hide(n: i32, hide: i32) -> Builder {
+    m2_front_hide_r(n, hide, false)
+}
+
+/// [`m2_front_hide`], by roles when `roles` (pods of [`pod_bare`], the zombie's roof uncapped:
+/// the module's spot check caps every top by its role).
+fn m2_front_hide_r(n: i32, hide: i32, roles: bool) -> Builder {
     let hide = hide.clamp(12, 48);
     let delay = |k: i32| (hide / 12 + i32::from(k < hide % 12)).clamp(1, 4);
     let mut b = Builder::new(&format!("iron-middle-observer-{n}"));
     for x in [0, 2, 4] {
-        pod(&mut b, x, true);
+        if roles {
+            pod_bare(&mut b, x, 0, true);
+        } else {
+            pod(&mut b, x, true);
+        }
     }
-    pod(&mut b, 6, false);
+    if roles {
+        pod_bare(&mut b, 6, 0, false);
+    } else {
+        pod(&mut b, 6, false);
+    }
     b.set(2, 0, -7, "cobblestone_slab[type=bottom,waterlogged=false]");
     b.set(2, 2, -7, STONE);
-    b.set(2, 3, -7, GLASS);
+    if !roles {
+        b.set(2, 3, -7, GLASS);
+    }
     b.entity("oak_boat", [2.5, 0.5, -6.8], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
     b.set(2, 1, -6, "oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]");
     // the observer east of U1's bed head, the bulb behind it, the comparator north of the bulb
@@ -848,11 +892,20 @@ pub fn m2_open(n: i32) -> String {
     m2_open_hide(n, 48)
 }
 
-/// [`m2_open`] with a hide of `hide` gt (the delay line's repeaters, 12..=48).
+/// [`m2_open`] with a hide of `hide` gt (the delay line's repeaters, 12..=48), by roles: cobblestone
+/// walls, floors and roofs, every top a golem could spawn on capped by its role.
 pub fn m2_open_hide(n: i32, hide: i32) -> String {
-    let mut b = m2_module_walls_hide(n, -19, hide);
+    let mut b = m2_front_hide_r(n, hide, true);
+    let (wl, k) = (-6, -22);
+    crate::layouts::dry_hole_walls(&mut b, n, wl, k, -19);
+    chamber_safe(&mut b, k);
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.meta.insert("restart".into(), "yes".into());
+    if let Err(e) = crate::parts::cap_spawns(&mut b, &|p| p[1] <= wl + 1) {
+        eprintln!("m2-open: the golem spot check failed ({e}): its tops stay uncapped");
+    }
     b.d.name = if hide == 48 { format!("iron-middle-open-{n}") } else { format!("iron-middle-open-{n}-hide{hide}") };
-    b.text(&["Middle (M2-open): the bed observer hides the zombie for 48 gt when U1 lies down; L2d's dry hole over an", "open 16-block drop (walled in its bottom 4 layers) and a chamber whose lava cannot light anything."])
+    b.text(&["Middle: the bed observer's pulse, stretched by a line of repeaters, hides the zombie while the villagers lie down; the", "golems spawn on a dry hole over an open drop (walled in its bottom 4 layers) into a chamber whose lava cannot light anything."])
 }
 
 /// LP's upper cluster (brief, Stages: Late): M2's front, its golems sent up. The pad sits at the

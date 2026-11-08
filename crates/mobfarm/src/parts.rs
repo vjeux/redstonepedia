@@ -182,16 +182,19 @@ pub fn place(b: &mut Builder, row: &Row, turns: u8, input_at: [i32; 3]) -> Resul
     let output = *d.ports.get("output").ok_or_else(|| anyhow!("{}: no output port", row.name))?;
     let at = |p: [i32; 3]| [p[0] - input[0] + input_at[0], p[1] - input[1] + input_at[1], p[2] - input[2] + input_at[2]];
     let mut cells = BTreeSet::new();
+    // (roles, G1: a part's stone is structural, and cobblestone does the same at every stage's
+    // lower price: a full, solid, conductive, non-flammable cube)
+    let structural = |s: &str| if matches!(s.split('[').next().unwrap_or(s).trim_start_matches("minecraft:"), "stone") { "cobblestone".to_string() } else { s.to_string() };
     for (p, s) in &d.blocks {
         let q = at(*p);
-        b.set(q[0], q[1], q[2], s);
+        b.set(q[0], q[1], q[2], &structural(s));
         cells.insert(q);
     }
     for (p, s) in &d.block_entities {
         b.d.block_entities.insert(at(*p), s.clone());
     }
     if !d.blocks.contains_key(&input) {
-        b.set(input_at[0], input_at[1], input_at[2], "stone");
+        b.set(input_at[0], input_at[1], input_at[2], "cobblestone");
         cells.insert(input_at);
     }
     Ok(Placed { name: row.name.clone(), input: input_at, output: at(output), cells })
@@ -207,12 +210,18 @@ pub fn cap_spawns(b: &mut Builder, keep: &dyn Fn([i32; 3]) -> bool) -> Result<u3
         let c = circuit::Circuit::from_design(b.d.clone())?;
         let spec = circuit::mobfarm::spec_of(&c).map_err(|e| anyhow!(e))?;
         let w = build(&spec, &RunOpts::steady(1, 0, WalkMode::Random)).map_err(|e| anyhow!(e))?;
-        let stray: Vec<[i32; 3]> = redsim::entity::mob::exit::spawn_spots(&w).into_iter().map(|p| [p.x, p.y, p.z]).filter(|p| !keep(*p)).collect();
+        let all: Vec<[i32; 3]> = redsim::entity::mob::exit::spawn_spots(&w).into_iter().map(|p| [p.x, p.y, p.z]).collect();
+        let stray: Vec<[i32; 3]> = all.iter().copied().filter(|p| !keep(*p)).collect();
         if stray.is_empty() {
             break;
         }
         for p in stray {
-            b.set(p[0], p[1], p[2], "glass");
+            // the cap by its role (designs/farms/roles.tsv, G1): a torch on the top where a pad
+            // spot lies below in the same column (the attempt scans on down to the pad: a slab here
+            // would stop it and waste it), else a bottom cobblestone slab (the scan stops at it and
+            // the golem's obstruction check fails there: no golem outside the kill path)
+            let pad_below = all.iter().any(|q| q[0] == p[0] && q[2] == p[2] && q[1] < p[1] && keep(*q));
+            b.set(p[0], p[1], p[2], if pad_below { "torch" } else { "cobblestone_slab[type=bottom,waterlogged=false]" });
             placed += 1;
         }
     }
@@ -312,7 +321,7 @@ pub fn route(b: &mut Builder, start: [i32; 3], goal: [i32; 3], forbid: &dyn Fn([
         k += 1;
     }
     for (k, p) in path.iter().enumerate() {
-        b.set(p[0], p[1] - 1, p[2], "stone");
+        b.set(p[0], p[1] - 1, p[2], "cobblestone");
         if repeaters.contains(&k) {
             // `facing` names its input side: the cell before it
             b.set(p[0], p[1], p[2], &format!("repeater[delay=1,facing={},locked=false,powered=false]", dir(path[k], path[k - 1])));
@@ -342,7 +351,7 @@ pub fn read_output(b: &mut Builder, p: &Placed) -> Option<[i32; 3]> {
     let sides = [("east", [1, 0, 0]), ("west", [-1, 0, 0]), ("south", [0, 0, 1]), ("north", [0, 0, -1])];
     let beside: Vec<(&str, [i32; 3])> = sides.iter().filter(|(_, d)| p.cells.contains(&[o[0] + d[0], o[1], o[2] + d[2]])).copied().collect();
     let [(facing, d)] = beside.as_slice() else { return None };
-    b.set(o[0], o[1] - 1, o[2], "stone");
+    b.set(o[0], o[1] - 1, o[2], "cobblestone");
     b.set(o[0], o[1], o[2], &format!("repeater[delay=1,facing={facing},locked=false,powered=false]"));
     Some([o[0] - d[0], o[1], o[2] - d[2]])
 }

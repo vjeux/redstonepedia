@@ -400,10 +400,16 @@ fn terrain_judge(c: &Circuit, jo: &JudgeOpts, sample: &'static redsim::terrain::
 /// (`mob-farm iron_ingot middle`; the fastest farm pays the late stage's), day 1 for an untiered
 /// design.
 pub fn price_stage(c: &Circuit) -> usize {
-    match c.clock.design.meta.get("circuit").map(|k| k.split_whitespace().nth(2).unwrap_or("day-1").to_string()).as_deref() {
+    match c.clock.design.meta.get("circuit").map(|k| k.split_whitespace().nth(2).unwrap_or("").to_string()).as_deref() {
+        Some("day-1") | Some("day-1-dust") => 0,
         Some("middle") => 1,
         Some("fastest") | Some("late") => 2,
-        _ => 0,
+        // an untiered design (iteration 3): day-1 prices when day 1 can get every item, else middle
+        _ => {
+            let blocks: Vec<String> = c.clock.design.block_list().into_iter().map(|(_, s)| s).collect();
+            let blocks: Vec<&str> = blocks.iter().map(String::as_str).collect();
+            if redsim::entity::mob::prices::bill(&blocks, &[], 0, &[], 0).is_ok() { 0 } else { 1 }
+        }
     }
 }
 
@@ -431,7 +437,59 @@ pub fn site_bill(c: &Circuit, site: Option<&redsim::entity::mob::site::Site>, st
         None => (0, Vec::new()),
     };
     let extra: Vec<&str> = extra.iter().map(String::as_str).collect();
-    redsim::entity::mob::prices::bill(&blocks, &ents, dug, &extra, stage)
+    let mut bill = redsim::entity::mob::prices::bill(&blocks, &ents, dug, &extra, stage)?;
+    // the items its containers start with (a sorter's filter iron and its named filler items: each
+    // at its price, a named one also an anvil's rename, the anvil once)
+    let p = redsim::entity::mob::prices::Prices::get()?;
+    let mut renamed = 0u32;
+    let mut add = |bill: &mut redsim::entity::mob::prices::Bill, item: &str, n: u32, each: f64| {
+        let e = bill.items.entry(item.to_string()).or_insert((0, 0.0));
+        e.0 += n;
+        e.1 += each * n as f64;
+        bill.seconds += each * n as f64;
+    };
+    for snbt in c.clock.design.block_entities.values() {
+        for (item, n, named) in held_items(snbt) {
+            add(&mut bill, &item, n, p.price(&item, stage)?);
+            renamed += if named { n } else { 0 };
+        }
+    }
+    if renamed > 0 {
+        add(&mut bill, "rename", renamed, p.price("rename", stage)?);
+        add(&mut bill, "tool:anvil", 1, p.price("tool:anvil", stage)?);
+    }
+    Ok(bill)
+}
+
+/// The items a block entity's SNBT holds (`{id:"minecraft:x", count:n}` entries, `Count:nb` too),
+/// each with whether it carries a name (an anvil's rename).
+fn held_items(snbt: &str) -> Vec<(String, u32, bool)> {
+    let mut out = Vec::new();
+    let mut rest = snbt;
+    while let Some(k) = rest.find("id:\"minecraft:") {
+        let start = rest[..k].rfind('{').unwrap_or(0);
+        let name: String = rest[k + 14..].chars().take_while(|c| *c != '"').collect();
+        // the entry: to the brace closing its own (its components nest braces)
+        let (mut depth, mut end) = (0i32, rest.len());
+        for (i, ch) in rest[start..].char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = start + i + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let entry = &rest[start..end];
+        let count = ["count:", "Count:"].iter().find_map(|key| entry.find(key).map(|i| entry[i + key.len()..].chars().take_while(|c| c.is_ascii_digit()).collect::<String>())).and_then(|n| n.parse::<u32>().ok()).unwrap_or(1);
+        out.push((name, count, entry.contains("custom_name") || entry.contains("Name:")));
+        rest = &rest[end.max(k + 1)..];
+    }
+    out
 }
 
 /// A dug-in farm's way down to its chest at a site (redsim `site::access_stair`: the ground layer,
@@ -860,7 +918,16 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
     let golems = mean(&all.iter().map(|r| r.golems_per_hour()).collect::<Vec<_>>());
     let modules = villager_clusters(spec);
     let ceiling = 120.0 * modules as f64;
-    let b = bill(c);
+    let mut b = bill(c);
+    // the lava plan the build's price chose (iteration 6, G1): its extra day-1 buckets are iron in
+    // hand (3 each) and its trips are the card's
+    let plan = site_bill(c, site, price_stage(c)).ok();
+    let extra_buckets = plan.as_ref().and_then(|p| p.items.get("extra_bucket")).map_or(0, |e| e.0);
+    let lava_trips = plan.as_ref().and_then(|p| p.items.get("lava_trip")).map_or(b.lava, |e| e.0);
+    if extra_buckets > 0 {
+        b.iron += 3.0 * extra_buckets as f64;
+        b.tools.push(("extra buckets", 3 * extra_buckets));
+    }
     let payback = if iron > 0.0 { b.iron / iron * 60.0 } else { f64::INFINITY };
     let no_spot: u32 = all.iter().map(|r| r.losses.no_spot).sum();
     let seen: u32 = all.iter().map(|r| r.losses.seen).sum();
@@ -922,13 +989,24 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
     // glass covers too), 1 s a natural block dug (none in the void), 120 s a lava trip, 180 s a
     // villager moved; then the minutes to own a 24-iron kit at the card's rate, the iron the
     // thunderstorms are expected to cost meanwhile included
-    use redsim::entity::mob::site::{Effort, day1_minutes};
+    use redsim::entity::mob::site::day1_minutes;
     let (effort, access) = site_effort(c, site, &b);
     if site.is_none() {
-        // (the void card's lines as archived)
-        metrics.push(("build time".to_string(), format!("{:.0} min ({} placed, 0 dug, {} lava trips, {} villagers moved)", effort.seconds() / 60.0, effort.placed, b.lava, b.villagers)));
-        if iron > 0.0 {
-            metrics.push(("time to an iron kit".to_string(), format!("{:.0} min (the build, then (bill + 24) / rate)", day1_minutes(&effort, b.iron, iron, 0.0))));
+        // the build at the stage's prices (iteration 3 and 6: redsim prices::bill), its largest
+        // items named; then the kit: the build's own iron is inside its minutes, so the chest owes
+        // only the kit's 24 iron at the card's rate
+        let stage = price_stage(c);
+        let priced = site_bill(c, None, stage);
+        let head = match &priced {
+            Ok(bill) => format!("{:.0} min at {} prices", bill.seconds / 60.0, ["day-1", "middle", "late"][stage]),
+            Err(e) => format!("none ({e})"),
+        };
+        let most = priced.as_ref().map(|bill| format!("; the most: {}", bill.line())).unwrap_or_default();
+        metrics.push(("build time".to_string(), format!("{head} ({} placed, {} lava sources in {lava_trips} trips, {} villagers{most})", effort.placed, b.lava, b.villagers)));
+        if iron > 0.0
+            && let Ok(bill) = &priced
+        {
+            metrics.push(("time to an iron kit".to_string(), format!("{:.0} min (the build, then 24 iron at the card's rate)", bill.seconds / 60.0 + redsim::entity::mob::site::KIT_IRON / iron * 60.0)));
         }
     } else {
         let seals = site.map_or(0, |s| s.seals.len());
@@ -943,7 +1021,7 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
             Err(e) => format!("none ({e})"),
         };
         let most = priced.as_ref().map(|bill| format!("; the most: {}", bill.line())).unwrap_or_default();
-        metrics.push(("build time".to_string(), format!("{head} ({} placed{}, {} dug{way}, {} lava trips, {} villagers moved{most})", effort.placed, if extras.is_empty() { String::new() } else { format!(" with {}", extras.join(" and ")) }, effort.dug, b.lava, b.villagers)));
+        metrics.push(("build time".to_string(), format!("{head} ({} placed{}, {} dug{way}, {lava_trips} lava trips, {} villagers moved{most})", effort.placed, if extras.is_empty() { String::new() } else { format!(" with {}", extras.join(" and ")) }, effort.dug, b.villagers)));
         if iron > 0.0 {
             let loss_per_hour = metrics.iter().find(|(k, _)| k == "thunder loss").and_then(|(_, v)| v.parse::<f64>().ok()).unwrap_or(0.0) * redsim::weather::storms().share;
             let t0 = day1_minutes(&effort, b.iron, iron, 0.0);
