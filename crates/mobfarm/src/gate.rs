@@ -15,6 +15,8 @@ pub struct GateArgs {
     pub warmup: (u32, u32),
     pub keep: bool,
     pub trace: bool,
+    pub terrain: Option<String>,
+    pub world: Option<std::path::PathBuf>,
 }
 
 /// `mctas mobfarm gate <design>`.
@@ -29,6 +31,11 @@ pub fn gate_cmd(version: &str, design: &Path, a: GateArgs) -> Result<()> {
     o.warmup = a.warmup;
     o.keep = a.keep;
     o.trace = a.trace;
+    o.terrain = a.terrain;
+    o.world = a.world;
+    if o.terrain.is_some() && !a.builds.is_empty() {
+        bail!("--builds picks the void gate's builds; a terrain sample runs its one placement --parallel times");
+    }
     let all = circuit::mobfarm_game::judge_builds();
     for b in &a.builds {
         let (t, k) = b.split_once('.').ok_or_else(|| anyhow!("--builds takes rotation.offset, e.g. 0.0"))?;

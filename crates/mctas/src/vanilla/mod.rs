@@ -154,6 +154,56 @@ pub struct VanillaOptions {
     /// The void superflat's biome (`minecraft:the_void` by default; mobinfra: the mob-farm gate
     /// runs in `minecraft:plains`, where it rains).
     pub biome: String,
+    /// mobinfra: the copied-in `world`'s weather, written into its `data/minecraft/weather.dat`
+    /// before the server starts (the mob-farm gate in a terrain sample's kept world: the cycle's
+    /// stationary state without warm-up ticks that would age the world).
+    pub saved_weather: Option<SavedWeather>,
+}
+
+/// A world's saved weather (`WeatherData`: 26.x `data/minecraft/weather.dat`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SavedWeather {
+    pub clear_weather_time: i32,
+    pub rain_time: i32,
+    pub thunder_time: i32,
+    pub raining: bool,
+    pub thundering: bool,
+}
+
+/// Write `w` as world folder `world`'s saved weather (`data/minecraft/weather.dat`, gzipped NBT
+/// `{data: {...}, DataVersion}`), keeping the file's other fields when it exists (its
+/// DataVersion; else level.dat's).
+pub fn write_saved_weather(world: &Path, w: &SavedWeather) -> Result<()> {
+    use std::io::{Read, Write};
+    let read_gz = |p: &Path| -> Result<nbt::Tag> {
+        let bytes = std::fs::read(p).with_context(|| format!("read {}", p.display()))?;
+        let mut raw = Vec::new();
+        flate2::read::GzDecoder::new(&bytes[..]).read_to_end(&mut raw)?;
+        nbt::parse_named(&raw)
+    };
+    let path = world.join("data").join("minecraft").join("weather.dat");
+    let mut root = match read_gz(&path) {
+        Ok(nbt::Tag::Compound(m)) => m,
+        _ => {
+            let level = read_gz(&world.join("level.dat"))?;
+            let dv = level.get("Data").and_then(|d| d.get("DataVersion")).and_then(|v| v.as_i64()).context("level.dat without Data.DataVersion")?;
+            let mut m = std::collections::BTreeMap::new();
+            m.insert("DataVersion".to_string(), nbt::Tag::Int(dv as i32));
+            m
+        }
+    };
+    let mut data = std::collections::BTreeMap::new();
+    data.insert("clear_weather_time".to_string(), nbt::Tag::Int(w.clear_weather_time));
+    data.insert("rain_time".to_string(), nbt::Tag::Int(w.rain_time));
+    data.insert("thunder_time".to_string(), nbt::Tag::Int(w.thunder_time));
+    data.insert("raining".to_string(), nbt::Tag::Byte(w.raining as i8));
+    data.insert("thundering".to_string(), nbt::Tag::Byte(w.thundering as i8));
+    root.insert("data".to_string(), nbt::Tag::Compound(data));
+    std::fs::create_dir_all(path.parent().context("weather.dat's folder")?)?;
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    gz.write_all(&nbt::write_named("", &nbt::Tag::Compound(root)))?;
+    std::fs::write(&path, gz.finish()?)?;
+    Ok(())
 }
 
 impl Default for VanillaOptions {
@@ -176,6 +226,7 @@ impl Default for VanillaOptions {
             with_bot: true,
             simulation_distance: 3,
             biome: "minecraft:the_void".into(),
+            saved_weather: None,
         }
     }
 }
@@ -253,6 +304,11 @@ impl VanillaServer {
         std::fs::write(dir.join("eula.txt"), "eula=true\n")?;
         if let Some(src) = &opts.world {
             copy_tree(src, &dir.join(&opts.level_name))?;
+            if let Some(w) = &opts.saved_weather {
+                write_saved_weather(&dir.join(&opts.level_name), w)?;
+            }
+        } else if opts.saved_weather.is_some() {
+            bail!("saved_weather needs a copied-in world");
         }
         let (level_type, gen_settings, structures) = if opts.default_world {
             ("minecraft\\:normal".to_string(), "{}".to_string(), "true".to_string())

@@ -1297,13 +1297,32 @@ kick) before the first input.
   measure, such as a sky it cannot decide, fail the gate); what follows a break is its
   consequence and goes unchecked. Until a build breaks it must hold the rest of its card: golems
   spawn; no golem leaves the farm's box, vanishes outside it or lives over 1200 gt; the villagers
-  stay as many and unhurt; the zombie stays unhurt in its vehicle; no drop is ever outside
-  the box; no flammable block burns and no lava moves; and at the end the iron in the farm's
+  stay as many and unhurt; the zombie stays unhurt in its vehicle; none of the farm's drops (its
+  iron and poppies) is ever outside the box (a trap horse a bolt left in the void falls and drops
+  its bones far below: not the farm's); no flammable block burns and no lava moves; and at the end the iron in the farm's
   containers and on its floor is at least 4 ingots per dead golem minus 3 standard deviations of
   the loot (3..5 uniform: a leak shows, a few unlucky draws do not). The rates: each window's
   golems per hour, the mean of the builds unbroken by then, must fall within redsim's interval for 8 builds of that
   window under the same schedule (the judge's `farm::run` from the stationary weather with the same
-  forced windows, 64 runs): 95% for the natural days, 99% for each forced day. Why this size: one
+  forced windows, 64 runs; a reference run that fails fails the gate): 95% for the natural days, 99% for each forced day.
+
+  **In a terrain sample** (`--terrain village-edge`, mobinfra 2026-11-08: D1U must pass the real
+  game in its own world): the farm at its Site (the terrain judge's spot, offset and C7 glass
+  fills) in a copy of the sample's kept world, the one the committed sample was cut from
+  (`$MCTAS_HOME/terrain/worlds/<world>` or `--world`; a re-generated world differs in the day-1
+  details), `--parallel` runs (8) of that one placement instead of the 8 builds. Each server
+  starts with the world's saved weather (`data/minecraft/weather.dat`) written from redsim's
+  stationary weather draw, so no warm-up ticks age the village; the farm's changed cells are
+  pasted (`setblock ... strict`: its blocks, air where it digs, the fills); the AFK bot stands at
+  the design's `afk:` (creative counts for spawning); Hard, natural monsters on, phantoms,
+  patrols and traders off (as the terrain judge); simulation distance 10 (every chunk within 128
+  of the bot ticks, as redsim's natural spawning); only the farm's box forced (forced chunks spawn
+  too). The samples read only the farm's own entities (summoned with the tag `mf`), witches, zombie
+  villagers and items within 8 blocks of the box, and the golems first seen inside the farm (the
+  village's golem is not the farm's). The rates are redsim's terrain runs at the same Site. A
+  terrain build-day takes about 160 s (the village and every chunk within 128 tick); D1U's first
+  run, 1 day: 39.0 golems/h vs redsim 29.4 (95% for one run 4.1-54.6), the zombie unhurt, 4.00
+  iron per dead golem. Why this size (the void gate): one
   build-day costs about 15 s of a server (the parent's budget was 45 s); 8 builds keep every
   rotation and both chunk alignments (strikes and spawning are per chunk), 3 natural days give
   each build about 3 rest cycles and the rate's standard error over 8 builds about 5% of a

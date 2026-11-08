@@ -76,11 +76,16 @@ pub struct GateOpts {
     pub keep: bool,
     /// Print the samples (every 1000 gt).
     pub trace: bool,
+    /// mobinfra: a terrain sample (`village-edge`...): the farm runs at its Site in the sample's
+    /// kept world (`world`, default `$MCTAS_HOME/terrain/worlds/<the sample's world>`), `parallel`
+    /// runs of the one placement instead of the 8 builds.
+    pub terrain: Option<String>,
+    pub world: Option<std::path::PathBuf>,
 }
 
 impl GateOpts {
     pub fn new(version: &str) -> GateOpts {
-        GateOpts { version: version.to_string(), days: 3, rain_day: true, thunder_day: true, warmup: (150_000, 400_000), seed: 1, builds: Vec::new(), parallel: 8, keep: false, trace: false }
+        GateOpts { version: version.to_string(), days: 3, rain_day: true, thunder_day: true, warmup: (150_000, 400_000), seed: 1, builds: Vec::new(), parallel: 8, keep: false, trace: false, terrain: None, world: None }
     }
 }
 
@@ -254,9 +259,8 @@ pub fn judge_builds() -> Vec<(u8, [i32; 3])> {
 
 /// The riders' seats as redsim seats them: every passenger's position after the arrival and one
 /// tick (positionRider), with its entity id.
-fn rider_seats(spec: &FarmSpec, seed: i64) -> Result<Vec<(String, [f64; 3])>> {
-    let o = RunOpts::steady(seed, 0, WalkMode::Random);
-    let mut run = farm::Run::new(spec, &o).map_err(|e| anyhow!(e))?;
+fn rider_seats(spec: &FarmSpec, o: &RunOpts) -> Result<Vec<(String, [f64; 3])>> {
+    let mut run = farm::Run::new(spec, o).map_err(|e| anyhow!(e))?;
     run.tick();
     Ok(run
         .world
@@ -292,9 +296,14 @@ fn split_passengers(nbt: &str) -> Option<(Vec<String>, String)> {
     (!ids.is_empty()).then_some((ids, rest))
 }
 
-/// Entity data `nbt` (a compound, or `{}`) with `Tags:[tag]` added.
+/// Entity data `nbt` (a compound, or `{}`) with `tag` added to its `Tags` (made when missing).
 fn with_tag(nbt: &str, tag: &str) -> String {
     let body = nbt.trim().trim_start_matches('{').trim_end_matches('}').trim();
+    if let Some(i) = body.find("Tags:[") {
+        let at = i + "Tags:[".len();
+        let sep = if body[at..].starts_with(']') { "" } else { "," };
+        return format!("{{{}\"{tag}\"{sep}{}}}", &body[..at], &body[at..]);
+    }
     if body.is_empty() { format!("{{Tags:[\"{tag}\"]}}") } else { format!("{{Tags:[\"{tag}\"],{body}}}") }
 }
 
@@ -380,13 +389,102 @@ fn step(s: &mut VanillaServer, n: u32) -> Result<()> {
     Ok(())
 }
 
+/// The game run of a terrain sample (`GateOpts::terrain`): the farm at its Site (the judge's spot,
+/// offset and fills) in a copy of the sample's kept world, the one the committed sample was cut
+/// from (devvm69725's, push #5), its saved weather the cycle's stationary state (no warm-up ticks
+/// that would age the village), the AFK bot at the design's `afk:` (creative counts for spawning),
+/// Hard, natural monsters on (phantoms, patrols, traders off, as the terrain judge), simulation
+/// distance 10 (every chunk within 128 of the bot ticks, as redsim's natural spawning), only the
+/// farm's box forced (forced chunks spawn too). Run `k` of `o.parallel`.
+pub fn run_terrain(c: &Circuit, name: &str, k: u8, o: &GateOpts) -> Result<BuildRun> {
+    let t0 = std::time::Instant::now();
+    let spec = crate::mobfarm::spec_of(c).map_err(|e| anyhow!(e))?;
+    let sample = redsim::terrain::samples::sample(name).ok_or_else(|| anyhow!("no terrain sample {name}"))?;
+    let site: &'static redsim::entity::mob::site::Site = Box::leak(Box::new(crate::mobfarm::site_of(c, &spec, name).map_err(|e| anyhow!(e))?));
+    let spec = site.spec(&spec);
+    let seed = o.seed.wrapping_mul(1000) + 700 + k as i64;
+    let mut ro = RunOpts::steady(seed, 0, WalkMode::Random);
+    ro.site = Some(site);
+    let built = terrain_built(&spec, site, &ro)?;
+    let seats = rider_seats(&spec, &ro)?;
+    let output = [spec.output.x, spec.output.y, spec.output.z];
+    let boxes = containers(&built.blocks, output);
+    let world = o.world.clone().unwrap_or_else(|| mctas::paths::home().join("terrain").join("worlds").join(sample.world));
+    if !world.join("level.dat").is_file() {
+        bail!("the kept world of {name} ({}) is not at {}: copy the one the sample was cut from (`--world`)", sample.world, world.display());
+    }
+    let w = redsim::weather::Weather::new(Plan::Cycle, seed).data;
+    let saved = mctas::vanilla::SavedWeather { clear_weather_time: w.clear_weather_time, rain_time: w.rain_time, thunder_time: w.thunder_time, raining: w.raining, thundering: w.thundering };
+    let v = VanillaOptions {
+        version: o.version.clone(),
+        heap_mb: 4096,
+        keep_dir: o.keep,
+        view_distance: 10,
+        simulation_distance: 10,
+        difficulty: "hard".into(),
+        world: Some(world),
+        default_world: true,
+        saved_weather: Some(saved),
+        ..Default::default()
+    };
+    let mut s = VanillaServer::start(&v)?;
+    s.cmd_ok("tick rate 10000")?;
+    s.cmd_ok(&format!("forceload add {} {} {} {}", spec.lo.x, spec.lo.z, spec.hi.x, spec.hi.z))?;
+    s.teleport_bot(site.afk.x, site.afk.y, site.afk.z)?;
+    for c in ["gamerule spawn_mobs true", "gamerule spawn_monsters true", "gamerule spawn_phantoms false", "gamerule spawn_patrols false", "gamerule spawn_wandering_traders false", "gamerule advance_time true", "gamerule advance_weather true"] {
+        s.cmd_ok(c)?;
+    }
+    if o.trace {
+        eprintln!("terrain run {k}: {name} offset {:?}, {} cells changed, the AFK bot at {:.1} {:.1} {:.1}, weather {saved:?}", site.offset, built.blocks.len(), site.afk.x, site.afk.y, site.afk.z);
+    }
+    let run = BuildRun { turns: k, offset: site.offset, ..Default::default() };
+    let p = Prepared { entities: spec.entities.clone(), scope: Scope::terrain(&spec), label: format!("terrain run {k}"), day0: ro.day0, spec, built, seats, output, boxes };
+    run_farm(s, p, run, o, t0)
+}
+
+/// The farm the terrain judge builds at its Site (`farm::Run::start` with the site, its water
+/// settled) as the cells it changed from the sample's world: the farm's box and the fills (C7's
+/// glass), air where it dug; the detectors held back; the farm's flammable blocks and lava watched.
+fn terrain_built(spec: &FarmSpec, site: &redsim::entity::mob::site::Site, o: &RunOpts) -> Result<Built> {
+    let mut run = farm::Run::start(spec, o).map_err(|e| anyhow!(e))?;
+    while run.settle_tick() {}
+    let before = site.world.lock().map_err(|_| anyhow!("the site's world lock is poisoned"))?;
+    let w = &run.world;
+    let mut cells: Vec<redsim::BlockPos> = Vec::new();
+    for y in spec.lo.y..=spec.hi.y {
+        for z in spec.lo.z..=spec.hi.z {
+            for x in spec.lo.x..=spec.hi.x {
+                cells.push(redsim::BlockPos::new(x, y, z));
+            }
+        }
+    }
+    cells.extend(site.fills.iter().copied().filter(|p| !(spec.lo.x..=spec.hi.x).contains(&p.x) || !(spec.lo.y..=spec.hi.y).contains(&p.y) || !(spec.lo.z..=spec.hi.z).contains(&p.z)));
+    let detectors: Vec<([i32; 3], String)> = spec.blocks.iter().filter(|(_, b)| matches!(b, redsim::Block::DaylightDetector { .. })).map(|(p, b)| ([p.x, p.y, p.z], b.to_string())).collect();
+    let mut blocks = Vec::new();
+    let mut watch = Vec::new();
+    for p in cells {
+        let (was, b) = (before.get(p), w.get(p));
+        // the same state (a natural stone where the design's stone stands: `Block::Terrain` and
+        // `Block::Simple` are one state in the game) is no change
+        if was == b || was.to_string() == b.to_string() || detectors.iter().any(|(d, _)| *d == [p.x, p.y, p.z]) {
+            continue;
+        }
+        let st = b.to_string();
+        if redsim::weather::lightning::flammable(&b).is_some() || matches!(b, redsim::Block::Lava { .. }) {
+            watch.push(([p.x, p.y, p.z], st.split('[').next().unwrap_or(&st).to_string()));
+        }
+        blocks.push(([p.x, p.y, p.z], st));
+    }
+    Ok(Built { blocks, detectors, watch })
+}
+
 /// The game run of one build: `c` turned and moved.
 pub fn run_build(c: &Circuit, turns: u8, offset: [i32; 3], o: &GateOpts) -> Result<BuildRun> {
     let t0 = std::time::Instant::now();
     let spec = crate::mobfarm::spec_of(c).map_err(|e| anyhow!(e))?;
     let seed = o.seed.wrapping_mul(1000) + turns as i64 * 10 + (offset[0] & 7) as i64;
-    let Built { blocks, detectors, mut watch } = built_blocks(&spec, seed)?;
-    let seats = rider_seats(&spec, seed)?;
+    let Built { blocks, detectors, watch } = built_blocks(&spec, seed)?;
+    let seats = rider_seats(&spec, &RunOpts::steady(seed, 0, WalkMode::Random))?;
     if o.trace {
         eprintln!("build {turns} {offset:?}: redsim's seats {seats:?}");
     }
@@ -398,6 +496,54 @@ pub fn run_build(c: &Circuit, turns: u8, offset: [i32; 3], o: &GateOpts) -> Resu
     let mut r = redsim::rng::LegacyRandom::new(seed ^ 0x6761_7465);
     let warm = o.warmup.0 + r.next_int((o.warmup.1 - o.warmup.0).max(1) as i32) as u32;
     step(&mut s, warm)?;
+    let entities = c.clock.design.entities.iter().map(|e| (e.kind.clone(), e.pos, e.nbt.clone())).collect();
+    let day0 = RunOpts::steady(seed, 0, WalkMode::Random).day0;
+    let p = Prepared { spec, built: Built { blocks, detectors, watch }, seats, entities, day0, scope: Scope::void(), label: format!("build {turns} {offset:?}"), output, boxes };
+    run_farm(s, p, run, o, t0)
+}
+
+/// What a game run needs once its server is up (world coordinates): the farm as the judge built
+/// it, the entities to summon, the riders' seats, the steady state's day time, which entities the
+/// samples read.
+struct Prepared {
+    spec: FarmSpec,
+    built: Built,
+    seats: Vec<(String, [f64; 3])>,
+    entities: Vec<(String, [f64; 3], Option<String>)>,
+    day0: i64,
+    scope: Scope,
+    label: String,
+    output: [i32; 3],
+    boxes: Vec<[i32; 3]>,
+}
+
+/// Which entities the samples read. In the void every entity is the farm's (`void`); in a terrain
+/// sample only the farm's own (tagged `mf` at their summon: villagers, the zombie, the vehicle)
+/// and what is near the farm's box (witches, zombie villagers, items within 8 blocks), and only
+/// the golems first seen inside the farm (the village's golem and others are not the farm's).
+#[derive(Clone, Debug)]
+struct Scope {
+    own: String,
+    near: String,
+    all_golems: bool,
+}
+
+impl Scope {
+    fn void() -> Scope {
+        Scope { own: String::new(), near: String::new(), all_golems: true }
+    }
+
+    fn terrain(spec: &FarmSpec) -> Scope {
+        let (lo, hi) = (spec.lo.offset(-8, -8, -8), spec.hi.offset(8, 8, 8));
+        Scope { own: ",tag=mf".into(), near: format!(",x={},y={},z={},dx={},dy={},dz={}", lo.x, lo.y, lo.z, hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1), all_golems: false }
+    }
+}
+
+/// A game run from a started server on: the farm pasted, the steady state's day time, the
+/// detectors, the entities (each tagged `mf`), then the natural days and the forced ones sampled
+/// every 20 gt, and the iron at the end.
+fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, t0: std::time::Instant) -> Result<BuildRun> {
+    let Prepared { spec, built: Built { blocks, detectors, mut watch }, seats, entities, day0, scope, label, output, boxes } = p;
     for (p, st) in &blocks {
         let out = s.cmd(&format!("setblock {} {st} strict", xyz(*p)))?;
         if !out.contains("Changed the block") {
@@ -405,24 +551,22 @@ pub fn run_build(c: &Circuit, turns: u8, offset: [i32; 3], o: &GateOpts) -> Resu
         }
     }
     // the judge's steady state: a day time in the day, LAST_SLEPT at the end of the last rest
-    let day0 = RunOpts::steady(seed, 0, WalkMode::Random).day0;
     s.cmd_ok(&format!("time set {day0}"))?;
     for (p, st) in &detectors {
         s.cmd_ok(&format!("setblock {} {st}", xyz(*p)))?;
     }
     let now = s.game_time()?;
     let slept = now - (day0 - 10);
-    let d = &c.clock.design;
     let mut villager_spots: Vec<[f64; 3]> = Vec::new();
-    for (n, e) in d.entities.iter().enumerate() {
-        let k = e.kind.trim_start_matches("minecraft:");
-        let [x, y, z] = e.pos;
+    for (n, (kind, pos, nbt)) in entities.iter().enumerate() {
+        let k = kind.trim_start_matches("minecraft:");
+        let [x, y, z] = *pos;
         // a vehicle with its riders: the vehicle alone, then each rider summoned at the seat redsim
         // seats it on and mounted (`ride`), so its first tick is in its seat: summoned in one
         // command, a passenger starts at the vehicle's position and can spend that tick inside a
         // block before positionRider seats it (a hit the farm never takes)
-        if let Some((riders, rest)) = e.nbt.as_deref().and_then(split_passengers) {
-            s.cmd_ok(&format!("summon minecraft:{k} {x} {y} {z} {}", with_tag(&rest, &format!("mf_vehicle_{n}")))).with_context(|| format!("summon {k}"))?;
+        if let Some((riders, rest)) = nbt.as_deref().and_then(split_passengers) {
+            s.cmd_ok(&format!("summon minecraft:{k} {x} {y} {z} {}", with_tag(&with_tag(&rest, &format!("mf_vehicle_{n}")), "mf"))).with_context(|| format!("summon {k}"))?;
             for (j, rider) in riders.iter().enumerate() {
                 let short = rider.trim_start_matches("minecraft:");
                 let seat = seats
@@ -431,7 +575,7 @@ pub fn run_build(c: &Circuit, turns: u8, offset: [i32; 3], o: &GateOpts) -> Resu
                     .nth(j)
                     .map(|(_, p)| *p)
                     .ok_or_else(|| anyhow!("redsim seats no {rider} on the {k} at {x} {y} {z}"))?;
-                s.cmd_ok(&format!("summon {rider} {} {} {} {{Tags:[\"mf_rider_{n}_{j}\"]}}", seat[0], seat[1], seat[2])).with_context(|| format!("summon {rider}"))?;
+                s.cmd_ok(&format!("summon {rider} {} {} {} {{Tags:[\"mf_rider_{n}_{j}\",\"mf\"]}}", seat[0], seat[1], seat[2])).with_context(|| format!("summon {rider}"))?;
                 let out = s.cmd(&format!("ride @e[tag=mf_rider_{n}_{j},limit=1] mount @e[tag=mf_vehicle_{n},limit=1]"))?;
                 if !out.contains("started riding") {
                     bail!("ride {rider} on its {k}: {out}");
@@ -439,18 +583,19 @@ pub fn run_build(c: &Circuit, turns: u8, offset: [i32; 3], o: &GateOpts) -> Resu
             }
             continue;
         }
-        let cmd = match (k, e.nbt.as_deref()) {
+        let cmd = match (k, nbt.as_deref()) {
             ("villager", _) => {
-                villager_spots.push(e.pos);
-                format!("summon minecraft:villager {x} {y} {z} {{PersistenceRequired:1b,Brain:{{memories:{{\"minecraft:last_slept\":{{value:{slept}L}}}}}}}}")
+                villager_spots.push(*pos);
+                format!("summon minecraft:villager {x} {y} {z} {{PersistenceRequired:1b,Tags:[\"mf\"],Brain:{{memories:{{\"minecraft:last_slept\":{{value:{slept}L}}}}}}}}")
             }
-            (_, Some(n)) => format!("summon minecraft:{k} {x} {y} {z} {n}"),
-            (_, None) => format!("summon minecraft:{k} {x} {y} {z}"),
+            (_, Some(n)) => format!("summon minecraft:{k} {x} {y} {z} {}", with_tag(n, "mf")),
+            (_, None) => format!("summon minecraft:{k} {x} {y} {z} {{Tags:[\"mf\"]}}"),
         };
         s.cmd_ok(&cmd).with_context(|| format!("summon {k}"))?;
     }
-    let zombies0 = s.count_entities("@e[type=minecraft:zombie]")?;
-    let vehicles0 = s.count_entities("@e[type=#minecraft:boat]")? + s.count_entities("@e[type=minecraft:minecart]")?;
+    let own = &scope.own;
+    let zombies0 = s.count_entities(&format!("@e[type=minecraft:zombie{own}]"))?;
+    let vehicles0 = s.count_entities(&format!("@e[type=#minecraft:boat{own}]"))? + s.count_entities(&format!("@e[type=minecraft:minecart{own}]"))?;
     let villagers0 = villager_spots.len() as u32;
     run.vehicles_now = vehicles0;
     let inner = spec.inner();
@@ -466,15 +611,15 @@ pub fn run_build(c: &Circuit, turns: u8, offset: [i32; 3], o: &GateOpts) -> Resu
     }
     // (--trace: the zombie and its vehicle tick by tick over the first 20 gt)
     if o.trace {
-        let z = s.cmd_long("execute as @e[type=minecraft:zombie] run data get entity @s Pos")?;
-        eprintln!("build {turns} gt 0: zombie {}", z.chars().take(160).collect::<String>());
+        let z = s.cmd_long(&format!("execute as @e[type=minecraft:zombie{own}] run data get entity @s Pos"))?;
+        eprintln!("{label} gt 0: zombie {}", z.chars().take(160).collect::<String>());
         for _ in 0..20 {
             step(&mut s, 1)?;
             t += 1;
-            let z = s.cmd_long("execute as @e[type=minecraft:zombie] run data get entity @s")?;
-            let b = s.cmd_long("execute as @e[type=#minecraft:boat] run data get entity @s Pos")?;
+            let z = s.cmd_long(&format!("execute as @e[type=minecraft:zombie{own}] run data get entity @s"))?;
+            let b = s.cmd_long(&format!("execute as @e[type=#minecraft:boat{own}] run data get entity @s Pos"))?;
             let pick = |key: &str| z.split(key).nth(1).map(|r| r.chars().take(40).collect::<String>()).unwrap_or_default();
-            eprintln!("build {turns} gt {t}: zombie Health{} | HurtTime{} | Pos{} | fall_distance{} | Fire{} | boat {}", pick("Health"), pick("HurtTime"), pick("Pos"), pick("fall_distance"), pick("Fire:"), b.chars().take(140).collect::<String>());
+            eprintln!("{label} gt {t}: zombie Health{} | HurtTime{} | Pos{} | fall_distance{} | Fire{} | boat {}", pick("Health"), pick("HurtTime"), pick("Pos"), pick("fall_distance"), pick("Fire:"), b.chars().take(140).collect::<String>());
         }
     }
     for (k, (len, cmd)) in plan.iter().enumerate() {
@@ -489,7 +634,7 @@ pub fn run_build(c: &Circuit, turns: u8, offset: [i32; 3], o: &GateOpts) -> Resu
             let w = windows.last_mut().unwrap();
             w.ticks += 20;
             w.samples += 1;
-            sample(&mut s, &mut run, &mut golems, t, k, inner, &spec, villagers0, zombies0, &mut windows)?;
+            sample(&mut s, &mut run, &mut golems, t, k, inner, &spec, villagers0, zombies0, &scope, &mut windows)?;
             // the flammable blocks and the lava: burned away or flowed
             if t % 1000 == 0 {
                 let mut still = Vec::new();
@@ -506,11 +651,11 @@ pub fn run_build(c: &Circuit, turns: u8, offset: [i32; 3], o: &GateOpts) -> Resu
                 watch = still;
             }
             if o.trace && t % 1000 == 0 {
-                eprintln!("build {turns} {offset:?} gt {t}: {} golems, {} dead, failures {:?}", run.golems, run.deaths, run.failures);
+                eprintln!("{label} gt {t}: {} golems, {} dead, failures {:?}", run.golems, run.deaths, run.failures);
                 if t % 4000 == 0 {
-                    let mem = s.cmd_long("execute as @e[type=minecraft:villager] run data get entity @s Brain.memories")?;
+                    let mem = s.cmd_long(&format!("execute as @e[type=minecraft:villager{own}] run data get entity @s Brain.memories"))?;
                     eprintln!("  villager memories: {}", mem.chars().take(1500).collect::<String>());
-                    let z = s.cmd_long("execute as @e[type=minecraft:zombie] run data get entity @s Health")?;
+                    let z = s.cmd_long(&format!("execute as @e[type=minecraft:zombie{own}] run data get entity @s Health"))?;
                     eprintln!("  zombie: {z}");
                 }
             }
@@ -528,7 +673,7 @@ pub fn run_build(c: &Circuit, turns: u8, offset: [i32; 3], o: &GateOpts) -> Resu
     for p in &boxes {
         run.iron_containers += count_item(&s.cmd_long(&format!("data get block {} Items", xyz(*p)))?, "minecraft:iron_ingot");
     }
-    run.iron_loose = count_item(&s.cmd_long("execute as @e[type=minecraft:item] run data get entity @s Item")?, "minecraft:iron_ingot");
+    run.iron_loose = count_item(&s.cmd_long(&format!("execute as @e[type=minecraft:item{}] run data get entity @s Item", scope.near))?, "minecraft:iron_ingot");
     // what changed in the build: every cell's block type against the paste
     for (p, st) in &blocks {
         let id = st.split('[').next().unwrap_or(st);
@@ -566,8 +711,10 @@ fn sample(
     spec: &FarmSpec,
     villagers0: u32,
     zombies0: u32,
+    scope: &Scope,
     windows: &mut [Window],
 ) -> Result<()> {
+    let (own, near) = (&scope.own, &scope.near);
     let w = windows.last_mut().unwrap();
     let rain = s.cmd("execute if predicate {type:\"minecraft:weather_check\",raining:true}")?;
     if rain.contains("passed") {
@@ -581,7 +728,7 @@ fn sample(
     // new witches are villagers a bolt struck (one bolt converts every villager in its box: a
     // sample's new witches are one witch-making bolt, the card's unit), a lost vehicle one a bolt
     // broke
-    let witches = s.count_entities("@e[type=minecraft:witch]")?;
+    let witches = s.count_entities(&format!("@e[type=minecraft:witch{near}]"))?;
     if witches > run.witches_now {
         let w = windows.last_mut().unwrap();
         w.witches += 1;
@@ -589,7 +736,7 @@ fn sample(
         run.witches_now = witches;
         run.broken.get_or_insert(window);
     }
-    let vehicles = s.count_entities("@e[type=#minecraft:boat]")? + s.count_entities("@e[type=minecraft:minecart]")?;
+    let vehicles = s.count_entities(&format!("@e[type=#minecraft:boat{own}]"))? + s.count_entities(&format!("@e[type=minecraft:minecart{own}]"))?;
     if vehicles < run.vehicles_now {
         windows.last_mut().unwrap().vehicles += run.vehicles_now - vehicles;
         run.vehicles_now = vehicles;
@@ -618,13 +765,19 @@ fn sample(
     for g in golems.values_mut() {
         g.seen = false;
     }
-    for a in entity_answers(&s.cmd_long("execute as @e[type=minecraft:iron_golem] run data get entity @s")?) {
+    for a in entity_answers(&s.cmd_long(&format!("execute as @e[type=minecraft:iron_golem{near}] run data get entity @s"))?) {
         let Some(uuid) = list_after(&a, "UUID").map(|v| format!("{v:?}")) else { continue };
         let pos = list_after(&a, "Pos").unwrap_or_default();
         if pos.len() != 3 {
             continue;
         }
         let p = [pos[0], pos[1], pos[2]];
+        // in a terrain sample a golem is the farm's when first seen inside it (the village's golem
+        // and wanderers are not)
+        let outside = p[0] < inner.min_x || p[0] > inner.max_x || p[1] < inner.min_y || p[1] > inner.max_y || p[2] < inner.min_z || p[2] > inner.max_z;
+        if !scope.all_golems && outside && !golems.contains_key(&uuid) {
+            continue;
+        }
         let health = num_after(&a, "Health").unwrap_or(0.0);
         let death = num_after(&a, "DeathTime").unwrap_or(0.0);
         let g = golems.entry(uuid).or_insert_with(|| {
@@ -670,41 +823,47 @@ fn sample(
     if !checking {
         return Ok(());
     }
-    let vs = entity_answers(&s.cmd_long("execute as @e[type=minecraft:villager] run data get entity @s Health")?);
+    let vs = entity_answers(&s.cmd_long(&format!("execute as @e[type=minecraft:villager{own}] run data get entity @s Health"))?);
     if vs.len() as u32 != villagers0 {
         run.fail(format!("gt {t}: {} villagers of {villagers0}", vs.len()));
     }
     if vs.iter().any(|a| a.trim().trim_end_matches('f').parse::<f64>().unwrap_or(20.0) < 20.0) {
         run.fail(format!("gt {t}: a villager was hurt"));
     }
-    if s.count_entities("@e[type=minecraft:zombie_villager]")? > 0 {
+    if s.count_entities(&format!("@e[type=minecraft:zombie_villager{near}]"))? > 0 {
         run.fail(format!("gt {t}: a zombie villager in the world"));
     }
-    let zs = entity_answers(&s.cmd_long("execute as @e[type=minecraft:zombie] run data get entity @s Health")?);
+    let zs = entity_answers(&s.cmd_long(&format!("execute as @e[type=minecraft:zombie{own}] run data get entity @s Health"))?);
     if zs.len() as u32 != zombies0 {
         run.fail(format!("gt {t}: {} zombies of {zombies0}", zs.len()));
     }
     if let Some(h) = zs.iter().map(|a| a.trim().trim_end_matches('f').parse::<f64>().unwrap_or(20.0)).find(|h| *h < 20.0) {
-        let why = s.cmd_long("execute as @e[type=minecraft:zombie] run data get entity @s")?;
+        let why = s.cmd_long(&format!("execute as @e[type=minecraft:zombie{own}] run data get entity @s"))?;
         let hurt = why.split("HurtTime").nth(1).map(|r| r.chars().take(8).collect::<String>()).unwrap_or_default();
         let pos = list_after(&why.replace(' ', ""), "Pos").unwrap_or_default();
         run.fail(format!("gt {t}: the zombie was hurt (health {h:.1}; HurtTime{hurt}; at {pos:?})"));
     }
     // drops outside the farm's box
     let (lo, hi) = (spec.lo, spec.hi);
-    let all = s.count_entities("@e[type=minecraft:item]")?;
+    let all = s.count_entities(&format!("@e[type=minecraft:item{near}]"))?;
     let inside = s.count_entities(&format!("@e[type=minecraft:item,x={},y={},z={},dx={},dy={},dz={}]", lo.x, lo.y, lo.z, hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1))?;
     if all > inside {
-        // where, and what (one query only when something is out)
+        // where, and what (one query only when something is out); only the farm's own drops (a
+        // golem's iron and poppies) count: a trap horse a bolt left in the void falls and drops
+        // its bones far below, which is not a leak of the farm
         let mut out = Vec::new();
-        for a in entity_answers(&s.cmd_long("execute as @e[type=minecraft:item] run data get entity @s")?) {
+        for a in entity_answers(&s.cmd_long(&format!("execute as @e[type=minecraft:item{near}] run data get entity @s"))?) {
             let p = list_after(&a, "Pos").unwrap_or_default();
             if p.len() == 3 && (p[0] < lo.x as f64 || p[0] > hi.x as f64 + 1.0 || p[1] < lo.y as f64 || p[1] > hi.y as f64 + 1.0 || p[2] < lo.z as f64 || p[2] > hi.z as f64 + 1.0) {
                 let id = a.split("id: \"").nth(1).or_else(|| a.split("id:\"").nth(1)).and_then(|r| r.split('"').next()).unwrap_or("?").trim_start_matches("minecraft:").to_string();
-                out.push(format!("{id} at {:.1} {:.1} {:.1}", p[0], p[1], p[2]));
+                if matches!(id.as_str(), "iron_ingot" | "poppy") {
+                    out.push(format!("{id} at {:.1} {:.1} {:.1}", p[0], p[1], p[2]));
+                }
             }
         }
-        run.fail(format!("gt {t}: {} drops outside the farm ({})", all - inside, out.join("; ")));
+        if !out.is_empty() {
+            run.fail(format!("gt {t}: {} of the farm's drops outside the farm ({})", out.len(), out.join("; ")));
+        }
     }
     // bolts (seen only if one lives at the sample)
     for a in entity_answers(&s.cmd_long("execute as @e[type=minecraft:lightning_bolt] run data get entity @s Pos")?) {
@@ -815,13 +974,32 @@ fn sd(v: &[f64]) -> f64 {
 
 /// The gate: every build in its own server (`parallel` at once), then the rate against redsim's.
 pub fn gate(c: &Circuit, o: &GateOpts) -> Result<GateReport> {
-    let builds = if o.builds.is_empty() { judge_builds() } else { o.builds.clone() };
-    let jobs: Vec<(u8, [i32; 3], Circuit)> = builds.iter().map(|(t, off)| -> Result<_> { Ok((*t, *off, c.turned_pure(*t)?.translated(*off)?)) }).collect::<Result<_>>()?;
+    let builds = match &o.terrain {
+        // a terrain sample: one placement (its Site), `parallel` runs of it
+        Some(_) => (0..o.parallel.max(1) as u8).map(|k| (k, [0, 0, 0])).collect(),
+        None if o.builds.is_empty() => judge_builds(),
+        None => o.builds.clone(),
+    };
+    let jobs: Vec<(u8, [i32; 3], Circuit)> = match &o.terrain {
+        Some(_) => builds.iter().map(|(k, off)| (*k, *off, c.clone())).collect(),
+        None => builds.iter().map(|(t, off)| -> Result<_> { Ok((*t, *off, c.turned_pure(*t)?.translated(*off)?)) }).collect::<Result<_>>()?,
+    };
     let mut results: Vec<Option<Result<BuildRun>>> = (0..jobs.len()).map(|_| None).collect();
     for chunk in (0..jobs.len()).collect::<Vec<_>>().chunks(o.parallel.max(1)) {
         let jobs = &jobs;
         let out: Vec<(usize, Result<BuildRun>)> = std::thread::scope(|sc| {
-            let hs: Vec<_> = chunk.iter().map(|&k| (k, sc.spawn(move || run_build(&jobs[k].2, jobs[k].0, jobs[k].1, o)))).collect();
+            let hs: Vec<_> = chunk
+                .iter()
+                .map(|&k| {
+                    (
+                        k,
+                        sc.spawn(move || match &o.terrain {
+                            Some(name) => run_terrain(&jobs[k].2, name, jobs[k].0, o),
+                            None => run_build(&jobs[k].2, jobs[k].0, jobs[k].1, o),
+                        }),
+                    )
+                })
+                .collect();
             hs.into_iter().map(|(k, h)| (k, h.join().unwrap_or_else(|_| Err(anyhow!("a build panicked"))))).collect()
         });
         for (k, r) in out {
@@ -841,8 +1019,17 @@ pub fn gate(c: &Circuit, o: &GateOpts) -> Result<GateReport> {
         }
     }
     // the rates: every window against redsim's runs of the same schedule (the judge's own runs,
-    // farm::run, from the cycle's stationary state, with the same forced windows)
+    // farm::run, from the cycle's stationary state, with the same forced windows; in a terrain
+    // sample at its Site)
     let spec = crate::mobfarm::spec_of(c).map_err(|e| anyhow!(e))?;
+    let site: Option<&'static redsim::entity::mob::site::Site> = match &o.terrain {
+        Some(name) => Some(Box::leak(Box::new(crate::mobfarm::site_of(c, &spec, name).map_err(|e| anyhow!(e))?))),
+        None => None,
+    };
+    let spec = match site {
+        Some(s) => s.spec(&spec),
+        None => spec,
+    };
     let day = 24000i64;
     let natural = o.days as i64 * day;
     let plan = match (o.rain_day, o.thunder_day) {
@@ -860,8 +1047,21 @@ pub fn gate(c: &Circuit, o: &GateOpts) -> Result<GateReport> {
         spans.push(("a forced day of thunder".into(), a, a + day, 2.576));
     }
     let total = spans.last().map(|s| s.2).unwrap_or(natural);
-    let sims: Vec<RunOpts> = (0..64).map(|k| RunOpts::steady(0x6761_7465 + k, total as u32, WalkMode::Random).with_weather(plan)).collect();
-    let sim_runs: Vec<farm::RunReport> = crate::mobfarm::run_all(&spec, &sims).into_iter().filter_map(|r| r.ok()).collect();
+    let sims: Vec<RunOpts> = (0..64)
+        .map(|k| {
+            let mut r = RunOpts::steady(0x6761_7465 + k, total as u32, WalkMode::Random).with_weather(plan);
+            r.site = site;
+            r
+        })
+        .collect();
+    let mut sim_runs: Vec<farm::RunReport> = Vec::new();
+    for (k, r) in crate::mobfarm::run_all(&spec, &sims).into_iter().enumerate() {
+        match r {
+            Ok(r) => sim_runs.push(r),
+            // never a run silently dropped from the interval
+            Err(e) => rep.failures.push(format!("redsim's reference run {k}: {e}")),
+        }
+    }
     rep.sim_runs = sim_runs.len();
     let arrive = farm::SETTLE_TICKS;
     for (k, (name, a, b, z)) in spans.iter().enumerate() {
@@ -957,5 +1157,6 @@ mod tests {
         assert_eq!(split_passengers("{Passengers:[{id:\"minecraft:zombie\",IsBaby:1b}]}"), None);
         assert_eq!(with_tag("{}", "t"), "{Tags:[\"t\"]}");
         assert_eq!(with_tag("{Rotation:[90.0f,0.0f]}", "t"), "{Tags:[\"t\"],Rotation:[90.0f,0.0f]}");
+        assert_eq!(with_tag(&with_tag("{Rotation:[90.0f,0.0f]}", "a"), "mf"), "{Tags:[\"mf\",\"a\"],Rotation:[90.0f,0.0f]}");
     }
 }

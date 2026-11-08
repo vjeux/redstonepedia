@@ -15,7 +15,9 @@ The mob farms' commands (`mctas mobfarm gen | edit | exit | run | probe | valida
 layouts, a design's chest and `how:` line, the golem exit flood, single redsim runs, a built farm's
 blocks, the design run in the real server against redsim, the real-game gate that `circuit
 verify` runs: `mctas mobfarm gate <design> [--days 3] [--builds 0.0 1.1] [--no-rain-day]
-[--no-thunder-day] [--parallel 8] [--keep] [--trace]`, and the weather model's checks against
+[--no-thunder-day] [--parallel 8] [--keep] [--trace] [--terrain <sample> [--world <kept world>]]`
+(a terrain sample: the farm at its Site in the sample's kept world, `--parallel` runs), `mobfarm
+run ... --ticks-only` (the time a game day takes), and the weather model's checks against
 the official server: the cycle's statistics, lava's fire in a design, summoned bolts' outcomes) are in the ironfarm track notes
 ([NOTES.md](../designs/circuits/mobfarm/tracks/ironfarm/NOTES.md#commands)); the kind
 (`circuit: mob-farm iron_ingot day-1|middle|fastest`) is judged on redsim and confirmed in the real game by `circuit verify` like every circuit ([circuits.md](circuits.md)).

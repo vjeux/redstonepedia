@@ -179,6 +179,85 @@ pub fn parse_named(bytes: &[u8]) -> Result<Tag> {
     r.payload(10, 0)
 }
 
+/// A named root tag in the on-disk form (type byte, name, payload): [`parse_named`]'s inverse
+/// (mobinfra: a saved world's weather written before the server starts).
+pub fn write_named(name: &str, t: &Tag) -> Vec<u8> {
+    let mut out = vec![kind_of(t)];
+    write_string(name, &mut out);
+    write_payload(t, &mut out);
+    out
+}
+
+fn kind_of(t: &Tag) -> u8 {
+    match t {
+        Tag::Byte(_) => 1,
+        Tag::Short(_) => 2,
+        Tag::Int(_) => 3,
+        Tag::Long(_) => 4,
+        Tag::Float(_) => 5,
+        Tag::Double(_) => 6,
+        Tag::ByteArray(_) => 7,
+        Tag::String(_) => 8,
+        Tag::List(_) => 9,
+        Tag::Compound(_) => 10,
+        Tag::IntArray(_) => 11,
+        Tag::LongArray(_) => 12,
+    }
+}
+
+fn write_string(s: &str, out: &mut Vec<u8>) {
+    let b = s.as_bytes();
+    out.extend_from_slice(&(b.len() as u16).to_be_bytes());
+    out.extend_from_slice(b);
+}
+
+fn write_len(n: usize, out: &mut Vec<u8>) {
+    out.extend_from_slice(&(n as i32).to_be_bytes());
+}
+
+fn write_payload(t: &Tag, out: &mut Vec<u8>) {
+    match t {
+        Tag::Byte(v) => out.push(*v as u8),
+        Tag::Short(v) => out.extend_from_slice(&v.to_be_bytes()),
+        Tag::Int(v) => out.extend_from_slice(&v.to_be_bytes()),
+        Tag::Long(v) => out.extend_from_slice(&v.to_be_bytes()),
+        Tag::Float(v) => out.extend_from_slice(&v.to_bits().to_be_bytes()),
+        Tag::Double(v) => out.extend_from_slice(&v.to_bits().to_be_bytes()),
+        Tag::ByteArray(v) => {
+            write_len(v.len(), out);
+            out.extend(v.iter().map(|b| *b as u8));
+        }
+        Tag::String(s) => write_string(s, out),
+        Tag::List(v) => {
+            out.push(v.first().map(kind_of).unwrap_or(0));
+            write_len(v.len(), out);
+            for e in v {
+                write_payload(e, out);
+            }
+        }
+        Tag::Compound(m) => {
+            for (k, v) in m {
+                out.push(kind_of(v));
+                write_string(k, out);
+                write_payload(v, out);
+            }
+            out.push(0);
+        }
+        Tag::IntArray(v) => {
+            write_len(v.len(), out);
+            for x in v {
+                out.extend_from_slice(&x.to_be_bytes());
+            }
+        }
+        Tag::LongArray(v) => {
+            write_len(v.len(), out);
+            for x in v {
+                out.extend_from_slice(&x.to_be_bytes());
+            }
+        }
+    }
+}
+
 /// A tag as SNBT (the `/data get` text form): keys sorted, numbers with their type suffix,
 /// strings and keys quoted when they need it.
 pub fn to_snbt(t: &Tag) -> String {
@@ -286,5 +365,26 @@ pub fn block_state_string(entry: &Tag) -> String {
             format!("{name}[{}]", kv.join(","))
         }
         _ => name.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// write_named is parse_named's inverse (a saved weather's shape).
+    #[test]
+    fn write_then_parse() {
+        let mut data = BTreeMap::new();
+        data.insert("clear_weather_time".to_string(), Tag::Int(0));
+        data.insert("rain_time".to_string(), Tag::Int(81234));
+        data.insert("raining".to_string(), Tag::Byte(1));
+        data.insert("list".to_string(), Tag::List(vec![Tag::Long(-5), Tag::Long(7)]));
+        data.insert("name".to_string(), Tag::String("minecraft:weather".into()));
+        let mut root = BTreeMap::new();
+        root.insert("data".to_string(), Tag::Compound(data));
+        root.insert("DataVersion".to_string(), Tag::Int(4790));
+        let t = Tag::Compound(root);
+        assert_eq!(parse_named(&write_named("", &t)).unwrap(), t);
     }
 }

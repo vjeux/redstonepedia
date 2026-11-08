@@ -129,6 +129,13 @@ pub enum MobfarmCmd {
         keep: bool,
         #[arg(long)]
         trace: bool,
+        /// A terrain sample (`village-edge`...): the farm at its Site in the sample's kept world,
+        /// `--parallel` runs of the one placement.
+        #[arg(long)]
+        terrain: Option<String>,
+        /// The kept world folder (default `$MCTAS_HOME/terrain/worlds/<the sample's world>`).
+        #[arg(long)]
+        world: Option<PathBuf>,
     },
     /// mobinfra: the weather cycle's statistics in official servers (empty plains worlds) beside
     /// redsim's over the same length.
@@ -343,8 +350,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
         }
         MobfarmCmd::Spots { design, terrain, repeat } => spots_cmd(version, &design, &terrain, repeat)?,
-        MobfarmCmd::Gate { design, days, builds, no_rain_day, no_thunder_day, seed, parallel, warmup, keep, trace } => {
-            crate::gate::gate_cmd(version, &design, crate::gate::GateArgs { days, builds, rain_day: !no_rain_day, thunder_day: !no_thunder_day, seed, parallel, warmup: (warmup[0], warmup[1]), keep, trace })?
+        MobfarmCmd::Gate { design, days, builds, no_rain_day, no_thunder_day, seed, parallel, warmup, keep, trace, terrain, world } => {
+            crate::gate::gate_cmd(version, &design, crate::gate::GateArgs { days, builds, rain_day: !no_rain_day, thunder_day: !no_thunder_day, seed, parallel, warmup: (warmup[0], warmup[1]), keep, trace, terrain, world })?
         }
         MobfarmCmd::WeatherStats { days, servers, dt, sim_runs } => crate::weathercheck::weather_stats_cmd(version, days, servers, dt, sim_runs)?,
         MobfarmCmd::FireBurn { design, servers, max, seeds } => crate::weathercheck::fire_burn_cmd(version, &design, servers, max, seeds)?,
