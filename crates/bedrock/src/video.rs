@@ -2356,6 +2356,9 @@ fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
     p.build_portal2("overworld", c.rox - 1, 2, c.doz_a, 3)?;
     p.build_portal2("overworld", c.dix - 1, 2, c.doz_a, 3)?;
     p.build_portal2("overworld", c.dix - 1, 2, c.doz_b, 3)?;
+    // Back to the west end before building west-to-east: from the branch bay the only
+    // walkable route is north up the branch column, west along the main aisle.
+    p.walk_path(&[(c.dix + 1, c.doz_b + 2), (c.dix + 1, c.doz_a + 3), (c.rox, c.doz_a + 3), (c.rox, c.doz_a + 2)])?;
     // Stone only where something sits or feet go: the dust rows, the branch column, the
     // build-stand rows (a full rectangular slab was ~170 one-by-one placements).
     p.select(SLOT_STONE)?;
@@ -2376,7 +2379,9 @@ fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
         }
         p.place_at("overworld", [x, 2, z], "minecraft:stone", None)?;
     }
-    // Hoppers under the plates, then the plates themselves.
+    // Hoppers under the plates, then the plates themselves. The strip ends at the
+    // branch's south end; walk the same aisle route back west first.
+    p.walk_path(&[(c.dix + 1, c.doz_b + 2), (c.dix + 1, c.doz_a + 3), (c.rox, c.doz_a + 3), (c.rox, c.doz_a + 2)])?;
     p.hold("hopper")?;
     for (x, z) in plate_cells {
         p.place_at("overworld", [x, 2, z], "minecraft:hopper", None)?;
