@@ -1106,9 +1106,6 @@ fn properties(site: &Site, b: &Build, prefix: &str, design_text: &str) -> String
             extra.push("the two double chests");
         }
         let count = if extra.is_empty() { b.blocks.to_string() } else { format!("{} (not counting {} the view adds)", b.blocks, extra.join(" and ")) };
-        // (a mob farm: its chest goes at OUT, where the view draws its test lamp; the download
-        // has no chest)
-        let count = if crate::explain::mob_farm(c) { format!("{} (not counting the chest that goes at OUT, where the view draws a lamp)", b.blocks) } else { count };
         s.push_str(&row("Blocks placed", &count));
         if let (Some(v), Some(dm)) = (b.volume, &b.dims) {
             s.push_str(&row("Box", &format!("{} ({v} blocks of space)", esc(&dm.replace('x', "×")))));
@@ -1724,9 +1721,6 @@ pub fn study_page(site: &Site, folder: &str, scripts: Scripts) -> String {
             if !list.is_empty() && list.iter().all(|b| b.circuit.as_ref().is_some_and(site_model::html::decimal_display)) {
                 // (the 0-9 display: its face's lamps and its input chest are our test's)
                 "<p class=\"hint\">The pictures show the display with the chest and the face's lamps our test adds, settled at the digit 5; the block counts leave those out.</p>\n"
-            } else if !list.is_empty() && list.iter().all(|b| b.circuit.as_ref().is_some_and(crate::explain::mob_farm)) {
-                // (an iron farm: the view's lamp stands where its chest goes; no input)
-                "<p class=\"hint\">The pictures show each farm with a lamp where its chest goes; the block counts leave the chest out.</p>\n"
             } else if list.iter().any(|b| b.circuit.as_ref().is_some_and(|c| c.output_lamp && !chest_out(c))) {
                 "<p class=\"hint\">The pictures show each design with its inputs and a test lamp; the block counts leave those out.</p>\n"
             } else if list.iter().any(|b| b.circuit.as_ref().is_some_and(chest_out)) {

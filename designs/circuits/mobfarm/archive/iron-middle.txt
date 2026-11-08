@@ -1,5 +1,5 @@
-# archived 2026-11-08T10:37Z from designs/circuits/mobfarm/tracks/ironfarm/iron-middle.txt by mctas circuit archive
-# CIRCUIT: iron-middle mob-farm iron_ingot middle iron per hour per block 0.77, iron per hour 443, iron range 95% 439-447 (64 runs), golems per hour 111.6, seconds per golem 32.3, share of ceiling 93%, modules 1, iron per hour per module 443, kill 333 gt, worst policy 400 iron/h (still), restarts after a missed night yes, misses 11658 of 23560 tries found no spot, 11797 golem sightings, bill 13 iron, 6 quartz, 4 villagers, 4 beds, 1 zombie, payback 2 min, 578 blocks, 14x28x16, robust
+# archived 2026-11-08T11:51Z from designs/circuits/mobfarm/tracks/ironfarm/iron-middle.txt by mctas circuit archive
+# CIRCUIT: iron-middle mob-farm iron_ingot middle iron per hour per block 0.77, iron per hour 443, iron range 95% 439-447 (64 runs), golems per hour 111.6, seconds per golem 32.3, share of ceiling 93%, modules 1, iron per hour per module 443, kill 333 gt, worst policy 400 iron/h (still), restarts after a missed night yes, misses 11658 of 23560 tries found no spot, 11797 golem sightings, bill 13 iron, 6 quartz, 4 villagers, 4 beds, 1 zombie, payback 2 min, 579 blocks, 14x28x16, robust
 # The middle iron farm: for 13 iron and 6 quartz, four villagers summon a golem every 32 seconds,
 # 443 iron an hour (93% of the game's ceiling), each golem dropping out of their sight at once.
 # Four villagers sleep on beds in closed 1-cell pods under leaves (only three must agree, so a golem
@@ -16,6 +16,7 @@
 # spawn cells chi-square 15.89 over 20 cells (5% critical value 30.1).
 name: iron-middle
 circuit: mob-farm iron_ingot middle
+how: golems fall out of sight to a lava blade
 restart: yes
 port output: 3 -24 1
 entity: minecraft:villager 0.5 0.5625 0.5
@@ -27,17 +28,18 @@ origin: -1 0 -7
 palette:
   A minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
   B minecraft:oak_trapdoor[facing=south,half=bottom,open=false,powered=false,waterlogged=false]
-  C minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  C minecraft:chest[facing=north,type=single,waterlogged=false]
   D minecraft:daylight_detector[inverted=true,power=0]
-  E minecraft:redstone_torch[lit=false]
-  F minecraft:redstone_torch[lit=true]
+  E minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  F minecraft:redstone_torch[lit=false]
   G minecraft:glass
   H minecraft:hopper[enabled=true,facing=down]
-  I minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
-  J minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=none]
-  K minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  I minecraft:redstone_torch[lit=true]
+  J minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  K minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=none]
   L minecraft:lava[level=0]
-  M minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  M minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  N minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
   O minecraft:oak_fence_gate[facing=east,in_wall=false,open=true,powered=false]
   R minecraft:red_bed[facing=north,occupied=false,part=foot]
   S minecraft:stone
@@ -46,6 +48,23 @@ palette:
   o minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
   r minecraft:red_bed[facing=north,occupied=false,part=head]
   s minecraft:stone_slab[type=bottom,waterlogged=false]
+layer -24:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ....C
+  .
+  .
+  .
+  .
+  .
+  .
+  .
 layer -23:
   .
   .
@@ -441,7 +460,7 @@ layer 0:
   ....s
   .
   ......S
-  ......I
+  ......J
   ......D
   .
   .
@@ -457,12 +476,12 @@ layer 0:
 layer 1:
   .
   .
-  ...BBBFSSSSSS
+  ...BBBISSSSSS
   .
   .
   .
   .
-  GCGCGCGCG
+  GEGEGEGEG
   .G.G.G.G
   .
   .
@@ -474,7 +493,7 @@ layer 1:
 layer 2:
   ....A
   .
-  ...SSSSMMMMMMD
+  ...SSSSNNNNNND
   .
   .
   .
@@ -491,7 +510,7 @@ layer 2:
 layer 3:
   .
   .
-  ...JKKE
+  ...KMMF
   .
   .
   .

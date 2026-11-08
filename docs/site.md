@@ -98,7 +98,10 @@ vjeux/minecraft-tas until 2026-10-21, and GitHub does not redirect a renamed pro
   obvious design, the bar) is not published. Their pages say the farms are tested on our
   simulation of the game's mob rules (the caption gives the game check), that the view shows them
   as built (the browser's viewer runs no mob), where the chest goes, and the day-1 farm's first
-  night by hand.
+  night by hand. Their titles read like a crop farm's (`html::circuit_props`' `mob-farm` arm and
+  `mob_farm_title_tail`): "295 iron an hour · 62% of the ceiling · 189 blocks · 1.6 per block · 9
+  iron · golems burn in lava pits", the last words from the design's `how:` line
+  (`Circuit::feature`); each farm holds its own chest at OUT, so the view shows a chest there.
 - **Doors**: one card, the best fully seamless door (the seamless board's record: vjeux 23:44Z,
   "This is what people usually consider to be piston doors"); every board's record keeps its page
   (no card) and every record's page has the table of records.

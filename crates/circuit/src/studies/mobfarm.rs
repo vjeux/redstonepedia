@@ -128,14 +128,16 @@ fn parse_kind(w: &[&str]) -> Result<Vec<String>> {
     }
 }
 
-/// The ports: `port output` (an air cell: the judge's chest).
+/// The ports: `port output` (the farm's chest: a single chest in the design, or an air cell where
+/// the judge puts one).
 fn check_kind(c: &Circuit, _args: &[String]) -> Result<()> {
     let d = &c.clock.design;
-    let Some(out) = d.ports.get("output") else { bail!("mob-farm: needs `port output: x y z` (an air cell: the judge's chest)") };
-    if d.blocks.contains_key(out) {
-        bail!("mob-farm: port output {out:?} must be an air cell (the judge puts its chest there)");
+    let Some(out) = d.ports.get("output") else { bail!("mob-farm: needs `port output: x y z` (the farm's chest, or an air cell for the judge's)") };
+    match d.blocks.get(out) {
+        None => Ok(()),
+        Some(s) if s.trim_start_matches("minecraft:").starts_with("chest[") && s.contains("type=single") => Ok(()),
+        Some(s) => bail!("mob-farm: port output {out:?} holds {s}: it must be the farm's single chest or an air cell (the judge puts its chest there)"),
     }
-    Ok(())
 }
 
 fn bp(p: Pos) -> BlockPos {
@@ -372,7 +374,8 @@ pub struct Bill {
 
 impl Bill {
     pub fn text(&self) -> String {
-        format!("{:.0} iron, {} quartz, {} villagers, {} beds, {} zombie", self.iron.ceil(), self.quartz, self.villagers, self.beds, self.zombies)
+        let s = |n: u32, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
+        format!("{:.0} iron, {} quartz, {}, {}, {}", self.iron.ceil(), self.quartz, s(self.villagers, "villager", "villagers"), s(self.beds, "bed", "beds"), s(self.zombies, "zombie", "zombies"))
     }
 }
 

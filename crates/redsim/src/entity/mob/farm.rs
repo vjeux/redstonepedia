@@ -160,7 +160,10 @@ pub fn build(spec: &FarmSpec, o: &RunOpts) -> Result<World, String> {
     w.place_raw(&rest);
     w.place_updates(&rest);
     let chest = Block::parse("minecraft:chest[facing=north,type=single,waterlogged=false]")?;
-    w.set_block(spec.output, chest, crate::world::flags::RAW);
+    // (the design's own chest at its output stays as built; an air output gets the judge's)
+    if !matches!(w.get(spec.output), Block::Chest { .. }) {
+        w.set_block(spec.output, chest, crate::world::flags::RAW);
+    }
     crate::redstone::container::apply_block_entities(&mut w, [(spec.output, "{Items:[]}")])?;
     for _ in 0..SETTLE_TICKS {
         w.tick();

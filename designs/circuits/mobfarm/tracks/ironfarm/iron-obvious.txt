@@ -13,6 +13,7 @@
 # over 20 cells (5% critical value 30.1).
 name: iron-obvious
 circuit: mob-farm iron_ingot
+how: water carries golems to a lava blade in the villagers' sight
 restart: yes
 port output: 6 -11 2
 entity: minecraft:villager 0.5 0.5625 0.5
@@ -23,12 +24,13 @@ origin: -2 0 -7
 palette:
   A minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
   B minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
-  C minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  C minecraft:chest[facing=north,type=single,waterlogged=false]
   D minecraft:daylight_detector[inverted=true,power=0]
-  E minecraft:oak_wall_sign[facing=north,waterlogged=false]
-  F minecraft:oak_wall_sign[facing=south,waterlogged=false]
+  E minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  F minecraft:oak_wall_sign[facing=north,waterlogged=false]
   G minecraft:glass
   H minecraft:hopper[enabled=true,facing=down]
+  I minecraft:oak_wall_sign[facing=south,waterlogged=false]
   L minecraft:lava[level=0]
   O minecraft:oak_fence_gate[facing=east,in_wall=false,open=true,powered=false]
   R minecraft:red_bed[facing=north,occupied=false,part=foot]
@@ -38,6 +40,25 @@ palette:
   o minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
   r minecraft:red_bed[facing=north,occupied=false,part=head]
   s minecraft:stone_slab[type=bottom,waterlogged=false]
+layer -11:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ........C
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
 layer -10:
   .
   .
@@ -86,8 +107,8 @@ layer -8:
   .
   .
   SSSSSSSSSS
+  S......IIS
   S......FFS
-  S......EES
   SSSSSSSSSS
   .
   .
@@ -105,8 +126,8 @@ layer -7:
   .
   .
   SSSSSSSSSS
+  S.....ILLS
   S.....FLLS
-  S.....ELLS
   SSSSSSSSSS
   .
   .
@@ -162,8 +183,8 @@ layer -4:
   .
   .
   GGGGGGGGGG
+  GIIIIIIGGG
   GFFFFFFGGG
-  GEEEEEEGGG
   GSSSSSSGGG
   .SSSSSS
   .SSSSSS
@@ -255,7 +276,7 @@ layer 1:
   .
   .
   .
-  .GCGCGCG
+  .GEGEGEG
   ..G.G.G
   .
   .

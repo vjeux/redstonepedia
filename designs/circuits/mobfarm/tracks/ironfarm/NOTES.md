@@ -19,20 +19,42 @@ Pages: `circuits/mobfarm/iron-day1.html` (its live URL kept), `iron-middle.html`
 simulation of the mob rules (its caption gives the game check), that the 3D view shows it as built
 (the browser's viewer runs no mob; its badge names a block it does not simulate), where the chest
 goes, and, for the day-1 farm, the first night's hand. Re-judged with the tiers, every card is the
-same (the metrics byte for byte; only the kind and axis columns changed). The page heading still
-reads `iron_ingot · <tier> · N blocks`: a better one needs a mob-farm arm in crates/site-model and
-a rebuilt filtering UI (a wasm32 box), a separate deploy (the coordinator, 2026-11-08).
+same (the metrics byte for byte; only the kind and axis columns changed).
+
+Pages at the crop farms' bar (the parent's follow-up, 2026-11-08): a mob farm's title reads like a
+crop farm's ("295 iron an hour · 62% of the ceiling · 189 blocks · 1.6 per block · 9 iron · golems
+burn in lava pits": crates/site-model html.rs, the `mob-farm` arm of `circuit_props` and
+`mob_farm_title_tail`; the last words are the design's `how:` line, carried in
+`Circuit::feature`), its second line the golems an hour, the villagers and the restart. Every
+farm now holds its single chest at `port output` (`mctas mobfarm edit --chest`, and `gen` puts it
+in): the download is the whole farm, the 3D view shows the chest (no test lamp), and the judge uses
+that chest. Re-judged: every card the same but blocks + 1 (the chest), iron-day1's iron per hour
+per block 1.57 -> 1.56, and iron-scaled-2x2's bill `4 zombies` (it read `4 zombie`). The game
+checks stand: the game runs always had the judge's chest in that same cell. The 3D view's badge
+(`not simulated: lava` / `red_bed`): only the mob-farm pages carry lava or beds; redsim on main
+parses both (the mob layer), the committed viewer bundle (web/viewer, webrender's) predates them,
+so teaching the viewer is a viewer rebuild in webrender's lane (asked through the coordinator).
+The filtering UI is rebuilt from source for this deploy (a user-local rustup with wasm32 and
+wasm-bindgen 0.2.129 in ~/agents/ironfarm/toolchain on devvm69776, no dotfiles touched:
+`env PATH=$TC/cargo/bin:$PATH RUSTUP_HOME=$TC/rustup CARGO_HOME=$TC/cargo mctas site build ...`).
 
 ## Commands
 
 - `mctas mobfarm gen <layout> [--pits N] [--pad N] [--floor Y] [--villagers 3|4] [--grid G] [--tier T] --out F`:
   `l1` (the bar), `l2` (wet hole), `l2d` (the dry-hole module), `l3` (day 1), `l4` (two banks of
   fence-gated platforms), `l5` (a G x G grid of l2d modules at a 27-block pitch); `--tier` writes
-  the tier on the `circuit:` line.
+  the tier on the `circuit:` line. Every generated farm holds its chest at `port output` and a
+  `how:` line (how it works in a few words: the end of its site title).
+- `mctas mobfarm edit <design> [--chest] [--how TEXT]`: edit a design in place, its caption kept:
+  `--chest` puts the farm's single chest at its `port output`, `--how` sets its `how:` line.
 - The site's pages of the farms: `mctas site build --out DIR --pkg-ref origin/gh-pages` (no wasm32
-  needed while crates/site-model and web/site are unchanged), `mctas site read --dir DIR --page
+  needed while crates/site-model and web/site are unchanged; with them changed, the UI is built
+  from source: on devvm69776 a user-local rustup with wasm32 and wasm-bindgen 0.2.129 sits in
+  `~/agents/ironfarm/toolchain`, used as `env PATH=$TC/cargo/bin:$PATH RUSTUP_HOME=$TC/rustup
+  CARGO_HOME=$TC/cargo mctas site build --out DIR`), `mctas site read --dir DIR --page
   circuits/mobfarm/<file>.html --details`, and the WebKit film `mctas site smoke --dir DIR --engine
-  webkit --page circuits/mobfarm/<file>.html --frames 2` (WebKit installed on devvm69776 with
+  webkit --page circuits/mobfarm/<file>.html --frames 2` (`--full`: the page from its top, one
+  window at a time; WebKit installed on devvm69776 with
   `sudo dnf install webkit2gtk3 webkit2gtk3-devel xorg-x11-server-Xvfb`, docs/site.md).
 - `mctas circuit sim <design>`: the whole judge (4 rotations x 2 positions, 8 seeds x 5 days
   each, the golem exit flood, the 9 worst-policy runs, the restart probe), 3-30 s.
@@ -49,16 +71,16 @@ a rebuilt filtering UI (a wasm32 box), a separate deploy (the coordinator, 2026-
 
 | design | file (gen) | villagers | iron/h (95%) | share of ceiling | blocks | iron/h per block | bill |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| L1, the obvious bar (trench) | `gen l1` | 3 | 139 (138-141) | 29% | 385 | 0.36 | 13 iron, 3 quartz |
-| L3, day 1 | `gen l3 --pits 8` | 3 | 295 (292-298) | 62% | 188 | 1.57 | 9 iron |
+| L1, the obvious bar (trench) | `gen l1` | 3 | 139 (138-141) | 29% | 386 | 0.36 | 13 iron, 3 quartz |
+| L3, day 1 | `gen l3 --pits 8` | 3 | 295 (292-298) | 62% | 189 | 1.56 | 9 iron |
 | L2, wet hole 6x6 | `gen l2 --pad 6 --floor -7` | 3 | 358 (357-360) | 75% | 496 | 0.72 | 13 iron, 6 quartz |
 | L2, wet hole, 4 villagers | `gen l2 --pad 6 --floor -7 --villagers 4` | 4 | 369 (365-373) | 77% | 516 | 0.71 | 13 iron, 6 quartz |
 | L2d, dry hole 6x6 | `gen l2d --pad 6` | 3 | 423 (418-427) | 88% | 556 | 0.76 | 13 iron, 6 quartz |
-| **L2d, dry hole 6x6, 4 villagers (middle)** | `gen l2d --villagers 4 --pad 6` | 4 | 443 (439-447) | 93% | 578 | 0.77 | 13 iron, 6 quartz |
+| **L2d, dry hole 6x6, 4 villagers (middle)** | `gen l2d --villagers 4 --pad 6` | 4 | 443 (439-447) | 93% | 579 | 0.77 | 13 iron, 6 quartz |
 | L2d, dry hole 8x8 | `gen l2d --pad 8` | 3 | 431 (424-437) | 90% | 600 | 0.72 | 13 iron, 6 quartz |
-| **L2d, dry hole 8x8, 4 villagers (fastest module)** | `gen l2d --villagers 4 --pad 8` | 4 | 459 (454-464) | 96% | 622 | 0.74 | 13 iron, 6 quartz |
+| **L2d, dry hole 8x8, 4 villagers (fastest module)** | `gen l2d --villagers 4 --pad 8` | 4 | 459 (454-464) | 96% | 623 | 0.74 | 13 iron, 6 quartz |
 | L4, fence-gated banks | `gen l4` | 4 | 444 (440-448) | 93% | 950 | 0.47 | 53 iron, 6 quartz |
-| **L5, 2 x 2 L2d 8x8 modules (fastest, scaled)** | `gen l5 --villagers 4 --pad 8 --grid 2` | 16 | 1836 (1825-1848), 459 per module | 96% | 2491 | 0.74 | 43 iron, 24 quartz |
+| **L5, 2 x 2 L2d 8x8 modules (fastest, scaled)** | `gen l5 --villagers 4 --pad 8 --grid 2` | 16 | 1836 (1825-1848), 459 per module | 96% | 2492 | 0.74 | 43 iron, 24 quartz |
 
 Every one is robust (8 builds), passes the golem exit flood (every position a golem can stand on,
 its edge spots included, still and 8 walking inputs, dead within 1200 gt: worst 241-581 gt) and,

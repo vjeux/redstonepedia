@@ -47,6 +47,16 @@ pub enum MobfarmCmd {
         #[arg(long, allow_hyphen_values = true, num_args = 4)]
         row: Vec<i32>,
     },
+    /// Edit a design in place, its caption and every other line kept: `--chest` puts the farm's
+    /// single chest at its `port output` (the download then holds it), `--how` sets its `how:`
+    /// line (how it works in a few words: the end of its site title).
+    Edit {
+        design: PathBuf,
+        #[arg(long)]
+        chest: bool,
+        #[arg(long)]
+        how: Option<String>,
+    },
     /// One judge run of a design on redsim: its table.
     Run {
         design: PathBuf,
@@ -88,15 +98,18 @@ fn load(_version: &str, path: &PathBuf) -> Result<(circuit::Circuit, redsim::ent
 pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
     match cmd {
         MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, tier, out } => {
-            let text = match layout.as_str() {
-                "l3" => crate::layouts::l3(pits),
-                "l1" => crate::layouts::l1(),
-                "l2" => crate::layouts::l2(pad, floor, villagers),
-                "l2d" => crate::layouts::l2d(villagers, pad),
-                "l5" => crate::layouts::l5(villagers, pad, grid),
-                "l4" => crate::layouts::l4(),
+            let (text, how) = match layout.as_str() {
+                "l3" => (crate::layouts::l3(pits), "golems burn in lava pits".to_string()),
+                "l1" => (crate::layouts::l1(), "water carries golems to a lava blade in the villagers' sight".to_string()),
+                "l2" => (crate::layouts::l2(pad, floor, villagers), "golems sink through water out of sight to a lava blade".to_string()),
+                "l2d" => (crate::layouts::l2d(villagers, pad), "golems fall out of sight to a lava blade".to_string()),
+                "l5" => (crate::layouts::l5(villagers, pad, grid), format!("{} copies of the fastest module", grid * grid)),
+                "l4" => (crate::layouts::l4(), "golems fall from fence-gated platforms to a lava blade".to_string()),
                 other => bail!("no layout {other:?} (l1, l2, l2d, l3, l4, l5)"),
             };
+            // (every farm holds its chest, so the download is the whole farm; its `how:` line ends
+            // its site title)
+            let text = crate::layouts::edit(&text, true, Some(&how))?;
             let text = match tier {
                 Some(t) => crate::layouts::set_tier(&text, &t)?,
                 None => text,
@@ -153,6 +166,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for x in x0..=x1 {
                 println!("{x} {y} {z}: {}", w.get(redsim::BlockPos::new(x, y, z)));
             }
+        }
+        MobfarmCmd::Edit { design, chest, how } => {
+            let text = std::fs::read_to_string(&design)?;
+            let out = crate::layouts::edit(&text, chest, how.as_deref())?;
+            std::fs::write(&design, out)?;
+            println!("{}", design.display());
         }
     }
     Ok(())

@@ -480,7 +480,7 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
     // a mob farm: the view runs no mob, so nothing happens in it; the chest goes at OUT
     if crate::explain::mob_farm(c) {
         return format!(
-            "The view shows the farm as built: it does not run the villagers, the zombie or the golems, so nothing happens in it. {} Build it, place the chest and wait near it.{}",
+            "The view shows the farm as built: it does not run the villagers, the zombie or the golems, so nothing happens in it. {} Build it and wait near it.{}",
             crate::explain::chest_words(c),
             crate::explain::first_night(c)
         );
@@ -1858,6 +1858,26 @@ mod tests {
         // the day-1 farm that needs the zombie hidden the first night says so
         let day1 = Circuit { kind: "mob-farm iron_ingot day-1".into(), metrics: crate::circuits::parse_metrics("modules 1, restarts after a missed night no (hide the zombie by hand the first night)"), ..c };
         assert!(try_it(&day1, true).contains("On the first night, hide the zombie"));
+    }
+
+    #[test]
+    fn an_iron_farm_title_reads_like_a_crop_farm() {
+        // the archive's iron-day1 (study mobfarm) and its design's `how:` line
+        let metrics = "iron per hour per block 1.56, iron per hour 295, iron range 95% 292-298 (64 runs), golems per hour 74.1, seconds per golem 48.6, share of ceiling 62%, modules 1, iron per hour per module 295, kill 241 gt, worst policy 281 iron/h (still), restarts after a missed night no (hide the zombie by hand the first night), bill 9 iron, 0 quartz, 3 villagers, 3 beds, 1 zombie, payback 2 min";
+        let c = Circuit { kind: "mob-farm iron_ingot day-1".into(), axis: "day 1".into(), study: "mobfarm".into(), metrics: crate::circuits::parse_metrics(metrics), feature: "golems burn in lava pits".into(), ..Default::default() };
+        let b = Build { kind: "circuit".into(), circuit: Some(c), blocks: 189, ..Default::default() };
+        let p = site_model::html::props(&b);
+        assert_eq!(p.title, "295 iron an hour · 62% of the ceiling · 189 blocks · 1.6 per block · 9 iron · golems burn in lava pits");
+        assert_eq!(p.kind, "Iron farm");
+        assert!(p.sub.contains("74 golems an hour, one every 49 s"), "{}", p.sub);
+        assert!(p.sub.contains("3 villagers and a zombie"), "{}", p.sub);
+        assert!(p.sub.contains("hide the zombie by hand the first night"), "{}", p.sub);
+        // the scaled build: its zombies plural, its how
+        let scaled = Circuit { kind: "mob-farm iron_ingot fastest".into(), metrics: crate::circuits::parse_metrics("iron per hour per block 0.74, iron per hour 1836, share of ceiling 96%, modules 4, restarts after a missed night yes, bill 43 iron, 24 quartz, 16 villagers, 16 beds, 4 zombies"), feature: "4 copies of the fastest module".into(), ..Default::default() };
+        let b = Build { kind: "circuit".into(), circuit: Some(scaled), blocks: 2492, ..Default::default() };
+        let p = site_model::html::props(&b);
+        assert_eq!(p.title, "1,800 iron an hour · 96% of the ceiling · 2,492 blocks · 0.74 per block · 43 iron · 4 copies of the fastest module");
+        assert!(p.sub.contains("16 villagers and 4 zombies"), "{}", p.sub);
     }
 
     #[test]

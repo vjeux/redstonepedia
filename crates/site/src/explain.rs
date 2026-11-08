@@ -232,14 +232,14 @@ pub fn first_night(c: &Circuit) -> &'static str {
     if restarts.starts_with("no") { " On the first night, hide the zombie from the villagers by hand (a block in front of it) and take the block away in the morning: the villagers need one night's sleep before they summon the first golem." } else { "" }
 }
 
-/// Where a mob farm's chest goes: OUT, where the view draws its test lamp (the judge's chest); a
-/// farm of several copies has the other copies' chests in its download.
+/// Where a mob farm's iron goes: its chest at OUT (in the design and its download); a farm of
+/// several copies has one chest each, OUT on the first.
 pub fn chest_words(c: &Circuit) -> &'static str {
     let copies = c.metrics.iter().find(|(k, _)| k == "modules").and_then(|(_, v)| v.parse::<u32>().ok()).unwrap_or(1);
     if copies > 1 {
-        "The box tagged OUT is where the first copy's chest goes (the download has the other copies' chests, not that one)."
+        "The chest tagged OUT collects the first copy's iron; every copy has its own chest under its last hopper."
     } else {
-        "The box tagged OUT is where the chest goes (the download has none)."
+        "The chest tagged OUT, under the last hopper, collects the iron."
     }
 }
 
@@ -942,7 +942,7 @@ pub fn how_to_try(c: &Circuit, has_viewer: bool) -> String {
     // appears in it) and no lava; its chest goes where the view draws its test lamp
     if mob_farm(c) {
         s.push_str(&format!(
-            "<p>The 3D view shows the farm <b>as built</b>: it does not run mobs or lava, so no golem appears in it. {} The view draws a lamp at <span class=\"tag-out\">OUT</span>, under the last hopper, where that chest stands. Our test ran the farm on our simulation of the game's mob rules; its numbers are in the measurements below, and its notes give its check in the real game.{} Drag to look around, pinch or scroll to zoom.</p>",
+            "<p>The 3D view shows the farm <b>as built</b>: it does not run mobs or lava, so no golem appears in it. {} Our test ran the farm on our simulation of the game's mob rules; its numbers are in the measurements below, and its notes give its check in the real game.{} Drag to look around, pinch or scroll to zoom.</p>",
             esc(chest_words(c)),
             first_night(c)
         ));

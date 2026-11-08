@@ -1232,7 +1232,8 @@ kick) before the first input.
   a zombie that scares them, golems that spawn and die) judged entirely on redsim's mob layer
   (`redsim::entity::mob`: the villager brain, sleep and `LAST_SLEPT`, golem spawning, LivingEntity
   physics in water and lava, damage, loot), since game days are too slow to judge in the game. One
-  `port output:` (the chest). The judge refuses what the mob layer does not model (static checks:
+  `port output:` (the farm's single chest in the design, or an air cell where the judge puts one;
+  every archived farm holds its chest, so its download and its 3D view show it). The judge refuses what the mob layer does not model (static checks:
   flowing lava, water at lava, job sites, a zombie that does not ride, villagers that can walk,
   gossip, climbable blocks...), floods every position a golem can stand on from every spawn spot
   (with its edge spots: box sides 0.0005 inside or outside block boundaries, where a current can

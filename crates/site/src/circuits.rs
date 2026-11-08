@@ -731,6 +731,8 @@ fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) -> Vec<Buil
                         Some((fam, n)) if r.kind.starts_with("flying-machine") && fam.starts_with("fly-train") => format!("pulls {n} trailer{}", if *n == 1 { "" } else { "s" }),
                         // (no family: its own payload ports, fly-payload-start-1-11b's one block)
                         _ if r.kind.starts_with("flying-machine") && payloads > 0 && !r.axis.contains("two-way") => format!("carries {payloads} extra block{}", if payloads == 1 { "" } else { "s" }),
+                        // (an iron farm: how it works, its design's `how:` line, the end of its title)
+                        _ if r.kind.starts_with("mob-farm") => text.lines().find_map(|l| l.trim().strip_prefix("how:")).map(|v| v.trim().to_string()).unwrap_or_default(),
                         _ => String::new(),
                     },
                     ..Default::default()

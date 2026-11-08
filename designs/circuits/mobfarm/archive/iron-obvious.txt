@@ -1,5 +1,5 @@
-# archived 2026-11-08T09:34Z from designs/circuits/mobfarm/tracks/ironfarm/iron-obvious.txt by mctas circuit archive
-# CIRCUIT: iron-obvious mob-farm iron_ingot iron per hour per block 0.36, iron per hour 139, iron range 95% 138-141 (64 runs), golems per hour 35.2, seconds per golem 102.2, share of ceiling 29%, modules 1, iron per hour per module 139, kill 453 gt, worst policy 135 iron/h (walk yaw 90 x1), restarts after a missed night yes, misses 3623 of 7379 tries found no spot, 25162 golem sightings, bill 13 iron, 3 quartz, 3 villagers, 3 beds, 1 zombie, payback 6 min, 385 blocks, 10x15x18, robust
+# archived 2026-11-08T11:52Z from designs/circuits/mobfarm/tracks/ironfarm/iron-obvious.txt by mctas circuit archive
+# CIRCUIT: iron-obvious mob-farm iron_ingot iron per hour per block 0.36, iron per hour 139, iron range 95% 138-141 (64 runs), golems per hour 35.2, seconds per golem 102.2, share of ceiling 29%, modules 1, iron per hour per module 139, kill 453 gt, worst policy 135 iron/h (walk yaw 90 x1), restarts after a missed night yes, misses 3623 of 7379 tries found no spot, 25162 golem sightings, bill 13 iron, 3 quartz, 3 villagers, 3 beds, 1 zombie, payback 6 min, 386 blocks, 10x15x18, robust
 # The obvious iron farm (the bar to beat): villagers scared by a zombie by day, asleep by night,
 # summon golems that water carries to a lava blade, 139 iron an hour (29% of the game's ceiling).
 # Three villagers sleep on their beds in closed 1-cell pods under leaves; a zombie in a boat 7 blocks
@@ -15,6 +15,7 @@
 # over 20 cells (5% critical value 30.1).
 name: iron-obvious
 circuit: mob-farm iron_ingot
+how: water carries golems to a lava blade in the villagers' sight
 restart: yes
 port output: 6 -11 2
 entity: minecraft:villager 0.5 0.5625 0.5
@@ -25,12 +26,13 @@ origin: -2 0 -7
 palette:
   A minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
   B minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
-  C minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  C minecraft:chest[facing=north,type=single,waterlogged=false]
   D minecraft:daylight_detector[inverted=true,power=0]
-  E minecraft:oak_wall_sign[facing=north,waterlogged=false]
-  F minecraft:oak_wall_sign[facing=south,waterlogged=false]
+  E minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  F minecraft:oak_wall_sign[facing=north,waterlogged=false]
   G minecraft:glass
   H minecraft:hopper[enabled=true,facing=down]
+  I minecraft:oak_wall_sign[facing=south,waterlogged=false]
   L minecraft:lava[level=0]
   O minecraft:oak_fence_gate[facing=east,in_wall=false,open=true,powered=false]
   R minecraft:red_bed[facing=north,occupied=false,part=foot]
@@ -40,6 +42,25 @@ palette:
   o minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
   r minecraft:red_bed[facing=north,occupied=false,part=head]
   s minecraft:stone_slab[type=bottom,waterlogged=false]
+layer -11:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ........C
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
 layer -10:
   .
   .
@@ -88,8 +109,8 @@ layer -8:
   .
   .
   SSSSSSSSSS
+  S......IIS
   S......FFS
-  S......EES
   SSSSSSSSSS
   .
   .
@@ -107,8 +128,8 @@ layer -7:
   .
   .
   SSSSSSSSSS
+  S.....ILLS
   S.....FLLS
-  S.....ELLS
   SSSSSSSSSS
   .
   .
@@ -164,8 +185,8 @@ layer -4:
   .
   .
   GGGGGGGGGG
+  GIIIIIIGGG
   GFFFFFFGGG
-  GEEEEEEGGG
   GSSSSSSGGG
   .SSSSSS
   .SSSSSS
@@ -257,7 +278,7 @@ layer 1:
   .
   .
   .
-  .GCGCGCG
+  .GEGEGEG
   ..G.G.G
   .
   .

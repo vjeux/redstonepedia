@@ -294,6 +294,8 @@ pub fn kind_words(kind: &str) -> String {
         "smelter" => "Auto-smelter",
         "brewer" => "Auto-brewer",
         "composter" => "Auto-composter",
+        // (an iron farm: its product names it; a mob farm of another product: its base)
+        "mob-farm" if kind.split_whitespace().nth(1).is_none_or(|i| i == "iron_ingot") => "Iron farm",
         _ => "",
     };
     if !words.is_empty() {
@@ -940,6 +942,11 @@ pub fn group_thousands(n: u64) -> String {
 /// A count rounded to two significant figures from 1,000 up, `~` before it when that changed it
 /// (`2112` -> `~2,100`, `1836` -> `~1,800`, `64` -> `64`).
 pub fn about_count(n: u32) -> String {
+    // (a count under 1,000 as it is: `readable`'s one decimal under 10 is for rates, "~9.0 iron"
+    // read wrong on the day-1 iron farm)
+    if n < 1000 {
+        return n.to_string();
+    }
     let s = readable(n as f64);
     if s.replace(',', "") == n.to_string() { s } else { format!("~{s}") }
 }
@@ -1060,6 +1067,27 @@ pub fn fuel_parts(c: &crate::Circuit) -> Option<(String, String, String)> {
     Some((fuel_count(total), every, smelter))
 }
 
+/// An iron farm's title after its blocks (the crop farms' "· 0.73 per block · ~2,200 iron + 92
+/// slime · one flying machine sweeps the field"): its iron an hour per block, its iron bill (the
+/// quartz left out, as a crop farm's), how it works in a few words (the design's `how:` line,
+/// [`crate::Circuit::feature`]).
+pub fn mob_farm_title_tail(c: &crate::Circuit) -> Option<String> {
+    if !c.kind.starts_with("mob-farm") {
+        return None;
+    }
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(per_block) = cm(c, "iron per hour per block").split_whitespace().next().and_then(|v| v.parse::<f64>().ok()) {
+        parts.push(format!("{} per block", readable(per_block)));
+    }
+    if let Some(iron) = bill_iron(c) {
+        parts.push(format!("{} iron", about_count(iron)));
+    }
+    if !c.feature.is_empty() {
+        parts.push(c.feature.clone());
+    }
+    (!parts.is_empty()).then(|| parts.join(" · "))
+}
+
 /// A crop farm's title after its blocks (the coordinator 2026-10-22: "3,300 melon slices an hour
 /// · 64 stems · 785 blocks · 4.2 per block · ~2,100 iron · needs open sky or light 9"): its harvest
 /// per block, its iron, the light it needs.
@@ -1119,7 +1147,7 @@ pub fn title_tail(c: &crate::Circuit) -> Option<String> {
         }
         return (!tail.is_empty()).then(|| tail.join(" · "));
     }
-    farm_title_tail(c).or_else(|| smelter_rest_word(c).map(str::to_string))
+    farm_title_tail(c).or_else(|| mob_farm_title_tail(c)).or_else(|| smelter_rest_word(c).map(str::to_string))
 }
 
 /// A stem crop (pumpkin, melon): the fruit grows beside its stem, which stays.
@@ -1510,6 +1538,27 @@ fn circuit_props(c: &crate::Circuit) -> (String, Vec<String>) {
                 Some((per_block, _)) => format!("{} {} an hour per block · {plants}", readable(per_block), harvest_words_at(c, per_block)),
                 None => format!("harvests {} by itself", crop_plural(c)),
             };
+            (main, rest)
+        }
+        // an iron farm (ironfarm's study): its iron an hour and its share of the game's limit lead
+        // (the crop farms' "800 sugar cane an hour · 256 canes"); its blocks, iron per block, bill
+        // and how it works follow the blocks ([`mob_farm_title_tail`])
+        "mob-farm" => {
+            let num = |k: &str| cm(c, k).split_whitespace().next().and_then(|v| v.trim_end_matches('%').parse::<f64>().ok());
+            let main = match (num("iron per hour"), cm(c, "share of ceiling").split_whitespace().next()) {
+                (Some(r), Some(share)) if !share.is_empty() => format!("{} iron an hour · {share} of the ceiling", readable(r)),
+                (Some(r), _) => format!("{} iron an hour", readable(r)),
+                _ => String::new(),
+            };
+            let mut rest: Vec<String> = Vec::new();
+            if let (Some(g), Some(s)) = (num("golems per hour"), num("seconds per golem")) {
+                rest.push(format!("{} golems an hour, one every {} s, at the game's normal speed", readable(g), s.round()));
+            }
+            let (villagers, zombies) = (bill_item(c, "villagers").or_else(|| bill_item(c, "villager")).unwrap_or(0), bill_item(c, "zombies").or_else(|| bill_item(c, "zombie")).unwrap_or(0));
+            if villagers > 0 {
+                rest.push(format!("{villagers} villagers and {}", if zombies == 1 { "a zombie".to_string() } else { format!("{zombies} zombies") }));
+            }
+            rest.push(if cm(c, "restarts after a missed night").starts_with("yes") { "starts again by itself after a missed night".to_string() } else { "hide the zombie by hand the first night".to_string() });
             (main, rest)
         }
         // w86's computational circuits (the compute study): what it does with its bits leads

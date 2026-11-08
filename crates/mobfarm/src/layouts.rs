@@ -77,6 +77,36 @@ fn wall_sign(b: &mut Builder, x: i32, y: i32, z: i32, facing: &str) {
     b.set(x, y, z, &format!("oak_wall_sign[facing={facing},waterlogged=false]"));
 }
 
+/// The farm's single chest (at its `port output`: the judge reads it, the download holds it).
+pub const CHEST: &str = "minecraft:chest[facing=north,type=single,waterlogged=false]";
+
+/// A design text edited, its leading comment block (the caption) kept: `chest` puts the farm's
+/// single chest at its `port output`, `how` sets its `how:` line.
+pub fn edit(text: &str, chest: bool, how: Option<&str>) -> anyhow::Result<String> {
+    let caption: Vec<&str> = text.lines().take_while(|l| l.starts_with('#')).collect();
+    let mut d = Design::parse(text)?;
+    if chest {
+        let out = *d.ports.get("output").ok_or_else(|| anyhow::anyhow!("no `port output` for the chest"))?;
+        match d.blocks.get(&out) {
+            None => {
+                d.blocks.insert(out, CHEST.to_string());
+            }
+            Some(s) if s.trim_start_matches("minecraft:").starts_with("chest[") => {}
+            Some(s) => anyhow::bail!("port output {out:?} holds {s}"),
+        }
+    }
+    if let Some(h) = how {
+        d.meta.insert("how".to_string(), h.to_string());
+    }
+    let mut s = String::new();
+    for l in caption {
+        s.push_str(l);
+        s.push('\n');
+    }
+    s.push_str(&d.to_text());
+    Ok(s)
+}
+
 /// A design text with its tier on its `circuit:` line (`circuit: mob-farm iron_ingot middle`):
 /// the published kind (one site page per tier).
 pub fn set_tier(text: &str, tier: &str) -> anyhow::Result<String> {

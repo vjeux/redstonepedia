@@ -1,5 +1,5 @@
-# archived 2026-11-08T10:37Z from designs/circuits/mobfarm/tracks/ironfarm/iron-day1.txt by mctas circuit archive
-# CIRCUIT: iron-day1 mob-farm iron_ingot day-1 iron per hour per block 1.57, iron per hour 295, iron range 95% 292-298 (64 runs), golems per hour 74.1, seconds per golem 48.6, share of ceiling 62%, modules 1, iron per hour per module 295, kill 241 gt, worst policy 281 iron/h (still), restarts after a missed night no (hide the zombie by hand the first night), misses 31871 of 39774 tries found no spot, 28257 golem sightings, bill 9 iron, 0 quartz, 3 villagers, 3 beds, 1 zombie, payback 2 min, 188 blocks, 16x7x10, robust
+# archived 2026-11-08T11:51Z from designs/circuits/mobfarm/tracks/ironfarm/iron-day1.txt by mctas circuit archive
+# CIRCUIT: iron-day1 mob-farm iron_ingot day-1 iron per hour per block 1.56, iron per hour 295, iron range 95% 292-298 (64 runs), golems per hour 74.1, seconds per golem 48.6, share of ceiling 62%, modules 1, iron per hour per module 295, kill 241 gt, worst policy 281 iron/h (still), restarts after a missed night no (hide the zombie by hand the first night), misses 31871 of 39774 tries found no spot, 28257 golem sightings, bill 9 iron, 0 quartz, 3 villagers, 3 beds, 1 zombie, payback 2 min, 189 blocks, 16x7x10, robust
 # The day-1 iron farm: for 9 iron and no quartz, three villagers scared by a zombie summon iron
 # golems that burn in lava pits, about 295 iron an hour (62% of the game's ceiling).
 # Three villagers sleep on their beds in closed 1-cell pods under leaves; a zombie in a boat 7 blocks
@@ -15,6 +15,7 @@
 # over 8 cells (5% critical value 14.0).
 name: iron-day1
 circuit: mob-farm iron_ingot day-1
+how: golems burn in lava pits
 port output: 0 -3 -6
 entity: minecraft:villager 0.5 0.5625 0.5
 entity: minecraft:villager 2.5 0.5625 0.5
@@ -24,6 +25,7 @@ origin: -10 0 -8
 palette:
   A minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
   B minecraft:tripwire_hook[attached=true,facing=west,powered=false]
+  C minecraft:chest[facing=north,type=single,waterlogged=false]
   G minecraft:glass
   H minecraft:hopper[enabled=true,facing=down]
   L minecraft:lava[level=0]
@@ -36,6 +38,17 @@ palette:
   r minecraft:red_bed[facing=north,occupied=false,part=head]
   s minecraft:stone_slab[type=bottom,waterlogged=false]
   t minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+layer -3:
+  .
+  .
+  ..........C
+  .
+  .
+  .
+  .
+  .
+  .
+  .
 layer -2:
   .
   .

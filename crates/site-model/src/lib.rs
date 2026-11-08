@@ -318,7 +318,8 @@ pub struct Circuit {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub also: Vec<String>,
     /// What a machine carries or pulls, in words (a flying machine of the payload family with n
-    /// extra blocks: `carries 9 extra blocks`; of the train family: `pulls 2 trailers`).
+    /// extra blocks: `carries 9 extra blocks`; of the train family: `pulls 2 trailers`); how an
+    /// iron farm works, from its design's `how:` line (`golems burn in lava pits`).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub feature: String,
     /// A group card's sizes when its members differ (`3 to 15 blocks`): its title says them.
