@@ -10064,3 +10064,6 @@ farms/iron/iron-day1.html	circuit	mobfarm/mob-farm iron_ingot day-1		Iron farm: 
 farms/iron/m2-open-ring.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 440 iron an hour · 370 blocks · 1.2 an hour per block · 16 iron to build · a comparator ring times the zombie's hide	2026-11-08 20:42Z
 farms/iron/m2-open.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 439 iron an hour · 404 blocks · 1.1 an hour per block · 16 iron to build · a repeater line times the zombie's hide	2026-11-08 20:42Z
 index.html	page				2026-10-19 23:21Z
+farms/index.html	page				2026-11-08 20:44Z
+farms/iron/index.html	page				2026-11-08 20:44Z
+farms/crops/index.html	page				2026-11-08 20:44Z

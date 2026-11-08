@@ -195,6 +195,16 @@ pub fn built_pages(site: &Site) -> Vec<Entry> {
     for p in fixed.chain(studies.iter().map(|s| format!("circuits/{s}/index.html"))) {
         v.push(Entry { path: p, what: "page".into(), ..Default::default() });
     }
+    // the Farms section's overviews (crates/site/src/farms.rs): the farm types, the iron hub, the
+    // crop farms' collection when there are crop farms, each component's page with members
+    let mut farms = vec!["farms/index.html".to_string(), "farms/iron/index.html".to_string()];
+    if site.builds.iter().any(|b| b.circuit.as_ref().is_some_and(|c| c.study == "farm")) {
+        farms.push("farms/crops/index.html".into());
+    }
+    farms.extend(crate::farms::loaded_part_pages());
+    for p in farms {
+        v.push(Entry { path: p, what: "page".into(), ..Default::default() });
+    }
     v
 }
 
@@ -561,6 +571,12 @@ pub fn write_redirects(site: &Site, repo: &Path, out: &Path, listed: &BTreeMap<S
     let mut by_what: BTreeMap<String, usize> = BTreeMap::new();
     for e in listed.values().filter(|e| !built.contains(&e.path)) {
         let file = out.join(&e.path);
+        // a page this build wrote is never replaced by a redirect, whatever `built` says (the
+        // output folder starts empty: generate::fresh_dir); the Farms overviews were, on
+        // 2026-11-08, until `built_pages` knew them
+        if file.exists() && !std::fs::read_to_string(&file).is_ok_and(|h| is_redirect(&h)) {
+            continue;
+        }
         let Some(target) = resolve(e, site) else {
             // (a page vjeux deleted: gone from a folder an earlier build left it in)
             let _ = std::fs::remove_file(&file);
@@ -725,6 +741,25 @@ pub fn recover(repo: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_generated_page_is_never_replaced_by_a_redirect() {
+        // (2026-11-08: the live site's merged list named the Farms overviews, `built_pages` did
+        // not, and the build wrote "this page moved" over them)
+        let out = std::env::temp_dir().join(format!("mctas-published-test-{}", std::process::id()));
+        std::fs::create_dir_all(out.join("farms")).unwrap();
+        std::fs::write(out.join("farms/index.html"), "<html><title>Farms</title></html>").unwrap();
+        let mut listed = BTreeMap::new();
+        for p in ["farms/index.html", "farms/old.html"] {
+            listed.insert(p.to_string(), Entry { path: p.into(), what: "page".into(), ..Default::default() });
+        }
+        let (n, _) = write_redirects(&Site::default(), &out, &out, &listed, &BTreeSet::new()).unwrap();
+        let farms = std::fs::read_to_string(out.join("farms/index.html")).unwrap();
+        let old = std::fs::read_to_string(out.join("farms/old.html")).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&out);
+        assert!(!is_redirect(&farms), "the generated page stays: {farms}");
+        assert!(is_redirect(&old) && n == 1, "a page no longer built gets its redirect");
+    }
 
     #[test]
     fn a_list_round_trips_and_merges_by_path() {

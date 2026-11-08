@@ -829,6 +829,7 @@ pub fn build(a: &BuildArgs) -> Result<()> {
         write(&out.join(&path), &html)?;
         overviews.push((path, html));
     }
+    let overview_paths: Vec<String> = overviews.iter().map(|(p, _)| p.clone()).collect();
     let internal: Vec<String> = overviews.iter().flat_map(|(p, html)| crate::explain::internal_tokens(&pages::visible_text(html)).into_iter().map(move |t| format!("{p}: {t}"))).collect();
     if !internal.is_empty() {
         bail!("internal names on the overview pages (crates/site/src/explain.rs::internal_tokens): {}", internal.join("; "));
@@ -860,6 +861,34 @@ pub fn build(a: &BuildArgs) -> Result<()> {
     );
     write(&out.join(crate::published::SITE_FILE), &crate::published::render(&all))?;
     eprintln!("  note: published pages: {} listed, {redirects} answered by a redirect ({})", all.len(), by_what.join(", "));
+    // the build's own check (the parent, 2026-11-08, after the Farms overviews went live as
+    // "this page moved" stubs: the live site's merged list named them and `built_pages` did not):
+    // no page this build generates, nor any page its header tabs open, is a redirect; every
+    // redirect leads, in one hop, to a real page
+    let stub = |p: &str| std::fs::read_to_string(out.join(p)).map(|h| crate::published::is_redirect(&h)).unwrap_or(true);
+    // (the two pages that are redirects on purpose: /doors/ and /clocks/ open their index tab)
+    let meant: [&str; 2] = ["doors/index.html", "clocks/index.html"];
+    let mut stubs: Vec<String> = site
+        .builds
+        .iter()
+        .map(|b| b.page.clone())
+        .chain(overview_paths.iter().cloned())
+        .chain(built_paths.iter().cloned())
+        .chain(["index.html".to_string(), "farms/index.html".to_string()])
+        .filter(|p| !meant.contains(&p.as_str()) && stub(p))
+        .collect();
+    stubs.sort();
+    stubs.dedup();
+    let (_, unresolved) = crate::published::check(out, &all);
+    if !stubs.is_empty() || !unresolved.is_empty() {
+        bail!(
+            "pages that would go live broken: {} generated or linked from the header but written as a redirect or not at all ({}); {} listed pages that do not resolve ({})",
+            stubs.len(),
+            stubs.iter().take(10).cloned().collect::<Vec<_>>().join(", "),
+            unresolved.len(),
+            unresolved.iter().take(10).cloned().collect::<Vec<_>>().join("; ")
+        );
+    }
     eprintln!(
         "wrote {}: {} builds, {} family pages, {} members, viewer: {}, UI: {} ({:.1}s)",
         out.display(),

@@ -189,6 +189,12 @@ pub fn parts_of(stem: &str) -> Vec<Member> {
     PARTS_LOADED.read().map(|g| g.iter().filter(|m| m.used_by.iter().any(|u| u == stem)).cloned().collect()).unwrap_or_default()
 }
 
+/// The component pages the loaded parts make (one per part with members).
+pub fn loaded_part_pages() -> Vec<String> {
+    let parts: std::collections::BTreeSet<String> = PARTS_LOADED.read().map(|g| g.iter().map(|m| m.part.clone()).collect()).unwrap_or_default();
+    parts.into_iter().map(|p| part_page_path("iron", &p)).collect()
+}
+
 /// A full farm page's "Its parts" section: the components it is built from, each linking to its
 /// member on the component's page (empty when it names none).
 pub fn parts_section(b: &Build, prefix: &str) -> String {
