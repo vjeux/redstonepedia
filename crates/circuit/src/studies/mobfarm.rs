@@ -152,6 +152,30 @@ fn bp(p: Pos) -> BlockPos {
     BlockPos::new(p[0], p[1], p[2])
 }
 
+/// The terrain site of a design in the standard sample `sample` (brief revision 8: day 1 is judged
+/// in terrain), from its meta: `ground: <y>` (the design y lying at the ground layer; default -1,
+/// a void design's floor under its villagers), `afk: x y z` (the AFK player's feet; default on top
+/// of the build's middle) and `terrain: cells` (a design made for terrain: only its listed cells
+/// are written, natural rock for the rest; otherwise its box is cleared first).
+pub fn site_of(c: &Circuit, spec: &FarmSpec, sample: &str) -> std::result::Result<redsim::entity::mob::site::Site, String> {
+    let d = &c.clock.design;
+    let s = redsim::terrain::samples::sample(sample).ok_or_else(|| format!("no terrain sample {sample}"))?;
+    let ground = d.meta.get("ground").map(|v| v.trim().parse::<i32>()).transpose().map_err(|e| format!("ground: {e}"))?.unwrap_or(-1);
+    let (lo, hi) = spec.blocks.iter().fold((spec.blocks[0].0, spec.blocks[0].0), |(lo, hi), (p, _)| (BlockPos::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z)), BlockPos::new(hi.x.max(p.x), hi.y.max(p.y), hi.z.max(p.z))));
+    let afk = match d.meta.get("afk") {
+        Some(v) => {
+            let p: Vec<f64> = v.split_whitespace().map(|t| t.parse::<f64>()).collect::<std::result::Result<_, _>>().map_err(|e| format!("afk: {e}"))?;
+            if p.len() != 3 {
+                return Err("afk: x y z".into());
+            }
+            [p[0], p[1], p[2]]
+        }
+        None => [(lo.x + hi.x) as f64 / 2.0 + 0.5, hi.y as f64 + 1.0, (lo.z + hi.z) as f64 / 2.0 + 0.5],
+    };
+    let cells = d.meta.get("terrain").is_some_and(|v| v.trim() == "cells");
+    redsim::entity::mob::site::Site::new(s, spec, ground, afk, !cells)
+}
+
 /// The redsim farm of a (turned, moved) design: its blocks, entities, output chest and box.
 pub fn spec_of(c: &Circuit) -> std::result::Result<FarmSpec, String> {
     let d = &c.clock.design;

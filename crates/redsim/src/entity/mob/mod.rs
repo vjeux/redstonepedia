@@ -26,6 +26,7 @@ pub mod living;
 pub mod los;
 pub mod natural;
 pub mod refuse;
+pub mod site;
 pub mod spawn;
 pub mod types;
 pub mod villager;

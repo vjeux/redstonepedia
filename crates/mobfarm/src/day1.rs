@@ -111,7 +111,8 @@ const GATE_N: &str = "oak_fence_gate[facing=north,in_wall=false,open=true,powere
 /// The day-1 kill: L2d's dry-hole pad (n x n, floor y -7, x 0..n-1, z 2..n+1, n even; water in
 /// its 4 corners; the 4 x 4 hole at its center: its ring is water over open fence gates, its
 /// center open gates at the water's level: they hold the water, not a golem) over a 4 x 4 stone
-/// pit (feet y -12, 5 blocks down: the lava's fire never reaches the gates). One water source
+/// pit (feet y -13, 6 blocks down: `LavaFluid.randomTick` climbs 2 steps from the lava at y -11,
+/// to y -9, short of the air under the ring gates at y -8, so its fire never reaches them). One water source
 /// in the pit's south-east corner pushes every golem into the north-west corner, where one lava
 /// source at head height burns it, held by 3 wall signs (signs do not burn); the drops float to
 /// the same corner's hopper, over the chest: 1 lava source, 1 hopper.
@@ -146,7 +147,7 @@ fn pit_kill(b: &mut Builder, n: i32) {
         b.set(x, -6, z, "water[level=0]");
     }
     // the pit: a stone shell around the hole's columns from the pad floor down to its floor
-    let k = -12;
+    let k = -13;
     for y in (k - 1)..=-8 {
         for x in (hx - 1)..=(hx + 4) {
             for z in (hz - 1)..=(hz + 4) {
@@ -194,6 +195,96 @@ pub fn d4_two_scared(n: i32) -> String {
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     b.d.meta.insert("restart".into(), "yes".into());
     b.text(&["Day 1 (candidate D4): the bed plate hides the zombie from two scared villagers through one trapdoor;", "golems fall through the pad's center into a 4 x 4 pit and burn in its corner under one lava source."])
+}
+
+/// Day 1, candidate D1U: D4's mechanism dug into the ground (brief revision 8: day 1 in terrain).
+/// The villagers stand 6 below the ground layer (design y 6), so the golem search of a scared
+/// villager (y + 5 down to y - 7) never meets a natural surface; natural rock is every wall,
+/// floor and roof, so the design lists only the cells it digs (`air`) and the blocks it places
+/// (beds, trapdoors, the plate, the zombie's slab, the pad's floor and gates, water, lava, signs,
+/// the hopper; no torch yet: redsim models none, so hostiles spawning in its dark cells are an
+/// exposure on its card). A void judge cannot run it
+/// (nothing holds its water): it is judged in a terrain sample (`terrain: cells`).
+pub fn d1u(n: i32) -> String {
+    let mut b = Builder::new(&format!("iron-day1-underground-{n}"));
+    let air = "air";
+    // the pods: S2 (x 0) and S (x 2) on their beds, their in-cell trapdoors, the cell above
+    for x in [0, 2] {
+        b.set(x, 0, 0, "red_bed[facing=north,occupied=false,part=head]");
+        b.set(x, 0, 1, "red_bed[facing=north,occupied=false,part=foot]");
+        b.set(x, 1, 0, "oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]");
+        b.set(x, 2, 0, air);
+        b.entity("villager", [x as f64 + 0.5, 0.5625, 0.5], None);
+    }
+    // the sight tunnel north to the hide (x 0..2, y 1..2, z -1..-5)
+    for z in -5..=-1 {
+        for x in 0..=2 {
+            for y in 1..=2 {
+                b.set(x, y, z, air);
+            }
+        }
+    }
+    // the zombie (D1's) and the hide facing west (D4's)
+    b.set(2, 0, -7, "stone_slab[type=bottom,waterlogged=false]");
+    b.set(2, 1, -7, air);
+    b.entity("oak_boat", [2.5, 0.5, -6.8], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
+    b.set(2, 1, -6, "oak_trapdoor[facing=west,half=top,open=false,powered=false,waterlogged=false]");
+    // U1: the plate on stone by the hide, its bed east of it, the cells it stands in
+    b.set(3, 1, -6, STONE);
+    b.set(3, 2, -6, "oak_pressure_plate[powered=false]");
+    b.set(3, 3, -6, air);
+    b.set(4, 2, -6, "red_bed[facing=west,occupied=false,part=head]");
+    b.set(5, 2, -6, "red_bed[facing=west,occupied=false,part=foot]");
+    b.set(4, 3, -6, air);
+    b.set(5, 3, -6, air);
+    b.entity("villager", [3.5, 2.0, -5.5], None);
+    // the pad (pit_kill's, n x n at x 0..n-1, z 2..n+1): its floor and gates, water, the 2 cells of
+    // golem headroom over the water
+    let (x1, z0, z1) = (n - 1, 2, n + 1);
+    let (hx, hz) = (n / 2 - 2, z0 + n / 2 - 2);
+    let hole = |x: i32, z: i32| (hx..=hx + 3).contains(&x) && (hz..=hz + 3).contains(&z);
+    let center = |x: i32, z: i32| (hx + 1..=hx + 2).contains(&x) && (hz + 1..=hz + 2).contains(&z);
+    for x in 0..=x1 {
+        for z in z0..=z1 {
+            let corner = (x == 0 || x == x1) && (z == z0 || z == z1);
+            if center(x, z) {
+                b.set(x, -7, z, air);
+                b.set(x, -6, z, GATE_N);
+            } else if hole(x, z) {
+                b.set(x, -7, z, GATE_N);
+                b.set(x, -6, z, air);
+            } else {
+                b.set(x, -7, z, STONE);
+                b.set(x, -6, z, if corner { "water[level=0]" } else { air });
+            }
+            b.set(x, -5, z, air);
+            b.set(x, -4, z, air);
+        }
+    }
+    // the pit under the hole (feet k = -13, fire-safe like pit_kill's): dug, the water source pushing golems into the corner
+    // under the lava, 3 wall signs holding the lava, the hopper over the output
+    let k = -13;
+    for x in hx..=hx + 3 {
+        for z in hz..=hz + 3 {
+            for y in k..=-8 {
+                b.set(x, y, z, air);
+            }
+        }
+    }
+    let (lx, lz) = (hx, hz);
+    b.set(hx + 3, k, hz + 3, "water[level=0]");
+    b.set(lx, k + 2, lz, "lava[level=0]");
+    b.set(lx, k + 1, lz, "oak_wall_sign[facing=south,waterlogged=false]");
+    b.set(lx + 1, k + 2, lz, "oak_wall_sign[facing=south,waterlogged=false]");
+    b.set(lx, k + 2, lz + 1, "oak_wall_sign[facing=east,waterlogged=false]");
+    b.set(lx, k - 1, lz, "hopper[enabled=true,facing=down]");
+    b.d.ports.insert("output".into(), [lx, k - 2, lz]);
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.meta.insert("restart".into(), "yes".into());
+    b.d.meta.insert("terrain".into(), "cells".into());
+    b.d.meta.insert("ground".into(), "6".into());
+    b.d.meta.insert("afk".into(), "2.5 7 4.5".into());
+    b.text(&["Day 1 (candidate D1U): D4 dug into the ground, natural rock for every wall: the bed plate hides the zombie", "from two scared villagers 6 below the surface; golems fall from the pad into a pit and burn under one lava source."])
 }
 
 /// L2d's chamber without its fire: lava only in the north row (x 1..4, head height k + 2, z 1),

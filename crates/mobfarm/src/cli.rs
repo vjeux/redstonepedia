@@ -76,6 +76,10 @@ pub enum MobfarmCmd {
         /// Every golem stands still (default: a random policy each).
         #[arg(long)]
         still: bool,
+        /// Build it into a standard terrain sample (village-edge, plains, forest) with natural
+        /// spawning on Hard around its AFK spot (the design's `ground:`, `afk:`, `terrain:` meta).
+        #[arg(long)]
+        terrain: Option<String>,
     },
     /// The brief's game check: the design run in the real server for `--days`, its golems (time
     /// and cell) and the iron in the chest, against redsim's runs of the same design.
@@ -117,6 +121,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "l6p-dry" => (crate::day1::l6p_dry(pad), "the bed-plate calm over a dry drop".to_string()),
                 "l6p-pad" => (crate::day1::l6p_pad(pad), "golems burn in a corner of their pad".to_string()),
                 "d4" => (crate::day1::d4_two_scared(pad), "golems burn in a corner of their pit".to_string()),
+                "d1u" => (crate::day1::d1u(pad), "golems burn in a corner of their pit".to_string()),
                 "m3" => (crate::day1::m3_bedplate(pad), "golems fall out of sight to a lava blade".to_string()),
                 "m2" => (crate::day1::m2_observer(pad), "golems fall out of sight to a lava blade".to_string()),
                 "m2open" => (crate::day1::m2_open(pad), "golems fall out of sight to a lava blade".to_string()),
@@ -147,11 +152,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("FAIL {f}");
             }
         }
-        MobfarmCmd::Run { design, seed, days, still } => {
-            let (_, spec) = load(version, &design)?;
+        MobfarmCmd::Run { design, seed, days, still, terrain } => {
+            let (c, spec) = load(version, &design)?;
             use redsim::entity::mob::farm::{RunOpts, WalkMode, run};
             let walk = if still { WalkMode::Fixed(redsim::entity::mob::walk::Walk::Still) } else { WalkMode::Random };
-            let o = RunOpts::steady(seed, days * 24000, walk);
+            let mut o = RunOpts::steady(seed, days * 24000, walk);
+            let spec = match &terrain {
+                Some(name) => {
+                    let site: &'static redsim::entity::mob::site::Site = Box::leak(Box::new(circuit::mobfarm::site_of(&c, &spec, name).map_err(|e| anyhow::anyhow!(e))?));
+                    println!("terrain {}: offset {:?}, {} blocks placed, {} dug, AFK at {:.1} {:.1} {:.1}", site.sample, site.offset, site.placed, site.dug, site.afk.x, site.afk.y, site.afk.z);
+                    o.site = Some(site);
+                    site.spec(&spec)
+                }
+                None => spec,
+            };
             let t0 = std::time::Instant::now();
             let r = run(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
             // (the day time of a spawn: the mob layer starts at day0 - SETTLE_TICKS at game time 0)

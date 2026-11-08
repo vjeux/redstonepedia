@@ -72,13 +72,22 @@ pub struct RunOpts {
     /// The steady state: every villager's `LAST_SLEPT` at the end of the last REST (day time 10).
     /// `false`: none (the restart probe: villagers that missed a night).
     pub slept: bool,
+    /// Built into a terrain sample (the spec already moved there, `Site::spec`), natural
+    /// spawning around its AFK spot on Hard; `None`: the void.
+    pub site: Option<&'static super::site::Site>,
+}
+
+impl std::fmt::Debug for super::site::Site {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Site({} at {:?})", self.sample, self.offset)
+    }
 }
 
 impl RunOpts {
     /// The judge's run `seed`: the day time drawn from the seed in the day (10..12000), slept.
     pub fn steady(seed: i64, ticks: u32, walk: WalkMode) -> RunOpts {
         let mut r = crate::rng::LegacyRandom::new(seed ^ 0x6461_7930);
-        RunOpts { seed, ticks, day0: 10 + r.next_int(11990) as i64, walk, slept: true }
+        RunOpts { seed, ticks, day0: 10 + r.next_int(11990) as i64, walk, slept: true, site: None }
     }
 }
 
@@ -185,8 +194,14 @@ impl Run {
     /// the mob layer seeded with `o.seed` at day time `o.day0 - SETTLE_TICKS`.
     pub fn start(spec: &FarmSpec, o: &RunOpts) -> Result<Run, String> {
         let size = [spec.hi.x - spec.lo.x + 1, spec.hi.y - spec.lo.y + 1, spec.hi.z - spec.lo.z + 1];
-        let mut w = World::new(spec.lo, size);
+        let mut w = match o.site {
+            Some(s) => s.world_for(spec),
+            None => World::new(spec.lo, size),
+        };
         w.mob.seed(o.seed, o.day0 - SETTLE_TICKS);
+        if let Some(s) = o.site {
+            w.mob.natural = Some(super::natural::Natural::new(vec![s.afk], super::natural::Difficulty::Hard));
+        }
         let (detectors, rest): (Vec<_>, Vec<_>) = spec.blocks.iter().cloned().partition(|(_, b)| matches!(b, Block::DaylightDetector { .. }));
         w.place_raw(&rest);
         w.place_updates(&rest);

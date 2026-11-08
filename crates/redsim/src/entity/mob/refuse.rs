@@ -25,7 +25,7 @@ use crate::world::World;
 
 /// Every refusal of a build (empty: the mob layer can judge it).
 pub fn static_checks(spec: &FarmSpec) -> Vec<String> {
-    let o = RunOpts { seed: 1, ticks: 0, day0: 6000, walk: WalkMode::Random, slept: true };
+    let o = RunOpts { seed: 1, ticks: 0, day0: 6000, walk: WalkMode::Random, slept: true, site: None };
     let w = match build(spec, &o) {
         Ok(w) => w,
         Err(e) => return vec![e],
