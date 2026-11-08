@@ -1,0 +1,35 @@
+# Iron farm, late: the optimizer's input (designs/briefs/farm-optimizer.md, "The loop").
+# Argued in designs/briefs/farm-iron.md, Stages: Late (revision 9). Owner: the stage-spec session.
+#
+# The player: everything, End included (shulker boxes, crafters); villagers from a breeder. They
+# AFK at one spot for hours (overnight) and want the most iron from a compact build (vjeux 04:26:
+# "stack multiple modules next to each other and increase efficiency while keeping it small").
+
+farm: iron
+stage: late
+
+# Every number is the whole build at N = 8 modules; the curve at N = 1, 2, 4 (and 16 when it
+# fits) is printed with each member.
+# 1. Net iron per hour over 8 h AFK: from the running farm, the weather cycle and natural
+#    spawning on Hard included; a break stops it for the rest of the 8 h; iron the storage
+#    cannot hold is lost. Player: "what one night AFK brings".
+objective: max iron_per_hour
+# 2. The build in minutes (day 1's formula). Player: "the effort; iron per hour per block is
+#    printed, and its best is always on this front".
+objective: min build_minutes
+# 3. The bounding box's volume per module. Player: "the room it takes beside the other farms
+#    around the AFK spot".
+objective: min volume_per_module
+
+constraint: modules in 8..8
+# stacking must pay (vjeux 04:26): iron per hour per block at N = 8 at least 5% above the module
+# alone, and the volume per module at N = 8 at least 5% below it; copies at a no-coupling pitch
+# are the bar, printed beside the front
+constraint: per_block_gain >= 1.05
+constraint: volume_gain >= 1.05
+# every module ticks from one AFK spot (simulation distance 10, DistanceManager)
+constraint: afk_spots <= 1
+
+space: placement void
+
+merge: 10%
