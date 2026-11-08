@@ -233,17 +233,17 @@ at a pitch where they never interact gain nothing: that is the bar, not a candid
 
 Hard limits:
 - **Any survival item.**
-- **Every module (a villager cluster) keeps at least 90% of its ceiling with its neighbours
-  present**, the coupling engineered away (shared parts, where golems dwell and for how long), not
-  avoided with distance.
 - **The whole build runs from one AFK spot**: entities tick only in chunks within the simulation
   distance of a player (`DistanceManager`: the player ticket at level `ENTITY_TICKING -
   simulationDistance`). A dedicated server defaults to 10 (`simulation-distance`).
 
 Ranked by: **iron per hour per block of the whole build at N = 8 modules**, shown at N = 1, 2, 4
 and 8 (and 16 if it fits); the curve must rise with N. **Small**: the card reports the bounding
-box's volume and the blocks per module; the volume per module must fall with N. A design whose
-volume per module does not fall is the bar.
+box's volume and the blocks per module; the volume per module must fall with N (shared parts: the
+collection, the zombie, the calm, the shafts, the kill chamber, the water, and interleaving that
+shrinks the edges). A design whose volume per module does not fall is the bar. Each module's share
+of its ceiling with its neighbours present is reported, not a limit: coupling losses already show
+in iron per hour per block (revision 7, the parent's ruling on the 90% proxy).
 
 Must-haves:
 - **At least 8 h AFK**: the iron packed into blocks (a crafter) or stored, the poppies composted
