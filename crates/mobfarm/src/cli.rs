@@ -156,6 +156,9 @@ pub enum MobfarmCmd {
         /// spawning on Hard around its AFK spot (the design's `ground:`, `afk:`, `terrain:` meta).
         #[arg(long)]
         terrain: Option<String>,
+        /// Only tick the built farm for `--days` (no checks, no report): the time a game day takes.
+        #[arg(long)]
+        ticks_only: bool,
     },
     /// The brief's game check: the design run in the real server for `--days`, its golems (time
     /// and cell) and the iron in the chest, against redsim's runs of the same design.
@@ -232,7 +235,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("FAIL {f}");
             }
         }
-        MobfarmCmd::Run { design, seed, days, still, terrain } => {
+        MobfarmCmd::Run { design, seed, days, still, terrain, ticks_only } => {
             let (c, spec) = load(version, &design)?;
             use redsim::entity::mob::farm::{RunOpts, WalkMode, run};
             let walk = if still { WalkMode::Fixed(redsim::entity::mob::walk::Walk::Still) } else { WalkMode::Random };
@@ -247,6 +250,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 None => spec,
             };
             let t0 = std::time::Instant::now();
+            if ticks_only {
+                let mut r = redsim::entity::mob::farm::Run::new(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
+                let built = t0.elapsed().as_secs_f64();
+                for _ in 0..days * 24000 {
+                    r.tick();
+                }
+                println!("built and settled in {built:.1} s; {days} game day(s) ticked in {:.1} s", t0.elapsed().as_secs_f64() - built);
+                return Ok(());
+            }
             let r = run(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
             // (the day time of a spawn: the mob layer starts at day0 - SETTLE_TICKS at game time 0)
             let night = r.spawn_times.iter().filter(|t| (o.day0 - redsim::entity::mob::farm::SETTLE_TICKS + **t).rem_euclid(24000) >= 12000).count();
