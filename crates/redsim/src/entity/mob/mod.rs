@@ -26,6 +26,7 @@ pub mod refuse;
 pub mod spawn;
 pub mod types;
 pub mod villager;
+pub mod view;
 pub mod walk;
 
 #[cfg(test)]

@@ -146,57 +146,118 @@ impl RunReport {
 /// player's farm is built long before it runs; each flowing step takes 5 gt).
 pub const SETTLE_TICKS: i64 = 200;
 
-/// Build the farm's world: blocks (their water settled for [`SETTLE_TICKS`]), the output chest,
-/// the entities, the mob layer seeded with `o.seed` at day time `o.day0` when the entities arrive;
-/// each villager's HOME (the bed head nearest its feet within 2.5) and, in the steady state, a
-/// LAST_SLEPT at the end of the last REST (day time 10).
-pub fn build(spec: &FarmSpec, o: &RunOpts) -> Result<World, String> {
-    let size = [spec.hi.x - spec.lo.x + 1, spec.hi.y - spec.lo.y + 1, spec.hi.z - spec.lo.z + 1];
-    let mut w = World::new(spec.lo, size);
-    w.mob.seed(o.seed, o.day0 - SETTLE_TICKS);
-    // daylight detectors come after the water settles (they would read the sky light while it
-    // spreads, which the light engine's timing check refuses)
-    let (detectors, rest): (Vec<_>, Vec<_>) = spec.blocks.iter().cloned().partition(|(_, b)| matches!(b, Block::DaylightDetector { .. }));
-    w.place_raw(&rest);
-    w.place_updates(&rest);
-    let chest = Block::parse("minecraft:chest[facing=north,type=single,waterlogged=false]")?;
-    // (the design's own chest at its output stays as built; an air output gets the judge's)
-    if !matches!(w.get(spec.output), Block::Chest { .. }) {
-        w.set_block(spec.output, chest, crate::world::flags::RAW);
-    }
-    crate::redstone::container::apply_block_entities(&mut w, [(spec.output, "{Items:[]}")])?;
-    for _ in 0..SETTLE_TICKS {
-        w.tick();
-    }
-    w.place_raw(&detectors);
-    w.place_updates(&detectors);
-    for (ty, pos, nbt) in &spec.entities {
-        crate::entity::spawn(&mut w, ty, *pos, nbt.as_deref())?;
-    }
-    let slept = w.time - (o.day0 - 10).rem_euclid(24000);
-    let villagers: Vec<usize> = (0..w.entities.list.len()).filter(|&i| matches!(&w.entities.list[i].kind, EntityKind::Mob(m) if m.ty == MobType::Villager)).collect();
-    let mut taken: Vec<BlockPos> = Vec::new();
-    for i in villagers {
-        let feet = w.entities.list[i].pos;
-        let cell = w.entities.list[i].block_position();
-        let heads = super::blocks::bed_heads(&w, cell.offset(-3, -2, -3), cell.offset(3, 2, 3));
-        let home = heads
-            .into_iter()
-            .filter(|h| !taken.contains(h))
-            .map(|h| (Vec3::new(h.x as f64 + 0.5, h.y as f64 + 0.5, h.z as f64 + 0.5).distance_to_sqr(feet), h))
-            .filter(|(d, _)| *d < 2.5 * 2.5)
-            .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(_, h)| h);
-        let Some(home) = home else { return Err(format!("the villager at {:.2} {:.2} {:.2} has no bed of its own within reach", feet.x, feet.y, feet.z)) };
-        taken.push(home);
-        if let EntityKind::Mob(m) = &mut w.entities.list[i].kind
-            && let Some(b) = m.brain.as_deref_mut()
-        {
-            b.home = Some(home);
-            b.last_slept = if o.slept { Some(slept) } else { None };
+/// One farm run, tick by tick: the judge's runner and the 3D viewer's (one runner, so the view
+/// cannot drift from the judge; mobviewer 2026-11-08). [`Run::start`] builds the farm up to its
+/// water's settle, [`Run::settle_tick`] runs one of the [`SETTLE_TICKS`] (a browser spreads them
+/// over frames), [`Run::arrive`] brings the daylight detectors, the entities, each villager's
+/// HOME and LAST_SLEPT and the golems' walking; [`Run::tick`] is one game tick (a new walking
+/// policy first when golems walk at random). [`Run::new`] is the three in order, [`build`] its
+/// world. Clone: the viewer snapshots a run (the world with its walk random) for rewind and reset.
+#[derive(Clone)]
+pub struct Run {
+    pub world: World,
+    spec: FarmSpec,
+    o: RunOpts,
+    detectors: Vec<(BlockPos, Block)>,
+    settle_left: i64,
+    walk_rng: crate::rng::LegacyRandom,
+}
+
+impl Run {
+    /// The farm's blocks (raw, then updates; the daylight detectors held back: they would read
+    /// the sky light while the water spreads, which the light engine's timing check refuses), its
+    /// output chest (the design's own stays as built; an air output gets the judge's), emptied;
+    /// the mob layer seeded with `o.seed` at day time `o.day0 - SETTLE_TICKS`.
+    pub fn start(spec: &FarmSpec, o: &RunOpts) -> Result<Run, String> {
+        let size = [spec.hi.x - spec.lo.x + 1, spec.hi.y - spec.lo.y + 1, spec.hi.z - spec.lo.z + 1];
+        let mut w = World::new(spec.lo, size);
+        w.mob.seed(o.seed, o.day0 - SETTLE_TICKS);
+        let (detectors, rest): (Vec<_>, Vec<_>) = spec.blocks.iter().cloned().partition(|(_, b)| matches!(b, Block::DaylightDetector { .. }));
+        w.place_raw(&rest);
+        w.place_updates(&rest);
+        let chest = Block::parse("minecraft:chest[facing=north,type=single,waterlogged=false]")?;
+        if !matches!(w.get(spec.output), Block::Chest { .. }) {
+            w.set_block(spec.output, chest, crate::world::flags::RAW);
         }
+        crate::redstone::container::apply_block_entities(&mut w, [(spec.output, "{Items:[]}")])?;
+        Ok(Run { world: w, spec: spec.clone(), o: *o, detectors, settle_left: SETTLE_TICKS, walk_rng: crate::rng::LegacyRandom::new(o.seed ^ 0x5741_4c4b) })
     }
-    Ok(w)
+
+    /// The settle's ticks left.
+    pub fn settle_left(&self) -> i64 {
+        self.settle_left
+    }
+
+    /// One of the settle's ticks; false once none is left (nothing ran).
+    pub fn settle_tick(&mut self) -> bool {
+        if self.settle_left <= 0 {
+            return false;
+        }
+        self.world.tick();
+        self.settle_left -= 1;
+        true
+    }
+
+    /// The rest of the build (any settle tick left first): the daylight detectors, the entities,
+    /// each villager's HOME (the bed head nearest its feet within 2.5) and, in the steady state, a
+    /// LAST_SLEPT at the end of the last REST (day time 10); a fixed walking policy.
+    pub fn arrive(&mut self) -> Result<(), String> {
+        while self.settle_tick() {}
+        let w = &mut self.world;
+        w.place_raw(&self.detectors);
+        w.place_updates(&self.detectors);
+        for (ty, pos, nbt) in &self.spec.entities {
+            crate::entity::spawn(w, ty, *pos, nbt.as_deref())?;
+        }
+        let slept = w.time - (self.o.day0 - 10).rem_euclid(24000);
+        let villagers: Vec<usize> = (0..w.entities.list.len()).filter(|&i| matches!(&w.entities.list[i].kind, EntityKind::Mob(m) if m.ty == MobType::Villager)).collect();
+        let mut taken: Vec<BlockPos> = Vec::new();
+        for i in villagers {
+            let feet = w.entities.list[i].pos;
+            let cell = w.entities.list[i].block_position();
+            let heads = super::blocks::bed_heads(w, cell.offset(-3, -2, -3), cell.offset(3, 2, 3));
+            let home = heads
+                .into_iter()
+                .filter(|h| !taken.contains(h))
+                .map(|h| (Vec3::new(h.x as f64 + 0.5, h.y as f64 + 0.5, h.z as f64 + 0.5).distance_to_sqr(feet), h))
+                .filter(|(d, _)| *d < 2.5 * 2.5)
+                .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(_, h)| h);
+            let Some(home) = home else { return Err(format!("the villager at {:.2} {:.2} {:.2} has no bed of its own within reach", feet.x, feet.y, feet.z)) };
+            taken.push(home);
+            if let EntityKind::Mob(m) = &mut w.entities.list[i].kind
+                && let Some(b) = m.brain.as_deref_mut()
+            {
+                b.home = Some(home);
+                b.last_slept = if self.o.slept { Some(slept) } else { None };
+            }
+        }
+        if let WalkMode::Fixed(p) = self.o.walk {
+            w.mob.golem_walk = p;
+        }
+        Ok(())
+    }
+
+    /// [`Run::start`], every settle tick, [`Run::arrive`].
+    pub fn new(spec: &FarmSpec, o: &RunOpts) -> Result<Run, String> {
+        let mut r = Run::start(spec, o)?;
+        r.arrive()?;
+        Ok(r)
+    }
+
+    /// One game tick: a new walking policy for the next golem first when golems walk at random
+    /// (drawn from the run's walk random, seeded `o.seed ^ 0x5741_4c4b`), then the world's tick.
+    pub fn tick(&mut self) {
+        if self.o.walk == WalkMode::Random {
+            self.world.mob.golem_walk = pick_walk(&mut self.walk_rng);
+        }
+        self.world.tick();
+    }
+}
+
+/// Build the farm's world, ready to run: [`Run::new`]'s world.
+pub fn build(spec: &FarmSpec, o: &RunOpts) -> Result<World, String> {
+    Run::new(spec, o).map(|r| r.world)
 }
 
 /// The tracked state of a run.
@@ -209,10 +270,10 @@ struct Track {
 
 /// Run a farm: `o.ticks` game ticks, every check as it goes.
 pub fn run(spec: &FarmSpec, o: &RunOpts) -> Result<RunReport, String> {
-    let mut w = build(spec, o)?;
+    let mut r = Run::new(spec, o)?;
     let mut rep = RunReport { ticks: o.ticks, ..Default::default() };
     let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new() };
-    for e in &w.entities.list {
+    for e in &r.world.entities.list {
         if let EntityKind::Mob(m) = &e.kind
             && m.ty == MobType::Villager
         {
@@ -220,23 +281,16 @@ pub fn run(spec: &FarmSpec, o: &RunOpts) -> Result<RunReport, String> {
             tr.last_sleep.push((e.id, m.brain.as_deref().and_then(|b| b.last_slept).unwrap_or(0)));
         }
     }
-    let mut walk_rng = crate::rng::LegacyRandom::new(o.seed ^ 0x5741_4c4b);
-    if let WalkMode::Fixed(p) = o.walk {
-        w.mob.golem_walk = p;
-    }
     for _ in 0..o.ticks {
-        if o.walk == WalkMode::Random {
-            w.mob.golem_walk = pick_walk(&mut walk_rng);
-        }
-        w.tick();
-        let t = w.time;
-        absorb_events(&mut w, &mut rep, &mut tr, t);
-        check_tick(&w, &mut rep, &mut tr, spec, t);
+        r.tick();
+        let t = r.world.time;
+        absorb_events(&mut r.world, &mut rep, &mut tr, t);
+        check_tick(&r.world, &mut rep, &mut tr, spec, t);
         if rep.failures.len() >= 4 {
             break;
         }
     }
-    finish(&w, &mut rep, &tr, spec);
+    finish(&r.world, &mut rep, &tr, spec);
     Ok(rep)
 }
 
