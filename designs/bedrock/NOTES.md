@@ -112,26 +112,40 @@ would win, and the portal appears there instead (then put a block in that spot a
 
 ### Stay in the Nether: the remote trigger
 
-Verified on the official server (`portal_remote_trigger.json`): **the player never leaves the
+Verified on the official server (`portal_remote_trigger_detector.json`; the original
+pressure-plate variant is `portal_remote_trigger.json`): **the player never leaves the
 Nether.** Per trip: mine one frame block of the new portal, walk to the return portal R_N, throw
 one item into it.
 
 * The item comes out of R_N's overworld twin R_O with its speed (a teleport keeps the motion) and
-  lands on a wooden pressure plate (wooden plates count items) on a hopper (which swallows it, so
-  the plate lets go after 20 ticks).
-* The plate's dust line fires a dropper of cobblestone aimed into the drill portal D_O. The
+  falls into collecting hoppers under R_O's exit side. One column of hoppers (the detectors)
+  faces down into barrels and is read by comparators; the other column faces sideways into the
+  detectors. Collection is the signal: a hopper that sucks an item, and an *empty* hopper that
+  receives one by transfer, both sit on the 8-tick transfer cooldown
+  (`HopperBlockEntity.tryMoveItems` / `tryMoveInItem`, 8 or 7 ticks), which always covers the
+  comparator's 2-tick refresh; repeaters amplify the strength-1 output, and the barrel drain
+  resets the detector. (The plate design was replaced: with a real tossed item the hoppers
+  usually sucked it before any useful plate pulse — the race is measured in the video shoot's
+  log.)
+* Firing-repeaters latch: a repeater pointing into a dropper strongly powers the dropper
+  block, which powers dust touching its other faces — if that dust is (part of) the repeater's
+  own input route, the repeater and the dropper's `triggered` state stay on forever and only
+  the first shot ever fires (measured in the video shoot by sampling the chain). Feed each
+  firing repeater by a route that never touches its dropper's other faces (the video build
+  runs it behind the portal planes).
+* The amplified dust line fires a dropper of cobblestone aimed into the drill portal D_O. The
   dropped cobblestone is a NEW item, so it has no portal cooldown (an item that just came through
   a portal waits 300 ticks, `Entity.getDimensionChangingDelay`); it goes through at once and the
   game builds the next portal on the field.
-* Nobody is in the overworld: what runs the plate, the line, the dropper and D_O is the portal
+* Nobody is in the overworld: what runs the detector, the line, the dropper and D_O is the portal
   ticket the arriving item places around R_O (`Entity.placePortalTicket`: radius 3, 300 ticks,
   `TicketType.PORTAL` flags 15 including keep-dimension-active, which `ServerLevel.tick` reads
   through `hasActiveTickets`): 3x3 chunks entity-ticking around R_O's chunk. So R_O, the
-  plate, the line, the dropper and D_O must be within one chunk of R_O's chunk.
+  detector, the line, the dropper and D_O must be within one chunk of R_O's chunk.
 * Placement: R_N >= 17 blocks (Chebyshev, x or z) from the drill exit point; R_O within 128 of
   8x R_N's position and D_O outside it: with R_N at exactly 17, R_O sits 8+ blocks from D_O (the
-  test: 12). The dropper: one cobblestone per trip (a stack = 64 trips); the hopper under the plate
-  can feed it back.
+  test: 12). The dropper: one cobblestone per trip (a stack = 64 trips); the thrown trigger items
+  collect in the detector barrels.
 * Test: the overworld build is 1600 blocks from spawn with no forced chunk; before each throw the
   harness asserts `execute unless loaded` at the dropper and at R_O (unloaded), then an item is
   summoned moving into R_N in the Nether; trip 1 converted the field's first line, trip 2 (after
@@ -549,17 +563,43 @@ only in the End at fixed places.
 
 ## Video
 
-v2 (the sweep + remote-trigger remake, `mctas bedrock video --v2`): PARTIAL —
-[bedrock-portal-method-v2.webm](https://github.com/vjeux/redstonepedia/releases/download/videos/bedrock-portal-method-v2.webm)
-(98 s) covers the kit, the trick diagram, field prep and the return portal on the same
-seed (field x -8..-5, rows -7..3), then stops: the recording client's per-frame command
-latency collapsed during the Overworld machine-room dig and the recording box's lease
-ran out before the machine, the loop and the sweep could be filmed. The driver for the
-full shoot is in place (scout sweep-simulation, actor toss/cam/placef/fillinto/digbox,
-per-leg checkpoints `setup2`/`intro2`/`field`/`rn`/`owdig`/`owbranch`/`machine`/…):
-resume any later shoot with `--v2 --phase record --from rn`. The loop and sweep
-themselves are the verified scenarios `portal_sweep.json` / `portal_remote_trigger.json`
-above.
+v2 (the sweep + remote-trigger remake, `mctas bedrock video --v2`):
+[bedrock-portal-method-v2.mp4](https://github.com/vjeux/redstonepedia/releases/download/videos/bedrock-portal-method-v2.mp4)
+(294.1 s (4m54s), 1280x720 H.264/yuv420p TV range) — the complete tutorial on the same seed
+(field x -8..-5, rows -7..3): hook, kit and trick cards, field prep, R_N built in the
+Nether and entered so the game links/creates R_O, the comparator-hopper detector and
+separate drill portals D_O at R_O, one real-time loop from the Nether, then the
+35-trip batch sweep (trip counter on screen) through all five layers to a void hole
+at row -2, and a one-screen recap. It supersedes the earlier 98 s partial
+[bedrock-portal-method-v2.webm](https://github.com/vjeux/redstonepedia/releases/download/videos/bedrock-portal-method-v2.webm).
+
+Shoot notes (all captioned where the viewer can see them): commands only gave the
+starting kit, the detector shortfall on a resumed leg, and one replacement pickaxe
+(Efficiency V + Unbreaking III after the plain kit pick broke in the dig), plus
+travel skips and spectator establishing shots; no block at the field, portals or
+machine was placed or broken by a command. The machine-build leg in this cut is a
+lit insert filmed separately from an isolated copy of the owbranch checkpoint,
+with the same verified layout and six ordinary torches; the verified sweep world
+and its checkpoints are unchanged. Provenance of the conversion evidence:
+the fresh BEFORE->after ledger (live BEFORE bottom line -> obsidian, planned and
+not-yet-covered row, natural-bedrock cells ledgered separately from the trip
+counter — 61 cells) starts at layer y3, where the gated reshoot began; the retained
+y4 footage is corroborated by the earlier production log's RCON assertions and the
+sweep4b checkpoint, not by that ledger — not all 35 trips are new-ledger trips.
+Per-pass coverage and per-layer cleared checks gate the reshoot, which also restores
+missing same-layer supports with ordinary netherrack until the layer is done (one
+at [-5,3,-7], mined back out). Two pitfalls are handled in the driver: frame mining
+is verified against the server snapshot, not the client's dig count (one
+client-predicted top corner survived into a checkpoint and made the next site only
+partial), with leftover frames cleared before a pass opens; and at a pass switch
+the dropper is emptied through its GUI and mined only while its drill portal is
+dead (one frame pillar mined, all loose drops collected, pillar replaced and the
+portal relit) — a source-valid prevention against any loose drop entering a lit
+drill portal during the switch. The exact stray item/cause behind the old
+unexpected pre-generation was not directly identified, and the new run's B-pass
+success (actual entry/arrival/generated rows logged) is not a general predictor
+certification. The detector build is the verified scenario
+`portal_remote_trigger_detector.json` above.
 
 v1 tutorial: [bedrock-portal-method.webm](https://github.com/vjeux/redstonepedia/releases/download/videos/bedrock-portal-method.webm)
 (4m21s, 1280x720 VP9), made by `mctas bedrock video` (crates/bedrock/src/video.rs): a real

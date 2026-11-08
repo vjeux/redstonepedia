@@ -325,7 +325,10 @@ public final class Actor {
             }
             case "fillinto":
                 return fillInto(new BlockPos(Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3])), f[4],
-                        f.length > 5 ? Integer.parseInt(f[5]) : 99);
+                        f.length > 5 ? Integer.parseInt(f[5]) : 99, false);
+            case "takefrom":
+                return fillInto(new BlockPos(Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3])), f[4],
+                        f.length > 5 ? Integer.parseInt(f[5]) : 99, true);
             case "digbox":
                 return digBox2(
                         Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3]),
@@ -1099,10 +1102,12 @@ public final class Actor {
 
     /**
      * Opens the container at `pos` (a right-click, the use key's own call), shift-clicks up
-     * to `maxStacks` player-inventory stacks whose item id contains `substr` into it, and
-     * closes it: how a player loads a dropper (capped so the player keeps their own supply).
+     * to `maxStacks` stacks whose item id contains `substr` across it, and closes it:
+     * player -> container how a player loads a dropper (capped so the player keeps their
+     * own supply), or container -> player (`fromContainer`) how a player empties one
+     * before mining it, so its contents never spill as loose items.
      */
-    private static String fillInto(BlockPos pos, String substr, int maxStacks) throws Exception {
+    private static String fillInto(BlockPos pos, String substr, int maxStacks, boolean fromContainer) throws Exception {
         waitPlayer();
         float[] a = onClient(() -> anglesTo(Minecraft.getInstance().player,
                 pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5));
@@ -1143,7 +1148,8 @@ public final class Actor {
                 }
                 var stack = slot.getItem();
                 String id = String.valueOf(BuiltInRegistries.ITEM.getKey(stack.getItem()));
-                if (slot.container == mc.player.getInventory() && id.contains(substr) && stack.getCount() > 0) {
+                boolean playerSide = slot.container == mc.player.getInventory();
+                if (playerSide != fromContainer && id.contains(substr) && stack.getCount() > 0) {
                     n += stack.getCount();
                     stacks++;
                     mc.gameMode.handleContainerInput(open.containerId, slot.index, 0, ContainerInput.QUICK_MOVE, mc.player);

@@ -597,7 +597,7 @@ impl Chunk {
     }
 }
 
-fn read_chunk(world: &Path, cx: i32, cz: i32, cache: &mut HashMap<(i32, i32), Vec<u8>>) -> Result<Option<Chunk>> {
+fn read_chunk_root(world: &Path, cx: i32, cz: i32, cache: &mut HashMap<(i32, i32), Vec<u8>>) -> Result<Option<nbt::Tag>> {
     let (rx, rz) = (cx.div_euclid(32), cz.div_euclid(32));
     if let std::collections::hash_map::Entry::Vacant(e) = cache.entry((rx, rz)) {
         let path = world.join("region").join(format!("r.{rx}.{rz}.mca"));
@@ -633,7 +633,13 @@ fn read_chunk(world: &Path, cx: i32, cz: i32, cache: &mut HashMap<(i32, i32), Ve
         }
         k => bail!("chunk {cx},{cz}: unsupported compression {k}"),
     };
-    let root = nbt::parse_named(&bytes)?;
+    Ok(Some(nbt::parse_named(&bytes)?))
+}
+
+fn read_chunk(world: &Path, cx: i32, cz: i32, cache: &mut HashMap<(i32, i32), Vec<u8>>) -> Result<Option<Chunk>> {
+    let Some(root) = read_chunk_root(world, cx, cz, cache)? else {
+        return Ok(None);
+    };
     let mut chunk = Chunk { sections: HashMap::new(), block_ticks: Vec::new(), fluid_ticks: 0, block_entities: Vec::new() };
     for sec in root.get("sections").map(|t| t.as_list()).unwrap_or(&[]) {
         let y = sec.get("Y").and_then(|t| t.as_i64()).unwrap_or(0) as i32;
@@ -667,6 +673,34 @@ fn read_chunk(world: &Path, cx: i32, cz: i32, cache: &mut HashMap<(i32, i32), Ve
         chunk.block_entities.push((pos_of(t), id));
     }
     Ok(Some(chunk))
+}
+
+/// One saved heightmap value (`Heightmaps.<name>`) for a column of a saved dimension
+/// directory: the first-available y exactly as the game's `getHeight` reports it.
+/// `height` is the chunk's HeightAccessor height (256 in the Nether: y 0..255,
+/// even though its logical height is 128), fixing the packed bits per value the
+/// way `Heightmap`'s constructor does (`ceillog2(height + 1)`).
+pub fn read_heightmap(world: &Path, name: &str, x: i32, z: i32, min_y: i32, height: i32) -> Result<Option<i32>> {
+    let mut cache = HashMap::new();
+    let Some(root) = read_chunk_root(world, x.div_euclid(16), z.div_euclid(16), &mut cache)? else {
+        return Ok(None);
+    };
+    let Some(tag) = root.get("Heightmaps").and_then(|h| h.get(name)) else {
+        return Ok(None);
+    };
+    let data = tag.as_long_array();
+    let bits = 32 - (height as u32).leading_zeros();
+    let per_long = 64 / bits as usize;
+    let idx = (x.rem_euclid(16) + z.rem_euclid(16) * 16) as usize;
+    let word = data.get(idx / per_long).copied().unwrap_or(0) as u64;
+    let v = (word >> ((idx % per_long) as u32 * bits)) & ((1u64 << bits) - 1);
+    if std::env::var_os("MCTAS_DEBUG_HEIGHTMAP").is_some() {
+        eprintln!("heightmap {name} [{x},{z}] data_len={} bits={bits} per_long={per_long} idx={idx} word={word:#x} v={v} first_words={:?}", data.len(), data.iter().take(6).collect::<Vec<_>>());
+    }
+    if data.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(v as i32 + min_y))
 }
 
 /// Read a box of a saved world (overworld region files).

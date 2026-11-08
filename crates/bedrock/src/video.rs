@@ -133,6 +133,14 @@ struct State {
     /// v2: converted rows per finished pass, tag -> rows (what the pass-end mining replays).
     #[serde(default)]
     v2_converted: Vec<(String, Vec<i32>)>,
+    /// v2: natural bedrock cells proven converted (live BEFORE bedrock -> AFTER obsidian),
+    /// in conversion order. Repeat/support writes never land here.
+    #[serde(default)]
+    v2_bedrock_cells: Vec<Pos>,
+    /// v2: ordinary support blocks the player placed to restore a missing same-layer
+    /// bottom support, mined back out after the layer no longer needs them.
+    #[serde(default)]
+    v2_supports: Vec<Pos>,
 }
 
 pub fn run(version: &str, o: VideoOptions) -> Result<()> {
@@ -682,6 +690,12 @@ impl Prod {
     /// Load a container through its GUI, two stacks at most (the player keeps the rest).
     fn fillinto(&mut self, at: Pos, substr: &str) -> Result<String> {
         self.actor.cmd_timeout(&format!("fillinto {} {} {} {} 2", at[0], at[1], at[2], substr), Duration::from_secs(60))
+    }
+
+    /// Empty matching stacks out of a container through its GUI (how a player
+    /// unloads a dropper before mining it, so nothing spills as loose items).
+    fn takefrom(&mut self, at: Pos, substr: &str) -> Result<String> {
+        self.actor.cmd_timeout(&format!("takefrom {} {} {} {} 99", at[0], at[1], at[2], substr), Duration::from_secs(60))
     }
 
     fn dropall(&mut self, substr: &str, keep: u32) -> Result<String> {
@@ -2038,8 +2052,11 @@ fn sim_field(b: &mut Blocks, fx: i32, rz: i32, z0: i32, z1: i32) -> Option<(usiz
             let exit = [fx + 1, EXIT_Y, rz + pass];
             let mut rows: Vec<i32> = Vec::new();
             loop {
-                // Origins above y12 sit >9 above the exit: dist² > 81 beats no field row
-                // (max ~40), so capping the scan there cannot change who wins the field.
+                // Scout-only ranking on the y<=12 floor snapshot: this orders the low
+                // field sites for candidate choice. It cannot prove no higher full
+                // competitor exists (any full beats every partial in the game); the
+                // live driver re-predicts full-height before every trip and gates on
+                // required-row coverage instead of trusting this simulation.
                 let w = portal::winner(b, exit, 0, 12)?;
                 let row = w.origin[2];
                 if !w.full || w.origin[0] != fx + 1 || w.origin[1] != l + 1 || !(z0 - 1..=z1 + 1).contains(&row) {
@@ -2358,31 +2375,57 @@ fn kit2(p: &mut Prod) -> Result<()> {
     p.rcon_ok(&format!("item replace entity {PLAYER} hotbar.5 with minecraft:torch 64"))?;
     p.rcon_ok(&format!("item replace entity {PLAYER} hotbar.6 with minecraft:redstone 64"))?;
     p.rcon_ok(&format!("item replace entity {PLAYER} hotbar.7 with minecraft:stone 64"))?;
-    p.rcon_ok(&format!("item replace entity {PLAYER} hotbar.8 with minecraft:oak_pressure_plate 4"))?;
+    p.rcon_ok(&format!("item replace entity {PLAYER} hotbar.8 with minecraft:comparator 2"))?;
     p.rcon_ok(&format!("give {PLAYER} minecraft:obsidian 192"))?;
     p.rcon_ok(&format!("give {PLAYER} minecraft:cobblestone 192"))?;
     p.rcon_ok(&format!("give {PLAYER} minecraft:netherrack 128"))?;
     p.rcon_ok(&format!("give {PLAYER} minecraft:stone 128"))?;
     p.rcon_ok(&format!("give {PLAYER} minecraft:hopper 4"))?;
     p.rcon_ok(&format!("give {PLAYER} minecraft:dropper 2"))?;
-    p.rcon_ok(&format!("give {PLAYER} minecraft:repeater 4"))?;
+    p.rcon_ok(&format!("give {PLAYER} minecraft:barrel 2"))?;
+    p.rcon_ok(&format!("give {PLAYER} minecraft:repeater 7"))?;
     p.rcon_ok(&format!("effect give {PLAYER} minecraft:haste infinite 1 true"))?;
     // Fire Resistance: clearing a 700-block room in netherrack WILL breach a lava pocket
     // (it drowned two takes); a player prepping a field brings a fire-res potion for this.
     p.rcon_ok(&format!("effect give {PLAYER} minecraft:fire_resistance infinite 0 true"))?;
     p.rcon_ok("time set noon")?;
-    p.loga("kit given (captioned): Efficiency V pickaxe, obsidian, flint, redstone + dropper/hoppers/plates, Haste II, Fire Resistance");
+    p.loga("kit given (captioned): Efficiency V pickaxe, obsidian, flint, redstone + dropper/hoppers/comparators/barrels/repeaters, Haste II, Fire Resistance");
     Ok(())
 }
 
+/// Place the west (feeder) hopper of a detector pair, facing EAST into its detector:
+/// sneak-click the detector's west face (a plain click would open the detector hopper).
+/// Hopper facing is the clicked face's opposite, so WEST face -> facing east.
+fn place_feeder_hopper_east(p: &mut Prod, detector: Pos) -> Result<()> {
+    let feeder = [detector[0] - 1, detector[1], detector[2]];
+    p.hold("hopper")?;
+    p.walk(feeder[0], feeder[2] + 1)?;
+    p.actor.cmd("sneak 1")?;
+    let r = p.place(detector, "WEST");
+    p.actor.cmd("sneak 0")?;
+    let r = r?;
+    p.loga(&format!("place feeder {feeder:?} via {detector:?}/WEST sneak: {r}"));
+    p.assert_block("overworld", feeder, "minecraft:hopper[facing=east]", "west hopper feeds the detector")
+}
+
 /// The overworld trigger machine (NOTES' remote trigger), built block by block: R_O, two
-/// drill portals, the stone strip, hoppers + plates under R_O's exit side, the dust line
-/// with two repeaters, and the dropper (at portal A) loaded with cobblestone.
+/// drill portals, the stone strip, the comparator-hopper detector under R_O's exit
+/// side, the dust line, and the dropper (at portal A) loaded with cobblestone.
 fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
+    // Light the room first (ordinary torches on the floor — none on a
+    // component cell): the frames are built unlit, so without this the whole
+    // build leg is nearly black on camera. The north pair goes in from the
+    // scene's start position behind the portals; the south-aisle and branch
+    // torches go in after the walk back west below, along walked routes.
+    for pos in [[c.dix + 1, 2, c.doz_a - 2], [c.rox + 1, 2, c.doz_a - 2]] {
+        p.hold("torch")?;
+        p.place_at("overworld", pos, "minecraft:torch", None)?;
+    }
+    p.select(SLOT_PICK)?;
     // Portal FRAMES first, unlit: all the strip/dust work happens right beside (and
     // walks right past) these planes, and one greedy walk through a lit drill portal
     // would land the player on the field mid-build. Lighting happens below, once:
-    // R_O after its hoppers (before plates exist to step on), the drills at the end.
+    // R_O after its hoppers (before the detector wiring exists), the drills at the end.
     // Bottom rows at y2 (on the y1 room floor), interiors y3..5.
     p.build_portal2_frame("overworld", c.rox - 1, 2, c.doz_a, 3)?;
     p.build_portal2_frame("overworld", c.dix - 1, 2, c.doz_a, 3)?;
@@ -2390,15 +2433,45 @@ fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
     // Back to the west end before building west-to-east: from the branch bay the only
     // walkable route is north up the branch column, west along the main aisle.
     p.walk_path(&[(c.dix + 1, c.doz_b + 2), (c.dix + 1, c.doz_a + 3), (c.rox, c.doz_a + 3), (c.rox, c.doz_a + 2)])?;
+    // South-aisle and branch-end torches (see the north pair above), then back west.
+    for pos in [
+        [c.rox - 1, 2, c.doz_a + 3],
+        [c.rox + 5, 2, c.doz_a + 3],
+        [c.rox + 11, 2, c.doz_a + 3],
+        [c.dix + 3, 2, c.doz_b + 2],
+    ] {
+        // Stand inside the room, north of the torch: place_at's far-target
+        // pre-walk would aim one cell SOUTH of these edge cells, into rock
+        // the room dig never cleared.
+        p.walk(pos[0], pos[2] - 1)?;
+        p.hold("torch")?;
+        p.place_at("overworld", pos, "minecraft:torch", None)?;
+    }
+    p.select(SLOT_PICK)?;
+    p.walk_path(&[(c.dix + 1, c.doz_a + 3), (c.rox, c.doz_a + 3), (c.rox, c.doz_a + 2)])?;
     // Stone only where something sits or feet go: the dust rows, the branch column, the
     // build-stand rows (a full rectangular slab was ~170 one-by-one placements).
-    p.select(SLOT_STONE)?;
-    let plate_cells: [(i32, i32); 4] = [(c.rox, c.doz_a + 1), (c.rox + 1, c.doz_a + 1), (c.rox, c.doz_a + 2), (c.rox + 1, c.doz_a + 2)];
+    p.hold(":stone")?;
+    let hopper_cells: [(i32, i32); 4] = [(c.rox, c.doz_a + 1), (c.rox + 1, c.doz_a + 1), (c.rox, c.doz_a + 2), (c.rox + 1, c.doz_a + 2)];
+    // Comparator (rox+2) and amplifier-repeater (rox+3) cells east of the detector
+    // hoppers: no stone there (the components themselves occupy y2, on the y1 floor).
+    let detector_cells: [(i32, i32); 4] = [(c.rox + 2, c.doz_a + 1), (c.rox + 3, c.doz_a + 1), (c.rox + 2, c.doz_a + 2), (c.rox + 3, c.doz_a + 2)];
+    // Where the main dust line turns NORTH (west of D_O A) to feed dropper A's
+    // east-side repeater from behind the portals (see the dust routing below).
+    let turn_x = c.dix - 2;
     let mut strip: Vec<(i32, i32)> = Vec::new();
     for x in c.rox..=c.dix + 2 {
         strip.push((x, c.doz_a + 1));
         strip.push((x, c.doz_a + 2));
     }
+    // North-route supports: up the turn column, east behind the portal planes,
+    // and the east column's portal-plane cell, ready to continue south.
+    strip.push((turn_x, c.doz_a - 1));
+    strip.push((turn_x, c.doz_a));
+    for x in turn_x + 1..=c.dix + 3 {
+        strip.push((x, c.doz_a - 1));
+    }
+    strip.push((c.dix + 3, c.doz_a));
     // One continuous laying path (each placement beside the last; a jump back north
     // for the east column after finishing in the south made its first placement fail):
     // east-side route supports southward, then the branch stand rows northward.
@@ -2414,46 +2487,94 @@ fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
         strip.push((c.dix + 1, z));
         strip.push((c.dix, z));
     }
-    for (x, z) in strip {
-        if plate_cells.contains(&(x, z)) {
+    for (i, (x, z)) in strip.into_iter().enumerate() {
+        if hopper_cells.contains(&(x, z)) || detector_cells.contains(&(x, z)) {
             continue;
+        }
+        // The strip is more than one stack: refill the hand from the main
+        // inventory periodically (an exhausted hotbar slot silently fills with
+        // picked-up junk, and the next placement is the wrong block).
+        if i % 32 == 0 {
+            p.hold(":stone")?;
+        }
+        if (x, z) == (c.dix + 2, c.doz_b - 1) {
+            // First branch cell north of portal B, after the rows south of it: cross
+            // back on the east column (x dix+3, outside B's frame) and stand there.
+            // Approaching this cell from the south rows can leave the player IN it,
+            // and place_at's step-south then walks straight into B's frame pillar
+            // (a walk timeout that cost a take).
+            let f = p.feet()?;
+            if (f[2].floor() as i32) > c.doz_b {
+                p.walk_path(&[(c.dix + 3, c.doz_b + 1), (c.dix + 3, c.doz_b - 1)])?;
+            } else {
+                p.walk(c.dix + 3, c.doz_b - 1)?;
+            }
         }
         p.place_at("overworld", [x, 2, z], "minecraft:stone", None)?;
     }
-    // Hoppers under the plates, then the plates themselves. The strip ends at the
-    // branch's north end; walk the main aisle back west first.
+    // The detector: collection IS the signal. The east hoppers (the column real
+    // tosses exit over) face DOWN into barrels and are read by comparators; the
+    // west hoppers face EAST into them. A hopper that sucks an item — or an EMPTY
+    // hopper that receives one by transfer — sits on an 8-tick transfer cooldown
+    // (HopperBlockEntity.tryMoveItems / tryMoveInItem), so the comparator's 2-tick
+    // refresh always sees the item; the barrel drain then resets it. No pressure
+    // plate: a plate was a race the hopper usually won by sucking the item first.
+    // The strip ends at the branch's north end; walk the main aisle back west first.
     p.walk_path(&[(c.dix + 1, c.doz_a + 3), (c.rox, c.doz_a + 3), (c.rox, c.doz_a + 2)])?;
     p.hold("hopper")?;
-    for (x, z) in plate_cells {
-        p.place_at("overworld", [x, 2, z], "minecraft:hopper", None)?;
+    for z in [c.doz_a + 1, c.doz_a + 2] {
+        p.place_at("overworld", [c.rox + 1, 2, z], "minecraft:hopper[facing=down]", None)?;
+    }
+    for z in [c.doz_a + 1, c.doz_a + 2] {
+        place_feeder_hopper_east(p, [c.rox + 1, 2, z])?;
+    }
+    // Barrels under the detectors (their reset drain), mined into the y1 floor.
+    p.select(SLOT_PICK)?;
+    for z in [c.doz_a + 2, c.doz_a + 1] {
+        p.mine([c.rox + 1, 1, z])?;
+    }
+    p.hold("barrel")?;
+    for z in [c.doz_a + 2, c.doz_a + 1] {
+        p.place_at("overworld", [c.rox + 1, 1, z], "minecraft:barrel", None)?;
     }
     // Light R_O now, while standing on a hopper to do it cannot trigger anything
-    // (no plates, no dust, no dropper yet).
+    // (no comparators, no dust, no dropper yet).
     p.light_portal2("overworld", c.rox - 1, 2, c.doz_a)?;
-    p.select(SLOT_SWAP)?;
-    p.hold("oak_pressure_plate")?;
-    for (x, z) in plate_cells {
-        p.place_at_sneak("overworld", [x, 3, z], "minecraft:oak_pressure_plate")?;
+    // Comparators reading the detectors (input west, output east), then a repeater
+    // each amplifying into the strip stone at rox+4 (the dust rides on top of it).
+    p.hold("comparator")?;
+    for z in [c.doz_a + 1, c.doz_a + 2] {
+        p.place_at("overworld", [c.rox + 2, 2, z], "minecraft:comparator[facing=west]", Some((-90.0, 20.0)))?;
     }
-    // The back wall that keeps the arriving item on the plates.
-    p.select(SLOT_STONE)?;
+    p.hold("repeater")?;
+    for z in [c.doz_a + 1, c.doz_a + 2] {
+        p.place_at("overworld", [c.rox + 3, 2, z], "minecraft:repeater[facing=west]", Some((-90.0, 20.0)))?;
+    }
+    // The back wall that keeps the arriving item over the hoppers.
+    p.hold(":stone")?;
     for x in c.rox..=c.rox + 1 {
         for y in 3..=4 {
             p.place_at("overworld", [x, y, c.doz_a + 3], "minecraft:stone", None)?;
         }
     }
-    // Connector so the SOUTH plate row also feeds the line (an item landing there
-    // otherwise powers nothing: the line runs along the north row only).
+    // Connector so the SOUTH detector row also feeds the line (its amplifier
+    // powers the south output stone; the dust on top turns north into the main row).
     p.select(SLOT_REDSTONE)?;
-    p.place_at("overworld", [c.rox + 2, 3, c.doz_a + 2], "minecraft:redstone_wire", None)?;
-    // Dust: main line east from the plates to dropper A, then a branch to dropper B
-    // that routes EAST around portal B — the straight southward column would put a
-    // dust cell inside B's interior, where lighting the portal destroys it and cuts
-    // the line. Repeaters go in as the line reaches them (east on the main line,
-    // south on the east leg), while the player is already there.
+    p.place_at("overworld", [c.rox + 4, 3, c.doz_a + 2], "minecraft:redstone_wire", None)?;
+    // Dust: main line east from the detector output stone to the turn, then NORTH
+    // behind the portal planes, east, and south to the junction feeding dropper
+    // A's east-side repeater and the east leg to dropper B. The feed must not run
+    // west/south of dropper A: a repeater firing into a dropper strongly powers
+    // the dropper block, which powers any dust on its other faces — with the old
+    // south-of-A route that dust WAS the repeater's input, so the repeater (and
+    // the dropper's TRIGGERED state) latched on after the first shot and no
+    // later item ever fired it again (measured by sampling the chain). With the
+    // north route, dropper A has no dust neighbours at all. (The east leg also
+    // keeps dust out of B's interior, where lighting B would destroy it.)
+    // Repeaters go in as the line reaches them.
     p.select(SLOT_REDSTONE)?;
     let rep1 = c.rox + 7;
-    for x in c.rox + 2..=c.dix {
+    for x in c.rox + 4..=turn_x {
         if x == rep1 {
             p.hold("repeater")?;
             p.place_at("overworld", [rep1, 3, c.doz_a + 1], "minecraft:repeater", Some((-90.0, 20.0)))?;
@@ -2462,22 +2583,28 @@ fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
         }
         p.place_at("overworld", [x, 3, c.doz_a + 1], "minecraft:redstone_wire", None)?;
     }
-    // Branch: south one, east three (south of dropper A), south down the east side
-    // of portal B, then west into dropper B's east face.
-    p.place_at("overworld", [c.dix, 3, c.doz_a + 2], "minecraft:redstone_wire", None)?;
-    for x in c.dix + 1..=c.dix + 3 {
-        p.place_at("overworld", [x, 3, c.doz_a + 2], "minecraft:redstone_wire", None)?;
+    p.place_at("overworld", [turn_x, 3, c.doz_a], "minecraft:redstone_wire", None)?;
+    p.place_at("overworld", [turn_x, 3, c.doz_a - 1], "minecraft:redstone_wire", None)?;
+    let rep_north = c.dix + 1;
+    for x in turn_x + 1..=c.dix + 3 {
+        if x == rep_north {
+            p.hold("repeater")?;
+            p.place_at("overworld", [rep_north, 3, c.doz_a - 1], "minecraft:repeater", Some((-90.0, 20.0)))?;
+            p.select(SLOT_REDSTONE)?;
+            continue;
+        }
+        p.place_at("overworld", [x, 3, c.doz_a - 1], "minecraft:redstone_wire", None)?;
     }
-    // Each dropper is fired by a repeater pointing into its east face: the junction
-    // dust west/south of a dropper does not power it in 26.3 (measured in-world: the
-    // corner dust beside dropper A sat at power 9 and it never triggered; the same
-    // line through an east-side repeater fires it). A's repeater is fed by the
-    // branch row turning back north here.
+    p.place_at("overworld", [c.dix + 3, 3, c.doz_a], "minecraft:redstone_wire", None)?;
+    // Each dropper is fired by a repeater pointing into its east face: junction
+    // dust west/south of a dropper does not power it in 26.3 (measured in-world:
+    // the corner dust beside dropper A sat at power 9 and it never triggered;
+    // the same line through an east-side repeater fires it).
     p.place_at("overworld", [c.dix + 3, 3, c.doz_a + 1], "minecraft:redstone_wire", None)?;
     p.hold("repeater")?;
     p.place_at("overworld", [c.dix + 2, 3, c.doz_a + 1], "minecraft:repeater", Some((90.0, 20.0)))?;
     p.select(SLOT_REDSTONE)?;
-    for z in c.doz_a + 3..=c.doz_b + 1 {
+    for z in c.doz_a + 2..=c.doz_b + 1 {
         if z == c.doz_a + 5 {
             p.hold("repeater")?;
             p.place_at("overworld", [c.dix + 3, 3, z], "minecraft:repeater", Some((0.0, 20.0)))?;
@@ -2529,15 +2656,11 @@ fn throw_trigger(p: &mut Prod) -> Result<()> {
     go_throw_spot(p)?;
     p.select(SLOT_COBBLE)?;
     // One block from the plane, aimed eye-level at the low interior cell. The
-    // exit height in R_O scales with the entry height, and that height is a
-    // race: too high (the old 7.2 aim, exit ~1 block over the plates) and the
-    // hoppers under the plates suck the item out of the air before it ever
-    // steps on a plate — measured directly: a y=4.0 drop over a plate is
-    // hoppered within 3 ticks without pressing it, a y=3.2 drop presses and
-    // fires. Too low and it can ground-stop on R_O's bottom frame south edge
-    // (the earlier failure dump). Eye level enters at ~6.5 and emerges ~0.4
-    // over the plates: low enough to land and step within a couple of ticks,
-    // high enough to carry over the frame's south edge.
+    // exit height in R_O scales with the entry height: too low and the item can
+    // ground-stop on R_O's bottom frame south edge (an earlier failure dump).
+    // Eye level enters at ~6.5 and emerges low over the detector hoppers,
+    // carrying over the frame's south edge and into their suck range — with the
+    // comparator detector, being sucked is the signal, not a race to lose.
     p.look(c.rnx as f64 + 2.5, 6.6, rz as f64 + 0.5, 8)?;
     p.toss()?;
     p.walk(c.rnx + 2, rz - 2)?;
@@ -2547,11 +2670,16 @@ fn throw_trigger(p: &mut Prod) -> Result<()> {
 }
 
 /// Predict the next converted row from the live field (the current portal, if any, counted
-/// as mined-one-block). `Ok(None)`: the pass is exhausted. Also returns that current row.
+/// as mined-one-block), searching the full placeable height: any full site anywhere in
+/// the spiral beats every partial, so a truncated scan cannot justify a low partial.
+/// `Ok(None)` means only "no eligible full field row at this layer right now" — the
+/// caller must check required-row coverage before treating that as pass completion.
+/// The winning candidate behind a `None` is logged so off-layer / off-field / partial /
+/// high-full exhaustion stays distinguishable in the production log.
 fn predict_next(p: &mut Prod, l: i32, exit_row: i32) -> Result<(Option<i32>, Option<i32>)> {
     let plan = p.plan.clone();
     let v2 = plan.v2.as_ref().unwrap();
-    let mut b = p.nether_box([plan.fx - 20, 0, plan.rz - 20], [plan.fx + 24, 20, plan.rz + 24])?;
+    let mut b = p.nether_box([plan.fx - 20, 0, plan.rz - 20], [plan.fx + 24, 127, plan.rz + 24])?;
     let cur = (v2.z0 - 1..=v2.z1 + 1).find(|&r| b.get([plan.fx + 1, l + 1, r]).starts_with("minecraft:nether_portal"));
     if let Some(cr) = cur {
         for x in plan.fx + 1..=plan.fx + 2 {
@@ -2561,21 +2689,24 @@ fn predict_next(p: &mut Prod, l: i32, exit_row: i32) -> Result<(Option<i32>, Opt
         }
         b.set([plan.fx, l + 1, cr], "minecraft:air");
     }
-    let w = portal::winner(&b, [plan.fx + 1, v2.exit_y, exit_row], 0, 20);
+    let w = portal::winner(&b, [plan.fx + 1, v2.exit_y, exit_row], 0, 127);
     let next = match w {
         Some(w) if w.full && w.origin[0] == plan.fx + 1 && w.origin[1] == l + 1 && (v2.z0 - 1..=v2.z1 + 1).contains(&w.origin[2]) => Some(w.origin[2]),
-        _ => None,
+        _ => {
+            p.loga(&format!("predict_next l={l} exit_row={exit_row}: no eligible full field row (full-height winner={w:?} cur={cur:?})"));
+            None
+        }
     };
     Ok((next, cur))
 }
 
 /// Poll for the remotely triggered portal and return the row the game ACTUALLY
-/// chose: equidistant full sites are tied in the predictor's distance sort, but the
-/// game breaks ties by its spiral scan (measured: it took the south row where the
-/// predictor took the north one), so asserting the predicted row alone fails a
-/// good conversion. Any full site within the field is a correct sweep step; the
-/// next prediction is made from the live field anyway. On failure, dump where the
-/// chain stopped (field scan, dropper/hopper inventories, item) into the log.
+/// chose. This only reports the row: the caller must prove with a BEFORE snapshot
+/// that the row overwrote natural bedrock (`assert_conversion_counted`) and the
+/// pass gate must prove required-row coverage. A different row than predicted is
+/// logged as a plain mismatch — never explained away as a tie without the
+/// same-input candidate evidence. On failure, dump where the chain stopped
+/// (field scan, dropper/hopper inventories, item) into the log.
 fn wait_portal(p: &mut Prod, l: i32, expected: i32) -> Result<i32> {
     let fx = p.plan.fx;
     let v2 = p.plan.v2.clone().context("v2 plan")?;
@@ -2599,7 +2730,7 @@ fn wait_portal(p: &mut Prod, l: i32, expected: i32) -> Result<i32> {
     match found {
         Some(z) => {
             if z != expected {
-                p.loga(&format!("wait_portal: game chose row {z}, predictor said {expected} (tie break)"));
+                p.loga(&format!("wait_portal: game chose row {z}, predictor said {expected}"));
             }
             Ok(z)
         }
@@ -2629,6 +2760,14 @@ fn wait_portal(p: &mut Prod, l: i32, expected: i32) -> Result<i32> {
                     p.loga(&format!("wait_portal: hopper [{hx},2,{hz}]: {}", s.trim()));
                 }
             }
+            for hz in [c.doz_a + 1, c.doz_a + 2] {
+                if let Ok(s) = p.rcon(&format!("data get block {} 1 {hz} Items", c.rox + 1)) {
+                    p.loga(&format!("wait_portal: detector barrel [{},1,{hz}]: {}", c.rox + 1, s.trim()));
+                }
+                let comp = p.test_block("overworld", [c.rox + 2, 2, hz], "minecraft:comparator[powered=true]").unwrap_or(false);
+                let amp = p.test_block("overworld", [c.rox + 3, 2, hz], "minecraft:repeater[powered=true]").unwrap_or(false);
+                p.loga(&format!("wait_portal: detector row z={hz}: comparator powered={comp} amplifier powered={amp}"));
+            }
             if let Ok(s) = p.rcon(&format!("execute in minecraft:overworld positioned {}.0 3.0 {}.0 run data get entity @e[type=minecraft:item,distance=..16,sort=nearest,limit=1] Pos", c.rox + 1, c.doz_a)) {
                 p.loga(&format!("wait_portal: nearest OW item to R_O: {}", s.trim()));
             }
@@ -2656,20 +2795,98 @@ fn wait_portal(p: &mut Prod, l: i32, expected: i32) -> Result<i32> {
     }
 }
 
-/// Assert a conversion: portal interior + the 4 obsidian bottom cells; count the trip.
-fn assert_conversion(p: &mut Prod, l: i32, row: i32) -> Result<()> {
-    let fx = p.plan.fx;
+/// The planned rows for one pass of one layer, straight from the scout's saved plan.
+fn required_pass_rows(plan: &Plan, l: i32, pass_b: bool) -> Vec<i32> {
+    let v2 = plan.v2.as_ref().expect("v2 plan");
+    v2.pass_rows[(4 - l) as usize][pass_b as usize].clone()
+}
+
+/// Every planned row of a layer (both passes, unique, plan order).
+fn required_layer_rows(plan: &Plan, l: i32) -> Vec<i32> {
+    let mut rows = Vec::new();
+    for pass_b in [false, true] {
+        for r in required_pass_rows(plan, l, pass_b) {
+            if !rows.contains(&r) {
+                rows.push(r);
+            }
+        }
+    }
+    rows
+}
+
+/// Snapshot of every field row's bottom line at layer `l` (the BEFORE half of the
+/// per-cell conversion ledger), captured before the trip that may overwrite one.
+fn bottom_lines_snapshot(p: &mut Prod, l: i32) -> Result<Blocks> {
+    let plan = p.plan.clone();
+    let v2 = plan.v2.as_ref().unwrap();
+    p.nether_box([plan.fx, l, v2.z0 - 1], [plan.fx + 3, l, v2.z1 + 1])
+}
+
+/// The natural bedrock cells in one bottom line of a BEFORE snapshot.
+fn bedrock_cells_in_line(before: &Blocks, fx: i32, l: i32, row: i32) -> Vec<Pos> {
+    (fx..=fx + 3).map(|x| [x, l, row]).filter(|&c| before.get(c).starts_with("minecraft:bedrock")).collect()
+}
+
+fn record_covered(p: &mut Prod, tag: &str, row: i32) {
+    if let Some((_, rows)) = p.state.v2_converted.iter_mut().find(|(t, _)| t == tag) {
+        if !rows.contains(&row) {
+            rows.push(row);
+        }
+    } else {
+        p.state.v2_converted.push((tag.to_string(), vec![row]));
+    }
+}
+
+fn covered_rows_for(p: &Prod, tag: &str) -> Vec<i32> {
+    p.state.v2_converted.iter().find(|(t, _)| t == tag).map(|(_, rows)| rows.clone()).unwrap_or_default()
+}
+
+/// Assert a conversion AND count it as sweep progress — fail-closed: the actual
+/// row must be a planned row of this pass, not already covered in this layer, and
+/// its BEFORE bottom line must not already contain obsidian (a repeat write).
+/// Natural bedrock cells in that line (possibly none: a planned netherrack-only
+/// line is a necessary sweep step, not a bedrock removal) go into the separate
+/// bedrock ledger; the trip counter counts portal trips, never bedrock cells.
+fn assert_conversion_counted(p: &mut Prod, l: i32, row: i32, before: &Blocks, tag: &str) -> Result<()> {
+    let plan = p.plan.clone();
+    let fx = plan.fx;
     p.assert_block("the_nether", [fx + 1, l + 1, row], "minecraft:nether_portal", "generated portal on the field")?;
     for x in fx..=fx + 3 {
         p.assert_block("the_nether", [x, l, row], "minecraft:obsidian", "converted line")?;
     }
+    let pass_b = tag.ends_with('b');
+    let required = required_pass_rows(&plan, l, pass_b);
+    if !required.contains(&row) {
+        bail!("conversion on layer y={l} row {row} is not a planned row of {tag} (required {required:?})");
+    }
+    for other in [format!("sweep{l}a"), format!("sweep{l}b")] {
+        if covered_rows_for(p, &other).contains(&row) {
+            bail!("conversion on layer y={l} row {row}: row already covered under {other} (repeat)");
+        }
+    }
+    let line: Vec<&str> = (fx..=fx + 3).map(|x| before.get([x, l, row])).collect();
+    if line.iter().any(|s| s.starts_with("minecraft:obsidian")) {
+        bail!("conversion on layer y={l} row {row}: BEFORE line already contained obsidian {line:?} (repeat/partial write)");
+    }
+    let cells = bedrock_cells_in_line(before, fx, l, row);
+    for c in &cells {
+        if p.state.v2_bedrock_cells.contains(c) {
+            bail!("conversion on layer y={l} row {row}: bedrock cell {c:?} already in the ledger (repeat)");
+        }
+    }
     p.state.v2_trips += 1;
+    p.loga(&format!(
+        "conversion {tag} layer y={l} row {row}: BEFORE {line:?} -> obsidian; natural bedrock cells {cells:?} (trip {}/{})",
+        p.state.v2_trips, plan.trips
+    ));
+    p.state.v2_bedrock_cells.extend(cells);
+    record_covered(p, tag, row);
     p.save_state()?;
     Ok(())
 }
 
 /// Throw trigger items until one trip lands (a toss can stall on R_O's bottom
-/// frame and never reach the plates); returns the row the game chose.
+/// frame and never reach the hoppers); returns the row the game chose.
 fn trigger_until(p: &mut Prod, l: i32, expected: i32) -> Result<i32> {
     let mut last = anyhow::anyhow!("no throw attempted");
     for attempt in 0..3 {
@@ -2685,16 +2902,17 @@ fn trigger_until(p: &mut Prod, l: i32, expected: i32) -> Result<i32> {
     Err(last)
 }
 
-/// One remote trip: mine the current portal's one block, throw the trigger item, and check
-/// the new portal really appeared on `row`.
-fn remote_trip(p: &mut Prod, l: i32, cur: i32, row: i32) -> Result<()> {
+/// One remote trip: mine the current portal's one block, throw the trigger item, and
+/// prove the new portal overwrote natural bedrock on the row the game actually chose.
+fn remote_trip(p: &mut Prod, l: i32, cur: i32, row: i32, tag: &str) -> Result<()> {
     let fx = p.plan.fx;
     p.walk_path(&[(fx + 1, cur + 1)])?;
     p.select(SLOT_PICK)?;
     p.mine([fx, l + 1, cur])?;
     p.poll_block("the_nether", [fx + 1, l + 1, cur], "minecraft:air", 10)?;
+    let before = bottom_lines_snapshot(p, l)?;
     let row = trigger_until(p, l, row)?;
-    assert_conversion(p, l, row)?;
+    assert_conversion_counted(p, l, row, &before, tag)?;
     // Walk back beside the new portal (for the next mine, and for the camera).
     let v2 = p.plan.v2.as_ref().unwrap().clone();
     let c = v2_coords(fx, p.plan.rz);
@@ -2806,14 +3024,20 @@ fn mine_obsidian_box(p: &mut Prod, lo: Pos, hi: Pos) -> Result<()> {
         p.select(SLOT_PICK)?;
         let r = p.digbox(lo, hi, "obsidian")?;
         p.loga(&format!("mine_obsidian_box digbox -> {r}"));
-        if r.contains("left=0") {
-            return Ok(());
-        }
+        // Never trust the actor's count alone: one checkpointed pass kept a
+        // top-corner obsidian the client had predicted mined (it made the
+        // next pass's first site only partial). The server snapshot decides.
         let after = p.nether_box(rlo, rhi)?;
         let left = (lo[1]..=hi[1])
             .flat_map(|y| (lo[2]..=hi[2]).flat_map(move |z| (lo[0]..=hi[0]).map(move |x| [x, y, z])))
             .filter(|&c| after.get(c).starts_with("minecraft:obsidian"))
             .count();
+        if left == 0 {
+            return Ok(());
+        }
+        if r.contains("left=0") {
+            p.loga(&format!("mine_obsidian_box: actor said left=0 but server snapshot still has {left} obsidian; continuing"));
+        }
         if left >= todo.len() {
             if !rescued {
                 rescued = true;
@@ -2828,9 +3052,188 @@ fn mine_obsidian_box(p: &mut Prod, lo: Pos, hi: Pos) -> Result<()> {
     bail!("mine_obsidian_box {lo:?}..{hi:?}: still busy after 80 passes")
 }
 
+/// Fail-closed pass gate: every planned row of this pass must have a counted
+/// natural-bedrock conversion in the ledger before any cleanup/checkpoint.
+fn verify_pass_coverage(p: &Prod, l: i32, pass_b: bool, tag: &str) -> Result<()> {
+    let required = required_pass_rows(&p.plan, l, pass_b);
+    let covered = covered_rows_for(p, tag);
+    let missing: Vec<i32> = required.iter().copied().filter(|r| !covered.contains(r)).collect();
+    if !missing.is_empty() {
+        bail!("{tag}: pass exhausted with required rows unconverted: {missing:?} (covered {covered:?}, required {required:?})");
+    }
+    p.loga(&format!("{tag}: coverage ok (required {required:?})"));
+    Ok(())
+}
+
+/// After a layer's pass-B cleanup: every planned row covered, and every required
+/// bottom cell actually air in the live world (no skipped mining cell passes).
+fn verify_layer_cleared(p: &mut Prod, l: i32) -> Result<()> {
+    let plan = p.plan.clone();
+    let fx = plan.fx;
+    let required = required_layer_rows(&plan, l);
+    let mut covered: Vec<i32> = Vec::new();
+    for pass_b in [false, true] {
+        for r in covered_rows_for(p, &format!("sweep{l}{}", if pass_b { "b" } else { "a" })) {
+            if !covered.contains(&r) {
+                covered.push(r);
+            }
+        }
+    }
+    let missing: Vec<i32> = required.iter().copied().filter(|r| !covered.contains(r)).collect();
+    if !missing.is_empty() {
+        bail!("layer y={l}: required rows unconverted at layer gate: {missing:?} (covered {covered:?})");
+    }
+    let b = bottom_lines_snapshot(p, l)?;
+    let mut left: Vec<String> = Vec::new();
+    for &row in &required {
+        for x in fx..=fx + 3 {
+            let s = b.get([x, l, row]);
+            if !s.starts_with("minecraft:air") && !s.starts_with("minecraft:cave_air") {
+                left.push(format!("[{x},{l},{row}]={s}"));
+            }
+        }
+    }
+    if !left.is_empty() {
+        bail!("layer y={l}: required bottom cells not cleared after mining: {left:?}");
+    }
+    p.loga(&format!("layer y={l}: cleared ok (required rows {required:?})"));
+    Ok(())
+}
+
+/// Read-only live check (and chunk touch) of the wanted row's three frame
+/// rectangles just before a pass-opening entry: bottoms non-air, above air.
+/// Measured on the layer-1 pass-B diagnostic: with this live check immediately
+/// before entry an item at the exact entry coordinates generated the predicted
+/// row; without it the same coordinates generated the neighbouring row.
+fn touch_wanted_rectangle(p: &mut Prod, l: i32, row: i32) -> Result<()> {
+    let fx = p.plan.fx;
+    let mut bad: Vec<String> = Vec::new();
+    for rz2 in row - 1..=row + 1 {
+        for x in fx..=fx + 3 {
+            if p.test_block("the_nether", [x, l, rz2], "minecraft:air")? {
+                bad.push(format!("bottom [{x},{l},{rz2}] is air live"));
+            }
+            for y in l + 1..=l + 4 {
+                if !p.test_block("the_nether", [x, y, rz2], "minecraft:air")? {
+                    bad.push(format!("above [{x},{y},{rz2}] is not air live"));
+                }
+            }
+        }
+    }
+    if !bad.is_empty() {
+        if let Ok(b) = p.nether_box([fx, l, row - 1], [fx + 3, l + 4, row + 1]) {
+            let mut cells: Vec<String> = Vec::new();
+            for z in row - 1..=row + 1 {
+                for y in l..=l + 4 {
+                    for x in fx..=fx + 3 {
+                        let s = b.get([x, y, z]);
+                        if !s.starts_with("minecraft:air") && !s.starts_with("minecraft:cave_air") {
+                            cells.push(format!("[{x},{y},{z}]={s}"));
+                        }
+                    }
+                }
+            }
+            p.loga(&format!("live rectangle y={l} row {row}: exact non-air cells {cells:?}"));
+        }
+        bail!("live rectangle for layer y={l} row {row} not ready: {bad:?}");
+    }
+    p.loga(&format!("live rectangle y={l} row {row}: bottoms solid, above air"));
+    Ok(())
+}
+
+/// Restore missing same-layer bottom supports for this layer's required rows:
+/// any non-solid bottom cell in a required row's three-row rectangle gets one
+/// ordinary netherrack placed by the player (filmed, recorded in state, mined
+/// back out at layer end by `remove_layer_supports`). No segment when nothing
+/// is missing.
+fn ensure_layer_supports(p: &mut Prod, l: i32, tag: &str, step: &str) -> Result<()> {
+    let plan = p.plan.clone();
+    let v2 = plan.v2.clone().unwrap();
+    let fx = plan.fx;
+    let blocks = p.nether_box([fx - 1, l, v2.z0 - 2], [fx + 4, l, v2.z1 + 2])?;
+    let mut needed: Vec<Pos> = Vec::new();
+    for r in required_layer_rows(&plan, l) {
+        for rr in r - 1..=r + 1 {
+            for x in fx..=fx + 3 {
+                let pos = [x, l, rr];
+                if blocks.kind(pos) != Kind::Solid && !needed.contains(&pos) && !p.state.v2_supports.contains(&pos) {
+                    needed.push(pos);
+                }
+            }
+        }
+    }
+    if needed.is_empty() {
+        return Ok(());
+    }
+    p.seg_step("supports", tag, &[&format!("Patch missing floor support for layer y={l} (ordinary netherrack, mined out later)")], 4.0, step)?;
+    p.loga(&format!("supports layer y={l}: placing {needed:?}"));
+    p.hold("netherrack")?;
+    for pos in needed {
+        p.place_at("the_nether", pos, "minecraft:netherrack", None)?;
+        p.state.v2_supports.push(pos);
+        p.save_state()?;
+    }
+    p.select(SLOT_PICK)?;
+    Ok(())
+}
+
+/// Mine back out this layer's recorded supports (any the portals overwrote are
+/// already gone with the layer lines; only surviving netherrack is mined).
+fn remove_layer_supports(p: &mut Prod, l: i32) -> Result<()> {
+    let supports: Vec<Pos> = p.state.v2_supports.iter().copied().filter(|pos| pos[1] == l).collect();
+    for pos in supports {
+        let blocks = p.nether_box([pos[0] - 4, (pos[1] - 3).max(0), pos[2] - 4], [pos[0] + 4, pos[1] + 4, pos[2] + 4])?;
+        if !blocks.get(pos).starts_with("minecraft:netherrack") {
+            continue;
+        }
+        p.loga(&format!("removing support {pos:?}"));
+        let f = p.feet()?;
+        if (f[0].floor() as i32 - pos[0]).abs() + (f[2].floor() as i32 - pos[2]).abs() > 5 {
+            let _ = p.walk(pos[0], pos[2] + 1);
+        }
+        p.select(SLOT_PICK)?;
+        p.stand_near(&blocks, pos)?;
+        p.mine(pos)?;
+        p.poll_block("the_nether", pos, "minecraft:air", 10)?;
+    }
+    p.state.v2_supports.retain(|pos| pos[1] != l);
+    p.save_state()?;
+    Ok(())
+}
+
+/// At a pass opening (no lit portal may stand), mine any obsidian still in the
+/// frame band above this layer: a single leftover top corner makes the next
+/// pass's first site only partial, and a checkpoint taken after a client-
+/// predicted mine can carry one (measured at sweep2a: [-5,6,0]). Filmed only
+/// when something is actually there.
+fn clear_leftover_frames(p: &mut Prod, l: i32, tag: &str, step: &str) -> Result<()> {
+    let plan = p.plan.clone();
+    let v2 = plan.v2.clone().unwrap();
+    let fx = plan.fx;
+    let lo = [fx - 1, l + 1, v2.z0 - 2];
+    let hi = [fx + 4, l + 4, v2.z1 + 2];
+    let blocks = p.nether_box(lo, hi)?;
+    let mut cells: Vec<Pos> = Vec::new();
+    for y in lo[1]..=hi[1] {
+        for z in lo[2]..=hi[2] {
+            for x in lo[0]..=hi[0] {
+                if blocks.get([x, y, z]).starts_with("minecraft:obsidian") {
+                    cells.push([x, y, z]);
+                }
+            }
+        }
+    }
+    if cells.is_empty() {
+        return Ok(());
+    }
+    p.seg_step("mine-frames", tag, &["Clear leftover frame blocks before the next pass"], 8.0, step)?;
+    p.loga(&format!("leftover frames layer y={l}: mining {cells:?}"));
+    mine_obsidian_box(p, lo, hi)
+}
+
 /// Open a pass by moving the dropper to the other drill portal (the player makes this one
 /// trip through R_N in person; their entry through the new drill portal is the pass's
-/// first conversion, predicted and asserted like any other).
+/// first conversion, counted only as a planned, not-yet-covered row).
 fn move_dropper(p: &mut Prod, tag: &str, l: i32, to_b: bool) -> Result<()> {
     let plan = p.plan.clone();
     let (fx, rz) = (plan.fx, plan.rz);
@@ -2854,17 +3257,50 @@ fn move_dropper(p: &mut Prod, tag: &str, l: i32, to_b: bool) -> Result<()> {
         bail!("move_dropper: a lit portal still stands on the field at row {cur:?}");
     }
     let want = want.context("move_dropper: predictor sees no first row for this pass")?;
-    // Through R_N (arrive at R_O), out its north side (never across the plates).
+    p.loga(&format!("move_dropper {tag}: predictor want={want} exit_row={exit_row}"));
+    let before = bottom_lines_snapshot(p, l)?;
+    if !required_pass_rows(&plan, l, to_b).contains(&want) {
+        bail!("move_dropper: predictor wants unplanned row {want} at layer y={l} for {tag}");
+    }
+    if [format!("sweep{l}a"), format!("sweep{l}b")].iter().any(|t| covered_rows_for(p, t).contains(&want)) {
+        bail!("move_dropper: predictor wants already-covered row {want} at layer y={l}");
+    }
+    // Through R_N (arrive at R_O), out its north side (never across the hoppers).
     go_throw_spot(p)?;
     p.walk(c.rnx + 2, rz)?;
     p.waitdim("overworld")?;
     p.wait(10)?;
     p.walk_path(&[(c.rox + 1, c.doz_a - 2), (c.dix + 3, c.doz_a - 2), (c.dix + 3, old_doz + 2), (c.dix + 1, old_doz + 2)])?;
+    // Empty the old dropper through its GUI first: mining a loaded dropper
+    // spills its cobblestone as loose items beside a lit portal, and a stray
+    // item entering that portal would generate an uncounted portal on the
+    // field (a switch once found the next row already generated at the
+    // live-rectangle check; the exact stray item was not identified).
+    let taken = p.takefrom([c.dix + 1, 3, old_doz + 1], "cobblestone")?;
+    p.loga(&format!("old dropper emptied before mining: {taken}"));
+    // The dropper's own item drop is a loose drop of the same kind. A block cannot be
+    // placed into a lit portal cell, so mine one frame pillar instead (the
+    // portal goes out), mine and collect the dropper with the portal dead,
+    // then replace the pillar and relight — all survival actions.
     p.select(SLOT_PICK)?;
+    p.mine([c.dix + 2, 3, old_doz])?;
+    p.poll_block("overworld", [c.dix, 3, old_doz], "minecraft:air", 10)?;
+    p.walk(c.dix + 1, old_doz + 2)?;
     p.mine([c.dix + 1, 3, old_doz + 1])?;
-    p.assert_block("overworld", [c.dix + 1, 3, old_doz + 1], "minecraft:air", "old dropper mined")?;
+    // Poll, don't assert at once: the client predicts the break a tick before
+    // the server applies it (the same race the frame-block mines poll through).
+    p.poll_block("overworld", [c.dix + 1, 3, old_doz + 1], "minecraft:air", 10)?;
+    p.walk(c.dix + 1, old_doz + 1)?;
+    p.wait(20)?;
+    p.hold("obsidian")?;
+    p.place_at("overworld", [c.dix + 2, 3, old_doz], "minecraft:obsidian", None)?;
+    p.walk(c.dix + 2, old_doz + 1)?;
+    p.wait(20)?;
+    p.light_portal2("overworld", c.dix - 1, 2, old_doz)?;
     p.hold("dropper")?;
-    p.walk(c.dix + 1, new_doz + 2)?;
+    // East column to the new stand: the straight east-interior walk crosses
+    // the other drill portal's plane (and can push a stray item through it).
+    p.walk_path(&[(c.dix + 3, old_doz + 2), (c.dix + 3, new_doz + 2), (c.dix + 1, new_doz + 2)])?;
     p.place_at("overworld", [c.dix + 1, 3, new_doz + 1], "minecraft:dropper", Some((0.0, 5.0)))?;
     p.test_block("overworld", [c.dix + 1, 3, new_doz + 1], "minecraft:dropper[facing=north]")?
         .then_some(())
@@ -2873,20 +3309,65 @@ fn move_dropper(p: &mut Prod, tag: &str, l: i32, to_b: bool) -> Result<()> {
     p.loga(&format!("moved dropper loaded: {moved}"));
     p.state.v2_dropper_b = to_b;
     p.save_state()?;
+    if std::env::var_os("MCTAS_DIAG_B_ITEM").is_some() {
+        // Diagnostic only (never filmed): send an item through the just-fed
+        // drill portal at the exact coordinates the player's feet log at
+        // entry, and report which row the game generates. Separates a
+        // player-entry/transition effect from a field-state effect when the
+        // player's own opening trip chooses an unexpected row.
+        // Live exact-state check of the wanted row's frame rectangles first:
+        // bottom cells must be bedrock/netherrack/obsidian, above cells air.
+        for rz2 in want - 1..=want + 1 {
+            for x in fx..=fx + 3 {
+                let bottom_ok = ["minecraft:bedrock", "minecraft:netherrack", "minecraft:obsidian"]
+                    .iter()
+                    .any(|pred| p.test_block("the_nether", [x, l, rz2], pred).unwrap_or(false));
+                if !bottom_ok {
+                    p.loga(&format!("diag b-item: bottom [{x},{l},{rz2}] is NOT bedrock/netherrack/obsidian live"));
+                }
+                for y in l + 1..=l + 4 {
+                    if !p.test_block("the_nether", [x, y, rz2], "minecraft:air")? {
+                        p.loga(&format!("diag b-item: above [{x},{y},{rz2}] is NOT air live"));
+                    }
+                }
+            }
+        }
+        let (ix, iz) = (c.dix as f64 + 0.49, new_doz as f64 + 0.64);
+        p.loga(&format!("diag b-item: summoning at overworld ({ix},3.3,{iz}), predictor wants row {want}"));
+        p.rcon_ok(&format!(
+            "execute in minecraft:overworld run summon minecraft:item {ix} 3.3 {iz} {{Item:{{id:\"minecraft:stone\",count:1}},Motion:[0.0,0.0,0.0],PickupDelay:32767,NoGravity:1b}}"
+        ))?;
+        p.wait(40)?;
+        let row = wait_portal(p, l, want)?;
+        p.loga(&format!("diag b-item: game generated row {row} for an item at the player-entry coordinates"));
+        bail!("diag b-item done");
+    }
+    touch_wanted_rectangle(p, l, want)?;
     // Back through the now-fed drill portal: first conversion of the pass.
     p.seg_step("trip", tag, &[&format!("Trip {}/{} · layer y={l}", p.state.v2_trips + 1, plan.trips)], 2.0, step)?;
     p.select(SLOT_PICK)?;
     p.walk_path(&[(c.dix, new_doz + 2), (c.dix, new_doz)])?;
+    if let Ok(f) = p.feet() {
+        p.loga(&format!("move_dropper: feet at drill-portal entry {f:?} (scaled exit {},{},{})", (f[0] / 8.0).floor() as i32, f[1].floor() as i32, (f[2] / 8.0).floor() as i32));
+    }
     p.waitdim("the_nether")?;
     p.wait(10)?;
-    assert_conversion(p, l, want)?;
-    p.walk_path(&[(fx + 1, want + 2)])?;
-    p.look(fx as f64 + 1.5, l as f64 + 1.2, want as f64 + 0.5, 8)?;
+    if let Ok(f) = p.feet() {
+        p.loga(&format!("move_dropper: feet after Nether arrival {f:?}"));
+    }
+    // Report the row that actually appeared; the counted assert below rejects
+    // unplanned or already-covered rows and ledgers any bedrock cells.
+    let row = wait_portal(p, l, want)?;
+    assert_conversion_counted(p, l, row, &before, tag)?;
+    p.walk_path(&[(fx + 1, row + 2)])?;
+    p.look(fx as f64 + 1.5, l as f64 + 1.2, row as f64 + 0.5, 8)?;
     Ok(())
 }
 
-/// Remote trips until the predictor says the pass is exhausted; then the pass-end mining
-/// (leftover frames; the layer's lines too after pass B) and a checkpoint.
+/// Remote trips until no eligible full field row remains, then the pass coverage
+/// gate (a missing required row bails, never checkpoints); then the pass-end
+/// mining (leftover frames; the layer's lines and any supports after pass B,
+/// with a final cleared-layer gate) and a checkpoint.
 fn sweep_pass(p: &mut Prod, l: i32, pass_b: bool) -> Result<()> {
     let tag = format!("sweep{l}{}", if pass_b { "b" } else { "a" });
     if p.done(&tag) {
@@ -2896,7 +3377,9 @@ fn sweep_pass(p: &mut Prod, l: i32, pass_b: bool) -> Result<()> {
     let (fx, rz) = (plan.fx, plan.rz);
     let v2 = plan.v2.clone().unwrap();
     let step = if l == 4 { S5 } else { S6 };
+    ensure_layer_supports(p, l, &tag, step)?;
     if p.state.v2_dropper_b != pass_b {
+        clear_leftover_frames(p, l, &tag, step)?;
         move_dropper(p, &tag, l, pass_b)?;
     }
     let exit_row = rz + pass_b as i32;
@@ -2906,8 +3389,9 @@ fn sweep_pass(p: &mut Prod, l: i32, pass_b: bool) -> Result<()> {
         let Some(row) = next else { break };
         let cur = cur.context("sweep: predictor wants a trip but no lit portal stands on the field")?;
         p.seg_step("trip", &tag, &[&format!("Trip {}/{} · layer y={l}", p.state.v2_trips + 1, plan.trips)], 5.0, step)?;
-        remote_trip(p, l, cur, row)?;
+        remote_trip(p, l, cur, row, &tag)?;
     }
+    verify_pass_coverage(p, l, pass_b, &tag)?;
     p.seg_step("mine-frames", &tag, &["Pass done — mine the leftover frames (keep the lines)"], 8.0, step)?;
     mine_obsidian_box(p, [fx - 1, l + 1, v2.z0 - 2], [fx + 4, l + 4, v2.z1 + 2])?;
     if pass_b {
@@ -2917,6 +3401,8 @@ fn sweep_pass(p: &mut Prod, l: i32, pass_b: bool) -> Result<()> {
         } else {
             mine_bottom_layer(p)?;
         }
+        remove_layer_supports(p, l)?;
+        verify_layer_cleared(p, l)?;
     }
     p.checkpoint(&tag)?;
     Ok(())
@@ -2935,8 +3421,7 @@ fn mine_bottom_layer(p: &mut Prod) -> Result<()> {
                 continue;
             }
             if blocks.kind([x, 0, row + 1]) != Kind::Solid {
-                p.loga(&format!("mine_bottom_layer: skipping [{x},0,{row}] (no safe south stand)"));
-                continue;
+                bail!("mine_bottom_layer: no safe south stand for required cell [{x},0,{row}]");
             }
             p.walk(x, row + 1)?;
             p.mine([x, 0, row])?;
@@ -3123,7 +3608,9 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         // Coordinator ruling after the starting pick broke in the machine dig (2,032
         // uses; the kit's plain pick had no Unbreaking): exactly one replacement pick
         // by command — Efficiency V + Unbreaking III this time — captioned here and
-        // disclosed in NOTES. Nothing else is given; every later action is survival.
+        // disclosed in NOTES. The detector parts below are likewise given here (the
+        // plate design they replace lost its race against the hoppers); every later
+        // action is survival.
         p.seg_step("pick-replacement", "machine", &[
             "The starting pick broke in the dig (2,000+ blocks)",
             "One replacement given by command: Efficiency V + Unbreaking III",
@@ -3134,6 +3621,49 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         p.rcon_ok(&format!("enchant {PLAYER} minecraft:unbreaking 3"))?;
         p.select(SLOT_PICK)?;
         p.wait(80)?;
+        // A shoot resumed from a pre-detector checkpoint (owbranch of the plate
+        // design) lacks these in its saved inventory: give exactly the shortfall,
+        // on camera. A fresh kit2 already carries them and films no such segment.
+        let mut missing: Vec<(&str, i64)> = Vec::new();
+        for (item, want) in [("comparator", 2i64), ("barrel", 2), ("repeater", 7)] {
+            let have = p.invcount(item)?;
+            if have < 0 {
+                bail!("detector-kit: cannot count {item} in the inventory");
+            }
+            if have < want {
+                missing.push((item, want - have));
+            }
+        }
+        if !missing.is_empty() {
+            p.seg_step("detector-kit", "machine", &[
+                "Added for the detector (given): comparators, barrels, extra repeaters",
+            ], 1.0, S3)?;
+            // The post-dig inventory can be full (kit stacks + mined cobblestone):
+            // /give then drops the parts at the player's feet instead of into a
+            // slot (a take lost its barrels that way, three minutes later at
+            // `hold`). Throw away bulk excess the rest of the shoot does not need
+            // in quantity (a real player action), give IMMEDIATELY (a dropped
+            // stack is re-picked once its pickup delay lapses), then verify.
+            let dropped = p.dropall("cobbled_deepslate", 0)?;
+            let dropped2 = p.dropall("cobblestone", 3)?;
+            let dropped3 = p.dropall("netherrack", 1)?;
+            let dropped4 = p.dropall("obsidian", 2)?;
+            p.loga(&format!("detector-kit: cleared room ({dropped}; {dropped2}; {dropped3}; {dropped4})"));
+            for (item, n) in &missing {
+                let out = p.rcon_ok(&format!("give {PLAYER} minecraft:{item} {n}"))?;
+                p.loga(&format!("detector-kit give {item} x{n}: {}", out.trim()));
+            }
+            p.wait(20)?;
+            for (item, want) in [("comparator", 2i64), ("barrel", 2), ("repeater", 7)] {
+                let have = p.invcount(item)?;
+                if have < want {
+                    bail!("detector-kit: {item} count {have} after give (wanted {want})");
+                }
+            }
+            p.loga(&format!("detector kit topped up: {missing:?}"));
+            p.select(SLOT_PICK)?;
+            p.wait(50)?;
+        }
         // The generated twin must die or it would steal the trigger items.
         p.seg_step("twin-off", "machine", &[
             "The twin the game generated must go (one frame block)",
@@ -3142,14 +3672,18 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         kill_generated_twin(p)?;
         p.tp("overworld", c.dix as f64 + 1.5, 3.0, c.doz_a as f64 - 1.5, 0.0, 20.0)?;
         p.seg_step("machine-build", "machine", &[
-            "Build the trigger at R_O (the return twin): plate on hoppers, redstone, dropper",
-            "One item on the plate = one fresh stone into D_O, the drill portal",
+            "Build the trigger at R_O (the return twin): hoppers + comparators, redstone, dropper",
+            "One item in a hopper = the signal: one fresh stone into D_O, the drill portal",
         ], 5.0, S3)?;
         build_machine(p, &c)?;
         p.seg_step("machine-top", "machine", &["The finished machine (camera view): R_O left, the two drill portals right"], 1.0, S3)?;
         let midx = (c.rox + c.dix) as f64 / 2.0;
         p.spec_shot("overworld", [midx, 6.3, c.doz_b as f64 + 2.5], [midx, 2.5, c.doz_a as f64 + 1.0], 80)?;
         p.checkpoint("machine")?;
+        if std::env::var("MCTAS_STOP_AFTER").ok().as_deref() == Some("machine") {
+            p.loga("MCTAS_STOP_AFTER=machine: stopping after the machine checkpoint (insert shoot)");
+            return Ok(());
+        }
     }
     if !p.done("twinfixed") {
         // Guard rail (a checkpoint can predate the fixed twin kill): a still-lit
@@ -3183,6 +3717,7 @@ fn scenes2(p: &mut Prod) -> Result<()> {
             bail!("firstdrill: a portal already stands on the field");
         }
         let want = want.context("firstdrill: predictor sees no site on the field")?;
+        let before = bottom_lines_snapshot(p, 4)?;
         p.seg_step("first-trip", "firstdrill", &[
             "Through D_O (the drill portal): no exit portal exists, so the game builds one…",
             "…writing obsidian OVER the bedrock row",
@@ -3192,25 +3727,64 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         p.walk_path(&[(c.dix + 3, c.doz_a - 2), (c.dix + 3, c.doz_a + 2), (c.dix, c.doz_a + 2)])?;
         p.look(c.dix as f64 + 1.5, 4.0, c.doz_a as f64 + 0.5, 10)?;
         p.wait(25)?;
+        touch_wanted_rectangle(p, 4, want)?;
         p.walk(c.dix, c.doz_a)?;
         p.waitdim("the_nether")?;
         p.wait(15)?;
-        assert_conversion(p, 4, want)?;
-        p.walk_path(&[(fx + 1, want + 2)])?;
+        let row = wait_portal(p, 4, want)?;
+        assert_conversion_counted(p, 4, row, &before, "sweep4a")?;
+        p.walk_path(&[(fx + 1, row + 2)])?;
         // The money close-up: bedrock before (earlier shot), obsidian now, same row.
-        p.look(fx as f64 + 1.5, 4.3, want as f64 + 0.5, 16)?;
+        p.look(fx as f64 + 1.5, 4.3, row as f64 + 0.5, 16)?;
         p.wait(60)?;
         p.checkpoint("firstdrill")?;
     }
     if !p.done("loop1") {
         let (next, cur) = predict_next(p, 4, rz)?;
         let (next, cur) = (next.context("loop1: predictor exhausted already")?, cur.context("loop1: no lit portal")?);
+        let before = bottom_lines_snapshot(p, 4)?;
         if std::env::var_os("MCTAS_DIAG_LINK").is_some() {
             // Diagnostic only (never filmed): isolate WHY an R_N entry does not exit
             // at the built R_O. MCTAS_DIAG_X=<f64> teleports the player to that exact
             // x inside R_N; MCTAS_DIAG_SUMMON=<f64> summons a scenario-style item at
             // that x instead (a dropper firing proves the R_O route). Bare
             // MCTAS_DIAG_LINK replays the production walk, logging the feet first.
+            if std::env::var_os("MCTAS_DIAG_TOSS").is_some() {
+                // Diagnostic only: production tosses, sampling the detector
+                // chain (item -> hopper -> comparator -> amplifier -> dropper,
+                // barrel reset) in the Overworld every couple of ticks.
+                go_throw_spot(p)?;
+                let f = p.feet()?;
+                p.loga(&format!("diag toss: feet at throw spot: {f:?}"));
+                let tosses: u32 = std::env::var("MCTAS_DIAG_TOSS_N").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+                for toss_no in 0..tosses {
+                p.select(SLOT_COBBLE)?;
+                p.look(c.rnx as f64 + 2.5, 6.6, rz as f64 + 0.5, 8)?;
+                p.toss()?;
+                for i in 0..16 {
+                    p.wait(2)?;
+                    let comp_n = p.test_block("overworld", [c.rox + 2, 2, c.doz_a + 1], "minecraft:comparator[powered=true]").unwrap_or(false);
+                    let comp_s = p.test_block("overworld", [c.rox + 2, 2, c.doz_a + 2], "minecraft:comparator[powered=true]").unwrap_or(false);
+                    let amp_n = p.test_block("overworld", [c.rox + 3, 2, c.doz_a + 1], "minecraft:repeater[powered=true]").unwrap_or(false);
+                    let amp_s = p.test_block("overworld", [c.rox + 3, 2, c.doz_a + 2], "minecraft:repeater[powered=true]").unwrap_or(false);
+                    let main_rep = p.test_block("overworld", [c.rox + 7, 3, c.doz_a + 1], "minecraft:repeater[powered=true]").unwrap_or(false);
+                    let east_rep = p.test_block("overworld", [c.dix + 2, 3, c.doz_a + 1], "minecraft:repeater[powered=true]").unwrap_or(false);
+                    let drop_trig = p.test_block("overworld", [c.dix + 1, 3, c.doz_a + 1], "minecraft:dropper[triggered=true]").unwrap_or(false);
+                    let item = p.rcon(&format!(
+                        "execute in minecraft:overworld positioned {}.5 3.0 {}.5 run data get entity @e[type=minecraft:item,distance=..6,sort=nearest,limit=1] Pos",
+                        c.rox + 1, c.doz_a + 1
+                    )).unwrap_or_default();
+                    let hop = p.rcon(&format!("data get block {} 2 {} Items", c.rox + 1, c.doz_a + 1)).unwrap_or_default();
+                    let barrel = p.rcon(&format!("data get block {} 1 {} Items", c.rox + 1, c.doz_a + 1)).unwrap_or_default();
+                    let drop = p.rcon(&format!("data get block {} 3 {} Items", c.dix + 1, c.doz_a + 1)).unwrap_or_default();
+                    p.loga(&format!("diag toss {toss_no}.{i}: compN={comp_n} compS={comp_s} ampN={amp_n} ampS={amp_s} mainRep={main_rep} eastRep={east_rep} dropTrig={drop_trig} item={} hopperN={} barrelN={} dropper={}", item.trim(), hop.trim(), barrel.trim(), drop.trim()));
+                }
+                // >300 ticks between tosses: let the Overworld portal ticket expire
+                // and the machine chunks unload, as between production trips.
+                p.wait(400)?;
+                }
+                bail!("diag toss done");
+            }
             if let Ok(ys) = std::env::var("MCTAS_DIAG_ITEMPLATE") {
                 // Diagnostic only: summon an item over the east plate in the
                 // Overworld at a chosen height/motion and see if it steps the
@@ -3352,14 +3926,14 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         p.seg_step("loop-throw", "loop1", &["2: throw ONE item into R_N, the return portal — and stay in the Nether"], 1.0, S5)?;
         throw_trigger(p)?;
         p.seg_step("loop-result", "loop1", &[
-            "3: item exits at R_O → plate → dropper fires into D_O → new portal here",
+            "3: item exits at R_O → hopper + comparator → dropper fires into D_O → new portal here",
             "The leftover frame blocks its own row, so the game picks the next",
         ], 1.0, S5)?;
         let next = match wait_portal(p, 4, next) {
             Ok(row) => row,
             Err(_) => trigger_until(p, 4, next)?,
         };
-        assert_conversion(p, 4, next)?;
+        assert_conversion_counted(p, 4, next, &before, "sweep4a")?;
         p.walk_path(&[(c.rnx - 2, rz - 2), (c.rnx - 2, v2.z1 + 1), (fx + 1, v2.z1 + 1), (fx + 1, next + 2)])?;
         p.look(fx as f64 + 1.5, 4.6, next as f64 + 0.5, 14)?;
         p.wait(45)?;
@@ -3525,6 +4099,111 @@ fn run2(version: &str, o: &VideoOptions) -> Result<()> {
             }
             Ok(())
         }
+        "winner-dump" => {
+            // Debug: the portal-forcer candidate sites of a saved Nether field (no server):
+            // the top sites for both pass exits, plus the field rows' block kinds per layer.
+            let plan = load_plan(o)?;
+            let v2 = plan.v2.as_ref().context("v2 plan")?.clone();
+            let world = match &o.from {
+                Some(tag) => o.out.join("checkpoints").join(tag),
+                None => o.out.join("world-src"),
+            };
+            let dim = world.join("dimensions").join("minecraft").join("the_nether");
+            let snap = mctas::vanilla::read_box(&dim, [plan.fx - 20, 0, plan.rz - 20], [plan.fx + 24, 127, plan.rz + 24])?;
+            let b = Blocks::new(snap.region);
+            for pass in 0..2 {
+                let exit = [plan.fx + 1, v2.exit_y, plan.rz + pass];
+                let sites = portal::sites(&b, exit, 0, 127);
+                println!("exit {exit:?} (pass {pass}): top sites (full first, then dist^2)");
+                for (i, s) in sites.iter().take(12).enumerate() {
+                    println!("  {i}: origin {:?} full={} dist2={}", s.origin, s.full, s.dist_sq);
+                }
+                println!("  low field sites (origin x=fx+1, y 1..=5, field rows; full and partial):");
+                for s in sites.iter().filter(|s| s.origin[0] == plan.fx + 1 && (1..=5).contains(&s.origin[1]) && (v2.z0 - 1..=v2.z1 + 1).contains(&s.origin[2])) {
+                    println!("    origin {:?} full={} dist2={}", s.origin, s.full, s.dist_sq);
+                }
+            }
+            for z in v2.z0 - 1..=v2.z1 + 1 {
+                let mut rows = Vec::new();
+                for y in 0..=6 {
+                    let cells: String = (plan.fx..=plan.fx + 3)
+                        .map(|x| {
+                            let s = b.get([x, y, z]);
+                            if s.starts_with("minecraft:bedrock") {
+                                'B'
+                            } else if s.starts_with("minecraft:obsidian") {
+                                'O'
+                            } else {
+                                match b.kind([x, y, z]) {
+                                    Kind::Solid => '#',
+                                    Kind::Replaceable => '.',
+                                    Kind::Other => '?',
+                                }
+                            }
+                        })
+                        .collect();
+                    rows.push(format!("y{y}:{cells}"));
+                }
+                println!("row {z:3}: {}", rows.join(" "));
+            }
+            // Exact states inside the layer-1 frame rectangles of the three
+            // centre rows (anything above the bottom row must be air for a
+            // full site; a non-air state here is a candidate-rejection reason
+            // the kind-char rows above would hide behind '.'/'#').
+            for origin_row in [plan.rz - 1, plan.rz, plan.rz + 1] {
+                println!("rect origin [{},2,{origin_row}] (layer y=1): non-air cells y1..5 rows {}..{}", plan.fx + 1, origin_row - 1, origin_row + 1);
+                for z in origin_row - 1..=origin_row + 1 {
+                    for y in 1..=5 {
+                        for x in plan.fx..=plan.fx + 3 {
+                            let s = b.get([x, y, z]);
+                            if !s.starts_with("minecraft:air") && !s.starts_with("minecraft:cave_air") {
+                                println!("  [{x},{y},{z}] {s} kind={:?}", b.kind([x, y, z]));
+                            }
+                        }
+                    }
+                }
+            }
+            // Column pockets under a heightmap-start scan (the game starts each
+            // column at its MOTION_BLOCKING height, not at the top): a scan that
+            // enters a pocket part-way down can see deltaY 1-2 and skip the site.
+            for cz in [plan.rz - 2, plan.rz - 1, plan.rz, plan.rz + 1, plan.rz + 2] {
+                let cx = plan.fx + 1;
+                let mut ranges: Vec<String> = Vec::new();
+                let mut y = 127i32;
+                while y >= 0 {
+                    let k = b.kind([cx, y, cz]);
+                    let hi = y;
+                    while y >= 0 && b.kind([cx, y, cz]) == k {
+                        y -= 1;
+                    }
+                    let ch = match k {
+                        Kind::Solid => '#',
+                        Kind::Replaceable => '.',
+                        Kind::Other => '?',
+                    };
+                    ranges.push(format!("{hi}..{}:{ch}", y + 1));
+                }
+                let highest = (0..=127).rev().find(|&yy| b.kind([cx, yy, cz]) != Kind::Replaceable).unwrap_or(0);
+                let hm = mctas::vanilla::read_heightmap(&dim, "MOTION_BLOCKING", cx, cz, 0, 256)?;
+                let start = hm.unwrap_or(highest + 1).min(127);
+                let mut pockets: Vec<String> = Vec::new();
+                let mut y = start;
+                while y >= 0 {
+                    if b.kind([cx, y, cz]) == Kind::Replaceable {
+                        let first = y;
+                        while y > 0 && b.kind([cx, y - 1, cz]) == Kind::Replaceable {
+                            y -= 1;
+                        }
+                        let delta = first - y;
+                        pockets.push(format!("bottom{y} first{first} d{delta}{}", if delta <= 0 || delta >= 3 { "" } else { " SKIP" }));
+                    }
+                    y -= 1;
+                }
+                println!("col [{cx},{cz}] highest-nonrepl {highest} MOTION_BLOCKING {hm:?} start {start}: pockets [{}]", pockets.join(", "));
+                println!("  ranges {}", ranges.join(" "));
+            }
+            Ok(())
+        }
         "machine-dump" => {
             // Debug: every functional block state of the saved trigger machine (no server).
             let plan = load_plan(o)?;
@@ -3540,7 +4219,7 @@ fn run2(version: &str, o: &VideoOptions) -> Result<()> {
                 for x in c.rox - 2..=c.dix + 4 {
                     for y in [3, 2] {
                         let s = b.get([x, y, z]);
-                        if s.contains("redstone") || s.contains("repeater") || s.contains("dropper") || s.contains("hopper") || s.contains("pressure_plate") || s.contains("nether_portal") {
+                        if s.contains("redstone") || s.contains("repeater") || s.contains("comparator") || s.contains("dropper") || s.contains("hopper") || s.contains("barrel") || s.contains("nether_portal") {
                             println!("[{x},{y},{z}] {s}");
                         }
                     }
@@ -3680,14 +4359,27 @@ fn diagram_machine(font: &mctas::mcfont::Font, rack: &mctas::mcfont::Image, w: u
                     ([150, 60, 190, 255], true)
                 } else if frame {
                     ([60, 50, 70, 255], true)
+                } else if x == c.dix - 2 || x == c.dix + 3 {
+                    ([110, 110, 120, 255], false) // north-route dust in the portal plane row, outside the frames
                 } else {
                     ([35, 35, 40, 255], true)
                 }
             } else if (c.rox..=c.rox + 1).contains(&x) && (z == c.doz_a + 1 || z == c.doz_a + 2) {
-                ([200, 170, 90, 255], true) // plates
+                ([200, 170, 90, 255], true) // hoppers (east pair are the detectors)
+            } else if x == c.rox + 2 && (z == c.doz_a + 1 || z == c.doz_a + 2) {
+                ([90, 200, 220, 255], true) // comparators reading the detectors
+            } else if x == c.rox + 3 && (z == c.doz_a + 1 || z == c.doz_a + 2) {
+                ([240, 140, 40, 255], true) // amplifier repeaters
+            } else if x == c.dix + 2 && (z == c.doz_a + 1 || z == c.doz_b + 1) {
+                ([240, 140, 40, 255], true) // the droppers' east-side firing repeaters
             } else if x == c.dix + 1 && (z == c.doz_a + 1 || z == c.doz_b + 1) {
                 ([120, 120, 130, 255], true) // droppers
-            } else if (z == c.doz_a + 1 && (c.rox + 2..=c.dix).contains(&x)) || (x == c.dix && (c.doz_a + 2..=c.doz_b + 1).contains(&z)) {
+            } else if (z == c.doz_a + 1 && (c.rox + 4..=c.dix - 2).contains(&x))
+                || (x == c.dix - 2 && z == c.doz_a - 1)
+                || (z == c.doz_a - 1 && (c.dix - 2..=c.dix + 3).contains(&x))
+                || (x == c.dix + 3 && (c.doz_a + 1..=c.doz_b + 1).contains(&z))
+                || (x == c.rox + 4 && z == c.doz_a + 2)
+            {
                 ([110, 110, 120, 255], false) // strip under dust (dot drawn below)
             } else if (c.rox..=c.dix + 2).contains(&x) && (c.doz_a + 1..=c.doz_b + 2).contains(&z) {
                 ([110, 110, 120, 255], true) // stone strip
@@ -3696,7 +4388,7 @@ fn diagram_machine(font: &mctas::mcfont::Font, rack: &mctas::mcfont::Image, w: u
             };
             img.fill_rect(px, py, cell - 1, cell - 1, col);
             if !full {
-                let rep = (x == c.rox + 7 && z == c.doz_a + 1) || (x == c.dix && z == c.doz_a + 5);
+                let rep = (x == c.rox + 7 && z == c.doz_a + 1) || (x == c.dix + 1 && z == c.doz_a - 1) || (x == c.dix + 3 && z == c.doz_a + 5);
                 if rep {
                     img.fill_rect(px + 8, py + 8, cell - 17, cell - 17, [240, 140, 40, 255]);
                 } else {
@@ -3715,9 +4407,9 @@ fn diagram_machine(font: &mctas::mcfont::Font, rack: &mctas::mcfont::Image, w: u
     label(&mut img, c.rox - 1, c.doz_a, "R_O return twin", AQUA);
     label(&mut img, c.dix - 1, c.doz_a, "D_O drill A", AQUA);
     label(&mut img, c.dix - 1, c.doz_b, "D_O drill B (+8)", AQUA);
-    label(&mut img, c.rox, c.doz_a + 4, "plate on hoppers", YELLOW);
+    label(&mut img, c.rox, c.doz_a + 4, "hoppers -> comparators", YELLOW);
     label(&mut img, c.dix + 1, c.doz_b + 3, "dropper", WHITE);
-    font.draw(&mut img, 70, h as i64 - 92, "item out of R_O -> plate -> dropper fires a FRESH stone (no portal cooldown)", 2, WHITE, true);
+    font.draw(&mut img, 70, h as i64 - 92, "item out of R_O -> hopper + comparator -> dropper fires a FRESH stone", 2, WHITE, true);
     font.draw(&mut img, 70, h as i64 - 62, "nobody is in the Overworld: the arriving item's portal ticket runs the machine", 2, GRAY, true);
     img
 }
@@ -3757,36 +4449,54 @@ fn compose2(version: &str, plan: &Plan, o: &VideoOptions) -> Result<()> {
         match stem {
             "hook" => 6.0,
             "intro" => 7.0,
-            "dig-down" => 9.0,
+            "dig-down" => 5.0,
             "field-top" => 5.0,
-            "field-prep" => 24.0,
+            "field-prep" => 10.0,
             "bedrock-before" => 6.0,
-            "return-portal" => 16.0,
-            "overworld-dig" => 9.0,
+            "return-portal" => 10.0,
+            "overworld-dig" => 6.0,
+            "ow-branch" => 5.0,
             "twin-off" => 8.0,
-            "machine-build" => 26.0,
+            "detector-kit" => 5.0,
+            "machine-build" => 28.0,
             "machine-top" => 5.0,
             "first-trip" => 18.0,
             "loop-mine" | "loop-throw" | "loop-result" => 9.0,
-            "move-dropper" => 6.0,
-            "trip" => 1.6,
-            "mine-frames" | "mine-layer" => 5.0,
+            "supports" => 2.0,
+            "move-dropper" => 2.0,
+            "trip" => 0.7,
+            "mine-frames" | "mine-layer" => 1.8,
             "reveal" => 12.0,
             _ => 10.0,
         }
     };
     let add_seg = |seg: &Segment, inputs: &mut Vec<String>, graphs: &mut Vec<String>, outs: &mut Vec<String>, inp: &mut usize, total: &mut f64| -> Result<()> {
         let path = o.out.join("segments").join(&seg.file);
-        let raw = duration(&path)?;
+        let stem = seg.file.splitn(2, '-').nth(1).unwrap_or("").trim_end_matches(".mkv");
+        // The pick-replacement segment opens on the client's loading screen
+        // (that leg resumed with a fresh client): trim its first second.
+        let trim_start = if stem == "pick-replacement" { 1.0 } else { 0.0 };
+        let raw = (duration(&path)? - trim_start).max(0.1);
         let words: usize = seg.caption.iter().map(|c| c.split_whitespace().count()).sum();
-        let need = if words > 6 { words as f64 * 0.3 + 1.5 } else { 1.2 };
+        // Repeated time-lapse captions (trip counter, move/mining) are read once
+        // and then tracked as a counter/label, so they get a shorter floor than
+        // first-mention narration. Pass-opening trips (recorded at 2x) keep a
+        // longer floor than remote trips (5x): the generation must be visible.
+        let need = match stem {
+            "trip" if seg.speed <= 2.0 => 1.6,
+            "trip" => 0.75,
+            "move-dropper" | "mine-frames" | "mine-layer" => 1.7,
+            "supports" => 1.8,
+            _ if words > 6 => words as f64 * 0.25 + 1.2,
+            _ => 1.0,
+        };
         // The segments the narration calls real time (first conversion, the loop, the
         // reveal/hook) must stay at their recorded speed: a budget must never turn
         // them into a time-lapse with a ×N badge contradicting the caption.
-        let stem = seg.file.splitn(2, '-').nth(1).unwrap_or("").trim_end_matches(".mkv");
         let realtime = matches!(stem, "hook" | "first-trip" | "loop-mine" | "loop-throw" | "loop-result" | "reveal");
-        let mut speed = if realtime { seg.speed } else { seg.speed.max(raw / budget(&seg.file)) };
-        if raw / speed < need && raw / need >= 1.0 {
+        let budget_secs = if stem == "trip" && seg.speed <= 2.0 { 2.2 } else { budget(&seg.file) };
+        let mut speed = if realtime { seg.speed } else { seg.speed.max(raw / budget_secs) };
+        if raw / speed < need {
             speed = raw / need;
         }
         let secs = raw / speed;
@@ -3797,8 +4507,9 @@ fn compose2(version: &str, plan: &Plan, o: &VideoOptions) -> Result<()> {
         let png = work.join(format!("{}.label.png", seg.file));
         label2(&font, w, h, &seg.caption, &seg.step, &badge).save_png(&png)?;
         inputs.extend(["-i".into(), path.display().to_string(), "-i".into(), png.display().to_string()]);
+        let trim = if trim_start > 0.0 { format!("trim=start={trim_start:.3},") } else { String::new() };
         graphs.push(format!(
-            "[{i}:v]setpts=(PTS-STARTPTS)/{sp:.3},fps={fps},scale={w}:{h},setsar=1[s{i}];[s{i}][{lp}:v]overlay=0:0,format=yuv420p[p{i}]",
+            "[{i}:v]{trim}setpts=(PTS-STARTPTS)/{sp:.3},fps={fps},scale={w}:{h},setsar=1[s{i}];[s{i}][{lp}:v]overlay=0:0,format=yuv420p[p{i}]",
             i = *inp, sp = speed, lp = *inp + 1
         ));
         outs.push(format!("[p{}]", *inp));
@@ -3821,14 +4532,14 @@ fn compose2(version: &str, plan: &Plan, o: &VideoOptions) -> Result<()> {
         (format!("seed {} · Nether floor x {}..{}, rows {}..{}", plan.seed, plan.fx, plan.fx + 3, v2.z0, v2.z1), 2, GRAY),
         ("no block is ever placed or broken by a command".into(), 2, GRAY),
     ]);
-    add_card!("card-title", 4.0, &title, "Title");
+    add_card!("card-title", 3.5, &title, "Title");
     let kit = card(&font, &netherrack, w, h, &[
         ("What you need".into(), 5, YELLOW),
         ("".into(), 2, WHITE),
         ("Efficiency V pickaxe · flint and steel".into(), 3, WHITE),
         ("Obsidian ~3 stacks · cobblestone ~2 stacks".into(), 3, WHITE),
-        ("Redstone dust · 2 repeaters".into(), 3, WHITE),
-        ("1 dropper · 4 hoppers · 4 wooden pressure plates".into(), 3, WHITE),
+        ("Redstone dust · 7 repeaters · 2 comparators".into(), 3, WHITE),
+        ("1 dropper · 4 hoppers · 2 barrels".into(), 3, WHITE),
         ("Building blocks · torches".into(), 3, WHITE),
         ("Fire Resistance for the digging (lava pockets!) · Haste II helps".into(), 3, WHITE),
         ("".into(), 2, WHITE),
@@ -3836,9 +4547,32 @@ fn compose2(version: &str, plan: &Plan, o: &VideoOptions) -> Result<()> {
     ]);
     add_card!("card-kit", 5.0, &kit, "The kit");
     let idea = diagram_idea(&font, &bedrock, &obsidian, &netherrack, w, h);
-    add_card!("card-idea", 7.0, &idea, "The trick (diagram)");
+    add_card!("card-idea", 6.0, &idea, "The trick (diagram)");
     // 3) The shoot in order (hook excluded), machine diagram before the build.
     let machine_diagram = diagram_machine(&font, &netherrack, w, h);
+    let footprint = card(&font, &netherrack, w, h, &[
+        ("Why the hole is stepped".into(), 5, YELLOW),
+        ("".into(), 1, WHITE),
+        ("A frame needs 3 solid rows underneath,".into(), 3, WHITE),
+        ("so deeper layers reach fewer rows:".into(), 3, WHITE),
+        ("y4: 11 rows · y3: 9 · y2: 7".into(), 3, AQUA),
+        ("y1: 5 rows · y0: 3 rows (this field)".into(), 3, AQUA),
+        ("".into(), 1, WHITE),
+        ("Keep the side rows until the layer is done;".into(), 2, GRAY),
+        ("patch a missing support, mine it out later".into(), 2, GRAY),
+    ]);
+    let switch_card = card(&font, &netherrack, w, h, &[
+        ("Pass switch: the safe order".into(), 5, YELLOW),
+        ("".into(), 1, WHITE),
+        ("1  Empty the old dropper (its GUI)".into(), 3, WHITE),
+        ("2  Mine ONE frame block: old D_O OUT".into(), 3, WHITE),
+        ("3  Mine + collect ALL drops while it is out".into(), 3, WHITE),
+        ("4  Replace the block, relight D_O".into(), 3, WHITE),
+        ("5  Move + refill the dropper (+8 blocks)".into(), 3, WHITE),
+        ("".into(), 1, WHITE),
+        ("A loose item in a lit drill can trigger an unintended portal.".into(), 2, YELLOW),
+        ("Do this at EVERY switch.".into(), 2, GRAY),
+    ]);
     let chapter_of = |seg: &Segment| -> Option<&'static str> {
         let stem = seg.file.splitn(2, '-').nth(1).unwrap_or("").trim_end_matches(".mkv");
         Some(match stem {
@@ -3854,12 +4588,22 @@ fn compose2(version: &str, plan: &Plan, o: &VideoOptions) -> Result<()> {
     };
     let mut trip_chapter_done = false;
     let mut machine_card_done = false;
+    let mut footprint_done = false;
+    let mut switch_card_done = false;
     for seg in &timeline.segments {
         if seg.file.contains("hook") {
             continue;
         }
+        if seg.file.contains("return-portal") && !footprint_done {
+            add_card!("card-footprint", 5.5, &footprint, "Why the hole is stepped");
+            footprint_done = true;
+        }
+        if seg.file.contains("move-dropper") && !switch_card_done {
+            add_card!("card-switch", 6.5, &switch_card, "Pass switch: the safe order");
+            switch_card_done = true;
+        }
         if seg.file.contains("machine-build") {
-            add_card!("card-machine", 7.0, &machine_diagram, "The trigger machine (diagram)");
+            add_card!("card-machine", 5.0, &machine_diagram, "The trigger machine (diagram)");
             machine_card_done = true;
         }
         if seg.file.contains("trip") && !seg.file.contains("first-trip") && !trip_chapter_done {
@@ -3878,12 +4622,14 @@ fn compose2(version: &str, plan: &Plan, o: &VideoOptions) -> Result<()> {
     let mut recap_lines: Vec<(String, u32, [u8; 3])> = vec![
         ("Recap".into(), 6, YELLOW),
         ("".into(), 1, WHITE),
-        ("1 · Flatten one field on the floor".into(), 3, WHITE),
+        ("1 · Flatten one field (stepped: 11/9/7/5/3 rows by layer)".into(), 3, WHITE),
         ("2 · Return portal 17+ blocks away".into(), 3, WHITE),
-        ("3 · Overworld: twin + plate + dropper -> drill portal".into(), 3, WHITE),
+        ("3 · Overworld: twin + hopper detector + dropper -> drill".into(), 3, WHITE),
         ("4 · Loop: mine ONE frame block, throw ONE item".into(), 3, WHITE),
-        ("Pass 2: move the dropper 8 blocks (one row)".into(), 3, WHITE),
+        ("Switch: empty GUI -> frame block out (D_O off) -> collect ALL".into(), 2, WHITE),
+        ("drops -> replace + relight -> move/refill dropper (+8)".into(), 2, WHITE),
         ("".into(), 1, WHITE),
+        ("Keep side supports until each layer is done".into(), 2, GRAY),
         ("One 1x4 line per trip · keep the field within 16 of the exit".into(), 2, GRAY),
         ("The Nether roof is safe: frame bottom max y=122, roof starts 123".into(), 2, GRAY),
         ("Overworld floor: nearer cave/surface sites usually win instead".into(), 2, GRAY),
@@ -3899,13 +4645,15 @@ fn compose2(version: &str, plan: &Plan, o: &VideoOptions) -> Result<()> {
     let recap = card(&font, &netherrack, w, h, &recap_lines);
     add_card!("card-recap", 8.0, &recap, "Recap: rules and limits");
     let n_parts = outs.len();
-    let graph = format!("{};{}concat=n={n_parts}:v=1:a=0,scale=out_range=tv,format=yuv420p[o]", graphs.join(";"), outs.concat());
-    let out_file = o.out.join("bedrock-portal-method-v2.webm");
+    let graph = format!("{};{}concat=n={n_parts}:v=1:a=0,scale=out_range=tv,format=yuv420p,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709[o]", graphs.join(";"), outs.concat());
+    // The finished tutorial ships as H.264/yuv420p TV-range MP4 (the owner's
+    // format ruling; segments are silent, so there is no audio stream to encode).
+    let out_file = o.out.join("bedrock-portal-method-v2.mp4");
     let mut args = inputs;
     args.extend(["-filter_complex".into(), graph, "-map".into(), "[o]".into()]);
     args.extend([
-        "-c:v".into(), "libvpx-vp9".into(), "-b:v".into(), "0".into(), "-crf".into(), "30".into(), "-row-mt".into(), "1".into(),
-        "-deadline".into(), "good".into(), "-cpu-used".into(), "4".into(), "-pix_fmt".into(), "yuv420p".into(), "-color_range".into(), "tv".into(), out_file.display().to_string(),
+        "-c:v".into(), "libx264".into(), "-preset".into(), "veryfast".into(), "-crf".into(), "20".into(),
+        "-pix_fmt".into(), "yuv420p".into(), "-color_range".into(), "tv".into(), "-color_primaries".into(), "bt709".into(), "-color_trc".into(), "bt709".into(), "-colorspace".into(), "bt709".into(), "-movflags".into(), "+faststart".into(), out_file.display().to_string(),
     ]);
     ffmpeg_run(&args)?;
     let final_secs = duration(&out_file)?;
