@@ -10052,6 +10052,10 @@ families/pulse-oneshot-ext.html	family	pulse-oneshot-ext		long pulse extender: a
 families/pulse-oneshot-fall.html	family	pulse-oneshot-fall		long falling-edge pulse: a piston-moved observer, a copper bulb and a loop of repeaters	2026-10-20 02:17Z
 families/pulse-oneshot-rise.html	family	pulse-oneshot-rise		long rising-edge pulse: a piston-moved observer, a copper bulb and a loop of repeaters	2026-10-20 02:17Z
 families/pulse-rise-psub-u4.html	family	pulse-rise-psub-u4		odd-length rising-edge pulse: a piston-moved redstone block and a loop of repeaters	2026-10-20 03:51Z
+farms/bamboo/bamboo-line64.html	circuit	farm/harvester bamboo		Crop farm: fuels ~280 items smelted an hour: a double chest of ore every 12 h, a tenth of an 8-furnace super smelter at full speed · 64 bamboo stalks · 858 blocks · 389 iron to build	2026-11-08 21:37Z
+farms/bamboo/bamboo-sweeper-10x32.html	circuit	farm/harvester bamboo		Crop farm: fuels ~1,350 items smelted an hour: a double chest of ore every 2.5 h, half of an 8-furnace super smelter at full speed · 319 bamboo stalks · 1,468 blocks · ~2,500 iron + 92 slime to build	2026-11-08 21:37Z
+farms/bamboo/bamboo-sweeper-10x64.html	circuit	farm/harvester bamboo		Crop farm: fuels ~2,750 items smelted an hour: a double chest of ore every 1.3 h, 95% of an 8-furnace super smelter at full speed · 639 bamboo stalks · 2,492 blocks · ~4,400 iron + 92 slime to build	2026-11-08 21:37Z
+farms/bamboo/index.html	page				2026-11-08 21:37Z
 farms/crops/bamboo-line64.html	circuit	farm/harvester bamboo		Crop farm: fuels ~280 items smelted an hour: a double chest of ore every 12 h, a tenth of an 8-furnace super smelter at full speed · 64 bamboo stalks · 858 blocks · 389 iron to build	2026-11-08 20:42Z
 farms/crops/bamboo-sweeper-10x32.html	circuit	farm/harvester bamboo		Crop farm: fuels ~1,350 items smelted an hour: a double chest of ore every 2.5 h, half of an 8-furnace super smelter at full speed · 319 bamboo stalks · 1,468 blocks · ~2,500 iron + 92 slime to build	2026-11-08 20:42Z
 farms/crops/bamboo-sweeper-10x64.html	circuit	farm/harvester bamboo		Crop farm: fuels ~2,750 items smelted an hour: a double chest of ore every 1.3 h, 95% of an 8-furnace super smelter at full speed · 639 bamboo stalks · 2,492 blocks · ~4,400 iron + 92 slime to build	2026-11-08 20:42Z
@@ -10073,4 +10077,10 @@ farms/iron/parts/collection/index.html	page				2026-11-08 21:21Z
 farms/iron/parts/kill/index.html	page				2026-11-08 21:21Z
 farms/iron/parts/sleep-trigger/index.html	page				2026-11-08 21:21Z
 farms/iron/parts/spawn-area/index.html	page				2026-11-08 21:21Z
+farms/melon-pumpkin/index.html	page				2026-11-08 21:37Z
+farms/melon-pumpkin/melon-lattice8.html	circuit	farm/harvester melon		Crop farm: 3,200 melon slices an hour · 64 stems · 800 blocks · 4.0 an hour per block · ~2,200 iron to build · needs open sky or light 9	2026-11-08 21:37Z
+farms/melon-pumpkin/pumpkin-lattice8.html	circuit	farm/harvester pumpkin		Crop farm: 664 pumpkins an hour · 64 stems · 800 blocks · 0.83 an hour per block · ~2,200 iron to build · needs open sky or light 9	2026-11-08 21:37Z
+farms/sugar-cane/cane-lattice-16x16.html	circuit	farm/harvester sugar_cane		Crop farm: 646 sugar cane an hour · 204 canes · 1,234 blocks · 0.52 an hour per block · ~1,800 iron to build · needs nothing but water	2026-11-08 21:37Z
+farms/sugar-cane/cane-sweeper-10x32.html	circuit	farm/harvester sugar_cane		Crop farm: 800 sugar cane an hour · 256 canes · 1,091 blocks · 0.73 an hour per block · ~2,200 iron + 92 slime to build · one flying machine sweeps the field	2026-11-08 21:37Z
+farms/sugar-cane/index.html	page				2026-11-08 21:37Z
 index.html	page				2026-10-19 23:21Z
