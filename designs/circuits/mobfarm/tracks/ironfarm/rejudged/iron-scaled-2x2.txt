@@ -1,3 +1,7 @@
+# FAILED the real-game gate (mobinfra, 2026-11-08: unmodified 26.3 server, Hard, 3 days + a
+# forced day of rain and of thunder): lava's random-tick fire burns the chambers' oak fence gates,
+# the lava floods and burns the drops; rainy dusks and thunder stop the dusk pulses; a bolt broke
+# a zombie's boat. Taken out of the archive; the late stage's stacks replace it.
 # The fastest iron farm, scaled: four copies of the fastest module 27 blocks apart make 1836 iron an
 # hour (96% of four modules' ceiling) for 48 iron (the tools counted) and 24 quartz.
 # Each module: four villagers sleep on beds in closed 1-cell pods under leaves (only three must

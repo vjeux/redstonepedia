@@ -121,9 +121,14 @@ its north row, the open gates beside it right under the ceiling, no mouth gates:
 
 Every one is robust (8 builds), passes the golem exit flood (every position a golem can stand on,
 its edge spots included, still and 8 walking inputs, dead within 1200 gt: worst 241-581 gt) and,
-but L3, restarts by itself after a missed night. The design files are in this directory: `iron-obvious.txt` (L1),
-`iron-day1.txt` (L3), `iron-middle.txt` (L2d 6x6, 4 villagers), `iron-fast-module.txt` (L2d 8x8,
-4 villagers), `iron-scaled-2x2.txt` (L5). The tiers (brief revision 3):
+but L3, restarts by itself after a missed night. The design files are in this directory: `iron-day1.txt` (L3, archived, passes the real-game gate); in `rejudged/`: `iron-obvious.txt` (L1),
+`iron-middle.txt` (L2d 6x6, 4 villagers), `iron-fast-module.txt` (L2d 8x8,
+4 villagers), `iron-scaled-2x2.txt` (L5), taken out of the archive on 2026-11-08 after the
+real-game gate (mobinfra: unmodified 26.3 server, Hard, 3 days + a forced day of rain and of
+thunder) failed them: lava's random tick lights the L2d chamber's oak fence gates (fire spreads
+only with a player within 128 blocks, so the playerless bridge never showed it), the lava floods
+and burns the drops; rainy dusks and thunder stop the dusk pulse; lightning made witches and broke
+a boat; L1 left a golem alive in a rotated build and stops in rain. The tiers (brief revision 3):
 
 - day 1 = the lowest bill with no quartz and 25%+ of the ceiling: L3 (9 iron, 62%).
 - middle = iron/h per block among builds at 75%+ of the ceiling with a bill of at most 20 iron:

@@ -1,3 +1,6 @@
+# FAILED the real-game gate (mobinfra, 2026-11-08: unmodified 26.3 server, Hard, 3 days + a
+# forced day of rain and of thunder): a rotated build left a golem alive over 1200 gt; no golems in
+# rain or thunder; 25.2 golems/h naturally, under redsim's 26.0-33.4. Taken out of the archive.
 # The obvious iron farm (the bar to beat): villagers scared by a zombie by day, asleep by night,
 # summon golems that water carries to a lava blade, 139 iron an hour (29% of the game's ceiling).
 # Three villagers sleep on their beds in closed 1-cell pods under leaves; a zombie in a boat 7 blocks

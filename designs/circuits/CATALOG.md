@@ -31,4 +31,4 @@ Every design judged in the real game (`mctas circuit verify`: 4 positions x 4 ro
 | [Item elevators](elevator-items/CATALOG.md) | 8 | 1 | 0 |
 | [Automatic doors](autodoor/CATALOG.md) | 6 | 3 | 3 |
 | [Bedrock breakers](bedrock/CATALOG.md) | 7 | 7 | 0 |
-| [Mob farms](mobfarm/CATALOG.md) | 5 | 5 | 0 |
+| [Mob farms](mobfarm/CATALOG.md) | 1 | 1 | 0 |
