@@ -9,6 +9,7 @@
 //! (`World.nu_history`): counted calls, executions, dropped calls, and how many times each
 //! cell changed state (`World.writes`).
 
+pub mod bprobe;
 pub mod bridge;
 pub mod cli;
 pub mod judge;
@@ -73,7 +74,17 @@ fn place_player_like(w: &mut World, blocks: &[(BlockPos, Block)], at: BlockPos) 
     for pass in 0..2 {
         for (p, b) in blocks {
             let q = bp(p.x + at.x, p.y + at.y, p.z + at.z);
-            let live = matches!(b, Block::Wire { .. } | Block::Rail { .. } | Block::PlainRail { .. } | Block::DetectorRail { .. });
+            let live = matches!(
+                b,
+                Block::Wire { .. }
+                    | Block::Rail { .. }
+                    | Block::PlainRail { .. }
+                    | Block::DetectorRail { .. }
+                    | Block::Fence { .. }
+                    | Block::Bamboo { .. }
+                    | Block::Tripwire { .. }
+                    | Block::TripwireHook { .. }
+            );
             if pass == 0 && !live {
                 w.put(q, *b);
             } else if pass == 1 && live {
@@ -290,6 +301,49 @@ fn dust_stack(n: i32, layers: i32) -> (Vec<(BlockPos, Block)>, BlockPos) {
     (v, bp(c, 1, c))
 }
 
+/// Shape-automaton families for the phase-2 census (probe --family shape:<kind>):
+/// a parametric network of one block kind and a distinguished trigger cell. Returns
+/// (blocks, lever/placeholder, place cell, break cell) in `probe`'s convention.
+fn shape_family(kind: &str, n: i32) -> Result<(Vec<(BlockPos, Block)>, BlockPos, BlockPos, BlockPos)> {
+    let mut v: Vec<(BlockPos, Block)> = Vec::new();
+    match kind {
+        "fence" => {
+            for x in 0..n {
+                for z in 0..n {
+                    v.push((bp(x, 0, z), stone()));
+                    v.push((bp(x, 1, z), Block::Fence { kind: 0, north: false, east: false, south: false, west: false, waterlogged: false }));
+                }
+            }
+            v.push((bp(-2, 0, n / 2), stone()));
+            Ok((v, bp(-2, 1, n / 2), bp(-1, 1, n / 2), bp(n / 2, 1, n / 2)))
+        }
+        "bamboo" => {
+            // One column of n segments (age 0) on dirt; trigger places an age-1 segment
+            // on top, whose AGE should walk down the column.
+            v.push((bp(0, -1, 0), Block::parse("minecraft:dirt").map_err(|e| anyhow::anyhow!(e))?));
+            for y in 0..n {
+                v.push((bp(0, y, 0), Block::Bamboo { age: 0, leaves: 0, stage: 0 }));
+            }
+            Ok((v, bp(0, -99, 0), bp(0, n, 0), bp(0, n - 1, 0)))
+        }
+        "trip" => {
+            // Two hooks facing each other across n string cells at y=1 (hooks hung on
+            // stone). The place trigger closes the last gap in the middle.
+            v.push((bp(-2, 1, 0), stone()));
+            v.push((bp(n + 1, 1, 0), stone()));
+            v.push((bp(-1, 1, 0), Block::TripwireHook { facing: Dir::East, powered: false, attached: false }));
+            v.push((bp(n, 1, 0), Block::TripwireHook { facing: Dir::West, powered: false, attached: false }));
+            for x in 0..n {
+                if x != n / 2 {
+                    v.push((bp(x, 1, 0), Block::Tripwire { powered: false, attached: false, disarmed: false, north: false, east: true, south: false, west: true }));
+                }
+            }
+            Ok((v, bp(0, -99, 0), bp(n / 2, 1, 0), bp(n / 2 + 1, 1, 0)))
+        }
+        other => bail!("unknown shape kind {other} (fence|bamboo|trip)"),
+    }
+}
+
 /// Probe one family/size at world offset `at`.
 /// Family: `dust`, or `rail:<pattern>:<kinds>:<geom>` (see `rail_mesh`; short forms
 /// `rail-comb` = rail:comb:checker:flat, `rail-t` = rail:t:jp:flat, `rail` = rail:full).
@@ -318,11 +372,15 @@ pub fn probe(family: &str, size: i32, at: BlockPos, trigger: &str) -> Result<Pro
             anyhow::ensure!(p.len() == 4, "family must be rail:<pattern>:<kinds>:<geom>");
             rail_mesh(size, p[1], p[2], p[3])?
         }
+        f if f.starts_with("shape:") => shape_family(f.strip_prefix("shape:").unwrap(), size)?,
         other => bail!("unknown family {other} (dust|rail:<pattern>:<kinds>:<geom>)"),
     };
     let lever_on = trigger == "lever-off";
-    blocks.push((lever_rel, lever(lever_on)));
-    let n_blocks = blocks.len() - 1;
+    let has_lever = lever_rel.y > -90;
+    if has_lever {
+        blocks.push((lever_rel, lever(lever_on)));
+    }
+    let n_blocks = blocks.len() - has_lever as usize;
     let mut w = world_for(&blocks, at);
     place_player_like(&mut w, &blocks, at);
     w.run_until_idle(100);
@@ -348,12 +406,18 @@ pub fn probe(family: &str, size: i32, at: BlockPos, trigger: &str) -> Result<Pro
         }
         "place" => {
             let q = bp(place_rel.x + at.x, place_rel.y + at.y, place_rel.z + at.z);
-            // The support under the placed rail must exist (the generator only puts
-            // supports under pattern cells).
-            if w.get(q.below()).is_air() {
+            // The support under the placed block must exist (generators only put supports
+            // under their own cells); bamboo/tripwire carry their own support logic.
+            if w.get(q.below()).is_air() && !family.starts_with("shape:") {
                 w.put(q.below(), stone());
             }
-            w.set_block_and_update(q, Block::PlainRail { shape: RailShape::NorthSouth });
+            let placed = match family {
+                "shape:bamboo" => Block::Bamboo { age: 1, leaves: 0, stage: 0 },
+                "shape:trip" => Block::Tripwire { powered: false, attached: false, disarmed: false, north: false, east: true, south: false, west: true },
+                "shape:fence" => stone(),
+                _ => Block::PlainRail { shape: RailShape::NorthSouth },
+            };
+            w.set_block_and_update(q, placed);
         }
         "break" => {
             let q = bp(break_rel.x + at.x, break_rel.y + at.y, break_rel.z + at.z);
@@ -450,6 +514,57 @@ pub fn probe_rand(seeds: i64, n: i32, at: BlockPos) -> Result<(Vec<String>, u64)
     let q = |p: usize| all.get(all.len() * p / 100).copied().unwrap_or(0);
     lines.push(format!("rail-rand n={n} patches={} triggers=2 counted: p50={} p90={} p99={} max={best} ({best_desc})", all.len() / 2, q(50), q(90), q(99)));
     Ok((lines, best))
+}
+
+/// Random fence/gate/stone fields (the presence-family control for `rail-rand`):
+/// `seeds` patches of `n` x `n`, built player-like in file order, trigger = break the
+/// center cell and (separately) place a stone in the first hole.
+pub fn probe_fence_rand(seeds: i64, n: i32, at: BlockPos) -> Result<(Vec<String>, u64)> {
+    use redsim::rng::LegacyRandom;
+    let mut all: Vec<u64> = Vec::new();
+    let (mut best, mut best_flip) = (0u64, 0u32);
+    for seed in 1..=seeds {
+        let mut rng = LegacyRandom::new(seed.wrapping_mul(0x2545F491));
+        let mut blocks: Vec<(BlockPos, Block)> = Vec::new();
+        for x in 0..n {
+            for z in 0..n {
+                blocks.push((bp(x, 0, z), stone()));
+                match rng.next_int(4) {
+                    0 => blocks.push((bp(x, 1, z), Block::Fence { kind: 0, north: false, east: false, south: false, west: false, waterlogged: false })),
+                    1 => blocks.push((bp(x, 1, z), Block::Fence { kind: 12, north: false, east: false, south: false, west: false, waterlogged: false })),
+                    2 => blocks.push((bp(x, 1, z), stone())),
+                    _ => {}
+                }
+            }
+        }
+        let mut base = world_for(&blocks, at);
+        place_player_like(&mut base, &blocks, at);
+        base.run_until_idle(100);
+        let c = bp(n / 2 + at.x, 1 + at.y, n / 2 + at.z);
+        for trig in 0..2 {
+            let mut w = base.clone();
+            w.nu_stats_reset();
+            w.log_writes = true;
+            w.writes.clear();
+            if trig == 0 {
+                w.remove_block(c, false);
+            } else {
+                w.set_block_and_update(c, stone());
+            }
+            w.run_until_idle(100);
+            let counted = w.nu_history.iter().map(|s| s.counted).max().unwrap_or(0);
+            let mut per: HashMap<BlockPos, u32> = HashMap::new();
+            for p in &w.writes {
+                *per.entry(*p).or_default() += 1;
+            }
+            best_flip = best_flip.max(per.values().copied().max().unwrap_or(0));
+            all.push(counted);
+            best = best.max(counted);
+        }
+    }
+    all.sort_unstable();
+    let q = |p: usize| all.get(all.len() * p / 100).copied().unwrap_or(0);
+    Ok((vec![format!("fence-rand n={n} patches={} counted: p50={} p99={} max={best} flips_max={best_flip}", all.len() / 2, q(50), q(99))], best))
 }
 
 /// One line per probe report (the CLI's table).

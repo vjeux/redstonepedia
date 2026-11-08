@@ -19,6 +19,18 @@ pub enum SuppressCmd {
     /// The judge rig on the official dedicated server (bot clicks the lever). The cap is a
     /// server.properties knob; the default 5000 is where this rig's field suppresses.
     Vanilla(VanillaArgs),
+    /// Shape automata redsim does not model, probed in the bridge by snapshot diffs
+    /// (changed cells after 1 tick / after idle vs network size).
+    Bprobe(BprobeArgs),
+}
+
+#[derive(Args)]
+pub struct BprobeArgs {
+    /// Families, comma separated: wall|wallfield|stair|drip|chest|snow|chorus|vine|pane|portal|moss.
+    #[arg(long, default_value = "wall,stair,drip,chest")]
+    family: String,
+    #[arg(long, default_value = "8,16,24")]
+    sizes: String,
 }
 
 #[derive(Args)]
@@ -161,6 +173,13 @@ pub fn run(version: &str, cmd: SuppressCmd) -> Result<()> {
                 );
             }
         }
+        SuppressCmd::Bprobe(a) => {
+            let fams: Vec<String> = a.family.split(',').map(|s| s.trim().to_string()).collect();
+            let sizes: Vec<i32> = a.sizes.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+            for r in crate::bprobe::run_bprobe(version, &fams, &sizes)? {
+                println!("bprobe {:<10} n={:<4} changed@1tick={:<6} changed@idle={:<6} trigger_ms={}", r.family, r.n, r.changed_1tick, r.changed_idle, r.trigger_ms);
+            }
+        }
         SuppressCmd::Vanilla(a) => {
             for v in crate::vanilla::run_vanilla(version, a.cap, a.field)? {
                 println!(
@@ -193,6 +212,16 @@ pub fn run(version: &str, cmd: SuppressCmd) -> Result<()> {
         SuppressCmd::Probe(a) => {
             let at = parse_pos(&a.at)?;
             for fam in a.family.split(',') {
+                if fam.trim() == "fence-rand" {
+                    for tok in a.sizes.split(',') {
+                        let n: i32 = tok.trim().parse()?;
+                        let (lines, _) = crate::probe_fence_rand(a.seeds, n, at)?;
+                        for l in lines {
+                            println!("{l}");
+                        }
+                    }
+                    continue;
+                }
                 if fam.trim() == "rail-rand" {
                     for tok in a.sizes.split(',') {
                         let n: i32 = tok.trim().parse()?;
