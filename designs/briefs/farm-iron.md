@@ -10,7 +10,8 @@ code, it's way too slow in java". Every rule below was read in the decompiled 26
 `designs/circuits/mobfarm/tracks/ironfarm/NOTES.md`.
 
 Revision 3 (after the G1 review and re-review by 8146b8db, 2026-11-08): the changelogs are at
-the end.
+the end. Revision 4 (vjeux 04:19-04:29, 2026-11-08): the three stages replace the tiers
+("Stages"); the Decision of revisions 1-3 and the Not goals they contradict are superseded.
 
 ## Use
 
@@ -20,14 +21,13 @@ farm needs villagers, beds and a zombie, which they bring in by hand.
 
 ## The number
 
-Every farm reports four numbers. The board ranks by the first, as process.md says for farms.
-Each of vjeux's three tiers is decided by its own number:
+Every farm reports these numbers; which one ranks it depends on its stage (below):
 
-1. **Iron per hour per block** (the board's rank): iron ingots per hour at vanilla speed for
-   the whole farm, divided by the blocks placed.
+1. **Iron per hour per block**: iron ingots per hour at vanilla speed for the whole farm,
+   divided by the blocks placed.
 2. **Iron per hour**: golems per hour x 4 (the mean drop), the mean over every run (seeds x game
    days), with its 95% interval. For a tiled farm, also per module.
-3. **The bill**: the iron the build itself costs, by recipe:
+3. **The bill**: the iron the build itself costs, by recipe, the tools it needs counted (Stages):
    - a hopper 5, a piston 1, an iron trapdoor 4, a minecart 5;
    - rails 6 per 16, tripwire hooks 1 per 2;
    - one bucket, 3, for the lava and water.
@@ -35,24 +35,169 @@ Each of vjeux's three tiers is decided by its own number:
    It lists the other survival materials too: villagers, beds, zombies, nether quartz, string.
 4. **Payback**: the bill divided by iron per hour, in minutes.
 
-**The tiers** (each decided by its own number, so vjeux's three stay distinct):
-
-| tier | its number | the rule |
-|---|---|---|
-| day 1 | the lowest bill | no nether material (no quartz), and at least 25% of the ceiling |
-| middle ground | iron per hour per block | among builds at 75% of the ceiling or more with a bill of at most 20 iron |
-| fastest scaled | iron per hour per module | the scaled build is reported as N x the module |
-
-The middle tier's 75% floor is what separates it from day 1. The day-1 pick (L3) kills its
-golems in place, in range of the villagers, which caps it near 2/3 of the ceiling, so the floor
-rules it out by its own rate rather than by an exclusion. Iron per hour of the whole build
-would grow with the module count N, not with the design, so the fastest tier ranks modules.
+The stages (revision 4) replace the three tier rules of revisions 1-3 (day 1: the lowest bill;
+middle: iron per hour per block at 75% of the ceiling; fastest: iron per hour per module).
 
 Reported too: golems per hour, poppies per hour, seconds per golem, the share of the ceiling,
 the rate under the worst golem walking policy (see the judge), and the misses by cause:
 - tries that found no spot;
 - golem sightings;
 - nights without sleep.
+
+## Stages
+
+Revision 4 (vjeux, 2026-11-08 04:29: "do a better job designing the constraints of what makes an
+iron farm good for each of the 3 stages"). Each stage starts from what a survival player has at
+that point. A design over any hard limit is not that stage's; among the designs within them,
+the stage's own rule picks; the must-haves are checked by the judge. Every line is argued from
+the 26.3 server (`mctas src show <Class>`; recipes and loot tables from its data).
+
+### Common (every stage)
+
+- **Verified in the real game, and running in the page's viewer.** `circuit archive` refuses a
+  mob farm without a pass of the game gate: each build run in the 26.3 server for game days
+  works (golems spawn, every drop reaches the chest, no golem escapes, the villagers stay safe
+  and unconverted) and its rate falls within the card's interval. The page's 3D viewer runs the
+  judge's own run (`farm::Run`). That is every other study's standard.
+- **Judged in real terrain with natural spawning, rain, thunder and lightning, on Hard.**
+  - Terrain: a game-generated sample of a seed's world. Hostiles spawn on the ground around the
+    farm and in its dark cells (NaturalSpawner), and walk, see and attack from it.
+  - Weather (`ServerLevel.advanceWeatherCycle`): rain starts after `RAIN_DELAY` (uniform
+    12000..180000 gt) and lasts `RAIN_DURATION` (12000..24000); thunder after `THUNDER_DELAY`
+    (12000..180000), for `THUNDER_DURATION` (3600..15600). Rain darkens the sky that daylight
+    detectors read (the calm devices, below), and a mob in rain does not burn
+    (`Mob.isSunBurnTick`: `isInWaterOrRain`).
+  - Lightning: while it thunders, every ticking chunk rolls `random.nextInt(100000) == 0` each
+    tick (`ServerLevel.tickThunder`). The bolt goes to the closest lightning rod within 128 that
+    tops its column (`findLightningRod`: the rod at `WORLD_SURFACE` height - 1), else to a
+    living entity that can see the sky in the strike column's box inflated by 3
+    (`findLightningTargetAround`). `LightningBolt` hurts every entity in its own box inflated
+    by 3 (`thunderHit`), and on Normal and Hard it lights up to 4 fires around (`spawnFire(4)`).
+  - Hard, the worst case for a farm: zombies break doors only on Hard
+    (`Zombie.DOOR_BREAKING_PREDICATE`); a villager killed by a zombie always turns into a
+    zombie villager on Hard, half the time on Normal, never on Easy (`Zombie.killedEntity`).
+    A dedicated server defaults to Easy (`DedicatedServerProperties.difficulty`).
+- **The villagers can never be reached, converted or struck.** Reached: any hostile's attack
+  box (`Mob.getAttackBoundingBox`, the zombie's with its vehicle). Converted:
+  `Zombie.killedEntity` (above), and `Villager.thunderHit`, which makes a witch unless the
+  difficulty is Peaceful. Struck: the bolt's box (above).
+- **Every drop reaches a chest; no golem escapes** (the must-haves below).
+- **It restarts by itself after a missed night.** `Villager.golemSpawnConditionsMet`: no
+  villager wants a golem without a `LAST_SLEPT` in the last 24000 gt. A night can be missed by
+  rain at dusk, by a thunderstorm or by the player being away. A farm whose calm moment comes
+  from its golems (a tripwire pressed by a burning golem) has no golem left to press it after a
+  missed night, so it needs a calm moment that does not come from its golems.
+- **No caveat lines anywhere.** Every line on a page says what the farm does. A gap is closed
+  by work, never reworded into a disclaimer (vjeux, 04:19).
+
+### Day 1
+
+The player has wood and stone tools, a few iron from a cave and a village nearby; no Nether.
+
+Hard limits:
+- **Day-1 items only**: wood, stone, cobblestone, dirt, sand and glass, copper, coal, iron within
+  the limit below, and what the village gives (its villagers, their beds). No Nether item (no
+  quartz, so no comparator, observer or daylight detector), no slime. No redstone dust unless
+  the build counts an iron pickaxe: `redstone_ore` is in `needs_iron_tool`, and stone and copper
+  tools are `incorrect_for` it.
+- **At most 10 iron in total, counting the tools the build needs** (recipes in
+  `data/minecraft/recipe`): a bucket 3 (one bucket carries the lava and the water), a hopper 5,
+  tripwire hooks 1 per 2, shears 2 if the build uses leaves (leaves drop only to a `can_shear`
+  tool or silk touch: `loot_table/blocks/oak_leaves`), an iron pickaxe 3 if it needs redstone
+  dust.
+- **At most 1 lava source**: each is one bucket trip from a lava pool. Lava makes no new
+  sources (`LavaFluid.canConvertToSource`: the `lava_source_conversion` game rule, off by
+  default).
+- **3 villagers and their beds, taken from the natural village it is built beside.**
+  `VillagerPanicTrigger` calls `spawnGolemIfNeeded(level, gameTime, 3)` every 100 gt, so 3 is the
+  minimum, and each needs a bed (its HOME) to sleep.
+
+Ranked by: **the least work, blocks placed + blocks dug in the terrain**, among the designs that
+make at least 100 iron per hour. Full iron gear (armour 24, sword 2, pickaxe 3, axe 3, shovel 1:
+33 iron) then takes about 20 minutes, about 30 with the build's own iron.
+
+Must-haves:
+- **Built in real terrain beside a natural village that keeps working around it**: its
+  villagers keep their beds and workplaces, its golem keeps patrolling, and the farm takes
+  nothing from it but the 3 villagers and their beds.
+- **It starts by itself the first night after it is finished**, with no hide by hand. The
+  villagers moved in by day keep the `LAST_SLEPT` of their last night in the village, or have
+  none, and the farm's own calm moment lets them sleep that first night.
+- **The zombie survives the day.** It catches fire for 8 s (`Mob.burnUndead`) when
+  `isSunBurnTick` holds: `MONSTERS_BURN`, a brightness over 0.5,
+  `random.nextFloat() * 30 < (brightness - 0.4) * 2`, not in water or rain, and its eye cell
+  can see the sky. So its eye cell never sees the sky.
+- **Nothing the village does breaks it.**
+  - Its golem must not reach the zombie: `IronGolem` targets any `Enemy` but creepers that it
+    can see within its follow range (`NearestAttackableTargetGoal`).
+  - Its villagers must not claim the farm's beds: `AcquirePoi` claims a free HOME bed within 48
+    (`SCAN_RANGE`) only along a path that reaches it (`path.canReach()`). The farm's villagers
+    hold its beds, and no village villager can reach them.
+
+### Middle
+
+The player has a base, iron gear and the Nether (quartz, redstone, magma, slime); no End.
+
+Hard limits:
+- **Nether-tier items**: nothing from the End (no shulker box, no end rod).
+- **At most 64 iron in total, tools counted.**
+- **It fits one chunk column**: 16 x 16, placed on the chunk grid, so it loads, ticks and
+  unloads as one.
+- **At most about 1,000 blocks placed + dug.**
+
+Ranked by: **the most iron per hour within that budget**, then the fewest blocks.
+
+Must-haves:
+- **It restarts by itself after the player is away for days.** The judge models the absence:
+  the farm's chunks stop ticking (no block, entity or brain tick, so memory expiries do not
+  count down), game time advances days, then they tick again with every `LAST_SLEPT` older than
+  24000 gt.
+- **It holds at least 2 h of output**: the card's iron per hour x 2 fits in its chests and
+  hoppers, poppies included.
+- **Poppies never block collection**: each golem drops 0-2 poppies (its loot table), and they
+  take slots ahead of the iron.
+- **It is modular**: the late farm is built from this module, and the docs say how to add
+  modules.
+
+### Late
+
+The player has everything, End included; villagers come from breeding.
+
+Hard limits:
+- **Any survival item.**
+- **Every module keeps at least 90% of its ceiling while packed against its neighbours.** What
+  couples modules:
+  - a spawn resets every villager in the spawner's box inflated by 10
+    (`Villager.spawnGolemIfNeeded`: `nearbyVillagers.forEach(GolemSensor::golemDetected)`), and
+    the same box counts the willing villagers toward the 3;
+  - `GolemSensor` (every 200 gt) reads the `NEAREST_LIVING_ENTITIES` list that
+    `NearestLivingEntitySensor` stores every 20 gt: every living entity in the villager's box
+    inflated by its follow range (16, times `finalizeSpawn`'s bonus), with no sight needed. So
+    a neighbour's golem resets a villager in proportion to how long it stays in that box;
+  - the spawn search reaches 8 columns out, from 6 above to 6 below its villager
+    (`SpawnUtil.trySpawnMob(…, 10, 8, 6, LEGACY_IRON_GOLEM)`), so it can land on a neighbour's
+    pad.
+- **The whole build runs from one AFK spot**: entities tick only in chunks within the simulation
+  distance of a player (`DistanceManager`: the player ticket at level `ENTITY_TICKING -
+  simulationDistance`). A dedicated server defaults to 10 (`simulation-distance`).
+
+Ranked by: **iron per hour per chunk column of footprint.** The page shows the scaling at N = 1,
+2, 4, 8...: iron per hour, blocks, footprint, and iron per hour per block rising with N.
+
+Must-haves:
+- **At least 8 h AFK**: the iron packed into blocks (a crafter) or stored, the poppies
+  composted or destroyed.
+- **Low lag**: golems die fast, few hoppers per 1000 iron per hour, few entities alive at once,
+  nothing piling up. All of it is reported.
+
+### What every card reports
+
+The iron including tools; the lava sources; the materials with the stage that brings each (day
+1, Nether, End); blocks placed and blocks dug in the terrain; the villagers moved (from their
+village bed to the pod); the chunk footprint; the storage hours at the card's rate; the restart
+after a days-long absence; the lag numbers (golem life, hoppers per 1000 iron per hour, entities
+alive at once, peak loose items); density and scaling. Each stage's pick is chosen by its own
+rule.
 
 ## Mechanics, from the game code (26.3)
 
@@ -356,6 +501,10 @@ claims to restart after a missed night, and the judge checks that claim (below).
 
 ## Decision
 
+Superseded by the stages (revision 4): each stage's pick is redesigned against its hard limits
+and chosen by its own rule (the work log, NOTES.md). The decision of revisions 1-3 stays below
+as the record of the first archive (L3 day 1, L2d middle, L2d 8x8 fastest, L5 scaled):
+
 1. **L1 first, as the bar (G2):** it is the straightforward reading of the mechanics, with a
    sensor for the night. It is measured in clear weather, and its caption says it stops in
    rain. Its numbers calibrate the judge.
@@ -404,12 +553,13 @@ The judge decides between estimates. Each farm is reported as a share of the cei
 
 The judge does not check:
 
-- weather: it runs in clear weather (rain only darkens the sky for daylight detectors, and
-  lightning is covered by the roof must-have; L1's rain stop goes in its caption);
-- natural monster spawning on the build (spawn-proofing);
-- how the player brings the villagers and the zombie in;
-- lag;
-- chunk borders, as long as the build stays inside the simulated box.
+- how the player brings the villagers and the zombie in (reported for day 1: the villagers
+  moved, from their village bed to the pod);
+- chunk borders for day 1, as long as the build stays inside the simulated box (the middle stage
+  fits one chunk column; the late stage's footprint is counted in chunk columns).
+
+Weather, natural spawning and lag, not goals in revisions 1-3, are judged from revision 4 on
+(Stages: Common, Late).
 
 ## The judge (`circuit: mob-farm iron_ingot`, crates/circuit/src/studies/mobfarm.rs)
 
@@ -575,3 +725,15 @@ randoms, and the level random that behaviors we do not run also draw from):
 | 3 | Tiers: day 1 = the lowest bill (no quartz, at least 25% of the ceiling); middle = iron/h per block among builds at 75% of the ceiling or more with a bill of at most 20 iron (the 75% floor separates L3, capped near 2/3 by its kill in place); fastest = iron/h per module, the scaled build reported as N x the module | The number; Decision |
 | note | The roof cannot be a spawn base: leaves (excluded by LEGACY_IRON_GOLEM, sky light 14 under them), or at villager y+6 or higher, or capped with carpet or glass | Must-haves |
 | — | L3's sight blocker is a powered wooden trapdoor: its bill drops to 9 iron (no piston) | Six layouts; Decision |
+
+## Changelog (revision 4, the stages)
+
+| point | what changed | where |
+|---|---|---|
+| 1 | Three stages from what the player has (day 1: wood/stone tools, a few iron, a village, no Nether; middle: iron gear and the Nether, no End; late: everything, bred villagers), each with hard limits, its own ranking rule and must-haves, every line argued from the 26.3 code. They replace the tier rules | The number; Stages |
+| 2 | Common to every stage: the real-game archive gate and the page's viewer running the judge's run; real terrain with natural spawning, the weather cycle and lightning, on Hard; villagers never reached, converted or struck; the restart after a missed night; no caveat lines | Stages: Common |
+| 3 | Day 1: at most 10 iron with the tools counted (bucket, hoppers, hooks, shears for leaves, an iron pickaxe for redstone dust), at most 1 lava source, 3 villagers and beds from the village beside it; ranked by blocks placed + dug among designs at 100 iron/h or more; it starts by itself the first night, its zombie survives the day, the village cannot break it | Stages: Day 1 |
+| 4 | Middle: Nether-tier, at most 64 iron, one chunk column, about 1,000 blocks placed + dug; ranked by iron/h then blocks; the restart after days away (modeled), 2 h of storage, poppies never block, modular | Stages: Middle |
+| 5 | Late: any item, every module at 90% of its ceiling packed against its neighbours (the couplings from the code), one AFK spot (simulation distance 10); ranked by iron/h per chunk column with the scaling shown; 8 h AFK, lag reported | Stages: Late |
+| 6 | Every card reports the stage lines (iron with tools, lava sources, materials by stage, blocks placed and dug, villagers moved, chunk footprint, storage hours, the absence restart, lag, density and scaling) | Stages: What every card reports |
+| — | The Decision of revisions 1-3 is kept as the record of the first archive; weather, natural spawning and lag leave the Not goals | Decision; Not goals |
