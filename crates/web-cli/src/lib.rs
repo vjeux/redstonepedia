@@ -2499,8 +2499,61 @@ const FARM_WASM_TICKS: u32 = 2000;
 /// native viewer's when given. The twin's record (growths, the chests, the intruders) is
 /// printed. None when neither runs it (a crop redsim does not model: the viewer shows the build
 /// as built).
-/// `mctas web mobrate`: each mob farm's judge runs played through the viewer's session (see
-/// [`WebCmd::Mobrate`]).
+/// A mob farm's builds as its judge builds them (`circuit::mobfarm::judge`: every turn, then both
+/// places) as design texts, each checked to be the viewer's farm too.
+fn mob_judge_builds(c: &circuit::Circuit) -> std::result::Result<Vec<String>, String> {
+    use circuit::mobfarm as judge;
+    let offsets = clock::offsets(2);
+    let mut builds: Vec<String> = Vec::new();
+    for t in 0..4u8 {
+        for off in &offsets {
+            let rc = c.turned_pure(t).and_then(|r| r.translated(*off)).map_err(|e| format!("{e:#}"))?;
+            let text = rc.clock.design.to_text();
+            let ours = mcview::mobfarm::spec(&mcview::Design::parse(&text)?)?;
+            let theirs = judge::spec_of(&rc)?;
+            if format!("{ours:?}") != format!("{theirs:?}") {
+                return Err(format!("build {} (turn {t}, offset {off:?}): the viewer's farm is not the judge's", builds.len()));
+            }
+            builds.push(text);
+        }
+    }
+    Ok(builds)
+}
+
+/// The judge's runs (every build, every seed: [`mob_judge_builds`], `judge_seed`) through the
+/// viewer's session, each golem's spawn on a cell the view shows as a spawn spot
+/// (`mobfarm::spawn_check_seeded`; vjeux 2026-11-08, "show the places where golems spawn"): the
+/// runs, the golems, the most cells shown open at once.
+fn mob_spawn_spots_check(c: &circuit::Circuit) -> std::result::Result<(usize, u32, usize), String> {
+    use circuit::mobfarm as judge;
+    let jo = judge::JudgeOpts::default();
+    let builds = mob_judge_builds(c)?;
+    let ticks = jo.days * 24000;
+    let jobs: Vec<(usize, i64)> = (0..builds.len()).flat_map(|b| (0..jo.seeds).map(move |k| (b, redsim::entity::mob::farm::judge_seed(b as u32, k)))).collect();
+    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(1, 32);
+    let per = jobs.len().div_ceil(threads);
+    let mut results: Vec<std::result::Result<(u32, usize, Vec<String>), String>> = vec![Err(String::new()); jobs.len()];
+    std::thread::scope(|s| {
+        for (chunk, slots) in jobs.chunks(per).zip(results.chunks_mut(per)) {
+            let builds = &builds;
+            s.spawn(move || {
+                for ((b, seed), slot) in chunk.iter().zip(slots.iter_mut()) {
+                    *slot = mcview::mobfarm::spawn_check_seeded(&builds[*b], *seed, ticks);
+                }
+            });
+        }
+    });
+    let (mut golems, mut most) = (0u32, 0usize);
+    for (r, (b, seed)) in results.into_iter().zip(&jobs) {
+        let (g, m, outside) = r.map_err(|e| format!("build {b} seed {seed}: {e}"))?;
+        if let Some(first) = outside.first() {
+            return Err(format!("build {b} seed {seed}: {} golems spawned outside the view's spawn spots, the first {first}", outside.len()));
+        }
+        golems += g;
+        most = most.max(m);
+    }
+    Ok((jobs.len(), golems, most))
+}
 fn cmd_mobrate(designs: &[PathBuf], threads: usize) -> Result<()> {
     use circuit::mobfarm as judge;
     let mut bad = 0;
@@ -2508,21 +2561,7 @@ fn cmd_mobrate(designs: &[PathBuf], threads: usize) -> Result<()> {
         let text = std::fs::read_to_string(d).with_context(|| format!("reading {}", d.display()))?;
         let c = circuit::Circuit::from_design(mctas::design::Design::parse(&text)?)?;
         let jo = judge::JudgeOpts::default();
-        // the judge's builds (`judge`: every turn, then both places) as design texts
-        let offsets = clock::offsets(2);
-        let mut builds: Vec<String> = Vec::new();
-        for t in 0..4u8 {
-            for off in &offsets {
-                let rc = c.turned_pure(t)?.translated(*off)?;
-                let text = rc.clock.design.to_text();
-                let ours = mcview::mobfarm::spec(&mcview::Design::parse(&text).map_err(anyhow::Error::msg)?).map_err(anyhow::Error::msg)?;
-                let theirs = judge::spec_of(&rc).map_err(anyhow::Error::msg)?;
-                if format!("{ours:?}") != format!("{theirs:?}") {
-                    bail!("{}: build {} (turn {t}, offset {off:?}): the viewer's farm is not the judge's", d.display(), builds.len());
-                }
-                builds.push(text);
-            }
-        }
+        let builds = mob_judge_builds(&c).map_err(|e| anyhow::anyhow!("{}: {e}", d.display()))?;
         let ticks = jo.days * 24000;
         let jobs: Vec<(usize, i64)> = (0..builds.len()).flat_map(|b| (0..jo.seeds).map(move |k| (b, redsim::entity::mob::farm::judge_seed(b as u32, k)))).collect();
         let t0 = std::time::Instant::now();
@@ -2637,8 +2676,9 @@ fn mob_pair(text: &str, probe: Option<&mut mcview::tools::WasmProbe>) -> Result<
         }
         None => String::new(),
     };
+    let (runs, spawned, most) = mob_spawn_spots_check(&c)?;
     Ok(Some(format!(
-        "mob farm: the judge's farm and run; redsim's world every tick over {MOB_TICKS}; {} days = the judge's run 0: {golems} golems ({:.1}/h), {iron} iron ({chest} in the chests){wasm}",
+        "mob farm: the judge's farm and run; redsim's world every tick over {MOB_TICKS}; {} days = the judge's run 0: {golems} golems ({:.1}/h), {iron} iron ({chest} in the chests){wasm}; the judge's {runs} runs: all {spawned} golems on the view's spawn spots (at most {most} cells)",
         judge::JUDGE_DAYS,
         golems as f64 * 72000.0 / ticks as f64
     )))

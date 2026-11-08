@@ -44,6 +44,11 @@ pub struct Look {
     /// A flying machine's track (the live viewer): its whole path's box (low, high corners),
     /// the travel axis and the axis normal to the track's plane ([`Builder::track`]).
     pub track: Option<(Pos, Pos, usize, usize)>,
+    /// A mob farm's golem spawn spots drawn over its cells (the live viewer's "Spawn spots",
+    /// [`crate::mobfarm::MobRun::spots`]), and how many game ticks a golem's spawn flashes on its
+    /// cell (the view's speed: about a second of it).
+    pub spawn_spots: bool,
+    pub spawn_flash_ticks: f32,
 }
 
 /// Where the real-game pictures put the orange marker (`clock/src/shot.rs::marker_cell`): the
@@ -147,7 +152,7 @@ pub fn default_look(s: &Session) -> Look {
     let (lo, _) = s.path_box();
     // the pictures' floor: `clock shot` fills grass at the box's lowest y - 2, its top one block
     // under the lowest cell
-    Look { marker, lit_marker: false, outlines, input_spans, port_outlines, ground: Some(lo[1] as f32 - 1.0), floor_margin: None, ghost, track: None }
+    Look { marker, lit_marker: false, outlines, input_spans, port_outlines, ground: Some(lo[1] as f32 - 1.0), floor_margin: None, ghost, track: None, spawn_spots: false, spawn_flash_ticks: 20.0 }
 }
 
 /// An OUT box's outline colour (the OUT tag's), and while its output is powered.
@@ -218,7 +223,7 @@ pub fn build_part(atlas: &Atlas, s: &Session, partial: f32, look: &Look, part: P
     if part == Part::Entities {
         let mut b = Builder::new(atlas);
         b.ground = look.ground.map(|y| y.floor() as i32);
-        entities_into(&mut b, s, partial);
+        entities_into(&mut b, s, partial, look);
         return b.mesh;
     }
     let mut st = Staged::new(s, partial, look, part);
@@ -328,7 +333,7 @@ impl Staged {
             return None;
         }
         if self.part == Part::All {
-            entities_into(&mut b, s, partial);
+            entities_into(&mut b, s, partial, look);
         }
         if let Some(m) = look.marker {
             b.marker(m, true, [255, 255, 255], look.lit_marker && s.output_on().unwrap_or(false));
@@ -380,7 +385,7 @@ impl Staged {
 
 /// The frame's entities (a recording's, a still's design entities, else redsim's) and an
 /// explosion's cloud for 10 ticks after each of redsim's blasts.
-fn entities_into(b: &mut Builder, s: &Session, partial: f32) {
+fn entities_into(b: &mut Builder, s: &Session, partial: f32, look: &Look) {
     if let Some(r) = &s.replay {
         for e in r.entities(partial) {
             b.entity(&e);
@@ -404,6 +409,45 @@ fn entities_into(b: &mut Builder, s: &Session, partial: f32) {
             }
             if age >= 0.0 {
                 b.explosion([x.center.x as f32, x.center.y as f32, x.center.z as f32], x.time as u64, age);
+            }
+        }
+        if look.spawn_spots {
+            spawn_spots_into(b, s, now, look);
+        }
+    }
+}
+
+/// A mob farm's golem spawn spots (vjeux 2026-11-08: "show the places where golems spawn"): every
+/// cell the judge's golem search reaches around the villagers now ([`crate::mobfarm::spawn_spots`])
+/// as a plate on its floor, sky blue where a golem can spawn and none has yet, yellow to red by the
+/// golems spawned there so far, grey where the search reaches but a golem cannot spawn; each
+/// golem's spawn flashes on its cell. A still (before its run plays) shows its spots, uncounted.
+fn spawn_spots_into(b: &mut Builder, s: &Session, now: f32, look: &Look) {
+    use crate::mobfarm::{spot_color, spot_open, SPOT_REFUSED};
+    let found;
+    let (spots, run) = match &s.mob {
+        Some(run) => (&run.spots[..], Some(run)),
+        None if crate::mobfarm::is_mob_farm(&s.design) => {
+            found = crate::mobfarm::spawn_spots(&s.world);
+            (&found[..], None)
+        }
+        None => return,
+    };
+    let max = run.and_then(|r| r.spawned.values().copied().max()).unwrap_or(0);
+    for (c, r) in spots {
+        if spot_open(r) {
+            let n = run.and_then(|r| r.spawned.get(c).copied()).unwrap_or(0);
+            b.spawn_spot(c.arr(), spot_color(n, max), false);
+        } else {
+            b.spawn_spot(c.arr(), SPOT_REFUSED, true);
+        }
+    }
+    if let Some(run) = run {
+        let span = look.spawn_flash_ticks.max(1.0);
+        for (c, t) in &run.flashes {
+            let age = now - *t as f32;
+            if (0.0..span).contains(&age) {
+                b.spawn_flash(c.arr(), age / span);
             }
         }
     }

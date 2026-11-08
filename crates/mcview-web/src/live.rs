@@ -84,6 +84,8 @@ pub struct Live {
     /// One bar button per circuit input, and the level it shows.
     inputs: Vec<(HtmlButtonElement, bool)>,
     containers: HtmlButtonElement,
+    /// A mob farm's "Spawn spots" toggle (on by default: `Look::spawn_spots`).
+    spawn_btn: HtmlButtonElement,
     /// The badge's text when no demo runs.
     base_status: String,
     shown_status: String,
@@ -249,6 +251,10 @@ const ICON_LEVER: &str = "M17 7H7a5 5 0 0 0 0 10h10a5 5 0 0 0 0-10zm0 8a3 3 0 1 
 /// A pickaxe (a bedrock breaker's Press: Attack + Use on the swap piston).
 const ICON_PICK: &str = "M14.8 3.2c2.9-.6 5.4.2 6.9 1.6l-1.4 1.4c-1.1-.9-2.6-1.3-4.3-1.1l1.9 1.9-1.4 1.4-1.9-1.9-9.9 9.9 1.4 1.4-2.8 2.8-1.4-1.4 1.4-1.4-1.4-1.4L12 6.4l-1.9-1.9 1.4-1.4z";
 const ICON_BOXES: &str = "M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8zM5 5v4h4V5zM15 5v4h4V5zM5 15v4h4v-4zM15 15v4h4v-4z";
+/// The "Spawn spots" toggle: a plate on the floor seen from above, a spot in its middle.
+const ICON_SPAWN: &str = "M3 15l9-5 9 5-9 5zM6.6 15L12 18l5.4-3L12 12zM10 15l2-1.1 2 1.1-2 1.1zM11 3h2v6h-2z";
+/// What the spawn spots' colours say (the toggle's title).
+const SPAWN_TITLE: &str = "Spawn spots: every cell the game's golem search reaches around the villagers. Blue: a golem can spawn there and none has yet; yellow to red: how many golems spawned there so far; grey: the search reaches it but a golem cannot spawn there. A flash: a golem spawning.";
 /// The Record button's face: a red dot and its word; while recording, a stop square and the
 /// progress.
 const RECORD_FACE: &str = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 14 14\" aria-hidden=\"true\" style=\"display:block\"><circle cx=\"7\" cy=\"7\" r=\"6\" fill=\"#ff3b30\"/></svg><span>Record</span>";
@@ -415,6 +421,9 @@ pub fn start(app: &mut App, id: u32) {
     let _ = press.set_attribute("data-mcview-input", "press");
     let containers = button(ICON_BOXES, "Show what every container holds (or tap one)");
     let _ = containers.style().set_property("display", "none");
+    let spawn_btn = button(ICON_SPAWN, SPAWN_TITLE);
+    let _ = spawn_btn.style().set_property("display", "none");
+    let _ = spawn_btn.set_attribute("data-mcview-spawn", "");
     // the scrubber (the timelapse, jump between states): above the bar, full width now
     // the Record pill sits above it, not beside it; its strip shows the run's active
     // stretches bright and the idle ones (waits, holds, a settled world) dim, the
@@ -500,7 +509,7 @@ pub fn start(app: &mut App, id: u32) {
         ],
     );
     label.set_text_content(Some("0.00 s · 0 ticks"));
-    for c in [reset.unchecked_ref::<HtmlElement>(), play.unchecked_ref(), back.unchecked_ref(), step.unchecked_ref(), speed.unchecked_ref(), flip.unchecked_ref(), press.unchecked_ref(), containers.unchecked_ref()] {
+    for c in [reset.unchecked_ref::<HtmlElement>(), play.unchecked_ref(), back.unchecked_ref(), step.unchecked_ref(), speed.unchecked_ref(), flip.unchecked_ref(), press.unchecked_ref(), containers.unchecked_ref(), spawn_btn.unchecked_ref()] {
         let _ = bar.append_child(c);
     }
     let _ = root.append_child(&bar);
@@ -602,6 +611,7 @@ pub fn start(app: &mut App, id: u32) {
         overlays,
         inputs: Vec::new(),
         containers: containers.clone(),
+        spawn_btn: spawn_btn.clone(),
         base_status: String::new(),
         shown_status: String::from("\u{0}"),
         camera_search: None,
@@ -627,6 +637,7 @@ pub fn start(app: &mut App, id: u32) {
         ensure_frame();
     });
     on_click(&containers, id, |l| l.toggle_containers());
+    on_click(&spawn_btn, id, |l| l.toggle_spawn_spots());
     // the scrubber: drag or tap to jump to a tick (pauses first)
     on(&scrub, "pointerdown", move |e: PointerEvent| {
         with_live(id, |l, _, _| {
@@ -1082,11 +1093,23 @@ fn finish_load(app: &mut App, id: u32) {
             l.flip.set_inner_html(&format!("{}{}", icon(ICON_LEVER), word("Flip")));
             l.press_btn.set_inner_html(&format!("{}{}", icon(ICON_PICK), word("Press")));
             l.containers.set_inner_html(&format!("{}{}", icon(ICON_BOXES), word("Labels")));
+            // a mob farm's golem spawn spots, shown from the start (vjeux 2026-11-08: "show the
+            // places where golems spawn"), the toggle gold while they show
+            let farm = mcview::mobfarm::is_mob_farm(&p.session.design) && p.session.simulated();
+            if farm {
+                p.look.spawn_spots = true;
+            }
+            let _ = l.spawn_btn.style().set_property("display", if farm { "inline-flex" } else { "none" });
+            let _ = l.spawn_btn.style().set_property("color", if p.look.spawn_spots { "#ffd27a" } else { "#fff" });
+            l.spawn_btn.set_inner_html(&format!("{}{}", icon(ICON_SPAWN), word("Spawn spots")));
             if l.bar.scroll_width() > l.bar.client_width() {
                 l.flip.set_inner_html(&icon(ICON_LEVER));
             }
             if l.bar.scroll_width() > l.bar.client_width() {
                 l.containers.set_inner_html(&icon(ICON_BOXES));
+            }
+            if l.bar.scroll_width() > l.bar.client_width() {
+                l.spawn_btn.set_inner_html(&icon(ICON_SPAWN));
             }
             // still no room (a combination lock's three dials): the inputs' buttons go, their
             // tags press them (each says which input it is)
@@ -1840,6 +1863,16 @@ impl Live {
         self.redraw = true;
     }
 
+    /// The "Spawn spots" toggle: a mob farm's golem spawn spots shown or not.
+    fn toggle_spawn_spots(&mut self) {
+        if let Some(p) = self.player.as_mut() {
+            p.look.spawn_spots = !p.look.spawn_spots;
+            let _ = self.spawn_btn.style().set_property("color", if p.look.spawn_spots { "#ffd27a" } else { "#fff" });
+            p.entities_changed();
+            self.redraw = true;
+        }
+    }
+
     /// The badge: the demo's phase (in words) while it runs, else what runs; a run redsim could
     /// not follow stops and says so.
     fn sync_status(&mut self) {
@@ -1896,6 +1929,8 @@ impl Live {
         self.speed.set_title(&format!("Speed: {name} = {tps} game ticks per second"));
         if let Some(p) = self.player.as_mut() {
             p.tps = tps;
+            // a golem's spawn flashes for about a second of the view at any speed
+            p.look.spawn_flash_ticks = (tps * 0.8).max(8.0);
         }
     }
 

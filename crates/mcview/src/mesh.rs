@@ -214,6 +214,10 @@ fn adjacency((axis, s): (usize, i32)) -> [(usize, i32); 4] {
 /// How opaque a ghosted cell's faces are ([`Builder::ghost`]: the judge's test rig).
 pub const GHOST_ALPHA: u8 = 80;
 
+/// A vertex layer's top bit: an X-ray face ([`models::Part::xray`]), drawn at the nearest depth
+/// so the blocks in front never hide it (the shader masks the bit off for its texture).
+pub const XRAY: u32 = 0x8000_0000;
+
 /// A [`Builder`] without its atlas (carried between frames: [`Builder::into_parts`]).
 pub struct BuilderParts {
     occ: HashSet<Pos>,
@@ -894,6 +898,32 @@ impl<'a> Builder<'a> {
         self.add_model(&Model::one(p), base, None, None);
     }
 
+    /// A golem spawn spot (`mobfarm::MobRun::spots`) in `color`: where a golem can spawn, a
+    /// translucent column the golem's height (2.7 blocks) standing on the cell's floor, seen
+    /// through the blocks around it (a spawning pit is walled in: [`models::Part::xray`]); `dim`: a
+    /// cell the search reaches but refuses, a thin plate on its floor (hidden like a block).
+    pub fn spawn_spot(&mut self, cell: Pos, color: [u8; 3], dim: bool) {
+        let base = [cell[0] as f32, cell[1] as f32, cell[2] as f32];
+        let p = if dim {
+            Part::new([0.6, 0.1, 0.6], [15.4, 1.6, 15.4]).all("spawn_spot_dim")
+        } else {
+            Part::new([2.5, 0.1, 2.5], [13.5, 43.2, 13.5]).all("spawn_spot").xray()
+        };
+        let p = p.tint(color).layer(models::Layer::Translucent).emissive(true).nocull();
+        self.add_model(&Model::one(p), base, None, None);
+    }
+
+    /// A golem's spawn flash on its cell, `fade` 0 (just spawned) to 1 (gone): a column the
+    /// golem's size (1.4 x 2.7 blocks) that sinks as it fades, seen through the blocks.
+    pub fn spawn_flash(&mut self, cell: Pos, fade: f32) {
+        let base = [cell[0] as f32, cell[1] as f32, cell[2] as f32];
+        let f = fade.clamp(0.0, 1.0);
+        let top = 0.5 + 42.7 * (1.0 - f);
+        let (a, b) = (8.0 - 11.2, 8.0 + 11.2);
+        let p = Part::new([a, 0.2, a], [b, top, b]).all("spawn_flash").tint([255, 236, 150]).layer(models::Layer::Translucent).emissive(true).nocull().xray();
+        self.add_model(&Model::one(p), base, None, None);
+    }
+
     /// An explosion's particles `age` ticks after the blast at `c` (its tick `time`): the game's
     /// emitter and puffs ([`crate::particles`]), the game's sprite frames once loaded (a white
     /// puff until then; a page without them asks for them with the entity textures).
@@ -1152,6 +1182,7 @@ impl<'a> Builder<'a> {
         let v: [Vertex; 4] = std::array::from_fn(|k| {
             let l = lum[k];
             let c = |t: u8, ch: usize| (t as f32 * l[ch]).round().clamp(0.0, 255.0) as u8;
+            let layer = if p.xray { layer | XRAY } else { layer };
             Vertex { pos: pts[k], uv: uv[k], layer, color: [c(f.tint[0], 0), c(f.tint[1], 1), c(f.tint[2], 2), alpha] }
         });
         match p.layer {

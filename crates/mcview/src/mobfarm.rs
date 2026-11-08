@@ -127,6 +127,15 @@ pub struct MobRun {
     pub arrived: i64,
     /// Each living mob's walk animation (the client's, from its moves), by entity id.
     pub walk: HashMap<u32, WalkAnim>,
+    /// The golem spawn spots now ([`spawn_spots`], found again when a villager changes cell or a
+    /// block changes), the golems spawned on each cell so far, and each spawn's cell and time
+    /// (the view's flash).
+    pub spots: Vec<(BlockPos, Result<(), &'static str>)>,
+    spots_key: Vec<BlockPos>,
+    pub spawned: HashMap<BlockPos, u32>,
+    pub flashes: Vec<(BlockPos, i64)>,
+    /// The cells golems spawned on in the last tick.
+    pub last_spawns: Vec<BlockPos>,
 }
 
 impl MobRun {
@@ -145,7 +154,7 @@ impl MobRun {
                 chests.push(*p);
             }
         }
-        Ok(MobRun { run, chests, golems: 0, iron_dropped: 0, poppies_dropped: 0, arrived: 0, walk: HashMap::new() })
+        Ok(MobRun { run, chests, golems: 0, iron_dropped: 0, poppies_dropped: 0, arrived: 0, walk: HashMap::new(), spots: Vec::new(), spots_key: Vec::new(), spawned: HashMap::new(), flashes: Vec::new(), last_spawns: Vec::new() })
     }
 
     /// One tick of the water's settle; false once none is left.
@@ -157,6 +166,9 @@ impl MobRun {
     pub fn arrive(&mut self) -> Result<(), String> {
         self.run.arrive()?;
         self.arrived = self.run.world.time;
+        let w = std::mem::replace(&mut self.run.world, World::new(BlockPos::new(0, 0, 0), [1, 1, 1]));
+        self.refresh_spots(&w, true);
+        self.run.world = w;
         Ok(())
     }
 
@@ -167,20 +179,43 @@ impl MobRun {
     }
 
     /// One judged tick of the farm on `w` (the session's world: swapped into the runner for the
-    /// tick), then the record taken: the counts, each mob's walk animation.
+    /// tick), then the record taken: the counts, each mob's walk animation, the spawn spots.
     pub fn tick(&mut self, w: &mut World) {
         std::mem::swap(w, &mut self.run.world);
         self.run.tick();
         std::mem::swap(w, &mut self.run.world);
         self.absorb(w);
+        // (a block written this tick: the session's write log, taken after the tick)
+        let changed = !w.writes.is_empty();
+        self.refresh_spots(w, changed);
+    }
+
+    /// The spawn spots found again when a villager moved to another cell or `changed` (a block
+    /// changed): the judge's own search around each villager ([`spawn_spots`]).
+    pub fn refresh_spots(&mut self, w: &World, changed: bool) {
+        let key: Vec<BlockPos> = villager_cells(w);
+        if !changed && key == self.spots_key && !self.spots.is_empty() {
+            return;
+        }
+        self.spots = spawn_spots(w);
+        self.spots_key = key;
     }
 
     /// The mob layer's record of the tick (it keeps growing unless taken: the judge's runs take it
     /// every tick too): golems summoned, drops; and the client's walk animations.
     fn absorb(&mut self, w: &mut World) {
+        self.last_spawns.clear();
         for ev in std::mem::take(&mut w.mob.events) {
             match ev {
-                MobEvent::GolemTry { golem: Some(_), .. } => self.golems += 1,
+                MobEvent::GolemTry { golem: Some(_), t, at, .. } => {
+                    self.golems += 1;
+                    if let Some(a) = at {
+                        let c = BlockPos::new(a[0], a[1], a[2]);
+                        *self.spawned.entry(c).or_default() += 1;
+                        self.flashes.push((c, t));
+                        self.last_spawns.push(c);
+                    }
+                }
                 MobEvent::Drop { what, count, .. } => match what {
                     "minecraft:iron_ingot" => self.iron_dropped += count,
                     "minecraft:poppy" => self.poppies_dropped += count,
@@ -189,6 +224,9 @@ impl MobRun {
                 _ => {}
             }
         }
+        // (a flash lasts about a second of the view; none at 2400x lasts longer than this)
+        let now = w.time;
+        self.flashes.retain(|(_, t)| now - t < FLASH_KEEP);
         w.mob.spawn_tries.clear();
         let mut seen: Vec<u32> = Vec::new();
         for e in w.entities.list.iter().filter(|e| !e.removed) {
@@ -223,6 +261,81 @@ impl MobRun {
         draw_mob(w, v, partial, self.walk.get(&v.id).copied().unwrap_or_default())
     }
 }
+
+/// Game ticks a spawn's flash is kept for ([`MobRun::flashes`]; the view draws it for
+/// `Look::spawn_flash_ticks` of them).
+pub const FLASH_KEEP: i64 = 2400;
+
+/// The villagers' cells, in entity order: the golem search starts at each.
+fn villager_cells(w: &World) -> Vec<BlockPos> {
+    w.entities.list.iter().filter(|e| !e.removed && matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Villager)).map(|e| e.block_position()).collect()
+}
+
+/// Every cell the golem search reaches around the villagers of `w` now, each once (in villager,
+/// then column order: `trySpawnMob(IRON_GOLEM, .., 10, 8, 6, LEGACY_IRON_GOLEM)`'s 17 x 17
+/// columns from the villager's cell, each scanned from y+5 down to y-7 to the cell it stops at),
+/// with the judge's own verdict on it (`IronGolem.checkSpawnObstruction`, redsim's
+/// `spawn::golem_spawn_cells`): `Ok` or why a golem cannot spawn there. A column the scan finds no
+/// cell in is left out; a cell two villagers reach keeps a passing verdict.
+pub fn spawn_spots(w: &World) -> Vec<(BlockPos, Result<(), &'static str>)> {
+    let mut out: Vec<(BlockPos, Result<(), &'static str>)> = Vec::new();
+    let mut at: HashMap<BlockPos, usize> = HashMap::new();
+    for (i, e) in w.entities.list.iter().enumerate() {
+        if e.removed || !matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Villager) {
+            continue;
+        }
+        for (c, r) in redsim::entity::mob::spawn::golem_spawn_cells(w, i) {
+            if !spot_reached(&r) {
+                continue;
+            }
+            match at.get(&c) {
+                Some(&k) => {
+                    if spot_open(&r) && !spot_open(&out[k].1) {
+                        out[k].1 = r;
+                    }
+                }
+                None => {
+                    at.insert(c, out.len());
+                    out.push((c, r));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The reason the judge gives a column its scan finds no cell in (`golem_spawn_cells`).
+const NO_CELL: &str = "no cell in the column";
+/// The reason it gives a cell a mob (a golem, a villager, the zombie) or a boat stands in.
+const ENTITY_IN_BOX: &str = "an entity is in the golem's box";
+
+/// The search reaches a cell (its column's scan stopped there).
+pub fn spot_reached(r: &Result<(), &'static str>) -> bool {
+    !matches!(r, Err(why) if why.starts_with(NO_CELL))
+}
+
+/// A golem can spawn on the cell: the judge's checks pass, or only a mob or a boat is in the
+/// way now (it moves on: the cell is a spawn spot all the same).
+pub fn spot_open(r: &Result<(), &'static str>) -> bool {
+    match r {
+        Ok(()) => true,
+        Err(why) => why.starts_with(ENTITY_IN_BOX),
+    }
+}
+
+/// A spawn spot's colour by the golems spawned on it so far (`n` of the busiest cell's `max`):
+/// sky blue while none has, then yellow to red (the busiest).
+pub fn spot_color(n: u32, max: u32) -> [u8; 3] {
+    if n == 0 {
+        return [72, 196, 255];
+    }
+    let f = n as f32 / max.max(1) as f32;
+    let (a, b) = ([255.0, 222.0, 64.0], [255.0, 52.0, 40.0]);
+    std::array::from_fn(|k| (a[k] + (b[k] - a[k]) * f).round() as u8)
+}
+
+/// A cell the search reaches but refuses: grey.
+pub const SPOT_REFUSED: [u8; 3] = [200, 200, 200];
 
 /// How the client draws a mob (its `LivingEntityRenderState`) at `partial`: from the mob layer's
 /// view of it ([`redsim::entity::mob::view::MobView`]: pose, yaw, death, hurt, fire), its core
@@ -378,6 +491,40 @@ pub fn view_counts_seeded(text: &str, seed: i64, ticks: u32) -> Result<(u32, u32
     Ok((m.golems, m.iron_dropped, m.iron_in_chests(&s.world)))
 }
 
+/// The view's run of the judge's run `seed` for `ticks` judged ticks, each golem's spawn checked
+/// against the spawn spots the view shows (vjeux 2026-11-08, `mctas web check`): it must land on a
+/// cell shown as a spawn spot in the frame before it or the frame it appears in
+/// ([`MobRun::spots`], [`spot_open`]). The golems spawned and the cells shown open (the most at
+/// once), and each spawn outside them (its tick, cell and the judge's verdict on the cell).
+pub fn spawn_check_seeded(text: &str, seed: i64, ticks: u32) -> Result<(u32, usize, Vec<String>), String> {
+    let mut s = crate::session::Session::new(text, &crate::session::Options { mob_seed: Some(seed), ..crate::session::Options::live() })?;
+    if let Some(why) = &s.unsimulated {
+        return Err(format!("not simulated: {why}"));
+    }
+    let open = |s: &crate::session::Session| -> std::collections::HashSet<BlockPos> { s.mob.as_ref().map(|m| m.spots.iter().filter(|(_, r)| spot_open(r)).map(|(c, _)| *c).collect()).unwrap_or_default() };
+    let (mut golems, mut most, mut outside) = (0u32, 0usize, Vec::new());
+    let mut before = open(&s);
+    for _ in 0..ticks {
+        s.step();
+        if let Some(h) = &s.halted {
+            return Err(format!("stopped: {h}"));
+        }
+        let after = open(&s);
+        most = most.max(after.len());
+        if let Some(m) = s.mob.as_ref() {
+            for c in &m.last_spawns {
+                golems += 1;
+                if !before.contains(c) && !after.contains(c) {
+                    let why = m.spots.iter().find(|(p, _)| p == c).map(|(_, r)| format!("{r:?}")).unwrap_or_else(|| "not reached".into());
+                    outside.push(format!("tick {}: a golem at {} {} {} outside the spawn spots ({why})", s.world.time, c.x, c.y, c.z));
+                }
+            }
+        }
+        before = after;
+    }
+    Ok((golems, most, outside))
+}
+
 /// A run's digests and golems as one number (the shipped wasm's answer: `mcview_mob_digest`).
 pub fn chain(digests: &[u64], golems: u32) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
@@ -409,6 +556,66 @@ mod tests {
             .collect();
         names.sort();
         names
+    }
+
+    /// The spawn spots of a farm's run (`MCVIEW_DESIGN`, default iron-day1; `--nocapture`): each
+    /// cell the search reaches after the mobs arrive and at noon, its verdict, and where run 0's
+    /// golems spawned over a day.
+    #[test]
+    #[ignore]
+    fn print_spawn_spots() {
+        let path = std::env::var("MCVIEW_DESIGN").unwrap_or_else(|_| format!("{}/../../designs/circuits/mobfarm/archive/iron-day1.txt", env!("CARGO_MANIFEST_DIR")));
+        let text = std::fs::read_to_string(&path).unwrap();
+        let d = Design::parse(&text).unwrap();
+        let mut run = MobRun::start(&d, JUDGE_SEED).unwrap();
+        while run.settle_tick() {}
+        run.arrive().unwrap();
+        let mut w = run.take_world();
+        let show = |w: &World, label: &str| {
+            let spots = spawn_spots(w);
+            let open: Vec<String> = spots.iter().filter(|(_, r)| spot_open(r)).map(|(c, _)| format!("{} {} {}", c.x, c.y, c.z)).collect();
+            let mut why: HashMap<&str, u32> = HashMap::new();
+            for (_, r) in spots.iter().filter(|(_, r)| !spot_open(r)) {
+                *why.entry(r.err().unwrap_or("")).or_default() += 1;
+            }
+            eprintln!("{label}: villagers at {:?}; {} reached, {} open: {}; refused: {why:?}", villager_cells(w), spots.len(), open.len(), open.join(", "));
+        };
+        show(&w, "arrived");
+        for _ in 0..24000 {
+            run.tick(&mut w);
+            w.writes.clear();
+        }
+        show(&w, "a day later");
+        let mut spawned: Vec<_> = run.spawned.iter().map(|(c, n)| (format!("{} {} {}", c.x, c.y, c.z), *n)).collect();
+        spawned.sort();
+        eprintln!("{} golems spawned on: {spawned:?}", run.golems);
+    }
+
+    /// vjeux 2026-11-08 ("show the places where golems spawn"): every golem of the judge's run 0's
+    /// first day spawns on a cell the view shows as a spawn spot, and the view's verdict on each
+    /// cell is the judge's (`checkSpawnObstruction`).
+    #[test]
+    fn every_golem_spawns_on_a_shown_spawn_spot() {
+        let text = archived("iron-day1");
+        let (golems, most, outside) = spawn_check_seeded(&text, JUDGE_SEED, 24000).unwrap();
+        assert!(golems > 10, "{golems} golems");
+        assert!(most > 0);
+        assert!(outside.is_empty(), "{outside:?}");
+        // the verdicts against the judge's own check, cell by cell, as the run goes
+        let d = Design::parse(&text).unwrap();
+        let mut run = MobRun::start(&d, JUDGE_SEED).unwrap();
+        while run.settle_tick() {}
+        run.arrive().unwrap();
+        let mut w = run.take_world();
+        for t in 0..3000 {
+            run.tick(&mut w);
+            if t % 100 == 0 {
+                for (c, r) in spawn_spots(&w) {
+                    let pos = redsim::entity::Vec3::new(c.x as f64 + 0.5, c.y as f64, c.z as f64 + 0.5);
+                    assert_eq!(r.is_ok(), redsim::entity::mob::spawn::check_spawn_obstruction(&w, c, pos), "tick {t}: {c:?} {r:?}");
+                }
+            }
+        }
     }
 
     /// vjeux 2026-11-08 ("Just do the real work!?"): the view runs the farm as its judge does,

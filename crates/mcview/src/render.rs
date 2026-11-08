@@ -45,10 +45,15 @@ struct VOut {
 fn vs(@location(0) pos: vec3<f32>, @location(1) uv: vec2<f32>, @location(2) layer: u32, @location(3) color: vec4<f32>) -> VOut {
     var o: VOut;
     o.pos = u.vp * vec4<f32>(pos, 1.0);
+    // an X-ray face (the layer's top bit, `mesh::XRAY`: a mob farm's spawn spots) at the nearest
+    // depth, so the blocks in front never hide it
+    if ((layer & 0x80000000u) != 0u) {
+        o.pos.z = o.pos.w * 0.0001;
+    }
     o.uv = uv;
     o.color = color;
     o.world = pos;
-    o.layer = layer;
+    o.layer = layer & 0x7fffffffu;
     return o;
 }
 

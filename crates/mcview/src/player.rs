@@ -452,6 +452,10 @@ impl Player {
         }
         let mut look = scene::viewer_look(&self.session);
         look.lit_marker = true;
+        // the viewer's own choices carry over to the session that plays (the "Spawn spots" toggle,
+        // the speed's flash length)
+        look.spawn_spots = self.look.spawn_spots;
+        look.spawn_flash_ticks = self.look.spawn_flash_ticks;
         self.look = look;
         self.history = vec![Default::default(); self.session.outputs.len()];
         self.history_tick = None;
@@ -1511,6 +1515,12 @@ impl Player {
             self.mesh_key = key;
         }
         Some(scene::triangles(self.mesh.as_ref().unwrap(), &self.camera))
+    }
+
+    /// What the entities' part draws changed without a tick (the look's spawn spots turned on or
+    /// off): it is made again for the next frame (a still: its whole picture).
+    pub fn entities_changed(&mut self) {
+        self.mesh = None;
     }
 
     /// Whether the last [`Player::triangles_within`] built some of a staged mesh (the caller may

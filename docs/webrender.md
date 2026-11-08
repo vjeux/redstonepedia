@@ -570,6 +570,24 @@ each build's page.
   (`farm::run`, with its checks); `mctas web mobrate` plays all 64 of the judge's runs (8 builds
   x 8 seeds) through the view's own session (`Options::mob_seed`) and requires the card's iron
   and golems an hour exactly. Test `a_mob_farm_runs_like_its_judge`.
+  The golem spawn spots (vjeux 2026-11-08: "show the places where golems spawn"): every cell the
+  judge's golem search reaches around the villagers now (`mobfarm::spawn_spots`: redsim's
+  `spawn::golem_spawn_cells` per villager, its 17 x 17 columns scanned from y+5 to y-7 to the
+  cell `possible_spawn_position` stops at, with `checkSpawnObstruction`'s verdict), found again
+  when a villager changes cell or a block changes (`MobRun::refresh_spots`). A cell a golem can
+  spawn on (a mob or a boat standing in its box only for now counts too) is a translucent column
+  the golem's height, seen through the blocks around it (a pit is walled in: `Part::xray`, the
+  vertex layer's top bit `mesh::XRAY`, which the vertex shader draws at the nearest depth): sky
+  blue until a golem spawns there, then yellow to red by the golems spawned there so far against
+  the busiest cell (`mobfarm::spot_color`); a cell the search reaches but refuses is a dim grey
+  plate on its floor; each spawn flashes on its cell for about a second of the view
+  (`Look::spawn_flash_ticks`, from the speed). The bar's "Spawn spots" toggle, on by default for
+  a mob farm (`Look::spawn_spots`), says what the colours mean in its title; a still shows its
+  spots uncounted. `web check` plays all of the judge's runs through the view's session and
+  requires every golem to spawn on a cell shown open in the frame before it or the one it
+  appears in (`mobfarm::spawn_check_seeded`, `mob_spawn_spots_check`: iron-day1's 64 runs, 7903
+  golems, 9 cells); test `every_golem_spawns_on_a_shown_spawn_spot` also holds the view's
+  verdicts to `check_spawn_obstruction`.
 * Minecart stations, auto-crafters and item elevators (clk-obs's rail study `circuit:
   cart-unloader|cart-loader`, clk-item's `circuit: crafter <result>`, clk-misc's `circuit:
   item-elevator N`; site 2026-10-21) are shown as built with their judge's chests standing on

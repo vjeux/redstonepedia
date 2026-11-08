@@ -71,11 +71,18 @@ pub struct Part {
     pub qrot: Option<(u8, u8)>,
     /// The game's uvlock: textures keep the world's orientation through the quarter turns.
     pub uvlock: bool,
+    /// The viewer's own mark seen through the blocks (`mesh::XRAY`: drawn at the nearest depth).
+    pub xray: bool,
 }
 
 impl Part {
     pub fn new(from: [f32; 3], to: [f32; 3]) -> Part {
-        Part { from, to, faces: Default::default(), rot: None, layer: Layer::Opaque, shade: true, qrot: None, uvlock: false }
+        Part { from, to, faces: Default::default(), rot: None, layer: Layer::Opaque, shade: true, qrot: None, uvlock: false, xray: false }
+    }
+    /// Seen through the blocks in front of it (a translucent mark: a mob farm's spawn spots).
+    pub fn xray(mut self) -> Part {
+        self.xray = true;
+        self
     }
     /// The same tile on every face.
     pub fn all(mut self, tile: &'static str) -> Part {

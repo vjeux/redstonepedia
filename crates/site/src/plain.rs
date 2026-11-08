@@ -481,7 +481,7 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
     // the chest goes at OUT
     if crate::explain::mob_farm(c) {
         return format!(
-            "Press play: the view runs the farm as our test runs it, so the villagers sleep at night and panic at the zombie by day, golems spawn and die, and the hoppers carry their iron to the chest; the top right counts the game's time, the golems and the iron. {} Build it and wait near it.{}",
+            "Press play: the view runs the farm as our test runs it, so the villagers sleep at night and panic at the zombie by day, golems spawn and die, and the hoppers carry their iron to the chest; the top right counts the game's time, the golems and the iron. The columns are where a golem can spawn, seen through the blocks: blue until one does, then yellow to red by how many have, and a flash at each spawn (Spawn spots hides them). {} Build it and wait near it.{}",
             crate::explain::chest_words(c),
             crate::explain::first_night(c)
         );
