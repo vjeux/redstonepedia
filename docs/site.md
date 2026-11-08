@@ -307,7 +307,11 @@ cell within `SIGNAL_REACH` of it changes, and every cell and candidate is read a
 W, at the last and every `TRACK_CHECK` ticks (a change neither named sends the run back to reading
 everything at every tick; none in the archive or the site build). The long member: 80 s → 37 s
 (its base run 25 s → 14 s, its exterior scan 23 s → 7 s); cold **62 s**, now the circuits' pass
-(50 s) after which the build writes for 8 s; `clock sim` of the whole clock archive 30 s.
+(50 s) after which the build writes for 8 s; `clock sim` of the whole clock archive 30 s. Then the
+judges' runs (`drive_seeded`) read their cells the same way, a frame listing the cells that are not
+air from what the reads hold: fa-slice-54b's `circuit sim` 37 s → 21 s, counter576-items 29 s → 15 s;
+cold **56 s** (members 38 s, circuits 43 s beside them, their slowest a TNT engine's run, 32 s, whose
+own drive `drive_tnt` reads its cells as before; then 1 s of still frames and 8 s of writing).
 
 ### No dead links: every page ever published (`crates/site/src/published.rs`)
 
