@@ -254,6 +254,46 @@ fn signs_stop_water_and_let_golems_through() {
     assert!((w.entities.list[gi].pos.y - 4.0).abs() < 1.0e-9, "the golem stands on the stone under the signs at {}", w.entities.list[gi].pos.y);
 }
 
+/// An open fence gate holds no fluid (26.3 `FlowingFluid.canHoldAnyFluid`: neither a
+/// `LiquidBlockContainer` nor washed away): water stops at it, lava cannot flow into it, and a
+/// golem walks through it (no collision box when open).
+#[test]
+fn open_fence_gates_stop_fluids_not_golems() {
+    let mut w = world(3);
+    let gate = "minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]";
+    for x in 0..4 {
+        put(&mut w, x, -1, 0, "minecraft:stone");
+        put(&mut w, x, 0, -1, "minecraft:stone");
+        put(&mut w, x, 0, 1, "minecraft:stone");
+    }
+    put(&mut w, -1, 0, 0, "minecraft:stone");
+    put(&mut w, 4, 0, 0, gate);
+    w.set_block_and_update(BlockPos::new(0, 0, 0), Block::parse("minecraft:water[level=0]").unwrap());
+    for _ in 0..100 {
+        w.tick();
+    }
+    assert!(matches!(w.get(BlockPos::new(3, 0, 0)), Block::Water { .. }), "the water reached the gate's cell");
+    assert!(matches!(w.get(BlockPos::new(4, 0, 0)), Block::FenceGate { .. }), "the water entered the gate: {}", w.get(BlockPos::new(4, 0, 0)));
+    // lava over a gate, walled on its sides, cannot flow
+    put(&mut w, 10, 4, 10, gate);
+    for (x, z) in [(9, 10), (11, 10), (10, 9), (10, 11)] {
+        put(&mut w, x, 5, z, "minecraft:stone");
+    }
+    put(&mut w, 10, 5, 10, "minecraft:lava[level=0]");
+    assert_eq!(super::blocks::lava_can_flow(&w, BlockPos::new(10, 5, 10)), None);
+    // a golem falls through a 2x2 of open gates onto the stone under them
+    for (x, z) in [(14, 14), (15, 14), (14, 15), (15, 15)] {
+        put(&mut w, x, 4, z, gate);
+        put(&mut w, x, 2, z, "minecraft:stone");
+    }
+    let g = add(&mut w, MobType::IronGolem, Vec3::new(15.0, 6.0, 15.0), true);
+    for _ in 0..30 {
+        w.tick();
+    }
+    let gi = crate::entity::index_of(&w, g).unwrap();
+    assert!((w.entities.list[gi].pos.y - 3.0).abs() < 1.0e-9, "the golem stands on the stone under the gates at {}", w.entities.list[gi].pos.y);
+}
+
 /// The daylight detector follows the mob layer's day time: an inverted one reads 0 by day and
 /// the sky's darkening (11 at midnight under the open sky) by night.
 #[test]

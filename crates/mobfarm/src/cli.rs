@@ -6,19 +6,27 @@ use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub enum MobfarmCmd {
-    /// Write a layout's design file: `l1` (the obvious bar), `l2` (middle: dusk pulse, a pad
-    /// around a hole, a drop out of range), `l3` (day 1: spawn pits that burn the golems in place).
+    /// Write a layout's design file: `l1` (the obvious bar), `l2` (a pad around a wet hole, a drop
+    /// out of range), `l2d` (the dry-hole module: middle and fastest tiers), `l3` (day 1: spawn
+    /// pits that burn the golems in place), `l4` (two banks of fence-gated platforms), `l5` (a
+    /// grid of l2d modules at a 27-block pitch).
     Gen {
         layout: String,
         /// Spawn pits (l3).
         #[arg(long, default_value_t = 8)]
         pits: i32,
-        /// The pad's side, even (l2).
+        /// The pad's side, even (l2, l2d, l5).
         #[arg(long, default_value_t = 4)]
         pad: i32,
         /// The pad's floor height, the villagers' beds at 0 (l2; spawn cells reach -6).
         #[arg(long, default_value_t = -4, allow_hyphen_values = true)]
         floor: i32,
+        /// Villagers, 3 or 4 (l2, l2d, l5; 4 uses L4's front: three trapdoors before the zombie).
+        #[arg(long, default_value_t = 3)]
+        villagers: i32,
+        /// Modules per side of the grid (l5).
+        #[arg(long, default_value_t = 2)]
+        grid: i32,
         #[arg(long)]
         out: PathBuf,
     },
@@ -75,11 +83,14 @@ fn load(_version: &str, path: &PathBuf) -> Result<(circuit::Circuit, redsim::ent
 
 pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
     match cmd {
-        MobfarmCmd::Gen { layout, pits, pad, floor, out } => {
+        MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, out } => {
             let text = match layout.as_str() {
                 "l3" => crate::layouts::l3(pits),
                 "l1" => crate::layouts::l1(),
-                "l2" => crate::layouts::l2(pad, floor),
+                "l2" => crate::layouts::l2(pad, floor, villagers),
+                "l2d" => crate::layouts::l2d(villagers, pad),
+                "l5" => crate::layouts::l5(villagers, pad, grid),
+                "l4" => crate::layouts::l4(),
                 other => bail!("no layout {other:?} (l3)"),
             };
             std::fs::write(&out, text)?;

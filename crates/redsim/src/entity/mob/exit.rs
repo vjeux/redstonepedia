@@ -118,7 +118,13 @@ fn drift(base: &World, spec: &FarmSpec, start: Vec3, policy: Walk) -> Drift {
             }
         }
     }
-    fail(visited, format!("alive {MAX_GOLEM_LIFE} gt after it started: nothing kills it"))
+    match crate::entity::index_of(&w, id) {
+        Some(g) => {
+            let p = w.entities.list[g].pos;
+            fail(visited, format!("alive {MAX_GOLEM_LIFE} gt after it started (at {:.2} {:.2} {:.2}): nothing kills it", p.x, p.y, p.z))
+        }
+        None => fail(visited, format!("alive {MAX_GOLEM_LIFE} gt after it started: nothing kills it")),
+    }
 }
 
 /// The golem exit flood of a farm (`threads` drift runs at once).

@@ -101,13 +101,17 @@ fn dusk_pulse(b: &mut Builder) {
 /// L2, the middle ground: L1's pods and zombie, the dusk pulse instead of a hide all night, a 4x4
 /// pad around a 2x2 hole (water from its corners), a shaft that drops each golem out of every
 /// villager's follow range (feet at -22), and L1's kill chamber at its bottom with 2 hoppers.
-pub fn l2(n: i32, fy: i32) -> String {
+pub fn l2(n: i32, fy: i32, villagers: i32) -> String {
     let mut b = Builder::new(&format!("iron-middle-{n}"));
-    for x in [0, 2, 4] {
-        b.pod(x);
+    if villagers == 4 {
+        front4(&mut b);
+    } else {
+        for x in [0, 2, 4] {
+            b.pod(x);
+        }
+        zombie(&mut b);
+        dusk_pulse(&mut b);
     }
-    zombie(&mut b);
-    dusk_pulse(&mut b);
     let k = -22;
     let h = n / 2;
     let (x0, x1, z0, z1) = (3 - h, 2 + h, 5 - h, 4 + h);
@@ -343,4 +347,311 @@ pub fn l3(pits: i32) -> String {
         "under the string carries the iron to one hopper. Hide the zombie by hand on the first night: the",
         "villagers need a recent sleep to summon the first golem.",
     ])
+}
+
+/// The 4-villager front of L4: pods at x = 0, 2, 4, 6; the zombie in a boat at x 3.5, 7 north;
+/// three trapdoors at z = -5 (1.5 from its eyes: every ray crosses them) opened by the dust on
+/// the blocks above them; the dusk pulse drives that dust (D2 into B1 turns T1 off at once, D
+/// reaches K0 through 6 repeaters: T0 on K0 is lit for about 46 gt at nightfall).
+fn front4(b: &mut Builder) {
+    for x in [0, 2, 4, 6] {
+        b.pod(x);
+    }
+    b.set(3, 0, -7, "stone_slab[type=bottom,waterlogged=false]");
+    b.set(3, 2, -7, "oak_leaves[distance=1,persistent=true,waterlogged=false]");
+    b.entity("oak_boat", [3.5, 0.5, -6.5], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
+    for x in 2..=4 {
+        b.set(x, 1, -5, "oak_trapdoor[facing=south,half=bottom,open=false,powered=false,waterlogged=false]");
+        b.set(x, 2, -5, STONE);
+        let (e, w) = (if x < 4 { "side" } else { "side" }, if x > 2 { "side" } else { "none" });
+        b.set(x, 3, -5, &format!("redstone_wire[east={e},north=none,power=0,south=none,west={w}]"));
+    }
+    b.set(5, 2, -5, STONE); // K0
+    b.set(5, 3, -5, "redstone_torch[lit=false]"); // T0 feeds the dust
+    b.set(5, 0, -5, STONE); // B1
+    b.set(5, 1, -5, "redstone_torch[lit=true]"); // T1 under K0
+    b.set(5, -1, -4, STONE);
+    b.set(5, 0, -4, "redstone_wire[east=none,north=side,power=0,south=side,west=none]");
+    b.set(5, 0, -3, "daylight_detector[inverted=true,power=0]"); // D2
+    for x in 6..=11 {
+        b.set(x, 1, -5, STONE);
+        b.set(x, 2, -5, "repeater[delay=4,facing=east,locked=false,powered=false]");
+    }
+    b.set(12, 2, -5, "daylight_detector[inverted=true,power=0]"); // D
+}
+
+const GATE_N: &str = "oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]";
+const GATE_E: &str = "oak_fence_gate[facing=east,in_wall=false,open=true,powered=false]";
+
+/// The platforms of L4 at water level wl, units at x 0, 3, 6 (each 2 wide), in two banks facing
+/// the drop column (z 4-7). North bank: source row z 1 (water on bottom slabs: no spawn there),
+/// spawn rows 2 and 3, edge row 4 (water over open fence gates: it holds the water, not a golem),
+/// stop row 5 (open fence gates: no fluid enters one, a golem walks through). South bank: source
+/// row 9, spawn row 8, edge row 7, stop row 6 (spawn rows reach z 8, the villagers' square). A
+/// golem leaves the floor still in the edge row's water, so it never stands on land at the drop
+/// (where a walk against the current would step it back up), and falls dry past the stop row.
+/// Glass walls between the units hold the water; at the edge rows, fence gates do (a golem
+/// spawned 0.2 into a wall's column meets no wall ahead).
+fn banks4(b: &mut Builder, wl: i32) {
+    let fl = wl - 1;
+    for sx in [0, 3, 6] {
+        for x in sx..=sx + 1 {
+            for (src, rows, edge, stop, back) in [(1, &[2, 3][..], 4, 5, 0), (9, &[8][..], 7, 6, 10)] {
+                b.set(x, fl, src, "stone_slab[type=bottom,waterlogged=false]");
+                b.set(x, wl, src, "water[level=0]");
+                for &z in rows {
+                    b.set(x, fl, z, STONE);
+                }
+                b.set(x, fl, edge, GATE_N);
+                b.set(x, wl, stop, GATE_N);
+                b.set(x, wl, back, GLASS);
+                b.set(x, wl + 1, back, GLASS);
+            }
+        }
+    }
+    for x in [-1, 2, 5, 8] {
+        for z in (0..=3).chain(8..=10) {
+            b.set(x, fl, z, STONE);
+            b.set(x, wl, z, GLASS);
+            b.set(x, wl + 1, z, GLASS);
+        }
+        b.set(x, wl, 4, GATE_E);
+        b.set(x, wl, 7, GATE_E);
+    }
+}
+
+/// The drop column of L4 (x -1..8, z 4-7) from the platforms down to feet level k, and its kill:
+/// water from a row of sources in a niche of the south wall (z 8) pushes every golem north into
+/// the chamber (x -1..8, z 2-3): lava at head height held by open fence gates below it and at its
+/// mouth, a ceiling right above it, hoppers under its north row.
+fn column4(b: &mut Builder, wl: i32, k: i32) {
+    let fl = wl - 1;
+    for y in (k - 1)..=(wl + 1) {
+        for x in -2..=9 {
+            if y < fl {
+                for z in [3, 8] {
+                    let chamber = z == 3 && (-1..=8).contains(&x) && (k..=k + 2).contains(&y);
+                    let niche = z == 8 && (-1..=8).contains(&x) && y == k;
+                    if !chamber && !niche {
+                        b.set(x, y, z, STONE);
+                    }
+                }
+            }
+            if x == -2 || x == 9 || y == k - 1 {
+                // glass where it rises above the platforms' floor (no spawn on its top)
+                let m = if y >= fl { GLASS } else { STONE };
+                for z in 4..=7 {
+                    b.set(x, y, z, m);
+                }
+            }
+        }
+    }
+    for x in -1..=8 {
+        b.set(x, k, 8, "water[level=0]");
+        b.set(x, k, 9, STONE);
+        for y in k..=k + 3 {
+            b.set(x, y, 1, STONE);
+        }
+        b.set(x, k + 3, 2, STONE);
+        b.set(x, k + 3, 3, STONE);
+        for z in 2..=3 {
+            b.set(x, k + 1, z, GATE_E);
+            b.set(x, k + 2, z, LAVA);
+        }
+        b.set(x, k + 2, 4, GATE_N);
+        b.set(x, k - 1, 3, STONE);
+        b.set(x, k - 1, 2, if x < 8 { "hopper[enabled=true,facing=east]" } else { "hopper[enabled=true,facing=down]" });
+    }
+    for z in 2..=3 {
+        for y in (k - 1)..=(k + 3) {
+            b.set(-2, y, z, STONE);
+            b.set(9, y, z, STONE);
+        }
+    }
+    b.d.ports.insert("output".into(), [8, k - 2, 2]);
+}
+
+/// L4, the fast module: 4 villagers (only 3 must agree, so one sighting does not stretch a
+/// cycle), the dusk pulse, two banks of short platforms whose open fence gates drop each golem
+/// dry within about 2 blocks of its spawn, out of every villager's range, and one kill chamber.
+pub fn l4() -> String {
+    let mut b = Builder::new("iron-fast");
+    front4(&mut b);
+    let (wl, k) = (-6, -22);
+    banks4(&mut b, wl);
+    column4(&mut b, wl, k);
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.meta.insert("restart".into(), "yes".into());
+    b.text(&[
+        "L4, the fast iron farm module: four villagers on their beds in closed 1-cell pods under leaves",
+        "(only three must agree, so a golem one of them sees does not stretch the cycle) and a zombie in a",
+        "boat 7 blocks north. At nightfall two inverted daylight detectors open the three trapdoors in front",
+        "of the zombie for 46 game ticks: the villagers fall asleep, then wake up scared for the rest of the",
+        "night. Golems spawn on 2-wide platforms in two banks facing a drop: water pushes them at most 2.2",
+        "blocks through open fence gates (no water enters a fence gate) and they fall dry, out of every",
+        "villager's sight, to water that pushes them under a lava blade with a ceiling, over two hoppers.",
+    ])
+}
+
+/// The dry hole of L2d: a 6x6 pad (x 0..5, z 2..7, water level wl) whose 4x4 middle is the hole:
+/// its outer ring holds water over open fence gates (the water stays, a golem sinks through), its
+/// 2x2 center has open fence gates at the water level (dry). Water from the pad's corners pushes
+/// each golem off the stone while it is still in water (no step back onto land) and on into the
+/// dry center, where it falls freely down a 4x4 shaft.
+fn dry_hole(b: &mut Builder, n: i32, wl: i32, k: i32) {
+    let fl = wl - 1;
+    let ring = |x: i32, z: i32| (1..=4).contains(&x) && (3..=6).contains(&z);
+    let center = |x: i32, z: i32| (2..=3).contains(&x) && (4..=5).contains(&z);
+    let h = n / 2;
+    let (x0, x1, z0, z1) = (3 - h, 2 + h, 5 - h, 4 + h);
+    for x in x0..=x1 {
+        for z in z0..=z1 {
+            if center(x, z) {
+                b.set(x, wl, z, GATE_N);
+            } else if ring(x, z) {
+                b.set(x, fl, z, GATE_N);
+            } else {
+                b.set(x, fl, z, STONE);
+            }
+        }
+    }
+    for (x, z) in [(x0, z0), (x0, z1), (x1, z0), (x1, z1)] {
+        b.set(x, wl, z, "water[level=0]");
+    }
+    for y in wl..=wl + 1 {
+        for x in (x0 - 1)..=(x1 + 1) {
+            b.set(x, y, z0 - 1, GLASS);
+            b.set(x, y, z1 + 1, GLASS);
+        }
+        for z in z0..=z1 {
+            b.set(x0 - 1, y, z, GLASS);
+            b.set(x1 + 1, y, z, GLASS);
+        }
+    }
+    // the shaft (x 1..4, z 3..6) down to feet level k
+    for y in (k - 1)..fl {
+        for x in 0..=5 {
+            for z in 2..=7 {
+                let inside = ring(x, z) && y >= k;
+                let mouth = (1..=4).contains(&x) && z == 2 && (k..=k + 2).contains(&y);
+                if !inside && !mouth {
+                    b.set(x, y, z, STONE);
+                }
+            }
+        }
+    }
+    // the bottom: sources in its two south corners only; the levels then fall toward the north
+    // row's middle, so every golem is pushed north and toward x 2..3, into the chamber
+    for (x, z) in [(1, 6), (4, 6)] {
+        b.set(x, k, z, "water[level=0]");
+    }
+}
+
+/// The kill chamber of L2d north of its shaft's bottom, as wide as the shaft (x 1..4, z 1..2,
+/// feet k), so no golem meets a corner: lava at head height held by open fence gates below it and
+/// at its mouth (z 3), a ceiling right above it. The water enters from the shaft's south corners,
+/// so its levels fall toward the middle columns: drops drift to the 2 hoppers under x 2..3.
+fn chamber2(b: &mut Builder, k: i32) {
+    for x in 1..=4 {
+        for y in k..=k + 3 {
+            b.set(x, y, 0, STONE);
+        }
+        b.set(x, k + 3, 1, STONE);
+        b.set(x, k + 3, 2, STONE);
+        for z in 1..=2 {
+            b.set(x, k + 1, z, GATE_E);
+            b.set(x, k + 2, z, LAVA);
+        }
+        b.set(x, k + 2, 3, GATE_N);
+        b.set(x, k - 1, 2, STONE);
+        if x == 1 || x == 4 {
+            b.set(x, k - 1, 1, STONE);
+        }
+    }
+    for z in 0..=2 {
+        for y in (k - 1)..=(k + 3) {
+            b.set(0, y, z, STONE);
+            b.set(5, y, z, STONE);
+        }
+    }
+    b.set(2, k - 1, 1, "hopper[enabled=true,facing=east]");
+    b.set(3, k - 1, 1, "hopper[enabled=true,facing=down]");
+    b.d.ports.insert("output".into(), [3, k - 2, 1]);
+}
+
+/// L2d, the middle ground with a dry drop: L2's front (3 villagers, or L4's 4), the dusk pulse,
+/// the dry hole (golems fall out of every villager's range without sinking through water) and a
+/// 2-hopper chamber: 13 iron.
+fn l2d_module(villagers: i32, n: i32) -> Builder {
+    let mut b = Builder::new(&format!("iron-middle-dry-{villagers}-{n}"));
+    if villagers == 4 {
+        front4(&mut b);
+    } else {
+        for x in [0, 2, 4] {
+            b.pod(x);
+        }
+        zombie(&mut b);
+        dusk_pulse(&mut b);
+    }
+    let (wl, k) = (-6, -22);
+    dry_hole(&mut b, n, wl, k);
+    chamber2(&mut b, k);
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.meta.insert("restart".into(), "yes".into());
+    b
+}
+
+fn l2d_caption(villagers: i32, n: i32) -> Vec<String> {
+    let front = if villagers == 4 {
+        "four villagers on their beds in closed 1-cell pods under leaves (only three must agree, so a golem one of\nthem sees does not stretch the cycle) and a zombie in a boat 7 blocks north of them in view. At nightfall\ntwo inverted daylight detectors open the three trapdoors in front of the zombie for 46 game ticks"
+    } else {
+        "three villagers on their beds in closed 1-cell pods under leaves and a zombie in a boat 7 blocks north of\nthem in view. At nightfall two inverted daylight detectors open the trapdoor in front of the zombie for 46\ngame ticks"
+    };
+    format!(
+        "{front}: the villagers fall asleep, then wake up scared for the rest of the night (the farm restarts by\nitself after a missed night). Golems spawn on a {n}x{n} pad; water from its corners pushes them onto the hole's\nring (water over open fence gates: it holds the water, not a golem) and into its dry 2x2 center (open fence\ngates stop the water), and they fall 16 blocks out of every villager's sight to water that pushes them under\na lava blade held by fence gates, a ceiling right above it, over two hoppers."
+    )
+    .lines()
+    .map(|l| l.to_string())
+    .collect()
+}
+
+/// L2d, the dry-drop module: L2's front (3 villagers, or L4's 4), the dusk pulse, the dry hole in
+/// an n x n pad (golems fall out of every villager's range without sinking through water) and a
+/// 2-hopper chamber: 13 iron.
+pub fn l2d(villagers: i32, n: i32) -> String {
+    let b = l2d_module(villagers, n);
+    let mut cap = vec![format!("L2d, the dry-drop iron farm module:")];
+    cap.extend(l2d_caption(villagers, n));
+    let cap: Vec<&str> = cap.iter().map(|s| s.as_str()).collect();
+    b.text(&cap)
+}
+
+/// L5, the scaled farm: g x g L2d modules at a 27-block pitch (no golem of one module is ever in
+/// another module's villagers' follow range, 26.9 at most); each module keeps its own villagers,
+/// zombie, dusk pulse and kill. The first module's chest is the output; the others' are blocks.
+pub fn l5(villagers: i32, n: i32, g: i32) -> String {
+    let m = l2d_module(villagers, n).d;
+    let mut b = Builder::new(&format!("iron-scaled-{g}x{g}"));
+    b.d.meta = m.meta.clone();
+    let out = m.ports["output"];
+    for i in 0..g {
+        for j in 0..g {
+            let (dx, dz) = (27 * i, 27 * j);
+            for (p, s) in &m.blocks {
+                b.d.blocks.insert([p[0] + dx, p[1], p[2] + dz], s.clone());
+            }
+            for e in &m.entities {
+                b.d.entities.push(EntitySpec { kind: e.kind.clone(), pos: [e.pos[0] + dx as f64, e.pos[1], e.pos[2] + dz as f64], nbt: e.nbt.clone() });
+            }
+            if i == 0 && j == 0 {
+                b.d.ports.insert("output".into(), out);
+            } else {
+                b.set(out[0] + dx, out[1], out[2] + dz, "chest[facing=north,type=single,waterlogged=false]");
+            }
+        }
+    }
+    let mut cap = vec![format!("L5, the scaled iron farm: {g} x {g} L2d modules at a 27-block pitch, each one:")];
+    cap.extend(l2d_caption(villagers, n));
+    let cap: Vec<&str> = cap.iter().map(|s| s.as_str()).collect();
+    b.text(&cap)
 }

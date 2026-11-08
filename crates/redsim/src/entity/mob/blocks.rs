@@ -151,7 +151,9 @@ pub fn lava_can_flow(w: &World, p: BlockPos) -> Option<BlockPos> {
         match s {
             Block::Air => true,
             Block::Lava { .. } => false,
-            Block::Trapdoor { .. } | Block::Door { .. } | Block::SugarCane { .. } | Block::BubbleColumn { .. } | Block::Water { .. } | Block::Sign { .. } => false,
+            // 26.3 `FlowingFluid.canHoldAnyFluid`: a `LiquidBlockContainer` (which takes only
+            // water) or a block in WASHED_AWAY_BY_FLUIDS; a fence gate is neither
+            Block::Trapdoor { .. } | Block::Door { .. } | Block::SugarCane { .. } | Block::BubbleColumn { .. } | Block::Water { .. } | Block::Sign { .. } | Block::FenceGate { .. } => false,
             _ => !behavior::collides(&s),
         }
     };
