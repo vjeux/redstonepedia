@@ -68,7 +68,12 @@ the clocks use: [mechanics.md](mechanics.md); the simulator: [internals.md](inte
   `fails: why`, with `in K of N builds` when only some builds do it; a property the page states,
   never a reason to hide. Vanilla's own cause of most `stops`: PistonMovingBlockEntity saves its
   progressO as "progress", so a piston caught mid-move lands a tick late after loading (traced with
-  `clock misc trace-export --reload-at T`). Other properties a page states instead of hiding (vjeux:
+  `clock misc trace-export --reload-at T`). redsim judges the reload too (tickexact 2026-11-08,
+  `redsim::reload`, which models the save, unload and load exactly: the scheduled ticks numbered
+  again per chunk and run in the level's container order, the block entities registered again,
+  that progressO): `clock verify --reload` runs every build's reload in redsim beside the game's
+  run and prints `reload: redsim AGREES` (the game confirms redsim's verdict) or `DISAGREES` (a
+  failure: a simulator gap). Other properties a page states instead of hiding (vjeux:
   no invented rules): the rotations and positions a clock works in (`robustness`), tripwire (any
   passing entity fires it), a daylight detector. Item clocks run past their items' 6000 gt
   lifetime (12000 gt, redsim and the game). The game horizon scales with the period (warmup + 4

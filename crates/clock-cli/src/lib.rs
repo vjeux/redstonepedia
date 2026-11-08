@@ -94,7 +94,8 @@ pub enum ClockCmd {
         json: bool,
         /// Also save, unload and load the chunks again mid-run (after the warmup and 2 periods): the
         /// clock must run at the same state period afterwards, a short glitch allowed (a clock must
-        /// survive a chunk reload).
+        /// survive a chunk reload). redsim judges every build's reload too (`redsim::reload`) and
+        /// the game's runs confirm it: a `reload:` line, AGREES or DISAGREES (a failure).
         #[arg(long)]
         reload: bool,
     },
@@ -840,6 +841,12 @@ pub fn run(version: &str, cmd: ClockCmd) -> Result<()> {
                     // failure), when the clock has an open hopper top
                     if let Some(i) = r.base().and_then(|b| b.items.as_ref()) {
                         println!("ITEMS: {}: {i}", r.name);
+                    }
+                    // --reload: redsim's verdict on every build's chunk reload, the game's runs
+                    // confirming it (printed with --no-sim too: it is the reload check's own)
+                    if let Some(a) = r.reload_agreement() {
+                        println!("  {a}");
+                        failed |= a.contains("DISAGREES");
                     }
                 }
                 failed |= r.verdict != Verdict::Clock;

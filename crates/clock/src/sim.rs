@@ -1493,6 +1493,56 @@ fn entity_clock_period(c: &Clock, blocks: &[(BlockPos, Block)], o: &SimOptions, 
     Ok(wave::detect_period(&frames, end as usize, ENTITY_MIN_PERIODS).filter(|(w, _)| *w <= horizon as usize / 2).map(|(w, p)| (w as u32, p as u32)))
 }
 
+/// (tickexact) The clock judge's chunk-reload check (`clock verify --reload`) in redsim, for one
+/// build (`c` already turned and moved, `from..=to` its watched box): run to `reload_at`, save,
+/// unload and load the build's chunks again (the game's sandbox box for that watched box:
+/// `redsim::reload`), run on to `horizon`; the frames of every cell (block state + block-entity
+/// extras), the judge's `wave::detect_period` and its rule (`verify::run_in`): after the reload
+/// the clock runs at `want` gt again within `2 x want + 40` gt. `Err`: why it does not survive.
+pub fn reload_check(c: &Clock, from: Pos, to: Pos, reload_at: u32, want: u32, horizon: u32, min_periods: usize) -> Result<(), String> {
+    let mut blocks = parse_blocks(c).map_err(|e| format!("not modeled by redsim: {e}"))?;
+    blocks.sort_by_key(|(p, _)| *p);
+    let mut s = start_box(c, &blocks, from, to).map_err(|(_, why)| why)?;
+    let chunks = [from[0].div_euclid(16), from[2].div_euclid(16), to[0].div_euclid(16), to[2].div_euclid(16)];
+    let wmin = s.world.min;
+    let size = s.world.size;
+    let cells: Vec<BlockPos> = (0..size[1])
+        .flat_map(|y| (0..size[2]).flat_map(move |z| (0..size[0]).map(move |x| BlockPos::new(wmin.x + x, wmin.y + y, wmin.z + z))))
+        .collect();
+    let mut ids: HashMap<u128, u64> = HashMap::new();
+    let mut frames: Vec<u64> = Vec::with_capacity(horizon as usize + 1);
+    for t in 0..=horizon {
+        between_ticks(&mut s, t).map_err(|(_, why)| why)?;
+        use std::hash::Hash;
+        let mut h = H128 { a: 0xcbf29ce484222325, b: 0x84222325cbf29ce4 };
+        for q in &cells {
+            let b = s.world.get(*q);
+            b.hash(&mut h);
+            wave::be_extra_redsim(&s.world, *q, &b).hash(&mut h);
+        }
+        let d = ((h.a as u128) << 64) | h.b as u128;
+        let n = ids.len() as u64;
+        frames.push(*ids.entry(d).or_insert(n));
+        if t == reload_at {
+            redsim::reload::reload_chunks(&mut s.world, &redsim::reload::box_chunks(chunks));
+            if let Some(e) = s.world.errors.first() {
+                return Err(format!("not modeled by redsim: {e}"));
+            }
+        }
+        if t < horizon {
+            s.world.tick();
+        }
+    }
+    let end = c.free_from() as usize;
+    let Some((w0, p)) = wave::detect_period(&frames, end, min_periods) else {
+        return Err(format!("not periodic for {min_periods} periods within {horizon} gt (with a chunk reload)"));
+    };
+    if (w0 + p) as u32 > reload_at && (p as u32 != want || w0 as u32 > reload_at + 2 * want + 40) {
+        return Err(format!("does not survive a chunk reload at tick {reload_at}: it runs at period {p} gt only from tick {w0} (period {want} gt before the reload)"));
+    }
+    Ok(())
+}
+
 /// A quick screen for entity-kit candidates (`clock kit`): run `ticks` gt; false when the design
 /// comes to rest (nothing pending and every entity still for 3 ticks in a row), when no cell of the
 /// world box changes in the last two thirds of the run (no clock with a period that fits), or on an

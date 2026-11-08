@@ -79,6 +79,9 @@ pub struct Run {
     pub turns: u8,
     pub offset: Pos,
     pub result: std::result::Result<RunOk, String>,
+    /// With `--reload`: redsim's verdict on the same build's chunk reload
+    /// ([`crate::sim::reload_check`]), which the game's run confirms.
+    pub sim_reload: Option<std::result::Result<(), String>>,
 }
 
 /// Result of [`verify`].
@@ -120,6 +123,39 @@ impl VerifyReport {
             }
             (v, _) => format!("{}: {} {}", if v == Verdict::Clock { "FAIL" } else { v.word() }, self.name, self.robustness),
         }
+    }
+
+    /// With `--reload`: redsim's chunk-reload verdict for every build against the game's run
+    /// (tickexact: the result comes from redsim, the game confirms it). `None` without a reload.
+    pub fn reload_agreement(&self) -> Option<String> {
+        let checked: Vec<&Run> = self.runs.iter().filter(|r| r.sim_reload.is_some()).collect();
+        if checked.is_empty() {
+            return None;
+        }
+        let game_survives = |r: &Run| !matches!(&r.result, Err(e) if e.contains("chunk reload"));
+        let sim_survives = |r: &Run| matches!(&r.sim_reload, Some(Ok(())));
+        let survive = checked.iter().filter(|r| sim_survives(r)).count();
+        let differ: Vec<String> = checked
+            .iter()
+            .filter(|r| game_survives(r) != sim_survives(r))
+            .map(|r| {
+                let sim = match &r.sim_reload {
+                    Some(Ok(())) => "survives".to_string(),
+                    Some(Err(e)) => e.clone(),
+                    None => String::new(),
+                };
+                let game = match &r.result {
+                    Err(e) => e.clone(),
+                    Ok(_) => "survives".into(),
+                };
+                format!("rotation {} at {:?}: redsim {sim}; the game {game}", r.turns, r.offset)
+            })
+            .collect();
+        Some(if differ.is_empty() {
+            format!("reload: redsim AGREES (the chunk reload: {survive} of {} builds survive, the game's runs the same)", checked.len())
+        } else {
+            format!("reload: redsim DISAGREES with the game on {} of {} builds: {}", differ.len(), checked.len(), differ.join(" | "))
+        })
     }
 }
 
@@ -647,12 +683,22 @@ pub fn verify_in_pool(pool: &Pool, c: &Clock, o: &VerifyOptions) -> Result<Verif
             let base = ok.clone();
             ok.items = items_property(w, &rc, o, &base)?;
         }
-        Ok(r)
+        // the chunk reload in redsim on the same build (tickexact: redsim::reload), which the
+        // game's run confirms
+        let sim = match (o.reload_at, o.reload_period) {
+            (Some(at), Some(want)) => {
+                let (lo, hi) = rc.bounds();
+                let m = o.margin;
+                Some(crate::sim::reload_check(&rc, [lo[0] - m, lo[1] - m, lo[2] - m], [hi[0] + m, hi[1] + m, hi[2] + m], at, want, o.horizon, o.min_periods))
+            }
+            _ => None,
+        };
+        Ok((r, sim))
     });
     let mut runs = Vec::new();
     for ((t, off), r) in jobs.into_iter().zip(results) {
-        let result = r.with_context(|| format!("rotation {t} at {off:?}"))?;
-        runs.push(Run { turns: t, offset: off, result });
+        let (result, sim_reload) = r.with_context(|| format!("rotation {t} at {off:?}"))?;
+        runs.push(Run { turns: t, offset: off, result, sim_reload });
     }
     let mut rep = VerifyReport { name: c.name().to_string(), blocks: c.blocks(), start: c.start_label(), runs, robustness: String::new(), verdict: Verdict::Clock, reload_at: o.reload_at };
     let ok: Vec<&Run> = rep.runs.iter().filter(|r| r.result.is_ok()).collect();

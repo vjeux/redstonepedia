@@ -683,7 +683,7 @@ pub(crate) fn checks() -> Vec<Check> {
     });
     v.push(Check {
         name: "clock:verify-reload".into(),
-        what: "`clock verify --reload` (the chunks saved, unloaded and loaded again mid-run): the torch-repeater clock survives it; the observer pair does not in every rotation (it comes back at P4)",
+        what: "`clock verify --reload` (the chunks saved, unloaded and loaded again mid-run): the torch-repeater clock survives it; the observer pair does not in every rotation (it comes back at P4); redsim's reload verdict (`redsim::reload`) agrees with the game's runs on every build of both",
         quick: false,
         jvm: true,
         steps: vec![
@@ -699,7 +699,13 @@ pub(crate) fn checks() -> Vec<Check> {
             if o[1].lines().any(|l| l.starts_with("CLOCK: cal-observer-pair") && l.ends_with("robust")) {
                 return Err(format!("the observer pair passed the reload in every rotation: {}", tail(&o[1])));
             }
-            Ok("torch-repeater survives a reload, the observer pair does not".into())
+            // (tickexact) redsim's reload verdict, build by build, confirmed by the game
+            for (name, out) in [("torch-repeater", &o[0]), ("observer pair", &o[1])] {
+                if !out.lines().any(|l| l.trim_start().starts_with("reload: redsim AGREES")) {
+                    return Err(format!("{name}: redsim's reload verdict does not agree with the game: {}", tail(out)));
+                }
+            }
+            Ok("torch-repeater survives a reload, the observer pair does not; redsim agrees build by build".into())
         }),
     });
     v.push(Check {
