@@ -1,0 +1,36 @@
+# A fixture of placed light sources (terrain lane): torches, wall torches, lanterns, a jack
+# o'lantern, campfires, an end rod, a froglight, candles, sea pickles, glowstone and a sea lantern on
+# a stone floor, for `mctas terrain paste-check` against the official server (every block and light
+# value of the box: 0 differences) and redsim's light engine.
+name: lights
+circuit: fixture light-sources
+how: every placed light source a player builds with
+origin: 0 0 0
+palette:
+  S minecraft:stone
+  T minecraft:torch
+  t minecraft:soul_torch
+  N minecraft:wall_torch[facing=north]
+  n minecraft:soul_wall_torch[facing=north]
+  L minecraft:lantern[hanging=false,waterlogged=false]
+  l minecraft:soul_lantern[hanging=true,waterlogged=false]
+  J minecraft:jack_o_lantern[facing=north]
+  C minecraft:campfire[facing=north,lit=true,signal_fire=false,waterlogged=false]
+  c minecraft:soul_campfire[facing=north,lit=true,signal_fire=false,waterlogged=false]
+  E minecraft:end_rod[facing=up]
+  F minecraft:ochre_froglight[axis=y]
+  D minecraft:candle[candles=4,lit=true,waterlogged=false]
+  P minecraft:sea_pickle[pickles=4,waterlogged=false]
+  G minecraft:glowstone
+  Q minecraft:sea_lantern
+layer 0:
+  SSSSSSSSSSSSSSS
+  SSSSSSSSSSSSSSS
+  SSSSSSSSSSSSSSS
+layer 1:
+  T.t.L.J.C.c.E.F
+  ...N.n........l
+  D.PSGSQ.......S
+layer 2:
+  ...............
+  ..............S

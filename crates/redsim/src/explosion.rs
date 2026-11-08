@@ -102,6 +102,17 @@ pub fn block_resistance(b: &Block) -> f32 {
         Block::FenceGate { .. } => 3.0,
         Block::Rail { .. } | Block::PlainRail { .. } | Block::DetectorRail { .. } => 0.7,
         Block::Dispenser { .. } | Block::Crafter { .. } | Block::Lantern { .. } => 3.5,
+        // placed light sources (terrain lane): the game's own resistance (the natural-state table
+        // holds every state of them)
+        Block::PlainTorch { .. }
+        | Block::PlainWallTorch { .. }
+        | Block::SoulLantern { .. }
+        | Block::JackOLantern { .. }
+        | Block::Campfire { .. }
+        | Block::EndRod { .. }
+        | Block::Froglight { .. }
+        | Block::SeaPickle { .. }
+        | Block::Candle { .. } => crate::terrain::blocks::id_of(&b.to_string()).map(|id| crate::terrain::blocks::props(id).resistance).unwrap_or(0.0),
         Block::Hopper { .. } => 4.8,
         // a lightning rod (mobinfra): strength(3.0, 6.0)
         Block::LightningRod { .. } => 6.0,

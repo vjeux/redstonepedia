@@ -107,7 +107,8 @@ pub fn is_burning_block(s: &Block) -> bool {
         let lit_campfire = matches!(p.block_id(), "minecraft:campfire" | "minecraft:soul_campfire") && p.name.contains("lit=true");
         return p.has_tag("minecraft:fire") || lit_campfire || matches!(p.block_id(), "minecraft:lava" | "minecraft:magma_block" | "minecraft:lava_cauldron");
     }
-    matches!(s, Block::Lava { .. } | Block::Simple(Simple::MagmaBlock))
+    // a placed lit campfire (terrain lane), fire (mobinfra)
+    matches!(s, Block::Lava { .. } | Block::Simple(Simple::MagmaBlock) | Block::Campfire { lit: true, .. } | Block::Fire { .. })
 }
 
 /// `EntityType.isBlockDangerous(state)` for a type that is not fire immune: burning blocks, wither

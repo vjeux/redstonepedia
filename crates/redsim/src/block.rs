@@ -514,6 +514,27 @@ pub enum Block {
     WallBanner { facing: Dir },
     /// Lantern, hanging from the block above or standing.
     Lantern { hanging: bool },
+    // ---- placed light sources (terrain lane: a day-1 player lights a farm) ----
+    /// A torch on a floor (`TorchBlock`; `soul`: the soul torch): no collision, light 14 (soul
+    /// 10), standing on the center of the block below (`canSupportCenter`), washed away by fluids.
+    PlainTorch { soul: bool },
+    /// A torch on a wall (`WallTorchBlock`), hung on the sturdy face of the block at
+    /// `facing.opposite()`.
+    PlainWallTorch { soul: bool, facing: Dir },
+    /// A soul lantern (the lantern's shapes and rules, light 10).
+    SoulLantern { hanging: bool },
+    /// A jack o'lantern (`CarvedPumpkinBlock`, light 15): a full cube.
+    JackOLantern { facing: Dir },
+    /// A campfire (`CampfireBlock`: a 7 px slab; light 15 when lit, soul 10).
+    Campfire { soul: bool, lit: bool, facing: Dir, signal_fire: bool },
+    /// An end rod (`EndRodBlock`: a 4 px rod along `facing`, light 14).
+    EndRod { facing: Dir },
+    /// A froglight (`kind` 0 ochre, 1 verdant, 2 pearlescent; `axis` 0 x, 1 y, 2 z; light 15).
+    Froglight { kind: u8, axis: u8 },
+    /// Sea pickles (`pickles` 1-4; light 3 + 3 x pickles when waterlogged, else none).
+    SeaPickle { pickles: u8, waterlogged: bool },
+    /// Candles (the plain candle, `candles` 1-4; light 3 x candles when lit).
+    Candle { candles: u8, lit: bool },
     /// Stone slab: 0 bottom, 1 top, 2 double (the shapes of `Slab`).
     StoneSlab { kind: u8 },
     /// Plain rail (`RailBlock`: curves too), `react::rails`.
@@ -690,6 +711,15 @@ pub enum Kind {
     TripwireHook,
     WallBanner,
     Lantern,
+    PlainTorch,
+    PlainWallTorch,
+    SoulLantern,
+    JackOLantern,
+    Campfire,
+    EndRod,
+    Froglight,
+    SeaPickle,
+    Candle,
     StoneSlab,
     PlainRail,
     DetectorRail,
@@ -795,6 +825,15 @@ impl Block {
             Block::TripwireHook { .. } => Kind::TripwireHook,
             Block::WallBanner { .. } => Kind::WallBanner,
             Block::Lantern { .. } => Kind::Lantern,
+            Block::PlainTorch { .. } => Kind::PlainTorch,
+            Block::PlainWallTorch { .. } => Kind::PlainWallTorch,
+            Block::SoulLantern { .. } => Kind::SoulLantern,
+            Block::JackOLantern { .. } => Kind::JackOLantern,
+            Block::Campfire { .. } => Kind::Campfire,
+            Block::EndRod { .. } => Kind::EndRod,
+            Block::Froglight { .. } => Kind::Froglight,
+            Block::SeaPickle { .. } => Kind::SeaPickle,
+            Block::Candle { .. } => Kind::Candle,
             Block::StoneSlab { .. } => Kind::StoneSlab,
             Block::PlainRail { .. } => Kind::PlainRail,
             Block::DetectorRail { .. } => Kind::DetectorRail,
@@ -1132,6 +1171,37 @@ impl Block {
                 waterlogged_ok()?;
                 Block::Lantern { hanging: bool_of("hanging", false)? }
             }
+            // ---- placed light sources (terrain lane) ----
+            "torch" | "soul_torch" => Block::PlainTorch { soul: name == "soul_torch" },
+            "wall_torch" | "soul_wall_torch" => Block::PlainWallTorch { soul: name == "soul_wall_torch", facing: hdir_of("facing", Dir::North)? },
+            "soul_lantern" => {
+                waterlogged_ok()?;
+                Block::SoulLantern { hanging: bool_of("hanging", false)? }
+            }
+            "jack_o_lantern" => Block::JackOLantern { facing: hdir_of("facing", Dir::North)? },
+            "campfire" | "soul_campfire" => {
+                waterlogged_ok()?;
+                Block::Campfire { soul: name == "soul_campfire", lit: bool_of("lit", true)?, facing: hdir_of("facing", Dir::North)?, signal_fire: bool_of("signal_fire", false)? }
+            }
+            "end_rod" => Block::EndRod { facing: dir_of("facing", Dir::Up)? },
+            "ochre_froglight" | "verdant_froglight" | "pearlescent_froglight" => Block::Froglight {
+                kind: match name {
+                    "ochre_froglight" => 0,
+                    "verdant_froglight" => 1,
+                    _ => 2,
+                },
+                axis: match get("axis").unwrap_or("y") {
+                    "x" => 0,
+                    "y" => 1,
+                    "z" => 2,
+                    v => return Err(format!("bad axis={v} in {s:?}")),
+                },
+            },
+            "sea_pickle" => Block::SeaPickle { pickles: int_of("pickles", 1, 1, 4)?, waterlogged: bool_of("waterlogged", true)? },
+            "candle" => {
+                waterlogged_ok()?;
+                Block::Candle { candles: int_of("candles", 1, 1, 4)?, lit: bool_of("lit", false)? }
+            }
             "stone_slab" => {
                 waterlogged_ok()?;
                 Block::StoneSlab {
@@ -1386,6 +1456,15 @@ impl fmt::Display for Block {
             }
             Block::WallBanner { facing } => write!(f, "minecraft:white_wall_banner[facing={}]", facing.name()),
             Block::Lantern { hanging } => write!(f, "minecraft:lantern[hanging={},waterlogged=false]", b(hanging)),
+            Block::PlainTorch { soul } => write!(f, "minecraft:{}torch", if soul { "soul_" } else { "" }),
+            Block::PlainWallTorch { soul, facing } => write!(f, "minecraft:{}wall_torch[facing={}]", if soul { "soul_" } else { "" }, facing.name()),
+            Block::SoulLantern { hanging } => write!(f, "minecraft:soul_lantern[hanging={},waterlogged=false]", b(hanging)),
+            Block::JackOLantern { facing } => write!(f, "minecraft:jack_o_lantern[facing={}]", facing.name()),
+            Block::Campfire { soul, lit, facing, signal_fire } => write!(f, "minecraft:{}campfire[facing={},lit={},signal_fire={},waterlogged=false]", if soul { "soul_" } else { "" }, facing.name(), b(lit), b(signal_fire)),
+            Block::EndRod { facing } => write!(f, "minecraft:end_rod[facing={}]", facing.name()),
+            Block::Froglight { kind, axis } => write!(f, "minecraft:{}_froglight[axis={}]", ["ochre", "verdant", "pearlescent"][kind as usize % 3], ["x", "y", "z"][axis as usize % 3]),
+            Block::SeaPickle { pickles, waterlogged } => write!(f, "minecraft:sea_pickle[pickles={pickles},waterlogged={}]", b(waterlogged)),
+            Block::Candle { candles, lit } => write!(f, "minecraft:candle[candles={candles},lit={},waterlogged=false]", b(lit)),
             Block::StoneSlab { kind } => write!(f, "minecraft:stone_slab[type={},waterlogged=false]", ["bottom", "top", "double"][kind as usize]),
             Block::PlainRail { shape } => write!(f, "minecraft:rail[shape={},waterlogged=false]", shape.name()),
             Block::DetectorRail { shape, powered } => write!(f, "minecraft:detector_rail[powered={},shape={},waterlogged=false]", b(powered), shape.name()),

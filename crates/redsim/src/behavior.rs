@@ -47,6 +47,16 @@ pub fn collides(s: &Block) -> bool {
         Block::Lava { .. } | Block::Sign { .. } => false,
         // ---- fire (mobinfra): noCollision ----
         Block::Fire { .. } => false,
+        // ---- placed light sources (terrain lane): the game's collision shape ----
+        Block::PlainTorch { .. }
+        | Block::PlainWallTorch { .. }
+        | Block::SoulLantern { .. }
+        | Block::JackOLantern { .. }
+        | Block::Campfire { .. }
+        | Block::EndRod { .. }
+        | Block::Froglight { .. }
+        | Block::SeaPickle { .. }
+        | Block::Candle { .. } => light_row(s).is_some_and(|p| !p.boxes.is_empty()),
         _ => true,
     }
 }
@@ -55,6 +65,15 @@ pub fn collides(s: &Block) -> bool {
 pub fn full_cube(s: &Block) -> bool {
     match *s {
         Block::Terrain(id) => crate::terrain::blocks::props(id).full_collision,
+        Block::PlainTorch { .. }
+        | Block::PlainWallTorch { .. }
+        | Block::SoulLantern { .. }
+        | Block::JackOLantern { .. }
+        | Block::Campfire { .. }
+        | Block::EndRod { .. }
+        | Block::Froglight { .. }
+        | Block::SeaPickle { .. }
+        | Block::Candle { .. } => light_row(s).is_some_and(|p| p.full_collision),
         Block::Simple(x) => x.full() && !matches!(x, Simple::SoulSand | Simple::HoneyBlock | Simple::Mud),
         Block::Glazed { .. }
         | Block::RedstoneBlock
@@ -114,6 +133,15 @@ pub fn collision_full_block_at(w: &World, s: &Block, p: BlockPos) -> bool {
 pub fn is_solid(s: &Block) -> bool {
     match *s {
         Block::Terrain(id) => crate::terrain::blocks::props(id).solid,
+        Block::PlainTorch { .. }
+        | Block::PlainWallTorch { .. }
+        | Block::SoulLantern { .. }
+        | Block::JackOLantern { .. }
+        | Block::Campfire { .. }
+        | Block::EndRod { .. }
+        | Block::Froglight { .. }
+        | Block::SeaPickle { .. }
+        | Block::Candle { .. } => light_row(s).is_some_and(|p| p.solid),
         Block::Air
         | Block::Wire { .. }
         | Block::Torch { .. }
@@ -165,6 +193,15 @@ pub fn is_conductor(_w: &World, s: &Block, _p: BlockPos) -> bool {
 pub fn conductor_of(s: &Block) -> bool {
     match *s {
         Block::Terrain(id) => crate::terrain::blocks::props(id).conductor,
+        Block::PlainTorch { .. }
+        | Block::PlainWallTorch { .. }
+        | Block::SoulLantern { .. }
+        | Block::JackOLantern { .. }
+        | Block::Campfire { .. }
+        | Block::EndRod { .. }
+        | Block::Froglight { .. }
+        | Block::SeaPickle { .. }
+        | Block::Candle { .. } => light_row(s).is_some_and(|p| p.conductor),
         Block::Simple(x) => x.conductor(),
         Block::Glazed { .. } | Block::Lamp { .. } | Block::Note { .. } | Block::Target { .. } | Block::Dispenser { .. } | Block::Crafter { .. } => true,
         Block::Log { .. } | Block::RespawnAnchor { .. } => true,
@@ -193,6 +230,22 @@ pub fn sturdy(w: &World, s: &Block, p: BlockPos, face: Dir, support: Support) ->
 /// entity, see `sturdy`).
 pub fn sturdy_of(s: &Block, face: Dir, support: Support) -> bool {
     match *s {
+        Block::PlainTorch { .. }
+        | Block::PlainWallTorch { .. }
+        | Block::SoulLantern { .. }
+        | Block::JackOLantern { .. }
+        | Block::Campfire { .. }
+        | Block::EndRod { .. }
+        | Block::Froglight { .. }
+        | Block::SeaPickle { .. }
+        | Block::Candle { .. } => {
+            let k = match support {
+                Support::Full => 0,
+                Support::Center => 1,
+                Support::Rigid => 2,
+            };
+            light_row(s).is_some_and(|p| p.sturdy[k][crate::terrain::blocks::dir_index(face)])
+        }
         Block::Terrain(id) => {
             let k = match support {
                 Support::Full => 0,
@@ -441,6 +494,21 @@ pub fn instrument(s: &Block) -> Instrument {
 /// `getPistonPushReaction` (pistons themselves: see `piston::push_reaction`).
 pub fn push_reaction(s: &Block) -> PushReaction {
     match *s {
+        Block::PlainTorch { .. }
+        | Block::PlainWallTorch { .. }
+        | Block::SoulLantern { .. }
+        | Block::JackOLantern { .. }
+        | Block::Campfire { .. }
+        | Block::EndRod { .. }
+        | Block::Froglight { .. }
+        | Block::SeaPickle { .. }
+        | Block::Candle { .. } => match light_row(s).map(|p| p.push.as_str()) {
+            Some("DESTROY") => PushReaction::Popped,
+            Some("BLOCK") => PushReaction::Immoveable,
+            Some("PUSH_ONLY") => PushReaction::Push,
+            Some("IGNORE") => PushReaction::IgnoreEntity,
+            _ => PushReaction::PushPull,
+        },
         Block::Simple(x) => x.push_reaction(),
         Block::Glazed { .. } => PushReaction::Push,
         Block::Wire { .. }
@@ -508,6 +576,25 @@ pub fn has_block_entity(s: &Block) -> bool {
         || matches!(s, Block::ShulkerBox { .. } | Block::Chest { .. }) // ---- shulker study (clk-rt) ----
         || matches!(s, Block::Furnace { .. }) // ---- smelter study (track sorter) ----
         || matches!(s, Block::BrewingStand { .. }) // ---- brewer study (track sorter) ----
+        || light_row(s).is_some_and(|p| p.block_entity) // ---- placed light sources: a campfire ----
+}
+
+/// A placed light source's row of the natural-state table (terrain lane: the table holds every
+/// state of each of them, the game's own answers for shapes, solidity, conduction, support,
+/// pistons and light).
+pub fn light_row(s: &Block) -> Option<&'static crate::terrain::blocks::Props> {
+    match s {
+        Block::PlainTorch { .. }
+        | Block::PlainWallTorch { .. }
+        | Block::SoulLantern { .. }
+        | Block::JackOLantern { .. }
+        | Block::Campfire { .. }
+        | Block::EndRod { .. }
+        | Block::Froglight { .. }
+        | Block::SeaPickle { .. }
+        | Block::Candle { .. } => crate::terrain::blocks::id_of(&s.to_string()).map(crate::terrain::blocks::props),
+        _ => None,
+    }
 }
 
 /// `canBeReplaced` (by a moving block / a falling block): air, the fluids and fire
@@ -549,6 +636,26 @@ pub fn collision_boxes(s: &Block) -> Vec<Box16> {
                 [p(b[0]), p(b[3]), p(b[1]), p(b[4]), p(b[2]), p(b[5])]
             })
             .collect(),
+        // placed light sources (terrain lane): the game's boxes from the table
+        Block::PlainTorch { .. }
+        | Block::PlainWallTorch { .. }
+        | Block::SoulLantern { .. }
+        | Block::JackOLantern { .. }
+        | Block::Campfire { .. }
+        | Block::EndRod { .. }
+        | Block::Froglight { .. }
+        | Block::SeaPickle { .. }
+        | Block::Candle { .. } => light_row(s)
+            .map(|p| {
+                p.boxes
+                    .iter()
+                    .map(|b| {
+                        let q = |v: f64| (v * 16.0).round() as i32;
+                        [q(b[0]), q(b[3]), q(b[1]), q(b[4]), q(b[2]), q(b[5])]
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
         Block::Air
         | Block::Wire { .. }
         | Block::Torch { .. }
@@ -710,6 +817,28 @@ pub fn can_survive(w: &World, s: &Block, p: BlockPos) -> bool {
             let q = p.rel(d);
             sturdy(w, &w.get(q), q, d.opposite(), Support::Center)
         }
+        // ---- placed light sources (terrain lane) ----
+        Block::SoulLantern { hanging } => {
+            let d = if hanging { Dir::Up } else { Dir::Down };
+            let q = p.rel(d);
+            sturdy(w, &w.get(q), q, d.opposite(), Support::Center)
+        }
+        // TorchBlock / CandleBlock: canSupportCenter(below, UP)
+        Block::PlainTorch { .. } | Block::Candle { .. } => {
+            let q = p.below();
+            sturdy(w, &w.get(q), q, Dir::Up, Support::Center)
+        }
+        // WallTorchBlock: the face of the block behind it, sturdy
+        Block::PlainWallTorch { facing, .. } => {
+            let q = p.rel(facing.opposite());
+            sturdy(w, &w.get(q), q, facing, Support::Full)
+        }
+        // SeaPickleBlock.mayPlaceOn: the block below has a collision top or a sturdy top
+        Block::SeaPickle { .. } => {
+            let q = p.below();
+            let b = w.get(q);
+            collision_boxes(&b).iter().any(|bx| bx[3] == 16 && bx[0] < bx[1] && bx[4] < bx[5]) || sturdy(w, &b, q, Dir::Up, Support::Full)
+        }
         Block::BubbleColumn { .. } => crate::fluid::bubble_can_survive(w, p),
         // ---- TNT dupers (track tnt) ----
         Block::CoralFan { .. } | Block::CoralWallFan { .. } => crate::tnt::fan_can_survive(w, s, p),
@@ -788,6 +917,37 @@ pub fn update_shape(w: &mut World, s: Block, p: BlockPos, d: Dir, np: BlockPos, 
                 s
             }
         }
+        // ---- placed light sources (terrain lane) ----
+        Block::SoulLantern { hanging } => {
+            if d == (if hanging { Dir::Up } else { Dir::Down }) && !can_survive(w, &s, p) {
+                Block::Air
+            } else {
+                s
+            }
+        }
+        Block::PlainTorch { .. } | Block::Candle { .. } => {
+            if d == Dir::Down && !can_survive(w, &s, p) {
+                Block::Air
+            } else {
+                s
+            }
+        }
+        Block::PlainWallTorch { facing, .. } => {
+            if d == facing.opposite() && !can_survive(w, &s, p) {
+                Block::Air
+            } else {
+                s
+            }
+        }
+        Block::SeaPickle { .. } => {
+            if !can_survive(w, &s, p) {
+                Block::Air
+            } else {
+                s
+            }
+        }
+        // CampfireBlock: a hay bale below makes it a signal fire (`isSmokeSource`)
+        Block::Campfire { soul, lit, facing, .. } if d == Dir::Down => Block::Campfire { soul, lit, facing, signal_fire: ns.to_string().starts_with("minecraft:hay_block") },
         Block::Water { .. } => crate::fluid::liquid_update_shape(w, s, p, d, ns),
         Block::BubbleColumn { .. } => crate::fluid::bubble_update_shape(w, s, p, d, ns),
         // ---- TNT dupers (track tnt) ----

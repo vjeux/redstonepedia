@@ -147,6 +147,8 @@ pub fn waterlogged(b: &Block) -> Option<bool> {
         Block::Fence { waterlogged, .. } => Some(waterlogged),
         // ---- crop farms (webrender): the waterlogged grate (a dry grate stays a plain block) ----
         Block::WaterloggedGrate => Some(true),
+        // ---- placed light sources (terrain lane): sea pickles carry their water ----
+        Block::SeaPickle { waterlogged, .. } => Some(waterlogged),
         _ => None,
     }
 }
@@ -164,6 +166,8 @@ pub fn set_waterlogged(b: Block, v: bool) -> Option<Block> {
         Block::Fence { kind, north, east, south, west, .. } => Some(Block::Fence { kind, north, east, south, west, waterlogged: v }),
         // ---- crop farms (webrender) ----
         Block::WaterloggedGrate => Some(if v { Block::WaterloggedGrate } else { Block::Simple(crate::block::Simple::WaxedCopperGrate) }),
+        // ---- placed light sources (terrain lane) ----
+        Block::SeaPickle { pickles, .. } => Some(Block::SeaPickle { pickles, waterlogged: v }),
         _ => None,
     }
 }
@@ -195,6 +199,9 @@ fn is_container(b: &Block) -> bool {
         || matches!(b, Block::Kelp { .. } | Block::KelpPlant)
         // ---- mob farms (ironfarm): a sign (SimpleWaterloggedBlock), modeled dry ----
         || matches!(b, Block::Sign { .. })
+        // ---- placed light sources (terrain lane): waterloggable, modeled dry (a sea pickle
+        // carries its water: `waterlogged`) ----
+        || matches!(b, Block::SoulLantern { .. } | Block::Campfire { .. } | Block::Candle { .. })
 }
 
 /// `state.is(BlockTags.WASHED_AWAY_BY_FLUIDS)` among redsim's blocks.
@@ -223,6 +230,11 @@ fn washed_away(b: &Block) -> bool {
             | Block::PowderSnow
             // ---- fire (mobinfra): `#fire` is washed away ----
             | Block::Fire { .. }
+            // ---- placed light sources (terrain lane): torches, end rods, `#candles` ----
+            | Block::PlainTorch { .. }
+            | Block::PlainWallTorch { .. }
+            | Block::EndRod { .. }
+            | Block::Candle { .. }
     )
 }
 

@@ -172,6 +172,12 @@ fn props(b: &Block) -> Result<Props, String> {
         Block::LightningRod { .. } => Props { dampening: 0, faces: None },
         // fire (mobinfra): no collision, no occlusion: propagatesSkylightDown
         Block::Fire { .. } => Props { dampening: 0, faces: None },
+        // placed light sources (terrain lane): the table's light dampening; full opaque cubes
+        // (jack o'lanterns, froglights) occlude everything, the others no occluding shape
+        Block::JackOLantern { .. } | Block::Froglight { .. } => opaque,
+        Block::PlainTorch { .. } | Block::PlainWallTorch { .. } | Block::SoulLantern { .. } | Block::Campfire { .. } | Block::EndRod { .. } | Block::SeaPickle { .. } | Block::Candle { .. } => {
+            Props { dampening: crate::behavior::light_row(b).map(|p| p.dampening as i32).unwrap_or(0), faces: None }
+        }
         // farmland: column(16, 0, 15), useShapeForLightOcclusion: the bottom face full, the sides
         // 15 px high, the top open
         Block::Farmland { .. } => {

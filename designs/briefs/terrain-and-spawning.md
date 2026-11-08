@@ -75,6 +75,17 @@ is given against it.
   never across `shapeOccludes` faces (`getFaceOcclusionShape` of `useShapeForLightOcclusion` states:
   slabs, stairs, farmland, paths, snow layers...).
 - **Block light** (`BlockLightEngine`): each state's `getLightEmission()` spreads the same way.
+- **Placed light sources** (revision 5, vjeux: a day-1 player lights a dug-in farm): redsim models
+  the blocks a player places for light as blocks of their own — `torch` and `soul_torch`
+  (`TorchBlock`: no collision, on `canSupportCenter` of the block below, gone when it fails, washed
+  away by fluids), `wall_torch` / `soul_wall_torch` (`WallTorchBlock`: on the sturdy face of the
+  block behind), `soul_lantern` (`LanternBlock`'s rules), `jack_o_lantern`, `campfire` /
+  `soul_campfire` (lit or not; a hay bale below makes a signal fire; a lit one is a burning block for
+  spawning and paths), `end_rod`, the three froglights, `sea_pickle` (lit only waterlogged), `candle`
+  (1-4, lit) — beside the ones redsim had (glowstone, sea lantern, shroomlight, magma, the lantern,
+  redstone torches and lamps, a lit furnace). Their emission, dampening, shapes, solidity,
+  conduction, sturdy faces, piston reaction and resistance are the game's own answers from the
+  natural-state table (which holds every state of each); their survival rules are the game's code.
 - **Queries** (`LevelLightEngine.getRawBrightness`): `max(block, sky - darken)`;
   `Level.getSkyDarken()` from the day timeline blended toward rain and thunder (infra's
   `w.sky_darken()`); `LevelReader.getMaxLocalRawBrightness` = `getRawBrightness(pos,
@@ -549,7 +560,9 @@ Commands: `mctas terrain light|paste-check|biome-check|probe|spawn-check|hostile
    refuses a change whose region reaches the box's bottom or sides.) **Paste check** (`terrain paste-check`, the criterion after changes): the archived
    iron-day1 pasted at (-335, 255) of the village sample in redsim and in the official server (the
    same 639 strict writes, 454 blocks dug): 746,496 cells, **0 block, 0 sky, 0 block-light
-   differences**. **Biomes** (`terrain biome-check`): redsim's `biome_at` vs `execute if biome` at 300
+   differences**. **Placed light sources** (revision 5): `designs/terrain/fixtures/lights.txt` (every
+   light source above on a stone floor) pasted at (-306, 233) of the same sample in redsim and in the
+   official server: 331,776 cells, **0 block, 0 sky, 0 block-light differences**. **Biomes** (`terrain biome-check`): redsim's `biome_at` vs `execute if biome` at 300
    random cells of the validation area: **0 differences**. **Darkening** (`terrain probe --times`):
    the game's surface light at day 12000-23000 equals 15 - redsim's `sky_darken` at every probe.
 2. **Natural spawning, V1** (`terrain spawn-check`; area `2_-342_255_r160`: seed 2, centre (-342,
