@@ -580,6 +580,9 @@ pub enum Block {
     Candle { candles: u8, lit: bool },
     /// Stone slab: 0 bottom, 1 top, 2 double (the shapes of `Slab`).
     StoneSlab { kind: u8 },
+    /// Every other slab of the game's slab family, and smooth stone's and stone's waterlogged ones
+    /// (`slab`: `mat` indexes `slab::SLABS`; `kind` 0 bottom, 1 top, 2 double).
+    AnySlab { mat: u8, kind: u8, waterlogged: bool },
     /// Plain rail (`RailBlock`: curves too), `react::rails`.
     PlainRail { shape: RailShape },
     /// Detector rail (`DetectorRailBlock`: straight shapes), `react::rails`.
@@ -765,6 +768,7 @@ pub enum Kind {
     SeaPickle,
     Candle,
     StoneSlab,
+    AnySlab,
     PlainRail,
     DetectorRail,
     BigDripleaf,
@@ -879,6 +883,7 @@ impl Block {
             Block::SeaPickle { .. } => Kind::SeaPickle,
             Block::Candle { .. } => Kind::Candle,
             Block::StoneSlab { .. } => Kind::StoneSlab,
+            Block::AnySlab { .. } => Kind::AnySlab,
             Block::PlainRail { .. } => Kind::PlainRail,
             Block::DetectorRail { .. } => Kind::DetectorRail,
             Block::BigDripleaf { .. } => Kind::BigDripleaf,
@@ -1123,14 +1128,16 @@ impl Block {
                 enabled: bool_of("enabled", true)?,
             },
             "smooth_stone_slab" => {
-                waterlogged_ok()?;
-                Block::Slab {
-                    kind: match get("type") {
-                        None | Some("bottom") => 0,
-                        Some("top") => 1,
-                        Some("double") => 2,
-                        Some(v) => return Err(format!("bad type={v}")),
-                    },
+                let kind = match get("type") {
+                    None | Some("bottom") => 0,
+                    Some("top") => 1,
+                    Some("double") => 2,
+                    Some(v) => return Err(format!("bad type={v}")),
+                };
+                if bool_of("waterlogged", false)? {
+                    Block::AnySlab { mat: crate::slab::index("smooth_stone_slab").unwrap_or(0), kind, waterlogged: true }
+                } else {
+                    Block::Slab { kind }
                 }
             }
             "oak_leaves" => {
@@ -1241,16 +1248,29 @@ impl Block {
                 Block::Candle { candles: int_of("candles", 1, 1, 4)?, lit: bool_of("lit", false)? }
             }
             "stone_slab" => {
-                waterlogged_ok()?;
-                Block::StoneSlab {
-                    kind: match get("type") {
-                        None | Some("bottom") => 0,
-                        Some("top") => 1,
-                        Some("double") => 2,
-                        Some(v) => return Err(format!("bad type={v}")),
-                    },
+                let kind = match get("type") {
+                    None | Some("bottom") => 0,
+                    Some("top") => 1,
+                    Some("double") => 2,
+                    Some(v) => return Err(format!("bad type={v}")),
+                };
+                if bool_of("waterlogged", false)? {
+                    Block::AnySlab { mat: crate::slab::index("stone_slab").unwrap_or(0), kind, waterlogged: true }
+                } else {
+                    Block::StoneSlab { kind }
                 }
             }
+            // ---- the slab family (terrain lane, the optimizer's day-1 materials) ----
+            _ if crate::slab::index(name).is_some() => Block::AnySlab {
+                mat: crate::slab::index(name).unwrap_or(0),
+                kind: match get("type") {
+                    None | Some("bottom") => 0,
+                    Some("top") => 1,
+                    Some("double") => 2,
+                    Some(v) => return Err(format!("bad type={v}")),
+                },
+                waterlogged: bool_of("waterlogged", false)?,
+            },
             "water" => Block::Water { level: int_of("level", 0, 0, 15)? },
             "bubble_column" => Block::BubbleColumn { drag: bool_of("drag", true)? },
             // ---- TNT dupers (track tnt): the dead fans' default state is waterlogged ----
@@ -1518,6 +1538,7 @@ impl fmt::Display for Block {
             Block::SeaPickle { pickles, waterlogged } => write!(f, "minecraft:sea_pickle[pickles={pickles},waterlogged={}]", b(waterlogged)),
             Block::Candle { candles, lit } => write!(f, "minecraft:candle[candles={candles},lit={},waterlogged=false]", b(lit)),
             Block::StoneSlab { kind } => write!(f, "minecraft:stone_slab[type={},waterlogged=false]", ["bottom", "top", "double"][kind as usize]),
+            Block::AnySlab { mat, kind, waterlogged } => write!(f, "{}", crate::slab::state_name(mat, kind, waterlogged)),
             Block::PlainRail { shape } => write!(f, "minecraft:rail[shape={},waterlogged=false]", shape.name()),
             Block::DetectorRail { shape, powered } => write!(f, "minecraft:detector_rail[powered={},shape={},waterlogged=false]", b(powered), shape.name()),
             Block::BigDripleaf { facing, tilt, waterlogged } => write!(

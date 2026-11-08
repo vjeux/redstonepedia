@@ -1,0 +1,418 @@
+# The slab fixture (terrain lane, `mctas terrain slab-fixture`): every slab redsim models
+# (redsim::slab::SLABS: bottom, top and double, dry; bottom and top, waterlogged), a cell apart
+# on two levels over a stone floor, for `mctas terrain paste-check` against the official server.
+name: slabs
+circuit: fixture slabs
+how: every slab redsim models, for mctas terrain paste-check
+origin: 0 0 0
+palette:
+  ! minecraft:cut_sandstone_slab[type=bottom,waterlogged=false]
+  " minecraft:dark_prismarine_slab[type=double,waterlogged=false]
+  $ minecraft:crimson_slab[type=top,waterlogged=false]
+  % minecraft:crimson_slab[type=top,waterlogged=true]
+  & minecraft:cut_red_sandstone_slab[type=bottom,waterlogged=false]
+  ' minecraft:dark_prismarine_slab[type=bottom,waterlogged=false]
+  ( minecraft:dark_prismarine_slab[type=top,waterlogged=false]
+  ) minecraft:dark_prismarine_slab[type=top,waterlogged=true]
+  * minecraft:cut_red_sandstone_slab[type=bottom,waterlogged=true]
+  + minecraft:cut_red_sandstone_slab[type=double,waterlogged=false]
+  , minecraft:dark_oak_slab[type=top,waterlogged=true]
+  / minecraft:dark_oak_slab[type=bottom,waterlogged=false]
+  0 minecraft:cobbled_deepslate_slab[type=double,waterlogged=false]
+  1 minecraft:cobbled_deepslate_slab[type=top,waterlogged=false]
+  2 minecraft:cobbled_deepslate_slab[type=top,waterlogged=true]
+  3 minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  4 minecraft:cobblestone_slab[type=bottom,waterlogged=true]
+  5 minecraft:cobblestone_slab[type=double,waterlogged=false]
+  6 minecraft:cobblestone_slab[type=top,waterlogged=false]
+  7 minecraft:cobblestone_slab[type=top,waterlogged=true]
+  8 minecraft:crimson_slab[type=bottom,waterlogged=false]
+  9 minecraft:crimson_slab[type=bottom,waterlogged=true]
+  ; minecraft:dark_oak_slab[type=top,waterlogged=false]
+  < minecraft:cut_sandstone_slab[type=bottom,waterlogged=true]
+  = minecraft:cut_red_sandstone_slab[type=top,waterlogged=false]
+  > minecraft:cut_sandstone_slab[type=double,waterlogged=false]
+  ? minecraft:cut_red_sandstone_slab[type=top,waterlogged=true]
+  @ minecraft:crimson_slab[type=double,waterlogged=false]
+  A minecraft:acacia_slab[type=bottom,waterlogged=false]
+  B minecraft:acacia_slab[type=double,waterlogged=false]
+  C minecraft:acacia_slab[type=top,waterlogged=false]
+  D minecraft:acacia_slab[type=top,waterlogged=true]
+  E minecraft:andesite_slab[type=bottom,waterlogged=false]
+  F minecraft:andesite_slab[type=bottom,waterlogged=true]
+  G minecraft:andesite_slab[type=double,waterlogged=false]
+  H minecraft:andesite_slab[type=top,waterlogged=false]
+  I minecraft:andesite_slab[type=top,waterlogged=true]
+  J minecraft:bamboo_mosaic_slab[type=bottom,waterlogged=true]
+  K minecraft:bamboo_mosaic_slab[type=double,waterlogged=false]
+  L minecraft:bamboo_mosaic_slab[type=top,waterlogged=false]
+  M minecraft:bamboo_mosaic_slab[type=top,waterlogged=true]
+  N minecraft:bamboo_slab[type=bottom,waterlogged=false]
+  O minecraft:bamboo_slab[type=bottom,waterlogged=true]
+  P minecraft:bamboo_slab[type=double,waterlogged=false]
+  Q minecraft:bamboo_slab[type=top,waterlogged=false]
+  R minecraft:bamboo_slab[type=top,waterlogged=true]
+  S minecraft:birch_slab[type=bottom,waterlogged=false]
+  T minecraft:birch_slab[type=bottom,waterlogged=true]
+  U minecraft:birch_slab[type=double,waterlogged=false]
+  V minecraft:birch_slab[type=top,waterlogged=false]
+  W minecraft:birch_slab[type=top,waterlogged=true]
+  X minecraft:blackstone_slab[type=bottom,waterlogged=false]
+  Y minecraft:blackstone_slab[type=bottom,waterlogged=true]
+  Z minecraft:blackstone_slab[type=double,waterlogged=false]
+  \ minecraft:dark_oak_slab[type=bottom,waterlogged=true]
+  ^ minecraft:cut_sandstone_slab[type=top,waterlogged=false]
+  ` minecraft:dark_prismarine_slab[type=bottom,waterlogged=true]
+  a minecraft:acacia_slab[type=bottom,waterlogged=true]
+  b minecraft:bamboo_mosaic_slab[type=bottom,waterlogged=false]
+  c minecraft:blackstone_slab[type=top,waterlogged=false]
+  d minecraft:blackstone_slab[type=top,waterlogged=true]
+  e minecraft:brick_slab[type=bottom,waterlogged=false]
+  f minecraft:brick_slab[type=bottom,waterlogged=true]
+  g minecraft:brick_slab[type=double,waterlogged=false]
+  h minecraft:brick_slab[type=top,waterlogged=false]
+  i minecraft:brick_slab[type=top,waterlogged=true]
+  j minecraft:cherry_slab[type=bottom,waterlogged=false]
+  k minecraft:cherry_slab[type=bottom,waterlogged=true]
+  l minecraft:cherry_slab[type=double,waterlogged=false]
+  m minecraft:cherry_slab[type=top,waterlogged=false]
+  n minecraft:cherry_slab[type=top,waterlogged=true]
+  o minecraft:cinnabar_brick_slab[type=bottom,waterlogged=false]
+  p minecraft:cinnabar_brick_slab[type=bottom,waterlogged=true]
+  q minecraft:cinnabar_brick_slab[type=double,waterlogged=false]
+  r minecraft:cinnabar_brick_slab[type=top,waterlogged=false]
+  s minecraft:cinnabar_brick_slab[type=top,waterlogged=true]
+  t minecraft:cinnabar_slab[type=bottom,waterlogged=false]
+  u minecraft:cinnabar_slab[type=bottom,waterlogged=true]
+  v minecraft:cinnabar_slab[type=double,waterlogged=false]
+  w minecraft:cinnabar_slab[type=top,waterlogged=false]
+  x minecraft:cinnabar_slab[type=top,waterlogged=true]
+  y minecraft:cobbled_deepslate_slab[type=bottom,waterlogged=false]
+  z minecraft:cobbled_deepslate_slab[type=bottom,waterlogged=true]
+  { minecraft:deepslate_brick_slab[type=bottom,waterlogged=false]
+  | minecraft:dark_oak_slab[type=double,waterlogged=false]
+  } minecraft:deepslate_brick_slab[type=bottom,waterlogged=true]
+  ~ minecraft:cut_sandstone_slab[type=top,waterlogged=true]
+  À minecraft:deepslate_brick_slab[type=double,waterlogged=false]
+  Á minecraft:deepslate_brick_slab[type=top,waterlogged=false]
+  Â minecraft:deepslate_brick_slab[type=top,waterlogged=true]
+  Ã minecraft:deepslate_tile_slab[type=bottom,waterlogged=false]
+  Ä minecraft:deepslate_tile_slab[type=bottom,waterlogged=true]
+  Å minecraft:deepslate_tile_slab[type=double,waterlogged=false]
+  Æ minecraft:deepslate_tile_slab[type=top,waterlogged=false]
+  Ç minecraft:deepslate_tile_slab[type=top,waterlogged=true]
+  È minecraft:diorite_slab[type=bottom,waterlogged=false]
+  É minecraft:diorite_slab[type=bottom,waterlogged=true]
+  Ê minecraft:diorite_slab[type=double,waterlogged=false]
+  Ë minecraft:diorite_slab[type=top,waterlogged=false]
+  Ì minecraft:diorite_slab[type=top,waterlogged=true]
+  Í minecraft:end_stone_brick_slab[type=bottom,waterlogged=false]
+  Î minecraft:end_stone_brick_slab[type=bottom,waterlogged=true]
+  Ï minecraft:end_stone_brick_slab[type=double,waterlogged=false]
+  Ð minecraft:end_stone_brick_slab[type=top,waterlogged=false]
+  Ñ minecraft:end_stone_brick_slab[type=top,waterlogged=true]
+  Ò minecraft:granite_slab[type=bottom,waterlogged=false]
+  Ó minecraft:granite_slab[type=bottom,waterlogged=true]
+  Ô minecraft:granite_slab[type=double,waterlogged=false]
+  Õ minecraft:granite_slab[type=top,waterlogged=false]
+  Ö minecraft:granite_slab[type=top,waterlogged=true]
+  Ø minecraft:jungle_slab[type=bottom,waterlogged=false]
+  Ù minecraft:jungle_slab[type=bottom,waterlogged=true]
+  Ú minecraft:jungle_slab[type=double,waterlogged=false]
+  Û minecraft:jungle_slab[type=top,waterlogged=false]
+  Ü minecraft:jungle_slab[type=top,waterlogged=true]
+  Ý minecraft:mangrove_slab[type=bottom,waterlogged=false]
+  Þ minecraft:mangrove_slab[type=bottom,waterlogged=true]
+  ß minecraft:mangrove_slab[type=double,waterlogged=false]
+  à minecraft:mangrove_slab[type=top,waterlogged=false]
+  á minecraft:mangrove_slab[type=top,waterlogged=true]
+  â minecraft:mossy_cobblestone_slab[type=bottom,waterlogged=false]
+  ã minecraft:mossy_cobblestone_slab[type=bottom,waterlogged=true]
+  ä minecraft:mossy_cobblestone_slab[type=double,waterlogged=false]
+  å minecraft:mossy_cobblestone_slab[type=top,waterlogged=false]
+  æ minecraft:mossy_cobblestone_slab[type=top,waterlogged=true]
+  ç minecraft:mossy_stone_brick_slab[type=bottom,waterlogged=false]
+  è minecraft:mossy_stone_brick_slab[type=bottom,waterlogged=true]
+  é minecraft:mossy_stone_brick_slab[type=double,waterlogged=false]
+  ê minecraft:mossy_stone_brick_slab[type=top,waterlogged=false]
+  ë minecraft:mossy_stone_brick_slab[type=top,waterlogged=true]
+  ì minecraft:mud_brick_slab[type=bottom,waterlogged=false]
+  í minecraft:mud_brick_slab[type=bottom,waterlogged=true]
+  î minecraft:mud_brick_slab[type=double,waterlogged=false]
+  ï minecraft:mud_brick_slab[type=top,waterlogged=false]
+  ð minecraft:mud_brick_slab[type=top,waterlogged=true]
+  ñ minecraft:nether_brick_slab[type=bottom,waterlogged=false]
+  ò minecraft:nether_brick_slab[type=bottom,waterlogged=true]
+  ó minecraft:nether_brick_slab[type=double,waterlogged=false]
+  ô minecraft:nether_brick_slab[type=top,waterlogged=false]
+  õ minecraft:nether_brick_slab[type=top,waterlogged=true]
+  ö minecraft:oak_slab[type=bottom,waterlogged=false]
+  ø minecraft:oak_slab[type=bottom,waterlogged=true]
+  ù minecraft:oak_slab[type=double,waterlogged=false]
+  ú minecraft:oak_slab[type=top,waterlogged=false]
+  û minecraft:oak_slab[type=top,waterlogged=true]
+  ü minecraft:pale_oak_slab[type=bottom,waterlogged=false]
+  ý minecraft:pale_oak_slab[type=bottom,waterlogged=true]
+  þ minecraft:pale_oak_slab[type=double,waterlogged=false]
+  ÿ minecraft:pale_oak_slab[type=top,waterlogged=false]
+  Α minecraft:pale_oak_slab[type=top,waterlogged=true]
+  Β minecraft:petrified_oak_slab[type=bottom,waterlogged=false]
+  Γ minecraft:petrified_oak_slab[type=bottom,waterlogged=true]
+  Δ minecraft:petrified_oak_slab[type=double,waterlogged=false]
+  Ε minecraft:petrified_oak_slab[type=top,waterlogged=false]
+  Ζ minecraft:petrified_oak_slab[type=top,waterlogged=true]
+  Η minecraft:polished_andesite_slab[type=bottom,waterlogged=false]
+  Θ minecraft:polished_andesite_slab[type=bottom,waterlogged=true]
+  Ι minecraft:polished_andesite_slab[type=double,waterlogged=false]
+  Κ minecraft:polished_andesite_slab[type=top,waterlogged=false]
+  Λ minecraft:polished_andesite_slab[type=top,waterlogged=true]
+  Μ minecraft:polished_blackstone_brick_slab[type=bottom,waterlogged=false]
+  Ν minecraft:polished_blackstone_brick_slab[type=bottom,waterlogged=true]
+  Ξ minecraft:polished_blackstone_brick_slab[type=double,waterlogged=false]
+  Ο minecraft:polished_blackstone_brick_slab[type=top,waterlogged=false]
+  Π minecraft:polished_blackstone_brick_slab[type=top,waterlogged=true]
+  Ρ minecraft:polished_blackstone_slab[type=bottom,waterlogged=false]
+  Σ minecraft:polished_blackstone_slab[type=bottom,waterlogged=true]
+  Τ minecraft:polished_blackstone_slab[type=double,waterlogged=false]
+  Υ minecraft:polished_blackstone_slab[type=top,waterlogged=false]
+  Φ minecraft:polished_blackstone_slab[type=top,waterlogged=true]
+  Χ minecraft:polished_cinnabar_slab[type=bottom,waterlogged=false]
+  Ψ minecraft:polished_cinnabar_slab[type=bottom,waterlogged=true]
+  Ω minecraft:polished_cinnabar_slab[type=double,waterlogged=false]
+  Ϊ minecraft:polished_cinnabar_slab[type=top,waterlogged=false]
+  Ϋ minecraft:polished_cinnabar_slab[type=top,waterlogged=true]
+  ά minecraft:polished_deepslate_slab[type=bottom,waterlogged=false]
+  έ minecraft:polished_deepslate_slab[type=bottom,waterlogged=true]
+  ή minecraft:polished_deepslate_slab[type=double,waterlogged=false]
+  ί minecraft:polished_deepslate_slab[type=top,waterlogged=false]
+  ΰ minecraft:polished_deepslate_slab[type=top,waterlogged=true]
+  α minecraft:polished_diorite_slab[type=bottom,waterlogged=false]
+  β minecraft:polished_diorite_slab[type=bottom,waterlogged=true]
+  γ minecraft:polished_diorite_slab[type=double,waterlogged=false]
+  δ minecraft:polished_diorite_slab[type=top,waterlogged=false]
+  ε minecraft:polished_diorite_slab[type=top,waterlogged=true]
+  ζ minecraft:polished_granite_slab[type=bottom,waterlogged=false]
+  η minecraft:polished_granite_slab[type=bottom,waterlogged=true]
+  θ minecraft:polished_granite_slab[type=double,waterlogged=false]
+  ι minecraft:polished_granite_slab[type=top,waterlogged=false]
+  κ minecraft:polished_granite_slab[type=top,waterlogged=true]
+  λ minecraft:polished_sulfur_slab[type=bottom,waterlogged=false]
+  μ minecraft:polished_sulfur_slab[type=bottom,waterlogged=true]
+  ν minecraft:polished_sulfur_slab[type=double,waterlogged=false]
+  ξ minecraft:polished_sulfur_slab[type=top,waterlogged=false]
+  ο minecraft:polished_sulfur_slab[type=top,waterlogged=true]
+  π minecraft:polished_tuff_slab[type=bottom,waterlogged=false]
+  ρ minecraft:polished_tuff_slab[type=bottom,waterlogged=true]
+  ς minecraft:polished_tuff_slab[type=double,waterlogged=false]
+  σ minecraft:polished_tuff_slab[type=top,waterlogged=false]
+  τ minecraft:polished_tuff_slab[type=top,waterlogged=true]
+  υ minecraft:poplar_slab[type=bottom,waterlogged=false]
+  φ minecraft:poplar_slab[type=bottom,waterlogged=true]
+  χ minecraft:poplar_slab[type=double,waterlogged=false]
+  ψ minecraft:poplar_slab[type=top,waterlogged=false]
+  ω minecraft:poplar_slab[type=top,waterlogged=true]
+  Ѐ minecraft:prismarine_brick_slab[type=bottom,waterlogged=false]
+  Ё minecraft:prismarine_brick_slab[type=bottom,waterlogged=true]
+  Ђ minecraft:prismarine_brick_slab[type=double,waterlogged=false]
+  Ѓ minecraft:prismarine_brick_slab[type=top,waterlogged=false]
+  Є minecraft:prismarine_brick_slab[type=top,waterlogged=true]
+  Ѕ minecraft:prismarine_slab[type=bottom,waterlogged=false]
+  І minecraft:prismarine_slab[type=bottom,waterlogged=true]
+  Ї minecraft:prismarine_slab[type=double,waterlogged=false]
+  Ј minecraft:prismarine_slab[type=top,waterlogged=false]
+  Љ minecraft:prismarine_slab[type=top,waterlogged=true]
+  Њ minecraft:purpur_slab[type=bottom,waterlogged=false]
+  Ћ minecraft:purpur_slab[type=bottom,waterlogged=true]
+  Ќ minecraft:purpur_slab[type=double,waterlogged=false]
+  Ѝ minecraft:purpur_slab[type=top,waterlogged=false]
+  Ў minecraft:purpur_slab[type=top,waterlogged=true]
+  Џ minecraft:quartz_slab[type=bottom,waterlogged=false]
+  А minecraft:quartz_slab[type=bottom,waterlogged=true]
+  Б minecraft:quartz_slab[type=double,waterlogged=false]
+  В minecraft:quartz_slab[type=top,waterlogged=false]
+  Г minecraft:quartz_slab[type=top,waterlogged=true]
+  Д minecraft:red_nether_brick_slab[type=bottom,waterlogged=false]
+  Е minecraft:red_nether_brick_slab[type=bottom,waterlogged=true]
+  Ж minecraft:red_nether_brick_slab[type=double,waterlogged=false]
+  З minecraft:red_nether_brick_slab[type=top,waterlogged=false]
+  И minecraft:red_nether_brick_slab[type=top,waterlogged=true]
+  Й minecraft:red_sandstone_slab[type=bottom,waterlogged=false]
+  К minecraft:red_sandstone_slab[type=bottom,waterlogged=true]
+  Л minecraft:red_sandstone_slab[type=double,waterlogged=false]
+  М minecraft:red_sandstone_slab[type=top,waterlogged=false]
+  Н minecraft:red_sandstone_slab[type=top,waterlogged=true]
+  О minecraft:resin_brick_slab[type=bottom,waterlogged=false]
+  П minecraft:resin_brick_slab[type=bottom,waterlogged=true]
+  Р minecraft:resin_brick_slab[type=double,waterlogged=false]
+  С minecraft:resin_brick_slab[type=top,waterlogged=false]
+  Т minecraft:resin_brick_slab[type=top,waterlogged=true]
+  У minecraft:sandstone_slab[type=bottom,waterlogged=false]
+  Ф minecraft:sandstone_slab[type=bottom,waterlogged=true]
+  Х minecraft:sandstone_slab[type=double,waterlogged=false]
+  Ц minecraft:sandstone_slab[type=top,waterlogged=false]
+  Ч minecraft:sandstone_slab[type=top,waterlogged=true]
+  Ш minecraft:smooth_quartz_slab[type=bottom,waterlogged=false]
+  Щ minecraft:smooth_quartz_slab[type=bottom,waterlogged=true]
+  Ъ minecraft:smooth_quartz_slab[type=double,waterlogged=false]
+  Ы minecraft:smooth_quartz_slab[type=top,waterlogged=false]
+  Ь minecraft:smooth_quartz_slab[type=top,waterlogged=true]
+  Э minecraft:smooth_red_sandstone_slab[type=bottom,waterlogged=false]
+  Ю minecraft:smooth_red_sandstone_slab[type=bottom,waterlogged=true]
+  Я minecraft:smooth_red_sandstone_slab[type=double,waterlogged=false]
+  а minecraft:smooth_red_sandstone_slab[type=top,waterlogged=false]
+  б minecraft:smooth_red_sandstone_slab[type=top,waterlogged=true]
+  в minecraft:smooth_sandstone_slab[type=bottom,waterlogged=false]
+  г minecraft:smooth_sandstone_slab[type=bottom,waterlogged=true]
+  д minecraft:smooth_sandstone_slab[type=double,waterlogged=false]
+  е minecraft:smooth_sandstone_slab[type=top,waterlogged=false]
+  ж minecraft:smooth_sandstone_slab[type=top,waterlogged=true]
+  з minecraft:smooth_stone_slab[type=bottom,waterlogged=false]
+  и minecraft:smooth_stone_slab[type=bottom,waterlogged=true]
+  й minecraft:smooth_stone_slab[type=double,waterlogged=false]
+  к minecraft:smooth_stone_slab[type=top,waterlogged=false]
+  л minecraft:smooth_stone_slab[type=top,waterlogged=true]
+  м minecraft:spruce_slab[type=bottom,waterlogged=false]
+  н minecraft:spruce_slab[type=bottom,waterlogged=true]
+  о minecraft:spruce_slab[type=double,waterlogged=false]
+  п minecraft:spruce_slab[type=top,waterlogged=false]
+  р minecraft:spruce_slab[type=top,waterlogged=true]
+  с minecraft:stone
+  т minecraft:stone_brick_slab[type=bottom,waterlogged=false]
+  у minecraft:stone_brick_slab[type=bottom,waterlogged=true]
+  ф minecraft:stone_brick_slab[type=double,waterlogged=false]
+  х minecraft:stone_brick_slab[type=top,waterlogged=false]
+  ц minecraft:stone_brick_slab[type=top,waterlogged=true]
+  ч minecraft:stone_slab[type=bottom,waterlogged=false]
+  ш minecraft:stone_slab[type=bottom,waterlogged=true]
+  щ minecraft:stone_slab[type=double,waterlogged=false]
+  ъ minecraft:stone_slab[type=top,waterlogged=false]
+  ы minecraft:stone_slab[type=top,waterlogged=true]
+  ь minecraft:sulfur_brick_slab[type=bottom,waterlogged=false]
+  э minecraft:sulfur_brick_slab[type=bottom,waterlogged=true]
+  ю minecraft:sulfur_brick_slab[type=double,waterlogged=false]
+  я minecraft:sulfur_brick_slab[type=top,waterlogged=false]
+  ѐ minecraft:sulfur_brick_slab[type=top,waterlogged=true]
+  ё minecraft:sulfur_slab[type=bottom,waterlogged=false]
+  ђ minecraft:sulfur_slab[type=bottom,waterlogged=true]
+  ѓ minecraft:sulfur_slab[type=double,waterlogged=false]
+  є minecraft:sulfur_slab[type=top,waterlogged=false]
+  ѕ minecraft:sulfur_slab[type=top,waterlogged=true]
+  і minecraft:tuff_brick_slab[type=bottom,waterlogged=false]
+  ї minecraft:tuff_brick_slab[type=bottom,waterlogged=true]
+  ј minecraft:tuff_brick_slab[type=double,waterlogged=false]
+  љ minecraft:tuff_brick_slab[type=top,waterlogged=false]
+  њ minecraft:tuff_brick_slab[type=top,waterlogged=true]
+  ћ minecraft:tuff_slab[type=bottom,waterlogged=false]
+  ќ minecraft:tuff_slab[type=bottom,waterlogged=true]
+  ѝ minecraft:tuff_slab[type=double,waterlogged=false]
+  ў minecraft:tuff_slab[type=top,waterlogged=false]
+  џ minecraft:tuff_slab[type=top,waterlogged=true]
+  Ѡ minecraft:warped_slab[type=bottom,waterlogged=false]
+  ѡ minecraft:warped_slab[type=bottom,waterlogged=true]
+  Ѣ minecraft:warped_slab[type=double,waterlogged=false]
+  ѣ minecraft:warped_slab[type=top,waterlogged=false]
+  Ѥ minecraft:warped_slab[type=top,waterlogged=true]
+layer 0:
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+  ссссссссссссссссссссссссс
+layer 1:
+  О.Ё.п.Ü.|.υ.J.^.7.î.Й.и.а
+  .
+  С.Є.о.A.\.ψ.M.>.e.í.М.л.Я
+  .
+  Р.'.н.C.,.χ.ч.<.h.ð.Л.Њ.Ю
+  .
+  П.(.р.B.ü.φ.ъ.~.g.ñ.К.Ѝ.б
+  .
+  Т.".S.a.ÿ.ω.щ.Β.f.ô.Н.Ќ.ç
+  .
+  Ѕ.`.V.D.þ.N.ш.Ε.i.ó.&.Ћ.ê
+  .
+  Ј.).U.j.ý.Q.ы.Δ.т.ò.=.Ў.é
+  .
+  Ї.ö.T.m.Α.P.У.Γ.х.õ.+.ζ.è
+  .
+  І.ú.W.l.Ý.O.Ц.Ζ.ф.Џ.*.ι.ë
+  .
+  Љ.ù.Ø.k.à.R.Х.3.у.В.?.θ.α
+  .
+  Ѐ.ø.Û.n.ß.b.Ф.6.ц.Б.з.η.δ
+  .
+  Ѓ.û.Ú./.Þ.L.Ч.5.ì.А.к.κ.γ
+  .
+  Ђ.м.Ù.;.á.K.!.4.ï.Г.й.Э.β
+layer 2:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 3:
+  ε.д.E.Θ.ѣ.Π.ς.λ.u.1.Ç
+  .
+  â.г.H.Λ.Ѣ.Ρ.ρ.ξ.x.0.{
+  .
+  å.ж.G.È.ѡ.Υ.τ.ν.Χ.z.Á
+  .
+  ä.Ш.F.Ë.Ѥ.Τ.і.μ.Ϊ.2.À
+  .
+  ã.Ы.I.Ê.X.Σ.љ.ο.Ω.ά.}
+  .
+  æ.Ъ.Д.É.c.Φ.ј.ь.Ψ.ί.Â
+  .
+  Í.Щ.З.Ì.Z.ћ.ї.я.Ϋ.ή
+  .
+  Ð.Ь.Ж.8.Y.ў.њ.ю.o.έ
+  .
+  Ï.Ò.Е.$.d.ѝ.ё.э.r.ΰ
+  .
+  Î.Õ.И.@.Μ.ќ.є.ѐ.q.Ã
+  .
+  Ñ.Ô.Η.9.Ο.џ.ѓ.t.p.Æ
+  .
+  в.Ó.Κ.%.Ξ.π.ђ.w.s.Å
+  .
+  е.Ö.Ι.Ѡ.Ν.σ.ѕ.v.y.Ä

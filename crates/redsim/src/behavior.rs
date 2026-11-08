@@ -92,6 +92,8 @@ pub fn full_cube(s: &Block) -> bool {
         Block::Piston { extended, .. } => !extended,
         // ---- entity-reacting blocks (clk-misc) ----
         Block::StoneSlab { kind } => kind == 2,
+        // ---- the slab family (terrain lane) ----
+        Block::AnySlab { kind, .. } => kind == 2,
         Block::ChiseledBookshelf { .. } | Block::Jukebox { .. } | Block::Furnace { .. } => true,
         // ---- TNT dupers (track tnt) ----
         Block::Tnt { .. } => true,
@@ -210,6 +212,8 @@ pub fn conductor_of(s: &Block) -> bool {
         Block::Piston { .. } | Block::PistonHead { .. } | Block::MovingPiston { .. } => crate::piston::is_conductor(s),
         // ---- entity-reacting blocks (clk-misc) ----
         Block::StoneSlab { kind } => kind == 2,
+        // ---- the slab family (terrain lane) ----
+        Block::AnySlab { kind, .. } => kind == 2,
         Block::ChiseledBookshelf { .. } | Block::Jukebox { .. } | Block::Furnace { .. } => true,
         // ---- shulker study (clk-rt): the default predicate, isCollisionShapeFullBlock (closed) ----
         Block::ShulkerBox { .. } => true,
@@ -303,6 +307,8 @@ pub fn sturdy_of(s: &Block, face: Dir, support: Support) -> bool {
         Block::Piston { .. } | Block::PistonHead { .. } | Block::MovingPiston { .. } => crate::piston::sturdy(s, face, support),
         // ---- entity-reacting blocks (clk-misc) ----
         Block::StoneSlab { kind } => kind == 2 || (kind == 0 && face == Dir::Down) || (kind == 1 && face == Dir::Up),
+        // ---- the slab family (terrain lane) ----
+        Block::AnySlab { kind, .. } => kind == 2 || (kind == 0 && face == Dir::Down) || (kind == 1 && face == Dir::Up),
         Block::ChiseledBookshelf { .. } | Block::Jukebox { .. } | Block::Furnace { .. } => true,
         Block::DaylightDetector { .. } => face == Dir::Down,
         // ---- TNT dupers (track tnt) ----
@@ -475,6 +481,14 @@ pub fn instrument(s: &Block) -> Instrument {
         // ---- entity-reacting blocks (clk-misc) ----
         Block::Plate { kind: 0, .. } | Block::WallBanner { .. } | Block::ChiseledBookshelf { .. } | Block::DaylightDetector { .. } | Block::Jukebox { .. } => Instrument::Bass,
         Block::Plate { kind: 1, .. } | Block::StoneSlab { .. } => Instrument::Basedrum,
+        // ---- the slab family (terrain lane): its base's instrument ----
+        Block::AnySlab { mat, .. } => {
+            if crate::slab::wood(mat) {
+                Instrument::Bass
+            } else {
+                Instrument::Basedrum
+            }
+        }
         // ---- smelter study (track sorter): a furnace is stone (BASEDRUM) ----
         Block::Furnace { .. } => Instrument::Basedrum,
         // ---- TNT dupers (track tnt) ----
@@ -762,7 +776,7 @@ pub fn collision_boxes(s: &Block) -> Vec<Box16> {
             let h = hanging as i32;
             vec![[6, 10, 7 + h, 9 + h, 6, 10], [5, 11, h, 7 + h, 5, 11]]
         }
-        Block::StoneSlab { kind } => match kind {
+        Block::StoneSlab { kind } | Block::AnySlab { kind, .. } => match kind {
             0 => vec![[0, 16, 0, 8, 0, 16]],
             1 => vec![[0, 16, 8, 16, 0, 16]],
             _ => vec![FULL],
@@ -958,6 +972,12 @@ pub fn update_shape(w: &mut World, s: Block, p: BlockPos, d: Dir, np: BlockPos, 
         // water ticks ----
         Block::SugarCane { .. } => crate::crops::update_shape(w, s, p),
         Block::WaterloggedGrate => {
+            crate::fluid::waterlogged_update_shape(w, &s, p);
+            s
+        }
+        // ---- the slab family (terrain lane): SlabBlock.updateShape (a waterlogged slab's water
+        // ticks) ----
+        Block::AnySlab { .. } => {
             crate::fluid::waterlogged_update_shape(w, &s, p);
             s
         }

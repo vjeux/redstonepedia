@@ -223,6 +223,10 @@ pub fn waterlogged(b: &Block) -> Option<bool> {
         Block::WaterloggedGrate => Some(true),
         // ---- placed light sources (terrain lane): sea pickles carry their water ----
         Block::SeaPickle { waterlogged, .. } => Some(waterlogged),
+        // ---- the slab family (terrain lane); smooth stone's and stone's dry slabs take water too
+        // (their waterlogged states are `AnySlab`s; a double slab never) ----
+        Block::AnySlab { waterlogged, .. } => Some(waterlogged),
+        Block::Slab { kind } | Block::StoneSlab { kind } if kind < 2 => Some(false),
         _ => None,
     }
 }
@@ -242,6 +246,16 @@ pub fn set_waterlogged(b: Block, v: bool) -> Option<Block> {
         Block::WaterloggedGrate => Some(if v { Block::WaterloggedGrate } else { Block::Simple(crate::block::Simple::WaxedCopperGrate) }),
         // ---- placed light sources (terrain lane) ----
         Block::SeaPickle { pickles, .. } => Some(Block::SeaPickle { pickles, waterlogged: v }),
+        // ---- the slab family (terrain lane): smooth stone's and stone's dry slabs keep their own
+        // variants ----
+        Block::AnySlab { mat, kind, .. } => Some(match (crate::slab::material(mat), v) {
+            ("smooth_stone", false) => Block::Slab { kind },
+            ("stone", false) => Block::StoneSlab { kind },
+            _ => Block::AnySlab { mat, kind, waterlogged: v },
+        }),
+        Block::Slab { kind } if v => Some(Block::AnySlab { mat: crate::slab::index("smooth_stone_slab").unwrap_or(0), kind, waterlogged: true }),
+        Block::StoneSlab { kind } if v => Some(Block::AnySlab { mat: crate::slab::index("stone_slab").unwrap_or(0), kind, waterlogged: true }),
+        Block::Slab { .. } | Block::StoneSlab { .. } => Some(b),
         _ => None,
     }
 }
@@ -355,7 +369,7 @@ fn can_hold_specific_fluid(b: &Block, f: Fluid) -> bool {
     if !is_container(b) {
         return true;
     }
-    if let Block::Slab { kind: 2 } = b {
+    if matches!(b, Block::Slab { kind: 2 } | Block::StoneSlab { kind: 2 } | Block::AnySlab { kind: 2, .. }) {
         return false;
     }
     // kelp: canPlaceLiquid false

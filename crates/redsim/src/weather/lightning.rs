@@ -167,6 +167,15 @@ pub fn flammable(b: &Block) -> Option<(i32, i32)> {
             }
             (p.ignite_odds, p.burn_odds)
         }
+        // the slab family (terrain lane): its own block's odds (the table: the wood slabs 5/20,
+        // waterlogged 0)
+        Block::AnySlab { .. } => {
+            let p = crate::slab::row(b)?;
+            if p.ignite_odds <= 0 && p.burn_odds <= 0 {
+                return None;
+            }
+            (p.ignite_odds, p.burn_odds)
+        }
         Block::Leaves { .. } => (30, 60),
         Block::FenceGate { .. } => (5, 20),
         Block::Fence { kind, waterlogged: false, .. } if crate::fence::wooden(*kind) => (5, 20),

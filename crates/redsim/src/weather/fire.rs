@@ -65,6 +65,8 @@ pub fn ignited_by_lava(b: &Block) -> bool {
     match *b {
         // a natural state: the table's `ignitedByLava` (terrain lane)
         Block::Terrain(id) => crate::terrain::blocks::props(id).ignited_by_lava,
+        // the slab family (terrain lane): its own block's (the wood slabs)
+        Block::AnySlab { .. } => crate::slab::row(b).is_some_and(|p| p.ignited_by_lava),
         Block::Simple(s) => matches!(
             s,
             Simple::OakPlanks

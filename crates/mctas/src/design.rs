@@ -354,6 +354,11 @@ impl Design {
         let pool: Vec<char> =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@$%&*+=?!<>^~/\\|;,'`\"(){}"
                 .chars()
+                // past the ASCII pool (a design with more than ~90 states: the slab fixture),
+                // Latin-1 letters, then Greek and Cyrillic ones
+                .chain(('À'..='ÿ').filter(|c| c.is_alphabetic()))
+                .chain(('Α'..='ω').filter(|c| c.is_alphabetic()))
+                .chain(('Ѐ'..='ӿ').filter(|c| c.is_alphabetic()))
                 .collect();
         for s in &states {
             let short = BlockState::parse(s).map(|b| b.short_name().to_string()).unwrap_or_default();

@@ -72,6 +72,13 @@ pub enum TerrainCmd {
     },
     /// Paste a design at a spot in redsim and in the official server (the sample's own world, the
     /// same cells by `setblock ... strict`) and compare every block and light value around it.
+    /// Write the slab fixture (every slab redsim models: each material's bottom, top and double
+    /// slabs dry and its bottom and top slabs waterlogged, a cell apart on two levels over a stone
+    /// floor) for `paste-check` against the official server.
+    SlabFixture {
+        #[arg(long, default_value = "designs/terrain/fixtures/slabs.txt")]
+        out: PathBuf,
+    },
     PasteCheck {
         /// The sample (a cached full area or a crop).
         file: PathBuf,
@@ -208,6 +215,10 @@ pub enum TerrainCmd {
         /// Keep every state the table already has (a regenerated table only grows).
         #[arg(long)]
         keep_existing: bool,
+        /// Every state of every slab redsim models (`redsim::slab::SLABS`: the slab family's
+        /// light, odds, resistance and spawn floors come from their rows).
+        #[arg(long)]
+        slabs: bool,
     },
     /// The game's `/locate` from a point: `structure:village_plains`, `biome:forest`, ... (one
     /// server per seed: `--seed 1,2,3`).
@@ -320,6 +331,35 @@ pub fn run(version: &str, cmd: TerrainCmd) -> Result<()> {
                     println!("day {t}: {} {} {}: light {l} (redsim skyDarken {})", c[0], c[1], c[2], redsim::daylight::sky_darken(*t));
                 }
             }
+        }
+        TerrainCmd::SlabFixture { out } => {
+            let mut states = Vec::new();
+            for (i, _) in redsim::slab::all().enumerate() {
+                for (kind, wet) in [(0u8, false), (1, false), (2, false), (0, true), (1, true)] {
+                    states.push(redsim::slab::state_name(i as u8, kind, wet));
+                }
+            }
+            let mut d = mctas::design::Design { name: "slabs".into(), ..Default::default() };
+            d.meta.insert("circuit".into(), "fixture slabs".into());
+            d.meta.insert("how".into(), "every slab redsim models, for mctas terrain paste-check".into());
+            let side = 25;
+            for x in 0..side {
+                for z in 0..side {
+                    d.blocks.insert([x, 0, z], "minecraft:stone".into());
+                }
+            }
+            // a cell apart (no two slabs touch), on layers 1 and 3
+            let spots: Vec<[i32; 3]> = [1, 3].iter().flat_map(|&y| (0..side).step_by(2).flat_map(move |x| (0..side).step_by(2).map(move |z| [x, y, z]))).collect();
+            anyhow::ensure!(spots.len() >= states.len(), "{} slab states, {} spots", states.len(), spots.len());
+            for (s, p) in states.iter().zip(&spots) {
+                d.blocks.insert(*p, s.clone());
+            }
+            let text = format!(
+                "# The slab fixture (terrain lane, `mctas terrain slab-fixture`): every slab redsim models\n# (redsim::slab::SLABS: bottom, top and double, dry; bottom and top, waterlogged), a cell apart\n# on two levels over a stone floor, for `mctas terrain paste-check` against the official server.\n{}",
+                d.to_text()
+            );
+            std::fs::write(&out, text)?;
+            println!("wrote {} ({} slab states)", out.display(), states.len());
         }
         TerrainCmd::PasteCheck { file, world, design, at, ground, radius } => {
             anyhow::ensure!(at.len() == 2, "--at takes X,Z");
@@ -436,7 +476,10 @@ pub fn run(version: &str, cmd: TerrainCmd) -> Result<()> {
                 println!("section {y:>3}: palette {:>3}, {}, block light {}", s.palette.len(), sky.unwrap_or_else(|| "no sky layer".into()), s.block_light.is_some());
             }
         }
-        TerrainCmd::Blockinfo { files, mut state, mut block, design, out, check, keep_existing } => {
+        TerrainCmd::Blockinfo { files, mut state, mut block, design, out, check, keep_existing, slabs } => {
+            if slabs {
+                block.extend(redsim::slab::all().map(|m| format!("minecraft:{m}_slab")));
+            }
             if keep_existing && let Ok(text) = std::fs::read_to_string(&out) {
                 state.extend(text.lines().filter(|l| l.starts_with("minecraft:")).map(|l| l.split('\t').next().unwrap_or(l).to_string()));
             }

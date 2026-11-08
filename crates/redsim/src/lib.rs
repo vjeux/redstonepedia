@@ -33,6 +33,7 @@ pub mod redstone;
 pub mod rng;
 pub mod robust;
 pub mod sculk;
+pub mod slab;
 pub mod snapshot;
 pub mod terrain;
 pub mod ticks;

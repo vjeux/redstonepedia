@@ -119,6 +119,8 @@ pub fn block_resistance(b: &Block) -> f32 {
         // fire (mobinfra): instabreak
         Block::Fire { .. } => 0.0,
         Block::Slab { .. } | Block::StoneSlab { .. } => 6.0,
+        // the slab family (terrain lane): its own block's resistance (the natural-state table)
+        Block::AnySlab { .. } => crate::slab::row(b).map_or(6.0, |p| p.resistance),
         Block::Leaves { .. } => 0.2,
         Block::Scaffolding { .. } | Block::Tripwire { .. } | Block::TripwireHook { .. } | Block::Tnt { .. } | Block::CoralFan { .. } | Block::CoralWallFan { .. } | Block::BubbleColumn { .. } => 0.0,
         Block::Log { .. } => 2.0,
