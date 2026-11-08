@@ -477,11 +477,11 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
     if !has_viewer {
         return "Download the design below to build it in the game (the 3D view needs a browser with WebGL).".to_string();
     }
-    // a mob farm: the view runs it (our test's own simulation of the mob rules, its first run);
-    // the chest goes at OUT
+    // a mob farm: the view runs it (the mob rules' simulation, the judge's own first run); the
+    // chest goes at OUT. Written for the player building it (vjeux 2026-11-08)
     if crate::explain::mob_farm(c) {
         return format!(
-            "Press play: the view runs the farm as our test runs it, so the villagers sleep at night and panic at the zombie by day, golems spawn and die, and the hoppers carry their iron to the chest; the top right counts the game's time, the golems and the iron. The columns are where a golem can spawn, seen through the blocks: blue until one does, then yellow to red by how many have, and a flash at each spawn (Spawn spots hides them). {} Build it and wait near it.{}",
+            "Press play to watch it work: the villagers sleep at night and panic at the zombie by day, golems spawn and die, and the hoppers carry their iron to the chest; the top right counts the game's time, the golems and the iron. The columns are where a golem can spawn, seen through the blocks: blue until one does, then yellow to red by how many have, and a flash at each spawn (Spawn spots hides them). {} Build it and wait near it.{}",
             crate::explain::chest_words(c),
             crate::explain::first_night(c)
         );
@@ -848,8 +848,10 @@ pub fn warning(b: &Build) -> Option<String> {
         let apart = site_model::html::tile_step(c).map(|s| format!(" Copies must stand {s} blocks apart so one does not hear another.")).unwrap_or_default();
         out.push(format!("Uses a sculk sensor that hears its crop break. Footsteps, mobs or other noises within 8 blocks keep it busy for 2 seconds; a {crop} that grows at the end of that time is lost.{apart}"));
     }
-    // (an automatic door's tripwire is its walker sensor, there to be crossed: no "enclose it")
-    if b.kinds.iter().any(|k| k.starts_with("tripwire")) && !b.circuit.as_ref().is_some_and(|c| c.kind.starts_with("auto-door")) {
+    // (an automatic door's tripwire is its walker sensor, there to be crossed: no "enclose it"; a
+    // mob farm's tripwire is part of the farm, inside it: a normal part, not a warning, vjeux
+    // 2026-11-08)
+    if b.kinds.iter().any(|k| k.starts_with("tripwire")) && !b.circuit.as_ref().is_some_and(|c| c.kind.starts_with("auto-door") || c.kind.starts_with("mob-farm")) {
         out.push("Uses a tripwire: anything that crosses the string (a mob, a player, a dropped item) adds a pulse, so enclose it.".to_string());
     }
     // an automatic door: what else opens it (the reviewer's and the coordinator's page
@@ -1855,10 +1857,14 @@ mod tests {
         let b = Build { circuit: Some(gated), blocks: 578, ..Default::default() };
         assert_eq!(crate::kinds::kind_key(&b), "mob-farm iron_ingot middle");
         assert!(crate::explain::kind_title("mob-farm iron_ingot middle").starts_with("Middle-ground iron farm"));
-        // the view runs the farm (mobviewer 2026-11-08: no "as built" caveat)
-        assert!(try_it(&c, true).starts_with("Press play: the view runs the farm as our test runs it"), "{}", try_it(&c, true));
+        // the view runs the farm, and the page speaks to the player building it, not about our
+        // tests (mobviewer 2026-11-08: no "as built" caveat; vjeux 2026-11-08: no test provenance)
+        assert!(try_it(&c, true).starts_with("Press play to watch it work"), "{}", try_it(&c, true));
         assert!(!try_it(&c, true).contains("as built"));
         assert!(!try_it(&c, true).contains("first night"));
+        assert!(!try_it(&c, true).contains("our test"), "{}", try_it(&c, true));
+        assert_eq!(crate::explain::mob_farm_value("iron range", "95% 439-447 (64 runs)"), "95% 439-447");
+        assert_eq!(crate::explain::mob_farm_value("real game", "8 builds in the 26.3 server on Hard: 3 days of natural weather 111.6 golems/h (redsim 110.2, 95% 95.0-125.4)"), "yes, in rain and in thunder too");
         // a farm in no tier (the brief's obvious design) is no published kind
         let bar = Build { circuit: Some(Circuit { kind: "mob-farm iron_ingot".into(), ..c.clone() }), ..Default::default() };
         assert!(crate::kinds::kind_key(&bar).starts_with('-'));
@@ -1877,6 +1883,8 @@ mod tests {
         assert_eq!(p.title, "295 iron an hour · 62% of the ceiling · 189 blocks · 1.6 per block · 9 iron · golems burn in lava pits");
         assert_eq!(p.kind, "Iron farm");
         assert!(p.sub.contains("74 golems an hour, one every 49 s"), "{}", p.sub);
+        // (written for the player: no "at the game's normal speed", vjeux 2026-11-08)
+        assert!(!p.sub.contains("normal speed"), "{}", p.sub);
         assert!(p.sub.contains("3 villagers and a zombie"), "{}", p.sub);
         assert!(p.sub.contains("hide the zombie by hand the first night"), "{}", p.sub);
         // the scaled build: its zombies plural, its how

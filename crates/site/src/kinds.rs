@@ -608,8 +608,9 @@ fn lone_reason(b: &Build) -> String {
     if c.kind.starts_with("sorter") {
         why.push("the classic one-block-wide slice");
     }
-    // (a whole minecart line is one end-to-end run, not 4 facings at 4 spots: no such claim)
-    if robust(b) && !c.kind.starts_with("cart-line") {
+    // (a whole minecart line is one end-to-end run, not 4 facings at 4 spots: no such claim; a mob
+    // farm's page is written for the player building it, not about our tests, vjeux 2026-11-08)
+    if robust(b) && !c.kind.starts_with("cart-line") && !c.kind.starts_with("mob-farm") {
         why.push("passed at every position and facing we tested");
     }
     why.join(", ")

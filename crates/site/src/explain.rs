@@ -244,14 +244,36 @@ pub fn chest_words(c: &Circuit) -> &'static str {
     }
 }
 
-/// [`direction_words`] for a design: a mob farm's builds are 4 facings at 2 spots, in the real
-/// game too (the game gate runs the judge's 8 builds).
+/// [`direction_words`] for a design. A mob farm's page is written for the player building it
+/// (vjeux 2026-11-08): a farm that works any way round says "yes", not how many builds showed it.
 pub fn direction_words_of(c: &Circuit) -> String {
     let w = direction_words(&c.robustness);
+    if mob_farm(c) && w.starts_with("yes") {
+        return "yes".to_string();
+    }
     let w = if mob_farm(c) { w.replace("at 4 different spots in the world, in the real game)", "at 2 different spots in the world, in the real game)") } else { w };
     // (a preview whose design no test in the game has seen: its judge ran on our simulation,
     // src/preview.rs)
     if crate::pages::claims_game() { w } else { w.replace("in the real game", "on our simulation of the game") }
+}
+
+/// The judge's own diagnostics on a mob farm's card (the slowest walking policy of its golems, its
+/// summons that found no spot): kept off the page, which is written for the player building it
+/// (vjeux 2026-11-08).
+pub const MOB_FARM_DIAGNOSTICS: [&str; 2] = ["worst policy", "misses"];
+
+/// A mob farm's metric value as its page shows it: what it means for the player, without how it
+/// was measured (vjeux 2026-11-08). `real game`: the gate's line exists only for a farm that
+/// passed it; `iron range`: without its run count.
+pub fn mob_farm_value(k: &str, v: &str) -> String {
+    match k {
+        "real game" => "yes, in rain and in thunder too".to_string(),
+        "iron range" => match v.rsplit_once(" (") {
+            Some((head, tail)) if tail.ends_with(" runs)") => head.to_string(),
+            _ => v.to_string(),
+        },
+        _ => v.to_string(),
+    }
 }
 
 /// A design's "works in any direction, anywhere" line (vjeux 13:08Z: "robustness feels wrong"):
@@ -939,15 +961,15 @@ pub fn how_to_try(c: &Circuit, has_viewer: bool) -> String {
         return "<p>Download the design (below) to build it in the game; the 3D view needs a browser with WebGL.</p>".into();
     }
     let mut s = String::new();
-    // a mob farm: the view runs it with our test's own simulation of the mob rules (`mcview::
-    // mobfarm`: the judge's farm and its first run, tick for tick; vjeux 2026-11-08, "Just do the
-    // real work!?")
+    // a mob farm: the view runs it (`mcview::mobfarm`: the judge's farm and its first run, tick
+    // for tick); written for the player building it (vjeux 2026-11-08)
     if mob_farm(c) {
         s.push_str(&format!(
-            "<p>Press play to run the farm: the 3D view runs our test's own simulation of the game's mob rules, the very run our test made first, tick for tick. The villagers sleep in their beds at night and panic at the zombie by day, golems spawn, fall and die in the lava, and the hoppers carry their iron and poppies to the chest. {} The top right shows the game's time, the golems so far and the iron in the chest; the speed menu plays it faster or slower. {}{} Drag to look around, pinch or scroll to zoom.</p>",
+            "<p>Press play to run the farm. The villagers sleep in their beds at night and panic at the zombie by day, golems spawn, fall and die in the lava, and the hoppers carry their iron and poppies to the chest. {} The top right shows the game's time, the golems so far and the iron in the chest; the speed menu plays it faster or slower.{}{} Drag to look around, pinch or scroll to zoom.</p>",
             esc(chest_words(c)),
-            // (a preview whose design the game has not seen: where its numbers come from)
-            crate::pages::numbers_sentence().unwrap_or_else(|| "Our test also ran every build in the real game, through days of rain and thunder; its numbers are in the measurements below.".to_string()),
+            // (a preview whose design the game has not seen: where its numbers come from; a
+            // published farm says nothing of our tests, vjeux 2026-11-08)
+            crate::pages::numbers_sentence().map(|n| format!(" {n}")).unwrap_or_default(),
             first_night(c)
         ));
         return s;
