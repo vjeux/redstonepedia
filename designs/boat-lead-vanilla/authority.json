@@ -1,0 +1,32 @@
+{
+  "name": "genuine survival actor direct versus nested authority",
+  "setup": ["fill -12 200 -12 12 200 12 stone", "setworldspawn 0 201 0", "forceload add -32 -32 32 32", "time set day"],
+  "steps": [
+    {"rcon":"tag @a add mctas_probe"},
+    {"note":"DIRECT control: command-arranged stationary raft and survival actor. Mounting uses real-client crosshair use, not /ride."},
+    {"rcon":"summon bamboo_raft 3.5 201 0.5 {Tags:[\"mctas_probe\",\"direct_boat\"]}"},
+    {"rcon":"tp @a 3.5 201 -2.5"},
+    {"actor":"look 3.5 201.3 0.5 3"},
+    {"actor":"hit"}, {"actor":"click use"},
+    {"rcon":"tick unfreeze"}, {"wait":1500},
+    {"actor":"hold forward 10"}, {"actor":"keys_off"},
+    {"screenshot":"direct-boat.png"}, {"actor":"probe_state"},
+    {"rcon":"data get entity @e[tag=direct_boat,limit=1]"},
+    {"actor":"hold sneak 3"},
+    {"rcon":"tick freeze"},
+    {"rcon":"kill @e[tag=direct_boat]"},
+    {"rcon":"tp @a 3.5 201 -2.5"},
+    {"note":"NESTED control: ordinary adult tame unsaddled llama boards raft by collision. Then genuine survival player normally mounts llama."},
+    {"rcon":"summon bamboo_raft 3.5 201 0.5 {Tags:[\"mctas_probe\",\"nested_boat\"]}"},
+    {"rcon":"summon llama 3.5 201 0.5 {Tags:[\"mctas_probe\",\"nested_llama\"],Age:0,Tame:1b}"},
+    {"step":12},
+    {"actor":"look 3.5 202.2 0.5 3"},
+    {"actor":"hit"}, {"actor":"click use"},
+    {"rcon":"tick unfreeze"}, {"wait":1500},
+    {"actor":"hold forward 10"}, {"actor":"keys_off"},
+    {"screenshot":"nested-llama.png"}, {"actor":"probe_state"},
+    {"rcon":"data get entity @e[tag=nested_boat,limit=1]"},
+    {"rcon":"data get entity @e[tag=nested_llama,limit=1]"},
+    {"wait":5000}, {"rcon":"tick freeze"}
+  ]
+}

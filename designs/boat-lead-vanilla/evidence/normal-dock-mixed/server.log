@@ -1,0 +1,41 @@
+Starting net.minecraft.server.Main
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by com.sun.jna.Native in an unnamed module (file:/home/vjeux/.cache/mctas/versions/26.3/vanilla-bundler-repo/libraries/net/java/dev/jna/jna/5.17.0/jna-5.17.0.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+BOAT_PROBE_INSTRUMENTED net/minecraft/world/entity/Entity
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::objectFieldOffset has been called by org.joml.MemUtil$MemUtilUnsafe (file:/home/vjeux/.cache/mctas/versions/26.3/vanilla-bundler-repo/libraries/org/joml/joml/1.10.9/joml-1.10.9.jar)
+WARNING: Please consider reporting this to the maintainers of class org.joml.MemUtil$MemUtilUnsafe
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+BOAT_PROBE_INSTRUMENTED net/minecraft/world/entity/Leashable
+BOAT_PROBE_INSTRUMENTED net/minecraft/world/entity/vehicle/boat/AbstractBoat
+[20:49:41] [ServerMain/INFO]: Environment: Environment[discoveryUrl=https://discovery.minecraftservices.com/minecraft/client, name=PROD]
+[20:49:42] [Worker-Main-1/INFO]: No existing world data, creating new world
+[20:49:42] [Worker-Main-1/INFO]: Loaded 1866 advancements
+[20:49:42] [Server thread/INFO]: Starting minecraft server version 26.3
+[20:49:42] [Server thread/INFO]: Loading properties
+[20:49:42] [Server thread/INFO]: Default game type: SURVIVAL
+[20:49:42] [Server thread/INFO]: Generating keypair
+[20:49:42] [Server thread/INFO]: Starting Minecraft server on 127.0.0.1:37715
+[20:49:43] [Server thread/WARN]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!
+[20:49:43] [Server thread/WARN]: The server will make no attempt to authenticate usernames. Beware.
+[20:49:43] [Server thread/WARN]: While this makes the game possible to play without internet access, it also opens up the ability for hackers to connect with any username they choose.
+[20:49:43] [Server thread/WARN]: To change this, set "online-mode" to "true" in the server.properties file.
+[20:49:43] [Server thread/INFO]: Preparing level "world"
+[20:49:43] [Server thread/INFO]: Selecting global world spawn...
+[20:49:43] [Server thread/INFO]: Loading 0 persistent chunks...
+[20:49:43] [Server thread/INFO]: Preparing spawn area: 100%
+[20:49:44] [Server thread/INFO]: Time elapsed: 755 ms
+[20:49:44] [Server thread/INFO]: Done (0.871s)! For help, type "help"
+[20:49:44] [Server thread/INFO]: Starting remote control listener
+[20:49:44] [Server thread/INFO]: Thread RCON Listener started
+[20:49:44] [Server thread/INFO]: RCON running on 127.0.0.1:38281
+[20:49:44] [Server thread/INFO]: Saving chunks for level 'ServerLevel[world]'/minecraft:overworld
+[20:49:44] [RCON Listener #1/INFO]: Thread RCON Client /127.0.0.1 started
+[20:49:44] [Server thread/INFO]: Saving chunks for level 'ServerLevel[world]'/minecraft:the_nether
+[20:49:44] [Server thread/INFO]: Saving chunks for level 'ServerLevel[world]'/minecraft:the_end
+[20:49:54] [Server thread/INFO]: mctas[IP hidden] logged in with entity id 1 at (-3.5, 201.0, -16.5)
+[20:49:54] [Server thread/INFO]: System chat: mctas joined the game
+[20:50:08] [Server thread/INFO]: System chat: mctas fell out of the world

@@ -1,0 +1,20 @@
+{
+  "name": "ordinary collision seating: llama oak",
+  "setup": [
+    "fill -12 200 -12 12 200 12 stone",
+    "setworldspawn 0 201 0",
+    "forceload add -32 -32 32 32",
+    "time set day"
+  ],
+  "steps": [
+    {"rcon": "tag @a add mctas_probe"},
+    {"note": "Labeled mechanics fixture. Ordinary adult llama and oak boat overlap initially; normal boat collision decides boarding. No ride command, no AI or motion edits."},
+    {"rcon": "summon oak_boat 3.5 201 0.5 {Tags:[\"mctas_probe\",\"boat_a\"]}"},
+    {"rcon": "summon llama 3.5 201 0.5 {Tags:[\"mctas_probe\",\"holder_a\"],Age:0,Tame:1b}"},
+    {"step": 12},
+    {"rcon": "data get entity @e[tag=boat_a,limit=1]"},
+    {"rcon": "data get entity @e[tag=holder_a,limit=1]"},
+    {"actor": "look 3.5 202 0.5 1"},
+    {"screenshot": "seated.png"}
+  ]
+}

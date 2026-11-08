@@ -1,0 +1,17 @@
+{
+  "allow_flight": false,
+  "gamemode": "survival",
+  "ordinary_flags_and_loaded_chunks": true,
+  "phases": [
+    "boat_post",
+    "boat_pre",
+    "float_post",
+    "float_pre",
+    "leash_post",
+    "leash_pre",
+    "ride_after_tick",
+    "ride_post",
+    "ride_pre"
+  ],
+  "samples": 3692
+}

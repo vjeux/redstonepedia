@@ -1,0 +1,28 @@
+{
+  "name": "seating residual matrix: ordinary llama and cow, oak and bamboo",
+  "setup": ["fill -12 200 -12 12 200 12 stone", "setworldspawn 0 201 0", "forceload add -32 -32 32 32", "time set day"],
+  "steps": [
+    {"rcon":"tag @a add mctas_probe"},
+    {"note":"OAK LLAMA: ordinary adult normal AI; command-arranged overlap, normal collision boarding."},
+    {"rcon":"summon oak_boat 3.5 201 0.5 {Tags:[\"mctas_probe\",\"boat_a\",\"oak_llama\"]}"},
+    {"rcon":"summon llama 3.5 201 0.5 {Tags:[\"mctas_probe\",\"holder_a\",\"oak_llama\"],Age:0,Tame:1b}"},
+    {"step":40},
+    {"actor":"look 3.5 202 0.5 1"},
+    {"screenshot":"oak-llama.png"},
+    {"rcon":"kill @e[tag=boat_a]"}, {"rcon":"kill @e[tag=holder_a]"},
+    {"note":"BAMBOO LLAMA: identical setup, higher raft seat."},
+    {"rcon":"summon bamboo_raft 3.5 201 0.5 {Tags:[\"mctas_probe\",\"boat_a\",\"bamboo_llama\"]}"},
+    {"rcon":"summon llama 3.5 201 0.5 {Tags:[\"mctas_probe\",\"holder_a\",\"bamboo_llama\"],Age:0,Tame:1b}"},
+    {"step":40}, {"screenshot":"bamboo-llama.png"},
+    {"rcon":"kill @e[tag=boat_a]"}, {"rcon":"kill @e[tag=holder_a]"},
+    {"note":"OAK COW: lower holder control."},
+    {"rcon":"summon oak_boat 3.5 201 0.5 {Tags:[\"mctas_probe\",\"boat_a\",\"oak_cow\"]}"},
+    {"rcon":"summon cow 3.5 201 0.5 {Tags:[\"mctas_probe\",\"holder_a\",\"oak_cow\"],Age:0}"},
+    {"step":40}, {"screenshot":"oak-cow.png"},
+    {"rcon":"kill @e[tag=boat_a]"}, {"rcon":"kill @e[tag=holder_a]"},
+    {"note":"BAMBOO COW: lower holder control with higher seat."},
+    {"rcon":"summon bamboo_raft 3.5 201 0.5 {Tags:[\"mctas_probe\",\"boat_a\",\"bamboo_cow\"]}"},
+    {"rcon":"summon cow 3.5 201 0.5 {Tags:[\"mctas_probe\",\"holder_a\",\"bamboo_cow\"],Age:0}"},
+    {"step":40}, {"screenshot":"bamboo-cow.png"}
+  ]
+}

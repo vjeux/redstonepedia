@@ -1,0 +1,40 @@
+{"command":"fill -12 200 -12 12 200 12 stone","kind":"setup","result":"Successfully filled 625 block(s)","tick":1}
+{"command":"setworldspawn 0 201 0","kind":"setup","result":"Set the world spawn point to 0, 201, 0 [0.0, 0.0] in minecraft:overworld","tick":1}
+{"command":"forceload add -32 -32 32 32","kind":"setup","result":"Marked 25 chunks in minecraft:overworld from [-2, -2] to [2, 2] to be force loaded","tick":1}
+{"command":"time set day","kind":"setup","result":"Set minecraft:overworld to time marker minecraft:day","tick":1}
+{"command":"pos","kind":"actor","result":"ok dim=minecraft:overworld pos=3.50,201.00,9.50 look=0.0,0.0 mode=SURVIVAL creative=false slot=0 held=minecraft:airx0 tick=0 health=20.0 fps=41 grabbed=false","tick":1}
+{"command":"tag @a add mctas_probe","kind":"rcon","result":"Added tag 'mctas_probe' to mctas","tick":1}
+{"command":"DIRECT control: command-arranged stationary raft and survival actor. Mounting uses real-client crosshair use, not /ride.","kind":"note","result":"","tick":1}
+{"command":"summon bamboo_raft 3.5 201 0.5 {Tags:[\"mctas_probe\",\"direct_boat\"]}","kind":"rcon","result":"Summoned new Bamboo Raft","tick":1}
+{"command":"tp @a 3.5 201 -2.5","kind":"rcon","result":"Teleported mctas to 3.500000, 201.000000, -2.500000","tick":1}
+{"command":"look 3.5 201.3 0.5 3","kind":"actor","result":"ok looking","tick":1}
+{"command":"hit","kind":"actor","result":"ok type=ENTITY id=2 class=Raft","tick":1}
+{"command":"click use","kind":"actor","result":"ok type=ENTITY id=2 class=Raft","tick":1}
+{"command":"tick unfreeze","kind":"rcon","result":"The game is running normally","tick":1}
+{"command":"1500","kind":"wait_ms","result":"ok","tick":31}
+{"command":"hold forward 10","kind":"actor","result":"ok dim=minecraft:overworld pos=3.50,200.90,1.25 look=0.0,23.7 mode=SURVIVAL creative=false slot=0 held=minecraft:airx0 tick=57 health=20.0 fps=105 grabbed=true","tick":42}
+{"command":"keys_off","kind":"actor","result":"ok off","tick":43}
+{"command":"direct-boat.png","kind":"screenshot","result":"ok","tick":46}
+{"command":"probe_state","kind":"actor","result":"ok player=1 root=2 root_authoritative=true root_controller=1 vehicle=2 vehicle_controller=1 known=(0.0, -0.0784000015258789, 0.0) delta=(0.0, -0.0784000015258789, 0.0)","tick":47}
+{"command":"data get entity @e[tag=direct_boat,limit=1]","kind":"rcon","result":"Bamboo Raft has the following entity data: {Motion: [0.0d, 0.0d, 0.0d], Pos: [3.5d, 201.0d, 1.4806774440629342d], Fire: 0s, Invulnerable: 0b, fall_distance: 0.0d, Air: 300s, OnGround: 1b, PortalCooldown: 0, UUID: [I; 1163831875, 114312728, -1404801402, 1426984158], Rotation: [0.0f, 0.0f], Tags: [\"mctas_probe\", \"direct_boat\"]}","tick":48}
+{"command":"hold sneak 3","kind":"actor","result":"ok dim=minecraft:overworld pos=3.50,201.00,2.77 look=0.0,23.7 mode=SURVIVAL creative=false slot=0 held=minecraft:airx0 tick=67 health=20.0 fps=105 grabbed=true","tick":52}
+{"command":"tick freeze","kind":"rcon","result":"The game is frozen","tick":52}
+{"command":"kill @e[tag=direct_boat]","kind":"rcon","result":"Killed Bamboo Raft","tick":52}
+{"command":"tp @a 3.5 201 -2.5","kind":"rcon","result":"Teleported mctas to 3.500000, 201.000000, -2.500000","tick":52}
+{"command":"NESTED control: ordinary adult tame unsaddled llama boards raft by collision. Then genuine survival player normally mounts llama.","kind":"note","result":"","tick":52}
+{"command":"summon bamboo_raft 3.5 201 0.5 {Tags:[\"mctas_probe\",\"nested_boat\"]}","kind":"rcon","result":"Summoned new Bamboo Raft","tick":52}
+{"command":"summon llama 3.5 201 0.5 {Tags:[\"mctas_probe\",\"nested_llama\"],Age:0,Tame:1b}","kind":"rcon","result":"Summoned new Llama","tick":52}
+{"command":"12","kind":"step","result":"ok","tick":64}
+{"command":"look 3.5 202.2 0.5 3","kind":"actor","result":"ok looking","tick":64}
+{"command":"hit","kind":"actor","result":"ok type=ENTITY id=4 class=Llama","tick":64}
+{"command":"click use","kind":"actor","result":"ok type=ENTITY id=4 class=Llama","tick":64}
+{"command":"tick unfreeze","kind":"rcon","result":"The game is running normally","tick":64}
+{"command":"1500","kind":"wait_ms","result":"ok","tick":94}
+{"command":"hold forward 10","kind":"actor","result":"ok dim=minecraft:overworld pos=3.50,202.27,0.20 look=-21.1,11.3 mode=SURVIVAL creative=false slot=0 held=minecraft:airx0 tick=128 health=20.0 fps=111 grabbed=true","tick":106}
+{"command":"keys_off","kind":"actor","result":"ok off","tick":107}
+{"command":"nested-llama.png","kind":"screenshot","result":"ok","tick":110}
+{"command":"probe_state","kind":"actor","result":"ok player=1 root=3 root_authoritative=false root_controller=null vehicle=4 vehicle_controller=null known=(0.0, -0.0784000015258789, 0.0) delta=(0.0, -0.0784000015258789, 0.0)","tick":111}
+{"command":"data get entity @e[tag=nested_boat,limit=1]","kind":"rcon","result":"Bamboo Raft has the following entity data: {Motion: [0.0d, 0.0d, 0.0d], Passengers: [{AgeLocked: 0b, Brain: {memories: {}}, Tame: 1b, Invulnerable: 0b, FallFlying: 0b, ForcedAge: 0, PortalCooldown: 0, AbsorptionAmount: 0.0f, Bred: 0b, InLove: 0, EatingHaystack: 0b, DeathTime: 0s, PersistenceRequired: 0b, id: \"minecraft:llama\", UUID: [I; -170236479, 1850493145, -1641047264, -1786710311], Tags: [\"mctas_probe\", \"nested_llama\"], Age: 0, Motion: [0.0d, -0.0784000015258789d, 0.0d], Health: 53.0f, LeftHanded: 0b, fall_distance: 0.0d, Air: 300s, OnGround: 0b, Rotation: [0.0f, 0.0f], current_impulse_context_reset_grace_time: 0, Variant: 0, Pos: [3.5d, 201.5d, 0.5d], ChestedHorse: 0b, Fire: 0s, Temper: 0, CanPickUpLoot: 0b, attributes: [{id: \"minecraft:movement_speed\", base: 0.17499999701976776d}], HurtTime: 0s, Strength: 1}], Pos: [3.5d, 201.0d, 0.5d], Fire: 0s, Invulnerable: 0b, fall_distance: 0.0d, Air: 300s, OnGround: 1b, PortalCooldown: 0, UUID: [I; -86454518, 335692282, -1188895380, -973142436], Rotation: [0.0f, 0.0f], Tags: [\"mctas_probe\", \"nested_boat\"]}","tick":111}
+{"command":"data get entity @e[tag=nested_llama,limit=1]","kind":"rcon","result":"Llama has the following entity data: {AgeLocked: 0b, Brain: {memories: {}}, Tame: 1b, Invulnerable: 0b, FallFlying: 0b, ForcedAge: 0, PortalCooldown: 0, AbsorptionAmount: 0.0f, Bred: 0b, InLove: 0, EatingHaystack: 0b, DeathTime: 0s, PersistenceRequired: 0b, UUID: [I; -170236479, 1850493145, -1641047264, -1786710311], Tags: [\"mctas_probe\", \"nested_llama\"], Age: 0, Motion: [0.0d, -0.0784000015258789d, 0.0d], Health: 53.0f, LeftHanded: 0b, fall_distance: 0.0d, Air: 300s, OnGround: 0b, Rotation: [0.0f, 0.0f], current_impulse_context_reset_grace_time: 0, Variant: 0, Pos: [3.5d, 201.5d, 0.5d], ChestedHorse: 0b, Fire: 0s, Temper: 0, CanPickUpLoot: 0b, attributes: [{id: \"minecraft:movement_speed\", base: 0.17499999701976776d}], HurtTime: 0s, Strength: 1}","tick":111}
+{"command":"5000","kind":"wait_ms","result":"ok","tick":211}
+{"command":"tick freeze","kind":"rcon","result":"The game is frozen","tick":211}

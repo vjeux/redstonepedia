@@ -1,0 +1,128 @@
+{
+  "name": "pair-raft-mixed",
+  "setup": [
+    "fill -12 200 -17 22 200 12 stone",
+    "setworldspawn 5 201 -16",
+    "forceload add -64 -64 64 64",
+    "time set day"
+  ],
+  "steps": [
+    {
+      "rcon": "tag @a add mctas_probe"
+    },
+    {
+      "rcon": "give @a lead 2"
+    },
+    {
+      "rcon": "summon bamboo_raft 0.5 201 0.5 {Tags:[\"mctas_probe\",\"boat_a\"]}"
+    },
+    {
+      "rcon": "summon llama 0.5 201 0.5 {Tags:[\"mctas_probe\",\"holder_a\"],Age:0,Tame:1b}"
+    },
+    {
+      "rcon": "summon bamboo_raft 10.5 201 0.5 {Tags:[\"mctas_probe\",\"boat_b\"]}"
+    },
+    {
+      "rcon": "summon llama 10.5 201 0.5 {Tags:[\"mctas_probe\",\"holder_b\"],Age:0,Tame:1b}"
+    },
+    {
+      "step": 12
+    },
+    {
+      "rcon": "tp @a 10.5 201 -2.5"
+    },
+    {
+      "actor": "select 0"
+    },
+    {
+      "actor": "look 10.5 201.2 0.5 3"
+    },
+    {
+      "actor": "hit"
+    },
+    {
+      "actor": "click use"
+    },
+    {
+      "actor": "walk 0 -2"
+    },
+    {
+      "actor": "sneak 1"
+    },
+    {
+      "actor": "look 0.5 202 0.5 3"
+    },
+    {
+      "actor": "hit"
+    },
+    {
+      "actor": "click use"
+    },
+    {
+      "actor": "sneak 0"
+    },
+    {
+      "actor": "look 0.5 201.2 0.5 3"
+    },
+    {
+      "actor": "hit"
+    },
+    {
+      "actor": "click use"
+    },
+    {
+      "actor": "walk 10 -2"
+    },
+    {
+      "actor": "select 1"
+    },
+    {
+      "actor": "look 10.5 202.2 0.5 3"
+    },
+    {
+      "actor": "hit"
+    },
+    {
+      "actor": "click use"
+    },
+    {
+      "actor": "probe_state"
+    },
+    {
+      "screenshot": "assembled.png"
+    },
+    {
+      "rcon": "data get entity @e[tag=boat_a,limit=1]"
+    },
+    {
+      "rcon": "data get entity @e[tag=boat_b,limit=1]"
+    },
+    {
+      "note": "LAUNCH: command-removal mechanics fixture, NOT a survival construction claim; no motion injection. Fixed initial center separation 10, equal height and yaw0. No optimization."
+    },
+    {
+      "rcon": "fill -12 200 -12 22 200 12 air"
+    },
+    {
+      "rcon": "tick unfreeze"
+    },
+    {
+      "wait": 1000
+    },
+    {
+      "screenshot": "after-20t.png"
+    },
+    {
+      "wait": 3000
+    },
+    {
+      "screenshot": "after-80t.png"
+    },
+    {
+      "wait": 57000
+    },
+    {
+      "rcon": "tick freeze"
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{"command":"fill -12 200 -17 22 200 12 stone","kind":"setup","result":"Successfully filled 1050 block(s)","tick":1,"wall_unix_ms":1794113384210}
+{"command":"setworldspawn 5 201 -16","kind":"setup","result":"Set the world spawn point to 5, 201, -16 [0.0, 0.0] in minecraft:overworld","tick":1,"wall_unix_ms":1794113384212}
+{"command":"forceload add -64 -64 64 64","kind":"setup","result":"Marked 81 chunks in minecraft:overworld from [-4, -4] to [4, 4] to be force loaded","tick":1,"wall_unix_ms":1794113384213}
+{"command":"time set day","kind":"setup","result":"Set minecraft:overworld to time marker minecraft:day","tick":1,"wall_unix_ms":1794113384222}
+{"command":"pos","kind":"actor","result":"ok dim=minecraft:overworld pos=-3.50,201.00,-16.50 look=0.0,0.0 mode=SURVIVAL creative=false slot=0 held=minecraft:airx0 tick=1 health=20.0 fps=25 grabbed=false","tick":1,"wall_unix_ms":1794113395251}
+{"command":"tag @a add mctas_probe","kind":"rcon","result":"Added tag 'mctas_probe' to mctas","tick":1,"wall_unix_ms":1794113395255}
+{"command":"give @a lead 2","kind":"rcon","result":"Gave 2 [Lead] to mctas","tick":1,"wall_unix_ms":1794113395263}
+{"command":"setblock -1 201 0 oak_fence","kind":"rcon","result":"Changed the block at -1, 201, 0","tick":1,"wall_unix_ms":1794113395266}
+{"command":"setblock 1 201 0 oak_fence","kind":"rcon","result":"Changed the block at 1, 201, 0","tick":1,"wall_unix_ms":1794113395266}
+{"command":"setblock 0 201 -1 oak_fence","kind":"rcon","result":"Changed the block at 0, 201, -1","tick":1,"wall_unix_ms":1794113395267}
+{"command":"setblock 0 201 1 oak_fence","kind":"rcon","result":"Changed the block at 0, 201, 1","tick":1,"wall_unix_ms":1794113395267}
+{"command":"summon bamboo_raft 0.5 201 0.5 {Tags:[\"mctas_probe\",\"boat_a\"]}","kind":"rcon","result":"Summoned new Bamboo Raft","tick":1,"wall_unix_ms":1794113395275}
+{"command":"summon llama 0.5 201 0.5 {Tags:[\"mctas_probe\",\"holder_a\"],Age:0,Tame:1b}","kind":"rcon","result":"Summoned new Llama","tick":1,"wall_unix_ms":1794113395286}
+{"command":"setblock 9 201 0 oak_fence","kind":"rcon","result":"Changed the block at 9, 201, 0","tick":1,"wall_unix_ms":1794113395287}
+{"command":"setblock 11 201 0 oak_fence","kind":"rcon","result":"Changed the block at 11, 201, 0","tick":1,"wall_unix_ms":1794113395288}
+{"command":"setblock 10 201 -1 oak_fence","kind":"rcon","result":"Changed the block at 10, 201, -1","tick":1,"wall_unix_ms":1794113395288}
+{"command":"setblock 10 201 1 oak_fence","kind":"rcon","result":"Changed the block at 10, 201, 1","tick":1,"wall_unix_ms":1794113395291}
+{"command":"summon bamboo_raft 10.5 201 0.5 {Tags:[\"mctas_probe\",\"boat_b\"]}","kind":"rcon","result":"Summoned new Bamboo Raft","tick":1,"wall_unix_ms":1794113395292}
+{"command":"summon llama 10.5 201 0.5 {Tags:[\"mctas_probe\",\"holder_b\"],Age:0,Tame:1b}","kind":"rcon","result":"Summoned new Llama","tick":1,"wall_unix_ms":1794113395293}
+{"command":"12","kind":"step","result":"ok","tick":13,"wall_unix_ms":1794113395902}
+{"command":"tick unfreeze","kind":"rcon","result":"The game is running normally","tick":13,"wall_unix_ms":1794113395902}
+{"command":"NORMAL TICKING DOCK: both roots tick throughout attachment and mounting. Four ordinary fence posts constrain horizontal motion. Actor staging teleports are labeled fixture interventions, not a survival assembly claim. Actual launch positions/yaw/motion are measured, not reset.","kind":"note","result":"","tick":13,"wall_unix_ms":1794113395902}
+{"command":"tp @a 11.5 202.5 0.5","kind":"rcon","result":"Teleported mctas to 11.500000, 202.500000, 0.500000","tick":13,"wall_unix_ms":1794113395906}
+{"command":"select 0","kind":"actor","result":"ok held=minecraft:leadx2","tick":16,"wall_unix_ms":1794113396057}
+{"command":"look 11.1 201.5 0.5 3","kind":"actor","result":"ok looking","tick":20,"wall_unix_ms":1794113396259}
+{"command":"hit","kind":"actor","result":"ok type=ENTITY id=5 class=Raft","tick":21,"wall_unix_ms":1794113396310}
+{"command":"click use","kind":"actor_assert","result":"ok type=ENTITY id=5 class=Raft","tick":24,"wall_unix_ms":1794113396461}
+{"command":"tp @a 1.5 202.5 0.5","kind":"rcon","result":"Teleported mctas to 1.500000, 202.500000, 0.500000","tick":24,"wall_unix_ms":1794113396463}
+{"command":"sneak 1","kind":"actor","result":"ok sneak=true","tick":25,"wall_unix_ms":1794113396513}
+{"command":"look 0.5 203 0.5 3","kind":"actor","result":"ok looking","tick":29,"wall_unix_ms":1794113396715}
+{"command":"hit","kind":"actor","result":"ok type=ENTITY id=4 class=Llama","tick":30,"wall_unix_ms":1794113396766}
+{"command":"click use","kind":"actor_assert","result":"ok type=ENTITY id=4 class=Llama","tick":33,"wall_unix_ms":1794113396918}
+{"command":"sneak 0","kind":"actor","result":"ok sneak=false","tick":34,"wall_unix_ms":1794113396969}
+{"command":"look 1.1 201.5 0.5 3","kind":"actor","result":"ok looking","tick":38,"wall_unix_ms":1794113397145}
+{"command":"hit","kind":"actor","result":"ok type=ENTITY id=3 class=Raft","tick":39,"wall_unix_ms":1794113397201}
+{"command":"click use","kind":"actor_assert","result":"ok type=ENTITY id=3 class=Raft","tick":42,"wall_unix_ms":1794113397353}
+{"command":"tp @a 11.5 202.5 0.5","kind":"rcon","result":"Teleported mctas to 11.500000, 202.500000, 0.500000","tick":42,"wall_unix_ms":1794113397354}
+{"command":"select 1","kind":"actor","result":"ok held=minecraft:airx0","tick":45,"wall_unix_ms":1794113397505}
+{"command":"look 10.5 203 0.5 3","kind":"actor","result":"ok looking","tick":49,"wall_unix_ms":1794113397706}
+{"command":"hit","kind":"actor","result":"ok type=ENTITY id=6 class=Llama","tick":50,"wall_unix_ms":1794113397757}
+{"command":"click use","kind":"actor_assert","result":"ok type=ENTITY id=6 class=Llama","tick":53,"wall_unix_ms":1794113397908}
+{"command":"probe_state","kind":"actor_assert","result":"ok player=1 root=5 root_authoritative=false root_controller=null vehicle=6 vehicle_controller=null known=(0.0, -0.0784000015258789, 0.0) delta=(0.0, -0.0784000015258789, 0.0)","tick":54,"wall_unix_ms":1794113397959}
+{"command":"assembled.png","kind":"screenshot","result":"ok","tick":57,"wall_unix_ms":1794113398132}
+{"command":"data get entity @e[tag=boat_a,limit=1]","kind":"rcon","result":"Bamboo Raft has the following entity data: {Motion: [0.0d, 0.023538075216939812d, 0.09012523195437128d], Invulnerable: 0b, fall_distance: 0.0d, Air: 300s, OnGround: 0b, PortalCooldown: 0, Rotation: [-104.56591f, 0.0f], Passengers: [{AgeLocked: 0b, Brain: {memories: {}}, Tame: 1b, Invulnerable: 0b, FallFlying: 0b, ForcedAge: 0, PortalCooldown: 0, AbsorptionAmount: 0.0f, Bred: 0b, InLove: 0, EatingHaystack: 0b, DeathTime: 0s, PersistenceRequired: 0b, id: \"minecraft:llama\", UUID: [I; 1713105569, -385724929, -2101131298, 1701972883], Tags: [\"mctas_probe\", \"holder_a\"], Age: 0, Motion: [0.0d, -0.0784000015258789d, 0.0d], Health: 53.0f, LeftHanded: 0b, fall_distance: 0.0d, Air: 300s, OnGround: 0b, Rotation: [-104.56591f, 0.0f], current_impulse_context_reset_grace_time: 0, Variant: 0, Pos: [0.6875d, 202.1149564366686d, 0.5803118522594295d], ChestedHorse: 0b, Fire: 0s, Temper: 0, CanPickUpLoot: 0b, attributes: [{id: \"minecraft:movement_speed\", base: 0.17499999701976776d}], HurtTime: 0s, Strength: 1}], Pos: [0.6875d, 201.6149564366686d, 0.5803118522594295d], Fire: 0s, UUID: [I; -261729881, 1758019600, -1969593192, 940115377], leash: {UUID: [I; -1569560365, -1831978638, -2088741284, 1672948273]}, Tags: [\"mctas_probe\", \"boat_a\"]}","tick":58,"wall_unix_ms":1794113398141}
+{"command":"data get entity @e[tag=boat_b,limit=1]","kind":"rcon","result":"Bamboo Raft has the following entity data: {Motion: [0.0d, 0.005745303456027119d, -0.014881779589780762d], Invulnerable: 0b, fall_distance: 0.25843597122002393d, Air: 300s, OnGround: 0b, PortalCooldown: 0, Rotation: [96.61613f, 0.0f], Passengers: [{AgeLocked: 0b, Brain: {memories: {}}, Tame: 1b, Invulnerable: 0b, FallFlying: 0b, ForcedAge: 0, PortalCooldown: 0, AbsorptionAmount: 0.0f, Bred: 0b, InLove: 0, EatingHaystack: 0b, DeathTime: 0s, PersistenceRequired: 0b, id: \"minecraft:llama\", UUID: [I; 146333668, -794409327, -1155262687, 1882332146], Tags: [\"mctas_probe\", \"holder_b\"], Age: 0, Motion: [0.0d, -0.0784000015258789d, 0.0d], Health: 53.0f, LeftHanded: 0b, fall_distance: 0.0d, Air: 300s, OnGround: 0b, Rotation: [96.61613f, 0.0f], current_impulse_context_reset_grace_time: 0, Variant: 0, Pos: [10.3125d, 201.74091162701168d, 0.3200336818693367d], ChestedHorse: 0b, Fire: 0s, Temper: 0, CanPickUpLoot: 0b, attributes: [{id: \"minecraft:movement_speed\", base: 0.17499999701976776d}], HurtTime: 0s, Strength: 1}], Pos: [10.3125d, 201.24091162701168d, 0.3200336818693367d], Fire: 0s, UUID: [I; -291829703, 2100514139, -1681085381, -1472059515], leash: {UUID: [I; 1713105569, -385724929, -2101131298, 1701972883]}, Tags: [\"mctas_probe\", \"boat_b\"]}","tick":58,"wall_unix_ms":1794113398159}
+{"command":"mixed=true leashed=true","kind":"graph_assert","result":"correct passengers and graph; mixed=true leashed=true","tick":58,"wall_unix_ms":1794113398167}
+{"command":"LAUNCH: remove the complete command-built dock, including posts; normal 20TPS already running, no motion injection or tick exemption.","kind":"note","result":"","tick":58,"wall_unix_ms":1794113398168}
+{"command":"fill -12 200 -12 22 203 12 air","kind":"rcon","result":"Successfully filled 883 block(s)","tick":59,"wall_unix_ms":1794113398231}
+{"command":"1000","kind":"wait_ms","result":"ok","tick":80,"wall_unix_ms":1794113399247}
+{"command":"after-20t.png","kind":"screenshot","result":"ok","tick":83,"wall_unix_ms":1794113399394}
+{"command":"3000","kind":"wait_ms","result":"ok","tick":143,"wall_unix_ms":1794113402403}
+{"command":"after-80t.png","kind":"screenshot","result":"ok","tick":146,"wall_unix_ms":1794113402544}
+{"command":"57000","kind":"wait_ms","result":"ok","tick":1286,"wall_unix_ms":1794113459553}
+{"command":"tick freeze","kind":"rcon","result":"The game is frozen","tick":1286,"wall_unix_ms":1794113459554}

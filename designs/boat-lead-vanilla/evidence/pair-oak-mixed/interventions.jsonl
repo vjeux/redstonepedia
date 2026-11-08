@@ -1,0 +1,45 @@
+{"command":"fill -12 200 -17 22 200 12 stone","kind":"setup","result":"Successfully filled 1050 block(s)","tick":1,"wall_unix_ms":1794113673626}
+{"command":"setworldspawn 5 201 -16","kind":"setup","result":"Set the world spawn point to 5, 201, -16 [0.0, 0.0] in minecraft:overworld","tick":1,"wall_unix_ms":1794113673629}
+{"command":"forceload add -64 -64 64 64","kind":"setup","result":"Marked 81 chunks in minecraft:overworld from [-4, -4] to [4, 4] to be force loaded","tick":1,"wall_unix_ms":1794113673630}
+{"command":"time set day","kind":"setup","result":"Set minecraft:overworld to time marker minecraft:day","tick":1,"wall_unix_ms":1794113673640}
+{"command":"pos","kind":"actor","result":"ok dim=minecraft:overworld pos=1.50,201.00,-5.50 look=0.0,0.0 mode=SURVIVAL creative=false slot=0 held=minecraft:airx0 tick=0 health=20.0 fps=22 grabbed=false","tick":1,"wall_unix_ms":1794113684516}
+{"command":"tag @a add mctas_probe","kind":"rcon","result":"Added tag 'mctas_probe' to mctas","tick":1,"wall_unix_ms":1794113684520}
+{"command":"give @a lead 2","kind":"rcon","result":"Gave 2 [Lead] to mctas","tick":1,"wall_unix_ms":1794113684529}
+{"command":"summon oak_boat 0.5 201 0.5 {Tags:[\"mctas_probe\",\"boat_a\"]}","kind":"rcon","result":"Summoned new Oak Boat","tick":1,"wall_unix_ms":1794113684536}
+{"command":"summon llama 0.5 201 0.5 {Tags:[\"mctas_probe\",\"holder_a\"],Age:0,Tame:1b}","kind":"rcon","result":"Summoned new Llama","tick":1,"wall_unix_ms":1794113684546}
+{"command":"summon oak_boat 10.5 201 0.5 {Tags:[\"mctas_probe\",\"boat_b\"]}","kind":"rcon","result":"Summoned new Oak Boat","tick":1,"wall_unix_ms":1794113684547}
+{"command":"summon llama 10.5 201 0.5 {Tags:[\"mctas_probe\",\"holder_b\"],Age:0,Tame:1b}","kind":"rcon","result":"Summoned new Llama","tick":1,"wall_unix_ms":1794113684548}
+{"command":"12","kind":"step","result":"ok","tick":13,"wall_unix_ms":1794113685116}
+{"command":"tp @a 10.5 201 -2.5","kind":"rcon","result":"Teleported mctas to 10.500000, 201.000000, -2.500000","tick":13,"wall_unix_ms":1794113685120}
+{"command":"select 0","kind":"actor","result":"ok held=minecraft:leadx2","tick":13,"wall_unix_ms":1794113685296}
+{"command":"look 10.5 201.2 0.5 3","kind":"actor","result":"ok looking","tick":13,"wall_unix_ms":1794113685498}
+{"command":"hit","kind":"actor","result":"ok type=ENTITY id=5 class=Boat","tick":13,"wall_unix_ms":1794113685549}
+{"command":"click use","kind":"actor","result":"ok type=ENTITY id=5 class=Boat","tick":13,"wall_unix_ms":1794113685701}
+{"command":"walk 0 -2","kind":"actor","result":"ok dim=minecraft:overworld pos=0.66,201.00,-1.52 look=84.3,25.3 mode=SURVIVAL creative=false slot=0 held=minecraft:leadx1 tick=77 health=20.0 fps=106 grabbed=true","tick":13,"wall_unix_ms":1794113688111}
+{"command":"sneak 1","kind":"actor","result":"ok sneak=true","tick":13,"wall_unix_ms":1794113688163}
+{"command":"look 0.5 202 0.5 3","kind":"actor","result":"ok looking","tick":13,"wall_unix_ms":1794113688339}
+{"command":"hit","kind":"actor","result":"ok type=ENTITY id=4 class=Llama","tick":13,"wall_unix_ms":1794113688390}
+{"command":"click use","kind":"actor","result":"ok type=ENTITY id=4 class=Llama","tick":13,"wall_unix_ms":1794113688541}
+{"command":"sneak 0","kind":"actor","result":"ok sneak=false","tick":13,"wall_unix_ms":1794113688592}
+{"command":"look 0.5 201.2 0.5 3","kind":"actor","result":"ok looking","tick":13,"wall_unix_ms":1794113688794}
+{"command":"hit","kind":"actor","result":"ok type=ENTITY id=3 class=Boat","tick":13,"wall_unix_ms":1794113688845}
+{"command":"click use","kind":"actor","result":"ok type=ENTITY id=3 class=Boat","tick":13,"wall_unix_ms":1794113688996}
+{"command":"walk 10 -2","kind":"actor","result":"ok dim=minecraft:overworld pos=10.29,201.00,-1.50 look=-90.1,35.5 mode=SURVIVAL creative=false slot=0 held=minecraft:airx0 tick=143 health=20.0 fps=115 grabbed=true","tick":13,"wall_unix_ms":1794113691432}
+{"command":"select 1","kind":"actor","result":"ok held=minecraft:airx0","tick":13,"wall_unix_ms":1794113691559}
+{"command":"look 10.5 202.2 0.5 3","kind":"actor","result":"ok looking","tick":13,"wall_unix_ms":1794113691735}
+{"command":"hit","kind":"actor","result":"ok type=ENTITY id=6 class=Llama","tick":13,"wall_unix_ms":1794113691786}
+{"command":"click use","kind":"actor","result":"ok type=ENTITY id=6 class=Llama","tick":13,"wall_unix_ms":1794113691938}
+{"command":"probe_state","kind":"actor","result":"ok player=1 root=5 root_authoritative=false root_controller=null vehicle=6 vehicle_controller=null known=(0.0, -0.0784000015258789, 0.0) delta=(0.0, -0.0784000015258789, 0.0)","tick":13,"wall_unix_ms":1794113691990}
+{"command":"mixed=true leashed=true","kind":"graph_assert","result":"correct passengers and graph; mixed=true leashed=true","tick":13,"wall_unix_ms":1794113692005}
+{"command":"assembled.png","kind":"screenshot","result":"ok","tick":13,"wall_unix_ms":1794113692178}
+{"command":"data get entity @e[tag=boat_a,limit=1]","kind":"rcon","result":"Oak Boat has the following entity data: {Motion: [0.0d, 0.0d, 0.0d], Invulnerable: 0b, fall_distance: 0.0d, Air: 300s, OnGround: 1b, PortalCooldown: 0, Rotation: [0.0f, 0.0f], Passengers: [{AgeLocked: 0b, Brain: {memories: {}}, Tame: 1b, Invulnerable: 0b, FallFlying: 0b, ForcedAge: 0, PortalCooldown: 0, AbsorptionAmount: 0.0f, Bred: 0b, InLove: 0, EatingHaystack: 0b, DeathTime: 0s, PersistenceRequired: 0b, id: \"minecraft:llama\", UUID: [I; 180749156, -1770635213, -1638096472, 2141155188], Tags: [\"mctas_probe\", \"holder_a\"], Age: 0, Motion: [0.0d, -0.0784000015258789d, 0.0d], Health: 53.0f, LeftHanded: 0b, fall_distance: 0.0d, Air: 300s, OnGround: 0b, Rotation: [0.0f, 0.0f], current_impulse_context_reset_grace_time: 0, Variant: 0, Pos: [0.5d, 201.1875d, 0.5d], ChestedHorse: 0b, Fire: 0s, Temper: 0, CanPickUpLoot: 0b, attributes: [{id: \"minecraft:movement_speed\", base: 0.17499999701976776d}], HurtTime: 0s, Strength: 1}], Pos: [0.5d, 201.0d, 0.5d], Fire: 0s, UUID: [I; -649450747, 1755204097, -1973975145, 2111582692], leash: {UUID: [I; -1569560365, -1831978638, -2088741284, 1672948273]}, Tags: [\"mctas_probe\", \"boat_a\"]}","tick":13,"wall_unix_ms":1794113692179}
+{"command":"data get entity @e[tag=boat_b,limit=1]","kind":"rcon","result":"Oak Boat has the following entity data: {Motion: [-0.16572853661740436d, 0.0d, 0.0019089087013148044d], Invulnerable: 0b, fall_distance: 0.0d, Air: 300s, OnGround: 1b, PortalCooldown: 0, Rotation: [112.67879f, 0.0f], Passengers: [{AgeLocked: 0b, Brain: {memories: {}}, Tame: 1b, Invulnerable: 0b, FallFlying: 0b, ForcedAge: 0, PortalCooldown: 0, AbsorptionAmount: 0.0f, Bred: 0b, InLove: 0, EatingHaystack: 0b, DeathTime: 0s, PersistenceRequired: 0b, id: \"minecraft:llama\", UUID: [I; -1531774833, 545213765, -1343319988, -1684143868], Tags: [\"mctas_probe\", \"holder_b\"], Age: 0, Motion: [0.0d, -0.0784000015258789d, 0.0d], Health: 53.0f, LeftHanded: 0b, fall_distance: 0.0d, Air: 300s, OnGround: 0b, Rotation: [112.67879f, 0.0f], current_impulse_context_reset_grace_time: 0, Variant: 0, Pos: [7.031717321209487d, 201.1875d, 0.3592937413645654d], ChestedHorse: 0b, Fire: 0s, Temper: 0, CanPickUpLoot: 0b, attributes: [{id: \"minecraft:movement_speed\", base: 0.17499999701976776d}], HurtTime: 0s, Strength: 1}], Pos: [7.031717321209487d, 201.0d, 0.3592937413645654d], Fire: 0s, UUID: [I; 1521866512, 198133140, -1972714418, -1476406201], leash: {UUID: [I; 180749156, -1770635213, -1638096472, 2141155188]}, Tags: [\"mctas_probe\", \"boat_b\"]}","tick":13,"wall_unix_ms":1794113692180}
+{"command":"LAUNCH: command-removal mechanics fixture, NOT a survival construction claim; no motion injection. Fixed initial center separation 10, equal height and yaw0. No optimization.","kind":"note","result":"","tick":13,"wall_unix_ms":1794113692180}
+{"command":"fill -12 200 -12 22 200 12 air","kind":"rcon","result":"Successfully filled 875 block(s)","tick":13,"wall_unix_ms":1794113692260}
+{"command":"tick unfreeze","kind":"rcon","result":"The game is running normally","tick":13,"wall_unix_ms":1794113692282}
+{"command":"1000","kind":"wait_ms","result":"ok","tick":33,"wall_unix_ms":1794113693282}
+{"command":"after-20t.png","kind":"screenshot","result":"ok","tick":36,"wall_unix_ms":1794113693423}
+{"command":"3000","kind":"wait_ms","result":"ok","tick":96,"wall_unix_ms":1794113696424}
+{"command":"after-80t.png","kind":"screenshot","result":"ok","tick":99,"wall_unix_ms":1794113696564}
+{"command":"57000","kind":"wait_ms","result":"ok","tick":1239,"wall_unix_ms":1794113753568}
+{"command":"tick freeze","kind":"rcon","result":"The game is frozen","tick":1239,"wall_unix_ms":1794113753569}

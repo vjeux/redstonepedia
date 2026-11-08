@@ -1,0 +1,124 @@
+{
+  "boats": [
+    {
+      "active_spring_samples": 69,
+      "altitude_windows": [
+        {
+          "first_y": 200.9631569272121,
+          "last_y": -130.57644598052536,
+          "mean_y": 8.954443168373405,
+          "samples": 366,
+          "ticks": [
+            1,
+            400
+          ]
+        },
+        {
+          "first_y": null,
+          "last_y": null,
+          "mean_y": null,
+          "samples": 0,
+          "ticks": [
+            401,
+            800
+          ]
+        },
+        {
+          "first_y": null,
+          "last_y": null,
+          "mean_y": null,
+          "samples": 0,
+          "ticks": [
+            801,
+            1200
+          ]
+        }
+      ],
+      "first_dead_tick": 379,
+      "first_missing_lead_tick": 379,
+      "first_removed_tick": 379,
+      "first_tick": 14,
+      "first_y": 200.9631569272121,
+      "flight_ticks_observed": 366,
+      "id": 3,
+      "last_active_tick": 324,
+      "last_tick": 379,
+      "last_y": -130.57644598052536,
+      "max_vertical_delta": 0.26142990589261755,
+      "max_y": 200.9631569272121,
+      "missing_lead_samples": 1,
+      "nonserver_authority_samples": 0,
+      "on_ground_or_fluid_samples": 1,
+      "supporting_block_samples": null,
+      "tags": [
+        "mctas_probe",
+        "boat_a"
+      ],
+      "tick_gaps": 0,
+      "undamped_samples": 44,
+      "unloaded_samples": 0
+    },
+    {
+      "active_spring_samples": 15,
+      "altitude_windows": [
+        {
+          "first_y": 200.76,
+          "last_y": -128.43627340372464,
+          "mean_y": 6.343020348903288,
+          "samples": 376,
+          "ticks": [
+            1,
+            400
+          ]
+        },
+        {
+          "first_y": null,
+          "last_y": null,
+          "mean_y": null,
+          "samples": 0,
+          "ticks": [
+            401,
+            800
+          ]
+        },
+        {
+          "first_y": null,
+          "last_y": null,
+          "mean_y": null,
+          "samples": 0,
+          "ticks": [
+            801,
+            1200
+          ]
+        }
+      ],
+      "first_dead_tick": 389,
+      "first_missing_lead_tick": 389,
+      "first_removed_tick": 389,
+      "first_tick": 14,
+      "first_y": 200.76,
+      "flight_ticks_observed": 376,
+      "id": 5,
+      "last_active_tick": 119,
+      "last_tick": 389,
+      "last_y": -128.43627340372464,
+      "max_vertical_delta": 0.2400486146437432,
+      "max_y": 200.76,
+      "missing_lead_samples": 1,
+      "nonserver_authority_samples": 0,
+      "on_ground_or_fluid_samples": 12,
+      "supporting_block_samples": null,
+      "tags": [
+        "mctas_probe",
+        "boat_b"
+      ],
+      "tick_gaps": 0,
+      "undamped_samples": 9,
+      "unloaded_samples": 0
+    }
+  ],
+  "elapsed_ticks": 1226,
+  "evidence": "fixed command-arranged mechanics fixture; no survival or universal-impossibility claim",
+  "finish_tick": 1239,
+  "launch_tick": 13
+}

@@ -1,0 +1,33 @@
+{"command":"fill -12 200 -12 12 200 12 stone","kind":"setup","result":"Successfully filled 625 block(s)","tick":1}
+{"command":"setworldspawn 0 201 0","kind":"setup","result":"Set the world spawn point to 0, 201, 0 [0.0, 0.0] in minecraft:overworld","tick":1}
+{"command":"forceload add -32 -32 32 32","kind":"setup","result":"Marked 25 chunks in minecraft:overworld from [-2, -2] to [2, 2] to be force loaded","tick":1}
+{"command":"time set day","kind":"setup","result":"Set minecraft:overworld to time marker minecraft:day","tick":1}
+{"command":"pos","kind":"actor","result":"ok dim=minecraft:overworld pos=-5.50,201.00,-8.50 look=0.0,0.0 mode=SURVIVAL creative=false slot=0 held=minecraft:airx0 tick=1 health=20.0 fps=36 grabbed=false","tick":1}
+{"command":"tag @a add mctas_probe","kind":"rcon","result":"Added tag 'mctas_probe' to mctas","tick":1}
+{"command":"OAK LLAMA: ordinary adult normal AI; command-arranged overlap, normal collision boarding.","kind":"note","result":"","tick":1}
+{"command":"summon oak_boat 3.5 201 0.5 {Tags:[\"mctas_probe\",\"boat_a\",\"oak_llama\"]}","kind":"rcon","result":"Summoned new Oak Boat","tick":1}
+{"command":"summon llama 3.5 201 0.5 {Tags:[\"mctas_probe\",\"holder_a\",\"oak_llama\"],Age:0,Tame:1b}","kind":"rcon","result":"Summoned new Llama","tick":1}
+{"command":"40","kind":"step","result":"ok","tick":41}
+{"command":"look 3.5 202 0.5 1","kind":"actor","result":"ok looking","tick":41}
+{"command":"oak-llama.png","kind":"screenshot","result":"ok","tick":41}
+{"command":"kill @e[tag=boat_a]","kind":"rcon","result":"Killed Oak Boat","tick":41}
+{"command":"kill @e[tag=holder_a]","kind":"rcon","result":"Killed Llama","tick":41}
+{"command":"BAMBOO LLAMA: identical setup, higher raft seat.","kind":"note","result":"","tick":41}
+{"command":"summon bamboo_raft 3.5 201 0.5 {Tags:[\"mctas_probe\",\"boat_a\",\"bamboo_llama\"]}","kind":"rcon","result":"Summoned new Bamboo Raft","tick":41}
+{"command":"summon llama 3.5 201 0.5 {Tags:[\"mctas_probe\",\"holder_a\",\"bamboo_llama\"],Age:0,Tame:1b}","kind":"rcon","result":"Summoned new Llama","tick":41}
+{"command":"40","kind":"step","result":"ok","tick":81}
+{"command":"bamboo-llama.png","kind":"screenshot","result":"ok","tick":81}
+{"command":"kill @e[tag=boat_a]","kind":"rcon","result":"Killed Bamboo Raft","tick":81}
+{"command":"kill @e[tag=holder_a]","kind":"rcon","result":"Killed Llama","tick":81}
+{"command":"OAK COW: lower holder control.","kind":"note","result":"","tick":81}
+{"command":"summon oak_boat 3.5 201 0.5 {Tags:[\"mctas_probe\",\"boat_a\",\"oak_cow\"]}","kind":"rcon","result":"Summoned new Oak Boat","tick":81}
+{"command":"summon cow 3.5 201 0.5 {Tags:[\"mctas_probe\",\"holder_a\",\"oak_cow\"],Age:0}","kind":"rcon","result":"Summoned new Cow","tick":81}
+{"command":"40","kind":"step","result":"ok","tick":121}
+{"command":"oak-cow.png","kind":"screenshot","result":"ok","tick":121}
+{"command":"kill @e[tag=boat_a]","kind":"rcon","result":"Killed Oak Boat","tick":121}
+{"command":"kill @e[tag=holder_a]","kind":"rcon","result":"Killed Cow","tick":121}
+{"command":"BAMBOO COW: lower holder control with higher seat.","kind":"note","result":"","tick":121}
+{"command":"summon bamboo_raft 3.5 201 0.5 {Tags:[\"mctas_probe\",\"boat_a\",\"bamboo_cow\"]}","kind":"rcon","result":"Summoned new Bamboo Raft","tick":121}
+{"command":"summon cow 3.5 201 0.5 {Tags:[\"mctas_probe\",\"holder_a\",\"bamboo_cow\"],Age:0}","kind":"rcon","result":"Summoned new Cow","tick":121}
+{"command":"40","kind":"step","result":"ok","tick":161}
+{"command":"bamboo-cow.png","kind":"screenshot","result":"ok","tick":161}
