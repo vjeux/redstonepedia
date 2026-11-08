@@ -83,6 +83,11 @@ pub fn shell_full(title: &str, description: &str, prefix: &str, body: &str, scri
     // the viewer fetches the game's textures from the vendored set served with the site
     // (data-mcview-textures: the page's path back to the site root + textures/26.3)
     s.push_str(&format!("<!DOCTYPE html>\n<html lang=\"en\" data-mcview-textures=\"{prefix}{}\">\n<head>\n<meta charset=\"utf-8\">\n", mcview::atlas::vanilla::SITE_DIR));
+    let preview = preview();
+    if preview.is_some() {
+        // a preview never enters a search engine (docs/site.md#previews)
+        s.push_str("<meta name=\"robots\" content=\"noindex, nofollow\">\n");
+    }
     s.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
     let full_title = if title == SITE_NAME { title.to_string() } else { format!("{title} · {SITE_NAME}") };
     s.push_str(&format!("<title>{}</title>\n", esc(&full_title)));
@@ -96,16 +101,23 @@ pub fn shell_full(title: &str, description: &str, prefix: &str, body: &str, scri
     s.push_str("</head>\n<body>\n");
     s.push_str(&header_with(prefix, kind, Some(tab_counts(site))));
     s.push_str("<main>\n");
+    if let Some(p) = &preview {
+        s.push_str(&p.banner);
+    }
     s.push_str(body);
     s.push_str("\n</main>\n");
     // no page links in the footer (vjeux 13:35Z: "it's not to put them back in the footer"); the
-    // date without the time, so it does not wrap on a phone (critique C52)
-    s.push_str(&format!(
-        "<footer>Built from <a href=\"{REPO_URL}/tree/{}\">vjeux/redstonepedia@{}</a> on <span class=\"nowrap\">{}</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>\n",
-        esc(&site.commit),
-        esc(&site.commit.chars().take(9).collect::<String>()),
-        esc(site.generated.split('T').next().unwrap_or(&site.generated))
-    ));
+    // date without the time, so it does not wrap on a phone (critique C52); a preview's own footer
+    // (src/preview.rs)
+    match &preview {
+        Some(p) => s.push_str(&format!("<footer>{}</footer>\n", p.footer)),
+        None => s.push_str(&format!(
+            "<footer>Built from <a href=\"{REPO_URL}/tree/{}\">vjeux/redstonepedia@{}</a> on <span class=\"nowrap\">{}</span>. Every design was tested in the real game (Minecraft 26.3, tick by tick); the extended clocks listed under a period are longer versions of a tested clock, each tested in the game or simulated to exactly its period.</footer>\n",
+            esc(&site.commit),
+            esc(&site.commit.chars().take(9).collect::<String>()),
+            esc(site.generated.split('T').next().unwrap_or(&site.generated))
+        )),
+    }
     // module specifiers must start with ./ or ../ to be relative
     let module = if prefix.is_empty() { "./" } else { prefix };
     // cache-busting (GitHub Pages serves max-age=600): every bundle by a content hash, the wasm
@@ -155,6 +167,49 @@ pub fn set_versions(v: Versions) {
 
 fn versions() -> Versions {
     VERSIONS.read().ok().and_then(|g| g.clone()).unwrap_or_default()
+}
+
+/// A preview page (`mctas site preview`, src/preview.rs): a work-in-progress design shown to the
+/// owner on vjeux/redstonepedia-preview, never a page of the site. Set before its pages are
+/// written; the site's own build never sets it.
+#[derive(Clone, Debug, Default)]
+pub struct Preview {
+    /// The status label with the card's status, first thing in the page's main (HTML).
+    pub banner: String,
+    /// The footer (HTML): where the preview came from, when, a link back to the site.
+    pub footer: String,
+    /// Its numbers come from its study's own judge, archived (in the real game where the study
+    /// judges there); else the page makes no such claim and says where its numbers come from.
+    pub game_tested: bool,
+    /// Where its numbers come from, one sentence ("Its numbers come from ..." / "Not judged
+    /// yet."), in place of the site's "tested in the real game" sentences.
+    pub numbers: String,
+    /// The commit its design file is linked at on GitHub (`blob/<commit>/<path>`).
+    pub commit: String,
+}
+
+static PREVIEW: std::sync::RwLock<Option<Preview>> = std::sync::RwLock::new(None);
+
+pub fn set_preview(p: Option<Preview>) {
+    if let Ok(mut g) = PREVIEW.write() {
+        *g = p;
+    }
+}
+
+pub fn preview() -> Option<Preview> {
+    PREVIEW.read().ok().and_then(|g| g.clone())
+}
+
+/// Whether a page may say its design was tested in the real game: every page of the site; a
+/// preview only when its design was (its sentence otherwise: [`numbers_sentence`]).
+pub fn claims_game() -> bool {
+    preview().is_none_or(|p| p.game_tested)
+}
+
+/// A preview's own sentence on where its numbers come from, when it makes no game claim
+/// ([`claims_game`]); None on the site.
+pub fn numbers_sentence() -> Option<String> {
+    preview().filter(|p| !p.game_tested).map(|p| p.numbers)
 }
 
 /// The first 8 hex digits of a file's FNV-1a hash ("" when the file is missing).
@@ -241,7 +296,9 @@ fn circuit_sections(c: &site_model::Circuit, has_viewer: bool) -> String {
             )
         };
         s.push_str(&format!(
-            "<section><h2>Our test in the real game</h2><p>{intro} Time runs left to right in game ticks (20 gt = 1 s).</p><div class=\"wave-wrap\">{}</div><p class=\"hint phone-only\">Swipe the diagram sideways: the whole test lasts {} ticks ({}).</p>{notes}{}</section>\n",
+            "<section><h2>Our test{}</h2><p>{intro} Time runs left to right in game ticks (20 gt = 1 s).</p><div class=\"wave-wrap\">{}</div><p class=\"hint phone-only\">Swipe the diagram sideways: the whole test lasts {} ticks ({}).</p>{notes}{}</section>\n",
+            // (a preview whose design no test in the game has seen: no claim, src/preview.rs)
+            if claims_game() { " in the real game" } else { "" },
             crate::explain::wave_svg(w),
             w.ticks,
             site_model::real_time(w.ticks),
@@ -269,12 +326,15 @@ fn circuit_sections(c: &site_model::Circuit, has_viewer: bool) -> String {
             "<section><h2>Measurements</h2><p class=\"hint\">{}</p><table class=\"props metrics\"><thead><tr><th>metric</th><th>value</th><th>what it means</th></tr></thead><tbody>{rows}</tbody></table>{}</section>\n",
             // (a whole minecart line: one end-to-end run, not 4 facings at 4 spots; sorter
             // 2026-10-22: the game and our simulator give the same numbers)
-            if site_model::html::cart_line(c) {
-                "Measured by our test of the whole line, run on our simulator, which gives the same numbers as the real game for this line: the supply double chest filled with 3,456 items, one empty hopper minecart started on the track, every item counted until the last one is in the storage chest."
+            if let Some(n) = numbers_sentence() {
+                // (a preview's numbers: where they come from, src/preview.rs)
+                format!("{n} gt = game tick = 1/20 s (20 gt = 1 second).")
+            } else if site_model::html::cart_line(c) {
+                "Measured by our test of the whole line, run on our simulator, which gives the same numbers as the real game for this line: the supply double chest filled with 3,456 items, one empty hopper minecart started on the track, every item counted until the last one is in the storage chest.".to_string()
             } else if crate::explain::mob_farm(c) {
-                "Measured by our test, on Hard with the weather's rain, thunder and lightning: the farm built facing all 4 ways at 2 spots in the world, each build run 8 times for 5 game days from the farm's steady state, and every build run in the real game for 5 game days, a day of rain and a day of thunder among them, at the same rate. gt = game tick = 1/20 s (20 gt = 1 second)."
+                "Measured by our test, on Hard with the weather's rain, thunder and lightning: the farm built facing all 4 ways at 2 spots in the world, each build run 8 times for 5 game days from the farm's steady state, and every build run in the real game for 5 game days, a day of rain and a day of thunder among them, at the same rate. gt = game tick = 1/20 s (20 gt = 1 second).".to_string()
             } else {
-                "Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second)."
+                "Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).".to_string()
             },
             // (what the kind's obvious design takes: the body only, the coordinator 2026-10-22)
             crate::explain::obvious_line(c).map(|l| format!("<p>{}</p>", esc(l))).unwrap_or_default()
@@ -464,10 +524,13 @@ pub fn build_page(site: &Site, b: &Build, design_text: &str, repo_path: &str, sc
         "<section><h2>Build it</h2><p><a class=\"button\" href=\"{prefix}{}\" download>Download .litematic</a> <a class=\"button alt\" href=\"{prefix}{}\" download>Download the design as text</a></p>\n<p class=\"hint\">The .litematic opens in <a href=\"https://github.com/maruohon/litematica\">Litematica</a> (Minecraft 26.3): every block of the design in one region.{} The text file is the same build written as plain text, block by block.</p>\n<p>Blocks used: {}</p></section>\n",
         esc(&crate::generate::litematic_path(&b.design)),
         esc(&b.design),
-        if b.kind == "door" || b.circuit.is_some() || b.clock.is_some() {
-            " Verified in the real game."
+        if let Some(n) = numbers_sentence() {
+            // (a preview: where its numbers come from instead of a claim, src/preview.rs)
+            format!(" {n}")
+        } else if b.kind == "door" || b.circuit.is_some() || b.clock.is_some() {
+            " Verified in the real game.".to_string()
         } else {
-            ""
+            String::new()
         },
         chips(&b.kinds, prefix, "with")
     ));
@@ -738,7 +801,9 @@ pub fn build_page(site: &Site, b: &Build, design_text: &str, repo_path: &str, sc
             site_model::html::readable(per_block)
         ));
     }
-    body.push_str("<details class=\"more\"><summary>Details: how it works in depth, our test in the real game, measurements and properties</summary>\n");
+    // (a preview whose design no test in the game has seen: no claim, src/preview.rs)
+    let in_game = if claims_game() { " in the real game" } else { "" };
+    body.push_str(&format!("<details class=\"more\"><summary>Details: how it works in depth, our test{in_game}, measurements and properties</summary>\n"));
     if let Some(c) = &b.circuit {
         body.push_str(&format!("<section class=\"what\"><h2>In depth</h2>{}</section>\n", crate::explain::what_it_does(c)));
         body.push_str(&circuit_sections(c, scripts.viewer));
@@ -764,8 +829,13 @@ pub fn build_page(site: &Site, b: &Build, design_text: &str, repo_path: &str, sc
     body.push_str(&format!(
         "<section><h2>The design file</h2><p>{}</p><details><summary>Design file ({} lines)</summary><pre class=\"design\">{}</pre></details></section>\n",
         // (an extended clock's design is generated from its tested base at build time: no file
-        // in the repository to link)
-        if repo_path.is_empty() { "Generated from the tested design it extends, at build time.".to_string() } else { format!("<a href=\"{REPO_URL}/blob/main/{}\">on GitHub</a>", esc(repo_path)) },
+        // in the repository to link; a preview's, at the commit it was rendered from)
+        if repo_path.is_empty() {
+            "Generated from the tested design it extends, at build time.".to_string()
+        } else {
+            let at = preview().map(|p| p.commit).filter(|c| !c.is_empty()).unwrap_or_else(|| "main".to_string());
+            format!("<a href=\"{REPO_URL}/blob/{}/{}\">on GitHub</a>", esc(&at), esc(repo_path))
+        },
         design_text.lines().count(),
         esc(design_text)
     ));
