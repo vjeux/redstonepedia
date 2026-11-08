@@ -17,7 +17,7 @@
 
 use super::types::MobType;
 use super::walk::Walk;
-use super::{MobEvent, mob};
+use super::{Damage, MobEvent, mob};
 use crate::block::Block;
 use crate::entity::{Aabb, EntityKind, Vec3};
 use crate::pos::BlockPos;
@@ -357,6 +357,10 @@ struct Track {
     golem_born: Vec<(u32, i64)>,
     drops: Vec<u32>,
     last_sleep: Vec<(u32, i64)>,
+    /// The game time of the first tick after the arrival: a rider summoned in its vehicle takes
+    /// its one `in_wall` hit there in the game too (`MobState::unseated`), a summon's artifact
+    /// (a player's zombie walks into its boat), so the zombie's damage counts after it.
+    first_tick: i64,
     /// The iron the farm's containers hold when it starts (a sorter's filter items).
     seed_iron: u32,
     /// mobinfra: the ticks a living golem was in each block, the iron (items x ticks) in each
@@ -389,7 +393,7 @@ fn container_iron(w: &World, output: BlockPos) -> (u32, u32) {
 pub fn run(spec: &FarmSpec, o: &RunOpts) -> Result<RunReport, String> {
     let mut r = Run::new(spec, o)?;
     let mut rep = RunReport { ticks: o.ticks, ..Default::default() };
-    let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0 };
+    let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), first_tick: r.world.time + 1, seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0 };
     for e in &r.world.entities.list {
         if let EntityKind::Mob(m) = &e.kind
             && m.ty == MobType::Villager
@@ -442,7 +446,7 @@ pub struct AwayReport {
 pub fn run_away(spec: &FarmSpec, o: &RunOpts, plan: AwayPlan) -> Result<(RunReport, AwayReport), String> {
     let mut r = Run::new(spec, o)?;
     let mut rep = RunReport { ticks: (plan.before + plan.after) as u32, ..Default::default() };
-    let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0 };
+    let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), first_tick: r.world.time + 1, seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0 };
     for e in &r.world.entities.list {
         if let EntityKind::Mob(m) = &e.kind
             && m.ty == MobType::Villager
@@ -511,7 +515,9 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
             MobEvent::GolemTry { golem: None, .. } => rep.losses.no_spot += 1,
             MobEvent::GolemSeen { .. } => rep.losses.seen += 1,
             // the farm's own mobs (its villagers, its zombie): a natural mob's damage in a terrain
-            // run is not the farm's
+            // run is not the farm's; a summoned rider's one `in_wall` hit on its first tick is the
+            // summon's (`Track::first_tick`)
+            MobEvent::Hurt { t: ht, ty: MobType::Zombie, src: Damage::InWall, .. } if ht <= tr.first_tick => {}
             MobEvent::Hurt { id, ty, src, amount, .. } if matches!(ty, MobType::Villager | MobType::Zombie) => {
                 rep.fail(format!("gt {t}: the {} (entity {id}) took {amount} {} damage", ty.def().id, src.name()));
             }
