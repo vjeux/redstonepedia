@@ -22,11 +22,9 @@
 //!   powers the rod under it. Every tick while its life is not negative it hits every alive entity
 //!   whose box meets its own (x +-3, y -3..+9, z +-3) - through any roof. Then a flash re-arms it
 //!   (life 1, a fire at its block) once its life is below `-nextInt(10)`, until none is left.
-//! * **Fires**: kept here as cells, not blocks: a fire next to a flammable block can burn it and
-//!   spread (`FireBlock.tick`), which the judge fails at once ([`WeatherEvent::Fire`] names the
-//!   block); a fire with no flammable neighbour never spreads and goes out (age over 3, no sturdy
-//!   floor, or rain), which is modeled exactly, with what it does to whoever stands in it
-//!   (`BaseFireBlock.entityInside`).
+//! * **Fires**: blocks ([`super::fire`]: `FireBlock` exactly, spread, burn-out, rain), set where
+//!   the bolt's block and its 4 random cells are air and a fire survives
+//!   (`LightningBolt.spawnFire`), only with a player within 128 (`canSpreadFireAround`).
 //!
 //! The level random and every entity's own random are the weather's seeded stand-in
 //! ([`super::Weather::rng`]), with the game's distributions.
@@ -156,19 +154,8 @@ pub fn hit_box_at(p: Vec3) -> Aabb {
     Aabb::new(p.x - 3.0, p.y - 3.0, p.z - 3.0, p.x + 3.0, p.y + 6.0 + 3.0, p.z + 3.0)
 }
 
-/// A fire a bolt set (`FireBlock` or `SoulFireBlock`, kept as a cell).
-#[derive(Clone, Debug, PartialEq)]
-pub struct Fire {
-    pub pos: BlockPos,
-    pub age: i32,
-    /// The game time of its next scheduled tick (`getFireTickDelay`: 30..39).
-    pub next: i64,
-    /// Soul fire (on soul sand or soul soil): it never ticks and never goes out by itself.
-    pub soul: bool,
-}
-
-/// `FireBlock`'s ignite odds of the modeled blocks (`setFlammable`; waterlogged: 0); `None`: not
-/// flammable.
+/// `FireBlock`'s ignite and burn odds of the modeled blocks (`setFlammable`; waterlogged: 0);
+/// `None`: not flammable.
 pub fn flammable(b: &Block) -> Option<(i32, i32)> {
     Some(match b {
         Block::Leaves { .. } => (30, 60),
@@ -180,7 +167,9 @@ pub fn flammable(b: &Block) -> Option<(i32, i32)> {
         Block::Scaffolding { .. } => (60, 60),
         Block::Bamboo { .. } => (60, 60),
         Block::Composter { .. } => (5, 20),
-        Block::ChiseledBookshelf { .. } => (30, 20),
+        // (chiseled bookshelves are not in 26.3's table; big dripleaves and cactus flowers are)
+        Block::BigDripleaf { waterlogged: false, .. } => (60, 100),
+        Block::CactusFlower => (60, 100),
         Block::Simple(s) => match s {
             Simple::OakPlanks | Simple::SprucePlanks => (5, 20),
             Simple::Bookshelf => (30, 20),
@@ -218,22 +207,6 @@ fn flammable_neighbour(w: &World, p: BlockPos) -> Option<(BlockPos, Block)> {
         }
     }
     None
-}
-
-/// The soul fire base blocks (`BlockTags.SOUL_FIRE_BASE_BLOCKS`).
-fn soul_base(b: &Block) -> bool {
-    matches!(b, Block::Simple(Simple::SoulSand | Simple::SoulSoil))
-}
-
-/// `BlockTags.INFINIBURN_OVERWORLD` (netherrack, magma).
-fn infiniburn(b: &Block) -> bool {
-    matches!(b, Block::Simple(Simple::MagmaBlock))
-}
-
-/// `isFaceSturdy(UP)` of the block at `p` (the full support).
-fn sturdy_up(w: &World, p: BlockPos) -> bool {
-    let b = w.get(p);
-    crate::behavior::sturdy(w, &b, p, Dir::Up, crate::behavior::Support::Full)
 }
 
 /// The lightning rods of the world whose rod tops its column (`findLightningRod`'s filter).
@@ -340,6 +313,21 @@ pub fn strike(w: &mut World, x: i32, z: i32) {
     let bolt = Bolt { id, pos: Vec3::new(pos.x as f64 + 0.5, pos.y as f64, pos.z as f64 + 0.5), life: 2, flashes, seed: bolt_seed, visual_only: trap, removed: false, tick_count: 0, random };
     w.weather.events.push(WeatherEvent::Strike { t, bolt: id, at: [pos.x, pos.y, pos.z], target, visual: trap });
     w.weather.bolts.push(bolt);
+}
+
+/// `summon minecraft:lightning_bolt` at the bottom center of `pos` (no aim, no trap: the bolt
+/// checks' scenarios); its own random from the stand-in. Its id.
+pub fn summon_bolt(w: &mut World, pos: BlockPos) -> u32 {
+    let seed = w.weather.rng.next_long();
+    let mut random = LegacyRandom::new(seed);
+    let bolt_seed = random.next_long();
+    let flashes = random.next_int(3) + 1;
+    let id = w.entities.next_id;
+    w.entities.next_id += 1;
+    let t = w.time;
+    w.weather.bolts.push(Bolt { id, pos: Vec3::new(pos.x as f64 + 0.5, pos.y as f64, pos.z as f64 + 0.5), life: 2, flashes, seed: bolt_seed, visual_only: false, removed: false, tick_count: 0, random });
+    w.weather.events.push(WeatherEvent::Strike { t, bolt: id, at: [pos.x, pos.y, pos.z], target: Target::Column, visual: false });
+    id
 }
 
 /// `LightningBolt.tick` of bolt `k`.
@@ -526,128 +514,21 @@ pub fn rod_boxes(facing: Dir) -> Vec<crate::behavior::Box16> {
     }
 }
 
-/// `LightningBolt.spawnFire(additional)`: at the bolt's block, then `additional` random cells of
-/// the cube around it (the three offsets drawn in x, y, z order whether or not a fire is set).
+/// `LightningBolt.spawnFire(additional)`: a player near the bolt's block
+/// (`canSpreadFireAround`), a fire at that block, then at `additional` random cells of the cube
+/// around it (the three offsets drawn in x, y, z order whether or not a fire is set), each where
+/// the cell is air and the fire survives ([`super::fire::place_fire`]).
 fn spawn_fire(w: &mut World, k: usize, additional: i32) {
-    if w.weather.bolts[k].visual_only || !w.weather.lightning.player_near {
+    let at = w.weather.bolts[k].block();
+    if w.weather.bolts[k].visual_only || !super::fire::can_spread_fire_around(w, at) {
         return;
     }
-    let at = w.weather.bolts[k].block();
-    try_fire(w, at);
+    super::fire::place_fire(w, at);
     for _ in 0..additional {
         let r = &mut w.weather.bolts[k].random;
         let (dx, dy, dz) = (r.next_int(3) - 1, r.next_int(3) - 1, r.next_int(3) - 1);
-        try_fire(w, at.offset(dx, dy, dz));
+        super::fire::place_fire(w, at.offset(dx, dy, dz));
     }
-}
-
-/// `level.getBlockState(pos).isAir() && fire.canSurvive(level, pos)` then the fire: soul fire on
-/// soul sand or soil (it survives on them), else fire where its floor is sturdy or a flammable
-/// block touches it.
-fn try_fire(w: &mut World, p: BlockPos) {
-    if !w.get(p).is_air() || w.weather.fires.iter().any(|f| f.pos == p) {
-        return;
-    }
-    let below = p.offset(0, -1, 0);
-    let soul = soul_base(&w.get(below));
-    let near = flammable_neighbour(w, p);
-    if !(soul || sturdy_up(w, below) || near.is_some()) {
-        return;
-    }
-    let delay = 30 + w.weather.rng.next_int(10);
-    let t = w.time;
-    let flammable_near = if soul { None } else { near.map(|(q, b)| format!("{b} at {q}")) };
-    w.weather.events.push(WeatherEvent::Fire { t, at: [p.x, p.y, p.z], flammable_near });
-    w.weather.fires.push(Fire { pos: p, age: 0, next: t + delay as i64, soul });
-    notice_neighbours(w, p);
-}
-
-/// A fire placed or removed updates its neighbours (`setBlockAndUpdate`): the modeled blocks that
-/// would react (an observer watching the cell, a piston, redstone dust) are a model error.
-fn notice_neighbours(w: &mut World, p: BlockPos) {
-    for d in [Dir::Down, Dir::Up, Dir::North, Dir::South, Dir::West, Dir::East] {
-        let q = p.rel(d);
-        let b = w.get(q);
-        let reacts = match b {
-            Block::Observer { facing, .. } => q.rel(facing) == p,
-            Block::Piston { .. } | Block::Wire { .. } => true,
-            _ => false,
-        };
-        if reacts {
-            let why = format!("a lightning fire at {p} next to {b} at {q}: the fire's block updates are not modeled");
-            if !w.errors.contains(&why) {
-                w.errors.push(why);
-            }
-        }
-    }
-}
-
-/// The fires' scheduled ticks (`FireBlock.tick`), after the level's block ticks. A fire with a
-/// flammable neighbour was already reported (the judge fails it); here it burns like any other.
-pub fn tick_fires(w: &mut World) {
-    if w.weather.fires.is_empty() {
-        return;
-    }
-    let t = w.time;
-    let mut k = 0;
-    while k < w.weather.fires.len() {
-        let f = w.weather.fires[k].clone();
-        if f.soul || f.next > t {
-            k += 1;
-            continue;
-        }
-        let delay = 30 + w.weather.rng.next_int(10);
-        w.weather.fires[k].next = t + delay as i64;
-        let out = fire_tick(w, &f);
-        if out {
-            w.weather.fires.remove(k);
-            w.weather.events.push(WeatherEvent::FireOut { t, at: [f.pos.x, f.pos.y, f.pos.z] });
-            notice_neighbours(w, f.pos);
-        } else {
-            k += 1;
-        }
-    }
-}
-
-/// One `FireBlock.tick` of a fire with no flammable neighbour: true when it goes out. (With one,
-/// the game burns and spreads: the judge has already failed the run, the fire just lives on.)
-fn fire_tick(w: &mut World, f: &Fire) -> bool {
-    let below = f.pos.offset(0, -1, 0);
-    let sturdy = sturdy_up(w, below);
-    let near = flammable_neighbour(w, f.pos).is_some();
-    // canSurvive
-    if !(sturdy || near) {
-        return true;
-    }
-    let infini = infiniburn(&w.get(below));
-    let age = f.age;
-    if !infini && w.is_raining() && is_near_rain(w, f.pos) && w.weather.rng.next_float() < 0.2f32 + age as f32 * 0.03f32 {
-        return true;
-    }
-    let new_age = 15.min(age + w.weather.rng.next_int(3) / 2);
-    if let Some(g) = w.weather.fires.iter_mut().find(|g| g.pos == f.pos) {
-        g.age = new_age;
-    }
-    if !infini {
-        if !near {
-            return !sturdy || age > 3;
-        }
-        if age == 15 && w.weather.rng.next_int(4) == 0 && flammable(&w.get(below)).is_none() {
-            return true;
-        }
-    }
-    false
-}
-
-/// `FireBlock.isNearRain`: rain at the cell or one of its four sides.
-fn is_near_rain(w: &mut World, p: BlockPos) -> bool {
-    w.is_raining_at(p) || w.is_raining_at(p.offset(-1, 0, 0)) || w.is_raining_at(p.offset(1, 0, 0)) || w.is_raining_at(p.offset(0, 0, -1)) || w.is_raining_at(p.offset(0, 0, 1))
-}
-
-/// The fire cells a box meets (`BaseFireBlock`'s shape for entities inside: the bottom 1 px of its
-/// cell, `DOWN_AABB`).
-pub fn fire_in(w: &World, bb: Aabb) -> Option<BlockPos> {
-    w.weather.fires.iter().map(|f| f.pos).find(|p| Aabb::new(p.x as f64, p.y as f64, p.z as f64, (p.x + 1) as f64, p.y as f64 + 1.0 / 16.0, (p.z + 1) as f64).intersects(bb))
 }
 
 /// Rain reaches block `p` (`isRainingAt` while it rains: no motion-blocking block above, sky
@@ -778,17 +659,15 @@ pub fn static_check(w: &World, golem_cells: &[BlockPos], drop_cells: &[BlockPos]
                     if !w.get(p).is_air() {
                         continue;
                     }
-                    let near = flammable_neighbour(w, p);
-                    let below = p.offset(0, -1, 0);
-                    if !(soul_base(&w.get(below)) || sturdy_up(w, below) || near.is_some()) {
+                    let fire = super::fire::state_at(w, p);
+                    if !super::fire::can_survive(w, &fire, p) {
                         continue;
                     }
-                    if let Some((q, f)) = near
-                        && !soul_base(&w.get(below))
-                    {
+                    if let (Some((q, f)), Block::Fire { soul: false, .. }) = (flammable_neighbour(w, p), fire) {
                         fail(format!("lightning: {why}: the bolt at {b} can set a fire at {p} next to {f} at {q}, which burns"));
                     }
-                    let cell = Aabb::new(p.x as f64, p.y as f64, p.z as f64, (p.x + 1) as f64, p.y as f64 + 1.0 / 16.0, (p.z + 1) as f64);
+                    // a fire's cell burns whoever is inside it (the full cell)
+                    let cell = Aabb::of_block(p);
                     for (bb, what) in &protect {
                         if cell.intersects(*bb) {
                             fail(format!("lightning: {why}: the bolt at {b} can set a fire at {p} under {what}"));

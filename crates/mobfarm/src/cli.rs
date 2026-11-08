@@ -93,6 +93,32 @@ pub enum MobfarmCmd {
         #[arg(long)]
         trace: bool,
     },
+    /// mobinfra: the weather cycle's statistics in official servers (empty plains worlds) beside
+    /// redsim's over the same length.
+    WeatherStats {
+        #[arg(long, default_value_t = 200)]
+        days: u32,
+        #[arg(long, default_value_t = 8)]
+        servers: usize,
+        /// Sample every this many gt.
+        #[arg(long, default_value_t = 100)]
+        dt: u32,
+        #[arg(long, default_value_t = 64)]
+        sim_runs: u32,
+    },
+    /// mobinfra: lava's fire in a farm, the game's time to the first burned block beside redsim's.
+    FireBurn {
+        design: PathBuf,
+        #[arg(long, default_value_t = 8)]
+        servers: usize,
+        #[arg(long, default_value_t = 48000)]
+        max: u32,
+        #[arg(long, default_value_t = 200)]
+        seeds: u32,
+    },
+    /// mobinfra: bolts summoned in fixed scenarios (hits through roofs, the box's edge, a boat, a
+    /// drop, a golem, the bolt's fire), the game's outcome beside redsim's.
+    BoltCheck,
     /// One judge run of a design on redsim: its table.
     Run {
         design: PathBuf,
@@ -237,6 +263,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         MobfarmCmd::Gate { design, days, builds, no_rain_day, no_thunder_day, seed, parallel, warmup, keep, trace } => {
             crate::gate::gate_cmd(version, &design, crate::gate::GateArgs { days, builds, rain_day: !no_rain_day, thunder_day: !no_thunder_day, seed, parallel, warmup: (warmup[0], warmup[1]), keep, trace })?
         }
+        MobfarmCmd::WeatherStats { days, servers, dt, sim_runs } => crate::weathercheck::weather_stats_cmd(version, days, servers, dt, sim_runs)?,
+        MobfarmCmd::FireBurn { design, servers, max, seeds } => crate::weathercheck::fire_burn_cmd(version, &design, servers, max, seeds)?,
+        MobfarmCmd::BoltCheck => crate::weathercheck::bolt_check_cmd(version)?,
     }
     Ok(())
 }

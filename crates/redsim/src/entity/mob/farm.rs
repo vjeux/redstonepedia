@@ -235,6 +235,11 @@ impl Run {
         }
         // mobinfra: the weather from its stationary state (the farm stands in it while it settles)
         w.weather = crate::weather::Weather::new(o.weather, o.seed);
+        // mobinfra: the AFK player (the game gate's spot, 60 blocks under the chest, or the
+        // terrain site's: fire spreads and lava lights it within 128 of a player) and the chunks'
+        // random ticks (`randomTickSpeed` 3: lava's fire)
+        w.afk = Some(o.site.map(|s| s.afk).unwrap_or_else(|| crate::entity::Vec3::new(spec.output.x as f64 + 0.5, (spec.lo.y - 60) as f64, spec.output.z as f64 + 0.5)));
+        w.random_ticks = Some(crate::crops::RandomTicks::new(3, o.seed));
         let (detectors, rest): (Vec<_>, Vec<_>) = spec.blocks.iter().cloned().partition(|(_, b)| matches!(b, Block::DaylightDetector { .. }));
         w.place_raw(&rest);
         w.place_updates(&rest);
@@ -522,12 +527,9 @@ fn absorb_weather(w: &mut World, rep: &mut RunReport, spec: &FarmSpec, t: i64) {
             E::Converted { entity, .. } => rep.fail(format!("gt {t}: lightning struck a villager (entity {entity}): it is a witch now")),
             E::VehicleDestroyed { entity, .. } => rep.fail(format!("gt {t}: lightning destroyed a vehicle (entity {entity}): its zombie is loose")),
             E::ItemDestroyed { what, .. } => rep.fail(format!("gt {t}: lightning destroyed a drop ({what})")),
-            E::Fire { at, flammable_near, .. } => {
-                ws.fires += 1;
-                if let Some(b) = flammable_near {
-                    rep.fail(format!("gt {t}: a lightning fire at {} {} {} next to {b}: it can burn and spread", at[0], at[1], at[2]));
-                }
-            }
+            // a fire (a bolt's, lava's, a spread): what it burns or hurts fails the farm
+            E::Fire { .. } => ws.fires += 1,
+            E::Burned { at, what, .. } => rep.fail(format!("gt {t}: a fire burned the {what} at {} {} {}", at[0], at[1], at[2])),
             E::TrapHorse { at, .. } => {
                 ws.traps += 1;
                 let (x, y, z) = (at[0] as f64 + 0.5, at[1] as f64, at[2] as f64 + 0.5);
@@ -616,9 +618,9 @@ fn check_tick(w: &World, rep: &mut RunReport, tr: &mut Track, spec: &FarmSpec, t
         if touches_lava(w, e.bb) {
             rep.fail(format!("gt {t}: a drop touched lava at {:.1} {:.1} {:.1} (it burns)", e.pos.x, e.pos.y, e.pos.z));
         }
-        // mobinfra: a lightning fire burns a drop (`ItemEntity.hurtServer`: 1 a tick, health 5)
-        if let Some(p) = crate::weather::lightning::fire_in(w, e.bb) {
-            rep.fail(format!("gt {t}: a drop touched a lightning fire at {p} (it burns)"));
+        // mobinfra: a fire burns a drop (`ItemEntity.hurtServer`: 1 a tick, health 5)
+        if let Some(p) = crate::weather::fire::fire_in(w, e.bb) {
+            rep.fail(format!("gt {t}: a drop touched a fire at {p} (it burns)"));
         }
         if let EntityKind::Item(s) = &e.kind
             && s.age > 5800

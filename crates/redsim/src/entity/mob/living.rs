@@ -245,12 +245,9 @@ fn ai_step(w: &mut World, i: usize) {
     // motion; its vehicle puts it back on its seat after this tick)
     travel(w, i, input);
     // mobinfra: the fire ticks before the inside-block effects (`applyEffectsFromBlocks`'
-    // `previousRemainingFireTicks`), and a lightning fire the mob is in (collected like a block's)
+    // `previousRemainingFireTicks`); a fire's cell sets `inside.fire` like any block's
     let fire_before = mob(w, i).fire_ticks;
     entity::apply_effects_from_blocks(w, i);
-    if !w.weather.fires.is_empty() && crate::weather::lightning::fire_in(w, w.entities.list[i].bb).is_some() {
-        mob_mut(w, i).inside.fire = true;
-    }
     apply_block_effects(w, i);
     // mobinfra: rain puts the fire out, then the not-burning reset (`applyEffectsFromBlocks`' tail)
     crate::weather::after_block_effects(w, i, fire_before);
@@ -494,6 +491,10 @@ pub fn entity_inside(w: &mut World, i: usize, s: Block, p: BlockPos) {
         }
         Block::Water { .. } | Block::BubbleColumn { .. } | Block::WaterloggedGrate | Block::Kelp { .. } | Block::KelpPlant => {
             mob_mut(w, i).inside.water = true;
+        }
+        // mobinfra: a fire's cell (`BaseFireBlock.entityInside`: the full cell)
+        Block::Fire { .. } => {
+            mob_mut(w, i).inside.fire = true;
         }
         _ => {}
     }

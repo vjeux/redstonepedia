@@ -211,9 +211,13 @@ pub struct World {
     /// light, heightmaps, biomes and world spawn; `None` for the judges' void worlds.
     pub land: Option<Box<crate::terrain::Land>>,
     // ---- weather (mobinfra, `weather/`) ----
-    /// The level's weather: `WeatherData`, the rain and thunder levels, lightning (its bolts and
-    /// fires). Off by default (no weather: nothing drawn, nothing changes).
+    /// The level's weather: `WeatherData`, the rain and thunder levels, lightning (its bolts).
+    /// Off by default (no weather: nothing drawn, nothing changes).
     pub weather: crate::weather::Weather,
+    /// The AFK player's position (a farm judge's declared spot): fire spreads and lava lights fire
+    /// only within 128 blocks of a player (`ServerLevel.canSpreadFireAround`). `None` (the
+    /// default, as in the bridge's sandboxes): no player.
+    pub afk: Option<crate::entity::Vec3>,
 }
 
 impl World {
@@ -275,6 +279,7 @@ impl World {
             explosions: Vec::new(),
             land: None,
             weather: Default::default(),
+            afk: None,
         }
     }
 
@@ -877,10 +882,6 @@ impl World {
             }
         }
         self.ticks.end_tick();
-        // mobinfra: the fires lightning set (FireBlock's scheduled ticks)
-        if !self.weather.fires.is_empty() {
-            crate::weather::lightning::tick_fires(self);
-        }
         // ServerLevel.tick: fluidTicks right after blockTicks (`tickFluid` checks the type)
         if self.fluid_ticks.count() > 0 {
             let due = self.fluid_ticks.collect(self.time);

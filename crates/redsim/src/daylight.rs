@@ -170,6 +170,8 @@ fn props(b: &Block) -> Result<Props, String> {
         Block::MovingPiston { .. } => Props { dampening: 0, faces: None },
         // a lightning rod (mobinfra): noOcclusion, not a full shape, dry: propagatesSkylightDown
         Block::LightningRod { .. } => Props { dampening: 0, faces: None },
+        // fire (mobinfra): no collision, no occlusion: propagatesSkylightDown
+        Block::Fire { .. } => Props { dampening: 0, faces: None },
         // farmland: column(16, 0, 15), useShapeForLightOcclusion: the bottom face full, the sides
         // 15 px high, the top open
         Block::Farmland { .. } => {

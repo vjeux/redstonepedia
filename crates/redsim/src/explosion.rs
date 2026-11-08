@@ -105,6 +105,8 @@ pub fn block_resistance(b: &Block) -> f32 {
         Block::Hopper { .. } => 4.8,
         // a lightning rod (mobinfra): strength(3.0, 6.0)
         Block::LightningRod { .. } => 6.0,
+        // fire (mobinfra): instabreak
+        Block::Fire { .. } => 0.0,
         Block::Slab { .. } | Block::StoneSlab { .. } => 6.0,
         Block::Leaves { .. } => 0.2,
         Block::Scaffolding { .. } | Block::Tripwire { .. } | Block::TripwireHook { .. } | Block::Tnt { .. } | Block::CoralFan { .. } | Block::CoralWallFan { .. } | Block::BubbleColumn { .. } => 0.0,

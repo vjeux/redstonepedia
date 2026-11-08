@@ -48,8 +48,8 @@ impl RandomTicks {
 /// `BlockState.isRandomlyTicking` among redsim's blocks: sugar cane (always), a growing bamboo
 /// stalk (stage 0), a bamboo shoot, kelp's top under age 25, and the ones whose random tick is
 /// not modeled (a section holding one still takes its share of positions): grass (spreading,
-/// decaying), leaves far from a log (decaying). Lava, the one randomly ticking fluid, is not built
-/// by redsim.
+/// decaying), leaves far from a log (decaying). Lava, the one randomly ticking fluid (its block
+/// is too: `LiquidBlock.isRandomlyTicking`), lights fires (`weather::fire::lava_random_tick`).
 pub fn randomly_ticking(b: &Block) -> bool {
     match *b {
         Block::SugarCane { .. } => true,
@@ -62,6 +62,8 @@ pub fn randomly_ticking(b: &Block) -> bool {
         Block::Stem { .. } | Block::Farmland { .. } => true,
         // ---- cactus farms (clk-misc) ----
         Block::Cactus { .. } => true,
+        // ---- mob farms (mobinfra): lava, the randomly ticking fluid (its fire, `weather::fire`) ----
+        Block::Lava { .. } => true,
         _ => false,
     }
 }
@@ -254,6 +256,12 @@ pub fn random_tick(w: &mut World, s: Block, p: BlockPos) {
         Block::Kelp { .. } => return crate::kelp::random_tick(w, s, p),
         Block::Stem { .. } | Block::Farmland { .. } => return crate::stems::random_tick(w, s, p),
         Block::Cactus { .. } => return crate::cactus::random_tick(w, s, p),
+        // lava: `LiquidBlock.randomTick` (its fluid's), then the fluid state's own: twice
+        Block::Lava { .. } => {
+            crate::weather::fire::lava_random_tick(w, p);
+            crate::weather::fire::lava_random_tick(w, p);
+            return;
+        }
         _ => {}
     }
     if !matches!(s, Block::SugarCane { .. }) {

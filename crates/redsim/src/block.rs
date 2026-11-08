@@ -624,6 +624,11 @@ pub enum Block {
     /// waterlogged: bolts within 128 go to the one that tops its column, and a struck rod powers
     /// for 8 gt (strongly into the block it hangs on).
     LightningRod { facing: Dir, powered: bool, waxed: bool },
+    // ---- fire (mobinfra, `weather/fire.rs`) ----
+    /// Fire (`FireBlock`: `age` 0..15; `sides` its north, east, south, west, up properties, bits
+    /// 0..4, the sides it burns toward: none on a floor it stands on) or soul fire (`SoulFireBlock`,
+    /// on soul sand or soil: no age, no sides). No collision, replaceable, light 15 (soul 10).
+    Fire { age: u8, sides: u8, soul: bool },
 }
 
 /// `DyeColor` names by id (a shulker box's `colour` - 1).
@@ -735,6 +740,8 @@ pub enum Kind {
     Terrain(u16),
     // ---- weather (mobinfra): plain or waxed ----
     LightningRod(bool),
+    // ---- fire (mobinfra): fire or soul fire ----
+    Fire(bool),
 }
 
 fn b(s: bool) -> &'static str {
@@ -823,6 +830,7 @@ impl Block {
             Block::Sign { wall, .. } => Kind::Sign(wall),
             Block::Terrain(id) => Kind::Terrain(id),
             Block::LightningRod { waxed, .. } => Kind::LightningRod(waxed),
+            Block::Fire { soul, .. } => Kind::Fire(soul),
         }
     }
 
@@ -1176,6 +1184,17 @@ impl Block {
                 waterlogged_ok()?;
                 Block::LightningRod { facing: dir_of("facing", Dir::Up)?, powered: bool_of("powered", false)?, waxed: name == "waxed_lightning_rod" }
             }
+            // ---- fire (mobinfra) ----
+            "fire" => {
+                let mut sides = 0u8;
+                for (k, key) in ["north", "east", "south", "west", "up"].iter().enumerate() {
+                    if bool_of(key, false)? {
+                        sides |= 1 << k;
+                    }
+                }
+                Block::Fire { age: int_of("age", 0, 0, 15)?, sides, soul: false }
+            }
+            "soul_fire" => Block::Fire { age: 0, sides: 0, soul: true },
             "oak_sign" | "oak_wall_sign" => {
                 if bool_of("waterlogged", false)? {
                     return Err(format!("a waterlogged sign is not modeled: {s:?}"));
@@ -1428,6 +1447,16 @@ impl fmt::Display for Block {
             Block::Sign { wall: true, facing, .. } => write!(f, "minecraft:oak_wall_sign[facing={},waterlogged=false]", facing.name()),
             Block::Terrain(id) => write!(f, "{}", crate::terrain::blocks::props(id).name),
             Block::LightningRod { facing, powered, waxed } => write!(f, "minecraft:{}lightning_rod[facing={},powered={},waterlogged=false]", if waxed { "waxed_" } else { "" }, facing.name(), b(powered)),
+            Block::Fire { soul: true, .. } => write!(f, "minecraft:soul_fire"),
+            Block::Fire { age, sides, soul: false } => write!(
+                f,
+                "minecraft:fire[age={age},east={},north={},south={},up={},west={}]",
+                b(sides & 2 != 0),
+                b(sides & 1 != 0),
+                b(sides & 4 != 0),
+                b(sides & 16 != 0),
+                b(sides & 8 != 0)
+            ),
         }
     }
 }

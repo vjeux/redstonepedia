@@ -997,9 +997,10 @@ Modeled in `crates/redsim/src/weather/` and `entity/mob/sun.rs` (the judge's set
   (`LightningBolt`: life 2, 1-3 flashes) hits every living entity in x+-3, y-3..+9, z+-3 every
   tick its life is not negative, through any roof: a villager becomes a witch, other mobs get 5
   damage and 8 s of fire, a boat or minecart is destroyed (50 > 40), a drop is destroyed (5
-  health); on Normal and Hard it sets fires at its block and around it (`spawnFire`). The judge
-  checks every bolt that can fall on a build (`lightning::static_check`): a lightning rod topping
-  its column within 128 blocks takes every strike, and its bolt's box must miss the farm.
+  health); on Normal and Hard it sets fires at its block and around it (`spawnFire`).
+  `lightning::static_check` lists every bolt that can fall on a build (a lightning rod topping its
+  column within 128 blocks takes every strike within 128 of it); the judge measures what they cost
+  on the card, never refuses on them (vjeux 2026-11-08: "It's all about tradeoffs").
 * **Lava's fire** (`LavaFluid.randomTick`, only within `fire_spread_radius_around_player` 128 of a
   player, `ServerLevel.canSpreadFireAround`; lava ticks twice per random pick: `LiquidBlock
   .randomTick`, then the fluid state's): `nextInt(3)` steps up with a random x/z jitter of +-1 each,
@@ -1008,7 +1009,9 @@ Modeled in `crates/redsim/src/weather/` and `entity/mob/sun.rs` (the judge's set
   block; with 0 steps, 3 tries beside the lava at its level, lighting the air above an
   `ignitedByLava` block. Then `FireBlock` (ticks every 30-39 gt) burns its neighbours by their burn
   odds (fence gates and planks 20, leaves and wool 60) and spreads by their ignite odds. With a
-  player near, an oak fence gate holding lava burns within about 2000 gt in the game.
+  player near, iron-middle's oak fence gates holding lava burned first at gt 735 +- 494 in the
+  game (8 servers, median 500) and at 770 +- 70 in redsim (200 runs, median 663:
+  `mctas mobfarm fire-burn`).
 * **Sunburn** (`Mob.isSunBurnTick`, zombies): in the day (`MONSTERS_BURN`, day time 23460..12542),
   brightness over 0.5 (raw light 12 and up: `getLightLevelDependentMagicValue` gives 0.50000006
   at 12), `nextFloat() * 30 < (brightness - 0.4) * 2`, not in water, rain or powder snow, the

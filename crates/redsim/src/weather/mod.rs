@@ -32,6 +32,7 @@
 //! Off by default ([`Plan::Off`]): rain and thunder stay at 0 and nothing is drawn, so every world
 //! built before weather (the other studies) is unchanged.
 
+pub mod fire;
 pub mod lightning;
 
 use crate::block::Block;
@@ -123,10 +124,13 @@ pub enum WeatherEvent {
     VehicleDestroyed { t: i64, entity: u32 },
     /// An item entity destroyed by a bolt or a fire (`ItemEntity.hurtServer`).
     ItemDestroyed { t: i64, entity: u32, what: &'static str },
-    /// A fire a bolt set (`LightningBolt.spawnFire`).
+    /// A fire set (`LightningBolt.spawnFire`, `LavaFluid.randomTick`, a fire's spread):
+    /// `flammable_near` names lava's fire's lava.
     Fire { t: i64, at: [i32; 3], flammable_near: Option<String> },
-    /// A fire went out (`FireBlock.tick`).
+    /// A fire went out in rain (`FireBlock.tick`).
     FireOut { t: i64, at: [i32; 3] },
+    /// A block burned away (`FireBlock.checkBurnOut`): removed, or turned into fire.
+    Burned { t: i64, at: [i32; 3], what: String, into_fire: bool },
     /// A skeleton trap horse spawned (`ServerLevel.tickThunder`, Hard): its block.
     TrapHorse { t: i64, at: [i32; 3] },
     /// A burning entity put out by rain (`Entity.applyEffectsFromBlocks`: `isInRain`).
@@ -148,15 +152,14 @@ pub struct Weather {
     pub rain_level: f32,
     pub o_thunder_level: f32,
     pub thunder_level: f32,
-    /// The stand-in for the level random's weather and lightning draws.
+    /// The stand-in for the level random's weather, lightning and fire draws.
     pub rng: LegacyRandom,
     /// Commands to apply at game times, in order (`Plan::Force`, `Plan::Windows`).
     pub pending: Vec<(i64, Command)>,
-    /// Lightning: the judge's game settings, the bolts (entities in the game, ticked in the entity
-    /// order by id), the fires they set.
+    /// Lightning: the judge's game settings and the bolts (entities in the game, ticked in the
+    /// entity order by id); their fires are blocks (`Block::Fire`, [`fire`]).
     pub lightning: lightning::Settings,
     pub bolts: Vec<lightning::Bolt>,
-    pub fires: Vec<lightning::Fire>,
     /// The record.
     pub events: Vec<WeatherEvent>,
 }
@@ -174,7 +177,6 @@ impl Default for Weather {
             pending: Vec::new(),
             lightning: lightning::Settings::default(),
             bolts: Vec::new(),
-            fires: Vec::new(),
             events: Vec::new(),
         }
     }
@@ -411,10 +413,51 @@ impl World {
     }
 }
 
-/// `Heightmap.Types.MOTION_BLOCKING`'s predicate: `blocksMotion()` (solid, not a cobweb or a
-/// bamboo shoot) or a fluid inside.
+/// `#minecraft:blocks_motion` (26.3's data tag: `blocks_motion_no_leaves` and `leaves`, read in
+/// the jar's data) among redsim's blocks: every block but air, signs, scaffolding, the plants
+/// without a collision (sugar cane, kelp, bamboo shoots, stems, cactus flowers, big dripleaves),
+/// skulls, tripwire and hooks, levers, buttons, rails, dust, repeaters, comparators, torches,
+/// powder snow, fluids and fire. Lava's fire stops at one (`#blocks_lava_fire_spread`).
+pub fn blocks_motion(b: &Block) -> bool {
+    !matches!(
+        b,
+        Block::Air
+            | Block::Sign { .. }
+            | Block::Scaffolding { .. }
+            | Block::SugarCane { .. }
+            | Block::Kelp { .. }
+            | Block::KelpPlant
+            | Block::BambooSapling
+            | Block::Stem { .. }
+            | Block::AttachedStem { .. }
+            | Block::CactusFlower
+            | Block::BigDripleaf { .. }
+            | Block::Skull { .. }
+            | Block::WallSkull { .. }
+            | Block::Tripwire { .. }
+            | Block::TripwireHook { .. }
+            | Block::Lever { .. }
+            | Block::Button { .. }
+            | Block::Rail { .. }
+            | Block::PlainRail { .. }
+            | Block::DetectorRail { .. }
+            | Block::Wire { .. }
+            | Block::Repeater { .. }
+            | Block::Comparator { .. }
+            | Block::Torch { .. }
+            | Block::WallTorch { .. }
+            | Block::PowderSnow
+            | Block::Water { .. }
+            | Block::BubbleColumn { .. }
+            | Block::Lava { .. }
+            | Block::Fire { .. }
+    )
+}
+
+/// `Heightmap.Types.MOTION_BLOCKING`'s predicate (26.3): `#blocks_motion_in_heightmap` (=
+/// [`blocks_motion`]) or a fluid inside.
 pub fn motion_blocking(b: &Block) -> bool {
-    (crate::behavior::is_solid(b) && !matches!(b, Block::BambooSapling)) || !crate::fluid::fluid_state_of(b).is_empty() || matches!(b, Block::Lava { .. })
+    blocks_motion(b) || !crate::fluid::fluid_state_of(b).is_empty() || matches!(b, Block::Lava { .. })
 }
 
 /// `Level.getHeight(MOTION_BLOCKING, x, z)`: one above the highest motion-blocking block of the

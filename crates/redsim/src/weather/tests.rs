@@ -111,6 +111,7 @@ use crate::entity::{Aabb, EntityKind, Vec3};
 fn stormy_world() -> World {
     let mut w = World::new(BlockPos::new(-8, 0, -8), [16, 24, 16]);
     w.mob.seed(3, 6000);
+    w.afk = Some(Vec3::new(0.5, -40.0, 0.5));
     w.weather = Weather::new(Plan::Cycle, 3);
     w.weather.command(Command::Thunder(1_000_000));
     for _ in 0..120 {
@@ -202,24 +203,79 @@ fn lightning_hits_through_roofs() {
     assert!(w.weather.events.iter().any(|e| matches!(e, WeatherEvent::VehicleDestroyed { .. })));
 }
 
-/// Fires: a bolt on stone sets a fire that goes out; next to leaves the fire is reported.
+/// Fires: a bolt on stone sets a fire (a block) that goes out in the rain or with age; next to
+/// leaves too.
 #[test]
 fn lightning_fires() {
     let mut w = stormy_world();
     put(&mut w, 0, 1, 0, "minecraft:stone");
     lightning::strike(&mut w, 0, 0);
     w.tick();
-    assert!(w.weather.events.iter().any(|e| matches!(e, WeatherEvent::Fire { at: [0, 2, 0], flammable_near: None, .. })), "{:?}", w.weather.events);
+    assert!(w.weather.events.iter().any(|e| matches!(e, WeatherEvent::Fire { at: [0, 2, 0], .. })), "{:?}", w.weather.events);
+    assert!(matches!(w.get(BlockPos::new(0, 2, 0)), Block::Fire { soul: false, .. }));
     for _ in 0..2000 {
         w.tick();
     }
-    assert!(w.weather.fires.is_empty(), "a fire with nothing to burn goes out");
+    assert!(!matches!(w.get(BlockPos::new(0, 2, 0)), Block::Fire { .. }), "a fire with nothing to burn goes out");
     let mut w = stormy_world();
     put(&mut w, 0, 1, 0, "minecraft:stone");
     put(&mut w, 1, 2, 0, "minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]");
     lightning::strike(&mut w, 0, 0);
     w.tick();
-    assert!(w.weather.events.iter().any(|e| matches!(e, WeatherEvent::Fire { flammable_near: Some(_), .. })));
+    assert!(w.weather.events.iter().any(|e| matches!(e, WeatherEvent::Fire { .. })));
+}
+
+/// Fire as a block (`FireBlock`): on stone with nothing to burn it goes out (age over 3); beside
+/// leaves, with a player near and no rain, it burns them (`checkBurnOut`); with no player its
+/// tick does nothing (`canSpreadFireAround`). Lava lights the air beside planks
+/// (`LavaFluid.randomTick`) only with a player within 128.
+#[test]
+fn fire_burns_and_lava_lights_it() {
+    let near = Some(Vec3::new(0.5, 1.0, 0.5));
+    let mut w = World::new(BlockPos::new(-8, 0, -8), [16, 24, 16]);
+    w.afk = near;
+    put(&mut w, 0, 1, 0, "minecraft:stone");
+    assert!(fire::place_fire(&mut w, BlockPos::new(0, 2, 0)));
+    for _ in 0..2000 {
+        w.tick();
+    }
+    assert!(!matches!(w.get(BlockPos::new(0, 2, 0)), Block::Fire { .. }), "nothing to burn: it goes out");
+    put(&mut w, 1, 2, 0, "minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]");
+    assert!(fire::place_fire(&mut w, BlockPos::new(0, 2, 0)));
+    for _ in 0..6000 {
+        w.tick();
+        if !matches!(w.get(BlockPos::new(1, 2, 0)), Block::Leaves { .. }) {
+            break;
+        }
+    }
+    assert!(!matches!(w.get(BlockPos::new(1, 2, 0)), Block::Leaves { .. }), "the leaves burned");
+    assert!(w.weather.events.iter().any(|e| matches!(e, WeatherEvent::Burned { .. })), "{:?}", w.weather.events);
+    // no player: the fire stays as it is, its leaves too
+    let mut w = World::new(BlockPos::new(-8, 0, -8), [16, 24, 16]);
+    put(&mut w, 0, 1, 0, "minecraft:stone");
+    put(&mut w, 1, 2, 0, "minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]");
+    assert!(fire::place_fire(&mut w, BlockPos::new(0, 2, 0)));
+    for _ in 0..3000 {
+        w.tick();
+    }
+    assert!(matches!(w.get(BlockPos::new(1, 2, 0)), Block::Leaves { .. }));
+    assert!(matches!(w.get(BlockPos::new(0, 2, 0)), Block::Fire { age: 0, .. }));
+    // lava beside planks: a fire within a few hundred random ticks, none without a player
+    for afk in [near, None] {
+        let mut w = World::new(BlockPos::new(-8, 0, -8), [16, 24, 16]);
+        w.afk = afk;
+        put(&mut w, 0, 1, 0, "minecraft:lava");
+        put(&mut w, 1, 1, 0, "minecraft:oak_planks");
+        let mut lit = false;
+        for _ in 0..400 {
+            fire::lava_random_tick(&mut w, BlockPos::new(0, 1, 0));
+            lit = (-1..=1).any(|x| (1..=3).any(|y| (-1..=1).any(|z| matches!(w.get(BlockPos::new(x, y, z)), Block::Fire { .. }))));
+            if lit {
+                break;
+            }
+        }
+        assert_eq!(lit, afk.is_some());
+    }
 }
 
 /// Rain puts a burning mob out; a burnt-out mob goes back to -1 (a bolt then sets 8 s of fire).

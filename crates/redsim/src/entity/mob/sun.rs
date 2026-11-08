@@ -45,6 +45,8 @@ pub fn magic_value(raw: i32) -> f32 {
 fn emission(b: &Block) -> i32 {
     match *b {
         Block::Lava { .. } => 15,
+        Block::Fire { soul: false, .. } => 15,
+        Block::Fire { soul: true, .. } => 10,
         Block::Torch { lit: true } | Block::WallTorch { lit: true, .. } => 7,
         Block::Lamp { lit: true } => 15,
         Block::Lantern { .. } => 15,

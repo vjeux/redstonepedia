@@ -8,3 +8,4 @@ pub mod day1;
 pub mod gate;
 pub mod layouts;
 pub mod validate;
+pub mod weathercheck;
