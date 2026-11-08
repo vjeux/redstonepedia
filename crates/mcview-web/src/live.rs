@@ -1970,8 +1970,6 @@ impl Live {
         self.speed.set_title(&format!("Speed: {name} = {tps} game ticks per second"));
         if let Some(p) = self.player.as_mut() {
             p.tps = tps;
-            // a golem's spawn flashes for about a second of the view at any speed
-            p.look.spawn_flash_ticks = (tps * 0.8).max(8.0);
         }
     }
 

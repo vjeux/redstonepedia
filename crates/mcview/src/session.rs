@@ -350,6 +350,10 @@ pub struct Session {
     /// With a ground: the blocks outside the machine's box and the ground (something thrown or
     /// pushed there), followed from the world's write log and drawn with the machine's.
     pub outside: std::collections::BTreeMap<Pos, Block>,
+    /// [`Session::outside`] as the run starts (a farm in its terrain: the landscape's cells its
+    /// settle changed, a grass block gone to dirt under the farm's blocks; a reset starts again
+    /// from it).
+    outside_start: std::collections::BTreeMap<Pos, Block>,
     /// [`Session::period`]'s answer for a horizon (a pure function of the placed state, asked
     /// twice and more by a thumbnail's `go_to_still`: its passes over a long clock's period were
     /// most of a slow thumbnail's time on a phone).
@@ -821,6 +825,7 @@ impl Session {
             floor,
             machine_box,
             outside: Default::default(),
+            outside_start: Default::default(),
             period_memo: Default::default(),
             still: false,
             mob: None,
@@ -908,6 +913,8 @@ impl Session {
         if crate::mobfarm::is_mob_farm(&s.design) {
             let started = match crate::mobfarm::MobRun::start(&s.design, o.mob_seed.unwrap_or(crate::mobfarm::JUDGE_SEED), terrain.as_deref()) {
                 Ok(mut m) => {
+                    // (in its terrain: the cells the settle changes, followed like the run's)
+                    m.run.world.log_writes = terrain.is_some();
                     while m.settle_tick() {
                         b.pause().await;
                     }
@@ -921,16 +928,21 @@ impl Session {
                     // its blocks change seldom: the world logs the cells it changes, so the view
                     // keeps its blocks' mesh until one does (no effect on the run)
                     s.world.log_writes = true;
-                    s.world.writes.clear();
+                    if terrain.is_none() {
+                        s.world.writes.clear();
+                    }
                     s.tick = s.world.time as u32;
                     s.rest_tick = s.tick;
                     // in its terrain: the farm's box of the sample's world is the machine the view
-                    // draws from the world (the landscape around it from `TerrainFarm`)
+                    // draws from the world (the landscape around it from `TerrainFarm`, the cells
+                    // the settle changed from the world: `outside`)
                     if let Some(t) = &terrain {
                         let (lo, hi) = t.farm_box;
                         s.machine_box = Some((lo, [hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1]));
                     }
                     s.terrain = terrain;
+                    s.take_writes();
+                    s.outside_start = s.outside.clone();
                     s.mob_initial = Some(m.clone());
                     s.mob = Some(m);
                     s.initial = Some((s.world.clone(), s.actions.clone(), s.tick));
@@ -1320,7 +1332,7 @@ impl Session {
     /// Start over from the world as placed: nothing changed in the ground, nothing outside.
     fn clear_writes(&mut self) {
         self.world.writes.clear();
-        self.outside.clear();
+        self.outside = self.outside_start.clone();
         self.blocks_version += 1;
         if let Some(f) = self.floor.as_mut() {
             f.changed.clear();
@@ -1498,13 +1510,14 @@ impl Session {
         self.received = s.received;
         self.visit_due = s.visit_due;
         self.farm = s.farm;
-        self.outside = s.outside;
         self.end_tick = s.end_tick;
         self.replay = s.replay;
         self.demo = s.demo;
         self.mob = s.mob;
         self.period_memo = std::cell::RefCell::new(None);
         self.clear_writes();
+        // (the snapshot's own cells outside the machine, kept past the write log's clearing)
+        self.outside = s.outside;
         self.take_writes();
     }
 
@@ -2080,13 +2093,8 @@ impl Session {
             if !near(d.pos, want) {
                 return Err(format!("entity {} ({}) drawn at {:?}, redsim has it at {want:?}", e.id, d.kind, d.pos));
             }
-            let kind_ok = match &e.kind {
-                EntityKind::Item(_) => d.kind.starts_with("item:"),
-                EntityKind::PrimedTnt(_) => d.kind.starts_with("primed:"),
-                _ => !d.kind.starts_with("item:") && !d.kind.starts_with("primed:") && !d.kind.starts_with("falling:"),
-            };
-            if !kind_ok {
-                return Err(format!("entity {} drawn as {}", e.id, d.kind));
+            if !kind_ok(&e.kind, &d.kind) {
+                return Err(format!("entity {} ({}) drawn as {}", e.id, redsim_kind(&e.kind), d.kind));
             }
         }
         for (d, f) in drawn[live.len()..].iter().zip(&falling) {
@@ -2145,11 +2153,21 @@ impl Session {
                 }
             }
         }
-        let live: Vec<[f64; 3]> = w.entities.list.iter().filter(|e| !e.removed).map(|e| [e.pos.x, e.pos.y, e.pos.z]).chain(w.gravity.entities.iter().filter(|f| !f.removed).map(|f| [f.x, f.y, f.z])).collect();
+        let live: Vec<(&redsim::entity::Entity, [f64; 3])> = w.entities.list.iter().filter(|e| !e.removed).map(|e| (e, [e.pos.x, e.pos.y, e.pos.z])).collect();
+        let falling: Vec<[f64; 3]> = w.gravity.entities.iter().filter(|f| !f.removed).map(|f| [f.x, f.y, f.z]).collect();
         for d in self.entities(1.0) {
             let at = [d.pos[0] as f64 + off[0] as f64, d.pos[1] as f64 + off[1] as f64, d.pos[2] as f64 + off[2] as f64];
-            if !d.kind.starts_with("frame:") && !d.kind.starts_with("minecraft:minecart") && !live.iter().any(|p| (0..3).all(|k| (p[k] - at[k]).abs() < 1e-3)) {
-                return Err(format!("{} drawn at {:?}, no entity of redsim's there", d.kind, d.pos));
+            let near = |p: &[f64; 3]| (0..3).all(|k| (p[k] - at[k]).abs() < 1e-3);
+            if d.kind.starts_with("frame:") || d.kind.starts_with("minecraft:minecart") || (d.kind.starts_with("falling:") && falling.iter().any(near)) {
+                continue;
+            }
+            // one of redsim's entities there, of the kind drawn (a passenger too)
+            match live.iter().find(|(e, p)| near(p) && kind_ok(&e.kind, &d.kind)) {
+                Some(_) => {}
+                None => match live.iter().find(|(_, p)| near(p)) {
+                    Some((e, _)) => return Err(format!("entity {} ({}) drawn as {}", e.id, redsim_kind(&e.kind), d.kind)),
+                    None => return Err(format!("{} drawn at {:?}, no entity of redsim's there", d.kind, d.pos)),
+                },
             }
         }
         Ok(())
@@ -2189,6 +2207,23 @@ impl Session {
         // the design's entities by id: item frames take none (redsim keeps them as comparator
         // inputs, `World::frames`)
         let specs: Vec<&crate::design::Entity> = self.design.entities.iter().filter(|d| !d.kind.ends_with("item_frame")).collect();
+        // the design's type ids by entity id: each entity it summons in file order, its passengers
+        // (`Passengers:[{id:...}]`) right after it, as the summon spawns them (a boat's zombie took
+        // the next line's villager: vjeux 2026-11-08, "I don't see any zombie, why are they
+        // panicking?")
+        let mut design_kinds: Vec<String> = Vec::new();
+        for d in &specs {
+            design_kinds.push(d.kind.clone());
+            if let Some(rest) = d.nbt.as_deref().and_then(|n| n.split_once("Passengers:[")).map(|(_, r)| r) {
+                for part in rest.split("id:").skip(1) {
+                    let id = part.trim_start().trim_start_matches('"');
+                    let id: String = id.chars().take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | ':' | '.')).collect();
+                    if !id.is_empty() {
+                        design_kinds.push(if id.contains(':') { id } else { format!("minecraft:{id}") });
+                    }
+                }
+            }
+        }
         // a mob farm's mobs as the mob layer gives them to the viewer (`mob::view`), by entity index
         // (also in its still before it plays: the mobs as placed, drawn with their models)
         let has_mobs = self.world.entities.list.iter().any(|e| matches!(e.kind, EntityKind::Mob(_)));
@@ -2199,11 +2234,12 @@ impl Session {
             .iter()
             .filter(|e| !e.removed)
             .map(|e| {
-                // the design's own type id (its wood, ...) for the entities it summons (spawned
-                // first, in file order), else the kind's
-                let kind = match specs.get(e.id as usize) {
-                    Some(d) => d.kind.clone(),
-                    None => match &e.kind {
+                // a mob: its own type (redsim's); anything else: the design's own type id (its
+                // wood, ...) for the entities it summons, else the kind's
+                let kind = match (&e.kind, design_kinds.get(e.id as usize)) {
+                    (EntityKind::Mob(m), _) => format!("minecraft:{}", m.ty.def().id),
+                    (_, Some(k)) => k.clone(),
+                    (_, None) => match &e.kind {
                         EntityKind::Boat(b) if b.chest => "minecraft:oak_chest_boat".to_string(),
                         EntityKind::Boat(_) => "minecraft:oak_boat".to_string(),
                         EntityKind::Minecart(m) if m.hopper => "minecraft:hopper_minecart".to_string(),
@@ -2615,6 +2651,38 @@ fn settles_at_rest(s: &Session) -> bool {
     s.simulated() && s.replay.is_none() && kind.as_deref().is_some_and(|k| !k.starts_with("flying-machine")) && s.actions.is_empty() && s.shulker.is_none() && !is_tnt_design(&s.design)
 }
 
+/// The kind redsim gives an entity, as the viewer names kinds (a mob: `minecraft:<its type>`).
+fn redsim_kind(k: &redsim::entity::EntityKind) -> String {
+    use redsim::entity::EntityKind;
+    match k {
+        EntityKind::Mob(m) => format!("minecraft:{}", m.ty.def().id),
+        EntityKind::Boat(b) if b.chest => "a chest boat".into(),
+        EntityKind::Boat(_) => "a boat".into(),
+        EntityKind::Minecart(_) => "a minecart".into(),
+        EntityKind::ArmorStand(_) => "minecraft:armor_stand".into(),
+        EntityKind::PrimedTnt(_) => "primed tnt".into(),
+        EntityKind::Item(it) => format!("item {}", it.item),
+    }
+}
+
+/// An entity drawn as `drawn` is redsim's entity of kind `k` (vjeux 2026-11-08, the boat's zombie
+/// drawn as a villager: "I don't see any zombie, why are they panicking?"): a mob as its own type,
+/// a boat as a boat (its wood the design's), a chest boat as one, a minecart as one, an armor
+/// stand, an item, a primed TNT as theirs.
+fn kind_ok(k: &redsim::entity::EntityKind, drawn: &str) -> bool {
+    use redsim::entity::EntityKind;
+    let boat = drawn.ends_with("_boat") || drawn.ends_with("_raft");
+    let chest = drawn.contains("chest_boat") || drawn.contains("chest_raft");
+    match k {
+        EntityKind::Mob(m) => drawn == format!("minecraft:{}", m.ty.def().id),
+        EntityKind::Boat(b) => boat && chest == b.chest,
+        EntityKind::Minecart(_) => drawn.contains("minecart"),
+        EntityKind::ArmorStand(_) => drawn == "minecraft:armor_stand",
+        EntityKind::Item(_) => drawn.starts_with("item:"),
+        EntityKind::PrimedTnt(_) => drawn.starts_with("primed:"),
+    }
+}
+
 /// Where an item frame entity is (`HangingEntity`: its cell's centre moved 0.46875 back toward
 /// the block it hangs on; the renderer moves it back to the centre).
 pub fn frame_position(f: &redsim::entity::frame::Frame) -> [f32; 3] {
@@ -2816,7 +2884,8 @@ impl Session {
             received: Default::default(),
             floor: self.floor.clone(),
             machine_box: self.machine_box,
-            outside: Default::default(),
+            outside: self.outside_start.clone(),
+            outside_start: self.outside_start.clone(),
             period_memo: Default::default(),
             still: self.still,
             mob: self.mob_initial.clone(),

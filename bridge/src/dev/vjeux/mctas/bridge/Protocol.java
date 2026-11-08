@@ -171,6 +171,7 @@ public final class Protocol {
             case "chunk_lists" -> chunkLists(r);
             case "heights" -> heights(r);
             case "memory" -> memory(r);
+            case "golem_spots" -> golemSpots(r);
             case "trace" -> trace(r);
             case "terrain" -> Terrain.load(this, sandbox(r), r);
             case "light_box" -> Terrain.lightBox(sandbox(r), ints(r.getAsJsonArray("from")), ints(r.getAsJsonArray("to")));
@@ -917,6 +918,67 @@ public final class Protocol {
      * its ticket, as {@code AcquirePoi} does when a villager claims it.
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
+    /**
+     * The cells where an iron golem summoned from each of {@code starts} (a villager's block
+     * position) can spawn now (mobviewer 2026-11-08, vjeux: "why is the spawning ui not respecting
+     * the game mechanics?"): every column of {@code SpawnUtil.trySpawnMob(IRON_GOLEM, .., 10, 8, 6,
+     * LEGACY_IRON_GOLEM, false)}'s 17 x 17, its cell found by the game's own
+     * {@code SpawnUtil.moveToPossibleSpawnPosition} (by reflection), then checked like trySpawnMob
+     * checks it: a golem made there ({@code EntityType.create(level, reason)}: no random drawn, the
+     * level's entity counter put back after, never added) passes {@code checkSpawnRules} and
+     * {@code IronGolem.checkSpawnObstruction} with the level's entities in place. Returns
+     * {@code cells} (passing, each once, in villager then column order) and {@code refused} (the
+     * cells the scan finds that fail the checks).
+     */
+    private JsonObject golemSpots(JsonObject r) throws ReflectiveOperationException {
+        Sandbox sb = sandbox(r);
+        net.minecraft.server.level.ServerLevel level = sb.level;
+        java.lang.reflect.Method move = net.minecraft.util.SpawnUtil.class.getDeclaredMethod(
+            "moveToPossibleSpawnPosition", net.minecraft.server.level.ServerLevel.class, int.class, BlockPos.MutableBlockPos.class, net.minecraft.util.SpawnUtil.Strategy.class);
+        move.setAccessible(true);
+        java.lang.reflect.Field counterField = net.minecraft.server.level.ServerLevel.class.getDeclaredField("ENTITY_COUNTER");
+        counterField.setAccessible(true);
+        java.util.concurrent.atomic.AtomicInteger counter = (java.util.concurrent.atomic.AtomicInteger) counterField.get(null);
+        int saved = counter.get();
+        JsonArray cells = new JsonArray();
+        JsonArray refused = new JsonArray();
+        java.util.Set<Long> seen = new java.util.HashSet<>();
+        try {
+            for (JsonElement s : r.getAsJsonArray("starts")) {
+                int[] p = ints(s.getAsJsonArray());
+                BlockPos start = new BlockPos(p[0], p[1], p[2]);
+                for (int dz = -8; dz <= 8; dz++) {
+                    for (int dx = -8; dx <= 8; dx++) {
+                        BlockPos.MutableBlockPos search = start.mutable();
+                        search.setWithOffset(start, dx, 6, dz);
+                        if (!level.getWorldBorder().isWithinBounds(search)
+                            || !(boolean) move.invoke(null, level, 6, search, net.minecraft.util.SpawnUtil.Strategy.LEGACY_IRON_GOLEM)) {
+                            continue;
+                        }
+                        BlockPos cell = search.immutable();
+                        if (!seen.add(cell.asLong())) {
+                            continue;
+                        }
+                        net.minecraft.world.entity.animal.golem.IronGolem golem =
+                            net.minecraft.world.entity.EntityTypes.IRON_GOLEM.create(level, net.minecraft.world.entity.EntitySpawnReason.MOB_SUMMONED);
+                        boolean ok = false;
+                        if (golem != null) {
+                            golem.snapTo(cell.getX() + 0.5, cell.getY(), cell.getZ() + 0.5, 0.0F, 0.0F);
+                            ok = golem.checkSpawnRules(level, net.minecraft.world.entity.EntitySpawnReason.MOB_SUMMONED) && golem.checkSpawnObstruction(level);
+                        }
+                        (ok ? cells : refused).add(pos(cell.getX(), cell.getY(), cell.getZ()));
+                    }
+                }
+            }
+        } finally {
+            counter.set(saved);
+        }
+        JsonObject o = new JsonObject();
+        o.add("cells", cells);
+        o.add("refused", refused);
+        return o;
+    }
+
     private JsonObject memory(JsonObject r) {
         Sandbox sb = sandbox(r);
         int n = r.get("entity").getAsInt();

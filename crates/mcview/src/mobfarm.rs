@@ -134,12 +134,10 @@ pub struct MobRun {
     /// Each living mob's walk animation (the client's, from its moves), by entity id.
     pub walk: HashMap<u32, WalkAnim>,
     /// The golem spawn spots now ([`spawn_spots`], found again when a villager changes cell or a
-    /// block changes), the golems spawned on each cell so far, and each spawn's cell and time
-    /// (the view's flash).
+    /// block changes), and the golems spawned on each cell so far.
     pub spots: Vec<(BlockPos, Result<(), &'static str>)>,
     spots_key: Vec<BlockPos>,
     pub spawned: HashMap<BlockPos, u32>,
-    pub flashes: Vec<(BlockPos, i64)>,
     /// The cells golems spawned on in the last tick.
     pub last_spawns: Vec<BlockPos>,
     /// Its farm as built (the spec moved into its terrain, if any), and the villagers whose
@@ -172,7 +170,7 @@ impl MobRun {
                 chests.push(*p);
             }
         }
-        Ok(MobRun { run, chests, golems: 0, iron_dropped: 0, poppies_dropped: 0, arrived: 0, walk: HashMap::new(), spots: Vec::new(), spots_key: Vec::new(), spawned: HashMap::new(), flashes: Vec::new(), last_spawns: Vec::new(), spec, summoners: None })
+        Ok(MobRun { run, chests, golems: 0, iron_dropped: 0, poppies_dropped: 0, arrived: 0, walk: HashMap::new(), spots: Vec::new(), spots_key: Vec::new(), spawned: HashMap::new(), last_spawns: Vec::new(), spec, summoners: None })
     }
 
     /// One tick of the water's settle; false once none is left.
@@ -227,12 +225,11 @@ impl MobRun {
         self.last_spawns.clear();
         for ev in std::mem::take(&mut w.mob.events) {
             match ev {
-                MobEvent::GolemTry { golem: Some(_), t, at, .. } => {
+                MobEvent::GolemTry { golem: Some(_), at, .. } => {
                     self.golems += 1;
                     if let Some(a) = at {
                         let c = BlockPos::new(a[0], a[1], a[2]);
                         *self.spawned.entry(c).or_default() += 1;
-                        self.flashes.push((c, t));
                         self.last_spawns.push(c);
                     }
                 }
@@ -244,9 +241,6 @@ impl MobRun {
                 _ => {}
             }
         }
-        // (a flash lasts about a second of the view; none at 2400x lasts longer than this)
-        let now = w.time;
-        self.flashes.retain(|(_, t)| now - t < FLASH_KEEP);
         w.mob.spawn_tries.clear();
         let mut seen: Vec<u32> = Vec::new();
         for e in w.entities.list.iter().filter(|e| !e.removed) {
@@ -281,10 +275,6 @@ impl MobRun {
         draw_mob(w, v, partial, self.walk.get(&v.id).copied().unwrap_or_default())
     }
 }
-
-/// Game ticks a spawn's flash is kept for ([`MobRun::flashes`]; the view draws it for
-/// `Look::spawn_flash_ticks` of them).
-pub const FLASH_KEEP: i64 = 2400;
 
 /// The villagers' cells, in entity order: the golem search starts at each.
 fn villager_cells(w: &World) -> Vec<BlockPos> {
@@ -334,7 +324,7 @@ pub fn spots_by_rule(w: &World, only: Option<&[u32]>) -> std::collections::HashS
                     let here = above.below();
                     if blocks::legacy_golem_can_spawn_on(&w.get(here), &w.get(above)) {
                         let pos = redsim::entity::Vec3::new(above.x as f64 + 0.5, above.y as f64, above.z as f64 + 0.5);
-                        if spot_open(&spawn::obstruction(w, above, pos)) {
+                        if spot_open(&without_golems(w, above, spawn::obstruction(w, above, pos))) {
                             out.insert(above);
                         }
                         break;
@@ -398,6 +388,7 @@ pub fn spawn_spots(w: &World, only: Option<&[u32]>) -> Vec<(BlockPos, Result<(),
             if !spot_reached(&r) {
                 continue;
             }
+            let r = without_golems(w, c, r);
             match at.get(&c) {
                 Some(&k) => {
                     if spot_open(&r) && !spot_open(&out[k].1) {
@@ -424,24 +415,35 @@ pub fn spot_reached(r: &Result<(), &'static str>) -> bool {
     !matches!(r, Err(why) if why.starts_with(NO_CELL))
 }
 
-/// A golem can spawn on the cell: the judge's checks pass, or only a mob or a boat is in the
-/// way now (it moves on: the cell is a spawn spot all the same).
+/// A golem can spawn on the cell: the judge's checks pass (`IronGolem.checkSpawnObstruction`),
+/// with no leniency ([`without_golems`]: only golems are taken out of the way).
 pub fn spot_open(r: &Result<(), &'static str>) -> bool {
-    match r {
-        Ok(()) => true,
-        Err(why) => why.starts_with(ENTITY_IN_BOX),
-    }
+    r.is_ok()
 }
 
-/// A spawn spot's colour by the golems spawned on it so far (`n` of the busiest cell's `max`):
-/// sky blue while none has, then yellow to red (the busiest).
-pub fn spot_color(n: u32, max: u32) -> [u8; 3] {
-    if n == 0 {
-        return [72, 196, 255];
+/// The judge's verdict `r` on a golem spawning at `cell` with the golems themselves out of the way
+/// (vjeux 2026-11-08: "The UI shows a spawning spot next to the zombie but no iron golem spawns
+/// there"): a golem standing on the pad comes and goes, so the area stays put as it does; the
+/// farm's own entities (its villagers, its zombie, the zombie's boat) are always in place, and a
+/// cell one of them reaches into is no spawn spot (iron-day1's boat, 1.375 wide, in the 1.4-wide
+/// box of the golem beside the zombie: the game never spawns one there).
+pub fn without_golems(w: &World, cell: BlockPos, r: Result<(), &'static str>) -> Result<(), &'static str> {
+    match r {
+        Err(why) if why.starts_with(ENTITY_IN_BOX) => {
+            let d = MobType::IronGolem.def();
+            let pos = redsim::entity::Vec3::new(cell.x as f64 + 0.5, cell.y as f64, cell.z as f64 + 0.5);
+            let bb = redsim::entity::make_bounding_box(pos, d.width, d.height);
+            // (`spawn::is_unobstructed`'s blocking entities, but golems)
+            let others = w.get_entities(bb, |e| match &e.kind {
+                EntityKind::Mob(m) => m.ty != MobType::IronGolem,
+                EntityKind::Boat(_) | EntityKind::Minecart(_) | EntityKind::ArmorStand(_) | EntityKind::PrimedTnt(_) => true,
+                _ => false,
+            });
+            let falling = w.gravity.entities.iter().any(|f| !f.removed && f.bb().intersects(bb));
+            if others.is_empty() && !falling { Ok(()) } else { Err(why) }
+        }
+        r => r,
     }
-    let f = n as f32 / max.max(1) as f32;
-    let (a, b) = ([255.0, 222.0, 64.0], [255.0, 52.0, 40.0]);
-    std::array::from_fn(|k| (a[k] + (b[k] - a[k]) * f).round() as u8)
 }
 
 /// How the client draws a mob (its `LivingEntityRenderState`) at `partial`: from the mob layer's
@@ -714,21 +716,37 @@ mod tests {
         assert!(golems > 10, "{golems} golems");
         assert!(most > 0);
         assert!(outside.is_empty(), "{outside:?}");
-        // the verdicts against the judge's own check, cell by cell, as the run goes
+        // the verdicts against the judge's own check, cell by cell, as the run goes: on the world
+        // without its golems (the area stays put as they come and go), everything else in place
         let d = Design::parse(&text).unwrap();
         let mut run = MobRun::start(&d, JUDGE_SEED, None).unwrap();
         while run.settle_tick() {}
         run.arrive().unwrap();
         let mut w = run.take_world();
+        let mut checked = 0;
         for t in 0..3000 {
             run.tick(&mut w);
             if t % 100 == 0 {
+                let mut bare = w.clone();
+                for e in bare.entities.list.iter_mut() {
+                    if matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::IronGolem) {
+                        e.removed = true;
+                    }
+                }
                 for (c, r) in spawn_spots(&w, run.summoners.as_deref()) {
                     let pos = redsim::entity::Vec3::new(c.x as f64 + 0.5, c.y as f64, c.z as f64 + 0.5);
-                    assert_eq!(r.is_ok(), redsim::entity::mob::spawn::check_spawn_obstruction(&w, c, pos), "tick {t}: {c:?} {r:?}");
+                    assert_eq!(r.is_ok(), redsim::entity::mob::spawn::check_spawn_obstruction(&bare, c, pos), "tick {t}: {c:?} {r:?}");
+                    checked += 1;
                 }
             }
         }
+        assert!(checked > 100, "{checked} verdicts");
+        // the cell beside the zombie, its boat in the golem's box: never a spawn spot (vjeux
+        // 2026-11-08, "The UI shows a spawning spot next to the zombie but no iron golem spawns
+        // there"; the judge's list, `exit::spawn_spots`, has 8 cells)
+        let open: Vec<BlockPos> = run.spots.iter().filter(|(_, r)| spot_open(r)).map(|(c, _)| *c).collect();
+        let judge = redsim::entity::mob::exit::spawn_spots(&w);
+        assert_eq!(open.len(), 8, "{open:?} vs the judge's {judge:?}");
     }
 
     /// vjeux 2026-11-08 ("can golems really spawn in the air?"): every spot the view draws is one
@@ -749,6 +767,24 @@ mod tests {
         let m = s.mob.as_ref().unwrap();
         let ground = s.view_offset()[1] + Design::parse(&d1u).unwrap().meta.get("ground").and_then(|v| v.trim().parse::<i32>().ok()).unwrap();
         assert!(m.spots.iter().filter(|(_, r)| spot_open(r)).all(|(c, _)| c.y < ground), "no spot drawn on the surface above the farm");
+    }
+
+    /// vjeux 2026-11-08 ("I don't see any zombie, why are they panicking?"): a boat's passenger is
+    /// drawn as itself, not as the design's next entity (d1-bed-plate: a villager line follows the
+    /// boat), and every drawn entity is redsim's, of its kind.
+    #[test]
+    fn a_boats_zombie_is_drawn_as_a_zombie() {
+        let text = std::fs::read_to_string(format!("{}/../../designs/circuits/mobfarm/tracks/ironfarm/d1-bed-plate.txt", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let mut s = crate::session::Session::new(&text, &crate::session::Options::live()).unwrap();
+        let kinds = |s: &crate::session::Session| s.entities(0.0).iter().map(|e| e.kind.clone()).collect::<Vec<_>>();
+        let k = kinds(&s);
+        assert_eq!(k.iter().filter(|k| *k == "minecraft:zombie").count(), 1, "{k:?}");
+        assert_eq!(k.iter().filter(|k| *k == "minecraft:villager").count(), 3, "{k:?}");
+        assert_eq!(k.iter().filter(|k| *k == "minecraft:oak_boat").count(), 1, "{k:?}");
+        for _ in 0..40 {
+            s.drawn_matches_simulation().unwrap();
+            s.step();
+        }
     }
 
     /// vjeux 2026-11-08 ("Just do the real work!?"): the view runs the farm as its judge does,

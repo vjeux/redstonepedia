@@ -978,49 +978,32 @@ impl<'a> Builder<'a> {
         self.add_model(&Model::one(p), base, None, None);
     }
 
-    /// A mob farm's golem spawn spots as one sheet (vjeux 2026-11-08: "Can you make areas
-    /// continuous for spawn targets. Also can golems really spawn in the air?"): a translucent
-    /// sheet on the floor where a golem's feet would stand (each spot's cell's bottom: the block
-    /// under it is what it stands on), its colour shading smoothly from cell to cell (each corner
-    /// the mean of the cells meeting there), only the area's outer edges outlined, seen through
-    /// the blocks; each golem's spawn a bright flash of its cell fading out (`flashes`: cell, fade
-    /// 0 just spawned to 1 gone).
-    pub fn spawn_sheet(&mut self, cells: &[(Pos, [u8; 3])], flashes: &[(Pos, f32)]) {
+    /// A mob farm's golem spawn area (vjeux 2026-11-08: "Can you make areas continuous for spawn
+    /// targets. Also can golems really spawn in the air?"; "What's up with the spawning slots
+    /// changing color and the progress bar around the iron golem?"): one steady translucent sheet
+    /// in one colour on the floor where a golem's feet would stand (each spawn cell's bottom: the
+    /// block under it is what it stands on), only the area's outer edges outlined, seen through the
+    /// blocks. No counts and no flash: the golem appearing is the signal.
+    pub fn spawn_sheet(&mut self, cells: &[Pos]) {
         const LIFT: f32 = 0.03;
-        const SHEET_ALPHA: f32 = 120.0;
-        const EDGE_ALPHA: u8 = 235;
+        const SHEET: [u8; 4] = [72, 196, 255, 120];
+        const EDGE: [u8; 4] = [255, 255, 255, 235];
         const EDGE_W: f32 = 0.08;
         let tile = self.atlas.tile("spawn_spot") as u32 | XRAY;
-        let at: HashMap<Pos, [u8; 3]> = cells.iter().copied().collect();
-        // a corner (x, z) at height y: the mean colour of the cells sharing it
-        let corner = |x: i32, y: i32, z: i32| -> [u8; 3] {
-            let (mut sum, mut n) = ([0u32; 3], 0u32);
-            for (dx, dz) in [(-1, -1), (0, -1), (-1, 0), (0, 0)] {
-                if let Some(c) = at.get(&[x + dx, y, z + dz]) {
-                    for k in 0..3 {
-                        sum[k] += c[k] as u32;
-                    }
-                    n += 1;
-                }
-            }
-            if n == 0 { [255; 3] } else { [(sum[0] / n) as u8, (sum[1] / n) as u8, (sum[2] / n) as u8] }
-        };
-        let quad = |b: &mut Self, pts: [[f32; 3]; 4], cols: [[u8; 4]; 4]| {
+        let at: HashSet<Pos> = cells.iter().copied().collect();
+        let quad = |b: &mut Self, pts: [[f32; 3]; 4], col: [u8; 4]| {
             let uv = [[0.3, 0.3], [0.3, 0.7], [0.7, 0.7], [0.7, 0.3]];
-            let v: [Vertex; 4] = std::array::from_fn(|k| Vertex { pos: pts[k], uv: uv[k], layer: tile, color: cols[k] });
             let center = [(pts[0][0] + pts[2][0]) / 2.0, (pts[0][1] + pts[2][1]) / 2.0, (pts[0][2] + pts[2][2]) / 2.0];
-            b.mesh.translucent.push(Quad { v, center });
+            // (seen from above and from under it)
+            for p in [pts, [pts[0], pts[3], pts[2], pts[1]]] {
+                let v: [Vertex; 4] = std::array::from_fn(|k| Vertex { pos: p[k], uv: uv[k], layer: tile, color: col });
+                b.mesh.translucent.push(Quad { v, center });
+            }
         };
-        let rgba = |c: [u8; 3], a: u8| [c[0], c[1], c[2], a];
-        for (c, _) in cells {
+        for c in cells {
             let (x, y, z) = (c[0] as f32, c[1] as f32 + LIFT, c[2] as f32);
-            let cols = [corner(c[0], c[1], c[2]), corner(c[0], c[1], c[2] + 1), corner(c[0] + 1, c[1], c[2] + 1), corner(c[0] + 1, c[1], c[2])];
-            let a = SHEET_ALPHA as u8;
-            let pts = [[x, y, z], [x, y, z + 1.0], [x + 1.0, y, z + 1.0], [x + 1.0, y, z]];
-            quad(self, pts, [rgba(cols[0], a), rgba(cols[1], a), rgba(cols[2], a), rgba(cols[3], a)]);
-            // (and seen from under it)
-            quad(self, [pts[0], pts[3], pts[2], pts[1]], [rgba(cols[0], a), rgba(cols[3], a), rgba(cols[2], a), rgba(cols[1], a)]);
-            // the area's outer edges: a cell's side with no spot beside it at its height
+            quad(self, [[x, y, z], [x, y, z + 1.0], [x + 1.0, y, z + 1.0], [x + 1.0, y, z]], SHEET);
+            // the area's outer edges: a cell's side with no spawn cell beside it at its height
             let e = EDGE_W;
             let y2 = y + 0.005;
             for (d, pts) in [
@@ -1029,21 +1012,10 @@ impl<'a> Builder<'a> {
                 ([-1, 0, 0], [[x, y2, z], [x, y2, z + 1.0], [x + e, y2, z + 1.0], [x + e, y2, z]]),
                 ([1, 0, 0], [[x + 1.0 - e, y2, z], [x + 1.0 - e, y2, z + 1.0], [x + 1.0, y2, z + 1.0], [x + 1.0, y2, z]]),
             ] {
-                if at.contains_key(&[c[0] + d[0], c[1], c[2] + d[2]]) {
-                    continue;
+                if !at.contains(&[c[0] + d[0], c[1], c[2] + d[2]]) {
+                    quad(self, pts, EDGE);
                 }
-                let w = rgba([255, 255, 255], EDGE_ALPHA);
-                quad(self, pts, [w; 4]);
-                quad(self, [pts[0], pts[3], pts[2], pts[1]], [w; 4]);
             }
-        }
-        for (c, fade) in flashes {
-            let a = ((1.0 - fade.clamp(0.0, 1.0)) * 230.0) as u8;
-            let (x, y, z) = (c[0] as f32, c[1] as f32 + LIFT + 0.01, c[2] as f32);
-            let f = rgba([255, 240, 150], a);
-            let pts = [[x, y, z], [x, y, z + 1.0], [x + 1.0, y, z + 1.0], [x + 1.0, y, z]];
-            quad(self, pts, [f; 4]);
-            quad(self, [pts[0], pts[3], pts[2], pts[1]], [f; 4]);
         }
     }
 

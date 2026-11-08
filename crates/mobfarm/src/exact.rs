@@ -486,6 +486,24 @@ impl GameFarm {
         v["frames"].as_array().ok_or_else(|| anyhow!("trace: no frames"))?.iter().map(parse_frame).collect()
     }
 
+    /// The game's own golem spawn cells now, for golems summoned from each of `starts` (villagers'
+    /// cells): the bridge's `golem_spots` (the game's `moveToPossibleSpawnPosition` scan of
+    /// `trySpawnMob`'s 17 x 17 columns, then `checkSpawnRules` and `IronGolem.checkSpawnObstruction`
+    /// with the level's entities in place; nothing drawn from a random, nothing added).
+    pub fn golem_spots(&mut self, starts: &[[i32; 3]]) -> Result<Vec<[i32; 3]>> {
+        let v = self.w.call(json!({"op": "golem_spots", "sandbox": self.sb, "starts": starts}))?;
+        v["cells"]
+            .as_array()
+            .ok_or_else(|| anyhow!("golem_spots: no cells"))?
+            .iter()
+            .map(|c| {
+                let a = c.as_array().ok_or_else(|| anyhow!("golem_spots: a cell is not [x,y,z]"))?;
+                let n = |k: usize| a.get(k).and_then(Value::as_i64).map(|v| v as i32).ok_or_else(|| anyhow!("golem_spots: a bad cell"));
+                Ok([n(0)?, n(1)?, n(2)?])
+            })
+            .collect()
+    }
+
     /// `Run::arrive`'s game side, after redsim's: the detectors, the entities (with redsim's
     /// summon order and the run's follow-range bonuses), each villager's HOME and LAST_SLEPT from
     /// redsim's world.
@@ -790,6 +808,93 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
         }
     }
     Ok(cmp)
+}
+
+/// What [`spots_check`] found.
+#[derive(Clone, Debug, Default)]
+pub struct SpotsCheck {
+    /// Times the game's cells were compared with the view's (as the mobs arrive).
+    pub looks: u32,
+    /// The cells the view drew.
+    pub most: usize,
+    /// Golems the game spawned in its run, each checked against the view's cells.
+    pub spawns: u32,
+    /// Game ticks the game ran after the arrival.
+    pub ticks: i64,
+    /// Every difference: `x y z drawn, the game finds no golem spawn there`, `x y z the game's
+    /// golem spawn cell, not drawn`, `the game spawned a golem at x y z, not drawn`.
+    pub differences: Vec<String>,
+}
+
+/// A view's golem spawn cells against the GAME's (mobviewer 2026-11-08, vjeux: "why is the
+/// spawning ui not respecting the game mechanics?"): the farm built in the game and in redsim the
+/// same way and settled tick for tick ([`compare`]'s setup); as the mobs arrive (both worlds the
+/// same, block for block and entity for entity), the game's own cells from the villagers the view
+/// summons from ([`GameFarm::golem_spots`]: the game's scan and `checkSpawnObstruction`, the farm's
+/// entities in place) against the view's; then the game runs on alone for `opts.ticks` ticks
+/// (redsim's randoms do not follow it that far yet: track tickexact) and every golem it spawns must
+/// stand on a cell the view drew. `view(world, spec)`: its summoning villagers' cells and the cells
+/// it draws, read on redsim's world (`spec`: the farm as the run built it, moved to its site or
+/// lifted).
+pub fn spots_check(version: &str, design: &std::path::Path, opts: &Opts, mut view: impl FnMut(&redsim::world::World, &FarmSpec) -> (Vec<[i32; 3]>, std::collections::HashSet<[i32; 3]>)) -> Result<SpotsCheck> {
+    let (c, spec, place) = load_place(design, opts)?;
+    let mut o = opts_of(opts);
+    if let Place::Terrain { site, .. } = place {
+        o.site = Some(site);
+    }
+    let mut game = GameFarm::start(version, &c, &spec, &o, opts.weather, false, place)?;
+    let mut run = redsim_start(&spec, &o, &game, opts.bare)?;
+    let mut watch = Watch::new(&run.world, spec.lo, spec.hi);
+    let mut cmp = Compare::default();
+    let mut left = SETTLE_TICKS as u32;
+    while left > 0 {
+        let n = left.min(opts.batch);
+        for f in game.trace(n, false)? {
+            run.settle_tick();
+            cmp.tick(&f, &watch.frame(&run.world));
+        }
+        left -= n;
+    }
+    // (the randoms may part during the settle, track tickexact; what the spawn cells read is the
+    // blocks and the farm's entities as they arrive, each placed the same way on both sides: the
+    // cells say whether they match)
+    let parted = cmp.first.as_ref().map(|d| format!("{d:?}"));
+    arrive(&mut run)?;
+    let mobs = run.world.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Mob(_))).count();
+    let bonus = follow_bonuses(opts.seed, mobs);
+    set_bonuses(&mut run.world, &bonus);
+    game.arrive(&c, &spec, &run.world, &bonus)?;
+    let mut out = SpotsCheck::default();
+    let fmt = |c: &[i32; 3]| format!("{} {} {}", c[0], c[1], c[2]);
+    let (starts, drawn) = view(&run.world, &spec);
+    out.most = drawn.len();
+    let game_cells: std::collections::HashSet<[i32; 3]> = game.golem_spots(&starts)?.into_iter().collect();
+    out.looks = 1;
+    let why = parted.as_deref().map(|d| format!(" (the settle's randoms parted first: {d})")).unwrap_or_default();
+    for c in drawn.difference(&game_cells) {
+        out.differences.push(format!("as the mobs arrive: {} drawn, the game finds no golem spawn there{why}", fmt(c)));
+    }
+    for c in game_cells.difference(&drawn) {
+        out.differences.push(format!("as the mobs arrive: {} the game's golem spawn cell, not drawn{why}", fmt(c)));
+    }
+    let mut t: i64 = 0;
+    while t < opts.ticks as i64 {
+        let n = (opts.ticks as i64 - t).min(opts.batch as i64) as u32;
+        for f in game.trace(n, false)? {
+            for k in &f.entered {
+                if let Some(e) = f.entities.iter().find(|e| e.n == *k && e.ty.ends_with("iron_golem")) {
+                    let cell = [e.pos[0].floor() as i32, e.pos[1].floor() as i32, e.pos[2].floor() as i32];
+                    out.spawns += 1;
+                    if !drawn.contains(&cell) {
+                        out.differences.push(format!("game time {}: the game spawned a golem at {}, not drawn", f.t, fmt(&cell)));
+                    }
+                }
+            }
+        }
+        t += n as i64;
+    }
+    out.ticks = t;
+    Ok(out)
 }
 
 /// Give redsim's mobs the run's follow-range bonuses (in id order): `AttributeInstance`'s value,

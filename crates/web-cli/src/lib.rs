@@ -1475,7 +1475,7 @@ fn cmd_check(designs: &[PathBuf], horizon: u32, quiet: bool, wasm: Option<&Path>
         let run = if door {
             door_pair(&text)
         } else if mob {
-            mob_pair(&text, probe.as_mut())
+            mob_pair(&text, d, probe.as_mut())
         } else if statics {
             static_pair(&text)
         } else if fly {
@@ -2638,7 +2638,7 @@ const MOB_TERRAIN_TICKS: u32 = 600;
 /// (`studies::mobfarm::spec_of`), its world redsim's run's every tick ([`MOB_TICKS`]; in the
 /// shipped wasm [`MOB_WASM_TICKS`]), and over the judge's days its golems and iron are the judge's
 /// run 0's (`farm::run`: the judge's own loop, with its checks).
-fn mob_pair(text: &str, probe: Option<&mut mcview::tools::WasmProbe>) -> Result<Option<String>, String> {
+fn mob_pair(text: &str, path: &Path, probe: Option<&mut mcview::tools::WasmProbe>) -> Result<Option<String>, String> {
     use circuit::mobfarm as judge;
     use redsim::entity::mob::farm::{RunOpts, WalkMode};
     let d = mctas::design::Design::parse(text).map_err(|e| format!("{e:#}"))?;
@@ -2717,6 +2717,14 @@ fn mob_pair(text: &str, probe: Option<&mut mcview::tools::WasmProbe>) -> Result<
     if let Some(first) = bad.first() {
         return Err(format!("{} differences between the drawn spawn spots and the game's rule, the first at {first}", bad.len()));
     }
+    // and against the GAME (vjeux 2026-11-08, "why is the spawning ui not respecting the game
+    // mechanics?"): the farm in the bridge tick for tick with redsim, the game's own scan and
+    // checkSpawnObstruction for the villagers the view summons from, every drawn cell one of the
+    // game's and every one of the game's drawn, and every golem the game spawns on a drawn cell
+    let game = mob_spots_game(path, MOB_GAME_TICKS)?;
+    if let Some(first) = game.differences.first() {
+        return Err(format!("{} differences between the drawn spawn spots and the game's, the first: {first}", game.differences.len()));
+    }
     // (in terrain the judge puts its base build at its k-th cheapest spots instead: the view's
     // runs here are the turned builds', each at its own cheapest spot)
     let runs_what = match site {
@@ -2724,8 +2732,43 @@ fn mob_pair(text: &str, probe: Option<&mut mcview::tools::WasmProbe>) -> Result<
         None => format!("the judge's {runs} runs"),
     };
     Ok(Some(format!(
-        "mob farm: the judge's farm and run; redsim's world every tick over {pair_ticks}; {totals}{wasm}; {runs_what}: all {spawned} golems on the view's spawn spots (at most {most} cells); every drawn spot a spawn spot by the game's rule and every one drawn ({looks} looks, at most {drawn} cells)"
+        "mob farm: the judge's farm and run; redsim's world every tick over {pair_ticks}; {totals}{wasm}; {runs_what}: all {spawned} golems on the view's spawn spots (at most {most} cells); every drawn spot a spawn spot by the game's rule and every one drawn ({looks} looks, at most {drawn} cells); in the game (the bridge): as the mobs arrive the drawn cells = the game's own ({} cells), and over {} game ticks all its {} golems on drawn cells",
+        game.most, game.ticks, game.spawns
     )))
+}
+
+/// Game ticks the game runs a mob farm on alone after the arrival ([`mob_spots_game`]): a day.
+const MOB_GAME_TICKS: u32 = 24000;
+
+/// The view's golem spawn cells against the game's over `ticks` ticks of the farm's exact run in
+/// the bridge (`mobfarm::exact::spots_check`; vjeux 2026-11-08, "why is the spawning ui not
+/// respecting the game mechanics?"): the view's summoning villagers (`mobfarm::summoner_cells`
+/// on the farm as built) and drawn cells read on redsim's world, which the game's run matches
+/// tick for tick.
+fn mob_spots_game(path: &Path, ticks: u32) -> Result<mobfarm::exact::SpotsCheck, String> {
+    let d = mcview::design::Design::parse(&std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?)?;
+    let opts = mobfarm::exact::Opts {
+        seed: mcview::mobfarm::JUDGE_SEED,
+        ticks,
+        weather: false,
+        probe: false,
+        batch: 50,
+        full: false,
+        bare: false,
+        draws_at: None,
+        terrain: mcview::terrain::sample_of(&d).map(|s| s.name.to_string()),
+        day0: None,
+    };
+    let mut summoners: Option<Vec<u32>> = None;
+    mobfarm::exact::spots_check("26.3", path, &opts, |w, spec| {
+        // (the villagers that can summon, as they arrive: the view's own rule on the farm as the
+        // run built it)
+        let ids = summoners.get_or_insert_with(|| mcview::mobfarm::summoner_ids(w, &mcview::mobfarm::summoner_cells(spec, w)));
+        let starts: Vec<[i32; 3]> = w.entities.list.iter().filter(|e| !e.removed && ids.contains(&e.id)).map(|e| e.block_position().arr()).collect();
+        let drawn = mcview::mobfarm::spawn_spots(w, Some(ids)).into_iter().filter(|(_, r)| mcview::mobfarm::spot_open(r)).map(|(c, _)| c.arr()).collect();
+        (starts, drawn)
+    })
+    .map_err(|e| format!("in the game: {e:#}"))
 }
 
 fn farm_pair(text: &str, probe: Option<&mut mcview::tools::WasmProbe>) -> Result<Option<String>, String> {

@@ -2236,6 +2236,7 @@ dependencies = [
  "libc",
  "mctas",
  "mcview",
+ "mobfarm",
  "piston-door",
  "redsim",
  "serde_json",

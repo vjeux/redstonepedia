@@ -467,10 +467,8 @@ impl Player {
         }
         let mut look = scene::viewer_look(&self.session);
         look.lit_marker = true;
-        // the viewer's own choices carry over to the session that plays (the "Spawn spots" toggle,
-        // the speed's flash length)
+        // the viewer's own choices carry over to the session that plays (the "Spawn spots" toggle)
         look.spawn_spots = self.look.spawn_spots;
-        look.spawn_flash_ticks = self.look.spawn_flash_ticks;
         self.look = look;
         self.history = vec![Default::default(); self.session.outputs.len()];
         self.history_tick = None;

@@ -44,11 +44,9 @@ pub struct Look {
     /// A flying machine's track (the live viewer): its whole path's box (low, high corners),
     /// the travel axis and the axis normal to the track's plane ([`Builder::track`]).
     pub track: Option<(Pos, Pos, usize, usize)>,
-    /// A mob farm's golem spawn spots drawn over its cells (the live viewer's "Spawn spots",
-    /// [`crate::mobfarm::MobRun::spots`]), and how many game ticks a golem's spawn flashes on its
-    /// cell (the view's speed: about a second of it).
+    /// A mob farm's golem spawn area drawn over its cells (the live viewer's "Spawn spots",
+    /// [`crate::mobfarm::MobRun::spots`]).
     pub spawn_spots: bool,
-    pub spawn_flash_ticks: f32,
 }
 
 /// Where the real-game pictures put the orange marker (`clock/src/shot.rs::marker_cell`): the
@@ -154,7 +152,7 @@ pub fn default_look(s: &Session) -> Look {
     // under the lowest cell
     // (a farm in its terrain stands on its landscape: no ground of the view's own)
     let ground = if s.terrain.is_some() { None } else { Some(lo[1] as f32 - 1.0) };
-    Look { marker, lit_marker: false, outlines, input_spans, port_outlines, ground, floor_margin: None, ghost, track: None, spawn_spots: false, spawn_flash_ticks: 20.0 }
+    Look { marker, lit_marker: false, outlines, input_spans, port_outlines, ground, floor_margin: None, ghost, track: None, spawn_spots: false }
 }
 
 /// An OUT box's outline colour (the OUT tag's), and while its output is powered.
@@ -440,23 +438,21 @@ fn entities_into(b: &mut Builder, s: &Session, partial: f32, look: &Look) {
             }
         }
         if look.spawn_spots {
-            spawn_spots_into(b, s, now, look);
+            spawn_spots_into(b, s);
         }
     }
 }
 
-/// A mob farm's golem spawn spots (vjeux 2026-11-08: "show the places where golems spawn"; "Can you
-/// make areas continuous for spawn targets. Also can golems really spawn in the air?"): every cell
-/// where the judge's golem search ([`crate::mobfarm::spawn_spots`]) finds a golem can spawn around
-/// the villagers now, as one shaded sheet on the floor its feet would stand on
-/// ([`Builder::spawn_sheet`]), sky blue where none has spawned yet, yellow to red by the golems
-/// spawned there so far; each golem's spawn flashes on its cell. A still (before its run plays)
-/// shows its spots, uncounted.
-fn spawn_spots_into(b: &mut Builder, s: &Session, now: f32, look: &Look) {
-    use crate::mobfarm::{spot_color, spot_open};
+/// A mob farm's golem spawn area (vjeux 2026-11-08: "show the places where golems spawn"; "Can you
+/// make areas continuous for spawn targets"; "What's up with the spawning slots changing color"):
+/// every cell where the judge's golem search ([`crate::mobfarm::spawn_spots`]) finds a golem can
+/// spawn around the villagers that can summon, as one steady sheet on the floor its feet would
+/// stand on ([`Builder::spawn_sheet`]). A still (before its run plays) shows its area too.
+fn spawn_spots_into(b: &mut Builder, s: &Session) {
+    use crate::mobfarm::spot_open;
     let found;
-    let (spots, run) = match &s.mob {
-        Some(run) => (&run.spots[..], Some(run)),
+    let spots = match &s.mob {
+        Some(run) => &run.spots[..],
         None if crate::mobfarm::is_mob_farm(&s.design) => {
             // (a still: the villagers that can summon, where the design puts them)
             let off = s.view_offset();
@@ -473,26 +469,14 @@ fn spawn_spots_into(b: &mut Builder, s: &Session, now: f32, look: &Look) {
                 crate::mobfarm::summoner_ids(&s.world, &crate::mobfarm::summoner_cells(&moved, &s.world))
             });
             found = crate::mobfarm::spawn_spots(&s.world, only.as_deref());
-            (&found[..], None)
+            &found[..]
         }
         None => return,
     };
-    let max = run.and_then(|r| r.spawned.values().copied().max()).unwrap_or(0);
     // (the world's cells in the design's coordinates: a farm in its terrain)
     let off = s.view_offset();
-    let at = |c: &redsim::BlockPos| [c.x - off[0], c.y - off[1], c.z - off[2]];
-    let cells: Vec<(Pos, [u8; 3])> = spots.iter().filter(|(_, r)| spot_open(r)).map(|(c, _)| (at(c), spot_color(run.and_then(|r| r.spawned.get(c).copied()).unwrap_or(0), max))).collect();
-    let mut flashes = Vec::new();
-    if let Some(run) = run {
-        let span = look.spawn_flash_ticks.max(1.0);
-        for (c, t) in &run.flashes {
-            let age = now - *t as f32;
-            if (0.0..span).contains(&age) {
-                flashes.push((at(c), age / span));
-            }
-        }
-    }
-    b.spawn_sheet(&cells, &flashes);
+    let cells: Vec<Pos> = spots.iter().filter(|(_, r)| spot_open(r)).map(|(c, _)| [c.x - off[0], c.y - off[1], c.z - off[2]]).collect();
+    b.spawn_sheet(&cells);
 }
 
 /// The floor [`build`] draws, with nothing on it (`web compare`: the pixels that differ from it
