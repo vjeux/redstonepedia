@@ -213,10 +213,28 @@ pub fn potion_of(item_snbt: &str) -> Option<String> {
     Some(v.strip_prefix("minecraft:").unwrap_or(&v).to_string())
 }
 
-/// [`be_extra_from_nbt`] from a redsim world: the same text for the same state.
+/// Whether [`be_extra_redsim`] reads anything at a block of this kind (a comparator's strength, a
+/// container's contents): a block it does not read has no extras, so a run that sees the same
+/// block again has nothing more to compare (`clock::sim`).
+pub fn reads_extras(b: &redsim::Block) -> bool {
+    matches!(b, redsim::Block::Comparator { .. } | redsim::Block::Hopper { .. } | redsim::Block::Dispenser { .. } | redsim::Block::Crafter { .. } | redsim::Block::Furnace { .. } | redsim::Block::BrewingStand { .. })
+}
+
+/// What [`be_extra_redsim`] reads at a comparator, its output strength (`None`: not a comparator):
+/// its extras are this number alone, so a run that sees the same comparator with the same
+/// strength again keeps the text it made instead of making it again (`clock::sim`).
+pub fn comparator_read(w: &redsim::World, p: redsim::BlockPos, b: &redsim::Block) -> Option<u8> {
+    matches!(b, redsim::Block::Comparator { .. }).then(|| w.comparator_out.get(&p).copied().unwrap_or(0))
+}
+
+/// [`be_extra_from_nbt`] from a redsim world: the same text for the same state. (Only the kinds
+/// [`reads_extras`] lists have extras: a kind added below must be added there.)
 pub fn be_extra_redsim(w: &redsim::World, p: redsim::BlockPos, b: &redsim::Block) -> Option<String> {
+    if !reads_extras(b) {
+        return None;
+    }
     match b {
-        redsim::Block::Comparator { .. } => Some(format!("{{out={}}}", w.comparator_out.get(&p).copied().unwrap_or(0))),
+        redsim::Block::Comparator { .. } => Some(format!("{{out={}}}", comparator_read(w, p, b).unwrap_or(0))),
         redsim::Block::Hopper { .. } | redsim::Block::Dispenser { .. } | redsim::Block::Crafter { .. } => {
             let c = w.containers.map.get(&p);
             let mut list: Vec<String> = Vec::new();

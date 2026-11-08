@@ -286,7 +286,12 @@ archived clock's `clock sim --json`; every archived circuit's `circuit sim --tab
 runs, ~31 s each, one after the other; one run was 137 s); the members' work 2786 → 870
 thread-s; fa-slice-54b 64 s → 36 s, the circuits' pass 81 s → 54 s; cold **128 s** (36 GB);
 `clock sim` of the whole clock archive 97 s → 38 s; `site preview`'s first render of a new
-mob-farm text 54 s → 0.1 s.
+mob-farm text 54 s → 0.1 s. Then the thumbnails' still frames are found beside the clocks' long
+pole, the doors', circuits' and archived clocks' after the circuits' pass and each member's after
+the member (`warm_stills`; the still-frame pass after the clocks 25 s → 1 s), and a comparator's
+extras are compared as its strength (`wave::comparator_read`, `wave::reads_extras`): cold **90 s**
+(members 80 s, its long member's base run, exterior scan and candidates' runs ~25 s each; the
+circuits 52 s beside them, their slowest a memory 40 s and fa-slice-54b 38 s), the same site.
 
 ### No dead links: every page ever published (`crates/site/src/published.rs`)
 

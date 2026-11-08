@@ -602,7 +602,7 @@ pub fn drive_seeded(c: &Clock, extra: &[(u32, Action)], ticks: u32, probes: &[Po
     // change (the same block and extras make the same string): the judges' runs formatted every
     // non-air cell at every tick (a full adder's 64 s, 2026-11-08); the box read x, y, z, which
     // is the frames' order (by position)
-    let mut seen: Vec<Option<(Block, Option<String>, String)>> = Vec::new();
+    let mut seen: Vec<Option<(Block, Option<String>, String, Option<u8>)>> = Vec::new();
     out.stopped = drive_each(c, extra, ticks, from, to, remove_primed, level, |t, world| {
         for &(_, p) in &world.primed[primed_seen..] {
             out.primed.push((t, p.arr()));
@@ -623,12 +623,29 @@ pub fn drive_seeded(c: &Clock, extra: &[(u32, Action)], ticks: u32, probes: &[Po
                         continue;
                     }
                     let i = ((x * size[1] + y) * size[2] + z) as usize;
-                    let extra = wave::be_extra_redsim(world, p, &b);
-                    if !matches!(&seen[i], Some((sb, se, _)) if *sb == b && *se == extra) {
-                        let s = wave::with_extra(&b.to_string(), extra.as_deref());
-                        seen[i] = Some((b, extra, s));
+                    // (the same block holding the same reads: its text kept, `wave::comparator_read`,
+                    // `wave::reads_extras`)
+                    let quick = wave::comparator_read(world, p, &b);
+                    let held = match &seen[i] {
+                        Some((sb, _, _, sq)) if *sb == b => {
+                            if quick.is_some() {
+                                *sq == quick
+                            } else {
+                                !wave::reads_extras(&b)
+                            }
+                        }
+                        _ => false,
+                    };
+                    if !held {
+                        let extra = wave::be_extra_redsim(world, p, &b);
+                        if !matches!(&seen[i], Some((sb, se, _, _)) if *sb == b && *se == extra) {
+                            let s = wave::with_extra(&b.to_string(), extra.as_deref());
+                            seen[i] = Some((b, extra, s, quick));
+                        } else if let Some(e) = seen[i].as_mut() {
+                            e.3 = quick;
+                        }
                     }
-                    let Some((_, _, s)) = &seen[i] else { unreachable!("read above") };
+                    let Some((_, _, s, _)) = &seen[i] else { unreachable!("read above") };
                     v.push((p.arr(), s.clone()));
                 }
             }
@@ -749,20 +766,37 @@ pub fn exterior_scan(c: &Clock, w: u32, period: u32, swept: (Pos, Pos), occupied
     let mut base: Vec<Option<String>> = vec![None; n];
     let mut base_cells: Vec<(usize, Pos)> = Vec::new();
     // a cell's last block and extras read, their state string, whether it is tripwire / rails / water
-    let mut seen: Vec<Option<(Block, Option<String>, String, bool)>> = vec![None; n];
+    let mut seen: Vec<Option<(Block, Option<String>, String, bool, Option<u8>)>> = vec![None; n];
     let mut signals: Vec<Vec<bool>> = vec![Vec::with_capacity(period as usize); cand.len()];
     let run = drive_each(c, &[], end, from, to, false, None, |t, world| {
         let in_period = t > w && t < end;
         for (p, b) in world.blocks() {
             let q = p.arr();
             let i = idx(q).expect("a block of the run stands in its box");
-            let extra = wave::be_extra_redsim(world, p, &b);
-            if !matches!(&seen[i], Some((sb, se, _, _)) if *sb == b && *se == extra) {
-                let s = wave::with_extra(&b.to_string(), extra.as_deref());
-                let bad = s.contains("tripwire") || s.contains("rail") || s.contains("water");
-                seen[i] = Some((b, extra, s, bad));
+            // (the same block holding the same reads: its text kept, `wave::comparator_read`,
+            // `wave::reads_extras`)
+            let quick = wave::comparator_read(world, p, &b);
+            let held = match &seen[i] {
+                Some((sb, _, _, _, sq)) if *sb == b => {
+                    if quick.is_some() {
+                        *sq == quick
+                    } else {
+                        !wave::reads_extras(&b)
+                    }
+                }
+                _ => false,
+            };
+            if !held {
+                let extra = wave::be_extra_redsim(world, p, &b);
+                if !matches!(&seen[i], Some((sb, se, _, _, _)) if *sb == b && *se == extra) {
+                    let s = wave::with_extra(&b.to_string(), extra.as_deref());
+                    let bad = s.contains("tripwire") || s.contains("rail") || s.contains("water");
+                    seen[i] = Some((b, extra, s, bad, quick));
+                } else if let Some(e) = seen[i].as_mut() {
+                    e.4 = quick;
+                }
             }
-            let Some((_, _, s, bad)) = &seen[i] else { unreachable!("read above") };
+            let Some((_, _, s, bad, _)) = &seen[i] else { unreachable!("read above") };
             filled[i] = true;
             if *bad {
                 bad_floor[i] = true;
@@ -1435,7 +1469,7 @@ pub fn simulate(c: &Clock, o: &SimOptions) -> SimReport {
     // frame digest is the sum of the cells' keyed shares ([`cell_share`]), which equal frames
     // share and other frames do not but by a 2^-128 chance: frames are only compared with each
     // other.
-    let mut cur: Vec<Option<(Block, Option<String>)>> = vec![None; cells.len()];
+    let mut cur: Vec<Option<(Block, Option<String>, Option<u8>)>> = vec![None; cells.len()];
     let mut shares: Vec<u128> = vec![0; cells.len()];
     let mut ids: Vec<Option<u32>> = vec![None; cells.len()];
     let mut digest_sum: u128 = 0;
@@ -1444,28 +1478,44 @@ pub fn simulate(c: &Clock, o: &SimOptions) -> SimReport {
         if let Err((v, why)) = between_ticks(&mut s, t) {
             return SimReport::fail(c, v, why);
         }
-        for (q, _) in s.world.blocks() {
-            if Some(q.arr()) != lamp {
-                crate::grow(&mut slo, &mut shi, q.arr());
-            }
-        }
         let recording = t >= w0 && t < w0 + p;
         frame.clear();
+        // (the cells are the world's box in its own order: the swept box grows over its blocks
+        // here, the lamp aside)
         for (k, q) in cells.iter().enumerate() {
             let b = s.world.get(bp(*q));
-            let extra = wave::be_extra_redsim(&s.world, bp(*q), &b);
-            if !matches!(&cur[k], Some((cb, ce)) if *cb == b && *ce == extra) {
-                let share = cell_share(k, &b, &extra);
-                digest_sum = digest_sum.wrapping_sub(shares[k]).wrapping_add(share);
-                shares[k] = share;
-                cur[k] = Some((b, extra));
-                ids[k] = None;
+            if !b.is_air() && Some(*q) != lamp {
+                crate::grow(&mut slo, &mut shi, *q);
+            }
+            // a comparator's extras are its strength alone (`wave::comparator_read`), a block
+            // without extras has none (`wave::reads_extras`): the same block holding the same
+            // reads again changes nothing, and its text is not made again
+            let quick = wave::comparator_read(&s.world, bp(*q), &b);
+            let held = match &cur[k] {
+                Some((cb, _, cq)) if *cb == b => {
+                    if quick.is_some() {
+                        *cq == quick
+                    } else {
+                        !wave::reads_extras(&b)
+                    }
+                }
+                _ => false,
+            };
+            if !held {
+                let extra = wave::be_extra_redsim(&s.world, bp(*q), &b);
+                if !matches!(&cur[k], Some((cb, ce, _)) if *cb == b && *ce == extra) {
+                    let share = cell_share(k, &b, &extra);
+                    digest_sum = digest_sum.wrapping_sub(shares[k]).wrapping_add(share);
+                    shares[k] = share;
+                    ids[k] = None;
+                }
+                cur[k] = Some((b, extra, quick));
             }
             if recording {
                 let id = match ids[k] {
                     Some(id) => id,
                     None => {
-                        let (cb, ce) = cur[k].as_ref().expect("read above");
+                        let (cb, ce, _) = cur[k].as_ref().expect("read above");
                         let id = ps.intern(wave::with_extra(&cb.to_string(), ce.as_deref()));
                         ids[k] = Some(id);
                         id
