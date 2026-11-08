@@ -2558,13 +2558,41 @@ fn predict_next(p: &mut Prod, l: i32, exit_row: i32) -> Result<(Option<i32>, Opt
     Ok((next, cur))
 }
 
-/// Poll for the remotely triggered portal; on failure dump where the chain stopped
-/// (field portal scan, dropper/hopper inventories) into the production log.
-fn wait_portal(p: &mut Prod, l: i32, row: i32) -> Result<()> {
+/// Poll for the remotely triggered portal and return the row the game ACTUALLY
+/// chose: equidistant full sites are tied in the predictor's distance sort, but the
+/// game breaks ties by its spiral scan (measured: it took the south row where the
+/// predictor took the north one), so asserting the predicted row alone fails a
+/// good conversion. Any full site within the field is a correct sweep step; the
+/// next prediction is made from the live field anyway. On failure, dump where the
+/// chain stopped (field scan, dropper/hopper inventories, item) into the log.
+fn wait_portal(p: &mut Prod, l: i32, expected: i32) -> Result<i32> {
     let fx = p.plan.fx;
-    match p.poll_block("the_nether", [fx + 1, l + 1, row], "minecraft:nether_portal", 25) {
-        Ok(()) => Ok(()),
-        Err(e) => {
+    let v2 = p.plan.v2.clone().context("v2 plan")?;
+    let t0 = std::time::Instant::now();
+    let found = loop {
+        let mut hit = None;
+        for z in v2.z0 - 1..=v2.z1 + 1 {
+            if p.test_block("the_nether", [fx + 1, l + 1, z], "minecraft:nether_portal")? {
+                hit = Some(z);
+                break;
+            }
+        }
+        if let Some(z) = hit {
+            break Some(z);
+        }
+        if t0.elapsed() > std::time::Duration::from_secs(25) {
+            break None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(400));
+    };
+    match found {
+        Some(z) => {
+            if z != expected {
+                p.loga(&format!("wait_portal: game chose row {z}, predictor said {expected} (tie break)"));
+            }
+            Ok(z)
+        }
+        None => {
             let plan = p.plan.clone();
             let v2 = plan.v2.as_ref().unwrap().clone();
             if let Ok(b) = p.nether_box([fx - 2, l, v2.z0 - 2], [fx + 5, l + 5, v2.z1 + 2]) {
@@ -2590,7 +2618,29 @@ fn wait_portal(p: &mut Prod, l: i32, row: i32) -> Result<()> {
                     p.loga(&format!("wait_portal: hopper [{hx},2,{hz}]: {}", s.trim()));
                 }
             }
-            Err(e)
+            if let Ok(s) = p.rcon(&format!("execute in minecraft:overworld positioned {}.0 3.0 {}.0 run data get entity @e[type=minecraft:item,distance=..16,sort=nearest,limit=1] Pos", c.rox + 1, c.doz_a)) {
+                p.loga(&format!("wait_portal: nearest OW item to R_O: {}", s.trim()));
+            }
+            if let Ok(s) = p.rcon(&format!("execute in minecraft:the_nether positioned {}.5 6.0 {}.5 run data get entity @e[type=minecraft:item,distance=..10,sort=nearest,limit=1] Pos", c.rnx + 2, plan.rz)) {
+                p.loga(&format!("wait_portal: nearest Nether item to R_N: {}", s.trim()));
+            }
+            if let Some(twin) = p.state.twin {
+                let (tx, ty, tz) = (twin[0].floor() as i32, twin[1].floor() as i32, twin[2].floor() as i32);
+                if let Ok(b) = p.overworld_box([tx - 7, ty - 4, tz - 7], [tx + 7, ty + 7, tz + 7]) {
+                    let mut cells = Vec::new();
+                    for z in tz - 7..=tz + 7 {
+                        for y in ty - 4..=ty + 7 {
+                            for x in tx - 7..=tx + 7 {
+                                if b.get([x, y, z]).starts_with("minecraft:nether_portal") {
+                                    cells.push([x, y, z]);
+                                }
+                            }
+                        }
+                    }
+                    p.loga(&format!("wait_portal: OW portal cells near generated twin: {cells:?}"));
+                }
+            }
+            bail!("wait_portal: no portal appeared on the field in 25s (expected row {expected})")
         }
     }
 }
@@ -2616,7 +2666,7 @@ fn remote_trip(p: &mut Prod, l: i32, cur: i32, row: i32) -> Result<()> {
     p.mine([fx, l + 1, cur])?;
     p.assert_block("the_nether", [fx + 1, l + 1, cur], "minecraft:air", "portal out after mining one frame block")?;
     throw_trigger(p)?;
-    wait_portal(p, l, row)?;
+    let row = wait_portal(p, l, row)?;
     assert_conversion(p, l, row)?;
     // Walk back beside the new portal (for the next mine, and for the camera).
     let v2 = p.plan.v2.as_ref().unwrap().clone();
@@ -3063,7 +3113,7 @@ fn scenes2(p: &mut Prod) -> Result<()> {
             "3: item exits at R_O → plate → dropper fires into D_O → new portal here",
             "The leftover frame blocks its own row, so the game picks the next",
         ], 1.0, S5)?;
-        wait_portal(p, 4, next)?;
+        let next = wait_portal(p, 4, next)?;
         assert_conversion(p, 4, next)?;
         p.walk_path(&[(c.rnx - 2, rz - 2), (c.rnx - 2, v2.z1 + 1), (fx + 1, v2.z1 + 1), (fx + 1, next + 2)])?;
         p.look(fx as f64 + 1.5, 4.6, next as f64 + 0.5, 14)?;
