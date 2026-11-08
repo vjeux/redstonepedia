@@ -75,23 +75,73 @@ const MAX_SECTION: i32 = 19;
 /// Does chunk section (cx, sy, cz) hold a randomly ticking block now (`LevelChunkSection
 /// .isRandomlyTicking`, its part inside redsim's box: the game's sandbox is air elsewhere)?
 fn section_ticking(w: &World, cx: i32, sy: i32, cz: i32) -> bool {
-    let (lo, size) = (w.min, w.size);
-    let x0 = (cx * 16).max(lo.x);
-    let x1 = (cx * 16 + 15).min(lo.x + size[0] - 1);
-    let y0 = (sy * 16).max(lo.y);
-    let y1 = (sy * 16 + 15).min(lo.y + size[1] - 1);
-    let z0 = (cz * 16).max(lo.z);
-    let z1 = (cz * 16 + 15).min(lo.z + size[2] - 1);
-    for y in y0..=y1 {
-        for z in z0..=z1 {
-            for x in x0..=x1 {
-                if randomly_ticking(&w.get(BlockPos::new(x, y, z))) {
-                    return true;
+    w.ticking_sections.as_ref().is_some_and(|ts| ts.ticking(cx, sy, cz))
+}
+
+/// Whether a cell counts toward its section's random ticking (`state.isRandomlyTicking()` or its
+/// fluid state's): redsim's randomly ticking blocks, and the natural states the terrain lane's table
+/// marks (grass, leaves, plants...: their section ticks and draws its positions even where redsim
+/// models no effect of their tick).
+pub fn ticks_in_section(b: &Block) -> bool {
+    match b {
+        Block::Terrain(id) => crate::terrain::blocks::props(*id).random_ticking,
+        _ => randomly_ticking(b),
+    }
+}
+
+/// Every chunk section's randomly ticking cells, over redsim's box (`LevelChunkSection`'s
+/// counts: recalculated when built, adjusted by every write).
+#[derive(Clone, Debug)]
+pub struct TickingSections {
+    lo: [i32; 3],
+    dims: [i32; 3],
+    counts: Vec<u32>,
+}
+
+impl TickingSections {
+    /// The counts of a world's cells (`LevelChunkSection.recalcBlockCounts`).
+    pub fn build(w: &World) -> TickingSections {
+        let (min, size) = (w.min, w.size);
+        let lo = [min.x.div_euclid(16), min.y.div_euclid(16), min.z.div_euclid(16)];
+        let hi = [(min.x + size[0] - 1).div_euclid(16), (min.y + size[1] - 1).div_euclid(16), (min.z + size[2] - 1).div_euclid(16)];
+        let dims = [hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1];
+        let mut ts = TickingSections { lo, dims, counts: vec![0; (dims[0] * dims[1] * dims[2]) as usize] };
+        for y in 0..size[1] {
+            for z in 0..size[2] {
+                for x in 0..size[0] {
+                    let p = BlockPos::new(min.x + x, min.y + y, min.z + z);
+                    if ticks_in_section(&w.get(p)) {
+                        ts.adjust(p, true);
+                    }
                 }
             }
         }
+        ts
     }
-    false
+
+    fn index(&self, cx: i32, sy: i32, cz: i32) -> Option<usize> {
+        let (x, y, z) = (cx - self.lo[0], sy - self.lo[1], cz - self.lo[2]);
+        if x < 0 || y < 0 || z < 0 || x >= self.dims[0] || y >= self.dims[1] || z >= self.dims[2] {
+            return None;
+        }
+        Some(((y * self.dims[2] + z) * self.dims[0] + x) as usize)
+    }
+
+    /// `LevelChunkSection.isRandomlyTicking`.
+    pub fn ticking(&self, cx: i32, sy: i32, cz: i32) -> bool {
+        self.index(cx, sy, cz).is_some_and(|i| self.counts[i] > 0)
+    }
+
+    /// One cell of block `p` starts (`up`) or stops ticking.
+    pub fn adjust(&mut self, p: BlockPos, up: bool) {
+        if let Some(i) = self.index(p.x.div_euclid(16), p.y.div_euclid(16), p.z.div_euclid(16)) {
+            if up {
+                self.counts[i] += 1;
+            } else {
+                self.counts[i] = self.counts[i].saturating_sub(1);
+            }
+        }
+    }
 }
 
 /// `ServerChunkCache.tickChunks`' chunk part, called by `World::tick` after the block events'
@@ -108,6 +158,9 @@ pub fn tick_chunks(w: &mut World) {
         return;
     };
     let sections = (w.min.y.div_euclid(16).max(MIN_SECTION), (w.min.y + w.size[1] - 1).div_euclid(16).min(MAX_SECTION));
+    if w.random_ticks.is_some() && w.ticking_sections.is_none() {
+        w.ticking_sections = Some(TickingSections::build(w));
+    }
     for [cx, cz] in order {
         // iceandsnow: randomTickSpeed x nextInt(48); a 0 picks a cell for tickPrecipitation
         // (getBlockRandomPos: randValue steps), which changes nothing in a sandbox

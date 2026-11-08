@@ -218,6 +218,10 @@ pub struct World {
     /// only within 128 blocks of a player (`ServerLevel.canSpreadFireAround`). `None` (the
     /// default, as in the bridge's sandboxes): no player.
     pub afk: Option<crate::entity::Vec3>,
+    /// mobinfra: each chunk section's randomly ticking cells (`LevelChunkSection.tickingBlockCount`
+    /// + `tickingFluidCount`, recalculated on load and kept by every write: [`World::put`]); built
+    /// on the first chunk tick (`crops::tick_chunks`), `None` until then and after `load_cells`.
+    pub ticking_sections: Option<crate::crops::TickingSections>,
 }
 
 impl World {
@@ -280,6 +284,7 @@ impl World {
             land: None,
             weather: Default::default(),
             afk: None,
+            ticking_sections: None,
         }
     }
 
@@ -451,6 +456,15 @@ impl World {
                 }
                 let old = self.cells[i];
                 self.cells[i] = s;
+                // the section's ticking count (`LevelChunkSection.setBlockState`)
+                if old != s
+                    && let Some(ts) = self.ticking_sections.as_mut()
+                {
+                    let (was, is) = (crate::crops::ticks_in_section(&old), crate::crops::ticks_in_section(&s));
+                    if was != is {
+                        ts.adjust(p, is);
+                    }
+                }
                 if self.land.is_some() && old != s {
                     // terrain worlds: heightmaps and sky sources follow the change (`terrain::land`)
                     self.land_changed(p, old, s);
@@ -486,6 +500,8 @@ impl World {
     pub fn load_cells(&mut self, cells: Vec<Block>) {
         assert_eq!(cells.len(), self.cells.len(), "load_cells: the box holds {} cells", self.cells.len());
         self.cells = cells;
+        // the sections' ticking counts are recalculated on the next chunk tick (a section's load)
+        self.ticking_sections = None;
     }
 
     // ------------------------------------------------------------------ setBlock
