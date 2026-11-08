@@ -39,10 +39,11 @@ pub fn random_tick(w: &mut World, id: u16, p: BlockPos) {
         "minecraft:pointed_dripstone" => {
             // PointedDripstoneBlock.randomTick: maybeTransferFluid(nextFloat), then the speleothem's
             let f = r(w).next_float();
-            dripstone_transfer(w, p, id, f);
-            speleothem(w, p, id, "minecraft:dripstone_block");
+            dripstone_transfer(w, p, f);
+            speleothem(w, p, "minecraft:dripstone_block");
         }
-        "minecraft:sulfur_spike" => speleothem(w, p, id, "minecraft:potent_sulfur"),
+        // SulfurSpikeBlock grows on sulfur (Blocks.SULFUR_SPIKE: `new SulfurSpikeBlock(SULFUR...)`)
+        "minecraft:sulfur_spike" => speleothem(w, p, "minecraft:sulfur"),
         "minecraft:vine" => vine(w, p, id),
         "minecraft:sugar_cane" => sugar_cane(w, p, id),
         _ => error(w, format!("the random tick of {} is not modeled", blocks::props(id).name)),
@@ -553,42 +554,252 @@ fn mushroom(w: &mut World, p: BlockPos, id: u16, name: &str) {
 }
 
 // --------------------------------------------------------------------------------- speleothems
+/// A speleothem's state (`#speleothems`: pointed dripstone, sulfur spikes).
+struct Speleo {
+    id: String,
+    tip: Dir,
+    thickness: String,
+    wet: bool,
+}
 
-/// `SpeleothemBlock.randomTick`: 0.011377778 and a stalactite's start (the block above not the
-/// same block) under its growth base; the growth itself is a model error (not seen in the samples'
-/// runs yet: it needs a water source above the base for dripstone).
-fn speleothem(w: &mut World, p: BlockPos, id: u16, base: &str) {
+fn speleo_of(b: &Block) -> Option<Speleo> {
+    let id = block_id(b);
+    if id != "minecraft:pointed_dripstone" && id != "minecraft:sulfur_spike" {
+        return None;
+    }
+    let n = state_name(b);
+    let tip = if prop(&n, "vertical_direction") == Some("up") { Dir::Up } else { Dir::Down };
+    Some(Speleo { tip, thickness: prop(&n, "thickness").unwrap_or("tip").to_string(), wet: prop(&n, "waterlogged") == Some("true"), id })
+}
+
+fn speleo_at(w: &World, q: BlockPos) -> Option<Speleo> {
+    speleo_of(&w.get(q))
+}
+
+fn speleo_name(id: &str, tip: Dir, thickness: &str, wet: bool) -> String {
+    format!("{id}[thickness={thickness},vertical_direction={},waterlogged={wet}]", if tip == Dir::Up { "up" } else { "down" })
+}
+
+/// `isTip(state, includeMergedTip)`.
+fn is_tip(s: &Speleo, merged: bool) -> bool {
+    s.thickness == "tip" || (merged && s.thickness == "tip_merge")
+}
+
+/// `isUnmergedTipWithDirection(state, dir)` of the block `me`.
+fn unmerged_tip_with(w: &World, q: BlockPos, dir: Dir, me: &str) -> bool {
+    speleo_at(w, q).is_some_and(|s| is_tip(&s, false) && s.tip == dir && s.id == me)
+}
+
+/// `calculateSpeleothemThickness`.
+fn speleo_thickness(w: &World, p: BlockPos, me: &str, tip: Dir, merge: bool) -> &'static str {
+    let base = tip.opposite();
+    let front = speleo_at(w, p.rel(tip));
+    if let Some(f) = &front
+        && f.tip == base
+        && f.id == me
+    {
+        return if !merge && f.thickness != "tip_merge" { "tip" } else { "tip_merge" };
+    }
+    match front {
+        Some(f) if f.tip == tip => {
+            if f.thickness != "tip" && f.thickness != "tip_merge" {
+                if speleo_at(w, p.rel(base)).is_some_and(|b| b.tip == tip) { "middle" } else { "base" }
+            } else {
+                "frustum"
+            }
+        }
+        _ => "tip",
+    }
+}
+
+/// `isValidSpeleothemPlacement(pos, tip)` (`canSurvive`): the block behind holds its face toward
+/// the tip, or is the same block pointing the same way.
+fn speleo_placement(w: &World, p: BlockPos, me: &str, tip: Dir) -> bool {
+    let behind = p.rel(tip.opposite());
+    let b = w.get(behind);
+    crate::behavior::sturdy(w, &b, behind, tip, crate::behavior::Support::Full) || speleo_at(w, behind).is_some_and(|s| s.tip == tip && s.id == me)
+}
+
+/// `SpeleothemBlock.updateShape` of a natural speleothem (its water ticks; a vertical neighbour's
+/// change recomputes its thickness; a lost support is a model error: the fall is not modeled).
+pub fn speleothem_update_shape(w: &mut World, s: Block, p: BlockPos, d: Dir) -> Block {
+    let Some(me) = speleo_of(&s) else { return s };
+    if me.wet {
+        w.schedule_fluid_tick(p, crate::fluid::Fluid::Water, crate::fluid::TICK_DELAY);
+    }
+    if !matches!(d, Dir::Up | Dir::Down) {
+        return s;
+    }
+    if d == me.tip.opposite() && !speleo_placement(w, p, &me.id, me.tip) {
+        error(w, format!("a {} at {p} lost its support (SpeleothemBlock's fall is not modeled)", me.id));
+        return s;
+    }
+    let t = speleo_thickness(w, p, &me.id, me.tip, me.thickness == "tip_merge");
+    if t == me.thickness {
+        return s;
+    }
+    super::land::block_of(&speleo_name(&me.id, me.tip, t, me.wet)).unwrap_or(s)
+}
+
+/// `SpeleothemBlock.randomTick`: 0.011377778, a stalactite's start (the block above not the same
+/// block) under its growth block (`canGrow`: pointed dripstone's dripstone block with a water
+/// source above it, a sulfur spike's sulfur), its free-hanging tip within reach (2 for a sulfur
+/// spike, 7 for dripstone) that can grow, then a coin: the stalactite grows down, or a stalagmite
+/// grows up under it.
+fn speleothem(w: &mut World, p: BlockPos, base: &str) {
     let f = r(w).next_float();
     if f >= 0.011_377_778 {
         return;
     }
-    let name = blocks::props(id).name.clone();
-    let me = name.split('[').next().unwrap_or(&name).to_string();
-    let stalactite = prop(&name, "vertical_direction") == Some("down");
-    if !stalactite || block_id(&w.get(p.above())) == me {
+    let Some(me) = speleo_at(w, p) else { return };
+    if me.tip != Dir::Down || block_id(&w.get(p.above())) == me.id {
         return;
     }
     if block_id(&w.get(p.above())) != base {
         return;
     }
-    error(w, format!("a {me} at {p} may grow (SpeleothemBlock.growStalactiteOrStalagmiteIfPossible is not modeled)"));
+    if me.id == "minecraft:pointed_dripstone" {
+        let water = crate::fluid::fluid_state(w, p.above().above());
+        if !(water.fluid.is_water() && water.is_source()) {
+            return;
+        }
+    }
+    let max = if me.id == "minecraft:sulfur_spike" { 2 } else { 7 };
+    let Some(tip) = find_tip(w, p, &me, max) else { return };
+    let Some(ts) = speleo_at(w, tip) else { return };
+    if !(ts.tip == Dir::Down && ts.thickness == "tip" && !ts.wet) || !can_tip_grow(w, tip, &ts, &me.id) {
+        return;
+    }
+    if r(w).next_bool() {
+        grow(w, tip, Dir::Down, &me.id);
+    } else {
+        grow_stalagmite_below(w, tip, &me.id);
+    }
 }
 
-/// `PointedDripstoneBlock.maybeTransferFluid`: with the roll under 0.17578125 at a stalactite's
-/// start below a fluid, a cauldron fill or mud to clay: a model error (no cauldron or mud in the
-/// samples' caves).
-fn dripstone_transfer(w: &mut World, p: BlockPos, id: u16, f: f32) {
+/// `findTip(state, level, pos, maxSearchLength, false)`.
+fn find_tip(w: &World, p: BlockPos, me: &Speleo, max: i32) -> Option<BlockPos> {
+    if is_tip(me, false) {
+        return Some(p);
+    }
+    let mut q = p;
+    for _ in 1..max {
+        q = q.rel(me.tip);
+        let s = speleo_at(w, q);
+        if s.as_ref().is_some_and(|s| is_tip(s, false)) {
+            return Some(q);
+        }
+        if q.y < -64 || q.y > 319 || !s.is_some_and(|s| s.id == me.id && s.tip == me.tip) {
+            return None;
+        }
+    }
+    None
+}
+
+/// `canTipGrow(tipState, level, tipPos)`.
+fn can_tip_grow(w: &World, tip: BlockPos, ts: &Speleo, me: &str) -> bool {
+    let g = tip.rel(ts.tip);
+    if !crate::fluid::fluid_state(w, g).is_empty() || matches!(w.get(g), Block::Lava { .. }) {
+        return false;
+    }
+    w.get(g).is_air() || unmerged_tip_with(w, g, ts.tip.opposite(), me)
+}
+
+/// `grow(level, growFromPos, growToDirection)` (`createMergedTips` against an opposing tip).
+fn grow(w: &mut World, from: BlockPos, dir: Dir, me: &str) {
+    let target = from.rel(dir);
+    if unmerged_tip_with(w, target, dir.opposite(), me) {
+        let up = speleo_at(w, target).is_some_and(|s| s.tip == Dir::Up);
+        let (stalactite, stalagmite) = if up { (target.above(), target) } else { (target, target.below()) };
+        create_speleothem(w, stalactite, Dir::Down, "tip_merge", me);
+        create_speleothem(w, stalagmite, Dir::Up, "tip_merge", me);
+    } else if w.get(target).is_air() || matches!(w.get(target), Block::Water { .. }) {
+        create_speleothem(w, target, dir, "tip", me);
+    }
+}
+
+/// `createSpeleothem` (setBlockAndUpdate).
+fn create_speleothem(w: &mut World, q: BlockPos, dir: Dir, thickness: &str, me: &str) {
+    let wet = crate::fluid::fluid_state(w, q).fluid.is_water();
+    set(w, q, &speleo_name(me, dir, thickness, wet), flags::ALL);
+}
+
+/// `growStalagmiteBelow(level, posAboveStalagmite)`: down at most 10 cells to a tip that can grow
+/// up or a floor that holds one (`blocksStalagmiteScan`: pointed dripstone stops where a drip
+/// cannot pass).
+fn grow_stalagmite_below(w: &mut World, above: BlockPos, me: &str) {
+    let mut q = above;
+    for _ in 0..10 {
+        q = q.below();
+        let s = w.get(q);
+        if !crate::fluid::fluid_state(w, q).is_empty() || matches!(s, Block::Lava { .. }) {
+            return;
+        }
+        if unmerged_tip_with(w, q, Dir::Up, me) && speleo_at(w, q).is_some_and(|ts| can_tip_grow(w, q, &ts, me)) {
+            grow(w, q, Dir::Up, me);
+            return;
+        }
+        if speleo_placement(w, q, me, Dir::Up) && !crate::fluid::fluid_state(w, q.below()).fluid.is_water() {
+            grow(w, q.below(), Dir::Up, me);
+            return;
+        }
+        if me == "minecraft:pointed_dripstone" && !can_drip_through(w, q, &s) {
+            return;
+        }
+    }
+}
+
+/// `PointedDripstoneBlock.canDripThrough`: air, or not a solid render, no fluid, and no collision
+/// in the 4-wide column a drip falls through.
+fn can_drip_through(w: &World, q: BlockPos, s: &Block) -> bool {
+    if s.is_air() {
+        return true;
+    }
+    let solid_render = match s {
+        Block::Terrain(id) => blocks::props(*id).solid_render,
+        b => blocks::id_of(&b.to_string()).is_some_and(|id| blocks::props(id).solid_render),
+    };
+    if solid_render || !crate::fluid::fluid_state(w, q).is_empty() {
+        return false;
+    }
+    !crate::behavior::collision_boxes(s).iter().any(|b| b[0] < 10 && b[1] > 6 && b[4] < 10 && b[5] > 6 && b[2] < 16 && b[3] > 0)
+}
+
+/// `PointedDripstoneBlock.maybeTransferFluid` (the roll under 0.17578125 at a stalactite's start):
+/// the block above the start (`findRootBlock`: the start is the root) — mud gives water (rate
+/// 0.17578125) and becomes clay once the tip is found; water (0.17578125) or lava (0.05859375)
+/// fill a cauldron under the tip: a model error when a cauldron is there (none in the samples).
+fn dripstone_transfer(w: &mut World, p: BlockPos, f: f32) {
     if f > 0.175_781_25 {
         return;
     }
-    let name = blocks::props(id).name.clone();
-    if prop(&name, "vertical_direction") != Some("down") || block_id(&w.get(p.above())) == "minecraft:pointed_dripstone" {
+    let Some(me) = speleo_at(w, p) else { return };
+    if me.tip != Dir::Down || block_id(&w.get(p.above())) == me.id {
         return;
     }
-    let above2 = w.get(p.above().above());
-    let fluid = crate::fluid::fluid_state(w, p.above().above());
-    if block_id(&above2) == "minecraft:mud" || !fluid.is_empty() || matches!(above2, Block::Lava { .. }) {
-        error(w, format!("pointed dripstone at {p} may move a fluid (maybeTransferFluid is not modeled)"));
+    let above = p.above();
+    let a = w.get(above);
+    let mud = block_id(&a) == "minecraft:mud";
+    let fluid = crate::fluid::fluid_state(w, above);
+    let lava = matches!(a, Block::Lava { .. });
+    let rate = if mud || fluid.fluid.is_water() {
+        0.175_781_25
+    } else if lava {
+        0.058_593_75
+    } else {
+        return;
+    };
+    if f >= rate {
+        return;
+    }
+    let Some(tip) = find_tip(w, p, &me, 11) else { return };
+    if mud {
+        set(w, above, "minecraft:clay", flags::ALL);
+        return;
+    }
+    // findFillableCauldronBelowStalactiteTip: a cauldron up to 11 cells under the tip
+    if (1..=11).any(|k| block_id(&w.get(tip.offset(0, -k, 0))).ends_with("cauldron")) {
+        error(w, format!("pointed dripstone at {p} may fill a cauldron (not modeled)"));
     }
 }
 
@@ -630,10 +841,59 @@ mod tests {
                 }
             }
         }
-        let errors: Vec<&String> = w.errors.iter().filter(|e| !e.contains("may grow") && !e.contains("may move")).collect();
+        let errors: Vec<&String> = w.errors.iter().collect();
         assert!(errors.is_empty(), "{errors:?}");
         let vines = (0..size[0]).flat_map(|x| (0..size[1]).flat_map(move |y| (0..size[2]).map(move |z| (x, y, z)))).filter(|&(x, y, z)| block_id(&w.get(BlockPos::new(min.x + x, min.y + y, min.z + z))) == "minecraft:vine").count();
         assert!(vines > vines0, "vines {vines0} -> {vines}");
         let _ = count(&w, "minecraft:grass_block") + grass0;
+    }
+
+    /// The plains sample's sulfur spikes (hundreds of them, many under sulfur) grow for long on the
+    /// level random with no model error: every grown tip and every neighbour's new thickness is a
+    /// state of the table, and each column stays a valid speleothem (its thickness the game's
+    /// `calculateSpeleothemThickness` of its neighbours).
+    #[test]
+    fn sulfur_spikes_grow_into_valid_columns() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../designs/terrain/plains.mcterrain");
+        let t = super::super::Terrain::decode(&std::fs::read(path).unwrap()).unwrap();
+        let mut w = super::super::land::build_world(&t).unwrap();
+        w.level_random = Some(crate::rng::LegacyRandom::new(11));
+        let (min, size) = (w.min, w.size);
+        let cells = |w: &World| {
+            let mut v = Vec::new();
+            for y in 0..size[1] {
+                for z in 0..size[2] {
+                    for x in 0..size[0] {
+                        let p = BlockPos::new(min.x + x, min.y + y, min.z + z);
+                        if block_id(&w.get(p)) == "minecraft:sulfur_spike" {
+                            v.push(p);
+                        }
+                    }
+                }
+            }
+            v
+        };
+        let spikes = cells(&w);
+        for _ in 0..4000 {
+            for &p in &spikes {
+                if w.level_random.as_mut().unwrap().next_int(8) == 0 {
+                    let s = w.get(p);
+                    crate::crops::random_tick(&mut w, s, p);
+                }
+            }
+        }
+        assert!(w.errors.is_empty(), "{:?}", w.errors);
+        let after = cells(&w);
+        assert!(after.len() > spikes.len(), "no spike grew: {} -> {}", spikes.len(), after.len());
+        // every cell growth changed (a new tip, a neighbour's new thickness) is the game's thickness
+        // of its neighbours (the sample's own columns are worldgen's, kept as they are)
+        let before = super::super::land::build_world(&t).unwrap();
+        for p in after {
+            if before.get(p) == w.get(p) {
+                continue;
+            }
+            let s = speleo_at(&w, p).unwrap();
+            assert_eq!(speleo_thickness(&w, p, &s.id, s.tip, s.thickness == "tip_merge"), s.thickness, "{p}: {} (was {})", w.get(p), before.get(p));
+        }
     }
 }

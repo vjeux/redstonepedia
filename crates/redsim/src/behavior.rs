@@ -944,6 +944,8 @@ pub fn update_shape(w: &mut World, s: Block, p: BlockPos, d: Dir, np: BlockPos, 
                 s
             }
         }
+        // ---- natural speleothems (terrain lane): SpeleothemBlock.updateShape ----
+        Block::Terrain(id) if matches!(crate::terrain::blocks::props(id).block_id(), "minecraft:pointed_dripstone" | "minecraft:sulfur_spike") => crate::terrain::ticks::speleothem_update_shape(w, s, p, d),
         // ---- placed light sources (terrain lane) ----
         Block::SoulLantern { hanging } => {
             if d == (if hanging { Dir::Up } else { Dir::Down }) && !can_survive(w, &s, p) {
