@@ -257,6 +257,28 @@ fn signs_stop_water_and_let_golems_through() {
 /// An open fence gate holds no fluid (26.3 `FlowingFluid.canHoldAnyFluid`: neither a
 /// `LiquidBlockContainer` nor washed away): water stops at it, lava cannot flow into it, and a
 /// golem walks through it (no collision box when open).
+/// A golem whose box overlaps a floor by 0.0005 stands on it (collisions shrink a box by only
+/// 1e-7), and one 0.0005 short of it falls. The game's golems stayed on the rim of a hole that way
+/// for thousands of ticks (the old L1, 2026-11-08), where the current no longer reached their fluid
+/// box (deflated by 0.001): the exit flood starts golems there.
+#[test]
+fn a_golem_stands_on_a_sliver_of_floor() {
+    for (x, stays) in [(3.3005, true), (3.2995, false)] {
+        let mut w = world(3);
+        for z in 4..=7 {
+            put(&mut w, 4, -4, z, "minecraft:stone");
+        }
+        put(&mut w, 0, -20, 0, "minecraft:stone");
+        let g = add(&mut w, MobType::IronGolem, Vec3::new(x, -3.0, 6.0), true);
+        for _ in 0..40 {
+            w.tick();
+        }
+        let gi = crate::entity::index_of(&w, g).unwrap();
+        let y = w.entities.list[gi].pos.y;
+        assert_eq!(y == -3.0, stays, "golem at x {x}: y {y}");
+    }
+}
+
 #[test]
 fn open_fence_gates_stop_fluids_not_golems() {
     let mut w = world(3);

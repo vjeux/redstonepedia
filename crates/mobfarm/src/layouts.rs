@@ -192,10 +192,11 @@ pub fn l2(n: i32, fy: i32, villagers: i32) -> String {
 
 /// L1, the obvious design (the bar): three villagers in 1-cell pods, the zombie in a boat, an
 /// inverted daylight detector on the trapdoor in front of it (it hides the zombie all night, so
-/// the villagers sleep through every night); an 8 x 6 pad 4 below the villagers with water from
-/// its corners to a 2x2 hole at its middle (wall signs in the hole stop the water, golems fall
-/// through them); a shaft to a lava blade held by signs 6 below the pad; 4 hoppers under the
-/// blade into one chest.
+/// the villagers sleep through every night); a 6 x 5 pad 4 below the villagers whose water flows
+/// one way (sources along its far edge) into a 2-deep trench along its near edge (wall signs
+/// hold the water over the trench to its wall: the current never stops over a floor); the trench
+/// down to water that carries the golems to a lava blade held by signs, a ceiling right above it,
+/// 2 hoppers into one chest.
 pub fn l1() -> String {
     let mut b = Builder::new("iron-obvious");
     for x in [0, 2, 4] {
@@ -203,69 +204,83 @@ pub fn l1() -> String {
     }
     zombie(&mut b);
     b.set(2, 2, -6, "daylight_detector[inverted=true,power=0]");
-    let (x0, x1, z0, z1) = (-1, 6, 3, 8);
-    let hole = |x: i32, z: i32| (2..=3).contains(&x) && (5..=6).contains(&z);
+    let (x0, x1) = (-1, 4);
+    // the pad (x 0..3, z 4..8) is one block narrower than the trench on each side: a golem spawned
+    // 0.2 into the inner rim meets no wall on its way into the trench, and the outer rim stops it
+    // walking out through the inner one (a box ignores the shapes it already overlaps)
+    for x in (x0 + 1)..=(x1 - 1) {
+        for z in 4..=8 {
+            b.set(x, -4, z, STONE);
+        }
+        b.set(x, -3, 8, "water[level=0]");
+    }
     for x in x0..=x1 {
-        for z in z0..=z1 {
-            if !hole(x, z) {
-                b.set(x, -4, z, STONE);
-            }
+        wall_sign(&mut b, x, -4, 3, "north");
+        wall_sign(&mut b, x, -4, 2, "south");
+    }
+    // the rims: open fence gates beside and behind the pad hold its water (no fluid enters a fence
+    // gate) with no collision box, so a golem spawned 0.2 into them meets nothing; glass 2 high
+    // (golems step 1 and jump about 1.25) one block further out stops them; the north row holds
+    // the trench's signs
+    for x in x0..=x1 {
+        b.set(x, -4, 9, STONE);
+        b.set(x, -3, 9, GATE_N);
+    }
+    for z in 4..=8 {
+        for x in [x0, x1] {
+            b.set(x, -4, z, STONE);
+            b.set(x, -3, z, GATE_E);
         }
     }
-    // one source in each corner: no flowing cell ever touches two sources (which would turn it
-    // into a source and still the whole pad), and every cell's current runs toward the hole
-    for (x, z) in [(x0, z0), (x0, z1), (x1, z0), (x1, z1)] {
-        b.set(x, -3, z, "water[level=0]");
-    }
-    // the pad's rim holds the water and the golems (2 high: they step 1 and jump about 1.25)
-    for y in -3..=-2 {
+    for y in -4..=-2 {
         for x in (x0 - 1)..=(x1 + 1) {
-            for z in [z0 - 1, z1 + 1] {
-                b.set(x, y, z, GLASS);
+            b.set(x, y, 1, GLASS);
+            if y > -4 {
+                b.set(x, y, 10, GLASS);
             }
         }
-        for z in z0..=z1 {
-            for x in [x0 - 1, x1 + 1] {
-                b.set(x, y, z, GLASS);
+        if y > -4 {
+            for z in 2..=10 {
+                b.set(x0 - 1, y, z, GLASS);
+                b.set(x1 + 1, y, z, GLASS);
             }
         }
     }
-    // the hole: wall signs on the pad's blocks around it (water stops, golems fall through)
-    wall_sign(&mut b, 2, -4, 5, "east");
-    wall_sign(&mut b, 3, -4, 5, "west");
-    wall_sign(&mut b, 2, -4, 6, "east");
-    wall_sign(&mut b, 3, -4, 6, "west");
-    // the shaft (x 2-3, z 5-6) down to feet level -9, its floor in water flowing east into the
-    // kill chamber (x 4-5): lava at head height (-7) held by signs at -8 and at the chamber's
-    // mouth, a ceiling right above it (-6) so a golem that jumps in the lava cannot float up out
-    // of reach of its drops' hoppers
+    // the trench (x -1..4, z 2..3) down to feet level -9; at its bottom water flows east into the
+    // kill chamber (x 5..6): lava at head height (-7) held by signs at -8 and at its mouth (x 4), a
+    // ceiling right above it (-6) so a golem that jumps in the lava cannot float up with its drops
     for y in -10..=-5 {
-        for x in 1..=6 {
-            for z in 4..=7 {
-                let shaft = (2..=3).contains(&x) && (5..=6).contains(&z) && y >= -9;
-                let chamber = (4..=5).contains(&x) && (5..=6).contains(&z) && (-9..=-7).contains(&y);
-                let mouth = x == 3 && (5..=6).contains(&z) && (-9..=-7).contains(&y);
-                if !shaft && !chamber && !mouth {
+        for x in (x0 - 1)..=7 {
+            for z in 1..=4 {
+                let trench = (x0..=x1).contains(&x) && (2..=3).contains(&z) && y >= -9;
+                let chamber = (5..=6).contains(&x) && (2..=3).contains(&z) && (-9..=-7).contains(&y);
+                let inner = (2..=3).contains(&z) && (x0..=6).contains(&x);
+                if !trench && !chamber && (inner || z == 1 || z == 4 || x == x0 - 1 || x == 7) {
                     b.set(x, y, z, STONE);
                 }
             }
         }
     }
-    for x in 4..=5 {
-        wall_sign(&mut b, x, -8, 5, "south");
-        wall_sign(&mut b, x, -8, 6, "north");
-        b.set(x, -7, 5, LAVA);
-        b.set(x, -7, 6, LAVA);
+    // glass caps the walls the pad does not cover (no spawn spot on their tops)
+    for z in 1..=4 {
+        b.set(x0 - 1, -4, z, GLASS);
+        for x in (x1 + 1)..=7 {
+            b.set(x, -4, z, GLASS);
+        }
     }
-    wall_sign(&mut b, 3, -7, 5, "south");
-    wall_sign(&mut b, 3, -7, 6, "north");
-    b.set(2, -9, 5, "water[level=0]");
-    b.set(2, -9, 6, "water[level=0]");
-    b.set(4, -10, 5, "hopper[enabled=true,facing=east]");
-    b.set(5, -10, 5, "hopper[enabled=true,facing=down]");
-    b.set(4, -10, 6, "hopper[enabled=true,facing=north]");
-    b.set(5, -10, 6, "hopper[enabled=true,facing=north]");
-    b.d.ports.insert("output".into(), [5, -11, 5]);
+    for x in 5..=6 {
+        wall_sign(&mut b, x, -8, 2, "south");
+        wall_sign(&mut b, x, -8, 3, "north");
+        b.set(x, -7, 2, LAVA);
+        b.set(x, -7, 3, LAVA);
+    }
+    wall_sign(&mut b, 4, -7, 2, "south");
+    wall_sign(&mut b, 4, -7, 3, "north");
+    b.set(x0, -9, 2, "water[level=0]");
+    b.set(x0, -9, 3, "water[level=0]");
+    b.set(6, -10, 3, "hopper[enabled=true,facing=north]");
+    b.set(6, -10, 2, "hopper[enabled=true,facing=down]");
+    b.d.ports.insert("output".into(), [6, -11, 2]);
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     b.d.meta.insert("restart".into(), "yes".into());
     b.text(&[
@@ -273,9 +288,9 @@ pub fn l1() -> String {
         "leaves, a zombie in a boat 7 blocks north of them in view. An inverted daylight detector opens the",
         "trapdoor in front of the zombie at nightfall, so the villagers sleep through every night (and the",
         "farm restarts by itself after a missed night); it stops in rain (clear weather is not judged).",
-        "Golems spawn on an 8x6 pad 4 below the villagers; water from its corners carries them to a 2x2 hole",
-        "(wall signs in the hole stop the water); they fall to water that pushes them under a lava blade",
-        "held by signs, with a ceiling right above it, over four hoppers, in view of the villagers.",
+        "Golems spawn on a 6x5 pad 4 below the villagers; water from its far edge carries them into a trench",
+        "along its near edge (wall signs hold the water over it); they fall to water that pushes them under",
+        "a lava blade held by signs, with a ceiling right above it, over two hoppers, in view of the villagers.",
     ])
 }
 

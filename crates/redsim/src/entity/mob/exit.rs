@@ -18,15 +18,16 @@ use super::spawn::{check_spawn_obstruction, possible_spawn_position};
 use super::types::MobType;
 use super::walk::Walk;
 use super::{MobEvent, mob, mob_mut};
-use crate::entity::{EntityKind, Vec3};
+use crate::entity::{Aabb, EntityKind, Vec3};
 use crate::pos::BlockPos;
 use crate::world::World;
 use std::collections::HashSet;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// The most positions the flood visits before it refuses the build (too open to check).
-pub const MAX_STARTS: usize = 600;
+/// The most starts the flood runs before it refuses the build (too open to check): positions and
+/// their edge starts (up to 4 each; a 2 x 2 grid of L2d modules has about 330 positions).
+pub const MAX_STARTS: usize = 4000;
 /// Under still, this many ticks without moving, out of lava and fire: pinned.
 pub const PINNED_TICKS: i64 = 100;
 
@@ -138,7 +139,13 @@ pub fn golem_exit(spec: &FarmSpec, seed: i64, threads: usize) -> Result<ExitRepo
     }
     let mut rep = ExitReport { spawn_spots: spots.len(), ..Default::default() };
     let mut seen: HashSet<BlockPos> = spots.iter().copied().collect();
-    let mut starts: Vec<Vec3> = spots.iter().map(|c| Vec3::new(c.x as f64 + 0.5, c.y as f64, c.z as f64 + 0.5)).collect();
+    let mut edges: HashSet<[i64; 3]> = HashSet::new();
+    let mut starts: Vec<Vec3> = Vec::new();
+    for c in &spots {
+        let s = Vec3::new(c.x as f64 + 0.5, c.y as f64, c.z as f64 + 0.5);
+        starts.push(s);
+        starts.extend(edge_starts(&base, s, &mut edges));
+    }
     let policies = Walk::golem_policies();
     let mut done = 0;
     while done < starts.len() {
@@ -148,7 +155,7 @@ pub fn golem_exit(spec: &FarmSpec, seed: i64, threads: usize) -> Result<ExitRepo
         for ((s, p), d) in jobs.iter().zip(results) {
             rep.runs += 1;
             if let Some(f) = d.fail {
-                rep.failures.push(format!("a golem from {:.2} {:.2} {:.2} walking {}: {f}", s.x, s.y, s.z, p.name()));
+                rep.failures.push(format!("a golem from {:.4} {:.2} {:.4} walking {}: {f}", s.x, s.y, s.z, p.name()));
                 if rep.failures.len() >= 6 {
                     rep.starts = starts.len();
                     return Ok(rep);
@@ -165,12 +172,74 @@ pub fn golem_exit(spec: &FarmSpec, seed: i64, threads: usize) -> Result<ExitRepo
                         return Ok(rep);
                     }
                     starts.push(pos);
+                    starts.extend(edge_starts(&base, pos, &mut edges));
                 }
             }
         }
     }
     rep.starts = starts.len();
     Ok(rep)
+}
+
+/// How far a start at the edge of the blocks under a golem still overlaps them.
+pub const EDGE_OVERLAP: f64 = 0.0005;
+
+/// The golem's box at `p` (1.4 wide, 2.7 tall).
+fn golem_box(p: Vec3) -> Aabb {
+    Aabb::new(p.x - 0.7, p.y, p.z - 0.7, p.x + 0.7, p.y + 2.7, p.z + 0.7)
+}
+
+/// A golem at `p` stands: no block shape meets its box, and one stops it moving down.
+fn stands(w: &World, p: Vec3) -> bool {
+    let bb = golem_box(p);
+    crate::entity::collide::block_collisions(w, bb).is_empty() && crate::entity::collide::collide_box(w, bb, Vec3::new(0.0, -0.01, 0.0)).y > -0.01
+}
+
+/// The golem's box slides from `a` to `b` (same height) without meeting a block shape, checked
+/// every 0.05 blocks: an edge start must be one the golem can reach from where it stood.
+fn free_path(w: &World, a: Vec3, b: Vec3) -> bool {
+    let n = ((b.x - a.x).abs().max((b.z - a.z).abs()) / 0.05).ceil().max(1.0) as usize;
+    (0..=n).all(|i| {
+        let t = i as f64 / n as f64;
+        let p = Vec3::new(a.x + (b.x - a.x) * t, a.y, a.z + (b.z - a.z) * t);
+        crate::entity::collide::block_collisions(w, golem_box(p)).is_empty()
+    })
+}
+
+/// The starts at the edge of what a golem stands on ("every position the golem can stand on",
+/// review G1): every spot within 2 blocks of `start` (same height) where one of the box's sides
+/// sits [`EDGE_OVERLAP`] inside or outside a block boundary, each axis on its own or both (a
+/// corner), that stands and stops standing (or meets a wall) 0.002 further one way. A current
+/// that ends with the floor stops pushing a golem there (the fluid box is the golem's box deflated
+/// by 0.001) while its collision box still rests on the floor by the overlap (collisions shrink a
+/// box by only 1e-7): the game's golems stayed on the L1 hole's rim that way for thousands of
+/// ticks (2026-11-08). `seen` keeps each spot once across starts.
+fn edge_starts(w: &World, start: Vec3, seen: &mut HashSet<[i64; 3]>) -> Vec<Vec3> {
+    let cands = |c: f64| -> Vec<f64> {
+        let mut v = vec![c];
+        for n in ((c - 2.0).floor() as i64)..=((c + 2.0).ceil() as i64) {
+            for half in [-0.7, 0.7] {
+                for s in [-1.0, 1.0] {
+                    v.push(n as f64 - half + s * EDGE_OVERLAP);
+                }
+            }
+        }
+        v
+    };
+    let mut out = Vec::new();
+    for x in cands(start.x) {
+        for z in cands(start.z) {
+            let p = Vec3::new(x, start.y, z);
+            if !seen.insert([(x * 1.0e4).round() as i64, (start.y * 1.0e4).round() as i64, (z * 1.0e4).round() as i64]) || !stands(w, p) || !free_path(w, start, p) {
+                continue;
+            }
+            let edge = [(0.002, 0.0), (-0.002, 0.0), (0.0, 0.002), (0.0, -0.002)].iter().any(|(dx, dz)| !stands(w, Vec3::new(x + dx, start.y, z + dz)));
+            if edge {
+                out.push(p);
+            }
+        }
+    }
+    out
 }
 
 fn run_parallel(base: &World, spec: &FarmSpec, jobs: &[(Vec3, Walk)], threads: usize) -> Vec<Drift> {
