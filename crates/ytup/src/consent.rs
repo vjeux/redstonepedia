@@ -63,7 +63,7 @@ fn next_step(items: &[Item], account: &str) -> Option<(String, usize)> {
     let button = |pred: &dyn Fn(&str) -> bool| items.iter().position(|i| i.role == "button" && i.enabled && i.rect[1] >= 88 && pred(&i.name));
     if has("Choose an account") || has("Choose your account") {
         // The personal account (its entry carries the e-mail), never a brand account listed
-        // under it (a brand account's entry has no e-mail: "React Brand Account").
+        // under it (a brand account's entry has no e-mail, only "<name> Brand Account").
         if account.is_empty() {
             return None;
         }
