@@ -1,0 +1,14 @@
+[package]
+name = "mobfarm"
+description = "Mob farms (the ironfarm track, designs/briefs/farm-iron.md): layout generators and the redsim judge's tools (mctas mobfarm)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+mctas = { path = "../mctas" }
+redsim = { path = "../redsim" }
+circuit = { path = "../circuit" }

@@ -328,7 +328,7 @@ fn restitute(w: &mut World, i: usize, x_col: bool, z_col: bool, movement: Vec3) 
     let effect = w.get(get_on_pos(w, &w.entities.list[i], 0.2));
     let gravity = super::kinds::gravity(w, i);
     let air_drag = super::kinds::air_drag(w, i);
-    let living = matches!(w.entities.list[i].kind, super::EntityKind::ArmorStand(_));
+    let living = matches!(w.entities.list[i].kind, super::EntityKind::ArmorStand(_) | super::EntityKind::Mob(_));
     let e = &mut w.entities.list[i];
     let mut restitution = 0.0f64;
     let cur = e.delta_movement;
@@ -913,6 +913,10 @@ fn step_on(w: &mut World, i: usize) {
                 let s = 0.4 + ay * 0.2;
                 e.delta_movement = e.delta_movement.multiply(s, 1.0, s);
             }
+        }
+        // ironfarm: magma under a mob (hot floor damage, `MagmaBlock.stepOn`)
+        Block::Simple(crate::block::Simple::MagmaBlock) if matches!(w.entities.list[i].kind, super::EntityKind::Mob(_)) => {
+            super::mob::living::step_on(w, i, Block::Simple(crate::block::Simple::MagmaBlock));
         }
         Block::Simple(crate::block::Simple::MagmaBlock) if matches!(w.entities.list[i].kind, super::EntityKind::ArmorStand(_)) => {
             w.errors.push("a living entity on magma (hot floor damage) is not modeled".into());

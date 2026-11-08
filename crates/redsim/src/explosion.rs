@@ -148,6 +148,9 @@ pub fn block_resistance(b: &Block) -> f32 {
         // ---- cactus farms (clk-misc): cactus strength(0.4F), its flower instabreak ----
         Block::Cactus { .. } => 0.4,
         Block::CactusFlower => 0.0,
+        // ---- mob farms (ironfarm): lava strength(100.0F), beds strength(0.2F) ----
+        Block::Lava { .. } => 100.0,
+        Block::Bed { .. } => 0.2,
     }
 }
 
@@ -867,6 +870,10 @@ fn hurt(w: &mut World, t: Target, damage: f32) {
         EntityKind::ArmorStand(_) => {
             e.removed = true;
             w.errors.push("explosion: an armor stand it breaks drops its items (not modeled)".into());
+        }
+        // ironfarm: explosions hurting mobs are not modeled
+        EntityKind::Mob(_) => {
+            w.errors.push("explosion: damage to a mob is not modeled".into());
         }
     }
 }

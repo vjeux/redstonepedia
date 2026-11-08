@@ -112,6 +112,9 @@ pub struct World {
     /// Boats, minecarts and item entities, in insertion order (`entity/`; empty for designs
     /// without entities, so nothing changes for them).
     pub entities: crate::entity::Entities,
+    /// ironfarm: the mob layer's level state (`entity::mob::MobWorld`: its seeded random, day time,
+    /// game rules, record).
+    pub mob: crate::entity::mob::MobWorld,
     /// Item frames (`entity::frame`): comparator inputs, empty for designs without them.
     pub frames: Vec<crate::entity::frame::Frame>,
     /// Blocks destroyed with drops (an item entity in the game): (where, what).
@@ -230,6 +233,7 @@ impl World {
             piston: Default::default(),
             gravity: Default::default(),
             entities: Default::default(),
+            mob: Default::default(),
             frames: Vec::new(),
             drops: Vec::new(),
             game_events: Vec::new(),

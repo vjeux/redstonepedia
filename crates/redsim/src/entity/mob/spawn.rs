@@ -1,0 +1,135 @@
+//! Golem spawning (ironfarm), read in the 26.3 source: `Villager.spawnGolemIfNeeded(level,
+//! timestamp, villagersNeededToAgree)`, `SpawnUtil.trySpawnMob(IRON_GOLEM, MOB_SUMMONED, level,
+//! villager.blockPosition(), 10, 8, 6, Strategy.LEGACY_IRON_GOLEM, false)`
+//! (`moveToPossibleSpawnPosition`), `EntityType.create` (yaw) + `Mob.finalizeSpawn` (the
+//! follow-range triangle, left-handedness) and `IronGolem.checkSpawnObstruction`. The level
+//! random's draws are the seeded stand-ins ([`super::MobWorld::rng`]): the same distribution.
+
+use super::types::MobType;
+use super::{MobEvent, mob};
+use crate::entity::{EntityKind, Vec3};
+use crate::pos::BlockPos;
+use crate::world::World;
+
+/// `Villager.spawnGolemIfNeeded(level, timestamp, needed)` of villager `i`: it must want a golem;
+/// the villagers whose box meets its box inflated by 10 (itself included); at most 5 of those that
+/// want one; with `needed` or more, `trySpawnMob`, and on success every villager in the box gets
+/// `GOLEM_DETECTED_RECENTLY`.
+pub fn spawn_golem_if_needed(w: &mut World, i: usize, needed: usize) {
+    let t = w.time;
+    if !w.mob.golem_spawning {
+        return;
+    }
+    let wants = |w: &World, j: usize| mob(w, j).brain.as_deref().is_some_and(|b| b.wants_golem(t));
+    if !wants(w, i) {
+        return;
+    }
+    let bb = w.entities.list[i].bb.inflate(10.0, 10.0, 10.0);
+    let nearby: Vec<usize> = w.get_entities(bb, |e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Villager));
+    let willing = nearby.iter().filter(|&&j| wants(w, j)).take(5).count();
+    if willing < needed {
+        return;
+    }
+    let start = w.entities.list[i].block_position();
+    let villager = w.entities.list[i].id;
+    let golem = try_spawn_golem(w, start);
+    let at = golem.and_then(|id| crate::entity::index_of(w, id)).map(|g| {
+        let b = w.entities.list[g].block_position();
+        [b.x, b.y, b.z]
+    });
+    w.mob.events.push(MobEvent::GolemTry { t, villager, willing: willing as u32, golem, at });
+    if golem.is_some() {
+        for j in nearby {
+            if mob(w, j).brain.is_some() {
+                super::villager::golem_detected(w, j);
+            }
+        }
+    }
+}
+
+/// `SpawnUtil.trySpawnMob(IRON_GOLEM, .., start, 10, 8, 6, LEGACY_IRON_GOLEM, false)`: the id of
+/// the golem it added, if any. Each try records the cell its column scan stopped at.
+pub fn try_spawn_golem(w: &mut World, start: BlockPos) -> Option<u32> {
+    let mut tries = Vec::new();
+    let mut spawned = None;
+    for _ in 0..10 {
+        let (dx, dz) = {
+            let r = w.mob.rng_mut();
+            // Mth.randomBetweenInclusive(random, -8, 8) = nextInt(17) - 8
+            (r.next_int(17) - 8, r.next_int(17) - 8)
+        };
+        let top = BlockPos::new(start.x + dx, start.y + 6, start.z + dz);
+        let Some(cell) = possible_spawn_position(w, top, 6) else {
+            tries.push(None);
+            continue;
+        };
+        tries.push(Some(cell));
+        // EntityType.create: yaw from the level random; finalizeSpawn: the follow-range triangle
+        // and left-handedness, drawn whether or not the spawn goes on
+        let (y_rot, bonus, seed) = {
+            let r = w.mob.rng_mut();
+            let y_rot = crate::entity::mth::wrap_degrees(r.next_float() * 360.0);
+            let bonus = r.triangle(0.0, 0.11485000000000001);
+            r.next_float();
+            (y_rot, bonus, r.next_long())
+        };
+        let pos = Vec3::new(cell.x as f64 + 0.5, cell.y as f64, cell.z as f64 + 0.5);
+        if check_spawn_obstruction(w, cell, pos) {
+            let mut st = super::MobState::new(MobType::IronGolem, bonus);
+            st.walk = w.mob.golem_walk;
+            let id = w.entities.add(EntityKind::Mob(Box::new(st)), pos, y_rot);
+            if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
+                e.random = Some(crate::rng::LegacyRandom::new(seed));
+            }
+            spawned = Some(id);
+            break;
+        }
+    }
+    w.mob.spawn_tries.push((start, tries, spawned.and_then(|id| crate::entity::index_of(w, id)).map(|g| w.entities.list[g].block_position())));
+    spawned
+}
+
+/// `SpawnUtil.moveToPossibleSpawnPosition(level, rangeY, searchPos, strategy)` from the cell `top`
+/// (= start + (dx, rangeY, dz)): down from `top - 1` to `top - 1 - 2 * rangeY`, the first cell
+/// whose block passes `LEGACY_IRON_GOLEM` with the block above it; the spawn cell is above it.
+pub fn possible_spawn_position(w: &World, top: BlockPos, range_y: i32) -> Option<BlockPos> {
+    let mut above = w.get(top);
+    let mut p = top;
+    for _ in 0..(2 * range_y + 1) {
+        p = p.below();
+        let here = w.get(p);
+        if super::blocks::legacy_golem_can_spawn_on(&here, &above) {
+            return Some(p.above());
+        }
+        above = here;
+    }
+    None
+}
+
+/// `IronGolem.checkSpawnObstruction(level)` of a golem at `pos` (its cell `cell`): the block below
+/// can be stood on, the two cells above are valid empty spawn blocks (no fluid), the feet cell too
+/// (its fluid ignored), and no entity that blocks building meets its box.
+pub fn check_spawn_obstruction(w: &World, cell: BlockPos, pos: Vec3) -> bool {
+    if !super::blocks::entity_can_stand_on(w, cell.below()) {
+        return false;
+    }
+    for k in 1..3 {
+        if !super::blocks::is_valid_empty_spawn_block(w, cell.offset(0, k, 0), true, false) {
+            return false;
+        }
+    }
+    if !super::blocks::is_valid_empty_spawn_block(w, cell, false, false) {
+        return false;
+    }
+    let d = MobType::IronGolem.def();
+    let bb = crate::entity::make_bounding_box(pos, d.width, d.height);
+    is_unobstructed(w, bb)
+}
+
+/// `EntityGetter.isUnobstructed(null, Shapes.create(box))`: no unremoved entity with
+/// `blocksBuilding` (living entities, dying ones included until removed; boats, minecarts, primed
+/// TNT, falling blocks, armor stands that are not markers) meets the box.
+pub fn is_unobstructed(w: &World, bb: crate::entity::Aabb) -> bool {
+    let blocking = w.get_entities(bb, |e| matches!(e.kind, EntityKind::Mob(_) | EntityKind::Boat(_) | EntityKind::Minecart(_) | EntityKind::ArmorStand(_) | EntityKind::PrimedTnt(_)));
+    blocking.is_empty() && !w.gravity.entities.iter().any(|f| !f.removed && f.bb().intersects(bb))
+}

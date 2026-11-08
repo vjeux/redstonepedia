@@ -380,7 +380,13 @@ pub fn tick(w: &mut World, i: usize) {
 /// `isPushable()` of a modeled entity: boats and minecarts (armor stands and items are not; living
 /// mobs are not modeled).
 pub fn is_pushable(e: &entity::Entity) -> bool {
-    matches!(e.kind, entity::EntityKind::Boat(_) | entity::EntityKind::Minecart(_))
+    match &e.kind {
+        entity::EntityKind::Boat(_) | entity::EntityKind::Minecart(_) => true,
+        // a mob (ironfarm, agreed with boat-leads): LivingEntity.isPushable = isAlive &&
+        // !isSpectator && !onClimbable; redsim mobs are never spectators and every entity ticks
+        entity::EntityKind::Mob(m) => !m.dead && !m.on_climbable,
+        _ => false,
+    }
 }
 
 /// `OldMinecartBehavior.pushAndPickupEntities` of cart `i` (clk-misc, 2026-10-20). A rideable cart

@@ -599,6 +599,14 @@ pub enum Block {
     Cactus { age: u8 },
     /// A cactus flower (`CactusFlowerBlock`).
     CactusFlower,
+    // ---- mob farms (ironfarm, `entity/mob/`) ----
+    /// Lava (`LiquidBlock` of `LavaFluid`): `level` 0 = a source. Only sources that cannot flow
+    /// are modeled: a mob farm's lava blade (`entity::mob::blocks::lava_can_flow` refuses the
+    /// rest); entities in it burn (`LavaFluid.entityInside`).
+    Lava { level: u8 },
+    /// A bed half (`BedBlock`): `colour` = the `DyeColor` id ([`DYES`]), `facing` toward the
+    /// head, `head` = `part=head` (the villagers' POI), `occupied`.
+    Bed { colour: u8, facing: Dir, head: bool, occupied: bool },
 }
 
 /// `DyeColor` names by id (a shulker box's `colour` - 1).
@@ -699,6 +707,10 @@ pub enum Kind {
     // ---- cactus farms (clk-misc) ----
     Cactus,
     CactusFlower,
+    // ---- mob farms (ironfarm) ----
+    Lava,
+    /// By `Block::Bed::colour` (each colour is its own block).
+    Bed(u8),
 }
 
 fn b(s: bool) -> &'static str {
@@ -782,6 +794,8 @@ impl Block {
             Block::AttachedStem { melon, .. } => Kind::AttachedStem(melon),
             Block::Cactus { .. } => Kind::Cactus,
             Block::CactusFlower => Kind::CactusFlower,
+            Block::Lava { .. } => Kind::Lava,
+            Block::Bed { colour, .. } => Kind::Bed(colour),
         }
     }
 
@@ -1128,6 +1142,18 @@ impl Block {
             // ---- cactus farms (clk-misc) ----
             "cactus" => Block::Cactus { age: int_of("age", 0, 0, 15)? },
             "cactus_flower" => Block::CactusFlower,
+            // ---- mob farms (ironfarm) ----
+            "lava" => Block::Lava { level: int_of("level", 0, 0, 15)? },
+            n if n.ends_with("_bed") && DYES.contains(&&n[..n.len() - 4]) => Block::Bed {
+                colour: DYES.iter().position(|k| *k == &n[..n.len() - 4]).unwrap() as u8,
+                facing: hdir_of("facing", Dir::North)?,
+                head: match get("part") {
+                    None | Some("foot") => false,
+                    Some("head") => true,
+                    Some(v) => return Err(format!("bad part={v} in {s:?}")),
+                },
+                occupied: bool_of("occupied", false)?,
+            },
             // ---- fences (clk-misc) ----
             n if n.ends_with("_fence") && crate::fence::FENCES.contains(&&n[..n.len() - 6]) => Block::Fence {
                 kind: crate::fence::FENCES.iter().position(|k| *k == &n[..n.len() - 6]).unwrap() as u8,
@@ -1355,6 +1381,10 @@ impl fmt::Display for Block {
             Block::AttachedStem { melon, facing } => write!(f, "minecraft:attached_{}_stem[facing={}]", if melon { "melon" } else { "pumpkin" }, facing.name()),
             Block::Cactus { age } => write!(f, "minecraft:cactus[age={age}]"),
             Block::CactusFlower => write!(f, "minecraft:cactus_flower"),
+            Block::Lava { level } => write!(f, "minecraft:lava[level={level}]"),
+            Block::Bed { colour, facing, head, occupied } => {
+                write!(f, "minecraft:{}_bed[facing={},occupied={},part={}]", DYES[colour as usize % 16], facing.name(), b(occupied), if head { "head" } else { "foot" })
+            }
         }
     }
 }

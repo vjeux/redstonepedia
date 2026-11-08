@@ -24,6 +24,8 @@ pub mod minecart;
 pub mod mth;
 pub mod piston_push;
 pub mod primed_tnt;
+// ---- mob farms (ironfarm): villagers, iron golems, zombies (`mob/`) ----
+pub mod mob;
 pub mod vec3;
 
 use crate::block::Block;
@@ -50,6 +52,8 @@ pub enum EntityKind {
     ArmorStand(armor_stand::ArmorStandState),
     /// Track tnt: a primed TNT (`primed_tnt.rs`), only with `World::tnt_kick`.
     PrimedTnt(primed_tnt::PrimedTntState),
+    /// ironfarm: a mob (`mob/`: villager, iron golem, zombie).
+    Mob(Box<mob::MobState>),
 }
 
 impl EntityKind {
@@ -61,6 +65,7 @@ impl EntityKind {
             EntityKind::Item(_) => (item::WIDTH, item::HEIGHT),
             EntityKind::ArmorStand(_) => (armor_stand::WIDTH, armor_stand::HEIGHT),
             EntityKind::PrimedTnt(_) => (primed_tnt::WIDTH, primed_tnt::HEIGHT),
+            EntityKind::Mob(m) => m.dims(),
         }
     }
 
@@ -72,6 +77,7 @@ impl EntityKind {
             EntityKind::Item(_) => 0.2125,
             EntityKind::ArmorStand(_) => 1.7775,
             EntityKind::PrimedTnt(_) => primed_tnt::EYE_HEIGHT,
+            EntityKind::Mob(m) => m.eye(),
         }
     }
 }
@@ -307,6 +313,10 @@ fn snbt_keys(nbt: &str) -> Vec<String> {
 /// redsim does not model (container contents...) is refused.
 pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> Result<u32, String> {
     let id = type_id.strip_prefix("minecraft:").unwrap_or(type_id);
+    // ironfarm: mobs, and a vehicle carrying one (`Passengers:[{id:"minecraft:zombie"}]`)
+    if let Some(r) = mob::spawn_hook(w, id, pos, nbt) {
+        return r;
+    }
     if id == "falling_block" {
         return spawn_falling_block(w, pos, nbt);
     }
@@ -548,6 +558,7 @@ pub fn tick_one(w: &mut World, i: usize) {
         EntityKind::Item(_) => item::tick(w, i),
         EntityKind::ArmorStand(_) => armor_stand::tick(w, i),
         EntityKind::PrimedTnt(_) => primed_tnt::tick(w, i),
+        EntityKind::Mob(_) => mob::tick(w, i),
     }
     let me = w.entities.list[i].id;
     let riders = w.entities.list[i].passengers.clone();
@@ -581,6 +592,11 @@ fn tick_passenger(w: &mut World, vehicle: u32, rider: u32) {
 /// entity's own tick (an armor stand's `travel` runs with no input: it moves by nothing, and
 /// gravity leaves it -0.0784 a tick), then its vehicle puts it in its seat (`positionRider`).
 fn ride_tick(w: &mut World, j: usize) {
+    // ironfarm: a riding mob's rideTick, seat and fall reset (`mob::ride_tick`)
+    if matches!(w.entities.list[j].kind, EntityKind::Mob(_)) {
+        mob::ride_tick(w, j);
+        return;
+    }
     w.entities.list[j].delta_movement = Vec3::ZERO;
     match w.entities.list[j].kind {
         EntityKind::ArmorStand(_) => armor_stand::tick(w, j),

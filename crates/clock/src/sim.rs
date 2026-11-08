@@ -552,6 +552,7 @@ pub fn entity_snapshot(w: &redsim::world::World) -> Vec<(String, [f64; 3])> {
                 redsim::entity::EntityKind::Minecart(_) => "minecart",
                 redsim::entity::EntityKind::Item(_) => "item",
                 redsim::entity::EntityKind::PrimedTnt(_) => "tnt",
+                redsim::entity::EntityKind::Mob(m) => m.ty.def().id,
             };
             (k.to_string(), [e.pos.x, e.pos.y, e.pos.z])
         })

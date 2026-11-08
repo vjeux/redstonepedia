@@ -51,7 +51,7 @@ pub fn entities_in(w: &World, b: Bounds, f: Filter) -> usize {
     let bb = crate::entity::Aabb::new(b[0], b[1], b[2], b[3], b[4], b[5]);
     w.get_entities(bb, |e| match f {
         Filter::Any => true,
-        Filter::Living => matches!(e.kind, crate::entity::EntityKind::ArmorStand(_)),
+        Filter::Living => matches!(e.kind, crate::entity::EntityKind::ArmorStand(_) | crate::entity::EntityKind::Mob(_)),
     })
     .len()
 }
@@ -59,6 +59,10 @@ pub fn entities_in(w: &World, b: Bounds, f: Filter) -> usize {
 /// `BlockBehaviour.entityInside` for the blocks an entity's sweep meets (called by the entity
 /// core's `checkInsideBlocks`; `precise`: the entity's box at its target meets the cell).
 pub fn entity_inside(w: &mut World, i: usize, s: Block, p: BlockPos, precise: bool) {
+    // ironfarm: lava and water on a mob (`LavaFluid` / `WaterFluid.entityInside`)
+    if matches!(w.entities.list[i].kind, crate::entity::EntityKind::Mob(_)) {
+        crate::entity::mob::living::entity_inside(w, i, s, p);
+    }
     match s {
         Block::Plate { .. } => plate::entity_inside(w, s, p),
         Block::Tripwire { .. } => tripwire::entity_inside(w, s, p),

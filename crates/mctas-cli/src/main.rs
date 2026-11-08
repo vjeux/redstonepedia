@@ -74,6 +74,11 @@ enum Cmd {
         #[command(subcommand)]
         command: bedrock::cli::BedrockCmd,
     },
+    /// Mob farms (designs/briefs/farm-iron.md): layout generators, the golem exit flood, runs.
+    Mobfarm {
+        #[command(subcommand)]
+        command: mobfarm::cli::MobfarmCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -154,6 +159,7 @@ fn main() -> Result<()> {
         Cmd::Litematic { command } => litematic::cli::run(command)?,
         Cmd::Web { command } => web_cli::run(&cli.version, command)?,
         Cmd::Bedrock { command } => bedrock::cli::run(&cli.version, command)?,
+        Cmd::Mobfarm { command } => mobfarm::cli::run(&cli.version, command)?,
     }
     Ok(())
 }
