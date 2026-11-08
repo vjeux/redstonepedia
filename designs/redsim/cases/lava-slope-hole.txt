@@ -1,0 +1,12 @@
+# mobinfra: flowing lava finds a hole within its slope distance (2): the flow turns toward the
+# hole two cells east, falls into it, and a second source beside the first rises the flow between
+# them (the spread delay's x4 draw when a cell's level rises)
+box -6 -3 -6 6 2 6
+fill -5 0 -5 5 0 5 minecraft:stone
+fill -5 -2 -5 5 -2 5 minecraft:stone
+block 2 0 0 minecraft:air
+run 2
+set 0 1 0 minecraft:lava[level=0]
+run 150
+set 0 1 -2 minecraft:lava[level=0]
+run 250

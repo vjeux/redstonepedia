@@ -621,9 +621,9 @@ pub enum Block {
     /// A cactus flower (`CactusFlowerBlock`).
     CactusFlower,
     // ---- mob farms (ironfarm, `entity/mob/`) ----
-    /// Lava (`LiquidBlock` of `LavaFluid`): `level` 0 = a source. Only sources that cannot flow
-    /// are modeled: a mob farm's lava blade (`entity::mob::blocks::lava_can_flow` refuses the
-    /// rest); entities in it burn (`LavaFluid.entityInside`).
+    /// Lava (`LiquidBlock` of `LavaFluid`): `level` 0 = a source, 1..7 flowing, 8+ falling (the
+    /// legacy level, as water's). It flows (mobinfra: `fluid`'s FlowingFluid with LavaFluid's
+    /// numbers and overrides); entities in it burn (`LavaFluid.entityInside`).
     Lava { level: u8 },
     /// A bed half (`BedBlock`): `colour` = the `DyeColor` id ([`DYES`]), `facing` toward the
     /// head, `head` = `part=head` (the villagers' POI), `occupied`.

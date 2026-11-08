@@ -1,0 +1,15 @@
+# mobinfra: lava and water: water flowing against a lava source makes obsidian, against flowing
+# lava cobblestone; lava flowing down onto water makes stone (LiquidBlock.shouldSpreadLiquid,
+# LavaFluid.spreadTo)
+box -7 -3 -6 7 3 6
+fill -6 0 -5 6 0 5 minecraft:stone
+fill -6 -2 -5 6 -2 5 minecraft:stone
+block 4 -1 0 minecraft:water[level=0]
+block 3 0 0 minecraft:air
+run 2
+set -2 1 0 minecraft:lava[level=0]
+run 60
+set 1 1 0 minecraft:water[level=0]
+run 120
+set 3 2 2 minecraft:lava[level=0]
+run 200

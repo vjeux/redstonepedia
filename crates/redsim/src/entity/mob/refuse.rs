@@ -41,18 +41,8 @@ fn block_checks(w: &World, spec: &FarmSpec) -> Vec<String> {
     let mut out = Vec::new();
     for (p, s) in &spec.blocks {
         match s {
-            Block::Lava { level } => {
-                if *level != 0 {
-                    out.push(format!("flowing lava at {p}: only lava sources that cannot flow are modeled"));
-                } else if let Some(q) = super::blocks::lava_can_flow(w, *p) {
-                    out.push(format!("the lava at {p} can flow into {q} (only lava that cannot flow is modeled)"));
-                }
-                for d in Dir::ALL {
-                    if !crate::fluid::fluid_state(w, p.rel(d)).is_empty() {
-                        out.push(format!("water touches the lava at {p}: it would turn to obsidian or cobblestone (not modeled)"));
-                    }
-                }
-            }
+            // (lava flows, and turns into obsidian or cobblestone beside water, since mobinfra's
+            // flowing-lava model: no refusal)
             // a job site: `AcquirePoi` claims one (JOB_SITE, POTENTIAL_JOB_SITE) only along a path
             // that ends within 1 of it, and every villager is confined to one cell
             // (`villager_checks` refuses the rest), so only a job site touching a villager's
@@ -110,7 +100,7 @@ fn zombie_checks(w: &World) -> Vec<String> {
         if !super::blocks::sky_hidden(w, eye) {
             out.push(format!("the zombie's eye cell {eye} may see the sky (no leaves or opaque block above it): it burns in daylight"));
         }
-        if !crate::fluid::fluid_state(w, eye).is_empty() {
+        if crate::fluid::fluid_state(w, eye).fluid.is_water() {
             out.push(format!("the zombie's eye is in water at {eye}: it turns into a drowned"));
         }
         let reach = attack_box(crate::entity::make_bounding_box(seat, 0.6, 1.95), Some(vehicle.bb));

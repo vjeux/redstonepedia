@@ -165,6 +165,11 @@ pub struct WeatherStats {
     pub traps: u32,
     pub sunburns: u32,
     pub rained_out: u32,
+    /// mobinfra (the parent: "the judge should see the real consequences, not stop"): the farm's
+    /// own blocks a fire burned, and the first (game time, block, cell); the run goes on, and the
+    /// lava flows into what burned (flowing lava is modeled) with all it does to the farm.
+    pub burns: u32,
+    pub first_burn: Option<(i64, String, [i32; 3])>,
 }
 
 impl RunReport {
@@ -565,9 +570,17 @@ fn absorb_weather(w: &mut World, rep: &mut RunReport, spec: &FarmSpec, t: i64) {
             E::Converted { entity, .. } => rep.fail(format!("gt {t}: lightning struck a villager (entity {entity}): it is a witch now")),
             E::VehicleDestroyed { entity, .. } => rep.fail(format!("gt {t}: lightning destroyed a vehicle (entity {entity}): its zombie is loose")),
             E::ItemDestroyed { what, .. } => rep.fail(format!("gt {t}: lightning destroyed a drop ({what})")),
-            // a fire (a bolt's, lava's, a spread): what it burns or hurts fails the farm
+            // a fire (a bolt's, lava's, a spread): what it burns of the farm is measured (the
+            // card's `fire` line) and the run goes on with its consequences (the lava flows in);
+            // the world's own blocks (a terrain sample's) are only simulated
             E::Fire { .. } => ws.fires += 1,
-            E::Burned { at, what, .. } => rep.fail(format!("gt {t}: a fire burned the {what} at {} {} {}", at[0], at[1], at[2])),
+            E::Burned { at, what, .. } => {
+                let (lo, hi) = (spec.lo, spec.hi);
+                if (lo.x..=hi.x).contains(&at[0]) && (lo.y..=hi.y).contains(&at[1]) && (lo.z..=hi.z).contains(&at[2]) {
+                    ws.burns += 1;
+                    ws.first_burn.get_or_insert((t, what, at));
+                }
+            }
             E::TrapHorse { at, .. } => {
                 ws.traps += 1;
                 let (x, y, z) = (at[0] as f64 + 0.5, at[1] as f64, at[2] as f64 + 0.5);

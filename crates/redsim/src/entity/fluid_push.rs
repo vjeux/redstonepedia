@@ -23,17 +23,36 @@ pub struct Tracker {
     pub eyes_inside: bool,
 }
 
-/// `EntityFluidInteraction` (the trackers live across ticks; the water current accumulator is
-/// reset every update).
+/// `EntityFluidInteraction.CurrentAccumulator`: one per fluid tag with a current (water and lava:
+/// `Entity.FLUIDS_WITH_CURRENT`), reset every update.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+struct Current {
+    height: f64,
+    flow: Vec3,
+    count: i32,
+}
+
+/// `EntityFluidInteraction` (the trackers live across ticks; the current accumulators are reset
+/// every update).
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct FluidInteraction {
     pub trackers: Vec<Tracker>,
-    current_height: f64,
-    current: Vec3,
-    current_count: i32,
+    water: Current,
+    lava: Current,
 }
 
 impl FluidInteraction {
+    /// `getFluidHeight(LAVA)` (mobinfra: lava is a FluidState since flowing lava).
+    pub fn lava_height(&self) -> f64 {
+        let mut h = 0.0;
+        for t in &self.trackers {
+            if t.height > h && t.fluid.is_lava() {
+                h = t.height;
+            }
+        }
+        h
+    }
+
     /// `getFluidHeight(WATER)`.
     pub fn water_height(&self) -> f64 {
         let mut h = 0.0;
@@ -86,9 +105,8 @@ pub fn update(w: &World, e: &mut Entity, ignore_current: bool) -> bool {
         t.eyes_inside = false;
         true
     });
-    fi.current_height = 0.0;
-    fi.current = Vec3::ZERO;
-    fi.current_count = 0;
+    fi.water = Current::default();
+    fi.lava = Current::default();
     // getFluidInteractionBox: the box deflated by 0.001 (no vehicles here)
     let bx = e.bb.deflate(0.001, 0.001, 0.001);
     let (x0, y0, z0) = (mth::floor(bx.min_x), mth::floor(bx.min_y), mth::floor(bx.min_z));
@@ -118,8 +136,8 @@ pub fn update(w: &World, e: &mut Entity, ignore_current: bool) -> bool {
                     last = Some(f.fluid);
                     tracker = fi.tracker(f.fluid);
                     if !ignore_current {
-                        // every fluid with a current is water here (the WATER tag)
-                        has_current = f.fluid.is_water();
+                        // both fluids have a current (Entity.FLUIDS_WITH_CURRENT: WATER, LAVA)
+                        has_current = f.fluid.is_water() || f.fluid.is_lava();
                     }
                 }
                 if x == eye_x && z == eye_z && eye_y >= bottom {
@@ -132,12 +150,13 @@ pub fn update(w: &World, e: &mut Entity, ignore_current: bool) -> bool {
                 fi.trackers[tracker].height = th;
                 if has_current {
                     let mut flow = fluid::flow(w, p, f);
-                    fi.current_height = crate::entity::vec3::jmax(th, fi.current_height);
-                    if fi.current_height < 0.4 {
-                        flow = flow.scale(fi.current_height);
+                    let acc = if f.fluid.is_lava() { &mut fi.lava } else { &mut fi.water };
+                    acc.height = crate::entity::vec3::jmax(th, acc.height);
+                    if acc.height < 0.4 {
+                        flow = flow.scale(acc.height);
                     }
-                    fi.current = fi.current.add_v(flow);
-                    fi.current_count += 1;
+                    acc.flow = acc.flow.add_v(flow);
+                    acc.count += 1;
                 }
             }
         }
@@ -145,14 +164,14 @@ pub fn update(w: &World, e: &mut Entity, ignore_current: bool) -> bool {
     last.is_some()
 }
 
-/// `CurrentAccumulator.applyTo(entity, scale)` for a non-player entity.
-fn apply_current(e: &mut Entity, scale: f64) {
-    let fi = &e.fluid;
-    if fi.current_count == 0 || fi.current.length_sqr() < 1.0e-5f32 as f64 {
+/// `CurrentAccumulator.applyTo(entity, scale)` for a non-player entity (the water or the lava one).
+fn apply_current(e: &mut Entity, lava: bool, scale: f64) {
+    let acc = if lava { e.fluid.lava } else { e.fluid.water };
+    if acc.count == 0 || acc.flow.length_sqr() < 1.0e-5f32 as f64 {
         return;
     }
     let old = e.delta_movement;
-    let mut impulse = fi.current.normalize().scale(scale);
+    let mut impulse = acc.flow.normalize().scale(scale);
     if old.x.abs() < 0.003 && old.z.abs() < 0.003 && impulse.length() < 0.0045000000000000005 {
         impulse = impulse.normalize().scale(0.0045000000000000005);
     }
@@ -201,9 +220,13 @@ pub fn update_fluid_interaction(w: &mut World, i: usize) -> bool {
         }
     }
     e.was_touching_water = in_water;
-    e.fluid_height = [e.fluid.water_height(), 0.0];
+    e.fluid_height = [e.fluid.water_height(), e.fluid.lava_height()];
     if in_water {
-        apply_current(&mut e, 0.014);
+        apply_current(&mut e, false, 0.014);
+    }
+    // the lava current (an overworld: not FAST_LAVA, 0.0023333333333333335)
+    if e.fluid.lava_height() > 0.0 {
+        apply_current(&mut e, true, 0.0023333333333333335);
     }
     w.entities.list[i] = e;
     in_any

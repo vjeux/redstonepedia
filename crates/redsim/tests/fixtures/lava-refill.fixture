@@ -1,0 +1,348 @@
+# mobinfra 2026-11-08: flowing lava (LavaFluid) recorded in the game
+box -5 -1 -5 5 3 5
+block -4 0 -4 minecraft:stone
+block -3 0 -4 minecraft:stone
+block -2 0 -4 minecraft:stone
+block -1 0 -4 minecraft:stone
+block 0 0 -4 minecraft:stone
+block 1 0 -4 minecraft:stone
+block 2 0 -4 minecraft:stone
+block 3 0 -4 minecraft:stone
+block 4 0 -4 minecraft:stone
+block -4 0 -3 minecraft:stone
+block -3 0 -3 minecraft:stone
+block -2 0 -3 minecraft:stone
+block -1 0 -3 minecraft:stone
+block 0 0 -3 minecraft:stone
+block 1 0 -3 minecraft:stone
+block 2 0 -3 minecraft:stone
+block 3 0 -3 minecraft:stone
+block 4 0 -3 minecraft:stone
+block -4 0 -2 minecraft:stone
+block -3 0 -2 minecraft:stone
+block -2 0 -2 minecraft:stone
+block -1 0 -2 minecraft:stone
+block 0 0 -2 minecraft:stone
+block 1 0 -2 minecraft:stone
+block 2 0 -2 minecraft:stone
+block 3 0 -2 minecraft:stone
+block 4 0 -2 minecraft:stone
+block -4 0 -1 minecraft:stone
+block -3 0 -1 minecraft:stone
+block -2 0 -1 minecraft:stone
+block -1 0 -1 minecraft:stone
+block 0 0 -1 minecraft:stone
+block 1 0 -1 minecraft:stone
+block 2 0 -1 minecraft:stone
+block 3 0 -1 minecraft:stone
+block 4 0 -1 minecraft:stone
+block -4 0 0 minecraft:stone
+block -3 0 0 minecraft:stone
+block -2 0 0 minecraft:stone
+block -1 0 0 minecraft:stone
+block 0 0 0 minecraft:stone
+block 1 0 0 minecraft:stone
+block 2 0 0 minecraft:stone
+block 3 0 0 minecraft:stone
+block 4 0 0 minecraft:stone
+block -4 0 1 minecraft:stone
+block -3 0 1 minecraft:stone
+block -2 0 1 minecraft:stone
+block -1 0 1 minecraft:stone
+block 0 0 1 minecraft:stone
+block 1 0 1 minecraft:stone
+block 2 0 1 minecraft:stone
+block 3 0 1 minecraft:stone
+block 4 0 1 minecraft:stone
+block -4 0 2 minecraft:stone
+block -3 0 2 minecraft:stone
+block -2 0 2 minecraft:stone
+block -1 0 2 minecraft:stone
+block 0 0 2 minecraft:stone
+block 1 0 2 minecraft:stone
+block 2 0 2 minecraft:stone
+block 3 0 2 minecraft:stone
+block 4 0 2 minecraft:stone
+block -4 0 3 minecraft:stone
+block -3 0 3 minecraft:stone
+block -2 0 3 minecraft:stone
+block -1 0 3 minecraft:stone
+block 0 0 3 minecraft:stone
+block 1 0 3 minecraft:stone
+block 2 0 3 minecraft:stone
+block 3 0 3 minecraft:stone
+block 4 0 3 minecraft:stone
+block -4 0 4 minecraft:stone
+block -3 0 4 minecraft:stone
+block -2 0 4 minecraft:stone
+block -1 0 4 minecraft:stone
+block 0 0 4 minecraft:stone
+block 1 0 4 minecraft:stone
+block 2 0 4 minecraft:stone
+block 3 0 4 minecraft:stone
+block 4 0 4 minecraft:stone
+block -1 1 -1 minecraft:stone
+block 0 1 -1 minecraft:stone
+block 1 1 -1 minecraft:stone
+block -1 1 0 minecraft:stone
+block 0 1 0 minecraft:stone
+block 1 1 0 minecraft:stone
+block -1 1 1 minecraft:stone
+block 0 1 1 minecraft:stone
+block 1 1 1 minecraft:stone
+block 0 1 0 minecraft:lava[level=0]
+block 1 1 0 minecraft:oak_planks
+run 5
+set 1 1 0 minecraft:air
+run 150
+frame 0
+cell -4 0 -4 minecraft:stone
+cell -3 0 -4 minecraft:stone
+cell -2 0 -4 minecraft:stone
+cell -1 0 -4 minecraft:stone
+cell 0 0 -4 minecraft:stone
+cell 1 0 -4 minecraft:stone
+cell 2 0 -4 minecraft:stone
+cell 3 0 -4 minecraft:stone
+cell 4 0 -4 minecraft:stone
+cell -4 0 -3 minecraft:stone
+cell -3 0 -3 minecraft:stone
+cell -2 0 -3 minecraft:stone
+cell -1 0 -3 minecraft:stone
+cell 0 0 -3 minecraft:stone
+cell 1 0 -3 minecraft:stone
+cell 2 0 -3 minecraft:stone
+cell 3 0 -3 minecraft:stone
+cell 4 0 -3 minecraft:stone
+cell -4 0 -2 minecraft:stone
+cell -3 0 -2 minecraft:stone
+cell -2 0 -2 minecraft:stone
+cell -1 0 -2 minecraft:stone
+cell 0 0 -2 minecraft:stone
+cell 1 0 -2 minecraft:stone
+cell 2 0 -2 minecraft:stone
+cell 3 0 -2 minecraft:stone
+cell 4 0 -2 minecraft:stone
+cell -4 0 -1 minecraft:stone
+cell -3 0 -1 minecraft:stone
+cell -2 0 -1 minecraft:stone
+cell -1 0 -1 minecraft:stone
+cell 0 0 -1 minecraft:stone
+cell 1 0 -1 minecraft:stone
+cell 2 0 -1 minecraft:stone
+cell 3 0 -1 minecraft:stone
+cell 4 0 -1 minecraft:stone
+cell -4 0 0 minecraft:stone
+cell -3 0 0 minecraft:stone
+cell -2 0 0 minecraft:stone
+cell -1 0 0 minecraft:stone
+cell 0 0 0 minecraft:stone
+cell 1 0 0 minecraft:stone
+cell 2 0 0 minecraft:stone
+cell 3 0 0 minecraft:stone
+cell 4 0 0 minecraft:stone
+cell -4 0 1 minecraft:stone
+cell -3 0 1 minecraft:stone
+cell -2 0 1 minecraft:stone
+cell -1 0 1 minecraft:stone
+cell 0 0 1 minecraft:stone
+cell 1 0 1 minecraft:stone
+cell 2 0 1 minecraft:stone
+cell 3 0 1 minecraft:stone
+cell 4 0 1 minecraft:stone
+cell -4 0 2 minecraft:stone
+cell -3 0 2 minecraft:stone
+cell -2 0 2 minecraft:stone
+cell -1 0 2 minecraft:stone
+cell 0 0 2 minecraft:stone
+cell 1 0 2 minecraft:stone
+cell 2 0 2 minecraft:stone
+cell 3 0 2 minecraft:stone
+cell 4 0 2 minecraft:stone
+cell -4 0 3 minecraft:stone
+cell -3 0 3 minecraft:stone
+cell -2 0 3 minecraft:stone
+cell -1 0 3 minecraft:stone
+cell 0 0 3 minecraft:stone
+cell 1 0 3 minecraft:stone
+cell 2 0 3 minecraft:stone
+cell 3 0 3 minecraft:stone
+cell 4 0 3 minecraft:stone
+cell -4 0 4 minecraft:stone
+cell -3 0 4 minecraft:stone
+cell -2 0 4 minecraft:stone
+cell -1 0 4 minecraft:stone
+cell 0 0 4 minecraft:stone
+cell 1 0 4 minecraft:stone
+cell 2 0 4 minecraft:stone
+cell 3 0 4 minecraft:stone
+cell 4 0 4 minecraft:stone
+cell -1 1 -1 minecraft:stone
+cell 0 1 -1 minecraft:stone
+cell 1 1 -1 minecraft:stone
+cell -1 1 0 minecraft:stone
+cell 0 1 0 minecraft:lava[level=0]
+cell 1 1 0 minecraft:oak_planks
+cell -1 1 1 minecraft:stone
+cell 0 1 1 minecraft:stone
+cell 1 1 1 minecraft:stone
+frame 1
+frame 2
+frame 3
+frame 4
+frame 5
+frame 6
+cell 1 1 0 minecraft:air
+frame 7
+frame 8
+frame 9
+frame 10
+frame 11
+frame 12
+frame 13
+frame 14
+frame 15
+frame 16
+frame 17
+frame 18
+frame 19
+frame 20
+frame 21
+frame 22
+frame 23
+frame 24
+frame 25
+frame 26
+frame 27
+frame 28
+frame 29
+frame 30
+frame 31
+cell 1 1 0 minecraft:lava[level=2]
+frame 32
+frame 33
+frame 34
+frame 35
+frame 36
+frame 37
+frame 38
+frame 39
+frame 40
+frame 41
+frame 42
+frame 43
+frame 44
+frame 45
+frame 46
+frame 47
+frame 48
+frame 49
+frame 50
+frame 51
+frame 52
+frame 53
+frame 54
+frame 55
+frame 56
+frame 57
+frame 58
+frame 59
+frame 60
+frame 61
+cell 2 1 0 minecraft:lava[level=4]
+frame 62
+frame 63
+frame 64
+frame 65
+frame 66
+frame 67
+frame 68
+frame 69
+frame 70
+frame 71
+frame 72
+frame 73
+frame 74
+frame 75
+frame 76
+frame 77
+frame 78
+frame 79
+frame 80
+frame 81
+frame 82
+frame 83
+frame 84
+frame 85
+frame 86
+frame 87
+frame 88
+frame 89
+frame 90
+frame 91
+cell 3 1 0 minecraft:lava[level=6]
+frame 92
+frame 93
+frame 94
+frame 95
+frame 96
+frame 97
+frame 98
+frame 99
+frame 100
+frame 101
+frame 102
+frame 103
+frame 104
+frame 105
+frame 106
+frame 107
+frame 108
+frame 109
+frame 110
+frame 111
+frame 112
+frame 113
+frame 114
+frame 115
+frame 116
+frame 117
+frame 118
+frame 119
+frame 120
+frame 121
+frame 122
+frame 123
+frame 124
+frame 125
+frame 126
+frame 127
+frame 128
+frame 129
+frame 130
+frame 131
+frame 132
+frame 133
+frame 134
+frame 135
+frame 136
+frame 137
+frame 138
+frame 139
+frame 140
+frame 141
+frame 142
+frame 143
+frame 144
+frame 145
+frame 146
+frame 147
+frame 148
+frame 149
+frame 150
+frame 151
+frame 152
+frame 153
+frame 154
+frame 155
+frame 156

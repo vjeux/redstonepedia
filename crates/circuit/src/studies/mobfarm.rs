@@ -480,8 +480,15 @@ pub fn thunder_loss(m: &redsim::weather::lightning::Measure, iron: f64) -> f64 {
 
 /// The card's `fire` line: whether lava's random tick can ever burn one of the farm's blocks.
 fn fire_line(spec: &FarmSpec, runs: &[RunReport]) -> Result<String, String> {
+    // the runs' own burns (the run goes on: the lava flows into what burned)
+    let burned: Vec<&(i64, String, [i32; 3])> = runs.iter().filter_map(|r| r.weather.first_burn.as_ref()).collect();
+    if let Some((_, what, at)) = burned.first() {
+        let name = what.split('[').next().unwrap_or("").trim_start_matches("minecraft:");
+        let minutes = burned.iter().map(|b| b.0 as f64 / 1200.0).sum::<f64>() / burned.len() as f64;
+        return Ok(format!("burns its {name} (first at {} {} {}) in about {minutes:.0} min in {} of {} runs; the lava then flows in", at[0], at[1], at[2], burned.len(), runs.len()));
+    }
     let run = farm::Run::new(spec, &RunOpts::steady(0, 0, WalkMode::Random))?;
-    Ok(match redsim::weather::fire::lava_can_burn(&run.world) {
+    Ok(match redsim::weather::fire::lava_can_burn(&run.world, spec.lo, spec.hi) {
         None => "never".to_string(),
         Some((lava, at, q, b)) => {
             let name = b.to_string();

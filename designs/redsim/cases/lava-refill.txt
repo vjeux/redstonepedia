@@ -1,0 +1,10 @@
+# mobinfra: a block holding lava back goes away (a fire burned it: D1U's natural glow lichen, a
+# farm's fence gate): the source flows into the freed cell and on, a step every 30 gt
+box -5 -1 -5 5 3 5
+fill -4 0 -4 4 0 4 minecraft:stone
+fill -1 1 -1 1 1 1 minecraft:stone
+block 0 1 0 minecraft:lava[level=0]
+block 1 1 0 minecraft:oak_planks
+run 5
+set 1 1 0 minecraft:air
+run 150

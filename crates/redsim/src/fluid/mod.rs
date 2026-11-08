@@ -15,7 +15,14 @@
 //!   is a source; a full source above soul sand / magma schedules a 20 gt block tick that turns
 //!   it into a bubble column (`BubbleColumnBlock.updateColumn`, flags 2, up the water column).
 //! * NOT modeled (a model error is recorded): waterlogging (redsim's waterloggable blocks never
-//!   hold water), lava.
+//!   hold water).
+//! * Lava (mobinfra 2026-11-08, the parent: "model the lava flowing out"): the same FlowingFluid
+//!   methods with `LavaFluid`'s numbers and overrides, by the fluid that ticks (`kind`): tick
+//!   delay 30 (the overworld), drop-off 2, slope distance 2, no source conversion
+//!   (`lava_source_conversion` off), `getSpreadDelay` (x4 with 3 in 4 when a cell rises, the level
+//!   random), `canBeReplacedWith` (by water, at height 4/9 and up), `spreadTo` (down into water:
+//!   stone), `beforeDestroyingBlock` (no drops), and `LiquidBlock.shouldSpreadLiquid` (water beside
+//!   lava: obsidian from a source, cobblestone from flowing lava).
 
 use crate::behavior as bh;
 use crate::block::{Block, Kind, Simple};
@@ -24,18 +31,41 @@ use crate::pos::{BlockPos, Dir};
 use crate::ticks::Priority;
 use crate::world::{World, flags};
 
-/// The fluid types (`Fluids`): `Water` = the source type, `FlowingWater` = the flowing type.
+/// The fluid types (`Fluids`): `Water` / `Lava` = the source types, `FlowingWater` /
+/// `FlowingLava` = the flowing types.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub enum Fluid {
     Empty,
     Water,
     FlowingWater,
+    Lava,
+    FlowingLava,
 }
 
 impl Fluid {
     /// `isSame(WATER)` / `is(FluidTags.WATER)`.
     pub fn is_water(self) -> bool {
         matches!(self, Fluid::Water | Fluid::FlowingWater)
+    }
+
+    /// `isSame(LAVA)` / `is(FluidTags.LAVA)`.
+    pub fn is_lava(self) -> bool {
+        matches!(self, Fluid::Lava | Fluid::FlowingLava)
+    }
+
+    /// `Fluid.isSame(other)`: both water or both lava.
+    pub fn same(self, other: Fluid) -> bool {
+        (self.is_water() && other.is_water()) || (self.is_lava() && other.is_lava())
+    }
+
+    /// `FlowingFluid.getSource()`.
+    pub fn source(self) -> Fluid {
+        if self.is_lava() { Fluid::Lava } else { Fluid::Water }
+    }
+
+    /// `FlowingFluid.getFlowing()`.
+    pub fn flowing(self) -> Fluid {
+        if self.is_lava() { Fluid::FlowingLava } else { Fluid::FlowingWater }
     }
 }
 
@@ -55,18 +85,50 @@ const DROP_OFF: i32 = 1;
 const SLOPE_FIND_DISTANCE: i32 = 4;
 /// `GameRules.WATER_SOURCE_CONVERSION` (default true).
 const CAN_CONVERT_TO_SOURCE: bool = true;
+/// `LavaFluid.getTickDelay` (a dimension that is not ultra-warm: the overworld).
+pub const LAVA_TICK_DELAY: i32 = 30;
+
+/// `FlowingFluid.getTickDelay` of a fluid.
+pub fn tick_delay(f: Fluid) -> i32 {
+    if f.is_lava() { LAVA_TICK_DELAY } else { TICK_DELAY }
+}
+
+/// `getDropOff` (lava 2 outside ultra-warm dimensions).
+fn drop_off(f: Fluid) -> i32 {
+    if f.is_lava() { 2 } else { DROP_OFF }
+}
+
+/// `getSlopeFindDistance` (lava 2 outside ultra-warm dimensions).
+fn slope_find_distance(f: Fluid) -> i32 {
+    if f.is_lava() { 2 } else { SLOPE_FIND_DISTANCE }
+}
+
+/// `canConvertToSource` (`GameRules.LAVA_SOURCE_CONVERSION` default false).
+fn can_convert_to_source(f: Fluid) -> bool {
+    if f.is_lava() { false } else { CAN_CONVERT_TO_SOURCE }
+}
 
 impl FluidState {
     pub const EMPTY: FluidState = FluidState { fluid: Fluid::Empty, amount: 0, falling: false };
 
-    /// `getSource(falling)`.
+    /// `getSource(falling)` (water).
     pub fn source(falling: bool) -> FluidState {
         FluidState { fluid: Fluid::Water, amount: 8, falling }
     }
 
-    /// `getFlowing(amount, falling)`.
+    /// `getFlowing(amount, falling)` (water).
     pub fn flowing(amount: u8, falling: bool) -> FluidState {
         FluidState { fluid: Fluid::FlowingWater, amount, falling }
+    }
+
+    /// `getSource(falling)` of fluid `f`'s kind.
+    pub fn source_of(f: Fluid, falling: bool) -> FluidState {
+        FluidState { fluid: f.source(), amount: 8, falling }
+    }
+
+    /// `getFlowing(amount, falling)` of fluid `f`'s kind.
+    pub fn flowing_of(f: Fluid, amount: u8, falling: bool) -> FluidState {
+        FluidState { fluid: f.flowing(), amount, falling }
     }
 
     pub fn is_empty(self) -> bool {
@@ -74,7 +136,7 @@ impl FluidState {
     }
 
     pub fn is_source(self) -> bool {
-        self.fluid == Fluid::Water
+        matches!(self.fluid, Fluid::Water | Fluid::Lava)
     }
 
     /// `isFull`: amount 8.
@@ -87,11 +149,11 @@ impl FluidState {
         if self.is_empty() { 0.0 } else { self.amount as f32 / 9.0 }
     }
 
-    /// `getHeight(level, pos)`: 1 with water above, else its own height.
+    /// `getHeight(level, pos)`: 1 with the same fluid above, else its own height.
     pub fn height(self, w: &World, p: BlockPos) -> f32 {
         if self.is_empty() {
             0.0
-        } else if fluid_state(w, p.above()).fluid.is_water() {
+        } else if fluid_state(w, p.above()).fluid.same(self.fluid) {
             1.0
         } else {
             self.own_height()
@@ -103,9 +165,15 @@ impl FluidState {
         if self.is_source() { 0 } else { 8 - self.amount.min(8) + if self.falling { 8 } else { 0 } }
     }
 
-    /// `createLegacyBlock`: the water block of this state (air for no fluid).
+    /// `createLegacyBlock`: the water or lava block of this state (air for no fluid).
     pub fn create_legacy_block(self) -> Block {
-        if self.is_empty() { Block::Air } else { Block::Water { level: self.legacy_level() } }
+        if self.is_empty() {
+            Block::Air
+        } else if self.fluid.is_lava() {
+            Block::Lava { level: self.legacy_level() }
+        } else {
+            Block::Water { level: self.legacy_level() }
+        }
     }
 }
 
@@ -115,16 +183,22 @@ pub fn fluid_state_of(b: &Block) -> FluidState {
         Block::Water { level: 0 } => FluidState::source(false),
         Block::Water { level } if level < 8 => FluidState::flowing(8 - level, false),
         Block::Water { .. } => FluidState::flowing(8, true),
+        // ---- lava (mobinfra): LiquidBlock's legacy level, as water's ----
+        Block::Lava { level: 0 } => FluidState::source_of(Fluid::Lava, false),
+        Block::Lava { level } if level < 8 => FluidState::flowing_of(Fluid::Lava, 8 - level, false),
+        Block::Lava { .. } => FluidState::flowing_of(Fluid::Lava, 8, true),
         Block::BubbleColumn { .. } => FluidState::source(false),
         // ---- crop farms (clk-misc): kelp holds a water source ----
         Block::Kelp { .. } | Block::KelpPlant => FluidState::source(false),
-        // ---- terrain: a natural state holding water (seagrass, waterlogged leaves...): the
-        // game's own fluid state (the natural-state table; lava is not a FluidState here) ----
+        // ---- terrain: a natural state holding water (seagrass, waterlogged leaves...) or lava:
+        // the game's own fluid state (the natural-state table) ----
         Block::Terrain(id) => {
             let p = crate::terrain::blocks::props(id);
             match p.fluid {
                 crate::terrain::blocks::FluidKind::Water if p.fluid_source => FluidState::source(false),
                 crate::terrain::blocks::FluidKind::Water => FluidState::flowing(p.fluid_amount.clamp(1, 8), false),
+                crate::terrain::blocks::FluidKind::Lava if p.fluid_source => FluidState::source_of(Fluid::Lava, false),
+                crate::terrain::blocks::FluidKind::Lava => FluidState::flowing_of(Fluid::Lava, p.fluid_amount.clamp(1, 8), false),
                 _ => FluidState::EMPTY,
             }
         }
@@ -235,7 +309,39 @@ fn washed_away(b: &Block) -> bool {
             | Block::PlainWallTorch { .. }
             | Block::EndRod { .. }
             | Block::Candle { .. }
-    )
+            // ---- mobinfra: lava is in the tag too (a flow passes through flowing lava) ----
+            | Block::Lava { .. }
+    ) || matches!(b, Block::Terrain(id) if natural_washed_away(&crate::terrain::blocks::props(*id).name))
+}
+
+/// `#washed_away_by_fluids` (26.3's tag, its nested tags resolved) for a natural state of the
+/// terrain lane's table (its game string): grass, flowers, lichen, vines, saplings, snow...
+pub fn natural_washed_away(state: &str) -> bool {
+    let name = state.split('[').next().unwrap_or(state).trim_start_matches("minecraft:");
+    const LISTED: &[&str] = &[
+        "fire", "soul_fire", "air", "void_air", "cave_air", "flower_pot", "rail", "powered_rail", "detector_rail", "activator_rail", "player_head", "creeper_head", "zombie_head", "skeleton_skull",
+        "wither_skeleton_skull", "dragon_head", "piglin_head", "azalea", "flowering_azalea", "mangrove_propagule", "candle", "water", "lava", "tall_seagrass", "wall_torch", "redstone_wall_torch",
+        "soul_wall_torch", "copper_wall_torch", "attached_pumpkin_stem", "attached_melon_stem", "kelp_plant", "weeping_vines_plant", "twisting_vines_plant", "cave_vines_plant", "big_dripleaf_stem",
+        "skeleton_wall_skull", "wither_skeleton_wall_skull", "zombie_wall_head", "player_wall_head", "creeper_wall_head", "dragon_wall_head", "piglin_wall_head", "bamboo_sapling", "cobweb", "snow",
+        "end_rod", "chorus_plant", "chorus_flower", "big_dripleaf", "scaffolding", "powder_snow", "short_grass", "fern", "dead_bush", "bush", "short_dry_grass", "tall_dry_grass", "seagrass",
+        "dandelion", "golden_dandelion", "torchflower", "poppy", "blue_orchid", "allium", "azure_bluet", "red_tulip", "orange_tulip", "white_tulip", "pink_tulip", "oxeye_daisy", "cornflower",
+        "wither_rose", "lily_of_the_valley", "brown_mushroom", "red_mushroom", "torch", "redstone_wire", "wheat", "lever", "redstone_torch", "cactus_flower", "soul_torch", "copper_torch",
+        "pumpkin_stem", "melon_stem", "vine", "glow_lichen", "resin_clump", "nether_wart", "tripwire_hook", "tripwire", "carrots", "potatoes", "light", "sunflower", "lilac", "rose_bush", "peony",
+        "tall_grass", "large_fern", "torchflower_crop", "pitcher_crop", "pitcher_plant", "beetroots", "kelp", "sweet_berry_bush", "warped_fungus", "warped_roots", "nether_sprouts", "crimson_fungus",
+        "weeping_vines", "twisting_vines", "crimson_roots", "cave_vines", "spore_blossom", "pink_petals", "wildflowers", "leaf_litter", "small_dripleaf", "hanging_roots", "frogspawn",
+        "pale_hanging_moss", "open_eyeblossom", "closed_eyeblossom", "firefly_bush", "repeater", "lily_pad", "cocoa", "comparator", "sea_pickle", "moss_carpet", "heavy_core", "pale_moss_carpet",
+        "red_shrub", "shelf_mushroom", "straw_bed",
+    ];
+    LISTED.contains(&name)
+        // #saplings, #wool_carpets, #candles, #buttons, #flower_pots' potted plants, the golem statues
+        || name.ends_with("_sapling")
+        || name.ends_with("_carpet")
+        || name.ends_with("_candle")
+        || name.ends_with("_button")
+        || name.starts_with("potted_")
+        || name.ends_with("copper_golem_statue")
+        // #corals (the coral plants and fans) and #wall_corals, never the blocks
+        || ((name.ends_with("_coral") || name.ends_with("_coral_fan") || name.ends_with("_coral_wall_fan")) && !name.starts_with("dead_"))
 }
 
 /// `FlowingFluid.canHoldAnyFluid`.
@@ -263,17 +369,20 @@ fn can_hold_fluid(b: &Block, f: Fluid) -> bool {
     can_hold_any_fluid(b) && can_hold_specific_fluid(b, f)
 }
 
-/// `FluidState.canBeReplacedWith(level, pos, other, direction)`: no fluid always; water only
-/// from above by another fluid (never by water).
-fn can_be_replaced_with(s: FluidState, other: Fluid, d: Dir) -> bool {
+/// `FluidState.canBeReplacedWith(level, pos, other, direction)` of the state `s` at `p`: no fluid
+/// always; water only from above by another fluid (never by water); lava by water once it is
+/// 4/9 high (`LavaFluid.canBeReplacedWith`).
+fn can_be_replaced_with(w: &World, p: BlockPos, s: FluidState, other: Fluid, d: Dir) -> bool {
     match s.fluid {
         Fluid::Empty => true,
+        f if f.is_lava() => s.height(w, p) >= 0.44444445 && other.is_water(),
         _ => d == Dir::Down && !other.is_water(),
     }
 }
 
-fn is_source_block_of_this_type(s: FluidState) -> bool {
-    s.fluid.is_water() && s.is_source()
+/// `isSourceBlockOfThisType` for the fluid `kind` that ticks.
+fn is_source_block_of_this_type(kind: Fluid, s: FluidState) -> bool {
+    s.fluid.same(kind) && s.is_source()
 }
 
 // ---------------------------------------------------------------------- shapes
@@ -356,68 +465,73 @@ fn can_pass_through_wall(d: Dir, w: &World, sp: BlockPos, ss: &Block, tp: BlockP
 
 // ---------------------------------------------------------------------- FlowingFluid
 
-fn can_maybe_pass_through(w: &World, sp: BlockPos, ss: &Block, d: Dir, tp: BlockPos, ts: &Block, tf: FluidState) -> bool {
-    !is_source_block_of_this_type(tf) && can_hold_any_fluid(ts) && can_pass_through_wall(d, w, sp, ss, tp, ts)
+fn can_maybe_pass_through(w: &World, kind: Fluid, sp: BlockPos, ss: &Block, d: Dir, tp: BlockPos, ts: &Block, tf: FluidState) -> bool {
+    !is_source_block_of_this_type(kind, tf) && can_hold_any_fluid(ts) && can_pass_through_wall(d, w, sp, ss, tp, ts)
 }
 
 fn can_pass_through(w: &World, f: Fluid, sp: BlockPos, ss: &Block, d: Dir, tp: BlockPos, ts: &Block, tf: FluidState) -> bool {
-    can_maybe_pass_through(w, sp, ss, d, tp, ts, tf) && can_hold_specific_fluid(ts, f)
+    can_maybe_pass_through(w, f, sp, ss, d, tp, ts, tf) && can_hold_specific_fluid(ts, f)
 }
 
-/// `FlowingFluid.isWaterHole`.
-fn is_water_hole(w: &World, top: BlockPos, top_state: &Block, bottom: BlockPos, bottom_state: &Block) -> bool {
+/// `FlowingFluid.isWaterHole` (for the fluid `kind` that ticks).
+fn is_water_hole(w: &World, kind: Fluid, top: BlockPos, top_state: &Block, bottom: BlockPos, bottom_state: &Block) -> bool {
     if !can_pass_through_wall(Dir::Down, w, top, top_state, bottom, bottom_state) {
         return false;
     }
-    if fluid_state_of(bottom_state).fluid.is_water() { true } else { can_hold_fluid(bottom_state, Fluid::FlowingWater) }
+    if fluid_state_of(bottom_state).fluid.same(kind) { true } else { can_hold_fluid(bottom_state, kind.flowing()) }
 }
 
-fn is_hole(w: &World, p: BlockPos) -> bool {
+fn is_hole(w: &World, kind: Fluid, p: BlockPos) -> bool {
     let s = w.get(p);
     let below = p.below();
-    is_water_hole(w, p, &s, below, &w.get(below))
+    is_water_hole(w, kind, p, &s, below, &w.get(below))
 }
 
 /// `FlowingFluid.sourceNeighborCount`.
-fn source_neighbor_count(w: &World, p: BlockPos) -> i32 {
-    Dir::HORIZONTAL.iter().filter(|d| is_source_block_of_this_type(fluid_state(w, p.rel(**d)))).count() as i32
+fn source_neighbor_count(w: &World, kind: Fluid, p: BlockPos) -> i32 {
+    Dir::HORIZONTAL.iter().filter(|d| is_source_block_of_this_type(kind, fluid_state(w, p.rel(**d)))).count() as i32
 }
 
-/// `FlowingFluid.getNewLiquid(level, pos, state)`.
+/// `FlowingFluid.getNewLiquid(level, pos, state)` of water ([`get_new_liquid_of`] for a kind).
 pub fn get_new_liquid(w: &World, p: BlockPos, s: &Block) -> FluidState {
+    get_new_liquid_of(w, Fluid::Water, p, s)
+}
+
+/// `FlowingFluid.getNewLiquid(level, pos, state)` for the fluid `kind` that ticks.
+pub fn get_new_liquid_of(w: &World, kind: Fluid, p: BlockPos, s: &Block) -> FluidState {
     let mut highest = 0i32;
     let mut sources = 0;
     for d in Dir::HORIZONTAL {
         let rp = p.rel(d);
         let bs = w.get(rp);
         let f = fluid_state_of(&bs);
-        if f.fluid.is_water() && can_pass_through_wall(d, w, p, s, rp, &bs) {
+        if f.fluid.same(kind) && can_pass_through_wall(d, w, p, s, rp, &bs) {
             if f.is_source() {
                 sources += 1;
             }
             highest = highest.max(f.amount as i32);
         }
     }
-    if sources >= 2 && CAN_CONVERT_TO_SOURCE {
+    if sources >= 2 && can_convert_to_source(kind) {
         let bs = w.get(p.below());
         let bf = fluid_state_of(&bs);
-        if bh::is_solid(&bs) || is_source_block_of_this_type(bf) {
-            return FluidState::source(false);
+        if bh::is_solid(&bs) || is_source_block_of_this_type(kind, bf) {
+            return FluidState::source_of(kind, false);
         }
     }
     let ap = p.above();
     let a = w.get(ap);
     let af = fluid_state_of(&a);
-    if !af.is_empty() && af.fluid.is_water() && can_pass_through_wall(Dir::Up, w, p, s, ap, &a) {
-        return FluidState::flowing(8, true);
+    if !af.is_empty() && af.fluid.same(kind) && can_pass_through_wall(Dir::Up, w, p, s, ap, &a) {
+        return FluidState::flowing_of(kind, 8, true);
     }
-    let amount = highest - DROP_OFF;
-    if amount <= 0 { FluidState::EMPTY } else { FluidState::flowing(amount as u8, false) }
+    let amount = highest - drop_off(kind);
+    if amount <= 0 { FluidState::EMPTY } else { FluidState::flowing_of(kind, amount as u8, false) }
 }
 
 /// `FlowingFluid.getSlopeDistance` (the `SpreadContext` caches change no result: the world does
 /// not change during the search).
-fn get_slope_distance(w: &World, p: BlockPos, pass: i32, from: Dir, s: &Block) -> i32 {
+fn get_slope_distance(w: &World, kind: Fluid, p: BlockPos, pass: i32, from: Dir, s: &Block) -> i32 {
     let mut lowest = 1000;
     for d in Dir::HORIZONTAL {
         if d == from {
@@ -426,12 +540,12 @@ fn get_slope_distance(w: &World, p: BlockPos, pass: i32, from: Dir, s: &Block) -
         let tp = p.rel(d);
         let ts = w.get(tp);
         let tf = fluid_state_of(&ts);
-        if can_pass_through(w, Fluid::FlowingWater, p, s, d, tp, &ts, tf) {
-            if is_hole(w, tp) {
+        if can_pass_through(w, kind.flowing(), p, s, d, tp, &ts, tf) {
+            if is_hole(w, kind, tp) {
                 return pass;
             }
-            if pass < SLOPE_FIND_DISTANCE {
-                let v = get_slope_distance(w, tp, pass + 1, d.opposite(), &ts);
+            if pass < slope_find_distance(kind) {
+                let v = get_slope_distance(w, kind, tp, pass + 1, d.opposite(), &ts);
                 if v < lowest {
                     lowest = v;
                 }
@@ -443,22 +557,22 @@ fn get_slope_distance(w: &World, p: BlockPos, pass: i32, from: Dir, s: &Block) -
 
 /// `FlowingFluid.getSpread`: the sides to spread to with their new states, in the `EnumMap`'s
 /// order (Direction ordinals: north, south, west, east).
-fn get_spread(w: &World, p: BlockPos, s: &Block) -> Vec<(Dir, FluidState)> {
+fn get_spread(w: &World, kind: Fluid, p: BlockPos, s: &Block) -> Vec<(Dir, FluidState)> {
     let mut lowest = 1000;
     let mut result: [Option<FluidState>; 6] = [None; 6];
     for d in Dir::HORIZONTAL {
         let tp = p.rel(d);
         let ts = w.get(tp);
         let tf = fluid_state_of(&ts);
-        if can_maybe_pass_through(w, p, s, d, tp, &ts, tf) {
-            let nf = get_new_liquid(w, tp, &ts);
+        if can_maybe_pass_through(w, kind, p, s, d, tp, &ts, tf) {
+            let nf = get_new_liquid_of(w, kind, tp, &ts);
             if can_hold_specific_fluid(&ts, nf.fluid) {
-                let distance = if is_hole(w, tp) { 0 } else { get_slope_distance(w, tp, 1, d.opposite(), &ts) };
+                let distance = if is_hole(w, kind, tp) { 0 } else { get_slope_distance(w, kind, tp, 1, d.opposite(), &ts) };
                 if distance < lowest {
                     result = [None; 6];
                 }
                 if distance <= lowest {
-                    if can_be_replaced_with(tf, nf.fluid, d) {
+                    if can_be_replaced_with(w, tp, tf, nf.fluid, d) {
                         result[d as usize] = Some(nf);
                     }
                     lowest = distance;
@@ -469,9 +583,17 @@ fn get_spread(w: &World, p: BlockPos, s: &Block) -> Vec<(Dir, FluidState)> {
     [Dir::North, Dir::South, Dir::West, Dir::East].into_iter().filter_map(|d| result[d as usize].map(|f| (d, f))).collect()
 }
 
-/// `FlowingFluid.spreadTo` (`WaterFluid.beforeDestroyingBlock` drops what it washes away; a
-/// waterloggable block takes a source: `SimpleWaterloggedBlock.placeLiquid`).
-fn spread_to(w: &mut World, p: BlockPos, s: Block, _d: Dir, target: FluidState) {
+/// `FlowingFluid.spreadTo` for the fluid `kind` that ticks: `LavaFluid.spreadTo` first (lava
+/// going down into water makes stone of a liquid block, fizzing, and goes no further); a
+/// waterloggable block takes a water source (`SimpleWaterloggedBlock.placeLiquid`; lava never);
+/// `beforeDestroyingBlock`: water drops what it washes away, lava destroys it without drops.
+fn spread_to(w: &mut World, kind: Fluid, p: BlockPos, s: Block, d: Dir, target: FluidState) {
+    if kind.is_lava() && d == Dir::Down && fluid_state(w, p).fluid.is_water() {
+        if matches!(s, Block::Water { .. }) {
+            w.set_block_and_update(p, Block::Simple(Simple::Stone));
+        }
+        return;
+    }
     if is_container(&s) {
         match waterlogged(&s) {
             Some(false) if target.fluid == Fluid::Water => {
@@ -481,11 +603,12 @@ fn spread_to(w: &mut World, p: BlockPos, s: Block, _d: Dir, target: FluidState) 
                 }
             }
             Some(_) => {}
-            None => w.errors.push(format!("water would waterlog {s} at {p}: waterlogging is not modeled for this block")),
+            None if target.fluid == Fluid::Water => w.errors.push(format!("water would waterlog {s} at {p}: waterlogging is not modeled for this block")),
+            None => {}
         }
         return;
     }
-    if !s.is_air() && bh::drops_item(&s) {
+    if !s.is_air() && kind.is_water() && bh::drops_item(&s) {
         // beforeDestroyingBlock -> Block.dropResources (its loot's stacks pop)
         w.drop_resources(p, s);
         w.drops.push((p, s));
@@ -495,15 +618,16 @@ fn spread_to(w: &mut World, p: BlockPos, s: Block, _d: Dir, target: FluidState) 
 
 /// `FlowingFluid.spreadToSides`.
 fn spread_to_sides(w: &mut World, p: BlockPos, f: FluidState, s: &Block) {
-    let mut neighbor = f.amount as i32 - DROP_OFF;
+    let kind = f.fluid;
+    let mut neighbor = f.amount as i32 - drop_off(kind);
     if f.falling {
         neighbor = 7;
     }
     if neighbor > 0 {
-        for (d, nf) in get_spread(w, p, s) {
+        for (d, nf) in get_spread(w, kind, p, s) {
             let np = p.rel(d);
             let ns = w.get(np);
-            spread_to(w, np, ns, d, nf);
+            spread_to(w, kind, np, ns, d, nf);
         }
     }
 }
@@ -513,22 +637,33 @@ fn spread(w: &mut World, p: BlockPos, s: Block, f: FluidState) {
     if f.is_empty() {
         return;
     }
+    let kind = f.fluid;
     let below = p.below();
     let bs = w.get(below);
     let bf = fluid_state_of(&bs);
-    if can_maybe_pass_through(w, p, &s, Dir::Down, below, &bs, bf) {
-        let nb = get_new_liquid(w, below, &bs);
-        if can_be_replaced_with(bf, nb.fluid, Dir::Down) && can_hold_specific_fluid(&bs, nb.fluid) {
-            spread_to(w, below, bs, Dir::Down, nb);
-            if source_neighbor_count(w, p) >= 3 {
+    if can_maybe_pass_through(w, kind, p, &s, Dir::Down, below, &bs, bf) {
+        let nb = get_new_liquid_of(w, kind, below, &bs);
+        if can_be_replaced_with(w, below, bf, nb.fluid, Dir::Down) && can_hold_specific_fluid(&bs, nb.fluid) {
+            spread_to(w, kind, below, bs, Dir::Down, nb);
+            if source_neighbor_count(w, kind, p) >= 3 {
                 spread_to_sides(w, p, f, &s);
             }
             return;
         }
     }
-    if f.is_source() || !is_water_hole(w, p, &s, below, &bs) {
+    if f.is_source() || !is_water_hole(w, kind, p, &s, below, &bs) {
         spread_to_sides(w, p, f, &s);
     }
+}
+
+/// `FlowingFluid.getSpreadDelay`: the tick delay; lava's x4 when the cell rises (neither falling)
+/// and the level random's `nextInt(4)` is not 0 (`LavaFluid.getSpreadDelay`).
+fn spread_delay(w: &mut World, p: BlockPos, old: FluidState, new: FluidState) -> i32 {
+    let mut d = tick_delay(old.fluid);
+    if old.fluid.is_lava() && !old.is_empty() && !new.is_empty() && !old.falling && !new.falling && new.height(w, p) > old.height(w, p) && crate::weather::fire::rng(w).next_int(4) != 0 {
+        d *= 4;
+    }
+    d
 }
 
 /// A fluid tick (`ServerLevel.tickFluid` -> `FlowingFluid.tick`), run when the cell's fluid is
@@ -540,7 +675,8 @@ pub fn tick(w: &mut World, p: BlockPos, kind: Fluid) {
         return;
     }
     if !f.is_source() {
-        let nf = get_new_liquid(w, p, &w.get(p));
+        let nf = get_new_liquid_of(w, kind, p, &w.get(p));
+        let delay = spread_delay(w, p, f, nf);
         if nf.is_empty() {
             f = nf;
             s = Block::Air;
@@ -549,7 +685,7 @@ pub fn tick(w: &mut World, p: BlockPos, kind: Fluid) {
             f = nf;
             s = f.create_legacy_block();
             w.set_block_and_update(p, s);
-            w.schedule_fluid_tick(p, f.fluid, TICK_DELAY);
+            w.schedule_fluid_tick(p, f.fluid, delay);
         }
     }
     spread(w, p, s, f);
@@ -563,13 +699,14 @@ pub fn flow(w: &World, p: BlockPos, f: FluidState) -> Vec3 {
     for d in Dir::HORIZONTAL {
         let np = p.rel(d);
         let nf = fluid_state(w, np);
-        if nf.is_empty() || nf.fluid.is_water() {
+        // affectsFlow: no fluid, or the same fluid
+        if nf.is_empty() || nf.fluid.same(f.fluid) {
             let mut nh = nf.own_height();
             let mut dist = 0.0f32;
             if nh == 0.0 {
                 if !blocks_fluid_flow(&w.get(np)) {
                     let bf = fluid_state(w, np.below());
-                    if bf.is_empty() || bf.fluid.is_water() {
+                    if bf.is_empty() || bf.fluid.same(f.fluid) {
                         nh = bf.own_height();
                         if nh > 0.0 {
                             dist = own - (nh - 0.8888889);
@@ -590,7 +727,7 @@ pub fn flow(w: &World, p: BlockPos, f: FluidState) -> Vec3 {
     if f.falling {
         for d in Dir::HORIZONTAL {
             let np = p.rel(d);
-            if is_solid_face(w, np, d) || is_solid_face(w, np.above(), d) {
+            if is_solid_face(w, f.fluid, np, d) || is_solid_face(w, f.fluid, np.above(), d) {
                 v = v.normalize().add(0.0, -6.0, 0.0);
                 break;
             }
@@ -599,10 +736,10 @@ pub fn flow(w: &World, p: BlockPos, f: FluidState) -> Vec3 {
     v.normalize()
 }
 
-/// `FlowingFluid.isSolidFace`.
-fn is_solid_face(w: &World, p: BlockPos, d: Dir) -> bool {
+/// `FlowingFluid.isSolidFace` (for the fluid `kind` whose flow it is).
+fn is_solid_face(w: &World, kind: Fluid, p: BlockPos, d: Dir) -> bool {
     let s = w.get(p);
-    if fluid_state_of(&s).fluid.is_water() {
+    if fluid_state_of(&s).fluid.same(kind) {
         false
     } else if d == Dir::Up {
         true
@@ -637,17 +774,39 @@ fn try_schedule_bubble_block_column(w: &mut World, p: BlockPos, below: &Block) {
 
 /// `LiquidBlock.onPlace` and `neighborChanged` (the same for water).
 pub fn liquid_on_place(w: &mut World, s: Block, p: BlockPos) {
-    w.schedule_fluid_tick(p, fluid_state_of(&s).fluid, TICK_DELAY);
+    if should_spread_liquid(w, p, &s) {
+        let f = fluid_state_of(&s).fluid;
+        w.schedule_fluid_tick(p, f, tick_delay(f));
+    }
     if should_bubble_column_occupy(&s) {
         let below = w.get(p.below());
         try_schedule_bubble_block_column(w, p, &below);
     }
 }
 
+/// `LiquidBlock.shouldSpreadLiquid`: lava beside water (above it or on a side:
+/// `POSSIBLE_FLOW_DIRECTIONS` down, south, north, east, west, each one's opposite neighbour)
+/// turns into obsidian (a source) or cobblestone and spreads no more (lava over soul soil beside
+/// blue ice makes basalt: neither is modeled, so it cannot happen here).
+fn should_spread_liquid(w: &mut World, p: BlockPos, s: &Block) -> bool {
+    if !matches!(s, Block::Lava { .. }) {
+        return true;
+    }
+    for d in [Dir::Down, Dir::South, Dir::North, Dir::East, Dir::West] {
+        if fluid_state(w, p.rel(d.opposite())).fluid.is_water() {
+            let to = if fluid_state(w, p).is_source() { Simple::Obsidian } else { Simple::Cobblestone };
+            w.set_block_and_update(p, Block::Simple(to));
+            return false;
+        }
+    }
+    true
+}
+
 /// `LiquidBlock.updateShape`.
 pub fn liquid_update_shape(w: &mut World, s: Block, p: BlockPos, d: Dir, ns: Block) -> Block {
     if fluid_state_of(&s).is_source() || fluid_state_of(&ns).is_source() {
-        w.schedule_fluid_tick(p, fluid_state_of(&s).fluid, TICK_DELAY);
+        let f = fluid_state_of(&s).fluid;
+        w.schedule_fluid_tick(p, f, tick_delay(f));
     }
     if d == Dir::Down && should_bubble_column_occupy(&s) {
         try_schedule_bubble_block_column(w, p, &ns);

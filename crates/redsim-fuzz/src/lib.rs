@@ -122,6 +122,18 @@ impl Case {
                 "place" => c.update_place = t.get(1) == Some(&"update"),
                 "item" => c.items.push(([int(1)?, int(2)?, int(3)?], int(4)? as usize, t.get(5).context("missing item")?.to_string(), int(6)? as u8)),
                 "block" => c.blocks.push(([int(1)?, int(2)?, int(3)?], t.get(4).context("missing state")?.to_string())),
+                // a box of one state (mobinfra: lava's floors), written back as its blocks
+                "fill" => {
+                    let (a, b) = ([int(1)?, int(2)?, int(3)?], [int(4)?, int(5)?, int(6)?]);
+                    let st = t.get(7).context("missing state")?.to_string();
+                    for y in a[1].min(b[1])..=a[1].max(b[1]) {
+                        for z in a[2].min(b[2])..=a[2].max(b[2]) {
+                            for x in a[0].min(b[0])..=a[0].max(b[0]) {
+                                c.blocks.push(([x, y, z], st.clone()));
+                            }
+                        }
+                    }
+                }
                 "run" => c.steps.push(Step::Run(int(1)? as u32)),
                 "use" => c.steps.push(Step::Use([int(1)?, int(2)?, int(3)?])),
                 "set" => c.steps.push(Step::Set([int(1)?, int(2)?, int(3)?], t.get(4).context("missing state")?.to_string())),

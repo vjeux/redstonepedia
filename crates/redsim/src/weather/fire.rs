@@ -26,7 +26,9 @@ use crate::world::{World, flags};
 pub const SPREAD_RADIUS: f64 = 128.0;
 
 /// The level random (mirrored) or the weather's stand-in.
-fn rng(w: &mut World) -> &mut LegacyRandom {
+/// The level random (`level.random`): the mirrored one when redsim runs beside the bridge, else the
+/// weather's seeded stand-in.
+pub fn rng(w: &mut World) -> &mut LegacyRandom {
     match &mut w.level_random {
         Some(r) => r,
         None => &mut w.weather.rng,
@@ -267,11 +269,6 @@ fn check_burn_out(w: &mut World, p: BlockPos, chance: i32, age: i32) {
         if matches!(old, Block::Tnt { .. }) {
             model_error(w, format!("a fire burned the TNT at {p}: TntBlock.prime is not modeled here"));
         }
-        // a block holding lava back (gone, or fire, which lava washes away): the lava flows now
-        // (flowing lava is not modeled; the run has failed on the burn already)
-        if let Some(q) = Dir::ALL.iter().map(|d| p.rel(*d)).find(|q| matches!(w.get(*q), Block::Lava { .. })) {
-            model_error(w, format!("a fire burned the {} at {p} beside the lava at {q}: the lava flows (flowing lava is not modeled)", old.to_string().split('[').next().unwrap_or("block").trim_start_matches("minecraft:")));
-        }
     }
 }
 
@@ -446,11 +443,12 @@ fn burns_beside(w: &World, f: BlockPos, fire: &Block) -> Option<(BlockPos, Block
 
 /// Whether lava's random tick can ever burn a block of a built farm (mobinfra: the card's `fire`
 /// line, vjeux 2026-11-08 "It's all about tradeoffs"): every path [`lava_random_tick`] can take
-/// from every lava cell (1 or 2 steps up with an x/z jitter, lighting the first air cell beside
-/// an `ignitedByLava` block and ending there, stopped by a `#blocks_lava_fire_spread` block; or
-/// the 3 tries at its level), a fire lit where it stays beside a block FireBlock burns. The first
-/// such lava cell, fire cell and block.
-pub fn lava_can_burn(w: &World) -> Option<(BlockPos, BlockPos, BlockPos, Block)> {
+/// from every lava cell of the farm's box `lo..=hi` (its own lava: a terrain sample's natural
+/// lava is the world's, simulated, not the farm's tradeoff) (1 or 2 steps up with an x/z jitter,
+/// lighting the first air cell beside an `ignitedByLava` block and ending there, stopped by a
+/// `#blocks_lava_fire_spread` block; or the 3 tries at its level), a fire lit where it stays
+/// beside a block FireBlock burns. The first such lava cell, fire cell and block.
+pub fn lava_can_burn(w: &World, lo: BlockPos, hi: BlockPos) -> Option<(BlockPos, BlockPos, BlockPos, Block)> {
     for (i, b) in w.cells.iter().enumerate() {
         if !matches!(b, Block::Lava { .. }) {
             continue;
@@ -458,6 +456,9 @@ pub fn lava_can_burn(w: &World) -> Option<(BlockPos, BlockPos, BlockPos, Block)>
         let i = i as i32;
         let (sx, sz) = (w.size[0], w.size[2]);
         let p = BlockPos::new(w.min.x + i % sx, w.min.y + i / (sx * sz), w.min.z + (i / sx) % sz);
+        if !(lo.x..=hi.x).contains(&p.x) || !(lo.y..=hi.y).contains(&p.y) || !(lo.z..=hi.z).contains(&p.z) {
+            continue;
+        }
         let mut frontier = vec![p];
         for _ in 0..2 {
             let mut next = Vec::new();

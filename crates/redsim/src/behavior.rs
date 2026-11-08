@@ -865,7 +865,7 @@ pub fn neighbor_changed(w: &mut World, s: Block, p: BlockPos, src: Kind, moved: 
         Block::Dispenser { .. } | Block::Crafter { .. } => dispenser::neighbor_changed(w, s, p),
         Block::Hopper { .. } => hopper::check_powered_state(w, s, p),
         Block::Piston { .. } | Block::PistonHead { .. } | Block::MovingPiston { .. } => crate::piston::neighbor_changed(w, s, p, src, moved),
-        Block::Water { .. } => crate::fluid::liquid_on_place(w, s, p),
+        Block::Water { .. } | Block::Lava { .. } => crate::fluid::liquid_on_place(w, s, p),
         // ---- TNT dupers (track tnt) ----
         Block::Tnt { .. } => crate::tnt::neighbor_changed(w, p),
         _ => {}
@@ -948,7 +948,7 @@ pub fn update_shape(w: &mut World, s: Block, p: BlockPos, d: Dir, np: BlockPos, 
         }
         // CampfireBlock: a hay bale below makes it a signal fire (`isSmokeSource`)
         Block::Campfire { soul, lit, facing, .. } if d == Dir::Down => Block::Campfire { soul, lit, facing, signal_fire: ns.to_string().starts_with("minecraft:hay_block") },
-        Block::Water { .. } => crate::fluid::liquid_update_shape(w, s, p, d, ns),
+        Block::Water { .. } | Block::Lava { .. } => crate::fluid::liquid_update_shape(w, s, p, d, ns),
         Block::BubbleColumn { .. } => crate::fluid::bubble_update_shape(w, s, p, d, ns),
         // ---- TNT dupers (track tnt) ----
         Block::CoralFan { .. } | Block::CoralWallFan { .. } => crate::tnt::fan_update_shape(w, s, p, d),
@@ -1009,7 +1009,7 @@ pub fn on_place(w: &mut World, s: Block, p: BlockPos, old: Block, moved: bool) {
         // ---- entity-reacting blocks (clk-misc) ----
         Block::Tripwire { .. } => crate::react::tripwire::on_place(w, s, p, old),
         Block::PlainRail { .. } | Block::DetectorRail { .. } => crate::rails::on_place(w, s, p, old, moved),
-        Block::Water { .. } => crate::fluid::liquid_on_place(w, s, p),
+        Block::Water { .. } | Block::Lava { .. } => crate::fluid::liquid_on_place(w, s, p),
         // ---- TNT dupers (track tnt) ----
         Block::Tnt { .. } => crate::tnt::on_place(w, p, old),
         // ---- weather (mobinfra) ----

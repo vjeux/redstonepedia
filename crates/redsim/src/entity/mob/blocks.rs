@@ -1,8 +1,8 @@
 //! Block properties the mob rules read (ironfarm), from the 26.3 source: a bed's shape
 //! (`BedBlock.SHAPES`), `BlockStateBase.entityCanStandOn` (the collision face UP is full),
 //! `SpawnUtil.Strategy.LEGACY_IRON_GOLEM`'s excluded blocks, `NaturalSpawner.isValidEmptySpawnBlock`,
-//! `EntityType.isBlockDangerous` (`NodeEvaluator.isBurningBlock`), `isSuffocating`, and the lava
-//! source check (only lava that cannot flow is modeled).
+//! `EntityType.isBlockDangerous` (`NodeEvaluator.isBurningBlock`), `isSuffocating`, and where
+//! lava could flow (`lava_can_flow`; lava flows since mobinfra's model, no refusal).
 
 use crate::behavior::{self, Box16};
 use crate::block::{Block, Simple};
@@ -189,13 +189,11 @@ pub fn lava_can_flow(w: &World, p: BlockPos) -> Option<BlockPos> {
     [Dir::Down, Dir::North, Dir::South, Dir::West, Dir::East].into_iter().map(|d| p.rel(d)).find(|q| holds(*q))
 }
 
-/// The fluid height of a lava source at `p` (`FluidState.getHeight`): 1 under more lava, else
-/// 8/9 (only sources are modeled).
+/// The fluid height of the lava at `p` (`FluidState.getHeight`): 1 under more lava, else its
+/// amount / 9 (8/9 for a source; flowing lava since mobinfra's model).
 pub fn lava_height(w: &World, p: BlockPos) -> Option<f64> {
-    match w.get(p) {
-        Block::Lava { .. } => Some(if matches!(w.get(p.above()), Block::Lava { .. }) { 1.0 } else { (8.0f32 / 9.0f32) as f64 }),
-        _ => None,
-    }
+    let f = crate::fluid::fluid_state(w, p);
+    if f.fluid.is_lava() { Some(f.height(w, p) as f64) } else { None }
 }
 
 /// `LevelReader.containsAnyLiquid(box)`: a cell the box meets holds a fluid (water, lava).

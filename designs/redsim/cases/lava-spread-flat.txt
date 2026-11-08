@@ -1,0 +1,9 @@
+# mobinfra: flowing lava (LavaFluid) on a flat stone floor: 3 cells out (drop-off 2: levels 2, 4,
+# 6), a step every 30 gt, no source conversion; then the source removed: the flow drains back
+box -6 -1 -6 6 2 6
+fill -5 0 -5 5 0 5 minecraft:stone
+run 2
+set 0 1 0 minecraft:lava[level=0]
+run 200
+set 0 1 0 minecraft:air
+run 200

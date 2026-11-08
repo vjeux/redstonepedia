@@ -1236,7 +1236,7 @@ kick) before the first input.
   26.3 server after the redsim judge passes (`crate::mobfarm_game`, `mctas mobfarm gate`). One
   `port output:` (the farm's single chest in the design, or an air cell where the judge puts one;
   every archived farm holds its chest, so its download and its 3D view show it). The judge refuses what the mob layer does not model (static checks:
-  flowing lava, water at lava, job sites, a zombie that does not ride, villagers that can walk,
+  job sites, a zombie that does not ride, villagers that can walk,
   gossip, climbable blocks...), floods every position a golem can stand on from every spawn spot
   (with its edge spots: box sides 0.0005 inside or outside block boundaries, where a current can
   stop while the floor still holds the golem) and drifts it still and under 8 walking inputs (each
@@ -1260,7 +1260,10 @@ kick) before the first input.
   one strike can take (every villager within 3 blocks of it: the farm's spacing), a broken boat, a
   fire, a trap horse, the game days until it breaks; a sky the model cannot decide is an error,
   never "no sky"), `thunder loss` (iron per hour of thunder, breaks
-  included), `rain` (a clear, a rain and a thunder day's rates), `sunburn` and `fire` (lava's).
+  included), `rain` (a clear, a rain and a thunder day's rates), `sunburn` and `fire` (lava's: the
+  farm's own lava only; when a run's fire burns one of the farm's blocks the run goes on, the lava
+  flows into it with all it then does to the farm, and the line says what burns and after how
+  long on average; a terrain sample's natural fires are the world's, simulated, not the farm's).
   The 3D view runs the
   farm with that simulation (its judge's first run, tick for tick: [webrender.md](webrender.md)).
 
