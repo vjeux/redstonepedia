@@ -37,8 +37,8 @@ pub enum BoatLeadsCmd {
         /// Debugging only: skip official-game clock re-verification, not a full ship gate.
         #[arg(long)]
         skip_boat_verify: bool,
-        /// At most two official-game workers, per the shared-node budget.
-        #[arg(long, default_value_t = 2)]
+        /// Requested game workers; inherited MCTAS_MAX_WORKERS caps the actual pool.
+        #[arg(long, default_value_t = 8)]
         workers: usize,
     },
     /// Validate a saved legacy report including already-hidden negatives; does not rerun it.
@@ -84,4 +84,28 @@ pub fn run(version: &str, command: BoatLeadsCmd) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Args {
+        #[command(subcommand)]
+        command: BoatLeadsCmd,
+    }
+
+    #[test]
+    fn legacy_requests_the_standard_pool_by_default() {
+        let args = Args::parse_from(["test", "legacy", "--baseline", "pristine"]);
+        assert!(matches!(args.command, BoatLeadsCmd::Legacy { workers: 8, .. }));
+    }
+
+    #[test]
+    fn legacy_worker_request_remains_configurable() {
+        let args = Args::parse_from(["test", "legacy", "--baseline", "pristine", "--workers", "1"]);
+        assert!(matches!(args.command, BoatLeadsCmd::Legacy { workers: 1, .. }));
+    }
 }

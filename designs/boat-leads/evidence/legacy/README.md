@@ -49,12 +49,48 @@ with strict audit of all results. Workspace build, unit/integration/fn_length te
 full/quick selftests, the 16 exact boat fixtures and 190 legacy comparisons must still be
 run on the rebased tree. If the input/source/dependency equivalence fails, reuse is invalid.
 
+## Second rebase: the separate Mob registration
+
+The next base is `76fd6055c6f814c785f4e556b0977d8e68a9faeb`. Its RedSim model changes
+must be tested; they do **not** regenerate this old game recording. The game producer and
+its inputs were checked separately from the model under test:
+
+```
+git diff --exit-code d845f712d81fb6eace9e05c81790d96221d028ad..76fd6055c6f814c785f4e556b0977d8e68a9faeb -- bridge crates/mctas crates/clock-cli designs/clocks Cargo.toml
+```
+
+That diff is empty. In `crates/clock`, only the model's Mob snapshot-name arm changed.
+The main CLI adds an unrelated Mobfarm command, and Cargo.lock adds its local package
+using existing dependencies without version or feature changes. The official Minecraft
+version, bridge, clock-verification implementation and archive inputs are unchanged.
+The coordinator approved retaining this same disclosed game oracle on that basis.
+
+The updated model still requires fresh exact-fixture/190-trace replays, all 43 archived
+model verdicts, strict 16-build evidence auditing, unit/boundary tests, and full/quick
+selftests and a release build. Nothing in this reuse approval turns the earlier failed
+or timed-out test executions into passes. The additional Mob/boat domain adapter needs
+its own review; the earlier no-Mob foundation approval does not certify Mob/leash physics.
+
+## Subsequent model-only update
+
+The next base, `5985c3c55796926a2afeefc0c994c1dab606cda8`, adds sign/daylight model
+support and Mobfarm tooling. The same producer/input check from `76fd6055c` to that
+commit is empty, including the entire clock and circuit crates, bridge, mctas,
+clock CLI, main CLI, archive inputs, workspace manifest and lockfile. None of the
+boat-lead adapter or calibration files changed upstream. This remains the same old
+vanilla oracle, not a new recording; the changed model is checked again on that base.
+
+```
+git diff --exit-code 76fd6055c6f814c785f4e556b0977d8e68a9faeb..5985c3c55796926a2afeefc0c994c1dab606cda8 -- bridge crates/mctas crates/clock crates/clock-cli crates/circuit crates/mctas-cli designs/clocks Cargo.toml Cargo.lock
+```
+
 ## Inspect or reproduce
 
 `mctas boat-leads legacy-audit --out-dir designs/boat-leads/evidence/legacy`
 validates these **saved reports**; it does not execute a new game run.
 
 `mctas boat-leads legacy --baseline <pristine-redsim-fuzz> --out-dir <new-directory>`
-runs the complete gate anew, with at most two official-game workers by default. It preserves
+runs the complete gate anew. It requests eight game workers by default and inherits the
+configured `MCTAS_MAX_WORKERS` cap rather than overriding it. It preserves
 a normal nonzero exit for expected negative inputs as evidence, then checks every record
 against the existing registry rather than calling all records valid.

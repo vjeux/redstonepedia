@@ -34,7 +34,7 @@ fn archived_boats() -> Result<Vec<PathBuf>> {
 }
 
 fn run_to(binary: &Path, args: &[&str], paths: &[PathBuf], log: &Path) -> Result<String> {
-    let output = Command::new(binary).args(args).args(paths).env("MCTAS_MAX_WORKERS", "1").output()?;
+    let output = Command::new(binary).args(args).args(paths).output()?;
     let text = format!("{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     std::fs::write(log, &text)?;
     ensure!(output.status.success(), "{} {} failed; {}\n{}", binary.display(), args.join(" "), log.display(), text);
@@ -42,10 +42,30 @@ fn run_to(binary: &Path, args: &[&str], paths: &[PathBuf], log: &Path) -> Result
     Ok(text)
 }
 
+fn game_command(binary: &Path, boats: &[PathBuf], workers: usize) -> Command {
+    let mut command = Command::new(binary);
+    command.args(["clock", "verify", "--positions", &crate::legacy_report::POSITIONS.to_string(), "--workers", &workers.to_string()]).args(boats);
+    // Inherit the configured per-pool cap. A requested count must not overwrite it.
+    command
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn game_command_keeps_the_grid_and_inherits_the_worker_cap() {
+        let command = game_command(Path::new("mctas"), &[PathBuf::from("boat.txt")], 8);
+        let args: Vec<_> = command.get_args().map(|s| s.to_str().unwrap()).collect();
+        assert_eq!(args, ["clock", "verify", "--positions", "4", "--workers", "8", "boat.txt"]);
+        assert!(command.get_envs().all(|(key, _)| key != std::ffi::OsStr::new("MCTAS_MAX_WORKERS")));
+    }
+}
+
 /// Both models replay all kept exact traces; inventory selects boats by entity content,
 /// not a filename substring; every selected archived boat is re-judged in the game.
 pub fn run(baseline: &Path, out: &Path, skip_boat_verify: bool, workers: usize) -> Result<()> {
-    ensure!((1..=2).contains(&workers), "worker count must be 1 or 2");
+    ensure!(workers > 0, "worker count must be positive");
     std::fs::create_dir_all(out)?;
     let mut traces = flat_files(Path::new("designs/clocks/traces/exact"), "trace")?;
     traces.extend(flat_files(Path::new("designs/clocks/tracks/clk-misc/redsim-tests/traces"), "trace")?);
@@ -64,8 +84,7 @@ pub fn run(baseline: &Path, out: &Path, skip_boat_verify: bool, workers: usize) 
     if skip_boat_verify {
         println!("GAME RE-VERIFICATION SKIPPED explicitly; this is NOT the complete legacy gate");
     } else {
-        let output = Command::new(&current).args(["clock", "verify", "--positions", &crate::legacy_report::POSITIONS.to_string(), "--workers", &workers.to_string()]).args(&boats)
-            .env("MCTAS_MAX_WORKERS", workers.to_string()).output()?;
+        let output = game_command(&current, &boats, workers).output()?;
         let text = format!("{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
         std::fs::write(out.join("boat-game-verification.txt"), text)?;
         std::fs::write(out.join("boat-game-status.txt"), format!("{:?}\n", output.status.code()))?;

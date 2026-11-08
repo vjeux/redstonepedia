@@ -36,7 +36,8 @@ non-leashable entity is rejected, while a live unlinked boat is a valid no-op. T
 are not hidden behind omitted drops, a fake moving holder or a zero-velocity approximation.
 
 After the Mob registration, a pickup-eligible nearby Mob causes an explicit model error in
-the boat's nearby-entity loop: vanilla would board it, not just push it. Too-wide Mobs and
+the boat's nearby-entity loop: vanilla would attempt boarding rather than go straight to
+its generic push branch (the riding attempt can itself be refused). Too-wide Mobs and
 full boats retain the source's horizontal-push path, with same-root passengers excluded.
 The eligibility check uses the verified 26.3 entity-type tag, strict width comparison, and
 two-seat/one-seat boat/chest-boat capacities, before the generic push-height test.
