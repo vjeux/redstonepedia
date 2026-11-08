@@ -598,9 +598,16 @@ impl Chunk {
 }
 
 fn read_chunk_root(world: &Path, cx: i32, cz: i32, cache: &mut HashMap<(i32, i32), Vec<u8>>) -> Result<Option<nbt::Tag>> {
+    read_region_root(&world.join("region"), cx, cz, cache)
+}
+
+/// One chunk's root compound from the `r.X.Z.mca` files of a folder (`region/` for blocks,
+/// `entities/` for entities, `poi/`), `None` when the chunk was never saved; `cache` keeps the
+/// region files read so far.
+pub fn read_region_root(folder: &Path, cx: i32, cz: i32, cache: &mut HashMap<(i32, i32), Vec<u8>>) -> Result<Option<nbt::Tag>> {
     let (rx, rz) = (cx.div_euclid(32), cz.div_euclid(32));
     if let std::collections::hash_map::Entry::Vacant(e) = cache.entry((rx, rz)) {
-        let path = world.join("region").join(format!("r.{rx}.{rz}.mca"));
+        let path = folder.join(format!("r.{rx}.{rz}.mca"));
         e.insert(std::fs::read(&path).unwrap_or_default());
     }
     let file = &cache[&(rx, rz)];

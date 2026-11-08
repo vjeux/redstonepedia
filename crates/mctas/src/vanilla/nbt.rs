@@ -179,6 +179,93 @@ pub fn parse_named(bytes: &[u8]) -> Result<Tag> {
     r.payload(10, 0)
 }
 
+/// A tag as SNBT (the `/data get` text form): keys sorted, numbers with their type suffix,
+/// strings and keys quoted when they need it.
+pub fn to_snbt(t: &Tag) -> String {
+    let mut out = String::new();
+    write_snbt(t, &mut out);
+    out
+}
+
+fn quote(s: &str, out: &mut String) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
+fn write_snbt(t: &Tag, out: &mut String) {
+    use std::fmt::Write;
+    match t {
+        Tag::Byte(v) => {
+            let _ = write!(out, "{v}b");
+        }
+        Tag::Short(v) => {
+            let _ = write!(out, "{v}s");
+        }
+        Tag::Int(v) => {
+            let _ = write!(out, "{v}");
+        }
+        Tag::Long(v) => {
+            let _ = write!(out, "{v}L");
+        }
+        Tag::Float(v) => {
+            let _ = write!(out, "{v:?}f");
+        }
+        Tag::Double(v) => {
+            let _ = write!(out, "{v:?}d");
+        }
+        Tag::String(s) => quote(s, out),
+        Tag::ByteArray(a) => {
+            out.push_str("[B;");
+            out.push_str(&a.iter().map(|v| format!("{v}B")).collect::<Vec<_>>().join(","));
+            out.push(']');
+        }
+        Tag::IntArray(a) => {
+            out.push_str("[I;");
+            out.push_str(&a.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(","));
+            out.push(']');
+        }
+        Tag::LongArray(a) => {
+            out.push_str("[L;");
+            out.push_str(&a.iter().map(|v| format!("{v}L")).collect::<Vec<_>>().join(","));
+            out.push(']');
+        }
+        Tag::List(l) => {
+            out.push('[');
+            for (i, v) in l.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                write_snbt(v, out);
+            }
+            out.push(']');
+        }
+        Tag::Compound(m) => {
+            out.push('{');
+            for (i, (k, v)) in m.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                if !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '+')) {
+                    out.push_str(k);
+                } else {
+                    quote(k, out);
+                }
+                out.push(':');
+                write_snbt(v, out);
+            }
+            out.push('}');
+        }
+    }
+}
+
 /// A block state from a chunk palette entry, in the game's string form (`minecraft:x[a=b,c=d]`,
 /// properties sorted by name like `StateDefinition` does). 26.x writes a block's DEFAULT state
 /// as a bare name string (`"minecraft:redstone_wire"`), which is returned as is: the caller

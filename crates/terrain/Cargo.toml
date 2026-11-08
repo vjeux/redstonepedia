@@ -1,0 +1,16 @@
+[package]
+name = "terrain"
+description = "Real terrain for the judges (the terrain lane, designs/briefs/terrain-and-spawning.md): the official server generates a seed's area once, offline; mctas terrain gen/find/crop/info"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+mctas = { path = "../mctas" }
+redsim = { path = "../redsim" }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }

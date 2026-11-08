@@ -84,6 +84,12 @@ enum Cmd {
         #[command(subcommand)]
         command: mobfarm::cli::MobfarmCmd,
     },
+    /// Real terrain (designs/briefs/terrain-and-spawning.md): the official server generates a
+    /// seed's area once; samples, crops, the game's /locate.
+    Terrain {
+        #[command(subcommand)]
+        command: terrain::cli::TerrainCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -166,6 +172,7 @@ fn main() -> Result<()> {
         Cmd::BoatLeads { command } => boat_leads::cli::run(&cli.version, command)?,
         Cmd::Bedrock { command } => bedrock::cli::run(&cli.version, command)?,
         Cmd::Mobfarm { command } => mobfarm::cli::run(&cli.version, command)?,
+        Cmd::Terrain { command } => terrain::cli::run(&cli.version, command)?,
     }
     Ok(())
 }

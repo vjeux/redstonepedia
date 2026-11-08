@@ -32,6 +32,7 @@ pub mod rng;
 pub mod robust;
 pub mod sculk;
 pub mod snapshot;
+pub mod terrain;
 pub mod ticks;
 pub mod tnt;
 pub mod world;

@@ -144,6 +144,7 @@ public final class Protocol {
     private JsonObject dispatch(String op, JsonObject r) throws Exception {
         return switch (op) {
             case "ping" -> new JsonObject();
+            case "blockinfo" -> BlockInfo.run(this, sandbox(r), r);
             case "info" -> info();
             case "create" -> create(r);
             case "drop" -> drop(r);
