@@ -255,9 +255,8 @@ pub fn iron_hub(site: &Site, parts: &[Member], scripts: Scripts) -> String {
         of.sort_by(|a, b| key(a).partial_cmp(&key(b)).unwrap_or(std::cmp::Ordering::Equal));
         let cards: Vec<String> = of.iter().map(|b| build_card(b, prefix)).collect();
         stages.push_str(&format!(
-            "<section class=\"stage\"><h3>{} <span class=\"count\">{}</span></h3><p class=\"hint\">{}</p>\n{}</section>\n",
+            "<section class=\"stage\"><h3>{}</h3><p class=\"hint\">{}</p>\n{}</section>\n",
             esc(title),
-            of.len(),
             esc(line),
             pages::grid(&cards)
         ));
@@ -267,13 +266,13 @@ pub fn iron_hub(site: &Site, parts: &[Member], scripts: Scripts) -> String {
         let members: Vec<&Member> = parts.iter().filter(|m| m.part == p).collect();
         let Some(best) = members.first() else { continue };
         comps.push(format!(
-            "<a class=\"card study\" href=\"{prefix}{}\" aria-label=\"{}\">{}<div class=\"meta\"><div class=\"title\">{} <span class=\"count\">{}</span></div><div class=\"sub\">{}</div></div></a>",
+            "<a class=\"card study\" href=\"{prefix}{}\" aria-label=\"{}\">{}<div class=\"meta\"><div class=\"title\">{}</div><div class=\"sub\">{} {}</div></div></a>",
             esc(&part_page_path("iron", p)),
             esc(title),
             site_model::html::thumb(prefix, &member_design("iron", best), None, None, None, "circuit", "", ""),
             esc(title),
-            members.len(),
-            esc(what)
+            esc(what),
+            if members.len() == 1 { "1 version.".to_string() } else { format!("{} versions.", members.len()) }
         ));
     }
     let components = if comps.is_empty() {
