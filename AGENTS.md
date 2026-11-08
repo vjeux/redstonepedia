@@ -6,10 +6,12 @@ What was tried before (read it before starting a direction): [docs/history.md](d
 the track notebooks ([tracks/README.md](designs/piston-door-3x3/tracks/README.md)).
 
 ## House rules (from the repo owner, vjeux)
-- **Designs vjeux should see go to the site** (vjeux 2026-11-08: "Please stop with the preview
-  mode. Just upload them to the website."): archived and published to vjeux.github.io/redstonepedia
-  through the coordinator (archive, GO, main, deploy). `mctas site preview` is not used; nothing is
-  pushed to vjeux/redstonepedia-preview.
+- **Until the Farms section (/farms/) is live on the main site, show vjeux a farm with `mctas site
+  preview <design>...`** from your branch and send him the URL it prints (vjeux 2026-11-08 12:20:
+  "Just use the preview while the full thing works"): its page, 3D view, card and downloads on
+  vjeux/redstonepedia-preview, never on the site; no merge, no GO, no tests
+  ([site.md#previews](docs/site.md#previews)). Once /farms/ is live, the main site takes over:
+  designs go there through the coordinator (archive, GO, main, deploy).
 - **New components follow [docs/process.md](docs/process.md):** a brief, the obvious design as
   the bar and the mechanics' ceiling, a search against that bar, then a review. No internet and
   no one else's designs. No new kind, metric or judge rule without an approved brief.
