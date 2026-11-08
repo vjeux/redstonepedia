@@ -1,9 +1,9 @@
 # Day 1 (candidate D1U): D4 dug into the ground, natural rock for every wall: the bed plate hides the zombie
 # from two scared villagers 6 below the surface; golems fall from the pad into a pit and burn under one lava source.
 name: iron-day1-underground-6
-afk: 2.5 7 4.5
+afk: 2.5 9 4.5
 circuit: mob-farm iron_ingot
-ground: 6
+ground: 8
 how: golems burn in a corner of their pit
 restart: yes
 terrain: cells
@@ -12,7 +12,7 @@ entity: minecraft:villager 0.5 0.5625 0.5
 entity: minecraft:villager 2.5 0.5625 0.5
 entity: minecraft:oak_boat 2.5 0.5 -6.8 {Passengers:[{id:"minecraft:zombie"}]}
 entity: minecraft:villager 3.5 2 -5.5
-origin: 0 0 -7
+origin: 0 0 -8
 palette:
   A minecraft:air
   B minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
@@ -42,12 +42,14 @@ layer -15:
   .
   .
   .
+  .
   .C
   .
   .
   .
   .
 layer -14:
+  .
   .
   .
   .
@@ -74,12 +76,14 @@ layer -13:
   .
   .
   .
+  .
   .AAAA
   .AAAA
   .AAAA
   .AAAW
   .
 layer -12:
+  .
   .
   .
   .
@@ -106,12 +110,14 @@ layer -11:
   .
   .
   .
+  .
   .LFAA
   .EAAA
   .AAAA
   .AAAA
   .
 layer -10:
+  .
   .
   .
   .
@@ -138,12 +144,14 @@ layer -9:
   .
   .
   .
+  .
   .AAAA
   .AAAA
   .AAAA
   .AAAA
   .
 layer -8:
+  .
   .
   .
   .
@@ -169,6 +177,7 @@ layer -7:
   .
   .
   .
+  .
   SSSSSS
   SOOOOS
   SOAAOS
@@ -176,6 +185,7 @@ layer -7:
   SOOOOS
   SSSSSS
 layer -6:
+  .
   .
   .
   .
@@ -201,6 +211,7 @@ layer -5:
   .
   .
   .
+  .
   AAAAAA
   AAAAAA
   AAAAAA
@@ -208,6 +219,7 @@ layer -5:
   AAAAAA
   AAAAAA
 layer -4:
+  .
   .
   .
   .
@@ -239,7 +251,9 @@ layer -3:
   .
   .
   .
+  .
 layer -2:
+  .
   .
   .
   .
@@ -271,7 +285,9 @@ layer -1:
   .
   .
   .
+  .
 layer 0:
+  .
   ..s
   .
   .
@@ -289,6 +305,7 @@ layer 0:
   .
 layer 1:
   ..A
+  ..A
   ..DS
   AAA
   AAA
@@ -305,6 +322,7 @@ layer 1:
   .
 layer 2:
   .
+  .
   ...oIG
   AAA
   AAA
@@ -320,6 +338,7 @@ layer 2:
   .
   .
 layer 3:
+  .
   .
   ...AAA
   .
