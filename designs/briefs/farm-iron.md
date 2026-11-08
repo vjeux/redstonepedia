@@ -264,7 +264,12 @@ Numbers, never refusals by themselves; each stage weighs them in its own rank:
   gains nothing from stacking is still compared at two). Middle and
   late compare farms by their per-module numbers there; day 1, whose T is a whole build, compares
   them at one unit. The card prints the curve, and the player picks the farm from the front and
-  its N from the curve.
+  its N from the curve. The copies bar is measured at the candidate's own N, priced the same way
+  (the same cheapest villager route: breeding's cost per module falls with N for copies too), so
+  no farm beats copies by the amortization of its villagers alone. Two clusters are two only when
+  their villagers are more than 10.6 apart on x or z or 11.95 on y (`Villager.spawnGolemIfNeeded`
+  lists the villagers in its box inflated by 10, with no sight test): pods sharing a wall are one
+  cluster.
 - **The card adapts to the stage and the farm** (vjeux 11:17: "Different farms have different
   tradeoffs. We don't care about lava trips for the high end farm. Please have the ability to
   adapt what is shown based on the objective"). Everything stays measured; what the card SHOWS is
