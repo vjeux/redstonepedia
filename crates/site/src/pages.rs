@@ -356,7 +356,7 @@ fn circuit_sections(c: &site_model::Circuit, has_viewer: bool) -> String {
 
 /// The viewer of a build page (a live view when the viewer bundle is there; the interim picture
 /// or the fallback text until then). Clocks run by themselves: their viewer starts playing.
-fn viewer(prefix: &str, b: &Build) -> String {
+fn viewer(prefix: &str, b: &Build, design_text: &str) -> String {
     let trace = b.trace.as_ref().map(|t| format!(" data-trace=\"{}\"", esc(&format!("{prefix}{t}")))).unwrap_or_default();
     // circuits: the judge's test as the viewer's demo (webrender's contract: data-stimulus,
     // data-phases, data-input-mode), playing from the start
@@ -384,7 +384,7 @@ fn viewer(prefix: &str, b: &Build) -> String {
                 a.push_str(&format!(" data-farm-rts=\"{rts}\""));
             }
             // (a farm judged in its terrain sample: the view fetches it and shows the farm in it)
-            if let Some(t) = &c.terrain {
+            if let Some(t) = terrain_of(design_text) {
                 a.push_str(&format!(" data-terrain=\"{}\"", esc(&format!("{prefix}{}", terrain_file(t)))));
             }
             // (a design the build found the browser cannot run, the shulker study's own runs
@@ -507,7 +507,7 @@ pub fn build_page(site: &Site, b: &Build, design_text: &str, repo_path: &str, sc
     // the redstone first (vjeux: "Put the redstone before the explanation"): the live view and
     // its controls, a tunable group's picker under it, then how to try it (no "why build it":
     // vjeux 23:52Z); the jargon, our test and the measurements fold into one "Details" (13:06Z)
-    body.push_str(&viewer(prefix, b));
+    body.push_str(&viewer(prefix, b, design_text));
     let picker = group_picker(site, b, prefix);
     // the picker swaps versions in place (pkg/redstonepedia.js), keeping the viewer's camera
     let scripts = Scripts { app: scripts.ui && scripts.viewer && !picker.is_empty(), ..scripts };
@@ -881,6 +881,14 @@ pub fn build_page(site: &Site, b: &Build, design_text: &str, repo_path: &str, sc
 /// page views fetch it (`data-terrain`).
 pub fn terrain_file(name: &str) -> String {
     format!("terrain/{name}.mcterrain")
+}
+
+/// The terrain sample a farm is judged in (the judge's rule: `mcview::terrain::sample_of`), read
+/// from its design's text: its page's view fetches the sample's file ([`terrain_file`],
+/// `data-terrain`) and shows the farm in it. None: a void design. (Read here, not kept in
+/// `site-model`: the UI never needs it, and its build fingerprint stays the deployed one's.)
+pub fn terrain_of(design_text: &str) -> Option<&'static str> {
+    mcview::Design::parse(design_text).ok().and_then(|d| mcview::terrain::sample_of(&d)).map(|s| s.name)
 }
 
 pub fn page_title(b: &Build) -> String {
@@ -2149,6 +2157,16 @@ mod tests {
             ..Default::default()
         };
         Site { version: 1, generated: "2026-10-19T23:00Z".into(), commit: "0123456789abcdef".into(), builds: vec![clock("obs2", 6, 2), clock("obs3", 6, 3), door], ..Default::default() }
+    }
+
+    /// A farm judged in its terrain sample gets its view's `data-terrain` from its design's text
+    /// (the judge's rule); a void one none.
+    #[test]
+    fn a_terrain_farm_names_its_sample() {
+        let read = |p: &str| std::fs::read_to_string(format!("{}/../../{p}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        assert_eq!(terrain_of(&read("designs/circuits/mobfarm/tracks/ironfarm/d1u-underground.txt")), Some("village-edge"));
+        assert_eq!(terrain_of(&read("designs/circuits/mobfarm/archive/iron-day1.txt")), None);
+        assert_eq!(terrain_file("village-edge"), "terrain/village-edge.mcterrain");
     }
 
     #[test]

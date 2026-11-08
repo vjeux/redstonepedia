@@ -657,7 +657,7 @@ pub fn build(a: &BuildArgs) -> Result<()> {
             write(&out.join(&c.card_src), &c.card_text)?;
         }
         // the terrain sample a farm is judged in, for its page's view (`data-terrain`)
-        if let Some(t) = b.circuit.as_ref().and_then(|c| c.terrain.as_deref()) {
+        if let Some(t) = b.circuit.as_ref().and_then(|_| pages::terrain_of(&text)) {
             let to = out.join(crate::pages::terrain_file(t));
             if !to.exists() {
                 let s = redsim::terrain::samples::sample(t).with_context(|| format!("{}: no terrain sample {t}", b.id))?;
