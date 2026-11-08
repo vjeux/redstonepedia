@@ -227,49 +227,69 @@ the late stage. Every candidate is judged with the weather cycle on.
 
 ### Late
 
-The player has everything, End included; villagers come from breeding.
+The player has everything, End included; villagers come from breeding. The challenge (vjeux,
+04:26): stack modules next to each other and gain efficiency while keeping the build small. Copies
+at a pitch where they never interact gain nothing: that is the bar, not a candidate.
 
 Hard limits:
 - **Any survival item.**
-- **Every module keeps at least 90% of its ceiling while packed against its neighbours.** What
-  couples modules:
-  - a spawn resets every villager in the spawner's box inflated by 10
-    (`Villager.spawnGolemIfNeeded`: `nearbyVillagers.forEach(GolemSensor::golemDetected)`), and
-    the same box counts the willing villagers toward the 3;
-  - `GolemSensor` (every 200 gt) reads the `NEAREST_LIVING_ENTITIES` list that
-    `NearestLivingEntitySensor` stores every 20 gt: every living entity in the villager's box
-    inflated by its follow range (16, times `finalizeSpawn`'s bonus), with no sight needed. So
-    a neighbour's golem resets a villager in proportion to how long it stays in that box;
-  - the spawn search reaches 8 columns out, from 6 above to 6 below its villager
-    (`SpawnUtil.trySpawnMob(…, 10, 8, 6, LEGACY_IRON_GOLEM)`), so it can land on a neighbour's
-    pad.
+- **Every module (a villager cluster) keeps at least 90% of its ceiling with its neighbours
+  present**, the coupling engineered away (shared parts, where golems dwell and for how long), not
+  avoided with distance.
 - **The whole build runs from one AFK spot**: entities tick only in chunks within the simulation
   distance of a player (`DistanceManager`: the player ticket at level `ENTITY_TICKING -
   simulationDistance`). A dedicated server defaults to 10 (`simulation-distance`).
 
-Ranked by: **iron per hour per chunk column of footprint.** The page shows the scaling at N = 1,
-2, 4, 8...: iron per hour, blocks, footprint, and iron per hour per block rising with N.
+Ranked by: **iron per hour per block of the whole build at N = 8 modules**, shown at N = 1, 2, 4
+and 8 (and 16 if it fits); the curve must rise with N. **Small**: the card reports the bounding
+box's volume and the blocks per module; the volume per module must fall with N. A design whose
+volume per module does not fall is the bar.
 
 Must-haves:
-- **At least 8 h AFK**: the iron packed into blocks (a crafter) or stored, the poppies
-  composted or destroyed.
+- **At least 8 h AFK**: the iron packed into blocks (a crafter) or stored, the poppies composted
+  or destroyed.
 - **Low lag**: golems die fast, few hoppers per 1000 iron per hour, few entities alive at once,
   nothing piling up. All of it is reported.
+- And every stage's: the restart after an absence, weather, terrain, lightning, the game gate.
 
-Candidates (any survival item; the estimates use the couplings above: a golem that stays D gt in a
-foreign villager's follow box resets it with a chance of about (D + 20) / 200, since the
-golem scan reads the 20 gt list once per 200 gt; a module of 4 villagers still spawns when one of
-them is reset):
+What couples modules (26.3):
+- **The spawn's 10-box.** `Villager.spawnGolemIfNeeded` counts the villagers that want a golem in
+  the summoner's box inflated by 10 (at most 5 counted, 3 needed) and, after a spawn, calls
+  `GolemSensor.golemDetected` on every villager in that box (`GOLEM_DETECTED_RECENTLY` for 599 gt).
+  Villagers within 10 of each other are one cluster: one golem per 600 gt (the ceiling).
+- **The follow cube.** `NearestLivingEntitySensor` (every 20 gt) lists every living entity in the
+  villager's box inflated by its `FOLLOW_RANGE` on all three axes (16 x (1 + triangle(0,
+  0.11485)): 14.2 to 17.8), with no sight test; `GolemSensor` (every 200 gt) resets the villager
+  when that list holds an iron golem. A golem that stays D gt inside a foreign cube is listed from
+  the first 20 gt scan inside its stay to the first scan after it leaves, a window that averages D
+  gt, so it resets that villager with a chance of about D / 200 (G1, 8146b8db).
+- **The spawn search** reaches 8 columns out and 6 up or down (`SpawnUtil.trySpawnMob(…, 10, 8, 6,
+  LEGACY_IRON_GOLEM)`), so it can land on a neighbour's pad.
+- **A golem cannot die fast**: 100 health, immune to falls (`fall_damage_immune` lists the iron
+  golem), lava 4 a hit every 10 gt (the damage cooldown: 25 hits, about 250 gt to die). So a golem
+  must leave the cubes of foreign villagers, not die in them; free fall from rest covers 3 blocks
+  in 9 gt, 8 in 14 and 14 in 19, and a cube reaches 14 to 18 below a villager.
+- **Measured** (redsim, two M2 modules side by side, 5-day runs): 16 apart (adjacent chunk
+  columns) each module keeps 83-85% of the ceiling, 20 apart 87-94%, 24 apart 92-95% (no
+  coupling).
 
-| # | packing | per module | iron/h per chunk column | why |
-|---|---|---|---|---|
-| LB | the bar: the fastest module on a 27-block grid (the archived iron-scaled-2x2) | 459 iron/h, 96% | 161 (459 x 256 / 729) | no golem is ever in a foreign follow box; meets every hard limit |
-| L1 | an 11-block grid (each villager group out of every other's 10-box), every pad directly over its own drop (no flushing: a golem leaves every follow box about 10 gt after it spawns) | about 85-90% if the drop starts within 10 gt (each foreign sighting about 15%, from up to 8 neighbours) | about 800-900 | the dwell, not the distance, decides the coupling |
-| L2 | a vertical stack in one chunk column, modules 13 apart, the golems dropped down a shaft beside the column | about 80%: each golem falls past the lower modules' boxes (34 tall, about 10 gt at terminal speed) | about 1,500 per stack of 4, over 2 columns | height costs no footprint; the shaft does |
-| L3 | a ring of 6 modules around one shared kill shaft, each pad tilted into it | about 90% (the ring's golems all fall into the center within 10-30 gt) | about 1,000 | one kill chamber, one collection, one AFK spot |
+Where the gain is: shared parts (the kill chamber, the drop, the collection, water, the calm: one
+zombie within 8 of two clusters, one hide, one bed observer), golems that leave every foreign cube
+fast (pads at the cube's edge, drops away from all villagers), redundancy (a 4th or 5th villager
+in a cluster absorbs foreign resets: 3 of up to 5 are needed) and a smaller module (most of M2's
+638 blocks are its own drop and chamber).
 
-**Pick: the search decides** (a redsim search over the pitch, the drop, the shared parts and the
-kill speed, against LB, the bar). L1 is the first one built.
+Candidates (estimates on the new rank; the search on redsim decides):
+
+| # | packing | per module | blocks per module | iron/h per block at N = 8 | volume per module |
+|---|---|---|---|---|---|
+| LB | the bar: M2 copies 43 apart vertically (or 24 side by side), each with its own everything | 443 iron/h, 93% (measured) | 638 | 0.69-0.70 at every N (measured) | 7,424, flat |
+| LS | LB with one shared collection: each chamber drains into one falling-water chute, one sorter slice, one iron-block crafter, one composter for the poppies, one rod | 443, 93% | about 610 + 60 / N | about 0.73, rising a little | flat (the shared part is small): the bar |
+| LP | up/down pairs: two clusters 15 apart vertically share one zombie (each within 8 of it), one hide and one bed observer; the lower cluster's pad sits 6 below it and its golems fall, the upper one's pad 6 above it and a soul-sand bubble column lifts its golems; between pairs, one chamber kills the golems rising from below and falling from above; no golem is ever in a foreign cube (the pads are 18+ from the other cluster) | about 440, 92% | about 300 (half a calm, half a chamber, a pad, a column, the pods) | about 1.4, rising with the shared collection | about 28 x 16 x 16 per cluster, falling with N |
+| LH | a row of clusters 20 apart with one shared drop and chamber under the row | about 90% (measured coupling at 20) | about 400 | about 1.0 | falling with N |
+
+**Pick: the search decides**; LP is built first (it needs the bubble column for mobs in redsim,
+`Entity.onInsideBubbleColumn` and `onAboveBubbleColumn`, modeled exactly).
 
 ### What every card reports
 
