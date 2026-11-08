@@ -364,9 +364,225 @@ pub fn m2_stack(modules: i32, step: [i32; 3], n: i32) -> String {
     b.text(&[&format!("Late (the bar's packing): {modules} M2 modules {sx} {sy} {sz} apart, each with its own villagers, zombie,"), "bed observer, drop and fire-safe chamber."])
 }
 
+/// M2's front with the smallest hide circuit (the catalog's pulse-extender-repeater-L{2d}): U1's
+/// bed observer pulses (2 gt) into one repeater (delay `d`, 1..=4: the pulse stretched to 2d gt),
+/// whose dust runs to the hide. `d` = 0: the observer's own 2 gt pulse, no repeater.
+fn m2_front_rep(n: i32, d: i32) -> Builder {
+    let mut b = Builder::new(&format!("iron-middle-rep{d}-{n}"));
+    for x in [0, 2, 4] {
+        pod(&mut b, x, true);
+    }
+    pod(&mut b, 6, false);
+    b.set(2, 0, -7, "stone_slab[type=bottom,waterlogged=false]");
+    b.set(2, 2, -7, STONE);
+    b.set(2, 3, -7, GLASS);
+    b.entity("oak_boat", [2.5, 0.5, -6.8], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
+    b.set(2, 1, -6, "oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]");
+    let support = |b: &mut Builder, x: i32, z: i32| b.set(x, -1, z, STONE);
+    b.set(7, 0, 0, "observer[facing=west,powered=false]");
+    support(&mut b, 8, 0);
+    if d > 0 {
+        b.set(8, 0, 0, &format!("repeater[delay={},facing=west,locked=false,powered=false]", d.clamp(1, 4)));
+    } else {
+        b.set(8, 0, 0, "redstone_wire[east=side,north=none,power=0,south=none,west=side]");
+    }
+    // the dust: east of the repeater, north along x 9 to z -6, west along z -6, up onto the block
+    // east of the trapdoor
+    support(&mut b, 9, 0);
+    b.set(9, 0, 0, "redstone_wire[east=none,north=side,power=0,south=none,west=side]");
+    for z in -5..=-1 {
+        support(&mut b, 9, z);
+        b.set(9, 0, z, "redstone_wire[east=none,north=side,power=0,south=side,west=none]");
+    }
+    support(&mut b, 9, -6);
+    b.set(9, 0, -6, "redstone_wire[east=none,north=none,power=0,south=side,west=side]");
+    for x in 4..=8 {
+        support(&mut b, x, -6);
+        b.set(x, 0, -6, "redstone_wire[east=side,north=none,power=0,south=none,west=side]");
+    }
+    b.set(3, 0, -6, STONE);
+    b.set(3, 1, -6, "redstone_wire[east=side,north=none,power=0,south=none,west=side]");
+    b
+}
+
+/// M2-open with [`m2_front_rep`]'s hide (one repeater, `d` 0..=4).
+pub fn m2_open_rep(n: i32, d: i32) -> String {
+    let mut b = m2_front_rep(n, d);
+    let (wl, k) = (-6, -22);
+    crate::layouts::dry_hole_walls(&mut b, n, wl, k, -19);
+    chamber_safe(&mut b, k);
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.meta.insert("restart".into(), "yes".into());
+    b.text(&[&format!("Middle (M2-open, the smallest hide): the bed observer hides the zombie for {} gt through one repeater;", 2 * d.max(1)), "L2d's dry hole over an open 16-block drop and a chamber whose lava cannot light anything."])
+}
+
+/// M2's front with a compact bulb loop (the hide measured, not a pick): U1's bed observer toggles
+/// the bulb; its comparator opens the hide and feeds two repeaters (delays `d1`, `d2`) back into
+/// the bulb, which toggles it off: the hide lasts about 2 (d1 + d2) gt plus the comparator's 2.
+fn m2_front_loop(n: i32, d1: i32, d2: i32) -> Builder {
+    let mut b = Builder::new(&format!("iron-middle-loop{d1}{d2}-{n}"));
+    for x in [0, 2, 4] {
+        pod(&mut b, x, true);
+    }
+    pod(&mut b, 6, false);
+    b.set(2, 0, -7, "stone_slab[type=bottom,waterlogged=false]");
+    b.set(2, 2, -7, STONE);
+    b.set(2, 3, -7, GLASS);
+    b.entity("oak_boat", [2.5, 0.5, -6.8], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
+    b.set(2, 1, -6, "oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]");
+    let support = |b: &mut Builder, x: i32, z: i32| b.set(x, -1, z, STONE);
+    b.set(7, 0, 0, "observer[facing=west,powered=false]");
+    b.set(8, 0, 0, "waxed_copper_bulb[lit=false,powered=false]");
+    // (a glass cap: no golem spawns on the bulb)
+    b.set(8, 1, 0, GLASS);
+    support(&mut b, 8, -1);
+    b.set(8, 0, -1, "comparator[facing=south,mode=compare,powered=false]");
+    support(&mut b, 8, -2);
+    b.set(8, 0, -2, "redstone_wire[east=side,north=side,power=0,south=side,west=none]");
+    // the loop: a repeater east of the junction, dust south along x 9 to z 2, west to (8, 0, 2),
+    // a repeater north into the bulb's south face
+    support(&mut b, 9, -2);
+    b.set(9, 0, -2, &format!("repeater[delay={},facing=west,locked=false,powered=false]", d1.clamp(1, 4)));
+    support(&mut b, 10, -2);
+    b.set(10, 0, -2, "redstone_wire[east=none,north=none,power=0,south=side,west=side]");
+    for z in -1..=1 {
+        support(&mut b, 10, z);
+        b.set(10, 0, z, "redstone_wire[east=none,north=side,power=0,south=side,west=none]");
+    }
+    support(&mut b, 10, 2);
+    b.set(10, 0, 2, "redstone_wire[east=none,north=side,power=0,south=none,west=side]");
+    support(&mut b, 9, 2);
+    b.set(9, 0, 2, "redstone_wire[east=side,north=none,power=0,south=none,west=side]");
+    support(&mut b, 8, 2);
+    b.set(8, 0, 2, "redstone_wire[east=side,north=side,power=0,south=none,west=none]");
+    support(&mut b, 8, 1);
+    b.set(8, 0, 1, &format!("repeater[delay={},facing=south,locked=false,powered=false]", d2.clamp(1, 4)));
+    // the hide's line, as M2's
+    for z in -6..=-3 {
+        support(&mut b, 8, z);
+        b.set(8, 0, z, if z == -6 { "redstone_wire[east=none,north=none,power=0,south=side,west=side]" } else { "redstone_wire[east=none,north=side,power=0,south=side,west=none]" });
+    }
+    for x in 4..=7 {
+        support(&mut b, x, -6);
+        b.set(x, 0, -6, "redstone_wire[east=side,north=none,power=0,south=none,west=side]");
+    }
+    b.set(3, 0, -6, STONE);
+    b.set(3, 1, -6, "redstone_wire[east=side,north=none,power=0,south=none,west=side]");
+    b
+}
+
+/// M2-open with [`m2_front_loop`]'s hide.
+pub fn m2_open_loop(n: i32, d1: i32, d2: i32) -> String {
+    let mut b = m2_front_loop(n, d1, d2);
+    let (wl, k) = (-6, -22);
+    crate::layouts::dry_hole_walls(&mut b, n, wl, k, -19);
+    chamber_safe(&mut b, k);
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.meta.insert("restart".into(), "yes".into());
+    b.text(&[&format!("Middle (M2-open, a compact bulb loop): the hide lasts about {} gt;", 2 * (d1 + d2) + 2), "L2d's dry hole over an open 16-block drop and a chamber whose lava cannot light anything."])
+}
+
+/// M2's front with its hide timed by a part from the catalog (vjeux 10:48: "We built an entire
+/// clock system to find the smallest one for each tick"): U1's bed observer (its 2 gt pulse),
+/// the part's stretching repeater when it needs a longer input, the part turned to fit east of
+/// the pods, a repeater reading its output, and dust to the hide. Tries the part's 4 turns; None
+/// when none fits.
+fn m2_front_timer(n: i32, t: &crate::parts::Timer) -> Option<(Builder, Vec<[i32; 3]>)> {
+    let mut best: Option<(Builder, Vec<[i32; 3]>)> = None;
+    // the bed observer east of U1's bed head (its pulse goes east) or north of it (north)
+    for (obs, facing, out) in [([7, 0, 0], "west", [1, 0, 0]), ([6, 0, -1], "south", [0, 0, -1])] {
+        let mut base = Builder::new(&format!("iron-middle-{}-{n}", t.row.name));
+        for x in [0, 2, 4] {
+            pod(&mut base, x, true);
+        }
+        pod(&mut base, 6, false);
+        base.set(2, 0, -7, "stone_slab[type=bottom,waterlogged=false]");
+        base.set(2, 2, -7, STONE);
+        base.set(2, 3, -7, GLASS);
+        base.entity("oak_boat", [2.5, 0.5, -6.8], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
+        base.set(2, 1, -6, "oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]");
+        base.set(obs[0], obs[1], obs[2], &format!("observer[facing={facing},powered=false]"));
+        let step = |p: [i32; 3], k: i32| [p[0] + k * out[0], p[1], p[2] + k * out[2]];
+        let mut source = vec![obs];
+        let input = match t.stretch {
+            Some(d) => {
+                let r = step(obs, 1);
+                base.set(r[0], r[1] - 1, r[2], STONE);
+                // `facing` names the repeater's input side: the observer's
+                base.set(r[0], r[1], r[2], &format!("repeater[delay={d},facing={facing_back},locked=false,powered=false]", facing_back = if out[0] == 1 { "west" } else { "south" }));
+                source.push(r);
+                step(obs, 2)
+            }
+            None => step(obs, 1),
+        };
+        let beside = |a: [i32; 3], c: [i32; 3]| (a[0] - c[0]).abs() + (a[1] - c[1]).abs() + (a[2] - c[2]).abs() == 1;
+        for turns in 0..4u8 {
+            let mut b = Builder { d: base.d.clone() };
+            let Ok(placed) = crate::parts::place(&mut b, t.row, turns, input) else { continue };
+            // the part in free cells, east of the pods or low between them and the zombie (under
+            // the villagers' lines of sight), clear of the hide's cell and the zombie's row, and
+            // touching the source only at its input cell
+            let region = |c: &[i32; 3]| c[0] >= 8 && (-5..=8).contains(&c[2]) || c[1] <= 0 && (-1..=7).contains(&c[0]) && (-5..=-1).contains(&c[2]);
+            let fits = placed.cells.iter().all(|c| (*c == input || !base.d.blocks.contains_key(c)) && region(c) && (*c == input || source.iter().all(|s| !beside(*s, *c))));
+            if !fits {
+                continue;
+            }
+            let Some(start) = crate::parts::read_output(&mut b, &placed) else { continue };
+            let out_rep = placed.output;
+            let forbid = |p: [i32; 3]| p[0] < -1 || p[0] > 20 || p[2] < -6 || p[2] > 10 || (p[2] >= 0 && p[0] < 8) || (p[2] == -6 && p[0] < 4);
+            let Some(path) = crate::parts::route(&mut b, start, [4, 0, -6], &forbid, &placed.cells, &[out_rep, [3, 0, -6]], 1) else { continue };
+            // the climb onto the block east of the hide, the dust there pointing into it
+            b.set(4, 0, -6, &b.d.blocks[&[4, 0, -6]].replace("west=none", "west=side"));
+            b.set(3, 0, -6, STONE);
+            b.set(3, 1, -6, "redstone_wire[east=side,north=none,power=0,south=none,west=side]");
+            if best.as_ref().is_none_or(|(bb, _)| b.d.blocks.len() < bb.d.blocks.len()) {
+                best = Some((b, path));
+            }
+        }
+    }
+    best
+}
+
+/// M2-open with its hide timed by the smallest catalog part that fits ([`m2_front_timer`]):
+/// every part whose pulse from the bed observer lasts `l_min` gt or more with `stage`'s
+/// materials ([`crate::parts::timers`]), fewest blocks first, the first that fits.
+pub fn m2_open_timer(n: i32, l_min: u32, stage: crate::parts::Stage) -> anyhow::Result<String> {
+    let rows = crate::parts::catalog()?;
+    let timers = crate::parts::timers(&rows, l_min, 400, 2, stage);
+    for t in &timers {
+        let Some((mut b, path)) = m2_front_timer(n, t) else { continue };
+        let (wl, k) = (-6, -22);
+        crate::layouts::dry_hole_walls(&mut b, n, wl, k, -19);
+        chamber_safe(&mut b, k);
+        b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+        b.d.meta.insert("restart".into(), "yes".into());
+        // the pad's spots stay (feet at wl + 1 and below); a part's top or a support gets glass
+        let caps = crate::parts::cap_spawns(&mut b, &|p| p[1] <= wl + 1)?;
+        let part = format!("hide {}{}", t.row.name, if t.stretch.is_some() { " + a repeater" } else { "" });
+        b.d.meta.insert("parts".into(), part.clone());
+        return Ok(b.text(&[
+            &format!("Middle (M2-open, its hide from the catalog): the bed observer's pulse, stretched to {} gt by {} ({} blocks with", t.length, t.row.name, t.blocks),
+            &format!("its wiring of {} dust and {caps} glass caps), hides the zombie while the villagers lie down; the dry hole, the open drop and the fire-safe chamber.", path.len()),
+        ]));
+    }
+    anyhow::bail!("no catalog part of {} gives a pulse of {l_min} gt or more from the bed observer that fits ({} tried)", match stage {
+        crate::parts::Stage::Day1 { .. } => "day 1",
+        crate::parts::Stage::Nether => "the Nether",
+        crate::parts::Stage::End => "the End",
+    }, timers.len())
+}
+
 /// M2's front: three scared villagers and blind U1 in pods, the zombie, the hide, the bed
 /// observer's circuit.
 fn m2_front(n: i32) -> Builder {
+    m2_front_hide(n, 48)
+}
+
+/// [`m2_front`] with its delay line's 12 repeaters set to `hide` gt in all (12..=48): the hide
+/// stays open about that long after U1's bed changes.
+fn m2_front_hide(n: i32, hide: i32) -> Builder {
+    let hide = hide.clamp(12, 48);
+    let delay = |k: i32| (hide / 12 + i32::from(k < hide % 12)).clamp(1, 4);
     let mut b = Builder::new(&format!("iron-middle-observer-{n}"));
     for x in [0, 2, 4] {
         pod(&mut b, x, true);
@@ -392,13 +608,13 @@ fn m2_front(n: i32) -> Builder {
     // north along x 9 to a repeater at (8, 0, 1) that powers the bulb from the south
     for x in 9..=13 {
         support(&mut b, x, -2);
-        b.set(x, 0, -2, "repeater[delay=4,facing=west,locked=false,powered=false]");
+        b.set(x, 0, -2, &format!("repeater[delay={},facing=west,locked=false,powered=false]", delay(x - 9)));
     }
     support(&mut b, 14, -2);
     b.set(14, 0, -2, "redstone_wire[east=none,north=none,power=0,south=side,west=side]");
     for z in -1..=5 {
         support(&mut b, 14, z);
-        b.set(14, 0, z, "repeater[delay=4,facing=north,locked=false,powered=false]");
+        b.set(14, 0, z, &format!("repeater[delay={},facing=north,locked=false,powered=false]", delay(z + 6)));
     }
     for x in 9..=14 {
         support(&mut b, x, 6);
@@ -439,7 +655,12 @@ fn m2_module(n: i32) -> Builder {
 
 /// M2 with the drop's walls only below `top` (`dry_hole_walls`).
 fn m2_module_walls(n: i32, top: i32) -> Builder {
-    let mut b = m2_front(n);
+    m2_module_walls_hide(n, top, 48)
+}
+
+/// [`m2_module_walls`] with a hide of `hide` gt ([`m2_front_hide`]).
+fn m2_module_walls_hide(n: i32, top: i32, hide: i32) -> Builder {
+    let mut b = m2_front_hide(n, hide);
     let (wl, k) = (-6, -22);
     crate::layouts::dry_hole_walls(&mut b, n, wl, k, top);
     chamber_safe(&mut b, k);
@@ -452,8 +673,13 @@ fn m2_module_walls(n: i32, top: i32) -> Builder {
 /// layers (below y -19): in the void a golem leaving the dry center falls straight down the
 /// open shaft, so 234 of M2's blocks were walls nothing touches.
 pub fn m2_open(n: i32) -> String {
-    let mut b = m2_module_walls(n, -19);
-    b.d.name = format!("iron-middle-open-{n}");
+    m2_open_hide(n, 48)
+}
+
+/// [`m2_open`] with a hide of `hide` gt (the delay line's repeaters, 12..=48).
+pub fn m2_open_hide(n: i32, hide: i32) -> String {
+    let mut b = m2_module_walls_hide(n, -19, hide);
+    b.d.name = if hide == 48 { format!("iron-middle-open-{n}") } else { format!("iron-middle-open-{n}-hide{hide}") };
     b.text(&["Middle (M2-open): the bed observer hides the zombie for 48 gt when U1 lies down; L2d's dry hole over an", "open 16-block drop (walled in its bottom 4 layers) and a chamber whose lava cannot light anything."])
 }
 

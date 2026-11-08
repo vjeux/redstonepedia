@@ -150,6 +150,14 @@ pub struct RunReport {
     pub golem_cells: Vec<([i32; 3], u32)>,
     pub drop_cells: Vec<([i32; 3], u32)>,
     pub cell_ticks: u32,
+    /// Golems spawned by day (day time 0..12000): what a player who sleeps through every night
+    /// keeps (brief revision 9, `iron per hour sleeping`).
+    pub golems_by_day: u32,
+    /// The farm's entities alive (villagers, the zombie, vehicles, golems, item entities), summed
+    /// over one sample every 20 gt, the samples, and the most at once.
+    pub entities_sum: u64,
+    pub entity_samples: u32,
+    pub entities_peak: u32,
 }
 
 /// The weather of one run (mobinfra): ticks raining (`isRaining`) and thundering, bolts, what they
@@ -503,6 +511,9 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
             MobEvent::GolemTry { golem: Some(id), at, .. } => {
                 rep.golems += 1;
                 rep.spawn_times.push(t);
+                if w.day_time().rem_euclid(24000) < 12000 {
+                    rep.golems_by_day += 1;
+                }
                 if let Some(a) = at {
                     rep.spawn_cells.push(a);
                 }
@@ -608,6 +619,13 @@ pub fn golem_breaks_rule(w: &World, g: usize, inner: Aabb, t: i64) -> Option<Str
 
 /// The per-tick checks.
 fn check_tick(w: &World, rep: &mut RunReport, tr: &mut Track, spec: &FarmSpec, t: i64) {
+    // the entities alive, one sample every 20 gt (the lag a farm costs: brief revision 9)
+    if t.rem_euclid(20) == 0 {
+        let alive = w.entities.list.iter().filter(|e| !e.removed).count() as u32;
+        rep.entities_sum += alive as u64;
+        rep.entity_samples += 1;
+        rep.entities_peak = rep.entities_peak.max(alive);
+    }
     let zombie = w.entities.list.iter().find(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Zombie));
     let zbox = zombie.map(|z| z.bb);
     let inner = spec.inner();

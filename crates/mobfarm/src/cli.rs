@@ -43,6 +43,9 @@ pub enum MobfarmCmd {
         gap: i32,
         #[arg(long, default_value_t = 62)]
         period: i32,
+        /// m2open: the hide's length in gt (the bed observer's delay line, 12..=48).
+        #[arg(long, default_value_t = 48)]
+        hide: i32,
         /// The tier the design is published in (`day-1`, `middle`, `fastest`: the kind's last
         /// word, `circuit: mob-farm iron_ingot middle`); none: a farm in no tier (catalog only).
         #[arg(long)]
@@ -186,7 +189,7 @@ fn load(_version: &str, path: &PathBuf) -> Result<(circuit::Circuit, redsim::ent
 
 pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
     match cmd {
-        MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, modules, pitch, dx, dz, gap, period, tier, out } => {
+        MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, modules, pitch, dx, dz, gap, period, hide, tier, out } => {
             let (text, how) = match layout.as_str() {
                 "l3" => (crate::layouts::l3(pits), "golems burn in lava pits".to_string()),
                 "l1" => (crate::layouts::l1(), "water carries golems to a lava blade in the villagers' sight".to_string()),
@@ -200,7 +203,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "d1u" => (crate::day1::d1u(pad), "golems burn in a corner of their pit".to_string()),
                 "m3" => (crate::day1::m3_bedplate(pad), "golems fall out of sight to a lava blade".to_string()),
                 "m2" => (crate::day1::m2_observer(pad), "golems fall out of sight to a lava blade".to_string()),
-                "m2open" => (crate::day1::m2_open(pad), "golems fall out of sight to a lava blade".to_string()),
+                "m2open" => (crate::day1::m2_open_hide(pad, hide), "golems fall out of sight to a lava blade".to_string()),
+                "m2open-rep" => (crate::day1::m2_open_rep(pad, hide), "golems fall out of sight to a lava blade".to_string()),
+                "m2open-loop" => (crate::day1::m2_open_loop(pad, hide / 10, hide % 10), "golems fall out of sight to a lava blade".to_string()),
+                "m2open-timer" => (crate::day1::m2_open_timer(pad, hide as u32, crate::parts::Stage::Nether)?, "golems fall out of sight to a lava blade".to_string()),
                 "stack" => (crate::day1::m2_stack(modules, [dx, pitch, dz], pad), format!("{modules} middle modules")),
                 "lp" => (crate::day1::lp(modules / 2, gap, period, pad), format!("{modules} clusters in up/down pairs")),
                 "twin" => (crate::day1::twin(pad, villagers - 4), "two clusters share a pad, a drop and a chamber".to_string()),
