@@ -84,6 +84,12 @@ enum Cmd {
         #[command(subcommand)]
         command: mobfarm::cli::MobfarmCmd,
     },
+    /// The farm optimizer (designs/briefs/farm-optimizer.md): a stage spec in, the merged Pareto
+    /// front per fork out, with the bounds and the gap.
+    Farmopt {
+        #[command(subcommand)]
+        command: farmopt_iron::cli::FarmoptCmd,
+    },
     /// Real terrain (designs/briefs/terrain-and-spawning.md): the official server generates a
     /// seed's area once; samples, crops, the game's /locate.
     Terrain {
@@ -185,6 +191,7 @@ fn main() -> Result<()> {
         Cmd::BoatLeads { command } => boat_leads::cli::run(&cli.version, command)?,
         Cmd::Bedrock { command } => bedrock::cli::run(&cli.version, command)?,
         Cmd::Mobfarm { command } => mobfarm::cli::run(&cli.version, command)?,
+        Cmd::Farmopt { command } => farmopt_iron::cli::run(command)?,
         Cmd::Terrain { command } => terrain::cli::run(&cli.version, command)?,
         Cmd::Test(args) => door_judge::cmd_test(&cli.version, args)?,
         Cmd::Recorded { command } => door_judge::cmd_recorded(&cli.version, command)?,

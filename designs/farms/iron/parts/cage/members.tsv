@@ -1,0 +1,5 @@
+file	name	stage	metrics	used_by
+bed-plate-2-watching.txt	bed-plate cage, 2 watching villagers	day-1	villagers 3, watching villagers 2, blocks 75, build seconds 1122	
+bed-plate-2-watching-1-sleeping.txt	bed-plate cage, 2 watching villagers + 1 sleeper	day-1	villagers 4, watching villagers 2, blocks 93, build seconds 1402	
+bed-observer-3-watching.txt	bed-observer cage, 3 watching villagers	middle	villagers 4, watching villagers 3, blocks 81, build seconds 1059	
+bed-observer-4-watching.txt	bed-observer cage, 4 watching villagers	middle	villagers 5, watching villagers 4, blocks 98, build seconds 1285	

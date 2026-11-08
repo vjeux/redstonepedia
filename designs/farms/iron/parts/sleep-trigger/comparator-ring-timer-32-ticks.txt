@@ -1,0 +1,43 @@
+# comparator ring timer (32 ticks) behind a bed observer: the sleeper's bed changes at dusk, the observer pulses, the timer holds the trapdoor across the zombie's view for 32 ticks while the villagers lie down.
+name: comparator-ring-timer-32-ticks
+origin: -10 0 -6
+palette:
+  A minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+  B minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  E minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
+  F minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  G minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  H minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  I minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  O minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  R minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+  S minecraft:stone
+  c minecraft:comparator[facing=north,mode=compare,powered=false]
+  o minecraft:observer[facing=east,powered=false]
+  r minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=none]
+layer -1:
+  ..............S
+  ..............S
+  .SSSSSSSSSSSSSS
+  SS
+  S..S
+  S.S.S
+  SS.SS.SS
+layer 0:
+  .............SR
+  ..............B
+  .EDDDDDDDDDHDDA
+  EA
+  B.SCS
+  B.c.F
+  rGSFFSIo
+layer 1:
+  ............OD
+  .
+  .
+  .
+  .
+  .
+  .

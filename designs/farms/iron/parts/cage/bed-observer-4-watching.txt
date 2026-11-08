@@ -1,0 +1,78 @@
+# bed-observer cage, 4 watching villagers: 5 villagers in 1-block pods, 4 watching the zombie in its boat; an observer on the sleeper's bed starts the timer that hides the zombie.
+name: bed-observer-4-watching
+entity: minecraft:villager 0.5 0.5625 0.5
+entity: minecraft:villager 2.5 0.5625 0.5
+entity: minecraft:villager 4.5 0.5625 0.5
+entity: minecraft:villager 6.5 0.5625 0.5
+entity: minecraft:oak_boat 3.5 0.5 -6.8 {Passengers:[{id:"minecraft:zombie"}]}
+entity: minecraft:villager -1.5 0.5625 0.5
+origin: -3 0 -7
+palette:
+  A minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  G minecraft:glass
+  O minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  R minecraft:red_bed[facing=north,occupied=false,part=foot]
+  S minecraft:stone
+  o minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  r minecraft:red_bed[facing=north,occupied=false,part=head]
+  s minecraft:stone_slab[type=bottom,waterlogged=false]
+layer -1:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .S.S.S.S.S
+  .S.S.S.S.S
+layer 0:
+  ......s
+  .......S
+  .
+  .
+  .
+  .
+  .
+  .r.r.r.r.r
+  .R.R.R.R.R
+layer 1:
+  .
+  ......OA
+  .
+  .
+  .
+  .
+  .G
+  G.GoGoGoGoG
+  .G.G.G.G.G
+layer 2:
+  ......S
+  .
+  .
+  .
+  .
+  .
+  .G
+  G.G.G.G.G.G
+  .G.G.G.G.G
+layer 3:
+  ......G
+  .
+  .
+  .
+  .
+  .
+  .
+  SSSSSSSSSSS
+  SSSSSSSSSSS
+layer 4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  GGGGGGGGGGG
+  GGGGGGGGGGG

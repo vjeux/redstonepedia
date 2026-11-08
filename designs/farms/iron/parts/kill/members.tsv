@@ -1,0 +1,4 @@
+file	name	stage	metrics	used_by
+lava-corner-6-drop.txt	lava corner after a 6-block drop (the villagers still see it)	day-1	lava buckets 1, in sight of the villagers yes, drop 6 blocks, blocks 143, build seconds 658	
+lava-corner-10-drop.txt	lava corner after a 10-block drop (out of the villagers' sight)	day-1	lava buckets 1, in sight of the villagers no, drop 10 blocks, blocks 223, build seconds 818	
+lava-blade-15-drop.txt	lava blade after a 15-block drop, fire-safe chamber	day-1	lava buckets 4, in sight of the villagers no, drop 15 blocks, blocks 148, build seconds 1174	

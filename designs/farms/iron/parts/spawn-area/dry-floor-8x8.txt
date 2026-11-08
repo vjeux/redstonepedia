@@ -1,0 +1,38 @@
+# 8x8 dry floor 7 below the beds: golems spawn on the dry ring around the drop hole and walk into it.
+name: dry-floor-8x8
+origin: -2 0 2
+palette:
+  G minecraft:glass
+  O minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+  S minecraft:stone
+  W minecraft:water[level=0]
+layer -7:
+  .SSSSSSSS
+  .SSSSSSSS
+  .SSOOOOSS
+  .SSO..OSS
+  .SSO..OSS
+  .SSOOOOSS
+  .SSSSSSSS
+  .SSSSSSSS
+  .
+layer -6:
+  GW......WG
+  G........G
+  G........G
+  G...OO...G
+  G...OO...G
+  G........G
+  G........G
+  GW......WG
+  GGGGGGGGGG
+layer -5:
+  G........G
+  G........G
+  G........G
+  G........G
+  G........G
+  G........G
+  G........G
+  G........G
+  GGGGGGGGGG

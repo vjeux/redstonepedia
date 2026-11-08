@@ -1,0 +1,10 @@
+# one hopper into a chest: the kill's drops go into the chest.
+name: one-hopper-chest
+origin: 0 0 3
+palette:
+  C minecraft:chest[facing=north,type=single,waterlogged=false]
+  H minecraft:hopper[enabled=true,facing=down]
+layer -15:
+  C
+layer -14:
+  H

@@ -1,0 +1,4 @@
+file	name	stage	metrics	used_by
+bed-plate.txt	bed plate (no redstone)	day-1	hide time while the bed villager sleeps, blocks 35, build seconds 193	
+comparator-ring-timer-28-ticks.txt	comparator ring timer (28 ticks) behind a bed observer	middle	hide time 28 ticks, blocks with wiring 55, build seconds 190	
+comparator-ring-timer-32-ticks.txt	comparator ring timer (32 ticks) behind a bed observer	middle	hide time 32 ticks, blocks with wiring 65, build seconds 213	

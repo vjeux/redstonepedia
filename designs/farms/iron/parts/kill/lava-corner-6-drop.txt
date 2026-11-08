@@ -1,0 +1,54 @@
+# lava corner after a 6-block drop (the villagers still see it).
+name: lava-corner-6-drop
+origin: -1 0 2
+palette:
+  A minecraft:stone_button[face=wall,facing=south,powered=false]
+  H minecraft:hopper[enabled=true,facing=down]
+  L minecraft:lava[level=0]
+  O minecraft:oak_wall_sign[facing=east,waterlogged=false]
+  S minecraft:stone
+  W minecraft:water[level=0]
+  o minecraft:oak_wall_sign[facing=south,waterlogged=false]
+  s minecraft:stone_button[face=wall,facing=east,powered=false]
+layer -14:
+  SSSSSS
+  SHSSSS
+  SSSSSS
+  SSSSSS
+  SSSSSS
+  SSSSSS
+layer -13:
+  SSSSSS
+  S....S
+  S....S
+  S....S
+  S...WS
+  SSSSSS
+layer -12:
+  SSSSSS
+  So...S
+  S....S
+  S....S
+  S....S
+  SSSSSS
+layer -11:
+  SSSSSS
+  SLo..S
+  SO...S
+  S....S
+  S....S
+  SSSSSS
+layer -10:
+  SSSSSS
+  S.A..S
+  Ss...S
+  S....S
+  S....S
+  SSSSSS
+layer -9:
+  SSSSSS
+  S....S
+  S....S
+  S....S
+  S....S
+  SSSSSS

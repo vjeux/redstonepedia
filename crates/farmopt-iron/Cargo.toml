@@ -1,0 +1,17 @@
+[package]
+name = "farmopt-iron"
+description = "The iron farm's parts, assembly and search for the farm optimizer (designs/briefs/farm-optimizer.md): cages, spawn pads, kills, collections and calm triggers searched as part catalogs, then assembled and judged exactly (mctas farmopt)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+farmopt = { path = "../farmopt" }
+mctas = { path = "../mctas" }
+redsim = { path = "../redsim" }
+circuit = { path = "../circuit" }
+mobfarm = { path = "../mobfarm" }
+clock = { path = "../clock" }

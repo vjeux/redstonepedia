@@ -1,0 +1,55 @@
+# lava blade after a 15-block drop, fire-safe chamber.
+name: lava-blade-15-drop
+origin: -1 0 0
+palette:
+  H minecraft:hopper[enabled=true,facing=down]
+  L minecraft:lava[level=0]
+  O minecraft:oak_fence_gate[facing=east,in_wall=false,open=true,powered=false]
+  S minecraft:stone
+  W minecraft:water[level=0]
+  h minecraft:hopper[enabled=true,facing=east]
+layer -23:
+  S....S
+  SShHSS
+  SSSSSS
+  SSSSSS
+  SSSSSS
+  SSSSSS
+  SSSSSS
+  SSSSSS
+layer -22:
+  SSSSSS
+  S....S
+  S....S
+  S....S
+  S....S
+  S....S
+  SW..WS
+  SSSSSS
+layer -21:
+  SSSSSS
+  SOOOOS
+  S....S
+  S....S
+  S....S
+  S....S
+  S....S
+  SSSSSS
+layer -20:
+  SSSSSS
+  SLLLLS
+  SOOOOS
+  S....S
+  S....S
+  S....S
+  S....S
+  SSSSSS
+layer -19:
+  SSSSSS
+  SSSSSS
+  SSSSSS
+  .
+  .
+  .
+  .
+  .

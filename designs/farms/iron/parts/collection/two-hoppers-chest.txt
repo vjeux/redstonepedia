@@ -1,0 +1,11 @@
+# two hoppers into a chest: the kill's drops go into the chest.
+name: two-hoppers-chest
+origin: 1 0 1
+palette:
+  C minecraft:chest[facing=north,type=single,waterlogged=false]
+  H minecraft:hopper[enabled=true,facing=down]
+  h minecraft:hopper[enabled=true,facing=east]
+layer -24:
+  .C
+layer -23:
+  hH

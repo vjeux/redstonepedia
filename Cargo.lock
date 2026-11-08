@@ -821,6 +821,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "farmopt"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "farmopt-iron"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "circuit",
+ "clap",
+ "clock",
+ "farmopt",
+ "mctas",
+ "mobfarm",
+ "redsim",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1240,6 +1263,7 @@ dependencies = [
  "door-search",
  "door-vanilla",
  "door-video",
+ "farmopt-iron",
  "litematic",
  "mctas",
  "mobfarm",

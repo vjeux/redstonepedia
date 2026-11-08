@@ -1,0 +1,501 @@
+# farmopt candidate obs0-s3b0-pad6f7x-1-pit19-n4row27-sc-void (designs/briefs/farm-optimizer.md).
+# 4 module(s); each: 3 scared and 0 blind villagers in 1-cell pods, a zombie in a boat, a bed observer and catalog timing part 0 (a hide of 20 gt or more when U1 lies down);
+# golems spawn on a 6x6 pad 7 below the beds and fall through its dry hole into a pit corner 19 below the beds under one lava source.
+name: obs0-s3b0-pad6f7x-1-pit19-n4row27-sc-void
+circuit: mob-farm iron_ingot
+how: golems fall out of sight into a lava pit
+restart: yes
+port output: 0 -21 3
+entity: minecraft:villager 0.5 0.5625 0.5
+entity: minecraft:villager 2.5 0.5625 0.5
+entity: minecraft:villager 4.5 0.5625 0.5
+entity: minecraft:oak_boat 2.5 0.5 -6.8 {Passengers:[{id:"minecraft:zombie"}]}
+entity: minecraft:villager 6.5 0.5625 0.5
+entity: minecraft:villager 27.5 0.5625 0.5
+entity: minecraft:villager 29.5 0.5625 0.5
+entity: minecraft:villager 31.5 0.5625 0.5
+entity: minecraft:oak_boat 29.5 0.5 -6.8 {Passengers:[{id:"minecraft:zombie"}]}
+entity: minecraft:villager 54.5 0.5625 0.5
+entity: minecraft:villager 56.5 0.5625 0.5
+entity: minecraft:villager 58.5 0.5625 0.5
+entity: minecraft:oak_boat 56.5 0.5 -6.8 {Passengers:[{id:"minecraft:zombie"}]}
+entity: minecraft:villager 81.5 0.5625 0.5
+entity: minecraft:villager 83.5 0.5625 0.5
+entity: minecraft:villager 85.5 0.5625 0.5
+entity: minecraft:oak_boat 83.5 0.5 -6.8 {Passengers:[{id:"minecraft:zombie"}]}
+origin: -2 0 -7
+palette:
+  A minecraft:comparator[facing=south,mode=compare,powered=false]
+  B minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  C minecraft:chest[facing=north,type=single,waterlogged=false]
+  D minecraft:oak_wall_sign[facing=east,waterlogged=false]
+  E minecraft:oak_wall_sign[facing=south,waterlogged=false]
+  F minecraft:observer[facing=west,powered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=down]
+  I minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=none]
+  J minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+  K minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+  L minecraft:lava[level=0]
+  M minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  N minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=none]
+  O minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+  P minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  Q minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  R minecraft:red_bed[facing=north,occupied=false,part=foot]
+  S minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  T minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  U minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  V minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  W minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  X minecraft:repeater[delay=2,facing=west,locked=false,powered=false]
+  Y minecraft:stone_button[face=wall,facing=east,powered=false]
+  Z minecraft:stone_button[face=wall,facing=south,powered=false]
+  a minecraft:stone_slab[type=bottom,waterlogged=false]
+  c minecraft:comparator[facing=east,mode=compare,powered=false]
+  o minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  r minecraft:red_bed[facing=north,occupied=false,part=head]
+  s minecraft:stone
+  w minecraft:water[level=0]
+layer -21:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ..C..........................C..........................C..........................C
+  .
+  .
+  .
+  .
+  .
+layer -20:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .sHssss.....................sHssss.....................sHssss.....................sHssss
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .
+layer -19:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s...ws.....................s...ws.....................s...ws.....................s...ws
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .
+layer -18:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .sE...s.....................sE...s.....................sE...s.....................sE...s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .
+layer -17:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .sLE..s.....................sLE..s.....................sLE..s.....................sLE..s
+  .sD...s.....................sD...s.....................sD...s.....................sD...s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .
+layer -16:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .s.Z..s.....................s.Z..s.....................s.Z..s.....................s.Z..s
+  .sY...s.....................sY...s.....................sY...s.....................sY...s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .
+layer -15:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .
+layer -14:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .
+layer -13:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .
+layer -12:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .
+layer -11:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .
+layer -10:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .
+layer -9:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .
+layer -8:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .s....s.....................s....s.....................s....s.....................s....s
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .
+layer -7:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .sOOOOs.....................sOOOOs.....................sOOOOs.....................sOOOOs
+  .sO..Os.....................sO..Os.....................sO..Os.....................sO..Os
+  .sO..Os.....................sO..Os.....................sO..Os.....................sO..Os
+  .sOOOOs.....................sOOOOs.....................sOOOOs.....................sOOOOs
+  .ssssss.....................ssssss.....................ssssss.....................ssssss
+  .
+layer -6:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  GGGGGGGG...................GGGGGGGG...................GGGGGGGG...................GGGGGGGG
+  Gw....wG...................Gw....wG...................Gw....wG...................Gw....wG
+  G......G...................G......G...................G......G...................G......G
+  G..OO..G...................G..OO..G...................G..OO..G...................G..OO..G
+  G..OO..G...................G..OO..G...................G..OO..G...................G..OO..G
+  G......G...................G......G...................G......G...................G......G
+  Gw....wG...................Gw....wG...................Gw....wG...................Gw....wG
+  GGGGGGGG...................GGGGGGGG...................GGGGGGGG...................GGGGGGGG
+layer -5:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  GGGGGGGG...................GGGGGGGG...................GGGGGGGG...................GGGGGGGG
+  G......G...................G......G...................G......G...................G......G
+  G......G...................G......G...................G......G...................G......G
+  G......G...................G......G...................G......G...................G......G
+  G......G...................G......G...................G......G...................G......G
+  G......G...................G......G...................G......G...................G......G
+  G......G...................G......G...................G......G...................G......G
+  GGGGGGGG...................GGGGGGGG...................GGGGGGGG...................GGGGGGGG
+layer -4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -3:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -2:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -1:
+  .
+  ......sss........................sss........................sss........................s
+  ......s.ssssssssssssssssssssssss.s.ssssssssssssssssssssssss.s.ssssssssssssssssssssssss.s
+  ......s........................sss........................sss........................sss
+  ......ssssssssss
+  ...............ss
+  .............s..s
+  ..s.s.s.sss.s.s.s............s.s.s......................s.s.s......................s.s.s
+  ..s.s.s.s...ss..s............s.s.s......................s.s.s......................s.s.s
+  ..............s.s
+  ..............sss
+  .
+  .
+  .
+  .
+  .
+layer 0:
+  ....a..........................a..........................a..........................a
+  .....sJWI.......................sJWI.......................sJWI.......................sJ
+  ......M.QPPPPPPPPPPPPPWPPPPPPPPJ.V.QPPPPPPPPPPPPPWPPPPPPPPJ.V.QPPPPPPPPPPPPPWPPPPPPPPJ.V
+  ......M........................QPK........................QPK........................QPK
+  ......QPPTPPPPPJ
+  ...............QJ
+  ............scs.M
+  ..r.r.r.rFXsS.A.M............r.r.r......................r.r.r......................r.r.r
+  ..R.R.R.R...SSs.M............R.R.R......................R.R.R......................R.R.R
+  ..............U.M
+  ..............NPK
+  .
+  .
+  .
+  .
+  .
+layer 1:
+  .
+  ....oP.........................oP.........................oP.........................oP
+  .
+  .
+  .
+  .
+  ........G...G.G
+  .GBGBGBG.G.G................GBGBGBG....................GBGBGBG....................GBGBGBG
+  ..G.G.G.G.....G..............G.G.G......................G.G.G......................G.G.G
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 2:
+  ....s..........................s..........................s..........................s
+  .
+  .
+  .
+  .
+  .
+  ........G
+  .G.G.G.G.G..................G.G.G.G....................G.G.G.G....................G.G.G.G
+  ..G.G.G.G....................G.G.G......................G.G.G......................G.G.G
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 3:
+  ....G..........................G..........................G..........................G
+  .
+  .
+  .
+  .
+  .
+  .
+  .sssssssss..................sssssss....................sssssss....................sssssss
+  .sssssssss..................sssssss....................sssssss....................sssssss
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .GGGGGGGGG..................GGGGGGG....................GGGGGGG....................GGGGGGG
+  .GGGGGGGGG..................GGGGGGG....................GGGGGGG....................GGGGGGG
+  .
+  .
+  .
+  .
+  .
+  .
+  .

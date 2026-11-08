@@ -27,6 +27,7 @@ pub mod hostile;
 pub mod living;
 pub mod los;
 pub mod natural;
+pub mod prices;
 pub mod refuse;
 pub mod site;
 pub mod spawn;

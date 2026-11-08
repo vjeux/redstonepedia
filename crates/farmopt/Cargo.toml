@@ -1,0 +1,12 @@
+[package]
+name = "farmopt"
+description = "The farm optimizer's core (designs/briefs/farm-optimizer.md): a stage spec, staged evaluation, proven bounds, multi-objective branch and bound to a merged Pareto front per fork; farm-agnostic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true

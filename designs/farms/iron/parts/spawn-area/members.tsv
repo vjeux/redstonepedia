@@ -1,0 +1,4 @@
+file	name	stage	metrics	used_by
+dry-floor-6x6.txt	6x6 dry floor 7 below the beds	day-1	spawn success per check 88%, floor cells 20, blocks 80, build seconds 502	
+dry-floor-8x8.txt	8x8 dry floor 7 below the beds	day-1	spawn success per check 99%, floor cells 48, blocks 120, build seconds 654	
+dry-floor-10x10.txt	10x10 dry floor 7 below the beds	day-1	spawn success per check 100%, floor cells 84, blocks 168, build seconds 822	

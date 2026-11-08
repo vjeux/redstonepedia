@@ -30,5 +30,6 @@ litematic = { path = "../litematic" }
 web-cli = { path = "../web-cli" }
 bedrock = { path = "../bedrock" }
 mobfarm = { path = "../mobfarm" }
+farmopt-iron = { path = "../farmopt-iron" }
 terrain = { path = "../terrain" }
 boat-leads = { path = "../boat-leads" }
