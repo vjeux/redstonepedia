@@ -244,12 +244,22 @@ fn ai_step(w: &mut World, i: usize) {
     // && isEffectiveAi()`, both true for a server-side mob, riders included (`rideTick` zeroed its
     // motion; its vehicle puts it back on its seat after this tick)
     travel(w, i, input);
+    // mobinfra: the fire ticks before the inside-block effects (`applyEffectsFromBlocks`'
+    // `previousRemainingFireTicks`), and a lightning fire the mob is in (collected like a block's)
+    let fire_before = mob(w, i).fire_ticks;
     entity::apply_effects_from_blocks(w, i);
+    if !w.weather.fires.is_empty() && crate::weather::lightning::fire_in(w, w.entities.list[i].bb).is_some() {
+        mob_mut(w, i).inside.fire = true;
+    }
     apply_block_effects(w, i);
+    // mobinfra: rain puts the fire out, then the not-burning reset (`applyEffectsFromBlocks`' tail)
+    crate::weather::after_block_effects(w, i, fire_before);
     if w.entities.list[i].removed {
         return;
     }
     push_entities(w, i);
+    // Mob.aiStep: burnUndead after LivingEntity.aiStep (mobinfra: zombies in daylight)
+    super::sun::burn_undead(w, i);
 }
 
 /// `Mob.serverAiStep`: `noActionTime`, then (`customServerAiStep`) the villager's brain; the
@@ -440,6 +450,20 @@ fn jump_out_of_fluid(w: &mut World, i: usize, old_y: f64) {
 /// EXTINGUISH (water puts the fire out).
 fn apply_block_effects(w: &mut World, i: usize) {
     let fx = std::mem::take(&mut mob_mut(w, i).inside);
+    if fx.fire {
+        // mobinfra: FIRE_IGNITE (`BaseFireBlock.fireIgnite`: -1 counts up to 0, from 0 8 s of
+        // fire) then its 1 `inFire` damage, before LAVA_IGNITE
+        let m = mob_mut(w, i);
+        if !m.ty.def().fire_immune {
+            if m.fire_ticks < 0 {
+                m.fire_ticks += 1;
+            }
+            if m.fire_ticks >= 0 && m.fire_ticks < 160 {
+                m.fire_ticks = 160;
+            }
+        }
+        hurt(w, i, Damage::InFire, 1.0);
+    }
     if fx.lava {
         let m = mob_mut(w, i);
         if !m.ty.def().fire_immune {

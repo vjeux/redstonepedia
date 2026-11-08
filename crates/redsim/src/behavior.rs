@@ -265,6 +265,8 @@ pub fn sturdy_of(s: &Block, face: Dir, support: Support) -> bool {
         Block::Farmland { .. } => face == Dir::Down,
         // ---- cactus farms (clk-misc): column(14, 0, 15): only the center of the bottom face ----
         Block::Cactus { .. } => face == Dir::Down && support == Support::Center,
+        // ---- weather (mobinfra): a rod's 4 x 4 px ends cover the center of its two end faces ----
+        Block::LightningRod { facing, .. } => (face == facing || face == facing.opposite()) && support == Support::Center,
         _ => false,
     }
 }
@@ -286,6 +288,8 @@ pub fn is_signal_source(w: &World, s: &Block) -> bool {
         | Block::Sculk { .. } => true,
         // ---- entity-reacting blocks (clk-misc) ----
         Block::Plate { .. } | Block::TripwireHook { .. } | Block::DetectorRail { .. } | Block::DaylightDetector { .. } | Block::Jukebox { .. } => true,
+        // ---- weather (mobinfra) ----
+        Block::LightningRod { .. } => true,
         _ => false,
     }
 }
@@ -313,6 +317,8 @@ pub fn get_signal(w: &World, s: &Block, p: BlockPos, d: Dir) -> i32 {
         Block::DaylightDetector { power, .. } => power as i32,
         // JukeboxBlock.ownSignal: 15 while a song plays
         Block::Jukebox { .. } => crate::redstone::container::jukebox_signal(w, p),
+        // ---- weather (mobinfra): a struck rod, 15 on every side ----
+        Block::LightningRod { .. } => crate::weather::lightning::rod_signal(s, None),
         _ => 0,
     }
 }
@@ -332,6 +338,8 @@ pub fn get_direct_signal(w: &World, s: &Block, p: BlockPos, d: Dir) -> i32 {
         Block::DetectorRail { .. } => crate::rails::detector::direct_signal(s, d),
         // the daylight detector's power is weak only (getDirectSignal: 0)
         Block::DaylightDetector { .. } | Block::Jukebox { .. } => 0,
+        // ---- weather (mobinfra): a struck rod strongly powers the block it hangs on ----
+        Block::LightningRod { .. } => crate::weather::lightning::rod_signal(s, Some(d)),
         _ => 0,
     }
 }
@@ -649,6 +657,8 @@ pub fn collision_boxes(s: &Block) -> Vec<Box16> {
         Block::Chest { .. } => vec![[1, 15, 0, 14, 1, 15]],
         // ---- brewer study (track sorter): BrewingStandBlock.SHAPE = column(2, 2, 14) + column(14, 0, 2) ----
         Block::BrewingStand { .. } => vec![[7, 9, 2, 14, 7, 9], [1, 15, 0, 2, 1, 15]],
+        // ---- weather (mobinfra): RodBlock's 4 x 4 px column ----
+        Block::LightningRod { facing, .. } => crate::weather::lightning::rod_boxes(facing),
         _ => vec![FULL],
     }
 }
@@ -827,6 +837,8 @@ pub fn on_place(w: &mut World, s: Block, p: BlockPos, old: Block, moved: bool) {
         Block::Water { .. } => crate::fluid::liquid_on_place(w, s, p),
         // ---- TNT dupers (track tnt) ----
         Block::Tnt { .. } => crate::tnt::on_place(w, p, old),
+        // ---- weather (mobinfra) ----
+        Block::LightningRod { .. } => crate::weather::lightning::rod_on_place(w, s, p, old),
         _ => {}
     }
 }
@@ -856,6 +868,8 @@ pub fn affect_neighbors_after_removal(w: &mut World, s: Block, p: BlockPos, move
         Block::Furnace { .. } => w.update_neighbour_for_output_signal(p, Kind::Furnace),
         Block::BrewingStand { .. } => w.update_neighbour_for_output_signal(p, Kind::BrewingStand),
         Block::PlainRail { .. } | Block::DetectorRail { .. } => crate::rails::affect_neighbors_after_removal(w, s, p, moved),
+        // ---- weather (mobinfra) ----
+        Block::LightningRod { .. } => crate::weather::lightning::rod_after_removal(w, s, p),
         _ => {}
     }
 }
@@ -903,6 +917,8 @@ pub fn tick(w: &mut World, s: Block, p: BlockPos) {
         // ---- stem farms (clk-misc) ----
         Block::Farmland { .. } => crate::stems::farmland_tick(w, p),
         Block::Cactus { .. } => crate::cactus::tick(w, p),
+        // ---- weather (mobinfra): a struck rod turns off ----
+        Block::LightningRod { .. } => crate::weather::lightning::rod_tick(w, s, p),
         _ => {}
     }
 }

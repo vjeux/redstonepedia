@@ -97,11 +97,18 @@ pub fn sun_angle(day: i64) -> f32 {
     sample(&[(6000, 360.0), (6000, 0.0)], |a| cubic_bezier(0.362, 0.241, 0.638, 0.759, a), day)
 }
 
-/// `Level.getSkyDarken`: `(int)(15 - SKY_LIGHT_LEVEL)`, the level 15 times the timeline's factor.
+/// `Level.getSkyDarken`: `(int)(15 - SKY_LIGHT_LEVEL)`, the level 15 times the timeline's factor
+/// (clear weather: `World::sky_darken` adds rain and thunder, `weather/mod.rs`).
 pub fn sky_darken(day: i64) -> i32 {
-    let factor = sample(&[(133, 1.0), (11867, 1.0), (13670, 0.26666668), (22330, 0.26666668)], |a| a, day);
-    let level = (15.0f32 * factor).clamp(0.0, 15.0);
+    let level = sky_light_level(day).clamp(0.0, 15.0);
     (15.0f32 - level) as i32
+}
+
+/// The day timeline's `gameplay/sky_light_level` (`FloatModifier.MULTIPLY` of the default 15 by
+/// the track's factor), before the weather layer and the clamp (mobinfra).
+pub fn sky_light_level(day: i64) -> f32 {
+    let factor = sample(&[(133, 1.0), (11867, 1.0), (13670, 0.26666668), (22330, 0.26666668)], |a| a, day);
+    15.0f32 * factor
 }
 
 // ------------------------------------------------------------------------------ sky light
@@ -161,6 +168,8 @@ fn props(b: &Block) -> Result<Props, String> {
         // a moving block (`MovingPistonBlock`: noOcclusion, an empty shape without its block
         // entity, which the state's light cache is computed without: dampening 0, no occlusion)
         Block::MovingPiston { .. } => Props { dampening: 0, faces: None },
+        // a lightning rod (mobinfra): noOcclusion, not a full shape, dry: propagatesSkylightDown
+        Block::LightningRod { .. } => Props { dampening: 0, faces: None },
         // farmland: column(16, 0, 15), useShapeForLightOcclusion: the bottom face full, the sides
         // 15 px high, the top open
         Block::Farmland { .. } => {
@@ -214,6 +223,25 @@ pub fn sky_light(w: &World, p: BlockPos) -> Result<i32, String> {
         return Ok(15);
     }
     sky_light_with(w, p, None, 15)
+}
+
+/// Whether `p` is a sky light source (`ChunkSkyLightSources`: down its column from the top of the
+/// world to its first occluded edge; above the box: air), which is exactly a sky light of 15
+/// (`canSeeSky`): the engine gives 15 to the sources and every step away costs at least 1 (mobinfra:
+/// a column scan, not the flood fill).
+pub fn sky_source(w: &World, p: BlockPos) -> Result<bool, String> {
+    let world_top = w.min.y + w.size[1] - 1;
+    let mut top = Props { dampening: 0, faces: None };
+    let mut y = world_top;
+    while y >= p.y {
+        let bottom = props(&w.get(BlockPos::new(p.x, y, p.z)))?;
+        if edge_occluded(&top, &bottom) {
+            return Ok(false);
+        }
+        top = bottom;
+        y -= 1;
+    }
+    Ok(true)
 }
 
 /// [`sky_light`] bounds when blocks near `p` are not classified (clk-misc, bamboo's growth check):
@@ -375,10 +403,11 @@ fn update_signal_strength(w: &mut World, pos: BlockPos) {
             return;
         }
     };
-    // getEffectiveSkyBrightness; the day time is the mob layer's when it runs (a mob farm's day
-    // passes), else the frozen DAY_TIME every other study's sandbox has
+    // getEffectiveSkyBrightness = sky - getSkyDarken (the day time is the mob layer's when it
+    // runs, a mob farm's day passes, else the frozen DAY_TIME every other study's sandbox has;
+    // mobinfra: with the level's rain and thunder)
     let day = if w.mob.rng.is_some() { w.day_time() } else { DAY_TIME };
-    let mut target = (sky - sky_darken(day)).max(0);
+    let mut target = (sky - w.sky_darken()).max(0);
     let mut sun = sun_angle(day) * (std::f64::consts::PI / 180.0) as f32;
     if inverted {
         target = 15 - target;

@@ -35,6 +35,7 @@ pub mod snapshot;
 pub mod terrain;
 pub mod ticks;
 pub mod tnt;
+pub mod weather;
 pub mod world;
 
 pub use block::{Block, Kind};

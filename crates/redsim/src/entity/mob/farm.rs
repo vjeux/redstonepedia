@@ -75,6 +75,10 @@ pub struct RunOpts {
     /// Built into a terrain sample (the spec already moved there, `Site::spec`), natural
     /// spawning around its AFK spot on Hard; `None`: the void.
     pub site: Option<&'static super::site::Site>,
+    /// mobinfra: the weather (`redsim::weather::Plan`): `Off` (none), the natural cycle from its
+    /// stationary state, or the cycle with a forced `weather` command after the arrival. Seeded
+    /// from `seed`; [`Run`] holds its state in its world.
+    pub weather: crate::weather::Plan,
 }
 
 impl std::fmt::Debug for super::site::Site {
@@ -84,10 +88,16 @@ impl std::fmt::Debug for super::site::Site {
 }
 
 impl RunOpts {
-    /// The judge's run `seed`: the day time drawn from the seed in the day (10..12000), slept.
+    /// The judge's run `seed`: the day time drawn from the seed in the day (10..12000), slept, no
+    /// weather ([`RunOpts::with_weather`]).
     pub fn steady(seed: i64, ticks: u32, walk: WalkMode) -> RunOpts {
         let mut r = crate::rng::LegacyRandom::new(seed ^ 0x6461_7930);
-        RunOpts { seed, ticks, day0: 10 + r.next_int(11990) as i64, walk, slept: true, site: None }
+        RunOpts { seed, ticks, day0: 10 + r.next_int(11990) as i64, walk, slept: true, site: None, weather: crate::weather::Plan::Off }
+    }
+
+    /// The same run under a weather plan.
+    pub fn with_weather(self, weather: crate::weather::Plan) -> RunOpts {
+        RunOpts { weather, ..self }
     }
 }
 
@@ -125,6 +135,23 @@ pub struct RunReport {
     pub failures: Vec<String>,
     /// Model errors (the world's), each once.
     pub errors: Vec<String>,
+    /// mobinfra: what the weather did over the run.
+    pub weather: WeatherStats,
+}
+
+/// The weather of one run (mobinfra): ticks raining (`isRaining`) and thundering, bolts, what they
+/// hit, fires, trap horses, zombies set on fire by the sun, burning mobs the rain put out.
+#[derive(Clone, Default, Debug, PartialEq)]
+pub struct WeatherStats {
+    pub rain_ticks: u32,
+    pub thunder_ticks: u32,
+    pub strikes: u32,
+    /// Bolts that hit something (any entity).
+    pub hits: u32,
+    pub fires: u32,
+    pub traps: u32,
+    pub sunburns: u32,
+    pub rained_out: u32,
 }
 
 impl RunReport {
@@ -202,6 +229,8 @@ impl Run {
         if let Some(s) = o.site {
             w.mob.natural = Some(super::natural::Natural::new(vec![s.afk], super::natural::Difficulty::Hard));
         }
+        // mobinfra: the weather from its stationary state (the farm stands in it while it settles)
+        w.weather = crate::weather::Weather::new(o.weather, o.seed);
         let (detectors, rest): (Vec<_>, Vec<_>) = spec.blocks.iter().cloned().partition(|(_, b)| matches!(b, Block::DaylightDetector { .. }));
         w.place_raw(&rest);
         w.place_updates(&rest);
@@ -265,6 +294,10 @@ impl Run {
         if let WalkMode::Fixed(p) = self.o.walk {
             w.mob.golem_walk = p;
         }
+        // mobinfra: a forced weather window starts `at` ticks after the arrival
+        if let crate::weather::Plan::Force { at, cmd } = self.o.weather {
+            w.weather.pending = Some((w.time + at.max(1), cmd));
+        }
         Ok(())
     }
 
@@ -315,6 +348,7 @@ pub fn run(spec: &FarmSpec, o: &RunOpts) -> Result<RunReport, String> {
         r.tick();
         let t = r.world.time;
         absorb_events(&mut r.world, &mut rep, &mut tr, t);
+        absorb_weather(&mut r.world, &mut rep, spec, t);
         check_tick(&r.world, &mut rep, &mut tr, spec, t);
         if rep.failures.len() >= 4 {
             break;
@@ -367,6 +401,8 @@ pub fn run_away(spec: &FarmSpec, o: &RunOpts, plan: AwayPlan) -> Result<(RunRepo
         r.tick();
         let t = r.world.time;
         absorb_events(&mut r.world, rep, tr, t);
+        // mobinfra: what the weather did (lightning, its fires)
+        absorb_weather(&mut r.world, rep, spec, t);
         check_tick(&r.world, rep, tr, spec, t);
     };
     for _ in 0..plan.before {
@@ -451,6 +487,49 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
     }
 }
 
+/// mobinfra: what the weather did this tick, against the must-haves: no villager struck (a
+/// witch), no vehicle destroyed, no drop destroyed, no lightning fire next to a flammable block,
+/// no skeleton trap horse on the farm (its walking is not modeled: a lightning rod prevents traps);
+/// a zombie set on fire by the sun fails through its damage like any hurt zombie. Counts the
+/// weather's ticks and events for the card.
+fn absorb_weather(w: &mut World, rep: &mut RunReport, spec: &FarmSpec, t: i64) {
+    use crate::weather::WeatherEvent as E;
+    let ws = &mut rep.weather;
+    ws.rain_ticks += w.is_raining() as u32;
+    ws.thunder_ticks += (w.is_raining() && w.is_thundering()) as u32;
+    if w.weather.events.is_empty() {
+        return;
+    }
+    let inner = spec.inner();
+    for ev in std::mem::take(&mut w.weather.events) {
+        let ws = &mut rep.weather;
+        match ev {
+            E::Strike { .. } => ws.strikes += 1,
+            E::Hit { .. } => ws.hits += 1,
+            E::Converted { entity, .. } => rep.fail(format!("gt {t}: lightning struck a villager (entity {entity}): it is a witch now")),
+            E::VehicleDestroyed { entity, .. } => rep.fail(format!("gt {t}: lightning destroyed a vehicle (entity {entity}): its zombie is loose")),
+            E::ItemDestroyed { what, .. } => rep.fail(format!("gt {t}: lightning destroyed a drop ({what})")),
+            E::Fire { at, flammable_near, .. } => {
+                ws.fires += 1;
+                if let Some(b) = flammable_near {
+                    rep.fail(format!("gt {t}: a lightning fire at {} {} {} next to {b}: it can burn and spread", at[0], at[1], at[2]));
+                }
+            }
+            E::TrapHorse { at, .. } => {
+                ws.traps += 1;
+                let (x, y, z) = (at[0] as f64 + 0.5, at[1] as f64, at[2] as f64 + 0.5);
+                let near = inner.inflate(1.0, 1.0, 1.0);
+                if (near.min_x..near.max_x).contains(&x) && (near.min_y..near.max_y).contains(&y) && (near.min_z..near.max_z).contains(&z) {
+                    rep.fail(format!("gt {t}: a skeleton trap horse spawned on the farm at {} {} {} (its walking is not modeled; a lightning rod prevents traps)", at[0], at[1], at[2]));
+                }
+            }
+            E::Sunburn { .. } => ws.sunburns += 1,
+            E::RainedOut { .. } => ws.rained_out += 1,
+            E::FireOut { .. } => {}
+        }
+    }
+}
+
 /// The checks on one golem at game time `t` (also the exit flood's): inside the build, out of
 /// the zombie's reach, off the vehicles. `None`: fine.
 pub fn golem_breaks_rule(w: &World, g: usize, inner: Aabb, t: i64) -> Option<String> {
@@ -517,6 +596,10 @@ fn check_tick(w: &World, rep: &mut RunReport, tr: &mut Track, spec: &FarmSpec, t
         }
         if touches_lava(w, e.bb) {
             rep.fail(format!("gt {t}: a drop touched lava at {:.1} {:.1} {:.1} (it burns)", e.pos.x, e.pos.y, e.pos.z));
+        }
+        // mobinfra: a lightning fire burns a drop (`ItemEntity.hurtServer`: 1 a tick, health 5)
+        if let Some(p) = crate::weather::lightning::fire_in(w, e.bb) {
+            rep.fail(format!("gt {t}: a drop touched a lightning fire at {p} (it burns)"));
         }
         if let EntityKind::Item(s) = &e.kind
             && s.age > 5800

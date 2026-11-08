@@ -210,6 +210,10 @@ pub struct World {
     /// The terrain lane: a world built from a terrain sample (`terrain::build_world`) carries its
     /// light, heightmaps, biomes and world spawn; `None` for the judges' void worlds.
     pub land: Option<Box<crate::terrain::Land>>,
+    // ---- weather (mobinfra, `weather/`) ----
+    /// The level's weather: `WeatherData`, the rain and thunder levels, lightning (its bolts and
+    /// fires). Off by default (no weather: nothing drawn, nothing changes).
+    pub weather: crate::weather::Weather,
 }
 
 impl World {
@@ -270,6 +274,7 @@ impl World {
             chain_primed: Vec::new(),
             explosions: Vec::new(),
             land: None,
+            weather: Default::default(),
         }
     }
 
@@ -849,6 +854,10 @@ impl World {
         if self.land.is_some() {
             self.settle_light();
         }
+        // mobinfra: the weather (advanceWeatherCycle, first in ServerLevel.tick); off: nothing
+        if self.weather.on {
+            crate::weather::tick(self);
+        }
         // a primed TNT explodes after its 80 gt fuse (it ticks from the tick it spawns in): not
         // modeled, unless the caller removes primed TNT before that (the TNT judge does); TNT
         // entities (`tnt_kick`) count their own fuse
@@ -868,6 +877,10 @@ impl World {
             }
         }
         self.ticks.end_tick();
+        // mobinfra: the fires lightning set (FireBlock's scheduled ticks)
+        if !self.weather.fires.is_empty() {
+            crate::weather::lightning::tick_fires(self);
+        }
         // ServerLevel.tick: fluidTicks right after blockTicks (`tickFluid` checks the type)
         if self.fluid_ticks.count() > 0 {
             let due = self.fluid_ticks.collect(self.time);
@@ -883,6 +896,11 @@ impl World {
         // terrain mode: NaturalSpawner's cycle first (`tickChunks` spawns before ticking chunks)
         if self.mob.natural.is_some() {
             crate::entity::mob::natural::tick_chunks(self);
+        }
+        // mobinfra: before the random ticks, tickChunk's thunder rolls
+        // (`weather::lightning::tick_thunder`)
+        if self.weather.on {
+            crate::weather::lightning::tick_thunder(self);
         }
         crate::crops::tick_chunks(self);
         while let Some(e) = self.events.pop() {

@@ -618,6 +618,12 @@ pub enum Block {
     /// no redstone behaviour, no reaction to updates (the judge refuses a paste or a farm that would
     /// update one that reacts).
     Terrain(u16),
+    // ---- weather (mobinfra, `weather/lightning.rs`) ----
+    /// A lightning rod (`LightningRodBlock`, a `RodBlock`: a 4 x 4 px column along `facing`'s
+    /// axis), plain or waxed (both stay unoxidized here: oxidizing changes no rule), never
+    /// waterlogged: bolts within 128 go to the one that tops its column, and a struck rod powers
+    /// for 8 gt (strongly into the block it hangs on).
+    LightningRod { facing: Dir, powered: bool, waxed: bool },
 }
 
 /// `DyeColor` names by id (a shulker box's `colour` - 1).
@@ -727,6 +733,8 @@ pub enum Kind {
     // ---- terrain ----
     /// By the natural-state table's row.
     Terrain(u16),
+    // ---- weather (mobinfra): plain or waxed ----
+    LightningRod(bool),
 }
 
 fn b(s: bool) -> &'static str {
@@ -814,6 +822,7 @@ impl Block {
             Block::Bed { colour, .. } => Kind::Bed(colour),
             Block::Sign { wall, .. } => Kind::Sign(wall),
             Block::Terrain(id) => Kind::Terrain(id),
+            Block::LightningRod { waxed, .. } => Kind::LightningRod(waxed),
         }
     }
 
@@ -1162,6 +1171,11 @@ impl Block {
             "cactus_flower" => Block::CactusFlower,
             // ---- mob farms (ironfarm) ----
             "lava" => Block::Lava { level: int_of("level", 0, 0, 15)? },
+            // ---- weather (mobinfra) ----
+            "lightning_rod" | "waxed_lightning_rod" => {
+                waterlogged_ok()?;
+                Block::LightningRod { facing: dir_of("facing", Dir::Up)?, powered: bool_of("powered", false)?, waxed: name == "waxed_lightning_rod" }
+            }
             "oak_sign" | "oak_wall_sign" => {
                 if bool_of("waterlogged", false)? {
                     return Err(format!("a waterlogged sign is not modeled: {s:?}"));
@@ -1413,6 +1427,7 @@ impl fmt::Display for Block {
             Block::Sign { wall: false, rotation, .. } => write!(f, "minecraft:oak_sign[rotation={rotation},waterlogged=false]"),
             Block::Sign { wall: true, facing, .. } => write!(f, "minecraft:oak_wall_sign[facing={},waterlogged=false]", facing.name()),
             Block::Terrain(id) => write!(f, "{}", crate::terrain::blocks::props(id).name),
+            Block::LightningRod { facing, powered, waxed } => write!(f, "minecraft:{}lightning_rod[facing={},powered={},waterlogged=false]", if waxed { "waxed_" } else { "" }, facing.name(), b(powered)),
         }
     }
 }
