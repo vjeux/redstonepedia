@@ -223,36 +223,38 @@ pub fn m2_observer(n: i32) -> String {
     b.text(&["Middle (candidate M2): the bed observer hides the zombie for 48 gt when U1 lies down; L2d's dry hole, a", "16-block drop and a chamber whose lava cannot light anything."])
 }
 
-/// The late stack (brief, Stages: Late): `modules` copies of M2 stacked `pitch` blocks apart in one
-/// chunk column, each with its own villagers, zombie, bed observer, drop and chamber; the first
-/// module's chest is the output, the others' are chests. A
-/// module's golems never enter the follow box of another's villagers when the pitch clears it: the
-/// chamber above starts 43 over the villagers below (their box ends 2.51 + 16 x 1.11485 above
-/// their feet).
-pub fn m2_stack(modules: i32, pitch: i32, n: i32) -> String {
+/// The bar's packing (brief, Stages: Late): `modules` copies of M2, module i moved by (dx, dy, dz)
+/// x i, each with its own villagers, zombie, bed observer, drop and chamber; the first module's
+/// chest is the output, the others' are chests. Stacked (dy 43, dx dz 0) no module's golem ever
+/// enters the follow box of another's villagers: the chamber above starts 43 over the villagers
+/// below (their box ends 2.51 + 16 x 1.11485 above their feet). Side by side (dx 16..27) it
+/// measures the coupling through the follow box.
+pub fn m2_stack(modules: i32, step: [i32; 3], n: i32) -> String {
     let m = m2_module(n).d;
-    let mut b = Builder::new(&format!("iron-late-stack-{modules}x{pitch}"));
+    let [sx, sy, sz] = step;
+    let mut b = Builder::new(&format!("iron-late-stack-{modules}x{sx}-{sy}-{sz}"));
     b.d.meta = m.meta.clone();
     let out = m.ports["output"];
     for i in 0..modules {
-        let dy = pitch * i;
+        let (dx, dy, dz) = (sx * i, sy * i, sz * i);
         for (p, s) in &m.blocks {
-            b.d.blocks.insert([p[0], p[1] + dy, p[2]], s.clone());
+            b.d.blocks.insert([p[0] + dx, p[1] + dy, p[2] + dz], s.clone());
         }
         for e in &m.entities {
-            b.d.entities.push(mctas::design::EntitySpec { kind: e.kind.clone(), pos: [e.pos[0], e.pos[1] + dy as f64, e.pos[2]], nbt: e.nbt.clone() });
+            b.d.entities.push(mctas::design::EntitySpec { kind: e.kind.clone(), pos: [e.pos[0] + dx as f64, e.pos[1] + dy as f64, e.pos[2] + dz as f64], nbt: e.nbt.clone() });
         }
         if i == 0 {
             b.d.ports.insert("output".into(), out);
         } else {
-            b.set(out[0], out[1] + dy, out[2], "chest[facing=north,type=single,waterlogged=false]");
+            b.set(out[0] + dx, out[1] + dy, out[2] + dz, "chest[facing=north,type=single,waterlogged=false]");
         }
     }
-    b.text(&[&format!("Late (candidate): {modules} M2 modules stacked {pitch} blocks apart in one chunk column, each with its own"), "villagers, zombie, bed observer, drop and fire-safe chamber."])
+    b.text(&[&format!("Late (the bar's packing): {modules} M2 modules {sx} {sy} {sz} apart, each with its own villagers, zombie,"), "bed observer, drop and fire-safe chamber."])
 }
 
-/// M2 without its rod (the stack puts one on its top module).
-fn m2_module(n: i32) -> Builder {
+/// M2's front: three scared villagers and blind U1 in pods, the zombie, the hide, the bed
+/// observer's circuit.
+fn m2_front(n: i32) -> Builder {
     let mut b = Builder::new(&format!("iron-middle-observer-{n}"));
     for x in [0, 2, 4] {
         pod(&mut b, x, true);
@@ -315,12 +317,489 @@ fn m2_module(n: i32) -> Builder {
     }
     b.set(3, 0, -6, STONE);
     b.set(3, 1, -6, "redstone_wire[east=side,north=none,power=0,south=none,west=side]");
+    b
+}
+
+/// M2: the bed-observer front over L2d's dry hole, the 16-block drop and the fire-safe chamber.
+fn m2_module(n: i32) -> Builder {
+    m2_module_walls(n, -7)
+}
+
+/// M2 with the drop's walls only below `top` (`dry_hole_walls`).
+fn m2_module_walls(n: i32, top: i32) -> Builder {
+    let mut b = m2_front(n);
     let (wl, k) = (-6, -22);
-    crate::layouts::dry_hole(&mut b, n, wl, k);
+    crate::layouts::dry_hole_walls(&mut b, n, wl, k, top);
     chamber_safe(&mut b, k);
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     b.d.meta.insert("restart".into(), "yes".into());
     b
+}
+
+/// M2 with an open drop (walls only below `top`).
+pub fn m2_open(n: i32, top: i32) -> String {
+    let mut b = m2_module_walls(n, top);
+    b.text(&[&format!("M2 with an open drop: the drop's walls only below {top}.")])
+}
+
+/// LP's upper cluster (brief, Stages: Late): M2's front, its golems sent up. The pad sits at the
+/// spawn search's top, golem feet 6 above the beds (stone at 5, water at 6 from the corner
+/// sources), pushing every golem to the 2 x 2 center: a soul-sand bubble column (feet 6 to 20)
+/// behind open fence gates at 7 and 8 (they hold the column's water and let a golem in) and walls
+/// above. At 21, outside the cluster's own follow cube (it ends 2.51 + 17.84 above the beds), the
+/// water from the two south corners pushes the risen golem off the column north into the
+/// fire-safe chamber (feet 21).
+fn up_module(_n: i32) -> Builder {
+    let mut b = m2_front(_n);
+    let (fl, wl, k) = (5, 6, 21);
+    let center = |x: i32, z: i32| (2..=3).contains(&x) && (4..=5).contains(&z);
+    let ring = |x: i32, z: i32| (1..=4).contains(&x) && (3..=6).contains(&z);
+    // the pad: the 12 cells around the column (every golem spawned on one overlaps the column and
+    // rises at once), its water flowing from the column, walls 3 high around it
+    for x in 1..=4 {
+        for z in 3..=6 {
+            b.set(x, fl, z, if center(x, z) { "soul_sand" } else { STONE });
+        }
+    }
+    for y in wl..=wl + 2 {
+        for x in 0..=5 {
+            b.set(x, y, 2, GLASS);
+            b.set(x, y, 7, GLASS);
+        }
+        for z in 3..=6 {
+            b.set(0, y, z, GLASS);
+            b.set(5, y, z, GLASS);
+        }
+    }
+    // the shaft's walls around the column and its gate ring, up to the chamber
+    for y in (wl + 3)..k {
+        for x in 0..=5 {
+            b.set(x, y, 2, STONE);
+            b.set(x, y, 7, STONE);
+        }
+        for z in 3..=6 {
+            b.set(0, y, z, STONE);
+            b.set(5, y, z, STONE);
+        }
+    }
+    for y in wl..k {
+        for x in 1..=4 {
+            for z in 3..=6 {
+                if center(x, z) {
+                    b.set(x, y, z, "bubble_column[drag=false]");
+                } else if ring(x, z) && y > wl {
+                    // open gates around the column all the way up: dry and open at the pad's
+                    // level (the pad's water flows toward them, like L2d's dry center), holding
+                    // the column's water, and letting a golem rise with any part of it in the
+                    // column (a wall would catch a golem not centered on it)
+                    b.set(x, y, z, GATE_E);
+                }
+            }
+        }
+    }
+    // the chamber's floor around the column top and its walls (x 0..5, z 2..7), the chamber; over
+    // the column and its gate ring the floor stays open (a golem rises through it off-center: the
+    // chamber's water, from the two south corners, carries it north onto chamber_safe's floor)
+    for x in 0..=5 {
+        for z in 2..=7 {
+            if !center(x, z) && !ring(x, z) {
+                b.set(x, k - 1, z, STONE);
+            }
+            for y in k..=k + 3 {
+                let inside = ring(x, z) || ((1..=4).contains(&x) && z == 2 && y <= k + 2);
+                if !inside {
+                    b.set(x, y, z, STONE);
+                }
+            }
+        }
+    }
+    for x in 1..=4 {
+        for z in 3..=6 {
+            b.set(x, k + 3, z, STONE);
+        }
+    }
+    for (x, z) in [(1, 6), (4, 6)] {
+        b.set(x, k, z, "water[level=0]");
+    }
+    chamber_safe(&mut b, k);
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.meta.insert("restart".into(), "yes".into());
+    b
+}
+
+/// LP (brief, Stages: Late): `pairs` pairs, each a lower M2 cluster (golems down) and an upper one
+/// (`up_module`, golems up) `gap` blocks over it, the pairs `period` apart; each module keeps its
+/// own chamber and chest (the first's is the output).
+/// LT, the twin (brief, Stages: Late): two M2 fronts back to back, the second turned 180 degrees
+/// about (3, 5.5) so its villagers stand 11 from the first's (out of each other's 10-box) and its
+/// zombie lies south; one pad between them (x 0..5, z 2..9, golem feet 6 below the beds) that both
+/// clusters' spawn searches reach, one dry hole, one drop and one chamber. A golem on the shared
+/// pad sits in the other cluster's follow cubes until it falls: that coupling is the price of
+/// the shared parts, paid by `extra` blind villagers per cluster (3 of up to 5 must want a golem).
+/// `chamber_safe` draining into the stack's chute instead of its hoppers: the floor closed under
+/// the north row, an opening in the north wall at (1, k, 0) over a solid block, and the chute's
+/// top (1, k, -1) walled on three sides: the chamber's water runs north into the opening and
+/// falls down the chute (a column free through every module), carrying the drops; a golem does not
+/// fit the opening.
+fn drain_chamber(b: &mut Builder, k: i32) {
+    chamber_safe(b, k);
+    b.d.ports.remove("output");
+    b.set(2, k - 1, 1, STONE);
+    b.set(3, k - 1, 1, STONE);
+    b.d.blocks.remove(&[DRAIN_X, k, 0]);
+    b.set(DRAIN_X, k - 1, 0, STONE);
+    // the chute's top walled for 4 layers: the drops leave the drain moving north and must
+    // fall straight
+    for y in (k - 3)..=k {
+        for (x, z) in [(DRAIN_X - 1, -1), (DRAIN_X + 1, -1), (DRAIN_X, -2)] {
+            b.set(x, y, z, STONE);
+        }
+    }
+}
+
+/// The chute's column (x, -1): the chamber's two flows meet at x 2..3 of its north row.
+const DRAIN_X: i32 = 2;
+
+/// The stack's shared collection under its lowest module (brief, Stages: Late: 8 h AFK, low lag):
+/// the chute's water lands on the line hopper L at (1, y_land - 1, -1) (walls hold it); the repo's
+/// archived sorter slice (sorter-classic) sends the iron down to the archived iron-block crafter
+/// (ironblock-v24, mirrored in z), whose blocks drop into a double chest (the output); every
+/// other drop (the poppies) passes east into a hopper over a composter, whose bone meal a hopper
+/// moves into a chest. 5 hoppers for the whole stack.
+fn collect_bottom(b: &mut Builder, y_land: i32) {
+    let mut t = Builder::new("collect");
+    collect_bottom_at1(&mut t, y_land);
+    let dx = DRAIN_X - 1;
+    for (p, s) in &t.d.blocks {
+        b.d.blocks.insert([p[0] + dx, p[1], p[2]], s.clone());
+    }
+    for (p, s) in &t.d.block_entities {
+        b.d.block_entities.insert([p[0] + dx, p[1], p[2]], s.clone());
+    }
+    let out = t.d.ports["output"];
+    b.d.ports.insert("output".into(), [out[0] + dx, out[1], out[2]]);
+}
+
+/// `collect_bottom` with the chute at x 1.
+fn collect_bottom_at1(b: &mut Builder, y_land: i32) {
+    let yl = y_land - 1;
+    for (x, z) in [(0, -1), (2, -1), (1, -2), (1, 0)] {
+        b.set(x, y_land, z, STONE);
+    }
+    let dust = "redstone_wire[east=side,north=side,power=0,south=side,west=side]";
+    let named = |item: &str, name: &str, n: i32| format!("{{Items:[{{Slot:0b,id:\"minecraft:{item}\",count:{n}}},{}]}}", (1..=4).map(|k| format!("{{Slot:{k}b,id:\"minecraft:paper\",count:1,components:{{\"minecraft:custom_name\":\"{name}\"}}}}")).collect::<Vec<_>>().join(","));
+    // a sorter slice (sorter-classic) with its filter hopper A at `a`, its redstone running south
+    // (dz 1) or, mirrored, north (dz -1): (sx, sy, sz) -> a + (sx, sy - 2, dz sz)
+    let slice = |b: &mut Builder, a: [i32; 3], dz: i32, item: &str, tag: &str| {
+        let (n, s_) = if dz > 0 { ("north", "south") } else { ("south", "north") };
+        let s = |b: &mut Builder, sx: i32, sy: i32, sz: i32, st: &str| b.set(a[0] + sx, a[1] - 2 + sy, a[2] + dz * sz, st);
+        s(b, 0, 2, 0, "hopper[enabled=true,facing=down]");
+        s(b, 0, 1, 0, "hopper[enabled=false,facing=down]");
+        s(b, 0, 2, 1, &format!("comparator[facing={n},mode=compare,powered=false]"));
+        for (sx, sy, sz) in [(0, 1, 1), (0, 1, 2), (0, 1, 3), (0, 0, 2), (0, 0, 4), (0, -1, 3)] {
+            s(b, sx, sy, sz, STONE);
+        }
+        s(b, 0, 0, 1, &format!("redstone_wall_torch[facing={n},lit=true]"));
+        s(b, 0, 0, 3, &format!("repeater[delay=1,facing={s_},locked=false,powered=false]"));
+        for (sx, sy, sz) in [(0, 2, 2), (0, 2, 3), (0, 1, 4)] {
+            s(b, sx, sy, sz, dust);
+        }
+        b.d.block_entities.insert(a, named(item, &format!("{tag} filter"), 41));
+        b.d.block_entities.insert([a[0], a[1] - 1, a[2]], named(item, &format!("{tag} lock"), 64));
+    };
+    // the line hopper L under the chute pushes east into the poppy slice's filter hopper (which
+    // takes nothing but poppies) and the iron slice's filter under L pulls the iron: no drop can
+    // pass the wrong way; the two slices' redstone runs on opposite sides (no crosstalk)
+    b.set(1, yl, -1, "hopper[enabled=true,facing=east]");
+    slice(b, [1, yl - 1, -1], 1, "iron_ingot", "iron");
+    slice(b, [2, yl, -1], -1, "poppy", "poppy");
+    // the iron slice drops into a chest over the crafter's hopper; the poppy slice into a composter,
+    // its bone meal into a chest
+    b.set(1, yl - 3, -1, "chest[facing=north,type=single,waterlogged=false]");
+    b.set(2, yl - 2, -1, "composter[level=0]");
+    b.set(2, yl - 3, -1, "hopper[enabled=true,facing=east]");
+    b.set(3, yl - 3, -1, "chest[facing=north,type=single,waterlogged=false]");
+    // the crafter (ironblock-v24) mirrored in z under the iron chest: (cx, cy, cz) -> (cx + 2, cy + yl - 4, -cz - 1)
+    let c = |b: &mut Builder, cx: i32, cy: i32, cz: i32, st: &str| b.set(cx + 2, cy + yl - 4, -cz - 1, st);
+    c(b, -1, 0, 0, "hopper[enabled=true,facing=east]");
+    c(b, 0, 0, 0, "crafter[crafting=false,orientation=down_south,triggered=false]");
+    c(b, 1, 0, 0, "comparator[facing=west,mode=compare,powered=false]");
+    c(b, 2, 0, 0, dust);
+    c(b, 0, 0, -1, STONE);
+    c(b, 1, 0, -1, "repeater[delay=1,facing=east,locked=false,powered=false]");
+    c(b, 2, 0, -1, dust);
+    c(b, -1, 0, 1, "crafter[crafting=false,orientation=south_up,triggered=false]");
+    c(b, 0, 0, 1, "comparator[facing=west,mode=compare,powered=false]");
+    c(b, 1, 0, 1, dust);
+    for (cx, cz) in [(1, -1), (2, -1), (1, 0), (2, 0), (0, 1), (1, 1)] {
+        c(b, cx, -1, cz, STONE);
+    }
+    b.d.block_entities.insert([1, yl - 4, -2], "{disabled_slots:[I;0,1,2,3,4,5,6,7,8]}".into());
+    // the iron blocks' chest under the crafter (27 stacks: 15,552 iron)
+    b.set(2, yl - 5, -1, "chest[facing=north,type=single,waterlogged=false]");
+    b.d.ports.insert("output".into(), [2, yl - 5, -1]);
+}
+
+/// LS-open (brief, Stages: Late): M2-open modules (the drop walled only in its bottom 4 layers)
+/// `pitch` apart vertically, every chamber draining into one chute and one shared collection.
+pub fn stack_collect(modules: i32, pitch: i32, n: i32) -> String {
+    let mut m = m2_front(n);
+    let (wl, k) = (-6, -22);
+    crate::layouts::dry_hole_walls(&mut m, n, wl, k, -19);
+    drain_chamber(&mut m, k);
+    let m = m.d;
+    let mut b = Builder::new(&format!("iron-late-shared-{modules}x{pitch}"));
+    for i in 0..modules {
+        let dy = pitch * i;
+        for (p, s) in &m.blocks {
+            b.d.blocks.insert([p[0], p[1] + dy, p[2]], s.clone());
+        }
+        for e in &m.entities {
+            b.d.entities.push(mctas::design::EntitySpec { kind: e.kind.clone(), pos: [e.pos[0], e.pos[1] + dy as f64, e.pos[2]], nbt: e.nbt.clone() });
+        }
+    }
+    collect_bottom(&mut b, k - 4);
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.meta.insert("restart".into(), "yes".into());
+    b.text(&[&format!("Late (candidate LS-open): {modules} M2-open modules {pitch} apart sharing one chute, one sorter, one"), "iron-block crafter and one composter."])
+}
+/// cell at `at` (turn 1: facing east, turn 3: facing west).
+fn pod_turned(b: &mut Builder, at: [i32; 3], turns: i32, sees: bool) {
+    let mut p = Builder::new("pod");
+    pod(&mut p, 0, sees);
+    let rot = |x: i32, z: i32| (0..turns.rem_euclid(4)).fold((x, z), |(x, z), _| (-z, x));
+    let rotf = |x: f64, z: f64| (0..turns.rem_euclid(4)).fold((x, z), |(x, z), _| (1.0 - z, x));
+    for (q, s) in &p.d.blocks {
+        let (x, z) = rot(q[0], q[2]);
+        let st = mctas::blockstate::BlockState::parse(s).map(|st| st.rotate_y(turns).to_string()).unwrap_or_else(|_| s.clone());
+        b.d.blocks.insert([at[0] + x, at[1] + q[1], at[2] + z], st);
+    }
+    for e in &p.d.entities {
+        let (x, z) = rotf(e.pos[0], e.pos[2]);
+        b.d.entities.push(mctas::design::EntitySpec { kind: e.kind.clone(), pos: [at[0] as f64 + x, at[1] as f64 + e.pos[1], at[2] as f64 + z], nbt: e.nbt.clone() });
+    }
+}
+
+/// A strip pad on the far side of a TZ cluster (x0..x0+3, z -5..6, golem feet 6 below the beds):
+/// L2d's dry hole squeezed to 4 wide (the center x0+1..x0+2, z 0..1; the ring the whole width,
+/// z -1..2), the borders north and south the spawn cells, sources in the 4 corners, glass walls;
+/// under it M2's open drop and fire-safe chamber (north of the drop), moved there.
+fn strip_pad(b: &mut Builder, x0: i32, output: bool) {
+    let (wl, fl, k) = (-6, -7, -22);
+    for u in 0..4 {
+        let x = x0 + u;
+        for z in -5..=6 {
+            let center = (1..=2).contains(&u) && (0..=1).contains(&z);
+            let ring = (-1..=2).contains(&z);
+            if center {
+                b.set(x, wl, z, GATE_N);
+            } else if ring {
+                b.set(x, fl, z, GATE_N);
+            } else {
+                b.set(x, fl, z, STONE);
+            }
+        }
+    }
+    for (x, z) in [(x0, -5), (x0 + 3, -5), (x0, 6), (x0 + 3, 6)] {
+        b.set(x, wl, z, "water[level=0]");
+    }
+    for y in wl..=wl + 1 {
+        for x in (x0 - 1)..=(x0 + 4) {
+            b.set(x, y, -6, GLASS);
+            b.set(x, y, 7, GLASS);
+        }
+        for z in -5..=6 {
+            b.set(x0 - 1, y, z, GLASS);
+            b.set(x0 + 4, y, z, GLASS);
+        }
+    }
+    let mut m = Builder::new("drop");
+    crate::layouts::dry_hole_walls(&mut m, 6, wl, k, -8);
+    chamber_safe(&mut m, k);
+    let (dx, dz) = (x0 - 1, -4);
+    for (p, s) in &m.d.blocks {
+        if p[1] < fl {
+            b.d.blocks.insert([p[0] + dx, p[1], p[2] + dz], s.clone());
+        }
+    }
+    let out = m.d.ports["output"];
+    let out = [out[0] + dx, out[1], out[2] + dz];
+    if output {
+        b.d.ports.insert("output".into(), out);
+    } else {
+        b.set(out[0], out[1], out[2], "chest[facing=north,type=single,waterlogged=false]");
+    }
+}
+
+/// TZ (brief, Stages: Late): two clusters share one zombie, one hide and one bed observer, with no
+/// coupling. The zombie lies in its boat at (0, 0, 0) with a closed bottom-half trapdoor on each
+/// side (x -1 and 1, the hide: opened, each stands across its side's lines of sight). The west
+/// cluster (3 scared villagers in pods at x -7, z -2, 0, 2, facing east, and blind U1 at z 4) and
+/// the east one (mirrored, a blind 4th at z 4) stand 14 apart, out of each other's 10-box, each
+/// within 8 of the zombie. U1's bed observer runs M2's bulb and 48 gt delay, and the hide line
+/// powers both trapdoors' blocks. Each cluster's pad lies on its far side (x -15..-12 and 12..15),
+/// so its golems spawn, fall and die 18.84 or more (along x) from the other cluster's villagers:
+/// never in their follow cube.
+pub fn tz(n: i32) -> String {
+    let _ = n;
+    let mut b = Builder::new("iron-late-tz");
+    // the zombie and the hide
+    b.set(0, 0, 0, "stone_slab[type=bottom,waterlogged=false]");
+    b.set(0, 2, 0, STONE);
+    b.set(0, 3, 0, GLASS);
+    b.entity("oak_boat", [0.5, 0.5, 0.5], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
+    b.set(-1, 1, 0, "oak_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false]");
+    b.set(1, 1, 0, "oak_trapdoor[facing=west,half=bottom,open=false,powered=false,waterlogged=false]");
+    b.set(-1, 0, 0, STONE);
+    b.set(1, 0, 0, STONE);
+    // the clusters
+    for z in [-2, 0, 2] {
+        pod_turned(&mut b, [-7, 0, z], 1, true);
+        pod_turned(&mut b, [7, 0, z], 3, true);
+    }
+    pod_turned(&mut b, [-7, 0, 4], 1, false);
+    pod_turned(&mut b, [7, 0, 4], 3, false);
+    // the bed observer on U1's bed head, the bulb, the comparator, the junction
+    let support = |b: &mut Builder, x: i32, z: i32| b.set(x, -1, z, STONE);
+    b.set(-7, 0, 5, "observer[facing=north,powered=false]");
+    b.set(-7, 0, 6, "waxed_copper_bulb[lit=false,powered=false]");
+    b.set(-7, 1, 6, GLASS);
+    support(&mut b, -6, 6);
+    b.set(-6, 0, 6, "comparator[facing=west,mode=compare,powered=false]");
+    support(&mut b, -5, 6);
+    b.set(-5, 0, 6, "redstone_wire[east=side,north=side,power=0,south=none,west=side]");
+    // the delay: 12 repeaters east along z 6, back west along z 8 into the bulb's south face
+    for x in -4..=7 {
+        support(&mut b, x, 6);
+        b.set(x, 0, 6, "repeater[delay=4,facing=west,locked=false,powered=false]");
+    }
+    for (x, z, s) in [(8, 6, "redstone_wire[east=none,north=none,power=0,south=side,west=side]"), (8, 7, "redstone_wire[east=none,north=side,power=0,south=side,west=none]"), (8, 8, "redstone_wire[east=none,north=side,power=0,south=none,west=side]")] {
+        support(&mut b, x, z);
+        b.set(x, 0, z, s);
+    }
+    for x in -7..=7 {
+        support(&mut b, x, 8);
+        let s = match x {
+            0 => "repeater[delay=1,facing=east,locked=false,powered=false]",
+            -7 => "redstone_wire[east=side,north=side,power=0,south=none,west=none]",
+            _ => "redstone_wire[east=side,north=none,power=0,south=none,west=side]",
+        };
+        b.set(x, 0, 8, s);
+    }
+    support(&mut b, -7, 7);
+    b.set(-7, 0, 7, "repeater[delay=1,facing=south,locked=false,powered=false]");
+    // the hide line: north from the junction, east along z 2, a repeater into each trapdoor's block
+    for z in 2..=5 {
+        support(&mut b, -5, z);
+        b.set(-5, 0, z, if z == 2 { "redstone_wire[east=side,north=none,power=0,south=side,west=none]" } else { "redstone_wire[east=none,north=side,power=0,south=side,west=none]" });
+    }
+    for x in -4..=1 {
+        support(&mut b, x, 2);
+        let s = match x {
+            -1 => "redstone_wire[east=side,north=side,power=0,south=none,west=side]",
+            1 => "redstone_wire[east=none,north=side,power=0,south=none,west=side]",
+            _ => "redstone_wire[east=side,north=none,power=0,south=none,west=side]",
+        };
+        b.set(x, 0, 2, s);
+    }
+    for x in [-1, 1] {
+        support(&mut b, x, 1);
+        b.set(x, 0, 1, "repeater[delay=1,facing=south,locked=false,powered=false]");
+    }
+    strip_pad(&mut b, -15, true);
+    strip_pad(&mut b, 12, false);
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.meta.insert("restart".into(), "yes".into());
+    b.text(&["Late (candidate TZ): two clusters share one zombie, one hide and one bed observer; each one's pad, drop and", "chamber lie on its far side, out of the other's follow cube."])
+}
+
+pub fn twin(n: i32, extra: i32) -> String {
+    let mut front = m2_front(n);
+    for k in 0..extra {
+        // blind redundancy pods west of the scared ones (x -2, -4, ...)
+        pod(&mut front, -2 - 2 * k, false);
+    }
+    let front = front.d;
+    let mut b = Builder::new(&format!("iron-late-twin-{extra}"));
+    for (p, s) in &front.blocks {
+        b.d.blocks.insert(*p, s.clone());
+        let r = mctas::blockstate::BlockState::parse(s).map(|st| st.rotate_y(2).to_string()).unwrap_or_else(|_| s.clone());
+        b.d.blocks.insert([6 - p[0], p[1], 11 - p[2]], r);
+    }
+    for e in &front.entities {
+        b.d.entities.push(e.clone());
+        b.d.entities.push(mctas::design::EntitySpec { kind: e.kind.clone(), pos: [7.0 - e.pos[0], e.pos[1], 12.0 - e.pos[2]], nbt: e.nbt.clone() });
+    }
+    // the shared pad, L2d's dry hole stretched to 6 x 8: the center x 2..3, z 5..6 (gates at the
+    // water's level), the ring x 1..4, z 4..7 (gates under the water), stone elsewhere, sources
+    // in the 4 corners, glass walls
+    let (wl, fl, k) = (-6, -7, -22);
+    let center = |x: i32, z: i32| (2..=3).contains(&x) && (5..=6).contains(&z);
+    let ring = |x: i32, z: i32| (1..=4).contains(&x) && (4..=7).contains(&z);
+    for x in 0..=5 {
+        for z in 2..=9 {
+            if center(x, z) {
+                b.set(x, wl, z, GATE_N);
+            } else if ring(x, z) {
+                b.set(x, fl, z, GATE_N);
+            } else {
+                b.set(x, fl, z, STONE);
+            }
+        }
+    }
+    for (x, z) in [(0, 2), (5, 2), (0, 9), (5, 9)] {
+        b.set(x, wl, z, "water[level=0]");
+    }
+    for y in wl..=wl + 1 {
+        for x in -1..=6 {
+            b.set(x, y, 1, GLASS);
+            b.set(x, y, 10, GLASS);
+        }
+        for z in 2..=9 {
+            b.set(-1, y, z, GLASS);
+            b.set(6, y, z, GLASS);
+        }
+    }
+    // the drop and the chamber: M2's, one block further south (the hollow under the ring)
+    let mut m = Builder::new("twin-drop");
+    crate::layouts::dry_hole_walls(&mut m, 6, wl, k, -19);
+    chamber_safe(&mut m, k);
+    for (p, s) in &m.d.blocks {
+        if p[1] < fl {
+            b.d.blocks.insert([p[0], p[1], p[2] + 1], s.clone());
+        }
+    }
+    let out = m.d.ports["output"];
+    b.d.ports.insert("output".into(), [out[0], out[1], out[2] + 1]);
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.meta.insert("restart".into(), "yes".into());
+    b.text(&[&format!("Late (candidate LT): two M2 clusters back to back ({} villagers each) share one pad, one drop and", 4 + extra), "one chamber."])
+}
+
+pub fn lp(pairs: i32, gap: i32, period: i32, n: i32) -> String {
+    let lower = m2_module(n).d;
+    let upper = up_module(n).d;
+    let mut b = Builder::new(&format!("iron-late-lp-{pairs}x{gap}-{period}"));
+    b.d.meta = lower.meta.clone();
+    let mut first = true;
+    for p in 0..pairs {
+        for (m, dy) in [(&lower, p * period), (&upper, p * period + gap)] {
+            for (q, s) in &m.blocks {
+                b.d.blocks.insert([q[0], q[1] + dy, q[2]], s.clone());
+            }
+            for e in &m.entities {
+                b.d.entities.push(mctas::design::EntitySpec { kind: e.kind.clone(), pos: [e.pos[0], e.pos[1] + dy as f64, e.pos[2]], nbt: e.nbt.clone() });
+            }
+            let out = m.ports["output"];
+            if first {
+                b.d.ports.insert("output".into(), [out[0], out[1] + dy, out[2]]);
+                first = false;
+            } else {
+                b.set(out[0], out[1] + dy, out[2], "chest[facing=north,type=single,waterlogged=false]");
+            }
+        }
+    }
+    b.text(&[&format!("Late (candidate LP): {pairs} pairs of clusters {gap} apart, the lower one's golems falling, the upper one's"), "rising in a bubble column, so no golem is ever in the other cluster's follow cube."])
 }
 
 /// Middle, candidate M3: the bed plate for three scared villagers (pods at x 0, 2, 4) and U1 on its
