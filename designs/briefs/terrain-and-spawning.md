@@ -164,6 +164,36 @@ events and entities (redsim's slot for crops' random ticks, `world.rs`):
    default) and the group at `isMaxGroupSizeReached`.
 6. Then `ServerLevel.tickChunk` (random ticks) and `tickCustomSpawners` (section 7).
 
+**Draw for draw (revision 5, vjeux: "tick exact everywhere")**: every draw above comes from the
+level random (`World::level_random`, mirrored from the bridge's sandbox seed; a stand-in random when
+a world is not mirrored), in this order: the shuffle, per chunk and category the three
+`getRandomPosWithin` draws, per group `ceil(nextFloat() * 4)`, per try the four `nextInt(6)`, the
+type pick (`WeightedList.getRandom`: no draw for an empty list), the count sample (no draw when
+constant), the spawn rules' draws (`Monster.isDarkEnoughToSpawn`: `nextInt(32)` then the dimension's
+`monsterSpawnLightTest` sample; the bat's `nextBoolean` and `nextInt(4)`; slimes, drowned, glow
+squids...), `snapTo`'s yaw, then `finalizeSpawn` per type (`natural.rs`'s `Finalize`): `Mob`'s
+follow-range `triangle` (2 nextDouble) and left hand (nextFloat); zombies, zombie villagers and drowned:
+the loot pick-up roll, the group's baby roll, a baby's chicken jockey (a new chicken's own
+`finalizeSpawn` drawn inside the zombie's, the chicken entering first), the door-breaking roll,
+`populateDefaultEquipmentSlots` (`Mob`'s armor: the chance, the material, the pieces; the zombie's
+iron sword, spear or shovel; the drowned's trident or rod), the enchantment rolls and, when they
+hit, `MOB_SPAWN_EQUIPMENT` (`EnchantmentsByCostWithDifficulty(#non_treasure, 5, 17)` ->
+`selectEnchantment`, `entity/mob/enchant.rs`), the drowned's shell and nautilus rolls; skeletons:
+armor, the bow's enchantment roll, the loot roll; spiders: the skeleton jockey (`nextInt(100)`, the
+skeleton's own `finalizeSpawn`), the group's effect on Hard; cave spiders: none; slimes: the size;
+sulfur cubes: `AgeableMob`'s baby roll (size 1 if a baby, else 2); squids and glow squids:
+`AgeableMob` (0.05); sheep: the colour (`SheepColorSpawnRules`); pigs, cows, chickens: the variant and
+the sound variant; horses: the group's variant, the markings, health, speed and jump; donkeys:
+`AgeableMob` (0.2) and health; wolves: the pack's variant, the sound variant; cod and salmon: `Mob`'s;
+the zombie horse: its zombie rider's `finalizeSpawn`. The draws from a mob's own random (a zombie's
+`handleAttributes`, a salmon's variant, the constructors') come from its construction
+(`World::construct`, the tick-exact lane). Model errors (never guessed): a drowned's zombie nautilus
+(outside rivers), a zombie-horse rider's chicken, and `finalizeSpawn` of rabbits, foxes, turtles,
+cats and bees (not in the samples' natural lists). In a bridge sandbox the spawner takes the game's
+spawning chunks before the shuffle, its spawn chunk count and its entity-ticking chunks
+(`Natural.spawn_order`, `spawn_chunk_count`, `entity_ticking`); a void sandbox's biome is plains and
+its monsters are off (`Natural.void_biome`, `spawn_enemies`).
+
 ### 5. Spawn rules per mob (`SpawnPlacements` registrations)
 
 - **Monsters** (zombie, skeleton, creeper, spider, enderman, witch, zombie villager, zombie horse
@@ -604,6 +634,19 @@ Commands: `mctas terrain light|paste-check|biome-check|probe|spawn-check|hostile
    from 60-95 cells (villagers 61); C7: golems can spawn outside the floors at
    158 cells; C9: endermen can place a block into a farm air cell from 204), as it must; ~6.5 s per placement
    (revision 4c: floods over the farm's box grown by 24 in x, y and z, the full-height sample).
+5. **Tick-exact spawning against the deterministic bridge** (revision 5; the tick-exact lane's
+   `mctas mobfarm compare`, every tick: the level random, randValue, every entity): the **void
+   gate** (d1-bed-plate, plains void, Hard, monsters off, AFK 60 under the chest): the spawner's
+   draws equal the game's through game time 200 (the shuffle of 193 chunks and every
+   `getRandomPosWithin`); the first difference moved from t1 (1,520 calls short) to t201, and the
+   bridge's draw log shows it is the villagers' brains (mob-AI's), not the spawner. **Terrain**
+   (d1-bed-plate in village-edge, Hard, monsters on): with the sandbox's structures off on both
+   sides the spawner's tokens (positions, groups, steps, type picks) are identical through 310
+   positions at t1; the open sandbox differences found (the tick-exact lane's to fix): the sandbox's
+   structures (now imported), its entity-ticking chunks captured before t1 (the game spawns in more
+   chunks), its sea level (FlatLevelSource's -63 instead of the world's 63: no glow squid, drowned or
+   surface-water rule can match). The statistical V1 (above) stays the check against the unmodified
+   server.
 
 ## File split (agreed)
 
@@ -697,3 +740,12 @@ Commands: `mctas terrain light|paste-check|biome-check|probe|spawn-check|hostile
 | 3 | C9: take and place (code and table): place = a farm air cell within x/z 1 and 0..2 above an enderman position, the carried block taken anywhere |
 | minor | Results §4: the revision-4c measurement (~5.6 s, the farm's box grown by 24); the patrol range 24-47 inclusive in § Mechanics too |
 | 4d | the shared-flood rule (d60ee61d): a flood shared by several types moves with the smallest width and height among them and reaches with the largest (`Body.reach_width/height`); foxes and pillagers get their own floods; the cube flood moves as a baby size-1 sulfur cube (0.245) and reaches as a size-4 slime (2.08); the village villagers' flood moves as a baby (0.3 x 0.975) and reaches as an adult; every flood listed in § Checks with its types — none uses a box larger than one of its types (~6.5 s per placement) |
+
+## Changelog (revision 5, 2026-11-08: model extensions, no judge-rule change)
+
+| part | what changed |
+|---|---|
+| § 2 Light | placed light sources (torches, wall torches, soul lantern, jack o'lantern, campfires, end rod, froglights, sea pickles, candles) as redsim blocks; Results §1: their paste check, 331,776 cells, 0 diffs |
+| § 4 Natural spawning | "draw for draw": every spawner draw on the mirrored level random in the game's order, `finalizeSpawn` per type, the spawn equipment's enchantments (`MOB_SPAWN_EQUIPMENT`), the model errors left, the bridge sandbox inputs |
+| format | `.mcterrain` BENT (block entities) and INHB (inhabited time) sections; the samples re-cut so the cache, the kept world and the crops are one saved state |
+| Validation 5 | the tick-exact compare's results (void gate: the spawner exact through t200; terrain: identical through 310 positions with structures off) and the sandbox differences left to the tick-exact lane |
