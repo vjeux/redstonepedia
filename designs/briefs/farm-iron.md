@@ -209,7 +209,9 @@ Numbers, never refusals by themselves; each stage weighs them in its own rank:
   copies of one unit they hold are ONE farm, never a ladder of front members. Each farm is
   measured over N (the curve at 1, 2, 4, 8 and 16 modules, as far as its unit allows) and compared
   at its own N: the smallest N whose iron per hour per build minute is within the merge rule's 10%
-  of its best on the curve (past that point more modules only repeat the same numbers). Middle and
+  of its best on the curve (past that point more modules only repeat the same numbers), and for
+  the middle the smallest such N of at least 2 (its "more than one module" limit, so a unit that
+  gains nothing from stacking is still compared at two). Middle and
   late compare farms by their per-module numbers there; day 1, whose T is a whole build, compares
   them at one unit. The card prints the curve, and the player picks the farm from the front and
   its N from the curve.
