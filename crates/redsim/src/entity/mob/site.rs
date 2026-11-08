@@ -43,6 +43,9 @@ pub struct Site {
     /// The natural cells the build seals with cobblestone ([`seals_at`]), and whether each held a
     /// block to dig first.
     pub seals: Vec<(BlockPos, bool)>,
+    /// The fire clearance ([`clears_at`]): natural blocks within a lava's fire reach, dug (air) or
+    /// replaced with cobblestone.
+    pub clears: Vec<(BlockPos, crate::block::Block)>,
     /// How many spots the build was priced at, and their build times' range (seconds).
     pub spots: usize,
     pub build_range: (f64, f64),
@@ -131,13 +134,115 @@ pub struct Priced {
     pub covers: Vec<BlockPos>,
     /// The natural cells sealed with cobblestone, and whether each held a block to dig first.
     pub seals: Vec<(BlockPos, bool)>,
+    /// The fire clearance ([`clears_at`]): natural blocks within a lava's fire reach, dug (air)
+    /// or replaced with cobblestone.
+    pub clears: Vec<(BlockPos, crate::block::Block)>,
 }
 
 impl Priced {
-    /// Its blocks' share of the build time, the seals and the covers placed.
-    pub fn seconds(&self) -> f64 {
-        self.price.block_seconds() + Effort::PLACED_S * (self.covers.len() + self.seals.len()) as f64 + Effort::DUG_S * self.seals.iter().filter(|(_, dig)| *dig).count() as f64
+    /// A spot's price with its seals, fire clearance and caps.
+    pub fn at(world: &World, spec: &FarmSpec, price: SpotPrice, clear_box: bool) -> Priced {
+        Priced { covers: covers_at(world, spec, price.offset, clear_box), seals: seals_at(world, spec, price.offset, clear_box), clears: clears_at(world, spec, price.offset, clear_box), price }
     }
+
+    /// Its blocks' share of the build time, the seals, the fire clearance and the covers placed.
+    pub fn seconds(&self) -> f64 {
+        let cleared_placed = self.clears.iter().filter(|(_, b)| !b.is_air()).count();
+        self.price.block_seconds() + Effort::PLACED_S * (self.covers.len() + self.seals.len() + cleared_placed) as f64 + Effort::DUG_S * (self.seals.iter().filter(|(_, dig)| *dig).count() + self.clears.len()) as f64
+    }
+}
+
+/// The fire clearance of a build at `offset` (role `fire_clearance`, brief farm-iron.md revision 9
+/// iteration 8): every natural block a lava's random tick can set on fire, from the farm's own lava
+/// and the terrain's lava within 4 of the farm, as `LavaFluid.randomTick` walks it
+/// ([`crate::weather::fire::lava_random_tick`]): up to 2 steps up, each +1 in y and -1..1 in x and
+/// z, through any cell outside `#blocks_lava_fire_spread` (`weather::blocks_motion`), a fire lit in
+/// an air cell of the walk beside an `ignitedByLava` block; and with no step, an `ignitedByLava`
+/// block of the 3 x 3 at the lava's level with air above it. Every path is walked (the walk is
+/// computed, not sampled: a rare path burns too). Each natural block so reached is dug when it has
+/// no collision (a plant, lichen: air after) or replaced with cobblestone (a log, leaves, planks),
+/// and the walk runs again on the cleared cells until nothing is left. A flammable block of the
+/// design is the design's own (the judge's fire line); seals are cobblestone already.
+pub fn clears_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bool) -> Vec<(BlockPos, crate::block::Block)> {
+    let at = |p: BlockPos| BlockPos::new(p.x + offset[0], p.y + offset[1], p.z + offset[2]);
+    let (lo, hi) = blocks_box(spec);
+    // lava within 4 of the farm, the walk's 2 up and 2 sideways, and a neighbour beyond
+    let mut w = crop(world, at(lo).offset(-7, -7, -7), at(hi).offset(7, 7, 7));
+    if clear_box {
+        place::clear(&mut w, at(lo), at(hi));
+    }
+    let seals: Vec<(BlockPos, crate::block::Block)> = seals_at(world, spec, offset, clear_box).into_iter().map(|(p, _)| (p, SEAL)).collect();
+    w.place_raw(&seals);
+    let moved: Vec<(BlockPos, crate::block::Block)> = spec.blocks.iter().map(|(p, b)| (at(*p), *b)).collect();
+    w.place_raw(&moved);
+    let ours: std::collections::HashSet<BlockPos> = moved.iter().map(|(p, _)| *p).chain(seals.iter().map(|(p, _)| *p)).collect();
+    let is_lava = |w: &World, p: BlockPos| crate::fluid::fluid_state(w, p).fluid.is_lava();
+    let mut lava: Vec<BlockPos> = Vec::new();
+    for (p, _) in &moved {
+        for dy in -4..=4 {
+            for dz in -4..=4 {
+                for dx in -4..=4 {
+                    let q = p.offset(dx, dy, dz);
+                    if w.contains(q) && is_lava(&w, q) {
+                        lava.push(q);
+                    }
+                }
+            }
+        }
+    }
+    lava.sort_by_key(|p| (p.y, p.z, p.x));
+    lava.dedup();
+    let natural_flammable = |w: &World, p: BlockPos| w.contains(p) && !ours.contains(&p) && crate::weather::fire::ignited_by_lava(&w.get(p));
+    let mut out: Vec<(BlockPos, crate::block::Block)> = Vec::new();
+    for _ in 0..16 {
+        let mut found: Vec<BlockPos> = Vec::new();
+        for l in &lava {
+            let mut layer = vec![*l];
+            for _ in 0..2 {
+                let mut next = Vec::new();
+                for p in &layer {
+                    for dz in -1..=1 {
+                        for dx in -1..=1 {
+                            let t = p.offset(dx, 1, dz);
+                            if !w.contains(t) {
+                                continue;
+                            }
+                            let tb = w.get(t);
+                            if tb.is_air() {
+                                let burning: Vec<BlockPos> = crate::pos::Dir::ALL.iter().map(|d| t.rel(*d)).filter(|n| w.contains(*n) && crate::weather::fire::ignited_by_lava(&w.get(*n))).collect();
+                                if burning.is_empty() {
+                                    next.push(t);
+                                }
+                                found.extend(burning.into_iter().filter(|n| natural_flammable(&w, *n)));
+                            } else if !crate::weather::blocks_motion(&tb) {
+                                next.push(t);
+                            }
+                        }
+                    }
+                }
+                layer = next;
+            }
+            for dz in -1..=1 {
+                for dx in -1..=1 {
+                    let t = l.offset(dx, 0, dz);
+                    if w.contains(t.above()) && w.get(t.above()).is_air() && natural_flammable(&w, t) {
+                        found.push(t);
+                    }
+                }
+            }
+        }
+        found.sort_by_key(|p| (p.y, p.z, p.x));
+        found.dedup();
+        if found.is_empty() {
+            break;
+        }
+        for p in found {
+            let b = if crate::behavior::collides(&w.get(p)) { SEAL } else { crate::block::Block::Air };
+            w.set_block(p, b, crate::world::flags::RAW);
+            out.push((p, b));
+        }
+    }
+    out
 }
 
 /// The seals of a design made for terrain at `offset`: every natural cell beside one of the farm's
@@ -300,9 +405,10 @@ pub fn covers_from(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: 
         place::clear(&mut w, at(lo), at(hi));
     }
     // the seals go in first (`seals_at`); they are not the farm's floors: a cave cell over one is
-    // covered like any natural spot
+    // covered like any natural spot; then the fire clearance (`clears_at`)
     let seals: Vec<(BlockPos, crate::block::Block)> = seals_at(world, spec, offset, clear_box).into_iter().map(|(p, _)| (p, SEAL)).collect();
     w.place_raw(&seals);
+    w.place_raw(&clears_at(world, spec, offset, clear_box));
     let moved: Vec<(BlockPos, crate::block::Block)> = spec.blocks.iter().map(|(p, b)| (at(*p), *b)).collect();
     w.place_raw(&moved);
     let own: std::collections::HashSet<BlockPos> = moved.iter().filter(|(_, b)| !b.is_air()).map(|(p, _)| *p).collect();
@@ -377,7 +483,7 @@ pub fn sample_of(terrain: Option<&str>, sample: Option<&str>) -> Result<Option<&
 /// Every one of `spots` priced whole (the cheap part, then the covers), cheapest first (ties: the
 /// nearer spot, `spots`' order).
 pub fn price_all(w: &World, spec: &FarmSpec, fp: Footprint, ground: i32, clear_box: bool, spots: &[([i32; 2], i32)]) -> Vec<Priced> {
-    let mut v: Vec<Priced> = price_spots(w, spec, fp, ground, clear_box, spots).into_iter().map(|price| Priced { covers: covers_at(w, spec, price.offset, clear_box), seals: seals_at(w, spec, price.offset, clear_box), price }).collect();
+    let mut v: Vec<Priced> = price_spots(w, spec, fp, ground, clear_box, spots).into_iter().map(|price| Priced::at(w, spec, price, clear_box)).collect();
     v.sort_by(|a, b| a.seconds().total_cmp(&b.seconds()));
     v
 }
@@ -555,14 +661,15 @@ impl Site {
         let chosen = priced[k.min(priced.len() - 1)].clone();
         let offset = chosen.price.offset;
         let afk = Vec3::new(afk[0] + offset[0] as f64, afk[1] + offset[1] as f64, afk[2] + offset[2] as f64);
-        Site { sample: sample.name, world, offset, clear_box, dug: chosen.price.dug, placed: chosen.price.placed, afk, fills: chosen.covers, seals: chosen.seals, spots: priced.len(), build_range: range, priced }
+        Site { sample: sample.name, world, offset, clear_box, dug: chosen.price.dug, placed: chosen.price.placed, afk, fills: chosen.covers, seals: chosen.seals, clears: chosen.clears, spots: priced.len(), build_range: range, priced }
     }
 
     /// The build effort at this site for day 1's rank ([`Effort`]): its blocks placed with the glass
     /// covers, the natural blocks dug, and the design's lava sources and villagers.
     pub fn effort(&self, lava: u32, villagers: u32) -> Effort {
         let dug_seals = self.seals.iter().filter(|(_, dig)| *dig).count() as u32;
-        Effort { placed: self.placed + self.fills.len() as u32 + self.seals.len() as u32, dug: self.dug + dug_seals, lava, villagers }
+        let cleared_placed = self.clears.iter().filter(|(_, b)| !b.is_air()).count() as u32;
+        Effort { placed: self.placed + self.fills.len() as u32 + self.seals.len() as u32 + cleared_placed, dug: self.dug + dug_seals + self.clears.len() as u32, lava, villagers }
     }
 
     /// `spec` moved into the site's world.
@@ -589,18 +696,20 @@ impl Site {
         }
         let seals: Vec<(BlockPos, crate::block::Block)> = self.seals.iter().map(|(p, _)| (*p, SEAL)).collect();
         w.place_raw(&seals);
+        w.place_raw(&self.clears);
         let covers: Vec<(BlockPos, crate::block::Block)> = self.fills.iter().map(|p| (*p, cover_block(&w, *p))).collect();
         w.place_raw(&covers);
         w
     }
 
     /// The blocks the site adds to its world before the farm, in [`Site::world_for`]'s order: its
-    /// cobblestone seals, then the caps of its stray golem spawn cells (a torch, or glass in a
-    /// fluid). The game's side of a run in the site (the exact compare, the game gate) places the
-    /// same, raw.
+    /// cobblestone seals, its fire clearance (air where it dug, cobblestone where it replaced),
+    /// then the caps of its stray golem spawn cells (a cobblestone slab, or glass in a fluid). The
+    /// game's side of a run in the site (the exact compare, the game gate) places the same, raw.
     pub fn site_blocks(&self) -> Vec<(BlockPos, crate::block::Block)> {
         let mut w = self.world.lock().map(|w| w.clone()).unwrap_or_else(|e| e.into_inner().clone());
         let mut out: Vec<(BlockPos, crate::block::Block)> = self.seals.iter().map(|(p, _)| (*p, SEAL)).collect();
+        out.extend(self.clears.iter().copied());
         w.place_raw(&out);
         out.extend(self.fills.iter().map(|p| (*p, cover_block(&w, *p))));
         out
@@ -612,5 +721,56 @@ impl Site {
         let w = self.world.lock().map(|w| w.clone()).unwrap_or_else(|e| e.into_inner().clone());
         let glass = self.fills.iter().filter(|p| !crate::fluid::fluid_state(&w, **p).is_empty()).count();
         (self.fills.len() - glass, glass)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::block::Block;
+
+    fn block(s: &str) -> Block {
+        Block::parse(s).ok().or_else(|| crate::terrain::blocks::id_of(s).map(Block::Terrain)).unwrap_or_else(|| panic!("{s}: no block"))
+    }
+
+    /// The fire clearance's walk (`LavaFluid.randomTick`, every path): a short grass beside the
+    /// farm's lava at its level is dug, a log over an air cell 2 up is replaced with cobblestone,
+    /// a grass 3 columns away and a log 4 up are out of reach, and the farm's own flammable block
+    /// is the design's.
+    #[test]
+    fn fire_clearance_walk() {
+        let mut w = World::new(BlockPos::new(-12, -4, -12), [25, 16, 25]);
+        let stone = block("minecraft:stone");
+        for z in -12..=12 {
+            for x in -12..=12 {
+                w.set_block(BlockPos::new(x, -1, z), stone, crate::world::flags::RAW);
+            }
+        }
+        let grass = block("minecraft:short_grass");
+        let log = block("minecraft:oak_log[axis=y]");
+        // (a grass on a stone step 2 columns over, its cell beside the walk's first air; a log in
+        // the lava's 3 x 3 with air over it; a log over the walk's air 2 up; a grass beside the
+        // lava, which its seal replaces; and three blocks out of reach)
+        let step = (2, 0, 0);
+        for (p, b) in [(step, stone), ((2, 1, 0), grass), ((1, 0, 1), log), ((-1, 0, 0), grass), ((0, 3, 0), log), ((3, 0, 3), grass), ((5, 4, 5), log), ((-4, 4, 0), log)] {
+            w.set_block(BlockPos::new(p.0, p.1, p.2), b, crate::world::flags::RAW);
+        }
+        let planks = block("minecraft:oak_planks");
+        let spec = FarmSpec {
+            blocks: vec![(BlockPos::new(0, 0, 0), block("minecraft:lava[level=0]")), (BlockPos::new(-1, 1, 0), planks)],
+            entities: Vec::new(),
+            output: BlockPos::new(0, -2, 0),
+            lo: BlockPos::new(-8, -3, -8),
+            hi: BlockPos::new(8, 8, 8),
+            block_entities: Vec::new(),
+        };
+        let clears = clears_at(&w, &spec, [0, 0, 0], false);
+        let got: Vec<([i32; 3], bool)> = clears.iter().map(|(p, b)| ([p.x, p.y, p.z], b.is_air())).collect();
+        assert!(got.contains(&([2, 1, 0], true)), "the grass beside the walk's first air is dug: {got:?}");
+        assert!(got.contains(&([1, 0, 1], false)), "the log in the lava's 3 x 3 is replaced: {got:?}");
+        assert!(got.contains(&([0, 3, 0], false)), "the log over the walk's air 2 up is replaced: {got:?}");
+        assert!(!got.iter().any(|(p, _)| *p == [3, 0, 3] || *p == [5, 4, 5] || *p == [-4, 4, 0]), "out of reach: {got:?}");
+        assert!(!got.iter().any(|(p, _)| *p == [-1, 1, 0] || *p == [-1, 0, 0]), "the design's planks are its own, the grass by the lava its seal's: {got:?}");
+        assert_eq!(got.len(), 3, "{got:?}");
     }
 }

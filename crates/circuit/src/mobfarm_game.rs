@@ -540,6 +540,7 @@ fn terrain_built(spec: &FarmSpec, site: &redsim::entity::mob::site::Site, o: &Ru
     }
     cells.extend(site.fills.iter().copied().filter(|p| !inside(p)));
     cells.extend(site.seals.iter().map(|(p, _)| *p).filter(|p| !inside(p)));
+    cells.extend(site.clears.iter().map(|(p, _)| *p).filter(|p| !inside(p)));
     let detectors: Vec<([i32; 3], String)> = spec.blocks.iter().filter(|(_, b)| matches!(b, redsim::Block::DaylightDetector { .. })).map(|(p, b)| ([p.x, p.y, p.z], b.to_string())).collect();
     let mut blocks = Vec::new();
     let mut watch = Vec::new();

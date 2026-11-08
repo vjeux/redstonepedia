@@ -568,12 +568,12 @@ fn spots_cmd(version: &str, design: &PathBuf, terrain: &str, repeat: u32, all: b
     }
     let t_cheap = t2.elapsed().as_secs_f64() / repeat.max(1) as f64;
     let t3 = std::time::Instant::now();
-    let mut priced: Vec<site::Priced> = cheap.iter().map(|p| site::Priced { price: *p, covers: site::covers_from(&w, &spec, p.offset, clear_box, all), seals: site::seals_at(&w, &spec, p.offset, clear_box) }).collect();
+    let mut priced: Vec<site::Priced> = cheap.iter().map(|p| site::Priced { price: *p, covers: site::covers_from(&w, &spec, p.offset, clear_box, all), seals: site::seals_at(&w, &spec, p.offset, clear_box), clears: site::clears_at(&w, &spec, p.offset, clear_box) }).collect();
     let t_covers = t3.elapsed().as_secs_f64();
     priced.sort_by(|a, b| a.seconds().total_cmp(&b.seconds()));
     println!("{} in {terrain} ({}): footprint {}x{}, {} deep, {} spots", design.display(), if clear_box { "its box cleared" } else { "its cells written, natural rock for the rest" }, fp.size[0], fp.size[1], fp.below, spots.len());
     for (k, p) in priced.iter().enumerate() {
-        println!("  {k:2}: offset {:?}: {} placed + {} covers + {} seals ({} dug first), {} dug: {:.0} s", p.price.offset, p.price.placed, p.covers.len(), p.seals.len(), p.seals.iter().filter(|(_, d)| *d).count(), p.price.dug, p.seconds());
+        println!("  {k:2}: offset {:?}: {} placed + {} covers + {} seals ({} dug first) + {} cleared of fire ({} replaced with cobblestone), {} dug: {:.0} s", p.price.offset, p.price.placed, p.covers.len(), p.seals.len(), p.seals.iter().filter(|(_, d)| *d).count(), p.clears.len(), p.clears.iter().filter(|(_, b)| !b.is_air()).count(), p.price.dug, p.seconds());
         if list_caps && k == 0 {
             let o = p.price.offset;
             println!("      caps (design cells): {}", p.covers.iter().map(|c| format!("({},{},{})", c.x - o[0], c.y - o[1], c.z - o[2])).collect::<Vec<_>>().join(" "));

@@ -426,13 +426,14 @@ pub fn site_bill(c: &Circuit, site: Option<&redsim::entity::mob::site::Site>, st
     let ents: Vec<(&str, &str)> = ents.iter().map(|(k, n)| (k.as_str(), n.as_str())).collect();
     let (dug, extra): (u32, Vec<String>) = match site {
         Some(s) => {
-            let mut extra: Vec<String> = s.site_blocks().into_iter().map(|(_, b)| b.to_string()).collect();
+            let mut extra: Vec<String> = s.site_blocks().into_iter().filter(|(_, b)| !b.is_air()).map(|(_, b)| b.to_string()).collect();
             let (adug, aplaced) = access_of(c, s);
             if aplaced > 0 {
                 extra.extend((1..aplaced).map(|_| "minecraft:torch".to_string()));
                 extra.push("minecraft:oak_fence_gate[facing=north,in_wall=false,open=false,powered=false]".to_string());
             }
-            (s.dug + s.seals.iter().filter(|(_, d)| *d).count() as u32 + adug, extra)
+            // (the fire clearance's cells are dug, a replaced one placed again as cobblestone)
+            (s.dug + s.seals.iter().filter(|(_, d)| *d).count() as u32 + s.clears.len() as u32 + adug, extra)
         }
         None => (0, Vec::new()),
     };

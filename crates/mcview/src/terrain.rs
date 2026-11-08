@@ -188,7 +188,7 @@ pub async fn farm_for_staged(text: &str, d: &Design, spec: &FarmSpec, b: &crate:
     let mut priced = Vec::new();
     for price in site::price_spots(&world, spec, fp, ground, clear_box, &spots) {
         b.pause().await;
-        priced.push(site::Priced { covers: site::covers_at(&world, spec, price.offset, clear_box), seals: site::seals_at(&world, spec, price.offset, clear_box), price });
+        priced.push(site::Priced::at(&world, spec, price, clear_box));
     }
     // (`site::price_all`'s order: cheapest first, ties in the spots' order)
     priced.sort_by(|a, b| a.seconds().total_cmp(&b.seconds()));
