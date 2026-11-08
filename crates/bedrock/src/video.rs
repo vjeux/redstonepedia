@@ -2528,11 +2528,17 @@ fn throw_trigger(p: &mut Prod) -> Result<()> {
     let c = v2_coords(fx, rz);
     go_throw_spot(p)?;
     p.select(SLOT_COBBLE)?;
-    // One block from the plane, aimed at the middle interior cell: the item emerges
-    // a block up in R_O and carries south through the air onto the plates — aimed
-    // low it landed on R_O's bottom frame and ground friction stopped it there,
-    // still inside the portal cell (measured in the failure dump).
-    p.look(c.rnx as f64 + 2.5, 7.2, rz as f64 + 0.5, 8)?;
+    // One block from the plane, aimed eye-level at the low interior cell. The
+    // exit height in R_O scales with the entry height, and that height is a
+    // race: too high (the old 7.2 aim, exit ~1 block over the plates) and the
+    // hoppers under the plates suck the item out of the air before it ever
+    // steps on a plate — measured directly: a y=4.0 drop over a plate is
+    // hoppered within 3 ticks without pressing it, a y=3.2 drop presses and
+    // fires. Too low and it can ground-stop on R_O's bottom frame south edge
+    // (the earlier failure dump). Eye level enters at ~6.5 and emerges ~0.4
+    // over the plates: low enough to land and step within a couple of ticks,
+    // high enough to carry over the frame's south edge.
+    p.look(c.rnx as f64 + 2.5, 6.6, rz as f64 + 0.5, 8)?;
     p.toss()?;
     p.walk(c.rnx + 2, rz - 2)?;
     p.wait(15)?;
@@ -2939,6 +2945,82 @@ fn mine_bottom_layer(p: &mut Prod) -> Result<()> {
     Ok(())
 }
 
+/// The generated return twin's lit portal cells, read from the saved world.
+fn twin_portal_cells(p: &mut Prod) -> Result<Vec<Pos>> {
+    let twin = p.state.twin.context("no twin position recorded")?;
+    let (tx, ty, tz) = (twin[0].floor() as i32, twin[1].floor() as i32, twin[2].floor() as i32);
+    let b = p.overworld_box([tx - 5, ty - 3, tz - 5], [tx + 5, ty + 5, tz + 5])?;
+    let mut cells = Vec::new();
+    for z in tz - 5..=tz + 5 {
+        for y in ty - 3..=ty + 5 {
+            for x in tx - 5..=tx + 5 {
+                if b.get([x, y, z]).starts_with("minecraft:nether_portal") {
+                    cells.push([x, y, z]);
+                }
+            }
+        }
+    }
+    Ok(cells)
+}
+
+/// Kill the generated return twin for real: mine a frame pillar from its SOUTH side
+/// (never walking through the plane) and verify over RCON that its portal blocks are
+/// actually gone. One take lost hours here: the walk to the stand crossed the lit
+/// portal, the player wound up in the Nether, and the named "mine" dug at those
+/// coordinates on the wrong side while the twin stayed lit — close enough to the
+/// scaled R_N entry (~9 blocks) to steal every remote-trigger item from R_O (~121).
+fn kill_generated_twin(p: &mut Prod) -> Result<()> {
+    let twin = p.state.twin.context("no twin position recorded")?;
+    for attempt in 0..4 {
+        let cells = twin_portal_cells(p)?;
+        if cells.is_empty() {
+            p.loga("generated twin is out (no portal cells near the arrival point)");
+            return Ok(());
+        }
+        // (Re)approach from the south every attempt: if a previous stand walk got
+        // sucked through the portal, this captioned travel skip puts the player
+        // back on the Overworld side before mining.
+        p.tp("overworld", twin[0], twin[1] + 1.0, twin[2] + 3.0, 180.0, 20.0)?;
+        let (tx, ty, tz) = (twin[0].floor() as i32, twin[1].floor() as i32, twin[2].floor() as i32);
+        let around = p.overworld_box([tx - 5, ty - 3, tz - 5], [tx + 5, ty + 5, tz + 5])?;
+        let mut found: Option<(Pos, Pos)> = None;
+        'scan: for y in ty - 3..=ty + 5 {
+            for z in tz - 5..=tz + 5 {
+                for x in tx - 5..=tx + 5 {
+                    if around.get([x, y, z]).starts_with("minecraft:obsidian") {
+                        for dx in [1, -1] {
+                            if around.get([x + dx, y, z]).starts_with("minecraft:nether_portal") {
+                                found = Some(([x, y, z], [x + dx, y, z]));
+                                break 'scan;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let (pillar, portal_cell) = found.context("generated twin frame not found near arrival")?;
+        // South lane first, then one step north: the direct greedy walk to a stand
+        // beside the west pillar can clip the portal's east interior corner.
+        let walked = p.walk_path(&[(pillar[0], pillar[2] + 2), (pillar[0], pillar[2] + 1)]);
+        if walked.is_err() || !p.pos()?.contains("overworld") {
+            p.loga(&format!("kill_generated_twin attempt {}: south stand walk failed or crossed the portal; retrying", attempt + 1));
+            continue;
+        }
+        p.select(SLOT_PICK)?;
+        p.mine(pillar)?;
+        match p.poll_block("overworld", portal_cell, "minecraft:air", 5) {
+            Ok(()) => p.loga(&format!("generated twin portal out after mining {pillar:?}")),
+            Err(e) => p.loga(&format!("kill_generated_twin attempt {}: portal still lit after mining {pillar:?} ({e:#})", attempt + 1)),
+        }
+    }
+    let cells = twin_portal_cells(p)?;
+    if cells.is_empty() {
+        Ok(())
+    } else {
+        bail!("generated twin still lit after 4 mining attempts: {cells:?}")
+    }
+}
+
 fn scenes2(p: &mut Prod) -> Result<()> {
     let plan = p.plan.clone();
     let (fx, rz) = (plan.fx, plan.rz);
@@ -3057,28 +3139,7 @@ fn scenes2(p: &mut Prod) -> Result<()> {
             "The twin the game generated must go (one frame block)",
             "(ours will sit next to the drill portal instead)",
         ], 2.0, S3)?;
-        let twin = p.state.twin.context("no twin position recorded")?;
-        p.tp("overworld", twin[0], twin[1] + 1.0, twin[2] + 3.0, 180.0, 20.0)?;
-        let (tx, ty, tz) = (twin[0].floor() as i32, twin[1].floor() as i32, twin[2].floor() as i32);
-        let around = p.overworld_box([tx - 4, ty - 3, tz - 4], [tx + 4, ty + 5, tz + 4])?;
-        let mut pillar: Option<Pos> = None;
-        'scan: for y in ty - 3..=ty + 5 {
-            for z in tz - 4..=tz + 4 {
-                for x in tx - 4..=tx + 4 {
-                    if around.get([x, y, z]).starts_with("minecraft:obsidian")
-                        && (around.get([x + 1, y, z]).starts_with("minecraft:nether_portal") || around.get([x - 1, y, z]).starts_with("minecraft:nether_portal"))
-                    {
-                        pillar = Some([x, y, z]);
-                        break 'scan;
-                    }
-                }
-            }
-        }
-        let pillar = pillar.context("generated twin frame not found near arrival")?;
-        p.stand_near(&around, pillar)?;
-        p.select(SLOT_PICK)?;
-        p.mine(pillar)?;
-        p.loga("generated twin's frame block mined (its portal blocks die with it)");
+        kill_generated_twin(p)?;
         p.tp("overworld", c.dix as f64 + 1.5, 3.0, c.doz_a as f64 - 1.5, 0.0, 20.0)?;
         p.seg_step("machine-build", "machine", &[
             "Build the trigger at R_O (the return twin): plate on hoppers, redstone, dropper",
@@ -3089,6 +3150,32 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         let midx = (c.rox + c.dix) as f64 / 2.0;
         p.spec_shot("overworld", [midx, 6.3, c.doz_b as f64 + 2.5], [midx, 2.5, c.doz_a as f64 + 1.0], 80)?;
         p.checkpoint("machine")?;
+    }
+    if !p.done("twinfixed") {
+        // Guard rail (a checkpoint can predate the fixed twin kill): a still-lit
+        // generated twin sits ~9 blocks from the scaled R_N entry and would steal
+        // every remote-trigger item from R_O. Verify it is out before any trip.
+        if !twin_portal_cells(p)?.is_empty() {
+            let first_done = p.done("firstdrill");
+            p.seg_step("twin-off", "twinfixed", &[
+                "The generated twin is still lit — mine its frame until it goes out",
+                "(a live twin here would steal every item meant for R_O)",
+            ], 2.0, S3)?;
+            kill_generated_twin(p)?;
+            p.tp("overworld", c.dix as f64 + 1.5, 3.0, c.doz_a as f64 - 1.5, 0.0, 20.0)?;
+            if first_done {
+                // Resumed past the first conversion: get back to the lit field
+                // portal through D_O (it links to it; nothing new is converted).
+                let (_, cur) = predict_next(p, 4, rz)?;
+                let cur = cur.context("twinfixed: no lit portal on the field to return to")?;
+                p.walk_path(&[(c.dix + 3, c.doz_a - 2), (c.dix + 3, c.doz_a + 2), (c.dix, c.doz_a + 2)])?;
+                p.walk(c.dix, c.doz_a)?;
+                p.waitdim("the_nether")?;
+                p.wait(10)?;
+                p.walk_path(&[(fx + 1, cur + 2)])?;
+            }
+        }
+        p.checkpoint("twinfixed")?;
     }
     if !p.done("firstdrill") {
         let (want, cur) = predict_next(p, 4, rz)?;
@@ -3118,6 +3205,140 @@ fn scenes2(p: &mut Prod) -> Result<()> {
     if !p.done("loop1") {
         let (next, cur) = predict_next(p, 4, rz)?;
         let (next, cur) = (next.context("loop1: predictor exhausted already")?, cur.context("loop1: no lit portal")?);
+        if std::env::var_os("MCTAS_DIAG_LINK").is_some() {
+            // Diagnostic only (never filmed): isolate WHY an R_N entry does not exit
+            // at the built R_O. MCTAS_DIAG_X=<f64> teleports the player to that exact
+            // x inside R_N; MCTAS_DIAG_SUMMON=<f64> summons a scenario-style item at
+            // that x instead (a dropper firing proves the R_O route). Bare
+            // MCTAS_DIAG_LINK replays the production walk, logging the feet first.
+            if let Ok(ys) = std::env::var("MCTAS_DIAG_ITEMPLATE") {
+                // Diagnostic only: summon an item over the east plate in the
+                // Overworld at a chosen height/motion and see if it steps the
+                // plate (dropper fires) or is hopper-sucked mid-fall first.
+                let y: f64 = ys.parse().unwrap_or(4.0);
+                p.tp("overworld", c.rox as f64 + 0.5, 3.5, c.doz_a as f64 + 6.5, 180.0, 40.0)?;
+                if let Ok(s) = p.rcon(&format!("data get block {} 3 {} Items", c.dix + 1, c.doz_a + 1)) {
+                    p.loga(&format!("diag itemplate: dropper before: {}", s.trim()));
+                }
+                p.rcon_ok(&format!(
+                    "execute in minecraft:overworld run summon minecraft:item {} {y} {} {{Item:{{id:\"minecraft:stone\",count:1}},Motion:[0.0,0.0,0.3],PickupDelay:40}}",
+                    c.rox as f64 + 1.5,
+                    c.doz_a as f64 + 1.5
+                ))?;
+                for i in 0..10 {
+                    p.wait(3)?;
+                    let plate = p.test_block("overworld", [c.rox + 1, 3, c.doz_a + 1], "minecraft:oak_pressure_plate[powered=true]")?;
+                    let plate2 = p.test_block("overworld", [c.rox + 1, 3, c.doz_a + 2], "minecraft:oak_pressure_plate[powered=true]")?;
+                    let drop = p.rcon(&format!("data get block {} 3 {} Items", c.dix + 1, c.doz_a + 1))?;
+                    let hop = p.rcon(&format!("data get block {} 2 {} Items", c.rox + 1, c.doz_a + 1))?;
+                    p.loga(&format!("diag itemplate {i}: plateN={plate} plateS={plate2} dropper={} hopper={}", drop.trim(), hop.trim()));
+                }
+                bail!("diag itemplate done");
+            }
+            if std::env::var_os("MCTAS_DIAG_PLATE").is_some() {
+                // Diagnostic only: does the plate -> line -> repeater -> dropper
+                // route fire at all in the built machine? Stand the player on the
+                // east plate and sample the powered states down the line.
+                if let Ok(s) = p.rcon(&format!("data get block {} 3 {} Items", c.dix + 1, c.doz_a + 1)) {
+                    p.loga(&format!("diag plate: dropper before: {}", s.trim()));
+                }
+                p.tp("overworld", c.rox as f64 + 1.5, 3.5, c.doz_a as f64 + 1.5, 0.0, 60.0)?;
+                for i in 0..12 {
+                    p.wait(5)?;
+                    let plate = p.test_block("overworld", [c.rox + 1, 3, c.doz_a + 1], "minecraft:oak_pressure_plate[powered=true]")?;
+                    let dust = p.rcon(&format!("data get block {} 3 {}", c.rox + 2, c.doz_a + 1))?;
+                    let rep1 = p.test_block("overworld", [c.rox + 7, 3, c.doz_a + 1], "minecraft:repeater[powered=true]")?;
+                    let repe = p.test_block("overworld", [c.dix + 2, 3, c.doz_a + 1], "minecraft:repeater[powered=true]")?;
+                    let drop = p.rcon(&format!("data get block {} 3 {} Items", c.dix + 1, c.doz_a + 1))?;
+                    p.loga(&format!("diag plate {i}: plate={plate} rep_main={rep1} rep_east={repe} dust2={} dropper={}", dust.trim(), drop.trim()));
+                }
+                bail!("diag plate done");
+            }
+            if let Ok(xs) = std::env::var("MCTAS_DIAG_SUMMON") {
+                let x: f64 = xs.parse().unwrap_or(-23.5);
+                // Is the old generated twin ALREADY lit in this checkpoint? A live
+                // twin ~9 blocks from the scaled entry would legitimately beat
+                // R_O (~121) in findClosestPortalPosition and steal every item.
+                if let Some(twin) = p.state.twin {
+                    let (tx, ty, tz) = (twin[0].floor() as i32, twin[1].floor() as i32, twin[2].floor() as i32);
+                    if let Ok(b) = p.overworld_box([tx - 4, ty - 2, tz - 4], [tx + 4, ty + 4, tz + 4]) {
+                        let mut cells = Vec::new();
+                        for z in tz - 4..=tz + 4 {
+                            for y in ty - 2..=ty + 4 {
+                                for xx in tx - 4..=tx + 4 {
+                                    if b.get([xx, y, z]).starts_with("minecraft:nether_portal") {
+                                        cells.push([xx, y, z]);
+                                    }
+                                }
+                            }
+                        }
+                        p.loga(&format!("diag summon: twin portal cells BEFORE summon: {cells:?}"));
+                    }
+                }
+                if std::env::var_os("MCTAS_DIAG_LOAD_RO").is_some() {
+                    let s = p.rcon(&format!("execute if block {} 3 {} minecraft:nether_portal", c.rox, c.doz_a))?;
+                    p.loga(&format!("diag load_ro: execute-if R_O portal: {}", s.trim()));
+                    let s = p.rcon(&format!("execute if loaded {} 3 {}", c.rox, c.doz_a))?;
+                    p.loga(&format!("diag load_ro: R_O loaded check: {}", s.trim()));
+                    p.wait(20)?;
+                }
+                if std::env::var_os("MCTAS_DIAG_FORCELOAD").is_some() {
+                    p.rcon_ok(&format!("forceload add {} {} {} {}", c.rox - 16, c.doz_a - 16, c.dix + 16, c.doz_a + 16))?;
+                    p.loga("diag forceload: machine chunks force-loaded");
+                    p.wait(40)?;
+                }
+                if let Ok(s) = p.rcon(&format!("data get block {} 3 {} Items", c.dix + 1, c.doz_a + 1)) {
+                    p.loga(&format!("diag summon: dropper before: {}", s.trim()));
+                }
+                p.rcon_ok(&format!(
+                    "execute in minecraft:the_nether run summon minecraft:item {x} 6.3 {} {{Item:{{id:\"minecraft:stone\",count:1}},Motion:[0.0,0.0,0.3],PickupDelay:32767}}",
+                    rz as f64 + 0.5
+                ))?;
+                p.wait(120)?;
+                if let Ok(s) = p.rcon(&format!("data get block {} 3 {} Items", c.dix + 1, c.doz_a + 1)) {
+                    p.loga(&format!("diag summon: dropper after: {}", s.trim()));
+                }
+                if let Ok(s) = p.rcon(&format!(
+                    "execute in minecraft:overworld positioned {}.0 3.0 {}.0 run data get entity @e[type=minecraft:item,distance=..24,sort=nearest,limit=1] Pos",
+                    c.rox + 1, c.doz_a
+                )) {
+                    p.loga(&format!("diag summon: nearest OW item to R_O: {}", s.trim()));
+                }
+                if let Some(twin) = p.state.twin {
+                    let (tx, ty, tz) = (twin[0].floor() as i32, twin[1].floor() as i32, twin[2].floor() as i32);
+                    if let Ok(b) = p.overworld_box([tx - 4, ty - 2, tz - 4], [tx + 4, ty + 4, tz + 4]) {
+                        let mut cells = Vec::new();
+                        for z in tz - 4..=tz + 4 {
+                            for y in ty - 2..=ty + 4 {
+                                for xx in tx - 4..=tx + 4 {
+                                    if b.get([xx, y, z]).starts_with("minecraft:nether_portal") {
+                                        cells.push([xx, y, z]);
+                                    }
+                                }
+                            }
+                        }
+                        p.loga(&format!("diag summon: OW portal cells near generated twin: {cells:?}"));
+                    }
+                }
+                bail!("diag summon done");
+            }
+            if let Ok(xs) = std::env::var("MCTAS_DIAG_X") {
+                let x: f64 = xs.parse().unwrap_or(-23.5);
+                p.tp("the_nether", x, 6.0, rz as f64 + 0.5, 0.0, 0.0)?;
+                let f = p.feet()?;
+                p.loga(&format!("diag tp: feet inside R_N: {f:?}"));
+                let arrived = p.waitdim("overworld")?;
+                p.loga(&format!("diag tp x={x}: player emerged in OW: {arrived}"));
+                bail!("diag tp done");
+            }
+            go_throw_spot(p)?;
+            let f = p.feet()?;
+            p.loga(&format!("diag link: feet at throw spot: {f:?}"));
+            p.walk(c.rnx + 2, rz)?;
+            let arrived = p.waitdim("overworld")?;
+            p.loga(&format!("diag link: player emerged in OW: {arrived}"));
+            bail!("diag link done");
+        }
         p.seg_step("loop-mine", "loop1", &[
             "The loop, in real time. 1: mine ONE frame block",
             "(the portal goes out — the rest of the frame stays)",
@@ -3319,7 +3540,7 @@ fn run2(version: &str, o: &VideoOptions) -> Result<()> {
                 for x in c.rox - 2..=c.dix + 4 {
                     for y in [3, 2] {
                         let s = b.get([x, y, z]);
-                        if s.contains("redstone") || s.contains("repeater") || s.contains("dropper") || s.contains("hopper") || s.contains("pressure_plate") {
+                        if s.contains("redstone") || s.contains("repeater") || s.contains("dropper") || s.contains("hopper") || s.contains("pressure_plate") || s.contains("nether_portal") {
                             println!("[{x},{y},{z}] {s}");
                         }
                     }
