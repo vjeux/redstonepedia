@@ -10057,13 +10057,20 @@ farms/crops/bamboo-sweeper-10x32.html	circuit	farm/harvester bamboo		Crop farm: 
 farms/crops/bamboo-sweeper-10x64.html	circuit	farm/harvester bamboo		Crop farm: fuels ~2,750 items smelted an hour: a double chest of ore every 1.3 h, 95% of an 8-furnace super smelter at full speed · 639 bamboo stalks · 2,492 blocks · ~4,400 iron + 92 slime to build	2026-11-08 20:42Z
 farms/crops/cane-lattice-16x16.html	circuit	farm/harvester sugar_cane		Crop farm: 646 sugar cane an hour · 204 canes · 1,234 blocks · 0.52 an hour per block · ~1,800 iron to build · needs nothing but water	2026-11-08 20:42Z
 farms/crops/cane-sweeper-10x32.html	circuit	farm/harvester sugar_cane		Crop farm: 800 sugar cane an hour · 256 canes · 1,091 blocks · 0.73 an hour per block · ~2,200 iron + 92 slime to build · one flying machine sweeps the field	2026-11-08 20:42Z
+farms/crops/index.html	page				2026-11-08 20:44Z
 farms/crops/melon-lattice8.html	circuit	farm/harvester melon		Crop farm: 3,200 melon slices an hour · 64 stems · 800 blocks · 4.0 an hour per block · ~2,200 iron to build · needs open sky or light 9	2026-11-08 20:42Z
 farms/crops/pumpkin-lattice8.html	circuit	farm/harvester pumpkin		Crop farm: 664 pumpkins an hour · 64 stems · 800 blocks · 0.83 an hour per block · ~2,200 iron to build · needs open sky or light 9	2026-11-08 20:42Z
+farms/index.html	page				2026-11-08 20:44Z
 farms/iron/d1-bed-plate.html	circuit	mobfarm/-mob-farm iron_ingot day-1		Iron farm: 243 iron an hour · 338 blocks · 0.72 an hour per block · 8 iron to build · golems burn in a corner of their pad	2026-11-08 20:42Z
+farms/iron/four-modules-one-timer-tight.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 1,500 iron an hour · 2,025 blocks · 0.74 an hour per block · 26 iron to build · four modules sharing one sleep timer, closer together	2026-11-08 21:21Z
+farms/iron/four-modules-one-timer.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 1,700 iron an hour · 2,197 blocks · 0.78 an hour per block · 26 iron to build · four modules sharing one sleep timer, lava corners 21 below	2026-11-08 21:21Z
+farms/iron/index.html	page				2026-11-08 20:44Z
 farms/iron/iron-day1.html	circuit	mobfarm/mob-farm iron_ingot day-1		Iron farm: 295 iron an hour · 189 blocks · 1.6 an hour per block · 11 iron to build · golems burn in lava pits	2026-11-08 20:42Z
 farms/iron/m2-open-ring.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 440 iron an hour · 370 blocks · 1.2 an hour per block · 16 iron to build · a comparator ring times the zombie's hide	2026-11-08 20:42Z
 farms/iron/m2-open.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 439 iron an hour · 404 blocks · 1.1 an hour per block · 16 iron to build · a repeater line times the zombie's hide	2026-11-08 20:42Z
+farms/iron/parts/cage/index.html	page				2026-11-08 21:21Z
+farms/iron/parts/collection/index.html	page				2026-11-08 21:21Z
+farms/iron/parts/kill/index.html	page				2026-11-08 21:21Z
+farms/iron/parts/sleep-trigger/index.html	page				2026-11-08 21:21Z
+farms/iron/parts/spawn-area/index.html	page				2026-11-08 21:21Z
 index.html	page				2026-10-19 23:21Z
-farms/index.html	page				2026-11-08 20:44Z
-farms/iron/index.html	page				2026-11-08 20:44Z
-farms/crops/index.html	page				2026-11-08 20:44Z
