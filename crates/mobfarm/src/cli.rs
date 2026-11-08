@@ -89,6 +89,17 @@ pub enum MobfarmCmd {
         #[arg(long, default_value = "village-edge")]
         terrain: String,
     },
+    /// The design priced at each of the spots a player would pick in a terrain sample (the 12
+    /// nearest valid ones, `site::price_all`): blocks placed, glass covers, natural blocks dug and
+    /// their build seconds, cheapest first, with the time the cheap part (`price_spots`) and the
+    /// covers (`covers_at`) take (`--repeat`: the cheap part timed over N calls).
+    Spots {
+        design: PathBuf,
+        #[arg(long, default_value = "village-edge")]
+        terrain: String,
+        #[arg(long, default_value_t = 1)]
+        repeat: u32,
+    },
     /// mobinfra: the real-game gate (what `circuit verify` and `circuit archive` run for a mob
     /// farm): each build in the 26.3 server for `--days` of natural weather, a forced day of rain
     /// and one of thunder, on Hard, every must-have checked, the rate against redsim's.
@@ -325,6 +336,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{}", e.line());
             }
         }
+        MobfarmCmd::Spots { design, terrain, repeat } => spots_cmd(version, &design, &terrain, repeat)?,
         MobfarmCmd::Gate { design, days, builds, no_rain_day, no_thunder_day, seed, parallel, warmup, keep, trace } => {
             crate::gate::gate_cmd(version, &design, crate::gate::GateArgs { days, builds, rain_day: !no_rain_day, thunder_day: !no_thunder_day, seed, parallel, warmup: (warmup[0], warmup[1]), keep, trace })?
         }
@@ -332,6 +344,38 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         MobfarmCmd::FireBurn { design, servers, max, seeds } => crate::weathercheck::fire_burn_cmd(version, &design, servers, max, seeds)?,
         MobfarmCmd::BoltCheck => crate::weathercheck::bolt_check_cmd(version)?,
     }
+    Ok(())
+}
+
+/// `mobfarm spots`: the design priced at each spot of a terrain sample, cheapest first.
+fn spots_cmd(version: &str, design: &PathBuf, terrain: &str, repeat: u32) -> Result<()> {
+    use redsim::entity::mob::site;
+    let (c, spec) = load(version, design)?;
+    let d = &c.clock.design;
+    let sample = redsim::terrain::samples::sample(terrain).ok_or_else(|| anyhow::anyhow!("no terrain sample {terrain}"))?;
+    let (ground, _afk, clear_box) = site::params(&spec, d.meta.get("ground").map(String::as_str), d.meta.get("afk").map(String::as_str), d.meta.get("terrain").map(String::as_str)).map_err(|e| anyhow::anyhow!(e))?;
+    let t0 = std::time::Instant::now();
+    let w = site::sample_world(sample).map_err(|e| anyhow::anyhow!(e))?;
+    let t_world = t0.elapsed().as_secs_f64();
+    let fp = site::footprint(&spec, ground).map_err(|e| anyhow::anyhow!(e))?;
+    let t1 = std::time::Instant::now();
+    let spots = site::spots_for(&w, sample, fp);
+    let t_spots = t1.elapsed().as_secs_f64();
+    let t2 = std::time::Instant::now();
+    let mut cheap = Vec::new();
+    for _ in 0..repeat.max(1) {
+        cheap = site::price_spots(&w, &spec, fp, ground, clear_box, &spots);
+    }
+    let t_cheap = t2.elapsed().as_secs_f64() / repeat.max(1) as f64;
+    let t3 = std::time::Instant::now();
+    let mut priced: Vec<site::Priced> = cheap.iter().map(|p| site::Priced { price: *p, covers: site::covers_at(&w, &spec, p.offset, clear_box) }).collect();
+    let t_covers = t3.elapsed().as_secs_f64();
+    priced.sort_by(|a, b| a.seconds().total_cmp(&b.seconds()));
+    println!("{} in {terrain} ({}): footprint {}x{}, {} deep, {} spots", design.display(), if clear_box { "its box cleared" } else { "its cells written, natural rock for the rest" }, fp.size[0], fp.size[1], fp.below, spots.len());
+    for (k, p) in priced.iter().enumerate() {
+        println!("  {k:2}: offset {:?}: {} placed + {} covers, {} dug: {:.0} s", p.price.offset, p.price.placed, p.covers.len(), p.price.dug, p.seconds());
+    }
+    println!("times: sample world {:.3} s (once a process), spots {:.4} s (per footprint and depth), cheap part {:.6} s a call, covers {:.4} s for {} spots", t_world, t_spots, t_cheap, t_covers, priced.len());
     Ok(())
 }
 
