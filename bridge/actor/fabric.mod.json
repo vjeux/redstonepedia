@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "mctas-actor",
+  "version": "1.0.0",
+  "name": "mctas actor",
+  "description": "mctas bedrock video: the scripted survival player in the real client (look, mine, place, walk through file commands in mctas-actor/).",
+  "environment": "client",
+  "entrypoints": { "client": ["dev.vjeux.mctas.actor.ActorMod"] },
+  "depends": { "fabricloader": "*", "minecraft": "*" }
+}

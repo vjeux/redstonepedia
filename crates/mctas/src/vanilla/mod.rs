@@ -122,6 +122,14 @@ impl Default for VanillaOptions {
     }
 }
 
+/// Explicit experimental survival server: no protocol bot, ordinary game authority,
+/// and optional read-only JVM instrumentation. Legacy callers keep the legacy profile.
+#[derive(Clone, Debug)]
+pub struct SurvivalProfile {
+    pub observer_agent: Option<PathBuf>,
+    pub trace_file: PathBuf,
+}
+
 /// What one `save-all` shows of a box.
 #[derive(Clone, Debug)]
 pub struct Snapshot {
@@ -175,6 +183,15 @@ pub struct VanillaServer {
 impl VanillaServer {
     /// Start the official server jar in a fresh world directory and connect RCON.
     pub fn start(opts: &VanillaOptions) -> Result<VanillaServer> {
+        Self::start_profile(opts, None)
+    }
+
+    /// A dedicated server for explicit survival mechanics experiments, with no fake pilot.
+    pub fn start_survival(opts: &VanillaOptions, profile: &SurvivalProfile) -> Result<VanillaServer> {
+        Self::start_profile(opts, Some(profile))
+    }
+
+    fn start_profile(opts: &VanillaOptions, profile: Option<&SurvivalProfile>) -> Result<VanillaServer> {
         let install = crate::setup::install_server(&opts.version)?;
         let bundle = crate::paths::downloads().join(format!("server-bundle-{}.jar", opts.version));
         if !bundle.exists() {
@@ -214,9 +231,9 @@ impl VanillaServer {
             ("enable-status", "true".to_string()),
             ("spawn-protection", "0".to_string()),
             ("difficulty", "peaceful".to_string()),
-            ("gamemode", "creative".to_string()),
+            ("gamemode", if profile.is_some() { "survival" } else { "creative" }.to_string()),
             ("force-gamemode", "true".to_string()),
-            ("allow-flight", "true".to_string()),
+            ("allow-flight", if profile.is_some() { "false" } else { "true" }.to_string()),
             ("max-players", "4".to_string()),
             ("max-tick-time", "-1".to_string()),
             ("pause-when-empty-seconds", "0".to_string()),
@@ -245,6 +262,12 @@ impl VanillaServer {
         } else {
             Command::new(&install.java)
         };
+        if let Some(profile) = profile {
+            if let Some(agent) = &profile.observer_agent {
+                command.arg(format!("-javaagent:{}", agent.display()));
+                command.arg(format!("-Dmctas.probe.trace={}", profile.trace_file.display()));
+            }
+        }
         command
             .arg(format!("-Xmx{}m", opts.heap_mb))
             .arg("-XX:+UseSerialGC")
@@ -294,9 +317,11 @@ impl VanillaServer {
         if opts.tick_rate != 20 {
             server.cmd_ok(&format!("tick rate {}", opts.tick_rate))?;
         }
-        let bot = bot::Bot::connect(game_port, &opts.bot_name)?;
-        server.bot = Some(bot);
-        server.cmd_ok(&format!("gamemode creative {}", opts.bot_name))?;
+        if profile.is_none() {
+            let bot = bot::Bot::connect(game_port, &opts.bot_name)?;
+            server.bot = Some(bot);
+            server.cmd_ok(&format!("gamemode creative {}", opts.bot_name))?;
+        }
         Ok(server)
     }
 
