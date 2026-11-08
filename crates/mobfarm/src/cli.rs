@@ -66,6 +66,33 @@ pub enum MobfarmCmd {
     /// The built farm's lines of sight: each villager's eye to the zombie's eye (the hostile
     /// sensor's test), as built and with every trapdoor forced shut and forced open.
     Sight { design: PathBuf },
+    /// mobinfra: the real-game gate (what `circuit verify` and `circuit archive` run for a mob
+    /// farm): each build in the 26.3 server for `--days` of natural weather, a forced day of rain
+    /// and one of thunder, on Hard, every must-have checked, the rate against redsim's.
+    Gate {
+        design: PathBuf,
+        #[arg(long, default_value_t = 3)]
+        days: u32,
+        /// Only these builds (rotation.offset index, e.g. `0.0 1.1`); default: the judge's 8.
+        #[arg(long, num_args = 0..)]
+        builds: Vec<String>,
+        #[arg(long)]
+        no_rain_day: bool,
+        #[arg(long)]
+        no_thunder_day: bool,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        /// Servers at once.
+        #[arg(long, default_value_t = 8)]
+        parallel: usize,
+        /// The weather's warm-up range (gt), `MIN MAX`.
+        #[arg(long, num_args = 2, default_values_t = [150000u32, 400000u32])]
+        warmup: Vec<u32>,
+        #[arg(long)]
+        keep: bool,
+        #[arg(long)]
+        trace: bool,
+    },
     /// One judge run of a design on redsim: its table.
     Run {
         design: PathBuf,
@@ -207,6 +234,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{}", design.display());
         }
         MobfarmCmd::Sight { design } => sight_cmd(version, &design)?,
+        MobfarmCmd::Gate { design, days, builds, no_rain_day, no_thunder_day, seed, parallel, warmup, keep, trace } => {
+            crate::gate::gate_cmd(version, &design, crate::gate::GateArgs { days, builds, rain_day: !no_rain_day, thunder_day: !no_thunder_day, seed, parallel, warmup: (warmup[0], warmup[1]), keep, trace })?
+        }
     }
     Ok(())
 }

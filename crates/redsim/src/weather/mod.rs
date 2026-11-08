@@ -104,6 +104,10 @@ pub enum Plan {
     /// The natural cycle from its stationary state, and a `weather` command `at` game ticks after
     /// the farm's entities arrive (the judge's forced windows: a game day of rain, of thunder).
     Force { at: i64, cmd: Command },
+    /// The natural cycle, then `weather rain <rain>` `at` game ticks after the arrival and
+    /// `weather thunder <thunder>` when it ends (the game gate's schedule: its days of natural
+    /// weather, a forced day of rain, a forced day of thunder).
+    Windows { at: i64, rain: i32, thunder: i32 },
 }
 
 /// What the weather did, in order (the judge's evidence; cleared by whoever reads it).
@@ -146,8 +150,8 @@ pub struct Weather {
     pub thunder_level: f32,
     /// The stand-in for the level random's weather and lightning draws.
     pub rng: LegacyRandom,
-    /// A command to apply at a game time (`Plan::Force`).
-    pub pending: Option<(i64, Command)>,
+    /// Commands to apply at game times, in order (`Plan::Force`, `Plan::Windows`).
+    pub pending: Vec<(i64, Command)>,
     /// Lightning: the judge's game settings, the bolts (entities in the game, ticked in the entity
     /// order by id), the fires they set.
     pub lightning: lightning::Settings,
@@ -167,7 +171,7 @@ impl Default for Weather {
             o_thunder_level: 0.0,
             thunder_level: 0.0,
             rng: LegacyRandom::new(0x7765_6174_6865_72),
-            pending: None,
+            pending: Vec::new(),
             lightning: lightning::Settings::default(),
             bolts: Vec::new(),
             fires: Vec::new(),
@@ -311,13 +315,33 @@ pub fn tick(w: &mut World) {
     if !w.weather.on {
         return;
     }
-    if let Some((at, c)) = w.weather.pending
+    while let Some(&(at, c)) = w.weather.pending.first()
         && w.time >= at
     {
         w.weather.command(c);
-        w.weather.pending = None;
+        w.weather.pending.remove(0);
     }
     w.weather.advance();
+}
+
+/// The weather over `ticks` game ticks from `w.time` while the farm's chunks do not tick (an
+/// absence: the level keeps advancing its weather, `ServerLevel.advanceWeatherCycle` runs for every
+/// level each tick): the cycle's timers, the levels, the forced commands that come due; no bolt.
+/// Call it before moving `w.time`.
+pub fn skip(w: &mut World, ticks: i64) {
+    if !w.weather.on {
+        return;
+    }
+    for k in 1..=ticks {
+        let now = w.time + k;
+        while let Some(&(at, c)) = w.weather.pending.first()
+            && now >= at
+        {
+            w.weather.command(c);
+            w.weather.pending.remove(0);
+        }
+        w.weather.advance();
+    }
 }
 
 /// `Level.updateSkyBrightness` at day time `day` with these weather levels

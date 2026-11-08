@@ -649,3 +649,159 @@ fn is_near_rain(w: &mut World, p: BlockPos) -> bool {
 pub fn fire_in(w: &World, bb: Aabb) -> Option<BlockPos> {
     w.weather.fires.iter().map(|f| f.pos).find(|p| Aabb::new(p.x as f64, p.y as f64, p.z as f64, (p.x + 1) as f64, p.y as f64 + 1.0 / 16.0, (p.z + 1) as f64).intersects(bb))
 }
+
+/// Rain reaches block `p` (`isRainingAt` while it rains: no motion-blocking block above, sky
+/// light 15, plains).
+fn rain_reaches(w: &World, p: BlockPos) -> bool {
+    motion_blocking_height(w, p.x, p.z) <= p.y && can_see_sky(w, p).unwrap_or(false)
+}
+
+/// [`static_check`] of a farm as the judge builds it (`farm::Run::new`, no weather), with the cells
+/// its golems and drops were in over `runs` (the judge's runs of that build).
+pub fn check_farm(spec: &crate::entity::mob::farm::FarmSpec, runs: &[crate::entity::mob::farm::RunReport]) -> Vec<String> {
+    use crate::entity::mob::farm::{Run, RunOpts, WalkMode};
+    let run = match Run::new(spec, &RunOpts::steady(0, 0, WalkMode::Random)) {
+        Ok(r) => r,
+        Err(e) => return vec![format!("lightning: the farm does not build: {e}")],
+    };
+    let mut golems: Vec<BlockPos> = runs.iter().flat_map(|r| r.golem_cells.iter()).map(|c| BlockPos::new(c[0], c[1], c[2])).collect();
+    golems.sort_by_key(|p| (p.x, p.y, p.z));
+    golems.dedup();
+    let mut drops: Vec<BlockPos> = runs.iter().flat_map(|r| r.drop_cells.iter()).map(|c| BlockPos::new(c[0], c[1], c[2])).collect();
+    drops.sort_by_key(|p| (p.x, p.y, p.z));
+    drops.dedup();
+    static_check(&run.world, &golems, &drops, spec.inner())
+}
+
+/// The judge's exhaustive lightning check of a built farm (the runs see a few random bolts a game
+/// day of thunder; this sees every one that can fall). Every column within 3 blocks of the farm's
+/// box, its strike aimed as `findLightningTargetAround` aims it: at the closest rod topping its
+/// column within 128 (then nothing else), else at any living entity that can be there and sees
+/// the sky (the villagers, the zombie, and every cell a golem was seen in, `golem_cells`), or at
+/// its motion-blocking top when none is there. A bolt that falls (rain at its block) fails the
+/// farm when its box meets a villager's cell, the zombie or its vehicle, or a cell a drop was seen
+/// in (`drop_cells`), when a fire it sets (its block and the cube around it) touches a flammable
+/// block or such a cell, or when a trap horse it brings (Hard, `spawn_mobs`, not above a rod)
+/// stands on the farm (`inner`). Each failure once, with the bolt that does it.
+pub fn static_check(w: &World, golem_cells: &[BlockPos], drop_cells: &[BlockPos], inner: Aabb) -> Vec<String> {
+    use crate::entity::mob::types::MobType;
+    let mut out: Vec<String> = Vec::new();
+    let mut protect: Vec<(Aabb, String)> = Vec::new();
+    let mut statics: Vec<(BlockPos, Aabb, String)> = Vec::new();
+    for e in &w.entities.list {
+        let what = match &e.kind {
+            EntityKind::Mob(m) if m.ty == MobType::Villager => {
+                // anywhere in its cell, standing on its bed or sleeping
+                let c = e.block_position();
+                protect.push((Aabb::new(c.x as f64, e.pos.y.min(c.y as f64), c.z as f64, (c.x + 1) as f64, e.pos.y + 1.95 + 0.5625, (c.z + 1) as f64), format!("the villager at {c}")));
+                "a villager"
+            }
+            EntityKind::Mob(m) if m.ty == MobType::Zombie => {
+                protect.push((e.bb, "the zombie".to_string()));
+                "the zombie"
+            }
+            EntityKind::Boat(_) | EntityKind::Minecart(_) => {
+                protect.push((e.bb, "the zombie's vehicle".to_string()));
+                continue;
+            }
+            _ => continue,
+        };
+        if can_see_sky(w, e.block_position()).unwrap_or(false) {
+            statics.push((e.block_position(), e.bb, what.to_string()));
+        }
+    }
+    for c in drop_cells {
+        protect.push((Aabb::new(c.x as f64, c.y as f64, c.z as f64, (c.x + 1) as f64, (c.y + 1) as f64, (c.z + 1) as f64), format!("the drops passing at {c}")));
+    }
+    let golems: Vec<(BlockPos, Aabb)> = golem_cells
+        .iter()
+        .filter(|c| can_see_sky(w, **c).unwrap_or(false))
+        .map(|c| (*c, Aabb::new(c.x as f64 + 0.5 - 0.7, c.y as f64, c.z as f64 + 0.5 - 0.7, c.x as f64 + 0.5 + 0.7, c.y as f64 + 2.7, c.z as f64 + 0.5 + 0.7)))
+        .collect();
+    let mut bolts: Vec<(BlockPos, String, bool)> = Vec::new();
+    let mut add = |p: BlockPos, why: String, rod: bool| {
+        if !bolts.iter().any(|(q, _, _)| *q == p) {
+            bolts.push((p, why, rod));
+        }
+    };
+    let (x0, x1) = (w.min.x - 3, w.min.x + w.size[0] + 2);
+    let (z0, z1) = (w.min.z - 3, w.min.z + w.size[2] + 2);
+    for z in z0..=z1 {
+        for x in x0..=x1 {
+            let center = BlockPos::new(x, motion_blocking_height(w, x, z), z);
+            let rods = rod_targets(w, center);
+            if !rods.is_empty() {
+                for r in rods {
+                    add(r, format!("a strike near {x} {z} goes to the rod under {r}"), true);
+                }
+                continue;
+            }
+            let search = Aabb::new(center.x as f64, center.y as f64, center.z as f64, (center.x + 1) as f64, (WORLD_MAX_Y + 2) as f64, (center.z + 1) as f64).inflate(3.0, 3.0, 3.0);
+            let mut always = false;
+            for (p, bb, what) in &statics {
+                if bb.intersects(search) {
+                    add(*p, format!("a strike near {x} {z} aims at {what} (it sees the sky)"), false);
+                    always = true;
+                }
+            }
+            for (p, bb) in &golems {
+                if bb.intersects(search) {
+                    add(*p, format!("a strike near {x} {z} aims at a golem at {p}"), false);
+                }
+            }
+            if !always {
+                add(center, format!("a strike at the top of column {x} {z}"), false);
+            }
+        }
+    }
+    let mut fail = |m: String| {
+        if out.len() < 8 && !out.contains(&m) {
+            out.push(m);
+        }
+    };
+    for (b, why, rod) in &bolts {
+        if !rain_reaches(w, *b) {
+            continue;
+        }
+        let bolt = Vec3::new(b.x as f64 + 0.5, b.y as f64, b.z as f64 + 0.5);
+        let hit = hit_box_at(bolt);
+        for (bb, what) in &protect {
+            if hit.intersects(*bb) {
+                fail(format!("lightning: {why}: the bolt at {b} hits {what}"));
+            }
+        }
+        // the first tick's fires: its block and the cube around it
+        for dy in -1..=1 {
+            for dz in -1..=1 {
+                for dx in -1..=1 {
+                    let p = b.offset(dx, dy, dz);
+                    if !w.get(p).is_air() {
+                        continue;
+                    }
+                    let near = flammable_neighbour(w, p);
+                    let below = p.offset(0, -1, 0);
+                    if !(soul_base(&w.get(below)) || sturdy_up(w, below) || near.is_some()) {
+                        continue;
+                    }
+                    if let Some((q, f)) = near
+                        && !soul_base(&w.get(below))
+                    {
+                        fail(format!("lightning: {why}: the bolt at {b} can set a fire at {p} next to {f} at {q}, which burns"));
+                    }
+                    let cell = Aabb::new(p.x as f64, p.y as f64, p.z as f64, (p.x + 1) as f64, p.y as f64 + 1.0 / 16.0, (p.z + 1) as f64);
+                    for (bb, what) in &protect {
+                        if cell.intersects(*bb) {
+                            fail(format!("lightning: {why}: the bolt at {b} can set a fire at {p} under {what}"));
+                        }
+                    }
+                }
+            }
+        }
+        let on_farm = inner.inflate(1.0, 1.0, 1.0);
+        let (hx, hy, hz) = (b.x as f64, b.y as f64, b.z as f64);
+        if !rod && (on_farm.min_x..on_farm.max_x).contains(&hx) && (on_farm.min_y..on_farm.max_y).contains(&hy) && (on_farm.min_z..on_farm.max_z).contains(&hz) {
+            fail(format!("lightning: {why}: a skeleton trap horse can spawn on the farm at {b} (its walking is not modeled; a lightning rod topping its column within 128 blocks takes every strike and prevents traps)"));
+        }
+    }
+    out
+}

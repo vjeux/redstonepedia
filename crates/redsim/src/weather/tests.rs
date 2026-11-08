@@ -106,7 +106,7 @@ fn rain_at_a_block() {
 // ------------------------------------------------------------------------------- lightning
 
 use crate::entity::mob::types::MobType;
-use crate::entity::{EntityKind, Vec3};
+use crate::entity::{Aabb, EntityKind, Vec3};
 
 fn stormy_world() -> World {
     let mut w = World::new(BlockPos::new(-8, 0, -8), [16, 24, 16]);
@@ -234,4 +234,32 @@ fn rain_puts_fire_out() {
     let i = crate::entity::index_of(&w, g).unwrap();
     assert_eq!(crate::entity::mob::mob(&w, i).fire_ticks, -1);
     assert!(w.weather.events.iter().any(|e| matches!(e, WeatherEvent::RainedOut { .. })));
+}
+
+/// The exhaustive check: a villager on a stone floor under the open sky is hit by the bolts aimed
+/// at it and at the columns around it; a stone roof 6 above its floor keeps every column-top bolt
+/// out of its cell (the box reaches 3 down); a lightning rod topping a column far off takes
+/// every strike and nothing is hit.
+#[test]
+fn every_bolt_that_can_fall() {
+    let mut w = World::new(BlockPos::new(-8, 0, -8), [16, 24, 16]);
+    w.mob.seed(3, 6000);
+    put(&mut w, 0, 1, 0, "minecraft:stone");
+    crate::entity::mob::add(&mut w, MobType::Villager, Vec3::new(0.5, 2.0, 0.5), true);
+    let inner = Aabb::new(-8.0, 0.0, -8.0, 8.0, 24.0, 8.0);
+    let open = lightning::static_check(&w, &[], &[], inner);
+    assert!(open.iter().any(|m| m.contains("aims at a villager") && m.contains("hits the villager at")), "{open:?}");
+    for x in -2..=2 {
+        for z in -2..=2 {
+            put(&mut w, x, 7, z, "minecraft:stone");
+        }
+    }
+    let roofed = lightning::static_check(&w, &[], &[], inner);
+    assert!(!roofed.iter().any(|m| m.contains("hits the villager")), "{roofed:?}");
+    // the roof's own top is on the farm: a trap horse can land there
+    assert!(roofed.iter().any(|m| m.contains("trap horse")), "{roofed:?}");
+    put(&mut w, 7, 20, 7, "minecraft:stone");
+    put(&mut w, 7, 21, 7, "minecraft:lightning_rod[facing=up,powered=false,waterlogged=false]");
+    let rod = lightning::static_check(&w, &[], &[], Aabb::new(-3.0, 0.0, -3.0, 3.0, 9.0, 3.0));
+    assert!(rod.is_empty(), "{rod:?}");
 }

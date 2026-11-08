@@ -219,8 +219,9 @@ pub fn numbers_only_variation(r: &str) -> Option<Vec<(String, String, String)>> 
     (!diffs.is_empty()).then_some(diffs)
 }
 
-/// A mob farm (the iron farms): judged on our simulation of the game's mob rules, not in the game
-/// (its notes give the game check), and the 3D view does not run its mobs.
+/// A mob farm (the iron farms): its card from redsim's mob layer, confirmed in the real game by
+/// the mob farms' game gate (`circuit::mobfarm_game`: every build for game days with the weather
+/// on); the 3D view does not run its mobs.
 pub fn mob_farm(c: &Circuit) -> bool {
     c.kind.starts_with("mob-farm")
 }
@@ -243,12 +244,12 @@ pub fn chest_words(c: &Circuit) -> &'static str {
     }
 }
 
-/// [`direction_words`] for a design: a mob farm's builds are 4 facings at 2 spots, on our
-/// simulation of the mob rules.
+/// [`direction_words`] for a design: a mob farm's builds are 4 facings at 2 spots, in the real
+/// game too (the game gate runs the judge's 8 builds).
 pub fn direction_words_of(c: &Circuit) -> String {
     let w = direction_words(&c.robustness);
     if mob_farm(c) {
-        return w.replace("at 4 different spots in the world, in the real game)", "at 2 different spots in the world, on our simulation of the game's mob rules)");
+        return w.replace("at 4 different spots in the world, in the real game)", "at 2 different spots in the world, in the real game)");
     }
     w
 }
@@ -943,7 +944,7 @@ pub fn how_to_try(c: &Circuit, has_viewer: bool) -> String {
     // real work!?")
     if mob_farm(c) {
         s.push_str(&format!(
-            "<p>Press play to run the farm: the 3D view runs our test's own simulation of the game's mob rules, the very run our test made first, tick for tick. The villagers sleep in their beds at night and panic at the zombie by day, golems spawn, fall and die in the lava, and the hoppers carry their iron and poppies to the chest. {} The top right shows the game's time, the golems so far and the iron in the chest; the speed menu plays it faster or slower. Our test's numbers are in the measurements below, and its notes give its check in the real game.{} Drag to look around, pinch or scroll to zoom.</p>",
+            "<p>Press play to run the farm: the 3D view runs our test's own simulation of the game's mob rules, the very run our test made first, tick for tick. The villagers sleep in their beds at night and panic at the zombie by day, golems spawn, fall and die in the lava, and the hoppers carry their iron and poppies to the chest. {} The top right shows the game's time, the golems so far and the iron in the chest; the speed menu plays it faster or slower. Our test also ran every build in the real game, through days of rain and thunder; its numbers are in the measurements below.{} Drag to look around, pinch or scroll to zoom.</p>",
             esc(chest_words(c)),
             first_night(c)
         ));

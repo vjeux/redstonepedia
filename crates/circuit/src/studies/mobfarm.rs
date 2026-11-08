@@ -3,10 +3,12 @@
 //! product drops from mobs. The first product is `iron_ingot`: iron golems that villagers summon
 //! when a zombie scares them, killed and collected into the judge's chest at `port output`.
 //!
-//! Judged entirely on redsim's mob layer (`redsim::entity::mob`; vjeux 2026-11-07: "Please
-//! implement everything you need on redsim. We can't use the game code, it's way too slow"),
-//! both by `circuit verify` and `circuit sim`; the game checks are the brief's one-off validations
-//! (`mctas mobfarm validate`).
+//! Judged on redsim's mob layer (`redsim::entity::mob`; vjeux 2026-11-07: "Please implement
+//! everything you need on redsim. We can't use the game code, it's way too slow"): `circuit sim`
+//! is that judge; `circuit verify` (so `circuit archive`) also runs every build in the real game
+//! (mobinfra 2026-11-08, `crate::mobfarm_game`: the 26.3 server, days of weather, a forced day of
+//! rain and of thunder, the must-haves and the rate against redsim's), and a farm the game fails
+//! does not pass.
 //!
 //! * Before the runs, on the base build: the refusals (`mob::refuse`), the golem exit flood
 //!   (`mob::exit`: from every position a golem can stand on, still and 8 inputs must kill it
@@ -42,7 +44,7 @@ pub static STUDY: StudyDef = StudyDef {
     id: "mobfarm",
     title: "Mob farms",
     site_title: "Mob farms",
-    site_intro: "Iron golems spawn when three villagers that slept in the last game day are scared by a zombie: one golem per 600 game ticks for each group of villagers at most, on a solid block within 8 blocks of them. These farms hold the villagers and a zombie in place, let the villagers sleep each night (a panicking villager never sleeps), kill each golem and carry its 3 to 5 iron ingots into a chest. Our test runs every farm for days of game time on our own simulation of the game's mob rules, in every orientation, and checks that the villagers stay safe, the zombie stays put, every golem dies in the farm and every ingot reaches the chest; each farm's notes give its check in the real game. Three farms, one per need: the day-1 farm costs the least iron, the middle-ground farm gives the most iron for each block placed, the fastest farm the most iron for each group of villagers, and copies of it scale it up.",
+    site_intro: "Iron golems spawn when three villagers that slept in the last game day are scared by a zombie: one golem per 600 game ticks for each group of villagers at most, on a solid block within 8 blocks of them. These farms hold the villagers and a zombie in place, let the villagers sleep each night (a panicking villager never sleeps), kill each golem and carry its 3 to 5 iron ingots into a chest. Our test runs every farm for days of game time in every orientation, on Hard with the weather's rain, thunder and lightning, and checks that the villagers stay safe, the zombie stays put, every golem dies in the farm and every ingot reaches the chest; every build also runs in the real game, through a day of rain and a day of thunder. Three farms, one per need: the day-1 farm costs the least iron, the middle-ground farm gives the most iron for each block placed, the fastest farm the most iron for each group of villagers, and copies of it scale it up.",
     site_uses: "Iron for hoppers, rails and beacons without mining: AFK near the farm and empty its chest.",
     site_blurb: "Iron golem farms: villagers, a zombie and beds, rated in iron ingots per hour.",
     kinds: &[KindDef {
@@ -97,6 +99,7 @@ pub static STUDY: StudyDef = StudyDef {
                 "chunk columns" => Some("the fewest 16 x 16 chunk columns the build covers when placed on the chunk grid"),
                 "storage" => Some("how long the farm's chests and hoppers hold its iron and poppies at this rate"),
                 "hoppers per 1000 iron/h" => Some("hoppers for each 1000 iron an hour (each hopper costs the server work every tick)"),
+                "real game" => Some("the farm run in the real game (the official 26.3 server, on Hard) in every orientation for game days with the weather on, then a day of rain and a day of thunder: it works in each, and its rate agrees with our simulation's"),
                 _ => None,
             },
         },
@@ -655,6 +658,9 @@ pub fn judge(c: &Circuit, o: &Options, jo: &JudgeOpts) -> std::result::Result<Ve
     let pooled: Vec<RunReport> = runs.iter().filter_map(|r| r.as_ref().ok()).flatten().cloned().collect();
     let mut builds = Vec::new();
     for (k, ((t, off, rc, spec), r)) in jobs.iter().zip(runs).enumerate() {
+        // mobinfra (vjeux 2026-11-08 08:26, "It's all about tradeoffs"): lightning is measured on
+        // the card, never a refusal (`redsim::weather::lightning::check_farm` lists the bolts
+        // that can fall on a build; their rates per thunderstorm become the card's lines)
         let result = match (k, r, &base) {
             (_, Err(e), _) => Err(e),
             (0, Ok(_), Err(e)) => Err(e.clone()),
@@ -668,10 +674,12 @@ pub fn judge(c: &Circuit, o: &Options, jo: &JudgeOpts) -> std::result::Result<Ve
     Ok(crate::verify::verdict(VerifyReport { name: c.name().to_string(), kind: Some(kind), blocks: c.blocks(), schedule, builds, verdict: String::new(), pass: false, note: String::new() }))
 }
 
-/// `circuit verify`: the same redsim judge (the mob farms' authority; the game checks are the
-/// brief's one-off validations).
+/// `circuit verify` (and so `circuit archive`): the redsim judge (the card), confirmed in the real
+/// 26.3 server by the mob farms' game gate (mobinfra, `crate::mobfarm_game`: each build for game
+/// days with the weather on, on Hard).
 pub fn verify_in_pool(_pool: &Pool, c: &Circuit, o: &Options) -> Result<VerifyReport> {
-    sim_verify(c, o).map_err(|e| anyhow!(e))
+    let rep = sim_verify(c, o).map_err(|e| anyhow!(e))?;
+    crate::mobfarm_game::confirm(c, &o.version, rep)
 }
 
 /// `mctas circuit run`: one build's runs (`base`: golems walk at random; `still`: they all stand

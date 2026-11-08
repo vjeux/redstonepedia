@@ -81,6 +81,35 @@ impl Rcon {
             }
         }
     }
+
+    /// [`Rcon::cmd`] for a long answer (mobinfra: entity dumps). `RconClient.sendCmdResponse`
+    /// splits an answer into packets of 4096 characters with the same id, and the server drops
+    /// the connection when two requests arrive in one read (`pktsize != read - 4`), so no fence
+    /// command can follow: after a full 4096-character packet the next one is awaited for 300 ms
+    /// (an answer of an exact multiple of 4096 ends on that wait).
+    pub fn cmd_long(&mut self, command: &str) -> Result<String> {
+        let id = self.send(2, command)?;
+        let mut out = String::new();
+        loop {
+            let (rid, _, body) = self.read()?;
+            if rid != id {
+                continue;
+            }
+            let full = body.len() == 4096;
+            out.push_str(&body);
+            if !full {
+                return Ok(out);
+            }
+            self.s.set_read_timeout(Some(Duration::from_millis(300)))?;
+            let mut len = [0u8; 4];
+            let got = self.s.peek(&mut len);
+            self.s.set_read_timeout(Some(Duration::from_secs(120)))?;
+            match got {
+                Ok(n) if n > 0 => continue,
+                _ => return Ok(out),
+            }
+        }
+    }
 }
 
 fn free_port() -> Result<u16> {
@@ -122,6 +151,9 @@ pub struct VanillaOptions {
     pub with_bot: bool,
     /// simulation-distance (ticking chunks around players).
     pub simulation_distance: u32,
+    /// The void superflat's biome (`minecraft:the_void` by default; mobinfra: the mob-farm gate
+    /// runs in `minecraft:plains`, where it rains).
+    pub biome: String,
 }
 
 impl Default for VanillaOptions {
@@ -143,6 +175,7 @@ impl Default for VanillaOptions {
             frozen: true,
             with_bot: true,
             simulation_distance: 3,
+            biome: "minecraft:the_void".into(),
         }
     }
 }
@@ -226,7 +259,7 @@ impl VanillaServer {
         } else {
             (
                 "minecraft\\:flat".to_string(),
-                r#"{"layers":[{"block":"minecraft:air","height":1}],"biome":"minecraft:the_void","features":false,"lakes":false}"#.to_string(),
+                format!(r#"{{"layers":[{{"block":"minecraft:air","height":1}}],"biome":"{}","features":false,"lakes":false}}"#, opts.biome),
                 "false".to_string(),
             )
         };
@@ -347,6 +380,11 @@ impl VanillaServer {
     /// Run a command; returns its output.
     pub fn cmd(&mut self, command: &str) -> Result<String> {
         self.rcon.cmd(command).with_context(|| format!("RCON `{command}`"))
+    }
+
+    /// Run a command whose answer may span several RCON packets ([`Rcon::cmd_long`]).
+    pub fn cmd_long(&mut self, command: &str) -> Result<String> {
+        self.rcon.cmd_long(command).with_context(|| format!("RCON `{command}`"))
     }
 
     /// Run a command and fail on the usual error replies.

@@ -863,9 +863,9 @@ pub fn warning(b: &Build) -> Option<String> {
     }
     if b.kinds.iter().any(|k| k.starts_with("daylight_detector")) {
         // (an iron farm's inverted detectors are its dusk clock: they work at night and the farm
-        // runs day and night; rain darkens the sky like dusk, and our test is in clear weather)
+        // runs day and night; rain darkens the sky, and the farm is tested through rain and thunder)
         if b.circuit.as_ref().is_some_and(crate::explain::mob_farm) {
-            out.push("Uses daylight detectors as its dusk clock: they need open sky above them. Rain darkens the sky like dusk and can make them act early; our test runs in clear weather.".to_string());
+            out.push("Uses daylight detectors as its dusk clock: they need open sky above them. Our test ran it through days of rain and thunder.".to_string());
         } else {
             out.push("Uses a daylight detector: it needs open sky and runs only in daytime; it stops at night and in rain.".to_string());
         }
@@ -1848,10 +1848,19 @@ mod tests {
         assert_eq!(c.metrics[7], ("iron per hour per module".to_string(), "443".to_string()));
         assert_eq!(c.metrics[10], ("restarts after a missed night".to_string(), "yes".to_string()));
         let b = Build { circuit: Some(c.clone()), blocks: 578, ..Default::default() };
+        // archived before the real-game gate (no `real game` line): published only while the
+        // switch is off (kinds::MOB_FARMS_NEED_THE_GAME_GATE)
+        if crate::kinds::MOB_FARMS_NEED_THE_GAME_GATE {
+            assert!(crate::kinds::kind_key(&b).starts_with('-'));
+        } else {
+            assert_eq!(crate::kinds::kind_key(&b), "mob-farm iron_ingot middle");
+        }
+        let mut gated = c.clone();
+        gated.metrics.push(("real game".to_string(), "8 builds in the 26.3 server on Hard: 3 days of natural weather 111.6 golems/h (redsim 110.2, 95% 95.0-125.4)".to_string()));
+        let b = Build { circuit: Some(gated), blocks: 578, ..Default::default() };
         assert_eq!(crate::kinds::kind_key(&b), "mob-farm iron_ingot middle");
         assert!(crate::explain::kind_title("mob-farm iron_ingot middle").starts_with("Middle-ground iron farm"));
-        // judged on our simulation, not in the game: no lamp, no "real game" on its page; the view
-        // runs the farm (mobviewer 2026-11-08: no "as built" caveat)
+        // the view runs the farm (mobviewer 2026-11-08: no "as built" caveat)
         assert!(try_it(&c, true).starts_with("Press play: the view runs the farm as our test runs it"), "{}", try_it(&c, true));
         assert!(!try_it(&c, true).contains("as built"));
         assert!(!try_it(&c, true).contains("first night"));

@@ -137,6 +137,10 @@ pub struct RunReport {
     pub errors: Vec<String>,
     /// mobinfra: what the weather did over the run.
     pub weather: WeatherStats,
+    /// mobinfra: every block a living golem and a drop was in over the run (sorted): the
+    /// lightning check's possible targets (`weather::lightning::static_check`).
+    pub golem_cells: Vec<[i32; 3]>,
+    pub drop_cells: Vec<[i32; 3]>,
 }
 
 /// The weather of one run (mobinfra): ticks raining (`isRaining`) and thundering, bolts, what they
@@ -294,9 +298,15 @@ impl Run {
         if let WalkMode::Fixed(p) = self.o.walk {
             w.mob.golem_walk = p;
         }
-        // mobinfra: a forced weather window starts `at` ticks after the arrival
-        if let crate::weather::Plan::Force { at, cmd } = self.o.weather {
-            w.weather.pending = Some((w.time + at.max(1), cmd));
+        // mobinfra: forced weather windows, `at` ticks after the arrival
+        match self.o.weather {
+            crate::weather::Plan::Force { at, cmd } => w.weather.pending.push((w.time + at.max(1), cmd)),
+            crate::weather::Plan::Windows { at, rain, thunder } => {
+                let t = w.time + at.max(1);
+                w.weather.pending.push((t, crate::weather::Command::Rain(rain)));
+                w.weather.pending.push((t + rain as i64, crate::weather::Command::Thunder(thunder)));
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -329,13 +339,16 @@ struct Track {
     golem_born: Vec<(u32, i64)>,
     drops: Vec<u32>,
     last_sleep: Vec<(u32, i64)>,
+    /// mobinfra: every block a living golem or a drop was in (the lightning check's targets).
+    golem_cells: std::collections::BTreeSet<[i32; 3]>,
+    drop_cells: std::collections::BTreeSet<[i32; 3]>,
 }
 
 /// Run a farm: `o.ticks` game ticks, every check as it goes.
 pub fn run(spec: &FarmSpec, o: &RunOpts) -> Result<RunReport, String> {
     let mut r = Run::new(spec, o)?;
     let mut rep = RunReport { ticks: o.ticks, ..Default::default() };
-    let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new() };
+    let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), golem_cells: Default::default(), drop_cells: Default::default() };
     for e in &r.world.entities.list {
         if let EntityKind::Mob(m) = &e.kind
             && m.ty == MobType::Villager
@@ -388,7 +401,7 @@ pub struct AwayReport {
 pub fn run_away(spec: &FarmSpec, o: &RunOpts, plan: AwayPlan) -> Result<(RunReport, AwayReport), String> {
     let mut r = Run::new(spec, o)?;
     let mut rep = RunReport { ticks: (plan.before + plan.after) as u32, ..Default::default() };
-    let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new() };
+    let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), golem_cells: Default::default(), drop_cells: Default::default() };
     for e in &r.world.entities.list {
         if let EntityKind::Mob(m) = &e.kind
             && m.ty == MobType::Villager
@@ -565,6 +578,10 @@ fn check_tick(w: &World, rep: &mut RunReport, tr: &mut Track, spec: &FarmSpec, t
                 if let Some(why) = golem_breaks_rule(w, g, inner, t) {
                     rep.fail(why);
                 }
+                if !m.dead {
+                    let c = e.block_position();
+                    tr.golem_cells.insert([c.x, c.y, c.z]);
+                }
                 if let Some((_, born)) = tr.golem_born.iter().find(|(id, _)| *id == e.id)
                     && t - born > MAX_GOLEM_LIFE
                 {
@@ -589,6 +606,8 @@ fn check_tick(w: &World, rep: &mut RunReport, tr: &mut Track, spec: &FarmSpec, t
     tr.drops.retain(|id| w.entities.list.iter().any(|e| e.id == *id && !e.removed));
     for id in &tr.drops {
         let Some(e) = w.entities.list.iter().find(|e| e.id == *id) else { continue };
+        let c = e.block_position();
+        tr.drop_cells.insert([c.x, c.y, c.z]);
         if let Some(z) = zbox
             && z.inflate(1.0, 0.0, 1.0).intersects(e.bb)
         {
@@ -653,6 +672,8 @@ pub fn touches_lava(w: &World, bb: Aabb) -> bool {
 /// The end of a run: the iron in the chest and in the farm's containers against what dropped.
 fn finish(w: &World, rep: &mut RunReport, tr: &Track, spec: &FarmSpec) {
     use crate::redstone::container as rc;
+    rep.golem_cells = tr.golem_cells.iter().copied().collect();
+    rep.drop_cells = tr.drop_cells.iter().copied().collect();
     let iron = rc::item_id("iron_ingot");
     let count = |c: &rc::ContainerBe| c.slots.iter().flatten().filter(|s| Some(s.item) == iron).map(|s| s.count as u32).sum::<u32>();
     for (p, c) in &w.containers.map {
