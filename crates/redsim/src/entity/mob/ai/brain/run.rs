@@ -751,9 +751,41 @@ pub fn trigger(w: &mut World, i: usize, n: usize, t: i64) -> bool {
             match crate::weather::can_see_sky(w, pos) {
                 Ok(true) => false,
                 Ok(false) => {
-                    // Collections.shuffle without a random: the JVM's unseeded one
-                    refuse(w, "a homeless villager indoors at night (InsideBrownianWalk: an unseeded shuffle) is not modeled");
-                    false
+                    // the 27 cells around (x fastest, then y, then z), `Collections.shuffle` with
+                    // the world's one stream (the bridge seeds it per sandbox:
+                    // `rng::collections_seed`), the first that does not see the sky and whose
+                    // top face is full, while the body itself is free (`noCollision(body)`)
+                    let mut poses = Vec::with_capacity(27);
+                    for z in -1..=1 {
+                        for y in -1..=1 {
+                            for x in -1..=1 {
+                                poses.push(pos.offset(x, y, z));
+                            }
+                        }
+                    }
+                    let r = crate::entity::mob::ai::collections_rng(w);
+                    for k in (2..=poses.len()).rev() {
+                        let j = r.next_int(k as i32) as usize;
+                        poses.swap(k - 1, j);
+                    }
+                    let bb = w.entities.list[i].bb;
+                    let body_free = crate::entity::collide::no_collision(w, i, bb);
+                    for p in poses {
+                        match crate::weather::can_see_sky(w, p) {
+                            Ok(true) => continue,
+                            Ok(false) => {}
+                            Err(e) => {
+                                refuse(w, &format!("InsideBrownianWalk: the sky at {p}: {e}"));
+                                return false;
+                            }
+                        }
+                        if !top_face_full(w, p) || !body_free {
+                            continue;
+                        }
+                        ex_mut(w, i).mem.walk_target = Some(WalkTarget { target: Tracker::Block(p), speed: 0.5, close: 0 });
+                        break;
+                    }
+                    true
                 }
                 Err(e) => {
                     refuse(w, &format!("InsideBrownianWalk: the sky at {pos}: {e}"));
@@ -1125,7 +1157,8 @@ fn walk_from_block_memory(w: &mut World, i: usize, mem: M, speed: f32, close: i3
                 }
                 tries += 1;
                 if tries == 1000 {
-                    refuse(w, "a villager giving up its POI (releasePoi) is not modeled");
+                    // releasePoi: the memory erased frees its POI (the claims are the brains'
+                    // memories)
                     erase(w, i, mem);
                     ex_mut(w, i).mem.cant_reach_since = Some(t);
                     return true;
@@ -1135,7 +1168,7 @@ fn walk_from_block_memory(w: &mut World, i: usize, mem: M, speed: f32, close: i3
             ex_mut(w, i).mem.walk_target = Some(WalkTarget { target: Tracker::Block(target), speed, close });
         }
     } else {
-        refuse(w, "a villager giving up its POI (releasePoi) is not modeled");
+        // too long unreachable: releasePoi (the memory erased frees its POI)
         erase(w, i, mem);
         ex_mut(w, i).mem.cant_reach_since = Some(t);
     }
@@ -1232,4 +1265,11 @@ fn walk_away_from(w: &mut World, i: usize, mem: M, speed: f32) -> bool {
         }
     }
     true
+}
+
+/// `Level.loadedAndEntityCanStandOn(pos, entity)`: the block's collision shape covers its whole
+/// top face (`Block.isFaceFull(shape, UP)`: one box reaching the top across the cell).
+fn top_face_full(w: &World, p: BlockPos) -> bool {
+    let s = w.get(p);
+    crate::entity::collide::boxes_at(w, &s, p).iter().any(|b| b.min_x <= p.x as f64 && b.max_x >= (p.x + 1) as f64 && b.min_z <= p.z as f64 && b.max_z >= (p.z + 1) as f64 && b.max_y >= (p.y + 1) as f64)
 }

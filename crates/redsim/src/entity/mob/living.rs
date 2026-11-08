@@ -72,6 +72,10 @@ pub fn tick(w: &mut World, i: usize) {
     if spider {
         super::ai::goal::spider::after_tick(w, i);
     }
+    // Bat.tick after super.tick: still at its ceiling, or 0.6 of its vertical motion
+    if super::ai::has_ai(w, i) && super::ai::bat::is_bat(w, i) {
+        super::ai::bat::after_tick(w, i);
+    }
 }
 
 /// `LivingEntity.baseTick` (with `Entity.baseTick` inside).
@@ -751,6 +755,10 @@ fn drop_loot_exact(w: &mut World, i: usize) {
 /// boats and minecarts are a model error here), the cramming rule (more than `maxEntityCramming -
 /// 1` non-passengers: 6 damage on `random.nextInt(4) == 0`), then `doPush` each (`Entity.push`).
 fn push_entities(w: &mut World, i: usize) {
+    // a bat pushes nothing (`Bat.pushEntities`)
+    if mob(w, i).ty.def().id == "bat" {
+        return;
+    }
     let bb = w.entities.list[i].bb;
     let me = w.entities.list[i].id;
     // EntitySelector.pushableBy(this): not the mob itself, not anything riding the same root
@@ -799,7 +807,8 @@ fn root_vehicle(w: &World, id: u32) -> u32 {
 /// `Entity.isPushable` of the entities a mob can push.
 fn pushable(e: &entity::Entity) -> bool {
     match &e.kind {
-        EntityKind::Mob(m) => !m.dead,
+        // a bat is never pushed (`Bat.isPushable`)
+        EntityKind::Mob(m) => !m.dead && m.ty.def().id != "bat",
         EntityKind::Boat(_) | EntityKind::Minecart(_) => true,
         _ => false,
     }
@@ -839,6 +848,10 @@ fn push_pair(w: &mut World, j: usize, i: usize) {
 /// then `Entity.checkFallDamage` (the fall distance grows while falling out of water; on landing
 /// `Block.fallOn` = `causeFallDamage(distance, 1, fall)`, a bed halves it; HIT_GROUND; reset).
 pub fn check_fall_damage(w: &mut World, i: usize, ya: f64, on_ground: bool) {
+    // a bat neither falls nor counts its fall (`Bat.checkFallDamage` does nothing)
+    if mob(w, i).ty.def().id == "bat" {
+        return;
+    }
     if !w.entities.list[i].was_touching_water {
         crate::entity::fluid_push::update_fluid_interaction(w, i);
     }

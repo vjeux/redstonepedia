@@ -75,6 +75,9 @@ pub fn on_block_changed(w: &mut World, old: &Block, new: &Block) {
     if !w.mob.ai.sky_cache.is_empty() && old != new {
         w.mob.ai.sky_cache.clear();
     }
+    if !w.mob.ai.block_cache.is_empty() && old != new {
+        w.mob.ai.block_cache.clear();
+    }
 }
 
 /// The POIs a villager holds (taken tickets): its home, and with the exact brain its job site,
@@ -197,13 +200,24 @@ pub fn free_pois(w: &mut World, sel: PoiSel, center: BlockPos, radius: i32) -> V
 /// then meeting points; the bridge iterates `byType` so) and a type's records in their HashSet's
 /// order (the position's hash), then those within `radius` (`distSqr <= radius^2`).
 pub fn free_pois_ordered(w: &mut World, sel: PoiSel, center: BlockPos, radius: i32) -> Vec<BlockPos> {
-    let taken = claimed(w);
     let want = |k: PoiKind| match sel {
         PoiSel::Home => k == PoiKind::Home,
         PoiSel::Meeting => k == PoiKind::Meeting,
         PoiSel::AcquirableJob => k == PoiKind::Job,
         PoiSel::HeldJob => false,
     };
+    pois_ordered(w, center, radius, |k, taken| want(k) && !taken)
+}
+
+/// `PoiManager.getInRange(any type, center, radius, IS_OCCUPIED)` in the manager's order (see
+/// [`free_pois_ordered`]): the claimed POIs within `radius`.
+pub fn occupied_in_range_ordered(w: &mut World, center: BlockPos, radius: i32) -> Vec<BlockPos> {
+    pois_ordered(w, center, radius, |_, taken| taken)
+}
+
+/// The POIs `keep(kind, claimed)` keeps within `radius` of `center`, in the POI manager's order.
+fn pois_ordered(w: &mut World, center: BlockPos, radius: i32, keep: impl Fn(PoiKind, bool) -> bool) -> Vec<BlockPos> {
+    let taken = claimed(w);
     let type_rank = |k: PoiKind| match k {
         PoiKind::Job => 0,
         PoiKind::Home => 1,
@@ -231,7 +245,7 @@ pub fn free_pois_ordered(w: &mut World, sel: PoiSel, center: BlockPos, radius: i
             let p = ps[k];
             let kind = all.iter().find(|(q, _)| *q == p).map(|(_, k)| *k).unwrap();
             debug_assert_eq!(type_rank(kind), rank);
-            if !want(kind) || taken.contains(&p) {
+            if !keep(kind, taken.contains(&p)) {
                 continue;
             }
             let (dx, dy, dz) = ((p.x - center.x) as i64, (p.y - center.y) as i64, (p.z - center.z) as i64);

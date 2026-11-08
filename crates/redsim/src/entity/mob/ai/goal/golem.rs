@@ -149,15 +149,10 @@ fn towards_poi(w: &mut World, i: usize) -> Option<Vec3> {
     let k = level_rng(w).next_int(sections.len() as i32) as usize;
     let sec = sections[k];
     let center = BlockPos::new(sec.0 * 16 + 8, sec.1 * 16 + 8, sec.2 * 16 + 8);
-    let pois = poi::occupied_in_range(w, center, 8);
+    // getInRange(any type, centre, 8, IS_OCCUPIED) in the POI manager's order
+    let pois = poi::occupied_in_range_ordered(w, center, 8);
     if pois.is_empty() {
         return None;
-    }
-    if pois.len() > 1 {
-        let why = "an iron golem choosing among several claimed POIs (the POI manager's order) is not modeled".to_string();
-        if !w.errors.contains(&why) {
-            w.errors.push(why);
-        }
     }
     let k = level_rng(w).next_int(pois.len() as i32) as usize;
     let tp = pois[k];

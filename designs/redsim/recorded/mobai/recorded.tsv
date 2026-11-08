@@ -1,5 +1,6 @@
 # recordings of the real game replayed on redsim (mctas recorded check; crates/mctas/src/recorded.rs)
 file	hash	deps	version	recorded	how
+bat-hall.rec	10e97b7cec176aaa		26.3	2026-11-08T22:46Z on c7600e306	mctas mobai record bat-hall --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 creeper-player.rec	1a9cdc8984c37345		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record creeper-player --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 golem-zombie.rec	ef19b029d877d590		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record golem-zombie --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 skeleton-night.rec	0c0593037b2d3fb3		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record skeleton-night --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai

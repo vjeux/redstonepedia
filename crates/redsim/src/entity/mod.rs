@@ -516,6 +516,19 @@ impl Entities {
         }
     }
 
+    /// `Entity.setPosRaw`: the position (and its section) without the bounding box, which keeps
+    /// its old place until the next move (a resting bat's snap to its ceiling).
+    pub fn set_pos_raw(&mut self, i: usize, pos: Vec3) {
+        let e = &mut self.list[i];
+        e.pos = pos;
+        let s = section_of(pos);
+        if s != e.section {
+            e.section = s;
+            e.section_seq = self.section_counter;
+            self.section_counter += 1;
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.list.iter().all(|e| e.removed)
     }

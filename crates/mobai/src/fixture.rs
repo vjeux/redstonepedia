@@ -394,6 +394,33 @@ fn scenes_raw() -> Vec<Scene> {
             player_creative: false,
         });
     }
+    // bats in a closed stone hall at night: a summoned bat flies (BatFlags 0: its target cells,
+    // its motion, hanging again under the ceiling 1 in 100); one hangs from the ceiling (BatFlags
+    // 1) and wakes when its ceiling block is mined... here a creative player hangs 3 below it
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        floor(&mut b, 8, 40, 8, 40, 72, stone);
+        for (a, c) in [((8, 8), (8, 39)), ((39, 8), (39, 39)), ((8, 8), (39, 8)), ((8, 39), (39, 39))] {
+            wall(&mut b, a, c, 63, 8, stone);
+        }
+        v.push(Scene {
+            name: "bat-hall".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:bat".into(), [20.5, 66.0, 20.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:bat".into(), [30.5, 71.1, 30.5], Some("{PersistenceRequired:1b,BatFlags:1b}".into())),
+                ("minecraft:bat".into(), [14.5, 71.1, 30.5], Some("{PersistenceRequired:1b,BatFlags:1b}".into())),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 73, 47]),
+            player: Some([30.5, 68.0, 30.5]),
+            player_creative: true,
+        });
+    }
     v
 }
 

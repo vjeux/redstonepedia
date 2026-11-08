@@ -501,7 +501,7 @@ fn enter_spawned(w: &mut World, ty: MobType, pos: Vec3, yaw: f32, bonus: f64) ->
         let mut a = super::ai::MobAi::new(ty, yaw);
         a.y_head_rot = ctor_yaw;
         a.y_body_rot = 0.0;
-        if ty != MobType::Villager && a.goals.goals.is_empty() && a.targets.goals.is_empty() {
+        if ty != MobType::Villager && ty.def().id != "bat" && a.goals.goals.is_empty() && a.targets.goals.is_empty() {
             let why = format!("the AI of {} (its goals) is not modeled", ty.game_id());
             if !w.errors.contains(&why) {
                 w.errors.push(why);

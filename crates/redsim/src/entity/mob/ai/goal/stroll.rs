@@ -179,13 +179,30 @@ pub fn light_magic(w: &mut World, p: BlockPos) -> f32 {
                 15
             }
         };
-        if let Some(q) = light_source_near(w, p) {
-            let why = format!("the block light at {p} (a light source at {q}) in a design world is not modeled");
-            if !w.errors.contains(&why) {
-                w.errors.push(why);
+        // the block light, where a light source can reach (the light engine's propagation over
+        // the cube that can lift the reading above the sky's: daylight::block_light_from; cached
+        // until a block changes)
+        let s = (sky - darken).max(0);
+        let block = if is_solid_render(&w.get(p)) || light_source_near(w, p).is_none() {
+            0
+        } else if let Some(v) = w.mob.ai.block_cache.get(&(p, s)) {
+            *v
+        } else {
+            match crate::daylight::block_light_from(w, p, s + 1, &crate::entity::mob::sun::emission) {
+                Ok(v) => {
+                    w.mob.ai.block_cache.insert((p, s), v);
+                    v
+                }
+                Err(e) => {
+                    let why = format!("the block light at {p}: {e}");
+                    if !w.errors.contains(&why) {
+                        w.errors.push(why);
+                    }
+                    0
+                }
             }
-        }
-        (sky - darken).max(0)
+        };
+        s.max(block)
     };
     let v = raw as f32 / 15.0;
     v / (4.0 - 3.0 * v)

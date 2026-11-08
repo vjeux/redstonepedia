@@ -178,6 +178,9 @@ pub struct MobState {
     pub on_climbable: bool,
     /// The spider's climbing flag (`Spider.setClimbing(horizontalCollision)` after its tick).
     pub climbing: bool,
+    /// The bat's resting flag (set at construction) and its flight target.
+    pub bat_resting: bool,
+    pub bat_target: Option<BlockPos>,
     /// The lava tracker's height (`getFluidHeight(LAVA)`; `isInLava` when positive).
     pub lava_height: f64,
     /// This tick's collected block effects.
@@ -221,6 +224,8 @@ impl MobState {
             persistence_required: false,
             on_climbable: false,
             climbing: false,
+            bat_resting: d.id == "bat",
+            bat_target: None,
             lava_height: 0.0,
             inside: Inside::default(),
             last_damage: None,
@@ -429,6 +434,7 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
     let ty = MobType::from_id(type_id)?;
     let mut persistent = false;
     let mut can_break_doors = false;
+    let mut bat_flags = 0;
     let mut yaw = None;
     if let Some(n) = nbt {
         let mut t = n.trim().to_string();
@@ -447,11 +453,21 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
                 Some(("PersistenceRequired", v)) => persistent = matches!(v, "1b" | "true" | "1"),
                 // ---- mob AI (the mob-AI lane): a zombie that breaks doors ----
                 Some(("CanBreakDoors", v)) if w.mob.ai.on && matches!(ty.def().id, "zombie" | "baby_zombie") => can_break_doors = matches!(v, "1b" | "true" | "1"),
+                // a bat's flags (resting: bit 1)
+                Some(("BatFlags", v)) if ty.def().id == "bat" => bat_flags = v.trim_end_matches(['b', 'B']).parse::<i32>().unwrap_or(0),
                 _ => return Some(Err(format!("entity {type_id} with {kv} in its data is not modeled by redsim"))),
             }
         }
     }
     let id = add(w, ty, Vec3::new(pos[0], pos[1], pos[2]), persistent);
+    // a loaded bat rests only if its BatFlags say so (`readAdditionalSaveData`, default 0: a
+    // summoned bat flies)
+    if ty.def().id == "bat"
+        && let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
+        && let EntityKind::Mob(m) = &mut e.kind
+    {
+        m.bat_resting = bat_flags & 1 != 0;
+    }
     // a summoned mob faces its `Rotation`, else 0 (`Entity.load` reads it with the default
     // Vec2.ZERO): the constructor's random yaw is drawn and thrown away
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
@@ -504,9 +520,10 @@ pub fn add(w: &mut World, ty: MobType, pos: Vec3, persistent: bool) -> u32 {
         }
     }
     // ---- mob AI (the mob-AI lane): a mob whose goals are not modeled is refused, never run
-    // without them ----
+    // without them (villagers have their brain, bats their own flight) ----
     if let Some(a) = st.ai.as_deref()
         && ty != MobType::Villager
+        && ty.def().id != "bat"
         && a.goals.goals.is_empty()
         && a.targets.goals.is_empty()
     {
@@ -517,12 +534,16 @@ pub fn add(w: &mut World, ty: MobType, pos: Vec3, persistent: bool) -> u32 {
     }
     if ty == MobType::Villager {
         st.brain = Some(Box::new(villager::Brain::new(&mut own, w.time, w.day_time())));
-        // ---- mob AI (the mob-AI lane): the exact brain, the live brain's sensors drawn again ----
+        // ---- mob AI (the mob-AI lane): the exact brain, the live brain's sensors drawn again (its
+        // shuffling lists keyed by the bridge's entity seed in an exact world, else by the stand-in
+        // own random's seed: the judge's runs) ----
         if w.mob.ai.on
-            && let Some(s) = w.exact_seed
             && let Some(b) = st.brain.as_deref_mut()
         {
-            let es = crate::rng::entity_seed(s, w.entities.next_id);
+            let es = match w.exact_seed {
+                Some(s) => crate::rng::entity_seed(s, w.entities.next_id),
+                None => seed,
+            };
             ai::brain::attach(b, &mut own, es, w.time, w.day_time());
         }
     }
@@ -578,7 +599,10 @@ pub fn movement_emission(w: &mut World, i: usize, movement: Vec3) {
     } else if in_water {
         let m = mob_mut(w, i);
         m.next_step = (m.move_dist as i32 + 1) as f32;
-        if let Some(r) = w.entities.list[i].random.as_mut() {
+        // a bat's movement emits events only (`Bat.getMovementEmission`: no swim sound)
+        if mob(w, i).ty.def().id != "bat"
+            && let Some(r) = w.entities.list[i].random.as_mut()
+        {
             r.next_float();
             r.next_float();
         }

@@ -12,6 +12,7 @@
 //! `updateControlFlags` every 5 ticks.
 
 pub mod attack;
+pub mod bat;
 pub mod brain;
 pub mod control;
 pub mod goal;
@@ -146,6 +147,19 @@ pub fn has_ai(w: &World, i: usize) -> bool {
     matches!(&w.entities.list[i].kind, crate::entity::EntityKind::Mob(m) if m.ai.is_some())
 }
 
+/// `Collections.shuffle(List)`'s static random: in an exact world the bridge's per-sandbox seed
+/// (`rng::collections_seed`), else a stand-in drawn once from the mob layer's random (the judge).
+pub fn collections_rng(w: &mut World) -> &mut crate::rng::LegacyRandom {
+    if w.mob.ai.collections.is_none() {
+        let seed = match w.exact_seed {
+            Some(s) => crate::rng::collections_seed(s),
+            None => w.mob.rng_mut().next_long(),
+        };
+        w.mob.ai.collections = Some(crate::rng::LegacyRandom::new(seed));
+    }
+    w.mob.ai.collections.as_mut().expect("set")
+}
+
 /// `getAttributeValue(MOVEMENT_SPEED)`.
 pub fn movement_speed(w: &World, i: usize) -> f64 {
     mob(w, i).ty.def().speed
@@ -224,11 +238,16 @@ pub struct AiWorld {
     pub lights: Option<Vec<(crate::pos::BlockPos, i32)>>,
     /// The sky light of a design world's cells asked so far (cleared when a block changes).
     pub sky_cache: std::collections::HashMap<crate::pos::BlockPos, i32>,
+    /// `Collections.shuffle(List)`'s one static random ([`collections_rng`]).
+    pub collections: Option<crate::rng::LegacyRandom>,
+    /// The block light of a design world's cells asked so far, by the sky part it had to beat
+    /// (cleared when a block changes).
+    pub block_cache: std::collections::HashMap<(crate::pos::BlockPos, i32), i32>,
 }
 
 impl Default for AiWorld {
     fn default() -> AiWorld {
-        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, pois: None, lights: None, sky_cache: std::collections::HashMap::new() }
+        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, pois: None, lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new() }
     }
 }
 
@@ -294,11 +313,13 @@ pub fn server_ai_step(w: &mut World, i: usize) {
     jump_control_tick(w, i);
 }
 
-/// `customServerAiStep`: the villager's brain (and its raid draw); nothing for the goal mobs
-/// modeled so far.
+/// `customServerAiStep`: the villager's brain (and its raid draw); the bat's flight; nothing for
+/// the goal mobs.
 fn custom_server_ai_step(w: &mut World, i: usize) {
     if mob(w, i).ty == MobType::Villager {
         super::villager::brain_tick(w, i);
+    } else if bat::is_bat(w, i) {
+        bat::custom_server_ai_step(w, i);
     }
 }
 
@@ -722,7 +743,9 @@ pub fn ambient_sound_tick(w: &mut World, i: usize) {
     ai_mut(w, i).ambient_sound_time = t + 1;
     if roll < t {
         ai_mut(w, i).ambient_sound_time = -80;
-        if has_ambient_sound(w, i)
+        if bat::is_bat(w, i) {
+            bat::ambient_sound(w, i);
+        } else if has_ambient_sound(w, i)
             && let Some(r) = w.entities.list[i].random.as_mut()
         {
             r.next_float();
