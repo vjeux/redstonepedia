@@ -630,11 +630,19 @@ pub fn check_despawn(w: &mut World, i: usize) {
         refuse_once(w, "a monster in a peaceful world (discarded) is not modeled");
         return;
     }
-    let persistent = m.persistence_required;
+    // `isPersistenceRequired() || requiresCustomPersistence()` (a passenger or a leashed mob)
+    let persistent = m.persistence_required || w.entities.list[i].vehicle.is_some();
     let no_action = m.no_action_time;
     let removes_far = !matches!(m.ty, MobType::Villager | MobType::IronGolem);
     let p = w.entities.list[i].pos;
-    let near = w.mob.ai.players.iter().filter(|q| q.mode != GameMode::Spectator).map(|q| q.pos.distance_to_sqr(p)).fold(None, |a: Option<f64>, d| Some(a.map_or(d, |a| a.min(d))));
+    // `getNearestPlayer(this, -1.0)` (no spectators): the AI's players, the AFK player, natural
+    // spawning's players
+    let mut players: Vec<Vec3> = w.mob.ai.players.iter().filter(|q| q.mode != GameMode::Spectator).map(|q| q.pos).collect();
+    players.extend(w.afk.iter().copied());
+    if let Some(n) = w.mob.natural.as_ref() {
+        players.extend(n.players.iter().copied());
+    }
+    let near = players.iter().map(|q| q.distance_to_sqr(p)).fold(None, |a: Option<f64>, d| Some(a.map_or(d, |a| a.min(d))));
     let Some(d2) = near else { return };
     if !persistent && d2 > 128.0 * 128.0 && removes_far {
         refuse_once(w, "a mob despawning (beyond 128 of every player) is not modeled");

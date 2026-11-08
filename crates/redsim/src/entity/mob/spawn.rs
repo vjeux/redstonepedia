@@ -89,6 +89,11 @@ pub fn try_spawn_golem(w: &mut World, start: BlockPos) -> Option<u32> {
         if check_spawn_obstruction(w, cell, pos) {
             let mut st = super::MobState::new(MobType::IronGolem, bonus);
             st.walk = w.mob.golem_walk;
+            // ---- mob AI (the mob-AI lane): its goals ----
+            if w.mob.ai.on {
+                st.ai = Some(Box::new(super::ai::MobAi::new(MobType::IronGolem, y_rot)));
+                st.speed = 0.0;
+            }
             let id = w.entities.add(EntityKind::Mob(Box::new(st)), pos, y_rot);
             if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
                 e.random = Some(crate::rng::LegacyRandom::new(seed));
@@ -130,6 +135,11 @@ fn try_spawn_golem_exact(w: &mut World, start: BlockPos) -> Option<u32> {
         if check_spawn_obstruction(w, cell, pos) {
             let mut st = super::MobState::new(MobType::IronGolem, bonus);
             st.walk = w.mob.golem_walk;
+            // ---- mob AI (the mob-AI lane): its goals (head and body at the snap yaw) ----
+            if w.mob.ai.on {
+                st.ai = Some(Box::new(super::ai::MobAi::new(MobType::IronGolem, y_rot)));
+                st.speed = 0.0;
+            }
             // the golem enters (addFreshEntityWithPassengers): its own random seeded as its
             // number, the constructor's UUID and yaw replayed (the yaw thrown away: the snap set
             // the head and body); no sound draw (an iron golem has no ambient sound)

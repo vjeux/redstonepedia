@@ -474,7 +474,10 @@ fn jump_out_of_fluid(w: &mut World, i: usize, old_y: f64) {
 /// EXTINGUISH (water puts the fire out).
 fn apply_block_effects(w: &mut World, i: usize) {
     let fx = std::mem::take(&mut mob_mut(w, i).inside);
-    if fx.fire {
+    // `StepBasedCollector.applyAndClear`: every effect runs only while the entity is alive (a
+    // lethal lavaHurt leaves the water's EXTINGUISH out: the dead golem keeps its 300 fire ticks)
+    let alive = |w: &World, i: usize| !w.entities.list[i].removed && mob(w, i).health > 0.0;
+    if fx.fire && alive(w, i) {
         // mobinfra: FIRE_IGNITE (`BaseFireBlock.fireIgnite`: -1 counts up to 0, from 0 8 s of
         // fire) then its 1 `inFire` damage, before LAVA_IGNITE
         let m = mob_mut(w, i);
@@ -486,19 +489,27 @@ fn apply_block_effects(w: &mut World, i: usize) {
                 m.fire_ticks = 160;
             }
         }
-        hurt(w, i, Damage::InFire, 1.0);
+        if alive(w, i) {
+            hurt(w, i, Damage::InFire, 1.0);
+        }
     }
-    if fx.lava {
+    if fx.lava && alive(w, i) {
         let m = mob_mut(w, i);
         if !m.ty.def().fire_immune {
-            // igniteForTicks(300) then lavaHurt
+            // igniteForTicks(300) then lavaHurt: a hurt that lands plays GENERIC_BURN, its pitch
+            // from the entity's own random (`2.0F + random.nextFloat() * 0.4F`)
             if m.fire_ticks < 300 {
                 m.fire_ticks = 300;
             }
-            hurt(w, i, Damage::Lava, 4.0);
+            if alive(w, i)
+                && hurt(w, i, Damage::Lava, 4.0)
+                && let Some(r) = w.entities.list[i].random.as_mut()
+            {
+                r.next_float();
+            }
         }
     }
-    if fx.water {
+    if fx.water && alive(w, i) {
         let m = mob_mut(w, i);
         m.fire_ticks = m.fire_ticks.min(0);
     }

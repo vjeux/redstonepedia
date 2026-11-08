@@ -498,6 +498,10 @@ pub fn move_(w: &mut World, i: usize, mover: MoverType, delta: Vec3) {
     if (moved_vertically && vc) || hc {
         restitute(w, i, x_col, z_col, movement);
     }
+    // `applyMovementEmissionAndPlaySound` (a mob that is no passenger: its swim sound's draws)
+    if matches!(w.entities.list[i].kind, super::EntityKind::Mob(_)) && w.entities.list[i].vehicle.is_none() {
+        super::mob::movement_emission(w, i, movement);
+    }
     let f = block_speed_factor(w, i) as f64;
     let e = &mut w.entities.list[i];
     e.delta_movement = e.delta_movement.multiply(f, 1.0, f);

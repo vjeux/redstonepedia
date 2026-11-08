@@ -158,6 +158,9 @@ pub struct MobState {
     pub fire_ticks: i32,
     /// `airSupply` (300).
     pub air: i32,
+    /// `Entity.moveDist` and `nextStep` (the step and swim sounds' clock; the mob-AI lane).
+    pub move_dist: f32,
+    pub next_step: f32,
     /// `getSleepingPos()`: sleeping (pose SLEEPING) when set.
     pub sleeping_pos: Option<BlockPos>,
     /// `FOLLOW_RANGE` with `Mob.finalizeSpawn`'s random bonus.
@@ -203,6 +206,8 @@ impl MobState {
             // `remainingFireTicks = -getFireImmuneTicks()`: 0 for a mob in 26.3
             fire_ticks: 0,
             air: 300,
+            move_dist: 0.0,
+            next_step: 1.0,
             sleeping_pos: None,
             follow_range: d.follow_range * (1.0 + bonus),
             xxa: 0.0,
@@ -484,10 +489,28 @@ pub fn add(w: &mut World, ty: MobType, pos: Vec3, persistent: bool) -> u32 {
     }
     let mut own = LegacyRandom::new(seed);
     // ---- the bridge's seeding in an exact world (`rng::entity_seed`, the mob-AI lane's): the
-    // constructor's draws redone: the UUID, the LivingEntity yaw (a summon's data then sets it) ----
+    // constructor's draws redone: the UUID, the LivingEntity yaw (`nextFloat() * (float)(PI * 2)`,
+    // the head with it, the body at 0: a summon's data then sets all three, a natural spawn's snap
+    // only the yaw) ----
     if let Some(s) = w.exact_seed {
         own = crate::rng::entity_random(s, w.entities.next_id);
-        own.next_float();
+        let ctor_yaw = own.next_float() * (std::f64::consts::PI * 2.0) as f32;
+        if let Some(a) = st.ai.as_deref_mut() {
+            a.y_head_rot = ctor_yaw;
+            a.y_body_rot = 0.0;
+        }
+    }
+    // ---- mob AI (the mob-AI lane): a mob whose goals are not modeled is refused, never run
+    // without them ----
+    if let Some(a) = st.ai.as_deref()
+        && ty != MobType::Villager
+        && a.goals.goals.is_empty()
+        && a.targets.goals.is_empty()
+    {
+        let why = format!("the AI of {} (its goals) is not modeled", ty.game_id());
+        if !w.errors.contains(&why) {
+            w.errors.push(why);
+        }
     }
     if ty == MobType::Villager {
         st.brain = Some(Box::new(villager::Brain::new(&mut own, w.time, w.day_time())));
@@ -526,6 +549,36 @@ pub fn seed_entered(w: &mut World, id: u32) {
     own.next_float();
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
         e.random = Some(own);
+    }
+}
+
+/// `Entity.applyMovementEmissionAndPlaySound` for a mob that is no passenger (the mob-AI lane):
+/// `moveDist` grows by the horizontal move x 0.6 (climbing is refused elsewhere); past `nextStep`
+/// over a block that is not air, a mob on the ground steps (its step sounds draw nothing) and one
+/// in water swims: `playSwimSound`'s pitch draws two floats from its own random.
+pub fn movement_emission(w: &mut World, i: usize, movement: Vec3) {
+    let moved = (movement.horizontal_distance() * 0.6f32 as f64) as f32;
+    let m = mob_mut(w, i);
+    m.move_dist += moved;
+    if !(m.move_dist > m.next_step) {
+        return;
+    }
+    let e = &w.entities.list[i];
+    let supporting = crate::entity::collide::get_on_pos(w, e, 1.0e-5);
+    if w.get(supporting).is_air() {
+        return;
+    }
+    let (on_ground, in_water) = (e.on_ground, e.was_touching_water);
+    if on_ground {
+        let m = mob_mut(w, i);
+        m.next_step = (m.move_dist as i32 + 1) as f32;
+    } else if in_water {
+        let m = mob_mut(w, i);
+        m.next_step = (m.move_dist as i32 + 1) as f32;
+        if let Some(r) = w.entities.list[i].random.as_mut() {
+            r.next_float();
+            r.next_float();
+        }
     }
 }
 
@@ -586,6 +639,22 @@ pub fn ride_tick(w: &mut World, j: usize) {
     {
         let vp = w.entities.list[vi].pos;
         w.entities.set_pos(j, vp.add(0.0, off, 0.0));
+        // `AbstractBoat.positionRider` (the mob-AI lane): the rider turns with the boat
+        // (deltaRotation), then `clampRotation`: a mob's body and yaw take the boat's yaw and its
+        // head comes within `getMaxHeadYRot` of the body (`clampHeadRotationToBody`)
+        if let EntityKind::Boat(b) = &w.entities.list[vi].kind {
+            let dr = b.delta_rotation;
+            let boat_yaw = w.entities.list[vi].y_rot;
+            let limit = ai::max_head_y_rot(w, j) as f32;
+            w.entities.list[j].y_rot = boat_yaw;
+            if let Some(a) = mob_mut(w, j).ai.as_deref_mut() {
+                let head = a.y_head_rot + dr;
+                a.y_body_rot = boat_yaw;
+                let delta = crate::entity::mth::wrap_degrees(a.y_body_rot - head);
+                let target = delta.clamp(-limit, limit);
+                a.y_head_rot = head + delta - target;
+            }
+        }
     }
     w.entities.list[j].fall_distance = 0.0;
 }

@@ -549,8 +549,9 @@ pub fn tick_one(w: &mut World, i: usize) {
         if w.entities.list[i].removed {
             return;
         }
-    } else if w.mob.ai.on && !w.mob.ai.players.is_empty() && matches!(w.entities.list[i].kind, EntityKind::Mob(_)) {
-        // ---- mob AI (the mob-AI lane): checkDespawn with the AI's players ----
+    } else if w.mob.ai.on && matches!(w.entities.list[i].kind, EntityKind::Mob(_)) {
+        // ---- mob AI (the mob-AI lane): checkDespawn for the other mobs (villagers, golems,
+        // zombies, ...) against every player the world has ----
         mob::ai::check_despawn(w, i);
     }
     let p = w.entities.list[i].pos;

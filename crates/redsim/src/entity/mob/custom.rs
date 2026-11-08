@@ -490,11 +490,26 @@ fn finalize_siege_zombie(w: &mut World, own: &mut LegacyRandom, origin_loaded: b
 /// seeded as its entity number, the constructor's UUID and yaw replayed (the head keeps that yaw:
 /// the snap set only the body's).
 fn enter_spawned(w: &mut World, ty: MobType, pos: Vec3, yaw: f32, bonus: f64) -> u32 {
-    let st = super::MobState::new(ty, bonus);
+    let mut st = super::MobState::new(ty, bonus);
     let n = w.entities.next_id;
     let mut own = w.entering_random(n);
     crate::rng::replay_uuid(&mut own);
-    own.next_float();
+    let ctor_yaw = own.next_float() * (std::f64::consts::PI * 2.0) as f32;
+    // ---- mob AI (the mob-AI lane): its goals; the head at the constructor's yaw, the body at 0
+    // (the snap sets only the yaw) ----
+    if w.mob.ai.on {
+        let mut a = super::ai::MobAi::new(ty, yaw);
+        a.y_head_rot = ctor_yaw;
+        a.y_body_rot = 0.0;
+        if ty != MobType::Villager && a.goals.goals.is_empty() && a.targets.goals.is_empty() {
+            let why = format!("the AI of {} (its goals) is not modeled", ty.game_id());
+            if !w.errors.contains(&why) {
+                w.errors.push(why);
+            }
+        }
+        st.ai = Some(Box::new(a));
+        st.speed = 0.0;
+    }
     let id = w.entities.add(EntityKind::Mob(Box::new(st)), pos, yaw);
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
         e.random = Some(own);
