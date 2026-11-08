@@ -40,6 +40,9 @@ pub struct Site {
     /// floors (C7): every cell the panicking villagers' golem search finds whose floor is not one
     /// of the farm's blocks, covered until none is left.
     pub fills: Vec<BlockPos>,
+    /// The natural cells the build seals with cobblestone ([`seals_at`]), and whether each held a
+    /// block to dig first.
+    pub seals: Vec<(BlockPos, bool)>,
     /// How many spots the build was priced at, and their build times' range (seconds).
     pub spots: usize,
     pub build_range: (f64, f64),
@@ -78,6 +81,19 @@ impl Effort {
 /// The iron of a full iron kit (the armour: 5 + 8 + 7 + 4).
 pub const KIT_IRON: f64 = 24.0;
 
+/// The way down to a dug-in farm's chest (a design made for terrain): a staircase dug from the
+/// ground to the chest's level, one step down for each layer (3 cells dug a step: the step's
+/// feet, head and the head room over the step above), a torch every 8 steps (no spawning on
+/// it) and a fence gate on its top (no mob walks in; the player opens it): (blocks dug, blocks
+/// placed) for `depth` layers. It leads only to the chest, with rock between it and the farm.
+pub fn access_stair(depth: i32) -> (u32, u32) {
+    if depth <= 0 {
+        return (0, 0);
+    }
+    let d = depth as u32;
+    (3 * d, d.div_ceil(8) + 1)
+}
+
 /// Day 1's rank: the minutes from the first block to owning a full iron kit: the build, then the
 /// build's own iron (`bill_iron`, the tools counted), the kit and the iron expected lost meanwhile
 /// (`losses_iron`: lightning, weather, hostiles during that time) at the farm's `rate` (iron an
@@ -107,19 +123,60 @@ impl SpotPrice {
     }
 }
 
-/// A spot priced whole: the cheap part and the glass covers ([`covers_at`]).
+/// A spot priced whole: the cheap part, the seals ([`seals_at`]) and the glass covers
+/// ([`covers_at`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Priced {
     pub price: SpotPrice,
     pub covers: Vec<BlockPos>,
+    /// The natural cells sealed with cobblestone, and whether each held a block to dig first.
+    pub seals: Vec<(BlockPos, bool)>,
 }
 
 impl Priced {
-    /// Its blocks' share of the build time, the covers placed.
+    /// Its blocks' share of the build time, the seals and the covers placed.
     pub fn seconds(&self) -> f64 {
-        self.price.block_seconds() + Effort::PLACED_S * self.covers.len() as f64
+        self.price.block_seconds() + Effort::PLACED_S * (self.covers.len() + self.seals.len()) as f64 + Effort::DUG_S * self.seals.iter().filter(|(_, dig)| *dig).count() as f64
     }
 }
+
+/// The seals of a design made for terrain at `offset`: every natural cell beside one of the farm's
+/// open cells (its listed cells that are not full blocks: the dug air, beds, trapdoors, signs,
+/// water, lava, the pad's gates) that is not a full block itself (a cave's air, a plant, lichen)
+/// is filled with cobblestone, so no natural mob walks in from a cave, no water or lava flows
+/// out and no drop leaves; each with whether its natural cell held a block to dig first. A void
+/// design (its box cleared to the sky) has none.
+pub fn seals_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bool) -> Vec<(BlockPos, bool)> {
+    if clear_box {
+        return Vec::new();
+    }
+    let at = |p: BlockPos| BlockPos::new(p.x + offset[0], p.y + offset[1], p.z + offset[2]);
+    let listed: std::collections::HashSet<BlockPos> = spec.blocks.iter().map(|(p, _)| at(*p)).collect();
+    let mut out: Vec<(BlockPos, bool)> = Vec::new();
+    for (p, b) in &spec.blocks {
+        if crate::behavior::full_cube(b) {
+            continue;
+        }
+        // the six neighbours (a mob walks in, a fluid flows out), and the four diagonal ones at
+        // the same height (a mob's pickup box reaches 1 block sideways through any corner:
+        // `Mob.aiStep`'s inflate(1, 0, 1))
+        let around = crate::pos::Dir::ALL.iter().map(|d| at(*p).rel(*d)).chain([(1, 1), (1, -1), (-1, 1), (-1, -1)].into_iter().map(|(dx, dz)| at(*p).offset(dx, 0, dz)));
+        for q in around {
+            if listed.contains(&q) || !world.contains(q) || out.iter().any(|(s, _)| *s == q) {
+                continue;
+            }
+            let n = world.get(q);
+            if !crate::behavior::full_cube(&n) {
+                out.push((q, !place::air_like(&n)));
+            }
+        }
+    }
+    out.sort_by_key(|(p, _)| (p.y, p.z, p.x));
+    out
+}
+
+/// The block a seal is.
+pub const SEAL: crate::block::Block = crate::block::Block::Simple(crate::block::Simple::Cobblestone);
 
 /// What the spot search keys on: a design's footprint (its blocks' columns), how deep its box
 /// reaches under its ground layer, and its blocks' min corner (design coordinates). Valid spots
@@ -210,7 +267,7 @@ pub fn price_spots(w: &World, spec: &FarmSpec, fp: Footprint, ground: i32, clear
 pub fn covers_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bool) -> Vec<BlockPos> {
     let at = |p: BlockPos| BlockPos::new(p.x + offset[0], p.y + offset[1], p.z + offset[2]);
     let (lo, hi) = blocks_box(spec);
-    let (mut clo, mut chi) = (at(lo), at(hi));
+    let (mut clo, mut chi) = (at(lo).offset(-1, -1, -1), at(hi).offset(1, 1, 1));
     for (_, p, _) in &spec.entities {
         let c = BlockPos::new(p[0].floor() as i32 + offset[0], p[1].floor() as i32 + offset[1], p[2].floor() as i32 + offset[2]);
         clo = BlockPos::new(clo.x.min(c.x - 10), clo.y.min(c.y - 10), clo.z.min(c.z - 10));
@@ -220,6 +277,10 @@ pub fn covers_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bo
     if clear_box {
         place::clear(&mut w, at(lo), at(hi));
     }
+    // the seals go in first (`seals_at`); they are not the farm's floors: a cave cell over one is
+    // covered like any natural spot
+    let seals: Vec<(BlockPos, crate::block::Block)> = seals_at(world, spec, offset, clear_box).into_iter().map(|(p, _)| (p, SEAL)).collect();
+    w.place_raw(&seals);
     let moved: Vec<(BlockPos, crate::block::Block)> = spec.blocks.iter().map(|(p, b)| (at(*p), *b)).collect();
     w.place_raw(&moved);
     let own: std::collections::HashSet<BlockPos> = moved.iter().filter(|(_, b)| !b.is_air()).map(|(p, _)| *p).collect();
@@ -280,7 +341,7 @@ pub fn sample_of(terrain: Option<&str>, sample: Option<&str>) -> Result<Option<&
 /// Every one of `spots` priced whole (the cheap part, then the covers), cheapest first (ties: the
 /// nearer spot, `spots`' order).
 pub fn price_all(w: &World, spec: &FarmSpec, fp: Footprint, ground: i32, clear_box: bool, spots: &[([i32; 2], i32)]) -> Vec<Priced> {
-    let mut v: Vec<Priced> = price_spots(w, spec, fp, ground, clear_box, spots).into_iter().map(|price| Priced { covers: covers_at(w, spec, price.offset, clear_box), price }).collect();
+    let mut v: Vec<Priced> = price_spots(w, spec, fp, ground, clear_box, spots).into_iter().map(|price| Priced { covers: covers_at(w, spec, price.offset, clear_box), seals: seals_at(w, spec, price.offset, clear_box), price }).collect();
     v.sort_by(|a, b| a.seconds().total_cmp(&b.seconds()));
     v
 }
@@ -452,13 +513,14 @@ impl Site {
         let chosen = priced[k.min(priced.len() - 1)].clone();
         let offset = chosen.price.offset;
         let afk = Vec3::new(afk[0] + offset[0] as f64, afk[1] + offset[1] as f64, afk[2] + offset[2] as f64);
-        Site { sample: sample.name, world, offset, clear_box, dug: chosen.price.dug, placed: chosen.price.placed, afk, fills: chosen.covers, spots: priced.len(), build_range: range, priced }
+        Site { sample: sample.name, world, offset, clear_box, dug: chosen.price.dug, placed: chosen.price.placed, afk, fills: chosen.covers, seals: chosen.seals, spots: priced.len(), build_range: range, priced }
     }
 
     /// The build effort at this site for day 1's rank ([`Effort`]): its blocks placed with the glass
     /// covers, the natural blocks dug, and the design's lava sources and villagers.
     pub fn effort(&self, lava: u32, villagers: u32) -> Effort {
-        Effort { placed: self.placed + self.fills.len() as u32, dug: self.dug, lava, villagers }
+        let dug_seals = self.seals.iter().filter(|(_, dig)| *dig).count() as u32;
+        Effort { placed: self.placed + self.fills.len() as u32 + self.seals.len() as u32, dug: self.dug + dug_seals, lava, villagers }
     }
 
     /// `spec` moved into the site's world.
@@ -483,7 +545,8 @@ impl Site {
             let (lo, hi) = blocks_box(moved);
             place::clear(&mut w, lo, hi);
         }
-        let stone: Vec<(BlockPos, crate::block::Block)> = self.fills.iter().map(|p| (*p, crate::block::Block::Simple(crate::block::Simple::Glass))).collect();
+        let mut stone: Vec<(BlockPos, crate::block::Block)> = self.seals.iter().map(|(p, _)| (*p, SEAL)).collect();
+        stone.extend(self.fills.iter().map(|p| (*p, crate::block::Block::Simple(crate::block::Simple::Glass))));
         w.place_raw(&stone);
         w
     }

@@ -220,6 +220,19 @@ pub fn judge_opts(seed: i64, ticks: u32, walk: WalkMode) -> RunOpts {
     RunOpts::steady(seed, ticks, walk)
 }
 
+/// The judge's options for one run in a terrain site (`None`: the void, [`judge_opts`]): the
+/// steady state of `seed` in the site's world, with natural spawning on Hard around its AFK spot
+/// and the weather's natural cycle (brief `farm-iron.md` revision 8: day 1 is judged in real
+/// terrain with the weather on). circuit::mobfarm and the 3D viewer both call it, so the view
+/// plays the judge's run 0 of build 0 tick for tick.
+pub fn judge_opts_in(seed: i64, ticks: u32, walk: WalkMode, site: Option<&'static super::site::Site>) -> RunOpts {
+    let o = judge_opts(seed, ticks, walk);
+    match site {
+        Some(s) => RunOpts { site: Some(s), weather: crate::weather::Plan::Cycle, ..o },
+        None => o,
+    }
+}
+
 /// Game ticks the built farm runs before its entities arrive, so its water has spread (a
 /// player's farm is built long before it runs; each flowing step takes 5 gt).
 pub const SETTLE_TICKS: i64 = 200;
@@ -244,6 +257,10 @@ pub struct Run {
     detectors: Vec<(BlockPos, Block)>,
     settle_left: i64,
     walk_rng: crate::rng::LegacyRandom,
+    /// The entities the design brought ([`Run::arrive`]: its villagers, its zombie and vehicle),
+    /// by id: in a terrain run the natural mobs, the village's villagers and its golem are not the
+    /// farm's, and the checks judge only these (and the golems these villagers summon).
+    pub own: Vec<u32>,
 }
 
 impl Run {
@@ -258,9 +275,8 @@ impl Run {
             None => World::new(spec.lo, size),
         };
         w.mob.seed(o.seed, o.day0 - SETTLE_TICKS);
-        if let Some(s) = o.site {
-            w.mob.natural = Some(super::natural::Natural::new(vec![s.afk], super::natural::Difficulty::Hard));
-        }
+        // (a terrain site's natural spawning starts at the arrival, [`Run::arrive`]: the settle is
+        // the farm's construction, its water spreading, before the player stands AFK)
         // the level random (`Level.random`): a composter's chance, a dropper's slot (the shared
         // collection's), drawn from a stand-in seeded from the run like the mob layer's
         w.level_random = Some(crate::rng::LegacyRandom::new(o.seed ^ 0x6c76_6c72));
@@ -280,7 +296,7 @@ impl Run {
             w.set_block(spec.output, chest, crate::world::flags::RAW);
         }
         crate::redstone::container::apply_block_entities(&mut w, [(spec.output, "{Items:[]}")])?;
-        Ok(Run { world: w, spec: spec.clone(), o: *o, detectors, settle_left: SETTLE_TICKS, walk_rng: crate::rng::LegacyRandom::new(o.seed ^ 0x5741_4c4b) })
+        Ok(Run { world: w, spec: spec.clone(), o: *o, detectors, settle_left: SETTLE_TICKS, walk_rng: crate::rng::LegacyRandom::new(o.seed ^ 0x5741_4c4b), own: Vec::new() })
     }
 
     /// The settle's ticks left.
@@ -303,14 +319,20 @@ impl Run {
     /// LAST_SLEPT at the end of the last REST (day time 10); a fixed walking policy.
     pub fn arrive(&mut self) -> Result<(), String> {
         while self.settle_tick() {}
+        if let Some(s) = self.o.site {
+            self.world.mob.natural = Some(super::natural::Natural::new(vec![s.afk], super::natural::Difficulty::Hard));
+        }
         let w = &mut self.world;
         w.place_raw(&self.detectors);
         w.place_updates(&self.detectors);
+        let first = w.entities.next_id;
         for (ty, pos, nbt) in &self.spec.entities {
             crate::entity::spawn(w, ty, *pos, nbt.as_deref())?;
         }
+        self.own = (first..w.entities.next_id).collect();
+        let own = &self.own;
         let slept = w.time - (self.o.day0 - 10).rem_euclid(24000);
-        let villagers: Vec<usize> = (0..w.entities.list.len()).filter(|&i| matches!(&w.entities.list[i].kind, EntityKind::Mob(m) if m.ty == MobType::Villager)).collect();
+        let villagers: Vec<usize> = (0..w.entities.list.len()).filter(|&i| own.contains(&w.entities.list[i].id) && matches!(&w.entities.list[i].kind, EntityKind::Mob(m) if m.ty == MobType::Villager)).collect();
         let mut taken: Vec<BlockPos> = Vec::new();
         for i in villagers {
             let feet = w.entities.list[i].pos;
@@ -383,6 +405,27 @@ struct Track {
     golem_cells: std::collections::BTreeMap<[i32; 3], u32>,
     drop_cells: std::collections::BTreeMap<[i32; 3], u32>,
     cell_ticks: u32,
+    /// The farm's entities ([`Run::own`]) and the golems its villagers summoned: the only ones the
+    /// checks judge (a terrain run's natural mobs and village are not the farm's).
+    own: std::collections::HashSet<u32>,
+}
+
+impl Track {
+    /// The tracking of a run that just arrived: its own villagers' homes and last sleeps.
+    fn new(r: &Run, spec: &FarmSpec) -> Track {
+        let own: std::collections::HashSet<u32> = r.own.iter().copied().collect();
+        let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0, own };
+        for e in &r.world.entities.list {
+            if let EntityKind::Mob(m) = &e.kind
+                && m.ty == MobType::Villager
+                && tr.own.contains(&e.id)
+            {
+                tr.villager_home.push((e.id, e.pos));
+                tr.last_sleep.push((e.id, m.brain.as_deref().and_then(|b| b.last_slept).unwrap_or(0)));
+            }
+        }
+        tr
+    }
 }
 
 /// The iron in the farm's containers (`ingots + 9 x blocks`): (in the output chest, in the others).
@@ -408,20 +451,12 @@ fn container_iron(w: &World, output: BlockPos) -> (u32, u32) {
 pub fn run(spec: &FarmSpec, o: &RunOpts) -> Result<RunReport, String> {
     let mut r = Run::new(spec, o)?;
     let mut rep = RunReport { ticks: o.ticks, ..Default::default() };
-    let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0 };
-    for e in &r.world.entities.list {
-        if let EntityKind::Mob(m) = &e.kind
-            && m.ty == MobType::Villager
-        {
-            tr.villager_home.push((e.id, e.pos));
-            tr.last_sleep.push((e.id, m.brain.as_deref().and_then(|b| b.last_slept).unwrap_or(0)));
-        }
-    }
+    let mut tr = Track::new(&r, spec);
     for _ in 0..o.ticks {
         r.tick();
         let t = r.world.time;
         absorb_events(&mut r.world, &mut rep, &mut tr, t);
-        absorb_weather(&mut r.world, &mut rep, spec, t);
+        absorb_weather(&mut r.world, &mut rep, spec, &tr, t);
         check_tick(&r.world, &mut rep, &mut tr, spec, t);
         if rep.failures.len() >= 4 {
             break;
@@ -461,21 +496,13 @@ pub struct AwayReport {
 pub fn run_away(spec: &FarmSpec, o: &RunOpts, plan: AwayPlan) -> Result<(RunReport, AwayReport), String> {
     let mut r = Run::new(spec, o)?;
     let mut rep = RunReport { ticks: (plan.before + plan.after) as u32, ..Default::default() };
-    let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0 };
-    for e in &r.world.entities.list {
-        if let EntityKind::Mob(m) = &e.kind
-            && m.ty == MobType::Villager
-        {
-            tr.villager_home.push((e.id, e.pos));
-            tr.last_sleep.push((e.id, m.brain.as_deref().and_then(|b| b.last_slept).unwrap_or(0)));
-        }
-    }
+    let mut tr = Track::new(&r, spec);
     let step = |r: &mut Run, rep: &mut RunReport, tr: &mut Track| {
         r.tick();
         let t = r.world.time;
         absorb_events(&mut r.world, rep, tr, t);
         // mobinfra: what the weather did (lightning, its fires)
-        absorb_weather(&mut r.world, rep, spec, t);
+        absorb_weather(&mut r.world, rep, spec, tr, t);
         check_tick(&r.world, rep, tr, spec, t);
     };
     for _ in 0..plan.before {
@@ -519,6 +546,8 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
     let events = std::mem::take(&mut w.mob.events);
     for ev in events {
         match ev {
+            // the farm's villagers' summons only (a terrain run's village summons its own golems)
+            MobEvent::GolemTry { villager, .. } if !tr.own.contains(&villager) => {}
             MobEvent::GolemTry { golem: Some(id), at, .. } => {
                 rep.golems += 1;
                 rep.spawn_times.push(t);
@@ -529,23 +558,25 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
                     rep.spawn_cells.push(a);
                 }
                 tr.golem_born.push((id, t));
+                tr.own.insert(id);
             }
             MobEvent::GolemTry { golem: None, .. } => rep.losses.no_spot += 1,
-            MobEvent::GolemSeen { .. } => rep.losses.seen += 1,
+            MobEvent::GolemSeen { villager, .. } if tr.own.contains(&villager) => rep.losses.seen += 1,
             // the farm's own mobs (its villagers, its zombie): a natural mob's damage in a terrain
             // run is not the farm's
-            MobEvent::Hurt { id, ty, src, amount, .. } if matches!(ty, MobType::Villager | MobType::Zombie) => {
+            MobEvent::Hurt { id, ty, src, amount, .. } if matches!(ty, MobType::Villager | MobType::Zombie) && tr.own.contains(&id) => {
                 rep.fail(format!("gt {t}: the {} (entity {id}) took {amount} {} damage", ty.def().id, src.name()));
             }
-            MobEvent::Death { id, ty: MobType::IronGolem, .. } => {
+            MobEvent::Death { id, ty: MobType::IronGolem, .. } if tr.own.contains(&id) => {
                 rep.deaths += 1;
                 if let Some(k) = tr.golem_born.iter().position(|(g, _)| *g == id) {
                     rep.lifetimes.push(t - tr.golem_born[k].1);
                     tr.golem_born.remove(k);
                 }
             }
-            MobEvent::Death { id, ty, .. } => rep.fail(format!("gt {t}: the {} (entity {id}) died", ty.def().id)),
-            MobEvent::Drop { item, what, count, .. } => {
+            MobEvent::Death { id, ty, .. } if tr.own.contains(&id) => rep.fail(format!("gt {t}: the {} (entity {id}) died", ty.def().id)),
+            // the farm's golems' drops (a natural mob's are not the farm's)
+            MobEvent::Drop { from, item, what, count, .. } if tr.own.contains(&from) => {
                 match what {
                     "minecraft:iron_ingot" => rep.iron_dropped += count,
                     "minecraft:poppy" => rep.poppies_dropped += count,
@@ -553,7 +584,7 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
                 }
                 tr.drops.push(item);
             }
-            MobEvent::Slept { id, .. } => {
+            MobEvent::Slept { id, .. } if tr.own.contains(&id) => {
                 rep.sleeps += 1;
                 if let Some(s) = tr.last_sleep.iter_mut().find(|(v, _)| *v == id) {
                     rep.max_sleep_gap = rep.max_sleep_gap.max(t - s.1);
@@ -569,8 +600,10 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
 /// witch), no vehicle destroyed, no drop destroyed, no lightning fire next to a flammable block,
 /// no skeleton trap horse on the farm (its walking is not modeled: a lightning rod prevents traps);
 /// a zombie set on fire by the sun fails through its damage like any hurt zombie. Counts the
-/// weather's ticks and events for the card.
-fn absorb_weather(w: &mut World, rep: &mut RunReport, spec: &FarmSpec, t: i64) {
+/// weather's ticks and events for the card. Only the farm's own entities, drops and blocks (its
+/// box) count: a terrain run's village, natural mobs and natural blocks far from it are not the
+/// farm's.
+fn absorb_weather(w: &mut World, rep: &mut RunReport, spec: &FarmSpec, tr: &Track, t: i64) {
     use crate::weather::WeatherEvent as E;
     let ws = &mut rep.weather;
     ws.rain_ticks += w.is_raining() as u32;
@@ -579,14 +612,20 @@ fn absorb_weather(w: &mut World, rep: &mut RunReport, spec: &FarmSpec, t: i64) {
         return;
     }
     let inner = spec.inner();
+    let in_farm = |at: [i32; 3]| {
+        let near = inner.inflate(1.0, 1.0, 1.0);
+        let (x, y, z) = (at[0] as f64 + 0.5, at[1] as f64 + 0.5, at[2] as f64 + 0.5);
+        (near.min_x..near.max_x).contains(&x) && (near.min_y..near.max_y).contains(&y) && (near.min_z..near.max_z).contains(&z)
+    };
     for ev in std::mem::take(&mut w.weather.events) {
         let ws = &mut rep.weather;
         match ev {
             E::Strike { .. } => ws.strikes += 1,
             E::Hit { .. } => ws.hits += 1,
-            E::Converted { entity, .. } => rep.fail(format!("gt {t}: lightning struck a villager (entity {entity}): it is a witch now")),
-            E::VehicleDestroyed { entity, .. } => rep.fail(format!("gt {t}: lightning destroyed a vehicle (entity {entity}): its zombie is loose")),
-            E::ItemDestroyed { what, .. } => rep.fail(format!("gt {t}: lightning destroyed a drop ({what})")),
+            E::Converted { entity, .. } if tr.own.contains(&entity) => rep.fail(format!("gt {t}: lightning struck a villager (entity {entity}): it is a witch now")),
+            E::VehicleDestroyed { entity, .. } if tr.own.contains(&entity) => rep.fail(format!("gt {t}: lightning destroyed a vehicle (entity {entity}): its zombie is loose")),
+            E::ItemDestroyed { entity, what, .. } if tr.drops.contains(&entity) => rep.fail(format!("gt {t}: lightning destroyed a drop ({what})")),
+            E::Converted { .. } | E::VehicleDestroyed { .. } | E::ItemDestroyed { .. } => {}
             // a fire (a bolt's, lava's, a spread): what it burns of the farm is measured (the
             // card's `fire` line) and the run goes on with its consequences (the lava flows in);
             // the world's own blocks (a terrain sample's) are only simulated
@@ -600,9 +639,7 @@ fn absorb_weather(w: &mut World, rep: &mut RunReport, spec: &FarmSpec, t: i64) {
             }
             E::TrapHorse { at, .. } => {
                 ws.traps += 1;
-                let (x, y, z) = (at[0] as f64 + 0.5, at[1] as f64, at[2] as f64 + 0.5);
-                let near = inner.inflate(1.0, 1.0, 1.0);
-                if (near.min_x..near.max_x).contains(&x) && (near.min_y..near.max_y).contains(&y) && (near.min_z..near.max_z).contains(&z) {
+                if in_farm(at) {
                     rep.fail(format!("gt {t}: a skeleton trap horse spawned on the farm at {} {} {} (its walking is not modeled; a lightning rod prevents traps)", at[0], at[1], at[2]));
                 }
             }
@@ -614,8 +651,9 @@ fn absorb_weather(w: &mut World, rep: &mut RunReport, spec: &FarmSpec, t: i64) {
 }
 
 /// The checks on one golem at game time `t` (also the exit flood's): inside the build, out of
-/// the zombie's reach, off the vehicles. `None`: fine.
-pub fn golem_breaks_rule(w: &World, g: usize, inner: Aabb, t: i64) -> Option<String> {
+/// the zombie's reach, off the vehicles. `own`: the farm's entities (its zombie, its vehicles;
+/// a terrain run's natural zombies and the sample's vehicles are not the farm's). `None`: fine.
+pub fn golem_breaks_rule(w: &World, g: usize, inner: Aabb, t: i64, own: &[u32]) -> Option<String> {
     let e = &w.entities.list[g];
     if mob(w, g).dead {
         return None;
@@ -623,13 +661,13 @@ pub fn golem_breaks_rule(w: &World, g: usize, inner: Aabb, t: i64) -> Option<Str
     if !inner.intersects(e.bb) || e.bb.min_y < inner.min_y {
         return Some(format!("gt {t}: a golem left the build at {:.1} {:.1} {:.1}", e.pos.x, e.pos.y, e.pos.z));
     }
-    for z in w.entities.list.iter().filter(|z| matches!(&z.kind, EntityKind::Mob(m) if m.ty == MobType::Zombie)) {
+    for z in w.entities.list.iter().filter(|z| own.contains(&z.id) && matches!(&z.kind, EntityKind::Mob(m) if m.ty == MobType::Zombie)) {
         if attack_box(e.bb, None).intersects(z.bb) {
             return Some(format!("gt {t}: a golem at {:.1} {:.1} {:.1} can reach the zombie", e.pos.x, e.pos.y, e.pos.z));
         }
     }
     for v in &w.entities.list {
-        if matches!(v.kind, EntityKind::Boat(_) | EntityKind::Minecart(_)) && v.bb.intersects(e.bb) {
+        if own.contains(&v.id) && matches!(v.kind, EntityKind::Boat(_) | EntityKind::Minecart(_)) && v.bb.intersects(e.bb) {
             return Some(format!("gt {t}: a golem touches a vehicle at {:.1} {:.1} {:.1}", v.pos.x, v.pos.y, v.pos.z));
         }
     }
@@ -640,19 +678,25 @@ pub fn golem_breaks_rule(w: &World, g: usize, inner: Aabb, t: i64) -> Option<Str
 fn check_tick(w: &World, rep: &mut RunReport, tr: &mut Track, spec: &FarmSpec, t: i64) {
     // the entities alive, one sample every 20 gt (the lag a farm costs: brief revision 9)
     if t.rem_euclid(20) == 0 {
-        let alive = w.entities.list.iter().filter(|e| !e.removed).count() as u32;
+        // (the farm's own: its villagers, zombie, boat, golems and drops; a terrain sample's
+        // natural mobs and village are not its lag)
+        let alive = w.entities.list.iter().filter(|e| !e.removed && (tr.own.contains(&e.id) || tr.drops.contains(&e.id))).count() as u32;
         rep.entities_sum += alive as u64;
         rep.entity_samples += 1;
         rep.entities_peak = rep.entities_peak.max(alive);
     }
-    let zombie = w.entities.list.iter().find(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Zombie));
+    let zombie = w.entities.list.iter().find(|e| tr.own.contains(&e.id) && matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Zombie));
     let zbox = zombie.map(|z| z.bb);
     let inner = spec.inner();
+    let own: Vec<u32> = tr.own.iter().copied().collect();
     for (g, e) in w.entities.list.iter().enumerate() {
         let EntityKind::Mob(m) = &e.kind else { continue };
+        if !tr.own.contains(&e.id) {
+            continue;
+        }
         match m.ty {
             MobType::IronGolem => {
-                if let Some(why) = golem_breaks_rule(w, g, inner, t) {
+                if let Some(why) = golem_breaks_rule(w, g, inner, t, &own) {
                     rep.fail(why);
                 }
                 if !m.dead {

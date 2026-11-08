@@ -13,7 +13,7 @@
 //! not move for [`PINNED_TICKS`] out of the lava and the fire is refused at once: it is pinned
 //! (the currents under it cancel, or there are none).
 
-use super::farm::{FarmSpec, MAX_GOLEM_LIFE, RunOpts, WalkMode, build, golem_breaks_rule, touches_lava};
+use super::farm::{FarmSpec, MAX_GOLEM_LIFE, RunOpts, WalkMode, golem_breaks_rule, touches_lava};
 use super::spawn::{check_spawn_obstruction, possible_spawn_position};
 use super::types::MobType;
 use super::walk::Walk;
@@ -50,10 +50,16 @@ pub struct ExitReport {
 /// scanned like `trySpawnMob` (`LEGACY_IRON_GOLEM` from y+5 down to y-7) and checked like
 /// `checkSpawnObstruction`, in villager then column order, each cell once.
 pub fn spawn_spots(w: &World) -> Vec<BlockPos> {
+    let all: Vec<u32> = w.entities.list.iter().map(|e| e.id).collect();
+    spawn_spots_of(w, &all)
+}
+
+/// [`spawn_spots`] of the villagers among `own` (a terrain run's village villagers are not the farm's).
+pub fn spawn_spots_of(w: &World, own: &[u32]) -> Vec<BlockPos> {
     let mut out: Vec<BlockPos> = Vec::new();
     for e in &w.entities.list {
         let EntityKind::Mob(m) = &e.kind else { continue };
-        if m.ty != MobType::Villager || e.removed {
+        if m.ty != MobType::Villager || e.removed || !own.contains(&e.id) {
             continue;
         }
         let start = e.block_position();
@@ -79,8 +85,8 @@ struct Drift {
     fail: Option<String>,
 }
 
-/// A lone golem at `start` under `policy` in a copy of `base`.
-fn drift(base: &World, spec: &FarmSpec, start: Vec3, policy: Walk) -> Drift {
+/// A lone golem at `start` under `policy` in a copy of `base` (`own`: the farm's entities).
+fn drift(base: &World, spec: &FarmSpec, own: &[u32], start: Vec3, policy: Walk) -> Drift {
     let mut w = base.clone();
     let id = super::add(&mut w, MobType::IronGolem, start, false);
     let Some(g) = crate::entity::index_of(&w, id) else { return Drift { died_at: None, visited: Vec::new(), fail: Some("the golem could not be added".into()) } };
@@ -99,7 +105,7 @@ fn drift(base: &World, spec: &FarmSpec, start: Vec3, policy: Walk) -> Drift {
             return Drift { died_at: Some(t), visited, fail: None };
         }
         let Some(g) = crate::entity::index_of(&w, id) else { return fail(visited, "the golem vanished without dying".into()) };
-        if let Some(why) = golem_breaks_rule(&w, g, inner, t) {
+        if let Some(why) = golem_breaks_rule(&w, g, inner, t, own) {
             return fail(visited, why);
         }
         let e = &w.entities.list[g];
@@ -130,10 +136,31 @@ fn drift(base: &World, spec: &FarmSpec, start: Vec3, policy: Walk) -> Drift {
 
 /// The golem exit flood of a farm (`threads` drift runs at once).
 pub fn golem_exit(spec: &FarmSpec, seed: i64, threads: usize) -> Result<ExitReport, String> {
-    let o = RunOpts { seed, ticks: 0, day0: 6000, walk: WalkMode::Random, slept: true, site: None, weather: crate::weather::Plan::Off };
-    let mut base = build(spec, &o)?;
+    golem_exit_in(spec, None, seed, threads)
+}
+
+/// [`golem_exit`] in a terrain site (`site`: the spec already moved there, `Site::spec`): the
+/// golems drift in the farm built into the sample, natural rock for its walls, with no natural
+/// spawning (a lone golem's own physics).
+pub fn golem_exit_in(spec: &FarmSpec, site: Option<&'static super::site::Site>, seed: i64, threads: usize) -> Result<ExitReport, String> {
+    let o = RunOpts { seed, ticks: 0, day0: 6000, walk: WalkMode::Random, slept: true, site, weather: crate::weather::Plan::Off };
+    let r = super::farm::Run::new(spec, &o)?;
+    let own = r.own.clone();
+    let mut base = r.world;
     base.mob.golem_spawning = false;
-    let spots = spawn_spots(&base);
+    base.mob.natural = None;
+    // (a lone golem in the farm: a terrain sample's village and natural mobs left out)
+    base.entities.list.retain(|e| own.contains(&e.id));
+    // in terrain, the spots of the villagers that panic (only they summon: a blind villager's
+    // search reaches natural ground the glass covers leave, but it never runs); in the void, every
+    // villager's (as archived)
+    let starters: Vec<u32> = if site.is_some() {
+        let summoners = super::site::panicking(&base, &spec.blocks);
+        own.iter().copied().filter(|id| crate::entity::index_of(&base, *id).is_some_and(|i| summoners.contains(&base.entities.list[i].block_position()))).collect()
+    } else {
+        own.clone()
+    };
+    let spots = spawn_spots_of(&base, &starters);
     if spots.is_empty() {
         return Err("no golem can spawn anywhere in the build".into());
     }
@@ -151,7 +178,7 @@ pub fn golem_exit(spec: &FarmSpec, seed: i64, threads: usize) -> Result<ExitRepo
     while done < starts.len() {
         let jobs: Vec<(Vec3, Walk)> = starts[done..].iter().flat_map(|s| policies.iter().map(move |p| (*s, *p))).collect();
         done = starts.len();
-        let results = run_parallel(&base, spec, &jobs, threads);
+        let results = run_parallel(&base, spec, &own, &jobs, threads);
         for ((s, p), d) in jobs.iter().zip(results) {
             rep.runs += 1;
             if let Some(f) = d.fail {
@@ -242,7 +269,7 @@ fn edge_starts(w: &World, start: Vec3, seen: &mut HashSet<[i64; 3]>) -> Vec<Vec3
     out
 }
 
-fn run_parallel(base: &World, spec: &FarmSpec, jobs: &[(Vec3, Walk)], threads: usize) -> Vec<Drift> {
+fn run_parallel(base: &World, spec: &FarmSpec, own: &[u32], jobs: &[(Vec3, Walk)], threads: usize) -> Vec<Drift> {
     let next = AtomicUsize::new(0);
     let out: Mutex<Vec<Option<Drift>>> = Mutex::new((0..jobs.len()).map(|_| None).collect());
     std::thread::scope(|s| {
@@ -256,7 +283,7 @@ fn run_parallel(base: &World, spec: &FarmSpec, jobs: &[(Vec3, Walk)], threads: u
                     if k >= jobs.len() {
                         break;
                     }
-                    let d = drift(&mine, spec, jobs[k].0, jobs[k].1);
+                    let d = drift(&mine, spec, own, jobs[k].0, jobs[k].1);
                     out.lock().unwrap()[k] = Some(d);
                 }
             });

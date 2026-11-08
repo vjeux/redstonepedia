@@ -922,9 +922,16 @@ pub fn measure(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)], 
 /// [`measure`] of a farm as the judge builds it, over the occupancy of `runs` (the judge's runs of
 /// that build); with whether its zombie sees the sky (it burns by day: `Zombie.isSunBurnTick`).
 pub fn measure_farm(spec: &crate::entity::mob::farm::FarmSpec, runs: &[crate::entity::mob::farm::RunReport]) -> Result<(Measure, bool), String> {
+    measure_farm_in(spec, runs, None)
+}
+
+/// [`measure_farm`] in a terrain site (the day-1 lane: the farm built into the sample, the bolt's
+/// column tops and the sky the terrain's), the sky read for the farm's own zombie only (a terrain
+/// run's natural zombies are not the farm's).
+pub fn measure_farm_in(spec: &crate::entity::mob::farm::FarmSpec, runs: &[crate::entity::mob::farm::RunReport], site: Option<&'static crate::entity::mob::site::Site>) -> Result<(Measure, bool), String> {
     use crate::entity::mob::farm::{Run, RunOpts, WalkMode};
     use crate::entity::mob::types::MobType;
-    let run = Run::new(spec, &RunOpts::steady(0, 0, WalkMode::Random))?;
+    let run = Run::new(spec, &RunOpts { site, ..RunOpts::steady(0, 0, WalkMode::Random) })?;
     let ticks: f64 = runs.iter().map(|r| r.cell_ticks as f64).sum::<f64>().max(1.0);
     let mut golems: std::collections::BTreeMap<[i32; 3], f64> = Default::default();
     let mut iron: std::collections::BTreeMap<[i32; 3], f64> = Default::default();
@@ -939,7 +946,10 @@ pub fn measure_farm(spec: &crate::entity::mob::farm::FarmSpec, runs: &[crate::en
     let at = |c: &[i32; 3]| BlockPos::new(c[0], c[1], c[2]);
     let golems: Vec<(BlockPos, f64)> = golems.iter().map(|(c, p)| (at(c), *p)).collect();
     let iron: Vec<(BlockPos, f64)> = iron.iter().filter(|(_, n)| **n > 0.0).map(|(c, n)| (at(c), *n)).collect();
-    let w = &run.world;
+    let mut w = run.world.clone();
+    // (only the farm's own entities: the sample's village and natural mobs are not the farm's)
+    w.entities.list.retain(|e| run.own.contains(&e.id));
+    let w = &w;
     let mut sky = false;
     for e in &w.entities.list {
         if matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Zombie) && can_see_sky(w, e.block_position()).map_err(|why| format!("sunburn: the sky at the zombie {}: {why}", e.block_position()))? {

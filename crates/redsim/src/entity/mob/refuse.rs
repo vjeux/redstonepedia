@@ -15,7 +15,7 @@
 //!   another within 8 (an eye-to-eye COLLIDER ray, standing or sleeping, from the corners of its
 //!   cell) while 5 or more villagers share its 10-block box.
 
-use super::farm::{FarmSpec, RunOpts, WalkMode, attack_box, build};
+use super::farm::{FarmSpec, RunOpts, WalkMode, attack_box};
 use super::types::MobType;
 use super::{mob, villager};
 use crate::block::Block;
@@ -25,11 +25,24 @@ use crate::world::World;
 
 /// Every refusal of a build (empty: the mob layer can judge it).
 pub fn static_checks(spec: &FarmSpec) -> Vec<String> {
-    let o = RunOpts { seed: 1, ticks: 0, day0: 6000, walk: WalkMode::Random, slept: true, site: None, weather: crate::weather::Plan::Off };
-    let w = match build(spec, &o) {
-        Ok(w) => w,
+    static_checks_in(spec, None)
+}
+
+/// [`static_checks`] in a terrain site (`site`: the spec already moved there, `Site::spec`): the
+/// farm built into the sample, natural rock for its walls. Only the farm's own entities are
+/// checked (the sample's village and the natural mobs are not the farm's).
+pub fn static_checks_in(spec: &FarmSpec, site: Option<&'static super::site::Site>) -> Vec<String> {
+    let o = RunOpts { seed: 1, ticks: 0, day0: 6000, walk: WalkMode::Random, slept: true, site, weather: crate::weather::Plan::Off };
+    let mut w = match super::farm::Run::new(spec, &o) {
+        Ok(r) => {
+            let own = r.own;
+            let mut w = r.world;
+            w.entities.list.retain(|e| own.contains(&e.id));
+            w
+        }
         Err(e) => return vec![e],
     };
+    w.mob.natural = None;
     let mut out = block_checks(&w, spec);
     out.extend(zombie_checks(&w));
     out.extend(villager_checks(&w));

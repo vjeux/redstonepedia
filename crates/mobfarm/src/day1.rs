@@ -229,6 +229,22 @@ pub fn d1u(n: i32) -> String {
             }
         }
     }
+    // the sleeping eyes' rays to the zombie's eye (a sleeping villager settles on its bed's top:
+    // its eye at bed + 0.7625) rise through y 1 only 1.8 blocks north of the beds, so the floor
+    // cells in front of the two pods are dug two deep (else the natural floor hides the zombie from
+    // the sleeping villagers and no golem spawns at night), each under a top slab: the slabs are
+    // above the sleeping ray (1.10 at most there) and below the standing one (2.02 at least), and
+    // leave no standing room in the dug cells (no stand-up spot for the villager,
+    // `BedBlock.findStandUpPosition`) and no golem room over themselves
+    for x in [0, 2] {
+        for z in [-1, -2] {
+            b.set(x, 0, z, air);
+            b.set(x, 1, z, "stone_slab[type=top,waterlogged=false]");
+        }
+    }
+    // a torch on the tunnel's west wall lights the tunnel, the pods and the cells under the slabs
+    // (no monster spawns at block light 1 or more); it has no collision, so both rays pass
+    b.set(0, 2, -3, "wall_torch[facing=east]");
     // the zombie (D1's) and the hide facing west (D4's)
     b.set(2, 0, -7, "stone_slab[type=bottom,waterlogged=false]");
     b.set(2, 1, -7, air);
@@ -284,6 +300,12 @@ pub fn d1u(n: i32) -> String {
     b.set(lx, k + 1, lz, "oak_wall_sign[facing=south,waterlogged=false]");
     b.set(lx + 1, k + 2, lz, "oak_wall_sign[facing=south,waterlogged=false]");
     b.set(lx, k + 2, lz + 1, "oak_wall_sign[facing=east,waterlogged=false]");
+    // the fire shield: the cells over the two signs beside the lava hold stone buttons (on the
+    // pit's natural walls: no collision, not flammable), so lava's random tick
+    // (`LavaFluid.randomTick`: fire goes only into an air cell beside a block lava ignites, or an
+    // empty cell above one) never lights a fire beside a sign; a golem falls through them
+    b.set(lx, k + 3, lz + 1, "stone_button[face=wall,facing=east,powered=false]");
+    b.set(lx + 1, k + 3, lz, "stone_button[face=wall,facing=south,powered=false]");
     b.set(lx, k - 1, lz, "hopper[enabled=true,facing=down]");
     b.d.ports.insert("output".into(), [lx, k - 2, lz]);
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
@@ -291,7 +313,13 @@ pub fn d1u(n: i32) -> String {
     b.d.meta.insert("terrain".into(), "cells".into());
     b.d.meta.insert("ground".into(), "8".into());
     b.d.meta.insert("afk".into(), "2.5 9 4.5".into());
-    b.text(&["Day 1 (candidate D1U): D4 dug into the ground, natural rock for every wall: the bed plate hides the zombie", "from two scared villagers 6 below the surface; golems fall from the pad into a pit and burn under one lava source."])
+    b.text(&[
+        "Day-1 iron farm dug into the ground beside a village: two villagers on their beds watch a zombie parked in a boat",
+        "and keep summoning iron golems. At nightfall a third villager lies down in its bed, its pressure plate lets go and a",
+        "trapdoor hides the zombie: the two fall asleep, then see it again from their beds and wake scared, so golems come",
+        "day and night. Golems appear on a water pad 7 blocks down, fall through its middle into a pit and burn in its corner",
+        "under one lava source; the iron drops into a hopper and a chest at the bottom, reached by a staircase.",
+    ])
 }
 
 /// L2d's chamber without its fire: lava only in the north row (x 1..4, head height k + 2, z 1),
