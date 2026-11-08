@@ -33,11 +33,16 @@ pub fn gate_cmd(version: &str, design: &Path, a: GateArgs) -> Result<()> {
     o.trace = a.trace;
     o.terrain = a.terrain;
     o.world = a.world;
-    if o.terrain.is_some() && !a.builds.is_empty() {
-        bail!("--builds picks the void gate's builds; a terrain sample runs its one placement --parallel times");
+    // a terrain sample: `--builds K...` picks runs of its one placement by index (each its own
+    // seed: run 6 of D1U's gate is the one to look at again)
+    if o.terrain.is_some() {
+        for b in &a.builds {
+            let k: u8 = b.parse().map_err(|_| anyhow!("in a terrain sample --builds takes run indices (0..--parallel), e.g. 6"))?;
+            o.builds.push((k, [0, 0, 0]));
+        }
     }
     let all = circuit::mobfarm_game::judge_builds();
-    for b in &a.builds {
+    for b in a.builds.iter().filter(|_| o.terrain.is_none()) {
         let (t, k) = b.split_once('.').ok_or_else(|| anyhow!("--builds takes rotation.offset, e.g. 0.0"))?;
         let (t, k): (u8, usize) = (t.parse()?, k.parse()?);
         let Some(x) = all.iter().find(|(tt, _)| *tt == t).and_then(|_| all.iter().filter(|(tt, _)| *tt == t).nth(k)) else { bail!("no build {b}") };

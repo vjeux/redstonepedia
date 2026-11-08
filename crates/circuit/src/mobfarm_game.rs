@@ -748,6 +748,13 @@ fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, 
             }
             if o.trace && t % 1000 == 0 {
                 eprintln!("{label} gt {t}: {} golems, {} dead, failures {:?}", run.golems, run.deaths, run.failures);
+                // every entity near the farm by type (a natural mob wandering in, a stray golem)
+                let ids = s.cmd_long(&format!("execute as @e[type=!minecraft:item{near_box}] run data get entity @s id", near_box = if scope.near.is_empty() { String::new() } else { scope.near.clone() }))?;
+                let mut by: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+                for a in entity_answers(&ids) {
+                    *by.entry(a.trim().trim_matches('"').trim_start_matches("minecraft:").to_string()).or_default() += 1;
+                }
+                eprintln!("  near the farm: {by:?}");
                 if t % 4000 == 0 {
                     let mem = s.cmd_long(&format!("execute as @e[type=minecraft:villager{own}] run data get entity @s Brain.memories"))?;
                     eprintln!("  villager memories: {}", mem.chars().take(1500).collect::<String>());
@@ -1077,7 +1084,8 @@ fn sd(v: &[f64]) -> f64 {
 /// The gate: every build in its own server (`parallel` at once), then the rate against redsim's.
 pub fn gate(c: &Circuit, o: &GateOpts) -> Result<GateReport> {
     let builds = match &o.terrain {
-        // a terrain sample: one placement (its Site), `parallel` runs of it
+        // a terrain sample: one placement (its Site), `parallel` runs of it (or the runs picked)
+        Some(_) if !o.builds.is_empty() => o.builds.clone(),
         Some(_) => (0..o.parallel.max(1) as u8).map(|k| (k, [0, 0, 0])).collect(),
         None if o.builds.is_empty() => judge_builds(),
         None => o.builds.clone(),
