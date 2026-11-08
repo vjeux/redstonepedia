@@ -552,6 +552,9 @@ final class Exact {
                 scan(sb, null, null);
             }
             for (Entity e : sb.entities()) {
+                if (e instanceof net.minecraft.server.level.ServerPlayer) {
+                    continue;
+                }
                 this.present.add(e.getId() - sb.entityIdBase());
             }
         }
@@ -618,6 +621,11 @@ final class Exact {
             java.util.Set<Integer> now = new java.util.HashSet<>();
             JsonArray entered = new JsonArray();
             for (Entity e : all) {
+                if (e instanceof net.minecraft.server.level.ServerPlayer p) {
+                    // the AFK player: the scenario's input, not compared (its position shows it stays)
+                    f.add("player", vec(p.position()));
+                    continue;
+                }
                 int n = e.getId() - sb.entityIdBase();
                 now.add(n);
                 if (!this.present.contains(n)) {

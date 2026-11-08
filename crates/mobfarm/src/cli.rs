@@ -230,6 +230,14 @@ pub enum MobfarmCmd {
         /// Run to the end after the first difference.
         #[arg(long)]
         full: bool,
+        /// The bare scenario: no AFK player, the void's biome, spawn_mobs off (the mob layer
+        /// without natural spawning, fire spread or thunder). Default: the real-game gate's.
+        #[arg(long)]
+        bare: bool,
+        /// Print the game's draw log of this game time (every stream: "level", "e<n>" = entity
+        /// n's own random; each call site with its count, in draw order).
+        #[arg(long)]
+        draws_at: Option<i64>,
         /// Ticks per traced step.
         #[arg(long, default_value_t = 100)]
         batch: u32,
@@ -432,9 +440,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         MobfarmCmd::WeatherStats { days, servers, dt, sim_runs } => crate::weathercheck::weather_stats_cmd(version, days, servers, dt, sim_runs)?,
         MobfarmCmd::FireBurn { design, servers, max, seeds } => crate::weathercheck::fire_burn_cmd(version, &design, servers, max, seeds)?,
         MobfarmCmd::BoltCheck => crate::weathercheck::bolt_check_cmd(version)?,
-        MobfarmCmd::Compare { design, seed, days, ticks, weather, probe, twin, full, batch } => {
+        MobfarmCmd::Compare { design, seed, days, ticks, weather, probe, twin, full, bare, draws_at, batch } => {
             let ticks = ticks.unwrap_or((days * 24000.0).round() as u32);
-            let opts = crate::exact::Opts { seed, ticks, weather, probe, batch: batch.max(1), full };
+            let opts = crate::exact::Opts { seed, ticks, weather, probe, batch: batch.max(1), full, bare, draws_at };
             compare_cmd(version, &design, &opts, twin)?;
         }
     }
@@ -444,8 +452,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
 /// `mobfarm compare`: the exact compare (or the twin check), its report; a difference fails.
 fn compare_cmd(version: &str, design: &std::path::Path, opts: &crate::exact::Opts, twin: bool) -> Result<()> {
     let t0 = std::time::Instant::now();
-    let cmp = if twin { crate::exact::twin(version, design, opts)? } else { crate::exact::compare(version, design, opts, None)? };
+    let cmp = if twin { crate::exact::twin(version, design, opts, None)? } else { crate::exact::compare(version, design, opts, None)? };
     print!("{}", cmp.report());
+    if let (Some(d), true, true) = (&cmp.first, opts.probe, twin) {
+        crate::exact::twin(version, design, opts, Some(d.t))?;
+    }
     if let (Some(d), true, false) = (&cmp.first, opts.probe, twin) {
         println!("probe: the game's draws around game time {} (a second, identical run)", d.t);
         let again = crate::exact::compare(version, design, opts, Some(d.t))?;

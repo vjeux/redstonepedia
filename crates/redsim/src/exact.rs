@@ -319,7 +319,14 @@ impl Compare {
                 continue;
             };
             for (field, gv, ov) in self.entity(g, o) {
-                push(format!("entity #{} {} {field}", g.n, g.ty), &format!("{} {field}", normalize_type(&g.ty)), gv, ov, Vec::new());
+                let mut ctx = Vec::new();
+                if field == "random"
+                    && let (Some(a), Some(b)) = (g.random, o.random)
+                    && let Some(s) = crate::rng::state_diff(a, b)
+                {
+                    ctx.push(s.replacen("level random", "its own random", 1));
+                }
+                push(format!("entity #{} {} {field}", g.n, g.ty), &format!("{} {field}", normalize_type(&g.ty)), gv, ov, ctx);
             }
         }
         for o in ours.entities.iter().filter(|o| !game.entities.iter().any(|g| g.n == o.n)) {

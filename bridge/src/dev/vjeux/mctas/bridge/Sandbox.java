@@ -152,15 +152,16 @@ final class Sandbox {
     }
 
     static Sandbox create(SimServer server, int id, int minChunkX, int minChunkZ, int maxChunkX, int maxChunkZ, long seed) {
-        return create(server, id, minChunkX, minChunkZ, maxChunkX, maxChunkZ, seed, false);
+        return create(server, id, minChunkX, minChunkZ, maxChunkX, maxChunkZ, seed, false, null);
     }
 
     /**
      * {@code customSpawners} (tickexact, a world sandbox): the level runs the overworld's custom
      * spawners in vanilla's order (phantoms, patrols, cats, the village siege, the wandering trader:
      * {@code MinecraftServer} 421), the trader spawner's own random seeded ({@link Exact#traderSeed}).
+     * {@code biome}: the biome of every chunk (null: the void's).
      */
-    static Sandbox create(SimServer server, int id, int minChunkX, int minChunkZ, int maxChunkX, int maxChunkZ, long seed, boolean customSpawners) {
+    static Sandbox create(SimServer server, int id, int minChunkX, int minChunkZ, int maxChunkX, int maxChunkZ, long seed, boolean customSpawners, String biome) {
         ResourceKey<Level> key = ResourceKey.create(Registries.DIMENSION, Identifier.fromNamespaceAndPath("mctas", "sandbox_" + id));
         PrimaryLevelData data = new PrimaryLevelData(server.levelSettings, PrimaryLevelData.SpecialWorldProperty.FLAT, Lifecycle.stable());
         data.setInitialized(true);
@@ -182,7 +183,7 @@ final class Sandbox {
                 server.storage(),
                 data,
                 key,
-                server.voidStem,
+                server.stemFor(biome),
                 false,
                 BiomeManager.obfuscateSeed(seed),
                 spawners,
@@ -376,6 +377,12 @@ final class Sandbox {
 
         @Override
         public void onCreated(Entity e) {
+            if (e instanceof net.minecraft.server.level.ServerPlayer) {
+                // (tickexact) the AFK player: an id past the sandbox's numbering, no seeding
+                e.setId(entityIdBase() + (1 << 20) - 4);
+                this.vanilla.onCreated(e);
+                return;
+            }
             // deterministic ids for every entity, before it is tracked (the level's id lookup)
             int n = entityCount++;
             e.setId(entityIdBase() + n);
@@ -552,6 +559,17 @@ final class Sandbox {
             this.level.tick(() -> true);
         } finally {
             this.ticking = false;
+        }
+        // (tickexact) the AFK player's own tick, after the levels like a connection's
+        // (MinecraftServer.tickConnection -> ServerGamePacketListenerImpl.tick -> doTick): its stats
+        // (TIME_SINCE_REST: phantoms), food, effects
+        if (this.afk != null && !this.afk.isRemoved()) {
+            this.ticking = true;
+            try {
+                this.afk.doTick();
+            } finally {
+                this.ticking = false;
+            }
         }
         // A level sends its block changes to players at the START of its next tick, while block
         // events (piston moves) go out at once. A real client never notices (the next tick is
@@ -840,10 +858,14 @@ final class Sandbox {
         // an item a hopper took from the sorter judge's water stream, the count reaches the number
         // of one still there).
         java.util.Set<UUID> taken = new java.util.HashSet<>();
+        int i = 0;
         for (Entity d : designEntities()) {
             taken.add(d.getUUID());
+            // (tickexact) design mobs have their own UUID namespace: they take no design number
+            if (!(d instanceof net.minecraft.world.entity.Mob)) {
+                i++;
+            }
         }
-        int i = taken.size();
         for (com.google.gson.JsonElement el : specs) {
             if (mobs) {
                 int[] index = {i};
@@ -950,6 +972,14 @@ final class Sandbox {
                 }
                 m++;
             }
+            if (e instanceof net.minecraft.world.entity.Mob) {
+                // a design mob: its UUID from its entity number (its own namespace), so the design
+                // entities' numbering (non-mobs: UUID and random seed by index) stays as before
+                Exact.Seeded info = this.seeded.get(e);
+                e.setUUID(UUID.nameUUIDFromBytes(("mctas-mob-" + (info == null ? -1 : info.n)).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+                e.addTag(DESIGN_TAG);
+                continue;
+            }
             int i = index[0];
             UUID uuid = UUID.nameUUIDFromBytes(("mctas-entity-" + i).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             while (taken.contains(uuid)) {
@@ -958,9 +988,7 @@ final class Sandbox {
             }
             taken.add(uuid);
             e.setUUID(uuid);
-            if (!(e instanceof net.minecraft.world.entity.Mob)) {
-                e.getRandom().setSeed(0x6d63746173L + i);
-            }
+            e.getRandom().setSeed(0x6d63746173L + i);
             e.addTag(DESIGN_TAG);
             index[0] = i + 1;
         }
@@ -1080,8 +1108,13 @@ final class Sandbox {
     void clear() {
         forgetTorchToggles();
         for (Entity e : entities()) {
+            if (e instanceof net.minecraft.server.level.ServerPlayer p) {
+                this.level.removePlayerImmediately(p, Entity.RemovalReason.DISCARDED);
+                continue;
+            }
             e.discard();
         }
+        this.afk = null;
         this.prevEntityPos.clear();
         BoundingBox bb = bounds();
         this.level.clearBlockEvents(bb);
@@ -1131,6 +1164,109 @@ final class Sandbox {
 
     /** A world sandbox ticks the server's clock before each of its ticks (see {@link #tick}). */
     boolean tickClock;
+
+    // ---- the AFK player (tickexact): a world sandbox's player, no network ----------------------
+
+    /** The world sandbox's AFK player (null: none): ticked after the level like a connected one. */
+    net.minecraft.server.level.ServerPlayer afk;
+
+    /**
+     * Add the AFK player at (x, y, z) in game mode {@code mode} (a real {@code ServerPlayer}: it
+     * counts for natural spawning, despawning, fire spread and thunder like a connected player, the
+     * custom spawners see it; its connection drops every packet), with the level's simulation and
+     * view distances; then load the chunks around it (pumped like {@link #create}). Its entity id
+     * is outside the sandbox's numbering (redsim keeps it as a position, not an entity).
+     */
+    net.minecraft.server.level.ServerPlayer addPlayer(SimServer server, double x, double y, double z, GameType mode, int simulation, int view) {
+        if (this.afk != null) {
+            throw new IllegalStateException("the sandbox has its player already");
+        }
+        GameProfile profile = new GameProfile(UUID.nameUUIDFromBytes(("mctas-afk-" + this.id).getBytes(java.nio.charset.StandardCharsets.UTF_8)), "mctas_afk");
+        net.minecraft.server.level.ServerPlayer p = new net.minecraft.server.level.ServerPlayer(server, this.level, profile, net.minecraft.server.level.ClientInformation.createDefault());
+        net.minecraft.network.Connection c = new net.minecraft.network.Connection(net.minecraft.network.protocol.PacketFlow.SERVERBOUND) {
+            @Override
+            public void send(net.minecraft.network.protocol.Packet<?> packet, io.netty.channel.ChannelFutureListener listener, boolean flush) {}
+        };
+        new net.minecraft.server.network.ServerGamePacketListenerImpl(server, c, p, net.minecraft.server.network.CommonListenerCookie.createInitial(profile, false)) {
+            @Override
+            public void send(net.minecraft.network.protocol.Packet<?> packet, io.netty.channel.ChannelFutureListener listener) {}
+        };
+        p.setGameMode(mode);
+        p.snapTo(x, y, z, 0.0F, 0.0F);
+        p.getRandom().setSeed(this.seed ^ 0x706c61796572L);
+        this.level.getChunkSource().setSimulationDistance(simulation);
+        this.level.getChunkSource().setViewDistance(view);
+        this.afk = p;
+        this.level.addNewPlayer(p);
+        PersistentEntitySectionManager<?> entityManager = (PersistentEntitySectionManager<?>) get(ENTITY_MANAGER, this.level);
+        ChunkPos center = new ChunkPos(Mth.floor(x) >> 4, Mth.floor(z) >> 4);
+        long deadline = System.nanoTime() + 120_000_000_000L;
+        // the chunks around the player load asynchronously: pump until every chunk of its
+        // simulation square is entity ticking with its entities, and the lists the level ticks
+        // (the block-ticking chunks, the spawning chunks: out to the block-ticking ring) stayed the
+        // same for 20 rounds
+        String last = "";
+        int stable = 0;
+        while (stable < 20) {
+            server.pumpTasks();
+            this.level.getChunkSource().tick(() -> true, false);
+            this.level.getChunkSource().pollTask();
+            entityManager.tick();
+            String now = tickingChunks().size() + "/" + spawningChunks().size();
+            stable = playerChunksReady(center, simulation) && now.equals(last) ? stable + 1 : 0;
+            last = now;
+            if (System.nanoTime() > deadline) {
+                throw new IllegalStateException("the chunks around the player did not load (" + now + ")");
+            }
+            LockSupport.parkNanos(1_000_000L);
+        }
+        drainLight();
+        return p;
+    }
+
+    /**
+     * The chunks {@code ServerChunkCache.tickChunks} spawns in, before its shuffle
+     * ({@code ChunkMap.collectSpawningChunks}: the spawn candidates, near a player, ticking): [x, z].
+     */
+    List<int[]> spawningChunks() {
+        List<LevelChunk> chunks = new ArrayList<>();
+        this.level.getChunkSource().chunkMap.collectSpawningChunks(chunks);
+        List<int[]> out = new ArrayList<>();
+        for (LevelChunk c : chunks) {
+            out.add(new int[] {c.getPos().x(), c.getPos().z()});
+        }
+        return out;
+    }
+
+    /**
+     * Every chunk within {@code d} of the player's chunk is ticking ({@code ChunkHolder
+     * .getTickingChunk}) with its entities and entity-ticking tickets, and every chunk of the ring
+     * at {@code d + 1} is block ticking (the spawning chunks reach it).
+     */
+    private boolean playerChunksReady(ChunkPos center, int d) {
+        var dm = this.level.getChunkSource().chunkMap.getDistanceManager();
+        for (int cx = center.x() - d - 1; cx <= center.x() + d + 1; cx++) {
+            for (int cz = center.z() - d - 1; cz <= center.z() + d + 1; cz++) {
+                long k = ChunkPos.pack(cx, cz);
+                net.minecraft.server.level.ChunkHolder h;
+                try {
+                    h = (net.minecraft.server.level.ChunkHolder) VISIBLE_HOLDER.invoke(this.level.getChunkSource().chunkMap, k);
+                } catch (ReflectiveOperationException e) {
+                    throw new IllegalStateException(e);
+                }
+                if (h == null || h.getTickingChunk() == null) {
+                    return false;
+                }
+                boolean inner = Math.abs(cx - center.x()) <= d && Math.abs(cz - center.z()) <= d;
+                if (inner && (!dm.inEntityTickingRange(k) || !this.level.areEntitiesLoaded(k))) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private static final java.lang.reflect.Method VISIBLE_HOLDER = method(ChunkMap.class, "getVisibleChunkIfPresent", long.class);
 
     /** The exact compare's watch (Exact.Watch): the box it reports changes in, and what it saw. */
     private Exact.Watch watch;

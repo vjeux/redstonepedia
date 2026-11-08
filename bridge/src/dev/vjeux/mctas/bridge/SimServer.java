@@ -199,6 +199,26 @@ public final class SimServer extends MinecraftServer {
         return this.storageSource;
     }
 
+    private final Map<String, LevelStem> stems = new java.util.HashMap<>();
+
+    /**
+     * (tickexact) A void stem whose chunks carry {@code biome} (a world sandbox standing in a biome:
+     * the real-game gate's void superflat is plains, where it rains), cached per biome; the
+     * overworld's dimension type like the void stem's.
+     */
+    LevelStem stemFor(String biome) {
+        if (biome == null || biome.equals("minecraft:the_void")) {
+            return this.voidStem;
+        }
+        return this.stems.computeIfAbsent(biome, id -> {
+            Holder<Biome> b = this.registryAccess().lookupOrThrow(Registries.BIOME)
+                    .getOrThrow(ResourceKey.create(Registries.BIOME, net.minecraft.resources.Identifier.parse(id)));
+            FlatLevelGeneratorSettings flat = new FlatLevelGeneratorSettings(Optional.empty(), b, List.of());
+            flat.updateLayers();
+            return new LevelStem(this.voidStem.type(), new FlatLevelSource(flat));
+        });
+    }
+
     boolean listening() {
         return listenPort > 0;
     }

@@ -209,8 +209,9 @@ public final class Protocol {
         }
         long seed = r.has("seed") ? r.get("seed").getAsLong() : 0L;
         boolean customSpawners = r.has("custom_spawners") && r.get("custom_spawners").getAsBoolean();
+        String biome = r.has("biome") && !r.get("biome").isJsonNull() ? r.get("biome").getAsString() : null;
         int id = this.nextSandboxId++;
-        Sandbox sb = Sandbox.create(this.server, id, minCX, minCZ, maxCX, maxCZ, seed, customSpawners);
+        Sandbox sb = Sandbox.create(this.server, id, minCX, minCZ, maxCX, maxCZ, seed, customSpawners, biome);
         this.sandboxes.put(id, sb);
         JsonObject o = new JsonObject();
         o.addProperty("sandbox", id);
@@ -767,9 +768,40 @@ public final class Protocol {
         if (r.has("trace_randoms")) {
             sb.setTraceRandoms(r.get("trace_randoms").getAsBoolean());
         }
+        if (r.has("player")) {
+            // {pos, mode ("creative"...), simulation, view, flying}
+            JsonObject p = r.getAsJsonObject("player");
+            JsonArray pp = p.getAsJsonArray("pos");
+            net.minecraft.world.level.GameType mode = net.minecraft.world.level.GameType.byName(p.has("mode") ? p.get("mode").getAsString() : "creative");
+            int sim = p.has("simulation") ? p.get("simulation").getAsInt() : 6;
+            int view = p.has("view") ? p.get("view").getAsInt() : sim;
+            net.minecraft.server.level.ServerPlayer pl = sb.addPlayer(this.server, pp.get(0).getAsDouble(), pp.get(1).getAsDouble(), pp.get(2).getAsDouble(), mode, sim, view);
+            if (!p.has("flying") || p.get("flying").getAsBoolean()) {
+                // the AFK player hangs where it is put (the real-game gate's bot sends no moves)
+                pl.getAbilities().flying = pl.getAbilities().mayfly;
+                pl.setNoGravity(true);
+            }
+        }
         sb.tickClock = true;
         JsonObject o = new JsonObject();
         o.addProperty("day_time", sb.level.getOverworldClockTime());
+        JsonArray chunks = new JsonArray();
+        for (int[] c : sb.tickingChunks()) {
+            JsonArray a = new JsonArray();
+            a.add(c[0]);
+            a.add(c[1]);
+            chunks.add(a);
+        }
+        o.add("ticking_chunks", chunks);
+        JsonArray spawning = new JsonArray();
+        for (int[] c : sb.spawningChunks()) {
+            JsonArray a = new JsonArray();
+            a.add(c[0]);
+            a.add(c[1]);
+            spawning.add(a);
+        }
+        o.add("spawning_chunks", spawning);
+        o.addProperty("spawn_chunk_count", sb.level.getChunkSource().chunkMap.getDistanceManager().getNaturalSpawnChunkCount());
         return o;
     }
 

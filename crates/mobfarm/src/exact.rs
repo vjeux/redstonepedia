@@ -13,7 +13,7 @@
 //! second, identical run) and the fields redsim does not model yet.
 
 use anyhow::{Context, Result, anyhow, bail};
-use mctas::sim::{PlaceMode, SandboxOptions, Worker, WorkerConfig};
+use mctas::sim::{PlaceMode, Worker, WorkerConfig};
 use redsim::entity::EntityKind;
 use redsim::entity::mob::farm::{FarmSpec, Run, RunOpts, SETTLE_TICKS};
 use redsim::exact::{Compare, EntityFrame, Frame, Watch};
@@ -32,6 +32,11 @@ pub struct Opts {
     pub batch: u32,
     /// Keep comparing after the first difference (to the end), to count the ticks run.
     pub full: bool,
+    /// The bare scenario: no AFK player, the void's biome, `spawn_mobs` off (redsim without its
+    /// AFK spot): the mob layer without natural spawning, fire spread or thunder.
+    pub bare: bool,
+    /// Print the game's draw log of this game time (every stream, by call site).
+    pub draws_at: Option<i64>,
 }
 
 /// The follow-range bonus of each design mob (`Mob.finalizeSpawn`'s `random_spawn_bonus`), a run
@@ -52,25 +57,60 @@ pub struct GameFarm {
     sb: u32,
     lo: [i32; 3],
     hi: [i32; 3],
+    /// The chunks the level ticks, in its order (the forced box and the AFK player's simulation
+    /// square), for redsim's chunk ticks.
+    pub ticking: Vec<[i32; 2]>,
+    /// The chunks it spawns in, before the shuffle (`ChunkMap.collectSpawningChunks`: the
+    /// player's block-ticking ring within 128 blocks), and the natural spawn chunk count (the mob
+    /// cap's divisor).
+    pub spawning: Vec<[i32; 2]>,
+    pub spawn_chunk_count: u32,
 }
 
 fn pos(p: redsim::BlockPos) -> [i32; 3] {
     [p.x, p.y, p.z]
 }
 
+/// The real-game gate's AFK spot of a void farm (`circuit::mobfarm_game`): 60 blocks under the
+/// chest, a stone over its head (redsim's `World::afk` is the same).
+pub fn afk_spot(spec: &FarmSpec) -> [i32; 3] {
+    [spec.output.x, spec.lo.y - 60, spec.output.z]
+}
+
+/// The gate's forced chunks of a void farm: its box and 8 blocks around (`forceload add`).
+pub fn forced_chunks(spec: &FarmSpec) -> [i32; 4] {
+    [(spec.lo.x - 8).div_euclid(16), (spec.lo.z - 8).div_euclid(16), (spec.hi.x + 8).div_euclid(16), (spec.hi.z + 8).div_euclid(16)]
+}
+
 impl GameFarm {
-    /// A fresh worker and world sandbox with the farm built and its chest placed (before the
-    /// settle).
-    pub fn start(version: &str, c: &circuit::Circuit, spec: &FarmSpec, o: &RunOpts, weather: bool, trace_randoms: bool) -> Result<GameFarm> {
+    /// A fresh worker and world sandbox in the real-game gate's scenario (`circuit::mobfarm_game`:
+    /// a plains void, Hard, `spawn_mobs` on and natural monsters off, phantoms, patrols and
+    /// traders off, the clock and (with `weather`) the weather running, the AFK player creative
+    /// under a stone 60 blocks under the chest, simulation and view distance 6), with the farm
+    /// built and its chest placed (before the settle). `bare`: no player, the void's biome,
+    /// `spawn_mobs` off (the mob layer seen without natural spawning, fire spread or thunder).
+    pub fn start(version: &str, c: &circuit::Circuit, spec: &FarmSpec, o: &RunOpts, weather: bool, trace_randoms: bool, bare: bool) -> Result<GameFarm> {
         let mut w = Worker::spawn(&WorkerConfig { version: version.to_string(), heap_mb: 2048, ..Default::default() })?;
-        let sb = w.create(&SandboxOptions { chunks: chunk_box(spec), seed: o.seed })?;
-        w.call(json!({
+        let biome = if bare { Value::Null } else { json!("minecraft:plains") };
+        let v = w.call(json!({"op": "create", "chunks": forced_chunks(spec), "seed": o.seed, "biome": biome}))?;
+        let sb = v["sandbox"].as_u64().ok_or_else(|| anyhow!("create: no sandbox"))? as u32;
+        let bot = afk_spot(spec);
+        let mut world = json!({
             "op": "world", "sandbox": sb,
             "advance_time": true, "day_time": o.day0 - SETTLE_TICKS,
-            "advance_weather": weather, "spawn_mobs": false, "spawn_monsters": false,
+            "advance_weather": weather, "spawn_mobs": !bare, "spawn_monsters": false,
+            "rules": {"spawn_phantoms": "false", "spawn_patrols": "false", "spawn_wandering_traders": "false"},
+            "difficulty": "hard",
             "trace_randoms": trace_randoms,
-        }))
-        .context("world sandbox")?;
+        });
+        if !bare {
+            w.set_blocks(sb, &[([bot[0], bot[1] + 3, bot[2]], "minecraft:stone")], PlaceMode::Raw)?;
+            world["player"] = json!({"pos": [bot[0] as f64 + 0.5, bot[1] as f64, bot[2] as f64 + 0.5], "mode": "creative", "simulation": 6, "view": 6});
+        }
+        let v = w.call(world).context("world sandbox")?;
+        let ticking = v["ticking_chunks"].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default();
+        let spawning = v["spawning_chunks"].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default();
+        let spawn_chunk_count = v["spawn_chunk_count"].as_u64().unwrap_or(0) as u32;
         // the blocks in the spec's order (redsim's: sorted by x, y, z), the detectors held back
         let text: std::collections::HashMap<[i32; 3], String> = c.clock.design.block_list().into_iter().collect();
         let mut rest = Vec::new();
@@ -81,7 +121,7 @@ impl GameFarm {
             let s = text.get(&pos(*p)).ok_or_else(|| anyhow!("no design block at {p}"))?;
             rest.push((pos(*p), s.clone()));
         }
-        let mut g = GameFarm { w, sb, lo: pos(spec.lo), hi: pos(spec.hi) };
+        let mut g = GameFarm { w, sb, lo: pos(spec.lo), hi: pos(spec.hi), ticking, spawning, spawn_chunk_count };
         g.place(&rest)?;
         let out = pos(spec.output);
         let here = g.w.get_region(sb, out, out)?;
@@ -219,6 +259,15 @@ fn parse_entity(e: &Value) -> Result<EntityFrame> {
     })
 }
 
+/// How high the exact compare lifts a void design (both sides): the gate's AFK spot, 60 blocks
+/// under the farm, must lie inside the world (y -64..320).
+pub const LIFT: i32 = 100;
+
+/// A design, lifted by [`LIFT`].
+pub fn load_lifted(design: &std::path::Path) -> Result<circuit::Circuit> {
+    circuit::Circuit::load(design)?.translated([0, LIFT, 0])
+}
+
 /// The judge's run options for the exact compare: the steady state of `seed`, golems standing
 /// still (the walking policies are the judge's robustness input, not the game's AI).
 pub fn run_opts(seed: i64, ticks: u32) -> RunOpts {
@@ -226,36 +275,52 @@ pub fn run_opts(seed: i64, ticks: u32) -> RunOpts {
 }
 
 /// redsim's side: the runner with the exact streams on (the level random mirrored on the
-/// sandbox's chunk box, random ticks at speed 3 from the bridge's randValue).
-pub fn redsim_start(spec: &FarmSpec, o: &RunOpts) -> Result<Run> {
+/// sandbox's forced box, random ticks at speed 3 from the bridge's randValue), its chunks ticked in
+/// the game's order (`ticking`: the forced box and the AFK player's square, from the bridge).
+pub fn redsim_start(spec: &FarmSpec, o: &RunOpts, ticking: &[[i32; 2]], bare: bool) -> Result<Run> {
     let mut run = Run::start(spec, o).map_err(|e| anyhow!(e))?;
-    run.world.mirror_level_random(o.seed, chunk_box(spec));
+    run.world.mirror_level_random(o.seed, forced_chunks(spec));
     run.world.random_ticks = Some(redsim::crops::RandomTicks::new(3, o.seed));
+    if !ticking.is_empty() {
+        run.world.chunk_order = ticking.to_vec();
+    }
+    if bare {
+        run.world.afk = None;
+    }
     Ok(run)
 }
 
 /// Compare a farm design over `opts.ticks` game ticks after the settle; the compare's result.
 pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: Option<i64>) -> Result<Compare> {
-    let c = circuit::Circuit::load(design)?;
+    let c = load_lifted(design)?;
     let spec = circuit::mobfarm::spec_of(&c).map_err(|e| anyhow!(e))?;
     let o = run_opts(opts.seed, opts.ticks);
-    let mut run = redsim_start(&spec, &o)?;
-    let mut game = GameFarm::start(version, &c, &spec, &o, opts.weather, draws_at.is_some())?;
+    let mut game = GameFarm::start(version, &c, &spec, &o, opts.weather, draws_at.is_some() || opts.draws_at.is_some(), opts.bare)?;
+    let mut run = redsim_start(&spec, &o, &game.ticking, opts.bare)?;
     let mut watch = Watch::new(&run.world, spec.lo, spec.hi);
     let mut cmp = Compare::default();
-    let window = |t0: i64, n: u32| draws_at.is_some_and(|d| d >= t0 && d < t0 + n as i64 + 3);
+    let window = |t0: i64, n: u32| [draws_at, opts.draws_at].iter().flatten().any(|d| *d >= t0 && *d < t0 + n as i64 + 3);
+    let print = |f: &Frame| {
+        if opts.draws_at == Some(f.t) {
+            println!("the game's draws at game time {} (stream, call site, count; in draw order):", f.t);
+            for (s, site, n) in &f.draws {
+                println!("  {s} {site} x{n}");
+            }
+        }
+    };
     let mut t: i64 = 0;
     let mut left = SETTLE_TICKS as u32;
     while left > 0 {
         let n = left.min(opts.batch);
         for f in game.trace(n, window(t, n))? {
+            print(&f);
             run.settle_tick();
             let ours = watch.frame(&run.world);
             cmp.tick(&f, &ours);
         }
         t += n as i64;
         left -= n;
-        if cmp.first.is_some() && !opts.full {
+        if cmp.first.is_some() && !opts.full && opts.draws_at.is_none_or(|d| d < t) {
             return Ok(cmp);
         }
     }
@@ -268,13 +333,14 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
     while left > 0 {
         let n = left.min(opts.batch);
         for f in game.trace(n, window(t, n))? {
+            print(&f);
             run.tick();
             let ours = watch.frame(&run.world);
             cmp.tick(&f, &ours);
         }
         t += n as i64;
         left -= n;
-        if cmp.first.is_some() && !opts.full {
+        if cmp.first.is_some() && !opts.full && opts.draws_at.is_none_or(|d| d < t) {
             break;
         }
     }
@@ -298,21 +364,47 @@ pub fn set_bonuses(w: &mut redsim::world::World, bonus: &[f64]) {
 
 /// The bridge against itself: the same farm run twice in two workers, frame for frame (every
 /// field the game reports), the determinism check of the bridge's seeding.
-pub fn twin(version: &str, design: &std::path::Path, opts: &Opts) -> Result<Compare> {
-    let c = circuit::Circuit::load(design)?;
+pub fn twin(version: &str, design: &std::path::Path, opts: &Opts, draws_at: Option<i64>) -> Result<Compare> {
+    let c = load_lifted(design)?;
     let spec = circuit::mobfarm::spec_of(&c).map_err(|e| anyhow!(e))?;
     let o = run_opts(opts.seed, opts.ticks);
-    let mut run = redsim_start(&spec, &o)?;
-    let mut a = GameFarm::start(version, &c, &spec, &o, opts.weather, false)?;
-    let mut b = GameFarm::start(version, &c, &spec, &o, opts.weather, false)?;
+    let mut a = GameFarm::start(version, &c, &spec, &o, opts.weather, draws_at.is_some(), opts.bare)?;
+    let mut b = GameFarm::start(version, &c, &spec, &o, opts.weather, draws_at.is_some(), opts.bare)?;
+    if a.ticking != b.ticking {
+        println!("twin: the two runs tick different chunks: {} vs {} (first {:?} vs {:?})", a.ticking.len(), b.ticking.len(), a.ticking.first(), b.ticking.first());
+    }
+    let mut run = redsim_start(&spec, &o, &a.ticking, opts.bare)?;
     let mut cmp = Compare::default();
+    let window = |t0: i64, n: u32| draws_at.is_some_and(|d| d >= t0 && d < t0 + n as i64 + 3);
+    let mut t = 0i64;
+    let show = |x: &Frame, y: &Frame| {
+        if draws_at == Some(x.t) {
+            let count = |f: &Frame| {
+                let mut m: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+                for (s, site, n) in &f.draws {
+                    *m.entry(format!("{s} {site}")).or_default() += n;
+                }
+                m
+            };
+            let (ca, cb) = (count(x), count(y));
+            println!("twin draws at game time {}: call sites whose counts differ (run A, run B):", x.t);
+            for k in ca.keys().chain(cb.keys()).collect::<std::collections::BTreeSet<_>>() {
+                let (p, q) = (ca.get(k).copied().unwrap_or(0), cb.get(k).copied().unwrap_or(0));
+                if p != q {
+                    println!("  {k}: {p} vs {q}");
+                }
+            }
+        }
+    };
     let mut left = SETTLE_TICKS as u32;
     while left > 0 {
         let n = left.min(opts.batch);
-        let (fa, fb) = (a.trace(n, false)?, b.trace(n, false)?);
+        let (fa, fb) = (a.trace(n, window(t, n))?, b.trace(n, window(t, n))?);
         for (x, y) in fa.iter().zip(fb.iter()) {
+            show(x, y);
             cmp.tick(x, &as_ours(y));
         }
+        t += n as i64;
         left -= n;
     }
     while run.settle_tick() {}
@@ -325,10 +417,12 @@ pub fn twin(version: &str, design: &std::path::Path, opts: &Opts) -> Result<Comp
     let mut left = opts.ticks;
     while left > 0 {
         let n = left.min(opts.batch);
-        let (fa, fb) = (a.trace(n, false)?, b.trace(n, false)?);
+        let (fa, fb) = (a.trace(n, window(t, n))?, b.trace(n, window(t, n))?);
         for (x, y) in fa.iter().zip(fb.iter()) {
+            show(x, y);
             cmp.tick(x, &as_ours(y));
         }
+        t += n as i64;
         left -= n;
         if cmp.first.is_some() {
             break;
