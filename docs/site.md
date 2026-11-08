@@ -260,6 +260,19 @@ cell holds a comparator, so its output is searched again (`clock::sim::lamp_outp
 candidate, ~50 s each); the others overlap it (members costliest first, the circuits beside the
 clocks, every study's circuits in one pass).
 
+Measured on main 2026-11-08 (5038 builds, 3154 clock members; a 166-core, 223 GB box): cold
+**475 s** one pass after the other (41.0 GB): the members' pass 359 s, of which one member,
+`clk-rt-counter` n = 3 (period 312,816 gt), takes 338 s alone; the circuits 77 s after it; the
+stills and lamp checks 29 s; writing ~9 s. With the circuits' pass beside the clocks' (`site build`
+does it when the box has 96 GB available, else one after the other; `--serial-passes` forces that):
+cold **376 s**, 41.6 GB, the circuits hidden under that member. Warm 11.9 s, of which 9 s was
+writing 20,000 files on one core; with the schematics and the pages written on the build's
+threads, 9.1 s (the rest is the file system's lock on each folder: creating 5,038 pages in one
+folder serializes). One farm design changed: 15.3 s, then 13.8 s. Then `site deploy` (its index,
+tree and pack: 6.5 s; a 2 MB push with the transport commit) and GitHub's Pages build (25-48 s,
+median 29 s): a design-only publish is about 50 s, one after a merge that changes the simulators'
+crates about 7 minutes, that member's.
+
 ### No dead links: every page ever published (`crates/site/src/published.rs`)
 
 `crates/site/published.tsv` lists every page path the site ever deployed (8490 on 2026-10-21,
