@@ -469,10 +469,12 @@ wasm): magic `MCTERRv1`, tagged sections (HEAD: seed, zoom seed, world spawn, mi
 and day time, origin, size; PALT + CELL: palette and u16 cells, x fastest then z then y, in varint
 runs; BPAL + BIOM: biome palette and the 4x4x4 cells the box reads; HMAP: four heightmaps; SKYL,
 BLKL: saved light in runs; STR2: structure starts (id, box, pieces; STRU without pieces is still
-read); ENTS: entities (id, position, SNBT); NOTE: provenance). **Size** (measured): village-edge
+read); ENTS: entities (id, position, SNBT); BENT: block entities (cell, SNBT: the beds, bells and
+chests the tick-exact sandbox restores); INHB: each chunk's `InhabitedTime`; NOTE: provenance).
+**Size** (measured): village-edge
 120 x 384 x 120 = 5,529,600 cells (the full height, revision 4: natural spawning and the light
-margin under a dug-in farm need the whole column), 698 KB; plains 96 x 384 x 96, 431 KB; forest
-96 x 384 x 96, 381 KB (1.5 MB in git). Full areas (40M+ cells, 5-7 MB) stay in the cache. A crop
+margin under a dug-in farm need the whole column), 703 KB; plains 96 x 384 x 96, 433 KB; forest
+96 x 384 x 96, 382 KB (1.5 MB in git). Full areas (40M+ cells, 5-7 MB) stay in the cache. A crop
 smaller than the 17 x 17 chunks around the AFK spot loads only some of the spawning chunks: the
 mob cap counts the loaded ones (`getNaturalSpawnChunkCount`), so the mobs per chunk are the
 game's; tick-exact spawning needs the whole 272 x 272 area (the cached world).

@@ -65,6 +65,10 @@ pub struct Chunk {
     /// Per heightmap (`Heightmap::index`), 256 values (x + 16 z) of `getHeight`.
     pub heightmaps: Vec<Option<Vec<i32>>>,
     pub structures: Vec<Structure>,
+    /// `InhabitedTime`: the ticks a player spent near the chunk (regional difficulty).
+    pub inhabited: i64,
+    /// The block entities: their cell and saved NBT (SNBT).
+    pub block_entities: Vec<([i32; 3], String)>,
 }
 
 impl Chunk {
@@ -176,7 +180,15 @@ pub fn read_chunk(dim: &Path, cx: i32, cz: i32, cache: &mut HashMap<(i32, i32), 
             }
         }
     }
-    Ok(Some(Chunk { status, light_on, sections, heightmaps, structures }))
+    let inhabited = root.get("InhabitedTime").and_then(|t| t.as_i64()).unwrap_or(0);
+    let mut block_entities = Vec::new();
+    for be in root.get("block_entities").map(|t| t.as_list()).unwrap_or(&[]) {
+        let c = |k: &str| be.get(k).and_then(|t| t.as_i64()).map(|v| v as i32);
+        if let (Some(x), Some(y), Some(z)) = (c("x"), c("y"), c("z")) {
+            block_entities.push(([x, y, z], nbt::to_snbt(be)));
+        }
+    }
+    Ok(Some(Chunk { status, light_on, sections, heightmaps, structures, inhabited, block_entities }))
 }
 
 /// Every entity saved in a chunk of the dimension's `entities/` folder.
@@ -225,6 +237,18 @@ fn level_data(world: &Path) -> Result<Tag> {
 pub fn read_times(world: &Path) -> Result<(i64, i64)> {
     let data = level_data(world)?;
     let game = data.get("Time").and_then(|t| t.as_i64()).unwrap_or(0);
+    // 26.x: the overworld clock in data/minecraft/world_clocks.dat (`ServerClockManager`:
+    // {data: {"minecraft:overworld": {total_ticks: L}}}); older: level.dat's `DayTime`
+    if let Ok(bytes) = std::fs::read(world.join("data").join("minecraft").join("world_clocks.dat")) {
+        use std::io::Read;
+        let mut raw = Vec::new();
+        if flate2::read::GzDecoder::new(&bytes[..]).read_to_end(&mut raw).is_ok()
+            && let Ok(root) = nbt::parse_named(&raw)
+            && let Some(t) = root.get("data").and_then(|d| d.get("minecraft:overworld")).and_then(|c| c.get("total_ticks")).and_then(|t| t.as_i64())
+        {
+            return Ok((game, t));
+        }
+    }
     let day = data.get("DayTime").and_then(|t| t.as_i64()).unwrap_or(game);
     Ok((game, day))
 }

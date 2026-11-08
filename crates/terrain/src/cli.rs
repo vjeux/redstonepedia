@@ -205,6 +205,9 @@ pub enum TerrainCmd {
         out: PathBuf,
         #[arg(long)]
         check: bool,
+        /// Keep every state the table already has (a regenerated table only grows).
+        #[arg(long)]
+        keep_existing: bool,
     },
     /// The game's `/locate` from a point: `structure:village_plains`, `biome:forest`, ... (one
     /// server per seed: `--seed 1,2,3`).
@@ -227,6 +230,10 @@ pub enum TerrainCmd {
         /// List the palette's randomly ticking states (the natural-state table's flag).
         #[arg(long)]
         ticking: bool,
+        /// Compare with another file: the box, every cell's state, the saved light, the biomes,
+        /// the heightmaps, structures, entities, block entities and inhabited times.
+        #[arg(long)]
+        same_as: Option<PathBuf>,
     },
     /// Cut a box out of a file (`--lo X,Y,Z --hi X,Y,Z`, inclusive), or a column box around a
     /// centre (`--around X,Z --radius R`) from `--below` blocks under the lowest surface to
@@ -429,7 +436,10 @@ pub fn run(version: &str, cmd: TerrainCmd) -> Result<()> {
                 println!("section {y:>3}: palette {:>3}, {}, block light {}", s.palette.len(), sky.unwrap_or_else(|| "no sky layer".into()), s.block_light.is_some());
             }
         }
-        TerrainCmd::Blockinfo { files, mut state, mut block, design, out, check } => {
+        TerrainCmd::Blockinfo { files, mut state, mut block, design, out, check, keep_existing } => {
+            if keep_existing && let Ok(text) = std::fs::read_to_string(&out) {
+                state.extend(text.lines().filter(|l| l.starts_with("minecraft:")).map(|l| l.split('\t').next().unwrap_or(l).to_string()));
+            }
             for d in &design {
                 let des = mctas::design::Design::load(d)?;
                 for s in des.blocks.values() {
@@ -452,9 +462,15 @@ pub fn run(version: &str, cmd: TerrainCmd) -> Result<()> {
                 }
             }
         }
-        TerrainCmd::Info { file, palette, locate, ticking } => {
+        TerrainCmd::Info { file, palette, locate, ticking, same_as } => {
             let t = read(&file)?;
             print_info(&t, palette);
+            if let Some(other) = same_as {
+                let o = read(&other)?;
+                for line in compare_files(&t, &o) {
+                    println!("{line}");
+                }
+            }
             if ticking {
                 let mut counts = vec![0usize; t.palette.len()];
                 for c in &t.cells {
@@ -531,6 +547,43 @@ pub fn write(t: &Terrain, path: &std::path::Path) -> Result<()> {
     std::fs::write(path, &bytes)?;
     eprintln!("terrain: wrote {} ({} bytes)", path.display(), bytes.len());
     Ok(())
+}
+
+/// `info --same-as`: what differs between two files (cells by state name, so palettes may differ in
+/// order); one line per part, "same" when nothing differs.
+fn compare_files(a: &Terrain, b: &Terrain) -> Vec<String> {
+    let mut out = Vec::new();
+    if a.origin != b.origin || a.size != b.size {
+        out.push(format!("box: {:?}+{:?} vs {:?}+{:?}", a.origin, a.size, b.origin, b.size));
+        return out;
+    }
+    let cells = a.cells.iter().zip(&b.cells).filter(|(x, y)| a.palette[**x as usize] != b.palette[**y as usize]).count();
+    out.push(format!("cells: {} of {} differ", cells, a.cells.len()));
+    let mut shown = 0;
+    for (i, (x, y)) in a.cells.iter().zip(&b.cells).enumerate() {
+        if a.palette[*x as usize] != b.palette[*y as usize] && shown < 40 {
+            let (sx, sz) = (a.size[0] as usize, a.size[2] as usize);
+            let (px, pz, py) = (i % sx, (i / sx) % sz, i / (sx * sz));
+            out.push(format!("  {},{},{}: {} vs {}", a.origin[0] + px as i32, a.origin[1] + py as i32, a.origin[2] + pz as i32, a.palette[*x as usize], b.palette[*y as usize]));
+            shown += 1;
+        }
+    }
+    let sky = a.sky.iter().zip(&b.sky).filter(|(x, y)| x != y).count();
+    let block = a.block.iter().zip(&b.block).filter(|(x, y)| x != y).count();
+    out.push(format!("saved light: sky {} / block {} cells differ (sizes {}/{} vs {}/{})", sky, block, a.sky.len(), a.block.len(), b.sky.len(), b.block.len()));
+    let biomes = if a.biome_origin == b.biome_origin && a.biome_size == b.biome_size {
+        a.biomes.iter().zip(&b.biomes).filter(|(x, y)| a.biome_palette[**x as usize] != b.biome_palette[**y as usize]).count()
+    } else {
+        usize::MAX
+    };
+    out.push(format!("biome cells: {} differ", if biomes == usize::MAX { "the box".to_string() } else { biomes.to_string() }));
+    out.push(format!("heightmaps: {}", if a.heightmaps == b.heightmaps { "same" } else { "differ" }));
+    out.push(format!("structures: {}", if a.structures == b.structures { "same".to_string() } else { format!("{} vs {}", a.structures.len(), b.structures.len()) }));
+    out.push(format!("entities: {}", if a.entities == b.entities { "same".to_string() } else { format!("{} vs {}", a.entities.len(), b.entities.len()) }));
+    out.push(format!("block entities: {} vs {}", a.block_entities.len(), b.block_entities.len()));
+    out.push(format!("inhabited chunks: {} vs {}", a.inhabited.len(), b.inhabited.len()));
+    out.push(format!("spawn/times: {}", if a.spawn == b.spawn && a.game_time == b.game_time && a.day_time == b.day_time { "same" } else { "differ" }));
+    out
 }
 
 fn print_info(t: &Terrain, palette: bool) {

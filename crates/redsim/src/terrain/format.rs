@@ -15,6 +15,8 @@
 //! * `SKYL`, `BLKL`: the saved sky and block light per cell (0-15), in runs;
 //! * `STRU`: structures (id, box) from the chunks' structure starts;
 //! * `ENTS`: entities (id, position, SNBT) from the entity region files;
+//! * `BENT`: block entities (cell, SNBT: beds, bells, chests...) from the chunks' `block_entities`;
+//! * `INHB`: per chunk (x, z), its `InhabitedTime` (the regional difficulty's local part);
 //! * `NOTE`: provenance (key, value) pairs: the command, version, centre, radius.
 
 /// The file's first 8 bytes.
@@ -96,7 +98,18 @@ pub struct Terrain {
     pub block: Vec<u8>,
     pub structures: Vec<Structure>,
     pub entities: Vec<Entity>,
+    /// The block entities (beds, bells, chests...: their saved NBT, `BENT`).
+    pub block_entities: Vec<BlockEntity>,
+    /// Per chunk (x, z): its `InhabitedTime` (the regional difficulty's local part, `INHB`).
+    pub inhabited: Vec<([i32; 2], i64)>,
     pub notes: Vec<(String, String)>,
+}
+
+/// A block entity: its cell and its saved NBT (SNBT).
+#[derive(Clone, Debug, PartialEq)]
+pub struct BlockEntity {
+    pub pos: [i32; 3],
+    pub snbt: String,
 }
 
 impl Terrain {
@@ -266,6 +279,13 @@ impl Terrain {
             .filter(|e| (0..3).all(|a| e.pos[a] >= nlo[a] as f64 && e.pos[a] < (nhi[a] + 1) as f64))
             .cloned()
             .collect();
+        out.block_entities = self.block_entities.iter().filter(|b| (0..3).all(|a| b.pos[a] >= nlo[a] && b.pos[a] <= nhi[a])).cloned().collect();
+        out.inhabited = self
+            .inhabited
+            .iter()
+            .filter(|(c, _)| c[0] * 16 + 15 >= nlo[0] && c[0] * 16 <= nhi[0] && c[1] * 16 + 15 >= nlo[2] && c[1] * 16 <= nhi[2])
+            .copied()
+            .collect();
         Ok(out)
     }
 
@@ -333,6 +353,27 @@ impl Terrain {
             e.str(&en.snbt);
         }
         section(&mut out, b"ENTS", e);
+        if !self.block_entities.is_empty() {
+            let mut b = Writer::default();
+            b.u64(self.block_entities.len() as u64);
+            for be in &self.block_entities {
+                for v in be.pos {
+                    b.i64(v as i64);
+                }
+                b.str(&be.snbt);
+            }
+            section(&mut out, b"BENT", b);
+        }
+        if !self.inhabited.is_empty() {
+            let mut h = Writer::default();
+            h.u64(self.inhabited.len() as u64);
+            for (c, t) in &self.inhabited {
+                h.i64(c[0] as i64);
+                h.i64(c[1] as i64);
+                h.i64(*t);
+            }
+            section(&mut out, b"INHB", h);
+        }
         let mut n = Writer::default();
         n.u64(self.notes.len() as u64);
         for (k, v) in &self.notes {
@@ -432,6 +473,22 @@ impl Terrain {
                         }
                         let snbt = s.str()?;
                         t.entities.push(Entity { id, pos, snbt });
+                    }
+                }
+                b"BENT" => {
+                    let n = s.u64()? as usize;
+                    for _ in 0..n {
+                        let pos = [s.i64()? as i32, s.i64()? as i32, s.i64()? as i32];
+                        let snbt = s.str()?;
+                        t.block_entities.push(BlockEntity { pos, snbt });
+                    }
+                }
+                b"INHB" => {
+                    let n = s.u64()? as usize;
+                    for _ in 0..n {
+                        let c = [s.i64()? as i32, s.i64()? as i32];
+                        let v = s.i64()?;
+                        t.inhabited.push((c, v));
                     }
                 }
                 b"NOTE" => {
@@ -616,6 +673,8 @@ mod tests {
             block: vec![0; n],
             structures: vec![Structure { id: "minecraft:village_plains".into(), min: [-10, 60, 0], max: [40, 80, 50], pieces: vec![[-10, 60, 0, 5, 70, 9]] }],
             entities: vec![Entity { id: "minecraft:villager".into(), pos: [-1.5, 61.0, 9.25], snbt: "{Health:20.0f}".into() }],
+            block_entities: vec![BlockEntity { pos: [-1, 61, 9], snbt: "{id:\"minecraft:bed\"}".into() }],
+            inhabited: vec![([-1, 0], 1234)],
             notes: vec![("command".into(), "mctas terrain gen".into())],
         }
     }

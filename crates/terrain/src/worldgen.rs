@@ -134,12 +134,6 @@ fn run_days(s: &mut VanillaServer, days: u32) -> Result<()> {
     Ok(())
 }
 
-fn day_time(s: &mut VanillaServer) -> Result<i64> {
-    // 26.x: the day time is the default world clock's time (`TimeCommand`: `time query time`)
-    let out = s.cmd("time query time")?;
-    let num: String = out.chars().filter(|c| c.is_ascii_digit()).collect();
-    num.parse().with_context(|| format!("cannot read the day time from `{out}`"))
-}
 
 /// Generate the area and read it back; the server's world folder is copied to `keep_world` when
 /// given (the real-game checks start from that very world).
@@ -154,17 +148,17 @@ pub fn generate(o: &GenOpts, keep_world: Option<&std::path::Path>) -> Result<Ter
     if !out.to_lowercase().contains("saved") {
         bail!("save-all flush: {out}");
     }
-    let game_time = s.game_time()?;
-    let day = day_time(&mut s)?;
+    // no more writes: the cache and the kept world are the same saved state (the server ran on
+    // while the old code read the regions and copied the folder: villagers got into their beds in
+    // between)
+    s.cmd("save-off")?;
     let world = s.dir.join(&s.level_name);
-    let mut t = from_world(&world, o)?;
-    t.game_time = game_time;
-    t.day_time = day;
     if let Some(dest) = keep_world {
         copy_world(&world, dest)?;
         eprintln!("terrain: world copied to {}", dest.display());
     }
-    Ok(t)
+    // the times are level.dat's (the saved state's), read by from_world
+    from_world(&world, o)
 }
 
 /// Copy a saved world folder (no `session.lock`).
@@ -290,6 +284,21 @@ fn assemble(dim: &std::path::Path, o: &GenOpts, clo: [i32; 2], chi: [i32; 2]) ->
         }
     }
     t.entities.sort_by(|a, b| a.pos.partial_cmp(&b.pos).unwrap_or(std::cmp::Ordering::Equal));
+    // the chunks' inhabited time and block entities inside the box (INHB, BENT)
+    let mut keys: Vec<&(i32, i32)> = chunks.keys().collect();
+    keys.sort();
+    for k in keys {
+        let c = &chunks[k];
+        if (k.0 * 16 + 15) >= origin[0] && k.0 * 16 < origin[0] + size[0] && (k.1 * 16 + 15) >= origin[2] && k.1 * 16 < origin[2] + size[2] {
+            t.inhabited.push(([k.0, k.1], c.inhabited));
+        }
+        for (p, snbt) in &c.block_entities {
+            if (0..3).all(|a| p[a] >= origin[a] && p[a] < origin[a] + size[a]) {
+                t.block_entities.push(redsim::terrain::format::BlockEntity { pos: *p, snbt: snbt.clone() });
+            }
+        }
+    }
+    t.block_entities.sort_by_key(|b| (b.pos[1], b.pos[2], b.pos[0]));
     Ok(t)
 }
 
