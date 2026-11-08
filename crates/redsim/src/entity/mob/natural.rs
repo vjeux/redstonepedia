@@ -190,20 +190,53 @@ pub enum Rule {
     Always,
 }
 
-/// What `finalizeSpawn` adds that the spawner sees.
+/// Which `finalizeSpawn` (NATURAL) a type runs: each draws from the level random in the game's
+/// order (`finalize_spawn`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Finalize {
-    None,
-    /// `Zombie.finalizeSpawn`: the group's baby draw (5%) and a baby's chicken jockey.
+    /// `CaveSpider.finalizeSpawn`: returns at once (no draws, not even `Mob`'s).
+    Nothing,
+    /// `Mob.finalizeSpawn` only: the follow range's triangle (2 nextDouble) and the left hand
+    /// (nextFloat).
+    Mob,
+    /// `Zombie.finalizeSpawn` (zombies, zombie villagers): the loot pick-up, the group's baby, a
+    /// baby's chicken jockey, door breaking, armor and weapon, their enchantments.
     Zombie,
-    /// `Spider.finalizeSpawn`: a skeleton rider one time in 100.
+    /// `Drowned.finalizeSpawn`: the zombie's with the drowned's own equipment (trident or rod), then
+    /// the nautilus shell and the nautilus jockey.
+    Drowned,
+    /// `AbstractSkeleton.finalizeSpawn`: armor, the bow, their enchantments, the loot pick-up.
+    Skeleton,
+    /// `Spider.finalizeSpawn`: the skeleton rider one time in 100, the group's effect on Hard.
     Spider,
-    /// `Slime.finalizeSpawn`: size 1, 2 or 4.
+    /// `Slime.finalizeSpawn`: no babies (`AgeableMobGroupData(false)`); size 1, 2 or 4.
     Slime,
-    /// `AgeableMob.finalizeSpawn`: after the group's first, a baby with chance 0.05.
-    Ageable,
-    /// `ZombieHorse.finalizeSpawn`: a zombie rider (NATURAL).
+    /// `SulfurCube`: `AgeableMob`'s baby (chance 0.05 after the group's first), size 1 if a baby
+    /// else 2.
+    SulfurCube,
+    /// `Squid.finalizeSpawn` (squids, glow squids): `AgeableMob` with chance 0.05.
+    Squid,
+    /// `Sheep.finalizeSpawn`: the colour (`SheepColorSpawnRules`), then `AgeableMob`.
+    Sheep,
+    /// Pigs, cows, chickens: the variant (`VariantUtils.selectVariantToSpawn`: one candidate in a
+    /// biome), the sound variant (`sounds` entries in its registry), then `AgeableMob`.
+    Farm { sounds: i32 },
+    /// `Horse.finalizeSpawn`: the group's variant, the markings, `randomizeAttributes` (health,
+    /// speed, jump), `AgeableMob` (0.05).
+    Horse,
+    /// Donkeys (`AbstractHorse`: `AgeableMobGroupData(0.2)`; `AbstractChestedHorse`'s health).
+    Donkey,
+    /// `Wolf.finalizeSpawn`: the pack's variant, the sound variant (7), no babies.
+    Wolf,
+    /// Cod (`AbstractSchoolingFish`): `Mob`'s, then the school (no draws).
+    Cod,
+    /// `Salmon.finalizeSpawn`: the variant from the salmon's own random, then the cod's.
+    Salmon,
+    /// `ZombieHorse.finalizeSpawn`: a zombie rider (its own `finalizeSpawn`), then `AbstractHorse`
+    /// (0.2) with the zombie horse's jump and speed.
     ZombieHorse,
+    /// Not modeled draw for draw: a model error when one spawns.
+    Unmodeled,
 }
 
 /// A spawnable type.
@@ -252,33 +285,34 @@ use WalkTarget as W;
 pub static KINDS: &[Kind] = &[
     kind("minecraft:zombie", MobType::Zombie, C::Monster, P::OnGround, Rule::Monster, 4, true, Some(MobType::Natural(25)), F::Zombie, false, W::Monster),
     kind("minecraft:zombie_villager", MobType::Natural(2), C::Monster, P::OnGround, Rule::Monster, 4, true, Some(MobType::Natural(26)), F::Zombie, false, W::Monster),
-    kind("minecraft:drowned", MobType::Natural(8), C::Monster, P::InWater, Rule::Drowned, 4, true, Some(MobType::Natural(27)), F::Zombie, true, W::Monster),
+    kind("minecraft:drowned", MobType::Natural(8), C::Monster, P::InWater, Rule::Drowned, 4, true, Some(MobType::Natural(27)), F::Drowned, true, W::Monster),
     kind("minecraft:zombie_horse", MobType::Natural(3), C::Monster, P::OnGround, Rule::Monster, 6, true, None, F::ZombieHorse, false, W::Animal),
-    kind("minecraft:skeleton", MobType::Natural(4), C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::None, false, W::Monster),
-    kind("minecraft:creeper", MobType::Natural(5), C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::None, false, W::Monster),
+    kind("minecraft:skeleton", MobType::Natural(4), C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::Skeleton, false, W::Monster),
+    kind("minecraft:creeper", MobType::Natural(5), C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::Mob, false, W::Monster),
     kind("minecraft:spider", MobType::Natural(0), C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::Spider, false, W::Monster),
-    kind("minecraft:cave_spider", MobType::Natural(1), C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::Spider, false, W::Monster),
-    kind("minecraft:enderman", MobType::Natural(7), C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::None, false, W::Monster),
-    kind("minecraft:witch", MobType::Witch, C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::None, false, W::Monster),
+    kind("minecraft:cave_spider", MobType::Natural(1), C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::Nothing, false, W::Monster),
+    kind("minecraft:enderman", MobType::Natural(7), C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::Mob, false, W::Monster),
+    kind("minecraft:witch", MobType::Witch, C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::Mob, false, W::Monster),
     kind("minecraft:slime", MobType::Natural(6), C::Monster, P::OnGround, Rule::Slime, 4, true, None, F::Slime, false, W::None),
-    kind("minecraft:sulfur_cube", MobType::Natural(9), C::Monster, P::OnGround, Rule::Always, 4, true, None, F::Slime, false, W::None),
-    kind("minecraft:sheep", MobType::Natural(10), C::Creature, P::OnGround, Rule::Animal, 4, false, Some(MobType::Natural(28)), F::Ageable, false, W::Animal),
-    kind("minecraft:pig", MobType::Natural(11), C::Creature, P::OnGround, Rule::Animal, 4, false, Some(MobType::Natural(29)), F::Ageable, false, W::Animal),
-    kind("minecraft:chicken", MobType::Natural(12), C::Creature, P::OnGround, Rule::Animal, 4, false, Some(MobType::Natural(30)), F::Ageable, false, W::Animal),
-    kind("minecraft:cow", MobType::Natural(13), C::Creature, P::OnGround, Rule::Animal, 4, false, Some(MobType::Natural(31)), F::Ageable, false, W::Animal),
-    kind("minecraft:horse", MobType::Natural(14), C::Creature, P::OnGround, Rule::Animal, 6, false, Some(MobType::Natural(32)), F::Ageable, false, W::Animal),
-    kind("minecraft:donkey", MobType::Natural(15), C::Creature, P::OnGround, Rule::Animal, 6, false, Some(MobType::Natural(33)), F::Ageable, false, W::Animal),
-    kind("minecraft:wolf", MobType::Natural(16), C::Creature, P::OnGround, Rule::AnimalTag("minecraft:wolves_spawnable_on"), 8, false, Some(MobType::Natural(34)), F::Ageable, false, W::Animal),
-    kind("minecraft:rabbit", MobType::Natural(17), C::Creature, P::OnGround, Rule::AnimalTag("minecraft:rabbits_spawnable_on"), 4, false, Some(MobType::Natural(35)), F::Ageable, false, W::Animal),
-    kind("minecraft:fox", MobType::Natural(18), C::Creature, P::NoRestrictions, Rule::AnimalTag("minecraft:foxes_spawnable_on"), 4, false, Some(MobType::Natural(36)), F::Ageable, false, W::Animal),
-    kind("minecraft:turtle", MobType::Natural(19), C::Creature, P::OnGround, Rule::Turtle, 4, false, Some(MobType::Natural(37)), F::Ageable, false, W::Animal),
-    kind("minecraft:bat", MobType::Natural(20), C::Ambient, P::OnGround, Rule::Bat, 4, true, None, F::None, false, W::None),
-    kind("minecraft:glow_squid", MobType::Natural(21), C::UndergroundWaterCreature, P::InWater, Rule::GlowSquid, 4, true, None, F::None, true, W::None),
-    kind("minecraft:squid", MobType::Natural(22), C::WaterCreature, P::InWater, Rule::SurfaceWater, 4, true, None, F::None, true, W::None),
-    kind("minecraft:salmon", MobType::Natural(23), C::WaterAmbient, P::InWater, Rule::SurfaceWater, 8, true, None, F::None, true, W::None),
-    kind("minecraft:cod", MobType::Natural(24), C::WaterAmbient, P::InWater, Rule::SurfaceWater, 8, true, None, F::None, true, W::None),
-    kind("minecraft:cat", MobType::Natural(42), C::Creature, P::OnGround, Rule::Always, 4, false, None, F::None, false, W::Animal),
-    kind("minecraft:bee", MobType::Natural(43), C::Creature, P::NoRestrictions, Rule::Always, 4, false, None, F::None, false, W::Animal),
+    kind("minecraft:sulfur_cube", MobType::Natural(9), C::Monster, P::OnGround, Rule::Always, 4, true, None, F::SulfurCube, false, W::None),
+    kind("minecraft:sheep", MobType::Natural(10), C::Creature, P::OnGround, Rule::Animal, 4, false, Some(MobType::Natural(28)), F::Sheep, false, W::Animal),
+    kind("minecraft:pig", MobType::Natural(11), C::Creature, P::OnGround, Rule::Animal, 4, false, Some(MobType::Natural(29)), F::Farm { sounds: 3 }, false, W::Animal),
+    kind("minecraft:chicken", MobType::Natural(12), C::Creature, P::OnGround, Rule::Animal, 4, false, Some(MobType::Natural(30)), F::Farm { sounds: 2 }, false, W::Animal),
+    kind("minecraft:cow", MobType::Natural(13), C::Creature, P::OnGround, Rule::Animal, 4, false, Some(MobType::Natural(31)), F::Farm { sounds: 2 }, false, W::Animal),
+    kind("minecraft:horse", MobType::Natural(14), C::Creature, P::OnGround, Rule::Animal, 6, false, Some(MobType::Natural(32)), F::Horse, false, W::Animal),
+    kind("minecraft:donkey", MobType::Natural(15), C::Creature, P::OnGround, Rule::Animal, 6, false, Some(MobType::Natural(33)), F::Donkey, false, W::Animal),
+    kind("minecraft:wolf", MobType::Natural(16), C::Creature, P::OnGround, Rule::AnimalTag("minecraft:wolves_spawnable_on"), 8, false, Some(MobType::Natural(34)), F::Wolf, false, W::Animal),
+    kind("minecraft:rabbit", MobType::Natural(17), C::Creature, P::OnGround, Rule::AnimalTag("minecraft:rabbits_spawnable_on"), 4, false, Some(MobType::Natural(35)), F::Unmodeled, false, W::Animal),
+    kind("minecraft:fox", MobType::Natural(18), C::Creature, P::NoRestrictions, Rule::AnimalTag("minecraft:foxes_spawnable_on"), 4, false, Some(MobType::Natural(36)), F::Unmodeled, false, W::Animal),
+    kind("minecraft:turtle", MobType::Natural(19), C::Creature, P::OnGround, Rule::Turtle, 4, false, Some(MobType::Natural(37)), F::Unmodeled, false, W::Animal),
+    kind("minecraft:bat", MobType::Natural(20), C::Ambient, P::OnGround, Rule::Bat, 4, true, None, F::Mob, false, W::None),
+    kind("minecraft:glow_squid", MobType::Natural(21), C::UndergroundWaterCreature, P::InWater, Rule::GlowSquid, 4, true, None, F::Squid, true, W::None),
+    kind("minecraft:squid", MobType::Natural(22), C::WaterCreature, P::InWater, Rule::SurfaceWater, 4, true, None, F::Squid, true, W::None),
+    // AbstractFish.getMaxSpawnClusterSize 8; a salmon's school is 5 (Salmon.getMaxSchoolSize)
+    kind("minecraft:salmon", MobType::Natural(23), C::WaterAmbient, P::InWater, Rule::SurfaceWater, 5, true, None, F::Salmon, true, W::None),
+    kind("minecraft:cod", MobType::Natural(24), C::WaterAmbient, P::InWater, Rule::SurfaceWater, 8, true, None, F::Cod, true, W::None),
+    kind("minecraft:cat", MobType::Natural(42), C::Creature, P::OnGround, Rule::Always, 4, false, None, F::Unmodeled, false, W::Animal),
+    kind("minecraft:bee", MobType::Natural(43), C::Creature, P::NoRestrictions, Rule::Always, 4, false, None, F::Unmodeled, false, W::Animal),
 ];
 
 /// A spawnable type by its game id.
@@ -871,17 +905,17 @@ fn spawn_category_for_position(w: &mut World, nat: &Natural, st: &mut State, cat
             if !valid_position_for_mob(w, k, k.ty, Vec3::new(xx, start.y as f64, zz), d2) {
                 continue;
             }
-            let ty = choose_row(w, nat, k, &mut group);
+            let f = finalize_spawn(w, nat, k, &mut group, pos);
             cluster += 1;
             group_size += 1;
-            let id = spawn_mob(w, nat, k, ty, Vec3::new(xx, start.y as f64, zz), yaw, &mut group);
+            let id = spawn_mob(w, k, &f, Vec3::new(xx, start.y as f64, zz), yaw);
             st.counts[cat as usize] += 1;
             for pi in players_near_chunk(nat, pos.x.div_euclid(16), pos.z.div_euclid(16)) {
                 st.local[pi][cat as usize] += 1;
             }
             let t = w.time;
             if let Some(n) = w.mob.natural.as_mut() {
-                n.log.push(NaturalEvent::Spawn { t, ty: k.id, at: pos, entity: id, baby: Some(ty) == k.baby });
+                n.log.push(NaturalEvent::Spawn { t, ty: k.id, at: pos, entity: id, baby: f.baby });
             }
             if cluster >= k.cluster {
                 return;
@@ -918,10 +952,39 @@ fn valid_spawn_position_for_type(w: &mut World, nat: &Natural, cat: Category, k:
 /// The group data `finalizeSpawn` passes along a group.
 #[derive(Default)]
 struct GroupData {
-    /// `ZombieGroupData`: (is baby) once drawn.
-    zombie_baby: Option<bool>,
-    /// `AgeableMobGroupData`: the group size so far.
-    ageable: Option<u32>,
+    /// `ZombieGroupData`: is baby (once drawn; `canSpawnJockey` true).
+    zombie: Option<bool>,
+    /// `AgeableMobGroupData`: (the group size so far, the baby chance, babies at all).
+    ageable: Option<(u32, f32, bool)>,
+    /// `SpiderEffectsGroupData` made (its effect drawn on Hard).
+    spider: bool,
+    /// `HorseGroupData` made (its variant drawn).
+    horse: bool,
+    /// `WolfPackData` made (its variant drawn).
+    wolf: bool,
+}
+
+/// What a `finalizeSpawn` decided that redsim adds: the row (baby, size) and a jockey.
+struct Finalized {
+    ty: MobType,
+    baby: bool,
+    jockey: Jockey,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Jockey {
+    None,
+    /// A baby zombie rides the first chicken within its box inflated by (5, 3, 5) that is not
+    /// ridden (none: it walks).
+    NearChicken,
+    /// A baby zombie rides a new chicken (its `finalizeSpawn` drawn inside the zombie's).
+    NewChicken,
+    /// A skeleton rides the spider (its `finalizeSpawn` drawn inside the spider's).
+    SpiderSkeleton,
+    /// A zombie rides the zombie horse.
+    HorseZombie,
+    /// A baby zombie rides the zombie horse.
+    HorseBabyZombie,
 }
 
 /// `DifficultyInstance.getSpecialMultiplier` at the current time (`ServerLevel.getCurrentDifficultyAt`:
@@ -954,39 +1017,270 @@ fn special_multiplier(w: &World, nat: &Natural) -> f32 {
     }
 }
 
-/// The row a spawn takes: its baby or size row when its `finalizeSpawn` draws one (the draws in
-/// the game's order: the group's baby flag, the ageable baby chance, the slime size).
-fn choose_row(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData) -> MobType {
-    match k.finalize {
-        Finalize::Zombie => {
-            let baby = *g.zombie_baby.get_or_insert_with(|| rng(w).next_float() < 0.05);
-            if baby { k.baby.unwrap_or(k.ty) } else { k.ty }
+/// A model error (once per run): something the game does that redsim does not model draw for draw.
+fn model_error(w: &mut World, e: String) {
+    if !w.errors.contains(&e) {
+        w.errors.push(e);
+    }
+}
+
+/// `Mob.finalizeSpawn`: the follow range's `triangle(0, 0.11485)` (2 nextDouble) and the left hand
+/// (nextFloat), on the level random.
+fn mob_base(w: &mut World) {
+    let r = rng(w);
+    r.next_double();
+    r.next_double();
+    r.next_float();
+}
+
+/// `AgeableMob.finalizeSpawn`'s baby roll (before `Mob`'s draws): after the group's first, a baby
+/// with the group data's chance; the group data is made by the group's first mob.
+fn ageable(w: &mut World, g: &mut GroupData, should: bool, chance: f32) -> bool {
+    let (n, ch, sh) = g.ageable.get_or_insert((0, chance, should));
+    let baby = *sh && *n > 0 && rng(w).next_float() <= *ch;
+    *n += 1;
+    baby
+}
+
+/// `Mob.populateDefaultEquipmentSlots`' armor: the pieces it gives, a prefix of head, chest, legs,
+/// feet (`EQUIPMENT_POPULATION_ORDER`).
+fn mob_armor(w: &mut World, special: f32, hard: bool) -> usize {
+    let r = rng(w);
+    if r.next_float() >= 0.15 * special {
+        return 0;
+    }
+    r.next_int(3);
+    for _ in 0..3 {
+        r.next_float();
+    }
+    let partial = if hard { 0.1 } else { 0.25 };
+    let mut n = 0;
+    for i in 0..4 {
+        if i > 0 && r.next_float() < partial {
+            break;
         }
-        Finalize::Ageable => {
-            let n = g.ageable.get_or_insert(0);
-            let baby = *n > 0 && rng(w).next_float() <= 0.05;
-            *n += 1;
-            if baby { k.baby.unwrap_or(k.ty) } else { k.ty }
+        n += 1;
+    }
+    n
+}
+
+/// `Mob.populateDefaultEquipmentEnchantments`: the weapon (0.25), then each armor piece (0.5) in
+/// `EquipmentSlot.VALUES` order (feet, legs, chest, head), times the special multiplier; an
+/// enchantment's own draws (`EnchantmentHelper.enchantItemFromProvider`) are a model error.
+fn enchant_draws(w: &mut World, special: f32, weapon: bool, armor: usize, who: &str) {
+    if weapon && rng(w).next_float() < 0.25 * special {
+        model_error(w, format!("natural spawning: a {who}'s weapon enchantment at spawn (EnchantmentHelper) is not modeled draw for draw"));
+    }
+    for slot in (0..4).rev() {
+        if slot < armor && rng(w).next_float() < 0.5 * special {
+            model_error(w, format!("natural spawning: a {who}'s armor enchantment at spawn (EnchantmentHelper) is not modeled draw for draw"));
+        }
+    }
+}
+
+/// `Zombie.finalizeSpawn` (`drowned`: with `Drowned`'s equipment and its extra rolls); returns
+/// (baby, jockey).
+fn zombie_finalize(w: &mut World, nat: &Natural, g: &mut GroupData, drowned: bool, who: &str, pos: BlockPos) -> (bool, Jockey) {
+    let special = special_multiplier(w, nat);
+    let hard = nat.difficulty == Difficulty::Hard;
+    mob_base(w);
+    rng(w).next_float(); // setCanPickUpLoot
+    let baby = match g.zombie {
+        Some(b) => b,
+        None => {
+            let b = rng(w).next_float() < 0.05; // getSpawnAsBabyOdds
+            g.zombie = Some(b);
+            b
+        }
+    };
+    let mut jockey = Jockey::None;
+    if baby {
+        if rng(w).next_float() < 0.05 {
+            jockey = Jockey::NearChicken;
+        } else if rng(w).next_float() < 0.05 {
+            // the new chicken: constructed, its finalizeSpawn (JOCKEY, no group data) here
+            let mut cg = GroupData::default();
+            farm_finalize(w, &mut cg, 2);
+            jockey = Jockey::NewChicken;
+        }
+    }
+    rng(w).next_float(); // setCanBreakDoors
+    let (armor, weapon) = if drowned {
+        // Drowned.populateDefaultEquipmentSlots (no armor): a trident (10 in 16) or a rod
+        if rng(w).next_float() > 0.9 { (0, Some(rng(w).next_int(16) < 10)) } else { (0, None) }
+    } else {
+        let armor = mob_armor(w, special, hard);
+        let weapon = if rng(w).next_float() < if hard { 0.05 } else { 0.01 } {
+            rng(w).next_int(6);
+            Some(false)
+        } else {
+            None
+        };
+        (armor, weapon)
+    };
+    enchant_draws(w, special, weapon.is_some(), armor, who);
+    // SpecialDates.isHalloween: the server's date is outside it (no draw); handleAttributes draws
+    // from the zombie's own random
+    if drowned {
+        rng(w).next_float(); // the nautilus shell (0.03)
+        if weapon == Some(true) && rng(w).next_float() < 0.5 && !baby {
+            // ... && !level.getBiome(pos).is(MORE_FREQUENT_DROWNED_SPAWNS) (rivers: no jockey)
+            let frequent = biome_name(w, pos).and_then(|b| biome::biome(&b)).is_some_and(|b| b.has_tag("minecraft:more_frequent_drowned_spawns"));
+            if !frequent {
+                model_error(w, "natural spawning: a drowned's zombie nautilus jockey is not modeled".into());
+            }
+        }
+    }
+    (baby, jockey)
+}
+
+/// `AbstractSkeleton.finalizeSpawn`.
+fn skeleton_finalize(w: &mut World, nat: &Natural, who: &str) {
+    let special = special_multiplier(w, nat);
+    let hard = nat.difficulty == Difficulty::Hard;
+    mob_base(w);
+    let armor = mob_armor(w, special, hard);
+    enchant_draws(w, special, true, armor, who); // the bow
+    rng(w).next_float(); // setCanPickUpLoot
+}
+
+/// A pig's, cow's or chicken's `finalizeSpawn`: the variant (one candidate), the sound variant,
+/// `AgeableMob`, `Mob`; returns baby.
+fn farm_finalize(w: &mut World, g: &mut GroupData, sounds: i32) -> bool {
+    rng(w).next_int(1);
+    rng(w).next_int(sounds);
+    let baby = ageable(w, g, true, 0.05);
+    mob_base(w);
+    baby
+}
+
+/// `finalizeSpawn(NATURAL)` of a spawned mob, every level-random draw in the game's order (the
+/// mob's own random's draws — a zombie's `handleAttributes`, a salmon's variant — come from its
+/// construction, the tick-exact lane's `World::construct`).
+fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos: BlockPos) -> Finalized {
+    let special = special_multiplier(w, nat);
+    let hard = nat.difficulty == Difficulty::Hard;
+    let mut baby = false;
+    let mut jockey = Jockey::None;
+    let mut ty = k.ty;
+    match k.finalize {
+        Finalize::Nothing => {}
+        Finalize::Mob | Finalize::Cod => mob_base(w),
+        Finalize::Salmon => mob_base(w),
+        Finalize::Zombie | Finalize::Drowned => {
+            (baby, jockey) = zombie_finalize(w, nat, g, k.finalize == Finalize::Drowned, k.id, pos);
+        }
+        Finalize::Skeleton => skeleton_finalize(w, nat, k.id),
+        Finalize::Spider => {
+            mob_base(w);
+            if rng(w).next_int(100) == 0 {
+                // the skeleton rider: constructed, its finalizeSpawn (NATURAL, no group data)
+                skeleton_finalize(w, nat, "minecraft:skeleton");
+                jockey = Jockey::SpiderSkeleton;
+            }
+            if !g.spider {
+                g.spider = true;
+                if hard && rng(w).next_float() < 0.1 * special {
+                    // the group's effect (speed, strength, regeneration, invisibility): only the
+                    // spiders' unmodeled AI reads it
+                    rng(w).next_int(5);
+                }
+            }
         }
         Finalize::Slime => {
-            let special = special_multiplier(w, nat);
+            ageable(w, g, false, 0.05);
+            mob_base(w);
             let r = rng(w);
             let mut scale = r.next_int(3);
             if scale < 2 && r.next_float() < 0.5 * special {
                 scale += 1;
             }
-            let big = k.id == "minecraft:sulfur_cube";
-            match (scale, big) {
-                (0, false) => MobType::Natural(6),
-                (1, false) => MobType::Natural(38),
-                (_, false) => MobType::Natural(39),
-                (0, true) => MobType::Natural(9),
-                (1, true) => MobType::Natural(40),
-                (_, true) => MobType::Natural(41),
-            }
+            ty = match scale {
+                0 => MobType::Natural(6),
+                1 => MobType::Natural(38),
+                _ => MobType::Natural(39),
+            };
         }
-        _ => k.ty,
+        Finalize::SulfurCube => {
+            baby = ageable(w, g, true, 0.05);
+            mob_base(w);
+            // SulfurCube.setSpawnSize: 1 for a baby, else 2
+            ty = if baby { MobType::Natural(9) } else { MobType::Natural(40) };
+        }
+        Finalize::Squid => {
+            baby = ageable(w, g, true, 0.05);
+            mob_base(w);
+        }
+        Finalize::Sheep => {
+            // SheepColorSpawnRules: 100 = 5 + 5 + 5 + 3 + 82, the last a 499 + 1 list
+            if rng(w).next_int(100) >= 18 {
+                rng(w).next_int(500);
+            }
+            baby = ageable(w, g, true, 0.05);
+            mob_base(w);
+        }
+        Finalize::Farm { sounds } => baby = farm_finalize(w, g, sounds),
+        Finalize::Horse => {
+            if !g.horse {
+                g.horse = true;
+                rng(w).next_int(7); // Variant.values()
+                g.ageable.get_or_insert((0, 0.05, true)); // HorseGroupData(true)
+            }
+            rng(w).next_int(5); // Markings.values()
+            let r = rng(w);
+            r.next_int(8);
+            r.next_int(9);
+            for _ in 0..6 {
+                r.next_double(); // speed, then jump strength: 3 each
+            }
+            baby = ageable(w, g, true, 0.2);
+            mob_base(w);
+        }
+        Finalize::Donkey => {
+            g.ageable.get_or_insert((0, 0.2, true)); // AgeableMobGroupData(0.2)
+            let r = rng(w);
+            r.next_int(8);
+            r.next_int(9);
+            baby = ageable(w, g, true, 0.2);
+            mob_base(w);
+        }
+        Finalize::Wolf => {
+            if !g.wolf {
+                g.wolf = true;
+                rng(w).next_int(1); // the biome's variant
+                g.ageable.get_or_insert((0, 0.05, false)); // WolfPackData: no babies
+            }
+            rng(w).next_int(7); // the sound variant
+            baby = ageable(w, g, false, 0.05);
+            mob_base(w);
+        }
+        Finalize::ZombieHorse => {
+            // the zombie rider: constructed, its finalizeSpawn (NATURAL, no group data); a baby's
+            // chicken would be left behind when it mounts the horse
+            let mut zg = GroupData::default();
+            let (zbaby, zj) = zombie_finalize(w, nat, &mut zg, false, "minecraft:zombie", pos);
+            if zj != Jockey::None {
+                model_error(w, "natural spawning: a zombie horse rider's chicken jockey is not modeled".into());
+            }
+            jockey = if zbaby { Jockey::HorseBabyZombie } else { Jockey::HorseZombie };
+            g.ageable.get_or_insert((0, 0.2, true));
+            let r = rng(w);
+            for _ in 0..6 {
+                r.next_double(); // jump, then speed: 3 each
+            }
+            baby = ageable(w, g, true, 0.2);
+            mob_base(w);
+        }
+        Finalize::Unmodeled => model_error(w, format!("natural spawning: {}'s finalizeSpawn is not modeled draw for draw", k.id)),
     }
+    if baby && k.finalize != Finalize::SulfurCube {
+        match k.baby {
+            Some(b) => ty = b,
+            // a baby squid: its smaller box is not modeled (nor its AI)
+            None => {}
+        }
+    }
+    Finalized { ty, baby, jockey }
 }
 
 /// `isValidPositionForMob`: the despawn distance, `checkSpawnRules` (the walk target value) and
@@ -1017,42 +1311,52 @@ fn valid_position_for_mob(w: &mut World, k: &Kind, ty: MobType, pos: Vec3, d2: f
 
 /// Add the mob (and what its `finalizeSpawn` adds: a jockey's chicken, a spider's skeleton, a
 /// zombie horse's rider).
-fn spawn_mob(w: &mut World, nat: &Natural, k: &Kind, ty: MobType, pos: Vec3, yaw: f32, _g: &mut GroupData) -> u32 {
-    let id = super::add(w, ty, pos, false);
+fn spawn_mob(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) -> u32 {
+    // a new chicken enters during the zombie's finalizeSpawn, before the zombie
+    let chicken = (f.jockey == Jockey::NewChicken).then(|| super::add(w, MobType::Natural(12), pos, false));
+    let id = super::add(w, f.ty, pos, false);
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
         e.y_rot = crate::entity::mth::wrap_degrees(yaw);
     }
-    let rider = |w: &mut World, rty: MobType, vehicle: u32| {
-        let r = super::add(w, rty, pos, true);
+    let ride = |w: &mut World, rider: u32, vehicle: u32| {
         if let Some(n) = w.mob.natural.as_mut() {
-            n.riders.push((r, vehicle));
+            n.riders.push((rider, vehicle));
         }
     };
-    match k.finalize {
-        Finalize::Zombie if Some(ty) == k.baby => {
-            // a baby's chicken jockey: a chicken near it (5%), else a new one (5%)
-            let near = rng(w).next_float() < 0.05;
-            if !near && rng(w).next_float() < 0.05 {
-                let c = super::add(w, MobType::Natural(12), pos, false);
-                if let Some(n) = w.mob.natural.as_mut() {
-                    n.riders.push((id, c));
-                }
-                if let Some(i) = crate::entity::index_of(w, id)
-                    && let EntityKind::Mob(m) = &mut w.entities.list[i].kind
-                {
-                    m.persistence_required = true;
-                }
+    match f.jockey {
+        Jockey::None => {}
+        Jockey::NewChicken => ride(w, id, chicken.unwrap()),
+        Jockey::NearChicken => {
+            // the first chicken in the zombie's box inflated by (5, 3, 5) that nobody rides
+            let bb = entity_box(f.ty, pos.x, pos.y, pos.z);
+            let riders: Vec<u32> = w.mob.natural.as_ref().map(|n| n.riders.iter().map(|r| r.1).collect()).unwrap_or_default();
+            let near = w.entities.list.iter().find(|e| {
+                !e.removed
+                    && e.id != id
+                    && matches!(&e.kind, EntityKind::Mob(m) if m.ty.def().game_id == "minecraft:chicken")
+                    && !riders.contains(&e.id)
+                    && e.pos.x > bb.min_x - 5.0
+                    && e.pos.x < bb.max_x + 5.0
+                    && e.pos.y > bb.min_y - 3.0
+                    && e.pos.y < bb.max_y + 3.0
+                    && e.pos.z > bb.min_z - 5.0
+                    && e.pos.z < bb.max_z + 5.0
+            });
+            if let Some(c) = near.map(|e| e.id) {
+                ride(w, id, c);
             }
         }
-        Finalize::Spider => {
-            if rng(w).next_int(100) == 0 {
-                rider(w, MobType::Natural(4), id);
-            }
+        Jockey::SpiderSkeleton => {
+            let r = super::add(w, MobType::Natural(4), pos, true);
+            ride(w, r, id);
         }
-        Finalize::ZombieHorse => rider(w, MobType::Zombie, id),
-        _ => {}
+        Jockey::HorseZombie | Jockey::HorseBabyZombie => {
+            let rty = if f.jockey == Jockey::HorseBabyZombie { MobType::Natural(25) } else { MobType::Zombie };
+            let r = super::add(w, rty, pos, true);
+            ride(w, r, id);
+        }
     }
-    let _ = nat;
+    let _ = k;
     id
 }
 
