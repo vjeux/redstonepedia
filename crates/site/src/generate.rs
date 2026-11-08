@@ -249,22 +249,27 @@ fn archived_ms(s: &str) -> Option<i64> {
 fn write_litematics(site: &Site, repo: &Path, out: &Path) -> Result<usize> {
     // (a build without an archive time: the archive's newest, as stable)
     let newest = site.builds.iter().filter_map(|b| archived_ms(&b.archived)).max().unwrap_or(0);
-    let mut n = 0;
-    for b in &site.builds {
+    // every schematic on the build's threads (5038 of them took 7.6 s on one core, two thirds of
+    // a warm build: 2026-11-08); the first failure fails the build
+    let written = crate::circuits::par_map(&site.builds, |b| -> Result<()> {
         let time = archived_ms(&b.archived).unwrap_or(newest);
         let path = if is_member(b) { b.design.clone() } else { repo_design_path(b) };
         let text = read_design(b, repo, out)?;
         let d = mctas::design::Design::parse(&text).with_context(|| format!("parsing {path}"))?;
         let desc = [crate::explain::caption_text(&b.caption).as_str(), &usage_note(b), &format!("REDSTONEPEDIA: {}{}", crate::deploy::PAGES_URL, b.page)].iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join(" ");
         let bytes = litematic::export(&d, &litematic::Meta::new(&b.name, &desc, time)).with_context(|| format!("{path}: litematic"))?;
-        write_bytes(&out.join(litematic_path(&b.design)), &bytes)?;
-        n += 1;
+        write_bytes(&out.join(litematic_path(&b.design)), &bytes)
+    });
+    for r in written {
+        r?;
     }
+    let mut n = site.builds.len();
     // members: the generated ones (a member that is its family's archived base design shares that
     // build's file, already written); listed under their period on the clock card's page
     let clock_page = site.builds.iter().find(|b| b.clock.as_ref().is_some_and(|c| !c.kind_range.is_empty())).map(|b| b.page.clone()).unwrap_or_default();
     let build_designs: std::collections::BTreeSet<&str> = site.builds.iter().map(|b| b.design.as_str()).collect();
-    for m in site.members.iter().filter(|m| !m.design.is_empty() && !build_designs.contains(m.design.as_str())) {
+    let members: Vec<&Member> = site.members.iter().filter(|m| !m.design.is_empty() && !build_designs.contains(m.design.as_str())).collect();
+    let written = crate::circuits::par_map(&members, |m| -> Result<()> {
         let text = std::fs::read_to_string(out.join(&m.design)).with_context(|| format!("reading {}", m.design))?;
         let d = mctas::design::Design::parse(&text).with_context(|| format!("parsing {}", m.design))?;
         let desc = format!(
@@ -279,9 +284,12 @@ fn write_litematics(site: &Site, repo: &Path, out: &Path) -> Result<usize> {
         );
         let name = format!("{}-n{}", m.family, m.n);
         let bytes = litematic::export(&d, &litematic::Meta::new(&name, &desc, newest)).with_context(|| format!("{}: litematic", m.design))?;
-        write_bytes(&out.join(litematic_path(&m.design)), &bytes)?;
-        n += 1;
+        write_bytes(&out.join(litematic_path(&m.design)), &bytes)
+    });
+    for r in written {
+        r?;
     }
+    n += members.len();
     Ok(n)
 }
 
@@ -301,6 +309,22 @@ fn release_freed_memory() {
     unsafe {
         libc::malloc_trim(0);
     }
+}
+
+/// The memory a box must have available for the clocks' and the circuits' passes to run beside
+/// each other: a cold build beside each other peaked at 41.6 GB (2026-11-08, 41.0 GB one after the
+/// other: the circuits' pass runs while the members' pass is down to its long pole), with room for
+/// the box's other agents.
+const BESIDE_GB: u64 = 96;
+
+/// Whether this box has the memory to run the two simulation passes beside each other (its
+/// available memory, /proc/meminfo, at least [`BESIDE_GB`]); `site build` says which it chose.
+fn overlap_passes() -> bool {
+    let avail_kb = std::fs::read_to_string("/proc/meminfo").ok().and_then(|m| m.lines().find_map(|l| l.strip_prefix("MemAvailable:").and_then(|v| v.split_whitespace().next()?.parse::<u64>().ok()))).unwrap_or(0);
+    let gb = avail_kb / 1_048_576;
+    let beside = gb >= BESIDE_GB;
+    eprintln!("simulation passes: {} ({gb} GB available; beside each other from {BESIDE_GB} GB; --serial-passes forces one after the other)", if beside { "the clocks' and the circuits' beside each other" } else { "one after the other" });
+    beside
 }
 
 pub fn build(a: &BuildArgs) -> Result<()> {
@@ -347,20 +371,43 @@ pub fn build(a: &BuildArgs) -> Result<()> {
     // the clocks (no family pages: vjeux 00:33Z; but every clock that makes a period, family
     // members at their extension included, is listed under that period: 00:43Z, only the
     // members a judge verified, in the game or simulated to exactly their period), then the
-    // circuits: one after the other, not beside each other (the coordinator 2026-10-21: cold, the
-    // members' pass peaks at 82 GB and the circuits' at 49 GB, 132 GB at once on a shared 223 GB
-    // box where an out-of-memory kill takes agents' services down; one after the other, ~82 GB,
-    // ~200 s cold instead of 148 s)
+    // circuits: one after the other on a box short of memory (the coordinator 2026-10-21: cold,
+    // the members' pass peaked at 82 GB and the circuits' at 49 GB, 132 GB at once on a shared
+    // 223 GB box where an out-of-memory kill takes agents' services down; one after the other,
+    // ~82 GB, ~200 s cold instead of 148 s), beside each other on a box with the memory for both
+    // (`overlap_passes`; 2026-11-08: the cold members' pass is one member long, clk-rt-counter
+    // n = 3 alone for 339 s of its 359 s, and the circuits took 77 s after it; the whole cold
+    // build peaked at 41 GB one after the other)
+    let beside = !a.serial_passes && overlap_passes();
     let t = std::time::Instant::now();
-    let ce = clocks::export(&repo, &clocks::ClockOptions { members_dir: Some(out.join("designs/clocks/members")), sim_horizon: a.sim_horizon, threads: a.threads })?;
-    let clock_s = t.elapsed().as_secs_f64();
-    // the members' memory back to the system before the circuits run: glibc keeps each thread's
-    // arena at its high-water mark, so the circuits' pass stacked on what the members had freed
-    // (cold, 111 GB at the peak one after the other, 132 GB beside each other)
+    let clock_opts = clocks::ClockOptions { members_dir: Some(out.join("designs/clocks/members")), sim_horizon: a.sim_horizon, threads: a.threads };
+    let (ce, circuits_done, clock_s, circuit_s) = if beside {
+        std::thread::scope(|s| {
+            let circuits_pass = s.spawn(|| {
+                let t = std::time::Instant::now();
+                let r = circuits::export(&repo);
+                (r, t.elapsed().as_secs_f64())
+            });
+            let ce = clocks::export(&repo, &clock_opts);
+            let clock_s = t.elapsed().as_secs_f64();
+            let (r, circuit_s) = circuits_pass.join().unwrap_or_else(|_| (Err(anyhow::anyhow!("the circuits' pass panicked")), 0.0));
+            (ce, r, clock_s, circuit_s)
+        })
+    } else {
+        let ce = clocks::export(&repo, &clock_opts);
+        let clock_s = t.elapsed().as_secs_f64();
+        // the members' memory back to the system before the circuits run: glibc keeps each
+        // thread's arena at its high-water mark, so the circuits' pass stacked on what the
+        // members had freed (cold, 111 GB at the peak one after the other, 132 GB beside each
+        // other)
+        release_freed_memory();
+        let t = std::time::Instant::now();
+        let r = circuits::export(&repo);
+        (ce, r, clock_s, t.elapsed().as_secs_f64())
+    };
+    let ce = ce?;
+    let (circuit_builds, cnotes) = circuits_done?;
     release_freed_memory();
-    let t = std::time::Instant::now();
-    let (circuit_builds, cnotes) = circuits::export(&repo)?;
-    let circuit_s = t.elapsed().as_secs_f64();
     eprintln!("clocks: {} builds ({clock_s:.1}s)", ce.builds.len());
     let base_of: BTreeMap<(String, String), String> = ce.cards.iter().flat_map(|c| c.families.iter().map(move |f| ((c.id.clone(), f.id.clone()), f.build.clone()))).collect();
     // each family's words and steps for its clocks' pages: its kind of clock, how one step extends
@@ -678,11 +725,16 @@ pub fn build(a: &BuildArgs) -> Result<()> {
     // cannot be exported fails the build: nothing is dropped silently)
     let n = write_litematics(&site, &repo, out)?;
     eprintln!("litematic: {n} schematics ({:.1}s)", t0.elapsed().as_secs_f64());
-    for b in &site.builds {
+    // every build's page on the build's threads (beside the schematics, the other serial part of
+    // a warm build)
+    let written = crate::circuits::par_map(&site.builds, |b| -> Result<()> {
         // (a member's design is the generated one; it has no repository file to link)
         let repo_path = if is_member(b) { String::new() } else { repo_design_path(b) };
         let text = read_design(b, &repo, out).unwrap_or_default();
-        write(&out.join(&b.page), &pages::build_page(&site, b, &text, &repo_path, scripts))?;
+        write(&out.join(&b.page), &pages::build_page(&site, b, &text, &repo_path, scripts))
+    });
+    for r in written {
+        r?;
     }
     // the obvious per-kind URLs resolve (/doors/, /clocks/); /circuits/ is the studies' overview
     for (folder, title, kind) in [("doors", "Doors", "door"), ("clocks", "Clocks", "clock")] {
