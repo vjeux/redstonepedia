@@ -1275,7 +1275,10 @@ kick) before the first input.
   The weather first runs alone for a random 150k..400k gt; the farm is the redsim judge's own
   build after its water settled, pasted with `setblock ... strict`, then the day time of the
   judge's steady state, the daylight detectors, the villagers (`LAST_SLEPT` at the end of the last
-  rest) and the zombie in its vehicle. It runs 3 game days of natural weather, then `weather rain
+  rest) and the zombie in its vehicle (the vehicle summoned alone, the zombie at the seat redsim
+  gives it, then `ride`, all before the first tick: summoned in one command, a passenger starts at
+  the vehicle's own position and spends its first tick there before `positionRider` seats it,
+  where a low roof costs it a hit no farm ever deals). It runs 3 game days of natural weather, then `weather rain
   24000`, then `weather thunder 24000`, stepped at `tick rate 10000` (about 15 s per build-day;
   the 8 builds in parallel take about 2 minutes). Every 20 gt it reads every golem, villager,
   witch, zombie villager, zombie, vehicle, trap horse and item, and every 1000 gt the farm's

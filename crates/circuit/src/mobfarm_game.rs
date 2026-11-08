@@ -250,6 +250,52 @@ pub fn judge_builds() -> Vec<(u8, [i32; 3])> {
     v
 }
 
+/// The riders' seats as redsim seats them: every passenger's position after the arrival and one
+/// tick (positionRider), with its entity id.
+fn rider_seats(spec: &FarmSpec, seed: i64) -> Result<Vec<(String, [f64; 3])>> {
+    let o = RunOpts::steady(seed, 0, WalkMode::Random);
+    let mut run = farm::Run::new(spec, &o).map_err(|e| anyhow!(e))?;
+    run.tick();
+    Ok(run
+        .world
+        .entities
+        .list
+        .iter()
+        .filter(|e| e.vehicle.is_some() && !e.removed)
+        .filter_map(|e| match &e.kind {
+            redsim::entity::EntityKind::Mob(m) => Some((m.ty.def().id.to_string(), [e.pos.x, e.pos.y, e.pos.z])),
+            _ => None,
+        })
+        .collect())
+}
+
+/// A vehicle's `Passengers:[{id:"..."},...]` (riders with no data of their own) and the rest of its
+/// data (a turned build's `Rotation`...); `None` without such a list (summoned as written).
+fn split_passengers(nbt: &str) -> Option<(Vec<String>, String)> {
+    let start = nbt.find("Passengers:[")?;
+    let list_start = start + "Passengers:[".len();
+    let len = nbt[list_start..].find(']')?;
+    let inner = &nbt[list_start..list_start + len];
+    let mut ids = Vec::new();
+    for part in inner.split("},") {
+        let part = part.trim().trim_start_matches('{').trim_end_matches('}');
+        let id = part.strip_prefix("id:\"")?.strip_suffix('"')?;
+        // a rider with data of its own: summoned as written
+        if id.contains(['"', ',', '{', '[', ':']) && !id.starts_with("minecraft:") {
+            return None;
+        }
+        ids.push(id.to_string());
+    }
+    let rest = format!("{}{}", &nbt[..start], &nbt[list_start + len + 1..]).replace("{,", "{").replace(",}", "}").replace(",,", ",");
+    (!ids.is_empty()).then_some((ids, rest))
+}
+
+/// Entity data `nbt` (a compound, or `{}`) with `Tags:[tag]` added.
+fn with_tag(nbt: &str, tag: &str) -> String {
+    let body = nbt.trim().trim_start_matches('{').trim_end_matches('}').trim();
+    if body.is_empty() { format!("{{Tags:[\"{tag}\"]}}") } else { format!("{{Tags:[\"{tag}\"],{body}}}") }
+}
+
 /// The farm's blocks as the redsim judge builds them (`farm::Run::start` and its water's settle;
 /// the daylight detectors held back), as `setblock` states, and the detectors.
 /// The farm as the redsim judge builds it: its blocks after its water settled (`farm::Run::start`
@@ -338,6 +384,10 @@ pub fn run_build(c: &Circuit, turns: u8, offset: [i32; 3], o: &GateOpts) -> Resu
     let spec = crate::mobfarm::spec_of(c).map_err(|e| anyhow!(e))?;
     let seed = o.seed.wrapping_mul(1000) + turns as i64 * 10 + (offset[0] & 7) as i64;
     let Built { blocks, detectors, mut watch } = built_blocks(&spec, seed)?;
+    let seats = rider_seats(&spec, seed)?;
+    if o.trace {
+        eprintln!("build {turns} {offset:?}: redsim's seats {seats:?}");
+    }
     let output = [spec.output.x, spec.output.y, spec.output.z];
     let boxes = containers(&blocks, output);
     let (mut s, _bot) = start_server(o, &spec)?;
@@ -362,9 +412,31 @@ pub fn run_build(c: &Circuit, turns: u8, offset: [i32; 3], o: &GateOpts) -> Resu
     let slept = now - (day0 - 10);
     let d = &c.clock.design;
     let mut villager_spots: Vec<[f64; 3]> = Vec::new();
-    for e in &d.entities {
+    for (n, e) in d.entities.iter().enumerate() {
         let k = e.kind.trim_start_matches("minecraft:");
         let [x, y, z] = e.pos;
+        // a vehicle with its riders: the vehicle alone, then each rider summoned at the seat redsim
+        // seats it on and mounted (`ride`), so its first tick is in its seat: summoned in one
+        // command, a passenger starts at the vehicle's position and can spend that tick inside a
+        // block before positionRider seats it (a hit the farm never takes)
+        if let Some((riders, rest)) = e.nbt.as_deref().and_then(split_passengers) {
+            s.cmd_ok(&format!("summon minecraft:{k} {x} {y} {z} {}", with_tag(&rest, &format!("mf_vehicle_{n}")))).with_context(|| format!("summon {k}"))?;
+            for (j, rider) in riders.iter().enumerate() {
+                let short = rider.trim_start_matches("minecraft:");
+                let seat = seats
+                    .iter()
+                    .filter(|(id, _)| id.trim_start_matches("minecraft:") == short)
+                    .nth(j)
+                    .map(|(_, p)| *p)
+                    .ok_or_else(|| anyhow!("redsim seats no {rider} on the {k} at {x} {y} {z}"))?;
+                s.cmd_ok(&format!("summon {rider} {} {} {} {{Tags:[\"mf_rider_{n}_{j}\"]}}", seat[0], seat[1], seat[2])).with_context(|| format!("summon {rider}"))?;
+                let out = s.cmd(&format!("ride @e[tag=mf_rider_{n}_{j},limit=1] mount @e[tag=mf_vehicle_{n},limit=1]"))?;
+                if !out.contains("started riding") {
+                    bail!("ride {rider} on its {k}: {out}");
+                }
+            }
+            continue;
+        }
         let cmd = match (k, e.nbt.as_deref()) {
             ("villager", _) => {
                 villager_spots.push(e.pos);
@@ -389,6 +461,19 @@ pub fn run_build(c: &Circuit, turns: u8, offset: [i32; 3], o: &GateOpts) -> Resu
     }
     if o.thunder_day {
         plan.push((24000, "weather thunder 24000"));
+    }
+    // (--trace: the zombie and its vehicle tick by tick over the first 20 gt)
+    if o.trace {
+        let z = s.cmd_long("execute as @e[type=minecraft:zombie] run data get entity @s Pos")?;
+        eprintln!("build {turns} gt 0: zombie {}", z.chars().take(160).collect::<String>());
+        for _ in 0..20 {
+            step(&mut s, 1)?;
+            t += 1;
+            let z = s.cmd_long("execute as @e[type=minecraft:zombie] run data get entity @s")?;
+            let b = s.cmd_long("execute as @e[type=#minecraft:boat] run data get entity @s Pos")?;
+            let pick = |key: &str| z.split(key).nth(1).map(|r| r.chars().take(40).collect::<String>()).unwrap_or_default();
+            eprintln!("build {turns} gt {t}: zombie Health{} | HurtTime{} | Pos{} | fall_distance{} | Fire{} | boat {}", pick("Health"), pick("HurtTime"), pick("Pos"), pick("fall_distance"), pick("Fire:"), b.chars().take(140).collect::<String>());
+        }
     }
     for (k, (len, cmd)) in plan.iter().enumerate() {
         if !cmd.is_empty() {
@@ -593,8 +678,11 @@ fn sample(
     if zs.len() as u32 != zombies0 {
         run.fail(format!("gt {t}: {} zombies of {zombies0}", zs.len()));
     }
-    if zs.iter().any(|a| a.trim().trim_end_matches('f').parse::<f64>().unwrap_or(20.0) < 20.0) {
-        run.fail(format!("gt {t}: the zombie was hurt"));
+    if let Some(h) = zs.iter().map(|a| a.trim().trim_end_matches('f').parse::<f64>().unwrap_or(20.0)).find(|h| *h < 20.0) {
+        let why = s.cmd_long("execute as @e[type=minecraft:zombie] run data get entity @s")?;
+        let hurt = why.split("HurtTime").nth(1).map(|r| r.chars().take(8).collect::<String>()).unwrap_or_default();
+        let pos = list_after(&why.replace(' ', ""), "Pos").unwrap_or_default();
+        run.fail(format!("gt {t}: the zombie was hurt (health {h:.1}; HurtTime{hurt}; at {pos:?})"));
     }
     // drops outside the farm's box
     let (lo, hi) = (spec.lo, spec.hi);
@@ -838,4 +926,24 @@ pub fn poisson_band(lambda: f64, alpha: f64) -> (u32, u32) {
         }
     }
     (lo, hi)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A vehicle's riders split from its data, a turned build's Rotation kept.
+    #[test]
+    fn passengers_split_from_the_vehicle() {
+        assert_eq!(split_passengers("{Passengers:[{id:\"minecraft:zombie\"}]}"), Some((vec!["minecraft:zombie".to_string()], "{}".to_string())));
+        assert_eq!(
+            split_passengers("{Passengers:[{id:\"minecraft:zombie\"}],Rotation:[90.0f,0.0f]}"),
+            Some((vec!["minecraft:zombie".to_string()], "{Rotation:[90.0f,0.0f]}".to_string()))
+        );
+        assert_eq!(split_passengers("{Rotation:[90.0f,0.0f]}"), None);
+        // a rider with data of its own: summoned as written
+        assert_eq!(split_passengers("{Passengers:[{id:\"minecraft:zombie\",IsBaby:1b}]}"), None);
+        assert_eq!(with_tag("{}", "t"), "{Tags:[\"t\"]}");
+        assert_eq!(with_tag("{Rotation:[90.0f,0.0f]}", "t"), "{Tags:[\"t\"],Rotation:[90.0f,0.0f]}");
+    }
 }
