@@ -2407,6 +2407,10 @@ fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
         strip.push((c.dix + 1, z));
         strip.push((c.dix + 2, z));
     }
+    // Supports for the branch dust's east-side route around portal B (see below).
+    for z in c.doz_a + 2..=c.doz_b + 1 {
+        strip.push((c.dix + 3, z));
+    }
     for (x, z) in strip {
         if plate_cells.contains(&(x, z)) {
             continue;
@@ -2435,25 +2439,38 @@ fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
             p.place_at("overworld", [x, y, c.doz_a + 3], "minecraft:stone", None)?;
         }
     }
-    // Dust: main line east from the plates, branch south to portal B's dropper spot.
+    // Dust: main line east from the plates to dropper A, then a branch to dropper B
+    // that routes EAST around portal B — the straight southward column would put a
+    // dust cell inside B's interior, where lighting the portal destroys it and cuts
+    // the line. Repeaters go in as the line reaches them (east on the main line,
+    // south on the east leg), while the player is already there.
     p.select(SLOT_REDSTONE)?;
     let rep1 = c.rox + 7;
     for x in c.rox + 2..=c.dix {
         if x == rep1 {
+            p.hold("repeater")?;
+            p.place_at("overworld", [rep1, 3, c.doz_a + 1], "minecraft:repeater", Some((-90.0, 20.0)))?;
+            p.select(SLOT_REDSTONE)?;
             continue;
         }
         p.place_at("overworld", [x, 3, c.doz_a + 1], "minecraft:redstone_wire", None)?;
     }
-    for z in c.doz_a + 2..=c.doz_b + 1 {
+    // Branch: south one, east three (south of dropper A), south down the east side
+    // of portal B, then west into dropper B's east face.
+    p.place_at("overworld", [c.dix, 3, c.doz_a + 2], "minecraft:redstone_wire", None)?;
+    for x in c.dix + 1..=c.dix + 3 {
+        p.place_at("overworld", [x, 3, c.doz_a + 2], "minecraft:redstone_wire", None)?;
+    }
+    for z in c.doz_a + 3..=c.doz_b + 1 {
         if z == c.doz_a + 5 {
+            p.hold("repeater")?;
+            p.place_at("overworld", [c.dix + 3, 3, z], "minecraft:repeater", Some((0.0, 20.0)))?;
+            p.select(SLOT_REDSTONE)?;
             continue;
         }
-        p.place_at("overworld", [c.dix, 3, z], "minecraft:redstone_wire", None)?;
+        p.place_at("overworld", [c.dix + 3, 3, z], "minecraft:redstone_wire", None)?;
     }
-    // Repeaters: east on the main line, south on the branch (signal reaches both droppers).
-    p.hold("repeater")?;
-    p.place_at("overworld", [rep1, 3, c.doz_a + 1], "minecraft:repeater", Some((-90.0, 20.0)))?;
-    p.place_at("overworld", [c.dix, 3, c.doz_a + 5], "minecraft:repeater", Some((0.0, 20.0)))?;
+    p.place_at("overworld", [c.dix + 2, 3, c.doz_b + 1], "minecraft:redstone_wire", None)?;
     // The dropper at portal A, facing north into its interior, loaded with cobblestone.
     p.hold("dropper")?;
     p.place_at("overworld", [c.dix + 1, 3, c.doz_a + 1], "minecraft:dropper", Some((0.0, 5.0)))?;
