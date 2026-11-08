@@ -268,6 +268,9 @@ final class Sandbox {
     /** (tickexact) Entities constructed in this sandbox so far ({@link Exact#constructSeed}). */
     long constructCount;
 
+    /** (tickexact) {@code Collections.shuffle}'s static random was seeded for this world sandbox. */
+    boolean collectionsSeeded;
+
     /** (tickexact) The sandboxes by level, for the construction hook. */
     static final java.util.Map<net.minecraft.world.level.Level, Sandbox> BY_LEVEL = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
 
@@ -332,6 +335,7 @@ final class Sandbox {
      */
     private void seedBeforeTick() {
         this.ctorYaw.clear();
+        Exact.fixPoiOrder(this.level.getPoiManager());
         if (!this.seeded.isEmpty()) {
             Exact.refreshBrains(entities(), this.seeded);
         }

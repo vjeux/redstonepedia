@@ -227,6 +227,64 @@ final class Exact {
     static final long LCG_INVERSE = java.math.BigInteger.valueOf(0x5DEECE66DL).modInverse(java.math.BigInteger.ONE.shiftLeft(48)).longValue();
 
     /**
+     * Seed {@code Collections.shuffle(List)}'s static random ({@code java.util.Collections.r}, a
+     * {@code new Random()} the JDK makes on first use): {@code InsideBrownianWalk} (a villager
+     * resting where it cannot sleep), {@code LongJumpToRandomPos} and the breeze's long jump
+     * shuffle with it. One per JVM (a world sandbox has a worker of its own):
+     * {@code new Random(s ^ "shuffle")}, the same LCG as the level random's.
+     */
+    static void seedCollectionsShuffle(long sandboxSeed) {
+        try {
+            java.lang.reflect.Field r = java.util.Collections.class.getDeclaredField("r");
+            r.setAccessible(true);
+            r.set(null, new java.util.Random(collectionsSeed(sandboxSeed)));
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            throw new IllegalStateException("cannot seed Collections.shuffle (the worker needs --add-opens java.base/java.util): " + e);
+        }
+    }
+
+    static long collectionsSeed(long sandboxSeed) {
+        return sandboxSeed ^ 0x73687566666c65L;
+    }
+
+    private static final java.lang.reflect.Field SECTION_STORAGE = field(net.minecraft.world.level.chunk.storage.SectionStorage.class, "storage");
+    private static final java.lang.reflect.Field POI_BY_TYPE = field(net.minecraft.world.entity.ai.village.poi.PoiSection.class, "byType");
+
+    /** POI types in their registry order (a deterministic order for {@code PoiSection.byType}). */
+    static final java.util.Comparator<net.minecraft.core.Holder<net.minecraft.world.entity.ai.village.poi.PoiType>> POI_TYPE_ORDER =
+            java.util.Comparator.comparingInt(h -> net.minecraft.core.registries.BuiltInRegistries.POINT_OF_INTEREST_TYPE.getId(h.value()));
+
+    /**
+     * Give every POI section's by-type map a deterministic order (the types' registry order):
+     * vanilla's is a {@code HashMap} keyed by registry holders, whose hash is the JVM's identity
+     * hash, so a search over several POI types ({@code getRecords} with a tag: job sites, village
+     * POIs) met equally near records in a different order on every run. Within a type the records
+     * stay vanilla's (a {@code HashSet} of records hashed by their position). Run before each tick
+     * (sections made since get theirs).
+     */
+    @SuppressWarnings("unchecked")
+    static void fixPoiOrder(net.minecraft.world.entity.ai.village.poi.PoiManager poi) {
+        try {
+            var storage = (it.unimi.dsi.fastutil.longs.Long2ObjectMap<java.util.Optional<?>>) SECTION_STORAGE.get(poi);
+            for (java.util.Optional<?> o : storage.values()) {
+                if (o.isEmpty()) {
+                    continue;
+                }
+                Object section = o.get();
+                Object byType = POI_BY_TYPE.get(section);
+                if (byType instanceof java.util.TreeMap) {
+                    continue;
+                }
+                var sorted = new java.util.TreeMap<net.minecraft.core.Holder<net.minecraft.world.entity.ai.village.poi.PoiType>, java.util.Set<net.minecraft.world.entity.ai.village.poi.PoiRecord>>(POI_TYPE_ORDER);
+                sorted.putAll((Map<net.minecraft.core.Holder<net.minecraft.world.entity.ai.village.poi.PoiType>, java.util.Set<net.minecraft.world.entity.ai.village.poi.PoiRecord>>) byType);
+                POI_BY_TYPE.set(section, sorted);
+            }
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /**
      * The seed of the k-th entity constructed in a sandbox ({@code EntityType.create}: spawn
      * attempts that fail included), given to its random right after its constructor
      * ({@link Sandbox#onConstructed}): what it draws before it enters the level (a zombie's
@@ -828,6 +886,11 @@ final class Exact {
         }
         if (v instanceof Path p) {
             return path(p);
+        }
+        if (v instanceof java.util.Set<?> set) {
+            // a set (DOORS_TO_CLOSE: GlobalPos): its elements' texts sorted (a HashSet's order is
+            // not the model's)
+            return "[" + String.join(" ", set.stream().map(x -> memoryValue(sb, x)).sorted().toList()) + "]";
         }
         if (v instanceof List<?> l) {
             StringBuilder s = new StringBuilder("[");

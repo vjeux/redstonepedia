@@ -725,6 +725,10 @@ public final class Protocol {
             throw new IllegalArgumentException("a world sandbox needs a worker of its own: 26.3 keeps the clock, the weather and the game rules server-wide ("
                     + this.sandboxes.size() + " sandboxes here)");
         }
+        if (!sb.collectionsSeeded) {
+            Exact.seedCollectionsShuffle(sb.seed);
+            sb.collectionsSeeded = true;
+        }
         net.minecraft.world.level.gamerules.GameRules rules = this.server.getGameRules();
         if (r.has("advance_time")) {
             rules.set(net.minecraft.world.level.gamerules.GameRules.ADVANCE_TIME, r.get("advance_time").getAsBoolean(), this.server);

@@ -191,6 +191,15 @@ pub fn trader_seed(seed: i64) -> i64 {
     mix_stafford13((seed ^ 0x7472_6164_6572).wrapping_add(GOLDEN))
 }
 
+/// The seed of `Collections.shuffle(List)`'s static random in a bridge world sandbox
+/// (`Exact.seedCollectionsShuffle`: `new java.util.Random(s ^ "shuffle")`, the same LCG as
+/// [`LegacyRandom`]): `InsideBrownianWalk` (a villager resting where it cannot sleep),
+/// `LongJumpToRandomPos` and the breeze's long jump shuffle their candidates with it, one stream
+/// for the whole world (`Collections.shuffle`: `swap(list, i - 1, nextInt(i))` from the end).
+pub fn collections_seed(seed: i64) -> i64 {
+    seed ^ 0x73_6875_6666_6c65
+}
+
 /// The seed the k-th entity constructed in a bridge sandbox gets right after its constructor
 /// (`Exact.constructSeed`; k counts every `EntityType.create` in the sandbox: spawn attempts that
 /// are then rejected, golem attempts, summons, loaded entities, bolts, reinforcements, offspring).

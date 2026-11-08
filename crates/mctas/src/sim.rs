@@ -346,6 +346,8 @@ impl Worker {
             .arg("-XX:+IgnoreUnrecognizedVMOptions")
             .arg("--enable-native-access=ALL-UNNAMED")
             .arg("--sun-misc-unsafe-memory-access=allow")
+            // tickexact: the bridge seeds Collections.shuffle's static random (InsideBrownianWalk)
+            .arg("--add-opens=java.base/java.util=ALL-UNNAMED")
             .arg(format!("-Dlog4j2.configurationFile={}", build.log4j_config.display()))
             .arg(format!("-Dmctas.loglevel={}", cfg.log_level))
             .args(&cfg.jvm_args)
