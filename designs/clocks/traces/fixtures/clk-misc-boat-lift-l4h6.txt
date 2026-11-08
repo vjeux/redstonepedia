@@ -1,0 +1,70 @@
+# archived 2026-10-19T23:28Z from designs/clocks/tracks/clk-misc/boat/boat-lift-l4h6.txt by mctas clock archive
+# CLOCK: clk-misc-boat-lift-l4h6 period 186 gt (9.3 s), on 20/186, edges 1, warmup 113, family oak_boat+oak_pressure_plate, 169 blocks, 11x10x4, rotation-dependent
+name: clk-misc-boat-lift-l4h6
+# A REDSTONE-LESS vertical boat loop with a bubble-column lift (L = 4, H = 6): a boat rides a 2-wide water channel to a row
+# of wooden pressure plates, crosses it into a 2x2 upward bubble column (water sources over soul sand) and is shot up (a ceiling
+# stops it); it falls back on the column's top, whose sources feed an upper channel 6 blocks higher that carries it to a 2-wide
+# gap, where it drops back into the lower channel onto a second plate row (which keeps the landing water flowing back). Wall
+# banners above the first plate row hold the column's water in while the boat rises through them (no collision, water cannot
+# enter them). Stone, soul sand, water, wall banners, 4 oak pressure plates and the boat.
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 0 -2 0: the output [0, -2, 0] is under the build (the build's ground level is y = -1): a repeater there has nothing to stand on)
+port output: 0 -1 -1
+entity: minecraft:oak_boat 3.5 0 1
+origin: -3 0 -1
+palette:
+  O minecraft:oak_pressure_plate[powered=false]
+  S minecraft:soul_sand
+  W minecraft:water[level=0]
+  s minecraft:stone
+  w minecraft:white_wall_banner[facing=west]
+layer -1:
+  .
+  .SSsssssss
+  .SSsssssss
+  .
+layer 0:
+  .sssssssss
+  sWWO.....Os
+  sWWO.....Os
+  .sssssssss
+layer 1:
+  .ss
+  sWWws.....s
+  sWWws.....s
+  .ss
+layer 2:
+  .ss
+  sWWws.....s
+  sWWws.....s
+  .ss
+layer 3:
+  .ss
+  sWWws.....s
+  sWWws.....s
+  .ss
+layer 4:
+  .ss
+  sWWws.....s
+  sWWws.....s
+  .ss
+layer 5:
+  .ss
+  sWWwssss..s
+  sWWwssss..s
+  .ss
+layer 6:
+  .sssssssss
+  sWW.......s
+  sWW.......s
+  .sssssssss
+layer 7:
+  .
+  .
+  .
+  .
+layer 8:
+  .
+  .ssss
+  .ssss
+  .

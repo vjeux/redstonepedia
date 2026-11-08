@@ -1,0 +1,54 @@
+# archived 2026-10-19T23:36Z from designs/clocks/tracks/clk-misc/boat/boat-lift-l3h2-dripleaf.txt by mctas clock archive
+# CLOCK: clk-misc-boat-lift-l3h2-dripleaf period 187 gt (9.35 s), on 20/187, edges 1, warmup 79, family big_dripleaf+oak_boat+oak_pressure_plate, 99 blocks, 10x6x4, rotation-dependent
+name: clk-misc-boat-lift-l3h2-dripleaf
+# A REDSTONE-LESS vertical boat loop with a bubble-column lift (L = 3, H = 2): a boat rides a 2-wide water channel to a row
+# of wooden pressure plates, crosses it into a 2x2 upward bubble column (water sources over soul sand) and is shot up (a ceiling
+# stops it); it falls back on the column's top, whose sources feed an upper channel 2 blocks higher that carries it to a 2-wide
+# gap, where it drops back into the lower channel onto a second plate row (which keeps the landing water flowing back). Wall
+# banners above the first plate row hold the column's water in while the boat rises through them (no collision, water cannot
+# enter them). Stone, soul sand, water, wall banners, 4 oak pressure plates and the boat.
+# The boat drops onto waterlogged big dripleaves: they tilt under it (unstable 10 gt, partial 10 gt, full) and let it fall into
+# the channel, and spring back 100 gt later.
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 5 -2 0: the output [5, -2, 0] is under the build (the build's ground level is y = -1): a repeater there has nothing to stand on)
+port output: 0 -1 -1
+entity: minecraft:oak_boat 3 0 1
+origin: -3 0 -1
+palette:
+  B minecraft:big_dripleaf[facing=west,tilt=none,waterlogged=true]
+  D minecraft:dirt
+  O minecraft:oak_pressure_plate[powered=false]
+  S minecraft:soul_sand
+  W minecraft:water[level=0]
+  s minecraft:stone
+  w minecraft:white_wall_banner[facing=west]
+layer -1:
+  .
+  .SSssssDs
+  .SSssssDs
+  .
+layer 0:
+  .ssssssss
+  sWWO...BOs
+  sWWO...BOs
+  .ssssssss
+layer 1:
+  .ss
+  sWWwsss..s
+  sWWwsss..s
+  .ss
+layer 2:
+  .ssssssss
+  sWW......s
+  sWW......s
+  .ssssssss
+layer 3:
+  .
+  .
+  .
+  .
+layer 4:
+  .
+  .ssss
+  .ssss
+  .

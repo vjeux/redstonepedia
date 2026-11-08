@@ -108,6 +108,18 @@ enum Cmd {
         #[arg(long, default_value_t = 6)]
         max: usize,
     },
+    /// Restore missing exact-trace designs from git history, outside the published archive.
+    TraceFixtures {
+        #[arg(long, default_value = "designs/clocks/traces/exact")]
+        root: PathBuf,
+        #[arg(long, default_value = "designs/clocks/traces/fixtures")]
+        fixtures: PathBuf,
+        /// A saved pristine redsim-fuzz binary: every restored fixture must match before writes.
+        #[arg(long)]
+        binary: PathBuf,
+        #[arg(long)]
+        write: bool,
+    },
     /// The game's chunk tick order (`ServerChunkCache.tickChunks`, the bridge's `ticking_chunks`)
     /// against redsim's `crops::tick_order`, for sandboxes forcing every box of chunks up to
     /// `--size` x `--size` at a few offsets: one line per box that differs, then the count.
@@ -337,6 +349,9 @@ fn main() -> Result<()> {
         Cmd::TraceCompare { traces, max } => {
             anyhow::ensure!(!traces.is_empty(), "trace-compare <exact traces>... (designs/clocks/traces/exact/*.trace)");
             redsim_fuzz::trace_compare::run(&traces, max)?;
+        }
+        Cmd::TraceFixtures { root, fixtures, binary, write } => {
+            redsim_fuzz::trace_fixtures::run(&[root], &fixtures, &binary, write)?;
         }
         Cmd::ChunkOrderCheck { size } => {
             let mut w = Worker::spawn(&cfg)?;

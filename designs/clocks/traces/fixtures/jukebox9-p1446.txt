@@ -1,0 +1,44 @@
+# archived 2026-10-19T17:25Z from designs/clocks/tracks/clk-item/jukebox9-p1446.txt by mctas clock archive
+# CLOCK: jukebox9-p1446 period 1446 gt (1 min 12.3 s), on 9/1446, edges 1, warmup 11, family dropper+hopper+jukebox+note_block+redstone_torch+redstone_wire, 11 blocks, 2x4x3, robust
+# Jukebox carousel, 9 blocks (clk-item): 3 copies of disc 11 go around a jukebox J. A playing jukebox emits 15:
+# it locks the extractor hopper below it, powers the inserter dropper beside it, keeps the torch standing on it
+# off, and lights a 2-dust line whose second dust sits on a note block next to the lift dropper. When the song
+# ends (lengthInTicks + 20 gt) the extractor pushes its waiting disc into the lift and pulls the played one; the
+# torch relights 2 gt later and fires the inserter through the cell above it (4 gt): the next disc goes in. The
+# new song lights the dust, the note block flips and fires the lift 4 gt later: the waiting disc rises into the
+# inserter. Period = song + 6 gt, whatever the hopper tick order.
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 2 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): the output of a comparator facing north (on the ground) that reads the build, added at 1 0 -2 (was 0 -1 -1: the output [0, -1, -1] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+name: jukebox9-p1446
+port output: 1 0 -3
+nbt: 0 0 0 {Items:[{Slot:0b,id:"minecraft:music_disc_11",count:1}]}
+nbt: 0 1 0 {RecordItem:{id:"minecraft:music_disc_11",count:1},ticks_since_song_started:0L}
+nbt: 1 1 0 {Items:[{Slot:0b,id:"minecraft:music_disc_11",count:1}]}
+origin: 0 0 -2
+palette:
+  A minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  D minecraft:dropper[facing=up,triggered=true]
+  H minecraft:hopper[enabled=false,facing=east]
+  J minecraft:jukebox[has_record=true]
+  N minecraft:note_block[instrument=harp,note=0,powered=true]
+  R minecraft:redstone_torch[lit=false]
+  S minecraft:stone
+  d minecraft:dropper[facing=west,triggered=true]
+  r minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=side]
+layer -1:
+  .S
+  .
+  .
+layer 0:
+  .C
+  SN
+  HD
+layer 1:
+  .
+  Ar
+  Jd
+layer 2:
+  .
+  .
+  R

@@ -19,6 +19,7 @@ use std::sync::Mutex;
 
 /// Exact real-game traces of entity / fluid clocks replayed in redsim (track clk-misc).
 pub mod trace_compare;
+pub mod trace_fixtures;
 pub mod loot_gen;
 pub mod recipes_gen;
 pub mod archive_check;

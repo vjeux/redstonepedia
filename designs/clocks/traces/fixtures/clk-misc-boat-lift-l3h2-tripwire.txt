@@ -1,0 +1,66 @@
+# archived 2026-10-19T23:33Z from designs/clocks/tracks/clk-misc/boat/boat-lift-l3h2-tripwire.txt by mctas clock archive
+# CLOCK: clk-misc-boat-lift-l3h2-tripwire period 173 gt (8.65 s), on 60/173, edges 1, warmup 84, family oak_boat+oak_pressure_plate+tripwire+tripwire_hook, 103 blocks, 10x6x6, rotation-dependent
+name: clk-misc-boat-lift-l3h2-tripwire
+# A REDSTONE-LESS vertical boat loop with a bubble-column lift (L = 3, H = 2): a boat rides a 2-wide water channel to a row
+# of wooden pressure plates, crosses it into a 2x2 upward bubble column (water sources over soul sand) and is shot up (a ceiling
+# stops it); it falls back on the column's top, whose sources feed an upper channel 2 blocks higher that carries it to a 2-wide
+# gap, where it drops back into the lower channel onto a second plate row (which keeps the landing water flowing back). Wall
+# banners above the first plate row hold the column's water in while the boat rises through them (no collision, water cannot
+# enter them). Stone, soul sand, water, wall banners, 4 oak pressure plates and the boat.
+# A tripwire string hangs across the boat's flight just above the column: the boat trips it going up and coming down.
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing east (on the ground) takes every pulse (was 5 -2 0: the output [5, -2, 0] is under the build (the build's ground level is y = -1): a repeater there has nothing to stand on)
+port output: 6 -1 0
+entity: minecraft:oak_boat 3 0 1
+origin: -3 0 -2
+palette:
+  A minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+  O minecraft:oak_pressure_plate[powered=false]
+  S minecraft:soul_sand
+  T minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
+  W minecraft:water[level=0]
+  s minecraft:stone
+  t minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+  w minecraft:white_wall_banner[facing=west]
+layer -1:
+  .
+  .
+  .SSssssss
+  .SSssssss
+  .
+  .
+layer 0:
+  .
+  .ssssssss
+  sWWO....Os
+  sWWO....Os
+  .ssssssss
+  .
+layer 1:
+  .
+  .ss
+  sWWwsss..s
+  sWWwsss..s
+  .ss
+  .
+layer 2:
+  .
+  .ssssssss
+  sWW......s
+  sWW......s
+  .ssssssss
+  .
+layer 3:
+  ...s
+  ...A
+  ...T
+  ...T
+  ...t
+  ...s
+layer 4:
+  .
+  .
+  .ssss
+  .ssss
+  .
+  .

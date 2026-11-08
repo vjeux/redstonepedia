@@ -1,0 +1,36 @@
+# archived 2026-10-19T22:54Z from designs/clocks/tracks/clk-misc/boat/boat-ring4c.txt by mctas clock archive
+# CLOCK: clk-misc-boat-ring4c period 380 gt (19 s), on 80/380, edges 1, warmup 516, family oak_boat+oak_pressure_plate, 77 blocks, 8x2x8, robust
+name: clk-misc-boat-ring4c
+# A REDSTONE-LESS clock, compact: a boat circles a 2-wide water ring around a 2x2 island, pushed by water currents, and
+# presses wooden pressure plates. Pressure plates block water, so four rows of plates cut the ring into four one-way
+# currents: the first cells of each corner (right after a plate row) are water sources, whose water fills the corner and
+# one row down the next side, up to the next plate row. The boat rides each current (submerged), is thrown against the
+# outer wall at each corner and slid along it by the turn, and crawls over each plate row (pressing it). Only stone,
+# water, 8 oak pressure plates and the boat: no redstone, no ice.
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 3 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing west (on the ground) takes every pulse (was 0 -2 2: the output [0, -2, 2] is under the build (the build's ground level is y = -1): a repeater there has nothing to stand on)
+port output: -1 -1 2
+entity: minecraft:oak_boat 4.8 0.0 1.0
+palette:
+  S minecraft:stone
+  A minecraft:water[level=0]
+  P minecraft:oak_pressure_plate[powered=false]
+origin: -1 -1 -1
+layer 0:
+  ........
+  .SSSSSS.
+  .SSSSSS.
+  .SS..SS.
+  .SS..SS.
+  .SSSSSS.
+  .SSSSSS.
+  ........
+layer 1:
+  .SSSSSS.
+  S...PA.S
+  SAA.PA.S
+  SPPSS..S
+  S..SSPPS
+  S.AP.AAS
+  S.AP...S
+  .SSSSSS.
