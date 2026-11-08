@@ -814,9 +814,11 @@ impl Prod {
         bail!("place_at {dim} {pos:?}: no solid neighbour click placed {pred}")
     }
 
-    /// `build_portal` with an interior height (the v1 helper fixes 3). Bottom row at `ybase`
-    /// (on the floor at ybase-1), plane z=z0, frame west x=x0. Player stands south (z0+2).
-    fn build_portal2(&mut self, dim: &str, x0: i32, ybase: i32, z0: i32, h: i32) -> Result<()> {
+    /// `build_portal` with an interior height (the v1 helper fixes 3), frame only (no
+    /// flint): work that must happen beside the portal planes is done while they are
+    /// still unlit, so no build walk can accidentally step through. Bottom row at
+    /// `ybase` (on the floor at ybase-1), plane z=z0, frame west x=x0.
+    fn build_portal2_frame(&mut self, dim: &str, x0: i32, ybase: i32, z0: i32, h: i32) -> Result<()> {
         self.select(SLOT_OBSIDIAN)?;
         for x in x0..=x0 + 3 {
             self.walk(x, z0 + 2)?;
@@ -839,12 +841,24 @@ impl Prod {
             self.assert_block(dim, [x, ybase, z0], "minecraft:obsidian", "portal2 bottom row")?;
             self.assert_block(dim, [x, top, z0], "minecraft:obsidian", "portal2 top row")?;
         }
+        self.select(SLOT_PICK)?;
+        Ok(())
+    }
+
+    /// Light a frame built by `build_portal2_frame` (flint on the bottom row, from the south).
+    fn light_portal2(&mut self, dim: &str, x0: i32, ybase: i32, z0: i32) -> Result<()> {
         self.select(SLOT_FLINT)?;
         self.walk(x0 + 1, z0 + 1)?;
         self.place([x0 + 1, ybase, z0], "UP")?;
         self.assert_block(dim, [x0 + 1, ybase + 1, z0], "minecraft:nether_portal", "portal2 lit")?;
         self.select(SLOT_PICK)?;
         Ok(())
+    }
+
+    /// Frame + light in one go (the Nether return portal is entered straight away).
+    fn build_portal2(&mut self, dim: &str, x0: i32, ybase: i32, z0: i32, h: i32) -> Result<()> {
+        self.build_portal2_frame(dim, x0, ybase, z0, h)?;
+        self.light_portal2(dim, x0, ybase, z0)
     }
 }
 
@@ -2365,10 +2379,14 @@ fn kit2(p: &mut Prod) -> Result<()> {
 /// drill portals, the stone strip, hoppers + plates under R_O's exit side, the dust line
 /// with two repeaters, and the dropper (at portal A) loaded with cobblestone.
 fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
-    // Portals: bottom rows at y2 (on the y1 room floor), interiors y3..5.
-    p.build_portal2("overworld", c.rox - 1, 2, c.doz_a, 3)?;
-    p.build_portal2("overworld", c.dix - 1, 2, c.doz_a, 3)?;
-    p.build_portal2("overworld", c.dix - 1, 2, c.doz_b, 3)?;
+    // Portal FRAMES first, unlit: all the strip/dust work happens right beside (and
+    // walks right past) these planes, and one greedy walk through a lit drill portal
+    // would land the player on the field mid-build. Lighting happens below, once:
+    // R_O after its hoppers (before plates exist to step on), the drills at the end.
+    // Bottom rows at y2 (on the y1 room floor), interiors y3..5.
+    p.build_portal2_frame("overworld", c.rox - 1, 2, c.doz_a, 3)?;
+    p.build_portal2_frame("overworld", c.dix - 1, 2, c.doz_a, 3)?;
+    p.build_portal2_frame("overworld", c.dix - 1, 2, c.doz_b, 3)?;
     // Back to the west end before building west-to-east: from the branch bay the only
     // walkable route is north up the branch column, west along the main aisle.
     p.walk_path(&[(c.dix + 1, c.doz_b + 2), (c.dix + 1, c.doz_a + 3), (c.rox, c.doz_a + 3), (c.rox, c.doz_a + 2)])?;
@@ -2402,6 +2420,9 @@ fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
     for (x, z) in plate_cells {
         p.place_at("overworld", [x, 2, z], "minecraft:hopper", None)?;
     }
+    // Light R_O now, while standing on a hopper to do it cannot trigger anything
+    // (no plates, no dust, no dropper yet).
+    p.light_portal2("overworld", c.rox - 1, 2, c.doz_a)?;
     p.select(SLOT_SWAP)?;
     p.hold("oak_pressure_plate")?;
     for (x, z) in plate_cells {
@@ -2443,6 +2464,9 @@ fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
     p.loga(&format!("dropper loaded: {moved}"));
     p.state.v2_dropper_b = false;
     p.save_state()?;
+    // Only now light the drill portals: every build walk near their planes is done.
+    p.light_portal2("overworld", c.dix - 1, 2, c.doz_a)?;
+    p.light_portal2("overworld", c.dix - 1, 2, c.doz_b)?;
     p.select(SLOT_PICK)?;
     Ok(())
 }
@@ -2872,15 +2896,17 @@ fn scenes2(p: &mut Prod) -> Result<()> {
     }
     if !p.done("machine") {
         // Coordinator ruling after the starting pick broke in the machine dig (2,032
-        // uses): exactly one identical replacement pick by command, captioned here and
+        // uses; the kit's plain pick had no Unbreaking): exactly one replacement pick
+        // by command — Efficiency V + Unbreaking III this time — captioned here and
         // disclosed in NOTES. Nothing else is given; every later action is survival.
         p.seg_step("pick-replacement", "machine", &[
             "The starting pick broke in the dig (2,000+ blocks)",
-            "One identical replacement given by command — kit only",
+            "One replacement given by command: Efficiency V + Unbreaking III",
         ], 1.0, S3)?;
         p.select(SLOT_PICK)?;
         p.rcon_ok(&format!("item replace entity {PLAYER} hotbar.0 with minecraft:netherite_pickaxe"))?;
         p.rcon_ok(&format!("enchant {PLAYER} minecraft:efficiency 5"))?;
+        p.rcon_ok(&format!("enchant {PLAYER} minecraft:unbreaking 3"))?;
         p.select(SLOT_PICK)?;
         p.wait(80)?;
         // The generated twin must die or it would steal the trigger items.
