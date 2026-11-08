@@ -15,7 +15,9 @@ stage: day-1
 #    stands complete at day time 1200 x build_minutes (mod 24000), the villagers arrive with the
 #    LAST_SLEPT of their last night in the village, the zombie in its boat; then the judge's
 #    terrain run (weather cycle, natural spawning on Hard) until bill + 24 iron are in the chest,
-#    the mean over its seeds. Player: "iron armour as soon as possible".
+#    the mean over its seeds. The run performs every hand step the card prints (the first-night
+#    hide: the zombie hidden at the first REST start for at least 20 gt): the player is there.
+#    Player: "iron armour as soon as possible".
 objective: min t_kit_minutes
 # 2. Net iron per hour once it runs: the judge's rate in the terrain (weather cycle, natural
 #    spawning on Hard) less the iron it destroys (lightning on drops, fire). Player: "it keeps
