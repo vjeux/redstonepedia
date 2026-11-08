@@ -145,6 +145,7 @@ public final class Protocol {
         return switch (op) {
             case "ping" -> new JsonObject();
             case "blockinfo" -> BlockInfo.run(this, sandbox(r), r);
+            case "blockstates" -> BlockInfo.states(this, r);
             case "info" -> info();
             case "create" -> create(r);
             case "drop" -> drop(r);

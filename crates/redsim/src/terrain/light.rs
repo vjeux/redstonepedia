@@ -52,11 +52,24 @@ pub fn props_of(b: &Block) -> Result<LightProps, String> {
     match *b {
         Block::Air => Ok(LightProps::AIR),
         Block::Terrain(id) => Ok(LightProps::of_row(id)),
+        // fire (mobinfra's `Block::Fire`): `BaseFireBlock` lightLevel 15 (soul fire 10), no
+        // collision, noOcclusion, propagatesSkylightDown (light dampening 0), no occluding shape
+        Block::Fire { soul, .. } => Ok(LightProps { dampening: 0, emission: if soul { 10 } else { 15 }, faces: None }),
         _ => {
             let name = b.to_string();
             match super::blocks::id_of(&name) {
                 Some(id) => Ok(LightProps::of_row(id)),
-                None => Err(format!("the light of {name} is not in the natural-state table (mctas terrain blockinfo --state)")),
+                None => {
+                    // redstone dust and tripwire: the same light in every state (no emission, no
+                    // dampening, no occluding shape), so any of their rows answers
+                    let base = name.split('[').next().unwrap_or(&name);
+                    if matches!(base, "minecraft:redstone_wire" | "minecraft:tripwire")
+                        && let Some(id) = super::blocks::first_of_block(base)
+                    {
+                        return Ok(LightProps::of_row(id));
+                    }
+                    Err(format!("the light of {name} is not in the natural-state table (mctas terrain blockinfo --state)"))
+                }
             }
         }
     }

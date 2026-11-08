@@ -1,11 +1,11 @@
-//! `mctas terrain hostile`: a design pasted at a spot of a terrain sample, then the worst-case
+//! `mctas terrain hostile`: a design pasted at a spot of a terrain sample, then the exposure
 //! checks (`redsim::entity::mob::hostile`) with the farm read from the design: its blocks, its
 //! villagers (standing and sleeping boxes at their spec positions), its zombie and vehicle, its
 //! beds, the golem spawn cells inside its footprint, the AFK spot it declares.
 
 use crate::pastecheck;
 use anyhow::{Context, Result};
-use redsim::entity::mob::hostile::{self, Farm, Refusal};
+use redsim::entity::mob::hostile::{self, Exposure, Farm};
 use redsim::entity::{Aabb, Vec3};
 use redsim::pos::BlockPos;
 use redsim::terrain::Terrain;
@@ -81,9 +81,9 @@ pub fn farm_of(w: &redsim::World, design: &mctas::design::Design, paste: &pastec
 }
 
 /// Paste and check.
-pub fn run(sample: &Terrain, design: &mctas::design::Design, at: [i32; 2], ground: i32, afk: [f64; 3]) -> Result<(pastecheck::Paste, Farm, Vec<Refusal>)> {
+pub fn run(sample: &Terrain, design: &mctas::design::Design, at: [i32; 2], ground: i32, afk: [f64; 3]) -> Result<(pastecheck::Paste, Farm, Vec<Exposure>)> {
     let (w, paste) = pastecheck::paste_redsim(sample, design, at, ground).context("pasting")?;
     let farm = farm_of(&w, design, &paste, afk);
-    let refusals = hostile::check(&w, &farm, true);
-    Ok((paste, farm, refusals))
+    let exposures = hostile::check(&w, &farm, true);
+    Ok((paste, farm, exposures))
 }

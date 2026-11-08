@@ -35,6 +35,21 @@ final class BlockInfo {
 
     private static final Direction[] DIRS = {Direction.DOWN, Direction.UP, Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST};
 
+    /** The {@code blockstates} op: every possible state of each block id ({@code "blocks"}). */
+    static JsonObject states(Protocol p, JsonObject r) {
+        JsonArray out = new JsonArray();
+        for (var e : r.getAsJsonArray("blocks")) {
+            Identifier id = Identifier.parse(e.getAsString());
+            Block block = BuiltInRegistries.BLOCK.getOptional(id).orElseThrow(() -> new IllegalArgumentException("no block " + id));
+            for (BlockState st : block.getStateDefinition().getPossibleStates()) {
+                out.add(p.serialize(st));
+            }
+        }
+        JsonObject res = new JsonObject();
+        res.add("states", out);
+        return res;
+    }
+
     static JsonObject run(Protocol p, Sandbox sb, JsonObject r) throws CommandSyntaxException, ReflectiveOperationException {
         List<EntityType<?>> types = new ArrayList<>();
         for (var t : r.getAsJsonArray("types")) {
@@ -75,6 +90,7 @@ final class BlockInfo {
                 sb.level.setBlock(pos.relative(d), air, Sandbox.RAW_FLAGS);
             }
             o.addProperty("support", support.toString());
+            o.addProperty("ignited_by_lava", st.ignitedByLava());
             out.add(o);
             sb.level.setBlock(pos, Blocks.AIR.defaultBlockState(), Sandbox.RAW_FLAGS);
         }

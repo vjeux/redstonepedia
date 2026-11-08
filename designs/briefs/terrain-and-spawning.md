@@ -12,8 +12,9 @@ every stage is judged in real terrain with natural spawning. Every rule below wa
 decompiled 26.3 server (`mctas src show <Class>`). No outside design, no internet.
 
 **What this brief approves**: the terrain lane's own rules and code: the terrain samples and
-their format, the natural block table, the light engine, the natural spawner, and the worst-case
-checks (the refusal rules C1-C16 below) with the API the mob-farm judge calls. The judge's wiring
+their format, the natural block table, the light engine, the natural spawner, and the exposure
+checks (channels C1-C16 below, reported on the card, never refusing: vjeux 2026-11-08, "it's all
+about tradeoffs") with the API the mob-farm judge calls. The judge's wiring
 and card (ironfarm, 1372cc16), weather and darkening (infra, bf3de8fa) and the viewer (mobviewer,
 80a994cf) are their lanes' work; the agreed split is at the end.
 
@@ -30,16 +31,18 @@ is **fidelity**, in two parts a player would care about:
 1. **The world is the game's**: the share of cells (block states, biomes, heightmaps, light) equal
    to the game's own saved world, and natural spawning statistically indistinguishable from the
    game's (the validation's tests pass).
-2. **Nothing unmodeled decides a verdict**: the share of the ways a natural or village mob can
-   affect a farm (the channels C1-C16) that are either modeled exactly or refused by a sound check.
+2. **Nothing unmodeled decides a verdict silently**: the share of the ways a natural or village mob
+   can affect a farm (the channels C1-C16) that are either modeled exactly or reported as an
+   exposure on the card (which mob can do what, from which cells).
 
 Reported beside them: the judge's added time per verdict, and the committed bytes per sample.
 
 ## Ceiling
 
-Every cell equal (100%), every spawn test passing, every channel covered (16 of 16), no added run
-time for a farm that passes (the checks cost seconds; the rate runs skip the spawner, see D3), the
-committed samples a few hundred KB. Each layout's estimate below is given against it.
+Every cell equal (100%), every spawn test passing, every channel covered (16 of 16: modeled, or
+reported as an exposure), no added run time for any farm (the checks cost seconds; the rate runs
+skip the spawner, see D3), the committed samples a few hundred KB each. Each layout's estimate below
+is given against it.
 
 ## Mechanics, from the game code (26.3)
 
@@ -114,7 +117,13 @@ events and entities (redsim's slot for crops' random ticks, `world.rs`):
    `MobCategory`, its spawn charge added (`PotentialCalculator`), and added to the local cap of each
    player near its chunk. `chunkCount` = `DistanceManager.naturalSpawnChunkCounter`, a
    `FixedPlayerDistanceChunkTracker(8)`: the chunks within Chebyshev distance 8 of a player's chunk
-   (289 for one player).
+   (289 for one player in a real world). **redsim**: the chunks of that area that the terrain box
+   loads (whole chunks inside it): 289 when the box covers the area (the cached full areas, where
+   V1 validated the spawner); fewer in a crop (a 120 x 120 sample loads 7 x 7 = 49), so the global
+   cap (`chunkCount / 289`) and the spawning chunks (only loaded ones are tried) shrink together and
+   the mobs per loaded chunk stay those of the full area. Scope: V1 validated the spawner on the full
+   area only; spawner rates in a crop are an extrapolation of it (no farm verdict uses them: the rate
+   runs skip the spawner, D3).
 2. `spawnPersistent` = game time % 400 == 0; `getFilteredSpawningCategories`: enemies on (difficulty
    not peaceful) or a friendly category; persistent ones (CREATURE) only when due; under the global
    cap `getMaxInstancesPerChunk() * chunkCount / 289` (MONSTER 70, CREATURE 10, AMBIENT 15,
@@ -224,20 +233,21 @@ the ceiling (fidelity part 1 = cells equal and spawn tests; part 2 = channels co
 | L1 | **The obvious design**: a hand-built world (a grass plane, placed oak trees), only states redsim knows, daylight.rs's per-query light, the full spawner in every rate run with spawned mobs standing still, no checks | 0% (not the game's world) | not testable (no game twin) | 0 of 16 (a mob that would walk to the villagers never does) | + ~2.5 h (~800 spawn tries a tick x 38M judge ticks) | ~10 KB | ~5% | fake ground; slow; proves nothing |
 | L2 | The game's ground from the region files, light taken from the saved arrays and never updated, the spawner in every run, no checks | 100% at load; light wrong wherever the farm or its box changed it (~1-5% of a crop's cells) | pass at load, drift after the paste | 0 of 16 | + ~2.5 h | ~300 KB | ~35% | light wrong after any change |
 | L3 | The game's ground, an exact light engine, the spawner in every run, natural mobs moved by walking policies like the golems' (still + 8 directions) | 100% | pass | ~5 of 16 (policies walk straight lines; a path around a corner to a window is never tried) | + ~25 h (9 policies x the spawner) | ~300 KB | ~55% | policies prove nothing about paths |
-| **L4** | **The game's ground, a natural-state table dumped from the game, light from the game's saved arrays with local updates after each change, static worst-case checks over every reachable position (C1-C16), the spawner where it is the outcome** | 100% (test) | pass (validation) | 16 of 16 (each modeled or refused) | + seconds (the checks; rate runs unchanged) | ~250 KB per sample | ~100% | refuses farms whose safety depends on mob AI (sound, conservative) |
-| L5 | L4 plus natural mobs' AI modeled exactly (goal selectors, `PathFinder` / `WalkNodeEvaluator`, targeting, attacks) | 100% | pass | 16 of 16, modeled instead of refused | + hours (every mob pathfinds) | ~250 KB | ~100% and fewer refusals | weeks of work; out of this time box |
+| **L4** | **The game's ground, a natural-state table dumped from the game, light from the game's saved arrays with local updates after each change, static worst-case checks over every reachable position (C1-C16) reported as exposures, the spawner where it is the outcome** | 100% (test) | pass (validation) | 16 of 16 (each modeled or reported as an exposure) | + seconds (the checks; rate runs unchanged) | 381-698 KB per full-height sample (1.5 MB for three) | ~100% | a farm's exposure lines are worst cases, not measured losses, until natural-mob AI is modeled |
+| L5 | L4 plus natural mobs' AI modeled exactly (goal selectors, `PathFinder` / `WalkNodeEvaluator`, targeting, attacks) | 100% | pass | 16 of 16, modeled (exposures turned into measured losses) | + hours (every mob pathfinds) | the same | ~100% | the mob-AI lane (8a0201dc); turns exposures into measured losses |
 
 ## Trade-offs
 
-- **Fidelity vs size**: a full 17 x 17-chunk, full-height area is 28M cells (5-15 MB); a crop of
-  what the checks reach is ~250 KB. Crops are committed, full areas cached: generation is
+- **Fidelity vs size**: a full 17 x 17-chunk, full-height area is 28M cells (3.6 MB as a crop of the
+  spawning area, 5-7 MB as the cached areas); a full-height crop of what the checks reach is 381-698
+  KB. Crops are committed, full areas cached: generation is
   deterministic but the one-day settle is not (a re-made world's day-1 details differ: villagers,
   crops), so the committed crops, not the cache, are the reproducible record.
 - **Fidelity vs judge time**: running the spawner in every rate run costs hours and changes nothing
   for a farm the checks clear; a proof (the checks) costs seconds.
-- **Soundness vs acceptance**: static worst-case checks refuse some farms that would work in
-  practice (a zombie that could walk to a window but rarely would); the house policy prefers that
-  to an unmodeled guess.
+- **Soundness vs acceptance**: static worst-case checks flag some farms that would work in
+  practice (a zombie that could walk to a window but rarely would); they report it as an exposure
+  (the player weighs it; vjeux 2026-11-08) rather than refusing or guessing a loss.
 - **Exactness vs effort for natural states**: one variant + a table the game dumps (exact by
   construction, minutes per new state) vs hand-modeling ~100 states (weeks, error-prone).
 - **Light timing**: `World::settle_light` between ticks (the changed region relit to the fixed
@@ -257,16 +267,20 @@ the ceiling (fidelity part 1 = cells equal and spawn tests; part 2 = channels co
   a few cells, which the fixed point would not reproduce) plus local updates after each change
   (`settle_light`), because the saved arrays alone (L2) are wrong after the paste and the per-query
   fixed point costs ~10^4 cells per read (spawning reads millions).
-- **Spawning in the judge (D)**: static worst-case checks, because unmodeled walking makes any
-  simulated run say nothing about safety (L1-L3) and modeling AI (L5) is out of the time box; when
-  every check passes no natural or village mob has any channel to the farm, so rate runs without the
-  spawner are exact; the spawner runs where it IS the outcome (mob towers: their spawn rate on the
+- **Spawning in the judge (D)**: static worst-case checks reported as **exposures** (revision 4,
+  vjeux: "it's all about tradeoffs": never a refusal), because unmodeled walking makes any
+  simulated run say nothing about safety (L1-L3) and modeling AI (L5, now staffed: the mob-AI lane)
+  turns them into measured losses later; rate runs skip the spawner for **every** farm (natural
+  mobs reach a farm only through the exposure channels, so they cannot change its measured rate
+  except through what the exposure lines report): a farm with no exposure has an exact rate, a farm
+  with exposures gets its rate as if unexposed plus the exposure lines (which mob, what, how many
+  cells) as the caveat; the
+  spawner runs where it IS the outcome (mob towers: their spawn rate on the
   tower's floors, an upper bound until a later brief models the walk-off) and in the validation.
-  **Scope of the spawner's approval**: full-night rates (validated: Results V1) and the checks; not
-  dusk-specific rates — at dusk, after the first despawns, the game was observed refilling more
-  underground than redsim (surface monsters 12.6 vs 16.2 per night at the end, sulfur cubes 5.5 vs
-  2.8, raw p 0.06; post-hoc, unexplained, the Holm-corrected tests passed). A judge rule that needs
-  a dusk rate waits for that difference's cause.
+  **Scope of the spawner's approval**: full-night and dusk rates (validated: Results V1; the dusk
+  difference seen over the first 8 game nights (surface monsters 12.6 vs 16.2) did not hold over
+  16 more: 17.6 vs 18.0, every type's Holm p >= 0.18) and the checks; tick-exactness against the
+  deterministic bridge is the next bar (the tick-exact lane, 84579e98).
 - **Extent (E)**: crops committed, full areas cached, because the checks reach a known distance
   (golem search 8, sight 15, follow box 18.84, creeper 7 + its explosion: blocks within 10.4,
   entities within 12) and the spawner's validation needs the full 128-block radius.
@@ -278,9 +292,9 @@ Seed **2** (`level-seed=2`, 26.3, default world). `/locate` from (0, 0): `villag
 
 | sample | generated area (cached) | farm spot | committed crop |
 |---|---|---|---|
-| `village-edge` (the day-1 set) | centre (-416, 240), radius 192 blocks (384 x 384 = 24 x 24 chunks, y -64..319) + 2 margin chunks, 1 game day run: world `2_-416_240_r192` | `place::best_spot` from (-352, 238), radius 14 (an 8 x 16 footprint, 5 layers below ground: min column (-360, 248), ground y 72, 656 blocks dug) | 120 x 120 columns around (-372, 250), y 30..86 (287 KB): the bells (-411, 70, 241/249), 8 villagers in their beds, the iron golem, 2 cats |
-| `plains` | the same area | from (-292, 222), radius 14 (8 x 16: (-306, 233), y 71, 580 dug) | 96 x 96 around (-280, 230), y 25..89 (149 KB) |
-| `forest` | centre (16, 0), radius 80 + 2 margin chunks, 1 day: world `2_16_0_r80` | from (-43, -6), radius 14 (8 x 16: (-43, -6), y 67, 643 dug) | 96 x 96 around (-16, 0), y 37..92 (168 KB): forest and a river |
+| `village-edge` (the day-1 set) | centre (-416, 240), radius 192 blocks (384 x 384 = 24 x 24 chunks, y -64..319) + 2 margin chunks, 1 game day run: world `2_-416_240_r192` | `place::best_spot` from (-352, 238), radius 14 (an 8 x 16 footprint, 5 layers below ground: min column (-360, 248), ground y 72, 656 blocks dug) | 120 x 120 columns around (-372, 250), the full height (698 KB): the bells (-411, 70, 241/249), 8 villagers in their beds, the iron golem, 2 cats |
+| `plains` | the same area | from (-292, 222), radius 14 (8 x 16: (-306, 233), y 71, 580 dug) | 96 x 96 around (-280, 230), the full height (431 KB) |
+| `forest` | centre (16, 0), radius 80 + 2 margin chunks, 1 day: world `2_16_0_r80` | from (-43, -6), radius 14 (8 x 16: (-43, -6), y 67, 643 dug) | 96 x 96 around (-16, 0), the full height (381 KB): forest and a river |
 
 `redsim::terrain::samples::STANDARD` records each (file, seed, world and the `gen` line that
 re-makes it, the search start). The spot rule (`place::refusal` + `best_spot`, deterministic, the
@@ -330,7 +344,11 @@ collision boxes (`getCollisionShape(...).toAabbs()`), `getLightDampening`, `getL
 `isSolid`, `isRedstoneConductor`, `isCollisionShapeFullBlock`, `isFaceSturdy(UP)`,
 `isSignalSource`, the fluid (type, amount, source), `PREVENT_MOB_SPAWNING_INSIDE`,
 `ANIMALS_SPAWNABLE_ON`, `ENDERMAN_HOLDABLE`, flammability (`FireBlock.getBurnOdds` /
-`getIgniteOdds`), `blocksMotion`, `isPathfindable(LAND)`, `isAir`, `LeavesBlock` (the four heightmap
+`getIgniteOdds`: how fire spreads to and burns the state), **`ignited_by_lava`**
+(`BlockState.ignitedByLava()`, the Properties flag `LavaFluid.randomTick` reads through
+`isFlammable` / `hasFlammableNeighbours` to decide where lava starts a fire; it is set on blocks fire
+can burn and on some it cannot, like signs, so it is a column of its own, not derived from the
+odds), `blocksMotion`, `isPathfindable(LAND)`, `isAir`, `LeavesBlock` (the four heightmap
 predicates: WORLD_SURFACE = not air, MOTION_BLOCKING = blocksMotion or a fluid, NO_LEAVES = that and
 not leaves, OCEAN_FLOOR = blocksMotion), `isRandomlyTicking`, whether its class overrides
 `updateShape` / `neighborChanged` / `tick` (reflection: the inert flag), the **support flags** (per
@@ -364,38 +382,63 @@ occupy in the judge's runs, and the air cells connected to them through cells wi
 effects, babies), Easy where that is worse; any day time; thunder. The positions each mob can take
 come from a **flood** per body class (the types' boxes; a position = a cell and the box anywhere in
 it that fits, standing on a face with a collision top within step/jump/fall reach; climbing for
-spiders; any air for flyers; every standable position for endermen, which teleport) over the
-**farm's surroundings**: the columns within 24 of any farm block or villager, the whole height of
-the sample (`hostile::check`). It starts at **every standable position in that region whatever its
-light** (natural spawns, custom spawners' walkers, the village's mobs) and every air cell for
-flyers; the region's outer ring is itself all starts, so a mob arriving from farther away enters the
-region at a position the flood already starts from: any path into the farm, its sight or its reach
-crosses the ring. 24 columns covers every channel's reach (sight 15 (the pillager's, the longest), golem sensor 17.84 + boxes,
-melee 0.83, the golem search 8, a creeper's 7 to the AFK spot, beds 1). Bound: ~250k cells x 9 body
-classes; ~7 s per placement measured.
+spiders; any air for flyers) over the **farm's surroundings** (`hostile::check`): the box of every
+farm block and villager cell grown by 24 in x, y and z (clipped to the sample). It **starts** where a
+mob of the body can appear in that region:
 
-| channel | refusal rule |
+- every position on the region's **faces** (its 4 sides, its top and its bottom layer): a mob from
+  farther away enters the region across a face, so a flood started on every face position sees
+  every path that enters;
+- every position where a natural type of the body can spawn **whatever the light**: its floor's
+  `isValidSpawn` for that type (the table's per-type flag; zombie body: zombie, zombie villager,
+  drowned, husk, witch; skeleton body: skeleton, stray, bogged; creeper; spider body: spider, cave
+  spider; cube: slime, sulfur cube; bat: bat, and only below the WORLD_SURFACE height);
+- for the village's villagers and golem: the positions of the sample's own villagers and golem
+  (they walk in from there or across a face);
+- for endermen: every standable position (they teleport).
+
+A position that is none of these (a sealed roof whose top is glass, a pocket no type can spawn in)
+is reached only by walking from one that is, which the flood follows. Soundness: any mob in the
+region either spawned at a start, stood there in the sample, or crossed a face, and the flood
+covers every walk from those; every channel's reach is within 24 of the farm horizontally and
+vertically (sight 15 (the pillager's, the longest), the golem sensor 17.84 + boxes, melee 0.83,
+ranged 15, the golem search 8, a creeper's 7 to the AFK spot, beds 1, patrols are a separate rule).
+Bound: ~120k cells x 9 body classes; ~5 s per placement measured on the full-height samples.
+
+The result, `hostile::check(&world, &farm, village_golem) -> Vec<Exposure>`: one
+`Exposure { channel, mob, what, cells }` per channel, mob and what it can do, with **every** cell it
+can do it from (sorted), and `Exposure::line()`: "C3 sight: zombie can see a farm villager (it
+panics, its sleep breaks) from 218 cells (e.g. (-343,72,257))". The judge's card prints one line per
+sample (agreed with ironfarm): "exposures in village-edge (-360,248): C3 sight zombie 218 cells,
+pillager 708; C4 golem sensor 1209; C5 baby zombie→villager 3; C7 golem spawns outside 158; …"
+(channel, mob, cell count; the viewer paints the cells). **No exposure refuses a farm**: the farm's
+rate is measured as if unexposed (rate runs skip the spawner for every farm) and its exposure lines
+are the caveat beside it. (The spot rule's "refusals" are site selection: `best_spot` picks a spot
+that passes it; a farm's verdict never refuses.)
+
+| channel | exposure rule (a cell counts when) |
 |---|---|
 | C1 natural spawn inside | an interior cell passes ON_GROUND (or IN_WATER) placement for a listed type with block light 0 and `max(block, sky - 11) <= 7` (the gates' worst readings: `nextInt(32)` can always exceed sky light; `sample(0..7)` can be 7; darken up to 11 at night) and the type's box fits; or animal rules at brightness > 8 |
 | C2 entry and contact | a position of any body class overlaps the interior (pushing, plates, tripwires, target blocks, `isUnobstructed` golem spots, beds, items) — doors a mob opens (villagers) or breaks (zombies on Hard) count as open |
 | C3 sight | a hostile-sensor type's eye at one of its positions within its distance of a farm villager (standing or sleeping, any position in its pod) with a clear COLLIDER ray |
-| C4 presence | an iron golem position within a farm villager's follow box (`|dx|, |dz| < 17.84 + 0.3 + 0.7`, its vertical span), or a villager position within 10 of a farm villager's box |
-| C5 melee and ranged reach | an attacker's attack box (with vehicle) meeting a farm villager, the farm's zombie or its vehicle (the village golem attacks the zombie: `IronGolem` targets `Enemy`); a ranged attacker (skeleton 15, pillager 8, witch 10, drowned trident 10) with a COLLIDER ray to a farm entity within its range |
-| C6 pickup | a looting type's position (zombie family, skeletons, pillagers, villagers, foxes) whose box inflated (1, 0, 1) meets a cell the farm's items occupied in the runs |
-| C7 golem search | `LEGACY_IRON_GOLEM` from a farm villager finds, in any of its 17 x 17 columns, a first matching cell outside the farm's own spawn floors that passes `checkSpawnObstruction` (exhaustive, deterministic) |
-| C8 creepers | a creeper position within 7 of the AFK spot with a ray to the player's eye, whose power-6 explosion (the worst factor 1.3, `explosion.rs`) breaks a farm block or whose entity radius (12) reaches a farm entity with exposure > 0 |
-| C9 endermen | a farm block in `ENDERMAN_HOLDABLE` within the take box of an enderman position with a clear OUTLINE ray, or a farm air cell within its place box |
-| C10 flyers | a bat or phantom position overlapping the interior |
-| C11 fire | a flammable farm block within `FireBlock`'s reach of a cell that can hold fire: lightning-strikable tops (canSeeSky), lava's ignition cells, and the closure through flammable blocks |
+| C4 presence | an iron golem position (the village's golem: the golem flood) whose box meets a farm villager's box inflated by 17.84 on all three axes (`GolemSensor` reads `NearestLivingEntitySensor`: the follow range 16 plus `finalizeSpawn`'s bonus, no sight: the farm's villagers stop spawning golems for 600 ticks); or a village villager position (the villager flood) whose box meets a farm villager's box inflated by 10 (it joins their count in `Villager.spawnGolemIfNeeded`) |
+| C5 melee and ranged reach | **melee** (the attack box: the attacker's box inflated by sqrt(2.04) - 0.6 horizontally): the zombie family (zombie, baby zombie; drowned and husks share the body) against a farm villager (`Zombie` targets `AbstractVillager`); every hostile walker but the creeper (zombie, baby zombie, skeleton, spider, cave spider, slime) against the farm's golems — either attack box meeting the other's box (`IronGolem` targets every `Enemy` but creepers; zombies and spiders target golems; spiders do not target villagers); the village golem against the farm's zombie or its vehicle. **Ranged** (a clear COLLIDER ray from the attacker's eye within range): a skeleton against a farm golem's eye (15; skeletons target players, golems and turtles), a pillager (the skeleton body) against a farm villager's eye (8, its crossbow), a drowned (the zombie body) throwing a trident at a farm villager (10). Witches target players and raiders only (no channel) |
+| C6 pickup | a looting type's position (zombie family, skeletons, pillagers, villagers, foxes) whose box inflated (1, 0, 1) meets a cell the farm's items occupied in the runs — **not implemented yet** (the farm spec carries no item cells; C2 entry covers mobs inside) |
+| C7 golem search | `LEGACY_IRON_GOLEM` from a summoning farm villager (`Farm.summoners`: the villagers that can see a farm zombie, since only a panicking villager calls `spawnGolemIfNeeded`; empty: every farm villager) finds, in any of its 17 x 17 columns, a first matching cell outside the farm's own spawn floors that passes `checkSpawnObstruction` (exhaustive, deterministic) |
+| C8 creepers | a creeper position within 7 of the AFK spot whose power-6 explosion could reach a farm block: implemented as a superset — no ray test to the player's eye, and a farm block within 10.4 of the creeper (the blast's block reach at the worst factor 1.3) counts |
+| C9 endermen | a farm block in `ENDERMAN_HOLDABLE` within the take box (x and z within 2, 0..3 above) of an enderman position (every standable position: they teleport) — a superset (no OUTLINE ray test); the place box is not implemented (endermen place only what they took) |
+| C10 flyers | a bat position overlapping the interior (the bat flood: reported as C2 entry); **phantoms**: the AFK player's cell is at or above the sea level (63) and `canSeeSky` (sky light 15) — `PhantomSpawner` then spawns phantoms 20-34 blocks above it once the player has not slept for 72000 ticks (the AFK player never sleeps): reported at the AFK cell |
+| C11 fire | **lightning**: a farm block with `burn_odds > 0` whose top cell `canSeeSky`; **lava's fire** (`LavaFluid.randomTick` with `doFireTick`): from every lava cell within 4 of a farm block, up to 3 steps up (each +1 y and -1..1 in x and z) through cells that do not block motion, the first air cell with a neighbour that is `ignited_by_lava` catches fire; or, with no step, a cell of the 3 x 3 at the lava's level that is `ignited_by_lava` with air above takes fire above it — reported when the burning neighbour is a farm block or the fire cell is in the interior. Fire spreading on from there is not followed (the first ignition already exposes the farm) |
 | C12 sculk | a sculk sensor of the design within 8 of any mob position (their steps are vibrations) |
 | C13 bed claims | a village villager position from which a farm bed head is within `AcquirePoi`'s reach (a path ending within 1 block) |
-| C14 raids and sieges | sieges' zombies are walkers (C2-C9 cover them); raids need a Bad Omen player: the judge's AFK player has none (no channel) |
+| C14 raids, sieges, patrols | sieges' zombies are walkers (C2-C9 cover them); raids need a Bad Omen player: the judge's AFK player has none (no channel); **patrols** (`PatrolSpawner`, from day 5, during the day): none while the AFK player's section is within 2 sections of a village center (`ServerLevel.isCloseToVillage(pos, 2)` = `PoiManager.sectionsToVillage`: the 26-neighbour section distance to a section with an occupied `#village` POI — the farm's own claimed beds count; redsim counts bed heads and bells, not job sites, the side that never hides a patrol); else every cell a patrol leader can take 24-47 blocks out in x and z on the MOTION_BLOCKING_NO_LEAVES surface (`isValidEmptySpawnBlock`, block light <= 8, its floor's `isValidSpawn` for a pillager) is reported (its members then walk: C2-C9 from the region's faces) |
 | C15 light and caps | natural mobs emit no light (no channel); they fill the mob cap, which matters only to natural-spawn farms, whose rate is the spawner's |
-| C16 lightning on the farm's mobs | a farm villager whose eye cell `canSeeSky` (sky light 15: lightning there turns it into a witch); the zombie's own exposure changes nothing (no channel): the iron-farm roof must-have, refused here too |
+| C16 lightning on the farm's mobs | a farm villager whose eye cell `canSeeSky` (sky light 15: lightning there turns it into a witch); the zombie's own exposure changes nothing (no channel): the iron-farm roof must-have, reported here as an exposure |
 
-A farm passing C1-C16 has no channel to any natural or village mob, so its rate runs skip the
-spawner exactly. Each refusal names the channel, the mob type, its position, and the cell or
-entity it reaches.
+A farm with no exposure in C1-C16 has no channel to any natural or village mob, so its rate runs
+skip the spawner exactly. Each exposure names the channel, the mob, what it can do, and every cell
+it can do it from (`hostile::Exposure`, its card line `Exposure::line`); the rule column above says
+when a cell counts.
 
 ### The `.mcterrain` format (version 1)
 
@@ -405,8 +448,12 @@ and day time, origin, size; PALT + CELL: palette and u16 cells, x fastest then z
 runs; BPAL + BIOM: biome palette and the 4x4x4 cells the box reads; HMAP: four heightmaps; SKYL,
 BLKL: saved light in runs; STR2: structure starts (id, box, pieces; STRU without pieces is still
 read); ENTS: entities (id, position, SNBT); NOTE: provenance). **Size** (measured): village-edge
-120 x 57 x 120 = 820,800 cells, 287 KB; plains 96 x 65 x 96, 149 KB; forest 96 x 56 x 96, 168 KB
-(all three 604 KB in git). Full areas (40M+ cells, 5-7 MB) stay in the cache.
+120 x 384 x 120 = 5,529,600 cells (the full height, revision 4: natural spawning and the light
+margin under a dug-in farm need the whole column), 698 KB; plains 96 x 384 x 96, 431 KB; forest
+96 x 384 x 96, 381 KB (1.5 MB in git). Full areas (40M+ cells, 5-7 MB) stay in the cache. A crop
+smaller than the 17 x 17 chunks around the AFK spot loads only some of the spawning chunks: the
+mob cap counts the loaded ones (`getNaturalSpawnChunkCount`), so the mobs per chunk are the
+game's; tick-exact spawning needs the whole 272 x 272 area (the cached world).
 
 ## Must-haves
 
@@ -419,8 +466,8 @@ read); ENTS: entities (id, position, SNBT); NOTE: provenance). **Size** (measure
   the timing window reported.
 - Natural spawning and despawning rule for rule (sections 4-6), the game's unmirrorable draws from
   the seeded stand-in with the same distribution (the mob layer's policy).
-- Difficulty Normal for rates (the singleplayer default); refusals at the worst difficulty per rule.
-- Every refusal names channel, mob, position, target.
+- Difficulty Normal for rates (the singleplayer default); exposures at the worst difficulty per rule.
+- Every exposure names channel, mob, what, and its cells.
 - The viewer runs the same world as the judge: the world hash (blocks and entity positions) of the
   viewer's wasm run equals the native run's every 20 ticks over one game day (mobviewer's test on
   the shared `farm::Run`).
@@ -428,10 +475,11 @@ read); ENTS: entities (id, position, SNBT); NOTE: provenance). **Size** (measure
 ## Not goals
 
 - Generating terrain in Rust; other dimensions.
-- Natural mobs' AI (walking, targeting, attacks): refused by C1-C16 instead (L5 later); so V2 (the
+- Natural mobs' AI (walking, targeting, attacks): reported by C1-C16 as exposures instead (the
+  mob-AI lane, 8a0201dc, models it next); so V2 (the
   validation with mobs walking in the game) is not run: there is nothing walking in redsim to
   compare, and the checks cover every walk.
-- Dusk-specific spawn rates (see the Decision's scope note).
+- Tick-exact natural spawning (the next bar: the mirrored level random, with the tick-exact lane).
 - A mob tower's full rate (walk-off into water and drops): its spawn rate only, until a later brief.
 - Random ticks of natural states: redsim skips them (natural states are inert by declaration; the
   farm runs' random ticks touch only the design's own blocks). The randomly ticking states in the
@@ -469,11 +517,11 @@ read); ENTS: entities (id, position, SNBT); NOTE: provenance). **Size** (measure
    before the spawner's push.
 3. **V2 (walking on in the game)**: not run — natural mobs' walking is not modeled, so there is no
    redsim walk to compare; the worst-case checks (C1-C16) cover every walk.
-4. **The checks' fixtures** (`designs/terrain/fixtures/`, each on `village-edge`): F1 a closed dark
-   5x5 room (C1 refuses), F2 a villager pod with an open side 6 blocks from grass (C3), F3 villager
+4. **The checks' fixtures** (`hostile.rs`'s tests, each on `village-edge`): F1 a closed dark
+   5x5 room (a C1 exposure), F2 a villager pod with an open side 6 blocks from grass (C3), F3 villager
    pods at ground level (C7: grass columns), F4 an AFK spot on open ground 3 blocks from the farm
    (C8), F5 a bed reachable from the village (C13), F6 a sealed, lit box with three podded
-   villagers 25 blocks above the ground and its AFK spot inside (passes every check).
+   villagers 25 blocks above the ground and its AFK spot inside (no exposure at all).
 
 ### Results (revision 3, 2026-11-08)
 
@@ -504,20 +552,30 @@ Commands: `mctas terrain light|paste-check|biome-check|probe|spawn-check|hostile
    - **Despawning** (spawning off after 300 ticks, 1600 ticks): the game 71 → 19, redsim 72 → 23,
      both starting at tick ~650 (`noActionTime > 600`, `nextInt(800)`): the curves match.
    - **Dusk** (day 13000, 1200 ticks, 8 game nights): monsters 70.75 vs 71.22 (p 0.41), no type
-     significant after Holm (lowest 0.73), **but** the surface share after the first despawns
-     differs: surface monsters 12.6 vs 16.2 per night at the end, sulfur cubes 5.5 vs 2.8 (raw p
-     0.06); the game's per-100-tick counts show it replaces despawned mobs mostly underground at
-     dusk, redsim at the full-night ratio. Open: not explained yet (the darkening, the despawn rate
-     and the full-night spawn mix all match); the worst-case checks do not depend on it; a farm whose
-     rate is natural spawning (mob towers) gets its rate from full-night runs until it is.
+     significant after Holm (lowest 0.73), but the surface share at the end looked different:
+     surface monsters 12.6 vs 16.2 per night, sulfur cubes 5.5 vs 2.8 (raw p 0.06). **16 more game
+     nights** (the re-made world, 32 redsim seeds): surface monsters 17.6 vs 18.0 per night (creeper
+     5.9 vs 4.6, skeleton 4.1 vs 5.1, spider 3.6 vs 2.8, zombie 3.5 vs 5.3), the 64..79 band 15.6 vs
+     15.4, every type's p(Holm) >= 0.18 (lowest raw: glow squid 0.008, sulfur cube 0.027, zombie
+     0.038): the first 8 nights' difference did not hold; **pass**. The game's per-100-tick trace
+     (two nights) shows the replacements' surface share at 37-45%, redsim's ~45%.
+   Found after: the spawn box of cube mobs (`EntityType.getSpawnAABB` scales by
+   `spawnDimensionsScale`: slime and magma cube 4, sulfur cube 2) — redsim used the base box, so it
+   let them spawn in tight cells; fixed (revision 4: the game's own method and scales, approved by
+   construction) and **re-run** at full darkness with the fix (8 game nights, 32 redsim seeds):
+   sulfur cubes 3.25 vs 2.66 per night (p 0.37), slimes 0.00 vs 0.03, monsters 70.50 vs 71.00 (p
+   0.18): **pass**; the tick-exact compare will confirm it draw for draw.
    Fixed during validation: `noActionTime` counted twice (the mob layer's `serverAiStep` already
    adds 1), the slime/sulfur-cube size drawn before `isValidPositionForMob` (the game checks the
    size-1 box), structure spawn overrides (trial chambers: no natural spawns in their pieces), the
    sulfur cube and the bee added to the table's types.
 3. **V2 (walking)**: not run (natural mobs' walking is not modeled; the checks cover it).
 4. **The checks**: `terrain hostile` on the archived iron-day1 at the village edge (an open void
-   design) refuses C1, C2, C3, C4, C5 and C7, as it must; ~7 s per placement (floods over the
-   design's surroundings, 24 columns around it, the whole height).
+   design) reports exposures on C1, C2, C3, C4, C5 and C7 (e.g. C3: zombies see a farm villager
+   from 218 cells, pillagers from 708; C4: the village golem within the golem sensor from 1,209
+   cells; C5: baby zombies hit a villager from 3 cells; C7: golems can spawn outside the floors at
+   158 cells), as it must; ~7 s per placement (floods over the design's surroundings, 24 columns
+   around it, the whole height).
 
 ## File split (agreed)
 
@@ -577,3 +635,27 @@ Commands: `mctas terrain light|paste-check|biome-check|probe|spawn-check|hostile
 | 6 | the checks' flood: its actual region (24 columns around the farm's blocks and villagers, the whole height), why it suffices (the region's ring is all starts; every channel's reach is within 24) and its measured cost |
 | 7 | the spot rule written exactly: the per-column ground, the spot's ground G and the ≤2 spread, the ground layer at G, the gaps judged as placed; the fluid rules (in a footprint cell, right under the footprint, a column's top MOTION_BLOCKING block, beside a footprint cell) |
 | 8 | Size: the measured crops; L4 and the Decision's light: saved start + local updates; Trade-offs: `settle_light` between ticks |
+
+## Changelog (revision 4, 2026-11-08: vjeux's rulings "it's all about tradeoffs", "tick exact everywhere")
+
+| part | change |
+|---|---|
+| the checks | report **exposures**, never refuse: `hostile::check` returns `Exposure { channel, mob, what, cells }` with every cell; the card prints one line per sample (agreed with ironfarm: "exposures in village-edge (-360,248): C3 sight zombie 218 cells, pillager 708; …"); the mob-AI lane (8a0201dc) turns them into measured losses |
+| channels added | C4 village villagers within 10 of a farm villager; C5 ranged (skeleton → farm golems 15, pillager → villagers 8, drowned tridents 10); C5 melee is the zombie family's against villagers (spiders target players and golems only) and any hostile but creepers against the farm's golems; C10 phantoms over an AFK cell that sees the sky; C11 lava's fire (`LavaFluid.randomTick`, the table's new `ignited_by_lava`); C12 sculk sensors |
+| flood starts | where a mob can appear: the region's outer ring, positions a natural type of the body can spawn at (its `isValidSpawn` floor) whatever the light, the sample's own villagers and golem, every standable position for endermen, air below the surface for bats (was: every standable position, which put villagers on sealed roofs) |
+| samples | the full height (y -64..319; 698 / 431 / 381 KB): natural spawning and the light margin under a dug-in farm need the whole column (ironfarm's D1U) |
+| spawner | the mob cap counts the loaded spawning chunks (a crop keeps the game's mobs per chunk); the spawn box is `getSpawnAABB` (cube mobs scaled 4 / 2); V1 dusk: 16 more game nights, pass |
+
+## Changelog (revision 4b, after d60ee61d's re-review of revision 4)
+
+| point | change |
+|---|---|
+| 1 | refuse language gone from Layouts (L4: "each modeled or reported as an exposure"; L5: "turns exposures into measured losses"), Ceiling ("every channel covered: modeled or reported"; no added time for any farm), C16 ("reported here as an exposure"), the fixtures ("a C1 exposure", "no exposure at all"); the spot rule's refusals stated as site selection, the farm's verdict never refuses |
+| 2 | § Checks: the flood's actual region (the farm's box grown by 24 in x, y, z), its starts (the region's faces, positions a natural type of the body can spawn at whatever the light, the sample's own villagers and golem, every standable position for endermen, air below the surface for bats) and the soundness argument (any mob in the region spawned at a start, stood there, or crossed a face; every channel's reach within 24 horizontally and vertically) |
+| 3 | C5: per-attacker targets (melee: the zombie family vs villagers, every hostile but creepers vs the farm's golems both ways, the village golem vs the zombie; ranged: skeleton → golems 15, pillager → villagers 8, drowned trident → villagers 10; witches: no channel) |
+| 4 | C10 phantoms (the AFK cell at or above y 63 and `canSeeSky`; `PhantomSpawner`) and C14 patrols (`PatrolSpawner`; `isCloseToVillage(pos, 2)` = `PoiManager.sectionsToVillage`; the cells 24-47 out) in the channel table; the code's phantom rule gained the sea-level condition |
+| 5 | the table section defines `ignited_by_lava` (`BlockState.ignitedByLava`, what `LavaFluid.randomTick` reads, why it is its own column); C11 states the lava rule with it |
+| 6 | § Mechanics 1: redsim's `chunkCount` = the loaded spawning chunks, the per-chunk argument (the cap and the tried chunks shrink together), and the scope (V1 validated the full area; crop spawner rates are an extrapolation, used by no farm verdict) |
+| 7 | the cube spawn box: approved by construction (the game's `getSpawnAABB`, scales 4 / 2) and re-run at full darkness with the fix: sulfur cubes 3.25 vs 2.66 (p 0.37), slimes 0 vs 0.03, monsters 70.50 vs 71.00: pass |
+| 8 | § Checks carries the API (`hostile::check -> Vec<Exposure>`, `Exposure { channel, mob, what, cells }`, `line()`) and the agreed card line; Decision D: rate runs skip the spawner for every farm, a farm with exposures gets its rate as if unexposed with the exposure lines as the caveat |
+| 9 | Layouts' committed sizes (381-698 KB per full-height sample, 1.5 MB for three), Trade-offs' sizes; C8 and C9 state their implemented supersets (no ray tests); C6 pickup marked not implemented; C7 uses the summoning villagers (`Farm.summoners`, ironfarm) |
