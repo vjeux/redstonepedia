@@ -499,7 +499,17 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Exposure> {
             }
         }
     }
-    // C8: creepers near the AFK player whose explosion reaches the farm
+    // C8: creepers near the AFK player (they explode at a player: a position within 7 of the AFK
+    // spot, no ray test) whose explosion reaches the farm: a farm block within 10.4 (the blocks a
+    // power-6 blast can break at the worst factor 1.3) or a farm entity within 12 (its entity
+    // radius: damage and knockback, exposure taken as 1)
+    let farm_entities: Vec<Vec3> = farm
+        .villagers
+        .iter()
+        .chain(farm.zombie.iter())
+        .map(|b| b.center())
+        .chain(farm.golem_cells.iter().map(|c| Vec3::new(c.x as f64 + 0.5, c.y as f64 + 1.35, c.z as f64 + 0.5)))
+        .collect();
     if let Some(cr) = reaches.iter().find(|r| r.body.name == "creeper") {
         for (p, f) in &cr.cells {
             let c = Vec3::new(p.x as f64 + 0.5, *f, p.z as f64 + 0.5);
@@ -509,15 +519,53 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Exposure> {
             if farm.blocks.iter().any(|b| dist2(Vec3::new(b.x as f64 + 0.5, b.y as f64 + 0.5, b.z as f64 + 0.5), c) <= 10.4 * 10.4) {
                 ex.add("C8 creepers", "a creeper", "near the AFK player can blow up farm blocks", *p);
             }
+            if farm_entities.iter().any(|e| dist2(*e, c) <= 144.0) {
+                ex.add("C8 creepers", "a creeper", "near the AFK player can hurt a farm villager, zombie or golem (within 12)", *p);
+            }
         }
     }
-    // C9: endermen take a holdable farm block (every standable position: they teleport)
+    // C9: endermen (every standable position: they teleport) take a holdable farm block (x and z
+    // within 2, 0..3 above: `EndermanTakeBlockGoal`'s box) or place a carried block into a farm
+    // air cell (x and z within 1, 0..2 above: `EndermanLeaveBlockGoal`'s box); supersets: no
+    // OUTLINE ray, no test of the block under the placed one
     let holdable: Vec<BlockPos> = farm.blocks.iter().copied().filter(|b| holdable(w, *b)).collect();
-    if !holdable.is_empty() {
+    let farm_air: Vec<BlockPos> = farm.interior.iter().copied().filter(|c| w.get(*c).is_air()).collect();
+    if !holdable.is_empty() || !farm_air.is_empty() {
         let e = flood(w, ENDERMAN, &interior, bounds);
         for (p, _) in &e.cells {
             if holdable.iter().any(|b| (b.x - p.x).abs() <= 2 && (b.z - p.z).abs() <= 2 && b.y - p.y >= 0 && b.y - p.y <= 3) {
                 ex.add("C9 endermen", "an enderman", "can take a farm block", *p);
+            }
+            if farm_air.iter().any(|a| (a.x - p.x).abs() <= 1 && (a.z - p.z).abs() <= 1 && a.y - p.y >= 0 && a.y - p.y <= 2) {
+                ex.add("C9 endermen", "an enderman", "can place a block into a farm air cell", *p);
+            }
+        }
+    }
+    // C6 pickup: a looting mob whose pickup box (its box inflated by 1, 0, 1:
+    // `Mob.aiStep`'s `getItemPickUpReach`) meets a farm interior cell, where the farm's items can
+    // be — the zombie family, skeletons and pillagers (their bodies), the village's villagers,
+    // foxes (the cube body's flood: smaller in both sizes, so it reaches every fox position); a
+    // superset until the farm spec carries its items' cells
+    let interior_boxes: Vec<Aabb> = farm.interior.iter().map(|c| Aabb::of_block(*c)).collect();
+    let mut looters: Vec<(&Reach, &'static str)> = reaches.iter().filter_map(|r| match r.body.name {
+        "zombie" => Some((r, "zombie")),
+        "baby zombie" => Some((r, "baby zombie")),
+        "skeleton" => Some((r, "skeleton or pillager")),
+        "slime" => Some((r, "fox")),
+        _ => None,
+    }).collect();
+    let villager_flood = if !farm.beds.is_empty() || !farm.villagers.is_empty() { Some(flood(w, VILLAGER, &interior, bounds)) } else { None };
+    if let Some(v) = &villager_flood {
+        looters.push((v, "village villager"));
+    }
+    for (r, who) in looters {
+        for (p, f) in &r.cells {
+            if interior.contains(p) {
+                continue;
+            }
+            let pb = reach_box(&r.body, *p, *f).inflate(1.0, 0.0, 1.0);
+            if interior_boxes.iter().any(|c| c.intersects(pb)) {
+                ex.add("C6 pickup", who, "can pick up an item inside the farm", *p);
             }
         }
     }
@@ -561,7 +609,6 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Exposure> {
     }
     // C4 presence (villagers): a village villager within 10 of a farm villager's box joins their
     // golem count (`Villager.spawnGolemIfNeeded` counts the villagers near the one that spawns)
-    let villager_flood = if !farm.beds.is_empty() || !farm.villagers.is_empty() { Some(flood(w, VILLAGER, &interior, bounds)) } else { None };
     if let Some(v) = &villager_flood {
         for (p, f) in v.cells.iter().filter(|(p, _)| !interior.contains(p)) {
             let vb = reach_box(&VILLAGER, *p, *f);

@@ -186,7 +186,7 @@ events and entities (redsim's slot for crops' random ticks, `world.rs`):
 ### 7. What else appears, and the village (not modeled as AI: covered by the checks)
 
 - `ServerLevel.tickCustomSpawners`: `PhantomSpawner` (players awake for 3 days; in the sky above
-  them), `PatrolSpawner` (pillagers 24-48 blocks away, never near villages), `CatSpawner` (cats in
+  them), `PatrolSpawner` (pillagers 24-47 blocks away in x and z, inclusive, never near villages), `CatSpawner` (cats in
   villages), `VillageSiege` (at `ROLL_VILLAGE_SIEGE`, one night in ten, `level.isVillage(player)`:
   20 zombies 32 blocks from the player; the farm's beds make a village), `WanderingTraderSpawner`.
 - The village's villagers walk to beds, job sites and the bell (doors: `InteractWithDoor` opens only
@@ -423,10 +423,10 @@ that passes it; a farm's verdict never refuses.)
 | C3 sight | a hostile-sensor type's eye at one of its positions within its distance of a farm villager (standing or sleeping, any position in its pod) with a clear COLLIDER ray |
 | C4 presence | an iron golem position (the village's golem: the golem flood) whose box meets a farm villager's box inflated by 17.84 on all three axes (`GolemSensor` reads `NearestLivingEntitySensor`: the follow range 16 plus `finalizeSpawn`'s bonus, no sight: the farm's villagers stop spawning golems for 600 ticks); or a village villager position (the villager flood) whose box meets a farm villager's box inflated by 10 (it joins their count in `Villager.spawnGolemIfNeeded`) |
 | C5 melee and ranged reach | **melee** (the attack box: the attacker's box inflated by sqrt(2.04) - 0.6 horizontally): the zombie family (zombie, baby zombie; drowned and husks share the body) against a farm villager (`Zombie` targets `AbstractVillager`); every hostile walker but the creeper (zombie, baby zombie, skeleton, spider, cave spider, slime) against the farm's golems — either attack box meeting the other's box (`IronGolem` targets every `Enemy` but creepers; zombies and spiders target golems; spiders do not target villagers); the village golem against the farm's zombie or its vehicle. **Ranged** (a clear COLLIDER ray from the attacker's eye within range): a skeleton against a farm golem's eye (15; skeletons target players, golems and turtles), a pillager (the skeleton body) against a farm villager's eye (8, its crossbow), a drowned (the zombie body) throwing a trident at a farm villager (10). Witches target players and raiders only (no channel) |
-| C6 pickup | a looting type's position (zombie family, skeletons, pillagers, villagers, foxes) whose box inflated (1, 0, 1) meets a cell the farm's items occupied in the runs — **not implemented yet** (the farm spec carries no item cells; C2 entry covers mobs inside) |
+| C6 pickup | a looting mob's position outside the interior whose pickup box (its box inflated by 1, 0, 1: `getItemPickUpReach`) meets an interior cell — the zombie family, skeletons and pillagers (their bodies), the village's villagers (their flood), foxes (the cube body's flood: smaller in both sizes, so it reaches every fox position). A superset: every interior cell counts as a cell the farm's items may occupy; it narrows to the cells the farm's items occupied in the runs once the farm spec carries them (ironfarm), a later brief |
 | C7 golem search | `LEGACY_IRON_GOLEM` from a summoning farm villager (`Farm.summoners`: the villagers that can see a farm zombie, since only a panicking villager calls `spawnGolemIfNeeded`; empty: every farm villager) finds, in any of its 17 x 17 columns, a first matching cell outside the farm's own spawn floors that passes `checkSpawnObstruction` (exhaustive, deterministic) |
-| C8 creepers | a creeper position within 7 of the AFK spot whose power-6 explosion could reach a farm block: implemented as a superset — no ray test to the player's eye, and a farm block within 10.4 of the creeper (the blast's block reach at the worst factor 1.3) counts |
-| C9 endermen | a farm block in `ENDERMAN_HOLDABLE` within the take box (x and z within 2, 0..3 above) of an enderman position (every standable position: they teleport) — a superset (no OUTLINE ray test); the place box is not implemented (endermen place only what they took) |
+| C8 creepers | a creeper position within 7 of the AFK spot (a creeper explodes at a player; no ray test, a superset) whose power-6 explosion reaches the farm: a farm block within 10.4 (the blocks the blast can break at the worst factor 1.3) — "can blow up farm blocks"; or a farm entity (a villager, the zombie, a golem at a golem cell) within 12 (the entity radius: damage and knockback, exposure taken as 1) — "can hurt a farm villager, zombie or golem" |
+| C9 endermen | from an enderman position (every standable position: they teleport): **take** — a farm block in `ENDERMAN_HOLDABLE` within the take box (x and z within 2, 0..3 above: `EndermanTakeBlockGoal`); **place** — a farm air cell (an interior cell holding air) within the place box (x and z within 1, 0..2 above: `EndermanLeaveBlockGoal`), the carried block taken anywhere outside; both supersets (no OUTLINE ray, no test of the block under the placed one) |
 | C10 flyers | a bat position overlapping the interior (the bat flood: reported as C2 entry); **phantoms**: the AFK player's cell is at or above the sea level (63) and `canSeeSky` (sky light 15) — `PhantomSpawner` then spawns phantoms 20-34 blocks above it once the player has not slept for 72000 ticks (the AFK player never sleeps): reported at the AFK cell |
 | C11 fire | **lightning**: a farm block with `burn_odds > 0` whose top cell `canSeeSky`; **lava's fire** (`LavaFluid.randomTick` with `doFireTick`): from every lava cell within 4 of a farm block, up to 3 steps up (each +1 y and -1..1 in x and z) through cells that do not block motion, the first air cell with a neighbour that is `ignited_by_lava` catches fire; or, with no step, a cell of the 3 x 3 at the lava's level that is `ignited_by_lava` with air above takes fire above it — reported when the burning neighbour is a farm block or the fire cell is in the interior. Fire spreading on from there is not followed (the first ignition already exposes the farm) |
 | C12 sculk | a sculk sensor of the design within 8 of any mob position (their steps are vibrations) |
@@ -574,8 +574,8 @@ Commands: `mctas terrain light|paste-check|biome-check|probe|spawn-check|hostile
    design) reports exposures on C1, C2, C3, C4, C5 and C7 (e.g. C3: zombies see a farm villager
    from 218 cells, pillagers from 708; C4: the village golem within the golem sensor from 1,209
    cells; C5: baby zombies hit a villager from 3 cells; C7: golems can spawn outside the floors at
-   158 cells), as it must; ~7 s per placement (floods over the design's surroundings, 24 columns
-   around it, the whole height).
+   158 cells; C6 pickup, C9 placing, as revision 4c added), as it must; ~5.6 s per placement
+   (revision 4c: floods over the farm's box grown by 24 in x, y and z, the full-height sample).
 
 ## File split (agreed)
 
@@ -659,3 +659,12 @@ Commands: `mctas terrain light|paste-check|biome-check|probe|spawn-check|hostile
 | 7 | the cube spawn box: approved by construction (the game's `getSpawnAABB`, scales 4 / 2) and re-run at full darkness with the fix: sulfur cubes 3.25 vs 2.66 (p 0.37), slimes 0 vs 0.03, monsters 70.50 vs 71.00: pass |
 | 8 | § Checks carries the API (`hostile::check -> Vec<Exposure>`, `Exposure { channel, mob, what, cells }`, `line()`) and the agreed card line; Decision D: rate runs skip the spawner for every farm, a farm with exposures gets its rate as if unexposed with the exposure lines as the caveat |
 | 9 | Layouts' committed sizes (381-698 KB per full-height sample, 1.5 MB for three), Trade-offs' sizes; C8 and C9 state their implemented supersets (no ray tests); C6 pickup marked not implemented; C7 uses the summoning villagers (`Farm.summoners`, ironfarm) |
+
+## Changelog (revision 4c, after d60ee61d's re-review of revision 4b)
+
+| point | change |
+|---|---|
+| 1 | C6 pickup implemented as a superset (code and table): a looting mob outside the interior whose pickup box (box inflated 1, 0, 1) meets an interior cell; the narrowing to the items' cells once ironfarm's farm spec carries them is a later brief |
+| 2 | C8: both cases (code and table): a farm block within 10.4, or a farm entity (villager, zombie, golem cell) within 12, of a creeper within 7 of the AFK spot |
+| 3 | C9: take and place (code and table): place = a farm air cell within x/z 1 and 0..2 above an enderman position, the carried block taken anywhere |
+| minor | Results §4: the revision-4c measurement (~5.6 s, the farm's box grown by 24); the patrol range 24-47 inclusive in § Mechanics too |
