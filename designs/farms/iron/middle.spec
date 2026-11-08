@@ -30,5 +30,6 @@ space: placement void
 merge: 10%
 
 # What the card shows (vjeux 11:17: "adapt what is shown based on the objective"): the stage's
-# default rows in designs/circuits/mobfarm/cards.tsv (key `mob-farm iron_ingot middle`), and each
-# presented farm's own rows there. front.md lists those fields first for each member.
+# default rows, staged in designs/farms/iron/cards.tsv (key `mob-farm iron_ingot middle`) until the
+# site reads designs/circuits/mobfarm/cards.tsv, and each presented farm's own rows there.
+# front.md lists those fields first for each member.

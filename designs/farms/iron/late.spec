@@ -30,12 +30,16 @@ constraint: per_block_gain >= 1.05
 constraint: volume_gain >= 1.05
 # every module ticks from one AFK spot (simulation distance 10, DistanceManager)
 constraint: afk_spots <= 1
+# the collection holds the night: 8 h of the whole farm's output (iron packed into blocks by the
+# catalog's crafter, or chests; poppies composted or destroyed). A part-level limit (vjeux 11:23:
+# parts searched on their own): a collection that fills sooner only loses iron over the night.
+constraint: storage_hours >= 8
 
 space: placement void
 
 merge: 10%
 
 # What the card shows (vjeux 11:17: "adapt what is shown based on the objective"): the stage's
-# default rows in designs/circuits/mobfarm/cards.tsv (key `mob-farm iron_ingot fastest`: the
-# site's name for the late stage), and each presented farm's own rows there. front.md lists those
-# fields first for each member.
+# default rows, staged in designs/farms/iron/cards.tsv (key `mob-farm iron_ingot fastest`: the
+# site's name for the late stage) until the site reads designs/circuits/mobfarm/cards.tsv, and
+# each presented farm's own rows there. front.md lists those fields first for each member.

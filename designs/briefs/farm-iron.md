@@ -166,7 +166,24 @@ Numbers, never refusals by themselves; each stage weighs them in its own rank:
 - **Bounds**: every front comes with each objective's bound (the ideal point), the front of the
   bounds of everything not measured, and the gap per objective (farm-optimizer.md, Bounds). A gap
   above the merge rule's 10% is printed with its cause (a loose bound or a missing part of the
-  space) and worked on in the next iteration; it does not hold the presented set.
+  space) and worked on in the next iteration; it does not hold the presented set. A stage's pick
+  replaces the live page when it passes the game gate and beats the live farm on the stage's
+  objectives (beats: better by more than 10% on at least one objective and not worse by more than
+  10% on any, the merge rule's threshold, so pages don't churn on noise; a farm that wins one
+  objective but loses another by more than 10% joins the stage's presented set instead of
+  replacing the live one); the search keeps working any open gap, and the page is replaced again
+  when it finds better. A gap is never printed on a page; nothing waits on vjeux (10:59: "I want
+  your process to be autonomous, don't wait for any of my decisions"; a page never claims "the
+  best", so the best farm found so far makes no false claim, and the site only ever improves).
+- **Parts** (vjeux 11:23: "breakdown the various part of the farms to optimize them individually.
+  The villager "cage", the golem spawn area, the kill chamber, the loot collection system... like
+  we did for the clocks"). The optimizer searches each part on its own (the cage, the spawn area
+  with its exit, the kill chamber, the collection, the calm trigger), keeps per part and stage the
+  non-dominated ones on what that part changes (its build seconds; the rate it allows: the cage's
+  sight lines and spawn centres, the spawn area's mark share and exit time, the kill's time and
+  fire safety, the collection's hours and hoppers, the trigger's hide length and restart), then
+  assembles builds from them. Per-stage part limits are written only where the player needs them
+  (each stage's Parts line below); the rest is the stage's objectives.
 - **What reaches vjeux**: per stage, 1-4 farms from the merged fronts, each beating every other
   presented farm by at least 10% on one of the stage's objectives, each with a one-line reason a
   player would pick it, its tradeoffs in plain words and a preview (`mctas site preview`). The
@@ -176,11 +193,13 @@ Numbers, never refusals by themselves; each stage weighs them in its own rank:
   adapt what is shown based on the objective"). Everything stays measured; what the card SHOWS is
   chosen here. Each stage has default rows (the facts its player weighs, in order: Day 1, Middle
   and Late below); each presented farm gets its own rows, 3-6 facts plus how it differs from its
-  neighbours on the front. The rows live in `designs/circuits/mobfarm/cards.tsv` (`key`, `slot`,
-  `line`: a design's rows win over its kind's, the kind's over the built-in list; the page-copy
-  lane's format), every number a placeholder bound to a judge field (`{iron_per_hour|round}`),
-  and the build refuses an unknown field or a digit outside a placeholder, so a card cannot drift
-  from the measurement.
+  neighbours on the front. The rows use the page-copy lane's format (`key`, `slot`,
+  `line`: a design's rows win over its kind's, the kind's over the built-in list), staged in
+  `designs/farms/iron/cards.tsv` and moved to the file the site reads,
+  `designs/circuits/mobfarm/cards.tsv`, once its support and every field they name exist (until
+  then nothing reads them); every number is a placeholder bound to a judge field
+  (`{iron_per_hour|round}`), and the build refuses an unknown field or a digit outside a
+  placeholder, so a card cannot drift from the measurement.
 
 ### Day 1
 
@@ -230,8 +249,13 @@ pit's corner or a blade below a drop: lava trips are in T); dug in or built up (
 takes the cheaper, and the build minutes on the flat plains sample are printed for a village
 without rock).
 
-Shown on the card, in this order (the stage's default rows in
-`designs/circuits/mobfarm/cards.tsv`): the minutes to the armour and the iron per hour after it;
+Parts: the calm trigger is the bed plate, or (dust) the bed plate with the smallest day-1 catalog
+pulse; the kill chambers rank by lava sources first (2 minutes a trip, the costliest thing a
+day-1 part can need), the collections by hoppers (5 iron each: one holds hours at a day-1 rate);
+the cage's villagers and beds are the village's.
+
+Shown on the card, in this order (the stage's default rows, `designs/farms/iron/cards.tsv`): the
+minutes to the armour and the iron per hour after it;
 the iron to have in hand, the lava trips and the villagers taken from the village (a fresh
 player's scarce things); the first night (starts by itself, or hide the zombie by hand once);
 after a trip away; what it makes for a player who sleeps through every night (the share of golems
@@ -294,6 +318,10 @@ Forks: none. The calm (the bed plate, the bed observer with its catalog pulse, d
 detectors), the kill, the tiling and the villagers per cluster are mechanisms the front chooses
 between; a fork is kept only for what the player cannot trade on the spot (day 1's redstone).
 
+Parts: one calm trigger may serve every module (every cluster rests at the same day time), its
+pulse a catalog part with the stage's materials; the kill chamber, the drop and the collection
+are shared wherever the search finds it pays (at least one shared part is a hard limit).
+
 Shown on the card, in this order (the stage's default rows): the iron per hour and the build
 minutes; the rain and thunder day rates (a middle farm runs through the weather); the quartz and
 iron it needs; where it fits by the base (chunk columns, dimensions); back after days away; how
@@ -349,6 +377,12 @@ honest. Robustness weighs heavily here through W: a farm that stalls in rain, lo
 lightning or fills its chests at hour 3 collects that much less over the night.
 
 Forks: none (the tiling, the storage, the kill and the villagers per cluster are on the front).
+
+Parts: the collection holds 8 h of the whole farm's output (iron packed into blocks by the
+catalog's crafter, or chests; the poppies composted or destroyed): a limit, not only a cost, since
+a collection that fills sooner only loses iron over the night, so the search drops it at the part
+level. The kill chamber, the collection, the zombie and the calm trigger are shared between
+modules wherever the search finds it pays.
 
 Shown on the card, in this order (the stage's default rows): the iron per hour and what a night
 AFK brings; the hours it runs AFK before its storage fills (iron packed into blocks by a crafter,
@@ -974,4 +1008,4 @@ the spec was, what came back (the front's size before and after merging), what c
 | it | spec (designs/farms/iron/*.spec) | what came back | what changed and why |
 |---|---|---|---|
 | 1 | Day 1: min T (minutes to a 24-iron kit), max net iron/h; day-1 items, at most 8 villagers (the village's), 1-2 modules, village-edge terrain; fork redstone (none, dust). Middle: max net iron/h over a game day, min build minutes; Nether tier, 2-4 modules sharing a part, at most 120 build minutes. Late, at N = 8: max net iron/h over 8 h AFK, min build minutes, min volume per module; stacking must pay (5% per block and per volume over N = 1). One build-minutes formula; net iron per hour over each stage's window W (0, a game day, 8 h); timing parts from the catalogs; merge 10% | (running) | From revision 8: each stage's single scalar becomes a 2-3 objective vector with the player's reason for each; the middle gets N >= 2 sharing a part and catalog timing parts (vjeux 10:48); the late per-block rank becomes a printed ratio beside rate, build and volume (per block alone prefers a cheap 70% module to a 92% one that brings 30% more iron a night); M2-open leaves the middle (one module, a hand-built pulse); the hand candidates become seeds |
-| 1b | the same objectives and constraints | G1 APPROVE (8146b8db, f1a42990) | After the approval: late.spec's comment corrected (the reviewer's note: the best iron/h per build minute is on the front, the per-block best is listed beside it when it falls off); the merge written as greedy around the best (no twins on either side of a fixed box's edge; still no chaining); a gap over 10% is printed with its cause and worked on in the next iteration instead of holding the presented set (vjeux 10:59: "I want your process to be autonomous"); the card adapts to the stage and the farm (vjeux 11:17): each stage's shown facts, in order, as default rows in designs/circuits/mobfarm/cards.tsv (the page-copy lane's format), lava trips and iron up front only where the player cares (day 1); the day-1 hide pulse's window is L >= 20 gt with no hard upper bound (answered to the pulse lane: the zombie's ray is cast only by the hostile sensor, once per 20 gt list) |
+| 1b | the same objectives and constraints | G1 APPROVE (8146b8db, f1a42990) | After the approval: late.spec's comment corrected (the reviewer's note: the best iron/h per build minute is on the front, the per-block best is listed beside it when it falls off); the merge written as greedy around the best (no twins on either side of a fixed box's edge; still no chaining); a gap over 10% is printed with its cause and worked on in the next iteration instead of holding the presented set (vjeux 10:59: "I want your process to be autonomous"); the card adapts to the stage and the farm (vjeux 11:17): each stage's shown facts, in order, as default rows (the page-copy lane's format, staged in designs/farms/iron/cards.tsv until the site reads them), lava trips and iron up front only where the player cares (day 1); the day-1 hide pulse's window is L >= 20 gt with no hard upper bound (answered to the pulse lane: the zombie's ray is cast only by the hostile sensor, once per 20 gt list); the re-check (8146b8db, the parent's rule): a pick replaces the live page when it passes the game gate and beats the live farm (more than 10% better on one objective, not more than 10% worse on any), the search keeps closing any gap, a gap is never printed on a page, nothing waits on vjeux; parts searched on their own (vjeux 11:23), the late collection holding the night |
