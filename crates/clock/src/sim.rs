@@ -603,7 +603,7 @@ pub fn drive_seeded(c: &Clock, extra: &[(u32, Action)], ticks: u32, probes: &[Po
     // non-air cell at every tick (a full adder's 64 s, 2026-11-08); the box read x, y, z, which
     // is the frames' order (by position)
     let mut seen: Vec<Option<(Block, Option<String>, String, Option<u8>)>> = Vec::new();
-    out.stopped = drive_each(c, extra, ticks, from, to, remove_primed, level, |t, world| {
+    out.stopped = drive_each(c, extra, ticks, from, to, remove_primed, level, false, |t, world, _| {
         for &(_, p) in &world.primed[primed_seen..] {
             out.primed.push((t, p.arr()));
         }
@@ -655,14 +655,18 @@ pub fn drive_seeded(c: &Clock, extra: &[(u32, Action)], ticks: u32, probes: &[Po
         if !world.entities.list.is_empty() {
             out.entities.push(entity_snapshot(world));
         }
+        true
     })?;
     Ok(out)
 }
 
 /// The run [`drive_seeded`] makes, each tick's world handed to `each` (after the tick's actions,
-/// before the world ticks) instead of kept; returns where it stopped early (the tick and why).
+/// before the world ticks) instead of kept, with `log`: the cells a write changed since the last
+/// call (`World::log_writes`; none at the first: the placement is not logged); `each` returning
+/// false ends the run there. Returns where it stopped early (the tick and why; an empty why: `each`
+/// ended it).
 #[allow(clippy::too_many_arguments)]
-fn drive_each(c: &Clock, extra: &[(u32, Action)], ticks: u32, from: Pos, to: Pos, remove_primed: bool, level: Option<(i64, [i32; 4])>, mut each: impl FnMut(u32, &World)) -> Result<Option<(u32, String)>, (Verdict, String)> {
+fn drive_each(c: &Clock, extra: &[(u32, Action)], ticks: u32, from: Pos, to: Pos, remove_primed: bool, level: Option<(i64, [i32; 4])>, log: bool, mut each: impl FnMut(u32, &World, &[BlockPos]) -> bool) -> Result<Option<(u32, String)>, (Verdict, String)> {
     let mut blocks = parse_blocks(c).map_err(|e| (Verdict::Unmodeled, format!("not modeled by redsim: {e}")))?;
     for (_, a) in extra {
         if let Action::Place { state, .. } | Action::ShapeSet { state, .. } = a {
@@ -677,11 +681,20 @@ fn drive_each(c: &Clock, extra: &[(u32, Action)], ticks: u32, from: Pos, to: Pos
     s.world.remove_primed = remove_primed;
     s.actions.extend(extra.iter().cloned());
     s.actions.sort_by_key(|(t, _)| *t);
+    s.world.log_writes = log;
+    s.world.writes.clear();
+    let mut written: Vec<BlockPos> = Vec::new();
     for t in 0..=ticks {
         if let Err((_, why)) = between_ticks(&mut s, t) {
             return Ok(Some((t, why)));
         }
-        each(t, &s.world);
+        if log {
+            std::mem::swap(&mut written, &mut s.world.writes);
+        }
+        if !each(t, &s.world, &written) {
+            return Ok(Some((t, String::new())));
+        }
+        written.clear();
         if t < ticks {
             s.world.tick();
         }
@@ -750,9 +763,13 @@ pub fn exterior_scan(c: &Clock, w: u32, period: u32, swept: (Pos, Pos), occupied
     // state as a string at every tick, then a map of each tick to compare: 312,887 gt of
     // clk-rt-counter n = 3, 2026-11-08): every cell a block ever stands in and the cells holding
     // tripwire / rails / water at any tick; the cells whose state differs from the period's first
-    // tick at some tick of the period; each candidate's power over the period. A cell's state
-    // string is made again only when its block or extras change (the same block and extras make
-    // the same string); cells are indexed in the run's box (every block of the run stands in it).
+    // tick at some tick of the period; each candidate's power over the period. Cells are indexed
+    // in the run's box (every block of the run stands in it); a cell's state string is made again
+    // only when its block or extras change (the same block and extras make the same string), and
+    // a cell is read only when the world's write log names it or its extras can change with no
+    // write, all of them at the first tick, at W, at the last and every `TRACK_CHECK` ticks (as
+    // `simulate`'s record: a full read that finds a change neither named reads every cell at every
+    // tick from the start again).
     let end = w + period;
     let dims = [to[0] - from[0] + 1, to[1] - from[1] + 1, to[2] - from[2] + 1];
     let idx = |q: Pos| -> Option<usize> {
@@ -760,70 +777,179 @@ pub fn exterior_scan(c: &Clock, w: u32, period: u32, swept: (Pos, Pos), occupied
         (0..3).all(|k| r[k] >= 0 && r[k] < dims[k]).then(|| ((r[1] * dims[2] + r[2]) * dims[0] + r[0]) as usize)
     };
     let n = (dims[0] * dims[1] * dims[2]).max(0) as usize;
-    let mut filled = vec![false; n];
-    let mut bad_floor = vec![false; n];
-    let mut changing = vec![false; n];
-    let mut base: Vec<Option<String>> = vec![None; n];
-    let mut base_cells: Vec<(usize, Pos)> = Vec::new();
-    // a cell's last block and extras read, their state string, whether it is tripwire / rails / water
-    let mut seen: Vec<Option<(Block, Option<String>, String, bool, Option<u8>)>> = vec![None; n];
-    let mut signals: Vec<Vec<bool>> = vec![Vec::with_capacity(period as usize); cand.len()];
-    let run = drive_each(c, &[], end, from, to, false, None, |t, world| {
-        let in_period = t > w && t < end;
-        for (p, b) in world.blocks() {
-            let q = p.arr();
-            let i = idx(q).expect("a block of the run stands in its box");
-            // (the same block holding the same reads: its text kept, `wave::comparator_read`,
-            // `wave::reads_extras`)
-            let quick = wave::comparator_read(world, p, &b);
-            let held = match &seen[i] {
-                Some((sb, _, _, _, sq)) if *sb == b => {
-                    if quick.is_some() {
-                        *sq == quick
-                    } else {
-                        !wave::reads_extras(&b)
+    // the box's cells in its own order (y, z, x: the world's)
+    let box_cells: Vec<Pos> = (0..dims[1]).flat_map(|y| (0..dims[2]).flat_map(move |z| (0..dims[0]).map(move |x| [from[0] + x, from[1] + y, from[2] + z]))).collect();
+    let every: Vec<usize> = (0..n).collect();
+    let mut tracked = true;
+    let (filled, bad_floor, changing, signals) = loop {
+        let mut filled = vec![false; n];
+        let mut bad_floor = vec![false; n];
+        let mut changing = vec![false; n];
+        let mut base: Vec<Option<String>> = vec![None; n];
+        // a cell's state now (None: air): its block and extras, their text, whether it is
+        // tripwire / rails / water, a comparator's strength
+        type Now = Option<(Block, Option<String>, String, bool, Option<u8>)>;
+        let mut now: Vec<Now> = vec![None; n];
+        let mut extras: Vec<usize> = Vec::new();
+        let mut is_extras = vec![false; n];
+        let mut named = vec![false; n];
+        let mut todo: Vec<usize> = Vec::new();
+        let mut missed = false;
+        let mut signals: Vec<Vec<bool>> = vec![Vec::with_capacity(period as usize); cand.len()];
+        // each candidate's power now, and the candidates near each cell of the box: a change can
+        // move the power a candidate receives only from within `SIGNAL_REACH` cells of it (a
+        // conductor's power is its neighbours', a wire's shape reads its neighbours' up and down:
+        // 3 at most); a candidate is read again when a cell near it changes, every candidate at
+        // every full read, which finds any other change (then every candidate at every tick)
+        let mut near: Vec<Vec<u32>> = vec![Vec::new(); n];
+        for (k, q) in cand.iter().enumerate() {
+            for dx in -SIGNAL_REACH..=SIGNAL_REACH {
+                for dy in -SIGNAL_REACH..=SIGNAL_REACH {
+                    for dz in -SIGNAL_REACH..=SIGNAL_REACH {
+                        if let Some(i) = idx([q[0] + dx, q[1] + dy, q[2] + dz]) {
+                            near[i].push(k as u32);
+                        }
                     }
                 }
-                _ => false,
-            };
-            if !held {
-                let extra = wave::be_extra_redsim(world, p, &b);
-                if !matches!(&seen[i], Some((sb, se, _, _, _)) if *sb == b && *se == extra) {
-                    let s = wave::with_extra(&b.to_string(), extra.as_deref());
-                    let bad = s.contains("tripwire") || s.contains("rail") || s.contains("water");
-                    seen[i] = Some((b, extra, s, bad, quick));
-                } else if let Some(e) = seen[i].as_mut() {
-                    e.4 = quick;
+            }
+        }
+        let mut sig: Vec<bool> = vec![false; cand.len()];
+        let mut dirty: Vec<bool> = vec![false; cand.len()];
+        let mut dirty_list: Vec<u32> = Vec::new();
+        let run = drive_each(c, &[], end, from, to, false, None, tracked, |t, world, written| {
+            let in_period = t > w && t < end;
+            let full = !tracked || t == 0 || t == w || t == end || t % TRACK_CHECK == 0;
+            todo.clear();
+            if tracked {
+                for q in written {
+                    if let Some(i) = idx(q.arr())
+                        && !named[i]
+                    {
+                        named[i] = true;
+                        todo.push(i);
+                    }
+                }
+                for &i in &extras {
+                    if !named[i] {
+                        named[i] = true;
+                        todo.push(i);
+                    }
                 }
             }
-            let Some((_, _, s, bad, _)) = &seen[i] else { unreachable!("read above") };
-            filled[i] = true;
-            if *bad {
-                bad_floor[i] = true;
+            let mut extras_moved = false;
+            for &i in if full { &every } else { &todo } {
+                let p = bp(box_cells[i]);
+                let b = world.get(p);
+                let reads = wave::reads_extras(&b);
+                if reads != is_extras[i] {
+                    is_extras[i] = reads;
+                    extras_moved = true;
+                }
+                let changed = if b.is_air() {
+                    let was = now[i].is_some();
+                    now[i] = None;
+                    was
+                } else {
+                    // (the same block holding the same reads: its text kept,
+                    // `wave::comparator_read`, `wave::reads_extras`)
+                    let quick = wave::comparator_read(world, p, &b);
+                    let held = match &now[i] {
+                        Some((sb, _, _, _, sq)) if *sb == b => {
+                            if quick.is_some() {
+                                *sq == quick
+                            } else {
+                                !reads
+                            }
+                        }
+                        _ => false,
+                    };
+                    if held {
+                        false
+                    } else {
+                        let extra = wave::be_extra_redsim(world, p, &b);
+                        if let Some(e) = now[i].as_mut().filter(|e| e.0 == b && e.1 == extra) {
+                            e.4 = quick;
+                            false
+                        } else {
+                            let s = wave::with_extra(&b.to_string(), extra.as_deref());
+                            let bad = s.contains("tripwire") || s.contains("rail") || s.contains("water");
+                            now[i] = Some((b, extra, s, bad, quick));
+                            true
+                        }
+                    }
+                };
+                if changed || (t == 0 && now[i].is_some()) {
+                    for &k in &near[i] {
+                        if !dirty[k as usize] {
+                            dirty[k as usize] = true;
+                            dirty_list.push(k);
+                        }
+                    }
+                    // a change neither the write log nor the extras named
+                    if tracked && t > 0 && !named[i] {
+                        missed = true;
+                    }
+                    if let Some((_, _, s, bad, _)) = &now[i] {
+                        filled[i] = true;
+                        if *bad {
+                            bad_floor[i] = true;
+                        }
+                        if in_period && !changing[i] && base[i].as_deref() != Some(s.as_str()) {
+                            changing[i] = true;
+                        }
+                    } else if in_period && base[i].is_some() {
+                        changing[i] = true;
+                    }
+                }
+            }
+            for &i in &todo {
+                named[i] = false;
+            }
+            if missed {
+                return false;
+            }
+            if extras_moved {
+                extras = (0..n).filter(|&i| is_extras[i]).collect();
             }
             if t == w {
-                base[i] = Some(s.clone());
-                base_cells.push((i, q));
-            } else if in_period && !changing[i] && base[i].as_deref() != Some(s.as_str()) {
-                changing[i] = true;
-            }
-        }
-        if in_period {
-            for &(i, q) in &base_cells {
-                if !changing[i] && world.get(bp(q)).is_air() {
-                    changing[i] = true;
+                for i in 0..n {
+                    base[i] = now[i].as_ref().map(|e| e.2.clone());
                 }
             }
-        }
-        if t >= w && t < end {
-            for (i, q) in cand.iter().enumerate() {
-                signals[i].push(world.best_neighbor_signal(bp(*q)).clamp(0, 15) > 0);
+            if t >= w && t < end {
+                if full {
+                    for (k, q) in cand.iter().enumerate() {
+                        let s = world.best_neighbor_signal(bp(*q)).clamp(0, 15) > 0;
+                        // a change in a candidate's power with no change near it
+                        if tracked && t > w && s != sig[k] && !dirty[k] {
+                            missed = true;
+                        }
+                        sig[k] = s;
+                    }
+                } else {
+                    for &k in &dirty_list {
+                        sig[k as usize] = world.best_neighbor_signal(bp(cand[k as usize])).clamp(0, 15) > 0;
+                    }
+                }
+                for (k, s) in sig.iter().enumerate() {
+                    signals[k].push(*s);
+                }
             }
+            for &k in &dirty_list {
+                dirty[k as usize] = false;
+            }
+            dirty_list.clear();
+            !missed
+        });
+        if missed {
+            tracked = false;
+            continue;
         }
-    });
-    if !matches!(run, Ok(None)) {
-        return Vec::new();
-    }
+        if !matches!(run, Ok(None)) {
+            return Vec::new();
+        }
+        break (filled, bad_floor, changing, signals);
+    };
     let mut out: Vec<((bool, u32, u32, i32, usize, u8, Pos), Pos, CellWave)> = Vec::new();
     for (i, q) in cand.iter().enumerate() {
         if idx(*q).is_some_and(|i| filled[i]) || idx([q[0], q[1] - 1, q[2]]).is_some_and(|i| bad_floor[i]) {
@@ -925,6 +1051,15 @@ pub fn lamp_output_for(free: &Clock, period: u32, o: &SimOptions) -> Option<(Pos
 
 /// The candidates [`lamp_output_for`] runs at once.
 const LAMP_CANDIDATES_AT_ONCE: usize = 4;
+
+/// Every this many ticks [`simulate`]'s period record reads every cell, a check of the world's
+/// write log (and at its first tick, at W and at its last).
+const TRACK_CHECK: u32 = 4096;
+
+/// How far (in each axis) a cell's change can move the power next to a cell
+/// (`World::best_neighbor_signal`: a conductor's power is its neighbours', a wire's shape reads its
+/// neighbours' up and down: 3), with one to spare: [`exterior_scan`].
+const SIGNAL_REACH: i32 = 4;
 
 /// TNT dupers with explosions on (track tnt, all-randoms judge): how [`drive_tnt`] runs them.
 #[derive(Clone, Debug)]
@@ -1352,16 +1487,17 @@ impl PeriodStates {
         i
     }
 
-    /// Record the next tick's frame (one state id per cell).
-    fn push(&mut self, frame: &[u32]) {
+    /// Record the next tick's frame (one state id per cell); `changed`: the cells whose state may
+    /// differ from the previous tick's (every other cell holds its id).
+    fn push(&mut self, frame: &[u32], changed: &[usize]) {
         if self.len == 0 {
             self.frame0 = frame.to_vec();
             self.prev = frame.to_vec();
             self.len = 1;
             return;
         }
-        for (i, (&a, &b)) in self.prev.iter().zip(frame).enumerate() {
-            if a != b && !self.seqs.contains_key(&i) {
+        for &i in changed {
+            if self.prev[i] != frame[i] && !self.seqs.contains_key(&i) {
                 // unchanged until now: its first state at every tick so far
                 self.seqs.insert(i, vec![self.frame0[i]; self.len]);
             }
@@ -1369,7 +1505,9 @@ impl PeriodStates {
         for (i, s) in self.seqs.iter_mut() {
             s.push(frame[*i]);
         }
-        self.prev.copy_from_slice(frame);
+        for &i in changed {
+            self.prev[i] = frame[i];
+        }
         self.len += 1;
     }
 
@@ -1437,144 +1575,212 @@ pub fn simulate(c: &Clock, o: &SimOptions) -> SimReport {
         return SimReport::fail(c, Verdict::NoRepeat, format!("no repeat of its state within {} gt", o.horizon));
     };
     // Phase 2: replay to W + P, confirm the repeat on the exact key, record one period.
-    let mut s = start(c, &blocks, o.margin).ok().unwrap();
     let (lo, hi) = c.bounds();
-    let (mut slo, mut shi) = (lo, hi);
-    let wmin = s.world.min;
-    let size = s.world.size;
-    let cells: Vec<Pos> = (0..size[1])
-        .flat_map(|y| (0..size[2]).flat_map(move |z| (0..size[0]).map(move |x| [wmin.x + x, wmin.y + y, wmin.z + z])))
-        .collect();
-    // one period of every cell's state, kept small (the coordinator 2026-10-21: whole frames of
-    // Strings ran the site build's family-member pass to 82 GB): each state interned once, the
-    // frame at W, and the state at every tick of the cells that change
-    let mut ps = PeriodStates::default();
-    let mut out_seq: Vec<bool> = Vec::with_capacity(p as usize);
-    let mut out_level: Vec<i32> = Vec::with_capacity(p as usize);
-    let mut key_w = Vec::new();
     let out_pos = c.output;
     let lamp = judge_lamp(c);
-    // the declared output cell's first block in the period, and how it was entered if it was
-    let mut out_first: Option<String> = None;
-    let mut out_entered: Option<String> = None;
-    let mut ent_cells: std::collections::HashSet<Pos> = std::collections::HashSet::new();
-    // a digest of the full cell states after every tick (block state + comparator strength +
-    // container contents): the clock's warmup and period
-    let mut frames: Vec<u128> = Vec::with_capacity((w0 + p + 1) as usize);
-    // each cell's state as last read (its block and block-entity extras), its share of the frame
-    // digest and, while recording, its interned state: a cell that keeps its state costs a read and
-    // a compare (a long member's period record formatted, interned and hashed every cell at every
-    // tick: clk-rt-counter n = 3, 312,816 gt x 4,400 cells, the site build's long pole,
-    // 2026-11-08). An unchanged cell interns to the same id, so reusing it changes nothing; the
-    // frame digest is the sum of the cells' keyed shares ([`cell_share`]), which equal frames
-    // share and other frames do not but by a 2^-128 chance: frames are only compared with each
-    // other.
-    let mut cur: Vec<Option<(Block, Option<String>, Option<u8>)>> = vec![None; cells.len()];
-    let mut shares: Vec<u128> = vec![0; cells.len()];
-    let mut ids: Vec<Option<u32>> = vec![None; cells.len()];
-    let mut digest_sum: u128 = 0;
-    let mut frame: Vec<u32> = Vec::with_capacity(cells.len());
-    for t in 0..=(w0 + p) {
-        if let Err((v, why)) = between_ticks(&mut s, t) {
-            return SimReport::fail(c, v, why);
-        }
-        let recording = t >= w0 && t < w0 + p;
-        frame.clear();
-        // (the cells are the world's box in its own order: the swept box grows over its blocks
-        // here, the lamp aside)
-        for (k, q) in cells.iter().enumerate() {
-            let b = s.world.get(bp(*q));
-            if !b.is_air() && Some(*q) != lamp {
-                crate::grow(&mut slo, &mut shi, *q);
+    // The cells read at a tick: every cell at the first tick, at W, at the last and every
+    // `TRACK_CHECK` ticks; at the others only the cells the world's write log names
+    // (`World::log_writes`: every cell a write changed) and the cells whose extras change with no
+    // write (comparators, containers: `wave::reads_extras`). A cell's state can change no other
+    // way, and a full read that finds a cell changed that neither named runs the record again
+    // reading every cell at every tick. (The long members read 4,400 cells a tick to see the few
+    // dozen that change: clk-rt-counter n = 3, 312,816 gt a run, 2026-11-08.)
+    let mut tracked = true;
+    let (slo, shi, cells, ps, mut out_seq, mut out_level, out_entered, ent_cells, frames) = 'record: loop {
+        let mut s = start(c, &blocks, o.margin).ok().unwrap();
+        s.world.log_writes = tracked;
+        s.world.writes.clear();
+        let (mut slo, mut shi) = (lo, hi);
+        let wmin = s.world.min;
+        let size = s.world.size;
+        let cells: Vec<Pos> = (0..size[1])
+            .flat_map(|y| (0..size[2]).flat_map(move |z| (0..size[0]).map(move |x| [wmin.x + x, wmin.y + y, wmin.z + z])))
+            .collect();
+        let n = cells.len();
+        let index_of = |q: BlockPos| -> Option<usize> {
+            let (x, y, z) = (q.x - wmin.x, q.y - wmin.y, q.z - wmin.z);
+            (x >= 0 && y >= 0 && z >= 0 && x < size[0] && y < size[1] && z < size[2]).then(|| ((y * size[2] + z) * size[0] + x) as usize)
+        };
+        let every: Vec<usize> = (0..n).collect();
+        // one period of every cell's state, kept small (the coordinator 2026-10-21: whole frames of
+        // Strings ran the site build's family-member pass to 82 GB): each state interned once, the
+        // frame at W, and the state at every tick of the cells that change
+        let mut ps = PeriodStates::default();
+        let mut out_seq: Vec<bool> = Vec::with_capacity(p as usize);
+        let mut out_level: Vec<i32> = Vec::with_capacity(p as usize);
+        let mut key_w = Vec::new();
+        // the declared output cell's first block in the period, and how it was entered if it was
+        let mut out_first: Option<String> = None;
+        let mut out_entered: Option<String> = None;
+        let mut ent_cells: std::collections::HashSet<Pos> = std::collections::HashSet::new();
+        // a digest of the full cell states after every tick (block state + comparator strength +
+        // container contents): the clock's warmup and period
+        let mut frames: Vec<u128> = Vec::with_capacity((w0 + p + 1) as usize);
+        // each cell's state as last read (its block and block-entity extras), its share of the
+        // frame digest and, while recording, its interned state: an unchanged cell interns to the
+        // same id, so reusing it changes nothing; the frame digest is the sum of the cells' keyed
+        // shares ([`cell_share`]), which equal frames share and other frames do not but by a
+        // 2^-128 chance: frames are only compared with each other
+        let mut cur: Vec<Option<(Block, Option<String>, Option<u8>)>> = vec![None; n];
+        let mut shares: Vec<u128> = vec![0; n];
+        let mut ids: Vec<Option<u32>> = vec![None; n];
+        let mut digest_sum: u128 = 0;
+        // every cell's id while recording (the cells not read hold theirs)
+        let mut frame: Vec<u32> = vec![0; n];
+        // the cells whose extras are read at every tick, the cells named this tick, the cells read
+        // whose state changed
+        let mut extras: Vec<usize> = Vec::new();
+        let mut is_extras = vec![false; n];
+        let mut named = vec![false; n];
+        let mut todo: Vec<usize> = Vec::new();
+        let mut changed: Vec<usize> = Vec::new();
+        for t in 0..=(w0 + p) {
+            if let Err((v, why)) = between_ticks(&mut s, t) {
+                return SimReport::fail(c, v, why);
             }
-            // a comparator's extras are its strength alone (`wave::comparator_read`), a block
-            // without extras has none (`wave::reads_extras`): the same block holding the same
-            // reads again changes nothing, and its text is not made again
-            let quick = wave::comparator_read(&s.world, bp(*q), &b);
-            let held = match &cur[k] {
-                Some((cb, _, cq)) if *cb == b => {
-                    if quick.is_some() {
-                        *cq == quick
-                    } else {
-                        !wave::reads_extras(&b)
+            let recording = t >= w0 && t < w0 + p;
+            let full = !tracked || t == 0 || t == w0 || t == w0 + p || t % TRACK_CHECK == 0;
+            todo.clear();
+            if tracked {
+                let mut log = std::mem::take(&mut s.world.writes);
+                for q in log.drain(..) {
+                    if let Some(k) = index_of(q)
+                        && !named[k]
+                    {
+                        named[k] = true;
+                        todo.push(k);
                     }
                 }
-                _ => false,
-            };
-            if !held {
-                let extra = wave::be_extra_redsim(&s.world, bp(*q), &b);
-                if !matches!(&cur[k], Some((cb, ce, _)) if *cb == b && *ce == extra) {
-                    let share = cell_share(k, &b, &extra);
-                    digest_sum = digest_sum.wrapping_sub(shares[k]).wrapping_add(share);
-                    shares[k] = share;
-                    ids[k] = None;
+                // (the log's buffer back, empty)
+                s.world.writes = log;
+                for &k in &extras {
+                    if !named[k] {
+                        named[k] = true;
+                        todo.push(k);
+                    }
                 }
-                cur[k] = Some((b, extra, quick));
+                todo.sort_unstable();
+            }
+            changed.clear();
+            let mut missed = false;
+            let mut extras_moved = false;
+            // (in the box's own order: the swept box grows over its blocks here, the lamp aside)
+            for &k in if full { &every } else { &todo } {
+                let q = cells[k];
+                let b = s.world.get(bp(q));
+                if !b.is_air() && Some(q) != lamp {
+                    crate::grow(&mut slo, &mut shi, q);
+                }
+                // a comparator's extras are its strength alone (`wave::comparator_read`), a block
+                // without extras has none (`wave::reads_extras`): the same block holding the same
+                // reads again changes nothing, and its text is not made again
+                let quick = wave::comparator_read(&s.world, bp(q), &b);
+                let held = match &cur[k] {
+                    Some((cb, _, cq)) if *cb == b => {
+                        if quick.is_some() {
+                            *cq == quick
+                        } else {
+                            !wave::reads_extras(&b)
+                        }
+                    }
+                    _ => false,
+                };
+                if !held {
+                    let extra = wave::be_extra_redsim(&s.world, bp(q), &b);
+                    if !matches!(&cur[k], Some((cb, ce, _)) if *cb == b && *ce == extra) {
+                        // a change neither the write log nor the extras named
+                        if tracked && t > 0 && !named[k] {
+                            missed = true;
+                        }
+                        let share = cell_share(k, &b, &extra);
+                        digest_sum = digest_sum.wrapping_sub(shares[k]).wrapping_add(share);
+                        shares[k] = share;
+                        ids[k] = None;
+                        changed.push(k);
+                    }
+                    cur[k] = Some((b, extra, quick));
+                }
+                let reads = wave::reads_extras(&b);
+                if reads != is_extras[k] {
+                    is_extras[k] = reads;
+                    extras_moved = true;
+                }
+                if recording {
+                    let id = match ids[k] {
+                        Some(id) => id,
+                        None => {
+                            let (cb, ce, _) = cur[k].as_ref().expect("read above");
+                            let id = ps.intern(wave::with_extra(&cb.to_string(), ce.as_deref()));
+                            ids[k] = Some(id);
+                            id
+                        }
+                    };
+                    frame[k] = id;
+                }
+            }
+            if missed {
+                tracked = false;
+                continue 'record;
+            }
+            for &k in &todo {
+                named[k] = false;
+            }
+            if extras_moved {
+                extras = (0..n).filter(|&k| is_extras[k]).collect();
+            }
+            frames.push(digest_sum);
+            if t == w0 {
+                key_w = s.world.state_key();
             }
             if recording {
-                let id = match ids[k] {
-                    Some(id) => id,
-                    None => {
-                        let (cb, ce, _) = cur[k].as_ref().expect("read above");
-                        let id = ps.intern(wave::with_extra(&cb.to_string(), ce.as_deref()));
-                        ids[k] = Some(id);
-                        id
-                    }
-                };
-                frame.push(id);
-            }
-        }
-        frames.push(digest_sum);
-        if t == w0 {
-            key_w = s.world.state_key();
-        }
-        if recording {
-            ps.push(&frame);
-            if let Some(op) = out_pos {
-                let st = s.world.get(bp(op));
-                let level = s.world.best_neighbor_signal(bp(op));
-                // at the judge's lamp: the power delivered into the cell (what dust or a repeater
-                // there would get; coordinator 2026-10-20: the lamp's 4 gt off-delay is the
-                // lamp's limit, not the clock's)
-                let on = if lamp.is_none() && self_reporting(&st.to_string()) { wave::active(&st.to_string()) } else { level > 0 };
-                out_seq.push(on);
-                out_level.push(level);
-                // the output cell stays free all cycle (vjeux 2026-10-20): the same block in it
-                // every tick, never a moving block or a head, no entity in it
-                if out_entered.is_none() {
-                    let text = st.to_string();
-                    let name = mctas::blockstate::block_name(&text).to_string();
-                    let first = out_first.get_or_insert_with(|| name.clone()).clone();
-                    if name.contains("moving_piston") || name.contains("piston_head") || name != first {
-                        out_entered = Some(format!("{} at tick {t}", crate::short(&text)));
-                    }
-                    let cell = (op[0] as f64, op[1] as f64, op[2] as f64);
-                    if let Some(e) = s.world.entities.list.iter().find(|e| {
-                        !e.removed && e.bb.max_x > cell.0 && e.bb.min_x < cell.0 + 1.0 && e.bb.max_y > cell.1 && e.bb.min_y < cell.1 + 1.0 && e.bb.max_z > cell.2 && e.bb.min_z < cell.2 + 1.0
-                    }) {
-                        out_entered = Some(format!("{:?} entity at tick {t}", e.kind));
+                ps.push(&frame, if full { &every } else { &changed });
+                if let Some(op) = out_pos {
+                    let st = s.world.get(bp(op));
+                    let level = s.world.best_neighbor_signal(bp(op));
+                    // at the judge's lamp: the power delivered into the cell (what dust or a repeater
+                    // there would get; coordinator 2026-10-20: the lamp's 4 gt off-delay is the
+                    // lamp's limit, not the clock's)
+                    let on = if lamp.is_none() && self_reporting(&st.to_string()) { wave::active(&st.to_string()) } else { level > 0 };
+                    out_seq.push(on);
+                    out_level.push(level);
+                    // the output cell stays free all cycle (vjeux 2026-10-20): the same block in it
+                    // every tick, never a moving block or a head, no entity in it
+                    if out_entered.is_none() {
+                        let text = st.to_string();
+                        let name = mctas::blockstate::block_name(&text).to_string();
+                        let first = out_first.get_or_insert_with(|| name.clone()).clone();
+                        if name.contains("moving_piston") || name.contains("piston_head") || name != first {
+                            out_entered = Some(format!("{} at tick {t}", crate::short(&text)));
+                        }
+                        let cell = (op[0] as f64, op[1] as f64, op[2] as f64);
+                        if let Some(e) = s.world.entities.list.iter().find(|e| {
+                            !e.removed && e.bb.max_x > cell.0 && e.bb.min_x < cell.0 + 1.0 && e.bb.max_y > cell.1 && e.bb.min_y < cell.1 + 1.0 && e.bb.max_z > cell.2 && e.bb.min_z < cell.2 + 1.0
+                        }) {
+                            out_entered = Some(format!("{:?} entity at tick {t}", e.kind));
+                        }
                     }
                 }
-            }
-            // the cells an entity occupies during the period (never the output: see above)
-            for e in s.world.entities.list.iter().filter(|e| !e.removed) {
-                for x in e.bb.min_x.floor() as i32..=(e.bb.max_x - 1e-9).floor() as i32 {
-                    for y in e.bb.min_y.floor() as i32..=(e.bb.max_y - 1e-9).floor() as i32 {
-                        for z in e.bb.min_z.floor() as i32..=(e.bb.max_z - 1e-9).floor() as i32 {
-                            ent_cells.insert([x, y, z]);
+                // the cells an entity occupies during the period (never the output: see above)
+                for e in s.world.entities.list.iter().filter(|e| !e.removed) {
+                    for x in e.bb.min_x.floor() as i32..=(e.bb.max_x - 1e-9).floor() as i32 {
+                        for y in e.bb.min_y.floor() as i32..=(e.bb.max_y - 1e-9).floor() as i32 {
+                            for z in e.bb.min_z.floor() as i32..=(e.bb.max_z - 1e-9).floor() as i32 {
+                                ent_cells.insert([x, y, z]);
+                            }
                         }
                     }
                 }
             }
-        }
-        if t == w0 + p {
-            if entity_period.is_none() && s.world.state_key() != key_w {
-                return SimReport::fail(c, Verdict::Unmodeled, format!("digest collision: states at {w0} and {} differ (report this)", w0 + p));
+            if t == w0 + p {
+                if entity_period.is_none() && s.world.state_key() != key_w {
+                    return SimReport::fail(c, Verdict::Unmodeled, format!("digest collision: states at {w0} and {} differ (report this)", w0 + p));
+                }
+                break;
             }
-            break;
+            s.world.tick();
         }
-        s.world.tick();
-    }
+        break (slo, shi, cells, ps, out_seq, out_level, out_entered, ent_cells, frames);
+    };
     // The clock's period F: the smallest divisor of the whole-state period over which every cell's
     // full state (block state + comparator strength + container contents) repeats; its warmup: the
     // first tick from which it does (what the real-game judge measures). Pending ticks and the
