@@ -449,6 +449,23 @@ pub fn tick(w: &mut World, i: usize) {
     living::tick(w, i);
 }
 
+/// (tickexact) In an exact world, a mob that just entered the level (`addFreshEntity`) gets the
+/// bridge's entering random: its number's seed ([`World::entering_random`]) with its constructor's
+/// draws replayed (the UUID's two longs, `LivingEntity`'s yaw). A mob with brain sensors replays
+/// their `nextInt(scanRate)` too (none of the natural types redsim spawns has them). Nothing
+/// without an exact world (the judge's stand-in stays).
+pub fn seed_entered(w: &mut World, id: u32) {
+    if w.exact_seed.is_none() {
+        return;
+    }
+    let mut own = w.entering_random(id);
+    crate::rng::replay_uuid(&mut own);
+    own.next_float();
+    if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
+        e.random = Some(own);
+    }
+}
+
 /// `maxUpStep()` (`Attributes.STEP_HEIGHT`).
 pub fn max_up_step(m: &MobState) -> f32 {
     m.ty.def().step

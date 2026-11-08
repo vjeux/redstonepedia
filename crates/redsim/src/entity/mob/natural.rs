@@ -905,6 +905,11 @@ fn spawn_category_for_position(w: &mut World, nat: &Natural, st: &mut State, cat
             if !valid_spawn_position_for_type(w, nat, cat, k, &s, pos, d2) {
                 continue;
             }
+            // getMobForSpawn: EntityType.create (the bridge's construction seeds count every
+            // candidate, the ones isValidPositionForMob rejects included)
+            if w.exact_seed.is_some() {
+                let _ = w.construct();
+            }
             // the mob: snapTo(xx, y, zz, random yaw, 0)
             let yaw = rng(w).next_float() * 360.0;
             // `isValidPositionForMob` sees the new mob as constructed (an adult, a slime of size
@@ -1110,6 +1115,9 @@ fn zombie_finalize(w: &mut World, nat: &Natural, g: &mut GroupData, drowned: boo
             jockey = Jockey::NearChicken;
         } else if rng(w).next_float() < 0.05 {
             // the new chicken: constructed, its finalizeSpawn (JOCKEY, no group data) here
+            if w.exact_seed.is_some() {
+                let _ = w.construct();
+            }
             let mut cg = GroupData::default();
             farm_finalize(w, &mut cg, 2);
             jockey = Jockey::NewChicken;
@@ -1196,6 +1204,9 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
             mob_base(w);
             if rng(w).next_int(100) == 0 {
                 // the skeleton rider: constructed, its finalizeSpawn (NATURAL, no group data)
+                if w.exact_seed.is_some() {
+                    let _ = w.construct();
+                }
                 skeleton_finalize(w, nat);
                 jockey = Jockey::SpiderSkeleton;
             }
@@ -1278,6 +1289,9 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
         Finalize::ZombieHorse => {
             // the zombie rider: constructed, its finalizeSpawn (NATURAL, no group data); a baby's
             // chicken would be left behind when it mounts the horse
+            if w.exact_seed.is_some() {
+                let _ = w.construct();
+            }
             let mut zg = GroupData::default();
             let (zbaby, zj) = zombie_finalize(w, nat, &mut zg, false, pos);
             if zj != Jockey::None {
@@ -1334,8 +1348,13 @@ fn valid_position_for_mob(w: &mut World, k: &Kind, ty: MobType, pos: Vec3, d2: f
 /// zombie horse's rider).
 fn spawn_mob(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) -> u32 {
     // a new chicken enters during the zombie's finalizeSpawn, before the zombie
-    let chicken = (f.jockey == Jockey::NewChicken).then(|| super::add(w, MobType::Natural(12), pos, false));
+    let chicken = (f.jockey == Jockey::NewChicken).then(|| {
+        let c = super::add(w, MobType::Natural(12), pos, false);
+        super::seed_entered(w, c);
+        c
+    });
     let id = super::add(w, f.ty, pos, false);
+    super::seed_entered(w, id);
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
         // snapTo keeps the drawn yaw as it is (0..360, not wrapped to -180..180)
         e.y_rot = yaw;
@@ -1370,11 +1389,13 @@ fn spawn_mob(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) -> u32
         }
         Jockey::SpiderSkeleton => {
             let r = super::add(w, MobType::Natural(4), pos, true);
+            super::seed_entered(w, r);
             ride(w, r, id);
         }
         Jockey::HorseZombie | Jockey::HorseBabyZombie => {
             let rty = if f.jockey == Jockey::HorseBabyZombie { MobType::Natural(25) } else { MobType::Zombie };
             let r = super::add(w, rty, pos, true);
+            super::seed_entered(w, r);
             ride(w, r, id);
         }
     }
