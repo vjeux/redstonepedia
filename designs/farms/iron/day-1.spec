@@ -7,10 +7,15 @@
 farm: iron
 stage: day-1
 
-# 1. The minutes from the first block to owning a full iron kit (24 iron: the armour), at the
-#    cheapest of the 12 nearest valid spots at village-edge: 2 s a block placed (gathering
-#    included), 1 s a block dug, 120 s a lava trip, 180 s a villager moved, then
-#    (build iron + 24) / net iron per hour. Player: "iron armour as soon as possible".
+# 1. The minutes from the first block until the farm's chest holds the build's iron + 24 (a full
+#    iron kit: the armour), MEASURED (iteration 2, the parent's correction from D1U's first terrain
+#    day: the steady rate ignores the start-up): the player starts at dawn (day time 0) of day 1
+#    and builds for build_minutes (2 s a block placed, 1 s dug, 120 s a lava trip, 180 s a
+#    villager moved) at the cheapest of the 12 nearest valid spots at village-edge; the farm
+#    stands complete at day time 1200 x build_minutes (mod 24000), the villagers arrive with the
+#    LAST_SLEPT of their last night in the village, the zombie in its boat; then the judge's
+#    terrain run (weather cycle, natural spawning on Hard) until bill + 24 iron are in the chest,
+#    the mean over its seeds. Player: "iron armour as soon as possible".
 objective: min t_kit_minutes
 # 2. Net iron per hour once it runs: the judge's rate in the terrain (weather cycle, natural
 #    spawning on Hard) less the iron it destroys (lightning on drops, fire). Player: "it keeps
