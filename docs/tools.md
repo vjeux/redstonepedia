@@ -29,7 +29,7 @@ Run them all with `mctas door drive --quiet designs/gadgets/*.drive`.
 
 | command | when to use it |
 |---|---|
-| `mctas setup` | once per machine: installs Java 25, the 26.3 server jar and libraries, and compiles the bridge (everything lives in `$MCTAS_HOME`, default `~/.cache/mctas`) |
+| `mctas setup` | once per machine: installs Java 25, the 26.3 server jar and libraries, and compiles the bridge (everything lives in `$MCTAS_HOME`, default `~/.cache/mctas`). **Run it, alone, before the first `door selftest` on a new machine**: the selftest's checks run in parallel, and on an empty `$MCTAS_HOME` each one starts the same first-run downloads; they race and fail on half-written files (WhiteStick, Nov 7 2026: 3 checks "downloading Java 25 … No such file or directory", 1 "downloading Minecraft 26.3 server … checksum mismatch"). Those FAILs say the machine was not set up, not that a change broke something |
 | `mctas src decompile` | once: readable game source in `$MCTAS_HOME` (Vineflower) |
 | `mctas src grep\|find\|show\|path` | to read the ground truth for a mechanic: `src grep 'class PistonBaseBlock'`, `src show PistonBaseBlock --grep getNeighborSignal -C 12` |
 | `mctas src --client decompile\|grep\|find\|show` | the CLIENT jar's source (models, renderers: `src --client show BoatModel`), decompiled once from the client jar already downloaded (`versions/<v>/client.jar`) |
