@@ -452,7 +452,12 @@ pub fn lightning_line(m: &redsim::weather::lightning::Measure) -> String {
     let per_day = s.share * 24000.0;
     let mut v = vec![
         format!("about {} iron lost per thunderstorm", small(m.iron * s.mean_len)),
-        format!("a witch {}", every(m.witch * per_day)),
+        // a player loses villagers, the gate counts strikes (the parent 2026-11-08): both
+        match m.witch_max {
+            0 => "no villager ever turned into a witch".to_string(),
+            1 => format!("a villager turned into a witch {}", every(m.witch * per_day)),
+            k => format!("villagers turned into witches {} (one strike can take up to {k})", every(m.witch * per_day)),
+        },
         format!("the zombie's boat broken {}", every(m.vehicle * per_day)),
         format!("a fire beside a flammable block {}", every(m.fire * per_day)),
         format!("a skeleton trap horse on the farm {}", every(m.trap * per_day)),
@@ -474,9 +479,9 @@ pub fn thunder_loss(m: &redsim::weather::lightning::Measure, iron: f64) -> f64 {
 }
 
 /// The card's `fire` line: whether lava's random tick can ever burn one of the farm's blocks.
-fn fire_line(spec: &FarmSpec, runs: &[RunReport]) -> String {
-    let Ok(run) = farm::Run::new(spec, &RunOpts::steady(0, 0, WalkMode::Random)) else { return "never".to_string() };
-    match redsim::weather::fire::lava_can_burn(&run.world) {
+fn fire_line(spec: &FarmSpec, runs: &[RunReport]) -> Result<String, String> {
+    let run = farm::Run::new(spec, &RunOpts::steady(0, 0, WalkMode::Random))?;
+    Ok(match redsim::weather::fire::lava_can_burn(&run.world) {
         None => "never".to_string(),
         Some((lava, at, q, b)) => {
             let name = b.to_string();
@@ -484,7 +489,7 @@ fn fire_line(spec: &FarmSpec, runs: &[RunReport]) -> String {
             let hours: f64 = runs.iter().map(|r| r.hours()).sum();
             format!("lava at {} {} {} can light a fire at {} {} {} beside the {name} at {} {} {} (not within the runs' {hours:.0} h)", lava.x, lava.y, lava.z, at.x, at.y, at.z, q.x, q.y, q.z)
         }
-    }
+    })
 }
 
 /// A build's outcome from its runs (`pooled`: every build's runs, for the base build's card;
@@ -559,12 +564,19 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
             };
             metrics.push(("rain".to_string(), format!("clear day {:.0} iron/h; rain day {:.0} iron/h; thunder day {:.0} iron/h", rate(0), rate(24000), rate(48000))));
         }
-        if let Ok((m, sky)) = redsim::weather::lightning::measure_farm(spec, runs) {
-            metrics.push(("lightning".to_string(), lightning_line(&m)));
-            metrics.push(("thunder loss".to_string(), format!("{:.1}", thunder_loss(&m, iron))));
-            metrics.push(("sunburn".to_string(), if sky { "the zombie sees the sky: it burns on its first clear day".to_string() } else { "never (the zombie never sees the sky)".to_string() }));
+        match redsim::weather::lightning::measure_farm(spec, runs) {
+            Ok((m, sky)) => {
+                metrics.push(("lightning".to_string(), lightning_line(&m)));
+                metrics.push(("thunder loss".to_string(), format!("{:.1}", thunder_loss(&m, iron))));
+                metrics.push(("sunburn".to_string(), if sky { "the zombie sees the sky: it burns on its first clear day".to_string() } else { "never (the zombie never sees the sky)".to_string() }));
+            }
+            // a tradeoff the model cannot measure: no card (never a line silently missing)
+            Err(e) => return Outcome { pass: false, why: e, metrics, table },
         }
-        metrics.push(("fire".to_string(), fire_line(spec, all)));
+        match fire_line(spec, all) {
+            Ok(f) => metrics.push(("fire".to_string(), f)),
+            Err(e) => return Outcome { pass: false, why: format!("the card's fire line: {e}"), metrics, table },
+        }
     }
     metrics.push(("misses".to_string(), format!("{no_spot} of {tries} tries found no spot, {seen} golem sightings")));
     metrics.push(("bill".to_string(), b.text()));

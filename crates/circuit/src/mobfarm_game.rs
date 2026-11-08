@@ -95,9 +95,11 @@ pub struct Window {
     pub thunder_samples: u32,
     pub samples: u32,
     /// mobinfra (vjeux 2026-11-08: "It's all about tradeoffs"): lightning's breaks seen in the
-    /// window, checked against the card's rates (`GateReport::tradeoffs`): new witches, vehicles
-    /// lost, skeleton trap horses on the farm.
+    /// window, checked against the card's rates (`GateReport::tradeoffs`): witch-making bolts
+    /// (samples with new witches; `witch_villagers` the villagers they converted), vehicles lost,
+    /// skeleton trap horses on the farm.
     pub witches: u32,
+    pub witch_villagers: u32,
     pub vehicles: u32,
     pub traps: u32,
 }
@@ -576,10 +578,14 @@ fn sample(
     }
     // lightning's breaks (tradeoffs the card measures, vjeux 2026-11-08: counted here and checked
     // against the card's rates in `gate`; what follows a break is its consequence, unchecked):
-    // a new witch is a villager a bolt struck, a lost vehicle one a bolt broke
+    // new witches are villagers a bolt struck (one bolt converts every villager in its box: a
+    // sample's new witches are one witch-making bolt, the card's unit), a lost vehicle one a bolt
+    // broke
     let witches = s.count_entities("@e[type=minecraft:witch]")?;
     if witches > run.witches_now {
-        windows.last_mut().unwrap().witches += witches - run.witches_now;
+        let w = windows.last_mut().unwrap();
+        w.witches += 1;
+        w.witch_villagers += witches - run.witches_now;
         run.witches_now = witches;
         run.broken.get_or_insert(window);
     }
@@ -872,19 +878,25 @@ pub fn gate(c: &Circuit, o: &GateOpts) -> Result<GateReport> {
     }
     // the card's tradeoffs the game can show (vjeux 2026-11-08: "It's all about tradeoffs"):
     // lightning's breaks over the thunder the game's builds saw, against the card's rates
-    // (`lightning::measure_farm` over redsim's runs of the same schedule), 99% Poisson
-    if let Ok((m, _)) = redsim::weather::lightning::measure_farm(&spec, &sim_runs) {
-        let thunder: f64 = rep.builds.iter().flat_map(|b| b.windows.iter()).map(|w| w.thunder_samples as f64 * 20.0).sum();
-        let seen = |f: fn(&Window) -> u32| rep.builds.iter().flat_map(|b| b.windows.iter()).map(f).sum::<u32>();
-        let checks = [("witches", m.witch, seen(|w| w.witches)), ("boats broken", m.vehicle, seen(|w| w.vehicles)), ("skeleton trap horses on the farm", m.trap, seen(|w| w.traps))];
-        for (what, rate, n) in checks {
-            let lambda = rate * thunder;
-            let (lo, hi) = poisson_band(lambda, 0.005);
-            if n < lo || n > hi {
-                rep.failures.push(format!("lightning: {n} {what} over the game's {thunder:.0} gt of thunder; the card expects {lambda:.2} (99% {lo}-{hi})"));
+    // (`lightning::measure_farm` over redsim's runs of the same schedule), 99% Poisson; rates the
+    // model cannot measure fail the gate (never a check silently skipped)
+    match redsim::weather::lightning::measure_farm(&spec, &sim_runs) {
+        Ok((m, _)) => {
+            let thunder: f64 = rep.builds.iter().flat_map(|b| b.windows.iter()).map(|w| w.thunder_samples as f64 * 20.0).sum();
+            let seen = |f: fn(&Window) -> u32| rep.builds.iter().flat_map(|b| b.windows.iter()).map(f).sum::<u32>();
+            let villagers = seen(|w| w.witch_villagers);
+            let witches = if villagers > 0 { format!("witch-making bolts ({villagers} villagers made witches)") } else { "witch-making bolts".to_string() };
+            let checks = [(witches, m.witch, seen(|w| w.witches)), ("boats broken".to_string(), m.vehicle, seen(|w| w.vehicles)), ("skeleton trap horses on the farm".to_string(), m.trap, seen(|w| w.traps))];
+            for (what, rate, n) in checks {
+                let lambda = rate * thunder;
+                let (lo, hi) = poisson_band(lambda, 0.005);
+                if n < lo || n > hi {
+                    rep.failures.push(format!("lightning: {n} {what} over the game's {thunder:.0} gt of thunder; the card expects {lambda:.2} (99% {lo}-{hi})"));
+                }
+                rep.tradeoffs.push(Tradeoff { what, seen: n, expected: lambda, thunder });
             }
-            rep.tradeoffs.push(Tradeoff { what: what.to_string(), seen: n, expected: lambda, thunder });
         }
+        Err(e) => rep.failures.push(format!("the card's lightning rates: {e}")),
     }
     Ok(rep)
 }

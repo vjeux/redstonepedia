@@ -551,6 +551,15 @@ fn rain_reaches(w: &World, p: BlockPos) -> bool {
     motion_blocking_height(w, p.x, p.z) <= p.y && can_see_sky(w, p).unwrap_or(false)
 }
 
+/// [`rain_reaches`] where the sky must be decided (the card's measure): an undecidable sky is an
+/// error, never "no rain".
+fn rain_reaches_strict(w: &World, p: BlockPos) -> Result<bool, String> {
+    if motion_blocking_height(w, p.x, p.z) > p.y {
+        return Ok(false);
+    }
+    can_see_sky(w, p).map_err(|e| format!("lightning: the sky at {p}: {e}"))
+}
+
 /// [`static_check`] of a farm as the judge builds it (`farm::Run::new`, no weather), with the cells
 /// its golems and drops were in over `runs` (the judge's runs of that build).
 pub fn check_farm(spec: &crate::entity::mob::farm::FarmSpec, runs: &[crate::entity::mob::farm::RunReport]) -> Vec<String> {
@@ -715,6 +724,9 @@ pub struct Measure {
     pub iron: f64,
     /// The chance a bolt makes a villager a witch (its box meets a villager's cell).
     pub witch: f64,
+    /// The most villagers one strike turns into witches (every villager in its box: the farm's
+    /// spacing).
+    pub witch_max: u32,
     /// The chance a bolt breaks the zombie's vehicle (its box meets the vehicle or the zombie in it).
     pub vehicle: f64,
     /// The chance a bolt's fires (`spawnFire`: its block, then 4 of the 27 around it) light one
@@ -769,9 +781,12 @@ fn fire_chance(w: &World, b: BlockPos, protect: &[Aabb]) -> f64 {
 }
 
 /// [`Measure`] of a built farm: `golems` the blocks a living golem is in with the chance it is
-/// there at a tick, `iron` the blocks a drop is in with the iron there at a tick on average.
-pub fn measure(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)], inner: Aabb) -> Measure {
+/// there at a tick, `iron` the blocks a drop is in with the iron there at a tick on average. A sky
+/// the model cannot decide (at a villager, the zombie, a golem's block or a bolt's) is an error:
+/// treated as no sky it would hide strikes.
+pub fn measure(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)], inner: Aabb) -> Result<Measure, String> {
     use crate::entity::mob::types::MobType;
+    let sky = |p: BlockPos| can_see_sky(w, p).map_err(|e| format!("lightning: the sky at {p}: {e}"));
     let q = CHUNK_STRIKE / 256.0;
     let mut villagers: Vec<Aabb> = Vec::new();
     let mut vehicle: Vec<Aabb> = Vec::new();
@@ -782,14 +797,14 @@ pub fn measure(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)], 
             EntityKind::Mob(m) if m.ty == MobType::Villager => {
                 let c = e.block_position();
                 villagers.push(Aabb::new(c.x as f64, e.pos.y.min(c.y as f64), c.z as f64, (c.x + 1) as f64, e.pos.y + 1.95 + 0.5625, (c.z + 1) as f64));
-                if can_see_sky(w, c).unwrap_or(false) {
+                if sky(c)? {
                     statics.push((c, e.bb));
                 }
             }
             EntityKind::Mob(m) if m.ty == MobType::Zombie => {
                 zombie.push(e.bb);
                 vehicle.push(e.bb);
-                if can_see_sky(w, e.block_position()).unwrap_or(false) {
+                if sky(e.block_position())? {
                     statics.push((e.block_position(), e.bb));
                 }
             }
@@ -798,11 +813,12 @@ pub fn measure(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)], 
         }
     }
     let protect: Vec<Aabb> = villagers.iter().chain(zombie.iter()).copied().collect();
-    let golem_boxes: Vec<(BlockPos, Aabb, f64)> = golems
-        .iter()
-        .filter(|(c, _)| can_see_sky(w, *c).unwrap_or(false))
-        .map(|(c, p)| (*c, Aabb::new(c.x as f64 + 0.5 - 0.7, c.y as f64, c.z as f64 + 0.5 - 0.7, c.x as f64 + 0.5 + 0.7, c.y as f64 + 2.7, c.z as f64 + 0.5 + 0.7), p.min(1.0)))
-        .collect();
+    let mut golem_boxes: Vec<(BlockPos, Aabb, f64)> = Vec::new();
+    for (c, p) in golems {
+        if sky(*c)? {
+            golem_boxes.push((*c, Aabb::new(c.x as f64 + 0.5 - 0.7, c.y as f64, c.z as f64 + 0.5 - 0.7, c.x as f64 + 0.5 + 0.7, c.y as f64 + 2.7, c.z as f64 + 0.5 + 0.7), p.min(1.0)));
+        }
+    }
     let trap = trap_chance(&Settings::default());
     let on_farm = inner.inflate(1.0, 1.0, 1.0);
     let mut m = Measure::default();
@@ -873,13 +889,15 @@ pub fn measure(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)], 
     }
     for (bolts, columns) in columns {
         for (b, p, rod) in bolts {
-            if p <= 0.0 || !rain_reaches(w, b) {
+            if p <= 0.0 || !rain_reaches_strict(w, b)? {
                 continue;
             }
             let wgt = q * columns * p;
             let hit = hit_box_at(Vec3::new(b.x as f64 + 0.5, b.y as f64, b.z as f64 + 0.5));
             m.bolts += wgt;
-            let witch = villagers.iter().any(|v| hit.intersects(*v));
+            let struck = villagers.iter().filter(|v| hit.intersects(**v)).count() as u32;
+            let witch = struck > 0;
+            m.witch_max = m.witch_max.max(struck);
             let broke = vehicle.iter().any(|v| hit.intersects(*v));
             m.witch += if witch { wgt } else { 0.0 };
             m.vehicle += if broke { wgt } else { 0.0 };
@@ -893,7 +911,7 @@ pub fn measure(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)], 
             }
         }
     }
-    m
+    Ok(m)
 }
 
 /// [`measure`] of a farm as the judge builds it, over the occupancy of `runs` (the judge's runs of
@@ -917,6 +935,11 @@ pub fn measure_farm(spec: &crate::entity::mob::farm::FarmSpec, runs: &[crate::en
     let golems: Vec<(BlockPos, f64)> = golems.iter().map(|(c, p)| (at(c), *p)).collect();
     let iron: Vec<(BlockPos, f64)> = iron.iter().filter(|(_, n)| **n > 0.0).map(|(c, n)| (at(c), *n)).collect();
     let w = &run.world;
-    let sky = w.entities.list.iter().any(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Zombie) && can_see_sky(w, e.block_position()).unwrap_or(false));
-    Ok((measure(w, &golems, &iron, spec.inner()), sky))
+    let mut sky = false;
+    for e in &w.entities.list {
+        if matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Zombie) && can_see_sky(w, e.block_position()).map_err(|why| format!("sunburn: the sky at the zombie {}: {why}", e.block_position()))? {
+            sky = true;
+        }
+    }
+    Ok((measure(w, &golems, &iron, spec.inner())?, sky))
 }

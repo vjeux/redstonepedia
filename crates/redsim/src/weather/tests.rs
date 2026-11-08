@@ -331,7 +331,7 @@ fn lightning_measure() {
     crate::entity::mob::add(&mut w, MobType::Villager, Vec3::new(0.5, 2.0, 0.5), true);
     let inner = Aabb::new(-8.0, 0.0, -8.0, 8.0, 24.0, 8.0);
     let q = lightning::CHUNK_STRIKE / 256.0;
-    let open = lightning::measure(&w, &[], &[(BlockPos::new(2, 2, 0), 2.0)], inner);
+    let open = lightning::measure(&w, &[], &[(BlockPos::new(2, 2, 0), 2.0)], inner).unwrap();
     assert!((open.witch / q - 49.0).abs() < 1e-6, "{open:?}");
     assert!((open.iron / q - 98.0).abs() < 1e-6, "{open:?}");
     assert_eq!(open.vehicle, 0.0);
@@ -341,7 +341,7 @@ fn lightning_measure() {
             put(&mut w, x, 7, z, "minecraft:stone");
         }
     }
-    let roofed = lightning::measure(&w, &[], &[], inner);
+    let roofed = lightning::measure(&w, &[], &[], inner).unwrap();
     assert_eq!(roofed.witch, 0.0, "{roofed:?}");
     // the roof's top is on the farm: a trap horse can land there (6.4% of those bolts on Hard)
     assert!((roofed.trap / q - 25.0 * lightning::trap_chance(&lightning::Settings::default())).abs() < 1e-6, "{roofed:?}");

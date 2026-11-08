@@ -197,7 +197,14 @@ fn props(b: &Block) -> Result<Props, String> {
             }
             Props { dampening: 0, faces: Some([FULL, EMPTY, side, side, side, side]) }
         }
-        _ => return Err(format!("the sky light through {b} is not modeled")),
+        // any other state (mobinfra 2026-11-08: tripwire, open fence gates, hoppers... under a
+        // villager, a golem or a bolt's column on the lightning card): the game's own light values
+        // for the state from the natural-state table (`terrain::light::props_of`: every state of
+        // the designs' blocks, read from the server by `mctas terrain blockinfo`)
+        _ => match crate::terrain::light::props_of(b) {
+            Ok(lp) => Props { dampening: lp.dampening as i32, faces: lp.faces.and_then(|id| crate::terrain::blocks::props(id).faces) },
+            Err(_) => return Err(format!("the sky light through {b} is not modeled")),
+        },
     })
 }
 

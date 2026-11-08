@@ -1256,8 +1256,10 @@ kick) before the first input.
   pages of a mob farm say "Verified in the real game" like every study's; a farm without the
   real-game gate's `real game` line on its card is catalog only. Its card measures its
   tradeoffs (vjeux 2026-11-08: "It's all about tradeoffs"): `lightning` (exact sums over every
-  strike column: iron burned per thunderstorm, how often a witch, a broken boat, a fire, a trap
-  horse, the game days until it breaks), `thunder loss` (iron per hour of thunder, breaks
+  strike column: iron burned per thunderstorm, how often villagers turn into witches and how many
+  one strike can take (every villager within 3 blocks of it: the farm's spacing), a broken boat, a
+  fire, a trap horse, the game days until it breaks; a sky the model cannot decide is an error,
+  never "no sky"), `thunder loss` (iron per hour of thunder, breaks
   included), `rain` (a clear, a rain and a thunder day's rates), `sunburn` and `fire` (lava's).
   The 3D view runs the
   farm with that simulation (its judge's first run, tick for tick: [webrender.md](webrender.md)).
@@ -1284,9 +1286,12 @@ kick) before the first input.
   witch, zombie villager, zombie, vehicle, trap horse and item, and every 1000 gt the farm's
   flammable blocks and lava. The gate checks the card, not perfection (vjeux 2026-11-08: "You
   can't expect day 1 farm to pass everything. It's all about tradeoffs"). Lightning's breaks (a
-  new witch, a lost vehicle, a trap horse on the farm) are counted, and their numbers over the
+  strike that made witches — one bolt converts every villager in its box, so a sample's new
+  witches are one strike, the card's unit — a lost vehicle, a trap horse on the farm) are counted,
+  and their numbers over the
   thunder the 8 builds saw must fall within the 99% Poisson band of the card's `lightning` rates
-  (`lightning::measure_farm` over redsim's runs of the same schedule); what follows a break is its
+  (`lightning::measure_farm` over redsim's runs of the same schedule; rates the model cannot
+  measure, such as a sky it cannot decide, fail the gate); what follows a break is its
   consequence and goes unchecked. Until a build breaks it must hold the rest of its card: golems
   spawn; no golem leaves the farm's box, vanishes outside it or lives over 1200 gt; the villagers
   stay as many and unhurt; the zombie stays unhurt in its vehicle; no drop is ever outside
