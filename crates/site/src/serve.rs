@@ -553,8 +553,9 @@ pub fn smoke(dir: &Path, chrome_path: Option<&Path>, budget_ms: u32, remote: Opt
         check("the Doors tab opens on solid doors", !first.is_empty() && first.iter().all(|g| *g == "solid"), format!("first: {first:?}"));
     }
     let study = std::fs::read_to_string(dir.join("circuits/memory/index.html")).unwrap_or_default();
-    let plain_first = study.find(crate::explain::study_uses("memory")).zip(study.find("class=\"card")).zip(study.find("How we test and rank them")).is_some_and(|((u, c), t)| u < c && c < t);
-    check("study page: what you would use them for, the designs, then how we test", study.contains("<h1>Memory and counters</h1>") && plain_first, "circuits/memory/index.html".into());
+    let plain_first = study.find(crate::explain::study_uses("memory")).zip(study.find("class=\"card")).is_some_and(|(u, c)| u < c);
+    // (how we test and rank them is on no page a builder reads: vjeux 2026-11-08 10:10)
+    check("study page: what you would use them for, then the designs; nothing on how we test", study.contains("<h1>Memory and counters</h1>") && plain_first && !study.contains("How we test"), "circuits/memory/index.html".into());
     // cards and pages lead with the properties (vjeux 12:09Z), kinds are base kinds (12:15Z): no
     // number of its own in a kind's name (`Counter 7`), a name's own digits aside (`7-segment
     // display decoder`)

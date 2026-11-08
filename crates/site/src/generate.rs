@@ -787,12 +787,21 @@ pub fn build(a: &BuildArgs) -> Result<()> {
     for (folder, title, kind) in [("doors", "Doors", "door"), ("clocks", "Clocks", "clock")] {
         write(&out.join(folder).join("index.html"), &pages::redirect_page(&site, "../", title, &format!("kind={kind}")))?;
     }
-    write(&out.join("circuits/index.html"), &pages::circuits_index(&site, scripts))?;
+    let circuits_index = pages::circuits_index(&site, scripts);
+    write(&out.join("circuits/index.html"), &circuits_index)?;
     let mut subs: Vec<String> = site.builds.iter().filter_map(|b| b.page.strip_prefix("circuits/").and_then(|r| r.split_once('/')).map(|(sub, _)| sub.to_string())).collect();
     subs.sort();
     subs.dedup();
+    // (the overviews hold no internal names either: the same check as the design pages')
+    let mut overviews: Vec<(String, String)> = vec![("circuits/index.html".into(), circuits_index)];
     for sub in &subs {
-        write(&out.join("circuits").join(sub).join("index.html"), &pages::study_page(&site, sub, scripts))?;
+        let html = pages::study_page(&site, sub, scripts);
+        write(&out.join("circuits").join(sub).join("index.html"), &html)?;
+        overviews.push((format!("circuits/{sub}/index.html"), html));
+    }
+    let internal: Vec<String> = overviews.iter().flat_map(|(p, html)| crate::explain::internal_tokens(&pages::visible_text(html)).into_iter().map(move |t| format!("{p}: {t}"))).collect();
+    if !internal.is_empty() {
+        bail!("internal names on the overview pages (crates/site/src/explain.rs::internal_tokens): {}", internal.join("; "));
     }
     let mut by_card: BTreeMap<String, Vec<&Member>> = BTreeMap::new();
     for m in &site.members {

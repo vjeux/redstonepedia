@@ -1870,7 +1870,7 @@ pub fn study_page(site: &Site, folder: &str, scripts: Scripts) -> String {
         "<p class=\"crumbs\"><a href=\"{prefix}index.html\">{SITE_NAME}</a> › <a href=\"{prefix}circuits/index.html\">Circuits</a> › {}</p>\n<h1>{}</h1>\n<p class=\"lede\">{}{}</p>\n<p><a class=\"button alt\" href=\"{prefix}index.html#kind=circuit&amp;q={}\">Filter them in the index</a></p>\n{}",
         esc(&title),
         esc(&title),
-        esc(if uses.is_empty() { &intro } else { uses }),
+        esc(uses),
         esc(&missing),
         site_model::encode(folder),
         // (only where the view adds a test lamp: critique, not on flying machines or extenders; a
@@ -1890,9 +1890,10 @@ pub fn study_page(site: &Site, folder: &str, scripts: Scripts) -> String {
         }
     );
     let mut after = String::new();
-    if !intro.is_empty() {
-        after.push_str(&format!("<details class=\"more\"><summary>How we test and rank them</summary><p>{}</p></details>\n", esc(&intro)));
-    }
+    // (how we test and rank them is on no page a builder reads: vjeux 2026-11-08 10:10, "you are
+    // writing for the user that's going to consider building this"; the method stays in the
+    // repository's docs, and the About page stays deleted, vjeux 2026-10-20 13:35Z)
+    let _ = &intro;
     // one section per kind family (counter 2..24 together, every gate together)
     let mut kinds: Vec<String> = Vec::new();
     // one section per kind; the basics of a study get their own section at the end (the gates

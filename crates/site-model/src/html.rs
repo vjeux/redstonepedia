@@ -315,6 +315,11 @@ pub fn value_words(kind: &str, axis: &str) -> String {
     if w.len() >= 2 && w[1] == "gt" {
         return tk(&format!("{} gt", w[0]));
     }
+    // (`990 gt, needs a long input`: the time in words, then the rest)
+    if w.len() >= 2 && w[1].trim_end_matches([',', ';']) == "gt" {
+        let tail = v.split_once(w[1]).map(|(_, r)| r).unwrap_or("");
+        return format!("{}{}{tail}", tk(&format!("{} gt", w[0])), &w[1][2..]);
+    }
     // the value's number: the first numeric word (`counter 2` -> `2`; `counter 11, one pulse per
     // 22 inputs` -> `11`, its comma off: the counters' table read "every 0th"); a randomizer's axis
     // is `1 of N`: its N is the last
