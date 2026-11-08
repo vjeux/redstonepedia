@@ -334,6 +334,12 @@ pub fn resolve(e: &Entry, site: &Site) -> Option<Target> {
             if let Some(b) = circuits.iter().find(|b| b.circuit.as_ref().is_some_and(|c| site_model::is_farm_study(&c.study) && (e.path == format!("circuits/{}/{}.html", c.study, b.name) || (e.path.starts_with("farms/") && stem == b.name)))) {
                 return Some(to(b));
             }
+            // an iron farm no longer on the site (held off it without a real-game pass, not
+            // presented, or retired): the iron farm's page, which lists every stage's farms
+            // (ironspec 2026-11-08: "each page redirecting to farms/iron/")
+            if e.key.starts_with("mobfarm/") {
+                return Some(Target { path: "farms/iron/index.html".into(), title: "the iron farm page".into() });
+            }
             let key_of = |b: &Build| format!("{}/{}", b.circuit.as_ref().map(|c| c.study.as_str()).unwrap_or(""), kinds::kind_key(b));
             let (study, kind) = e.key.split_once('/').unwrap_or((e.key.as_str(), ""));
             // the same kind: the same size when it has one, else its card

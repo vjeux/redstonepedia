@@ -578,6 +578,21 @@ pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) 
         if rows.len() < before {
             notes.push(format!("{study}: {} designs not published (crates/site/hidden.tsv)", before - rows.len()));
         }
+        // a stage's variation goes on the site only with a recorded real-game pass (a mob farm's
+        // `real game` line, `site variation`: the brief's one rule, "works as its card says,
+        // verified in the real game") and not held (`site variation --regate`)
+        let rows: Vec<circuit::archive::Row> = if stage.is_some() {
+            let (keep, held): (Vec<_>, Vec<_>) = rows.into_iter().partition(|r| {
+                let v = vars.iter().find(|v| v.file == r.file);
+                v.is_some_and(|v| v.held.is_empty()) && (!r.kind.starts_with("mob-farm") || r.metrics.contains("real game "))
+            });
+            if !held.is_empty() {
+                notes.push(format!("farms: {} variations held off the site (a `held` reason in variations.tsv, or no real-game pass): {}", held.len(), held.iter().map(|r| r.file.as_str()).collect::<Vec<_>>().join(", ")));
+            }
+            keep
+        } else {
+            rows
+        };
         if rows.is_empty() {
             continue;
         }

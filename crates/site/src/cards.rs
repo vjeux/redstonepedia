@@ -416,10 +416,16 @@ pub fn apply_with(root: &Path, builds: &mut [Build], siblings: &BTreeMap<(String
     Ok(n)
 }
 
-/// An archived design's fields, from its study's verdicts (`stem`.txt).
+/// An archived design's fields, from its study's verdicts (`stem`.txt); an iron farm's card can
+/// also quote a judged design that is not listed ([`crate::farms::quotable_dirs`]: the bars, the
+/// stages' variations).
 pub fn archived_fields(root: &Path, study: &str, stem: &str) -> Option<BTreeMap<String, String>> {
-    let rows = circuit::archive::read_rows(&circuit::archive::archive_dir(&root.join(crate::circuits::ROOT), study)).ok()?;
-    let r = rows.into_iter().find(|r| r.file == format!("{stem}.txt"))?;
+    let file = format!("{stem}.txt");
+    let mut dirs = vec![circuit::archive::archive_dir(&root.join(crate::circuits::ROOT), study)];
+    if study == "mobfarm" {
+        dirs.extend(crate::farms::quotable_dirs(root));
+    }
+    let r = dirs.iter().find_map(|d| circuit::archive::read_rows(d).ok()?.into_iter().find(|r| r.file == file))?;
     Some(fields(&crate::circuits::parse_metrics(&r.metrics), r.blocks as u32, &r.dims))
 }
 

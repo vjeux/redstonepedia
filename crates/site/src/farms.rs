@@ -33,7 +33,8 @@ pub const STAGES: [(&str, &str, &str, &str); 3] = [
 ];
 
 /// An iron farm's components: (folder, name, what it is, for the player).
-pub const PARTS: [(&str, &str, &str); 5] = [
+pub const PARTS: [(&str, &str, &str); 6] = [
+    ("module", "Farm module", "One whole farm, the unit bigger farms are copies of: its iron an hour, its blocks and its build time."),
     ("cage", "Villager cage", "Where the villagers sleep and watch the zombie: how many villagers, and how many of them watch."),
     ("spawn-area", "Golem spawn area", "The floor where the golems appear: its size, and how often a golem finds a spot on it."),
     ("kill", "Kill chamber", "Where the golems die: the lava, the drop, and whether the villagers see it."),
@@ -130,10 +131,13 @@ pub struct Variation {
     pub pick: bool,
     /// A player-facing name (else the design's `how:` line).
     pub name: String,
+    /// Why it is held off the site (a failed real-game gate: `site variation --regate`); empty: on
+    /// the site.
+    pub held: String,
 }
 
 const VARIATIONS: &str = "variations.tsv";
-const VARIATIONS_HEADER: &str = "file\tpick\tname";
+const VARIATIONS_HEADER: &str = "file\tpick\tname\theld";
 
 /// A tab-separated file's rows by its header's column names.
 fn tsv_rows(text: &str) -> Vec<std::collections::BTreeMap<String, String>> {
@@ -150,7 +154,7 @@ pub fn read_variations(dir: &Path) -> Vec<Variation> {
         .into_iter()
         .filter_map(|r| {
             let file = r.get("file").cloned().filter(|f| !f.is_empty())?;
-            Some(Variation { file, pick: r.get("pick").is_some_and(|p| p == "yes"), name: r.get("name").cloned().unwrap_or_default() })
+            Some(Variation { file, pick: r.get("pick").is_some_and(|p| p == "yes"), name: r.get("name").cloned().unwrap_or_default(), held: r.get("held").cloned().unwrap_or_default() })
         })
         .collect()
 }
@@ -158,7 +162,7 @@ pub fn read_variations(dir: &Path) -> Vec<Variation> {
 fn write_variations(dir: &Path, rows: &[Variation]) -> Result<()> {
     let mut out = format!("{VARIATIONS_HEADER}\n");
     for r in rows {
-        out.push_str(&format!("{}\t{}\t{}\n", r.file, if r.pick { "yes" } else { "" }, r.name.replace(['\t', '\n'], " ")));
+        out.push_str(&format!("{}\t{}\t{}\t{}\n", r.file, if r.pick { "yes" } else { "" }, r.name.replace(['\t', '\n'], " "), r.held.replace(['\t', '\n'], " ")));
     }
     std::fs::write(dir.join(VARIATIONS), out)?;
     Ok(())
@@ -175,6 +179,9 @@ pub struct Member {
     pub metrics: Vec<(String, String)>,
     /// The stems of the full farms built with it.
     pub used_by: Vec<String>,
+    /// Its design's path in the repository (and on the site): the part's folder, else a judged
+    /// design of its stage (`designs/farms/iron/<stage>/`: a farm module, ironspec 2026-11-08).
+    pub src: String,
 }
 
 impl Member {
@@ -183,31 +190,56 @@ impl Member {
     }
 }
 
-/// A component folder's members, best first (none without its `members.tsv`).
+/// A component folder's members, best first (none without its `members.tsv`). A member whose file
+/// is not in the part's folder is a judged design of its stage (`designs/farms/<farm>/<stage>/`),
+/// its numbers then read from its verdict when `metrics` is empty: its judge's, never typed.
 pub fn read_members(repo: &Path, farm: &str, part: &str) -> Vec<Member> {
-    let dir = repo.join("designs/farms").join(farm).join("parts").join(part);
+    let rel = format!("designs/farms/{farm}/parts/{part}");
+    let dir = repo.join(&rel);
     let text = std::fs::read_to_string(dir.join("members.tsv")).unwrap_or_default();
     tsv_rows(&text)
         .into_iter()
         .filter_map(|r| {
             let file = r.get("file").cloned().filter(|f| !f.is_empty())?;
             let file = if file.ends_with(".txt") { file } else { format!("{file}.txt") };
-            dir.join(&file).exists().then_some(())?;
+            let stage = r.get("stage").cloned().unwrap_or_default();
+            let staged = STAGES.iter().find(|s| s.0 == stage || s.2 == stage).map(|s| format!("designs/farms/{farm}/{}", s.0));
+            let (src, from_stage) = if dir.join(&file).exists() {
+                (format!("{rel}/{file}"), None)
+            } else {
+                let s = staged.filter(|s| repo.join(s).join(&file).exists())?;
+                (format!("{s}/{file}"), Some(s))
+            };
+            let mut metrics = crate::circuits::parse_metrics(r.get("metrics").map(String::as_str).unwrap_or(""));
+            if metrics.is_empty()
+                && let Some(s) = &from_stage
+                && let Some(row) = circuit::archive::read_rows(&repo.join(s)).ok().and_then(|rows| rows.into_iter().find(|x| x.file == file))
+            {
+                // (a module's numbers only: iron an hour, blocks, build minutes, villagers; no stage
+                // rank or tier, ironspec 2026-11-08)
+                let f = crate::cards::fields(&crate::circuits::parse_metrics(&row.metrics), row.blocks as u32, &row.dims);
+                for (key, label) in [("iron_per_hour", "iron per hour"), ("blocks", "blocks"), ("build_minutes", "build minutes"), ("villagers", "villagers")] {
+                    if let Some(v) = f.get(key).filter(|v| !v.is_empty()) {
+                        metrics.push((label.to_string(), v.clone()));
+                    }
+                }
+            }
             Some(Member {
                 part: part.to_string(),
                 name: r.get("name").cloned().filter(|n| !n.is_empty()).unwrap_or_else(|| file.trim_end_matches(".txt").to_string()),
-                stage: r.get("stage").cloned().unwrap_or_default(),
-                metrics: crate::circuits::parse_metrics(r.get("metrics").map(String::as_str).unwrap_or("")),
+                stage,
+                metrics,
                 used_by: r.get("used_by").map(|u| u.split_whitespace().map(String::from).collect()).unwrap_or_default(),
+                src,
                 file,
             })
         })
         .collect()
 }
 
-/// The site path of a member's design file.
-pub fn member_design(farm: &str, m: &Member) -> String {
-    format!("designs/farms/{farm}/parts/{}/{}", m.part, m.file)
+/// The site path of a member's design file (the same in the repository).
+pub fn member_design(_farm: &str, m: &Member) -> String {
+    m.src.clone()
 }
 
 /// The site path of a component's page.
@@ -313,6 +345,21 @@ pub fn crop_hub(site: &Site, folder: &str, scripts: Scripts) -> String {
     pages::shell_full(&title, &farm_blurb(folder), prefix, &body, scripts, site, None, Some("farm"))
 }
 
+/// The order of an iron farm stage's farms: the stage's pick first (a variation picked in its
+/// variations.tsv, else the archived design, the one live before the variations), then the most
+/// iron an hour.
+fn stage_key(b: &Build) -> (bool, bool, i64) {
+    (!b.flags.iter().any(|f| f == "pick"), is_variation(b), -(rate(b) * 1000.0) as i64)
+}
+
+/// The folders whose judged designs an iron-farm card can quote without listing them: the bars
+/// (`designs/farms/iron/bars/`: ironspec 2026-11-08, "a bar is never listed, only quoted as the
+/// reference line on a farm's card") and each stage's variations, the ones held off the site too.
+pub fn quotable_dirs(repo: &Path) -> Vec<PathBuf> {
+    let iron = repo.join("designs/farms/iron");
+    std::iter::once(iron.join("bars")).chain(STAGES.iter().map(|s| iron.join(s.0))).collect()
+}
+
 /// `farms/iron/index.html`: the iron farm's full farms by stage, every variation, each stage's pick
 /// first; then its components.
 pub fn iron_hub(site: &Site, parts: &[Member], scripts: Scripts) -> String {
@@ -326,8 +373,7 @@ pub fn iron_hub(site: &Site, parts: &[Member], scripts: Scripts) -> String {
         }
         // (the stage's pick first: a variation picked in its variations.tsv, else the archived
         // design, the one live before the variations; then the most iron an hour)
-        let key = |b: &Build| (!b.flags.iter().any(|f| f == "pick"), is_variation(b), -rate(b));
-        of.sort_by(|a, b| key(a).partial_cmp(&key(b)).unwrap_or(std::cmp::Ordering::Equal));
+        of.sort_by_key(|b| stage_key(b));
         let cards: Vec<String> = of.iter().map(|b| build_card(b, prefix)).collect();
         stages.push_str(&format!(
             "<section class=\"stage\"><h3>{}</h3><p class=\"hint\">{}</p>\n{}</section>\n",
@@ -378,8 +424,9 @@ pub fn part_page(site: &Site, farm: &str, part: &str, members: &[Member], script
     );
     for m in members {
         let design = member_design(farm, m);
-        let rows: String = m.metrics.iter().map(|(k, v)| format!("<tr><th scope=\"row\">{}</th><td>{}</td></tr>", esc(k), esc(v))).collect();
-        let stage = STAGES.iter().find(|s| s.0 == m.stage).map(|s| format!("<tr><th scope=\"row\">stage</th><td>{}</td></tr>", esc(s.1))).unwrap_or_default();
+        let rows: String = m.metrics.iter().map(|(k, v)| format!("<tr><th scope=\"row\">{}</th><td>{}</td></tr>", esc(k), esc(&crate::explain::group_numbers(v)))).collect();
+        // (a farm module reads as a component: no stage line, ironspec 2026-11-08)
+        let stage = if m.part == "module" { String::new() } else { STAGES.iter().find(|s| s.0 == m.stage).map(|s| format!("<tr><th scope=\"row\">stage</th><td>{}</td></tr>", esc(s.1))).unwrap_or_default() };
         let used: Vec<String> = m
             .used_by
             .iter()
@@ -398,16 +445,122 @@ pub fn part_page(site: &Site, farm: &str, part: &str, members: &[Member], script
     pages::shell_full(title, what, prefix, &body, scripts, site, None, Some("farm"))
 }
 
-/// `mctas site variation`: a design joins its farm stage's variations (judged on redsim first: its
-/// numbers on the site are its judge's), or a variation's row changes (`--pick`, `--name`).
+/// The real-game gate a mob farm must pass to go on the site (the brief's one rule: "works as its
+/// card says, verified in the real game"; the parent and ironspec's G1 2026-11-08): the same gate
+/// `circuit archive` runs (`circuit::mobfarm_game::confirm`: the 26.3 server, 8 builds, or a
+/// design made for terrain in its sample's kept world), about 2 minutes a farm.
+fn game_gate(c: &circuit::Circuit) -> Result<circuit::mobfarm_game::GateReport> {
+    let mut go = circuit::mobfarm_game::GateOpts::new(mctas::DEFAULT_VERSION);
+    if let Some(sample) = circuit::mobfarm::terrain_sample(c).map_err(|e| anyhow::anyhow!(e))? {
+        go.terrain = Some(sample.name.to_string());
+    }
+    circuit::mobfarm_game::gate(c, &go)
+}
+
+/// A design's judge and gate for its stage: its verdicts row (the redsim judge's numbers, the
+/// game gate's `real game` line), or why it cannot go on the site.
+fn judge_for_stage(path: &Path, text: &str, c: &circuit::Circuit, stage: &str, file: &str) -> std::result::Result<circuit::archive::Row, String> {
+    let kind = c.kind.clone().ok_or_else(|| "no `circuit: <kind>` line".to_string())?;
+    let j = crate::preview::judge(text);
+    if !j.pass {
+        return Err(format!("its judge does not pass it on redsim: {}", if j.why.is_empty() { j.summary.clone() } else { j.why.clone() }));
+    }
+    let mut metrics = j.metrics.clone();
+    if kind.name().starts_with("mob-farm") {
+        eprintln!("{}: the real-game gate (about 2 minutes)...", path.display());
+        let g = game_gate(c).map_err(|e| format!("the real-game gate could not run: {e:#}"))?;
+        if !g.passed() {
+            return Err(format!("the real game: {}", g.failures.iter().take(3).cloned().collect::<Vec<_>>().join("; ")));
+        }
+        metrics = format!("{metrics}, real game {}", g.line());
+    }
+    let (lo, hi) = c.bounds();
+    let d = [hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1];
+    let kind_name = if j.kind.is_empty() { kind.name() } else { j.kind.clone() };
+    Ok(circuit::archive::Row {
+        archived: clock::catalog::now_utc(),
+        file: file.to_string(),
+        kind: stage_kind(&kind_name, stage),
+        axis: j.axis.clone(),
+        metrics,
+        blocks: c.blocks(),
+        dims: if j.dims.is_empty() { format!("{}x{}x{}", d[0], d[1], d[2]) } else { j.dims.clone() },
+        volume: if j.volume > 0 { j.volume } else { (d[0] * d[1] * d[2]) as i64 },
+        family: j.family.clone(),
+        robustness: j.robustness.clone(),
+        kinds: c.kinds().into_iter().collect::<Vec<_>>().join("+"),
+        type_key: circuit::archive::type_key(c),
+        hash: String::new(),
+        summary: j.summary.clone(),
+    })
+}
+
+fn write_verdicts(dir: &Path, rows: &[circuit::archive::Row]) -> Result<()> {
+    let mut out = format!("{}\n", crate::preview::VERDICTS_HEADER);
+    for r in rows {
+        out.push_str(&crate::preview::verdicts_line(r));
+        out.push('\n');
+    }
+    std::fs::write(dir.join(circuit::archive::VERDICTS), out)?;
+    Ok(())
+}
+
+/// `mctas site variation --regate [design...]`: every variation of the farm (or only the ones
+/// named) judged and gated again; one that passes gets its row (with the gate's line) back, one that
+/// fails is held off the site (its verdicts row removed, the reason in variations.tsv's `held`) until
+/// `site variation` passes it.
+fn regate(repo: &Path, farm: &str, only: &[PathBuf]) -> Result<()> {
+    let named: Vec<String> = only.iter().filter_map(|p| p.file_name().map(|f| f.to_string_lossy().to_string())).collect();
+    let mut report: Vec<String> = Vec::new();
+    for (stage, _, _, _) in STAGES {
+        let dir = repo.join("designs/farms").join(farm).join(stage);
+        let mut vars = read_variations(&dir);
+        if vars.is_empty() {
+            continue;
+        }
+        let mut rows = circuit::archive::read_rows(&dir).unwrap_or_default();
+        for v in vars.iter_mut().filter(|v| named.is_empty() || named.contains(&v.file)) {
+            let path = dir.join(&v.file);
+            let res = std::fs::read_to_string(&path).map_err(|e| format!("reading {}: {e}", path.display())).and_then(|text| {
+                let c = circuit::Circuit::load(&path).map_err(|e| format!("{e:#}"))?;
+                judge_for_stage(&path, &text, &c, stage, &v.file)
+            });
+            rows.retain(|r| r.file != v.file);
+            match res {
+                Ok(row) => {
+                    report.push(format!("PASS {stage}/{}: {}", v.file, row.metrics.split(", ").find(|m| m.starts_with("real game")).unwrap_or("")));
+                    rows.push(row);
+                    v.held.clear();
+                }
+                Err(why) => {
+                    report.push(format!("HELD {stage}/{}: {why}", v.file));
+                    v.held = why;
+                }
+            }
+        }
+        write_verdicts(&dir, &rows)?;
+        write_variations(&dir, &vars)?;
+    }
+    for l in &report {
+        println!("{l}");
+    }
+    Ok(())
+}
+
+/// `mctas site variation`: a design joins its farm stage's variations (judged on redsim, then a mob
+/// farm through the real-game gate: its numbers on the site are its judge's, confirmed in the
+/// game), or a variation's row changes (`--pick`, `--name`); `--regate` re-checks every variation.
 pub fn variation(a: &crate::VariationArgs) -> Result<()> {
     let repo = crate::published::repo_root();
-    if !STAGES.iter().any(|s| s.0 == a.stage) {
-        bail!("--stage {}: one of {}", a.stage, STAGES.iter().map(|s| s.0).collect::<Vec<_>>().join(", "));
-    }
     // (only the iron farm has stages: designs/farms/iron/<stage>/)
     if a.farm != "iron" {
         bail!("--farm {}: only the iron farm has stage variations (designs/farms/iron/<stage>/)", a.farm);
+    }
+    if a.regate {
+        return regate(&repo, &a.farm, &a.designs);
+    }
+    if !STAGES.iter().any(|s| s.0 == a.stage) {
+        bail!("--stage {}: one of {}", a.stage, STAGES.iter().map(|s| s.0).collect::<Vec<_>>().join(", "));
     }
     let study = "mobfarm";
     let dir = repo.join("designs/farms").join(&a.farm).join(&a.stage);
@@ -423,32 +576,11 @@ pub fn variation(a: &crate::VariationArgs) -> Result<()> {
         }
         let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
         let file = format!("{stem}.txt");
-        let j = crate::preview::judge(&text);
-        if !j.pass {
-            bail!("{}: its judge does not pass it on redsim: {}", path.display(), if j.why.is_empty() { j.summary.clone() } else { j.why.clone() });
-        }
+        let row = judge_for_stage(path, &text, &c, &a.stage, &file).map_err(|why| anyhow::anyhow!("{}: not on the site: {why}", path.display()))?;
         // the design with its judge's line on top, as the archive writes it
         let body: String = text.lines().filter(|l| !l.starts_with("# archived ") && !l.starts_with("# CIRCUIT: ")).map(|l| format!("{l}\n")).collect();
-        std::fs::write(dir.join(&file), format!("# {}\n{body}", j.summary.trim_start_matches("# ")))?;
-        let (lo, hi) = c.bounds();
-        let d = [hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1];
-        let kind_name = if j.kind.is_empty() { kind.name() } else { j.kind.clone() };
-        let row = circuit::archive::Row {
-            archived: clock::catalog::now_utc(),
-            file: file.clone(),
-            kind: stage_kind(&kind_name, &a.stage),
-            axis: j.axis.clone(),
-            metrics: j.metrics.clone(),
-            blocks: c.blocks(),
-            dims: if j.dims.is_empty() { format!("{}x{}x{}", d[0], d[1], d[2]) } else { j.dims.clone() },
-            volume: if j.volume > 0 { j.volume } else { (d[0] * d[1] * d[2]) as i64 },
-            family: j.family.clone(),
-            robustness: j.robustness.clone(),
-            kinds: c.kinds().into_iter().collect::<Vec<_>>().join("+"),
-            type_key: circuit::archive::type_key(&c),
-            hash: String::new(),
-            summary: j.summary.clone(),
-        };
+        std::fs::write(dir.join(&file), format!("# {}\n{body}", row.summary.trim_start_matches("# ")))?;
+        let shown = row.metrics.split(", ").take(3).collect::<Vec<_>>().join(", ");
         rows.retain(|r| r.file != file);
         rows.push(row);
         match vars.iter_mut().find(|v| v.file == file) {
@@ -456,22 +588,18 @@ pub fn variation(a: &crate::VariationArgs) -> Result<()> {
                 if let Some(n) = &a.name {
                     v.name = n.clone();
                 }
+                v.held.clear();
             }
-            None => vars.push(Variation { file: file.clone(), pick: false, name: a.name.clone().unwrap_or_default() }),
+            None => vars.push(Variation { file: file.clone(), pick: false, name: a.name.clone().unwrap_or_default(), held: String::new() }),
         }
         if a.pick {
             for v in vars.iter_mut() {
                 v.pick = v.file == file;
             }
         }
-        println!("{}: {} ({})", dir.join(&file).display(), j.metrics.split(", ").take(3).collect::<Vec<_>>().join(", "), if a.pick { "the stage's pick" } else { "a variation" });
+        println!("{}: {shown}; the real game: passed ({})", dir.join(&file).display(), if a.pick { "the stage's pick" } else { "a variation" });
     }
-    let mut out = format!("{}\n", crate::preview::VERDICTS_HEADER);
-    for r in &rows {
-        out.push_str(&crate::preview::verdicts_line(r));
-        out.push('\n');
-    }
-    std::fs::write(dir.join(circuit::archive::VERDICTS), out)?;
+    write_verdicts(&dir, &rows)?;
     write_variations(&dir, &vars)?;
     Ok(())
 }
@@ -505,5 +633,20 @@ mod tests {
         assert_eq!(m.len(), 1, "a member whose design is missing is left out");
         assert_eq!(m[0].metrics[1], ("drop".to_string(), "22 blocks".to_string()));
         assert_eq!(m[0].used_by, vec!["m2-open".to_string(), "d4".to_string()]);
+    }
+
+    #[test]
+    fn a_held_variation_keeps_its_reason() {
+        // (site variation --regate: a failed real-game gate holds it off the site; an old file
+        // without the `held` column reads as on the site)
+        let dir = std::env::temp_dir().join(format!("mctas-farms-held-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(VARIATIONS), "file\tpick\tname\nold.txt\tyes\tthe old one\n").unwrap();
+        assert_eq!(read_variations(&dir)[0].held, "");
+        let rows = vec![Variation { file: "d1.txt".into(), pick: false, name: "bed plate".into(), held: "the real game: build 3: golems walk off the pad".into() }];
+        write_variations(&dir, &rows).unwrap();
+        let back = read_variations(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(back, rows);
     }
 }

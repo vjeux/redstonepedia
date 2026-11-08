@@ -1,6 +1,6 @@
-file	pick	name
-m2-open.txt		a repeater line times the zombie's hide
-m2-open-ring.txt		a comparator ring times the zombie's hide
-four-modules-one-timer.txt		four modules sharing one sleep timer, lava corners 21 below
-four-modules-one-timer-tight.txt		four modules sharing one sleep timer, closer together
-row-2x27.txt		two farms side by side share one sorter, one iron-block crafter and one composter
+file	pick	name	held
+m2-open.txt		a repeater line times the zombie's hide	not presented (ironspec 2026-11-08): dominated by m2-open-ring (the same rate for more blocks; the hand-built repeater pulse vjeux called "huuge" at 10:48)
+m2-open-ring.txt		a comparator ring times the zombie's hide	not presented as a middle farm (ironspec 2026-11-08): one module, listed under Components as the farm module (designs/farms/iron/parts/module/)
+four-modules-one-timer.txt		four modules sharing one sleep timer, lava corners 21 below	not presented (ironspec 2026-11-08): middle run 1, 0.78 iron/h per block, worse per block than one module
+four-modules-one-timer-tight.txt		four modules sharing one sleep timer, closer together	not presented (ironspec 2026-11-08): middle run 1, 0.74 iron/h per block; and the real game: 3 days of natural weather: the game's 434.6 golems/h is outside redsim's 99% interval 328.2-403.3 for 8 builds; a forced day of rain: the game's 431.6 golems/h is outside redsim's 99% interval 303.1-415.9 for 8 builds; a forced day of thunder: the game's 431.6 golems/h is outside redsim's 99% interval 287.0-423.4 for 8 builds
+row-2x27.txt		two farms side by side share one sorter, one iron-block crafter and one composter	not presented (ironspec 2026-11-08): dominated by copies of one module (443 iron/h per module for more blocks and build); never gated (its verdict row dropped: re-judge it to quote it)

@@ -296,14 +296,15 @@ pub struct PreviewArgs {
 
 #[derive(Args)]
 pub struct VariationArgs {
-    /// Farm design files (each passes its kind's judge on redsim).
-    #[arg(required = true)]
+    /// Farm design files (each passes its kind's judge on redsim, and a mob farm the real-game
+    /// gate `circuit archive` runs).
+    #[arg(required_unless_present = "regate")]
     pub designs: Vec<PathBuf>,
     /// The farm (its folder under designs/farms/).
     #[arg(long, default_value = "iron")]
     pub farm: String,
     /// The stage: day-1, middle or late.
-    #[arg(long)]
+    #[arg(long, required_unless_present = "regate", default_value = "")]
     pub stage: String,
     /// Make it the stage's pick (listed first; the stage's other variations stay).
     #[arg(long)]
@@ -311,6 +312,11 @@ pub struct VariationArgs {
     /// A player-facing name for its card (default: the design's `how:` line).
     #[arg(long)]
     pub name: Option<String>,
+    /// Judge and gate every variation of the farm again (or only the designs named): a failing one
+    /// is held off the site (the reason in its variations.tsv row's `held`) until `site variation`
+    /// passes it.
+    #[arg(long)]
+    pub regate: bool,
 }
 
 #[derive(Args)]
