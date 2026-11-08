@@ -10,6 +10,12 @@ pub enum MobType {
     Villager,
     IronGolem,
     Zombie,
+    /// What lightning turns a villager into (`Villager.thunderHit`): its dimensions and
+    /// attributes only, no AI (a witch in a farm fails the run).
+    Witch,
+    /// A natural mob of the terrain mode (NaturalSpawner's): its row in
+    /// [`super::natural::DEFS`] (the terrain track's table), by index.
+    Natural(u16),
 }
 
 /// What a mob's death drops (`loot_table/entities/<id>.json`): `(item, min, max)` pools, each
@@ -23,6 +29,8 @@ pub struct TypeDef {
     pub ty: MobType,
     /// The entity id (`minecraft:<id>`).
     pub id: &'static str,
+    /// The same, with its namespace (`minecraft:villager`).
+    pub game_id: &'static str,
     /// `EntityTypes.<X>.sized(width, height).eyeHeight(eye)` (default eye: height x 0.85).
     pub width: f32,
     pub height: f32,
@@ -62,6 +70,7 @@ pub static TYPES: &[TypeDef] = &[
     TypeDef {
         ty: MobType::Villager,
         id: "villager",
+        game_id: "minecraft:villager",
         width: 0.6,
         height: 1.95,
         eye: 1.62,
@@ -85,6 +94,7 @@ pub static TYPES: &[TypeDef] = &[
     TypeDef {
         ty: MobType::IronGolem,
         id: "iron_golem",
+        game_id: "minecraft:iron_golem",
         width: 1.4,
         height: 2.7,
         eye: 2.295,
@@ -109,6 +119,7 @@ pub static TYPES: &[TypeDef] = &[
     TypeDef {
         ty: MobType::Zombie,
         id: "zombie",
+        game_id: "minecraft:zombie",
         width: 0.6,
         height: 1.95,
         eye: 1.74,
@@ -126,27 +137,47 @@ pub static TYPES: &[TypeDef] = &[
         monster: true,
         loot: &[("minecraft:rotten_flesh", 0, 2)],
     },
+    // EntityTypes.WITCH.sized(0.6F, 1.95F).eyeHeight(1.62F), MobCategory.MONSTER;
+    // Witch.createAttributes: Monster.createMonsterAttributes() (follow range 16) + MAX_HEALTH 26,
+    // MOVEMENT_SPEED 0.25 (no AI and no loot modeled: a witch in a farm fails its run)
+    TypeDef {
+        ty: MobType::Witch,
+        id: "witch",
+        game_id: "minecraft:witch",
+        width: 0.6,
+        height: 1.95,
+        eye: 1.62,
+        riding_offset: 0.0,
+        max_health: 26.0,
+        speed: 0.25,
+        follow_range: 16.0,
+        step: 0.6,
+        knockback_resistance: 0.0,
+        armor: 0.0,
+        fire_immune: false,
+        fall_immune: false,
+        drowns: true,
+        burns_in_daylight: false,
+        monster: true,
+        loot: &[],
+    },
 ];
 
 impl MobType {
-    /// Its row.
+    /// Its row (a natural mob's in the terrain track's table).
     pub fn def(self) -> &'static TypeDef {
-        TYPES.iter().find(|d| d.ty == self).expect("every MobType has a TypeDef row")
+        TYPES.iter().chain(super::natural::DEFS.iter()).find(|d| d.ty == self).expect("every MobType has a TypeDef row")
     }
 
     /// The type of an entity id (`minecraft:` optional), if modeled.
     pub fn from_id(id: &str) -> Option<MobType> {
         let id = id.strip_prefix("minecraft:").unwrap_or(id);
-        TYPES.iter().find(|d| d.id == id).map(|d| d.ty)
+        TYPES.iter().chain(super::natural::DEFS.iter()).find(|d| d.id == id).map(|d| d.ty)
     }
 
     /// The game's entity id, `minecraft:<id>`.
     pub fn game_id(self) -> &'static str {
-        match self {
-            MobType::Villager => "minecraft:villager",
-            MobType::IronGolem => "minecraft:iron_golem",
-            MobType::Zombie => "minecraft:zombie",
-        }
+        self.def().game_id
     }
 }
 

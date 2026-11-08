@@ -22,6 +22,7 @@ pub mod exit;
 pub mod farm;
 pub mod living;
 pub mod los;
+pub mod natural;
 pub mod refuse;
 pub mod spawn;
 pub mod types;

@@ -400,6 +400,9 @@ fn check_tick(w: &World, rep: &mut RunReport, tr: &mut Track, spec: &FarmSpec, t
                 }
             }
             MobType::Zombie => {}
+            // (a witch, a struck villager, and natural mobs: the weather and terrain tracks'
+            // checks)
+            MobType::Witch | MobType::Natural(_) => {}
         }
     }
     // the drops: lava, the zombie's pickup reach, despawning

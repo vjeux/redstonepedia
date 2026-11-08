@@ -63,13 +63,20 @@ fn pickup_eligible(boat: &super::Entity, other: &super::Entity) -> bool {
     let EntityKind::Boat(state) = &boat.kind else { return false };
     let EntityKind::Mob(mob) = &other.kind else { return false };
     let tag_allows = match mob.ty {
-        MobType::Villager | MobType::Zombie | MobType::IronGolem => true,
+        // (the witch is absent from the tag too: checked 2026-11-08 by ironfarm)
+        MobType::Villager | MobType::Zombie | MobType::IronGolem | MobType::Witch => true,
+        // a natural mob of the terrain mode: the tag itself, by id
+        MobType::Natural(_) => !CANNOT_BE_PUSHED_ONTO_BOATS.contains(&mob.ty.def().id),
     };
     let capacity = if state.chest { 1 } else { 2 };
     // This model is server-owned and has no Player controller. `hasEnoughSpaceFor` is strict.
     tag_allows && boat.passengers.len() < capacity && other.vehicle.is_none()
         && other.kind.dims().0 < boat.kind.dims().0
 }
+
+/// Java 26.3's `cannot_be_pushed_onto_boats` entity-type tag (data/minecraft/tags/entity_type).
+const CANNOT_BE_PUSHED_ONTO_BOATS: &[&str] =
+    &["player", "elder_guardian", "cod", "pufferfish", "salmon", "tropical_fish", "dolphin", "squid", "glow_squid", "tadpole", "creaking", "nautilus", "zombie_nautilus", "sulfur_cube"];
 
 /// AbstractBoat's final nearby-entity loop, in EntitySectionStorage query order.
 pub fn boat_neighbors(w: &mut World, i: usize) {
