@@ -12,8 +12,9 @@ stage: middle
 #    turned, the zombie lost, a part burnt) stops it for the rest of that day. Player: "a steady
 #    supply: hoppers for the other farms, rails, anvils, a beacon's blocks".
 objective: max iron_per_hour
-# 2. The build in minutes, day 1's formula (2 s a block placed, 1 s dug, 120 s a lava trip,
-#    180 s a villager moved). Player: "an evening, not a week".
+# 2. The build in minutes: placing, digging and getting every item at MIDDLE prices
+#    (designs/farms/prices.tsv: iron tools, 8 furnaces, the Nether, a day-1 farm's iron; a lava
+#    trip 60 s, a villager moved 180 s). Player: "an evening, not a week".
 objective: min build_minutes
 
 constraint: materials <= nether

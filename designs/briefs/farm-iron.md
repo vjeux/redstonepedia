@@ -135,10 +135,25 @@ Numbers, never refusals by themselves; each stage weighs them in its own rank:
 
 ### Common to every stage (revision 9)
 
-- **Build minutes**, one formula for every stage: 2 s a block placed (gathering included), 1 s a
-  block dug, 120 s a lava source (a bucket trip each), 180 s a villager moved (revision 8's day-1
-  build time). Blocks alone would count a villager (a transport) and a lava source (a trip) as
-  free; on a late farm of 8 modules the 24-40 villagers moved are a large part of the build.
+- **Build minutes**: placing every block, digging, and GETTING every item, at the stage's prices
+  (iteration 3, vjeux 12:01 on d1-bed-plate's 98 glass: "this amount of glass is def not
+  accessible day 1"): `designs/farms/prices.tsv`, seconds per item per stage, each argued in its
+  row from the recipe and the tools the stage has. Placing 1 s a block; digging 1 s on day 1
+  (stone tools), 0.5 middle, 0.3 late; every dug block is also one free filler block (cobblestone
+  or dirt: the design's stone walls are built of filler, the same full block for spawning and
+  burning). Gathering and crafting by recipe: on day 1 filler 1 s, a log 2 s (planks 0.5), sand
+  1.5 s, coal 4 s, an iron ingot 30 s (caving for ore with a stone pickaxe, smelted), glass 7 s
+  (sand, fuel, and half of 10 s in a furnace: a day-1 player runs 2), so a hopper is 154 s and the
+  tools the build needs count once (bucket 90 s, shears 60 s, the iron pickaxe 90 s in the
+  redstone fork: vjeux 12:29, iron counted with the tools); a middle player has iron tools, 8
+  furnaces, the Nether and a day-1 farm's iron (filler 0.5 s, glass 2 s, iron 10 s, quartz 5 s);
+  a late player has farms and super smelters for everything (filler 0.2 s, glass 0.4 s, iron
+  2 s). Lava sources 120 / 60 / 30 s (a bucket trip on day 1; several buckets a Nether trip; a
+  dripstone farm), villagers moved 180 / 180 / 60 s (a breeder delivers them on late), the zombie
+  180 / 120 / 60 s (lured at night into its boat). An item the table does not price fails the
+  line (no silent default). Blocks alone would count a villager, a lava trip, an iron ingot and a
+  smelted glass block as free; these prices make a glass-capped or hopper-heavy day-1 farm lose
+  on its own merits, and the same build cheaper for a player with farms.
 - **Net iron per hour**: the iron the player actually collects, per hour, over the stage's
   unattended window W, from the running farm's steady state with the weather cycle, lightning and
   natural spawning on Hard. A break (a villager killed, or turned into a witch or a zombie
@@ -215,13 +230,15 @@ Hard limits (what the player has):
   or two clusters.
 - **Real terrain** (vjeux 04:22): built at village-edge (`designs/terrain/village-edge.mcterrain`),
   priced at the cheapest of the 12 nearest valid spots (the day-1 lane's pricing: blocks placed,
-  blocks dug, and glass on every natural cell where a golem could spawn outside the farm).
+  blocks dug, and a cap on every natural cell where a golem could spawn outside the farm: the
+  cheapest at day-1 prices, a torch or a button on top (a block above that is not air stops the
+  golem's scan there, `SpawnUtil` LEGACY_IRON_GOLEM) where it works, glass only where it must be).
 
 Objectives:
 
 | objective | the player's reason |
 |---|---|
-| **min T, the minutes to a full iron kit**, measured (iteration 2): from the first block until the farm's chest holds the build's iron + 24 (the armour), for a player who starts at dawn (day time 0) of day 1 and builds for the build minutes at the cheapest spot (the farm stands complete at day time 1200 x build minutes, mod 24000); the villagers come from the village at that moment, each with the `LAST_SLEPT` of its last night in its village bed (a saved memory: moving a villager keeps it), and the zombie in its boat, caught on an earlier night and parked by the site; the judge's terrain run from there, with the weather cycle and natural spawning on Hard, the mean over its seeds | "Iron armour as soon as possible": what a fresh player builds it for |
+| **min T, the minutes to a full iron kit**, measured (iterations 2-3): from the first block until the farm's chest holds 24 iron (the armour), for a player who starts at dawn (day time 0) of day 1 with nothing but stone tools, mines the iron the build needs (in the build minutes at 30 s an ingot, tools included), and builds for the build minutes at the cheapest spot (the farm stands complete at day time 1200 x build minutes, mod 24000); the villagers come from the village at that moment, each with the `LAST_SLEPT` of its last night in its village bed (a saved memory: moving a villager keeps it), and the zombie in its boat, caught on an earlier night and parked by the site; the judge's terrain run from there, with the weather cycle and natural spawning on Hard, the mean over its seeds | "Iron armour as soon as possible": what a fresh player builds it for |
 | **max net iron per hour** once it runs (W = 0: the rate less the iron destroyed) | it keeps running for days after the kit: tools, a shield, buckets, hoppers, rails, an anvil |
 
 Why these two. T alone (revision 8) values the rate only through the first 24 iron, so it would
@@ -233,10 +250,11 @@ has worked, and when the build finishes in the day matters (a farm whose scared 
 wake at night makes its first golems only the next morning); the steady rate, objective 2, is
 what it makes after that. The T run performs every hand step the card prints (the first-night
 hide: the zombie hidden at the first REST start for at least 20 gt), since the player is there.
-Not objectives: the build effort alone (it is most of T); the iron up
-front (in T, which waits for the farm to pay it back, and printed, since a fresh player must have
-it in hand); the villagers taken (in T at 180 s each, capped by the village); the exposure to loss
-(the player is right there to fix it: printed as the days before each break).
+Not objectives: the build effort alone (it is most of T); the iron up front (in T: the build
+minutes mine it at 30 s an ingot, so the chest owes only the 24 of the kit; and printed, since a
+fresh player must get it before building); the villagers taken (in T at 180 s each, capped by the
+village); the exposure to loss (the player is right there to fix it: printed as the days before
+each break).
 
 **Fork: redstone (none | dust).** Has the player dived for redstone ore yet? Without it, the hide
 is driven by what the village gives (the bed plate: a blind villager's wooden pressure plate).
@@ -1017,3 +1035,4 @@ the spec was, what came back (the front's size before and after merging), what c
 | 1 | Day 1: min T (minutes to a 24-iron kit), max net iron/h; day-1 items, at most 8 villagers (the village's), 1-2 modules, village-edge terrain; fork redstone (none, dust). Middle: max net iron/h over a game day, min build minutes; Nether tier, 2-4 modules sharing a part, at most 120 build minutes. Late, at N = 8: max net iron/h over 8 h AFK, min build minutes, min volume per module; stacking must pay (5% per block and per volume over N = 1). One build-minutes formula; net iron per hour over each stage's window W (0, a game day, 8 h); timing parts from the catalogs; merge 10% | (running) | From revision 8: each stage's single scalar becomes a 2-3 objective vector with the player's reason for each; the middle gets N >= 2 sharing a part and catalog timing parts (vjeux 10:48); the late per-block rank becomes a printed ratio beside rate, build and volume (per block alone prefers a cheap 70% module to a 92% one that brings 30% more iron a night); M2-open leaves the middle (one module, a hand-built pulse); the hand candidates become seeds |
 | 1b | the same objectives and constraints | G1 APPROVE (8146b8db, f1a42990) | After the approval: late.spec's comment corrected (the reviewer's note: the best iron/h per build minute is on the front, the per-block best is listed beside it when it falls off); the merge written as greedy around the best (no twins on either side of a fixed box's edge; still no chaining); a gap over 10% is printed with its cause and worked on in the next iteration instead of holding the presented set (vjeux 10:59: "I want your process to be autonomous"); the card adapts to the stage and the farm (vjeux 11:17): each stage's shown facts, in order, as default rows (the page-copy lane's format, staged in designs/farms/iron/cards.tsv until the site reads them), lava trips and iron up front only where the player cares (day 1); the day-1 hide pulse's window is L >= 20 gt with no hard upper bound (answered to the pulse lane: the zombie's ray is cast only by the hostile sensor, once per 20 gt list); the re-check (8146b8db, the parent's rule): a pick replaces the live page when it passes the game gate and beats the live farm (more than 10% better on one objective, not more than 10% worse on any), the search keeps closing any gap, a gap is never printed on a page, nothing waits on vjeux; parts searched on their own (vjeux 11:23), the late collection holding the night |
 | 2 | Day 1's T measured: from the first block at dawn of day 1 until the chest holds bill + 24 iron; the farm stands complete after the build minutes (day time 1200 x minutes), the villagers arrive willing (their village's `LAST_SLEPT`), the zombie parked in its boat; the judge's terrain run, mean over seeds | D1U's first full terrain day (the day-1 lane, seed 3): 13 golems, 50 iron, against about 84 at D4's steady 252 iron/h; D1U in terrain 153 iron/h (32%): golems by day only, the sleeping villagers' ray to the zombie runs through the natural rock floor (air in the void), so they never wake scared at night | T = build + (bill + 24) / rate assumed the steady rate from the last block on; the start-up (willing villagers, the first calm, when in the day the build ends) is real for a fresh player and is what T is for. Objective 2 stays the steady rate. The T run performs every hand step the card prints (the first-night hide at the first REST start, at least 20 gt: G1, 8146b8db), so a golem-triggered calm cannot leave a seed's T infinite. The day-1 lane prints build minutes flat, villagers left and hostile break days ("never", or the channels that reach a villager, the zombie or its boat: no invented rate) |
+| 3 | Build minutes place, dig and GET every item at the stage's prices (designs/farms/prices.tsv, seconds per item per stage, each row argued from its recipe and the stage's tools): day 1 glass 7 s (sand, fuel, half of a furnace's 10 s: 2 furnaces), an iron ingot 30 s (caving with a stone pickaxe), a hopper 154 s, the tools the build needs once (bucket 90 s), filler 1 s and free for every dug block, the zombie 180 s; middle (iron tools, 8 furnaces, the Nether, a day-1 farm's iron) and late (farms for everything) cheaper; lava 120 / 60 / 30 s and villagers 180 / 180 / 60 s by stage. Day 1's T stops at 24 iron in the chest (the build's iron is mined in the build minutes) | vjeux 12:01 on d1-bed-plate: "this amount of glass is def not accessible day 1" (98 glass; D1U uses 5) | Placing 2 s "gathering included" priced a glass block like a dirt block and an iron ingot not at all; at day-1 prices d1-bed-plate's 98 glass alone add about 11 minutes. The terrain pricing caps stray spawn cells with the cheapest block at the stage's prices (a torch or button on top stops the golem's scan as glass does) |

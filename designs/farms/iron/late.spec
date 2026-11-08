@@ -14,7 +14,9 @@ stage: late
 #    spawning on Hard included; a break stops it for the rest of the 8 h; iron the storage
 #    cannot hold is lost. Player: "what one night AFK brings".
 objective: max iron_per_hour
-# 2. The build in minutes (day 1's formula). Player: "the effort". Iron per hour per block is
+# 2. The build in minutes: placing, digging and getting every item at LATE prices
+#    (designs/farms/prices.tsv: farms and super smelters for every material, a lava trip 30 s, a
+#    villager delivered by a breeder 60 s). Player: "the effort". Iron per hour per block is
 #    printed on every member; the best iron per hour per BUILD MINUTE is always on this front,
 #    and the per-block best is listed beside the front when it falls off it.
 objective: min build_minutes
