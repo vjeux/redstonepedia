@@ -320,7 +320,8 @@ impl Run {
     pub fn arrive(&mut self) -> Result<(), String> {
         while self.settle_tick() {}
         if let Some(s) = self.o.site {
-            self.world.mob.natural = Some(super::natural::Natural::new(vec![s.afk], super::natural::Difficulty::Hard));
+            // outside the sample: the level's own biome (the bridge's terrain sandbox: plains)
+            self.world.mob.natural = Some(super::natural::Natural { void_biome: Some("minecraft:plains"), ..super::natural::Natural::new(vec![s.afk], super::natural::Difficulty::Hard) });
         }
         let w = &mut self.world;
         w.place_raw(&self.detectors);

@@ -364,7 +364,9 @@ pub struct Natural {
     /// `ServerChunkCache.spawnEnemies` (false: the monster category never spawns, the bridge's
     /// "monsters off" sandboxes).
     pub spawn_enemies: bool,
-    /// The biome of a world without terrain (the bridge's void sandbox: plains).
+    /// The level's own biome: a world without terrain's, and a terrain world's outside its
+    /// sample's biome cells (the bridge's sandboxes: their flat source's plains; the real world's
+    /// land beyond the sample is not modeled).
     pub void_biome: Option<&'static str>,
     /// The level's lowest y (`getMinY`) for a world without terrain (the overworld's -64).
     pub world_min_y: i32,
@@ -810,10 +812,13 @@ fn spawnable_chunk(w: &World, cx: i32, cz: i32) -> bool {
     loaded_chunk(w, cx, cz)
 }
 
-/// The biome at a cell: the terrain's, or the void sandbox's (`Natural::void_biome`).
+/// The biome at a cell: the terrain's, or (a world without terrain, or a cell outside the sample's
+/// biome cells) the level's own (`Natural::void_biome`: the bridge sandbox's flat source).
 fn biome_name(w: &World, pos: BlockPos) -> Option<String> {
-    if w.land.is_some() {
-        return w.biome_at(pos).map(|s| s.to_string());
+    if w.land.is_some()
+        && let Some(b) = w.biome_at(pos)
+    {
+        return Some(b.to_string());
     }
     w.mob.natural.as_ref().and_then(|n| n.void_biome).map(|s| s.to_string())
 }
