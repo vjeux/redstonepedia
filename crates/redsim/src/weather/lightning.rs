@@ -272,8 +272,13 @@ pub fn entity_candidates(w: &World, center: BlockPos) -> Vec<usize> {
 
 /// `ServerLevel.tickThunder` for every chunk of the world (inflated by 3 blocks: a bolt in a
 /// neighbouring chunk reaches entities that far), in chunk order. The chunk order the game
-/// shuffles, and the level random it draws from, are the stand-in's.
+/// shuffles, and the level random it draws from, are the stand-in's. When the natural spawner
+/// runs, its shuffled spawning chunks roll the thunder instead ([`thunder_chunk`], as
+/// `tickSpawningChunk` does).
 pub fn tick_thunder(w: &mut World) {
+    if w.mob.natural.as_ref().is_some_and(|n| n.spawning) {
+        return;
+    }
     if !w.weather.on || !w.weather.lightning.player_near || !(w.weather.is_raining() && w.weather.is_thundering()) {
         return;
     }
@@ -290,6 +295,71 @@ pub fn tick_thunder(w: &mut World) {
     }
 }
 
+/// The random a lightning draw takes: the level random when the world mirrors a bridge sandbox
+/// (`exact_seed`: the game's draws, tick-exact lane 2026-11-08), else the weather's stand-in (a
+/// farm run's cards keep their numbers).
+fn draws(w: &mut World) -> &mut LegacyRandom {
+    if w.exact_seed.is_some()
+        && let Some(r) = w.level_random.as_mut()
+    {
+        return r;
+    }
+    &mut w.weather.rng
+}
+
+/// `ServerLevel.tickThunder` of chunk (cx, cz), called by the natural spawner for each chunk of
+/// its shuffled spawning list (`ServerChunkCache.tickSpawningChunk`: an entity-ticking chunk,
+/// before `spawnForChunk`): raining and thundering, the roll (`nextInt(100000)`), the column
+/// (`getBlockRandomPos(minX, 0, minZ, 15)`: `randValue` in a world mirroring a bridge sandbox),
+/// then [`strike`].
+pub fn thunder_chunk(w: &mut World, cx: i32, cz: i32) {
+    if !w.weather.on || !(w.weather.is_raining() && w.weather.is_thundering()) {
+        return;
+    }
+    if draws(w).next_int(100000) != 0 {
+        return;
+    }
+    let exact = w.exact_seed.is_some();
+    let (x, z) = match w.random_ticks.as_mut() {
+        Some(rt) if exact => {
+            let p = rt.position(cx * 16, 0, cz * 16);
+            (p.x, p.z)
+        }
+        _ => {
+            if exact {
+                let e = "thunder: getBlockRandomPos needs the level's randValue (World::random_ticks) in an exact world".to_string();
+                if !w.errors.contains(&e) {
+                    w.errors.push(e);
+                }
+            }
+            let r = &mut w.weather.rng;
+            (cx * 16 + r.next_int(16), cz * 16 + r.next_int(16))
+        }
+    };
+    strike(w, x, z);
+}
+
+/// A new bolt's id, its own random and its constructor's `seed` and `flashes`: in a world
+/// mirroring a bridge sandbox the stream registry's (a construction, `World::construct`, then the
+/// entering random of entity n with the constructor's draws replayed, `Exact.replayConstructor`:
+/// the UUID's 2 `nextLong`, the seed's `nextLong`, `nextInt(3) + 1` flashes), else the stand-in's.
+fn new_bolt(w: &mut World) -> (u32, LegacyRandom, i64, i32) {
+    let id = w.entities.next_id;
+    w.entities.next_id += 1;
+    if w.exact_seed.is_some() {
+        let _ = w.construct();
+        let mut r = w.entering_random(id);
+        crate::rng::replay_uuid(&mut r);
+        let seed = r.next_long();
+        let flashes = r.next_int(3) + 1;
+        return (id, r, seed, flashes);
+    }
+    let mut r = LegacyRandom::new(w.weather.rng.next_long());
+    let seed = r.next_long();
+    let flashes = r.next_int(3) + 1;
+    (id, r, seed, flashes)
+}
+
 /// One thunder roll that came up in column (x, z): the target, the rain check, the trap, the bolt.
 pub fn strike(w: &mut World, x: i32, z: i32) {
     let center = BlockPos::new(x, motion_blocking_height(w, x, z), z);
@@ -302,7 +372,7 @@ pub fn strike(w: &mut World, x: i32, z: i32) {
             if cands.is_empty() {
                 (center, Target::Column)
             } else {
-                let k = cands[w.weather.rng.next_int(cands.len() as i32) as usize];
+                let k = cands[draws(w).next_int(cands.len() as i32) as usize];
                 let e = &w.entities.list[k];
                 (e.block_position(), Target::Entity(e.id))
             }
@@ -313,31 +383,27 @@ pub fn strike(w: &mut World, x: i32, z: i32) {
     }
     let s = w.weather.lightning;
     let below_rod = matches!(w.get(pos.offset(0, -1, 0)), Block::LightningRod { .. });
-    let trap = s.spawn_mobs && w.weather.rng.next_double() < (effective_difficulty(&s, w.day_time()) * 0.01f32) as f64 && !below_rod;
+    let trap = s.spawn_mobs && draws(w).next_double() < (effective_difficulty(&s, w.day_time()) * 0.01f32) as f64 && !below_rod;
     let t = w.time;
     if trap {
         w.weather.events.push(WeatherEvent::TrapHorse { t, at: [pos.x, pos.y, pos.z] });
+        // the trap horse is constructed and enters before the bolt (its entity is not modeled:
+        // the event fails a farm run closed; an exact world keeps the game's counters)
+        if w.exact_seed.is_some() {
+            let _ = w.construct();
+            w.entities.next_id += 1;
+        }
     }
-    let seed = w.weather.rng.next_long();
-    let mut random = LegacyRandom::new(seed);
-    let bolt_seed = random.next_long();
-    let flashes = random.next_int(3) + 1;
-    let id = w.entities.next_id;
-    w.entities.next_id += 1;
+    let (id, random, bolt_seed, flashes) = new_bolt(w);
     let bolt = Bolt { id, pos: Vec3::new(pos.x as f64 + 0.5, pos.y as f64, pos.z as f64 + 0.5), life: 2, flashes, seed: bolt_seed, visual_only: trap, removed: false, tick_count: 0, random };
     w.weather.events.push(WeatherEvent::Strike { t, bolt: id, at: [pos.x, pos.y, pos.z], target, visual: trap });
     w.weather.bolts.push(bolt);
 }
 
 /// `summon minecraft:lightning_bolt` at the bottom center of `pos` (no aim, no trap: the bolt
-/// checks' scenarios); its own random from the stand-in. Its id.
+/// checks' scenarios); its own random from the stand-in (the registry's in an exact world). Its id.
 pub fn summon_bolt(w: &mut World, pos: BlockPos) -> u32 {
-    let seed = w.weather.rng.next_long();
-    let mut random = LegacyRandom::new(seed);
-    let bolt_seed = random.next_long();
-    let flashes = random.next_int(3) + 1;
-    let id = w.entities.next_id;
-    w.entities.next_id += 1;
+    let (id, random, bolt_seed, flashes) = new_bolt(w);
     let t = w.time;
     w.weather.bolts.push(Bolt { id, pos: Vec3::new(pos.x as f64 + 0.5, pos.y as f64, pos.z as f64 + 0.5), life: 2, flashes, seed: bolt_seed, visual_only: false, removed: false, tick_count: 0, random });
     w.weather.events.push(WeatherEvent::Strike { t, bolt: id, at: [pos.x, pos.y, pos.z], target: Target::Column, visual: false });

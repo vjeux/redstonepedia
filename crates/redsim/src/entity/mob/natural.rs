@@ -793,12 +793,15 @@ pub fn tick_chunks(w: &mut World) {
         let j = r.next_int(i as i32) as usize;
         chunks.swap(i - 1, j);
     }
-    if cats.is_empty() {
-        return;
-    }
+    // `tickSpawningChunk` for each chunk of the shuffled list: in an entity-ticking chunk the
+    // thunder roll (`ServerLevel.tickThunder`, mobinfra's `weather::lightning::thunder_chunk`),
+    // then `spawnForChunk` where a category may spawn
     for (cx, cz) in chunks {
-        // `tickSpawningChunk`: spawnForChunk only where `canSpawnEntitiesInChunk`
-        if !nat.entity_ticking.is_empty() && !nat.entity_ticking.iter().any(|c| c[0] == cx && c[1] == cz) {
+        let ticking = nat.entity_ticking.is_empty() || nat.entity_ticking.iter().any(|c| c[0] == cx && c[1] == cz);
+        if ticking {
+            crate::weather::lightning::thunder_chunk(w, cx, cz);
+        }
+        if cats.is_empty() || !ticking {
             continue;
         }
         for &cat in &cats {

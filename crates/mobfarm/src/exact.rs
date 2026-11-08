@@ -49,6 +49,11 @@ pub(crate) fn opts_of(opts: &Opts) -> RunOpts {
     if let Some(d) = opts.day0 {
         o.day0 = d;
     }
+    // the weather cycle on both sides (mobinfra): redsim's from its stationary state, handed to
+    // the bridge at the start (`GameFarm::start_with`), then each side's cycle on its level random
+    if opts.weather {
+        o.weather = redsim::weather::Plan::Cycle;
+    }
     o
 }
 
@@ -373,6 +378,12 @@ impl GameFarm {
             "difficulty": "hard",
             "trace_randoms": trace_randoms,
         });
+        // redsim's starting weather (its stationary state, `farm::Run::start`'s), so both sides
+        // begin equal without a shared draw
+        if weather {
+            let (clear, rain, thunder, raining, thundering, rain_level, thunder_level) = redsim::weather::Weather::new(o.weather, o.seed).bridge_state();
+            world["weather"] = json!({"clear": clear, "rain": rain, "thunder": thunder, "raining": raining, "thundering": thundering, "rain_level": rain_level, "thunder_level": thunder_level});
+        }
         match place {
             Place::Void { bare: false } => {
                 let bot = afk_spot(spec);

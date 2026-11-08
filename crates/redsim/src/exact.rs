@@ -181,9 +181,10 @@ impl Watch {
     }
 }
 
-/// The weather as the bridge prints it, when redsim models it (`None`: not modeled yet).
-fn weather_text(_w: &World) -> Option<String> {
-    None
+/// The weather as the bridge prints it (`Weather::bridge_text`: the timers, the flags and both
+/// levels; mobinfra).
+fn weather_text(w: &World) -> Option<String> {
+    Some(w.weather.bridge_text())
 }
 
 /// A boat's or raft's type as the game names it, reduced to what redsim tells apart.
