@@ -11,6 +11,7 @@ pub mod bamboo;
 pub mod block;
 pub mod classes;
 pub mod entity;
+pub mod exact;
 pub mod fluid;
 pub mod gravity;
 pub mod kelp;

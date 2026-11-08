@@ -5,6 +5,7 @@
 
 pub mod cli;
 pub mod day1;
+pub mod exact;
 pub mod gate;
 pub mod layouts;
 pub mod parts;

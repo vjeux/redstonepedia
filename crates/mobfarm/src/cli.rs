@@ -204,6 +204,36 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 1)]
         repeat: u32,
     },
+    /// The exact compare (track tickexact): the design run in the game (the bridge, every random
+    /// seeded from the run's seed) and in redsim side by side, every tick compared (blocks, every
+    /// entity, the level random, randValue, each entity's random); prints the first difference
+    /// with its context and the fields redsim does not model yet. `--twin`: the bridge against
+    /// itself (the determinism check). `--probe`: on a difference, run again and print the game's
+    /// draws of that tick by call site.
+    Compare {
+        design: PathBuf,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        /// Game days after the settle and the entities' arrival.
+        #[arg(long, default_value_t = 3.0)]
+        days: f64,
+        /// Game ticks (instead of --days).
+        #[arg(long)]
+        ticks: Option<u32>,
+        /// Weather on (rain and thunder cycle).
+        #[arg(long)]
+        weather: bool,
+        #[arg(long)]
+        probe: bool,
+        #[arg(long)]
+        twin: bool,
+        /// Run to the end after the first difference.
+        #[arg(long)]
+        full: bool,
+        /// Ticks per traced step.
+        #[arg(long, default_value_t = 100)]
+        batch: u32,
+    },
 }
 
 fn load(_version: &str, path: &PathBuf) -> Result<(circuit::Circuit, redsim::entity::mob::farm::FarmSpec)> {
@@ -402,6 +432,32 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         MobfarmCmd::WeatherStats { days, servers, dt, sim_runs } => crate::weathercheck::weather_stats_cmd(version, days, servers, dt, sim_runs)?,
         MobfarmCmd::FireBurn { design, servers, max, seeds } => crate::weathercheck::fire_burn_cmd(version, &design, servers, max, seeds)?,
         MobfarmCmd::BoltCheck => crate::weathercheck::bolt_check_cmd(version)?,
+        MobfarmCmd::Compare { design, seed, days, ticks, weather, probe, twin, full, batch } => {
+            let ticks = ticks.unwrap_or((days * 24000.0).round() as u32);
+            let opts = crate::exact::Opts { seed, ticks, weather, probe, batch: batch.max(1), full };
+            compare_cmd(version, &design, &opts, twin)?;
+        }
+    }
+    Ok(())
+}
+
+/// `mobfarm compare`: the exact compare (or the twin check), its report; a difference fails.
+fn compare_cmd(version: &str, design: &std::path::Path, opts: &crate::exact::Opts, twin: bool) -> Result<()> {
+    let t0 = std::time::Instant::now();
+    let cmp = if twin { crate::exact::twin(version, design, opts)? } else { crate::exact::compare(version, design, opts, None)? };
+    print!("{}", cmp.report());
+    if let (Some(d), true, false) = (&cmp.first, opts.probe, twin) {
+        println!("probe: the game's draws around game time {} (a second, identical run)", d.t);
+        let again = crate::exact::compare(version, design, opts, Some(d.t))?;
+        if let Some(d2) = &again.first {
+            for c in &d2.context {
+                println!("  {c}");
+            }
+        }
+    }
+    println!("{:.1} s", t0.elapsed().as_secs_f64());
+    if cmp.first.is_some() {
+        bail!("{} differs", if twin { "the game against itself" } else { "redsim against the game" });
     }
     Ok(())
 }

@@ -152,9 +152,30 @@ final class Sandbox {
     }
 
     static Sandbox create(SimServer server, int id, int minChunkX, int minChunkZ, int maxChunkX, int maxChunkZ, long seed) {
+        return create(server, id, minChunkX, minChunkZ, maxChunkX, maxChunkZ, seed, false);
+    }
+
+    /**
+     * {@code customSpawners} (tickexact, a world sandbox): the level runs the overworld's custom
+     * spawners in vanilla's order (phantoms, patrols, cats, the village siege, the wandering trader:
+     * {@code MinecraftServer} 421), the trader spawner's own random seeded ({@link Exact#traderSeed}).
+     */
+    static Sandbox create(SimServer server, int id, int minChunkX, int minChunkZ, int maxChunkX, int maxChunkZ, long seed, boolean customSpawners) {
         ResourceKey<Level> key = ResourceKey.create(Registries.DIMENSION, Identifier.fromNamespaceAndPath("mctas", "sandbox_" + id));
         PrimaryLevelData data = new PrimaryLevelData(server.levelSettings, PrimaryLevelData.SpecialWorldProperty.FLAT, Lifecycle.stable());
         data.setInitialized(true);
+        List<net.minecraft.world.level.CustomSpawner> spawners = List.of();
+        if (customSpawners) {
+            net.minecraft.world.entity.npc.wanderingtrader.WanderingTraderSpawner trader =
+                    new net.minecraft.world.entity.npc.wanderingtrader.WanderingTraderSpawner(server.getDataStorage());
+            ((RandomSource) get(TRADER_RANDOM, trader)).setSeed(Exact.traderSeed(seed));
+            spawners = List.of(
+                    new net.minecraft.world.level.levelgen.PhantomSpawner(),
+                    new net.minecraft.world.level.levelgen.PatrolSpawner(),
+                    new net.minecraft.world.entity.npc.CatSpawner(),
+                    new net.minecraft.world.entity.ai.village.VillageSiege(),
+                    trader);
+        }
         ServerLevel level = new ServerLevel(
                 server,
                 Util.backgroundExecutor(),
@@ -164,7 +185,7 @@ final class Sandbox {
                 server.voidStem,
                 false,
                 BiomeManager.obfuscateSeed(seed),
-                List.of(),
+                spawners,
                 true);
         level.noSave = true;
         server.registerLevel(level);
@@ -202,10 +223,13 @@ final class Sandbox {
         level.getRandom().setSeed(seed);
         seedRandValue(level, seed);
         seedLootSequences(level, seed);
+        seedSounds(level, seed);
         Sandbox sb = new Sandbox(id, level, data, minChunkX, minChunkZ, maxChunkX, maxChunkZ, seed);
         sb.installDropSeeder(entityManager);
         return sb;
     }
+
+    private static final Field TRADER_RANDOM = field(net.minecraft.world.entity.npc.wanderingtrader.WanderingTraderSpawner.class, "random");
 
     // ---- shulker study (clk-rt): reproducible drops ---------------------------------------------
 
@@ -219,6 +243,88 @@ final class Sandbox {
     private long dispenseIndex;
     /** Entities that entered this sandbox so far (see {@link #entityIdBase}). */
     private int entityCount;
+
+    // ---- tickexact (2026-11-08): every entity's own random seeded (Exact) ----------------------
+
+    /** Every entity this sandbox seeded (Exact): its random's seed, its brain's generation. */
+    final java.util.Map<Entity, Exact.Seeded> seeded = new java.util.WeakHashMap<>();
+    /** Design mobs {@link #summonSeeded} seeded before they entered (onCreated leaves them). */
+    private final java.util.Set<Entity> preSeeded = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    /** Swap every entity's random (and the level's) for a tracing one as it enters (Exact.TracingRandom). */
+    boolean traceRandoms;
+    /** Raids whose own random this sandbox seeded (by identity). */
+    private final java.util.Set<Object> seededRaids = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+
+    private static final Field KNOWN_UUIDS = field(PersistentEntitySectionManager.class, "knownUuids");
+
+    /** The level's UUID set knew the entity by its constructor's UUID: by its new one now. */
+    @SuppressWarnings("unchecked")
+    private void renameUuid(java.util.UUID old, java.util.UUID now) {
+        if (old.equals(now)) {
+            return;
+        }
+        java.util.Set<java.util.UUID> known = (java.util.Set<java.util.UUID>) get(KNOWN_UUIDS, get(ENTITY_MANAGER, this.level));
+        known.remove(old);
+        known.add(now);
+    }
+
+    /** Which constructor made the item entering now, and whether its drift stayed (Exact.ItemPath). */
+    private static Exact.ItemPath itemPath() {
+        return StackWalker.getInstance().walk(frames -> {
+            for (StackWalker.StackFrame f : (Iterable<StackWalker.StackFrame>) frames::iterator) {
+                String c = f.getClassName();
+                String m = f.getMethodName();
+                if (c.equals("net.minecraft.world.entity.Entity") && m.equals("spawnAtLocation")) {
+                    return Exact.ItemPath.DRIFT_KEPT;
+                }
+                if ((c.equals("net.minecraft.world.entity.ai.behavior.BehaviorUtils") && m.equals("throwItem"))
+                        || (c.equals("net.minecraft.world.Containers") && m.equals("dropItemStack"))) {
+                    return Exact.ItemPath.DRIFT_REPLACED;
+                }
+            }
+            return Exact.ItemPath.NO_DRIFT;
+        });
+    }
+
+    /**
+     * Before each tick: a brain rebuilt since the last tick ({@code Villager.refreshBrain}) gets
+     * its shuffling lists seeded (the next generation), and a raid started since gets its own
+     * random seeded from the sandbox seed and the raid's id ({@code Raid.random}, raid farms).
+     */
+    private void seedBeforeTick() {
+        if (!this.seeded.isEmpty()) {
+            Exact.refreshBrains(entities(), this.seeded);
+        }
+        seedRaids();
+    }
+
+    private static final Field RAID_MAP = field(net.minecraft.world.entity.raid.Raids.class, "raidMap");
+    private static final Field RAID_RANDOM = field(net.minecraft.world.entity.raid.Raid.class, "random");
+
+    @SuppressWarnings("unchecked")
+    private void seedRaids() {
+        java.util.Map<Integer, net.minecraft.world.entity.raid.Raid> raids =
+                (java.util.Map<Integer, net.minecraft.world.entity.raid.Raid>) get(RAID_MAP, this.level.getRaids());
+        if (raids.isEmpty()) {
+            return;
+        }
+        for (java.util.Map.Entry<Integer, net.minecraft.world.entity.raid.Raid> r : raids.entrySet()) {
+            if (this.seededRaids.add(r.getValue())) {
+                ((RandomSource) get(RAID_RANDOM, r.getValue())).setSeed(Exact.raidSeed(this.seed, r.getKey()));
+            }
+        }
+    }
+
+    private static final Field SOUND_SEEDS = field(Level.class, "soundSeedGenerator");
+
+    /**
+     * The level's sound-seed generator ({@code Level.soundSeedGenerator}, thread-safe and unseeded
+     * in vanilla): each sound the server plays draws the seed clients pick its variant with. No
+     * game state reads it; seeded so a run's packets are reproducible too.
+     */
+    private static void seedSounds(ServerLevel level, long seed) {
+        ((RandomSource) get(SOUND_SEEDS, level)).setSeed(seed ^ 0x736f756e64L);
+    }
 
     /**
      * The id of this sandbox's first entity: every entity that enters the sandbox (summoned,
@@ -271,7 +377,19 @@ final class Sandbox {
         @Override
         public void onCreated(Entity e) {
             // deterministic ids for every entity, before it is tracked (the level's id lookup)
-            e.setId(entityIdBase() + entityCount++);
+            int n = entityCount++;
+            e.setId(entityIdBase() + n);
+            try {
+                seedEntering(e, n);
+            } finally {
+                if (traceRandoms && e.getRandom() instanceof net.minecraft.world.level.levelgen.LegacyRandomSource) {
+                    Exact.traceEntity(e, n);
+                }
+                this.vanilla.onCreated(e);
+            }
+        }
+
+        private void seedEntering(Entity e, int n) {
             if (ticking && e instanceof ItemEntity item && fromPopResource()) {
                 // popResource put it at the cell's center + [-0.25, 0.25) on each axis (y minus
                 // half the item's height); recover the cell, then draw everything from the
@@ -300,12 +418,22 @@ final class Sandbox {
                 item.setYRot(r.nextFloat() * 360.0F);
                 r.nextDouble();
                 r.nextDouble();
+            } else if (preSeeded.remove(e)) {
+                // a design mob: summonSeeded seeded it before its data loaded
+            } else if (!e.entityTags().contains(DESIGN_TAG)) {
+                // (tickexact 2026-11-08) every other entity: its own random from the sandbox seed
+                // and its number, the constructor's draws redone (Exact)
+                java.util.UUID old = e.getUUID();
+                Exact.ItemPath path = e instanceof ItemEntity ? itemPath() : Exact.ItemPath.NONE;
+                Exact.Seeded info = Exact.seed(e, seed, n, false, true, path);
+                renameUuid(old, e.getUUID());
+                seeded.put(e, info);
             }
-            this.vanilla.onCreated(e);
         }
 
         @Override
         public void onDestroyed(Entity e) {
+            seeded.remove(e);
             this.vanilla.onDestroyed(e);
         }
 
@@ -411,6 +539,13 @@ final class Sandbox {
         this.prevEntityPos.clear();
         for (Entity e : designEntities()) {
             this.prevEntityPos.put(e.getUUID(), e.position());
+        }
+        seedBeforeTick();
+        // a world sandbox (tickexact): 26.3's day time is the server's clock, ticked by
+        // MinecraftServer.tickChildren before the levels (ServerClockManager.tick reads the
+        // ADVANCE_TIME rule itself)
+        if (this.tickClock) {
+            server.clockManager().tick();
         }
         this.ticking = true;
         try {
@@ -529,14 +664,8 @@ final class Sandbox {
      * checked against, tick by tick (trace-export's "rng"). Read-only (clk-misc, 2026-10-20).
      */
     long randomState() {
-        Object random = this.level.getRandom();
-        try {
-            Field f = random.getClass().getDeclaredField("seed");
-            f.setAccessible(true);
-            return ((java.util.concurrent.atomic.AtomicLong) f.get(random)).get();
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException("the level random " + random.getClass().getName() + " has no seed field", e);
-        }
+        // (tickexact) Exact.state reads LegacyRandomSource.seed, also through a tracing random
+        return Exact.state(this.level.getRandom());
     }
 
     int blockEventCount() {
@@ -697,6 +826,14 @@ final class Sandbox {
     }
 
     List<Entity> summon(com.google.gson.JsonArray specs) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        return summon(specs, false);
+    }
+
+    /**
+     * {@code mobs}: a spec may hold mobs, with passengers (tickexact): each tree is built by
+     * {@link #summonSeeded}.
+     */
+    List<Entity> summon(com.google.gson.JsonArray specs, boolean mobs) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
         List<Entity> out = new ArrayList<>();
         // Numbered after the design entities already there (a drive script can summon more); a
         // number whose UUID one of them still holds is skipped (after a design entity left, e.g.
@@ -708,6 +845,12 @@ final class Sandbox {
         }
         int i = taken.size();
         for (com.google.gson.JsonElement el : specs) {
+            if (mobs) {
+                int[] index = {i};
+                out.addAll(summonSeeded(el.getAsJsonObject(), taken, index));
+                i = index[0];
+                continue;
+            }
             com.google.gson.JsonObject s = el.getAsJsonObject();
             String type = s.get("type").getAsString();
             com.google.gson.JsonArray p = s.getAsJsonArray("pos");
@@ -754,6 +897,112 @@ final class Sandbox {
             i++;
         }
         return out;
+    }
+
+    /**
+     * (tickexact 2026-11-08) Summon one design entity tree that may hold mobs, deterministically.
+     * Each entity of the tree (the root, then its passengers depth first: the order they enter the
+     * sandbox) is built by its type's constructor; a mob's own random is seeded as the entity number
+     * it will get ({@link Exact#seed}: the constructor's draws redone, its random yaw kept) BEFORE its
+     * data loads, so whatever loading draws (a villager's {@code refreshBrain}: its sensor delays
+     * again) comes from the seeded random. A non-mob keeps the design entities' seeding
+     * ({@code 0x6d63746173 + i}). Every entity gets its design UUID and the design tag. Optional:
+     * {@code follow_bonus} (one number per mob of the tree, in tree order: the follow-range modifier
+     * {@code random_spawn_bonus}, a run input: a mob the player brought in has one), {@code finalize}
+     * (each mob's {@code finalizeSpawn} with reason COMMAND, drawing from the level random, as
+     * {@code /summon} without data does).
+     */
+    private List<Entity> summonSeeded(com.google.gson.JsonObject s, java.util.Set<UUID> taken, int[] index) {
+        String type = s.get("type").getAsString();
+        com.google.gson.JsonArray p = s.getAsJsonArray("pos");
+        double x = p.get(0).getAsDouble();
+        double y = p.get(1).getAsDouble();
+        double z = p.get(2).getAsDouble();
+        net.minecraft.nbt.CompoundTag tag;
+        try {
+            tag = s.has("nbt") && !s.get("nbt").isJsonNull()
+                    ? net.minecraft.nbt.TagParser.parseCompoundFully(s.get("nbt").getAsString())
+                    : new net.minecraft.nbt.CompoundTag();
+        } catch (com.mojang.brigadier.exceptions.CommandSyntaxException ex) {
+            throw new IllegalArgumentException("bad nbt for " + type + ": " + ex.getMessage());
+        }
+        tag.putString("id", type);
+        attachAt(tag, type, x, y, z);
+        net.minecraft.world.level.storage.ValueInput input = net.minecraft.world.level.storage.TagValueInput.create(
+                net.minecraft.util.ProblemReporter.DISCARDING, this.level.registryAccess(), tag);
+        List<Entity> tree = new ArrayList<>();
+        int[] next = {this.entityCount};
+        Entity root = buildSeeded(input, x, y, z, next, tree);
+        com.google.gson.JsonArray bonus = s.has("follow_bonus") ? s.getAsJsonArray("follow_bonus") : new com.google.gson.JsonArray();
+        boolean finalize = s.has("finalize") && s.get("finalize").getAsBoolean();
+        int m = 0;
+        for (Entity e : tree) {
+            if (e instanceof net.minecraft.world.entity.Mob mob) {
+                if (m < bonus.size() && !bonus.get(m).isJsonNull()) {
+                    mob.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.FOLLOW_RANGE).addPermanentModifier(
+                            new net.minecraft.world.entity.ai.attributes.AttributeModifier(
+                                    net.minecraft.resources.Identifier.withDefaultNamespace("random_spawn_bonus"),
+                                    bonus.get(m).getAsDouble(),
+                                    net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation.ADD_MULTIPLIED_BASE));
+                }
+                if (finalize) {
+                    mob.finalizeSpawn(this.level, this.level.getCurrentDifficultyAt(mob.blockPosition()), net.minecraft.world.entity.EntitySpawnReason.COMMAND, null);
+                }
+                m++;
+            }
+            int i = index[0];
+            UUID uuid = UUID.nameUUIDFromBytes(("mctas-entity-" + i).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            while (taken.contains(uuid)) {
+                i++;
+                uuid = UUID.nameUUIDFromBytes(("mctas-entity-" + i).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            taken.add(uuid);
+            e.setUUID(uuid);
+            if (!(e instanceof net.minecraft.world.entity.Mob)) {
+                e.getRandom().setSeed(0x6d63746173L + i);
+            }
+            e.addTag(DESIGN_TAG);
+            index[0] = i + 1;
+        }
+        if (!this.level.tryAddFreshEntityWithPassengers(root)) {
+            throw new IllegalArgumentException("could not add " + type + " (duplicate UUID?)");
+        }
+        for (Entity e : tree) {
+            Exact.Seeded info = this.seeded.get(e);
+            if (info != null && e.getId() - entityIdBase() != info.n) {
+                throw new IllegalStateException(type + ": seeded as entity " + info.n + " but entered as " + (e.getId() - entityIdBase()));
+            }
+        }
+        return tree;
+    }
+
+    /** One entity of a summoned tree and its passengers (see {@link #summonSeeded}). */
+    private Entity buildSeeded(net.minecraft.world.level.storage.ValueInput input, double x, double y, double z, int[] next, List<Entity> tree) {
+        net.minecraft.world.entity.EntityType<?> type = net.minecraft.world.entity.EntityType.by(input)
+                .orElseThrow(() -> new IllegalArgumentException("unknown entity " + input.getStringOr("id", "?")));
+        Entity e = type.create(this.level, new net.minecraft.world.entity.EntitySpawnRequest(net.minecraft.world.entity.EntitySpawnReason.COMMAND, false));
+        if (e == null) {
+            throw new IllegalArgumentException("cannot summon " + input.getStringOr("id", "?"));
+        }
+        int n = next[0]++;
+        Exact.Seeded info = null;
+        if (e instanceof net.minecraft.world.entity.Mob) {
+            info = Exact.seed(e, this.seed, n, true, true, Exact.ItemPath.NONE);
+        }
+        e.load(input);
+        e.snapTo(x, y, z, e.getYRot(), e.getXRot());
+        if (info != null) {
+            // loading may have rebuilt the brain (a villager's refreshBrain): seed the live one
+            Exact.seedBrain(e, info);
+            this.seeded.put(e, info);
+            this.preSeeded.add(e);
+        }
+        tree.add(e);
+        for (net.minecraft.world.level.storage.ValueInput passengerInput : input.childrenListOrEmpty("Passengers")) {
+            Entity passenger = buildSeeded(passengerInput, x, y, z, next, tree);
+            passenger.startRiding(e, true, false);
+        }
+        return e;
     }
 
     /**
@@ -871,10 +1120,62 @@ final class Sandbox {
         this.level.getRandom().setSeed(this.seed);
         seedRandValue(this.level, this.seed);
         seedLootSequences(this.level, this.seed);
+        seedSounds(this.level, this.seed);
         this.dropIndex = 0;
         this.dispenseIndex = 0;
         this.entityCount = 0;
+        this.seeded.clear();
+        this.preSeeded.clear();
+        this.seededRaids.clear();
     }
+
+    /** A world sandbox ticks the server's clock before each of its ticks (see {@link #tick}). */
+    boolean tickClock;
+
+    /** The exact compare's watch (Exact.Watch): the box it reports changes in, and what it saw. */
+    private Exact.Watch watch;
+
+    Exact.Watch watch(com.google.gson.JsonObject box) {
+        int[] from = null;
+        int[] to = null;
+        if (box != null) {
+            com.google.gson.JsonArray f = box.getAsJsonArray("from");
+            com.google.gson.JsonArray t = box.getAsJsonArray("to");
+            from = new int[] {f.get(0).getAsInt(), f.get(1).getAsInt(), f.get(2).getAsInt()};
+            to = new int[] {t.get(0).getAsInt(), t.get(1).getAsInt(), t.get(2).getAsInt()};
+        }
+        if (this.watch == null || !this.watch.sameBox(from, to)) {
+            this.watch = new Exact.Watch(this, from, to);
+        }
+        return this.watch;
+    }
+
+    /**
+     * Trace randoms: the level random and every entity's own random become tracing randoms (the
+     * same LCG, the same state: Exact.TracingRandom), now and as entities enter, so a traced step
+     * can log each draw's call site. Off: entities entering later keep plain randoms.
+     */
+    void setTraceRandoms(boolean on) {
+        this.traceRandoms = on;
+        if (!on) {
+            return;
+        }
+        RandomSource r = this.level.getRandom();
+        if (!(r instanceof Exact.TracingRandom)) {
+            try {
+                LEVEL_RANDOM.set(this.level, new Exact.TracingRandom("level", Exact.state(r)));
+            } catch (IllegalAccessException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+        for (Entity e : entities()) {
+            if (e.getRandom() instanceof net.minecraft.world.level.levelgen.LegacyRandomSource) {
+                Exact.traceEntity(e, e.getId() - entityIdBase());
+            }
+        }
+    }
+
+    private static final Field LEVEL_RANDOM = field(Level.class, "random");
 
     /**
      * Save, unload and load again every chunk of the sandbox, without ticking the world: a player

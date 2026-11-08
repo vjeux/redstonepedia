@@ -12,3 +12,4 @@ clap.workspace = true
 mctas = { path = "../mctas" }
 redsim = { path = "../redsim" }
 circuit = { path = "../circuit" }
+serde_json.workspace = true

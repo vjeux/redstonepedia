@@ -163,6 +163,9 @@ public final class Protocol {
             case "events" -> events(sandbox(r));
             case "entities" -> entities(r);
             case "summon" -> summon(r);
+            case "world" -> world(r);
+            case "memory" -> memory(r);
+            case "trace" -> trace(r);
             case "leash" -> leash(r);
             case "update" -> update(r);
             case "build" -> build(r);
@@ -205,8 +208,9 @@ public final class Protocol {
             maxCZ = c.get(3).getAsInt();
         }
         long seed = r.has("seed") ? r.get("seed").getAsLong() : 0L;
+        boolean customSpawners = r.has("custom_spawners") && r.get("custom_spawners").getAsBoolean();
         int id = this.nextSandboxId++;
-        Sandbox sb = Sandbox.create(this.server, id, minCX, minCZ, maxCX, maxCZ, seed);
+        Sandbox sb = Sandbox.create(this.server, id, minCX, minCZ, maxCX, maxCZ, seed, customSpawners);
         this.sandboxes.put(id, sb);
         JsonObject o = new JsonObject();
         o.addProperty("sandbox", id);
@@ -667,15 +671,204 @@ public final class Protocol {
         return j;
     }
 
-    /** Summon a design's entities ({@code entities: [{type, pos, nbt?}]}, see Sandbox#summon). */
+    /**
+     * Summon a design's entities ({@code entities: [{type, pos, nbt?}]}, see Sandbox#summon);
+     * {@code mobs: true} (tickexact): mobs and passengers allowed, seeded (Sandbox#summonSeeded),
+     * each spec may add {@code follow_bonus} and {@code finalize}. {@code net_ids}: each summoned
+     * entity's number in the sandbox, tree order.
+     */
     private JsonObject summon(JsonObject r) throws CommandSyntaxException {
         Sandbox sb = sandbox(r);
+        boolean mobs = r.has("mobs") && r.get("mobs").getAsBoolean();
         JsonArray uuids = new JsonArray();
-        for (Entity e : sb.summon(r.getAsJsonArray("entities"))) {
+        JsonArray netIds = new JsonArray();
+        for (Entity e : sb.summon(r.getAsJsonArray("entities"), mobs)) {
             uuids.add(e.getStringUUID());
+            netIds.add(e.getId() - sb.entityIdBase());
         }
         JsonObject o = new JsonObject();
         o.add("uuids", uuids);
+        o.add("net_ids", netIds);
+        return o;
+    }
+
+    /**
+     * (tickexact) Make a sandbox a world sandbox: the overworld's clock, weather and game rules,
+     * which 26.3 keeps server-wide (so the worker must hold this sandbox alone). Fields, each
+     * optional: {@code advance_time}, {@code advance_weather}, {@code spawn_mobs},
+     * {@code spawn_monsters} (booleans: game rules), {@code rules} ({@code {name: value}}: any other
+     * game rule, by its id), {@code day_time} (the overworld clock's total ticks now),
+     * {@code difficulty} ("peaceful".."hard"), {@code weather} ({@code {clear, rain, thunder,
+     * raining, thundering, rain_level, thunder_level}}: WeatherData and the level's rain and thunder
+     * levels), {@code trace_randoms} (tracing randoms, for draw logs). From then on each tick of the
+     * sandbox ticks the server's clock first (MinecraftServer.tickChildren's order).
+     */
+    private JsonObject world(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        if (this.sandboxes.size() != 1) {
+            throw new IllegalArgumentException("a world sandbox needs a worker of its own: 26.3 keeps the clock, the weather and the game rules server-wide ("
+                    + this.sandboxes.size() + " sandboxes here)");
+        }
+        net.minecraft.world.level.gamerules.GameRules rules = this.server.getGameRules();
+        if (r.has("advance_time")) {
+            rules.set(net.minecraft.world.level.gamerules.GameRules.ADVANCE_TIME, r.get("advance_time").getAsBoolean(), this.server);
+        }
+        if (r.has("advance_weather")) {
+            rules.set(net.minecraft.world.level.gamerules.GameRules.ADVANCE_WEATHER, r.get("advance_weather").getAsBoolean(), this.server);
+        }
+        if (r.has("spawn_mobs")) {
+            rules.set(net.minecraft.world.level.gamerules.GameRules.SPAWN_MOBS, r.get("spawn_mobs").getAsBoolean(), this.server);
+        }
+        if (r.has("spawn_monsters")) {
+            rules.set(net.minecraft.world.level.gamerules.GameRules.SPAWN_MONSTERS, r.get("spawn_monsters").getAsBoolean(), this.server);
+        }
+        if (r.has("rules")) {
+            for (Map.Entry<String, JsonElement> e : r.getAsJsonObject("rules").entrySet()) {
+                setRule(rules, e.getKey(), e.getValue().getAsString());
+            }
+        }
+        if (r.has("day_time")) {
+            var clock = sb.level.registryAccess().get(net.minecraft.world.clock.WorldClocks.OVERWORLD).orElseThrow();
+            this.server.clockManager().setTotalTicks(clock, r.get("day_time").getAsLong());
+        }
+        if (r.has("difficulty")) {
+            net.minecraft.world.Difficulty d = net.minecraft.world.Difficulty.byName(r.get("difficulty").getAsString());
+            if (d == null) {
+                throw new IllegalArgumentException("unknown difficulty " + r.get("difficulty"));
+            }
+            sb.data.setDifficulty(d);
+            this.server.setDifficulty(d, true);
+        }
+        if (r.has("weather")) {
+            JsonObject w = r.getAsJsonObject("weather");
+            net.minecraft.world.level.saveddata.WeatherData wd = this.server.getWeatherData();
+            if (w.has("clear")) {
+                wd.setClearWeatherTime(w.get("clear").getAsInt());
+            }
+            if (w.has("rain")) {
+                wd.setRainTime(w.get("rain").getAsInt());
+            }
+            if (w.has("thunder")) {
+                wd.setThunderTime(w.get("thunder").getAsInt());
+            }
+            if (w.has("raining")) {
+                wd.setRaining(w.get("raining").getAsBoolean());
+            }
+            if (w.has("thundering")) {
+                wd.setThundering(w.get("thundering").getAsBoolean());
+            }
+            if (w.has("rain_level")) {
+                sb.level.setRainLevel(w.get("rain_level").getAsFloat());
+            }
+            if (w.has("thunder_level")) {
+                sb.level.setThunderLevel(w.get("thunder_level").getAsFloat());
+            }
+        }
+        if (r.has("trace_randoms")) {
+            sb.setTraceRandoms(r.get("trace_randoms").getAsBoolean());
+        }
+        sb.tickClock = true;
+        JsonObject o = new JsonObject();
+        o.addProperty("day_time", sb.level.getOverworldClockTime());
+        return o;
+    }
+
+    /** Set the game rule named {@code name} (its registry id: "spawn_phantoms", ...) from text. */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void setRule(net.minecraft.world.level.gamerules.GameRules rules, String name, String value) {
+        net.minecraft.world.level.gamerules.GameRule rule = BuiltInRegistries.GAME_RULE
+                .getOptional(net.minecraft.resources.Identifier.withDefaultNamespace(name))
+                .orElseThrow(() -> new IllegalArgumentException("unknown game rule " + name));
+        Object current = rules.get(rule);
+        Object v;
+        if (current instanceof Boolean) {
+            v = Boolean.parseBoolean(value);
+        } else if (current instanceof Integer) {
+            v = Integer.parseInt(value);
+        } else {
+            throw new IllegalArgumentException("game rule " + name + ": unsupported type " + current.getClass().getSimpleName());
+        }
+        rules.set(rule, v, this.server);
+    }
+
+    /**
+     * (tickexact) Set brain memories of entity {@code entity} (its net id): {@code memories:
+     * {"home": [x,y,z], "last_slept": 123, ...}} (a position memory takes [x,y,z] in this sandbox,
+     * a time memory a number, a flag memory true; {@code ttl} per memory: {@code {"golem_detected_recently":
+     * {value: true, ttl: 600}}}). {@code take_poi: true}: a position memory naming a POI also takes
+     * its ticket, as {@code AcquirePoi} does when a villager claims it.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private JsonObject memory(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        int n = r.get("entity").getAsInt();
+        Entity e = sb.level.getEntity(sb.entityIdBase() + n);
+        if (!(e instanceof net.minecraft.world.entity.LivingEntity living)) {
+            throw new IllegalArgumentException("memory: no living entity #" + n);
+        }
+        boolean takePoi = r.has("take_poi") && r.get("take_poi").getAsBoolean();
+        net.minecraft.world.entity.ai.Brain brain = living.getBrain();
+        for (Map.Entry<String, JsonElement> m : r.getAsJsonObject("memories").entrySet()) {
+            net.minecraft.world.entity.ai.memory.MemoryModuleType type = BuiltInRegistries.MEMORY_MODULE_TYPE
+                    .getOptional(net.minecraft.resources.Identifier.withDefaultNamespace(m.getKey()))
+                    .orElseThrow(() -> new IllegalArgumentException("unknown memory " + m.getKey()));
+            JsonElement v = m.getValue();
+            Long ttl = null;
+            if (v.isJsonObject()) {
+                JsonObject vo = v.getAsJsonObject();
+                ttl = vo.has("ttl") ? vo.get("ttl").getAsLong() : null;
+                v = vo.get("value");
+            }
+            Object value;
+            if (v.isJsonArray()) {
+                int[] p = ints(v.getAsJsonArray());
+                BlockPos pos = new BlockPos(p[0], p[1], p[2]);
+                value = net.minecraft.core.GlobalPos.of(sb.level.dimension(), pos);
+                if (takePoi) {
+                    sb.level.getPoiManager().take(t -> true, (t, q) -> q.equals(pos), pos, 1)
+                            .orElseThrow(() -> new IllegalArgumentException("memory " + m.getKey() + ": no free POI at " + pos.toShortString()));
+                }
+            } else if (v.getAsJsonPrimitive().isBoolean()) {
+                value = v.getAsBoolean();
+            } else {
+                value = v.getAsLong();
+            }
+            if (ttl == null) {
+                brain.setMemory(type, value);
+            } else {
+                brain.setMemoryWithExpiry(type, value, ttl);
+            }
+        }
+        return new JsonObject();
+    }
+
+    /**
+     * (tickexact) Step with a frame per tick for the exact compare ({@code ticks}; {@code box:
+     * {from, to}}: report block and block-entity changes there; {@code draws}: each tick's draw log,
+     * needs {@code trace_randoms}). A frame: {@code t} (game time), {@code day} (the overworld
+     * clock), {@code rng}/{@code rv} (the level random's state, randValue), {@code weather},
+     * {@code entities} (Exact#entityFrame, every entity), {@code entered}/{@code left} (entity
+     * numbers), {@code blocks}/{@code bes} (changes in the box since the previous frame: [x, y, z,
+     * state] / [x, y, z, dump]), {@code draws}.
+     */
+    private JsonObject trace(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        int ticks = r.has("ticks") ? r.get("ticks").getAsInt() : 1;
+        boolean draws = r.has("draws") && r.get("draws").getAsBoolean();
+        Exact.Watch watch = sb.watch(r.has("box") ? r.getAsJsonObject("box") : null);
+        JsonArray frames = new JsonArray();
+        for (int i = 0; i < ticks; i++) {
+            Exact.DrawLog log = draws ? new Exact.DrawLog() : null;
+            Exact.drawLog = log;
+            try {
+                sb.tick(this.server);
+            } finally {
+                Exact.drawLog = null;
+            }
+            frames.add(watch.frame(sb, log));
+        }
+        JsonObject o = new JsonObject();
+        o.add("frames", frames);
         return o;
     }
 

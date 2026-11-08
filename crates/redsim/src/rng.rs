@@ -123,6 +123,81 @@ pub fn state_diff(game: i64, ours: i64) -> Option<String> {
     Some(format!("level random: game {game}, redsim {ours} ({why})"))
 }
 
+// ---- the stream registry (tickexact, 2026-11-08) ------------------------------------------------
+//
+// Every random a mob, spawn, weather or fire path draws from is seeded by the bridge from the
+// sandbox seed (docs/mechanics.md "The bridge's seeds"; bridge `Exact.java`), and redsim draws the
+// same values from the same streams:
+//
+// * the level random: `LegacyRandom::new(seed)` ([`World::mirror_level_random`], the chunk tick
+//   order with it), `randValue` = `(seed ^ 0x72616E64) as i32`, the loot sequences' salt
+//   (`stems::loot_salt`);
+// * entity n's own random: [`entity_seed`] (n = its id: the n-th entity to enter, from 0), then
+//   the constructor's draws in the game's order ([`replay_uuid`], the yaw, the sensors...);
+// * each brain's shuffling lists (`GateBehavior`/`RunOne`, `TriggerGate`): [`shuffle_seed`];
+// * a raid's own random: [`raid_seed`]; the wandering trader spawner's: [`trader_seed`];
+// * popResource drops ([`Drop`]) and dispensed items (`World::spawn_dispensed`) keep their own
+//   seeding (the shulker and elevator studies).
+
+/// The golden-ratio increment of SplitMix64 (`RandomSupport.GOLDEN_RATIO_64`).
+pub const GOLDEN: i64 = 0x9E37_79B9_7F4A_7C15_u64 as i64;
+
+/// `RandomSupport.mixStafford13` (SplitMix64's finalizer).
+pub fn mix_stafford13(z: i64) -> i64 {
+    let mut z = z as u64;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    (z ^ (z >> 31)) as i64
+}
+
+/// The seed of entity `n`'s own random in a bridge sandbox seeded `seed` (`Exact.entitySeed`):
+/// SplitMix64's (n + 1)-th step from `seed ^ "entity"`.
+pub fn entity_seed(seed: i64, n: u32) -> i64 {
+    mix_stafford13((seed ^ 0x656e_7469_7479).wrapping_add((n as i64 + 1).wrapping_mul(GOLDEN)))
+}
+
+/// Java's `String.hashCode` (over UTF-16 code units).
+pub fn java_string_hash(s: &str) -> i32 {
+    let mut h: i32 = 0;
+    for u in s.encode_utf16() {
+        h = h.wrapping_mul(31).wrapping_add(u as i32);
+    }
+    h
+}
+
+/// The seed of the shuffling list at `key` of a brain whose entity's random was seeded
+/// `entity_seed` (`Exact.shuffleSeed`): key = `"<generation>/<activity>/<priority>/<index>"`, then
+/// `"/<k>"` per nested gate, `"#<j>"` for the j-th list in a closure (`TriggerGate`).
+pub fn shuffle_seed(entity_seed: i64, key: &str) -> i64 {
+    mix_stafford13(entity_seed.wrapping_add((java_string_hash(key) as i64).wrapping_mul(GOLDEN)))
+}
+
+/// The seed of raid `id`'s own random (`Exact.raidSeed`).
+pub fn raid_seed(seed: i64, id: i32) -> i64 {
+    mix_stafford13((seed ^ 0x7261_6964).wrapping_add((id as i64).wrapping_mul(GOLDEN)))
+}
+
+/// The seed of a world sandbox's wandering trader spawner random (`Exact.traderSeed`).
+pub fn trader_seed(seed: i64) -> i64 {
+    mix_stafford13((seed ^ 0x7472_6164_6572).wrapping_add(GOLDEN))
+}
+
+/// `Mth.createInsecureUUID(random)`: the entity constructor's first draws (2 `nextLong`), as the
+/// UUID's (most, least) significant bits.
+pub fn replay_uuid(r: &mut LegacyRandom) -> (i64, i64) {
+    let most = r.next_long() & -61441 | 16384;
+    let least = r.next_long() & 4_611_686_018_427_387_903 | i64::MIN;
+    (most, least)
+}
+
+/// Entity `n`'s own random in a sandbox seeded `seed`, past the `Entity` constructor's UUID draws
+/// (the next draws are the subclasses' constructors': a living entity's yaw, its sensors...).
+pub fn entity_random(seed: i64, n: u32) -> LegacyRandom {
+    let mut r = LegacyRandom::new(entity_seed(seed, n));
+    replay_uuid(&mut r);
+    r
+}
+
 /// A drop as the bridge places it (`Sandbox.DropSeeder`): where, its yaw, its motion.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Drop {
