@@ -2399,17 +2399,19 @@ fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
         strip.push((x, c.doz_a + 1));
         strip.push((x, c.doz_a + 2));
     }
-    for z in c.doz_a + 3..=c.doz_b + 2 {
+    // One continuous laying path (each placement beside the last; a jump back north
+    // for the east column after finishing in the south made its first placement fail):
+    // east-side route supports southward, then the branch stand rows northward.
+    for z in c.doz_a + 2..=c.doz_b + 1 {
+        strip.push((c.dix + 3, z));
+    }
+    for z in (c.doz_a + 3..=c.doz_b + 2).rev() {
         if z == c.doz_b {
             continue; // portal B's own bottom frame row already occupies these cells
         }
-        strip.push((c.dix, z));
-        strip.push((c.dix + 1, z));
         strip.push((c.dix + 2, z));
-    }
-    // Supports for the branch dust's east-side route around portal B (see below).
-    for z in c.doz_a + 2..=c.doz_b + 1 {
-        strip.push((c.dix + 3, z));
+        strip.push((c.dix + 1, z));
+        strip.push((c.dix, z));
     }
     for (x, z) in strip {
         if plate_cells.contains(&(x, z)) {
@@ -2418,8 +2420,8 @@ fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
         p.place_at("overworld", [x, 2, z], "minecraft:stone", None)?;
     }
     // Hoppers under the plates, then the plates themselves. The strip ends at the
-    // branch's south end; walk the same aisle route back west first.
-    p.walk_path(&[(c.dix + 1, c.doz_b + 2), (c.dix + 1, c.doz_a + 3), (c.rox, c.doz_a + 3), (c.rox, c.doz_a + 2)])?;
+    // branch's north end; walk the main aisle back west first.
+    p.walk_path(&[(c.dix + 1, c.doz_a + 3), (c.rox, c.doz_a + 3), (c.rox, c.doz_a + 2)])?;
     p.hold("hopper")?;
     for (x, z) in plate_cells {
         p.place_at("overworld", [x, 2, z], "minecraft:hopper", None)?;
