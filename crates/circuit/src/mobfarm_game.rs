@@ -122,6 +122,9 @@ impl Window {
 pub struct BuildRun {
     pub turns: u8,
     pub offset: [i32; 3],
+    /// The run's seed (redsim's steady state, the weather's draw): a failing run reproduces with
+    /// it.
+    pub seed: i64,
     pub windows: Vec<Window>,
     pub golems: u32,
     pub deaths: u32,
@@ -296,11 +299,16 @@ fn snbt_holds(got: &redsim::redstone::container::Snbt, want: &redsim::redstone::
 #[derive(Clone, Debug)]
 struct Golem {
     born: u32,
+    /// Where it was first seen (its spawn cell, give or take a sample's 20 gt of walking).
+    first: [f64; 3],
     last: [f64; 3],
     dead: bool,
     seen: bool,
     /// Already reported (each golem's failure once).
     reported: bool,
+    /// Not the farm's (in a terrain sample: a golem standing outside the farm at the start, the
+    /// village's): never counted, never checked.
+    foreign: bool,
 }
 
 /// The judge's builds: (turns, offset).
@@ -503,7 +511,7 @@ pub fn run_terrain(c: &Circuit, name: &str, k: u8, o: &GateOpts) -> Result<Build
     if o.trace {
         eprintln!("terrain run {k}: {name} offset {:?}, {} cells changed, the AFK bot at {:.1} {:.1} {:.1}, weather {saved:?}", site.offset, built.blocks.len(), site.afk.x, site.afk.y, site.afk.z);
     }
-    let run = BuildRun { turns: k, offset: site.offset, ..Default::default() };
+    let run = BuildRun { turns: k, offset: site.offset, seed, ..Default::default() };
     let p = Prepared { entities: spec.entities.clone(), scope: Scope::terrain(&spec), label: format!("terrain run {k}"), day0: ro.day0, spec, built, seats, output, boxes };
     run_farm(s, p, run, o, t0)
 }
@@ -565,7 +573,7 @@ pub fn run_build(c: &Circuit, turns: u8, offset: [i32; 3], o: &GateOpts) -> Resu
     let output = [spec.output.x, spec.output.y, spec.output.z];
     let boxes = containers(&blocks, output);
     let (mut s, _bot) = start_server(o, &spec)?;
-    let mut run = BuildRun { turns, offset, ..Default::default() };
+    let mut run = BuildRun { turns, offset, seed, ..Default::default() };
     // the weather toward its long-run mix, the farm not built yet
     let mut r = redsim::rng::LegacyRandom::new(seed ^ 0x6761_7465);
     let warm = o.warmup.0 + r.next_int((o.warmup.1 - o.warmup.0).max(1) as i32) as u32;
@@ -731,7 +739,7 @@ fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, 
             let w = windows.last_mut().unwrap();
             w.ticks += 20;
             w.samples += 1;
-            sample(&mut s, &mut run, &mut golems, t, k, inner, &spec, villagers0, zombies0, &scope, &mut windows)?;
+            sample(&mut s, &mut run, &mut golems, t, k, inner, &spec, villagers0, zombies0, &scope, &mut windows, &villager_spots, o.trace.then_some(label.as_str()))?;
             // the flammable blocks and the lava: burned away or flowed
             if t % 1000 == 0 {
                 let mut still = Vec::new();
@@ -754,18 +762,48 @@ fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, 
             }
             if o.trace && t % 1000 == 0 {
                 eprintln!("{label} gt {t}: {} golems, {} dead, failures {:?}", run.golems, run.deaths, run.failures);
-                // every entity near the farm by type (a natural mob wandering in, a stray golem)
-                let ids = s.cmd_long(&format!("execute as @e[type=!minecraft:item{near_box}] run data get entity @s id", near_box = if scope.near.is_empty() { String::new() } else { scope.near.clone() }))?;
-                let mut by: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
-                for a in entity_answers(&ids) {
-                    *by.entry(a.trim().trim_matches('"').trim_start_matches("minecraft:").to_string()).or_default() += 1;
+                // the mobs near the farm by type (`data get entity` leaves the type out, so one
+                // count per type: a natural mob wandering in, a stray golem)
+                let mut by: std::collections::BTreeMap<&str, u32> = std::collections::BTreeMap::new();
+                for ty in ["iron_golem", "zombie", "zombie_villager", "skeleton", "creeper", "spider", "witch", "enderman", "skeleton_horse", "drowned", "slime"] {
+                    let n = s.count_entities(&format!("@e[type=minecraft:{ty}{}]", scope.near))?;
+                    if n > 0 {
+                        by.insert(ty, n);
+                    }
                 }
-                eprintln!("  near the farm: {by:?}");
+                eprintln!("  {label} near the farm: {by:?}");
                 if t % 4000 == 0 {
                     let mem = s.cmd_long(&format!("execute as @e[type=minecraft:villager{own}] run data get entity @s Brain.memories"))?;
-                    eprintln!("  villager memories: {}", mem.chars().take(1500).collect::<String>());
+                    eprintln!("  {label} villager memories: {}", mem.chars().take(1500).collect::<String>());
                     let z = s.cmd_long(&format!("execute as @e[type=minecraft:zombie{own}] run data get entity @s Health"))?;
-                    eprintln!("  zombie: {z}");
+                    eprintln!("  {label} zombie: {z}");
+                }
+                // the thunder day in detail (day-1 2026-11-08: D1U's thunder days run slow in the
+                // game): every golem within 16 of each farm villager (GolemSensor: no sight
+                // needed) and where it stands, and every other mob in the farm's box inflated by
+                // (16, 4, 16) (a golem's NearestAttackableTarget reach)
+                let thunder_from = o.days * 24000 + if o.rain_day { 24000 } else { 0 };
+                if o.thunder_day && t >= thunder_from {
+                    let pos_of = |a: &str| list_after(&format!("Pos:{}", a.trim()), "Pos").filter(|p| p.len() == 3);
+                    let in_farm = |p: &[f64]| p[0] >= spec.lo.x as f64 && p[0] < spec.hi.x as f64 + 1.0 && p[1] >= spec.lo.y as f64 && p[1] < spec.hi.y as f64 + 1.0 && p[2] >= spec.lo.z as f64 && p[2] < spec.hi.z as f64 + 1.0;
+                    let vs = entity_answers(&s.cmd_long(&format!("execute as @e[type=minecraft:villager{own}] run data get entity @s Pos"))?);
+                    for (j, v) in vs.iter().filter_map(|a| pos_of(a)).enumerate() {
+                        let gs = entity_answers(&s.cmd_long(&format!("execute positioned {} {} {} as @e[type=minecraft:iron_golem,distance=..16] run data get entity @s Pos", v[0], v[1], v[2]))?);
+                        let list: Vec<String> = gs.iter().filter_map(|a| pos_of(a)).map(|p| format!("{:.1} {:.1} {:.1} ({})", p[0], p[1], p[2], if in_farm(&p) { "in the farm" } else { "outside the farm" })).collect();
+                        eprintln!("  {label} thunder gt {t}: villager {j} at {:.1} {:.1} {:.1}: {} golems within 16: {}", v[0], v[1], v[2], list.len(), list.join("; "));
+                    }
+                    let (lo, hi) = (spec.lo.offset(-16, -4, -16), spec.hi.offset(16, 4, 16));
+                    let area = format!("x={},y={},z={},dx={},dy={},dz={}", lo.x, lo.y, lo.z, hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1);
+                    // `data get entity` leaves the type out (saveWithoutId): one query per type
+                    let mut list: Vec<String> = Vec::new();
+                    for ty in ["zombie", "zombie_villager", "husk", "drowned", "skeleton", "stray", "bogged", "creeper", "spider", "cave_spider", "enderman", "witch", "slime", "skeleton_horse", "zombie_horse", "pillager", "vindicator", "phantom"] {
+                        for a in entity_answers(&s.cmd_long(&format!("execute as @e[type=minecraft:{ty},{area}] run data get entity @s Pos"))?) {
+                            if let Some(p) = pos_of(&a) {
+                                list.push(format!("{ty} at {:.1} {:.1} {:.1}{}", p[0], p[1], p[2], if in_farm(&p) { " (in the farm)" } else { "" }));
+                            }
+                        }
+                    }
+                    eprintln!("  {label} thunder gt {t}: {} mobs in the box +(16, 4, 16): {}", list.len(), list.join("; "));
                 }
             }
             if run.failures.len() >= 4 {
@@ -824,6 +862,8 @@ fn sample(
     zombies0: u32,
     scope: &Scope,
     windows: &mut [Window],
+    villagers: &[[f64; 3]],
+    trace: Option<&str>,
 ) -> Result<()> {
     let (own, near) = (&scope.own, &scope.near);
     let w = windows.last_mut().unwrap();
@@ -879,6 +919,25 @@ fn sample(
     for g in golems.values_mut() {
         g.seen = false;
     }
+    // in a terrain sample, every golem already standing outside the farm at the first sample is
+    // the world's (the village's): marked foreign once, wherever it walks later; and so is one
+    // first seen in the ring around the farm's near box (box +8) out to box +24 (+16 up and down):
+    // it walked in from the village, while a golem the farm spawns appears within its villagers'
+    // search, inside the near box, without ever being in the ring
+    if !scope.all_golems {
+        let (wlo, whi) = (spec.lo.offset(-24, -16, -24), spec.hi.offset(24, 16, 24));
+        let (nlo, nhi) = (spec.lo.offset(-8, -8, -8), spec.hi.offset(8, 8, 8));
+        let wide = if t <= 20 { String::new() } else { format!(",x={},y={},z={},dx={},dy={},dz={}", wlo.x, wlo.y, wlo.z, whi.x - wlo.x + 1, whi.y - wlo.y + 1, whi.z - wlo.z + 1) };
+        for a in entity_answers(&s.cmd_long(&format!("execute as @e[type=minecraft:iron_golem{wide}] run data get entity @s"))?) {
+            let (Some(uuid), Some(pos)) = (list_after(&a, "UUID").map(|v| format!("{v:?}")), list_after(&a, "Pos").filter(|p| p.len() == 3)) else { continue };
+            let p = [pos[0], pos[1], pos[2]];
+            let outside = p[0] < inner.min_x || p[0] > inner.max_x || p[1] < inner.min_y || p[1] > inner.max_y || p[2] < inner.min_z || p[2] > inner.max_z;
+            let in_near = p[0] >= nlo.x as f64 && p[0] < nhi.x as f64 + 1.0 && p[1] >= nlo.y as f64 && p[1] < nhi.y as f64 + 1.0 && p[2] >= nlo.z as f64 && p[2] < nhi.z as f64 + 1.0;
+            if outside && (t <= 20 || !in_near) {
+                golems.entry(uuid).or_insert(Golem { born: t, first: p, last: p, dead: false, seen: true, reported: true, foreign: true });
+            }
+        }
+    }
     for a in entity_answers(&s.cmd_long(&format!("execute as @e[type=minecraft:iron_golem{near}] run data get entity @s"))?) {
         let Some(uuid) = list_after(&a, "UUID").map(|v| format!("{v:?}")) else { continue };
         let pos = list_after(&a, "Pos").unwrap_or_default();
@@ -886,21 +945,44 @@ fn sample(
             continue;
         }
         let p = [pos[0], pos[1], pos[2]];
+        if golems.get(&uuid).is_some_and(|g| g.foreign) {
+            continue;
+        }
         // in a terrain sample a golem is the farm's when first seen inside it (the village's golem
-        // and wanderers are not)
+        // and wanderers are not); one first seen outside the farm but within a farm villager's
+        // golem search (`SpawnUtil.trySpawnMob`: 8 across, 6 up or down), with no village villager
+        // within 24 (a village villager's golem spawns 8 from it and walks: D1U's village-edge
+        // site saw four in 200 gt at the surface above the farm, the village's) is a golem the
+        // farm spawned at a spot it leaves open: the run fails on it, naming the cell and the tick
+        // (an escape is not a rate drop)
         let outside = p[0] < inner.min_x || p[0] > inner.max_x || p[1] < inner.min_y || p[1] > inner.max_y || p[2] < inner.min_z || p[2] > inner.max_z;
         if !scope.all_golems && outside && !golems.contains_key(&uuid) {
+            let searched = villagers.iter().any(|v| (p[0] - v[0]).abs() <= 9.0 && (p[1] - v[1]).abs() <= 7.0 && (p[2] - v[2]).abs() <= 9.0);
+            let village = searched && s.count_entities(&format!("@e[type=minecraft:villager,tag=!mf,x={:.1},y={:.1},z={:.1},dx=48,dy=24,dz=48]", p[0] - 24.0, p[1] - 12.0, p[2] - 24.0))? > 0;
+            if searched && !village {
+                run.fail(format!("gt {t}: a golem appeared outside the farm at {:.1} {:.1} {:.1}, within a farm villager's golem search (a spawn spot the farm leaves open)", p[0], p[1], p[2]));
+            }
+            golems.insert(uuid, Golem { born: t, first: p, last: p, dead: false, seen: true, reported: true, foreign: true });
             continue;
         }
         let health = num_after(&a, "Health").unwrap_or(0.0);
         let death = num_after(&a, "DeathTime").unwrap_or(0.0);
+        let new = !golems.contains_key(&uuid);
         let g = golems.entry(uuid).or_insert_with(|| {
             run.golems += 1;
             windows.last_mut().unwrap().golems += 1;
-            Golem { born: t, last: p, dead: false, seen: true, reported: false }
+            Golem { born: t, first: p, last: p, dead: false, seen: true, reported: false, foreign: false }
         });
         g.seen = true;
         g.last = p;
+        // --trace: every farm golem's spawn (first seen) and, while outside the farm, its path
+        if let Some(label) = trace {
+            if new {
+                eprintln!("  {label} gt {t}: golem spawned (first seen) at {:.1} {:.1} {:.1}", p[0], p[1], p[2]);
+            } else if outside && !g.dead {
+                eprintln!("  {label} gt {t}: golem from gt {} (first seen at {:.1} {:.1} {:.1}) outside the farm at {:.1} {:.1} {:.1}", g.born, g.first[0], g.first[1], g.first[2], p[0], p[1], p[2]);
+            }
+        }
         if !g.dead && (death > 0.0 || health <= 0.0) {
             g.dead = true;
             run.deaths += 1;
@@ -908,7 +990,7 @@ fn sample(
         if !g.dead && !g.reported && checking {
             if p[0] < inner.min_x || p[0] > inner.max_x || p[1] < inner.min_y || p[1] > inner.max_y || p[2] < inner.min_z || p[2] > inner.max_z {
                 g.reported = true;
-                run.fail(format!("gt {t}: a golem left the farm at {:.1} {:.1} {:.1}", p[0], p[1], p[2]));
+                run.fail(format!("gt {t}: a golem left the farm at {:.1} {:.1} {:.1} (first seen at {:.1} {:.1} {:.1} at gt {})", p[0], p[1], p[2], g.first[0], g.first[1], g.first[2], g.born));
             } else if t - g.born > farm::MAX_GOLEM_LIFE as u32 + 20 {
                 g.reported = true;
                 run.fail(format!("gt {t}: a golem spawned by gt {} is still alive at {:.1} {:.1} {:.1} (not killed within {} gt)", g.born, p[0], p[1], p[2], farm::MAX_GOLEM_LIFE));
@@ -918,7 +1000,7 @@ fn sample(
     // a golem no longer listed died (a target selector lists only living entities: a dead golem's
     // 20 death ticks are invisible to `@e`), or left the world; one seen last outside the box was
     // already reported
-    let gone: Vec<String> = golems.iter().filter(|(_, g)| !g.seen && !g.dead).map(|(k, _)| k.clone()).collect();
+    let gone: Vec<String> = golems.iter().filter(|(_, g)| !g.seen && !g.dead && !g.foreign).map(|(k, _)| k.clone()).collect();
     for k in gone {
         let g = &golems[&k];
         let p = g.last;
@@ -1135,7 +1217,7 @@ pub fn gate(c: &Circuit, o: &GateOpts) -> Result<GateReport> {
         match r.unwrap_or_else(|| Err(anyhow!("not run"))) {
             Ok(b) => {
                 for f in &b.failures {
-                    rep.failures.push(format!("build {} (rotation {}, offset {:?}): {f}", k, b.turns, b.offset));
+                    rep.failures.push(format!("build {} (rotation {}, offset {:?}, seed {}): {f}", k, b.turns, b.offset, b.seed));
                 }
                 rep.builds.push(b);
             }

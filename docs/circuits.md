@@ -1329,7 +1329,12 @@ kick) before the first input.
   the box, and the golems first seen inside the farm (the village's golem is not the farm's); a
   trap horse is a `SkeletonTrap` one on the farm (the horsemen of a trap triggered elsewhere ride
   to the AFK player and are not counted); a run whose AFK bot is no longer on the server fails as
-  a harness failure (the chunks around the farm would unload). The paste takes the farm's box and
+  a harness failure (the chunks around the farm would unload). A golem that leaves the farm fails
+  the run with where it was first seen and when; one first seen outside the farm but within a farm
+  villager's golem search (8 across, 6 up or down) fails it too, naming the cell and the tick: the
+  farm spawned it at a spot it leaves open (D1U, 2026-11-08: such a golem lingering near the
+  villagers stalled every spawn for ~9000 gt). Each build line and failure carries the run's
+  seed. The paste takes the farm's box and
   3 around it plus the Site's seals and caps. `circuit verify` and `circuit archive` run a design
   made for terrain (`terrain: cells`, `sample:`) through this mode, and say where the kept world is
   missing. The rates are redsim's terrain runs at the same Site. A

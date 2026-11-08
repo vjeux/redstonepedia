@@ -57,9 +57,10 @@ pub fn gate_cmd(version: &str, design: &Path, a: GateArgs) -> Result<()> {
             .map(|w| format!("{}: {:.1} golems/h ({} golems, raining {}%, thundering {}%)", w.name, w.golems_per_hour(), w.golems, 100 * w.rain_samples / w.samples.max(1), 100 * w.thunder_samples / w.samples.max(1)))
             .collect();
         println!(
-            "build rotation {} offset {:?}: {} golems, {} dead, iron {} in the chest + {} in containers + {} loose{} ({:.2} per dead golem), {} poppies, {} bolts seen, {:.0} s{}",
+            "build rotation {} offset {:?} seed {}: {} golems, {} dead, iron {} in the chest + {} in containers + {} loose{} ({:.2} per dead golem), {} poppies, {} bolts seen, {:.0} s{}",
             b.turns,
             b.offset,
+            b.seed,
             b.golems,
             b.deaths,
             b.iron_chest,
