@@ -2843,6 +2843,18 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         p.checkpoint("owbranch")?;
     }
     if !p.done("machine") {
+        // Coordinator ruling after the starting pick broke in the machine dig (2,032
+        // uses): exactly one identical replacement pick by command, captioned here and
+        // disclosed in NOTES. Nothing else is given; every later action is survival.
+        p.seg_step("pick-replacement", "machine", &[
+            "The starting pick broke in the dig (2,000+ blocks)",
+            "One identical replacement given by command — kit only",
+        ], 1.0, S3)?;
+        p.select(SLOT_PICK)?;
+        p.rcon_ok(&format!("item replace entity {PLAYER} hotbar.0 with minecraft:netherite_pickaxe"))?;
+        p.rcon_ok(&format!("enchant {PLAYER} minecraft:efficiency 5"))?;
+        p.select(SLOT_PICK)?;
+        p.wait(80)?;
         // The generated twin must die or it would steal the trigger items.
         p.seg_step("twin-off", "machine", &[
             "The twin the game generated must go (one frame block)",
@@ -2867,6 +2879,7 @@ fn scenes2(p: &mut Prod) -> Result<()> {
         }
         let pillar = pillar.context("generated twin frame not found near arrival")?;
         p.stand_near(&around, pillar)?;
+        p.select(SLOT_PICK)?;
         p.mine(pillar)?;
         p.loga("generated twin's frame block mined (its portal blocks die with it)");
         p.tp("overworld", c.dix as f64 + 1.5, 3.0, c.doz_a as f64 - 1.5, 0.0, 20.0)?;
