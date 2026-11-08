@@ -1,5 +1,5 @@
 # Middle (M2-open, its hide from the catalog): the bed observer's pulse, stretched to 28 gt by off-delay-ring-L24 (15 blocks with
-# its wiring of 22 dust and 4 glass caps), hides the zombie while the villagers lie down; the dry hole, the open drop and the fire-safe chamber.
+# its wiring of 8 dust and 4 glass caps), hides the zombie while the villagers lie down; the dry hole, the open drop and the fire-safe chamber.
 name: iron-middle-off-delay-ring-L24-6
 circuit: mob-farm iron_ingot
 how: golems fall out of sight to a lava blade
@@ -9,31 +9,30 @@ port output: 3 -24 1
 entity: minecraft:villager 0.5 0.5625 0.5
 entity: minecraft:villager 2.5 0.5625 0.5
 entity: minecraft:villager 4.5 0.5625 0.5
-entity: minecraft:villager 6.5 0.5625 0.5
+entity: minecraft:villager -1.5 0.5625 0.5
 entity: minecraft:oak_boat 2.5 0.5 -6.8 {Passengers:[{id:"minecraft:zombie"}]}
-origin: -1 0 -7
+origin: -3 0 -7
 palette:
-  A minecraft:comparator[facing=south,mode=compare,powered=false]
+  A minecraft:comparator[facing=north,mode=compare,powered=false]
   B minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
   C minecraft:chest[facing=north,type=single,waterlogged=false]
   D minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
-  E minecraft:observer[facing=west,powered=false]
-  F minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+  E minecraft:observer[facing=south,powered=false]
+  F minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=none]
   G minecraft:glass
   H minecraft:hopper[enabled=true,facing=down]
-  I minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
-  J minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
-  K minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=none]
+  I minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+  J minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+  K minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
   L minecraft:lava[level=0]
   M minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
   N minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
   O minecraft:oak_fence_gate[facing=east,in_wall=false,open=true,powered=false]
   P minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
-  Q minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  Q minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
   R minecraft:red_bed[facing=north,occupied=false,part=foot]
-  S minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
-  T minecraft:repeater[delay=2,facing=west,locked=false,powered=false]
-  U minecraft:stone_slab[type=bottom,waterlogged=false]
+  S minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+  T minecraft:stone_slab[type=bottom,waterlogged=false]
   W minecraft:water[level=0]
   c minecraft:comparator[facing=east,mode=compare,powered=false]
   h minecraft:hopper[enabled=true,facing=east]
@@ -49,7 +48,7 @@ layer -24:
   .
   .
   .
-  ....C
+  ......C
   .
   .
   .
@@ -65,14 +64,14 @@ layer -23:
   .
   .
   .
-  .s....s
-  .sshHss
-  .ssssss
-  .ssssss
-  .ssssss
-  .ssssss
-  .ssssss
-  .ssssss
+  ...s....s
+  ...sshHss
+  ...ssssss
+  ...ssssss
+  ...ssssss
+  ...ssssss
+  ...ssssss
+  ...ssssss
   .
 layer -22:
   .
@@ -82,14 +81,14 @@ layer -22:
   .
   .
   .
-  .ssssss
-  .s....s
-  .s....s
-  .s....s
-  .s....s
-  .s....s
-  .sW..Ws
-  .ssssss
+  ...ssssss
+  ...s....s
+  ...s....s
+  ...s....s
+  ...s....s
+  ...s....s
+  ...sW..Ws
+  ...ssssss
   .
 layer -21:
   .
@@ -99,14 +98,14 @@ layer -21:
   .
   .
   .
-  .ssssss
-  .sOOOOs
-  .s....s
-  .s....s
-  .s....s
-  .s....s
-  .s....s
-  .ssssss
+  ...ssssss
+  ...sOOOOs
+  ...s....s
+  ...s....s
+  ...s....s
+  ...s....s
+  ...s....s
+  ...ssssss
   .
 layer -20:
   .
@@ -116,14 +115,14 @@ layer -20:
   .
   .
   .
-  .ssssss
-  .sLLLLs
-  .sOOOOs
-  .s....s
-  .s....s
-  .s....s
-  .s....s
-  .ssssss
+  ...ssssss
+  ...sLLLLs
+  ...sOOOOs
+  ...s....s
+  ...s....s
+  ...s....s
+  ...s....s
+  ...ssssss
   .
 layer -19:
   .
@@ -133,9 +132,9 @@ layer -19:
   .
   .
   .
-  .ssssss
-  .ssssss
-  .ssssss
+  ...ssssss
+  ...ssssss
+  ...ssssss
   .
   .
   .
@@ -339,12 +338,12 @@ layer -7:
   .
   .
   .
-  .ssssss
-  .soooos
-  .so..os
-  .so..os
-  .soooos
-  .ssssss
+  ...ssssss
+  ...soooos
+  ...so..os
+  ...so..os
+  ...soooos
+  ...ssssss
   .
 layer -6:
   .
@@ -355,14 +354,14 @@ layer -6:
   .
   .
   .
-  GGGGGGGG
-  GW....WG
-  G......G
-  G..oo..G
-  G..oo..G
-  G......G
-  GW....WG
-  GGGGGGGG
+  ..GGGGGGGG
+  ..GW....WG
+  ..G......G
+  ..G..oo..G
+  ..G..oo..G
+  ..G......G
+  ..GW....WG
+  ..GGGGGGGG
 layer -5:
   .
   .
@@ -372,14 +371,14 @@ layer -5:
   .
   .
   .
-  GGGGGGGG
-  G......G
-  G......G
-  G......G
-  G......G
-  G......G
-  G......G
-  GGGGGGGG
+  ..GGGGGGGG
+  ..G......G
+  ..G......G
+  ..G......G
+  ..G......G
+  ..G......G
+  ..G......G
+  ..GGGGGGGG
 layer -4:
   .
   .
@@ -433,33 +432,33 @@ layer -2:
   .
 layer -1:
   .
-  .....s
-  .....s
-  .....s
-  .....ssssssssss
-  ..............ss
-  ............s..s
-  .s.s.s.s.s.s.s.s
-  .s.s.s.s...ss..s
-  .............s.s
-  .............sss
+  .s.ss..s
+  s.s.ss.s
+  .ss..sss
+  .
+  .s
+  .
+  .s.s.s.s
+  .s.s.s.s
+  .
+  .
   .
   .
   .
   .
   .
 layer 0:
-  ...U
-  ....sF
-  .....J
-  .....J
-  .....NMMQMMMMMF
-  ..............NF
-  ...........scs.J
-  .r.r.r.rETsP.A.J
-  .R.R.R.R...PPs.J
-  .............S.J
-  .............KMI
+  .....T
+  scsQF.sI
+  A.P.NI.K
+  sPP..NMJ
+  .s
+  .S
+  .E
+  .r.r.r.r
+  .R.R.R.R
+  .
+  .
   .
   .
   .
@@ -467,14 +466,14 @@ layer 0:
   .
 layer 1:
   .
-  ...BM
+  G.G..BM
   .
+  G
+  .G
   .
-  .
-  .
-  .......G...G.G
-  GDGDGDG.G.G
-  .G.G.G.G.....G
+  .G
+  G.GDGDGDG
+  .G.G.G.G
   .
   .
   .
@@ -483,13 +482,13 @@ layer 1:
   .
   .
 layer 2:
-  ...s
+  .....s
   .
   .
   .
   .
   .
-  .......G
+  .G
   G.G.G.G.G
   .G.G.G.G
   .
@@ -500,7 +499,7 @@ layer 2:
   .
   .
 layer 3:
-  ...G
+  .....G
   .
   .
   .

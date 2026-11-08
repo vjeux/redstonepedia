@@ -180,6 +180,10 @@ pub enum MobfarmCmd {
         /// Only tick the built farm for `--days` (no checks, no report): the time a game day takes.
         #[arg(long)]
         ticks_only: bool,
+        /// Print every change of these cells' blocks (`x,y,z`, repeatable) with its game time and
+        /// day time, and each villager's sleeping, instead of the report.
+        #[arg(long)]
+        watch: Vec<String>,
     },
     /// The brief's game check: the design run in the real server for `--days`, its golems (time
     /// and cell) and the iron in the chest, against redsim's runs of the same design.
@@ -259,7 +263,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("FAIL {f}");
             }
         }
-        MobfarmCmd::Run { design, seed, days, still, terrain, ticks_only } => {
+        MobfarmCmd::Run { design, seed, days, still, terrain, ticks_only, watch } => {
             let (c, spec) = load(version, &design)?;
             use redsim::entity::mob::farm::{RunOpts, WalkMode, run};
             let walk = if still { WalkMode::Fixed(redsim::entity::mob::walk::Walk::Still) } else { WalkMode::Random };
@@ -274,6 +278,48 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 None => spec,
             };
             let t0 = std::time::Instant::now();
+            if !watch.is_empty() {
+                let cells: Vec<redsim::BlockPos> = watch
+                    .iter()
+                    .map(|s| {
+                        let v: Vec<i32> = s.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+                        if v.len() == 3 { Ok(redsim::BlockPos::new(v[0], v[1], v[2])) } else { Err(anyhow::anyhow!("--watch {s}: expected x,y,z")) }
+                    })
+                    .collect::<Result<_>>()?;
+                let mut r = redsim::entity::mob::farm::Run::new(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
+                let mut last: Vec<String> = cells.iter().map(|c| r.world.get(*c).to_string()).collect();
+                let mut sleeping: Vec<(u32, bool)> = Vec::new();
+                for (c, s) in cells.iter().zip(&last) {
+                    println!("t {} day {}: {} {} {}: {s}", r.world.time, r.world.day_time().rem_euclid(24000), c.x, c.y, c.z);
+                }
+                for _ in 0..days * 24000 {
+                    r.tick();
+                    let (t, day) = (r.world.time, r.world.day_time().rem_euclid(24000));
+                    for (k, c) in cells.iter().enumerate() {
+                        let s = r.world.get(*c).to_string();
+                        if s != last[k] {
+                            println!("t {t} day {day}: {} {} {}: {s}", c.x, c.y, c.z);
+                            last[k] = s;
+                        }
+                    }
+                    for e in &r.world.entities.list {
+                        if let redsim::entity::EntityKind::Mob(m) = &e.kind
+                            && m.ty == redsim::entity::mob::types::MobType::Villager
+                        {
+                            let asleep = m.sleeping_pos.is_some();
+                            match sleeping.iter_mut().find(|(id, _)| *id == e.id) {
+                                Some((_, was)) if *was != asleep => {
+                                    println!("t {t} day {day}: villager {} at {:.1} {:.1} {} ", e.id, e.pos.x, e.pos.z, if asleep { "lies down" } else { "wakes" });
+                                    *was = asleep;
+                                }
+                                Some(_) => {}
+                                None => sleeping.push((e.id, asleep)),
+                            }
+                        }
+                    }
+                }
+                return Ok(());
+            }
             if ticks_only {
                 let mut r = redsim::entity::mob::farm::Run::new(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
                 let built = t0.elapsed().as_secs_f64();

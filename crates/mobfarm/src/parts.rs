@@ -241,6 +241,12 @@ pub fn route(b: &mut Builder, start: [i32; 3], goal: [i32; 3], forbid: &dyn Fn([
         if forbid(p) || b.d.blocks.contains_key(&p) {
             return false;
         }
+        // (a dust one block up or down beside it would join it: dust connects on the diagonal;
+        // only the goal may meet the sink's dust that way)
+        let diagonal = [[1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [1, -1, 0], [-1, -1, 0], [0, -1, 1], [0, -1, -1]].map(|d| [p[0] + d[0], p[1] + d[1], p[2] + d[2]]);
+        if diagonal.iter().any(|q| !(p == goal && allow.contains(q)) && b.d.blocks.get(q).is_some_and(|s| s.contains("redstone_wire"))) {
+            return false;
+        }
         let under = [p[0], p[1] - 1, p[2]];
         if let Some(s) = b.d.blocks.get(&under)
             && (active(s) || keep_clear.contains(&under))

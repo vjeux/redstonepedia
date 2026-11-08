@@ -18,31 +18,36 @@ const GLASS: &str = "glass";
 /// glass roof; `sees`: its north face at y + 1 is an open trapdoor (it sees over it, it cannot
 /// pass), else glass up to its eyes (it never sees north).
 fn pod(b: &mut Builder, x: i32, sees: bool) {
-    b.set(x, 0, 0, "red_bed[facing=north,occupied=false,part=head]");
-    b.set(x, 0, 1, "red_bed[facing=north,occupied=false,part=foot]");
-    for z in 0..2 {
+    pod_at(b, x, 0, sees);
+}
+
+/// [`pod`] with its bed head at (x, 0, z) (the foot south of it).
+fn pod_at(b: &mut Builder, x: i32, z0: i32, sees: bool) {
+    b.set(x, 0, z0, "red_bed[facing=north,occupied=false,part=head]");
+    b.set(x, 0, z0 + 1, "red_bed[facing=north,occupied=false,part=foot]");
+    for z in z0..z0 + 2 {
         b.set(x, -1, z, STONE);
     }
-    b.set(x, 1, 1, GLASS);
-    b.set(x, 2, 1, GLASS);
+    b.set(x, 1, z0 + 1, GLASS);
+    b.set(x, 2, z0 + 1, GLASS);
     for w in [x - 1, x + 1] {
-        b.set(w, 1, 0, GLASS);
-        b.set(w, 2, 0, GLASS);
+        b.set(w, 1, z0, GLASS);
+        b.set(w, 2, z0, GLASS);
     }
     if sees {
-        b.set(x, 1, 0, "oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]");
+        b.set(x, 1, z0, "oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]");
     } else {
-        b.set(x, 1, -1, GLASS);
-        b.set(x, 2, -1, GLASS);
+        b.set(x, 1, z0 - 1, GLASS);
+        b.set(x, 2, z0 - 1, GLASS);
     }
     for dx in -1..=1 {
-        for z in 0..2 {
+        for z in z0..z0 + 2 {
             // (an opaque roof, its sky light under 15, capped with glass: no golem spawns on it)
             b.set(x + dx, 3, z, STONE);
             b.set(x + dx, 4, z, GLASS);
         }
     }
-    b.entity("villager", [x as f64 + 0.5, 0.5625, 0.5], None);
+    b.entity("villager", [x as f64 + 0.5, 0.5625, z0 as f64 + 0.5], None);
 }
 
 /// The zombie in a boat on a slab 7 north of S (x = 2) under a stone roof (its eyes never see the
@@ -489,54 +494,82 @@ pub fn m2_open_loop(n: i32, d1: i32, d2: i32) -> String {
 /// when none fits.
 fn m2_front_timer(n: i32, t: &crate::parts::Timer) -> Option<(Builder, Vec<[i32; 3]>)> {
     let mut best: Option<(Builder, Vec<[i32; 3]>)> = None;
-    // the bed observer east of U1's bed head (its pulse goes east) or north of it (north)
-    for (obs, facing, out) in [([7, 0, 0], "west", [1, 0, 0]), ([6, 0, -1], "south", [0, 0, -1])] {
-        let mut base = Builder::new(&format!("iron-middle-{}-{n}", t.row.name));
+    // the cage's coupling (the parent, 11:44): blind U1's bed head anywhere within the cluster
+    // (its bed observer is the calm's input), so the trigger, the timer and the hide's power cell
+    // can sit close together; the hide's power cell is the block east of the trapdoor
+    let u1s: [[i32; 3]; 7] = [[6, 0, 0], [5, 0, -4], [6, 0, -5], [-1, 0, -5], [-1, 0, -3], [6, 0, -2], [-2, 0, 0]];
+    let reserved = [[3, 0, -6], [2, 0, -6], [3, 1, -6]];
+    for u1 in u1s {
+        let mut cage = Builder::new(&format!("iron-middle-{}-{n}", t.row.name));
         for x in [0, 2, 4] {
-            pod(&mut base, x, true);
+            pod(&mut cage, x, true);
         }
-        pod(&mut base, 6, false);
-        base.set(2, 0, -7, "stone_slab[type=bottom,waterlogged=false]");
-        base.set(2, 2, -7, STONE);
-        base.set(2, 3, -7, GLASS);
-        base.entity("oak_boat", [2.5, 0.5, -6.8], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
-        base.set(2, 1, -6, "oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]");
-        base.set(obs[0], obs[1], obs[2], &format!("observer[facing={facing},powered=false]"));
-        let step = |p: [i32; 3], k: i32| [p[0] + k * out[0], p[1], p[2] + k * out[2]];
-        let mut source = vec![obs];
-        let input = match t.stretch {
-            Some(d) => {
-                let r = step(obs, 1);
-                base.set(r[0], r[1] - 1, r[2], STONE);
-                // `facing` names the repeater's input side: the observer's
-                base.set(r[0], r[1], r[2], &format!("repeater[delay={d},facing={facing_back},locked=false,powered=false]", facing_back = if out[0] == 1 { "west" } else { "south" }));
-                source.push(r);
-                step(obs, 2)
-            }
-            None => step(obs, 1),
-        };
-        let beside = |a: [i32; 3], c: [i32; 3]| (a[0] - c[0]).abs() + (a[1] - c[1]).abs() + (a[2] - c[2]).abs() == 1;
-        for turns in 0..4u8 {
-            let mut b = Builder { d: base.d.clone() };
-            let Ok(placed) = crate::parts::place(&mut b, t.row, turns, input) else { continue };
-            // the part in free cells, east of the pods or low between them and the zombie (under
-            // the villagers' lines of sight), clear of the hide's cell and the zombie's row, and
-            // touching the source only at its input cell
-            let region = |c: &[i32; 3]| c[0] >= 8 && (-5..=8).contains(&c[2]) || c[1] <= 0 && (-1..=7).contains(&c[0]) && (-5..=-1).contains(&c[2]);
-            let fits = placed.cells.iter().all(|c| (*c == input || !base.d.blocks.contains_key(c)) && region(c) && (*c == input || source.iter().all(|s| !beside(*s, *c))));
-            if !fits {
+        if (0..=4).contains(&u1[0]) && u1[2] >= -1 {
+            continue;
+        }
+        let before = cage.d.blocks.len();
+        pod_at(&mut cage, u1[0], u1[2], false);
+        // (a pod overlapping another's cells: refused)
+        if cage.d.blocks.len() < before + 15 {
+            continue;
+        }
+        cage.set(2, 0, -7, "stone_slab[type=bottom,waterlogged=false]");
+        cage.set(2, 2, -7, STONE);
+        cage.set(2, 3, -7, GLASS);
+        cage.entity("oak_boat", [2.5, 0.5, -6.8], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
+        cage.set(2, 1, -6, "oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]");
+        // the bed observer on any side of U1's bed head but its foot's: (cell, facing, its pulse's
+        // direction, the stretching repeater's input side)
+        let sides = [([1, 0, 0], "west", "west"), ([-1, 0, 0], "east", "east"), ([0, 0, -1], "south", "south")];
+        for (d, facing, back) in sides {
+            let obs = [u1[0] + d[0], 0, u1[2] + d[2]];
+            if cage.d.blocks.contains_key(&obs) || cage.d.blocks.contains_key(&[obs[0], -1, obs[2]]) && false {
                 continue;
             }
-            let Some(start) = crate::parts::read_output(&mut b, &placed) else { continue };
-            let out_rep = placed.output;
-            let forbid = |p: [i32; 3]| p[0] < -1 || p[0] > 20 || p[2] < -6 || p[2] > 10 || (p[2] >= 0 && p[0] < 8) || (p[2] == -6 && p[0] < 4);
-            let Some(path) = crate::parts::route(&mut b, start, [4, 0, -6], &forbid, &placed.cells, &[out_rep, [3, 0, -6]], 1) else { continue };
-            // the climb onto the block east of the hide, the dust there pointing into it
-            b.set(4, 0, -6, &b.d.blocks[&[4, 0, -6]].replace("west=none", "west=side"));
-            b.set(3, 0, -6, STONE);
-            b.set(3, 1, -6, "redstone_wire[east=side,north=none,power=0,south=none,west=side]");
-            if best.as_ref().is_none_or(|(bb, _)| b.d.blocks.len() < bb.d.blocks.len()) {
-                best = Some((b, path));
+            let mut base = Builder { d: cage.d.clone() };
+            base.set(obs[0], obs[1], obs[2], &format!("observer[facing={facing},powered=false]"));
+            let step = |p: [i32; 3], k: i32| [p[0] + k * d[0], p[1], p[2] + k * d[2]];
+            let mut source = vec![obs];
+            let input = match t.stretch {
+                Some(dl) => {
+                    let r = step(obs, 1);
+                    if base.d.blocks.contains_key(&r) || base.d.blocks.contains_key(&[r[0], -1, r[2]]) {
+                        continue;
+                    }
+                    base.set(r[0], r[1] - 1, r[2], STONE);
+                    base.set(r[0], r[1], r[2], &format!("repeater[delay={dl},facing={back},locked=false,powered=false]"));
+                    source.push(r);
+                    step(obs, 2)
+                }
+                None => step(obs, 1),
+            };
+            if base.d.blocks.contains_key(&input) || reserved.contains(&input) {
+                continue;
+            }
+            let beside = |a: [i32; 3], c: [i32; 3]| (a[0] - c[0]).abs() + (a[1] - c[1]).abs() + (a[2] - c[2]).abs() == 1;
+            for turns in 0..4u8 {
+                let mut b = Builder { d: base.d.clone() };
+                let Ok(placed) = crate::parts::place(&mut b, t.row, turns, input) else { continue };
+                // the part in free cells, under the scared villagers' lines of sight (no cell at
+                // y 1 or more in front of them), clear of the zombie and the hide's cells, and
+                // touching the source only at its input cell
+                let region = |c: &[i32; 3]| (-4..=14).contains(&c[0]) && (-6..=8).contains(&c[2]) && (-3..=3).contains(&c[1]) && !reserved.contains(c) && !(c[1] >= 1 && (0..=4).contains(&c[0]) && (-6..=0).contains(&c[2]));
+                let fits = placed.cells.iter().all(|c| (*c == input || !base.d.blocks.contains_key(c)) && region(c) && (*c == input || source.iter().all(|s| !beside(*s, *c))));
+                if !fits {
+                    continue;
+                }
+                let Some(start) = crate::parts::read_output(&mut b, &placed) else { continue };
+                let out_rep = placed.output;
+                // the climb onto the block east of the hide first (its dust points into the
+                // trapdoor), so the route keeps off its diagonals
+                b.set(3, 0, -6, STONE);
+                b.set(3, 1, -6, "redstone_wire[east=side,north=none,power=0,south=none,west=side]");
+                let forbid = |p: [i32; 3]| !(-4..=14).contains(&p[0]) || !(-6..=8).contains(&p[2]) || reserved.contains(&p) || (p[2] >= 0 && (-1..=5).contains(&p[0]));
+                let Some(path) = crate::parts::route(&mut b, start, [4, 0, -6], &forbid, &placed.cells, &[out_rep, [3, 0, -6], [3, 1, -6]], 1) else { continue };
+                b.set(4, 0, -6, &b.d.blocks[&[4, 0, -6]].replace("west=none", "west=side"));
+                if best.as_ref().is_none_or(|(bb, _)| b.d.blocks.len() < bb.d.blocks.len()) {
+                    best = Some((b, path));
+                }
             }
         }
     }
