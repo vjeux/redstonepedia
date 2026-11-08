@@ -87,8 +87,14 @@ pub static STUDY: StudyDef = StudyDef {
                 "worst policy" => Some("the rate when every golem walks the same way, the worst of standing still and the 8 directions"),
                 "restarts after a missed night" => Some("whether the farm starts again by itself after a night the villagers could not sleep"),
                 "misses" => Some("summons that found no spot for the golem, and the golems the villagers saw (each one delays the next summon)"),
-                "bill" => Some("what the build costs in survival: iron ingots (hoppers, the lava bucket...), quartz, villagers, beds"),
+                "bill" => Some("what the build costs in survival: iron ingots (hoppers, the lava bucket and every tool the build needs), quartz, villagers, beds"),
                 "payback" => Some("the time the farm takes to give back the iron it cost"),
+                "tools" => Some("the tools the build needs and the iron each costs: a bucket for lava and water, shears for leaves, an iron pickaxe for redstone dust"),
+                "lava sources" => Some("lava source blocks: each one is a bucket trip from a lava pool"),
+                "materials" => Some("the latest stage of the game its materials need: day 1, the Nether (quartz, slime, magma...) or the End"),
+                "chunk columns" => Some("the fewest 16 x 16 chunk columns the build covers when placed on the chunk grid"),
+                "storage" => Some("how long the farm's chests and hoppers hold its iron and poppies at this rate"),
+                "hoppers per 1000 iron/h" => Some("hoppers for each 1000 iron an hour (each hopper costs the server work every tick)"),
                 _ => None,
             },
         },
@@ -336,7 +342,45 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
     metrics.push(("misses".to_string(), format!("{no_spot} of {tries} tries found no spot, {seen} golem sightings")));
     metrics.push(("bill".to_string(), b.text()));
     metrics.push(("payback".to_string(), format!("{payback:.0} min")));
+    // the stage lines (brief, Stages: What every card reports)
+    metrics.push(("tools".to_string(), b.tools_text()));
+    metrics.push(("lava sources".to_string(), b.lava.to_string()));
+    metrics.push(("materials".to_string(), b.stage_text()));
+    metrics.push(("chunk columns".to_string(), chunk_columns(c).to_string()));
+    let poppies = mean(&all.iter().map(|r| r.poppies_dropped as f64 / r.hours()).collect::<Vec<_>>());
+    let (slots, hoppers) = storage_slots(c);
+    let hours = if iron + poppies > 0.0 { (slots as f64 - 2.0).max(0.0) * 64.0 / (iron + poppies) } else { 0.0 };
+    metrics.push(("storage".to_string(), format!("{hours:.1} h ({slots} slots; {poppies:.0} poppies/h)")));
+    metrics.push(("hoppers per 1000 iron/h".to_string(), format!("{:.1}", if iron > 0.0 { hoppers as f64 * 1000.0 / iron } else { 0.0 })));
     Outcome { pass: true, why: String::new(), metrics, table }
+}
+
+/// The fewest chunk columns the design's footprint covers, over every placement on the chunk grid.
+pub fn chunk_columns(c: &Circuit) -> u32 {
+    let (lo, hi) = c.bounds();
+    let cover = |a: i32, b: i32| (0..16).map(|o| ((b + o).div_euclid(16) - (a + o).div_euclid(16) + 1) as u32).min().unwrap_or(1);
+    cover(lo[0], hi[0]) * cover(lo[2], hi[2])
+}
+
+/// The slots the farm can store its drops in (every chest, barrel and hopper of the design, and
+/// the judge's chest on an air output), and its hoppers.
+pub fn storage_slots(c: &Circuit) -> (u32, u32) {
+    let d = &c.clock.design;
+    let (mut slots, mut hoppers) = (0u32, 0u32);
+    for s in d.blocks.values() {
+        match s.split('[').next().unwrap_or("").trim_start_matches("minecraft:") {
+            "chest" | "trapped_chest" | "barrel" => slots += 27,
+            "hopper" => {
+                slots += 5;
+                hoppers += 1;
+            }
+            _ => {}
+        }
+    }
+    if d.ports.get("output").is_some_and(|o| !d.blocks.contains_key(o)) {
+        slots += 27;
+    }
+    (slots, hoppers)
 }
 
 /// The villager clusters of a farm (villagers within each other's 10-block search box, joined).
@@ -365,11 +409,21 @@ pub fn villager_clusters(spec: &FarmSpec) -> usize {
 /// What a build costs in survival.
 #[derive(Clone, Debug, Default)]
 pub struct Bill {
+    /// The iron, the tools the build needs counted (`tools`).
     pub iron: f64,
     pub quartz: u32,
     pub villagers: u32,
     pub beds: u32,
     pub zombies: u32,
+    /// The tools the build needs and their iron (brief, Stages: the bucket for lava or water, the
+    /// shears for leaves, an iron pickaxe for redstone dust).
+    pub tools: Vec<(&'static str, u32)>,
+    /// Lava sources (each one bucket trip).
+    pub lava: u32,
+    /// The materials that need the Nether (quartz, slime, magma, glowstone, obsidian...) and the
+    /// End (shulker boxes, end rods...), with their counts.
+    pub nether: std::collections::BTreeMap<&'static str, u32>,
+    pub end: std::collections::BTreeMap<&'static str, u32>,
 }
 
 impl Bill {
@@ -377,15 +431,60 @@ impl Bill {
         let s = |n: u32, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
         format!("{:.0} iron, {} quartz, {}, {}, {}", self.iron.ceil(), self.quartz, s(self.villagers, "villager", "villagers"), s(self.beds, "bed", "beds"), s(self.zombies, "zombie", "zombies"))
     }
+
+    /// The tools line: `bucket 3 + shears 2` (none: `none`; ` + `, since a card's metrics are
+    /// separated by commas).
+    pub fn tools_text(&self) -> String {
+        if self.tools.is_empty() {
+            return "none".into();
+        }
+        self.tools.iter().map(|(t, n)| format!("{t} {n}")).collect::<Vec<_>>().join(" + ")
+    }
+
+    /// The latest stage its materials need, with the blocks that need it (`day 1`, `Nether:
+    /// quartz in 2 blocks + slime in 4 blocks`).
+    pub fn stage_text(&self) -> String {
+        let list = |m: &std::collections::BTreeMap<&str, u32>| m.iter().map(|(k, n)| format!("{k} in {n} block{}", if *n == 1 { "" } else { "s" })).collect::<Vec<_>>().join(" + ");
+        if !self.end.is_empty() {
+            format!("End: {}", list(&self.end))
+        } else if !self.nether.is_empty() {
+            format!("Nether: {}", list(&self.nether))
+        } else {
+            "day 1".into()
+        }
+    }
+}
+
+/// Blocks whose recipe needs redstone dust (an iron pickaxe: `redstone_ore` is `needs_iron_tool`).
+const DUST: &[&str] = &["redstone_wire", "redstone_torch", "redstone_wall_torch", "repeater", "comparator", "observer", "piston", "sticky_piston", "dispenser", "dropper", "note_block", "redstone_lamp", "target", "powered_rail", "detector_rail", "activator_rail", "crafter", "redstone_block"];
+
+/// The materials of a block that need the Nether or the End (brief, Stages: the middle stage has
+/// the Nether, the late one the End).
+fn stage_materials(id: &str) -> (Option<&'static str>, Option<&'static str>) {
+    match id {
+        "comparator" | "observer" | "daylight_detector" | "quartz_block" | "smooth_quartz" | "quartz_slab" => (Some("quartz"), None),
+        "slime_block" | "sticky_piston" => (Some("slime"), None),
+        "magma_block" => (Some("magma"), None),
+        "glowstone" | "redstone_lamp" => (Some("glowstone"), None),
+        "obsidian" | "crying_obsidian" => (Some("obsidian"), None),
+        "soul_sand" | "soul_soil" => (Some("soul sand"), None),
+        "netherrack" | "nether_bricks" => (Some("netherrack"), None),
+        id if id.ends_with("shulker_box") => (None, Some("shulker box")),
+        "end_rod" => (None, Some("end rod")),
+        "purpur_block" | "end_stone" | "end_stone_bricks" => (None, Some("end stone")),
+        _ => (None, None),
+    }
 }
 
 /// The survival cost of a design's blocks and entities: iron by recipe (hopper 5, piston 1,
-/// iron trapdoor 4, minecart 5, rails 6 per 16, tripwire hooks 1 per 2, a bucket 3 for the lava
-/// and water), quartz (daylight detector 3, observer 1, comparator 1), villagers, beds, zombies.
+/// iron trapdoor 4, minecart 5, rails 6 per 16, tripwire hooks 1 per 2) and the tools the build
+/// needs (a bucket 3 for the lava and water, shears 2 for leaves, an iron pickaxe 3 for redstone
+/// dust), quartz (daylight detector 3, observer 1, comparator 1), villagers, beds, zombies, lava
+/// sources, and the Nether and End materials (brief, Stages).
 pub fn bill(c: &Circuit) -> Bill {
     let d = &c.clock.design;
     let mut b = Bill::default();
-    let mut bucket = false;
+    let (mut bucket, mut leaves, mut dust) = (false, false, false);
     for s in d.blocks.values() {
         let id = s.split('[').next().unwrap_or("").trim_start_matches("minecraft:");
         match id {
@@ -398,15 +497,34 @@ pub fn bill(c: &Circuit) -> Bill {
             "tripwire_hook" => b.iron += 0.5,
             "heavy_weighted_pressure_plate" => b.iron += 2.0,
             "iron_door" if s.contains("half=lower") => b.iron += 2.0,
+            "crafter" => b.iron += 5.0,
             "daylight_detector" => b.quartz += 3,
             "observer" | "comparator" => b.quartz += 1,
-            "lava" | "water" => bucket = true,
+            "lava" => {
+                bucket = true;
+                if s.contains("level=0") {
+                    b.lava += 1;
+                }
+            }
+            "water" => bucket = true,
             id if id.ends_with("_bed") && s.contains("part=head") => b.beds += 1,
             _ => {}
         }
+        leaves |= id.ends_with("_leaves");
+        dust |= DUST.contains(&id);
+        let (nether, end) = stage_materials(id);
+        if let Some(m) = nether {
+            *b.nether.entry(m).or_default() += 1;
+        }
+        if let Some(m) = end {
+            *b.end.entry(m).or_default() += 1;
+        }
     }
-    if bucket {
-        b.iron += 3.0;
+    for (need, tool, iron) in [(bucket, "bucket", 3), (leaves, "shears", 2), (dust, "iron pickaxe", 3)] {
+        if need {
+            b.iron += iron as f64;
+            b.tools.push((tool, iron));
+        }
     }
     for e in &d.entities {
         match e.kind.trim_start_matches("minecraft:") {

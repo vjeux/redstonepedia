@@ -1,7 +1,7 @@
-# archived 2026-11-08T11:52Z from designs/circuits/mobfarm/tracks/ironfarm/iron-scaled-2x2.txt by mctas circuit archive
-# CIRCUIT: iron-scaled-2x2 mob-farm iron_ingot fastest iron per hour per block 0.74, iron per hour 1836, iron range 95% 1825-1848 (64 runs), golems per hour 460.9, seconds per golem 7.8, share of ceiling 96%, modules 4, iron per hour per module 459, kill 344 gt, worst policy 1727 iron/h (walk yaw 0 x1), restarts after a missed night yes, misses 9511 of 58672 tries found no spot, 47196 golem sightings, bill 43 iron, 24 quartz, 16 villagers, 16 beds, 4 zombies, payback 1 min, 2492 blocks, 42x28x44, robust
+# archived 2026-11-08T13:41Z from designs/circuits/mobfarm/tracks/ironfarm/iron-scaled-2x2.txt by mctas circuit archive
+# CIRCUIT: iron-scaled-2x2 mob-farm iron_ingot fastest iron per hour per block 0.74, iron per hour 1836, iron range 95% 1825-1848 (64 runs), golems per hour 460.9, seconds per golem 7.8, share of ceiling 96%, modules 4, iron per hour per module 459, kill 344 gt, worst policy 1727 iron/h (walk yaw 0 x1), restarts after a missed night yes, misses 9511 of 58672 tries found no spot, 47196 golem sightings, bill 48 iron, 24 quartz, 16 villagers, 16 beds, 4 zombies, payback 2 min, tools bucket 3 + shears 2 + iron pickaxe 3, lava sources 32, materials Nether: quartz in 8 blocks, chunk columns 9, storage 4.1 h (148 slots; 459 poppies/h), hoppers per 1000 iron/h 4.4, 2492 blocks, 42x28x44, robust
 # The fastest iron farm, scaled: four copies of the fastest module 27 blocks apart make 1836 iron an
-# hour (96% of four modules' ceiling) for 43 iron and 24 quartz.
+# hour (96% of four modules' ceiling) for 48 iron (the tools counted) and 24 quartz.
 # Each module: four villagers sleep on beds in closed 1-cell pods under leaves (only three must
 # agree); a zombie in a boat 7 blocks north is in their view; at nightfall two inverted daylight
 # detectors open the three trapdoors in front of the zombie for 46 game ticks, so the villagers sleep

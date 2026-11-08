@@ -1,4 +1,4 @@
-# The fastest iron farm module: 459 iron an hour (96% of the game's ceiling) for 13 iron and 6
+# The fastest iron farm module: 459 iron an hour (96% of the game's ceiling) for 18 iron (the tools counted) and 6
 # quartz; build copies 27 blocks apart to scale it (iron-scaled-2x2: 4 copies, 1836 iron an hour).
 # Four villagers sleep on beds in closed 1-cell pods under leaves (only three must agree, so a golem
 # one of them sees does not stretch the cycle); a zombie in a boat 7 blocks north is in their view.

@@ -1,4 +1,4 @@
-# The middle iron farm: for 13 iron and 6 quartz, four villagers summon a golem every 32 seconds,
+# The middle iron farm: for 18 iron (the tools counted) and 6 quartz, four villagers summon a golem every 32 seconds,
 # 443 iron an hour (93% of the game's ceiling), each golem dropping out of their sight at once.
 # Four villagers sleep on beds in closed 1-cell pods under leaves (only three must agree, so a golem
 # one of them sees does not stretch the cycle); a zombie in a boat 7 blocks north is in their view.

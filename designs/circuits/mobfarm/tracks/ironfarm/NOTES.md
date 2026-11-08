@@ -69,6 +69,24 @@ wasm-bindgen 0.2.129 in ~/agents/ironfarm/toolchain on devvm69776, no dotfiles t
 
 ## The designs (redsim judge; boats need boat-leads' push, so these ran on 2d8143b2 locally)
 
+The bills below count the bucket but not the other tools; since the stage card lines (brief
+revision 5) the judge counts every tool the build needs (shears for leaves, an iron pickaxe for
+redstone dust), so the archived cards read L3 11 iron, L2d 18 and L5 2x2 48. The stage lines on
+every card: tools, lava sources, the materials' stage, chunk columns, storage hours, hoppers per
+1000 iron/h.
+
+Day 1 under the stages (revision 5): D1, the bed plate (`gen l6p-pad`, crates/mobfarm/src/day1.rs):
+of 3 villagers only S sees the zombie; U1 stands by day on a wooden pressure plate by its bed, and
+the plate powers the stone under it and the top-half trapdoor in S's line of sight (open: S sees).
+At nightfall U1 lies down, the trapdoor shuts, S calms and sleeps; S's sleeping eye sees under the
+slab, so it wakes and spawns at night too. Golems spawn on L2d's dry-hole pad and fall into a 4 x 4
+pit whose single water source pushes them into the corner under one lava source held by 3 wall
+signs, over one hopper. The whole judge: 243 iron/h (241-245), 61 golems/h, 51%, restarts after a
+missed night, robust; 8 iron (bucket, hopper), 1 lava source, no quartz, 318 blocks in the void.
+The same golems with the weather cycle and a forced day of rain or thunder (the infra track's
+model, merged locally): the calm reads no sky. `mctas mobfarm sight <design>` shows each
+villager's line of sight to the zombie with the trapdoors shut and open.
+
 | design | file (gen) | villagers | iron/h (95%) | share of ceiling | blocks | iron/h per block | bill |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | L1, the obvious bar (trench) | `gen l1` | 3 | 139 (138-141) | 29% | 386 | 0.36 | 13 iron, 3 quartz |

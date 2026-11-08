@@ -1,5 +1,5 @@
 # The fastest iron farm, scaled: four copies of the fastest module 27 blocks apart make 1836 iron an
-# hour (96% of four modules' ceiling) for 43 iron and 24 quartz.
+# hour (96% of four modules' ceiling) for 48 iron (the tools counted) and 24 quartz.
 # Each module: four villagers sleep on beds in closed 1-cell pods under leaves (only three must
 # agree); a zombie in a boat 7 blocks north is in their view; at nightfall two inverted daylight
 # detectors open the three trapdoors in front of the zombie for 46 game ticks, so the villagers sleep

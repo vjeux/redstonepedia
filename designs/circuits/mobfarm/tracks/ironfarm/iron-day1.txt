@@ -1,4 +1,4 @@
-# The day-1 iron farm: for 9 iron and no quartz, three villagers scared by a zombie summon iron
+# The day-1 iron farm: for 11 iron (the shears for its leaves counted) and no quartz, three villagers scared by a zombie summon iron
 # golems that burn in lava pits, about 295 iron an hour (62% of the game's ceiling).
 # Three villagers sleep on their beds in closed 1-cell pods under leaves; a zombie in a boat 7 blocks
 # north is in view of their standing and sleeping eyes. Golems spawn in a row of 8 1x1 pits west of
