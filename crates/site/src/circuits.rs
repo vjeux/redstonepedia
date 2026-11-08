@@ -762,6 +762,7 @@ pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) 
                     seq_code: if r.kind.starts_with("sequence-lock") { seq_code(&text) } else { String::new() },
                     counter_on: det.as_ref().and_then(|d| d.counter_on),
                     farm_rts: det.as_ref().and_then(|d| d.farm_rts),
+                    terrain: mcview::Design::parse(&text).ok().and_then(|d| mcview::terrain::sample_of(&d)).map(|s| s.name.to_string()),
                     // (only for designs that hold items: the same blocks with other contents)
                     // (designs that hold items: the same blocks with other contents; shulker
                     // machines: the same blocks timed with other items, 1-, 16- or 64-stack)

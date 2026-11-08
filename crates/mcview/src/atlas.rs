@@ -539,16 +539,10 @@ fn paint_all() -> Vec<(&'static str, Tile)> {
     add("out_powered", &|t| {
         t.fill(rgba(0xff3b30, 72));
     });
-    // a mob farm's golem spawn spots (`mobfarm::MobRun::spots`, tinted per cell): a cell where a
-    // golem can spawn, one the search reaches but refuses (dim), and a golem's spawn flash
+    // a mob farm's golem spawn spots (`mobfarm::MobRun::spots`, `mesh::Builder::spawn_sheet`): a
+    // plain fill, its colour and opacity the vertices' (one sheet over the area, no cell edges)
     add("spawn_spot", &|t| {
-        t.fill(rgba(0xffffff, 70)).outline(0, 0, 15, 15, rgba(0xffffff, 210));
-    });
-    add("spawn_spot_dim", &|t| {
-        t.fill(rgba(0xffffff, 34)).outline(0, 0, 15, 15, rgba(0xffffff, 80));
-    });
-    add("spawn_flash", &|t| {
-        t.fill(rgba(0xffffff, 150));
+        t.fill(rgba(0xffffff, 255));
     });
     add("grass_side", &|t| {
         t.fill(rgb(0x866043)).vary(0.1).map(|x, y, c| {

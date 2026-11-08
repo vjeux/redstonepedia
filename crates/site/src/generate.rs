@@ -656,6 +656,17 @@ pub fn build(a: &BuildArgs) -> Result<()> {
         if let Some(c) = b.circuit.as_ref().filter(|c| !c.card_src.is_empty() && !c.card_text.is_empty()) {
             write(&out.join(&c.card_src), &c.card_text)?;
         }
+        // the terrain sample a farm is judged in, for its page's view (`data-terrain`)
+        if let Some(t) = b.circuit.as_ref().and_then(|c| c.terrain.as_deref()) {
+            let to = out.join(crate::pages::terrain_file(t));
+            if !to.exists() {
+                let s = redsim::terrain::samples::sample(t).with_context(|| format!("{}: no terrain sample {t}", b.id))?;
+                if let Some(p) = to.parent() {
+                    std::fs::create_dir_all(p)?;
+                }
+                std::fs::copy(repo.join(s.file), &to).with_context(|| format!("copying {}", s.file))?;
+            }
+        }
     }
     let site = Site { version: DATA_VERSION, generated: clock::catalog::now_utc(), commit: commit(&repo), builds, cards, members };
     // data: the door properties tables live on the build pages only (the UI never reads them)

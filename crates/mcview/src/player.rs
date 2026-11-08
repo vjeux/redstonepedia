@@ -27,6 +27,12 @@ pub struct Player {
     /// and its key (`Session::blocks_version`, the outputs' boxes).
     block_mesh: Option<Mesh>,
     block_key: (u64, u64),
+    /// Its blocks' solid triangles as a renderer keeps them ([`Player::triangles_split_within`]),
+    /// by their key: [`Player::built`] when they were taken.
+    fixed: Option<(u64, std::rc::Rc<Vec<Vertex>>)>,
+    /// Meshes built so far (a new key for the triangles a renderer keeps: a mesh rebuilt for the
+    /// game's textures at the same tick is another mesh).
+    built: u64,
     /// A mesh being built over several frames ([`Player::triangles_within`]) and what it is of.
     staged: Option<(scene::Staged, (u64, u64))>,
     staged_now: bool,
@@ -134,6 +140,13 @@ struct Snapshot {
 /// Ticks between snapshots (the timelapse), and how many are kept.
 const SNAPSHOT_EVERY: u32 = 512;
 const MAX_SNAPSHOTS: usize = 16;
+
+/// A new mesh's number, unique in the page ([`Player::triangles_split_within`]'s key: a renderer
+/// keeps a view's triangles by it, whichever player built them).
+fn next_build() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
 
 /// A frame's time for building a waking view's session ([`Player::wake`]), ms.
 pub const WAKE_SLICE_MS: f64 = 10.0;
@@ -312,6 +325,8 @@ impl Player {
             mesh_key: (u32::MAX, 0),
             block_mesh: None,
             block_key: (u64::MAX, 0),
+            fixed: None,
+            built: 0,
             staged: None,
             staged_now: false,
             dirty: true,
@@ -1461,6 +1476,80 @@ impl Player {
         }
     }
 
+    /// [`Player::triangles_within`] with a mob farm's blocks' solid triangles apart, as they were
+    /// built (they change seldom: the key changes when they do), so a renderer keeps them on the
+    /// GPU instead of sending them every frame (a farm in its terrain: 650,000 vertices, WebKit's
+    /// software GL took 80-120 ms a frame sending them); the rest as [`Player::triangles_within`]
+    /// gives it. Other designs: no fixed part.
+    #[allow(clippy::type_complexity)]
+    pub fn triangles_split_within(&mut self, atlas: &Atlas, out_of_time: &mut dyn FnMut() -> bool) -> Option<(Option<(u64, std::rc::Rc<Vec<Vertex>>)>, Vec<Vertex>, Vec<Vertex>)> {
+        if self.session.mob.is_none() {
+            // a farm in its terrain standing still (not playing): its picture's solid triangles too
+            if self.playing || self.session.terrain.is_none() {
+                return self.triangles_within(atlas, out_of_time).map(|(s, t)| (None, s, t));
+            }
+            self.staged_now = false;
+            if !self.picture_mesh(atlas, out_of_time) {
+                return None;
+            }
+            let m = self.mesh.as_ref()?;
+            let key = self.built;
+            if self.fixed.as_ref().is_none_or(|(k, _)| *k != key) {
+                self.fixed = Some((key, std::rc::Rc::new(m.solid.clone())));
+            }
+            let rest = Mesh { solid: Vec::new(), translucent: m.translucent.clone(), sprites: m.sprites.clone(), flames: m.flames.clone(), lo: m.lo, hi: m.hi };
+            let (solid, translucent) = scene::triangles(&rest, &self.camera);
+            return Some((self.fixed.clone(), solid, translucent));
+        }
+        self.staged_now = false;
+        if !self.mob_meshes(atlas, out_of_time) {
+            return None;
+        }
+        let blocks = self.block_mesh.as_ref()?;
+        let key = self.built;
+        if self.fixed.as_ref().is_none_or(|(k, _)| *k != key) {
+            self.fixed = Some((key, std::rc::Rc::new(blocks.solid.clone())));
+        }
+        let mut translucent = blocks.sorted_translucent(self.camera.eye());
+        let (solid, t2) = scene::triangles(self.mesh.as_ref()?, &self.camera);
+        translucent.extend(t2);
+        Some((self.fixed.clone(), solid, translucent))
+    }
+
+    /// A mob farm's two meshes brought up to date ([`Player::triangles_within`]): its blocks'
+    /// (kept until a block changes; built over calls) and its entities' (every tick). False while
+    /// its first blocks' mesh is not done.
+    fn mob_meshes(&mut self, atlas: &Atlas, out_of_time: &mut dyn FnMut() -> bool) -> bool {
+        let key = (self.session.tick, (self.partial * 64.0) as u32);
+        // a mob farm: its blocks change seldom (a bed taken, a trapdoor, the dusk pulse), its
+        // mobs every tick: the blocks' mesh (70 ms natively for the 2x2 farm) is kept until a
+        // block changes (`Session::blocks_version`) or an output's box turns red
+        let powered: u64 = self.session.outputs.iter().enumerate().map(|(i, o)| (self.session.output_powered(*o) as u64) << (i % 64)).fold(0, |a, b| a ^ b);
+        let bkey = (self.session.blocks_version, powered);
+        if self.block_mesh.is_none() || bkey != self.block_key {
+            if self.staged.as_ref().is_none_or(|(_, k)| *k != bkey) {
+                self.staged = Some((scene::Staged::new(&self.session, self.partial, &self.look, scene::Part::Blocks), bkey));
+            }
+            self.staged_now = true;
+            let (st, k) = self.staged.as_mut().unwrap();
+            if let Some(m) = st.step(atlas, &self.session, self.partial, &self.look, out_of_time) {
+                self.block_mesh = Some(m);
+                self.built = next_build();
+                self.block_key = *k;
+                self.staged = None;
+            }
+        }
+        // (its first blocks not done yet: nothing to show)
+        if self.block_mesh.is_none() {
+            return false;
+        }
+        if self.mesh.is_none() || key != self.mesh_key {
+            self.mesh = Some(scene::build_part(atlas, &self.session, self.partial, &self.look, scene::Part::Entities));
+            self.mesh_key = key;
+        }
+        true
+    }
+
     /// [`Player::triangles`] within the caller's time: a mesh too big for one frame (a big
     /// design's first still; a mob farm's blocks when one changed) is built over several calls
     /// ([`scene::Staged`]: the coordinator, no main-thread task over ~50 ms). None while it is not
@@ -1468,30 +1557,9 @@ impl Player {
     /// previous blocks meanwhile. [`Player::staged_now`] says whether this call built some of it.
     pub fn triangles_within(&mut self, atlas: &Atlas, out_of_time: &mut dyn FnMut() -> bool) -> Option<(Vec<Vertex>, Vec<Vertex>)> {
         self.staged_now = false;
-        let key = (self.session.tick, (self.partial * 64.0) as u32);
         if self.session.mob.is_some() {
-            // a mob farm: its blocks change seldom (a bed taken, a trapdoor, the dusk pulse), its
-            // mobs every tick: the blocks' mesh (70 ms natively for the 2x2 farm) is kept until a
-            // block changes (`Session::blocks_version`) or an output's box turns red
-            let powered: u64 = self.session.outputs.iter().enumerate().map(|(i, o)| (self.session.output_powered(*o) as u64) << (i % 64)).fold(0, |a, b| a ^ b);
-            let bkey = (self.session.blocks_version, powered);
-            if self.block_mesh.is_none() || bkey != self.block_key {
-                if self.staged.as_ref().is_none_or(|(_, k)| *k != bkey) {
-                    self.staged = Some((scene::Staged::new(&self.session, self.partial, &self.look, scene::Part::Blocks), bkey));
-                }
-                self.staged_now = true;
-                let (st, k) = self.staged.as_mut().unwrap();
-                if let Some(m) = st.step(atlas, &self.session, self.partial, &self.look, out_of_time) {
-                    self.block_mesh = Some(m);
-                    self.block_key = *k;
-                    self.staged = None;
-                }
-            }
-            // (its first blocks not done yet: nothing to show)
-            self.block_mesh.as_ref()?;
-            if self.mesh.is_none() || key != self.mesh_key {
-                self.mesh = Some(scene::build_part(atlas, &self.session, self.partial, &self.look, scene::Part::Entities));
-                self.mesh_key = key;
+            if !self.mob_meshes(atlas, out_of_time) {
+                return None;
             }
             let (mut solid, mut translucent) = scene::triangles(self.block_mesh.as_ref().unwrap(), &self.camera);
             let (s2, t2) = scene::triangles(self.mesh.as_ref().unwrap(), &self.camera);
@@ -1499,6 +1567,16 @@ impl Player {
             translucent.extend(t2);
             return Some((solid, translucent));
         }
+        if !self.picture_mesh(atlas, out_of_time) {
+            return None;
+        }
+        Some(scene::triangles(self.mesh.as_ref().unwrap(), &self.camera))
+    }
+
+    /// The picture's mesh brought up to date (not a mob farm's): the first over as many calls as
+    /// it takes, then rebuilt when its tick or moment changes. False while the first is not done.
+    fn picture_mesh(&mut self, atlas: &Atlas, out_of_time: &mut dyn FnMut() -> bool) -> bool {
+        let key = (self.session.tick, (self.partial * 64.0) as u32);
         if self.mesh.is_none() {
             // the first picture: over as many frames as it takes
             if self.staged.is_none() {
@@ -1506,15 +1584,17 @@ impl Player {
             }
             self.staged_now = true;
             let (st, k) = self.staged.as_mut().unwrap();
-            let m = st.step(atlas, &self.session, self.partial, &self.look, out_of_time)?;
+            let Some(m) = st.step(atlas, &self.session, self.partial, &self.look, out_of_time) else { return false };
             self.mesh_key = (k.0 as u32, k.1 as u32);
             self.mesh = Some(m);
+            self.built = next_build();
             self.staged = None;
         } else if key != self.mesh_key {
             self.mesh = Some(scene::build(atlas, &self.session, self.partial, &self.look));
+            self.built = next_build();
             self.mesh_key = key;
         }
-        Some(scene::triangles(self.mesh.as_ref().unwrap(), &self.camera))
+        true
     }
 
     /// What the entities' part draws changed without a tick (the look's spawn spots turned on or

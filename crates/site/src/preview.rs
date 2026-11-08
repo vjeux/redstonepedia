@@ -382,6 +382,12 @@ fn render(path: &Path, slug: &str, from: &From, assets: &Assets, v: &Verdict, si
     let desc = format!("{} REDSTONEPEDIA preview: {preview_url}{}", crate::explain::caption_text(&b.caption, crate::explain::ticks_matter(&b)), b.page);
     let bytes = litematic::export(&d, &litematic::Meta::new(&stem, desc.trim(), litematic::now_ms())).with_context(|| format!("{}: litematic", path.display()))?;
     files.push((generate::litematic_path(&b.design), bytes));
+    // the terrain sample a farm is judged in, for its view (`data-terrain`: the previews' root)
+    if let Some(t) = b.circuit.as_ref().and_then(|c| c.terrain.as_deref()) {
+        let s = redsim::terrain::samples::sample(t).with_context(|| format!("{}: no terrain sample {t}", path.display()))?;
+        let bytes = std::fs::read(from.repo.join(s.file)).with_context(|| format!("reading {}", s.file))?;
+        files.push((pages::terrain_file(t), bytes));
+    }
     for n in notes {
         eprintln!("  note: {n}");
     }

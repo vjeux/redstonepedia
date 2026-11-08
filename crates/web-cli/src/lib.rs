@@ -1662,8 +1662,8 @@ fn cmd_camera(designs: &[PathBuf], size: &str, procedural: bool, picked: bool, t
     let atlas = atlas(procedural);
     for d in designs {
         let text = std::fs::read_to_string(d).with_context(|| format!("reading {}", d.display()))?;
-        // (a card's thumbnail: the still, never simulated, as mcview-web's `thumb`)
-        let opts = if thumb { mcview::Options::still() } else { mcview::Options::default() };
+        // (a card's thumbnail: the still, never simulated, void, as mcview-web's `thumb`)
+        let opts = if thumb { mcview::Options { terrain: false, ..mcview::Options::still() } } else { mcview::Options::default() };
         let s = match mcview::Session::new(&text, &opts) {
             Ok(s) => s,
             Err(e) => {
@@ -1790,7 +1790,8 @@ fn cmd_cardcost(designs: &[PathBuf], budget: f64, top: usize, procedural: bool) 
     for d in designs {
         let text = std::fs::read_to_string(d).with_context(|| format!("reading {}", d.display()))?;
         let t0 = std::time::Instant::now();
-        let s = match mcview::Session::new(&text, &mcview::Options::still()) {
+        // (a card: the still, void like mcview-web's cards)
+        let s = match mcview::Session::new(&text, &mcview::Options { terrain: false, ..mcview::Options::still() }) {
             Ok(s) => s,
             Err(e) => {
                 println!("skip {}: {e}", d.display());
@@ -2628,6 +2629,8 @@ fn cmd_mobrate(designs: &[PathBuf], threads: usize) -> Result<()> {
 /// the shipped wasm's (the interpreter is slow).
 const MOB_TICKS: u32 = 6000;
 const MOB_WASM_TICKS: u32 = 1200;
+/// A farm in its terrain sample's span (every tick's state key covers the sample's 5.5M cells).
+const MOB_TERRAIN_TICKS: u32 = 600;
 
 /// Mob farms (`circuit: mob-farm`; mobviewer 2026-11-08, vjeux: "Just do the real work!?"): the
 /// viewer runs the farm through redsim's own runner (`entity::mob::farm::Run`) on the judge's farm,
@@ -2653,18 +2656,49 @@ fn mob_pair(text: &str, probe: Option<&mut mcview::tools::WasmProbe>) -> Result<
         let lo = at.saturating_sub(60);
         return Err(format!("the viewer's farm is not the judge's: ...{} vs ...{}", &a[lo..(at + 60).min(a.len())], &b[lo..(at + 60).min(b.len())]));
     }
-    let (want, _) = mcview::mobfarm::reference_digests(&md, MOB_TICKS)?;
-    let (got, _) = mcview::mobfarm::view_digests(text, MOB_TICKS)?;
+    // a farm judged in its terrain sample (`mcview::terrain`): the view's site is the judge's
+    // (`circuit::mobfarm::terrain_site`: the same spot, the same blocks dug, placed and filled, the
+    // same AFK spot and moved farm), both runs built through it
+    use redsim::entity::mob::site::Site;
+    let site: Option<&'static Site> = match mcview::terrain::sample_of(&md) {
+        Some(sample) => {
+            let js: &'static Site = Box::leak(Box::new(judge::terrain_site(&c).ok_or("the judge puts it in the void")??));
+            let view = mcview::terrain::farm_for(text, &md, &ours)?.ok_or_else(|| format!("no file for the terrain sample {}", sample.name))?;
+            let key = |s: &Site, spec: &redsim::entity::mob::farm::FarmSpec| format!("{:?} {} {} {:?} {:?} {:?}", s.offset, s.dug, s.placed, s.fills, s.afk, s.spec(spec));
+            let (a, b) = (key(js, &theirs), key(view.site, &ours));
+            if a != b {
+                return Err(format!("the view's site in {} is not the judge's: {} vs {}", sample.name, &a[..a.len().min(200)], &b[..b.len().min(200)]));
+            }
+            Some(js)
+        }
+        None => None,
+    };
+    let pair_ticks = if site.is_some() { MOB_TERRAIN_TICKS } else { MOB_TICKS };
+    let (want, _) = mcview::mobfarm::reference_digests(&md, pair_ticks, site)?;
+    let (got, _) = mcview::mobfarm::view_digests(text, pair_ticks)?;
     if let Some(t) = want.iter().zip(&got).position(|(x, y)| x != y) {
         return Err(format!("the viewer's world leaves redsim's run at tick {t} after the mobs arrive"));
     }
     let ticks = judge::JUDGE_DAYS * 24000;
-    let rep = redsim::entity::mob::farm::run(&theirs, &RunOpts::steady(jo.seed0, ticks, WalkMode::Random))?;
+    let rep = match site {
+        Some(js) => redsim::entity::mob::farm::run(&js.spec(&theirs), &redsim::entity::mob::farm::judge_opts_in(jo.seed0, ticks, WalkMode::Random, Some(js)))?,
+        None => redsim::entity::mob::farm::run(&theirs, &RunOpts::steady(jo.seed0, ticks, WalkMode::Random))?,
+    };
     let (golems, iron, chest) = mcview::mobfarm::view_counts(text, ticks)?;
-    if (golems, iron) != (rep.golems, rep.iron_dropped) {
+    // (a run its own checks stop, after its 4th failure, holds no totals to compare: the farm
+    // fails its judge, which the card says; the view is redsim's run tick for tick all the same)
+    let stopped = rep.failures.len() >= 4;
+    if !stopped && (golems, iron) != (rep.golems, rep.iron_dropped) {
         return Err(format!("over {} days the viewer summons {golems} golems dropping {iron} iron, the judge's run 0 {} and {}", judge::JUDGE_DAYS, rep.golems, rep.iron_dropped));
     }
+    let totals = if stopped {
+        format!("the judge's run 0 stops on its farm's failures (the first: {}), its totals not compared", rep.failures[0])
+    } else {
+        format!("{} days = the judge's run 0: {golems} golems ({:.1}/h), {iron} iron ({chest} in the chests)", judge::JUDGE_DAYS, golems as f64 * 72000.0 / ticks as f64)
+    };
     let wasm = match probe {
+        // (a terrain world in the wasm interpreter: its native run is the browser's, the same code)
+        Some(_) if site.is_some() => format!(", in {}: the judge's site, native = redsim's run over {pair_ticks} ticks", site.map(|s| s.sample).unwrap_or_default()),
         Some(p) => {
             let (v, g) = mcview::mobfarm::view_digests(text, MOB_WASM_TICKS)?;
             let native = mcview::mobfarm::chain(&v, g);
@@ -2677,10 +2711,20 @@ fn mob_pair(text: &str, probe: Option<&mut mcview::tools::WasmProbe>) -> Result<
         None => String::new(),
     };
     let (runs, spawned, most) = mob_spawn_spots_check(&c)?;
+    // the converse (vjeux 2026-11-08, "can golems really spawn in the air?"): every spot drawn is a
+    // place a golem can spawn by the game's rule, read afresh, and every such place is drawn
+    let (looks, drawn, bad) = mcview::mobfarm::spots_rule_check_seeded(text, jo.seed0, pair_ticks, 100)?;
+    if let Some(first) = bad.first() {
+        return Err(format!("{} differences between the drawn spawn spots and the game's rule, the first at {first}", bad.len()));
+    }
+    // (in terrain the judge puts its base build at its k-th cheapest spots instead: the view's
+    // runs here are the turned builds', each at its own cheapest spot)
+    let runs_what = match site {
+        Some(s) => format!("{runs} runs of its turned builds, each at its cheapest spot in {}", s.sample),
+        None => format!("the judge's {runs} runs"),
+    };
     Ok(Some(format!(
-        "mob farm: the judge's farm and run; redsim's world every tick over {MOB_TICKS}; {} days = the judge's run 0: {golems} golems ({:.1}/h), {iron} iron ({chest} in the chests){wasm}; the judge's {runs} runs: all {spawned} golems on the view's spawn spots (at most {most} cells)",
-        judge::JUDGE_DAYS,
-        golems as f64 * 72000.0 / ticks as f64
+        "mob farm: the judge's farm and run; redsim's world every tick over {pair_ticks}; {totals}{wasm}; {runs_what}: all {spawned} golems on the view's spawn spots (at most {most} cells); every drawn spot a spawn spot by the game's rule and every one drawn ({looks} looks, at most {drawn} cells)"
     )))
 }
 

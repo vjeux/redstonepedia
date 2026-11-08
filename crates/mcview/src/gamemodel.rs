@@ -126,26 +126,38 @@ fn apply_of(j: &Json) -> Option<Apply<'_>> {
 fn pick<'a>(v: &'a Json, pos: Option<[i32; 3]>) -> Option<Apply<'a>> {
     match v {
         Json::Arr(list) if !list.is_empty() => {
-            let w = |j: &Json| j.get("weight").and_then(Json::as_i64).unwrap_or(1).max(1) as u32;
-            let total: u32 = list.iter().map(w).sum();
-            let mut r = variant_pick(pos.unwrap_or([0, 0, 0]), total) as i64;
-            for j in list {
-                r -= w(j) as i64;
-                if r < 0 {
-                    return apply_of(j);
-                }
-            }
-            apply_of(&list[0])
+            let w: Vec<u32> = list.iter().map(|j| j.get("weight").and_then(Json::as_i64).unwrap_or(1).max(1) as u32).collect();
+            apply_of(&list[pick_index(&w, pos.unwrap_or([0, 0, 0]))])
         }
         Json::Arr(_) => None,
         _ => apply_of(v),
     }
 }
 
+/// The variant of a weighted list the game picks at `pos` (`WeightedVariants`: the position's
+/// seed, then the weights in order).
+pub fn pick_index(weights: &[u32], pos: [i32; 3]) -> usize {
+    let total: u32 = weights.iter().sum();
+    let mut r = variant_pick(pos, total) as i64;
+    for (i, w) in weights.iter().enumerate() {
+        r -= *w as i64;
+        if r < 0 {
+            return i;
+        }
+    }
+    0
+}
+
 /// Blocks the game draws alpha-blended (translucent render layer).
 fn translucent(name: &str) -> bool {
     name.ends_with("stained_glass") || name.ends_with("stained_glass_pane") || matches!(name, "ice" | "frosted_ice" | "slime_block" | "honey_block" | "tinted_glass" | "nether_portal" | "water" | "bubble_column")
 }
+
+/// The plains colours the game's tinted faces carry here (`BlockColors` at the pictures' plains):
+/// grass, foliage, water. A farm in its terrain swaps them for its biomes' (`mesh::BiomeTintFn`).
+pub const GRASS_TINT: [u8; 3] = [0x8e, 0xb9, 0x72];
+pub const FOLIAGE_TINT: [u8; 3] = [0x77, 0xab, 0x2f];
+pub const WATER_TINT: [u8; 3] = [0x3f, 0x76, 0xe4];
 
 /// The color a tinted face takes (`tintindex`): the game's block colors for the pictures' plains.
 fn tint(name: &str, props: &[(&str, &str)], index: i64) -> [u8; 3] {
@@ -156,13 +168,13 @@ fn tint(name: &str, props: &[(&str, &str)], index: i64) -> [u8; 3] {
     }
     match name {
         "redstone_wire" => crate::models::dust_color(prop("power").and_then(|p| p.parse().ok()).unwrap_or(0)),
-        "grass_block" | "short_grass" | "grass" | "tall_grass" | "fern" | "large_fern" | "potted_fern" | "sugar_cane" | "bush" => rgb(0x8eb972),
+        "grass_block" | "short_grass" | "grass" | "tall_grass" | "fern" | "large_fern" | "potted_fern" | "sugar_cane" | "bush" => GRASS_TINT,
         "birch_leaves" => rgb(0x80a755),
         "spruce_leaves" => rgb(0x619961),
-        n if n.ends_with("_leaves") && !n.contains("azalea") && !n.contains("cherry") && !n.contains("pale") => rgb(0x77ab2f),
-        "vine" => rgb(0x77ab2f),
+        n if n.ends_with("_leaves") && !n.contains("azalea") && !n.contains("cherry") && !n.contains("pale") => FOLIAGE_TINT,
+        "vine" => FOLIAGE_TINT,
         "lily_pad" => rgb(0x208030),
-        "water" | "bubble_column" | "water_cauldron" => rgb(0x3f76e4),
+        "water" | "bubble_column" | "water_cauldron" => WATER_TINT,
         "melon_stem" | "pumpkin_stem" => {
             let a: i32 = prop("age").and_then(|p| p.parse().ok()).unwrap_or(0);
             [(a * 32).min(255) as u8, (255 - a * 8) as u8, (a * 4) as u8]
@@ -229,6 +241,26 @@ impl GameModels {
         let (name, props) = parse_state(state);
         let Some(Json::Obj(vars)) = self.defs.get(name).and_then(|d| d.get("variants")) else { return false };
         vars.iter().any(|(k, v)| matches!(v, Json::Arr(a) if a.len() > 1) && key_matches(k, &props))
+    }
+
+    /// Which of a positional state's variants ([`GameModels::positional`]) the game draws at
+    /// `pos`: its index in the state's list, the one [`GameModels::model`] draws there (the same
+    /// index, the same model: a mesh keeps one model per variant, not one per cell: a terrain's
+    /// tens of thousands of grass and stone blocks). None: not positional.
+    pub fn variant_index(&self, state: &str, pos: [i32; 3]) -> Option<usize> {
+        self.variant_weights(state).map(|w| pick_index(&w, pos))
+    }
+
+    /// The weights of a positional state's variants, in order (None: not positional): with
+    /// [`pick_index`], the variant the game draws at a cell.
+    pub fn variant_weights(&self, state: &str) -> Option<Vec<u32>> {
+        let (name, props) = parse_state(state);
+        let Some(Json::Obj(vars)) = self.defs.get(name).and_then(|d| d.get("variants")) else { return None };
+        let Json::Arr(list) = vars.iter().find(|(k, _)| key_matches(k, &props)).map(|(_, v)| v)? else { return None };
+        if list.len() < 2 {
+            return None;
+        }
+        Some(list.iter().map(|j| j.get("weight").and_then(Json::as_i64).unwrap_or(1).max(1) as u32).collect())
     }
 
     /// The model of a state the game draws at `pos` (None: no definition, or nothing but a

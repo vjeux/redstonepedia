@@ -227,13 +227,23 @@ pub struct BuilderParts {
     extra_occ: HashSet<Pos>,
     ghost: HashSet<Pos>,
     cache: HashMap<String, Option<Model>>,
+    weights: HashMap<String, Option<Vec<u32>>>,
+    vcache: HashMap<String, Vec<Option<Option<Model>>>>,
+    light_cells: Vec<(Pos, crate::light::Cell, u8)>,
+    low: i32,
     mesh: Mesh,
     xf: Option<crate::entitymodel::M>,
     white: bool,
     light: Option<crate::light::Light>,
     light_floor: Option<i32>,
     light_holes: HashSet<Pos>,
+    biome_tint: Option<BiomeTintFn>,
 }
+
+/// A terrain's biome colour at a cell for a face the game tints by biome (`tint`: the plains
+/// colour the model carries, [`crate::gamemodel::GRASS_TINT`], `FOLIAGE_TINT` or `WATER_TINT`);
+/// None: keep it.
+pub type BiomeTintFn = std::rc::Rc<dyn Fn(Pos, [u8; 3]) -> Option<[u8; 3]>>;
 
 pub struct Builder<'a> {
     pub atlas: &'a Atlas,
@@ -253,6 +263,13 @@ pub struct Builder<'a> {
     /// pass at [`GHOST_ALPHA`], and they hide nothing (their neighbours keep their faces).
     pub ghost: HashSet<Pos>,
     cache: HashMap<String, Option<Model>>,
+    /// Each state's variants' weights (None: one model wherever it stands), and the models of
+    /// the variants drawn so far ([`Builder::model_at`]).
+    weights: HashMap<String, Option<Vec<u32>>>,
+    vcache: HashMap<String, Vec<Option<Option<Model>>>>,
+    /// [`Builder::blocks_begin_from`]'s cells for the light so far, and the lowest cell's y.
+    light_cells: Vec<(Pos, crate::light::Cell, u8)>,
+    low: i32,
     pub mesh: Mesh,
     /// A transform for the block model being drawn as part of an entity (a minecart's hopper, a
     /// dropped block item): its unit cube goes through it.
@@ -270,6 +287,8 @@ pub struct Builder<'a> {
     pub light_floor: Option<i32>,
     /// Holes in that ground (a TNT crater's blown cells): open air for the light.
     pub light_holes: HashSet<Pos>,
+    /// A farm in its terrain ([`crate::terrain`]): its biomes' colours for grass, leaves and water.
+    pub biome_tint: Option<BiomeTintFn>,
 }
 
 impl<'a> Builder<'a> {
@@ -283,12 +302,17 @@ impl<'a> Builder<'a> {
             extra_occ: HashSet::new(),
             ghost: HashSet::new(),
             cache: HashMap::new(),
+            weights: HashMap::new(),
+            vcache: HashMap::new(),
+            light_cells: Vec::new(),
+            low: i32::MAX,
             mesh: Mesh { lo: [f32::MAX; 3], hi: [f32::MIN; 3], ..Default::default() },
             xf: None,
             white: false,
             light: None,
             light_floor: None,
             light_holes: HashSet::new(),
+            biome_tint: None,
         }
     }
 
@@ -331,24 +355,46 @@ impl<'a> Builder<'a> {
     }
 
     /// A block's model; at `cell` for a block the game draws as one of several variants picked
-    /// from its position (cached per state, and per cell for those).
+    /// from its position (cached per state, and per variant for those: a terrain's tens of
+    /// thousands of grass and stone blocks share a few models).
     fn model_at(&mut self, state: &str, cell: Option<Pos>) -> Option<Model> {
-        let positional = cell.is_some() && self.atlas.game.as_ref().is_some_and(|g| g.models.positional(state));
-        let key = if positional { format!("{state}@{:?}", cell) } else { state.to_string() };
-        if let Some(m) = self.cache.get(&key) {
+        let variant = match (cell, self.atlas.game.as_ref()) {
+            (Some(c), Some(g)) => {
+                if !self.weights.contains_key(state) {
+                    let w = g.models.variant_weights(state);
+                    self.weights.insert(state.to_string(), w);
+                }
+                self.weights[state].as_ref().map(|w| (crate::gamemodel::pick_index(w, c), w.len()))
+            }
+            _ => None,
+        };
+        if let Some((i, n)) = variant {
+            if let Some(Some(m)) = self.vcache.get(state).map(|v| &v[i]) {
+                return m.clone();
+            }
+            let m = self.new_model(state, cell);
+            self.vcache.entry(state.to_string()).or_insert_with(|| vec![None; n])[i] = Some(m.clone());
+            return m;
+        }
+        if let Some(m) = self.cache.get(state) {
             return m.clone();
         }
-        let m = models::model_at(state, self.atlas, if positional { cell } else { None });
+        let m = self.new_model(state, None);
+        self.cache.insert(state.to_string(), m.clone());
+        m
+    }
+
+    /// [`Builder::model_at`] uncached.
+    fn new_model(&self, state: &str, cell: Option<Pos>) -> Option<Model> {
+        let m = models::model_at(state, self.atlas, cell);
         // a light source (a lit lamp, a torch, a copper bulb...): the game lights it flat, at its
         // own light, without corner darkening, its faces still shaded by direction (critique:
         // "Lamps never look lit" was its unlit texture; drawing it unshaded made its sides too
         // bright against the real game)
-        let m = m.map(|mut m| {
+        m.map(|mut m| {
             m.emission = crate::light::emission(state);
             m
-        });
-        self.cache.insert(key, m.clone());
-        m
+        })
     }
 
     /// Add blocks (call once per frame with every block).
@@ -360,14 +406,29 @@ impl<'a> Builder<'a> {
     /// [`Builder::blocks`]' first pass: every still cell's name, occupancy and light (the game's
     /// light over them all); then [`Builder::blocks_from`] draws them.
     pub fn blocks_begin(&mut self, items: &[Item]) {
-        self.occ.clear();
-        self.names.clear();
-        self.wet.clear();
-        self.light = None;
-        let mut light_cells: Vec<(Pos, crate::light::Cell, u8)> = Vec::with_capacity(items.len() + self.extra_occ.len());
-        let mut low = i32::MAX;
-        for it in items {
-            low = low.min(it.cell[1]);
+        let done = self.blocks_begin_from(items, 0, &mut || false);
+        debug_assert_eq!(done, items.len());
+        self.blocks_begin_finish();
+    }
+
+    /// [`Builder::blocks_begin`] from item `from`, in order, until the last or until
+    /// `out_of_time` says so (asked every 256 items): the next item (`items.len()`: done, then
+    /// [`Builder::blocks_begin_finish`]). A farm in its terrain's tens of thousands of blocks take
+    /// several frames ([`crate::scene::Staged`]); the same cells in the same order either way.
+    pub fn blocks_begin_from(&mut self, items: &[Item], from: usize, out_of_time: &mut dyn FnMut() -> bool) -> usize {
+        if from == 0 {
+            self.occ.clear();
+            self.names.clear();
+            self.wet.clear();
+            self.light = None;
+            self.light_cells = Vec::with_capacity(items.len() + self.extra_occ.len());
+            self.low = i32::MAX;
+        }
+        let mut i = from;
+        while i < items.len() {
+            let it = &items[i];
+            i += 1;
+            self.low = self.low.min(it.cell[1]);
             if it.offset == [0.0; 3] {
                 // water and bubble columns are one fluid: no faces between them
                 let n = match base_name(it.state) {
@@ -392,15 +453,24 @@ impl<'a> Builder<'a> {
                 // sand's or mud's (smaller), whatever they draw
                 let collision_full = (opaque || fills) && !matches!(name, "honey_block" | "soul_sand" | "mud" | "powder_snow" | "light" | "structure_void");
                 let flags = if shade_full { crate::light::SHADE_FULL } else { 0 } | if collision_full { crate::light::COLLISION_FULL } else { 0 };
-                light_cells.push((it.cell, crate::light::cell_of(it.state, opaque, fills), flags));
+                self.light_cells.push((it.cell, crate::light::cell_of(it.state, opaque, fills), flags));
+            }
+            if i % 256 == 0 && i < items.len() && out_of_time() {
+                break;
             }
         }
+        i
+    }
+
+    /// [`Builder::blocks_begin`]'s end: the game's light over the cells gathered.
+    pub fn blocks_begin_finish(&mut self) {
+        let mut light_cells = std::mem::take(&mut self.light_cells);
         for c in &self.extra_occ {
             light_cells.push((*c, crate::light::Cell { opaque: true, dampening: 15, ..Default::default() }, crate::light::SHADE_FULL | crate::light::COLLISION_FULL));
         }
         // the game's light around them: the build stands on the judge's grass (one block of air
         // under its lowest cell) or on its own ground
-        self.light = if light_cells.is_empty() { None } else { Some(crate::light::Light::compute(&light_cells, self.light_floor.or(self.ground).unwrap_or(low - 1), &self.light_holes)) };
+        self.light = if light_cells.is_empty() { None } else { Some(crate::light::Light::compute(&light_cells, self.light_floor.or(self.ground).unwrap_or(self.low - 1), &self.light_holes)) };
     }
 
     /// [`Builder::blocks`]' second pass from item `from`, in order, until the last or until
@@ -461,12 +531,17 @@ impl<'a> Builder<'a> {
             extra_occ: self.extra_occ,
             ghost: self.ghost,
             cache: self.cache,
+            weights: self.weights,
+            vcache: self.vcache,
+            light_cells: self.light_cells,
+            low: self.low,
             mesh: self.mesh,
             xf: self.xf,
             white: self.white,
             light: self.light,
             light_floor: self.light_floor,
             light_holes: self.light_holes,
+            biome_tint: self.biome_tint,
         }
     }
 
@@ -481,12 +556,17 @@ impl<'a> Builder<'a> {
             extra_occ: p.extra_occ,
             ghost: p.ghost,
             cache: p.cache,
+            weights: p.weights,
+            vcache: p.vcache,
+            light_cells: p.light_cells,
+            low: p.low,
             mesh: p.mesh,
             xf: p.xf,
             white: p.white,
             light: p.light,
             light_floor: p.light_floor,
             light_holes: p.light_holes,
+            biome_tint: p.biome_tint,
         }
     }
 
@@ -898,30 +978,73 @@ impl<'a> Builder<'a> {
         self.add_model(&Model::one(p), base, None, None);
     }
 
-    /// A golem spawn spot (`mobfarm::MobRun::spots`) in `color`: where a golem can spawn, a
-    /// translucent column the golem's height (2.7 blocks) standing on the cell's floor, seen
-    /// through the blocks around it (a spawning pit is walled in: [`models::Part::xray`]); `dim`: a
-    /// cell the search reaches but refuses, a thin plate on its floor (hidden like a block).
-    pub fn spawn_spot(&mut self, cell: Pos, color: [u8; 3], dim: bool) {
-        let base = [cell[0] as f32, cell[1] as f32, cell[2] as f32];
-        let p = if dim {
-            Part::new([0.6, 0.1, 0.6], [15.4, 1.6, 15.4]).all("spawn_spot_dim")
-        } else {
-            Part::new([2.5, 0.1, 2.5], [13.5, 43.2, 13.5]).all("spawn_spot").xray()
+    /// A mob farm's golem spawn spots as one sheet (vjeux 2026-11-08: "Can you make areas
+    /// continuous for spawn targets. Also can golems really spawn in the air?"): a translucent
+    /// sheet on the floor where a golem's feet would stand (each spot's cell's bottom: the block
+    /// under it is what it stands on), its colour shading smoothly from cell to cell (each corner
+    /// the mean of the cells meeting there), only the area's outer edges outlined, seen through
+    /// the blocks; each golem's spawn a bright flash of its cell fading out (`flashes`: cell, fade
+    /// 0 just spawned to 1 gone).
+    pub fn spawn_sheet(&mut self, cells: &[(Pos, [u8; 3])], flashes: &[(Pos, f32)]) {
+        const LIFT: f32 = 0.03;
+        const SHEET_ALPHA: f32 = 120.0;
+        const EDGE_ALPHA: u8 = 235;
+        const EDGE_W: f32 = 0.08;
+        let tile = self.atlas.tile("spawn_spot") as u32 | XRAY;
+        let at: HashMap<Pos, [u8; 3]> = cells.iter().copied().collect();
+        // a corner (x, z) at height y: the mean colour of the cells sharing it
+        let corner = |x: i32, y: i32, z: i32| -> [u8; 3] {
+            let (mut sum, mut n) = ([0u32; 3], 0u32);
+            for (dx, dz) in [(-1, -1), (0, -1), (-1, 0), (0, 0)] {
+                if let Some(c) = at.get(&[x + dx, y, z + dz]) {
+                    for k in 0..3 {
+                        sum[k] += c[k] as u32;
+                    }
+                    n += 1;
+                }
+            }
+            if n == 0 { [255; 3] } else { [(sum[0] / n) as u8, (sum[1] / n) as u8, (sum[2] / n) as u8] }
         };
-        let p = p.tint(color).layer(models::Layer::Translucent).emissive(true).nocull();
-        self.add_model(&Model::one(p), base, None, None);
-    }
-
-    /// A golem's spawn flash on its cell, `fade` 0 (just spawned) to 1 (gone): a column the
-    /// golem's size (1.4 x 2.7 blocks) that sinks as it fades, seen through the blocks.
-    pub fn spawn_flash(&mut self, cell: Pos, fade: f32) {
-        let base = [cell[0] as f32, cell[1] as f32, cell[2] as f32];
-        let f = fade.clamp(0.0, 1.0);
-        let top = 0.5 + 42.7 * (1.0 - f);
-        let (a, b) = (8.0 - 11.2, 8.0 + 11.2);
-        let p = Part::new([a, 0.2, a], [b, top, b]).all("spawn_flash").tint([255, 236, 150]).layer(models::Layer::Translucent).emissive(true).nocull().xray();
-        self.add_model(&Model::one(p), base, None, None);
+        let quad = |b: &mut Self, pts: [[f32; 3]; 4], cols: [[u8; 4]; 4]| {
+            let uv = [[0.3, 0.3], [0.3, 0.7], [0.7, 0.7], [0.7, 0.3]];
+            let v: [Vertex; 4] = std::array::from_fn(|k| Vertex { pos: pts[k], uv: uv[k], layer: tile, color: cols[k] });
+            let center = [(pts[0][0] + pts[2][0]) / 2.0, (pts[0][1] + pts[2][1]) / 2.0, (pts[0][2] + pts[2][2]) / 2.0];
+            b.mesh.translucent.push(Quad { v, center });
+        };
+        let rgba = |c: [u8; 3], a: u8| [c[0], c[1], c[2], a];
+        for (c, _) in cells {
+            let (x, y, z) = (c[0] as f32, c[1] as f32 + LIFT, c[2] as f32);
+            let cols = [corner(c[0], c[1], c[2]), corner(c[0], c[1], c[2] + 1), corner(c[0] + 1, c[1], c[2] + 1), corner(c[0] + 1, c[1], c[2])];
+            let a = SHEET_ALPHA as u8;
+            let pts = [[x, y, z], [x, y, z + 1.0], [x + 1.0, y, z + 1.0], [x + 1.0, y, z]];
+            quad(self, pts, [rgba(cols[0], a), rgba(cols[1], a), rgba(cols[2], a), rgba(cols[3], a)]);
+            // (and seen from under it)
+            quad(self, [pts[0], pts[3], pts[2], pts[1]], [rgba(cols[0], a), rgba(cols[3], a), rgba(cols[2], a), rgba(cols[1], a)]);
+            // the area's outer edges: a cell's side with no spot beside it at its height
+            let e = EDGE_W;
+            let y2 = y + 0.005;
+            for (d, pts) in [
+                ([0, 0, -1], [[x, y2, z], [x, y2, z + e], [x + 1.0, y2, z + e], [x + 1.0, y2, z]]),
+                ([0, 0, 1], [[x, y2, z + 1.0 - e], [x, y2, z + 1.0], [x + 1.0, y2, z + 1.0], [x + 1.0, y2, z + 1.0 - e]]),
+                ([-1, 0, 0], [[x, y2, z], [x, y2, z + 1.0], [x + e, y2, z + 1.0], [x + e, y2, z]]),
+                ([1, 0, 0], [[x + 1.0 - e, y2, z], [x + 1.0 - e, y2, z + 1.0], [x + 1.0, y2, z + 1.0], [x + 1.0, y2, z]]),
+            ] {
+                if at.contains_key(&[c[0] + d[0], c[1], c[2] + d[2]]) {
+                    continue;
+                }
+                let w = rgba([255, 255, 255], EDGE_ALPHA);
+                quad(self, pts, [w; 4]);
+                quad(self, [pts[0], pts[3], pts[2], pts[1]], [w; 4]);
+            }
+        }
+        for (c, fade) in flashes {
+            let a = ((1.0 - fade.clamp(0.0, 1.0)) * 230.0) as u8;
+            let (x, y, z) = (c[0] as f32, c[1] as f32 + LIFT + 0.01, c[2] as f32);
+            let f = rgba([255, 240, 150], a);
+            let pts = [[x, y, z], [x, y, z + 1.0], [x + 1.0, y, z + 1.0], [x + 1.0, y, z]];
+            quad(self, pts, [f; 4]);
+            quad(self, [pts[0], pts[3], pts[2], pts[1]], [f; 4]);
+        }
     }
 
     /// An explosion's particles `age` ticks after the blast at `c` (its tick `time`): the game's
@@ -1179,11 +1302,16 @@ impl<'a> Builder<'a> {
                 self.mesh.hi[k] = self.mesh.hi[k].max(q[k]);
             }
         }
+        // a farm in its terrain: grass, leaves and water take their biome's colour there
+        let tint = match (&self.biome_tint, cell) {
+            (Some(bt), Some(c)) if f.tint != [255, 255, 255] => bt(c, f.tint).unwrap_or(f.tint),
+            _ => f.tint,
+        };
         let v: [Vertex; 4] = std::array::from_fn(|k| {
             let l = lum[k];
             let c = |t: u8, ch: usize| (t as f32 * l[ch]).round().clamp(0.0, 255.0) as u8;
             let layer = if p.xray { layer | XRAY } else { layer };
-            Vertex { pos: pts[k], uv: uv[k], layer, color: [c(f.tint[0], 0), c(f.tint[1], 1), c(f.tint[2], 2), alpha] }
+            Vertex { pos: pts[k], uv: uv[k], layer, color: [c(tint[0], 0), c(tint[1], 1), c(tint[2], 2), alpha] }
         });
         match p.layer {
             _ if ghost => {

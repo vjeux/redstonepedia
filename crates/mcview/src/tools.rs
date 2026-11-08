@@ -12,7 +12,8 @@ use crate::session::{Options, STILL_HORIZON, Session};
 /// `data-mcview="thumb"` element; the browser then runs one pass to it). None when the design
 /// does not load in the viewer (omit the attribute: the viewer shows its own error).
 pub fn still_attr(text: &str) -> Option<String> {
-    let mut s = Session::new(text, &Options::default()).ok()?;
+    // (a card's: void, as the browser's cards)
+    let mut s = Session::new(text, &Options { terrain: false, ..Options::default() }).ok()?;
     Some(s.still_attr(STILL_HORIZON))
 }
 

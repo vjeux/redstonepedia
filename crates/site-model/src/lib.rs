@@ -494,6 +494,11 @@ pub struct Circuit {
     /// `data-farm-rts` (webrender 2026-10-22: without it the view shows a big farm as built).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub farm_rts: Option<u32>,
+    /// The terrain sample a farm is judged in (`mcview::terrain::sample_of`: `village-edge`), the
+    /// page view's `data-terrain` (the sample's file, copied next to the pages): its view shows the
+    /// farm in it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terrain: Option<String>,
     /// A whole minecart line (`cart-line`, sorter's crate::cartsys designs in a study's `system/`
     /// folder): the stations its design names, by build id (sorter 2026-10-22: line-b is ld-chest,
     /// 128 blocks of track and ul-gate).

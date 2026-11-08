@@ -242,6 +242,9 @@ pub(crate) struct View {
     /// its vanilla twin run): the view replays its run at it (a big farm is shown as built
     /// without it).
     pub farm_rts: Option<u32>,
+    /// `data-terrain`: the terrain sample a farm is judged in (its `.mcterrain` file's URL): a live
+    /// view fetches it first and shows the farm in it (`mcview::terrain`); a card stays void.
+    pub terrain: Option<String>,
     /// `data-still`: the still frame a thumbnail shows, found at build time by the site through
     /// `mcview::tools::still_attr` (`Session::still_attr`): one run to its tick instead of the
     /// period search. Absent or unreadable: the viewer finds it (`Session::go_to_still`).
@@ -302,6 +305,10 @@ pub(crate) struct App {
     next_id: u32,
     queue: VecDeque<u32>,
     texts: HashMap<String, Result<Rc<str>, String>>,
+    /// The terrain samples given to the viewer, by URL ([`App::url_sample`]).
+    samples: HashMap<String, Result<(), String>>,
+    /// The designs whose terrain farm is being made over tasks (`live::load`), by text.
+    pub(crate) terrain_jobs: HashSet<String>,
     fetching: HashSet<String>,
     cache: HashMap<String, ImageBitmap>,
     io: IntersectionObserver,
@@ -360,7 +367,7 @@ struct ThumbPicture {
 async fn thumb_picture(atlas: Rc<Atlas>, text: Rc<str>, still: Option<String>, yaw: Option<f32>, pitch: Option<f32>, w: u32, h: u32, b: mcview::staged::Budget) -> Result<ThumbPicture, String> {
     let clock = || window().performance().map(|p| p.now()).unwrap_or(0.0);
     let t = clock();
-    let mut s = Session::new(&text, &Options::still())?;
+    let mut s = Session::new(&text, &Options { terrain: false, ..Options::still() })?;
     if let Some(a) = still.as_deref() {
         let _ = s.take_still_marks(a);
     }
@@ -773,6 +780,8 @@ pub fn start() {
         next_id: 1,
         queue: VecDeque::new(),
         texts: HashMap::new(),
+        samples: HashMap::new(),
+        terrain_jobs: HashSet::new(),
         fetching: HashSet::new(),
         cache: HashMap::new(),
         io,
@@ -1083,6 +1092,17 @@ async fn fetch_text(url: &str) -> Result<String, String> {
     t.as_string().ok_or_else(|| "not text".into())
 }
 
+/// Fetch a URL's bytes.
+async fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
+    let p = window().fetch_with_str(url);
+    let resp: web_sys::Response = wasm_bindgen_futures::JsFuture::from(p).await.map_err(|e| format!("fetch {url}: {e:?}"))?.unchecked_into();
+    if !resp.ok() {
+        return Err(format!("fetch {url}: HTTP {}", resp.status()));
+    }
+    let buf = wasm_bindgen_futures::JsFuture::from(resp.array_buffer().map_err(|e| format!("{e:?}"))?).await.map_err(|e| format!("{e:?}"))?;
+    Ok(js_sys::Uint8Array::new(&buf).to_vec())
+}
+
 fn attr_f32(el: &Element, k: &str) -> Option<f32> {
     el.get_attribute(k).and_then(|v| v.trim().parse().ok())
 }
@@ -1103,6 +1123,7 @@ impl App {
         v.inline = el.get_attribute("data-design").filter(|s| !s.is_empty()).map(Rc::from);
         v.tick = el.get_attribute("data-tick").and_then(|t| t.trim().parse().ok());
         v.farm_rts = el.get_attribute("data-farm-rts").and_then(|t| t.trim().parse().ok());
+        v.terrain = el.get_attribute("data-terrain").filter(|s| !s.trim().is_empty());
         v.still = el.get_attribute("data-still").filter(|s| !s.trim().is_empty());
         v.asbuilt = el.has_attribute("data-asbuilt");
         v.autoplay = el.has_attribute("data-autoplay");
@@ -1201,6 +1222,7 @@ impl App {
             inline: el.get_attribute("data-design").filter(|s| !s.is_empty()).map(Rc::from),
             tick: el.get_attribute("data-tick").and_then(|t| t.trim().parse().ok()),
             farm_rts: el.get_attribute("data-farm-rts").and_then(|t| t.trim().parse().ok()),
+            terrain: el.get_attribute("data-terrain").filter(|s| !s.trim().is_empty()),
             still: el.get_attribute("data-still").filter(|s| !s.trim().is_empty()),
             asbuilt: el.has_attribute("data-asbuilt"),
             autoplay: el.has_attribute("data-autoplay"),
@@ -1321,11 +1343,54 @@ impl App {
     /// The design text of a view, starting its fetch if needed (None while it loads).
     pub(crate) fn text_of(&mut self, id: u32) -> Option<Result<Rc<str>, String>> {
         let v = self.views.get(&id)?;
+        // a live view of a farm in its terrain: its sample first (`mcview::terrain`), then its text
+        if v.full
+            && let Some(url) = v.terrain.clone()
+        {
+            match self.url_sample(&url)? {
+                Ok(()) => {}
+                Err(e) => return Some(Err(e)),
+            }
+        }
+        let v = self.views.get(&id)?;
         if let Some(t) = &v.inline {
             return Some(Ok(t.clone()));
         }
         let src = v.src.clone()?;
         self.url_text(&src)
+    }
+
+    /// A terrain sample at a URL given to the viewer ([`mcview::terrain::provide_sample`], named
+    /// by its file's stem: `village-edge.mcterrain` is `village-edge`), starting its fetch if
+    /// needed: None while it loads. When it arrives, every live view using it is queued again.
+    fn url_sample(&mut self, url: &str) -> Option<Result<(), String>> {
+        if let Some(r) = self.samples.get(url) {
+            return Some(r.clone());
+        }
+        let src = url.to_string();
+        if self.fetching.insert(src.clone()) {
+            wasm_bindgen_futures::spawn_local(async move {
+                let t = window().performance().map(|p| p.now()).unwrap_or(0.0);
+                let r = fetch_bytes(&src).await.map(|b| {
+                    let name = src.rsplit('/').next().unwrap_or(&src).trim_end_matches(".mcterrain").to_string();
+                    mcview::terrain::provide_sample(&name, b);
+                });
+                trace_at(t, window().performance().map(|p| p.now()).unwrap_or(0.0) - t, "a terrain sample fetched");
+                with_app(|a| {
+                    a.fetching.remove(&src);
+                    a.samples.insert(src.clone(), r);
+                    let uses = |v: &View| v.terrain.as_deref() == Some(src.as_str());
+                    let waiting: Vec<u32> = a.views.iter().filter(|(_, v)| uses(v) && v.full && !v.done).map(|(id, _)| *id).collect();
+                    for id in waiting {
+                        if !a.queue.contains(&id) {
+                            a.queue.push_back(id);
+                        }
+                    }
+                });
+                ensure_frame();
+            });
+        }
+        None
     }
 
     /// The text at a URL (cached), starting its fetch if needed: None while it loads. When it

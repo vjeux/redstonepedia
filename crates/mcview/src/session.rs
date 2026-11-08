@@ -76,11 +76,13 @@ pub struct Options {
     /// A mob farm's run seed (None: the judge's first, [`crate::mobfarm::JUDGE_SEED`]; `mctas web
     /// mobrate` plays the judge's other runs through the view).
     pub mob_seed: Option<i64>,
+    /// A farm judged in its terrain sample shows it ([`crate::terrain`]); false: the void (a card).
+    pub terrain: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { margin: 4, settle: 400, ground_reach: None, simulate: true, probe: true, unverified: false, farm_rts: None, mob_seed: None }
+        Options { margin: 4, settle: 400, ground_reach: None, simulate: true, probe: true, unverified: false, farm_rts: None, mob_seed: None, terrain: true }
     }
 }
 
@@ -362,6 +364,10 @@ pub struct Session {
     /// Bumped whenever a block drawn may have changed (a write the world logged, a reset or a
     /// rewind): a mob farm's view keeps its blocks' mesh until then (`Player::triangles`).
     pub blocks_version: u64,
+    /// A farm judged in its terrain sample ([`crate::terrain`]): its world is the sample's with
+    /// the farm built in at the site's offset; the view draws the design's coordinates (the
+    /// world's minus the offset: [`Session::view_offset`]) and the landscape around the farm.
+    pub terrain: Option<std::rc::Rc<crate::terrain::TerrainFarm>>,
 }
 
 /// The run's mutable state, for the timelapse ([`crate::player::Player::step_back`]): everything
@@ -820,8 +826,46 @@ impl Session {
             mob: None,
             mob_initial: None,
             blocks_version: 0,
+            terrain: None,
+        };
+        // a farm judged in its terrain sample (`crate::terrain`; vjeux 2026-11-08: "The day 1 farm
+        // needs to run in a real looking terrain, not a void world"): the judge's site, made once
+        // per design (its sample's file given by the page, or read natively); a card stays void
+        let terrain = if o.terrain && crate::mobfarm::is_mob_farm(&s.design) {
+            match crate::mobfarm::spec(&s.design).and_then(|spec| crate::terrain::farm_for(text, &s.design, &spec)) {
+                Ok(t) => t,
+                Err(e) => {
+                    s.unsimulated = Some(format!("its terrain: {e}"));
+                    None
+                }
+            }
+        } else {
+            None
         };
         if !o.simulate {
+            // a farm judged in its terrain sample: its still is the judge's world before its run
+            // (the sample, the farm built in), its mobs as placed
+            if let Some(t) = terrain.clone() {
+                let m = crate::mobfarm::MobRun::start(&s.design, crate::mobfarm::JUDGE_SEED, Some(&t));
+                match m {
+                    Ok(mut m) => {
+                        let mut w = m.take_world();
+                        let off = t.offset();
+                        for e in &s.design.entities {
+                            let pos = [e.pos[0] + off[0] as f64, e.pos[1] + off[1] as f64, e.pos[2] + off[2] as f64];
+                            let _ = redsim::entity::spawn(&mut w, &e.kind, pos, e.nbt.as_deref());
+                        }
+                        w.errors.clear();
+                        let (lo, hi) = t.farm_box;
+                        s.machine_box = Some((lo, [hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1]));
+                        s.world = w;
+                        s.terrain = Some(t);
+                        s.still = true;
+                        return Ok(s);
+                    }
+                    Err(e) => s.unsimulated = Some(format!("its terrain: {e}")),
+                }
+            }
             // a still (vjeux 2026-10-21: "Why is it simulating everything?"; the coordinator:
             // cards never simulate, a page's view simulates only when played or pressed): the
             // design as the judge places it (raw, as stored), its judge's chests and crop, its own
@@ -862,7 +906,7 @@ impl Session {
         // judge's first run, its water's settle paused between ticks; nothing else of the session's
         // placement applies
         if crate::mobfarm::is_mob_farm(&s.design) {
-            let started = match crate::mobfarm::MobRun::start(&s.design, o.mob_seed.unwrap_or(crate::mobfarm::JUDGE_SEED)) {
+            let started = match crate::mobfarm::MobRun::start(&s.design, o.mob_seed.unwrap_or(crate::mobfarm::JUDGE_SEED), terrain.as_deref()) {
                 Ok(mut m) => {
                     while m.settle_tick() {
                         b.pause().await;
@@ -880,6 +924,13 @@ impl Session {
                     s.world.writes.clear();
                     s.tick = s.world.time as u32;
                     s.rest_tick = s.tick;
+                    // in its terrain: the farm's box of the sample's world is the machine the view
+                    // draws from the world (the landscape around it from `TerrainFarm`)
+                    if let Some(t) = &terrain {
+                        let (lo, hi) = t.farm_box;
+                        s.machine_box = Some((lo, [hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1]));
+                    }
+                    s.terrain = terrain;
                     s.mob_initial = Some(m.clone());
                     s.mob = Some(m);
                     s.initial = Some((s.world.clone(), s.actions.clone(), s.tick));
@@ -1253,7 +1304,9 @@ impl Session {
                     }
                 }
                 _ if !in_machine(p) => {
-                    if b == Block::Air {
+                    // (in a terrain, a natural block gone stays listed, as air: the landscape
+                    // drawn around the farm no longer shows it)
+                    if b == Block::Air && self.terrain.is_none() {
                         self.outside.remove(&c);
                     } else {
                         self.outside.insert(c, b);
@@ -1957,6 +2010,9 @@ impl Session {
         if !self.simulated() || self.replay.is_some() {
             return Ok(());
         }
+        if let Some(t) = &self.terrain {
+            return self.drawn_matches_terrain(t);
+        }
         let w = &self.world;
         let mut still: HashMap<Pos, String> = HashMap::new();
         for b in self.render_blocks(0.0) {
@@ -2048,9 +2104,86 @@ impl Session {
         Ok(())
     }
 
+    /// [`Session::drawn_matches_simulation`] for a farm in its terrain sample (its blocks drawn in
+    /// the design's coordinates, its world the sample's): every block drawn is redsim's at its
+    /// world cell; every block of the farm's box is drawn, but the natural ones the cutaway
+    /// removes (the landscape around it is the sample's natural blocks with an open face, each
+    /// drawn one checked like the farm's); every entity drawn is one of redsim's, where it is.
+    fn drawn_matches_terrain(&self, t: &crate::terrain::TerrainFarm) -> Result<(), String> {
+        let w = &self.world;
+        let off = t.offset();
+        let design = |q: Pos| [q[0] - off[0], q[1] - off[1], q[2] - off[2]];
+        let mut still: HashMap<Pos, String> = HashMap::new();
+        for b in self.render_blocks(0.0) {
+            let q = [b.cell[0] + off[0], b.cell[1] + off[1], b.cell[2] + off[2]];
+            if b.offset != [0.0; 3] || matches!(w.get(bp(q)), Block::MovingPiston { .. }) {
+                continue;
+            }
+            if let Some(prev) = still.insert(q, b.state.clone()) {
+                return Err(format!("{:?} drawn twice ({prev}, {})", b.cell, b.state));
+            }
+        }
+        for (q, s) in &still {
+            let wb = w.get(bp(*q));
+            if wb == Block::Air {
+                return Err(format!("{:?}: {s} drawn where redsim has air", design(*q)));
+            }
+            if *s != wb.to_string() {
+                return Err(format!("{:?}: drawn {s}, redsim has {wb}", design(*q)));
+            }
+        }
+        let (lo, hi) = t.farm_box;
+        for y in lo.y..=hi.y {
+            for z in lo.z..=hi.z {
+                for x in lo.x..=hi.x {
+                    let q = [x, y, z];
+                    let wb = w.get(bp(q));
+                    if matches!(wb, Block::Air | Block::MovingPiston { .. }) || still.contains_key(&q) || (matches!(wb, Block::Terrain(_)) && t.cut_away(q)) {
+                        continue;
+                    }
+                    return Err(format!("{:?}: redsim has {wb}, nothing drawn", design(q)));
+                }
+            }
+        }
+        let live: Vec<[f64; 3]> = w.entities.list.iter().filter(|e| !e.removed).map(|e| [e.pos.x, e.pos.y, e.pos.z]).chain(w.gravity.entities.iter().filter(|f| !f.removed).map(|f| [f.x, f.y, f.z])).collect();
+        for d in self.entities(1.0) {
+            let at = [d.pos[0] as f64 + off[0] as f64, d.pos[1] as f64 + off[1] as f64, d.pos[2] as f64 + off[2] as f64];
+            if !d.kind.starts_with("frame:") && !d.kind.starts_with("minecraft:minecart") && !live.iter().any(|p| (0..3).all(|k| (p[k] - at[k]).abs() < 1e-3)) {
+                return Err(format!("{} drawn at {:?}, no entity of redsim's there", d.kind, d.pos));
+            }
+        }
+        Ok(())
+    }
+    /// ([`Session::terrain`]); the view draws the design's coordinates (the world's minus it).
+    pub fn view_offset(&self) -> [i32; 3] {
+        self.terrain.as_ref().map(|t| t.offset()).unwrap_or([0; 3])
+    }
+
     /// The simulated entities to draw, each at its position `partial` of the way through the
-    /// current tick (from where it started the tick), like the game interpolates them.
+    /// current tick (from where it started the tick), like the game interpolates them (the
+    /// design's coordinates: [`Session::view_offset`]).
     pub fn entities(&self, partial: f32) -> Vec<crate::mesh::EntityDraw> {
+        let mut v = self.world_entities(partial);
+        if let Some(t) = &self.terrain {
+            // in its terrain: the mobs in the landscape drawn (none in the caves under it nor
+            // north of the cutaway, where nothing is drawn), in the design's coordinates
+            let (lo, hi) = t.farm_box;
+            let shown = |p: [f32; 3]| {
+                let inside = p[0] >= lo.x as f32 && p[1] >= lo.y as f32 && p[2] >= lo.z as f32 && p[0] <= hi.x as f32 + 1.0 && p[1] <= hi.y as f32 + 1.0 && p[2] <= hi.z as f32 + 1.0;
+                inside || (p[1] >= t.min_y as f32 && p[2] >= t.cut_z as f32)
+            };
+            v.retain(|e| shown(e.pos));
+            let off = t.offset();
+            for e in v.iter_mut() {
+                for k in 0..3 {
+                    e.pos[k] -= off[k] as f32;
+                }
+            }
+        }
+        v
+    }
+
+    fn world_entities(&self, partial: f32) -> Vec<crate::mesh::EntityDraw> {
         use redsim::entity::EntityKind;
         let lerp = |a: f64, b: f64| (a + (b - a) * partial as f64) as f32;
         // the design's entities by id: item frames take none (redsim keeps them as comparator
@@ -2195,7 +2328,7 @@ impl Session {
         if let Some(r) = &self.replay {
             return r.render_blocks();
         }
-        if !self.simulated() {
+        if self.terrain.is_none() && !self.simulated() {
             // what redsim could not place is drawn from the design text
             for (p, s) in &self.design.blocks {
                 out.push(RBlock { cell: *p, offset: [0.0; 3], state: s.clone() });
@@ -2221,6 +2354,9 @@ impl Session {
                 _ => out.push(RBlock { cell: q.arr(), offset: [0.0; 3], state: b.to_string() }),
             }
         };
+        // (a farm in its terrain: its box's natural blocks the cutaway removes are not drawn)
+        let terrain = self.terrain.as_deref();
+        let cut = |q: BlockPos| terrain.is_some_and(|t| t.cut_away(q.arr())) && matches!(w.get(q), Block::Terrain(_));
         for y in 0..size[1] {
             for z in 0..size[2] {
                 for x in 0..size[0] {
@@ -2228,12 +2364,34 @@ impl Session {
                     if self.in_floor(q.arr()) {
                         continue;
                     }
+                    if cut(q) {
+                        continue;
+                    }
                     cell(q, &mut out);
                 }
             }
         }
         for c in self.outside.keys() {
+            if cut(bp(*c)) {
+                continue;
+            }
             cell(bp(*c), &mut out);
+        }
+        // a farm in its terrain: the landscape around its box (each natural block still as it was:
+        // one the run changed is drawn from `outside`), and all of it in the design's coordinates
+        if let Some(t) = &self.terrain {
+            for (c, state) in &t.landscape {
+                if self.outside.contains_key(c) {
+                    continue;
+                }
+                out.push(RBlock { cell: *c, offset: [0.0; 3], state: state.clone() });
+            }
+            let off = t.offset();
+            for b in out.iter_mut() {
+                for k in 0..3 {
+                    b.cell[k] -= off[k];
+                }
+            }
         }
         out
     }
@@ -2664,6 +2822,7 @@ impl Session {
             mob: self.mob_initial.clone(),
             mob_initial: None,
             blocks_version: 0,
+            terrain: self.terrain.clone(),
         };
         // the world as placed: its ground intact
         if let Some(f) = s.floor.as_mut() {

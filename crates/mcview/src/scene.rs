@@ -152,7 +152,9 @@ pub fn default_look(s: &Session) -> Look {
     let (lo, _) = s.path_box();
     // the pictures' floor: `clock shot` fills grass at the box's lowest y - 2, its top one block
     // under the lowest cell
-    Look { marker, lit_marker: false, outlines, input_spans, port_outlines, ground: Some(lo[1] as f32 - 1.0), floor_margin: None, ghost, track: None, spawn_spots: false, spawn_flash_ticks: 20.0 }
+    // (a farm in its terrain stands on its landscape: no ground of the view's own)
+    let ground = if s.terrain.is_some() { None } else { Some(lo[1] as f32 - 1.0) };
+    Look { marker, lit_marker: false, outlines, input_spans, port_outlines, ground, floor_margin: None, ghost, track: None, spawn_spots: false, spawn_flash_ticks: 20.0 }
 }
 
 /// An OUT box's outline colour (the OUT tag's), and while its output is powered.
@@ -248,6 +250,9 @@ pub struct Staged {
     extra_occ: HashSet<Pos>,
     /// The builder between calls, once its first pass ran.
     builder: Option<mesh::BuilderParts>,
+    /// The first pass's next block, and whether the light is done.
+    begun: usize,
+    lit: bool,
     /// The next block to draw.
     next: usize,
 }
@@ -290,7 +295,13 @@ impl Staged {
                 }
             }
         }
-        Staged { part, blocks, skip, extra_occ, builder: None, next: 0 }
+        // a farm in its terrain: the hidden natural cells next to the landscape drawn hide its
+        // faces and darken its corners like the blocks they are
+        if let Some(t) = &s.terrain {
+            let off = t.offset();
+            extra_occ.extend(t.hidden.iter().map(|c| [c[0] - off[0], c[1] - off[1], c[2] - off[2]]));
+        }
+        Staged { part, blocks, skip, extra_occ, builder: None, begun: 0, lit: false, next: 0 }
     }
 
     /// The blocks it draws.
@@ -319,14 +330,30 @@ impl Staged {
                 b.light_holes = floor.map(|f| f.changed.keys().copied().collect()).unwrap_or_default();
                 b.extra_occ = std::mem::take(&mut self.extra_occ);
                 b.ghost = look.ghost.iter().copied().collect();
-                b.blocks_begin(&items);
-                if out_of_time() {
-                    self.builder = Some(b.into_parts());
-                    return None;
+                // a farm in its terrain: lit from its landscape's own top down to the cut under
+                // the farm (nothing below is drawn), its grass and leaves its biomes' colours
+                if let Some(t) = &s.terrain {
+                    b.light_floor = Some(t.min_y - t.offset()[1]);
+                    b.biome_tint = Some(t.tint_fn());
                 }
                 b
             }
         };
+        // the first pass (each cell's name, occupancy and light) over as many calls as it takes,
+        // then the light
+        if !self.lit {
+            self.begun = b.blocks_begin_from(&items, self.begun, out_of_time);
+            if self.begun < items.len() {
+                self.builder = Some(b.into_parts());
+                return None;
+            }
+            b.blocks_begin_finish();
+            self.lit = true;
+            if out_of_time() {
+                self.builder = Some(b.into_parts());
+                return None;
+            }
+        }
         self.next = b.blocks_from(&items, self.next, out_of_time);
         if self.next < items.len() {
             self.builder = Some(b.into_parts());
@@ -402,13 +429,14 @@ fn entities_into(b: &mut Builder, s: &Session, partial: f32, look: &Look) {
         // its particles; a blast in mid-air breaks nothing and showed nothing at all: critique on
         // the precise drop, "no TNT falls or explodes")
         let now = s.world.time as f32 + partial;
+        let off = s.view_offset().map(|v| v as f32);
         for x in s.world.explosions.iter().rev() {
             let age = now - x.time as f32;
             if age >= crate::particles::SHOWS_FOR {
                 break;
             }
             if age >= 0.0 {
-                b.explosion([x.center.x as f32, x.center.y as f32, x.center.z as f32], x.time as u64, age);
+                b.explosion([x.center.x as f32 - off[0], x.center.y as f32 - off[1], x.center.z as f32 - off[2]], x.time as u64, age);
             }
         }
         if look.spawn_spots {
@@ -417,40 +445,54 @@ fn entities_into(b: &mut Builder, s: &Session, partial: f32, look: &Look) {
     }
 }
 
-/// A mob farm's golem spawn spots (vjeux 2026-11-08: "show the places where golems spawn"): every
-/// cell the judge's golem search reaches around the villagers now ([`crate::mobfarm::spawn_spots`])
-/// as a plate on its floor, sky blue where a golem can spawn and none has yet, yellow to red by the
-/// golems spawned there so far, grey where the search reaches but a golem cannot spawn; each
-/// golem's spawn flashes on its cell. A still (before its run plays) shows its spots, uncounted.
+/// A mob farm's golem spawn spots (vjeux 2026-11-08: "show the places where golems spawn"; "Can you
+/// make areas continuous for spawn targets. Also can golems really spawn in the air?"): every cell
+/// where the judge's golem search ([`crate::mobfarm::spawn_spots`]) finds a golem can spawn around
+/// the villagers now, as one shaded sheet on the floor its feet would stand on
+/// ([`Builder::spawn_sheet`]), sky blue where none has spawned yet, yellow to red by the golems
+/// spawned there so far; each golem's spawn flashes on its cell. A still (before its run plays)
+/// shows its spots, uncounted.
 fn spawn_spots_into(b: &mut Builder, s: &Session, now: f32, look: &Look) {
-    use crate::mobfarm::{spot_color, spot_open, SPOT_REFUSED};
+    use crate::mobfarm::{spot_color, spot_open};
     let found;
     let (spots, run) = match &s.mob {
         Some(run) => (&run.spots[..], Some(run)),
         None if crate::mobfarm::is_mob_farm(&s.design) => {
-            found = crate::mobfarm::spawn_spots(&s.world);
+            // (a still: the villagers that can summon, where the design puts them)
+            let off = s.view_offset();
+            let only = crate::mobfarm::spec(&s.design).ok().map(|spec| {
+                let at = |p: redsim::BlockPos| redsim::BlockPos::new(p.x + off[0], p.y + off[1], p.z + off[2]);
+                let moved = redsim::entity::mob::farm::FarmSpec {
+                    blocks: spec.blocks.iter().map(|(p, b)| (at(*p), *b)).collect(),
+                    entities: spec.entities.iter().map(|(k, p, n)| (k.clone(), [p[0] + off[0] as f64, p[1] + off[1] as f64, p[2] + off[2] as f64], n.clone())).collect(),
+                    output: at(spec.output),
+                    lo: at(spec.lo),
+                    hi: at(spec.hi),
+                    block_entities: spec.block_entities.clone(),
+                };
+                crate::mobfarm::summoner_ids(&s.world, &crate::mobfarm::summoner_cells(&moved, &s.world))
+            });
+            found = crate::mobfarm::spawn_spots(&s.world, only.as_deref());
             (&found[..], None)
         }
         None => return,
     };
     let max = run.and_then(|r| r.spawned.values().copied().max()).unwrap_or(0);
-    for (c, r) in spots {
-        if spot_open(r) {
-            let n = run.and_then(|r| r.spawned.get(c).copied()).unwrap_or(0);
-            b.spawn_spot(c.arr(), spot_color(n, max), false);
-        } else {
-            b.spawn_spot(c.arr(), SPOT_REFUSED, true);
-        }
-    }
+    // (the world's cells in the design's coordinates: a farm in its terrain)
+    let off = s.view_offset();
+    let at = |c: &redsim::BlockPos| [c.x - off[0], c.y - off[1], c.z - off[2]];
+    let cells: Vec<(Pos, [u8; 3])> = spots.iter().filter(|(_, r)| spot_open(r)).map(|(c, _)| (at(c), spot_color(run.and_then(|r| r.spawned.get(c).copied()).unwrap_or(0), max))).collect();
+    let mut flashes = Vec::new();
     if let Some(run) = run {
         let span = look.spawn_flash_ticks.max(1.0);
         for (c, t) in &run.flashes {
             let age = now - *t as f32;
             if (0.0..span).contains(&age) {
-                b.spawn_flash(c.arr(), age / span);
+                flashes.push((at(c), age / span));
             }
         }
     }
+    b.spawn_sheet(&cells, &flashes);
 }
 
 /// The floor [`build`] draws, with nothing on it (`web compare`: the pixels that differ from it
@@ -565,8 +607,20 @@ pub fn still_points(s: &Session, look: &Look) -> Vec<[f32; 3]> {
 
 fn points(s: &Session, look: &Look, moving: bool, tnt_reach: f32) -> Vec<[f32; 3]> {
     let mut cells: std::collections::BTreeSet<Pos> = std::collections::BTreeSet::new();
+    // (a farm in its terrain: the farm framed, its own cells and the ground above them, not the
+    // landscape around it: the parent lane 2026-11-08, "frame the FARM, with some landscape around
+    // it for context")
+    let farm = s.terrain.as_ref().and_then(|_| s.design.bounds());
     for b in s.render_blocks(0.0) {
-        cells.insert(b.cell);
+        if farm.is_none_or(|(lo, hi)| (0..3).all(|k| b.cell[k] >= lo[k] && b.cell[k] <= hi[k])) {
+            cells.insert(b.cell);
+        }
+    }
+    if let Some((lo, hi)) = farm {
+        let ground = s.design.meta.get("ground").and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(lo[1] - 1);
+        let top = hi[1].max(ground + 2);
+        cells.insert([lo[0], top, lo[2]]);
+        cells.insert([hi[0], top, hi[2]]);
     }
     cells.extend(s.design.blocks.keys().copied());
     // a still (a thumbnail) frames the build, not the judge's see-through test rig around its
@@ -743,7 +797,7 @@ pub fn camera_from(s: &Session, look: &Look, aspect: f32, dir: [f32; 3]) -> Came
 
 /// Solid and translucent triangles of a mesh for a camera.
 pub fn triangles(m: &Mesh, cam: &Camera) -> (Vec<Vertex>, Vec<Vertex>) {
-    let mut solid = m.solid.clone();
+    let mut solid = if m.solid.len() > CULL_FROM { cull(&m.solid, cam) } else { m.solid.clone() };
     if !m.sprites.is_empty() {
         // the particles face the camera (the game's: in the camera's plane)
         let (_, r, u) = cam.basis();
@@ -766,6 +820,37 @@ pub fn triangles(m: &Mesh, cam: &Camera) -> (Vec<Vertex>, Vec<Vertex>) {
         }
     }
     (solid, m.sorted_translucent(cam.eye()))
+}
+
+/// Solid vertices from which a mesh's triangles out of view are dropped ([`cull`]): a farm in its
+/// terrain's tens of thousands of blocks (a close view sees a few of them); smaller meshes go as
+/// they are.
+pub const CULL_FROM: usize = 120_000;
+/// The widest view's aspect [`cull`] keeps (a desktop page's live view is 1232 x 480: 2.6).
+pub const CULL_ASPECT: f32 = 3.0;
+
+/// A big mesh's solid triangles that can be in the camera's view: each triangle wholly behind the
+/// eye or outside a frustum a little wider than the camera's (its vertical angle and
+/// [`CULL_ASPECT`]) is dropped; the picture is the same, the browser draws far fewer (WebKit's
+/// software GL drew a farm in its terrain in 64-86 ms a frame).
+fn cull(v: &[Vertex], cam: &Camera) -> Vec<Vertex> {
+    let (f, r, u) = cam.basis();
+    let e = cam.eye();
+    let t = (cam.vfov.to_radians() / 2.0).tan() * 1.1;
+    let (ky, kx) = ((1.0 + t * t).sqrt(), (1.0 + (t * CULL_ASPECT).powi(2)).sqrt());
+    let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let mut out = Vec::with_capacity(v.len() / 2);
+    for tri in v.chunks_exact(3) {
+        let c = [(tri[0].pos[0] + tri[1].pos[0] + tri[2].pos[0]) / 3.0, (tri[0].pos[1] + tri[1].pos[1] + tri[2].pos[1]) / 3.0, (tri[0].pos[2] + tri[1].pos[2] + tri[2].pos[2]) / 3.0];
+        let rad = tri.iter().map(|p| ((p.pos[0] - c[0]).powi(2) + (p.pos[1] - c[1]).powi(2) + (p.pos[2] - c[2]).powi(2)).sqrt()).fold(0.0f32, f32::max);
+        let d = [c[0] - e[0], c[1] - e[1], c[2] - e[2]];
+        let (z, x, y) = (dot(d, f), dot(d, r), dot(d, u));
+        if z < -rad || y.abs() > z * t + rad * ky || x.abs() > z * t * CULL_ASPECT + rad * kx {
+            continue;
+        }
+        out.extend_from_slice(tri);
+    }
+    out
 }
 
 /// Where on the view (x, y in -1..1, y up) a click picks `cell`: the first of a few points of the
@@ -989,6 +1074,11 @@ pub fn candidate_dirs() -> Vec<[f32; 3]> {
 /// The face-on candidates' elevation (degrees): low enough that a wall reads like its drawing,
 /// high enough to see what stands on top of it.
 pub const FACE_ON_PITCH: f32 = 12.0;
+
+/// A farm in its terrain's camera ([`CameraSearch`]): this far off straight at its cut (degrees,
+/// toward the east) and this high.
+pub const TERRAIN_YAW: f32 = 15.0;
+pub const TERRAIN_PITCH: f32 = 24.0;
 
 /// What a face-on candidate costs a build thicker than one block along the view (it would see a
 /// single face of a 3D build: flat), and what it gains a one-block-thick wall seen from its face.
@@ -1294,7 +1384,15 @@ impl CameraSearch {
         // every candidate fits and scores the framed points by their projected extremes: the
         // points that can be extreme, once for all of them (the same cameras and scores, exactly)
         let shell = crate::camera::hull_candidates(pts);
-        let blocks = s.render_blocks(0.0);
+        let mut blocks = s.render_blocks(0.0);
+        // (a farm in its terrain: what hides it is the landscape near it; the camera looks at the
+        // farm from a few blocks away, not across the whole sample)
+        if s.terrain.is_some()
+            && let Some((lo, hi)) = s.design.bounds()
+        {
+            const NEAR: i32 = 12;
+            blocks.retain(|b| (0..3).all(|k| b.cell[k] >= lo[k] - NEAR && b.cell[k] <= hi[k] + NEAR));
+        }
         let picker = crate::pick::Picker::new(atlas, &blocks);
         let tg = targets(s, look, &shell);
         let tap = s.simulated() && (!s.inputs.is_empty() || !s.swaps.is_empty());
@@ -1328,6 +1426,13 @@ impl CameraSearch {
             vec![face_front_dir(s, f)]
         } else if s.floor.is_some() {
             candidate_dirs().into_iter().take(1).collect()
+        } else if s.terrain.is_some() {
+            // a farm in its terrain: from the cutaway's side (north of it: `terrain::TerrainFarm::cut_z`),
+            // nearly straight at the cut where the farm shows, from a little above (the landscape's
+            // top in view: vjeux 2026-11-08, "For day 1, where is the terrain?"; from higher or more
+            // aside, the rock beside the farm's openings hid its insides)
+            let (yaw, pitch) = ((180.0f32 - TERRAIN_YAW).to_radians(), TERRAIN_PITCH.to_radians());
+            vec![[pitch.cos() * yaw.sin(), pitch.sin(), pitch.cos() * yaw.cos()]]
         } else {
             candidate_dirs()
         };

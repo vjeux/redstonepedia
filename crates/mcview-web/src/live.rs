@@ -813,6 +813,39 @@ pub fn load(app: &mut App, id: u32) {
     };
     // (vjeux: the view shows only what redsim simulates exactly: no real-game recording is
     // played; a design redsim cannot run is shown as built, saying why)
+    // a farm in its terrain: its terrain made over tasks first (the sample decoded, the judge's
+    // site, the landscape layer by layer: `mcview::terrain::farm_for_staged`; no task over ~50 ms),
+    // then its still at once
+    if let Ok(d) = mcview::Design::parse(&text)
+        && mcview::mobfarm::is_mob_farm(&d)
+        && !mcview::terrain::farm_ready(&text, &d)
+    {
+        let key = text.to_string();
+        if app.terrain_jobs.insert(key.clone()) {
+            wasm_bindgen_futures::spawn_local(async move {
+                let t = crate::window().performance().map(|p| p.now()).unwrap_or(0.0);
+                let r = crate::run_staged(12.0, |b| {
+                    mcview::staged::Task::new(async move {
+                        let spec = mcview::mobfarm::spec(&d)?;
+                        mcview::terrain::farm_for_staged(&key, &d, &spec, &b).await.map(|_| key)
+                    })
+                })
+                .await;
+                crate::trace_at(t, crate::window().performance().map(|p| p.now()).unwrap_or(0.0) - t, "a terrain farm made over tasks");
+                with_app(|a| {
+                    if let Err(e) = &r {
+                        crate::log(&format!("its terrain: {e}"));
+                    }
+                    a.terrain_jobs.clear();
+                    if !a.queue.contains(&id) {
+                        a.queue.push_back(id);
+                    }
+                });
+                ensure_frame();
+            });
+        }
+        return;
+    }
     let v = app.views.get_mut(&id).unwrap();
     let aspect = v.w.max(1) as f32 / v.h.max(1) as f32;
     let t0 = crate::window().performance().map(|p| p.now()).unwrap_or(0.0);
@@ -867,9 +900,13 @@ fn finish_load(app: &mut App, id: u32) {
             if let Some(perf) = crate::window().performance() {
                 p.set_clock(std::rc::Rc::new(move || perf.now()));
             }
-            // (a design the site knows the browser cannot run: the still stays, nothing plays)
+            // (a design the site knows the browser cannot run: the still stays, nothing plays; a
+            // farm in its terrain while a terrain run is too slow for a browser frame:
+            // `mcview::terrain::RUNS_IN_BROWSER`)
             if v.asbuilt {
                 p.keep_still("the browser's simulator cannot run it yet");
+            } else if p.session.terrain.is_some() && !mcview::terrain::RUNS_IN_BROWSER {
+                p.keep_still(mcview::terrain::AS_BUILT);
             }
             if v.yaw.is_some() || v.pitch.is_some() {
                 if let Some(y) = v.yaw {
@@ -1389,11 +1426,13 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
         let mut staging = false;
         if changed {
             let mut mesh_out_of_time = || perf.as_ref().is_some_and(|q| q.now() - t0 > MESH_BUDGET_MS);
-            let tris = p.triangles_within(&atlas, &mut mesh_out_of_time);
+            // (a mob farm's blocks stay on the GPU while none changes: `Player::triangles_split_within`)
+            let tris = p.triangles_split_within(&atlas, &mut mesh_out_of_time);
             t_mesh = perf.as_ref().map(|q| q.now()).unwrap_or(0.0);
             let tris = tris.filter(|_| !(p.staged_now() && t_mesh - t0 > MESH_BUDGET_MS / 2.0));
             staging = tris.is_none();
-            if let Some((solid, translucent)) = tris {
+            if let Some((fixed, solid, translucent)) = tris {
+                g.r.set_fixed(fixed.as_ref().map(|(k, v)| (*k, v.as_slice())));
                 match g.draw(&Frame { solid: &solid, translucent: &translucent, camera: p.camera, width: w, height: h }) {
                     Ok(()) => need_ready = true,
                     Err(e) => log(&e),
@@ -1608,6 +1647,8 @@ impl Live {
             r.player.update((1.0 / crate::record::FPS) as f32);
         }
         let (solid, translucent) = r.player.triangles(atlas);
+        // (the recording's own run: every triangle its own, none the live view kept on the GPU)
+        g.r.set_fixed(None);
         if let Err(e) = g.draw(&Frame { solid: &solid, translucent: &translucent, camera: r.player.camera, width: v.w.max(1), height: v.h.max(1) }) {
             log(&format!("record: {e}"));
             return false;

@@ -164,6 +164,9 @@ pub struct Renderer {
     /// Multisampled color + depth targets for the current size.
     targets: Option<(u32, u32, wgpu::Texture, wgpu::Texture)>,
     vbuf: Option<(wgpu::Buffer, u64)>,
+    /// Solid triangles kept on the GPU between frames ([`Renderer::set_fixed`]: a mob farm's
+    /// blocks), by their key, and how many vertices.
+    fixed: Option<(u64, wgpu::Buffer, u32)>,
     /// The tiles' texture array.
     tiles: wgpu::Texture,
     tiles_view: wgpu::TextureView,
@@ -349,7 +352,7 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
-        Renderer { device, queue, format, samples, solid, blend, sky, uniforms, bind, targets: None, vbuf: None, tiles: tex, tiles_view: view, bgl, sampler, game_tex, game_of, view_chunks: None, void_below: false }
+        Renderer { device, queue, format, samples, solid, blend, sky, uniforms, bind, targets: None, vbuf: None, fixed: None, tiles: tex, tiles_view: view, bgl, sampler, game_tex, game_of, view_chunks: None, void_below: false }
     }
 
     fn bind_group(device: &wgpu::Device, bgl: &wgpu::BindGroupLayout, uniforms: &wgpu::Buffer, tiles: &wgpu::TextureView, sampler: &wgpu::Sampler, game: &wgpu::Texture) -> wgpu::BindGroup {
@@ -412,6 +415,26 @@ impl Renderer {
         self.targets = Some((w, h, color, depth));
     }
 
+    /// Solid triangles drawn in every frame from now on, before the frame's own, sent to the GPU
+    /// once (again only when `key` changes): a mob farm's blocks ([`crate::player::Player::triangles_split_within`]).
+    /// None: no such triangles.
+    pub fn set_fixed(&mut self, fixed: Option<(u64, &[Vertex])>) {
+        match fixed {
+            None => self.fixed = None,
+            Some((key, v)) => {
+                if self.fixed.as_ref().is_some_and(|(k, _, _)| *k == key) {
+                    return;
+                }
+                let bytes = (std::mem::size_of_val(v) as u64).max(64);
+                let buf = self.device.create_buffer(&wgpu::BufferDescriptor { label: Some("fixed vertices"), size: bytes, usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+                if !v.is_empty() {
+                    self.queue.write_buffer(&buf, 0, bytemuck::cast_slice(v));
+                }
+                self.fixed = Some((key, buf, v.len() as u32));
+            }
+        }
+    }
+
     /// Draw a frame into `out` (a single-sample view of `self.format`, frame.width x height).
     pub fn draw(&mut self, out: &wgpu::TextureView, frame: &Frame) {
         let (w, h) = (frame.width.max(1), frame.height.max(1));
@@ -455,15 +478,17 @@ impl Renderer {
         let (_, _, color, depth) = self.targets.as_ref().unwrap();
         let cview = color.create_view(&Default::default());
         let dview = depth.create_view(&Default::default());
+        // (one sample a pixel: straight into `out`, nothing to resolve)
+        let single = self.samples <= 1;
         let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
         {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("frame"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &cview,
+                    view: if single { out } else { &cview },
                     depth_slice: None,
-                    resolve_target: Some(out),
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.73, g: 0.83, b: 1.0, a: 1.0 }), store: wgpu::StoreOp::Discard },
+                    resolve_target: if single { None } else { Some(out) },
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.73, g: 0.83, b: 1.0, a: 1.0 }), store: if single { wgpu::StoreOp::Store } else { wgpu::StoreOp::Discard } },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { view: &dview, depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Discard }), stencil_ops: None }),
                 timestamp_writes: None,
@@ -473,6 +498,11 @@ impl Renderer {
             pass.set_bind_group(0, &self.bind, &[]);
             pass.set_pipeline(&self.sky);
             pass.draw(0..3, 0..1);
+            if let Some((_, buf, n)) = self.fixed.as_ref().filter(|f| f.2 > 0) {
+                pass.set_pipeline(&self.solid);
+                pass.set_vertex_buffer(0, buf.slice(..));
+                pass.draw(0..*n, 0..1);
+            }
             pass.set_vertex_buffer(0, vb.slice(..));
             if n_solid > 0 {
                 pass.set_pipeline(&self.solid);

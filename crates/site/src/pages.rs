@@ -383,6 +383,10 @@ fn viewer(prefix: &str, b: &Build) -> String {
             if let Some(rts) = c.farm_rts {
                 a.push_str(&format!(" data-farm-rts=\"{rts}\""));
             }
+            // (a farm judged in its terrain sample: the view fetches it and shows the farm in it)
+            if let Some(t) = &c.terrain {
+                a.push_str(&format!(" data-terrain=\"{}\"", esc(&format!("{prefix}{}", terrain_file(t)))));
+            }
             // (a design the build found the browser cannot run, the shulker study's own runs
             // aside: the view stays its still, nothing to find out on play; web stall, w86's
             // bamboo sweepers: one 550 ms task when play was pressed)
@@ -873,6 +877,12 @@ pub fn build_page(site: &Site, b: &Build, design_text: &str, repo_path: &str, sc
 
 /// A build page's `<title>`: its kind and properties first, the design's name after
 /// (`Piston extender: N = 3 · 19 blocks (pext-n3-flat-cascade19)`).
+/// Where a terrain sample's file goes on the site (and in a preview), from the pages' root: its
+/// page views fetch it (`data-terrain`).
+pub fn terrain_file(name: &str) -> String {
+    format!("terrain/{name}.mcterrain")
+}
+
 pub fn page_title(b: &Build) -> String {
     let p = page_props(b);
     format!("{}: {}", p.kind, p.title)
