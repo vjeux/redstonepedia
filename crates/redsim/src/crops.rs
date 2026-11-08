@@ -315,6 +315,8 @@ pub fn random_tick(w: &mut World, s: Block, p: BlockPos) {
             crate::weather::fire::lava_random_tick(w, p);
             return;
         }
+        // ---- terrain lane: the natural states' own random ticks (grass, crops, amethyst...) ----
+        Block::Terrain(id) => return crate::terrain::ticks::random_tick(w, id, p),
         _ => {}
     }
     if !matches!(s, Block::SugarCane { .. }) {

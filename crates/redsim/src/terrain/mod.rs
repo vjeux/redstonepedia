@@ -11,6 +11,7 @@ pub mod land;
 pub mod light;
 pub mod place;
 pub mod samples;
+pub mod ticks;
 
 pub use format::{Heightmap, Terrain};
 pub use land::{Land, build_world};

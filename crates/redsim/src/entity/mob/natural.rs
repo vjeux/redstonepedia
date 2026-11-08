@@ -1330,7 +1330,8 @@ fn spawn_mob(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) -> u32
     let chicken = (f.jockey == Jockey::NewChicken).then(|| super::add(w, MobType::Natural(12), pos, false));
     let id = super::add(w, f.ty, pos, false);
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
-        e.y_rot = crate::entity::mth::wrap_degrees(yaw);
+        // snapTo keeps the drawn yaw as it is (0..360, not wrapped to -180..180)
+        e.y_rot = yaw;
     }
     let ride = |w: &mut World, rider: u32, vehicle: u32| {
         if let Some(n) = w.mob.natural.as_mut() {
