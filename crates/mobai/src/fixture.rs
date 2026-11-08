@@ -46,6 +46,29 @@ fn difficulty_name(d: Difficulty) -> &'static str {
     }
 }
 
+impl Scene {
+    /// The scene as canonical text (a recording keeps its hash: a scene changed since it was
+    /// recorded fails its replay).
+    pub fn canonical(&self) -> String {
+        let v = json!({
+            "name": self.name,
+            "chunks": self.chunks,
+            "blocks": self.blocks.iter().map(|(p, s)| json!([p, s])).collect::<Vec<_>>(),
+            "mobs": self.mobs.iter().map(|(t, p, n)| json!([t, p, n])).collect::<Vec<_>>(),
+            "day_time": self.day_time,
+            "difficulty": difficulty_name(self.difficulty),
+            "mob_griefing": self.mob_griefing,
+            "watch": [self.watch.0, self.watch.1],
+            "player": self.player,
+        });
+        v.to_string()
+    }
+
+    pub fn hash(&self) -> String {
+        format!("{:016x}", mctas::recorded::fnv64(self.canonical().as_bytes()))
+    }
+}
+
 /// A stone floor over `x0..x1`, `z0..z1` at height `y`.
 fn floor(out: &mut Vec<([i32; 3], String)>, x0: i32, x1: i32, z0: i32, z1: i32, y: i32, state: &str) {
     for x in x0..x1 {
@@ -324,8 +347,13 @@ impl GameScene {
     }
 
     pub fn trace(&mut self, ticks: u32, draws: bool) -> Result<Vec<redsim::exact::Frame>> {
+        self.trace_raw(ticks, draws)?.iter().map(mobfarm::exact::parse_frame).collect()
+    }
+
+    /// The bridge's frames of the next `ticks` ticks as it sends them (what a recording keeps).
+    pub fn trace_raw(&mut self, ticks: u32, draws: bool) -> Result<Vec<serde_json::Value>> {
         let v = self.w.call(json!({"op": "trace", "sandbox": self.sb, "ticks": ticks, "draws": draws, "box": {"from": self.lo, "to": self.hi}}))?;
-        v["frames"].as_array().ok_or_else(|| anyhow!("trace: no frames"))?.iter().map(mobfarm::exact::parse_frame).collect()
+        Ok(v["frames"].as_array().ok_or_else(|| anyhow!("trace: no frames"))?.clone())
     }
 
     /// The bridge's `mobstate` (debugging): each mob's controls and path, one line each.
@@ -390,21 +418,71 @@ pub fn redsim_summon(w: &mut World, s: &Scene) -> Result<Vec<u64>> {
     Ok(ids)
 }
 
+/// Where the game's frames come from: the live bridge, or a recording of it (`mobai record`).
+pub enum Source {
+    Live(Box<GameScene>),
+    Recorded { frames: std::collections::VecDeque<serde_json::Value>, game_ids: Vec<u64>, ticking: Vec<[i32; 2]>, spawning: Vec<[i32; 2]> },
+}
+
+impl Source {
+    fn ticking(&self) -> Vec<[i32; 2]> {
+        match self {
+            Source::Live(g) => g.ticking.clone(),
+            Source::Recorded { ticking, .. } => ticking.clone(),
+        }
+    }
+
+    fn spawning(&self) -> Vec<[i32; 2]> {
+        match self {
+            Source::Live(g) => g.spawning.clone(),
+            Source::Recorded { spawning, .. } => spawning.clone(),
+        }
+    }
+
+    fn summon(&mut self, s: &Scene) -> Result<Vec<u64>> {
+        match self {
+            Source::Live(g) => g.summon(s),
+            Source::Recorded { game_ids, .. } => Ok(game_ids.clone()),
+        }
+    }
+
+    fn frames(&mut self, n: u32, draws: bool) -> Result<Vec<redsim::exact::Frame>> {
+        match self {
+            Source::Live(g) => g.trace(n, draws),
+            Source::Recorded { frames, .. } => (0..n).filter_map(|_| frames.pop_front()).map(|v| mobfarm::exact::parse_frame(&v)).collect(),
+        }
+    }
+
+    fn mob_state(&mut self) -> Result<Vec<String>> {
+        match self {
+            Source::Live(g) => g.mob_state(),
+            Source::Recorded { .. } => Ok(Vec::new()),
+        }
+    }
+}
+
 /// Run a scene on both sides for `ticks` ticks; the compare. `trace`: at that game time, the game's
 /// draws of the tick (kept in the compare's `probe`) and redsim's draws of the level random (or of
 /// the entity's own random) printed by call site.
 #[allow(clippy::too_many_arguments)]
 pub fn compare(version: &str, s: &Scene, seed: i64, ticks: u32, batch: u32, full: bool, probe: bool, trace: Option<(i64, Option<u32>)>) -> Result<Compare> {
-    let mut game = GameScene::start(version, s, seed, probe || trace.is_some())?;
+    let game = GameScene::start(version, s, seed, probe || trace.is_some())?;
+    compare_source(&mut Source::Live(Box::new(game)), s, seed, ticks, batch, full, probe, trace)
+}
+
+/// [`compare`] against any source of the game's frames.
+#[allow(clippy::too_many_arguments)]
+pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch: u32, full: bool, probe: bool, trace: Option<(i64, Option<u32>)>) -> Result<Compare> {
     let mut ours = redsim_world(s, seed)?;
-    if !game.ticking.is_empty() {
-        ours.chunk_order = game.ticking.clone();
+    let ticking = game.ticking();
+    if !ticking.is_empty() {
+        ours.chunk_order = ticking;
     }
     if let Some(p) = s.player {
         // spawn_mobs off: natural spawning only shuffles its chunks (and checks despawning)
         use redsim::entity::mob::natural::Natural;
         let pos = redsim::entity::Vec3::new(p[0], p[1], p[2]);
-        ours.mob.natural = Some(Natural { spawning: false, spawn_enemies: false, void_biome: Some("minecraft:plains"), spawn_order: game.spawning.clone(), ..Natural::new(vec![pos], s.difficulty) });
+        ours.mob.natural = Some(Natural { spawning: false, spawn_enemies: false, void_biome: Some("minecraft:plains"), spawn_order: game.spawning(), ..Natural::new(vec![pos], s.difficulty) });
     }
     let game_ids = game.summon(s)?;
     let our_ids = redsim_summon(&mut ours, s)?;
@@ -430,7 +508,11 @@ pub fn compare(version: &str, s: &Scene, seed: i64, ticks: u32, batch: u32, full
             Some((a, _)) if done + 1 < a => (left.min(batch) as i64).min(a - 1 - done).max(1) as u32,
             _ => left.min(batch),
         };
-        let frames = game.trace(n, probe || trace.is_some())?;
+        let frames = game.frames(n, probe || trace.is_some())?;
+        if frames.is_empty() {
+            // a recording that ends here
+            break;
+        }
         done += n as i64;
         let game_state = if in_window { game.mob_state()? } else { Vec::new() };
         for f in frames {
@@ -506,5 +588,114 @@ pub fn run(version: &str, name: &str, seed: i64, ticks: u32, full: bool, probe: 
     }
     print!("{}", c.report());
     eprintln!("{} in {:.1} s", s.name, t0.elapsed().as_secs_f64());
+    Ok(())
+}
+
+/// `mctas mobai record`: each scene run in the game alone, its frames kept (gzipped JSON lines
+/// after a header: the scene's hash, the seed, the mobs' numbers, the chunk lists, how).
+pub fn record(version: &str, names: &[String], seed: i64, ticks: u32, dir: &std::path::Path) -> Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let all = scenes();
+    let pick: Vec<&Scene> = if names.is_empty() {
+        all.iter().collect()
+    } else {
+        names.iter().map(|n| all.iter().find(|s| &s.name == n).ok_or_else(|| anyhow!("no scene {n}"))).collect::<Result<_>>()?
+    };
+    let git = |args: &[&str]| -> String { std::process::Command::new("git").args(args).output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default() };
+    let now = std::process::Command::new("date").args(["-u", "+%Y-%m-%dT%H:%MZ"]).output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
+    let recorded = format!("{now} on {}", git(&["rev-parse", "--short", "HEAD"]));
+    for s in pick {
+        let t0 = std::time::Instant::now();
+        let mut game = GameScene::start(version, s, seed, false)?;
+        let game_ids = game.summon(s)?;
+        let mut frames = Vec::new();
+        let mut left = ticks;
+        while left > 0 {
+            let n = left.min(100);
+            frames.extend(game.trace_raw(n, false)?);
+            left -= n;
+        }
+        let header = json!({
+            "kind": "mobai-fixture",
+            "scene": s.name,
+            "scene_hash": s.hash(),
+            "seed": seed,
+            "ticks": ticks,
+            "version": version,
+            "recorded": recorded,
+            "how": format!("mctas mobai record {} --seed {seed} --ticks {ticks} --dir {}", s.name, dir.display()),
+            "game_ids": game_ids,
+            "ticking": game.ticking,
+            "spawning": game.spawning,
+        });
+        let mut text = header.to_string();
+        text.push('\n');
+        for f in &frames {
+            text.push_str(&f.to_string());
+            text.push('\n');
+        }
+        let path = dir.join(format!("{}.rec", s.name));
+        mctas::recorded::write_gz(&path, &text)?;
+        eprintln!("recorded {}: {} frames in {:.1} s ({})", s.name, frames.len(), t0.elapsed().as_secs_f64(), path.display());
+    }
+    eprintln!("then: mctas recorded write {} --fresh", dir.display());
+    Ok(())
+}
+
+/// `mctas mobai replay`: every recording replayed on redsim against its frames (no game). A scene
+/// changed since it was recorded fails (its hash), as does any difference.
+pub fn replay(paths: &[std::path::PathBuf]) -> Result<()> {
+    let mut files = Vec::new();
+    for p in paths {
+        if p.is_dir() {
+            files.extend(mctas::recorded::recordings(p)?.into_iter().filter(|f| f.extension().is_some_and(|e| e == "rec")));
+        } else {
+            files.push(p.clone());
+        }
+    }
+    let all = scenes();
+    let mut failed = Vec::new();
+    for f in &files {
+        let t0 = std::time::Instant::now();
+        let text = mctas::recorded::read_text(f)?;
+        let mut lines = text.lines();
+        let header: serde_json::Value = serde_json::from_str(lines.next().unwrap_or("")).map_err(|e| anyhow!("{}: header: {e}", f.display()))?;
+        if header["kind"] != "mobai-fixture" {
+            continue;
+        }
+        let name = header["scene"].as_str().unwrap_or("");
+        let Some(s) = all.iter().find(|s| s.name == name) else {
+            failed.push(format!("{}: no scene {name} any more", f.display()));
+            continue;
+        };
+        if header["scene_hash"].as_str() != Some(s.hash().as_str()) {
+            failed.push(format!("{}: STALE: the scene {name} changed since it was recorded (record it again: `{}`)", f.display(), header["how"].as_str().unwrap_or("mctas mobai record")));
+            continue;
+        }
+        let list = |k: &str| -> Vec<[i32; 2]> { header[k].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default() };
+        let frames: std::collections::VecDeque<serde_json::Value> = lines.map(serde_json::from_str).collect::<std::result::Result<_, _>>().map_err(|e| anyhow!("{}: a frame: {e}", f.display()))?;
+        let ticks = frames.len() as u32;
+        let mut src = Source::Recorded {
+            frames,
+            game_ids: header["game_ids"].as_array().map(|a| a.iter().filter_map(|x| x.as_u64()).collect()).unwrap_or_default(),
+            ticking: list("ticking"),
+            spawning: list("spawning"),
+        };
+        let seed = header["seed"].as_i64().unwrap_or(1);
+        let c = compare_source(&mut src, s, seed, ticks, 100, false, false, None)?;
+        match &c.first {
+            None => println!("PASS {name}: {ticks} ticks, 0 differences ({:.1} s)", t0.elapsed().as_secs_f64()),
+            Some(_) => {
+                print!("{}", c.report());
+                failed.push(format!("{}: differs from the game", f.display()));
+            }
+        }
+    }
+    for l in &failed {
+        println!("FAIL {l}");
+    }
+    let n = files.len();
+    anyhow::ensure!(failed.is_empty(), "{} of {n} mob AI recordings failed", failed.len());
+    println!("REPLAY: {n}/{n} mob AI recordings exact");
     Ok(())
 }

@@ -72,6 +72,23 @@ pub enum MobaiCmd {
         #[arg(long)]
         entity: Option<u32>,
     },
+    /// Record scenes in the game for `mctas test` (`<dir>/<scene>.rec`: the bridge's frames,
+    /// gzipped, with the scene's hash in the header), then `mctas recorded write <dir>`.
+    Record {
+        /// The scenes (default: every scene).
+        scenes: Vec<String>,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long, default_value_t = 3000)]
+        ticks: u32,
+        #[arg(long, default_value = "designs/redsim/recorded/mobai")]
+        dir: std::path::PathBuf,
+    },
+    /// Replay recorded scenes on redsim (no game): every frame identical, or FAIL.
+    Replay {
+        /// Recording files or directories of them.
+        paths: Vec<std::path::PathBuf>,
+    },
     /// A farm design's redsim run as the exact compare runs it, the level random's (or an
     /// entity's) draws of one game tick printed by call site.
     FarmTrace {
@@ -105,6 +122,8 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::BenchRedsim { mob, count, ticks, half, seed } => crate::bench::bench_redsim(&mob, count, ticks, half, seed),
         MobaiCmd::Pathfuzz { cases, seed, density, verbose } => crate::pathfuzz::pathfuzz(version, cases, seed, density, verbose),
         MobaiCmd::Fixture { name, seed, ticks, full, probe, trace_at, entity } => crate::fixture::run(version, &name, seed, ticks, full, probe, trace_at, entity),
+        MobaiCmd::Record { scenes, seed, ticks, dir } => crate::fixture::record(version, &scenes, seed, ticks, &dir),
+        MobaiCmd::Replay { paths } => crate::fixture::replay(&paths),
         MobaiCmd::FarmTrace { design, seed, at, entity, terrain } => crate::farmtrace::run(version, &design, seed, at, entity, terrain),
         MobaiCmd::Mathfuzz { n, seed, inputs } => crate::mathfuzz::run(version, n, seed, &inputs),
     }

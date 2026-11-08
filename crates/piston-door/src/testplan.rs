@@ -172,6 +172,8 @@ pub const RULES: &[(&str, Pick)] = &[
     ("crates/redsim/", Pick::Sim(ENGINE)),
     ("crates/redsim-fuzz/", Pick::Sim(ENGINE)),
     ("crates/boat-leads/", Pick::Sim(&["traces"])),
+    // the mob AI's differential tools (path probe, fixtures, their recordings' replay)
+    ("crates/mobai/", Pick::Sim(&["traces"])),
     // piston-door: the differential tools are the simulator's, the rest is the door study
     ("crates/piston-door/src/pistfuzz.rs", Pick::Sim(&["traces", "pistons", "sculk"])),
     ("crates/piston-door/src/vanilla_", Pick::Sim(&["vanilla"])),

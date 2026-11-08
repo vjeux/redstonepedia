@@ -1,0 +1,9 @@
+# recordings of the real game replayed on redsim (mctas recorded check; crates/mctas/src/recorded.rs)
+file	hash	deps	version	recorded	how
+creeper-player.rec	1a9cdc8984c37345		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record creeper-player --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+golem-zombie.rec	ef19b029d877d590		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record golem-zombie --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+villager-beds.rec	1f4af3add61d842b		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record villager-beds --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+zombie-door.rec	ab5e3e201b44edd3		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-door --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+zombie-obstacles.rec	26fc66de4a19d6ae		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-obstacles --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+zombie-stroll.rec	3fda981d2947ddc8		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-stroll --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+zombie-villager.rec	7d7ed052702f4fba		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-villager --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai

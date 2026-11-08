@@ -58,6 +58,7 @@ pub const RECORDING_DIRS: &[&str] = &[
     "designs/redsim/recorded/smelter",
     "designs/redsim/recorded/brewer",
     "designs/redsim/recorded/composter",
+    "designs/redsim/recorded/mobai",
 ];
 
 const A: &str = "designs/piston-door-3x3/archive";
@@ -1644,6 +1645,19 @@ fn sim_checks(v: &mut Vec<Check>) {
         steps: vec![s],
         timeout: 120,
         pred: Box::new(move |o| has(&o[0], &format!("CALIBRATION: {nb}/{nb} exact fixture comparisons passed")).map(|_| format!("{nb}/{nb} boat and lead traces exact"))),
+    });
+    // the mob AI's scenes recorded in the game (`mobai record`): every mob's position, motion,
+    // rotations, randoms, goals, path, target, brain memories and behaviours, the blocks and the
+    // level random every tick, replayed on redsim (`mobai replay`)
+    let nm = files_in("designs/redsim/recorded/mobai", "rec").len();
+    v.push(Check {
+        name: "sim:recorded-mobai".into(),
+        what: "the mob AI scenes recorded in the real game (zombies strolling, pathing round walls, to a villager and through a door on Hard; a golem and a zombie fighting; villagers claiming beds and going to sleep; a creeper going for a player) replayed on redsim, every mob's state and the level random identical every tick (`mobai replay`)",
+        quick: true,
+        jvm: false,
+        steps: vec![args("mobai replay designs/redsim/recorded/mobai")],
+        timeout: 300,
+        pred: Box::new(move |o| has(&o[0], &format!("REPLAY: {nm}/{nm} mob AI recordings exact")).map(|_| format!("{nm}/{nm} mob AI recordings exact"))),
     });
     // the judges' runs recorded in the game for `mctas test` (circuit record, 2026-11-08): the
     // sorter, smelter, brewer and composter exact gates (their old `*-compare` checks: every cell
