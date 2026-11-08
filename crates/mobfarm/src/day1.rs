@@ -772,6 +772,168 @@ pub fn row(modules: i32, pitch: i32, n: i32, l_min: u32, stage: crate::parts::St
     ]))
 }
 
+/// The shared kill (farmopt's generator; vjeux 14:51: "why does each module have their own kill
+/// chamber?"; ironspec's ruling (b): a golem dies where it lands, the worst walk included): the
+/// modules' drops, each given by the bottom cell (west, north corner) of its 4 x 4 drop, all at
+/// one y and at least 8 apart along x, go straight down to one 4-wide water channel (z of the drops
+/// + 0..3) whose feet stay at or below `villagers_y` - 24, out of every villager's follow cube; at
+/// the bottom of each drop a blade (open gates holding lava over the landing 4 x 4) kills its
+/// golems where they land, and the channel carries only their drops east (a row of sources at its
+/// west end and at each drop, a step down 1 wherever the flow would reach level 7) to one
+/// collection: hoppers in its last column's floor into one output chest, and a hopper and a chest
+/// under it for every 2 modules (the judge's run of N). Returns the output chest's cell.
+pub fn shared_kill(b: &mut Builder, drops: &[[i32; 3]], villagers_y: i32) -> anyhow::Result<[i32; 3]> {
+    let (Some(first), Some(last)) = (drops.iter().min_by_key(|d| d[0]), drops.iter().max_by_key(|d| d[0])) else {
+        anyhow::bail!("shared kill: no drops");
+    };
+    let (y_drop, z0) = (first[1], first[2]);
+    if drops.iter().any(|d| d[1] != y_drop || d[2] != z0) {
+        anyhow::bail!("shared kill: every drop's bottom cell must be at one y and one z (a row along x)");
+    }
+    let mut starts: Vec<i32> = drops.iter().map(|d| d[0]).collect();
+    starts.sort();
+    if starts.windows(2).any(|w| w[1] - w[0] < 8) {
+        anyhow::bail!("shared kill: drops at least 8 apart on x (each blade has its own stretch of the channel)");
+    }
+    let (xa, xe) = (starts[0], starts[starts.len() - 1] + 3 + 2);
+    let f0 = (villagers_y - 24).min(y_drop - 1);
+    // the channel's profile: a row of sources at each drop's first column, one level down from the
+    // channel before it (no water flows back), and a step down 1 wherever the flow would reach
+    // level 7 (it falls there and spreads 7 more)
+    let mut profile = Vec::new();
+    let (mut level, mut since) = (f0, 0);
+    let mut sources = vec![xa];
+    for x in xa..=xe {
+        if x > xa && starts.contains(&x) {
+            level -= 1;
+            since = 0;
+            sources.push(x);
+        } else if x > xa {
+            since += 1;
+            if since == 7 {
+                level -= 1;
+                since = 0;
+            }
+        }
+        profile.push(level);
+    }
+    let feet = |x: i32| profile[(x.clamp(xa, xe) - xa) as usize];
+    let over = |x: i32| drops.iter().any(|d| (d[0]..=d[0] + 3).contains(&x));
+    for x in xa - 1..=xe + 1 {
+        let f = feet(x);
+        // the highest level this column's channel or step face reaches
+        let top = feet(x - 1).max(f) + 3;
+        for z in z0 - 1..=z0 + 4 {
+            let wall = x == xa - 1 || x == xe + 1 || z == z0 - 1 || z == z0 + 4;
+            // the floor under the channel and its walls
+            b.set(x, f - 1, z, STONE);
+            for y in f..=top {
+                if wall {
+                    b.set(x, y, z, STONE);
+                } else {
+                    b.d.blocks.remove(&[x, y, z]);
+                }
+            }
+        }
+    }
+    // the drops: each shaft straight down from its bottom cell to the channel, walled
+    for d in drops {
+        for x in d[0] - 1..=d[0] + 4 {
+            let f = feet(x.clamp(xa, xe));
+            for y in f + 4..y_drop {
+                for z in z0 - 1..=z0 + 4 {
+                    let inside = (d[0]..=d[0] + 3).contains(&x) && (z0..=z0 + 3).contains(&z);
+                    if inside {
+                        b.d.blocks.remove(&[x, y, z]);
+                    } else if !(over(x) && (z0..=z0 + 3).contains(&z)) {
+                        b.set(x, y, z, STONE);
+                    }
+                }
+            }
+        }
+    }
+    // the flow: a row of sources at the channel's west end and at each drop's first column
+    for x in &sources {
+        for z in z0..=z0 + 3 {
+            b.set(*x, feet(*x), z, "water[level=0]");
+        }
+    }
+    // each drop's blade where its golems land (vjeux's rule of the worst walk: a golem dies where
+    // it lands): open gates at feet + 1 hold lava at feet + 2 over the drop's 4 x 4, cobblestone at
+    // feet + 2 beside it holds the lava in; the dead golem's drops fall into the channel's water
+    for d in drops {
+        let f = feet(d[0]);
+        for x in d[0]..=d[0] + 3 {
+            for z in z0..=z0 + 3 {
+                b.set(x, f + 1, z, GATE_E);
+                b.set(x, f + 2, z, "lava[level=0]");
+            }
+        }
+        for z in z0..=z0 + 3 {
+            b.set(d[0] - 1, f + 2, z, STONE);
+            b.set(d[0] + 4, f + 2, z, STONE);
+        }
+    }
+    // the collection at the channel's east end: hoppers in its last column's floor, north into one
+    // chest in the wall, and a hopper and a chest under it for every 2 modules
+    let fe = feet(xe);
+    for z in z0..=z0 + 3 {
+        b.set(xe, fe - 1, z, "hopper[enabled=true,facing=north]");
+    }
+    let out = [xe, fe - 1, z0 - 1];
+    b.set(out[0], out[1], out[2], "chest[facing=south,type=single,waterlogged=false]");
+    let extra = (drops.len() as i32 + 1) / 2;
+    for i in 0..extra {
+        b.set(out[0], out[1] - 1 - 2 * i, out[2], "hopper[enabled=true,facing=down]");
+        b.set(out[0], out[1] - 2 - 2 * i, out[2], "chest[facing=north,type=single,waterlogged=false]");
+    }
+    b.d.ports.insert("output".into(), out);
+    Ok(out)
+}
+
+/// A row of M2-open-ring modules `pitch` apart on x sharing one kill ([`shared_kill`]): each
+/// module without its own chamber, its shaft opened at the bottom into the channel.
+pub fn row_shared(modules: i32, pitch: i32, n: i32, l_min: u32, stage: crate::parts::Stage) -> anyhow::Result<String> {
+    let k = -22;
+    // (the module's own chamber: none; the judge's port where it was, for the module's spot check)
+    let none = |b: &mut Builder, k: i32| {
+        b.d.ports.insert("output".into(), [3, k - 2, 1]);
+    };
+    let (m, _, _, _) = m2_timer_module(n, l_min, stage, &none)?;
+    let mut b = Builder::new(&format!("iron-late-row-shared-{modules}x{pitch}"));
+    b.d.meta = m.d.meta.clone();
+    let mut drops = Vec::new();
+    for i in 0..modules {
+        let dx = pitch * i;
+        for (p, s) in &m.d.blocks {
+            // the shaft's bottom (its floor, its sources) and its mouth to a chamber: gone
+            let ring = (1..=4).contains(&p[0]) && (3..=6).contains(&p[2]) && p[1] <= k;
+            let mouth = (1..=4).contains(&p[0]) && p[2] == 2 && (k..=k + 2).contains(&p[1]);
+            if ring {
+                continue;
+            }
+            b.d.blocks.insert([p[0] + dx, p[1], p[2]], if mouth { STONE.to_string() } else { s.clone() });
+        }
+        for x in 1..=4 {
+            for y in k..=k + 2 {
+                b.d.blocks.insert([x + dx, y, 2], STONE.to_string());
+            }
+        }
+        for (p, s) in &m.d.block_entities {
+            b.d.block_entities.insert([p[0] + dx, p[1], p[2]], s.clone());
+        }
+        for e in &m.d.entities {
+            b.d.entities.push(mctas::design::EntitySpec { kind: e.kind.clone(), pos: [e.pos[0] + dx as f64, e.pos[1], e.pos[2]], nbt: e.nbt.clone() });
+        }
+        drops.push([1 + dx, k, 3]);
+    }
+    shared_kill(&mut b, &drops, 0)?;
+    Ok(b.text(&[
+        &format!("{modules} farms side by side, {pitch} blocks apart, each with its own villagers, zombie and comparator-ring timer; their"),
+        "golems fall to one water channel deep below every farm's sight, which carries them to one lava chamber and one chest.",
+    ]))
+}
+
 /// M2's front: three scared villagers and blind U1 in pods, the zombie, the hide, the bed
 /// observer's circuit.
 fn m2_front(n: i32) -> Builder {
@@ -1095,10 +1257,11 @@ pub fn collect_bottom_at1(b: &mut Builder, y_land: i32) {
     b.set(1, yl, -1, "hopper[enabled=true,facing=east]");
     slice(b, [1, yl - 1, -1], 1, "iron_ingot", "iron");
     slice(b, [2, yl, -1], -1, "poppy", "poppy");
-    // the iron slice drops into a chest over the crafter's hopper; the poppy slice into a composter,
-    // its bone meal into a chest
+    // the iron slice drops into a chest over the crafter's hopper; the poppy slice into a chest
+    // that a hopper empties into a second (no composter: a farmer's job site a farm villager could
+    // take; two chests hold 15 h of two modules' poppies)
     b.set(1, yl - 3, -1, "chest[facing=north,type=single,waterlogged=false]");
-    b.set(2, yl - 2, -1, "composter[level=0]");
+    b.set(2, yl - 2, -1, "chest[facing=north,type=single,waterlogged=false]");
     b.set(2, yl - 3, -1, "hopper[enabled=true,facing=east]");
     b.set(3, yl - 3, -1, "chest[facing=north,type=single,waterlogged=false]");
     // the crafter (ironblock-v24) mirrored in z under the iron chest: (cx, cy, cz) -> (cx + 2, cy + yl - 4, -cz - 1)
