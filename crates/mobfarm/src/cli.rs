@@ -238,6 +238,10 @@ pub enum MobfarmCmd {
         /// n's own random; each call site with its count, in draw order).
         #[arg(long)]
         draws_at: Option<i64>,
+        /// Build it into a terrain sample (village-edge, plains, forest) at its site, natural
+        /// spawning on Hard around its AFK spot.
+        #[arg(long)]
+        terrain: Option<String>,
         /// Ticks per traced step.
         #[arg(long, default_value_t = 100)]
         batch: u32,
@@ -440,9 +444,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         MobfarmCmd::WeatherStats { days, servers, dt, sim_runs } => crate::weathercheck::weather_stats_cmd(version, days, servers, dt, sim_runs)?,
         MobfarmCmd::FireBurn { design, servers, max, seeds } => crate::weathercheck::fire_burn_cmd(version, &design, servers, max, seeds)?,
         MobfarmCmd::BoltCheck => crate::weathercheck::bolt_check_cmd(version)?,
-        MobfarmCmd::Compare { design, seed, days, ticks, weather, probe, twin, full, bare, draws_at, batch } => {
+        MobfarmCmd::Compare { design, seed, days, ticks, weather, probe, twin, full, bare, draws_at, terrain, batch } => {
             let ticks = ticks.unwrap_or((days * 24000.0).round() as u32);
-            let opts = crate::exact::Opts { seed, ticks, weather, probe, batch: batch.max(1), full, bare, draws_at };
+            let opts = crate::exact::Opts { seed, ticks, weather, probe, batch: batch.max(1), full, bare, draws_at, terrain };
             compare_cmd(version, &design, &opts, twin)?;
         }
     }

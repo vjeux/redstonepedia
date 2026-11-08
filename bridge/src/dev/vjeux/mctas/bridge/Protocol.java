@@ -166,6 +166,19 @@ public final class Protocol {
             case "world" -> world(r);
             case "memory" -> memory(r);
             case "trace" -> trace(r);
+            case "terrain" -> Terrain.load(this, sandbox(r), r);
+            case "light_box" -> Terrain.lightBox(sandbox(r), ints(r.getAsJsonArray("from")), ints(r.getAsJsonArray("to")));
+            case "normalize_states" -> {
+                // each state as the game writes it back (parse, then serialize: default properties
+                // spelled out), for comparing state strings from other sources
+                JsonArray out = new JsonArray();
+                for (JsonElement s : r.getAsJsonArray("states")) {
+                    out.add(serialize(parse(s.getAsString())));
+                }
+                JsonObject o = new JsonObject();
+                o.add("states", out);
+                yield o;
+            }
             case "leash" -> leash(r);
             case "update" -> update(r);
             case "build" -> build(r);
@@ -802,6 +815,25 @@ public final class Protocol {
         }
         o.add("spawning_chunks", spawning);
         o.addProperty("spawn_chunk_count", sb.level.getChunkSource().chunkMap.getDistanceManager().getNaturalSpawnChunkCount());
+        // the chunks where entities may be spawned and tick (ServerLevel.canSpawnEntitiesInChunk:
+        // the entity manager's ticking sections, within the world border), over the spawn
+        // candidates' square around the player and the forced box
+        JsonArray entityTicking = new JsonArray();
+        int px = sb.afk == null ? sb.minChunkX : net.minecraft.util.Mth.floor(sb.afk.getX()) >> 4;
+        int pz = sb.afk == null ? sb.minChunkZ : net.minecraft.util.Mth.floor(sb.afk.getZ()) >> 4;
+        int x0 = Math.min(sb.minChunkX, px - 9), x1 = Math.max(sb.maxChunkX, px + 9);
+        int z0 = Math.min(sb.minChunkZ, pz - 9), z1 = Math.max(sb.maxChunkZ, pz + 9);
+        for (int cx = x0; cx <= x1; cx++) {
+            for (int cz = z0; cz <= z1; cz++) {
+                if (sb.level.canSpawnEntitiesInChunk(new net.minecraft.world.level.ChunkPos(cx, cz))) {
+                    JsonArray a = new JsonArray();
+                    a.add(cx);
+                    a.add(cz);
+                    entityTicking.add(a);
+                }
+            }
+        }
+        o.add("entity_ticking_chunks", entityTicking);
         return o;
     }
 

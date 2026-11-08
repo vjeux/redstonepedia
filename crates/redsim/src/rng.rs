@@ -133,7 +133,11 @@ pub fn state_diff(game: i64, ours: i64) -> Option<String> {
 //   order with it), `randValue` = `(seed ^ 0x72616E64) as i32`, the loot sequences' salt
 //   (`stems::loot_salt`);
 // * entity n's own random: [`entity_seed`] (n = its id: the n-th entity to enter, from 0), then
-//   the constructor's draws in the game's order ([`replay_uuid`], the yaw, the sensors...);
+//   the constructor's draws in the game's order ([`replay_uuid`], the yaw, the sensors...); the
+//   head (and yaw) a spawn path leaves unsnapped holds that replayed yaw, and a cube mob's move
+//   control turns to it (180 * yaw / pi) until a goal picks a direction;
+// * before it enters, from its construction: [`construct_seed`] (k = the k-th entity constructed
+//   in the sandbox), for what `finalizeSpawn` draws from the entity's own random;
 // * each brain's shuffling lists (`GateBehavior`/`RunOne`, `TriggerGate`): [`shuffle_seed`];
 // * a raid's own random: [`raid_seed`]; the wandering trader spawner's: [`trader_seed`];
 // * popResource drops ([`Drop`]) and dispensed items (`World::spawn_dispensed`) keep their own
@@ -180,6 +184,16 @@ pub fn raid_seed(seed: i64, id: i32) -> i64 {
 /// The seed of a world sandbox's wandering trader spawner random (`Exact.traderSeed`).
 pub fn trader_seed(seed: i64) -> i64 {
     mix_stafford13((seed ^ 0x7472_6164_6572).wrapping_add(GOLDEN))
+}
+
+/// The seed the k-th entity constructed in a bridge sandbox gets right after its constructor
+/// (`Exact.constructSeed`; k counts every `EntityType.create` in the sandbox: spawn attempts that
+/// are then rejected, golem attempts, summons, loaded entities, bolts, reinforcements, offspring).
+/// What the entity draws before it enters the level comes from it: a zombie's `finalizeSpawn` ->
+/// `handleAttributes` (reinforcement chance, knockback resistance, follow range, the leader roll
+/// and its bonuses), a salmon's variant. Entering then reseeds it with [`entity_seed`].
+pub fn construct_seed(seed: i64, k: u64) -> i64 {
+    mix_stafford13((seed ^ 0x636f_6e73_7472).wrapping_add((k as i64).wrapping_add(1).wrapping_mul(GOLDEN)))
 }
 
 /// `Mth.createInsecureUUID(random)`: the entity constructor's first draws (2 `nextLong`), as the

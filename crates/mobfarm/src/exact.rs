@@ -37,6 +37,30 @@ pub struct Opts {
     pub bare: bool,
     /// Print the game's draw log of this game time (every stream, by call site).
     pub draws_at: Option<i64>,
+    /// A terrain sample (village-edge, plains, forest): the design built at its site.
+    pub terrain: Option<String>,
+}
+
+/// The design and its spec where the compare runs: lifted in the void, moved to its site in a
+/// terrain sample (the site and the sample leaked: `RunOpts::site` is `'static`).
+pub fn load_place(design: &std::path::Path, opts: &Opts) -> Result<(circuit::Circuit, FarmSpec, Place<'static>)> {
+    match &opts.terrain {
+        None => {
+            let c = load_lifted(design)?;
+            let spec = circuit::mobfarm::spec_of(&c).map_err(|e| anyhow!(e))?;
+            Ok((c, spec, Place::Void { bare: opts.bare }))
+        }
+        Some(name) => {
+            let c = circuit::Circuit::load(design)?;
+            let spec = circuit::mobfarm::spec_of(&c).map_err(|e| anyhow!(e))?;
+            let sample = redsim::terrain::samples::sample(name).ok_or_else(|| anyhow!("no terrain sample {name}"))?;
+            let site: &'static redsim::entity::mob::site::Site = Box::leak(Box::new(circuit::mobfarm::site_of(&c, &spec, name).map_err(|e| anyhow!(e))?));
+            let terrain: &'static redsim::terrain::format::Terrain = Box::leak(Box::new(redsim::terrain::format::Terrain::decode(&std::fs::read(sample.file)?).map_err(|e| anyhow!(e))?));
+            eprintln!("terrain {}: offset {:?}, {} blocks placed, {} dug, AFK at {:.1} {:.1} {:.1}", site.sample, site.offset, site.placed, site.dug, site.afk.x, site.afk.y, site.afk.z);
+            let moved = site.spec(&spec);
+            Ok((c, moved, Place::Terrain { site, terrain }))
+        }
+    }
 }
 
 /// The follow-range bonus of each design mob (`Mob.finalizeSpawn`'s `random_spawn_bonus`), a run
@@ -65,6 +89,124 @@ pub struct GameFarm {
     /// cap's divisor).
     pub spawning: Vec<[i32; 2]>,
     pub spawn_chunk_count: u32,
+    /// The chunks where entities may spawn and tick (`ServerLevel.canSpawnEntitiesInChunk`).
+    pub entity_ticking: Vec<[i32; 2]>,
+    /// The design's block states at the spec's (moved) cells.
+    text: std::collections::HashMap<[i32; 3], String>,
+}
+
+/// The design's block states at the spec's cells (moved to the site in terrain).
+fn design_text(c: &circuit::Circuit, spec: &FarmSpec, place: Place) -> std::collections::HashMap<[i32; 3], String> {
+    let off = match place {
+        Place::Terrain { site, .. } => site.offset,
+        Place::Void { .. } => [0, 0, 0],
+    };
+    let _ = spec;
+    c.clock.design.block_list().into_iter().map(|(p, s)| ([p[0] + off[0], p[1] + off[1], p[2] + off[2]], s)).collect()
+}
+
+/// The cells a site clears for a void design (`site::Site::world_for` -> `place::clear`: every
+/// non-air cell of the footprint's columns from the design's floor up, in its order).
+fn cleared_cells(site: &redsim::entity::mob::site::Site, moved: &FarmSpec) -> Vec<[i32; 3]> {
+    if !site.clear_box {
+        return Vec::new();
+    }
+    let w = site.world.lock().map(|w| w.clone()).unwrap_or_else(|e| e.into_inner().clone());
+    let (mut lo, mut hi) = (moved.blocks[0].0, moved.blocks[0].0);
+    for (p, _) in &moved.blocks {
+        lo = redsim::BlockPos::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z));
+        hi = redsim::BlockPos::new(hi.x.max(p.x), hi.y.max(p.y), hi.z.max(p.z));
+    }
+    redsim::terrain::place::footprint_cells(&w, lo, hi).into_iter().filter(|p| !w.get(*p).is_air()).map(pos).collect()
+}
+
+/// Put a terrain sample into the sandbox (the bridge's `terrain` op: each section's states and
+/// saved light, the biome cells; its entities stay out like redsim's site world), then check the
+/// level's blocks and light against the sample's, cell for cell (an import that differs fails).
+pub fn import_terrain(w: &mut Worker, sb: u32, t: &redsim::terrain::format::Terrain) -> Result<()> {
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let [ox, oy, oz] = t.origin;
+    let [sx, sy, sz] = t.size;
+    let top = oy + sy - 1;
+    let mut sections = Vec::new();
+    for cx in ox.div_euclid(16)..=(ox + sx - 1).div_euclid(16) {
+        for cz in oz.div_euclid(16)..=(oz + sz - 1).div_euclid(16) {
+            for cy in oy.div_euclid(16)..=top.div_euclid(16) {
+                let mut palette: Vec<String> = vec!["minecraft:air".into()];
+                let mut ids: std::collections::HashMap<String, u16> = std::collections::HashMap::from([("minecraft:air".to_string(), 0)]);
+                let mut cells = Vec::with_capacity(8192);
+                let mut sky = vec![0u8; 2048];
+                let mut block = vec![0u8; 2048];
+                for y in 0..16 {
+                    for z in 0..16 {
+                        for x in 0..16 {
+                            let (wx, wy, wz) = (cx * 16 + x, cy * 16 + y, cz * 16 + z);
+                            let state = t.state(wx, wy, wz).unwrap_or("minecraft:air");
+                            let id = *ids.entry(state.to_string()).or_insert_with(|| {
+                                palette.push(state.to_string());
+                                (palette.len() - 1) as u16
+                            });
+                            cells.extend_from_slice(&id.to_le_bytes());
+                            // outside the box: open sky above it, dark below it
+                            let s = t.saved_sky(wx, wy, wz).unwrap_or(if wy > top { 15 } else { 0 });
+                            let b = t.saved_block(wx, wy, wz).unwrap_or(0);
+                            let i = ((y << 8) | (z << 4) | x) as usize;
+                            sky[i >> 1] |= (s & 15) << ((i & 1) * 4);
+                            block[i >> 1] |= (b & 15) << ((i & 1) * 4);
+                        }
+                    }
+                }
+                sections.push(json!({"x": cx, "y": cy, "z": cz, "palette": palette, "cells": b64.encode(&cells), "sky": b64.encode(&sky), "block": b64.encode(&block)}));
+            }
+        }
+    }
+    let biome_cells: Vec<u8> = t.biomes.iter().flat_map(|v| v.to_le_bytes()).collect();
+    let n = sections.len();
+    let v = w.call(json!({
+        "op": "terrain", "sandbox": sb, "sections": sections,
+        "biomes": {"origin": t.biome_origin, "size": t.biome_size, "palette": t.biome_palette, "cells": b64.encode(&biome_cells)},
+    }))?;
+    eprintln!("terrain: {n} sections in {} chunks", v["chunks"]);
+    // the check: every cell's block and light as the level reads them
+    let from = t.origin;
+    let to = [ox + sx - 1, top, oz + sz - 1];
+    let region = w.get_region(sb, from, to)?;
+    let lb = w.call(json!({"op": "light_box", "sandbox": sb, "from": from, "to": to}))?;
+    let sky = b64.decode(lb["sky"].as_str().unwrap_or(""))?;
+    let blk = b64.decode(lb["block"].as_str().unwrap_or(""))?;
+    let (mut bad_block, mut bad_sky, mut bad_light, mut first) = (0usize, 0usize, 0usize, None);
+    // the sample's states as the game writes them back (its strings may leave out default
+    // properties: "minecraft:deepslate" is deepslate[axis=y])
+    let v = w.call(json!({"op": "normalize_states", "states": t.palette}))?;
+    let canon: Vec<String> = v["states"].as_array().map(|a| a.iter().map(|s| s.as_str().unwrap_or("").to_string()).collect()).unwrap_or_default();
+    let mut i = 0usize;
+    for y in oy..=top {
+        for z in oz..oz + sz {
+            for x in ox..ox + sx {
+                let want = if t.contains(x, y, z) { canon[t.cells[t.index(x, y, z)] as usize].as_str() } else { "minecraft:air" };
+                let got = region.get([x, y, z]).unwrap_or("?");
+                if got != want {
+                    bad_block += 1;
+                    first.get_or_insert(format!("block {x} {y} {z}: game {got}, sample {want}"));
+                }
+                if t.saved_sky(x, y, z).is_some_and(|s| s != sky[i]) {
+                    bad_sky += 1;
+                    first.get_or_insert(format!("sky light {x} {y} {z}: game {}, sample {:?}", sky[i], t.saved_sky(x, y, z)));
+                }
+                if t.saved_block(x, y, z).is_some_and(|s| s != blk[i]) {
+                    bad_light += 1;
+                    first.get_or_insert(format!("block light {x} {y} {z}: game {}, sample {:?}", blk[i], t.saved_block(x, y, z)));
+                }
+                i += 1;
+            }
+        }
+    }
+    eprintln!("terrain import check: {} cells, {bad_block} blocks, {bad_sky} sky light and {bad_light} block light values differ from the sample", t.volume());
+    if bad_block + bad_sky + bad_light > 0 {
+        bail!("the terrain import differs from the sample: {}", first.unwrap_or_default());
+    }
+    Ok(())
 }
 
 fn pos(p: redsim::BlockPos) -> [i32; 3] {
@@ -82,19 +224,38 @@ pub fn forced_chunks(spec: &FarmSpec) -> [i32; 4] {
     [(spec.lo.x - 8).div_euclid(16), (spec.lo.z - 8).div_euclid(16), (spec.hi.x + 8).div_euclid(16), (spec.hi.z + 8).div_euclid(16)]
 }
 
+/// Where a compare runs.
+#[derive(Clone, Copy)]
+pub enum Place<'a> {
+    /// The void, in the real-game gate's scenario (`bare`: without its player, biome and
+    /// `spawn_mobs`); the design lifted by [`LIFT`].
+    Void { bare: bool },
+    /// A terrain sample: the design moved to its site (`redsim::entity::mob::site`), natural
+    /// spawning on Hard around its AFK spot.
+    Terrain { site: &'a redsim::entity::mob::site::Site, terrain: &'a redsim::terrain::format::Terrain },
+}
+
 impl GameFarm {
-    /// A fresh worker and world sandbox in the real-game gate's scenario (`circuit::mobfarm_game`:
-    /// a plains void, Hard, `spawn_mobs` on and natural monsters off, phantoms, patrols and
-    /// traders off, the clock and (with `weather`) the weather running, the AFK player creative
-    /// under a stone 60 blocks under the chest, simulation and view distance 6), with the farm
-    /// built and its chest placed (before the settle). `bare`: no player, the void's biome,
-    /// `spawn_mobs` off (the mob layer seen without natural spawning, fire spread or thunder).
-    pub fn start(version: &str, c: &circuit::Circuit, spec: &FarmSpec, o: &RunOpts, weather: bool, trace_randoms: bool, bare: bool) -> Result<GameFarm> {
-        let mut w = Worker::spawn(&WorkerConfig { version: version.to_string(), heap_mb: 2048, ..Default::default() })?;
-        let biome = if bare { Value::Null } else { json!("minecraft:plains") };
-        let v = w.call(json!({"op": "create", "chunks": forced_chunks(spec), "seed": o.seed, "biome": biome}))?;
+    /// A fresh worker and world sandbox, with the farm built and its chest placed (before the
+    /// settle). The void (`Place::Void`): the real-game gate's scenario (`circuit::mobfarm_game`: a
+    /// plains void, Hard, `spawn_mobs` on and natural monsters off, phantoms, patrols and traders
+    /// off, the clock and (with `weather`) the weather running, the AFK player creative under a
+    /// stone 60 blocks under the chest, simulation and view distance 6); `bare`: no player, the
+    /// void's biome, `spawn_mobs` off (the mob layer seen without natural spawning, fire spread or
+    /// thunder). A terrain site: the sample imported ([`import_terrain`]), the design's box
+    /// cleared like the site clears it, natural monsters on, the AFK player at the site's spot.
+    pub fn start(version: &str, c: &circuit::Circuit, spec: &FarmSpec, o: &RunOpts, weather: bool, trace_randoms: bool, place: Place) -> Result<GameFarm> {
+        let mut w = Worker::spawn(&WorkerConfig { version: version.to_string(), heap_mb: 4096, ..Default::default() })?;
+        let (chunks, biome, bare) = match place {
+            Place::Void { bare } => (forced_chunks(spec), if bare { Value::Null } else { json!("minecraft:plains") }, bare),
+            Place::Terrain { terrain, .. } => {
+                let [ox, _, oz] = terrain.origin;
+                let [sx, _, sz] = terrain.size;
+                ([ox.div_euclid(16), oz.div_euclid(16), (ox + sx - 1).div_euclid(16), (oz + sz - 1).div_euclid(16)], json!("minecraft:plains"), false)
+            }
+        };
+        let v = w.call(json!({"op": "create", "chunks": chunks, "seed": o.seed, "biome": biome}))?;
         let sb = v["sandbox"].as_u64().ok_or_else(|| anyhow!("create: no sandbox"))? as u32;
-        let bot = afk_spot(spec);
         let mut world = json!({
             "op": "world", "sandbox": sb,
             "advance_time": true, "day_time": o.day0 - SETTLE_TICKS,
@@ -103,16 +264,31 @@ impl GameFarm {
             "difficulty": "hard",
             "trace_randoms": trace_randoms,
         });
-        if !bare {
-            w.set_blocks(sb, &[([bot[0], bot[1] + 3, bot[2]], "minecraft:stone")], PlaceMode::Raw)?;
-            world["player"] = json!({"pos": [bot[0] as f64 + 0.5, bot[1] as f64, bot[2] as f64 + 0.5], "mode": "creative", "simulation": 6, "view": 6});
+        match place {
+            Place::Void { bare: false } => {
+                let bot = afk_spot(spec);
+                w.set_blocks(sb, &[([bot[0], bot[1] + 3, bot[2]], "minecraft:stone")], PlaceMode::Raw)?;
+                world["player"] = json!({"pos": [bot[0] as f64 + 0.5, bot[1] as f64, bot[2] as f64 + 0.5], "mode": "creative", "simulation": 6, "view": 6});
+            }
+            Place::Void { bare: true } => {}
+            Place::Terrain { site, terrain } => {
+                import_terrain(&mut w, sb, terrain)?;
+                let cleared = cleared_cells(site, spec);
+                let air: Vec<([i32; 3], &str)> = cleared.iter().map(|p| (*p, "minecraft:air")).collect();
+                for part in air.chunks(4096) {
+                    w.set_blocks(sb, part, PlaceMode::Raw)?;
+                }
+                world["spawn_monsters"] = json!(true);
+                world["player"] = json!({"pos": [site.afk.x, site.afk.y, site.afk.z], "mode": "creative", "simulation": 6, "view": 6});
+            }
         }
         let v = w.call(world).context("world sandbox")?;
         let ticking = v["ticking_chunks"].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default();
         let spawning = v["spawning_chunks"].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default();
+        let entity_ticking = v["entity_ticking_chunks"].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default();
         let spawn_chunk_count = v["spawn_chunk_count"].as_u64().unwrap_or(0) as u32;
         // the blocks in the spec's order (redsim's: sorted by x, y, z), the detectors held back
-        let text: std::collections::HashMap<[i32; 3], String> = c.clock.design.block_list().into_iter().collect();
+        let text = design_text(c, spec, place);
         let mut rest = Vec::new();
         for (p, b) in &spec.blocks {
             if matches!(b, redsim::block::Block::DaylightDetector { .. }) {
@@ -121,7 +297,7 @@ impl GameFarm {
             let s = text.get(&pos(*p)).ok_or_else(|| anyhow!("no design block at {p}"))?;
             rest.push((pos(*p), s.clone()));
         }
-        let mut g = GameFarm { w, sb, lo: pos(spec.lo), hi: pos(spec.hi), ticking, spawning, spawn_chunk_count };
+        let mut g = GameFarm { w, sb, lo: pos(spec.lo), hi: pos(spec.hi), ticking, spawning, entity_ticking, spawn_chunk_count, text };
         g.place(&rest)?;
         let out = pos(spec.output);
         let here = g.w.get_region(sb, out, out)?;
@@ -153,13 +329,12 @@ impl GameFarm {
     /// `Run::arrive`'s game side, after redsim's: the detectors, the entities (with redsim's
     /// summon order and the run's follow-range bonuses), each villager's HOME and LAST_SLEPT from
     /// redsim's world.
-    pub fn arrive(&mut self, c: &circuit::Circuit, spec: &FarmSpec, ours: &redsim::world::World, bonus: &[f64]) -> Result<()> {
-        let text: std::collections::HashMap<[i32; 3], String> = c.clock.design.block_list().into_iter().collect();
+    pub fn arrive(&mut self, _c: &circuit::Circuit, spec: &FarmSpec, ours: &redsim::world::World, bonus: &[f64]) -> Result<()> {
         let detectors: Vec<([i32; 3], String)> = spec
             .blocks
             .iter()
             .filter(|(_, b)| matches!(b, redsim::block::Block::DaylightDetector { .. }))
-            .map(|(p, _)| (pos(*p), text.get(&pos(*p)).cloned().unwrap_or_default()))
+            .map(|(p, _)| (pos(*p), self.text.get(&pos(*p)).cloned().unwrap_or_default()))
             .collect();
         if !detectors.is_empty() {
             self.place(&detectors)?;
@@ -177,11 +352,12 @@ impl GameFarm {
         }
         let v = self.w.call(json!({"op": "summon", "sandbox": self.sb, "mobs": true, "entities": specs}))?;
         let game_ids: Vec<u64> = v["net_ids"].as_array().map(|a| a.iter().filter_map(|x| x.as_u64()).collect()).unwrap_or_default();
-        let ours_ids: Vec<u64> = ours.entities.list.iter().map(|e| e.id as u64).collect();
+        let first_mob = ours.entities.list.len().saturating_sub(game_ids.len());
+        let ours_ids: Vec<u64> = ours.entities.list[first_mob..].iter().map(|e| e.id as u64).collect();
         if game_ids != ours_ids {
-            bail!("the game's entities entered as {game_ids:?}, redsim's as {ours_ids:?}");
+            eprintln!("note: the design's entities entered the game as {game_ids:?}, redsim as {ours_ids:?} (the worlds already differ)");
         }
-        for e in &ours.entities.list {
+        for (e, gid) in ours.entities.list[first_mob..].iter().zip(game_ids.iter()) {
             if let EntityKind::Mob(m) = &e.kind
                 && let Some(b) = m.brain.as_deref()
             {
@@ -192,7 +368,7 @@ impl GameFarm {
                 if let Some(t) = b.last_slept {
                     mem.insert("last_slept".into(), json!(t));
                 }
-                self.w.call(json!({"op": "memory", "sandbox": self.sb, "entity": e.id, "memories": mem, "take_poi": true}))?;
+                self.w.call(json!({"op": "memory", "sandbox": self.sb, "entity": gid, "memories": mem, "take_poi": true}))?;
             }
         }
         Ok(())
@@ -276,27 +452,52 @@ pub fn run_opts(seed: i64, ticks: u32) -> RunOpts {
 
 /// redsim's side: the runner with the exact streams on (the level random mirrored on the
 /// sandbox's forced box, random ticks at speed 3 from the bridge's randValue), its chunks ticked in
-/// the game's order (`ticking`: the forced box and the AFK player's square, from the bridge).
-pub fn redsim_start(spec: &FarmSpec, o: &RunOpts, ticking: &[[i32; 2]], bare: bool) -> Result<Run> {
+/// the game's order (the forced box and the AFK player's square, from the bridge), natural
+/// spawning from the game's lists (the spawning chunks before the shuffle, the spawn chunk count,
+/// the entity-ticking chunks): in the void the gate's (monsters off, plains), in terrain the site's
+/// (monsters on); none in the bare scenario.
+pub fn redsim_start(spec: &FarmSpec, o: &RunOpts, game: &GameFarm, bare: bool) -> Result<Run> {
+    use redsim::entity::mob::natural::{Difficulty, Natural};
     let mut run = Run::start(spec, o).map_err(|e| anyhow!(e))?;
-    run.world.mirror_level_random(o.seed, forced_chunks(spec));
+    match o.site {
+        None => run.world.mirror_level_random(o.seed, forced_chunks(spec)),
+        Some(_) => run.world.mirror_level_random(o.seed, game_chunks(game)),
+    }
     run.world.random_ticks = Some(redsim::crops::RandomTicks::new(3, o.seed));
-    if !ticking.is_empty() {
-        run.world.chunk_order = ticking.to_vec();
+    if !game.ticking.is_empty() {
+        run.world.chunk_order = game.ticking.clone();
     }
     if bare {
         run.world.afk = None;
+        run.world.mob.natural = None;
+        return Ok(run);
     }
+    let base = match (o.site, run.world.mob.natural.take()) {
+        (Some(_), Some(n)) => n,
+        _ => Natural { spawn_enemies: false, void_biome: Some("minecraft:plains"), ..Natural::new(vec![], Difficulty::Hard) },
+    };
+    run.world.mob.natural = Some(Natural { spawn_order: game.spawning.clone(), spawn_chunk_count: Some(game.spawn_chunk_count as i32), entity_ticking: game.entity_ticking.clone(), ..base });
     Ok(run)
+}
+
+/// The box of the sandbox's ticking chunks (a terrain sandbox: the sample's).
+fn game_chunks(game: &GameFarm) -> [i32; 4] {
+    let mut b = [i32::MAX, i32::MAX, i32::MIN, i32::MIN];
+    for [x, z] in &game.ticking {
+        b = [b[0].min(*x), b[1].min(*z), b[2].max(*x), b[3].max(*z)];
+    }
+    b
 }
 
 /// Compare a farm design over `opts.ticks` game ticks after the settle; the compare's result.
 pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: Option<i64>) -> Result<Compare> {
-    let c = load_lifted(design)?;
-    let spec = circuit::mobfarm::spec_of(&c).map_err(|e| anyhow!(e))?;
-    let o = run_opts(opts.seed, opts.ticks);
-    let mut game = GameFarm::start(version, &c, &spec, &o, opts.weather, draws_at.is_some() || opts.draws_at.is_some(), opts.bare)?;
-    let mut run = redsim_start(&spec, &o, &game.ticking, opts.bare)?;
+    let (c, spec, place) = load_place(design, opts)?;
+    let mut o = run_opts(opts.seed, opts.ticks);
+    if let Place::Terrain { site, .. } = place {
+        o.site = Some(site);
+    }
+    let mut game = GameFarm::start(version, &c, &spec, &o, opts.weather, draws_at.is_some() || opts.draws_at.is_some(), place)?;
+    let mut run = redsim_start(&spec, &o, &game, opts.bare)?;
     let mut watch = Watch::new(&run.world, spec.lo, spec.hi);
     let mut cmp = Compare::default();
     let window = |t0: i64, n: u32| [draws_at, opts.draws_at].iter().flatten().any(|d| *d >= t0 && *d < t0 + n as i64 + 3);
@@ -365,15 +566,17 @@ pub fn set_bonuses(w: &mut redsim::world::World, bonus: &[f64]) {
 /// The bridge against itself: the same farm run twice in two workers, frame for frame (every
 /// field the game reports), the determinism check of the bridge's seeding.
 pub fn twin(version: &str, design: &std::path::Path, opts: &Opts, draws_at: Option<i64>) -> Result<Compare> {
-    let c = load_lifted(design)?;
-    let spec = circuit::mobfarm::spec_of(&c).map_err(|e| anyhow!(e))?;
-    let o = run_opts(opts.seed, opts.ticks);
-    let mut a = GameFarm::start(version, &c, &spec, &o, opts.weather, draws_at.is_some(), opts.bare)?;
-    let mut b = GameFarm::start(version, &c, &spec, &o, opts.weather, draws_at.is_some(), opts.bare)?;
+    let (c, spec, place) = load_place(design, opts)?;
+    let mut o = run_opts(opts.seed, opts.ticks);
+    if let Place::Terrain { site, .. } = place {
+        o.site = Some(site);
+    }
+    let mut a = GameFarm::start(version, &c, &spec, &o, opts.weather, draws_at.is_some(), place)?;
+    let mut b = GameFarm::start(version, &c, &spec, &o, opts.weather, draws_at.is_some(), place)?;
     if a.ticking != b.ticking {
         println!("twin: the two runs tick different chunks: {} vs {} (first {:?} vs {:?})", a.ticking.len(), b.ticking.len(), a.ticking.first(), b.ticking.first());
     }
-    let mut run = redsim_start(&spec, &o, &a.ticking, opts.bare)?;
+    let mut run = redsim_start(&spec, &o, &a, opts.bare)?;
     let mut cmp = Compare::default();
     let window = |t0: i64, n: u32| draws_at.is_some_and(|d| d >= t0 && d < t0 + n as i64 + 3);
     let mut t = 0i64;

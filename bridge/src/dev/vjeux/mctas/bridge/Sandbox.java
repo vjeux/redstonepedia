@@ -227,6 +227,8 @@ final class Sandbox {
         seedSounds(level, seed);
         Sandbox sb = new Sandbox(id, level, data, minChunkX, minChunkZ, maxChunkX, maxChunkZ, seed);
         sb.installDropSeeder(entityManager);
+        Exact.hookFactories();
+        BY_LEVEL.put(level, sb);
         return sb;
     }
 
@@ -249,6 +251,37 @@ final class Sandbox {
 
     /** Every entity this sandbox seeded (Exact): its random's seed, its brain's generation. */
     final java.util.Map<Entity, Exact.Seeded> seeded = new java.util.WeakHashMap<>();
+
+    /**
+     * (tickexact) Each living entity's constructor yaw, recorded at construction (see
+     * {@link #onConstructed}), by the id it was constructed with (its hash: {@code Entity.hashCode}
+     * is the id, which entering changes); entries of entities that never entered are dropped at
+     * the next tick.
+     */
+    final java.util.Map<Integer, Float> ctorYaw = new java.util.HashMap<>();
+
+    /** (tickexact) Entities constructed in this sandbox so far ({@link Exact#constructSeed}). */
+    long constructCount;
+
+    /** (tickexact) The sandboxes by level, for the construction hook. */
+    static final java.util.Map<net.minecraft.world.level.Level, Sandbox> BY_LEVEL = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+
+    /**
+     * (tickexact) An entity just constructed by its type's factory in a sandbox's level
+     * ({@link Exact#hookFactories}): its constructor's yaw recorded (the head a spawn path leaves
+     * unsnapped still holds it at entering) and its random seeded as the sandbox's next
+     * construction ({@link Exact#constructSeed}).
+     */
+    static void onConstructed(Entity e, net.minecraft.world.level.Level level) {
+        Sandbox sb = BY_LEVEL.get(level);
+        if (sb == null) {
+            return;
+        }
+        if (e instanceof net.minecraft.world.entity.LivingEntity living) {
+            sb.ctorYaw.put(e.getId(), living.getYRot());
+        }
+        e.getRandom().setSeed(Exact.constructSeed(sb.seed, sb.constructCount++));
+    }
     /** Design mobs {@link #summonSeeded} seeded before they entered (onCreated leaves them). */
     private final java.util.Set<Entity> preSeeded = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     /** Swap every entity's random (and the level's) for a tracing one as it enters (Exact.TracingRandom). */
@@ -293,6 +326,7 @@ final class Sandbox {
      * random seeded from the sandbox seed and the raid's id ({@code Raid.random}, raid farms).
      */
     private void seedBeforeTick() {
+        this.ctorYaw.clear();
         if (!this.seeded.isEmpty()) {
             Exact.refreshBrains(entities(), this.seeded);
         }
@@ -385,9 +419,11 @@ final class Sandbox {
             }
             // deterministic ids for every entity, before it is tracked (the level's id lookup)
             int n = entityCount++;
+            // (Entity.hashCode is its id: what was recorded at construction is keyed by that id)
+            Float ctor = ctorYaw.remove(e.getId());
             e.setId(entityIdBase() + n);
             try {
-                seedEntering(e, n);
+                seedEntering(e, n, ctor);
             } finally {
                 if (traceRandoms && e.getRandom() instanceof net.minecraft.world.level.levelgen.LegacyRandomSource) {
                     Exact.traceEntity(e, n);
@@ -396,7 +432,7 @@ final class Sandbox {
             }
         }
 
-        private void seedEntering(Entity e, int n) {
+        private void seedEntering(Entity e, int n, Float ctor) {
             if (ticking && e instanceof ItemEntity item && fromPopResource()) {
                 // popResource put it at the cell's center + [-0.25, 0.25) on each axis (y minus
                 // half the item's height); recover the cell, then draw everything from the
@@ -432,7 +468,7 @@ final class Sandbox {
                 // and its number, the constructor's draws redone (Exact)
                 java.util.UUID old = e.getUUID();
                 Exact.ItemPath path = e instanceof ItemEntity ? itemPath() : Exact.ItemPath.NONE;
-                Exact.Seeded info = Exact.seed(e, seed, n, false, true, path);
+                Exact.Seeded info = Exact.seed(e, seed, n, false, true, path, ctor);
                 renameUuid(old, e.getUUID());
                 seeded.put(e, info);
             }
@@ -1004,8 +1040,52 @@ final class Sandbox {
         return tree;
     }
 
+    /**
+     * (tickexact) Load saved entities (a terrain sample's: {@code [{snbt}]}, each its whole saved
+     * data with its id), each tree seeded like a design mob's ({@link #buildSeeded}: the mob's own
+     * random seeded as its entity number before its data loads) but keeping its saved UUID and
+     * position, without the design tag; added in order.
+     */
+    List<Entity> loadSaved(com.google.gson.JsonArray list) {
+        List<Entity> out = new ArrayList<>();
+        for (com.google.gson.JsonElement el : list) {
+            String snbt = el.getAsJsonObject().get("snbt").getAsString();
+            net.minecraft.nbt.CompoundTag tag;
+            try {
+                tag = net.minecraft.nbt.TagParser.parseCompoundFully(snbt);
+            } catch (com.mojang.brigadier.exceptions.CommandSyntaxException ex) {
+                throw new IllegalArgumentException("bad saved entity: " + ex.getMessage());
+            }
+            net.minecraft.world.level.storage.ValueInput input = net.minecraft.world.level.storage.TagValueInput.create(
+                    net.minecraft.util.ProblemReporter.DISCARDING, this.level.registryAccess(), tag);
+            net.minecraft.nbt.ListTag pos = tag.getListOrEmpty("Pos");
+            double x = pos.getDoubleOr(0, 0.0);
+            double y = pos.getDoubleOr(1, 0.0);
+            double z = pos.getDoubleOr(2, 0.0);
+            List<Entity> tree = new ArrayList<>();
+            int[] next = {this.entityCount};
+            Entity root = buildSeeded(input, x, y, z, next, tree, true);
+            if (!this.level.tryAddFreshEntityWithPassengers(root)) {
+                throw new IllegalArgumentException("could not add saved " + tag.getStringOr("id", "?") + " (duplicate UUID?)");
+            }
+            for (Entity e : tree) {
+                Exact.Seeded info = this.seeded.get(e);
+                if (info != null && e.getId() - entityIdBase() != info.n) {
+                    throw new IllegalStateException("saved entity seeded as " + info.n + " but entered as " + (e.getId() - entityIdBase()));
+                }
+            }
+            out.addAll(tree);
+        }
+        return out;
+    }
+
     /** One entity of a summoned tree and its passengers (see {@link #summonSeeded}). */
     private Entity buildSeeded(net.minecraft.world.level.storage.ValueInput input, double x, double y, double z, int[] next, List<Entity> tree) {
+        return buildSeeded(input, x, y, z, next, tree, false);
+    }
+
+    /** {@code seedAll}: every entity of the tree seeded as its number (saved entities), not mobs only. */
+    private Entity buildSeeded(net.minecraft.world.level.storage.ValueInput input, double x, double y, double z, int[] next, List<Entity> tree, boolean seedAll) {
         net.minecraft.world.entity.EntityType<?> type = net.minecraft.world.entity.EntityType.by(input)
                 .orElseThrow(() -> new IllegalArgumentException("unknown entity " + input.getStringOr("id", "?")));
         Entity e = type.create(this.level, new net.minecraft.world.entity.EntitySpawnRequest(net.minecraft.world.entity.EntitySpawnReason.COMMAND, false));
@@ -1014,7 +1094,7 @@ final class Sandbox {
         }
         int n = next[0]++;
         Exact.Seeded info = null;
-        if (e instanceof net.minecraft.world.entity.Mob) {
+        if (seedAll || e instanceof net.minecraft.world.entity.Mob) {
             info = Exact.seed(e, this.seed, n, true, true, Exact.ItemPath.NONE);
         }
         e.load(input);
@@ -1027,7 +1107,7 @@ final class Sandbox {
         }
         tree.add(e);
         for (net.minecraft.world.level.storage.ValueInput passengerInput : input.childrenListOrEmpty("Passengers")) {
-            Entity passenger = buildSeeded(passengerInput, x, y, z, next, tree);
+            Entity passenger = buildSeeded(passengerInput, x, y, z, next, tree, seedAll);
             passenger.startRiding(e, true, false);
         }
         return e;
@@ -1158,6 +1238,8 @@ final class Sandbox {
         this.dispenseIndex = 0;
         this.entityCount = 0;
         this.seeded.clear();
+        this.constructCount = 0;
+        this.ctorYaw.clear();
         this.preSeeded.clear();
         this.seededRaids.clear();
     }

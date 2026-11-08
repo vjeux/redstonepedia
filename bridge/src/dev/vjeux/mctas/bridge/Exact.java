@@ -177,13 +177,95 @@ final class Exact {
      * entity's (the caller fixes the level's UUID set when the entity is already in it).
      */
     static Seeded seed(Entity e, long sandboxSeed, long n, boolean applyYaw, boolean applyUuid, ItemPath itemPath) {
+        return seed(e, sandboxSeed, n, applyYaw, applyUuid, itemPath, null);
+    }
+
+    /**
+     * {@code ctorYaw}: the yaw the entity's constructor drew (recorded when it was constructed:
+     * {@link Sandbox#onConstructed}), or null (then found by stepping the random back).
+     */
+    static Seeded seed(Entity e, long sandboxSeed, long n, boolean applyYaw, boolean applyUuid, ItemPath itemPath, Float ctorYaw) {
         long s = entitySeed(sandboxSeed, n);
         RandomSource r = e.getRandom();
+        // a LivingEntity's head (and yaw, when no spawn path snapped it) still holding the value its
+        // constructor drew from the unseeded random, replaced by the seeded draw
+        boolean headIsCtor = false;
+        boolean yawIsCtor = false;
+        if (e instanceof LivingEntity living && !applyYaw) {
+            if (ctorYaw != null) {
+                headIsCtor = living.yHeadRot == ctorYaw;
+                yawIsCtor = living.getYRot() == ctorYaw;
+            } else if (r instanceof net.minecraft.world.level.levelgen.LegacyRandomSource) {
+                // the constructor's draws are the last ones the random made: step it back
+                long cur = state(r);
+                for (int k = 0; k < 128 && !headIsCtor; k++) {
+                    float v = (int) (cur >>> 24) * 5.9604645E-8F * (float) (Math.PI * 2);
+                    headIsCtor = v == living.yHeadRot;
+                    yawIsCtor |= v == living.getYRot();
+                    cur = ((cur - 0xBL) * LCG_INVERSE) & ((1L << 48) - 1);
+                }
+                yawIsCtor &= headIsCtor;
+            }
+        }
         r.setSeed(s);
-        replayConstructor(e, r, applyYaw, applyUuid, itemPath);
+        float yaw = replayConstructor(e, r, applyYaw, applyUuid, itemPath);
+        if (e instanceof LivingEntity living) {
+            if (headIsCtor) {
+                living.yHeadRot = yaw;
+            }
+            if (yawIsCtor) {
+                living.setYRot(yaw);
+                living.yRotO = yaw;
+            }
+        }
         Seeded info = new Seeded(n, s);
         seedBrain(e, info);
         return info;
+    }
+
+    /** The inverse of {@code LegacyRandomSource}'s multiplier mod 2^48 (stepping its LCG back). */
+    static final long LCG_INVERSE = java.math.BigInteger.valueOf(0x5DEECE66DL).modInverse(java.math.BigInteger.ONE.shiftLeft(48)).longValue();
+
+    /**
+     * The seed of the k-th entity constructed in a sandbox ({@code EntityType.create}: spawn
+     * attempts that fail included), given to its random right after its constructor
+     * ({@link Sandbox#onConstructed}): what it draws before it enters the level (a zombie's
+     * {@code finalizeSpawn} -> {@code handleAttributes}, a salmon's variant) comes from it; at
+     * entering it is reseeded as its entity number ({@link #entitySeed}).
+     */
+    static long constructSeed(long sandboxSeed, long k) {
+        return RandomSupport.mixStafford13((sandboxSeed ^ 0x636f6e737472L) + (k + 1) * GOLDEN);
+    }
+
+    private static boolean factoriesHooked;
+
+    /**
+     * Wrap every entity type's factory (once per JVM; {@code EntityType.create} is the only caller)
+     * so a sandbox sees each entity right after its constructor ({@link Sandbox#onConstructed}).
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    static synchronized void hookFactories() {
+        if (factoriesHooked) {
+            return;
+        }
+        factoriesHooked = true;
+        try {
+            java.lang.reflect.Field f = net.minecraft.world.entity.EntityType.class.getDeclaredField("factory");
+            f.setAccessible(true);
+            for (net.minecraft.world.entity.EntityType<?> t : net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE) {
+                net.minecraft.world.entity.EntityType.EntityFactory orig = (net.minecraft.world.entity.EntityType.EntityFactory) f.get(t);
+                net.minecraft.world.entity.EntityType.EntityFactory wrapped = (type, level) -> {
+                    Entity e = orig.create(type, level);
+                    if (e != null) {
+                        Sandbox.onConstructed(e, level);
+                    }
+                    return e;
+                };
+                f.set(t, wrapped);
+            }
+        } catch (ReflectiveOperationException ex) {
+            throw new IllegalStateException(ex);
+        }
     }
 
     /** How an item entity was made (which constructor draws happened, which values stayed). */
@@ -216,7 +298,7 @@ final class Exact {
      *       ({@code nextFloat}), {@code Guardian}'s tail animation ({@code nextFloat}).
      * </ol>
      */
-    static void replayConstructor(Entity e, RandomSource r, boolean applyYaw, boolean applyUuid, ItemPath itemPath) {
+    static float replayConstructor(Entity e, RandomSource r, boolean applyYaw, boolean applyUuid, ItemPath itemPath) {
         UUID uuid = Mth.createInsecureUUID(r);
         if (applyUuid) {
             e.setUUID(uuid);
@@ -230,7 +312,7 @@ final class Exact {
                 r.nextDouble();
                 r.nextDouble();
             }
-            return;
+            return Float.NaN;
         }
         if (e instanceof LightningBolt bolt) {
             bolt.seed = r.nextLong();
@@ -239,15 +321,33 @@ final class Exact {
             } catch (IllegalAccessException ex) {
                 throw new IllegalStateException(ex);
             }
-            return;
+            return Float.NaN;
         }
         if (!(e instanceof LivingEntity living)) {
-            return;
+            return Float.NaN;
         }
         float yaw = r.nextFloat() * (float) (Math.PI * 2);
         if (applyYaw) {
             living.setYRot(yaw);
             living.yHeadRot = yaw;
+        }
+        if (e instanceof net.minecraft.world.entity.monster.cubemob.AbstractCubeMob cube) {
+            // CubeMobMoveControl's constructor keeps the constructor's yaw (as degrees) as the
+            // direction it turns to until a goal sets one
+            Object mc = cube.getMoveControl();
+            for (Class<?> k = mc.getClass(); k != null; k = k.getSuperclass()) {
+                if (!k.getName().equals("net.minecraft.world.entity.monster.cubemob.AbstractCubeMob$CubeMobMoveControl")) {
+                    continue;
+                }
+                try {
+                    java.lang.reflect.Field f = k.getDeclaredField("yRot");
+                    f.setAccessible(true);
+                    f.setFloat(mc, 180.0F * yaw / (float) Math.PI);
+                } catch (ReflectiveOperationException ex) {
+                    throw new IllegalStateException(ex);
+                }
+                break;
+            }
         }
         redoSensorDelays(living, r);
         if (e instanceof net.minecraft.world.entity.animal.chicken.Chicken chicken) {
@@ -261,6 +361,7 @@ final class Exact {
         } else if (e instanceof net.minecraft.world.entity.animal.golem.CopperGolem golem) {
             golem.getBrain().setMemory(MemoryModuleType.TRANSPORT_ITEMS_COOLDOWN_TICKS, r.nextInt(60, 100));
         }
+        return yaw;
     }
 
     /** Each sensor's start delay again, from {@code r}, in the brain's sensor order. */
