@@ -2542,6 +2542,43 @@ fn predict_next(p: &mut Prod, l: i32, exit_row: i32) -> Result<(Option<i32>, Opt
     Ok((next, cur))
 }
 
+/// Poll for the remotely triggered portal; on failure dump where the chain stopped
+/// (field portal scan, dropper/hopper inventories) into the production log.
+fn wait_portal(p: &mut Prod, l: i32, row: i32) -> Result<()> {
+    let fx = p.plan.fx;
+    match p.poll_block("the_nether", [fx + 1, l + 1, row], "minecraft:nether_portal", 25) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let plan = p.plan.clone();
+            let v2 = plan.v2.as_ref().unwrap().clone();
+            if let Ok(b) = p.nether_box([fx - 2, l, v2.z0 - 2], [fx + 5, l + 5, v2.z1 + 2]) {
+                let mut cells = Vec::new();
+                for z in v2.z0 - 2..=v2.z1 + 2 {
+                    for y in l..=l + 5 {
+                        for x in fx - 2..=fx + 5 {
+                            if b.get([x, y, z]).starts_with("minecraft:nether_portal") {
+                                cells.push([x, y, z]);
+                            }
+                        }
+                    }
+                }
+                p.loga(&format!("wait_portal: field portal cells after failed trigger: {cells:?}"));
+            }
+            let c = v2_coords(fx, plan.rz);
+            let doz = if p.state.v2_dropper_b { c.doz_b } else { c.doz_a };
+            if let Ok(s) = p.rcon(&format!("data get block {} 3 {} Items", c.dix + 1, doz + 1)) {
+                p.loga(&format!("wait_portal: dropper at {}: {}", c.dix + 1, s.trim()));
+            }
+            for (hx, hz) in [(c.rox, c.doz_a + 1), (c.rox + 1, c.doz_a + 1), (c.rox, c.doz_a + 2), (c.rox + 1, c.doz_a + 2)] {
+                if let Ok(s) = p.rcon(&format!("data get block {hx} 2 {hz} Items")) {
+                    p.loga(&format!("wait_portal: hopper [{hx},2,{hz}]: {}", s.trim()));
+                }
+            }
+            Err(e)
+        }
+    }
+}
+
 /// Assert a conversion: portal interior + the 4 obsidian bottom cells; count the trip.
 fn assert_conversion(p: &mut Prod, l: i32, row: i32) -> Result<()> {
     let fx = p.plan.fx;
@@ -2563,7 +2600,7 @@ fn remote_trip(p: &mut Prod, l: i32, cur: i32, row: i32) -> Result<()> {
     p.mine([fx, l + 1, cur])?;
     p.assert_block("the_nether", [fx + 1, l + 1, cur], "minecraft:air", "portal out after mining one frame block")?;
     throw_trigger(p)?;
-    p.poll_block("the_nether", [fx + 1, l + 1, row], "minecraft:nether_portal", 25)?;
+    wait_portal(p, l, row)?;
     assert_conversion(p, l, row)?;
     // Walk back beside the new portal (for the next mine, and for the camera).
     let v2 = p.plan.v2.as_ref().unwrap().clone();
@@ -3010,7 +3047,7 @@ fn scenes2(p: &mut Prod) -> Result<()> {
             "3: item exits at R_O → plate → dropper fires into D_O → new portal here",
             "The leftover frame blocks its own row, so the game picks the next",
         ], 1.0, S5)?;
-        p.poll_block("the_nether", [fx + 1, 5, next], "minecraft:nether_portal", 25)?;
+        wait_portal(p, 4, next)?;
         assert_conversion(p, 4, next)?;
         p.walk_path(&[(c.rnx - 2, rz - 2), (c.rnx - 2, v2.z1 + 1), (fx + 1, v2.z1 + 1), (fx + 1, next + 2)])?;
         p.look(fx as f64 + 1.5, 4.6, next as f64 + 0.5, 14)?;
@@ -3174,6 +3211,29 @@ fn run2(version: &str, o: &VideoOptions) -> Result<()> {
                     }).collect::<Vec<_>>().join(""))
                     .collect();
                 println!("y{y:3} {} {}", row.join(" "), b.get([plan.shaft_x, y, plan.shaft_z]));
+            }
+            Ok(())
+        }
+        "machine-dump" => {
+            // Debug: every functional block state of the saved trigger machine (no server).
+            let plan = load_plan(o)?;
+            let c = v2_coords(plan.fx, plan.rz);
+            let world = match &o.from {
+                Some(tag) => o.out.join("checkpoints").join(tag),
+                None => o.out.join("world-src"),
+            };
+            let dim = world.join("dimensions").join("minecraft").join("overworld");
+            let snap = mctas::vanilla::read_box(&dim, [c.rox - 2, 2, c.doz_a - 1], [c.dix + 4, 4, c.doz_b + 2])?;
+            let b = Blocks::new(snap.region);
+            for z in c.doz_a - 1..=c.doz_b + 2 {
+                for x in c.rox - 2..=c.dix + 4 {
+                    for y in [3, 2] {
+                        let s = b.get([x, y, z]);
+                        if s.contains("redstone") || s.contains("repeater") || s.contains("dropper") || s.contains("hopper") || s.contains("pressure_plate") {
+                            println!("[{x},{y},{z}] {s}");
+                        }
+                    }
+                }
             }
             Ok(())
         }
