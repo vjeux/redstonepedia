@@ -331,8 +331,9 @@ fn lightning_measure() {
     put(&mut w, 0, 1, 0, "minecraft:stone");
     crate::entity::mob::add(&mut w, MobType::Villager, Vec3::new(0.5, 2.0, 0.5), true);
     let inner = Aabb::new(-8.0, 0.0, -8.0, 8.0, 24.0, 8.0);
+    let farm = (BlockPos::new(-8, 0, -8), BlockPos::new(7, 23, 7));
     let q = lightning::CHUNK_STRIKE / 256.0;
-    let open = lightning::measure(&w, &[], &[(BlockPos::new(2, 2, 0), 2.0)], inner).unwrap();
+    let open = lightning::measure(&w, &[], &[(BlockPos::new(2, 2, 0), 2.0)], inner, farm).unwrap();
     assert!((open.witch / q - 49.0).abs() < 1e-6, "{open:?}");
     assert!((open.iron / q - 98.0).abs() < 1e-6, "{open:?}");
     assert_eq!(open.vehicle, 0.0);
@@ -342,10 +343,24 @@ fn lightning_measure() {
             put(&mut w, x, 7, z, "minecraft:stone");
         }
     }
-    let roofed = lightning::measure(&w, &[], &[], inner).unwrap();
+    let roofed = lightning::measure(&w, &[], &[], inner, farm).unwrap();
     assert_eq!(roofed.witch, 0.0, "{roofed:?}");
     // the roof's top is on the farm: a trap horse can land there (6.4% of those bolts on Hard)
     assert!((roofed.trap / q - 25.0 * lightning::trap_chance(&lightning::Settings::default())).abs() < 1e-6, "{roofed:?}");
+}
+
+/// A bolt's fire breaks the farm beside the farm's own flammable blocks (its box: its blocks and
+/// the natural ones its walls are made of), not beside a terrain sample's grass outside it (the
+/// day-1 lane: D1U's card read the surface grass over the dug-in farm as "a fire every 7 days").
+#[test]
+fn lightning_fire_counts_the_farms_blocks() {
+    let mut w = World::new(BlockPos::new(-8, 0, -8), [16, 24, 16]);
+    put(&mut w, 0, 1, 0, "minecraft:oak_planks");
+    let inner = Aabb::new(-8.0, 0.0, -8.0, 8.0, 24.0, 8.0);
+    let mine = lightning::measure(&w, &[], &[], inner, (BlockPos::new(-8, 0, -8), BlockPos::new(7, 23, 7))).unwrap();
+    assert!(mine.fire > 0.0, "{mine:?}");
+    let elsewhere = lightning::measure(&w, &[], &[], inner, (BlockPos::new(4, 0, 4), BlockPos::new(7, 23, 7))).unwrap();
+    assert_eq!(elsewhere.fire, 0.0, "{elsewhere:?}");
 }
 
 /// The cycle's thunderstorms: rain about 15.8% of the time and the thunder flag 9.1%, independent,

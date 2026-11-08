@@ -747,9 +747,11 @@ pub fn trap_chance(s: &Settings) -> f64 {
     (0..8).map(|d| (effective_difficulty(s, d * 24000) * 0.01f32) as f64).sum::<f64>() / 8.0
 }
 
-/// A fire cell's danger: air, a fire can stay there, and a flammable block beside it (not soul
-/// fire: it burns nothing) or a protected box in it (a fire's cell burns whoever is inside).
-fn fire_danger(w: &World, p: BlockPos, protect: &[Aabb]) -> bool {
+/// A fire cell's danger: air, a fire can stay there, and a flammable block of the farm beside it
+/// (inside its box `farm`: its own blocks and the natural ones its walls are made of; a terrain
+/// sample's grass outside it burns the world, not the farm) (not soul fire: it burns nothing), or
+/// a protected box in it (a fire's cell burns whoever is inside).
+fn fire_danger(w: &World, p: BlockPos, protect: &[Aabb], farm: (BlockPos, BlockPos)) -> bool {
     if !w.get(p).is_air() {
         return false;
     }
@@ -758,20 +760,23 @@ fn fire_danger(w: &World, p: BlockPos, protect: &[Aabb]) -> bool {
         return false;
     }
     let soul = matches!(fire, Block::Fire { soul: true, .. });
-    (!soul && flammable_neighbour(w, p).is_some()) || protect.iter().any(|bb| Aabb::of_block(p).intersects(*bb))
+    let (lo, hi) = farm;
+    let of_farm = |q: BlockPos| (lo.x..=hi.x).contains(&q.x) && (lo.y..=hi.y).contains(&q.y) && (lo.z..=hi.z).contains(&q.z);
+    let beside = Dir::ALL.iter().map(|d| p.rel(*d)).any(|q| of_farm(q) && flammable(&w.get(q)).is_some());
+    (!soul && beside) || protect.iter().any(|bb| Aabb::of_block(p).intersects(*bb))
 }
 
 /// The chance a bolt at `b` lights a dangerous fire (Normal and Hard: `spawnFire(4)` on its first
 /// tick: its block, then 4 cells drawn uniformly from the 27 around it).
-fn fire_chance(w: &World, b: BlockPos, protect: &[Aabb]) -> f64 {
-    if fire_danger(w, b, protect) {
+fn fire_chance(w: &World, b: BlockPos, protect: &[Aabb], farm: (BlockPos, BlockPos)) -> f64 {
+    if fire_danger(w, b, protect, farm) {
         return 1.0;
     }
     let mut d = 0;
     for dy in -1..=1 {
         for dz in -1..=1 {
             for dx in -1..=1 {
-                if fire_danger(w, b.offset(dx, dy, dz), protect) {
+                if fire_danger(w, b.offset(dx, dy, dz), protect, farm) {
                     d += 1;
                 }
             }
@@ -784,7 +789,7 @@ fn fire_chance(w: &World, b: BlockPos, protect: &[Aabb]) -> f64 {
 /// there at a tick, `iron` the blocks a drop is in with the iron there at a tick on average. A sky
 /// the model cannot decide (at a villager, the zombie, a golem's block or a bolt's) is an error:
 /// treated as no sky it would hide strikes.
-pub fn measure(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)], inner: Aabb) -> Result<Measure, String> {
+pub fn measure(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)], inner: Aabb, farm: (BlockPos, BlockPos)) -> Result<Measure, String> {
     use crate::entity::mob::types::MobType;
     let sky = |p: BlockPos| can_see_sky(w, p).map_err(|e| format!("lightning: the sky at {p}: {e}"));
     let q = CHUNK_STRIKE / 256.0;
@@ -902,7 +907,7 @@ pub fn measure(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)], 
             m.witch += if witch { wgt } else { 0.0 };
             m.vehicle += if broke { wgt } else { 0.0 };
             m.iron += wgt * iron.iter().filter(|(c, _)| hit.intersects(Aabb::of_block(*c))).map(|(_, n)| n).sum::<f64>();
-            let fire = fire_chance(w, b, &protect);
+            let fire = fire_chance(w, b, &protect, farm);
             m.fire += wgt * fire;
             m.breaks += wgt * if witch || broke { 1.0 } else { fire };
             let (hx, hy, hz) = (b.x as f64, b.y as f64, b.z as f64);
@@ -941,5 +946,5 @@ pub fn measure_farm(spec: &crate::entity::mob::farm::FarmSpec, runs: &[crate::en
             sky = true;
         }
     }
-    Ok((measure(w, &golems, &iron, spec.inner())?, sky))
+    Ok((measure(w, &golems, &iron, spec.inner(), (spec.lo, spec.hi))?, sky))
 }
