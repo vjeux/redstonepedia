@@ -931,6 +931,71 @@ depended on everything the JVM had spawned before; now it depends on n only, ids
 entity tick list's order, and redsim's ids (from 0, falling blocks sharing the counter) are the
 same numbers: the protocol reports n as `net_id`, and `redsim-fuzz trace-compare` checks it.
 
+## Tick exactness: the bridge's seeds for mobs, sensors and terrain — track tickexact
+
+Every random a mob, spawn, weather or fire path draws from is seeded by the bridge from the
+sandbox seed `s` (bridge `Exact.java`, `Sandbox.java`, `ExactVillageSiege.java`, `Terrain.java`),
+and redsim draws the same values from the same streams (the stream registry: `redsim::rng`,
+`World::construct`, `World::entering_random`). `mctas mobfarm compare <design> [--terrain S]`
+runs a design in both and compares every tick (below). The seeds (`GOLDEN` = 0x9E3779B97F4A7C15,
+`mix` = `RandomSupport.mixStafford13`):
+
+| stream | seed | redsim |
+|---|---|---|
+| the level random | `LegacyRandomSource(s)` (`randValue` = `s ^ 0x72616E64`, the loot sequences salted `s ^ 0x6C6F6F74`) | `World::mirror_level_random` |
+| an entity's own random at entering, n = the n-th entity to enter the sandbox (its id - base) | `mix((s ^ "entity") + (n+1) GOLDEN)`, then the constructor's draws replayed (below) | `World::entering_random`, `rng::entity_seed` |
+| an entity's own random from its construction until it enters (every `EntityType.create`, k = the k-th construction, rejected spawn attempts included) | `mix((s ^ "constr") + (k+1) GOLDEN)` | `World::construct`, `rng::construct_seed` |
+| a brain's shuffling lists (`GateBehavior`, `RunOne`, `TriggerGate` closures) | `mix(S_n + javaHash(key) GOLDEN)`, key `"<generation>/<activity>/<priority>/<index>[/<k>]"`, `"#j"` for the j-th list of a closure; the generation +1 per `refreshBrain` | `rng::shuffle_seed` |
+| a raid (`Raid.java` 119) | `mix((s ^ "raid") + id GOLDEN)` | `rng::raid_seed` |
+| the wandering trader spawner | `mix((s ^ "trader") + GOLDEN)` | `rng::trader_seed` |
+| sounds' seeds, the AFK player's random | `s ^ "sound"`, `s ^ "player"` | (no draw redsim needs) |
+
+The constructor's draws, replayed from `S_n` in order: the UUID (2 `nextLong`); an `ItemEntity`'s
+`bobOffs`, yaw (`nextFloat() * 360`) and its drift (2 `nextDouble`: kept by `spawnAtLocation`,
+drawn and replaced by `throwItem` / `Containers.dropItemStack`, absent in the other
+constructors); a `LightningBolt`'s seed (`nextLong`) and flashes (`nextInt(3) + 1`); a
+`LivingEntity`'s yaw (`nextFloat() * 2 pi`) and each brain sensor's start delay (`nextInt(scanRate)`
+per sensor in its order; a summoned villager's brain is built twice: the constructor's, then
+`load`'s); the leaf classes' draws (`Chicken.eggTime`, `Rabbit`'s idle timeout, `Squid`'s and
+`Guardian`'s animation, `CopperGolem`'s cooldown). A spawn path that snaps the yaw without the
+head (`NaturalSpawner`'s `snapTo`, the siege) leaves the replayed yaw in the head, and a cube
+mob's move control keeps `180 * yaw / pi` as its direction until a goal sets one;
+`EntityType.create(level, .., pos, ..)` sets the head and the body to its snap yaw. What a mob
+draws from its own random before it enters (a zombie's `finalizeSpawn` -> `handleAttributes`, a
+salmon's variant) comes from its construction seed; vanilla's siege builds its zombie with
+`new Zombie(level)`, so the bridge runs `ExactVillageSiege` (vanilla's code plus that seeding).
+
+**A world sandbox** (`world` op; one per worker: 26.3 keeps the clock, the weather and the game
+rules server-wide) runs the server clock and weather, in a biome (`biome`: the real-game gate's
+plains void; a terrain sample's sandbox reports its world's sea level, 63, the flat source's -63
+elsewhere), the five custom spawners in vanilla's order (`custom_spawners`: phantoms, patrols,
+cats, the siege, the trader), and a real `ServerPlayer` with no network (`player`: creative,
+flying, simulation and view distance 6; its chunks waited on until the ticking, spawning and
+entity-ticking sets are stable; its `doTick` after the level's, so `TIME_SINCE_REST` counts as in
+the game). Natural spawning and thunder see that player. **A terrain sandbox** (`terrain` op)
+puts a `.mcterrain` sample in the way a saved chunk loads: each section's states, the saved light
+(`queueSectionData`), the biome cells, the primed heightmaps, the POIs found in the blocks
+(free: no worldgen villager is loaded, the sample's entities stay out on both sides), the block
+entities' saved data, each chunk's inhabited time and the structure starts with their pieces
+(held by the first loaded chunk their box overlaps); the import is checked cell for cell.
+
+**Design mobs** come from their NBT with no `finalizeSpawn`: their yaw is the NBT's `Rotation`
+or 0, their fire 0, their UUID `nameUUIDFromBytes("mctas-mob-" + n)` (they take no design index;
+non-mob design entities keep `0x6d63746173 + i`), the follow-range bonus a harness input (one
+`triangle(0, 0.11485)` per mob from `LegacyRandom(s ^ "bonus")`, applied as `base + base * bonus`),
+HOME and LAST_SLEPT set like redsim's `Run::arrive` (the bed's ticket taken).
+
+**The compare** (`mctas mobfarm compare`, `redsim::exact`): every tick the level random's state,
+`randValue`, the day time, the weather, every block change in the farm box, every entity (pos,
+motion, yaw, pitch, head, body, health, hurt time, fire, air, pose, vehicle, its own random's
+state, every memory with its expiry, running goals and behaviors, path, target) and the
+entities that entered or left; the first difference with context (how many draws a random is
+off), the first per category, the game's draw log of a tick by call site with every raw output
+(`--draws-at`), the spawning chunks in `tickChunks`' order, and `--twin` (the game against
+itself: the bridge's own determinism). `--terrain S` builds the design at its site in a sample;
+`--bare` drops the player and natural spawning; `--scan TYPE FROM TO` finds seeds where a custom
+spawner fires.
+
 ## Mob farms (villagers, iron golems, zombies) — redsim mob layer (track ironfarm)
 
 Modeled in `crates/redsim/src/entity/mob/` (the brief [farm-iron.md](../designs/briefs/farm-iron.md)

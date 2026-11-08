@@ -925,13 +925,25 @@ hooks only, agreed with the boat-leads lane (06b77372) and the coordinator.
 - sleeping and waking (`findStandUpPosition`), beds and `OCCUPIED`;
 - the golem loot; zombie persistence; day time.
 
-**Seeded, same distribution** (the game draws from sources we cannot mirror: unseeded entity
-randoms, and the level random that behaviors we do not run also draw from):
-- sensor phases and follow-range bonuses;
-- spawn columns, yaw and the finalizeSpawn draws;
-- loot counts;
-- item motions;
-- cramming rolls.
+**Exact, tick for tick** (tickexact, 2026-11-08; vjeux: "We should be tick exact everywhere"):
+every random the farm's world draws from is the game's own stream, seeded by the bridge from the
+sandbox seed and mirrored by redsim ([mechanics.md, tick exactness](../../docs/mechanics.md#tick-exactness-the-bridges-seeds-for-mobs-sensors-and-terrain--track-tickexact)):
+- sensor phases: each entity's own random from its entity number, the constructor's draws
+  (UUID, yaw, every sensor's start delay) replayed; follow-range bonuses: a harness input on both
+  sides for the design's mobs, the level random's triangle for a summoned golem;
+- spawn columns, yaw and the finalizeSpawn draws: the level random, in the game's order
+  (`SpawnUtil`, `EntityType.create`, `Mob.finalizeSpawn`), each created mob a construction;
+- loot counts: the loot table's random sequence (`entities/iron_golem`, `entities/zombie`);
+- item motions: the item's own random from its entity number;
+- cramming rolls, ambient sounds, strolls: each mob's own random; behaviors' durations: the level
+  random;
+- natural spawning, the five custom spawners (siege, cats, phantoms, patrols, the trader),
+  weather, thunder, fire: the level random and the trader's own seeded random.
+`mctas mobfarm compare <design> [--terrain village-edge]` runs the farm in the bridge and in
+redsim and stops at the first difference: a difference is a model error to fix, never a
+distribution to match. The judge's own runs (no bridge) still draw a module's randoms from the
+mob layer's seeded stand-in until that module's exact path is the default (the exact paths run
+whenever a world mirrors the level random: `World::exact_seed`).
 
 **Refused, never approximated** (the judge rejects a design where it could change the outcome):
 - **Villager walking.** Each villager must stand in a closed 1-cell pod: the judge floods the

@@ -599,6 +599,9 @@ fn die(w: &mut World, i: usize, src: Damage) {
 /// item's own random motion (+-0.1, 0.2, +-0.1) and yaw, pickup delay 10). The loot random and
 /// the item's own random are the seeded stand-ins (`MobWorld::rng`).
 fn drop_loot(w: &mut World, i: usize) {
+    if w.exact_seed.is_some() && w.loot_salt.is_some() {
+        return drop_loot_exact(w, i);
+    }
     let (pos, ty) = (w.entities.list[i].pos, mob(w, i).ty);
     let src_id = w.entities.list[i].id;
     for &(item, lo, hi) in ty.def().loot {
@@ -620,6 +623,45 @@ fn drop_loot(w: &mut World, i: usize) {
             let mz = own.next_double() * 0.2 - 0.1;
             (mx, mz, y_rot, own)
         };
+        let state = crate::entity::item::ItemState { item: item.to_string(), count: n as u8, pickup_delay: 10, age: 0, payload: 0, health: 5 };
+        let id = w.entities.add(EntityKind::Item(state), Vec3::new(pos.x, pos.y, pos.z), y_rot);
+        if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
+            e.delta_movement = Vec3::new(mx, 0.2, mz);
+            e.random = Some(own);
+        }
+        let t = w.time;
+        w.mob.events.push(MobEvent::Drop { t, from: src_id, item: id, what: item, count: n as u32 });
+    }
+}
+
+/// [`drop_loot`] in an exact world (tickexact): `LivingEntity.dropFromLootTable` with the table's
+/// random sequence (`getLootTableSeed()` is 0: `level.getRandomSequence(entities/<id>)`, the
+/// bridge's sandboxes salt them from their seed: `World::loot_salt`), each pool's `set_count
+/// uniform(lo, hi)` (`Mth.nextInt(random, lo, hi)`; the other pools' conditions, a killer's
+/// looting and a zombie horse, draw nothing), and each non-empty stack through
+/// `spawnAtLocation` (`new ItemEntity(level, x, y, z, stack)`): the item enters with its own random
+/// seeded as its entity number, the constructor's UUID, bobOffs, yaw and drift replayed (the
+/// drift kept: x and z, 0.2 up).
+fn drop_loot_exact(w: &mut World, i: usize) {
+    let (pos, ty) = (w.entities.list[i].pos, mob(w, i).ty);
+    let src_id = w.entities.list[i].id;
+    let key = format!("minecraft:entities/{}", ty.def().id);
+    let salt = w.loot_salt.unwrap_or(0);
+    for &(item, lo, hi) in ty.def().loot {
+        let n = {
+            let r = w.loot_sequences.entry(key.clone()).or_insert_with(|| crate::stems::LootSequence::new(salt, &key));
+            if lo >= hi { lo } else { lo + r.next_int(hi - lo + 1) }
+        };
+        if n <= 0 {
+            continue;
+        }
+        let at = w.entities.next_id;
+        let mut own = w.entering_random(at);
+        crate::rng::replay_uuid(&mut own);
+        own.next_float();
+        let y_rot = own.next_float() * 360.0;
+        let mx = own.next_double() * 0.2 - 0.1;
+        let mz = own.next_double() * 0.2 - 0.1;
         let state = crate::entity::item::ItemState { item: item.to_string(), count: n as u8, pickup_delay: 10, age: 0, payload: 0, health: 5 };
         let id = w.entities.add(EntityKind::Item(state), Vec3::new(pos.x, pos.y, pos.z), y_rot);
         if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
