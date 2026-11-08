@@ -931,6 +931,36 @@ depended on everything the JVM had spawned before; now it depends on n only, ids
 entity tick list's order, and redsim's ids (from 0, falling blocks sharing the counter) are the
 same numbers: the protocol reports n as `net_id`, and `redsim-fuzz trace-compare` checks it.
 
+## Mob farms (villagers, iron golems, zombies) — redsim mob layer (track ironfarm)
+
+Modeled in `crates/redsim/src/entity/mob/` (the brief [farm-iron.md](../designs/briefs/farm-iron.md)
+cites the 26.3 source line by line; the game checks are in the
+[ironfarm notes](../designs/circuits/mobfarm/tracks/ironfarm/NOTES.md#game-validation-the-briefs-one-off-checks)).
+
+* A villager summons a golem when it panics (a hostile in its `NEAREST_HOSTILE`: a zombie within
+  8 that it sees from its eyes), has slept within the last day (`LAST_SLEPT`), sees no golem
+  (`GolemSensor`, every 200 gt, from the `NEAREST_LIVING_ENTITIES` list the living sensor refreshes
+  every 20 gt within the follow range, 16 plus the spawn bonus) and 3 villagers in range agree; the
+  group then waits 600 gt. The summon tries 10 spots in +-8 x +-6 x +-8 (`SpawnUtil`, legacy iron
+  golem strategy: a solid block with air or a liquid above, not glass, leaves, ice...; the golem's
+  3 cells must be valid empty spawn blocks, the block under it sturdy).
+* A golem a villager sees during its scan delays the next summon: every golem in range costs
+  rate. Farms that reach 90%+ of the ceiling drop each golem out of every villager's follow box
+  within about 50 gt of its spawn.
+* At night villagers REST: one hide of 20+ gt (the zombie out of sight) lets them fall asleep, and
+  a zombie in view from the bed wakes them scared. The dusk pulse (two inverted daylight detectors,
+  one through 6 repeaters) gives that hide every night without a golem.
+* Water pushes a mob at 0.014 per tick along the normalized flow (a golem drifts 0.056 b/t); a mob
+  touching water falls at gravity / 16, so a golem sinks slowly until its whole 2.7-block body is
+  out of the water. A mob jumping in lava rises (`jumpInLiquid`): a lava blade needs a ceiling.
+* Out of the water a walking golem uses land speed (0.25 x friction factor) and steps up 1 block
+  onto a floor still under its box: at an edge where floor and water end together, a golem that
+  walks against the current stays on the edge.
+* Flowing water enters no waterloggable block (signs, trapdoors, slabs: `SimpleWaterloggedBlock`
+  takes only a source) and no block outside `#washed_away_by_fluids` (open fence gates: no fluid,
+  no lava either, and no collision box); two adjacent sources make every flowing cell beside both a
+  new source (a pad fed from its edges turns into still water).
+
 ## 12. redsim: the exact model (track redmodel)
 
 `crates/redsim` is a pure-Rust, dependency-free tick-level copy of the 26.3 code paths above,

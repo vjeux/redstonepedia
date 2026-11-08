@@ -30,6 +30,7 @@ smallest first, every one judged in the REAL game, archived and cataloged. The b
 | 21 auto-brewers | sorter | brewer N | N brewing stands / a tileable slice of N | potions/min per stand, first potion, blaze powder, hoppers awake, at rest, blocks per stand |
 | 22 auto-composters | sorter | composter N | N composters / a tileable slice of N (one crop a slice) | bone meal/h per composter, items composted/min, first bone meal, hoppers awake, at rest, blocks per composter |
 | 23 bedrock breakers | bedrock (`crate::bedrock`, [brief](../designs/briefs/bedrock-breaker.md)) | bedrock-breaker N | N bedrock side by side | armed every (the longest wait between two ticks a press removes the bedrock), miss (the one-press repair); ports `bedrock[.k]`, `swap[.k]`, `press[.k]`, `start`; bedrock is not counted |
+| mob farms | ironfarm (`crate::studies::mobfarm`, [brief](../designs/briefs/farm-iron.md)) | mob-farm iron_ingot | the tier: day 1 (lowest bill), middle (iron/h per block at 75%+ of the ceiling, 20 iron at most), fastest (iron/h per module) | iron/h per block (ranks), iron/h and its range, golems/h, share of the ceiling, modules, iron/h per module, kill, worst policy, restarts after a missed night, bill, payback; on redsim's mob layer ([notes](../designs/circuits/mobfarm/tracks/ironfarm/NOTES.md)) |
 
 No pictures: the website renders every build with redsim (vjeux 2026-10-19: "we don't need images
 anymore, we should render them"); the input and output cells of a design are its markers.
@@ -1225,6 +1226,25 @@ kick) before the first input.
   stop in doorway (`the door stays open` or `the door closes on them`, the worst build's). `mctas
   circuit door-run` is one game run; `AUTODOOR_TRACE=1` prints every design cell that changes,
   tick by tick.
+* **mob-farm iron_ingot** (the mob farms, [crate::studies::mobfarm](../crates/circuit/src/studies/mobfarm.rs);
+  brief [farm-iron.md](../designs/briefs/farm-iron.md), track notes
+  [ironfarm](../designs/circuits/mobfarm/tracks/ironfarm/NOTES.md)): an iron farm (villagers in beds,
+  a zombie that scares them, golems that spawn and die) judged entirely on redsim's mob layer
+  (`redsim::entity::mob`: the villager brain, sleep and `LAST_SLEPT`, golem spawning, LivingEntity
+  physics in water and lava, damage, loot), since game days are too slow to judge in the game. One
+  `port output:` (the chest). The judge refuses what the mob layer does not model (static checks:
+  flowing lava, water at lava, job sites, a zombie that does not ride, villagers that can walk,
+  gossip, climbable blocks...), floods every position a golem can stand on from every spawn spot
+  (with its edge spots: box sides 0.0005 inside or outside block boundaries, where a current can
+  stop while the floor still holds the golem) and drifts it still and under 8 walking inputs (each
+  golem must die within 1200 gt), then runs
+  each of 8 builds (4 rotations, 2 positions) for 8 seeds x 5 days from the steady state (day time
+  drawn in 10..12000, `LAST_SLEPT` at the end of the last rest), the 9 worst-policy runs on one
+  seed, and the restart probe for a design that claims `restart: yes`. Every drop must reach the
+  chest (or stay in the farm's containers); a burnt or despawned drop fails. The ceiling is one
+  golem per 600 gt per villager group (`modules`). `mctas mobfarm` holds the generators
+  (`gen l1|l2|l2d|l3|l4|l5`), the exit flood, single runs, `probe` and `validate` (the design run in
+  the real server against redsim: golems/h, the day/night split, the spawn-cell chi-square).
 
 ### Real use (the audit of 2026-10-21)
 

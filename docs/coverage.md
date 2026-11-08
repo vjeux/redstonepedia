@@ -100,6 +100,25 @@ a named fixture is also a regression test in `crates/redsim/tests/fixtures/` (re
 `cargo test -p redsim`). Each component's source references are in its module
 (`crates/redsim/src/redstone/*.rs`, `crates/redsim/src/piston/*.rs`).
 
+## The mob layer (redsim, mob farms)
+
+The iron farms' judge (`circuit: mob-farm iron_ingot`, [circuits.md](circuits.md)) runs on
+`redsim::entity::mob` only. What it models, approximates and refuses:
+
+| behavior | mob layer | evidence |
+|---|---|---|
+| golem summoning: `GolemSensor` every 200 gt, `NearestLivingEntitySensor` every 20 gt, the 600 gt cooldown, panic and `LAST_SLEEPT` within a day, 3 villagers agreeing | ✓ | known answers (`entity::mob::tests`); game runs: L1 35.0 vs 35.7 golems/h (8 x 3 days), L3 72.8 vs 74.8 (8 x 6 days), L2d 111.7 vs 112.3 (3 x 3 days), 116.0 vs 115.2 (8 x 3 days), L5 462 vs 461 (2 x 3 days) |
+| spawn spots: `SpawnUtil` legacy iron golem strategy (10 attempts in +-8 x +-6 x +-8, the column scan, excluded blocks, `checkSpawnObstruction`) | ✓ | the 82% / 43% known answers on a 4x4 pad; spawn-cell chi-square vs the game: 6.25 (8 cells), 23.24 (20), 49.30 (48), all under the 5% critical value |
+| villagers: schedule, REST, sleeping in a bed, waking scared, the hostile sensor (a zombie within 8, line of sight from the eyes) | ✓ | game day/night splits 50/50 in every run |
+| LivingEntity physics: water push (0.014, drift 0.056), gravity in water (/16) and lava, step height, jumping in liquids, fall | ✓ | known answers (drift, 15.5-block fall in 22 gt, rider travel) |
+| lava damage and fire, golem death, loot (iron 3-5, poppies 0-2) | ✓ | 3.93-3.97 iron per golem in the game |
+| fluids around farms: one source per corner, signs and fence gates hold no flowing water (fence gates no lava: 26.3 `canHoldAnyFluid`) | ✓ | known answers (`signs_stop_water_and_let_golems_through`, `open_fence_gates_stop_fluids_not_golems`) |
+| daylight detectors following the day time | ✓ | known answer `daylight_detector_follows_the_day`; the dusk pulse in the game runs |
+| golem AI movement (goals, navigation) | ~ bounded, not reproduced: every golem is run still and under 8 constant walking inputs (jumping when blocked) from every position it can stand on, edge spots included (a box 0.0005 over a floor's edge stands while the current, felt through the box deflated by 0.001, may stop), and the farm must kill it under every one | the exit flood and the 9 worst-policy runs; the first L1 failed in the game (golems stuck on its hole's rim) and the flood now finds that spot |
+| zombie AI movement | ✗ refused: a zombie must ride (a boat), it never walks | static check |
+| climbing (scaffolding, ladders), job sites, bunk beds, flowing lava, gossip between villagers that see each other, NoAI | ✗ refused | static checks |
+| weather (rain, thunder, lightning) | ✗ (clear weather is a not-goal of the brief) | — |
+
 ## Gaps that could change a 7x8 / 7x9 verdict, by priority
 
 1. **satwire UNSATs are not proofs** while the encoding approximates block updates (re-read every

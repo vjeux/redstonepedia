@@ -1,0 +1,306 @@
+# The obvious iron farm (the bar to beat): villagers scared by a zombie by day, asleep by night,
+# summon golems that water carries to a lava blade, 139 iron an hour (29% of the game's ceiling).
+# Three villagers sleep on their beds in closed 1-cell pods under leaves; a zombie in a boat 7 blocks
+# north is in their view. An inverted daylight detector opens the trapdoor in front of the zombie at
+# nightfall, so the villagers sleep through every night (and the farm restarts by itself after a
+# missed night); it stops in rain (clear weather is not judged). Golems spawn on a 6x5 pad 4 below
+# the villagers; water from its far edge carries them into a trench along its near edge (wall signs
+# hold the water over it; open fence gates hold the pad's water at its sides); they fall to water
+# that pushes them under a lava blade held by signs, a ceiling right above it, over two hoppers. Every
+# golem stays in the villagers' sight until it dies, which is what the other farms avoid.
+# Game check (the real 26.3 server, this file): 8 runs of 3 days, 35.0 golems/h (95% of the mean
+# 34.1-35.9) against redsim's 35.7; 278 golems by day and 2 by night; spawn cells chi-square 22.42
+# over 20 cells (5% critical value 30.1).
+name: iron-obvious
+circuit: mob-farm iron_ingot
+restart: yes
+port output: 6 -11 2
+entity: minecraft:villager 0.5 0.5625 0.5
+entity: minecraft:villager 2.5 0.5625 0.5
+entity: minecraft:villager 4.5 0.5625 0.5
+entity: minecraft:oak_boat 2.5 0.5 -6.8 {Passengers:[{id:"minecraft:zombie"}]}
+origin: -2 0 -7
+palette:
+  A minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
+  B minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  C minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  D minecraft:daylight_detector[inverted=true,power=0]
+  E minecraft:oak_wall_sign[facing=north,waterlogged=false]
+  F minecraft:oak_wall_sign[facing=south,waterlogged=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=down]
+  L minecraft:lava[level=0]
+  O minecraft:oak_fence_gate[facing=east,in_wall=false,open=true,powered=false]
+  R minecraft:red_bed[facing=north,occupied=false,part=foot]
+  S minecraft:stone
+  W minecraft:water[level=0]
+  h minecraft:hopper[enabled=true,facing=north]
+  o minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+  r minecraft:red_bed[facing=north,occupied=false,part=head]
+  s minecraft:stone_slab[type=bottom,waterlogged=false]
+layer -10:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  SSSSSSSSSS
+  SSSSSSSSHS
+  SSSSSSSShS
+  SSSSSSSSSS
+  .
+  .
+  .
+  .
+  .
+  .
+layer -9:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  SSSSSSSSSS
+  SW.......S
+  SW.......S
+  SSSSSSSSSS
+  .
+  .
+  .
+  .
+  .
+  .
+layer -8:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  SSSSSSSSSS
+  S......FFS
+  S......EES
+  SSSSSSSSSS
+  .
+  .
+  .
+  .
+  .
+  .
+layer -7:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  SSSSSSSSSS
+  S.....FLLS
+  S.....ELLS
+  SSSSSSSSSS
+  .
+  .
+  .
+  .
+  .
+  .
+layer -6:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  SSSSSSSSSS
+  S......SSS
+  S......SSS
+  SSSSSSSSSS
+  .
+  .
+  .
+  .
+  .
+  .
+layer -5:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  SSSSSSSSSS
+  S......SSS
+  S......SSS
+  SSSSSSSSSS
+  .
+  .
+  .
+  .
+  .
+  .
+layer -4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  GGGGGGGGGG
+  GFFFFFFGGG
+  GEEEEEEGGG
+  GSSSSSSGGG
+  .SSSSSS
+  .SSSSSS
+  .SSSSSS
+  .SSSSSS
+  .SSSSSS
+  .
+layer -3:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  GGGGGGGG
+  G......G
+  G......G
+  GO....OG
+  GO....OG
+  GO....OG
+  GO....OG
+  GOWWWWOG
+  GooooooG
+  GGGGGGGG
+layer -2:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  GGGGGGGG
+  G......G
+  G......G
+  G......G
+  G......G
+  G......G
+  G......G
+  G......G
+  G......G
+  GGGGGGGG
+layer -1:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ..G.G.G
+  ..G.G.G
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 0:
+  ....s
+  .
+  .
+  .
+  .
+  .
+  .
+  ..r.r.r
+  ..R.R.R
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 1:
+  .
+  ....B
+  .
+  .
+  .
+  .
+  .
+  .GCGCGCG
+  ..G.G.G
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 2:
+  ....A
+  ....D
+  .
+  .
+  .
+  .
+  .
+  .G.G.G.G
+  ..G.G.G
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 3:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .AAAAAAA
+  .AAAAAAA
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .

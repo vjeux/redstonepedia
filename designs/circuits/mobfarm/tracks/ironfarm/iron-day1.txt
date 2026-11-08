@@ -1,0 +1,102 @@
+# The day-1 iron farm: for 9 iron and no quartz, three villagers scared by a zombie summon iron
+# golems that burn in lava pits, about 295 iron an hour (62% of the game's ceiling).
+# Three villagers sleep on their beds in closed 1-cell pods under leaves; a zombie in a boat 7 blocks
+# north is in view of their standing and sleeping eyes. Golems spawn in a row of 8 1x1 pits west of
+# the zombie, a lava source beside their head on both sides, and burn where they stand. One tripwire
+# runs through every pit at knee height: a golem in any pit opens the trapdoor in front of the
+# zombie, which hides it, and the villagers calm down (at night they fall asleep) while the golem
+# burns. A water channel under the string carries the iron to one hopper.
+# Hide the zombie by hand on the first night: the villagers need a recent sleep to summon the first
+# golem.
+# Game check (the real 26.3 server, this layout): 8 runs of 6 days, 72.8 golems/h (95% of the mean
+# 70.3-75.3) against redsim's 74.8; 579 golems by day and 586 by night; spawn cells chi-square 6.25
+# over 8 cells (5% critical value 14.0).
+name: iron-day1
+circuit: mob-farm iron_ingot
+port output: 0 -3 -6
+entity: minecraft:villager 0.5 0.5625 0.5
+entity: minecraft:villager 2.5 0.5625 0.5
+entity: minecraft:villager 4.5 0.5625 0.5
+entity: minecraft:oak_boat 2.5 0.5 -6.8 {Passengers:[{id:"minecraft:zombie"}]}
+origin: -10 0 -8
+palette:
+  A minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  B minecraft:tripwire_hook[attached=true,facing=west,powered=false]
+  G minecraft:glass
+  H minecraft:hopper[enabled=true,facing=down]
+  L minecraft:lava[level=0]
+  O minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
+  R minecraft:red_bed[facing=north,occupied=false,part=foot]
+  S minecraft:stone
+  T minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+  W minecraft:water[level=0]
+  o minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  r minecraft:red_bed[facing=north,occupied=false,part=head]
+  s minecraft:stone_slab[type=bottom,waterlogged=false]
+  t minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+layer -2:
+  .
+  .
+  ..SSSSSSSSH
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -1:
+  .
+  .SSSSSSSSSS
+  .SW........S
+  .SSSSSSSSSS
+  .
+  .
+  .
+  .
+  ..........G.G.G
+  ..........G.G.G
+layer 0:
+  .
+  .SSSSSSSSSS.s
+  StTTTTTTTTTTBS
+  .SSSSSSSSSS
+  .
+  .
+  .
+  .
+  ..........r.r.r
+  ..........R.R.R
+layer 1:
+  ..GGGGGGGG
+  .GLLLLLLLLG
+  GGooooooooGoo
+  .GLLLLLLLLG
+  ..GGGGGGGG
+  .
+  .
+  .
+  .........GAGAGAG
+  ..........G.G.G
+layer 2:
+  .
+  ..GGGGGGGG..O
+  ..GGGGGGGG
+  ..GGGGGGGG
+  .
+  .
+  .
+  .
+  .........G.G.G.G
+  ..........G.G.G
+layer 3:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .........OOOOOOO
+  .........OOOOOOO
