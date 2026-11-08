@@ -467,6 +467,11 @@ impl World {
 /// skulls, tripwire and hooks, levers, buttons, rails, dust, repeaters, comparators, torches,
 /// powder snow, fluids and fire. Lava's fire stops at one (`#blocks_lava_fire_spread`).
 pub fn blocks_motion(b: &Block) -> bool {
+    if let Block::Terrain(id) = b {
+        // a natural state: MOTION_BLOCKING without its fluid (the table's flags, terrain lane)
+        let p = crate::terrain::blocks::props(*id);
+        return p.heightmaps[1] && p.fluid == crate::terrain::blocks::FluidKind::Empty;
+    }
     !matches!(
         b,
         Block::Air
@@ -505,6 +510,10 @@ pub fn blocks_motion(b: &Block) -> bool {
 /// `Heightmap.Types.MOTION_BLOCKING`'s predicate (26.3): `#blocks_motion_in_heightmap` (=
 /// [`blocks_motion`]) or a fluid inside.
 pub fn motion_blocking(b: &Block) -> bool {
+    if let Block::Terrain(id) = b {
+        // a natural state: the table's own MOTION_BLOCKING flag (terrain lane)
+        return crate::terrain::blocks::props(*id).heightmaps[1];
+    }
     blocks_motion(b) || !crate::fluid::fluid_state_of(b).is_empty() || matches!(b, Block::Lava { .. })
 }
 
@@ -512,6 +521,10 @@ pub fn motion_blocking(b: &Block) -> bool {
 /// column; [`WORLD_MIN_Y`] when the column holds none (the judge's world is void around the farm,
 /// like the game's void superflat, whose empty columns answer the dimension's bottom).
 pub fn motion_blocking_height(w: &World, x: i32, z: i32) -> i32 {
+    // a terrain world: the land's own heightmap (the game's, kept up to date by the terrain lane)
+    if w.land.is_some() {
+        return w.height(crate::terrain::Heightmap::MotionBlocking, x, z);
+    }
     if x < w.min.x || x >= w.min.x + w.size[0] || z < w.min.z || z >= w.min.z + w.size[2] {
         return WORLD_MIN_Y;
     }
@@ -526,6 +539,9 @@ pub fn motion_blocking_height(w: &World, x: i32, z: i32) -> i32 {
 
 /// `Level.getHeight(WORLD_SURFACE, x, z)`: one above the highest block that is not air.
 pub fn world_surface_height(w: &World, x: i32, z: i32) -> i32 {
+    if w.land.is_some() {
+        return w.height(crate::terrain::Heightmap::WorldSurface, x, z);
+    }
     if x < w.min.x || x >= w.min.x + w.size[0] || z < w.min.z || z >= w.min.z + w.size[2] {
         return WORLD_MIN_Y;
     }
@@ -541,6 +557,10 @@ pub fn world_surface_height(w: &World, x: i32, z: i32) -> i32 {
 /// `BlockAndLightGetter.canSeeSky`: sky light 15, which is being a sky light source
 /// (`daylight::sky_source`: a column scan; outside the box, the open sky above the farm).
 pub fn can_see_sky(w: &World, p: BlockPos) -> Result<bool, String> {
+    // a terrain world: sky light 15 from the terrain lane's light engine
+    if w.land.is_some() {
+        return w.can_see_sky(p);
+    }
     if !w.contains(p) {
         return Ok(p.y >= w.min.y + w.size[1] || motion_blocking_height(w, p.x, p.z) <= p.y);
     }

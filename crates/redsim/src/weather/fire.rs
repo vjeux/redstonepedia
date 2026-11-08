@@ -61,6 +61,8 @@ pub fn can_burn(b: &Block) -> bool {
 /// targets, dried kelp and coal blocks (which fire burns all the same).
 pub fn ignited_by_lava(b: &Block) -> bool {
     match *b {
+        // a natural state: the table's `ignitedByLava` (terrain lane)
+        Block::Terrain(id) => crate::terrain::blocks::props(id).ignited_by_lava,
         Block::Simple(s) => matches!(
             s,
             Simple::OakPlanks

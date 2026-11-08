@@ -355,3 +355,21 @@ fn thunderstorm_share() {
     assert!((0.010..0.018).contains(&s.share), "{s:?}");
     assert!((2000.0..12000.0).contains(&s.mean_len), "{s:?}");
 }
+
+/// Natural states (the terrain lane's table) burn with FireBlock's own odds and block motion by
+/// the table's flags.
+#[test]
+fn natural_states_burn_and_block() {
+    let id = |s: &str| crate::terrain::blocks::id_of(s).unwrap_or_else(|| panic!("{s} not in the table"));
+    let leaves = Block::Terrain(id("minecraft:oak_leaves[distance=7,persistent=false,waterlogged=false]"));
+    assert_eq!(lightning::flammable(&leaves), Some((30, 60)));
+    assert!(blocks_motion(&leaves) && motion_blocking(&leaves));
+    let stone = Block::Terrain(id("minecraft:stone"));
+    assert_eq!(lightning::flammable(&stone), None);
+    assert!(blocks_motion(&stone));
+    let grass = Block::Terrain(id("minecraft:short_grass"));
+    assert!(lightning::flammable(&grass).is_some());
+    assert!(!blocks_motion(&grass) && !motion_blocking(&grass));
+    // lava lights a fire beside the blocks the table says lava ignites
+    assert!(fire::ignited_by_lava(&leaves) && !fire::ignited_by_lava(&stone));
+}

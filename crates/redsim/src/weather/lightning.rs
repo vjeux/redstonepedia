@@ -158,6 +158,15 @@ pub fn hit_box_at(p: Vec3) -> Aabb {
 /// `None`: not flammable.
 pub fn flammable(b: &Block) -> Option<(i32, i32)> {
     Some(match b {
+        // a natural state: FireBlock's odds from the table (terrain lane: leaves 30/60, logs 5/5,
+        // grass 60/100...)
+        Block::Terrain(id) => {
+            let p = crate::terrain::blocks::props(*id);
+            if p.ignite_odds <= 0 && p.burn_odds <= 0 {
+                return None;
+            }
+            (p.ignite_odds, p.burn_odds)
+        }
         Block::Leaves { .. } => (30, 60),
         Block::FenceGate { .. } => (5, 20),
         Block::Fence { kind, waterlogged: false, .. } if crate::fence::wooden(*kind) => (5, 20),
