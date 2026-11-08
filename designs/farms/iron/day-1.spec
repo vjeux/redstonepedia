@@ -11,7 +11,8 @@ stage: day-1
 #    iron kit: the armour). The player starts at dawn (day time 0) of day 1 with stone tools and
 #    spends build_minutes: placing (1 s a block), digging (1 s a block; each dug block is also a
 #    free filler block) and GETTING every item at day-1 prices (designs/farms/prices.tsv: glass
-#    7 s, an iron ingot 30 s, the bucket and other tools once, a lava trip 120 s, a villager moved
+#    7 s, an iron ingot 30 s, the bucket and other tools once, a lava trip 120 s plus 5 s a source
+#    (an extra bucket 90 s where it saves a trip), a villager moved
 #    180 s, the zombie 180 s), at the cheapest of the 12 nearest valid spots at village-edge. The
 #    farm stands complete at day time 1200 x build_minutes (mod 24000); the villagers arrive with
 #    the LAST_SLEPT of their last night in the village, the zombie in its boat; then the judge's

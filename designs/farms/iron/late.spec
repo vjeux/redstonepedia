@@ -21,8 +21,8 @@ stage: late
 #    8 h; iron the storage cannot hold is lost. Player: "what one night AFK brings".
 objective: max iron_per_hour_per_module
 # 2. The build in minutes PER MODULE: placing, digging and getting every item at LATE prices
-#    (designs/farms/prices.tsv: farms and super smelters for every material, a lava trip 30 s, a
-#    villager delivered by a breeder 60 s). Player: "the effort". Iron per hour per block is
+#    (designs/farms/prices.tsv: farms and super smelters for every material, a lava trip 30 s plus
+#    2 s a source, a villager delivered by a breeder 30 s). Player: "the effort". Iron per hour per block is
 #    printed on every member; the best iron per hour per BUILD MINUTE is always on this front,
 #    and the per-block best is listed beside the front when it falls off it.
 objective: min build_minutes_per_module

@@ -21,9 +21,12 @@ string	15	3	1	a spider at night or a cobweb cut with a sword
 wool	10	3	1	a sheep (killed, or sheared once shears exist)
 slime_ball	-	15	2	a slime in a swamp or slime chunk
 blaze_rod	-	20	3	a Nether fortress
-water	0	0	0	a bucket from any water (an infinite source)
-lava_source	120	60	30	a bucket trip each (day 1: a surface or cave lava pool); several buckets a trip once in the Nether; a dripstone lava farm
-villager_moved	180	180	60	a villager brought from its village bed (boat or minecart) to its pod; a breeder delivering by rail or water on late
+water	1	1	1	placing a source from a bucket refilled at any water (an infinite source): one refill per placed source
+lava_trip	120	60	30	one trip to lava and back, per realistic action: day 1 a surface or cave lava pool; middle the Nether by its portal or a cave lake; late a Nether hub or a dripstone lava farm
+lava_fill	5	3	2	filling one bucket at the lava and placing the source in the farm
+lava_buckets	1	16	16	buckets one trip carries: day 1 the one bucket in hand, each extra one 3 iron (90 s; the cheaper of an extra bucket and an extra trip is taken: a 4-source day-1 farm is one trip and 3 extra buckets, 120 + 270 + 20 = 410 s, not 4 trips); a middle or late player keeps a stack of 16
+villager_moved	180	120	30	moving one villager into its pod by the cheapest route the stage has: day 1 from its village bed by boat or by its own walk to a claimed bed; middle by minecart or boat on the player's own paths from a village or a breeder; late delivered by the breeder's rail or water line
+villager_bred	-	30	-	middle only, the other route: breeding at the farm. The first pair is moved (2 x villager_moved); each further villager costs 30 s of actions (12 food points for each parent, 3 bread; its bed; sealing it into its pod) and the game time the code takes (VillagerMakeLove: born 275-324 gt after the pair meets; both parents then wait 6000 gt; the baby grows up in 24000 gt; every adult pair breeds), counted only where it outlasts the rest of the build (the player builds while they grow); the cheaper of moving and breeding is taken. Day 1 has no time for a 20-minute generation; late breeders deliver (villager_moved)
 zombie	180	120	60	the zombie lured into its boat at night and parked by the site
 red_bed	5	9.8	3.3	day 1: the moved villager's own bed, taken from the village; later 3 wool + 3 planks (each colour; one per bed, the foot half free)
 oak_trapdoor	1.5	0.75	0.3	6 planks make 2 (each wood)

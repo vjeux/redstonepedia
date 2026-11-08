@@ -24,7 +24,8 @@ stage: middle
 objective: max iron_per_hour_per_module
 # 2. The build in minutes PER MODULE: placing, digging and getting every item at MIDDLE prices
 #    (designs/farms/prices.tsv: iron tools, 8 furnaces, the Nether, a day-1 farm's iron; a lava
-#    trip 60 s, a villager moved 180 s). Player: "the time it takes to build".
+#    trip 60 s plus 3 s a source; villagers moved by minecart or boat at 120 s each, or bred at
+#    the farm, whichever is cheaper). Player: "the time it takes to build".
 objective: min build_minutes_per_module
 
 # real: the middle player has the Nether but not the End (no shulker box, no end rod)
