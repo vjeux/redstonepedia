@@ -86,6 +86,10 @@ pub struct RunOpts {
     /// stationary state, or the cycle with a forced `weather` command after the arrival. Seeded
     /// from `seed`; [`Run`] holds its state in its world.
     pub weather: crate::weather::Plan,
+    /// The mob AI on (`MobWorld.ai.on`, the mob-AI lane; vjeux 2026-11-08 14:19 "why don't we have
+    /// tick perfect precision?"): every mob on its real goals and brain (the golems' walking
+    /// policies unused), a mob whose AI is not modeled a model error. The default.
+    pub ai: bool,
 }
 
 impl std::fmt::Debug for super::site::Site {
@@ -99,7 +103,7 @@ impl RunOpts {
     /// weather ([`RunOpts::with_weather`]).
     pub fn steady(seed: i64, ticks: u32, walk: WalkMode) -> RunOpts {
         let mut r = crate::rng::LegacyRandom::new(seed ^ 0x6461_7930);
-        RunOpts { seed, ticks, day0: 10 + r.next_int(11990) as i64, walk, slept: true, slept_rest: false, site: None, weather: crate::weather::Plan::Off }
+        RunOpts { seed, ticks, day0: 10 + r.next_int(11990) as i64, walk, slept: true, slept_rest: false, site: None, weather: crate::weather::Plan::Off, ai: judge_ai() }
     }
 
     /// The same run under a weather plan.
@@ -241,6 +245,13 @@ pub fn judge_opts_in(seed: i64, ticks: u32, walk: WalkMode, site: Option<&'stati
 /// player's farm is built long before it runs; each flowing step takes 5 gt).
 pub const SETTLE_TICKS: i64 = 200;
 
+/// The judge's runs run the mob AI ([`RunOpts::ai`]): the golems walk by their goals, so the
+/// walking policies' worst-policy runs are not run. `MCTAS_JUDGE_AI=0` turns it off (the old
+/// model's verdicts, for comparisons).
+pub fn judge_ai() -> bool {
+    std::env::var("MCTAS_JUDGE_AI").map(|v| v != "0").unwrap_or(true)
+}
+
 /// The day time a player who sleeps every night plays to: beds work from 12542 in clear
 /// weather, and 100 ticks asleep later the day time jumps to the next morning. A sleeper's game
 /// day lasts this many ticks.
@@ -279,6 +290,13 @@ impl Run {
             None => World::new(spec.lo, size),
         };
         w.mob.seed(o.seed, o.day0 - SETTLE_TICKS);
+        // the mob AI (the mob-AI lane): every mob on its goals and brain, on Hard (the game gate's
+        // difficulty), mob griefing on
+        if o.ai {
+            w.mob.ai.on = true;
+            w.mob.ai.difficulty = super::natural::Difficulty::Hard;
+            w.mob.ai.mob_griefing = true;
+        }
         // a terrain site: natural spawning on Hard around its AFK spot from the first tick (the
         // game's spawner runs while the farm's water settles, as in the game gate and the exact
         // compare); outside the sample, the level's own biome (the bridge's terrain sandbox: plains)

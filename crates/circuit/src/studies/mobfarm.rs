@@ -731,7 +731,9 @@ pub fn base_checks(c: &Circuit, spec: &FarmSpec, o: &JudgeOpts) -> std::result::
         return Err(format!("refused: {}", refused.join("; ")));
     }
     let exit = exit::golem_exit_in(spec, o.site, o.seed0, o.threads)?;
-    let worst = if exit.failures.is_empty() { worst_policy(spec, o)? } else { Vec::new() };
+    // the worst walking policy: only without the mob AI (with it the golems walk by their goals:
+    // farm::judge_ai, the mob-AI lane)
+    let worst = if exit.failures.is_empty() && !redsim::entity::mob::farm::judge_ai() { worst_policy(spec, o)? } else { Vec::new() };
     let restart = if claims_restart(c) { Some(restart_probe(spec, o)?) } else { None };
     let away = if claims_restart(c) { absence_probe(spec, o)? } else { Vec::new() };
     let windows = windows_probe(spec, o)?;
