@@ -351,6 +351,9 @@ fn restitute(w: &mut World, i: usize, x_col: bool, z_col: bool, movement: Vec3) 
         if e.vertical_collision_below {
             let block = match effect {
                 Block::Simple(crate::block::Simple::SlimeBlock) => 1.0f32,
+                // beds (every colour): `bounceRestitution(0.75F)` (the mob-AI lane: a villager
+                // stepping off its bed's edge back onto it bounces)
+                Block::Bed { .. } => 0.75f32,
                 _ => 0.0f32,
             };
             let block = if living { block } else { block * 0.8f32 };

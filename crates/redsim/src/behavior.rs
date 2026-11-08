@@ -897,6 +897,19 @@ pub fn update_shape(w: &mut World, s: Block, p: BlockPos, d: Dir, np: BlockPos, 
         Block::Note { .. } => note::update_shape(w, s, p, d),
         Block::Door { .. } => indicator::door_update_shape(w, s, p, d, ns),
         Block::FenceGate { .. } => indicator::gate_update_shape(s, d),
+        // AbstractBedBlock.updateShape (the mob-AI lane): the half toward the other copies its
+        // OCCUPIED (a sleeper's bed shows on both halves); without its other half, air
+        Block::Bed { colour, facing, head, .. } => {
+            let toward = if head { facing.opposite() } else { facing };
+            if d == toward {
+                match ns {
+                    Block::Bed { colour: c, head: h, occupied, .. } if c == colour && h != head => Block::Bed { colour, facing, head, occupied },
+                    _ => Block::Air,
+                }
+            } else {
+                s
+            }
+        }
         Block::Leaves { .. } => leaves::update_shape(w, s, p, ns),
         Block::Scaffolding { .. } => {
             scaffolding::schedule(w, p);

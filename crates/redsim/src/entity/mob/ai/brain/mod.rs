@@ -179,6 +179,8 @@ pub struct Exact {
     /// `NearestBedSensor`'s state.
     pub bed_sensor_tried: i32,
     pub bed_sensor_last_update: i64,
+    /// `Villager.lastGossipTime` (0 at creation).
+    pub last_gossip: i64,
 }
 
 impl Exact {
@@ -197,6 +199,7 @@ impl Exact {
             baby,
             bed_sensor_tried: 0,
             bed_sensor_last_update: 0,
+            last_gossip: 0,
         }
     }
 }

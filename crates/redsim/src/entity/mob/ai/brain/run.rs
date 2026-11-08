@@ -371,9 +371,45 @@ fn start(w: &mut World, i: usize, n: usize, t: i64) {
             }
         }
         Kind::TradeWithVillager => {
-            refuse(w, "villagers trading (TradeWithVillager: gossip, food) is not modeled");
+            // lockGazeAndWalkToEachOther(body, target, 0.5, 2); an unemployed villager wants no
+            // trade items
+            if let Some(tid) = ex(w, i).mem.interaction_target {
+                lock_gaze_and_walk(w, i, tid, 0.5, 2);
+            }
         }
         _ => {}
+    }
+}
+
+/// `BehaviorUtils.lockGazeAndWalkToEachOther(a, b, speed, close)`: each looks at the other's eyes
+/// and walks to it (entity trackers with the eye).
+fn lock_gaze_and_walk(w: &mut World, i: usize, tid: u32, speed: f32, close: i32) {
+    let me = w.entities.list[i].id;
+    let Some(j) = crate::entity::index_of(w, tid) else { return };
+    let has_ex = |w: &World, k: usize| matches!(&w.entities.list[k].kind, EntityKind::Mob(m) if m.brain.as_deref().is_some_and(|b| b.ex.is_some()));
+    if !has_ex(w, j) {
+        refuse(w, "a villager locking gaze with a villager without the exact brain is not modeled");
+        return;
+    }
+    let to_target = Tracker::Entity { id: tid, eye: true };
+    let to_me = Tracker::Entity { id: me, eye: true };
+    ex_mut(w, i).mem.look_target = Some(to_target);
+    ex_mut(w, j).mem.look_target = Some(to_me);
+    ex_mut(w, i).mem.look_target = Some(to_target);
+    ex_mut(w, i).mem.walk_target = Some(WalkTarget { target: to_target, speed, close });
+    ex_mut(w, j).mem.look_target = Some(to_me);
+    ex_mut(w, j).mem.walk_target = Some(WalkTarget { target: to_me, speed, close });
+}
+
+/// `Villager.gossip(level, target, timestamp)`: at most once in 1200 ticks for both, their
+/// gossip (none without players: no draws) and `spawnGolemIfNeeded(level, timestamp, 5)`.
+fn gossip(w: &mut World, i: usize, j: usize, t: i64) {
+    let ok = |last: i64| t < last || t >= last + 1200;
+    let (li, lj) = (ex(w, i).last_gossip, ex(w, j).last_gossip);
+    if ok(li) && ok(lj) {
+        ex_mut(w, i).last_gossip = t;
+        ex_mut(w, j).last_gossip = t;
+        crate::entity::mob::spawn::spawn_golem_if_needed(w, i, 5);
     }
 }
 
@@ -399,6 +435,19 @@ fn tick(w: &mut World, i: usize, n: usize, t: i64) {
             }
         }
         Kind::MoveToTargetSink { .. } => move_tick(w, i, n, t),
+        Kind::TradeWithVillager => {
+            // within sqrt(5): the gaze again, the gossip; food and wheat: villagers carry nothing
+            // here (an item pickup is refused)
+            if let Some(tid) = ex(w, i).mem.interaction_target
+                && let Some(j) = crate::entity::index_of(w, tid)
+                && w.entities.list[i].pos.distance_to_sqr(w.entities.list[j].pos) <= 5.0
+            {
+                lock_gaze_and_walk(w, i, tid, 0.5, 2);
+                if matches!(&w.entities.list[j].kind, EntityKind::Mob(m) if m.brain.as_deref().is_some_and(|b| b.ex.is_some())) {
+                    gossip(w, i, j, t);
+                }
+            }
+        }
         Kind::GoToPotentialJobSite => refuse(w, "a villager walking to a potential job site is not modeled"),
         _ => {}
     }
@@ -951,12 +1000,93 @@ fn acquire_poi(w: &mut World, i: usize, n: usize, t: i64) -> bool {
     if let Kind::AcquirePoi { batch, .. } = kind_mut(w, i, n) {
         batch.retain(|(_, m)| t - m.previous < 400);
     }
-    let found = crate::entity::mob::ai::poi::free_pois(w, poi, w.entities.list[i].block_position(), 48);
-    if !found.is_empty() {
-        refuse(w, "a villager acquiring a POI (a free bed, job site or bell in reach) is not modeled yet");
+    // findAllClosestFirstWithType: every free POI in range runs the retry cache's test in the
+    // manager's order (a due marker retries: markAttempt draws), then closest first, 5 of them,
+    // then the behaviour's own test (a home: a bed nobody sleeps in)
+    let me = w.entities.list[i].block_position();
+    let mut passed = Vec::new();
+    for p in crate::entity::mob::ai::poi::free_pois_ordered(w, poi, me, 48) {
+        let marker = match kind(w, i, n) {
+            Kind::AcquirePoi { batch, .. } => batch.iter().position(|(q, _)| *q == p),
+            _ => None,
+        };
+        match marker {
+            None => passed.push(p),
+            Some(k) => {
+                let due = matches!(kind(w, i, n), Kind::AcquirePoi { batch, .. } if t >= batch[k].1.next);
+                if due {
+                    let add = level_rng(w).next_int(40);
+                    if let Kind::AcquirePoi { batch, .. } = kind_mut(w, i, n) {
+                        mark_attempt(&mut batch[k].1, t, add);
+                    }
+                    passed.push(p);
+                }
+            }
+        }
     }
-    let _ = Retry { previous: 0, next: 0, delay: 0 };
+    let d2 = |p: &BlockPos| {
+        let (dx, dy, dz) = ((p.x - me.x) as f64, (p.y - me.y) as f64, (p.z - me.z) as f64);
+        dx * dx + dy * dy + dz * dz
+    };
+    passed.sort_by(|a, b| d2(a).total_cmp(&d2(b)));
+    passed.truncate(5);
+    let valid: Vec<BlockPos> = passed
+        .into_iter()
+        .filter(|p| match poi {
+            PoiSel::Home => matches!(w.get(*p), crate::block::Block::Bed { occupied: false, .. }),
+            _ => true,
+        })
+        .collect();
+    if valid.is_empty() {
+        return true;
+    }
+    if poi != PoiSel::Home {
+        refuse(w, "a villager acquiring a job site or a meeting point is not modeled yet");
+        return true;
+    }
+    // findPathToPois: one path to the set of positions (a HashSet<BlockPos>), reach = the largest
+    // validRange
+    let hashes: Vec<i32> = valid.iter().map(|p| (p.y.wrapping_add(p.z.wrapping_mul(31))).wrapping_mul(31).wrapping_add(p.x)).collect();
+    let order = crate::entity::mob::ai::path::finder::java_hash_order(&hashes, crate::entity::mob::ai::path::finder::grown_table(valid.len()));
+    let targets: Vec<BlockPos> = order.iter().map(|&k| valid[k]).collect();
+    let reach = crate::entity::mob::ai::poi::valid_range(poi).max(1);
+    let path = with_nav(w, i, |w, nm, nav, arena| nav.create_path_positions(w, nm, &targets, reach, arena));
+    match path {
+        Some(p) if p.reached => {
+            let target = p.target;
+            // poiManager.take: the ticket (the home memory is the claim), the event 14 (client
+            // particles), the retry cache cleared
+            brain_mut(w, i).home = Some(target);
+            if let Kind::AcquirePoi { batch, .. } = kind_mut(w, i, n) {
+                batch.clear();
+            }
+        }
+        _ => {
+            // new retry markers in the HashSet<Pair<Holder, BlockPos>>'s order: the holders'
+            // identity hashes make it the JVM run's own with two new ones
+            let new: Vec<BlockPos> = targets.iter().copied().filter(|q| !matches!(kind(w, i, n), Kind::AcquirePoi { batch, .. } if batch.iter().any(|(b, _)| b == q))).collect();
+            if new.len() > 1 {
+                refuse(w, "a villager failing to reach several free POIs at once (the retry markers' order: the POI types' identity hashes) is not modeled");
+            }
+            for q in new {
+                let add = level_rng(w).next_int(40);
+                let mut m = Retry { previous: 0, next: 0, delay: 0 };
+                mark_attempt(&mut m, t, add);
+                if let Kind::AcquirePoi { batch, .. } = kind_mut(w, i, n) {
+                    batch.push((q, m));
+                }
+            }
+        }
+    }
     true
+}
+
+/// `JitteredLinearRetry.markAttempt(timestamp)`: the delay grows by 40..79 (`add` = the drawn
+/// nextInt(40)) up to 400.
+fn mark_attempt(m: &mut Retry, t: i64, add: i32) {
+    m.previous = t;
+    m.delay = (m.delay + add + 40).min(400);
+    m.next = t + m.delay as i64;
 }
 
 fn set_next(w: &mut World, i: usize, n: usize, v: i64) {

@@ -174,6 +174,71 @@ pub fn section_closest_to_village(w: &World, center: (i32, i32, i32), radius: i3
 /// The POIs of a selection with a free ticket within `radius` (a square of chunks, then the
 /// distance): what `AcquirePoi`'s search can find.
 pub fn free_pois(w: &mut World, sel: PoiSel, center: BlockPos, radius: i32) -> Vec<BlockPos> {
+    free_pois_ordered(w, sel, center, radius)
+}
+
+/// `PoiManager.getInRange(type, center, radius, HAS_SPACE)` in the manager's order: the chunks of
+/// `ChunkPos.rangeClosed(center's chunk, floorDiv(radius, 16) + 1)` (x fastest, then z), each
+/// chunk's sections bottom up, in a section the types in registry order (job sites, then homes,
+/// then meeting points; the bridge iterates `byType` so) and a type's records in their HashSet's
+/// order (the position's hash), then those within `radius` (`distSqr <= radius^2`).
+pub fn free_pois_ordered(w: &mut World, sel: PoiSel, center: BlockPos, radius: i32) -> Vec<BlockPos> {
+    let taken = claimed(w);
+    let want = |k: PoiKind| match sel {
+        PoiSel::Home => k == PoiKind::Home,
+        PoiSel::Meeting => k == PoiKind::Meeting,
+        PoiSel::AcquirableJob => k == PoiKind::Job,
+        PoiSel::HeldJob => false,
+    };
+    let type_rank = |k: PoiKind| match k {
+        PoiKind::Job => 0,
+        PoiKind::Home => 1,
+        PoiKind::Meeting => 2,
+    };
+    let all: Vec<(BlockPos, PoiKind)> = index(w).to_vec();
+    let cr = radius.div_euclid(16) + 1;
+    let (ccx, ccz) = (center.x.div_euclid(16), center.z.div_euclid(16));
+    // the records of each (section, type) set, for its HashSet's table size and order
+    let mut groups: std::collections::BTreeMap<(i32, i32, i32, i32), Vec<BlockPos>> = std::collections::BTreeMap::new();
+    for (p, k) in &all {
+        let (cx, cz) = (p.x.div_euclid(16), p.z.div_euclid(16));
+        if (cx - ccx).abs() > cr || (cz - ccz).abs() > cr {
+            continue;
+        }
+        // key: chunk z, chunk x, section y, type (rangeClosed walks x fastest, then z)
+        groups.entry((cz, cx, p.y.div_euclid(16), type_rank(*k))).or_default().push(*p);
+    }
+    let r2 = (radius as i64) * (radius as i64);
+    let mut out = Vec::new();
+    for ((_, _, _, rank), ps) in groups {
+        let hashes: Vec<i32> = ps.iter().map(|p| (p.y.wrapping_add(p.z.wrapping_mul(31))).wrapping_mul(31).wrapping_add(p.x)).collect();
+        let order = super::path::finder::java_hash_order(&hashes, super::path::finder::grown_table(ps.len()));
+        for k in order {
+            let p = ps[k];
+            let kind = all.iter().find(|(q, _)| *q == p).map(|(_, k)| *k).unwrap();
+            debug_assert_eq!(type_rank(kind), rank);
+            if !want(kind) || taken.contains(&p) {
+                continue;
+            }
+            let (dx, dy, dz) = ((p.x - center.x) as i64, (p.y - center.y) as i64, (p.z - center.z) as i64);
+            if dx * dx + dy * dy + dz * dz <= r2 {
+                out.push(p);
+            }
+        }
+    }
+    out
+}
+
+/// `PoiTypes`' `validRange` of a selection's types (home and job sites 1, the meeting point 6).
+pub fn valid_range(sel: PoiSel) -> i32 {
+    match sel {
+        PoiSel::Meeting => 6,
+        _ => 1,
+    }
+}
+
+#[allow(dead_code)]
+fn free_pois_unordered(w: &mut World, sel: PoiSel, center: BlockPos, radius: i32) -> Vec<BlockPos> {
     let taken = claimed(w);
     let want = |k: PoiKind| match sel {
         PoiSel::Home => k == PoiKind::Home,

@@ -213,6 +213,31 @@ fn scenes_raw() -> Vec<Scene> {
             watch: ([0, 60, 0], [47, 70, 47]),
         });
     }
+    // three homeless villagers and three free beds before dusk: AcquirePoi claims the beds (the
+    // closest five, one path to all of them, the retry markers), then REST walks them to their
+    // beds (SetWalkTargetFromBlockMemory) and they sleep
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        for x in [28, 31, 34] {
+            b.push(([x, 64, 20], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
+            b.push(([x, 64, 21], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
+        }
+        v.push(Scene {
+            name: "villager-beds".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:villager".into(), [10.5, 64.0, 10.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:villager".into(), [12.5, 64.0, 10.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:villager".into(), [14.5, 64.0, 10.5], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 11000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+        });
+    }
     v
 }
 
@@ -379,6 +404,10 @@ pub fn compare(version: &str, s: &Scene, seed: i64, ticks: u32, batch: u32, full
             {
                 for (g, e) in f.entities.iter().zip(o.entities.iter()) {
                     eprintln!("t {} #{} game: yaw {} head {:?} body {:?} pitch {} goals {:?} path {:?} pos {:?} | redsim: yaw {} head {:?} body {:?} pitch {} goals {:?} path {:?} pos {:?}", o.t, e.n, g.yaw, g.head, g.body, g.pitch, g.goals, g.path, g.pos, e.yaw, e.head, e.body, e.pitch, e.goals, e.path, e.pos);
+                    if std::env::var_os("MOBAI_SHOW_MEM").is_some() {
+                        eprintln!("    game behaviors {:?} memories {:?}", g.behaviors, g.memories);
+                        eprintln!("    redsim behaviors {:?} memories {:?}", e.behaviors, e.memories);
+                    }
                 }
             }
             cmp.tick(&f, &o);
