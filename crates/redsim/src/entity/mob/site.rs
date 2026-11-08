@@ -418,7 +418,7 @@ pub fn covers_from(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: 
     for (k, p, n) in &spec.entities {
         let _ = crate::entity::spawn(&mut w, k, [p[0] + offset[0] as f64, p[1] + offset[1] as f64, p[2] + offset[2] as f64], n.as_deref());
     }
-    let starts = if all { villager_cells(&w) } else { panicking(&w, &moved) };
+    let starts = if all { summoner_starts(&w) } else { panicking(&w, &moved) };
     let mut fills = Vec::new();
     for _ in 0..64 {
         let cells: Vec<BlockPos> = spawn_cells(&w, &starts).into_iter().filter(|c| !own.contains(&c.below())).collect();
@@ -531,6 +531,26 @@ pub fn valid_spots(w: &World, size: [i32; 2], below: i32, near: [i32; 2], radius
 /// summon, [`covers_at`]).
 pub fn villager_cells(w: &World) -> Vec<BlockPos> {
     (0..w.entities.list.len()).filter(|&i| matches!(&w.entities.list[i].kind, crate::entity::EntityKind::Mob(m) if m.ty == super::types::MobType::Villager)).map(|i| w.entities.list[i].block_position()).collect()
+}
+
+/// The starts of every villager's golem search (`spawnGolemIfNeeded`: `trySpawnMob` from its
+/// `blockPosition()`): its cell as built and the cell above it. A villager woken in a 1-cell pod
+/// (a panic wakes it: `VillagerPanicTrigger` → `stopSleeping`) finds no stand-up spot around its
+/// bed (`BedBlock.findStandUpPosition`) and is placed at the fallback, the bed + 1.1, so its
+/// block position is one up until it falls back onto the bed (mob-AI; never two: a jump from the
+/// bed top peaks in the same block). mobinfra's traced gate of D1U, 2026-11-08: golems on the
+/// surface at y 72, a floor at 71 that only a search from the plate villager woken one block above
+/// its bed's cell at 65 reaches (the scan's first floor is its start + 5).
+pub fn summoner_starts(w: &World) -> Vec<BlockPos> {
+    let mut out: Vec<BlockPos> = Vec::new();
+    for c in villager_cells(w) {
+        for s in [c, c.above()] {
+            if !out.contains(&s) {
+                out.push(s);
+            }
+        }
+    }
+    out
 }
 
 /// The villagers that panic in a farm built in `w` (its entities in), by block position: each

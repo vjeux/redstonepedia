@@ -69,15 +69,18 @@ pub fn spawn_spots_of(w: &World, own: &[u32]) -> Vec<BlockPos> {
         if m.ty != MobType::Villager || e.removed || !own.contains(&e.id) {
             continue;
         }
-        let start = e.block_position();
-        for dz in -8..=8 {
-            for dx in -8..=8 {
-                let top = BlockPos::new(start.x + dx, start.y + 6, start.z + dz);
-                if let Some(cell) = possible_spawn_position(w, top, 6)
-                    && !out.contains(&cell)
-                    && check_spawn_obstruction(w, cell, Vec3::new(cell.x as f64 + 0.5, cell.y as f64, cell.z as f64 + 0.5))
-                {
-                    out.push(cell);
+        // its cell as built and the cell above (a villager woken in a 1-cell pod stands at its
+        // bed + 1.1 until it falls back: `site::summoner_starts`)
+        for start in [e.block_position(), e.block_position().above()] {
+            for dz in -8..=8 {
+                for dx in -8..=8 {
+                    let top = BlockPos::new(start.x + dx, start.y + 6, start.z + dz);
+                    if let Some(cell) = possible_spawn_position(w, top, 6)
+                        && !out.contains(&cell)
+                        && check_spawn_obstruction(w, cell, Vec3::new(cell.x as f64 + 0.5, cell.y as f64, cell.z as f64 + 0.5))
+                    {
+                        out.push(cell);
+                    }
                 }
             }
         }
