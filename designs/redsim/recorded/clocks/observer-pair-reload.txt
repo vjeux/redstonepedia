@@ -1,0 +1,15 @@
+name: cal-observer-pair-r2
+# The observer pair (designs/clocks/calibration/observer-pair.txt) turned 180 degrees, as the clock
+# judge builds it at its first position: the two observers on either side of a chunk border (x -1
+# and 0). Recorded with a chunk reload at tick 15 (`trace-export --reload-at 15`): each chunk's
+# pending observer tick comes back as sub-tick order -1, the two tie, and the level's container
+# order (chunk 0, 0 first) decides which observer runs first: the clock runs at 4 gt afterwards
+# (`clock verify --reload` fails it at that position).
+port output: 1 0 0
+port start: -1 0 0 last
+origin: -1 0 0
+palette:
+  E minecraft:observer[facing=east]
+  W minecraft:observer[facing=west]
+layer 0:
+  EW

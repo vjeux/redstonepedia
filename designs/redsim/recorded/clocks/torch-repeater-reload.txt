@@ -1,0 +1,19 @@
+name: cal-torch-repeater-reload
+# The torch loop (designs/clocks/calibration/torch-repeater.txt), recorded with a chunk reload at
+# tick 14: it survives one (`clock verify --reload`), its repeater's and torch's pending ticks
+# coming back with their delays (redsim::reload).
+port output: 0 -1 2
+palette:
+  S minecraft:stone
+  B minecraft:stone
+  T minecraft:redstone_wall_torch[facing=east]
+  d minecraft:redstone_wire
+  r minecraft:repeater[delay=4,facing=south]
+layer 0:
+  ..S
+  S.S
+  SSS
+layer 1:
+  BTd
+  r.d
+  ddd

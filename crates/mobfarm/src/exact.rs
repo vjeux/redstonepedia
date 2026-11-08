@@ -699,10 +699,29 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
     let mut watch = Watch::new(&run.world, spec.lo, spec.hi);
     let mut cmp = Compare::default();
     let window = |t0: i64, n: u32| [draws_at, opts.draws_at].iter().flatten().any(|d| *d >= t0 && *d < t0 + n as i64 + 3);
+    let spawn_order = game.spawning.clone();
     let print = |f: &Frame| {
         if opts.draws_at == Some(f.t) {
             if !f.spawning_shuffled.is_empty() {
                 println!("the spawning chunks in tickChunks' order at game time {} ({}): {}", f.t, f.spawning_shuffled.len(), f.spawning_shuffled.iter().map(|[x, z]| format!("{x},{z}")).collect::<Vec<_>>().join(" "));
+                // the list before Util.shuffle (its swaps undone from the shuffle's draws) against
+                // the one redsim keeps from the first tick
+                if let Some(k) = f.draws.iter().position(|(_, site, _)| site.starts_with("ServerChunkCache.tickChunks:"))
+                    && let Some(vals) = f.draw_values.get(k)
+                {
+                    let mut list = f.spawning_shuffled.clone();
+                    let n = list.len();
+                    if vals.len() + 1 == n {
+                        let js: Vec<usize> = (2..=n).rev().zip(vals.iter()).map(|(i, v)| if i.is_power_of_two() { ((i as i64 * *v as i64) >> 31) as usize } else { (*v as usize) % i }).collect();
+                        for (i, j) in (2..=n).rev().zip(js.iter()).collect::<Vec<_>>().into_iter().rev() {
+                            list.swap(i - 1, *j);
+                        }
+                        match list.iter().zip(spawn_order.iter()).position(|(a, b)| a != b) {
+                            None if list.len() == spawn_order.len() => println!("the list before the shuffle: the same as redsim's (the bridge's at the first tick)"),
+                            at => println!("the list before the shuffle differs from redsim's at index {:?}: game {:?} | redsim {:?}", at, at.and_then(|i| list.get(i)), at.and_then(|i| spawn_order.get(i))),
+                        }
+                    }
+                }
             }
             println!("the game's draws at game time {} (stream, call site, count, the raw next(bits) outputs; in draw order):", f.t);
             for (k, (s, site, n)) in f.draws.iter().enumerate() {
@@ -760,6 +779,16 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
     }
     eprintln!("redsim's side: {:.2} s for {} ticks ({:.1} us a tick: {:.1} us ticking, the rest its frames)", redsim_time.as_secs_f64(), t, redsim_time.as_secs_f64() * 1e6 / t.max(1) as f64, tick_time.as_secs_f64() * 1e6 / t.max(1) as f64);
     eprintln!("container changes after the arrival: the game {}, redsim {}", changes[0], changes[1]);
+    // (a probe: MCTAS_EXACT_HEIGHTS="x,z;x,z": each column's WORLD_SURFACE height at the end on
+    // both sides, the game's highest taken y and redsim's first free y - 1)
+    if let Ok(cols) = std::env::var("MCTAS_EXACT_HEIGHTS") {
+        let cols: Vec<[i32; 2]> = cols.split(';').filter_map(|s| s.split_once(',')).filter_map(|(x, z)| Some([x.trim().parse().ok()?, z.trim().parse().ok()?])).collect();
+        let v = game.w.call(json!({"op": "heights", "sandbox": game.sb, "columns": cols}))?;
+        for (c, g) in cols.iter().zip(v["heights"].as_array().cloned().unwrap_or_default()) {
+            let ours = run.world.height(redsim::terrain::Heightmap::WorldSurface, c[0], c[1]) - 1;
+            eprintln!("column {} {}: the game's WORLD_SURFACE {} | redsim's {ours}", c[0], c[1], g[2]);
+        }
+    }
     Ok(cmp)
 }
 

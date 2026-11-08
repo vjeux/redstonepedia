@@ -72,6 +72,8 @@ pub struct Trace {
     /// nbt]`), `ride` / `kill` / `empty` (entities by network id), `fill` (a container's Items),
     /// `use` (a right-click).
     pub script: Vec<(u32, serde_json::Value)>,
+    /// A chunk reload right after this frame (header `reload_at`, `trace-export --reload-at`).
+    pub reload_at: Option<u32>,
 }
 
 fn f3(v: &serde_json::Value) -> Option<[f64; 3]> {
@@ -112,6 +114,7 @@ pub fn load_trace(path: &Path) -> Result<Trace> {
         chunk_order: h["chunk_order"].as_array().map(|a| a.iter().filter_map(|c| Some([c.get(0)?.as_i64()? as i32, c.get(1)?.as_i64()? as i32])).collect()),
         raw: h["raw"].as_array().map(|v| v.iter().filter_map(|b| Some(([b.get(0)?.as_i64()? as i32, b.get(1)?.as_i64()? as i32, b.get(2)?.as_i64()? as i32], b.get(3)?.as_str()?.to_string()))).collect()).unwrap_or_default(),
         script: h["script"].as_array().map(|v| v.iter().filter_map(|a| Some((a.get(0)?.as_u64()? as u32, serde_json::Value::Array(a.as_array()?[1..].to_vec())))).collect()).unwrap_or_default(),
+        reload_at: h["reload_at"].as_u64().map(|r| r as u32),
     };
     for (i, line) in lines.enumerate() {
         let v: serde_json::Value = serde_json::from_str(line).with_context(|| format!("line {}", i + 2))?;
@@ -611,6 +614,17 @@ pub fn compare(trace: &Trace, max_diffs: usize) -> Result<Outcome> {
         }
         if let Some(e) = w.errors.first() {
             return Ok(Outcome::Unmodeled(format!("tick {t}: {e}")));
+        }
+        // a chunk reload right after this frame (header `reload_at`: `trace-export --reload-at`),
+        // the sandbox's forced chunks in the order the bridge forces them again
+        if trace.reload_at == Some(t as u32) {
+            let Some(chunks) = trace.chunks else {
+                return Ok(Outcome::Unmodeled("a chunk reload in a trace without its forced chunk box (header chunks)".into()));
+            };
+            redsim::reload::reload_chunks(&mut w, &redsim::reload::box_chunks(chunks));
+            if let Some(e) = w.errors.first() {
+                return Ok(Outcome::Unmodeled(format!("tick {t}: {e}")));
+            }
         }
     }
     Ok(Outcome::Same { ticks: trace.frames.len() })

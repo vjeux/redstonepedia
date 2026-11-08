@@ -339,6 +339,10 @@ fn export_one(w: &mut Worker, path: &Path, out_dir: &Path, a: &ExportArgs, extra
     if let Some(n) = random_tick_speed {
         header["random_tick_speed"] = json!(n);
     }
+    // a chunk reload after that frame (redsim's trace-compare replays it: `redsim::reload`)
+    if let Some(r) = reload_at {
+        header["reload_at"] = json!(r);
+    }
     // the order the level ticks its chunks in (`ServerLevel.tickChunk`: the random ticks' and the
     // precipitation picks' draws, chunk after chunk), which redsim's mirror recomputes
     if exact {

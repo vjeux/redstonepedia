@@ -134,6 +134,37 @@ impl State {
         }
     }
 
+    /// (tickexact) A chunk reload (`crate::reload`): the moving blocks in reloaded cells leave with
+    /// their chunk (`clearAllBlockEntities`: their wrappers rebound to the null ticker) and come
+    /// back as new block entities in `order` (`registerAllBlockEntitiesAfterLevelLoad`), each
+    /// loaded as saved: `saveAdditional` writes `progressO` as "progress" and `loadAdditional`
+    /// sets both from it (the half step of the last tick is lost); `lastTicked` is not saved (0).
+    pub fn reload(&mut self, reloaded: &dyn Fn(BlockPos) -> bool, order: &[BlockPos]) {
+        let mut saved: Vec<(BlockPos, MovingBe)> = Vec::new();
+        self.bes.retain(|(p, _, be)| {
+            if reloaded(*p) {
+                saved.push((*p, *be));
+                false
+            } else {
+                true
+            }
+        });
+        let wrappers = &mut self.wrappers;
+        self.wrapper_at.retain(|(p, w)| {
+            if reloaded(*p) {
+                wrappers[*w as usize] = None;
+                false
+            } else {
+                true
+            }
+        });
+        for p in order {
+            if let Some(&(_, be)) = saved.iter().find(|(q, _)| q == p) {
+                self.add(*p, MovingBe { progress: be.progress_o, progress_o: be.progress_o, last_ticked: 0, ..be });
+            }
+        }
+    }
+
     /// `LevelChunk.addAndRegisterBlockEntity` (the cell already holds a moving piston).
     fn add(&mut self, p: BlockPos, be: MovingBe) {
         let id = self.next_id;

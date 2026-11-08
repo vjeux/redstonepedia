@@ -80,6 +80,21 @@ pub struct State {
 }
 
 impl State {
+    /// (tickexact) A chunk reload (`crate::reload`): the sensors' tickers in reloaded cells are
+    /// removed with their chunk and come back as new ones in `order`, after the others (their
+    /// vibration data is saved and loaded whole).
+    pub fn reload_tickers(&mut self, reloaded: &dyn Fn(BlockPos) -> bool, order: &[BlockPos]) {
+        let live: std::collections::HashSet<BlockPos> = self.tickers.iter().chain(self.pending.iter()).filter(|(p, l)| *l && reloaded(*p)).map(|(p, _)| *p).collect();
+        for t in self.tickers.iter_mut().chain(self.pending.iter_mut()) {
+            if reloaded(t.0) {
+                t.1 = false;
+            }
+        }
+        for p in order.iter().filter(|p| live.contains(p)) {
+            if self.ticking { self.pending.push((*p, true)) } else { self.tickers.push((*p, true)) }
+        }
+    }
+
     /// Sensor block entities (by position) with the candidate's game time relative to `now`, and
     /// the ticker order, for [`crate::world::World::state_key`].
     pub(crate) fn key_into<H: std::hash::Hasher>(&self, now: i64, h: &mut H) {

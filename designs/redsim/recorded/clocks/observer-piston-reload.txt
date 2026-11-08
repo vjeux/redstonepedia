@@ -1,0 +1,22 @@
+name: cal-observer-piston-reload
+# The observer piston clock (designs/clocks/calibration/observer-piston.txt), recorded with a chunk
+# reload at tick 9 while the piston retracts: the moving blocks are saved with their progressO
+# (`PistonMovingBlockEntity.saveAdditional` writes it as "progress"), so the half step of their
+# last tick is lost and the retraction ends a tick later (redsim::reload).
+# A sticky piston facing up lifts a stone in front of an observer. The observer (watching the
+# stone's cell) fires on every change there; its back strongly powers a stone, the dust under that
+# stone lights and runs into the piston's side.
+# Kick: the lifted stone is placed last (the observer sees it appear).
+port output: 1 -1 0
+port start: 0 2 0 last
+palette:
+  S minecraft:stone
+  P minecraft:sticky_piston[facing=up]
+  O minecraft:observer[facing=west]
+  d minecraft:redstone_wire
+layer 0:
+  .SS
+layer 1:
+  Pdd
+layer 2:
+  SOS

@@ -169,6 +169,7 @@ public final class Protocol {
             case "summon" -> summon(r);
             case "world" -> world(r);
             case "chunk_lists" -> chunkLists(r);
+            case "heights" -> heights(r);
             case "memory" -> memory(r);
             case "trace" -> trace(r);
             case "terrain" -> Terrain.load(this, sandbox(r), r);
@@ -862,6 +863,28 @@ public final class Protocol {
     }
 
     /** The chunk lists the level ticks by, now (the world op's, again: before a compare starts). */
+    /**
+     * (tickexact) Each listed column's WORLD_SURFACE height as {@code getRandomPosWithin} reads it
+     * ({@code chunk.getHeight(WORLD_SURFACE, x, z)}: the highest taken y), and the level's.
+     */
+    private JsonObject heights(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        JsonArray out = new JsonArray();
+        for (JsonElement e : r.getAsJsonArray("columns")) {
+            int x = e.getAsJsonArray().get(0).getAsInt();
+            int z = e.getAsJsonArray().get(1).getAsInt();
+            net.minecraft.world.level.chunk.LevelChunk chunk = sb.level.getChunk(x >> 4, z >> 4);
+            JsonArray c = new JsonArray();
+            c.add(x);
+            c.add(z);
+            c.add(chunk.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE, x & 15, z & 15));
+            out.add(c);
+        }
+        JsonObject o = new JsonObject();
+        o.add("heights", out);
+        return o;
+    }
+
     private JsonObject chunkLists(JsonObject r) {
         JsonObject w = new JsonObject();
         w.addProperty("sandbox", r.get("sandbox").getAsInt());

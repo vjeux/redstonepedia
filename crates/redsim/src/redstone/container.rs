@@ -444,6 +444,29 @@ pub struct Containers {
     ticking: bool,
 }
 
+impl Containers {
+    /// (tickexact) A chunk reload (`crate::reload`): the tickers in reloaded cells are removed
+    /// with their chunk (`clearAllBlockEntities` rebinds them to the null ticker) and come back as
+    /// new ones in `order` (`registerAllBlockEntitiesAfterLevelLoad`), after the others; a
+    /// reloaded hopper forgets its `tickedGameTime` (not saved: 0).
+    pub fn reload_tickers(&mut self, reloaded: &dyn Fn(BlockPos) -> bool, order: &[BlockPos]) {
+        let live: std::collections::HashSet<BlockPos> = self.tickers.iter().chain(self.pending.iter()).filter(|(p, l)| *l && reloaded(*p)).map(|(p, _)| *p).collect();
+        for t in self.tickers.iter_mut().chain(self.pending.iter_mut()) {
+            if reloaded(t.0) {
+                t.1 = false;
+            }
+        }
+        for p in order.iter().filter(|p| live.contains(p)) {
+            if self.ticking { self.pending.push((*p, true)) } else { self.tickers.push((*p, true)) }
+        }
+        for (p, c) in self.map.iter_mut() {
+            if c.hopper && reloaded(*p) {
+                c.ticked = 0;
+            }
+        }
+    }
+}
+
 /// A container: a block entity at a position, a container entity (by id), or a double chest's two
 /// halves as one (`CompoundContainer(first, second)`: the right half's 27 slots, then the left's).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

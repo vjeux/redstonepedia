@@ -31,6 +31,7 @@ pub mod rails;
 pub mod react;
 pub mod redstone;
 pub mod rng;
+pub mod reload;
 pub mod robust;
 pub mod sculk;
 pub mod slab;

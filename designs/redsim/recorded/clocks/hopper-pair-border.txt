@@ -1,0 +1,17 @@
+name: cal-hopper-pair-border
+# The hopper pair (designs/clocks/calibration/hopper-pair.txt) moved 2 west so the two hoppers sit
+# on either side of a chunk border (x -1 and 0), recorded with chunk reloads: after a reload the
+# chunks register their hoppers again chunk by chunk (`registerAllBlockEntitiesAfterLevelLoad`),
+# which can turn the two hoppers' tick order around (redsim::reload).
+port output: -3 1 0
+nbt: -1 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: -2 0 0
+palette:
+  S minecraft:stone
+  C minecraft:comparator[facing=east]
+  E minecraft:hopper[facing=east]
+  W minecraft:hopper[facing=west]
+layer 0:
+  S
+layer 1:
+  CEW

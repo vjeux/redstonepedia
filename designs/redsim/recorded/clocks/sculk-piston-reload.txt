@@ -1,0 +1,15 @@
+name: cal-sculk-piston-reload
+# The sculk piston clock (designs/clocks/calibration/sculk-piston.txt), recorded with a chunk
+# reload at tick 11: the sensor's vibration data is saved whole and its ticker registered again
+# (redsim::reload).
+port output: 0 0 0
+port start: 3 1 1 minecraft:redstone_block 2
+palette:
+  S minecraft:stone
+  K minecraft:sculk_sensor
+  r minecraft:repeater[delay=4,facing=west]
+  P minecraft:sticky_piston[facing=east]
+layer 0:
+  .SS
+layer 1:
+  KrrP
