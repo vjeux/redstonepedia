@@ -342,16 +342,23 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Refusal> {
             refuse(&mut out, "C2 entry", format!("a {} gets into the farm at {p}", r.body.name));
         }
     }
-    // C3: a villager hostile's sight (zombie family: 8 blocks between feet, `VillagerHostilesSensor`;
-    // a clear COLLIDER ray between eyes, `hasLineOfSight`); the mob anywhere in its cell
+    // C3: a villager hostile's sight (`VillagerHostilesSensor`: the zombie family within 8 blocks
+    // between feet, a pillager (patrols) within 15 — its body is the skeleton's: 0.6 wide, ~2 high,
+    // no doors; a clear COLLIDER ray between eyes, `hasLineOfSight`); the mob anywhere in its cell
     let villager_feet: Vec<Vec3> = farm.villagers.iter().map(|v| Vec3::new(v.center().x, v.min_y, v.center().z)).collect();
-    for r in reaches.iter().filter(|r| matches!(r.body.name, "zombie" | "baby zombie")) {
+    for r in &reaches {
+        let range = match r.body.name {
+            "zombie" | "baby zombie" => 8.0,
+            "skeleton" => 15.0,
+            _ => continue,
+        };
+        let who = if r.body.name == "skeleton" { "pillager" } else { r.body.name };
         for (p, f) in &r.cells {
             let feet = Vec3::new(p.x as f64 + 0.5, *f, p.z as f64 + 0.5);
             let eye = Vec3::new(feet.x, feet.y + r.body.height * 0.85, feet.z);
             for (vf, ve) in villager_feet.iter().zip(farm.villager_eyes.iter()) {
-                if dist2(feet, *vf).sqrt() <= 8.0 + 0.71 && super::los::has_line_of_sight(w, eye, *ve) {
-                    refuse(&mut out, "C3 sight", format!("a {} at {p} sees the farm villager at {:.1},{:.1},{:.1}", r.body.name, ve.x, ve.y, ve.z));
+                if dist2(feet, *vf).sqrt() <= range + 0.71 && super::los::has_line_of_sight(w, eye, *ve) {
+                    refuse(&mut out, "C3 sight", format!("a {who} at {p} sees the farm villager at {:.1},{:.1},{:.1}", ve.x, ve.y, ve.z));
                 }
             }
         }

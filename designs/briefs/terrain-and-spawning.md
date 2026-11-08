@@ -230,7 +230,9 @@ the ceiling (fidelity part 1 = cells equal and spawn tests; part 2 = channels co
 ## Trade-offs
 
 - **Fidelity vs size**: a full 17 x 17-chunk, full-height area is 28M cells (5-15 MB); a crop of
-  what the checks reach is ~250 KB. Crops are committed, full areas cached (regenerable).
+  what the checks reach is ~250 KB. Crops are committed, full areas cached: generation is
+  deterministic but the one-day settle is not (a re-made world's day-1 details differ: villagers,
+  crops), so the committed crops, not the cache, are the reproducible record.
 - **Fidelity vs judge time**: running the spawner in every rate run costs hours and changes nothing
   for a farm the checks clear; a proof (the checks) costs seconds.
 - **Soundness vs acceptance**: static worst-case checks refuse some farms that would work in
@@ -331,8 +333,9 @@ collision boxes (`getCollisionShape(...).toAabbs()`), `getLightDampening`, `getL
 `getIgniteOdds`), `blocksMotion`, `isPathfindable(LAND)`, `isAir`, `LeavesBlock` (the four heightmap
 predicates: WORLD_SURFACE = not air, MOTION_BLOCKING = blocksMotion or a fluid, NO_LEAVES = that and
 not leaves, OCEAN_FLOOR = blocksMotion), `isRandomlyTicking`, whether its class overrides
-`updateShape` / `neighborChanged` / `tick` (reflection: the inert flag), the directions whose
-neighbour turning to air makes `canSurvive` false (support flags), and **per (state, type)** for the
+`updateShape` / `neighborChanged` / `tick` (reflection: the inert flag), the **support flags** (per
+direction: whether the state's `updateShape` changes when that neighbour turns from dirt into air,
+with dirt on its other sides, or all six when the state cannot stand among dirt at all), and **per (state, type)** for the
 59 natural types (every type of the overworld biome lists, the village's and the custom spawners',
 the sulfur cube and the bee: listed in the header) two bitsets: `isValidSpawn(level, pos, type)` and `type.isBlockDangerous(state)`.
 
@@ -367,7 +370,7 @@ the sample (`hostile::check`). It starts at **every standable position in that r
 light** (natural spawns, custom spawners' walkers, the village's mobs) and every air cell for
 flyers; the region's outer ring is itself all starts, so a mob arriving from farther away enters the
 region at a position the flood already starts from: any path into the farm, its sight or its reach
-crosses the ring. 24 columns covers every channel's reach (sight 8, golem sensor 17.84 + boxes,
+crosses the ring. 24 columns covers every channel's reach (sight 15 (the pillager's, the longest), golem sensor 17.84 + boxes,
 melee 0.83, the golem search 8, a creeper's 7 to the AFK spot, beds 1). Bound: ~250k cells x 9 body
 classes; ~7 s per placement measured.
 
