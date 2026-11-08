@@ -387,8 +387,15 @@ pub fn d1u(n: i32) -> String {
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     b.d.meta.insert("restart".into(), "yes".into());
     b.d.meta.insert("terrain".into(), "cells".into());
-    b.d.meta.insert("ground".into(), "8".into());
-    b.d.meta.insert("afk".into(), "2.5 9 4.5".into());
+    // the ground layer 11 above the pods' floor: the third villager (its bed's cell at y 2) panics
+    // standing or hopping a block higher, so its golem search's first floor is y 8 (start 3, + 5);
+    // with the ground layer at 8 or 9 the surface was in reach and golems it summoned there
+    // stalled the farm (mobinfra's traced gates: a golem at (-2, 7, -12) on ground 8; golems at
+    // y 72 over the farm on ground 9); at 11 the surface lies 2 above that reach, and the
+    // cheapest spot has no cave a mob walks in from (10's had one); its AFK spot on the ground
+    // over the pad
+    b.d.meta.insert("ground".into(), "11".into());
+    b.d.meta.insert("afk".into(), "2.5 12 4.5".into());
     b.text(&[
         "Day-1 iron farm dug into the ground beside a village: two villagers on their beds watch a zombie parked in a boat",
         "and keep summoning iron golems. At nightfall a third villager lies down in its bed, its pressure plate lets go and a",
