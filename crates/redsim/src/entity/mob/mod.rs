@@ -96,6 +96,22 @@ impl Damage {
             Damage::MobAttack => "mob_attack",
         }
     }
+
+    /// The damage type's `message_id` (`DamageSource.getMsgId()`, what the bridge's frames print).
+    pub fn msg_id(self) -> &'static str {
+        match self {
+            Damage::Lava => "lava",
+            Damage::OnFire => "onFire",
+            Damage::InWall => "inWall",
+            Damage::Cramming => "cramming",
+            Damage::Fall => "fall",
+            Damage::Drown => "drown",
+            Damage::HotFloor => "hotFloor",
+            Damage::Lightning => "lightningBolt",
+            Damage::InFire => "inFire",
+            Damage::MobAttack => "mob",
+        }
+    }
 }
 
 /// What the mob layer records, in order (the judge's evidence).

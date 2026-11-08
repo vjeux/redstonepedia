@@ -617,6 +617,10 @@ fn die(w: &mut World, i: usize, src: Damage) {
         (w.time, e.id, mob(w, i).ty, e.pos)
     };
     w.mob.events.push(MobEvent::Death { t, id, ty, src, pos: [pos.x, pos.y, pos.z] });
+    // ---- mob AI (the mob-AI lane): the killer's `killedEntity` (a zombie's villager conversion) ----
+    if w.mob.ai.on {
+        super::ai::attack::killed_entity(w, i, src);
+    }
     w.game_event_at("entity_die", [pos.x, pos.y, pos.z], None, false);
     drop_loot(w, i);
 }

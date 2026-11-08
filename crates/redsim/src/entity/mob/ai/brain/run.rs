@@ -356,8 +356,9 @@ fn start(w: &mut World, i: usize, n: usize, t: i64) {
         Kind::MoveToTargetSink { .. } => move_start(w, i, n),
         Kind::SleepInBed { next_ok } => {
             if t > next_ok {
-                if !ex(w, i).mem.doors_to_close.is_empty() {
-                    refuse(w, "a villager closing the doors it opened before sleeping is not modeled");
+                // the doors it opened or passed through, closed before it lies down
+                if ex(w, i).mem.doors_to_close.is_some() {
+                    close_doors_passed(w, i, None, None);
                 }
                 let home = brain(w, i).home.expect("a home");
                 if villager::start_sleeping(w, i, home) {
@@ -767,8 +768,10 @@ pub fn trigger(w: &mut World, i: usize, n: usize, t: i64) -> bool {
     }
 }
 
-/// `InteractWithDoor`: the doors on the path's previous and next nodes opened (none in the modeled
-/// designs: refused when one is there).
+/// `InteractWithDoor`: the doors (mob-interactable: wooden) on the path's previous and next nodes
+/// opened (the previous one remembered even when already open, the next one when this opens it),
+/// then the remembered doors it moved away from closed (`closeDoorsThatIHaveOpenedOrPassedThrough`).
+/// Each door it opens or closes draws its sound's pitch from the level random.
 fn interact_with_door(w: &mut World, i: usize, n: usize) -> bool {
     let Some(path) = ex(w, i).mem.path.clone() else { return false };
     let live = ai(w, i).nav.path.clone().filter(|p| p.uid == path.uid).unwrap_or(path);
@@ -788,15 +791,102 @@ fn interact_with_door(w: &mut World, i: usize, n: usize) -> bool {
         *last_checked = Some(next);
     }
     let prev = live.nodes[live.next_node_index - 1].pos();
-    for p in [prev, next] {
-        if crate::entity::mob::ai::goal::zombie::is_wooden_door(w, p) {
-            refuse(w, "a villager opening a door is not modeled");
+    let wooden = |b: &crate::block::Block| matches!(b, crate::block::Block::Door { iron: false, .. });
+    let from = w.get(prev);
+    if wooden(&from) {
+        if let crate::block::Block::Door { open: false, .. } = from {
+            set_door_open(w, i, prev, true);
         }
+        remember_door(w, i, prev);
     }
-    if !ex(w, i).mem.doors_to_close.is_empty() {
-        refuse(w, "a villager closing doors is not modeled");
+    let to = w.get(next);
+    if let crate::block::Block::Door { iron: false, open: false, .. } = to {
+        set_door_open(w, i, next, true);
+        remember_door(w, i, next);
+    }
+    if ex(w, i).mem.doors_to_close.is_some() {
+        close_doors_passed(w, i, Some(prev), Some(next));
     }
     true
+}
+
+/// `rememberDoorToClose`: the set (made when absent) gains the door.
+fn remember_door(w: &mut World, i: usize, p: BlockPos) {
+    let d = ex_mut(w, i).mem.doors_to_close.get_or_insert_with(Vec::new);
+    if !d.contains(&p) {
+        d.push(p);
+    }
+}
+
+/// `DoorBlock.setOpen(entity, level, state, pos, open)`: the door set with flags 10 (clients,
+/// immediate; its other half follows by shape update), its sound's pitch from the level random,
+/// the BLOCK_OPEN / BLOCK_CLOSE game event.
+pub fn set_door_open(w: &mut World, i: usize, p: BlockPos, open: bool) {
+    let crate::block::Block::Door { iron, facing, upper, hinge_right, open: was, powered } = w.get(p) else { return };
+    if was == open {
+        return;
+    }
+    w.set_block(p, crate::block::Block::Door { iron, facing, upper, hinge_right, open, powered }, crate::world::flags::CLIENTS | crate::world::flags::IMMEDIATE);
+    level_rng(w).next_float();
+    let _ = i;
+    let at = [p.x as f64 + 0.5, p.y as f64 + 0.5, p.z as f64 + 0.5];
+    w.game_event_at(if open { "block_open" } else { "block_close" }, at, None, false);
+}
+
+/// `closeDoorsThatIHaveOpenedOrPassedThrough(level, body, from, to, doors, nearest)`: each
+/// remembered door but the path's two nodes: forgotten when 3 or more from it, or no longer an
+/// open wooden door, or another villager within 2 is coming through it; else closed. The set's
+/// order (a HashSet) only matters with two doors to close at once: refused then.
+fn close_doors_passed(w: &mut World, i: usize, from: Option<BlockPos>, to: Option<BlockPos>) {
+    let doors = ex(w, i).mem.doors_to_close.clone().unwrap_or_default();
+    let me = w.entities.list[i].pos;
+    let closable: Vec<BlockPos> = doors
+        .iter()
+        .copied()
+        .filter(|d| Some(*d) != from && Some(*d) != to)
+        .filter(|d| villager::closer_to_center(*d, me, 3.0) && matches!(w.get(*d), crate::block::Block::Door { iron: false, open: true, .. }))
+        .collect();
+    if closable.len() > 1 {
+        refuse(w, "a villager closing two doors at once (the HashSet's order) is not modeled");
+    }
+    let mut keep = Vec::new();
+    for d in doors {
+        if Some(d) == from || Some(d) == to {
+            keep.push(d);
+            continue;
+        }
+        if !villager::closer_to_center(d, me, 3.0) {
+            continue;
+        }
+        if !matches!(w.get(d), crate::block::Block::Door { iron: false, open: true, .. }) {
+            continue;
+        }
+        if other_villager_coming_through(w, i, d) {
+            continue;
+        }
+        set_door_open(w, i, d, false);
+    }
+    ex_mut(w, i).mem.doors_to_close = Some(keep);
+}
+
+/// `areOtherMobsComingThroughDoor`: a villager among NEAREST_LIVING_ENTITIES within 2 of the
+/// door's centre whose path's previous or next node is the door.
+fn other_villager_coming_through(w: &World, i: usize, d: BlockPos) -> bool {
+    let near: Vec<u32> = brain(w, i).nearest_living.iter().map(|(id, _)| *id).collect();
+    near.iter().any(|id| {
+        let Some(j) = crate::entity::index_of(w, *id) else { return false };
+        let crate::entity::EntityKind::Mob(m) = &w.entities.list[j].kind else { return false };
+        if m.ty != MobType::Villager || !villager::closer_to_center(d, w.entities.list[j].pos, 2.0) {
+            return false;
+        }
+        let Some(x) = m.brain.as_deref().and_then(|b| b.ex.as_deref()) else { return false };
+        let Some(pa) = x.mem.path.as_ref() else { return false };
+        let live = m.ai.as_deref().and_then(|a| a.nav.path.as_ref()).filter(|n| n.uid == pa.uid).unwrap_or(pa);
+        if live.is_done() || live.next_node_index == 0 {
+            return false;
+        }
+        live.nodes[live.next_node_index - 1].pos() == d || live.nodes[live.next_node_index].pos() == d
+    })
 }
 
 /// `ValidateNearbyPoi`: within 16 of the POI, a POI no longer there (or a bed someone else sleeps

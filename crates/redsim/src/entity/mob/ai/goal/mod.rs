@@ -358,4 +358,8 @@ pub fn register_goals(ai: &mut MobAi, ty: MobType) {
         "iron_golem" => golem::register(ai),
         _ => {}
     }
+    // FloatGoal's constructor: `mob.getNavigation().setCanFloat(true)`
+    if ai.goals.goals.iter().any(|g| matches!(g.goal, Goal::Float)) {
+        ai.nav.flags.can_float = true;
+    }
 }

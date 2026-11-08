@@ -85,8 +85,17 @@ impl MobAi {
         let d = ty.def();
         let kind = if d.id == "spider" || d.id == "cave_spider" { NavKind::WallClimber } else { NavKind::Ground };
         let malus = if ty == MobType::Villager { Malus::villager() } else { Malus::default() };
+        let mut nav = Navigation::new(kind, d.follow_range);
+        if ty == MobType::Villager {
+            // AbstractVillager/Villager's constructor: doors, floating, a 48-block path budget
+            // (setRequiredPathLength: floor(max(FOLLOW_RANGE, 48) x 16) nodes)
+            nav.flags.can_open_doors = true;
+            nav.flags.can_float = true;
+            nav.required_path_length = 48.0;
+            nav.max_visited_nodes = mth::floor(((d.follow_range as f32).max(48.0) * 16.0f32) as f64);
+        }
         let mut ai = MobAi {
-            nav: Navigation::new(kind, d.follow_range),
+            nav,
             move_ctl: MoveControl::default(),
             look: LookControl::default(),
             jump: false,

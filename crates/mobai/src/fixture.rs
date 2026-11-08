@@ -64,8 +64,45 @@ fn wall(out: &mut Vec<([i32; 3], String)>, a: (i32, i32), b: (i32, i32), y: i32,
     }
 }
 
+/// The connected states of the scene's oak fences (a fence joins the fences beside it), so raw
+/// placement leaves them as the game would after any shape update.
+fn connect_fences(blocks: &mut [([i32; 3], String)]) {
+    let fences: std::collections::HashSet<[i32; 3]> = blocks.iter().filter(|(_, s)| s.starts_with("minecraft:oak_fence")).map(|(p, _)| *p).collect();
+    for (p, s) in blocks.iter_mut() {
+        if !s.starts_with("minecraft:oak_fence") {
+            continue;
+        }
+        let has = |dx: i32, dz: i32| fences.contains(&[p[0] + dx, p[1], p[2] + dz]);
+        *s = format!("minecraft:oak_fence[east={},north={},south={},waterlogged=false,west={}]", has(1, 0), has(0, -1), has(0, 1), has(-1, 0));
+    }
+}
+
 /// The built-in scenes.
 pub fn scenes() -> Vec<Scene> {
+    let mut v = scenes_raw();
+    for s in &mut v {
+        // a 2-high stone wall on the sandbox's edge cells keeps every mob in the box (beyond it the
+        // game's chunks are loaded but empty, redsim's are not there)
+        let (x0, z0, x1, z1) = (s.chunks[0] * 16, s.chunks[1] * 16, s.chunks[2] * 16 + 15, s.chunks[3] * 16 + 15);
+        let floor_y = s.blocks.iter().map(|(p, _)| p[1]).min().unwrap_or(63);
+        for y in floor_y + 1..=floor_y + 2 {
+            for x in x0..=x1 {
+                for z in [z0, z1] {
+                    s.blocks.push(([x, y, z], "minecraft:stone".into()));
+                }
+            }
+            for z in z0 + 1..z1 {
+                for x in [x0, x1] {
+                    s.blocks.push(([x, y, z], "minecraft:stone".into()));
+                }
+            }
+        }
+        connect_fences(&mut s.blocks);
+    }
+    v
+}
+
+fn scenes_raw() -> Vec<Scene> {
     let stone = "minecraft:stone";
     let mut v = Vec::new();
     // a zombie alone on a floor at night: strolls (LandRandomPos), looks around
@@ -142,6 +179,36 @@ pub fn scenes() -> Vec<Scene> {
             ],
             day_time: 18000,
             difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+        });
+    }
+    // a zombie that breaks doors (Hard) going for a villager in a fence pen through its oak door
+    // (the fences do not block the sight between their eyes): the path through the door, the
+    // horizontal collision, BreakDoorGoal's 240 ticks and its nextInt(20) swings, the door gone
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        for x in 34..=38 {
+            for z in 22..=26 {
+                let edge = x == 34 || x == 38 || z == 22 || z == 26;
+                if edge && !(x == 34 && z == 24) {
+                    b.push(([x, 64, z], "minecraft:oak_fence".to_string()));
+                }
+            }
+        }
+        b.push(([34, 64, 24], "minecraft:oak_door[facing=east,half=lower,hinge=left,open=false,powered=false]".to_string()));
+        b.push(([34, 65, 24], "minecraft:oak_door[facing=east,half=upper,hinge=left,open=false,powered=false]".to_string()));
+        v.push(Scene {
+            name: "zombie-door".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:zombie".into(), [8.5, 64.0, 24.5], Some("{PersistenceRequired:1b,CanBreakDoors:1b}".into())),
+                ("minecraft:villager".into(), [36.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Hard,
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
         });

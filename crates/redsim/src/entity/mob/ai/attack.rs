@@ -89,6 +89,30 @@ fn voice_pitch_draws(w: &mut World, i: usize) {
 /// `hurtServer`'s steps after the damage, for a mob of an AI world (`living::hurt` calls it with
 /// whether the hit took full damage): the attacker as `lastHurtByMob`, the knockback away from it,
 /// the death or hurt sound's pitch draws (`Mob.playHurtSound` resets the ambient sound time).
+/// The killer's `killedEntity(level, victim, source)` (the mob AI on): a zombie that kills a
+/// villager on Hard, or on Normal when its own random's `nextBoolean()` is false, converts it
+/// into a zombie villager: refused (zombie villagers are not modeled).
+pub fn killed_entity(w: &mut World, victim: usize, src: Damage) {
+    if src != Damage::MobAttack {
+        return;
+    }
+    let Some(att) = w.mob.ai.attacker.and_then(|id| crate::entity::index_of(w, id)) else { return };
+    if !matches!(mob(w, att).ty.def().id, "zombie" | "baby_zombie") || mob(w, victim).ty != crate::entity::mob::types::MobType::Villager {
+        return;
+    }
+    let d = super::difficulty_id(w);
+    if d < 2 {
+        return;
+    }
+    if d == 2 && w.entities.list[att].random.as_mut().expect("random").next(1) != 0 {
+        return;
+    }
+    let why = "a zombie converting the villager it killed into a zombie villager is not modeled".to_string();
+    if !w.errors.contains(&why) {
+        w.errors.push(why);
+    }
+}
+
 pub fn after_hurt(w: &mut World, i: usize, src: Damage, took_full: bool) {
     if !w.mob.ai.on {
         return;

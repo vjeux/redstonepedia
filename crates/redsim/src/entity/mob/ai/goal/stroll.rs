@@ -156,7 +156,13 @@ pub fn light_magic(w: &mut World, p: BlockPos) -> f32 {
             }
         }
     } else {
-        let sky = match crate::daylight::sky_light(w, p) {
+        // a solid-rendering block holds no light (the engine's getLightBlock 15)
+        let sky = if is_solid_render(&w.get(p)) {
+            Ok(0)
+        } else {
+            crate::daylight::sky_light(w, p)
+        };
+        let sky = match sky {
             Ok(v) => v,
             Err(e) => {
                 if !w.errors.contains(&e) {

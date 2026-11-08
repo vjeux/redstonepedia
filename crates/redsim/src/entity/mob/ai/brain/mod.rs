@@ -102,7 +102,8 @@ pub struct Mem {
     /// `PATH`: a path object (its uid tells whether it is the navigation's).
     pub path: Option<crate::entity::mob::ai::path::Path>,
     pub cant_reach_since: Option<i64>,
-    pub doors_to_close: Vec<BlockPos>,
+    /// `DOORS_TO_CLOSE`: a set once remembered (present even when emptied).
+    pub doors_to_close: Option<Vec<BlockPos>>,
     pub interaction_target: Option<u32>,
     pub breed_target: Option<u32>,
     /// `HURT_BY`: the damage source (its type and attacker).
@@ -274,7 +275,7 @@ pub fn has(w: &World, i: usize, m: M) -> bool {
         M::LookTarget => e.look_target.is_some(),
         M::Path => e.path.is_some(),
         M::CantReachSince => e.cant_reach_since.is_some(),
-        M::DoorsToClose => !e.doors_to_close.is_empty(),
+        M::DoorsToClose => e.doors_to_close.is_some(),
         M::InteractionTarget => e.interaction_target.is_some(),
         M::BreedTarget => e.breed_target.is_some(),
         M::HurtBy => e.hurt_by.is_some(),
@@ -318,7 +319,7 @@ pub fn erase(w: &mut World, i: usize, m: M) {
                 M::LookTarget => e.look_target = None,
                 M::Path => e.path = None,
                 M::CantReachSince => e.cant_reach_since = None,
-                M::DoorsToClose => e.doors_to_close.clear(),
+                M::DoorsToClose => e.doors_to_close = None,
                 M::InteractionTarget => e.interaction_target = None,
                 M::BreedTarget => e.breed_target = None,
                 M::HurtBy => e.hurt_by = None,
@@ -511,6 +512,12 @@ pub fn frame_memories(w: &World, i: usize) -> std::collections::BTreeMap<String,
     if let Some(t) = e.cant_reach_since {
         m.insert("cant_reach_walk_target_since".into(), t.to_string());
     }
+    if let Some(d) = &e.doors_to_close {
+        // a set: its positions sorted (the bridge's canonical form for sets)
+        let mut v: Vec<String> = d.iter().map(|q| p(*q)).collect();
+        v.sort();
+        m.insert("doors_to_close".into(), format!("[{}]", v.join(" ")));
+    }
     if let Some(id) = e.interaction_target {
         m.insert("interaction_target".into(), r(id));
     }
@@ -518,7 +525,7 @@ pub fn frame_memories(w: &World, i: usize) -> std::collections::BTreeMap<String,
         m.insert("breed_target".into(), r(id));
     }
     if let Some((d, by)) = e.hurt_by {
-        m.insert("hurt_by".into(), format!("damage {}{}", d.name(), by.map(|id| format!(" {}", r(id))).unwrap_or_default()));
+        m.insert("hurt_by".into(), format!("damage {}{}", d.msg_id(), by.map(|id| format!(" {}", r(id))).unwrap_or_default()));
     }
     if let Some(id) = e.hurt_by_entity {
         m.insert("hurt_by_entity".into(), r(id));
