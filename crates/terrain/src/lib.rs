@@ -6,6 +6,7 @@
 pub mod blockinfo;
 pub mod cli;
 pub mod map;
+pub mod pastecheck;
 pub mod region;
 pub mod worldgen;
 

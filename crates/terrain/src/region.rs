@@ -83,24 +83,19 @@ impl Chunk {
         }
     }
 
-    /// The saved sky light, read the way `SkyLightSectionStorage.getLightValue` reads its layers:
-    /// a section without a layer takes the bottom row of the first section above that has one,
-    /// 15 when none does up to the top. Returns (value, read from an absent layer).
+    /// The saved sky light. A section without a layer reads 15 when no section above it has one
+    /// (open sky above the chunk's top layer: `SkyLightSectionStorage.getLightValue`'s
+    /// `sectionY >= topSection`), else 0: the game reads 0 there after loading the chunk (checked
+    /// with `mctas terrain probe`: `getMaxLocalRawBrightness` 0 in such caves at noon; a layer that
+    /// is all 0 is never written, `DataLayer.isEmpty`). Returns (value, read from an absent layer).
     pub fn sky_light(&self, x: i32, y: i32, z: i32, top_section: i32) -> (u8, bool) {
         let (lx, lz) = (x.rem_euclid(16), z.rem_euclid(16));
-        let mut sy = y.div_euclid(16);
+        let sy = y.div_euclid(16);
         if let Some(l) = self.sections.get(&sy).and_then(|s| s.sky_light.as_ref()) {
             return (nibble(l, lx, y.rem_euclid(16), lz), false);
         }
-        loop {
-            sy += 1;
-            if sy >= top_section {
-                return (15, true);
-            }
-            if let Some(l) = self.sections.get(&sy).and_then(|s| s.sky_light.as_ref()) {
-                return (nibble(l, lx, 0, lz), true);
-            }
-        }
+        let layer_above = (sy + 1..top_section).any(|s| self.sections.get(&s).is_some_and(|s| s.sky_light.is_some()));
+        (if layer_above { 0 } else { 15 }, true)
     }
 }
 

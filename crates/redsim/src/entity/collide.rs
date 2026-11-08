@@ -102,6 +102,9 @@ fn collide_with_shapes(movement: Vec3, bb: Aabb, shapes: &[Vec<Aabb>]) -> Vec3 {
 /// `BlockStateBase.hasLargeCollisionShape`: a collision shape leaving the cell, or no shape
 /// cache (dynamic shapes: a bamboo stalk).
 fn has_large_collision_shape(s: &Block) -> bool {
+    if let Block::Terrain(id) = s {
+        return crate::terrain::blocks::props(*id).large_shape();
+    }
     matches!(s, Block::FenceGate { open: false, .. } | Block::MovingPiston { .. } | Block::Scaffolding { .. } | Block::Fence { .. } | Block::Bamboo { .. })
 }
 
@@ -112,8 +115,12 @@ pub fn boxes_at(w: &World, s: &Block, p: BlockPos) -> Vec<Aabb> {
     if let Block::Bamboo { .. } = s {
         return vec![crate::bamboo::collision_box(p)];
     }
-    let f = |v: i32| v as f64 / 16.0;
     let (x, y, z) = (p.x as f64, p.y as f64, p.z as f64);
+    if let Block::Terrain(id) = s {
+        // terrain: the game's own boxes, exactly (the natural-state table)
+        return crate::terrain::blocks::props(*id).boxes.iter().map(|b| Aabb::new(x + b[0], y + b[1], z + b[2], x + b[3], y + b[4], z + b[5])).collect();
+    }
+    let f = |v: i32| v as f64 / 16.0;
     let raw: Vec<[i32; 6]> = match s {
         Block::Piston { .. } | Block::PistonHead { .. } => crate::piston::shape::of(w, *s, p).into_iter().map(|b| b.0).collect(),
         Block::MovingPiston { .. } => crate::piston::shape::moving_noclip(w, p, w.entities.noclip).into_iter().map(|b| b.0).collect(),

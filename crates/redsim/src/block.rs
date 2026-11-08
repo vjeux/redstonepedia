@@ -612,6 +612,12 @@ pub enum Block {
     /// source, so flowing water and lava never enter it: a mob farm's water stop and lava holder
     /// that golems and items pass through.
     Sign { wall: bool, rotation: u8, facing: Dir },
+    // ---- terrain (the terrain lane, `terrain/`) ----
+    /// A natural block state the official server generated (`terrain::blocks`: its row in the
+    /// natural-state table, the game's own collision boxes, light, solidity and spawn rules). Inert:
+    /// no redstone behaviour, no reaction to updates (the judge refuses a paste or a farm that would
+    /// update one that reacts).
+    Terrain(u16),
 }
 
 /// `DyeColor` names by id (a shulker box's `colour` - 1).
@@ -718,6 +724,9 @@ pub enum Kind {
     Bed(u8),
     /// Standing (`false`) or wall (`true`) oak sign.
     Sign(bool),
+    // ---- terrain ----
+    /// By the natural-state table's row.
+    Terrain(u16),
 }
 
 fn b(s: bool) -> &'static str {
@@ -804,6 +813,7 @@ impl Block {
             Block::Lava { .. } => Kind::Lava,
             Block::Bed { colour, .. } => Kind::Bed(colour),
             Block::Sign { wall, .. } => Kind::Sign(wall),
+            Block::Terrain(id) => Kind::Terrain(id),
         }
     }
 
@@ -1402,6 +1412,7 @@ impl fmt::Display for Block {
             }
             Block::Sign { wall: false, rotation, .. } => write!(f, "minecraft:oak_sign[rotation={rotation},waterlogged=false]"),
             Block::Sign { wall: true, facing, .. } => write!(f, "minecraft:oak_wall_sign[facing={},waterlogged=false]", facing.name()),
+            Block::Terrain(id) => write!(f, "{}", crate::terrain::blocks::props(id).name),
         }
     }
 }

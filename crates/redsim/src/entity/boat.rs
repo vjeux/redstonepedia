@@ -181,6 +181,8 @@ pub fn block_friction(b: &crate::block::Block) -> f32 {
     match *b {
         Block::Simple(Simple::PackedIce) => 0.98,
         Block::Simple(Simple::SlimeBlock) => 0.8,
+        // terrain: the game's own `Block.getFriction` (the natural-state table)
+        Block::Terrain(id) => crate::terrain::blocks::props(id).friction,
         _ => 0.6,
     }
 }

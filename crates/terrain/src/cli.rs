@@ -44,6 +44,55 @@ pub enum TerrainCmd {
         #[arg(long, default_value_t = 48)]
         radius: i32,
     },
+    /// Compare redsim's light engine with the light the game saved in a file (every cell of the
+    /// box less `--margin` columns on each side).
+    Light {
+        file: PathBuf,
+        #[arg(long, default_value_t = 16)]
+        margin: i32,
+        /// Print one column instead: `X,Z` (every y from `--from` to `--to`).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        column: Vec<i32>,
+        #[arg(long, default_value_t = -64, allow_hyphen_values = true)]
+        from: i32,
+        #[arg(long, default_value_t = 100, allow_hyphen_values = true)]
+        to: i32,
+    },
+    /// The game's own light reading (`getMaxLocalRawBrightness` at noon) at cells of a saved
+    /// world: `--at X,Y,Z` repeated.
+    Probe {
+        #[arg(long)]
+        world: PathBuf,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        at: Vec<i32>,
+    },
+    /// Paste a design at a spot in redsim and in the official server (the sample's own world, the
+    /// same cells by `setblock ... strict`) and compare every block and light value around it.
+    PasteCheck {
+        /// The sample (a cached full area or a crop).
+        file: PathBuf,
+        /// The sample's saved world folder (`$MCTAS_HOME/terrain/worlds/<name>`).
+        #[arg(long)]
+        world: PathBuf,
+        #[arg(long)]
+        design: PathBuf,
+        /// The world column of the design's (0, 0).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        at: Vec<i32>,
+        /// The design layer that stands on the surface.
+        #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+        ground: i32,
+        /// Columns compared around the spot.
+        #[arg(long, default_value_t = 24)]
+        radius: i32,
+    },
+    /// Print a saved chunk's sections (light layers present, palette sizes) from a world folder.
+    Chunk {
+        #[arg(long)]
+        world: PathBuf,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        chunk: Vec<i32>,
+    },
     /// Write the natural-state table (default `crates/redsim/src/terrain/blocks.tsv`) from the
     /// files' palettes: every state described by the game itself; `--check` compares instead.
     Blockinfo {
@@ -51,6 +100,9 @@ pub enum TerrainCmd {
         /// More states to describe (game strings).
         #[arg(long)]
         state: Vec<String>,
+        /// Design files whose states are pasted into terrain (their palettes join the table).
+        #[arg(long)]
+        design: Vec<PathBuf>,
         #[arg(long, default_value = "crates/redsim/src/terrain/blocks.tsv")]
         out: PathBuf,
         #[arg(long)]
@@ -119,7 +171,85 @@ pub fn run(version: &str, cmd: TerrainCmd) -> Result<()> {
             anyhow::ensure!(around.len() == 2, "--around takes X,Z");
             print!("{}", crate::map::top_map(&read(&file)?, [around[0], around[1]], radius));
         }
-        TerrainCmd::Blockinfo { files, state, out, check } => crate::blockinfo::run(version, &files, &state, &out, check)?,
+        TerrainCmd::Light { file, margin, column, from, to } => {
+            let t = read(&file)?;
+            if column.len() == 2 {
+                let g = redsim::terrain::light::grid_of_terrain(&t).map_err(anyhow::Error::msg)?;
+                let (sky, block) = redsim::terrain::light::compute(&g);
+                for y in (from..=to).rev() {
+                    let (x, z) = (column[0], column[1]);
+                    if !t.contains(x, y, z) {
+                        continue;
+                    }
+                    let i = t.index(x, y, z);
+                    println!("{y:>4} sky ours {:>2} game {:>2}  block ours {:>2} game {:>2}  {}", sky[i], t.sky[i], block[i], t.block[i], t.palette[t.cells[i] as usize]);
+                }
+                return Ok(());
+            }
+            let started = std::time::Instant::now();
+            let c = redsim::terrain::light::compare_with_saved(&t, margin).map_err(anyhow::Error::msg)?;
+            println!(
+                "{} cells ({} open): sky differs in {} open / {} opaque cells, block light in {} open / {} opaque ({:.1} s)",
+                c.cells,
+                c.open_cells,
+                c.sky_diff_open,
+                c.sky_diff_opaque,
+                c.block_diff_open,
+                c.block_diff_opaque,
+                started.elapsed().as_secs_f64()
+            );
+            for (x, y, z, ours, game, which) in &c.examples {
+                println!("  {which} at {x} {y} {z}: ours {ours}, game {game}  ({})", t.state(*x, *y, *z).unwrap_or("?"));
+            }
+        }
+        TerrainCmd::Probe { world, at } => {
+            anyhow::ensure!(at.len() % 3 == 0 && !at.is_empty(), "--at takes X,Y,Z triples");
+            let cells: Vec<[i32; 3]> = at.chunks(3).map(|c| [c[0], c[1], c[2]]).collect();
+            for (c, l) in cells.iter().zip(worldgen::probe_light(version, &world, &cells)?) {
+                println!("{} {} {}: light {l}", c[0], c[1], c[2]);
+            }
+        }
+        TerrainCmd::PasteCheck { file, world, design, at, ground, radius } => {
+            anyhow::ensure!(at.len() == 2, "--at takes X,Z");
+            let t = read(&file)?;
+            let spot = [at[0], at[1]];
+            // redsim on a crop around the spot (the light settles inside the box)
+            let lowest = t.heightmaps.get(Heightmap::OceanFloor.index()).and_then(|h| h.iter().min().copied()).unwrap_or(0) as i32;
+            let crop = t.crop([spot[0] - radius - 20, (lowest - 24).max(t.origin[1]), spot[1] - radius - 20], [spot[0] + radius + 20, t.origin[1] + t.size[1] - 1, spot[1] + radius + 20]).map_err(anyhow::Error::msg)?;
+            let des = mctas::design::Design::load(&design)?;
+            let (w, paste) = crate::pastecheck::paste_redsim(&crop, &des, spot, ground)?;
+            println!("redsim: footprint {}..{}, {} blocks dug, {} cells written", paste.lo, paste.hi, paste.dug, paste.cells.len());
+            let g = crate::pastecheck::paste_game(version, &world, t.seed, spot, radius, &paste.cells)?;
+            let (cells, bd, sd, ld, ex) = crate::pastecheck::compare(&w, &g)?;
+            println!("{cells} cells compared: {bd} blocks differ, sky light differs in {sd}, block light in {ld}");
+            for e in ex {
+                println!("  {e}");
+            }
+        }
+        TerrainCmd::Chunk { world, chunk } => {
+            anyhow::ensure!(chunk.len() == 2, "--chunk takes CX,CZ");
+            let dim = world.join("dimensions").join("minecraft").join("overworld");
+            let mut cache = std::collections::HashMap::new();
+            let c = crate::region::read_chunk(&dim, chunk[0], chunk[1], &mut cache, crate::worldgen::HEIGHT)?.context("chunk not saved")?;
+            println!("status {} light_on {}", c.status, c.light_on);
+            let mut ys: Vec<&i32> = c.sections.keys().collect();
+            ys.sort();
+            for y in ys {
+                let s = &c.sections[y];
+                let sky = s.sky_light.as_ref().map(|l| {
+                    let vals: Vec<u8> = (0..4096).map(|i| crate::region::nibble(l, i % 16, i / 256, (i / 16) % 16)).collect();
+                    format!("sky min {} max {}", vals.iter().min().unwrap(), vals.iter().max().unwrap())
+                });
+                println!("section {y:>3}: palette {:>3}, {}, block light {}", s.palette.len(), sky.unwrap_or_else(|| "no sky layer".into()), s.block_light.is_some());
+            }
+        }
+        TerrainCmd::Blockinfo { files, mut state, design, out, check } => {
+            for d in &design {
+                let des = mctas::design::Design::load(d)?;
+                state.extend(des.blocks.values().cloned());
+            }
+            crate::blockinfo::run(version, &files, &state, &out, check)?
+        }
         TerrainCmd::Find { seed, from, what } => {
             for s in seed {
                 for line in worldgen::find(version, s, [from[0], from[1]], &what)? {

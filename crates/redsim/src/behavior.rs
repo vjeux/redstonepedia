@@ -22,6 +22,8 @@ pub enum Support {
 /// Has any collision shape (blocks a walking player; the judge's `collides` flag).
 pub fn collides(s: &Block) -> bool {
     match *s {
+        // terrain: the game's own collision shape (the natural-state table)
+        Block::Terrain(id) => !crate::terrain::blocks::props(id).boxes.is_empty(),
         Block::Air
         | Block::Wire { .. }
         | Block::Torch { .. }
@@ -50,6 +52,7 @@ pub fn collides(s: &Block) -> bool {
 /// `isCollisionShapeFullBlock` (the judge's `full` flag: a door cell must be a full cube).
 pub fn full_cube(s: &Block) -> bool {
     match *s {
+        Block::Terrain(id) => crate::terrain::blocks::props(id).full_collision,
         Block::Simple(x) => x.full() && !matches!(x, Simple::SoulSand | Simple::HoneyBlock | Simple::Mud),
         Block::Glazed { .. }
         | Block::RedstoneBlock
@@ -108,6 +111,7 @@ pub fn collision_full_block_at(w: &World, s: &Block, p: BlockPos) -> bool {
 /// at least 0.7291666 (a 3 px slab is exactly that) or a full block tall.
 pub fn is_solid(s: &Block) -> bool {
     match *s {
+        Block::Terrain(id) => crate::terrain::blocks::props(id).solid,
         Block::Air
         | Block::Wire { .. }
         | Block::Torch { .. }
@@ -156,6 +160,7 @@ pub fn is_conductor(_w: &World, s: &Block, _p: BlockPos) -> bool {
 /// `isRedstoneConductor` without a world (for static models: the search tools' enumerators).
 pub fn conductor_of(s: &Block) -> bool {
     match *s {
+        Block::Terrain(id) => crate::terrain::blocks::props(id).conductor,
         Block::Simple(x) => x.conductor(),
         Block::Glazed { .. } | Block::Lamp { .. } | Block::Note { .. } | Block::Target { .. } | Block::Dispenser { .. } | Block::Crafter { .. } => true,
         Block::Log { .. } | Block::RespawnAnchor { .. } => true,
@@ -184,6 +189,14 @@ pub fn sturdy(w: &World, s: &Block, p: BlockPos, face: Dir, support: Support) ->
 /// entity, see `sturdy`).
 pub fn sturdy_of(s: &Block, face: Dir, support: Support) -> bool {
     match *s {
+        Block::Terrain(id) => {
+            let k = match support {
+                Support::Full => 0,
+                Support::Center => 1,
+                Support::Rigid => 2,
+            };
+            crate::terrain::blocks::props(id).sturdy[k][crate::terrain::blocks::dir_index(face)]
+        }
         Block::Simple(Simple::HoneyBlock) => face == Dir::Down && support == Support::Center,
         Block::Simple(x) => x.full(),
         Block::Glazed { .. }
@@ -259,6 +272,7 @@ pub fn sturdy_of(s: &Block, face: Dir, support: Support) -> bool {
 /// `isSignalSource`.
 pub fn is_signal_source(w: &World, s: &Block) -> bool {
     match *s {
+        Block::Terrain(id) => crate::terrain::blocks::props(id).signal,
         Block::Wire { .. } => w.wire_signal.get(),
         Block::RedstoneBlock
         | Block::Torch { .. }
@@ -508,6 +522,16 @@ fn plate(face: Dir, t: i32) -> Box16 {
 pub fn collision_boxes(s: &Block) -> Vec<Box16> {
     const FULL: Box16 = [0, 16, 0, 16, 0, 16];
     match *s {
+        // terrain: the game's boxes to the nearest pixel (entities read them exactly:
+        // `entity::collide::boxes_at`)
+        Block::Terrain(id) => crate::terrain::blocks::props(id)
+            .boxes
+            .iter()
+            .map(|b| {
+                let p = |v: f64| (v * 16.0).round() as i32;
+                [p(b[0]), p(b[3]), p(b[1]), p(b[4]), p(b[2]), p(b[5])]
+            })
+            .collect(),
         Block::Air
         | Block::Wire { .. }
         | Block::Torch { .. }

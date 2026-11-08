@@ -124,17 +124,22 @@ fn row(v: &Value, aliases: &[String]) -> String {
         v["dangerous"].as_str().unwrap_or("").into(),
         num(v, "burn_odds"),
         num(v, "ignite_odds"),
+        num(v, "resistance"),
     ];
     fields.join("\t")
 }
 
 /// The table's columns (its header line).
-pub const COLUMNS: &str = "name\taliases\tclasses\treactive\tcollision\tcan_occlude\tshape_occlusion\tfaces\tdampening\temission\tskylight_down\tsolid\tsolid_render\tconductor\tfull_collision\tsturdy\tsignal\tair\tliquid\treplaceable\tsuffocating\tpath\tfluid\tfluid_amount\tfluid_source\ttags\tleaves_block\trandom_ticking\tfriction\tspeed_factor\tjump_factor\tpush\tblock_entity\theightmaps\tvalid_spawn\tdangerous\tburn_odds\tignite_odds";
+pub const COLUMNS: &str = "name\taliases\tclasses\treactive\tcollision\tcan_occlude\tshape_occlusion\tfaces\tdampening\temission\tskylight_down\tsolid\tsolid_render\tconductor\tfull_collision\tsturdy\tsignal\tair\tliquid\treplaceable\tsuffocating\tpath\tfluid\tfluid_amount\tfluid_source\ttags\tleaves_block\trandom_ticking\tfriction\tspeed_factor\tjump_factor\tpush\tblock_entity\theightmaps\tvalid_spawn\tdangerous\tburn_odds\tignite_odds\tresistance";
 
 /// Build the table text from the files' palettes (and `extra` states).
 pub fn table(version: &str, files: &[std::path::PathBuf], extra: &[String]) -> Result<String> {
     let mut raw = palettes(files)?;
     raw.extend(extra.iter().cloned());
+    // every block's bare id too: a 26.x chunk writes a default state as its bare id, so the game's
+    // own default state of each block joins the table under that alias
+    let bare: Vec<String> = raw.iter().map(|s| s.split('[').next().unwrap_or(s).to_string()).collect();
+    raw.extend(bare);
     let raw: Vec<String> = raw.into_iter().collect();
     let described = describe(version, &raw)?;
     let mut rows: BTreeMap<String, (Value, Vec<String>)> = BTreeMap::new();

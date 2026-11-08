@@ -110,8 +110,11 @@ final class BlockInfo {
         o.addProperty("conductor", st.isRedstoneConductor(sb.level, pos));
         o.addProperty("full_collision", st.isCollisionShapeFullBlock(sb.level, pos));
         StringBuilder sturdy = new StringBuilder();
-        for (Direction d : DIRS) {
-            sturdy.append(st.isFaceSturdy(sb.level, pos, d) ? '1' : '0');
+        for (net.minecraft.world.level.block.SupportType support : new net.minecraft.world.level.block.SupportType[] {
+            net.minecraft.world.level.block.SupportType.FULL, net.minecraft.world.level.block.SupportType.CENTER, net.minecraft.world.level.block.SupportType.RIGID}) {
+            for (Direction d : DIRS) {
+                sturdy.append(st.isFaceSturdy(sb.level, pos, d, support) ? '1' : '0');
+            }
         }
         o.addProperty("sturdy", sturdy.toString());
         o.addProperty("signal", st.isSignalSource());
@@ -149,6 +152,7 @@ final class BlockInfo {
         }
         o.addProperty("valid_spawn", spawn.toString());
         o.addProperty("dangerous", danger.toString());
+        o.addProperty("resistance", block.getExplosionResistance());
         return o;
     }
 

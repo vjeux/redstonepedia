@@ -330,6 +330,47 @@ fn biomes(t: &mut Terrain, chunks: &HashMap<(i32, i32), Chunk>, ring: &HashMap<(
     Ok(())
 }
 
+/// `mctas terrain probe`: the game's own light reading (`LightPredicate`: `getMaxLocalRawBrightness`,
+/// at noon so the sky darkens nothing) at cells of a saved world, by bisection on
+/// `execute if predicate` location checks.
+pub fn probe_light(version: &str, world: &std::path::Path, cells: &[[i32; 3]]) -> Result<Vec<u8>> {
+    let mut s = VanillaServer::start(&VanillaOptions {
+        version: version.to_string(),
+        heap_mb: 4096,
+        world: Some(world.to_path_buf()),
+        default_world: true,
+        frozen: true,
+        with_bot: false,
+        view_distance: 2,
+        simulation_distance: 2,
+        ..VanillaOptions::default()
+    })?;
+    s.cmd_ok("time set 6000")?;
+    let mut out = Vec::new();
+    for c in cells {
+        s.cmd_ok(&format!("forceload add {} {}", c[0], c[2]))?;
+        let (mut lo, mut hi) = (0u8, 15u8);
+        while lo < hi {
+            let mid = (lo + hi).div_ceil(2);
+            let r = s.cmd(&format!(
+                "execute positioned {} {} {} if predicate {{type:\"minecraft:location_check\",predicate:{{light:{{light:{{min:{mid}}}}}}}}}",
+                c[0] as f64 + 0.5,
+                c[1] as f64 + 0.5,
+                c[2] as f64 + 0.5
+            ))?;
+            if r.contains("Test passed") {
+                lo = mid;
+            } else if r.contains("Test failed") {
+                hi = mid - 1;
+            } else {
+                bail!("light probe at {c:?}: {r}");
+            }
+        }
+        out.push(lo);
+    }
+    Ok(out)
+}
+
 /// `mctas terrain find`: the nearest structures and biomes of a seed's world (the game's own
 /// `/locate`), from a point.
 pub fn find(version: &str, seed: i64, from: [i32; 2], what: &[String]) -> Result<Vec<String>> {

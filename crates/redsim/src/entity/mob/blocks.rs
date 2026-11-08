@@ -68,6 +68,16 @@ pub fn entity_can_stand_on(w: &World, p: BlockPos) -> bool {
 /// stained glass (panes), leaves, conduit, ice, TNT, glowstone, beacon, sea lantern, frosted ice,
 /// tinted glass, glass. (Packed and blue ice are not `Blocks.ICE`.)
 pub fn golem_excluded(s: &Block) -> bool {
+    if let Block::Terrain(id) = s {
+        // terrain: the same list on the natural state's block and class (the natural-state table)
+        let p = crate::terrain::blocks::props(*id);
+        return p.leaves_block
+            || p.classes.iter().any(|c| c == "StainedGlassPaneBlock" || c == "StainedGlassBlock")
+            || matches!(
+                p.block_id(),
+                "minecraft:cobweb" | "minecraft:cactus" | "minecraft:glass_pane" | "minecraft:conduit" | "minecraft:ice" | "minecraft:tnt" | "minecraft:glowstone" | "minecraft:beacon" | "minecraft:sea_lantern" | "minecraft:frosted_ice" | "minecraft:tinted_glass" | "minecraft:glass"
+            );
+    }
     matches!(
         s,
         Block::Simple(Simple::Glass | Simple::TintedGlass | Simple::WhiteStainedGlass | Simple::BlackStainedGlass | Simple::Glowstone | Simple::SeaLantern)
@@ -83,24 +93,35 @@ pub fn legacy_golem_can_spawn_on(s: &Block, above: &Block) -> bool {
     if golem_excluded(s) {
         return false;
     }
-    let above_ok = above.is_air() || matches!(above, Block::Water { .. } | Block::Lava { .. } | Block::BubbleColumn { .. });
-    above_ok && (behavior::is_solid(s) || matches!(s, Block::PowderSnow))
+    let terrain_air_or_liquid = matches!(above, Block::Terrain(id) if { let p = crate::terrain::blocks::props(*id); p.air || p.liquid });
+    let above_ok = above.is_air() || terrain_air_or_liquid || matches!(above, Block::Water { .. } | Block::Lava { .. } | Block::BubbleColumn { .. });
+    let powder = matches!(s, Block::PowderSnow) || matches!(s, Block::Terrain(id) if crate::terrain::blocks::props(*id).block_id() == "minecraft:powder_snow");
+    above_ok && (behavior::is_solid(s) || powder)
 }
 
 /// `NodeEvaluator.isBurningBlock`: fire, lava, magma, a lit campfire, a lava cauldron (of the
-/// modeled blocks: lava and magma).
+/// modeled blocks: lava and magma; terrain states by their block and tags).
 pub fn is_burning_block(s: &Block) -> bool {
+    if let Block::Terrain(id) = s {
+        let p = crate::terrain::blocks::props(*id);
+        let lit_campfire = matches!(p.block_id(), "minecraft:campfire" | "minecraft:soul_campfire") && p.name.contains("lit=true");
+        return p.has_tag("minecraft:fire") || lit_campfire || matches!(p.block_id(), "minecraft:lava" | "minecraft:magma_block" | "minecraft:lava_cauldron");
+    }
     matches!(s, Block::Lava { .. } | Block::Simple(Simple::MagmaBlock))
 }
 
 /// `EntityType.isBlockDangerous(state)` for a type that is not fire immune: burning blocks, wither
 /// roses, sweet berry bushes, cactus, powder snow.
 pub fn is_dangerous(s: &Block, fire_immune: bool) -> bool {
-    (!fire_immune && is_burning_block(s)) || matches!(s, Block::Cactus { .. } | Block::PowderSnow)
+    let terrain = matches!(s, Block::Terrain(id) if matches!(crate::terrain::blocks::props(*id).block_id(), "minecraft:wither_rose" | "minecraft:sweet_berry_bush" | "minecraft:cactus" | "minecraft:powder_snow"));
+    (!fire_immune && is_burning_block(s)) || terrain || matches!(s, Block::Cactus { .. } | Block::PowderSnow)
 }
 
-/// The rail blocks (`BlockTags.PREVENT_MOB_SPAWNING_INSIDE`).
+/// The rail blocks (`BlockTags.PREVENT_MOB_SPAWNING_INSIDE`; terrain states by the tag).
 fn prevents_spawning_inside(s: &Block) -> bool {
+    if let Block::Terrain(id) = s {
+        return crate::terrain::blocks::props(*id).has_tag("minecraft:prevent_mob_spawning_inside");
+    }
     matches!(s, Block::Rail { .. } | Block::PlainRail { .. } | Block::DetectorRail { .. })
 }
 
@@ -112,7 +133,7 @@ pub fn is_valid_empty_spawn_block(w: &World, p: BlockPos, check_fluid: bool, fir
     if behavior::full_cube(&s) || behavior::is_signal_source(w, &s) {
         return false;
     }
-    if check_fluid && (!crate::fluid::fluid_state(w, p).is_empty() || matches!(s, Block::Lava { .. })) {
+    if check_fluid && (!crate::fluid::fluid_state(w, p).is_empty() || matches!(s, Block::Lava { .. }) || matches!(s, Block::Terrain(id) if crate::terrain::blocks::props(id).fluid != crate::terrain::blocks::FluidKind::Empty)) {
         return false;
     }
     !prevents_spawning_inside(&s) && !is_dangerous(&s, fire_immune)
@@ -120,8 +141,11 @@ pub fn is_valid_empty_spawn_block(w: &World, p: BlockPos, check_fluid: bool, fir
 
 /// `BlockStateBase.isSuffocating`: the default (`blocksMotion() && isCollisionShapeFullBlock`) for
 /// every modeled block but glass, tinted and stained glass, leaves, copper grates and repeaters
-/// (`isSuffocating(Blocks::never)`).
+/// (`isSuffocating(Blocks::never)`); terrain states: the game's own answer.
 pub fn is_suffocating(s: &Block) -> bool {
+    if let Block::Terrain(id) = s {
+        return crate::terrain::blocks::props(*id).suffocating;
+    }
     if matches!(s, Block::Simple(Simple::Glass | Simple::TintedGlass | Simple::WhiteStainedGlass | Simple::BlackStainedGlass | Simple::WaxedCopperGrate) | Block::Leaves { .. } | Block::WaterloggedGrate | Block::Repeater { .. }) {
         return false;
     }
@@ -133,6 +157,10 @@ pub fn is_suffocating(s: &Block) -> bool {
 /// column is leaves (they dim sky light by 1) or a full cube other than glass (opaque).
 /// Conservative: every other roof counts as letting the sky through.
 pub fn sky_hidden(w: &World, p: BlockPos) -> bool {
+    // a terrain world knows its sky light (`canSeeSky`: sky light 15)
+    if w.land.is_some() {
+        return w.sky_light(p).map(|l| l < 15).unwrap_or(false);
+    }
     let top = w.min.y + w.size[1];
     (p.y + 1..top).any(|y| {
         let s = w.get(BlockPos::new(p.x, y, p.z));
@@ -177,7 +205,7 @@ pub fn box_has_liquid(w: &World, bb: crate::entity::Aabb) -> bool {
         for z in z0..z1 {
             for x in x0..x1 {
                 let p = BlockPos::new(x, y, z);
-                if matches!(w.get(p), Block::Lava { .. }) || !crate::fluid::fluid_state(w, p).is_empty() {
+                if matches!(w.get(p), Block::Lava { .. }) || !crate::fluid::fluid_state(w, p).is_empty() || matches!(w.get(p), Block::Terrain(id) if crate::terrain::blocks::props(id).fluid != crate::terrain::blocks::FluidKind::Empty) {
                     return true;
                 }
             }

@@ -207,6 +207,9 @@ pub struct World {
     pub chain_primed: Vec<(i64, BlockPos)>,
     /// Every explosion so far (`explosion::explode`): when, where, what it destroyed.
     pub explosions: Vec<crate::explosion::Blast>,
+    /// The terrain lane: a world built from a terrain sample (`terrain::build_world`) carries its
+    /// light, heightmaps, biomes and world spawn; `None` for the judges' void worlds.
+    pub land: Option<Box<crate::terrain::Land>>,
 }
 
 impl World {
@@ -266,6 +269,7 @@ impl World {
             chain_spawned: 0,
             chain_primed: Vec::new(),
             explosions: Vec::new(),
+            land: None,
         }
     }
 
@@ -401,7 +405,7 @@ impl World {
         }
     }
 
-    fn index(&self, p: BlockPos) -> Option<usize> {
+    pub(crate) fn index(&self, p: BlockPos) -> Option<usize> {
         let x = p.x - self.min.x;
         let y = p.y - self.min.y;
         let z = p.z - self.min.z;
@@ -435,7 +439,12 @@ impl World {
                 if self.log_writes && self.cells[i] != s {
                     self.writes.push(p);
                 }
-                self.cells[i] = s
+                let old = self.cells[i];
+                self.cells[i] = s;
+                if self.land.is_some() && old != s {
+                    // terrain worlds: heightmaps and sky sources follow the change (`terrain::land`)
+                    self.land_changed(p, old, s);
+                }
             }
             None => {
                 if !s.is_air() {
@@ -460,6 +469,13 @@ impl World {
             }
         }
         v
+    }
+
+    /// Fill the whole box at once, x fastest then z then y (a terrain sample: no update, no
+    /// change record; `terrain::build_world` then installs the land).
+    pub fn load_cells(&mut self, cells: Vec<Block>) {
+        assert_eq!(cells.len(), self.cells.len(), "load_cells: the box holds {} cells", self.cells.len());
+        self.cells = cells;
     }
 
     // ------------------------------------------------------------------ setBlock
@@ -829,6 +845,10 @@ impl World {
     pub fn tick(&mut self) {
         self.handling_tick = true;
         self.time += 1;
+        // terrain worlds: the light engine settles last tick's changes between ticks
+        if self.land.is_some() {
+            self.settle_light();
+        }
         // a primed TNT explodes after its 80 gt fuse (it ticks from the tick it spawns in): not
         // modeled, unless the caller removes primed TNT before that (the TNT judge does); TNT
         // entities (`tnt_kick`) count their own fuse

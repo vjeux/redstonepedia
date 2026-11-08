@@ -118,6 +118,16 @@ pub fn fluid_state_of(b: &Block) -> FluidState {
         Block::BubbleColumn { .. } => FluidState::source(false),
         // ---- crop farms (clk-misc): kelp holds a water source ----
         Block::Kelp { .. } | Block::KelpPlant => FluidState::source(false),
+        // ---- terrain: a natural state holding water (seagrass, waterlogged leaves...): the
+        // game's own fluid state (the natural-state table; lava is not a FluidState here) ----
+        Block::Terrain(id) => {
+            let p = crate::terrain::blocks::props(id);
+            match p.fluid {
+                crate::terrain::blocks::FluidKind::Water if p.fluid_source => FluidState::source(false),
+                crate::terrain::blocks::FluidKind::Water => FluidState::flowing(p.fluid_amount.clamp(1, 8), false),
+                _ => FluidState::EMPTY,
+            }
+        }
         _ if waterlogged(b) == Some(true) => FluidState::source(false),
         _ => FluidState::EMPTY,
     }

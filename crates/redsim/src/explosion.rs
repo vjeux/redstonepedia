@@ -81,6 +81,8 @@ pub fn block_resistance(b: &Block) -> f32 {
     };
     match b {
         Block::Air => 0.0,
+        // terrain: the game's own `getExplosionResistance` (the natural-state table)
+        Block::Terrain(id) => crate::terrain::blocks::props(*id).resistance,
         Block::Simple(s) => simple(s),
         Block::Glazed { .. } => 1.4,
         Block::Wire { .. } | Block::Torch { .. } | Block::WallTorch { .. } | Block::Repeater { .. } | Block::Comparator { .. } => 0.0,
