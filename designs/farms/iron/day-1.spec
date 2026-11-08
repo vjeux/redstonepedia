@@ -41,6 +41,5 @@ fork: redstone
 merge: 10%
 
 # What the card shows (vjeux 11:17: "adapt what is shown based on the objective"): the stage's
-# default rows, staged in designs/farms/iron/cards.tsv (key `mob-farm iron_ingot day-1`) until the
-# site reads designs/circuits/mobfarm/cards.tsv, and each presented farm's own rows there.
-# front.md lists those fields first for each member.
+# default rows in designs/circuits/mobfarm/cards.tsv (key `mob-farm iron_ingot day-1`), and each
+# presented farm's own rows there. front.md lists those fields first for each member.

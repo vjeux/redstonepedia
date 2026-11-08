@@ -3,8 +3,6 @@ mob-farm iron_ingot day-1	sub	{t_kit_minutes|round} minutes from the first block
 mob-farm iron_ingot day-1	fact	To build it: {bill_iron} iron in hand, {lava_sources|plural:lava trip} and {villagers|plural:villager} from the village
 mob-farm iron_ingot day-1	fact	{first_night}
 mob-farm iron_ingot day-1	fact	{days_away}
-mob-farm iron_ingot day-1	fact	If you sleep through every night it still makes {iron_per_hour_sleeping|round} iron an hour
-mob-farm iron_ingot day-1	fact	{build_minutes_flat|round} minutes to build on flat ground, for a village without a hillside
 mob-farm iron_ingot middle	sub	{iron_per_hour|round} iron an hour from a {build_minutes|round}-minute build
 mob-farm iron_ingot middle	fact	{rain_iron_per_hour|round} iron an hour on a rainy day, {thunder_iron_per_hour|round} in a thunderstorm
 mob-farm iron_ingot middle	fact	Nether quartz: {quartz}; iron: {bill_iron}

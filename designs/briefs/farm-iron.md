@@ -194,12 +194,12 @@ Numbers, never refusals by themselves; each stage weighs them in its own rank:
   chosen here. Each stage has default rows (the facts its player weighs, in order: Day 1, Middle
   and Late below); each presented farm gets its own rows, 3-6 facts plus how it differs from its
   neighbours on the front. The rows use the page-copy lane's format (`key`, `slot`,
-  `line`: a design's rows win over its kind's, the kind's over the built-in list), staged in
-  `designs/farms/iron/cards.tsv` and moved to the file the site reads,
-  `designs/circuits/mobfarm/cards.tsv`, once its support and every field they name exist (until
-  then nothing reads them); every number is a placeholder bound to a judge field
-  (`{iron_per_hour|round}`), and the build refuses an unknown field or a digit outside a
-  placeholder, so a card cannot drift from the measurement.
+  `line`: a design's rows win over its kind's, the kind's over the built-in list) in
+  `designs/circuits/mobfarm/cards.tsv`; a kind's rows name only fields every design of the kind
+  has (the archived ones keep the metrics of their verdict), so a fact a newer judge measures
+  joins the kind's rows once the archive carries it; every number is a placeholder bound to a
+  judge field (`{iron_per_hour|round}`), and the build refuses an unknown field or a digit
+  outside a placeholder, so a card cannot drift from the measurement.
 
 ### Day 1
 
@@ -259,12 +259,14 @@ pulse; the kill chambers rank by lava sources first (2 minutes a trip, the costl
 day-1 part can need), the collections by hoppers (5 iron each: one holds hours at a day-1 rate);
 the cage's villagers and beds are the village's.
 
-Shown on the card, in this order (the stage's default rows, `designs/farms/iron/cards.tsv`): the
-minutes to the armour and the iron per hour after it;
+Shown on the card, in this order (the stage's default rows, `designs/circuits/mobfarm/cards.tsv`):
+the minutes to the armour and the iron per hour after it;
 the iron to have in hand, the lava trips and the villagers taken from the village (a fresh
 player's scarce things); the first night (starts by itself, or hide the zombie by hand once);
 after a trip away; what it makes for a player who sleeps through every night (the share of golems
-by day); the build on flat ground, for a village without rock. Measured and kept under all
+by day) and the build on flat ground, for a village without rock (both join the kind's rows once
+the archived day-1 farm's verdict and the terrain card carry them; a presented farm shows them in
+its own rows). Measured and kept under all
 measurements: the build's split, the rain and thunder day rates, the exposures (expected days
 before natural mobs, lightning or fire break it), storage hours, the size.
 
