@@ -39,10 +39,9 @@ pub struct Land {
     pub sources: Vec<i32>,
     /// Per heightmap, per column: `getHeight` (the first free y).
     pub heights: Vec<Vec<i32>>,
-    /// Cells changed since the light was last settled.
+    /// Cells changed since the light was last settled (settled at the next tick's start: the light
+    /// engine's timing, see `World::light_index`).
     pub dirty: Vec<BlockPos>,
-    /// Light-relevant changes: (game time, cell) of the last two ticks (the light engine's timing).
-    pub light_changes: Vec<(i64, BlockPos)>,
     /// The structure starts (their boxes and pieces: the spawn overrides).
     pub structures: Vec<crate::terrain::format::Structure>,
     /// What the light engine approximated (changes within 15 of the box's sides or bottom, whose
@@ -209,7 +208,6 @@ fn land_of(t: &Terrain, sky: Vec<u8>, block: Vec<u8>, sources: Vec<i32>) -> Land
         sources,
         heights,
         dirty: Vec::new(),
-        light_changes: Vec::new(),
         structures: t.structures.clone(),
         notes: Vec::new(),
     }
@@ -261,7 +259,6 @@ fn build_world_one_step(t: &Terrain) -> Result<World, String> {
         sources,
         heights,
         dirty: Vec::new(),
-        light_changes: Vec::new(),
         structures: t.structures.clone(),
         notes: Vec::new(),
     }));
@@ -369,7 +366,6 @@ impl World {
             // a state the table does not know: settle_light reports it
             _ => true,
         };
-        let now = self.time;
         if let Some(l) = self.land.as_mut() {
             for (m, h) in heights.into_iter().enumerate() {
                 l.heights[m][c] = h;
@@ -377,8 +373,6 @@ impl World {
             l.sources[c] = source;
             if relevant || source != old_source {
                 l.dirty.push(p);
-                l.light_changes.retain(|&(t, _)| t >= now - 1);
-                l.light_changes.push((now, p));
             }
         }
     }
@@ -513,20 +507,18 @@ impl World {
 }
 
 impl World {
-    /// The settled light of the cell behind a read (every read settles pending changes first,
-    /// through `settle_light` at the tick's start; a read near a change of this tick or the last is
-    /// a model error, the light engine's timing).
+    /// The light behind a read: the light as the previous tick (and any edit between ticks) left
+    /// the blocks. The game's light engine (`ThreadedLevelLightEngine`) works off the main thread: a
+    /// block change's `checkBlock` is queued (its task dispatcher, then the "light" executor's task
+    /// list), and an update runs only when the main thread's `ServerChunkCache.MainThreadExecutor
+    /// .pollTask` calls `tryScheduleUpdate` — between ticks (`waitUntilNextTick`'s managed block), so
+    /// the light thread publishes (`swapSectionMap`) the changes of tick T in the gap before tick
+    /// T + 1; reads during tick T see the light of the end of tick T - 1. redsim settles the changes
+    /// at the start of the next tick (`World::tick` -> `settle_light`), the same timing (the bridge's
+    /// sandbox drains the light engine before and after every tick: the tick-exact compare's
+    /// reference).
     fn light_index(&self, p: BlockPos) -> Option<usize> {
         self.index(p)
-    }
-
-    fn check_light_timing(&self, p: BlockPos) -> Result<(), String> {
-        if let Some(l) = self.land.as_ref()
-            && let Some((t, q)) = l.light_changes.iter().find(|(t, q)| *t >= self.time - 1 && (q.x - p.x).abs().max((q.y - p.y).abs()).max((q.z - p.z).abs()) <= 15)
-        {
-            return Err(format!("light read at {p} right after a light change at {q} (tick {t}): the light engine's timing is not modeled"));
-        }
-        Ok(())
     }
 
     /// `getBrightness(LightLayer.SKY, pos)`: the raw sky light (no darkening). A world without land
@@ -534,19 +526,16 @@ impl World {
     /// the box: the open sky above, darkness below.
     pub fn sky_light(&self, p: BlockPos) -> Result<i32, String> {
         match self.land.as_ref() {
-            Some(l) => {
-                self.check_light_timing(p)?;
-                Ok(match self.light_index(p) {
-                    Some(i) => l.sky[i] as i32,
-                    None => {
-                        if p.y >= self.min.y + self.size[1] {
-                            15
-                        } else {
-                            0
-                        }
+            Some(l) => Ok(match self.light_index(p) {
+                Some(i) => l.sky[i] as i32,
+                None => {
+                    if p.y >= self.min.y + self.size[1] {
+                        15
+                    } else {
+                        0
                     }
-                })
-            }
+                }
+            }),
             None => crate::daylight::sky_light(self, p),
         }
     }
@@ -555,10 +544,7 @@ impl World {
     /// there; `Err` when a light source is in it).
     pub fn block_light(&self, p: BlockPos) -> Result<i32, String> {
         match self.land.as_ref() {
-            Some(l) => {
-                self.check_light_timing(p)?;
-                Ok(self.light_index(p).map(|i| l.block[i] as i32).unwrap_or(0))
-            }
+            Some(l) => Ok(self.light_index(p).map(|i| l.block[i] as i32).unwrap_or(0)),
             None => Err("block light is modeled in terrain worlds only".into()),
         }
     }

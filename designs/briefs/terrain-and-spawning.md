@@ -90,10 +90,14 @@ is given against it.
   `Level.getSkyDarken()` from the day timeline blended toward rain and thunder (infra's
   `w.sky_darken()`); `LevelReader.getMaxLocalRawBrightness` = `getRawBrightness(pos,
   getSkyDarken())` inside the world border; `Level.canSeeSky`.
-- **Timing**: the server queues light work (`ThreadedLevelLightEngine.checkBlock`) and runs it
-  between ticks. redsim recomputes at once (below), so a game read in the tick of a light-relevant
-  change, or the next, within 15 blocks of it may differ: such a read is a model error (C3 of the
-  light rules below), never a guess.
+- **Timing** (modeled, revision 5b): the server queues light work (`ThreadedLevelLightEngine
+  .checkBlock`: its task dispatcher, then the "light" executor's task list) and runs it off the main
+  thread only when the main thread's `ServerChunkCache.MainThreadExecutor.pollTask` calls
+  `tryScheduleUpdate` — between ticks (`waitUntilNextTick`); the update publishes its result
+  (`swapSectionMap`) in the gap. So every read during tick T sees the light of the end of tick T - 1:
+  redsim settles a tick's changes at the next tick's start (`World::tick` -> `settle_light`), and the
+  bridge's sandbox drains the engine before and after every tick (the tick-exact reference: the
+  same timing).
 
 ### 3. Biomes
 
@@ -411,9 +415,9 @@ the sulfur cube and the bee: listed in the header) two bitsets: `isValidSpawn(le
   border (`World::settle_light`, run between ticks; `terrain/land.rs`).
 - **Exact**: after every change the map is what the game has once its queued light work ran
   (validated: the iron-day1 farm pasted into the village sample in redsim and in the official
-  server, 746,496 cells compared, 0 sky and 0 block light differences). **Reported**: a read (spawn
-  check, daylight detector, sunburn) at a cell within 15 of a light-relevant change made in the same
-  tick or the previous one is a model error that invalidates the run (as daylight.rs does today).
+  server, 746,496 cells compared, 0 sky and 0 block light differences), and a read during a tick
+  sees the light the previous tick left (the timing above; revision 5b removed the old report of a
+  read near a change of the same or the previous tick as a model error).
 
 ### The checks (D3): every channel, its rule
 
