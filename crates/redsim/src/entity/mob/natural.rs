@@ -321,11 +321,31 @@ pub enum NaturalEvent {
 /// The natural spawning state of a world (`MobWorld.natural`).
 #[derive(Clone, Debug)]
 pub struct Natural {
-    /// The players' feet positions (non-spectators: they count for spawning and despawning).
+    /// The players' feet positions (non-spectators: they count for spawning and despawning);
+    /// empty: the world's AFK player (`World::afk`) when it has one.
     pub players: Vec<Vec3>,
     pub difficulty: Difficulty,
     /// Run the spawner (false: despawning only).
     pub spawning: bool,
+    /// `ServerChunkCache.spawnEnemies` (false: the monster category never spawns, the bridge's
+    /// "monsters off" sandboxes).
+    pub spawn_enemies: bool,
+    /// The biome of a world without terrain (the bridge's void sandbox: plains).
+    pub void_biome: Option<&'static str>,
+    /// The level's lowest y (`getMinY`) for a world without terrain (the overworld's -64).
+    pub world_min_y: i32,
+    /// The level's respawn point for a world without terrain (`isRightDistanceToPlayerAndSpawnPoint`
+    /// keeps 24 blocks around it free); terrain worlds read theirs. A bridge sandbox has none (its
+    /// dimension is not the respawn dimension).
+    pub world_spawn: Option<BlockPos>,
+    /// A bridge sandbox's `collectSpawningChunks` list before the shuffle, in the game's order
+    /// (empty: redsim computes the spawning chunks).
+    pub spawn_order: Vec<[i32; 2]>,
+    /// The sandbox's `getNaturalSpawnChunkCount()` (None: redsim's count).
+    pub spawn_chunk_count: Option<i32>,
+    /// The chunks where `canSpawnEntitiesInChunk` holds (entity-ticking); empty: every spawning
+    /// chunk.
+    pub entity_ticking: Vec<[i32; 2]>,
     /// Riders a `finalizeSpawn` put on a mob (rider, vehicle): passengers, so persistent.
     pub riders: Vec<(u32, u32)>,
     pub log: Vec<NaturalEvent>,
@@ -335,8 +355,25 @@ pub struct Natural {
 
 impl Natural {
     pub fn new(players: Vec<Vec3>, difficulty: Difficulty) -> Natural {
-        Natural { players, difficulty, spawning: true, riders: Vec::new(), log: Vec::new(), ticks: 0 }
+        Natural { players, difficulty, spawning: true, spawn_enemies: true, void_biome: None, world_min_y: -64, world_spawn: None, spawn_order: Vec::new(), spawn_chunk_count: None, entity_ticking: Vec::new(), riders: Vec::new(), log: Vec::new(), ticks: 0 }
     }
+}
+
+/// The random the spawner draws from: the mirrored level random (`level.random`, the bridge's)
+/// when the world has one, else the mob layer's stand-in.
+fn rng(w: &mut World) -> &mut crate::rng::LegacyRandom {
+    if w.level_random.is_some() {
+        return w.level_random.as_mut().unwrap();
+    }
+    super::MobWorld::rng_mut(&mut w.mob)
+}
+
+/// The players natural spawning sees: the declared ones, else the world's AFK player.
+fn players_of(w: &World, nat: &Natural) -> Vec<Vec3> {
+    if !nat.players.is_empty() {
+        return nat.players.clone();
+    }
+    w.afk.iter().copied().collect()
 }
 
 // ----------------------------------------------------------------------------- the light
@@ -429,7 +466,7 @@ fn dark_enough(w: &mut World, p: BlockPos) -> bool {
             return false;
         }
     };
-    let r = w.mob.rng_mut().next_int(32);
+    let r = rng(w).next_int(32);
     if sky > r {
         return false;
     }
@@ -439,7 +476,7 @@ fn dark_enough(w: &mut World, p: BlockPos) -> bool {
     }
     let thundering = false;
     let b = if thundering { brightness(w, p, 10) } else { let d = darken(w); brightness(w, p, d) };
-    let sample = w.mob.rng_mut().next_int(8);
+    let sample = rng(w).next_int(8);
     b <= sample
 }
 
@@ -460,9 +497,9 @@ fn spawn_rules(w: &mut World, k: &Kind, p: BlockPos, nat: &Natural) -> bool {
             let frequent = w.biome_at(p).and_then(biome::biome).is_some_and(|b| b.has_tag("minecraft:more_frequent_drowned_spawns"));
             let can = not_peaceful && dark_enough(w, p) && is_water(w, p);
             if frequent {
-                w.mob.rng_mut().next_int(15) == 0 && can
+                rng(w).next_int(15) == 0 && can
             } else {
-                w.mob.rng_mut().next_int(40) == 0 && p.y < 63 - 5 && can
+                rng(w).next_int(40) == 0 && p.y < 63 - 5 && can
             }
         }
         Rule::Slime => {
@@ -476,17 +513,17 @@ fn spawn_rules(w: &mut World, k: &Kind, p: BlockPos, nat: &Natural) -> bool {
                 && p.y < 70
             {
                 let chance = b.surface_slime_chance;
-                let f = w.mob.rng_mut().next_float();
+                let f = rng(w).next_float();
                 let d = darken(w);
                 let light = brightness(w, p, d);
-                let r = w.mob.rng_mut().next_int(8);
+                let r = rng(w).next_int(8);
                 if f < chance && light <= r {
                     return valid_spawn_floor(w, p.below(), k.id);
                 }
             }
             let seed = w.land.as_ref().map(|l| l.seed).unwrap_or(0);
             let slime_chunk = slime_chunk(p.x.div_euclid(16), p.z.div_euclid(16), seed);
-            if w.mob.rng_mut().next_int(10) == 0 && slime_chunk && p.y < 40 {
+            if rng(w).next_int(10) == 0 && slime_chunk && p.y < 40 {
                 return valid_spawn_floor(w, p.below(), k.id);
             }
             false
@@ -495,12 +532,12 @@ fn spawn_rules(w: &mut World, k: &Kind, p: BlockPos, nat: &Natural) -> bool {
             if p.y >= w.height(crate::terrain::Heightmap::WorldSurface, p.x, p.z) {
                 return false;
             }
-            if w.mob.rng_mut().next_int(2) == 1 {
+            if rng(w).next_int(2) == 1 {
                 return false;
             }
             let d = darken(w);
             let light = brightness(w, p, d);
-            let r = w.mob.rng_mut().next_int(4);
+            let r = rng(w).next_int(4);
             if light > r {
                 return false;
             }
@@ -574,19 +611,21 @@ fn create_state(w: &World, nat: &Natural) -> State {
     // `getNaturalSpawnChunkCount`: the chunks within 8 of a player's chunk; a terrain box smaller
     // than that area loads only some of them, and the count is the loaded ones (so a cropped sample
     // keeps the game's mobs per chunk; a box covering the whole area is the game's count, 289 for
-    // one player)
+    // one player); a bridge sandbox (its ticking chunks known: `World::chunk_order`) counts the
+    // whole square, as the game's ticket tracker does
+    let bridge = !w.chunk_order.is_empty();
     let mut chunks = std::collections::HashSet::new();
     for p in &nat.players {
         let (pcx, pcz) = ((p.x.floor() as i32).div_euclid(16), (p.z.floor() as i32).div_euclid(16));
         for cz in pcz - 8..=pcz + 8 {
             for cx in pcx - 8..=pcx + 8 {
-                if loaded_chunk(w, cx, cz) {
+                if bridge || loaded_chunk(w, cx, cz) {
                     chunks.insert((cx, cz));
                 }
             }
         }
     }
-    let mut st = State { chunk_count: chunks.len() as i32, counts: [0; 8], local: vec![[0; 8]; nat.players.len()] };
+    let mut st = State { chunk_count: nat.spawn_chunk_count.unwrap_or(chunks.len() as i32), counts: [0; 8], local: vec![[0; 8]; nat.players.len()] };
     for e in &w.entities.list {
         if e.removed {
             continue;
@@ -601,7 +640,7 @@ fn create_state(w: &World, nat: &Natural) -> State {
         }
         let b = e.block_position();
         let (cx, cz) = (b.x.div_euclid(16), b.z.div_euclid(16));
-        if !loaded_chunk(w, cx, cz) {
+        if !bridge && !loaded_chunk(w, cx, cz) {
             continue;
         }
         st.counts[cat as usize] += 1;
@@ -618,7 +657,8 @@ pub fn tick_chunks(w: &mut World) {
     if let Some(n) = w.mob.natural.as_mut() {
         n.ticks += 1;
     }
-    let Some(nat) = w.mob.natural.clone() else { return };
+    let Some(mut nat) = w.mob.natural.clone() else { return };
+    nat.players = players_of(w, &nat);
     if !nat.spawning || nat.players.is_empty() {
         return;
     }
@@ -633,16 +673,27 @@ pub fn tick_chunks(w: &mut World) {
     }
     let mut st = create_state(w, &nat);
     let spawn_persistent = w.time % 400 == 0;
-    let enemies = nat.difficulty != Difficulty::Peaceful;
+    let enemies = nat.difficulty != Difficulty::Peaceful && nat.spawn_enemies;
     let cats: Vec<Category> = Category::SPAWNING
         .into_iter()
         .filter(|c| (enemies || c.friendly()) && (spawn_persistent || !c.persistent()) && st.counts[*c as usize] < c.max_instances() * st.chunk_count / 289)
         .collect();
-    // collectSpawningChunks: the candidate chunks (Chebyshev 8 of a player's chunk) that are
-    // loaded and within 128 of a player, then Util.shuffle with the level random
+    // collectSpawningChunks: the ticking chunks within 128 of a player — in a bridge sandbox the
+    // game's own order (`World::chunk_order`), in a terrain box the candidate square (Chebyshev 8
+    // of a player's chunk) that is loaded — then Util.shuffle with the level random
     let mut chunks: Vec<(i32, i32)> = Vec::new();
+    if !nat.spawn_order.is_empty() {
+        // the bridge's own list (collectSpawningChunks, before the shuffle)
+        chunks.extend(nat.spawn_order.iter().map(|c| (c[0], c[1])));
+    } else if !w.chunk_order.is_empty() {
+        for c in &w.chunk_order {
+            if nat.players.iter().any(|q| player_chunk_dist2(*q, c[0], c[1]) < 16384.0) {
+                chunks.push((c[0], c[1]));
+            }
+        }
+    }
     let mut seen = std::collections::HashSet::new();
-    for p in &nat.players {
+    for p in nat.players.iter().filter(|_| w.chunk_order.is_empty()) {
         let (pcx, pcz) = ((p.x.floor() as i32).div_euclid(16), (p.z.floor() as i32).div_euclid(16));
         for cz in pcz - 8..=pcz + 8 {
             for cx in pcx - 8..=pcx + 8 {
@@ -652,7 +703,7 @@ pub fn tick_chunks(w: &mut World) {
             }
         }
     }
-    let r = w.mob.rng_mut();
+    let r = rng(w);
     for i in (2..=chunks.len()).rev() {
         let j = r.next_int(i as i32) as usize;
         chunks.swap(i - 1, j);
@@ -661,6 +712,10 @@ pub fn tick_chunks(w: &mut World) {
         return;
     }
     for (cx, cz) in chunks {
+        // `tickSpawningChunk`: spawnForChunk only where `canSpawnEntitiesInChunk`
+        if !nat.entity_ticking.is_empty() && !nat.entity_ticking.iter().any(|c| c[0] == cx && c[1] == cz) {
+            continue;
+        }
         for &cat in &cats {
             let local_ok = players_near_chunk(&nat, cx, cz).iter().any(|&pi| st.local[pi][cat as usize] < cat.max_instances());
             if local_ok {
@@ -671,12 +726,16 @@ pub fn tick_chunks(w: &mut World) {
 }
 
 fn spawn_category_for_chunk(w: &mut World, nat: &Natural, st: &mut State, cat: Category, cx: i32, cz: i32) {
-    let min_y = w.land.as_ref().map(|l| l.world_min_y).unwrap_or(w.min.y);
-    let r = w.mob.rng_mut();
+    // `getRandomPosWithin`: x, z in the chunk, y between the level's bottom and the column's
+    // WORLD_SURFACE height (an empty column, or one outside redsim's box: the bottom)
+    let min_y = w.land.as_ref().map(|l| l.world_min_y).unwrap_or(nat.world_min_y);
+    let r = rng(w);
     let x = cx * 16 + r.next_int(16);
     let z = cz * 16 + r.next_int(16);
-    let top = w.height(crate::terrain::Heightmap::WorldSurface, x, z);
-    let y = w.mob.rng_mut().next_int(top - min_y + 1) + min_y;
+    let in_box = x >= w.min.x && z >= w.min.z && x < w.min.x + w.size[0] && z < w.min.z + w.size[2];
+    let h = if in_box { w.height(crate::terrain::Heightmap::WorldSurface, x, z) } else { min_y };
+    let top = if w.land.is_none() && h <= w.min.y { min_y } else { h };
+    let y = rng(w).next_int(top - min_y + 1) + min_y;
     if y >= min_y + 1 {
         spawn_category_for_position(w, nat, st, cat, cx, cz, BlockPos::new(x, y, z));
     }
@@ -687,19 +746,40 @@ fn nearest_player(nat: &Natural, x: f64, y: f64, z: f64) -> Option<f64> {
     nat.players.iter().map(|p| (p.x - x) * (p.x - x) + (p.y - y) * (p.y - y) + (p.z - z) * (p.z - z)).min_by(|a, b| a.partial_cmp(b).unwrap())
 }
 
-fn right_distance(w: &World, pos: BlockPos, d2: f64, cx: i32, cz: i32) -> bool {
+fn right_distance(w: &World, nat: &Natural, pos: BlockPos, d2: f64, cx: i32, cz: i32) -> bool {
     if d2 <= 576.0 {
         return false;
     }
-    if let Some(l) = w.land.as_ref() {
-        let s = l.spawn;
+    if let Some(s) = w.land.as_ref().map(|l| l.spawn).or(nat.world_spawn) {
         let (dx, dy, dz) = (s.x as f64 + 0.5 - (pos.x as f64 + 0.5), s.y as f64 + 0.5 - pos.y as f64, s.z as f64 + 0.5 - (pos.z as f64 + 0.5));
         if dx * dx + dy * dy + dz * dz < 576.0 {
             return false;
         }
     }
     let (pcx, pcz) = (pos.x.div_euclid(16), pos.z.div_euclid(16));
-    (pcx == cx && pcz == cz) || loaded_chunk(w, pcx, pcz)
+    (pcx == cx && pcz == cz) || spawnable_chunk(w, pcx, pcz)
+}
+
+/// `Level.canSpawnEntitiesInChunk`: a ticking chunk (the bridge sandbox's, when known), else a
+/// chunk of the terrain box.
+fn spawnable_chunk(w: &World, cx: i32, cz: i32) -> bool {
+    if let Some(n) = w.mob.natural.as_ref()
+        && !n.entity_ticking.is_empty()
+    {
+        return n.entity_ticking.iter().any(|c| c[0] == cx && c[1] == cz);
+    }
+    if !w.chunk_order.is_empty() {
+        return w.chunk_order.iter().any(|c| c[0] == cx && c[1] == cz);
+    }
+    loaded_chunk(w, cx, cz)
+}
+
+/// The biome at a cell: the terrain's, or the void sandbox's (`Natural::void_biome`).
+fn biome_name(w: &World, pos: BlockPos) -> Option<String> {
+    if w.land.is_some() {
+        return w.biome_at(pos).map(|s| s.to_string());
+    }
+    w.mob.natural.as_ref().and_then(|n| n.void_biome).map(|s| s.to_string())
 }
 
 /// `NaturalSpawner.mobsAt` (`ChunkGenerator.getMobsAt`): a structure's spawn override when the
@@ -717,13 +797,13 @@ pub fn mobs_at(w: &World, cat: Category, pos: BlockPos) -> Vec<Spawner> {
             }
         }
     }
-    w.biome_at(pos).and_then(biome::biome).map(|b| b.mobs(cat.name()).cloned().collect()).unwrap_or_default()
+    biome_name(w, pos).and_then(|b| biome::biome(&b)).map(|b| b.mobs(cat.name()).cloned().collect()).unwrap_or_default()
 }
 
 /// `getRandomSpawnMobAt`: the list at the cell (`WeightedList.getRandom`).
 fn random_spawn_mob_at(w: &mut World, cat: Category, pos: BlockPos) -> Option<Spawner> {
-    let b = w.biome_at(pos).and_then(biome::biome)?;
-    if cat == Category::WaterAmbient && b.has_tag("minecraft:reduce_water_ambient_spawns") && w.mob.rng_mut().next_float() < 0.98 {
+    let b = biome_name(w, pos).and_then(|b| biome::biome(&b))?;
+    if cat == Category::WaterAmbient && b.has_tag("minecraft:reduce_water_ambient_spawns") && rng(w).next_float() < 0.98 {
         return None;
     }
     let list = mobs_at(w, cat, pos);
@@ -731,7 +811,7 @@ fn random_spawn_mob_at(w: &mut World, cat: Category, pos: BlockPos) -> Option<Sp
     if total <= 0 {
         return None;
     }
-    let mut pick = w.mob.rng_mut().next_int(total);
+    let mut pick = rng(w).next_int(total);
     for s in list {
         pick -= s.weight;
         if pick < 0 {
@@ -750,24 +830,24 @@ fn spawn_category_for_position(w: &mut World, nat: &Natural, st: &mut State, cat
         let (mut x, mut z) = (start.x, start.z);
         let mut data: Option<Spawner> = None;
         let mut group = GroupData::default();
-        let mut max = (w.mob.rng_mut().next_float() * 4.0).ceil() as i32;
+        let mut max = (rng(w).next_float() * 4.0).ceil() as i32;
         let mut group_size = 0;
         let mut ll = 0;
         while ll < max {
             ll += 1;
-            let r = w.mob.rng_mut();
+            let r = rng(w);
             x += r.next_int(6) - r.next_int(6);
             z += r.next_int(6) - r.next_int(6);
             let pos = BlockPos::new(x, start.y, z);
             let (xx, zz) = (x as f64 + 0.5, z as f64 + 0.5);
             let Some(d2) = nearest_player(nat, xx, start.y as f64, zz) else { continue };
-            if !right_distance(w, pos, d2, cx, cz) {
+            if !right_distance(w, nat, pos, d2, cx, cz) {
                 continue;
             }
             if data.is_none() {
                 match random_spawn_mob_at(w, cat, pos) {
                     Some(s) => {
-                        max = if s.max > s.min { w.mob.rng_mut().next_int(s.max - s.min + 1) + s.min } else { s.min };
+                        max = if s.max > s.min { rng(w).next_int(s.max - s.min + 1) + s.min } else { s.min };
                         data = Some(s);
                     }
                     None => break,
@@ -785,7 +865,7 @@ fn spawn_category_for_position(w: &mut World, nat: &Natural, st: &mut State, cat
                 continue;
             }
             // the mob: snapTo(xx, y, zz, random yaw, 0)
-            let yaw = w.mob.rng_mut().next_float() * 360.0;
+            let yaw = rng(w).next_float() * 360.0;
             // `isValidPositionForMob` sees the new mob as constructed (an adult, a slime of size
             // 1); `finalizeSpawn` then draws its baby flag or size
             if !valid_position_for_mob(w, k, k.ty, Vec3::new(xx, start.y as f64, zz), d2) {
@@ -879,18 +959,18 @@ fn special_multiplier(w: &World, nat: &Natural) -> f32 {
 fn choose_row(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData) -> MobType {
     match k.finalize {
         Finalize::Zombie => {
-            let baby = *g.zombie_baby.get_or_insert_with(|| w.mob.rng_mut().next_float() < 0.05);
+            let baby = *g.zombie_baby.get_or_insert_with(|| rng(w).next_float() < 0.05);
             if baby { k.baby.unwrap_or(k.ty) } else { k.ty }
         }
         Finalize::Ageable => {
             let n = g.ageable.get_or_insert(0);
-            let baby = *n > 0 && w.mob.rng_mut().next_float() <= 0.05;
+            let baby = *n > 0 && rng(w).next_float() <= 0.05;
             *n += 1;
             if baby { k.baby.unwrap_or(k.ty) } else { k.ty }
         }
         Finalize::Slime => {
             let special = special_multiplier(w, nat);
-            let r = w.mob.rng_mut();
+            let r = rng(w);
             let mut scale = r.next_int(3);
             if scale < 2 && r.next_float() < 0.5 * special {
                 scale += 1;
@@ -951,8 +1031,8 @@ fn spawn_mob(w: &mut World, nat: &Natural, k: &Kind, ty: MobType, pos: Vec3, yaw
     match k.finalize {
         Finalize::Zombie if Some(ty) == k.baby => {
             // a baby's chicken jockey: a chicken near it (5%), else a new one (5%)
-            let near = w.mob.rng_mut().next_float() < 0.05;
-            if !near && w.mob.rng_mut().next_float() < 0.05 {
+            let near = rng(w).next_float() < 0.05;
+            if !near && rng(w).next_float() < 0.05 {
                 let c = super::add(w, MobType::Natural(12), pos, false);
                 if let Some(n) = w.mob.natural.as_mut() {
                     n.riders.push((id, c));
@@ -965,7 +1045,7 @@ fn spawn_mob(w: &mut World, nat: &Natural, k: &Kind, ty: MobType, pos: Vec3, yaw
             }
         }
         Finalize::Spider => {
-            if w.mob.rng_mut().next_int(100) == 0 {
+            if rng(w).next_int(100) == 0 {
                 rider(w, MobType::Natural(4), id);
             }
         }
