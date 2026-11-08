@@ -19,6 +19,7 @@ pub mod fluid_push;
 pub mod frame;
 pub mod item;
 pub mod jmath;
+pub mod fdlibm;
 pub mod kinds;
 pub mod leash;
 pub mod minecart;

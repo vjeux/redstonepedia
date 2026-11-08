@@ -234,11 +234,15 @@ impl Navigation {
             return Some(p.clone());
         }
         let max_visited = (self.max_visited_nodes as f32 * self.max_visited_nodes_multiplier) as i32;
+        // (the search's time for `mobai bench`; the browser's wasm has no clock: `Instant::now`
+        // panics there, and the viewer's mob farms run this)
+        #[cfg(not(target_arch = "wasm32"))]
         let t0 = std::time::Instant::now();
         let path = {
             let mut eval = WalkEval::new(w, m.path_mob(), self.flags, arena);
             finder::find_path(&mut eval, targets, max_path_length, reach, max_visited)
         };
+        #[cfg(not(target_arch = "wasm32"))]
         SEARCH_NANOS.fetch_add(t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
         SEARCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.searches += 1;

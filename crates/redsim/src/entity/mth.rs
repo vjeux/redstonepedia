@@ -145,12 +145,14 @@ pub fn fast_inv_sqrt(x: f64) -> f64 {
 fn asin_tabs() -> &'static ([f64; 257], [f64; 257]) {
     static T: OnceLock<([f64; 257], [f64; 257])> = OnceLock::new();
     T.get_or_init(|| {
+        // `Math.asin` (`StrictMath.asin`: fdlibm) and `Math.cos` (HotSpot's), the same on every
+        // platform (the wasm viewer's own `f64::asin` and `f64::cos` differ in the last bit)
         let mut asin = [0f64; 257];
         let mut cos = [0f64; 257];
         for i in 0..257 {
             let v = i as f64 / 256.0;
-            let a = v.asin();
-            cos[i] = a.cos();
+            let a = super::fdlibm::asin(v);
+            cos[i] = super::jmath::cos(a);
             asin[i] = a;
         }
         (asin, cos)

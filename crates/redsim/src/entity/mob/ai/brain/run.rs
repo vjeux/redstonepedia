@@ -199,13 +199,13 @@ fn gate_try_start(w: &mut World, i: usize, n: usize, t: i64) -> bool {
 }
 
 /// `ShufflingList.shuffle()`: a new random weight per entry (`-pow(nextFloat, 1 / weight)`), then a
-/// stable sort.
+/// stable sort. (fdlibm's `pow`: the same on every platform, the wasm viewer's included.)
 fn shuffle(w: &mut World, i: usize, n: usize) {
     let node = &mut ex_mut(w, i).nodes[n];
     let mut r = node.shuffle.take().expect("a shuffling list");
     for c in node.children.iter_mut() {
         let f = r.next_float();
-        c.2 = -(f as f64).powf((1.0f32 / c.1 as f32) as f64);
+        c.2 = -crate::entity::fdlibm::pow(f as f64, (1.0f32 / c.1 as f32) as f64);
     }
     node.children.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
     node.shuffle = Some(r);
