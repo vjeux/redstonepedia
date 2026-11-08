@@ -95,6 +95,8 @@ fn six_hundred_tick_cycle() {
         }
     }
     put(&mut w, 2, -1, -4, "minecraft:glass");
+    // (mobinfra) shaded: a zombie under the open sky at noon burns (`Mob.burnUndead`)
+    put(&mut w, 2, 2, -4, "minecraft:stone");
     add(&mut w, MobType::Zombie, Vec3::new(2.5, 0.0, -3.5), true);
     let mut spawns: Vec<(i64, u32)> = Vec::new();
     for _ in 0..12000 {

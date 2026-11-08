@@ -961,6 +961,63 @@ cites the 26.3 source line by line; the game checks are in the
   no lava either, and no collision box); two adjacent sources make every flowing cell beside both a
   new source (a pad fed from its edges turns into still water).
 
+## Weather, lightning, fire and sunburn — redsim (track mobinfra)
+
+Modeled in `crates/redsim/src/weather/` and `entity/mob/sun.rs` (the judge's settings: Hard,
+`spawn_mobs`, an AFK player near the farm, a mature world), read in the 26.3 source:
+
+* **The cycle** (`ServerLevel.advanceWeatherCycle`, every level every tick): while
+  `clearWeatherTime` counts down, both flags stay off and both timers sit at 1; else each of the
+  thunder and rain timers counts down and flips its flag at 0, then draws again: thunder on for
+  `THUNDER_DURATION` 3600..15600, off for `THUNDER_DELAY` 12000..180000; rain on for
+  `RAIN_DURATION` 12000..24000, off for `RAIN_DELAY` 12000..180000 (uniform, inclusive). Raining
+  15.8% of the time, the thunder flag 9.1%, thundering (both) about 1.4%. The levels move 0.01 a
+  tick toward their flags (thunder toward its flag only while it rains); `isRaining` is a rain
+  level over 0.2, `isThundering` a thunder level (times the rain level) over 0.9. `weather rain|
+  thunder|clear <t>` sets the timers like `setWeatherParameters`.
+* **Darkening** (`WeatherAttributes`: rain and thunder layers on the sky light level, alpha
+  blended toward 4 by 0.3125 x rain and 0.52734375 x thunder): the sky darken at noon is 0 clear,
+  3 in rain, 5 in thunder; at night 11 whatever the weather. Daylight detectors read
+  `sky light - darken`, so a dusk detector fires early in rain: an inverted detector's dusk pulse
+  can come in the afternoon and miss the night's rest (the L2d farms in a forced rain day: 0-36
+  golems/h in the game).
+* **Rain at a block** (`Level.isRainingAt`): raining, the block sees the sky (sky light 15), no
+  motion-blocking block above it (the heightmap), a biome with rain (plains). Under glass: sky
+  light 15 but no rain. A mob is in rain when its feet block or its head height is
+  (`Entity.isInRain`); rain or water puts a burning mob out (`clearFire`), so a golem leaving a
+  lava blade in rain stops burning.
+* **Lightning** (`ServerLevel.tickThunder`, only for chunks within 128 blocks of a non-spectator
+  player): raining, thundering and `nextInt(100000) == 0` for the chunk this tick (about 0.24
+  strikes a chunk a thunder day). The strike aims (`findLightningTargetAround`) at the closest
+  lightning rod within 128 that tops its column (`WORLD_SURFACE - 1`), striking above it; else at
+  a random living entity that sees the sky in the column's box (from the motion-blocking top up,
+  inflated by 3); else at the column's top. No bolt when it does not rain at that block (a
+  villager under glass draws every strike around it and gets none). On Hard, a strike not above a
+  rod is a skeleton trap horse with chance `effective difficulty x 1%` (visual bolt). The bolt
+  (`LightningBolt`: life 2, 1-3 flashes) hits every living entity in x+-3, y-3..+9, z+-3 every
+  tick its life is not negative, through any roof: a villager becomes a witch, other mobs get 5
+  damage and 8 s of fire, a boat or minecart is destroyed (50 > 40), a drop is destroyed (5
+  health); on Normal and Hard it sets fires at its block and around it (`spawnFire`).
+  `lightning::static_check` lists every bolt that can fall on a build (a lightning rod topping its
+  column within 128 blocks takes every strike within 128 of it); the judge measures what they cost
+  on the card, never refuses on them (vjeux 2026-11-08: "It's all about tradeoffs").
+* **Lava's fire** (`LavaFluid.randomTick`, only within `fire_spread_radius_around_player` 128 of a
+  player, `ServerLevel.canSpreadFireAround`; lava ticks twice per random pick: `LiquidBlock
+  .randomTick`, then the fluid state's): `nextInt(3)` steps up with a random x/z jitter of +-1 each,
+  lighting the first air cell beside an `ignitedByLava` block (planks, logs, fences, fence gates,
+  wool, beds, signs, wooden trapdoors and doors...) and stopping at a `#blocks_lava_fire_spread`
+  block; with 0 steps, 3 tries beside the lava at its level, lighting the air above an
+  `ignitedByLava` block. Then `FireBlock` (ticks every 30-39 gt) burns its neighbours by their burn
+  odds (fence gates and planks 20, leaves and wool 60) and spreads by their ignite odds. With a
+  player near, iron-middle's oak fence gates holding lava burned first at gt 735 +- 494 in the
+  game (8 servers, median 500) and at 770 +- 70 in redsim (200 runs, median 663:
+  `mctas mobfarm fire-burn`).
+* **Sunburn** (`Mob.isSunBurnTick`, zombies): in the day (`MONSTERS_BURN`, day time 23460..12542),
+  brightness over 0.5 (raw light 12 and up: `getLightLevelDependentMagicValue` gives 0.50000006
+  at 12), `nextFloat() * 30 < (brightness - 0.4) * 2`, not in water, rain or powder snow, the
+  eye's block seeing the sky; a helmet takes the burn instead. A farm's zombie must be shaded,
+  in water, or under a block.
+
 ## 12. redsim: the exact model (track redmodel)
 
 `crates/redsim` is a pure-Rust, dependency-free tick-level copy of the 26.3 code paths above,

@@ -750,6 +750,11 @@ pub fn kill(w: &mut World, id: u32) -> Result<(), String> {
 /// joined, falling blocks ([`crate::gravity`]) and the rest together (they share one id counter, so
 /// id order is spawn order); an entity spawned during the phase ticks from the next tick on.
 pub fn tick_phase(w: &mut World) {
+    // mobinfra: lightning bolts are entities too (`weather::lightning`), in the same id order
+    if !w.weather.bolts.is_empty() {
+        tick_phase_with_bolts(w);
+        return;
+    }
     if w.entities.list.is_empty() {
         crate::gravity::tick_entities(w);
         return;
@@ -771,6 +776,35 @@ pub fn tick_phase(w: &mut World) {
     }
     w.gravity.entities.retain(|e| !e.removed);
     w.entities.list.retain(|e| !e.removed);
+}
+
+/// [`tick_phase`] with lightning bolts (mobinfra): the falling blocks, the entities and the bolts
+/// in id order (the order they joined the level), each list as the phase began (an entity added
+/// during the phase ticks from the next one, like the game's entity tick list).
+fn tick_phase_with_bolts(w: &mut World) {
+    let (ng, ne, nb) = (w.gravity.entities.len(), w.entities.list.len(), w.weather.bolts.len());
+    let (mut i, mut j, mut k) = (0, 0, 0);
+    loop {
+        let g = (i < ng).then(|| w.gravity.entities[i].id);
+        let e = (j < ne).then(|| w.entities.list[j].id);
+        let b = (k < nb).then(|| w.weather.bolts[k].id);
+        let Some(next) = [g, e, b].into_iter().flatten().min() else { break };
+        if g == Some(next) {
+            crate::gravity::tick_one(w, i);
+            i += 1;
+        } else if e == Some(next) {
+            tick_one(w, j);
+            j += 1;
+        } else {
+            if !w.weather.bolts[k].removed {
+                crate::weather::lightning::tick_bolt(w, k);
+            }
+            k += 1;
+        }
+    }
+    w.gravity.entities.retain(|e| !e.removed);
+    w.entities.list.retain(|e| !e.removed);
+    w.weather.bolts.retain(|b| !b.removed);
 }
 
 /// `Entity.commonTick`: `invulnerableTime`, `setOldPosAndRot`, `tickCount`.

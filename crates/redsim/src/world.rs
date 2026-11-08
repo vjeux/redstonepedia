@@ -210,6 +210,14 @@ pub struct World {
     /// The terrain lane: a world built from a terrain sample (`terrain::build_world`) carries its
     /// light, heightmaps, biomes and world spawn; `None` for the judges' void worlds.
     pub land: Option<Box<crate::terrain::Land>>,
+    // ---- weather (mobinfra, `weather/`) ----
+    /// The level's weather: `WeatherData`, the rain and thunder levels, lightning (its bolts).
+    /// Off by default (no weather: nothing drawn, nothing changes).
+    pub weather: crate::weather::Weather,
+    /// The AFK player's position (a farm judge's declared spot): fire spreads and lava lights fire
+    /// only within 128 blocks of a player (`ServerLevel.canSpreadFireAround`). `None` (the
+    /// default, as in the bridge's sandboxes): no player.
+    pub afk: Option<crate::entity::Vec3>,
 }
 
 impl World {
@@ -270,6 +278,8 @@ impl World {
             chain_primed: Vec::new(),
             explosions: Vec::new(),
             land: None,
+            weather: Default::default(),
+            afk: None,
         }
     }
 
@@ -849,6 +859,10 @@ impl World {
         if self.land.is_some() {
             self.settle_light();
         }
+        // mobinfra: the weather (advanceWeatherCycle, first in ServerLevel.tick); off: nothing
+        if self.weather.on {
+            crate::weather::tick(self);
+        }
         // a primed TNT explodes after its 80 gt fuse (it ticks from the tick it spawns in): not
         // modeled, unless the caller removes primed TNT before that (the TNT judge does); TNT
         // entities (`tnt_kick`) count their own fuse
@@ -883,6 +897,11 @@ impl World {
         // terrain mode: NaturalSpawner's cycle first (`tickChunks` spawns before ticking chunks)
         if self.mob.natural.is_some() {
             crate::entity::mob::natural::tick_chunks(self);
+        }
+        // mobinfra: before the random ticks, tickChunk's thunder rolls
+        // (`weather::lightning::tick_thunder`)
+        if self.weather.on {
+            crate::weather::lightning::tick_thunder(self);
         }
         crate::crops::tick_chunks(self);
         while let Some(e) = self.events.pop() {

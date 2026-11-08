@@ -130,7 +130,7 @@ fn drift(base: &World, spec: &FarmSpec, start: Vec3, policy: Walk) -> Drift {
 
 /// The golem exit flood of a farm (`threads` drift runs at once).
 pub fn golem_exit(spec: &FarmSpec, seed: i64, threads: usize) -> Result<ExitReport, String> {
-    let o = RunOpts { seed, ticks: 0, day0: 6000, walk: WalkMode::Random, slept: true, site: None };
+    let o = RunOpts { seed, ticks: 0, day0: 6000, walk: WalkMode::Random, slept: true, site: None, weather: crate::weather::Plan::Off };
     let mut base = build(spec, &o)?;
     base.mob.golem_spawning = false;
     let spots = spawn_spots(&base);

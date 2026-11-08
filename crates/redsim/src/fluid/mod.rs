@@ -221,6 +221,8 @@ fn washed_away(b: &Block) -> bool {
             | Block::TripwireHook { .. }
             | Block::BigDripleaf { .. }
             | Block::PowderSnow
+            // ---- fire (mobinfra): `#fire` is washed away ----
+            | Block::Fire { .. }
     )
 }
 

@@ -53,6 +53,8 @@ pub mod trace;
 pub mod verify;
 pub mod vibration;
 pub mod registry;
+/// mobinfra: the mob farms' real-game gate (`circuit verify` and `circuit archive` of a mob farm).
+pub mod mobfarm_game;
 // the study modules (`src/studies/*.rs`: crate::registry), each `crate::<file stem>`, and their
 // registrations `STUDY_DEFS` (build.rs)
 include!(concat!(env!("OUT_DIR"), "/studies.rs"));

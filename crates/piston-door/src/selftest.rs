@@ -891,44 +891,64 @@ fn checks() -> Vec<Check> {
             Ok(format!("{n} calibration circuits: known metrics; a false claim, a floating dust, a delay line, a stretcher, an update-less NOR, a stone output, 4 false memory claims, 5 false BUDs, 3 false study-11 timers, 2 sculk designs failing the vibration test, a false priority encoder and 5 R7 input refusals; the comparator AND kept; a tiled off-delay kept, its crosstalking tiling refused; a TNT duper exploding in water refused; an air burst imprecise in slivers of kick angles not flagged precise; a fast duper that primes nothing turned flagged rotation-dependent; real use: a T flip-flop and a counter a held input keeps toggling, a limiter claiming delay refused, an extender whose early lever flip strands blocks flagged, a buried output and an open hopper ring refused; a flyer whose watcher stays on the parked part, a docking machine that parks with the switch on and one a 16 gt reflip leaves docked refused; an elevator that cannot be sent down from the top refused"))
         }),
     });
-    v.push(Check {
-        name: "circuit:verify-calibration".into(),
-        what: "`circuit verify` (the real game, 2 positions x 4 rotations; the designs judged side by side on one 8-worker pool, clk-misc 2026-10-23: one after another they outgrew the timeout on a loaded box) on the 31 calibration circuits, inputs driven by real devices (R7) (BUDs included: the judge's shape-only and pure-update actions in the game; TNT dupers included: every primed TNT recorded then removed; study 11's timers on their long input trains; the sculk rising edge with its lever's and ambient game events; study 12's encoder, counter, bit slice and hex comparator): robust, the same metrics as redsim; the update-less NOR refused, the comparator AND robust; study 11's tiled off-delay (3 copies 5 apart, each against its own input) robust",
-        quick: false,
-        jvm: true,
-        steps: vec![{
-            let mut s = args("?circuit verify --positions 2 --workers 8");
-            s.extend(circ2.iter().map(|(f, _)| format!("{CIRC}/{f}.txt")));
-            s.push("designs/circuits/selftest/update-less-nor.txt".into());
-            s.push("designs/circuits/selftest/comparator-and.txt".into());
-            s.push("designs/circuits/selftest/dlatch-claimed-dff.txt".into());
-            // a copper-bulb toggle given a reset input is no latch (redsim does not model bulbs)
-            s.push("designs/circuits/selftest/bulb-toggle-bud.txt".into());
-            // study 11's `tile:`: three copies 5 apart, each judged against its own input
-            s.push("designs/circuits/selftest/tile-off-delay-ring.txt".into());
-            // the TNT judge's usefulness rule in the game: TNT exploding in the duper's own water
-            s.push("designs/circuits/selftest/tnt-water-duper.txt".into());
-            // the start judge in the game: the watcher left on the parked part refused
-            s.push("designs/circuits/selftest/fly-start-watcher-stays.txt".into());
-            s
-        }],
-        timeout: 600,
-        pred: Box::new(move |o| {
-            for (f, want) in &circ2 {
-                if !o[0].lines().any(|l| l.starts_with("CIRCUIT: ") && l.contains(want) && l.ends_with("robust")) {
-                    return Err(format!("{f}: expected `{want}`, robust: {}", tail(&o[0])));
+    // the real game's verify of the calibration circuits, split in 5 checks run side by side
+    // (mobinfra 2026-11-08, the coordinator's OK: one 39-design check took 595 s alone against its
+    // 600 s deadline and timed out under any load; the same designs, every assertion word for
+    // word, each part with its own 600 s deadline), each on a pool of MCTAS_MAX_WORKERS workers
+    // (8 if unset)
+    let workers: usize = std::env::var("MCTAS_MAX_WORKERS").ok().and_then(|v| v.parse().ok()).unwrap_or(8);
+    let extras: Vec<(&str, &str)> = vec![
+        ("update-less-nor", "FAIL: cal-update-less-nor gate nor: not a gate: the output is true (truth table 1111)"),
+        ("comparator-and", "CIRCUIT: cal-comparator-and gate and function and, latency 6 gt, glitches 2, 7 blocks, 3x2x2, robust"),
+        ("dlatch-claimed-dff", "FAIL: cal-dlatch-claimed-dff dff: rising edge: M 1 d=1 clk=0: q = 1, want 0"),
+        // a copper-bulb toggle given a reset input is no latch (redsim does not model bulbs)
+        ("bulb-toggle-bud", "FAIL: cal-bulb-toggle-bud bud: latches"),
+        // study 11's `tile:`: three copies 5 apart, each judged against its own input
+        ("tile-off-delay-ring", "CIRCUIT: cal-tile-off-delay-ring off-delay L 24 gt, latency 0 gt, min-pulse 4 gt, tileable every 5 (5 0 0), 13 blocks, 3x2x3, robust"),
+        // the TNT judge's usefulness rule in the game: TNT exploding in the duper's own water
+        ("tnt-water-duper", "FAIL: cal-tnt-water-duper tnt-duper: useless TNT: a TNT explodes in a fluid"),
+        // the start judge in the game: the watcher left on the parked part refused
+        ("fly-start-watcher-stays", "FAIL: cal-fly-start-watcher-stays flying-machine: no steady flight after the launch"),
+    ];
+    const PARTS: usize = 5;
+    for part in 0..PARTS {
+        // round robin, so the slow designs (the flyers, the elevator, the long timers) spread
+        let mine: Vec<(&str, &str)> = circ2.iter().enumerate().filter(|(i, _)| i % PARTS == part).map(|(_, c)| *c).collect();
+        let my_extras: Vec<(&str, &str)> = extras.iter().enumerate().filter(|(i, _)| i % PARTS == part).map(|(_, e)| *e).collect();
+        let names: Vec<&str> = mine.iter().map(|(f, _)| *f).chain(my_extras.iter().map(|(f, _)| *f)).collect();
+        let what: &'static str = Box::leak(
+            format!(
+                "`circuit verify` (the real game, 2 positions x 4 rotations, one pool of MCTAS_MAX_WORKERS workers) on calibration circuits, part {} of {PARTS}: {}; inputs driven by real devices (R7) (BUDs included: the judge's shape-only and pure-update actions in the game; TNT dupers included: every primed TNT recorded then removed; study 11's timers on their long input trains; the sculk rising edge with its lever's and ambient game events; study 12's encoder, counter, bit slice and hex comparator): robust, the same metrics as redsim; the update-less NOR, the latch claiming dff, a bulb toggle claiming a latched BUD, a TNT duper exploding in its water and a start lever whose watcher stays on the parked part refused, the comparator AND robust; study 11's tiled off-delay (3 copies 5 apart, each against its own input) robust",
+                part + 1,
+                names.join(", ")
+            )
+            .into_boxed_str(),
+        );
+        v.push(Check {
+            name: format!("circuit:verify-calibration-{}", part + 1),
+            what,
+            quick: false,
+            jvm: true,
+            steps: vec![{
+                let mut s = args(&format!("?circuit verify --positions 2 --workers {workers}"));
+                s.extend(mine.iter().map(|(f, _)| format!("{CIRC}/{f}.txt")));
+                s.extend(my_extras.iter().map(|(f, _)| format!("designs/circuits/selftest/{f}.txt")));
+                s
+            }],
+            timeout: 600,
+            pred: Box::new(move |o| {
+                for (f, want) in &mine {
+                    if !o[0].lines().any(|l| l.starts_with("CIRCUIT: ") && l.contains(want) && l.ends_with("robust")) {
+                        return Err(format!("{f}: expected `{want}`, robust: {}", tail(&o[0])));
+                    }
                 }
-            }
-            has(&o[0], "FAIL: cal-update-less-nor gate nor: not a gate: the output is true (truth table 1111)")?;
-            has(&o[0], "CIRCUIT: cal-comparator-and gate and function and, latency 6 gt, glitches 2, 7 blocks, 3x2x2, robust")?;
-            has(&o[0], "FAIL: cal-dlatch-claimed-dff dff: rising edge: M 1 d=1 clk=0: q = 1, want 0")?;
-            has(&o[0], "FAIL: cal-bulb-toggle-bud bud: latches")?;
-            has(&o[0], "FAIL: cal-tnt-water-duper tnt-duper: useless TNT: a TNT explodes in a fluid")?;
-            has(&o[0], "FAIL: cal-fly-start-watcher-stays flying-machine: no steady flight after the launch")?;
-            has(&o[0], "CIRCUIT: cal-tile-off-delay-ring off-delay L 24 gt, latency 0 gt, min-pulse 4 gt, tileable every 5 (5 0 0), 13 blocks, 3x2x3, robust")?;
-            Ok(format!("{} calibration circuits robust, redsim's metrics; the update-less NOR, the latch claiming dff, a bulb toggle claiming a latched BUD and a start lever whose watcher stays on the parked part refused, the comparator AND robust, a tiled off-delay robust copy by copy", circ2.len()))
-        }),
-    });
+                for (_, line) in &my_extras {
+                    has(&o[0], line)?;
+                }
+                Ok(format!("part {} of {PARTS}: {} calibration circuits robust, redsim's metrics; {} more as expected ({})", part + 1, mine.len(), my_extras.len(), my_extras.iter().map(|(f, _)| *f).collect::<Vec<_>>().join(", ")))
+            }),
+        });
+    }
     // 9b. study 19: minecart stations, judged in the game by their own runner (real carts, ridden
     // and empty, 0.02 to 2.0 b/t; presses with the station empty, mid-arrival and after a random
     // hold): the one-way record's metrics, and the same station with its button hidden behind a

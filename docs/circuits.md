@@ -1229,9 +1229,11 @@ kick) before the first input.
 * **mob-farm iron_ingot TIER** (the mob farms, [crate::studies::mobfarm](../crates/circuit/src/studies/mobfarm.rs);
   brief [farm-iron.md](../designs/briefs/farm-iron.md), track notes
   [ironfarm](../designs/circuits/mobfarm/tracks/ironfarm/NOTES.md)): an iron farm (villagers in beds,
-  a zombie that scares them, golems that spawn and die) judged entirely on redsim's mob layer
+  a zombie that scares them, golems that spawn and die) judged on redsim's mob layer
   (`redsim::entity::mob`: the villager brain, sleep and `LAST_SLEPT`, golem spawning, LivingEntity
-  physics in water and lava, damage, loot), since game days are too slow to judge in the game. One
+  physics in water and lava, damage, loot; `redsim::weather`: rain, thunder, lightning, sunburn)
+  and confirmed in the real game: `circuit verify` (so `circuit archive`) runs every build in the
+  26.3 server after the redsim judge passes (`crate::mobfarm_game`, `mctas mobfarm gate`). One
   `port output:` (the farm's single chest in the design, or an air cell where the judge puts one;
   every archived farm holds its chest, so its download and its 3D view show it). The judge refuses what the mob layer does not model (static checks:
   flowing lava, water at lava, job sites, a zombie that does not ride, villagers that can walk,
@@ -1251,9 +1253,46 @@ kick) before the first input.
   pick ranked by the tier's rule: the least iron to build, the most iron an hour per block, the
   most per group of villagers); the fastest tier's pick links its scaled build (several copies)
   both ways; a farm in no tier (the brief's obvious design) stays in the catalog only. The site's
-  pages of a mob farm say it is tested on our simulation of the mob rules (its caption gives the
-  game check) and that the 3D view runs it with that simulation (its judge's first run, tick for
-  tick: [webrender.md](webrender.md)).
+  pages of a mob farm say "Verified in the real game" like every study's; once iron-day1 is
+  re-archived through the real-game gate (`kinds::MOB_FARMS_NEED_THE_GAME_GATE`), a farm without
+  the gate's `real game` line on its card is catalog only. The 3D view runs the
+  farm with that simulation (its judge's first run, tick for tick: [webrender.md](webrender.md)).
+
+  **The real-game gate** (mobinfra 2026-11-08; vjeux: "Why all of these caveats? Just do the real
+  work!?"). Each of the judge's 8 builds runs in its own unmodified 26.3 server: a void superflat
+  in plains (it rains there), Hard, `spawn_mobs` on (trap horses, reinforcements) and natural
+  monsters off (the terrain lane judges spawning), the day clock and the weather running. The
+  official server and not the bridge: lightning needs a player (`tickThunder` runs only in the
+  chunks within 128 blocks of one, `ChunkMap.collectSpawningChunks`), so does lava's and fire's
+  spread (`canSpreadFireAround`, 128 blocks), and the day clock and the weather are the server's,
+  which the bridge's sandboxes replace or share. The bot is the farm's AFK player: creative, 60
+  blocks under the farm's chest with a stone over its head (within 128 of every chunk of the farm,
+  out of every mob's sight, never a bolt's target, never within 10 of a trap horse on the farm).
+  The weather first runs alone for a random 150k..400k gt; the farm is the redsim judge's own
+  build after its water settled, pasted with `setblock ... strict`, then the day time of the
+  judge's steady state, the daylight detectors, the villagers (`LAST_SLEPT` at the end of the last
+  rest) and the zombie in its vehicle. It runs 3 game days of natural weather, then `weather rain
+  24000`, then `weather thunder 24000`, stepped at `tick rate 10000` (about 15 s per build-day;
+  the 8 builds in parallel take about 2 minutes). Every 20 gt it reads every golem, villager,
+  witch, zombie villager, zombie, vehicle, trap horse and item, and every 1000 gt the farm's
+  flammable blocks and lava. A build passes when golems spawn; no golem leaves the farm's box,
+  vanishes outside it or lives over 1200 gt; the villagers stay as many, unhurt and unconverted;
+  the zombie stays unhurt in its vehicle; no trap horse lands on the farm; no drop is ever outside
+  the box; no flammable block burns and no lava moves; and at the end the iron in the farm's
+  containers and on its floor is at least 4 ingots per dead golem minus 3 standard deviations of
+  the loot (3..5 uniform: a leak shows, a few unlucky draws do not). The rates: each window's
+  golems per hour, the 8 builds' mean, must fall within redsim's interval for 8 builds of that
+  window under the same schedule (the judge's `farm::run` from the stationary weather with the same
+  forced windows, 64 runs): 95% for the natural days, 99% for each forced day. Why this size: one
+  build-day costs about 15 s of a server (the parent's budget was 45 s); 8 builds keep every
+  rotation and both chunk alignments (strikes and spawning are per chunk), 3 natural days give
+  each build about 3 rest cycles and the rate's standard error over 8 builds about 5% of a
+  middle farm's rate, and a forced day of each covers a rainy dusk and a thunderstorm's bolts
+  (about 50 a thunder day over the bot's 128 blocks). Its first catches (2026-11-08): lava's
+  random-tick fire burns the L2d chamber's oak fence gates by gt 2000 (iron-middle,
+  iron-fast-module, iron-scaled-2x2: 0.04-0.07 iron per golem reach the chest), bolts strike
+  villagers (a witch) and break a boat, and the dusk-pulse farms stop in rain (0-36 golems/h on a
+  rain day, 0 in thunder).
 
 ### Real use (the audit of 2026-10-21)
 

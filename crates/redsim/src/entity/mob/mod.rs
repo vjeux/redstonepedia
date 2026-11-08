@@ -28,6 +28,7 @@ pub mod natural;
 pub mod refuse;
 pub mod site;
 pub mod spawn;
+pub mod sun;
 pub mod types;
 pub mod villager;
 pub mod view;
@@ -56,12 +57,16 @@ pub enum Damage {
     Fall,
     Drown,
     HotFloor,
+    /// mobinfra: a lightning bolt (`lightning_bolt`: not fire, armor counts).
+    Lightning,
+    /// mobinfra: standing in a fire a bolt set (`in_fire`: fire, armor counts).
+    InFire,
 }
 
 impl Damage {
     /// Tag `is_fire`.
     pub fn is_fire(self) -> bool {
-        matches!(self, Damage::Lava | Damage::OnFire | Damage::HotFloor)
+        matches!(self, Damage::Lava | Damage::OnFire | Damage::HotFloor | Damage::InFire)
     }
 
     /// Tag `bypasses_armor`.
@@ -78,6 +83,8 @@ impl Damage {
             Damage::Fall => "fall",
             Damage::Drown => "drown",
             Damage::HotFloor => "hot_floor",
+            Damage::Lightning => "lightning_bolt",
+            Damage::InFire => "in_fire",
         }
     }
 }
@@ -105,6 +112,8 @@ pub enum MobEvent {
 pub struct Inside {
     pub lava: bool,
     pub water: bool,
+    /// mobinfra: a fire a bolt set (`BaseFireBlock.entityInside`: FIRE_IGNITE, then 1 `inFire`).
+    pub fire: bool,
 }
 
 /// A mob's state (the `LivingEntity` / `Mob` fields the rules read and write).

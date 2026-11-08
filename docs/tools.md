@@ -11,11 +11,14 @@ The bedrock study's commands (`mctas bedrock scan | watch | vanilla | vanilla-ma
 judge | minimize | graft | row | circuit | scenario`: bedrock breakers, the portal method, the
 official server's checks) are in [designs/bedrock/NOTES.md](../designs/bedrock/NOTES.md#tools); its
 circuit kind (`circuit: bedrock-breaker N`) is judged like every circuit (`mctas circuit verify`).
-The mob farms' commands (`mctas mobfarm gen | edit | exit | run | probe | validate`: iron farm
+The mob farms' commands (`mctas mobfarm gen | edit | exit | run | probe | validate | gate | weather-stats | fire-burn | bolt-check`: iron farm
 layouts, a design's chest and `how:` line, the golem exit flood, single redsim runs, a built farm's
-blocks, and the design run in the real server against redsim) are in the ironfarm track notes
+blocks, the design run in the real server against redsim, the real-game gate that `circuit
+verify` runs: `mctas mobfarm gate <design> [--days 3] [--builds 0.0 1.1] [--no-rain-day]
+[--no-thunder-day] [--parallel 8] [--keep] [--trace]`, and the weather model's checks against
+the official server: the cycle's statistics, lava's fire in a design, summoned bolts' outcomes) are in the ironfarm track notes
 ([NOTES.md](../designs/circuits/mobfarm/tracks/ironfarm/NOTES.md#commands)); the kind
-(`circuit: mob-farm iron_ingot day-1|middle|fastest`) is judged on redsim like every circuit ([circuits.md](circuits.md)).
+(`circuit: mob-farm iron_ingot day-1|middle|fastest`) is judged on redsim and confirmed in the real game by `circuit verify` like every circuit ([circuits.md](circuits.md)).
 Real terrain and natural spawning (`mctas terrain gen | find | info | crop | map | spot | light |
 probe | chunk | blockinfo | biomes | paste-check | biome-check | spawn-check | spawn-explain |
 hostile`: the official server's world generation read back into `.mcterrain` samples, the

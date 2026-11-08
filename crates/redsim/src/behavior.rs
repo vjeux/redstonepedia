@@ -45,6 +45,8 @@ pub fn collides(s: &Block) -> bool {
         Block::CactusFlower => false,
         // ---- mob farms (ironfarm): lava has no collision ----
         Block::Lava { .. } | Block::Sign { .. } => false,
+        // ---- fire (mobinfra): noCollision ----
+        Block::Fire { .. } => false,
         _ => true,
     }
 }
@@ -147,6 +149,8 @@ pub fn is_solid(s: &Block) -> bool {
         Block::CactusFlower => false,
         // ---- mob farms (ironfarm): lava has no collision (a bed's 9 px box averages 0.85: solid) ----
         Block::Lava { .. } | Block::Sign { .. } => false,
+        // ---- fire (mobinfra): no collision, not forced solid ----
+        Block::Fire { .. } => false,
         _ => true,
     }
 }
@@ -265,6 +269,8 @@ pub fn sturdy_of(s: &Block, face: Dir, support: Support) -> bool {
         Block::Farmland { .. } => face == Dir::Down,
         // ---- cactus farms (clk-misc): column(14, 0, 15): only the center of the bottom face ----
         Block::Cactus { .. } => face == Dir::Down && support == Support::Center,
+        // ---- weather (mobinfra): a rod's 4 x 4 px ends cover the center of its two end faces ----
+        Block::LightningRod { facing, .. } => (face == facing || face == facing.opposite()) && support == Support::Center,
         _ => false,
     }
 }
@@ -286,6 +292,8 @@ pub fn is_signal_source(w: &World, s: &Block) -> bool {
         | Block::Sculk { .. } => true,
         // ---- entity-reacting blocks (clk-misc) ----
         Block::Plate { .. } | Block::TripwireHook { .. } | Block::DetectorRail { .. } | Block::DaylightDetector { .. } | Block::Jukebox { .. } => true,
+        // ---- weather (mobinfra) ----
+        Block::LightningRod { .. } => true,
         _ => false,
     }
 }
@@ -313,6 +321,8 @@ pub fn get_signal(w: &World, s: &Block, p: BlockPos, d: Dir) -> i32 {
         Block::DaylightDetector { power, .. } => power as i32,
         // JukeboxBlock.ownSignal: 15 while a song plays
         Block::Jukebox { .. } => crate::redstone::container::jukebox_signal(w, p),
+        // ---- weather (mobinfra): a struck rod, 15 on every side ----
+        Block::LightningRod { .. } => crate::weather::lightning::rod_signal(s, None),
         _ => 0,
     }
 }
@@ -332,6 +342,8 @@ pub fn get_direct_signal(w: &World, s: &Block, p: BlockPos, d: Dir) -> i32 {
         Block::DetectorRail { .. } => crate::rails::detector::direct_signal(s, d),
         // the daylight detector's power is weak only (getDirectSignal: 0)
         Block::DaylightDetector { .. } | Block::Jukebox { .. } => 0,
+        // ---- weather (mobinfra): a struck rod strongly powers the block it hangs on ----
+        Block::LightningRod { .. } => crate::weather::lightning::rod_signal(s, Some(d)),
         _ => 0,
     }
 }
@@ -465,6 +477,8 @@ pub fn push_reaction(s: &Block) -> PushReaction {
         Block::Cactus { .. } | Block::CactusFlower => PushReaction::Popped,
         // ---- mob farms (ironfarm): lava (LiquidBlock), beds and signs are PushReaction.DESTROY ----
         Block::Lava { .. } | Block::Bed { .. } | Block::Sign { .. } => PushReaction::Popped,
+        // ---- fire (mobinfra): PushReaction.DESTROY (no loot) ----
+        Block::Fire { .. } => PushReaction::Popped,
         _ => PushReaction::PushPull,
     }
 }
@@ -476,6 +490,8 @@ pub fn drops_item(s: &Block) -> bool {
         // ---- TNT dupers (track tnt): VanillaBlockLoot: TNT drops itself unless unstable, dead
         // coral fans only with silk touch
         && !matches!(s, Block::Tnt { unstable: true } | Block::CoralFan { .. } | Block::CoralWallFan { .. })
+        // ---- fire (mobinfra): noLootTable ----
+        && !matches!(s, Block::Fire { .. })
 }
 
 /// Destroy speed -1 (unbreakable: pistons cannot move it).
@@ -494,9 +510,10 @@ pub fn has_block_entity(s: &Block) -> bool {
         || matches!(s, Block::BrewingStand { .. }) // ---- brewer study (track sorter) ----
 }
 
-/// `canBeReplaced` (by a moving block / a falling block): air and the fluids (`replaceable()`).
+/// `canBeReplaced` (by a moving block / a falling block): air, the fluids and fire
+/// (`replaceable()`).
 pub fn can_be_replaced(s: &Block) -> bool {
-    s.is_air() || matches!(s, Block::Water { .. } | Block::BubbleColumn { .. })
+    s.is_air() || matches!(s, Block::Water { .. } | Block::BubbleColumn { .. } | Block::Fire { .. })
 }
 
 /// A box in 1/16 block units, laid out `[x0, x1, y0, y1, z0, z1]` (pistmodel's `B16`).
@@ -649,6 +666,10 @@ pub fn collision_boxes(s: &Block) -> Vec<Box16> {
         Block::Chest { .. } => vec![[1, 15, 0, 14, 1, 15]],
         // ---- brewer study (track sorter): BrewingStandBlock.SHAPE = column(2, 2, 14) + column(14, 0, 2) ----
         Block::BrewingStand { .. } => vec![[7, 9, 2, 14, 7, 9], [1, 15, 0, 2, 1, 15]],
+        // ---- weather (mobinfra): RodBlock's 4 x 4 px column ----
+        Block::LightningRod { facing, .. } => crate::weather::lightning::rod_boxes(facing),
+        // ---- fire (mobinfra): noCollision ----
+        Block::Fire { .. } => vec![],
         _ => vec![FULL],
     }
 }
@@ -692,6 +713,8 @@ pub fn can_survive(w: &World, s: &Block, p: BlockPos) -> bool {
         Block::BubbleColumn { .. } => crate::fluid::bubble_can_survive(w, p),
         // ---- TNT dupers (track tnt) ----
         Block::CoralFan { .. } | Block::CoralWallFan { .. } => crate::tnt::fan_can_survive(w, s, p),
+        // ---- fire (mobinfra) ----
+        Block::Fire { .. } => crate::weather::fire::can_survive(w, s, p),
         _ => true,
     }
 }
@@ -790,6 +813,8 @@ pub fn update_shape(w: &mut World, s: Block, p: BlockPos, d: Dir, np: BlockPos, 
         // ---- cactus farms (clk-misc) ----
         Block::Cactus { .. } => crate::cactus::update_shape(w, s, p),
         Block::CactusFlower => crate::cactus::flower_update_shape(w, s, p),
+        // ---- fire (mobinfra) ----
+        Block::Fire { .. } => crate::weather::fire::update_shape(w, s, p),
         _ => s,
     }
 }
@@ -827,6 +852,9 @@ pub fn on_place(w: &mut World, s: Block, p: BlockPos, old: Block, moved: bool) {
         Block::Water { .. } => crate::fluid::liquid_on_place(w, s, p),
         // ---- TNT dupers (track tnt) ----
         Block::Tnt { .. } => crate::tnt::on_place(w, p, old),
+        // ---- weather (mobinfra) ----
+        Block::LightningRod { .. } => crate::weather::lightning::rod_on_place(w, s, p, old),
+        Block::Fire { .. } => crate::weather::fire::on_place(w, s, p, old),
         _ => {}
     }
 }
@@ -856,6 +884,8 @@ pub fn affect_neighbors_after_removal(w: &mut World, s: Block, p: BlockPos, move
         Block::Furnace { .. } => w.update_neighbour_for_output_signal(p, Kind::Furnace),
         Block::BrewingStand { .. } => w.update_neighbour_for_output_signal(p, Kind::BrewingStand),
         Block::PlainRail { .. } | Block::DetectorRail { .. } => crate::rails::affect_neighbors_after_removal(w, s, p, moved),
+        // ---- weather (mobinfra) ----
+        Block::LightningRod { .. } => crate::weather::lightning::rod_after_removal(w, s, p),
         _ => {}
     }
 }
@@ -903,6 +933,9 @@ pub fn tick(w: &mut World, s: Block, p: BlockPos) {
         // ---- stem farms (clk-misc) ----
         Block::Farmland { .. } => crate::stems::farmland_tick(w, p),
         Block::Cactus { .. } => crate::cactus::tick(w, p),
+        // ---- weather (mobinfra): a struck rod turns off; a fire's tick ----
+        Block::LightningRod { .. } => crate::weather::lightning::rod_tick(w, s, p),
+        Block::Fire { .. } => crate::weather::fire::tick(w, s, p),
         _ => {}
     }
 }
