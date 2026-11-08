@@ -313,12 +313,16 @@ fn circuit_sections(c: &site_model::Circuit, has_viewer: bool) -> String {
         let rows: String = c
             .metrics
             .iter()
+            // (a mob farm's page is written for the player building it, vjeux 2026-11-08: the
+            // judge's own diagnostics stay off it)
+            .filter(|(k, _)| !(crate::explain::mob_farm(c) && crate::explain::MOB_FARM_DIAGNOSTICS.contains(&k.as_str())))
             .map(|(k, v)| {
                 let def = crate::explain::metric_definition(&c.kind, k);
                 // (a crop farm's "per cane" metrics are per plant: a bamboo stalk, a kelp plant)
                 let plant = site_model::html::plant_word(c);
                 let k = if c.kind.starts_with("harvester") && plant != "cane" { k.replace("cane", plant) } else { k.clone() };
                 let k = &k;
+                let v = if crate::explain::mob_farm(c) { crate::explain::mob_farm_value(k, v) } else { v.clone() };
                 format!("<tr><th scope=\"row\">{}</th><td>{}</td><td class=\"def\">{}</td></tr>\n", esc(k), esc(&crate::explain::metric_value(&if k == "badges" { v.replace('+', ", ") } else { v.clone() })), esc(def))
             })
             .collect();
@@ -332,7 +336,7 @@ fn circuit_sections(c: &site_model::Circuit, has_viewer: bool) -> String {
             } else if site_model::html::cart_line(c) {
                 "Measured by our test of the whole line, run on our simulator, which gives the same numbers as the real game for this line: the supply double chest filled with 3,456 items, one empty hopper minecart started on the track, every item counted until the last one is in the storage chest.".to_string()
             } else if crate::explain::mob_farm(c) {
-                "Measured by our test, on Hard with the weather's rain, thunder and lightning: the farm built facing all 4 ways at 2 spots in the world, each build run 8 times for 5 game days from the farm's steady state, and every build run in the real game for 5 game days, a day of rain and a day of thunder among them, at the same rate. gt = game tick = 1/20 s (20 gt = 1 second).".to_string()
+                "On Hard, through rain, thunder and lightning; it works the same in the real game. gt = game tick = 1/20 s (20 gt = 1 second).".to_string()
             } else {
                 "Measured in our test in the real game, facing all 4 ways at 4 spots in the world. gt = game tick = 1/20 s (20 gt = 1 second).".to_string()
             },

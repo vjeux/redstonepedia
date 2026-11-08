@@ -1552,7 +1552,7 @@ fn circuit_props(c: &crate::Circuit) -> (String, Vec<String>) {
             };
             let mut rest: Vec<String> = Vec::new();
             if let (Some(g), Some(s)) = (num("golems per hour"), num("seconds per golem")) {
-                rest.push(format!("{} golems an hour, one every {} s, at the game's normal speed", readable(g), s.round()));
+                rest.push(format!("{} golems an hour, one every {} s", readable(g), s.round()));
             }
             let (villagers, zombies) = (bill_item(c, "villagers").or_else(|| bill_item(c, "villager")).unwrap_or(0), bill_item(c, "zombies").or_else(|| bill_item(c, "zombie")).unwrap_or(0));
             if villagers > 0 {
