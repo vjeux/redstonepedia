@@ -55,6 +55,9 @@ final class Terrain {
         // the biome cells: origin and size in quart coordinates, palette, ids (u16 LE, x fastest,
         // then z, then y)
         BiomeCells biomes = r.has("biomes") ? new BiomeCells(sb, r.getAsJsonObject("biomes")) : null;
+        // the saved heightmaps (HMAP): what a loaded chunk keeps (priming only fills missing maps;
+        // worldgen's decoration can leave a saved map below a plant)
+        SavedHeights savedHeights = r.has("heightmaps") ? new SavedHeights(r.getAsJsonObject("heightmaps")) : null;
         Map<Long, LevelChunk> chunks = new LinkedHashMap<>();
         ThreadedLevelLightEngine light = sb.level.getChunkSource().getLightEngine();
         int sections = 0;
@@ -132,6 +135,9 @@ final class Terrain {
                 }
             }
             Heightmap.primeHeightmaps(chunk, java.util.EnumSet.allOf(Heightmap.Types.class));
+            if (savedHeights != null) {
+                savedHeights.apply(chunk);
+            }
             chunk.initializeLightSources();
             light.setLightEnabled(cp, true);
             light.retainData(cp, false);
@@ -272,6 +278,53 @@ final class Terrain {
             }
         }
         return n;
+    }
+
+    /** The sample's saved heightmaps: four maps, a first free y per column (x fastest, then z). */
+    private static final class SavedHeights {
+        final Heightmap.Types[] types;
+        final int ox;
+        final int oz;
+        final int sx;
+        final int sz;
+        final byte[][] data;
+
+        SavedHeights(JsonObject h) {
+            JsonArray maps = h.getAsJsonArray("maps");
+            this.types = new Heightmap.Types[maps.size()];
+            this.data = new byte[maps.size()][];
+            for (int i = 0; i < maps.size(); i++) {
+                this.types[i] = Heightmap.Types.valueOf(maps.get(i).getAsString());
+                this.data[i] = Base64.getDecoder().decode(h.getAsJsonArray("data").get(i).getAsString());
+            }
+            this.ox = h.getAsJsonArray("origin").get(0).getAsInt();
+            this.oz = h.getAsJsonArray("origin").get(1).getAsInt();
+            this.sx = h.getAsJsonArray("size").get(0).getAsInt();
+            this.sz = h.getAsJsonArray("size").get(1).getAsInt();
+        }
+
+        /** Each saved column of the chunk written into its maps (the rest keeps the primed value). */
+        void apply(LevelChunk chunk) {
+            int bits = net.minecraft.util.Mth.ceillog2(chunk.getHeight() + 1);
+            for (int m = 0; m < this.types.length; m++) {
+                long[] raw = chunk.getOrCreateHeightmapUnprimed(this.types[m]).getRawData();
+                var storage = new net.minecraft.util.SimpleBitStorage(bits, 256, raw);
+                for (int z = 0; z < 16; z++) {
+                    for (int x = 0; x < 16; x++) {
+                        int wx = chunk.getPos().getMinBlockX() + x;
+                        int wz = chunk.getPos().getMinBlockZ() + z;
+                        int lx = wx - this.ox;
+                        int lz = wz - this.oz;
+                        if (lx < 0 || lz < 0 || lx >= this.sx || lz >= this.sz) {
+                            continue;
+                        }
+                        int i = lz * this.sx + lx;
+                        int y = (short) ((this.data[m][i * 2] & 0xFF) | ((this.data[m][i * 2 + 1] & 0xFF) << 8));
+                        storage.set(x + z * 16, y - chunk.getMinY());
+                    }
+                }
+            }
+        }
     }
 
     /** The sample's biome cells, as a resolver for a section's {@code fillBiomesFromNoise}. */
