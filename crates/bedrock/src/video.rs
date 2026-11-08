@@ -764,6 +764,13 @@ impl Prod {
         if blocks.get(pos).starts_with(pred) {
             return Ok(());
         }
+        // `stand_near` only considers stands near the player's current cell (snapshot
+        // stands across solid rock are unwalkable), so a far placement in an open room
+        // first walks to the target's south side and only then picks a stand.
+        let f = self.feet()?;
+        if (f[0].floor() as i32 - pos[0]).abs() + (f[2].floor() as i32 - pos[2]).abs() > 5 {
+            let _ = self.walk(pos[0], pos[2] + 1);
+        }
         // (neighbour offset, face of that neighbour the click lands on), below first.
         let tries: [(Pos, &str); 6] = [
             ([0, -1, 0], "UP"),
