@@ -596,68 +596,145 @@ pub fn drive_with(c: &Clock, extra: &[(u32, Action)], ticks: u32, probes: &[Pos]
 /// so a dropper's random slot is modeled; the randomizer judge, crates/circuit/src/random.rs).
 #[allow(clippy::too_many_arguments)]
 pub fn drive_seeded(c: &Clock, extra: &[(u32, Action)], ticks: u32, probes: &[Pos], from: Pos, to: Pos, remove_primed: bool, level: Option<(i64, [i32; 4])>) -> Result<Driven, (Verdict, String)> {
-    let mut out = Driven { cells: Vec::with_capacity(ticks as usize + 1), signals: Vec::with_capacity(ticks as usize + 1), stopped: None, primed: Vec::new(), entities: Vec::new() };
-    let mut primed_seen = 0usize;
-    // each cell's last block and extras read and their state string, made again only when they
-    // change (the same block and extras make the same string): the judges' runs formatted every
-    // non-air cell at every tick (a full adder's 64 s, 2026-11-08); the box read x, y, z, which
-    // is the frames' order (by position)
-    let mut seen: Vec<Option<(Block, Option<String>, String, Option<u8>)>> = Vec::new();
-    out.stopped = drive_each(c, extra, ticks, from, to, remove_primed, level, false, |t, world, _| {
-        for &(_, p) in &world.primed[primed_seen..] {
-            out.primed.push((t, p.arr()));
-        }
-        primed_seen = world.primed.len();
-        let size = world.size;
-        let n = (size[0] * size[1] * size[2]).max(0) as usize;
-        if seen.len() != n {
-            seen = vec![None; n];
-        }
-        let mut v: Vec<(Pos, String)> = Vec::new();
-        for x in 0..size[0] {
-            for y in 0..size[1] {
-                for z in 0..size[2] {
-                    let p = world.min.offset(x, y, z);
-                    let b = world.get(p);
-                    if b.is_air() {
-                        continue;
+    // Each cell's state now (None: air), its text made again only when its block or extras change
+    // (the same block and extras make the same string): the judges' runs formatted every non-air
+    // cell at every tick (a full adder's 64 s, 2026-11-08). The cells read at a tick are the ones
+    // the world's write log names and the ones whose extras change with no write, every cell at the
+    // first tick, the last and every `TRACK_CHECK` ticks (as `simulate`'s record: a change neither
+    // named runs it again reading every cell at every tick); a frame lists the non-air cells in
+    // the box's x, y, z order, which is its order (by position).
+    let mut tracked = true;
+    loop {
+        let mut out = Driven { cells: Vec::with_capacity(ticks as usize + 1), signals: Vec::with_capacity(ticks as usize + 1), stopped: None, primed: Vec::new(), entities: Vec::new() };
+        let mut primed_seen = 0usize;
+        type Now = Option<(Block, Option<String>, String, Option<u8>)>;
+        let mut now: Vec<Now> = Vec::new();
+        let mut cell_pos: Vec<BlockPos> = Vec::new();
+        let mut present: Vec<usize> = Vec::new();
+        let mut extras: Vec<usize> = Vec::new();
+        let mut is_extras: Vec<bool> = Vec::new();
+        let mut named: Vec<bool> = Vec::new();
+        let mut every: Vec<usize> = Vec::new();
+        let mut todo: Vec<usize> = Vec::new();
+        let mut missed = false;
+        let stopped = drive_each(c, extra, ticks, from, to, remove_primed, level, tracked, |t, world, written| {
+            for &(_, p) in &world.primed[primed_seen..] {
+                out.primed.push((t, p.arr()));
+            }
+            primed_seen = world.primed.len();
+            let size = world.size;
+            let n = (size[0] * size[1] * size[2]).max(0) as usize;
+            if now.len() != n {
+                now = vec![None; n];
+                cell_pos = (0..size[0]).flat_map(|x| (0..size[1]).flat_map(move |y| (0..size[2]).map(move |z| (x, y, z)))).map(|(x, y, z)| world.min.offset(x, y, z)).collect();
+                is_extras = vec![false; n];
+                named = vec![false; n];
+                every = (0..n).collect();
+            }
+            let index_of = |p: BlockPos| -> Option<usize> {
+                let (x, y, z) = (p.x - world.min.x, p.y - world.min.y, p.z - world.min.z);
+                (x >= 0 && y >= 0 && z >= 0 && x < size[0] && y < size[1] && z < size[2]).then(|| ((x * size[1] + y) * size[2] + z) as usize)
+            };
+            let full = !tracked || t == 0 || t == ticks || t % TRACK_CHECK == 0;
+            todo.clear();
+            if tracked {
+                for q in written {
+                    if let Some(i) = index_of(*q)
+                        && !named[i]
+                    {
+                        named[i] = true;
+                        todo.push(i);
                     }
-                    let i = ((x * size[1] + y) * size[2] + z) as usize;
-                    // (the same block holding the same reads: its text kept, `wave::comparator_read`,
-                    // `wave::reads_extras`)
+                }
+                for &i in &extras {
+                    if !named[i] {
+                        named[i] = true;
+                        todo.push(i);
+                    }
+                }
+                todo.sort_unstable();
+            }
+            let mut extras_moved = false;
+            for &i in if full { &every } else { &todo } {
+                let p = cell_pos[i];
+                let b = world.get(p);
+                let reads = wave::reads_extras(&b);
+                if reads != is_extras[i] {
+                    is_extras[i] = reads;
+                    extras_moved = true;
+                }
+                let was_present = now[i].is_some();
+                let changed = if b.is_air() {
+                    now[i] = None;
+                    was_present
+                } else {
+                    // (the same block holding the same reads: its text kept,
+                    // `wave::comparator_read`, `wave::reads_extras`)
                     let quick = wave::comparator_read(world, p, &b);
-                    let held = match &seen[i] {
+                    let held = match &now[i] {
                         Some((sb, _, _, sq)) if *sb == b => {
                             if quick.is_some() {
                                 *sq == quick
                             } else {
-                                !wave::reads_extras(&b)
+                                !reads
                             }
                         }
                         _ => false,
                     };
-                    if !held {
+                    if held {
+                        false
+                    } else {
                         let extra = wave::be_extra_redsim(world, p, &b);
-                        if !matches!(&seen[i], Some((sb, se, _, _)) if *sb == b && *se == extra) {
-                            let s = wave::with_extra(&b.to_string(), extra.as_deref());
-                            seen[i] = Some((b, extra, s, quick));
-                        } else if let Some(e) = seen[i].as_mut() {
+                        if let Some(e) = now[i].as_mut().filter(|e| e.0 == b && e.1 == extra) {
                             e.3 = quick;
+                            false
+                        } else {
+                            let s = wave::with_extra(&b.to_string(), extra.as_deref());
+                            now[i] = Some((b, extra, s, quick));
+                            true
                         }
                     }
-                    let Some((_, _, s, _)) = &seen[i] else { unreachable!("read above") };
-                    v.push((p.arr(), s.clone()));
+                };
+                if changed {
+                    // a change neither the write log nor the extras named
+                    if tracked && t > 0 && !named[i] {
+                        missed = true;
+                    }
+                    let is_present = now[i].is_some();
+                    if is_present != was_present {
+                        match present.binary_search(&i) {
+                            Ok(k) if !is_present => {
+                                present.remove(k);
+                            }
+                            Err(k) if is_present => present.insert(k, i),
+                            _ => {}
+                        }
+                    }
                 }
             }
+            for &i in &todo {
+                named[i] = false;
+            }
+            if missed {
+                return false;
+            }
+            if extras_moved {
+                extras = (0..n).filter(|&i| is_extras[i]).collect();
+            }
+            out.cells.push(present.iter().map(|&i| (cell_pos[i].arr(), now[i].as_ref().map(|e| e.2.clone()).unwrap_or_default())).collect());
+            out.signals.push(probes.iter().map(|q| world.best_neighbor_signal(bp(*q)).clamp(0, 15) as u8).collect());
+            if !world.entities.list.is_empty() {
+                out.entities.push(entity_snapshot(world));
+            }
+            true
+        })?;
+        if missed {
+            tracked = false;
+            continue;
         }
-        out.cells.push(v);
-        out.signals.push(probes.iter().map(|q| world.best_neighbor_signal(bp(*q)).clamp(0, 15) as u8).collect());
-        if !world.entities.list.is_empty() {
-            out.entities.push(entity_snapshot(world));
-        }
-        true
-    })?;
-    Ok(out)
+        out.stopped = stopped;
+        return Ok(out);
+    }
 }
 
 /// The run [`drive_seeded`] makes, each tick's world handed to `each` (after the tick's actions,
