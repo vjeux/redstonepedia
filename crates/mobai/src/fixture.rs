@@ -35,6 +35,9 @@ pub struct Scene {
     pub watch: ([i32; 3], [i32; 3]),
     /// A survival player hanging at this position (the bridge's player: no gravity, no moves).
     pub player: Option<[f64; 3]>,
+    /// The player in creative mode (no mob targets it; it still keeps mobs from idling: the
+    /// despawn check's 32 blocks).
+    pub player_creative: bool,
 }
 
 fn difficulty_name(d: Difficulty) -> &'static str {
@@ -50,7 +53,7 @@ impl Scene {
     /// The scene as canonical text (a recording keeps its hash: a scene changed since it was
     /// recorded fails its replay).
     pub fn canonical(&self) -> String {
-        let v = json!({
+        let mut v = json!({
             "name": self.name,
             "chunks": self.chunks,
             "blocks": self.blocks.iter().map(|(p, s)| json!([p, s])).collect::<Vec<_>>(),
@@ -61,6 +64,9 @@ impl Scene {
             "watch": [self.watch.0, self.watch.1],
             "player": self.player,
         });
+        if self.player_creative {
+            v["player_creative"] = json!(true);
+        }
         v.to_string()
     }
 
@@ -144,6 +150,7 @@ fn scenes_raw() -> Vec<Scene> {
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
             player: None,
+            player_creative: false,
         });
     }
     // a zombie and a golem walled off from it (the golem stands still: no AI modeled for it yet,
@@ -164,6 +171,7 @@ fn scenes_raw() -> Vec<Scene> {
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
             player: None,
+            player_creative: false,
         });
     }
     // an iron golem and a zombie 12 apart at night: each targets the other (the golem: enemies
@@ -184,6 +192,7 @@ fn scenes_raw() -> Vec<Scene> {
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
             player: None,
+            player_creative: false,
         });
     }
     // a zombie pathing to a villager penned in fences beyond two low walls (the walls and the
@@ -210,6 +219,7 @@ fn scenes_raw() -> Vec<Scene> {
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
             player: None,
+            player_creative: false,
         });
     }
     // a zombie that breaks doors (Hard) going for a villager in a fence pen through its oak door
@@ -241,6 +251,7 @@ fn scenes_raw() -> Vec<Scene> {
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
             player: None,
+            player_creative: false,
         });
     }
     // three homeless villagers and three free beds before dusk: AcquirePoi claims the beds (the
@@ -267,6 +278,7 @@ fn scenes_raw() -> Vec<Scene> {
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
             player: None,
+            player_creative: false,
         });
     }
     // a creeper going for a survival player who stands inside a ring of fences 4 out (it never
@@ -292,6 +304,94 @@ fn scenes_raw() -> Vec<Scene> {
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
             player: Some([36.5, 64.0, 24.5]),
+            player_creative: false,
+        });
+    }
+    // a skeleton alone at night: strolls, looks around (RestrictSunGoal idle in the dark)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        wall(&mut b, (16, 4), (16, 40), 63, 2, stone);
+        v.push(Scene {
+            name: "skeleton-night".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![("minecraft:skeleton".into(), [24.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into()))],
+            day_time: 18000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+        });
+    }
+    // a skeleton in the morning sun beside a roofed shelter: it burns, FleeSunGoal finds the shade,
+    // RestrictSunGoal keeps its strolls out of the sky
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        // a shelter: a stone roof at y 67 over x 28..36, z 18..30, posts at its corners
+        for (x, z) in [(28, 18), (36, 18), (28, 30), (36, 30)] {
+            for y in 64..=66 {
+                b.push(([x, y, z], "minecraft:stone".to_string()));
+            }
+        }
+        floor(&mut b, 28, 37, 18, 31, 67, stone);
+        v.push(Scene {
+            name: "skeleton-sun".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![("minecraft:skeleton".into(), [20.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into()))],
+            day_time: 1000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+        });
+    }
+    // a spider in a walled yard at night: it strolls into the walls and climbs (Spider.tick's
+    // climbing, handleOnClimbable, WallClimberNavigation)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        for (a, c) in [((12, 12), (12, 36)), ((36, 12), (36, 36)), ((12, 12), (36, 12)), ((12, 36), (36, 36))] {
+            wall(&mut b, a, c, 63, 3, stone);
+        }
+        wall(&mut b, (24, 16), (24, 32), 63, 2, stone);
+        v.push(Scene {
+            name: "spider-walls".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![("minecraft:spider".into(), [18.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into()))],
+            day_time: 18000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            // a creative player above the yard keeps the spider from idling (the despawn check)
+            player: Some([24.5, 72.0, 24.5]),
+            player_creative: true,
+        });
+    }
+    // a spider and an iron golem 10 apart at night: each targets the other (the spider only in the
+    // dark), the spider leaps (LeapAtTargetGoal) and bites, the golem hits
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        v.push(Scene {
+            name: "spider-golem".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:spider".into(), [14.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:iron_golem".into(), [24.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
         });
     }
     v
@@ -322,7 +422,8 @@ impl GameScene {
             "trace_randoms": trace_randoms,
         }))?;
         if let Some(p) = s.player {
-            w.call(json!({"op": "world", "sandbox": sb, "player": {"pos": p, "mode": "survival", "simulation": 6, "view": 6}}))?;
+            let mode = if s.player_creative { "creative" } else { "survival" };
+            w.call(json!({"op": "world", "sandbox": sb, "player": {"pos": p, "mode": mode, "simulation": 6, "view": 6}}))?;
         }
         if !s.blocks.is_empty() {
             w.set_blocks(sb, &s.blocks, PlaceMode::Raw)?;
@@ -391,7 +492,8 @@ pub fn redsim_world(s: &Scene, seed: i64) -> Result<World> {
     w.mob.ai.difficulty = s.difficulty;
     w.mob.ai.mob_griefing = s.mob_griefing;
     if let Some(p) = s.player {
-        w.mob.ai.players.push(redsim::entity::mob::ai::Player { pos: redsim::entity::Vec3::new(p[0], p[1], p[2]), mode: redsim::entity::mob::ai::GameMode::Survival, invulnerable: false });
+        let mode = if s.player_creative { redsim::entity::mob::ai::GameMode::Creative } else { redsim::entity::mob::ai::GameMode::Survival };
+        w.mob.ai.players.push(redsim::entity::mob::ai::Player { pos: redsim::entity::Vec3::new(p[0], p[1], p[2]), mode, invulnerable: false });
     }
     let mut list = Vec::new();
     for (p, st) in &s.blocks {

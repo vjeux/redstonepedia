@@ -174,8 +174,10 @@ pub struct MobState {
     pub no_action_time: i32,
     /// `persistenceRequired` (a name tag, or picked-up loot).
     pub persistence_required: bool,
-    /// `LivingEntity.onClimbable()` at its last tick (refused: climbing is not modeled).
+    /// `LivingEntity.onClimbable()` at its last tick (scaffolding refused; a spider's climbing).
     pub on_climbable: bool,
+    /// The spider's climbing flag (`Spider.setClimbing(horizontalCollision)` after its tick).
+    pub climbing: bool,
     /// The lava tracker's height (`getFluidHeight(LAVA)`; `isInLava` when positive).
     pub lava_height: f64,
     /// This tick's collected block effects.
@@ -218,6 +220,7 @@ impl MobState {
             no_action_time: 0,
             persistence_required: false,
             on_climbable: false,
+            climbing: false,
             lava_height: 0.0,
             inside: Inside::default(),
             last_damage: None,

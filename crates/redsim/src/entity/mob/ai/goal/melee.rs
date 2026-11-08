@@ -61,7 +61,9 @@ pub fn can_use(w: &mut World, i: usize, g: &mut MeleeAttack) -> bool {
     }
     let tb = target_block(w, t);
     g.path = with_nav(w, i, |w, nm, nav, arena| nav.create_path_pos(w, nm, tb, 0, arena));
-    if g.path.is_some() { true } else { within_melee_range(w, i, t) }
+    let ok = if g.path.is_some() { true } else { within_melee_range(w, i, t) };
+    // SpiderAttackGoal: and no passenger
+    ok && !(g.kind == MeleeKind::Spider && !w.entities.list[i].passengers.is_empty())
 }
 
 /// `target.blockPosition()`.
@@ -70,8 +72,11 @@ fn target_block(w: &World, t: Who) -> crate::pos::BlockPos {
     crate::pos::BlockPos::new(crate::entity::mth::floor(p.x), crate::entity::mth::floor(p.y), crate::entity::mth::floor(p.z))
 }
 
-/// `canContinueToUse()`.
+/// `canContinueToUse()` (SpiderAttackGoal: in the light a 1 in 100 roll gives up first).
 pub fn can_continue(w: &mut World, i: usize, g: &mut MeleeAttack) -> bool {
+    if g.kind == MeleeKind::Spider && super::spider::attack_gives_up(w, i) {
+        return false;
+    }
     let Some(t) = target_who(w, i) else { return false };
     if !target::is_alive(w, t) {
         return false;

@@ -53,15 +53,19 @@ const fn row(i: u16, id: &'static str, game_id: &'static str, width: f32, height
 /// heights, each class's `createAttributes` health and speed, the `burn_in_daylight` tag. Zombies
 /// and witches are the mob layer's own rows (`MobType::Zombie`, `MobType::Witch`).
 pub static DEFS: &[TypeDef] = &[
-    row(0, "spider", "minecraft:spider", 1.4, 0.9, 0.65, 16.0, 0.3, true, false, 0.6),
-    row(1, "cave_spider", "minecraft:cave_spider", 0.7, 0.5, 0.45, 12.0, 0.3, true, false, 0.6),
-    row(2, "zombie_villager", "minecraft:zombie_villager", 0.6, 1.95, 1.74, 20.0, 0.23, true, true, 0.6),
+    // (mob-AI lane) loot: each pool's set_count uniform, in table order; pools behind a
+    // killed_by_player or attacker condition draw nothing without that killer. Speeds: the
+    // attribute as the code gives it (a float literal widened: the spiders' 0.3F, the zombies'
+    // 0.23F; a baby's +50% on the base)
+    TypeDef { loot: &[("minecraft:string", 0, 2)], ..row(0, "spider", "minecraft:spider", 1.4, 0.9, 0.65, 16.0, 0.3f32 as f64, true, false, 0.6) },
+    TypeDef { loot: &[("minecraft:string", 0, 2)], ..row(1, "cave_spider", "minecraft:cave_spider", 0.7, 0.5, 0.45, 12.0, 0.3f32 as f64, true, false, 0.6) },
+    row(2, "zombie_villager", "minecraft:zombie_villager", 0.6, 1.95, 1.74, 20.0, 0.23f32 as f64, true, true, 0.6),
     row(3, "zombie_horse", "minecraft:zombie_horse", 1.3964844, 1.6, 1.52, 25.0, 0.2, true, false, 1.0),
-    row(4, "skeleton", "minecraft:skeleton", 0.6, 1.99, 1.74, 20.0, 0.25, true, true, 0.6),
-    row(5, "creeper", "minecraft:creeper", 0.6, 1.7, 1.445, 20.0, 0.25, true, false, 0.6),
+    TypeDef { loot: &[("minecraft:arrow", 0, 2), ("minecraft:bone", 0, 2)], ..row(4, "skeleton", "minecraft:skeleton", 0.6, 1.99, 1.74, 20.0, 0.25, true, true, 0.6) },
+    TypeDef { loot: &[("minecraft:gunpowder", 0, 2)], ..row(5, "creeper", "minecraft:creeper", 0.6, 1.7, 1.445, 20.0, 0.25, true, false, 0.6) },
     row(6, "slime", "minecraft:slime", 0.52, 0.52, 0.325, 1.0, 0.2, true, false, 0.6),
     row(7, "enderman", "minecraft:enderman", 0.6, 2.9, 2.55, 40.0, 0.3, true, false, 1.0),
-    row(8, "drowned", "minecraft:drowned", 0.6, 1.95, 1.74, 20.0, 0.23, true, true, 1.0),
+    row(8, "drowned", "minecraft:drowned", 0.6, 1.95, 1.74, 20.0, 0.23f32 as f64, true, true, 1.0),
     row(9, "sulfur_cube", "minecraft:sulfur_cube", 0.49, 0.49, 0.175, 1.0, 0.2, true, false, 0.6),
     row(10, "sheep", "minecraft:sheep", 0.9, 1.3, 1.235, 8.0, 0.23, false, false, 0.6),
     row(11, "pig", "minecraft:pig", 0.9, 0.9, 0.765, 10.0, 0.25, false, false, 0.6),
@@ -79,9 +83,9 @@ pub static DEFS: &[TypeDef] = &[
     row(23, "salmon", "minecraft:salmon", 0.7, 0.4, 0.26, 3.0, 0.7, false, false, 0.6),
     row(24, "cod", "minecraft:cod", 0.5, 0.3, 0.195, 3.0, 0.7, false, false, 0.6),
     // babies (`getAgeScale` 0.5; a baby zombie's BABY_DIMENSIONS eye 0.93)
-    row(25, "baby_zombie", "minecraft:zombie", 0.3, 0.975, 0.93, 20.0, 0.23, true, true, 0.6),
-    row(26, "baby_zombie_villager", "minecraft:zombie_villager", 0.3, 0.975, 0.93, 20.0, 0.23, true, true, 0.6),
-    row(27, "baby_drowned", "minecraft:drowned", 0.3, 0.975, 0.93, 20.0, 0.23, true, true, 1.0),
+    row(25, "baby_zombie", "minecraft:zombie", 0.3, 0.975, 0.93, 20.0, 0.23f32 as f64 * 1.5, true, true, 0.6),
+    row(26, "baby_zombie_villager", "minecraft:zombie_villager", 0.3, 0.975, 0.93, 20.0, 0.23f32 as f64 * 1.5, true, true, 0.6),
+    row(27, "baby_drowned", "minecraft:drowned", 0.3, 0.975, 0.93, 20.0, 0.23f32 as f64 * 1.5, true, true, 1.0),
     row(28, "baby_sheep", "minecraft:sheep", 0.45, 0.65, 0.6175, 8.0, 0.23, false, false, 0.6),
     row(29, "baby_pig", "minecraft:pig", 0.45, 0.45, 0.3825, 10.0, 0.25, false, false, 0.6),
     row(30, "baby_chicken", "minecraft:chicken", 0.2, 0.35, 0.322, 4.0, 0.25, false, false, 0.6),

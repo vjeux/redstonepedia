@@ -125,7 +125,7 @@ pub static TYPES: &[TypeDef] = &[
         eye: 1.74,
         riding_offset: -0.7,
         max_health: 20.0,
-        speed: 0.23,
+        speed: 0.23f32 as f64,
         follow_range: 35.0,
         step: 0.6,
         knockback_resistance: 0.0,

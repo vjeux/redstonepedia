@@ -1658,7 +1658,7 @@ fn sim_checks(v: &mut Vec<Check>) {
     let nm = files_in("designs/redsim/recorded/mobai", "rec").len();
     v.push(Check {
         name: "sim:recorded-mobai".into(),
-        what: "the mob AI scenes recorded in the real game (zombies strolling, pathing round walls, to a villager and through a door on Hard; a golem and a zombie fighting; villagers claiming beds and going to sleep; a creeper going for a player) replayed on redsim, every mob's state and the level random identical every tick (`mobai replay`)",
+        what: "the mob AI scenes recorded in the real game (zombies strolling, pathing round walls, to a villager and through a door on Hard; a golem and a zombie fighting; villagers claiming beds and going to sleep; a creeper going for a player; skeletons at night and fleeing the sun; spiders climbing walls and fighting a golem) replayed on redsim, every mob's state and the level random identical every tick (`mobai replay`)",
         quick: true,
         jvm: false,
         steps: vec![args("mobai replay designs/redsim/recorded/mobai")],

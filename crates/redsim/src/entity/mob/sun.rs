@@ -31,7 +31,9 @@ pub fn monsters_burn(day: i64) -> bool {
 
 /// `EntityTypeTags.BURN_IN_DAYLIGHT` among the modeled mob types.
 pub fn burns_in_daylight(ty: MobType) -> bool {
-    matches!(ty, MobType::Zombie)
+    // the `burn_in_daylight` entity type tag (zombies, zombie villagers, drowned, skeletons, ...:
+    // the rows' flag)
+    ty.def().burns_in_daylight
 }
 
 /// `LevelReader.getLightLevelDependentMagicValue` of a raw brightness (ambient light 0).

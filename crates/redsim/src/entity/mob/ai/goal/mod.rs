@@ -7,6 +7,8 @@
 pub mod float;
 pub mod golem;
 pub mod creeper;
+pub mod skeleton;
+pub mod spider;
 pub mod look;
 pub mod melee;
 pub mod stroll;
@@ -55,6 +57,14 @@ pub enum Goal {
     Swell,
     /// `AvoidEntityGoal` of cats or ocelots (none modeled).
     AvoidEntity,
+    /// `RestrictSunGoal` (the skeleton's: the navigation avoids the sun while it is bright).
+    RestrictSun,
+    /// `FleeSunGoal` (a burning skeleton's shade).
+    FleeSun(skeleton::FleeSun),
+    /// `RangedBowAttackGoal` (its tick is refused).
+    RangedBow,
+    /// `LeapAtTargetGoal` (the spider's, 0.4 up).
+    LeapAtTarget,
     ResetUniversalAnger,
     HurtByTarget(targets::HurtByTarget),
     NearestAttackableTarget(targets::NearestAttackableTarget),
@@ -77,6 +87,10 @@ impl Goal {
             Goal::OfferFlower(_) => MOVE | LOOK,
             Goal::DefendVillage => TARGET,
             Goal::Swell | Goal::AvoidEntity => MOVE,
+            Goal::RestrictSun => 0,
+            Goal::FleeSun(_) => MOVE,
+            Goal::RangedBow => MOVE | LOOK,
+            Goal::LeapAtTarget => JUMP | MOVE,
             Goal::ResetUniversalAnger => 0,
             Goal::HurtByTarget(_) | Goal::NearestAttackableTarget(_) => TARGET,
         }
@@ -84,7 +98,7 @@ impl Goal {
 
     /// `requiresUpdateEveryTick()`.
     pub fn every_tick(&self) -> bool {
-        matches!(self, Goal::Float | Goal::RandomLookAround(_) | Goal::MeleeAttack(_) | Goal::ZombieAttackTurtleEgg(_) | Goal::BreakDoor(_) | Goal::Swell)
+        matches!(self, Goal::Float | Goal::RandomLookAround(_) | Goal::MeleeAttack(_) | Goal::ZombieAttackTurtleEgg(_) | Goal::BreakDoor(_) | Goal::Swell | Goal::RangedBow)
     }
 
     /// `isInterruptable()`.
@@ -123,9 +137,16 @@ impl Goal {
             Goal::DefendVillage => "DefendVillageTargetGoal",
             Goal::Swell => "SwellGoal",
             Goal::AvoidEntity => "AvoidEntityGoal",
+            Goal::RestrictSun => "RestrictSunGoal",
+            Goal::FleeSun(_) => "FleeSunGoal",
+            Goal::RangedBow => "RangedBowAttackGoal",
+            Goal::LeapAtTarget => "LeapAtTargetGoal",
             Goal::ResetUniversalAnger => "ResetUniversalAngerTargetGoal",
             Goal::HurtByTarget(_) => "HurtByTargetGoal",
-            Goal::NearestAttackableTarget(_) => "NearestAttackableTargetGoal",
+            Goal::NearestAttackableTarget(n) => match n.target_type {
+                targets::TargetType::SpiderPlayer | targets::TargetType::SpiderIronGolem => "SpiderTargetGoal",
+                _ => "NearestAttackableTargetGoal",
+            },
         }
     }
 }
@@ -277,6 +298,10 @@ pub fn can_use(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::DefendVillage => golem::defend_can_use(w, i),
         Goal::Swell => creeper::swell_can_use(w, i),
         Goal::AvoidEntity => false,
+        Goal::RestrictSun => skeleton::restrict_sun_can_use(w),
+        Goal::FleeSun(g) => skeleton::flee_sun_can_use(w, i, g),
+        Goal::RangedBow => skeleton::bow_can_use(w, i),
+        Goal::LeapAtTarget => spider::leap_can_use(w, i),
         Goal::ResetUniversalAnger => false,
         Goal::HurtByTarget(h) => targets::hurt_by_can_use(w, i, h),
         Goal::NearestAttackableTarget(n) => targets::nearest_can_use(w, i, n),
@@ -300,6 +325,10 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::DefendVillage | Goal::ResetUniversalAnger => false,
         Goal::Swell => creeper::swell_can_use(w, i),
         Goal::AvoidEntity => false,
+        Goal::RestrictSun => skeleton::restrict_sun_can_use(w),
+        Goal::FleeSun(_) => !super::ai(w, i).nav.is_done(),
+        Goal::RangedBow => skeleton::bow_can_continue(w, i),
+        Goal::LeapAtTarget => spider::leap_can_continue(w, i),
         Goal::HurtByTarget(h) => targets::target_can_continue(w, i, &mut h.base),
         Goal::NearestAttackableTarget(n) => targets::target_can_continue(w, i, &mut n.base),
     }
@@ -322,6 +351,10 @@ pub fn start(w: &mut World, i: usize, g: &mut Goal) {
         Goal::DefendVillage | Goal::ResetUniversalAnger => {}
         Goal::Swell => creeper::swell_start(w, i),
         Goal::AvoidEntity => {}
+        Goal::RestrictSun => super::ai_mut(w, i).nav.avoid_sun = true,
+        Goal::FleeSun(g) => skeleton::flee_sun_start(w, i, g),
+        Goal::RangedBow => {}
+        Goal::LeapAtTarget => spider::leap_start(w, i),
         Goal::HurtByTarget(h) => targets::hurt_by_start(w, i, h),
         Goal::NearestAttackableTarget(n) => targets::nearest_start(w, i, n),
     }
@@ -344,6 +377,8 @@ pub fn stop(w: &mut World, i: usize, g: &mut Goal) {
         Goal::DefendVillage | Goal::ResetUniversalAnger => {}
         Goal::Swell => super::ai_mut(w, i).swell_target = None,
         Goal::AvoidEntity => {}
+        Goal::RestrictSun => super::ai_mut(w, i).nav.avoid_sun = false,
+        Goal::FleeSun(_) | Goal::RangedBow | Goal::LeapAtTarget => {}
         Goal::HurtByTarget(h) => targets::target_stop(w, i, &mut h.base),
         Goal::NearestAttackableTarget(n) => targets::target_stop(w, i, &mut n.base),
     }
@@ -365,6 +400,8 @@ pub fn tick(w: &mut World, i: usize, g: &mut Goal) {
         Goal::MoveTowardsTarget(_) | Goal::DefendVillage | Goal::ResetUniversalAnger => {}
         Goal::Swell => creeper::swell_tick(w, i),
         Goal::AvoidEntity => {}
+        Goal::RangedBow => skeleton::bow_tick(w),
+        Goal::RestrictSun | Goal::FleeSun(_) | Goal::LeapAtTarget => {}
         Goal::HurtByTarget(_) | Goal::NearestAttackableTarget(_) => {}
     }
 }
@@ -375,6 +412,8 @@ pub fn register_goals(ai: &mut MobAi, ty: MobType) {
         "zombie" | "baby_zombie" => zombie::register(ai),
         "iron_golem" => golem::register(ai),
         "creeper" => creeper::register(ai),
+        "skeleton" | "stray" | "bogged" => skeleton::register(ai),
+        "spider" | "cave_spider" => spider::register(ai),
         _ => {}
     }
     // FloatGoal's constructor: `mob.getNavigation().setCanFloat(true)`
