@@ -714,6 +714,7 @@ final class Exact {
         private final int[] to;
         private final net.minecraft.world.level.block.state.BlockState[] states;
         private final Map<Long, String> blockEntities = new java.util.HashMap<>();
+        private final Map<Long, String> containerTexts = new java.util.HashMap<>();
         private java.util.Set<Integer> present = new java.util.HashSet<>();
 
         Watch(Sandbox sb, int[] from, int[] to) {
@@ -727,7 +728,7 @@ final class Exact {
                     throw new IllegalArgumentException("trace box of " + size + " cells");
                 }
                 this.states = new net.minecraft.world.level.block.state.BlockState[(int) size];
-                scan(sb, null, null);
+                scan(sb, null, null, null);
             }
             for (Entity e : sb.entities()) {
                 if (e instanceof net.minecraft.server.level.ServerPlayer) {
@@ -742,7 +743,7 @@ final class Exact {
         }
 
         /** Compare the box with what it held (record changes when the arrays are given). */
-        private void scan(Sandbox sb, JsonArray blocks, JsonArray bes) {
+        private void scan(Sandbox sb, JsonArray blocks, JsonArray bes, JsonArray containers) {
             if (this.from == null) {
                 return;
             }
@@ -764,7 +765,7 @@ final class Exact {
                             this.states[i] = s;
                         }
                         i++;
-                        if (s.hasBlockEntity() || this.blockEntities.containsKey(p.asLong())) {
+                        if (s.hasBlockEntity() || this.blockEntities.containsKey(p.asLong()) || this.containerTexts.containsKey(p.asLong())) {
                             net.minecraft.world.level.block.entity.BlockEntity be = sb.level.getBlockEntity(p);
                             String dump = be == null ? "" : BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(be.getType()).getPath() + " "
                                     + be.saveWithoutMetadata(sb.level.registryAccess());
@@ -777,10 +778,47 @@ final class Exact {
                                 c.add(dump);
                                 bes.add(c);
                             }
+                            String text = containerText(be);
+                            String wasText = text == null ? this.containerTexts.remove(p.asLong()) : this.containerTexts.put(p.asLong(), text);
+                            if (containers != null && (text != null || wasText != null) && !java.util.Objects.equals(text == null ? "" : text, wasText)) {
+                                JsonArray c = new JsonArray();
+                                c.add(x);
+                                c.add(y);
+                                c.add(z);
+                                c.add(text == null ? "" : text);
+                                containers.add(c);
+                            }
                         }
                     }
                 }
             }
+        }
+
+        /** A container's items as redsim's compare prints them (`exact::container_text`). */
+        static String containerText(net.minecraft.world.level.block.entity.BlockEntity be) {
+            if (!(be instanceof net.minecraft.world.Container c)) {
+                return null;
+            }
+            StringBuilder s = new StringBuilder();
+            for (int k = 0; k < c.getContainerSize(); k++) {
+                net.minecraft.world.item.ItemStack st = c.getItem(k);
+                if (st.isEmpty()) {
+                    continue;
+                }
+                s.append(s.length() > 0 ? " " : "").append(k).append(':').append(BuiltInRegistries.ITEM.getKey(st.getItem()).getPath()).append(':').append(st.getCount());
+            }
+            if (be instanceof net.minecraft.world.level.block.entity.CrafterBlockEntity cr) {
+                int mask = 0;
+                for (int k = 0; k < 9; k++) {
+                    if (cr.isSlotDisabled(k)) {
+                        mask |= 1 << k;
+                    }
+                }
+                if (mask != 0) {
+                    s.append(s.length() > 0 ? " " : "").append("disabled:").append(mask);
+                }
+            }
+            return s.toString();
         }
 
         JsonObject frame(Sandbox sb, DrawLog log) {
@@ -826,9 +864,11 @@ final class Exact {
             f.add("left", left);
             JsonArray blocks = new JsonArray();
             JsonArray bes = new JsonArray();
-            scan(sb, blocks, bes);
+            JsonArray containers = new JsonArray();
+            scan(sb, blocks, bes, containers);
             f.add("blocks", blocks);
             f.add("bes", bes);
+            f.add("containers", containers);
             if (log != null) {
                 f.add("draws", log.toJson());
             }

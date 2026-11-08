@@ -1,0 +1,22 @@
+# Fixture (tickexact): an AFK player on a 3 x 3 stone pad with a chest and nothing else (no bed, no
+# villager: no village within 2 sections), for the custom spawners' compares in a terrain sample: a
+# pillager patrol spawning near an AFK player away from any village
+# (`mctas mobfarm compare designs/circuits/mobfarm/fixtures/afk-pad.txt --terrain plains --seed S`).
+name: fixture-afk-pad
+circuit: mob-farm iron_ingot
+how: an AFK spot
+port output: 1 1 1
+ground: 1
+afk: 1.5 2 0.5
+origin: 0 0 0
+palette:
+  C minecraft:chest[facing=north,type=single,waterlogged=false]
+  S minecraft:stone
+layer 0:
+  SSS
+  SSS
+  SSS
+layer 1:
+  ...
+  .C.
+  ...

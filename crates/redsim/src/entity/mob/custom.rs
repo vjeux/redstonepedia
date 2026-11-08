@@ -301,6 +301,13 @@ fn patrols(w: &mut World, c: &mut Custom) {
     if !has_chunks_at(c, at.x - 10, at.z - 10, at.x + 10, at.z + 10) {
         return;
     }
+    // EnvironmentAttributes.CAN_PILLAGER_PATROL_SPAWN at the spot: the biome's (false in the
+    // mushroom fields) AND the overworld's EARLY_GAME timeline (false until the overworld clock's
+    // 120000: no patrol before day 5); no draw
+    let mushroom = w.biome_at(at).is_some_and(|b| b == "minecraft:mushroom_fields");
+    if w.day_time() < 120000 || mushroom {
+        return;
+    }
     c.log.push((w.time, format!("patrol at {at}")));
     model_error(w, format!("gt {}: a pillager patrol tries to spawn at {at} (patrols are not modeled past this point)", w.time));
 }

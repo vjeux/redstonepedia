@@ -90,7 +90,23 @@ fn scan_one(version: &str, design: &std::path::Path, opts: &Opts, want: &str) ->
     }
     let mut game = GameFarm::start(version, &c, &spec, &o, opts.weather, false, place)?;
     let mut run = redsim_start(&spec, &o, &game, opts.bare)?;
-    game.trace(SETTLE_TICKS as u32, false)?;
+    let mut first = None;
+    let mut count = 0usize;
+    // every frame but the arrival's (the design's own mobs enter there), the settle's included
+    let arrival = SETTLE_TICKS + 1;
+    let mut see = |f: &Frame| {
+        if f.t == arrival {
+            return;
+        }
+        let entered = f.entities.iter().filter(|e| f.entered.contains(&e.n) && e.ty.contains(want)).count();
+        if entered > 0 {
+            first.get_or_insert(f.t);
+            count += entered;
+        }
+    };
+    for f in game.trace(SETTLE_TICKS as u32, false)? {
+        see(&f);
+    }
     while run.settle_tick() {}
     run.arrive().map_err(|e| anyhow!(e))?;
     let mobs = run.world.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Mob(_))).count();
@@ -98,21 +114,10 @@ fn scan_one(version: &str, design: &std::path::Path, opts: &Opts, want: &str) ->
     set_bonuses(&mut run.world, &bonus);
     game.arrive(&c, &spec, &run.world, &bonus)?;
     let mut left = opts.ticks;
-    let mut first = None;
-    let mut count = 0usize;
-    let arrival = SETTLE_TICKS + 1;
     while left > 0 {
         let n = left.min(opts.batch);
         for f in game.trace(n, false)? {
-            // after the arrival (the design's own mobs enter there)
-            if f.t <= arrival {
-                continue;
-            }
-            let entered: Vec<&redsim::exact::EntityFrame> = f.entities.iter().filter(|e| f.entered.contains(&e.n) && e.ty.contains(want)).collect();
-            if !entered.is_empty() {
-                first.get_or_insert(f.t);
-                count += entered.len();
-            }
+            see(&f);
         }
         left -= n;
     }
@@ -400,7 +405,8 @@ impl GameFarm {
             rest.push((pos(*p), s.clone()));
         }
         let mut g = GameFarm { w, sb, lo: pos(spec.lo), hi: pos(spec.hi), ticking, spawning, entity_ticking, spawn_chunk_count, text, full, spawners };
-        g.place(&rest)?;
+        let bes: Vec<([i32; 3], String)> = spec.block_entities.iter().map(|(p, s)| (pos(*p), s.clone())).collect();
+        g.place_with(&rest, &bes)?;
         let out = pos(spec.output);
         let here = g.w.get_region(sb, out, out)?;
         if !here.get(out).is_some_and(|s| s.starts_with("minecraft:chest")) {
@@ -425,7 +431,16 @@ impl GameFarm {
 
     /// The judge's placement: raw writes in order, each wire's shape, a `self` update of each.
     fn place(&mut self, blocks: &[([i32; 3], String)]) -> Result<()> {
+        self.place_with(blocks, &[])
+    }
+
+    /// The judge's placement with the design's block-entity data (`nbt:` lines) merged after the
+    /// raw writes and before the updates, like `Run::start` (`apply_block_entities`).
+    fn place_with(&mut self, blocks: &[([i32; 3], String)], bes: &[([i32; 3], String)]) -> Result<()> {
         self.w.set_blocks(self.sb, blocks, PlaceMode::Raw)?;
+        for (p, snbt) in bes {
+            self.w.merge_block_entity(self.sb, *p, snbt)?;
+        }
         let wires: Vec<[i32; 3]> = blocks.iter().filter(|(_, s)| s.starts_with("minecraft:redstone_wire")).map(|(p, _)| *p).collect();
         if !wires.is_empty() {
             self.w.update(self.sb, &wires, "shape")?;
@@ -511,6 +526,11 @@ pub fn parse_frame(v: &Value) -> Result<Frame> {
         f.draw_values.push(d[3].as_array().map(|a| a.iter().map(|x| x.as_i64().unwrap_or(0) as i32).collect()).unwrap_or_default());
     }
     f.spawning_shuffled = v["spawning_shuffled"].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default();
+    f.containers = v["containers"]
+        .as_array()
+        .map(|a| a.iter().map(|c| ([c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32, c[2].as_i64().unwrap_or(0) as i32], c[3].as_str().unwrap_or("").to_string())).collect())
+        .unwrap_or_default();
+    f.containers.sort();
     Ok(f)
 }
 
@@ -642,13 +662,19 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
         }
     };
     let mut t: i64 = 0;
+    let mut redsim_time = std::time::Duration::ZERO;
+    let mut tick_time = std::time::Duration::ZERO;
+    let mut changes = [0usize; 2];
     let mut left = SETTLE_TICKS as u32;
     while left > 0 {
         let n = left.min(opts.batch);
         for f in game.trace(n, window(t, n))? {
             print(&f);
+            let r0 = std::time::Instant::now();
             run.settle_tick();
+            tick_time += r0.elapsed();
             let ours = watch.frame(&run.world);
+            redsim_time += r0.elapsed();
             cmp.tick(&f, &ours);
         }
         t += n as i64;
@@ -667,8 +693,13 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
         let n = left.min(opts.batch);
         for f in game.trace(n, window(t, n))? {
             print(&f);
+            let r0 = std::time::Instant::now();
             run.tick();
+            tick_time += r0.elapsed();
             let ours = watch.frame(&run.world);
+            redsim_time += r0.elapsed();
+            changes[0] += f.containers.len();
+            changes[1] += ours.containers.len();
             cmp.tick(&f, &ours);
         }
         t += n as i64;
@@ -677,6 +708,8 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
             break;
         }
     }
+    eprintln!("redsim's side: {:.2} s for {} ticks ({:.1} us a tick: {:.1} us ticking, the rest its frames)", redsim_time.as_secs_f64(), t, redsim_time.as_secs_f64() * 1e6 / t.max(1) as f64, tick_time.as_secs_f64() * 1e6 / t.max(1) as f64);
+    eprintln!("container changes after the arrival: the game {}, redsim {}", changes[0], changes[1]);
     Ok(cmp)
 }
 

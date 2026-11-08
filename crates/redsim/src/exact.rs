@@ -75,6 +75,19 @@ pub struct Frame {
     pub draw_values: Vec<Vec<i32>>,
     /// A probed tick: the spawning chunks in the order `tickChunks` ticked them (after its shuffle).
     pub spawning_shuffled: Vec<[i32; 2]>,
+    /// Container changes in the watched box since the previous frame: (cell, its items as
+    /// [`container_text`] prints them; empty when the container went).
+    pub containers: Vec<([i32; 3], String)>,
+}
+
+/// A container's items, slot by slot (`slot:item:count`, empty slots left out) and, for a
+/// crafter, its disabled slots: the compare's text on both sides.
+pub fn container_text(c: &crate::redstone::container::ContainerBe) -> String {
+    let mut s: Vec<String> = c.slots.iter().enumerate().filter_map(|(i, st)| st.map(|st| format!("{i}:{}:{}", crate::redstone::container::item_name(st.item), st.count))).collect();
+    if c.crafter && c.disabled != 0 {
+        s.push(format!("disabled:{}", c.disabled));
+    }
+    s.join(" ")
 }
 
 /// redsim's side of the watch: the box's blocks and the entities present at the last frame.
@@ -83,6 +96,7 @@ pub struct Watch {
     hi: BlockPos,
     blocks: Vec<Block>,
     present: BTreeSet<u32>,
+    containers: BTreeMap<[i32; 3], String>,
 }
 
 /// The memory names redsim's villager brain models (`villager::Brain`), in the game's names
@@ -103,7 +117,20 @@ impl Watch {
             }
         }
         let present = w.entities.list.iter().filter(|e| !e.removed).map(|e| e.id).collect();
-        Watch { lo, hi, blocks, present }
+        let mut watch = Watch { lo, hi, blocks, present, containers: BTreeMap::new() };
+        watch.containers = watch.container_texts(w);
+        watch
+    }
+
+    /// The text of every container in the box.
+    fn container_texts(&self, w: &World) -> BTreeMap<[i32; 3], String> {
+        let (lo, hi) = (self.lo, self.hi);
+        w.containers
+            .map
+            .iter()
+            .filter(|(p, _)| p.x >= lo.x && p.x <= hi.x && p.y >= lo.y && p.y <= hi.y && p.z >= lo.z && p.z <= hi.z)
+            .map(|(p, c)| ([p.x, p.y, p.z], container_text(c)))
+            .collect()
     }
 
     /// The frame of the tick that just ran.
@@ -139,6 +166,17 @@ impl Watch {
                 }
             }
         }
+        let now = self.container_texts(w);
+        for (p, s) in &now {
+            if self.containers.get(p) != Some(s) {
+                f.containers.push((*p, s.clone()));
+            }
+        }
+        for p in self.containers.keys().filter(|p| !now.contains_key(*p)) {
+            f.containers.push((*p, String::new()));
+        }
+        f.containers.sort();
+        self.containers = now;
         f
     }
 }
@@ -342,6 +380,14 @@ impl Compare {
             let (a, b) = (g.get(p).map(|s| s.as_str()).unwrap_or("(unchanged)"), o.get(p).map(|s| s.as_str()).unwrap_or("(unchanged)"));
             if a != b {
                 push(format!("block {} {} {}", p[0], p[1], p[2]), "block", a.to_string(), b.to_string(), Vec::new());
+            }
+        }
+        let g: BTreeMap<[i32; 3], &String> = game.containers.iter().map(|(p, s)| (*p, s)).collect();
+        let o: BTreeMap<[i32; 3], &String> = ours.containers.iter().map(|(p, s)| (*p, s)).collect();
+        for p in g.keys().chain(o.keys()).collect::<BTreeSet<_>>() {
+            let (a, b) = (g.get(p).map(|s| s.as_str()).unwrap_or("(unchanged)"), o.get(p).map(|s| s.as_str()).unwrap_or("(unchanged)"));
+            if a != b {
+                push(format!("container {} {} {}", p[0], p[1], p[2]), "container", format!("[{a}]"), format!("[{b}]"), Vec::new());
             }
         }
         for mut x in ds {
