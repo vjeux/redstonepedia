@@ -235,10 +235,10 @@ Numbers, never refusals by themselves; each stage weighs them in its own rank:
 - **What reaches vjeux**: per stage, 1-4 farms from the merged fronts, each beating every other
   presented farm by at least 10% on one of the stage's objectives, each with a one-line reason a
   player would pick it and its tradeoffs in plain words, published to the site's Farms section
-  (`farms/iron/`, stages and components: `mctas site variation <design> --stage <stage>
-  [--pick]`, then the coordinator's GO and deploy), never as previews (vjeux 12:18: "Please
-  stop with the preview mode. Just upload them to the website."; previews were only the interim
-  until the Farms section went live).
+  (`farms/iron/`, stages and components) once it passes the game gate (`mctas site variation
+  <design> --stage <stage> [--pick]`, then the coordinator's GO and deploy), never as previews
+  (vjeux 12:18: "Please stop with the preview mode. Just upload them to the website."; previews
+  were only the interim until the Farms section went live).
 - **A farm and its N** (iteration 4, the G1 review): a farm is a stacked unit (one cluster, or
   several sharing parts) and the parts its copies share; builds that differ only in how many
   copies of one unit they hold are ONE farm, never a ladder of front members. Each farm is
