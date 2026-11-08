@@ -105,6 +105,18 @@ its north row, the open gates beside it right under the ceiling, no mouth gates:
 - The sleep check now fails a run when a villager has missed a night (no sleep for 30000 gt): M2's
   villagers sleep once a night, a few ticks later some nights, and the old 24000 gt bound failed
   2 of 8 builds on a tick or two of unwillingness that the rate already counts.
+- The absence probe (`farm::run_away`, entity/mob/absence.rs; the card's "restarts after days
+  away"): a day of the steady state, 3 days away (chunks unloaded: fresh randoms, villager brains
+  rebuilt with only the codec memories, `refreshBrain`'s schedule activity and sensor delays; or
+  loaded but not ticking), back at noon or at midnight, then 2 days. M2 restarts in all four: the
+  first golem 0.0-0.1 h after the return (at night the reloaded villagers sleep before their
+  first hostile scan; by day they wait for the evening's hide).
+
+Late under the stages: M2 stacked in one chunk column (`gen stack --modules N --pitch 43`), each
+module's golems never in another's villagers' follow box (the chamber above starts 43 over the
+villagers below: their box ends 2.51 + 16 x 1.11485 above their feet). Runs of 5 days: N = 2,
+871-898 iron/h (each module 92-94%); N = 4, 1765-1793 iron/h, all in one chunk column against the
+27-pitch bar's 154 per chunk column (M2 at 27 x 27).
 
 | design | file (gen) | villagers | iron/h (95%) | share of ceiling | blocks | iron/h per block | bill |
 | --- | --- | --- | --- | --- | --- | --- | --- |

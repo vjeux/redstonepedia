@@ -27,6 +27,12 @@ pub enum MobfarmCmd {
         /// Modules per side of the grid (l5).
         #[arg(long, default_value_t = 2)]
         grid: i32,
+        /// Modules stacked (stack: M2 modules in one chunk column).
+        #[arg(long, default_value_t = 2)]
+        modules: i32,
+        /// The stack's vertical pitch (stack).
+        #[arg(long, default_value_t = 43)]
+        pitch: i32,
         /// The tier the design is published in (`day-1`, `middle`, `fastest`: the kind's last
         /// word, `circuit: mob-farm iron_ingot middle`); none: a farm in no tier (catalog only).
         #[arg(long)]
@@ -100,7 +106,7 @@ fn load(_version: &str, path: &PathBuf) -> Result<(circuit::Circuit, redsim::ent
 
 pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
     match cmd {
-        MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, tier, out } => {
+        MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, modules, pitch, tier, out } => {
             let (text, how) = match layout.as_str() {
                 "l3" => (crate::layouts::l3(pits), "golems burn in lava pits".to_string()),
                 "l1" => (crate::layouts::l1(), "water carries golems to a lava blade in the villagers' sight".to_string()),
@@ -112,7 +118,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "l6p-pad" => (crate::day1::l6p_pad(pad), "golems burn in a corner of their pad".to_string()),
                 "m3" => (crate::day1::m3_bedplate(pad), "golems fall out of sight to a lava blade".to_string()),
                 "m2" => (crate::day1::m2_observer(pad), "golems fall out of sight to a lava blade".to_string()),
-                other => bail!("no layout {other:?} (l1, l2, l2d, l3, l4, l5, l6p-dry, l6p-pad, m3, m2)"),
+                "stack" => (crate::day1::m2_stack(modules, pitch, pad), format!("{modules} middle modules stacked")),
+                other => bail!("no layout {other:?} (l1, l2, l2d, l3, l4, l5, l6p-dry, l6p-pad, m3, m2, stack)"),
             };
             // (every farm holds its chest, so the download is the whole farm; its `how:` line ends
             // its site title)

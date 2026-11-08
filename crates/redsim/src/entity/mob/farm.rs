@@ -309,6 +309,84 @@ pub fn run(spec: &FarmSpec, o: &RunOpts) -> Result<RunReport, String> {
     Ok(rep)
 }
 
+/// The player away for days in the middle of a run (brief, Stages: Middle).
+#[derive(Clone, Copy, Debug)]
+pub struct AwayPlan {
+    /// Game ticks the farm runs before the player leaves (then up to 200 more, to a tick with no
+    /// block tick pending).
+    pub before: i64,
+    /// At least this many days away.
+    pub days: i64,
+    /// The day time the player comes back at (6000: noon; 18000: midnight).
+    pub back_at: i64,
+    pub how: super::absence::Away,
+    /// Game ticks the farm runs after the return.
+    pub after: i64,
+}
+
+/// What the farm did after the player came back.
+#[derive(Clone, Debug, Default)]
+pub struct AwayReport {
+    /// Game ticks from the return to the first golem (`None`: none in [`AwayPlan::after`]).
+    pub first_golem: Option<i64>,
+    /// Golems after the return.
+    pub golems: u32,
+}
+
+/// [`run`] with the player away in the middle ([`AwayPlan`]): every check applies before and after
+/// the absence, and every villager gets [`super::villager::SLEPT_WITHIN`] + 6000 gt from the
+/// return to sleep again (the farm restarts by itself, or the run fails on the night it misses).
+pub fn run_away(spec: &FarmSpec, o: &RunOpts, plan: AwayPlan) -> Result<(RunReport, AwayReport), String> {
+    let mut r = Run::new(spec, o)?;
+    let mut rep = RunReport { ticks: (plan.before + plan.after) as u32, ..Default::default() };
+    let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new() };
+    for e in &r.world.entities.list {
+        if let EntityKind::Mob(m) = &e.kind
+            && m.ty == MobType::Villager
+        {
+            tr.villager_home.push((e.id, e.pos));
+            tr.last_sleep.push((e.id, m.brain.as_deref().and_then(|b| b.last_slept).unwrap_or(0)));
+        }
+    }
+    let step = |r: &mut Run, rep: &mut RunReport, tr: &mut Track| {
+        r.tick();
+        let t = r.world.time;
+        absorb_events(&mut r.world, rep, tr, t);
+        check_tick(&r.world, rep, tr, spec, t);
+    };
+    for _ in 0..plan.before {
+        step(&mut r, &mut rep, &mut tr);
+    }
+    let mut quiet = 0;
+    while r.world.ticks.count() + r.world.fluid_ticks.count() > 0 {
+        if quiet == 200 {
+            return Err(format!("no tick without a pending block tick in the 200 after gt {}", plan.before));
+        }
+        step(&mut r, &mut rep, &mut tr);
+        quiet += 1;
+    }
+    let lands = r.world.day_time() + plan.days * 24000;
+    let len = plan.days * 24000 + (plan.back_at - lands).rem_euclid(24000);
+    super::absence::away(&mut r.world, len, plan.how)?;
+    let back = r.world.time;
+    for (_, last) in tr.last_sleep.iter_mut() {
+        *last = back;
+    }
+    // a golem alive when the player left lived no game ticks while away
+    for (_, born) in tr.golem_born.iter_mut() {
+        *born += len;
+    }
+    for _ in 0..plan.after {
+        step(&mut r, &mut rep, &mut tr);
+        if rep.failures.len() >= 4 {
+            break;
+        }
+    }
+    finish(&r.world, &mut rep, &tr, spec);
+    let after: Vec<i64> = rep.spawn_times.iter().copied().filter(|t| *t > back).collect();
+    Ok((rep, AwayReport { first_golem: after.first().map(|t| t - back), golems: after.len() as u32 }))
+}
+
 /// A random walking policy for the next golem (`WalkMode::Random`).
 fn pick_walk(r: &mut crate::rng::LegacyRandom) -> Walk {
     let k = r.next_int(17);

@@ -31,8 +31,9 @@ use crate::verify::{Build, BuildOk, Options, VerifyReport};
 use crate::{Circuit, Kind, Pos};
 use anyhow::{Result, anyhow, bail};
 use mctas::sim::Pool;
+use redsim::entity::mob::absence::Away;
 use redsim::entity::mob::exit::{self, ExitReport};
-use redsim::entity::mob::farm::{self, FarmSpec, RunOpts, RunReport, WalkMode};
+use redsim::entity::mob::farm::{self, AwayPlan, AwayReport, FarmSpec, RunOpts, RunReport, WalkMode};
 use redsim::entity::mob::walk::Walk;
 use redsim::{Block, BlockPos};
 
@@ -86,6 +87,7 @@ pub static STUDY: StudyDef = StudyDef {
                 "kill" => Some("the longest a golem lived from any spot it can spawn or stand on, standing still or walking any of 8 ways"),
                 "worst policy" => Some("the rate when every golem walks the same way, the worst of standing still and the 8 directions"),
                 "restarts after a missed night" => Some("whether the farm starts again by itself after a night the villagers could not sleep"),
+                "restarts after days away" => Some("whether the farm starts again by itself after the player was away for 3 days (its chunks unloaded, or loaded but not ticking), back by day or at night"),
                 "misses" => Some("summons that found no spot for the golem, and the golems the villagers saw (each one delays the next summon)"),
                 "bill" => Some("what the build costs in survival: iron ingots (hoppers, the lava bucket and every tool the build needs), quartz, villagers, beds"),
                 "payback" => Some("the time the farm takes to give back the iron it cost"),
@@ -256,6 +258,9 @@ pub struct BaseChecks {
     pub exit: ExitReport,
     pub worst: Vec<(Walk, RunReport)>,
     pub restart: Option<RunReport>,
+    /// The player away for days, each way and back by day and at night (farms that claim to
+    /// restart): [`absence_probe`].
+    pub away: Vec<(Away, i64, RunReport, AwayReport)>,
 }
 
 impl BaseChecks {
@@ -272,8 +277,37 @@ impl BaseChecks {
         {
             v.push(format!("claims to restart after a missed night, but no golem spawned in {RESTART_DAYS} days without a recent sleep"));
         }
+        for (how, back, r, a) in &self.away {
+            let when = away_when(*how, *back);
+            if let Some(f) = r.failures.iter().chain(r.errors.iter()).next() {
+                v.push(format!("{when}: {f}"));
+            } else if a.first_golem.is_none() {
+                v.push(format!("claims to restart, but {when} no golem spawned in the {AWAY_AFTER_DAYS} days after the return"));
+            }
+        }
         v
     }
+}
+
+/// Days the absence probe stays away, and runs after the return.
+pub const AWAY_DAYS: i64 = 3;
+pub const AWAY_AFTER_DAYS: i64 = 2;
+
+fn away_when(how: Away, back: i64) -> String {
+    format!("after {AWAY_DAYS} days away ({}, back {})", how.name(), if back == 6000 { "by day" } else { "at night" })
+}
+
+/// The absence probe (brief, Stages: Middle): a day of the steady state, then [`AWAY_DAYS`] days away
+/// with the chunks unloaded or loaded but not ticking, back at noon or at midnight, then
+/// [`AWAY_AFTER_DAYS`] days: the farm must spawn again by itself.
+pub fn absence_probe(spec: &FarmSpec, o: &JudgeOpts) -> std::result::Result<Vec<(Away, i64, RunReport, AwayReport)>, String> {
+    let cases: Vec<(Away, i64)> = [Away::Unloaded, Away::NotTicking].into_iter().flat_map(|h| [(h, 6000), (h, 18000)]).collect();
+    let ro = farm::judge_opts(o.seed0 + 555, 24000, WalkMode::Random);
+    let out: Vec<std::result::Result<(RunReport, AwayReport), String>> = std::thread::scope(|s| {
+        let hs: Vec<_> = cases.iter().map(|&(how, back_at)| s.spawn(move || farm::run_away(spec, &ro, AwayPlan { before: 24000, days: AWAY_DAYS, back_at, how, after: AWAY_AFTER_DAYS * 24000 }))).collect();
+        hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("absence run panicked".into()))).collect()
+    });
+    cases.into_iter().zip(out).map(|((how, back), r)| r.map(|(rep, a)| (how, back, rep, a))).collect()
 }
 
 /// The base checks of a farm.
@@ -285,7 +319,8 @@ pub fn base_checks(c: &Circuit, spec: &FarmSpec, o: &JudgeOpts) -> std::result::
     let exit = exit::golem_exit(spec, o.seed0, o.threads)?;
     let worst = if exit.failures.is_empty() { worst_policy(spec, o)? } else { Vec::new() };
     let restart = if claims_restart(c) { Some(restart_probe(spec, o)?) } else { None };
-    Ok(BaseChecks { exit, worst, restart })
+    let away = if claims_restart(c) { absence_probe(spec, o)? } else { Vec::new() };
+    Ok(BaseChecks { exit, worst, restart, away })
 }
 
 /// A build's outcome from its runs (`pooled`: every build's runs, for the base build's card;
@@ -299,6 +334,10 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
         }
         if let Some(r) = &b.restart {
             table.push(run_line("restart probe (no recent sleep)", r));
+        }
+        for (how, back, r, a) in &b.away {
+            let first = a.first_golem.map(|t| format!("first golem {t} gt after the return")).unwrap_or_else(|| "no golem after the return".into());
+            table.push(format!("{}; {first}, {} golems", run_line(&away_when(*how, *back), r), a.golems));
         }
     }
     let mut why: Vec<String> = runs.iter().filter(|r| !r.passed()).flat_map(|r| r.failures.iter().chain(r.errors.iter()).cloned()).take(3).collect();
@@ -338,6 +377,13 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
             metrics.push(("worst policy".to_string(), format!("{:.0} iron/h ({})", r.iron_per_hour(), p.name())));
         }
         metrics.push(("restarts after a missed night".to_string(), if bc.restart.is_some() { "yes".to_string() } else { "no (hide the zombie by hand the first night)".to_string() }));
+        let firsts: Vec<f64> = bc.away.iter().filter_map(|(_, _, _, a)| a.first_golem).map(|t| t as f64 / 72000.0).collect();
+        let away = if bc.away.is_empty() || firsts.len() < bc.away.len() {
+            "no".to_string()
+        } else {
+            format!("yes (unloaded or not ticking, back by day or at night: the first golem {:.1}-{:.1} h after the return)", firsts.iter().cloned().fold(f64::INFINITY, f64::min), firsts.iter().cloned().fold(0.0, f64::max))
+        };
+        metrics.push(("restarts after days away".to_string(), away));
     }
     metrics.push(("misses".to_string(), format!("{no_spot} of {tries} tries found no spot, {seen} golem sightings")));
     metrics.push(("bill".to_string(), b.text()));

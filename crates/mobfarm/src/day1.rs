@@ -219,6 +219,40 @@ const GATE_E: &str = "oak_fence_gate[facing=east,in_wall=false,open=true,powered
 /// bulb, which toggles it off: the zombie hides for about 48 gt at nightfall (and at dawn), the
 /// scared villagers fall asleep, then wake scared for the rest of the night. Nothing reads the sky.
 pub fn m2_observer(n: i32) -> String {
+    let mut b = m2_module(n);
+    b.text(&["Middle (candidate M2): the bed observer hides the zombie for 48 gt when U1 lies down; L2d's dry hole, a", "16-block drop and a chamber whose lava cannot light anything."])
+}
+
+/// The late stack (brief, Stages: Late): `modules` copies of M2 stacked `pitch` blocks apart in one
+/// chunk column, each with its own villagers, zombie, bed observer, drop and chamber; the first
+/// module's chest is the output, the others' are chests. A
+/// module's golems never enter the follow box of another's villagers when the pitch clears it: the
+/// chamber above starts 43 over the villagers below (their box ends 2.51 + 16 x 1.11485 above
+/// their feet).
+pub fn m2_stack(modules: i32, pitch: i32, n: i32) -> String {
+    let m = m2_module(n).d;
+    let mut b = Builder::new(&format!("iron-late-stack-{modules}x{pitch}"));
+    b.d.meta = m.meta.clone();
+    let out = m.ports["output"];
+    for i in 0..modules {
+        let dy = pitch * i;
+        for (p, s) in &m.blocks {
+            b.d.blocks.insert([p[0], p[1] + dy, p[2]], s.clone());
+        }
+        for e in &m.entities {
+            b.d.entities.push(mctas::design::EntitySpec { kind: e.kind.clone(), pos: [e.pos[0], e.pos[1] + dy as f64, e.pos[2]], nbt: e.nbt.clone() });
+        }
+        if i == 0 {
+            b.d.ports.insert("output".into(), out);
+        } else {
+            b.set(out[0], out[1] + dy, out[2], "chest[facing=north,type=single,waterlogged=false]");
+        }
+    }
+    b.text(&[&format!("Late (candidate): {modules} M2 modules stacked {pitch} blocks apart in one chunk column, each with its own"), "villagers, zombie, bed observer, drop and fire-safe chamber."])
+}
+
+/// M2 without its rod (the stack puts one on its top module).
+fn m2_module(n: i32) -> Builder {
     let mut b = Builder::new(&format!("iron-middle-observer-{n}"));
     for x in [0, 2, 4] {
         pod(&mut b, x, true);
@@ -286,7 +320,7 @@ pub fn m2_observer(n: i32) -> String {
     chamber_safe(&mut b, k);
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     b.d.meta.insert("restart".into(), "yes".into());
-    b.text(&["Middle (candidate M2): the bed observer hides the zombie for 48 gt when U1 lies down; L2d's dry hole, a", "16-block drop and a chamber whose lava cannot light anything."])
+    b
 }
 
 /// Middle, candidate M3: the bed plate for three scared villagers (pods at x 0, 2, 4) and U1 on its

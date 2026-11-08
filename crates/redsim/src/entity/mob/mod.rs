@@ -17,6 +17,7 @@
 //! unseeded random; the level random that unmodeled behaviors also draw from), the draw comes from
 //! [`MobWorld::rng`], seeded by the caller, with the same distribution.
 
+pub mod absence;
 pub mod blocks;
 pub mod exit;
 pub mod farm;
