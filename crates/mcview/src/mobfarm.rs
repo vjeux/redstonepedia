@@ -783,8 +783,9 @@ mod tests {
 
     /// vjeux 2026-11-08 ("Can you make areas continuous for spawn targets"): the spawn area is one
     /// uniform sheet: each cell of the union of every villager's cells drawn once (its floor, from
-    /// above and from under), all in one colour, the outline only where the union ends (d1-bed-plate:
-    /// its pad's water sources, translucent blue cubes in its corners, are blocks of the farm).
+    /// above and from under), all in one colour, magenta (the blue read as water: d1-bed-plate's
+    /// water sources, translucent blue cubes in its pad's corners, were taken for the area), the
+    /// outline only where the union ends.
     #[test]
     fn the_spawn_area_is_one_uniform_sheet() {
         let text = std::fs::read_to_string(format!("{}/../../designs/farms/iron/day-1/d1-bed-plate.txt", env!("CARGO_MANIFEST_DIR"))).unwrap();
@@ -802,6 +803,9 @@ mod tests {
         // the floor quads: one colour, two per cell (up and down), at the cell's floor
         let floors: Vec<&&crate::mesh::Quad> = sheet.iter().filter(|q| q.v[0].color[3] < 200).collect();
         let colour = floors[0].v[0].color;
+        // (magenta: no farm block's colour, not water's blue)
+        assert_eq!(colour, crate::mesh::SPAWN_SHEET);
+        assert!(colour[0] > 200 && colour[1] < 100 && colour[2] > 150, "{colour:?}");
         assert!(floors.iter().all(|q| q.v.iter().all(|v| v.color == colour)), "one colour");
         let mut per_cell: HashMap<[i32; 3], u32> = HashMap::new();
         for q in &floors {

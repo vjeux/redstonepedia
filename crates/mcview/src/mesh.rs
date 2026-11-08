@@ -218,6 +218,10 @@ pub const GHOST_ALPHA: u8 = 80;
 /// so the blocks in front never hide it (the shader masks the bit off for its texture).
 pub const XRAY: u32 = 0x8000_0000;
 
+/// The golem spawn area's colour ([`Builder::spawn_sheet`]): a translucent magenta, no farm
+/// block's (water is blue, lava orange, glass pale).
+pub const SPAWN_SHEET: [u8; 4] = [236, 64, 214, 130];
+
 /// A [`Builder`] without its atlas (carried between frames: [`Builder::into_parts`]).
 pub struct BuilderParts {
     occ: HashSet<Pos>,
@@ -983,10 +987,11 @@ impl<'a> Builder<'a> {
     /// changing color and the progress bar around the iron golem?"): one steady translucent sheet
     /// in one colour on the floor where a golem's feet would stand (each spawn cell's bottom: the
     /// block under it is what it stands on), only the area's outer edges outlined, seen through the
-    /// blocks. No counts and no flash: the golem appearing is the signal.
+    /// blocks. No counts and no flash: the golem appearing is the signal. Its colour is no farm
+    /// block's ([`SPAWN_SHEET`]: magenta; the blue read as water beside a farm's real water).
     pub fn spawn_sheet(&mut self, cells: &[Pos]) {
         const LIFT: f32 = 0.03;
-        const SHEET: [u8; 4] = [72, 196, 255, 120];
+        const SHEET: [u8; 4] = SPAWN_SHEET;
         const EDGE: [u8; 4] = [255, 255, 255, 235];
         const EDGE_W: f32 = 0.08;
         let tile = self.atlas.tile("spawn_spot") as u32 | XRAY;

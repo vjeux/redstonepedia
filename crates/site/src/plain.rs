@@ -481,7 +481,7 @@ pub fn try_it(c: &Circuit, has_viewer: bool) -> String {
     // chest goes at OUT; the first night's hide is a build step (in "Build it")
     if crate::explain::mob_farm(c) {
         return format!(
-            "Press play to watch it work: the villagers sleep at night and panic at the zombie by day, golems spawn and die, and the hoppers carry their iron to the chest; the top right counts the game's time, the golems and the iron. The blue floor is where a golem can spawn, seen through the blocks (Spawn spots hides it). {} In the game, build it and wait near it.",
+            "Press play to watch it work: the villagers sleep at night and panic at the zombie by day, golems spawn and die, and the hoppers carry their iron to the chest; the top right counts the game's time, the golems and the iron. The magenta floor is where a golem can spawn, seen through the blocks (Spawn spots hides it). {} In the game, build it and wait near it.",
             crate::explain::chest_words(c)
         );
     }
