@@ -140,7 +140,7 @@ generates and the one-line `import init ...; init();` each page uses to start a 
 | command | what it does |
 |---|---|
 | `mctas site publish` | THE command after merging into main: `build` (all defaults) + `deploy`. No browser end-to-end gate (vjeux 2026-10-20 14:20Z: "Please remove the e2e tests"); the smoke below is an optional dev tool |
-| `mctas site preview <design>... [--name <slug>]` | shows a work-in-progress design to vjeux in under a minute, from any lane's own branch ([Previews](#previews)): its page, 3D view, card and downloads at `https://vjeux.github.io/redstonepedia-preview/<slug>/<file>.html`; prints the URL and the seconds from the command's start to the page answering |
+| `mctas site preview <design>... [--name <slug>]` | not used (vjeux 2026-11-08: "Please stop with the preview mode. Just upload them to the website."; [Previews](#previews)): showed a work-in-progress design at `https://vjeux.github.io/redstonepedia-preview/<slug>/<file>.html` |
 | `mctas site build --out site/` | exports `site/data/site.json`, one page per build (`doors/<stem>.html`, `clocks/<stem>.html`, `circuits/<study>/<stem>.html`) and per extendable family (`families/<card>.html`), the boards page, the design files (`designs/...`) with a Litematica schematic next to each (`<stem>.litematic`, [litematic.md](litematic.md); one that cannot be written fails the build), generates every family member with the family's own `extend generator` and checks it in redsim, builds the UI into `pkg/`, copies webrender's 3D viewer (`web/viewer/` of the checkout by default; `--viewer <dir>`, `--viewer-ref <git ref>`, `--no-viewer`) into `viewer/`; `--pkg-ref origin/gh-pages` reuses the deployed UI instead of building it, only when its `pkg/SOURCE` fingerprint matches the checkout's `web/site` + `crates/site-model` (else the build fails: rebuild with the wasm32 target and wasm-bindgen-cli 0.2.129) |
 | `mctas site serve --dir site/ [--port 8000]` | local preview (static server on 127.0.0.1) |
 | `mctas site smoke --dir site/ [--url <deployed site>]` | headless Chrome (`--dump-dom`) loads the index, a time search, a facet link, a door page and a family page and checks the DOM the WebAssembly UI built against the engine's own answers; two probe pages screenshot a door and a clock thumbnail through the 3D viewer (WebGL2 in SwiftShader) and count colors (a render has thousands, the fallback one); `--url` checks the live site. `mctas site publish` refuses to deploy without it (`--no-smoke` overrides) |
@@ -158,6 +158,10 @@ Chrome for Testing's `chrome-headless-shell` (`--chrome`, `$CHROME`, or unpacked
 Validate the HTML with the Nu checker: `vnu --errors-only --skip-non-html site/`.
 
 ### Previews
+
+**Not used** (vjeux 2026-11-08, later the same day: "Please stop with the preview mode. Just upload
+them to the website."): designs go to the site through the coordinator, and nothing is pushed to
+vjeux/redstonepedia-preview. The tool and its description stay below.
 
 `mctas site preview` (`crates/site/src/preview.rs`). To show vjeux a design you are working on (vjeux 2026-11-08: "push farms to the site in less than
 a minute. I want to be able to see them in order to iterate with you"), run, from your own branch:
