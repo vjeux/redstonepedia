@@ -37,6 +37,30 @@ pub struct Biome {
     pub spawners: Vec<Spawner>,
     /// `MobSpawnCost`: (type, charge, energy budget).
     pub costs: Vec<(String, f64, f64)>,
+    /// The colours the client tints with before the grass modifier (`Biome.getGrassColor` /
+    /// `getFoliageColor` / `getDryFoliageColor`: the override, else the colormap at the clamped
+    /// climate), 0xRRGGBB.
+    pub grass: u32,
+    pub foliage: u32,
+    pub dry_foliage: u32,
+}
+
+impl Biome {
+    /// `Biome.getGrassColor(x, z)`: the resolved grass colour through the biome's modifier
+    /// (`dark_forest`: `(c & 0xfefefe) + 0x28340a >> 1`; `swamp` reads `BIOME_INFO_NOISE`, not
+    /// ported: an error).
+    pub fn grass_color(&self, _x: f64, _z: f64) -> Result<u32, String> {
+        match self.grass_modifier.as_str() {
+            "none" => Ok(self.grass),
+            "dark_forest" => Ok(((self.grass & 0xfefefe) + 0x28340a) >> 1),
+            m => Err(format!("{}: grass colour modifier {m} is not modeled", self.name)),
+        }
+    }
+
+    /// The water colour (the biome's `water_color`).
+    pub fn water(&self) -> u32 {
+        self.water_color.unwrap_or(0x3f76e4)
+    }
 }
 
 impl Biome {
@@ -65,9 +89,10 @@ fn parse(text: &str) -> Result<HashMap<String, Biome>, String> {
             continue;
         }
         let f: Vec<&str> = line.split('\t').collect();
-        if f.len() != 14 {
+        if f.len() != 14 && f.len() != 17 {
             return Err(format!("{} fields in {}", f.len(), line.chars().take(60).collect::<String>()));
         }
+        let resolved = |i: usize| f.get(i).and_then(|s| hex(s)).unwrap_or(0xff00ff);
         let mut spawners = Vec::new();
         if f[12] != "-" {
             for s in f[12].split(';') {
@@ -109,6 +134,9 @@ fn parse(text: &str) -> Result<HashMap<String, Biome>, String> {
             surface_slime_chance: f[11].parse().unwrap_or(0.0),
             spawners,
             costs,
+            grass: resolved(14),
+            foliage: resolved(15),
+            dry_foliage: resolved(16),
         };
         out.insert(b.name.clone(), b);
     }

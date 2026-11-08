@@ -105,6 +105,23 @@ pub enum TerrainCmd {
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         afk: Vec<f64>,
     },
+    /// The spot a footprint takes in a sample (the judge's deterministic spot search: no refusal,
+    /// the fewest blocks dug, then the nearest to the sample's start).
+    Spot {
+        /// A standard sample's name (village-edge, plains, forest) or a file.
+        sample: String,
+        /// The footprint's columns (x, z).
+        #[arg(long, value_delimiter = ',')]
+        size: Vec<i32>,
+        /// Layers of the design box under its ground layer.
+        #[arg(long, default_value_t = 0)]
+        below: i32,
+        /// Override the search's start column and radius.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        near: Vec<i32>,
+        #[arg(long)]
+        radius: Option<i32>,
+    },
     /// redsim's biome_at against the game's `execute if biome` at random cells of an area.
     BiomeCheck {
         file: PathBuf,
@@ -203,6 +220,9 @@ pub enum TerrainCmd {
         /// Print the positions of the states whose name contains this text.
         #[arg(long)]
         locate: Option<String>,
+        /// List the palette's randomly ticking states (the natural-state table's flag).
+        #[arg(long)]
+        ticking: bool,
     },
     /// Cut a box out of a file (`--lo X,Y,Z --hi X,Y,Z`, inclusive), or a column box around a
     /// centre (`--around X,Z --radius R`) from `--below` blocks under the lowest surface to
@@ -332,6 +352,29 @@ pub fn run(version: &str, cmd: TerrainCmd) -> Result<()> {
                 println!("REFUSED {}: {}", r.channel, r.why);
             }
         }
+        TerrainCmd::Spot { sample, size, below, near: near_arg, radius: radius_arg } => {
+            anyhow::ensure!(size.len() == 2, "--size takes X,Z");
+            let (path, near, radius) = match redsim::terrain::samples::sample(&sample) {
+                Some(s) => (PathBuf::from(s.file), s.near, s.radius),
+                None => (PathBuf::from(&sample), [0, 0], 16),
+            };
+            let t = read(&path)?;
+            let near = if redsim::terrain::samples::sample(&sample).is_some() { near } else { [t.origin[0] + t.size[0] / 2 - size[0] / 2, t.origin[2] + t.size[2] / 2 - size[1] / 2] };
+            let near = if near_arg.len() == 2 { [near_arg[0], near_arg[1]] } else { near };
+            let radius = radius_arg.unwrap_or(radius);
+            let w = redsim::terrain::build_world(&t).map_err(anyhow::Error::msg)?;
+            match redsim::terrain::place::best_spot(&w, [size[0], size[1]], below, near, radius) {
+                Some(s) => println!("{}: footprint {}x{} at min column {},{}; ground layer y {}; {} blocks dug", sample, size[0], size[1], s.lo_xz[0], s.lo_xz[1], s.ground, s.dug),
+                None => {
+                    for (why, n) in redsim::terrain::place::spot_tally(&w, [size[0], size[1]], below, near, radius).iter().take(8) {
+                        println!("  {n:6} {why}");
+                    }
+                    let ground = redsim::terrain::place::ground_y(&w, near, [near[0] + size[0] - 1, near[1] + size[1] - 1]);
+                    let why = redsim::terrain::place::refusal(&w, redsim::pos::BlockPos::new(near[0], ground - below, near[1]), redsim::pos::BlockPos::new(near[0] + size[0] - 1, ground, near[1] + size[1] - 1));
+                    println!("{sample}: no spot within {radius} of {near:?} passes (at {near:?} itself: {why:?})")
+                }
+            }
+        }
         TerrainCmd::BiomeCheck { file, world, samples } => {
             let t = read(&file)?;
             let (n, bad, ex) = worldgen::biome_check(version, &world, &t, samples)?;
@@ -396,9 +439,22 @@ pub fn run(version: &str, cmd: TerrainCmd) -> Result<()> {
                 }
             }
         }
-        TerrainCmd::Info { file, palette, locate } => {
+        TerrainCmd::Info { file, palette, locate, ticking } => {
             let t = read(&file)?;
             print_info(&t, palette);
+            if ticking {
+                let mut counts = vec![0usize; t.palette.len()];
+                for c in &t.cells {
+                    counts[*c as usize] += 1;
+                }
+                for (i, s) in t.palette.iter().enumerate() {
+                    if let Some(id) = redsim::terrain::blocks::id_of(s)
+                        && redsim::terrain::blocks::props(id).random_ticking
+                    {
+                        println!("randomly ticking: {s} ({} cells)", counts[i]);
+                    }
+                }
+            }
             if let Some(text) = locate {
                 let ids: Vec<bool> = t.palette.iter().map(|s| s.contains(&text)).collect();
                 let [ox, oy, oz] = t.origin;
