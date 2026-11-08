@@ -1,0 +1,27 @@
+name: cal-bulb-counter-slice
+circuit: binary-counter 1
+slice: 3 0 1
+# One bit of a ripple binary counter, stacked by the judge into N bits: a copper bulb (a T
+# flip-flop: it flips on each rising edge of its power) read by a comparator that strongly powers a
+# stone (q, the lamp beside it); the torch on that stone is NOT q, the chain output, and it powers
+# the next bit's bulb, which flips when q FALLS. The chain is on at rest (a lit torch), so copy 0's
+# clock idles high too: a redstone block the judge takes away for each pulse (the bulb flips as it
+# comes back: the counter counts on the falling clock edge).
+origin: 0 0 0
+port input.clk: 0 1 1 minecraft:air minecraft:redstone_block
+port output.q0: 3 1 0
+port output.cout: 3 1 2
+palette:
+  R minecraft:redstone_block
+  b minecraft:waxed_copper_bulb[lit=false,powered=true]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  S minecraft:stone
+  T minecraft:redstone_wall_torch[facing=south,lit=true]
+layer 0:
+  ....
+  ..S.
+  ....
+layer 1:
+  ....
+  RbCS
+  ...T

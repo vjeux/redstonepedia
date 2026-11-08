@@ -1,0 +1,50 @@
+# Track fly's two-way machine fly-two-way-14b (designs/circuits/tracks/fly/two-way/), kept here as
+# the judge's two-way calibration: the reversible 6-block engine (two sticky pistons, the one that
+# fires first sets the direction) shuttles between two 4-block return stations (`port station.<n>`
+# marks their blocks: they count, the tracker leaves them out of the machine's shape). An obsidian
+# wall stops it; an observer watching the cell only the trailing observer enters at the stop fires
+# into a block whose cross dust points into the back of the leading sticky piston, which pushes the
+# trailing part back (2 gt pulse: spit) and the engine runs the other way.
+name: cal-two-way-machine
+circuit: flying-machine
+distance: 8
+travel: 0 0 1
+port start: 0 -1 0 minecraft:stone 1
+port station.0: 0 0 5
+port station.1: 0 0 6
+port station.2: 0 1 6
+port station.3: 1 1 6
+port station.4: 1 0 -1
+port station.5: 1 0 -2
+port station.6: 1 1 -2
+port station.7: 0 1 -2
+origin: 0 0 -2
+palette:
+  A minecraft:obsidian
+  B minecraft:sticky_piston[extended=false,facing=south]
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:redstone_wire[east=side,north=side,south=side,west=side]
+  S minecraft:slime_block
+  n minecraft:observer[facing=north]
+  t minecraft:observer[facing=south]
+  s minecraft:sticky_piston[extended=false,facing=north]
+layer 0:
+  .A
+  .t
+  O
+  .O
+  .
+  .
+  .
+  n
+  A
+layer 1:
+  AR
+  ..
+  SB
+  sS
+  .
+  .
+  .
+  .
+  RA

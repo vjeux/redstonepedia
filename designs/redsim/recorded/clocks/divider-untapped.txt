@@ -1,0 +1,22 @@
+name: selftest-divider-untapped
+# The copper-bulb divider as it was archived (clk-obs-divider, hidden 2026-10-23): an observer pair
+# toggles a copper bulb, and the family claims P = 12 x 2^n. Its declared output, an exterior air cell
+# east of the pair, gets the pair's pulses every 6 gt: the bulb's divided signal reaches no air cell.
+# `clock archive` must refuse it: the family check reads the period a builder gets at the member's
+# output (6 gt), not the period of its whole state (12 gt). No generator: only n = 0, the base, is
+# checked.
+extend family: selftest-divider-untapped
+extend period: 12 * 2^n
+extend blocks: 3 + 3n
+extend rule: add a stage behind the last bulb: a comparator (facing the clock, reading the bulb, on a stone floor) and a bulb
+extend n: 0..0
+extend base: 0
+origin: -1 0 0
+port output: 2 0 0
+port start: 1 0 0 last
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:waxed_copper_bulb[lit=false,powered=false]
+layer 0:
+  CAB

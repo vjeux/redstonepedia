@@ -1,0 +1,24 @@
+# Refused by the start judge (check.rs `flying_start`, 4 gt lever flips): fly-d1 with its kick
+# replaced by a lever in the cell its rear observer A watches. A stays on the parked rear part
+# until the front part pulls it, so the lever turned off 4 gt after the launch fires A again and
+# the rear piston pushes in the middle of the pull: the machine breaks.
+name: cal-fly-start-watcher-stays
+circuit: flying-machine
+travel: 1 0 0
+distance: 16
+origin: -3 0 0
+port input: -2 1 0 lever
+port station.0: -3 1 0
+port station.1: -2 1 0
+palette:
+  X minecraft:piston[facing=east]
+  Y minecraft:sticky_piston[facing=west]
+  S minecraft:slime_block
+  A minecraft:observer[facing=west]
+  B minecraft:observer[facing=west]
+  T minecraft:stone
+  L minecraft:lever[face=wall,facing=east,powered=false]
+layer 0:
+  ...XBS
+layer 1:
+  TLASSY

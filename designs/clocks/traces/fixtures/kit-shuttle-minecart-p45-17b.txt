@@ -1,0 +1,24 @@
+# archived 2026-10-20T03:55Z from designs/clocks/tracks/clockinfra/kits/shuttle/designs/kit-shuttle-minecart-p45-17b.txt by mctas clock archive
+# CLOCK: kit-shuttle-minecart-p45-17b period 45 gt (2.25 s), on 40/45, edges 1, warmup 10, family detector_rail+minecart, 17 blocks, 9x2x1, robust
+name: kit-shuttle-minecart-p45-17b
+# Minecart shuttle (clock kit K1, `mctas clock kit shuttle`): a straight track S P P P D D D P S from
+# west to east (S stone bumper, P powered rail on a redstone block, p unpowered powered rail, R rail,
+# D detector rail, every rail on its support); an empty minecart starts on piece 2. A powered rail
+# launches the resting cart away from the bumper behind it and speeds it up, the cart coasts, stops
+# against the far bumper or runs out of speed and comes back; the detector rail turns on as it passes
+# and off at its 20 gt recheck.
+kit: shuttle (kit-shuttle-7-21147951): period 45 gt, family detector_rail+minecart, minimal; 88 types with this period
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 3 1 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+# port output moved 2026-10-21 (usable-output rule): an air cell where a repeater facing north (on the ground) takes every pulse (was 3 -1 0: the output [3, -1, 0] is under the build (the build's ground level is y = 0): a repeater there has nothing to stand on)
+port output: 3 0 -1
+entity: minecraft:minecart 0.5 1.0625 0.5
+origin: -1 0 0
+palette:
+  D minecraft:detector_rail[shape=east_west]
+  P minecraft:powered_rail[shape=east_west]
+  R minecraft:redstone_block
+  S minecraft:stone
+layer 0:
+  .RRRSSSR
+layer 1:
+  SPPPDDDPS

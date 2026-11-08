@@ -1,0 +1,19 @@
+# calibration (the composter model against the game; not a working composter): the input chest
+# over a hopper pointing down into the composter, a hopper under it into the bone meal chest. The
+# hopper over the composter keeps every item that is not compostable, so after the first five
+# kinds of them it takes nothing more: the judge refuses it (it jams)
+name: cal-compost-naive
+circuit: composter 1
+port items: 0 3 0
+port pass: 1 3 0
+port output: 0 -1 0
+origin: 0 0 0
+palette:
+  H minecraft:hopper[enabled=true,facing=down]
+  C minecraft:composter[level=0]
+layer 0:
+  H
+layer 1:
+  C
+layer 2:
+  H

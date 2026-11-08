@@ -1,0 +1,22 @@
+# archived 2026-10-20T03:56Z from designs/clocks/tracks/clockinfra/kits/shuttle/designs/kit-shuttle-minecart-p57-17b.txt by mctas clock archive
+# CLOCK: kit-shuttle-minecart-p57-17b period 57 gt (2.85 s), on 40/57, edges 2, warmup 22, family detector_rail+minecart+powered_rail, 17 blocks, 9x2x1, robust
+name: kit-shuttle-minecart-p57-17b
+# Minecart shuttle (clock kit K1, `mctas clock kit shuttle`): a straight track S p p D p D P P S from
+# west to east (S stone bumper, P powered rail on a redstone block, p unpowered powered rail, R rail,
+# D detector rail, every rail on its support); an empty minecart starts moving east on piece 3. A
+# powered rail launches the resting cart away from the bumper behind it and speeds it up, the cart
+# coasts, stops against the far bumper or runs out of speed and comes back; the detector rail turns on
+# as it passes and off at its 20 gt recheck.
+kit: shuttle (kit-shuttle-7-22428367): period 57 gt, family detector_rail+minecart+powered_rail, minimal; 6 types with this period
+port output: 2 1 0
+entity: minecraft:minecart 1.5 1.0625 0.5 {Motion:[0.4d,0.0d,0.0d]}
+origin: -1 0 0
+palette:
+  D minecraft:detector_rail[shape=east_west]
+  P minecraft:powered_rail[shape=east_west]
+  R minecraft:redstone_block
+  S minecraft:stone
+layer 0:
+  .SSSSSRR
+layer 1:
+  SPPDPDPPS

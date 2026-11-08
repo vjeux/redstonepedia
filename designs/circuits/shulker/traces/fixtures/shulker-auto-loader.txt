@@ -1,0 +1,62 @@
+# archived 2026-10-20T07:52Z from designs/circuits/shulker/tracks/shulker/auto-loader.txt by mctas circuit archive
+# CIRCUIT: shulker-auto-loader shulker-loader boxes/min 0.087, items/s 2.50, first box 13847 gt, cycle 13832 gt, hoppers awake 3, badges always-on+16-stack+unstackable+colours+restart+top-up+box-starved+drop-free, bill 16 iron, 4 quartz, 28 redstone, 1 slime, 31 blocks, 5x5x5, robust
+# Always-on shulker loader (track shulker, hand-built). A comparator reads the dispenser through
+# the drop cell's roof; an observer above that comparator fires the dispenser whenever it goes from
+# holding no box to holding one, so it places the first box by itself and again whenever boxes come
+# back after the supply ran out. The dispenser sits above the box cell (the drop, which pops at a
+# random offset and drifts, cannot leave upward); a hopper feeds the box from the side; a
+# comparator reads it through a stone, in compare mode with a redstone block on its side, so it
+# outputs 15 only when full; through a stone, two dusts and a repeater it powers a stone beside a
+# sticky piston two cells away (so the powered dispenser never quasi-powers it), which pushes a
+# stone into the box: the box breaks and the moving stone pushes the drop into the walled drop cell,
+# over the hopper to the output chest. An observer on the pushed stone's cell fires the dispenser
+# for the next box. The floor under the box cell and the drop cell's north wall look removable
+# (`circuit shulker shrink` took them out, and most runs pass), but a drop that drifts past them
+# falls out of the machine now and then: they stay.
+name: shulker-auto-loader
+circuit: shulker-loader
+port items: 0 2 1
+port boxes: 0 3 -1
+port output: 2 0 0
+origin: -2 0 -3
+palette:
+  B minecraft:redstone_block
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  D minecraft:dispenser[facing=down,triggered=false]
+  E minecraft:comparator[facing=west,mode=compare,powered=false]
+  K minecraft:hopper[enabled=true,facing=east]
+  N minecraft:hopper[enabled=true,facing=north]
+  P minecraft:sticky_piston[extended=false,facing=east]
+  Q minecraft:observer[facing=down,powered=false]
+  S minecraft:stone
+  T minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  U minecraft:hopper[enabled=true,facing=south]
+  r minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer 0:
+  SS....
+  S.S...
+  ......
+  ..SK..
+  ......
+layer 1:
+  rrS...
+  T.CB..
+  S.SS..
+  PS..S.
+  ..NS..
+layer 2:
+  ......
+  ......
+  ..U...
+  .QDSE.
+  ......
+layer 3:
+  ......
+  ......
+  ......
+  .SrSQ.
+layer 4:
+  ......
+  ......
+  ......
+  ...rS.

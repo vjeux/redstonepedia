@@ -1,0 +1,28 @@
+name: cal-sculk-filter-rise
+circuit: rising-edge
+# A rising-edge detector of 10 gt that only listens to its own note block: the input powers a note
+# block, which plays only when it becomes powered (game event note_block_play, frequency 10); a
+# calibrated sculk sensor hears it and stays active 10 gt. A comparator reading a chest of 1111
+# cobblestone feeds the sensor's back a constant 10, so the sensor accepts frequency 10 only: the
+# lever's switch-off (block_deactivate, 9), footsteps (1), items landing (2), blocks broken or
+# placed (12, 13) never trigger it (the vibration test).
+origin: 0 0 0
+port input: 0 0 0
+port output: 3 0 1
+palette:
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  K minecraft:calibrated_sculk_sensor[facing=north,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  H minecraft:chest[facing=north,type=single,waterlogged=false]
+  S minecraft:stone
+layer -1:
+  ...
+  ...
+  ..S
+  ...
+layer 0:
+  .N.
+  ..K
+  ..C
+  ..H
+nbt: 2 0 3 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:64},{Slot:1b,id:"minecraft:cobblestone",count:64},{Slot:2b,id:"minecraft:cobblestone",count:64},{Slot:3b,id:"minecraft:cobblestone",count:64},{Slot:4b,id:"minecraft:cobblestone",count:64},{Slot:5b,id:"minecraft:cobblestone",count:64},{Slot:6b,id:"minecraft:cobblestone",count:64},{Slot:7b,id:"minecraft:cobblestone",count:64},{Slot:8b,id:"minecraft:cobblestone",count:64},{Slot:9b,id:"minecraft:cobblestone",count:64},{Slot:10b,id:"minecraft:cobblestone",count:64},{Slot:11b,id:"minecraft:cobblestone",count:64},{Slot:12b,id:"minecraft:cobblestone",count:64},{Slot:13b,id:"minecraft:cobblestone",count:64},{Slot:14b,id:"minecraft:cobblestone",count:64},{Slot:15b,id:"minecraft:cobblestone",count:64},{Slot:16b,id:"minecraft:cobblestone",count:64},{Slot:17b,id:"minecraft:cobblestone",count:23}]}

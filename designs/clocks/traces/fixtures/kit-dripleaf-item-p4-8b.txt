@@ -1,0 +1,22 @@
+# archived 2026-10-20T04:15Z from designs/clocks/tracks/clockinfra/kits/dripleaf/designs/kit-dripleaf-item-p4-8b.txt by mctas clock archive
+# CLOCK: kit-dripleaf-item-p4-8b period 4 gt (0.2 s), on 2/4, edges 1, warmup 1, family big_dripleaf+item+observer+redstone_wire, 8 blocks, 3x3x1, robust
+name: kit-dripleaf-item-p4-8b
+# Big dripleaf clock (clock kit K3, `mctas clock kit dripleaf`): a item rests on a big dripleaf; the
+# leaf tilts under it, an observer watching the leaf pulses, and the pulse runs to the dirt under the
+# leaf: power resets the tilt (and blocks re-tilting while it lasts), then the leaf tilts again.
+kit: dripleaf (kit-dripleaf-2583169): period 4 gt, family big_dripleaf+item+observer+redstone_wire, minimal; 6 types with this period
+port output: -1 1 0
+entity: minecraft:item 0.5 1.9375 0.5 {Item:{id:"minecraft:stone",count:1},PickupDelay:32767s,Age:-32768s}
+origin: -2 0 0
+palette:
+  B minecraft:big_dripleaf[facing=north,tilt=none]
+  D minecraft:dirt
+  O minecraft:observer[facing=east]
+  R minecraft:redstone_wire[east=side,north=side,south=side,west=side]
+  S minecraft:stone
+layer -1:
+  .S
+layer 0:
+  SRD
+layer 1:
+  ROB

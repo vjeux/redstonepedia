@@ -1,0 +1,88 @@
+# archived 2026-10-20T20:16Z from designs/circuits/shulker/tracks/shulker/loader-pitch3-flush.txt by mctas circuit archive
+# CIRCUIT: shulker-loader-pitch3-flush shulker-loader boxes/min 0.087, items/s 2.50, first box 13867 gt, cycle 13840 gt, hoppers awake 5, badges always-on+16-stack+unstackable+colours+restart+top-up+flush+box-starved+drop-free+tileable(3), bill 26 iron, 8 quartz, 47 redstone, 1 slime, 40 blocks, 3x6x7, robust
+name: shulker-loader-pitch3-flush
+circuit: shulker-loader
+tile: 3 0 0
+# Experiment (clk-rt, 2026-10-20): shulker-loader-pitch3 plus an hourglass flush that outlasts
+# the restart pause. A barrel holds 420 stone over a hopper that drains it into a sink barrel
+# only while the items chest is empty (a comparator on the items chest locks it otherwise).
+# 420 items take 3360 gt to drain: longer than the restart pause (3000 gt), well inside the flush
+# deadline (6000 gt). When the barrel runs empty, its comparator turns off, the wall torch on
+# its output stone lights and powers a dust staircase down to a repeater that feeds the full
+# line: the piston breaks the last partial box. The hourglass expires once, at the end of a batch.
+port boxes: 1 1 1
+port items: 0 3 0
+port output: 0 0 2
+origin: 0 0 -3
+nbt: 2 4 0 {Items:[{Slot:0b,id:"minecraft:stone",count:64},{Slot:1b,id:"minecraft:stone",count:64},{Slot:2b,id:"minecraft:stone",count:64},{Slot:3b,id:"minecraft:stone",count:64},{Slot:4b,id:"minecraft:stone",count:64},{Slot:5b,id:"minecraft:stone",count:64},{Slot:6b,id:"minecraft:stone",count:36}]}
+nbt: 2 4 1 {OutputSignal:4}
+palette:
+  A minecraft:hopper[enabled=true,facing=south]
+  B minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  D minecraft:dispenser[facing=up,triggered=false]
+  E minecraft:observer[facing=up,powered=false]
+  F minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  G minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  H minecraft:hopper[enabled=true,facing=down]
+  O minecraft:observer[facing=east,powered=false]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=south]
+  c minecraft:comparator[facing=west,mode=compare,powered=false]
+  h minecraft:hopper[enabled=true,facing=north]
+  o minecraft:observer[facing=north,powered=false]
+  w minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
+  s minecraft:stone
+  b minecraft:chest[facing=north,type=single,waterlogged=false]
+  g minecraft:comparator[facing=north,mode=compare,powered=true]
+  t minecraft:redstone_wall_torch[facing=south,lit=false]
+  d minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=none]
+  e minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+layer -1:
+  ...
+  E..
+  o..
+  s..
+  ...
+  ...
+  ...
+layer 0:
+  .s.
+  C.s
+  sOE
+  DBs
+  Ahs
+  ...
+  ...
+layer 1:
+  sFs
+  S.G
+  sRG
+  .cw
+  ..G
+  ..s
+  ...
+layer 2:
+  ...
+  ...
+  ...
+  Hs.
+  ...
+  ..d
+  ..s
+layer 3:
+  ...
+  ...
+  ..b
+  .ch
+  ..s
+  ...
+  ..e
+layer 4:
+  ...
+  ...
+  ...
+  ..b
+  ..g
+  ..s
+  ..t

@@ -1,0 +1,9 @@
+# s25: only BR (2,-2) ideal (b, both edges)
+design designs/redsim/recorded/ideal/s25.txt
+let b = 30
+open 0 use -4 1 0
+open b set 2 -2 -1 minecraft:redstone_block
+open b+2 clear 2 -2 -1
+close 0 use -4 1 0
+close b set 2 -2 -1 minecraft:redstone_block
+close b+2 clear 2 -2 -1

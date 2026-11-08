@@ -1,0 +1,65 @@
+# archived 2026-10-22T03:57Z from designs/circuits/tracks/composter/compost-row.txt by mctas circuit archive
+# CIRCUIT: compost-row composter 1 bone meal/h per composter 100, items composted/min 111.4, bone meal 22 from 368 items, first bone meal by 340 gt, hoppers awake 12, at rest yes, blocks per composter 18.0, tileable every 1, bill 20 iron, 1 quartz, 10 redstone, 18 blocks, 1x6x5, robust
+# One composter a slice, as many slices side by side as there are crops to compost: the line of
+# hoppers along the top carries the farm's mixed output; each slice's filter hopper holds its crop
+# (41 of it and four named papers), so it takes only that crop from the line, and a comparator
+# reading it unlocks the hopper under it for a moment whenever one more arrives. That hopper, kept
+# full of the crop, drops one into the composter each time; the hopper under the composter pulls the
+# bone meal out into the slice's chest. Anything no slice takes runs on to the overflow chest at
+# the end of the line. A block on each line hopper keeps strays out (the input chest stands on the first).
+name: compost-row
+circuit: composter 1
+tile: 1 0 0
+port items: 0 4 0
+port pass: 1 3 0
+port output: 0 -2 0
+origin: 0 0 0
+palette:
+  L minecraft:hopper[enabled=true,facing=east]
+  A minecraft:hopper[enabled=true,facing=down]
+  B minecraft:hopper[enabled=false,facing=down]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  S minecraft:stone
+  T minecraft:redstone_wall_torch[facing=north,lit=true]
+  R minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  r minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  X minecraft:composter[level=0]
+  O minecraft:hopper[enabled=true,facing=down]
+layer -1:
+  O
+  .
+  .
+  S
+  .
+layer 0:
+  X
+  T
+  S
+  R
+  S
+layer 1:
+  B
+  S
+  S
+  S
+  r
+layer 2:
+  A
+  C
+  r
+  r
+  .
+layer 3:
+  L
+  .
+  .
+  .
+  .
+layer 4:
+  S
+  .
+  .
+  .
+  .
+nbt: 0 2 0 {Items:[{Slot:0b,id:"minecraft:wheat_seeds",count:41},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"filter"}}]}
+nbt: 0 1 0 {Items:[{Slot:0b,id:"minecraft:wheat_seeds",count:64},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"lock"}}]}

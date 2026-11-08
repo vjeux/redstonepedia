@@ -1,0 +1,19 @@
+name: cal-update-less-nor
+circuit: gate nor
+# An instant NOR by dust redirection (track gates' gate-nor-3b): its output changes only by the
+# dust changing shape (no power change, no block update), so a lamp in the output cell never
+# follows it: the judge must refuse it (selftest; docs/circuits.md "Outputs").
+port input.a: 0 1 0
+port input.b: 2 1 0
+port output: 1 1 -1
+origin: 1 0 0
+palette:
+  R minecraft:redstone_block
+  S minecraft:stone
+  r minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+layer 0:
+  S
+  .
+layer 1:
+  r
+  R

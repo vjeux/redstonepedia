@@ -1,0 +1,32 @@
+# archived 2026-10-19T22:39Z from designs/clocks/tracks/clk-misc/cart/cart-loop-long.txt by mctas clock archive
+# CLOCK: clk-misc-cart-loop-long-n0 period 75 gt (3.75 s), on 40/75, edges 2, warmup 25, family detector_rail+minecart, 27 blocks, 6x2x4, robust
+name: clk-misc-cart-loop-long-n0
+# minecart loop (n = 0: 27 pieces, 2 levers): an empty minecart circles a 4 x 4
+# rail loop; plain rails curve at the corners; 1 powered rails on each long side keep it near its 0.4 b/t cap
+# (a switched-on lever on a support powers each stretch of powered rails); a detector rail on the east side is powered while the
+# cart is on it and turns off at its next 20 gt check once the cart has left (one off / on per lap).
+port output: 3 0 1
+entity: minecraft:minecart 1.5 0.0625 0.5 {Motion:[0.4d,0.0d,0.0d]}
+origin: -1 0 0
+palette:
+  A minecraft:rail[shape=north_south,waterlogged=false]
+  B minecraft:rail[shape=north_west,waterlogged=false]
+  C minecraft:rail[shape=south_east,waterlogged=false]
+  D minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]
+  E minecraft:rail[shape=south_west,waterlogged=false]
+  L minecraft:lever[face=wall,facing=east,powered=true]
+  P minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  R minecraft:rail[shape=east_west,waterlogged=false]
+  S minecraft:stone
+  l minecraft:lever[face=wall,facing=west,powered=true]
+  r minecraft:rail[shape=north_east,waterlogged=false]
+layer -1:
+  .SSSS
+  .S..S
+  lS..SL
+  .SSSS
+layer 0:
+  .CRRE
+  .A..D
+  .P..P
+  .rRRB

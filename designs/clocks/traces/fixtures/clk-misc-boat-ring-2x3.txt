@@ -1,0 +1,35 @@
+# archived 2026-10-19T22:59Z from designs/clocks/tracks/clk-misc/boat/boat-ring-2x3.txt by mctas clock archive
+# CLOCK: clk-misc-boat-ring-2x3 period 1216 gt (1 min 0.8 s), on 240/1216, edges 3, warmup 128, family oak_boat+oak_pressure_plate, 85 blocks, 8x2x9, robust
+name: clk-misc-boat-ring-2x3
+# A REDSTONE-LESS clock: a boat circles a 2-wide water ring around a 2x3 island, pushed by water currents, and presses
+# wooden pressure plates. Pressure plates block water, so four rows of plates cut the ring into four one-way currents: the first
+# cells of each corner (right after a plate row) are water sources, whose water fills the corner and runs down the next side to
+# the next plate row. The boat rides each current (submerged), is thrown against the outer wall at each corner and slid along it by
+# the turn, and crawls over each plate row (pressing it). Only stone, water, 8 oak pressure plates and the boat.
+port output: 3 0 0
+entity: minecraft:oak_boat 4.8 0 1
+origin: -1 0 -1
+palette:
+  O minecraft:oak_pressure_plate[powered=false]
+  S minecraft:stone
+  W minecraft:water[level=0]
+layer -1:
+  .
+  .SSSSSS
+  .SSSSSS
+  .SS..SS
+  .SS..SS
+  .SS..SS
+  .SSSSSS
+  .SSSSSS
+  .
+layer 0:
+  .SSSSSS
+  S...OW.S
+  SWW.OW.S
+  SOOSS..S
+  S..SS..S
+  S..SSOOS
+  S.WO.WWS
+  S.WO...S
+  .SSSSSS

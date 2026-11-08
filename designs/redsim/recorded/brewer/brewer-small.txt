@@ -1,0 +1,92 @@
+# archived 2026-10-22T02:26Z from designs/circuits/tracks/brewer/brewer-small.txt by mctas circuit archive
+# CIRCUIT: brewer-small brewer 1 potions/min per stand 1.9, first potion by 1680 gt, blaze powder 1 for 8 brews, hoppers awake 9, at rest no, a clock runs on, blocks per stand 42.0, bill 60 iron, 3 quartz, 19 redstone, 42 blocks, 3x6x5, robust
+# One brewing stand in a 3x6x5 box: a clock (two hoppers passing 106 stones back and forth, a
+# copper bulb remembering the direction) splits time into two halves of 42 seconds. When the
+# brewing half starts, the clock's own torch flashes under the block next to the bulb, which fires
+# two droppers beside it: one lifts a nether wart into the hoppers over the stand, the other a
+# sugar that takes two more hoppers and so arrives later, then waits until the wart is used up:
+# the stand brews awkward potions, then swiftness. The bottles hopper beside the stand is unlocked
+# only in that half and the hopper under the stand only in the other, when it takes the three
+# potions to the output chest (a repeater keeps the bottles hopper locked a moment longer when the
+# halves change, so a fresh bottle is never taken out unbrewed). Blaze powder goes into the
+# stand's side from the fuel chest.
+name: brewer-small
+circuit: brewer 1
+port bottles: 0 4 1
+port fuel: 1 4 2
+port wart: 2 4 -1
+port sugar: 2 5 -2
+port output: 1 2 2
+origin: 0 0 -2
+nbt: 1 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:64},{Slot:1b,id:"minecraft:stone",count:42}]}
+palette:
+  E minecraft:dropper[facing=west,triggered=false]
+  K minecraft:hopper[enabled=true,facing=south]
+  M minecraft:hopper[enabled=true,facing=east]
+  A minecraft:redstone_wire[east=none,north=side,power=15,south=side,west=none]
+  C minecraft:comparator[facing=north,mode=compare,powered=true]
+  c minecraft:comparator[facing=south,mode=compare,powered=false]
+  k minecraft:comparator[facing=south,mode=compare,powered=true]
+  H minecraft:hopper[enabled=false,facing=east]
+  h minecraft:hopper[enabled=true,facing=west]
+  R minecraft:redstone_torch[lit=true]
+  Q minecraft:redstone_torch[lit=false]
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=true,powered=true]
+  r minecraft:redstone_wall_torch[facing=east,lit=false]
+  B minecraft:hopper[enabled=false,facing=east]
+  X minecraft:brewing_stand[has_bottle_0=false,has_bottle_1=false,has_bottle_2=false]
+  O minecraft:hopper[enabled=true,facing=south]
+  T minecraft:hopper[enabled=true,facing=down]
+  U minecraft:hopper[enabled=true,facing=south]
+  V minecraft:hopper[enabled=true,facing=south]
+  Y minecraft:hopper[enabled=true,facing=south]
+  Z minecraft:hopper[enabled=true,facing=down]
+  D minecraft:dropper[facing=up,triggered=false]
+  w minecraft:hopper[enabled=true,facing=west]
+  F minecraft:hopper[enabled=true,facing=north]
+  t minecraft:repeater[delay=2,facing=north,locked=false,powered=true]
+  x minecraft:redstone_wire[east=side,north=side,power=15,south=side,west=side]
+  G minecraft:glass
+layer 0:
+  ...
+  SS.
+  ...
+  ...
+  ...
+layer 1:
+  SS.
+  ck.
+  Hh.
+  S..
+  ...
+layer 2:
+  RQ.
+  SG.
+  SrG
+  tO.
+  S..
+layer 3:
+  WS.
+  CDw
+  AG.
+  BX.
+  xF.
+layer 4:
+  KEw
+  MU.
+  .V.
+  .T.
+  ...
+layer 5:
+  G..
+  GG.
+  .G.
+  .G.
+  ...
+layer 6:
+  ...
+  ...
+  ...
+  ...
+  ...

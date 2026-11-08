@@ -1,0 +1,33 @@
+# Auto-smelter slice: one furnace a slice, slices side by side. Items go along the top line of
+# hoppers, coal along the line beside it; under each line hopper a hopper takes items down into
+# the furnace's top and coal into its side; the hopper under each furnace passes its results
+# along the bottom line to the output chest. Stone covers keep stray items off the lines (the
+# first slice's covers are where the input and fuel chests go).
+name: cal-smelter-naive-slice
+circuit: smelter 1
+tile: 1 0 0
+port items: 0 4 0
+port fuel: 0 3 1
+port output: 1 0 0
+origin: 0 0 0
+palette:
+  E minecraft:hopper[enabled=true,facing=east]
+  D minecraft:hopper[enabled=true,facing=down]
+  N minecraft:hopper[enabled=true,facing=north]
+  F minecraft:furnace[facing=north,lit=false]
+  S minecraft:stone
+layer 0:
+  E
+  .
+layer 1:
+  F
+  N
+layer 2:
+  D
+  E
+layer 3:
+  E
+  S
+layer 4:
+  S
+  .

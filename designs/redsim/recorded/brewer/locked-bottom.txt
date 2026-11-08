@@ -1,0 +1,31 @@
+# calibration (not a working brewer; the brewing stand model against the game): the same feed with
+# the hopper under the stand locked for good by a redstone block, so the stand brews water bottles
+# into awkward potions, burns blaze powder and shows its bottles; nothing ever reaches the output
+name: cal-brew-locked-bottom
+circuit: brewer 1
+port bottles: -1 2 0
+port fuel: 0 2 -1
+port wart: 0 3 0
+port sugar: 1 3 0
+port output: 1 0 0
+origin: -1 0 -1
+palette:
+  O minecraft:hopper[enabled=false,facing=east]
+  F minecraft:hopper[enabled=true,facing=south]
+  E minecraft:hopper[enabled=true,facing=east]
+  B minecraft:brewing_stand[has_bottle_0=false,has_bottle_1=false,has_bottle_2=false]
+  T minecraft:hopper[enabled=true,facing=down]
+  W minecraft:hopper[enabled=true,facing=west]
+  R minecraft:redstone_block
+layer -1:
+  ...
+  .R.
+layer 0:
+  ...
+  .O.
+layer 1:
+  .F.
+  EB.
+layer 2:
+  ...
+  .TW

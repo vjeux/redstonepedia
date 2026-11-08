@@ -1,0 +1,13 @@
+name: cal-bulb-tff
+circuit: tff
+# A copper bulb toggles on every rising edge of its power; a comparator reads it (2 gt).
+port input: 0 1 0
+port output: 2 1 0
+palette:
+  S minecraft:stone
+  L minecraft:waxed_copper_bulb[lit=false,powered=false]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+layer 0:
+  ..S
+layer 1:
+  .LC

@@ -1,0 +1,24 @@
+# archived 2026-10-21T18:32Z from designs/circuits/tracks/smelter/smelter-1.txt by mctas circuit archive
+# CIRCUIT: smelter-1 smelter 1 items/min per furnace 6.0, first item by 220 gt, items per coal 6.0, spread 18 each, hoppers awake 3, at rest yes, blocks per furnace 4.0, bill 15 iron, 0 quartz, 0 redstone, 4 blocks, 1x3x2, robust
+# One furnace: the hopper under the input chest drops items into the furnace's top, the hopper
+# under the fuel chest pushes coal into its side, and the hopper under the furnace takes each
+# result down into the output chest.
+name: smelter-1
+circuit: smelter 1
+port items: 0 3 0
+port fuel: 0 2 1
+port output: 0 -1 0
+origin: 0 0 0
+palette:
+  D minecraft:hopper[enabled=true,facing=down]
+  N minecraft:hopper[enabled=true,facing=north]
+  F minecraft:furnace[facing=north,lit=false]
+layer 0:
+  D
+  .
+layer 1:
+  F
+  N
+layer 2:
+  D
+  .

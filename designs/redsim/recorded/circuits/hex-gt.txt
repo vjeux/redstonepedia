@@ -1,0 +1,22 @@
+name: cal-hex-gt
+circuit: comparator 4 hex
+# a > b on signal strengths (study 12, hex): comparator 1 reads a's chest at its back in SUBTRACT
+# mode; comparator 2 reads b's chest and feeds comparator 1's side, so comparator 1 outputs a - b
+# when a > b, else 0 (calculateOutputSignal), exactly a > b. The chests are the judge's inputs.
+origin: 0 0 0
+port input.a: 0 1 0 strength
+port input.b: 1 1 2 strength
+port output.gt: 2 1 0
+palette:
+  A minecraft:chest[facing=north,type=single,waterlogged=false]
+  C minecraft:comparator[facing=west,mode=subtract,powered=false]
+  K minecraft:comparator[facing=south,mode=compare,powered=false]
+  S minecraft:stone
+layer 0:
+  .S.
+  .S.
+  ...
+layer 1:
+  AC.
+  .K.
+  .A.

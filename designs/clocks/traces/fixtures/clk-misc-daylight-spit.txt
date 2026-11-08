@@ -1,0 +1,21 @@
+# archived 2026-10-19T20:32Z from designs/clocks/tracks/clk-misc/daylight/daylight-spit.txt by mctas clock archive
+# CLOCK: clk-misc-daylight-spit period 40 gt (2 s), on 20/40, edges 1, warmup 2506, family daylight_detector+observer+sticky_piston, 5 blocks, 4x2x1, position-dependent
+name: clk-misc-daylight-spit
+# A daylight detector clock: an inverted daylight detector reads 0 under the open sky and 1 when a block hides the sky right
+# above it (sky light 14 from the sides). It updates only when the game time is a multiple of 20 gt. An observer on it pulses a
+# sticky piston (through the stone under the piston) for 2 gt: a 2 gt pulse makes a sticky piston spit the block in front of it
+# one cell further (here: over the detector) and the next pulse pull it back (the block 2 cells away is no longer moving).
+# So every detector update toggles the cover and the next update (20 gt later) sees the change: P = 40 gt.
+port start: 3 1 0 minecraft:redstone_block 2
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was 0 0 0: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -1 0 0
+palette:
+  D minecraft:daylight_detector[inverted=true,power=0]
+  O minecraft:observer[facing=west,powered=false]
+  X minecraft:stone
+  P minecraft:sticky_piston[extended=false,facing=west]
+  B minecraft:stone
+layer 0:
+  DOX
+layer 1:
+  .BP

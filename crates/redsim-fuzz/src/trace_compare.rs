@@ -618,30 +618,54 @@ pub fn compare(trace: &Trace, max_diffs: usize) -> Result<Outcome> {
 
 /// Compare every trace; one line each; Err if any is not identical.
 pub fn run(paths: &[std::path::PathBuf], max_diffs: usize) -> Result<()> {
-    let (mut same, mut total) = (0, 0);
-    for p in paths {
-        total += 1;
-        let t = load_trace(p)?;
-        match compare(&t, max_diffs)? {
-            Outcome::Same { ticks } => {
-                same += 1;
-                println!("OK {}: {ticks} ticks identical", t.name);
-            }
-            Outcome::Diverges { tick, diffs, more } => {
-                println!("DIVERGES {} at tick {tick} (warmup {}, period {}):", t.name, t.warmup, t.period);
-                for d in diffs {
-                    println!("  {d}");
-                }
-                if more > 0 {
-                    println!("  ... and {more} more");
-                }
-            }
-            Outcome::Unmodeled(why) => println!("UNMODELED {}: {why}", t.name),
+    run_jobs(paths, max_diffs, 1)
+}
+
+/// [`run`] on `jobs` threads (traces are independent: each replays in its own redsim world);
+/// the lines come out in the input order.
+pub fn run_jobs(paths: &[std::path::PathBuf], max_diffs: usize, jobs: usize) -> Result<()> {
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let results: std::sync::Mutex<Vec<Option<(bool, String)>>> = std::sync::Mutex::new(paths.iter().map(|_| None).collect());
+    std::thread::scope(|s| {
+        for _ in 0..jobs.clamp(1, paths.len().max(1)) {
+            s.spawn(|| loop {
+                let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(p) = paths.get(k) else { break };
+                let r = one(p, max_diffs).unwrap_or_else(|e| (false, format!("ERROR {}: {e:#}", p.display())));
+                results.lock().unwrap()[k] = Some(r);
+            });
         }
+    });
+    let mut same = 0;
+    for r in results.into_inner().unwrap().into_iter().flatten() {
+        if r.0 {
+            same += 1;
+        }
+        println!("{}", r.1);
     }
+    let total = paths.len();
     println!("{same} of {total} traces tick-identical");
     if same < total {
         bail!("{} traces differ or are not modeled", total - same);
     }
     Ok(())
+}
+
+/// One trace's lines (`OK ...`, `DIVERGES ...` with its differences, `UNMODELED ...`).
+fn one(p: &Path, max_diffs: usize) -> Result<(bool, String)> {
+    let t = load_trace(p)?;
+    Ok(match compare(&t, max_diffs)? {
+        Outcome::Same { ticks } => (true, format!("OK {}: {ticks} ticks identical", t.name)),
+        Outcome::Diverges { tick, diffs, more } => {
+            let mut s = format!("DIVERGES {} at tick {tick} (warmup {}, period {}):", t.name, t.warmup, t.period);
+            for d in diffs {
+                s.push_str(&format!("\n  {d}"));
+            }
+            if more > 0 {
+                s.push_str(&format!("\n  ... and {more} more"));
+            }
+            (false, s)
+        }
+        Outcome::Unmodeled(why) => (false, format!("UNMODELED {}: {why}", t.name)),
+    })
 }

@@ -1,0 +1,31 @@
+name: cal-tnt-duper
+circuit: tnt-duper
+# the judge's measuring calibration (rate, period, latency on redsim and in the game): explosions
+# off, since this machine does not survive its own TNT (vjeux 2026-10-20)
+explode: off
+origin: 1 0 0
+palette:
+  A minecraft:stone
+  D minecraft:dead_tube_coral_fan[waterlogged=false]
+  O minecraft:observer[facing=north,powered=false]
+  R minecraft:redstone_block
+  S minecraft:slime_block
+  T minecraft:tnt[unstable=false]
+  o minecraft:obsidian
+  r minecraft:redstone_wire
+  s minecraft:sticky_piston[extended=false,facing=north]
+layer -1:
+  .S
+  .s
+  .
+  .
+layer 0:
+  SSS
+  SoS
+  ..S
+  ..O
+layer 1:
+  DT
+  .rR
+  ..A
+  .

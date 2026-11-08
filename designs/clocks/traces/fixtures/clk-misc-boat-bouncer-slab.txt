@@ -1,0 +1,47 @@
+# archived 2026-10-19T23:58Z from designs/clocks/tracks/clk-misc/boat/boat-bouncer-slab.txt by mctas clock archive
+# CLOCK: clk-misc-boat-bouncer-slab period 77 gt (3.85 s), on 20/77, edges 2, warmup 26, family oak_boat+tripwire+tripwire_hook, 20 blocks, 4x5x5, robust
+name: clk-misc-boat-bouncer-slab
+# A REDSTONE-LESS bouncing boat with a half-block ceiling: a boat floats on a 2x2 pool whose water source sits on soul sand (an
+# upward bubble column). After 60 gt above the column the boat is launched (0.6 b/t up), bumps a top slab 3.5 above the water
+# (a shorter flight than clk-misc-boat-bouncer's) and falls back; on the way up and on the way down it trips a tripwire
+# stretched across the pool. Stone, soul sand, one water source, a tripwire with its two hooks and the boat.
+port output: 0 1 -1
+origin: -1 -1 -2
+entity: minecraft:oak_boat 1.0 1.0 1.0
+palette:
+  S minecraft:stone
+  U minecraft:stone_slab[type=top,waterlogged=false]
+  D minecraft:stone_slab[type=bottom,waterlogged=false]
+  O minecraft:soul_sand
+  A minecraft:water[level=0]
+  H minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+  K minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+  T minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
+layer -1:
+  ....
+  ....
+  .OS.
+  .SS.
+  ....
+  ....
+layer 0:
+  ....
+  .SS.
+  SA.S
+  S..S
+  .SS.
+  ....
+layer 2:
+  ....
+  .S..
+  .H..
+  .T..
+  .K..
+  .S..
+layer 3:
+  ....
+  ....
+  .U..
+  ....
+  ....
+  ....

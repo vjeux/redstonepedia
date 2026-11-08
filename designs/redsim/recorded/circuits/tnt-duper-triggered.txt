@@ -1,0 +1,24 @@
+name: cal-tnt-duper-triggered
+circuit: tnt-duper-triggered
+# the judge's measuring calibration: explosions off, since this machine does not survive its own
+# TNT (vjeux 2026-10-20)
+explode: off
+port input: 0 0 2
+origin: 0 0 0
+palette:
+  s minecraft:slime_block
+  O minecraft:obsidian
+  P minecraft:sticky_piston[facing=north,extended=false]
+  f minecraft:dead_tube_coral_fan[waterlogged=false]
+  t minecraft:tnt[unstable=false]
+  d minecraft:redstone_wire
+  R minecraft:redstone_block
+  S minecraft:stone
+layer 0:
+  .sss
+  .sOs
+  .P.s
+layer 1:
+  .ft.
+  ..dR
+  ...S

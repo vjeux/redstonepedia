@@ -1,4 +1,4 @@
-{"box":[[-3,-3,-3],[5,4,3]],"chunks":[-1,-1,0,0],"design":"designs/clocks/archive/clk-item-snowdisp.txt","loop":[1,17],"name":"clk-item-snowdisp","output":[0,0,0],"period":16,"seed":0,"ticks":33,"trace":1,"warmup":1}
+{"box":[[-3,-3,-3],[5,4,3]],"chunks":[-1,-1,0,0],"design":"designs/clocks/traces/fixtures/clk-item-snowdisp.txt","loop":[1,17],"name":"clk-item-snowdisp","output":[0,0,0],"period":16,"seed":0,"ticks":33,"trace":1,"warmup":1}
 {"blocks":[[0,0,0,"minecraft:stone"],[1,0,0,"minecraft:observer[facing=west,powered=false]"],[2,0,0,"minecraft:stone"],[0,1,0,"minecraft:dispenser[facing=down,triggered=false]"],[1,1,0,"minecraft:repeater[delay=1,facing=east,locked=false,powered=false]"],[2,1,0,"minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]"]],"entities":[],"rng":25214903917,"t":0}
 {"blocks":[[0,0,0,"minecraft:air"]],"entities":[],"rng":71150164736681,"t":1}
 {"blocks":[[1,0,0,"minecraft:observer[facing=west,powered=true]"],[2,1,0,"minecraft:redstone_wire[east=side,north=none,power=15,south=none,west=side]"]],"entities":[],"rng":103575971076645,"t":2}

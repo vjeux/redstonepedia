@@ -1,0 +1,76 @@
+name: bubble-rest-n0
+# frozen for `mctas test` (designs/redsim/recorded/lifts): the hopper under the input port loaded
+nbt: 0 0 0 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:5},{Slot:1b,id:"minecraft:cobblestone",count:3},{Slot:2b,id:"minecraft:iron_shovel",count:1}]}
+# A bubble-column elevator 3 blocks up (40 blocks) that rests when no item comes: the hopper under the
+# input chest feeds a dropper that shoots each item into a water column over soul sand; the bubble
+# column lifts it to the top source, under a ceiling, whose flow carries it back over the collecting
+# hopper on the dropper's side (the items drift away from the dropper as they rise), which pushes it
+# into the output chest. The dropper's clock runs only while the dropper holds an item: a comparator
+# reads the dropper, and its signal reaches the sticky piston below the cell in front of it (a piston
+# is also powered through the cell above it), which pushes an observer up beside the clock's other
+# observer; the pair then pulses every 6 gt, and the lower one's back powers the stone above the
+# dropper hard (the hopper beside the dropper stays unpowered). With the dropper empty the piston pulls
+# the observer back down and the clock stops.
+circuit: item-elevator 3
+extend family: bubble-rest
+extend axis: 3 + n
+extend blocks: 40 + 5n
+extend rule: one more water source in the column and its four walls
+extend n: 0..17
+extend base: 0
+extend generator: mctas circuit gen bubble-rest --n {n} --out {out}
+port items: 0 1 0
+port output: 0 4 0
+origin: 0 0 -1
+palette:
+  H minecraft:hopper[enabled=true,facing=east]
+  K minecraft:hopper[enabled=true,facing=west]
+  D minecraft:dropper[facing=east,triggered=false]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  O minecraft:observer[facing=south,powered=false]
+  N minecraft:observer[facing=north,powered=false]
+  P minecraft:sticky_piston[extended=false,facing=up]
+  S minecraft:soul_sand
+  W minecraft:water[level=0]
+  G minecraft:glass
+  T minecraft:stone
+layer -1:
+  .....
+  ..S..
+  .T...
+  .P...
+layer 0:
+  ..G..
+  HDWG.
+  .CG..
+  .N...
+layer 1:
+  ..G..
+  .TWG.
+  .OG..
+  .....
+layer 2:
+  ..G..
+  .GWG.
+  ..G..
+  .....
+layer 3:
+  ..G..
+  .GWG.
+  ..G..
+  .....
+layer 4:
+  ..G..
+  .KWG.
+  ..G..
+  .....
+layer 5:
+  .GG..
+  G.WG.
+  .GG..
+  .....
+layer 6:
+  .....
+  ..G..
+  .....
+  .....

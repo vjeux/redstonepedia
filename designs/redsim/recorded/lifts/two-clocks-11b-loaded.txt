@@ -1,0 +1,33 @@
+name: cal-lift-two-clocks
+# frozen for `mctas test` (designs/redsim/recorded/lifts): the hopper under the input port loaded
+nbt: 1 0 0 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:6},{Slot:1b,id:"minecraft:cobblestone",count:4}]}
+# Calibration (must fail): the item elevator's judge refuses a design whose timing follows the order
+# a player places it. A column of six droppers fired by two independent observer clocks, one on
+# each side, built like a player (each clock starts when its second observer is placed). A dropper
+# also reads the power of the dropper two above it (quasi-connectivity), so the lower clock's top
+# dropper stays triggered whenever the upper clock is still on as the lower one turns off, and never
+# fires again. Whether that happens depends on which clock starts first, i.e. on the placement order,
+# which the rotation changes: rotations 1-3 pass at 2.5 items/s, rotation 0 jams with the whole load
+# stuck in the second and third droppers.
+circuit: item-elevator 5
+placement: player
+port items: 1 1 0
+port output: 2 6 0
+origin: 0 0 0
+palette:
+  H minecraft:hopper[enabled=true,facing=east]
+  D minecraft:dropper[facing=up,triggered=false]
+  E minecraft:observer[facing=east,powered=false]
+  W minecraft:observer[facing=west,powered=false]
+layer 0:
+  .HD..
+layer 1:
+  ..DEW
+layer 2:
+  ..D..
+layer 3:
+  ..D..
+layer 4:
+  EWD..
+layer 5:
+  ..D..

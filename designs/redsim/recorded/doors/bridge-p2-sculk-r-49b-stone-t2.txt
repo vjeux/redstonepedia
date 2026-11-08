@@ -1,0 +1,42 @@
+name: bridge-p2-sculk-r-ns
+port door: -2 0 0
+port lever: 2 6 0
+origin: -4 0 0
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  B minecraft:observer[facing=up,powered=false]
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  D minecraft:dropper[facing=east,triggered=false]
+  E minecraft:observer[facing=west,powered=false]
+  F minecraft:sticky_piston[extended=false,facing=up]
+  G minecraft:sticky_piston[extended=false,facing=west]
+  H minecraft:stone
+  I minecraft:iron_trapdoor[facing=south,half=bottom,open=false,powered=false,waterlogged=false]
+  L minecraft:lever[face=floor,facing=west,powered=false]
+  O minecraft:oak_log[axis=y]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:sticky_piston[extended=false,facing=down]
+  c minecraft:calibrated_sculk_sensor[facing=west,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=down,powered=false]
+  r minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer -3:
+  BEDFc
+layer -2:
+  RCoFOAS
+layer -1:
+  Bs..HHB
+layer 0:
+  s.HHH.G
+layer 1:
+  s.HHH.G
+layer 2:
+  BHHHHHH
+layer 3:
+  I.....r
+layer 4:
+  B.SSS.H
+layer 5:
+  AAAAAAB
+layer 6:
+  ......L

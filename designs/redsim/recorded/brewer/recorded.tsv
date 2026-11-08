@@ -1,0 +1,5 @@
+# recordings of the real game replayed on redsim (mctas recorded check; crates/mctas/src/recorded.rs)
+file	hash	deps	version	recorded	how
+brewer-small-base.rec	df8569fbb9b7e3d4	designs/redsim/recorded/brewer/brewer-small.txt=4bd5cb562aa75b5a	26.3	2026-11-08T17:41Z on 4ab5af6ed	mctas circuit record --kind brewer-run --run base --margin 3 --dir designs/redsim/recorded/brewer designs/circuits/brew/archive/brewer-small.txt
+locked-bottom-base.rec	75333837e629d33b	designs/redsim/recorded/brewer/locked-bottom.txt=4a4cafd14b45a757	26.3	2026-11-08T17:41Z on 4ab5af6ed	mctas circuit record --kind brewer-run --run base --margin 3 --dir designs/redsim/recorded/brewer designs/circuits/tracks/brewer/calibration/locked-bottom.txt
+unlocked-bottom-base.rec	da8196a81d174ff2	designs/redsim/recorded/brewer/unlocked-bottom.txt=c4d33fd51534e390	26.3	2026-11-08T17:41Z on 4ab5af6ed	mctas circuit record --kind brewer-run --run base --margin 3 --dir designs/redsim/recorded/brewer designs/circuits/tracks/brewer/calibration/unlocked-bottom.txt

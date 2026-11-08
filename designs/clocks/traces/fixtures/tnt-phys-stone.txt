@@ -1,0 +1,14 @@
+name: tnt-phys-stone
+port start: 2 1 1 minecraft:redstone_block 2
+origin: 0 0 0
+palette:
+  S minecraft:stone
+  t minecraft:tnt[unstable=false]
+layer 0:
+  SSS
+  SSS
+  SSS
+layer 1:
+  ...
+  .t.
+  ...

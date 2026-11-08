@@ -1,0 +1,75 @@
+# archived 2026-10-20T09:44Z from designs/circuits/shulker/tracks/shulker-speed/loader-rs.txt by mctas circuit archive
+# CIRCUIT: shulker-restart-flush-loader shulker-loader boxes/min 0.087, items/s 2.50, first box 13847 gt, cycle 13832 gt, hoppers awake 3, badges always-on+16-stack+unstackable+colours+restart+top-up+flush+box-starved+drop-free, bill 21 iron, 7 quartz, 54 redstone, 1 slime, 65 blocks, 8x5x8, robust
+# Shulker loader with both restart and flush (track shulker-speed, clk-item): clk-rt's always-on loader plus an hourglass flush that outlasts the restart pause. The hourglass is a chest Tc preloaded with 420 stone items (not a scenario item) over hopper Hd, which drains it into a sink chest only while the judge's items chest is empty AND the dispenser still holds boxes. Comparator CH reads the items chest and feeds repeater Rc. The dispenser comparator E drives repeater Y into a stone, and the wall torch on that stone is lit when the dispenser is empty. Both feed the dust line that locks Hd, through the floor under its last dust. Draining 420 items takes 3360 gt: longer than the restart pause (3000 gt) and within the flush deadline (6000 gt). It stays frozen once the dispenser is empty, so the spare box at the end of a normal run never starts it. When Tc runs empty, comparator HG turns off, and the wall torch on its output stone lights a dust line that powers the sticky piston through comparator Vj: the last partial box leaves, and the piston stays extended (the hourglass expires only once, at the end). Shrunk in the game from 75 blocks (an edge detector before the piston, and three floor stones, are not needed).
+name: shulker-restart-flush-loader
+circuit: shulker-loader
+port boxes: 0 3 -1
+port items: 0 2 1
+port output: 2 0 0
+nbt: 2 2 4 {Items:[{Slot:0b,id:"minecraft:stone",count:64},{Slot:1b,id:"minecraft:stone",count:64},{Slot:2b,id:"minecraft:stone",count:64},{Slot:3b,id:"minecraft:stone",count:64},{Slot:4b,id:"minecraft:stone",count:64},{Slot:5b,id:"minecraft:stone",count:64},{Slot:6b,id:"minecraft:stone",count:36}]}
+origin: -3 0 -3
+palette:
+  A minecraft:comparator[facing=south,mode=compare,powered=false]
+  B minecraft:comparator[facing=south,mode=subtract,powered=false]
+  C minecraft:chest[facing=north,type=single,waterlogged=false]
+  D minecraft:comparator[facing=west,mode=compare,powered=false]
+  E minecraft:hopper[enabled=true,facing=north]
+  F minecraft:hopper[enabled=true,facing=south]
+  G minecraft:redstone_wall_torch[facing=south,lit=true]
+  H minecraft:hopper[enabled=true,facing=down]
+  I minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  J minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  K minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=east]
+  c minecraft:comparator[facing=east,mode=compare,powered=false]
+  d minecraft:dispenser[facing=down,triggered=false]
+  h minecraft:hopper[enabled=true,facing=east]
+  r minecraft:redstone_wall_torch[facing=north,lit=false]
+  s minecraft:stone
+layer 0:
+  .ss
+  .s.s
+  .
+  ....h
+  s
+  s
+  ssss
+  .....C
+layer 1:
+  .IIs
+  .J.AR
+  .s.ss
+  sSs..ss
+  I..Esss
+  B.....s
+  IIII.ss
+  ....sH
+layer 2:
+  .
+  .
+  ...F
+  ..OdsDKs
+  ....DKIG
+  ......I
+  ...r.II
+  ...scC
+layer 3:
+  .
+  .
+  .
+  ..sIsO
+  .
+  .
+  .
+  .
+layer 4:
+  .
+  .
+  .
+  ....Is
+  .
+  .
+  .
+  .

@@ -1,0 +1,25 @@
+name: cal-bulb-counter2
+circuit: binary-counter 2
+# A 2-bit ripple binary counter of two copper-bulb T flip-flops. The clock input toggles bulb 0 on
+# each rising edge (a bulb flips inside neighborChanged, 0 gt); comparator 0 reads it and strongly
+# powers a stone: q0 (the lamp beside the stone). The torch on that stone is NOT q0, and it powers
+# bulb 1, so bulb 1 flips when q0 FALLS: the carry of a ripple counter. Comparator 1 reads bulb 1:
+# q1. Worst latency: the rollover 1 -> 2, comparator + torch + comparator = 6 gt.
+origin: 0 0 0
+port input.clk: 0 1 1
+port output.q0: 3 1 0
+port output.q1: 6 1 2
+palette:
+  B minecraft:waxed_copper_bulb[lit=false,powered=false]
+  b minecraft:waxed_copper_bulb[lit=false,powered=true]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  S minecraft:stone
+  T minecraft:redstone_wall_torch[facing=south,lit=true]
+layer 0:
+  .......
+  ..S....
+  .....S.
+layer 1:
+  .......
+  .BCS...
+  ...TbC.

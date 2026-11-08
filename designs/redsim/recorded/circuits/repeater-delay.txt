@@ -1,0 +1,12 @@
+name: cal-repeater-delay
+circuit: delay
+# One delay-2 repeater: both edges 4 gt late; pulses and gaps under 4 gt do not survive.
+port input: 0 1 0
+port output: 2 1 0
+palette:
+  S minecraft:stone
+  r minecraft:repeater[delay=2,facing=west,locked=false,powered=false]
+layer 0:
+  .S.
+layer 1:
+  .r.

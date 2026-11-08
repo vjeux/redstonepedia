@@ -1,0 +1,11 @@
+name: cal-sticky-extender
+circuit: piston-extender 1
+# A sticky piston: pushes its stone one cell and pulls it back (the 1-block extender).
+port input: 0 1 0
+port payload: 2 1 0
+travel: 1 0 0
+palette:
+  P minecraft:sticky_piston[extended=false,facing=east]
+  S minecraft:stone
+layer 1:
+  .PS

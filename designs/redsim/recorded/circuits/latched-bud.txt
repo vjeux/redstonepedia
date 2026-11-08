@@ -1,0 +1,21 @@
+name: cal-latched-bud
+circuit: bud
+# The smallest latched BUD: a sticky piston armed by quasi-connectivity from the redstone block
+# above the block in front of it. A block update reaching the piston makes it push that block, a
+# redstone block, beside the output; the piston stays out (still powered), so the output holds
+# through any further update. The reset input is the arming redstone block itself: taking it away
+# updates the piston through its head, it retracts and pulls the redstone block back; putting it
+# back arms the piston without updating it. A shape-only change sends no block update.
+origin: -1 0 0
+port target: -1 0 0
+port output: 2 0 1
+port input.reset: 1 1 0 minecraft:air minecraft:redstone_block
+palette:
+  P minecraft:sticky_piston[extended=false,facing=east]
+  R minecraft:redstone_block
+layer 0:
+  .PR.
+  ....
+layer 1:
+  ..R.
+  ....

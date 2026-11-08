@@ -1,0 +1,15 @@
+name: cal-observer-bud
+circuit: bud
+# The simplest BUD: an observer facing the target cell. Any real change of that block (placed,
+# removed, a property changed, with or without block updates: shape updates reach it) schedules its
+# tick 2 gt later; it is on for 2 gt and misses changes while its tick is pending or while on. A
+# pure block update changes nothing, so it does not see it.
+origin: 0 0 0
+port target: 0 1 0
+port output: 2 1 0
+palette:
+  O minecraft:observer[facing=west,powered=false]
+layer 0:
+  ...
+layer 1:
+  .O.

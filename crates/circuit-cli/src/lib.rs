@@ -27,6 +27,31 @@ pub enum CircuitCmd {
         #[arg(long, default_value_t = 3)]
         margin: i32,
     },
+    /// Record runs of the real game for `mctas test`'s simulator pieces (circuit::recorded): each
+    /// design frozen into `--dir`, the run (`--kind`: sorter-run, smelter-run, brewer-run,
+    /// composter-run with `--run`, or circuit-trace: the circuit judge's stimulus on the base
+    /// build) in the game AND on redsim, which must be identical, and the game's frames saved as
+    /// `<dir>/<stem>-<run>.rec`. Then `mctas recorded write <dir> --fresh`.
+    Record {
+        designs: Vec<PathBuf>,
+        #[arg(long)]
+        kind: String,
+        #[arg(long, default_value = "base")]
+        run: String,
+        #[arg(long)]
+        dir: PathBuf,
+        #[arg(long, default_value_t = 3)]
+        margin: i32,
+    },
+    /// Replay recorded runs (`.rec` files or directories of them) on redsim without the game,
+    /// every cell of the watched box compared every gt with the game's recorded frames; a
+    /// recording whose design changed is STALE and fails. `N of M recordings identical`.
+    Replay {
+        recordings: Vec<PathBuf>,
+        /// Recordings replayed at once (0: every core).
+        #[arg(long, default_value_t = 0)]
+        jobs: usize,
+    },
     Sim {
         designs: Vec<PathBuf>,
         /// An explicit stimulus: `a 10+ 14-; b pulse 2 every 10 x 3`.
@@ -837,6 +862,26 @@ pub fn run(version: &str, cmd: CircuitCmd) -> Result<()> {
                     Err(e) => println!("ERROR {}: {e:#}", p.display()),
                 }
             }
+        }
+        CircuitCmd::Record { designs, kind, run, dir, margin } => {
+            anyhow::ensure!(circuit::recorded::KINDS.contains(&kind.as_str()), "--kind {kind}: one of {}", circuit::recorded::KINDS.join(", "));
+            let pool = mctas::sim::Pool::spawn(1, &mctas::sim::WorkerConfig { version: version.to_string(), ..Default::default() })?;
+            let mut bad = 0;
+            for d in &designs {
+                let (file, r) = circuit::recorded::record(&kind, &run, d, &dir, margin, &pool)?;
+                match r {
+                    Ok(n) => println!("RECORDED: {}, {n} frames (the game = redsim)", file.display()),
+                    Err(why) => {
+                        bad += 1;
+                        println!("NOT RECORDED: {}: {why}", d.display());
+                    }
+                }
+            }
+            anyhow::ensure!(bad == 0, "{bad} runs differ between the game and redsim: nothing recorded for them");
+        }
+        CircuitCmd::Replay { recordings, jobs } => {
+            let jobs = if jobs > 0 { jobs } else { std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8) };
+            circuit::recorded::replay_all(&recordings, jobs)?;
         }
         CircuitCmd::TraceCompare { designs, margin } => {
             let o = Options { margin, version: version.to_string(), ..Default::default() };

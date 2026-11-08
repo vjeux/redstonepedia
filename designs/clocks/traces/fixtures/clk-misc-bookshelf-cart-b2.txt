@@ -1,0 +1,35 @@
+# archived 2026-10-19T23:14Z from designs/clocks/tracks/clk-misc/items/bookshelf-cart-b2.txt by mctas clock archive
+# CLOCK: clk-misc-bookshelf-cart-b2 period 28 gt (1.4 s), on 28/28, edges 0, warmup 36, family chiseled_bookshelf+hopper+hopper_minecart, 20 blocks, 7x4x3, robust
+name: clk-misc-bookshelf-cart-b2
+# clk-misc-bookshelf-cart with two books in circulation (P halves: the cart lifts one book per round trip while the
+# other rides the hopper chain back into the chiseled bookshelf). A hopper minecart on a sloped ping-pong track (powered
+# rails, one lever) pulls books from the bookshelf above its low end; the hopper under its high end unloads it; hoppers
+# carry the books back down into the bookshelf.
+port output: 1 1 0
+origin: 0 -1 -1
+entity: minecraft:hopper_minecart 1.5 0.0625 0.5 {Items:[{Slot:0b,id:"minecraft:book",count:2}]}
+palette:
+  S minecraft:stone
+  V minecraft:lever[face=wall,facing=north,powered=true]
+  P minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  U minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]
+  N minecraft:hopper[enabled=true,facing=north]
+  D minecraft:hopper[enabled=true,facing=south]
+  W minecraft:hopper[enabled=true,facing=west]
+  C minecraft:chiseled_bookshelf[facing=north,slot_0_occupied=false,slot_1_occupied=false,slot_2_occupied=false,slot_3_occupied=false,slot_4_occupied=false,slot_5_occupied=false]
+layer 0:
+  .V.....
+  .SSS...
+  .......
+layer 1:
+  .......
+  SPPUS..
+  .......
+layer 2:
+  .......
+  .C..UD.
+  .NWWWW.
+layer 3:
+  .......
+  .....PS
+  .......

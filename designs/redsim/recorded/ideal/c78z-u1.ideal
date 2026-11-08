@@ -1,0 +1,23 @@
+design designs/redsim/recorded/ideal/c78z.txt
+# c78z: c78y with the elevator s REAL (top: lamp (4,3) lit (holds R1/R2), observer (3,3) east -> (2,3): s push t6 on open; observer (3,4) down watches (3,3); observer (2,4) east -> (1,4): s pull-back t10 on open, s push t6 on close). Ideal: U (1 gt first pulse + U2), R0.
+let u0 = 3
+let uw = 1
+let e = 8
+let eh = 3
+let k = 11
+let u2 = 24
+let r0 = 4
+let l0 = 8
+let cu1 = 5
+let ck = 11
+let cu2 = 24
+let ce = 6
+let cr0 = 4
+let cl0 = 8
+# only U's 1 gt first pulse ideal: U2 and R0 to come from sensors
+open 0 use 4 6 0
+open u0 set 1 -2 -1 minecraft:redstone_block
+open u0+uw clear 1 -2 -1
+close 0 use 4 6 0
+close cu1 set 1 -2 -1 minecraft:redstone_block
+close cu1+uw clear 1 -2 -1

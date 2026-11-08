@@ -1,0 +1,65 @@
+name: cal-tnt-water-duper
+# Selftest (the TNT judge's usefulness rule, vjeux 2026-10-20: "a tnt duper that explodes in water is
+# useless"): tnt-precise-slow-43b, a slow precise duper that stops every TNT in its own one-cell water
+# aligner and lets it explode there. It survives its own explosions only because the water swallows
+# every blast; the judge refuses it (useless TNT: it explodes in a fluid).
+circuit: tnt-duper
+port start: -3 1 2 minecraft:redstone_block 2
+nbt: -3 0 2 {Items:[{Slot:0b,id:"minecraft:slime_block",count:1}]}
+origin: -3 0 -3
+palette:
+  A minecraft:stone
+  D minecraft:dead_tube_coral_fan[waterlogged=false]
+  O minecraft:obsidian
+  R minecraft:redstone_block
+  S minecraft:slime_block
+  T minecraft:tnt[unstable=false]
+  W minecraft:water[level=0]
+  r minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  s minecraft:sticky_piston[extended=false,facing=north]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  H minecraft:hopper[enabled=true,facing=south]
+  V minecraft:observer[facing=north,powered=false]
+  v minecraft:observer[facing=east,powered=false]
+  c minecraft:crafter[crafting=false,orientation=north_up,triggered=false]
+  n minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  u minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+layer -2:
+  .
+  ....AAA
+  .
+  .
+  .
+  .
+  .
+layer -1:
+  ....AAA
+  ...AW..A
+  ....OOO
+  .
+  ..A
+  ...AA
+  ....A
+layer 0:
+  .
+  .
+  .
+  ....SSS
+  HACAsOS
+  cvVnu.S
+  ...Ad
+layer 1:
+  .
+  .
+  .....T
+  ....D
+  .....rR
+  ......S
+layer 2:
+  .....A
+  .
+  .
+  .
+  .....S
+  .....SS

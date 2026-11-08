@@ -1,0 +1,40 @@
+# verified WORKS: 41 blocks, open after 36 ticks, closed after 19 ticks
+# archived 2026-10-19 17:22Z from /tmp/e78k-h5-41b.txt (repo at 25ca204e8)
+name: e78k-h5
+port door: 0 0 0
+port lever: 1 5 0
+origin: -2 0 0
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:sticky_piston[extended=false,facing=west]
+  D minecraft:dropper[facing=north,triggered=false]
+  E minecraft:sticky_piston[extended=true,facing=down]
+  F minecraft:stone
+  L minecraft:lever[face=floor,facing=east,powered=true]
+  N minecraft:note_block[instrument=basedrum,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston_head[facing=down,short=false,type=sticky]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:sticky_piston[extended=false,facing=east]
+  o minecraft:observer[facing=east,powered=false]
+  r minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  s minecraft:sticky_piston[extended=false,facing=up]
+layer -3:
+  .sosDoD
+layer -2:
+  FRBsOO
+layer -1:
+  A.F..CA
+layer 0:
+  S.FFF.C
+layer 1:
+  S.FFF.C
+layer 2:
+  FFFFFFA
+layer 3:
+  roPPPBN
+layer 4:
+  ..EEE
+layer 5:
+  ...L

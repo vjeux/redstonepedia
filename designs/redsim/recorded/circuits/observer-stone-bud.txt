@@ -1,0 +1,14 @@
+name: cal-observer-stone-bud
+circuit: bud
+tile: 0 0 1
+# Tileable calibration: an observer facing the target powers a stone, the output lamp beyond it;
+# copies side by side (every block) do not cross-talk (each lamp is lit through its stone, not
+# strongly powered).
+origin: -2 0 0
+port target: 0 0 0
+port output: -3 0 0
+palette:
+  O minecraft:observer[facing=east,powered=false]
+  S minecraft:stone
+layer 0:
+  SO

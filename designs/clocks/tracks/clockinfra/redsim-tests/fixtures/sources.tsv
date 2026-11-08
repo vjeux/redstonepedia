@@ -1,0 +1,2 @@
+trace	old_design	fixture	git_source
+designs/clocks/tracks/clockinfra/redsim-tests/traces/kit-bouncer-item-p12-20b.trace	designs/clocks/tracks/clockinfra/kits/bouncer/not-clocks/kit-bouncer-item-p12-20b.txt	designs/clocks/tracks/clockinfra/redsim-tests/fixtures/kit-bouncer-item-p12-20b.txt	4ab5af6ed:designs/clocks/tracks/clockinfra/kits/bouncer/not-clocks/kit-bouncer-item-p12-20b.txt (frozen)

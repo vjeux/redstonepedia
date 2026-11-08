@@ -1,0 +1,43 @@
+# archived 2026-10-20T03:59Z from designs/clocks/tracks/clockinfra/kits/bouncer/designs/kit-bouncer-item-p991-16b.txt by mctas clock archive
+# CLOCK: kit-bouncer-item-p991-16b period 991 gt (49.55 s), on 870/991, edges 39, warmup 718, family item+tripwire+tripwire_hook, 16 blocks, 3x6x3, robust
+name: kit-bouncer-item-p991-16b
+# Bubble-column bouncer (clock kit K2, `mctas clock kit bouncer`): a item on a pool whose water source
+# sits on soul sand (an upward bubble column), under a oak trapdoor. The column launches it (or drags
+# it down) and it falls back, again and again; on its way it trips a tripwire stretched across the
+# pool, whose hooks are the output. No redstone.
+kit: bouncer (kit-bouncer-1856): period 991 gt, family item+tripwire+tripwire_hook, minimal; 6 types with this period
+port output: 0 1 -1
+entity: minecraft:item 0.5 1 0.5 {Item:{id:"minecraft:stone",count:1},PickupDelay:32767s,Age:-32768s}
+origin: -1 0 -1
+palette:
+  A minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+  O minecraft:oak_trapdoor[facing=north,half=top,open=false]
+  S minecraft:soul_sand
+  T minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,south=true,west=false,powered=false]
+  W minecraft:water[level=0]
+  s minecraft:stone
+  t minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+layer -2:
+  .
+  .S
+  .
+layer -1:
+  .s
+  sWs
+  .s
+layer 0:
+  .s
+  sWs
+  .s
+layer 1:
+  .A
+  .T
+  .t
+layer 2:
+  .
+  .
+  .
+layer 3:
+  .
+  .O
+  .

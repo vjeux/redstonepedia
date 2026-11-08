@@ -1,0 +1,26 @@
+name: cal-comparator-and
+circuit: gate and
+# Two subtract comparators (track gates' gate-and-5b): the first reads a redstone block at its back
+# and input b at its side (15 - b = NOT b) into the side of the second, which reads input a: a -
+# NOT b = a AND b. Its output changes by comparator updates: the judge's lamp follows it
+# (selftest: passes with these metrics).
+# R7 (real input devices, model B): a comparator's side reads only a signal source, so input b's
+# cell holds the design's own repeater (on a stone), which the judge's repeater drives from
+# outside; input a's cell is air and gets the judge's stone, which the second comparator reads at
+# its back.
+port input.a: 0 1 0
+port input.b: 1 1 0
+port output: 0 1 1
+origin: 0 0 0
+palette:
+  C minecraft:comparator[facing=east,mode=subtract,powered=false]
+  Q minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  R minecraft:redstone_block
+  S minecraft:stone
+  c minecraft:comparator[facing=north,mode=subtract,powered=false]
+layer 0:
+  .S
+  SS
+layer 1:
+  .Q
+  cCR

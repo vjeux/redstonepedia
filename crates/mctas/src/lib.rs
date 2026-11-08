@@ -13,6 +13,7 @@ pub mod fabric;
 pub mod mcfont;
 pub mod net;
 pub mod paths;
+pub mod recorded;
 pub mod setup;
 pub mod sim;
 pub mod source;

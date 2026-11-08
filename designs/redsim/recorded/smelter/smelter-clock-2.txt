@@ -1,0 +1,60 @@
+# archived 2026-10-21T19:53Z from designs/circuits/tracks/smelter/smelter-clock-2.txt by mctas circuit archive
+# CIRCUIT: smelter-clock-2 smelter 2 items/min per furnace 5.3, first item by 440 gt, items per coal 5.7, spread 17 each, hoppers awake 5, at rest no, a clock runs on, blocks per furnace 15.5, bill 60 iron, 1 quartz, 12 redstone, 31 blocks, 3x5x6, robust
+# Two furnaces fed from one input chest and one fuel chest. The items bounce between the two
+# hoppers over the furnaces; an item clock keeps both furnaces powered, which locks the hoppers
+# around them, and every 65 ticks lets go for 2 ticks: each furnace then takes one item and one
+# coal, and gives one result.
+name: smelter-clock-2
+circuit: smelter 2
+port items: 0 4 0
+port fuel: 0 3 1
+port output: 2 0 0
+origin: -1 0 -4
+nbt: -1 1 -4 {Items:[{Slot:0b,id:"minecraft:diamond_sword",count:1},{Slot:1b,id:"minecraft:diamond_sword",count:1}]}
+palette:
+  E minecraft:hopper[enabled=true,facing=east]
+  W minecraft:hopper[enabled=true,facing=west]
+  D minecraft:hopper[enabled=true,facing=down]
+  N minecraft:hopper[enabled=true,facing=north]
+  F minecraft:furnace[facing=north,lit=false]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  R minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  T minecraft:redstone_wall_torch[facing=south,lit=true]
+  r minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  G minecraft:glass
+  S minecraft:stone
+layer 0:
+  ...
+  .S.
+  ..S
+  .SS
+  .EE
+  ...
+layer 1:
+  EW.
+  SC.
+  TSr
+  .RR
+  .FF
+  .NN
+layer 2:
+  GG.
+  r..
+  S..
+  ...
+  .DD
+  .EW
+layer 3:
+  ...
+  ...
+  ...
+  ...
+  .EW
+  ..S
+layer 4:
+  ...
+  ...
+  ...
+  ...
+  ..G
+  ...

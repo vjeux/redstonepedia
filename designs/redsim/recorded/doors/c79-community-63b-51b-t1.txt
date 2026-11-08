@@ -1,0 +1,110 @@
+name: c79-community-63b-ew
+door-axis: z
+port door: 0 0 0
+port lever: 0 6 4
+origin: 0 0 -2
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=up,powered=false]
+  C minecraft:piston_head[facing=north,short=false,type=sticky]
+  D minecraft:dropper[facing=west,triggered=false]
+  E minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
+  F minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  G minecraft:redstone_wire[east=side,north=side,power=15,south=side,west=side]
+  H minecraft:repeater[delay=1,facing=south,locked=false,powered=true]
+  I minecraft:repeater[delay=4,facing=south,locked=false,powered=true]
+  J minecraft:sticky_piston[extended=false,facing=south]
+  K minecraft:sticky_piston[extended=false,facing=up]
+  L minecraft:lever[face=floor,facing=east,powered=true]
+  M minecraft:sticky_piston[extended=true,facing=down]
+  N minecraft:sticky_piston[extended=true,facing=north]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=down]
+  Q minecraft:stone
+  R minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  S minecraft:smooth_stone
+  d minecraft:dropper[facing=west,triggered=true]
+  o minecraft:observer[facing=north,powered=false]
+  p minecraft:piston_head[facing=down,short=false,type=sticky]
+  r minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=none]
+  s minecraft:sticky_piston[extended=false,facing=down]
+layer -3:
+  S
+  A
+  D
+  S
+  A
+  .
+  .
+layer -2:
+  F
+  O
+  o
+  K
+  K
+  P
+  S
+layer -1:
+  O
+  J
+  .
+  .
+  .
+  S
+  F
+layer 0:
+  J
+  .
+  Q
+  Q
+  Q
+  Q
+  B
+layer 1:
+  J
+  .
+  Q
+  Q
+  Q
+  C
+  N
+layer 2:
+  J
+  .
+  Q
+  Q
+  Q
+  C
+  N
+layer 3:
+  S
+  .
+  Q
+  s
+  Q
+  A
+  d
+layer 4:
+  r
+  S
+  E
+  p
+  A
+  A
+  G
+layer 5:
+  .
+  R
+  A
+  M
+  H
+  I
+  S
+layer 6:
+  .
+  .
+  .
+  .
+  .
+  .
+  L

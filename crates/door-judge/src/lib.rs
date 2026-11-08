@@ -11,6 +11,10 @@ use piston_door::*;
 
 mod cmd;
 
+/// `mctas test` (the tests of this change) and `mctas recorded` (the recordings' manifests):
+/// top-level commands whose arguments and bodies live here, next to `door selftest`.
+pub use cmd::checks::{RecordedCmd, TestArgs, cmd_recorded, cmd_test};
+
 #[derive(Subcommand)]
 pub enum DoorCmd {
     /// Write the archive catalog (archive/README.md): every archived design with its size (the
@@ -85,8 +89,10 @@ pub enum DoorCmd {
     /// Known-answer selftest (selftest.rs): every search / judge tool on known answers (archived
     /// anchors WORK in redsim and the game, pockets re-find known regions, satwire's model on
     /// c79 and on a saved BUD candidate, boxproof on c79, ideal-rs vs ideal, generator
-    /// membership). One PASS / FAIL line per check; part of AGENTS.md's push gate (`--quick`,
-    /// under 2 min; the full suite before a tool merge). Run from the repository root.
+    /// membership) and the simulator's recorded game runs and fuzzers. One PASS / FAIL line per
+    /// check, in parallel sized from the machine; the table `mctas test` picks a change's pieces
+    /// from (AGENTS.md: the tests of a change); all of it on demand only (`--quick`: the checks
+    /// that start no JVM). Run from the repository root.
     Selftest(cmd::checks::SelftestArgs),
     /// Verify a design many times in ONE reused sandbox (as the search does) and count passes:
     /// shows state that leaks across `clear` (e.g. redstone torch burnout memory).

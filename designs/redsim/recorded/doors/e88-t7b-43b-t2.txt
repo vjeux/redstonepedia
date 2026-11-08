@@ -1,0 +1,42 @@
+name: e88-t7b-ns
+port door: -2 0 0
+port lever: -1 5 0
+origin: -4 0 0
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  D minecraft:repeater[delay=2,facing=west,locked=false,powered=false]
+  E minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  F minecraft:sticky_piston[extended=false,facing=west]
+  G minecraft:sticky_piston[extended=true,facing=down]
+  H minecraft:stone
+  L minecraft:lever[face=floor,facing=south,powered=true]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston_head[facing=down,short=false,type=sticky]
+  R minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  S minecraft:sticky_piston[extended=false,facing=east]
+  o minecraft:observer[facing=east,powered=false]
+  r minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=up]
+layer -4:
+  ..NBBH
+layer -3:
+  .HAsER
+layer -2:
+  HDBsOO
+layer -1:
+  A.H..F
+layer 0:
+  S.HHH.F
+layer 1:
+  S.HHH.F
+layer 2:
+  AHHHHHA
+layer 3:
+  roPPPBC
+layer 4:
+  ..GGG
+layer 5:
+  ...L

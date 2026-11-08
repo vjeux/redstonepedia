@@ -1,0 +1,8 @@
+# recordings of the real game replayed on redsim (mctas recorded check; crates/mctas/src/recorded.rs)
+file	hash	deps	version	recorded	how
+kit-bouncer-item-p12-20b.trace	5746da6384bb4712	designs/clocks/tracks/clockinfra/redsim-tests/fixtures/kit-bouncer-item-p12-20b.txt=fdf2aba041657e22	26.3	2026-10-20 d54cdb748	mctas clock misc trace-export --exact --out-dir designs/clocks/tracks/clockinfra/redsim-tests/traces --ticks N <its design>
+rt-item-drop.trace	c632556698e5d0e0	designs/clocks/tracks/clockinfra/redsim-tests/rt-item-drop.txt=f9c080ffa60aec84	26.3	2026-10-20 0c0eedbb6	mctas clock misc trace-export --exact --out-dir designs/clocks/tracks/clockinfra/redsim-tests/traces --ticks N <its design>
+rt-item-hopper.trace	eddd7b2578345ae6	designs/clocks/tracks/clockinfra/redsim-tests/rt-item-hopper.txt=ede863a1d8c99907	26.3	2026-10-20 0c0eedbb6	mctas clock misc trace-export --exact --out-dir designs/clocks/tracks/clockinfra/redsim-tests/traces --ticks N <its design>
+rt-item-merge.trace	82950058266188bc	designs/clocks/tracks/clockinfra/redsim-tests/rt-item-merge.txt=83ea5b7c7d8d239d	26.3	2026-10-20 0c0eedbb6	mctas clock misc trace-export --exact --out-dir designs/clocks/tracks/clockinfra/redsim-tests/traces --ticks N <its design>
+rt-item-water.trace	e3aff7d72fd8a985	designs/clocks/tracks/clockinfra/redsim-tests/rt-item-water.txt=118de2f3176b8a32	26.3	2026-10-20 0c0eedbb6	mctas clock misc trace-export --exact --out-dir designs/clocks/tracks/clockinfra/redsim-tests/traces --ticks N <its design>
+rt-sand-mix.trace	37369b6620af5c9b	designs/clocks/tracks/clockinfra/redsim-tests/rt-sand-mix.txt=19ccb7a4ef5fcc62	26.3	2026-10-20 0c0eedbb6	mctas clock misc trace-export --exact --out-dir designs/clocks/tracks/clockinfra/redsim-tests/traces --ticks N <its design>

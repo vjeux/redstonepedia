@@ -1,0 +1,20 @@
+name: tnt-c1
+port start: 0 0 2 minecraft:redstone_block 4
+origin: 0 0 0
+palette:
+  s minecraft:slime_block
+  O minecraft:obsidian
+  P minecraft:piston[facing=north,extended=false]
+  f minecraft:dead_tube_coral_fan[waterlogged=false]
+  t minecraft:tnt[unstable=false]
+  d minecraft:redstone_wire
+  R minecraft:redstone_block
+  S minecraft:stone
+layer 0:
+  .sss
+  .sOs
+  .P.s
+layer 1:
+  .ft.
+  ..dR
+  ...S

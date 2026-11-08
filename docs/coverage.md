@@ -127,6 +127,120 @@ The iron farms' judge (`circuit: mob-farm iron_ingot TIER`, [circuits.md](circui
 | the real game: every build of a farm in the 26.3 server for 3 days of natural weather, a forced day of rain and of thunder (`circuit verify`, `mctas mobfarm gate`) | ✓ gate | iron-day1: 74.8 golems/h in the game vs redsim 75.0 (8 builds x 3 days), 4.06 iron per golem, works in rain and thunder |
 | the card's measured tradeoffs (vjeux 2026-11-08: "It's all about tradeoffs"): `lightning` (exact sums over every strike column, 1e-5 / 256 a tick each, the rods' 128-block capture, findLightningTargetAround's uniform choice, over the judge's runs' time-weighted golem and iron occupancy: iron burned per thunderstorm, a witch, a broken boat, a fire, a trap horse, the game days until a break), `thunder loss`, `rain` (Plan::Windows runs), `sunburn`, `fire` (every path of LavaFluid.randomTick) | ✓ (`lightning::measure`, `weather::storms`, `fire::lava_can_burn`) | known answers `lightning_measure` (an open villager: 49 columns; under a roof: none; a roof top's trap horses), `thunderstorm_share`; the game gate checks the counts it sees against the card's rates (99% Poisson) |
 
+## The simulator's tests (`mctas test`, 2026-11-08)
+
+A change to the simulator (redsim with its mob, entity, fluid and light code, redsim-fuzz, the
+bridge) runs the simulator pieces of `mctas test` ([tools.md](tools.md#mctas-test-the-tests-of-a-change)),
+never the judges; the game-running known-answer checks of the judges run only when their study's
+code changes, or on demand (`mctas test --all`). So every simulator behavior those game checks
+exercised is covered by a simulator piece: a run of the real game recorded once and replayed on
+redsim (the game never changes; a recording whose design changed fails as stale), a live
+differential fuzzer, or redsim's own known answers.
+
+| simulator piece | what it replays or runs |
+|---|---|
+| `sim:recorded-traces` | 232 exact real-game traces (every cell and entity, bit for bit, every tick): the clock, entity, crop, TNT, rail, item and boat scenes (196); the door anchors' lever cycles (3 open/close cycles) as built, at a second position and turned, the periodic bulb door, the broken c79, c88-s26, bridge-p2-sculk-r and its stone variant turned 180 degrees (the break material:archive-guards finds in the game: redsim breaks it the same way), the white-concrete door and the classic 2x2 (22); the clock calibration and selftest clocks, the cart clock and the falling cart (11); the item elevators of circuit:lift-verify (the dropper chain, the bubble column that rests, the two clocks that jam) running on a loaded hopper (3). First `recorded check`: every recording of the 13 directories current |
+| `sim:recorded-boats` | the 16 boat and lead fixtures' exact traces |
+| `circuit:shulker-compare` | the 20 exact shulker loader and unloader traces |
+| `sim:recorded-studies` | 13 judge runs recorded in the game, every cell of the watched box every gt: sorter-classic's base and direct water-stream runs, storage-bulk's jam run, the double-chest test; smelter-1, smelter-clock-2, smelter-row and the naive slice's tiled run (furnace cook and burn timers); the brewing stand locked and unlocked and brewer-small (brew and fuel timers); the naive composter and compost-row (the level random mirrored) |
+| `sim:recorded-circuits` | the circuit judge's stimulus on 36 calibration circuits, recorded in the game (everything circuit:verify-calibration ran but the two flyers that end their corridor a few frames apart in the harness, fly-start and flying-machine, and the unwaxed bulb toggle redsim does not model) |
+| `sim:recorded-ideal` | `door ideal-rs` against the game's recorded `door ideal` verdicts and ticks on the c78z, c78z-u1, s25 and observer-driven s25 plans, tile phase and between ticks |
+| `sim:redsim-tests` | `cargo test --release -p redsim --lib --tests`: the mob layer's known answers (the golem sensor's memory, the 600 gt cycle, spawn spots, villager schedules), weather, item and fall physics, leashes, links, shapes, the game frames of crates/redsim/tests/fixtures |
+| `sim:fuzz-redstone`, `-containers`, `-pistons`, `-sculk` | the live differential fuzzers (fixed seeds): random circuits with every component family and the core palette in a bigger box; droppers and hoppers with items; random piston setups (flat and boxed, observers, redstone around them, slime, shaped blocks); sculk scenes |
+
+The official server against the bridge (`door vanilla-check`, `vanilla-gadget`, `vanilla-fuzz`) is
+not a piece: on a box oversubscribed by other sessions' game servers, c79's vanilla-check once
+diverged by one tick at one of its 8 positions (vanilla a tick ahead in the third cycle's opening;
+6 of 6 re-runs at that position identical): a race of the official-server harness, filed. A
+session that changes the bridge or that harness runs it by hand.
+
+What the game-running checks exercised and what covers it now:
+
+| behavior (the game checks that exercised it) | covered by |
+|---|---|
+| pistons, moving blocks, spitting, quasi-connectivity, 0-ticks, the update order at other positions and turned (judge:verify-* x5, periodic-bulb, verify-negative, 2x2-classic/recessed, material:archive-guards, ideal:agree-* x3, ideal:plan-phase-observer-jvm) | the 21 door traces, `sim:recorded-ideal`, `sim:fuzz-pistons` |
+| dust, repeaters, comparators, torches, observers, lamps, note blocks (every check) | the door, clock and circuit recordings; `sim:fuzz-redstone` |
+| waxed copper bulbs (the periodic bulb door; T flip-flops, dividers, counters, burst, monostable) | the periodic bulb door's trace; the bulb circuits' recordings; the fuzzers' `bulb` family |
+| sculk (m79s, bridge-p2-sculk-r, sculk-filter-rise, the sculk clock) | their traces and recording; `sim:fuzz-sculk` |
+| hoppers, droppers, chests, comparator fill levels (sorter, smelter, brewer, composter, shulker, lift, item timer checks) | `sim:recorded-studies`, the shulker traces, the item-timer and dropper-tff recordings, the hopper and dropper scenes; `sim:fuzz-containers` |
+| furnaces (circuit:smelter-compare/verify) | the four smelter recordings (cook and burn timers every gt) |
+| brewing stands (circuit:brewer-compare/verify) | the three brewer recordings |
+| composters and the level random (circuit:composter-compare/verify) | the two composter recordings |
+| item entities and water streams (the sorter's direct run, shulker drops, farm drops) | the sorter direct-run recording, the item scenes (age, merge, despawn, drop, hopper, water), the item bouncers, the shulker traces |
+| minecarts, rails, riders, stations (clock:verify-entities, circuit:verify-station) | the cart clock and the falling cart, the station and cart loader/unloader traces, the cart scenes |
+| TNT (the dupers of circuit:verify-calibration, tnt-water-duper) | the three duper recordings, about 30 TNT traces (explosions, chains, obsidian, water, pushes) |
+| flying machines, slime and honey (the flyers, the elevator) | the two-way machine, the elevator and the watcher-stays recordings, the horizontal flyer trace, the slime and honey scenes, `sim:fuzz-pistons` (slime) |
+| crops and random ticks (circuit:farm-run) | the cane, melon, bamboo, cactus, kelp and stem traces (random ticks mirrored) |
+| mobs (no game check) | `sim:redsim-tests` |
+| the bridge itself | the live fuzzers (the bridge's game against redsim: a bridge that breaks the game's behavior diverges); the official server against the bridge by hand (`door vanilla-check`) |
+| chunk reload (clock:verify-reload) | not a simulator behavior: redsim does not model reload; the clock judge's own check |
+| walkers and pressure plates (circuit:verify-autodoor) | not modeled (redsim declines walkers); the autodoor judge's own check |
+| the unwaxed copper bulb (bulb-toggle-bud) | not modeled (`copper_bulb`); the circuit judge's own check |
+
+The same map check by check: each game-running check of `door selftest` and the recordings that
+replay what it ran in the game (all in `sim:recorded-*`, plus the live fuzzers of its area).
+
+| game check | its game runs, replayed on redsim by |
+|---|---|
+| judge:verify-c79-community-63b-51b, judge:verify-e88-t7b-43b, judge:verify-t7b-nb2-43b, judge:verify-s27-bl52-52b, judge:verify-m79s-sculk-63b-50-50b | each anchor's 3 open/close cycles as built, at a second position and turned (designs/redsim/recorded/doors, 3 traces per anchor) |
+| judge:verify-periodic-bulb | c79 + the once-per-cycle bulb's trace |
+| judge:verify-negative | the broken c79's trace (the same failure) |
+| judge:2x2-classic, judge:2x2-recessed | the classic 2x2's trace (recessed: the same build; its refusal is the judge's flush rule) |
+| material:archive-guards | the c88-s26 and bridge-p2-sculk-r traces, and bridge-p2-sculk-r with stone for its obsidian turned 180 degrees (the break the guard finds) |
+| ideal:agree-c78z, ideal:agree-c78z-u1, ideal:agree-s25, ideal:plan-phase-observer-jvm | the game's `door ideal` verdicts and ticks on the same plans (`sim:recorded-ideal`) |
+| clock:verify-calibration | the observer pair's and the subtract comparator's traces (designs/redsim/recorded/clocks) |
+| clock:verify-negative | the observer pair placed without its kick |
+| clock:verify-entities | the cart clock and the falling cart |
+| clock:archive-refuses-slop, clock:archive-refuses-family-period | the decorated observer pair and the untapped bulb divider |
+| clock:verify-reload | not modeled (chunk reload, filed) |
+| circuit:verify-calibration-1 to -5 | the 36 calibration circuits' stimulus runs (`sim:recorded-circuits`); fly-start and flying-machine are not recorded (their game run stops at the corridor's end 10 frames before redsim's; every frame identical until then), the flying-machine mechanics are in the recorded two-way machine, elevator and watcher-stays flyers and clk-misc's horizontal flyer; bulb-toggle-bud: not modeled (filed) |
+| circuit:verify-station | the judged station-slope-v2 and the cart loader/unloader traces (clk-misc) |
+| circuit:verify-autodoor | not modeled (the walkers, filed) |
+| circuit:verify-shulker-loader, -unloader, -early | the 20 exact shulker traces (`circuit:shulker-compare`), the loaders' and unloaders' runs among them |
+| circuit:sorter-compare, circuit:sorter-verify | the 4 recorded sorter runs (`sim:recorded-studies`) |
+| circuit:smelter-compare, circuit:smelter-verify | the 4 recorded smelter runs |
+| circuit:brewer-compare, circuit:brewer-verify | the 3 recorded brewer runs |
+| circuit:composter-compare, circuit:composter-verify | the 2 recorded composter runs |
+| circuit:lift-verify | the three item elevators running on a loaded hopper (designs/redsim/recorded/lifts) |
+| circuit:farm-run | the judged cane and melon farm traces and the crop scenes (clk-misc) |
+
+Every game-running check stays in `door selftest` with the same assertions (circuit:verify-shulker
+is now three pieces, one per design, run side by side): it runs when its study's code
+changes (the door, clock and circuit judges' checks on their calibration designs), with
+`mctas test --all`, and a design's own judge runs when the design changes.
+
+The three behaviors redsim does not model are filed with their owners (2026-11-08): chunk
+save/unload/reload for redstone (scheduled ticks, block entities; clock:verify-reload is the
+repro) and the automatic doors' walkers (scripted armor stands teleported every tick;
+circuit:verify-autodoor) with the tick-exact lane, the unwaxed copper bulb and its oxidation
+(bulb-toggle-bud in circuit:verify-calibration-*) with the mob-farm infrastructure lane. When
+redsim models one, its game run is recorded into designs/redsim/recorded/ and the simulator
+pieces cover it.
+
+**The mutation test** (2026-11-08, `mctas test --mutants designs/redsim/mutants.tsv`,
+crates/piston-door/src/mutate.rs): ten one-line redsim bugs, each applied in a worktree, built,
+and run through the pieces its own diff picks (`mctas test --from HEAD`). The pieces passed without
+a bug first (the positive control: every simulator piece, the official-server ones then included,
+154 s).
+
+| bug | first FAIL | the pieces that caught it |
+|---|---|---|
+| piston-late: a moving block finishes 1 gt late | 1.0 s | shulker-compare, recorded-ideal, recorded-traces, fuzz-pistons, recorded-circuits |
+| hopper-cooldown: 9 gt instead of 8 | 0.3 s | shulker-compare, recorded-studies, recorded-traces, recorded-circuits, fuzz-containers |
+| observer-pulse: 3 gt instead of 2 | 0.3 s | shulker-compare, recorded-ideal, recorded-traces, recorded-circuits, redsim-tests, fuzz-redstone, fuzz-pistons |
+| item-drag: 0.99 instead of 0.98 | 1.1 s | shulker-compare, recorded-traces |
+| golem-memory: a golem forgotten 10 gt early | 14.2 s | redsim-tests |
+| repeater-delay: every repeater 1 gt slower | 0.8 s | shulker-compare, recorded-studies, recorded-traces, recorded-circuits, redsim-tests, fuzz-redstone, fuzz-pistons |
+| sculk-active: 31 gt instead of 30 | 7.5 s | recorded-traces, fuzz-sculk |
+| furnace-cook: 199 gt instead of 200 | 2.6 s | recorded-studies |
+| minecart-slope: 0.0085 instead of 0.0078125 | 6.9 s | recorded-traces |
+| tnt-fuse: 79 gt instead of 80 | 3.7 s | recorded-traces |
+
+10 of 10 caught, each within 15 s of starting (plus about 20 s to build redsim): a whole mutant
+run took 15 to 25 s. Nothing more can be caught, so the old full suite was not run against them
+(for scale: the old suite alone on the box takes 1675 s with its defaults, 724 s with its runner
+at full parallelism).
+
 ## Gaps that could change a 7x8 / 7x9 verdict, by priority
 
 1. **satwire UNSATs are not proofs** while the encoding approximates block updates (re-read every

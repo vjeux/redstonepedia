@@ -1,0 +1,8 @@
+name: observer-pair-no-kick
+# The two-observer clock placed silently (the judge's placement, no start kick): no shape update
+# ever reaches either face, so nothing fires. A non-clock for the selftest (door selftest).
+palette:
+  E minecraft:observer[facing=east]
+  W minecraft:observer[facing=west]
+layer 0:
+  EW

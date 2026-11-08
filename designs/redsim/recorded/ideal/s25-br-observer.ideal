@@ -1,0 +1,22 @@
+design designs/redsim/recorded/ideal/s25.txt
+# selftest fixture (door selftest, plan phase): c88's s25 (everything real but BR's puller (2,-2))
+# with BR driven at the ticks its REAL wiring powers it in s26 (`door cosearch plan-from s26.txt
+# --region 3,-2;4,-2;4,-1;4,0`): the observer (3,-2) facing east fires at 24, 28 and 32 on both
+# edges. In the default tile phase this plan opens and closes in 34 / 34 ticks, exactly like the
+# wired s26 (`door verify`: open 34 / close 34); with the old between-ticks rule it takes 35 / 35
+# (an observer-driven input was 1 gt late in the plan). d shifts the whole train (--set d=N).
+let d = 0
+open 0 use -4 1 0
+open 24+d set 2 -2 1 minecraft:redstone_block
+open 26+d clear 2 -2 1
+open 28+d set 2 -2 1 minecraft:redstone_block
+open 30+d clear 2 -2 1
+open 32+d set 2 -2 1 minecraft:redstone_block
+open 34+d clear 2 -2 1
+close 0 use -4 1 0
+close 24+d set 2 -2 1 minecraft:redstone_block
+close 26+d clear 2 -2 1
+close 28+d set 2 -2 1 minecraft:redstone_block
+close 30+d clear 2 -2 1
+close 32+d set 2 -2 1 minecraft:redstone_block
+close 34+d clear 2 -2 1

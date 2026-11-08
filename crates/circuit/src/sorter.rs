@@ -1207,42 +1207,27 @@ fn sim_run_rec(c: &Circuit, sc: &Scenario, margin: i32, record: bool) -> std::re
 /// gt from the placement to the last item (full states: block state, container contents,
 /// comparator outputs). `Ok(Ok(frames))` when identical, `Ok(Err(first divergence))` otherwise.
 pub fn compare(pool: &Pool, c: &Circuit, margin: i32, run: Run) -> Result<std::result::Result<usize, String>> {
+    compare_with(Some(pool), c, margin, run, std::path::Path::new(""), &crate::recorded::Mode::Live)
+}
+
+/// [`compare`] live, recording the game's frames, or replaying a recording (no game, no pool):
+/// `mctas test`'s recorded sorter runs ([`crate::recorded`]).
+pub fn compare_with(pool: Option<&Pool>, c: &Circuit, margin: i32, run: Run, design: &std::path::Path, mode: &crate::recorded::Mode) -> Result<std::result::Result<usize, String>> {
     let (sc, rc) = scenario_for(c, run)?;
-    let sim = match sim_run_rec(&rc, &sc, margin, true) {
-        Ok((_, f)) => f,
-        Err(why) => return Ok(Err(format!("redsim does not run it: {why}"))),
+    let sim = sim_run_rec(&rc, &sc, margin, true).map(|(_, f)| f);
+    let game = || -> Result<std::result::Result<Vec<Frame>, String>> {
+        let pool = pool.ok_or_else(|| anyhow!("the game run needs a pool"))?;
+        let r = pool.map(vec![0u8], |w, _, _| {
+            let (from, to) = crate::run::watch_box(&rc, margin);
+            let chunks = [from[0].div_euclid(16), from[2].div_euclid(16), to[0].div_euclid(16), to[2].div_euclid(16)];
+            let sb = w.create(&SandboxOptions { chunks, seed: shulker::build_seed(from, to, 0) })?;
+            let r = run_in_rec(w, sb, &rc, &sc, from, to, true);
+            let _ = w.drop_sandbox(sb);
+            r
+        });
+        Ok(r.into_iter().next().ok_or_else(|| anyhow!("no run"))??.map(|(_, f)| f))
     };
-    let r = pool.map(vec![0u8], |w, _, _| {
-        let (from, to) = crate::run::watch_box(&rc, margin);
-        let chunks = [from[0].div_euclid(16), from[2].div_euclid(16), to[0].div_euclid(16), to[2].div_euclid(16)];
-        let sb = w.create(&SandboxOptions { chunks, seed: shulker::build_seed(from, to, 0) })?;
-        let r = run_in_rec(w, sb, &rc, &sc, from, to, true);
-        let _ = w.drop_sandbox(sb);
-        r
-    });
-    let game = match r.into_iter().next().ok_or_else(|| anyhow!("no run"))?? {
-        Ok((_, f)) => f,
-        Err(why) => return Ok(Err(format!("the game run fails: {why}"))),
-    };
-    let n = game.len().min(sim.len());
-    for f in 0..n {
-        if game[f] != sim[f] {
-            let a: BTreeMap<Pos, &String> = game[f].iter().map(|(p, s)| (*p, s)).collect();
-            let b: BTreeMap<Pos, &String> = sim[f].iter().map(|(p, s)| (*p, s)).collect();
-            let keys: std::collections::BTreeSet<&Pos> = a.keys().chain(b.keys()).collect();
-            let diffs: Vec<String> = keys
-                .into_iter()
-                .filter(|p| a.get(*p) != b.get(*p))
-                .take(4)
-                .map(|p| format!("{p:?} game {} / redsim {}", a.get(p).map(|s| s.as_str()).unwrap_or("air"), b.get(p).map(|s| s.as_str()).unwrap_or("air")))
-                .collect();
-            return Ok(Err(format!("frame {f} of {n}: {}", diffs.join("; "))));
-        }
-    }
-    if game.len() != sim.len() {
-        return Ok(Err(format!("{} frames in the game, {} in redsim", game.len(), sim.len())));
-    }
-    Ok(Ok(n))
+    crate::recorded::gate("sorter-run", design, &run.name(), margin, sim, game, mode)
 }
 
 /// Whether a point lies on one of the open hopper tops (a stray never taken in).

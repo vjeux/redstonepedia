@@ -1,0 +1,17 @@
+name: cal-bulb-burst2
+circuit: burst 2
+# a copper bulb toggles on each rising edge, its comparator changes, an observer turns that into
+# a 2 gt pulse, a delay-3 repeater stretches it to 6 gt, and a second observer pulses on both of
+# the repeater's edges: two pulses per input, whatever its length
+port input: 0 1 0
+port output: 6 1 0
+palette:
+  S minecraft:stone
+  B minecraft:waxed_copper_bulb[lit=false,powered=false]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  O minecraft:observer[facing=west,powered=false]
+  R minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+layer 0:
+  ..S.S.
+layer 1:
+  .BCORO

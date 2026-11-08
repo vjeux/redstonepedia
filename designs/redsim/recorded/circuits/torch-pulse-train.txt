@@ -1,0 +1,31 @@
+name: cal-torch-pulse-train
+circuit: pulse-train
+# a torch loop clock (torch, two delay-1 repeaters back into its block) held off by an inverter
+# torch (through a repeater) while the input is off
+origin: 0 -1 0
+port input: 0 1 0
+port output: 3 0 3
+palette:
+  S minecraft:stone
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  N minecraft:redstone_wall_torch[facing=south,lit=true]
+  L minecraft:redstone_wall_torch[facing=east,lit=false]
+  a minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  b minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  c minecraft:repeater[delay=1,facing=north,locked=false,powered=true]
+layer 0:
+  ....
+  ....
+  .S..
+  ....
+  .SS.
+  .SS.
+layer 1:
+  .S..
+  .N..
+  .c..
+  .SL.
+  .ab.
+  .dd.
+layer 2:
+  .d..

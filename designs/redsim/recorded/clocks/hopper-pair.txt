@@ -1,0 +1,15 @@
+name: cal-hopper-pair
+# Two hoppers facing each other pass one item back and forth (each hop waits out the receiving
+# hopper's cooldown); a comparator reads the first hopper's fill level (1 item: signal 1).
+# Self-starting: the item is in the first hopper from the start (nbt: line).
+port output: -1 1 0
+nbt: 1 1 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+palette:
+  S minecraft:stone
+  C minecraft:comparator[facing=east]
+  E minecraft:hopper[facing=east]
+  W minecraft:hopper[facing=west]
+layer 0:
+  S
+layer 1:
+  CEW

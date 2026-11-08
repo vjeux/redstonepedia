@@ -1,0 +1,20 @@
+name: cal-torch-repeater
+# A torch loop: the wall torch on B lights the dust ring; the ring feeds a delay-4 repeater that
+# points into B, which turns the torch off; the ring goes dark, the repeater lets go, the torch
+# relights. Self-starting (the judge's self updates light the ring). Delay 4 keeps the torch under
+# its burnout limit (8 toggles in 60 gt).
+port output: 0 -1 2
+palette:
+  S minecraft:stone
+  B minecraft:stone
+  T minecraft:redstone_wall_torch[facing=east]
+  d minecraft:redstone_wire
+  r minecraft:repeater[delay=4,facing=south]
+layer 0:
+  ..S
+  S.S
+  SSS
+layer 1:
+  BTd
+  r.d
+  ddd

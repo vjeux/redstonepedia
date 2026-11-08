@@ -1,0 +1,125 @@
+# archived 2026-10-20T22:14Z from designs/circuits/shulker/tracks/shulker/loader-1wide-flush.txt by mctas circuit archive
+# CIRCUIT: shulker-loader-1wide-flush shulker-loader boxes/min 0.086, items/s 2.49, first box 13877 gt, cycle 13872 gt, hoppers awake 5, badges always-on+16-stack+unstackable+colours+restart+top-up+flush+box-starved+drop-free+tileable(1), bill 26 iron, 30 quartz, 81 redstone, 49 blocks, 1x8x10, robust
+name: shulker-loader-1wide-flush
+circuit: shulker-loader
+tile: 1 0 0
+# Draft (clk-rt, 2026-10-20): shulker-loader-1wide plus flush. An hourglass chest of 420 stone over
+# a hopper that a comparator on the items chest locks while items remain. Once the source runs
+# dry it drains in 3360 gt (longer than the restart pause, inside the flush deadline). Then the
+# torch on its comparator's output block lights the lamp in the piston's observer line, and the
+# piston breaks the last partial box. The observer line over the top moved up one row to make room.
+port boxes: 0 0 -2
+port items: 0 2 0
+port output: 0 -2 1
+origin: 0 0 -3
+nbt: 0 3 2 {Items:[{Slot:0b,id:"minecraft:stone",count:64},{Slot:1b,id:"minecraft:stone",count:64},{Slot:2b,id:"minecraft:stone",count:64},{Slot:3b,id:"minecraft:stone",count:64},{Slot:4b,id:"minecraft:stone",count:64},{Slot:5b,id:"minecraft:stone",count:64},{Slot:6b,id:"minecraft:stone",count:36}]}
+nbt: 0 3 3 {OutputSignal:4}
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=up,powered=false]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  D minecraft:dispenser[facing=up,triggered=false]
+  H minecraft:hopper[enabled=true,facing=down]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=south]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=false,powered=false]
+  c minecraft:comparator[facing=south,mode=compare,powered=false]
+  d minecraft:dropper[facing=down,triggered=false]
+  e minecraft:dropper[facing=north,triggered=false]
+  h minecraft:hopper[enabled=true,facing=south]
+  o minecraft:observer[facing=north,powered=false]
+  r minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  X minecraft:chest[facing=north,type=single,waterlogged=false]
+  q minecraft:comparator[facing=north,mode=compare,powered=true]
+  t minecraft:redstone_wall_torch[facing=south,lit=false]
+  L minecraft:smooth_stone_slab[type=top,waterlogged=false]
+layer -3:
+  B
+  o
+  o
+  R
+  A
+  A
+  A
+  B
+  .
+  .
+layer -2:
+  B
+  .
+  .
+  O
+  .
+  .
+  .
+  B
+  .
+  S
+layer -1:
+  c
+  h
+  h
+  D
+  H
+  d
+  S
+  C
+  W
+  C
+layer 0:
+  .
+  .
+  P
+  .
+  C
+  C
+  r
+  .
+  .
+  O
+layer 1:
+  .
+  .
+  .
+  H
+  L
+  .
+  .
+  .
+  .
+  O
+layer 2:
+  .
+  .
+  B
+  .
+  C
+  h
+  e
+  .
+  .
+  O
+layer 3:
+  .
+  .
+  B
+  .
+  .
+  X
+  q
+  S
+  t
+  R
+layer 4:
+  .
+  .
+  A
+  A
+  A
+  A
+  A
+  A
+  A
+  O

@@ -1,0 +1,6 @@
+# recordings of the real game replayed on redsim (mctas recorded check; crates/mctas/src/recorded.rs)
+file	hash	deps	version	recorded	how
+naive-slice-tiled.rec	fa1438ee8be46d15	designs/redsim/recorded/smelter/naive-slice.txt=c06fe4c6674ef89c	26.3	2026-11-08T17:41Z on 4ab5af6ed	mctas circuit record --kind smelter-run --run tiled --margin 3 --dir designs/redsim/recorded/smelter designs/circuits/tracks/smelter/calibration/naive-slice.txt
+smelter-1-base.rec	6355d43daae5d479	designs/redsim/recorded/smelter/smelter-1.txt=400ec5df0e32ef53	26.3	2026-11-08T17:40Z on 4ab5af6ed	mctas circuit record --kind smelter-run --run base --margin 3 --dir designs/redsim/recorded/smelter designs/circuits/smelter/archive/smelter-1.txt
+smelter-clock-2-base.rec	e6924374611875ea	designs/redsim/recorded/smelter/smelter-clock-2.txt=b5ea14e2a29d7073	26.3	2026-11-08T17:40Z on 4ab5af6ed	mctas circuit record --kind smelter-run --run base --margin 3 --dir designs/redsim/recorded/smelter designs/circuits/smelter/archive/smelter-clock-2.txt
+smelter-row-base.rec	ae8e097716874af9	designs/redsim/recorded/smelter/smelter-row.txt=ad83a1810c90d340	26.3	2026-11-08T17:41Z on 4ab5af6ed	mctas circuit record --kind smelter-run --run base --margin 3 --dir designs/redsim/recorded/smelter designs/circuits/smelter/archive/smelter-row.txt

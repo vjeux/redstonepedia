@@ -1,0 +1,13 @@
+name: cal-torch-not
+circuit: gate not
+# Input -> dust -> stone -> wall torch (the output): a NOT gate with the torch's 2 gt delay.
+port input: 0 1 0
+port output: 3 1 0
+palette:
+  S minecraft:stone
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  T minecraft:redstone_wall_torch[facing=east,lit=true]
+layer 0:
+  .S..
+layer 1:
+  .dST

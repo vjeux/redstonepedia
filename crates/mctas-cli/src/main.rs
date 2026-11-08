@@ -90,6 +90,19 @@ enum Cmd {
         #[command(subcommand)]
         command: terrain::cli::TerrainCmd,
     },
+    /// The tests of THIS change (AGENTS.md, docs/tools.md#mctas-test): the tree's diff against
+    /// main picks the pieces (a simulator change: the recorded game traces replayed on redsim and
+    /// the fuzzers of the areas it touched; a judge or study change: that study's calibration
+    /// checks; a changed design: its own judge; docs and the site: nothing), prints the plan and
+    /// why, runs them in parallel sized from the machine, PASS / FAIL per piece, and ends with
+    /// the line for the commit message. `--all`: every piece, on demand.
+    Test(door_judge::TestArgs),
+    /// The recorded game answers the simulator pieces replay: `check` their manifests (a stale
+    /// recording fails), `write` a manifest after recording again (crates/mctas/src/recorded.rs).
+    Recorded {
+        #[command(subcommand)]
+        command: door_judge::RecordedCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -173,6 +186,8 @@ fn main() -> Result<()> {
         Cmd::Bedrock { command } => bedrock::cli::run(&cli.version, command)?,
         Cmd::Mobfarm { command } => mobfarm::cli::run(&cli.version, command)?,
         Cmd::Terrain { command } => terrain::cli::run(&cli.version, command)?,
+        Cmd::Test(args) => door_judge::cmd_test(&cli.version, args)?,
+        Cmd::Recorded { command } => door_judge::cmd_recorded(&cli.version, command)?,
     }
     Ok(())
 }

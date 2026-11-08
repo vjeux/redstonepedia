@@ -1,0 +1,6 @@
+# recordings of the real game replayed on redsim (mctas recorded check; crates/mctas/src/recorded.rs)
+file	hash	deps	version	recorded	how
+double-chest-base.rec	1d31b064338c2e4e	designs/redsim/recorded/sorter/double-chest.txt=9a26a62fd4b23889	26.3	2026-11-08T17:40Z on 4ab5af6ed	mctas circuit record --kind sorter-run --run base --margin 3 --dir designs/redsim/recorded/sorter designs/circuits/tracks/sorter/calibration/double-chest.txt
+sorter-classic-base.rec	699add73fb1042a6	designs/redsim/recorded/sorter/sorter-classic.txt=6ffd0f246bb1801c	26.3	2026-11-08T17:39Z on 4ab5af6ed	mctas circuit record --kind sorter-run --run base --margin 3 --dir designs/redsim/recorded/sorter designs/circuits/sorter/archive/sorter-classic.txt
+sorter-classic-direct.rec	1cd9e73f18b113ed	designs/redsim/recorded/sorter/sorter-classic.txt=6ffd0f246bb1801c	26.3	2026-11-08T17:40Z on 4ab5af6ed	mctas circuit record --kind sorter-run --run direct --margin 3 --dir designs/redsim/recorded/sorter designs/circuits/sorter/archive/sorter-classic.txt
+storage-bulk-jam.rec	c09ad8180290b3f0	designs/redsim/recorded/sorter/storage-bulk.txt=48b1fcddd675d2ff	26.3	2026-11-08T17:40Z on 4ab5af6ed	mctas circuit record --kind sorter-run --run jam --margin 3 --dir designs/redsim/recorded/sorter designs/circuits/sorter/archive/storage-bulk.txt

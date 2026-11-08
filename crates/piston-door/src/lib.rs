@@ -82,6 +82,8 @@ pub mod audit;
 pub mod provenance;
 pub mod mechmut;
 pub mod selftest;
+pub mod testplan;
+pub mod mutate;
 pub mod fill;
 
 use anyhow::{Context, Result, bail};

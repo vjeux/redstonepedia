@@ -1,0 +1,36 @@
+# archived 2026-10-19T23:14Z from designs/clocks/tracks/clk-misc/items/bookshelf-cart.txt by mctas clock archive
+# CLOCK: clk-misc-bookshelf-cart period 56 gt (2.8 s), on 56/56, edges 0, warmup 8, family chiseled_bookshelf+hopper+hopper_minecart, 20 blocks, 7x4x3, robust
+name: clk-misc-bookshelf-cart
+# A chiseled bookshelf item loop with a minecart lift: a hopper minecart carrying a book bounces on a sloped track
+# (powered rails, one lever, stone bumpers launch it back). At the low end it pulls the book out of the chiseled
+# bookshelf above it; at the high end the hopper under the rail pulls the book out of the cart; four hoppers carry it
+# back down beside the track into the bookshelf (slot_0_occupied flips in place). Hoppers only move items down or
+# sideways, so the cart is the lift.
+port output: 1 1 0
+origin: 0 -1 -1
+entity: minecraft:hopper_minecart 1.5 0.0625 0.5 {Items:[{Slot:0b,id:"minecraft:book",count:1}]}
+palette:
+  S minecraft:stone
+  V minecraft:lever[face=wall,facing=north,powered=true]
+  P minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  U minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]
+  N minecraft:hopper[enabled=true,facing=north]
+  D minecraft:hopper[enabled=true,facing=south]
+  W minecraft:hopper[enabled=true,facing=west]
+  C minecraft:chiseled_bookshelf[facing=north,slot_0_occupied=false,slot_1_occupied=false,slot_2_occupied=false,slot_3_occupied=false,slot_4_occupied=false,slot_5_occupied=false]
+layer 0:
+  .V.....
+  .SSS...
+  .......
+layer 1:
+  .......
+  SPPUS..
+  .......
+layer 2:
+  .......
+  .C..UD.
+  .NWWWW.
+layer 3:
+  .......
+  .....PS
+  .......

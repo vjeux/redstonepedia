@@ -1,0 +1,14 @@
+name: entity-test-decor
+# Judge test: the observer pair plus a minecart standing on a rail nearby (a design entity that
+# must still be there, inside the box, at the end).
+port start: 1 1 0 last
+palette:
+  E minecraft:observer[facing=east]
+  W minecraft:observer[facing=west]
+  S minecraft:stone
+  R minecraft:rail[shape=east_west]
+entity: minecraft:minecart 3.5 1.0625 0.5
+layer 0:
+  ...S
+layer 1:
+  EW.R

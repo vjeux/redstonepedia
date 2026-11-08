@@ -1,0 +1,3 @@
+trace	old_design	fixture	git_source
+designs/clocks/tracks/clk-misc/redsim-tests/traces/e78k-h5-41b.trace	designs/piston-door-3x3/archive/e78k-h5-41b.txt	designs/clocks/tracks/clk-misc/redsim-tests/fixtures/e78k-h5-41b.txt	4ab5af6ed:designs/piston-door-3x3/archive/e78k-h5-41b.txt (frozen)
+designs/clocks/tracks/clk-misc/redsim-tests/traces/test-static-armor-39b.trace	designs/piston-door-3x3/archive/test-static-armor-39b.txt	designs/clocks/tracks/clk-misc/redsim-tests/fixtures/test-static-armor-39b.txt	4ab5af6ed:designs/piston-door-3x3/archive/test-static-armor-39b.txt (frozen)

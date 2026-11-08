@@ -38,7 +38,11 @@ fn repoint(text: &str, path: &Path) -> Result<String> {
     Ok(new)
 }
 
-fn plan(roots: &[PathBuf], fixtures: &Path) -> Result<Vec<Restore>> {
+/// The test trees: a recording's design inside one is a fixture already (nobody edits it for
+/// design work); one outside (an archived design) is frozen by `--freeze`.
+const TEST_TREES: [&str; 5] = ["designs/clocks/traces", "designs/circuits/shulker/traces", "designs/clocks/tracks/clk-misc/redsim-tests", "designs/clocks/tracks/clockinfra/redsim-tests", "designs/boat-leads/traces"];
+
+fn plan(roots: &[PathBuf], fixtures: &Path, freeze: bool) -> Result<Vec<Restore>> {
     let mut paths = Vec::new();
     for dir in roots {
         // Explicit, flat test directories only. No checkout walk or recursive scan.
@@ -48,16 +52,23 @@ fn plan(roots: &[PathBuf], fixtures: &Path) -> Result<Vec<Restore>> {
         }
     }
     paths.sort();
+    let head = String::from_utf8(git(&["rev-parse", "--short", "HEAD"])?)?.trim().to_string();
     let mut restores = Vec::new();
     for trace in paths {
         let text = std::fs::read_to_string(&trace)?;
         let header: Value = serde_json::from_str(text.lines().next().context("empty trace")?)?;
         let old = header["design"].as_str().context("missing design")?.to_string();
-        if Path::new(&old).is_file() { continue; }
-        let deleted = String::from_utf8(git(&["log", "-1", "--diff-filter=D", "--format=%H", "--", &old])?)?.trim().to_string();
-        ensure!(!deleted.is_empty(), "{}: no deletion history for {old}", trace.display());
-        let revision = format!("{deleted}^:{old}");
-        let source = git(&["show", &revision])?;
+        let (source, revision) = if Path::new(&old).is_file() {
+            // a live design (an archived one): frozen as it is now, the bytes the recording was
+            // checked against (it replays identically before anything is written)
+            if !freeze || TEST_TREES.iter().any(|t| old.starts_with(&format!("{t}/"))) { continue; }
+            (std::fs::read(&old)?, format!("{head}:{old} (frozen)"))
+        } else {
+            let deleted = String::from_utf8(git(&["log", "-1", "--diff-filter=D", "--format=%H", "--", &old])?)?.trim().to_string();
+            ensure!(!deleted.is_empty(), "{}: no deletion history for {old}", trace.display());
+            let revision = format!("{deleted}^:{old}");
+            (git(&["show", &revision])?, revision)
+        };
         let destination = fixtures.join(trace.file_stem().context("trace stem")?).with_extension("txt");
         ensure!(!destination.exists(), "refuse to overwrite {}", destination.display());
         restores.push(Restore { trace, old, destination, source, revision, text });
@@ -66,15 +77,23 @@ fn plan(roots: &[PathBuf], fixtures: &Path) -> Result<Vec<Restore>> {
 }
 
 pub fn run(roots: &[PathBuf], fixtures: &Path, binary: &Path, write: bool) -> Result<()> {
-    let safe_root = Path::new("designs/clocks/traces").canonicalize()?;
+    run_with(roots, fixtures, binary, &["trace-compare".to_string()], write, false)
+}
+
+/// [`run`] with the command that replays the traces: `binary <compare...> <traces>` (the clock
+/// traces' `redsim-fuzz trace-compare`, the shulker traces' `mctas circuit shulker compare`);
+/// `freeze`: also copy every live design a trace was recorded from (an archived one) into the
+/// fixtures, so design work never makes the simulator's recordings stale (mctas test).
+pub fn run_with(roots: &[PathBuf], fixtures: &Path, binary: &Path, compare: &[String], write: bool, freeze: bool) -> Result<()> {
     let destination = if fixtures.exists() {
         fixtures.canonicalize()?
     } else {
         fixtures.parent().context("fixture parent")?.canonicalize()?.join(fixtures.file_name().context("fixture directory name")?)
     };
-    ensure!(destination.starts_with(safe_root), "fixtures must stay under designs/clocks/traces, outside all published archives");
-    let list = plan(roots, fixtures)?;
-    println!("MISSING DESIGNS: {}", list.len());
+    let safe = TEST_TREES.iter().filter_map(|r| Path::new(r).canonicalize().ok()).any(|r| destination.starts_with(r));
+    ensure!(safe, "fixtures must stay under {}, outside all published archives", TEST_TREES.join(" or "));
+    let list = plan(roots, fixtures, freeze)?;
+    println!("{} DESIGNS: {}", if freeze { "MISSING OR LIVE" } else { "MISSING" }, list.len());
     if list.is_empty() { return Ok(()); }
     let scratch = std::env::temp_dir().join(format!("mctas-trace-fixtures-{}", std::process::id()));
     std::fs::create_dir_all(&scratch)?;
@@ -87,7 +106,7 @@ pub fn run(roots: &[PathBuf], fixtures: &Path, binary: &Path, write: bool) -> Re
         traces.push(trace);
         println!("RESTORE {} from {}", r.destination.display(), r.revision);
     }
-    let result = Command::new(binary).arg("trace-compare").args(&traces).output().with_context(|| format!("run {}", binary.display()))?;
+    let result = Command::new(binary).args(compare).args(&traces).output().with_context(|| format!("run {}", binary.display()))?;
     let report = format!("{}\n{}", String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
     std::fs::write(scratch.join("comparison.txt"), &report)?;
     print!("{report}");

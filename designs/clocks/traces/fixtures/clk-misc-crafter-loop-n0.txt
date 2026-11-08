@@ -1,0 +1,33 @@
+# archived 2026-10-19T20:16Z from designs/clocks/tracks/clk-misc/crafter/crafter-loop.txt by mctas clock archive
+# CLOCK: clk-misc-crafter-loop-n0 period 91 gt (4.55 s), on 81/91, edges 1, warmup 12, family comparator+crafter+hopper+observer, 7 blocks, 3x3x2, robust
+name: clk-misc-crafter-loop-n0
+# Extendable family clk-misc-crafter-loop (n = 0): P = 91 + 28n = 91 gt, 7 + 2n = 7 blocks. A crafter crafts back and forth
+# between 1 slime block and 9 slime balls; 1 hopper(s) carry each result back into it (one item per 8 gt). A comparator reads the hopper
+# that feeds the crafter through a stone and two observers pulse the crafter on both of its edges: when that hopper empties the
+# crafter holds a whole recipe and crafts 4 gt later; when it fills, the crafter is empty or partly filled and nothing matches.
+# Extension: 2 more hoppers (+28 gt: the block and the 9 balls each cross 2 more hoppers).
+# Not an extendable family any more (clockinfra 2026-10-23, clock family-periods): the members its
+# generator makes for n >= 1 declare their output in the comparator's cell and redsim finds no air
+# cell they light once per 91 + 28n gt; the game judge refuses them (INVALID output). This design
+# (n = 0) is a valid 91 gt clock and stays, alone. The family was:
+# extend base: 0 / extend blocks: 7 + 2n / extend family: clk-misc-crafter-loop / extend n: 0..20
+# extend generator: mctas clock misc crafter-loop --n {n} --out {out} / extend period: 91 + 28n
+# extend rule: add 2 hoppers: the hopper loop one column longer
+# port output moved 2026-10-20 (clockinfra): an exterior air cell where the judge's lamp lights at evenly spaced ticks (was -2 0 -1: the old output was uneven, entered during the cycle, or not an exterior air cell)
+port output: -3 0 -1
+port start: 0 1 0 minecraft:redstone_block 2
+nbt: 0 0 0 {Items:[{Slot:0b,id:"minecraft:slime_block",count:1}]}
+origin: -2 0 -1
+palette:
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  H minecraft:hopper[enabled=true,facing=south]
+  O minecraft:observer[facing=north,powered=false]
+  S minecraft:stone
+  c minecraft:crafter[crafting=false,orientation=north_up,triggered=false]
+  o minecraft:observer[facing=west,powered=false]
+layer -1:
+  S
+  .
+layer 0:
+  CSH
+  Ooc

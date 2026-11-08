@@ -44,6 +44,65 @@ Proven circuits go in the gadget library, `designs/gadgets/` (a small design plu
 whose `expect`s prove the behavior; catalog in [mechanics.md](mechanics.md#10-gadget-catalog)).
 Run them all with `mctas door drive --quiet designs/gadgets/*.drive`.
 
+## `mctas test`: the tests of a change
+
+The session that changes something runs the tests of ITS change, not everything (vjeux
+2026-11-08: "The session that changes the redstone simulator should run the tests to make sure
+that the changes are safe. The session that changes a farm should run the tests to make sure the
+farm is working. We shouldn't test everything for every change."). `mctas test`, from the
+repository root, reads the change (the tree against the merge base of HEAD and `origin/main`:
+committed, staged, unstaged and untracked files), prints the plan with the files behind every
+piece, runs the pieces in parallel sized from the machine (CPU threads: the cores minus the load
+already there; JVM workers: half of those, at most one per 1.3 GB of free memory;
+`MCTAS_MAX_WORKERS` still caps every pool), prints PASS or FAIL per piece with its time and the
+slowest five, and ends with the line for the commit message (`Tests: mctas test (...)`).
+
+| the change touches | the pieces |
+|---|---|
+| the simulator: `crates/redsim` (its mob, entity, fluid, light and weather code too), `crates/redsim-fuzz`, `bridge/`, mctas' `sim.rs` / `bridge.rs`, the differential tools (`pistfuzz.rs`, `crates/door-redsim`) | `sim:recorded-*`: every recorded game run replayed on redsim, no JVM, seconds (below); `sim:redsim-tests`: redsim's own known answers; `sim:fuzz-<area>`: the live differential fuzzers (the bridge's game against redsim) of the areas the files belong to (redstone, pistons and moving blocks, containers, sculk; redsim's engine, `world.rs`, `ticks.rs`, `block.rs`..., the bridge: all of them). The official server against the bridge (`door vanilla-check`, `vanilla-gadget`, `vanilla-fuzz`) is not a piece (a harness race under load, filed): a session changing the bridge or the official-server harness runs `door vanilla-check` on a door by hand |
+| a judge's or a study's code (`crates/piston-door`, `crates/door-*`, `crates/clock*`, `crates/circuit*`) | that study's checks on its calibration designs, on redsim and in the game (`door selftest`'s checks of the study); a circuit study's module also picks the studies whose modules call into it, the circuit judge's shared code every circuit study; code the recordings replay through (the clock crate, the circuit judge, the sorter / smelter / brewer / composter modules, the shulker replayer) also the recorded pieces (seconds); never a live fuzzer |
+| a design: a door, clock, circuit, farm or gadget | its own judge: `door verify <f> --extra-offsets 28`, `clock verify <f>`, `circuit verify <f>`, `door drive <gadget>.drive`; a calibration or selftest file: the checks that read it; an archive table: `archive:tables`; a recording or its frozen design: `sim:recorded-*` |
+| docs/, web/, the site, the viewer, litematic, videos, downloads | nothing (`site publish` / `deploy` run no tests) |
+| the test tool itself, `Cargo.toml` / `Cargo.lock`, the shared design format (the rest of `crates/mctas`) | everything |
+
+The rules are the table `testplan::RULES` (crates/piston-door/src/testplan.rs, most specific
+first; its tests check that every crate has a rule, that a redsim change picks no judge and a
+judge change no live simulator test); the pieces are `door selftest`'s checks (`door selftest --list`:
+each check's group and JVM workers; crates/piston-door/src/selftest.rs). Flags: `--plan` (print
+the plan and stop), `--all` (every piece, on demand: never a scheduled job), `--pick sim,sorter`
+(add groups), `--design <f>` (add a design's judge), `--only <names>`, `--fail-fast` (stop at the
+first FAIL), `--from <ref>`, `--jobs` / `--jvms` (override the machine's sizing), `--keep`.
+Typical times on a 166-core box (2026-11-08): a redsim or bridge change 47 s (11 pieces: the
+recordings, redsim's tests and the live fuzzers of its areas); a study's code its study's checks
+(the slowest, the shulker study, about 5 min); a
+design its own judge (a door: about 35 s); docs nothing. The old single gate took 28 min.
+
+**The mutation test of the pieces** (crates/piston-door/src/mutate.rs, [coverage.md](coverage.md#the-simulators-tests-mctas-test-2026-11-08)):
+`mctas test --mutants designs/redsim/mutants.tsv --tree <a git worktree> [--suite '<mctas
+args>'] [--only <mutants>] [--no-control]` applies each one-line redsim bug of the file in the
+worktree, builds it, runs the suite there (default `test --from HEAD`: the pieces the bug's own
+diff picks; the old suite: `--suite 'door selftest'`), records CAUGHT (by which pieces, the time
+of the first FAIL) or MISSED, and restores the file; first the suite must pass without a bug
+(the positive control). The report: `<tree>/target/mutants/report.txt`.
+
+**Recordings.** The game never changes (26.3), so a run of the real game recorded once is the
+game's answer for as long as the design it was recorded from stays the same; redsim replays it in
+milliseconds. The exact traces (`designs/clocks/traces/exact`, clk-misc's and clockinfra's
+`redsim-tests/traces`, `designs/circuits/shulker/traces/exact`, `designs/boat-leads/traces`,
+`designs/redsim/recorded/doors`, `clocks` and `lifts`: `door trace-compare`, `circuit shulker compare`,
+`boat-leads compare`) and the judges' recorded frames (`designs/redsim/recorded/<kind>`: `circuit
+replay`) each sit in a directory with a manifest,
+`recorded.tsv` (`mctas recorded check | write`, crates/mctas/src/recorded.rs): every recording's
+hash, the design it was recorded from (a frozen copy in the test tree, so design work never makes
+a recording stale) and its hash, the game version, when and how it was recorded. A changed
+design or recording, a recording without a row and a row without its recording FAIL (`STALE`,
+`EDITED`, `UNLISTED`, `MISSING`); the game's `door ideal` verdicts of `sim:recorded-ideal` carry
+their plans' and designs' hashes in selftest.rs the same way. To add one: `circuit record --kind sorter-run|smelter-run|
+brewer-run|composter-run|circuit-trace [--run R] --dir designs/redsim/recorded/<kind> <design>`
+(the game and redsim must agree: nothing is recorded otherwise; the frames are stored gzipped) or
+`clock misc trace-export --exact` on a frozen copy, then `mctas recorded write <dir> --fresh --how
+'<the command>'` (`mctas recorded hash <files>` prints the hashes the manifests use).
+
 ## Setup and the game's source
 
 | command | when to use it |
@@ -118,7 +177,7 @@ plus the hallway check, footsteps for sculk designs, QUART SEAMLESS or better an
 | command | when to use it |
 |---|---|
 | `door material <designs> --out DIR [--extra-offsets 28] [--judge] [--legacy-walkway]` | OBSIDIAN ONLY WHERE NEEDED (vjeux 2026-10-21; `material.rs`, track clk-rt): every obsidian block tried as stone on the redsim door screen at the record judge's 32 positions x 3 cycles (all at once, else one at a time, then the passing ones together); a swap stays only when the door passes with the same open and close ticks. What stays obsidian is needed as an immovable block (doors have no explosions). The changed designs (header kept, plus a material line) and material.tsv go to DIR; `--judge` confirms them with the real judge at the same positions AND its rotation check (the design built turned 90/180/270 degrees, as the leaderboard judges): a stone design that breaks a turned build its original passes keeps its obsidian; `--legacy-walkway` for designs that predate the walkway rule. `door verify --archive` refuses a door whose obsidian can be stone (redsim screen, then the game's rotation check, only for such a door). 2026-10-21: 185 of the 399 archived doors with obsidian changed (198 blocks; the same ticks, rotations, category and size); 10 more passed the screen but broke at 180 degrees with stone and keep their obsidian (bridge-p2-sculk-r-49b, e78st-56b-41-2s-41b, e78st38-s2-fill-39b-*) |
-| `door selftest [--quick] [--only a,b] [--list] [--jobs 6] [--jvm-jobs 2] [--keep]` | the known-answer suite every tool must pass before a push (AGENTS.md's push gate): the redsim judge and `door verify` on the archived anchors (c79, e88-t7b, t7b-nb2, s27-bl52, m79s-sculk) and on a broken c79 (must fail), the periodic judge on c79 + a once-per-cycle copper bulb, pockets re-finding c79's bottom-left and c88 s25's gapped bottom-right chain (and not without `--gaps`), satwire `--from-wired --check` = 0 mismatches on c79 and `--update-order` rejecting a saved 48-block BUD candidate, boxproof on c79 (SAT with `--split-rounds`, UNSAT without, a freed cell re-found, the model vs redsim fuzz), `door ideal-rs` vs `door ideal` on 3 plans (one with a 1 gt pulse), generator membership of docs/audit.md's acceptance list. One PASS / FAIL line per check; `--quick` ~40 s, full ~2 min (selftest.rs; fixtures in `designs/piston-door-3x3/selftest/`) |
+| `door selftest [--quick] [--only a,b] [--list] [--jobs N] [--jvm-jobs N] [--keep]` | every known-answer check of the search and judge tools and of the simulator, the table `mctas test` picks its pieces from (above): the redsim judge and `door verify` on the archived anchors (c79, e88-t7b, t7b-nb2, s27-bl52, m79s-sculk) and on a broken c79 (must fail), the periodic judge on c79 + a once-per-cycle copper bulb, pockets re-finding c79's bottom-left and c88 s25's gapped bottom-right chain (and not without `--gaps`), satwire `--from-wired --check` = 0 mismatches on c79 and `--update-order` rejecting a saved 48-block BUD candidate, boxproof on c79 (SAT with `--split-rounds`, UNSAT without, a freed cell re-found, the model vs redsim fuzz), `door ideal-rs` vs `door ideal` on 3 plans (one with a 1 gt pulse), generator membership of docs/audit.md's acceptance list, the clock and circuit studies' calibration (redsim and the game), the simulator's recorded game runs (`sim:recorded-*`) and live fuzzers (`sim:fuzz-*`). One PASS / FAIL line per check, run like `mctas test --all` (in parallel, sized from the machine; `--quick`: the checks that start no JVM); on demand only (selftest.rs; fixtures in `designs/piston-door-3x3/selftest/`) |
 | `door buildable <design>... [--positions 32] [--lever off\|on] [--out-dir DIR]` | can a survival player build it? searches for a placement order (real clicks on visible faces, the world updating after each, temporary blocks allowed) that ends exactly in the judge's rest state, then runs the judge's cycles from there; writes `*.build.txt` scripts (`tracks/buildable/scripts/`, read by the catalog) |
 | `door vanilla-check <design>... [--extra-offsets 28] [--trace]` | run designs in an UNMODIFIED vanilla 26.3 server (official jar, RCON, a bot player clicks the lever, region files read back) and compare every tick with the simulator under the judge's rules, plus one real-time cycle. PASS = identical tick for tick; DIVERGES names the first differing tick and cells. Method: `tracks/vanilla-check/NOTES.md` |
 | `door vanilla-build <script.build.txt>... [--real-time] [--slow N]` | replay a `door buildable` script on the unmodified server with a bot player (item in hand, the script's look, sneaking, a right-click on the given face), compare after every action, then run the judge's cycles with the bot. Method: `tracks/vanilla-build/NOTES.md` |

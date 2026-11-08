@@ -1,0 +1,24 @@
+# archived 2026-10-19T20:36Z from designs/clocks/tracks/clk-misc/fluid/water-channel.txt by mctas clock archive
+# CLOCK: clk-misc-water-channel period 15 gt (0.75 s), on 4/15, edges 2, warmup 10, family observer+sticky_piston+water, 24 blocks, 8x2x4, robust
+name: clk-misc-water-channel
+# A water clock: a walled channel on a stone floor between two water sources, 5 cells apart. The cell F2 two steps from the left
+# source holds flowing water of level 2 (fed from the left) or level 3 (fed from the right when the left feed is cut): an
+# observer in the wall watches it, and through the stone behind it pulses a sticky piston for 2 gt. Each pulse toggles the
+# piston's block between the wall and the channel cell F1 next to the left source (a 2 gt pulse spits the block one cell
+# further; the next pulse pulls it back). Cutting or reopening F1 changes F2's level a few water ticks (5 gt) later.
+origin: -1 0 -2
+port output: 2 0 -1
+palette:
+  W minecraft:water[level=0]
+  S minecraft:stone
+  O minecraft:observer[facing=south,powered=false]
+  P minecraft:sticky_piston[extended=false,facing=south]
+layer -1:
+  .
+  .
+  .SSSSSS
+layer 0:
+  ..PS
+  .SSOSSS
+  SW....WS
+  .SSSSSS

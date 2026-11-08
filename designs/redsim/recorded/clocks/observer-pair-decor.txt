@@ -1,0 +1,15 @@
+name: selftest-observer-pair-decor
+# The basic observer clock (designs/clocks/calibration/observer-pair.txt: two observers facing each
+# other, the second placed last) with two stone blocks that do nothing: one on top of the west-facing
+# observer, one behind it (powered by its pulses, driving nothing). `clock strip` must call it slop
+# (both stones removed, the 2-block pair left) and `clock archive` must refuse it.
+port output: -1 0 0
+port start: 1 0 0 last
+palette:
+  E minecraft:observer[facing=east]
+  W minecraft:observer[facing=west]
+  s minecraft:stone
+layer 0:
+  EWs
+layer 1:
+  .s

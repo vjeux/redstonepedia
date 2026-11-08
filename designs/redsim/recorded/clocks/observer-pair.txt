@@ -1,0 +1,11 @@
+name: cal-observer-pair
+# Two observers facing each other, each watching the other. The second one is placed last (a
+# player placing it): it appears in front of the first one's face, a shape update that starts the
+# chain; from then on each observer's pulse is a state change the other one sees.
+port output: -1 0 0
+port start: 1 0 0 last
+palette:
+  E minecraft:observer[facing=east]
+  W minecraft:observer[facing=west]
+layer 0:
+  EW

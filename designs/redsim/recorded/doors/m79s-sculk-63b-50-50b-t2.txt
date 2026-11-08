@@ -1,0 +1,46 @@
+name: m79s-sculk-63b-50-ns
+port door: -2 0 0
+port lever: -4 5 0
+origin: -4 0 0
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  B minecraft:observer[facing=up,powered=false]
+  C minecraft:calibrated_sculk_sensor[facing=south,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  D minecraft:dropper[facing=up,triggered=false]
+  E minecraft:observer[facing=west,powered=false]
+  F minecraft:piston_head[facing=east,short=false,type=sticky]
+  G minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  H minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  I minecraft:sticky_piston[extended=false,facing=up]
+  J minecraft:sticky_piston[extended=false,facing=west]
+  K minecraft:sticky_piston[extended=true,facing=down]
+  L minecraft:lever[face=floor,facing=south,powered=true]
+  M minecraft:sticky_piston[extended=true,facing=east]
+  O minecraft:oak_log[axis=y]
+  P minecraft:piston[extended=false,facing=down]
+  R minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  S minecraft:smooth_stone
+  W minecraft:white_wool
+  d minecraft:dropper[facing=up,triggered=true]
+  o minecraft:observer[facing=down,powered=false]
+  p minecraft:piston_head[facing=down,short=false,type=sticky]
+  r minecraft:redstone_wire[east=side,north=none,power=15,south=none,west=side]
+  s minecraft:sticky_piston[extended=false,facing=down]
+layer -3:
+  O.EODEO
+layer -2:
+  GP.IAoG
+layer -1:
+  B.O..Jo
+layer 0:
+  MFOOO.J
+layer 1:
+  MFOOO.J
+layer 2:
+  dOOOO.J
+layer 3:
+  rHpsOoW
+layer 4:
+  OOK.WSB
+layer 5:
+  Lr.sWRC

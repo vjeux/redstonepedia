@@ -1,0 +1,116 @@
+# archived 2026-10-20T10:08Z from designs/circuits/shulker/tracks/shulker-speed/unloader-rail2.txt by mctas circuit archive
+# CIRCUIT: shulker-speed-unloader-rail2 shulker-unloader boxes/min 0.403, items/s 11.62, first box 2952 gt, cycle 2307 gt, hoppers awake 17, badges always-on+16-stack+unstackable+colours+box-starved+drop-free+tileable(12), bill 137 iron, 10 quartz, 70 redstone, 2 slime, 116 blocks, 8x6x12, robust
+# Two-station rail unloader (track shulker-speed, clk-item): two copies of shulker-speed-unloader-rail (copy B 6 blocks south of copy A) share one boxes chest through a hopper splitter, so two boxes empty in parallel. Splitter: hopper Hs under the boxes chest pushes north along a hopper line into copy A's box hopper; hopper U2 under Hs pulls from it and pushes south along a second line into copy B's box hopper. Boxes therefore alternate between the two dispensers. Each copy: two hopper minecarts on one activator rail under the box (one at each end of the rail cell) pull the box at 20 items/s and feed three hoppers (7.5/s); its comparator reads the box through a stone and fires the sticky piston when the box empties; the same pulse powers the activator rail so the carts do not swallow the broken box. Shrunk in the game from 122 blocks: the walls beside the box cells and the drop cells are not needed.
+name: shulker-speed-unloader-rail2
+tile: 0 0 12
+circuit: shulker-unloader
+port boxes: 0 4 3
+port items.a: -1 -2 0
+port items.b: 0 -2 0
+port items.c: 1 -2 0
+port items.d: -1 -2 6
+port items.e: 0 -2 6
+port items.f: 1 -2 6
+port output.a: 0 -1 -1
+port output.b: 0 -1 5
+entity: minecraft:hopper_minecart 0.01 0.0625 0.5 {Rotation:[45f,0f]}
+entity: minecraft:hopper_minecart 0.99 0.0625 0.5 {Rotation:[45f,0f]}
+entity: minecraft:hopper_minecart 0.01 0.0625 6.5 {Rotation:[45f,0f]}
+entity: minecraft:hopper_minecart 0.99 0.0625 6.5 {Rotation:[45f,0f]}
+entity: minecraft:hopper_minecart 0.99 3 3.5 {Rotation:[45f,0f]}
+origin: -1 0 -2
+palette:
+  A minecraft:activator_rail[powered=false,shape=east_west,waterlogged=false]
+  B minecraft:comparator[facing=west,mode=compare,powered=false]
+  C minecraft:comparator[facing=east,mode=subtract,powered=false]
+  D minecraft:dispenser[facing=down,triggered=false]
+  E minecraft:hopper[enabled=true,facing=north]
+  F minecraft:hopper[enabled=true,facing=south]
+  G minecraft:hopper[enabled=true,facing=west]
+  H minecraft:hopper[enabled=true,facing=down]
+  I minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  S minecraft:sticky_piston[extended=false,facing=north]
+  c minecraft:comparator[facing=south,mode=compare,powered=false]
+  h minecraft:hopper[enabled=true,facing=east]
+  r minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  s minecraft:stone
+layer -1:
+  .
+  .
+  HHH
+  .s
+  .s
+  .
+  .
+  .
+  HHH
+  .s
+  .s
+  .
+layer 0:
+  .
+  .H
+  .A.sssss
+  .R..ssss
+  .R..s
+  .ssss
+  .
+  .H
+  .A.sssss
+  .R..ssss
+  .R..s
+  .ssss
+layer 1:
+  .s
+  .
+  ..sBrRRR
+  .s..RCIR
+  .S..R
+  .RRRR
+  .s
+  .
+  ..sBrRRR
+  .s..RCIR
+  .S..R
+  .RRRR
+layer 2:
+  .c
+  .s
+  .DG
+  .OE
+  ..E
+  FGE
+  Fc
+  Fs
+  hD
+  .O
+  .
+  .
+layer 3:
+  .O
+  .s
+  .R
+  .s
+  .
+  .
+  .O
+  .s
+  .R
+  .s
+  .
+  .
+layer 4:
+  .s
+  .R
+  .
+  .
+  .
+  .
+  .s
+  .R
+  .
+  .
+  .
+  .

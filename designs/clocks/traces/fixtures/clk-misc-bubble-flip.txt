@@ -1,0 +1,31 @@
+# archived 2026-10-19T23:46Z from designs/clocks/tracks/clk-misc/fluid/bubble-flip.txt by mctas clock archive
+# CLOCK: clk-misc-bubble-flip period 16 gt (0.8 s), on 16/16, edges 0, warmup 20, family bubble_column+observer+redstone_wire+sticky_piston, 12 blocks, 5x3x3, robust
+name: clk-misc-bubble-flip
+# A bubble-column clock: a water source sits on soul sand or magma carried by a slime platform that a sticky piston moves
+# back and forth (2 gt pulses spit / pull it); 5 gt after the block under it changes, the bubble column flips its drag in
+# place (BubbleColumnBlock.updateShape schedules a 5 gt tick). An observer watches the water cell; its pulse runs through a
+# redstone dust on the block above the piston (dust on the piston itself would pop when it extends).
+port start: -3 -2 0 minecraft:redstone_block 2
+port output: 0 0 0
+origin: -3 0 -1
+palette:
+  S minecraft:stone
+  L minecraft:slime_block
+  P minecraft:sticky_piston[extended=false,facing=east]
+  M minecraft:magma_block
+  D minecraft:soul_sand
+  A minecraft:water[level=0]
+  O minecraft:observer[facing=east,powered=false]
+  R minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+layer -2:
+  .....
+  .PLL.
+  .....
+layer -1:
+  .....
+  .SMD.
+  .....
+layer 0:
+  ...S.
+  .ROAS
+  ...S.

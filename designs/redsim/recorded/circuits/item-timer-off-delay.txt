@@ -1,0 +1,30 @@
+# Calibration (2026-10-20): the study-11 stimulus scaled with a long timer. Two hoppers pass 40
+# cobblestone back and forth (the input locks A and, through a torch on the input block, unlocks
+# B), a comparator keeps the output on while A holds any: an off-delay of 8 gt per item that
+# needs an input about as long as its delay to reload (min-pulse ~ L). The judge's inputs reach
+# three times the sizing gap, and the 4 gt trains are not judged past such a min-pulse.
+# Sealed (the real-use audit's item intrusion, 2026-10-21): a stone over each hopper, so no stray
+# item adds to its 40 (6 -> 8 blocks, same metrics; open, a dropped stack bridges every gap).
+name: cal-item-timer-off-delay
+circuit: off-delay
+port input: 0 1 -1
+port output: 0 1 2
+origin: 0 0 -1
+nbt: 1 1 0 {Items:[{Slot:0b,id:"minecraft:cobblestone",count:40}]}
+palette:
+  S minecraft:stone
+  A minecraft:hopper[enabled=true,facing=east]
+  B minecraft:hopper[enabled=true,facing=west]
+  C minecraft:comparator[facing=north,mode=compare,powered=false]
+  T minecraft:redstone_wall_torch[facing=east,lit=true]
+layer 0:
+  ..
+  ..
+  S.
+layer 1:
+  ST
+  AB
+  C.
+layer 2:
+  ..
+  SS

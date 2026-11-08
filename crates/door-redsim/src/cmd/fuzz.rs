@@ -35,10 +35,14 @@ pub struct RedsimFuzzArgs {
     max_report: usize,
     #[arg(long, default_value_t = 8)]
     workers: usize,
+    /// Case generator: `random` (palette circuits), `containers` (droppers/hoppers with items,
+    /// comparators, nothing that can pop) or `basin` (random circuits in a stone basin).
+    #[arg(long = "gen", default_value = "random")]
+    generator: String,
 }
 
 pub fn cmd_redsim_fuzz(version: &str, args: RedsimFuzzArgs) -> Result<()> {
-    let RedsimFuzzArgs { n, seed, size, density, palette, out, no_shrink, max_report, workers } = args;
+    let RedsimFuzzArgs { n, seed, size, density, palette, out, no_shrink, max_report, workers, generator } = args;
     let sz: Vec<i32> = size.split(',').map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>()?;
     anyhow::ensure!(sz.len() == 3, "--size x,y,z");
     let pool = mctas::sim::Pool::spawn(workers, &WorkerConfig { version: version.to_string(), heap_mb: 768, ..Default::default() })?;
@@ -51,10 +55,41 @@ pub fn cmd_redsim_fuzz(version: &str, args: RedsimFuzzArgs) -> Result<()> {
         out,
         shrink: !no_shrink,
         max_report,
-        generator: "random".into(),
+        generator,
     };
-    redsim_fuzz::fuzz(&pool, &o, &|s| eprintln!("{s}"))?;
+    let (_, bad) = redsim_fuzz::fuzz(&pool, &o, &|s| eprintln!("{s}"))?;
+    anyhow::ensure!(bad == 0, "{bad} cases differ from the game");
     Ok(())
+}
+
+#[derive(clap::Args)]
+pub struct TraceCompareArgs {
+    /// Exact traces (`.trace`), or directories of them.
+    traces: Vec<PathBuf>,
+    /// Traces replayed at once (0: every core).
+    #[arg(long, default_value_t = 0)]
+    jobs: usize,
+    /// Differences shown at the first diverging tick.
+    #[arg(long, default_value_t = 6)]
+    max: usize,
+}
+
+/// `door trace-compare`: exact real-game traces replayed on redsim, every cell and entity
+/// compared every tick (`redsim-fuzz trace-compare`), in parallel.
+pub fn cmd_trace_compare(args: TraceCompareArgs) -> Result<()> {
+    let mut paths = Vec::new();
+    for p in &args.traces {
+        if p.is_dir() {
+            let mut v: Vec<PathBuf> = std::fs::read_dir(p)?.flatten().map(|e| e.path()).filter(|q| q.extension().is_some_and(|e| e == "trace")).collect();
+            v.sort();
+            paths.extend(v);
+        } else {
+            paths.push(p.clone());
+        }
+    }
+    anyhow::ensure!(!paths.is_empty(), "door trace-compare <exact traces or directories>");
+    let jobs = if args.jobs > 0 { args.jobs } else { std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8) };
+    redsim_fuzz::trace_compare::run_jobs(&paths, args.max, jobs)
 }
 
 #[derive(clap::Args)]

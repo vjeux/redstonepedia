@@ -1,0 +1,27 @@
+name: cal-d-latch-adjacent
+circuit: d-latch
+tile: 0 2 0
+# R7 calibration (2026-10-20): two inputs in adjacent cells, driven by the judge's repeaters from
+# opposite sides (d from the south, e from the west into its own repeater's back). e's cell holds
+# the design's own repeater pointing into the subtract comparator's side, because a comparator's
+# side reads diodes, dust and redstone blocks, never the judge's powered stone; d's cell is the
+# judge's stone, read by the output repeater's back. This is d-latch-high with that repeater added:
+# the comparator (a redstone block behind it, 15 - e) locks the output repeater while e is low.
+port input.d: -1 1 2
+port input.e: -1 1 1
+port output: 1 1 2
+origin: -1 0 0
+palette:
+  S minecraft:stone
+  R minecraft:redstone_block
+  C minecraft:comparator[facing=north,mode=subtract,powered=false]
+  M minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  E minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+layer 0:
+  ..
+  SS
+  .S
+layer 1:
+  .R
+  EC
+  .M

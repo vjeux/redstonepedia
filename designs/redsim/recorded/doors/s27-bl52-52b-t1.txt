@@ -1,0 +1,112 @@
+name: s27-bl52-ew
+door-axis: z
+port door: 0 0 0
+port lever: 0 1 -4
+origin: 0 0 -4
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=up,powered=false]
+  C minecraft:comparator[facing=north,mode=compare,powered=true]
+  D minecraft:obsidian
+  E minecraft:piston_head[facing=south,short=false,type=sticky]
+  F minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  G minecraft:redstone_wire[east=side,north=side,power=15,south=side,west=side]
+  H minecraft:repeater[delay=2,facing=north,locked=false,powered=true]
+  I minecraft:repeater[delay=4,facing=north,locked=false,powered=true]
+  J minecraft:sticky_piston[extended=false,facing=north]
+  K minecraft:sticky_piston[extended=false,facing=south]
+  L minecraft:lever[face=wall,facing=north,powered=true]
+  M minecraft:sticky_piston[extended=false,facing=up]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=up]
+  Q minecraft:sticky_piston[extended=true,facing=down]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:smooth_stone
+  T minecraft:sticky_piston[extended=true,facing=south]
+  U minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=true,powered=false]
+  o minecraft:observer[facing=north,powered=false]
+  p minecraft:piston_head[facing=down,short=false,type=sticky]
+  r minecraft:redstone_wire[east=none,north=none,power=15,south=none,west=none]
+  s minecraft:sticky_piston[extended=false,facing=down]
+layer -2:
+  .
+  R
+  o
+  N
+  o
+  M
+  M
+  A
+  P
+layer -1:
+  .
+  B
+  .
+  K
+  .
+  .
+  .
+  D
+  .
+layer 0:
+  .
+  r
+  T
+  E
+  U
+  U
+  U
+  U
+  B
+layer 1:
+  L
+  S
+  T
+  E
+  U
+  U
+  U
+  .
+  J
+layer 2:
+  .
+  G
+  T
+  E
+  U
+  U
+  U
+  .
+  J
+layer 3:
+  .
+  O
+  .
+  O
+  U
+  s
+  U
+  .
+  U
+layer 4:
+  .
+  U
+  U
+  R
+  o
+  p
+  U
+  A
+  F
+layer 5:
+  .
+  W
+  C
+  H
+  I
+  Q
+  o
+  o
+  U

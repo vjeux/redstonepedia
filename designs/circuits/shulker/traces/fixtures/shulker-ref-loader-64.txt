@@ -1,0 +1,58 @@
+# archived 2026-10-20T07:49Z from designs/circuits/shulker/tracks/shulker/ref-loader-64.txt by mctas circuit archive
+# CIRCUIT: shulker-ref-loader-64 shulker-loader boxes/min 0.087, items/s 2.50, first box 13847 gt, cycle 13832 gt, hoppers awake 3, badges 16-stack+unstackable+colours+restart+top-up+drop-free, bill 16 iron, 3 quartz, 27 redstone, 1 slime, 29 blocks, 6x4x5, robust
+# Reference shulker loader (track shulker, hand-built). The dispenser sits ABOVE the box cell X (so
+# the drop, which pops at a random offset and rises, can never leave X upward); a hopper feeds X
+# from the side. A comparator reads X through a stone, in compare mode with a redstone block on its
+# side, so it outputs 15 only when X is completely full; through a stone, two dusts and a repeater
+# it powers a stone beside a sticky piston, which pushes a stone into X: the box breaks and drops
+# with its contents, and the moving stone pushes the drop into the walled drop cell, over the
+# hopper that sends it to the output chest. The piston is two cells from X so that the powered
+# dispenser never powers it (quasi-connectivity). An observer watching the pushed stone's cell
+# fires, through a stone, a dust on the dispenser, which places the next box from its hopper. A
+# start lever, watched by a second observer and delayed 8 gt by a repeater (the first box needs
+# 9 gt to reach the dispenser), places the first box.
+name: shulker-ref-loader-64
+circuit: shulker-loader
+port items: 0 2 1
+port boxes: 0 3 -1
+port output: 2 0 0
+port input: 3 3 0 lever
+origin: -2 0 -3
+palette:
+  B minecraft:redstone_block
+  C minecraft:comparator[facing=south,mode=compare,powered=false]
+  D minecraft:dispenser[facing=down,triggered=false]
+  K minecraft:hopper[enabled=true,facing=east]
+  L minecraft:lever[face=floor,facing=north,powered=false]
+  N minecraft:hopper[enabled=true,facing=north]
+  O minecraft:observer[facing=east,powered=false]
+  P minecraft:sticky_piston[extended=false,facing=east]
+  Q minecraft:observer[facing=down,powered=false]
+  R minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  S minecraft:stone
+  T minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  U minecraft:hopper[enabled=true,facing=south]
+  r minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+layer 0:
+  SS....
+  S.S...
+  ......
+  ..SK..
+  ......
+layer 1:
+  rrS...
+  T.CB..
+  S.SS..
+  PS..S.
+  ..NS..
+layer 2:
+  ......
+  ......
+  ..U...
+  .QDS.S
+  ......
+layer 3:
+  ......
+  ......
+  ......
+  .SrROL

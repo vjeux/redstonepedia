@@ -1,0 +1,19 @@
+name: cal-repeater-line-n0
+circuit: delay
+# n + 1 delay-1 repeaters in a row on stone: a delay line of N = 2 + 2n gt.
+extend family: cal-repeater-line
+extend axis: 2 + 2n
+extend blocks: 2 + 2n
+extend rule: one more repeater (and its stone) at the end of the line
+extend n: 0..8
+extend base: 0
+extend generator: mctas circuit gen repeater-line --n {n} --out {out}
+port input: 0 1 0
+port output: 2 1 0
+palette:
+  S minecraft:stone
+  r minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+layer 0:
+  .S
+layer 1:
+  .r

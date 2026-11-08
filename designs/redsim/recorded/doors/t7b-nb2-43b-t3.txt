@@ -1,0 +1,103 @@
+name: t7b-nb2-ew
+door-axis: z
+note: door fill of designs/piston-door-3x3/tracks/shrink/wip/t7b-rwfast.txt: (1,-4) note_block[instrument=harp,note=0,powered=false] (2,-4) stone (2,-3) observer[facing=up,powered=false]
+port door: 0 0 -2
+port lever: 0 5 -1
+origin: 0 0 -4
+palette:
+  A minecraft:observer[facing=south,powered=false]
+  B minecraft:observer[facing=up,powered=false]
+  C minecraft:repeater[delay=2,facing=north,locked=false,powered=false]
+  D minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  E minecraft:sticky_piston[extended=false,facing=up]
+  F minecraft:sticky_piston[extended=true,facing=down]
+  G minecraft:stone
+  L minecraft:lever[face=floor,facing=west,powered=true]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston_head[facing=down,short=false,type=sticky]
+  R minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  S minecraft:sticky_piston[extended=false,facing=north]
+  o minecraft:observer[facing=north,powered=false]
+  r minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  s minecraft:sticky_piston[extended=false,facing=south]
+layer -4:
+  .
+  .
+  G
+  N
+  o
+  G
+  .
+layer -3:
+  .
+  G
+  B
+  E
+  D
+  R
+  .
+layer -2:
+  G
+  C
+  o
+  E
+  O
+  O
+  .
+layer -1:
+  B
+  .
+  G
+  .
+  .
+  S
+  .
+layer 0:
+  s
+  .
+  G
+  G
+  G
+  .
+  S
+layer 1:
+  s
+  .
+  G
+  G
+  G
+  .
+  S
+layer 2:
+  G
+  G
+  G
+  G
+  G
+  G
+  B
+layer 3:
+  R
+  A
+  P
+  P
+  P
+  o
+  r
+layer 4:
+  .
+  .
+  F
+  F
+  F
+  .
+  .
+layer 5:
+  .
+  .
+  .
+  L
+  .
+  .
+  .

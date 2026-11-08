@@ -1,0 +1,9 @@
+name: entity-test-falling
+# Judge negative test: the observer pair plus a minecart in the air (it falls out of the box).
+port start: 1 1 0 last
+palette:
+  E minecraft:observer[facing=east]
+  W minecraft:observer[facing=west]
+entity: minecraft:minecart 3.5 1.0625 0.5
+layer 1:
+  EW

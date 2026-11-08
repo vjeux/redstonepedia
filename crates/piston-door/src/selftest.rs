@@ -1,18 +1,20 @@
-//! `door selftest`: a fast known-answer suite every search and judge tool must pass before a push
-//! (AGENTS.md's push gate). Each check runs real `mctas door ...` commands (this binary, as child
-//! processes, from the repository root) on known answers and compares their output with what
-//! must come out: archived anchors that WORK, regions the pocket search must re-find, model
-//! checks with zero mismatches, a candidate the update-order model must reject, the SAT model
-//! re-finding a known wiring, `door ideal-rs` agreeing with `door ideal`, generator membership
-//! that must not change silently. One line per check, PASS or FAIL; `--quick` keeps the fast
-//! subset (< 2 min). A check whose known answer changes on purpose (e.g. a generator that now
-//! admits fast-clean) is updated here in the same commit, with the reason.
+//! `door selftest`: the known answers of every search and judge tool and of the simulator, the
+//! table `mctas test` picks its pieces from (testplan.rs: the pieces of a change, AGENTS.md).
+//! Each check runs real `mctas ...` commands (this binary, as child processes, from the
+//! repository root) on known answers and compares their output with what must come out: archived
+//! anchors that WORK, regions the pocket search must re-find, model checks with zero mismatches, a
+//! candidate the update-order model must reject, the SAT model re-finding a known wiring, `door
+//! ideal-rs` agreeing with `door ideal`, generator membership that must not change silently, and
+//! the simulator's recorded game answers (`sim:recorded-*`: exact game traces replayed on redsim,
+//! stale recordings failing) and differential fuzzers (`sim:fuzz-*`). One line per check, PASS or
+//! FAIL. `door selftest` runs them all (`--quick`: the ones that start no JVM); `mctas test` runs
+//! the ones a change picks. A check whose known answer changes on purpose (e.g. a generator that
+//! now admits fast-clean) is updated here in the same commit, with the reason.
 
-use anyhow::{bail, Context, Result};
-use std::path::{Path, PathBuf};
+use anyhow::Result;
+use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 pub struct Opts {
@@ -24,18 +26,39 @@ pub struct Opts {
     pub keep: bool,
 }
 
-type Pred = Box<dyn Fn(&[String]) -> std::result::Result<String, String> + Send + Sync>;
+pub(crate) type Pred = Box<dyn Fn(&[String]) -> std::result::Result<String, String> + Send + Sync>;
 
-struct Check {
-    name: String,
-    what: &'static str,
-    quick: bool,
-    jvm: bool,
-    /// commands run in order (args after `mctas`); `{tmp}` is this check's scratch folder
-    steps: Vec<Vec<String>>,
-    timeout: u64,
-    pred: Pred,
+pub(crate) struct Check {
+    pub(crate) name: String,
+    pub(crate) what: &'static str,
+    /// in the old quick subset (kept for `door selftest --list`)
+    pub(crate) quick: bool,
+    /// starts the game (JVM workers: testplan::ROWS sizes them)
+    pub(crate) jvm: bool,
+    /// commands run in order (args after `mctas`); `{tmp}` is this check's scratch folder,
+    /// `{workers}` its JVM workers, `{threads}` its CPU threads (testplan.rs sizes both)
+    pub(crate) steps: Vec<Vec<String>>,
+    pub(crate) timeout: u64,
+    pub(crate) pred: Pred,
 }
+
+/// The directories of recorded game answers the simulator pieces replay (`sim:recorded-*`), each
+/// with its manifest (`recorded.tsv`, [`mctas::recorded`]): a stale recording fails.
+pub const RECORDING_DIRS: &[&str] = &[
+    "designs/clocks/traces/exact",
+    "designs/clocks/tracks/clk-misc/redsim-tests/traces",
+    "designs/clocks/tracks/clockinfra/redsim-tests/traces",
+    "designs/circuits/shulker/traces/exact",
+    "designs/boat-leads/traces",
+    "designs/redsim/recorded/doors",
+    "designs/redsim/recorded/clocks",
+    "designs/redsim/recorded/lifts",
+    "designs/redsim/recorded/circuits",
+    "designs/redsim/recorded/sorter",
+    "designs/redsim/recorded/smelter",
+    "designs/redsim/recorded/brewer",
+    "designs/redsim/recorded/composter",
+];
 
 const A: &str = "designs/piston-door-3x3/archive";
 const C79: &str = "designs/piston-door-3x3/tracks/c79/c79-closed.txt";
@@ -54,7 +77,7 @@ fn has(out: &str, pat: &str) -> std::result::Result<(), String> {
     if out.contains(pat) { Ok(()) } else { Err(format!("no `{pat}` in the output: {}", tail(out))) }
 }
 
-fn tail(out: &str) -> String {
+pub(crate) fn tail(out: &str) -> String {
     let lines: Vec<&str> = out.lines().filter(|l| !l.trim().is_empty()).collect();
     let n = lines.len();
     lines[n.saturating_sub(2)..].join(" | ").chars().take(300).collect()
@@ -65,7 +88,7 @@ fn ideal_verdict(out: &str) -> Option<String> {
     out.lines().rev().find(|l| l.starts_with("WORKS") || l.starts_with("BROKEN")).map(|l| l.replace(" in redsim", ""))
 }
 
-fn checks() -> Vec<Check> {
+pub(crate) fn checks() -> Vec<Check> {
     let mut v: Vec<Check> = Vec::new();
     // 1. the redsim judge on the anchors (and the periodic bulb fixture)
     let mut files: Vec<String> = ANCHORS.iter().map(|a| format!("{A}/{a}.txt")).collect();
@@ -609,7 +632,7 @@ fn checks() -> Vec<Check> {
         what: "`clock archive` refuses the basic observer clock with two stones that do nothing: the game confirms the clock without a stone (slop)",
         quick: false,
         jvm: true,
-        steps: vec![args("?clock archive designs/clocks/selftest/observer-pair-decor.txt --dir {tmp} --workers 2")],
+        steps: vec![args("?clock archive designs/clocks/selftest/observer-pair-decor.txt --dir {tmp} --workers {workers}")],
         timeout: 600,
         pred: Box::new(|o| has(&o[0], "not archived: slop").map(|_| "refused as slop".into())),
     });
@@ -618,7 +641,7 @@ fn checks() -> Vec<Check> {
         what: "`clock archive` refuses the copper-bulb divider as it was archived: its family claims P = 12·2^n but the member's output gets the observer pair's pulses every 6 gt (the family check reads the period at the output, the coordinator 2026-10-23)",
         quick: false,
         jvm: true,
-        steps: vec![args("?clock archive designs/clocks/selftest/divider-untapped.txt --dir {tmp} --workers 2")],
+        steps: vec![args("?clock archive designs/clocks/selftest/divider-untapped.txt --dir {tmp} --workers {workers}")],
         timeout: 600,
         pred: Box::new(|o| {
             let l = o[0].lines().find(|l| l.contains("not archived")).ok_or(format!("not refused: {}", tail(&o[0])))?;
@@ -633,7 +656,7 @@ fn checks() -> Vec<Check> {
         what: "`clock verify` (the real game, 2 positions x 4 rotations) on the observer pair and the subtract comparator: robust, P6 and P4, and redsim agrees",
         quick: false,
         jvm: true,
-        steps: vec![args(&format!("clock verify {CAL}/observer-pair.txt {CAL}/comparator-subtract.txt --positions 2 --horizon 1000 --workers 8"))],
+        steps: vec![args(&format!("clock verify {CAL}/observer-pair.txt {CAL}/comparator-subtract.txt --positions 2 --horizon 1000 --workers {{workers}}"))],
         timeout: 600,
         pred: Box::new(|o| {
             for want in ["CLOCK: cal-observer-pair period 6 gt (0.3 s)", "CLOCK: cal-comparator-subtract period 4 gt (0.2 s)"] {
@@ -664,7 +687,7 @@ fn checks() -> Vec<Check> {
         jvm: true,
         steps: vec![
             args(&format!("clock verify {CAL}/torch-repeater.txt --positions 1 --workers 4 --reload --no-sim")),
-            args(&format!("?clock verify {CAL}/observer-pair.txt --positions 2 --horizon 1000 --workers 8 --reload --no-sim")),
+            args(&format!("?clock verify {CAL}/observer-pair.txt --positions 2 --horizon 1000 --workers {{workers}} --reload --no-sim")),
         ],
         timeout: 900,
         pred: Box::new(|o| {
@@ -684,7 +707,7 @@ fn checks() -> Vec<Check> {
         quick: false,
         jvm: true,
         steps: vec![
-            args("?clock verify designs/clocks/selftest/observer-pair-cart.txt --positions 1 --no-sim --workers 4"),
+            args("?clock verify designs/clocks/selftest/observer-pair-cart.txt --positions 1 --no-sim --workers {workers}"),
             args("?clock verify designs/clocks/selftest/observer-pair-falling-cart.txt --positions 1 --no-rotations --no-sim --workers 1"),
         ],
         timeout: 600,
@@ -894,9 +917,8 @@ fn checks() -> Vec<Check> {
     // the real game's verify of the calibration circuits, split in 5 checks run side by side
     // (mobinfra 2026-11-08, the coordinator's OK: one 39-design check took 595 s alone against its
     // 600 s deadline and timed out under any load; the same designs, every assertion word for
-    // word, each part with its own 600 s deadline), each on a pool of MCTAS_MAX_WORKERS workers
-    // (8 if unset)
-    let workers: usize = std::env::var("MCTAS_MAX_WORKERS").ok().and_then(|v| v.parse().ok()).unwrap_or(8);
+    // word, each part with its own 600 s deadline), each on its own pool (`{workers}`: 8, capped
+    // by MCTAS_MAX_WORKERS and the machine, testplan.rs)
     let extras: Vec<(&str, &str)> = vec![
         ("update-less-nor", "FAIL: cal-update-less-nor gate nor: not a gate: the output is true (truth table 1111)"),
         ("comparator-and", "CIRCUIT: cal-comparator-and gate and function and, latency 6 gt, glitches 2, 7 blocks, 3x2x2, robust"),
@@ -918,7 +940,7 @@ fn checks() -> Vec<Check> {
         let names: Vec<&str> = mine.iter().map(|(f, _)| *f).chain(my_extras.iter().map(|(f, _)| *f)).collect();
         let what: &'static str = Box::leak(
             format!(
-                "`circuit verify` (the real game, 2 positions x 4 rotations, one pool of MCTAS_MAX_WORKERS workers) on calibration circuits, part {} of {PARTS}: {}; inputs driven by real devices (R7) (BUDs included: the judge's shape-only and pure-update actions in the game; TNT dupers included: every primed TNT recorded then removed; study 11's timers on their long input trains; the sculk rising edge with its lever's and ambient game events; study 12's encoder, counter, bit slice and hex comparator): robust, the same metrics as redsim; the update-less NOR, the latch claiming dff, a bulb toggle claiming a latched BUD, a TNT duper exploding in its water and a start lever whose watcher stays on the parked part refused, the comparator AND robust; study 11's tiled off-delay (3 copies 5 apart, each against its own input) robust",
+                "`circuit verify` (the real game, 2 positions x 4 rotations, one pool of 8 workers) on calibration circuits, part {} of {PARTS}: {}; inputs driven by real devices (R7) (BUDs included: the judge's shape-only and pure-update actions in the game; TNT dupers included: every primed TNT recorded then removed; study 11's timers on their long input trains; the sculk rising edge with its lever's and ambient game events; study 12's encoder, counter, bit slice and hex comparator): robust, the same metrics as redsim; the update-less NOR, the latch claiming dff, a bulb toggle claiming a latched BUD, a TNT duper exploding in its water and a start lever whose watcher stays on the parked part refused, the comparator AND robust; study 11's tiled off-delay (3 copies 5 apart, each against its own input) robust",
                 part + 1,
                 names.join(", ")
             )
@@ -930,7 +952,7 @@ fn checks() -> Vec<Check> {
             quick: false,
             jvm: true,
             steps: vec![{
-                let mut s = args(&format!("?circuit verify --positions 2 --workers {workers}"));
+                let mut s = args("?circuit verify --positions 2 --workers {workers}");
                 s.extend(mine.iter().map(|(f, _)| format!("{CIRC}/{f}.txt")));
                 s.extend(my_extras.iter().map(|(f, _)| format!("designs/circuits/selftest/{f}.txt")));
                 s
@@ -959,7 +981,7 @@ fn checks() -> Vec<Check> {
         quick: false,
         jvm: true,
         steps: vec![
-            args("?circuit verify --positions 1 --workers 5 designs/circuits/rail/archive/station-slope-v2.txt designs/circuits/selftest/station-hidden-button.txt"),
+            args("?circuit verify --positions 1 --workers {workers} designs/circuits/rail/archive/station-slope-v2.txt designs/circuits/selftest/station-hidden-button.txt"),
             args("circuit sim designs/circuits/rail/archive/station-slope-v2.txt designs/circuits/selftest/station-hidden-button.txt"),
         ],
         timeout: 900,
@@ -1007,7 +1029,7 @@ fn checks() -> Vec<Check> {
         quick: false,
         jvm: true,
         steps: vec![
-            args("?circuit verify --positions 1 --workers 5 designs/circuits/autodoor/archive/auto-door-lock-v8.txt designs/circuits/selftest/autodoor-plate-order.txt designs/circuits/selftest/autodoor-no-memory.txt"),
+            args("?circuit verify --positions 1 --workers {workers} designs/circuits/autodoor/archive/auto-door-lock-v8.txt designs/circuits/selftest/autodoor-plate-order.txt designs/circuits/selftest/autodoor-no-memory.txt"),
             args("circuit sim designs/circuits/autodoor/archive/auto-door-lock-v8.txt"),
         ],
         timeout: 900,
@@ -1022,33 +1044,58 @@ fn checks() -> Vec<Check> {
     // 10. study 8: shulker loaders and unloaders, judged in the game by their own runner (judge
     // chests, every item and box counted): track shulker's always-on loader and unloader with
     // unstackables (27 items per box: a fast run) and their badges, and a loader that breaks its
-    // boxes early refused
-    v.push(Check {
-        name: "circuit:verify-shulker".into(),
-        what: "`circuit verify` (the real game, 1 position x 4 rotations) on track shulker's always-on loader and unloader with unstackables: 3 boxes, robust, hopper pace (cycle 224 / 220 gt), every badge they claim (always-on, colours, restart, box-starved, drop-free); a loader that breaks its boxes at the first item refused; `circuit sim` says redsim does not model them yet",
+    // boxes early refused. One piece per design (each 1 position x 4 rotations: ~3 min; the three
+    // in one command took 9-10 min)
+    let shulker = |name: &str, what: &'static str, design: &str, sim: bool, pred: Pred| Check {
+        name: format!("circuit:verify-shulker-{name}"),
+        what,
         quick: false,
         jvm: true,
-        steps: vec![
-            args("?circuit verify --positions 1 --workers 4 designs/circuits/shulker/tracks/shulker/auto-loader-1.txt designs/circuits/shulker/tracks/shulker/auto-unloader-1.txt designs/circuits/selftest/shulker-early-loader.txt"),
-            args("circuit sim designs/circuits/shulker/tracks/shulker/auto-loader-1.txt"),
-        ],
+        steps: std::iter::once(args(&format!("?circuit verify --positions 1 --workers {{workers}} {design}"))).chain(sim.then(|| args(&format!("circuit sim {design}")))).collect(),
         timeout: 900,
-        pred: Box::new(|o| {
-            // the drop's random offset can move a median time by a gt: match around the times
-            let line = |name: &str| o[0].lines().find(|l| l.starts_with(&format!("CIRCUIT: {name} "))).unwrap_or("").to_string();
-            let l = line("shulker-auto-loader-1");
+        pred,
+    };
+    // the drop's random offset can move a median time by a gt: match around the times
+    fn circuit_line(o: &str, name: &str) -> String {
+        o.lines().find(|l| l.starts_with(&format!("CIRCUIT: {name} "))).unwrap_or("").to_string()
+    }
+    v.push(shulker(
+        "loader",
+        "`circuit verify` (the real game, 1 position x 4 rotations) on track shulker's always-on loader with unstackables: 3 boxes, robust, hopper pace (cycle 224 gt), every badge it claims (always-on, colours, restart, top-up, box-starved, drop-free); `circuit sim` says redsim does not model it yet",
+        "designs/circuits/shulker/tracks/shulker/auto-loader-1.txt",
+        true,
+        Box::new(|o| {
+            let l = circuit_line(&o[0], "shulker-auto-loader-1");
             if !(l.contains("shulker-loader 1 boxes/min ") && l.contains("items/s 2.") && l.contains("cycle 22") && l.contains("hoppers awake 3, badges always-on+colours+restart+top-up+box-starved+drop-free, bill 16 iron, 4 quartz, 28 redstone, 1 slime, 31 blocks, 5x5x5, robust")) {
                 return Err(format!("auto loader: {l:?}: {}", tail(&o[0])));
             }
-            let l = line("shulker-auto-unloader-1");
+            has(&o[1], "UNMODELED: shulker-auto-loader-1: redsim does not judge shulker loaders")?;
+            Ok("the always-on loader robust at hopper pace with all its badges".into())
+        }),
+    ));
+    v.push(shulker(
+        "unloader",
+        "`circuit verify` (the real game, 1 position x 4 rotations) on track shulker's always-on unloader with unstackables: 3 boxes, robust, hopper pace (cycle 220 gt), every badge it claims (always-on, colours, box-starved, drop-free)",
+        "designs/circuits/shulker/tracks/shulker/auto-unloader-1.txt",
+        false,
+        Box::new(|o| {
+            let l = circuit_line(&o[0], "shulker-auto-unloader-1");
             if !(l.contains("shulker-unloader 1 boxes/min ") && l.contains("items/s 2.4") && l.contains("cycle 22") && l.contains("badges always-on+colours+box-starved+drop-free, bill 16 iron, 5 quartz, 35 redstone, 1 slime, 49 blocks, 5x6x8, robust")) {
                 return Err(format!("auto unloader: {l:?}: {}", tail(&o[0])));
             }
-            has(&o[0], "FAIL: cal-shulker-early-loader shulker-loader 1: box 1 arrived at t=")?;
-            has(&o[1], "UNMODELED: shulker-auto-loader-1: redsim does not judge shulker loaders")?;
-            Ok("always-on loader and unloader robust at hopper pace with all their badges; the early breaker refused".into())
+            Ok("the always-on unloader robust at hopper pace with all its badges".into())
         }),
-    });
+    ));
+    v.push(shulker(
+        "early",
+        "`circuit verify` (the real game, 1 position x 4 rotations): a loader that breaks its boxes at the first item refused",
+        "designs/circuits/selftest/shulker-early-loader.txt",
+        false,
+        Box::new(|o| {
+            has(&o[0], "FAIL: cal-shulker-early-loader shulker-loader 1: box 1 arrived at t=")?;
+            Ok("the early breaker refused".into())
+        }),
+    ));
     // the TNT judge's on/off LEVER check (circuit::tnt::check_lever, vjeux 2026-10-21: "Can we have
     // an on off switch for all the tnt"): the clockless engine with its lever passes (off as built,
     // 4 on/off cycles at other moments of the period, back to rest each time); the same engine
@@ -1128,7 +1175,7 @@ fn checks() -> Vec<Check> {
             Ok("sorter-classic and its 16-stack recipe pass (overflow-proof, strays safe; a stream right on its first slice leaks 69 iron); no tile, a sideways filter, a filter gap, a leaky threshold, cobblestone fillers, an empty drain and a wrong recipe refused; the line-locking design kept without overflow-proof; as storage rows (8 slices from an input chest, overflow chest) the classic and its double-chest (bulk) form pass and the line-locking design is refused".into())
         }),
     });
-    let mut s = args("?circuit verify --workers 8 designs/circuits/sorter/archive/sorter-classic.txt");
+    let mut s = args("?circuit verify --workers {workers} designs/circuits/sorter/archive/sorter-classic.txt");
     s.extend(sorter_cal.iter().take(6).cloned());
     v.push(Check {
         name: "circuit:sorter-verify".into(),
@@ -1200,7 +1247,7 @@ fn checks() -> Vec<Check> {
             Ok("smelter-1 (6.0 items/min, 4 blocks), smelter-clock-2 (17 and 17), smelter-row (rows of 4, 8 and 16 shared, 14 blocks a furnace), smelter-row-2 (the same slice, 138-block end pieces) and smelter-row-3 (12 blocks a furnace) pass; the naive slice, the open-topped feeder, the fuel-into-input hopper, the plain line and the row whose coal comes every item window refused".into())
         }),
     });
-    let mut s = args("?circuit verify --workers 8 designs/circuits/smelter/archive/smelter-1.txt designs/circuits/smelter/archive/smelter-clock-2.txt designs/circuits/smelter/archive/smelter-row.txt");
+    let mut s = args("?circuit verify --workers {workers} designs/circuits/smelter/archive/smelter-1.txt designs/circuits/smelter/archive/smelter-clock-2.txt designs/circuits/smelter/archive/smelter-row.txt");
     s.extend(smelter_cal.iter().cloned());
     v.push(Check {
         name: "circuit:smelter-verify".into(),
@@ -1265,7 +1312,7 @@ fn checks() -> Vec<Check> {
             Ok("brewer-small (1.9 potions/min, 42 blocks, 3x6x5) and brewer-1 (49 blocks) pass; the locked, the unlocked and the race-prone bottom hopper refused".into())
         }),
     });
-    let mut s = args("?circuit verify --workers 8 designs/circuits/brew/archive/brewer-small.txt");
+    let mut s = args("?circuit verify --workers {workers} designs/circuits/brew/archive/brewer-small.txt");
     s.push(format!("{BREWER_CAL}/no-slow-release.txt"));
     s.push(format!("{BREWER_CAL}/unlocked-bottom.txt"));
     v.push(Check {
@@ -1356,7 +1403,7 @@ fn checks() -> Vec<Check> {
             Ok("compost-row (22 bone meal from 368 crops in a row of 4) passes; the naive build refused".into())
         }),
     });
-    let mut s = args("?circuit verify --workers 8 designs/circuits/compost/archive/compost-row.txt");
+    let mut s = args("?circuit verify --workers {workers} designs/circuits/compost/archive/compost-row.txt");
     s.push(format!("{COMPOST_CAL}/naive.txt"));
     s.push(format!("{COMPOST_CAL}/open-tops.txt"));
     v.push(Check {
@@ -1398,7 +1445,7 @@ fn checks() -> Vec<Check> {
             Ok("lift5-chain-14b robust at 2.50 items/s; bubble-rest-n0 robust and at rest; two independent clocks refused (rotation 0 jams)".into())
         }),
     });
-    let mut s = args("?circuit verify --workers 8");
+    let mut s = args("?circuit verify --workers {workers}");
     s.extend(LIFT.iter().map(|f| f.to_string()));
     v.push(Check {
         name: "circuit:lift-verify".into(),
@@ -1441,18 +1488,28 @@ fn checks() -> Vec<Check> {
     });
     // redsim's shulker port: the real-game traces of the reference loader and unloader replayed
     // tick for tick (box placement, hoppers, comparators, the piston-broken drop as the bridge
-    // seeds it, its pickup)
+    // seeds it, its pickup); since 2026-11-08 (`mctas test`) every exact shulker trace, the 8
+    // whose archived designs left the archive replayed from their restored fixtures
+    // (traces/fixtures/, `redsim-fuzz trace-fixtures --compare 'circuit shulker compare'`)
+    let shulker_traces = files_in("designs/circuits/shulker/traces/exact", "trace");
+    let ns = shulker_traces.len();
+    let mut s = args("circuit shulker compare");
+    s.extend(shulker_traces);
     v.push(Check {
         name: "circuit:shulker-compare".into(),
-        what: "`circuit shulker compare` replays the exact real-game traces of the reference loader and unloader (3 boxes of unstackables each) in redsim: every cell and entity identical every tick",
+        what: "`circuit shulker compare` replays every exact real-game trace of the shulker loaders and unloaders (the reference loader and unloader, 3 boxes of unstackables each; 1, 16 and 64 boxes; the always-on, flush, pitch-3, 1-wide, speed and mixed builds) in redsim: every cell and entity identical every tick",
         quick: true,
         jvm: false,
-        steps: vec![args("circuit shulker compare designs/circuits/shulker/traces/exact/shulker-ref-loader-1.trace designs/circuits/shulker/traces/exact/shulker-ref-unloader-1.trace")],
+        steps: vec![s],
         timeout: 120,
-        pred: Box::new(|o| {
+        pred: Box::new(move |o| {
             has(&o[0], "OK shulker-ref-loader-1: 687 ticks identical")?;
             has(&o[0], "OK shulker-ref-unloader-1: 678 ticks identical")?;
-            Ok("reference loader and unloader traces tick-identical in redsim".into())
+            let ok = o[0].lines().filter(|l| l.starts_with("OK ") && l.ends_with(" ticks identical")).count();
+            if ok != ns {
+                return Err(format!("{ok} of {ns} shulker traces identical: {}", tail(&o[0])));
+            }
+            Ok(format!("{ns} of {ns} shulker traces tick-identical in redsim (the reference loader and unloader among them)"))
         }),
     });
     // the judge's full-chest check (a chest full of boxes, as a player fills it): track pext's
@@ -1500,21 +1557,247 @@ fn checks() -> Vec<Check> {
             Ok("full chest, endless supply, one box at a time, nearly full boxes one at a time (at three paces), stray items on the open hopper tops: the weak loaders jam or lose a box, the always-on loader and unloader and the 36b deliver every box".into())
         }),
     });
+    sim_checks(&mut v);
     v
+}
+
+/// redsim's own known answers (`cargo test --release -p redsim --lib --tests`; the doc tests need
+/// rustdoc on PATH): the mob layer's golem cadence
+/// and memory, weather, entity physics, leashes, links, shapes, and the recorded game fixtures
+/// (crates/redsim/tests/fixtures). It needs cargo (every agent box builds with it).
+fn redsim_tests() -> Check {
+    Check {
+        name: "sim:redsim-tests".into(),
+        what: "redsim's known answers and recorded fixtures (`cargo test --release -p redsim --lib --tests`: the mob layer's golem sensor memory, the 600 gt summon cycle, spawn spots, villager schedules, weather, item and fall physics, leashes, links, shapes, the game's frames of crates/redsim/tests/fixtures): every test passes",
+        quick: true,
+        jvm: false,
+        steps: vec![args("@cargo test --release -p redsim --lib --tests")],
+        timeout: 1200,
+        pred: Box::new(|o| {
+            let results: Vec<&str> = o[0].lines().filter(|l| l.starts_with("test result: ")).collect();
+            if results.is_empty() {
+                return Err(format!("no test result: {}", tail(&o[0])));
+            }
+            if let Some(bad) = results.iter().find(|l| !l.starts_with("test result: ok.")) {
+                return Err(bad.to_string());
+            }
+            let passed: usize = results.iter().filter_map(|l| l.split_whitespace().nth(3).and_then(|n| n.parse::<usize>().ok())).sum();
+            Ok(format!("{passed} redsim tests pass ({} test binaries)", results.len()))
+        }),
+    }
+}
+
+/// The files of a directory with this extension, sorted (repository paths).
+fn files_in(dir: &str, ext: &str) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(dir).map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == ext)).map(|p| p.to_string_lossy().to_string()).collect()).unwrap_or_default();
+    v.sort();
+    v
+}
+
+/// The simulator's pieces (vjeux 2026-11-08: the session that changes the simulator runs the
+/// simulator tests): every recorded game answer replayed on redsim (no JVM, seconds: the game
+/// never changes, so a recording is the game's answer while the files it was recorded from stay
+/// the same, and `recorded check` fails a stale one) and the live differential fuzzers, one per
+/// area (testplan::RULES picks the areas a change touches; fixed seeds: the same cases every run).
+fn sim_checks(v: &mut Vec<Check>) {
+    v.push(redsim_tests());
+    // the exact traces of the clock, entity, crop, TNT, rail and item scenes (clk-misc's and
+    // clockinfra's redsim tests, the kept clock traces), and the recordings made for `mctas test`
+    // (2026-11-08) of what the door and clock judges' game checks ran: the door anchors' lever
+    // cycles (3 open/close cycles; at a second position; turned), the clock calibration and
+    // selftest clocks (the cart clock and the falling cart included), and the item elevators of
+    // circuit:lift-verify running on a loaded hopper
+    let trace_dirs = [
+        "designs/clocks/traces/exact",
+        "designs/clocks/tracks/clk-misc/redsim-tests/traces",
+        "designs/clocks/tracks/clockinfra/redsim-tests/traces",
+        "designs/redsim/recorded/doors",
+        "designs/redsim/recorded/clocks",
+        "designs/redsim/recorded/lifts",
+    ];
+    let n: usize = trace_dirs.iter().map(|d| files_in(d, "trace").len()).sum();
+    let mut check = args("recorded check");
+    check.extend(RECORDING_DIRS.iter().map(|d| d.to_string()));
+    let mut replay = args("door trace-compare --jobs {threads}");
+    replay.extend(trace_dirs.iter().map(|d| d.to_string()));
+    v.push(Check {
+        name: "sim:recorded-traces".into(),
+        what: "every recording current (`recorded check`: no recording's design changed since it was recorded, none edited, unlisted or missing), then the exact real-game traces of the clock, entity, crop, TNT, rail, item and boat scenes replayed on redsim, every cell and entity identical every tick (`door trace-compare`, on every core)",
+        quick: true,
+        jvm: false,
+        steps: vec![check, replay],
+        timeout: 300,
+        pred: Box::new(move |o| {
+            has(&o[0], "RECORDINGS CURRENT")?;
+            has(&o[1], &format!("{n} of {n} traces tick-identical")).map(|_| format!("recordings current; {n} of {n} exact traces tick-identical"))
+        }),
+    });
+    let boats = files_in("designs/boat-leads/traces", "trace");
+    let nb = boats.len();
+    let mut s = args("boat-leads compare");
+    s.extend(boats);
+    v.push(Check {
+        name: "sim:recorded-boats".into(),
+        what: "the boat and lead fixtures' exact real-game traces (positions, motion, rotations, leashes, blocks and the level random every frame) replayed on redsim (`boat-leads compare`)",
+        quick: true,
+        jvm: false,
+        steps: vec![s],
+        timeout: 120,
+        pred: Box::new(move |o| has(&o[0], &format!("CALIBRATION: {nb}/{nb} exact fixture comparisons passed")).map(|_| format!("{nb}/{nb} boat and lead traces exact"))),
+    });
+    // the judges' runs recorded in the game for `mctas test` (circuit record, 2026-11-08): the
+    // sorter, smelter, brewer and composter exact gates (their old `*-compare` checks: every cell
+    // every gt, furnace and brew timers and the mirrored level random included) and the circuit
+    // judge's stimulus on every calibration circuit (what circuit:verify-calibration-* ran)
+    let rec = |dirs: &[&str]| -> usize { dirs.iter().map(|d| files_in(d, "rec").len()).sum() };
+    let study_dirs = ["designs/redsim/recorded/sorter", "designs/redsim/recorded/smelter", "designs/redsim/recorded/brewer", "designs/redsim/recorded/composter"];
+    let nr = rec(&study_dirs);
+    let mut s = args("circuit replay --jobs {threads}");
+    s.extend(study_dirs.iter().map(|d| d.to_string()));
+    v.push(Check {
+        name: "sim:recorded-studies".into(),
+        what: "the sorter, smelter, brewer and composter judges' runs recorded in the real game (sorter-classic's base and direct water-stream runs, storage-bulk's jam run, the double-chest test; smelter-1, smelter-clock-2, smelter-row and the naive slice's tiled run; the brewing stands locked and unlocked and brewer-small; the naive composter and compost-row) replayed on redsim, every cell of the watched box identical every gt (`circuit replay`)",
+        quick: true,
+        jvm: false,
+        steps: vec![s],
+        timeout: 300,
+        pred: Box::new(move |o| has(&o[0], &format!("{nr} of {nr} recordings identical")).map(|_| format!("{nr} of {nr} recorded judge runs identical on redsim"))),
+    });
+    // `door ideal` (the game) on the ideal:agree-* and plan-phase plans, recorded 2026-11-08
+    // (`mctas door ideal <plan> [--between-ticks]`, the game 26.3, on 4ab5af6ed) on frozen copies of
+    // the plans and their designs (designs/redsim/recorded/ideal: track work never touches them):
+    // `door ideal-rs` must give the game's verdict and ticks, as ideal:agree-* compared them live.
+    // The plan's and its design's hashes are recorded with them: a changed plan or design is
+    // STALE (record the verdicts again with `door ideal`, the hashes with `mctas recorded hash`)
+    const ID: &str = "designs/redsim/recorded/ideal";
+    let ideal: Vec<(String, &str, &str, bool, &str)> = vec![
+        // (plan, its hash, its design's hash, --between-ticks, the game's verdict)
+        (format!("{ID}/c78z.ideal"), "f86fa500c59bcedb", "dd3f5af9d5683f4d", false, "BROKEN: at offset [0, 0, 0]: cycle 0: not open: [1, 1, 0] is minecraft:stone; [0, 0, 0] is minecraft:stone; [1, 0, 0] is minecraft:stone"),
+        (format!("{ID}/c78z.ideal"), "f86fa500c59bcedb", "dd3f5af9d5683f4d", true, "WORKS (4 positions x 2 cycles): open after 35 ticks / closed after 35 ticks"),
+        (format!("{ID}/c78z-u1.ideal"), "2debac9098fb06ed", "dd3f5af9d5683f4d", false, "BROKEN: at offset [0, 0, 0]: cycle 0: not open: [0, 0, 0] is minecraft:stone; [1, 0, 0] is minecraft:stone; [2, 0, 0] is minecraft:stone"),
+        (format!("{ID}/c78z-u1.ideal"), "2debac9098fb06ed", "dd3f5af9d5683f4d", true, "BROKEN: at offset [0, 0, 0]: cycle 0: not open: [1, 0, 0] is minecraft:stone; [2, 0, 0] is minecraft:stone"),
+        (format!("{ID}/s25.ideal"), "830b401bd0b30252", "570585920dd7d4e4", false, "WORKS (4 positions x 2 cycles): open after 32 ticks / closed after 32 ticks"),
+        (format!("{ID}/s25.ideal"), "830b401bd0b30252", "570585920dd7d4e4", true, "WORKS (4 positions x 2 cycles): open after 33 ticks / closed after 33 ticks"),
+        (format!("{ID}/s25-br-observer.ideal"), "b09bc46977cea098", "570585920dd7d4e4", false, "WORKS (4 positions x 2 cycles): open after 34 ticks / closed after 34 ticks"),
+        (format!("{ID}/s25-br-observer.ideal"), "b09bc46977cea098", "570585920dd7d4e4", true, "WORKS (4 positions x 2 cycles): open after 35 ticks / closed after 35 ticks"),
+    ];
+    let steps: Vec<Vec<String>> = ideal.iter().map(|(p, _, _, between, _)| args(&format!("?door ideal-rs {p}{}", if *between { " --between-ticks" } else { "" }))).collect();
+    v.push(Check {
+        name: "sim:recorded-ideal".into(),
+        what: "`door ideal-rs` (redsim) on the c78z, c78z-u1, s25 and s25 + observer-driven BR plans, in the tile phase and with --between-ticks (c78z: a 1 gt pulse), gives the game's recorded `door ideal` verdict and ticks (what ideal:agree-* and ideal:plan-phase-observer-jvm compared live); a plan or design changed since the recording fails as stale",
+        quick: true,
+        jvm: false,
+        steps,
+        timeout: 300,
+        pred: Box::new(move |o| {
+            for (k, (plan, ph, dh, between, game)) in ideal.iter().enumerate() {
+                let design = std::fs::read_to_string(plan).ok().and_then(|t| t.lines().find_map(|l| l.strip_prefix("design ").map(|d| d.trim().to_string()))).unwrap_or_default();
+                let now = (mctas::recorded::file_hash(Path::new(plan)).unwrap_or_default(), mctas::recorded::file_hash(Path::new(&design)).unwrap_or_default());
+                if now.0 != *ph || now.1 != *dh {
+                    return Err(format!("STALE: {plan} or its design {design} changed since the game's verdict was recorded: record it again (`door ideal {plan}{}`) and update selftest.rs", if *between { " --between-ticks" } else { "" }));
+                }
+                let rs = ideal_verdict(&o[k]).ok_or(format!("ideal-rs {plan}: no verdict: {}", tail(&o[k])))?;
+                if rs != *game {
+                    return Err(format!("{plan}{}: ideal-rs `{rs}` vs the game `{game}`", if *between { " --between-ticks" } else { "" }));
+                }
+            }
+            Ok(format!("{} plan runs: redsim's verdicts and ticks are the game's", ideal.len()))
+        }),
+    });
+    let circ_dirs = ["designs/redsim/recorded/circuits"];
+    let nc = rec(&circ_dirs);
+    if nc > 0 {
+        v.push(Check {
+            name: "sim:recorded-circuits".into(),
+            what: "the circuit judge's stimulus on every calibration circuit (edge detectors, T flip-flops, delay lines, gates, latches, dividers, extenders, flying machines, BUDs, sculk, counters, TNT dupers, timers; the R7 and claim fixtures the game verify ran) recorded in the real game, replayed on redsim: every cell of the watched box identical every gt (`circuit replay`)",
+            quick: true,
+            jvm: false,
+            steps: vec![args("circuit replay --jobs {threads} designs/redsim/recorded/circuits")],
+            timeout: 300,
+            pred: Box::new(move |o| has(&o[0], &format!("{nc} of {nc} recordings identical")).map(|_| format!("{nc} of {nc} recorded calibration circuits identical on redsim"))),
+        });
+    }
+    // the live differential fuzzers: random circuits run in the game and on redsim, every cell
+    // compared every tick (fixed seeds, sized for about a minute on a pool of 8)
+    let fuzz = |name: &str, what: &'static str, steps: Vec<Vec<String>>| Check {
+        name: name.into(),
+        what,
+        quick: false,
+        jvm: true,
+        steps,
+        timeout: 900,
+        pred: Box::new(|o| {
+            for out in o {
+                if let Some(l) = out.lines().find(|l| l.contains(" cases in ") && l.contains(" mismatches")) {
+                    if !l.contains(": 0 mismatches") || !l.contains(" 0 errors") {
+                        return Err(l.trim().to_string());
+                    }
+                } else if let Some(l) = out.lines().find(|l| l.starts_with("pistfuzz: ")) {
+                    if !l.contains(" 0 mismatching, 0 errors") {
+                        return Err(l.trim().to_string());
+                    }
+                } else {
+                    return Err(format!("no summary line: {}", tail(out)));
+                }
+            }
+            let sums: Vec<String> = o.iter().filter_map(|out| out.lines().find(|l| (l.contains(" cases in ") && l.contains(" mismatches")) || l.starts_with("pistfuzz: ")).map(|l| l.split(" (").next().unwrap_or(l).trim().to_string())).collect();
+            Ok(sums.join(" | "))
+        }),
+    };
+    v.push(fuzz(
+        "sim:fuzz-redstone",
+        "`door redsim-fuzz` (random redstone circuits: every component family, `--palette all`; and the core palette in a bigger box) in the game and on redsim, every cell compared every tick: 0 mismatches",
+        vec![args("door redsim-fuzz --n 3000 --seed 9101 --palette all --workers {workers} --out {tmp}/all --max-report 2"), args("door redsim-fuzz --n 1500 --seed 9201 --palette core --size 8,4,8 --workers {workers} --out {tmp}/core --max-report 2")],
+    ));
+    v.push(fuzz(
+        "sim:fuzz-containers",
+        "`door redsim-fuzz --gen containers` (droppers and hoppers with items, comparators reading them) in the game and on redsim: 0 mismatches",
+        vec![args("door redsim-fuzz --gen containers --n 2000 --seed 9301 --workers {workers} --out {tmp}/containers --max-report 2")],
+    ));
+    v.push(fuzz(
+        "sim:fuzz-pistons",
+        "`door pistfuzz` (random piston setups, flat and boxed, with observers, redstone around them, slime, shaped blocks) in the game and on redsim, every block, moving block, queue size, drop and the idle flag compared every tick: 0 mismatching",
+        vec![
+            args("door pistfuzz --count 1500 --seed 9401 --mode mix --workers {workers} --out-dir {tmp}/mix"),
+            args("door pistfuzz --count 800 --seed 9402 --mode mix --observers --mixed --workers {workers} --out-dir {tmp}/mixed"),
+            args("door pistfuzz --count 500 --seed 9403 --mode mix --slime --shapes --workers {workers} --out-dir {tmp}/slime"),
+        ],
+    ));
+    v.push(fuzz(
+        "sim:fuzz-sculk",
+        "`door pistfuzz --sculk` (sculk sensors, calibrated sensors with frequency filters, wool, amethyst, comparators and observers on sensors, among pistons and wiring) in the game and on redsim: 0 mismatching",
+        vec![args("door pistfuzz --count 600 --seed 9501 --sculk --workers {workers} --out-dir {tmp}/sculk")],
+    ));
+    // The official-server cross-checks (`door vanilla-check`, `vanilla-gadget`, `vanilla-fuzz`:
+    // the unmodified 26.3 server against the bridge) are not pieces: c79's vanilla-check once
+    // diverged by one tick at one of its 8 positions on an oversubscribed box (2026-11-08; 6 of 6
+    // re-runs at that position identical), a race of the harness, not of the simulator, filed with
+    // its owner. They stay tools a bridge session runs by hand (docs/tools.md).
 }
 
 /// Run one command with a timeout; stdout + stderr. A first argument starting with `?` marks a
 /// command whose exit status is part of its answer (e.g. `door ideal` on a BROKEN plan exits 1).
-fn run_step(exe: &Path, argv: &[String], tmp: &Path, k: usize, timeout: Duration) -> std::result::Result<String, String> {
+/// The command runs with TMPDIR = the check's own scratch folder (nothing it writes to the temp
+/// dir meets another check's); `stop` (set by `--fail-fast`) kills it.
+pub(crate) fn run_step(exe: &Path, argv: &[String], tmp: &Path, k: usize, timeout: Duration, stop: Option<&AtomicBool>) -> std::result::Result<String, String> {
     let any_exit = argv.first().is_some_and(|a| a.starts_with('?'));
     let mut argv: Vec<String> = argv.to_vec();
     if any_exit {
         argv[0] = argv[0][1..].to_string();
     }
+    // `@cargo ...`: another program than mctas (the crate tests of the simulator)
+    let program: std::path::PathBuf = match argv.first().and_then(|a| a.strip_prefix('@')) {
+        Some("cargo") => {
+            argv.remove(0);
+            std::env::var_os("CARGO").map(std::path::PathBuf::from).unwrap_or_else(|| "cargo".into())
+        }
+        Some(other) => return Err(format!("unknown program @{other}")),
+        None => exe.to_path_buf(),
+    };
     let out = tmp.join(format!("step{k}.log"));
     let f = std::fs::File::create(&out).map_err(|e| e.to_string())?;
     let f2 = f.try_clone().map_err(|e| e.to_string())?;
-    let mut child = Command::new(exe).args(&argv).stdout(Stdio::from(f)).stderr(Stdio::from(f2)).spawn().map_err(|e| e.to_string())?;
+    let mut child = Command::new(&program).args(&argv).env("TMPDIR", tmp).stdout(Stdio::from(f)).stderr(Stdio::from(f2)).spawn().map_err(|e| format!("{}: {e}", program.display()))?;
     let t0 = Instant::now();
     let status = loop {
         match child.try_wait() {
@@ -1527,6 +1810,11 @@ fn run_step(exe: &Path, argv: &[String], tmp: &Path, k: usize, timeout: Duration
             let _ = child.wait();
             return Err(format!("timeout after {} s: mctas {}", timeout.as_secs(), argv.join(" ")));
         }
+        if stop.is_some_and(|s| s.load(Ordering::Relaxed)) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("stopped (--fail-fast: another piece failed)".into());
+        }
         std::thread::sleep(Duration::from_millis(100));
     };
     let text = std::fs::read_to_string(&out).unwrap_or_default();
@@ -1536,79 +1824,24 @@ fn run_step(exe: &Path, argv: &[String], tmp: &Path, k: usize, timeout: Duration
     Ok(text)
 }
 
+/// `door selftest`: every check (`--quick`: the ones that start no JVM; `--only`: by name), run
+/// like `mctas test --all` (testplan.rs: parallel, sized from the machine).
 pub fn run(o: &Opts) -> Result<()> {
-    if !Path::new("designs/piston-door-3x3").is_dir() {
-        bail!("run `door selftest` from the repository root (designs/piston-door-3x3 not found)");
-    }
-    let all = checks();
-    let sel: Vec<&Check> = all.iter().filter(|c| (!o.quick || c.quick) && o.only.as_ref().is_none_or(|s| s.split(',').any(|p| c.name.contains(p)))).collect();
     if o.list {
-        for c in &all {
-            println!("{:<34} {} {}", c.name, if c.quick { "quick" } else { "full " }, c.what);
+        for c in checks() {
+            let (g, area, workers, ..) = crate::testplan::row(&c.name);
+            let group = if area.is_empty() { g.name().to_string() } else { format!("{} {area}", g.name()) };
+            println!("{:<40} {:<14} {:>2} JVM {:<5} {}", c.name, group, workers, if c.quick { "quick" } else { "" }, c.what);
         }
         return Ok(());
     }
-    let exe = std::env::current_exe().context("current exe")?;
-    let root: PathBuf = std::env::temp_dir().join(format!("mctas-selftest-{}", std::process::id()));
-    std::fs::create_dir_all(&root)?;
-    println!("door selftest{}: {} checks, {} at a time ({} JVM), scratch {}", if o.quick { " --quick" } else { "" }, sel.len(), o.jobs, o.jvm_jobs, root.display());
-    let t0 = Instant::now();
-    let next = AtomicUsize::new(0);
-    let jvm_slots = Arc::new((Mutex::new(o.jvm_jobs.max(1)), Condvar::new()));
-    let results: Mutex<Vec<(usize, bool, String)>> = Mutex::new(Vec::new());
-    std::thread::scope(|s| {
-        for _ in 0..o.jobs.max(1) {
-            s.spawn(|| loop {
-                let k = next.fetch_add(1, Ordering::Relaxed);
-                let Some(c) = sel.get(k) else { break };
-                if c.jvm {
-                    let (m, cv) = &*jvm_slots;
-                    let mut n = m.lock().unwrap();
-                    while *n == 0 {
-                        n = cv.wait(n).unwrap();
-                    }
-                    *n -= 1;
-                }
-                let tmp = root.join(c.name.replace(':', "_"));
-                let _ = std::fs::create_dir_all(&tmp);
-                let tc = Instant::now();
-                let mut outs = Vec::new();
-                let mut err = None;
-                for (i, st) in c.steps.iter().enumerate() {
-                    let argv: Vec<String> = st.iter().map(|a| a.replace("{tmp}", &tmp.display().to_string())).collect();
-                    match run_step(&exe, &argv, &tmp, i, Duration::from_secs(c.timeout)) {
-                        Ok(t) => outs.push(t),
-                        Err(e) => {
-                            err = Some(e);
-                            break;
-                        }
-                    }
-                }
-                if c.jvm {
-                    let (m, cv) = &*jvm_slots;
-                    *m.lock().unwrap() += 1;
-                    cv.notify_one();
-                }
-                let (ok, msg) = match err {
-                    Some(e) => (false, e),
-                    None => match (c.pred)(&outs) {
-                        Ok(m) => (true, m),
-                        Err(m) => (false, m),
-                    },
-                };
-                println!("{} {:<34} {:>6.1} s  {}", if ok { "PASS" } else { "FAIL" }, c.name, tc.elapsed().as_secs_f64(), msg);
-                results.lock().unwrap().push((k, ok, msg));
-            });
-        }
-    });
-    let res = results.into_inner().unwrap();
-    let failed: Vec<&str> = res.iter().filter(|r| !r.1).map(|r| sel[r.0].name.as_str()).collect();
-    println!("selftest: {} passed, {} failed in {:.0} s", res.len() - failed.len(), failed.len(), t0.elapsed().as_secs_f64());
-    if !o.keep && failed.is_empty() {
-        let _ = std::fs::remove_dir_all(&root);
-    }
-    if !failed.is_empty() {
-        bail!("selftest FAILED: {} (outputs in {})", failed.join(", "), root.display());
-    }
-    Ok(())
+    let mut out = Vec::new();
+    let mut pieces = crate::testplan::plan(None, &[], &[], true, &mut out);
+    pieces.retain(|p| (!o.quick || p.workers == 0) && o.only.as_ref().is_none_or(|s| s.split(',').any(|q| p.check.name.contains(q))));
+    let (cpu, jvms, about) = crate::testplan::machine();
+    let cpu = if o.jobs > 0 { o.jobs } else { cpu };
+    let jvms = if o.jvm_jobs > 0 { o.jvm_jobs } else { jvms };
+    println!("door selftest{}: {} checks on {about}: {cpu} threads, {jvms} JVM workers at once (MCTAS_MAX_WORKERS {} per pool)", if o.quick { " --quick" } else { "" }, pieces.len(), crate::testplan::pool_cap().map(|n| n.to_string()).unwrap_or("unset".into()));
+    let line = format!("Tests: door selftest{} ({} checks)", if o.quick { " --quick" } else { "" }, pieces.len());
+    crate::testplan::run(pieces, &crate::testplan::RunOpts { cpu, jvms, keep: o.keep, fail_fast: false, version: mctas::DEFAULT_VERSION.to_string() }, &line)
 }

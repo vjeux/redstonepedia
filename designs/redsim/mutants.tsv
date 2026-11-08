@@ -1,0 +1,16 @@
+# The mutation test of `mctas test`'s simulator pieces (crates/piston-door/src/mutate.rs, docs/coverage.md):
+# one-line redsim bugs, each a find/replace (\n escaped); rows with the same name are one mutant.
+# mctas test --mutants designs/redsim/mutants.tsv --tree <a worktree of the tree under test>
+name	file	find	replace	what
+piston-late	crates/redsim/src/piston/moving.rs	            be.progress = (be.progress + 1).min(2);	            be.progress = (be.progress + 1).min(3);	a moving piston block finishes 1 gt late (PistonMovingBlockEntity progress 0..3 instead of 0..2)
+piston-late	crates/redsim/src/piston/moving.rs	    be.progress_o = be.progress;\n    if be.progress_o >= 2 {	    be.progress_o = be.progress;\n    if be.progress_o >= 3 {	a moving piston block finishes 1 gt late (PistonMovingBlockEntity progress 0..3 instead of 0..2)
+piston-late	crates/redsim/src/piston/moving.rs	    let Some(be) = w.piston.be(p).copied() else { return };\n    if be.progress_o >= 2 {	    let Some(be) = w.piston.be(p).copied() else { return };\n    if be.progress_o >= 3 {	a moving piston block finishes 1 gt late (PistonMovingBlockEntity progress 0..3 instead of 0..2)
+hopper-cooldown	crates/redsim/src/redstone/container.rs	            c.cooldown = 8;	            c.cooldown = 9;	a hopper that moved an item waits 9 gt instead of 8 (HopperBlockEntity.MOVE_ITEM_SPEED)
+observer-pulse	crates/redsim/src/redstone/blocks.rs	                w.schedule_tick(pos, Kind::Observer, 2, Priority::Normal);	                w.schedule_tick(pos, Kind::Observer, 3, Priority::Normal);	an observer's pulse lasts 3 gt instead of 2
+item-drag	crates/redsim/src/entity/item.rs	        let air = 0.98f32;	        let air = 0.99f32;	an item entity's air drag 0.99 instead of 0.98
+golem-memory	crates/redsim/src/entity/mob/villager.rs	pub const GOLEM_MEMORY_TTL: i64 = 599;	pub const GOLEM_MEMORY_TTL: i64 = 589;	a villager forgets a golem 10 gt early (GolemSensor.MEMORY_TIME_TO_LIVE)
+repeater-delay	crates/redsim/src/redstone/diode.rs	        Block::Repeater { delay, .. } => delay as i32 * 2,	        Block::Repeater { delay, .. } => delay as i32 * 2 + 1,	every repeater 1 gt slower
+sculk-active	crates/redsim/src/sculk.rs	pub const ACTIVE_TICKS: i32 = 30;	pub const ACTIVE_TICKS: i32 = 31;	a sculk sensor stays active 31 gt instead of 30
+furnace-cook	crates/redsim/src/redstone/container.rs	    Some((item_id(result)?, 200))	    Some((item_id(result)?, 199))	a furnace smelts in 199 gt instead of 200
+minecart-slope	crates/redsim/src/entity/minecart.rs	    let mut slide = 0.0078125;	    let mut slide = 0.0085;	a minecart on a slope accelerates 0.0085 instead of 0.0078125 per tick
+tnt-fuse	crates/redsim/src/entity/primed_tnt.rs	pub const FUSE: i32 = 80;	pub const FUSE: i32 = 79;	primed TNT explodes after 79 gt instead of 80

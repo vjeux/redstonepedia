@@ -1,0 +1,98 @@
+# archived 2026-10-20T09:27Z from designs/circuits/shulker/tracks/shulker-speed/combo.txt by mctas circuit archive
+# CIRCUIT: shulker-combo shulker-loader boxes/min 0.087, items/s 2.50, first box 13862 gt, cycle 13840 gt, hoppers awake 6, badges always-on+16-stack+unstackable+colours+restart+top-up+box-starved+drop-free+combo, bill 36 iron, 7 quartz, 66 redstone, 1 slime, 79 blocks, 8x7x8, robust
+# Shulker loader + unloader combo with a mode lever (track shulker-speed, clk-item). Lever off: a loader; lever on: an unloader, on the same chests. Core: clk-rt's always-on loader (dispenser D above the box cell X; observer Q on the pushed stone's cell re-fires D; comparator E + observer Q2 place the first box and restart after the supply ran out; sticky piston P's stone breaks the box and pushes the drop into the walled cell over the collection hopper K). Loader feed: chests a, b, c into one pool hopper over the feed hopper N. Unloader: hopper H under X empties it into chest d. The judge's 81-stack loader budget fills a, b, c in name order, so d stays empty in loader mode. One detector serves both modes. Comparator C reads X's level L into dust A, and K2 (compare, redstone block beside it) gives 15 only at L = 15. Z subtracts K2's signal (through repeater F, 8 gt) from A (through repeater R1, 2 gt), and repeater W squares it: S = (0 < L < 15). Because the full signal arrives 6 gt late, a box that is filled to 14 at once and topped up a gt later still makes S rise. V subtracts S (through repeater f) from S delayed (T2) and pulses for 4 gt when S falls: when a loading box gets full, or when an unloading box gets empty. P fires from V directly. (An earlier 85-block version also locked F from the lever; the in-game shrink, 85 -> 79 blocks, showed the combo badge passes without that lock and without two wall stones.) The lever's floor also powers a dust line under the build to the block holding the wall torch under H, so the torch (which locks H) goes off and H unloads only in unloader mode.
+name: shulker-combo
+circuit: shulker-loader
+port boxes: 0 3 -1
+port input.mode: -5 1 -4 lever
+port items.a: 0 3 1
+port items.b: 1 3 1
+port items.c: 0 3 2
+port items.d: 0 0 -1
+port output: 2 0 0
+origin: -5 0 -5
+palette:
+  A minecraft:comparator[facing=west,mode=compare,powered=false]
+  B minecraft:comparator[facing=west,mode=subtract,powered=false]
+  C minecraft:comparator[facing=east,mode=subtract,powered=false]
+  D minecraft:dispenser[facing=down,triggered=false]
+  E minecraft:hopper[enabled=true,facing=north]
+  F minecraft:hopper[enabled=true,facing=south]
+  G minecraft:hopper[enabled=true,facing=west]
+  H minecraft:hopper[enabled=true,facing=down]
+  I minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  J minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  K minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  L minecraft:lever[face=floor,facing=north,powered=false]
+  M minecraft:repeater[delay=3,facing=north,locked=false,powered=false]
+  N minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  R minecraft:redstone_block
+  S minecraft:sticky_piston[extended=false,facing=east]
+  c minecraft:comparator[facing=south,mode=compare,powered=false]
+  h minecraft:hopper[enabled=true,facing=east]
+  r minecraft:redstone_wall_torch[facing=east,lit=true]
+  s minecraft:stone
+layer -2:
+  .
+  s
+  s
+  s
+  s
+  ssss
+  .
+  .
+layer -1:
+  .
+  I
+  I
+  I
+  I
+  IIIIsr
+  .
+  .
+layer 0:
+  ...sss
+  s..s.s
+  .sssss
+  .ss..s
+  sss
+  sss..Eh
+  .
+  .
+layer 1:
+  ...III
+  L..M.cR
+  .IJCJI
+  .II..c
+  IIK..s
+  INBSs..s
+  .....E
+  .
+layer 2:
+  .
+  .
+  .
+  .
+  .....F
+  ....ODsA
+  .....HG
+  .....E
+layer 3:
+  .
+  .
+  .
+  .
+  .
+  ....sIsO
+  .
+  .
+layer 4:
+  .
+  .
+  .
+  .
+  .
+  ......Is
+  .
+  .

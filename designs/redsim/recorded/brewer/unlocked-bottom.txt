@@ -1,0 +1,28 @@
+# calibration (not a working brewer; the brewing stand model against the game): bottles from the
+# side, blaze powder from the back, wart and sugar through the top hopper, and an unlocked hopper
+# under the stand takes every water bottle out before anything brews (the judge refuses it: water
+# bottles in the output chest)
+name: cal-brew-unlocked-bottom
+circuit: brewer 1
+port bottles: -1 2 0
+port fuel: 0 2 -1
+port wart: 0 3 0
+port sugar: 1 3 0
+port output: 1 0 0
+origin: -1 0 -1
+palette:
+  O minecraft:hopper[enabled=true,facing=east]
+  F minecraft:hopper[enabled=true,facing=south]
+  E minecraft:hopper[enabled=true,facing=east]
+  B minecraft:brewing_stand[has_bottle_0=false,has_bottle_1=false,has_bottle_2=false]
+  T minecraft:hopper[enabled=true,facing=down]
+  W minecraft:hopper[enabled=true,facing=west]
+layer 0:
+  ...
+  .O.
+layer 1:
+  .F.
+  EB.
+layer 2:
+  ...
+  .TW

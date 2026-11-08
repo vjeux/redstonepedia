@@ -1,0 +1,26 @@
+name: cal-subtract-on-delay
+circuit: on-delay
+# a subtract comparator: its rear the input delayed 8 gt, its side the input inverted by a torch
+# (through a repeater): on only while the input has been on for 8 gt and still is
+origin: 0 -1 0
+port input: 0 1 0
+port output: 4 1 0
+palette:
+  S minecraft:stone
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  R minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  C minecraft:comparator[facing=west,mode=subtract,powered=false]
+  r minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  T minecraft:redstone_torch[lit=true]
+layer 0:
+  .....
+  .....
+  ..S..
+layer 1:
+  .SSS.
+  .S.S.
+  .SdS.
+layer 2:
+  .dRC.
+  .d.r.
+  .d.T.

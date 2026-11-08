@@ -1,0 +1,33 @@
+# Two droppers and two hoppers pass one stone around; a comparator reads dropper B. A t pulse fires
+# both droppers (A from above, B through the dust line): the stone moves to the other dropper. An r
+# pulse fires B alone: a stone in B leaves for A (q off), a stone in A stays.
+# Sealed (the real-use audit's item intrusion, 2026-10-21): a stone over hopper h and stones around
+# the dust over hopper g, so no stray item reaches either hopper (8 -> 12 blocks, same metrics).
+name: cal-dropper-tff-reset
+circuit: tff-reset
+port input.t: 0 1 0
+port input.r: 1 0 2
+port output: 2 0 1
+nbt: 0 0 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: -1 0 0
+palette:
+  S minecraft:stone
+  A minecraft:dropper[facing=east,triggered=false]
+  h minecraft:hopper[enabled=true,facing=south]
+  B minecraft:dropper[facing=west,triggered=false]
+  g minecraft:hopper[enabled=true,facing=north]
+  C minecraft:comparator[facing=west,mode=compare,powered=false]
+  r minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+layer -1:
+  ...
+  ...S
+layer 0:
+  .Ah
+  .gBC
+layer 1:
+  ..S
+  Srr
+  .S
+layer 2:
+  ...
+  .S

@@ -117,6 +117,14 @@ enum Cmd {
         /// A saved pristine redsim-fuzz binary: every restored fixture must match before writes.
         #[arg(long)]
         binary: PathBuf,
+        /// The binary's command that replays the traces (default `trace-compare`; the shulker
+        /// traces: `--binary target/release/mctas --compare 'circuit shulker compare'`).
+        #[arg(long, default_value = "trace-compare")]
+        compare: String,
+        /// Also freeze every live design a trace was recorded from (an archived design) as a
+        /// fixture: design work then never makes a recording stale.
+        #[arg(long)]
+        freeze: bool,
         #[arg(long)]
         write: bool,
     },
@@ -350,8 +358,9 @@ fn main() -> Result<()> {
             anyhow::ensure!(!traces.is_empty(), "trace-compare <exact traces>... (designs/clocks/traces/exact/*.trace)");
             redsim_fuzz::trace_compare::run(&traces, max)?;
         }
-        Cmd::TraceFixtures { root, fixtures, binary, write } => {
-            redsim_fuzz::trace_fixtures::run(&[root], &fixtures, &binary, write)?;
+        Cmd::TraceFixtures { root, fixtures, binary, compare, freeze, write } => {
+            let compare: Vec<String> = compare.split_whitespace().map(String::from).collect();
+            redsim_fuzz::trace_fixtures::run_with(&[root], &fixtures, &binary, &compare, write, freeze)?;
         }
         Cmd::ChunkOrderCheck { size } => {
             let mut w = Worker::spawn(&cfg)?;

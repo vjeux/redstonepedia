@@ -37,6 +37,11 @@ pub enum DoorCmd {
     RedsimFuzz(cmd::fuzz::RedsimFuzzArgs),
     /// Replay a redsim case file in the game and in redsim; print the differing frames.
     RedsimCase(cmd::fuzz::RedsimCaseArgs),
+    /// Exact real-game traces (`.trace`: `clock misc trace-export --exact`, the rail and farm
+    /// judges' `--trace`) replayed on redsim, every cell and entity compared every tick, on every
+    /// core (`redsim-fuzz trace-compare`); one line per trace, then `N of M traces
+    /// tick-identical`; exits 1 unless all are. Takes trace files or directories of them.
+    TraceCompare(cmd::fuzz::TraceCompareArgs),
     /// Judge designs in redsim (crates/redsim) instead of the game: the judge's checks at the
     /// default positions (+ --extra-offsets), microseconds per tick. With --judge, also run the
     /// real judge and report any verdict disagreement (redsim as a search pre-screen must never
@@ -97,6 +102,7 @@ pub fn run(version: &str, cmd: DoorCmd) -> Result<()> {
         DoorCmd::Cosearch(a) => cmd::cosearch::cmd_cosearch(version, a),
         DoorCmd::RedsimFuzz(a) => cmd::fuzz::cmd_redsim_fuzz(version, a),
         DoorCmd::RedsimCase(a) => cmd::fuzz::cmd_redsim_case(version, a),
+        DoorCmd::TraceCompare(a) => cmd::fuzz::cmd_trace_compare(a),
         DoorCmd::RedsimVerify(a) => cmd::judge::cmd_redsim_verify(version, a),
         DoorCmd::Material(a) => cmd::judge::cmd_material(version, a),
         DoorCmd::IdealRs(a) => cmd::ideal::cmd_ideal_rs(a),

@@ -1,0 +1,21 @@
+name: cal-observer-piston
+# A sticky piston facing up lifts a stone in front of an observer. The observer (watching the
+# stone's cell) fires on every change there; its back strongly powers a stone, the dust under that
+# stone lights and runs into the piston's side. Observer on -> piston extends (the head replaces the
+# stone: the observer is still on and ignores it) -> observer off -> piston retracts and pulls the
+# stone back -> the observer sees it and fires again. (An observer cannot close the loop on a
+# piston by itself: its face and back are opposite, and a piston ignores power into its front.)
+# Kick: the lifted stone is placed last (the observer sees it appear).
+port output: 1 -1 0
+port start: 0 2 0 last
+palette:
+  S minecraft:stone
+  P minecraft:sticky_piston[facing=up]
+  O minecraft:observer[facing=west]
+  d minecraft:redstone_wire
+layer 0:
+  .SS
+layer 1:
+  Pdd
+layer 2:
+  SOS

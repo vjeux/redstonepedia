@@ -1,0 +1,16 @@
+name: cal-sculk-piston
+# A sculk sensor hears a piston move and powers it back through two delay-4 repeaters (16 gt): the
+# piston extends while the sensor is still active (deaf) and retracts 16 gt after the sensor goes
+# quiet, after its 10 gt cooldown, so the sensor hears the retraction and starts the next cycle.
+# Kick: a redstone block next to the piston for 2 gt (the piston extends: the first vibration).
+port output: 0 0 0
+port start: 3 1 1 minecraft:redstone_block 2
+palette:
+  S minecraft:stone
+  K minecraft:sculk_sensor
+  r minecraft:repeater[delay=4,facing=west]
+  P minecraft:sticky_piston[facing=east]
+layer 0:
+  .SS
+layer 1:
+  KrrP

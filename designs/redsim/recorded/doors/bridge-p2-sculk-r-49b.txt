@@ -1,0 +1,45 @@
+# verified WORKS: 49 blocks, open after 49 ticks, closed after 20 ticks
+# archived 2026-10-19 09:29Z from /tmp/p2-sculk-r.txt (repo at 3381882)
+name: bridge-p2-sculk-r
+port door: 0 0 0
+port lever: -2 6 0
+origin: -2 0 0
+palette:
+  A minecraft:observer[facing=east,powered=false]
+  B minecraft:observer[facing=up,powered=false]
+  C minecraft:calibrated_sculk_sensor[facing=east,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  D minecraft:dropper[facing=west,triggered=false]
+  E minecraft:observer[facing=west,powered=false]
+  F minecraft:obsidian
+  G minecraft:sticky_piston[extended=false,facing=up]
+  H minecraft:sticky_piston[extended=false,facing=west]
+  I minecraft:iron_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  J minecraft:stone
+  L minecraft:lever[face=floor,facing=east,powered=false]
+  O minecraft:oak_log[axis=y]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:sticky_piston[extended=false,facing=down]
+  c minecraft:calibrated_sculk_sensor[facing=west,power=0,sculk_sensor_phase=inactive,waterlogged=false]
+  o minecraft:observer[facing=down,powered=false]
+  r minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  s minecraft:sticky_piston[extended=false,facing=east]
+layer -3:
+  ..CGDAB
+layer -2:
+  SEOGocR
+layer -1:
+  BFJ..HB
+layer 0:
+  s.JJJ.H
+layer 1:
+  s.JJJ.H
+layer 2:
+  JJJJJJB
+layer 3:
+  r.....I
+layer 4:
+  J.SSS.B
+layer 5:
+  BEEEEEE
+layer 6:
+  L

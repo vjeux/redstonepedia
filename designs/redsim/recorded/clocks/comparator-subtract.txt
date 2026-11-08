@@ -1,0 +1,15 @@
+name: cal-comparator-subtract
+# A subtract comparator fed 15 from a redstone block behind it; its output runs through 3 dust back
+# into its own side: output 15 -> side 13 -> output 2 -> side 0 -> output 15 ... Self-starting.
+port output: 1 -1 0
+palette:
+  S minecraft:stone
+  R minecraft:redstone_block
+  C minecraft:comparator[facing=west,mode=subtract]
+  d minecraft:redstone_wire
+layer 0:
+  .SS
+  .SS
+layer 1:
+  .dd
+  RCd

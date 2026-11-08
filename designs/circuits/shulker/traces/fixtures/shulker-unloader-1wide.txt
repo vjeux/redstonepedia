@@ -1,0 +1,110 @@
+# archived 2026-10-20T13:57Z from designs/circuits/shulker/tracks/shulker/unloader-1wide.txt by mctas circuit archive
+# CIRCUIT: shulker-unloader-1wide shulker-unloader boxes/min 0.087, items/s 2.50, first box 13859 gt, cycle 13838 gt, hoppers awake 3, badges always-on+16-stack+unstackable+colours+box-starved+drop-free+tileable(1), bill 16 iron, 8 quartz, 26 redstone, 1 slime, 24 blocks, 1x7x6, robust
+name: shulker-unloader-1wide
+circuit: shulker-unloader
+tile: 1 0 0
+# A one-block-wide unloader you can line up side by side with no gap: a dispenser drops each full
+# box onto a hopper that empties it, and when the box is empty a piston breaks it into a second
+# hopper that sends it on.
+#
+# How it works (no redstone dust and no comparator side inputs, so neighbouring copies never
+# touch each other's signals):
+# - A comparator reads the emptying hopper. That hopper holds exactly 1 item while the box still
+#   has items, because it pushes and then pulls in the same tick.
+# - When the hopper empties, the torch on the block the comparator powers (through a repeater)
+#   lights 3 gt later, and the sticky piston pushes a stone into the box cell. That is soon enough
+#   that the emptying hopper is still on its cooldown and cannot grab the box. The box's drop is
+#   pushed into the cell above the output hopper, which catches it at once.
+# - An observer under the comparator toggles a copper bulb on every change of the comparator, so
+#   the bulb is lit while the box has items. While it is unlit, a torch under the block keeps the
+#   block powered, which ends the piston's pulse and holds it off until the next box's first item.
+#   Every comparator starts at 0, so the design is consistent as placed in any rotation.
+# - An observer over the piston, watched by an observer on the dispenser, fires the dispenser
+#   after each break. A comparator reads the dispenser through a stone, and two observers watch
+#   it. When the dispenser gets its first box, they power the boxes hopper above it, which fires
+#   the dispenser by quasi-connectivity. That covers the start and refills after the supply ran out.
+port items: 0 -1 0
+port boxes: 0 4 0
+port output: 0 0 -2
+origin: 0 0 -3
+palette:
+  S minecraft:stone
+  t minecraft:redstone_torch[lit=false]
+  L minecraft:redstone_torch[lit=true]
+  n minecraft:comparator[facing=north,mode=compare,powered=false]
+  m minecraft:comparator[facing=north,mode=compare,powered=false]
+  c minecraft:comparator[facing=south,mode=compare,powered=false]
+  r minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  b minecraft:waxed_copper_bulb[lit=false,powered=false]
+  V minecraft:hopper[enabled=true,facing=down]
+  N minecraft:hopper[enabled=true,facing=north]
+  P minecraft:sticky_piston[extended=false,facing=north]
+  D minecraft:dispenser[facing=down,triggered=false]
+  o minecraft:observer[facing=north,powered=false]
+  q minecraft:observer[facing=south,powered=false]
+  u minecraft:observer[facing=down,powered=false]
+  U minecraft:observer[facing=up,powered=false]
+layer -3:
+  .
+  .
+  .
+  .
+  .
+  S
+  .
+layer -2:
+  .
+  .
+  .
+  .
+  b
+  m
+  S
+layer -1:
+  .
+  .
+  .
+  .
+  U
+  S
+  L
+layer 0:
+  .
+  .
+  N
+  V
+  n
+  r
+  S
+layer 1:
+  .
+  S
+  .
+  .
+  S
+  P
+  t
+layer 2:
+  .
+  c
+  S
+  D
+  q
+  u
+  .
+layer 3:
+  .
+  u
+  o
+  V
+  .
+  .
+  .
+layer 4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .

@@ -1,0 +1,49 @@
+# verified WORKS: 52 blocks, open after 34 ticks, closed after 34 ticks
+# archived 2026-10-19 11:14Z from /tmp/s27-bl52.txt (repo at 6d84aaff)
+name: s27-bl52
+port door: 0 0 0
+port lever: -4 1 0
+origin: -4 0 0
+palette:
+  A minecraft:observer[facing=up,powered=false]
+  B minecraft:observer[facing=west,powered=false]
+  C minecraft:comparator[facing=west,mode=compare,powered=true]
+  D minecraft:obsidian
+  E minecraft:piston_head[facing=east,short=false,type=sticky]
+  F minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  G minecraft:redstone_wire[east=side,north=side,power=15,south=side,west=side]
+  H minecraft:repeater[delay=2,facing=west,locked=false,powered=true]
+  I minecraft:repeater[delay=4,facing=west,locked=false,powered=true]
+  J minecraft:sticky_piston[extended=false,facing=east]
+  K minecraft:sticky_piston[extended=false,facing=up]
+  L minecraft:lever[face=wall,facing=west,powered=true]
+  M minecraft:sticky_piston[extended=false,facing=west]
+  N minecraft:note_block[instrument=harp,note=0,powered=false]
+  O minecraft:observer[facing=down,powered=false]
+  P minecraft:piston[extended=false,facing=up]
+  Q minecraft:sticky_piston[extended=true,facing=down]
+  R minecraft:redstone_lamp[lit=false]
+  S minecraft:smooth_stone
+  T minecraft:sticky_piston[extended=true,facing=east]
+  U minecraft:stone
+  W minecraft:waxed_copper_bulb[lit=true,powered=false]
+  o minecraft:observer[facing=east,powered=false]
+  p minecraft:piston_head[facing=down,short=false,type=sticky]
+  r minecraft:redstone_wire[east=none,north=none,power=15,south=none,west=none]
+  s minecraft:sticky_piston[extended=false,facing=down]
+layer -2:
+  .RBNBKKoP
+layer -1:
+  .A.J...D
+layer 0:
+  .rTEUUUUA
+layer 1:
+  LSTEUUU.M
+layer 2:
+  .GTEUUU.M
+layer 3:
+  .O.OUsU.U
+layer 4:
+  .UURBpUoF
+layer 5:
+  .WCHIQBBU

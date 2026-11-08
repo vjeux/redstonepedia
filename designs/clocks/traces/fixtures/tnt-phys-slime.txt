@@ -1,0 +1,14 @@
+name: tnt-phys-slime
+port start: 2 1 1 minecraft:redstone_block 2
+origin: 0 0 0
+palette:
+  s minecraft:slime_block
+  t minecraft:tnt[unstable=false]
+layer 0:
+  sss
+  sss
+  sss
+layer 1:
+  ...
+  .t.
+  ...
