@@ -93,6 +93,10 @@ pub struct GameFarm {
     pub entity_ticking: Vec<[i32; 2]>,
     /// The design's block states at the spec's (moved) cells.
     text: std::collections::HashMap<[i32; 3], String>,
+    /// The chunks loaded at full status (`hasChunksAt`).
+    pub full: Vec<[i32; 2]>,
+    /// The level runs the five custom spawners.
+    pub spawners: bool,
 }
 
 /// The design's block states at the spec's cells (moved to the site in terrain).
@@ -163,11 +167,15 @@ pub fn import_terrain(w: &mut Worker, sb: u32, t: &redsim::terrain::format::Terr
     }
     let biome_cells: Vec<u8> = t.biomes.iter().flat_map(|v| v.to_le_bytes()).collect();
     let n = sections.len();
+    let structures: Vec<Value> = t.structures.iter().map(|s| json!({"id": s.id, "min": s.min, "max": s.max, "pieces": s.pieces})).collect();
+    let inhabited: Vec<Value> = t.inhabited.iter().map(|([x, z], v)| json!([x, z, v])).collect();
+    let block_entities: Vec<Value> = t.block_entities.iter().map(|b| json!({"pos": b.pos, "snbt": b.snbt})).collect();
     let v = w.call(json!({
         "op": "terrain", "sandbox": sb, "sections": sections,
         "biomes": {"origin": t.biome_origin, "size": t.biome_size, "palette": t.biome_palette, "cells": b64.encode(&biome_cells)},
+        "structures": structures, "inhabited": inhabited, "block_entities": block_entities,
     }))?;
-    eprintln!("terrain: {n} sections in {} chunks", v["chunks"]);
+    eprintln!("terrain: {n} sections in {} chunks, {} structures, {} block entities, {} chunks' inhabited time", v["chunks"], v["structures"], v["block_entities"], t.inhabited.len());
     // the check: every cell's block and light as the level reads them
     let from = t.origin;
     let to = [ox + sx - 1, top, oz + sz - 1];
@@ -245,6 +253,13 @@ impl GameFarm {
     /// thunder). A terrain site: the sample imported ([`import_terrain`]), the design's box
     /// cleared like the site clears it, natural monsters on, the AFK player at the site's spot.
     pub fn start(version: &str, c: &circuit::Circuit, spec: &FarmSpec, o: &RunOpts, weather: bool, trace_randoms: bool, place: Place) -> Result<GameFarm> {
+        Self::start_with(version, c, spec, o, weather, trace_randoms, place, true)
+    }
+
+    /// [`GameFarm::start`]; `spawners`: the level runs the five custom spawners (the real game's
+    /// overworld does; the void gate's rules leave the cats, terrain's every one).
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_with(version: &str, c: &circuit::Circuit, spec: &FarmSpec, o: &RunOpts, weather: bool, trace_randoms: bool, place: Place, spawners: bool) -> Result<GameFarm> {
         let mut w = Worker::spawn(&WorkerConfig { version: version.to_string(), heap_mb: 4096, ..Default::default() })?;
         let (chunks, biome, bare) = match place {
             Place::Void { bare } => (forced_chunks(spec), if bare { Value::Null } else { json!("minecraft:plains") }, bare),
@@ -254,7 +269,8 @@ impl GameFarm {
                 ([ox.div_euclid(16), oz.div_euclid(16), (ox + sx - 1).div_euclid(16), (oz + sz - 1).div_euclid(16)], json!("minecraft:plains"), false)
             }
         };
-        let v = w.call(json!({"op": "create", "chunks": chunks, "seed": o.seed, "biome": biome}))?;
+        let spawners = spawners && !bare;
+        let v = w.call(json!({"op": "create", "chunks": chunks, "seed": o.seed, "biome": biome, "custom_spawners": spawners}))?;
         let sb = v["sandbox"].as_u64().ok_or_else(|| anyhow!("create: no sandbox"))? as u32;
         let mut world = json!({
             "op": "world", "sandbox": sb,
@@ -279,10 +295,13 @@ impl GameFarm {
                     w.set_blocks(sb, part, PlaceMode::Raw)?;
                 }
                 world["spawn_monsters"] = json!(true);
+                // the game's default rules: every custom spawner may fire
+                world["rules"] = json!({"spawn_phantoms": "true", "spawn_patrols": "true", "spawn_wandering_traders": "true"});
                 world["player"] = json!({"pos": [site.afk.x, site.afk.y, site.afk.z], "mode": "creative", "simulation": 6, "view": 6});
             }
         }
         let v = w.call(world).context("world sandbox")?;
+        let full = v["full_chunks"].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default();
         let ticking = v["ticking_chunks"].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default();
         let spawning = v["spawning_chunks"].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default();
         let entity_ticking = v["entity_ticking_chunks"].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default();
@@ -297,7 +316,7 @@ impl GameFarm {
             let s = text.get(&pos(*p)).ok_or_else(|| anyhow!("no design block at {p}"))?;
             rest.push((pos(*p), s.clone()));
         }
-        let mut g = GameFarm { w, sb, lo: pos(spec.lo), hi: pos(spec.hi), ticking, spawning, entity_ticking, spawn_chunk_count, text };
+        let mut g = GameFarm { w, sb, lo: pos(spec.lo), hi: pos(spec.hi), ticking, spawning, entity_ticking, spawn_chunk_count, text, full, spawners };
         g.place(&rest)?;
         let out = pos(spec.output);
         let here = g.w.get_region(sb, out, out)?;
@@ -393,7 +412,9 @@ pub fn parse_frame(v: &Value) -> Result<Frame> {
     }
     for d in v["draws"].as_array().into_iter().flatten() {
         f.draws.push((d[0].as_str().unwrap_or("").to_string(), d[1].as_str().unwrap_or("").to_string(), d[2].as_u64().unwrap_or(0) as u32));
+        f.draw_values.push(d[3].as_array().map(|a| a.iter().map(|x| x.as_i64().unwrap_or(0) as i32).collect()).unwrap_or_default());
     }
+    f.spawning_shuffled = v["spawning_shuffled"].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default();
     Ok(f)
 }
 
@@ -476,7 +497,15 @@ pub fn redsim_start(spec: &FarmSpec, o: &RunOpts, game: &GameFarm, bare: bool) -
         (Some(_), Some(n)) => n,
         _ => Natural { spawn_enemies: false, void_biome: Some("minecraft:plains"), ..Natural::new(vec![], Difficulty::Hard) },
     };
+    let spawn_enemies = base.spawn_enemies;
     run.world.mob.natural = Some(Natural { spawn_order: game.spawning.clone(), spawn_chunk_count: Some(game.spawn_chunk_count as i32), entity_ticking: game.entity_ticking.clone(), ..base });
+    if game.spawners {
+        // the void gate's rules: no phantoms, patrols or traders; terrain: the game's defaults
+        let all = o.site.is_some();
+        let mut c = redsim::entity::mob::custom::Custom::new(o.seed, spawn_enemies, all, all, all);
+        c.full_chunks = game.full.iter().copied().collect();
+        run.world.mob.custom = Some(c);
+    }
     Ok(run)
 }
 
@@ -503,9 +532,13 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
     let window = |t0: i64, n: u32| [draws_at, opts.draws_at].iter().flatten().any(|d| *d >= t0 && *d < t0 + n as i64 + 3);
     let print = |f: &Frame| {
         if opts.draws_at == Some(f.t) {
-            println!("the game's draws at game time {} (stream, call site, count; in draw order):", f.t);
-            for (s, site, n) in &f.draws {
-                println!("  {s} {site} x{n}");
+            if !f.spawning_shuffled.is_empty() {
+                println!("the spawning chunks in tickChunks' order at game time {} ({}): {}", f.t, f.spawning_shuffled.len(), f.spawning_shuffled.iter().map(|[x, z]| format!("{x},{z}")).collect::<Vec<_>>().join(" "));
+            }
+            println!("the game's draws at game time {} (stream, call site, count, the raw next(bits) outputs; in draw order):", f.t);
+            for (k, (s, site, n)) in f.draws.iter().enumerate() {
+                let vals = f.draw_values.get(k).map(|v| v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(" ")).unwrap_or_default();
+                println!("  {s} {site} x{n} [{vals}]");
             }
         }
     };

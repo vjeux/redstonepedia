@@ -448,7 +448,7 @@ fn state_props(w: &World, p: BlockPos) -> Option<&'static blocks::Props> {
 }
 
 /// `BlockState.isValidSpawn(level, below, type)`.
-fn valid_spawn_floor(w: &World, below: BlockPos, type_id: &str) -> bool {
+pub(crate) fn valid_spawn_floor(w: &World, below: BlockPos, type_id: &str) -> bool {
     let col = blocks::type_index(type_id);
     match (state_props(w, below), col) {
         (Some(p), Some(c)) => p.valid_spawn.get(c).copied().unwrap_or(false),
@@ -466,7 +466,7 @@ fn is_water(w: &World, p: BlockPos) -> bool {
 }
 
 /// `NaturalSpawner.isValidEmptySpawnBlock` for a type.
-fn valid_empty(w: &World, p: BlockPos, type_id: &str) -> bool {
+pub(crate) fn valid_empty(w: &World, p: BlockPos, type_id: &str) -> bool {
     let b = w.get(p);
     if crate::behavior::full_cube(&b) || crate::behavior::is_signal_source(w, &b) {
         return false;
@@ -492,7 +492,7 @@ fn placement_ok(w: &World, k: &Kind, p: BlockPos) -> bool {
 }
 
 /// `Monster.isDarkEnoughToSpawn`.
-fn dark_enough(w: &mut World, p: BlockPos) -> bool {
+pub(crate) fn dark_enough(w: &mut World, p: BlockPos) -> bool {
     let sky = match w.sky_light(p) {
         Ok(v) => v,
         Err(e) => {

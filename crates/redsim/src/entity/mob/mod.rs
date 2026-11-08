@@ -19,6 +19,7 @@
 
 pub mod absence;
 pub mod blocks;
+pub mod custom;
 pub mod enchant;
 pub mod exit;
 pub mod farm;
@@ -240,11 +241,13 @@ pub struct MobWorld {
     pub golem_spawning: bool,
     /// Natural spawning and despawning (the terrain lane: [`natural::Natural`]); `None`: off.
     pub natural: Option<natural::Natural>,
+    /// (tickexact) The overworld's custom spawners ([`custom::Custom`]); `None`: the level runs none.
+    pub custom: Option<custom::Custom>,
 }
 
 impl Default for MobWorld {
     fn default() -> MobWorld {
-        MobWorld { rng: None, day_offset: 0, cramming: 24, events: Vec::new(), spawn_tries: Vec::new(), golem_walk: walk::Walk::Still, golem_spawning: true, natural: None }
+        MobWorld { rng: None, day_offset: 0, cramming: 24, events: Vec::new(), spawn_tries: Vec::new(), golem_walk: walk::Walk::Still, golem_spawning: true, natural: None, custom: None }
     }
 }
 

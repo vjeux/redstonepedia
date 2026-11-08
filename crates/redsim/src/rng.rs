@@ -59,6 +59,11 @@ impl LegacyRandom {
         self.next(24) as f32 * 5.960_464_5e-8_f32
     }
 
+    /// `nextBoolean`: `next(1) != 0`.
+    pub fn next_bool(&mut self) -> bool {
+        self.next(1) != 0
+    }
+
     /// `nextDouble`: `((long) next(26) << 27) + next(27)`, times `DOUBLE_MULTIPLIER` (a double
     /// field initialized from the float literal `1.110223E-16F`, i.e. exactly 2^-53; decompilers
     /// print the float literal inline, but the product is a double one).

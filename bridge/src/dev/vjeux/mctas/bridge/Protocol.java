@@ -834,6 +834,20 @@ public final class Protocol {
             }
         }
         o.add("entity_ticking_chunks", entityTicking);
+        // the chunks loaded at full status (Level.hasChunk: hasChunksAt, what the cat and patrol
+        // spawners ask around their spot)
+        JsonArray full = new JsonArray();
+        for (int cx = x0; cx <= x1; cx++) {
+            for (int cz = z0; cz <= z1; cz++) {
+                if (sb.level.getChunkSource().getChunkNow(cx, cz) != null) {
+                    JsonArray a = new JsonArray();
+                    a.add(cx);
+                    a.add(cz);
+                    full.add(a);
+                }
+            }
+        }
+        o.add("full_chunks", full);
         return o;
     }
 
@@ -923,13 +937,33 @@ public final class Protocol {
         JsonArray frames = new JsonArray();
         for (int i = 0; i < ticks; i++) {
             Exact.DrawLog log = draws ? new Exact.DrawLog() : null;
+            // a probed tick: the spawning chunks before the shuffle (as tickChunks collects them)
+            List<int[]> pre = draws ? sb.spawningChunks() : null;
             Exact.drawLog = log;
             try {
                 sb.tick(this.server);
             } finally {
                 Exact.drawLog = null;
             }
-            frames.add(watch.frame(sb, log));
+            JsonObject f = watch.frame(sb, log);
+            if (log != null && log.shuffleState >= 0) {
+                // Util.shuffle(list, level.random) redone from the state its first draw saw
+                net.minecraft.world.level.levelgen.LegacyRandomSource copy = new net.minecraft.world.level.levelgen.LegacyRandomSource(0L);
+                Exact.setState(copy, log.shuffleState);
+                List<int[]> shuffled = new ArrayList<>(pre);
+                for (int k = shuffled.size(); k > 1; k--) {
+                    java.util.Collections.swap(shuffled, k - 1, copy.nextInt(k));
+                }
+                JsonArray a = new JsonArray();
+                for (int[] c : shuffled) {
+                    JsonArray p = new JsonArray();
+                    p.add(c[0]);
+                    p.add(c[1]);
+                    a.add(p);
+                }
+                f.add("spawning_shuffled", a);
+            }
+            frames.add(f);
         }
         JsonObject o = new JsonObject();
         o.add("frames", frames);

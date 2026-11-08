@@ -534,15 +534,23 @@ final class Exact {
         final List<String> sites = new ArrayList<>();
         final List<String> streams = new ArrayList<>();
         final List<Integer> counts = new ArrayList<>();
+        /** Each aggregated row's raw {@code next(bits)} outputs, in order. */
+        final List<List<Integer>> values = new ArrayList<>();
+        /** The level random's state before the spawning chunks' shuffle ({@code Util.shuffle} in tickChunks), or -1. */
+        long shuffleState = -1;
 
-        void record(String stream, String site) {
+        void record(String stream, String site, int value) {
             int last = sites.size() - 1;
             if (last >= 0 && sites.get(last).equals(site) && streams.get(last).equals(stream)) {
                 counts.set(last, counts.get(last) + 1);
+                values.get(last).add(value);
             } else {
                 sites.add(site);
                 streams.add(stream);
                 counts.add(1);
+                List<Integer> v = new ArrayList<>();
+                v.add(value);
+                values.add(v);
             }
         }
 
@@ -553,6 +561,11 @@ final class Exact {
                 row.add(streams.get(i));
                 row.add(sites.get(i));
                 row.add(counts.get(i));
+                JsonArray v = new JsonArray();
+                for (int x : values.get(i)) {
+                    v.add(x);
+                }
+                row.add(v);
                 a.add(row);
             }
             return a;
@@ -578,10 +591,16 @@ final class Exact {
         @Override
         public int next(final int bits) {
             DrawLog log = drawLog;
-            if (log != null) {
-                log.record(this.stream, callSite());
+            if (log == null) {
+                return super.next(bits);
             }
-            return super.next(bits);
+            String site = callSite();
+            if (log.shuffleState < 0 && "level".equals(this.stream) && site.startsWith("ServerChunkCache.tickChunks")) {
+                log.shuffleState = state(this);
+            }
+            int v = super.next(bits);
+            log.record(this.stream, site, v);
+            return v;
         }
     }
 

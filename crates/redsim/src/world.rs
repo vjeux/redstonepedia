@@ -969,6 +969,10 @@ impl World {
             crate::weather::lightning::tick_thunder(self);
         }
         crate::crops::tick_chunks(self);
+        // tickexact: ServerChunkCache.tickChunks ends with the custom spawners (doMobSpawning)
+        if self.mob.custom.is_some() {
+            crate::entity::mob::custom::tick(self);
+        }
         while let Some(e) = self.events.pop() {
             let s = self.get(e.pos);
             if s.kind() == e.kind {
@@ -992,6 +996,11 @@ impl World {
         crate::piston::tick_block_entities(self);
         if !self.frames.is_empty() {
             crate::entity::frame::check_static(self);
+        }
+        // tickexact: the players tick after the levels (MinecraftServer.tickConnection ->
+        // ServerPlayer.doTick): the AFK player's TIME_SINCE_REST
+        if self.mob.custom.is_some() {
+            crate::entity::mob::custom::player_tick(self);
         }
     }
 

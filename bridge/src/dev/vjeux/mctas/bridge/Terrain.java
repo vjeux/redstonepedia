@@ -142,6 +142,24 @@ final class Terrain {
             chunk.markUnsaved();
         }
         sb.drainLight();
+        int structures = r.has("structures") ? addStructures(sb, r.getAsJsonArray("structures")) : 0;
+        // the saved block entities' data (BENT) over the defaults
+        int bes = 0;
+        if (r.has("block_entities")) {
+            for (JsonElement el : r.getAsJsonArray("block_entities")) {
+                JsonObject b = el.getAsJsonObject();
+                JsonArray bp = b.getAsJsonArray("pos");
+                BlockPos pos = new BlockPos(bp.get(0).getAsInt(), bp.get(1).getAsInt(), bp.get(2).getAsInt());
+                BlockEntity be = sb.level.getBlockEntity(pos);
+                if (be == null) {
+                    continue;
+                }
+                net.minecraft.nbt.CompoundTag tag = net.minecraft.nbt.TagParser.parseCompoundFully(b.get("snbt").getAsString());
+                be.loadWithComponents(net.minecraft.world.level.storage.TagValueInput.create(net.minecraft.util.ProblemReporter.DISCARDING, sb.level.registryAccess(), tag));
+                be.setChanged();
+                bes++;
+            }
+        }
         List<Entity> loaded = r.has("entities") ? sb.loadSaved(r.getAsJsonArray("entities")) : List.of();
         for (Entity e : loaded) {
             if (e instanceof net.minecraft.world.entity.LivingEntity living) {
@@ -151,6 +169,8 @@ final class Terrain {
         JsonObject o = new JsonObject();
         o.addProperty("sections", sections);
         o.addProperty("chunks", chunks.size());
+        o.addProperty("structures", structures);
+        o.addProperty("block_entities", bes);
         o.addProperty("pois_taken", pois);
         JsonArray ids = new JsonArray();
         for (Entity e : loaded) {
@@ -158,6 +178,75 @@ final class Terrain {
         }
         o.add("net_ids", ids);
         return o;
+    }
+
+    /**
+     * The sample's structures ({@code [{id, min, max, pieces: [[x0, y0, z0, x1, y1, z1]...]}]}) as
+     * starts the structure manager finds ({@code getStructureWithPieceAt}, {@code getAllStructuresAt}:
+     * natural spawning's {@code spawn_overrides}, the cat spawner's huts): each start's pieces with
+     * their boxes, held by the first loaded chunk its box overlaps (the game's own start chunk may
+     * lie outside the sample), and a reference to it in every loaded chunk the box overlaps.
+     */
+    private static int addStructures(Sandbox sb, JsonArray list) {
+        var registry = sb.level.registryAccess().lookupOrThrow(Registries.STRUCTURE);
+        int n = 0;
+        for (JsonElement el : list) {
+            JsonObject s = el.getAsJsonObject();
+            var key = ResourceKey.create(Registries.STRUCTURE, Identifier.parse(s.get("id").getAsString()));
+            var structure = registry.getValue(key);
+            if (structure == null) {
+                throw new IllegalArgumentException("terrain: unknown structure " + s.get("id").getAsString());
+            }
+            List<net.minecraft.world.level.levelgen.structure.StructurePiece> pieces = new ArrayList<>();
+            for (JsonElement pe : s.getAsJsonArray("pieces")) {
+                JsonArray b = pe.getAsJsonArray();
+                pieces.add(new SamplePiece(new net.minecraft.world.level.levelgen.structure.BoundingBox(
+                        b.get(0).getAsInt(), b.get(1).getAsInt(), b.get(2).getAsInt(), b.get(3).getAsInt(), b.get(4).getAsInt(), b.get(5).getAsInt())));
+            }
+            if (pieces.isEmpty()) {
+                JsonArray lo = s.getAsJsonArray("min");
+                JsonArray hi = s.getAsJsonArray("max");
+                pieces.add(new SamplePiece(new net.minecraft.world.level.levelgen.structure.BoundingBox(
+                        lo.get(0).getAsInt(), lo.get(1).getAsInt(), lo.get(2).getAsInt(), hi.get(0).getAsInt(), hi.get(1).getAsInt(), hi.get(2).getAsInt())));
+            }
+            var container = new net.minecraft.world.level.levelgen.structure.pieces.PiecesContainer(pieces);
+            var box = container.calculateBoundingBox();
+            List<LevelChunk> over = new ArrayList<>();
+            for (int cx = box.minX() >> 4; cx <= box.maxX() >> 4; cx++) {
+                for (int cz = box.minZ() >> 4; cz <= box.maxZ() >> 4; cz++) {
+                    LevelChunk c = sb.level.getChunkSource().getChunkNow(cx, cz);
+                    if (c != null) {
+                        over.add(c);
+                    }
+                }
+            }
+            if (over.isEmpty()) {
+                continue;
+            }
+            ChunkPos holder = over.get(0).getPos();
+            var start = new net.minecraft.world.level.levelgen.structure.StructureStart(structure, holder, 0, container);
+            over.get(0).setStartForStructure(structure, start);
+            for (LevelChunk c : over) {
+                c.addReferenceForStructure(structure, holder.pack());
+            }
+            n++;
+        }
+        return n;
+    }
+
+    /** A structure piece of a sample: its box (nothing to generate or save in a sandbox). */
+    private static final class SamplePiece extends net.minecraft.world.level.levelgen.structure.StructurePiece {
+        SamplePiece(net.minecraft.world.level.levelgen.structure.BoundingBox box) {
+            super(net.minecraft.world.level.levelgen.structure.pieces.StructurePieceType.JIGSAW, 0, box);
+        }
+
+        @Override
+        protected void addAdditionalSaveData(net.minecraft.world.level.levelgen.structure.pieces.StructurePieceSerializationContext context, net.minecraft.nbt.CompoundTag tag) {}
+
+        @Override
+        public void postProcess(net.minecraft.world.level.WorldGenLevel level, net.minecraft.world.level.StructureManager structureManager,
+                net.minecraft.world.level.chunk.ChunkGenerator generator, net.minecraft.util.RandomSource random,
+                net.minecraft.world.level.levelgen.structure.BoundingBox chunkBB, ChunkPos chunkPos, BlockPos referencePos) {}
     }
 
     /** The POI tickets a loaded villager held (its HOME, JOB_SITE, POTENTIAL_JOB_SITE, MEETING_POINT). */

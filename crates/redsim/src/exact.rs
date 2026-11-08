@@ -71,6 +71,10 @@ pub struct Frame {
     pub blocks: Vec<([i32; 3], String)>,
     /// The game's draw log of the tick: (stream, call site, count), in draw order.
     pub draws: Vec<(String, String, u32)>,
+    /// Each draw-log row's raw `next(bits)` outputs (a probed tick).
+    pub draw_values: Vec<Vec<i32>>,
+    /// A probed tick: the spawning chunks in the order `tickChunks` ticked them (after its shuffle).
+    pub spawning_shuffled: Vec<[i32; 2]>,
 }
 
 /// redsim's side of the watch: the box's blocks and the entities present at the last frame.
