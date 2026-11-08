@@ -380,42 +380,23 @@ fn dist2(a: Vec3, b: Vec3) -> f64 {
 /// Run every channel; returns the exposures (empty: no natural mob can do anything to the farm).
 /// Nothing here refuses a design: each exposure is a card line (which mob can do what, from which
 /// cells) until natural mobs' AI is modeled and the losses can be measured.
+///
+/// C1's test at one cell, [`can_spawn_at`]: `mctas mobfarm spawn-rules` checks it against the
+/// game's own `SpawnPlacements` at every interior cell of a farm built in a terrain sample.
 pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Exposure> {
     let mut ex = Exposures::default();
     let interior: HashSet<BlockPos> = farm.interior.iter().copied().collect();
     // C1: a natural spawn inside: any type listed at the cell (structure overrides included) whose
-    // placement passes and whose rule can pass at the worst light: monsters need block light 0
-    // (the night's darkening and the gates' best draws do the rest), sulfur cubes and slimes no
-    // light, animals brightness above 8, bats a raw brightness of 3 or less at the darkest
-    use super::natural::{Category, Rule, mobs_at};
+    // placement passes and whose spawn rule can pass at all (`natural::rules_can_pass`: every
+    // static part exact — floor tags, biome, heights, the slime chunk — the draws at their best and
+    // the light at its worst for the rule)
+    use super::natural::{Category, mobs_at};
     for &p in &farm.interior {
-        let block_light = w.block_light(p).unwrap_or(0);
-        let sky = w.sky_light(p).unwrap_or(15);
         for cat in [Category::Monster, Category::Creature, Category::Ambient] {
             for s in mobs_at(w, cat, p) {
                 let Some(k) = super::natural::kind_of(&s.ty) else { continue };
-                let light_ok = match k.rule {
-                    Rule::Always | Rule::AnyLight | Rule::Slime => true,
-                    Rule::Monster | Rule::Drowned => block_light == 0,
-                    Rule::Animal | Rule::AnimalTag(_) | Rule::Turtle => block_light.max(sky) > 8,
-                    Rule::Bat => block_light.max(sky - 11) <= 3 && p.y < w.height(crate::terrain::Heightmap::WorldSurface, p.x, p.z),
-                    Rule::GlowSquid | Rule::SurfaceWater => true,
-                };
-                if !light_ok {
-                    continue;
-                }
-                let floor_ok = match k.placement {
-                    super::natural::Placement::OnGround => valid_spawn_floor(w, p.below(), k.id) && empty_ok(w, p) && empty_ok(w, p.above()),
-                    super::natural::Placement::InWater => fluid(w, p),
-                    super::natural::Placement::NoRestrictions => true,
-                };
-                if floor_ok {
-                    let d = k.ty.def();
-                    let hw = d.width as f64 / 2.0;
-                    let bb = Aabb::new(p.x as f64 + 0.5 - hw, p.y as f64, p.z as f64 + 0.5 - hw, p.x as f64 + 0.5 + hw, p.y as f64 + d.height as f64, p.z as f64 + 0.5 + hw);
-                    if !collides(w, bb, false) {
-                        ex.add("C1 natural spawn inside", k.id.trim_start_matches("minecraft:"), "can spawn inside the farm", p);
-                    }
+                if can_spawn_at(w, &k, p) {
+                    ex.add("C1 natural spawn inside", k.id.trim_start_matches("minecraft:"), "can spawn inside the farm", p);
                 }
             }
         }
@@ -759,6 +740,29 @@ pub fn check(w: &World, farm: &Farm, village_golem: bool) -> Vec<Exposure> {
         }
     }
     ex.done()
+}
+
+/// C1 at one cell: can a natural spawn of type `k` happen at `p` at all — its placement
+/// (`SpawnPlacements.isSpawnPositionOk`: the floor, two empty cells, or water), its spawn rule
+/// ([`super::natural::rules_can_pass`] on Hard: the static parts exact, the draws at their best,
+/// the light at its worst for the rule) and no block in its box (`noCollision`).
+pub fn can_spawn_at(w: &World, k: &super::natural::Kind, p: BlockPos) -> bool {
+    let (rules, placement, free) = spawn_parts(w, k, p);
+    rules && placement && free
+}
+
+/// [`can_spawn_at`]'s three parts at `p`: the spawn rule, the placement, no collision.
+pub fn spawn_parts(w: &World, k: &super::natural::Kind, p: BlockPos) -> (bool, bool, bool) {
+    let rules = super::natural::rules_can_pass(w, k, p, super::natural::Difficulty::Hard);
+    let placement = match k.placement {
+        super::natural::Placement::OnGround => valid_spawn_floor(w, p.below(), k.id) && empty_ok(w, p) && empty_ok(w, p.above()),
+        super::natural::Placement::InWater => fluid(w, p),
+        super::natural::Placement::NoRestrictions => true,
+    };
+    let d = k.ty.def();
+    let hw = d.width as f64 / 2.0;
+    let bb = Aabb::new(p.x as f64 + 0.5 - hw, p.y as f64, p.z as f64 + 0.5 - hw, p.x as f64 + 0.5 + hw, p.y as f64 + d.height as f64, p.z as f64 + 0.5 + hw);
+    (rules, placement, !collides(w, bb, false))
 }
 
 fn valid_spawn_floor(w: &World, below: BlockPos, type_id: &str) -> bool {

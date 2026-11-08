@@ -414,9 +414,15 @@ fn players_of(w: &World, nat: &Natural) -> Vec<Vec3> {
 
 // ----------------------------------------------------------------------------- the light
 
-/// `Level.getSkyDarken()`: the day time with this level's rain and thunder (`World::sky_darken`).
-fn darken(w: &World) -> i32 {
-    w.sky_darken()
+/// `Level.getSkyDarken()`: the level's day time (`World::day_time`, whatever drives the mob layer)
+/// with this level's rain and thunder.
+pub fn darken(w: &World) -> i32 {
+    let day = w.day_time();
+    if w.weather.on {
+        crate::weather::sky_darken_at(day, w.weather.rain(1.0), w.weather.thunder(1.0))
+    } else {
+        crate::daylight::sky_darken(day)
+    }
 }
 
 /// `getMaxLocalRawBrightness(pos)` with the level's darkening (or `skyDarken` given).
@@ -582,6 +588,47 @@ fn spawn_rules(w: &mut World, k: &Kind, p: BlockPos, nat: &Natural) -> bool {
             has_tag(w, p.below(), "minecraft:bats_spawnable_on") && valid_spawn_floor(w, p.below(), k.id)
         }
         Rule::GlowSquid => p.y <= 63 - 33 && brightness(w, p, 0) == 0 && matches!(w.get(p), crate::block::Block::Water { .. }),
+        Rule::SurfaceWater => p.y >= 63 - 13 && p.y <= 63 && is_water(w, p.below()) && matches!(w.get(p.above()), crate::block::Block::Water { .. }),
+    }
+}
+
+/// Can `SpawnPlacements.checkSpawnRules` pass for type `k` at `p` at all: [`spawn_rules`] with
+/// every static part exact (floor tags, biome, heights, the slime chunk, water) and every draw
+/// at its best outcome, the light at its worst for the rule: a darkness rule (monsters, drowned,
+/// surface slimes, bats) at the darkest sky (darkening 11, the night's: thunder's darkening 10
+/// is lighter), a brightness rule (animals, turtles) without darkening (it reads none). The
+/// hostile checks' C1 reads it, so a type the game can never spawn at a cell is never listed.
+pub fn rules_can_pass(w: &World, k: &Kind, p: BlockPos, difficulty: Difficulty) -> bool {
+    let not_peaceful = difficulty != Difficulty::Peaceful;
+    let block = w.block_light(p).unwrap_or(0);
+    // the darkest the rule can see (an unknown light: dark, so the exposure is listed)
+    let darkest = w.raw_brightness(p, 11).unwrap_or(0);
+    // without darkening (an unknown light: bright)
+    let raw = w.raw_brightness(p, 0).unwrap_or(15);
+    let tag = |t: &str| has_tag(w, p.below(), t);
+    match k.rule {
+        Rule::Always => true,
+        Rule::AnyLight => valid_spawn_floor(w, p.below(), k.id),
+        // isDarkEnoughToSpawn: sky > nextInt(32) never holds at 31; block light 0 (the overworld's
+        // limit); the brightness under the darkening against UniformInt(0, 7)'s 7
+        Rule::Monster => not_peaceful && block == 0 && darkest <= 7 && valid_spawn_floor(w, p.below(), k.id),
+        Rule::Animal => tag("minecraft:animals_spawnable_on") && raw > 8,
+        Rule::AnimalTag(t) => tag(t) && raw > 8,
+        Rule::Turtle => p.y < 63 + 4 && tag("minecraft:turtles_spawnable_on") && raw > 8,
+        Rule::Drowned => {
+            let frequent = w.biome_at(p).and_then(biome::biome).is_some_and(|b| b.has_tag("minecraft:more_frequent_drowned_spawns"));
+            not_peaceful && is_water(w, p.below()) && is_water(w, p) && block == 0 && darkest <= 7 && (frequent || p.y < 63 - 5)
+        }
+        Rule::Slime => {
+            if !not_peaceful || !valid_spawn_floor(w, p.below(), k.id) {
+                return false;
+            }
+            let surface = w.biome_at(p).and_then(biome::biome).is_some_and(|b| b.has_tag("minecraft:allows_surface_slime_spawns") && b.surface_slime_chance > 0.0) && p.y > 50 && p.y < 70 && darkest <= 7;
+            let seed = w.land.as_ref().map(|l| l.seed).unwrap_or(0);
+            surface || (p.y < 40 && slime_chunk(p.x.div_euclid(16), p.z.div_euclid(16), seed))
+        }
+        Rule::Bat => p.y < w.height(crate::terrain::Heightmap::WorldSurface, p.x, p.z) && darkest <= 3 && tag("minecraft:bats_spawnable_on") && valid_spawn_floor(w, p.below(), k.id),
+        Rule::GlowSquid => p.y <= 63 - 33 && raw == 0 && matches!(w.get(p), crate::block::Block::Water { .. }),
         Rule::SurfaceWater => p.y >= 63 - 13 && p.y <= 63 && is_water(w, p.below()) && matches!(w.get(p.above()), crate::block::Block::Water { .. }),
     }
 }

@@ -44,7 +44,7 @@ pub struct Opts {
 }
 
 /// The judge's run options with the compare's day time.
-fn opts_of(opts: &Opts) -> RunOpts {
+pub(crate) fn opts_of(opts: &Opts) -> RunOpts {
     let mut o = run_opts(opts.seed, opts.ticks);
     if let Some(d) = opts.day0 {
         o.day0 = d;
@@ -460,6 +460,13 @@ impl GameFarm {
         let all: Vec<[i32; 3]> = blocks.iter().map(|(p, _)| *p).collect();
         self.w.update(self.sb, &all, "self")?;
         Ok(())
+    }
+
+    /// One bridge op on this farm's sandbox (its `"sandbox"` filled in): the terrain lane's probes
+    /// (`spawnrules`).
+    pub fn op(&mut self, mut v: Value) -> Result<Value> {
+        v["sandbox"] = json!(self.sb);
+        self.w.call(v)
     }
 
     /// `ticks` traced ticks (with the draw log when `draws`).

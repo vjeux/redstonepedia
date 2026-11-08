@@ -143,7 +143,20 @@ fn is_sun_burn_tick(w: &mut World, i: usize) -> bool {
         return false;
     }
     let sky_part = 15 - w.sky_darken();
-    let raw = if sky_part >= 12 {
+    // ---- terrain lane: a terrain world models block light (the sample's saved light, relit
+    // locally after every change: a fire, a torch), so getMaxLocalRawBrightness is read exactly ----
+    let raw = if w.land.is_some() {
+        match w.raw_brightness(eye, 15 - sky_part) {
+            Ok(v) => v,
+            Err(e) => {
+                let why = format!("sunburn: the light at the zombie's eye {eye}: {e}");
+                if !w.errors.contains(&why) {
+                    w.errors.push(why);
+                }
+                return false;
+            }
+        }
+    } else if sky_part >= 12 {
         sky_part
     } else if let Some((q, b)) = source_near(w, eye) {
         let why = format!("sunburn: the block light at the zombie's eye {eye} (the light of {b} at {q}) under the sky at a darkening of {}: the block light engine is not modeled", 15 - sky_part);

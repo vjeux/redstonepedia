@@ -105,6 +105,22 @@ pub enum MobfarmCmd {
         #[arg(long)]
         cells: bool,
     },
+    /// The hostile checks' C1 against the game: at every interior cell of the farm built in a
+    /// terrain sample, for every type listed there, C1's verdict (placement, spawn rule at its
+    /// best draws and worst light, no collision) beside the game's own `SpawnPlacements`
+    /// (`isSpawnPositionOk`, `noCollision`, `checkSpawnRules` over `--tries` randoms) in the
+    /// compare's terrain sandbox.
+    SpawnRules {
+        design: PathBuf,
+        #[arg(long, default_value = "village-edge")]
+        terrain: String,
+        #[arg(long, default_value_t = 200)]
+        tries: u32,
+        /// The game's clock for the check (the overworld's total ticks; default midnight, the
+        /// darkest sky, what C1 assumes for a darkness rule).
+        #[arg(long, default_value_t = 18000)]
+        day_time: i64,
+    },
     /// The design priced at each of the spots a player would pick in a terrain sample (the 12
     /// nearest valid ones, `site::price_all`): blocks placed, glass covers, natural blocks dug and
     /// their build seconds, cheapest first, with the time the cheap part (`price_spots`) and the
@@ -433,13 +449,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         }
         MobfarmCmd::Sight { design, terrain } => sight_cmd(version, &design, terrain.as_deref())?,
         MobfarmCmd::Cubes { design } => cubes_cmd(version, &design)?,
+        MobfarmCmd::SpawnRules { design, terrain, tries, day_time } => crate::spawnrules::run(version, &design, &terrain, tries, day_time)?,
         MobfarmCmd::Exposures { design, terrain, cells } => {
             let (c, spec) = load(version, &design)?;
-            let site = circuit::mobfarm::site_of(&c, &spec, &terrain).map_err(|e| anyhow::anyhow!(e))?;
+            let site: &'static redsim::entity::mob::site::Site = Box::leak(Box::new(circuit::mobfarm::site_of(&c, &spec, &terrain).map_err(|e| anyhow::anyhow!(e))?));
             let moved = site.spec(&spec);
-            let mut w = site.world_for(&moved);
-            w.place_raw(&moved.blocks);
-            w.settle_light();
+            // the farm after its settle (its water flowed), as the card's exposures line reads it
+            let w = circuit::mobfarm::settled_world(site, &moved);
             let summoners = {
                 let mut with = w.clone();
                 for (k, p, n) in &moved.entities {

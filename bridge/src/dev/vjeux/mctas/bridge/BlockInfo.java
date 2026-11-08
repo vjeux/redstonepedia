@@ -36,6 +36,54 @@ final class BlockInfo {
     private static final Direction[] DIRS = {Direction.DOWN, Direction.UP, Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST};
 
     /** The {@code blockstates} op: every possible state of each block id ({@code "blocks"}). */
+    /**
+     * The {@code spawnrules} op (the terrain lane's check of the hostile checks' C1): for each
+     * entity type ({@code "types"}) and cell ({@code "cells"}): {@code SpawnPlacements
+     * .isSpawnPositionOk}, {@code noCollision} of the type's spawn box at the cell's center, and
+     * how many of {@code "tries"} calls of {@code SpawnPlacements.checkSpawnRules(type, level,
+     * NATURAL, pos, random)} pass, each with its own random ({@code RandomSource.create(i)}), at
+     * the level's current light and time. Read-only.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    static JsonObject spawnRules(Protocol p, Sandbox sb, JsonObject r) {
+        int tries = r.has("tries") ? r.get("tries").getAsInt() : 200;
+        JsonArray out = new JsonArray();
+        for (var t : r.getAsJsonArray("types")) {
+            Identifier id = Identifier.parse(t.getAsString());
+            EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getOptional(id).orElseThrow(() -> new IllegalArgumentException("no entity type " + id));
+            JsonArray cells = new JsonArray();
+            for (var c : r.getAsJsonArray("cells")) {
+                JsonArray a = c.getAsJsonArray();
+                BlockPos pos = new BlockPos(a.get(0).getAsInt(), a.get(1).getAsInt(), a.get(2).getAsInt());
+                boolean placement = net.minecraft.world.entity.SpawnPlacements.isSpawnPositionOk(type, sb.level, pos);
+                boolean free = sb.level.noCollision(type.getSpawnAABB(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5));
+                int pass = 0;
+                for (int i = 0; i < tries; i++) {
+                    if (net.minecraft.world.entity.SpawnPlacements.checkSpawnRules((EntityType) type, sb.level, net.minecraft.world.entity.EntitySpawnReason.NATURAL, pos, net.minecraft.util.RandomSource.create(i))) {
+                        pass++;
+                    }
+                }
+                JsonArray row = new JsonArray();
+                row.add(pos.getX());
+                row.add(pos.getY());
+                row.add(pos.getZ());
+                row.add(placement);
+                row.add(free);
+                row.add(pass);
+                cells.add(row);
+            }
+            JsonObject o = new JsonObject();
+            o.addProperty("type", id.toString());
+            o.add("cells", cells);
+            out.add(o);
+        }
+        JsonObject res = new JsonObject();
+        res.add("types", out);
+        res.addProperty("difficulty", sb.level.getDifficulty().getSerializedName());
+        res.addProperty("sky_darken", sb.level.getSkyDarken());
+        return res;
+    }
+
     static JsonObject states(Protocol p, JsonObject r) {
         JsonArray out = new JsonArray();
         for (var e : r.getAsJsonArray("blocks")) {

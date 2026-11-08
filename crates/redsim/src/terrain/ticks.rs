@@ -139,7 +139,7 @@ fn grass(w: &mut World, p: BlockPos) {
         set(w, p, "minecraft:dirt", flags::ALL);
         return;
     }
-    let d = w.sky_darken();
+    let d = crate::entity::mob::natural::darken(w);
     if brightness(w, p.above(), d) < 9 {
         return;
     }

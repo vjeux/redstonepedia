@@ -9,5 +9,6 @@ pub mod exact;
 pub mod gate;
 pub mod layouts;
 pub mod parts;
+pub mod spawnrules;
 pub mod validate;
 pub mod weathercheck;

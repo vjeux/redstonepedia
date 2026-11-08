@@ -216,11 +216,34 @@ pub fn terrain_sites(c: &Circuit, spec: &FarmSpec, sample: &'static redsim::terr
     Ok((0..priced.len()).map(|k| &*Box::leak(Box::new(ts::Site::at_priced(shared.clone(), sample, priced.clone(), k, afk, clear_box)))).collect())
 }
 
+/// The farm at its site as the worst-case checks read it: built, then its settle run
+/// (`Run::start` and every settle tick: the farm's water flows, its light settles), the blocks the
+/// game's farm holds when the player arrives (a static placement misses the cells its water flows
+/// into: `mctas mobfarm spawn-rules` found C1 listing bats in two of D1U's cells the game fills
+/// with flowing water).
+pub fn settled_world(site: &'static redsim::entity::mob::site::Site, moved: &FarmSpec) -> redsim::World {
+    let o = redsim::entity::mob::farm::RunOpts { site: Some(site), ..redsim::entity::mob::farm::RunOpts::steady(1, 0, WalkMode::Random) };
+    match redsim::entity::mob::farm::Run::start(moved, &o) {
+        Ok(mut run) => {
+            while run.settle_tick() {}
+            let mut w = run.world;
+            w.settle_light();
+            w
+        }
+        Err(_) => {
+            let mut w = site.world_for(moved);
+            w.place_raw(&moved.blocks);
+            w.settle_light();
+            w
+        }
+    }
+}
+
 /// The card's `exposures` line (the page-copy lane's one-line form): the farm at its site, then
 /// each channel of the terrain track's worst-case checks for natural mobs (`hostile::check`) with
 /// each mob's cell count: `in village-edge (-352,244): C2 entry zombie 155 cells, spider 139; ...`.
 /// "none" when no natural mob can reach the farm in any way.
-pub fn exposures_line(site: &redsim::entity::mob::site::Site, moved: &FarmSpec) -> String {
+pub fn exposures_line(site: &'static redsim::entity::mob::site::Site, moved: &FarmSpec) -> String {
     exposures_of(site, moved).0
 }
 
@@ -249,10 +272,8 @@ pub fn breaking_channels(ex: &[redsim::entity::mob::hostile::Exposure]) -> Vec<S
 }
 
 /// [`exposures_line`] and the breaking channels ([`breaking_channels`]).
-pub fn exposures_of(site: &redsim::entity::mob::site::Site, moved: &FarmSpec) -> (String, Vec<String>) {
-    let mut w = site.world_for(moved);
-    w.place_raw(&moved.blocks);
-    w.settle_light();
+pub fn exposures_of(site: &'static redsim::entity::mob::site::Site, moved: &FarmSpec) -> (String, Vec<String>) {
+    let w = settled_world(site, moved);
     let summoners = {
         let mut with = w.clone();
         for (k, p, n) in &moved.entities {
