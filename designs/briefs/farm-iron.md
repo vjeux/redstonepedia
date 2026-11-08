@@ -164,11 +164,16 @@ Numbers, never refusals by themselves; each stage weighs them in its own rank:
   to the pad, golem cap elsewhere, hostile spawn-proofing, sight blocker, see-through, walk
   blocker, floor; each with what the block must do, from the 26.3 code, and its candidates). The
   design file names the exact block placed, and the judge checks its behaviour on the assembled
-  build (collision, spawn rules, sky light, the zombie's ray, fire). Day 1 thus builds with
+  build (collision, spawn rules, sky light, the zombie's ray, fire). A cell with several roles
+  takes a candidate that passes each: any block inside a summoner's scan columns (17 x 17, the
+  summoner's y - 7 to y + 5) whose top is open also has a golem role, golem_cap_scan_through above
+  the pad or golem_cap elsewhere, whatever else it does (a slab roof over the pad within y + 5
+  would stop every attempt there; revision 3's roof rule: leaves, or y + 6 or higher, or capped).
+  Day 1 thus builds with
   cobblestone and dirt and caps stray golem cells with a cobblestone bottom slab (3 cobblestone
-  make 6; its top face is not full, so neither a golem nor a hostile spawns on it) or a button on
-  top where the scan must go on to the pad; leaves and glass only where nothing cheaper does the
-  job.
+  make 6; its top face is not full, so neither a golem nor a hostile spawns on it, and it ends the
+  attempt there) or a button on top where the scan must go on to the pad; leaves and glass only
+  where nothing cheaper does the job.
 - **Net iron per hour**: the iron the player actually collects, per hour, over the stage's
   unattended window W, from the running farm's steady state with the weather cycle, lightning and
   natural spawning on Hard. A break (a villager killed, or turned into a witch or a zombie
