@@ -489,13 +489,10 @@ pub fn build_page(site: &Site, b: &Build, design_text: &str, repo_path: &str, sc
     if b.circuit.is_some() {
         body.push_str(&picker);
     }
-    // what it needs where you build it (a height, water, a loading recipe), right under the view
-    // (critique b0fb9ae4e: above it, the sorter's recipe pushed the view off a phone's first
-    // screen)
+    // what it needs where you build it (a height, water, a loading recipe): build steps, in the
+    // "Build it" section below (the parent 2026-11-08, vjeux's no-caveats rule: no red-barred box
+    // under the view; critique b0fb9ae4e: never above the view either)
     let needs = crate::plain::needs(b, design_text);
-    if !needs.is_empty() {
-        body.push_str(&format!("<p class=\"needs\">{}</p>\n", esc(&needs.join(" "))));
-    }
     // one door card; every clock a card of its own (vjeux 01:24Z): no clock stands for others
     if b.door.is_some() {
         body.push_str(&door_table(site, b, prefix));
@@ -521,7 +518,7 @@ pub fn build_page(site: &Site, b: &Build, design_text: &str, repo_path: &str, sc
         ));
     }
     body.push_str(&format!(
-        "<section><h2>Build it</h2><p><a class=\"button\" href=\"{prefix}{}\" download>Download .litematic</a> <a class=\"button alt\" href=\"{prefix}{}\" download>Download the design as text</a></p>\n<p class=\"hint\">The .litematic opens in <a href=\"https://github.com/maruohon/litematica\">Litematica</a> (Minecraft 26.3): every block of the design in one region.{} The text file is the same build written as plain text, block by block.</p>\n<p>Blocks used: {}</p></section>\n",
+        "<section><h2>Build it</h2><p><a class=\"button\" href=\"{prefix}{}\" download>Download .litematic</a> <a class=\"button alt\" href=\"{prefix}{}\" download>Download the design as text</a></p>\n<p class=\"hint\">The .litematic opens in <a href=\"https://github.com/maruohon/litematica\">Litematica</a> (Minecraft 26.3): every block of the design in one region.{} The text file is the same build written as plain text, block by block.</p>\n{}<p>Blocks used: {}</p></section>\n",
         esc(&crate::generate::litematic_path(&b.design)),
         esc(&b.design),
         if let Some(n) = numbers_sentence() {
@@ -532,6 +529,7 @@ pub fn build_page(site: &Site, b: &Build, design_text: &str, repo_path: &str, sc
         } else {
             String::new()
         },
+        if needs.is_empty() { String::new() } else { format!("<p>{}</p>\n", esc(&needs.join(" "))) },
         chips(&b.kinds, prefix, "with")
     ));
     if let Some(c) = &b.clock {
