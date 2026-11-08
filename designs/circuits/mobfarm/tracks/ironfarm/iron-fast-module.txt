@@ -13,7 +13,7 @@
 # 112.3-119.7) against redsim's 115.2; 461 golems by day and 467 by night; spawn cells chi-square
 # 49.30 over 48 cells (5% critical value 64.0).
 name: iron-fast-module
-circuit: mob-farm iron_ingot
+circuit: mob-farm iron_ingot fastest
 restart: yes
 port output: 3 -24 1
 entity: minecraft:villager 0.5 0.5625 0.5

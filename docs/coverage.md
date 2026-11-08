@@ -102,7 +102,7 @@ a named fixture is also a regression test in `crates/redsim/tests/fixtures/` (re
 
 ## The mob layer (redsim, mob farms)
 
-The iron farms' judge (`circuit: mob-farm iron_ingot`, [circuits.md](circuits.md)) runs on
+The iron farms' judge (`circuit: mob-farm iron_ingot TIER`, [circuits.md](circuits.md)) runs on
 `redsim::entity::mob` only. What it models, approximates and refuses:
 
 | behavior | mob layer | evidence |

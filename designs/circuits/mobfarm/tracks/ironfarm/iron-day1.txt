@@ -12,7 +12,7 @@
 # 70.3-75.3) against redsim's 74.8; 579 golems by day and 586 by night; spawn cells chi-square 6.25
 # over 8 cells (5% critical value 14.0).
 name: iron-day1
-circuit: mob-farm iron_ingot
+circuit: mob-farm iron_ingot day-1
 port output: 0 -3 -6
 entity: minecraft:villager 0.5 0.5625 0.5
 entity: minecraft:villager 2.5 0.5625 0.5

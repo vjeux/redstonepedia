@@ -90,6 +90,15 @@ vjeux/minecraft-tas until 2026-10-21, and GitHub does not redirect a renamed pro
   all, at normal growth speed"), and the page's opening says it plainly. The judge's own `items per
   hour per block` and `items per hour` are read when they are there; until then they come from
   its `items per hour per cane` over `per cane` blocks (`html::farm_rates`).
+- **Iron farms** (ironfarm's `mob-farm iron_ingot <tier>`, one card per tier; vjeux via the
+  decisions inbox 2026-11-08): the day-1 tier's pick costs the least iron, the middle ground's
+  gives the most iron an hour for each block placed, the fastest's the most for each group of
+  villagers (then the fewest blocks: `kinds::mob_farm_rank`); the fastest pick (one module) and
+  its tier's scaled build (several copies) link each other. A tierless mob farm (the brief's
+  obvious design, the bar) is not published. Their pages say the farms are tested on our
+  simulation of the game's mob rules (the caption gives the game check), that the view shows them
+  as built (the browser's viewer runs no mob), where the chest goes, and the day-1 farm's first
+  night by hand.
 - **Doors**: one card, the best fully seamless door (the seamless board's record: vjeux 23:44Z,
   "This is what people usually consider to be piston doors"); every board's record keeps its page
   (no card) and every record's page has the table of records.

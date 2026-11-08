@@ -15,7 +15,7 @@ The mob farms' commands (`mctas mobfarm gen | exit | run | probe | validate`: ir
 the golem exit flood, single redsim runs, a built farm's blocks, and the design run in the real
 server against redsim) are in the ironfarm track notes
 ([NOTES.md](../designs/circuits/mobfarm/tracks/ironfarm/NOTES.md#commands)); the kind
-(`circuit: mob-farm iron_ingot`) is judged on redsim like every circuit ([circuits.md](circuits.md)).
+(`circuit: mob-farm iron_ingot day-1|middle|fastest`) is judged on redsim like every circuit ([circuits.md](circuits.md)).
 One tool is not a `mctas` subcommand: `trends` (`./target/release/trends suggest | related | rank`,
 crates/trends), the Google autocomplete and Google Trends ranking of the farms and redstone builds
 people search for. It needs the internet, so it is never used for design work; it is in

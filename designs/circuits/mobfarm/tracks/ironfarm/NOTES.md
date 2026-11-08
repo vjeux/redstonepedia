@@ -1,14 +1,39 @@
 # ironfarm track notes (iron farms on redsim's mob layer)
 
 Brief: [designs/briefs/farm-iron.md](../../../../briefs/farm-iron.md) (G1 approved, revision 3).
-Judge: `circuit: mob-farm iron_ingot` (crates/circuit/src/studies/mobfarm.rs) on redsim's mob layer
-(crates/redsim/src/entity/mob/). Tools: `mctas mobfarm gen|exit|run|probe|validate` (crates/mobfarm).
+Judge: `circuit: mob-farm iron_ingot [day-1|middle|fastest]` (crates/circuit/src/studies/mobfarm.rs)
+on redsim's mob layer (crates/redsim/src/entity/mob/). Tools: `mctas mobfarm gen|exit|run|probe|validate`
+(crates/mobfarm).
+
+## The tiers are kinds (site pages)
+
+vjeux via the decisions inbox (2026-11-08): one site page per tier, like a crop farm's one kind
+per crop. The tier is the kind's last word: `iron-day1` is `mob-farm iron_ingot day-1`,
+`iron-middle` is `middle`, `iron-fast-module` and `iron-scaled-2x2` are `fastest`; `iron-obvious`
+has no tier (catalog only: the site publishes no tierless mob farm). The site ranks a tier's
+designs by the tier's rule (crates/site/src/kinds.rs `mob_farm_rank`: the least iron to build,
+the most iron an hour per block, the most per group of villagers; then blocks), so the fastest
+tier's pick is the module and its scaled build is linked from its page and back (`scaled_variants`).
+Pages: `circuits/mobfarm/iron-day1.html` (its live URL kept), `iron-middle.html`,
+`iron-fast-module.html`, `iron-scaled-2x2.html`. A mob farm's page says it is tested on our
+simulation of the mob rules (its caption gives the game check), that the 3D view shows it as built
+(the browser's viewer runs no mob; its badge names a block it does not simulate), where the chest
+goes, and, for the day-1 farm, the first night's hand. Re-judged with the tiers, every card is the
+same (the metrics byte for byte; only the kind and axis columns changed). The page heading still
+reads `iron_ingot · <tier> · N blocks`: a better one needs a mob-farm arm in crates/site-model and
+a rebuilt filtering UI (a wasm32 box), a separate deploy (the coordinator, 2026-11-08).
 
 ## Commands
 
-- `mctas mobfarm gen <layout> [--pits N] [--pad N] [--floor Y] [--villagers 3|4] [--grid G] --out F`:
+- `mctas mobfarm gen <layout> [--pits N] [--pad N] [--floor Y] [--villagers 3|4] [--grid G] [--tier T] --out F`:
   `l1` (the bar), `l2` (wet hole), `l2d` (the dry-hole module), `l3` (day 1), `l4` (two banks of
-  fence-gated platforms), `l5` (a G x G grid of l2d modules at a 27-block pitch).
+  fence-gated platforms), `l5` (a G x G grid of l2d modules at a 27-block pitch); `--tier` writes
+  the tier on the `circuit:` line.
+- The site's pages of the farms: `mctas site build --out DIR --pkg-ref origin/gh-pages` (no wasm32
+  needed while crates/site-model and web/site are unchanged), `mctas site read --dir DIR --page
+  circuits/mobfarm/<file>.html --details`, and the WebKit film `mctas site smoke --dir DIR --engine
+  webkit --page circuits/mobfarm/<file>.html --frames 2` (WebKit installed on devvm69776 with
+  `sudo dnf install webkit2gtk3 webkit2gtk3-devel xorg-x11-server-Xvfb`, docs/site.md).
 - `mctas circuit sim <design>`: the whole judge (4 rotations x 2 positions, 8 seeds x 5 days
   each, the golem exit flood, the 9 worst-policy runs, the restart probe), 3-30 s.
 - `mctas mobfarm exit <design>`: the golem exit flood alone (spawn spots, positions, drift runs);

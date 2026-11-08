@@ -1,5 +1,5 @@
-# archived 2026-11-08T09:35Z from designs/circuits/mobfarm/tracks/ironfarm/iron-scaled-2x2.txt by mctas circuit archive
-# CIRCUIT: iron-scaled-2x2 mob-farm iron_ingot iron per hour per block 0.74, iron per hour 1836, iron range 95% 1825-1848 (64 runs), golems per hour 460.9, seconds per golem 7.8, share of ceiling 96%, modules 4, iron per hour per module 459, kill 344 gt, worst policy 1727 iron/h (walk yaw 0 x1), restarts after a missed night yes, misses 9511 of 58672 tries found no spot, 47196 golem sightings, bill 43 iron, 24 quartz, 16 villagers, 16 beds, 4 zombie, payback 1 min, 2491 blocks, 42x28x44, robust
+# archived 2026-11-08T10:38Z from designs/circuits/mobfarm/tracks/ironfarm/iron-scaled-2x2.txt by mctas circuit archive
+# CIRCUIT: iron-scaled-2x2 mob-farm iron_ingot fastest iron per hour per block 0.74, iron per hour 1836, iron range 95% 1825-1848 (64 runs), golems per hour 460.9, seconds per golem 7.8, share of ceiling 96%, modules 4, iron per hour per module 459, kill 344 gt, worst policy 1727 iron/h (walk yaw 0 x1), restarts after a missed night yes, misses 9511 of 58672 tries found no spot, 47196 golem sightings, bill 43 iron, 24 quartz, 16 villagers, 16 beds, 4 zombie, payback 1 min, 2491 blocks, 42x28x44, robust
 # The fastest iron farm, scaled: four copies of the fastest module 27 blocks apart make 1836 iron an
 # hour (96% of four modules' ceiling) for 43 iron and 24 quartz.
 # Each module: four villagers sleep on beds in closed 1-cell pods under leaves (only three must
@@ -13,7 +13,7 @@
 # 438.5-485.5) against redsim's 461.2; 462 golems by day and 462 by night; spawn cells chi-square
 # 210.89 over 192 cells (5% critical value 224.2).
 name: iron-scaled-2x2
-circuit: mob-farm iron_ingot
+circuit: mob-farm iron_ingot fastest
 restart: yes
 port output: 3 -24 1
 entity: minecraft:villager 0.5 0.5625 0.5
