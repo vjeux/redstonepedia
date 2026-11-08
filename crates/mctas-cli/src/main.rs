@@ -109,6 +109,11 @@ enum Cmd {
         #[command(subcommand)]
         command: door_judge::RecordedCmd,
     },
+    /// Mob AI in redsim (designs/briefs/mob-ai.md): the path probe, fuzzers, fixtures, benchmarks.
+    Mobai {
+        #[command(subcommand)]
+        command: mobai::cli::MobaiCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -195,6 +200,7 @@ fn main() -> Result<()> {
         Cmd::Terrain { command } => terrain::cli::run(&cli.version, command)?,
         Cmd::Test(args) => door_judge::cmd_test(&cli.version, args)?,
         Cmd::Recorded { command } => door_judge::cmd_recorded(&cli.version, command)?,
+        Cmd::Mobai { command } => mobai::cli::run(&cli.version, command)?,
     }
     Ok(())
 }

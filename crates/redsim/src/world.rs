@@ -598,6 +598,14 @@ impl World {
         }
         // Level.setBlock after the chunk write
         if self.get(pos) == state {
+            // ---- mob AI (the mob-AI lane): the POI index; `sendBlockUpdated` (flag 2): paths
+            // near it recompute ----
+            if self.mob.ai.on {
+                crate::entity::mob::ai::poi::on_block_changed(self, &old, &state);
+                if fl & flags::CLIENTS != 0 {
+                    crate::entity::mob::ai::send_block_updated(self, pos, old, state);
+                }
+            }
             if fl & flags::NEIGHBORS != 0 {
                 self.update_neighbors_at(pos, old.kind());
                 if bh::has_analog_output(&state) {

@@ -147,6 +147,7 @@ public final class Protocol {
             case "blockinfo" -> BlockInfo.run(this, sandbox(r), r);
             case "spawnrules" -> BlockInfo.spawnRules(this, sandbox(r), r);
             case "blockstates" -> BlockInfo.states(this, r);
+            case "path" -> MobAiProbe.path(sandbox(r), r);
             case "info" -> info();
             case "create" -> create(r);
             case "drop" -> drop(r);

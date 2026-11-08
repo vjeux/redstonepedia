@@ -108,6 +108,10 @@ pub struct Brain {
     /// `SleepInBed`: running, and its `nextOkStartTime`.
     pub sleep_running: bool,
     pub sleep_next_ok: i64,
+    /// `NEAREST_VISIBLE_LIVING_ENTITIES` has a value (an object: present even when empty).
+    pub visible_present: bool,
+    /// ---- the exact brain (the mob-AI lane, with the mob AI on): every behaviour ----
+    pub ex: Option<Box<crate::entity::mob::ai::brain::Exact>>,
 }
 
 impl Brain {
@@ -135,6 +139,8 @@ impl Brain {
             panic_end: 0,
             sleep_running: false,
             sleep_next_ok: 0,
+            visible_present: false,
+            ex: None,
         }
     }
 
@@ -207,6 +213,11 @@ fn update_activity_from_schedule(w: &mut World, i: usize) {
 /// `Villager.customServerAiStep`: the brain's tick, then the villager's own `random.nextInt(100)`
 /// (the raid check).
 pub fn brain_tick(w: &mut World, i: usize) {
+    // ---- the exact brain (the mob-AI lane) ----
+    if brain(w, i).ex.is_some() {
+        crate::entity::mob::ai::brain::tick(w, i);
+        return;
+    }
     forget_outdated_memories(w, i);
     tick_sensors(w, i);
     if w.entities.list[i].removed {

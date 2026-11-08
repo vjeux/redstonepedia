@@ -41,8 +41,8 @@ pub fn magic_value(raw: i32) -> f32 {
     crate::weather::lerp(0.0, curved, 1.0)
 }
 
-/// The light a block gives off (`lightEmission`) among the modeled blocks.
-fn emission(b: &Block) -> i32 {
+/// The light a block gives off (`lightEmission`) among the modeled blocks (also the mob AI's light).
+pub fn emission(b: &Block) -> i32 {
     match *b {
         Block::Lava { .. } => 15,
         Block::Fire { soul: false, .. } => 15,

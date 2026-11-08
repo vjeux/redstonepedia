@@ -10,6 +10,18 @@
 
 use crate::pos::BlockPos;
 
+/// Debug (the mob-AI lane): the address of the one random whose draws print their call site
+/// (`trace_draw`); 0 = off. Set it to a random's address for one tick to find who draws.
+pub static TRACE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Print a traced draw's call site: the redsim frames of its backtrace.
+#[inline(never)]
+fn trace_draw(bits: u32) {
+    let bt = std::backtrace::Backtrace::force_capture().to_string();
+    let frames: Vec<&str> = bt.lines().map(str::trim).filter(|l| l.contains("redsim::") && !l.contains("rng::")).take(4).collect();
+    eprintln!("draw next({bits}) < {}", frames.join(" < "));
+}
+
 /// `LegacyRandomSource`: `setSeed`, `next(bits)` and `BitRandomSource`'s `nextInt(bound)`,
 /// `nextFloat` (float precision), `nextDouble`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -34,6 +46,9 @@ impl LegacyRandom {
 
     /// `next(bits)`.
     pub fn next(&mut self, bits: u32) -> i32 {
+        if TRACE.load(std::sync::atomic::Ordering::Relaxed) == self as *const LegacyRandom as usize {
+            trace_draw(bits);
+        }
         self.seed = self.seed.wrapping_mul(MULTIPLIER).wrapping_add(11) & MASK;
         (self.seed >> (48 - bits)) as i32
     }

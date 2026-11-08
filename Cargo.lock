@@ -1266,6 +1266,7 @@ dependencies = [
  "farmopt-iron",
  "litematic",
  "mctas",
+ "mobai",
  "mobfarm",
  "regex",
  "serde_json",
@@ -1329,6 +1330,19 @@ checksum = "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
 dependencies = [
  "adler2",
  "simd-adler32",
+]
+
+[[package]]
+name = "mobai"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "circuit",
+ "clap",
+ "mctas",
+ "mobfarm",
+ "redsim",
+ "serde_json",
 ]
 
 [[package]]

@@ -200,7 +200,7 @@ pub fn normalize_type(ty: &str) -> String {
 }
 
 /// One redsim entity's frame.
-pub fn entity_frame(_w: &World, e: &crate::entity::Entity) -> EntityFrame {
+pub fn entity_frame(w: &World, e: &crate::entity::Entity) -> EntityFrame {
     let v = |p: Vec3| [p.x, p.y, p.z];
     let mut f = EntityFrame {
         n: e.id,
@@ -235,8 +235,28 @@ pub fn entity_frame(_w: &World, e: &crate::entity::Entity) -> EntityFrame {
             f.death_time = Some(m.death_time);
             f.no_action = Some(m.no_action_time);
             if let Some(b) = m.brain.as_deref() {
-                f.memories = Some(villager_memories(b));
-                f.modeled_memories = Some(VILLAGER_MEMORIES);
+                if b.ex.is_some()
+                    && let Some(i) = crate::entity::index_of(w, e.id)
+                {
+                    // ---- the exact brain (the mob-AI lane): every memory, activities, behaviours ----
+                    f.memories = Some(crate::entity::mob::ai::brain::frame_memories(w, i));
+                    f.modeled_memories = Some(crate::entity::mob::ai::brain::MODELED);
+                    f.activities = Some(crate::entity::mob::ai::brain::frame_activities(w, i));
+                    f.behaviors = Some(crate::entity::mob::ai::brain::frame_behaviors(w, i));
+                } else {
+                    f.memories = Some(villager_memories(b));
+                    f.modeled_memories = Some(VILLAGER_MEMORIES);
+                }
+            }
+            // ---- mob AI (the mob-AI lane): head and body yaw, running goals, path, target ----
+            if let Some(a) = m.ai.as_deref()
+                && let Some(i) = crate::entity::index_of(w, e.id)
+            {
+                f.head = Some(a.y_head_rot);
+                f.body = Some(a.y_body_rot);
+                f.goals = Some(crate::entity::mob::ai::frame_goals(a));
+                f.path = Some(crate::entity::mob::ai::frame_path(a));
+                f.target = Some(crate::entity::mob::ai::frame_target(w, i));
             }
         }
         _ => {}
@@ -283,6 +303,9 @@ pub struct Compare {
     pub first_tick: u64,
     pub firsts: BTreeMap<String, Difference>,
     pub gaps: BTreeMap<String, BTreeSet<String>>,
+    /// mob AI (the mob-AI lane): keep the game's draws of this tick (`--probe-at`).
+    pub probe_at: Option<i64>,
+    pub probe: Vec<String>,
 }
 
 /// A difference of a compare.
@@ -321,6 +344,11 @@ impl Compare {
     pub fn tick(&mut self, game: &Frame, ours: &Frame) {
         self.ticks += 1;
         let t = game.t;
+        if self.probe_at == Some(t) {
+            for (stream, site, n) in &game.draws {
+                self.probe.push(format!("game draw: {stream} {site} x{n}"));
+            }
+        }
         let mut ds: Vec<Difference> = Vec::new();
         let mut push = |what: String, category: &str, g: String, o: String, context: Vec<String>| {
             ds.push(Difference { t, what, category: category.to_string(), game: g, redsim: o, context });

@@ -18,6 +18,8 @@
 //! [`MobWorld::rng`], seeded by the caller, with the same distribution.
 
 pub mod absence;
+// ---- mob AI (the mob-AI lane, `ai/`): path finding, navigation, controls, goals ----
+pub mod ai;
 pub mod blocks;
 pub mod custom;
 pub mod enchant;
@@ -64,6 +66,9 @@ pub enum Damage {
     Lightning,
     /// mobinfra: standing in a fire a bolt set (`in_fire`: fire, armor counts).
     InFire,
+    /// mob AI: a mob's melee hit (`mob_attack`: armor counts, knockback from the attacker, who is
+    /// `MobWorld.ai.attacker` during the call).
+    MobAttack,
 }
 
 impl Damage {
@@ -88,6 +93,7 @@ impl Damage {
             Damage::HotFloor => "hot_floor",
             Damage::Lightning => "lightning_bolt",
             Damage::InFire => "in_fire",
+            Damage::MobAttack => "mob_attack",
         }
     }
 }
@@ -161,6 +167,8 @@ pub struct MobState {
     pub brain: Option<Box<villager::Brain>>,
     /// The walking input the judge gives a mob whose AI is not modeled.
     pub walk: walk::Walk,
+    /// ---- mob AI (the mob-AI lane): the goal mob's AI state, when the world's AI is on ----
+    pub ai: Option<Box<ai::MobAi>>,
 }
 
 impl MobState {
@@ -194,6 +202,7 @@ impl MobState {
             last_damage: None,
             brain: None,
             walk: walk::Walk::default(),
+            ai: None,
         }
     }
 
@@ -238,11 +247,13 @@ pub struct MobWorld {
     pub natural: Option<natural::Natural>,
     /// (tickexact) The overworld's custom spawners ([`custom::Custom`]); `None`: the level runs none.
     pub custom: Option<custom::Custom>,
+    /// ---- mob AI (the mob-AI lane): on/off, difficulty, players, game rules ----
+    pub ai: ai::AiWorld,
 }
 
 impl Default for MobWorld {
     fn default() -> MobWorld {
-        MobWorld { rng: None, day_offset: 0, cramming: 24, events: Vec::new(), spawn_tries: Vec::new(), golem_walk: walk::Walk::Still, golem_spawning: true, natural: None, custom: None }
+        MobWorld { rng: None, day_offset: 0, cramming: 24, events: Vec::new(), spawn_tries: Vec::new(), golem_walk: walk::Walk::Still, golem_spawning: true, natural: None, custom: None, ai: ai::AiWorld::default() }
     }
 }
 
@@ -393,6 +404,7 @@ fn split_compounds(list: &str) -> Vec<String> {
 pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> Option<Result<u32, String>> {
     let ty = MobType::from_id(type_id)?;
     let mut persistent = false;
+    let mut can_break_doors = false;
     let mut yaw = None;
     if let Some(n) = nbt {
         let mut t = n.trim().to_string();
@@ -409,6 +421,8 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
         for kv in inner.split(',').map(str::trim).filter(|s| !s.is_empty()) {
             match kv.split_once(':').map(|(k, v)| (k.trim(), v.trim())) {
                 Some(("PersistenceRequired", v)) => persistent = matches!(v, "1b" | "true" | "1"),
+                // ---- mob AI (the mob-AI lane): a zombie that breaks doors ----
+                Some(("CanBreakDoors", v)) if w.mob.ai.on && matches!(ty.def().id, "zombie" | "baby_zombie") => can_break_doors = matches!(v, "1b" | "true" | "1"),
                 _ => return Some(Err(format!("entity {type_id} with {kv} in its data is not modeled by redsim"))),
             }
         }
@@ -418,6 +432,20 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
     // Vec2.ZERO): the constructor's random yaw is drawn and thrown away
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
         e.y_rot = yaw.unwrap_or(0.0);
+        // ---- mob AI (the mob-AI lane): Entity.load: the head and the body take the loaded yaw ----
+        if let EntityKind::Mob(m) = &mut e.kind
+            && let Some(a) = m.ai.as_deref_mut()
+        {
+            a.y_head_rot = e.y_rot;
+            a.y_body_rot = e.y_rot;
+        }
+    }
+    if can_break_doors
+        && let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
+        && let EntityKind::Mob(m) = &mut e.kind
+        && let Some(a) = m.ai.as_deref_mut()
+    {
+        ai::goal::zombie::set_can_break_doors(a, true);
     }
     Some(Ok(id))
 }
@@ -433,9 +461,30 @@ pub fn add(w: &mut World, ty: MobType, pos: Vec3, persistent: bool) -> u32 {
     };
     let mut st = MobState::new(ty, bonus);
     st.persistence_required = persistent;
+    // ---- mob AI (the mob-AI lane): `registerGoals`; `LivingEntity.speed` starts at 0 ----
+    if w.mob.ai.on {
+        st.ai = Some(Box::new(ai::MobAi::new(ty, y_rot)));
+        st.speed = 0.0;
+    }
     let mut own = LegacyRandom::new(seed);
+    // ---- mob AI (the mob-AI lane): the bridge's seeding (`rng::entity_seed`), the constructor's
+    // draws redone: the UUID, the LivingEntity yaw (a summon's data then sets the yaw) ----
+    if w.mob.ai.on
+        && let Some(s) = w.mob.ai.exact_seed
+    {
+        own = crate::rng::entity_random(s, w.entities.next_id);
+        own.next_float();
+    }
     if ty == MobType::Villager {
         st.brain = Some(Box::new(villager::Brain::new(&mut own, w.time, w.day_time())));
+        // ---- mob AI (the mob-AI lane): the exact brain, the live brain's sensors drawn again ----
+        if w.mob.ai.on
+            && let Some(s) = w.mob.ai.exact_seed
+            && let Some(b) = st.brain.as_deref_mut()
+        {
+            let es = crate::rng::entity_seed(s, w.entities.next_id);
+            ai::brain::attach(b, &mut own, es, w.time, w.day_time());
+        }
     }
     let id = w.entities.add(EntityKind::Mob(Box::new(st)), pos, y_rot);
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {

@@ -41,6 +41,10 @@ pub fn tick(w: &mut World, i: usize) {
     if w.entities.list[i].removed {
         return;
     }
+    // ---- mob AI (the mob-AI lane): the rest of LivingEntity.baseTick and Mob.baseTick ----
+    if super::ai::has_ai(w, i) {
+        super::ai::after_base_tick(w, i);
+    }
     // LivingEntity.tick: a sleeper whose bed is gone wakes up
     if let Some(bed) = mob(w, i).sleeping_pos
         && !matches!(w.get(bed), Block::Bed { .. })
@@ -49,6 +53,10 @@ pub fn tick(w: &mut World, i: usize) {
     }
     if !w.entities.list[i].removed {
         ai_step(w, i);
+    }
+    // ---- mob AI (the mob-AI lane): tickHeadTurn, Mob.tick's updateControlFlags ----
+    if super::ai::has_ai(w, i) {
+        super::ai::after_ai_step(w, i);
     }
 }
 
@@ -203,6 +211,10 @@ pub fn update_lava(w: &mut World, i: usize) {
 
 /// `LivingEntity.aiStep` (and `Mob.aiStep`'s tail).
 fn ai_step(w: &mut World, i: usize) {
+    // ---- mob AI (the mob-AI lane): Monster.aiStep's updateNoActionTime first ----
+    if super::ai::has_ai(w, i) {
+        super::ai::update_no_action_time(w, i);
+    }
     {
         let m = mob_mut(w, i);
         if m.no_jump_delay > 0 {
@@ -263,6 +275,11 @@ fn ai_step(w: &mut World, i: usize) {
 /// walking input of a mob the judge drives ([`super::Walk`]).
 fn server_ai_step(w: &mut World, i: usize) {
     mob_mut(w, i).no_action_time += 1;
+    // ---- mob AI (the mob-AI lane): Mob.serverAiStep's selectors, navigation and controls ----
+    if super::ai::has_ai(w, i) {
+        super::ai::server_ai_step(w, i);
+        return;
+    }
     match mob(w, i).ty {
         MobType::Villager => super::villager::brain_tick(w, i),
         _ => super::walk::apply(w, i),
@@ -321,10 +338,12 @@ fn jump_factor(w: &World, i: usize) -> f32 {
     if here == 1.0 { f(&below) } else { here }
 }
 
-/// `LivingEntity.jumpInLiquid`: +0.04 up.
+/// `LivingEntity.jumpInLiquid`: +0.04 up (`Mob.jumpInLiquid`: +0.3 for a mob whose navigation
+/// cannot float; applied with the mob AI on).
 fn jump_in_liquid(w: &mut World, i: usize) {
+    let up = if super::ai::has_ai(w, i) && !super::ai::ai(w, i).nav.flags.can_float { 0.3 } else { 0.04f32 as f64 };
     let e = &mut w.entities.list[i];
-    e.delta_movement = e.delta_movement.add(0.0, 0.04f32 as f64, 0.0);
+    e.delta_movement = e.delta_movement.add(0.0, up, 0.0);
 }
 
 /// `LivingEntity.travel(input)`: in a liquid (`isInLiquid`, affected by fluids, not standing on
@@ -554,6 +573,8 @@ pub fn hurt(w: &mut World, i: usize, src: Damage, amount: f32) -> bool {
     let id = w.entities.list[i].id;
     w.mob.events.push(MobEvent::Hurt { t, id, ty, src, amount: damage });
     mob_mut(w, i).last_damage = Some((t, src));
+    // ---- mob AI (the mob-AI lane): the attacker, the knockback, the sounds' pitch draws ----
+    super::ai::attack::after_hurt(w, i, src, took_full);
     if mob(w, i).health <= 0.0 {
         die(w, i, src);
     }
