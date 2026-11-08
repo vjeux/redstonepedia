@@ -2442,6 +2442,10 @@ fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
             p.place_at("overworld", [x, y, c.doz_a + 3], "minecraft:stone", None)?;
         }
     }
+    // Connector so the SOUTH plate row also feeds the line (an item landing there
+    // otherwise powers nothing: the line runs along the north row only).
+    p.select(SLOT_REDSTONE)?;
+    p.place_at("overworld", [c.rox + 2, 3, c.doz_a + 2], "minecraft:redstone_wire", None)?;
     // Dust: main line east from the plates to dropper A, then a branch to dropper B
     // that routes EAST around portal B — the straight southward column would put a
     // dust cell inside B's interior, where lighting the portal destroys it and cuts
@@ -2524,10 +2528,11 @@ fn throw_trigger(p: &mut Prod) -> Result<()> {
     let c = v2_coords(fx, rz);
     go_throw_spot(p)?;
     p.select(SLOT_COBBLE)?;
-    // One block from the plane, aimed at the low interior cell: the item crosses
-    // with its full southward speed and emerges low in R_O, over the plates (from
-    // two blocks out it sometimes fell inside R_O's portal column instead).
-    p.look(c.rnx as f64 + 2.5, 6.2, rz as f64 + 0.5, 8)?;
+    // One block from the plane, aimed at the middle interior cell: the item emerges
+    // a block up in R_O and carries south through the air onto the plates — aimed
+    // low it landed on R_O's bottom frame and ground friction stopped it there,
+    // still inside the portal cell (measured in the failure dump).
+    p.look(c.rnx as f64 + 2.5, 7.2, rz as f64 + 0.5, 8)?;
     p.toss()?;
     p.walk(c.rnx + 2, rz - 2)?;
     p.wait(15)?;
@@ -2657,6 +2662,23 @@ fn assert_conversion(p: &mut Prod, l: i32, row: i32) -> Result<()> {
     Ok(())
 }
 
+/// Throw trigger items until one trip lands (a toss can stall on R_O's bottom
+/// frame and never reach the plates); returns the row the game chose.
+fn trigger_until(p: &mut Prod, l: i32, expected: i32) -> Result<i32> {
+    let mut last = anyhow::anyhow!("no throw attempted");
+    for attempt in 0..3 {
+        if attempt > 0 {
+            p.loga(&format!("trigger_until: throw {} again (previous item never fired the dropper)", attempt + 1));
+        }
+        throw_trigger(p)?;
+        match wait_portal(p, l, expected) {
+            Ok(row) => return Ok(row),
+            Err(e) => last = e,
+        }
+    }
+    Err(last)
+}
+
 /// One remote trip: mine the current portal's one block, throw the trigger item, and check
 /// the new portal really appeared on `row`.
 fn remote_trip(p: &mut Prod, l: i32, cur: i32, row: i32) -> Result<()> {
@@ -2665,8 +2687,7 @@ fn remote_trip(p: &mut Prod, l: i32, cur: i32, row: i32) -> Result<()> {
     p.select(SLOT_PICK)?;
     p.mine([fx, l + 1, cur])?;
     p.assert_block("the_nether", [fx + 1, l + 1, cur], "minecraft:air", "portal out after mining one frame block")?;
-    throw_trigger(p)?;
-    let row = wait_portal(p, l, row)?;
+    let row = trigger_until(p, l, row)?;
     assert_conversion(p, l, row)?;
     // Walk back beside the new portal (for the next mine, and for the camera).
     let v2 = p.plan.v2.as_ref().unwrap().clone();
@@ -3113,7 +3134,10 @@ fn scenes2(p: &mut Prod) -> Result<()> {
             "3: item exits at R_O → plate → dropper fires into D_O → new portal here",
             "The leftover frame blocks its own row, so the game picks the next",
         ], 1.0, S5)?;
-        let next = wait_portal(p, 4, next)?;
+        let next = match wait_portal(p, 4, next) {
+            Ok(row) => row,
+            Err(_) => trigger_until(p, 4, next)?,
+        };
         assert_conversion(p, 4, next)?;
         p.walk_path(&[(c.rnx - 2, rz - 2), (c.rnx - 2, v2.z1 + 1), (fx + 1, v2.z1 + 1), (fx + 1, next + 2)])?;
         p.look(fx as f64 + 1.5, 4.6, next as f64 + 0.5, 14)?;
