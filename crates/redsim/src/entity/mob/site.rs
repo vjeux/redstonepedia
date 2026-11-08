@@ -23,8 +23,9 @@ use crate::world::World;
 pub struct Site {
     pub sample: &'static str,
     /// The sample's world before the farm (natural blocks, light, heightmaps, biomes); behind a
-    /// lock so the judge's threads share one site (`World` is not `Sync`).
-    pub world: std::sync::Mutex<World>,
+    /// lock so the judge's threads share one site (`World` is not `Sync`), and shared by every
+    /// site in the same sample ([`sample_world_shared`]: the judge's 12 spots hold one copy).
+    pub world: std::sync::Arc<std::sync::Mutex<World>>,
     /// Design coordinates to world coordinates.
     pub offset: [i32; 3],
     /// A void design: its blocks' box cleared first.
@@ -147,7 +148,16 @@ pub fn spots_for(w: &World, sample: &Sample, fp: Footprint) -> Vec<([i32; 2], i3
 /// A standard sample's world, read and built once per process (the judge, the search, the
 /// exposures and the runs share it); each call returns its own copy (`World` is not `Sync`).
 pub fn sample_world(sample: &Sample) -> Result<World, String> {
-    static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, World>>> = std::sync::OnceLock::new();
+    let shared = sample_world_shared(sample)?;
+    let w = shared.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    Ok(w)
+}
+
+/// The one shared copy of a standard sample's world (built on first use): what every [`Site`]
+/// made by [`Site::new`] holds.
+pub fn sample_world_shared(sample: &Sample) -> Result<std::sync::Arc<std::sync::Mutex<World>>, String> {
+    type Shared = std::sync::Arc<std::sync::Mutex<World>>;
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, Shared>>> = std::sync::OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
     let mut m = cache.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(w) = m.get(sample.file) {
@@ -155,7 +165,7 @@ pub fn sample_world(sample: &Sample) -> Result<World, String> {
     }
     let bytes = std::fs::read(sample.file).map_err(|e| format!("terrain sample {}: {e}", sample.file))?;
     let t = crate::terrain::format::Terrain::decode(&bytes)?;
-    let w = crate::terrain::land::build_world(&t)?;
+    let w: Shared = std::sync::Arc::new(std::sync::Mutex::new(crate::terrain::land::build_world(&t)?));
     m.insert(sample.file.to_string(), w.clone());
     Ok(w)
 }
@@ -407,7 +417,7 @@ impl Site {
     /// under the ground layer (`ground`: the design's y that lies at the ground layer), and the
     /// blocks dug and placed there. `afk`: the player's feet in design coordinates.
     pub fn new(sample: &'static Sample, spec: &FarmSpec, ground: i32, afk: [f64; 3], clear_box: bool) -> Result<Site, String> {
-        Site::with_world(sample_world(sample)?, sample, spec, ground, afk, clear_box)
+        Site::with_shared(sample_world_shared(sample)?, sample, spec, ground, afk, clear_box)
     }
 
     /// [`Site::new`] from the sample's decoded file (the 3D viewer, compiled to wasm, reads no file).
@@ -419,22 +429,30 @@ impl Site {
     /// [`SPOTS`] nearest valid spots (level ground, no refused natural block) a player would take
     /// near the sample's start, each priced as built, the cheapest kept.
     pub fn with_world(world: World, sample: &'static Sample, spec: &FarmSpec, ground: i32, afk: [f64; 3], clear_box: bool) -> Result<Site, String> {
+        Site::with_shared(std::sync::Arc::new(std::sync::Mutex::new(world)), sample, spec, ground, afk, clear_box)
+    }
+
+    /// [`Site::with_world`] on a shared world ([`sample_world_shared`]).
+    pub fn with_shared(world: std::sync::Arc<std::sync::Mutex<World>>, sample: &'static Sample, spec: &FarmSpec, ground: i32, afk: [f64; 3], clear_box: bool) -> Result<Site, String> {
         let fp = footprint(spec, ground)?;
-        let spots = spots_for(&world, sample, fp);
-        if spots.is_empty() {
-            return Err(format!("no spot for a {}x{} footprint {} deep in {}", fp.size[0], fp.size[1], fp.below, sample.name));
-        }
-        let priced = price_all(&world, spec, fp, ground, clear_box, &spots);
+        let priced = {
+            let w = world.lock().unwrap_or_else(|e| e.into_inner());
+            let spots = spots_for(&w, sample, fp);
+            if spots.is_empty() {
+                return Err(format!("no spot for a {}x{} footprint {} deep in {}", fp.size[0], fp.size[1], fp.below, sample.name));
+            }
+            price_all(&w, spec, fp, ground, clear_box, &spots)
+        };
         Ok(Site::at_priced(world, sample, priced, 0, afk, clear_box))
     }
 
     /// The site at the `k`-th cheapest of its priced spots (the judge's other builds).
-    pub fn at_priced(world: World, sample: &'static Sample, priced: Vec<Priced>, k: usize, afk: [f64; 3], clear_box: bool) -> Site {
+    pub fn at_priced(world: std::sync::Arc<std::sync::Mutex<World>>, sample: &'static Sample, priced: Vec<Priced>, k: usize, afk: [f64; 3], clear_box: bool) -> Site {
         let range = (priced.iter().map(Priced::seconds).fold(f64::INFINITY, f64::min), priced.iter().map(Priced::seconds).fold(0.0, f64::max));
         let chosen = priced[k.min(priced.len() - 1)].clone();
         let offset = chosen.price.offset;
         let afk = Vec3::new(afk[0] + offset[0] as f64, afk[1] + offset[1] as f64, afk[2] + offset[2] as f64);
-        Site { sample: sample.name, world: std::sync::Mutex::new(world), offset, clear_box, dug: chosen.price.dug, placed: chosen.price.placed, afk, fills: chosen.covers, spots: priced.len(), build_range: range, priced }
+        Site { sample: sample.name, world, offset, clear_box, dug: chosen.price.dug, placed: chosen.price.placed, afk, fills: chosen.covers, spots: priced.len(), build_range: range, priced }
     }
 
     /// The build effort at this site for day 1's rank ([`Effort`]): its blocks placed with the glass
