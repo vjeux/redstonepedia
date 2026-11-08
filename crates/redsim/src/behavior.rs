@@ -42,7 +42,7 @@ pub fn collides(s: &Block) -> bool {
         Block::Stem { .. } | Block::AttachedStem { .. } => false,
         Block::CactusFlower => false,
         // ---- mob farms (ironfarm): lava has no collision ----
-        Block::Lava { .. } => false,
+        Block::Lava { .. } | Block::Sign { .. } => false,
         _ => true,
     }
 }
@@ -142,7 +142,7 @@ pub fn is_solid(s: &Block) -> bool {
         // a cactus flower has no collision (a cactus's 14 x 15 px column is solid)
         Block::CactusFlower => false,
         // ---- mob farms (ironfarm): lava has no collision (a bed's 9 px box averages 0.85: solid) ----
-        Block::Lava { .. } => false,
+        Block::Lava { .. } | Block::Sign { .. } => false,
         _ => true,
     }
 }
@@ -449,8 +449,8 @@ pub fn push_reaction(s: &Block) -> PushReaction {
         Block::Stem { .. } | Block::AttachedStem { .. } => PushReaction::Popped,
         // ---- cactus farms (clk-misc): a cactus and its flower are POPPED ----
         Block::Cactus { .. } | Block::CactusFlower => PushReaction::Popped,
-        // ---- mob farms (ironfarm): lava (LiquidBlock) and beds are PushReaction.DESTROY ----
-        Block::Lava { .. } | Block::Bed { .. } => PushReaction::Popped,
+        // ---- mob farms (ironfarm): lava (LiquidBlock), beds and signs are PushReaction.DESTROY ----
+        Block::Lava { .. } | Block::Bed { .. } | Block::Sign { .. } => PushReaction::Popped,
         _ => PushReaction::PushPull,
     }
 }
@@ -531,7 +531,7 @@ pub fn collision_boxes(s: &Block) -> Vec<Box16> {
         Block::CactusFlower => vec![],
         // ---- mob farms (ironfarm): lava none; a bed half (`BedBlock.SHAPES`): column(16, 3, 9)
         // plus two 3 px legs at its outer end (the head's legs toward `facing`, the foot's away) ----
-        Block::Lava { .. } => vec![],
+        Block::Lava { .. } | Block::Sign { .. } => vec![],
         Block::Bed { facing, head, .. } => crate::entity::mob::blocks::bed_boxes(facing, head),
         Block::Simple(Simple::HoneyBlock) => vec![[1, 15, 0, 15, 1, 15]],
         Block::Simple(Simple::SoulSand) | Block::Simple(Simple::Mud) => vec![[0, 16, 0, 14, 0, 16]],

@@ -150,6 +150,7 @@ pub fn block_resistance(b: &Block) -> f32 {
         Block::CactusFlower => 0.0,
         // ---- mob farms (ironfarm): lava strength(100.0F), beds strength(0.2F) ----
         Block::Lava { .. } => 100.0,
+        Block::Sign { .. } => 1.0,
         Block::Bed { .. } => 0.2,
     }
 }

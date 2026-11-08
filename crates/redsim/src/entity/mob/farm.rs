@@ -142,22 +142,35 @@ impl RunReport {
     }
 }
 
-/// Build the farm's world: blocks, the output chest, the entities, the mob layer seeded with
-/// `o.seed` at day time `o.day0`; each villager's HOME (the bed head nearest its feet within 2.5)
-/// and, in the steady state, a LAST_SLEPT at the end of the last REST (day time 10).
+/// Game ticks the built farm runs before its entities arrive, so its water has spread (a
+/// player's farm is built long before it runs; each flowing step takes 5 gt).
+pub const SETTLE_TICKS: i64 = 200;
+
+/// Build the farm's world: blocks (their water settled for [`SETTLE_TICKS`]), the output chest,
+/// the entities, the mob layer seeded with `o.seed` at day time `o.day0` when the entities arrive;
+/// each villager's HOME (the bed head nearest its feet within 2.5) and, in the steady state, a
+/// LAST_SLEPT at the end of the last REST (day time 10).
 pub fn build(spec: &FarmSpec, o: &RunOpts) -> Result<World, String> {
     let size = [spec.hi.x - spec.lo.x + 1, spec.hi.y - spec.lo.y + 1, spec.hi.z - spec.lo.z + 1];
     let mut w = World::new(spec.lo, size);
-    w.mob.seed(o.seed, o.day0);
-    w.place_raw(&spec.blocks);
-    w.place_updates(&spec.blocks);
+    w.mob.seed(o.seed, o.day0 - SETTLE_TICKS);
+    // daylight detectors come after the water settles (they would read the sky light while it
+    // spreads, which the light engine's timing check refuses)
+    let (detectors, rest): (Vec<_>, Vec<_>) = spec.blocks.iter().cloned().partition(|(_, b)| matches!(b, Block::DaylightDetector { .. }));
+    w.place_raw(&rest);
+    w.place_updates(&rest);
     let chest = Block::parse("minecraft:chest[facing=north,type=single,waterlogged=false]")?;
     w.set_block(spec.output, chest, crate::world::flags::RAW);
     crate::redstone::container::apply_block_entities(&mut w, [(spec.output, "{Items:[]}")])?;
+    for _ in 0..SETTLE_TICKS {
+        w.tick();
+    }
+    w.place_raw(&detectors);
+    w.place_updates(&detectors);
     for (ty, pos, nbt) in &spec.entities {
         crate::entity::spawn(&mut w, ty, *pos, nbt.as_deref())?;
     }
-    let slept = -(o.day0 - 10).rem_euclid(24000);
+    let slept = w.time - (o.day0 - 10).rem_euclid(24000);
     let villagers: Vec<usize> = (0..w.entities.list.len()).filter(|&i| matches!(&w.entities.list[i].kind, EntityKind::Mob(m) if m.ty == MobType::Villager)).collect();
     let mut taken: Vec<BlockPos> = Vec::new();
     for i in villagers {

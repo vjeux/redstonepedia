@@ -51,13 +51,13 @@ fn count_in(nbt: &str, item: &str) -> u32 {
 }
 
 /// Run a mob farm in the game for `days` game days.
-pub fn game_run(pool: &Pool, c: &Circuit, days: u32, kill: bool, trace: bool) -> Result<GameRun> {
+pub fn game_run(pool: &Pool, c: &Circuit, days: u32, kill: bool, trace: bool, seed: i64) -> Result<GameRun> {
     let d = &c.clock.design;
     let out = *d.ports.get("output").ok_or_else(|| anyhow!("no port output"))?;
     let (from, to) = circuit::run::watch_box(c, 4);
     let chunks = [from[0].div_euclid(16), from[2].div_euclid(16), to[0].div_euclid(16), to[2].div_euclid(16)];
     let mut w = pool.worker(0);
-    let sb = w.create(&SandboxOptions { chunks, seed: 1 })?;
+    let sb = w.create(&SandboxOptions { chunks, seed })?;
     let r = (|| -> Result<GameRun> {
         let blocks = d.block_list();
         w.set_blocks(sb, &blocks, PlaceMode::Raw)?;

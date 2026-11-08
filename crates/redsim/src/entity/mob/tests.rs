@@ -219,3 +219,54 @@ fn a_rider_travels() {
     let expect = -0.08 * (0.98f32 as f64);
     assert!((v.y - expect).abs() < 1.0e-12, "rider motion {v:?}");
 }
+
+/// A sign stops flowing water (a `LiquidBlockContainer` that takes only a water source) and lets
+/// a golem fall through it (no collision box).
+#[test]
+fn signs_stop_water_and_let_golems_through() {
+    let mut w = world(3);
+    for x in 0..4 {
+        put(&mut w, x, -1, 0, "minecraft:stone");
+        put(&mut w, x, 0, -1, "minecraft:stone");
+        put(&mut w, x, 0, 1, "minecraft:stone");
+    }
+    put(&mut w, -1, 0, 0, "minecraft:stone");
+    put(&mut w, 4, -1, 1, "minecraft:stone");
+    put(&mut w, 4, 0, 1, "minecraft:stone");
+    put(&mut w, 4, 0, 0, "minecraft:oak_wall_sign[facing=north,waterlogged=false]");
+    w.set_block_and_update(BlockPos::new(0, 0, 0), Block::parse("minecraft:water[level=0]").unwrap());
+    for _ in 0..100 {
+        w.tick();
+    }
+    assert!(matches!(w.get(BlockPos::new(3, 0, 0)), Block::Water { .. }), "the water reached the sign's cell");
+    assert!(matches!(w.get(BlockPos::new(4, 0, 0)), Block::Sign { .. }), "the water entered the sign: {}", w.get(BlockPos::new(4, 0, 0)));
+    // a golem over a 2x2 of signs falls through them
+    for (x, z) in [(10, 10), (11, 10), (10, 11), (11, 11)] {
+        put(&mut w, x, 4, z, "minecraft:oak_sign[rotation=0,waterlogged=false]");
+        put(&mut w, x, 3, z, "minecraft:stone");
+    }
+    put(&mut w, 10, -10, 10, "minecraft:stone");
+    let g = add(&mut w, MobType::IronGolem, Vec3::new(11.0, 6.0, 11.0), true);
+    for _ in 0..20 {
+        w.tick();
+    }
+    let gi = crate::entity::index_of(&w, g).unwrap();
+    assert!((w.entities.list[gi].pos.y - 4.0).abs() < 1.0e-9, "the golem stands on the stone under the signs at {}", w.entities.list[gi].pos.y);
+}
+
+/// The daylight detector follows the mob layer's day time: an inverted one reads 0 by day and
+/// the sky's darkening (11 at midnight under the open sky) by night.
+#[test]
+fn daylight_detector_follows_the_day() {
+    let mut w = World::new(BlockPos::new(-4, -4, -4), [8, 8, 8]);
+    w.mob.seed(1, 6000 - 100);
+    w.set_block_and_update(BlockPos::new(0, 0, 0), Block::parse("minecraft:daylight_detector[inverted=true,power=0]").unwrap());
+    for _ in 0..140 {
+        w.tick();
+    }
+    assert!(matches!(w.get(BlockPos::new(0, 0, 0)), Block::DaylightDetector { power: 0, .. }), "noon: {}", w.get(BlockPos::new(0, 0, 0)));
+    for _ in 0..12000 {
+        w.tick();
+    }
+    assert!(matches!(w.get(BlockPos::new(0, 0, 0)), Block::DaylightDetector { power: 11, .. }), "midnight: {}", w.get(BlockPos::new(0, 0, 0)));
+}

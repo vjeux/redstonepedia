@@ -151,7 +151,7 @@ pub fn lava_can_flow(w: &World, p: BlockPos) -> Option<BlockPos> {
         match s {
             Block::Air => true,
             Block::Lava { .. } => false,
-            Block::Trapdoor { .. } | Block::Door { .. } | Block::SugarCane { .. } | Block::BubbleColumn { .. } | Block::Water { .. } => false,
+            Block::Trapdoor { .. } | Block::Door { .. } | Block::SugarCane { .. } | Block::BubbleColumn { .. } | Block::Water { .. } | Block::Sign { .. } => false,
             _ => !behavior::collides(&s),
         }
     };

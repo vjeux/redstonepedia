@@ -146,6 +146,15 @@ fn props(b: &Block) -> Result<Props, String> {
         Block::Stem { .. } | Block::AttachedStem { .. } => Props { dampening: 0, faces: None },
         // a cactus (column 14 wide) and its flower: not full, no fluid, light block 0
         Block::Cactus { .. } | Block::CactusFlower => Props { dampening: 0, faces: None },
+        // a sign: no collision box, light block 0, propagatesSkylightDown (ironfarm)
+        Block::Sign { .. } => Props { dampening: 0, faces: None },
+        // beds and trapdoors (noOcclusion: light block 0, no occluding faces) and leaves (light
+        // block 1, no occlusion); lava is a fluid (light block 1) (ironfarm)
+        Block::Bed { .. } | Block::Trapdoor { .. } => Props { dampening: 0, faces: None },
+        Block::Leaves { .. } | Block::Lava { .. } => Props { dampening: 1, faces: None },
+        // repeaters (a 2 px DiodeBlock: not a full shape, so light block 0, and no shape used for
+        // occlusion), torches and dust (no collision box) (ironfarm's dusk pulse)
+        Block::Repeater { .. } | Block::Torch { .. } | Block::WallTorch { .. } | Block::Wire { .. } => Props { dampening: 0, faces: None },
         // glass, stained glass and copper grates, waterlogged too (`TransparentBlock`:
         // propagatesSkylightDown always, not solid render: light dampening 0, no occlusion)
         Block::Simple(Simple::Glass | Simple::WhiteStainedGlass | Simple::BlackStainedGlass | Simple::WaxedCopperGrate) | Block::WaterloggedGrate => Props { dampening: 0, faces: None },
@@ -195,8 +204,15 @@ fn edge_occluded(top: &Props, bottom: &Props) -> bool {
 }
 
 /// The sky light at `p` (`getBrightness(LightLayer.SKY, pos)`): the fixed point over the cube of
-/// radius 15 around it (outside redsim's box: air under the open sky).
+/// radius 15 around it (outside redsim's box: air under the open sky). A cell under nothing but
+/// air up to the top of the box is under the open sky: 15 (`ChunkSkyLightSources`: full sky light
+/// down to the first block that is not air), whatever is classified around it (ironfarm: the
+/// daylight detector of a mob farm).
 pub fn sky_light(w: &World, p: BlockPos) -> Result<i32, String> {
+    let top = w.min.y + w.size[1];
+    if (p.y + 1..top).all(|y| matches!(w.get(BlockPos::new(p.x, y, p.z)), Block::Air)) && props(&w.get(p)).is_ok_and(|q| q.dampening == 0) {
+        return Ok(15);
+    }
     sky_light_with(w, p, None, 15)
 }
 
@@ -359,9 +375,11 @@ fn update_signal_strength(w: &mut World, pos: BlockPos) {
             return;
         }
     };
-    // getEffectiveSkyBrightness
-    let mut target = (sky - sky_darken(DAY_TIME)).max(0);
-    let mut sun = sun_angle(DAY_TIME) * (std::f64::consts::PI / 180.0) as f32;
+    // getEffectiveSkyBrightness; the day time is the mob layer's when it runs (a mob farm's day
+    // passes), else the frozen DAY_TIME every other study's sandbox has
+    let day = if w.mob.rng.is_some() { w.day_time() } else { DAY_TIME };
+    let mut target = (sky - sky_darken(day)).max(0);
+    let mut sun = sun_angle(day) * (std::f64::consts::PI / 180.0) as f32;
     if inverted {
         target = 15 - target;
     } else if target > 0 {

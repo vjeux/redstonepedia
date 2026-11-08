@@ -183,6 +183,8 @@ fn is_container(b: &Block) -> bool {
         || matches!(b, Block::PlainRail { .. } | Block::DetectorRail { .. } | Block::StoneSlab { .. } | Block::Lantern { .. })
         // ---- crop farms (clk-misc): kelp, a LiquidBlockContainer that takes no liquid ----
         || matches!(b, Block::Kelp { .. } | Block::KelpPlant)
+        // ---- mob farms (ironfarm): a sign (SimpleWaterloggedBlock), modeled dry ----
+        || matches!(b, Block::Sign { .. })
 }
 
 /// `state.is(BlockTags.WASHED_AWAY_BY_FLUIDS)` among redsim's blocks.

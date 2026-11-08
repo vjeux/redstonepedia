@@ -607,6 +607,11 @@ pub enum Block {
     /// A bed half (`BedBlock`): `colour` = the `DyeColor` id ([`DYES`]), `facing` toward the
     /// head, `head` = `part=head` (the villagers' POI), `occupied`.
     Bed { colour: u8, facing: Dir, head: bool, occupied: bool },
+    /// An oak sign, standing (`rotation` 0-15) or on a wall (`facing`), never waterlogged here
+    /// (`SignBlock`): no collision box, not solid, a `LiquidBlockContainer` that takes only a water
+    /// source, so flowing water and lava never enter it: a mob farm's water stop and lava holder
+    /// that golems and items pass through.
+    Sign { wall: bool, rotation: u8, facing: Dir },
 }
 
 /// `DyeColor` names by id (a shulker box's `colour` - 1).
@@ -711,6 +716,8 @@ pub enum Kind {
     Lava,
     /// By `Block::Bed::colour` (each colour is its own block).
     Bed(u8),
+    /// Standing (`false`) or wall (`true`) oak sign.
+    Sign(bool),
 }
 
 fn b(s: bool) -> &'static str {
@@ -796,6 +803,7 @@ impl Block {
             Block::CactusFlower => Kind::CactusFlower,
             Block::Lava { .. } => Kind::Lava,
             Block::Bed { colour, .. } => Kind::Bed(colour),
+            Block::Sign { wall, .. } => Kind::Sign(wall),
         }
     }
 
@@ -1144,6 +1152,13 @@ impl Block {
             "cactus_flower" => Block::CactusFlower,
             // ---- mob farms (ironfarm) ----
             "lava" => Block::Lava { level: int_of("level", 0, 0, 15)? },
+            "oak_sign" | "oak_wall_sign" => {
+                if bool_of("waterlogged", false)? {
+                    return Err(format!("a waterlogged sign is not modeled: {s:?}"));
+                }
+                let wall = name == "oak_wall_sign";
+                Block::Sign { wall, rotation: if wall { 0 } else { int_of("rotation", 0, 0, 15)? }, facing: if wall { hdir_of("facing", Dir::North)? } else { Dir::North } }
+            }
             n if n.ends_with("_bed") && DYES.contains(&&n[..n.len() - 4]) => Block::Bed {
                 colour: DYES.iter().position(|k| *k == &n[..n.len() - 4]).unwrap() as u8,
                 facing: hdir_of("facing", Dir::North)?,
@@ -1385,6 +1400,8 @@ impl fmt::Display for Block {
             Block::Bed { colour, facing, head, occupied } => {
                 write!(f, "minecraft:{}_bed[facing={},occupied={},part={}]", DYES[colour as usize % 16], facing.name(), b(occupied), if head { "head" } else { "foot" })
             }
+            Block::Sign { wall: false, rotation, .. } => write!(f, "minecraft:oak_sign[rotation={rotation},waterlogged=false]"),
+            Block::Sign { wall: true, facing, .. } => write!(f, "minecraft:oak_wall_sign[facing={},waterlogged=false]", facing.name()),
         }
     }
 }
