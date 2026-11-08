@@ -32,7 +32,7 @@ pub fn static_checks(spec: &FarmSpec) -> Vec<String> {
 /// farm built into the sample, natural rock for its walls. Only the farm's own entities are
 /// checked (the sample's village and the natural mobs are not the farm's).
 pub fn static_checks_in(spec: &FarmSpec, site: Option<&'static super::site::Site>) -> Vec<String> {
-    let o = RunOpts { seed: 1, ticks: 0, day0: 6000, walk: WalkMode::Random, slept: true, site, weather: crate::weather::Plan::Off };
+    let o = RunOpts { seed: 1, ticks: 0, day0: 6000, walk: WalkMode::Random, slept: true, slept_rest: false, site, weather: crate::weather::Plan::Off };
     let mut w = match super::farm::Run::new(spec, &o) {
         Ok(r) => {
             let own = r.own;

@@ -143,7 +143,7 @@ pub fn golem_exit(spec: &FarmSpec, seed: i64, threads: usize) -> Result<ExitRepo
 /// golems drift in the farm built into the sample, natural rock for its walls, with no natural
 /// spawning (a lone golem's own physics).
 pub fn golem_exit_in(spec: &FarmSpec, site: Option<&'static super::site::Site>, seed: i64, threads: usize) -> Result<ExitReport, String> {
-    let o = RunOpts { seed, ticks: 0, day0: 6000, walk: WalkMode::Random, slept: true, site, weather: crate::weather::Plan::Off };
+    let o = RunOpts { seed, ticks: 0, day0: 6000, walk: WalkMode::Random, slept: true, slept_rest: false, site, weather: crate::weather::Plan::Off };
     let r = super::farm::Run::new(spec, &o)?;
     let own = r.own.clone();
     let mut base = r.world;

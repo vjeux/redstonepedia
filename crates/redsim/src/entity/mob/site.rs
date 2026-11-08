@@ -227,6 +227,14 @@ pub fn sample_world_shared(sample: &Sample) -> Result<std::sync::Arc<std::sync::
     Ok(w)
 }
 
+/// The villagers a sample's world holds (its village's: village-edge has 8), from its saved
+/// entities.
+pub fn sample_villagers(sample: &Sample) -> Result<usize, String> {
+    let bytes = std::fs::read(sample.file).map_err(|e| format!("terrain sample {}: {e}", sample.file))?;
+    let t = crate::terrain::format::Terrain::decode(&bytes)?;
+    Ok(t.entities.iter().filter(|e| e.id.trim_start_matches("minecraft:") == "villager").count())
+}
+
 /// The cheap part of a build's price at each of `spots` (from [`spots_for`]): blocks placed and
 /// natural blocks dug, read cell by cell from the sample's world (no copy of it). `ground`: the
 /// design y lying at the ground layer; `clear_box`: a void design (its box's columns cleared up
@@ -298,11 +306,24 @@ pub fn covers_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bo
             break;
         }
         for c in cells {
-            w.set_block(c, crate::block::Block::Simple(crate::block::Simple::Glass), crate::world::flags::RAW);
+            let b = cover_block(&w, c);
+            w.set_block(c, b, crate::world::flags::RAW);
             fills.push(c);
         }
     }
     fills
+}
+
+/// The block that caps a stray golem spawn cell (rev 9 iteration 3: the cheapest at day-1 prices):
+/// a torch standing on the cell's floor (its floor is a golem's, so solid: the torch stands, and
+/// `LEGACY_IRON_GOLEM`'s scan no longer finds air above the floor; it also lights the cell against
+/// hostile spawns), or glass where the cell holds water or lava (no torch stands in a fluid).
+pub fn cover_block(w: &World, cell: BlockPos) -> crate::block::Block {
+    if crate::fluid::fluid_state(w, cell).is_empty() {
+        crate::block::Block::PlainTorch { soul: false }
+    } else {
+        crate::block::Block::Simple(crate::block::Simple::Glass)
+    }
 }
 
 /// The cells of `w` in `lo..=hi` (clamped to its box) as a world of their own: blocks only (no
@@ -545,9 +566,18 @@ impl Site {
             let (lo, hi) = blocks_box(moved);
             place::clear(&mut w, lo, hi);
         }
-        let mut stone: Vec<(BlockPos, crate::block::Block)> = self.seals.iter().map(|(p, _)| (*p, SEAL)).collect();
-        stone.extend(self.fills.iter().map(|p| (*p, crate::block::Block::Simple(crate::block::Simple::Glass))));
-        w.place_raw(&stone);
+        let seals: Vec<(BlockPos, crate::block::Block)> = self.seals.iter().map(|(p, _)| (*p, SEAL)).collect();
+        w.place_raw(&seals);
+        let covers: Vec<(BlockPos, crate::block::Block)> = self.fills.iter().map(|p| (*p, cover_block(&w, *p))).collect();
+        w.place_raw(&covers);
         w
+    }
+
+    /// The caps of its stray golem spawn cells, as [`Site::world_for`] places them: (torches,
+    /// glass blocks).
+    pub fn cover_counts(&self) -> (usize, usize) {
+        let w = self.world.lock().map(|w| w.clone()).unwrap_or_else(|e| e.into_inner().clone());
+        let glass = self.fills.iter().filter(|p| !crate::fluid::fluid_state(&w, **p).is_empty()).count();
+        (self.fills.len() - glass, glass)
     }
 }

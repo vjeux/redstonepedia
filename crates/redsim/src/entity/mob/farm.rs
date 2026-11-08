@@ -75,6 +75,10 @@ pub struct RunOpts {
     /// The steady state: every villager's `LAST_SLEPT` at the end of the last REST (day time 10).
     /// `false`: none (the restart probe: villagers that missed a night).
     pub slept: bool,
+    /// With `slept`: `LAST_SLEPT` at the START of the last REST before the arrival (day time
+    /// 12000: a villager brought from its village, where it slept that night; day 1's measured T,
+    /// brief farm-iron.md revision 9 iteration 2), instead of its end.
+    pub slept_rest: bool,
     /// Built into a terrain sample (the spec already moved there, `Site::spec`), natural
     /// spawning around its AFK spot on Hard; `None`: the void.
     pub site: Option<&'static super::site::Site>,
@@ -95,7 +99,7 @@ impl RunOpts {
     /// weather ([`RunOpts::with_weather`]).
     pub fn steady(seed: i64, ticks: u32, walk: WalkMode) -> RunOpts {
         let mut r = crate::rng::LegacyRandom::new(seed ^ 0x6461_7930);
-        RunOpts { seed, ticks, day0: 10 + r.next_int(11990) as i64, walk, slept: true, site: None, weather: crate::weather::Plan::Off }
+        RunOpts { seed, ticks, day0: 10 + r.next_int(11990) as i64, walk, slept: true, slept_rest: false, site: None, weather: crate::weather::Plan::Off }
     }
 
     /// The same run under a weather plan.
@@ -332,7 +336,7 @@ impl Run {
         }
         self.own = (first..w.entities.next_id).collect();
         let own = &self.own;
-        let slept = w.time - (self.o.day0 - 10).rem_euclid(24000);
+        let slept = w.time - if self.o.slept_rest { (self.o.day0 - 12000).rem_euclid(24000) } else { (self.o.day0 - 10).rem_euclid(24000) };
         let villagers: Vec<usize> = (0..w.entities.list.len()).filter(|&i| own.contains(&w.entities.list[i].id) && matches!(&w.entities.list[i].kind, EntityKind::Mob(m) if m.ty == MobType::Villager)).collect();
         let mut taken: Vec<BlockPos> = Vec::new();
         for i in villagers {
@@ -450,10 +454,20 @@ fn container_iron(w: &World, output: BlockPos) -> (u32, u32) {
 
 /// Run a farm: `o.ticks` game ticks, every check as it goes.
 pub fn run(spec: &FarmSpec, o: &RunOpts) -> Result<RunReport, String> {
+    Ok(run_until_iron(spec, o, u32::MAX)?.0)
+}
+
+/// Day 1's measured T run (brief farm-iron.md revision 9, iterations 2-3): the farm from its
+/// arrival (for T: `o.day0` the day time the build is complete, `o.slept_rest`) until its output
+/// chest holds `iron`, at most `o.ticks`, every check as it goes: the run's report (its `ticks`
+/// the ticks it ran) and the ticks from the arrival to the tick the chest first held `iron`
+/// (`None`: not within `o.ticks`, or the run broke).
+pub fn run_until_iron(spec: &FarmSpec, o: &RunOpts, iron: u32) -> Result<(RunReport, Option<u32>), String> {
     let mut r = Run::new(spec, o)?;
     let mut rep = RunReport { ticks: o.ticks, ..Default::default() };
     let mut tr = Track::new(&r, spec);
-    for _ in 0..o.ticks {
+    let mut reached = None;
+    for k in 0..o.ticks {
         r.tick();
         let t = r.world.time;
         absorb_events(&mut r.world, &mut rep, &mut tr, t);
@@ -462,9 +476,21 @@ pub fn run(spec: &FarmSpec, o: &RunOpts) -> Result<RunReport, String> {
         if rep.failures.len() >= 4 {
             break;
         }
+        if iron != u32::MAX && chest_iron(&r.world, spec.output) >= iron {
+            reached = Some(k + 1);
+            rep.ticks = k + 1;
+            break;
+        }
     }
     finish(&r.world, &mut rep, &tr, spec);
-    Ok(rep)
+    Ok((rep, reached))
+}
+
+/// The iron in the output chest (`ingots + 9 x blocks`).
+fn chest_iron(w: &World, output: BlockPos) -> u32 {
+    use crate::redstone::container as rc;
+    let (ingot, block) = (rc::item_id("iron_ingot"), rc::item_id("iron_block"));
+    w.containers.map.get(&output).map_or(0, |c| c.slots.iter().flatten().map(|s| if Some(s.item) == ingot { s.count as u32 } else if Some(s.item) == block { 9 * s.count as u32 } else { 0 }).sum())
 }
 
 /// The player away for days in the middle of a run (brief, Stages: Middle).
