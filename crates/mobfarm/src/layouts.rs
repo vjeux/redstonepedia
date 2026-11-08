@@ -588,7 +588,7 @@ pub(crate) fn dry_hole(b: &mut Builder, n: i32, wl: i32, k: i32) {
 
 /// [`dry_hole`] with the shaft walled only below `top` (M2-open: in the void a golem leaving the
 /// dry center falls straight, so only the drop's bottom layers need walls).
-pub(crate) fn dry_hole_walls(b: &mut Builder, n: i32, wl: i32, k: i32, top: i32) {
+pub fn dry_hole_walls(b: &mut Builder, n: i32, wl: i32, k: i32, top: i32) {
     let fl = wl - 1;
     let ring = |x: i32, z: i32| (1..=4).contains(&x) && (3..=6).contains(&z);
     let center = |x: i32, z: i32| (2..=3).contains(&x) && (4..=5).contains(&z);

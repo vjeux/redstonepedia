@@ -3,3 +3,4 @@ m2-open.txt		a repeater line times the zombie's hide
 m2-open-ring.txt		a comparator ring times the zombie's hide
 four-modules-one-timer.txt		four modules sharing one sleep timer, lava corners 21 below
 four-modules-one-timer-tight.txt		four modules sharing one sleep timer, closer together
+row-2x27.txt		two farms side by side share one sorter, one iron-block crafter and one composter

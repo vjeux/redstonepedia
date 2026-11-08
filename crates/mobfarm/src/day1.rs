@@ -17,12 +17,12 @@ const GLASS: &str = "glass";
 /// A villager on the head of its bed (facing north) in a closed 1-cell glass pod at (x, 0, 0), a
 /// glass roof; `sees`: its north face at y + 1 is an open trapdoor (it sees over it, it cannot
 /// pass), else glass up to its eyes (it never sees north).
-fn pod(b: &mut Builder, x: i32, sees: bool) {
+pub fn pod(b: &mut Builder, x: i32, sees: bool) {
     pod_at(b, x, 0, sees);
 }
 
 /// [`pod`] with its bed head at (x, 0, z) (the foot south of it).
-fn pod_at(b: &mut Builder, x: i32, z0: i32, sees: bool) {
+pub fn pod_at(b: &mut Builder, x: i32, z0: i32, sees: bool) {
     b.set(x, 0, z0, "red_bed[facing=north,occupied=false,part=head]");
     b.set(x, 0, z0 + 1, "red_bed[facing=north,occupied=false,part=foot]");
     for z in z0..z0 + 2 {
@@ -328,7 +328,7 @@ pub fn d1u(n: i32) -> String {
 /// ceiling or the north wall, and the gates beside it at its own level have the ceiling above them
 /// (the archived chamber's mouth gates at z 3 had the open shaft above). A golem in the 2-deep
 /// chamber always meets the north row.
-fn chamber_safe(b: &mut Builder, k: i32) {
+pub fn chamber_safe(b: &mut Builder, k: i32) {
     for x in 1..=4 {
         for y in k..=k + 3 {
             b.set(x, y, 0, STONE);
@@ -520,7 +520,7 @@ pub fn m2_open_loop(n: i32, d1: i32, d2: i32) -> String {
 /// the part's stretching repeater when it needs a longer input, the part turned to fit east of
 /// the pods, a repeater reading its output, and dust to the hide. Tries the part's 4 turns; None
 /// when none fits.
-fn m2_front_timer(n: i32, t: &crate::parts::Timer) -> Option<(Builder, Vec<[i32; 3]>)> {
+pub fn m2_front_timer(n: i32, t: &crate::parts::Timer) -> Option<(Builder, Vec<[i32; 3]>)> {
     let mut best: Option<(Builder, Vec<[i32; 3]>)> = None;
     // the cage's coupling (the parent, 11:44): blind U1's bed head anywhere within the cluster
     // (its bed observer is the calm's input), so the trigger, the timer and the hide's power cell
@@ -608,29 +608,140 @@ fn m2_front_timer(n: i32, t: &crate::parts::Timer) -> Option<(Builder, Vec<[i32;
 /// every part whose pulse from the bed observer lasts `l_min` gt or more with `stage`'s
 /// materials ([`crate::parts::timers`]), fewest blocks first, the first that fits.
 pub fn m2_open_timer(n: i32, l_min: u32, stage: crate::parts::Stage) -> anyhow::Result<String> {
+    let (b, t, path, caps) = m2_timer_module(n, l_min, stage, &chamber_safe)?;
+    Ok(b.text(&[
+        &format!("Middle (M2-open, its hide from the catalog): the bed observer's pulse, stretched to {} gt by {} ({} blocks with", t.0, t.1, t.2),
+        &format!("its wiring of {path} dust and {caps} glass caps), hides the zombie while the villagers lie down; the dry hole, the open drop and the fire-safe chamber."),
+    ]))
+}
+
+/// One M2-open module with its hide from the catalog ([`m2_front_timer`]: the smallest timer
+/// that fits, the cage's trigger next to it), the dry hole and open drop, and `chamber` at k -22;
+/// stray golem spawn spots capped with glass. Returns the module, its timer (the pulse's gt, the
+/// part's name, its blocks), the wiring's dust and the glass caps.
+pub fn m2_timer_module(n: i32, l_min: u32, stage: crate::parts::Stage, chamber: &dyn Fn(&mut Builder, i32)) -> anyhow::Result<(Builder, (u32, String, u32), usize, u32)> {
     let rows = crate::parts::catalog()?;
     let timers = crate::parts::timers(&rows, l_min, 400, 2, stage);
     for t in &timers {
         let Some((mut b, path)) = m2_front_timer(n, t) else { continue };
         let (wl, k) = (-6, -22);
         crate::layouts::dry_hole_walls(&mut b, n, wl, k, -19);
-        chamber_safe(&mut b, k);
+        chamber(&mut b, k);
         b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
         b.d.meta.insert("restart".into(), "yes".into());
         // the pad's spots stay (feet at wl + 1 and below); a part's top or a support gets glass
         let caps = crate::parts::cap_spawns(&mut b, &|p| p[1] <= wl + 1)?;
         let part = format!("hide {}{}", t.row.name, if t.stretch.is_some() { " + a repeater" } else { "" });
         b.d.meta.insert("parts".into(), part.clone());
-        return Ok(b.text(&[
-            &format!("Middle (M2-open, its hide from the catalog): the bed observer's pulse, stretched to {} gt by {} ({} blocks with", t.length, t.row.name, t.blocks),
-            &format!("its wiring of {} dust and {caps} glass caps), hides the zombie while the villagers lie down; the dry hole, the open drop and the fire-safe chamber.", path.len()),
-        ]));
+        return Ok((b, (t.length, t.row.name.clone(), t.blocks), path.len(), caps));
     }
     anyhow::bail!("no catalog part of {} gives a pulse of {l_min} gt or more from the bed observer that fits ({} tried)", match stage {
         crate::parts::Stage::Day1 { .. } => "day 1",
         crate::parts::Stage::Nether => "the Nether",
         crate::parts::Stage::End => "the End",
     }, timers.len())
+}
+
+/// The kill chamber of a row module ([`chamber_safe`]): its floor's north row (z 1) all hoppers
+/// facing east, its side walls' cells in that row too, so the row's hopper line runs through
+/// every chamber to the collection at the east end.
+pub fn chamber_line(b: &mut Builder, k: i32) {
+    chamber_safe(b, k);
+    for x in 0..=5 {
+        b.set(x, k - 1, 1, "hopper[enabled=true,facing=east]");
+    }
+    // (alone, the module's line ends in the judge's chest east of it)
+    b.d.ports.insert("output".into(), [6, k - 1, 1]);
+}
+
+/// The kill chamber of a stacked module with its own 8 h of storage ([`chamber_safe`]): its
+/// output hopper drops into a chest (the module's output), a hopper under it into a second chest,
+/// and a third the same way (81 slots and 2 hoppers: about 11 h of one module's iron and poppies).
+pub fn chamber_store(b: &mut Builder, k: i32) {
+    chamber_safe(b, k);
+    b.set(3, k - 2, 1, "chest[facing=north,type=single,waterlogged=false]");
+    b.set(3, k - 3, 1, "hopper[enabled=true,facing=down]");
+    b.set(3, k - 4, 1, "chest[facing=north,type=single,waterlogged=false]");
+    b.set(3, k - 5, 1, "hopper[enabled=true,facing=down]");
+    b.set(3, k - 6, 1, "chest[facing=north,type=single,waterlogged=false]");
+    b.d.ports.insert("output".into(), [3, k - 2, 1]);
+}
+
+/// The stack (farmopt's late search): `modules` M2-open-timer modules `pitch` apart vertically
+/// upward (43: no module's golem ever enters another's follow box; the world's floor is y -64), each
+/// with its own cage, calm, drop,
+/// chamber and 8 h of storage ([`chamber_store`]); the first module's first chest is the output.
+pub fn stack(modules: i32, pitch: i32, n: i32, l_min: u32, stage: crate::parts::Stage) -> anyhow::Result<String> {
+    let (m, _, _, _) = m2_timer_module(n, l_min, stage, &chamber_store)?;
+    let mut b = Builder::new(&format!("iron-late-stack-{modules}x{pitch}"));
+    b.d.meta = m.d.meta.clone();
+    let out = m.d.ports["output"];
+    for i in 0..modules {
+        let dy = pitch * i;
+        for (p, s) in &m.d.blocks {
+            b.d.blocks.insert([p[0], p[1] + dy, p[2]], s.clone());
+        }
+        for (p, s) in &m.d.block_entities {
+            b.d.block_entities.insert([p[0], p[1] + dy, p[2]], s.clone());
+        }
+        for e in &m.d.entities {
+            b.d.entities.push(mctas::design::EntitySpec { kind: e.kind.clone(), pos: [e.pos[0], e.pos[1] + dy as f64, e.pos[2]], nbt: e.nbt.clone() });
+        }
+    }
+    b.d.ports.insert("output".into(), out);
+    Ok(b.text(&[
+        &format!("Late: {modules} farms stacked {pitch} blocks apart (far enough that no farm's golems are seen by another's villagers), each with"),
+        "its own villagers, zombie, comparator-ring timer, drop, lava chamber and three chests (8 hours of iron each).",
+    ]))
+}
+/// M2-open-timer modules side by side `pitch` apart on x, each with its own cage, calm, drop and
+/// chamber ([`chamber_line`]); one hopper line under every chamber's north row carries every
+/// drop east to the shared collection ([`collect_bottom_at1`]: the sorter, the iron-block crafter
+/// into a double chest, the composter).
+pub fn row(modules: i32, pitch: i32, n: i32, l_min: u32, stage: crate::parts::Stage) -> anyhow::Result<String> {
+    let (m, t, _, caps) = m2_timer_module(n, l_min, stage, &chamber_line)?;
+    let k = -22;
+    let mut b = Builder::new(&format!("iron-late-row-{modules}x{pitch}"));
+    b.d.meta = m.d.meta.clone();
+    for i in 0..modules {
+        let dx = pitch * i;
+        for (p, s) in &m.d.blocks {
+            b.d.blocks.insert([p[0] + dx, p[1], p[2]], s.clone());
+        }
+        for (p, s) in &m.d.block_entities {
+            b.d.block_entities.insert([p[0] + dx, p[1], p[2]], s.clone());
+        }
+        for e in &m.d.entities {
+            b.d.entities.push(mctas::design::EntitySpec { kind: e.kind.clone(), pos: [e.pos[0] + dx as f64, e.pos[1], e.pos[2]], nbt: e.nbt.clone() });
+        }
+    }
+    // the hopper line from the first chamber's west wall to the collection
+    let x_end = pitch * (modules - 1) + 6;
+    for x in 0..=x_end {
+        b.set(x, k - 1, 1, "hopper[enabled=true,facing=east]");
+    }
+    // the collection with its line hopper L at (x_end + 1, k - 1, 1)
+    let mut c = Builder::new("collect");
+    collect_bottom_at1(&mut c, k);
+    let (dx, dz) = (x_end + 1 - 1, 1 - (-1));
+    for (p, s) in &c.d.blocks {
+        b.d.blocks.insert([p[0] + dx, p[1], p[2] + dz], s.clone());
+    }
+    for (p, s) in &c.d.block_entities {
+        b.d.block_entities.insert([p[0] + dx, p[1], p[2] + dz], s.clone());
+    }
+    // the iron blocks' chest (the output, a single chest) drains into a second through a hopper
+    // (8 h of 8 modules: 3,520 iron an hour, 3,129 blocks)
+    let out = c.d.ports["output"];
+    let out = [out[0] + dx, out[1], out[2] + dz];
+    b.set(out[0], out[1] - 1, out[2], "hopper[enabled=true,facing=down]");
+    b.set(out[0], out[1] - 2, out[2], "chest[facing=north,type=single,waterlogged=false]");
+    b.d.ports.insert("output".into(), out);
+    let _ = (t, caps);
+    Ok(b.text(&[
+        &format!("{modules} farms side by side, {pitch} blocks apart, each with its own villagers, zombie, comparator-ring timer, drop and lava"),
+        "chamber; one line of hoppers under every chamber carries every drop to one sorter, one iron-block crafter and one composter.",
+    ]))
 }
 
 /// M2's front: three scared villagers and blind U1 in pods, the zombie, the hide, the bed
@@ -843,7 +954,7 @@ fn up_module(_n: i32) -> Builder {
 /// top (1, k, -1) walled on three sides: the chamber's water runs north into the opening and
 /// falls down the chute (a column free through every module), carrying the drops; a golem does not
 /// fit the opening.
-fn drain_chamber(b: &mut Builder, k: i32) {
+pub fn drain_chamber(b: &mut Builder, k: i32) {
     chamber_safe(b, k);
     b.d.ports.remove("output");
     b.set(2, k - 1, 1, STONE);
@@ -887,7 +998,7 @@ const CHUTE_Z: i32 = -2;
 /// (ironblock-v24, mirrored in z), whose blocks drop into a double chest (the output); every
 /// other drop (the poppies) passes east into a hopper over a composter, whose bone meal a hopper
 /// moves into a chest. 5 hoppers for the whole stack.
-fn collect_bottom(b: &mut Builder, y_land: i32) {
+pub fn collect_bottom(b: &mut Builder, y_land: i32) {
     let mut t = Builder::new("collect");
     collect_bottom_at1(&mut t, y_land);
     let (dx, dz) = (DRAIN_X - 1, CHUTE_Z + 1);
@@ -902,7 +1013,7 @@ fn collect_bottom(b: &mut Builder, y_land: i32) {
 }
 
 /// `collect_bottom` with the chute at x 1, z -1 (its drops land on the line hopper L).
-fn collect_bottom_at1(b: &mut Builder, y_land: i32) {
+pub fn collect_bottom_at1(b: &mut Builder, y_land: i32) {
     let yl = y_land - 1;
     let dust = "redstone_wire[east=side,north=side,power=0,south=side,west=side]";
     let named = |item: &str, name: &str, n: i32| format!("{{Items:[{{Slot:0b,id:\"minecraft:{item}\",count:{n}}},{}]}}", (1..=4).map(|k| format!("{{Slot:{k}b,id:\"minecraft:paper\",count:1,components:{{\"minecraft:custom_name\":\"{name}\"}}}}")).collect::<Vec<_>>().join(","));
