@@ -21,6 +21,11 @@ pub mod kinds;
 pub mod mechanism;
 pub mod pages;
 pub mod plain;
+pub mod preview;
+/// The preview's judge (src/simulate/preview.rs): its own cache domain, declared here so that
+/// src/simulate/mod.rs, which every domain's code hash covers (build.rs), stays as it is.
+#[path = "simulate/preview.rs"]
+pub mod preview_judge;
 pub mod published;
 pub mod read;
 pub mod serve;
@@ -41,6 +46,11 @@ pub enum SiteCmd {
     Deploy(DeployArgs),
     /// Build and deploy, in one command: what to run after merging into main.
     Publish(BuildArgs),
+    /// A work-in-progress design on a live page in under a minute, for the owner to look at
+    /// (docs/site.md#previews): its page, 3D view, card and downloads, pushed to the preview
+    /// repository (vjeux/redstonepedia-preview, its own GitHub Pages), never to the site. Any lane,
+    /// from its own branch: no merge, no GO, no tests. Prints the URL and the seconds it took.
+    Preview(PreviewArgs),
     /// Download Chrome for Testing's headless shell into ~/.cache/mctas (for the optional smoke).
     Chrome,
     /// The circuits a builder has no reason to pick: another design of the same kind and main
@@ -228,6 +238,43 @@ pub struct BuildArgs {
 }
 
 #[derive(Args)]
+pub struct PreviewArgs {
+    /// Design files (circuits: archived or not, judged or not).
+    pub designs: Vec<PathBuf>,
+    /// The preview's name, its folder in the URL (default: the first design's file name). A new
+    /// preview under a name replaces the old one.
+    #[arg(long)]
+    pub name: Option<String>,
+    /// Write the preview into this folder as it would be served, and push nothing (for `site smoke
+    /// --dir <folder> --engine webkit --page <name>/<file>.html`).
+    #[arg(long)]
+    pub out: Option<PathBuf>,
+    /// Do not wait for the page to answer (the push is the last step).
+    #[arg(long)]
+    pub no_wait: bool,
+    /// Seconds the kind's judge may take before the page goes up without its numbers (it goes up
+    /// again with them once the judge is done).
+    #[arg(long, default_value_t = 25)]
+    pub judge_timeout: u64,
+    /// No judge: the page without numbers.
+    #[arg(long)]
+    pub no_judge: bool,
+    /// Remove the previews older than --older-than days (every preview does it too); alone: only
+    /// that.
+    #[arg(long)]
+    pub clean: bool,
+    /// Days a preview stays.
+    #[arg(long, default_value_t = 14)]
+    pub older_than: u32,
+    /// Create the preview repository and turn its GitHub Pages on (once; an existing one is kept).
+    #[arg(long)]
+    pub setup: bool,
+    /// The preview repository (`owner/name`; its pages: https://owner.github.io/name/).
+    #[arg(long, default_value = "vjeux/redstonepedia-preview")]
+    pub repo: String,
+}
+
+#[derive(Args)]
 pub struct DeployArgs {
     /// The generated site folder.
     #[arg(long, default_value = "site")]
@@ -317,6 +364,7 @@ pub fn run(cmd: SiteCmd) -> Result<()> {
     match cmd {
         SiteCmd::Build(a) => generate::build(&a),
         SiteCmd::Deploy(a) => deploy::deploy(&a),
+        SiteCmd::Preview(a) => preview::preview(&a),
         SiteCmd::Publish(a) => {
             // build and deploy; no browser end-to-end gate (vjeux 14:20Z: "I think we're
             // overreacting to a single bug we had. Please remove the e2e tests"). The live site's

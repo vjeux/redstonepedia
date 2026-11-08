@@ -492,7 +492,10 @@ struct Rig {
     _xvfb: Xvfb,
 }
 
-fn rig(dir: &Path, remote: Option<&str>) -> Result<Rig> {
+/// The browser rig: the site's data (`need_site`: the checks need it; filming a page does not, so
+/// a folder or a URL without `data/site.json`, a preview's (src/preview.rs), films too), its base
+/// URL (a served folder, or the remote) and an Xvfb display of our own.
+fn rig(dir: &Path, remote: Option<&str>, need_site: bool) -> Result<Rig> {
     if !Path::new(MINIBROWSER).is_file() {
         bail!("no {MINIBROWSER}: dnf install webkit2gtk3 webkit2gtk3-devel xorg-x11-server-Xvfb");
     }
@@ -500,13 +503,14 @@ fn rig(dir: &Path, remote: Option<&str>) -> Result<Rig> {
         Some(url) => {
             let url = if url.ends_with('/') { url.to_string() } else { format!("{url}/") };
             let o = Command::new("curl").args(["-fsSL", &format!("{url}data/site.json")]).output().context("running curl")?;
-            if !o.status.success() {
+            if !o.status.success() && need_site {
                 bail!("{url}data/site.json: {}", String::from_utf8_lossy(&o.stderr).trim());
             }
-            (serde_json::from_slice(&o.stdout).context("the deployed data/site.json")?, url)
+            (if o.status.success() { serde_json::from_slice(&o.stdout).context("the deployed data/site.json")? } else { site_model::Site::default() }, url)
         }
         None => {
-            let site = serde_json::from_str(&std::fs::read_to_string(dir.join("data/site.json"))?)?;
+            let data = dir.join("data/site.json");
+            let site = if need_site || data.exists() { serde_json::from_str(&std::fs::read_to_string(&data)?)? } else { site_model::Site::default() };
             // serve the folder
             let listener = TcpListener::bind(("127.0.0.1", 0))?;
             let port = listener.local_addr()?.port();
@@ -576,7 +580,7 @@ fn click_button(s: &Session, label: &str) -> Result<()> {
 /// long pages), `mctas web qa` (the viewer's visual QA at phone size) and `mctas web recqa` (the
 /// Record button's files).
 pub fn run_steps(dir: &Path, remote: Option<&str>, page: &str, size: (u32, u32), steps: &[(String, u64)]) -> Result<(Vec<serde_json::Value>, Vec<String>)> {
-    let r = rig(dir, remote)?;
+    let r = rig(dir, remote, false)?;
     let s = Session::start_sized(&r.display, true, Some(size))?;
     s.post("url", serde_json::json!({"url": format!("{}{page}", r.base)}))?;
     let mut out = Vec::new();
@@ -620,7 +624,7 @@ pub fn run_steps(dir: &Path, remote: Option<&str>, page: &str, size: (u32, u32),
 /// these labels first, in order (a viewer's input button: `INP` turns a shulker machine's start
 /// lever on; `20×` picks that speed in the speed dropdown; `css:<selector>`: any element).
 pub fn film(dir: &Path, remote: Option<&str>, pages: &[String], frames: u32, interval: u64, click: &[String]) -> Result<()> {
-    let r = rig(dir, remote)?;
+    let r = rig(dir, remote, false)?;
     let out = std::env::var_os("MCTAS_WEBKIT_SHOTS").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp/mctas-webkit-shots"));
     std::fs::create_dir_all(&out)?;
     for phone in [false, true] {
@@ -709,7 +713,7 @@ fn press(s: &Session, label: &str) -> Result<()> {
 /// page that scrolls sideways). `click`: pressed first, in order (`press`). `only`: `phone` or
 /// `desktop`.
 pub fn look(dir: &Path, remote: Option<&str>, pages: &[String], screens: u32, settle: u64, click: &[String], only: Option<&str>) -> Result<()> {
-    let r = rig(dir, remote)?;
+    let r = rig(dir, remote, false)?;
     let out = std::env::var_os("MCTAS_WEBKIT_SHOTS").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp/mctas-webkit-shots"));
     std::fs::create_dir_all(&out)?;
     for phone in [false, true] {
@@ -790,7 +794,7 @@ fn group_pages(site: &site_model::Site) -> Vec<String> {
 /// Just the group pages' responsiveness (`mctas site smoke --engine webkit --responsive`), on a
 /// desktop window and a phone one (`only`: one of them). Returns the number of failed checks.
 pub fn responsive(dir: &Path, remote: Option<&str>, only: Option<&str>) -> Result<usize> {
-    let r = rig(dir, remote)?;
+    let r = rig(dir, remote, true)?;
     let groups = group_pages(&r.site);
     let mut fails = 0;
     for phone in [false, true] {
@@ -818,7 +822,7 @@ pub fn responsive(dir: &Path, remote: Option<&str>, only: Option<&str>) -> Resul
 /// pages and bundles; the pages to check come from its own data/site.json). Returns the number of
 /// failed checks.
 pub fn smoke(dir: &Path, remote: Option<&str>) -> Result<usize> {
-    let r = rig(dir, remote)?;
+    let r = rig(dir, remote, true)?;
     let (site, base, display) = (&r.site, r.base.clone(), r.display.clone());
     let pick = |kind: &str| site.builds.iter().find(|b| b.kind == kind && b.trace.is_none()).map(|b| b.page.clone());
     let mut pages: Vec<(String, String, &str)> = vec![("index".into(), "index.html#kind=clock".into(), ".thumb[data-mcview]")];

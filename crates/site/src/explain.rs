@@ -248,10 +248,10 @@ pub fn chest_words(c: &Circuit) -> &'static str {
 /// game too (the game gate runs the judge's 8 builds).
 pub fn direction_words_of(c: &Circuit) -> String {
     let w = direction_words(&c.robustness);
-    if mob_farm(c) {
-        return w.replace("at 4 different spots in the world, in the real game)", "at 2 different spots in the world, in the real game)");
-    }
-    w
+    let w = if mob_farm(c) { w.replace("at 4 different spots in the world, in the real game)", "at 2 different spots in the world, in the real game)") } else { w };
+    // (a preview whose design no test in the game has seen: its judge ran on our simulation,
+    // src/preview.rs)
+    if crate::pages::claims_game() { w } else { w.replace("in the real game", "on our simulation of the game") }
 }
 
 /// A design's "works in any direction, anywhere" line (vjeux 13:08Z: "robustness feels wrong"):
@@ -944,8 +944,10 @@ pub fn how_to_try(c: &Circuit, has_viewer: bool) -> String {
     // real work!?")
     if mob_farm(c) {
         s.push_str(&format!(
-            "<p>Press play to run the farm: the 3D view runs our test's own simulation of the game's mob rules, the very run our test made first, tick for tick. The villagers sleep in their beds at night and panic at the zombie by day, golems spawn, fall and die in the lava, and the hoppers carry their iron and poppies to the chest. {} The top right shows the game's time, the golems so far and the iron in the chest; the speed menu plays it faster or slower. Our test also ran every build in the real game, through days of rain and thunder; its numbers are in the measurements below.{} Drag to look around, pinch or scroll to zoom.</p>",
+            "<p>Press play to run the farm: the 3D view runs our test's own simulation of the game's mob rules, the very run our test made first, tick for tick. The villagers sleep in their beds at night and panic at the zombie by day, golems spawn, fall and die in the lava, and the hoppers carry their iron and poppies to the chest. {} The top right shows the game's time, the golems so far and the iron in the chest; the speed menu plays it faster or slower. {}{} Drag to look around, pinch or scroll to zoom.</p>",
             esc(chest_words(c)),
+            // (a preview whose design the game has not seen: where its numbers come from)
+            crate::pages::numbers_sentence().unwrap_or_else(|| "Our test also ran every build in the real game, through days of rain and thunder; its numbers are in the measurements below.".to_string()),
             first_night(c)
         ));
         return s;
@@ -956,8 +958,10 @@ pub fn how_to_try(c: &Circuit, has_viewer: bool) -> String {
         // (the build only, the reason in a visitor's words, then the game: the coordinator
         // 2026-10-22, "the view shows the build only, so download it to watch it run in the game")
         s.push_str(&format!(
-            "<p>The 3D view shows the build only (<b>as built</b>): {}. Our test ran it in the real game; its numbers are in the measurements below. Drag to look around, pinch or scroll to zoom; download the design (below) to watch it run in the game.</p>",
-            esc(&as_built_why(&c.unmodeled))
+            "<p>The 3D view shows the build only (<b>as built</b>): {}. {} Drag to look around, pinch or scroll to zoom; download the design (below) to watch it run in the game.</p>",
+            esc(&as_built_why(&c.unmodeled)),
+            // (a preview whose design the game has not seen: where its numbers come from)
+            crate::pages::numbers_sentence().unwrap_or_else(|| "Our test ran it in the real game; its numbers are in the measurements below.".to_string())
         ));
         return s;
     }
@@ -966,9 +970,10 @@ pub fn how_to_try(c: &Circuit, has_viewer: bool) -> String {
     if !c.view_halt.is_empty() {
         let (tick, why) = halt_words(&c.view_halt);
         s.push_str(&format!(
-            "<p>The 3D view shows this design as built and runs our test up to {}, then stops: {}. The judge tested it in the real game; its timing is in the measurements below. Drag to look around, pinch or scroll to zoom; download the design (below) to build it in the game.</p>",
+            "<p>The 3D view shows this design as built and runs our test up to {}, then stops: {}. {} Drag to look around, pinch or scroll to zoom; download the design (below) to build it in the game.</p>",
             tick.map(|t| format!("tick {t}")).unwrap_or_else(|| "its first steps".to_string()),
-            esc(&why)
+            esc(&why),
+            crate::pages::numbers_sentence().unwrap_or_else(|| "The judge tested it in the real game; its timing is in the measurements below.".to_string())
         ));
         return s;
     }
@@ -1002,7 +1007,7 @@ pub fn how_to_try(c: &Circuit, has_viewer: bool) -> String {
         _ => None,
     };
     if let Some(w) = what {
-        s.push_str(&format!("<p><b>The view shows {w}.</b> Drag to look around, pinch or scroll to zoom. Its numbers are our test's, in the real game, below.</p>"));
+        s.push_str(&format!("<p><b>The view shows {w}.</b> Drag to look around, pinch or scroll to zoom. {}</p>", crate::pages::numbers_sentence().unwrap_or_else(|| "Its numbers are our test's, in the real game, below.".to_string())));
         return s;
     }
     // an automatic door: no walkers in the view (fly's QA: its How to try it was empty)

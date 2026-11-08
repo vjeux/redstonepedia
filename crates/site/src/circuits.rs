@@ -530,7 +530,9 @@ fn simulate_row(dir: &Path, r: &circuit::archive::Row) -> Simulated {
     (loaded, det, t_sim.elapsed().as_secs_f64(), raw)
 }
 
-fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) -> Vec<Build> {
+/// Every design archived under `root` (`<study>/archive/verdicts.tsv`) as a build; `mctas site
+/// preview` (src/preview.rs) runs it on a folder of its own holding one design and its row.
+pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) -> Vec<Build> {
     let mut out = Vec::new();
     // every published design of every study simulated in one parallel pass (study after study,
     // the cores waited behind each study's slowest design: the TNT dupers' 25 s, the bursts' 16 s)
