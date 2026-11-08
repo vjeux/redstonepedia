@@ -12,6 +12,8 @@ code, it's way too slow in java". Every rule below was read in the decompiled 26
 Revision 3 (after the G1 review and re-review by 8146b8db, 2026-11-08): the changelogs are at
 the end. Revision 4 (vjeux 04:19-04:29, 2026-11-08): the three stages replace the tiers
 ("Stages"); the Decision of revisions 1-3 and the Not goals they contradict are superseded.
+Revision 5: the stages' candidates, the absence, natural hostiles, lightning and lava's fire
+(after the G1 review of revision 4).
 
 ## Use
 
@@ -60,19 +62,42 @@ the 26.3 server (`mctas src show <Class>`; recipes and loot tables from its data
   and unconverted) and its rate falls within the card's interval. The page's 3D viewer runs the
   judge's own run (`farm::Run`). That is every other study's standard.
 - **Judged in real terrain with natural spawning, rain, thunder and lightning, on Hard.**
-  - Terrain: a game-generated sample of a seed's world. Hostiles spawn on the ground around the
-    farm and in its dark cells (NaturalSpawner), and walk, see and attack from it.
-  - Weather (`ServerLevel.advanceWeatherCycle`): rain starts after `RAIN_DELAY` (uniform
-    12000..180000 gt) and lasts `RAIN_DURATION` (12000..24000); thunder after `THUNDER_DELAY`
-    (12000..180000), for `THUNDER_DURATION` (3600..15600). Rain darkens the sky that daylight
-    detectors read (the calm devices, below), and a mob in rain does not burn
-    (`Mob.isSunBurnTick`: `isInWaterOrRain`).
-  - Lightning: while it thunders, every ticking chunk rolls `random.nextInt(100000) == 0` each
-    tick (`ServerLevel.tickThunder`). The bolt goes to the closest lightning rod within 128 that
-    tops its column (`findLightningRod`: the rod at `WORLD_SURFACE` height - 1), else to a
-    living entity that can see the sky in the strike column's box inflated by 3
-    (`findLightningTargetAround`). `LightningBolt` hurts every entity in its own box inflated
-    by 3 (`thunderHit`), and on Normal and Hard it lights up to 4 fires around (`spawnFire(4)`).
+  - Terrain: a game-generated sample of a seed's world, the farm built into it.
+  - Natural hostiles, by a static refusal (the mob layer does not path or target hostiles, so it
+    does not run them): no cell where a hostile can spawn (NaturalSpawner: a dark, valid spawn
+    block; a bottom slab, water, glass or a lit cell is none) in or around the farm within the
+    range where a spawned hostile can walk to it, and no path from any such cell for any
+    hostile's box, step and jump to a villager's attack box, nor to within its sensor distance
+    (`VillagerHostilesSensor`: 8 for a zombie, up to 15) in a villager's sight during the calm
+    moment. The terrain track's flood (`entity/mob/hostile.rs`) checks it; the game gate runs
+    with natural spawning on.
+  - Weather (`ServerLevel.advanceWeatherCycle`, server-wide): two independent timers on the
+    level random. Rain starts after `RAIN_DELAY` (uniform 12000..180000 gt) and lasts
+    `RAIN_DURATION` (12000..24000): on about 15.8% of the time; the thunder flag after
+    `THUNDER_DELAY` (12000..180000), for `THUNDER_DURATION` (3600..15600): about 9.1%. Rain and
+    thunder levels move 0.01 a tick; it thunders only while it rains. The sky darkens by 3 at
+    noon in rain and 5 in thunder (`Level.updateSkyBrightness`), which daylight detectors read;
+    rain reaches a cell only under the open sky (`Level.precipitationAt`: glass and leaves stop
+    it), and it puts out a burning mob there (`Entity.isInRain`); sunburn needs the brightness
+    of the eye cell over 0.5 (a darkening of 3 or more under the open sky stops it).
+  - Lightning (only within 128 blocks of a player): while it thunders, every such chunk rolls
+    `random.nextInt(100000) == 0` each tick (`ServerLevel.tickThunder`). The bolt goes to the
+    closest lightning rod within 128 that tops its column (`findLightningRod`: the rod at
+    `WORLD_SURFACE` height - 1; any of the copper variants), else to a living entity that can see
+    the sky in the strike column's box inflated by 3 (`findLightningTargetAround`), and does
+    anything only where it rains (`isRainingAt`). `LightningBolt` hits every entity in x ± 3,
+    y - 3..y + 9, z ± 3 around it, through any roof: a villager becomes a witch, a boat or minecart
+    is destroyed (its zombie dismounts), every drop is destroyed, golems and zombies take 5 and
+    burn. On Normal and Hard it lights up to 4 fires in the 3 x 3 x 3 around it (`spawnFire(4)`).
+    So a farm holds a copper lightning rod whose bolt box (rod + 1, x ± 3, y - 3..+9) meets nothing
+    of the farm and nothing flammable, or keeps every villager, vehicle and drop out of the bolt
+    box of every column within reach (its top block 5 or more above them) and no flammable block
+    exposed to the sky.
+  - Lava's fire (`LavaFluid.randomTick`, with `doFireTick`): a lava source sets fire to an air
+    cell up to 2 steps above it (each step ± 1 sideways, stopped by a block that blocks motion)
+    that has a flammable neighbour, or above a flammable block beside it at its own level. So no
+    flammable block (planks, fences, fence gates, logs, leaves, wool, carpets: `FireBlock`'s
+    table; not signs, trapdoors, doors or beds) within that reach of any lava source.
   - Hard, the worst case for a farm: zombies break doors only on Hard
     (`Zombie.DOOR_BREAKING_PREDICATE`); a villager killed by a zombie always turns into a
     zombie villager on Hard, half the time on Normal, never on Easy (`Zombie.killedEntity`).
@@ -134,6 +159,25 @@ Must-haves:
     (`SCAN_RANGE`) only along a path that reaches it (`path.canReach()`). The farm's villagers
     hold its beds, and no village villager can reach them.
 
+Candidates (each within every hard limit; a calm moment that does not come from golems).
+No redstone dust is possible: the bucket (3) and the one hopper the chest needs (5) leave 2 iron,
+and an iron pickaxe costs 3. So every day-1 calm is dust-free.
+
+| # | the calm moment | the kill | iron | lava | estimate | blocks (void) |
+|---|---|---|---|---|---|---|
+| **D1** | **the bed plate**: of the 3 villagers only S sees the zombie; U1 stands by day on a wooden pressure plate by its bed, which powers the stone under it and the top-half oak trapdoor in S's line of sight, so the trapdoor stands open. At REST U1 lies down, the plate lets go, the shut trapdoor's slab crosses S's line (1.78-1.84 up in its cell), S calms and sleeps. S's sleeping eye (bed + 0.8875) sees under the slab, so it wakes scared and spawns golems at night too | L2d's dry-hole pad (6 x 6) over a 4 x 4 pit 5 deep; one water source drives every golem into the pit's corner under one lava source held by 3 wall signs; 1 hopper | 8 | 1 | **redsim, the whole judge: 243 iron/h (241-245, 64 runs), 61 golems/h, 51% of the ceiling, restarts by itself after a missed night, robust over 8 builds**; 59 of 100 golems by day. The same runs with the weather cycle, a forced day of rain and a forced day of thunder (the infra track's model) give the same golems: the calm reads no sky | 318 |
+| D2 | the bed plate | no pit: the pad's water carries golems into a corner 2 x 2 under one lava source, burning in the villagers' sight | 8 | 1 | about 150-180 iron/h: every villager sees each golem burn (about 300 gt), so each cycle stretches to about 850-900 gt; the prototype's corner flush left golems on the pad, unsolved | about 200 |
+| D3 | the egg plate: a chicken lays every 6000-12000 gt (`Chicken.eggTime`), so at least one egg falls in every REST window; it floats over a wooden plate that shuts the hide 20 gt or more (the plate's `pressedTime`), S sleeps, the zombie shows again | D1's pit | 8 | 1 | about 280-320 iron/h (only brief hides, day and night); the egg must reach the plate without the chicken pressing it | about 360 |
+| D4 | the bed plate driving two hides for two scared villagers (S1, S2, U1: 3 villagers) | D1's pit | 8 | 1 | about 280 iron/h: two panicking villagers make 20 tries a mark instead of 10 (a mark succeeds about 93% instead of 74%) | about 330 |
+
+Rejected calm moments: the zombie's own state (water converts it, the sun burns it, nothing else
+of it changes with day time); a hide moved by water, sand or a door (each needs a trigger: no
+dust); a copper lightning rod (it powers only when struck: storms only); village villagers
+walking over a plate at dusk (random).
+
+**Pick: D1**, the only candidate the whole judge has passed. D2 would win on work if its corner
+flush worked. The terrain sample decides the final count of blocks placed + dug.
+
 ### Middle
 
 The player has a base, iron gear and the Nether (quartz, redstone, magma, slime); no End.
@@ -148,16 +192,38 @@ Hard limits:
 Ranked by: **the most iron per hour within that budget**, then the fewest blocks.
 
 Must-haves:
-- **It restarts by itself after the player is away for days.** The judge models the absence:
-  the farm's chunks stop ticking (no block, entity or brain tick, so memory expiries do not
-  count down), game time advances days, then they tick again with every `LAST_SLEPT` older than
-  24000 gt.
+- **It restarts by itself after the player is away for days**, judged for both kinds of absence
+  and for a return by day and a return at night:
+  - unloaded (the player far away): the farm's chunks are saved, game time advances days, and
+    they load again. Loading runs `Villager.readAdditionalSaveData` -> `refreshBrain` ->
+    `registerBrainGoals` -> `updateActivityFromSchedule`, so a villager loaded at night comes
+    back in REST; memories without a codec are not saved (`NEAREST_HOSTILE`), those with one
+    are (`LAST_SLEPT`, `HOME`, `GOLEM_DETECTED_RECENTLY` with its time left), and every sensor
+    draws a fresh delay (`Sensor.randomlyDelayStart`: `nextInt(scanRate)`). A villager loaded at
+    night can start `SleepInBed` before its first hostile scan;
+  - loaded but not ticking (the player beyond the simulation distance, within the view
+    distance): nothing ticks, memories keep their time left, game time advances.
+
+  Either way every `LAST_SLEPT` is then older than 24000 gt, and the farm must restart.
 - **It holds at least 2 h of output**: the card's iron per hour x 2 fits in its chests and
   hoppers, poppies included.
 - **Poppies never block collection**: each golem drops 0-2 poppies (its loot table), and they
   take slots ahead of the iron.
 - **It is modular**: the late farm is built from this module, and the docs say how to add
   modules.
+
+Candidates (Nether-tier, within 64 iron, one chunk column, about 1,000 blocks; each with a calm
+moment that does not come from golems; the archived module's numbers are the judge's):
+
+| # | the calm moment | module | iron | estimate | blocks |
+|---|---|---|---|---|---|
+| M1 | inverted daylight detectors' dusk pulse (the archived iron-middle) | L2d: 4 villagers, a 6 x 6 dry-hole pad, a 16-block drop, a 2-hopper chamber (its fence gates beside the lava burn: lava's fire, above; the fix holds the lava with signs) | 13 | 443 iron/h in clear weather (archived, 93%), but it fails with the weather cycle: rain darkens the detectors by 3, so the pulse misses the night and the villagers go a day without sleep (the infra track's preview: every build of iron-middle and iron-fast-module fails). Rejected | 579 |
+| M2 | the bed observer: an observer reads U1's bed going OCCUPIED at REST and, through a repeater line, shuts the hide for about 2 s; the scared villagers fall asleep, then panic all night | M1's module | 13 | about 450 iron/h: a brief hide every night and nothing that reads the sky, so rain does not stall it | about 590 |
+| M3 | the bed plate (D1's calm) | M1's module with 4 villagers (3 scared, U1 on the plate) | 13 | about 420 iron/h: the sleeping-eye flicker gives golems at night; hidden from the standing eyes all night | about 590 |
+| M4 | M2 | two M2 modules stacked in the chunk column, 13 apart (their villagers out of each other's 10-box) | 26 | about 850 iron/h if the falling golems stay out of the other module's follow box (they pass within 16 of the lower villagers: to be judged) | about 1,150, over the budget unless shared parts save 150 |
+
+**Pick: M2**, the brief hide that reads no sky (M3 if M2's pulse proves fragile). M4 leads into
+the late stage. Every candidate is judged with the weather cycle on.
 
 ### Late
 
@@ -189,6 +255,21 @@ Must-haves:
   composted or destroyed.
 - **Low lag**: golems die fast, few hoppers per 1000 iron per hour, few entities alive at once,
   nothing piling up. All of it is reported.
+
+Candidates (any survival item; the estimates use the couplings above: a golem that stays D gt in a
+foreign villager's follow box resets it with a chance of about (D + 20) / 200, since the
+golem scan reads the 20 gt list once per 200 gt; a module of 4 villagers still spawns when one of
+them is reset):
+
+| # | packing | per module | iron/h per chunk column | why |
+|---|---|---|---|---|
+| LB | the bar: the fastest module on a 27-block grid (the archived iron-scaled-2x2) | 459 iron/h, 96% | 161 (459 x 256 / 729) | no golem is ever in a foreign follow box; meets every hard limit |
+| L1 | an 11-block grid (each villager group out of every other's 10-box), every pad directly over its own drop (no flushing: a golem leaves every follow box about 10 gt after it spawns) | about 85-90% if the drop starts within 10 gt (each foreign sighting about 15%, from up to 8 neighbours) | about 800-900 | the dwell, not the distance, decides the coupling |
+| L2 | a vertical stack in one chunk column, modules 13 apart, the golems dropped down a shaft beside the column | about 80%: each golem falls past the lower modules' boxes (34 tall, about 10 gt at terminal speed) | about 1,500 per stack of 4, over 2 columns | height costs no footprint; the shaft does |
+| L3 | a ring of 6 modules around one shared kill shaft, each pad tilted into it | about 90% (the ring's golems all fall into the center within 10-30 gt) | about 1,000 | one kill chamber, one collection, one AFK spot |
+
+**Pick: the search decides** (a redsim search over the pitch, the drop, the shared parts and the
+kill speed, against LB, the bar). L1 is the first one built.
 
 ### What every card reports
 
@@ -737,3 +818,14 @@ randoms, and the level random that behaviors we do not run also draw from):
 | 5 | Late: any item, every module at 90% of its ceiling packed against its neighbours (the couplings from the code), one AFK spot (simulation distance 10); ranked by iron/h per chunk column with the scaling shown; 8 h AFK, lag reported | Stages: Late |
 | 6 | Every card reports the stage lines (iron with tools, lava sources, materials by stage, blocks placed and dug, villagers moved, chunk footprint, storage hours, the absence restart, lag, density and scaling) | Stages: What every card reports |
 | — | The Decision of revisions 1-3 is kept as the record of the first archive; weather, natural spawning and lag leave the Not goals | Decision; Not goals |
+
+## Changelog (revision 5, after the G1 review of revision 4 by 8146b8db)
+
+| point | what changed | where |
+|---|---|---|
+| 1 | Each stage now shows that it can be met: 4 candidates each, within the hard limits, with a calm moment that does not come from golems, estimated on the stage's own number, and the pick argued in the brief. Day 1's pick D1 (the bed plate: a blind villager lying down at nightfall lets go of a wooden plate, which shuts a trapdoor across the scared villager's sight) passed the whole judge on redsim: 243 iron/h, 51%, 8 iron, 1 lava source, no quartz, restarts by itself. No redstone dust is possible on day 1 (the bucket and the hopper leave 2 iron; a pickaxe is 3) | Stages: Day 1, Middle, Late (Candidates) |
+| 2 | The absence: both kinds judged (unloaded and reloaded: `refreshBrain` -> `updateActivityFromSchedule`, the save codecs, fresh sensor delays; loaded but not ticking), each for a return by day and at night | Stages: Middle |
+| 3 | Natural hostiles: a static refusal (no hostile spawn cell within reach, no path to a villager's attack box, none within its sensor distance in sight during the calm), the terrain track's flood; the game gate runs with natural spawning on | Stages: Common |
+| 4 | Lightning: a copper lightning rod whose bolt box meets nothing of the farm, or every villager, vehicle and drop out of every reachable bolt box and nothing flammable under the sky; the bolt's 26.3 reach (x ± 3, y - 3..+9, through roofs; boats and drops destroyed) from the infra track's reading | Stages: Common |
+| — | Lava's fire (`LavaFluid.randomTick`): no flammable block within its reach. The archived L2d chamber holds its lava with fence gates (flammable), so the middle module is fixed with signs | Stages: Common; Middle (M1) |
+| — | The weather numbers corrected with the infra track's reading: rain about 15.8% of the time, thunder 9.1%; darkening 3 (rain) and 5 (thunder) at noon; precipitation only under the open sky; sunburn stops at a darkening of 3 under the open sky | Stages: Common |
