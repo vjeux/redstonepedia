@@ -680,39 +680,43 @@ public final class Actor {
     }
 
     /**
-     * A lean mine for `digBox`: aim + first hit in ONE client submit, then tick-gated
-     * direct calls (the same survival timing as `mine`'s precise path — `mine`'s own
-     * prelude costs ~5 extra frame-gated submits a block). Slow blocks (obsidian) defer
-     * to the full `mine` (held key).
+     * A lean mine: aim + first hit in ONE client submit, then direct calls that apply
+     * exactly one tick of destroy progress per game tick actually elapsed since the
+     * previous submit. Submits run once a rendered frame, and a slow headless frame
+     * can span up to ten game ticks — applying a single increment per submit (the old
+     * gating) mined several times slower than a held button at low frame rates, and
+     * timed out on obsidian. Catching up per elapsed tick is the same total timing
+     * as holding attack: never more than one increment for any tick.
      */
     private static String mineFast(BlockPos pos) throws Exception {
-        float perTick = onClient(() -> {
+        float[] first = onClient(() -> {
             Minecraft mc = Minecraft.getInstance();
             if (mc.level.getBlockState(pos).isAir()) {
-                return 1.0F;
+                return new float[] {1.0F, mc.player.tickCount};
             }
             float[] aim = anglesTo(mc.player, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
             setLook(mc.player, aim[0], aim[1]);
             float prog = mc.level.getBlockState(pos).getDestroyProgress(mc.player, mc.player.level(), pos);
-            if (prog >= 0.2F) {
+            if (prog > 0.0F) {
                 Direction dir = faceToward(mc.player, pos);
                 if (mc.gameMode.startDestroyBlock(pos, dir)) {
                     mc.player.swing(InteractionHand.MAIN_HAND, mc.player.getMainHandItem().getAttackAnimation(), false);
                 }
             }
-            return prog;
+            return new float[] {prog, mc.player.tickCount};
         });
+        float perTick = first[0];
         if (perTick >= 1.0F) {
             Thread.sleep(40);
             String now = onClient(() -> blockId(Minecraft.getInstance().level.getBlockState(pos)));
             return now.contains("air") ? "ok mined" : "error instamine left " + now;
         }
-        if (perTick < 0.2F) {
-            return mine(pos, false);
+        if (perTick <= 0.0F) {
+            return "error unbreakable or out of reach";
         }
         Direction dir = onClient(() -> faceToward(Minecraft.getInstance().player, pos));
-        int[] lastTick = {-1};
-        long deadline = System.currentTimeMillis() + 15_000;
+        int[] lastTick = {(int) first[1]};
+        long deadline = System.currentTimeMillis() + 50_000;
         while (System.currentTimeMillis() < deadline) {
             Boolean done = onClient(() -> {
                 Minecraft mc = Minecraft.getInstance();
@@ -723,14 +727,32 @@ public final class Actor {
                     mc.gameMode.stopDestroyBlock();
                     return true;
                 }
-                if (mc.player.tickCount == lastTick[0]) {
+                int now = mc.player.tickCount;
+                int elapsed = now - lastTick[0];
+                if (elapsed <= 0) {
+                    if (elapsed < 0) {
+                        lastTick[0] = now; // fresh player (dimension change)
+                    }
                     return false;
                 }
-                lastTick[0] = mc.player.tickCount;
+                lastTick[0] = now;
                 float[] aim = anglesTo(mc.player, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
                 setLook(mc.player, aim[0], aim[1]);
-                if (mc.gameMode.continueDestroyBlock(pos, dir)) {
+                boolean swung = false;
+                for (int i = 0; i < elapsed; i++) {
+                    if (mc.level.getBlockState(pos).isAir()) {
+                        break;
+                    }
+                    if (mc.gameMode.continueDestroyBlock(pos, dir)) {
+                        swung = true;
+                    }
+                }
+                if (swung) {
                     mc.player.swing(InteractionHand.MAIN_HAND, mc.player.getMainHandItem().getAttackAnimation(), false);
+                }
+                if (mc.level.getBlockState(pos).isAir()) {
+                    mc.gameMode.stopDestroyBlock();
+                    return true;
                 }
                 return false;
             });
@@ -743,7 +765,8 @@ public final class Actor {
             Minecraft.getInstance().gameMode.stopDestroyBlock();
             return null;
         });
-        return "error mine timed out";
+        String held = onClient(() -> blockId(Minecraft.getInstance().level.getBlockState(pos)));
+        return "error mine timed out, block still " + held;
     }
 
     /** One box scan: target cells for `mode`, plus the eye position they were measured from. */

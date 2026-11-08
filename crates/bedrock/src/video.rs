@@ -3323,7 +3323,12 @@ fn compose2(version: &str, plan: &Plan, o: &VideoOptions) -> Result<()> {
         let raw = duration(&path)?;
         let words: usize = seg.caption.iter().map(|c| c.split_whitespace().count()).sum();
         let need = if words > 6 { words as f64 * 0.3 + 1.5 } else { 1.2 };
-        let mut speed = seg.speed.max(raw / budget(&seg.file));
+        // The segments the narration calls real time (first conversion, the loop, the
+        // reveal/hook) must stay at their recorded speed: a budget must never turn
+        // them into a time-lapse with a ×N badge contradicting the caption.
+        let stem = seg.file.splitn(2, '-').nth(1).unwrap_or("").trim_end_matches(".mkv");
+        let realtime = matches!(stem, "hook" | "first-trip" | "loop-mine" | "loop-throw" | "loop-result" | "reveal");
+        let mut speed = if realtime { seg.speed } else { seg.speed.max(raw / budget(&seg.file)) };
         if raw / speed < need && raw / need >= 1.0 {
             speed = raw / need;
         }
