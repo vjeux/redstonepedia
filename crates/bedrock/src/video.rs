@@ -2402,6 +2402,7 @@ fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
     // One continuous laying path (each placement beside the last; a jump back north
     // for the east column after finishing in the south made its first placement fail):
     // east-side route supports southward, then the branch stand rows northward.
+    strip.push((c.dix + 3, c.doz_a + 1));
     for z in c.doz_a + 2..=c.doz_b + 1 {
         strip.push((c.dix + 3, z));
     }
@@ -2463,6 +2464,15 @@ fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
     for x in c.dix + 1..=c.dix + 3 {
         p.place_at("overworld", [x, 3, c.doz_a + 2], "minecraft:redstone_wire", None)?;
     }
+    // Each dropper is fired by a repeater pointing into its east face: the junction
+    // dust west/south of a dropper does not power it in 26.3 (measured in-world: the
+    // corner dust beside dropper A sat at power 9 and it never triggered; the same
+    // line through an east-side repeater fires it). A's repeater is fed by the
+    // branch row turning back north here.
+    p.place_at("overworld", [c.dix + 3, 3, c.doz_a + 1], "minecraft:redstone_wire", None)?;
+    p.hold("repeater")?;
+    p.place_at("overworld", [c.dix + 2, 3, c.doz_a + 1], "minecraft:repeater", Some((90.0, 20.0)))?;
+    p.select(SLOT_REDSTONE)?;
     for z in c.doz_a + 3..=c.doz_b + 1 {
         if z == c.doz_a + 5 {
             p.hold("repeater")?;
@@ -2472,7 +2482,9 @@ fn build_machine(p: &mut Prod, c: &V2Coords) -> Result<()> {
         }
         p.place_at("overworld", [c.dix + 3, 3, z], "minecraft:redstone_wire", None)?;
     }
-    p.place_at("overworld", [c.dix + 2, 3, c.doz_b + 1], "minecraft:redstone_wire", None)?;
+    p.hold("repeater")?;
+    p.place_at("overworld", [c.dix + 2, 3, c.doz_b + 1], "minecraft:repeater", Some((90.0, 20.0)))?;
+    p.select(SLOT_REDSTONE)?;
     // The dropper at portal A, facing north into its interior, loaded with cobblestone.
     p.hold("dropper")?;
     p.place_at("overworld", [c.dix + 1, 3, c.doz_a + 1], "minecraft:dropper", Some((0.0, 5.0)))?;
