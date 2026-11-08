@@ -42,14 +42,12 @@ the track notebooks ([tracks/README.md](designs/piston-door-3x3/tracks/README.md
 - Work in your own clone (`~/agents/<track>/minecraft-tas`) on branch `explore/<track>`; never
   push to main or to another agent's branch. Push:
   `git -c http.extraHeader="Authorization: Basic $(printf 'vjeux:%s' "$(gh auth token)" | base64 -w0)" push origin HEAD:refs/heads/explore/<track>`
-- Gate every push on the build (`cargo build --release` ends with `Finished`), on no merge
+- Gate every push on the build (`cargo build --release` ends with `Finished`) and on no merge
   markers ANYWHERE the merge touched — `git grep -n '^<<<<<<< ' -- crates docs designs` (the selftest's own marker fixture aside), since a
   marker in a design file broke the site build on 2026-10-20 and `crates/`+`docs/` alone missed
-  it (the judge now refuses such a file: `designs/circuits/selftest/merge-markers.txt`) — and on
-  `mctas door selftest --quick` (every line PASS,
-  ~40 s, run from the repository root). A change to a search, judge, model or wiring tool also
-  runs the full `mctas door selftest` (~2 min) before its push; a known answer that changes on
-  purpose is updated in `crates/piston-door/src/selftest.rs` in the same commit, with the reason.
+  it (the judge now refuses such a file: `designs/circuits/selftest/merge-markers.txt`).
+- Tests belong to the session that changes the code (vjeux 2026-11-08): the session that changes the redstone simulator runs the simulator tests to make sure its changes are safe; the session that changes a farm runs the farm tests to make sure the farm is working. Run the tests relevant to the change, not everything for every change; report them (which tests, on which tree) with the push. There is no central authority running tests, and no scheduled test jobs. A known answer that changes on purpose is updated in `crates/piston-door/src/selftest.rs` in the same commit, with the reason.
+- The site push (deploy) requires no tests: the coordinator deploys from main with build + publish only.
 - Keep your track's files in `designs/piston-door-3x3/tracks/<track>/`: `BEST.txt` (your best
   verified design), `NOTES.md` (what you tried, what worked, what did not, and why), `archive/`.
   Add your track's line to `designs/piston-door-3x3/tracks/README.md`.
