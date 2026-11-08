@@ -11,6 +11,7 @@
 //!                                           when Google expires it: Testing apps, 7 days)
 //!   ytup whoami                             the authorized channel (title, id, handle)
 //!   ytup list [--max N]                     the channel's latest uploads with their privacy
+//!   ytup show --id ID                       one video read back (metadata, privacy, thumbnail)
 //!   ytup upload --file F --title T --description-file D [--tags a,b] [--category 20]
 //!               [--privacy private|unlisted|public] [--thumbnail P] [--made-for-kids]
 //!               [--allow-duplicate]         resumable; private unless told otherwise; a rerun
@@ -209,6 +210,23 @@ fn run(args: &[String]) -> Result<()> {
             Ok(())
         }
         "upload" => cmd_upload(args),
+        "show" => {
+            // Read a video back: what the channel's viewers would get (title, description,
+            // tags, category, audience, privacy, processing, thumbnail).
+            let tok = api::access_token()?;
+            let id = flag(args, "--id").ok_or_else(|| anyhow::anyhow!("--id"))?;
+            let v = api::video(&tok, &id)?.ok_or_else(|| anyhow::anyhow!("no video {id} on the channel"))?;
+            let (sn, st) = (&v["snippet"], &v["status"]);
+            let desc = sn["description"].as_str().unwrap_or("");
+            println!("title: {}", sn["title"].as_str().unwrap_or(""));
+            println!("description: {} chars, first line {:?}", desc.chars().count(), desc.lines().next().unwrap_or(""));
+            println!("tags: {}", sn["tags"].as_array().map(|a| a.iter().filter_map(|t| t.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default());
+            println!("category: {}  language: {}", sn["categoryId"].as_str().unwrap_or(""), sn["defaultAudioLanguage"].as_str().unwrap_or(""));
+            println!("privacy: {}  made for kids: {}  upload: {}  processing: {}", st["privacyStatus"], st["madeForKids"], st["uploadStatus"], v["processingDetails"]["processingStatus"]);
+            let th = &sn["thumbnails"];
+            println!("thumbnails: {}", ["default", "medium", "high", "standard", "maxres"].iter().filter(|k| th.get(**k).is_some()).copied().collect::<Vec<_>>().join(" "));
+            Ok(())
+        }
         _ => {
             println!("{}", include_str!("main.rs").lines().take_while(|l| l.starts_with("//!")).map(|l| l.trim_start_matches("//!").trim_start_matches(' ')).collect::<Vec<_>>().join("\n"));
             Ok(())
