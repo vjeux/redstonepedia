@@ -1324,9 +1324,15 @@ kick) before the first input.
   the design's `afk:` (creative counts for spawning); Hard, natural monsters on, phantoms,
   patrols and traders off (as the terrain judge); simulation distance 10 (every chunk within 128
   of the bot ticks, as redsim's natural spawning); only the farm's box forced (forced chunks spawn
-  too). The samples read only the farm's own entities (summoned with the tag `mf`), witches, zombie
-  villagers and items within 8 blocks of the box, and the golems first seen inside the farm (the
-  village's golem is not the farm's). The rates are redsim's terrain runs at the same Site. A
+  too). The samples read only the farm's own entities (summoned with the tag `mf`; a converted
+  villager keeps it, so its witches and zombie villagers are the farm's), items within 8 blocks of
+  the box, and the golems first seen inside the farm (the village's golem is not the farm's); a
+  trap horse is a `SkeletonTrap` one on the farm (the horsemen of a trap triggered elsewhere ride
+  to the AFK player and are not counted); a run whose AFK bot is no longer on the server fails as
+  a harness failure (the chunks around the farm would unload). The paste takes the farm's box and
+  3 around it plus the Site's seals and caps. `circuit verify` and `circuit archive` run a design
+  made for terrain (`terrain: cells`, `sample:`) through this mode, and say where the kept world is
+  missing. The rates are redsim's terrain runs at the same Site. A
   terrain build-day takes about 160 s (the village and every chunk within 128 tick); D1U's first
   run, 1 day: 39.0 golems/h vs redsim 29.4 (95% for one run 4.1-54.6), the zombie unhurt, 4.00
   iron per dead golem. Why this size (the void gate): one

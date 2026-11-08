@@ -531,6 +531,7 @@ fn terrain_built(spec: &FarmSpec, site: &redsim::entity::mob::site::Site, o: &Ru
         }
     }
     cells.extend(site.fills.iter().copied().filter(|p| !inside(p)));
+    cells.extend(site.seals.iter().map(|(p, _)| *p).filter(|p| !inside(p)));
     let detectors: Vec<([i32; 3], String)> = spec.blocks.iter().filter(|(_, b)| matches!(b, redsim::Block::DaylightDetector { .. })).map(|(p, b)| ([p.x, p.y, p.z], b.to_string())).collect();
     let mut blocks = Vec::new();
     let mut watch = Vec::new();
@@ -746,6 +747,11 @@ fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, 
                 }
                 watch = still;
             }
+            // the AFK bot still on the server (a bot dropped under load would let the chunks
+            // around the farm unload: the golems' spawn spots there fail; a harness failure)
+            if t % 1000 == 0 && !s.cmd("list")?.contains("mctas_bot") {
+                run.fail(format!("gt {t}: the AFK bot is no longer on the server (a harness failure, not the farm's: the chunks around the farm unload)"));
+            }
             if o.trace && t % 1000 == 0 {
                 eprintln!("{label} gt {t}: {} golems, {} dead, failures {:?}", run.golems, run.deaths, run.failures);
                 // every entity near the farm by type (a natural mob wandering in, a stray golem)
@@ -849,7 +855,9 @@ fn sample(
         run.broken.get_or_insert(window);
     }
     let mut traps = 0;
-    for a in entity_answers(&s.cmd_long("execute as @e[type=minecraft:skeleton_horse] run data get entity @s Pos")?) {
+    // a trap horse a bolt left (`SkeletonTrap`: the horsemen a triggered trap spawns are not
+    // traps; in a terrain sample they ride to the AFK player from wherever the bolt fell)
+    for a in entity_answers(&s.cmd_long("execute as @e[type=minecraft:skeleton_horse,nbt={SkeletonTrap:1b}] run data get entity @s Pos")?) {
         if let Some(p) = list_after(&format!("Pos:{}", a.trim()), "Pos")
             && p.len() == 3
             && p[0] >= spec.lo.x as f64 - 2.0
@@ -991,7 +999,13 @@ pub fn confirm(c: &Circuit, version: &str, mut rep: crate::verify::VerifyReport)
     if !rep.pass {
         return Ok(rep);
     }
-    let g = gate(c, &GateOpts::new(version))?;
+    // a design made for terrain (`terrain: cells`, `sample:`) runs in its sample's kept world (the
+    // gate's terrain mode; the kept world must be on this box: the gate says where it looks)
+    let mut go = GateOpts::new(version);
+    if let Some(sample) = crate::mobfarm::terrain_sample(c).map_err(|e| anyhow!(e))? {
+        go.terrain = Some(sample.name.to_string());
+    }
+    let g = gate(c, &go)?;
     if g.passed() {
         for b in rep.builds.iter_mut() {
             if let Ok(k) = b.result.as_mut()
