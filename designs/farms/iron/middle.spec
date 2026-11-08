@@ -12,15 +12,19 @@
 farm: iron
 stage: middle
 
-# 1. Net iron per hour: the expected iron collected per hour over one game day from the running
-#    farm, the weather cycle and natural spawning on Hard included; a break (a villager killed or
-#    turned, the zombie lost, a part burnt) stops it for the rest of that day. Player: "a steady
-#    supply: hoppers for the other farms, rails, anvils, a beacon's blocks".
-objective: max iron_per_hour
-# 2. The build in minutes: placing, digging and getting every item at MIDDLE prices
+# 1. Net iron per hour PER MODULE, at the farm's own N (brief: Stages, Common, "A farm and its
+#    N": builds that differ only in how many copies of one stacked unit they hold are one farm,
+#    compared at the smallest N whose iron per hour per build minute is within 10% of its best on
+#    the curve; the card prints the curve and the player picks N): the expected iron collected per
+#    hour over one game day from the running farm, the weather cycle and natural spawning on Hard
+#    included; a break (a villager killed or turned, the zombie lost, a part burnt) stops it for
+#    the rest of that day. Player: "a steady supply: hoppers for the other farms, rails, anvils, a
+#    beacon's blocks; each module costs its villagers and its zombie".
+objective: max iron_per_hour_per_module
+# 2. The build in minutes PER MODULE: placing, digging and getting every item at MIDDLE prices
 #    (designs/farms/prices.tsv: iron tools, 8 furnaces, the Nether, a day-1 farm's iron; a lava
 #    trip 60 s, a villager moved 180 s). Player: "the time it takes to build".
-objective: min build_minutes
+objective: min build_minutes_per_module
 
 # real: the middle player has the Nether but not the End (no shulker box, no end rod)
 constraint: materials <= nether

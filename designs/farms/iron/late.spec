@@ -13,16 +13,19 @@
 farm: iron
 stage: late
 
-# 1. Net iron per hour over 8 h AFK: from the running farm, the weather cycle and natural
-#    spawning on Hard included; a break stops it for the rest of the 8 h; iron the storage
-#    cannot hold is lost. Player: "what one night AFK brings".
-objective: max iron_per_hour
-# 2. The build in minutes: placing, digging and getting every item at LATE prices
+# 1. Net iron per hour PER MODULE over 8 h AFK, at the farm's own N (brief: Stages, Common, "A
+#    farm and its N": builds that differ only in how many copies of one stacked unit they hold are
+#    one farm, compared at the smallest N whose iron per hour per build minute is within 10% of its
+#    best on the curve; the card prints the curve and the player picks N): from the running farm,
+#    the weather cycle and natural spawning on Hard included; a break stops it for the rest of the
+#    8 h; iron the storage cannot hold is lost. Player: "what one night AFK brings".
+objective: max iron_per_hour_per_module
+# 2. The build in minutes PER MODULE: placing, digging and getting every item at LATE prices
 #    (designs/farms/prices.tsv: farms and super smelters for every material, a lava trip 30 s, a
 #    villager delivered by a breeder 60 s). Player: "the effort". Iron per hour per block is
 #    printed on every member; the best iron per hour per BUILD MINUTE is always on this front,
 #    and the per-block best is listed beside the front when it falls off it.
-objective: min build_minutes
+objective: min build_minutes_per_module
 # 3. The bounding box's volume per module. Player: "the room it takes beside the other farms
 #    around the AFK spot"; it falls as modules share parts (vjeux 04:26: "keeping it small").
 objective: min volume_per_module

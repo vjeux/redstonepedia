@@ -32,7 +32,9 @@ objective: max iron_per_hour
 # detector) and no slime
 constraint: materials <= day-1
 # real: the village-edge sample's village has 8 villagers (asleep in their 8 beds); at least 3
-# make a cluster, so this also allows at most 2 clusters (no separate module limit)
+# make a cluster, so this also allows at most 2 clusters (no separate module limit). A farm and a
+# second copy of its unit are one farm (brief: Common, "A farm and its N"): compared at one unit
+# (T is a whole build), the second unit's T and iron per hour printed on its card.
 constraint: villagers <= 8
 
 # real (vjeux 04:22): a day-1 farm stands in real terrain by the village it takes its villagers
