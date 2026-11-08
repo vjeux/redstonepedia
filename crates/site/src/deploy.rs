@@ -165,6 +165,16 @@ fn on_github(remote: &str) -> bool {
     git(&["remote", "get-url", remote], &[], None).unwrap_or_else(|_| remote.to_string()).contains("github.com")
 }
 
+/// `http.extraHeader=Authorization: Basic ...` for `git -c`: the push recipe of AGENTS.md, with
+/// the token of `gh auth token` (`required`: fail without one; a local mirror needs none).
+pub fn auth_header(required: bool) -> Result<String> {
+    let token = Command::new("gh").args(["auth", "token"]).output().ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
+    if token.is_empty() && required {
+        bail!("no GitHub token (`gh auth token`)");
+    }
+    Ok(format!("http.extraHeader=Authorization: Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("vjeux:{token}"))))
+}
+
 pub fn deploy(a: &DeployArgs) -> Result<()> {
     let dir = a.dir.canonicalize().with_context(|| format!("{}", a.dir.display()))?;
     if !dir.join("index.html").exists() || !dir.join("data/site.json").exists() {
@@ -245,11 +255,7 @@ pub fn deploy(a: &DeployArgs) -> Result<()> {
         guard_contains(a)?;
     }
     let github = on_github(&a.remote);
-    let token = Command::new("gh").args(["auth", "token"]).output().ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
-    if token.is_empty() && github {
-        bail!("no GitHub token (`gh auth token`)");
-    }
-    let header = format!("http.extraHeader=Authorization: Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("vjeux:{token}")));
+    let header = auth_header(github)?;
     let refspec = format!("+{commit}:refs/heads/{}", a.branch);
     let tref = transport_ref(&a.branch);
     // GitHub sometimes rejects a large push once ("remote rejected ... (failed)"): retry; the

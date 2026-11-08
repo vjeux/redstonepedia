@@ -140,6 +140,7 @@ generates and the one-line `import init ...; init();` each page uses to start a 
 | command | what it does |
 |---|---|
 | `mctas site publish` | THE command after merging into main: `build` (all defaults) + `deploy`. No browser end-to-end gate (vjeux 2026-10-20 14:20Z: "Please remove the e2e tests"); the smoke below is an optional dev tool |
+| `mctas site preview <design>... [--name <slug>]` | shows a work-in-progress design to vjeux in under a minute, from any lane's own branch ([Previews](#previews)): its page, 3D view, card and downloads at `https://vjeux.github.io/redstonepedia-preview/<slug>/<file>.html`; prints the URL and the seconds from the command's start to the page answering |
 | `mctas site build --out site/` | exports `site/data/site.json`, one page per build (`doors/<stem>.html`, `clocks/<stem>.html`, `circuits/<study>/<stem>.html`) and per extendable family (`families/<card>.html`), the boards page, the design files (`designs/...`) with a Litematica schematic next to each (`<stem>.litematic`, [litematic.md](litematic.md); one that cannot be written fails the build), generates every family member with the family's own `extend generator` and checks it in redsim, builds the UI into `pkg/`, copies webrender's 3D viewer (`web/viewer/` of the checkout by default; `--viewer <dir>`, `--viewer-ref <git ref>`, `--no-viewer`) into `viewer/`; `--pkg-ref origin/gh-pages` reuses the deployed UI instead of building it, only when its `pkg/SOURCE` fingerprint matches the checkout's `web/site` + `crates/site-model` (else the build fails: rebuild with the wasm32 target and wasm-bindgen-cli 0.2.129) |
 | `mctas site serve --dir site/ [--port 8000]` | local preview (static server on 127.0.0.1) |
 | `mctas site smoke --dir site/ [--url <deployed site>]` | headless Chrome (`--dump-dom`) loads the index, a time search, a facet link, a door page and a family page and checks the DOM the WebAssembly UI built against the engine's own answers; two probe pages screenshot a door and a clock thumbnail through the 3D viewer (WebGL2 in SwiftShader) and count colors (a render has thousands, the fallback one); `--url` checks the live site. `mctas site publish` refuses to deploy without it (`--no-smoke` overrides) |
@@ -155,6 +156,61 @@ Needs: `rustup target add wasm32-unknown-unknown` and the wasm-bindgen CLI of th
 build checks both. `--no-wasm` skips the UI, `--pkg <dir>` takes a prebuilt one. `smoke` uses
 Chrome for Testing's `chrome-headless-shell` (`--chrome`, `$CHROME`, or unpacked in `~/tools`).
 Validate the HTML with the Nu checker: `vnu --errors-only --skip-non-html site/`.
+
+### Previews
+
+`mctas site preview` (`crates/site/src/preview.rs`). To show vjeux a design you are working on (vjeux 2026-11-08: "push farms to the site in less than
+a minute. I want to be able to see them in order to iterate with you"), run, from your own branch:
+
+    mctas site preview designs/circuits/mobfarm/tracks/ironfarm/d1-bed-plate.txt [more designs] [--name <slug>]
+
+and send him the URL it prints. No merge, no review, no coordinator GO and no tests: a preview is
+work in progress for the owner to look at. Publishing to the site itself stays the coordinator's
+`mctas site publish`.
+
+- **What it shows**: the site's own build page for each design as it is in your checkout, archived
+  or not, judged or not: the 3D view running it (your checkout's `web/viewer/` bundle: the mob farms
+  run their redsim farm), the card's numbers, the design file and its Litematica download. The
+  numbers are the archive's verdict when the same structure is archived; else the kind's own judge
+  on redsim, exactly `mctas circuit sim` (cached in the site cache's `preview` domain: a design
+  costs its judge once); else none (a kind judged only in the game says so). A judge slower than
+  `--judge-timeout` (25 s) does not hold the page: it goes up without numbers, then again with them.
+  Circuit designs only (a `circuit:` line).
+- **Where**: its own repository, [vjeux/redstonepedia-preview](https://github.com/vjeux/redstonepedia-preview),
+  whose GitHub Pages an Actions workflow deploys on every push (checkout, upload-pages-artifact,
+  deploy-pages: no shell step, and no 10-builds-an-hour cap, which the site's branch builds have).
+  `<slug>/<file>.html` per design (`--name`, default the first design's file name); the index
+  `https://vjeux.github.io/redstonepedia-preview/` lists every preview with its card's status, its
+  time, the branch and commit it came from and its design's hash and commit. The viewer, textures
+  and stylesheet are stored by content hash (`viewer/<hash>/`...), so every preview keeps the viewer
+  it was made with.
+- **Never the site**: a preview never touches `gh-pages`, `crates/site/published.tsv` or the site's
+  Pages build budget, and the site never links to it. The no-dead-links rule is the site's, not the
+  previews'.
+- **Labelled**: every preview page leads with the status label "Preview: not judged / not verified"
+  and its card's status (archived; passes or fails its kind's judge on redsim; not judged), and says
+  where its numbers come from instead of the site's "tested in the real game" sentences
+  (`pages::Preview`, `pages::claims_game`). This is the status of unpublished work, not a caveat on
+  a published page.
+- **Out of search**: `noindex, nofollow` on every page, `robots.txt` disallows everything, no
+  sitemap.
+- **Nothing internal**: the repository is public. Every text file a push writes and its commit
+  message are checked for internal names first (`preview::internal_names`: company host and tool
+  names, session ids, diff numbers); a hit refuses the push and names it (take it out of the
+  design's comments).
+- **Cleanup**: a new preview under a name replaces the old one; every preview removes the previews
+  older than `--older-than` days (14) and the shared files nobody uses any more; `--clean` alone
+  prunes. Two lanes pushing at once: the second is rebuilt on the first's commit (never a force
+  push).
+- **Time**: measured from the command's start to the page answering 200 with its new content
+  (the command polls it and prints the seconds): 25.9 s for the first preview (it uploaded the 11 MB
+  viewer and textures; the workflow took 21 s), 34.9 s for two designs never judged before (their
+  redsim judges and cold render 19.6 s, the push 1.9 s), 46.2 s for three never-judged iron farms.
+  A design already judged renders in under a second, so a re-preview costs the push and the
+  deploy, about 20 s.
+- `--out <dir>` writes the preview as it would be served instead of pushing it (for `mctas site
+  smoke --dir <dir> --engine webkit --page <slug>/<file>.html`); `--no-wait` returns after the
+  push; `--setup` created the repository and turned its Pages on (once).
 
 ### Build time: the simulation cache (`crates/site/src/cache.rs`)
 

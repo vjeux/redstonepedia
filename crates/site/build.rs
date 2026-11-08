@@ -22,6 +22,10 @@ const DOMAINS: &[(&str, &[&str], &str)] = &[
     ("GEN_ALL", &["clock-item", "clock-misc", "clock-obs", "clock-rt", "clock-sculk"], "members.rs"),
     // the circuit judge's run of a design (its timing diagram, metrics, verdict)
     ("CIRCUIT", &["mctas", "redsim", "clock", "circuit"], "judge.rs"),
+    // a work-in-progress design's verdict for `mctas site preview` (the kind's redsim judge): the
+    // judge's crates too, its own file (declared from lib.rs, so src/simulate/mod.rs, which every
+    // domain hashes, stays as it is): it never recomputes the build's circuit runs
+    ("PREVIEW", &["mctas", "redsim", "clock", "circuit"], "preview.rs"),
     // the 3D view's own session (whether it runs a design, a shulker machine's run, where a
     // circuit's demo stops, a clock's chart and lamp check, a thumbnail's still frame)
     ("VIEW", &["redsim", "mcview"], "view.rs"),

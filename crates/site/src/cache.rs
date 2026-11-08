@@ -24,9 +24,11 @@ pub enum Domain {
     Circuit,
     /// The 3D view's own session (a circuit's view check, a clock's chart and lamp check).
     View,
+    /// A work-in-progress design's verdict for `mctas site preview` (src/simulate/preview.rs).
+    Preview,
 }
 
-const ALL: [Domain; 3] = [Domain::Members, Domain::Circuit, Domain::View];
+const ALL: [Domain; 4] = [Domain::Members, Domain::Circuit, Domain::View, Domain::Preview];
 
 impl Domain {
     fn name(self) -> &'static str {
@@ -34,6 +36,7 @@ impl Domain {
             Domain::Members => "members",
             Domain::Circuit => "circuit",
             Domain::View => "view",
+            Domain::Preview => "preview",
         }
     }
 
@@ -42,6 +45,7 @@ impl Domain {
             Domain::Members => env!("SITE_CODE_MEMBERS"),
             Domain::Circuit => env!("SITE_CODE_CIRCUIT"),
             Domain::View => env!("SITE_CODE_VIEW"),
+            Domain::Preview => env!("SITE_CODE_PREVIEW"),
         }
     }
 
@@ -57,12 +61,12 @@ impl Domain {
 
 struct Cache {
     root: Option<PathBuf>,
-    hits: [AtomicUsize; 3],
-    misses: [AtomicUsize; 3],
+    hits: [AtomicUsize; 4],
+    misses: [AtomicUsize; 4],
     /// Milliseconds spent computing each domain's misses (summed over threads).
-    busy_ms: [AtomicU64; 3],
+    busy_ms: [AtomicU64; 4],
     /// Each domain's slowest computations: (seconds, what).
-    slowest: [Mutex<Vec<(f64, String)>>; 3],
+    slowest: [Mutex<Vec<(f64, String)>>; 4],
     tmp: AtomicU64,
 }
 
@@ -208,6 +212,8 @@ pub fn report() -> String {
                 "cache ({}): {}",
                 root.display(),
                 ALL.iter()
+                    // (a domain this run never asked for: no line, the previews' in a site build)
+                    .filter(|d| c.hits[d.index()].load(Ordering::Relaxed) + c.misses[d.index()].load(Ordering::Relaxed) > 0 || **d != Domain::Preview)
                     .map(|d| format!("{} {} reused, {} computed ({:.0} thread-s)", d.name(), c.hits[d.index()].load(Ordering::Relaxed), c.misses[d.index()].load(Ordering::Relaxed), c.busy_ms[d.index()].load(Ordering::Relaxed) as f64 / 1000.0))
                     .collect::<Vec<_>>()
                     .join(" · ")
