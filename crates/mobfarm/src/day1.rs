@@ -1867,7 +1867,9 @@ pub fn collect_bottom(b: &mut Builder, y_land: i32) {
 pub fn collect_bottom_at1(b: &mut Builder, y_land: i32) {
     let yl = y_land - 1;
     let dust = "redstone_wire[east=side,north=side,power=0,south=side,west=side]";
-    let named = |item: &str, name: &str, n: i32| format!("{{Items:[{{Slot:0b,id:\"minecraft:{item}\",count:{n}}},{}]}}", (1..=4).map(|k| format!("{{Slot:{k}b,id:\"minecraft:paper\",count:1,components:{{\"minecraft:custom_name\":\"{name}\"}}}}")).collect::<Vec<_>>().join(","));
+    // the filter's stock (farmopt 22:51, measured on its late pair: 1,110 s at middle against 1,786): 41 of
+    // its item and 4 plain sticks (no anvil, no named paper; the farm drops no stick), the lock empty
+    let named = |item: &str, _name: &str, n: i32| format!("{{Items:[{{Slot:0b,id:\"minecraft:{item}\",count:{n}}},{}]}}", (1..=4).map(|k| format!("{{Slot:{k}b,id:\"minecraft:stick\",count:1}}")).collect::<Vec<_>>().join(","));
     // a sorter slice (sorter-classic) with its filter hopper A at `a`, its redstone running south
     // (dz 1) or, mirrored, north (dz -1): (sx, sy, sz) -> a + (sx, sy - 2, dz sz)
     let slice = |b: &mut Builder, a: [i32; 3], dz: i32, item: &str, tag: &str| {
@@ -1885,7 +1887,6 @@ pub fn collect_bottom_at1(b: &mut Builder, y_land: i32) {
             s(b, sx, sy, sz, dust);
         }
         b.d.block_entities.insert(a, named(item, &format!("{tag} filter"), 41));
-        b.d.block_entities.insert([a[0], a[1] - 1, a[2]], named(item, &format!("{tag} lock"), 64));
     };
     // the line hopper L under the chute pushes east into the poppy slice's filter hopper (which
     // takes nothing but poppies) and the iron slice's filter under L pulls the iron: no drop can
