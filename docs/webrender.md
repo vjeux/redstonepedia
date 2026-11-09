@@ -831,6 +831,12 @@ clocks 120 gt; entity, TNT and shulker designs 400 gt) and fails on any differen
   environment fog (spherical distance, linear from 0 to 1024 blocks) and the render distance's
   (cylindrical distance `max(|xz|, |y|)`, from 6 chunks minus a tenth to 6 chunks; a zoomed-out
   camera pushes the render distance back so the build is never cut), toward the sky colour.
+  The sky is drawn after the opaque faces, with a depth test (only a sample still at the far
+  plane takes it), before the translucent ones: the same picture as drawing it first under
+  everything (`framecost --check` compares every frame with `Renderer::sky_first`, the order of
+  before: 0 pixels), its shader (the gradient, the stars, the sun and the moon) run on the sky's
+  samples alone. 2026-11-09 (part 8): a frame's draw step in WebKit at phone size 14.2-14.4
+  against 15.0-15.5 ms on D1U, 14.3-14.6 against 15.0-15.4 on bed-plate-two-clusters.
   The varyings are sampled at the centroid of the samples a triangle covers in a pixel, not at
   the pixel's centre (2026-11-08: an edge pixel read the atlas sprite next to its face, a line of
   that colour along every block edge, a grid on a stone wall, or a texel the alpha test drops, a

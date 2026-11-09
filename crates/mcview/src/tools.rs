@@ -842,6 +842,9 @@ pub struct FrameCost {
     /// (`Renderer::carry_cull`, checked with `check` too), and the last one's triangles kept.
     pub carried: u32,
     pub carried_kept: usize,
+    /// With `check`: the most pixels a frame drawn whole differs by from the same frame with the
+    /// sky drawn first, under everything (`Renderer::sky_first`: the order of before).
+    pub sky_differing: usize,
 }
 
 /// A live viewer of `text` at `width x height` device pixels (`dpr`: its CSS size is that / dpr),
@@ -930,9 +933,15 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
             let culled = off.render(&frame)?;
             let saved = (off.r.fixed_visible.take(), off.r.fixed_blend_visible.take());
             let whole = off.render(&frame)?;
+            // (the sky drawn first, under everything, as before: the same pixels)
+            off.r.sky_first = true;
+            let sky_first = off.render(&frame)?;
+            off.r.sky_first = false;
             (off.r.fixed_visible, off.r.fixed_blend_visible) = saved;
             let differing = culled.chunks(4).zip(whole.chunks(4)).filter(|(a, b)| a != b).count();
             c.differing = c.differing.max(differing);
+            let sky = sky_first.chunks(4).zip(whole.chunks(4)).filter(|(a, b)| a != b).count();
+            c.sky_differing = c.sky_differing.max(sky);
         }
         if k > 0 {
             c.mesh_ms += (t1 - t0).as_secs_f64() * 1000.0;

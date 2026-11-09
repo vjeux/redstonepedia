@@ -887,7 +887,8 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
                         }
                         if check {
                             println!("  {}: the most pixels a culled frame differs by from the same frame drawn whole: {}", if c.differing == 0 { "ok" } else { "FAIL" }, c.differing);
-                            bad += (c.differing > 0) as usize;
+                            println!("  {}: the most pixels a frame differs by from it with the sky drawn first: {}", if c.sky_differing == 0 { "ok" } else { "FAIL" }, c.sky_differing);
+                            bad += (c.differing > 0 || c.sky_differing > 0) as usize;
                         }
                     }
                     Err(e) => {

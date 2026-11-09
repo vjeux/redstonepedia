@@ -260,6 +260,10 @@ pub struct Renderer {
     solid: wgpu::RenderPipeline,
     blend: wgpu::RenderPipeline,
     sky: wgpu::RenderPipeline,
+    /// The sky drawn first under everything (the order of before: `sky_first`, for a check that
+    /// drawing it last changes no pixel: `tools::frame_cost`).
+    sky_always: wgpu::RenderPipeline,
+    pub sky_first: bool,
     uniforms: wgpu::Buffer,
     bind: wgpu::BindGroup,
     /// Multisampled color + depth targets for the current size.
@@ -460,15 +464,15 @@ impl Renderer {
         };
         let solid = pipeline("fs_solid", false, "solid");
         let blend = pipeline("fs_blend", true, "blend");
-        let sky = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("sky"),
+        let sky_pipeline = |compare: wgpu::CompareFunction, label: &str| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(label),
             layout: Some(&layout),
             vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_sky"), compilation_options: Default::default(), buffers: &[] },
             primitive: Default::default(),
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth24Plus,
                 depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::Always),
+                depth_compare: Some(compare),
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
@@ -482,7 +486,10 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
-        Renderer { device, queue, format, samples, solid, blend, sky, uniforms, bind, targets: None, vbuf: None, fixed: None, fixed_visible: None, fixed_visible_cpu: None, fixed_provisional: false, fixed_blend: None, fixed_blend_visible: None, fixed_blend_visible_cpu: None, last_exact_kept: 0, carried_kept: 0, occluders: None, cull: None, tiles: tex, tiles_view: view, bgl, sampler, game_tex, game_of, view_chunks: None, void_below: false, env: None }
+        // (drawn after the opaque faces: only where the depth is still the far plane's)
+        let sky = sky_pipeline(wgpu::CompareFunction::LessEqual, "sky");
+        let sky_always = sky_pipeline(wgpu::CompareFunction::Always, "sky (first)");
+        Renderer { device, queue, format, samples, solid, blend, sky, sky_always, sky_first: false, uniforms, bind, targets: None, vbuf: None, fixed: None, fixed_visible: None, fixed_visible_cpu: None, fixed_provisional: false, fixed_blend: None, fixed_blend_visible: None, fixed_blend_visible_cpu: None, last_exact_kept: 0, carried_kept: 0, occluders: None, cull: None, tiles: tex, tiles_view: view, bgl, sampler, game_tex, game_of, view_chunks: None, void_below: false, env: None }
     }
 
     fn bind_group(device: &wgpu::Device, bgl: &wgpu::BindGroupLayout, uniforms: &wgpu::Buffer, tiles: &wgpu::TextureView, sampler: &wgpu::Sampler, game: &wgpu::Texture) -> wgpu::BindGroup {
@@ -901,8 +908,13 @@ impl Renderer {
                 multiview_mask: None,
             });
             pass.set_bind_group(0, &self.bind, &[]);
-            pass.set_pipeline(&self.sky);
-            pass.draw(0..3, 0..1);
+            // the sky first only when asked (`sky_first`: the order of before, for a check); else
+            // after the opaque faces, where none is drawn (its depth test: only a sample still at
+            // the far plane takes it; the same picture, its shader run on the sky alone)
+            if self.sky_first {
+                pass.set_pipeline(&self.sky_always);
+                pass.draw(0..3, 0..1);
+            }
             if let Some((fkey, buf, n)) = self.fixed.as_ref().filter(|f| f.2 > 0) {
                 pass.set_pipeline(&self.solid);
                 pass.set_vertex_buffer(0, buf.slice(..));
@@ -922,6 +934,10 @@ impl Renderer {
             if n_solid > 0 {
                 pass.set_pipeline(&self.solid);
                 pass.draw(0..n_solid, 0..1);
+            }
+            if !self.sky_first {
+                pass.set_pipeline(&self.sky);
+                pass.draw(0..3, 0..1);
             }
             // the still translucent faces kept on the GPU first (sorted back to front; those the
             // camera can see when worked out for it), then the frame's own
