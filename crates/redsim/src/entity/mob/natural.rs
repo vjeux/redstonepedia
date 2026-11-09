@@ -797,7 +797,10 @@ fn create_state(w: &World, nat: &Natural) -> State {
             continue;
         }
         let EntityKind::Mob(m) = &e.kind else { continue };
-        if m.persistence_required || e.vehicle.is_some() {
+        // isPersistenceRequired or requiresCustomPersistence: a passenger, an enderman carrying a
+        // block
+        let carrying = m.ai.as_deref().and_then(|a| a.enderman.as_ref()).is_some_and(|s| s.carried.is_some());
+        if m.persistence_required || e.vehicle.is_some() || carrying {
             continue;
         }
         let cat = category_of(m.ty);
@@ -1105,9 +1108,7 @@ fn spawn_category_for_position(w: &mut World, nat: &Natural, st: &mut State, cat
             }
             // getMobForSpawn: EntityType.create (the bridge's construction seeds count every
             // candidate, the ones isValidPositionForMob rejects included)
-            if w.exact_seed.is_some() {
-                let _ = w.construct();
-            }
+            let ctor = if w.exact_seed.is_some() { Some(w.construct()) } else { None };
             // the mob: snapTo(xx, y, zz, random yaw, 0)
             let yaw = rng(w).next_float() * 360.0;
             // `isValidPositionForMob` sees the new mob as constructed (an adult, a slime of size
@@ -1122,6 +1123,10 @@ fn spawn_category_for_position(w: &mut World, nat: &Natural, st: &mut State, cat
             cluster += 1;
             group_size += 1;
             let id = spawn_mob(w, k, &f, Vec3::new(xx, start.y as f64, zz), yaw);
+            if k.finalize == Finalize::Zombie {
+                let special = special_multiplier(w, nat);
+                zombie_handle_attributes(w, id, ctor, special, k.id != "minecraft:drowned");
+            }
             st.counts[cat as usize] += 1;
             for pi in players_near_chunk(nat, pos.x.div_euclid(16), pos.z.div_euclid(16)) {
                 st.local[pi][cat as usize] += 1;
@@ -1473,6 +1478,64 @@ pub fn portal_piglin(w: &mut World, at: BlockPos) -> Option<u32> {
         }
     }
     Some(id)
+}
+
+/// `Zombie.handleAttributes` from the mob's own random as constructed (an exact world's: the
+/// construction's stream past the constructor's UUID and yaw draws; else the stand-in own random):
+/// `randomizeReinforcementsChance` (a draw unless the type overrides it: the drowned), knockback
+/// resistance, the follow-range bonus (x (1 + f) when f = nextDouble x 1.5 x special exceeds 1),
+/// the leader roll (nextFloat < special x 0.05): its reinforcement bonus, its max health x (1 +
+/// nextDouble x 3 + 1) and full health, and it breaks doors.
+fn zombie_handle_attributes(w: &mut World, id: u32, ctor: Option<crate::rng::LegacyRandom>, special: f32, reinforcements_draw: bool) {
+    let Some(j) = crate::entity::index_of(w, id) else { return };
+    let mut own = match ctor {
+        // the bridge seeds a constructed entity's random after its constructor's draws
+        // (`Sandbox.onConstructed`): finalizeSpawn's own draws start the stream
+        Some(r) => r,
+        None => match w.entities.list[j].random.clone() {
+            Some(r) => r,
+            None => return,
+        },
+    };
+    if reinforcements_draw {
+        own.next_double();
+    }
+    own.next_double(); // knockback resistance
+    let follow = own.next_double() * 1.5 * special as f64;
+    let roll = own.next_float();
+    let leader = roll < special * 0.05;
+    let (bonus, health) = if leader {
+        own.next_double();
+        (true, own.next_double() * 3.0 + 1.0)
+    } else {
+        (false, 0.0)
+    };
+    // a stand-in stream is the entity's own: keep its draws
+    if w.exact_seed.is_none() {
+        w.entities.list[j].random = Some(own);
+    }
+    if let EntityKind::Mob(m) = &mut w.entities.list[j].kind {
+        if follow > 1.0 {
+            m.follow_range *= 1.0 + follow;
+        }
+        if bonus {
+            m.health = (m.ty.def().max_health as f64 * (1.0 + health)) as f32;
+        }
+    }
+    if bonus {
+        set_breaks_doors(w, id);
+    }
+}
+
+/// `Zombie.setCanBreakDoors(true)` of mob `id` (its goal joins, its navigation opens doors).
+fn set_breaks_doors(w: &mut World, id: u32) {
+    if let Some(i) = w.entities.list.iter().rposition(|e| e.id == id)
+        && let EntityKind::Mob(m) = &mut w.entities.list[i].kind
+        && let Some(a) = m.ai.as_deref_mut()
+        && a.nav.kind == super::ai::path::navigation::NavKind::Ground
+    {
+        super::ai::goal::zombie::set_can_break_doors(a, true);
+    }
 }
 
 /// `AbstractSkeleton.finalizeSpawn`; returns its helmet's armor type.
@@ -1905,8 +1968,9 @@ pub fn check_despawn(w: &mut World, i: usize) {
     // (tickexact 2026-11-08: read in place; a clone of the spawner per mob per tick copied its
     // whole event log, quadratic over a run)
     let Some(nat) = w.mob.natural.as_ref() else { return };
+    // (a dying mob too: `Mob.checkDespawn` has no alive test)
     let (ty, persistent, pos, eye, jockey_chicken) = match &w.entities.list[i].kind {
-        EntityKind::Mob(m) if !m.dead => (m.ty, m.persistence_required, w.entities.list[i].pos, m.eye(), m.chicken_jockey),
+        EntityKind::Mob(m) => (m.ty, m.persistence_required, w.entities.list[i].pos, m.eye(), m.chicken_jockey),
         _ => return,
     };
     let Some(k) = kind_of_type(ty) else { return };

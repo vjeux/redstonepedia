@@ -379,6 +379,11 @@ impl Run {
         for (ty, pos, nbt) in &self.spec.entities {
             crate::entity::spawn(w, ty, *pos, nbt.as_deref())?;
         }
+        // each summoned entity (passengers too) was constructed by its type's factory: in an
+        // exact world the bridge's construction count moves on (`Sandbox.onConstructed`)
+        if w.exact_seed.is_some() {
+            w.constructions += (w.entities.next_id - first) as u64;
+        }
         self.own = (first..w.entities.next_id).collect();
         let own = &self.own;
         let slept = w.time - if self.o.slept_rest { (self.o.day0 - 12000).rem_euclid(24000) } else { (self.o.day0 - 10).rem_euclid(24000) };

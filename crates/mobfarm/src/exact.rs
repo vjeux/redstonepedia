@@ -96,7 +96,25 @@ fn trace_probe() -> Option<(Option<u32>, i64)> {
 
 /// (a probe: `MCTAS_EXACT_TRACE="N:T"` prints redsim's draws of entity #N's own random during
 /// game time T, each with its call site; N = level for the level random) Arms it before the tick.
-fn trace_start(w: &redsim::world::World, t: i64) {
+/// Also `MCTAS_EXACT_EXPLAIN="type:x,y,z:T"`: redsim's natural-spawn checks of that type at that
+/// cell before game time T's tick (`natural::explain`).
+fn trace_start(w: &mut redsim::world::World, t: i64) {
+    static EXPLAIN: std::sync::OnceLock<Option<(String, redsim::pos::BlockPos, i64)>> = std::sync::OnceLock::new();
+    if let Some((ty, p, at)) = EXPLAIN
+        .get_or_init(|| {
+            let v = std::env::var("MCTAS_EXACT_EXPLAIN").ok()?;
+            let f: Vec<&str> = v.split(':').collect();
+            let (ty, c, at) = (f.first()?, f.get(f.len().checked_sub(2)?)?, f.last()?);
+            let ty = if f.len() == 4 { format!("{ty}:{}", f[1]) } else { ty.to_string() };
+            let c: Vec<i32> = c.split(',').filter_map(|s| s.parse().ok()).collect();
+            Some((ty, redsim::pos::BlockPos::new(*c.first()?, *c.get(1)?, *c.get(2)?), at.parse().ok()?))
+        })
+        .as_ref()
+        && *at == t
+    {
+        eprintln!("explain at game time {t}: {}", redsim::entity::mob::natural::explain(w, ty, *p));
+    }
+    let w: &redsim::world::World = w;
     let Some((who, at)) = trace_probe().filter(|(_, at)| *at == t) else { return };
     let addr = match who {
         None => w.level_random.as_ref().map(|r| r as *const _ as usize).unwrap_or(0),
@@ -1063,7 +1081,7 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
         let n = left.min(opts.batch);
         for f in game.trace(n, window(t, n))? {
             print(&f);
-            trace_start(&run.world, f.t);
+            trace_start(&mut run.world, f.t);
             let r0 = std::time::Instant::now();
             run.settle_tick();
             redsim::rng::TRACE.store(0, std::sync::atomic::Ordering::Relaxed);
@@ -1091,7 +1109,7 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
         let n = left.min(opts.batch);
         for f in game.trace(n, window(t, n))? {
             print(&f);
-            trace_start(&run.world, f.t);
+            trace_start(&mut run.world, f.t);
             let r0 = std::time::Instant::now();
             run.tick();
             redsim::rng::TRACE.store(0, std::sync::atomic::Ordering::Relaxed);

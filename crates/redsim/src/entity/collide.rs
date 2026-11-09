@@ -1196,8 +1196,12 @@ fn step_on(w: &mut World, i: usize) {
                 e.delta_movement = e.delta_movement.multiply(s, 1.0, s);
             }
         }
-        // ironfarm: magma under a mob (hot floor damage, `MagmaBlock.stepOn`)
+        // ironfarm: magma under a mob (hot floor damage, `MagmaBlock.stepOn`), a terrain world's
+        // magma included
         Block::Simple(crate::block::Simple::MagmaBlock) if matches!(w.entities.list[i].kind, super::EntityKind::Mob(_)) => {
+            super::mob::living::step_on(w, i, Block::Simple(crate::block::Simple::MagmaBlock));
+        }
+        Block::Terrain(id) if crate::terrain::blocks::props(id).block_id() == "minecraft:magma_block" && matches!(w.entities.list[i].kind, super::EntityKind::Mob(_)) => {
             super::mob::living::step_on(w, i, Block::Simple(crate::block::Simple::MagmaBlock));
         }
         Block::Simple(crate::block::Simple::MagmaBlock) if matches!(w.entities.list[i].kind, super::EntityKind::ArmorStand(_)) => {

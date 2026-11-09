@@ -444,9 +444,13 @@ impl Compare {
         }
         let g: BTreeMap<[i32; 3], &String> = game.blocks.iter().map(|(p, s)| (*p, s)).collect();
         let o: BTreeMap<[i32; 3], &String> = ours.blocks.iter().map(|(p, s)| (*p, s)).collect();
+        // both sides' states read the same way: the game's frame text goes through Block::parse
+        // (mobfarm::exact::parse_frame), so redsim's does too (a natural-state table row such as
+        // grass_block[snowy=false] is redsim's GrassBlock there: its bare name)
+        let canon = |s: &str| crate::block::Block::parse(s).map(|b| b.to_string()).unwrap_or_else(|_| s.to_string());
         for p in g.keys().chain(o.keys()).collect::<BTreeSet<_>>() {
             let (a, b) = (g.get(p).map(|s| s.as_str()).unwrap_or("(unchanged)"), o.get(p).map(|s| s.as_str()).unwrap_or("(unchanged)"));
-            if a != b {
+            if a != b && canon(a) != canon(b) {
                 push(format!("block {} {} {}", p[0], p[1], p[2]), "block", a.to_string(), b.to_string(), Vec::new());
             }
         }

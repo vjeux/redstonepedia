@@ -566,7 +566,25 @@ pub fn tick_one(w: &mut World, i: usize) {
     if w.entities.list[i].removed {
         return;
     }
-    // `ServerLevel.tick`: `checkDespawn` before the ticking-range test (terrain mode's natural mobs)
+    // an entity outside the chunks whose sections tick is not in `ServerLevel.entityTickList` (its
+    // section's visibility is TRACKED: `PersistentEntitySectionManager` stops ticking it as it
+    // moves there), so neither its checkDespawn nor its tick runs; the ticking sections are the
+    // bridge's `canSpawnEntitiesInChunk` list when known (the natural spawner's), else the
+    // entity-ticking box
+    let p = w.entities.list[i].pos;
+    let in_tick_list = match w.mob.natural.as_ref().filter(|n| !n.entity_ticking.is_empty()) {
+        Some(n) => {
+            let (cx, cz) = ((p.x.floor() as i64).div_euclid(16) as i32, (p.z.floor() as i64).div_euclid(16) as i32);
+            n.entity_ticking.iter().any(|c| c[0] == cx && c[1] == cz)
+        }
+        None => w.entity_ticks_at(p.x, p.z),
+    };
+    if !in_tick_list {
+        let id = w.entities.list[i].id;
+        w.note_frozen(id);
+        return;
+    }
+    // `ServerLevel.tick`: `checkDespawn` before the passenger test (terrain mode's natural mobs)
     let natural_kind = matches!(&w.entities.list[i].kind, EntityKind::Mob(m) if matches!(m.ty, mob::types::MobType::Natural(_)));
     if w.mob.natural.is_some() && natural_kind {
         mob::natural::check_despawn(w, i);
@@ -578,7 +596,7 @@ pub fn tick_one(w: &mut World, i: usize) {
         // zombies, ...) against every player the world has ----
         mob::ai::check_despawn(w, i);
     }
-    let p = w.entities.list[i].pos;
+    // `inEntityTickingRange`: only there does it tick
     if !w.entity_ticks_at(p.x, p.z) {
         let id = w.entities.list[i].id;
         w.note_frozen(id);
