@@ -919,7 +919,7 @@ impl Bench for SimBench<'_> {
         if redsim::redstone::container::item_id(&s.id).is_none() {
             bail!("redsim has no item {}", s.id);
         }
-        let state = ItemState { item: s.id.clone(), count: s.count.min(255) as u8, pickup_delay: 0, age: 0, payload: 0, health: 5 };
+        let state = ItemState { item: s.id.clone(), count: s.count.min(255) as u8, pickup_delay: 0, age: 0, payload: 0, health: 5, ..Default::default() };
         self.w.entities.add(EntityKind::Item(state), Vec3::new(at[0], at[1], at[2]), 0.0);
         Ok(())
     }

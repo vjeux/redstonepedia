@@ -733,7 +733,7 @@ fn drop_loot(w: &mut World, i: usize) {
             let mz = own.next_double() * 0.2 - 0.1;
             (mx, mz, y_rot, own)
         };
-        let state = crate::entity::item::ItemState { item: item.to_string(), count: n as u8, pickup_delay: 10, age: 0, payload: 0, health: 5 };
+        let state = crate::entity::item::ItemState { item: item.to_string(), count: n as u8, pickup_delay: 10, age: 0, payload: 0, health: 5, ..Default::default() };
         let id = w.entities.add(EntityKind::Item(state), Vec3::new(pos.x, pos.y, pos.z), y_rot);
         if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
             e.delta_movement = Vec3::new(mx, 0.2, mz);
@@ -759,7 +759,7 @@ pub fn spawn_item(w: &mut World, i: usize, item: &'static str, count: u8) {
     let y_rot = own.next_float() * 360.0;
     let mx = own.next_double() * 0.2 - 0.1;
     let mz = own.next_double() * 0.2 - 0.1;
-    let state = crate::entity::item::ItemState { item: item.to_string(), count, pickup_delay: 10, age: 0, payload: 0, health: 5 };
+    let state = crate::entity::item::ItemState { item: item.to_string(), count, pickup_delay: 10, age: 0, payload: 0, health: 5, ..Default::default() };
     let id = w.entities.add(EntityKind::Item(state), Vec3::new(pos.x, pos.y, pos.z), y_rot);
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
         e.delta_movement = Vec3::new(mx, 0.2, mz);
@@ -797,7 +797,7 @@ fn drop_loot_exact(w: &mut World, i: usize) {
         let y_rot = own.next_float() * 360.0;
         let mx = own.next_double() * 0.2 - 0.1;
         let mz = own.next_double() * 0.2 - 0.1;
-        let state = crate::entity::item::ItemState { item: item.to_string(), count: n as u8, pickup_delay: 10, age: 0, payload: 0, health: 5 };
+        let state = crate::entity::item::ItemState { item: item.to_string(), count: n as u8, pickup_delay: 10, age: 0, payload: 0, health: 5, ..Default::default() };
         let id = w.entities.add(EntityKind::Item(state), Vec3::new(pos.x, pos.y, pos.z), y_rot);
         if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
             e.delta_movement = Vec3::new(mx, 0.2, mz);

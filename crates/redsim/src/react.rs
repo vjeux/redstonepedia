@@ -61,8 +61,11 @@ pub fn entities_in(w: &World, b: Bounds, f: Filter) -> usize {
 /// a mob's LAVA_IGNITE or EXTINGUISH.
 pub fn fluid_inside(w: &mut World, i: usize, fs: crate::fluid::FluidState, p: BlockPos) {
     let _ = p;
-    if matches!(w.entities.list[i].kind, crate::entity::EntityKind::Mob(_)) {
-        crate::entity::mob::living::fluid_inside(w, i, fs.fluid.is_lava());
+    match w.entities.list[i].kind {
+        crate::entity::EntityKind::Mob(_) => crate::entity::mob::living::fluid_inside(w, i, fs.fluid.is_lava()),
+        // a drop: lava burns it, water puts its fire out (tickexact 2026-11-08)
+        crate::entity::EntityKind::Item(_) => crate::entity::item::fluid_inside(w, i, fs.fluid.is_lava()),
+        _ => {}
     }
 }
 
@@ -72,6 +75,10 @@ pub fn entity_inside(w: &mut World, i: usize, s: Block, p: BlockPos, precise: bo
     // a fire's cell on a mob (`BaseFireBlock.entityInside`)
     if matches!(w.entities.list[i].kind, crate::entity::EntityKind::Mob(_)) {
         crate::entity::mob::living::entity_inside(w, i, s, p);
+    }
+    // a fire's cell on a drop: FIRE_IGNITE and 1 `inFire`
+    if matches!(w.entities.list[i].kind, crate::entity::EntityKind::Item(_)) && matches!(s, Block::Fire { .. }) {
+        crate::entity::item::fire_inside(w, i);
     }
     match s {
         Block::Plate { .. } => plate::entity_inside(w, s, p),

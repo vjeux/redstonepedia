@@ -238,6 +238,8 @@ pub fn entity_frame(w: &World, e: &crate::entity::Entity) -> EntityFrame {
         EntityKind::Item(it) => {
             f.item = Some(format!("{} {}", it.item.trim_start_matches("minecraft:"), it.count));
             f.age = Some(it.age);
+            // its fire (a drop in lava burns: tickexact 2026-11-08)
+            f.fire = Some(it.fire);
         }
         EntityKind::Mob(m) => {
             f.fire = Some(m.fire_ticks);

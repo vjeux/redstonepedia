@@ -85,7 +85,7 @@ pub fn drop_box(w: &mut World, p: BlockPos, s: &Block) -> bool {
     let payload = container::new_payload(w, &contents);
     let d = crate::rng::Drop::seeded(seed, w.drop_count, p);
     w.drop_count += 1;
-    let state = crate::entity::item::ItemState { item, count: 1, pickup_delay: 10, age: 0, payload, health: 5 };
+    let state = crate::entity::item::ItemState { item, count: 1, pickup_delay: 10, age: 0, payload, health: 5, ..Default::default() };
     let id = w.entities.add(crate::entity::EntityKind::Item(state), crate::entity::Vec3::new(d.pos[0], d.pos[1], d.pos[2]), d.y_rot);
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
         e.delta_movement = crate::entity::Vec3::new(d.motion[0], d.motion[1], d.motion[2]);

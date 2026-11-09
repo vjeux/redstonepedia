@@ -928,6 +928,35 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
     }
     eprintln!("redsim's side: {:.2} s for {} ticks ({:.1} us a tick: {:.1} us ticking, the rest its frames)", redsim_time.as_secs_f64(), t, redsim_time.as_secs_f64() * 1e6 / t.max(1) as f64, tick_time.as_secs_f64() * 1e6 / t.max(1) as f64);
     eprintln!("container changes after the arrival: the game {}, redsim {}", changes[0], changes[1]);
+    // (a probe: MCTAS_EXACT_LIGHT="x0,y0,z0,x1,y1,z1": each cell of the box whose sky or block light
+    // differs at the end, the game's against redsim's)
+    if let Ok(b) = std::env::var("MCTAS_EXACT_LIGHT") {
+        let v: Vec<i32> = b.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+        if v.len() == 6 {
+            let (from, to) = ([v[0], v[1], v[2]], [v[3], v[4], v[5]]);
+            let r = game.w.call(json!({"op": "light_box", "sandbox": game.sb, "from": from, "to": to}))?;
+            use base64::Engine as _;
+            let dec = |k: &str| base64::engine::general_purpose::STANDARD.decode(r[k].as_str().unwrap_or("")).unwrap_or_default();
+            let (sky, block) = (dec("sky"), dec("block"));
+            let mut i = 0;
+            let mut differ = 0;
+            for y in from[1]..=to[1] {
+                for z in from[2]..=to[2] {
+                    for x in from[0]..=to[0] {
+                        let p = redsim::BlockPos::new(x, y, z);
+                        let (gs, gb) = (sky.get(i).copied().unwrap_or(0) as i32, block.get(i).copied().unwrap_or(0) as i32);
+                        let (rs, rb) = (run.world.sky_light(p).unwrap_or(-1), run.world.block_light(p).unwrap_or(-1));
+                        if (gs, gb) != (rs, rb) {
+                            differ += 1;
+                            eprintln!("light {x} {y} {z} ({}): the game's sky {gs} block {gb} | redsim's sky {rs} block {rb}", run.world.get(p));
+                        }
+                        i += 1;
+                    }
+                }
+            }
+            eprintln!("light box {from:?}..{to:?}: {differ} cells differ");
+        }
+    }
     // (a probe: MCTAS_EXACT_HEIGHTS="x,z;x,z": each column's WORLD_SURFACE height at the end on
     // both sides, the game's highest taken y and redsim's first free y - 1)
     if let Ok(cols) = std::env::var("MCTAS_EXACT_HEIGHTS") {

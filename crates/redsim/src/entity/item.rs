@@ -33,6 +33,10 @@ pub struct ItemState {
     pub payload: u16,
     /// `health` (5; explosions take it, clk-misc): gone at 0.
     pub health: i32,
+    /// `remainingFireTicks` (tickexact: lava's 15 s, a fire's 8 s; 0 at rest).
+    pub fire: i32,
+    /// The block effects `checkInsideBlocks` collected this tick (the mobs' collector).
+    pub inside: crate::entity::mob::Inside,
 }
 
 impl std::fmt::Debug for ItemState {
@@ -47,6 +51,9 @@ impl std::fmt::Debug for ItemState {
         if self.health != 5 {
             d.field("health", &self.health);
         }
+        if self.fire != 0 {
+            d.field("fire", &self.fire);
+        }
         d.finish()
     }
 }
@@ -54,7 +61,7 @@ impl std::fmt::Debug for ItemState {
 impl ItemState {
     /// From the summon NBT: `Item:{id:"..",count:N}`, `PickupDelay:Ns`, `Age:Ns`.
     pub fn from_nbt(nbt: Option<&str>) -> ItemState {
-        let mut s = ItemState { item: String::new(), count: 1, pickup_delay: 0, age: 0, payload: 0, health: 5 };
+        let mut s = ItemState { item: String::new(), count: 1, pickup_delay: 0, age: 0, payload: 0, health: 5, ..Default::default() };
         let Some(n) = nbt else { return s };
         if let Some(i) = n.find("id:\"") {
             s.item = n[i + 4..].split('"').next().unwrap_or("").to_string();
@@ -86,6 +93,124 @@ fn state(w: &World, i: usize) -> ItemState {
 
 fn set_state(w: &mut World, i: usize, s: ItemState) {
     w.entities.list[i].kind = EntityKind::Item(s);
+}
+
+/// `ItemEntity.hurtServer` (the modeled sources: lava, fire): the damage off its health (an int);
+/// gone at 0 (`discard`). False for a fire-resistant item (netherite) and a gone one.
+fn hurt(w: &mut World, i: usize, damage: f32) -> bool {
+    if w.entities.list[i].removed || fire_resistant(&state(w, i).item) {
+        return false;
+    }
+    let mut s = state(w, i);
+    s.health = (s.health as f32 - damage) as i32;
+    let gone = s.health <= 0;
+    set_state(w, i, s);
+    if gone {
+        w.entities.list[i].removed = true;
+    }
+    true
+}
+
+/// `ItemEntity.fireImmune`: the item cannot be hurt by fire (`DamageResistant` fire: the netherite
+/// items and debris).
+fn fire_resistant(item: &str) -> bool {
+    let id = item.trim_start_matches("minecraft:");
+    id.starts_with("netherite_") || id == "ancient_debris"
+}
+
+/// `StepBasedCollector.advanceStep` for an item.
+pub fn advance_step(w: &mut World, i: usize, step: i32) {
+    if let EntityKind::Item(s) = &mut w.entities.list[i].kind {
+        s.inside.advance(step);
+    }
+}
+
+/// `FluidState.entityInside` on an item (its sweep met the fluid's box): lava's LAVA_IGNITE and
+/// `lavaHurt`, water's EXTINGUISH, collected for [`apply_block_effects`].
+pub fn fluid_inside(w: &mut World, i: usize, lava: bool) {
+    if let EntityKind::Item(s) = &mut w.entities.list[i].kind {
+        if lava {
+            s.inside.now().lava = true;
+        } else {
+            s.inside.now().water = true;
+        }
+    }
+}
+
+/// `BaseFireBlock.entityInside` on an item: FIRE_IGNITE and its `inFire` hurt.
+pub fn fire_inside(w: &mut World, i: usize) {
+    if let EntityKind::Item(s) = &mut w.entities.list[i].kind {
+        s.inside.now().fire = true;
+    }
+}
+
+/// `Entity.applyEffectsFromBlocks`' collector and tail for an item (tickexact 2026-11-08: a drop
+/// that reaches lava burns in 2 ticks): each step's effects in `InsideBlockEffectType` order while
+/// it lives (FIRE_IGNITE + 1 `inFire`; LAVA_IGNITE, 15 s, + `lavaHurt` 4, whose GENERIC_BURN plays
+/// at the last hurt or every 10th tick: a float of its own random; EXTINGUISH), then the rain puts
+/// the fire out, a fire gone out plays GENERIC_EXTINGUISH_FIRE (2 floats), and a fire not lit this
+/// tick resets to 0.
+fn apply_block_effects(w: &mut World, i: usize, fire_before: i32) {
+    let fx = match &mut w.entities.list[i].kind {
+        EntityKind::Item(s) => std::mem::take(&mut s.inside),
+        _ => return,
+    };
+    let resistant = fire_resistant(&state(w, i).item);
+    for step in fx.steps {
+        if step.fire && !w.entities.list[i].removed {
+            let mut s = state(w, i);
+            if !resistant {
+                if s.fire < 0 {
+                    s.fire += 1;
+                }
+                if s.fire >= 0 && s.fire < 160 {
+                    s.fire = 160;
+                }
+            }
+            set_state(w, i, s);
+            hurt(w, i, 1.0);
+        }
+        if step.lava && !w.entities.list[i].removed && !resistant {
+            let mut s = state(w, i);
+            s.fire = s.fire.max(300);
+            set_state(w, i, s);
+            if hurt(w, i, 4.0) {
+                let (health, tick) = (state(w, i).health, w.entities.list[i].tick_count);
+                if (health <= 0 || tick % 10 == 0)
+                    && let Some(r) = w.entities.list[i].random.as_mut()
+                {
+                    r.next_float();
+                }
+            }
+        }
+        if step.water && !w.entities.list[i].removed {
+            let mut s = state(w, i);
+            s.fire = s.fire.min(0);
+            set_state(w, i, s);
+        }
+    }
+    if w.entities.list[i].removed {
+        return;
+    }
+    let was_on_fire = !resistant && fire_before > 0;
+    if state(w, i).fire > 0 && crate::weather::entity_in_rain(w, i) {
+        let mut s = state(w, i);
+        s.fire = s.fire.min(0);
+        set_state(w, i, s);
+    }
+    let mut s = state(w, i);
+    let on_fire = !resistant && s.fire > 0;
+    if was_on_fire
+        && !on_fire
+        && let Some(r) = w.entities.list[i].random.as_mut()
+    {
+        r.next_float();
+        r.next_float();
+    }
+    if !on_fire && s.fire <= fire_before {
+        s.fire = 0;
+    }
+    set_state(w, i, s);
 }
 
 /// `ItemEntity.isMergable`.
@@ -150,6 +275,28 @@ pub fn tick(w: &mut World, i: usize) {
         s.pickup_delay -= 1;
     }
     set_state(w, i, s);
+    // baseTick's fire: an `onFire` hurt (1) every 20 ticks out of lava, then a tick less
+    {
+        let s = state(w, i);
+        if s.fire > 0 {
+            if fire_resistant(&s.item) {
+                let mut s = s;
+                s.fire = s.fire.min(0);
+                set_state(w, i, s);
+            } else {
+                let in_lava = w.entities.list[i].fluid.lava_height() > 0.0;
+                if s.fire % 20 == 0 && !in_lava {
+                    hurt(w, i, 1.0);
+                }
+                if w.entities.list[i].removed {
+                    return;
+                }
+                let mut s = state(w, i);
+                s.fire -= 1;
+                set_state(w, i, s);
+            }
+        }
+    }
     let gravity = crate::entity::kinds::gravity(w, i);
     let old_movement;
     {
@@ -162,6 +309,12 @@ pub fn tick(w: &mut World, i: usize) {
             // setUnderwaterMovement: setFluidMovement(0.99F)
             let m = e.delta_movement;
             let k = 0.99f32 as f64;
+            e.delta_movement = Vec3::new(m.x * k, m.y + if m.y < 0.06f32 as f64 { 5.0e-4f32 as f64 } else { 0.0 }, m.z * k);
+        } else if !e.first_tick && e.fluid.lava_height() > 0.1f32 as f64 {
+            // `isInLava()` with lava above 0.1: setUnderLavaMovement = setFluidMovement(0.95F)
+            // (tickexact: redsim let a drop in lava fall)
+            let m = e.delta_movement;
+            let k = 0.95f32 as f64;
             e.delta_movement = Vec3::new(m.x * k, m.y + if m.y < 0.06f32 as f64 { 5.0e-4f32 as f64 } else { 0.0 }, m.z * k);
         } else if gravity != 0.0 {
             e.delta_movement = e.delta_movement.add(0.0, -gravity, 0.0);
@@ -184,11 +337,21 @@ pub fn tick(w: &mut World, i: usize) {
     };
     if on_ground && !(hd > 1.0e-5f32 as f64) && phase != 0 {
         // applyEffectsFromBlocksForLastMovements: last tick's moves replayed
+        let fire_before = state(w, i).fire;
         collide::apply_effects_for_last_movements(w, i);
+        apply_block_effects(w, i, fire_before);
+        if w.entities.list[i].removed {
+            return;
+        }
     } else {
         let d = w.entities.list[i].delta_movement;
         crate::entity::move_(w, i, MoverType::Self_, d);
+        let fire_before = state(w, i).fire;
         crate::entity::apply_effects_from_blocks(w, i);
+        apply_block_effects(w, i, fire_before);
+        if w.entities.list[i].removed {
+            return;
+        }
         let air = 0.98f32;
         let mut ground = air;
         if w.entities.list[i].on_ground {

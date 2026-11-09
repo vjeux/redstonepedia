@@ -413,7 +413,7 @@ impl World {
         let y_rot = own.next_float() * 360.0;
         own.next_double();
         own.next_double();
-        let state = crate::entity::item::ItemState { item: item.to_string(), count: count.min(255) as u8, pickup_delay: 0, age: 0, payload, health: 5 };
+        let state = crate::entity::item::ItemState { item: item.to_string(), count: count.min(255) as u8, pickup_delay: 0, age: 0, payload, health: 5, ..Default::default() };
         let id = self.entities.add(crate::entity::EntityKind::Item(state), crate::entity::Vec3::new(p[0], p[1], p[2]), y_rot);
         if let Some(e) = self.entities.list.iter_mut().rev().find(|e| e.id == id) {
             e.delta_movement = crate::entity::Vec3::new(m[0], m[1], m[2]);
@@ -429,7 +429,7 @@ impl World {
         let Some(seed) = self.drop_seed else { return };
         let d = crate::rng::Drop::seeded(seed, self.drop_count, pos);
         self.drop_count += 1;
-        let state = crate::entity::item::ItemState { item: item.to_string(), count: count.min(255) as u8, pickup_delay: 10, age: 0, payload, health: 5 };
+        let state = crate::entity::item::ItemState { item: item.to_string(), count: count.min(255) as u8, pickup_delay: 10, age: 0, payload, health: 5, ..Default::default() };
         let id = self.entities.add(crate::entity::EntityKind::Item(state), crate::entity::Vec3::new(d.pos[0], d.pos[1], d.pos[2]), d.y_rot);
         if let Some(e) = self.entities.list.iter_mut().rev().find(|e| e.id == id) {
             e.delta_movement = crate::entity::Vec3::new(d.motion[0], d.motion[1], d.motion[2]);
