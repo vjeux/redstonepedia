@@ -1,0 +1,9 @@
+# obs0wr-s2b0-pad6f7x0-blade22-n1-void: every block by the part that placed it (farmopt split); build seconds at middle prices, the card's travel and height (398 s) shared by the blocks placed
+part	member	blocks	dug	build_seconds
+cage	bed-observer-2-watching-regular	118	0	936
+calm		25	0	169
+pad	dry-floor-6x6	96	0	246
+transport	drop-shaft-14	112	0	278
+kill	lava-blade-15-drop	64	0	219
+collection		3	0	112
+storage	chest-row	3	0	62
