@@ -291,6 +291,9 @@ pub struct MobState {
     pub chicken_jockey: bool,
     /// A lightning trap's skeleton horse: `SkeletonHorse.trapTime` (`isTrap`).
     pub trap_time: Option<i32>,
+    /// Spawned by the world (natural spawning, a jockey's rider, a portal's piglin, a trap horse),
+    /// not brought by a design: an unmodeled behaviour of it runs on the legacy model, named.
+    pub natural: bool,
     /// The helmet on its head (`EquipmentSlot.HEAD`): its max damage and damage (natural undead
     /// from `populateDefaultEquipmentSlots`); it takes the sun's burn.
     pub helmet: Option<(i32, i32)>,
@@ -348,6 +351,7 @@ impl MobState {
             egg_time: 0,
             chicken_jockey: false,
             trap_time: None,
+            natural: false,
             helmet: None,
             color: 0,
             lava_height: 0.0,

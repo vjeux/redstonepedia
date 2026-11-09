@@ -1784,6 +1784,19 @@ fn set_chicken_jockey(w: &mut World, id: u32) {
 /// Add the mob (and what its `finalizeSpawn` adds: a jockey's chicken, a spider's skeleton, a
 /// zombie horse's rider).
 fn spawn_mob(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) -> u32 {
+    // every mob this spawn adds (the mob, a rider, a chicken) is the world's, not a design's
+    let before = w.entities.list.len();
+    let id = spawn_mob_inner(w, k, f, pos, yaw);
+    let n = w.entities.list.len();
+    for e in w.entities.list[before.min(n)..].iter_mut() {
+        if let EntityKind::Mob(m) = &mut e.kind {
+            m.natural = true;
+        }
+    }
+    id
+}
+
+fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) -> u32 {
     // a new chicken enters during the zombie's finalizeSpawn, before the zombie (a zombie horse
     // rider's: before the horse); snapTo(the zombie's x, y, z, its yRot, 0); a chicken jockey
     let chicken = (f.jockey == Jockey::NewChicken || f.rider_chicken == Jockey::NewChicken).then(|| {

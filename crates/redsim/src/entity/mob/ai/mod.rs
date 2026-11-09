@@ -692,9 +692,15 @@ fn zombie_drowning(w: &mut World, i: usize) {
         Some(c) => {
             *c -= 1;
             if *c < 0 {
-                let why = "a zombie's conversion to a drowned (600 ticks with its eye in water, then 300) is not modeled yet".to_string();
-                if !w.errors.contains(&why) {
-                    w.errors.push(why);
+                // a natural zombie's conversion runs on the legacy model (it stays a zombie),
+                // named; the farm's own zombie fails closed
+                if mob(w, i).natural {
+                    w.mob.ai.legacy.insert("a natural zombie's conversion to a drowned (it stays a zombie)");
+                } else {
+                    let why = "a zombie's conversion to a drowned (600 ticks with its eye in water, then 300) is not modeled yet".to_string();
+                    if !w.errors.contains(&why) {
+                        w.errors.push(why);
+                    }
                 }
             }
         }
