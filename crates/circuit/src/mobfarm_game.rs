@@ -147,6 +147,10 @@ pub struct BuildRun {
     /// Cells of the build whose block changed: a watched one (flammable or lava) when it changed
     /// (every 1000 gt), every cell at the end.
     pub changed: Vec<String>,
+    /// The farm's flammable blocks a fire burned (or lava then flowed over), seen at the 1000 gt
+    /// checks: a measured event, checked against the card's burn rate over the builds
+    /// ([`GateReport::tradeoffs`]), not a failure of the build.
+    pub burned: u32,
     pub failures: Vec<String>,
     pub seconds: f64,
     /// The window the build first broke in (a witch, a lost vehicle: tradeoffs the card measures);
@@ -747,7 +751,10 @@ fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, 
             w.ticks += 20;
             w.samples += 1;
             sample(&mut s, &mut run, &mut golems, t, k, inner, &spec, villagers0, zombies0, &scope, &mut windows, &villager_spots, o.trace.then_some(label.as_str()))?;
-            // the flammable blocks and the lava: burned away or flowed
+            // the flammable blocks and the lava: burned away or flowed. A burned block is a
+            // measured event (the parent, 2026-11-08: the card measures burns, so the gate checks
+            // the count against the card's rate over every build: `burns` in the tradeoffs); the
+            // farm's own lava moving is not one the card measures: it fails the build
             if t % 1000 == 0 {
                 let mut still = Vec::new();
                 for (p, id) in watch.drain(..) {
@@ -757,7 +764,11 @@ fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, 
                         let now = now_at(&mut s, p)?;
                         let what = format!("gt {t}: the {} at {} is {now} (burned or flowed)", id.trim_start_matches("minecraft:"), xyz(p));
                         run.changed.push(what.clone());
-                        run.fail(what);
+                        if id == "minecraft:lava" {
+                            run.fail(what);
+                        } else {
+                            run.burned += 1;
+                        }
                     }
                 }
                 watch = still;
@@ -1179,12 +1190,16 @@ impl GateReport {
     pub fn line(&self) -> String {
         let iron: u32 = self.builds.iter().map(|b| b.iron()).sum();
         let deaths: u32 = self.builds.iter().map(|b| b.deaths).sum();
-        let tradeoffs = match self.tradeoffs.first() {
-            Some(t) => format!("; lightning over its {:.0} gt of thunder: {}", t.thunder, self.tradeoffs.iter().map(|t| format!("{} {} (the card {:.2})", t.seen, t.what, t.expected)).collect::<Vec<_>>().join("; ")),
+        let lightning: Vec<&Tradeoff> = self.tradeoffs.iter().filter(|t| t.what != "farm blocks burned").collect();
+        let mut tradeoffs = match lightning.first() {
+            Some(t) => format!("; lightning over its {:.0} gt of thunder: {}", t.thunder, lightning.iter().map(|t| format!("{} {} (the card {:.2})", t.seen, t.what, t.expected)).collect::<Vec<_>>().join("; ")),
             None => String::new(),
         };
         // (no ", " inside: the site splits a card's metrics there)
         let burnt = if self.sim_burnt > 0.0 { format!(" (redsim {:.2} with {:.2} burnt)", self.sim_iron, self.sim_burnt) } else { String::new() };
+        if let Some(t) = self.tradeoffs.iter().find(|t| t.what == "farm blocks burned") {
+            tradeoffs.push_str(&format!("; fire: {} farm blocks burned (the card {:.2})", t.seen, t.expected));
+        }
         format!(
             "{} builds in the 26.3 server on Hard: {}; {:.2} iron per dead golem{burnt}{tradeoffs}{}",
             self.builds.len(),
@@ -1382,6 +1397,22 @@ pub fn gate(c: &Circuit, o: &GateOpts) -> Result<GateReport> {
             }
         }
         Err(e) => rep.failures.push(format!("the card's lightning rates: {e}")),
+    }
+    // the farm's blocks a fire burned (the parent, 2026-11-08): a measured event, the builds'
+    // count against redsim's runs of the same schedule (`WeatherStats::burns`, the card's `fire`
+    // line), 99% Poisson over the game ticks the builds ran; a burn the card says never happens
+    // still fails (its expected count is 0)
+    {
+        let sim_ticks: f64 = sim_runs.iter().map(|r| r.hours() * 72000.0).sum();
+        let sim_burns: f64 = sim_runs.iter().map(|r| r.weather.burns as f64).sum();
+        let game_ticks: f64 = rep.builds.iter().map(|b| b.windows.iter().map(|w| w.ticks as f64).sum::<f64>()).sum();
+        let seen: u32 = rep.builds.iter().map(|b| b.burned).sum();
+        let lambda = if sim_ticks > 0.0 { sim_burns / sim_ticks * game_ticks } else { 0.0 };
+        let (lo, hi) = poisson_band(lambda, 0.005);
+        if seen < lo || seen > hi {
+            rep.failures.push(format!("fire: {seen} of the farm's blocks burned over the builds' {game_ticks:.0} gt; the card expects {lambda:.2} (99% {lo}-{hi})"));
+        }
+        rep.tradeoffs.push(Tradeoff { what: "farm blocks burned".to_string(), seen, expected: lambda, thunder: 0.0 });
     }
     Ok(rep)
 }
