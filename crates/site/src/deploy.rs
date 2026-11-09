@@ -3,9 +3,10 @@
 //! with the token of `gh auth token` (the push recipe of AGENTS.md). GitHub Pages serves it at
 //! https://vjeux.github.io/redstonepedia/.
 //!
-//! Two guards (several agents deploy): the checkout must contain the commit the current site was
-//! built from (else a deploy from an older tree would take features away: merge first), and
-//! GitHub Pages builds a branch about 10 times an hour at most (later builds error out), so a
+//! Two guards (several agents deploy): the checkout must hold what the current site was built from
+//! (else a deploy from an older tree would take features away: merge first): its commit, or the
+//! same source tree, or every change of it by patch, so a cherry-pick counts (`source_in_checkout`);
+//! and GitHub Pages builds a branch about 10 times an hour at most (later builds error out), so a
 //! deploy waits when 9 builds started in the last hour. After the push it follows the Pages
 //! build to its end and fails when it errors.
 //!
@@ -92,25 +93,68 @@ fn builds_last_hour() -> Result<Vec<i64>> {
     Ok(v.as_array().map(|a| a.iter().filter_map(|b| b["created_at"].as_str().and_then(parse_utc)).filter(|t| now - t < 3600).collect()).unwrap_or_default())
 }
 
-/// The commit the current gh-pages was built from (its message: `... from <hash>`), if known.
-fn deployed_source(remote: &str, branch: &str) -> Option<String> {
+/// The commit the current gh-pages was built from, and its source tree when the deploy recorded it
+/// (its message: `... from <hash>`, `... (source tree <tree>) from <hash>`), if known.
+fn deployed_source(remote: &str, branch: &str) -> Option<(String, Option<String>)> {
     git(&["fetch", "-q", remote, branch], &[], None).ok()?;
     let msg = git(&["log", "-1", "--format=%s", "FETCH_HEAD"], &[], None).ok()?;
-    let hash = msg.rsplit(" from ").next()?.trim().to_string();
-    (!hash.is_empty() && hash.chars().all(|c| c.is_ascii_hexdigit())).then_some(hash)
+    source_of_message(&msg)
 }
 
-/// Guard 1: never deploy an older tree over a newer site: the checkout must contain the commit
-/// the live site was built from.
+/// The source commit and tree a gh-pages commit's message names ([`deployed_source`]).
+fn source_of_message(msg: &str) -> Option<(String, Option<String>)> {
+    let hex = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_hexdigit());
+    let hash = msg.rsplit(" from ").next()?.trim().to_string();
+    let tree = msg.split("(source tree ").nth(1).and_then(|t| t.split(')').next()).map(|t| t.trim().to_string()).filter(|t| hex(t));
+    hex(&hash).then_some((hash, tree))
+}
+
+/// Whether the checkout (`run`: git in it) holds what the live site was built from (`src`, its
+/// source tree `tree` when recorded): Ok(how) when it does, Err(why) when it does not. The commit
+/// itself in its history; else the same source tree among its last 500 commits' (a cherry-pick of
+/// the commit onto the same base, then main moved on); else every change of the commit by patch
+/// (`git cherry`: a cherry-pick onto another base; the coordinator 2026-11-08, fd43c1cd6
+/// cherry-picked as 50d144bcc needed a force push).
+fn source_in_checkout(src: &str, tree: Option<&str>, run: &dyn Fn(&[&str]) -> Result<String>) -> std::result::Result<String, String> {
+    let known = |c: &str| run(&["cat-file", "-e", &format!("{c}^{{commit}}")]).is_ok();
+    let is_known = known(src);
+    if is_known && run(&["merge-base", "--is-ancestor", src, "HEAD"]).is_ok() {
+        return Ok(format!("{src} is in this checkout's history"));
+    }
+    let tree = tree.map(String::from).or_else(|| if is_known { run(&["rev-parse", &format!("{src}^{{tree}}")]).ok() } else { None });
+    if let Some(t) = &tree
+        && run(&["log", "--format=%T", "-n", "500", "HEAD"]).unwrap_or_default().lines().any(|l| l.trim() == t)
+    {
+        return Ok(format!("{src}'s source tree {} is in this checkout's history (a cherry-pick of it)", &t[..t.len().min(12)]));
+    }
+    if is_known {
+        let cherry = run(&["cherry", "HEAD", src]).unwrap_or_default();
+        let missing: Vec<&str> = cherry.lines().filter(|l| l.starts_with('+')).map(|l| l.trim_start_matches("+ ").trim()).collect();
+        if !cherry.trim().is_empty() && missing.is_empty() {
+            return Ok(format!("every change of {src} is in this checkout (cherry-picked: {} commit(s))", cherry.lines().count()));
+        }
+        return Err(format!(
+            "the live site was built from {src}, whose change(s) this checkout lacks ({}{}): merge it first (git fetch && git merge {src}), rebuild, or --force",
+            missing.iter().take(5).map(|c| &c[..c.len().min(9)]).collect::<Vec<_>>().join(", "),
+            if missing.len() > 5 { format!(" and {} more", missing.len() - 5) } else { String::new() }
+        ));
+    }
+    Err(format!("the live site was built from {src}, which this checkout does not contain (unknown here: fetch the branch it came from): merge it first, rebuild, or --force"))
+}
+
+/// Guard 1: never deploy an older tree over a newer site: the checkout must hold what the live
+/// site was built from ([`source_in_checkout`]: its commit, its source tree, or every change of it).
 fn guard_contains(a: &DeployArgs) -> Result<()> {
-    if let Some(src) = deployed_source(&a.remote, &a.branch) {
-        let known = git(&["cat-file", "-e", &format!("{src}^{{commit}}")], &[], None).is_ok();
-        let contained = known && git(&["merge-base", "--is-ancestor", &src, "HEAD"], &[], None).is_ok();
-        if !contained {
-            bail!(
-                "the live site was built from {src}, which this checkout does not contain{}: merge it first (git fetch && git merge {src}), rebuild, or --force",
-                if known { "" } else { " (unknown here: fetch the branch it came from)" }
-            );
+    if let Some((src, tree)) = deployed_source(&a.remote, &a.branch) {
+        let run = |args: &[&str]| git(args, &[], None);
+        // (a commit this clone has not seen: fetched by hash, which GitHub serves when a ref
+        // reaches it)
+        if run(&["cat-file", "-e", &format!("{src}^{{commit}}")]).is_err() {
+            let _ = run(&["fetch", "-q", &a.remote, &src]);
+        }
+        match source_in_checkout(&src, tree.as_deref(), &run) {
+            Ok(how) => eprintln!("guard: {how}"),
+            Err(why) => bail!("{why}"),
         }
     }
     Ok(())
@@ -188,7 +232,11 @@ pub fn deploy(a: &DeployArgs) -> Result<()> {
     let tree = git(&["write-tree"], &env, Some((&dir, &git_dir)))?;
     let _ = std::fs::remove_file(&index);
     let head = git(&["rev-parse", "--short=9", "HEAD"], &[], None).unwrap_or_default();
-    let msg = format!("REDSTONEPEDIA: site built by `mctas site build` from {head}");
+    // (the source tree too, before " from <hash>" so older readers of the message still find the
+    // hash last: a later deploy from a cherry-pick of this commit holds the same tree,
+    // `source_in_checkout`)
+    let head_tree = git(&["rev-parse", "HEAD^{tree}"], &[], None).unwrap_or_default();
+    let msg = if head_tree.is_empty() { format!("REDSTONEPEDIA: site built by `mctas site build` from {head}") } else { format!("REDSTONEPEDIA: site built by `mctas site build` (source tree {head_tree}) from {head}") };
     let commit = git(&["commit-tree", &tree, "-m", &msg], &[], None)?;
     println!("gh-pages commit {commit} (tree {tree})");
     // the transport commit: the same tree with the live site as parent (module docs)
@@ -371,5 +419,59 @@ mod tests {
         let err = "Enumerating objects: 13371, done.\nCounting objects: 100% (13371/13371), done.\rWriting objects:  50% (4433/8866), 0.80 MiB | 1 MiB/s\rWriting objects: 100% (8866/8866), 1.66 MiB | 10.20 MiB/s, done.\nTotal 8866 (delta 4433)";
         assert_eq!(sent(err).as_deref(), Some("8866 objects, 1.66 MiB"));
         assert_eq!(sent("Everything up-to-date"), None);
+    }
+
+    #[test]
+    fn a_site_message_names_its_source() {
+        assert_eq!(source_of_message("REDSTONEPEDIA: site built by `mctas site build` from 1e5784300"), Some(("1e5784300".into(), None)));
+        let t = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+        assert_eq!(source_of_message(&format!("REDSTONEPEDIA: site built by `mctas site build` (source tree {t}) from 50d144bcc")), Some(("50d144bcc".into(), Some(t.into()))));
+        assert_eq!(source_of_message("REDSTONEPEDIA: by hand"), None);
+    }
+
+    #[test]
+    fn a_cherry_picked_source_counts_as_contained() {
+        // (the coordinator 2026-11-08: the live site built from fd43c1cd6, then main got the same
+        // change as the cherry-pick 50d144bcc: the guard needed a force push)
+        let dir = std::env::temp_dir().join(format!("mctas-deploy-guard-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let g = |args: &[&str]| -> Result<String> {
+            let o = Command::new("git").arg("-C").arg(&dir).args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]).args(args).output()?;
+            if !o.status.success() {
+                bail!("git {}: {}", args.join(" "), String::from_utf8_lossy(&o.stderr));
+            }
+            Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
+        };
+        let write = |f: &str, s: &str| std::fs::write(dir.join(f), s).unwrap();
+        g(&["init", "-q", "-b", "main"]).unwrap();
+        write("a.txt", "a\n");
+        g(&["add", "."]).unwrap();
+        g(&["commit", "-q", "-m", "base"]).unwrap();
+        // a side branch's commit the live site was built from
+        g(&["checkout", "-q", "-b", "side"]).unwrap();
+        write("b.txt", "b\n");
+        g(&["add", "."]).unwrap();
+        g(&["commit", "-q", "-m", "the bundle"]).unwrap();
+        let live = g(&["rev-parse", "HEAD"]).unwrap();
+        let live_tree = g(&["rev-parse", "HEAD^{tree}"]).unwrap();
+        // main: another commit, then the same change cherry-picked (another base: another tree)
+        g(&["checkout", "-q", "main"]).unwrap();
+        write("c.txt", "c\n");
+        g(&["add", "."]).unwrap();
+        g(&["commit", "-q", "-m", "main moved"]).unwrap();
+        let before = source_in_checkout(&live, None, &g);
+        g(&["cherry-pick", &live]).unwrap();
+        let picked = source_in_checkout(&live, None, &g);
+        // the same source tree in the history (a pick onto the same base), without the commit
+        let by_tree = source_in_checkout("0123456789", Some(&live_tree), &g);
+        g(&["checkout", "-q", "-b", "same-base", "HEAD~2"]).unwrap();
+        g(&["cherry-pick", &live]).unwrap();
+        let by_tree_after = source_in_checkout("0123456789", Some(&live_tree), &g);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(before.is_err(), "the change is not in main yet: {before:?}");
+        assert!(picked.as_ref().is_ok_and(|w| w.contains("cherry-picked")), "{picked:?}");
+        assert!(by_tree.is_err(), "an unknown commit whose tree main never had: {by_tree:?}");
+        assert!(by_tree_after.as_ref().is_ok_and(|w| w.contains("source tree")), "{by_tree_after:?}");
     }
 }
