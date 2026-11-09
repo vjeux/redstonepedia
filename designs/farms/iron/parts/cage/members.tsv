@@ -6,3 +6,5 @@ bed-observer-4-watching.txt	bed-observer cage, 4 watching villagers	middle	villa
 dust-pulse-2-watching-regular.txt	dust-pulse cage, 2 watching villagers (regular)	day-1	blocks 19, blocks dug 38, build seconds 84	dust-pulse-dug10.txt dust-pulse-out-of-sight.txt
 dust-pulse-3-watching-regular.txt	dust-pulse cage, 3 watching villagers (regular)	day-1	blocks 24, blocks dug 59, build seconds 118	dust-pulse-three-watchers.txt
 bed-observer-2-watching-regular.txt	bed-observer cage, 2 watching villagers (regular)	middle	blocks 118, blocks dug 0, build seconds 200	module-two-watchers.txt
+bed-observer-3-watching-1-sleeping.txt	bed-observer cage, 3 watching villagers	middle	blocks 150, blocks dug 0, build seconds 264	module-three-watchers-sleeper.txt
+bed-observer-2-watching-1-sleeping.txt	bed-observer cage, 2 watching villagers	middle	blocks 128, blocks dug 0, build seconds 222	module-two-watchers-sleeper.txt
