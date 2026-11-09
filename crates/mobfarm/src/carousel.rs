@@ -127,7 +127,7 @@ fn carousel_impl(side: i32, latch: bool, free_run: bool, quick: bool) -> anyhow:
         bus(&mut b, &mut dust, t, e);
         for s in sides(t, e) {
             if quick {
-                quick_flash(&mut b, &s);
+                quick_flash(&mut b, &mut dust, &s)?;
             }
             stop(&mut b, &mut dust, s, k == 2);
         }
@@ -220,56 +220,55 @@ fn loop_rails(t: i32, e: i32, boost: bool) -> Vec<([i32; 3], String, &'static st
     out
 }
 
-/// The quick stop's flash at one stop (work in progress): an observer under the bed's head
-/// (lane 1, y -2, facing up) pulses when the sleeper lies down and again when it wakes; a copper
-/// bulb under it toggles on each pulse (lit exactly while the bed is OCCUPIED); a comparator in
-/// the track's column (y -3) reads it into an iron trapdoor outside the track (y -3, closed: a
-/// bottom plate), the hatch over a dorm zombie sealed in the cells below (y -5..-4). The sleeper's
-/// eye (the head's centre, y -0.11) sees the zombie through the pocket rail's cell, its support
-/// (glass) and the open hatch: about 3.3 away, within the hostile sensor's 8.
-fn quick_flash(b: &mut Builder, s: &Side) {
-    if std::env::var_os("MCTAS_QUICK_V2").is_some() {
-        // (experiment, not committed: the zombie over the cage's barrier glass at the booster's
-        // column, always visible, to test the sleeping eye's line over the head)
-        let z = s.at(BOOST, 1);
-        for (i, lane) in [(BOOST, 0), (BOOST, 2), (BOOST + 1, 1)] {
-            let p = s.at(i, lane);
-            for y in [1, 2] {
-                b.set(p[0], y, p[1], STONE);
-            }
-        }
-        b.set(z[0], 3, z[1], STONE);
-        let q = s.at(POCKET, 1);
-        b.set(q[0], 2, q[1], STONE);
-        b.entity("zombie", [z[0] as f64 + 0.5, 1.0, z[1] as f64 + 0.5], Some("{PersistenceRequired:1b}"));
-        return;
+/// The quick stop's flash at one stop: a dorm zombie over the cage's lane-1 barrier glass at the
+/// booster's column (lane 1, y 1..2, BOOST; ironfarm's sight line: the sleeping eye, the head's
+/// centre at y -0.11, sees its eye at y 2.74 through the air over the head), walled (stone at y 1,
+/// glass at y 2 on the track and bus sides: no golem spawns on glass; the latch tower on the far
+/// side), roofed (stone), stone over the hatch cell (the zombie has no headroom into the pocket's
+/// column); the hatch an iron trapdoor (lane 1, y 1, POCKET), closed a bottom plate across the
+/// line. The latch: an observer under the bed's head (y -2, facing up) pulses when the sleeper lies
+/// down and when it wakes; a copper bulb under it toggles (lit exactly while the bed is OCCUPIED);
+/// a comparator beside the bulb (BOOST, y -3) feeds a torch tower one rail further (stone -3,
+/// torch -2, stone -1, torch 0, stone 1, torch 2, stone 3, torch 4: the bulb's signal 4 inversions
+/// up), the top torch powers a dust on the zombie's roof and down onto the stone over the hatch,
+/// which opens it. The bus beside the tower's stone at y -1 gets a repeater there (a powered block
+/// beside a repeater does not feed it). Returns an error where the tower meets another block.
+fn quick_flash(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, s: &Side) -> anyhow::Result<()> {
+    let z = s.at(BOOST, 1);
+    for lane in [0, 2] {
+        let p = s.at(BOOST, lane);
+        b.set(p[0], 1, p[1], STONE);
+        b.set(p[0], 2, p[1], GLASS);
     }
+    b.set(z[0], 3, z[1], STONE);
+    let q = s.at(POCKET, 1);
+    b.set(q[0], 2, q[1], STONE);
+    b.set(q[0], 1, q[1], &format!("iron_trapdoor[facing={},half=bottom,open=false,powered=false,waterlogged=false]", name(s.d)));
+    b.entity("zombie", [z[0] as f64 + 0.5, 1.0, z[1] as f64 + 0.5], Some("{PersistenceRequired:1b}"));
+    // the latch
     let o = s.at(POCKET, 1);
     b.set(o[0], -2, o[1], "observer[facing=up,powered=false]");
     b.set(o[0], -3, o[1], "copper_bulb[lit=false,powered=false]");
     b.set(o[0], -4, o[1], STONE);
-    let c = s.at(POCKET, 0);
-    b.set(c[0], -2, c[1], GLASS);
-    b.set(c[0], -3, c[1], &format!("comparator[facing={},mode=compare,powered=false]", name(s.n)));
-    b.set(c[0], -4, c[1], STONE);
-    let h = s.at(POCKET, -1);
-    b.set(h[0], -3, h[1], &format!("iron_trapdoor[facing={},half=bottom,open=false,powered=false,waterlogged=false]", name(s.n)));
-    for (i, lane) in [(POCKET - 1, -1), (POCKET + 1, -1), (POCKET, -2), (POCKET, 0)] {
-        let p = s.at(i, lane);
-        // (the top ring glass: its tops at y -3 are within the station's golem search)
-        for (y, block) in [(-5, STONE), (-4, GLASS)] {
-            if !b.d.blocks.contains_key(&[p[0], y, p[1]]) || (y == -4 && lane == 0) {
-                b.set(p[0], y, p[1], block);
-            }
+    // (`facing` names the input side: the bulb's)
+    b.set(z[0], -3, z[1], &format!("comparator[facing={},mode=compare,powered=false]", name([-s.d[0], -s.d[1]])));
+    b.set(z[0], -4, z[1], STONE);
+    let t = s.at(BOOST + 1, 1);
+    for (y, block) in [(-3, STONE), (-2, "redstone_torch[lit=true]"), (-1, STONE), (0, "redstone_torch[lit=false]"), (1, STONE), (2, "redstone_torch[lit=true]"), (3, STONE), (4, "redstone_torch[lit=false]")] {
+        anyhow::ensure!(!b.d.blocks.contains_key(&[t[0], y, t[1]]) && !dust.contains(&[t[0], y, t[1]]), "the quick stop's latch tower at {:?} meets {:?}", [t[0], y, t[1]], b.d.blocks.get(&[t[0], y, t[1]]));
+        b.set(t[0], y, t[1], block);
+    }
+    dust.insert([z[0], 4, z[1]]);
+    dust.insert([q[0], 3, q[1]]);
+    // the bus beside the tower's stone at y -1 (powered while the bulb is out): a repeater there
+    let bp = s.at(BOOST + 1, 2);
+    if dust.remove(&[bp[0], -1, bp[1]]) {
+        b.set(bp[0], -1, bp[1], &format!("repeater[delay=1,facing={},locked=false,powered=false]", name([-s.d[0], -s.d[1]])));
+        if !b.d.blocks.contains_key(&[bp[0], -2, bp[1]]) {
+            b.set(bp[0], -2, bp[1], STONE);
         }
     }
-    b.set(h[0], -6, h[1], STONE);
-    // (the outer loop's: nothing over its hatch but the outside wall's glass, and a zombie in the
-    // sky's light burns)
-    if !b.d.blocks.contains_key(&[h[0], -2, h[1]]) {
-        b.set(h[0], -2, h[1], STONE);
-    }
-    b.entity("zombie", [h[0] as f64 + 0.5, -5.0, h[1] as f64 + 0.5], Some("{PersistenceRequired:1b}"));
+    Ok(())
 }
 
 /// A stop's bed and its cage (side `s`; `outer`: the outer loop, nothing outside its track):
