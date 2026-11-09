@@ -540,7 +540,7 @@ pub fn run_terrain(c: &Circuit, name: &str, k: u8, o: &GateOpts) -> Result<Build
 fn terrain_built(spec: &FarmSpec, site: &redsim::entity::mob::site::Site, o: &RunOpts) -> Result<Built> {
     let mut run = farm::Run::start(spec, o).map_err(|e| anyhow!(e))?;
     while run.settle_tick() {}
-    let before = site.world.lock().map_err(|_| anyhow!("the site's world lock is poisoned"))?;
+    let before = site.world.read().map_err(|_| anyhow!("the site's world lock is poisoned"))?;
     let w = &run.world;
     // every cell the build changed: the farm's box and 3 around it (the site's cobblestone seals
     // of natural openings next to the farm, its digging at the edges), and the fills (C7's glass,

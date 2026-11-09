@@ -433,7 +433,7 @@ fn cleared_cells(site: &redsim::entity::mob::site::Site, moved: &FarmSpec) -> Ve
     if !site.clear_box {
         return Vec::new();
     }
-    let w = site.world.lock().map(|w| w.clone()).unwrap_or_else(|e| e.into_inner().clone());
+    let w = site.world.read().map(|w| w.clone()).unwrap_or_else(|e| e.into_inner().clone());
     let (mut lo, mut hi) = (moved.blocks[0].0, moved.blocks[0].0);
     for (p, _) in &moved.blocks {
         lo = redsim::BlockPos::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z));

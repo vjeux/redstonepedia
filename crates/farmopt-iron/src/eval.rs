@@ -49,7 +49,7 @@ pub fn site_of(spec: &FarmSpec, ground: i32, clear_box: bool) -> Result<Site, St
     let sample = redsim::terrain::samples::sample(SAMPLE).ok_or("no terrain sample")?;
     let shared = site::sample_world_shared(sample)?;
     let priced = {
-        let world = shared.lock().unwrap_or_else(|e| e.into_inner());
+        let world = shared.read().unwrap_or_else(|e| e.into_inner());
         let fp = site::footprint(spec, ground)?;
         let spots = spots_cached(&world, sample, fp);
         if spots.is_empty() {

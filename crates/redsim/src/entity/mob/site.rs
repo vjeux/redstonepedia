@@ -25,7 +25,7 @@ pub struct Site {
     /// The sample's world before the farm (natural blocks, light, heightmaps, biomes); behind a
     /// lock so the judge's threads share one site (`World` is not `Sync`), and shared by every
     /// site in the same sample ([`sample_world_shared`]: the judge's 12 spots hold one copy).
-    pub world: std::sync::Arc<std::sync::Mutex<World>>,
+    pub world: std::sync::Arc<std::sync::RwLock<World>>,
     /// Design coordinates to world coordinates.
     pub offset: [i32; 3],
     /// A void design: its blocks' box cleared first.
@@ -335,14 +335,16 @@ pub fn spots_for_spec(w: &World, sample: &Sample, spec: &FarmSpec, fp: Footprint
 /// exposures and the runs share it); each call returns its own copy (`World` is not `Sync`).
 pub fn sample_world(sample: &Sample) -> Result<World, String> {
     let shared = sample_world_shared(sample)?;
-    let w = shared.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let w = shared.read().unwrap_or_else(|e| e.into_inner()).clone();
     Ok(w)
 }
 
 /// The one shared copy of a standard sample's world (built on first use): what every [`Site`]
-/// made by [`Site::new`] holds.
-pub fn sample_world_shared(sample: &Sample) -> Result<std::sync::Arc<std::sync::Mutex<World>>, String> {
-    type Shared = std::sync::Arc<std::sync::Mutex<World>>;
+/// made by [`Site::new`] holds. Read-only once built, behind a read-write lock so every thread
+/// prices and copies it at once (tickexact 2026-11-08: a mutex serialized the optimizer's
+/// candidates on it); its sections' ticking cells are counted once here, and every copy keeps them.
+pub fn sample_world_shared(sample: &Sample) -> Result<std::sync::Arc<std::sync::RwLock<World>>, String> {
+    type Shared = std::sync::Arc<std::sync::RwLock<World>>;
     static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, Shared>>> = std::sync::OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
     let mut m = cache.lock().unwrap_or_else(|e| e.into_inner());
@@ -351,7 +353,9 @@ pub fn sample_world_shared(sample: &Sample) -> Result<std::sync::Arc<std::sync::
     }
     let bytes = std::fs::read(sample.file).map_err(|e| format!("terrain sample {}: {e}", sample.file))?;
     let t = crate::terrain::format::Terrain::decode(&bytes)?;
-    let w: Shared = std::sync::Arc::new(std::sync::Mutex::new(crate::terrain::land::build_world(&t)?));
+    let mut world = crate::terrain::land::build_world(&t)?;
+    world.ticking_sections = Some(crate::crops::TickingSections::build(&world));
+    let w: Shared = std::sync::Arc::new(std::sync::RwLock::new(world));
     m.insert(sample.file.to_string(), w.clone());
     Ok(w)
 }
@@ -708,14 +712,14 @@ impl Site {
     /// [`SPOTS`] nearest valid spots (level ground, no refused natural block) a player would take
     /// near the sample's start, each priced as built, the cheapest kept.
     pub fn with_world(world: World, sample: &'static Sample, spec: &FarmSpec, ground: i32, afk: [f64; 3], clear_box: bool) -> Result<Site, String> {
-        Site::with_shared(std::sync::Arc::new(std::sync::Mutex::new(world)), sample, spec, ground, afk, clear_box)
+        Site::with_shared(std::sync::Arc::new(std::sync::RwLock::new(world)), sample, spec, ground, afk, clear_box)
     }
 
     /// [`Site::with_world`] on a shared world ([`sample_world_shared`]).
-    pub fn with_shared(world: std::sync::Arc<std::sync::Mutex<World>>, sample: &'static Sample, spec: &FarmSpec, ground: i32, afk: [f64; 3], clear_box: bool) -> Result<Site, String> {
+    pub fn with_shared(world: std::sync::Arc<std::sync::RwLock<World>>, sample: &'static Sample, spec: &FarmSpec, ground: i32, afk: [f64; 3], clear_box: bool) -> Result<Site, String> {
         let fp = footprint(spec, ground)?;
         let priced = {
-            let w = world.lock().unwrap_or_else(|e| e.into_inner());
+            let w = world.read().unwrap_or_else(|e| e.into_inner());
             let spots = spots_for_spec(&w, sample, spec, fp, clear_box);
             if spots.is_empty() {
                 return Err(format!("no spot for a {}x{} footprint {} deep in {}", fp.size[0], fp.size[1], fp.below, sample.name));
@@ -726,7 +730,7 @@ impl Site {
     }
 
     /// The site at the `k`-th cheapest of its priced spots (the judge's other builds).
-    pub fn at_priced(world: std::sync::Arc<std::sync::Mutex<World>>, sample: &'static Sample, priced: Vec<Priced>, k: usize, afk: [f64; 3], clear_box: bool) -> Site {
+    pub fn at_priced(world: std::sync::Arc<std::sync::RwLock<World>>, sample: &'static Sample, priced: Vec<Priced>, k: usize, afk: [f64; 3], clear_box: bool) -> Site {
         let range = (priced.iter().map(Priced::seconds).fold(f64::INFINITY, f64::min), priced.iter().map(Priced::seconds).fold(0.0, f64::max));
         let chosen = priced[k.min(priced.len() - 1)].clone();
         let offset = chosen.price.offset;
@@ -760,7 +764,7 @@ impl Site {
     /// The world a run of the moved spec starts from: the sample's, its box cleared for a void
     /// design (the moved spec's blocks then go in like the judge places a design).
     pub fn world_for(&self, moved: &FarmSpec) -> World {
-        let mut w = self.world.lock().map(|w| w.clone()).unwrap_or_else(|e| e.into_inner().clone());
+        let mut w = self.world.read().map(|w| w.clone()).unwrap_or_else(|e| e.into_inner().clone());
         if self.clear_box {
             let (lo, hi) = blocks_box(moved);
             place::clear(&mut w, lo, hi);
@@ -778,7 +782,7 @@ impl Site {
     /// then the caps of its stray golem spawn cells (a cobblestone slab, or glass in a fluid). The
     /// game's side of a run in the site (the exact compare, the game gate) places the same, raw.
     pub fn site_blocks(&self) -> Vec<(BlockPos, crate::block::Block)> {
-        let mut w = self.world.lock().map(|w| w.clone()).unwrap_or_else(|e| e.into_inner().clone());
+        let mut w = self.world.read().map(|w| w.clone()).unwrap_or_else(|e| e.into_inner().clone());
         let mut out: Vec<(BlockPos, crate::block::Block)> = self.seals.iter().map(|(p, _)| (*p, SEAL)).collect();
         out.extend(self.clears.iter().copied());
         w.place_raw(&out);
@@ -789,7 +793,7 @@ impl Site {
     /// The caps of its stray golem spawn cells, as [`Site::world_for`] places them: (cobblestone
     /// slabs, glass blocks).
     pub fn cover_counts(&self) -> (usize, usize) {
-        let w = self.world.lock().map(|w| w.clone()).unwrap_or_else(|e| e.into_inner().clone());
+        let w = self.world.read().map(|w| w.clone()).unwrap_or_else(|e| e.into_inner().clone());
         let glass = self.fills.iter().filter(|p| !crate::fluid::fluid_state(&w, **p).is_empty()).count();
         (self.fills.len() - glass, glass)
     }

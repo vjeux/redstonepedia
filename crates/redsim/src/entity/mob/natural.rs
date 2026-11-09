@@ -468,17 +468,30 @@ fn state_props(w: &World, p: BlockPos) -> Option<&'static blocks::Props> {
     match b {
         crate::block::Block::Terrain(id) => Some(blocks::props(id)),
         crate::block::Block::Air => blocks::id_of("minecraft:air").map(blocks::props),
-        _ => {
-            let name = b.to_string();
-            blocks::id_of(&name).or_else(|| {
-                // redstone dust and tripwire (1296 and 128 states): every state answers the same
-                // spawn questions (no collision, never a floor, no fluid, no tag), so any of their
-                // rows does (as their light: terrain::light::props_of)
-                let base = name.split('[').next().unwrap_or(&name);
-                if matches!(base, "minecraft:redstone_wire" | "minecraft:tripwire") { blocks::first_of_block(base) } else { None }
-            }).map(blocks::props)
-        }
+        _ => row_of(&b).map(blocks::props),
     }
+}
+
+/// The natural-state table's row of a state redsim models with a block of its own (a hopper, a
+/// crafter...), remembered per state (tickexact 2026-11-08: its name formatted and looked up at
+/// every spawn check was a fiftieth of a terrain run).
+fn row_of(b: &crate::block::Block) -> Option<u16> {
+    thread_local! {
+        static ROWS: std::cell::RefCell<crate::fxhash::FxHashMap<crate::block::Block, Option<u16>>> = Default::default();
+    }
+    if let Some(v) = ROWS.with(|m| m.borrow().get(b).copied()) {
+        return v;
+    }
+    let name = b.to_string();
+    let v = blocks::id_of(&name).or_else(|| {
+        // redstone dust and tripwire (1296 and 128 states): every state answers the same spawn
+        // questions (no collision, never a floor, no fluid, no tag), so any of their rows does (as
+        // their light: terrain::light::props_of)
+        let base = name.split('[').next().unwrap_or(&name);
+        if matches!(base, "minecraft:redstone_wire" | "minecraft:tripwire") { blocks::first_of_block(base) } else { None }
+    });
+    ROWS.with(|m| m.borrow_mut().insert(*b, v));
+    v
 }
 
 /// `BlockState.isValidSpawn(level, below, type)`.
@@ -820,11 +833,13 @@ pub fn tick_chunks(w: &mut World) {
         }
     }
     let mut seen: crate::fxhash::FxHashSet<(i32, i32)> = Default::default();
+    // (one player's square holds no chunk twice: no set needed)
+    let single = nat.players.len() == 1;
     for p in nat.players.iter().filter(|_| w.chunk_order.is_empty()) {
         let (pcx, pcz) = ((p.x.floor() as i32).div_euclid(16), (p.z.floor() as i32).div_euclid(16));
         for cz in pcz - 8..=pcz + 8 {
             for cx in pcx - 8..=pcx + 8 {
-                if seen.insert((cx, cz)) && loaded_chunk(w, cx, cz) && nat.players.iter().any(|q| player_chunk_dist2(*q, cx, cz) < 16384.0) {
+                if (single || seen.insert((cx, cz))) && loaded_chunk(w, cx, cz) && nat.players.iter().any(|q| player_chunk_dist2(*q, cx, cz) < 16384.0) {
                     chunks.push((cx, cz));
                 }
             }

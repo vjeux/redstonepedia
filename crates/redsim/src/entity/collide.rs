@@ -134,9 +134,60 @@ pub fn boxes_at(w: &World, s: &Block, p: BlockPos) -> Vec<Aabb> {
     let raw: Vec<[i32; 6]> = match s {
         Block::Piston { .. } | Block::PistonHead { .. } => crate::piston::shape::of(w, *s, p).into_iter().map(|b| b.0).collect(),
         Block::MovingPiston { .. } => crate::piston::shape::moving_noclip(w, p, w.entities.noclip).into_iter().map(|b| b.0).collect(),
-        _ => crate::behavior::collision_boxes(s),
+        _ => return static_boxes(s).iter().map(|c| Aabb::new(x + f(c[0]), y + f(c[2]), z + f(c[4]), x + f(c[1]), y + f(c[3]), z + f(c[5]))).collect(),
     };
     raw.iter().map(|c| Aabb::new(x + f(c[0]), y + f(c[2]), z + f(c[4]), x + f(c[1]), y + f(c[3]), z + f(c[5]))).collect()
+}
+
+/// `behavior::collision_boxes` of a state whose shape depends on nothing but the state (every one
+/// but pistons, heads, moving blocks and bamboo), remembered per state (tickexact 2026-11-08: each
+/// entity move asked for every cell around it, two allocations a cell).
+fn static_boxes(s: &Block) -> std::rc::Rc<[crate::behavior::Box16]> {
+    thread_local! {
+        static BOXES: std::cell::RefCell<crate::fxhash::FxHashMap<Block, std::rc::Rc<[crate::behavior::Box16]>>> = Default::default();
+    }
+    if let Some(v) = BOXES.with(|m| m.borrow().get(s).cloned()) {
+        return v;
+    }
+    let v: std::rc::Rc<[crate::behavior::Box16]> = crate::behavior::collision_boxes(s).into();
+    BOXES.with(|m| m.borrow_mut().insert(*s, v.clone()));
+    v
+}
+
+/// Whether a terrain row is a speleothem's (its boxes move with the cell's offset), per row.
+fn speleothem(id: u16) -> bool {
+    thread_local! {
+        static ROWS: std::cell::RefCell<crate::fxhash::FxHashMap<u16, bool>> = Default::default();
+    }
+    if let Some(v) = ROWS.with(|m| m.borrow().get(&id).copied()) {
+        return v;
+    }
+    let v = crate::terrain::blocks::props(id).classes.iter().any(|c| c == "SpeleothemBlock");
+    ROWS.with(|m| m.borrow_mut().insert(id, v));
+    v
+}
+
+/// Whether block `s` at `p` has a collision box meeting `bb`, and then its boxes ([`boxes_at`]'s,
+/// built only for a cell that meets `bb`).
+fn boxes_meeting(w: &World, s: &Block, p: BlockPos, bb: Aabb) -> Option<Vec<Aabb>> {
+    let (x, y, z) = (p.x as f64, p.y as f64, p.z as f64);
+    let f = |v: i32| v as f64 / 16.0;
+    match s {
+        Block::Terrain(id) if !speleothem(*id) => {
+            let boxes = &crate::terrain::blocks::props(*id).boxes;
+            let at = |b: &[f64; 6]| Aabb::new(x + b[0], y + b[1], z + b[2], x + b[3], y + b[4], z + b[5]);
+            boxes.iter().any(|b| at(b).intersects(bb)).then(|| boxes.iter().map(at).collect())
+        }
+        Block::Terrain(_) | Block::Bamboo { .. } | Block::Piston { .. } | Block::PistonHead { .. } | Block::MovingPiston { .. } => {
+            let boxes = boxes_at(w, s, p);
+            boxes.iter().any(|b| b.intersects(bb)).then_some(boxes)
+        }
+        _ => {
+            let boxes = static_boxes(s);
+            let at = |c: &crate::behavior::Box16| Aabb::new(x + f(c[0]), y + f(c[2]), z + f(c[4]), x + f(c[1]), y + f(c[3]), z + f(c[5]));
+            boxes.iter().any(|c| at(c).intersects(bb)).then(|| boxes.iter().map(at).collect())
+        }
+    }
 }
 
 /// `BlockCollisions` over `bb` (the entity collision context): every block shape that meets
@@ -162,11 +213,7 @@ pub fn block_collisions(w: &World, bb: Aabb) -> Vec<(BlockPos, Vec<Aabb>)> {
                 if s.is_air() || (face == 1 && !has_large_collision_shape(&s)) || (face == 2 && !matches!(s, Block::MovingPiston { .. })) {
                     continue;
                 }
-                let boxes = boxes_at(w, &s, p);
-                if boxes.is_empty() {
-                    continue;
-                }
-                if boxes.iter().any(|b| b.intersects(bb)) {
+                if let Some(boxes) = boxes_meeting(w, &s, p, bb) {
                     out.push((p, boxes));
                 }
             }

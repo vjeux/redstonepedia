@@ -203,7 +203,7 @@ pub async fn farm_for_staged(text: &str, d: &Design, spec: &FarmSpec, b: &crate:
     }
     // (`site::price_all`'s order: cheapest first, ties in the spots' order)
     priced.sort_by(|a, b| a.seconds().total_cmp(&b.seconds()));
-    let site: &'static Site = Box::leak(Box::new(Site::at_priced(std::sync::Arc::new(std::sync::Mutex::new(world)), sample, priced, 0, afk, clear_box)));
+    let site: &'static Site = Box::leak(Box::new(Site::at_priced(std::sync::Arc::new(std::sync::RwLock::new(world)), sample, priced, 0, afk, clear_box)));
     b.pause().await;
     let moved = site.spec(spec);
     let world = site.world_for(&moved);

@@ -16,7 +16,6 @@ use super::light::{self, LightProps};
 use crate::block::Block;
 use crate::pos::BlockPos;
 use crate::world::World;
-use std::collections::HashMap;
 
 /// The terrain state of a world.
 #[derive(Clone, Debug)]
@@ -436,7 +435,7 @@ impl World {
         let ehi = [(hi[0] + 1).min(min.x + size[0] - 1), (hi[1] + 1).min(min.y + size[1] - 1), (hi[2] + 1).min(min.z + size[2] - 1)];
         let n = [ehi[0] - elo[0] + 1, ehi[1] - elo[1] + 1, ehi[2] - elo[2] + 1];
         let idx = |x: i32, y: i32, z: i32| (((y - elo[1]) * n[2] + (z - elo[2])) * n[0] + (x - elo[0])) as usize;
-        let mut cache: HashMap<Block, LightProps> = HashMap::new();
+        let mut cache: crate::fxhash::FxHashMap<Block, LightProps> = Default::default();
         let mut props = Vec::with_capacity((n[0] * n[1] * n[2]) as usize);
         for y in elo[1]..=ehi[1] {
             for z in elo[2]..=ehi[2] {

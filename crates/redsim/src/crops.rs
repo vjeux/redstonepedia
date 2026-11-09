@@ -92,12 +92,17 @@ pub fn ticks_in_section(b: &Block) -> bool {
 }
 
 /// Every chunk section's randomly ticking cells, over redsim's box (`LevelChunkSection`'s
-/// counts: recalculated when built, adjusted by every write).
+/// counts: recalculated when built, adjusted by every write), and which cells they are (a bit per
+/// cell: tickexact 2026-11-08, a random tick's position is tested in these 512 bytes a section
+/// instead of the box's cells, most of them stone or air, which missed the cache: a sixth of a
+/// terrain run).
 #[derive(Clone, Debug)]
 pub struct TickingSections {
     lo: [i32; 3],
     dims: [i32; 3],
     counts: Vec<u32>,
+    /// 64 words a section: bit `(y * 16 + z) * 16 + x` of the section's cell (x, y, z).
+    bits: Vec<u64>,
 }
 
 impl TickingSections {
@@ -107,7 +112,8 @@ impl TickingSections {
         let lo = [min.x.div_euclid(16), min.y.div_euclid(16), min.z.div_euclid(16)];
         let hi = [(min.x + size[0] - 1).div_euclid(16), (min.y + size[1] - 1).div_euclid(16), (min.z + size[2] - 1).div_euclid(16)];
         let dims = [hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1];
-        let mut ts = TickingSections { lo, dims, counts: vec![0; (dims[0] * dims[1] * dims[2]) as usize] };
+        let n = (dims[0] * dims[1] * dims[2]) as usize;
+        let mut ts = TickingSections { lo, dims, counts: vec![0; n], bits: vec![0; n * 64] };
         for y in 0..size[1] {
             for z in 0..size[2] {
                 for x in 0..size[0] {
@@ -119,6 +125,23 @@ impl TickingSections {
             }
         }
         ts
+    }
+
+    /// The word and bit of cell `p` (its section's index `i`).
+    fn bit(i: usize, p: BlockPos) -> (usize, u64) {
+        let local = ((p.y.rem_euclid(16) * 16 + p.z.rem_euclid(16)) * 16 + p.x.rem_euclid(16)) as usize;
+        (i * 64 + (local >> 6), 1u64 << (local & 63))
+    }
+
+    /// Whether cell `p` ticks randomly (`ticks_in_section` of its block), from the bits.
+    pub fn cell(&self, p: BlockPos) -> bool {
+        match self.index(p.x.div_euclid(16), p.y.div_euclid(16), p.z.div_euclid(16)) {
+            Some(i) => {
+                let (word, mask) = TickingSections::bit(i, p);
+                self.bits[word] & mask != 0
+            }
+            None => false,
+        }
     }
 
     fn index(&self, cx: i32, sy: i32, cz: i32) -> Option<usize> {
@@ -137,10 +160,13 @@ impl TickingSections {
     /// One cell of block `p` starts (`up`) or stops ticking.
     pub fn adjust(&mut self, p: BlockPos, up: bool) {
         if let Some(i) = self.index(p.x.div_euclid(16), p.y.div_euclid(16), p.z.div_euclid(16)) {
+            let (word, mask) = TickingSections::bit(i, p);
             if up {
                 self.counts[i] += 1;
+                self.bits[word] |= mask;
             } else {
                 self.counts[i] = self.counts[i].saturating_sub(1);
+                self.bits[word] &= !mask;
             }
         }
     }
@@ -185,9 +211,11 @@ pub fn tick_chunks(w: &mut World) {
             for _ in 0..speed {
                 let Some(rt) = w.random_ticks.as_mut() else { return };
                 let p = rt.position(cx * 16, sy * 16, cz * 16);
-                let s = w.get(p);
-                // isRandomlyTicking (its block's or its fluid's): natural states by the table
-                if ticks_in_section(&s) {
+                // isRandomlyTicking (its block's or its fluid's): natural states by the table; the
+                // section's bits say it without reading the box's cell (the same answer:
+                // `ticks_in_section` of the cell, kept by every write)
+                if w.ticking_sections.as_ref().is_some_and(|ts| ts.cell(p)) {
+                    let s = w.get(p);
                     random_tick(w, s, p);
                 }
             }

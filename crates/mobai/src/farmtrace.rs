@@ -3,7 +3,7 @@
 //! entity's own random) by call site.
 
 use anyhow::{Result, anyhow};
-use mobfarm::exact::{GameFarm, Opts, Place, follow_bonuses, load_place, redsim_start, run_opts, set_bonuses};
+use mobfarm::exact::{GameFarm, Opts, Place, follow_bonuses, load_place, redsim_start, set_bonuses};
 use redsim::entity::EntityKind;
 use redsim::entity::mob::farm::SETTLE_TICKS;
 

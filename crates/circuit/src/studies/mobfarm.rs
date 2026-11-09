@@ -206,7 +206,7 @@ pub fn terrain_sites(c: &Circuit, spec: &FarmSpec, sample: &'static redsim::terr
     let shared = ts::sample_world_shared(sample)?;
     let fp = ts::footprint(spec, ground)?;
     let priced = {
-        let w = shared.lock().unwrap_or_else(|e| e.into_inner());
+        let w = shared.read().unwrap_or_else(|e| e.into_inner());
         let spots = ts::spots_for_spec(&w, sample, spec, fp, clear_box);
         if spots.is_empty() {
             return Err(format!("no spot for a {}x{} footprint {} deep in {}", fp.size[0], fp.size[1], fp.below, sample.name));

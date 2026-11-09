@@ -6,7 +6,6 @@ use crate::behavior as bh;
 use crate::block::{Block, Kind};
 use crate::pos::{BlockPos, Dir};
 use crate::ticks::{LevelTicks, Priority};
-use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// `Block.UPDATE_*` flags.
@@ -78,6 +77,31 @@ impl BlockEvents {
     }
 }
 
+/// A flag read and set through a shared reference, as `Cell<bool>` (`RedstoneWireBlock`'s
+/// `shouldSignal`), atomic so a world can be shared read-only between threads (tickexact
+/// 2026-11-08: a terrain sample's one world, priced at by every candidate at once).
+pub struct Flag(std::sync::atomic::AtomicBool);
+
+impl Flag {
+    pub fn new(v: bool) -> Flag {
+        Flag(std::sync::atomic::AtomicBool::new(v))
+    }
+    #[inline]
+    pub fn get(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    #[inline]
+    pub fn set(&self, v: bool) {
+        self.0.store(v, std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+impl Clone for Flag {
+    fn clone(&self) -> Flag {
+        Flag::new(self.get())
+    }
+}
+
 /// The simulated level: a box of cells (outside: air, writes dropped and reported).
 #[derive(Clone)]
 pub struct World {
@@ -109,7 +133,7 @@ pub struct World {
     /// `RedstoneTorchBlock.RECENT_TOGGLES` of this level.
     pub torch_toggles: Vec<(BlockPos, i64)>,
     /// `RedstoneWireBlock.shouldSignal`.
-    pub wire_signal: Cell<bool>,
+    pub wire_signal: Flag,
     /// Piston block entities (moving blocks) and their tickers (agent pistmodel's side).
     pub piston: crate::piston::State,
     /// Falling-block entities (agent pistmodel's side).
@@ -262,7 +286,7 @@ impl World {
             comparator_out: HashMap::new(),
             containers: Default::default(),
             torch_toggles: Vec::new(),
-            wire_signal: Cell::new(true),
+            wire_signal: Flag::new(true),
             piston: Default::default(),
             gravity: Default::default(),
             entities: Default::default(),
