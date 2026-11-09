@@ -394,6 +394,11 @@ impl Run {
                 .map(|(_, h)| h);
             let Some(home) = home else { return Err(format!("the villager at {:.2} {:.2} {:.2} has no bed of its own within reach", feet.x, feet.y, feet.z)) };
             taken.push(home);
+            // without the mob AI the arrival sets HOME: its ticket taken (with it the villager
+            // claims its bed itself)
+            if !self.o.ai {
+                crate::entity::mob::ai::poi::take(w, home);
+            }
             if let EntityKind::Mob(m) = &mut w.entities.list[i].kind
                 && let Some(b) = m.brain.as_deref_mut()
             {
@@ -893,7 +898,10 @@ fn absorb_weather(w: &mut World, rep: &mut RunReport, spec: &FarmSpec, tr: &Trac
             E::TrapHorse { at, .. } => {
                 ws.traps += 1;
                 if in_farm(at) {
-                    rep.fail(format!("gt {t}: a skeleton trap horse spawned on the farm at {} {} {} (its walking is not modeled; a lightning rod prevents traps)", at[0], at[1], at[2]));
+                    // the fallback rule for natural mobs' behaviours (2026-11-09): the trap's
+                    // horsemen are not simulated yet; named in the run's report, never a failure
+                    let _ = at;
+                    w.mob.ai.legacy.insert("skeleton trap horses on the farm (their horsemen not simulated yet)");
                 }
             }
             E::Sunburn { .. } => ws.sunburns += 1,

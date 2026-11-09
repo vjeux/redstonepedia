@@ -1517,7 +1517,8 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
             rider_helmet = zh;
             rider_breaks_doors = zb;
             if zj != Jockey::None {
-                model_error(w, "natural spawning: a zombie horse rider's chicken jockey is not modeled".into());
+                // the fallback rule: the rider's chicken is left out, named in the run's report
+                w.mob.ai.legacy.insert("a zombie horse rider's chicken jockey");
             }
             jockey = if zbaby { Jockey::HorseBabyZombie } else { Jockey::HorseZombie };
             g.ageable.get_or_insert((0, 0.2, true));

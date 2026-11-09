@@ -333,7 +333,7 @@ pub fn unmodeled(ty: MobType, a: &MobAi) -> bool {
 
 impl Default for AiWorld {
     fn default() -> AiWorld {
-        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, pois: None, poi_seq: std::collections::HashMap::new(), poi_next: 0, poi_tickets: None, lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new(), poi_hashes: None, strict: false, legacy: std::collections::BTreeSet::new() }
+        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, pois: None, poi_seq: std::collections::HashMap::new(), poi_next: 0, poi_tickets: Some(std::collections::BTreeMap::new()), lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new(), poi_hashes: None, strict: false, legacy: std::collections::BTreeSet::new() }
     }
 }
 

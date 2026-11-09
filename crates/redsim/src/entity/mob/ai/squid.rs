@@ -70,10 +70,8 @@ pub fn age_step(w: &mut World, i: usize) {
             let bb = crate::entity::make_bounding_box(pos, wd, h);
             w.entities.list[i].bb = bb;
             if !crate::entity::no_collision(w, i, bb.deflate(1.0e-7, 1.0e-7, 1.0e-7)) {
-                let why = "a baby squid growing up against a block (fudgePositionAfterSizeChange) is not modeled".to_string();
-                if !w.errors.contains(&why) {
-                    w.errors.push(why);
-                }
+                // the fallback rule: grown in place, named in the run's report
+                w.mob.ai.legacy.insert("a baby squid growing up against a block (fudgePositionAfterSizeChange)");
             }
         }
     } else if a > 0 {

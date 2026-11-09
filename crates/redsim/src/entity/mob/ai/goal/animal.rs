@@ -206,7 +206,9 @@ pub fn can_use(w: &mut World, i: usize, g: &mut AnimalGoal) -> bool {
         AnimalGoal::Panic => {
             let m = mob(w, i);
             if m.hurt_time > 0 || m.fire_ticks > 0 {
-                refuse(w, "a hurt or burning animal's PanicGoal is not modeled yet");
+                // the fallback rule for natural mobs' behaviours (2026-11-09): not modeled yet, so
+                // it does not run; named in the run's report
+                w.mob.ai.legacy.insert("animals' PanicGoal when hurt or burning");
             }
             false
         }
@@ -321,7 +323,8 @@ fn grow_up(w: &mut World, i: usize) {
     let bb = crate::entity::make_bounding_box(pos, wd, h);
     w.entities.list[i].bb = bb;
     if !crate::entity::no_collision(w, i, bb.deflate(1.0e-7, 1.0e-7, 1.0e-7)) {
-        refuse(w, "a baby animal growing up against a block (fudgePositionAfterSizeChange) is not modeled");
+        // the fallback rule: grown in place, named in the run's report
+        w.mob.ai.legacy.insert("a baby animal growing up against a block (fudgePositionAfterSizeChange)");
     }
 }
 
