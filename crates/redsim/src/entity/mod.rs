@@ -174,6 +174,9 @@ pub struct Entity {
     pub passengers: Vec<u32>,
     /// Resolved server-side `LeashData` (ordinary boat-to-entity attachments).
     pub leash: Option<leash::LeashData>,
+    /// `boardingCooldown` (ironfarm, the carousel): 60 when it leaves a vehicle, down 1 each
+    /// `baseTick`; a rider boards by itself (`startRiding` without force) only at 0.
+    pub boarding_cooldown: i32,
 }
 
 /// The entity section of a position (`SectionPos.asLong(BlockPos.containing(pos))`'s x, y, z).
@@ -248,6 +251,7 @@ impl Entity {
             vehicle: None,
             passengers: Vec::new(),
             leash: None,
+            boarding_cooldown: 0,
         }
     }
 
@@ -767,10 +771,29 @@ pub fn stop_riding(w: &mut World, i: usize) {
         vpos = Some(w.entities.list[vi].pos);
         vehicle_removed = w.entities.list[vi].removed;
     }
+    // `removePassenger`: `passenger.boardingCooldown = 60`
+    w.entities.list[i].boarding_cooldown = 60;
     let removed = w.entities.list[i].removed;
     // ENTITY_DISMOUNT (a removed rider was killed or discarded: `shouldDestroy`)
     if let Some(vp) = vpos {
         w.game_event_at("entity_dismount", [vp.x, vp.y, vp.z], None, false);
+    }
+    // (ironfarm, the carousel) `LivingEntity.dismountVehicle`: a living rider of a minecart that
+    // stays (an activator rail's eject) is teleported to `getDismountLocationForPassenger`
+    if !removed
+        && !vehicle_removed
+        && let EntityKind::Mob(m) = &w.entities.list[i].kind
+        && let Some(vi) = vi
+        && matches!(w.entities.list[vi].kind, EntityKind::Minecart(_))
+    {
+        let d = m.ty.def();
+        let to = minecart::dismount_location(w, vi, d.width as f64, d.height as f64);
+        w.entities.set_pos(i, to);
+        let e = &mut w.entities.list[i];
+        // (`teleportTo`: `teleportSetPosition`, the old position too, the motion zero)
+        (e.xo, e.yo, e.zo) = (to.x, to.y, to.z);
+        e.delta_movement = Vec3::ZERO;
+        return;
     }
     if !removed {
         if matches!(w.entities.list[i].kind, EntityKind::Mob(_)) {
@@ -945,6 +968,10 @@ pub fn compute_speed(w: &mut World, i: usize) {
 /// `computeSpeed`, `wasEyeInWater`, `updateFluidInteraction`, `checkBelowWorld`, `firstTick`.
 pub fn base_tick(w: &mut World, i: usize) {
     compute_speed(w, i);
+    // `if (this.boardingCooldown > 0) this.boardingCooldown--`
+    if w.entities.list[i].boarding_cooldown > 0 {
+        w.entities.list[i].boarding_cooldown -= 1;
+    }
     {
         let e = &mut w.entities.list[i];
         // the previous tick's trackers

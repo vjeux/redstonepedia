@@ -206,6 +206,63 @@ fn a_mob_in_scaffolding_is_refused() {
     assert!(!crate::entity::minecart::is_pushable(&w.entities.list[zi]));
 }
 
+/// The carousel's boarding and dismount (ironfarm, read in the 26.3 source): a plain minecart
+/// rolling at 0.4 a tick down a rail takes the villager standing on it as a passenger
+/// (`OldMinecartBehavior.pushAndPickupEntities`: `startRiding`), the villager sits at the cart's
+/// own y (`LOWERED_PASSENGER_ATTACHMENT`), and a powered activator rail throws it out beside the
+/// track (`Minecart.activateMinecart`: `ejectPassengers`, `getDismountLocationForPassenger`: the
+/// motion direction's right first) with a 60 gt boarding cooldown; the cart wobbles (hurt 10).
+#[test]
+fn a_cart_picks_up_a_villager_and_an_activator_rail_throws_it_out() {
+    let mut w = world(3);
+    for x in 0..16 {
+        put(&mut w, x, -1, 0, "minecraft:stone");
+        put(&mut w, x, -1, 1, "minecraft:stone");
+        put(&mut w, x, -1, -1, "minecraft:stone");
+        put(&mut w, x, 0, 0, "minecraft:rail[shape=east_west,waterlogged=false]");
+    }
+    put(&mut w, 12, 0, 0, "minecraft:activator_rail[powered=true,shape=east_west,waterlogged=false]");
+    put(&mut w, 12, -2, 0, "minecraft:redstone_block");
+    let cart = w.entities.add(EntityKind::Minecart(Default::default()), Vec3::new(0.5, 0.0625, 0.5), 0.0);
+    let ci = crate::entity::index_of(&w, cart).unwrap();
+    w.entities.list[ci].delta_movement = Vec3::new(0.4, 0.0, 0.0);
+    let v = add(&mut w, MobType::Villager, Vec3::new(5.5, 0.0, 0.5), true);
+    let mut boarded = None;
+    let mut thrown = None;
+    for t in 1..=60 {
+        w.tick();
+        assert!(w.errors.is_empty(), "{:?}", w.errors);
+        let vi = crate::entity::index_of(&w, v).unwrap();
+        let ci = crate::entity::index_of(&w, cart).unwrap();
+        match (boarded, w.entities.list[vi].vehicle) {
+            (None, Some(c)) => {
+                assert_eq!(c, cart);
+                boarded = Some(t);
+            }
+            (Some(_), Some(_)) if t > boarded.unwrap() + 1 => {
+                // seated at the cart's own y
+                assert!((w.entities.list[vi].pos.y - w.entities.list[ci].pos.y).abs() < 1.0e-9);
+            }
+            (Some(_), None) if thrown.is_none() => {
+                thrown = Some(t);
+                let p = w.entities.list[vi].pos;
+                // (60 when thrown; the villager, after the cart in the list, ticks once more this
+                // tick as a free mob: 59)
+                assert_eq!(w.entities.list[vi].boarding_cooldown, 59, "the boarding cooldown");
+                assert_eq!(w.entities.list[ci].passengers.len(), 0);
+                // moving east, getMotionDirection is east's... the first free offset beside the
+                // track (z +-1), on the stone (y 0), at a cell's centre
+                assert!(p.x.fract() == 0.5 && p.z.abs().fract() == 0.5 && p.y == 0.0, "thrown to {p:?}");
+                assert!((p.z - 0.5).abs() == 1.0, "beside the track: {p:?}");
+                assert!(matches!(w.entities.list[ci].kind, EntityKind::Minecart(m) if m.hurt_time == 10 || m.hurt_time == 9));
+            }
+            _ => {}
+        }
+    }
+    assert!(boarded.is_some(), "the cart never took the villager");
+    assert!(thrown.is_some(), "the activator rail never threw the villager out");
+}
+
 /// A rider travels like any server-side mob (`canSimulateMovement && isEffectiveAi`): from the
 /// zero motion `rideTick` gives it, gravity leaves (0 - 0.08) x 0.98 = -0.0784.
 #[test]

@@ -52,6 +52,7 @@ oak_boat	2.5	1.25	0.5	5 planks (the zombie's boat; each wood)
 hopper	154	52	10.8	5 iron + a chest
 minecart	150	50	10	5 iron
 rail	11.3	3.8	0.8	6 iron + 1 stick make 16
+redstone_block	0	18	4.5	9 redstone dust
 iron_trapdoor	120	40	8	4 iron
 tripwire_hook	15.4	5.2	1.1	1 iron + 1 stick + 1 planks make 2
 tripwire	15	3	1	one string

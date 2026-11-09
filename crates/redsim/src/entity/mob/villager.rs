@@ -592,7 +592,7 @@ pub fn stand_up_with_side(w: &World, ty: MobType, pos: BlockPos, forward: Dir, s
 
 /// A block's collision shape top (`VoxelShape.max(Y)`) in the cell, `None` when empty;
 /// `DismountHelper.nonClimbableShape` (open trapdoors and climbables count as empty).
-fn non_climbable_top(w: &World, p: BlockPos) -> Option<f64> {
+pub(crate) fn non_climbable_top(w: &World, p: BlockPos) -> Option<f64> {
     let s = w.get(p);
     if matches!(s, Block::Trapdoor { open: true, .. } | Block::Scaffolding { .. }) {
         return None;

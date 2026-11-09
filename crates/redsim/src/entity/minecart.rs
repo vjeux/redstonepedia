@@ -29,6 +29,9 @@ pub struct MinecartState {
     pub flipped: bool,
     /// A hopper minecart's `enabled` (an activator rail's power turns it off).
     pub enabled: bool,
+    /// `getHurtTime()` (ironfarm, the carousel): a powered activator rail wobbles a plain cart
+    /// (10, then down 1 a tick), and sets its damage to 50 (`vehicle_damage`) when it is 0.
+    pub hurt_time: u8,
 }
 
 fn st_mut(w: &mut World, i: usize) -> &mut MinecartState {
@@ -303,7 +306,11 @@ fn come_off_track(w: &mut World, i: usize) {
 
 /// `AbstractMinecart.tick` of entity `i`.
 pub fn tick(w: &mut World, i: usize) {
-    // AbstractMinecart.tick: the damage an explosion left decays first
+    // AbstractMinecart.tick: the hurt wobble decays (`setHurtTime(getHurtTime() - 1)`), then the
+    // damage an explosion or an activator rail left
+    if st(w, i).hurt_time > 0 {
+        st_mut(w, i).hurt_time -= 1;
+    }
     {
         let e = &mut w.entities.list[i];
         if e.vehicle_damage > 0.0 {
@@ -328,13 +335,23 @@ pub fn tick(w: &mut World, i: usize) {
     if on_rails {
         move_along_track(w, i);
         // activateMinecart: a hopper minecart is enabled while the activator rail is unpowered; a
-        // plain one on a powered activator rail throws its rider out (`ejectPassengers`: the
-        // rider's dismount spot, not modeled)
+        // plain one on a powered activator rail throws its riders out (`ejectPassengers`, the
+        // last first: each rider's `stopRiding`, a living one to `dismount_location`), then
+        // wobbles when it is not wobbling already (hurtTime 10, damage 50)
         if let Block::Rail { activator: true, powered, .. } = s {
             if st(w, i).hopper {
                 st_mut(w, i).enabled = !powered;
-            } else if powered && !w.entities.list[i].passengers.is_empty() {
-                w.errors.push("a ridden minecart on a powered activator rail ejects its rider (getDismountLocationForPassenger): not modeled".into());
+            } else if powered {
+                let riders = w.entities.list[i].passengers.clone();
+                for r in riders.iter().rev() {
+                    if let Some(j) = entity::index_of(w, *r) {
+                        entity::stop_riding(w, j);
+                    }
+                }
+                if st(w, i).hurt_time == 0 {
+                    st_mut(w, i).hurt_time = 10;
+                    w.entities.list[i].vehicle_damage = 50.0;
+                }
             }
         }
     } else {
@@ -367,6 +384,14 @@ pub fn tick(w: &mut World, i: usize) {
     }
     // pushAndPickupEntities (OldMinecartBehavior; clk-misc 2026-10-20)
     push_and_pickup_entities(w, i);
+    // (ironfarm, the carousel: `MCTAS_CART_TRACE=N` prints every cart's position and rider every
+    // N gt)
+    if let Some(n) = cart_trace()
+        && w.time % n == 0
+    {
+        let e = &w.entities.list[i];
+        eprintln!("cart {} t {}: {:.2} {:.2} {:.2} v {:.3} {:.3} riders {:?}", e.id, w.time, e.pos.x, e.pos.y, e.pos.z, e.delta_movement.x, e.delta_movement.z, e.passengers);
+    }
     entity::fluid_push::update_fluid_interaction(w, i);
     w.entities.list[i].first_tick = false;
     // MinecartHopper.tick: after the cart's tick, `tryConsumeItems` (consumedItemThisFrame is
@@ -375,6 +400,69 @@ pub fn tick(w: &mut World, i: usize) {
     if m.hopper && m.enabled && !w.entities.list[i].removed {
         crate::redstone::container::hopper_minecart_suck(w, i);
     }
+}
+
+/// `MCTAS_CART_TRACE`, read once.
+fn cart_trace() -> Option<i64> {
+    static N: std::sync::OnceLock<Option<i64>> = std::sync::OnceLock::new();
+    *N.get_or_init(|| std::env::var("MCTAS_CART_TRACE").ok().and_then(|v| v.parse().ok()).filter(|n: &i64| *n > 0))
+}
+
+/// `entity.startRiding(cart)` (not forced) of mob `j` picked up by cart `i` (the carousel's
+/// re-boarding): `canRide` (its boarding cooldown at 0) and `canAddPassenger` (the cart empty),
+/// then the pose STANDING, the vehicle and its passengers, ENTITY_MOUNT at the cart's position.
+/// The rider takes its seat when the cart ticks it (`positionRider`).
+fn start_riding(w: &mut World, j: usize, i: usize) {
+    if w.entities.list[j].boarding_cooldown > 0 || !w.entities.list[i].passengers.is_empty() {
+        return;
+    }
+    let (rider, cart) = (w.entities.list[j].id, w.entities.list[i].id);
+    w.entities.list[j].vehicle = Some(cart);
+    w.entities.list[i].passengers.push(rider);
+    let vp = w.entities.list[i].pos;
+    w.game_event_at("entity_mount", [vp.x, vp.y, vp.z], None, false);
+}
+
+/// `AbstractMinecart.getDismountLocationForPassenger` of cart `i` for a living rider `rw` wide
+/// and `rh` tall standing (the only dismount pose of a villager, a zombie or a golem): around the
+/// cart's block in `DismountHelper.offsetsForDirection(getMotionDirection())`'s order, at its level,
+/// one up, one down, the first cell with a floor under 1 (`getBlockFloorHeight`, climbables and open
+/// trapdoors empty) and no block in the rider's box there; else `Entity`'s (its x and z, its box's
+/// top: the ceiling check only picks a pose).
+pub fn dismount_location(w: &World, i: usize, rw: f64, rh: f64) -> Vec3 {
+    let e = &w.entities.list[i];
+    // getDirection: `Direction.fromYRot(yRot)`, 2D data values south, west, north, east;
+    // OldMinecartBehavior.getMotionDirection: its clockwise (flipped: the opposite's clockwise)
+    let d2 = [crate::pos::Dir::South, crate::pos::Dir::West, crate::pos::Dir::North, crate::pos::Dir::East][(mth::floor(e.y_rot as f64 / 90.0 + 0.5) & 3) as usize];
+    let forward = if st(w, i).flipped { d2.opposite().clockwise() } else { d2.clockwise() };
+    let right = forward.clockwise();
+    let (left, back) = (right.opposite(), forward.opposite());
+    let s = |d: crate::pos::Dir| (d.step()[0], d.step()[2]);
+    let add = |a: (i32, i32), b: (i32, i32)| (a.0 + b.0, a.1 + b.1);
+    let offsets = [s(right), s(left), add(s(back), s(right)), add(s(back), s(left)), add(s(forward), s(right)), add(s(forward), s(left)), s(back), s(forward)];
+    let base = BlockPos::new(mth::floor(e.pos.x), mth::floor(e.pos.y), mth::floor(e.pos.z));
+    let reach = rw.min(1.0) / 2.0;
+    for dy in [0, 1, -1] {
+        for (dx, dz) in offsets {
+            let p = BlockPos::new(base.x + dx, base.y + dy, base.z + dz);
+            let floor = match crate::entity::mob::villager::non_climbable_top(w, p) {
+                Some(top) => top,
+                None => match crate::entity::mob::villager::non_climbable_top(w, p.below()) {
+                    Some(b) if b >= 1.0 => b - 1.0,
+                    _ => f64::NEG_INFINITY,
+                },
+            };
+            if !(floor.is_finite() && floor < 1.0) {
+                continue;
+            }
+            let at = Vec3::new(p.x as f64 + 0.5, p.y as f64 + floor, p.z as f64 + 0.5);
+            let bb = crate::entity::Aabb::new(at.x - reach, at.y, at.z - reach, at.x + reach, at.y + rh, at.z + reach);
+            if !crate::entity::collide::block_collisions(w, bb).iter().any(|(_, boxes)| boxes.iter().any(|b| b.intersects(bb))) {
+                return at;
+            }
+        }
+    }
+    Vec3::new(e.pos.x, e.bb.max_y, e.pos.z)
 }
 
 /// `isPushable()` of a modeled entity: boats and minecarts (armor stands and items are not; living
@@ -404,9 +492,22 @@ fn push_and_pickup_entities(w: &mut World, i: usize) {
         for j in found {
             if is_cart(&w.entities.list[j]) {
                 push_by(w, j, i);
-            } else {
-                // a boat (not a player, golem or minecart, the cart carries nobody): startRiding
-                w.errors.push("a moving minecart picking up an entity (startRiding: passengers) is not modeled".into());
+                continue;
+            }
+            // (not a player, an iron golem or a minecart, the cart carrying nobody, the entity
+            // riding nothing): `entity.startRiding(cart)`; otherwise `entity.push(cart)`
+            let golem = matches!(&w.entities.list[j].kind, entity::EntityKind::Mob(m) if matches!(m.ty, crate::entity::mob::types::MobType::IronGolem));
+            let boards = !golem && w.entities.list[i].passengers.is_empty() && w.entities.list[j].vehicle.is_none();
+            match &w.entities.list[j].kind {
+                entity::EntityKind::Mob(_) if boards => start_riding(w, j, i),
+                entity::EntityKind::Mob(m) => {
+                    // `LivingEntity.push(entity)`: nothing while it sleeps
+                    if m.sleeping_pos.is_none() {
+                        entity::push::generic(w, j, i);
+                    }
+                }
+                _ if boards => w.errors.push("a moving minecart picking up a boat (startRiding: passengers) is not modeled".into()),
+                _ => entity::push::generic(w, j, i),
             }
         }
     } else {

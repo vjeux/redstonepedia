@@ -200,7 +200,7 @@ fn props(b: &Block) -> Result<Props, String> {
         // buttons, levers, pressure plates, rails, tripwire and its hooks (`noCollision()`: no
         // occlusion, light block 0, propagatesSkylightDown) (mobinfra 2026-11-08: D1U's buttons
         // over its lava's signs on the lightning card)
-        Block::Button { .. } | Block::Lever { .. } | Block::Plate { .. } | Block::Rail { .. } | Block::Tripwire { .. } | Block::TripwireHook { .. } => Props { dampening: 0, faces: None },
+        Block::Button { .. } | Block::Lever { .. } | Block::Plate { .. } | Block::Rail { .. } | Block::PlainRail { .. } | Block::DetectorRail { .. } | Block::Tripwire { .. } | Block::TripwireHook { .. } => Props { dampening: 0, faces: None },
         // glass, stained glass and copper grates, waterlogged too (`TransparentBlock`:
         // propagatesSkylightDown always, not solid render: light dampening 0, no occlusion)
         Block::Simple(Simple::Glass | Simple::WhiteStainedGlass | Simple::BlackStainedGlass | Simple::WaxedCopperGrate) | Block::WaterloggedGrate => Props { dampening: 0, faces: None },

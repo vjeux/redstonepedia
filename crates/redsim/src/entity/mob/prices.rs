@@ -200,6 +200,13 @@ pub fn bill(blocks: &[&str], entities: &[(&str, &str)], dug: u32, covers: &[&str
                     add(&mut b, "zombie", 1, p.price("zombie", stage)?);
                 }
             }
+            // (the carousel's carts: each with its villager, priced as every villager)
+            "minecart" => {
+                add(&mut b, "minecart", 1, p.price("minecart", stage)?);
+                if nbt.contains("villager") {
+                    villagers += 1;
+                }
+            }
             k => return Err(format!("no price for the entity {k}")),
         }
     }

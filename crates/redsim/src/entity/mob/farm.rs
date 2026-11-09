@@ -470,13 +470,16 @@ struct Track {
     seen_by_others: std::collections::HashSet<u32>,
     /// The drops counted as burnt (once each).
     burnt: std::collections::HashSet<u32>,
+    /// The villagers seen riding (a minecart carousel's: they move with their carts, and get off
+    /// at its night stop; the pod check is not theirs).
+    riders: std::collections::HashSet<u32>,
 }
 
 impl Track {
     /// The tracking of a run that just arrived: its own villagers' homes and last sleeps.
     fn new(r: &Run, spec: &FarmSpec) -> Track {
         let own: std::collections::HashSet<u32> = r.own.iter().copied().collect();
-        let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0, own, at_zombie: Default::default(), burnt: Default::default(), cluster_of: Default::default(), summoned_by: Default::default(), seen_by_others: Default::default() };
+        let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0, own, at_zombie: Default::default(), burnt: Default::default(), cluster_of: Default::default(), summoned_by: Default::default(), seen_by_others: Default::default(), riders: Default::default() };
         for e in &r.world.entities.list {
             if let EntityKind::Mob(m) = &e.kind
                 && m.ty == MobType::Villager
@@ -768,6 +771,15 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
             MobEvent::GolemTry { golem: None, .. } => rep.losses.no_spot += 1,
             MobEvent::GolemSeen { villager, .. } if tr.own.contains(&villager) => {
                 rep.losses.seen += 1;
+                // (`MCTAS_SEEN_TRACE=1`: each sighting, the villager's position and the golems it
+                // sensed)
+                if std::env::var_os("MCTAS_SEEN_TRACE").is_some()
+                    && let Some(i) = crate::entity::index_of(w, villager)
+                {
+                    let p = w.entities.list[i].pos;
+                    let gs: Vec<String> = super::villager::nearest_golems(w, i).iter().filter_map(|g| crate::entity::index_of(w, *g)).map(|j| { let q = w.entities.list[j].pos; format!("{:.1},{:.1},{:.1}", q.x, q.y, q.z) }).collect();
+                    eprintln!("seen t {t}: villager {villager} at {:.1},{:.1},{:.1}: golems {gs:?}", p.x, p.y, p.z);
+                }
                 // (a golem another cluster summoned: the coupling between a farm's groups)
                 if let (Some(c), Some(i)) = (tr.cluster_of.get(&villager).copied(), crate::entity::index_of(w, villager)) {
                     for g in super::villager::nearest_golems(w, i) {
@@ -951,8 +963,15 @@ fn check_tick(w: &World, rep: &mut RunReport, tr: &mut Track, spec: &FarmSpec, t
                 }
             }
             MobType::Villager => {
+                // (a villager riding a minecart moves with it: the carousel's, brief
+                // farm-iron-carousel.md)
+                if e.vehicle.is_some() {
+                    tr.riders.insert(e.id);
+                }
                 if let Some((_, home)) = tr.villager_home.iter().find(|(v, _)| *v == e.id)
                     && m.sleeping_pos.is_none()
+                    && e.vehicle.is_none()
+                    && !tr.riders.contains(&e.id)
                     && (e.pos.x - home.x).abs().max((e.pos.z - home.z).abs()) > 1.0
                 {
                     rep.fail(format!("gt {t}: a villager moved from {:.2} {:.2} to {:.2} {:.2} (outside its pod)", home.x, home.z, e.pos.x, e.pos.z));

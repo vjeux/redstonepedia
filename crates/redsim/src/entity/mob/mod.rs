@@ -882,6 +882,9 @@ pub fn air_drag() -> f64 {
 /// tell them apart) minus the rider's vehicle attachment (`ridingOffset`: a zombie sits 0.7 lower).
 pub fn rider_offset(v: &EntityKind, rider: &MobState) -> Option<f64> {
     let seat = match v {
+        // `AbstractMinecart.getPassengerAttachmentPoint`: a villager (or a wandering trader) sits
+        // lowered, at the cart's own y (`LOWERED_PASSENGER_ATTACHMENT`, 0)
+        EntityKind::Minecart(_) if matches!(rider.ty, MobType::Villager) => 0.0f32,
         EntityKind::Minecart(_) => 0.1875f32,
         EntityKind::Boat(_) => 0.5625f32 / 3.0f32,
         // a spider's passenger attachment (`passengerAttachments(0.765F)`: straight up, the same at
