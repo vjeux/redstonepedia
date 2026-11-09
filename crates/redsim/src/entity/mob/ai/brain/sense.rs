@@ -61,10 +61,6 @@ fn nearest_living(w: &mut World, i: usize) {
     if ids.iter().any(|&j| matches!(w.entities.list[j].kind, EntityKind::ArmorStand(_))) {
         refuse(w, "an armor stand in a villager's sight (a living entity its sensors list) is not modeled");
     }
-    let player_near = w.mob.ai.players.iter().any(|p| crate::entity::make_bounding_box(p.pos, target::PLAYER_WIDTH, target::PLAYER_HEIGHT).intersects(query));
-    if player_near {
-        refuse(w, "a player near a villager (its sensors' living entities) is not modeled yet");
-    }
     let mut found: Vec<(f64, u32, MobType)> = ids
         .into_iter()
         .filter(|&j| matches!(w.entities.list[j].kind, EntityKind::Mob(_)))
@@ -73,6 +69,13 @@ fn nearest_living(w: &mut World, i: usize) {
             (pos.distance_to_sqr(e.pos), e.id, mob(w, j).ty)
         })
         .collect();
+    // the players are living entities too (any mode: getEntitiesOfClass(LivingEntity) keeps every
+    // alive one); listed by their id, their type a stand-in every consumer skips by id
+    for (k, p) in w.mob.ai.players.iter().enumerate() {
+        if crate::entity::make_bounding_box(p.pos, target::PLAYER_WIDTH, target::PLAYER_HEIGHT).intersects(query) {
+            found.push((pos.distance_to_sqr(p.pos), crate::entity::mob::ai::PLAYER_ID_BASE + k as u32, MobType::Villager));
+        }
+    }
     found.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     let list: Vec<(u32, MobType)> = found.into_iter().map(|(_, id, ty)| (id, ty)).collect();
     let b = brain_mut(w, i);

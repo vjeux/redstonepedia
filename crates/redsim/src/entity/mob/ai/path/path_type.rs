@@ -184,7 +184,7 @@ pub fn from_state(b: &Block) -> PathType {
         Block::Simple(Simple::HoneyBlock) => PathType::StickyHoney,
         Block::Lava { .. } => PathType::Lava,
         // isBurningBlock: BlockTags.FIRE, lava, magma, a lit campfire, a lava cauldron
-        Block::Simple(Simple::MagmaBlock) => PathType::Fire,
+        Block::Simple(Simple::MagmaBlock) | Block::Campfire { lit: true, .. } => PathType::Fire,
         Block::Door { open: true, .. } => PathType::DoorOpen,
         // door.type().canOpenByHand(): every wooden door, not iron
         Block::Door { iron, .. } => {
@@ -225,6 +225,9 @@ pub fn pathfindable_land(b: &Block) -> bool {
         | Block::Fence { .. }
         | Block::Slab { .. }
         | Block::StoneSlab { .. }
+        | Block::AnySlab { .. }
+        | Block::SoulLantern { .. }
+        | Block::Campfire { .. }
         | Block::Simple(Simple::SoulSand)
         | Block::Simple(Simple::Mud)
         | Block::Farmland { .. }

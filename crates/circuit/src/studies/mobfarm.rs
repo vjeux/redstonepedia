@@ -963,10 +963,13 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
     // (the mob-AI lane, the parent's rule 2026-11-08) the ambient natural mob types the runs ran
     // on the legacy walk model, their AI not modeled yet: named in the run's output, never on the
     // card or the page (no caveats on pages: vjeux); the bridge compare's first difference shows
-    // them too
-    let legacy: std::collections::BTreeSet<&str> = all.iter().flat_map(|r| r.legacy_ai.iter().map(|s| s.as_str())).collect();
-    if !legacy.is_empty() {
-        eprintln!("note: natural mobs on the legacy walk model (their AI not modeled yet): {}", legacy.into_iter().collect::<Vec<_>>().join(", "));
+    // them too. Once per judge: on the build with the base checks, over the pooled runs
+    if base.is_some() {
+        let src = if pooled.is_empty() { runs } else { pooled };
+        let legacy: std::collections::BTreeSet<&str> = src.iter().flat_map(|r| r.legacy_ai.iter().map(|s| s.as_str())).collect();
+        if !legacy.is_empty() {
+            eprintln!("note: natural mobs on the legacy walk model (their AI not modeled yet): {}", legacy.into_iter().collect::<Vec<_>>().join(", "));
+        }
     }
     if let Some(bc) = base {
         if let Some((p, r)) = bc.worst.iter().min_by(|a, b| a.1.iron_per_hour().total_cmp(&b.1.iron_per_hour())) {

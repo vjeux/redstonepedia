@@ -900,6 +900,9 @@ pub fn check_fall_damage(w: &mut World, i: usize, ya: f64, on_ground: bool) {
     let chicken = mob(w, i).ty.def().id == "chicken" && super::ai::has_ai(w, i);
     if !w.entities.list[i].was_touching_water {
         crate::entity::fluid_push::update_fluid_interaction(w, i);
+        // the same trackers give isInLava and the lava's height: travelInLava's shallow test
+        // after this move reads the box the move left (a golem falling into its kill cell)
+        update_lava(w, i);
     }
     let landed = {
         let e = &mut w.entities.list[i];
