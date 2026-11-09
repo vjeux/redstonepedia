@@ -839,13 +839,27 @@ pub fn base_checks(c: &Circuit, spec: &FarmSpec, o: &JudgeOpts) -> std::result::
     if !refused.is_empty() {
         return Err(format!("refused: {}", refused.join("; ")));
     }
-    let exit = exit::golem_exit_in(spec, o.site, o.seed0, o.threads)?;
-    // the worst walking policy: only without the mob AI (with it the golems walk by their goals:
-    // farm::judge_ai, the mob-AI lane)
-    let worst = if exit.failures.is_empty() && !redsim::entity::mob::farm::judge_ai() { worst_policy(spec, o)? } else { Vec::new() };
-    let restart = if claims_restart(c) { Some(restart_probe(spec, o)?) } else { None };
-    let away = if claims_restart(c) { absence_probe(spec, o)? } else { Vec::new() };
-    let windows = windows_probe(spec, o)?;
+    // the probes at once (tickexact 2026-11-08: one after the other, the card waited for the sum of
+    // their longest runs), their results taken in the order the checks read them, so the first
+    // error and every report are the same; the worst policy runs alongside the exit flood and is
+    // dropped when the flood fails (or with the mob AI on), as it was never run then
+    let restart_claimed = claims_restart(c);
+    let (exit, worst, restart, away, windows) = std::thread::scope(|s| {
+        let worst = s.spawn(|| if redsim::entity::mob::farm::judge_ai() { Ok(Vec::new()) } else { worst_policy(spec, o) });
+        let restart = s.spawn(|| if restart_claimed { restart_probe(spec, o).map(Some) } else { Ok(None) });
+        let away = s.spawn(|| if restart_claimed { absence_probe(spec, o) } else { Ok(Vec::new()) });
+        let windows = s.spawn(|| windows_probe(spec, o));
+        let exit = exit::golem_exit_in(spec, o.site, o.seed0, o.threads);
+        fn join<T>(h: std::thread::ScopedJoinHandle<'_, std::result::Result<T, String>>) -> std::result::Result<T, String> {
+            h.join().unwrap_or_else(|_| Err("a probe panicked".to_string()))
+        }
+        (exit, join(worst), join(restart), join(away), join(windows))
+    });
+    let exit = exit?;
+    let worst = if exit.failures.is_empty() { worst? } else { Vec::new() };
+    let restart = restart?;
+    let away = away?;
+    let windows = windows?;
     Ok(BaseChecks { exit, worst, restart, away, windows })
 }
 
@@ -1401,10 +1415,12 @@ pub fn judge(c: &Circuit, o: &Options, jo: &JudgeOpts) -> std::result::Result<Ve
             jobs.push((*t, *off, rc, spec));
         }
     }
-    let base = base_checks(&jobs[0].2, &jobs[0].3, jo);
-    let runs: Vec<std::result::Result<Vec<RunReport>, String>> = std::thread::scope(|s| {
+    // the base checks alongside the builds (tickexact 2026-11-08: the builds waited for them)
+    let (base, runs): (std::result::Result<BaseChecks, String>, Vec<std::result::Result<Vec<RunReport>, String>>) = std::thread::scope(|s| {
+        let b = s.spawn(|| base_checks(&jobs[0].2, &jobs[0].3, jo));
         let hs: Vec<_> = jobs.iter().enumerate().map(|(k, (_, _, _, spec))| s.spawn(move || build_runs(spec, jo, k as u32, WalkMode::Random))).collect();
-        hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("a build panicked".to_string()))).collect()
+        let runs = hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("a build panicked".to_string()))).collect();
+        (b.join().unwrap_or_else(|_| Err("the base checks panicked".to_string())), runs)
     });
     let pooled: Vec<RunReport> = runs.iter().filter_map(|r| r.as_ref().ok()).flatten().cloned().collect();
     let mut builds = Vec::new();
