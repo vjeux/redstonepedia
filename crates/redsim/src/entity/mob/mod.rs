@@ -809,9 +809,11 @@ pub fn set_helmet(w: &mut World, id: u32, armor: Option<u8>) {
     }
 }
 
-pub fn seed_entered(w: &mut World, id: u32) {
+/// Returns the constructor's yaw draw (`setYRot(nextFloat() x 2 pi)`: the head keeps it until the
+/// mob's first turn), in an exact world.
+pub fn seed_entered(w: &mut World, id: u32) -> Option<f32> {
     if w.exact_seed.is_none() {
-        return;
+        return None;
     }
     let mut own = w.entering_random(id);
     crate::rng::replay_uuid(&mut own);
@@ -841,6 +843,7 @@ pub fn seed_entered(w: &mut World, id: u32) {
             }
         }
     }
+    Some(yaw)
 }
 
 /// `Entity.applyMovementEmissionAndPlaySound` for a mob that is no passenger (the mob-AI lane):

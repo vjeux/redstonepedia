@@ -472,9 +472,12 @@ final class Sandbox {
                 r.nextDouble();
             } else if (preSeeded.remove(e)) {
                 // a design mob: summonSeeded seeded it before its data loaded
-            } else if (!e.entityTags().contains(DESIGN_TAG)) {
+            } else if (!e.entityTags().contains(DESIGN_TAG) || (ticking && ctor != null)) {
                 // (tickexact 2026-11-08) every other entity: its own random from the sandbox seed
-                // and its number, the constructor's draws redone (Exact)
+                // and its number, the constructor's draws redone (Exact); (mob-AI 2026-11-09) a
+                // design mob's conversion too (a zombie's drowned, a villager's witch: the game
+                // constructs it while ticking and ConversionType copies the design tag, so it was
+                // left unseeded: its random and head came from the unseeded constructor)
                 java.util.UUID old = e.getUUID();
                 Exact.ItemPath path = e instanceof ItemEntity ? itemPath() : Exact.ItemPath.NONE;
                 Exact.Seeded info = Exact.seed(e, seed, n, false, true, path, ctor);

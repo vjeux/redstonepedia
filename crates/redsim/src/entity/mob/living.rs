@@ -108,6 +108,10 @@ pub fn tick(w: &mut World, i: usize) {
     if super::ai::has_ai(w, i) {
         super::ai::cube::after_tick(w, i);
     }
+    // Zombie.tick after super.tick: the drowning tracker (its conversion into a drowned)
+    if super::ai::has_ai(w, i) && !w.entities.list[i].removed {
+        super::ai::zombie_drowning(w, i);
+    }
 }
 
 /// `LivingEntity.baseTick` (with `Entity.baseTick` inside).

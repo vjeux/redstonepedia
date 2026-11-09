@@ -119,6 +119,10 @@ pub enum TargetType {
     /// spider's eye under 0.5, checked before the interval's roll).
     SpiderPlayer,
     SpiderIronGolem,
+    /// `Player` with the drowned's `okTarget` selector (by day only a player in water).
+    DrownedPlayer,
+    /// `Axolotl` (none are modeled: never found).
+    Axolotl,
 }
 
 /// `NearestAttackableTargetGoal`.
@@ -161,6 +165,14 @@ fn find_target(w: &mut World, i: usize, g: &mut NearestAttackableTarget) {
     let at = super::super::eye_pos(w, i);
     let list: Vec<Who> = match g.target_type {
         TargetType::Player | TargetType::SpiderPlayer => target::players(w),
+        TargetType::DrownedPlayer => target::players(w)
+            .into_iter()
+            .filter(|p| {
+                let pp = target::pos_of(w, *p);
+                let cell = crate::pos::BlockPos::new(crate::entity::mth::floor(pp.x), crate::entity::mth::floor(pp.y), crate::entity::mth::floor(pp.z));
+                super::drowned::ok_target(w, crate::fluid::fluid_state(w, cell).fluid.is_water())
+            })
+            .collect(),
         TargetType::AngryPlayer => {
             let anger = ai(w, i).anger_target;
             target::players(w).into_iter().filter(|p| Some(target::id_of(w, *p)) == anger).collect()
@@ -170,9 +182,9 @@ fn find_target(w: &mut World, i: usize, g: &mut NearestAttackableTarget) {
             target::mobs_in(w, area, |ty| match t {
                 TargetType::Villager => ty == MobType::Villager,
                 TargetType::IronGolem | TargetType::SpiderIronGolem => ty == MobType::IronGolem,
-                TargetType::BabyTurtle | TargetType::Endermite => false,
+                TargetType::BabyTurtle | TargetType::Endermite | TargetType::Axolotl => false,
                 TargetType::EnemyNotCreeper => is_enemy(ty),
-                TargetType::Player | TargetType::AngryPlayer | TargetType::SpiderPlayer => false,
+                TargetType::Player | TargetType::AngryPlayer | TargetType::SpiderPlayer | TargetType::DrownedPlayer => false,
             })
         }
     };

@@ -36,6 +36,11 @@ impl RandomStroll {
     pub fn water_avoiding(speed: f64) -> RandomStroll {
         RandomStroll { speed_modifier: speed, interval: 120, force_trigger: false, check_no_action_time: true, wanted: Vec3::ZERO, water_avoiding: Some(0.001), variant: Variant::Plain }
     }
+
+    /// `RandomStrollGoal(mob, speed)`: the plain stroll (interval 120; `DefaultRandomPos.getPos(10, 7)`).
+    pub fn default_interval(speed: f64) -> RandomStroll {
+        RandomStroll { speed_modifier: speed, interval: 120, force_trigger: false, check_no_action_time: true, wanted: Vec3::ZERO, water_avoiding: None, variant: Variant::Plain }
+    }
 }
 
 fn rnd(w: &mut World, i: usize) -> &mut crate::rng::LegacyRandom {
@@ -122,6 +127,15 @@ fn outside_build_height(y: i32) -> bool {
 
 /// `PathNavigation.isStableDestination(pos)`: the block below renders solid.
 pub fn is_stable_destination(w: &World, p: BlockPos) -> bool {
+    is_solid_render(&w.get(p.below()))
+}
+
+/// `mob.getNavigation().isStableDestination(pos)`: an amphibious navigation's (a drowned's) only
+/// wants a block below that is not air.
+fn stable_for(w: &World, i: usize, p: BlockPos) -> bool {
+    if ai(w, i).nav.kind == super::super::path::navigation::NavKind::Amphibious {
+        return !w.get(p.below()).is_air();
+    }
     is_solid_render(&w.get(p.below()))
 }
 
@@ -267,7 +281,7 @@ pub fn land_random_pos_by(w: &mut World, i: usize, h: i32, v: i32, weight: impl 
         |w| {
             let d = random_direction(w, i, h, v);
             let p = toward_direction(w, i, d);
-            if outside_build_height(p.y) || !is_stable_destination(w, p) {
+            if outside_build_height(p.y) || !stable_for(w, i, p) {
                 return None;
             }
             move_up_out_of_solid(w, i, p)
@@ -281,7 +295,7 @@ pub fn default_random_pos(w: &mut World, i: usize, h: i32, v: i32) -> Option<Vec
     best_of_ten(w, i, |w| {
         let d = random_direction(w, i, h, v);
         let p = toward_direction(w, i, d);
-        (!outside_build_height(p.y) && is_stable_destination(w, p) && !has_malus(w, i, p)).then_some(p)
+        (!outside_build_height(p.y) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
     })
 }
 
@@ -290,7 +304,7 @@ pub fn land_random_pos(w: &mut World, i: usize, h: i32, v: i32) -> Option<Vec3> 
     best_of_ten(w, i, |w| {
         let d = random_direction(w, i, h, v);
         let p = toward_direction(w, i, d);
-        if outside_build_height(p.y) || !is_stable_destination(w, p) {
+        if outside_build_height(p.y) || !stable_for(w, i, p) {
             return None;
         }
         move_up_out_of_solid(w, i, p)
@@ -333,7 +347,7 @@ pub fn land_pos_in_direction(w: &mut World, i: usize, min_h: f64, max_h: f64, v:
     best_of_ten(w, i, |w| {
         let d = random_direction_within_radians(w, i, min_h, max_h, v, 0, dir.x, dir.z, (std::f64::consts::PI / 2.0) as f32 as f64)?;
         let p = toward_direction(w, i, d);
-        if outside_build_height(p.y) || !is_stable_destination(w, p) {
+        if outside_build_height(p.y) || !stable_for(w, i, p) {
             return None;
         }
         move_up_out_of_solid(w, i, p)
@@ -346,7 +360,7 @@ pub fn default_pos(w: &mut World, i: usize, h: i32, v: i32) -> Option<Vec3> {
     best_of_ten(w, i, |w| {
         let d = random_direction(w, i, h, v);
         let p = toward_direction(w, i, d);
-        (!outside_build_height(p.y) && is_stable_destination(w, p) && !has_malus(w, i, p)).then_some(p)
+        (!outside_build_height(p.y) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
     })
 }
 
@@ -357,7 +371,7 @@ pub fn default_pos_towards(w: &mut World, i: usize, h: i32, v: i32, towards: Vec
     best_of_ten(w, i, |w| {
         let d = random_direction_within_radians(w, i, 0.0, h as f64, v, 0, dir.x, dir.z, max_rad)?;
         let p = toward_direction(w, i, d);
-        (!outside_build_height(p.y) && is_stable_destination(w, p) && !has_malus(w, i, p)).then_some(p)
+        (!outside_build_height(p.y) && stable_for(w, i, p) && !has_malus(w, i, p)).then_some(p)
     })
 }
 

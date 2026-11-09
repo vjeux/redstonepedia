@@ -99,6 +99,8 @@ pub struct MobAi {
     pub horse: Option<goal::animal::Horse>,
     /// A zombie holding an iron spear (a zombie horseman's, or 1 in 6 of the rare weapons).
     pub spear: bool,
+    /// A drowned holding a trident (its own spawn's 10 in 16 of 1 in 10).
+    pub trident: bool,
     /// `AgeableMob.age` of a farm animal (0 an adult, a baby counts up from -24000).
     pub age: i32,
 }
@@ -128,9 +130,16 @@ impl MobAi {
             let mut m = Malus::default();
             m.set(crate::entity::mob::ai::path::path_type::PathType::Water, -1.0);
             m
+        } else if goal::drowned::is_drowned_id(d.id) {
+            // the drowned's constructor: setPathfindingMalus(WATER, 0)
+            let mut m = Malus::default();
+            m.set(crate::entity::mob::ai::path::path_type::PathType::Water, 0.0);
+            m
         } else {
             Malus::default()
         };
+        // Drowned.createNavigation: an AmphibiousPathNavigation
+        let kind = if goal::drowned::is_drowned_id(d.id) { NavKind::Amphibious } else { kind };
         let mut nav = Navigation::new(kind, d.follow_range);
         if ty == MobType::Villager {
             // AbstractVillager/Villager's constructor: doors, floating, a 48-block path budget
@@ -176,6 +185,7 @@ impl MobAi {
             witch_drink: None,
             horse: None,
             spear: false,
+            trident: false,
             age: 0,
         };
         goal::register_goals(&mut ai, ty);
@@ -467,6 +477,10 @@ pub fn move_control_tick(w: &mut World, i: usize) {
     if ai(w, i).cube.is_some() {
         return cube::move_control_tick(w, i);
     }
+    // DrownedMoveControl.tick: its swim (refused), else 0.008 more fall off the ground first
+    if goal::drowned::is_drowned(w, i) {
+        goal::drowned::move_control_before(w, i);
+    }
     let op = ai(w, i).move_ctl.operation;
     match op {
         Operation::Strafe => {
@@ -675,9 +689,10 @@ pub fn body_rotation_tick(w: &mut World, i: usize) {
 /// range checks) and `Mob.tick`'s `updateControlFlags` every 5 ticks.
 /// `Zombie.tick`'s `drowningTracker.tick()` (`ConversionTracker`; zombies and baby zombies:
 /// `convertsInWater`, not zombie villagers or drowned): its eye in water 600 ticks starts a
-/// 300-tick conversion, out of water resets both; the conversion to a drowned is refused. It runs
-/// after the living tick, with the eye state of this tick's base tick (no draws).
-fn zombie_drowning(w: &mut World, i: usize) {
+/// 300-tick conversion, out of water resets both; then the conversion into a drowned
+/// (`natural::zombie_to_drowned`). It runs after the living tick, with the eye state of this
+/// tick's base tick (no draws).
+pub fn zombie_drowning(w: &mut World, i: usize) {
     if !matches!(mob(w, i).ty.def().id, "zombie" | "baby_zombie") || mob(w, i).health <= 0.0 {
         return;
     }
@@ -692,16 +707,8 @@ fn zombie_drowning(w: &mut World, i: usize) {
         Some(c) => {
             *c -= 1;
             if *c < 0 {
-                // a natural zombie's conversion runs on the legacy model (it stays a zombie),
-                // named; the farm's own zombie fails closed
-                if mob(w, i).natural {
-                    w.mob.ai.legacy.insert("a natural zombie's conversion to a drowned (it stays a zombie)");
-                } else {
-                    let why = "a zombie's conversion to a drowned (600 ticks with its eye in water, then 300) is not modeled yet".to_string();
-                    if !w.errors.contains(&why) {
-                        w.errors.push(why);
-                    }
-                }
+                // the conversion: a drowned in its place (natural::zombie_to_drowned)
+                super::natural::zombie_to_drowned(w, i);
             }
         }
         None => {
@@ -721,7 +728,6 @@ pub fn after_ai_step(w: &mut World, i: usize) {
     // LivingEntity.aiStep): the tentacles, the swim impulse, the turns
     squid::age_step(w, i);
     squid::after_ai_step(w, i);
-    zombie_drowning(w, i);
     // IronGolem.aiStep's tail (after Mob.aiStep): attackAnimationTick/offerFlowerTick (client
     // looks) and the persistent anger update
     if mob(w, i).ty == MobType::IronGolem {

@@ -17,6 +17,7 @@ pub mod melee;
 pub mod stroll;
 pub mod targets;
 pub mod zombie;
+pub mod drowned;
 
 use super::{MobAi, ai_mut};
 use crate::entity::mob::types::MobType;
@@ -78,6 +79,8 @@ pub enum Goal {
     Witch(witch::WitchGoal),
     /// An enderman's own goals (freeze, leave and take a block, look for a player).
     Enderman(enderman::EndermanGoal),
+    /// A drowned's own goals (water by day, the beach and the swim up at night, the trident).
+    Drowned(drowned::DrownedGoal),
     ResetUniversalAnger,
     HurtByTarget(targets::HurtByTarget),
     NearestAttackableTarget(targets::NearestAttackableTarget),
@@ -109,6 +112,7 @@ impl Goal {
             Goal::Squid(_) => 0,
             Goal::Witch(g) => g.flags(),
             Goal::Enderman(g) => g.flags(),
+            Goal::Drowned(g) => g.flags(),
             Goal::ResetUniversalAnger => 0,
             Goal::HurtByTarget(_) | Goal::NearestAttackableTarget(_) => TARGET,
         }
@@ -121,6 +125,9 @@ impl Goal {
         }
         if let Goal::Squid(s) = self {
             return s.every_tick();
+        }
+        if let Goal::Drowned(d) = self {
+            return d.every_tick();
         }
         matches!(self, Goal::Float | Goal::RandomLookAround(_) | Goal::MeleeAttack(_) | Goal::ZombieAttackTurtleEgg(_) | Goal::BreakDoor(_) | Goal::Swell | Goal::RangedBow)
     }
@@ -170,6 +177,7 @@ impl Goal {
             Goal::Squid(s) => s.name(),
             Goal::Witch(g) => g.name(),
             Goal::Enderman(g) => g.name(),
+            Goal::Drowned(g) => g.name(),
             Goal::ResetUniversalAnger => "ResetUniversalAngerTargetGoal",
             Goal::HurtByTarget(_) => "HurtByTargetGoal",
             Goal::NearestAttackableTarget(n) => match n.target_type {
@@ -336,6 +344,7 @@ pub fn can_use(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::Squid(s) => super::squid::can_use(w, i, s),
         Goal::Witch(g) => witch::can_use(w, i, g),
         Goal::Enderman(g) => enderman::can_use(w, i, g),
+        Goal::Drowned(g) => drowned::can_use(w, i, g),
         Goal::ResetUniversalAnger => false,
         Goal::HurtByTarget(h) => targets::hurt_by_can_use(w, i, h),
         Goal::NearestAttackableTarget(n) => targets::nearest_can_use(w, i, n),
@@ -370,6 +379,7 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::Witch(g) => witch::can_use(w, i, g),
         // Goal.canContinueToUse: canUse()
         Goal::Enderman(g) => enderman::can_use(w, i, g),
+        Goal::Drowned(g) => drowned::can_continue(w, i, g),
         Goal::HurtByTarget(h) => targets::target_can_continue(w, i, &mut h.base),
         Goal::NearestAttackableTarget(n) => targets::target_can_continue(w, i, &mut n.base),
     }
@@ -401,6 +411,7 @@ pub fn start(w: &mut World, i: usize, g: &mut Goal) {
         Goal::Squid(_) => {}
         Goal::Witch(_) => {}
         Goal::Enderman(_) => {}
+        Goal::Drowned(g) => drowned::start(w, i, g),
         Goal::HurtByTarget(h) => targets::hurt_by_start(w, i, h),
         Goal::NearestAttackableTarget(n) => targets::nearest_start(w, i, n),
     }
@@ -429,6 +440,7 @@ pub fn stop(w: &mut World, i: usize, g: &mut Goal) {
         Goal::Squid(_) => {}
         Goal::Witch(_) => {}
         Goal::Enderman(_) => {}
+        Goal::Drowned(_) => {}
         Goal::HurtByTarget(h) => targets::target_stop(w, i, &mut h.base),
         Goal::NearestAttackableTarget(n) => targets::target_stop(w, i, &mut n.base),
     }
@@ -457,6 +469,7 @@ pub fn tick(w: &mut World, i: usize, g: &mut Goal) {
         Goal::Squid(s) => super::squid::tick(w, i, s),
         Goal::Witch(_) => {}
         Goal::Enderman(g) => enderman::tick(w, i, g),
+        Goal::Drowned(_) => {}
         Goal::HurtByTarget(_) | Goal::NearestAttackableTarget(_) => {}
     }
 }
@@ -465,6 +478,7 @@ pub fn tick(w: &mut World, i: usize, g: &mut Goal) {
 pub fn register_goals(ai: &mut MobAi, ty: MobType) {
     match ty.def().id {
         "zombie" | "baby_zombie" | "zombie_villager" | "baby_zombie_villager" => zombie::register(ai),
+        "drowned" | "baby_drowned" => drowned::register(ai),
         "iron_golem" => golem::register(ai),
         "creeper" => creeper::register(ai),
         "skeleton" | "stray" | "bogged" => skeleton::register(ai),

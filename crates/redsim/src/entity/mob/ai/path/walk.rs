@@ -45,11 +45,14 @@ pub struct EvalFlags {
     pub can_open_doors: bool,
     pub can_float: bool,
     pub can_walk_over_fences: bool,
+    /// `AmphibiousNodeEvaluator` (a drowned's `AmphibiousPathNavigation`; `prefersShallowSwimming`
+    /// false): water nodes up and down, water borders, the walk costing 6.
+    pub amphibious: bool,
 }
 
 impl Default for EvalFlags {
     fn default() -> EvalFlags {
-        EvalFlags { can_pass_doors: true, can_open_doors: false, can_float: false, can_walk_over_fences: false }
+        EvalFlags { can_pass_doors: true, can_open_doors: false, can_float: false, can_walk_over_fences: false, amphibious: false }
     }
 }
 
@@ -168,10 +171,33 @@ impl<'a, 'w> WalkEval<'a, 'w> {
     }
 
     fn malus(&self, t: PathType) -> f32 {
+        // AmphibiousNodeEvaluator.prepare: WATER 0, WALKABLE 6, WATER_BORDER 4 for the search
+        if self.flags.amphibious {
+            match t {
+                PathType::Water => return 0.0,
+                PathType::Walkable => return 6.0,
+                PathType::WaterBorder => return 4.0,
+                _ => {}
+            }
+        }
         self.mob.malus.get(t)
     }
 
     // ------------------------------------------------------------------- path types
+
+    /// `getPathType(context, x, y, z)`: `getPathTypeStatic`; amphibious, water beside a blocked
+    /// cell (any of the 6 directions) is a water border.
+    fn path_type(&self, x: i32, y: i32, z: i32) -> PathType {
+        if self.flags.amphibious && self.level.type_from_state(x, y, z) == PathType::Water {
+            for (dx, dy, dz) in [(0, -1, 0), (0, 1, 0), (0, 0, -1), (0, 0, 1), (-1, 0, 0), (1, 0, 0)] {
+                if self.level.type_from_state(x + dx, y + dy, z + dz) == PathType::Blocked {
+                    return PathType::WaterBorder;
+                }
+            }
+            return PathType::Water;
+        }
+        self.path_type_static(x, y, z)
+    }
 
     /// `getPathTypeStatic(context, pos)`.
     pub fn path_type_static(&self, x: i32, y: i32, z: i32) -> PathType {
@@ -219,7 +245,7 @@ impl<'a, 'w> WalkEval<'a, 'w> {
         for dx in 0..self.entity_width {
             for dy in 0..self.entity_height {
                 for dz in 0..self.entity_depth {
-                    let mut t = self.path_type_static(x + dx, y + dy, z + dz);
+                    let mut t = self.path_type(x + dx, y + dy, z + dz);
                     let can_pass = self.flags.can_pass_doors;
                     if t == PathType::DoorWoodClosed && self.flags.can_open_doors && can_pass {
                         t = PathType::WalkableDoor;
@@ -227,7 +253,7 @@ impl<'a, 'w> WalkEval<'a, 'w> {
                     if t == PathType::DoorOpen && !can_pass {
                         t = PathType::Blocked;
                     }
-                    if t == PathType::Rail && self.path_type_static(mp.x, mp.y, mp.z) != PathType::Rail && self.path_type_static(mp.x, mp.y - 1, mp.z) != PathType::Rail {
+                    if t == PathType::Rail && self.path_type(mp.x, mp.y, mp.z) != PathType::Rail && self.path_type(mp.x, mp.y - 1, mp.z) != PathType::Rail {
                         t = PathType::UnpassableRail;
                     }
                     set |= 1 << t as u32;
@@ -264,7 +290,7 @@ impl<'a, 'w> WalkEval<'a, 'w> {
                 highest_type = t;
             }
         }
-        let current = self.path_type_static(x, y, z);
+        let current = self.path_type(x, y, z);
         if self.entity_width > 1 {
             let cheaper = self.malus(current) < highest;
             if cheaper && self.malus(PathType::BigMobsCloseToDanger) < highest { PathType::BigMobsCloseToDanger } else { highest_type }
@@ -290,7 +316,7 @@ impl<'a, 'w> WalkEval<'a, 'w> {
 
     /// `getFloorLevel(pos)` (the instance one: half a block up in water for a floating mob).
     fn floor_level(&self, pos: BlockPos) -> f64 {
-        if self.flags.can_float && self.level.is_water(pos) { pos.y as f64 + 0.5 } else { self.level.floor_level(pos) }
+        if (self.flags.can_float || self.flags.amphibious) && self.level.is_water(pos) { pos.y as f64 + 0.5 } else { self.level.floor_level(pos) }
     }
 
     /// `hasCollisions(box)` (cached per box).
@@ -365,6 +391,12 @@ impl<'a, 'w> WalkEval<'a, 'w> {
 
     /// `getStart()`.
     pub fn start(&mut self) -> Option<NodeId> {
+        // AmphibiousNodeEvaluator.getStart: in water, the node at the box's min corner, half a
+        // block up
+        if self.flags.amphibious && self.mob.in_floatable {
+            let bb = self.mob.bb;
+            return Some(self.start_node(BlockPos::new(mth::floor(bb.min_x), mth::floor(bb.min_y + 0.5), mth::floor(bb.min_z))));
+        }
         let (mx, my, mz) = (self.mob.pos.x, self.mob.pos.y, self.mob.pos.z);
         let (bx, bz) = (mth::floor(mx), mth::floor(mz));
         let mut start_y = mth::floor(my);
@@ -436,6 +468,24 @@ impl<'a, 'w> WalkEval<'a, 'w> {
                 }
             }
         }
+        // AmphibiousNodeEvaluator.getNeighbors: then the water nodes above and below
+        if self.flags.amphibious {
+            let up = self.find_accepted_node(p.x, p.y + 1, p.z, 0.max(jump_size - 1), pos_height, Dir::Up, current);
+            let down = self.find_accepted_node(p.x, p.y - 1, p.z, jump_size, pos_height, Dir::Down, current);
+            if let Some(u) = up
+                && self.is_neighbor_valid(u, pos)
+                && self.arena.n(u).ty == PathType::Water
+            {
+                out.push(u);
+            }
+            if let Some(d) = down
+                && self.is_neighbor_valid(d, pos)
+                && self.arena.n(d).ty == PathType::Water
+                && current != PathType::Trapdoor
+            {
+                out.push(d);
+            }
+        }
     }
 
     fn is_neighbor_valid(&self, n: NodeId, current: NodeId) -> bool {
@@ -495,11 +545,11 @@ impl<'a, 'w> WalkEval<'a, 'w> {
         {
             best = None;
         }
-        if t != PathType::Walkable {
+        if t != PathType::Walkable && !(self.flags.amphibious && t == PathType::Water) {
             let best_bad = best.is_none_or(|b| self.arena.n(b).cost_malus < 0.0);
             if best_bad && jump_size > 0 && (t != PathType::Fence || self.flags.can_walk_over_fences) && t != PathType::UnpassableRail && t != PathType::Trapdoor && t != PathType::PowderSnow {
                 best = self.try_jump_on(x, y, z, jump_size, node_height, dir, current);
-            } else if t == PathType::Water && !self.flags.can_float {
+            } else if !self.flags.amphibious && t == PathType::Water && !self.flags.can_float {
                 best = self.try_find_first_non_water_below(x, y, z, best);
             } else if t == PathType::Open {
                 best = Some(self.try_find_first_ground_node_below(x, y, z));
@@ -569,6 +619,8 @@ impl<'a, 'w> WalkEval<'a, 'w> {
     /// `getTarget(x, y, z)` = `getTargetNodeAt`: the node at the floored position is created in the
     /// map (its own fields untouched), the target is a new node there.
     pub fn target(&mut self, x: f64, y: f64, z: f64) -> super::node::Target {
+        // AmphibiousNodeEvaluator.getTarget: half a block up
+        let y = if self.flags.amphibious { y + 0.5 } else { y };
         let (bx, by, bz) = (mth::floor(x), mth::floor(y), mth::floor(z));
         self.arena.get(bx, by, bz);
         super::node::Target::new(bx, by, bz)

@@ -53,6 +53,9 @@ impl NavMob {
 pub enum NavKind {
     Ground,
     WallClimber,
+    /// `AmphibiousPathNavigation` (a drowned's): `AmphibiousNodeEvaluator(false)`, always free to
+    /// update its path, its mob position at half its height, no surface search.
+    Amphibious,
 }
 
 /// Every path search's count and the time spent in them (benchmarks read them).
@@ -144,9 +147,9 @@ impl Navigation {
         self.max_visited_nodes = mth::floor((self.max_path_length(m) * 16.0f32) as f64);
     }
 
-    /// `GroundPathNavigation.canUpdatePath`.
+    /// `GroundPathNavigation.canUpdatePath` (`AmphibiousPathNavigation`: always).
     fn can_update_path(&self, m: &NavMob) -> bool {
-        m.on_ground || m.in_liquid || m.is_passenger
+        self.kind == NavKind::Amphibious || m.on_ground || m.in_liquid || m.is_passenger
     }
 
     /// `GroundPathNavigation.getSurfaceY`.
@@ -168,8 +171,11 @@ impl Navigation {
         }
     }
 
-    /// `getTempMobPos()`.
+    /// `getTempMobPos()` (`AmphibiousPathNavigation`: `getY(0.5)`).
     fn temp_mob_pos(&self, w: &World, m: &NavMob) -> Vec3 {
+        if self.kind == NavKind::Amphibious {
+            return Vec3::new(m.pos.x, m.pos.y + m.height as f64 * 0.5, m.pos.z);
+        }
         Vec3::new(m.pos.x, self.surface_y(w, m) as f64, m.pos.z)
     }
 
@@ -216,7 +222,7 @@ impl Navigation {
         if !Self::chunk_loaded(w, pos) {
             return None;
         }
-        let pos = if self.can_path_to_targets_below_surface { pos } else { self.find_surface_position(w, pos) };
+        let pos = if self.can_path_to_targets_below_surface || self.kind == NavKind::Amphibious { pos } else { self.find_surface_position(w, pos) };
         let max = self.max_path_length(m);
         self.create_path_set(w, m, &[pos], 8, false, reach, max, arena)
     }
@@ -250,7 +256,9 @@ impl Navigation {
         #[cfg(not(target_arch = "wasm32"))]
         let t0 = std::time::Instant::now();
         let path = {
-            let mut eval = WalkEval::new(w, m.path_mob(), self.flags, arena);
+            let mut flags = self.flags;
+            flags.amphibious = self.kind == NavKind::Amphibious;
+            let mut eval = WalkEval::new(w, m.path_mob(), flags, arena);
             finder::find_path(&mut eval, targets, max_path_length, reach, max_visited)
         };
         #[cfg(not(target_arch = "wasm32"))]
@@ -454,8 +462,11 @@ impl Navigation {
         self.surface_y(w, m) as f64
     }
 
-    /// `getGroundY(target)`.
+    /// `getGroundY(target)` (`AmphibiousPathNavigation`: the target's y).
     fn ground_y(&self, w: &World, target: Vec3) -> f64 {
+        if self.kind == NavKind::Amphibious {
+            return target.y;
+        }
         let bp = BlockPos::new(mth::floor(target.x), mth::floor(target.y), mth::floor(target.z));
         if w.get(bp.below()).is_air() { target.y } else { super::walk::Level { w }.floor_level(bp) }
     }
@@ -477,8 +488,10 @@ impl Navigation {
         self.do_stuck_detection(m, mp);
     }
 
-    /// `shouldTargetNextNodeInDirection(mobPosition)` (`canMoveDirectly` is false on the ground).
-    fn should_target_next_node_in_direction(&self, _w: &World, _m: &NavMob, mp: Vec3) -> bool {
+    /// `shouldTargetNextNodeInDirection(mobPosition)` (`canMoveDirectly` is false on the ground;
+    /// `AmphibiousPathNavigation`'s in a liquid: `isClearForMovementBetween`, a collider clip to
+    /// the next entity position at half the mob's height).
+    fn should_target_next_node_in_direction(&self, w: &World, m: &NavMob, mp: Vec3) -> bool {
         let p = self.path.as_ref().expect("following");
         if p.next_node_index + 1 >= p.node_count() {
             return false;
@@ -487,6 +500,13 @@ impl Navigation {
         let current = Vec3::new(cn.x as f64 + 0.5, cn.y as f64, cn.z as f64 + 0.5);
         if !(mp.distance_to_sqr(current) < 2.0 * 2.0) {
             return false;
+        }
+        if self.kind == NavKind::Amphibious && m.in_liquid {
+            let stop = p.next_entity_pos(m.width);
+            let to = Vec3::new(stop.x, stop.y + m.height as f64 * 0.5, stop.z);
+            if crate::explosion::clip_misses(w, mp, to) {
+                return true;
+            }
         }
         let nn = p.nodes[p.next_node_index + 1].pos();
         let next = Vec3::new(nn.x as f64 + 0.5, nn.y as f64, nn.z as f64 + 0.5);

@@ -11,6 +11,8 @@ pub enum MeleeKind {
     Melee,
     Zombie,
     Spider,
+    /// `DrownedAttackGoal`: the zombie's, while the drowned may hunt its target (`okTarget`).
+    Drowned,
 }
 
 impl MeleeKind {
@@ -19,6 +21,7 @@ impl MeleeKind {
             MeleeKind::Melee => "MeleeAttackGoal",
             MeleeKind::Zombie => "ZombieAttackGoal",
             MeleeKind::Spider => "SpiderAttackGoal",
+            MeleeKind::Drowned => "DrownedAttackGoal",
         }
     }
 }
@@ -62,8 +65,25 @@ pub fn can_use(w: &mut World, i: usize, g: &mut MeleeAttack) -> bool {
     let tb = target_block(w, t);
     g.path = with_nav(w, i, |w, nm, nav, arena| nav.create_path_pos(w, nm, tb, 0, arena));
     let ok = if g.path.is_some() { true } else { within_melee_range(w, i, t) };
+    // DrownedAttackGoal: and a target it may hunt
+    if ok && g.kind == MeleeKind::Drowned && !drowned_ok(w, t) {
+        return false;
+    }
     // SpiderAttackGoal: and no passenger
     ok && !(g.kind == MeleeKind::Spider && !w.entities.list[i].passengers.is_empty())
+}
+
+/// `Drowned.okTarget(target)` of target `t`.
+fn drowned_ok(w: &World, t: Who) -> bool {
+    let in_water = match t {
+        Who::Entity(j) => w.entities.list[j].was_touching_water,
+        Who::Player(_) => {
+            let p = target::pos_of(w, t);
+            let c = crate::pos::BlockPos::new(crate::entity::mth::floor(p.x), crate::entity::mth::floor(p.y), crate::entity::mth::floor(p.z));
+            crate::fluid::fluid_state(w, c).fluid.is_water()
+        }
+    };
+    super::drowned::ok_target(w, in_water)
 }
 
 /// `target.blockPosition()`.
@@ -81,11 +101,13 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut MeleeAttack) -> bool {
     if !target::is_alive(w, t) {
         return false;
     }
+    // DrownedAttackGoal.canContinueToUse: super's and okTarget
+    let drowned_ok = g.kind != MeleeKind::Drowned || drowned_ok(w, t);
     if !g.following_even_if_not_seen {
-        return !crate::entity::mob::ai::nav_of(w, i).is_done();
+        return !crate::entity::mob::ai::nav_of(w, i).is_done() && drowned_ok;
     }
     // isWithinHome (no home here); a spectator or creative player is no target already
-    true
+    drowned_ok
 }
 
 /// `start()`.
@@ -95,7 +117,7 @@ pub fn start(w: &mut World, i: usize, g: &mut MeleeAttack) {
     ai_mut(w, i).aggressive = true;
     g.ticks_until_next_path_recalculation = 0;
     g.ticks_until_next_attack = 0;
-    if g.kind == MeleeKind::Zombie {
+    if matches!(g.kind, MeleeKind::Zombie | MeleeKind::Drowned) {
         g.raise_arm_ticks = 0;
     }
 }
@@ -148,7 +170,7 @@ pub fn tick(w: &mut World, i: usize, g: &mut MeleeAttack) {
         g.ticks_until_next_attack = (g.ticks_until_next_attack - 1).max(0);
         check_and_perform_attack(w, i, g, t);
     }
-    if g.kind == MeleeKind::Zombie {
+    if matches!(g.kind, MeleeKind::Zombie | MeleeKind::Drowned) {
         g.raise_arm_ticks += 1;
         ai_mut(w, i).aggressive = g.raise_arm_ticks >= 5 && g.ticks_until_next_attack < 20 / 2;
     }

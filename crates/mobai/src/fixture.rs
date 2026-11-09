@@ -268,6 +268,38 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 3,
         });
     }
+    // a zombie standing in a 2-deep pool (its eye in water): 600 ticks, then the 300-tick
+    // conversion, then the drowned in its place (its handleAttributes draws, its amphibious
+    // navigation and its goals: the stroll through the water, its move control's extra sink)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        for x in 21..=27 {
+            for z in 21..=27 {
+                let edge = x == 21 || x == 27 || z == 21 || z == 27;
+                for y in 64..=66 {
+                    if edge {
+                        b.push(([x, y, z], stone.to_string()));
+                    } else if y <= 65 {
+                        b.push(([x, y, z], "minecraft:water[level=0]".to_string()));
+                    }
+                }
+            }
+        }
+        v.push(Scene {
+            name: "zombie-drowning".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![("minecraft:zombie".into(), [24.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into()))],
+            day_time: 6000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: Some([24.5, 74.0, 40.5]),
+            player_creative: true,
+            random_tick_speed: 0,
+        });
+    }
     // a zombie that breaks doors (Hard) going for a villager in a fence pen through its oak door
     // (the fences do not block the sight between their eyes): the path through the door, the
     // horizontal collision, BreakDoorGoal's 240 ticks and its nextInt(20) swings, the door gone

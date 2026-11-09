@@ -67,7 +67,7 @@ pub static DEFS: &[TypeDef] = &[
     TypeDef { loot: &[("minecraft:gunpowder", 0, 2)], ..row(5, "creeper", "minecraft:creeper", 0.6, 1.7, 1.445, 20.0, 0.25, true, false, 0.6) },
     row(6, "slime", "minecraft:slime", 0.52, 0.52, 0.325, 1.0, 0.2, true, false, 0.6),
     TypeDef { speed: 0.3f32 as f64, follow_range: 64.0, ..row(7, "enderman", "minecraft:enderman", 0.6, 2.9, 2.55, 40.0, 0.3, true, false, 1.0) },
-    TypeDef { follow_range: 35.0, armor: 2.0, ..row(8, "drowned", "minecraft:drowned", 0.6, 1.95, 1.74, 20.0, 0.23f32 as f64, true, true, 1.0) },
+    TypeDef { follow_range: 35.0, armor: 2.0, riding_offset: -0.7, ..row(8, "drowned", "minecraft:drowned", 0.6, 1.95, 1.74, 20.0, 0.23f32 as f64, true, true, 1.0) },
     // a sulfur cube's size sets its speed (0.2F + 0.1F x size) and health (4 x size): size 1 is
     // the baby
     row(9, "sulfur_cube", "minecraft:sulfur_cube", 0.49, 0.49, 0.175, 4.0, (0.2f32 + 0.1f32) as f64, true, false, 0.6),
@@ -92,7 +92,7 @@ pub static DEFS: &[TypeDef] = &[
     // 0.34375, Rabbit 0.24 x 0.4 eye 0.39), else `getAgeScale` 0.5
     TypeDef { follow_range: 35.0, armor: 2.0, ..row(25, "baby_zombie", "minecraft:zombie", 0.49, 0.98, 0.775, 20.0, 0.23f32 as f64 * 1.5, true, true, 0.6) },
     TypeDef { follow_range: 35.0, armor: 2.0, ..row(26, "baby_zombie_villager", "minecraft:zombie_villager", 0.49, 0.98, 0.67, 20.0, 0.23f32 as f64 * 1.5, true, true, 0.6) },
-    TypeDef { follow_range: 35.0, armor: 2.0, ..row(27, "baby_drowned", "minecraft:drowned", 0.49, 0.98, 0.775, 20.0, 0.23f32 as f64 * 1.5, true, true, 1.0) },
+    TypeDef { follow_range: 35.0, armor: 2.0, riding_offset: -0.1875, ..row(27, "baby_drowned", "minecraft:drowned", 0.49, 0.98, 0.775, 20.0, 0.23f32 as f64 * 1.5, true, true, 1.0) },
     row(28, "baby_sheep", "minecraft:sheep", 0.45, 0.65, 0.65625, 8.0, 0.23f32 as f64, false, false, 0.6),
     row(29, "baby_pig", "minecraft:pig", 0.45, 0.45, 0.40625, 10.0, 0.25, false, false, 0.6),
     row(30, "baby_chicken", "minecraft:chicken", 0.3, 0.4, 0.28125, 4.0, 0.25, false, false, 0.6),
@@ -1535,10 +1535,131 @@ fn set_breaks_doors(w: &mut World, id: u32) {
     if let Some(i) = w.entities.list.iter().rposition(|e| e.id == id)
         && let EntityKind::Mob(m) = &mut w.entities.list[i].kind
         && let Some(a) = m.ai.as_deref_mut()
-        && a.nav.kind == super::ai::path::navigation::NavKind::Ground
+        && matches!(a.nav.kind, super::ai::path::navigation::NavKind::Ground | super::ai::path::navigation::NavKind::Amphibious)
     {
         super::ai::goal::zombie::set_can_break_doors(a, true);
     }
+}
+
+/// `DifficultyInstance.getSpecialMultiplier` now, with or without natural spawning (without it:
+/// the AI's difficulty and the chunks inhabited since the run began).
+fn special_multiplier_now(w: &World) -> f32 {
+    if let Some(nat) = w.mob.natural.as_ref() {
+        return special_multiplier(w, nat);
+    }
+    let base = match w.mob.ai.difficulty {
+        Difficulty::Peaceful => return 0.0,
+        Difficulty::Easy => 1.0f32,
+        Difficulty::Normal => 2.0,
+        Difficulty::Hard => 3.0,
+    };
+    let total = w.day_time() as f32;
+    let global = ((total - 72000.0) / 1440000.0).clamp(0.0, 1.0) * 0.25;
+    let hard = w.mob.ai.difficulty == Difficulty::Hard;
+    let mut local = (w.time as f32 / 3600000.0).clamp(0.0, 1.0) * if hard { 1.0 } else { 0.75 };
+    const MOON: [f32; 8] = [1.0, 0.75, 0.5, 0.25, 0.0, 0.25, 0.5, 0.75];
+    let moon = MOON[(w.day_time().div_euclid(24000).rem_euclid(8)) as usize];
+    local += (moon * 0.25).clamp(0.0, global);
+    if w.mob.ai.difficulty == Difficulty::Easy {
+        local *= 0.5;
+    }
+    let effective = base * (0.75 + global + local);
+    if effective < 2.0 {
+        0.0
+    } else if effective > 4.0 {
+        1.0
+    } else {
+        (effective - 2.0) / 2.0
+    }
+}
+
+/// `ConversionTracker.doConversion` of zombie `i` into a drowned (`Mob.convertTo(DROWNED,
+/// ConversionParams.single(keepEquipment, preserveCanPickUpLoot))`): a new drowned constructed
+/// (its random from the bridge's construction seed for `handleAttributes`, then its own when it
+/// enters), `ConversionType.SINGLE`'s copies (position and rotation, motion, its vehicle, its
+/// helmet, fall distance, hurt time, body yaw, on ground, effects, baby, persistence, invulnerable
+/// time, the doors), `handleAttributes(the special multiplier, CONVERSION)` (a leader's health is
+/// not set to its new max), the drowned added, the zombie discarded.
+pub fn zombie_to_drowned(w: &mut World, i: usize) -> Option<u32> {
+    use super::mob;
+    let zid = w.entities.list[i].id;
+    let baby = mob(w, i).ty.def().id == "baby_zombie";
+    let dty = MobType::from_id(if baby { "baby_drowned" } else { "drowned" })?;
+    let ctor = if w.exact_seed.is_some() { Some(w.construct()) } else { None };
+    let (pos, y_rot, x_rot, motion, on_ground, fall) = {
+        let e = &w.entities.list[i];
+        (e.pos, e.y_rot, e.x_rot, e.delta_movement, e.on_ground, e.fall_distance)
+    };
+    let (persistent, helmet, hurt_time, effects, cooldown, natural) = {
+        let m = mob(w, i);
+        (m.persistence_required, m.helmet, m.hurt_time, m.effects, m.damage_cooldown, m.natural)
+    };
+    let (body, doors) = mob(w, i).ai.as_deref().map(|a| (a.y_body_rot, a.can_break_doors)).unwrap_or((y_rot, false));
+    let vehicle = w.entities.list[i].vehicle;
+    let d = super::add(w, dty, pos, persistent);
+    let di = crate::entity::index_of(w, d)?;
+    {
+        let e = &mut w.entities.list[di];
+        e.y_rot = y_rot;
+        e.y_rot_o = y_rot;
+        e.x_rot = x_rot;
+        e.x_rot_o = x_rot;
+        // snapTo's setOldPosAndRot
+        (e.xo, e.yo, e.zo) = (pos.x, pos.y, pos.z);
+        (e.x_old, e.y_old, e.z_old) = (pos.x, pos.y, pos.z);
+        e.delta_movement = motion;
+        e.on_ground = on_ground;
+        e.fall_distance = fall;
+    }
+    if let Some(v) = vehicle {
+        crate::entity::stop_riding(w, i);
+        if let (Some(di), Some(vi)) = (crate::entity::index_of(w, d), crate::entity::index_of(w, v)) {
+            w.entities.list[di].vehicle = Some(v);
+            w.entities.list[vi].passengers.push(d);
+        }
+    }
+    if let Some(di) = crate::entity::index_of(w, d)
+        && let EntityKind::Mob(m) = &mut w.entities.list[di].kind
+    {
+        m.helmet = helmet;
+        m.hurt_time = hurt_time;
+        m.effects = effects;
+        m.damage_cooldown = cooldown;
+        m.natural = natural;
+        if let Some(a) = m.ai.as_deref_mut() {
+            a.y_body_rot = body;
+            a.y_body_rot_o = body;
+        }
+    }
+    if doors {
+        set_breaks_doors(w, d);
+    }
+    // handleAttributes(.., CONVERSION): the reinforcements, knockback, follow range and leader
+    // draws; a leader's max health grows but its health stays
+    let special = special_multiplier_now(w);
+    let health = crate::entity::index_of(w, d).map(|j| match &w.entities.list[j].kind {
+        EntityKind::Mob(m) => m.health,
+        _ => 20.0,
+    });
+    zombie_handle_attributes(w, d, ctor, special, true);
+    if let (Some(h), Some(j)) = (health, crate::entity::index_of(w, d))
+        && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
+    {
+        m.health = h;
+    }
+    // its head keeps the constructor's yaw draw (SINGLE copies the body only)
+    if let Some(yaw) = super::seed_entered(w, d)
+        && let Some(j) = crate::entity::index_of(w, d)
+        && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
+        && let Some(a) = m.ai.as_deref_mut()
+    {
+        a.y_head_rot = yaw;
+        a.y_head_rot_o = yaw;
+    }
+    if let Some(zi) = crate::entity::index_of(w, zid) {
+        w.entities.list[zi].removed = true;
+    }
+    Some(d)
 }
 
 /// `AbstractSkeleton.finalizeSpawn`; returns its helmet's armor type.

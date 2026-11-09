@@ -22,6 +22,7 @@ sulfur-cubes.rec	595f7493d841a282		26.3	2026-11-09T00:37Z on b6cc475b6	mctas mob
 villager-beds.rec	1f4af3add61d842b		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record villager-beds --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 witch.rec	a4648595d1a91707		26.3	2026-11-09T03:26Z on 06c4a9d60	mctas mobai record witch --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 zombie-door.rec	ab5e3e201b44edd3		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-door --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+zombie-drowning.rec	8bacb3c82b85ce5c		26.3	2026-11-09T12:30Z on d445b48fa6	mctas mobai record zombie-drowning --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 zombie-obstacles.rec	26fc66de4a19d6ae		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-obstacles --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 zombie-stroll.rec	3fda981d2947ddc8		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-stroll --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 zombie-village.rec	02c7f373276cdaf0		26.3	2026-11-09T00:47Z on 6205e5357	mctas mobai record zombie-village --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
