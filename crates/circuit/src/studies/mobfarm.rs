@@ -970,6 +970,12 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
                 n => format!("{n} constant walks keep a golem alive past {} gt (reported; walking is judged by the mob AI and the game)", redsim::entity::mob::farm::MAX_GOLEM_LIFE),
             }));
         }
+        // lips: where a golem can stand dry with its box in a current (iteration 13's G1 note:
+        // reported beside the kill tail and the golems at the zombie, never refused)
+        metrics.push(("lips".to_string(), match bc.exit.lips {
+            0 => "none (no golem stands dry beside a current)".to_string(),
+            n => format!("{n} cells where a golem stands dry beside a current (reported: the kill tail and the golems at the zombie show whether they hold)"),
+        }));
         metrics.push(("restarts after a missed night".to_string(), if bc.restart.is_some() { "yes".to_string() } else { "no (hide the zombie by hand the first night)".to_string() }));
         let firsts: Vec<f64> = bc.away.iter().filter_map(|(_, _, _, a)| a.first_golem).map(|t| t as f64 / 72000.0).collect();
         let away = if bc.away.is_empty() || firsts.len() < bc.away.len() {

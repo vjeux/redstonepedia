@@ -48,6 +48,9 @@ pub struct ExitReport {
     /// rev 9 iteration 13: reported on the card, not refused; golem walking is judged by the AI-on
     /// runs and the game gate).
     pub walk_stalls: Vec<String>,
+    /// Lips the flood reached: cells where a golem stood on a dry top with its box in water (a
+    /// current cannot carry it there; iteration 13's G1 note: reported, never refused).
+    pub lips: usize,
 }
 
 /// Every cell where a golem can spawn in this world: for each villager, its 17 x 17 columns
@@ -89,26 +92,42 @@ struct Drift {
     fail: Option<String>,
     /// A walking input's golem alive past the limit without an escape (iteration 13: reported).
     stall: Option<String>,
+    /// Lips: cells where the golem stood on a dry top while its box touched water (iteration 13's
+    /// G1 note: a current cannot move a golem whose feet are dry; reported, never refused).
+    lips: Vec<BlockPos>,
+}
+
+/// Whether a golem standing at `feet` with box `bb` is on a lip: its feet cell dry, its box in
+/// water somewhere.
+fn on_lip(w: &World, feet: BlockPos, bb: Aabb) -> bool {
+    let water = |p: BlockPos| matches!(crate::fluid::fluid_state(w, p).fluid, crate::fluid::Fluid::Water | crate::fluid::Fluid::FlowingWater);
+    if water(feet) {
+        return false;
+    }
+    let (x0, y0, z0) = (bb.min_x.floor() as i32, bb.min_y.floor() as i32, bb.min_z.floor() as i32);
+    let (x1, y1, z1) = (bb.max_x.floor() as i32, bb.max_y.floor() as i32, bb.max_z.floor() as i32);
+    (y0..=y1).any(|y| (z0..=z1).any(|z| (x0..=x1).any(|x| water(BlockPos::new(x, y, z)))))
 }
 
 /// A lone golem at `start` under `policy` in a copy of `base` (`own`: the farm's entities).
 fn drift(base: &World, spec: &FarmSpec, own: &[u32], start: Vec3, policy: Walk) -> Drift {
     let mut w = base.clone();
     let id = super::add(&mut w, MobType::IronGolem, start, false);
-    let Some(g) = crate::entity::index_of(&w, id) else { return Drift { died_at: None, visited: Vec::new(), fail: Some("the golem could not be added".into()), stall: None } };
+    let Some(g) = crate::entity::index_of(&w, id) else { return Drift { died_at: None, visited: Vec::new(), fail: Some("the golem could not be added".into()), stall: None, lips: Vec::new() } };
     mob_mut(&mut w, g).walk = policy;
     w.mob.events.clear();
     let inner = spec.inner();
     let mut visited: Vec<(BlockPos, Vec3)> = Vec::new();
+    let mut lips: Vec<BlockPos> = Vec::new();
     let mut last = start;
     let mut still_for = 0;
-    let fail = |visited, why: String| Drift { died_at: None, visited, fail: Some(why), stall: None };
+    let fail = |visited, why: String| Drift { died_at: None, visited, fail: Some(why), stall: None, lips: Vec::new() };
     for t in 1..=MAX_GOLEM_LIFE {
         w.tick();
         let died = w.mob.events.iter().any(|e| matches!(e, MobEvent::Death { id: d, .. } if *d == id));
         w.mob.events.clear();
         if died {
-            return Drift { died_at: Some(t), visited, fail: None, stall: None };
+            return Drift { died_at: Some(t), visited, fail: None, stall: None, lips };
         }
         let Some(g) = crate::entity::index_of(&w, id) else { return fail(visited, "the golem vanished without dying".into()) };
         if let Some(why) = golem_breaks_rule(&w, g, inner, t, own) {
@@ -119,6 +138,9 @@ fn drift(base: &World, spec: &FarmSpec, own: &[u32], start: Vec3, policy: Walk) 
             let c = e.block_position();
             if !visited.iter().any(|(q, _)| *q == c) {
                 visited.push((c, e.pos));
+            }
+            if !lips.contains(&c) && on_lip(&w, c, e.bb) {
+                lips.push(c);
             }
         }
         if policy == Walk::Still && !mob(&w, g).dead {
@@ -140,7 +162,7 @@ fn drift(base: &World, spec: &FarmSpec, own: &[u32], start: Vec3, policy: Walk) 
     if policy == Walk::Still {
         fail(visited, why)
     } else {
-        Drift { died_at: None, visited, fail: None, stall: Some(why) }
+        Drift { died_at: None, visited, fail: None, stall: Some(why), lips }
     }
 }
 
@@ -177,6 +199,7 @@ pub fn golem_exit_in(spec: &FarmSpec, site: Option<&'static super::site::Site>, 
     }
     let mut rep = ExitReport { spawn_spots: spots.len(), ..Default::default() };
     let mut seen: HashSet<BlockPos> = spots.iter().copied().collect();
+    let mut lips: HashSet<BlockPos> = HashSet::new();
     let mut edges: HashSet<[i64; 3]> = HashSet::new();
     let mut starts: Vec<Vec3> = Vec::new();
     for c in &spots {
@@ -207,6 +230,7 @@ pub fn golem_exit_in(spec: &FarmSpec, site: Option<&'static super::site::Site>, 
             {
                 rep.walk_stalls.push(format!("a golem from {:.4} {:.2} {:.4} walking {}: {st}", s.x, s.y, s.z, p.name()));
             }
+            lips.extend(d.lips.iter().copied());
             for (c, pos) in d.visited {
                 if seen.insert(c) {
                     if starts.len() >= MAX_STARTS {
@@ -221,6 +245,7 @@ pub fn golem_exit_in(spec: &FarmSpec, site: Option<&'static super::site::Site>, 
         }
     }
     rep.starts = starts.len();
+    rep.lips = lips.len();
     Ok(rep)
 }
 
@@ -305,5 +330,5 @@ fn run_parallel(base: &World, spec: &FarmSpec, own: &[u32], jobs: &[(Vec3, Walk)
             });
         }
     });
-    out.into_inner().unwrap().into_iter().map(|d| d.unwrap_or(Drift { died_at: None, visited: Vec::new(), fail: Some("not run".into()), stall: None })).collect()
+    out.into_inner().unwrap().into_iter().map(|d| d.unwrap_or(Drift { died_at: None, visited: Vec::new(), fail: Some("not run".into()), stall: None, lips: Vec::new() })).collect()
 }
