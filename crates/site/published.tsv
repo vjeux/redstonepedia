@@ -10066,9 +10066,11 @@ farms/crops/melon-lattice8.html	circuit	farm/harvester melon		Crop farm: 3,200 m
 farms/crops/pumpkin-lattice8.html	circuit	farm/harvester pumpkin		Crop farm: 664 pumpkins an hour · 64 stems · 800 blocks · 0.83 an hour per block · ~2,200 iron to build · needs open sky or light 9	2026-11-08 20:42Z
 farms/index.html	page				2026-11-08 20:44Z
 farms/iron/bed-plate-lava-out-of-sight.html	circuit	mobfarm/-mob-farm iron_ingot day-1		Iron farm: 307 iron an hour · 395 blocks · 0.78 an hour per block · 8 iron to build · bed-plate farm with the lava corner out of sight, dug 7 deep	2026-11-09 01:26Z
+farms/iron/bed-plate-two-clusters.html	circuit	mobfarm/-mob-farm iron_ingot day-1		Iron farm: 403 iron an hour · 598 blocks · 0.67 an hour per block · 16 iron to build · two bed-plate farms side by side, dug 8 deep	2026-11-09 01:51Z
 farms/iron/d1-bed-plate.html	circuit	mobfarm/-mob-farm iron_ingot day-1		Iron farm: 243 iron an hour · 338 blocks · 0.72 an hour per block · 8 iron to build · golems burn in a corner of their pad	2026-11-08 20:42Z
 farms/iron/d1u-deep.html	circuit	mobfarm/-mob-farm iron_ingot day-1		Iron farm: 312 iron an hour · 395 blocks · 0.79 an hour per block · 8 iron to build · underground farm with a deep pit	2026-11-09 01:34Z
 farms/iron/d1u-underground.html	circuit	mobfarm/mob-farm iron_ingot day-1		Iron farm: 254 iron an hour · 299 blocks · 0.85 an hour per block · 8 iron to build · underground farm beside the village	2026-11-09 01:17Z
+farms/iron/drop-blades-2.html	circuit	mobfarm/mob-farm iron_ingot middle		Iron farm: 888 iron an hour · 1,172 blocks · 0.76 an hour per block · 31 iron to build · two farms kill their golems where they land and one water channel carries the iron to one chest	2026-11-09 01:51Z
 farms/iron/four-modules-one-timer-tight.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 1,500 iron an hour · 2,025 blocks · 0.74 an hour per block · 26 iron to build · four modules sharing one sleep timer, closer together	2026-11-08 21:21Z
 farms/iron/four-modules-one-timer.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 1,700 iron an hour · 2,197 blocks · 0.78 an hour per block · 26 iron to build · four modules sharing one sleep timer, lava corners 21 below	2026-11-08 21:21Z
 farms/iron/index.html	page				2026-11-08 20:44Z
@@ -10086,6 +10088,7 @@ farms/iron/parts/spawn-area/index.html	page				2026-11-08 21:21Z
 farms/iron/row-2x27.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 886 iron an hour · 812 blocks · 1.1 an hour per block · 226 iron to build · two farms side by side share one sorter, one iron-block crafter and one composter	2026-11-08 22:43Z
 farms/iron/stack-2x43.html	circuit	mobfarm/-mob-farm iron_ingot fastest		Iron farm: 886 iron an hour · 748 blocks · 1.2 an hour per block · 46 iron to build · two farms stacked, each with its own chests	2026-11-08 22:43Z
 farms/iron/stack-8x43.html	circuit	mobfarm/-mob-farm iron_ingot fastest		Iron farm: 3,600 iron an hour · 2,992 blocks · 1.2 an hour per block · 166 iron to build · eight farms stacked, each with its own chests	2026-11-08 22:43Z
+farms/iron/water-channel-2.html	circuit	mobfarm/mob-farm iron_ingot middle		Iron farm: 884 iron an hour · 1,160 blocks · 0.76 an hour per block · 31 iron to build · two farms drop their golems into one water channel that carries them to one lava chamber and one chest	2026-11-09 01:51Z
 farms/melon-pumpkin/index.html	page				2026-11-08 21:37Z
 farms/melon-pumpkin/melon-lattice8.html	circuit	farm/harvester melon		Crop farm: 3,200 melon slices an hour · 64 stems · 800 blocks · 4.0 an hour per block · ~2,200 iron to build · needs open sky or light 9	2026-11-08 21:37Z
 farms/melon-pumpkin/pumpkin-lattice8.html	circuit	farm/harvester pumpkin		Crop farm: 664 pumpkins an hour · 64 stems · 800 blocks · 0.83 an hour per block · ~2,200 iron to build · needs open sky or light 9	2026-11-08 21:37Z
