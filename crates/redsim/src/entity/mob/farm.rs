@@ -807,6 +807,17 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
                 }
             }
             MobEvent::Released { id, .. } if tr.own.contains(&id) => rep.releases.push(t),
+            // a farm drop burnt up in the farm's lava or a fire (`ItemEntity.hurtServer`): its iron
+            // is lost, a measured tradeoff (iteration 11), counted once, from the burn itself (a
+            // drop that reaches lava is gone within the tick, before the drops' check sees it)
+            MobEvent::Burnt { item, what, count, .. } if tr.drops.contains(&item) => {
+                if tr.burnt.insert(item) {
+                    rep.drops_burnt += 1;
+                    if what == "minecraft:iron_ingot" {
+                        rep.iron_burnt += count;
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -963,13 +974,8 @@ fn check_tick(w: &World, rep: &mut RunReport, tr: &mut Track, spec: &FarmSpec, t
         {
             rep.fail(format!("gt {t}: a drop at {:.1} {:.1} {:.1} is within the zombie's pickup reach", e.pos.x, e.pos.y, e.pos.z));
         }
-        // a drop in lava or a fire burns (`ItemEntity.hurtServer`): its iron is lost, a measured
-        // tradeoff (iteration 11), counted once
-        let burns = touches_lava(w, e.bb) || crate::weather::fire::fire_in(w, e.bb).is_some();
-        if burns && tr.burnt.insert(*id) && iron > 0 {
-            rep.drops_burnt += 1;
-            rep.iron_burnt += iron;
-        }
+        // (a drop burnt in lava or a fire: counted from its `MobEvent::Burnt`, absorb_events; one
+        // that only touched lava and got out lives on and is collected)
         if let EntityKind::Item(s) = &e.kind
             && s.age > 5800
         {

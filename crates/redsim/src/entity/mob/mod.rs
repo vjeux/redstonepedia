@@ -189,6 +189,10 @@ pub enum MobEvent {
     Hurt { t: i64, id: u32, ty: MobType, src: Damage, amount: f32 },
     Death { t: i64, id: u32, ty: MobType, src: Damage, pos: [f64; 3] },
     Drop { t: i64, from: u32, item: u32, what: &'static str, count: u32 },
+    /// An item entity burnt up: lava or a fire took its health to 0 (`ItemEntity.hurtServer`,
+    /// then `discard`), the drop gone within its tick; the judge's burnt drops (brief rev 9
+    /// iteration 11: a measured loss, not a lost drop).
+    Burnt { t: i64, item: u32, what: String, count: u32 },
     Removed { t: i64, id: u32 },
     Slept { t: i64, id: u32 },
     Woke { t: i64, id: u32 },
