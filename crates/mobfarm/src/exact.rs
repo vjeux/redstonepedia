@@ -85,13 +85,16 @@ pub fn weather_on(opts: &Opts) -> bool {
 }
 
 /// `MCTAS_EXACT_ENTITY="N:T0:T1"`: entity #N's frames to print at game times T0..=T1.
-fn entity_probe() -> Option<(u32, i64, i64)> {
-    static P: std::sync::OnceLock<Option<(u32, i64, i64)>> = std::sync::OnceLock::new();
-    *P.get_or_init(|| {
+fn entity_probe() -> Option<(&'static [u32], i64, i64)> {
+    static P: std::sync::OnceLock<Option<(Vec<u32>, i64, i64)>> = std::sync::OnceLock::new();
+    P.get_or_init(|| {
         let v = std::env::var("MCTAS_EXACT_ENTITY").ok()?;
         let f: Vec<&str> = v.split(':').collect();
-        Some((f.first()?.parse().ok()?, f.get(1)?.parse().ok()?, f.get(2)?.parse().ok()?))
+        let ids: Vec<u32> = f.first()?.split(',').filter_map(|s| s.parse().ok()).collect();
+        Some((ids, f.get(1)?.parse().ok()?, f.get(2)?.parse().ok()?))
     })
+    .as_ref()
+    .map(|(ids, a, b)| (ids.as_slice(), *a, *b))
 }
 
 /// The game's side alone over `seeds` (no redsim): each run's custom spawner events seen as
@@ -878,14 +881,16 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
             changes[1] += ours.containers.len();
             // (a probe: MCTAS_EXACT_ENTITY="N:T0:T1" prints entity #N's frame on both sides at each
             // game time T0..=T1)
-            if let Some((n, t0, t1)) = entity_probe()
+            if let Some((ids, t0, t1)) = entity_probe()
                 && f.t >= t0
                 && f.t <= t1
             {
-                let g = f.entities.iter().find(|e| e.n == n);
-                let o = ours.entities.iter().find(|e| e.n == n);
-                eprintln!("t{} #{n} game:   {:?}", f.t, g.map(|e| (e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time)));
-                eprintln!("t{} #{n} redsim: {:?}", f.t, o.map(|e| (e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time)));
+                for &n in ids {
+                    let g = f.entities.iter().find(|e| e.n == n);
+                    let o = ours.entities.iter().find(|e| e.n == n);
+                    eprintln!("t{} #{n} game:   {:?}", f.t, g.map(|e| (e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time, &e.memories)));
+                    eprintln!("t{} #{n} redsim: {:?}", f.t, o.map(|e| (e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time, &e.memories)));
+                }
             }
             cmp.tick(&f, &ours);
         }
