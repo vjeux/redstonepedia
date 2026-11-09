@@ -83,6 +83,23 @@ pub struct State {
     pub entities: Vec<FallingBlock>,
 }
 
+/// (mob-AI) `FallingBlockEntity`'s break into its item (`spawnAtLocation(level, block)`: an
+/// `ItemEntity` at its position) where the mob AI keeps item entities (a natural sand or gravel
+/// landing on a spike); the redstone judges keep only `World::drops`.
+fn drop_item(w: &mut World, e: &FallingBlock) {
+    if !w.mob.ai.on {
+        return;
+    }
+    let item: &'static str = match e.block.to_string().as_str() {
+        "minecraft:sand" => "minecraft:sand",
+        "minecraft:red_sand" => "minecraft:red_sand",
+        "minecraft:gravel" => "minecraft:gravel",
+        "minecraft:white_concrete_powder" => "minecraft:white_concrete_powder",
+        _ => return,
+    };
+    crate::entity::mob::living::spawn_item_at(w, crate::entity::Vec3::new(e.x, e.y, e.z), e.id, item, 1);
+}
+
 impl State {
     /// The live falling blocks for [`crate::world::World::state_key`] (floats by their bits).
     pub(crate) fn key_into<H: std::hash::Hasher>(&self, h: &mut H) {
@@ -341,9 +358,11 @@ pub fn tick_one(w: &mut World, i: usize) {
                 if may_replace && can_survive {
                     if !w.set_block_and_update(p, e.block) {
                         w.drops.push((p, e.block));
+                        drop_item(w, &e);
                     }
                 } else {
                     w.drops.push((p, e.block));
+                    drop_item(w, &e);
                 }
                 return;
             }

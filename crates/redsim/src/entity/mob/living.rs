@@ -937,6 +937,11 @@ fn drop_loot(w: &mut World, i: usize, src: Damage) {
 pub fn spawn_item(w: &mut World, i: usize, item: &'static str, count: u8) {
     let pos = w.entities.list[i].pos;
     let src_id = w.entities.list[i].id;
+    spawn_item_at(w, pos, src_id, item, count);
+}
+
+/// [`spawn_item`] at a position, for any entity `src_id` (a falling block that breaks).
+pub fn spawn_item_at(w: &mut World, pos: Vec3, src_id: u32, item: &'static str, count: u8) {
     let at = w.entities.next_id;
     let mut own = w.entering_random(at);
     if w.exact_seed.is_some() {
