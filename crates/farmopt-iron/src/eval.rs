@@ -153,7 +153,10 @@ fn spawn_facts(w: &World, spec: &FarmSpec, c: &Cand, built: &crate::design::Buil
     let mut f_of: BTreeMap<usize, f64> = BTreeMap::new();
     let mut worst_f: f64 = 1.0;
     for (k, (_, _, cell)) in vs.iter().enumerate() {
-        let cells = redsim::entity::mob::spawn::golem_spawn_cells_from(w, *cell);
+        // (its cell and the cell above: a villager hops a block in its pod, ironspec's surface
+        // rule: every cell a villager can occupy)
+        let mut cells = redsim::entity::mob::spawn::golem_spawn_cells_from(w, *cell);
+        cells.extend(redsim::entity::mob::spawn::golem_spawn_cells_from(w, BlockPos::new(cell.x, cell.y + 1, cell.z)));
         let ok: Vec<BlockPos> = cells.iter().filter(|(_, r)| r.is_ok()).map(|(p, _)| *p).collect();
         // EVERY villager can summon (the day-1 lane's D1U escape: a blind villager panics at a
         // natural hostile and its search lands wherever it reaches), so every villager's cells
