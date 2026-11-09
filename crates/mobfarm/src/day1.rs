@@ -1099,6 +1099,137 @@ pub fn row_shared_form(modules: i32, pitch: i32, n: i32, l_min: u32, stage: crat
     ]))
 }
 
+/// farmopt's uncoupled cross (vjeux 17:54: "Why do we not build the villager chambers around the
+/// kill chamber?"): four M2-open-ring modules around one centre, each `r` (12 or more) from it and
+/// facing inward (its pad toward the centre), every drop straight down into a 4-wide water channel
+/// arm at villagers' y - 24 or lower (out of every follow cube) that carries the golems inward to
+/// ONE central blade: the four arms meet in a 4 x 4 junction where their flows cancel, under open
+/// gates holding lava at feet + 2 (gates at the arms' mouths hold it out of them, a cobblestone
+/// ceiling over all of it leaves the lava's fire nothing to reach); the junction's centre 2 x 2
+/// floor is hoppers into ONE chest with 8 hours of storage under it (iteration 13: golems may ride
+/// a channel).
+pub fn cross_channel(r: i32, n: i32, l_min: u32, stage: crate::parts::Stage) -> anyhow::Result<String> {
+    anyhow::ensure!(r >= 12, "the cross needs r of 12 or more (the module's drop and the junction)");
+    let k = -22;
+    // (the module without a chamber of its own; the judge's port where it was)
+    let none = |b: &mut Builder, k: i32| {
+        b.d.ports.insert("output".into(), [3, k - 2, 1]);
+    };
+    let (m, _, _, _) = m2_timer_module(n, l_min, stage, &none)?;
+    // module 0's frame: the centre is the corner (3, r), the arm runs along z from under the drop
+    // (z 3) to the junction (x 1..4, z r - 2..r + 1); its steps (down 1, where the flow would reach
+    // level 7) counted from the junction, so its last stretch before the junction is 5 cells long
+    // (a step right before the junction pinned a still golem on its lip: r 21, first try)
+    let cz = r;
+    let (za, ze) = (3, cz - 3);
+    let steps = |z: i32| {
+        let d = ze - z.clamp(za, ze);
+        if d <= 4 { 0 } else { (d - 5) / 7 + 1 }
+    };
+    let fj = -24 - steps(za);
+    let feet = |z: i32| fj + steps(z);
+    let f0 = feet(za);
+    let mut m0 = Builder::new("cross-arm");
+    m0.d.meta = m.d.meta.clone();
+    for (p, s) in &m.d.blocks {
+        // the drop's floor and bottom sources gone: the shaft goes on down to the arm
+        if (1..=4).contains(&p[0]) && (3..=6).contains(&p[2]) && p[1] <= k {
+            continue;
+        }
+        m0.d.blocks.insert(*p, s.clone());
+    }
+    for x in 1..=4 {
+        for y in k..=k + 2 {
+            m0.set(x, y, 2, STONE);
+        }
+    }
+    m0.d.block_entities = m.d.block_entities.clone();
+    m0.d.entities = m.d.entities.clone();
+    for z in 2..=ze {
+        let f = feet(z);
+        let top = feet(z - 1).max(f) + 3;
+        for x in 0..=5 {
+            m0.set(x, f - 1, z, STONE);
+            let wall = x == 0 || x == 5 || z == 2;
+            for y in f..=top {
+                if wall {
+                    m0.set(x, y, z, STONE);
+                } else {
+                    m0.d.blocks.remove(&[x, y, z]);
+                }
+            }
+        }
+    }
+    for x in 1..=4 {
+        m0.set(x, f0, za, "water[level=0]");
+    }
+    m0.d.ports.insert("output".into(), [3, k - 2, 1]);
+    // the four turns about the corner (3, r): `turned_pure` turns about the centre of the cell
+    // (0, 0) (`(X, Z) -> (1 - Z, X)`), then a whole-block move puts the corner back
+    let c0 = circuit::Circuit::from_design(m0.d.clone())?;
+    let mut b = Builder::new(&format!("iron-cross-{r}"));
+    b.d.meta = m.d.meta.clone();
+    let (qx, qz) = (2.5, cz as f64 - 0.5);
+    for t in 0..4u8 {
+        let ct = c0.turned_pure(t)?;
+        let (rx, rz) = match t {
+            0 => (qx, qz),
+            1 => (-qz, qx),
+            2 => (-qx, -qz),
+            _ => (qz, -qx),
+        };
+        let (ox, oz) = ((qx - rx).round() as i32, (qz - rz).round() as i32);
+        let d = &ct.clock.design;
+        for (p, s) in &d.blocks {
+            b.d.blocks.insert([p[0] + ox, p[1], p[2] + oz], s.clone());
+        }
+        for (p, s) in &d.block_entities {
+            b.d.block_entities.insert([p[0] + ox, p[1], p[2] + oz], s.clone());
+        }
+        for e in &d.entities {
+            b.d.entities.push(mctas::design::EntitySpec { kind: e.kind.clone(), pos: [e.pos[0] + ox as f64, e.pos[1], e.pos[2] + oz as f64], nbt: e.nbt.clone() });
+        }
+    }
+    // the junction: its floor, the blade over it, the gates at the arms' mouths, the ceiling
+    for x in 1..=4 {
+        for z in cz - 2..=cz + 1 {
+            b.set(x, fj - 1, z, STONE);
+            b.d.blocks.remove(&[x, fj, z]);
+            b.set(x, fj + 1, z, GATE_E);
+            b.set(x, fj + 2, z, "lava[level=0]");
+        }
+    }
+    for i in 1..=4 {
+        for (x, z) in [(i, cz - 3), (i, cz + 2), (0, cz - 3 + i), (5, cz - 3 + i)] {
+            b.set(x, fj + 2, z, GATE_E);
+        }
+    }
+    for x in 0..=5 {
+        for z in cz - 3..=cz + 2 {
+            b.set(x, fj + 3, z, STONE);
+        }
+    }
+    // the collection: the centre 2 x 2 hoppers into one chest, 8 hours of storage under it
+    b.set(2, fj - 1, cz - 1, "hopper[enabled=true,facing=east]");
+    b.set(3, fj - 1, cz - 1, "hopper[enabled=true,facing=south]");
+    b.set(2, fj - 1, cz, "hopper[enabled=true,facing=east]");
+    b.set(3, fj - 1, cz, "hopper[enabled=true,facing=down]");
+    let out = [3, fj - 2, cz];
+    b.set(out[0], out[1], out[2], "chest[facing=north,type=single,waterlogged=false]");
+    for i in 0..storage_pairs(4) {
+        b.set(out[0], out[1] - 1 - 2 * i, out[2], "hopper[enabled=true,facing=down]");
+        b.set(out[0], out[1] - 2 - 2 * i, out[2], "chest[facing=north,type=single,waterlogged=false]");
+    }
+    b.d.ports.insert("output".into(), out);
+    // every villager's golem search over the whole cross: stray tops capped by their roles
+    let wl = -6;
+    crate::parts::cap_spawns(&mut b, &|p| p[1] <= wl + 1)?;
+    Ok(b.text(&[
+        &format!("Four farms around one kill chamber, {r} blocks from its centre: each farm's golems fall into a water channel deep below every"),
+        "farm's sight; the four channels meet in the middle under one lava blade, and one chest with 8 hours of storage collects everything.",
+    ]))
+}
+
 /// M2's front: three scared villagers and blind U1 in pods, the zombie, the hide, the bed
 /// observer's circuit.
 fn m2_front(n: i32) -> Builder {
