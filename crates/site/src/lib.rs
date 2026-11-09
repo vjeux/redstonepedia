@@ -323,6 +323,10 @@ pub struct VariationArgs {
     /// passes it.
     #[arg(long)]
     pub regate: bool,
+    /// Put it up on its redsim judge alone, the real-game gate left for later (`--regate`; vjeux
+    /// 2026-11-08 16:49: "Seriously, just upload them").
+    #[arg(long)]
+    pub no_gate: bool,
 }
 
 #[derive(Args)]

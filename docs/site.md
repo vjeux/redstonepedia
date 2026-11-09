@@ -157,11 +157,13 @@ index's `kind=farm` lists them, and `kind=circuit` no longer does. Their old pag
   archive` runs (`circuit::mobfarm_game`: the 26.3 server's builds, or terrain mode in the sample's
   kept world for a design with `terrain:`/`sample:`; about 2 minutes), refuses a design that fails
   either, and writes the three, the gate's `real game` line in the row (the brief's one rule: "works
-  as its card says, verified in the real game"; the parent and ironspec's G1, 2026-11-08). The site
-  shows a variation only with that line and no `held` reason. `mctas site variation --regate`
-  judges and gates every variation again: a failure is held off the site (its row removed, the
-  reason in `held`) until `site variation` passes it; its page redirects to its stage's pick.
-  Commit the folder; the next deploy shows it, at `farms/iron/<stem>.html`.
+  as its card says, verified in the real game"; the parent and ironspec's G1, 2026-11-08).
+  `--no-gate` puts it up on its redsim judge alone, the gate left for later (vjeux 16:49:
+  "Seriously, just upload them"). The site shows every variation listed in `variations.tsv`, with
+  or without a `real game` line, unless it has a `held` reason. `mctas site variation --regate
+  [design...]` judges and gates the variations again: a failure is held off the site (its row
+  removed, the reason in `held`) until `site variation` passes it; its page redirects to
+  `farms/iron/`. Commit the folder; the next deploy shows it, at `farms/iron/<stem>.html`.
 - **Components**: `designs/farms/<farm>/parts/<part>/` (part `module`, `cage`, `spawn-area`, `kill`,
   `collection`, `sleep-trigger`) holds each member alone (`<stem>.txt`, no judge) and
   `members.tsv` (`file`, `name`, `stage`, `metrics` as `key value, key value`, `used_by` = the full

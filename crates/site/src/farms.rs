@@ -507,15 +507,15 @@ fn game_gate(c: &circuit::Circuit) -> Result<circuit::mobfarm_game::GateReport> 
 }
 
 /// A design's judge and gate for its stage: its verdicts row (the redsim judge's numbers, the
-/// game gate's `real game` line), or why it cannot go on the site.
-fn judge_for_stage(path: &Path, text: &str, c: &circuit::Circuit, stage: &str, file: &str) -> std::result::Result<circuit::archive::Row, String> {
+/// game gate's `real game` line unless `gate` is off), or why it cannot go on the site.
+fn judge_for_stage(path: &Path, text: &str, c: &circuit::Circuit, stage: &str, file: &str, gate: bool) -> std::result::Result<circuit::archive::Row, String> {
     let kind = c.kind.clone().ok_or_else(|| "no `circuit: <kind>` line".to_string())?;
     let j = crate::preview::judge(text);
     if !j.pass {
         return Err(format!("its judge does not pass it on redsim: {}", if j.why.is_empty() { j.summary.clone() } else { j.why.clone() }));
     }
     let mut metrics = j.metrics.clone();
-    if kind.name().starts_with("mob-farm") {
+    if gate && kind.name().starts_with("mob-farm") {
         eprintln!("{}: the real-game gate (about 2 minutes)...", path.display());
         let g = game_gate(c).map_err(|e| format!("the real-game gate could not run: {e:#}"))?;
         if !g.passed() {
@@ -572,7 +572,7 @@ fn regate(repo: &Path, farm: &str, only: &[PathBuf]) -> Result<()> {
             let path = dir.join(&v.file);
             let res = std::fs::read_to_string(&path).map_err(|e| format!("reading {}: {e}", path.display())).and_then(|text| {
                 let c = circuit::Circuit::load(&path).map_err(|e| format!("{e:#}"))?;
-                judge_for_stage(&path, &text, &c, stage, &v.file)
+                judge_for_stage(&path, &text, &c, stage, &v.file, true)
             });
             rows.retain(|r| r.file != v.file);
             match res {
@@ -625,7 +625,9 @@ pub fn variation(a: &crate::VariationArgs) -> Result<()> {
         }
         let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
         let file = format!("{stem}.txt");
-        let row = judge_for_stage(path, &text, &c, &a.stage, &file).map_err(|why| anyhow::anyhow!("{}: not on the site: {why}", path.display()))?;
+        // (vjeux 2026-11-08 16:49, "Seriously, just upload them": `--no-gate` puts it up on its
+        // redsim judge; `--regate` runs the game gate afterwards)
+        let row = judge_for_stage(path, &text, &c, &a.stage, &file, !a.no_gate).map_err(|why| anyhow::anyhow!("{}: not on the site: {why}", path.display()))?;
         // the design with its judge's line on top, as the archive writes it
         let body: String = text.lines().filter(|l| !l.starts_with("# archived ") && !l.starts_with("# CIRCUIT: ")).map(|l| format!("{l}\n")).collect();
         std::fs::write(dir.join(&file), format!("# {}\n{body}", row.summary.trim_start_matches("# ")))?;
@@ -646,7 +648,7 @@ pub fn variation(a: &crate::VariationArgs) -> Result<()> {
                 v.pick = v.file == file;
             }
         }
-        println!("{}: {shown}; the real game: passed ({})", dir.join(&file).display(), if a.pick { "the stage's pick" } else { "a variation" });
+        println!("{}: {shown}; the real game: {} ({})", dir.join(&file).display(), if a.no_gate { "not run (--no-gate: `site variation --regate` runs it)" } else { "passed" }, if a.pick { "the stage's pick" } else { "a variation" });
     }
     write_verdicts(&dir, &rows)?;
     write_variations(&dir, &vars)?;
