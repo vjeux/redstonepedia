@@ -1305,7 +1305,13 @@ impl App {
                 continue;
             }
             if v.visible && !v.done && !self.queue.contains(&id) {
+                // its design text fetched at once (not when its turn comes, after the game's
+                // textures and the thumbnails' context: a round trip on a phone's network)
+                let src = v.src.clone();
                 self.queue.push_back(id);
+                if let Some(src) = src {
+                    let _ = self.url_text(&src);
+                }
             }
         }
     }

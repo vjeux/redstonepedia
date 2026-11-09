@@ -2514,7 +2514,7 @@ impl Session {
                     let q = min.offset(x, y, z);
                     // (most of a farm's box is air: skipped before the floor's and the cutaway's
                     // look-ups)
-                    if w.get(q) == Block::Air {
+                    if matches!(w.get(q), Block::Air) {
                         continue;
                     }
                     if self.in_floor(q.arr()) {

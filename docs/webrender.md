@@ -226,7 +226,12 @@ each build's page.
   it goes (`web perf --trace --trace-plain --trace-over 0`, d1u-underground): the viewer's module
   starts at ~350 ms (the page, the 9 MB module's compile), the game's textures ~100 ms, the WebGL
   context ~125 ms, the terrain farm ~215 ms (redsim's site and the landscape, over tasks), the
-  live view's still and camera ~80 ms, its picture over three frames at `MESH_BUDGET_MS`. A big build's start is split further (the 2x2 iron farm,
+  live view's still and camera ~80 ms, its picture over three frames at `MESH_BUDGET_MS`.
+  2026-11-09 (part 14): a card's design text is fetched when the card comes on screen
+  (`App::on_intersect`), not when its turn comes after the game's textures and the thumbnails'
+  context; with the rig's requests 100 ms late the first card drawn: the home page 1.36 -> 1.25 s,
+  the iron farms' index 1.20 -> 1.15, the circuits' index 1.18 -> 1.12 (two loads each), the other
+  indexes the same. A big build's start is split further (the 2x2 iron farm,
   2026-11-08: its camera task 86-98 ms and its first frame 104-124 ms in WebKitGTK, both before
   and after the mob layer came): the live camera's search weighs a few candidate directions a
   task (`scene::LiveCameraSearch`, `CAMERA_BUDGET_MS` 20; the same candidates in the same order:
