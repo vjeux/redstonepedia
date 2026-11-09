@@ -94,8 +94,11 @@ pub struct GateOpts {
 }
 
 impl GateOpts {
+    /// The defaults (`MCTAS_GATE_RUNS=N`: a terrain gate's runs, the parent's re-card of a rate on
+    /// many runs through `site variation --regate`; 8 servers at once).
     pub fn new(version: &str) -> GateOpts {
-        GateOpts { version: version.to_string(), days: 3, rain_day: true, thunder_day: true, warmup: (150_000, 400_000), seed: 1, builds: Vec::new(), parallel: 8, keep: false, trace: false, terrain: None, world: None, monsters: true, runs: 0 }
+        let runs = std::env::var("MCTAS_GATE_RUNS").ok().and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
+        GateOpts { version: version.to_string(), days: 3, rain_day: true, thunder_day: true, warmup: (150_000, 400_000), seed: 1, builds: Vec::new(), parallel: 8, keep: false, trace: false, terrain: None, world: None, monsters: true, runs }
     }
 }
 
