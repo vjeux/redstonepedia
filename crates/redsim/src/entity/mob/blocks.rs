@@ -200,11 +200,13 @@ pub fn lava_height(w: &World, p: BlockPos) -> Option<f64> {
 
 /// `LevelReader.containsAnyLiquid(box)`: a cell the box meets holds a fluid (water, lava).
 pub fn box_has_liquid(w: &World, bb: crate::entity::Aabb) -> bool {
+    // LevelReader.containsAnyLiquid: findBlocksIn(BlockPos.containing(min), containing(max)), both
+    // corners inclusive (a box ending on a cell's face reaches into that cell)
     let (x0, y0, z0) = (bb.min_x.floor() as i32, bb.min_y.floor() as i32, bb.min_z.floor() as i32);
-    let (x1, y1, z1) = (bb.max_x.ceil() as i32, bb.max_y.ceil() as i32, bb.max_z.ceil() as i32);
-    for y in y0..y1 {
-        for z in z0..z1 {
-            for x in x0..x1 {
+    let (x1, y1, z1) = (bb.max_x.floor() as i32, bb.max_y.floor() as i32, bb.max_z.floor() as i32);
+    for y in y0..=y1 {
+        for z in z0..=z1 {
+            for x in x0..=x1 {
                 let p = BlockPos::new(x, y, z);
                 if matches!(w.get(p), Block::Lava { .. }) || !crate::fluid::fluid_state(w, p).is_empty() || matches!(w.get(p), Block::Terrain(id) if crate::terrain::blocks::props(id).fluid != crate::terrain::blocks::FluidKind::Empty) {
                     return true;

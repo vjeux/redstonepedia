@@ -193,16 +193,62 @@ fn fire_tick(w: &mut World, i: usize) {
     }
 }
 
+/// `EntityTypeTags.CAN_BREATHE_UNDER_WATER` (26.3): `#undead` (`#skeletons`, `#zombies`, the
+/// wither, the phantom) and the water animals, the armor stand, the copper golem, the nautilus.
+pub fn breathes_under_water(game_id: &str) -> bool {
+    matches!(
+        game_id,
+        "minecraft:skeleton"
+            | "minecraft:stray"
+            | "minecraft:wither_skeleton"
+            | "minecraft:skeleton_horse"
+            | "minecraft:bogged"
+            | "minecraft:parched"
+            | "minecraft:zombie_horse"
+            | "minecraft:camel_husk"
+            | "minecraft:zombie"
+            | "minecraft:zombie_villager"
+            | "minecraft:zombified_piglin"
+            | "minecraft:zoglin"
+            | "minecraft:drowned"
+            | "minecraft:husk"
+            | "minecraft:zombie_nautilus"
+            | "minecraft:wither"
+            | "minecraft:phantom"
+            | "minecraft:axolotl"
+            | "minecraft:frog"
+            | "minecraft:guardian"
+            | "minecraft:elder_guardian"
+            | "minecraft:turtle"
+            | "minecraft:glow_squid"
+            | "minecraft:cod"
+            | "minecraft:pufferfish"
+            | "minecraft:salmon"
+            | "minecraft:squid"
+            | "minecraft:tropical_fish"
+            | "minecraft:tadpole"
+            | "minecraft:armor_stand"
+            | "minecraft:copper_golem"
+            | "minecraft:nautilus"
+    )
+}
+
 /// `LivingEntity.baseTick`'s air: the eye in water (not a bubble column) lowers the air
 /// (`decreaseAirSupply`: by 1; an iron golem's keeps it), 2 drowning damage at -20 (then 0);
 /// otherwise it refills by 4 up to 300.
 fn air_tick(w: &mut World, i: usize, ty: MobType) {
     let e = &w.entities.list[i];
     let eye_cell = BlockPos::new(mth::floor(e.pos.x), mth::floor(e.pos.y + mob(w, i).eye() as f64), mth::floor(e.pos.z));
-    let eye_in_water = e.fluid.eye_in_water() && !matches!(w.get(eye_cell), Block::BubbleColumn { .. });
+    let in_column = match w.get(eye_cell) {
+        Block::BubbleColumn { .. } => true,
+        Block::Terrain(id) => crate::terrain::blocks::props(id).block_id() == "minecraft:bubble_column",
+        _ => false,
+    };
+    let eye_in_water = e.fluid.eye_in_water() && !in_column;
     if eye_in_water {
-        // hasWaterBreathing: a water breathing effect (a witch's potion) keeps its air
-        if ty.def().drowns && mob(w, i).effects.water_breathing == 0 {
+        // canBreatheUnderwater (#can_breathe_under_water: the undead, the water animals...) and
+        // hasWaterBreathing (a water breathing effect: a witch's potion) keep its air
+        if ty.def().drowns && !breathes_under_water(ty.def().game_id) && mob(w, i).effects.water_breathing == 0 {
             let m = mob_mut(w, i);
             m.air -= 1;
             if m.air <= -20 {
