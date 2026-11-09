@@ -233,54 +233,64 @@ fn facts(pl: &Place, d: &Design, exit: Option<usize>, hostile: bool) -> Result<F
 /// dropping up to 3; blocks without a collision box pass, a fence gate is a door it opens): the
 /// highest floor reached.
 fn climb(w: &World, chest: BlockPos) -> f64 {
-    use redsim::entity::collide::block_collisions;
-    use redsim::entity::mob::refuse::floor_height;
+    use redsim::entity::collide::{block_collisions, boxes_at};
+    // a fence gate is a door the player opens: its box never blocks
     let gate = |p: BlockPos| format!("{}", w.get(p)).contains("fence_gate");
-    let fits = |c: BlockPos, h: f64| {
-        let bb = Aabb::new(c.x as f64 + 0.2, h + 1.0e-3, c.z as f64 + 0.2, c.x as f64 + 0.8, h + 1.8, c.z as f64 + 0.8);
+    let free = |x: i32, z: i32, from: f64, to: f64| {
+        let bb = Aabb::new(x as f64 + 0.2, from + 1.0e-3, z as f64 + 0.2, x as f64 + 0.8, to, z as f64 + 0.8);
         block_collisions(w, bb).iter().all(|(p, bs)| gate(*p) || bs.iter().all(|b| !b.intersects(bb)))
     };
-    let mut cells: Vec<BlockPos> = Vec::new();
-    let mut seen: BTreeSet<[i32; 3]> = BTreeSet::new();
+    // the floors a player can stand on in column (x, z) between `lo` and `hi`: the tops of the
+    // collision boxes there (a slab's half, a block's top), each with 1.8 free above it
+    let floors = |x: i32, z: i32, lo: f64, hi: f64| -> Vec<f64> {
+        let mut v = Vec::new();
+        for y in (lo.floor() as i32 - 1)..=(hi.ceil() as i32) {
+            let p = BlockPos::new(x, y, z);
+            if gate(p) {
+                continue;
+            }
+            for b in boxes_at(w, &w.get(p), p) {
+                let t = b.max_y;
+                if t >= lo - 1e-9 && t <= hi + 1e-9 && !v.iter().any(|u: &f64| (u - t).abs() < 1e-6) && free(x, z, t, t + 1.8) {
+                    v.push(t);
+                }
+            }
+        }
+        v
+    };
+    let key = |x: i32, z: i32, f: f64| (x, z, (f * 16.0).round() as i64);
+    let mut todo: Vec<(i32, i32, f64)> = Vec::new();
+    let mut seen: BTreeSet<(i32, i32, i64)> = BTreeSet::new();
     for d in [[1, 0], [-1, 0], [0, 1], [0, -1]] {
-        let c = BlockPos::new(chest.x + d[0], chest.y, chest.z + d[1]);
-        if fits(c, floor_height(w, c)) && seen.insert([c.x, c.y, c.z]) {
-            cells.push(c);
+        let (x, z) = (chest.x + d[0], chest.z + d[1]);
+        for f in floors(x, z, chest.y as f64 - 1.0, chest.y as f64 + 1.0) {
+            if seen.insert(key(x, z, f)) {
+                todo.push((x, z, f));
+            }
         }
     }
     let mut best = f64::NEG_INFINITY;
     let mut k = 0;
-    while k < cells.len() && cells.len() < 20000 {
-        let c = cells[k];
+    while k < todo.len() && todo.len() < 50_000 {
+        let (x, z, f) = todo[k];
         k += 1;
-        let h = floor_height(w, c);
-        best = best.max(h);
-        for d in [[1, 0], [-1, 0], [0, 1], [0, -1], [0, 0]] {
-            for dy in [1, 0, -1, -2, -3] {
-                if d == [0, 0] && dy != 1 {
-                    continue;
-                }
-                let m = BlockPos::new(c.x + d[0], c.y + dy, c.z + d[1]);
-                let hm = floor_height(w, m);
-                if hm - h > 1.25 || !seen.insert([m.x, m.y, m.z]) {
-                    continue;
-                }
-                let top = h.max(hm);
-                if fits(m, top) && fits(c, top) && fits(m, hm) {
-                    cells.push(m);
-                } else {
-                    seen.remove(&[m.x, m.y, m.z]);
+        best = best.max(f);
+        for d in [[1, 0], [-1, 0], [0, 1], [0, -1]] {
+            let (nx, nz) = (x + d[0], z + d[1]);
+            // a step up within a jump (1.25), a drop of up to 3; crossing at the higher floor with
+            // the player's box free over both columns
+            for g in floors(nx, nz, f - 3.0, f + 1.25) {
+                let top = f.max(g);
+                if free(x, z, top, top + 1.8) && free(nx, nz, top, top + 1.8) && seen.insert(key(nx, nz, g)) {
+                    todo.push((nx, nz, g));
                 }
             }
         }
     }
     if std::env::var("MCTAS_TRIM_DEBUG").is_ok() {
-        eprintln!("trim climb: from the chest {chest}: {} cells reached, starts {:?}, best floor {best:.2}", cells.len(), cells.iter().take(4).collect::<Vec<_>>());
-        let mut top: Vec<&BlockPos> = cells.iter().collect();
-        top.sort_by_key(|c| -c.y);
-        for c in top.iter().take(8) {
-            eprintln!("trim climb:   reached {c} (floor {:.2})", floor_height(w, **c));
-        }
+        let mut top = todo.clone();
+        top.sort_by(|a, b| b.2.total_cmp(&a.2));
+        eprintln!("trim climb: from the chest {chest}: {} standing places reached, the highest {:?}", todo.len(), top.iter().take(6).collect::<Vec<_>>());
     }
     best
 }
@@ -410,9 +420,17 @@ fn keep_of(pl: &Place, d: &Design) -> Result<Keep, String> {
     }
     let mut cells = BTreeSet::new();
     for e in &d.entities {
+        // a vehicle and its rider overlap the cells around theirs (a boat is 1.375 wide; the
+        // zombie in it took in-wall damage from a refilled neighbour in two trims): the 3 x 3
+        // columns around each entity, from the cell under it to two over it
         let c = e.cell();
-        for dy in -1..=2 {
-            cells.insert([c[0], c[1] + dy, c[2]]);
+        let wide = if e.kind.contains("boat") || e.kind.contains("minecart") || e.nbt.as_deref().is_some_and(|n| n.contains("Passengers")) { 1 } else { 0 };
+        for dx in -wide..=wide {
+            for dz in -wide..=wide {
+                for dy in -1..=2 {
+                    cells.insert([c[0] + dx, c[1] + dy, c[2] + dz]);
+                }
+            }
         }
     }
     for (name, p) in &d.ports {
@@ -719,6 +737,20 @@ pub fn climb_cmd(design: &Path) -> Result<()> {
     let run = rfarm::Run::new(&moved, &o).map_err(|e| anyhow!(e))?;
     let oy = site.map_or(0, |s| s.offset[1]);
     let floor = climb(&run.world, moved.output);
+    if std::env::var("MCTAS_TRIM_DEBUG").is_ok()
+        && let Some(s) = site
+    {
+        // the blocks over the highest standing place's 3 x 3 columns (design coordinates)
+        let (fx, fz) = (moved.output.x, moved.output.z);
+        let _ = (fx, fz);
+        for dz in -1..=1 {
+            for dx in -1..=1 {
+                let (x, z) = (s.offset[0] + d.meta.get("climb_x").and_then(|v| v.parse::<i32>().ok()).unwrap_or(-2) + dx, s.offset[2] + d.meta.get("climb_z").and_then(|v| v.parse::<i32>().ok()).unwrap_or(3) + dz);
+                let col: Vec<String> = (ground - 2..=ground + 2).map(|y| format!("{}:{}", y, run.world.get(BlockPos::new(x, y + oy, z)))).collect();
+                eprintln!("trim climb: design column {} {}: {}", x - s.offset[0], z - s.offset[2], col.join(" | "));
+            }
+        }
+    }
     // (the last step out, through the opened hatch onto the surface, is the player's: the flood
     // stands it right under the ground layer)
     let reached = floor >= (oy + ground - 1) as f64 - 1e-6;

@@ -288,7 +288,11 @@ pub fn seals_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: boo
                 continue;
             }
             let n = world.get(q);
-            if !crate::behavior::full_cube(&n) {
+            // (the surface's own air is the world's: under the open sky nothing walks in from a
+            // cave; sealing it covered every built-in access's hatch with cobblestone, the cells
+            // over its gates and around its top)
+            let open_sky = (1..=96).map(|k| q.offset(0, k, 0)).take_while(|u| world.contains(*u)).all(|u| !crate::behavior::full_cube(&world.get(u)));
+            if !crate::behavior::full_cube(&n) && !(place::air_like(&n) && open_sky) {
                 out.push((q, !place::air_like(&n)));
             }
         }
