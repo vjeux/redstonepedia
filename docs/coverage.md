@@ -151,7 +151,7 @@ differential fuzzer, or redsim's own known answers.
 | `sim:recorded-circuits` | the circuit judge's stimulus on 37 calibration circuits, recorded in the game (everything circuit:verify-calibration ran but the two flyers that end their corridor a few frames apart in the harness, fly-start and flying-machine; the unwaxed bulb toggle bulb-toggle-bud among them, its bulb oxidizing at frame 19008 in both) |
 | `sim:recorded-ideal` | `door ideal-rs` against the game's recorded `door ideal` verdicts and ticks on the c78z, c78z-u1, s25 and observer-driven s25 plans, tile phase and between ticks |
 | `sim:redsim-tests` | `cargo test --release -p redsim --lib --tests`: the mob layer's known answers (the golem sensor's memory, the 600 gt cycle, spawn spots, villager schedules), weather, item and fall physics, leashes, links, shapes, the game frames of crates/redsim/tests/fixtures |
-| `sim:fuzz-redstone`, `-containers`, `-pistons`, `-sculk` | the live differential fuzzers (fixed seeds): random circuits with every component family and the core palette in a bigger box; droppers and hoppers with items; random piston setups (flat and boxed, observers, redstone around them, slime, shaped blocks); sculk scenes |
+| `sim:fuzz-redstone-all`, `-redstone-core`, `-containers`, `-pistons-mix`, `-pistons-mixed`, `-pistons-slime`, `-sculk` | the live differential fuzzers (fixed seeds; one piece a run, so they run at once): random circuits with every component family and the core palette in a bigger box; droppers and hoppers with items; random piston setups (flat and boxed, observers, redstone around them, slime, shaped blocks); sculk scenes |
 | `sim:vanilla-check`, `-gadget-*`, `-fuzz-*` | the unmodified official server against the bridge: c79 at 8 positions x 3 cycles plus a real-time cycle, six gadgets, random small contraptions (one piece per gadget and per pair of fuzz cases: the official server steps slowly) |
 
 The official-server pieces were out of `mctas test` for an hour on 2026-11-08: c79's vanilla-check
@@ -166,8 +166,8 @@ What the game-running checks exercised and what covers it now:
 
 | behavior (the game checks that exercised it) | covered by |
 |---|---|
-| pistons, moving blocks, spitting, quasi-connectivity, 0-ticks, the update order at other positions and turned (judge:verify-* x5, periodic-bulb, verify-negative, 2x2-classic/recessed, material:archive-guards, ideal:agree-* x3, ideal:plan-phase-observer-jvm) | the 21 door traces, `sim:recorded-ideal`, `sim:fuzz-pistons` |
-| dust, repeaters, comparators, torches, observers, lamps, note blocks (every check) | the door, clock and circuit recordings; `sim:fuzz-redstone` |
+| pistons, moving blocks, spitting, quasi-connectivity, 0-ticks, the update order at other positions and turned (judge:verify-* x5, periodic-bulb, verify-negative, 2x2-classic/recessed, material:archive-guards, ideal:agree-* x3, ideal:plan-phase-observer-jvm) | the 21 door traces, `sim:recorded-ideal`, `sim:fuzz-pistons-*` |
+| dust, repeaters, comparators, torches, observers, lamps, note blocks (every check) | the door, clock and circuit recordings; `sim:fuzz-redstone-*` |
 | waxed copper bulbs (the periodic bulb door; T flip-flops, dividers, counters, burst, monostable) | the periodic bulb door's trace; the bulb circuits' recordings; the fuzzers' `bulb` family |
 | sculk (m79s, bridge-p2-sculk-r, sculk-filter-rise, the sculk clock) | their traces and recording; `sim:fuzz-sculk` |
 | hoppers, droppers, chests, comparator fill levels (sorter, smelter, brewer, composter, shulker, lift, item timer checks) | `sim:recorded-studies`, the shulker traces, the item-timer and dropper-tff recordings, the hopper and dropper scenes; `sim:fuzz-containers` |
@@ -177,7 +177,7 @@ What the game-running checks exercised and what covers it now:
 | item entities and water streams (the sorter's direct run, shulker drops, farm drops) | the sorter direct-run recording, the item scenes (age, merge, despawn, drop, hopper, water), the item bouncers, the shulker traces |
 | minecarts, rails, riders, stations (clock:verify-entities, circuit:verify-station) | the cart clock and the falling cart, the station and cart loader/unloader traces, the cart scenes |
 | TNT (the dupers of circuit:verify-calibration, tnt-water-duper) | the three duper recordings, about 30 TNT traces (explosions, chains, obsidian, water, pushes) |
-| flying machines, slime and honey (the flyers, the elevator) | the two-way machine, the elevator and the watcher-stays recordings, the horizontal flyer trace, the slime and honey scenes, `sim:fuzz-pistons` (slime) |
+| flying machines, slime and honey (the flyers, the elevator) | the two-way machine, the elevator and the watcher-stays recordings, the horizontal flyer trace, the slime and honey scenes, `sim:fuzz-pistons-slime` |
 | crops and random ticks (circuit:farm-run) | the cane, melon, bamboo, cactus, kelp and stem traces (random ticks mirrored) |
 | mobs (no game check) | `sim:redsim-tests` |
 | the bridge itself | `sim:vanilla-*`; the live fuzzers (the bridge's game against redsim) |

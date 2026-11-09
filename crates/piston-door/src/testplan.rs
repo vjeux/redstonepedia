@@ -250,13 +250,13 @@ pub const ROWS: &[(&str, Group, &str, usize, usize, u32)] = &[
     ("sim:redsim-tests", Group::Sim, "traces", 0, 16, 60),
     ("sim:recorded-", Group::Sim, "traces", 0, 8, 10),
     ("circuit:shulker-compare", Group::Sim, "traces", 0, 1, 5),
-    ("sim:fuzz-redstone", Group::Sim, "redstone", 8, 16, 90),
+    ("sim:fuzz-redstone-", Group::Sim, "redstone", 8, 16, 60),
     ("sim:fuzz-containers", Group::Sim, "containers", 8, 16, 90),
-    ("sim:fuzz-pistons", Group::Sim, "pistons", 8, 16, 90),
+    ("sim:fuzz-pistons-", Group::Sim, "pistons", 8, 16, 60),
     ("sim:fuzz-sculk", Group::Sim, "sculk", 8, 16, 90),
     ("sim:vanilla-", Group::Sim, "vanilla", 2, 4, 150),
     ("sim:terrain-ticks-", Group::Sim, "terrain", 1, 2, 330),
-    ("sim:autodoor-twin", Group::Sim, "traces", 0, 1, 90),
+    ("sim:autodoor-twin", Group::Sim, "traces", 0, 16, 10),
     ("judge:redsim-", Group::Door, "", 0, 1, 30),
     ("judge:verify-", Group::Door, "", 1, 2, 90),
     ("judge:2x2-", Group::Door, "", 1, 2, 90),
@@ -789,7 +789,7 @@ mod tests {
         let mut out = Vec::new();
         let p = plan(Some(&["crates/redsim/src/piston/moving.rs".to_string()]), &[], &[], false, &mut out);
         assert!(!p.is_empty() && p.iter().all(|p| p.group.starts_with("sim")), "{:?}", p.iter().map(|p| &p.check.name).collect::<Vec<_>>());
-        assert!(p.iter().any(|p| p.check.name == "sim:fuzz-pistons") && !p.iter().any(|p| p.check.name == "sim:fuzz-sculk"));
+        assert!(p.iter().any(|p| p.check.name.starts_with("sim:fuzz-pistons-")) && !p.iter().any(|p| p.check.name == "sim:fuzz-sculk"));
         // a study's code: its checks, and the recordings that replay through it (seconds), never a
         // live fuzzer
         let p = plan(Some(&["crates/circuit/src/sorter.rs".to_string()]), &[], &[], false, &mut out);

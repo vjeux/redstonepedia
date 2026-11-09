@@ -1786,10 +1786,18 @@ fn sim_checks(v: &mut Vec<Check>) {
             Ok(sums.join(" | "))
         }),
     };
+    // (one piece a fuzz run, so the plan runs them at once: tickexact 2026-11-08, each piece's
+    // runs one after the other made the pistons' and the redstone's the slowest of a simulator
+    // change's mctas test)
     v.push(fuzz(
-        "sim:fuzz-redstone",
-        "`door redsim-fuzz` (random redstone circuits: every component family, `--palette all`; and the core palette in a bigger box) in the game and on redsim, every cell compared every tick: 0 mismatches",
-        vec![args("door redsim-fuzz --n 3000 --seed 9101 --palette all --workers {workers} --out {tmp}/all --max-report 2"), args("door redsim-fuzz --n 1500 --seed 9201 --palette core --size 8,4,8 --workers {workers} --out {tmp}/core --max-report 2")],
+        "sim:fuzz-redstone-all",
+        "`door redsim-fuzz --palette all` (random redstone circuits: every component family) in the game and on redsim, every cell compared every tick: 0 mismatches",
+        vec![args("door redsim-fuzz --n 3000 --seed 9101 --palette all --workers {workers} --out {tmp}/all --max-report 2")],
+    ));
+    v.push(fuzz(
+        "sim:fuzz-redstone-core",
+        "`door redsim-fuzz --palette core` (the core palette in a bigger box) in the game and on redsim, every cell compared every tick: 0 mismatches",
+        vec![args("door redsim-fuzz --n 1500 --seed 9201 --palette core --size 8,4,8 --workers {workers} --out {tmp}/core --max-report 2")],
     ));
     v.push(fuzz(
         "sim:fuzz-containers",
@@ -1797,13 +1805,19 @@ fn sim_checks(v: &mut Vec<Check>) {
         vec![args("door redsim-fuzz --gen containers --n 2000 --seed 9301 --workers {workers} --out {tmp}/containers --max-report 2")],
     ));
     v.push(fuzz(
-        "sim:fuzz-pistons",
-        "`door pistfuzz` (random piston setups, flat and boxed, with observers, redstone around them, slime, shaped blocks) in the game and on redsim, every block, moving block, queue size, drop and the idle flag compared every tick: 0 mismatching",
-        vec![
-            args("door pistfuzz --count 1500 --seed 9401 --mode mix --workers {workers} --out-dir {tmp}/mix"),
-            args("door pistfuzz --count 800 --seed 9402 --mode mix --observers --mixed --workers {workers} --out-dir {tmp}/mixed"),
-            args("door pistfuzz --count 500 --seed 9403 --mode mix --slime --shapes --workers {workers} --out-dir {tmp}/slime"),
-        ],
+        "sim:fuzz-pistons-mix",
+        "`door pistfuzz --mode mix` (random piston setups, flat and boxed, redstone around them) in the game and on redsim, every block, moving block, queue size, drop and the idle flag compared every tick: 0 mismatching",
+        vec![args("door pistfuzz --count 1500 --seed 9401 --mode mix --workers {workers} --out-dir {tmp}/mix")],
+    ));
+    v.push(fuzz(
+        "sim:fuzz-pistons-mixed",
+        "`door pistfuzz --mode mix --observers --mixed` (piston setups with observers, mixed) in the game and on redsim, compared every tick: 0 mismatching",
+        vec![args("door pistfuzz --count 800 --seed 9402 --mode mix --observers --mixed --workers {workers} --out-dir {tmp}/mixed")],
+    ));
+    v.push(fuzz(
+        "sim:fuzz-pistons-slime",
+        "`door pistfuzz --mode mix --slime --shapes` (piston setups with slime and shaped blocks) in the game and on redsim, compared every tick: 0 mismatching",
+        vec![args("door pistfuzz --count 500 --seed 9403 --mode mix --slime --shapes --workers {workers} --out-dir {tmp}/slime")],
     ));
     v.push(fuzz(
         "sim:fuzz-sculk",
