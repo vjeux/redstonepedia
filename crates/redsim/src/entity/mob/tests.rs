@@ -263,6 +263,40 @@ fn a_cart_picks_up_a_villager_and_an_activator_rail_throws_it_out() {
     assert!(thrown.is_some(), "the activator rail never threw the villager out");
 }
 
+/// `AbstractBoat.tick`'s boarding branch: a mob meeting the zombie's boat (its box inflated 0.2
+/// sideways) takes the boat's free seat; with two, `positionRider` seats the zombie 0.2 forward and
+/// the newcomer 0.6 back (a boat at yaw 0 faces +z: `Vec3(0, y, f).yRot(0)`).
+#[test]
+fn a_mob_meeting_the_zombies_boat_boards_it_and_the_zombie_moves_forward() {
+    let mut w = world(3);
+    for x in 0..6 {
+        for z in -2..3 {
+            put(&mut w, x, -1, z, "minecraft:stone");
+        }
+    }
+    let boat = w.entities.add(EntityKind::Boat(Default::default()), Vec3::new(2.5, 0.0, 0.5), 0.0);
+    let z = add(&mut w, MobType::Zombie, Vec3::new(2.5, 0.0, 0.5), true);
+    super::mount(&mut w, z, boat).unwrap();
+    let v = add(&mut w, MobType::Villager, Vec3::new(3.45, 0.0, 0.5), false);
+    let mut boarded = false;
+    for _ in 0..3 {
+        w.tick();
+        assert!(w.errors.is_empty(), "{:?}", w.errors);
+        let vi = crate::entity::index_of(&w, v).unwrap();
+        boarded |= w.entities.list[vi].vehicle == Some(boat);
+    }
+    assert!(boarded, "the boat never took the villager");
+    let bi = crate::entity::index_of(&w, boat).unwrap();
+    assert_eq!(w.entities.list[bi].passengers, vec![z, v]);
+    let (bp, yaw) = (w.entities.list[bi].pos, w.entities.list[bi].y_rot);
+    let zp = w.entities.list[crate::entity::index_of(&w, z).unwrap()].pos;
+    let vp = w.entities.list[crate::entity::index_of(&w, v).unwrap()].pos;
+    let a = -yaw * (std::f32::consts::PI / 180.0);
+    let (c, s) = (crate::entity::mth::cos(a as f64) as f64, crate::entity::mth::sin(a as f64) as f64);
+    assert!((zp.x - (bp.x + 0.2f32 as f64 * s)).abs() < 1e-9 && (zp.z - (bp.z + 0.2f32 as f64 * c)).abs() < 1e-9, "the zombie 0.2 forward: {zp:?} (boat {bp:?} yaw {yaw})");
+    assert!((vp.x - (bp.x - 0.6f32 as f64 * s)).abs() < 1e-9 && (vp.z - (bp.z - 0.6f32 as f64 * c)).abs() < 1e-9, "the villager 0.6 back: {vp:?}");
+}
+
 /// A rider travels like any server-side mob (`canSimulateMovement && isEffectiveAi`): from the
 /// zero motion `rideTick` gives it, gravity leaves (0 - 0.08) x 0.98 = -0.0784.
 #[test]

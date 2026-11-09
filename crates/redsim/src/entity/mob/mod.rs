@@ -921,6 +921,41 @@ pub fn mount(w: &mut World, rider: u32, vehicle: u32) -> Result<(), String> {
     Ok(())
 }
 
+/// `AbstractBoat.getPassengerAttachmentPoint`'s horizontal part for rider `j` of boat `vi`: the
+/// single passenger's offset (`getSinglePassengerXOffset`: a chest boat's 0.15, a boat's 0), with
+/// two passengers the first 0.2 forward and the second 0.6 back (an `Animal` 0.2 further forward),
+/// as `Vec3(0, y, f).yRot(-yRot * PI / 180)` turns it (the float tables, widened).
+fn boat_seat_offset(w: &World, vi: usize, j: usize) -> (f64, f64) {
+    let v = &w.entities.list[vi];
+    let EntityKind::Boat(b) = &v.kind else { return (0.0, 0.0) };
+    let mut f = if b.chest { 0.15f32 } else { 0.0f32 };
+    if v.passengers.len() > 1 {
+        let idx = v.passengers.iter().position(|&p| p == w.entities.list[j].id).unwrap_or(0);
+        f = if idx == 0 { 0.2 } else { -0.6 };
+        if java_animal(mob(w, j).ty.def().id) {
+            f += 0.2;
+        }
+    }
+    if f == 0.0 {
+        return (0.0, 0.0);
+    }
+    let a = -v.y_rot * (std::f32::consts::PI / 180.0);
+    let (c, s) = (crate::entity::mth::cos(a as f64), crate::entity::mth::sin(a as f64));
+    (f as f64 * s as f64, f as f64 * c as f64)
+}
+
+/// Is boat `vi` a chest boat (one seat)?
+fn b_chest(w: &World, vi: usize) -> bool {
+    matches!(&w.entities.list[vi].kind, EntityKind::Boat(b) if b.chest)
+}
+
+/// Java's `Animal` subclasses among the modeled mob types (the boat's seat and sideways turn):
+/// the farm animals, the horses (an `AbstractHorse`), the wolf and cat (`TamableAnimal`), the
+/// rabbit, fox, turtle and bee, and their babies.
+pub fn java_animal(id: &str) -> bool {
+    matches!(id.strip_prefix("baby_").unwrap_or(id), "sheep" | "pig" | "chicken" | "cow" | "horse" | "donkey" | "zombie_horse" | "wolf" | "rabbit" | "fox" | "turtle" | "cat" | "bee")
+}
+
 /// `rideTick` of a riding mob: its motion zeroed, its own tick, then its seat
 /// (`positionRider`), its fall distance reset (`LivingEntity.rideTick`).
 pub fn ride_tick(w: &mut World, j: usize) {
@@ -931,7 +966,8 @@ pub fn ride_tick(w: &mut World, j: usize) {
         && let Some(off) = rider_offset(&w.entities.list[vi].kind, mob(w, j))
     {
         let vp = w.entities.list[vi].pos;
-        w.entities.set_pos(j, vp.add(0.0, off, 0.0));
+        let (dx, dz) = boat_seat_offset(w, vi, j);
+        w.entities.set_pos(j, vp.add(dx, off, dz));
         // AbstractSkeleton.rideTick / Drowned.rideTick: the body takes the controlled vehicle's
         let id = mob(w, j).ty.def().id;
         if matches!(id, "skeleton" | "stray" | "bogged" | "drowned" | "baby_drowned")
@@ -955,6 +991,15 @@ pub fn ride_tick(w: &mut World, j: usize) {
                 let delta = crate::entity::mth::wrap_degrees(a.y_body_rot - head);
                 let target = delta.clamp(-limit, limit);
                 a.y_head_rot = head + delta - target;
+            }
+            // an Animal in a full boat sits sideways (90 or 270 by its id's parity)
+            let full = w.entities.list[vi].passengers.len() == if b_chest(w, vi) { 1 } else { 2 };
+            if full && java_animal(mob(w, j).ty.def().id) {
+                let turn = if w.entities.list[j].id % 2 == 0 { 90.0f32 } else { 270.0f32 };
+                if let Some(a) = mob_mut(w, j).ai.as_deref_mut() {
+                    a.y_body_rot += turn;
+                    a.y_head_rot += turn;
+                }
             }
         }
     }

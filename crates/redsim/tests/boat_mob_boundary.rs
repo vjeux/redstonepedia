@@ -24,17 +24,20 @@ fn ix(w: &World, id: u32) -> usize {
     entity::index_of(w, id).unwrap()
 }
 
+/// (ironfarm 2026-11-09: the boarding branch is modeled now, `push::boat_start_riding`; the
+/// cross-4-underground gate's reference runs met it with a natural mob at the zombie's boat)
 #[test]
-fn pickup_eligible_zombie_is_refused_not_silently_pushed() {
+fn pickup_eligible_zombie_boards_the_boat_not_pushed() {
     let mut w = world();
     let boat = add_boat(&mut w, 0.0, false);
     let zombie = add_mob(&mut w, MobType::Zombie, 1.1);
     let (bi, zi) = (ix(&w, boat), ix(&w, zombie));
     push::boat_neighbors(&mut w, bi);
-    assert!(w.errors.iter().any(|e| e.contains("picking up a mob")), "{:?}", w.errors);
+    assert!(w.errors.is_empty(), "{:?}", w.errors);
     assert_eq!(w.entities.list[bi].delta_movement, Vec3::ZERO);
     assert_eq!(w.entities.list[zi].delta_movement, Vec3::ZERO);
-    assert!(w.entities.list[zi].vehicle.is_none());
+    assert_eq!(w.entities.list[zi].vehicle, Some(boat));
+    assert_eq!(w.entities.list[bi].passengers, vec![zombie]);
 }
 
 #[test]
@@ -150,6 +153,8 @@ fn pickup_is_checked_before_the_generic_push_height_gate() {
     let (bi, zi) = (ix(&w, boat), ix(&w, zombie));
     w.entities.set_pos(zi, Vec3::new(1.1, 5.1, 0.0));
     push::boat_neighbors(&mut w, bi);
-    assert!(w.errors.iter().any(|e| e.contains("picking up a mob")), "{:?}", w.errors);
+    // (boarded: the pickup branch runs before the push's height test, which would skip it)
+    assert!(w.errors.is_empty(), "{:?}", w.errors);
+    assert_eq!(w.entities.list[zi].vehicle, Some(boat));
     assert_eq!(w.entities.list[zi].delta_movement, Vec3::ZERO);
 }

@@ -78,6 +78,27 @@ fn pickup_eligible(boat: &super::Entity, other: &super::Entity) -> bool {
 const CANNOT_BE_PUSHED_ONTO_BOATS: &[&str] =
     &["player", "elder_guardian", "cod", "pufferfish", "salmon", "tropical_fish", "dolphin", "squid", "glow_squid", "tadpole", "creaking", "nautilus", "zombie_nautilus", "sulfur_cube"];
 
+/// `entity.startRiding(boat)` (not forced) of mob `j` picked up by boat `i` (AbstractBoat.tick's
+/// boarding branch; a bat or a natural mob walking into the zombie's boat): `canRide` (its boarding
+/// cooldown at 0) and `canAddPassenger` (a free seat, the boat's eyes not in water), then the pose
+/// STANDING, the vehicle and its passengers (a mob joins at the back: `addPassenger`), ENTITY_MOUNT
+/// at the boat. Its seat is taken when the boat ticks it (`AbstractBoat.positionRider`: with two,
+/// the first 0.2 forward, the second 0.6 back, an animal 0.2 further forward).
+fn boat_start_riding(w: &mut World, j: usize, i: usize) {
+    let capacity = match &w.entities.list[i].kind {
+        EntityKind::Boat(b) if b.chest => 1,
+        _ => 2,
+    };
+    if w.entities.list[j].boarding_cooldown > 0 || w.entities.list[i].passengers.len() >= capacity || w.entities.list[i].fluid.eye_in_water() {
+        return;
+    }
+    let (rider, boat) = (w.entities.list[j].id, w.entities.list[i].id);
+    w.entities.list[j].vehicle = Some(boat);
+    w.entities.list[i].passengers.push(rider);
+    let vp = w.entities.list[i].pos;
+    w.game_event_at("entity_mount", [vp.x, vp.y, vp.z], None, false);
+}
+
 /// AbstractBoat's final nearby-entity loop, in EntitySectionStorage query order.
 pub fn boat_neighbors(w: &mut World, i: usize) {
     let bb = w.entities.list[i].bb.inflate(0.2f32 as f64, -0.01f32 as f64, 0.2f32 as f64);
@@ -87,7 +108,7 @@ pub fn boat_neighbors(w: &mut World, i: usize) {
             continue;
         }
         if pickup_eligible(&w.entities.list[i], &w.entities.list[j]) {
-            w.errors.push("boat: picking up a mob is not modeled".into());
+            boat_start_riding(w, j, i);
             continue;
         }
         let boat = &w.entities.list[i];
