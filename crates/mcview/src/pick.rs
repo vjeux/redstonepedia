@@ -64,12 +64,98 @@ pub fn boxes(atlas: &Atlas, state: &str, cell: Pos) -> Vec<([f32; 3], [f32; 3])>
 /// thousands: `scene::best_camera`).
 pub struct Picker {
     boxes: Vec<([f32; 3], [f32; 3], Pos)>,
-    // (a ray's walk looks up every cell it crosses: a fast hash, `FxBuild`)
-    by_cell: HashMap<Pos, Vec<u32>, FxBuild>,
+    // (a ray's walk looks up every cell it crosses)
+    by_cell: CellLists,
     /// The cells holding a still block (with a model or not).
     still: HashSet<Pos, FxBuild>,
     /// The cells holding any block (moving ones too).
     occupied: HashSet<Pos, FxBuild>,
+}
+
+/// The boxes listed in each cell they reach, each list in the boxes' order: dense over the cells'
+/// box when it is modest (a farm in its terrain: 1.3 million listings, which a map of lists took
+/// 90 ms natively to build), a map of lists otherwise.
+enum CellLists {
+    Dense { lo: Pos, dims: [i32; 3], start: Vec<u32>, items: Vec<u32> },
+    Map(HashMap<Pos, Vec<u32>, FxBuild>),
+}
+
+impl CellLists {
+    /// The boxes reaching cell `c`, in their order (None: none).
+    fn get(&self, c: &Pos) -> Option<&[u32]> {
+        match self {
+            CellLists::Dense { lo, dims, start, items } => {
+                let d = [c[0] - lo[0], c[1] - lo[1], c[2] - lo[2]];
+                if (0..3).any(|k| d[k] < 0 || d[k] >= dims[k]) {
+                    return None;
+                }
+                let i = ((d[1] * dims[2] + d[2]) * dims[0] + d[0]) as usize;
+                let (s, e) = (start[i] as usize, start[i + 1] as usize);
+                (e > s).then(|| &items[s..e])
+            }
+            CellLists::Map(m) => m.get(c).map(Vec::as_slice),
+        }
+    }
+
+    /// From each box's cells (`reach`: the cells' ranges per box, in the boxes' order).
+    fn build(reach: &[[[i32; 2]; 3]]) -> CellLists {
+        let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+        for r in reach {
+            for k in 0..3 {
+                lo[k] = lo[k].min(r[k][0]);
+                hi[k] = hi[k].max(r[k][1]);
+            }
+        }
+        let dims = [hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1];
+        let cells = dims.iter().map(|&d| d.max(0) as i64).product::<i64>();
+        if reach.is_empty() || cells > 1 << 24 {
+            return CellLists::map(reach);
+        }
+        let at = |x: i32, y: i32, z: i32| (((y - lo[1]) * dims[2] + (z - lo[2])) * dims[0] + (x - lo[0])) as usize;
+        // each cell's count, then where its list starts, then the lists filled in the boxes' order
+        let mut start = vec![0u32; cells as usize + 1];
+        for r in reach {
+            for x in r[0][0]..=r[0][1] {
+                for y in r[1][0]..=r[1][1] {
+                    for z in r[2][0]..=r[2][1] {
+                        start[at(x, y, z) + 1] += 1;
+                    }
+                }
+            }
+        }
+        for i in 1..start.len() {
+            start[i] += start[i - 1];
+        }
+        let mut next = start.clone();
+        let mut items = vec![0u32; *start.last().unwrap() as usize];
+        for (i, r) in reach.iter().enumerate() {
+            for x in r[0][0]..=r[0][1] {
+                for y in r[1][0]..=r[1][1] {
+                    for z in r[2][0]..=r[2][1] {
+                        let c = at(x, y, z);
+                        items[next[c] as usize] = i as u32;
+                        next[c] += 1;
+                    }
+                }
+            }
+        }
+        CellLists::Dense { lo, dims, start, items }
+    }
+
+    /// [`CellLists::build`] as a map of lists.
+    fn map(reach: &[[[i32; 2]; 3]]) -> CellLists {
+        let mut m: HashMap<Pos, Vec<u32>, FxBuild> = HashMap::default();
+        for (i, r) in reach.iter().enumerate() {
+            for x in r[0][0]..=r[0][1] {
+                for y in r[1][0]..=r[1][1] {
+                    for z in r[2][0]..=r[2][1] {
+                        m.entry([x, y, z]).or_default().push(i as u32);
+                    }
+                }
+            }
+        }
+        CellLists::Map(m)
+    }
 }
 
 impl Picker {
@@ -84,7 +170,8 @@ impl Picker {
         }
         let mut list: Vec<(Pos, &str)> = cells.iter().map(|(c, s)| (*c, *s)).collect();
         list.sort_by_key(|(c, _)| *c);
-        let mut out = Picker { boxes: Vec::new(), by_cell: HashMap::default(), still: cells.keys().copied().collect(), occupied };
+        let mut boxes_out: Vec<([f32; 3], [f32; 3], Pos)> = Vec::new();
+        let mut reach: Vec<[[i32; 2]; 3]> = Vec::new();
         // each state's boxes once, at the origin, then moved to each cell (the same floats: `boxes`
         // adds the cell last; a model lookup per block was 16 ms of a 2492-block farm's camera)
         let mut of_state: HashMap<&str, Vec<([f32; 3], [f32; 3])>, FxBuild> = HashMap::default();
@@ -93,18 +180,11 @@ impl Picker {
             for (lo0, hi0) in rel.iter() {
                 let lo: [f32; 3] = std::array::from_fn(|k| lo0[k] + c[k] as f32);
                 let hi: [f32; 3] = std::array::from_fn(|k| hi0[k] + c[k] as f32);
-                let i = out.boxes.len() as u32;
-                out.boxes.push((lo, hi, c));
-                for x in lo[0].floor() as i32..=hi[0].floor() as i32 {
-                    for y in lo[1].floor() as i32..=hi[1].floor() as i32 {
-                        for z in lo[2].floor() as i32..=hi[2].floor() as i32 {
-                            out.by_cell.entry([x, y, z]).or_default().push(i);
-                        }
-                    }
-                }
+                boxes_out.push((lo, hi, c));
+                reach.push(std::array::from_fn(|k| [lo[k].floor() as i32, hi[k].floor() as i32]));
             }
         }
-        out
+        Picker { boxes: boxes_out, by_cell: CellLists::build(&reach), still: cells.keys().copied().collect(), occupied }
     }
 
     /// Whether a still block stands at `c`.
@@ -186,6 +266,34 @@ pub fn pick(atlas: &Atlas, blocks: &[RBlock], origin: [f32; 3], dir: [f32; 3], m
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The dense cell lists are the map's (each cell's boxes, in their order): a farm in its
+    /// terrain's blocks near it (the camera's picker) and a farm alone, every cell of their box
+    /// and around it.
+    #[test]
+    fn dense_cell_lists_are_the_maps() {
+        let atlas = Atlas::build();
+        for design in ["designs/farms/iron/day-1/d1u-underground.txt", "designs/circuits/mobfarm/archive/iron-day1.txt"] {
+            let text = std::fs::read_to_string(format!("{}/../../{design}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+            let p = crate::player::Player::new_web(&text, 1.0).unwrap();
+            let blocks = p.session.render_blocks(0.0);
+            let picker = Picker::new(&atlas, &blocks);
+            let reach: Vec<[[i32; 2]; 3]> = picker.boxes.iter().map(|(lo, hi, _)| std::array::from_fn(|k| [lo[k].floor() as i32, hi[k].floor() as i32])).collect();
+            let map = CellLists::map(&reach);
+            let CellLists::Dense { lo, dims, .. } = &picker.by_cell else { panic!("{design}: not dense") };
+            let mut listed = 0;
+            for y in lo[1] - 1..=lo[1] + dims[1] {
+                for z in lo[2] - 1..=lo[2] + dims[2] {
+                    for x in lo[0] - 1..=lo[0] + dims[0] {
+                        let c = [x, y, z];
+                        assert_eq!(picker.by_cell.get(&c), map.get(&c), "{design}: cell {c:?}");
+                        listed += picker.by_cell.get(&c).map_or(0, |l| l.len());
+                    }
+                }
+            }
+            assert!(listed > 1000, "{design}: {listed} listings");
+        }
+    }
 
     /// Each state's boxes found once and moved to each cell are the very boxes found per block
     /// (the same floats in the same order).

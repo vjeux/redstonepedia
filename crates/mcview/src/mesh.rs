@@ -3,9 +3,11 @@
 //! (ambient occlusion), faces shaded by direction, translucent faces kept apart for sorting.
 
 use crate::atlas::{Atlas, GAME_LAYER};
+use crate::camera::FxBuild;
 use crate::design::Pos;
 use crate::models::{self, Face, Layer, Model, Part};
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
@@ -207,6 +209,74 @@ fn norm(a: [f32; 3]) -> [f32; 3] {
     [a[0] / l, a[1] / l, a[2] / l]
 }
 
+/// A face's corners as drawn in its block (`corners`: [`face_corners`]'s, in the model's 0..16):
+/// its part's rotation (and the game's rescale), the model's quarter turns, an entity's yaw, and
+/// a transform (a block model drawn as part of an entity).
+fn face_points(m: &Model, p: &Part, corners: [[f32; 3]; 4], yaw: Option<f32>, xf: Option<&crate::entitymodel::M>) -> [[f32; 3]; 4] {
+    let (qx, qy) = p.qrot.unwrap_or((m.xrot, m.yrot));
+    corners.map(|c| {
+        let c = match p.rot {
+            Some(r) => {
+                let mut q = rotate(c, r.axis, r.angle, r.origin);
+                if r.rescale {
+                    // stretched back across the other two axes (the game's rescale)
+                    let k = 1.0 / r.angle.to_radians().cos().abs().max(1e-3);
+                    for a in 0..3 {
+                        if a != r.axis as usize {
+                            q[a] = r.origin[a] + (q[a] - r.origin[a]) * k;
+                        }
+                    }
+                }
+                q
+            }
+            None => c,
+        };
+        let c = [c[0] / 16.0, c[1] / 16.0, c[2] / 16.0];
+        let c = quarter(c, qx, qy);
+        let c = match yaw {
+            // entities: their model is built around x = z = 0 (the entity's position); the
+            // game's yaw turns clockwise
+            Some(y) => rotate(c, 1, -y, [0.0, 0.0, 0.0]),
+            None => c,
+        };
+        // a block model drawn as part of an entity (its unit cube through the transform)
+        match xf {
+            Some(m) => m.point(c),
+            None => c,
+        }
+    })
+}
+
+/// The block side a face lies on (axis, -1 or 1: flat against the cell's face, facing out), if
+/// any: for culling it against its neighbour and for its corners' light.
+fn block_side(pts: &[[f32; 3]; 4], n: [f32; 3]) -> Option<(usize, i32)> {
+    let axis = (0..3).find(|&k| n[k].abs() > 0.999)?;
+    let v = pts[0][axis];
+    if !pts.iter().all(|q| (q[axis] - v).abs() < 1e-4) {
+        return None;
+    }
+    let pos_side = n[axis] > 0.0;
+    if (pos_side && (v - 1.0).abs() < 1e-4) || (!pos_side && v.abs() < 1e-4) {
+        Some((axis, if pos_side { 1 } else { -1 }))
+    } else {
+        None
+    }
+}
+
+/// [`Model::sides`]: each part's faces' block side as a still block draws them.
+fn model_sides(m: &Model) -> Vec<[Option<(usize, i32)>; 6]> {
+    m.parts
+        .iter()
+        .map(|p| {
+            std::array::from_fn(|i| {
+                p.faces[i].as_ref()?;
+                let pts = face_points(m, p, face_corners(p.from, p.to, i).0, None, None);
+                block_side(&pts, norm(cross(sub(pts[1], pts[0]), sub(pts[2], pts[0]))))
+            })
+        })
+        .collect()
+}
+
 /// `minecraft:water[level=1]` -> `minecraft:water`.
 fn base_name(state: &str) -> &str {
     state.split('[').next().unwrap_or(state)
@@ -256,9 +326,9 @@ pub struct BuilderParts {
     ground: Option<i32>,
     extra_occ: HashSet<Pos>,
     ghost: HashSet<Pos>,
-    cache: HashMap<String, Option<Model>>,
-    weights: HashMap<String, Option<Vec<u32>>>,
-    vcache: HashMap<String, Vec<Option<Option<Model>>>>,
+    cache: HashMap<String, Option<Rc<Model>>, FxBuild>,
+    weights: HashMap<String, Option<Vec<u32>>, FxBuild>,
+    vcache: HashMap<String, Vec<Option<Option<Rc<Model>>>>, FxBuild>,
     light_cells: Vec<(Pos, crate::light::Cell, u8)>,
     states: Option<HashMap<Pos, u32, crate::camera::FxBuild>>,
     ranges: Option<Vec<[u32; 4]>>,
@@ -316,11 +386,11 @@ pub struct Builder<'a> {
     /// Cells drawn see-through ([`crate::scene::Look::ghost`]): their faces go to the translucent
     /// pass at [`GHOST_ALPHA`], and they hide nothing (their neighbours keep their faces).
     pub ghost: HashSet<Pos>,
-    cache: HashMap<String, Option<Model>>,
+    cache: HashMap<String, Option<Rc<Model>>, FxBuild>,
     /// Each state's variants' weights (None: one model wherever it stands), and the models of
     /// the variants drawn so far ([`Builder::model_at`]).
-    weights: HashMap<String, Option<Vec<u32>>>,
-    vcache: HashMap<String, Vec<Option<Option<Model>>>>,
+    weights: HashMap<String, Option<Vec<u32>>, FxBuild>,
+    vcache: HashMap<String, Vec<Option<Option<Rc<Model>>>>, FxBuild>,
     /// [`Builder::blocks_begin_from`]'s cells for the light so far, and the lowest cell's y.
     light_cells: Vec<(Pos, crate::light::Cell, u8)>,
     /// [`Builder::blocks_from`]'s still cells by cell (their index in its items), kept from one
@@ -361,9 +431,9 @@ impl<'a> Builder<'a> {
             ground: None,
             extra_occ: HashSet::new(),
             ghost: HashSet::new(),
-            cache: HashMap::new(),
-            weights: HashMap::new(),
-            vcache: HashMap::new(),
+            cache: HashMap::default(),
+            weights: HashMap::default(),
+            vcache: HashMap::default(),
             light_cells: Vec::new(),
             states: None,
             ranges: None,
@@ -431,14 +501,14 @@ impl<'a> Builder<'a> {
         &self.occ
     }
 
-    fn model(&mut self, state: &str) -> Option<Model> {
+    fn model(&mut self, state: &str) -> Option<Rc<Model>> {
         self.model_at(state, None)
     }
 
     /// A block's model; at `cell` for a block the game draws as one of several variants picked
     /// from its position (cached per state, and per variant for those: a terrain's tens of
     /// thousands of grass and stone blocks share a few models).
-    fn model_at(&mut self, state: &str, cell: Option<Pos>) -> Option<Model> {
+    fn model_at(&mut self, state: &str, cell: Option<Pos>) -> Option<Rc<Model>> {
         let variant = match (cell, self.atlas.game.as_ref()) {
             (Some(c), Some(g)) => {
                 if !self.weights.contains_key(state) {
@@ -453,14 +523,14 @@ impl<'a> Builder<'a> {
             if let Some(Some(m)) = self.vcache.get(state).map(|v| &v[i]) {
                 return m.clone();
             }
-            let m = self.new_model(state, cell);
+            let m = self.new_model(state, cell).map(Rc::new);
             self.vcache.entry(state.to_string()).or_insert_with(|| vec![None; n])[i] = Some(m.clone());
             return m;
         }
         if let Some(m) = self.cache.get(state) {
             return m.clone();
         }
-        let m = self.new_model(state, None);
+        let m = self.new_model(state, None).map(Rc::new);
         self.cache.insert(state.to_string(), m.clone());
         m
     }
@@ -474,6 +544,8 @@ impl<'a> Builder<'a> {
         // bright against the real game)
         m.map(|mut m| {
             m.emission = crate::light::emission(state);
+            // (each face's side as a still block draws it: a hidden face dropped at once)
+            m.sides = model_sides(&m);
             m
         })
     }
@@ -907,7 +979,7 @@ impl<'a> Builder<'a> {
         let frame = em::item_frame_transform(center, d);
         let model = self.model("minecraft:item_frame[map=false]").filter(|m| !m.full).unwrap_or_else(|| {
             let wood = |from: [f32; 3], to: [f32; 3]| Part::new(from, to).all("oak_planks").nocull();
-            Model {
+            Rc::new(Model {
                 parts: vec![
                     Part::new([3.0, 3.0, 15.5], [13.0, 13.0, 16.0]).face(models::NORTH, "generic").face(models::SOUTH, "generic").tint([110, 70, 45]).nocull(),
                     wood([2.0, 2.0, 15.0], [14.0, 3.0, 16.0]),
@@ -916,7 +988,7 @@ impl<'a> Builder<'a> {
                     wood([13.0, 3.0, 15.0], [14.0, 13.0, 16.0]),
                 ],
                 ..Default::default()
-            }
+            })
         });
         self.xf = Some(frame.translate([-0.5, -0.5, -0.5]));
         self.add_model(&model, [0.0; 3], None, None);
@@ -1283,13 +1355,22 @@ impl<'a> Builder<'a> {
     }
 
     fn add_model(&mut self, m: &Model, base: [f32; 3], cell: Option<Pos>, yaw: Option<f32>) {
-        for p in &m.parts {
+        for (pi, p) in m.parts.iter().enumerate() {
             for (i, f) in p.faces.iter().enumerate() {
                 if let Some(f) = f {
-                    self.add_face(m, p, i, f, base, cell, yaw);
+                    self.add_face(m, p, pi, i, f, base, cell, yaw);
                 }
             }
         }
+    }
+
+    /// Whether the neighbour on a still block's side (`c`'s, along `axis` by `s`) hides that side's
+    /// face of part `p`: an opaque cube; a translucent block's also the same translucent block
+    /// (water, glass).
+    fn hidden_against(&self, c: Pos, axis: usize, s: i32, p: &Part) -> bool {
+        let mut q = c;
+        q[axis] += s;
+        self.occupied(q) || (p.layer == Layer::Translucent && self.names.get(&q).is_some_and(|n| self.names.get(&c) == Some(n)))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1380,64 +1461,28 @@ impl<'a> Builder<'a> {
         })
     }
 
-    fn add_face(&mut self, m: &Model, p: &Part, i: usize, f: &Face, base: [f32; 3], cell: Option<Pos>, yaw: Option<f32>) {
+    fn add_face(&mut self, m: &Model, p: &Part, pi: usize, i: usize, f: &Face, base: [f32; 3], cell: Option<Pos>, yaw: Option<f32>) {
+        // (a still block's face its neighbour hides: dropped before its corners are worked out,
+        // its side known from its model: `Model::sides`, the very side worked out below)
+        if let Some(c) = cell
+            && f.cull
+            && yaw.is_none()
+            && self.xf.is_none()
+            && let Some(Some((axis, s))) = m.sides.get(pi).map(|sd| sd[i])
+            && self.hidden_against(c, axis, s, p)
+        {
+            return;
+        }
         let (corners, auto) = face_corners(p.from, p.to, i);
-        let (qx, qy) = p.qrot.unwrap_or((m.xrot, m.yrot));
-        let mut pts = corners.map(|c| {
-            let c = match p.rot {
-                Some(r) => {
-                    let mut q = rotate(c, r.axis, r.angle, r.origin);
-                    if r.rescale {
-                        // stretched back across the other two axes (the game's rescale)
-                        let k = 1.0 / r.angle.to_radians().cos().abs().max(1e-3);
-                        for a in 0..3 {
-                            if a != r.axis as usize {
-                                q[a] = r.origin[a] + (q[a] - r.origin[a]) * k;
-                            }
-                        }
-                    }
-                    q
-                }
-                None => c,
-            };
-            let c = [c[0] / 16.0, c[1] / 16.0, c[2] / 16.0];
-            let c = quarter(c, qx, qy);
-            let c = match yaw {
-                // entities: their model is built around x = z = 0 (the entity's position); the
-                // game's yaw turns clockwise
-                Some(y) => rotate(c, 1, -y, [0.0, 0.0, 0.0]),
-                None => c,
-            };
-            // a block model drawn as part of an entity (its unit cube through the transform)
-            match &self.xf {
-                Some(m) => m.point(c),
-                None => c,
-            }
-        });
+        let mut pts = face_points(m, p, corners, yaw, self.xf.as_ref());
         let n = norm(cross(sub(pts[1], pts[0]), sub(pts[2], pts[0])));
         // which block side the face lies on, if any (for culling and AO)
-        let side = cell.and_then(|_| {
-            let axis = (0..3).find(|&k| n[k].abs() > 0.999)?;
-            let v = pts[0][axis];
-            if !pts.iter().all(|q| (q[axis] - v).abs() < 1e-4) {
-                return None;
-            }
-            let pos_side = n[axis] > 0.0;
-            if (pos_side && (v - 1.0).abs() < 1e-4) || (!pos_side && v.abs() < 1e-4) {
-                Some((axis, if pos_side { 1 } else { -1 }))
-            } else {
-                None
-            }
-        });
+        let side = cell.and_then(|_| block_side(&pts, n));
         if let (Some(c), Some((axis, s))) = (cell, side)
             && f.cull
+            && self.hidden_against(c, axis, s, p)
         {
-            let mut q = c;
-            q[axis] += s;
-            // against an opaque cube; translucent blocks also against their own kind (water, glass)
-            if self.occupied(q) || (p.layer == Layer::Translucent && self.names.get(&q).is_some_and(|n| self.names.get(&c) == Some(n))) {
-                return;
-            }
+            return;
         }
         let sh = if f.emissive || !p.shade { 1.0 } else { shade(n) };
         // the game's light on the face (`BlockModelLighter`): each corner's ambient occlusion
@@ -1459,6 +1504,7 @@ impl<'a> Builder<'a> {
         let r = f.uv.unwrap_or(auto);
         // uvlock: the texture keeps the world's orientation: each corner's pixel from its final
         // place on the block, like the automatic UVs of an unturned face
+        let (qx, qy) = p.qrot.unwrap_or((m.xrot, m.yrot));
         let locked: Option<[[f32; 2]; 4]> = if p.uvlock && p.rot.is_none() && (qx, qy) != (0, 0) {
             let axis = (0..3).find(|&k| n[k].abs() > 0.999);
             axis.map(|a| {

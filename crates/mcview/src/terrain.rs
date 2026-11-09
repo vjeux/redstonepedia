@@ -43,7 +43,7 @@ pub struct TerrainFarm {
     /// cells, none north of its first cell there ([`TerrainFarm::cut_away`]): the farm stands
     /// out of the cut face in relief, the rock around and behind it.
     pub cut_z: i32,
-    pub cut_rows: HashMap<[i32; 2], i32>,
+    pub cut_rows: HashMap<[i32; 2], i32, crate::camera::FxBuild>,
     /// The columns the landscape is drawn in (world x and z, inclusive): within its reach of the
     /// farm's middle ([`LANDSCAPE_REACH`]).
     pub reach_xz: ([i32; 2], [i32; 2]),
@@ -100,7 +100,7 @@ impl TerrainFarm {
 }
 
 /// [`TerrainFarm::cut_away`] from its parts.
-fn cut_away(rows: &HashMap<[i32; 2], i32>, cut_z: i32, p: [i32; 3]) -> bool {
+fn cut_away(rows: &HashMap<[i32; 2], i32, crate::camera::FxBuild>, cut_z: i32, p: [i32; 3]) -> bool {
     p[2] < rows.get(&[p[0], p[1]]).copied().unwrap_or(cut_z)
 }
 
@@ -222,7 +222,7 @@ pub async fn farm_for_staged(text: &str, d: &Design, spec: &FarmSpec, b: &crate:
     // cutaway at the farm's front, and in each row of its cells at the first one)
     let min_y = moved.lo.y;
     let cut_z = moved.blocks.iter().map(|(p, _)| p.z).min().unwrap_or(moved.lo.z);
-    let mut cut_rows: HashMap<[i32; 2], i32> = HashMap::new();
+    let mut cut_rows: HashMap<[i32; 2], i32, crate::camera::FxBuild> = HashMap::default();
     for (p, _) in &moved.blocks {
         let e = cut_rows.entry([p.x, p.y]).or_insert(p.z);
         *e = (*e).min(p.z);
@@ -287,11 +287,9 @@ pub async fn landscape_staged(w: &World, skip: (BlockPos, BlockPos), min_y: i32,
         for z in z0..size[2] {
             for x in 0..size[0] {
                 let p = min.offset(x, y, z);
-                if inside(p) || cut(p) {
-                    continue;
-                }
+                // (the cheap checks first: most cells are air, the cutaway's rows a map's)
                 let b = w.get(p);
-                if b == Block::Air {
+                if b == Block::Air || inside(p) || cut(p) {
                     continue;
                 }
                 // (the box's edges: open to the sides and above, closed below: the sample's floor;
@@ -302,7 +300,7 @@ pub async fn landscape_staged(w: &World, skip: (BlockPos, BlockPos), min_y: i32,
                     if q.y < min.y || q.y < min_y {
                         return false;
                     }
-                    outside_box || cut(q) || inside(q) || !hides_neighbours(&w.get(q))
+                    outside_box || inside(q) || !hides_neighbours(&w.get(q)) || cut(q)
                 });
                 if open {
                     shown.push((p, b));
@@ -311,7 +309,7 @@ pub async fn landscape_staged(w: &World, skip: (BlockPos, BlockPos), min_y: i32,
         }
     }
     budget.pause().await;
-    let shown_set: HashSet<BlockPos> = shown.iter().map(|(p, _)| *p).collect();
+    let shown_set: HashSet<BlockPos, crate::camera::FxBuild> = shown.iter().map(|(p, _)| *p).collect();
     budget.pause().await;
     for (k, (p, _)) in shown.iter().enumerate() {
         if k % 4096 == 0 {
@@ -319,7 +317,7 @@ pub async fn landscape_staged(w: &World, skip: (BlockPos, BlockPos), min_y: i32,
         }
         for d in NEXT {
             let q = p.offset(d[0], d[1], d[2]);
-            if !cut(q) && !shown_set.contains(&q) && !inside(q) && hides_neighbours(&w.get(q)) {
+            if hides_neighbours(&w.get(q)) && !inside(q) && !cut(q) && !shown_set.contains(&q) {
                 hidden.insert(q);
             }
         }

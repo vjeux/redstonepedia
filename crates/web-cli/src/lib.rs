@@ -371,6 +371,10 @@ pub enum WebCmd {
         /// Also print every slice of the wake over frames (ms).
         #[arg(long)]
         slices: bool,
+        /// At the end, the `N` slowest to their first frame (the load, the still and its camera,
+        /// and the first picture's mesh), the slowest first.
+        #[arg(long)]
+        slowest: Option<usize>,
     },
     /// Why a live viewer's default camera looks where it does (the reviewer's sweeper farm, seen
     /// from its station's end wall on a desktop): every candidate direction the viewer weighs for
@@ -902,7 +906,7 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
             }
             Ok(())
         }
-        WebCmd::Wakecost { designs, ticks, procedural, slices } => cmd_wakecost(&designs, ticks, procedural, slices),
+        WebCmd::Wakecost { designs, ticks, procedural, slices, slowest } => cmd_wakecost(&designs, ticks, procedural, slices, slowest),
         WebCmd::Camera { designs, size, procedural, picked, thumb } => cmd_camera(&designs, &size, procedural, picked, thumb),
         WebCmd::Stall { urls, window, scale, cpu, load, play, budget, show, browser } => crate::cdp::cmd_stall(&urls, &window, scale, cpu, load, play, budget, show, &browser),
         WebCmd::Perf { url, engine, dir, window, scale, cpu, load, scroll, speed, browser, trace } => crate::cdp::cmd_perf(&url, &engine, dir.as_deref(), &window, scale, cpu, load, scroll, speed, &browser, trace),
@@ -1912,9 +1916,11 @@ fn cmd_camera(designs: &[PathBuf], size: &str, procedural: bool, picked: bool, t
 /// the still it loads as, the session the judge seeds (`Session::new` with `Options::live`), the
 /// cycle speed pick (`Session::short_cycle`), the first frame's mesh and triangles, and the
 /// slowest of the next `ticks` frames (a tick and its picture each).
-fn cmd_wakecost(designs: &[PathBuf], ticks: u32, procedural: bool, show_slices: bool) -> Result<()> {
+fn cmd_wakecost(designs: &[PathBuf], ticks: u32, procedural: bool, show_slices: bool, slowest: Option<usize>) -> Result<()> {
     let atlas = atlas(procedural);
     let ms = |t: std::time::Instant| t.elapsed().as_secs_f64() * 1000.0;
+    // (each design's first frame: the load, the still, its camera, the first picture)
+    let mut firsts: Vec<(f64, f64, f64, f64, String)> = Vec::new();
     for d in designs {
         let text = std::fs::read_to_string(d).with_context(|| format!("reading {}", d.display()))?;
         let t = std::time::Instant::now();
@@ -1976,6 +1982,14 @@ fn cmd_wakecost(designs: &[PathBuf], ticks: u32, procedural: bool, show_slices: 
             "{}: load {load:.1} ms (the still {still:.1}, the camera {camera:.1}); on play: the judge's session {wake:.1} ms, the cycle pick {cyc:.1} ms ({cycle}); woken over {slices} frames ({woke:.1} ms in all, the longest {longest:.1} ms); the first picture {first:.1} ms ({tris} triangles); the slowest of {ticks} frames {worst:.1} ms",
             d.display()
         );
+        firsts.push((load + first, still, camera, first, d.display().to_string()));
+    }
+    if let Some(n) = slowest {
+        firsts.sort_by(|a, b| b.0.total_cmp(&a.0));
+        println!("the {} slowest to their first frame (ms: the frame = the still + its camera + the first picture):", n.min(firsts.len()));
+        for (f, still, camera, first, d) in firsts.iter().take(n) {
+            println!("{f:8.1} {still:8.1} {camera:8.1} {first:8.1}  {d}");
+        }
     }
     Ok(())
 }

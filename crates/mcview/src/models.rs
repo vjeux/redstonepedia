@@ -159,6 +159,10 @@ pub struct Model {
     pub no_ao: bool,
     /// One of its parts fills the cell (glass, ice, a slime block): for the light it takes.
     pub fills: bool,
+    /// Each part's faces' block side (axis, -1 or 1) as a still block draws them (no turn, no
+    /// transform: `mesh::Builder::new_model` works them out once), so a face hidden by its
+    /// neighbour is dropped before its corners are worked out; empty: worked out per face.
+    pub sides: Vec<[Option<(usize, i32)>; 6]>,
 }
 
 impl Model {

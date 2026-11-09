@@ -198,7 +198,15 @@ each build's page.
   time in Chromium). What stays over 50 ms in a fresh headless Chromium: the browser's own GPU
   set-up in a page's first second, which lands in the view's first context or adapter step
   (50-110 ms; a context made a second later takes 5 ms). `web wakecost` times it all natively
-  (`--slices`: every slice of the wake). A big build's start is split further (the 2x2 iron farm,
+  (`--slices`: every slice of the wake; `--slowest N`: at the end the N slowest to their first
+  frame, the still + its camera + the first picture, the slowest first: every site design in a
+  minute natively). 2026-11-09 (part 11): a farm in its terrain's first frame natively 25-35%
+  sooner (d1u-underground 226 -> 155 ms, bed-plate-side-chute 385 -> 280, cross-4-underground
+  1345 -> 1030): the landscape's cells checked air first and the cutaway's rows in a fast map
+  (`terrain::landscape_staged`), the block models shared (`Rc`, no copy per block), a face its
+  neighbour hides dropped before its corners are worked out (`Model::sides`, the same side), the
+  camera picker's cell lists dense (`pick::CellLists`, test `dense_cell_lists_are_the_maps`);
+  the same pictures byte for byte (`web shot` thumbnails and phone live views of 31 designs). A big build's start is split further (the 2x2 iron farm,
   2026-11-08: its camera task 86-98 ms and its first frame 104-124 ms in WebKitGTK, both before
   and after the mob layer came): the live camera's search weighs a few candidate directions a
   task (`scene::LiveCameraSearch`, `CAMERA_BUDGET_MS` 20; the same candidates in the same order:
