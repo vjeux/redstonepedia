@@ -58,6 +58,9 @@ fn bide_at(s: &Side) -> bool {
     // 0's track row, clear of an outside torch's stone)
     let outer = s.c[0] == -6 || s.c[1] == -6 || s.c == [34, 34];
     let north_ok = s.d != [1, 0] || std::env::var_os("MCTAS_BIDE_ALL").is_some();
+    if std::env::var_os("MCTAS_BIDE_NORTH_ONLY").is_some() {
+        return bide() && s.d == [1, 0];
+    }
     bide() && north_ok && !(outer && std::env::var_os("MCTAS_BIDE_INNER").is_some())
 }
 
@@ -514,7 +517,27 @@ fn stop(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, s: Side, outer: bool) {
         // (y 1; over the foot it would cut the dropped villager's headroom, over the rail before
         // it the riders' heads: they pass at y 0 with their eyes over 1), that stone's dust and
         // sensor outside too
+        if std::env::var_os("MCTAS_BIDE_NO_TORCH").is_some() {
+            // (diagnostic: no activator power at all)
+            return;
+        }
         let o = s.at(3, -1);
+        if s.d == [1, 0] {
+            // (the north stops: the station's curtain latch runs over the outside lane at y 2-3
+            // (its repeaters' stones at y 2, its dust at y 3), so the stone is fed from the side
+            // at y 1: a dust on the outside glass beside it, the sensor beyond)
+            set(o, 1, STONE);
+            // (glass over it: its top would be a golem spawn spot in the station's search; the
+            // curtain's dust over the outside lane rests there at the first north stop (a slab
+            // instead kills the station: 2 golems on seed 9's day 1); with the glass, some
+            // villagers walk the curtain's line at y 3 and fall: untraced)
+            set(o, 2, GLASS);
+            set(s.at(3, 0), 1, &format!("redstone_wall_torch[facing={},lit=true]", name(s.n)));
+            set(s.at(5, -1), 1, "daylight_detector[inverted=false,power=0]");
+            let w = s.at(4, -1);
+            dust.insert([w[0], 1, w[1]]);
+            return;
+        }
         set(o, 1, STONE);
         set(s.at(3, 0), 1, &format!("redstone_wall_torch[facing={},lit=true]", name(s.n)));
         set(s.at(2, -1), 2, "daylight_detector[inverted=false,power=0]");
