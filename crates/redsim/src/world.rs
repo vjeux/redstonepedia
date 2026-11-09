@@ -84,6 +84,11 @@ pub struct World {
     pub min: BlockPos,
     pub size: [i32; 3],
     pub(crate) cells: Vec<Block>,
+    /// Bumped by every write that changes a cell's light behaviour (`daylight::light_differs`)
+    /// and every whole-box fill: the sky light answers of [`Self::sky_cache`] hold until it moves.
+    pub(crate) light_version: u64,
+    /// The sky light queries answered at `light_version` (`daylight::SkyCache`).
+    pub(crate) sky_cache: crate::daylight::SkyCache,
     /// Game time (`getGameTime`), incremented at the start of each tick.
     pub time: i64,
     sub_tick: i64,
@@ -243,6 +248,8 @@ impl World {
             min,
             size,
             cells: vec![Block::Air; n],
+            light_version: 0,
+            sky_cache: Default::default(),
             time: 0,
             sub_tick: 0,
             ticks: LevelTicks::default(),
@@ -500,6 +507,10 @@ impl World {
                 }
                 let old = self.cells[i];
                 self.cells[i] = s;
+                // the sky light answers hold while no cell's light behaviour changes
+                if old != s && crate::daylight::light_differs(&old, &s) {
+                    self.light_version += 1;
+                }
                 // the section's ticking count (`LevelChunkSection.setBlockState`)
                 if old != s
                     && let Some(ts) = self.ticking_sections.as_mut()
@@ -544,6 +555,7 @@ impl World {
     pub fn load_cells(&mut self, cells: Vec<Block>) {
         assert_eq!(cells.len(), self.cells.len(), "load_cells: the box holds {} cells", self.cells.len());
         self.cells = cells;
+        self.light_version += 1;
         // the sections' ticking counts are recalculated on the next chunk tick (a section's load)
         self.ticking_sections = None;
     }
@@ -555,6 +567,7 @@ impl World {
         let mut w = World::new(min, [0, 0, 0]);
         w.size = size;
         w.cells = cells;
+        w.light_version += 1;
         w
     }
 

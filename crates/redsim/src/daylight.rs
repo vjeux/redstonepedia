@@ -118,13 +118,48 @@ pub fn sky_light_level(day: i64) -> f32 {
 type Face = [u16; 16];
 const EMPTY: Face = [0; 16];
 const FULL: Face = [0xffff; 16];
+static EMPTY_FACE: Face = EMPTY;
+/// A side face `rows` px high (the bottom rows full).
+const fn side(rows: usize) -> Face {
+    let mut f = EMPTY;
+    let mut i = 0;
+    while i < rows {
+        f[i] = 0xffff;
+        i += 1;
+    }
+    f
+}
+/// Farmland: column(16, 0, 15), the bottom face full, the sides 15 px high, the top open.
+static FARMLAND_FACES: [Face; 6] = [FULL, EMPTY, side(15), side(15), side(15), side(15)];
+/// A daylight detector: column(16, 0, 6), the bottom face full, the sides 6 px high.
+static DETECTOR_FACES: [Face; 6] = [FULL, EMPTY, side(6), side(6), side(6), side(6)];
 
 /// What the light engine needs of a state: `getLightDampening` and, when it occludes by shape
-/// (`canOcclude && useShapeForLightOcclusion`), its faces (`getFaceOcclusionShape`).
+/// (`canOcclude && useShapeForLightOcclusion`), its faces (`getFaceOcclusionShape`), by reference
+/// (tickexact 2026-11-08: the faces by value made each cell 200 bytes, and a query's cube of
+/// 29,791 cells copied 6 MB: a fifth of a mob farm judge's time).
 #[derive(Clone, Copy)]
 struct Props {
     dampening: i32,
-    faces: Option<[Face; 6]>,
+    faces: Option<&'static [Face; 6]>,
+}
+
+/// The sky light queries answered since the box's light last changed (tickexact 2026-11-08, the
+/// optimizer's evaluation: a query's fixed point over its cube is costly, and a farm asks the same
+/// cells every tick: its zombie's sunburn, the golems' strolls). Keyed by the query (the cell, the
+/// cube's radius, how unclassified blocks count); emptied when a write changes a cell's light
+/// behaviour (`World::put`: [`light_differs`] bumps `World::light_version`), so an answer is
+/// always the fixed point of the box as it is.
+#[derive(Default)]
+pub struct SkyCache {
+    inner: std::sync::Mutex<(u64, std::collections::HashMap<(BlockPos, i32, u8), Result<i32, String>>)>,
+}
+
+impl Clone for SkyCache {
+    /// A copy of a world starts with no answers (they are recomputed on demand).
+    fn clone(&self) -> Self {
+        SkyCache::default()
+    }
 }
 
 fn dir_index(d: Dir) -> usize {
@@ -184,29 +219,17 @@ fn props(b: &Block) -> Result<Props, String> {
         }
         // farmland: column(16, 0, 15), useShapeForLightOcclusion: the bottom face full, the sides
         // 15 px high, the top open
-        Block::Farmland { .. } => {
-            let mut side = EMPTY;
-            for row in side.iter_mut().take(15) {
-                *row = 0xffff;
-            }
-            Props { dampening: 0, faces: Some([FULL, EMPTY, side, side, side, side]) }
-        }
+        Block::Farmland { .. } => Props { dampening: 0, faces: Some(&FARMLAND_FACES) },
         // a fluid inside: light block 1
         Block::Water { .. } | Block::Kelp { .. } | Block::KelpPlant => Props { dampening: 1, faces: None },
         // column(16, 0, 6), useShapeForLightOcclusion: the bottom face full, the sides 6 px high
-        Block::DaylightDetector { .. } => {
-            let mut side = EMPTY;
-            for row in side.iter_mut().take(6) {
-                *row = 0xffff;
-            }
-            Props { dampening: 0, faces: Some([FULL, EMPTY, side, side, side, side]) }
-        }
+        Block::DaylightDetector { .. } => Props { dampening: 0, faces: Some(&DETECTOR_FACES) },
         // any other state (mobinfra 2026-11-08: tripwire, open fence gates, hoppers... under a
         // villager, a golem or a bolt's column on the lightning card): the game's own light values
         // for the state from the natural-state table (`terrain::light::props_of`: every state of
         // the designs' blocks, read from the server by `mctas terrain blockinfo`)
         _ => match crate::terrain::light::props_of(b) {
-            Ok(lp) => Props { dampening: lp.dampening as i32, faces: lp.faces.and_then(|id| crate::terrain::blocks::props(id).faces) },
+            Ok(lp) => Props { dampening: lp.dampening as i32, faces: lp.faces.and_then(|id| crate::terrain::blocks::props(id).faces.as_ref()) },
             Err(_) => return Err(format!("the sky light through {b} is not modeled")),
         },
     })
@@ -217,18 +240,25 @@ fn face_occludes(a: &Face, b: &Face) -> bool {
     (0..16).all(|v| a[v] | b[v] == 0xffff)
 }
 
-fn face(p: &Props, d: Dir) -> Face {
-    p.faces.map(|f| f[dir_index(d)]).unwrap_or(EMPTY)
+fn face(p: &Props, d: Dir) -> &'static Face {
+    match p.faces {
+        Some(f) => &f[dir_index(d)],
+        None => &EMPTY_FACE,
+    }
 }
 
 /// `LightEngine.shapeOccludes(from, to, direction)`.
 fn shape_occludes(from: &Props, to: &Props, d: Dir) -> bool {
-    face_occludes(&face(from, d), &face(to, d.opposite()))
+    // two faceless states never occlude (their faces are empty)
+    if from.faces.is_none() && to.faces.is_none() {
+        return false;
+    }
+    face_occludes(face(from, d), face(to, d.opposite()))
 }
 
 /// `ChunkSkyLightSources.isEdgeOccluded(top, bottom)`.
 fn edge_occluded(top: &Props, bottom: &Props) -> bool {
-    bottom.dampening != 0 || face_occludes(&face(top, Dir::Down), &face(bottom, Dir::Up))
+    bottom.dampening != 0 || ((top.faces.is_some() || bottom.faces.is_some()) && face_occludes(face(top, Dir::Down), face(bottom, Dir::Up)))
 }
 
 /// The sky light at `p` (`getBrightness(LightLayer.SKY, pos)`): the fixed point over the cube of
@@ -308,8 +338,41 @@ pub fn unclassified_near(w: &World, p: BlockPos) -> Option<(BlockPos, String)> {
 }
 
 /// [`sky_light`], unclassified blocks taking `unknown`'s light behavior (or an error), over the
-/// cube of radius `r` around `p` (15: every cell that can light it).
+/// cube of radius `r` around `p` (15: every cell that can light it). Answered from the world's
+/// [`SkyCache`] when the box's light has not changed since the same query.
 fn sky_light_with(w: &World, p: BlockPos, unknown: Option<Props>, r: i32) -> Result<i32, String> {
+    // the callers' unknowns: none (an error), every one opaque, every one clear
+    let tag = match unknown {
+        None => 0u8,
+        Some(u) if u.dampening == 0 && u.faces.is_none() => 1,
+        Some(u) if u.dampening == 15 && u.faces.is_none() => 2,
+        Some(_) => return sky_light_compute(w, p, unknown, r),
+    };
+    let key = (p, r, tag);
+    if let Ok(g) = w.sky_cache.inner.lock()
+        && g.0 == w.light_version
+        && let Some(v) = g.1.get(&key)
+    {
+        return v.clone();
+    }
+    let v = sky_light_compute(w, p, unknown, r);
+    if let Ok(mut g) = w.sky_cache.inner.lock() {
+        if g.0 != w.light_version {
+            g.1.clear();
+            g.0 = w.light_version;
+        }
+        g.1.insert(key, v.clone());
+    }
+    v
+}
+
+thread_local! {
+    /// The flood fills' buffers, kept between queries (a radius-15 cube is 29,791 cells).
+    static SCRATCH: std::cell::RefCell<(Vec<Props>, Vec<i8>, Vec<Vec<(i32, i32, i32)>>)> = std::cell::RefCell::new((Vec::new(), Vec::new(), vec![Vec::new(); 16]));
+}
+
+/// [`sky_light_with`]'s fixed point, computed.
+fn sky_light_compute(w: &World, p: BlockPos, unknown: Option<Props>, r: i32) -> Result<i32, String> {
     let props = |b: &Block| match (props(b), unknown) {
         (Ok(v), _) => Ok(v),
         (Err(_), Some(u)) => Ok(u),
@@ -318,63 +381,70 @@ fn sky_light_with(w: &World, p: BlockPos, unknown: Option<Props>, r: i32) -> Res
     let n = 2 * r + 1;
     let lo = p.offset(-r, -r, -r);
     let idx = |x: i32, y: i32, z: i32| ((y * n + z) * n + x) as usize;
-    let mut cell_props: Vec<Props> = Vec::with_capacity((n * n * n) as usize);
-    for y in 0..n {
+    SCRATCH.with(|s| {
+        let mut s = s.borrow_mut();
+        let (cell_props, level, queue) = &mut *s;
+        cell_props.clear();
+        level.clear();
+        level.resize((n * n * n) as usize, 0);
+        for q in queue.iter_mut() {
+            q.clear();
+        }
+        for y in 0..n {
+            for z in 0..n {
+                for x in 0..n {
+                    cell_props.push(props(&w.get(lo.offset(x, y, z)))?);
+                }
+            }
+        }
+        // sources: down each column to its first occluded edge (above the region and outside the
+        // box: air)
+        let world_top = w.min.y + w.size[1] - 1;
         for z in 0..n {
             for x in 0..n {
-                cell_props.push(props(&w.get(lo.offset(x, y, z)))?);
-            }
-        }
-    }
-    let mut level = vec![0i8; (n * n * n) as usize];
-    let mut queue: Vec<Vec<(i32, i32, i32)>> = vec![Vec::new(); 16];
-    // sources: down each column to its first occluded edge (above the region and outside the
-    // box: air)
-    let world_top = w.min.y + w.size[1] - 1;
-    for z in 0..n {
-        for x in 0..n {
-            let mut top = Props { dampening: 0, faces: None };
-            let mut lowest = 0;
-            let start = (world_top - lo.y).max(n - 1);
-            let mut y = start;
-            while y >= 0 {
-                let bottom = props(&w.get(lo.offset(x, y, z)))?;
-                if edge_occluded(&top, &bottom) {
-                    lowest = y + 1;
-                    break;
+                let mut top = Props { dampening: 0, faces: None };
+                let mut lowest = 0;
+                let start = (world_top - lo.y).max(n - 1);
+                let mut y = start;
+                while y >= 0 {
+                    let bottom = props(&w.get(lo.offset(x, y, z)))?;
+                    if edge_occluded(&top, &bottom) {
+                        lowest = y + 1;
+                        break;
+                    }
+                    top = bottom;
+                    y -= 1;
                 }
-                top = bottom;
-                y -= 1;
-            }
-            for y in lowest..n {
-                level[idx(x, y, z)] = 15;
-                queue[15].push((x, y, z));
+                for y in lowest..n {
+                    level[idx(x, y, z)] = 15;
+                    queue[15].push((x, y, z));
+                }
             }
         }
-    }
-    for l in (2..=15).rev() {
-        while let Some((x, y, z)) = queue[l].pop() {
-            if level[idx(x, y, z)] as usize != l {
-                continue;
-            }
-            for d in [Dir::Down, Dir::Up, Dir::North, Dir::South, Dir::West, Dir::East] {
-                let [dx, dy, dz] = d.step();
-                let (qx, qy, qz) = (x + dx, y + dy, z + dz);
-                if !(0..n).contains(&qx) || !(0..n).contains(&qy) || !(0..n).contains(&qz) {
+        for l in (2..=15).rev() {
+            while let Some((x, y, z)) = queue[l].pop() {
+                if level[idx(x, y, z)] as usize != l {
                     continue;
                 }
-                let (from, to) = (&cell_props[idx(x, y, z)], &cell_props[idx(qx, qy, qz)]);
-                let new = l as i32 - to.dampening.max(1);
-                if new > level[idx(qx, qy, qz)] as i32 && !shape_occludes(from, to, d) {
-                    level[idx(qx, qy, qz)] = new as i8;
-                    if new > 1 {
-                        queue[new as usize].push((qx, qy, qz));
+                for d in [Dir::Down, Dir::Up, Dir::North, Dir::South, Dir::West, Dir::East] {
+                    let [dx, dy, dz] = d.step();
+                    let (qx, qy, qz) = (x + dx, y + dy, z + dz);
+                    if !(0..n).contains(&qx) || !(0..n).contains(&qy) || !(0..n).contains(&qz) {
+                        continue;
+                    }
+                    let (from, to) = (&cell_props[idx(x, y, z)], &cell_props[idx(qx, qy, qz)]);
+                    let new = l as i32 - to.dampening.max(1);
+                    if new > level[idx(qx, qy, qz)] as i32 && !shape_occludes(from, to, d) {
+                        level[idx(qx, qy, qz)] = new as i8;
+                        if new > 1 {
+                            queue[new as usize].push((qx, qy, qz));
+                        }
                     }
                 }
             }
         }
-    }
-    Ok(level[idx(r, r, r)] as i32)
+        Ok(level[idx(r, r, r)] as i32)
+    })
 }
 
 /// The block light at `p` where only whether it reaches `need` matters, and its exact value
@@ -388,45 +458,52 @@ pub fn block_light_from(w: &World, p: BlockPos, need: i32, emission: &dyn Fn(&Bl
     let n = 2 * r + 1;
     let lo = p.offset(-r, -r, -r);
     let idx = |x: i32, y: i32, z: i32| ((y * n + z) * n + x) as usize;
-    let mut cell_props: Vec<Props> = Vec::with_capacity((n * n * n) as usize);
-    let mut level = vec![0i8; (n * n * n) as usize];
-    let mut queue: Vec<Vec<(i32, i32, i32)>> = vec![Vec::new(); 16];
-    for y in 0..n {
-        for z in 0..n {
-            for x in 0..n {
-                let b = w.get(lo.offset(x, y, z));
-                cell_props.push(props(&b)?);
-                let e = emission(&b).clamp(0, 15);
-                if e > 0 {
-                    level[idx(x, y, z)] = e as i8;
-                    queue[e as usize].push((x, y, z));
-                }
-            }
+    SCRATCH.with(|s| {
+        let mut s = s.borrow_mut();
+        let (cell_props, level, queue) = &mut *s;
+        cell_props.clear();
+        level.clear();
+        level.resize((n * n * n) as usize, 0);
+        for q in queue.iter_mut() {
+            q.clear();
         }
-    }
-    for l in (2..=15).rev() {
-        while let Some((x, y, z)) = queue[l].pop() {
-            if level[idx(x, y, z)] as usize != l {
-                continue;
-            }
-            for d in [Dir::Down, Dir::Up, Dir::North, Dir::South, Dir::West, Dir::East] {
-                let [dx, dy, dz] = d.step();
-                let (qx, qy, qz) = (x + dx, y + dy, z + dz);
-                if !(0..n).contains(&qx) || !(0..n).contains(&qy) || !(0..n).contains(&qz) {
-                    continue;
-                }
-                let (from, to) = (&cell_props[idx(x, y, z)], &cell_props[idx(qx, qy, qz)]);
-                let new = l as i32 - to.dampening.max(1);
-                if new > level[idx(qx, qy, qz)] as i32 && !shape_occludes(from, to, d) {
-                    level[idx(qx, qy, qz)] = new as i8;
-                    if new > 1 {
-                        queue[new as usize].push((qx, qy, qz));
+        for y in 0..n {
+            for z in 0..n {
+                for x in 0..n {
+                    let b = w.get(lo.offset(x, y, z));
+                    cell_props.push(props(&b)?);
+                    let e = emission(&b).clamp(0, 15);
+                    if e > 0 {
+                        level[idx(x, y, z)] = e as i8;
+                        queue[e as usize].push((x, y, z));
                     }
                 }
             }
         }
-    }
-    Ok(level[idx(r, r, r)] as i32)
+        for l in (2..=15).rev() {
+            while let Some((x, y, z)) = queue[l].pop() {
+                if level[idx(x, y, z)] as usize != l {
+                    continue;
+                }
+                for d in [Dir::Down, Dir::Up, Dir::North, Dir::South, Dir::West, Dir::East] {
+                    let [dx, dy, dz] = d.step();
+                    let (qx, qy, qz) = (x + dx, y + dy, z + dz);
+                    if !(0..n).contains(&qx) || !(0..n).contains(&qy) || !(0..n).contains(&qz) {
+                        continue;
+                    }
+                    let (from, to) = (&cell_props[idx(x, y, z)], &cell_props[idx(qx, qy, qz)]);
+                    let new = l as i32 - to.dampening.max(1);
+                    if new > level[idx(qx, qy, qz)] as i32 && !shape_occludes(from, to, d) {
+                        level[idx(qx, qy, qz)] = new as i8;
+                        if new > 1 {
+                            queue[new as usize].push((qx, qy, qz));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(level[idx(r, r, r)] as i32)
+    })
 }
 
 // ----------------------------------------------------------------------------- the detector

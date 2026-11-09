@@ -713,8 +713,8 @@ struct State {
     local: Vec<[i32; 8]>,
 }
 
-fn players_near_chunk(nat: &Natural, cx: i32, cz: i32) -> Vec<usize> {
-    (0..nat.players.len()).filter(|&i| player_chunk_dist2(nat.players[i], cx, cz) < 16384.0).collect()
+fn players_near_chunk(nat: &Natural, cx: i32, cz: i32) -> impl Iterator<Item = usize> + '_ {
+    (0..nat.players.len()).filter(move |&i| player_chunk_dist2(nat.players[i], cx, cz) < 16384.0)
 }
 
 fn create_state(w: &World, nat: &Natural) -> State {
@@ -724,16 +724,21 @@ fn create_state(w: &World, nat: &Natural) -> State {
     // one player); a bridge sandbox (its ticking chunks known: `World::chunk_order`) counts the
     // whole square, as the game's ticket tracker does
     let bridge = !w.chunk_order.is_empty();
-    let mut chunks = std::collections::HashSet::new();
+    let mut chunks: Vec<(i32, i32)> = Vec::with_capacity(289 * nat.players.len());
     for p in &nat.players {
         let (pcx, pcz) = ((p.x.floor() as i32).div_euclid(16), (p.z.floor() as i32).div_euclid(16));
         for cz in pcz - 8..=pcz + 8 {
             for cx in pcx - 8..=pcx + 8 {
                 if bridge || loaded_chunk(w, cx, cz) {
-                    chunks.insert((cx, cz));
+                    chunks.push((cx, cz));
                 }
             }
         }
+    }
+    // (the distinct chunks: players' squares overlap)
+    if nat.players.len() > 1 {
+        chunks.sort_unstable();
+        chunks.dedup();
     }
     let mut st = State { chunk_count: nat.spawn_chunk_count.unwrap_or(chunks.len() as i32), counts: [0; 8], local: vec![[0; 8]; nat.players.len()] };
     for e in &w.entities.list {
@@ -767,7 +772,15 @@ pub fn tick_chunks(w: &mut World) {
     if let Some(n) = w.mob.natural.as_mut() {
         n.ticks += 1;
     }
-    let Some(mut nat) = w.mob.natural.clone() else { return };
+    // the spawner's settings for this tick (without its event log: nothing here reads it, and a
+    // run's log grows with every spawn)
+    let mut nat = {
+        let Some(n) = w.mob.natural.as_mut() else { return };
+        let log = std::mem::take(&mut n.log);
+        let c = n.clone();
+        n.log = log;
+        c
+    };
     nat.players = players_of(w, &nat);
     if nat.players.is_empty() {
         return;
@@ -806,7 +819,7 @@ pub fn tick_chunks(w: &mut World) {
             }
         }
     }
-    let mut seen = std::collections::HashSet::new();
+    let mut seen: crate::fxhash::FxHashSet<(i32, i32)> = Default::default();
     for p in nat.players.iter().filter(|_| w.chunk_order.is_empty()) {
         let (pcx, pcz) = ((p.x.floor() as i32).div_euclid(16), (p.z.floor() as i32).div_euclid(16));
         for cz in pcz - 8..=pcz + 8 {
@@ -825,8 +838,9 @@ pub fn tick_chunks(w: &mut World) {
     // `tickSpawningChunk` for each chunk of the shuffled list: in an entity-ticking chunk the
     // thunder roll (`ServerLevel.tickThunder`, mobinfra's `weather::lightning::thunder_chunk`),
     // then `spawnForChunk` where a category may spawn
+    let entity_ticking: crate::fxhash::FxHashSet<(i32, i32)> = nat.entity_ticking.iter().map(|c| (c[0], c[1])).collect();
     for (cx, cz) in chunks {
-        let ticking = nat.entity_ticking.is_empty() || nat.entity_ticking.iter().any(|c| c[0] == cx && c[1] == cz);
+        let ticking = nat.entity_ticking.is_empty() || entity_ticking.contains(&(cx, cz));
         if ticking {
             crate::weather::lightning::thunder_chunk(w, cx, cz);
         }
@@ -834,7 +848,7 @@ pub fn tick_chunks(w: &mut World) {
             continue;
         }
         for &cat in &cats {
-            let local_ok = players_near_chunk(&nat, cx, cz).iter().any(|&pi| st.local[pi][cat as usize] < cat.max_instances());
+            let local_ok = players_near_chunk(&nat, cx, cz).any(|pi| st.local[pi][cat as usize] < cat.max_instances());
             if local_ok {
                 spawn_category_for_chunk(w, &nat, &mut st, cat, cx, cz);
             }
@@ -1634,20 +1648,25 @@ pub fn explain(w: &mut World, type_id: &str, p: BlockPos) -> String {
 /// the `noActionTime` its AI step adds (`Mob.serverAiStep` +1, `Monster.updateNoActionTime` +2 in
 /// light above 0.5).
 pub fn check_despawn(w: &mut World, i: usize) {
-    let Some(nat) = w.mob.natural.clone() else { return };
+    // (tickexact 2026-11-08: read in place; a clone of the spawner per mob per tick copied its
+    // whole event log, quadratic over a run)
+    let Some(nat) = w.mob.natural.as_ref() else { return };
     let (ty, persistent, pos, eye) = match &w.entities.list[i].kind {
         EntityKind::Mob(m) if !m.dead => (m.ty, m.persistence_required, w.entities.list[i].pos, m.eye()),
         _ => return,
     };
     let Some(k) = kind_of_type(ty) else { return };
     let id = w.entities.list[i].id;
-    if nat.difficulty == Difficulty::Peaceful && k.category == Category::Monster {
+    let difficulty = nat.difficulty;
+    let rider = nat.riders.iter().any(|(r, _)| *r == id);
+    let nearest = nearest_player(nat, pos.x, pos.y, pos.z);
+    if difficulty == Difficulty::Peaceful && k.category == Category::Monster {
         discard(w, i, id, k, false);
         return;
     }
-    let passenger = w.entities.list[i].vehicle.is_some() || nat.riders.iter().any(|(r, _)| *r == id);
+    let passenger = w.entities.list[i].vehicle.is_some() || rider;
     let persistent = persistent || passenger;
-    if let Some(d2) = nearest_player(&nat, pos.x, pos.y, pos.z) {
+    if let Some(d2) = nearest {
         let far = k.category.despawn_distance();
         if !persistent && d2 > far * far && k.removes_far {
             discard(w, i, id, k, true);
