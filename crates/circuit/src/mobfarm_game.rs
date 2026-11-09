@@ -535,11 +535,8 @@ pub fn run_terrain(c: &Circuit, name: &str, k: u8, o: &GateOpts) -> Result<Build
         eprintln!("terrain run {k}: {name} offset {:?}, {} cells changed, the AFK bot at {:.1} {:.1} {:.1}, weather {saved:?}", site.offset, built.blocks.len(), site.afk.x, site.afk.y, site.afk.z);
     }
     let run = BuildRun { turns: k, offset: site.offset, seed, ..Default::default() };
-    // a dug farm's natural surface (the ground layer's top, world feet height): above it a golem
-    // is outside the farm
-    let ground = c.clock.design.meta.get("ground").and_then(|g| g.trim().parse::<i32>().ok());
-    let surface = if site.clear_box { None } else { ground.map(|g| (site.offset[1] + g + 1) as f64) };
-    let p = Prepared { entities: spec.entities.clone(), scope: Scope::terrain(&spec, surface), label: format!("terrain run {k}"), day0: ro.day0, spec, built, seats, output, boxes };
+    // a dug farm: a golem is the farm's only with its feet in the farm's own open cells
+    let p = Prepared { entities: spec.entities.clone(), scope: Scope::terrain(&spec, !site.clear_box), label: format!("terrain run {k}"), day0: ro.day0, spec, built, seats, output, boxes };
     run_farm(s, p, run, o, t0)
 }
 
@@ -636,26 +633,35 @@ struct Scope {
     own: String,
     near: String,
     all_golems: bool,
-    /// A dug farm in a terrain sample: the feet height of the natural surface (the ground layer's
-    /// top): a golem standing there is outside the farm whatever the farm's box (the box reaches
-    /// the surface over a dug farm: d1u-drop-side's gate counted the village's golem walking over
-    /// the farm as its own, then as an escape).
-    surface: Option<f64>,
+    /// A dug farm in a terrain sample: the farm's own open cells (its listed cells that are not
+    /// full blocks: the pad, the drop, the kill, the cage; world coordinates). A golem is inside
+    /// the farm only with its feet in one of them: a golem on the natural ground, over the farm or
+    /// beside it, is the village's (d1u-drop-side's gate counted the village's golem walking over
+    /// the farm's box as its own, then as an escape; a flat surface height missed one standing in a
+    /// dip of the ground over dust #2: farmopt, tick-exact).
+    open: Option<std::collections::HashSet<[i32; 3]>>,
 }
 
 impl Scope {
     fn void() -> Scope {
-        Scope { own: String::new(), near: String::new(), all_golems: true, surface: None }
+        Scope { own: String::new(), near: String::new(), all_golems: true, open: None }
     }
 
-    fn terrain(spec: &FarmSpec, surface: Option<f64>) -> Scope {
+    fn terrain(spec: &FarmSpec, dug: bool) -> Scope {
         let (lo, hi) = (spec.lo.offset(-8, -8, -8), spec.hi.offset(8, 8, 8));
-        Scope { own: ",tag=mf".into(), near: format!(",x={},y={},z={},dx={},dy={},dz={}", lo.x, lo.y, lo.z, hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1), all_golems: false, surface }
+        let open = dug.then(|| spec.blocks.iter().filter(|(_, b)| !redsim::behavior::full_cube(b)).map(|(p, _)| [p.x, p.y, p.z]).collect());
+        Scope { own: ",tag=mf".into(), near: format!(",x={},y={},z={},dx={},dy={},dz={}", lo.x, lo.y, lo.z, hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1), all_golems: false, open }
     }
 
-    /// Outside the farm: outside its box, or on the natural surface over a dug farm.
+    /// Outside the farm: outside its box, or (a dug farm) with its feet in none of the farm's own
+    /// open cells (the feet's cell, or the one over it when they stand on a block's top).
     fn outside(&self, inner: &redsim::entity::Aabb, p: [f64; 3]) -> bool {
-        p[0] < inner.min_x || p[0] > inner.max_x || p[1] < inner.min_y || p[1] > inner.max_y || p[2] < inner.min_z || p[2] > inner.max_z || self.surface.is_some_and(|s| p[1] >= s - 0.01)
+        let boxed = p[0] < inner.min_x || p[0] > inner.max_x || p[1] < inner.min_y || p[1] > inner.max_y || p[2] < inner.min_z || p[2] > inner.max_z;
+        boxed
+            || self.open.as_ref().is_some_and(|o| {
+                let (x, y, z) = (p[0].floor() as i32, (p[1] + 1.0e-3).floor() as i32, p[2].floor() as i32);
+                !o.contains(&[x, y, z]) && !o.contains(&[x, y + 1, z])
+            })
     }
 }
 
