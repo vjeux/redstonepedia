@@ -214,6 +214,9 @@ fn props(b: &Block) -> Result<Props, String> {
         // placed light sources (terrain lane): the table's light dampening; full opaque cubes
         // (jack o'lanterns, froglights) occlude everything, the others no occluding shape
         Block::JackOLantern { .. } | Block::Froglight { .. } => opaque,
+        // copper bulbs (ironfarm: the carousel's counter): full opaque cubes (`CopperBulbBlock`,
+        // copper's properties), whatever their own block light
+        Block::Bulb { .. } => opaque,
         Block::PlainTorch { .. } | Block::PlainWallTorch { .. } | Block::SoulLantern { .. } | Block::Campfire { .. } | Block::EndRod { .. } | Block::SeaPickle { .. } | Block::Candle { .. } => {
             Props { dampening: crate::behavior::light_row(b).map(|p| p.dampening as i32).unwrap_or(0), faces: None }
         }

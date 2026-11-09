@@ -8,15 +8,19 @@
 //! the next stop. The north stops are the station, in sight of the zombie within 8 blocks and over
 //! the pad; the others wait out of the station's 10-box and every golem's follow box.
 //!
-//! The night (each stop a bed stop, [`stop`]), safe for empty carts: an empty cart slows by 0.96 a
-//! tick against a ridden one's 0.997 (`applyNaturalSlowdown`), so it coasts about 10 rails and
-//! strands mid-side; no empty cart ever travels here. From dusk to dawn an activator rail just
-//! before each brake drops the arriving cart's villager onto the stop's bed and the cart stays
-//! parked on the brake, empty, all night: the night's one advance is the dusk pulse that drops (the
-//! night signal's rising edge, [`night_pulse`]). The villager sleeps (a HOME it cannot reach from
-//! the bed's cage it gives up after 1200 gt and claims this bed); at dawn it stands up in a pocket
-//! just past the brake, and the pulse of its bed's waking (an observer on one bed) releases the
-//! carts, each picking its villager up as it rolls off its brake.
+//! The night (each stop a bed stop, [`stop`]): from the night threshold to its end every brake is
+//! powered ([`night_pulse`]: the night's level on the feed), so the carts run round their loops all
+//! night, keeping their spacing; an activator rail just before each brake, powered at night, drops
+//! each villager at the first stop its cart reaches (one villager a stop, as one cart a stop ran),
+//! onto the stop's bed. The villager sleeps (a HOME it cannot reach from the bed's cage it gives up
+//! after 1200 gt and claims this bed). Before dawn the night's level ends and each empty cart brakes
+//! on the next stop (an empty cart slows by 0.96 a tick against a ridden one's 0.997, so it never
+//! coasts a whole side: the brakes stay powered while carts run); at dawn its villager stands up
+//! in a pocket just past the brake, and the pulse of its bed's waking (an observer on one bed)
+//! releases the carts, each picking its villager up as it rolls off its brake. (`carousel-home`
+//! keeps the earlier night: one advance at the night threshold's edge, the carts parked empty all
+//! night, a counter holding the evening's golems so that advance brings every villager home; it
+//! holds 3 days on 2 seeds of 10, the running night on all 20 tried.)
 //!
 //! Coordinates: loop k's track runs on the square from (t, t) to (e, e), t = -3k, e = side + 3k;
 //! each side from its start corner: the corner and two rails at y 0 (the second the activator), the
@@ -74,12 +78,16 @@ fn name(d: [i32; 2]) -> &'static str {
 /// The 3 villagers' loops, 4 stops each (one after each corner), the inner loop's side `side`
 /// (28: the waiting stops more than 18.8 from every golem on the pad).
 pub fn carousel(side: i32) -> anyhow::Result<String> {
-    carousel_with(side, true)
+    carousel_with(side, true, true)
 }
 
 /// [`carousel`], its curtain latched (`latch`: shut from dusk to the dawn kick) or not (shut from
-/// the evening threshold, output under 8, to the morning's).
-pub fn carousel_with(side: i32, latch: bool) -> anyhow::Result<String> {
+/// the evening threshold, output under 8, to the morning's), and its night run free (`free_run`:
+/// every brake powered from the night threshold to its end, the carts running round all night,
+/// each villager dropped at the first powered activator its cart reaches, the empty carts braking
+/// one to a stop before the villagers wake) or stopped (one advance at the night threshold's edge,
+/// the home phase's counter holding the evening's golems so it brings every villager home).
+pub fn carousel_with(side: i32, latch: bool, free_run: bool) -> anyhow::Result<String> {
     anyhow::ensure!(side >= 28, "the carousel's inner loop needs a side of 28 or more (its waiting stops out of the golems' follow box)");
     let mut b = Builder::new(&format!("iron-carousel-3x4-{side}"));
     let mut dust: BTreeSet<[i32; 3]> = BTreeSet::new();
@@ -127,7 +135,10 @@ pub fn carousel_with(side: i32, latch: bool) -> anyhow::Result<String> {
         b.set(p[0], p[1] - 1, p[2], STONE);
     }
     night_gate(&mut b, &mut dust);
-    night_pulse(&mut b, &mut dust);
+    if !free_run {
+        phase_hold(&mut b, &mut dust);
+    }
+    night_pulse(&mut b, &mut dust, free_run);
     station(&mut b);
     curtain_latch(&mut b, &mut dust, latch);
     carts(&mut b, side);
@@ -304,18 +315,64 @@ fn night_gate(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>) {
     b.set(3, -6, 9, "daylight_detector[inverted=false,power=0]");
 }
 
-/// The night's two pulses into the feed, each the rising edge of a daylight sensor's threshold (a
-/// subtracting comparator reading a strongly powered block from behind, the same signal 4 gt later
-/// in its side: one 4 gt pulse when the signal comes on, none when it goes off), both through a
-/// dust inside loop 0 (x 4, south to north) down to a repeater into the stair's top (2, -3, 10),
-/// after the night gate:
-/// - at dusk, when a non-inverted sensor's output falls to 0 (day time about 13700; a redstone
-///   wall torch the sensor's dust holds off by day lights): the one advance of the night, with
-///   every activator on (the stops' torches light with it), which drops every villager;
-/// - at dawn, when another's output reaches 8 (8 dusts, then a repeater; day time about 300, the
-///   villagers up since 0 and standing in their pockets): the carts roll off their brakes and pick
-///   them up. (An observer on a bed would also fire when its sleeper lies down, at night.)
-fn night_pulse(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>) {
+/// The home phase (ironspec 2026-11-09): every villager claims the bed of the stop its cart
+/// starts at, and an advance moves every cart one stop, so the dusk drop lands every villager on
+/// its own bed when the advances so far are 3 short of a multiple of 4 before it. A 2-bit counter
+/// of copper bulbs counts every release (A under the stair's first dust (1, -8, 5), which every
+/// pulse reaches: a golem's through the gate, the night's down from the stair's top; B toggled by
+/// A going out, through a comparator and a torch); from the evening threshold (a daylight sensor's
+/// output under 8) a torch burns while A and B are lit (the count at 3), pressing a repeater on the
+/// gate's other side: the golems' advances stop there until the dusk drop, which brings every cart
+/// home. (Its villagers then never hold a HOME at another stop, never walk off their beds, and
+/// the wake kick's bed is always slept in.)
+fn phase_hold(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>) {
+    b.set(1, -9, 5, "copper_bulb[lit=false,powered=false]");
+    b.set(0, -9, 5, "comparator[facing=east,mode=compare,powered=false]");
+    b.set(0, -10, 5, STONE);
+    b.set(-1, -9, 5, STONE);
+    b.set(-2, -9, 5, "redstone_wall_torch[facing=west,lit=true]");
+    b.set(-2, -8, 5, "copper_bulb[lit=false,powered=true]");
+    b.set(-3, -8, 5, "comparator[facing=east,mode=compare,powered=false]");
+    b.set(-3, -9, 5, STONE);
+    b.set(-4, -8, 5, STONE);
+    b.set(-5, -8, 5, "redstone_wall_torch[facing=west,lit=true]");
+    // glass over B and its comparator's block (y -8: their tops are in the station's golem search)
+    b.set(-2, -7, 5, GLASS);
+    b.set(-4, -7, 5, GLASS);
+    // the NOR block (-5, -9, 4): not-B's dust on it, not-A's line and D8's 8th dust into it
+    b.set(-5, -9, 4, STONE);
+    dust.insert([-5, -8, 4]);
+    for x in [-2, -3, -4] {
+        dust.insert([x, -9, 4]);
+    }
+    b.set(-7, -9, 11, "daylight_detector[inverted=false,power=0]");
+    for z in 4..=10 {
+        dust.insert([-7, -9, z]);
+    }
+    dust.insert([-6, -9, 4]);
+    // its torch, lit at the count of 3 in the evening, and its line to the gate's lock: 16 gt of
+    // repeaters on the way (a repeater locked while on stays on: the count reaches 3 on a golem's
+    // own pulse, which must have left the gate before the lock presses it)
+    b.set(-5, -9, 3, "redstone_wall_torch[facing=north,lit=true]");
+    for p in [[-5, -9, 2], [-4, -9, 2], [-3, -9, 2], [-2, -9, 2], [0, -9, 2], [1, -9, 2], [1, -9, 3], [2, -8, 3]] {
+        dust.insert(p);
+    }
+    b.set(-1, -9, 2, "repeater[delay=4,facing=west,locked=false,powered=false]");
+    b.set(-1, -10, 2, STONE);
+    b.set(2, -8, 4, "repeater[delay=4,facing=north,locked=false,powered=false]");
+    b.set(2, -9, 4, STONE);
+}
+
+/// The night's signals into the feed, through a dust inside loop 0 (x 4, south to north) down to a
+/// repeater into the stair's top (2, -3, 10), after the night gate:
+/// - the night: a non-inverted sensor's dust holds a redstone wall torch off by day; lit from its
+///   output's fall to 0 (day time about 13700, with every stop's activator torch) to its rise
+///   (about 22700, before the villagers wake). `free_run`: its level, every brake powered all night
+///   (the carts run round, the activators drop every villager); otherwise its rising edge (a
+///   subtracting comparator reading the torch's block from behind, the same signal 4 gt later in
+///   its side: one 4 gt pulse when it lights, none when it goes out), the night's one advance;
+/// - at dawn, the wake kick (below): the carts roll off their brakes and pick their villagers up.
+fn night_pulse(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, free_run: bool) {
     let z0 = 24;
     // the line: from (4, -1, 19) north along x 4 (a repeater at z 18) down to the stair's top
     for z in (13..=z0 - 5).rev() {
@@ -331,14 +388,10 @@ fn night_pulse(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>) {
     }
     b.set(3, -3, 10, "repeater[delay=1,facing=east,locked=false,powered=false]");
     b.set(3, -4, 10, STONE);
-    // the dawn kick (z 17..19, x 9..21): the sensor, 8 dusts west, a repeater into the block the
-    // comparator reads, two repeaters around into its side; its dust joins the dusk drop's
-    b.set(21, -1, z0 - 5, "daylight_detector[inverted=false,power=0]");
-    for x in 13..=20 {
-        dust.insert([x, -1, z0 - 5]);
-    }
-    b.set(12, -1, z0 - 5, "repeater[delay=1,facing=east,locked=false,powered=false]");
-    b.set(12, -2, z0 - 5, STONE);
+    // the dawn kick's pulse maker (z 17..19, x 9..12): the block the comparator reads, two
+    // repeaters around into its side; its dust joins the dusk drop's. (No daylight edge drives it:
+    // a sensor placed at the judge's arrival rises from 0 and kicked the carts at the start, and
+    // the villagers claimed HOMEs at two stops; the wake kick below is its only input.)
     b.set(11, -1, z0 - 5, STONE);
     b.set(10, -1, z0 - 5, "comparator[facing=east,mode=subtract,powered=false]");
     b.set(10, -2, z0 - 5, STONE);
@@ -379,14 +432,23 @@ fn night_pulse(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>) {
     b.set(9, -2, z, STONE);
     b.set(8, -2, z, "redstone_wall_torch[facing=west,lit=true]");
     b.set(8, -1, z, STONE);
-    b.set(8, -1, z - 1, "comparator[facing=south,mode=subtract,powered=false]");
-    b.set(8, -2, z - 1, STONE);
-    b.set(7, -1, z, "repeater[delay=1,facing=east,locked=false,powered=false]");
-    b.set(7, -2, z, STONE);
-    dust.insert([6, -1, z]);
-    dust.insert([6, -1, z - 1]);
-    b.set(7, -1, z - 1, "repeater[delay=1,facing=west,locked=false,powered=false]");
-    b.set(7, -2, z - 1, STONE);
+    if free_run {
+        // the night's level, not its edge: a repeater from the torch's block into the line
+        b.set(8, -1, z - 1, "repeater[delay=1,facing=south,locked=false,powered=true]");
+        b.set(8, -2, z - 1, STONE);
+    } else {
+        b.set(8, -1, z - 1, "comparator[facing=south,mode=subtract,powered=false]");
+        b.set(8, -2, z - 1, STONE);
+        // (both repeaters placed powered, as the torch's lit start makes them: unpowered, the
+        // comparator's side lagged its back by 4 gt through the settle, and its pulse counted a
+        // release on the home phase's counter before the first cart moved)
+        b.set(7, -1, z, "repeater[delay=1,facing=east,locked=false,powered=true]");
+        b.set(7, -2, z, STONE);
+        dust.insert([6, -1, z]);
+        dust.insert([6, -1, z - 1]);
+        b.set(7, -1, z - 1, "repeater[delay=1,facing=west,locked=false,powered=true]");
+        b.set(7, -2, z - 1, STONE);
+    }
     for p in [[8, -1, z - 2], [8, -1, z - 3], [7, -1, z - 3], [6, -1, z - 3], [5, -1, z - 3]] {
         dust.insert(p);
     }
