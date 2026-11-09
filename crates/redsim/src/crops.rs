@@ -112,12 +112,24 @@ impl TickingSections {
         let dims = [hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1];
         let n = (dims[0] * dims[1] * dims[2]) as usize;
         let mut ts = TickingSections { lo, dims, counts: vec![0; n], bits: vec![0; n * 64], cols: vec![0; (dims[0] * dims[2]) as usize] };
+        // the box's cells in their storage order (x fastest, then z, then y), a terrain cell's
+        // answer from one flag per state id (tickexact 2026-11-09: the viewer's still spent 9% of
+        // its time here, a bounds-checked lookup and a 100-byte table row read per cell)
+        let cells: &[Block] = &w.cells;
+        let rt = crate::terrain::blocks::random_ticking_ids();
+        let mut i = 0usize;
         for y in 0..size[1] {
             for z in 0..size[2] {
                 for x in 0..size[0] {
-                    let p = BlockPos::new(min.x + x, min.y + y, min.z + z);
-                    if ticks_in_section(&w.get(p)) {
-                        ts.adjust(p, true);
+                    let b = &cells[i];
+                    i += 1;
+                    let ticks = match b {
+                        Block::Air => false,
+                        Block::Terrain(id) => rt.get(*id as usize).copied().unwrap_or(false),
+                        other => randomly_ticking(other),
+                    };
+                    if ticks {
+                        ts.adjust(BlockPos::new(min.x + x, min.y + y, min.z + z), true);
                     }
                 }
             }

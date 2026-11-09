@@ -306,6 +306,13 @@ pub fn props(id: u16) -> &'static Props {
     &table().props[id as usize]
 }
 
+/// Each state id's `random_ticking`, one flag a state (a whole box scanned at once:
+/// `crops::TickingSections::build`).
+pub fn random_ticking_ids() -> &'static [bool] {
+    static FLAGS: std::sync::OnceLock<Vec<bool>> = std::sync::OnceLock::new();
+    FLAGS.get_or_init(|| table().props.iter().map(|p| p.random_ticking).collect())
+}
+
 /// The column of an entity type (`minecraft:zombie`) in the per-type bitsets (an index built once:
 /// tickexact 2026-11-08, the spawn checks looked it up by a linear string search per candidate).
 pub fn type_index(type_id: &str) -> Option<usize> {

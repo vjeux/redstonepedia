@@ -510,25 +510,33 @@ pub fn crop(w: &World, lo: BlockPos, hi: BlockPos) -> World {
     let lo = BlockPos::new(lo.x.max(w.min.x), lo.y.max(w.min.y), lo.z.max(w.min.z));
     let hi = BlockPos::new(hi.x.min(wmax.x), hi.y.min(wmax.y), hi.z.min(wmax.z));
     let mut c = World::new(lo, [hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1]);
+    if hi.x < lo.x || hi.y < lo.y || hi.z < lo.z {
+        return c;
+    }
+    // each row copied whole (a fresh world's raw write is the cell's write alone: no neighbour,
+    // shape or place update, no land, no AI), then a block entity's block written again through
+    // setBlock, its entity made (tickexact 2026-11-09: a lookup and a test per cell made the crop
+    // 6% of the viewer's still; 2026-11-08: the full setBlock per cell, a fifth of the static
+    // level)
+    let len = (hi.x - lo.x + 1) as usize;
+    let mut entities = Vec::new();
     for y in lo.y..=hi.y {
         for z in lo.z..=hi.z {
-            for x in lo.x..=hi.x {
-                let p = BlockPos::new(x, y, z);
-                let b = w.get(p);
-                if b.is_air() {
-                    continue;
-                }
-                // a fresh world's raw write (no neighbour, shape or place update, no land, no
-                // AI) is the cell's write alone, but for a block entity's block (its entity
-                // made): written straight into the array (tickexact 2026-11-08: the full setBlock
-                // per cell of every spot's crop was a fifth of the static level)
-                if crate::behavior::has_block_entity(&b) {
-                    c.set_block(p, b, crate::world::flags::RAW);
-                } else if let Some(i) = c.index(p) {
-                    c.cells[i] = b;
+            let (Some(si), Some(di)) = (w.index(BlockPos::new(lo.x, y, z)), c.index(BlockPos::new(lo.x, y, z))) else { continue };
+            let row = &w.cells[si..si + len];
+            c.cells[di..di + len].copy_from_slice(row);
+            for (k, b) in row.iter().enumerate() {
+                if !b.is_air() && crate::behavior::has_block_entity(b) {
+                    entities.push((BlockPos::new(lo.x + k as i32, y, z), *b));
                 }
             }
         }
+    }
+    for (p, b) in entities {
+        if let Some(i) = c.index(p) {
+            c.cells[i] = crate::block::Block::Air;
+        }
+        c.set_block(p, b, crate::world::flags::RAW);
     }
     c.light_version += 1;
     c

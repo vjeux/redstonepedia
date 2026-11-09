@@ -111,35 +111,58 @@ pub fn refusal(w: &World, lo: BlockPos, hi: BlockPos) -> Option<String> {
             }
         }
     }
-    for p in footprint_cells(w, lo, hi) {
-        let b = w.get(p);
-        if is_fluid(&b) {
-            return Some(format!("{b} at {p} is in the footprint"));
-        }
-        if let Some(props) = natural_class(&b) {
-            // a trunk: felling it is a player's choice the judge does not make for them (leaves
-            // overhanging the site are cleared with it: strict writes, so no leaf's distance changes
-            // and none decays, in redsim as in the game check)
-            if props.has_tag("minecraft:logs") {
-                return Some(format!("{} at {p} is in the footprint (a tree trunk)", props.name));
-            }
-        }
-        // every footprint cell may change (cleared, or written by the design): a natural state
-        // beside it whose shape depends on that neighbour (its support flag toward it: dirt to air
-        // changes it, `updateShape`), or a fluid, refuses the spot
-        for d in crate::pos::Dir::ALL {
-            let q = p.rel(d);
-            if inside(q) || !w.contains(q) {
-                continue;
-            }
-            let n = w.get(q);
-            if is_fluid(&n) {
-                return Some(format!("{n} at {q} is beside the footprint cell {p}"));
-            }
-            if let Some(np) = natural_class(&n)
-                && np.support[blocks::dir_index(d.opposite())]
-            {
-                return Some(format!("{} at {q} depends on its neighbour {p} in the footprint (updateShape)", np.name));
+    // (the footprint's columns walked in place, y then z then x; a cell whose neighbours are all
+    // in the footprint, off its edge columns and above its bottom, has no neighbour to test:
+    // tickexact 2026-11-09, this walk was 4.5% of the viewer's still, mostly the sky's air)
+    let top = w.min.y + w.size[1] - 1;
+    for y in lo.y..=top {
+        for z in lo.z..=hi.z {
+            // the row's cells read by index (a BlockPos per cell stalled on its store)
+            let base = w.index(BlockPos::new(lo.x, y, z));
+            for x in lo.x..=hi.x {
+                let b = match base {
+                    Some(i) if x <= w.min.x + w.size[0] - 1 => w.cells[i + (x - lo.x) as usize],
+                    _ => w.get(BlockPos::new(x, y, z)),
+                };
+                let edge = x == lo.x || x == hi.x || z == lo.z || z == hi.z || y == lo.y;
+                if b.is_air() && !edge {
+                    continue;
+                }
+                let p = BlockPos::new(x, y, z);
+                if !b.is_air() {
+                    if is_fluid(&b) {
+                        return Some(format!("{b} at {p} is in the footprint"));
+                    }
+                    if let Some(props) = natural_class(&b) {
+                        // a trunk: felling it is a player's choice the judge does not make for
+                        // them (leaves overhanging the site are cleared with it: strict writes, so
+                        // no leaf's distance changes and none decays, in redsim as in the game check)
+                        if props.has_tag("minecraft:logs") {
+                            return Some(format!("{} at {p} is in the footprint (a tree trunk)", props.name));
+                        }
+                    }
+                }
+                if !edge {
+                    continue;
+                }
+                // every footprint cell may change (cleared, or written by the design): a natural
+                // state beside it whose shape depends on that neighbour (its support flag toward
+                // it: dirt to air changes it, `updateShape`), or a fluid, refuses the spot
+                for d in crate::pos::Dir::ALL {
+                    let q = p.rel(d);
+                    if inside(q) || !w.contains(q) {
+                        continue;
+                    }
+                    let n = w.get(q);
+                    if is_fluid(&n) {
+                        return Some(format!("{n} at {q} is beside the footprint cell {p}"));
+                    }
+                    if let Some(np) = natural_class(&n)
+                        && np.support[blocks::dir_index(d.opposite())]
+                    {
+                        return Some(format!("{} at {q} depends on its neighbour {p} in the footprint (updateShape)", np.name));
+                    }
+                }
             }
         }
     }
