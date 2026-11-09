@@ -924,22 +924,27 @@ pub fn air_drag() -> f64 {
 /// rafts, whose seat is height x 0.8888889 = 0.5, are refused when mounting: `BoatState` does not
 /// tell them apart) minus the rider's vehicle attachment (`ridingOffset`: a zombie sits 0.7 lower).
 pub fn rider_offset(v: &EntityKind, rider: &MobState) -> Option<f64> {
-    let seat = match v {
+    // (floats where the game's attachment is a float, a double where it is one: the chicken's Vec3)
+    let seat: f64 = match v {
         // `AbstractMinecart.getPassengerAttachmentPoint`: a villager (or a wandering trader) sits
         // lowered, at the cart's own y (`LOWERED_PASSENGER_ATTACHMENT`, 0)
-        EntityKind::Minecart(_) if matches!(rider.ty, MobType::Villager) => 0.0f32,
-        EntityKind::Minecart(_) => 0.1875f32,
-        EntityKind::Boat(_) => 0.5625f32 / 3.0f32,
+        EntityKind::Minecart(_) if matches!(rider.ty, MobType::Villager) => 0.0,
+        EntityKind::Minecart(_) => 0.1875f32 as f64,
+        EntityKind::Boat(_) => (0.5625f32 / 3.0f32) as f64,
         // a spider's passenger attachment (`passengerAttachments(0.765F)`: straight up, the same at
         // every yaw)
-        EntityKind::Mob(m) if m.ty.def().id == "spider" => 0.765f32,
+        EntityKind::Mob(m) if m.ty.def().id == "spider" => 0.765f32 as f64,
         // an adult horse's (`passengerAttachments`; its stand shift: `ride_tick`)
-        EntityKind::Mob(m) if matches!(m.ty.def().id, "zombie_horse" | "skeleton_horse") => 1.31875f32,
-        EntityKind::Mob(m) if m.ty.def().id == "horse" => 1.44375f32,
-        EntityKind::Mob(m) if m.ty.def().id == "donkey" => 1.1125f32,
+        EntityKind::Mob(m) if matches!(m.ty.def().id, "zombie_horse" | "skeleton_horse") => 1.31875f32 as f64,
+        EntityKind::Mob(m) if m.ty.def().id == "horse" => 1.44375f32 as f64,
+        EntityKind::Mob(m) if m.ty.def().id == "donkey" => 1.1125f32 as f64,
+        // a chicken's new Vec3(0, 0.7, -0.1) (its -0.1 turned with its yaw: `ride_tick`); a
+        // baby's 0.375F
+        EntityKind::Mob(m) if m.ty.def().id == "chicken" => 0.7,
+        EntityKind::Mob(m) if m.ty.def().id == "baby_chicken" => 0.375f32 as f64,
         _ => return None,
     };
-    Some(seat as f64 + rider.ty.def().riding_offset as f64)
+    Some(seat + rider.ty.def().riding_offset as f64)
 }
 
 /// `Entity.startRiding(vehicle)` as `summon <vehicle> .. {Passengers:[{id:<mob>}]}` sets it up:
@@ -1006,18 +1011,24 @@ pub fn ride_tick(w: &mut World, j: usize) {
     {
         let vp = w.entities.list[vi].pos;
         let (dx, dz) = boat_seat_offset(w, vi, j);
-        // a horse's stand shift (AbstractHorse.getPassengerAttachmentPoint)
-        let shift = if ai::goal::animal::is_horse(match &w.entities.list[vi].kind {
+        // a horse's stand shift (AbstractHorse.getPassengerAttachmentPoint); an adult chicken's
+        // -0.1 behind, turned by its yaw (EntityAttachments.get: yRot(-yRot))
+        let vid = match &w.entities.list[vi].kind {
             EntityKind::Mob(vm) => vm.ty.def().id,
             _ => "",
-        }) {
+        };
+        let shift = if ai::goal::animal::is_horse(vid) {
             ai::goal::animal::horse_seat_shift(w, vi)
+        } else if vid == "chicken" {
+            let a = -w.entities.list[vi].y_rot * (std::f32::consts::PI / 180.0);
+            let (c, s) = (crate::entity::mth::cos(a as f64) as f64, crate::entity::mth::sin(a as f64) as f64);
+            Vec3::new(-0.1 * s, 0.0, -0.1 * c)
         } else {
             Vec3::ZERO
         };
         w.entities.set_pos(j, vp.add(dx + shift.x, off + shift.y, dz + shift.z));
-        // AbstractHorse.positionRider: the rider's body takes the horse's
-        if shift != Vec3::ZERO || matches!(&w.entities.list[vi].kind, EntityKind::Mob(vm) if ai::goal::animal::is_horse(vm.ty.def().id)) {
+        // AbstractHorse.positionRider / Chicken.positionRider: the rider's body takes the vehicle's
+        if ai::goal::animal::is_horse(vid) || matches!(vid, "chicken" | "baby_chicken") {
             if let Some(vb) = mob(w, vi).ai.as_deref().map(|a| a.y_body_rot)
                 && let Some(a) = mob_mut(w, j).ai.as_deref_mut()
             {

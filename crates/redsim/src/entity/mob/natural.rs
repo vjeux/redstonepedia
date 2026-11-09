@@ -90,7 +90,7 @@ pub static DEFS: &[TypeDef] = &[
     // ZombieVillager eye 0.67, Drowned 0.775, Sheep 0.45 x 0.65 eye 0.65625, Pig 0.45 x 0.45 eye
     // 0.40625, Chicken 0.3 x 0.4 eye 0.28125, Cow 0.45 x 0.7 eye 0.69, Wolf 0.3 x 0.425 eye
     // 0.34375, Rabbit 0.24 x 0.4 eye 0.39), else `getAgeScale` 0.5
-    TypeDef { follow_range: 35.0, armor: 2.0, ..row(25, "baby_zombie", "minecraft:zombie", 0.49, 0.98, 0.775, 20.0, 0.23f32 as f64 * 1.5, true, true, 0.6) },
+    TypeDef { follow_range: 35.0, armor: 2.0, riding_offset: -0.1875, ..row(25, "baby_zombie", "minecraft:zombie", 0.49, 0.98, 0.775, 20.0, 0.23f32 as f64 * 1.5, true, true, 0.6) },
     TypeDef { follow_range: 35.0, armor: 2.0, ..row(26, "baby_zombie_villager", "minecraft:zombie_villager", 0.49, 0.98, 0.67, 20.0, 0.23f32 as f64 * 1.5, true, true, 0.6) },
     TypeDef { follow_range: 35.0, armor: 2.0, riding_offset: -0.1875, ..row(27, "baby_drowned", "minecraft:drowned", 0.49, 0.98, 0.775, 20.0, 0.23f32 as f64 * 1.5, true, true, 1.0) },
     row(28, "baby_sheep", "minecraft:sheep", 0.45, 0.65, 0.65625, 8.0, 0.23f32 as f64, false, false, 0.6),
@@ -1972,14 +1972,24 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
             n.riders.push((rider, vehicle));
         }
     };
+    // with the mob AI on, a baby zombie really rides its chicken (startRiding: the chicken's
+    // passenger; it steers it, the chicken's MOVE, JUMP and LOOK goals off)
+    let mount = |w: &mut World, rider: u32, vehicle: u32| {
+        if let (Some(_), Some(vi)) = (crate::entity::index_of(w, rider), crate::entity::index_of(w, vehicle)) {
+            let ri = crate::entity::index_of(w, rider).expect("checked");
+            w.entities.list[ri].vehicle = Some(vehicle);
+            w.entities.list[vi].passengers.push(rider);
+        }
+    };
     let mut rider: Option<u32> = None;
     match f.jockey {
         Jockey::None => {}
         Jockey::NewChicken => {
             if w.mob.ai.on {
-                w.mob.ai.legacy.insert("baby zombie chicken jockeys (the riding itself)");
+                mount(w, id, chicken.unwrap());
+            } else {
+                ride(w, id, chicken.unwrap())
             }
-            ride(w, id, chicken.unwrap())
         }
         Jockey::NearChicken => {
             // the first chicken in the zombie's box inflated by (5, 3, 5) that nobody rides
@@ -1987,9 +1997,10 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
             if let Some(c) = near_chicken(w, f.ty, pos, id) {
                 set_chicken_jockey(w, c);
                 if w.mob.ai.on {
-                    w.mob.ai.legacy.insert("baby zombie chicken jockeys (the riding itself)");
+                    mount(w, id, c);
+                } else {
+                    ride(w, id, c);
                 }
-                ride(w, id, c);
             }
         }
         Jockey::SpiderSkeleton => {
