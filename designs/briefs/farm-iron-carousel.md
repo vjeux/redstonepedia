@@ -160,8 +160,13 @@ options, judged against each other on the objectives:
   reachable target or `SleepInBed.start` clears it. So the one-bed stop stands only with a
   mechanism, shown over many nights in the game gate, that keeps every sharer's memory younger than
   1200 gt at every REST tick (or keeps it unset), with mob-AI confirming the release, the shared
-  bed's `releasePoi` and `AcquirePoi`'s re-claim first; otherwise re-claiming the bed every night
-  is priced as hand steps (the farm is then not AFK), or the stop falls back to a bed each.
+  bed's `releasePoi` and `AcquirePoi`'s re-claim first (and `CANT_REACH` arming for passengers);
+  candidate mechanisms: every position a villager waits in has open, reachable floor around it,
+  so its strolls clear the memory rather than arm it, or the loop gives each villager a reached
+  walk target within 1200 gt before REST. Otherwise re-claiming the bed every night
+  is priced as hand steps (the farm is then not AFK), or the stop falls back to a bed each. The
+  bed-each stop goes first: a release there heals itself, each villager re-claiming its own free
+  bed.
 
 ## Must-haves (hard rules)
 
