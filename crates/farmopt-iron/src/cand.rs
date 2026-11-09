@@ -6,6 +6,10 @@
 use crate::parts::{CalmKind, Cage, Kill, Module, Pad, Place};
 use farmopt::spec::Spec;
 
+/// Day 1's shallowest dug farm: the beds this far under the ground layer (the real game's surface
+/// golems at dug 9, none at 11: see the day-1 loop in `candidates`).
+pub const DUG_MIN_GROUND: i8 = 11;
+
 /// How the modules tile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Tiling {
@@ -302,12 +306,14 @@ pub fn enumerate(spec: &Spec, calm_parts: usize) -> Vec<Cand> {
     match stage {
         "day-1" => {
             for m in modules(stage, Place::Dug) {
-                // dug in: the beds 3 (half-dug: the pods' roofs at the surface) to 16 below the
-                // ground layer (main's judge caps every villager's golem search from its cell and
-                // the cell above: a shallow farm pays hundreds of covers, so depth trades against
-                // them, D1U at 11; vjeux 18:02 refuses covers outright: the bed-plate cages need
-                // 13 or more, their plate villager sitting a level up by the zombie)
-                for ground in [3i8, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] {
+                // dug in: the beds 11 to 16 below the ground layer. Main's judge caps every
+                // villager's golem search from its cell and the cell above, but the real game
+                // reaches higher: dust #2's dug-9 regate (2026-11-09, main's seal fix leaving the
+                // surface's own air unsealed) found golems on the natural surface over the farm in
+                // 3 of 8 builds, and dug 11 (D1U's depth) passes; so day 1 starts at 11 until
+                // the reach is traced (the shallower 3..10 rows of the earlier fronts stay as
+                // measured)
+                for ground in DUG_MIN_GROUND..=16i8 {
                     out.push(Cand { place: Place::Dug, ground, ..base(m) });
                 }
             }
@@ -328,7 +334,7 @@ pub fn enumerate(spec: &Spec, calm_parts: usize) -> Vec<Cand> {
             // the 3-villager cages over the 6 x 6 pads
             for m in modules(stage, Place::Dug) {
                 if m.cage.scared + m.cage.blind + 1 == 3 && m.pad.n == 6 && m.pad.dx == 0 && m.pad.floor >= -7 {
-                    for ground in [7i8, 9, 11] {
+                    for ground in [DUG_MIN_GROUND] {
                         for pitch in [12u8, 16, 20, 24, 27, 30] {
                             out.push(Cand { place: Place::Dug, ground, modules: 2, tiling: Tiling::Row(pitch), ..base(m) });
                         }
@@ -336,7 +342,7 @@ pub fn enumerate(spec: &Spec, calm_parts: usize) -> Vec<Cand> {
                     // the chute's edge (vjeux 18:14): two groups facing each other across one
                     // pad's rim, one chute (the hole) down past both groups' cubes to one kill
                     if m.cage.blind == 0 && !matches!(m.kill, Kill::Side { .. }) && m.kill.k() <= -21 {
-                        for ground in [9i8, 11] {
+                        for ground in [DUG_MIN_GROUND] {
                             for d in [1u8, 2, 3] {
                                 out.push(Cand { place: Place::Dug, ground, modules: 2, tiling: Tiling::Row(d), family_gen: 7, ..base(m) });
                             }
