@@ -920,6 +920,10 @@ pub fn rider_offset(v: &EntityKind, rider: &MobState) -> Option<f64> {
         // a spider's passenger attachment (`passengerAttachments(0.765F)`: straight up, the same at
         // every yaw)
         EntityKind::Mob(m) if m.ty.def().id == "spider" => 0.765f32,
+        // an adult horse's (`passengerAttachments`; its stand shift: `ride_tick`)
+        EntityKind::Mob(m) if matches!(m.ty.def().id, "zombie_horse" | "skeleton_horse") => 1.31875f32,
+        EntityKind::Mob(m) if m.ty.def().id == "horse" => 1.44375f32,
+        EntityKind::Mob(m) if m.ty.def().id == "donkey" => 1.1125f32,
         _ => return None,
     };
     Some(seat as f64 + rider.ty.def().riding_offset as f64)
@@ -989,7 +993,24 @@ pub fn ride_tick(w: &mut World, j: usize) {
     {
         let vp = w.entities.list[vi].pos;
         let (dx, dz) = boat_seat_offset(w, vi, j);
-        w.entities.set_pos(j, vp.add(dx, off, dz));
+        // a horse's stand shift (AbstractHorse.getPassengerAttachmentPoint)
+        let shift = if ai::goal::animal::is_horse(match &w.entities.list[vi].kind {
+            EntityKind::Mob(vm) => vm.ty.def().id,
+            _ => "",
+        }) {
+            ai::goal::animal::horse_seat_shift(w, vi)
+        } else {
+            Vec3::ZERO
+        };
+        w.entities.set_pos(j, vp.add(dx + shift.x, off + shift.y, dz + shift.z));
+        // AbstractHorse.positionRider: the rider's body takes the horse's
+        if shift != Vec3::ZERO || matches!(&w.entities.list[vi].kind, EntityKind::Mob(vm) if ai::goal::animal::is_horse(vm.ty.def().id)) {
+            if let Some(vb) = mob(w, vi).ai.as_deref().map(|a| a.y_body_rot)
+                && let Some(a) = mob_mut(w, j).ai.as_deref_mut()
+            {
+                a.y_body_rot = vb;
+            }
+        }
         // AbstractSkeleton.rideTick / Drowned.rideTick: the body takes the controlled vehicle's
         let id = mob(w, j).ty.def().id;
         if matches!(id, "skeleton" | "stray" | "bogged" | "drowned" | "baby_drowned")

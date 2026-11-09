@@ -1894,11 +1894,41 @@ fn spawn_mob(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) -> u32
             {
                 set_chicken_jockey(w, c);
             }
-            let r = super::add(w, rty, pos, true);
-            super::seed_entered(w, r);
-            super::set_helmet(w, r, f.rider_helmet);
-            ride(w, r, id);
-            rider = Some(r);
+            if w.mob.ai.on && f.jockey == Jockey::HorseZombie {
+                // with the mob AI on, the zombie horseman really rides (ZombieHorse.finalizeSpawn:
+                // snapTo(the horse's x, y, z, yRot, 0), an iron spear in its hand, startRiding);
+                // it steers the horse (the horse's MOVE, JUMP and LOOK goals off)
+                let r = super::add(w, rty, pos, false);
+                super::seed_entered(w, r);
+                super::set_helmet(w, r, f.rider_helmet);
+                if let (Some(ri), Some(vi)) = (crate::entity::index_of(w, r), crate::entity::index_of(w, id)) {
+                    // the bridge reports the rider at yaw 0 on its first tick (its snapTo's yaw is
+                    // not the horse's here: D1U's t4032)
+                    let vp = w.entities.list[vi].pos;
+                    w.entities.set_pos(ri, vp);
+                    let yaw = 0.0;
+                    let e = &mut w.entities.list[ri];
+                    e.y_rot = yaw;
+                    e.y_rot_o = yaw;
+                    e.x_rot = 0.0;
+                    e.x_rot_o = 0.0;
+                    w.entities.list[ri].vehicle = Some(id);
+                    w.entities.list[vi].passengers.push(r);
+                    if let Some(a) = super::mob_mut(w, ri).ai.as_deref_mut() {
+                        a.spear = true;
+                    }
+                }
+                rider = Some(r);
+            } else {
+                if w.mob.ai.on {
+                    w.mob.ai.legacy.insert("a baby zombie horseman's riding");
+                }
+                let r = super::add(w, rty, pos, true);
+                super::seed_entered(w, r);
+                super::set_helmet(w, r, f.rider_helmet);
+                ride(w, r, id);
+                rider = Some(r);
+            }
         }
     }
     // Mob.finalizeSpawn's FOLLOW_RANGE bonus (x (1 + triangle)), each from its own finalizeSpawn in

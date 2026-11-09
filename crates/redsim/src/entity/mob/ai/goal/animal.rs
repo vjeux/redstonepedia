@@ -71,6 +71,9 @@ pub struct Horse {
     pub eating_counter: i32,
     pub stand_counter: i32,
     pub tail_counter: i32,
+    /// `standAnim` and `standAnimO` (a rider's seat moves with them).
+    pub stand_anim: f32,
+    pub stand_anim_o: f32,
 }
 
 /// Is this a horse (`AbstractHorse`: horse, donkey, zombie or skeleton horse, a baby too)?
@@ -138,7 +141,8 @@ fn horse_after_ai_step(w: &mut World, i: usize) {
     }
 }
 
-/// `AbstractHorse.tick` after `super.tick()`: the stand and tail counters.
+/// `AbstractHorse.tick` after `super.tick()`: the stand and tail counters, then `standAnim`
+/// (towards 1 while standing, else `(0.8 s^3 - s) x 0.6 - 0.05` down to 0).
 pub fn horse_after_tick(w: &mut World, i: usize) {
     if let Some(h) = mob_mut(w, i).ai.as_deref_mut().and_then(|a| a.horse.as_mut()) {
         if h.stand_counter > 0 {
@@ -150,7 +154,28 @@ pub fn horse_after_tick(w: &mut World, i: usize) {
                 h.tail_counter = 0;
             }
         }
+        h.stand_anim_o = h.stand_anim;
+        let s = h.stand_anim;
+        if h.stand_counter > 0 {
+            h.stand_anim = (s + ((1.0 - s) * 0.4 + 0.05)).min(1.0);
+        } else {
+            h.stand_anim = (s + ((0.8 * s * s * s - s) * 0.6 - 0.05)).max(0.0);
+        }
     }
+}
+
+/// `AbstractHorse.getPassengerAttachmentPoint`'s stand shift: `(0, 0.15 standAnimO, -0.7
+/// standAnimO).yRot(-yRot)` (an adult: scale 1).
+pub fn horse_seat_shift(w: &World, vi: usize) -> crate::entity::Vec3 {
+    let Some(h) = mob(w, vi).ai.as_deref().and_then(|a| a.horse) else { return crate::entity::Vec3::ZERO };
+    let s = h.stand_anim_o as f64;
+    if s == 0.0 {
+        return crate::entity::Vec3::ZERO;
+    }
+    let (y, z) = (0.15 * s, -0.7 * s);
+    let a = -w.entities.list[vi].y_rot * (std::f32::consts::PI / 180.0);
+    let (c, sn) = (crate::entity::mth::cos(a as f64) as f64, crate::entity::mth::sin(a as f64) as f64);
+    crate::entity::Vec3::new(z * sn, y, z * c)
 }
 
 /// The adult kind of a farm animal row (a baby's adult), or `None`.

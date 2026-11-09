@@ -97,6 +97,8 @@ pub struct MobAi {
     pub witch_drink: Option<(u8, i32)>,
     /// A horse's state (`AbstractHorse`: attributes, eating, standing).
     pub horse: Option<goal::animal::Horse>,
+    /// A zombie holding an iron spear (a zombie horseman's, or 1 in 6 of the rare weapons).
+    pub spear: bool,
     /// `AgeableMob.age` of a farm animal (0 an adult, a baby counts up from -24000).
     pub age: i32,
 }
@@ -173,6 +175,7 @@ impl MobAi {
             enderman: None,
             witch_drink: None,
             horse: None,
+            spear: false,
             age: 0,
         };
         goal::register_goals(&mut ai, ty);
