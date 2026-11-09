@@ -41,6 +41,29 @@ const GLASS: &str = "glass";
 const ACT: i32 = 2;
 const BRAKE: i32 = 3;
 const POCKET: i32 = 4;
+
+/// (experiment, `MCTAS_BIDE`: the cart parks in the stand-up cell: the activator beside the bed's
+/// foot (rail 3), the brake beside its head (rail 4, no pocket), so a waking villager stands up
+/// inside its parked cart, which the release starts under it; not at the north stops, the
+/// station, whose carts' sight of the zombie the moved torch would cut)
+fn bide() -> bool {
+    std::env::var_os("MCTAS_BIDE").is_some()
+}
+
+/// Whether stop side `s` is laid out for `MCTAS_BIDE` (every side but the north).
+fn bide_at(s: &Side) -> bool {
+    bide() && s.d != [1, 0]
+}
+
+/// The activator's rail (2; 3 under `MCTAS_BIDE`).
+fn act_of(s: &Side) -> i32 {
+    if bide_at(s) { 3 } else { ACT }
+}
+
+/// The brake's rail (3; 4 under `MCTAS_BIDE`).
+fn brake_of(s: &Side) -> i32 {
+    if bide_at(s) { 4 } else { BRAKE }
+}
 const BOOST: i32 = 5;
 
 /// A side of a loop: its start corner c (x, z), its direction d, the loop's inside n (the right of
@@ -202,6 +225,7 @@ fn loop_rails(t: i32, e: i32, boost: bool) -> Vec<([i32; 3], String, &'static st
     let corners = ["south_east", "south_west", "north_west", "north_east"];
     let mut out = Vec::new();
     for (s, corner) in sides(t, e).into_iter().zip(corners) {
+        let (act, brake) = (act_of(&s), brake_of(&s));
         let axis = if s.d[1] == 0 { "east_west" } else { "north_south" };
         let back = name([-s.d[0], -s.d[1]]);
         let fwd = name(s.d);
@@ -210,10 +234,12 @@ fn loop_rails(t: i32, e: i32, boost: bool) -> Vec<([i32; 3], String, &'static st
         for i in 1..n {
             let p = s.at(i, 0);
             let (y, rail, support) = match i {
-                1 => (0, format!("rail[shape={axis},waterlogged=false]"), STONE),
-                ACT => (0, format!("activator_rail[powered=false,shape={axis},waterlogged=false]"), STONE),
-                BRAKE => (-1, format!("powered_rail[powered=false,shape=ascending_{back},waterlogged=false]"), "mud"),
-                BOOST if boost => (-1, format!("powered_rail[powered=true,shape={axis},waterlogged=false]"), "redstone_block"),
+                _ if i < act => (0, format!("rail[shape={axis},waterlogged=false]"), STONE),
+                _ if i == act => (0, format!("activator_rail[powered=false,shape={axis},waterlogged=false]"), STONE),
+                _ if i == brake => (-1, format!("powered_rail[powered=false,shape=ascending_{back},waterlogged=false]"), "mud"),
+                // (under `MCTAS_BIDE` one rail further: beside the brake it would power it through
+                // the powered rails' own line)
+                _ if boost && i == if bide_at(&s) { BOOST + 1 } else { BOOST } => (-1, format!("powered_rail[powered=true,shape={axis},waterlogged=false]"), "redstone_block"),
                 _ if i == n - 1 => (-1, format!("rail[shape=ascending_{fwd},waterlogged=false]"), STONE),
                 _ => (-1, format!("rail[shape={axis},waterlogged=false]"), STONE),
             };
@@ -440,13 +466,27 @@ fn stop(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, s: Side, outer: bool) {
         }
     }
     set(s.at(1, 0), 1, GLASS);
-    set(s.at(BOOST, 0), 0, GLASS);
+    // (under `MCTAS_BIDE` one rail further: the brake's slope ends at rail 5, and the cart
+    // leaving it still stands into y 0)
+    set(s.at(if bide_at(&s) { BOOST + 1 } else { BOOST }, 0), 0, GLASS);
     for i in 1..=BOOST {
         for y in (if outer { -1 } else { 0 })..=1 {
             set(s.at(i, -1), y, GLASS);
         }
     }
     let a = s.at(ACT, 1);
+    if bide_at(&s) {
+        // the activator beside the foot: its torch over it hangs on a stone in the outside lane
+        // (y 1; over the foot it would cut the dropped villager's headroom, over the rail before
+        // it the riders' heads: they pass at y 0 with their eyes over 1), that stone's dust and
+        // sensor outside too
+        let o = s.at(3, -1);
+        set(o, 1, STONE);
+        set(s.at(3, 0), 1, &format!("redstone_wall_torch[facing={},lit=true]", name(s.n)));
+        set(s.at(2, -1), 2, "daylight_detector[inverted=false,power=0]");
+        dust.insert([o[0], 2, o[1]]);
+        return;
+    }
     set(a, 1, STONE);
     set(s.at(ACT, 0), 1, &format!("redstone_wall_torch[facing={},lit=true]", name([-s.n[0], -s.n[1]])));
     set(s.at(1, 1), 2, "daylight_detector[inverted=false,power=0]");
@@ -470,10 +510,14 @@ fn bus(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, t: i32, e: i32) {
         path.push([x, y, e - 2]);
     }
     path.push([t + 2, y, e - 3]);
+    if bide() {
+        // (the west stop's brake one rail on)
+        path.push([t + 2, y, e - 4]);
+    }
     let stops: Vec<[i32; 3]> = sides(t, e)
         .iter()
         .map(|s| {
-            let p = s.at(BRAKE, 2);
+            let p = s.at(brake_of(s), 2);
             [p[0], y, p[1]]
         })
         .collect();
@@ -509,7 +553,7 @@ fn bus(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, t: i32, e: i32) {
     }
     // the stops' repeaters (`facing` names the input side: the bus lane's), each on a block
     for s in sides(t, e) {
-        let r = s.at(BRAKE, 1);
+        let r = s.at(brake_of(&s), 1);
         b.set(r[0], -2, r[1], &format!("repeater[delay=1,facing={},locked=false,powered=false]", name(s.n)));
         b.set(r[0], -3, r[1], STONE);
     }
@@ -658,9 +702,26 @@ fn night_pulse(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, free_run: bool) {
     // the dusk drop's block over its torch, lit at night: the observer also fires when the
     // sleeper lies down), then around to a repeater into the dawn kick's block (11, -1, 19): the
     // comparator there makes it a pulse
-    b.set(2, -1, z0, if std::env::var_os("MCTAS_NO_KICK").is_some() { GLASS } else { "observer[facing=west,powered=false]" });
-    for x in 3..=7 {
-        dust.insert([x, -1, z0]);
+    if bide() {
+        // (the west stop's bus reaches its brake beside the head: the observer watches the head
+        // from over it (facing down), its stone over it feeds a dust on the bus lane's glass,
+        // down onto the line's first block)
+        b.set(1, 0, z0, "observer[facing=down,powered=false]");
+        b.set(1, 1, z0, STONE);
+        // (stone, not the stop's glass, under the dust: a non-conductor there would join the bus's
+        // end under it to the dust stepping down past it)
+        b.set(2, 0, z0, STONE);
+        dust.insert([2, 1, z0]);
+        dust.insert([3, 0, z0]);
+        b.set(3, -1, z0, STONE);
+        for x in 4..=7 {
+            dust.insert([x, -1, z0]);
+        }
+    } else {
+        b.set(2, -1, z0, if std::env::var_os("MCTAS_NO_KICK").is_some() { GLASS } else { "observer[facing=west,powered=false]" });
+        for x in 3..=7 {
+            dust.insert([x, -1, z0]);
+        }
     }
     b.set(8, -1, z0, "repeater[delay=4,facing=west,locked=false,powered=false]");
     b.set(8, -2, z0, STONE);
@@ -710,7 +771,7 @@ pub fn carts(b: &mut Builder, side: i32) {
     for k in 0..3 {
         let (t, e) = (-3 * k, side + 3 * k);
         for s in sides(t, e) {
-            let p = s.at(BRAKE, 0);
+            let p = s.at(brake_of(&s), 0);
             // the cart on the slope's middle: half a block down
             b.entity("minecart", [p[0] as f64 + 0.5, -1.0 + 0.5 + 0.0625, p[1] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:villager\"}]}"));
         }
