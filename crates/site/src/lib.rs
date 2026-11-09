@@ -32,6 +32,7 @@ pub mod published;
 pub mod read;
 pub mod serve;
 pub mod simulate;
+pub mod split;
 pub mod web;
 pub mod webkit;
 
@@ -59,7 +60,21 @@ pub enum SiteCmd {
     /// the stage's pick, `--name` gives it a player-facing name. Commit the folder; the next deploy
     /// shows it.
     Variation(VariationArgs),
-    /// Download Chrome for Testing's headless shell into ~/.cache/mctas (for the optional smoke).
+    /// An iron farm's parts from its design alone (the cage, the sleep trigger, the spawn area, the
+    /// drop, the kill, the collection, the storage, the access: `site::split`), each part's blocks
+    /// placed, dug and build seconds, beside its parts file's rows when it has one (the farm
+    /// optimizer's exact parts): what a farm page shows for a farm with no parts file.
+    Parts {
+        /// Iron farm design files.
+        #[arg(required = true)]
+        designs: Vec<PathBuf>,
+        /// The stage's prices (day-1, middle, late; default: the design's stage folder).
+        #[arg(long)]
+        stage: Option<String>,
+        /// Each layer's cells by part, a letter each, instead of the numbers.
+        #[arg(long)]
+        map: bool,
+    },
     Chrome,
     /// The circuits a builder has no reason to pick: another design of the same kind and main
     /// value is smaller and at least as fast, and the listed one only avoids a material (slime,
@@ -481,6 +496,7 @@ pub fn run(cmd: SiteCmd) -> Result<()> {
         }
         SiteCmd::Chrome => serve::install_chrome().map(|_| ()),
         SiteCmd::Variation(a) => farms::variation(&a),
+        SiteCmd::Parts { designs, stage, map } => split::cmd_parts(&designs, stage.as_deref(), map),
         SiteCmd::Dominated { repo, all, hide } => {
             let (builds, _notes) = circuits::export_with(&repo, all)?;
             if hide {

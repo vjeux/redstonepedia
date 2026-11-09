@@ -198,7 +198,17 @@ index's `kind=farm` lists them, and `kind=circuit` no longer does. Their old pag
   the slabs capping the spots where a stray golem could spawn, the seals, the digging at the
   spot; and the whole farm's, the card's own numbers); a part name the site
   does not know fails the build's read of the file (a warning), a version its catalog lacks is
-  named in the build's notes. Without the file, the members whose `used_by` names the farm.
+  named in the build's notes. Without the file, an iron farm's design is split by its own
+  landmarks (`crate::split`; `mctas site parts <design> [--map]` prints it, beside its parts file
+  when it has one): every redstone component is the sleep trigger, a crafter or a dropper and the
+  containers past the first chest the storage, the cells near the villagers (their floor to 4
+  above) the cage, the layer the golems spawn on (the judge's spawn spots, the farm dug into the
+  ground built with its rock around it) the spawn area, the hoppers by the kill and the output
+  chest the collection, the floor of the pit the lava burns in (4 layers) the kill, the
+  staircase's dug shaft and the passage at its foot the access, the rest the drop. It puts nine
+  cells in ten in the same parts as farmopt's own files on its day-1 farms and its middle module
+  (eight on the side chute; a test holds it). A design of another shape (golems spawning at the
+  villagers' level, no lava) gets no table, and a note in the build.
 - **Bars**: a judged design that is never listed (the copies of one module a stage's farms must
   beat) goes in `designs/farms/iron/bars/` with its `verdicts.tsv` row; a curated card quotes it
   (`{field@stem}`), as it can quote a stage's held variations.

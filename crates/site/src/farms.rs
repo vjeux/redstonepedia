@@ -416,6 +416,34 @@ pub struct FarmPart {
 
 static FARM_PARTS: std::sync::RwLock<std::collections::BTreeMap<String, Vec<FarmPart>>> = std::sync::RwLock::new(std::collections::BTreeMap::new());
 
+/// The repository the farms' designs were loaded from (`load_parts`): a farm page without a parts
+/// file splits its design from there (`crate::split`).
+static REPO: std::sync::RwLock<Option<PathBuf>> = std::sync::RwLock::new(None);
+
+/// An iron farm's parts from its design alone, when its designer wrote no parts file (the parent
+/// 2026-11-08 20:59: every farm page lists its parts): `crate::split`, at its stage's prices, the
+/// card's build minutes shared out. None (and a note) for a design of another shape.
+fn split_parts(b: &Build) -> Option<Vec<FarmPart>> {
+    let repo = REPO.read().ok()?.clone()?;
+    // (an archived farm's site copy sits beside its study's archive folder: `designs/circuits/
+    // mobfarm/iron-day1.txt` is the repository's `designs/circuits/mobfarm/archive/iron-day1.txt`)
+    let archived = Path::new(&b.design).parent().map(|p| p.join("archive")).zip(Path::new(&b.design).file_name()).map(|(d, f)| d.join(f));
+    let Some(text) = std::iter::once(PathBuf::from(&b.design)).chain(archived).find_map(|p| std::fs::read_to_string(repo.join(p)).ok()) else {
+        eprintln!("  note: {}: no parts table (its design is not in the repository)", b.design);
+        return None;
+    };
+    let stage = stage_of(b).unwrap_or(1);
+    let card = card_build(b).and_then(|c| c.minutes).map(|m| m * 60.0);
+    match crate::split::split(&text, stage, card) {
+        Ok(v) if !v.is_empty() => Some(v),
+        Ok(_) => None,
+        Err(e) => {
+            eprintln!("  note: {}: no parts table ({e:#})", b.design);
+            None
+        }
+    }
+}
+
 /// A farm's parts file's rows (`part member blocks dug build_seconds`, `#` lines are notes),
 /// in the file's order; a part name the site does not know fails, naming it.
 pub fn read_farm_parts(text: &str) -> Result<Vec<FarmPart>> {
@@ -454,6 +482,9 @@ fn load_farm_parts(repo: &Path) -> Result<std::collections::BTreeMap<String, Vec
 /// Load every iron-farm component's members and every listed farm's parts (the build pages link a
 /// farm to its parts, the parts' pages to the farms built with them).
 pub fn load_parts(repo: &Path) -> Vec<Member> {
+    if let Ok(mut g) = REPO.write() {
+        *g = Some(repo.to_path_buf());
+    }
     let all: Vec<Member> = PARTS.iter().flat_map(|p| read_members(repo, "iron", p.0)).collect();
     if let Ok(mut g) = PARTS_LOADED.write() {
         *g = all.clone();
@@ -551,7 +582,11 @@ pub fn parts_section(b: &Build, prefix: &str) -> String {
     if farm.is_empty() {
         return String::new();
     }
-    let rows = farm_parts(&b.name);
+    let mut rows = farm_parts(&b.name);
+    // (an iron farm with no parts file: its design split by its own landmarks)
+    if rows.is_empty() && farm == "iron" {
+        rows = split_parts(b).unwrap_or_default();
+    }
     if !rows.is_empty() {
         let members = PARTS_LOADED.read().map(|g| g.clone()).unwrap_or_default();
         let has_page = |part: &str| members.iter().any(|m| m.part == part);
