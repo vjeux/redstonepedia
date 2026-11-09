@@ -180,7 +180,7 @@ pub async fn farm_for_staged(text: &str, d: &Design, spec: &FarmSpec, b: &crate:
     drop(t);
     b.pause().await;
     let fp = site::footprint(spec, ground)?;
-    let spots = site::spots_for(&world, sample, fp);
+    let spots = site::spots_for_spec(&world, sample, spec, fp, clear_box);
     if spots.is_empty() {
         return Err(format!("no spot for a {}x{} footprint {} deep in {}", fp.size[0], fp.size[1], fp.below, sample.name));
     }

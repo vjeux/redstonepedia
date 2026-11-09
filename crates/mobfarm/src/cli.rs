@@ -119,7 +119,7 @@ pub enum MobfarmCmd {
     /// A void farm dug into rock (vjeux 18:18: the underground version): its containment blocks
     /// give way to natural rock, every cell its golems (any input in the exit flood, the runs),
     /// items, water, villagers, zombie, sight lines and redstone need is dug open (`terrain:
-    /// cells`), and the natural ground lies `--cover` layers above its top.
+    /// rock`), and the natural ground lies `--cover` layers above its top.
     Bury {
         design: PathBuf,
         #[arg(long)]
@@ -732,7 +732,7 @@ fn spots_cmd(version: &str, design: &PathBuf, terrain: &str, repeat: u32, all: b
     let t_world = t0.elapsed().as_secs_f64();
     let fp = site::footprint(&spec, ground).map_err(|e| anyhow::anyhow!(e))?;
     let t1 = std::time::Instant::now();
-    let spots = site::spots_for(&w, sample, fp);
+    let spots = site::spots_for_spec(&w, sample, &spec, fp, clear_box);
     let t_spots = t1.elapsed().as_secs_f64();
     let t2 = std::time::Instant::now();
     let mut cheap = Vec::new();

@@ -275,6 +275,17 @@ pub fn seals_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: boo
                 out.push((q, !place::air_like(&n)));
             }
         }
+        // (a falling block over an open cell: sand or gravel would drop into the farm when the
+        // cell is dug; a farm dug into rock seals it first)
+        let up = at(*p).above();
+        if !listed.contains(&up)
+            && world.contains(up)
+            && !out.iter().any(|(s, _)| *s == up)
+            && let crate::block::Block::Terrain(id) = world.get(up)
+            && crate::terrain::blocks::props(id).classes.iter().any(|c| c.contains("FallingBlock"))
+        {
+            out.push((up, true));
+        }
     }
     out.sort_by_key(|(p, _)| (p.y, p.z, p.x));
     out
@@ -305,6 +316,19 @@ pub fn footprint(spec: &FarmSpec, ground: i32) -> Result<Footprint, String> {
 /// The [`SPOTS`] nearest valid spots of a footprint in a sample's world: (min column, ground layer).
 pub fn spots_for(w: &World, sample: &Sample, fp: Footprint) -> Vec<([i32; 2], i32)> {
     valid_spots(w, fp.size, fp.below, sample.near, sample.radius, SPOTS)
+}
+
+/// [`spots_for`] for a design as its `terrain:` meta places it: by its box; a farm dug wholly
+/// into rock (`terrain: rock`, `FarmSpec::rock`: nothing on the surface) by its own cells under
+/// the natural surface (`valid_spots_of`, the parent's ruling 20:06: the surface stays natural, so
+/// its shape does not matter).
+pub fn spots_for_spec(w: &World, sample: &Sample, spec: &FarmSpec, fp: Footprint, clear_box: bool) -> Vec<([i32; 2], i32)> {
+    if clear_box || !spec.rock {
+        return spots_for(w, sample, fp);
+    }
+    let ground = fp.lo.y + fp.below;
+    let cells: Vec<BlockPos> = spec.blocks.iter().map(|(p, _)| BlockPos::new(p.x - fp.lo.x, p.y - ground, p.z - fp.lo.z)).collect();
+    valid_spots_of(w, fp.size, fp.below, sample.near, sample.radius, SPOTS, Some(&cells))
 }
 
 /// A standard sample's world, read and built once per process (the judge, the search, the
@@ -491,6 +515,15 @@ pub fn price_all(w: &World, spec: &FarmSpec, fp: Footprint, ground: i32, clear_b
 /// The valid min columns for a footprint near `near` (level ground within 2, no refused natural
 /// block: `place::refusal`), the `k` nearest, each with its ground layer.
 pub fn valid_spots(w: &World, size: [i32; 2], below: i32, near: [i32; 2], radius: i32, k: usize) -> Vec<([i32; 2], i32)> {
+    valid_spots_of(w, size, below, near, radius, k, None)
+}
+
+/// [`valid_spots`]; with `cells` (a `terrain: cells` design's own cells, footprint-relative:
+/// x and z from the footprint's min column, y from the ground layer, negative below it), the
+/// parent's ruling 20:06 for a farm dug into rock: the surface stays natural, so its shape does not
+/// matter. The ground layer goes at the lowest surface over the footprint (the whole design under
+/// the natural surface), and only the design's cells (and their neighbours) must be refusal-free.
+pub fn valid_spots_of(w: &World, size: [i32; 2], below: i32, near: [i32; 2], radius: i32, k: usize, cells: Option<&[BlockPos]>) -> Vec<([i32; 2], i32)> {
     let mut out: Vec<(i64, [i32; 2], i32)> = Vec::new();
     for dz in -radius..=radius {
         for dx in -radius..=radius {
@@ -506,10 +539,15 @@ pub fn valid_spots(w: &World, size: [i32; 2], below: i32, near: [i32; 2], radius
                     low = low.min(place::surface_y(w, x, z));
                 }
             }
-            if ground - low > 2 {
-                continue;
+            match cells {
+                Some(_) => out.push(((dx as i64).pow(2) + (dz as i64).pow(2), lo_xz, low)),
+                None => {
+                    if ground - low > 2 {
+                        continue;
+                    }
+                    out.push(((dx as i64).pow(2) + (dz as i64).pow(2), lo_xz, ground));
+                }
             }
-            out.push(((dx as i64).pow(2) + (dz as i64).pow(2), lo_xz, ground));
         }
     }
     out.sort();
@@ -518,9 +556,21 @@ pub fn valid_spots(w: &World, size: [i32; 2], below: i32, near: [i32; 2], radius
         if keep.len() >= k {
             break;
         }
-        let lo = BlockPos::new(lo_xz[0], ground - below, lo_xz[1]);
-        let hi = BlockPos::new(lo_xz[0] + size[0] - 1, ground, lo_xz[1] + size[1] - 1);
-        if place::refusal(w, lo, hi).is_none() {
+        let why = match cells {
+            Some(cells) => place::cells_refusal(w, cells.iter().map(|c| BlockPos::new(lo_xz[0] + c.x, ground + c.y, lo_xz[1] + c.z))),
+            None => {
+                let lo = BlockPos::new(lo_xz[0], ground - below, lo_xz[1]);
+                let hi = BlockPos::new(lo_xz[0] + size[0] - 1, ground, lo_xz[1] + size[1] - 1);
+                place::refusal(w, lo, hi)
+            }
+        };
+        // (`MCTAS_SPOT_WHY=1`: why each candidate was refused)
+        if let Some(why) = &why
+            && std::env::var("MCTAS_SPOT_WHY").is_ok()
+        {
+            eprintln!("spot {lo_xz:?} ground {ground}: {why}");
+        }
+        if why.is_none() {
             keep.push((lo_xz, ground));
         }
     }
@@ -636,7 +686,7 @@ pub fn params(spec: &FarmSpec, ground: Option<&str>, afk: Option<&str>, terrain:
         }
         None => [(lo.x + hi.x) as f64 / 2.0 + 0.5, hi.y as f64 + 1.0, (lo.z + hi.z) as f64 / 2.0 + 0.5],
     };
-    Ok((ground, afk, terrain.map(str::trim) != Some("cells")))
+    Ok((ground, afk, !matches!(terrain.map(str::trim), Some("cells") | Some("rock"))))
 }
 
 impl Site {
@@ -666,7 +716,7 @@ impl Site {
         let fp = footprint(spec, ground)?;
         let priced = {
             let w = world.lock().unwrap_or_else(|e| e.into_inner());
-            let spots = spots_for(&w, sample, fp);
+            let spots = spots_for_spec(&w, sample, spec, fp, clear_box);
             if spots.is_empty() {
                 return Err(format!("no spot for a {}x{} footprint {} deep in {}", fp.size[0], fp.size[1], fp.below, sample.name));
             }
@@ -703,6 +753,7 @@ impl Site {
             lo: at(spec.lo),
             hi: at(spec.hi),
             block_entities: spec.block_entities.iter().map(|(p, s)| (at(*p), s.clone())).collect(),
+            rock: spec.rock,
         }
     }
 
@@ -783,6 +834,7 @@ mod tests {
             lo: BlockPos::new(-8, -3, -8),
             hi: BlockPos::new(8, 8, 8),
             block_entities: Vec::new(),
+            rock: false,
         };
         let clears = clears_at(&w, &spec, [0, 0, 0], false);
         let got: Vec<([i32; 3], bool)> = clears.iter().map(|(p, b)| ([p.x, p.y, p.z], b.is_air())).collect();

@@ -55,6 +55,35 @@ pub fn footprint_cells(w: &World, lo: BlockPos, hi: BlockPos) -> Vec<BlockPos> {
     out
 }
 
+/// [`refusal`] for a farm dug into rock (`terrain: cells`): only its own `cells` (world positions)
+/// change, so only they count: no structure piece or tree trunk in a cell, every cell inside the
+/// sample. A fluid in a cell is dug out with it, and a fluid, a cave's air or a falling block
+/// beside an open cell is sealed (`site::seals_at`), so neither refuses the spot.
+pub fn cells_refusal(w: &World, cells: impl Iterator<Item = BlockPos>) -> Option<String> {
+    let cells: std::collections::HashSet<BlockPos> = cells.collect();
+    if let Some(l) = w.land.as_ref() {
+        for s in &l.structures {
+            for b in &s.pieces {
+                if cells.iter().any(|p| p.x >= b[0] && p.x <= b[3] && p.y >= b[1] && p.y <= b[4] && p.z >= b[2] && p.z <= b[5]) {
+                    return Some(format!("a piece of {} ({},{},{})..({},{},{}) holds a cell of the farm", s.id, b[0], b[1], b[2], b[3], b[4], b[5]));
+                }
+            }
+        }
+    }
+    for &p in &cells {
+        if !w.contains(p) {
+            return Some(format!("the farm's cell {p} is outside the sample"));
+        }
+        let b = w.get(p);
+        if let Some(props) = natural_class(&b)
+            && props.has_tag("minecraft:logs")
+        {
+            return Some(format!("{} at {p} is in a cell of the farm (a tree trunk)", props.name));
+        }
+    }
+    None
+}
+
 /// Why a footprint cannot be cleared there (`None`: it can).
 pub fn refusal(w: &World, lo: BlockPos, hi: BlockPos) -> Option<String> {
     let inside = |p: BlockPos| p.x >= lo.x && p.x <= hi.x && p.z >= lo.z && p.z <= hi.z && p.y >= lo.y;

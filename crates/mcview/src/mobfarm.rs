@@ -59,7 +59,7 @@ pub fn spec(d: &Design) -> Result<FarmSpec, String> {
     blocks.sort_by_key(|(q, _)| [q.x, q.y, q.z]);
     let entities = d.entities.iter().map(|e| (e.kind.clone(), e.pos, e.nbt.clone())).collect();
     let block_entities = d.block_entities.iter().map(|(p, s)| (bp(*p), s.clone())).collect();
-    Ok(FarmSpec { blocks, entities, output: bp(out), lo: BlockPos::new(lo[0] - m, lo[1] - m, lo[2] - m), hi: BlockPos::new(hi[0] + m, hi[1] + m, hi[2] + m), block_entities })
+    Ok(FarmSpec { blocks, entities, output: bp(out), lo: BlockPos::new(lo[0] - m, lo[1] - m, lo[2] - m), hi: BlockPos::new(hi[0] + m, hi[1] + m, hi[2] + m), block_entities, rock: d.meta.get("terrain").map(|t| t.trim()) == Some("rock") })
 }
 
 /// The judge's run of the base build with seed `seed` (steady state, random walking policies): for

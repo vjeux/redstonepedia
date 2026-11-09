@@ -1,6 +1,6 @@
 //! A void farm dug into rock (vjeux 18:18, the + layouts' underground version: "channels dug
 //! through rock, nothing on the surface"): the design's containment blocks give way to natural
-//! rock, every cell the farm needs open is dug (`terrain: cells`), and the natural ground lies
+//! rock, every cell the farm needs open is dug (`terrain: rock`), and the natural ground lies
 //! above its top, so the terrain judge, its access stair and the build's travel price it.
 
 use anyhow::{Result, anyhow};
@@ -37,7 +37,10 @@ pub fn envelope(spec: &FarmSpec, design: &mctas::design::Design, seeds: u32, tic
                     r.world.entities.list.iter().filter(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == ty)).map(|e| redsim::entity::Vec3::new(e.pos.x, e.pos.y + e.kind.eye_height() as f64, e.pos.z)).collect()
                 };
                 for v in eyes(MobType::Villager) {
-                    for z in eyes(MobType::Zombie) {
+                    // (only a zombie the villager can panic at: within 8 blocks,
+                    // `VillagerHostilesSensor`; a line to another module's zombie opens nothing
+                    // the farm needs)
+                    for z in eyes(MobType::Zombie).into_iter().filter(|z| z.distance_to_sqr(v) <= 10.0 * 10.0) {
                         for k in 0..=200 {
                             let f = k as f64 / 200.0;
                             let p = redsim::entity::Vec3::new(v.x + (z.x - v.x) * f, v.y + (z.y - v.y) * f, v.z + (z.z - v.z) * f);
@@ -120,7 +123,7 @@ fn containment(s: &str) -> bool {
 
 /// The buried design: containment blocks outside the envelope and away from redstone removed
 /// (natural rock in their place), the envelope's open cells dug (`air`), the natural ground layer
-/// `cover` layers above the design's top (`ground:`), only its own cells dug (`terrain: cells`),
+/// `cover` layers above the design's top (`ground:`), only its own cells dug (`terrain: rock`),
 /// the AFK spot on the surface above its middle. Returns (design, blocks removed, cells dug open).
 pub fn bury(design: &mctas::design::Design, cells: &BTreeSet<[i32; 3]>, fluids: &BTreeSet<[i32; 3]>, cover: i32) -> (mctas::design::Design, usize, usize) {
     let mut d = design.clone();
@@ -135,6 +138,21 @@ pub fn bury(design: &mctas::design::Design, cells: &BTreeSet<[i32; 3]>, fluids: 
             d.blocks.insert(*c, "minecraft:air".to_string());
             opened += 1;
         }
+    }
+    // an open cell beside a bed at its level that the rock would floor (none in the void) is where
+    // a woken villager stands up, outside its cell: the cell under it is dug too, so it has no
+    // floor (`DismountHelper`: no floor in the cell or the one below), as in the void
+    let beds: Vec<[i32; 3]> = design.blocks.iter().filter(|(_, s)| name(s).ends_with("_bed")).map(|(p, _)| *p).collect();
+    let deepen: Vec<[i32; 3]> = d
+        .blocks
+        .iter()
+        .filter(|(c, s)| name(s) == "air" && beds.iter().any(|b| b[1] == c[1] && (b[0] - c[0]).abs() <= 1 && (b[2] - c[2]).abs() <= 1))
+        .map(|(c, _)| [c[0], c[1] - 1, c[2]])
+        .filter(|q| !d.blocks.contains_key(q))
+        .collect();
+    for q in deepen {
+        d.blocks.insert(q, "minecraft:air".to_string());
+        opened += 1;
     }
     // an open cell the rock now floors (in the void nothing lay below it) with two open cells above
     // is a new golem spawn spot (and a mob's): a torch there (no collision, so no sight is cut, and
@@ -153,11 +171,13 @@ pub fn bury(design: &mctas::design::Design, cells: &BTreeSet<[i32; 3]>, fluids: 
         d.blocks.insert(*c, "minecraft:torch".to_string());
     }
     let (lo, hi) = bounds(design);
-    // (the ground more than 6 above every villager: a golem search scans down from 6 above the
-    // villager, and a natural surface within that is a spot outside the farm)
+    // (`ground:` as the site reads it: the player's feet on the natural surface, its top block one
+    // below; the farm's top under that block, and the ground 8 above every villager: a golem search
+    // starts at the villager's cell or one above it (woken in a 1-cell pod) and scans down from 6
+    // above that, so a natural top block at the start + 6 or lower is a spot outside the farm)
     let top_villager = design.entities.iter().filter(|e| e.kind.trim_start_matches("minecraft:") == "villager").map(|e| e.pos[1].floor() as i32).max().unwrap_or(hi[1]);
-    let ground = (hi[1] + cover).max(top_villager + 7);
-    d.meta.insert("terrain".into(), "cells".into());
+    let ground = (hi[1] + 1 + cover).max(top_villager + 8);
+    d.meta.insert("terrain".into(), "rock".into());
     d.meta.insert("ground".into(), ground.to_string());
     d.meta.insert("afk".into(), format!("{} {} {}", (lo[0] + hi[0]) / 2, ground + 1, (lo[2] + hi[2]) / 2));
     (d, drop.len(), opened)

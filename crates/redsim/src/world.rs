@@ -567,7 +567,10 @@ impl World {
     /// `Level.setBlock` (+ `LevelChunk.setBlockState`).
     pub fn set_block_limit(&mut self, pos: BlockPos, state: Block, fl: u32, limit: i32) -> bool {
         if !self.contains(pos) {
-            if !state.is_air() {
+            // (a terrain sample's crop: a natural fire spreading past its edge, from a lava lake
+            // at the crop's bottom, is the crop's edge, not the farm's doing; the game's world goes
+            // on there)
+            if !state.is_air() && !(self.land.is_some() && matches!(state, Block::Fire { .. })) {
                 self.errors.push(format!("setBlock outside the box at {pos}: {state}"));
             }
             return false;

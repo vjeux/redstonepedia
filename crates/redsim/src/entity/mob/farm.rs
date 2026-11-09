@@ -43,6 +43,9 @@ pub struct FarmSpec {
     /// Its block entities (`nbt:` lines: position, SNBT), applied after the raw paste and before
     /// the updates, like the game check's placement (a sorter's filter items).
     pub block_entities: Vec<(BlockPos, String)>,
+    /// A farm dug wholly into rock (`terrain: rock`, `mobfarm bury`'s): only its own cells dug,
+    /// placed at any spot where they lie under the natural surface (`site::spots_for_spec`).
+    pub rock: bool,
 }
 
 impl FarmSpec {

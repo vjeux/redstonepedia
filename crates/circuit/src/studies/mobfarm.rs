@@ -207,7 +207,7 @@ pub fn terrain_sites(c: &Circuit, spec: &FarmSpec, sample: &'static redsim::terr
     let fp = ts::footprint(spec, ground)?;
     let priced = {
         let w = shared.lock().unwrap_or_else(|e| e.into_inner());
-        let spots = ts::spots_for(&w, sample, fp);
+        let spots = ts::spots_for_spec(&w, sample, spec, fp, clear_box);
         if spots.is_empty() {
             return Err(format!("no spot for a {}x{} footprint {} deep in {}", fp.size[0], fp.size[1], fp.below, sample.name));
         }
@@ -437,10 +437,10 @@ pub fn site_bill(c: &Circuit, site: Option<&redsim::entity::mob::site::Site>, st
             (s.dug + s.seals.iter().filter(|(_, d)| *d).count() as u32 + s.clears.len() as u32 + adug, extra)
         }
         // a void design that names its `ground:` (the parent's ruling, 19:27: "a void design whose
-        // base is the ground and the storage is dug below it"): every cell it has at or below the
-        // ground layer is dug first
+        // base is the ground and the storage is dug below it"; `ground:` as a terrain design's,
+        // the player's feet on the ground): every cell it has below that layer is dug first
         None => match c.clock.design.meta.get("ground").and_then(|g| g.trim().parse::<i32>().ok()) {
-            Some(g) => (c.clock.design.blocks.keys().filter(|p| p[1] <= g).count() as u32, Vec::new()),
+            Some(g) => (c.clock.design.blocks.keys().filter(|p| p[1] < g).count() as u32, Vec::new()),
             None => (0, Vec::new()),
         },
     };
@@ -484,7 +484,7 @@ pub fn site_bill(c: &Circuit, site: Option<&redsim::entity::mob::site::Site>, st
     // (a void design stands on its lowest layer, or on its named ground: then the cells below are
     // in a dug pit, like a terrain build's)
     let surface = match (site, ground_meta) {
-        (Some(_), _) | (None, Some(_)) => ground + 1,
+        (Some(_), _) | (None, Some(_)) => ground,
         (None, None) => placed.iter().map(|(p, _)| p[1]).min().unwrap_or(0),
     };
     let in_rock = site.is_some() || ground_meta.is_some();
@@ -675,7 +675,7 @@ pub fn spec_of(c: &Circuit) -> std::result::Result<FarmSpec, String> {
     blocks.sort_by_key(|(q, _)| [q.x, q.y, q.z]);
     let entities = d.entities.iter().map(|e| (e.kind.clone(), e.pos, e.nbt.clone())).collect();
     let block_entities = d.block_entities.iter().map(|(p, s)| (bp(*p), s.clone())).collect();
-    Ok(FarmSpec { blocks, entities, output: bp(out), lo: bp(from), hi: bp(to), block_entities })
+    Ok(FarmSpec { blocks, entities, output: bp(out), lo: bp(from), hi: bp(to), block_entities, rock: d.meta.get("terrain").map(|t| t.trim()) == Some("rock") })
 }
 
 /// What the judge runs.
