@@ -892,6 +892,10 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
     let mut table: Vec<String> = runs.iter().enumerate().map(|(k, r)| run_line(&format!("run {k}"), r)).collect();
     if let Some(b) = base {
         table.push(format!("  golem exit: {} spawn spots, {} positions, {} drift runs, every golem dead within {} gt", b.exit.spawn_spots, b.exit.starts, b.exit.runs, b.exit.worst_life));
+        for s in &b.exit.walk_stalls {
+            table.push(format!("  golem exit (reported, a constant walk): {s}"));
+        }
+        table.push(format!("  golems that targeted the farm's zombie, per run: {}", runs.iter().map(|r| r.golems_at_zombie.to_string()).collect::<Vec<_>>().join(" ")));
         for (p, r) in &b.worst {
             table.push(run_line(&format!("every golem {}", p.name()), r));
         }
@@ -943,10 +947,28 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
         ("modules".to_string(), modules.to_string()),
         ("iron per hour per module".to_string(), format!("{:.0}", iron / modules as f64)),
         ("kill".to_string(), format!("{:.0} gt", mean(&lifetimes))),
+        // the kill-time tail with its sample's bound (iteration 13: a golem alive past the limit
+        // in any run fails it; none in G golems bounds the share at 3 / G at 95%)
+        ("kill tail".to_string(), {
+            let g: u32 = all.iter().map(|r| r.golems).sum();
+            let longest = lifetimes.iter().cloned().fold(0.0, f64::max);
+            format!("the longest {longest:.0} gt: no golem outlived {} gt in {g} golems (95% bound {:.2}% a golem)", redsim::entity::mob::farm::MAX_GOLEM_LIFE, 300.0 / g.max(1) as f64)
+        }),
+        ("golems at the zombie".to_string(), {
+            let g: u32 = all.iter().map(|r| r.golems).sum();
+            format!("{} of {g} golems targeted the farm's zombie", all.iter().map(|r| r.golems_at_zombie).sum::<u32>())
+        }),
     ];
     if let Some(bc) = base {
         if let Some((p, r)) = bc.worst.iter().min_by(|a, b| a.1.iron_per_hour().total_cmp(&b.1.iron_per_hour())) {
             metrics.push(("worst policy".to_string(), format!("{:.0} iron/h ({})", r.iron_per_hour(), p.name())));
+        } else {
+            // (with the mob AI the golems walk by their goals; the exit flood's constant walking
+            // inputs are reported here, not refused: brief rev 9 iteration 13)
+            metrics.push(("worst policy".to_string(), match bc.exit.walk_stalls.len() {
+                0 => "every constant walk reaches the kill".to_string(),
+                n => format!("{n} constant walks keep a golem alive past {} gt (reported; walking is judged by the mob AI and the game)", redsim::entity::mob::farm::MAX_GOLEM_LIFE),
+            }));
         }
         metrics.push(("restarts after a missed night".to_string(), if bc.restart.is_some() { "yes".to_string() } else { "no (hide the zombie by hand the first night)".to_string() }));
         let firsts: Vec<f64> = bc.away.iter().filter_map(|(_, _, _, a)| a.first_golem).map(|t| t as f64 / 72000.0).collect();
@@ -1001,8 +1023,9 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
             Ok(bill) => format!("{:.0} min at {} prices", bill.seconds / 60.0, ["day-1", "middle", "late"][stage]),
             Err(e) => format!("none ({e})"),
         };
-        let most = priced.as_ref().map(|bill| format!("; the most: {}", bill.line())).unwrap_or_default();
-        metrics.push(("build time".to_string(), format!("{head} ({} placed, {} lava sources in {lava_trips} trips, {} villagers{most})", effort.placed, b.lava, b.villagers)));
+        // (the site's cards read `N placed`, `N dug`, `N lava trips` and `N villagers moved` from
+        // the parentheses: crates/site/src/cards.rs)
+        metrics.push(("build time".to_string(), format!("{head} ({} placed, 0 dug, {lava_trips} lava trips, {} villagers moved)", effort.placed, b.villagers)));
         if iron > 0.0
             && let Ok(bill) = &priced
         {

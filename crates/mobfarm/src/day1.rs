@@ -837,21 +837,7 @@ pub fn shared_kill(b: &mut Builder, drops: &[[i32; 3]], villagers_y: i32) -> any
         }
     }
     // the drops: each shaft straight down from its bottom cell to the channel, walled
-    for d in drops {
-        for x in d[0] - 1..=d[0] + 4 {
-            let f = feet(x.clamp(xa, xe));
-            for y in f + 4..y_drop {
-                for z in z0 - 1..=z0 + 4 {
-                    let inside = (d[0]..=d[0] + 3).contains(&x) && (z0..=z0 + 3).contains(&z);
-                    if inside {
-                        b.d.blocks.remove(&[x, y, z]);
-                    } else if !(over(x) && (z0..=z0 + 3).contains(&z)) {
-                        b.set(x, y, z, STONE);
-                    }
-                }
-            }
-        }
-    }
+    drop_shafts(b, drops, &feet, &over, y_drop, z0);
     // the flow: a row of sources at the channel's west end and at each drop's first column
     for x in &sources {
         for z in z0..=z0 + 3 {
@@ -891,16 +877,117 @@ pub fn shared_kill(b: &mut Builder, drops: &[[i32; 3]], villagers_y: i32) -> any
     Ok(out)
 }
 
+/// Where a shared kill kills ([`shared_kill_form`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KillForm {
+    /// A blade at each drop's bottom; the channel carries only drops (ironspec's (b)).
+    Blades,
+    /// The channel carries the golems to one blade chamber at its end (ironspec's iteration 13:
+    /// counts once the judge's drift check refuses only escapes and the still policy).
+    Channel,
+}
+
+/// [`shared_kill`] in either form: `Channel` sends the golems themselves down the channel (one
+/// row of sources at its west end, a step down 1 every 7 cells) into one [`chamber_safe`] north of
+/// its last 4 cells (sources in their south corners push them in), its output chest and a hopper
+/// and a chest under it for every 2 modules.
+pub fn shared_kill_form(b: &mut Builder, drops: &[[i32; 3]], villagers_y: i32, form: KillForm) -> anyhow::Result<[i32; 3]> {
+    if form == KillForm::Blades {
+        return shared_kill(b, drops, villagers_y);
+    }
+    let mut starts: Vec<i32> = drops.iter().map(|d| d[0]).collect();
+    starts.sort();
+    let (Some(first), Some(&last)) = (drops.iter().min_by_key(|d| d[0]), starts.last()) else {
+        anyhow::bail!("shared kill: no drops");
+    };
+    let (y_drop, z0) = (first[1], first[2]);
+    if drops.iter().any(|d| d[1] != y_drop || d[2] != z0) {
+        anyhow::bail!("shared kill: every drop's bottom cell must be at one y and one z (a row along x)");
+    }
+    let (xa, xe) = (starts[0], last + 3 + 4);
+    let f0 = (villagers_y - 24).min(y_drop - 1);
+    let step = |x: i32| f0 - (x - xa).div_euclid(7);
+    let f_end = step(xe - 3);
+    let feet = |x: i32| if x >= xe - 3 { f_end } else { step(x.clamp(xa, xe)) };
+    let over = |x: i32| drops.iter().any(|d| (d[0]..=d[0] + 3).contains(&x));
+    for x in xa - 1..=xe + 1 {
+        let f = feet(x);
+        let top = feet(x - 1).max(f) + 3;
+        for z in z0 - 1..=z0 + 4 {
+            let wall = x == xa - 1 || x == xe + 1 || z == z0 - 1 || z == z0 + 4;
+            b.set(x, f - 1, z, STONE);
+            // (the chamber's mouth on the end area's north side stays open)
+            if wall && z == z0 - 1 && (xe - 3..=xe).contains(&x) {
+                continue;
+            }
+            for y in f..=top {
+                if wall {
+                    b.set(x, y, z, STONE);
+                } else {
+                    b.d.blocks.remove(&[x, y, z]);
+                }
+            }
+        }
+    }
+    drop_shafts(b, drops, &feet, &over, y_drop, z0);
+    for z in z0..=z0 + 3 {
+        b.set(xa, f0, z, "water[level=0]");
+    }
+    b.set(xe - 3, f_end, z0 + 3, "water[level=0]");
+    b.set(xe, f_end, z0 + 3, "water[level=0]");
+    let mut c = Builder::new("chamber");
+    chamber_safe(&mut c, f_end);
+    let (dx, dz) = (xe - 3 - 1, z0 - 3);
+    for (p, s) in &c.d.blocks {
+        b.set(p[0] + dx, p[1], p[2] + dz, s);
+    }
+    // (the channel's flow reaches the chamber's corners too: its whole lava row's floor is hoppers)
+    b.set(dx + 1, f_end - 1, dz + 1, "hopper[enabled=true,facing=east]");
+    b.set(dx + 4, f_end - 1, dz + 1, "hopper[enabled=true,facing=west]");
+    let o = c.d.ports["output"];
+    let out = [o[0] + dx, o[1], o[2] + dz];
+    for i in 0..(drops.len() as i32 + 1) / 2 {
+        b.set(out[0], out[1] - 1 - 2 * i, out[2], "hopper[enabled=true,facing=down]");
+        b.set(out[0], out[1] - 2 - 2 * i, out[2], "chest[facing=north,type=single,waterlogged=false]");
+    }
+    b.d.ports.insert("output".into(), out);
+    Ok(out)
+}
+
+/// Each drop's shaft straight down from its bottom cell to the channel (feet `feet(x)`), walled.
+fn drop_shafts(b: &mut Builder, drops: &[[i32; 3]], feet: &dyn Fn(i32) -> i32, over: &dyn Fn(i32) -> bool, y_drop: i32, z0: i32) {
+    for d in drops {
+        for x in d[0] - 1..=d[0] + 4 {
+            let f = feet(x);
+            for y in f + 4..y_drop {
+                for z in z0 - 1..=z0 + 4 {
+                    let inside = (d[0]..=d[0] + 3).contains(&x) && (z0..=z0 + 3).contains(&z);
+                    if inside {
+                        b.d.blocks.remove(&[x, y, z]);
+                    } else if !(over(x) && (z0..=z0 + 3).contains(&z)) {
+                        b.set(x, y, z, STONE);
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// A row of M2-open-ring modules `pitch` apart on x sharing one kill ([`shared_kill`]): each
 /// module without its own chamber, its shaft opened at the bottom into the channel.
 pub fn row_shared(modules: i32, pitch: i32, n: i32, l_min: u32, stage: crate::parts::Stage) -> anyhow::Result<String> {
+    row_shared_form(modules, pitch, n, l_min, stage, KillForm::Blades)
+}
+
+/// [`row_shared`] with the kill in either form ([`shared_kill_form`]).
+pub fn row_shared_form(modules: i32, pitch: i32, n: i32, l_min: u32, stage: crate::parts::Stage, form: KillForm) -> anyhow::Result<String> {
     let k = -22;
     // (the module's own chamber: none; the judge's port where it was, for the module's spot check)
     let none = |b: &mut Builder, k: i32| {
         b.d.ports.insert("output".into(), [3, k - 2, 1]);
     };
     let (m, _, _, _) = m2_timer_module(n, l_min, stage, &none)?;
-    let mut b = Builder::new(&format!("iron-late-row-shared-{modules}x{pitch}"));
+    let mut b = Builder::new(&format!("iron-late-row-{}-{modules}x{pitch}", if form == KillForm::Channel { "channel" } else { "shared" }));
     b.d.meta = m.d.meta.clone();
     let mut drops = Vec::new();
     for i in 0..modules {
@@ -927,7 +1014,7 @@ pub fn row_shared(modules: i32, pitch: i32, n: i32, l_min: u32, stage: crate::pa
         }
         drops.push([1 + dx, k, 3]);
     }
-    shared_kill(&mut b, &drops, 0)?;
+    shared_kill_form(&mut b, &drops, 0, form)?;
     Ok(b.text(&[
         &format!("{modules} farms side by side, {pitch} blocks apart, each with its own villagers, zombie and comparator-ring timer; their"),
         "golems fall to one water channel deep below every farm's sight, which carries them to one lava chamber and one chest.",

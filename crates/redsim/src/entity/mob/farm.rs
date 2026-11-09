@@ -167,6 +167,9 @@ pub struct RunReport {
     pub entities_sum: u64,
     pub entity_samples: u32,
     pub entities_peak: u32,
+    /// Golems whose AI target was the farm's zombie at some tick (each once; brief rev 9
+    /// iteration 13: printed per run).
+    pub golems_at_zombie: u32,
 }
 
 /// The weather of one run (mobinfra): ticks raining (`isRaining`) and thundering, bolts, what they
@@ -431,13 +434,15 @@ struct Track {
     /// The farm's entities ([`Run::own`]) and the golems its villagers summoned: the only ones the
     /// checks judge (a terrain run's natural mobs and village are not the farm's).
     own: std::collections::HashSet<u32>,
+    /// The golems already counted in `RunReport::golems_at_zombie`.
+    at_zombie: std::collections::HashSet<u32>,
 }
 
 impl Track {
     /// The tracking of a run that just arrived: its own villagers' homes and last sleeps.
     fn new(r: &Run, spec: &FarmSpec) -> Track {
         let own: std::collections::HashSet<u32> = r.own.iter().copied().collect();
-        let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0, own };
+        let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0, own, at_zombie: Default::default() };
         for e in &r.world.entities.list {
             if let EntityKind::Mob(m) = &e.kind
                 && m.ty == MobType::Villager
@@ -800,6 +805,14 @@ fn check_tick(w: &World, rep: &mut RunReport, tr: &mut Track, spec: &FarmSpec, t
             MobType::IronGolem => {
                 if let Some(why) = golem_breaks_rule(w, g, inner, t, &own) {
                     rep.fail(why);
+                }
+                // (a golem whose goals took the farm's zombie as its target: iteration 13)
+                if let Some(z) = zombie
+                    && super::ai::has_ai(w, g)
+                    && super::ai::ai(w, g).target == Some(z.id)
+                    && tr.at_zombie.insert(e.id)
+                {
+                    rep.golems_at_zombie += 1;
                 }
                 if !m.dead {
                     let c = e.block_position();

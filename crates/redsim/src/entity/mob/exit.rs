@@ -44,6 +44,10 @@ pub struct ExitReport {
     pub worst_life: i64,
     /// What broke (empty: every run killed its golem in time).
     pub failures: Vec<String>,
+    /// Walking inputs that kept a golem alive past [`MAX_GOLEM_LIFE`] without an escape (brief
+    /// rev 9 iteration 13: reported on the card, not refused; golem walking is judged by the AI-on
+    /// runs and the game gate).
+    pub walk_stalls: Vec<String>,
 }
 
 /// Every cell where a golem can spawn in this world: for each villager, its 17 x 17 columns
@@ -83,26 +87,28 @@ struct Drift {
     died_at: Option<i64>,
     visited: Vec<(BlockPos, Vec3)>,
     fail: Option<String>,
+    /// A walking input's golem alive past the limit without an escape (iteration 13: reported).
+    stall: Option<String>,
 }
 
 /// A lone golem at `start` under `policy` in a copy of `base` (`own`: the farm's entities).
 fn drift(base: &World, spec: &FarmSpec, own: &[u32], start: Vec3, policy: Walk) -> Drift {
     let mut w = base.clone();
     let id = super::add(&mut w, MobType::IronGolem, start, false);
-    let Some(g) = crate::entity::index_of(&w, id) else { return Drift { died_at: None, visited: Vec::new(), fail: Some("the golem could not be added".into()) } };
+    let Some(g) = crate::entity::index_of(&w, id) else { return Drift { died_at: None, visited: Vec::new(), fail: Some("the golem could not be added".into()), stall: None } };
     mob_mut(&mut w, g).walk = policy;
     w.mob.events.clear();
     let inner = spec.inner();
     let mut visited: Vec<(BlockPos, Vec3)> = Vec::new();
     let mut last = start;
     let mut still_for = 0;
-    let fail = |visited, why: String| Drift { died_at: None, visited, fail: Some(why) };
+    let fail = |visited, why: String| Drift { died_at: None, visited, fail: Some(why), stall: None };
     for t in 1..=MAX_GOLEM_LIFE {
         w.tick();
         let died = w.mob.events.iter().any(|e| matches!(e, MobEvent::Death { id: d, .. } if *d == id));
         w.mob.events.clear();
         if died {
-            return Drift { died_at: Some(t), visited, fail: None };
+            return Drift { died_at: Some(t), visited, fail: None, stall: None };
         }
         let Some(g) = crate::entity::index_of(&w, id) else { return fail(visited, "the golem vanished without dying".into()) };
         if let Some(why) = golem_breaks_rule(&w, g, inner, t, own) {
@@ -125,12 +131,16 @@ fn drift(base: &World, spec: &FarmSpec, own: &[u32], start: Vec3, policy: Walk) 
             }
         }
     }
-    match crate::entity::index_of(&w, id) {
-        Some(g) => {
-            let p = w.entities.list[g].pos;
-            fail(visited, format!("alive {MAX_GOLEM_LIFE} gt after it started (at {:.2} {:.2} {:.2}): nothing kills it", p.x, p.y, p.z))
-        }
-        None => fail(visited, format!("alive {MAX_GOLEM_LIFE} gt after it started: nothing kills it")),
+    // alive at the limit: under still a refusal (dead water: nothing carries it), under a walking
+    // input a stall the card reports (brief rev 9 iteration 13: a constant walk is no golem's
+    // goal; the AI-on runs and the game gate judge walking)
+    let p = crate::entity::index_of(&w, id).map(|g| w.entities.list[g].pos);
+    let at = p.map_or(String::new(), |p| format!(" (at {:.2} {:.2} {:.2})", p.x, p.y, p.z));
+    let why = format!("alive {MAX_GOLEM_LIFE} gt after it started{at}: nothing kills it");
+    if policy == Walk::Still {
+        fail(visited, why)
+    } else {
+        Drift { died_at: None, visited, fail: None, stall: Some(why) }
     }
 }
 
@@ -191,6 +201,11 @@ pub fn golem_exit_in(spec: &FarmSpec, site: Option<&'static super::site::Site>, 
             }
             if let Some(t) = d.died_at {
                 rep.worst_life = rep.worst_life.max(t);
+            }
+            if let Some(st) = d.stall
+                && rep.walk_stalls.len() < 6
+            {
+                rep.walk_stalls.push(format!("a golem from {:.4} {:.2} {:.4} walking {}: {st}", s.x, s.y, s.z, p.name()));
             }
             for (c, pos) in d.visited {
                 if seen.insert(c) {
@@ -290,5 +305,5 @@ fn run_parallel(base: &World, spec: &FarmSpec, own: &[u32], jobs: &[(Vec3, Walk)
             });
         }
     });
-    out.into_inner().unwrap().into_iter().map(|d| d.unwrap_or(Drift { died_at: None, visited: Vec::new(), fail: Some("not run".into()) })).collect()
+    out.into_inner().unwrap().into_iter().map(|d| d.unwrap_or(Drift { died_at: None, visited: Vec::new(), fail: Some("not run".into()), stall: None })).collect()
 }
