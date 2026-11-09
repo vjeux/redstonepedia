@@ -1,13 +1,13 @@
-# CIRCUIT: iron-cross-4x21 mob-farm iron_ingot middle iron per hour per block 0.90, iron per hour 1776, iron range 95% 1767-1785 (64 runs), golems per hour 446.3, seconds per golem 8.1, share of ceiling 93%, modules 4, iron per hour per module 444, kill 507 gt, kill tail the longest 607 gt: no golem outlived 1200 gt in 47604 golems (95% bound 0.01% a golem), golems at the zombie 144 of 47604 golems targeted the farm's zombie, neighbour sightings 591 of 47604 golems sensed by another group (591 sensings, 0.01 a golem), worst policy 6 constant walks keep a golem alive past 1200 gt (reported; walking is judged by the mob AI and the game), lips none (no golem stands dry beside a current), restarts after a missed night yes, restarts after days away yes (unloaded or not ticking, back by day or at night: the first golem 0.0-0.1 h after the return), rain clear day 1789 iron/h; rain day 1777 iron/h; thunder day 1735 iron/h, lightning about 0.00037 iron lost per thunderstorm; villagers turned into witches about every 402 game days (one strike can take up to 4); the zombie's boat broken about every 3110 game days; a fire beside a flammable block about every 437 game days; a skeleton trap horse on the farm about every 1763 game days; the farm breaks in about 198 game days (a villager made a witch first); thunderstorms 1.4% of the time (6211 gt each on average), thunder loss 314.2, sunburn never (the zombie never sees the sky), fire never, misses 45160 of 92764 tries found no spot, 43809 golem sightings, bill 66 iron, 12 quartz, 16 villagers, 16 beds, 4 zombies, payback 2 min, build time 108 min at middle prices (1953 placed, 0 dug, 1 lava trips, 16 villagers moved), time to an iron kit 109 min (the build, then 24 iron at the card's rate, then the trip to the chest), build minutes 108.4, t kit minutes 109.3, collecting 2 s per trip to the chest (2 x its depth, 2 layers, at the access's speed), iron per hour sleeping 1779, volume per module 38416, entities alive 27.3, entities peak 33, tools bucket 3 + iron pickaxe 3, lava sources 16, materials Nether: quartz in 12 blocks, chunk columns 16, storage 8.7 h (303 slots; 448 poppies/h), hoppers per 1000 iron/h 6.8, 1973 blocks, 56x49x56, redsim (robust)
+# CIRCUIT: iron-cross-4x21 mob-farm iron_ingot middle iron per hour per block 0.89, iron per hour 1779, iron range 95% 1771-1787 (64 runs), golems per hour 446.4, seconds per golem 8.1, share of ceiling 93%, modules 4, iron per hour per module 445, kill 506 gt, kill tail the longest 607 gt: no golem outlived 1200 gt in 47619 golems (95% bound 0.01% a golem), golems at the zombie 155 of 47619 golems targeted the farm's zombie, neighbour sightings 575 of 47619 golems sensed by another group (575 sensings, 0.01 a golem), worst policy 6 constant walks keep a golem alive past 1200 gt (reported; walking is judged by the mob AI and the game), lips none (no golem stands dry beside a current), restarts after a missed night yes, restarts after days away yes (unloaded or not ticking, back by day or at night: the first golem 0.0-0.1 h after the return), rain clear day 1790 iron/h; rain day 1777 iron/h; thunder day 1733 iron/h, lightning about 0.00036 iron lost per thunderstorm; villagers turned into witches about every 402 game days (one strike can take up to 4); the zombie's boat broken about every 3110 game days; a fire beside a flammable block about every 437 game days; a skeleton trap horse on the farm about every 1763 game days; the farm breaks in about 198 game days (a villager made a witch first); thunderstorms 1.4% of the time (6211 gt each on average), thunder loss 314.7, sunburn never (the zombie never sees the sky), fire never, misses 45223 of 92842 tries found no spot, 43860 golem sightings, bill 71 iron, 16 quartz, 16 villagers, 16 beds, 4 zombies, payback 2 min, build time 136 min at middle prices (1986 placed, 0 dug, 1 lava trips, 16 villagers moved), time to an iron kit 137 min (the build, then 24 iron at the card's rate, then the trip to the chest), build minutes 135.6, t kit minutes 136.5, collecting 7 s per trip to the chest (2 x its depth, 7 layers, at the access's speed), iron per hour sleeping 1784, volume per module 29792, entities alive 27.3, entities peak 32, tools bucket 3 + iron pickaxe 3, lava sources 16, materials Nether: quartz in 16 blocks, chunk columns 16, storage 4.6 h (163 slots; 442 poppies/h), hoppers per 1000 iron/h 6.2, 2006 blocks, 56x38x56, redsim (robust)
 # Four farms around one kill chamber, 21 blocks from its centre: each farm's golems fall into a fenced water channel deep below
-# every farm's sight; the four channels meet in the middle under one lava blade, and one chest with 8 hours of storage collects everything.
+# every farm's sight; the four channels meet in the middle under one lava blade; a sorter sends the poppies to their chests and the iron to a crafter packing it into one chest of iron blocks (8.7 hours).
 name: iron-cross-4x21
 circuit: mob-farm iron_ingot
 ground: -26
 how: farms around one kill chamber
 parts: hide off-delay-ring-L24 + a repeater
 restart: yes
-port output: 3 -28 21
+port output: 4 -33 21
 entity: minecraft:villager 0.5 0.5625 0.5
 entity: minecraft:villager 2.5 0.5625 0.5
 entity: minecraft:villager 4.5 0.5625 0.5
@@ -28,700 +28,83 @@ entity: minecraft:villager -17.5 0.5625 21.5 {Rotation:[270.0f,0.0f]}
 entity: minecraft:villager -17.5 0.5625 19.5 {Rotation:[270.0f,0.0f]}
 entity: minecraft:villager -17.5 0.5625 25.5 {Rotation:[270.0f,0.0f]}
 entity: minecraft:oak_boat -24.8 0.5 21.5 {Rotation:[270.0f,0.0f],Passengers:[{id:"minecraft:zombie"}]}
+nbt: 3 -32 20 {disabled_slots:[I;0,1,2,3,4,5,6,7,8]}
+nbt: 3 -30 21 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:64},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}}]}
+nbt: 3 -29 21 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:41},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}}]}
+nbt: 4 -29 21 {Items:[{Slot:0b,id:"minecraft:poppy",count:64},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy lock"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy lock"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy lock"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy lock"}}]}
+nbt: 4 -28 21 {Items:[{Slot:0b,id:"minecraft:poppy",count:41},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}}]}
 origin: -25 0 -7
 palette:
-  $ minecraft:repeater[delay=2,facing=west,locked=false,powered=false]
-  % minecraft:water[level=0]
-  0 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
-  1 minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
-  2 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
-  3 minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
-  4 minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
-  5 minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
-  6 minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
-  7 minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
-  8 minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
-  9 minecraft:repeater[delay=2,facing=north,locked=false,powered=false]
-  @ minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+  $ minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  % minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  & minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  * minecraft:repeater[delay=2,facing=north,locked=false,powered=false]
+  + minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+  0 minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+  1 minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=none]
+  2 minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+  3 minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  4 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=none]
+  5 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  6 minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
+  7 minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  8 minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  9 minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  = minecraft:repeater[delay=2,facing=west,locked=false,powered=false]
+  ? minecraft:water[level=0]
+  @ minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
   A minecraft:cobblestone_slab[type=bottom,waterlogged=false]
   B minecraft:comparator[facing=east,mode=compare,powered=false]
   C minecraft:chest[facing=north,type=single,waterlogged=false]
   D minecraft:comparator[facing=north,mode=compare,powered=false]
   E minecraft:comparator[facing=south,mode=compare,powered=false]
   F minecraft:comparator[facing=west,mode=compare,powered=false]
-  G minecraft:hopper[enabled=true,facing=south]
-  H minecraft:hopper[enabled=true,facing=down]
-  I minecraft:oak_fence[east=false,north=false,south=true,waterlogged=false,west=true]
-  J minecraft:oak_fence[east=false,north=true,south=false,waterlogged=false,west=false]
-  K minecraft:oak_fence[east=false,north=true,south=false,waterlogged=false,west=true]
+  G minecraft:crafter[crafting=false,orientation=down_south,triggered=false]
+  H minecraft:crafter[crafting=false,orientation=south_up,triggered=false]
+  I minecraft:hopper[enabled=true,facing=down]
+  J minecraft:hopper[enabled=true,facing=east]
+  K minecraft:hopper[enabled=true,facing=south]
   L minecraft:lava[level=0]
-  M minecraft:oak_fence[east=false,north=true,south=true,waterlogged=false,west=false]
-  N minecraft:oak_fence[east=true,north=false,south=false,waterlogged=false,west=false]
+  M minecraft:oak_fence[east=false,north=false,south=true,waterlogged=false,west=true]
+  N minecraft:oak_fence[east=false,north=true,south=false,waterlogged=false,west=false]
   O minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=true]
-  P minecraft:oak_fence[east=true,north=false,south=false,waterlogged=false,west=true]
-  Q minecraft:oak_fence[east=true,north=false,south=true,waterlogged=false,west=false]
-  R minecraft:oak_fence[east=true,north=true,south=false,waterlogged=false,west=false]
-  S minecraft:oak_fence_gate[facing=east,in_wall=false,open=true,powered=false]
-  T minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
-  U minecraft:oak_fence_gate[facing=south,in_wall=false,open=true,powered=false]
-  V minecraft:oak_fence_gate[facing=west,in_wall=false,open=true,powered=false]
-  W minecraft:oak_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false]
-  X minecraft:oak_trapdoor[facing=east,half=bottom,open=true,powered=false,waterlogged=false]
-  Y minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
-  Z minecraft:oak_trapdoor[facing=north,half=bottom,open=true,powered=false,waterlogged=false]
-  a minecraft:oak_trapdoor[facing=south,half=bottom,open=false,powered=false,waterlogged=false]
-  b minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  P minecraft:oak_fence[east=false,north=true,south=false,waterlogged=false,west=true]
+  Q minecraft:oak_fence[east=false,north=true,south=true,waterlogged=false,west=false]
+  R minecraft:oak_fence[east=true,north=false,south=false,waterlogged=false,west=false]
+  S minecraft:oak_fence[east=true,north=false,south=false,waterlogged=false,west=true]
+  T minecraft:oak_fence[east=true,north=false,south=true,waterlogged=false,west=false]
+  U minecraft:oak_fence[east=true,north=true,south=false,waterlogged=false,west=false]
+  V minecraft:oak_fence_gate[facing=east,in_wall=false,open=true,powered=false]
+  W minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+  X minecraft:oak_fence_gate[facing=south,in_wall=false,open=true,powered=false]
+  Y minecraft:oak_fence_gate[facing=west,in_wall=false,open=true,powered=false]
+  Z minecraft:oak_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false]
+  a minecraft:oak_trapdoor[facing=east,half=bottom,open=true,powered=false,waterlogged=false]
+  b minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
   c minecraft:cobblestone
-  d minecraft:oak_trapdoor[facing=west,half=bottom,open=false,powered=false,waterlogged=false]
-  e minecraft:oak_trapdoor[facing=west,half=bottom,open=true,powered=false,waterlogged=false]
-  f minecraft:observer[facing=east,powered=false]
-  g minecraft:observer[facing=north,powered=false]
-  h minecraft:hopper[enabled=true,facing=east]
-  i minecraft:observer[facing=south,powered=false]
-  j minecraft:observer[facing=west,powered=false]
-  k minecraft:red_bed[facing=east,occupied=false,part=head]
-  l minecraft:red_bed[facing=north,occupied=false,part=foot]
-  m minecraft:red_bed[facing=north,occupied=false,part=head]
-  n minecraft:red_bed[facing=south,occupied=false,part=foot]
+  d minecraft:oak_trapdoor[facing=north,half=bottom,open=true,powered=false,waterlogged=false]
+  e minecraft:oak_trapdoor[facing=south,half=bottom,open=false,powered=false,waterlogged=false]
+  f minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  g minecraft:oak_trapdoor[facing=west,half=bottom,open=false,powered=false,waterlogged=false]
+  h minecraft:hopper[enabled=false,facing=down]
+  i minecraft:oak_trapdoor[facing=west,half=bottom,open=true,powered=false,waterlogged=false]
+  j minecraft:observer[facing=east,powered=false]
+  k minecraft:observer[facing=north,powered=false]
+  l minecraft:observer[facing=south,powered=false]
+  m minecraft:observer[facing=west,powered=false]
+  n minecraft:red_bed[facing=east,occupied=false,part=head]
   o minecraft:oak_fence[east=false,north=false,south=true,waterlogged=false,west=false]
-  p minecraft:red_bed[facing=south,occupied=false,part=head]
-  q minecraft:red_bed[facing=west,occupied=false,part=foot]
+  p minecraft:red_bed[facing=north,occupied=false,part=foot]
+  q minecraft:red_bed[facing=north,occupied=false,part=head]
   r minecraft:red_bed[facing=east,occupied=false,part=foot]
-  s minecraft:red_bed[facing=west,occupied=false,part=head]
-  t minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=side]
-  u minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=none]
-  v minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
-  w minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=none]
-  x minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
-  y minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
-  z minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=none]
-layer -44:
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  ............................C
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-layer -43:
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  ............................H
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-layer -42:
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  ............................C
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-layer -41:
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  ............................H
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-layer -40:
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  ............................C
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-layer -39:
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  ............................H
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-layer -38:
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  ............................C
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-layer -37:
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  ............................H
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-layer -36:
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  ............................C
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-layer -35:
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  ............................H
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-layer -34:
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  ............................C
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
-  .
+  s minecraft:red_bed[facing=south,occupied=false,part=foot]
+  t minecraft:red_bed[facing=south,occupied=false,part=head]
+  u minecraft:red_bed[facing=west,occupied=false,part=foot]
+  v minecraft:red_bed[facing=west,occupied=false,part=head]
+  w minecraft:redstone_wall_torch[facing=north,lit=true]
+  x minecraft:redstone_wall_torch[facing=south,lit=true]
+  y minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=side]
+  z minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=none]
 layer -33:
   .
   .
@@ -750,9 +133,9 @@ layer -33:
   .
   .
   .
-  .
-  ............................H
-  .
+  .............................cc
+  .............................Ccc
+  ..............................cc
   .
   .
   .
@@ -807,11 +190,11 @@ layer -32:
   .
   .
   .
+  ............................HF8
+  ............................JGF8
+  .............................c98
   .
-  ............................C
-  .
-  .
-  .
+  ............................c
   .
   .
   .
@@ -862,14 +245,14 @@ layer -31:
   .
   .
   .
+  .............................c
   .
   .
-  .
-  ............................H
-  .
-  .
-  .
-  .
+  ............................CJC
+  ............................w
+  ............................c
+  ............................$
+  ............................c
   .
   .
   .
@@ -918,15 +301,15 @@ layer -30:
   .
   .
   .
-  .
-  .
-  .
-  .
-  ............................C
-  .
-  .
-  .
-  .
+  .............................c
+  .............................@
+  .............................c
+  .............................x
+  ............................hC
+  ............................c
+  ............................c
+  ............................c
+  ............................8
   .
   .
   .
@@ -975,14 +358,14 @@ layer -29:
   .
   .
   .
-  .
-  .
-  .
-  .
-  ............................H
-  .
-  .
-  .
+  .............................8
+  .............................c
+  .............................c
+  .............................c
+  ............................Ih
+  ............................D
+  ............................8
+  ............................8
   .
   .
   .
@@ -1033,10 +416,10 @@ layer -28:
   .
   .
   .
-  .
-  .
-  .
-  ............................C
+  .............................8
+  .............................8
+  .............................E
+  ............................JI
   .
   .
   .
@@ -1092,8 +475,8 @@ layer -27:
   ..........................cccc
   ..........................cccc
   .....................cccccccccccccc
-  .....................cccccchGcccccc
-  .....................cccccchHcccccc
+  .....................ccccccJKcccccc
+  .....................ccccccJIcccccc
   .....................cccccccccccccc
   ..........................cccc
   ..........................cccc
@@ -1144,19 +527,19 @@ layer -26:
   ..........................cccc
   ..........................cccc
   .........................o....o
-  .........................M....M
-  .........................M....M
-  .........................M....M
-  ..............cc.....NPPPK....RPPPO.....cc
+  .........................Q....Q
+  .........................Q....Q
+  .........................Q....Q
+  ..............cc.....RSSSP....USSSO.....cc
   ..............ccccccc..............ccccccc
   ..............ccccccc..............ccccccc
   ..............ccccccc..............ccccccc
   ..............ccccccc..............ccccccc
-  ..............cc.....NPPPI....QPPPO.....cc
-  .........................M....M
-  .........................M....M
-  .........................M....M
-  .........................J....J
+  ..............cc.....RSSSM....TSSSO.....cc
+  .........................Q....Q
+  .........................Q....Q
+  .........................Q....Q
+  .........................N....N
   ..........................cccc
   ..........................cccc
   ..........................cccc
@@ -1195,30 +578,30 @@ layer -25:
   .........................cccccc
   .........................c....c
   .........................c....c
-  .........................M....M
-  .........................M....M
-  .........................M....M
-  .........................M....M
-  .........................M....M
-  .........................M....M
-  .........................M....M
-  .........................M....M
-  .........................J....J
-  .........cccccccPPPPPPPPO......NPPPPPPPPccccccc
-  .........ccccc............SSSS............ccccc
-  .........ccccc............SSSS............ccccc
-  .........ccccc............SSSS............ccccc
-  .........ccccc............SSSS............ccccc
-  .........cccccccPPPPPPPPO......NPPPPPPPPccccccc
+  .........................Q....Q
+  .........................Q....Q
+  .........................Q....Q
+  .........................Q....Q
+  .........................Q....Q
+  .........................Q....Q
+  .........................Q....Q
+  .........................Q....Q
+  .........................N....N
+  .........cccccccSSSSSSSSO......RSSSSSSSSccccccc
+  .........ccccc............VVVV............ccccc
+  .........ccccc............VVVV............ccccc
+  .........ccccc............VVVV............ccccc
+  .........ccccc............VVVV............ccccc
+  .........cccccccSSSSSSSSO......RSSSSSSSSccccccc
   .........................o....o
-  .........................M....M
-  .........................M....M
-  .........................M....M
-  .........................M....M
-  .........................M....M
-  .........................M....M
-  .........................M....M
-  .........................M....M
+  .........................Q....Q
+  .........................Q....Q
+  .........................Q....Q
+  .........................Q....Q
+  .........................Q....Q
+  .........................Q....Q
+  .........................Q....Q
+  .........................Q....Q
   .........................c....c
   .........................c....c
   .........................cccccc
@@ -1246,14 +629,14 @@ layer -24:
   .
   .
   .........................cccccc
-  .........................c%%%%c
+  .........................c????c
   .........................c....c
   .........................c....c
   .........................c....c
   .........................c....c
   .........................c....c
-  .........................M....M
-  .........................J....J
+  .........................Q....Q
+  .........................N....N
   .
   .
   .
@@ -1261,12 +644,12 @@ layer -24:
   .
   .
   .
-  .........cccccccPO........SSSS........NPccccccc
-  .........c%..............SLLLLS..............%c
-  .........c%..............SLLLLS..............%c
-  .........c%..............SLLLLS..............%c
-  .........c%..............SLLLLS..............%c
-  .........cccccccPO........SSSS........NPccccccc
+  .........cccccccSO........VVVV........RSccccccc
+  .........c?..............VLLLLV..............?c
+  .........c?..............VLLLLV..............?c
+  .........c?..............VLLLLV..............?c
+  .........c?..............VLLLLV..............?c
+  .........cccccccSO........VVVV........RSccccccc
   .
   .
   .
@@ -1275,13 +658,13 @@ layer -24:
   .
   .
   .........................o....o
-  .........................M....M
+  .........................Q....Q
   .........................c....c
   .........................c....c
   .........................c....c
   .........................c....c
   .........................c....c
-  .........................c%%%%c
+  .........................c????c
   .........................cccccc
   .
   .
@@ -2215,10 +1598,10 @@ layer -7:
   .
   .
   .........................cccccc
-  .........................cTTTTc
-  .........................cT..Tc
-  .........................cT..Tc
-  .........................cTTTTc
+  .........................cWWWWc
+  .........................cW..Wc
+  .........................cW..Wc
+  .........................cWWWWc
   .........................cccccc
   .
   .
@@ -2231,10 +1614,10 @@ layer -7:
   .
   .
   .........cccccc..........................cccccc
-  .........cVVVVc..........................cSSSSc
-  .........cV..Vc..........................cS..Sc
-  .........cV..Vc..........................cS..Sc
-  .........cVVVVc..........................cSSSSc
+  .........cYYYYc..........................cVVVVc
+  .........cY..Yc..........................cV..Vc
+  .........cY..Yc..........................cV..Vc
+  .........cYYYYc..........................cVVVVc
   .........cccccc..........................cccccc
   .
   .
@@ -2247,10 +1630,10 @@ layer -7:
   .
   .
   .........................cccccc
-  .........................cUUUUc
-  .........................cU..Uc
-  .........................cU..Uc
-  .........................cUUUUc
+  .........................cXXXXc
+  .........................cX..Xc
+  .........................cX..Xc
+  .........................cXXXXc
   .........................cccccc
   .
   .
@@ -2271,12 +1654,12 @@ layer -6:
   .
   .
   ........................cccccccc
-  ........................c%....%c
+  ........................c?....?c
   ........................c......c
-  ........................c..TT..c
-  ........................c..TT..c
+  ........................c..WW..c
+  ........................c..WW..c
   ........................c......c
-  ........................c%....%c
+  ........................c?....?c
   ........................cccccccc
   .
   .
@@ -2287,12 +1670,12 @@ layer -6:
   .
   .
   ........cccccccc........................cccccccc
-  ........c%....%c........................c%....%c
+  ........c?....?c........................c?....?c
   ........c......c........................c......c
-  ........c..VV..c........................c..SS..c
-  ........c..VV..c........................c..SS..c
+  ........c..YY..c........................c..VV..c
+  ........c..YY..c........................c..VV..c
   ........c......c........................c......c
-  ........c%....%c........................c%....%c
+  ........c?....?c........................c?....?c
   ........cccccccc........................cccccccc
   .
   .
@@ -2303,12 +1686,12 @@ layer -6:
   .
   .
   ........................cccccccc
-  ........................c%....%c
+  ........................c?....?c
   ........................c......c
-  ........................c..UU..c
-  ........................c..UU..c
+  ........................c..XX..c
+  ........................c..XX..c
   ........................c......c
-  ........................c%....%c
+  ........................c?....?c
   ........................cccccccc
   .
   .
@@ -2605,14 +1988,14 @@ layer -1:
   .
 layer 0:
   ...........................A
-  ............................cv
-  .............................6
-  .............................y
-  .................z00000000000x
-  .................6
-  .................c33
-  .................D.3c8fm.m.m.m
-  .................cFc...l.l.l.l
+  ............................c0
+  .............................$
+  .............................3
+  .................4555555555552
+  .................$
+  .................c88
+  .................D.8c&jq.q.q.q
+  .................cFc...p.p.p.p
   .
   .
   .
@@ -2621,28 +2004,28 @@ layer 0:
   .
   .
   .
-  ...............................................cBc7u
-  ...............................................D.3.y
-  ...............................................c33.y
-  ................................................c..y
-  ................................................@..y
-  ................................................i..y
-  ...............................................rk..y
-  ...................................................y
-  ...............................................rk..y
-  .140v..sq..........................................y
-  .c..y..........................................rk..y...A
-  A...y..sq..........................................y..c
-  ....y..........................................rk..207x
-  ....y..sq
-  ....y
-  ....y..sq
-  ....y..g
-  ....y..9
-  ....y..c
-  ....y.33c
-  ....y.3.E
-  ....w4cFc
+  ...............................................cBc%z
+  ...............................................D.8.3
+  ...............................................c88.3
+  ................................................c..3
+  ................................................+..3
+  ................................................l..3
+  ...............................................rn..3
+  ...................................................3
+  ...............................................rn..3
+  .6950..vu..........................................3
+  .c..3..........................................rn..3...A
+  A...3..vu..........................................3..c
+  ....3..........................................rn..75%2
+  ....3..vu
+  ....3
+  ....3..vu
+  ....3..k
+  ....3..*
+  ....3..c
+  ....3.88c
+  ....3.8.E
+  ....19cFc
   .
   .
   .
@@ -2651,24 +2034,24 @@ layer 0:
   .
   .
   .
-  ..........................n.n.n.n...cBc
-  ..........................p.p.p.pj$c3.E
-  ....................................33c
-  ......................................5
-  ..........................100000000000t
-  ..........................y
-  ..........................5
-  ..........................2c
+  ..........................s.s.s.s...cBc
+  ..........................t.t.t.tm=c8.E
+  ....................................88c
+  ......................................@
+  ..........................655555555555y
+  ..........................3
+  ..........................@
+  ..........................7c
   ............................A
 layer 1:
   .
-  ...........................Y0
+  ...........................b5
   .
   .
   .
   .
   .................A
-  ....................A.cbcbcbcbc
+  ....................A.cfcfcfcfc
   .................A.A...c.c.c.c
   .
   .
@@ -2684,16 +2067,16 @@ layer 1:
   ................................................A
   .
   ................................................c
-  ...............................................ce
+  ...............................................ci
   ................................................c
-  .......c.......................................ce
-  .......Xc.......................................c
-  .y.....c.......................................ce.....W
-  .d.....Xc.......................................c.....y
-  .......c.......................................ce
-  .......Xc.......................................c
+  .......c.......................................ci
+  .......ac.......................................c
+  .3.....c.......................................ci.....Z
+  .g.....ac.......................................c.....3
+  .......c.......................................ci
+  .......ac.......................................c
   .......c
-  .......Xc
+  .......ac
   .......c
   .
   .......A
@@ -2709,13 +2092,13 @@ layer 1:
   .
   .
   ..........................c.c.c.c...A.A
-  .........................cZcZcZcZc.A
+  .........................cdcdcdcdc.A
   ......................................A
   .
   .
   .
   .
-  ...........................0a
+  ...........................5e
   .
 layer 2:
   ...........................c
