@@ -10067,6 +10067,7 @@ farms/crops/pumpkin-lattice8.html	circuit	farm/harvester pumpkin		Crop farm: 664
 farms/index.html	page				2026-11-08 20:44Z
 farms/iron/bed-plate-lava-out-of-sight.html	circuit	mobfarm/-mob-farm iron_ingot day-1		Iron farm: 307 iron an hour · 395 blocks · 0.78 an hour per block · 8 iron to build · bed-plate farm with the lava corner out of sight, dug 7 deep	2026-11-09 01:26Z
 farms/iron/d1-bed-plate.html	circuit	mobfarm/-mob-farm iron_ingot day-1		Iron farm: 243 iron an hour · 338 blocks · 0.72 an hour per block · 8 iron to build · golems burn in a corner of their pad	2026-11-08 20:42Z
+farms/iron/d1u-deep.html	circuit	mobfarm/-mob-farm iron_ingot day-1		Iron farm: 312 iron an hour · 395 blocks · 0.79 an hour per block · 8 iron to build · underground farm with a deep pit	2026-11-09 01:34Z
 farms/iron/d1u-underground.html	circuit	mobfarm/mob-farm iron_ingot day-1		Iron farm: 254 iron an hour · 299 blocks · 0.85 an hour per block · 8 iron to build · underground farm beside the village	2026-11-09 01:17Z
 farms/iron/four-modules-one-timer-tight.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 1,500 iron an hour · 2,025 blocks · 0.74 an hour per block · 26 iron to build · four modules sharing one sleep timer, closer together	2026-11-08 21:21Z
 farms/iron/four-modules-one-timer.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 1,700 iron an hour · 2,197 blocks · 0.78 an hour per block · 26 iron to build · four modules sharing one sleep timer, lava corners 21 below	2026-11-08 21:21Z
