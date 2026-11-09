@@ -777,7 +777,9 @@ mod tests {
             assert!(why.contains("not modeled"), "{why}");
             println!("D1U's run: {why} (the looks before it checked)");
         }
-        assert!(checks >= 5 && most > 0, "{checks} checks, at most {most} cells");
+        // (its arrival's look at least: a natural mob's model gap can stop it at its first tick)
+        let least = if stopped.is_some() { 1 } else { 6 };
+        assert!(checks >= least && most > 0, "{checks} checks, at most {most} cells");
         assert!(bad.is_empty(), "{bad:?}");
     }
 
