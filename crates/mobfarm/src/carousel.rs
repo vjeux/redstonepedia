@@ -321,6 +321,51 @@ fn wake_release(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, s: &Side) -> any
     let from_minus_d = name([-s.d[0], -s.d[1]]);
     let from_plus_n = name(s.n);
     let from_minus_n = name([-s.n[0], -s.n[1]]);
+    let release_delay = std::env::var("MCTAS_WAKE_DELAY").ok().and_then(|v| v.parse::<u8>().ok()).unwrap_or(4).clamp(1, 4);
+    if std::env::var_os("MCTAS_WAKE_FAST").is_some() {
+        // (experiment: 2 gt sooner, the bulb read straight by the edge comparator: the
+        // subtracting comparator beside the bulb (BRAKE, y -4) reads it from behind, the same
+        // signal 4 gt later in its side (a comparator under the pocket (track, y -4) reading the
+        // bulb, a dust outside and a repeater under the brake back into the side); its block
+        // (ACT, y -4) carries a dust along lane 1 (y -3) to the corner and up into the repeater)
+        let blocks: Vec<([i32; 3], String)> = vec![
+            (at(POCKET, 1, -2), "observer[facing=up,powered=false]".into()),
+            (at(POCKET, 1, -3), STONE.into()),
+            (at(POCKET, 1, -4), "copper_bulb[lit=true,powered=false]".into()),
+            (at(POCKET, 1, -5), STONE.into()),
+            (at(BRAKE, 1, -4), format!("comparator[facing={from_plus_d},mode=subtract,powered=false]")),
+            (at(BRAKE, 1, -5), STONE.into()),
+            (at(ACT, 1, -4), STONE.into()),
+            (at(1, 1, -4), STONE.into()),
+            (at(0, 1, -4), STONE.into()),
+            (at(POCKET, 0, -4), format!("comparator[facing={from_plus_n},mode=compare,powered=true]")),
+            (at(POCKET, 0, -5), STONE.into()),
+            (at(POCKET, -1, -5), STONE.into()),
+            (at(BRAKE, -1, -5), STONE.into()),
+            (at(BRAKE, 0, -4), format!("repeater[delay=1,facing={from_minus_n},locked=false,powered=true]")),
+            (at(BRAKE, 0, -5), STONE.into()),
+            (at(0, 0, -4), STONE.into()),
+            (at(-1, 0, -3), STONE.into()),
+            (at(-1, 0, -2), GLASS.into()),
+            (at(1, 0, -3), STONE.into()),
+            (at(ACT, 0, -2), format!("repeater[delay={release_delay},facing={from_minus_d},locked=false,powered=false]")),
+            (at(ACT, 0, -3), STONE.into()),
+        ];
+        let dusts = [at(POCKET, -1, -4), at(BRAKE, -1, -4), at(ACT, 1, -3), at(1, 1, -3), at(0, 1, -3), at(0, 0, -3), at(1, 0, -2)];
+        for (p, _) in &blocks {
+            anyhow::ensure!(!b.d.blocks.contains_key(p) && !dust.contains(p), "the wake release at {p:?} meets {:?}", b.d.blocks.get(p));
+        }
+        for p in &dusts {
+            anyhow::ensure!(!b.d.blocks.contains_key(p) && !dust.contains(p), "the wake release's dust at {p:?} meets {:?}", b.d.blocks.get(p));
+        }
+        for (p, block) in blocks {
+            b.set(p[0], p[1], p[2], &block);
+        }
+        for p in dusts {
+            dust.insert(p);
+        }
+        return Ok(());
+    }
     let blocks: Vec<([i32; 3], String)> = vec![
         (at(POCKET, 1, -2), "observer[facing=up,powered=false]".into()),
         (at(POCKET, 1, -3), STONE.into()),
@@ -613,7 +658,7 @@ fn night_pulse(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, free_run: bool) {
     // the dusk drop's block over its torch, lit at night: the observer also fires when the
     // sleeper lies down), then around to a repeater into the dawn kick's block (11, -1, 19): the
     // comparator there makes it a pulse
-    b.set(2, -1, z0, "observer[facing=west,powered=false]");
+    b.set(2, -1, z0, if std::env::var_os("MCTAS_NO_KICK").is_some() { GLASS } else { "observer[facing=west,powered=false]" });
     for x in 3..=7 {
         dust.insert([x, -1, z0]);
     }
