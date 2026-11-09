@@ -1,4 +1,4 @@
-# CIRCUIT: plate-s2b0-pad6f7x0-pit13-n2row14-dug8 mob-farm iron_ingot iron per hour per block 0.67, iron per hour 403, iron range 95% 398-407 (96 runs), golems per hour 100.8, seconds per golem 35.7, share of ceiling 42%, modules 2, iron per hour per module 201, kill 318 gt, kill tail the longest 360 gt: no golem outlived 1200 gt in 16122 golems (95% bound 0.02% a golem), golems at the zombie 0 of 16122 golems targeted the farm's zombie, worst policy 356 iron/h (walk yaw 270 x1), lips none (no golem stands dry beside a current), restarts after a missed night yes, restarts after days away yes (unloaded or not ticking, back by day or at night: the first golem 0.0-0.1 h after the return), rain clear day 419 iron/h; rain day 381 iron/h; thunder day 376 iron/h, lightning about 0.0 iron lost per thunderstorm; a villager turned into a witch about every 10664 game days; the zombie's boat broken never; a fire beside a flammable block about every 920 game days; a skeleton trap horse on the farm about every 17219 game days; the farm breaks in about 864 game days (a fire first); thunderstorms 1.4% of the time (6211 gt each on average), thunder loss 16.3, sunburn never (the zombie never sees the sky), fire never, misses 15064 of 31186 tries found no spot, 103474 golem sightings, bill 16 iron, 0 quartz, 6 villagers, 6 beds, 2 zombies, payback 2 min, build time 61 min at day-1 prices (575 placed with 429 cobblestone slabs capping stray golem spots and 10 cobblestone seals, 638 dug (the stair down to the chest: 69 dug, 4 placed), 1 lava trips, 6 villagers moved; the most: 6 villager_moved 1080 s, 638 dig 638 s, 575 place 575 s, 2 zombie 360 s, 2 hopper 308 s, 439 cobblestone_slab 220 s, 1 lava_trip 120 s, 1 extra_bucket 90 s), time to an iron kit 67 min at the cheapest spot (from dawn of day 1 until the chest holds 24 iron; runs 65-69 min; 66-68 min over the 12 nearest spots), build minutes 60.6, t kit minutes 66.6, iron per hour sleeping 451, volume per module 3192, entities alive 10.5, entities peak 14, tools bucket 3 + extra buckets 3, lava sources 2, materials day 1, chunk columns 2, storage 7.9 h (64 slots; 101 poppies/h), hoppers per 1000 iron/h 5.0, spot village-edge at -352 64 246 (the cheapest of the 12 nearest valid spots), exposures in village-edge (-352,246): C4 presence village villager 1095 cells, village golem 840; C8 creepers creeper 126 cells, creeper 143; C10 flyers phantom 1 cells, build minutes flat none (no spot for a 21x16 footprint 23 deep in plains), villagers left 2, hostile break days exposed: C8 creepers, 598 blocks, 21x19x16, redsim (robust)
+# CIRCUIT: plate-s2b0-pad6f7x0-pit13-n2row14-dug8 mob-farm iron_ingot day-1 iron per hour per block 0.71, iron per hour 401, iron range 95% 396-406 (96 runs), golems per hour 100.7, seconds per golem 35.8, share of ceiling 42%, modules 2, iron per hour per module 201, kill 309 gt, kill tail the longest 487 gt: no golem outlived 1200 gt in 16111 golems (95% bound 0.02% a golem), golems at the zombie 0 of 16111 golems targeted the farm's zombie, neighbour sightings 16095 of 16111 golems sensed by another group (67416 sensings, 4.18 a golem), worst policy every constant walk reaches the kill, lips none (no golem stands dry beside a current), restarts after a missed night yes, restarts after days away yes (unloaded or not ticking, back by day or at night: the first golem 0.0-0.1 h after the return), rain clear day 420 iron/h; rain day 387 iron/h; thunder day 393 iron/h, lightning about 0.0 iron lost per thunderstorm; a villager turned into a witch about every 11390 game days; the zombie's boat broken never; a fire beside a flammable block about every 982 game days; a skeleton trap horse on the farm about every 17219 game days; a skeleton trap horse that triggers (within 10 blocks of the AFK spot) about every 3802 game days (a lightning rod within 128 blocks, topping its column, takes the bolts: none then); the farm breaks in about 923 game days (a fire first); thunderstorms 1.4% of the time (6211 gt each on average), thunder loss 15.2, sunburn never (the zombie never sees the sky), fire never, misses 15385 of 31496 tries found no spot, 100734 golem sightings, bill 16 iron, 0 quartz, 6 villagers, 6 beds, 2 zombies, payback 2 min, build time 61 min at day-1 prices (571 placed with 429 cobblestone slabs capping stray golem spots and 10 cobblestone seals, 608 dug (the stair down to the chest: 69 dug, 4 placed), 1 lava trips, 6 villagers moved; the most: 6 villager_moved 1080 s, 608 dig 608 s, 571 place 571 s, 2 zombie 360 s, 2 hopper 308 s, 435 cobblestone_slab 218 s, 1 lava_trip 120 s, 1 extra_bucket 90 s), time to an iron kit 68 min at the cheapest spot (from dawn of day 1 until the chest holds 24 iron; runs 65-75 min; 67-69 min over the 12 nearest spots), build minutes 60.9, t kit minutes 67.6, collecting 12 s per trip to the chest (2 x its depth, 24 layers, at the access's speed), iron per hour sleeping 449, volume per module 3192, entities alive 10.5, entities peak 15, iron burnt per golem 0.01 (0.2% of the loot; 1 golem in 236), tools bucket 3 + extra buckets 3, lava sources 2, materials day 1, chunk columns 2, storage 7.9 h (64 slots; 100 poppies/h), hoppers per 1000 iron/h 5.0, spot village-edge at -352 64 246 (the cheapest of the 12 nearest valid spots), exposures in village-edge (-352,246): C4 presence village villager 1095 cells, village golem 840; C8 creepers creeper 126 cells, creeper 143; C10 flyers phantom 1 cells, build minutes flat none (no spot for a 21x16 footprint 23 deep in plains), villagers left 2, hostile break days exposed: C8 creepers, 568 blocks, 21x19x16, redsim (robust)
 # farmopt candidate plate-s2b0-pad6f7x0-pit13-n2row14-dug8 (designs/briefs/farm-optimizer.md).
 # 2 module(s); each: 2 scared and 0 blind villagers in 1-cell pods, a zombie in a boat, the bed plate (U1's wooden plate holds the hide open by day; at nightfall it lies down and the hide shuts);
 # golems spawn on a 6x6 pad 7 below the beds and fall through its dry hole into a pit corner 13 below the beds under one lava source.
@@ -317,11 +317,11 @@ layer 1:
   ...A.............A
   ...A.............A
   ...Ic............Ic
-  .AAA...........AAA
-  .AAA...........AAA
-  .AAA...........AAA
+  ..AA............AA
+  ..AA............AA
+  ..AA............AA
   .DAD...........DAD
-  .DAD...........DAD
+  .
   .G.G...........G.G
   .
   .
@@ -334,11 +334,11 @@ layer 2:
   .
   .
   ....FNM...........FNM
-  .AAA...........AAA
-  .AAA...........AAA
+  .
+  .
   .WAA...........WAA
   .AAA...........AAA
-  .AAA...........AAA
+  .A.A...........A.A
   .A.A...........A.A
   .
   .
@@ -350,7 +350,7 @@ layer 2:
 layer 3:
   .
   .
-  ....AAA...........AAA
+  ....A.............A
   .
   .
   .
