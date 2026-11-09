@@ -92,6 +92,13 @@ pub fn burn_undead(w: &mut World, i: usize) {
     }
     if is_sun_burn_tick(w, i) {
         let id = w.entities.list[i].id;
+        // a helmet takes it: damage + nextInt(2) of its own random, gone at its max (no burn)
+        if let Some((max, dmg)) = mob(w, i).helmet {
+            let add = w.entities.list[i].random.as_mut().map_or(0, |r| r.next_int(2));
+            let d = dmg + add;
+            mob_mut(w, i).helmet = if d >= max { None } else { Some((max, d)) };
+            return;
+        }
         let m = mob_mut(w, i);
         // igniteForSeconds(8): igniteForTicks(160)
         if m.fire_ticks < 160 {

@@ -125,9 +125,9 @@ impl MoveThroughVillage {
     }
 }
 
-/// `Level.isBrightOutside()`: the sky darkened by less than 4.
+/// `Level.isBrightOutside()`: the sky darkened by less than 4 (rain and thunder darken it too).
 pub fn is_bright_outside(w: &World) -> bool {
-    crate::daylight::sky_darken(w.day_time()) < 4
+    w.sky_darken() < 4
 }
 
 /// `canUse()`.

@@ -59,13 +59,14 @@ pub static DEFS: &[TypeDef] = &[
     // 0.23F; a baby's +50% on the base)
     TypeDef { loot: &[("minecraft:string", 0, 2)], ..row(0, "spider", "minecraft:spider", 1.4, 0.9, 0.65, 16.0, 0.3f32 as f64, true, false, 0.6) },
     TypeDef { loot: &[("minecraft:string", 0, 2)], ..row(1, "cave_spider", "minecraft:cave_spider", 0.7, 0.5, 0.45, 12.0, 0.3f32 as f64, true, false, 0.6) },
-    row(2, "zombie_villager", "minecraft:zombie_villager", 0.6, 1.95, 1.74, 20.0, 0.23f32 as f64, true, true, 0.6),
+    // the zombie family's FOLLOW_RANGE is 35 (Zombie.createAttributes), babies included
+    TypeDef { follow_range: 35.0, ..row(2, "zombie_villager", "minecraft:zombie_villager", 0.6, 1.95, 1.74, 20.0, 0.23f32 as f64, true, true, 0.6) },
     row(3, "zombie_horse", "minecraft:zombie_horse", 1.3964844, 1.6, 1.52, 25.0, 0.2, true, false, 1.0),
     TypeDef { loot: &[("minecraft:arrow", 0, 2), ("minecraft:bone", 0, 2)], ..row(4, "skeleton", "minecraft:skeleton", 0.6, 1.99, 1.74, 20.0, 0.25, true, true, 0.6) },
     TypeDef { loot: &[("minecraft:gunpowder", 0, 2)], ..row(5, "creeper", "minecraft:creeper", 0.6, 1.7, 1.445, 20.0, 0.25, true, false, 0.6) },
     row(6, "slime", "minecraft:slime", 0.52, 0.52, 0.325, 1.0, 0.2, true, false, 0.6),
     row(7, "enderman", "minecraft:enderman", 0.6, 2.9, 2.55, 40.0, 0.3, true, false, 1.0),
-    row(8, "drowned", "minecraft:drowned", 0.6, 1.95, 1.74, 20.0, 0.23f32 as f64, true, true, 1.0),
+    TypeDef { follow_range: 35.0, ..row(8, "drowned", "minecraft:drowned", 0.6, 1.95, 1.74, 20.0, 0.23f32 as f64, true, true, 1.0) },
     // a sulfur cube's size sets its speed (0.2F + 0.1F x size) and health (4 x size): size 1 is
     // the baby
     row(9, "sulfur_cube", "minecraft:sulfur_cube", 0.49, 0.49, 0.175, 4.0, (0.2f32 + 0.1f32) as f64, true, false, 0.6),
@@ -88,9 +89,9 @@ pub static DEFS: &[TypeDef] = &[
     // ZombieVillager eye 0.67, Drowned 0.775, Sheep 0.45 x 0.65 eye 0.65625, Pig 0.45 x 0.45 eye
     // 0.40625, Chicken 0.3 x 0.4 eye 0.28125, Cow 0.45 x 0.7 eye 0.69, Wolf 0.3 x 0.425 eye
     // 0.34375, Rabbit 0.24 x 0.4 eye 0.39), else `getAgeScale` 0.5
-    row(25, "baby_zombie", "minecraft:zombie", 0.49, 0.98, 0.775, 20.0, 0.23f32 as f64 * 1.5, true, true, 0.6),
-    row(26, "baby_zombie_villager", "minecraft:zombie_villager", 0.49, 0.98, 0.67, 20.0, 0.23f32 as f64 * 1.5, true, true, 0.6),
-    row(27, "baby_drowned", "minecraft:drowned", 0.49, 0.98, 0.775, 20.0, 0.23f32 as f64 * 1.5, true, true, 1.0),
+    TypeDef { follow_range: 35.0, ..row(25, "baby_zombie", "minecraft:zombie", 0.49, 0.98, 0.775, 20.0, 0.23f32 as f64 * 1.5, true, true, 0.6) },
+    TypeDef { follow_range: 35.0, ..row(26, "baby_zombie_villager", "minecraft:zombie_villager", 0.49, 0.98, 0.67, 20.0, 0.23f32 as f64 * 1.5, true, true, 0.6) },
+    TypeDef { follow_range: 35.0, ..row(27, "baby_drowned", "minecraft:drowned", 0.49, 0.98, 0.775, 20.0, 0.23f32 as f64 * 1.5, true, true, 1.0) },
     row(28, "baby_sheep", "minecraft:sheep", 0.45, 0.65, 0.65625, 8.0, 0.23f32 as f64, false, false, 0.6),
     row(29, "baby_pig", "minecraft:pig", 0.45, 0.45, 0.40625, 10.0, 0.25, false, false, 0.6),
     row(30, "baby_chicken", "minecraft:chicken", 0.3, 0.4, 0.28125, 4.0, 0.25, false, false, 0.6),
@@ -395,6 +396,9 @@ pub struct Natural {
     pub entity_ticking: Vec<[i32; 2]>,
     /// Riders a `finalizeSpawn` put on a mob (rider, vehicle): passengers, so persistent.
     pub riders: Vec<(u32, u32)>,
+    /// The follow range bonuses `Mob.finalizeSpawn` drew during the spawn being finalized, in
+    /// draw order (the mob's, a jockey's rider's or chicken's; scratch).
+    pub bonuses: Vec<f64>,
     pub log: Vec<NaturalEvent>,
     /// Ticks the spawner has run (the spawning chunks' inhabited time: `incrementInhabitedTime`).
     pub ticks: u64,
@@ -402,7 +406,7 @@ pub struct Natural {
 
 impl Natural {
     pub fn new(players: Vec<Vec3>, difficulty: Difficulty) -> Natural {
-        Natural { players, difficulty, spawning: true, spawn_enemies: true, void_biome: None, world_min_y: -64, world_spawn: None, spawn_order: Vec::new(), spawn_chunk_count: None, entity_ticking: Vec::new(), riders: Vec::new(), log: Vec::new(), ticks: 0 }
+        Natural { players, difficulty, spawning: true, spawn_enemies: true, void_biome: None, world_min_y: -64, world_spawn: None, spawn_order: Vec::new(), spawn_chunk_count: None, entity_ticking: Vec::new(), riders: Vec::new(), bonuses: Vec::new(), log: Vec::new(), ticks: 0 }
     }
 }
 
@@ -1006,6 +1010,9 @@ fn spawn_category_for_position(w: &mut World, nat: &Natural, st: &mut State, cat
             if !valid_position_for_mob(w, k, k.ty, Vec3::new(xx, start.y as f64, zz), d2) {
                 continue;
             }
+            if let Some(n) = w.mob.natural.as_mut() {
+                n.bonuses.clear();
+            }
             let f = finalize_spawn(w, nat, k, &mut group, pos);
             cluster += 1;
             group_size += 1;
@@ -1070,6 +1077,11 @@ struct Finalized {
     ty: MobType,
     baby: bool,
     jockey: Jockey,
+    /// The helmet `populateDefaultEquipmentSlots` gave it (its armor type: 0 leather, 1 gold, 2
+    /// chain, 3 iron, 4 diamond): the head comes first in `EQUIPMENT_POPULATION_ORDER`.
+    helmet: Option<u8>,
+    /// A spider jockey's skeleton's helmet, likewise.
+    rider_helmet: Option<u8>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1129,9 +1141,12 @@ fn model_error(w: &mut World, e: String) {
 /// (nextFloat), on the level random.
 fn mob_base(w: &mut World) {
     let r = rng(w);
-    r.next_double();
-    r.next_double();
+    // triangle(0, 0.11485): the FOLLOW_RANGE's random spawn bonus (ADD_MULTIPLIED_BASE)
+    let b = 0.11485000000000001 * (r.next_double() - r.next_double());
     r.next_float();
+    if let Some(n) = w.mob.natural.as_mut() {
+        n.bonuses.push(b);
+    }
 }
 
 /// `AgeableMob.finalizeSpawn`'s baby roll (before `Mob`'s draws): after the group's first, a baby
@@ -1185,7 +1200,7 @@ fn enchant_draws(w: &mut World, special: f32, weapon: Option<super::enchant::Ite
 
 /// `Zombie.finalizeSpawn` (`drowned`: with `Drowned`'s equipment and its extra rolls); returns
 /// (baby, jockey).
-fn zombie_finalize(w: &mut World, nat: &Natural, g: &mut GroupData, drowned: bool, pos: BlockPos) -> (bool, Jockey) {
+fn zombie_finalize(w: &mut World, nat: &Natural, g: &mut GroupData, drowned: bool, pos: BlockPos) -> (bool, Jockey, Option<u8>) {
     let special = special_multiplier(w, nat);
     let hard = nat.difficulty == Difficulty::Hard;
     mob_base(w);
@@ -1249,17 +1264,18 @@ fn zombie_finalize(w: &mut World, nat: &Natural, g: &mut GroupData, drowned: boo
             }
         }
     }
-    (baby, jockey)
+    (baby, jockey, (armor.0 > 0).then_some(armor.1))
 }
 
-/// `AbstractSkeleton.finalizeSpawn`.
-fn skeleton_finalize(w: &mut World, nat: &Natural) {
+/// `AbstractSkeleton.finalizeSpawn`; returns its helmet's armor type.
+fn skeleton_finalize(w: &mut World, nat: &Natural) -> Option<u8> {
     let special = special_multiplier(w, nat);
     let hard = nat.difficulty == Difficulty::Hard;
     mob_base(w);
     let armor = mob_armor(w, special, hard);
     enchant_draws(w, special, Some(super::enchant::Item::Bow), armor);
     rng(w).next_float(); // setCanPickUpLoot
+    (armor.0 > 0).then_some(armor.1)
 }
 
 /// A pig's, cow's or chicken's `finalizeSpawn`: the variant (one candidate), the sound variant,
@@ -1281,6 +1297,8 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
     let mut baby = false;
     let mut jockey = Jockey::None;
     let mut ty = k.ty;
+    let mut helmet = None;
+    let mut rider_helmet = None;
     match k.finalize {
         Finalize::Nothing => {}
         Finalize::Mob | Finalize::Cod => mob_base(w),
@@ -1292,9 +1310,9 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
         }
         Finalize::Salmon => mob_base(w),
         Finalize::Zombie | Finalize::Drowned => {
-            (baby, jockey) = zombie_finalize(w, nat, g, k.finalize == Finalize::Drowned, pos);
+            (baby, jockey, helmet) = zombie_finalize(w, nat, g, k.finalize == Finalize::Drowned, pos);
         }
-        Finalize::Skeleton => skeleton_finalize(w, nat),
+        Finalize::Skeleton => helmet = skeleton_finalize(w, nat),
         Finalize::Spider => {
             mob_base(w);
             if rng(w).next_int(100) == 0 {
@@ -1302,7 +1320,7 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
                 if w.exact_seed.is_some() {
                     let _ = w.construct();
                 }
-                skeleton_finalize(w, nat);
+                rider_helmet = skeleton_finalize(w, nat);
                 jockey = Jockey::SpiderSkeleton;
             }
             if !g.spider {
@@ -1388,7 +1406,8 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
                 let _ = w.construct();
             }
             let mut zg = GroupData::default();
-            let (zbaby, zj) = zombie_finalize(w, nat, &mut zg, false, pos);
+            let (zbaby, zj, zh) = zombie_finalize(w, nat, &mut zg, false, pos);
+            rider_helmet = zh;
             if zj != Jockey::None {
                 model_error(w, "natural spawning: a zombie horse rider's chicken jockey is not modeled".into());
             }
@@ -1410,7 +1429,7 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
             None => {}
         }
     }
-    Finalized { ty, baby, jockey }
+    Finalized { ty, baby, jockey, helmet, rider_helmet }
 }
 
 /// `isValidPositionForMob`: the despawn distance, `checkSpawnRules` (the walk target value) and
@@ -1454,11 +1473,13 @@ fn spawn_mob(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) -> u32
         // snapTo keeps the drawn yaw as it is (0..360, not wrapped to -180..180)
         e.y_rot = yaw;
     }
+    super::set_helmet(w, id, f.helmet);
     let ride = |w: &mut World, rider: u32, vehicle: u32| {
         if let Some(n) = w.mob.natural.as_mut() {
             n.riders.push((rider, vehicle));
         }
     };
+    let mut rider: Option<u32> = None;
     match f.jockey {
         Jockey::None => {}
         Jockey::NewChicken => ride(w, id, chicken.unwrap()),
@@ -1485,15 +1506,37 @@ fn spawn_mob(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) -> u32
         Jockey::SpiderSkeleton => {
             let r = super::add(w, MobType::Natural(4), pos, true);
             super::seed_entered(w, r);
+            super::set_helmet(w, r, f.rider_helmet);
             ride(w, r, id);
+            rider = Some(r);
         }
         Jockey::HorseZombie | Jockey::HorseBabyZombie => {
             let rty = if f.jockey == Jockey::HorseBabyZombie { MobType::Natural(25) } else { MobType::Zombie };
             let r = super::add(w, rty, pos, true);
             super::seed_entered(w, r);
+            super::set_helmet(w, r, f.rider_helmet);
             ride(w, r, id);
+            rider = Some(r);
         }
     }
+    // Mob.finalizeSpawn's FOLLOW_RANGE bonus (x (1 + triangle)), each from its own finalizeSpawn in
+    // draw order: a zombie horse's rider was finalized first, a jockey's chicken or a spider's
+    // skeleton after the mob
+    let bonuses = w.mob.natural.as_ref().map(|n| n.bonuses.clone()).unwrap_or_default();
+    let (mine, other) = match f.jockey {
+        Jockey::HorseZombie | Jockey::HorseBabyZombie => (bonuses.get(1), bonuses.first()),
+        _ => (bonuses.first(), bonuses.get(1)),
+    };
+    let set = |w: &mut World, who: Option<u32>, b: Option<&f64>| {
+        if let (Some(id), Some(b)) = (who, b)
+            && let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
+            && let EntityKind::Mob(m) = &mut e.kind
+        {
+            m.follow_range = m.ty.def().follow_range * (1.0 + *b);
+        }
+    };
+    set(w, Some(id), mine);
+    set(w, rider.or(chicken), other);
     let _ = k;
     id
 }

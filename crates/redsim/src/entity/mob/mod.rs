@@ -215,6 +215,9 @@ pub struct MobState {
     pub bat_target: Option<BlockPos>,
     /// The chicken's `eggTime`.
     pub egg_time: i32,
+    /// The helmet on its head (`EquipmentSlot.HEAD`): its max damage and damage (natural undead
+    /// from `populateDefaultEquipmentSlots`); it takes the sun's burn.
+    pub helmet: Option<(i32, i32)>,
     /// The lava tracker's height (`getFluidHeight(LAVA)`; `isInLava` when positive).
     pub lava_height: f64,
     /// This tick's collected block effects.
@@ -261,6 +264,7 @@ impl MobState {
             bat_resting: d.id == "bat",
             bat_target: None,
             egg_time: 0,
+            helmet: None,
             lava_height: 0.0,
             inside: Inside::default(),
             last_damage: None,
@@ -650,6 +654,23 @@ pub fn tick(w: &mut World, i: usize) {
 /// draws replayed (the UUID's two longs, `LivingEntity`'s yaw). A mob with brain sensors replays
 /// their `nextInt(scanRate)` too (none of the natural types redsim spawns has them). Nothing
 /// without an exact world (the judge's stand-in stays).
+/// A natural mob's helmet from its `finalizeSpawn` (`armor`: 0 leather, 1 gold, 2 chain, 3 iron,
+/// 4 diamond; the helmet's durability: 55, 77, 165, 165, 363).
+pub fn set_helmet(w: &mut World, id: u32, armor: Option<u8>) {
+    let Some(a) = armor else { return };
+    let max = match a {
+        0 => 55,
+        1 => 77,
+        2 | 3 => 165,
+        _ => 363,
+    };
+    if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
+        && let crate::entity::EntityKind::Mob(m) = &mut e.kind
+    {
+        m.helmet = Some((max, 0));
+    }
+}
+
 pub fn seed_entered(w: &mut World, id: u32) {
     if w.exact_seed.is_none() {
         return;

@@ -318,7 +318,10 @@ impl Run {
         // a terrain site: natural spawning on Hard around its AFK spot from the first tick (the
         // game's spawner runs while the farm's water settles, as in the game gate and the exact
         // compare); outside the sample, the level's own biome (the bridge's terrain sandbox: plains)
-        if let Some(s) = o.site {
+        // (a diagnostic: MCTAS_NO_SPAWNING=1 leaves it off, to measure what the natural mobs do)
+        if let Some(s) = o.site
+            && std::env::var("MCTAS_NO_SPAWNING").map_or(true, |v| v == "0")
+        {
             w.mob.natural = Some(super::natural::Natural { void_biome: Some("minecraft:plains"), ..super::natural::Natural::new(vec![s.afk], super::natural::Difficulty::Hard) });
         }
         // the level random (`Level.random`): a composter's chance, a dropper's slot (the shared

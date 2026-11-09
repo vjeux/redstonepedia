@@ -43,8 +43,9 @@ pub fn bright_outside(w: &World) -> bool {
 
 /// `RestrictSunGoal.canUse()`: bright outside, nothing on its head (no equipment is modeled: a
 /// helmet is refused where it would come from), a ground navigation.
-pub fn restrict_sun_can_use(w: &World) -> bool {
-    bright_outside(w)
+pub fn restrict_sun_can_use(w: &World, i: usize) -> bool {
+    // `mob.getItemBySlot(HEAD).isEmpty()`: a helmeted skeleton keeps to its path
+    bright_outside(w) && mob(w, i).helmet.is_none()
 }
 
 /// `FleeSunGoal.canUse()`: no target, bright outside, on fire, under the open sky, then
@@ -56,6 +57,10 @@ pub fn flee_sun_can_use(w: &mut World, i: usize, g: &mut FleeSun) -> bool {
     }
     let pos = w.entities.list[i].block_position();
     if !w.can_see_sky(pos).unwrap_or(false) {
+        return false;
+    }
+    // `mob.getItemBySlot(HEAD).isEmpty() && setWantedPos()`
+    if mob(w, i).helmet.is_some() {
         return false;
     }
     for _ in 0..10 {

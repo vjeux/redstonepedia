@@ -59,6 +59,17 @@ pub enum NavKind {
 pub static SEARCHES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub static SEARCH_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// A probe: `MCTAS_PATH_DUMP="x,y,z"` prints every path found to that target (its start, its
+/// nodes with their types, whether it reaches).
+fn path_dump_target() -> Option<BlockPos> {
+    static P: std::sync::OnceLock<Option<BlockPos>> = std::sync::OnceLock::new();
+    *P.get_or_init(|| {
+        let v = std::env::var("MCTAS_PATH_DUMP").ok()?;
+        let c: Vec<i32> = v.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+        (c.len() == 3).then(|| BlockPos::new(c[0], c[1], c[2]))
+    })
+}
+
 /// A `PathNavigation`'s state.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Navigation {
@@ -246,6 +257,12 @@ impl Navigation {
         SEARCH_NANOS.fetch_add(t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
         SEARCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.searches += 1;
+        if let (Some(want), Some(p)) = (path_dump_target(), &path)
+            && want == p.target
+        {
+            let nodes: Vec<String> = p.nodes.iter().map(|n| format!("{},{},{}:{:?}", n.x, n.y, n.z, n.ty)).collect();
+            eprintln!("path dump t{} from {:?} reach {} max {}: {} nodes [{}] reached {}", m.game_time, m.pos, reach, max_path_length, nodes.len(), nodes.join(" "), p.can_reach());
+        }
         if let Some(p) = &path {
             self.target_pos = Some(p.target);
             self.reach_range = reach;
