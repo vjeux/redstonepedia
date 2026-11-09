@@ -506,8 +506,111 @@ fn game_gate(c: &circuit::Circuit) -> Result<circuit::mobfarm_game::GateReport> 
     circuit::mobfarm_game::gate(c, &go)
 }
 
+/// A build's break, in the player's words (one of the gate's checks, `circuit::mobfarm_game`), or
+/// None for what is not the farm's (a harness failure) or what the card says another way.
+fn break_words(f: &str) -> Option<String> {
+    let f = f.split_once(": ").filter(|(head, _)| head.starts_with("gt ")).map(|(_, rest)| rest).unwrap_or(f);
+    let words = if f.contains("drops were lost") {
+        "iron drops are lost".to_string()
+    } else if f.contains("a golem appeared outside the farm") {
+        "a golem spawns outside the farm".to_string()
+    } else if f.contains("a golem left the farm") || f.contains("a golem vanished outside the farm") {
+        "a golem gets out of the farm".to_string()
+    } else if f.contains("is still alive") {
+        format!("a golem stays alive past {}", site_model::real_time(redsim::entity::mob::farm::MAX_GOLEM_LIFE as u32))
+    } else if f.contains(" villagers of ") {
+        "a villager is lost".to_string()
+    } else if f.contains("a villager was hurt") {
+        "a villager gets hurt".to_string()
+    } else if f.contains("a zombie villager in the world") {
+        "a villager turns into a zombie villager".to_string()
+    } else if let Some((n, of)) = f.split_once(" zombies of ") {
+        let (n, of): (u32, u32) = (n.trim().parse().ok()?, of.trim().parse().ok()?);
+        if n < of { "the zombie is lost".to_string() } else { "another zombie gets in".to_string() }
+    } else if f.contains("the zombie was hurt") {
+        "the zombie gets hurt".to_string()
+    } else if f.contains("of the farm's drops outside the farm") {
+        "drops land outside the farm".to_string()
+    } else {
+        return None;
+    };
+    Some(words)
+}
+
+/// What the real-game gate measured, written into a farm's metrics (ironspec rev 9 iteration 14,
+/// the parent's ruling on vjeux 2026-11-08 16:49, "Seriously, just upload them"): a pass adds its
+/// `real game` line; a failure is no refusal: where the game's rate falls outside the card's
+/// interval (either way) the card's numbers become the game's (golems and iron an hour), and what
+/// broke in its builds becomes `game tradeoffs` lines with their counts ("a golem stays alive past
+/// 1 min in 1 of 8 builds"), never a real-game pass.
+fn game_findings(metrics: &str, g: &circuit::mobfarm_game::GateReport, blocks: u32) -> String {
+    if g.passed() {
+        return format!("{metrics}, real game {}", g.line());
+    }
+    let mut m = crate::circuits::parse_metrics(metrics);
+    let deaths: u32 = g.builds.iter().map(|b| b.deaths).sum();
+    let iron: u32 = g.builds.iter().map(|b| b.iron()).sum();
+    let per_golem = (deaths > 0).then(|| iron as f64 / deaths as f64);
+    let num = |v: &str| v.split_whitespace().next().and_then(|x| x.parse::<f64>().ok());
+    let get = |m: &[(String, String)], k: &str| m.iter().find(|(kk, _)| kk == k).and_then(|(_, v)| num(v));
+    let set = |m: &mut Vec<(String, String)>, k: &str, v: String| {
+        if let Some(e) = m.iter_mut().find(|(kk, _)| kk == k) {
+            e.1 = v;
+        }
+    };
+    for w in g.windows.iter().filter(|w| !w.passed() && w.sim > 0.0) {
+        let iron_h = per_golem.map(|p| w.game * p);
+        if w.name.contains("natural") {
+            let old = get(&m, "iron per hour");
+            let iron_h = iron_h.or_else(|| old.map(|o| o * w.game / w.sim));
+            set(&mut m, "golems per hour", format!("{:.1}", w.game));
+            set(&mut m, "seconds per golem", format!("{:.1}", 3600.0 / w.game.max(0.001)));
+            if let Some(ih) = iron_h {
+                set(&mut m, "iron per hour", format!("{ih:.0}"));
+                set(&mut m, "iron per hour per block", format!("{:.2}", ih / blocks.max(1) as f64));
+                if let Some(o) = old.filter(|o| *o > 0.0) {
+                    for k in ["iron per hour per module", "iron per hour sleeping"] {
+                        if let Some(x) = get(&m, k) {
+                            set(&mut m, k, format!("{:.0}", x * ih / o));
+                        }
+                    }
+                }
+            }
+            // (redsim's own interval and share are no longer the card's numbers)
+            m.retain(|(k, _)| k != "iron range" && k != "share of ceiling");
+        } else if let Some(ih) = iron_h {
+            // the forced day of rain, of thunder: the rain line's own part
+            let part = if w.name.contains("thunder") { "thunder day" } else if w.name.contains("rain") { "rain day" } else { continue };
+            if let Some(e) = m.iter_mut().find(|(k, _)| k == "rain") {
+                e.1 = e.1.split("; ").map(|p| if p.starts_with(part) { format!("{part} {ih:.0} iron/h") } else { p.to_string() }).collect::<Vec<_>>().join("; ");
+            }
+        }
+    }
+    // what broke, each kind once per build, with its count over the builds
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    for b in &g.builds {
+        let mut seen: Vec<String> = Vec::new();
+        for w in b.failures.iter().filter_map(|f| break_words(f)) {
+            if !seen.contains(&w) {
+                seen.push(w);
+            }
+        }
+        for w in seen {
+            match counts.iter_mut().find(|(x, _)| *x == w) {
+                Some(e) => e.1 += 1,
+                None => counts.push((w, 1)),
+            }
+        }
+    }
+    if !counts.is_empty() {
+        let n = g.builds.len();
+        m.push(("game tradeoffs".into(), counts.iter().map(|(w, k)| format!("{w} in {k} of {n} builds")).collect::<Vec<_>>().join("; ")));
+    }
+    m.iter().map(|(k, v)| if v.is_empty() { k.clone() } else { format!("{k} {v}") }).collect::<Vec<_>>().join(", ")
+}
+
 /// A design's judge and gate for its stage: its verdicts row (the redsim judge's numbers, the
-/// game gate's `real game` line unless `gate` is off), or why it cannot go on the site.
+/// game gate's findings unless `gate` is off), or why it cannot go on the site.
 fn judge_for_stage(path: &Path, text: &str, c: &circuit::Circuit, stage: &str, file: &str, gate: bool) -> std::result::Result<circuit::archive::Row, String> {
     let kind = c.kind.clone().ok_or_else(|| "no `circuit: <kind>` line".to_string())?;
     let j = crate::preview::judge(text);
@@ -518,10 +621,7 @@ fn judge_for_stage(path: &Path, text: &str, c: &circuit::Circuit, stage: &str, f
     if gate && kind.name().starts_with("mob-farm") {
         eprintln!("{}: the real-game gate (about 2 minutes)...", path.display());
         let g = game_gate(c).map_err(|e| format!("the real-game gate could not run: {e:#}"))?;
-        if !g.passed() {
-            return Err(format!("the real game: {}", g.failures.iter().take(3).cloned().collect::<Vec<_>>().join("; ")));
-        }
-        metrics = format!("{metrics}, real game {}", g.line());
+        metrics = game_findings(&metrics, &g, c.blocks() as u32);
     }
     let (lo, hi) = c.bounds();
     let d = [hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1];
@@ -554,41 +654,47 @@ fn write_verdicts(dir: &Path, rows: &[circuit::archive::Row]) -> Result<()> {
     Ok(())
 }
 
-/// `mctas site variation --regate [design...]`: every variation of the farm (or only the ones
-/// named) judged and gated again; one that passes gets its row (with the gate's line) back, one that
-/// fails is held off the site (its verdicts row removed, the reason in variations.tsv's `held`) until
-/// `site variation` passes it.
+/// `mctas site variation --regate [design...]`: every listed variation of the farm (or only the ones
+/// named) judged and gated again, its row rewritten with what the game measured: a pass adds the
+/// `real game` line; a failure stays listed, its card showing the game's numbers where they fall
+/// outside the card's interval and what broke as `game tradeoffs` lines (ironspec rev 9 iteration
+/// 14). A held variation (a bar, a takedown: `held` is theirs alone) is left as it is; a design the
+/// redsim judge no longer passes, or a gate that could not run, keeps its row and is reported.
 fn regate(repo: &Path, farm: &str, only: &[PathBuf]) -> Result<()> {
     let named: Vec<String> = only.iter().filter_map(|p| p.file_name().map(|f| f.to_string_lossy().to_string())).collect();
     let mut report: Vec<String> = Vec::new();
     for (stage, _, _, _) in STAGES {
         let dir = repo.join("designs/farms").join(farm).join(stage);
-        let mut vars = read_variations(&dir);
+        let vars = read_variations(&dir);
         if vars.is_empty() {
             continue;
         }
         let mut rows = circuit::archive::read_rows(&dir).unwrap_or_default();
-        for v in vars.iter_mut().filter(|v| named.is_empty() || named.contains(&v.file)) {
+        for v in vars.iter().filter(|v| named.is_empty() || named.contains(&v.file)) {
+            if !v.held.is_empty() {
+                report.push(format!("SKIP {stage}/{}: held ({})", v.file, v.held));
+                continue;
+            }
             let path = dir.join(&v.file);
             let res = std::fs::read_to_string(&path).map_err(|e| format!("reading {}: {e}", path.display())).and_then(|text| {
                 let c = circuit::Circuit::load(&path).map_err(|e| format!("{e:#}"))?;
                 judge_for_stage(&path, &text, &c, stage, &v.file, true)
             });
-            rows.retain(|r| r.file != v.file);
             match res {
                 Ok(row) => {
-                    report.push(format!("PASS {stage}/{}: {}", v.file, row.metrics.split(", ").find(|m| m.starts_with("real game")).unwrap_or("")));
+                    let ms = crate::circuits::parse_metrics(&row.metrics);
+                    let line = |k: &str| ms.iter().find(|(kk, _)| kk == k).map(|(_, v)| v.clone());
+                    report.push(match (line("real game"), line("game tradeoffs")) {
+                        (Some(g), _) => format!("PASS {stage}/{}: real game {g}", v.file),
+                        (None, t) => format!("FAIL {stage}/{} (listed; its card shows the game's numbers where they differ{}): iron per hour {}", v.file, t.map(|t| format!(" and what broke: {t}")).unwrap_or_default(), line("iron per hour").unwrap_or_default()),
+                    });
+                    rows.retain(|r| r.file != v.file);
                     rows.push(row);
-                    v.held.clear();
                 }
-                Err(why) => {
-                    report.push(format!("HELD {stage}/{}: {why}", v.file));
-                    v.held = why;
-                }
+                Err(why) => report.push(format!("KEPT {stage}/{} as it was: {why}", v.file)),
             }
         }
         write_verdicts(&dir, &rows)?;
-        write_variations(&dir, &vars)?;
     }
     for l in &report {
         println!("{l}");
@@ -632,6 +738,14 @@ pub fn variation(a: &crate::VariationArgs) -> Result<()> {
         let body: String = text.lines().filter(|l| !l.starts_with("# archived ") && !l.starts_with("# CIRCUIT: ")).map(|l| format!("{l}\n")).collect();
         std::fs::write(dir.join(&file), format!("# {}\n{body}", row.summary.trim_start_matches("# ")))?;
         let shown = row.metrics.split(", ").take(3).collect::<Vec<_>>().join(", ");
+        let gate_word = if a.no_gate {
+            "not run (--no-gate: `site variation --regate` runs it)".to_string()
+        } else if row.metrics.contains("real game ") {
+            "passed".to_string()
+        } else {
+            let t = crate::circuits::parse_metrics(&row.metrics).into_iter().find(|(k, _)| k == "game tradeoffs").map(|(_, v)| format!("; what broke: {v}")).unwrap_or_default();
+            format!("failed (listed: its card shows the game's numbers where they differ{t})")
+        };
         rows.retain(|r| r.file != file);
         rows.push(row);
         match vars.iter_mut().find(|v| v.file == file) {
@@ -639,7 +753,11 @@ pub fn variation(a: &crate::VariationArgs) -> Result<()> {
                 if let Some(n) = &a.name {
                     v.name = n.clone();
                 }
-                v.held.clear();
+                // (a held one stays held: `held` is a bar's or a takedown's, ironspec's call; its
+                // row is refreshed all the same)
+                if !v.held.is_empty() {
+                    eprintln!("{file}: still held off the site ({}); clear its `held` in variations.tsv to list it", v.held);
+                }
             }
             None => vars.push(Variation { file: file.clone(), pick: false, name: a.name.clone().unwrap_or_default(), held: String::new() }),
         }
@@ -648,7 +766,7 @@ pub fn variation(a: &crate::VariationArgs) -> Result<()> {
                 v.pick = v.file == file;
             }
         }
-        println!("{}: {shown}; the real game: {} ({})", dir.join(&file).display(), if a.no_gate { "not run (--no-gate: `site variation --regate` runs it)" } else { "passed" }, if a.pick { "the stage's pick" } else { "a variation" });
+        println!("{}: {shown}; the real game: {gate_word} ({})", dir.join(&file).display(), if a.pick { "the stage's pick" } else { "a variation" });
     }
     write_verdicts(&dir, &rows)?;
     write_variations(&dir, &vars)?;
@@ -684,6 +802,35 @@ mod tests {
         assert_eq!(m.len(), 1, "a member whose design is missing is left out");
         assert_eq!(m[0].metrics[1], ("drop".to_string(), "22 blocks".to_string()));
         assert_eq!(m[0].used_by, vec!["m2-open".to_string(), "d4".to_string()]);
+    }
+
+    #[test]
+    fn a_failed_gate_puts_the_game_s_numbers_and_breaks_on_the_card() {
+        // (ironspec rev 9 iteration 14: a failed gate is no refusal; a rate outside the card's
+        // interval puts the game's numbers on the card; what broke is a counted tradeoff line)
+        use circuit::mobfarm_game::{BuildRun, GateReport, WindowCheck};
+        let mut builds: Vec<BuildRun> = (0..8).map(|_| BuildRun { deaths: 100, iron_chest: 400, ..Default::default() }).collect();
+        builds[3].failures.push("gt 5000: a golem spawned by gt 3000 is still alive at 1.5 2.0 3.5 (not killed within 1200 gt)".into());
+        builds[3].failures.push("gt 1000: the AFK bot is no longer on the server (a harness failure, not the farm's: the chunks around the farm unload)".into());
+        let g = GateReport {
+            builds,
+            windows: vec![
+                WindowCheck { name: "3 days of natural weather".into(), game: 132.0, sim: 110.0, interval: (100.0, 120.0), z: 2.0 },
+                WindowCheck { name: "a forced day of rain".into(), game: 111.0, sim: 110.0, interval: (100.0, 120.0), z: 2.6 },
+            ],
+            failures: vec!["3 days of natural weather: outside".into()],
+            ..Default::default()
+        };
+        let m = game_findings("iron per hour per block 1.19, iron per hour 440, iron range 95% 436-444 (64 runs), golems per hour 110.0, seconds per golem 32.7, share of ceiling 90%, rain clear day 445 iron/h; rain day 441 iron/h; thunder day 417 iron/h", &g, 370);
+        let f = crate::circuits::parse_metrics(&m);
+        let get = |k: &str| f.iter().find(|(kk, _)| kk == k).map(|(_, v)| v.clone());
+        assert_eq!(get("golems per hour").as_deref(), Some("132.0"), "{m}");
+        assert_eq!(get("iron per hour").as_deref(), Some("528"), "the game's golems times its 4 iron each: {m}");
+        assert_eq!(get("iron per hour per block").as_deref(), Some("1.43"), "{m}");
+        assert!(get("iron range").is_none() && get("share of ceiling").is_none() && get("real game").is_none(), "{m}");
+        assert_eq!(get("rain").as_deref(), Some("clear day 445 iron/h; rain day 441 iron/h; thunder day 417 iron/h"), "a window inside its interval keeps the card's: {m}");
+        let t = get("game tradeoffs").unwrap_or_default();
+        assert!(t.starts_with("a golem stays alive past") && t.ends_with("in 1 of 8 builds") && !t.contains("AFK"), "{t}");
     }
 
     #[test]

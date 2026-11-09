@@ -1022,6 +1022,12 @@ fn page_heading(b: &Build, design_text: &str) -> String {
     // of a tripwire is not a warning"; build steps are in "Build it"); a curated card's own
     // tradeoffs instead when it has them (crates/site/src/cards.rs)
     let facts = if b.curated.facts.is_empty() { crate::plain::facts(b) } else { Some(b.curated.facts.join(" ")) };
+    // (what the game saw break, with its counts, always said, a curated card or not: ironspec rev 9
+    // iteration 14, a failed real-game gate is a measured tradeoff on the card, never hidden)
+    let facts = match (facts, crate::plain::game_tradeoffs(b)) {
+        (Some(f), Some(t)) => Some(format!("{f} {t}")),
+        (f, t) => f.or(t),
+    };
     let warn = facts.map(|w| format!("<p class=\"facts\">{}</p>\n", esc(&w))).unwrap_or_default();
     // what sets it apart from its neighbours, on the front (a curated card's `diff` lines)
     let diff = if b.curated.diff.is_empty() { String::new() } else { format!("<p class=\"diff\">{}</p>\n", esc(&b.curated.diff.join(" "))) };

@@ -260,7 +260,7 @@ pub fn direction_words_of(c: &Circuit) -> String {
 /// The judge's own diagnostics on a mob farm's card (the slowest walking policy of its golems, its
 /// summons that found no spot): kept off the page, which is written for the player building it
 /// (vjeux 2026-11-08).
-pub const MOB_FARM_DIAGNOSTICS: [&str; 2] = ["worst policy", "misses"];
+pub const MOB_FARM_DIAGNOSTICS: [&str; 3] = ["worst policy", "misses", "game tradeoffs"];
 
 /// A mob farm's metric value as its page shows it: what it means for the player, without how it
 /// was measured (vjeux 2026-11-08). `real game`: the gate's line exists only for a farm that

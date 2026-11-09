@@ -151,19 +151,23 @@ index's `kind=farm` lists them, and `kind=circuit` no longer does. Their old pag
 - **Variations**: `designs/farms/<farm>/<stage>/` (stage `day-1`, `middle` or `late`) holds each
   design (`<stem>.txt`, the judge's line on top), its judge row (`verdicts.tsv`, the archive's
   format) and `variations.tsv` (`file`, `pick` = `yes` for the stage's pick, `name` = a
-  player-facing name for its card, else its `how:` line, `held` = why it is off the site). Add or
-  update one with `mctas site variation <design>... --stage <stage> [--pick] [--name "..."]`: it
-  runs the kind's judge on redsim, then a mob farm through the same real-game gate `circuit
-  archive` runs (`circuit::mobfarm_game`: the 26.3 server's builds, or terrain mode in the sample's
-  kept world for a design with `terrain:`/`sample:`; about 2 minutes), refuses a design that fails
-  either, and writes the three, the gate's `real game` line in the row (the brief's one rule: "works
-  as its card says, verified in the real game"; the parent and ironspec's G1, 2026-11-08).
-  `--no-gate` puts it up on its redsim judge alone, the gate left for later (vjeux 16:49:
-  "Seriously, just upload them"). The site shows every variation listed in `variations.tsv`, with
-  or without a `real game` line, unless it has a `held` reason. `mctas site variation --regate
-  [design...]` judges and gates the variations again: a failure is held off the site (its row
-  removed, the reason in `held`) until `site variation` passes it; its page redirects to
-  `farms/iron/`. Commit the folder; the next deploy shows it, at `farms/iron/<stem>.html`.
+  player-facing name for its card, else its `how:` line, `held` = why it is off the site: a bar's
+  or a takedown's alone). Add or update one with `mctas site variation <design>... --stage <stage>
+  [--pick] [--name "..."]`: it runs the kind's judge on redsim (a design it fails is refused), then
+  a mob farm through the same real-game gate `circuit archive` runs (`circuit::mobfarm_game`: the
+  26.3 server's builds, or terrain mode in the sample's kept world for a design with
+  `terrain:`/`sample:`; about 2 minutes), and writes the three. What the gate measured goes in the
+  row (ironspec's brief rev 9 iteration 14, the parent's ruling on vjeux 16:49, "Seriously, just
+  upload them"): a pass adds its `real game` line; a failure is no refusal: where the game's rate
+  falls outside the card's interval (either way) the card's golems and iron an hour become the
+  game's, and what broke in its builds becomes `game tradeoffs` lines with their counts ("a golem
+  stays alive past 1 min in 1 of 8 builds"), said on the page whatever its curated card says.
+  `--no-gate` puts it up on its redsim judge alone, the gate left for later; its page says nothing
+  about the gate. The site shows every variation listed in `variations.tsv` unless it has a `held`
+  reason. `mctas site variation --regate [design...]` judges and gates the listed variations again
+  and rewrites their rows the same way (a held one is left alone). A page that comes off the site
+  redirects to `farms/iron/`. Commit the folder; the next deploy shows it, at
+  `farms/iron/<stem>.html`.
 - **Components**: `designs/farms/<farm>/parts/<part>/` (part `module`, `cage`, `spawn-area`, `kill`,
   `collection`, `sleep-trigger`) holds each member alone (`<stem>.txt`, no judge) and
   `members.tsv` (`file`, `name`, `stage`, `metrics` as `key value, key value`, `used_by` = the full

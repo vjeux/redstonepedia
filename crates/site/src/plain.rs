@@ -950,6 +950,16 @@ fn directional(b: &Build) -> bool {
 /// What a mob farm's card says about the world around it, in a player's words (the card's
 /// `rain`, `lightning`, `sunburn` and `restarts after days away` lines, mobinfra's and ironfarm's
 /// numbers): how weather changes its rate, how often lightning breaks it, what it needs from you.
+/// What the real game saw break on a farm, with its counts (a farm's `game tradeoffs` metric,
+/// `mctas site variation`: a failed gate is a measured tradeoff, never a refusal nor hidden;
+/// ironspec rev 9 iteration 14), as sentences for its page's facts.
+pub fn game_tradeoffs(b: &Build) -> Option<String> {
+    let c = b.circuit.as_ref()?;
+    let v = c.metrics.iter().find(|(k, _)| k == "game tradeoffs").map(|(_, v)| v.as_str())?;
+    let s: Vec<String> = v.split("; ").map(str::trim).filter(|l| !l.is_empty()).map(|l| format!("{}.", first_cap(l.trim_end_matches('.')))).collect();
+    (!s.is_empty()).then(|| s.join(" "))
+}
+
 pub fn mob_farm_facts(c: &Circuit) -> Vec<String> {
     let mut out = Vec::new();
     // `clear day 305 iron/h; rain day 293 iron/h; thunder day 299 iron/h`
@@ -1992,6 +2002,16 @@ mod tests {
         assert!(!try_it(&day1, true).contains("first night"), "{}", try_it(&day1, true));
         let b1 = Build { circuit: Some(day1), ..Default::default() };
         assert!(needs(&b1, "").iter().any(|n| n.starts_with("On the first night, hide the zombie")), "{:?}", needs(&b1, ""));
+    }
+
+    #[test]
+    fn what_the_game_saw_break_reads_as_sentences() {
+        // (a failed real-game gate's `game tradeoffs`: said on the page, curated card or not)
+        let mut b = Build { kind: "circuit".into(), ..Default::default() };
+        b.circuit = Some(Circuit { kind: "mob-farm iron_ingot day-1".into(), metrics: vec![("game tradeoffs".into(), "a golem stays alive past 1 min in 1 of 8 builds; drops land outside the farm in 2 of 8 builds".into())], ..Default::default() });
+        assert_eq!(game_tradeoffs(&b).as_deref(), Some("A golem stays alive past 1 min in 1 of 8 builds. Drops land outside the farm in 2 of 8 builds."));
+        b.circuit.as_mut().map(|c| c.metrics.clear());
+        assert_eq!(game_tradeoffs(&b), None, "a farm the gate passed, or did not run, says nothing about it");
     }
 
     #[test]
