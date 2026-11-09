@@ -171,37 +171,51 @@ options, judged against each other on the objectives:
 ## Golems removed by portal, and the smallest box
 
 vjeux 23:24: "What's the smallest theorical bounding box for this? (Assuming we use nether portal
-to move the golems away)". A golem whose box touches a nether portal block's shape leaves the
-overworld within a tick or two (a mob's portal transition time is 0), so it never lingers in a
-villager's follow box, and the station needs no drop and no overworld kill.
-- **The pad.** Spawn floors only in 1-wide trenches whose golem box (1.4 wide, so 0.2 into each
-  side cell) overlaps portal blocks beside it; the portal's thin slab sits 0.375-0.625 across its
-  thin axis and spans its cell along the other two, so a side portal is touched only when the
-  trench meets it along one of its full axes (which way the portal faces is part of the layout,
-  and its frames must not block the trench). Every other cell of the spawn search (17 x 17 columns,
-  the floors from y+5 down to y-7) is unspawnable (in the void, empty). Each attempt picks a
-  column uniformly in the 17 x 17 square, so with k valid columns an attempt finds one with
-  chance k/289 and a summon (10 attempts) succeeds with 1 - (1 - k/289)^10: k about 60 for 90%,
-  about 107 for 99%. Obsidian frames are priced (middle and late).
-- **The lock box.** Waiting groups are more than 10.6 from the summoner on one horizontal axis
+to move the golems away)". A golem leaves the overworld within a tick or two of touching a portal
+(`NetherPortalBlock.getPortalTransitionTime` is 0 for a non-player and `Entity.canUsePortal`
+holds for a golem), so it dwells 1-2 gt in the follow boxes (about 0.5-1% detection a villager a
+golem, measured), and the station needs no drop and no overworld kill.
+- **Contact is per cell.** `NetherPortalBlock` keeps the default inside shape (a full block):
+  `Entity.checkInsideBlocks` counts every portal cell the entity's box (deflated by 1e-5) meets,
+  and `entityInside` sends it, whatever the portal's axis. So the pad is 1-wide trenches with a
+  portal wall running alongside, any orientation, every trench cell beside a portal cell (a
+  golem's 1.4-wide box reaches 0.2 into each side cell); the frame's end columns stand in the
+  wall's line, so longer portals (up to 21 interior) waste fewer trench cells. The same rule
+  binds everything near the station: any box overlapping a portal cell crosses (a minecart with
+  its villagers, the zombie's boat, drops), so every box meant to stay keeps out of every portal
+  cell entirely, the station's carts and the zombie's window clear of the walls.
+- **The pad's success.** Every other cell of the spawn search (17 x 17 columns, floors from y+5
+  down to y-7) is unspawnable (in the void, empty). Each attempt picks a column uniformly in the
+  square, and each willing, panicking villager of the group runs its own 10 attempts at the
+  multiple of 100, so a group of 3 makes up to 30: with k valid columns a summon succeeds with
+  1 - (1 - k/289)^30, k about 21 for 90% and about 41 for 99%. Obsidian frames are priced (middle
+  and late).
+- **The lock box.** Waiting groups are more than 10.6 from every summoner on one horizontal axis
   (or 11.95 vertically) at every spawn tick; entering or leaving between attempt ticks is fine.
-  With golems gone in a tick or two, a villager can still be locked only by the living-entity
-  list's stale snapshot (about 1% a villager a golem), which the judge measures.
-- **The queue in the Nether (an option).** The waiting groups ride their carts through a portal
-  and wait in the Nether, out of the overworld 10-box and out of sight; the beds stay in the
-  overworld.
-- **The Nether side.** A kill at the golems' exit (otherwise they come back after their portal
-  cooldown), and the collection there or the items sent back through a portal.
-- **The smallest box, estimated** (6 groups of 3, the queue in the Nether, a trench beside every
-  portal row, so about twice k columns of pad): at 90% pad success about 11 x 11 x 6 blocks of
-  overworld station (about 730 blocks of volume), at 99% about 15 x 15 x 6 (about 1,350), plus the
-  carts' portal and the bed stop, and the Nether's exit kill; 6 copies of a 3-villager module
-  fill about 44,600 (6 x about 7,440). Rate: 720 golems an hour x the pad's success x (1 - the
-  stop's 2.5%): about 632 golems an hour (about 2,530 iron) at 90%, about 695 (about 2,780 iron)
-  at 99%, against 6 copies' 2,448 iron an hour (module-two-watchers' 408 each). The mob-AI lane
-  models portals exactly before any of it is judged (the entity-in-portal test on the thin shape,
-  the mob's transition time, portal cooldowns, a cart taking its rider through, the spawn rules
-  beside portal blocks).
+- **No queue in the Nether.** All the overworld portals within about 15 blocks link to the same
+  Nether portal (`PortalForcer.findClosestPortalPosition`: the nearest within 16 Nether blocks of
+  x/8, z/8), so golems would arrive where the queue waits and lock it (`GolemSensor`, no sight
+  test); separate Nether portals 19 apart need overworld portals about 150 apart, so the queue
+  stays in the overworld, outside the lock box.
+- **The Nether side** (each a rule): a kill at the golems' exit (they come back once their 300 gt
+  cooldown runs out); with no player there, the Nether side ticks only under portal tickets
+  (`TicketType.PORTAL`: 300 gt, radius 3, entities ticking within 1 chunk of the arrival chunk
+  and blocks within 2), so the kill and the collection sit in that area and each kill finishes
+  within a ticket (crossings every ~100 gt renew it; lava's 240 gt fits from arrival); drops keep
+  out of the Nether portal's cells (items use portals too); the restart rule covers an unloaded
+  Nether side (after an absence it resumes with the next crossing).
+- **The smallest box, estimated** (6 groups of 3, the queue in the overworld): the pad is one
+  portal wall 11 long with a trench on each side (22 trench cells) at 90%, two such walls (44) at
+  99%, each about 13 x 3 with its frame and 5 high (the trench floor on the frame's bottom row, a
+  3-tall interior, the top row); the station's 3 carts and the zombie (within 8, in sight) beside
+  it; and the waiting carts more than 10.6 out on one axis. About 24 x 9 x 5 blocks (about 1,100
+  of volume) at 90%, about 24 x 12 x 5 (about 1,450) at 99%, plus the bed stop and the Nether's
+  exit kill; 6 copies of a 3-villager module fill about 44,600 (6 x about 7,440). Rate: 720
+  golems an hour x the pad's success x (1 - the stop's 2.5%): about 632 golems an hour (about
+  2,530 iron) at 90%, about 695 (about 2,780 iron) at 99%, against 6 copies' 2,448 iron an hour
+  (module-two-watchers' 408 each). The mob-AI lane models portals exactly before any of it is
+  judged (the per-cell contact, the transition time and cooldowns, a cart taking its rider
+  through, the spawn rules beside portal blocks, linking, portal tickets).
 
 ## Must-haves (hard rules)
 
