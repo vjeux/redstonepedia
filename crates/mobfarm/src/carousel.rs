@@ -129,6 +129,9 @@ fn carousel_impl(side: i32, latch: bool, free_run: bool, quick: bool) -> anyhow:
             if quick {
                 quick_flash(&mut b, &mut dust, &s)?;
             }
+            if std::env::var_os("MCTAS_WAKE_RELEASE").is_some() {
+                wake_release(&mut b, &mut dust, &s)?;
+            }
             stop(&mut b, &mut dust, s, k == 2);
         }
     }
@@ -235,6 +238,33 @@ fn loop_rails(t: i32, e: i32, boost: bool) -> Vec<([i32; 3], String, &'static st
 /// beside a repeater does not feed it). Returns an error where the tower meets another block.
 fn quick_flash(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, s: &Side) -> anyhow::Result<()> {
     let z = s.at(BOOST, 1);
+    if std::env::var_os("MCTAS_QUICK_OPEN").is_some() {
+        // (experiment: no hatch; the zombie seen only from the sleeping eye) the dorm zombie over
+        // the barrier glass at the booster's column, held to the cell's far half by an open oak
+        // trapdoor at its head's height on the pocket's face (its centre 0.99-1.2 rails past the
+        // head's: the sleeping eye's line crosses into its column at y 1.08-1.33); a top slab over
+        // the hatch cell (lane 1, y 1, POCKET: y 1.5-2): the line passes under it, but a villager
+        // cannot stand on the bed's head (its top at 1.51) and no line from the zombie reaches the
+        // foot, the pocket or the head standing; glass on every top a golem could spawn on
+        for lane in [0, 2] {
+            let p = s.at(BOOST, lane);
+            b.set(p[0], 1, p[1], STONE);
+            b.set(p[0], 2, p[1], GLASS);
+        }
+        let f = s.at(BOOST + 1, 1);
+        b.set(f[0], 1, f[1], STONE);
+        b.set(f[0], 2, f[1], GLASS);
+        b.set(z[0], 2, z[1], &format!("oak_trapdoor[facing={},half=bottom,open=true,powered=false,waterlogged=false]", name(s.d)));
+        b.set(z[0], 3, z[1], STONE);
+        b.set(z[0], 4, z[1], GLASS);
+        let q = s.at(POCKET, 1);
+        b.set(q[0], 1, q[1], "cobblestone_slab[type=top,waterlogged=false]");
+        b.set(q[0], 2, q[1], STONE);
+        b.set(q[0], 3, q[1], GLASS);
+        b.entity("zombie", [z[0] as f64 + 0.5 + 0.15 * s.d[0] as f64, 1.0, z[1] as f64 + 0.5 + 0.15 * s.d[1] as f64], Some("{PersistenceRequired:1b}"));
+        let _ = dust;
+        return Ok(());
+    }
     for lane in [0, 2] {
         let p = s.at(BOOST, lane);
         b.set(p[0], 1, p[1], STONE);
@@ -267,6 +297,72 @@ fn quick_flash(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, s: &Side) -> anyh
         if !b.d.blocks.contains_key(&[bp[0], -2, bp[1]]) {
             b.set(bp[0], -2, bp[1], STONE);
         }
+    }
+    Ok(())
+}
+
+/// The per-stop wake release (experiment, `MCTAS_WAKE_RELEASE`; ironfarm's next step 1: "a
+/// per-stop wake release" against the dawn stroll-push): the stop's own cart leaves its brake when
+/// its own sleeper wakes, a few ticks after it stands up in the pocket, before it strolls back
+/// into the parked cart. An observer under the bed's head (lane 1, y -2, facing up) pulses into a
+/// stone under it (y -3) at each lie-down and wake; a copper bulb under that (y -4), placed lit,
+/// toggles on each pulse: lit exactly while the bed is free. A comparator beside the bulb (BRAKE,
+/// y -4) reads it into a block (ACT, y -4); a subtracting comparator in front of that block (rail
+/// 1, y -4) reads it from behind and the same signal 4 gt later in its side (two repeaters around
+/// through lanes 2 and 3): one 4 gt pulse when the bed frees (the wake), none when it fills. The
+/// pulse's block (rail 0, lane 1, y -4) carries a dust up onto the track column (y -2, rails 0 and
+/// 1) into a repeater (ACT, y -2) into the brake's mud.
+fn wake_release(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, s: &Side) -> anyhow::Result<()> {
+    let at = |i: i32, off: i32, y: i32| {
+        let p = s.at(i, off);
+        [p[0], y, p[1]]
+    };
+    let from_plus_d = name(s.d);
+    let from_minus_d = name([-s.d[0], -s.d[1]]);
+    let from_plus_n = name(s.n);
+    let from_minus_n = name([-s.n[0], -s.n[1]]);
+    let blocks: Vec<([i32; 3], String)> = vec![
+        (at(POCKET, 1, -2), "observer[facing=up,powered=false]".into()),
+        (at(POCKET, 1, -3), STONE.into()),
+        (at(POCKET, 1, -4), "copper_bulb[lit=true,powered=false]".into()),
+        (at(POCKET, 1, -5), STONE.into()),
+        (at(BRAKE, 1, -4), format!("comparator[facing={from_plus_d},mode=compare,powered=true]")),
+        (at(BRAKE, 1, -5), STONE.into()),
+        (at(ACT, 1, -4), STONE.into()),
+        (at(1, 1, -4), format!("comparator[facing={from_plus_d},mode=subtract,powered=false]")),
+        (at(1, 1, -5), STONE.into()),
+        (at(0, 1, -4), STONE.into()),
+        (at(ACT, 2, -4), format!("repeater[delay=1,facing={from_minus_n},locked=false,powered=true]")),
+        (at(ACT, 2, -5), STONE.into()),
+        (at(ACT, 3, -5), STONE.into()),
+        (at(1, 3, -5), STONE.into()),
+        (at(1, 2, -4), format!("repeater[delay=1,facing={from_plus_n},locked=false,powered=true]")),
+        (at(1, 2, -5), STONE.into()),
+        (at(0, 0, -4), STONE.into()),
+        // (beside the corner's dust, beyond it: the next loop's repeater path (its lane 3, y -4)
+        // runs under that cell and the corner's dust would step down into it)
+        (at(-1, 0, -3), STONE.into()),
+        // (and glass over it: its top would be a golem spawn spot in the station's search)
+        (at(-1, 0, -2), GLASS.into()),
+        (at(1, 0, -3), STONE.into()),
+        (at(ACT, 0, -2), format!("repeater[delay={},facing={from_minus_d},locked=false,powered=false]", std::env::var("MCTAS_WAKE_DELAY").ok().and_then(|v| v.parse::<u8>().ok()).unwrap_or(4).clamp(1, 4))),
+        (at(ACT, 0, -3), STONE.into()),
+    ];
+    // (the pulse's dust: on its block (lane 1, rail 0, y -3), into the track column at the
+    // corner (y -3: at y -2 the previous side's climb rail's support stands over lane 1's rail 0),
+    // up onto rail 1 (y -2) into the repeater)
+    let dusts = [at(ACT, 3, -4), at(1, 3, -4), at(0, 1, -3), at(0, 0, -3), at(1, 0, -2)];
+    for (p, _) in &blocks {
+        anyhow::ensure!(!b.d.blocks.contains_key(p) && !dust.contains(p), "the wake release at {p:?} meets {:?}", b.d.blocks.get(p));
+    }
+    for p in &dusts {
+        anyhow::ensure!(!b.d.blocks.contains_key(p) && !dust.contains(p), "the wake release's dust at {p:?} meets {:?}", b.d.blocks.get(p));
+    }
+    for (p, block) in blocks {
+        b.set(p[0], p[1], p[2], &block);
+    }
+    for p in dusts {
+        dust.insert(p);
     }
     Ok(())
 }
