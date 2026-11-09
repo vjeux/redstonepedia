@@ -373,7 +373,13 @@ fn keep_of(pl: &Place, d: &Design) -> Result<Keep, String> {
     let spots: Vec<Pos> = redsim::entity::mob::exit::spawn_spots_of(&w, &own).into_iter().map(to_d).collect();
     let floors: BTreeSet<Pos> = spots.iter().map(|p| [p[0], p[1] - 1, p[2]]).collect();
     // open in the built world: no collision box, or a fluid
+    // open in the built world (no collision box, or a fluid), and one of the design's own cells:
+    // the farm's inside (in the void every unlisted cell is air: a flood through them took the
+    // whole box for the golems' space, and cross-4 got no edit to try)
     let open = |p: &Pos| {
+        if !d.blocks.contains_key(p) {
+            return false;
+        }
         let b = w.get(BlockPos::new(p[0] + off[0], p[1] + off[1], p[2] + off[2]));
         let s = format!("{b}");
         s.contains("water") || s.contains("lava") || redsim::entity::collide::boxes_at(&w, &b, BlockPos::new(p[0] + off[0], p[1] + off[1], p[2] + off[2])).is_empty()
@@ -394,6 +400,21 @@ fn keep_of(pl: &Place, d: &Design) -> Result<Keep, String> {
     }
     let ring: Vec<Pos> = golem.iter().flat_map(|p| neighbours(*p)).collect();
     golem.extend(ring);
+    // where golems and drops actually go (8 one-day AI-on runs of the design): their cells and
+    // the 3 x 3 x 3 around each (cross-4's trim took a wall its iron fell out through)
+    let jobs: Vec<RunOpts> = (0..8).map(|k| rfarm::judge_opts_in(rfarm::judge_seed(0, 100 + k), 24000, WalkMode::Random, site)).collect();
+    for r in circuit::mobfarm::run_all(&moved, &jobs).into_iter().flatten() {
+        for (c, _) in r.golem_cells.iter().chain(r.drop_cells.iter()) {
+            let p = to_d(BlockPos::new(c[0], c[1], c[2]));
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        golem.insert([p[0] + dx, p[1] + dy, p[2] + dz]);
+                    }
+                }
+            }
+        }
+    }
     // water's reach and the fluids' neighbours
     let dopen = |p: &Pos| d.blocks.get(p).is_none_or(|s| is_air(s));
     let mut wet = BTreeSet::new();
@@ -418,6 +439,10 @@ fn keep_of(pl: &Place, d: &Design) -> Result<Keep, String> {
             frontier.push((q, kq));
         }
     }
+    // the walls of water's reach too (a channel's wall gone, its water runs out into the void and
+    // the golems it carried stand still: cross-4's first trim)
+    let walls: Vec<Pos> = wet.iter().flat_map(|p| neighbours(*p)).collect();
+    wet.extend(walls);
     let mut cells = BTreeSet::new();
     for e in &d.entities {
         // a vehicle and its rider overlap the cells around theirs (a boat is 1.375 wide; the
@@ -453,6 +478,12 @@ fn keep_of(pl: &Place, d: &Design) -> Result<Keep, String> {
         }
     }
     cells.extend(access);
+    // the farm's working parts and every cell beside one (redstone hangs on its support and is
+    // powered through solid blocks; a trapdoor, a plate, a bed or a sign needs its neighbour):
+    // cross-4's trim took the blocks under its timer and its villagers never slept
+    let working = |s: &str| !is_air(s) && !removable(s) && !fluid(s);
+    let near: Vec<Pos> = d.blocks.iter().filter(|(_, s)| working(s)).flat_map(|(p, _)| neighbours(*p)).collect();
+    cells.extend(near);
     Ok(Keep { golem, wet, floors, cells })
 }
 
