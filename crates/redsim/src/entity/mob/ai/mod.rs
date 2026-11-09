@@ -92,7 +92,16 @@ impl MobAi {
     pub fn new(ty: MobType, y_rot: f32) -> MobAi {
         let d = ty.def();
         let kind = if d.id == "spider" || d.id == "cave_spider" { NavKind::WallClimber } else { NavKind::Ground };
-        let malus = if ty == MobType::Villager { Malus::villager() } else { Malus::default() };
+        let malus = if ty == MobType::Villager {
+            Malus::villager()
+        } else if d.id == "chicken" {
+            // the chicken's constructor: setPathfindingMalus(WATER, 0)
+            let mut m = Malus::default();
+            m.set(crate::entity::mob::ai::path::path_type::PathType::Water, 0.0);
+            m
+        } else {
+            Malus::default()
+        };
         let mut nav = Navigation::new(kind, d.follow_range);
         if ty == MobType::Villager {
             // AbstractVillager/Villager's constructor: doors, floating, a 48-block path budget
@@ -787,7 +796,10 @@ pub fn ambient_sound_tick(w: &mut World, i: usize) {
     };
     ai_mut(w, i).ambient_sound_time = t + 1;
     if roll < t {
-        ai_mut(w, i).ambient_sound_time = -80;
+        // -getAmbientSoundInterval(): 120 for an Animal and an AbstractGolem, else Mob's 80
+        let id = mob(w, i).ty.def().id;
+        let interval = if goal::animal::is_animal(id) || mob(w, i).ty == MobType::IronGolem { 120 } else { 80 };
+        ai_mut(w, i).ambient_sound_time = -interval;
         if bat::is_bat(w, i) {
             bat::ambient_sound(w, i);
         } else if has_ambient_sound(w, i)

@@ -134,6 +134,10 @@ fn has_malus(w: &World, i: usize, p: BlockPos) -> bool {
 /// is minus the light cost (`-getPathfindingCostFromLightLevels`), others 0.
 pub fn walk_target_value(w: &mut World, i: usize, p: BlockPos) -> f64 {
     let ty = mob(w, i).ty;
+    // an Animal's: 10 on a grass block, else the light's cost
+    if super::animal::is_animal(ty.def().id) {
+        return super::animal::walk_target_value(w, p);
+    }
     if !ty.def().monster {
         return 0.0;
     }

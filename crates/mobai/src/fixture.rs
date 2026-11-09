@@ -38,6 +38,9 @@ pub struct Scene {
     /// The player in creative mode (no mob targets it; it still keeps mobs from idling: the
     /// despawn check's 32 blocks).
     pub player_creative: bool,
+    /// `gamerule random_tick_speed` (3; 0 in a scene with grass blocks, whose random ticks need
+    /// the terrain worlds' light).
+    pub random_tick_speed: u32,
 }
 
 fn difficulty_name(d: Difficulty) -> &'static str {
@@ -66,6 +69,9 @@ impl Scene {
         });
         if self.player_creative {
             v["player_creative"] = json!(true);
+        }
+        if self.random_tick_speed != 3 {
+            v["random_tick_speed"] = json!(self.random_tick_speed);
         }
         v.to_string()
     }
@@ -151,6 +157,7 @@ fn scenes_raw() -> Vec<Scene> {
             watch: ([0, 60, 0], [47, 70, 47]),
             player: None,
             player_creative: false,
+            random_tick_speed: 3,
         });
     }
     // a zombie and a golem walled off from it (the golem stands still: no AI modeled for it yet,
@@ -172,6 +179,7 @@ fn scenes_raw() -> Vec<Scene> {
             watch: ([0, 60, 0], [47, 70, 47]),
             player: None,
             player_creative: false,
+            random_tick_speed: 3,
         });
     }
     // an iron golem and a zombie 12 apart at night: each targets the other (the golem: enemies
@@ -193,6 +201,7 @@ fn scenes_raw() -> Vec<Scene> {
             watch: ([0, 60, 0], [47, 70, 47]),
             player: None,
             player_creative: false,
+            random_tick_speed: 3,
         });
     }
     // a zombie pathing to a villager penned in fences beyond two low walls (the walls and the
@@ -220,6 +229,7 @@ fn scenes_raw() -> Vec<Scene> {
             watch: ([0, 60, 0], [47, 70, 47]),
             player: None,
             player_creative: false,
+            random_tick_speed: 3,
         });
     }
     // a zombie that breaks doors (Hard) going for a villager in a fence pen through its oak door
@@ -252,6 +262,7 @@ fn scenes_raw() -> Vec<Scene> {
             watch: ([0, 60, 0], [47, 70, 47]),
             player: None,
             player_creative: false,
+            random_tick_speed: 3,
         });
     }
     // three homeless villagers and three free beds before dusk: AcquirePoi claims the beds (the
@@ -279,6 +290,7 @@ fn scenes_raw() -> Vec<Scene> {
             watch: ([0, 60, 0], [47, 70, 47]),
             player: None,
             player_creative: false,
+            random_tick_speed: 3,
         });
     }
     // a creeper going for a survival player who stands inside a ring of fences 4 out (it never
@@ -305,6 +317,7 @@ fn scenes_raw() -> Vec<Scene> {
             watch: ([0, 60, 0], [47, 70, 47]),
             player: Some([36.5, 64.0, 24.5]),
             player_creative: false,
+            random_tick_speed: 3,
         });
     }
     // a skeleton alone at night: strolls, looks around (RestrictSunGoal idle in the dark)
@@ -323,6 +336,7 @@ fn scenes_raw() -> Vec<Scene> {
             watch: ([0, 60, 0], [47, 70, 47]),
             player: None,
             player_creative: false,
+            random_tick_speed: 3,
         });
     }
     // a skeleton in the morning sun beside a roofed shelter: it burns, FleeSunGoal finds the shade,
@@ -348,6 +362,7 @@ fn scenes_raw() -> Vec<Scene> {
             watch: ([0, 60, 0], [47, 70, 47]),
             player: None,
             player_creative: false,
+            random_tick_speed: 3,
         });
     }
     // a spider in a walled yard at night: it strolls into the walls and climbs (Spider.tick's
@@ -371,6 +386,7 @@ fn scenes_raw() -> Vec<Scene> {
             // a creative player above the yard keeps the spider from idling (the despawn check)
             player: Some([24.5, 72.0, 24.5]),
             player_creative: true,
+            random_tick_speed: 3,
         });
     }
     // a spider and an iron golem 10 apart at night: each targets the other (the spider only in the
@@ -392,6 +408,7 @@ fn scenes_raw() -> Vec<Scene> {
             watch: ([0, 60, 0], [47, 70, 47]),
             player: None,
             player_creative: false,
+            random_tick_speed: 3,
         });
     }
     // bats in a closed stone hall at night: a summoned bat flies (BatFlags 0: its target cells,
@@ -419,6 +436,7 @@ fn scenes_raw() -> Vec<Scene> {
             watch: ([0, 60, 0], [47, 73, 47]),
             player: Some([30.5, 68.0, 30.5]),
             player_creative: true,
+            random_tick_speed: 3,
         });
     }
     // sulfur cubes (size 2) hopping in a stone pen with a pool: CubeMobRandomDirectionGoal's
@@ -448,6 +466,7 @@ fn scenes_raw() -> Vec<Scene> {
             watch: ([0, 60, 0], [47, 70, 47]),
             player: Some([24.5, 72.0, 24.5]),
             player_creative: true,
+            random_tick_speed: 3,
         });
     }
     // a zombie at night outside a closed stone house whose three villagers claim their beds:
@@ -481,6 +500,41 @@ fn scenes_raw() -> Vec<Scene> {
             watch: ([0, 60, 0], [47, 70, 47]),
             player: None,
             player_creative: false,
+            random_tick_speed: 3,
+        });
+    }
+    // farm animals in a grass pen with tufts of short grass, a creative player above keeping them
+    // from idling: strolls weighted by the grass, the sheep eating grass, the chicken's slow fall
+    // and its egg
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        for x in 9..39 {
+            for z in 9..39 {
+                b.push(([x, 63, z], "minecraft:grass_block[snowy=false]".to_string()));
+            }
+        }
+        for (a, c) in [((8, 8), (8, 39)), ((39, 8), (39, 39)), ((8, 8), (39, 8)), ((8, 39), (39, 39))] {
+            wall(&mut b, a, c, 63, 2, stone);
+        }
+        let p = |s: &str| Some(s.to_string());
+        v.push(Scene {
+            name: "animals".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:pig".into(), [16.5, 64.0, 16.5], p("{PersistenceRequired:1b}")),
+                ("minecraft:cow".into(), [30.5, 64.0, 16.5], p("{PersistenceRequired:1b}")),
+                ("minecraft:sheep".into(), [16.5, 64.0, 30.5], p("{PersistenceRequired:1b}")),
+                ("minecraft:chicken".into(), [30.5, 66.0, 30.5], p("{PersistenceRequired:1b}")),
+            ],
+            day_time: 6000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: Some([24.5, 74.0, 24.5]),
+            player_creative: true,
+            random_tick_speed: 0,
         });
     }
     v
@@ -507,7 +561,7 @@ impl GameScene {
             "advance_time": true, "day_time": s.day_time,
             "advance_weather": false, "spawn_mobs": false, "spawn_monsters": false,
             "difficulty": difficulty_name(s.difficulty),
-            "rules": {"mob_griefing": if s.mob_griefing { "true" } else { "false" }},
+            "rules": {"mob_griefing": if s.mob_griefing { "true" } else { "false" }, "random_tick_speed": s.random_tick_speed.to_string()},
             "trace_randoms": trace_randoms,
         }))?;
         if let Some(p) = s.player {
@@ -590,7 +644,7 @@ pub fn redsim_world(s: &Scene, seed: i64) -> Result<World> {
     }
     w.place_raw(&list);
     w.mirror_level_random(seed, s.chunks);
-    w.random_ticks = Some(redsim::crops::RandomTicks::new(3, seed));
+    w.random_ticks = Some(redsim::crops::RandomTicks::new(s.random_tick_speed, seed));
     Ok(w)
 }
 

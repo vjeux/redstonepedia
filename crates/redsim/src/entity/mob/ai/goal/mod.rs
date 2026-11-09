@@ -5,6 +5,7 @@
 //! the mob (its navigation, controls, target) through the world.
 
 pub mod float;
+pub mod animal;
 pub mod golem;
 pub mod creeper;
 pub mod skeleton;
@@ -67,6 +68,8 @@ pub enum Goal {
     LeapAtTarget,
     /// A cube mob's goals (`AbstractCubeMob`, the sulfur cube's).
     Cube(super::cube::CubeGoal),
+    /// A farm animal's goals (panic, breeding, tempting, its parent, a sheep's grass).
+    Animal(animal::AnimalGoal),
     ResetUniversalAnger,
     HurtByTarget(targets::HurtByTarget),
     NearestAttackableTarget(targets::NearestAttackableTarget),
@@ -94,6 +97,7 @@ impl Goal {
             Goal::RangedBow => MOVE | LOOK,
             Goal::LeapAtTarget => JUMP | MOVE,
             Goal::Cube(c) => c.flags(),
+            Goal::Animal(a) => a.flags(),
             Goal::ResetUniversalAnger => 0,
             Goal::HurtByTarget(_) | Goal::NearestAttackableTarget(_) => TARGET,
         }
@@ -148,6 +152,7 @@ impl Goal {
             Goal::RangedBow => "RangedBowAttackGoal",
             Goal::LeapAtTarget => "LeapAtTargetGoal",
             Goal::Cube(c) => c.name(),
+            Goal::Animal(a) => a.name(),
             Goal::ResetUniversalAnger => "ResetUniversalAngerTargetGoal",
             Goal::HurtByTarget(_) => "HurtByTargetGoal",
             Goal::NearestAttackableTarget(n) => match n.target_type {
@@ -310,6 +315,7 @@ pub fn can_use(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::RangedBow => skeleton::bow_can_use(w, i),
         Goal::LeapAtTarget => spider::leap_can_use(w, i),
         Goal::Cube(c) => super::cube::can_use(w, i, c),
+        Goal::Animal(a) => animal::can_use(w, i, a),
         Goal::ResetUniversalAnger => false,
         Goal::HurtByTarget(h) => targets::hurt_by_can_use(w, i, h),
         Goal::NearestAttackableTarget(n) => targets::nearest_can_use(w, i, n),
@@ -339,6 +345,7 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::LeapAtTarget => spider::leap_can_continue(w, i),
         // Goal.canContinueToUse: canUse()
         Goal::Cube(c) => super::cube::can_use(w, i, c),
+        Goal::Animal(a) => animal::can_continue(w, i, a),
         Goal::HurtByTarget(h) => targets::target_can_continue(w, i, &mut h.base),
         Goal::NearestAttackableTarget(n) => targets::target_can_continue(w, i, &mut n.base),
     }
@@ -366,6 +373,7 @@ pub fn start(w: &mut World, i: usize, g: &mut Goal) {
         Goal::RangedBow => {}
         Goal::LeapAtTarget => spider::leap_start(w, i),
         Goal::Cube(_) => {}
+        Goal::Animal(a) => animal::start(w, i, a),
         Goal::HurtByTarget(h) => targets::hurt_by_start(w, i, h),
         Goal::NearestAttackableTarget(n) => targets::nearest_start(w, i, n),
     }
@@ -390,6 +398,7 @@ pub fn stop(w: &mut World, i: usize, g: &mut Goal) {
         Goal::AvoidEntity => {}
         Goal::RestrictSun => super::ai_mut(w, i).nav.avoid_sun = false,
         Goal::FleeSun(_) | Goal::RangedBow | Goal::LeapAtTarget | Goal::Cube(_) => {}
+        Goal::Animal(a) => animal::stop(w, i, a),
         Goal::HurtByTarget(h) => targets::target_stop(w, i, &mut h.base),
         Goal::NearestAttackableTarget(n) => targets::target_stop(w, i, &mut n.base),
     }
@@ -414,6 +423,7 @@ pub fn tick(w: &mut World, i: usize, g: &mut Goal) {
         Goal::RangedBow => skeleton::bow_tick(w),
         Goal::RestrictSun | Goal::FleeSun(_) | Goal::LeapAtTarget => {}
         Goal::Cube(c) => super::cube::tick(w, i, c),
+        Goal::Animal(a) => animal::tick(w, i, a),
         Goal::HurtByTarget(_) | Goal::NearestAttackableTarget(_) => {}
     }
 }
@@ -426,6 +436,7 @@ pub fn register_goals(ai: &mut MobAi, ty: MobType) {
         "creeper" => creeper::register(ai),
         "skeleton" | "stray" | "bogged" => skeleton::register(ai),
         "spider" | "cave_spider" => spider::register(ai),
+        id if animal::is_animal(id) => animal::register(ai, id),
         _ => {}
     }
     // FloatGoal's constructor: `mob.getNavigation().setCanFloat(true)`

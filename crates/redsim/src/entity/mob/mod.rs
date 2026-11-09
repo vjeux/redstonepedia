@@ -213,6 +213,8 @@ pub struct MobState {
     /// The bat's resting flag (set at construction) and its flight target.
     pub bat_resting: bool,
     pub bat_target: Option<BlockPos>,
+    /// The chicken's `eggTime`.
+    pub egg_time: i32,
     /// The lava tracker's height (`getFluidHeight(LAVA)`; `isInLava` when positive).
     pub lava_height: f64,
     /// This tick's collected block effects.
@@ -258,6 +260,7 @@ impl MobState {
             climbing: false,
             bat_resting: d.id == "bat",
             bat_target: None,
+            egg_time: 0,
             lava_height: 0.0,
             inside: Inside::default(),
             last_damage: None,
@@ -568,6 +571,10 @@ pub fn add(w: &mut World, ty: MobType, pos: Vec3, persistent: bool) -> u32 {
                 c.yrot = 180.0f32 * ctor_yaw / std::f32::consts::PI;
             }
         }
+    }
+    // the chicken's constructor: its egg timer (6000..11999)
+    if ty.def().id == "chicken" {
+        st.egg_time = ai::goal::animal::chicken_egg_time(&mut own);
     }
     // ---- mob AI (the mob-AI lane): a mob whose goals are not modeled (villagers have their brain,
     // bats their own flight): a summoned one (the farm's own: `MobAi::strict`) is refused, never

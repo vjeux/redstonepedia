@@ -79,6 +79,8 @@ pub fn tick(w: &mut World, i: usize) {
     // AbstractCubeMob.tick after super.tick: the landing's draws
     if super::ai::has_ai(w, i) {
         super::ai::cube::after_tick(w, i);
+        // Chicken.aiStep's tail: the slow fall, the egg
+        super::ai::goal::animal::chicken_after_ai_step(w, i);
     }
 }
 
@@ -729,6 +731,31 @@ fn drop_loot(w: &mut World, i: usize) {
     }
 }
 
+/// `Entity.spawnAtLocation(stack)` of a mob's item outside its loot table (a chicken's egg):
+/// `new ItemEntity(level, x, y, z, stack)` at its position, the item's own random as an entering
+/// entity's (the bridge's seeding in an exact world: its UUID replayed), bobOffs, yaw and drift.
+pub fn spawn_item(w: &mut World, i: usize, item: &'static str, count: u8) {
+    let pos = w.entities.list[i].pos;
+    let src_id = w.entities.list[i].id;
+    let at = w.entities.next_id;
+    let mut own = w.entering_random(at);
+    if w.exact_seed.is_some() {
+        crate::rng::replay_uuid(&mut own);
+    }
+    own.next_float();
+    let y_rot = own.next_float() * 360.0;
+    let mx = own.next_double() * 0.2 - 0.1;
+    let mz = own.next_double() * 0.2 - 0.1;
+    let state = crate::entity::item::ItemState { item: item.to_string(), count, pickup_delay: 10, age: 0, payload: 0, health: 5 };
+    let id = w.entities.add(EntityKind::Item(state), Vec3::new(pos.x, pos.y, pos.z), y_rot);
+    if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
+        e.delta_movement = Vec3::new(mx, 0.2, mz);
+        e.random = Some(own);
+    }
+    let t = w.time;
+    w.mob.events.push(MobEvent::Drop { t, from: src_id, item: id, what: item, count: count as u32 });
+}
+
 /// [`drop_loot`] in an exact world (tickexact): `LivingEntity.dropFromLootTable` with the table's
 /// random sequence (`getLootTableSeed()` is 0: `level.getRandomSequence(entities/<id>)`, the
 /// bridge's sandboxes salt them from their seed: `World::loot_salt`), each pool's `set_count
@@ -869,6 +896,8 @@ pub fn check_fall_damage(w: &mut World, i: usize, ya: f64, on_ground: bool) {
     if mob(w, i).ty.def().id == "bat" {
         return;
     }
+    // a chicken takes no fall damage (`Chicken.causeFallDamage`: false), its fall distance kept
+    let chicken = mob(w, i).ty.def().id == "chicken" && super::ai::has_ai(w, i);
     if !w.entities.list[i].was_touching_water {
         crate::entity::fluid_push::update_fluid_interaction(w, i);
     }
@@ -884,7 +913,7 @@ pub fn check_fall_damage(w: &mut World, i: usize, ya: f64, on_ground: bool) {
         let on_state = w.get(on);
         let distance = w.entities.list[i].fall_distance;
         let distance = if matches!(on_state, Block::Bed { .. }) { distance * 0.5 } else { distance };
-        if !matches!(on_state, Block::Simple(Simple::SlimeBlock)) {
+        if !matches!(on_state, Block::Simple(Simple::SlimeBlock)) && !chicken {
             cause_fall_damage(w, i, distance);
         }
         let e = &w.entities.list[i];
