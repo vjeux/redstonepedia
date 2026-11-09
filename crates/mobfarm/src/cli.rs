@@ -317,7 +317,22 @@ pub enum MobfarmCmd {
         #[arg(long)]
         build: Option<usize>,
     },
-    /// Each design's tick-exactness as `circuit verify` finds it: run 0 of every judge build on
+    /// The judge's run of a design on many seeds at once (the carousel's robustness: "21 of 100
+    /// seeds hold 3 days"): each seed's verdict (its first failure, or PASS) with its golems, iron
+    /// and riders at each midday, then how many hold and the first failures counted by kind.
+    Seeds {
+        design: PathBuf,
+        /// The first and last seed (inclusive).
+        #[arg(long, default_value_t = 1)]
+        from: i64,
+        #[arg(long, default_value_t = 100)]
+        to: i64,
+        #[arg(long, default_value_t = 3)]
+        days: u32,
+        /// Runs at once (default: the machine's cores).
+        #[arg(long)]
+        jobs: Option<usize>,
+    },
     /// the deterministic bridge against redsim for the judge's days (each build's result and the
     /// lane owning its first difference); `--record` writes it to the ratchet's table
     /// (designs/circuits/mobfarm/exact.tsv: a design recorded exact fails a later verify that
@@ -483,6 +498,59 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{} spawn spots, {} positions, {} runs, worst life {} gt, {:.1} s", rep.spawn_spots, rep.starts, rep.runs, rep.worst_life, t0.elapsed().as_secs_f64());
             for f in &rep.failures {
                 println!("FAIL {f}");
+            }
+        }
+        MobfarmCmd::Seeds { design, from, to, days, jobs } => {
+            let (_c, spec) = load(version, &design)?;
+            use redsim::entity::mob::farm::{RunOpts, WalkMode, run};
+            let seeds: Vec<i64> = (from..=to).collect();
+            let jobs = jobs.unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8)).max(1);
+            let next = std::sync::atomic::AtomicUsize::new(0);
+            let out: std::sync::Mutex<Vec<(i64, Option<String>, String)>> = std::sync::Mutex::new(Vec::new());
+            let t0 = std::time::Instant::now();
+            std::thread::scope(|sc| {
+                for _ in 0..jobs.min(seeds.len()) {
+                    sc.spawn(|| {
+                        loop {
+                            let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let Some(&seed) = seeds.get(k) else { break };
+                            let o = RunOpts::steady(seed, days * 24000, WalkMode::Random);
+                            let row = match run(&spec, &o) {
+                                Ok(r) => {
+                                    let first = r.failures.iter().chain(r.errors.iter()).next().cloned();
+                                    let riding = r.riding_middays.iter().map(|(riding, rode)| format!("{riding}/{rode}")).collect::<Vec<_>>().join(" ");
+                                    (seed, first, format!("{} golems, {} iron ({:.0}/h), riding at middays {}", r.golems, r.iron_dropped, r.iron_per_hour(), if riding.is_empty() { "-".to_string() } else { riding }))
+                                }
+                                Err(e) => (seed, Some(format!("the run went wrong: {e}")), String::new()),
+                            };
+                            out.lock().unwrap().push(row);
+                        }
+                    });
+                }
+            });
+            let mut rows = out.into_inner().unwrap();
+            rows.sort_by_key(|r| r.0);
+            let mut kinds: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+            let mut held = Vec::new();
+            for (seed, first, line) in &rows {
+                match first {
+                    None => {
+                        held.push(seed.to_string());
+                        println!("seed {seed}: PASS, {line}");
+                    }
+                    Some(f) => {
+                        // the kind: the failure's words without its numbers
+                        let kind: String = f.split_once(": ").map(|(h, r)| if h.starts_with("gt ") { r } else { f.as_str() }).unwrap_or(f).chars().filter(|c| !c.is_ascii_digit()).collect::<String>().split_whitespace().take(8).collect::<Vec<_>>().join(" ");
+                        *kinds.entry(kind).or_insert(0) += 1;
+                        println!("seed {seed}: FAIL {f}; {line}");
+                    }
+                }
+            }
+            println!("{} of {} seeds hold {days} days ({}); {:.0} s on {jobs} threads", held.len(), rows.len(), held.join(" "), t0.elapsed().as_secs_f64());
+            let mut kv: Vec<_> = kinds.into_iter().collect();
+            kv.sort_by(|a, b| b.1.cmp(&a.1));
+            for (k, n) in kv {
+                println!("  first failure {n}x: {k}");
             }
         }
         MobfarmCmd::Run { design, seed, days, still, terrain, ticks_only, watch, cells, census, build } => {
