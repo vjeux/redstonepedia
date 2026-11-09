@@ -436,7 +436,13 @@ pub fn site_bill(c: &Circuit, site: Option<&redsim::entity::mob::site::Site>, st
             // (the fire clearance's cells are dug, a replaced one placed again as cobblestone)
             (s.dug + s.seals.iter().filter(|(_, d)| *d).count() as u32 + s.clears.len() as u32 + adug, extra)
         }
-        None => (0, Vec::new()),
+        // a void design that names its `ground:` (the parent's ruling, 19:27: "a void design whose
+        // base is the ground and the storage is dug below it"): every cell it has at or below the
+        // ground layer is dug first
+        None => match c.clock.design.meta.get("ground").and_then(|g| g.trim().parse::<i32>().ok()) {
+            Some(g) => (c.clock.design.blocks.keys().filter(|p| p[1] <= g).count() as u32, Vec::new()),
+            None => (0, Vec::new()),
+        },
     };
     let extra: Vec<&str> = extra.iter().map(String::as_str).collect();
     let mut bill = redsim::entity::mob::prices::bill(&blocks, &ents, dug, &extra, stage)?;
@@ -473,11 +479,15 @@ pub fn site_bill(c: &Circuit, site: Option<&redsim::entity::mob::site::Site>, st
     let placed: Vec<([i32; 3], &str)> = cells.iter().filter(|(_, s)| solid(s)).map(|(p, s)| (*p, s.as_str())).collect();
     let occupied: std::collections::HashSet<[i32; 3]> = placed.iter().map(|(p, _)| *p).collect();
     let ents3: Vec<(&str, &str, [f64; 3])> = d.entities.iter().map(|e| (e.kind.as_str(), e.nbt.as_deref().unwrap_or(""), e.pos)).collect();
-    let ground = d.meta.get("ground").and_then(|g| g.trim().parse::<i32>().ok()).unwrap_or(-1);
-    let surface = match site {
-        Some(_) => ground + 1,
-        None => placed.iter().map(|(p, _)| p[1]).min().unwrap_or(0),
+    let ground_meta = d.meta.get("ground").and_then(|g| g.trim().parse::<i32>().ok());
+    let ground = ground_meta.unwrap_or(-1);
+    // (a void design stands on its lowest layer, or on its named ground: then the cells below are
+    // in a dug pit, like a terrain build's)
+    let surface = match (site, ground_meta) {
+        (Some(_), _) | (None, Some(_)) => ground + 1,
+        (None, None) => placed.iter().map(|(p, _)| p[1]).min().unwrap_or(0),
     };
+    let in_rock = site.is_some() || ground_meta.is_some();
     let standing = d.meta.get("afk").and_then(|a| a.split_whitespace().nth(1)?.parse::<f64>().ok()).map_or(surface, |y| y.floor() as i32);
     let output = d.ports.get("output").copied().unwrap_or([0, surface, 0]);
     let mut access = Access::of(&blocks);
@@ -490,7 +500,9 @@ pub fn site_bill(c: &Circuit, site: Option<&redsim::entity::mob::site::Site>, st
     let lava_trips = bill.items.get("lava_trip").map_or(0, |e| e.0);
     let moved = bill.items.get("villager_moved").map_or(0, |e| e.0);
     let hand = u32::from(d.meta.get("restart").map(|r| r.trim()) != Some("yes"));
-    let layout = Layout { blocks: &placed, entities: &ents3, surface, standing, output, in_rock: site.is_some(), access };
+    // (late: the villagers come by the breeder's delivery line, prices.tsv `villager_moved`: each
+    // pays its way into its pod, no trip of the player's; every design the same)
+    let layout = Layout { blocks: &placed, entities: &ents3, surface, standing, output, in_rock, delivered: stage == 2, access };
     redsim::entity::mob::prices::add_travel(&mut bill, &layout, lava_trips, moved, hand, stage)?;
     Ok(bill)
 }

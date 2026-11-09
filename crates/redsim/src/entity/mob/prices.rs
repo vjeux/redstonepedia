@@ -328,6 +328,9 @@ pub struct Layout<'a> {
     pub output: [i32; 3],
     /// Blocks below the surface stand in natural rock (terrain): never placed at an edge.
     pub in_rock: bool,
+    /// The villagers come by the stage's delivery line (late: "delivered by the breeder's rail or
+    /// water line"): each pays its own way into its pod, with no trip of the player's.
+    pub delivered: bool,
     pub access: Access,
 }
 
@@ -394,7 +397,9 @@ pub fn add_travel(b: &mut Bill, l: &Layout, lava_trips: u32, moved: u32, hand_st
     vill.sort_unstable_by_key(|y| std::cmp::Reverse((y - s).unsigned_abs()));
     for &y in vill.iter().take(moved as usize) {
         let n = (y - s).unsigned_abs();
-        trip(b, n)?;
+        if !l.delivered {
+            trip(b, n)?;
+        }
         if n > 0 && y < s {
             p.price("villager:down", stage)?;
             add(b, "villager:down", n, fall_ticks(n) as f64 / 20.0);
@@ -550,7 +555,7 @@ mod tests {
         }
         cells.push(([0, 30, 0], "minecraft:chest[facing=north,type=single,waterlogged=false]"));
         let ents = [("minecraft:villager", "", [0.5, 31.0, 0.5])];
-        let l = Layout { blocks: &cells, entities: &ents, surface: 0, standing: 0, output: [0, 30, 0], in_rock: false, access: Access::default() };
+        let l = Layout { blocks: &cells, entities: &ents, surface: 0, standing: 0, output: [0, 30, 0], in_rock: false, delivered: false, access: Access::default() };
         let mut b = Bill::default();
         add_travel(&mut b, &l, 0, 1, 0, 1).unwrap();
         // one inventory to the top (30 - 2 = 28 layers by pillar up and down), the villager's trip

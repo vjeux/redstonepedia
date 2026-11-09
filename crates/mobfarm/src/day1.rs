@@ -1316,6 +1316,10 @@ pub fn cross_channel_arms(r: i32, arms: u8, n: i32, l_min: u32, stage: crate::pa
     // every villager's golem search over the whole cross: stray tops capped by their roles
     let wl = -6;
     crate::parts::cap_spawns(&mut b, &|p| p[1] <= wl + 1)?;
+    // the player's ground is the junction's floor layer (the parent's ruling 19:27, iteration 16):
+    // the chest and its storage are dug below it, every trip starts there, and the channel's last
+    // stretch (water on the standing layer, open above) is a drop's landing
+    b.d.meta.insert("ground".into(), (fj - 1).to_string());
     let (count, channels) = if arms == 4 { ("Four", "the four channels meet") } else { ("Two", "the two channels meet") };
     Ok(b.text(&[
         &format!("{count} farms around one kill chamber, {r} blocks from its centre: each farm's golems fall into a fenced water channel deep below"),
