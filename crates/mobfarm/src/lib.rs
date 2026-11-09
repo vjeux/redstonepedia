@@ -3,6 +3,7 @@
 //! `mctas mobfarm gen`, and the redsim judge's tools (`exit`, `spots`). The judge itself is the
 //! circuit study `mobfarm` (crates/circuit/src/studies/mobfarm.rs).
 
+pub mod bury;
 pub mod cli;
 pub mod day1;
 pub mod exact;

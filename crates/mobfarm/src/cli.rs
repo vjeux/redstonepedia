@@ -106,6 +106,28 @@ pub enum MobfarmCmd {
         /// day-1, middle or late.
         #[arg(long, default_value = "middle")]
         stage: String,
+        /// Price it built into this terrain sample at its cheapest spot (village-edge, plains,
+        /// forest): the spot's digging, seals and caps, its access stair (a terrain design's
+        /// card prices it so).
+        #[arg(long)]
+        terrain: Option<String>,
+    },
+    /// A void farm dug into rock (vjeux 18:18: the underground version): its containment blocks
+    /// give way to natural rock, every cell its golems (any input in the exit flood, the runs),
+    /// items, water, villagers, zombie, sight lines and redstone need is dug open (`terrain:
+    /// cells`), and the natural ground lies `--cover` layers above its top.
+    Bury {
+        design: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        /// Rock layers between the farm's top and the natural ground layer.
+        #[arg(long, default_value_t = 1)]
+        cover: i32,
+        /// Runs (each `--ticks`) whose entity boxes join the open cells.
+        #[arg(long, default_value_t = 4)]
+        seeds: u32,
+        #[arg(long, default_value_t = 24000)]
+        ticks: u32,
     },
     /// The farm built into a terrain sample, then the terrain track's worst-case checks for
     /// natural mobs (`hostile::check`): each channel's exposure (brief revision 8: a card line,
@@ -570,15 +592,26 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         }
         MobfarmCmd::Sight { design, terrain } => sight_cmd(version, &design, terrain.as_deref())?,
         MobfarmCmd::Cubes { design } => cubes_cmd(version, &design)?,
-        MobfarmCmd::Bill { design, stage } => {
-            let (c, _) = load(version, &design)?;
+        MobfarmCmd::Bury { design, out, cover, seeds, ticks } => {
+            let (c, spec) = load(version, &design)?;
+            let (cells, fluids) = crate::bury::envelope(&spec, &c.clock.design, seeds, ticks)?;
+            let (d, removed, opened) = crate::bury::bury(&c.clock.design, &cells, &fluids, cover);
+            std::fs::write(&out, d.to_text())?;
+            println!("{}: {} open cells ({} dug open beyond its blocks), {} containment blocks left to the rock; ground layer {}", out.display(), cells.len(), opened, removed, d.meta.get("ground").cloned().unwrap_or_default());
+        }
+        MobfarmCmd::Bill { design, stage, terrain } => {
+            let (c, spec) = load(version, &design)?;
             let ix = match stage.as_str() {
                 "day-1" | "day1" => 0,
                 "middle" => 1,
                 "late" | "fastest" => 2,
                 s => anyhow::bail!("--stage {s}: day-1, middle or late"),
             };
-            let bill = circuit::mobfarm::site_bill(&c, None, ix).map_err(|e| anyhow::anyhow!(e))?;
+            let site = match &terrain {
+                Some(t) => Some(circuit::mobfarm::site_of(&c, &spec, t).map_err(|e| anyhow::anyhow!(e))?),
+                None => None,
+            };
+            let bill = circuit::mobfarm::site_bill(&c, site.as_ref(), ix).map_err(|e| anyhow::anyhow!(e))?;
             let mut v: Vec<(&String, &(u32, f64))> = bill.items.iter().collect();
             v.sort_by(|a, b| b.1.1.partial_cmp(&a.1.1).unwrap_or(std::cmp::Ordering::Equal));
             for (k, (n, s)) in v {

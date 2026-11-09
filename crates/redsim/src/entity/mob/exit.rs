@@ -113,6 +113,26 @@ fn on_lip(w: &World, feet: BlockPos, bb: Aabb) -> bool {
 }
 
 /// A lone golem at `start` under `policy` in a copy of `base` (`own`: the farm's entities).
+/// The cells golems' boxes swept in the drift runs while a caller collects them (`mobfarm bury`: a
+/// void farm dug into rock keeps open every cell a golem can reach, under any input).
+pub static ENVELOPE: std::sync::Mutex<Option<std::collections::BTreeSet<[i32; 3]>>> = std::sync::Mutex::new(None);
+
+/// Every block cell `bb` overlaps, into [`ENVELOPE`] when it collects.
+pub fn envelope_add(bb: crate::entity::Aabb) {
+    if let Ok(mut g) = ENVELOPE.lock()
+        && let Some(set) = g.as_mut()
+    {
+        let e = 1.0e-7;
+        for x in (bb.min_x + e).floor() as i32..=(bb.max_x - e).floor() as i32 {
+            for y in (bb.min_y + e).floor() as i32..=(bb.max_y - e).floor() as i32 {
+                for z in (bb.min_z + e).floor() as i32..=(bb.max_z - e).floor() as i32 {
+                    set.insert([x, y, z]);
+                }
+            }
+        }
+    }
+}
+
 fn drift(base: &World, spec: &FarmSpec, own: &[u32], start: Vec3, policy: Walk) -> Drift {
     let mut w = base.clone();
     let id = super::add(&mut w, MobType::IronGolem, start, false);
@@ -137,6 +157,7 @@ fn drift(base: &World, spec: &FarmSpec, own: &[u32], start: Vec3, policy: Walk) 
             return fail(visited, why);
         }
         let e = &w.entities.list[g];
+        envelope_add(e.bb);
         // (`MCTAS_DRIFT_TRACE=x,y,z`: every tick of the drifts that start there, for finding the
         // way a golem left)
         if let Ok(tr) = std::env::var("MCTAS_DRIFT_TRACE") {
