@@ -90,13 +90,14 @@ pub fn golem_excluded(s: &Block) -> bool {
 /// `SpawnUtil.Strategy.LEGACY_IRON_GOLEM.canSpawnOn(level, pos, state, abovePos, aboveState)`: not
 /// excluded, the block above is air or a liquid, and the block `isSolid()` (or powder snow).
 pub fn legacy_golem_can_spawn_on(s: &Block, above: &Block) -> bool {
-    if golem_excluded(s) {
-        return false;
-    }
+    // (the cheap test first: in a column of rock or of sky most cells fail on the cell above;
+    // tickexact 2026-11-09, the spot search's column walks were 6% of the viewer's still)
     let terrain_air_or_liquid = matches!(above, Block::Terrain(id) if { let p = crate::terrain::blocks::props(*id); p.air || p.liquid });
     let above_ok = above.is_air() || terrain_air_or_liquid || matches!(above, Block::Water { .. } | Block::Lava { .. } | Block::BubbleColumn { .. });
-    let powder = matches!(s, Block::PowderSnow) || matches!(s, Block::Terrain(id) if crate::terrain::blocks::props(*id).block_id() == "minecraft:powder_snow");
-    above_ok && (behavior::is_solid(s) || powder)
+    if !above_ok || golem_excluded(s) {
+        return false;
+    }
+    behavior::is_solid(s) || matches!(s, Block::PowderSnow) || matches!(s, Block::Terrain(id) if crate::terrain::blocks::props(*id).block_id() == "minecraft:powder_snow")
 }
 
 /// `NodeEvaluator.isBurningBlock`: fire, lava, magma, a lit campfire, a lava cauldron (of the
