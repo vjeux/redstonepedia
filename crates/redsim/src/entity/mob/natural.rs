@@ -62,7 +62,7 @@ pub static DEFS: &[TypeDef] = &[
     // the zombie family's FOLLOW_RANGE is 35 and its ARMOR 2 (Zombie.createAttributes), babies
     // included
     TypeDef { follow_range: 35.0, armor: 2.0, ..row(2, "zombie_villager", "minecraft:zombie_villager", 0.6, 1.95, 1.74, 20.0, 0.23f32 as f64, true, true, 0.6) },
-    row(3, "zombie_horse", "minecraft:zombie_horse", 1.3964844, 1.6, 1.52, 25.0, 0.2, true, false, 1.0),
+    row(3, "zombie_horse", "minecraft:zombie_horse", 1.3964844, 1.6, 1.52, 25.0, 0.2f32 as f64, false, true, 1.0),
     TypeDef { loot: &[("minecraft:arrow", 0, 2), ("minecraft:bone", 0, 2)], riding_offset: -0.7, ..row(4, "skeleton", "minecraft:skeleton", 0.6, 1.99, 1.74, 20.0, 0.25, true, true, 0.6) },
     TypeDef { loot: &[("minecraft:gunpowder", 0, 2)], ..row(5, "creeper", "minecraft:creeper", 0.6, 1.7, 1.445, 20.0, 0.25, true, false, 0.6) },
     row(6, "slime", "minecraft:slime", 0.52, 0.52, 0.325, 1.0, 0.2, true, false, 0.6),
@@ -75,8 +75,8 @@ pub static DEFS: &[TypeDef] = &[
     row(11, "pig", "minecraft:pig", 0.9, 0.9, 0.765, 10.0, 0.25, false, false, 0.6),
     row(12, "chicken", "minecraft:chicken", 0.4, 0.7, 0.644, 4.0, 0.25, false, false, 0.6),
     row(13, "cow", "minecraft:cow", 0.9, 1.4, 1.3, 10.0, 0.2f32 as f64, false, false, 0.6),
-    row(14, "horse", "minecraft:horse", 1.3964844, 1.6, 1.52, 22.0, 0.225, false, false, 1.0),
-    row(15, "donkey", "minecraft:donkey", 1.3964844, 1.5, 1.425, 22.0, 0.175, false, false, 1.0),
+    row(14, "horse", "minecraft:horse", 1.3964844, 1.6, 1.52, 53.0, 0.225f32 as f64, false, false, 1.0),
+    row(15, "donkey", "minecraft:donkey", 1.3964844, 1.5, 1.425, 53.0, 0.175f32 as f64, false, false, 1.0),
     row(16, "wolf", "minecraft:wolf", 0.6, 0.85, 0.68, 8.0, 0.3, false, false, 0.6),
     row(17, "rabbit", "minecraft:rabbit", 0.49, 0.6, 0.59, 3.0, 0.3, false, false, 0.6),
     row(18, "fox", "minecraft:fox", 0.6, 0.7, 0.4, 10.0, 0.3, false, false, 0.6),
@@ -97,8 +97,9 @@ pub static DEFS: &[TypeDef] = &[
     row(29, "baby_pig", "minecraft:pig", 0.45, 0.45, 0.40625, 10.0, 0.25, false, false, 0.6),
     row(30, "baby_chicken", "minecraft:chicken", 0.3, 0.4, 0.28125, 4.0, 0.25, false, false, 0.6),
     row(31, "baby_cow", "minecraft:cow", 0.45, 0.7, 0.69, 10.0, 0.2f32 as f64, false, false, 0.6),
-    row(32, "baby_horse", "minecraft:horse", 0.6982422, 0.8, 0.76, 22.0, 0.225, false, false, 1.0),
-    row(33, "baby_donkey", "minecraft:donkey", 0.6982422, 0.75, 0.7125, 22.0, 0.175, false, false, 1.0),
+    // a baby horse: Horse.BABY_DIMENSIONS, the horse's x 0.7 (a donkey's: AbstractChestedHorse's x 0.5)
+    row(32, "baby_horse", "minecraft:horse", 1.3964844 * 0.7, 1.6 * 0.7, 1.52 * 0.7, 53.0, 0.225f32 as f64, false, false, 1.0),
+    row(33, "baby_donkey", "minecraft:donkey", 0.6982422, 0.75, 0.7125, 53.0, 0.175f32 as f64, false, false, 1.0),
     row(34, "baby_wolf", "minecraft:wolf", 0.3, 0.425, 0.34375, 8.0, 0.3, false, false, 0.6),
     row(35, "baby_rabbit", "minecraft:rabbit", 0.24, 0.4, 0.39, 3.0, 0.3, false, false, 0.6),
     row(36, "baby_fox", "minecraft:fox", 0.3, 0.35, 0.2, 10.0, 0.3, false, false, 0.6),
@@ -116,7 +117,7 @@ pub static DEFS: &[TypeDef] = &[
     row(45, "baby_squid", "minecraft:squid", 0.5, 0.5, 0.37, 10.0, 0.7, false, false, 0.6),
     // a lightning trap's skeleton horse (CREATURE: it counts toward the cap; never spawned
     // naturally)
-    row(46, "skeleton_horse", "minecraft:skeleton_horse", 1.3964844, 1.6, 1.52, 15.0, 0.2f32 as f64, true, false, 1.0),
+    row(46, "skeleton_horse", "minecraft:skeleton_horse", 1.3964844, 1.6, 1.52, 15.0, 0.2f32 as f64, false, false, 1.0),
     // a nether portal's zombified piglin (MONSTER, fire immune; Zombie's FOLLOW_RANGE 35 and ARMOR
     // 2; its baby's BABY_DIMENSIONS 0.49 x 0.98, eye 0.78)
     TypeDef { follow_range: 35.0, armor: 2.0, riding_offset: -0.7, ..row(47, "zombified_piglin", "minecraft:zombified_piglin", 0.6, 1.95, 1.79, 20.0, 0.23f32 as f64, true, false, 0.6) },
@@ -1206,6 +1207,8 @@ struct Finalized {
     /// A zombie horse rider's own jockey roll (`NearChicken`, `NewChicken`): the chicken keeps
     /// its jockey flag when the rider leaves it for the horse.
     rider_chicken: Jockey,
+    /// A horse's attributes as `randomizeAttributes` drew them: max health, speed, jump strength.
+    horse: Option<(f32, f64, f64)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1459,7 +1462,7 @@ pub fn portal_piglin(w: &mut World, at: BlockPos) -> Option<u32> {
     let (baby, jockey, breaks_doors) = piglin_finalize(w, &nat);
     let k = kind_of("minecraft:zombified_piglin")?;
     let ty = if baby { MobType::Natural(48) } else { MobType::Natural(47) };
-    let f = Finalized { ty, baby, jockey, helmet: None, rider_helmet: None, breaks_doors, rider_breaks_doors: false, color: 0, rider_chicken: Jockey::None };
+    let f = Finalized { ty, baby, jockey, helmet: None, rider_helmet: None, breaks_doors, rider_breaks_doors: false, color: 0, rider_chicken: Jockey::None, horse: None };
     let id = spawn_mob(w, k, &f, Vec3::new(pos.x as f64 + 0.5, (pos.y + 1) as f64, pos.z as f64 + 0.5), yaw);
     // the spawn's draws follow the game's code but no bridge scene has compared them yet (the
     // bridge's scenes run without spawn_mobs, which the portal needs): named in the run's report
@@ -1573,6 +1576,7 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
     let mut breaks_doors = false;
     let mut rider_breaks_doors = false;
     let mut rider_chicken = Jockey::None;
+    let mut horse: Option<(f32, f64, f64)> = None;
     let mut color = 0u8;
     match k.finalize {
         Finalize::Nothing => {}
@@ -1655,20 +1659,21 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
                 g.ageable.get_or_insert((0, 0.05, true)); // HorseGroupData(true)
             }
             rng(w).next_int(5); // Markings.values()
+            // Horse.randomizeAttributes: generateMaxHealth, generateSpeed, generateJumpStrength
             let r = rng(w);
-            r.next_int(8);
-            r.next_int(9);
-            for _ in 0..6 {
-                r.next_double(); // speed, then jump strength: 3 each
-            }
+            let health = 15.0f32 + r.next_int(8) as f32 + r.next_int(9) as f32;
+            let speed = (0.45f32 as f64 + r.next_double() * 0.3 + r.next_double() * 0.3 + r.next_double() * 0.3) * 0.25;
+            let jump = 0.4f32 as f64 + r.next_double() * 0.2 + r.next_double() * 0.2 + r.next_double() * 0.2;
+            horse = Some((health, speed, jump));
             baby = ageable(w, g, true, 0.2);
             mob_base(w);
         }
         Finalize::Donkey => {
             g.ageable.get_or_insert((0, 0.2, true)); // AgeableMobGroupData(0.2)
+            // AbstractChestedHorse.randomizeAttributes: generateMaxHealth (speed 0.175F, jump 0.5)
             let r = rng(w);
-            r.next_int(8);
-            r.next_int(9);
+            let health = 15.0f32 + r.next_int(8) as f32 + r.next_int(9) as f32;
+            horse = Some((health, 0.175f32 as f64, 0.5));
             baby = ageable(w, g, true, 0.2);
             mob_base(w);
         }
@@ -1697,10 +1702,11 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
             rider_chicken = zj;
             jockey = if zbaby { Jockey::HorseBabyZombie } else { Jockey::HorseZombie };
             g.ageable.get_or_insert((0, 0.2, true));
+            // ZombieHorse.randomizeAttributes: its jump strength, then its speed (health 25)
             let r = rng(w);
-            for _ in 0..6 {
-                r.next_double(); // jump, then speed: 3 each
-            }
+            let jump = 0.5 + r.next_double() * 0.06666666666666667 + r.next_double() * 0.06666666666666667 + r.next_double() * 0.06666666666666667;
+            let speed = (9.0 + r.next_double() * 1.0 + r.next_double() * 1.0 + r.next_double() * 1.0) / 42.16f32 as f64;
+            horse = Some((25.0, speed, jump));
             baby = ageable(w, g, true, 0.2);
             mob_base(w);
         }
@@ -1713,7 +1719,7 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
             None => {}
         }
     }
-    Finalized { ty, baby, jockey, helmet, rider_helmet, breaks_doors, rider_breaks_doors, color, rider_chicken }
+    Finalized { ty, baby, jockey, helmet, rider_helmet, breaks_doors, rider_breaks_doors, color, rider_chicken, horse }
 }
 
 /// `isValidPositionForMob`: the despawn distance, `checkSpawnRules` (the walk target value) and
@@ -1809,6 +1815,18 @@ fn spawn_mob(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) -> u32
         }
     }
     super::set_helmet(w, id, f.helmet);
+    // a horse's attributes as randomizeAttributes drew them: its health is its max health
+    if let Some((health, speed, jump)) = f.horse
+        && let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
+        && let EntityKind::Mob(m) = &mut e.kind
+    {
+        m.health = health;
+        if let Some(h) = m.ai.as_deref_mut().and_then(|a| a.horse.as_mut()) {
+            h.max_health = health;
+            h.speed = speed;
+            h.jump = jump;
+        }
+    }
     if f.color != 0
         && let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
         && let EntityKind::Mob(m) = &mut e.kind

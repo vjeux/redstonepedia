@@ -752,6 +752,42 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // horses in a grass pen (AbstractHorse's goals in insertion order, the grass eating that holds
+    // its AI 50 ticks, the random stands (20 ticks), the tail roll, 1 health in 900): a horse, a
+    // donkey, a baby horse (follows its parent), a zombie horse and a skeleton horse, summoned
+    // with data (no finalizeSpawn: the base attributes)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        for x in 9..39 {
+            for z in 9..39 {
+                b.push(([x, 63, z], "minecraft:grass_block[snowy=false]".to_string()));
+            }
+        }
+        for (a, c) in [((8, 8), (8, 39)), ((39, 8), (39, 39)), ((8, 8), (39, 8)), ((8, 39), (39, 39))] {
+            wall(&mut b, a, c, 63, 2, stone);
+        }
+        let p = |s: &str| Some(s.to_string());
+        v.push(Scene {
+            name: "horses".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:horse".into(), [16.5, 64.0, 16.5], p("{PersistenceRequired:1b}")),
+                ("minecraft:donkey".into(), [30.5, 64.0, 16.5], p("{PersistenceRequired:1b}")),
+                ("minecraft:horse".into(), [18.5, 64.0, 18.5], p("{PersistenceRequired:1b,Age:-24000}")),
+                ("minecraft:zombie_horse".into(), [16.5, 64.0, 30.5], p("{PersistenceRequired:1b}")),
+                ("minecraft:skeleton_horse".into(), [30.5, 64.0, 30.5], p("{PersistenceRequired:1b}")),
+            ],
+            day_time: 6000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: Some([24.5, 74.0, 24.5]),
+            player_creative: true,
+            random_tick_speed: 0,
+        });
+    }
     // the farm animals' babies by their parents in a grass pen: FollowParentGoal, a baby sheep's
     // EatBlockGoal (25) and its age-up, two babies growing up during the run
     {

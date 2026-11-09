@@ -95,6 +95,8 @@ pub struct MobAi {
     /// A witch drinking: the potion (0 water breathing, 1 fire resistance, 2 healing, 3 swiftness)
     /// and its `usingTime`.
     pub witch_drink: Option<(u8, i32)>,
+    /// A horse's state (`AbstractHorse`: attributes, eating, standing).
+    pub horse: Option<goal::animal::Horse>,
     /// `AgeableMob.age` of a farm animal (0 an adult, a baby counts up from -24000).
     pub age: i32,
 }
@@ -170,6 +172,7 @@ impl MobAi {
             squid: None,
             enderman: None,
             witch_drink: None,
+            horse: None,
             age: 0,
         };
         goal::register_goals(&mut ai, ty);
@@ -223,7 +226,8 @@ pub fn collections_rng(w: &mut World) -> &mut crate::rng::LegacyRandom {
 
 /// `getAttributeValue(MOVEMENT_SPEED)`.
 pub fn movement_speed(w: &World, i: usize) -> f64 {
-    let base = mob(w, i).ty.def().speed;
+    // a horse's MOVEMENT_SPEED as randomizeAttributes drew it
+    let base = ai(w, i).horse.map(|h| h.speed).unwrap_or(mob(w, i).ty.def().speed);
     // an enderman with a target: SPEED_MODIFIER_ATTACKING (+0.15)
     if ai(w, i).enderman.is_some() {
         return base + goal::enderman::speed_bonus(w, i);
@@ -953,6 +957,10 @@ pub fn ambient_sound_tick(w: &mut World, i: usize) {
 /// (the squids), else Mob's 80 (`resetAmbientSoundTime` sets the timer to minus it).
 pub fn ambient_interval(w: &World, i: usize) -> i32 {
     let id = mob(w, i).ty.def().id;
+    // AbstractHorse.getAmbientSoundInterval: 400
+    if goal::animal::is_horse(id) {
+        return 400;
+    }
     if goal::animal::is_animal(id) || squid::is_squid_id(id) || mob(w, i).ty == MobType::IronGolem { 120 } else { 80 }
 }
 

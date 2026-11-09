@@ -100,6 +100,10 @@ pub fn tick(w: &mut World, i: usize) {
     if super::ai::has_ai(w, i) && super::ai::bat::is_bat(w, i) {
         super::ai::bat::after_tick(w, i);
     }
+    // AbstractHorse.tick after super.tick: the stand and tail counters
+    if super::ai::has_ai(w, i) && super::ai::ai(w, i).horse.is_some() {
+        super::ai::goal::animal::horse_after_tick(w, i);
+    }
     // AbstractCubeMob.tick after super.tick: the landing's draws
     if super::ai::has_ai(w, i) {
         super::ai::cube::after_tick(w, i);
@@ -328,9 +332,10 @@ pub fn update_lava(w: &mut World, i: usize) {
 
 /// `LivingEntity.aiStep` (and `Mob.aiStep`'s tail).
 fn ai_step(w: &mut World, i: usize) {
-    // ---- mob AI (the mob-AI lane): Witch.aiStep's potion rolls before super.aiStep, then
-    // Monster.aiStep's updateNoActionTime ----
+    // ---- mob AI (the mob-AI lane): AbstractHorse.aiStep's tail roll before super.aiStep;
+    // Witch.aiStep's potion rolls before super.aiStep, then Monster.aiStep's updateNoActionTime ----
     if super::ai::has_ai(w, i) {
+        super::ai::goal::animal::horse_before_ai_step(w, i);
         super::ai::goal::witch::before_ai_step(w, i);
         super::ai::update_no_action_time(w, i);
     }
@@ -354,8 +359,12 @@ fn ai_step(w: &mut World, i: usize) {
         m.xxa *= 0.98;
         m.zza *= 0.98;
     }
-    if mob(w, i).dead {
-        // isImmobile (dead or dying): no AI
+    // isImmobile: dead or dying (AbstractHorse: only when also ridden and saddled, so a dying horse
+    // keeps its AI step); a horse eating or standing
+    let horse = super::ai::has_ai(w, i) && super::ai::ai(w, i).horse.is_some();
+    let immobile = if horse { super::ai::goal::animal::horse_immobile(w, i) } else { mob(w, i).dead };
+    if immobile {
+        // isImmobile: no AI
         let m = mob_mut(w, i);
         m.jumping = false;
         m.xxa = 0.0;
@@ -444,7 +453,9 @@ fn fluid_jump_threshold(m: &MobState) -> f64 {
 
 /// `LivingEntity.jumpFromGround`: up at the jump power (0.42, nobody sprints).
 fn jump_from_ground(w: &mut World, i: usize) {
-    let power = 0.42f32 * jump_factor(w, i);
+    // JUMP_STRENGTH (0.42; a horse's as randomizeAttributes drew it) x the block's jump factor
+    let strength = if super::ai::has_ai(w, i) { super::ai::ai(w, i).horse.map(|h| h.jump as f32).unwrap_or(0.42f32) } else { 0.42f32 };
+    let power = strength * jump_factor(w, i);
     // AbstractCubeMob.jumpFromGround: the power whatever the motion (no threshold, no max)
     if super::ai::has_ai(w, i) && super::ai::cube::is_cube(w, i) {
         super::ai::cube::jump_from_ground(w, i, power);
@@ -707,6 +718,10 @@ pub fn hurt(w: &mut World, i: usize, src: Damage, amount: f32) -> bool {
     let r = hurt_inner(w, i, src, amount);
     if !w.entities.list[i].removed && super::ai::has_ai(w, i) && super::ai::ai(w, i).enderman.is_some() {
         super::ai::goal::enderman::after_hurt(w, i, src);
+    }
+    // AbstractHorse.hurtServer: hurt, 1 in 3 it stands
+    if r && super::ai::has_ai(w, i) && super::ai::ai(w, i).horse.is_some() && super::ai::goal::animal::own_random(w, i).next_int(3) == 0 {
+        super::ai::goal::animal::stand_if_possible(w, i);
     }
     r
 }
@@ -1156,6 +1171,14 @@ pub fn check_fall_damage(w: &mut World, i: usize, ya: f64, on_ground: bool) {
 /// immune (`calculateFallDamage`).
 fn cause_fall_damage(w: &mut World, i: usize, distance: f64) {
     if mob(w, i).ty.def().fall_immune {
+        return;
+    }
+    // a horse: SAFE_FALL_DISTANCE 6, FALL_DAMAGE_MULTIPLIER 0.5 (createBaseHorseAttributes)
+    if super::ai::goal::animal::is_horse(mob(w, i).ty.def().id) {
+        let dmg = mth::floor((distance + 1.0e-6 - 6.0) * 1.0 * 0.5);
+        if dmg > 0 {
+            hurt(w, i, Damage::Fall, dmg as f32);
+        }
         return;
     }
     let dmg = mth::floor(distance + 1.0e-6 - 3.0);

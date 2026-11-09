@@ -18,33 +18,137 @@ use crate::world::World;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum AnimalGoal {
-    /// `PanicGoal`: its speed, the position it runs to.
-    Panic { speed: f64, pos: crate::entity::Vec3 },
+    /// `PanicGoal`: its speed, the position it runs to (`mount`: a horse's `MountPanicGoal`, not
+    /// while a mob rides and steers it).
+    Panic { speed: f64, pos: crate::entity::Vec3, mount: bool },
     Breed,
     Tempt,
     /// `FollowParentGoal`: its speed, the parent and `timeToRecalcPath`.
     FollowParent { speed: f64, parent: Option<u32>, recalc: i32 },
     /// `EatBlockGoal.eatAnimationTick`.
     EatBlock { tick: i32 },
+    /// A horse's `RunAroundLikeCrazyGoal` (an untamed horse with a rider: never without one).
+    RunAround,
+    /// A horse's `RandomStandGoal` and its `nextStand`.
+    RandomStand { next: i32 },
 }
 
 impl AnimalGoal {
     pub fn flags(&self) -> u8 {
         match self {
-            AnimalGoal::Panic { .. } => MOVE,
+            AnimalGoal::Panic { .. } | AnimalGoal::RunAround => MOVE,
             AnimalGoal::Breed | AnimalGoal::Tempt => MOVE | LOOK,
-            AnimalGoal::FollowParent { .. } => 0,
+            AnimalGoal::FollowParent { .. } | AnimalGoal::RandomStand { .. } => 0,
             AnimalGoal::EatBlock { .. } => MOVE | LOOK | JUMP,
         }
     }
 
     pub fn name(&self) -> &'static str {
         match self {
-            AnimalGoal::Panic { .. } => "PanicGoal",
+            AnimalGoal::Panic { mount: false, .. } => "PanicGoal",
+            AnimalGoal::Panic { mount: true, .. } => "MountPanicGoal",
             AnimalGoal::Breed => "BreedGoal",
             AnimalGoal::Tempt => "TemptGoal",
             AnimalGoal::FollowParent { .. } => "FollowParentGoal",
             AnimalGoal::EatBlock { .. } => "EatBlockGoal",
+            AnimalGoal::RunAround => "RunAroundLikeCrazyGoal",
+            AnimalGoal::RandomStand { .. } => "RandomStandGoal",
+        }
+    }
+}
+
+/// A horse's state (`AbstractHorse`): its attributes as `randomizeAttributes` drew them, eating
+/// and standing (both make it immobile: no AI step), the tail's counter.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct Horse {
+    /// MOVEMENT_SPEED's base.
+    pub speed: f64,
+    /// JUMP_STRENGTH's base.
+    pub jump: f64,
+    /// MAX_HEALTH's base.
+    pub max_health: f32,
+    pub eating: bool,
+    pub eating_counter: i32,
+    pub stand_counter: i32,
+    pub tail_counter: i32,
+}
+
+/// Is this a horse (`AbstractHorse`: horse, donkey, zombie or skeleton horse, a baby too)?
+pub fn is_horse(id: &str) -> bool {
+    matches!(adult_of(id), Some("horse" | "donkey" | "zombie_horse" | "skeleton_horse"))
+}
+
+/// `AbstractHorse.isImmobile`: eating or standing (dead: LivingEntity's, handled by the caller).
+pub fn horse_immobile(w: &World, i: usize) -> bool {
+    mob(w, i).ai.as_deref().and_then(|a| a.horse).is_some_and(|h| h.eating || h.stand_counter > 0)
+}
+
+/// `AbstractHorse.standIfPossible` (`canPerformRearing`: every horse here): `setStanding(20)`,
+/// which stops its eating.
+pub fn stand_if_possible(w: &mut World, i: usize) {
+    if let Some(h) = mob_mut(w, i).ai.as_deref_mut().and_then(|a| a.horse.as_mut()) {
+        h.eating = false;
+        h.stand_counter = 20;
+    }
+}
+
+/// `AbstractHorse.aiStep`'s first line, before `super.aiStep()`: `nextInt(200) == 0` moves the
+/// tail.
+pub fn horse_before_ai_step(w: &mut World, i: usize) {
+    if !is_horse(mob(w, i).ty.def().id) {
+        return;
+    }
+    if own(w, i).next_int(200) == 0
+        && let Some(h) = mob_mut(w, i).ai.as_deref_mut().and_then(|a| a.horse.as_mut())
+    {
+        h.tail_counter = 1;
+    }
+}
+
+/// `AbstractHorse.aiStep` after `super.aiStep()` (alive): 1 health in 900 (not dying), the grass
+/// eating (`canEatGrass`: not eating, not ridden, 1 in 300, on a grass block: 50 ticks of it);
+/// `followMommy` only for a bred baby (none here).
+fn horse_after_ai_step(w: &mut World, i: usize) {
+    if own(w, i).next_int(900) == 0 && mob(w, i).death_time == 0 {
+        let max = mob(w, i).ai.as_deref().and_then(|a| a.horse).map(|h| h.max_health).unwrap_or(mob(w, i).ty.def().max_health);
+        let m = mob_mut(w, i);
+        m.health = (m.health + 1.0).min(max);
+    }
+    let vehicle = !w.entities.list[i].passengers.is_empty();
+    let Some(h) = mob(w, i).ai.as_deref().and_then(|a| a.horse) else { return };
+    if !h.eating && !vehicle && own(w, i).next_int(300) == 0 {
+        let below = w.entities.list[i].block_position().below();
+        let grass = match w.get(below) {
+            Block::Simple(crate::block::Simple::GrassBlock) => true,
+            Block::Terrain(id) => crate::terrain::blocks::props(id).block_id() == "minecraft:grass_block",
+            _ => false,
+        };
+        if grass && let Some(h) = mob_mut(w, i).ai.as_deref_mut().and_then(|a| a.horse.as_mut()) {
+            h.eating = true;
+        }
+    }
+    if let Some(h) = mob_mut(w, i).ai.as_deref_mut().and_then(|a| a.horse.as_mut())
+        && h.eating
+    {
+        h.eating_counter += 1;
+        if h.eating_counter > 50 {
+            h.eating_counter = 0;
+            h.eating = false;
+        }
+    }
+}
+
+/// `AbstractHorse.tick` after `super.tick()`: the stand and tail counters.
+pub fn horse_after_tick(w: &mut World, i: usize) {
+    if let Some(h) = mob_mut(w, i).ai.as_deref_mut().and_then(|a| a.horse.as_mut()) {
+        if h.stand_counter > 0 {
+            h.stand_counter -= 1;
+        }
+        if h.tail_counter > 0 {
+            h.tail_counter += 1;
+            if h.tail_counter > 8 {
+                h.tail_counter = 0;
+            }
         }
     }
 }
@@ -56,6 +160,10 @@ pub fn adult_of(id: &str) -> Option<&'static str> {
         "cow" | "baby_cow" => Some("cow"),
         "chicken" | "baby_chicken" => Some("chicken"),
         "sheep" | "baby_sheep" => Some("sheep"),
+        "horse" | "baby_horse" => Some("horse"),
+        "donkey" | "baby_donkey" => Some("donkey"),
+        "zombie_horse" => Some("zombie_horse"),
+        "skeleton_horse" => Some("skeleton_horse"),
         _ => None,
     }
 }
@@ -80,7 +188,7 @@ pub fn register(a: &mut crate::entity::mob::ai::MobAi, id: &str) {
     match adult_of(id) {
         Some("pig") => {
             g.add(0, Goal::Float);
-            g.add(1, an(AnimalGoal::Panic { speed: 1.25, pos: crate::entity::Vec3::ZERO }));
+            g.add(1, an(AnimalGoal::Panic { speed: 1.25, pos: crate::entity::Vec3::ZERO, mount: false }));
             g.add(3, an(AnimalGoal::Breed));
             g.add(4, an(AnimalGoal::Tempt));
             g.add(4, an(AnimalGoal::Tempt));
@@ -91,7 +199,7 @@ pub fn register(a: &mut crate::entity::mob::ai::MobAi, id: &str) {
         }
         Some(k @ ("cow" | "chicken")) => {
             g.add(0, Goal::Float);
-            g.add(1, an(AnimalGoal::Panic { speed: if k == "cow" { 2.0 } else { 1.4 }, pos: crate::entity::Vec3::ZERO }));
+            g.add(1, an(AnimalGoal::Panic { speed: if k == "cow" { 2.0 } else { 1.4 }, pos: crate::entity::Vec3::ZERO, mount: false }));
             g.add(2, an(AnimalGoal::Breed));
             g.add(3, an(AnimalGoal::Tempt));
             g.add(4, follow(if k == "cow" { 1.25 } else { 1.1 }));
@@ -101,7 +209,7 @@ pub fn register(a: &mut crate::entity::mob::ai::MobAi, id: &str) {
         }
         Some("sheep") => {
             g.add(0, Goal::Float);
-            g.add(1, an(AnimalGoal::Panic { speed: 1.25, pos: crate::entity::Vec3::ZERO }));
+            g.add(1, an(AnimalGoal::Panic { speed: 1.25, pos: crate::entity::Vec3::ZERO, mount: false }));
             g.add(2, an(AnimalGoal::Breed));
             g.add(3, an(AnimalGoal::Tempt));
             g.add(4, follow(1.1));
@@ -109,6 +217,43 @@ pub fn register(a: &mut crate::entity::mob::ai::MobAi, id: &str) {
             g.add(6, Goal::RandomStroll(RandomStroll::water_avoiding(1.0)));
             g.add(7, Goal::LookAtPlayer(LookAtPlayer::new(LookType::Player, 6.0)));
             g.add(8, Goal::RandomLookAround(RandomLookAround::default()));
+        }
+        // AbstractHorse.registerGoals, then addBehaviourGoals (the goal selector keeps insertion
+        // order): RunAroundLikeCrazy 1, Breed 2, FollowParent 4 (1.0), WaterAvoidingRandomStroll 6
+        // (0.7), LookAtPlayer 7 (6), RandomLookAround 8, RandomStand 9 (canPerformRearing: every
+        // horse here; nextStand starts at -400, the ambient stand interval); then the horse's and
+        // the donkey's Float 0, MountPanic 1 (1.2), Tempt 3 (1.25); the zombie horse's Float 0,
+        // Tempt 3; the skeleton horse's none
+        Some(k @ ("horse" | "donkey" | "zombie_horse" | "skeleton_horse")) => {
+            g.add(1, an(AnimalGoal::RunAround));
+            g.add(2, an(AnimalGoal::Breed));
+            g.add(4, follow(1.0));
+            g.add(6, Goal::RandomStroll(RandomStroll::water_avoiding(0.7)));
+            g.add(7, Goal::LookAtPlayer(LookAtPlayer::new(LookType::Player, 6.0)));
+            g.add(8, Goal::RandomLookAround(RandomLookAround::default()));
+            g.add(9, an(AnimalGoal::RandomStand { next: -400 }));
+            match k {
+                "horse" | "donkey" => {
+                    g.add(0, Goal::Float);
+                    g.add(1, an(AnimalGoal::Panic { speed: 1.2, pos: crate::entity::Vec3::ZERO, mount: true }));
+                    g.add(3, an(AnimalGoal::Tempt));
+                }
+                "zombie_horse" => {
+                    g.add(0, Goal::Float);
+                    g.add(3, an(AnimalGoal::Tempt));
+                }
+                _ => {}
+            }
+            // the base attributes (createBaseHorseAttributes: MAX_HEALTH 53, MOVEMENT_SPEED 0.225F,
+            // JUMP_STRENGTH 0.7; a donkey's 0.175F and 0.5; a zombie horse's 25 and 0.2F; a
+            // skeleton horse's 15 and 0.2F) until finalizeSpawn's randomizeAttributes
+            let (max_health, speed, jump) = match k {
+                "horse" => (53.0, 0.225f32 as f64, 0.7),
+                "donkey" => (53.0, 0.175f32 as f64, 0.5),
+                "zombie_horse" => (25.0, 0.225f32 as f64, 0.7),
+                _ => (15.0, 0.2f32 as f64, 0.7),
+            };
+            a.horse = Some(Horse { speed, jump, max_health, ..Horse::default() });
         }
         _ => {}
     }
@@ -124,6 +269,11 @@ fn refuse(w: &mut World, why: &str) {
 
 fn own(w: &mut World, i: usize) -> &mut crate::rng::LegacyRandom {
     w.entities.list[i].random.as_mut().expect("random")
+}
+
+/// The mob's own random (for the mob layer's horse hooks).
+pub fn own_random(w: &mut World, i: usize) -> &mut crate::rng::LegacyRandom {
+    own(w, i)
 }
 
 fn is_grass_block(b: &Block) -> bool {
@@ -205,15 +355,16 @@ fn follow_can_continue(w: &mut World, i: usize, parent: Option<u32>) -> bool {
 
 pub fn can_use(w: &mut World, i: usize, g: &mut AnimalGoal) -> bool {
     match g {
-        AnimalGoal::Panic { speed, pos } => {
-            // PanicGoal.canUse: shouldPanic (the last damage within 40 ticks, of #panic_causes);
-            // burning, the closest water within 5 (lookForWater, from a cell without a collision
-            // shape); else DefaultRandomPos.getPos(5, 4)
+        AnimalGoal::Panic { speed, pos, mount } => {
+            // PanicGoal.canUse: shouldPanic (the last damage within 40 ticks, of #panic_causes;
+            // MountPanicGoal: not while a mob rides and steers it); burning, the closest water
+            // within 5 (lookForWater, from a cell without a collision shape); else
+            // DefaultRandomPos.getPos(5, 4)
             let now = w.time;
             let panics = mob(w, i).last_damage.is_some_and(|(t, s)| {
                 now - t <= 40 && matches!(s, Damage::Lava | Damage::OnFire | Damage::HotFloor | Damage::Lightning | Damage::InFire | Damage::MobAttack)
             });
-            if !panics {
+            if !panics || (*mount && crate::entity::mob::ai::controlled_by_mob(w, i)) {
                 return false;
             }
             let _ = speed;
@@ -232,6 +383,25 @@ pub fn can_use(w: &mut World, i: usize, g: &mut AnimalGoal) -> bool {
             }
         }
         AnimalGoal::Breed | AnimalGoal::Tempt => false,
+        // RunAroundLikeCrazyGoal.canUse: untamed with a rider (a player's taming; a mob rider
+        // steers it, its MOVE flag off, so this is never asked then)
+        AnimalGoal::RunAround => {
+            if !w.entities.list[i].passengers.is_empty() {
+                w.mob.ai.legacy.insert("a ridden horse running around (RunAroundLikeCrazyGoal)");
+            }
+            false
+        }
+        // RandomStandGoal.canUse: nextStand counts up from -400; past 0, nextInt(1000) < it resets
+        // it and stands 1 in 10 when the horse can move
+        AnimalGoal::RandomStand { next } => {
+            *next += 1;
+            if *next > 0 && own(w, i).next_int(1000) < *next {
+                *next = -400;
+                !horse_immobile(w, i) && own(w, i).next_int(10) == 0
+            } else {
+                false
+            }
+        }
         AnimalGoal::FollowParent { parent, .. } => follow_can_use(w, i, parent),
         AnimalGoal::EatBlock { .. } => {
             // nextInt(adjustedTickDelay(a baby's 50, an adult's 1000)), then short grass at its
@@ -285,6 +455,8 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut AnimalGoal) -> bool {
         AnimalGoal::FollowParent { parent, .. } => follow_can_continue(w, i, *parent),
         // PanicGoal.canContinueToUse: the navigation still going
         AnimalGoal::Panic { .. } => !crate::entity::mob::ai::nav_of(w, i).is_done(),
+        // RandomStandGoal.canContinueToUse: false (it stands in start, then stops)
+        AnimalGoal::RandomStand { .. } => false,
         _ => can_use(w, i, g),
     }
 }
@@ -298,10 +470,12 @@ pub fn start(w: &mut World, i: usize, g: &mut AnimalGoal) {
         }
         AnimalGoal::FollowParent { recalc, .. } => *recalc = 0,
         // PanicGoal.start: navigation.moveTo(the position, its speed)
-        AnimalGoal::Panic { speed, pos } => {
+        AnimalGoal::Panic { speed, pos, .. } => {
             let (p, s) = (*pos, *speed);
             crate::entity::mob::ai::with_nav(w, i, |w, nm, nav, arena| nav.move_to_xyz(w, nm, p.x, p.y, p.z, 1, s, arena));
         }
+        // RandomStandGoal.start: standIfPossible (its stand sound draws nothing)
+        AnimalGoal::RandomStand { .. } => stand_if_possible(w, i),
         _ => {}
     }
 }
@@ -402,6 +576,9 @@ pub fn after_ai_step(w: &mut World, i: usize) {
         set_age(w, i, a - 1);
     }
     chicken_after_ai_step(w, i);
+    if is_horse(mob(w, i).ty.def().id) {
+        horse_after_ai_step(w, i);
+    }
 }
 
 /// `Chicken`'s constructor draw: `eggTime = nextInt(6000) + 6000` (after the entity's own).
