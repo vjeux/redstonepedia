@@ -445,7 +445,7 @@ pub fn darken(w: &World) -> i32 {
 }
 
 /// `getMaxLocalRawBrightness(pos)` with the level's darkening (or `skyDarken` given).
-fn brightness(w: &mut World, p: BlockPos, sky_darken: i32) -> i32 {
+pub(crate) fn brightness(w: &mut World, p: BlockPos, sky_darken: i32) -> i32 {
     match w.raw_brightness(p, sky_darken) {
         Ok(v) => v,
         Err(e) => {

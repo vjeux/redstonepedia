@@ -90,7 +90,16 @@ fn rnd(w: &mut World, i: usize) -> &mut crate::rng::LegacyRandom {
     w.entities.list[i].random.as_mut().expect("a mob's own random")
 }
 
+/// An enderman's block action the model does not cover: the fallback rule for ambient natural mobs
+/// (2026-11-08): the action is skipped and named in the run's report (the legacy list), never a
+/// stop; the farm's own mobs are never endermen.
 fn refuse(w: &mut World, why: String) {
+    let _ = why;
+    w.mob.ai.legacy.insert("minecraft:enderman (some block placements)");
+}
+
+#[allow(dead_code)]
+fn refuse_hard(w: &mut World, why: String) {
     if !w.errors.contains(&why) {
         w.errors.push(why);
     }
@@ -176,13 +185,30 @@ fn leave_block(w: &mut World, i: usize) {
     if !(target_air && below_ok) {
         return;
     }
-    // Block.updateFromNeighbourShapes and canSurvive: a full block survives anywhere and keeps its
-    // state but a snowy one's snowy flag, read from the cell above
+    // Block.updateFromNeighbourShapes and canSurvive: a block without its own canSurvive survives
+    // anywhere (a snowy one takes its snowy flag from the cell above); a small flower needs
+    // #supports_vegetation under it (VegetationBlock), a mushroom #overrides_mushroom_light_
+    // requirement or raw light below 13 over a solid-render block (MushroomBlock); their shape
+    // update keeps them once they survive
     let name = carried.to_string();
     let base = name.split('[').next().unwrap_or("").to_string();
-    let full = props_at_name(&name).is_some_and(|p| p.full_collision && p.solid_render);
-    if !full {
+    let Some(cp) = props_at_name(&name) else {
+        refuse(w, format!("an enderman placing {base} (not in the natural-state table) is not modeled"));
+        return;
+    };
+    let below_props = props_at(w, below);
+    let survives = if !cp.reactive.iter().any(|m| m == "canSurvive") {
+        true
+    } else if cp.has_tag("minecraft:small_flowers") && base != "minecraft:wither_rose" {
+        below_props.is_some_and(|b| b.has_tag("minecraft:supports_vegetation"))
+    } else if base == "minecraft:brown_mushroom" || base == "minecraft:red_mushroom" {
+        below_props.is_some_and(|b| b.has_tag("minecraft:overrides_mushroom_light_requirement"))
+            || (crate::entity::mob::natural::brightness(w, pos, 0) < 13 && below_props.is_some_and(|b| b.solid_render))
+    } else {
         refuse(w, format!("an enderman placing {base} (its canSurvive and shape update) is not modeled"));
+        return;
+    };
+    if !survives {
         return;
     }
     let placed = if name.contains("snowy=") {
