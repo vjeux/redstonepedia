@@ -424,11 +424,7 @@ static REPO: std::sync::RwLock<Option<PathBuf>> = std::sync::RwLock::new(None);
 /// 2026-11-08 20:59: every farm page lists its parts): `crate::split`, at its stage's prices, the
 /// card's build minutes shared out. None (and a note) for a design of another shape.
 fn split_parts(b: &Build) -> Option<Vec<FarmPart>> {
-    let repo = REPO.read().ok()?.clone()?;
-    // (an archived farm's site copy sits beside its study's archive folder: `designs/circuits/
-    // mobfarm/iron-day1.txt` is the repository's `designs/circuits/mobfarm/archive/iron-day1.txt`)
-    let archived = Path::new(&b.design).parent().map(|p| p.join("archive")).zip(Path::new(&b.design).file_name()).map(|(d, f)| d.join(f));
-    let Some(text) = std::iter::once(PathBuf::from(&b.design)).chain(archived).find_map(|p| std::fs::read_to_string(repo.join(p)).ok()) else {
+    let Some(text) = design_text(b) else {
         eprintln!("  note: {}: no parts table (its design is not in the repository)", b.design);
         return None;
     };
@@ -442,6 +438,28 @@ fn split_parts(b: &Build) -> Option<Vec<FarmPart>> {
             None
         }
     }
+}
+
+/// A listed farm's design text from the repository (an archived farm's site copy sits beside its
+/// study's archive folder: `designs/circuits/mobfarm/iron-day1.txt` is the repository's
+/// `designs/circuits/mobfarm/archive/iron-day1.txt`).
+fn design_text(b: &Build) -> Option<String> {
+    let repo = REPO.read().ok()?.clone()?;
+    let archived = Path::new(&b.design).parent().map(|p| p.join("archive")).zip(Path::new(&b.design).file_name()).map(|(d, f)| d.join(f));
+    std::iter::once(PathBuf::from(&b.design)).chain(archived).find_map(|p| std::fs::read_to_string(repo.join(p)).ok())
+}
+
+/// Whether a farm's parts file still describes its design: its rows' blocks placed are the
+/// design's (farmopt's builder counts every block it placed; a design changed since, say trimmed,
+/// places another number: the day-1 lane's trim of bed-plate-lava-out-of-sight 2026-11-09, 102 in
+/// the file against the design's 71). Unknown (no design to read): taken as current.
+fn parts_current(b: &Build, rows: &[FarmPart]) -> bool {
+    let Some(n) = design_text(b).and_then(|t| crate::split::placed_blocks(&t)) else { return true };
+    let file: u32 = rows.iter().map(|p| p.blocks).sum();
+    if file != n {
+        eprintln!("  note: {}.parts.tsv: {file} blocks placed, its design {n}: the design changed since; its own split instead", b.name);
+    }
+    file == n
 }
 
 /// A farm's parts file's rows (`part member blocks dug build_seconds`, `#` lines are notes),
@@ -583,7 +601,11 @@ pub fn parts_section(b: &Build, prefix: &str) -> String {
         return String::new();
     }
     let mut rows = farm_parts(&b.name);
-    // (an iron farm with no parts file: its design split by its own landmarks)
+    // (a parts file its design no longer matches: the design's own split, as for an iron farm with
+    // no parts file)
+    if !rows.is_empty() && farm == "iron" && !parts_current(b, &rows) {
+        rows.clear();
+    }
     if rows.is_empty() && farm == "iron" {
         rows = split_parts(b).unwrap_or_default();
     }

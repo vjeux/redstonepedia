@@ -420,6 +420,12 @@ pub fn cmd_parts(designs: &[std::path::PathBuf], stage: Option<&str>, map: bool)
     Ok(())
 }
 
+/// A design's blocks placed (every cell but `air`: what farmopt's parts files sum to).
+pub fn placed_blocks(text: &str) -> Option<u32> {
+    let d = mctas::design::Design::parse(text).ok()?;
+    Some(d.blocks.values().filter(|s| id(s) != "air").count() as u32)
+}
+
 /// The share of a design's cells (by count, part by part) its split puts in the same part as its
 /// parts file (the farm optimizer's exact one).
 pub fn agreement(split: &[FarmPart], exact: &[FarmPart]) -> f64 {
@@ -454,6 +460,11 @@ mod tests {
                 continue;
             };
             let exact = crate::farms::read_farm_parts(&exact).unwrap();
+            // (a parts file its design no longer matches, the design changed since — trimmed, say —
+            // and its file not yet written again: nothing to check against; the site splits it)
+            if exact.iter().map(|p| p.blocks).sum::<u32>() != placed_blocks(&text).unwrap() {
+                continue;
+            }
             let split = split(&text, stage, None).unwrap();
             let a = agreement(&split, &exact);
             assert!(a >= least, "{stem}: {:.0}% of its cells in the same parts (at least {:.0}%)", a * 100.0, least * 100.0);
