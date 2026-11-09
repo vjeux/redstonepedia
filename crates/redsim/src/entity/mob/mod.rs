@@ -471,6 +471,7 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
     let mut can_break_doors = false;
     let mut bat_flags = 0;
     let mut cube_size: Option<i32> = None;
+    let mut animal_age: Option<i32> = None;
     let mut yaw = None;
     if let Some(n) = nbt {
         let mut t = n.trim().to_string();
@@ -493,6 +494,8 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
                 Some(("BatFlags", v)) if ty.def().id == "bat" => bat_flags = v.trim_end_matches(['b', 'B']).parse::<i32>().unwrap_or(0),
                 // a sulfur cube's size (`Size` = size - 1)
                 Some(("Size", v)) if ty.def().game_id == "minecraft:sulfur_cube" => cube_size = v.trim_end_matches(['b', 'B']).parse::<i32>().ok().map(|s| s + 1),
+                // a farm animal's age (a baby below 0)
+                Some(("Age", v)) if ai::goal::animal::is_animal(ty.def().id) => animal_age = v.parse::<i32>().ok(),
                 _ => return Some(Err(format!("entity {type_id} with {kv} in its data is not modeled by redsim"))),
             }
         }
@@ -505,10 +508,24 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
             s => return Some(Err(format!("a summoned sulfur cube of size {s} (an adult of that size) is not modeled"))),
         }
     }
+    // a farm animal loaded with a negative Age is its baby
+    if let Some(a) = animal_age
+        && a < 0
+        && let Some(adult) = ai::goal::animal::adult_of(ty.def().id)
+    {
+        ty = MobType::from_id(&format!("baby_{adult}")).expect("a baby row");
+    }
     // a summon (the farm's own mob, a scene's): an unmodeled AI fails closed
     let strict = std::mem::replace(&mut w.mob.ai.strict, true);
     let id = add(w, ty, Vec3::new(pos[0], pos[1], pos[2]), persistent);
     w.mob.ai.strict = strict;
+    if let Some(a) = animal_age
+        && let Some(j) = crate::entity::index_of(w, id)
+        && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
+        && let Some(x) = m.ai.as_deref_mut()
+    {
+        x.age = a;
+    }
     // a loaded bat rests only if its BatFlags say so (`readAdditionalSaveData`, default 0: a
     // summoned bat flies)
     if ty.def().id == "bat"
@@ -573,7 +590,7 @@ pub fn add(w: &mut World, ty: MobType, pos: Vec3, persistent: bool) -> u32 {
         }
     }
     // the chicken's constructor: its egg timer (6000..11999)
-    if ty.def().id == "chicken" {
+    if ai::goal::animal::adult_of(ty.def().id) == Some("chicken") {
         st.egg_time = ai::goal::animal::chicken_egg_time(&mut own);
     }
     // ---- mob AI (the mob-AI lane): a mob whose goals are not modeled (villagers have their brain,

@@ -84,18 +84,21 @@ pub static DEFS: &[TypeDef] = &[
     row(22, "squid", "minecraft:squid", 0.8, 0.8, 0.4, 10.0, 0.7, false, false, 0.6),
     row(23, "salmon", "minecraft:salmon", 0.7, 0.4, 0.26, 3.0, 0.7, false, false, 0.6),
     row(24, "cod", "minecraft:cod", 0.5, 0.3, 0.195, 3.0, 0.7, false, false, 0.6),
-    // babies (`getAgeScale` 0.5; a baby zombie's BABY_DIMENSIONS eye 0.93)
-    row(25, "baby_zombie", "minecraft:zombie", 0.3, 0.975, 0.93, 20.0, 0.23f32 as f64 * 1.5, true, true, 0.6),
-    row(26, "baby_zombie_villager", "minecraft:zombie_villager", 0.3, 0.975, 0.93, 20.0, 0.23f32 as f64 * 1.5, true, true, 0.6),
-    row(27, "baby_drowned", "minecraft:drowned", 0.3, 0.975, 0.93, 20.0, 0.23f32 as f64 * 1.5, true, true, 1.0),
-    row(28, "baby_sheep", "minecraft:sheep", 0.45, 0.65, 0.6175, 8.0, 0.23f32 as f64, false, false, 0.6),
-    row(29, "baby_pig", "minecraft:pig", 0.45, 0.45, 0.3825, 10.0, 0.25, false, false, 0.6),
-    row(30, "baby_chicken", "minecraft:chicken", 0.2, 0.35, 0.322, 4.0, 0.25, false, false, 0.6),
-    row(31, "baby_cow", "minecraft:cow", 0.45, 0.7, 0.65, 10.0, 0.2f32 as f64, false, false, 0.6),
+    // babies: 26.3's own BABY_DIMENSIONS where the class has them (Zombie 0.49 x 0.98 eye 0.775,
+    // ZombieVillager eye 0.67, Drowned 0.775, Sheep 0.45 x 0.65 eye 0.65625, Pig 0.45 x 0.45 eye
+    // 0.40625, Chicken 0.3 x 0.4 eye 0.28125, Cow 0.45 x 0.7 eye 0.69, Wolf 0.3 x 0.425 eye
+    // 0.34375, Rabbit 0.24 x 0.4 eye 0.39), else `getAgeScale` 0.5
+    row(25, "baby_zombie", "minecraft:zombie", 0.49, 0.98, 0.775, 20.0, 0.23f32 as f64 * 1.5, true, true, 0.6),
+    row(26, "baby_zombie_villager", "minecraft:zombie_villager", 0.49, 0.98, 0.67, 20.0, 0.23f32 as f64 * 1.5, true, true, 0.6),
+    row(27, "baby_drowned", "minecraft:drowned", 0.49, 0.98, 0.775, 20.0, 0.23f32 as f64 * 1.5, true, true, 1.0),
+    row(28, "baby_sheep", "minecraft:sheep", 0.45, 0.65, 0.65625, 8.0, 0.23f32 as f64, false, false, 0.6),
+    row(29, "baby_pig", "minecraft:pig", 0.45, 0.45, 0.40625, 10.0, 0.25, false, false, 0.6),
+    row(30, "baby_chicken", "minecraft:chicken", 0.3, 0.4, 0.28125, 4.0, 0.25, false, false, 0.6),
+    row(31, "baby_cow", "minecraft:cow", 0.45, 0.7, 0.69, 10.0, 0.2f32 as f64, false, false, 0.6),
     row(32, "baby_horse", "minecraft:horse", 0.6982422, 0.8, 0.76, 22.0, 0.225, false, false, 1.0),
     row(33, "baby_donkey", "minecraft:donkey", 0.6982422, 0.75, 0.7125, 22.0, 0.175, false, false, 1.0),
-    row(34, "baby_wolf", "minecraft:wolf", 0.3, 0.425, 0.34, 8.0, 0.3, false, false, 0.6),
-    row(35, "baby_rabbit", "minecraft:rabbit", 0.245, 0.3, 0.295, 3.0, 0.3, false, false, 0.6),
+    row(34, "baby_wolf", "minecraft:wolf", 0.3, 0.425, 0.34375, 8.0, 0.3, false, false, 0.6),
+    row(35, "baby_rabbit", "minecraft:rabbit", 0.24, 0.4, 0.39, 3.0, 0.3, false, false, 0.6),
     row(36, "baby_fox", "minecraft:fox", 0.3, 0.35, 0.2, 10.0, 0.3, false, false, 0.6),
     row(37, "baby_turtle", "minecraft:turtle", 0.36, 0.12, 0.102, 30.0, 0.25, false, false, 1.0),
     // slimes of size 2 and 4 (`Slime.getDefaultDimensions` = the type's scaled by the size)

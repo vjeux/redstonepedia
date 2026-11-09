@@ -537,6 +537,43 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // the farm animals' babies by their parents in a grass pen: FollowParentGoal, a baby sheep's
+    // EatBlockGoal (25) and its age-up, two babies growing up during the run
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        for x in 9..39 {
+            for z in 9..39 {
+                b.push(([x, 63, z], "minecraft:grass_block[snowy=false]".to_string()));
+            }
+        }
+        for (a, c) in [((8, 8), (8, 39)), ((39, 8), (39, 39)), ((8, 8), (39, 8)), ((8, 39), (39, 39))] {
+            wall(&mut b, a, c, 63, 2, stone);
+        }
+        let p = |s: &str| Some(s.to_string());
+        v.push(Scene {
+            name: "baby-animals".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:pig".into(), [16.5, 64.0, 16.5], p("{PersistenceRequired:1b}")),
+                ("minecraft:pig".into(), [22.5, 64.0, 16.5], p("{PersistenceRequired:1b,Age:-400}")),
+                ("minecraft:cow".into(), [30.5, 64.0, 16.5], p("{PersistenceRequired:1b}")),
+                ("minecraft:cow".into(), [30.5, 64.0, 22.5], p("{PersistenceRequired:1b,Age:-24000}")),
+                ("minecraft:sheep".into(), [16.5, 64.0, 30.5], p("{PersistenceRequired:1b}")),
+                ("minecraft:sheep".into(), [16.5, 64.0, 24.5], p("{PersistenceRequired:1b,Age:-24000}")),
+                ("minecraft:chicken".into(), [30.5, 64.0, 30.5], p("{PersistenceRequired:1b}")),
+                ("minecraft:chicken".into(), [24.5, 64.0, 30.5], p("{PersistenceRequired:1b,Age:-1200}")),
+            ],
+            day_time: 6000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: Some([24.5, 74.0, 24.5]),
+            player_creative: true,
+            random_tick_speed: 0,
+        });
+    }
     v
 }
 

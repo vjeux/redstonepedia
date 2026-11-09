@@ -79,8 +79,8 @@ pub fn tick(w: &mut World, i: usize) {
     // AbstractCubeMob.tick after super.tick: the landing's draws
     if super::ai::has_ai(w, i) {
         super::ai::cube::after_tick(w, i);
-        // Chicken.aiStep's tail: the slow fall, the egg
-        super::ai::goal::animal::chicken_after_ai_step(w, i);
+        // Chicken.aiStep's tail: the slow fall, the egg; AgeableMob.aiStep's age
+        super::ai::goal::animal::after_ai_step(w, i);
     }
 }
 
@@ -897,7 +897,7 @@ pub fn check_fall_damage(w: &mut World, i: usize, ya: f64, on_ground: bool) {
         return;
     }
     // a chicken takes no fall damage (`Chicken.causeFallDamage`: false), its fall distance kept
-    let chicken = mob(w, i).ty.def().id == "chicken" && super::ai::has_ai(w, i);
+    let chicken = super::ai::goal::animal::adult_of(mob(w, i).ty.def().id) == Some("chicken") && super::ai::has_ai(w, i);
     if !w.entities.list[i].was_touching_water {
         crate::entity::fluid_push::update_fluid_interaction(w, i);
         // the same trackers give isInLava and the lava's height: travelInLava's shallow test

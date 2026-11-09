@@ -83,6 +83,8 @@ pub struct MobAi {
     pub swell_target: Option<u32>,
     /// A cube mob's move control and landing state ([`cube`]).
     pub cube: Option<cube::CubeState>,
+    /// `AgeableMob.age` of a farm animal (0 an adult, a baby counts up from -24000).
+    pub age: i32,
 }
 
 impl MobAi {
@@ -94,7 +96,7 @@ impl MobAi {
         let kind = if d.id == "spider" || d.id == "cave_spider" { NavKind::WallClimber } else { NavKind::Ground };
         let malus = if ty == MobType::Villager {
             Malus::villager()
-        } else if d.id == "chicken" {
+        } else if goal::animal::adult_of(d.id) == Some("chicken") {
             // the chicken's constructor: setPathfindingMalus(WATER, 0)
             let mut m = Malus::default();
             m.set(crate::entity::mob::ai::path::path_type::PathType::Water, 0.0);
@@ -140,6 +142,7 @@ impl MobAi {
             swell_dir: -1,
             swell_target: None,
             cube: None,
+            age: 0,
         };
         goal::register_goals(&mut ai, ty);
         if let Some(_) = cube::cube_size(d.id) {
