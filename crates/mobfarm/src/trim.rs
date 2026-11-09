@@ -46,7 +46,7 @@ use redsim::{BlockPos, World};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 type Pos = [i32; 3];
 
@@ -67,7 +67,7 @@ pub struct TrimArgs {
 /// Where a design is priced and checked: its terrain site's offset (fixed while it trims).
 struct Place {
     sample: Option<&'static redsim::terrain::samples::Sample>,
-    world: Option<Arc<Mutex<World>>>,
+    world: Option<Arc<RwLock<World>>>,
     offset: [i32; 3],
     ground: i32,
     afk: [f64; 3],
@@ -172,7 +172,7 @@ fn full_opaque(state: &str) -> bool {
 fn site_at(pl: &Place, spec: &FarmSpec) -> Result<Option<&'static Site>, String> {
     let (Some(sample), Some(world)) = (pl.sample, &pl.world) else { return Ok(None) };
     let priced = {
-        let w = world.lock().unwrap_or_else(|e| e.into_inner());
+        let w = world.read().unwrap_or_else(|e| e.into_inner());
         let fp = site::footprint(spec, pl.ground)?;
         let spot = ([pl.offset[0] + fp.lo.x, pl.offset[2] + fp.lo.z], pl.offset[1] + pl.ground);
         let price = site::price_spots(&w, spec, fp, pl.ground, pl.clear_box, &[spot]).pop().ok_or("no price")?;
@@ -423,7 +423,7 @@ fn natural_rock(pl: &Place, p: &Pos) -> bool {
     if pl.clear_box {
         return false;
     }
-    let w = world.lock().unwrap_or_else(|e| e.into_inner());
+    let w = world.read().unwrap_or_else(|e| e.into_inner());
     let at = BlockPos::new(p[0] + pl.offset[0], p[1] + pl.offset[1], p[2] + pl.offset[2]);
     let b = w.get(at);
     let name = format!("{b}");
@@ -439,7 +439,7 @@ fn natural_rock(pl: &Place, p: &Pos) -> bool {
 
 fn natural_open(pl: &Place, p: &Pos) -> bool {
     let Some(world) = &pl.world else { return true };
-    let w = world.lock().unwrap_or_else(|e| e.into_inner());
+    let w = world.read().unwrap_or_else(|e| e.into_inner());
     redsim::terrain::place::air_like(&w.get(BlockPos::new(p[0] + pl.offset[0], p[1] + pl.offset[1], p[2] + pl.offset[2])))
 }
 
@@ -458,7 +458,7 @@ fn candidates(pl: &Place, d: &Design, keep: &Keep) -> (Vec<Edit>, Vec<Edit>) {
             continue;
         }
         if debug && removable(s) {
-            let nat = pl.world.as_ref().map(|w| format!("{}", w.lock().unwrap_or_else(|e| e.into_inner()).get(BlockPos::new(p[0] + pl.offset[0], p[1] + pl.offset[1], p[2] + pl.offset[2])))).unwrap_or_default();
+            let nat = pl.world.as_ref().map(|w| format!("{}", w.read().unwrap_or_else(|e| e.into_inner()).get(BlockPos::new(p[0] + pl.offset[0], p[1] + pl.offset[1], p[2] + pl.offset[2])))).unwrap_or_default();
             eprintln!("trim: {p:?} {s}: natural {nat}, rock {}, golem {}, wet {}, floor {}", natural_rock(pl, p), keep.golem.contains(p), keep.wet.contains(p), keep.floors.contains(p));
         }
         let far = (p[0] as f64 - mid[0]).powi(2) + (p[1] as f64 - mid[1]).powi(2) + (p[2] as f64 - mid[2]).powi(2);
