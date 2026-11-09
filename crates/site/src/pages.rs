@@ -319,8 +319,8 @@ fn circuit_sections(c: &site_model::Circuit, has_viewer: bool) -> String {
             .metrics
             .iter()
             // (a mob farm's page is written for the player building it, vjeux 2026-11-08: the
-            // judge's own diagnostics stay off it)
-            .filter(|(k, _)| !(crate::explain::mob_farm(c) && crate::explain::MOB_FARM_DIAGNOSTICS.contains(&k.as_str())))
+            // judge's own diagnostics stay off it, and the copies curve the card phrases)
+            .filter(|(k, _)| !(crate::explain::mob_farm(c) && crate::explain::mob_farm_hidden(k)))
             .map(|(k, v)| {
                 let def = crate::explain::metric_definition(&c.kind, k);
                 // (a crop farm's "per cane" metrics are per plant: a bamboo stalk, a kelp plant)

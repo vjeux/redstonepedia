@@ -209,6 +209,17 @@ index's `kind=farm` lists them, and `kind=circuit` no longer does. Their old pag
   cells in ten in the same parts as farmopt's own files on its day-1 farms and its middle module
   (eight on the side chute; a test holds it). A design of another shape (golems spawning at the
   villagers' level, no lava) gets no table, and a note in the build.
+- **A module's copies curve** (ironspec 2026-11-09: each module's iron an hour, build minutes and
+  room per module at N copies, from a number source): `<stem>.copies.tsv` beside a farm's design
+  (its stage folder), written by the farm optimizer from its copies pricing: `n
+  build_minutes_per_module volume_per_module iron_per_hour_per_module` (`#` lines are notes). The
+  site makes them the design's card fields `copies_build_minutes_at_N`, `copies_volume_at_N`,
+  `copies_iron_per_hour_at_N` (quotable from another card, `{copies_build_minutes_at_4@stem}`,
+  a held variation's too) and the phrase `copies` ("built 4 times: 13.6 minutes and 5,120 blocks
+  of room per module, 409 iron an hour each; built 16 times: ..."), a middle or fastest card's
+  fact (`if copies present`); never its measurements table. A component page's module with a
+  curve lists it ("built 4 times · per module: 13.6 minutes to build, 5,120 blocks of room, 409
+  iron an hour").
 - **Bars**: a judged design that is never listed (the copies of one module a stage's farms must
   beat) goes in `designs/farms/iron/bars/` with its `verdicts.tsv` row; a curated card quotes it
   (`{field@stem}`), as it can quote a stage's held variations.

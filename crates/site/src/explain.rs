@@ -262,6 +262,13 @@ pub fn direction_words_of(c: &Circuit) -> String {
 /// (vjeux 2026-11-08).
 pub const MOB_FARM_DIAGNOSTICS: [&str; 3] = ["worst policy", "misses", "game tradeoffs"];
 
+/// Whether a mob farm's metric stays off its page's measurements table: the judge's diagnostics
+/// above, and the copies curve (its card's fields, `copies build minutes at 4`...: the card phrases
+/// them).
+pub fn mob_farm_hidden(k: &str) -> bool {
+    MOB_FARM_DIAGNOSTICS.contains(&k) || k.starts_with("copies ")
+}
+
 /// A mob farm's metric value as its page shows it: what it means for the player, without how it
 /// was measured (vjeux 2026-11-08). `real game`: the gate's line exists only for a farm that
 /// passed it; `iron range`: without its run count.

@@ -224,6 +224,45 @@ fn write_variations(dir: &Path, rows: &[Variation]) -> Result<()> {
     Ok(())
 }
 
+/// One point of a module's copies curve (`<stem>.copies.tsv` beside its design, written by the
+/// farm optimizer from its copies pricing; ironspec 2026-11-09): N copies of the module, each
+/// module's build minutes, room (blocks of volume) and iron an hour.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Copies {
+    pub n: u32,
+    pub build_minutes: f64,
+    pub volume: f64,
+    pub iron_per_hour: f64,
+}
+
+/// A design's copies curve (`<stem>.copies.tsv` in `dir`: `n build_minutes_per_module
+/// volume_per_module iron_per_hour_per_module`, `#` lines are notes), by N; none without the file.
+pub fn read_copies(dir: &Path, stem: &str) -> Vec<Copies> {
+    let text = std::fs::read_to_string(dir.join(format!("{stem}.copies.tsv"))).unwrap_or_default();
+    let num = |r: &std::collections::BTreeMap<String, String>, c: &str| r.get(c).and_then(|v| v.replace(',', "").trim().parse::<f64>().ok());
+    let mut v: Vec<Copies> = tsv_rows(&text)
+        .iter()
+        .filter_map(|r| Some(Copies { n: num(r, "n")? as u32, build_minutes: num(r, "build_minutes_per_module")?, volume: num(r, "volume_per_module")?, iron_per_hour: num(r, "iron_per_hour_per_module")? }))
+        .filter(|c| c.n > 0)
+        .collect();
+    v.sort_by_key(|c| c.n);
+    v
+}
+
+/// A copies curve as a build's metrics (`copies build minutes at 4 16.7`, `copies volume at 4
+/// 10080`, `copies iron per hour at 4 461`): its card fields `copies_build_minutes_at_4`...
+pub fn copies_metrics(rows: &[Copies]) -> Vec<(String, String)> {
+    rows.iter()
+        .flat_map(|c| {
+            [
+                (format!("copies build minutes at {}", c.n), format!("{:.1}", c.build_minutes)),
+                (format!("copies volume at {}", c.n), format!("{:.0}", c.volume)),
+                (format!("copies iron per hour at {}", c.n), format!("{:.0}", c.iron_per_hour)),
+            ]
+        })
+        .collect()
+}
+
 /// The redstone dust a design's blocks take to craft, by recipe (ironspec rev 9 iteration 19: a
 /// day-1 card says plainly whether its farm needs redstone and how much): a dust, a redstone torch
 /// 1; a repeater 3 (2 torches and a dust); a comparator 3 (3 torches); an observer 2; a piston, a
@@ -860,6 +899,24 @@ pub fn part_page(site: &Site, farm: &str, part: &str, members: &[Member], script
                 format!("<tr><th scope=\"row\">{}</th><td>{}</td></tr>", esc(&k), esc(&crate::explain::group_numbers(&v)))
             })
             .collect();
+        // (a module's copies curve beside its design: each N's build minutes, room and iron an
+        // hour per module; ironspec 2026-11-09)
+        let curve = Path::new(&m.src).parent().map(|d| read_copies(&REPO.read().ok().and_then(|g| g.clone()).unwrap_or_default().join(d), m.stem())).unwrap_or_default();
+        let rows = rows
+            + &curve
+                .iter()
+                .map(|c| {
+                    let label = if c.n == 1 { "built once".to_string() } else { format!("built {} times", c.n) };
+                    format!(
+                        "<tr><th scope=\"row\">{}</th><td>{}{:.1} minutes to build, {} blocks of room, {} iron an hour</td></tr>",
+                        esc(&label),
+                        if c.n == 1 { "" } else { "per module: " },
+                        c.build_minutes,
+                        crate::explain::group_numbers(&format!("{:.0}", c.volume)),
+                        crate::explain::group_numbers(&format!("{:.0}", c.iron_per_hour))
+                    )
+                })
+                .collect::<String>();
         // (a farm module reads as a component: no stage line, ironspec 2026-11-08)
         let stage = if m.part == "module" { String::new() } else { STAGES.iter().find(|s| s.0 == m.stage).map(|s| format!("<tr><th scope=\"row\">stage</th><td>{}</td></tr>", esc(s.1))).unwrap_or_default() };
         let used: Vec<String> = farms_using(m)

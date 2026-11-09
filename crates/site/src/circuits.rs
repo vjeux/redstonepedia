@@ -687,6 +687,12 @@ pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) 
             {
                 metrics.push(("redstone dust".into(), n.to_string()));
             }
+            // a module's copies curve, from the farm optimizer's sidecar beside it (ironspec
+            // 2026-11-09: iron an hour, build minutes and room per module at N copies, filled from
+            // a number source): card fields, never the page's measurements table
+            if r.kind.starts_with("mob-farm") {
+                metrics.extend(crate::farms::copies_metrics(&crate::farms::read_copies(&dir, r.file.trim_end_matches(".txt"))));
+            }
             let mut flags = flags_of(&metrics, &r.robustness, &r.summary);
             let host_id = host.get(&i).map(|&h| id_of(&rows[h]));
             if host_id.is_some() {

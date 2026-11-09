@@ -215,6 +215,22 @@ pub fn fields(metrics: &[(String, String)], blocks: u32, dims: &str) -> BTreeMap
     if let Some(n) = f.get("redstone_dust").and_then(|v| v.parse::<u32>().ok()) {
         f.insert("redstone".into(), if n == 0 { "needs no redstone".to_string() } else { format!("needs {n} redstone dust") });
     }
+    // a module's copies curve in a player's words (ironspec 2026-11-09; the farm optimizer's
+    // `<stem>.copies.tsv`): "built 4 times: 16.7 minutes and 10,080 blocks of room per module, 461
+    // iron an hour each; 16 times: ..." for every N above 1
+    let mut ns: Vec<u32> = f.keys().filter_map(|k| k.strip_prefix("copies_build_minutes_at_")?.parse().ok()).filter(|n| *n > 1).collect();
+    ns.sort();
+    let parts: Vec<String> = ns
+        .iter()
+        .filter_map(|n| {
+            let get = |what: &str| f.get(&format!("copies_{what}_at_{n}")).cloned();
+            let room = get("volume")?.parse::<f64>().ok()?;
+            Some(format!("built {n} times: {} minutes and {} blocks of room per module, {} iron an hour each", get("build_minutes")?, crate::explain::group_numbers(&format!("{room:.0}")), get("iron_per_hour")?))
+        })
+        .collect();
+    if !parts.is_empty() {
+        f.insert("copies".into(), parts.join("; "));
+    }
     f.insert("blocks".into(), blocks.to_string());
     f.insert("blocks_placed".into(), blocks.to_string());
     if !dims.is_empty() {
@@ -467,8 +483,13 @@ pub fn archived_fields(root: &Path, study: &str, stem: &str) -> Option<BTreeMap<
     if study == "mobfarm" {
         dirs.extend(crate::farms::quotable_dirs(root));
     }
-    let r = dirs.iter().find_map(|d| circuit::archive::read_rows(d).ok()?.into_iter().find(|r| r.file == file))?;
-    Some(fields(&crate::circuits::parse_metrics(&r.metrics), r.blocks as u32, &r.dims))
+    let (dir, r) = dirs.iter().find_map(|d| circuit::archive::read_rows(d).ok()?.into_iter().find(|r| r.file == file).map(|r| (d.clone(), r)))?;
+    let mut metrics = crate::circuits::parse_metrics(&r.metrics);
+    // (a module's copies curve beside it: quotable too, `{copies_build_minutes_at_4@stem}`)
+    if study == "mobfarm" {
+        metrics.extend(crate::farms::copies_metrics(&crate::farms::read_copies(&dir, stem)));
+    }
+    Some(fields(&metrics, r.blocks as u32, &r.dims))
 }
 
 #[cfg(test)]
@@ -478,6 +499,22 @@ mod tests {
     fn day1() -> BTreeMap<String, String> {
         let metrics = crate::circuits::parse_metrics("iron per hour per block 1.56, iron per hour 295, iron range 95% 292-298 (64 runs), golems per hour 74.1, seconds per golem 48.6, share of ceiling 62%, modules 1, kill 241 gt, restarts after a missed night no (hide the zombie by hand the first night), restarts after days away no, rain clear day 305 iron/h; rain day 293 iron/h; thunder day 299 iron/h, lightning about 0.00032 iron lost per thunderstorm; a witch about every 5332 game days; the farm breaks in about 2871 game days (a fire first); thunderstorms 1.4% of the time (6211 gt each on average), sunburn never (the zombie never sees the sky), fire never, bill 11 iron, 0 quartz, 3 villagers, 3 beds, 1 zombie, build time 47 min (185 placed, 0 dug, 16 lava trips, 3 villagers moved), time to an iron kit 54 min (the build, then (bill + 24) / rate), lava sources 16, storage 5.2 h (32 slots; 74 poppies/h), hoppers per 1000 iron/h 3.4");
         fields(&metrics, 189, "16x7x10")
+    }
+
+    #[test]
+    fn a_module_s_copies_curve_becomes_its_fields_and_a_phrase() {
+        // (ironspec 2026-11-09: each module's copies curve on its card, from the farm optimizer's
+        // `<stem>.copies.tsv`, never hand-written digits)
+        let dir = std::env::temp_dir().join(format!("mctas-cards-copies-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("late-module-compact.copies.tsv"), "# from the optimizer's copies pricing\nn\tbuild_minutes_per_module\tvolume_per_module\tiron_per_hour_per_module\n16\t13.4\t5408\t409\n1\t15.2\t3968\t409\n4\t13.6\t5,120\t409\n").unwrap();
+        let rows = crate::farms::read_copies(&dir, "late-module-compact");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(rows.iter().map(|c| c.n).collect::<Vec<_>>(), [1, 4, 16]);
+        let f = fields(&crate::farms::copies_metrics(&rows), 0, "");
+        assert_eq!((f["copies_build_minutes_at_4"].as_str(), f["copies_volume_at_16"].as_str(), f["copies_iron_per_hour_at_1"].as_str()), ("13.6", "5408", "409"));
+        assert_eq!(f["copies"], "built 4 times: 13.6 minutes and 5,120 blocks of room per module, 409 iron an hour each; built 16 times: 13.4 minutes and 5,408 blocks of room per module, 409 iron an hour each");
+        assert!(crate::explain::mob_farm_hidden("copies volume at 4"), "the curve stays off the measurements table");
     }
 
     #[test]
