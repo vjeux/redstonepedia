@@ -1300,8 +1300,11 @@ kick) before the first input.
   stay as many and unhurt; the zombie stays unhurt in its vehicle; none of the farm's drops (its
   iron and poppies) is ever outside the box (a trap horse a bolt left in the void falls and drops
   its bones far below: not the farm's); no flammable block burns and no lava moves; and at the end the iron in the farm's
-  containers and on its floor is at least 4 ingots per dead golem minus 3 standard deviations of
-  the loot (3..5 uniform: a leak shows, a few unlucky draws do not). The rates: each window's
+  containers and on its floor is at least redsim's delivered iron per dead golem (the iron its
+  reference runs' golems dropped less what their drops lost to the farm's own lava or fire,
+  `RunReport::iron_burnt`: burnt iron is a measured loss, brief rev 9 iteration 11) minus 3
+  standard deviations of the per-golem spread (at least the loot's 3..5 uniform: a leak shows, a
+  few unlucky draws do not); the card's line shows redsim's figure and its burnt part. The rates: each window's
   golems per hour, the mean of the builds unbroken by then, must fall within redsim's interval for 8 builds of that
   window under the same schedule (the judge's `farm::run` from the stationary weather with the same
   forced windows, 64 runs; a reference run that fails fails the gate): Bonferroni over the k

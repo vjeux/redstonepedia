@@ -39,9 +39,11 @@
 //! lives over 1200 gt; the villagers stay as many, unhurt (no health lost) and unconverted (no
 //! witch, no zombie villager); the zombie stays unhurt in its vehicle; no trap horse lands on the
 //! farm; no flammable block burns and no lava moves; every drop reaches the chest: no item ever
-//! outside the box, and at the end the iron in the farm's containers and on its floor is the 4
-//! ingots a golem drops on average for every golem that died (one-sided, 3 standard deviations of
-//! the loot's uniform 3..5: a few lost ingots hide in the loot's own spread, a leak does not).
+//! outside the box, and at the end the iron in the farm's containers and on its floor is redsim's
+//! delivered iron per golem (the loot's 4 on average, less what the farm's own lava or fire burns:
+//! `RunReport::iron_burnt` over the reference runs) for every golem that died (one-sided, 3
+//! standard deviations of the per-golem spread, at least the loot's uniform 3..5: a few lost
+//! ingots hide in the loot's own spread, a leak does not).
 //!
 //! **The rates**: each window's golems per hour, the builds' mean, must fall within redsim's
 //! interval for that many builds under the same schedule: the judge's own runs (`farm::run` from
@@ -840,13 +842,8 @@ fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, 
     if run.golems == 0 {
         run.fail("no golem spawned".into());
     }
-    if run.deaths > 0 && run.broken.is_none() {
-        let n = run.deaths as f64;
-        let floor = 4.0 * n - 3.0 * (2.0 * n / 3.0).sqrt();
-        if (run.iron() as f64) < floor {
-            run.fail(format!("{} iron ingots for {} dead golems ({:.2} each; the loot gives 4, and at least {floor:.0} within 3 standard deviations): drops were lost", run.iron(), run.deaths, run.iron() as f64 / n));
-        }
-    }
+    // (the iron each dead golem delivered is checked in `gate`, against redsim's delivered iron
+    // per golem from the reference runs: burnt iron is a measured loss, brief rev 9 iteration 11)
     run.seconds = t0.elapsed().as_secs_f64();
     drop(s);
     Ok(run)
@@ -1167,6 +1164,10 @@ pub struct GateReport {
     pub failures: Vec<String>,
     /// Lightning's breaks the builds saw against the card's rates.
     pub tradeoffs: Vec<Tradeoff>,
+    /// Redsim's delivered iron per dead golem over the reference runs (dropped less burnt) and the
+    /// burnt part.
+    pub sim_iron: f64,
+    pub sim_burnt: f64,
 }
 
 impl GateReport {
@@ -1182,8 +1183,10 @@ impl GateReport {
             Some(t) => format!("; lightning over its {:.0} gt of thunder: {}", t.thunder, self.tradeoffs.iter().map(|t| format!("{} {} (the card {:.2})", t.seen, t.what, t.expected)).collect::<Vec<_>>().join("; ")),
             None => String::new(),
         };
+        // (no ", " inside: the site splits a card's metrics there)
+        let burnt = if self.sim_burnt > 0.0 { format!(" (redsim {:.2} with {:.2} burnt)", self.sim_iron, self.sim_burnt) } else { String::new() };
         format!(
-            "{} builds in the 26.3 server on Hard: {}; {:.2} iron per dead golem{tradeoffs}{}",
+            "{} builds in the 26.3 server on Hard: {}; {:.2} iron per dead golem{burnt}{tradeoffs}{}",
             self.builds.len(),
             self.windows.iter().map(|w| w.text()).collect::<Vec<_>>().join("; "),
             iron as f64 / deaths.max(1) as f64,
@@ -1194,6 +1197,21 @@ impl GateReport {
 
 fn mean(v: &[f64]) -> f64 {
     if v.is_empty() { 0.0 } else { v.iter().sum::<f64>() / v.len() as f64 }
+}
+
+/// Redsim's delivered iron per dead golem over runs given as (iron dropped, iron burnt, dead
+/// golems), and the per-golem variance pooled from them (each run's delivered mean has variance
+/// v / n: v ~ mean of n (x - e)^2), at least the loot's own (3..5 uniform: 2/3); no death: the
+/// loot's 4 and 2/3.
+fn delivered_per_golem(runs: &[(u32, u32, u32)]) -> (f64, f64) {
+    let (dropped, burnt, deaths) = runs.iter().fold((0u64, 0u64, 0u64), |(d, b, n), r| (d + r.0 as u64, b + r.1 as u64, n + r.2 as u64));
+    if deaths == 0 {
+        return (4.0, 2.0 / 3.0);
+    }
+    let e = dropped.saturating_sub(burnt) as f64 / deaths as f64;
+    let per: Vec<(f64, f64)> = runs.iter().filter(|r| r.2 > 0).map(|r| (r.2 as f64, r.0.saturating_sub(r.1) as f64 / r.2 as f64)).collect();
+    let pooled = per.iter().map(|(n, x)| n * (x - e) * (x - e)).sum::<f64>() / per.len().max(1) as f64;
+    (e, pooled.max(2.0 / 3.0))
 }
 
 fn sd(v: &[f64]) -> f64 {
@@ -1302,6 +1320,34 @@ pub fn gate(c: &Circuit, o: &GateOpts) -> Result<GateReport> {
         }
     }
     rep.sim_runs = sim_runs.len();
+    // the iron each build delivered (chest, containers, floor, less the design's own) against
+    // redsim's delivered iron per golem over the same schedule (each run's iron dropped less the
+    // iron its drops lost to lava or fire, `RunReport::iron_burnt`, per dead golem: brief rev 9
+    // iteration 11, burnt iron is a measured loss, not a refusal), at least that many per dead
+    // golem minus 3 standard deviations (the per-golem spread pooled from the runs, at least the
+    // loot's own 3..5 uniform): a leak shows, the farm's own burns do not
+    let (dropped, burnt, deaths) = sim_runs.iter().fold((0u64, 0u64, 0u64), |(d, b, n), r| (d + r.iron_dropped as u64, b + r.iron_burnt as u64, n + r.deaths as u64));
+    let (expect, spread) = delivered_per_golem(&sim_runs.iter().map(|r| (r.iron_dropped, r.iron_burnt, r.deaths)).collect::<Vec<_>>());
+    rep.sim_iron = expect;
+    rep.sim_burnt = if deaths > 0 { burnt as f64 / deaths as f64 } else { 0.0 };
+    for (k, b) in rep.builds.iter_mut().enumerate() {
+        if b.deaths > 0 && b.broken.is_none() {
+            let n = b.deaths as f64;
+            let floor = expect * n - 3.0 * (spread * n).sqrt();
+            if (b.iron() as f64) < floor {
+                let why = format!(
+                    "{} iron ingots for {} dead golems ({:.2} each; redsim delivers {expect:.2} per golem ({:.2} dropped less {:.2} burnt), at least {floor:.0} within 3 standard deviations): drops were lost",
+                    b.iron(),
+                    b.deaths,
+                    b.iron() as f64 / n,
+                    if deaths > 0 { dropped as f64 / deaths as f64 } else { 4.0 },
+                    rep.sim_burnt
+                );
+                rep.failures.push(format!("build {} (rotation {}, offset {:?}, seed {}): {why}", k, b.turns, b.offset, b.seed));
+                b.failures.push(why);
+            }
+        }
+    }
     let arrive = farm::SETTLE_TICKS;
     for (k, (name, a, b, z)) in spans.iter().enumerate() {
         let per_hour = |n: usize| n as f64 * 72000.0 / (b - a) as f64;
@@ -1389,6 +1435,23 @@ mod tests {
         let items = r#"[{count: 5, Slot: 0b, id: "minecraft:iron_ingot"}, {count: 2, Slot: 1b, id: "minecraft:iron_block"}, {count: 3, Slot: 2b, id: "minecraft:poppy"}]"#;
         assert_eq!(count_iron(items), 5 + 18);
         assert_eq!(count_item(items, "minecraft:poppy"), 3);
+    }
+
+    /// Redsim's delivered iron per golem: the loot's 4 less the burnt iron; the spread at least the
+    /// loot's own, wider when burns make some golems deliver nothing.
+    #[test]
+    fn delivered_iron_less_the_burnt() {
+        // no burn: 4 per golem, the loot's variance
+        let (e, v) = delivered_per_golem(&[(400, 0, 100), (404, 0, 101)]);
+        assert!((e - 4.0).abs() < 1e-9 && (v - 2.0 / 3.0).abs() < 1e-9, "{e} {v}");
+        // 1 golem in 25 burnt (its 4 ingots): 3.84 per golem
+        let (e, _) = delivered_per_golem(&[(400, 16, 100)]);
+        assert!((e - 3.84).abs() < 1e-9, "{e}");
+        // runs that differ a lot: a wider spread than the loot's
+        let (_, v) = delivered_per_golem(&[(400, 0, 100), (400, 80, 100)]);
+        assert!(v > 2.0 / 3.0, "{v}");
+        // no golem died anywhere
+        assert_eq!(delivered_per_golem(&[(0, 0, 0)]), (4.0, 2.0 / 3.0));
     }
 
     /// The game's read-back of a merged block entity holds the design's fields (its own format:
