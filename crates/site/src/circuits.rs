@@ -791,8 +791,18 @@ pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) 
                         // (no family: its own payload ports, fly-payload-start-1-11b's one block)
                         _ if r.kind.starts_with("flying-machine") && payloads > 0 && !r.axis.contains("two-way") => format!("carries {payloads} extra block{}", if payloads == 1 { "" } else { "s" }),
                         // (an iron farm: how it works, its design's `how:` line, the end of its
-                        // title; a variation's player-facing name first, variations.tsv)
-                        _ if r.kind.starts_with("mob-farm") => var.map(|v| v.name.clone()).filter(|n| !n.is_empty()).or_else(|| text.lines().find_map(|l| l.trim().strip_prefix("how:")).map(|v| v.trim().to_string())).unwrap_or_default(),
+                        // title; a variation's player-facing name first, variations.tsv, its first
+                        // letter lowercase as every title's end: "· underground farm beside the
+                        // village", not "· Underground...")
+                        _ if r.kind.starts_with("mob-farm") => var
+                            .map(|v| v.name.clone())
+                            .filter(|n| !n.is_empty())
+                            .map(|n| {
+                                let mut ch = n.chars();
+                                ch.next().map(|c| c.to_lowercase().collect::<String>() + ch.as_str()).unwrap_or_default()
+                            })
+                            .or_else(|| text.lines().find_map(|l| l.trim().strip_prefix("how:")).map(|v| v.trim().to_string()))
+                            .unwrap_or_default(),
                         _ => String::new(),
                     },
                     ..Default::default()
