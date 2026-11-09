@@ -1527,13 +1527,22 @@ pub fn cross_channel_cage(r: i32, arms: u8, regular: bool, n: i32, l_min: u32, s
     b.set(3, fj - 1, cz - 1, "hopper[enabled=true,facing=south]");
     b.set(2, fj - 1, cz, "hopper[enabled=true,facing=east]");
     b.set(3, fj - 1, cz, "hopper[enabled=true,facing=down]");
-    let out = [3, fj - 2, cz];
-    b.set(out[0], out[1], out[2], "chest[facing=north,type=single,waterlogged=false]");
-    for i in 0..storage_pairs(arms as usize) {
-        b.set(out[0], out[1] - 1 - 2 * i, out[2], "hopper[enabled=true,facing=down]");
-        b.set(out[0], out[1] - 2 - 2 * i, out[2], "chest[facing=north,type=single,waterlogged=false]");
+    // the storage (iteration 20, vjeux 21:06 "You also need a proper storage system"): no chest
+    // chain; the centre's last hopper drops into the sorter's line hopper L under it
+    // (`collect_bottom_at1`, LS-open's: the iron slice to the crafter packing iron blocks into one
+    // chest, 27 stacks = 15,552 iron, 8.7 h of four modules; the poppies to their own two chests)
+    let mut t = Builder::new("collect");
+    collect_bottom_at1(&mut t, fj - 1);
+    // (L at (1, fj - 2, -1) in its frame goes under the centre's down hopper (3, fj - 1, cz))
+    let (dx, dz) = (2, cz + 1);
+    for (p, s) in &t.d.blocks {
+        b.d.blocks.insert([p[0] + dx, p[1], p[2] + dz], s.clone());
     }
-    b.d.ports.insert("output".into(), out);
+    for (p, s) in &t.d.block_entities {
+        b.d.block_entities.insert([p[0] + dx, p[1], p[2] + dz], s.clone());
+    }
+    let o = t.d.ports["output"];
+    b.d.ports.insert("output".into(), [o[0] + dx, o[1], o[2] + dz]);
     // (two arms: the junction's east and west sides fenced)
     if arms == 2 {
         for z in cz - 2..=cz + 1 {
@@ -1553,7 +1562,7 @@ pub fn cross_channel_cage(r: i32, arms: u8, regular: bool, n: i32, l_min: u32, s
     let (count, channels) = if arms == 4 { ("Four", "the four channels meet") } else { ("Two", "the two channels meet") };
     Ok(b.text(&[
         &format!("{count} farms around one kill chamber, {r} blocks from its centre: each farm's golems fall into a fenced water channel deep below"),
-        &format!("every farm's sight; {channels} in the middle under one lava blade, and one chest with 8 hours of storage collects everything."),
+        &format!("every farm's sight; {channels} in the middle under one lava blade; a sorter sends the poppies to their chests and the iron to a crafter packing it into one chest of iron blocks (8.7 hours)."),
     ]))
 }
 
