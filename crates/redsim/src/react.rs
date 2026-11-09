@@ -109,9 +109,13 @@ pub fn entity_inside(w: &mut World, i: usize, s: Block, p: BlockPos, precise: bo
             let name = crate::terrain::blocks::props(id).block_id();
             match name {
                 "minecraft:cobweb" => {
-                    let e = &mut w.entities.list[i];
-                    e.fall_distance = 0.0;
-                    e.stuck_speed = crate::entity::Vec3::new(0.25, 0.05f32 as f64, 0.25);
+                    // Spider.makeStuckInBlock: a spider (a cave spider too) ignores a cobweb
+                    let spider = matches!(&w.entities.list[i].kind, crate::entity::EntityKind::Mob(m) if matches!(m.ty.def().id, "spider" | "cave_spider"));
+                    if !spider {
+                        let e = &mut w.entities.list[i];
+                        e.fall_distance = 0.0;
+                        e.stuck_speed = crate::entity::Vec3::new(0.25, 0.05f32 as f64, 0.25);
+                    }
                 }
                 "minecraft:nether_portal" => crate::entity::portal::entity_inside(w, i, p),
                 "minecraft:sweet_berry_bush" | "minecraft:powder_snow" => {
