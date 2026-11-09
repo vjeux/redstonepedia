@@ -317,13 +317,14 @@ fn terrain_judge(c: &Circuit, jo: &JudgeOpts, sample: &'static redsim::terrain::
     let b = bill(c);
     let kit = redsim::entity::mob::site::KIT_IRON as u32;
     let stage = price_stage(c);
-    let build_s: Vec<Option<f64>> = jobs.iter().map(|(s, _, _)| site_bill(c, Some(*s), stage).ok().map(|bill| bill.seconds)).collect();
+    let build_s: Vec<Option<(f64, f64)>> = jobs.iter().map(|(s, _, _)| site_bill(c, Some(*s), stage).ok().map(|bill| (bill.seconds, bill.collect_s))).collect();
     let (base, runs, exposures, tkit) = std::thread::scope(|s| {
         let ex = s.spawn(|| exposures_of(jobs[0].0, &jobs[0].1));
         let base = s.spawn(|| base_checks(c, &jobs[0].1, &jobs[0].2));
         let hs: Vec<_> = jobs.iter().enumerate().map(|(k, (_, spec, o))| s.spawn(move || build_runs(spec, o, k as u32, WalkMode::Random))).collect();
         let hand = c.clock.design.meta.get("restart").map(|r| r.trim()) != Some("yes");
-        let ts: Vec<_> = jobs.iter().zip(&build_s).map(|((site, spec, _), bs)| s.spawn(move || bs.map_or_else(Vec::new, |bs| t_kit_runs(spec, site, bs, kit, 8, hand)))).collect();
+        // (iteration 16: each T ends with the trip down to the chest for the 24 iron)
+        let ts: Vec<_> = jobs.iter().zip(&build_s).map(|((site, spec, _), bs)| s.spawn(move || bs.map_or_else(Vec::new, |(bs, cs)| t_kit_runs(spec, site, bs, kit, 8, hand).into_iter().map(|t| t.map(|t| t + cs / 60.0)).collect()))).collect();
         let runs: Vec<std::result::Result<Vec<RunReport>, String>> = hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("a build panicked".to_string()))).collect();
         let tkit: Vec<Vec<Option<f64>>> = ts.into_iter().map(|h| h.join().unwrap_or_default()).collect();
         (base.join().unwrap_or_else(|_| Err("the base checks panicked".to_string())), runs, ex.join().unwrap_or_else(|_| ("the exposure checks panicked".to_string(), vec!["the exposure checks panicked".to_string()])), tkit)
@@ -459,6 +460,38 @@ pub fn site_bill(c: &Circuit, site: Option<&redsim::entity::mob::site::Site>, st
         add(&mut bill, "rename", renamed, p.price("rename", stage)?);
         add(&mut bill, "tool:anvil", 1, p.price("tool:anvil", stage)?);
     }
+    // iteration 16 (brief farm-iron rev 9): the vertical travel and the height, redsim
+    // `prices::add_travel`: the design's own access picks the ways (its ladders or scaffolding, its
+    // staircase, its soul-sand column; a dug-in farm's access stair is a staircase); a void design
+    // stands on its lowest layer (a drop needs a water cell there with open air above), a terrain
+    // one on the natural surface (the design's `ground:` + 1); the chest is fetched from the AFK
+    // spot's level (`afk:`), else from the surface
+    use redsim::entity::mob::prices::{Access, Layout};
+    let d = &c.clock.design;
+    let cells = d.block_list();
+    let solid = |s: &str| !matches!(s.split('[').next().unwrap_or("").trim_start_matches("minecraft:"), "air" | "cave_air" | "void_air");
+    let placed: Vec<([i32; 3], &str)> = cells.iter().filter(|(_, s)| solid(s)).map(|(p, s)| (*p, s.as_str())).collect();
+    let occupied: std::collections::HashSet<[i32; 3]> = placed.iter().map(|(p, _)| *p).collect();
+    let ents3: Vec<(&str, &str, [f64; 3])> = d.entities.iter().map(|e| (e.kind.as_str(), e.nbt.as_deref().unwrap_or(""), e.pos)).collect();
+    let ground = d.meta.get("ground").and_then(|g| g.trim().parse::<i32>().ok()).unwrap_or(-1);
+    let surface = match site {
+        Some(_) => ground + 1,
+        None => placed.iter().map(|(p, _)| p[1]).min().unwrap_or(0),
+    };
+    let standing = d.meta.get("afk").and_then(|a| a.split_whitespace().nth(1)?.parse::<f64>().ok()).map_or(surface, |y| y.floor() as i32);
+    let output = d.ports.get("output").copied().unwrap_or([0, surface, 0]);
+    let mut access = Access::of(&blocks);
+    if let Some(s) = site
+        && access_of(c, s).1 > 0
+    {
+        access.stairs = true;
+    }
+    access.drop_landing = site.is_none() && placed.iter().any(|(p, s)| p[1] == surface && s.trim_start_matches("minecraft:").starts_with("water") && (1..=3).all(|dy| !occupied.contains(&[p[0], p[1] + dy, p[2]])));
+    let lava_trips = bill.items.get("lava_trip").map_or(0, |e| e.0);
+    let moved = bill.items.get("villager_moved").map_or(0, |e| e.0);
+    let hand = u32::from(d.meta.get("restart").map(|r| r.trim()) != Some("yes"));
+    let layout = Layout { blocks: &placed, entities: &ents3, surface, standing, output, in_rock: site.is_some(), access };
+    redsim::entity::mob::prices::add_travel(&mut bill, &layout, lava_trips, moved, hand, stage)?;
     Ok(bill)
 }
 
@@ -1054,7 +1087,7 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
         if iron > 0.0
             && let Ok(bill) = &priced
         {
-            metrics.push(("time to an iron kit".to_string(), format!("{:.0} min (the build, then 24 iron at the card's rate)", bill.seconds / 60.0 + redsim::entity::mob::site::KIT_IRON / iron * 60.0)));
+            metrics.push(("time to an iron kit".to_string(), format!("{:.0} min (the build, then 24 iron at the card's rate, then the trip to the chest)", (bill.seconds + bill.collect_s) / 60.0 + redsim::entity::mob::site::KIT_IRON / iron * 60.0)));
         }
     } else {
         let seals = site.map_or(0, |s| s.seals.len());
@@ -1084,9 +1117,11 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
     match &priced {
         Ok(bill) => {
             metrics.push(("build minutes".to_string(), format!("{:.1}", bill.seconds / 60.0)));
+            // (iteration 16: day 1's T includes the trip down to the chest for its 24 iron)
             if iron > 0.0 {
-                metrics.push(("t kit minutes".to_string(), format!("{:.1}", bill.seconds / 60.0 + redsim::entity::mob::site::KIT_IRON / iron * 60.0)));
+                metrics.push(("t kit minutes".to_string(), format!("{:.1}", (bill.seconds + bill.collect_s) / 60.0 + redsim::entity::mob::site::KIT_IRON / iron * 60.0)));
             }
+            metrics.push(("collecting".to_string(), format!("{:.0} s per trip to the chest (2 x its depth, {} layers, at the access's speed)", bill.collect_s, bill.collect_layers)));
         }
         Err(e) => metrics.push(("build minutes".to_string(), format!("none ({e})"))),
     }

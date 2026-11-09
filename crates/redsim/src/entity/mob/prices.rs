@@ -103,6 +103,10 @@ pub struct Bill {
     /// item -> (count, seconds), the tools and the free filler included (filler's count is what was
     /// paid for).
     pub items: BTreeMap<String, (u32, f64)>,
+    /// One collection's trip to the output chest and back, seconds, and the layers each way
+    /// (iteration 16: the card's `collecting` line; day 1's T includes it).
+    pub collect_s: f64,
+    pub collect_layers: u32,
 }
 
 impl Bill {
@@ -241,6 +245,203 @@ const EXTRA_BUCKET_S: f64 = 90.0;
 /// A game day in seconds of play.
 const GAME_DAY_S: f64 = 1200.0;
 
+/// Ticks of a free fall over `layers` blocks from rest (`LivingEntity.travel` in the air: move by
+/// the velocity, then `vy = (vy - 0.08) x 0.98`): iteration 16's `travel:drop` and
+/// `villager:down`, priced from the fall itself (the G1 note: 10 layers about 16.5 gt, 25 about 27).
+pub fn fall_ticks(layers: u32) -> u32 {
+    let (mut y, mut v, mut t) = (0.0f64, 0.0f64, 0u32);
+    while y < layers as f64 && t < 100_000 {
+        y += v;
+        v = (v + 0.08) * 0.98;
+        t += 1;
+    }
+    t
+}
+
+/// The ways between the surface and the work levels a design builds (iteration 16, "the access,
+/// built in the design"): ladders or scaffolding, a staircase, a soul-sand bubble column, a water
+/// landing at a drop's foot. Building up (a pillar) always works.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Access {
+    pub ladder: bool,
+    pub stairs: bool,
+    pub bubble: bool,
+    pub drop_landing: bool,
+}
+
+impl Access {
+    /// What the design's blocks offer (the drop landing is the caller's to find: a water cell at
+    /// the foot of an open column).
+    pub fn of(blocks: &[&str]) -> Access {
+        let id = |s: &&str| s.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string();
+        Access {
+            ladder: blocks.iter().any(|s| matches!(id(s).as_str(), "ladder" | "scaffolding")),
+            stairs: blocks.iter().any(|s| id(s).ends_with("_stairs")),
+            bubble: blocks.iter().any(|s| id(s) == "soul_sand"),
+            drop_landing: false,
+        }
+    }
+
+    /// The cheapest way up and the cheapest way down `layers` layers at `stage`: ((row, seconds),
+    /// (row, seconds)); a drop is priced from the fall (`fall_ticks`).
+    pub fn travel(&self, layers: u32, stage: usize) -> Result<((&'static str, f64), (&'static str, f64)), String> {
+        let p = Prices::get()?;
+        let n = layers as f64;
+        let mut up = ("travel:pillar_up", p.price("travel:pillar_up", stage)? * n);
+        let mut down = ("travel:pillar_down", p.price("travel:pillar_down", stage)? * n);
+        let offer = |slot: &mut (&'static str, f64), row: &'static str, s: Result<f64, String>| {
+            if let Ok(s) = s
+                && s < slot.1
+            {
+                *slot = (row, s);
+            }
+        };
+        if self.ladder {
+            offer(&mut up, "travel:ladder_up", p.price("travel:ladder_up", stage).map(|v| v * n));
+            offer(&mut down, "travel:ladder_down", p.price("travel:ladder_down", stage).map(|v| v * n));
+        }
+        if self.stairs {
+            offer(&mut up, "travel:stairs", p.price("travel:stairs", stage).map(|v| v * n));
+            offer(&mut down, "travel:stairs", p.price("travel:stairs", stage).map(|v| v * n));
+        }
+        if self.bubble {
+            offer(&mut up, "travel:bubble_up", p.price("travel:bubble_up", stage).map(|v| v * n));
+        }
+        if let (Ok(e), Ok(t)) = (p.price("travel:elytra", stage), p.price("travel:elytra_trip", stage)) {
+            offer(&mut up, "travel:elytra", Ok(e * n + t));
+        }
+        if self.drop_landing && p.price("travel:drop", stage).is_ok() {
+            offer(&mut down, "travel:drop", Ok(fall_ticks(layers) as f64 / 20.0));
+        }
+        Ok((up, down))
+    }
+}
+
+/// What a build's vertical travel reads (iteration 16): its placed blocks with their cells, its
+/// entities (kind, nbt, position), the surface's standing level (a void design: its lowest layer; a
+/// terrain design: on the natural surface) and the AFK or standing level its chest is fetched from.
+pub struct Layout<'a> {
+    pub blocks: &'a [([i32; 3], &'a str)],
+    pub entities: &'a [(&'a str, &'a str, [f64; 3])],
+    pub surface: i32,
+    pub standing: i32,
+    pub output: [i32; 3],
+    /// Blocks below the surface stand in natural rock (terrain): never placed at an edge.
+    pub in_rock: bool,
+    pub access: Access,
+}
+
+/// A block a player can stand on (a full or partial top face, not a fluid, a plant or a thin part).
+fn standable(state: &str) -> bool {
+    let id = state.trim_start_matches("minecraft:").split('[').next().unwrap_or("");
+    !(matches!(id, "air" | "cave_air" | "void_air" | "water" | "lava" | "fire" | "torch" | "wall_torch" | "redstone_torch" | "redstone_wall_torch" | "redstone_wire" | "tripwire" | "tripwire_hook" | "ladder" | "bubble_column")
+        || id.ends_with("_button")
+        || id.ends_with("_pressure_plate")
+        || id.ends_with("rail")
+        || (id.ends_with("_fence_gate") && state.contains("open=true")))
+}
+
+/// The travel and height items of a build at `stage` (iteration 16), added to `b`: every trip
+/// between the surface and a work level, down and up by the access's cheapest ways (one per 1,728
+/// placed blocks, to the farthest of them; each lava trip, to the farthest lava; each villager,
+/// with its own way: up a bubble column where the design has one, else a rail ramp, down by the
+/// fall; each zombie; each hand step, to the zombie), `place:edge` for each block more than 2
+/// above every standable surface within 3 horizontally (the ground, or a design block with two air
+/// cells above it), and one collection's trip to the output chest (`Bill::collect_s`).
+pub fn add_travel(b: &mut Bill, l: &Layout, lava_trips: u32, moved: u32, hand_steps: u32, stage: usize) -> Result<(), String> {
+    let p = Prices::get()?;
+    let s = l.surface;
+    let mut add = |b: &mut Bill, item: &str, n: u32, secs: f64| {
+        let e = b.items.entry(item.to_string()).or_insert((0, 0.0));
+        e.0 += n;
+        e.1 += secs;
+        b.seconds += secs;
+    };
+    // a block's work level, in layers from the surface: none within reach (up to 2 above the
+    // standing level, 1 below it)
+    let layers = |y: i32| -> u32 {
+        if y > s + 2 {
+            (y - 2 - s) as u32
+        } else if y < s - 1 {
+            (s - 1 - y) as u32
+        } else {
+            0
+        }
+    };
+    let mut trip = |b: &mut Bill, n: u32| -> Result<(), String> {
+        if n == 0 {
+            return Ok(());
+        }
+        let ((ur, us), (dr, ds)) = l.access.travel(n, stage)?;
+        add(b, ur, n, us);
+        add(b, dr, n, ds);
+        Ok(())
+    };
+    let placed: Vec<&([i32; 3], &str)> = l.blocks.iter().filter(|(_, st)| item_of(st).is_some() || st.contains("lava")).collect();
+    // the inventories: the farthest blocks first, 1,728 to a trip
+    let mut lv: Vec<u32> = placed.iter().map(|(c, _)| layers(c[1])).collect();
+    lv.sort_unstable_by(|a, b| b.cmp(a));
+    for chunk in lv.chunks(1728) {
+        trip(b, chunk[0])?;
+    }
+    let lava_lv = l.blocks.iter().filter(|(_, st)| st.trim_start_matches("minecraft:").starts_with("lava")).map(|(c, _)| layers(c[1])).max().unwrap_or(0);
+    for _ in 0..lava_trips {
+        trip(b, lava_lv)?;
+    }
+    let mut zombie_lv = 0;
+    // the villagers moved (breeding moves only the pair: `moved` of them, the farthest first)
+    let mut vill: Vec<i32> = l.entities.iter().filter(|(k, _, _)| k.trim_start_matches("minecraft:") == "villager").map(|(_, _, pos)| pos[1].floor() as i32).collect();
+    vill.sort_unstable_by_key(|y| std::cmp::Reverse((y - s).unsigned_abs()));
+    for &y in vill.iter().take(moved as usize) {
+        let n = (y - s).unsigned_abs();
+        trip(b, n)?;
+        if n > 0 && y < s {
+            p.price("villager:down", stage)?;
+            add(b, "villager:down", n, fall_ticks(n) as f64 / 20.0);
+        } else if n > 0 && l.access.bubble && p.price("villager:up_bubble", stage).is_ok() {
+            add(b, "villager:up_bubble", n, p.price("villager:up_bubble", stage)? * n as f64);
+        }
+    }
+    // (no bubble column: one rail ramp up to the highest pod, built once, every villager rides it)
+    let ramp = vill.iter().take(moved as usize).filter(|&&y| y > s).map(|&y| (y - s) as u32).max().unwrap_or(0);
+    if ramp > 0 && !(l.access.bubble && p.price("villager:up_bubble", stage).is_ok()) {
+        add(b, "villager:up_rail", ramp, p.price("villager:up_rail", stage)? * ramp as f64);
+    }
+    for (kind, nbt, pos) in l.entities {
+        let kind = kind.trim_start_matches("minecraft:");
+        let n = (pos[1].floor() as i32 - s).unsigned_abs();
+        if kind == "zombie" || (kind != "villager" && nbt.contains("minecraft:zombie")) {
+            zombie_lv = n;
+            trip(b, n)?;
+        }
+    }
+    for _ in 0..hand_steps {
+        trip(b, zombie_lv)?;
+    }
+    // placing at height: a block more than 2 above every standable surface within 3
+    let cells: std::collections::HashMap<[i32; 3], &str> = l.blocks.iter().map(|(c, st)| (*c, *st)).collect();
+    let surfaces: std::collections::HashSet<[i32; 3]> = l.blocks.iter().filter(|(c, st)| standable(st) && !cells.contains_key(&[c[0], c[1] + 1, c[2]]) && !cells.contains_key(&[c[0], c[1] + 2, c[2]])).map(|(c, _)| *c).collect();
+    let mut edge = 0u32;
+    for (c, _) in &placed {
+        if c[1] - (s - 1) <= 2 || (l.in_rock && c[1] < s) {
+            continue;
+        }
+        let near = (-3..=3).any(|dx| (-3..=3).any(|dz| (1..=2).any(|dy| surfaces.contains(&[c[0] + dx, c[1] - dy, c[2] + dz]))));
+        if !near {
+            edge += 1;
+        }
+    }
+    if edge > 0 {
+        add(b, "place:edge", edge, p.price("place:edge", stage)? * edge as f64);
+    }
+    // one collection: the chest's depth below (or height above) the standing level, both ways
+    let n = (l.output[1] - l.standing).unsigned_abs();
+    let ((_, us), (_, ds)) = l.access.travel(n, stage)?;
+    b.collect_s = us + ds;
+    b.collect_layers = n;
+    Ok(())
+}
+
 /// The game days a pair moved to the farm takes to breed `n` villagers (iteration 6): each day
 /// every adult pair gives up to 2 births (at most the villagers still needed); babies grow up in a
 /// day (24000 gt), so they breed from the next day and the last ones need that day too.
@@ -328,8 +529,48 @@ mod tests {
                 assert!(p.rows.contains_key(&item), "{s} -> {item}: no row in designs/farms/prices.tsv");
             }
         }
-        for row in ["place", "dig", "filler", "lava_trip", "lava_fill", "lava_buckets", "water", "villager_moved", "villager_bred", "zombie", "oak_boat", "tool:bucket", "tool:shears", "tool:iron_pickaxe", "copper_ingot"] {
+        for row in ["place", "dig", "filler", "lava_trip", "lava_fill", "lava_buckets", "water", "villager_moved", "villager_bred", "zombie", "oak_boat", "tool:bucket", "tool:shears", "tool:iron_pickaxe", "copper_ingot", "travel:stairs", "travel:ladder_up", "travel:ladder_down", "travel:pillar_up", "travel:pillar_down", "travel:bubble_up", "travel:drop", "travel:elytra", "travel:elytra_trip", "place:edge", "villager:down", "villager:up_bubble", "villager:up_rail", "ladder", "cobblestone_stairs", "scaffolding", "soul_sand"] {
             assert!(p.rows.contains_key(row), "{row}: no row in designs/farms/prices.tsv");
         }
+    }
+
+    /// Iteration 16: a free fall takes the game's ticks (10 layers about 16.5 gt, 25 about 27); a
+    /// deep build's trips are priced both ways by its access, each villager rides its own way, a
+    /// block high above every surface pays the edge placement, and the chest's trip is counted.
+    #[test]
+    fn a_deep_builds_trips_are_priced() {
+        assert!((15..=19).contains(&fall_ticks(10)), "10 layers: {} gt", fall_ticks(10));
+        assert!((25..=30).contains(&fall_ticks(25)), "25 layers: {} gt", fall_ticks(25));
+        let p = Prices::get().unwrap();
+        // a void build on its lowest layer (y 0): a floor at 0, a column of stone up to y 30 with a
+        // chest on top, a villager in a pod at y 30
+        let mut cells: Vec<([i32; 3], &str)> = vec![([0, 0, 0], "minecraft:cobblestone")];
+        for y in 1..=29 {
+            cells.push(([0, y, 0], "minecraft:cobblestone"));
+        }
+        cells.push(([0, 30, 0], "minecraft:chest[facing=north,type=single,waterlogged=false]"));
+        let ents = [("minecraft:villager", "", [0.5, 31.0, 0.5])];
+        let l = Layout { blocks: &cells, entities: &ents, surface: 0, standing: 0, output: [0, 30, 0], in_rock: false, access: Access::default() };
+        let mut b = Bill::default();
+        add_travel(&mut b, &l, 0, 1, 0, 1).unwrap();
+        // one inventory to the top (30 - 2 = 28 layers by pillar up and down), the villager's trip
+        // (31 layers) and its rail ramp (31 layers), the edge placements (the column above y 1: each
+        // block has no standable surface within 2 below it: the column's own tops are covered)
+        let up = p.price("travel:pillar_up", 1).unwrap();
+        let down = p.price("travel:pillar_down", 1).unwrap();
+        let rail = p.price("villager:up_rail", 1).unwrap();
+        let want = 28.0 * (up + down) + 31.0 * (up + down) + 31.0 * rail;
+        let edges = b.items.get("place:edge").map_or(0, |e| e.0);
+        let edge_s = edges as f64 * p.price("place:edge", 1).unwrap();
+        assert!(edges >= 25, "{:?}", b.items);
+        assert!((b.seconds - want - edge_s).abs() < 1e-6, "{} vs {}: {:?}", b.seconds, want + edge_s, b.items);
+        // the chest's trip: 30 layers up and down
+        assert!((b.collect_s - 30.0 * (up + down)).abs() < 1e-6 && b.collect_layers == 30);
+        // with a ladder and a bubble column the same build travels faster
+        let mut b2 = Bill::default();
+        let l2 = Layout { access: Access { ladder: true, bubble: true, ..Access::default() }, ..l };
+        add_travel(&mut b2, &l2, 0, 1, 0, 1).unwrap();
+        assert!(b2.seconds < b.seconds, "{} vs {}", b2.seconds, b.seconds);
+        assert!(b2.items.contains_key("villager:up_bubble") && b2.items.contains_key("travel:bubble_up"), "{:?}", b2.items);
     }
 }

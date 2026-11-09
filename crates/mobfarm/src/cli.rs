@@ -98,6 +98,15 @@ pub enum MobfarmCmd {
     /// cube at the largest follow range (16 x 1.11485), with the smallest margin (negative:
     /// a foreign villager lists that golem).
     Cubes { design: PathBuf },
+    /// A design's build bill at a stage's prices, as the judge's `build minutes` reads it
+    /// (circuit::mobfarm::site_bill, the void build): every item, the travel and height rows
+    /// (brief farm-iron rev 9 iteration 16) and the collecting trip.
+    Bill {
+        design: PathBuf,
+        /// day-1, middle or late.
+        #[arg(long, default_value = "middle")]
+        stage: String,
+    },
     /// The farm built into a terrain sample, then the terrain track's worst-case checks for
     /// natural mobs (`hostile::check`): each channel's exposure (brief revision 8: a card line,
     /// never a refusal).
@@ -561,6 +570,23 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         }
         MobfarmCmd::Sight { design, terrain } => sight_cmd(version, &design, terrain.as_deref())?,
         MobfarmCmd::Cubes { design } => cubes_cmd(version, &design)?,
+        MobfarmCmd::Bill { design, stage } => {
+            let (c, _) = load(version, &design)?;
+            let ix = match stage.as_str() {
+                "day-1" | "day1" => 0,
+                "middle" => 1,
+                "late" | "fastest" => 2,
+                s => anyhow::bail!("--stage {s}: day-1, middle or late"),
+            };
+            let bill = circuit::mobfarm::site_bill(&c, None, ix).map_err(|e| anyhow::anyhow!(e))?;
+            let mut v: Vec<(&String, &(u32, f64))> = bill.items.iter().collect();
+            v.sort_by(|a, b| b.1.1.partial_cmp(&a.1.1).unwrap_or(std::cmp::Ordering::Equal));
+            for (k, (n, s)) in v {
+                println!("{k:<24} {n:>6} {s:>9.1} s");
+            }
+            let travel: f64 = bill.items.iter().filter(|(k, _)| k.starts_with("travel:") || k.starts_with("villager:") || k.as_str() == "place:edge").map(|(_, (_, s))| s).sum();
+            println!("{}: {:.1} build minutes at {stage} prices ({:.1} of them travel and height); collecting {:.0} s per trip ({} layers each way)", c.name(), bill.seconds / 60.0, travel / 60.0, bill.collect_s, bill.collect_layers);
+        }
         MobfarmCmd::SpawnRules { design, terrain, tries, day_time } => crate::spawnrules::run(version, &design, &terrain, tries, day_time)?,
         MobfarmCmd::Exposures { design, terrain, cells } => {
             let (c, spec) = load(version, &design)?;
