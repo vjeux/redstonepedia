@@ -844,6 +844,12 @@ clocks 120 gt; entity, TNT and shulker designs 400 gt) and fails on any differen
   terrain's landscape among them, each time the blocks changed: every frame of
   bed-plate-two-clusters at 20x, 2-3 ms of its frames' 20 in WebKit (part 9: the labels step 0.9-1.0
   against 2.5-3.4 ms, p50 18-19 against 19-23).
+* The camera's points that can be extreme (`camera::hull_candidates`, a farm's 8 corners a cell:
+  1.16 million for cross-4-underground) by sorting instead of maps (`hull_candidates_sorted`;
+  whole-number points in a modest box by dense grids, `hull_candidates_dense`; tests
+  `hull_candidates_sorted_are_the_hashed`, `hull_candidates_dense_are_the_hashed`), and the last
+  big answer kept (the camera search and the default camera ask the same points): 2 x 800 ms ->
+  ~100 ms natively, cross-4-underground's view ready in 2.2 s against 3.6 (part 10).
   The varyings are sampled at the centroid of the samples a triangle covers in a pixel, not at
   the pixel's centre (2026-11-08: an edge pixel read the atlas sprite next to its face, a line of
   that colour along every block edge, a grid on a stone wall, or a texel the alpha test drops, a

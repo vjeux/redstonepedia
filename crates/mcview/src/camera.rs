@@ -53,6 +53,70 @@ pub fn hull_candidates(pts: &[[f32; 3]]) -> Vec<[f32; 3]> {
     if pts.len() <= 64 {
         return pts.to_vec();
     }
+    // (the same points asked again: the camera search and the default camera fit a farm's 1.2
+    // million cell corners each: the last big answer kept, with its points to compare)
+    thread_local! {
+        static LAST: std::cell::RefCell<Option<(Vec<[f32; 3]>, Vec<[f32; 3]>)>> = const { std::cell::RefCell::new(None) };
+    }
+    let big = pts.len() >= 100_000;
+    if big && let Some(out) = LAST.with(|l| l.borrow().as_ref().filter(|(p, _)| bytemuck::cast_slice::<[f32; 3], u8>(p) == bytemuck::cast_slice::<[f32; 3], u8>(pts)).map(|(_, o)| o.clone())) {
+        return out;
+    }
+    let out = match hull_candidates_dense(pts) {
+        Some(out) => out,
+        None if pts.iter().any(|p| p.iter().any(|c| c.is_nan())) => hull_candidates_hashed(pts),
+        None => hull_candidates_sorted(pts),
+    };
+    if big {
+        LAST.with(|l| *l.borrow_mut() = Some((pts.to_vec(), out.clone())));
+    }
+    out
+}
+
+/// [`hull_candidates`] for any points but NaNs, by sorting: the points once (each kept once,
+/// by their bits), then along each axis by their line (the other two coordinates' bits) and
+/// their place on it, its ends the first and the last; the same points as the maps' (test
+/// `hull_candidates_sorted_are_the_hashed`), in a quarter of their time on a farm's 1.2 million.
+fn hull_candidates_sorted(pts: &[[f32; 3]]) -> Vec<[f32; 3]> {
+    let mut u: Vec<[u32; 3]> = pts.iter().map(|p| p.map(f32::to_bits)).collect();
+    u.sort_unstable();
+    u.dedup();
+    let val = |b: u32| f32::from_bits(b);
+    let mut keep = vec![true; u.len()];
+    let mut ord: Vec<u32> = (0..u.len() as u32).collect();
+    for a in 0..3 {
+        let (i, j) = match a {
+            0 => (1, 2),
+            1 => (0, 2),
+            _ => (0, 1),
+        };
+        ord.sort_unstable_by(|&x, &y| {
+            let (p, q) = (&u[x as usize], &u[y as usize]);
+            (p[i], p[j]).cmp(&(q[i], q[j])).then(val(p[a]).total_cmp(&val(q[a])))
+        });
+        let mut s = 0;
+        while s < ord.len() {
+            let line = |k: usize| (u[ord[k] as usize][i], u[ord[k] as usize][j]);
+            let mut e = s + 1;
+            while e < ord.len() && line(e) == line(s) {
+                e += 1;
+            }
+            let (lo, hi) = (val(u[ord[s] as usize][a]), val(u[ord[e - 1] as usize][a]));
+            for &k in &ord[s..e] {
+                let v = val(u[k as usize][a]);
+                if !(v <= lo || v >= hi) {
+                    keep[k as usize] = false;
+                }
+            }
+            s = e;
+        }
+    }
+    u.iter().zip(&keep).filter(|(_, k)| **k).map(|(p, _)| p.map(f32::from_bits)).collect()
+}
+
+/// [`hull_candidates`] for any points: each axis line's ends in a map keyed by the other two
+/// coordinates' bits.
+fn hull_candidates_hashed(pts: &[[f32; 3]]) -> Vec<[f32; 3]> {
     type Lines = std::collections::HashMap<u64, (f32, f32), FxBuild>;
     // the line along axis `a` through `p`: the other two coordinates' bits
     let line = |p: &[f32; 3], a: usize| -> u64 {
@@ -84,6 +148,59 @@ pub fn hull_candidates(pts: &[[f32; 3]]) -> Vec<[f32; 3]> {
     out.sort_by(|a, b| a.map(f32::to_bits).cmp(&b.map(f32::to_bits)));
     out.dedup_by(|a, b| a.map(f32::to_bits) == b.map(f32::to_bits));
     out
+}
+
+/// [`hull_candidates`] for whole-number points in a modest box (a build's cell corners, 8 a cell:
+/// 1.6 million for a farm in its terrain, whose maps took 1.4 s natively): each axis line's ends
+/// in a dense grid over the other two coordinates, no hashing; the same points (a line is the
+/// same line: whole numbers, no negative zero, one to one with their bits). None: not such points.
+fn hull_candidates_dense(pts: &[[f32; 3]]) -> Option<Vec<[f32; 3]>> {
+    let (mut lo, mut hi) = ([i64::MAX; 3], [i64::MIN; 3]);
+    for p in pts {
+        for k in 0..3 {
+            let c = p[k];
+            if c != c.trunc() || c.abs() > 1e6 || c.to_bits() == (-0.0f32).to_bits() {
+                return None;
+            }
+            lo[k] = lo[k].min(c as i64);
+            hi[k] = hi[k].max(c as i64);
+        }
+    }
+    let d = [hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1];
+    // the line along x through a point: its (y, z); along y: (x, z); along z: (x, y)
+    let sizes = [d[1] * d[2], d[0] * d[2], d[0] * d[1]];
+    if sizes.iter().any(|&s| s > 1 << 24) {
+        return None;
+    }
+    let at = |p: &[f32; 3], a: usize| -> usize {
+        let c = [p[0] as i64 - lo[0], p[1] as i64 - lo[1], p[2] as i64 - lo[2]];
+        (match a {
+            0 => c[1] * d[2] + c[2],
+            1 => c[0] * d[2] + c[2],
+            _ => c[0] * d[1] + c[1],
+        }) as usize
+    };
+    let mut ends: [Vec<(f32, f32)>; 3] = sizes.map(|s| vec![(f32::INFINITY, f32::NEG_INFINITY); s as usize]);
+    for p in pts {
+        for (a, e) in ends.iter_mut().enumerate() {
+            let e = &mut e[at(p, a)];
+            e.0 = e.0.min(p[a]);
+            e.1 = e.1.max(p[a]);
+        }
+    }
+    let mut out: Vec<[f32; 3]> = pts
+        .iter()
+        .filter(|p| {
+            ends.iter().enumerate().all(|(a, e)| {
+                let (l, h) = e[at(p, a)];
+                p[a] <= l || p[a] >= h
+            })
+        })
+        .copied()
+        .collect();
+    out.sort_by(|a, b| a.map(f32::to_bits).cmp(&b.map(f32::to_bits)));
+    out.dedup_by(|a, b| a.map(f32::to_bits) == b.map(f32::to_bits));
+    Some(out)
 }
 fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -333,6 +450,94 @@ mod tests {
             let (x, y, z) = (clip[0] / clip[3], clip[1] / clip[3], clip[2] / clip[3]);
             assert!(x.abs() <= 0.86 && y.abs() <= 0.86 && (0.0..1.0).contains(&z), "{c:?} -> {x} {y} {z}");
         }
+    }
+
+    /// The sorted candidates are the maps' (`hull_candidates_sorted` against
+    /// `hull_candidates_hashed`): a farm's cell corners grown and moved off the whole numbers (the
+    /// camera's points: 1.4 apart, at a fraction), scattered floats with repeats, zeros of both
+    /// signs on one line; and asked twice, the same answer (the last big one kept).
+    #[test]
+    fn hull_candidates_sorted_are_the_hashed() {
+        let mut seed = 0x51f1_5e7a_1b2c_3d4eu64;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for fill in [3u64, 30, 80, 100] {
+            let mut pts: Vec<[f32; 3]> = Vec::new();
+            for x in -10..20 {
+                for y in -4..8 {
+                    for z in -6..15 {
+                        if rnd() % 100 < fill {
+                            for k in 0..8 {
+                                let c = [(x + (k & 1)) as f32, (y + ((k >> 1) & 1)) as f32, (z + ((k >> 2) & 1)) as f32];
+                                pts.push([c[0] * 1.4 + 0.8296325 - 0.2, c[1], c[2] * 1.4 - 0.41903 - 0.2]);
+                            }
+                        }
+                    }
+                }
+            }
+            assert_eq!(hull_candidates_sorted(&pts), hull_candidates_hashed(&pts), "fill {fill}: {} points", pts.len());
+        }
+        let mut floats: Vec<[f32; 3]> = (0..3000).map(|_| [(rnd() % 40) as f32 * 0.25 - 5.0, (rnd() % 9) as f32 * 0.5, (rnd() % 30) as f32 * 0.75]).collect();
+        floats.extend_from_slice(&floats.clone()[..500]);
+        floats.extend([[0.0, 1.0, 2.0], [-0.0, 1.0, 2.0], [3.0, 1.0, 2.0], [-0.0, 7.5, 0.0], [0.0, 7.5, 0.0]]);
+        assert_eq!(hull_candidates_sorted(&floats), hull_candidates_hashed(&floats));
+        let mut big: Vec<[f32; 3]> = Vec::new();
+        for x in 0..60 {
+            for y in 0..10 {
+                for z in 0..30 {
+                    for k in 0..8 {
+                        big.push([(x + (k & 1)) as f32 * 1.4 + 0.3, (y + ((k >> 1) & 1)) as f32, (z + ((k >> 2) & 1)) as f32 * 1.4 + 0.7]);
+                    }
+                }
+            }
+        }
+        let first = hull_candidates(&big);
+        assert_eq!(first, hull_candidates_hashed(&big));
+        assert_eq!(hull_candidates(&big), first);
+        big[0][1] -= 1.0;
+        assert_eq!(hull_candidates(&big), hull_candidates_hashed(&big), "a point moved: answered anew");
+    }
+
+    /// The dense grids' candidates are the maps' (`hull_candidates_dense` against
+    /// `hull_candidates_hashed`): whole-number cell corners with negative coordinates and repeats,
+    /// sparse to dense; and points it must leave to the maps (a fraction, a negative zero).
+    #[test]
+    fn hull_candidates_dense_are_the_hashed() {
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for fill in [2u64, 15, 50, 90, 100] {
+            let mut pts: Vec<[f32; 3]> = Vec::new();
+            for x in -12..18 {
+                for y in -3..9 {
+                    for z in -7..14 {
+                        if rnd() % 100 < fill {
+                            for k in 0..8 {
+                                pts.push([(x + (k & 1)) as f32, (y + ((k >> 1) & 1)) as f32, (z + ((k >> 2) & 1)) as f32]);
+                            }
+                        }
+                    }
+                }
+            }
+            let dense = hull_candidates_dense(&pts).expect("whole numbers in a small box");
+            assert_eq!(dense, hull_candidates_hashed(&pts), "fill {fill}: {} points", pts.len());
+            assert_eq!(hull_candidates(&pts), dense);
+        }
+        let mut odd: Vec<[f32; 3]> = (0..100).map(|i| [i as f32, (i % 7) as f32, (i % 5) as f32]).collect();
+        odd.push([0.5, 1.0, 1.0]);
+        assert!(hull_candidates_dense(&odd).is_none());
+        odd.pop();
+        odd.push([-0.0, 1.0, 1.0]);
+        assert!(hull_candidates_dense(&odd).is_none());
+        assert_eq!(hull_candidates(&odd), hull_candidates_hashed(&odd));
     }
 
     /// The camera fitted to [`hull_candidates`] is the camera fitted to every point, bit for bit:
