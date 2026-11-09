@@ -940,8 +940,7 @@ pub fn shared_kill(b: &mut Builder, drops: &[[i32; 3]], villagers_y: i32) -> any
     }
     let out = [xe, fe - 1, z0 - 1];
     b.set(out[0], out[1], out[2], "chest[facing=south,type=single,waterlogged=false]");
-    let extra = (drops.len() as i32 + 1) / 2;
-    for i in 0..extra {
+    for i in 0..storage_pairs(drops.len()) {
         b.set(out[0], out[1] - 1 - 2 * i, out[2], "hopper[enabled=true,facing=down]");
         b.set(out[0], out[1] - 2 - 2 * i, out[2], "chest[facing=north,type=single,waterlogged=false]");
     }
@@ -1018,12 +1017,19 @@ pub fn shared_kill_form(b: &mut Builder, drops: &[[i32; 3]], villagers_y: i32, f
     b.set(dx + 4, f_end - 1, dz + 1, "hopper[enabled=true,facing=west]");
     let o = c.d.ports["output"];
     let out = [o[0] + dx, o[1], o[2] + dz];
-    for i in 0..(drops.len() as i32 + 1) / 2 {
+    for i in 0..storage_pairs(drops.len()) {
         b.set(out[0], out[1] - 1 - 2 * i, out[2], "hopper[enabled=true,facing=down]");
         b.set(out[0], out[1] - 2 - 2 * i, out[2], "chest[facing=north,type=single,waterlogged=false]");
     }
     b.d.ports.insert("output".into(), out);
     Ok(out)
+}
+
+/// The hopper and chest pairs under a shared collection's output chest that hold 8 hours of
+/// `modules` modules (ironspec, the late objective's 8-h net: about 440 iron and 110 poppies an
+/// hour a module, 69 slots of 8 hours; the output chest holds 27, a pair 32).
+pub fn storage_pairs(modules: usize) -> i32 {
+    ((modules as f64 * 69.0 - 27.0) / 32.0).ceil().max(0.0) as i32
 }
 
 /// Each drop's shaft straight down from its bottom cell to the channel (feet `feet(x)`), walled.
