@@ -3,6 +3,7 @@ file	hash	deps	version	recorded	how
 animals.rec	d2dcf5e8a3afbd8b		26.3	2026-11-09T01:44Z on 556db985e	mctas mobai record animals --seed 1 --ticks 7000 --dir designs/redsim/recorded/mobai
 baby-animals.rec	81acab55f63cfa99		26.3	2026-11-09T02:29Z on 4fc4dee38	mctas mobai record baby-animals --seed 1 --ticks 6000 --dir designs/redsim/recorded/mobai
 bat-hall.rec	10e97b7cec176aaa		26.3	2026-11-08T22:46Z on c7600e306	mctas mobai record bat-hall --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+bed-cart.rec	93599ca7a65ecb37		26.3	2026-11-09T07:58Z on 1ceafd5c85	mctas mobai record bed-cart --seed 1 --ticks 14000 --dir designs/redsim/recorded/mobai
 bed-observer.rec	0788e408cae41642		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 bed-r1.rec	c2199fa6955a6c94		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 creeper-player.rec	1a9cdc8984c37345		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record creeper-player --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai

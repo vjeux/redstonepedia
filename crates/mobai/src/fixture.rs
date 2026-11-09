@@ -64,6 +64,8 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
             (601, vec![s([31, 64, 20], "minecraft:red_bed[facing=south,occupied=false,part=foot]"), s([31, 64, 21], "minecraft:red_bed[facing=south,occupied=false,part=head]")]),
             (602, vec![s([40, 64, 38], "minecraft:air"), s([40, 65, 38], "minecraft:air")]),
         ],
+        // the carousel's rider: the second villager's pen opened once the carted one holds the bed
+        "bed-cart" => vec![(400, vec![s([40, 64, 38], "minecraft:air"), s([40, 65, 38], "minecraft:air")])],
         _ => Vec::new(),
     }
 }
@@ -345,12 +347,34 @@ fn scenes_raw() -> Vec<Scene> {
         v.push(Scene {
             name: "bed-r1".into(),
             chunks: [0, 0, 2, 2],
-            blocks: rb,
+            blocks: rb.clone(),
             mobs: vec![
                 ("minecraft:villager".into(), [10.5, 64.0, 10.5], Some("{PersistenceRequired:1b}".into())),
                 ("minecraft:villager".into(), [40.5, 64.0, 40.5], Some("{PersistenceRequired:1b}".into())),
             ],
             day_time: 1000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
+        // the carousel's rider: villager A claims the one bed from a minecart on a rail 23 away and
+        // stays in it through the night (REST's walk target unreachable: CANT_REACH, then the
+        // release after 1200 ticks), villager B (let out at 400) walks to the bed homeless and
+        // takes it when it is free
+        let mut cb = rb;
+        cb.push(([10, 64, 10], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+        v.push(Scene {
+            name: "bed-cart".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: cb,
+            mobs: vec![
+                ("minecraft:minecart".into(), [10.5, 64.0, 10.5], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".into())),
+                ("minecraft:villager".into(), [40.5, 64.0, 40.5], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 11000,
             difficulty: Difficulty::Easy,
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
@@ -874,6 +898,17 @@ pub fn redsim_summon(w: &mut World, s: &Scene) -> Result<Vec<u64>> {
     for (ty, p, nbt) in &s.mobs {
         let id = redsim::entity::spawn(w, ty, *p, nbt.as_deref()).map_err(|e| anyhow!(e))?;
         ids.push(id as u64);
+        // the summon's passengers, in tree order (the bridge lists them after their vehicle)
+        let mut stack = vec![id];
+        while let Some(v) = stack.pop() {
+            let riders = redsim::entity::index_of(w, v).map(|k| w.entities.list[k].passengers.clone()).unwrap_or_default();
+            for r in riders.iter().rev() {
+                stack.push(*r);
+            }
+            if v != id {
+                ids.push(v as u64);
+            }
+        }
     }
     for e in w.entities.list.iter_mut() {
         if let EntityKind::Mob(m) = &mut e.kind {

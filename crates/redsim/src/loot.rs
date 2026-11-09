@@ -24,6 +24,10 @@ pub fn drops(b: &Block) -> Result<Vec<(String, u32)>, String> {
     }
     let kv: Vec<(&str, &str)> = props.split(',').filter_map(|p| p.split_once('=')).collect();
     let p = |k: &str| -> String { kv.iter().find(|(kk, _)| *kk == k).map(|(_, v)| v.to_string()).unwrap_or_default() };
+    // a bed's table drops the bed from its head only (`block_state_property part=head`)
+    if name.ends_with("_bed") {
+        return Ok(if p("part") == "head" { vec![(format!("minecraft:{name}"), 1)] } else { Vec::new() });
+    }
     let floor = name.replacen("_wall_", "_", 1);
     for n in [name, floor.as_str()] {
         if let Some(r) = crate::loot_gen::table(n, &p) {
