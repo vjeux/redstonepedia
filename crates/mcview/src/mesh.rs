@@ -589,13 +589,41 @@ impl<'a> Builder<'a> {
 
     /// The light again after cells changed: the cells whose light (or block) differs, None when
     /// only a whole rebuild knows (its box, floor or holes moved: the light is left as it was).
-    pub(crate) fn relight(&mut self) -> Option<Vec<Pos>> {
+    pub(crate) fn relight(&mut self, touched: &[Pos]) -> Option<Vec<Pos>> {
         if self.light_floor.or(self.ground).is_none() {
             // (the floor under the lowest cell: a cell lower than it moves it)
             let low = self.light_cells.iter().map(|(c, _, _)| c[1]).min().unwrap_or(i32::MAX);
             if low != self.low {
                 return None;
             }
+        }
+        if touched.is_empty() {
+            return Some(Vec::new());
+        }
+        // the columns within 16 of the cells changed (a change reaches 15 sideways at most, the
+        // sky down whole columns) worked out alone, the light around them as it was
+        // (`Light::recompute_columns`); a region of over half the box: all of it again
+        let (mut lo, mut hi) = ([i32::MAX; 2], [i32::MIN; 2]);
+        for c in touched {
+            lo = [lo[0].min(c[0]), lo[1].min(c[2])];
+            hi = [hi[0].max(c[0]), hi[1].max(c[2])];
+        }
+        let (lo, hi) = ([lo[0] - 16, lo[1] - 16], [hi[0] + 16, hi[1] + 16]);
+        let small = self.light.as_ref().is_some_and(|l| {
+            let (w, d) = l.columns();
+            (hi[0] - lo[0] + 1).min(w) as i64 * (hi[1] - lo[1] + 1).min(d) as i64 * 2 < w as i64 * d as i64
+        });
+        if small {
+            let mut light = self.light.take()?;
+            let n = self.light_cells.len();
+            for c in &self.extra_occ {
+                self.light_cells.push((*c, crate::light::Cell { opaque: true, dampening: 15, ..Default::default() }, crate::light::SHADE_FULL | crate::light::COLLISION_FULL));
+            }
+            let changed = light.recompute_columns(&self.light_cells, lo, hi);
+            self.light_cells.truncate(n);
+            // (light that spread out of the region: the light is no longer whole, a whole build)
+            self.light = Some(light);
+            return changed;
         }
         let old = self.light.take()?;
         let Some(new) = self.compute_light() else {

@@ -1566,11 +1566,13 @@ impl Player {
             let cells = self.session.take_changed_cells();
             let m = cells.and_then(|cells| self.remesh.as_mut().unwrap().update(atlas, &self.session, &cells, self.block_mesh.as_ref().unwrap()));
             match m {
-                Some(m) => {
+                Some(Some(m)) => {
                     self.block_mesh = Some(m);
                     self.built = next_build();
                     self.block_key = bkey;
                 }
+                // (nothing drawn changed: the same mesh, its key and its cull kept)
+                Some(None) => self.block_key = bkey,
                 None => self.remesh = None,
             }
         }

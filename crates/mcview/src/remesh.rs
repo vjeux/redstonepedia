@@ -51,9 +51,13 @@ impl Remesh {
     }
 
     /// The mesh `old` (the last one built or updated) with the blocks at the world cells
-    /// `changed` as the session draws them now; None when only a whole build can tell (the
-    /// mesh is then built whole and this dropped).
-    pub fn update(&mut self, atlas: &Atlas, s: &Session, changed: &[Pos], old: &Mesh) -> Option<Mesh> {
+    /// `changed` as the session draws them now: Some(Some(mesh)), Some(None) when no face changes
+    /// (the mesh stays as it is); None when only a whole build can tell (the mesh is then built
+    /// whole and this dropped).
+    pub fn update(&mut self, atlas: &Atlas, s: &Session, changed: &[Pos], old: &Mesh) -> Option<Option<Mesh>> {
+        // (`MCVIEW_REMESH_LOG`: what each update did and its parts' times, natively)
+        let log = std::env::var("MCVIEW_REMESH_LOG").is_ok();
+        let t0 = log.then(std::time::Instant::now);
         let parts = self.parts.take()?;
         let mut b = Builder::from_parts(atlas, parts);
         let mut states = b.take_states()?;
@@ -109,8 +113,10 @@ impl Remesh {
         // changed block (a face's ambient occlusion looks one cell past its corner's neighbours,
         // along its normal: `Builder::face_light`'s `permeable`) or within one of a cell whose
         // light changed
-        let lit = b.relight()?;
-        if std::env::var("MCVIEW_REMESH_LOG").is_ok() {
+        let t1 = log.then(std::time::Instant::now);
+        let lit = b.relight(&touched)?;
+        let t2 = log.then(std::time::Instant::now);
+        if log {
             eprintln!("remesh: {} changed cells, {} blocks touched {:?}, {} cells relit {:?}", changed.len(), touched.len(), &touched[..touched.len().min(6)], lit.len(), &lit[..lit.len().min(6)]);
         }
         let mut redraw: HashSet<u32> = HashSet::new();
@@ -128,31 +134,54 @@ impl Remesh {
             }
         }
         let mut redraw: Vec<u32> = redraw.into_iter().collect();
+        if redraw.is_empty() {
+            // (nothing drawn changed: the mesh and its key stay)
+            b.put_states(states);
+            self.parts = Some(b.into_parts());
+            return Some(None);
+        }
         redraw.sort_unstable();
         // their faces anew, into a scratch mesh
         let blocks = &self.blocks;
         let lookup = |p: Pos| states.get(&p).map(|&k| blocks[k as usize].state.as_str());
-        let mut fresh: HashMap<u32, [u32; 4]> = HashMap::with_capacity(redraw.len());
+        let mut fresh: Vec<(usize, [u32; 4])> = Vec::with_capacity(redraw.len());
         for &i in &redraw {
             let r = if self.removed[i as usize] { [0; 4] } else { b.emit_item(&blocks[i as usize].item(), &lookup) };
-            fresh.insert(i, r);
+            fresh.push((i as usize, r));
         }
         let scratch = std::mem::take(&mut b.mesh);
-        // the mesh: each block's faces, the old ones or the fresh, in the blocks' order, then what
-        // follows them as it was
+        let t3 = log.then(std::time::Instant::now);
+        // the mesh: each block's faces, the old ones (in runs between the fresh: the old blocks'
+        // faces lie in their order) or the fresh, then what follows them as it was (a block new
+        // since is always among the fresh)
         let old_ranges = b.ranges.take()?;
         let mut solid: Vec<Vertex> = Vec::with_capacity(old.solid.len() + scratch.solid.len());
         let mut translucent: Vec<Quad> = Vec::with_capacity(old.translucent.len() + scratch.translucent.len());
         let mut ranges: Vec<[u32; 4]> = Vec::with_capacity(self.blocks.len());
-        for i in 0..self.blocks.len() {
-            let (src_s, src_t, r) = match fresh.get(&(i as u32)) {
-                Some(r) => (&scratch.solid, &scratch.translucent, *r),
-                None => (&old.solid, &old.translucent, old_ranges[i]),
-            };
+        let mut old_run = |solid: &mut Vec<Vertex>, translucent: &mut Vec<Quad>, ranges: &mut Vec<[u32; 4]>, from: usize, to: usize| {
+            if from >= to {
+                return;
+            }
+            let (a, z) = (old_ranges[from], old_ranges[to - 1]);
+            let (ds, dt) = (solid.len() as i64 - a[0] as i64, translucent.len() as i64 - a[2] as i64);
+            solid.extend_from_slice(&old.solid[a[0] as usize..z[1] as usize]);
+            translucent.extend_from_slice(&old.translucent[a[2] as usize..z[3] as usize]);
+            for r in &old_ranges[from..to] {
+                ranges.push([(r[0] as i64 + ds) as u32, (r[1] as i64 + ds) as u32, (r[2] as i64 + dt) as u32, (r[3] as i64 + dt) as u32]);
+            }
+        };
+        let mut next = 0;
+        for &(i, r) in &fresh {
+            old_run(&mut solid, &mut translucent, &mut ranges, next, i);
             let (s0, t0) = (solid.len() as u32, translucent.len() as u32);
-            solid.extend_from_slice(&src_s[r[0] as usize..r[1] as usize]);
-            translucent.extend_from_slice(&src_t[r[2] as usize..r[3] as usize]);
+            solid.extend_from_slice(&scratch.solid[r[0] as usize..r[1] as usize]);
+            translucent.extend_from_slice(&scratch.translucent[r[2] as usize..r[3] as usize]);
             ranges.push([s0, solid.len() as u32, t0, translucent.len() as u32]);
+            next = i + 1;
+        }
+        old_run(&mut solid, &mut translucent, &mut ranges, next, self.blocks.len());
+        if ranges.len() != self.blocks.len() {
+            return None;
         }
         let items_end = (solid.len(), translucent.len());
         solid.extend_from_slice(&old.solid[self.items_end.0..]);
@@ -161,7 +190,11 @@ impl Remesh {
         b.ranges = Some(ranges);
         b.put_states(states);
         self.parts = Some(b.into_parts());
-        Some(Mesh { solid, translucent, sprites: old.sprites.clone(), flames: old.flames.clone(), lo: old.lo, hi: old.hi })
+        if let (Some(t0), Some(t1), Some(t2), Some(t3)) = (t0, t1, t2, t3) {
+            let ms = |a: std::time::Instant, z: std::time::Instant| (z - a).as_secs_f64() * 1000.0;
+            eprintln!("remesh: {} blocks redrawn; first pass {:.1} ms, light {:.1} ms, faces {:.1} ms, splice {:.1} ms", fresh.len(), ms(t0, t1), ms(t1, t2), ms(t2, t3), ms(t3, std::time::Instant::now()));
+        }
+        Some(Some(Mesh { solid, translucent, sprites: old.sprites.clone(), flames: old.flames.clone(), lo: old.lo, hi: old.hi }))
     }
 
     /// (For a test: the cells whose block or light differ from `other`'s.)

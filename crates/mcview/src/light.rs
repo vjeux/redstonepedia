@@ -123,6 +123,7 @@ pub const SHADE_FULL: u8 = 1;
 pub const COLLISION_FULL: u8 = 2;
 
 /// The light levels over a box around a build: sky and block light per cell.
+#[derive(Clone)]
 pub struct Light {
     lo: Pos,
     dims: [i32; 3],
@@ -198,6 +199,114 @@ impl Light {
         l
     }
 
+    /// The light again after the cells within `lo..=hi` (x and z; every y) changed, `cells` all
+    /// of them as [`Light::compute`] takes them (the same box, floor and holes): the region worked
+    /// out alone, with the light coming in from around it as it was (a change reaches 15 cells
+    /// at most sideways: give the changed cells a margin of 16; the sky goes down whole
+    /// columns: every y), the same light as computing it all again. The cells whose light or
+    /// block changed; None when the region would not do (it reaches past the box's edge on a
+    /// side, or light spread out of it: compute it all).
+    pub fn recompute_columns(&mut self, cells: &[(Pos, Cell, u8)], lo: [i32; 2], hi: [i32; 2]) -> Option<Vec<Pos>> {
+        let (bx0, bz0) = (self.lo[0], self.lo[2]);
+        let (bx1, bz1) = (self.lo[0] + self.dims[0] - 1, self.lo[2] + self.dims[2] - 1);
+        let (x0, x1, z0, z1) = (lo[0].max(bx0), hi[0].min(bx1), lo[1].max(bz0), hi[1].min(bz1));
+        if x0 > x1 || z0 > z1 {
+            return Some(Vec::new());
+        }
+        let (y0, y1) = (self.lo[1], self.lo[1] + self.dims[1] - 1);
+        let inside = |p: Pos| p[0] >= x0 && p[0] <= x1 && p[2] >= z0 && p[2] <= z1;
+        // the region's old light (to compare), then its cells from the list as `compute` sets them
+        let mut old: Vec<(usize, u8, u8, Cell, u8)> = Vec::with_capacity(((x1 - x0 + 1) * (z1 - z0 + 1) * self.dims[1]) as usize);
+        for y in y0..=y1 {
+            for z in z0..=z1 {
+                for x in x0..=x1 {
+                    let i = self.index([x, y, z]).unwrap();
+                    old.push((i, self.sky[i], self.block[i], self.cells[i], self.flags[i]));
+                    self.sky[i] = 0;
+                    self.block[i] = 0;
+                    self.cells[i] = Cell::default();
+                    self.flags[i] = 0;
+                }
+            }
+        }
+        for (c, cell, flags) in cells {
+            if inside(*c)
+                && let Some(i) = self.index(*c)
+            {
+                self.cells[i] = *cell;
+                self.flags[i] = *flags;
+            }
+        }
+        // the light coming in from around the region (its four sides: it spans every y), as it is
+        let mut shell: Vec<Pos> = Vec::new();
+        for y in y0..=y1 {
+            for z in z0..=z1 {
+                shell.extend([[x0 - 1, y, z], [x1 + 1, y, z]]);
+            }
+            for x in x0..=x1 {
+                shell.extend([[x, y, z0 - 1], [x, y, z1 + 1]]);
+            }
+        }
+        let shell: Vec<Pos> = shell.into_iter().filter(|p| self.index(*p).is_some()).collect();
+        // the sky: its columns as `compute` does them, and what comes in
+        let mut seeds = Vec::new();
+        for z in z0..=z1 {
+            for x in x0..=x1 {
+                let mut above: Option<Cell> = None;
+                for y in (y0..=y1).rev() {
+                    let c = [x, y, z];
+                    let here = self.cell(c);
+                    if here.opaque || here.dampening > 0 || above.is_some_and(|a| a.occludes & (1 << DOWN) != 0) || here.occludes & (1 << UP) != 0 || self.ground(c) {
+                        break;
+                    }
+                    let i = self.index(c).unwrap();
+                    self.sky[i] = 15;
+                    seeds.push((c, 15u8));
+                    above = Some(here);
+                }
+            }
+        }
+        seeds.extend(shell.iter().map(|p| (*p, self.sky[self.index(*p).unwrap()])).filter(|(_, v)| *v > 0));
+        let region = ([x0, y0, z0], [x1, y1, z1]);
+        if self.spread_within(seeds, true, region) {
+            return None;
+        }
+        // the light sources in it (every one the list has there, as `compute` takes them), and
+        // what comes in
+        let mut sources: Vec<(Pos, u8)> = cells.iter().filter(|(p, c, _)| c.emission > 0 && inside(*p)).map(|(p, c, _)| (*p, c.emission)).collect();
+        for (p, e) in &sources {
+            if let Some(i) = self.index(*p) {
+                self.block[i] = self.block[i].max(*e);
+            }
+        }
+        sources.extend(shell.iter().map(|p| (*p, self.block[self.index(*p).unwrap()])).filter(|(_, v)| *v > 0));
+        if self.spread_within(sources, false, region) {
+            return None;
+        }
+        let mut changed = Vec::new();
+        for (i, s, b, c, f) in old {
+            if self.sky[i] != s || self.block[i] != b || self.cells[i] != c || self.flags[i] != f {
+                let (dx, rest) = ((i as i32) % self.dims[0], (i as i32) / self.dims[0]);
+                let (dz, dy) = (rest % self.dims[2], rest / self.dims[2]);
+                changed.push([self.lo[0] + dx, self.lo[1] + dy, self.lo[2] + dz]);
+            }
+        }
+        Some(changed)
+    }
+
+    /// [`Light::spread`], and whether it raised a cell outside `region` (its light there was not
+    /// what it is: the region did not hold the change).
+    fn spread_within(&mut self, seeds: Vec<(Pos, u8)>, sky: bool, region: (Pos, Pos)) -> bool {
+        let (lo, hi) = region;
+        let mut escaped = false;
+        self.spread_with(seeds, sky, &mut |b: Pos| {
+            if (0..3).any(|k| b[k] < lo[k] || b[k] > hi[k]) {
+                escaped = true;
+            }
+        });
+        escaped
+    }
+
     /// A cell's block, as far as light goes (air outside the box).
     pub fn cell(&self, c: Pos) -> Cell {
         self.index(c).map(|i| self.cells[i]).unwrap_or_default()
@@ -241,6 +350,11 @@ impl Light {
         Some(((d[1] * self.dims[2] + d[2]) * self.dims[0] + d[0]) as usize)
     }
 
+    /// The box's columns: along x, along z.
+    pub fn columns(&self) -> (i32, i32) {
+        (self.dims[0], self.dims[2])
+    }
+
     /// The cells whose light, block or flags differ from `old`'s (a mesh updated in place redraws
     /// the faces around them: `crate::remesh`); None when the two are not over the same box,
     /// floor and holes (only a whole rebuild knows then).
@@ -267,6 +381,11 @@ impl Light {
     /// Spread from the seeds, brightest first (a bucket per level): each step one level less (and
     /// the block's dampening), the sky's 15 straight down through what does not dim it.
     fn spread(&mut self, seeds: Vec<(Pos, u8)>, sky: bool) {
+        self.spread_with(seeds, sky, &mut |_| {});
+    }
+
+    /// [`Light::spread`], `raised` told of every cell whose light it raises.
+    fn spread_with(&mut self, seeds: Vec<(Pos, u8)>, sky: bool, raised: &mut dyn FnMut(Pos)) {
         let mut buckets: Vec<Vec<Pos>> = vec![Vec::new(); 16];
         for (p, lv) in seeds {
             buckets[lv as usize].push(p);
@@ -298,6 +417,7 @@ impl Light {
                     let slot = if sky { &mut self.sky[ib] } else { &mut self.block[ib] };
                     if nl > *slot {
                         *slot = nl;
+                        raised(b);
                         buckets[nl as usize].push(b);
                     }
                 }
@@ -389,6 +509,72 @@ pub fn smooth_blend(n1: (u8, u8), n2: (u8, u8), n3: (u8, u8), center: (u8, u8)) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A box of random blocks (opaque cubes, slabs, leaves, glowstone and torches, air) changed a
+    /// few cells at a time: the light of the columns around the changes worked out alone
+    /// ([`Light::recompute_columns`]) is the light computed all again, every cell, and the cells it
+    /// says changed are those that did.
+    #[test]
+    fn the_columns_again_are_the_whole_again() {
+        let mut seed: u64 = 0x9e3779b97f4a7c15;
+        let mut rnd = |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        let kinds = [
+            Cell { opaque: true, dampening: 15, ..Default::default() },
+            Cell { occludes: 1 << DOWN, ..Default::default() },
+            Cell { dampening: 1, ..Default::default() },
+            Cell { opaque: true, dampening: 15, emission: 15, ..Default::default() },
+            Cell { emission: 14, ..Default::default() },
+            Cell::default(),
+        ];
+        let size = [48, 20, 44];
+        let mut cells: Vec<(Pos, Cell, u8)> = Vec::new();
+        for y in 0..size[1] {
+            for z in 0..size[2] {
+                for x in 0..size[0] {
+                    let k = if y < 6 || rnd(5) == 0 { rnd(kinds.len() as u64) as usize } else { 5 };
+                    cells.push(([x, y, z], kinds[k], if kinds[k].opaque { SHADE_FULL | COLLISION_FULL } else { 0 }));
+                }
+            }
+        }
+        let holes = HashSet::new();
+        let mut light = Light::compute(&cells, -1, &holes);
+        let mut regions = 0;
+        for _ in 0..60 {
+            // a few cells changed near one another (or two places apart)
+            let at = [rnd(size[0] as u64) as i32, rnd(size[1] as u64) as i32, rnd(size[2] as u64) as i32];
+            let mut touched = Vec::new();
+            for _ in 0..1 + rnd(4) {
+                let p = [(at[0] + rnd(5) as i32).min(size[0] - 1), (at[1] + rnd(5) as i32).min(size[1] - 1), (at[2] + rnd(5) as i32).min(size[2] - 1)];
+                let i = ((p[1] * size[2] + p[2]) * size[0] + p[0]) as usize;
+                let k = rnd(kinds.len() as u64) as usize;
+                cells[i] = (p, kinds[k], if kinds[k].opaque { SHADE_FULL | COLLISION_FULL } else { 0 });
+                touched.push(p);
+            }
+            let (lo, hi) = (
+                [touched.iter().map(|p| p[0]).min().unwrap() - 16, touched.iter().map(|p| p[2]).min().unwrap() - 16],
+                [touched.iter().map(|p| p[0]).max().unwrap() + 16, touched.iter().map(|p| p[2]).max().unwrap() + 16],
+            );
+            let old = light.clone();
+            let whole = Light::compute(&cells, -1, &holes);
+            match light.recompute_columns(&cells, lo, hi) {
+                Some(mut changed) => {
+                    regions += 1;
+                    assert!(light.sky == whole.sky && light.block == whole.block && light.cells == whole.cells && light.flags == whole.flags, "the region's light is not the whole's");
+                    let mut want = whole.changed_from(&old).unwrap();
+                    changed.sort_unstable();
+                    want.sort_unstable();
+                    assert_eq!(changed, want, "the cells said changed");
+                }
+                None => light = whole,
+            }
+        }
+        assert!(regions > 40, "only {regions} of 60 worked out by region");
+    }
 
     #[test]
     fn under_a_block_the_sky_is_one_less() {

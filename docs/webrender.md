@@ -857,8 +857,11 @@ clocks 120 gt; entity, TNT and shulker designs 400 gt) and fails on any differen
 * `mcview::remesh`: a mob farm's blocks' mesh is updated in place when a few blocks change (the
   cells whose drawn block changed since: `Session::take_changed_cells`, each read again with
   `Session::drawn_block_at`): the first pass of the changed cells again (`Builder::begin_item`,
-  `forget_cell`), the light of the whole box again and compared cell by cell
-  (`Light::changed_from`), and only the faces of the blocks within two cells of a changed block
+  `forget_cell`), the light of the columns within 16 of them again with the light around them as
+  it was (`Light::recompute_columns`: a change reaches 15 cells sideways at most and the sky goes
+  down whole columns, so it is the whole box's light again, cell for cell; test
+  `light::tests::the_columns_again_are_the_whole_again`; a region over half the box, or light
+  that spread out of it, computes it all), and only the faces of the blocks within two cells of a changed block
   (a face's ambient occlusion looks one past its corner's neighbours along its normal:
   `face_light`'s `permeable`) or within one of a cell whose light changed are drawn again
   (`Builder::emit_item`), spliced into the mesh in place of their old ones (the whole build's
@@ -877,7 +880,10 @@ clocks 120 gt; entity, TNT and shulker designs 400 gt) and fails on any differen
   build's calls no longer rebuild the cells' state map and item list each (it took a frame's
   budget on a 200k-block terrain), and a water cell no longer copies the waterlogged set.
   `?mcview-perf`'s steps line counts the frames drawn culled, the blocks' meshes that came and
-  the frames held for the cull.
+  the frames held for the cull. 2026-11-09 (part 5): an update that changes no face keeps the
+  mesh, its key and its cull (no upload, no cull again); the splice copies the old faces in runs
+  between the fresh ones; cross-4-underground's update natively: light 8-10 -> 2 ms, the splice
+  1.2-4 ms (`MCVIEW_REMESH_LOG` prints each update's parts).
 
 ## Commands
 
