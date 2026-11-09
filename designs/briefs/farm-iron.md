@@ -76,12 +76,28 @@ seeds the space must reproduce.
 ### The one rule (every stage)
 
 - **It works as its card says, verified in the real game, and runs in the page's viewer.**
-  `circuit archive` refuses a mob farm without a pass of the game gate: each build runs in the
-  26.3 server for game days and does what its card says (golems spawn, the drops the card counts
-  reach the chest, no golem escapes, its villagers stay as the card says) at a rate within the
-  card's interval, and every tradeoff number the card prints that the gate can observe (rain,
+  Each build runs in the 26.3 server for game days (the game gate) and does what its card says
+  (golems spawn, the drops the card counts reach the chest, no golem escapes, its villagers stay
+  as the card says), and every tradeoff number the card prints that the gate can observe (rain,
   thunder, the first night) matches. The page's 3D viewer runs the judge's own run
-  (`farm::Run`). That is every other study's standard.
+  (`farm::Run`). That is every other study's standard. How the gate meets publishing (iteration
+  14, vjeux 16:49: "Seriously, just upload them"):
+  - **Before the gate:** a farm may go up before its gate has run (`site variation --no-gate`);
+    the gate runs after it (`site variation --regate`) within the same fast-path cycle (by the
+    next deploy).
+  - **While the gate runs:** the page says nothing about the gate (our process stays off pages,
+    vjeux 10:10).
+  - **When it finishes:** a pass adds the page's real-game line. A failure stays on the page,
+    printed, never held (the parent's ruling on vjeux 16:49), as a measured tradeoff with its
+    counts ("a golem alive past 1,200 ticks in 1 of 8 game builds"), never as a pass (the code
+    follows: `--regate` records the failure on the card instead of `held`).
+  - **Wherever the game and redsim disagree, either way:** the card shows the game's measured
+    numbers, and the gap is a model bug in redsim to attribute before redsim ranks that family
+    again (a card that under-claims is not "as its card says" either; farmopt's day-1 #2: its
+    AI-off card about 78 golems an hour, the game 88, which also misranks it against #1 on the
+    front).
+  `circuit archive` keeps refusing a mob farm without a gate pass: the archive (the record a
+  stage's pick stands on) needs the pass; a listed variation does not.
 - **Caveats are not tradeoffs.** A caveat admits a gap in our tools ("not simulated", "only on our
   simulation"): none may appear; the gap is closed by work (vjeux, 04:19). A tradeoff is a
   measured, game-verified fact about the design ("hide the zombie by hand the first night",
@@ -698,13 +714,23 @@ its seeds (LS-open, the first measured gain from sharing, first).
   free; position from `AbstractBedBlock.findStandUpPosition`. That searches the cells around the
   bed (the side chosen by the villager's yaw), safe ones first, else the cell above the bed
   (+0.1). Pose STANDING.
-- **Keeping HOME.** `SetWalkTargetFromBlockMemory(HOME, 0.5, 1, 150, 1200)` (REST, priority 2)
-  sets a walk target when `distManhattan(home, blockPosition()) > 1`. A path that keeps failing
-  sets `CANT_REACH_WALK_TARGET_SINCE`, and 1200 gt later the villager calls
-  `releasePoi(HOME)`, erases HOME and never sleeps again. **Every cell a villager can stand in
-  must be within Manhattan 1 of its HOME.**
-- **Claiming the bed** (`AcquirePoi` for `HOME` in CORE) needs a path
-  (`AcquirePoi.findPathToPois`). See "Refused" below.
+- **Keeping HOME** (rewritten at iteration 14 from the code; revisions 1-13 had it wrong).
+  `SetWalkTargetFromBlockMemory(HOME, 0.5, 1, 150, 1200)` (REST, priority 2, needs WALK_TARGET
+  absent and HOME present) runs its release branch (`releasePoi(HOME)`, HOME erased,
+  CANT_REACH_WALK_TARGET_SINCE set) whenever CANT_REACH_WALK_TARGET_SINCE is present and older
+  than 1200 gt, whatever the distance to HOME; otherwise it sets a walk target when
+  `distManhattan(home, blockPosition()) > 1`. Any unreachable walk target arms it:
+  `MoveToTargetSink.tryComputePath` writes CANT_REACH_WALK_TARGET_SINCE on any unreachable target
+  (an IDLE stroll, InteractWith, a look-target walk), only when the memory is absent, so the
+  oldest failure stands; only a reached or reachable target, or `SleepInBed.start`, clears it. So
+  a villager in a 1-cell pod releases HOME at nearly every REST start. Every cell it can stand in
+  within Manhattan 1 of HOME is necessary (no walk toward HOME) but not sufficient.
+- **Claiming the bed back** (`AcquirePoi` for `HOME` in CORE): every 20-39 gt it takes up to 5 of
+  the closest free beds within 48 (validBedPoi: not OCCUPIED), makes one path to the set and takes
+  whichever bed that path reaches, so a neighbour's free, reachable bed can be taken instead of
+  its own; a failed path retries after 40-80 gt, growing to 400. Claiming runs every night, so a
+  cage must make its own bed the only free bed AcquirePoi can reach from the pod (Stages, the
+  Beds line).
 
 ### Where a golem spawns
 
@@ -1097,6 +1123,9 @@ whenever a world mirrors the level random: `World::exact_seed`).
   **zombie attacks** (refused if a villager's cell meets the zombie's attack box with its
   vehicle).
 - **POI claiming** (refused if a pod holds no bed head within its cell's reach, or a bunk bed).
+  The real guard is the Beds cage rule (Stages): its own bed the only free bed AcquirePoi can
+  reach from the pod, since a pod villager releases and re-claims HOME at nearly every REST
+  (Mechanics, Keeping HOME), now under the modeled AI.
 - **Gossip and trading.** The only gossip call is `TradeWithVillager.tick` (IDLE and MEET
   packages). It needs an `INTERACTION_TARGET` from `InteractWith`: a villager within 8 in
   `NEAREST_VISIBLE_LIVING_ENTITIES`, whose test is a COLLIDER ray. Then `distanceToSqr <= 5`,
@@ -1213,4 +1242,4 @@ the spec was, what came back (the front's size before and after merging), what c
 | 11 | Burnt drops are a measured tradeoff, not a failure: the judge's "a drop touches lava" check becomes a measured line (iron lost per golem), the card's iron per hour counts only what reaches the chest, and a kill that loses none competes on the objectives. Spot pricing against the village's own villagers: no rule until a measured run shows coupling | The day-1 lane: the pit family's burnt drops come from golems bobbing in the corner's floor water (their goals' jumps, jumpInLiquid), dying anywhere from the floor to about 3.6 up; the AI-on judge burns drops on d1-bed-plate in 4 of 8 seeds; the game: D1U 3.95 iron a golem (about 1.2% lost); lava higher stalls the farm, a corner pillar pins golems on the hole's corner. At D1U's spot the village's villagers are at least 47.8 blocks from any farm villager (no 10-box coupling) | The parent's ruling on vjeux 08:26 ("It's all about tradeoffs"): about 1% of the iron for a design that is otherwise the T-optimal day-1 farm is a number a player weighs, not a refusal; the blade kill of day-1 run 2 competes with it on T and the rate |
 | 12 | Middle run 2 judged: nothing to present. "Where a middle farm can win" added to Middle (the module is at 92% of the ceiling, so a middle farm beats copies only on build minutes per module, at most 90% of theirs at 90% of their rate, by sharing the kill chamber and collection with almost free transport). Asked of run 3: current prices and roles (iron-v5), the copies bar priced the same way; families that share the kill and collection (iron-v5's shared-kill stack, the ironfarm lane's shared chamber, modules around one central shaft and chamber with every pad outside every foreign follow cube); candidates that cannot beat the bar pruned before their runs; the low-build end measured first; a sight blocker between pods so 5-villager clusters pass the gossip rule; one calm per module where routing a shared one fails | 230,419 builds (iron-v4: pre-roles materials, the old lava and villager prices), 3,000 quick runs, 4 full judges, 62,066 left open. Front 2, merged 1: two copies stacked 43 apart with 10 x 10 pads, 454 iron/h per module, 42.8 build minutes per module, against the copies bar's 444 and 31.8 under the same pricing: 2% more iron for 35% more build. The best per build minute (4 modules in a row sharing one calm, a pit kill) only ties the bar (420 iron/h per module at 30.1 minutes). About 130,000 candidates refused by the gossip rule (5+ villagers in a 10-box with sight), 25,758 by a shared calm with no route | The front's member is the bar's own shape (copies at a no-coupling pitch), so the middle section stays empty; run 2's space lacked the families where sharing can pay, and its build minutes are stale (glass and stone priced, one lava trip per source, 180 s a villager), so its numbers are not compared with run 3's |
 | 13 | Golem walking is judged by the AI-on runs and the game gate (a golem alive past 1200 gt in any run or the gate fails the build; the card prints the kill-time tail), with the exit flood's static guards kept under every input (no escape) and under the still policy (no dead water); the 8 constant walking inputs are reported, not refused | The ironfarm lane's shared kill: its water channel carries AI-driven golems (N = 2 at pitch 27: 880 iron/h, 92%) but fails the drift check under a constant walking input (recorded by the ironfarm lane: two westward constant walks from the pad cells ended at the channel's first step, the golem held at the step's lip against the side walls, 1.2 above the water's feet level; no still-policy failure, so a golem that stops walking is carried over the lip). Under the new rule the AI-on runs measure the same weakness: the channel's kill averages 671 gt with the longest at 1,107 gt, close enough to 1,200 to fail now and then, while drop blades over one shared items channel (the drops only) kill in 304 gt, longest 381, at 873 iron/h; so the blades are the shared-kill default, and the dropped refusal hid no hold the measurement misses; farmopt: that check alone blocks every family with horizontal golem transport to a shared chamber (the central-shaft ring) | The constant inputs stood in for walking AI before it was modeled (the brief's "not modeled as AI; instead ..."); now that the goals run tick for tick, a refusal on an input the real AI may never sustain contradicts vjeux 08:26 (robustness is measured, never a refusal by itself) and hides the families where sharing can pay. The game gate stays the backstop where the AI-on model still differs from the game (m2-open-ring reads about 5% low with the AI on, under investigation) |
-| 14 | Every promising candidate goes up as a variation of its stage, the stage's pick first, through `mctas site variation` (which runs the real-game gate) and the coordinator's fast path; candidates carry their live site URL; previews are retired (also in AGENTS.md's house rule). Every candidate that passes the gate is listed, dominated ones included (vjeux 16:49: "Seriously, just upload them"); only bars (plain copies) stay off. New tradeoff line "Beds": the nights a villager spends homeless and the rate's spread across seeds | vjeux 16:27: "I asked you to stop using previews and push to the site directly, what's wrong!?"; the mob-AI lane (0 differences on the bridge): pod villagers release their bed at nearly every REST and re-claim it through AcquirePoi; m2-open re-claims every night (110 golems/h on every seed), four modules packed tight often fail (78 to 423 golems/h over 6 seeds) | Iteration 10's "list nothing unless it beats the bar" left vjeux nothing to look at; his word is to see every promising farm, near-duplicates still merged (10:56). A rate that swings with the seed is a property of the design a player must see, not noise for the mean to hide; the AI-on start-state fix (villagers arrive without HOME, as in the gate) closed the 5% gap of row 13 |
+| 14 | Every promising candidate goes up as a variation of its stage, the stage's pick first, through `mctas site variation` (which runs the real-game gate) and the coordinator's fast path; candidates carry their live site URL; previews are retired (also in AGENTS.md's house rule). Every candidate that passes the gate is listed, dominated ones included (vjeux 16:49: "Seriously, just upload them"); only bars (plain copies) stay off. New tradeoff line "Beds": the nights a villager spends homeless and the rate's spread across seeds | vjeux 16:27: "I asked you to stop using previews and push to the site directly, what's wrong!?"; the mob-AI lane (0 differences on the bridge): pod villagers release their bed at nearly every REST and re-claim it through AcquirePoi; m2-open re-claims every night (110 golems/h on every seed), four modules packed tight often fail (78 to 423 golems/h over 6 seeds) | Iteration 10's "list nothing unless it beats the bar" left vjeux nothing to look at; his word is to see every promising farm, near-duplicates still merged (10:56). A rate that swings with the seed is a property of the design a player must see, not noise for the mean to hide; the AI-on start-state fix (villagers arrive without HOME, as in the gate) closed the 5% gap of row 13. G1 points folded: the one rule restated for publishing (up before the gate; nothing about it while it runs; a pass adds the real-game line; a failure stays on the page with its counts, printed, not held, the parent's ruling on vjeux 16:49; the card shows the game's measured numbers wherever the game and redsim disagree, either way, and the gap is a model bug to attribute; the archive still needs a pass); Mechanics "Keeping HOME" rewritten from the code (the release ignores distance; any unreachable walk target arms it; a pod villager releases HOME at nearly every REST and AcquirePoi re-claims it), the reviewer's correction of its own revision-1 point; the POI-claiming refusal points at the Beds cage rule |
