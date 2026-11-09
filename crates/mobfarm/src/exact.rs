@@ -1190,6 +1190,48 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
     tally.print();
     let burnt_text = |m: &std::collections::BTreeMap<String, u32>| if m.is_empty() { "none".to_string() } else { m.iter().map(|(k, v)| format!("{v} {k}")).collect::<Vec<_>>().join(", ") };
     println!("drops burnt: the game {} | redsim {}", burnt_text(&burnt[0]), burnt_text(&burnt[1]));
+    // (a probe: MCTAS_EXACT_SECTIONS=1: at the end, the randomly ticking sections of the ticking
+    // chunks, the game's (`LevelChunkSection.isRandomlyTicking`) against redsim's TickingSections,
+    // each section one side ticks and the other does not, with its randomly ticking cells on
+    // redsim's side)
+    if std::env::var_os("MCTAS_EXACT_SECTIONS").is_some() {
+        let v = game.w.call(json!({"op": "ticking_sections", "sandbox": game.sb}))?;
+        let theirs: std::collections::BTreeSet<[i32; 3]> = v["sections"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|s| Some([s[0].as_i64()? as i32, s[1].as_i64()? as i32, s[2].as_i64()? as i32])).collect())
+            .unwrap_or_default();
+        let w = &run.world;
+        let mut ours = std::collections::BTreeSet::new();
+        if let Some(ts) = w.ticking_sections.as_ref() {
+            for [cx, cz] in &w.chunk_order {
+                for sy in -4..=19 {
+                    if ts.ticking(*cx, sy, *cz) {
+                        ours.insert([*cx, sy, *cz]);
+                    }
+                }
+            }
+        }
+        for s in theirs.difference(&ours) {
+            eprintln!("ticking section [x, sy, z] {s:?}: the game ticks it, redsim does not");
+        }
+        for s in ours.difference(&theirs) {
+            eprintln!("ticking section [x, sy, z] {s:?}: redsim ticks it, the game does not");
+            let (lo, hi) = (redsim::BlockPos::new(s[0] * 16, s[1] * 16, s[2] * 16), redsim::BlockPos::new(s[0] * 16 + 15, s[1] * 16 + 15, s[2] * 16 + 15));
+            let mut n = 0;
+            for y in lo.y..=hi.y {
+                for z in lo.z..=hi.z {
+                    for x in lo.x..=hi.x {
+                        let b = w.get(redsim::BlockPos::new(x, y, z));
+                        if redsim::crops::ticks_in_section(&b) && n < 4 {
+                            n += 1;
+                            eprintln!("  {x} {y} {z}: {b}");
+                        }
+                    }
+                }
+            }
+        }
+        eprintln!("ticking sections: the game {}, redsim {} (the ticking chunks'); redsim's box {} size {:?}, {} cells outside it held", theirs.len(), ours.len(), w.min, w.size, w.outer.len());
+    }
     // (a probe: MCTAS_EXACT_BLOCKS="x0,y0,z0,x1,y1,z1": each cell of the box whose block differs at
     // the end, the game's against redsim's; with `=all:` in front every cell is printed)
     if let Ok(b) = std::env::var("MCTAS_EXACT_BLOCKS") {

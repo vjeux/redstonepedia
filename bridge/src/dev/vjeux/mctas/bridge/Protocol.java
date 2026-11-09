@@ -196,6 +196,7 @@ public final class Protocol {
             case "gameevent" -> gameEvent(r);
             case "random_state" -> randomState(r);
             case "ticking_chunks" -> tickingChunks(r);
+            case "ticking_sections" -> tickingSections(r);
             case "viewers" -> viewers();
             case "camera" -> camera(r);
             case "viewer_mode" -> viewerMode(r);
@@ -362,6 +363,33 @@ public final class Protocol {
         JsonObject o = new JsonObject();
         o.addProperty("seed", sb.randomState());
         o.addProperty("rand_value", sb.randValue());
+        return o;
+    }
+
+    /**
+     * The randomly ticking sections of the chunks the level ticks ({@code
+     * LevelChunkSection.isRandomlyTicking}: a randomly ticking block or fluid in it), [x, sectionY, z]
+     * each, in the ticking chunks' order: redsim's {@code crops::TickingSections} is checked against
+     * it (the compare's {@code MCTAS_EXACT_SECTIONS}).
+     */
+    private JsonObject tickingSections(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        JsonArray out = new JsonArray();
+        for (int[] c : sb.tickingChunks()) {
+            net.minecraft.world.level.chunk.LevelChunk chunk = sb.level.getChunk(c[0], c[1]);
+            net.minecraft.world.level.chunk.LevelChunkSection[] sections = chunk.getSections();
+            for (int i = 0; i < sections.length; i++) {
+                if (sections[i].isRandomlyTicking()) {
+                    JsonArray a = new JsonArray();
+                    a.add(c[0]);
+                    a.add(chunk.getSectionYFromSectionIndex(i));
+                    a.add(c[1]);
+                    out.add(a);
+                }
+            }
+        }
+        JsonObject o = new JsonObject();
+        o.add("sections", out);
         return o;
     }
 
