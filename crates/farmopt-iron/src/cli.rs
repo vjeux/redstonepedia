@@ -51,6 +51,18 @@ pub enum FarmoptCmd {
     /// the watchers' row, the zombie anywhere ahead and below, fence gates and trapdoors in the
     /// cells U1's plate powers): every layout whose rays work, or none.
     Day1Rooms,
+    /// A module's copies curve (page copy's <stem>.copies.tsv, ironspec 2026-11-09: the late
+    /// answer is copies of the best module laid flat): per module, N copies' build minutes and
+    /// volume (no coupling: a row at 27 or a stack at 43, the villagers' route at that N) and the
+    /// module's judged iron/h, priced exactly like the copies bar.
+    Copies {
+        spec: PathBuf,
+        key: String,
+        #[arg(long, default_value = "1,4,16")]
+        n: String,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// A grammar farm's parts (page copy's <stem>.parts.tsv): every part's member, blocks placed,
     /// blocks dug and build seconds at the stage's prices, summing to the card.
     PartsTsv {
@@ -219,6 +231,29 @@ pub fn run(cmd: FarmoptCmd) -> Result<()> {
             for l in crate::split::write_members(&out, &rs, &used)? {
                 println!("{l}");
             }
+        }
+        FarmoptCmd::Copies { spec, key, n, out } => {
+            let mut s = Spec::parse(&std::fs::read_to_string(&spec)?)?;
+            if crate::cand::single_from_key(&s.stage, &key).is_none() {
+                bail!("{key} is not a single {} module the grammar builds", s.stage);
+            }
+            s.extra.insert("bar".into(), key.clone());
+            let farm = crate::IronFarm::new(&s.stage);
+            let base = crate::IronFarm::bar_cand(&s);
+            let g = |m: &farmopt::Metrics, k: &str| m.get(k).map(|v| v.v).unwrap_or(f64::NAN);
+            let mut text = format!(
+                "# {key} ({} stage, {}): N copies with no coupling (a row at 27 or a stack at 43, whichever box is smaller), the villagers by their cheapest route at that N, the module's rate judged in full; written by `mctas farmopt copies`\nn\tbuild_minutes_per_module\tvolume_per_module\tiron_per_hour_per_module\n",
+                s.stage,
+                crate::version_of(crate::price::stage_ix(&s.stage))
+            );
+            for k in n.split(',').map(|x| x.trim()).filter(|x| !x.is_empty()) {
+                let k: u8 = k.parse().map_err(|_| anyhow::anyhow!("--n takes counts, e.g. 1,4,16"))?;
+                let probe = crate::cand::Cand { modules: k, ..base.clone() };
+                let Some(m) = farmopt::Farm::bar_of(&farm, &s, &probe) else { bail!("{key}: the copies at N = {k} are refused or fail the judge") };
+                text.push_str(&format!("{k}\t{:.1}\t{:.0}\t{:.0}\n", g(&m, "build_minutes_per_module"), g(&m, "volume_per_module"), g(&m, "iron_per_hour_per_module")));
+            }
+            std::fs::write(&out, &text)?;
+            print!("{text}");
         }
         FarmoptCmd::PartsTsv { spec, key, out, card_minutes, design } => {
             let s = Spec::parse(&std::fs::read_to_string(&spec)?)?;
