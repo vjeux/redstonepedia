@@ -1143,24 +1143,29 @@ fn sample(
     let farm_item = |id: &str| matches!(id, "iron_ingot" | "iron_block" | "poppy");
     // in a terrain sample a drop is the farm's when first seen inside the farm (a village golem
     // killed by zombies at night over the farm drops its iron outside: not the farm's; a farm
-    // golem dying outside is an escape, failed on its own)
+    // golem dying outside is an escape, failed on its own); in a dug farm "inside" is the farm's
+    // own open cells, as for a golem (the box reaches the ground over the farm: d1u-deep's
+    // 120-build regate flagged "drops land outside the farm" in 1 build)
     if !scope.all_golems && inside > 0 {
         for a in entity_answers(&s.cmd_long(&format!("execute as @e[type=minecraft:item,x={},y={},z={},dx={},dy={},dz={}] run data get entity @s", lo.x, lo.y, lo.z, hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1))?) {
+            let p = list_after(&a, "Pos").unwrap_or_default();
             if farm_item(&item_id(&a))
+                && p.len() == 3
+                && !scope.outside(&inner, [p[0], p[1], p[2]])
                 && let Some(uuid) = list_after(&a, "UUID").map(|v| format!("{v:?}"))
             {
                 run.items_inside.insert(uuid);
             }
         }
     }
-    if all > inside {
+    if all > inside || scope.open.is_some() {
         // where, and what (one query only when something is out); only the farm's own drops (a
         // golem's iron and poppies) count: a trap horse a bolt left in the void falls and drops
         // its bones far below, which is not a leak of the farm
         let mut out = Vec::new();
         for a in entity_answers(&s.cmd_long(&format!("execute as @e[type=minecraft:item{near}] run data get entity @s"))?) {
             let p = list_after(&a, "Pos").unwrap_or_default();
-            if p.len() == 3 && (p[0] < lo.x as f64 || p[0] > hi.x as f64 + 1.0 || p[1] < lo.y as f64 || p[1] > hi.y as f64 + 1.0 || p[2] < lo.z as f64 || p[2] > hi.z as f64 + 1.0) {
+            if p.len() == 3 && scope.outside(&inner, [p[0], p[1], p[2]]) {
                 let id = item_id(&a);
                 if !farm_item(&id) {
                     continue;
