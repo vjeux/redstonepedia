@@ -952,11 +952,12 @@ const NAV_JS: &str = "(function(){ var n = performance.getEntriesByType('navigat
 /// headless Chromium (the window's CSS size, the device scale, a touch screen, an iPhone user
 /// agent, the CPU slowed `cpu` times) or in WebKitGTK (`engine` `webkit`: the site folder `dir`
 /// served, `url` a page path in it; an iPhone user agent, device scale 2). With `trace` (WebKit),
-/// the page runs with `?mcview-debug&mcview-trace` and each load frame over 50 ms is printed with
-/// what the viewer did in it. Several pages (`urls`): each in turn, then a table of their first
-/// frames (the first 3D view drawn, the first screen's views all drawn), the slowest first.
+/// the page runs with `?mcview-debug&mcview-trace` (`trace`: (the frames shown, those over this many
+/// ms; plain: `?mcview-trace` alone)) and each load frame over that is printed with what the
+/// viewer did in it. Several pages (`urls`): each in turn, then a table of their first frames
+/// (the first 3D view drawn, the first screen's views all drawn), the slowest first.
 #[allow(clippy::too_many_arguments)]
-pub fn cmd_perf(urls: &[String], engine: &str, dir: Option<&Path>, window: &str, scale: f32, cpu: f64, load: f64, scroll: f64, speed: f64, browser: &Path, trace: bool) -> Result<()> {
+pub fn cmd_perf(urls: &[String], engine: &str, dir: Option<&Path>, window: &str, scale: f32, cpu: f64, load: f64, scroll: f64, speed: f64, browser: &Path, trace: Option<(f64, bool)>) -> Result<()> {
     let mut firsts: Vec<(Option<f64>, Option<f64>, String)> = Vec::new();
     for url in urls {
         if urls.len() > 1 {
@@ -981,23 +982,26 @@ pub fn cmd_perf(urls: &[String], engine: &str, dir: Option<&Path>, window: &str,
 /// One page of [`cmd_perf`]: its report; (the first 3D view drawn, the first screen's views all
 /// drawn), in ms.
 #[allow(clippy::too_many_arguments)]
-fn perf_page(url: &str, engine: &str, dir: Option<&Path>, window: &str, scale: f32, cpu: f64, load: f64, scroll: f64, speed: f64, browser: &Path, trace: bool) -> Result<(Option<f64>, Option<f64>)> {
+fn perf_page(url: &str, engine: &str, dir: Option<&Path>, window: &str, scale: f32, cpu: f64, load: f64, scroll: f64, speed: f64, browser: &Path, trace: Option<(f64, bool)>) -> Result<(Option<f64>, Option<f64>)> {
     let (w, h) = window.split_once(',').and_then(|(a, b)| Some((a.trim().parse::<u32>().ok()?, b.trim().parse::<u32>().ok()?))).context("--window w,h")?;
     let run = match engine {
         "webkit" => {
-            let page = if trace { format!("{url}{}mcview-debug&mcview-trace", if url.contains('?') { "&" } else { "?" }) } else { url.to_string() };
+            let page = match trace {
+                Some((_, plain)) => format!("{url}{}{}mcview-trace", if url.contains('?') { "&" } else { "?" }, if plain { "" } else { "mcview-debug&" }),
+                None => url.to_string(),
+            };
             perf_webkit(&page, dir.context("--engine webkit needs --dir (the site folder)")?, (w, h), load, scroll, speed)?
         }
         _ => {
-            if trace {
+            if trace.is_some() {
                 bail!("--trace needs --engine webkit");
             }
             perf_chromium(url, window, (w, h), scale, cpu, load, scroll, speed, browser)?
         }
     };
     perf_report(&run);
-    if trace {
-        trace_report(&run);
+    if let Some((over, _)) = trace {
+        trace_report(&run, over);
     }
     Ok(perf_firsts(&run))
 }
@@ -1009,10 +1013,10 @@ fn perf_firsts(run: &PerfRun) -> (Option<f64>, Option<f64>) {
     (run.ready.first().map(|r| r.0), screen)
 }
 
-/// `web perf --trace`: each load frame over 50 ms and the viewer's trace entries in it (its
+/// `web perf --trace`: each load frame over `over` ms and the viewer's trace entries in it (its
 /// frames, card slices, work by where it runs, log lines), and how much of the frame they cover:
 /// a slow frame they do not cover is the browser's own.
-fn trace_report(run: &PerfRun) {
+fn trace_report(run: &PerfRun, over: f64) {
     let entries: Vec<(f64, f64, String)> = run.trace.iter().filter_map(|e| Some((e[0].as_f64()?, e[1].as_f64()?, e[2].as_str()?.to_string()))).collect();
     println!("  trace: {} entries from the viewer", entries.len());
     if let Some((s, _, _)) = entries.iter().find(|(_, _, w)| w == "the viewer's module starts") {
@@ -1020,7 +1024,7 @@ fn trace_report(run: &PerfRun) {
     }
     for p in run.frames.windows(2) {
         let (a, z) = (p[0], p[1]);
-        if z - a <= 50.0 {
+        if z - a <= over {
             continue;
         }
         println!("  frame {a:.0}..{z:.0} ms: {:.0} ms", z - a);

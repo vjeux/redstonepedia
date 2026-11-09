@@ -38,6 +38,11 @@ fn respond(mut s: TcpStream, root: &Path, extra: &std::collections::HashMap<Stri
     let raw = line.split_whitespace().nth(1).unwrap_or("/");
     let path = raw.split(['?', '#']).next().unwrap_or("/");
     let path = site_model::decode(path);
+    // `MCTAS_RIG_LATENCY_MS`: every answer that many ms late (a phone's round trip to the site,
+    // for timing what a page waits on the network for; unset: at once)
+    if let Some(ms) = std::env::var("MCTAS_RIG_LATENCY_MS").ok().and_then(|v| v.trim().parse::<u64>().ok()) {
+        std::thread::sleep(std::time::Duration::from_millis(ms.min(10_000)));
+    }
     // `/__slow?ms=N`: answers after N real milliseconds (a pending request keeps a headless
     // Chrome's virtual clock from running out while a WebAssembly bundle compiles)
     if path == "/__slow" {

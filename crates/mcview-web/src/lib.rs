@@ -1251,7 +1251,17 @@ impl App {
         // only draws and plays there
         self.io.observe(&el);
         if full {
+            // a live view's terrain sample and design text fetched at once, side by side: not
+            // when its load begins (after the game's textures and the WebGL context), the sample
+            // then the text, two round trips one after the other on a phone's network
+            let (terrain, src) = (view.terrain.clone(), view.src.clone());
             self.views.insert(id, view);
+            if let Some(url) = terrain {
+                let _ = self.url_sample(&url);
+            }
+            if let Some(src) = src {
+                let _ = self.url_text(&src);
+            }
             live::start(self, id);
         } else {
             let click_src = view.src.clone().unwrap_or_default();

@@ -459,9 +459,16 @@ pub enum WebCmd {
         #[arg(long, default_value = "/usr/lib64/chromium-browser/headless_shell")]
         browser: PathBuf,
         /// With `--engine webkit`: the viewer's trace (`?mcview-trace`) beside each load frame
-        /// over 50 ms: what the viewer did in it.
+        /// over `--trace-over` ms: what the viewer did in it.
         #[arg(long)]
         trace: bool,
+        /// With `--trace`: the frames shown, those over this many ms (0: every frame).
+        #[arg(long, default_value_t = 50.0)]
+        trace_over: f64,
+        /// With `--trace`: the page without `?mcview-debug` (a visitor's frames: no debug log
+        /// lines nor layout reads; the trace's own spans only).
+        #[arg(long)]
+        trace_plain: bool,
     },
     /// A screenshot of a page in headless Chromium after some seconds of real time (playing
     /// viewers and demos advance), e.g. to check a live viewer's overlays.
@@ -911,7 +918,7 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
         WebCmd::Wakecost { designs, ticks, procedural, slices, slowest } => cmd_wakecost(&designs, ticks, procedural, slices, slowest),
         WebCmd::Camera { designs, size, procedural, picked, thumb } => cmd_camera(&designs, &size, procedural, picked, thumb),
         WebCmd::Stall { urls, window, scale, cpu, load, play, budget, show, browser } => crate::cdp::cmd_stall(&urls, &window, scale, cpu, load, play, budget, show, &browser),
-        WebCmd::Perf { urls, engine, dir, window, scale, cpu, load, scroll, speed, browser, trace } => crate::cdp::cmd_perf(&urls, &engine, dir.as_deref(), &window, scale, cpu, load, scroll, speed, &browser, trace),
+        WebCmd::Perf { urls, engine, dir, window, scale, cpu, load, scroll, speed, browser, trace, trace_over, trace_plain } => crate::cdp::cmd_perf(&urls, &engine, dir.as_deref(), &window, scale, cpu, load, scroll, speed, &browser, trace.then_some((trace_over, trace_plain))),
         WebCmd::Snap { url, out, seconds, window, scale, scroll, eval, before, before_at, browser } => crate::cdp::cmd_snap(&url, &window, scale, seconds, scroll, eval.as_deref(), before.as_deref().map(|b| (b, before_at)), &out, &browser),
         WebCmd::Click { url, window, scale, touch, hold, wait, browser } => {
             if hold {
