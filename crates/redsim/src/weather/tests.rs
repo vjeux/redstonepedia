@@ -148,6 +148,25 @@ fn lightning_targets() {
     assert!(lightning::entity_candidates(&w, center).is_empty());
 }
 
+/// The candidates come in `getEntitiesOfClass`'s order: by entity section key (x, then z, then y),
+/// each section's mobs in the order they entered it, not in the level's entity order; a player
+/// there (the AFK player) is a candidate too, first in its section.
+#[test]
+fn lightning_targets_in_section_order() {
+    let mut w = stormy_world();
+    // three villagers across the x = -1 / 0 section boundary, added east first
+    let east = crate::entity::mob::add(&mut w, MobType::Villager, Vec3::new(1.5, 1.0, 0.5), true);
+    let west = crate::entity::mob::add(&mut w, MobType::Villager, Vec3::new(-0.5, 1.0, 0.5), true);
+    let east2 = crate::entity::mob::add(&mut w, MobType::Villager, Vec3::new(2.5, 1.0, 0.5), true);
+    let center = BlockPos::new(0, motion_blocking_height(&w, 0, 0), 0);
+    let ids: Vec<u32> = lightning::entity_candidates(&w, center).into_iter().map(|i| w.entities.list[i].id).collect();
+    assert_eq!(ids, vec![west, east, east2], "section x = -1 first, then section 0 in entering order");
+    w.mob.ai.players.push(crate::entity::mob::ai::Player { pos: Vec3::new(1.5, 1.0, 1.5), mode: crate::entity::mob::ai::GameMode::Creative, invulnerable: false });
+    let t: Vec<lightning::Target> = lightning::targets(&w, center).into_iter().map(|(_, t)| t).collect();
+    let player = lightning::Target::Entity(crate::entity::mob::ai::PLAYER_ID_BASE);
+    assert_eq!(t, vec![lightning::Target::Entity(west), player, lightning::Target::Entity(east), lightning::Target::Entity(east2)]);
+}
+
 /// A rod that tops its column takes the strike (one above it); one under a block does not count.
 #[test]
 fn lightning_rods() {

@@ -263,20 +263,52 @@ fn closest_rods(rods: &[BlockPos], center: BlockPos) -> Vec<BlockPos> {
 }
 
 /// `findLightningTargetAround`'s entity candidates for a column top: the living entities, alive,
-/// that see the sky at their block, whose box meets the column box inflated by 3 (indices).
+/// that see the sky at their block, whose box meets the column box inflated by 3 (indices), in
+/// the game's order (`getEntitiesOfClass`: the entity sections in key order, each section's
+/// entities in the order they entered it).
 pub fn entity_candidates(w: &World, center: BlockPos) -> Vec<usize> {
-    let search = Aabb::new(center.x as f64, center.y as f64, center.z as f64, (center.x + 1) as f64, (WORLD_MAX_Y + 2) as f64, (center.z + 1) as f64).inflate(3.0, 3.0, 3.0);
-    let mut out = Vec::new();
-    for (i, e) in w.entities.list.iter().enumerate() {
-        let EntityKind::Mob(m) = &e.kind else { continue };
-        if e.removed || m.health <= 0.0 || !e.bb.intersects(search) {
-            continue;
-        }
-        if can_see_sky(w, e.block_position()).unwrap_or(false) {
-            out.push(i);
+    let search = search_box(center);
+    w.get_entities(search, |e| living_alive(e) && can_see_sky(w, e.block_position()).unwrap_or(false))
+}
+
+/// The column box `findLightningTargetAround` searches: `encapsulatingFullBlocks(center,
+/// center.atY(maxY + 1)).inflate(3)`.
+fn search_box(center: BlockPos) -> Aabb {
+    Aabb::new(center.x as f64, center.y as f64, center.z as f64, (center.x + 1) as f64, (WORLD_MAX_Y + 2) as f64, (center.z + 1) as f64).inflate(3.0, 3.0, 3.0)
+}
+
+/// A `LivingEntity` that `isAlive`: a mob with health, an armor stand.
+fn living_alive(e: &crate::entity::Entity) -> bool {
+    match &e.kind {
+        EntityKind::Mob(m) => m.health > 0.0,
+        EntityKind::ArmorStand(_) => true,
+        _ => false,
+    }
+}
+
+/// Every lightning target candidate of a column top, in the game's order: the entities of
+/// [`entity_candidates`] and the players (`LivingEntity`s too: the mob AI's players, the AFK
+/// player among them), each player first in its section (it entered the level before any mob
+/// there). Each with the position a bolt aimed at it falls on (`blockPosition()`).
+pub fn targets(w: &World, center: BlockPos) -> Vec<(BlockPos, Target)> {
+    let search = search_box(center);
+    let mut keyed: Vec<((i32, u32, u32), u64, BlockPos, Target)> = Vec::new();
+    for i in entity_candidates(w, center) {
+        let e = &w.entities.list[i];
+        keyed.push((crate::entity::section_order(e.section), 1 + e.section_seq, e.block_position(), Target::Entity(e.id)));
+    }
+    for (k, p) in w.mob.ai.players.iter().enumerate() {
+        let bb = crate::entity::make_bounding_box(p.pos, crate::entity::mob::ai::target::PLAYER_WIDTH, crate::entity::mob::ai::target::PLAYER_HEIGHT);
+        let at = BlockPos::new(p.pos.x.floor() as i32, p.pos.y.floor() as i32, p.pos.z.floor() as i32);
+        if bb.intersects(search) && can_see_sky(w, at).unwrap_or(false) {
+            let section = [at.x >> 4, at.y >> 4, at.z >> 4];
+            keyed.push((crate::entity::section_order(section), k as u64, at, Target::Entity(crate::entity::mob::ai::PLAYER_ID_BASE + k as u32)));
         }
     }
-    out
+    // players before the mobs of their section (their seq 0..players, the mobs' 1 + seq: a
+    // player's seq is below every mob's only per section, so sort by (section, player first))
+    keyed.sort_by_key(|(s, seq, _, t)| (*s, !matches!(t, Target::Entity(id) if *id >= crate::entity::mob::ai::PLAYER_ID_BASE), *seq));
+    keyed.into_iter().map(|(_, _, p, t)| (p, t)).collect()
 }
 
 /// `ServerLevel.tickThunder` for every chunk of the world (inflated by 3 blocks: a bolt in a
@@ -377,13 +409,11 @@ pub fn strike(w: &mut World, x: i32, z: i32) {
         if let Some(r) = rods.first() {
             (*r, Target::Rod([r.x, r.y - 1, r.z]))
         } else {
-            let cands = entity_candidates(w, center);
+            let cands = targets(w, center);
             if cands.is_empty() {
                 (center, Target::Column)
             } else {
-                let k = cands[draws(w).next_int(cands.len() as i32) as usize];
-                let e = &w.entities.list[k];
-                (e.block_position(), Target::Entity(e.id))
+                cands[draws(w).next_int(cands.len() as i32) as usize]
             }
         }
     };
