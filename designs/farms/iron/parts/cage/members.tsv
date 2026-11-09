@@ -12,3 +12,4 @@ bed-observer-3-watching-regular.txt	bed-observer cage, 3 watching villagers (reg
 bed-observer-3-watching-2-sleeping.txt	bed-observer cage, 3 watching villagers	late	blocks 174, blocks dug 0, build seconds 225	late-module-three-watchers-two-sleepers.txt
 bed-observer-2-watching-2-sleeping.txt	bed-observer cage, 2 watching villagers	late	blocks 152, blocks dug 0, build seconds 195	late-module-two-watchers-two-sleepers.txt
 bed-observer-2-watching.txt	bed-observer cage, 2 watching villagers	late	blocks 97, blocks dug 0, build seconds 124	late-module-compact.txt
+bed-plate-2-watching-2-sleeping.txt	bed-plate cage, 2 watching villagers	day-1	blocks 20, blocks dug 40, build seconds 94	bed-plate-two-sleepers.txt

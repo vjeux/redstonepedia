@@ -1,0 +1,43 @@
+name: bed-plate-2-watching-2-sleeping
+origin: -4 0 -7
+palette:
+  A minecraft:cobblestone_slab[type=top,waterlogged=false]
+  B minecraft:red_bed[facing=west,occupied=false,part=foot]
+  C minecraft:cobblestone
+  D minecraft:red_bed[facing=west,occupied=false,part=head]
+  O minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  R minecraft:red_bed[facing=north,occupied=false,part=foot]
+  W minecraft:wall_torch[facing=east]
+  c minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  o minecraft:oak_trapdoor[facing=west,half=top,open=false,powered=false,waterlogged=false]
+  r minecraft:red_bed[facing=north,occupied=false,part=head]
+layer 0:
+  ......c
+  .
+  .
+  .
+  .
+  .
+  .
+  r.r.r.r
+  R.R.R.R
+layer 1:
+  .
+  ......oC
+  .
+  .
+  .
+  ....A.A
+  ....A.A
+  ....O.O
+  .
+layer 2:
+  .
+  ........DB
+  .
+  .
+  ....W
+  .
+  .
+  .
+  .

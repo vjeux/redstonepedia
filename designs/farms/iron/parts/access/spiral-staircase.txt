@@ -4,11 +4,12 @@ palette:
   C minecraft:cobblestone_slab[type=bottom,waterlogged=false]
   O minecraft:oak_fence_gate[facing=east,in_wall=false,open=false,powered=false]
   T minecraft:torch
+  W minecraft:wall_torch[facing=west]
 layer -21:
-  C
+  C...T
   .
 layer -20:
-  ....T
+  .
   C
 layer -19:
   .
@@ -17,8 +18,8 @@ layer -18:
   .C
   .
 layer -17:
-  C
-  .T
+  CW
+  .
 layer -16:
   .
   C
@@ -41,8 +42,8 @@ layer -10:
   .C
   .
 layer -9:
-  C
-  .T
+  CW
+  .
 layer -8:
   .
   C
@@ -65,8 +66,8 @@ layer -2:
   .C
   .
 layer -1:
-  C
-  .T
+  CW
+  .
 layer 0:
   .
   C
@@ -89,5 +90,17 @@ layer 6:
   .C
   .
 layer 7:
+  CW
+  .
+layer 8:
+  .
+  C
+layer 9:
+  .
+  .C
+layer 10:
+  .C
+  .
+layer 11:
   CO
   OO
