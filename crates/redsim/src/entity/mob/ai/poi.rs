@@ -318,6 +318,11 @@ pub fn free_pois(w: &mut World, sel: PoiSel, center: BlockPos, radius: i32) -> V
 /// chunk's sections bottom up, in a section the types in registry order (job sites, then homes,
 /// then meeting points; the bridge iterates `byType` so) and a type's records in their HashSet's
 /// order (the position's hash), then those within `radius` (`distSqr <= radius^2`).
+/// `PoiManager.findAllWithType(HOME, .., center, radius, ANY)`'s positions in the manager's order.
+pub fn homes_any_ordered(w: &mut World, center: BlockPos, radius: i32) -> Vec<BlockPos> {
+    pois_ordered(w, center, radius, |k, _| k == PoiKind::Home)
+}
+
 pub fn free_pois_ordered(w: &mut World, sel: PoiSel, center: BlockPos, radius: i32) -> Vec<BlockPos> {
     let want = |k: PoiKind| match sel {
         PoiSel::Home => k == PoiKind::Home,

@@ -52,6 +52,36 @@ fn difficulty_name(d: Difficulty) -> &'static str {
     }
 }
 
+/// A scene's scripted block changes: after N ticks, these blocks set like a player's (flags 3:
+/// neighbor and shape updates, `onPlace`), on both sides between the same two ticks.
+pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
+    let s = |p: [i32; 3], b: &str| (p, b.to_string());
+    match name {
+        // corrupt-poi-entity R1: the claimed bed broken, then placed again (a fresh POI record
+        // with its ticket free), then the second villager's pen opened
+        "bed-r1" => vec![
+            (600, vec![s([31, 64, 21], "minecraft:air"), s([31, 64, 20], "minecraft:air")]),
+            (601, vec![s([31, 64, 20], "minecraft:red_bed[facing=south,occupied=false,part=foot]"), s([31, 64, 21], "minecraft:red_bed[facing=south,occupied=false,part=head]")]),
+            (602, vec![s([40, 64, 38], "minecraft:air"), s([40, 65, 38], "minecraft:air")]),
+        ],
+        _ => Vec::new(),
+    }
+}
+
+/// The next scripted action at or after `done` ticks: (its tick, its blocks).
+fn next_action(actions: &[(u32, Vec<([i32; 3], String)>)], done: i64) -> Option<&(u32, Vec<([i32; 3], String)>)> {
+    actions.iter().find(|(t, _)| *t as i64 >= done)
+}
+
+/// redsim's side of an action: each block set with flags 3.
+fn apply_redsim(w: &mut World, blocks: &[([i32; 3], String)]) -> Result<()> {
+    for (p, s) in blocks {
+        let b = Block::parse(s).map_err(|e| anyhow!("action block {s}: {e}"))?;
+        w.set_block(BlockPos::new(p[0], p[1], p[2]), b, redsim::world::flags::ALL);
+    }
+    Ok(())
+}
+
 impl Scene {
     /// The scene as canonical text (a recording keeps its hash: a scene changed since it was
     /// recorded fails its replay).
@@ -72,6 +102,10 @@ impl Scene {
         }
         if self.random_tick_speed != 3 {
             v["random_tick_speed"] = json!(self.random_tick_speed);
+        }
+        let actions = scene_actions(&self.name);
+        if !actions.is_empty() {
+            v["actions"] = json!(actions.iter().map(|(t, b)| json!([t, b.iter().map(|(p, s)| json!([p, s])).collect::<Vec<_>>()])).collect::<Vec<_>>());
         }
         v.to_string()
     }
@@ -271,6 +305,59 @@ fn scenes_raw() -> Vec<Scene> {
     {
         let mut b = Vec::new();
         floor(&mut b, 0, 48, 0, 48, 63, stone);
+        // (the one-bed dorm, ironspec's carousel) one bed for two villagers, an observer facing
+        // its head (its output into a lamp): the bed's OCCUPIED flips as one sleeps and wakes
+        let mut ob = b.clone();
+        ob.push(([31, 64, 20], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
+        ob.push(([31, 64, 21], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
+        ob.push(([31, 64, 22], "minecraft:observer[facing=north,powered=false]".to_string()));
+        ob.push(([31, 64, 23], "minecraft:redstone_lamp[lit=false]".to_string()));
+        v.push(Scene {
+            name: "bed-observer".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: ob,
+            mobs: vec![
+                ("minecraft:villager".into(), [10.5, 64.0, 10.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:villager".into(), [14.5, 64.0, 10.5], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 11000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
+        // corrupt-poi-entity R1: villager A claims the one bed from 23 away; the bed is broken
+        // and placed again (scripted at 600 and 601); villager B, penned until 602, takes the
+        // fresh record while A keeps its HOME
+        let mut rb = b.clone();
+        rb.push(([31, 64, 20], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
+        rb.push(([31, 64, 21], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
+        for x in 38..=42 {
+            for z in 38..=42 {
+                if x == 38 || x == 42 || z == 38 || z == 42 {
+                    rb.push(([x, 64, z], "minecraft:stone".to_string()));
+                    rb.push(([x, 65, z], "minecraft:stone".to_string()));
+                }
+            }
+        }
+        v.push(Scene {
+            name: "bed-r1".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: rb,
+            mobs: vec![
+                ("minecraft:villager".into(), [10.5, 64.0, 10.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:villager".into(), [40.5, 64.0, 40.5], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 1000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
         for x in [28, 31, 34] {
             b.push(([x, 64, 20], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
             b.push(([x, 64, 21], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
@@ -726,6 +813,13 @@ impl GameScene {
         Ok(v["frames"].as_array().ok_or_else(|| anyhow!("trace: no frames"))?.clone())
     }
 
+    /// A scripted action on the game's side: the blocks set like a player's (flags 3).
+    pub fn apply(&mut self, blocks: &[([i32; 3], String)]) -> Result<()> {
+        let list: Vec<([i32; 3], &str)> = blocks.iter().map(|(p, s)| (*p, s.as_str())).collect();
+        self.w.set_blocks(self.sb, &list, PlaceMode::Update)?;
+        Ok(())
+    }
+
     /// The bridge's `mobstate` (debugging): each mob's controls and path, one line each.
     pub fn mob_state(&mut self) -> Result<Vec<String>> {
         let v = self.w.call(json!({"op": "mobstate", "sandbox": self.sb}))?;
@@ -871,14 +965,19 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
         Some((a.parse().ok()?, b.parse().ok()?))
     });
     let mut done: i64 = 0;
+    let actions = scene_actions(&s.name);
     while left > 0 {
         // one tick per traced step inside the state window (the controls between ticks)
         let in_window = state_range.is_some_and(|(a, b)| done + 1 >= a && done < b);
-        let n = match state_range {
+        let mut n = match state_range {
             _ if in_window => 1,
             Some((a, _)) if done + 1 < a => (left.min(batch) as i64).min(a - 1 - done).max(1) as u32,
             _ => left.min(batch),
         };
+        // a batch stops at the next scripted action
+        if let Some((t, _)) = next_action(&actions, done + 1) {
+            n = n.min((*t as i64 - done).max(1) as u32);
+        }
         let frames = game.frames(n, probe || trace.is_some())?;
         if frames.is_empty() {
             // a recording that ends here
@@ -933,6 +1032,14 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
                 }
             }
         }
+        // a scripted action between the two ticks, on both sides (a recording has the game's in
+        // its frames)
+        if let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == done) {
+            if let Source::Live(g) = game {
+                g.apply(b)?;
+            }
+            apply_redsim(&mut ours, b)?;
+        }
         left -= n;
         if cmp.first.is_some() && !full {
             break;
@@ -981,10 +1088,20 @@ pub fn record(version: &str, names: &[String], seed: i64, ticks: u32, dir: &std:
         let game_ids = game.summon(s)?;
         let mut frames = Vec::new();
         let mut left = ticks;
+        let actions = scene_actions(&s.name);
+        let mut done: i64 = 0;
         while left > 0 {
-            let n = left.min(100);
+            // a batch stops at the next scripted action, applied between its two ticks
+            let mut n = left.min(100);
+            if let Some((t, _)) = next_action(&actions, done + 1) {
+                n = n.min((*t as i64 - done).max(1) as u32);
+            }
             frames.extend(game.trace_raw(n, false)?);
             left -= n;
+            done += n as i64;
+            if let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == done) {
+                game.apply(b)?;
+            }
         }
         let header = json!({
             "kind": "mobai-fixture",

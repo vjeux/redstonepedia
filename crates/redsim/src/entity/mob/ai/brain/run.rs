@@ -720,7 +720,7 @@ pub fn trigger(w: &mut World, i: usize, n: usize, t: i64) -> bool {
             false
         }
         Kind::StrollToPoiList { .. } => false,
-        Kind::SetClosestHomeAsWalkTarget { last_update } => {
+        Kind::SetClosestHomeAsWalkTarget { last_update, mut batch } => {
             if !check(w, i, M::WalkTarget, Absent) || !check(w, i, M::Home, Absent) {
                 return false;
             }
@@ -733,15 +733,54 @@ pub fn trigger(w: &mut World, i: usize, n: usize, t: i64) -> bool {
                 let (dx, dy, dz) = ((p.x - pos.x) as f64, (p.y - pos.y) as f64, (p.z - pos.z) as f64);
                 dx * dx + dy * dy + dz * dz
             };
-            let homes: Vec<BlockPos> = crate::entity::mob::ai::poi::index(w).iter().filter(|(_, k)| *k == crate::entity::mob::ai::poi::PoiKind::Home).map(|(p, _)| *p).collect();
-            let near = homes.iter().filter(|p| p.x.abs_diff(pos.x) <= 48 && p.z.abs_diff(pos.z) <= 48 && d2(p) <= 48.0 * 48.0).min_by(|a, b| d2(a).total_cmp(&d2(b)));
-            match near {
-                Some(p) if d2(p) > 4.0 => {
-                    refuse(w, "a homeless villager walking to the closest bed (SetClosestHomeAsWalkTarget's path to several POIs) is not modeled");
-                    false
-                }
-                _ => false,
+            let homes = crate::entity::mob::ai::poi::homes_any_ordered(w, pos, 48);
+            let near = homes.iter().copied().min_by(|a, b| d2(a).total_cmp(&d2(b)));
+            let Some(near) = near else { return false };
+            if d2(&near) <= 4.0 {
+                return false;
             }
+            // lastUpdate = now + level random nextInt(20); findAllWithType's cache test (a position
+            // cached until lastUpdate + 40 is skipped; at most 4 tried)
+            let lu = w.time + level_rng(w).next_int(20) as i64;
+            let mut tried = 0;
+            let mut chosen = Vec::new();
+            for p in homes {
+                if batch.iter().any(|(q, _)| *q == p) {
+                    continue;
+                }
+                tried += 1;
+                if tried >= 5 {
+                    continue;
+                }
+                batch.push((p, lu + 40));
+                chosen.push(p);
+            }
+            // findPathToPois: one path to the set of positions (their HashSet's order), reach 1
+            let path = if chosen.is_empty() {
+                None
+            } else {
+                let hashes: Vec<i32> = chosen.iter().map(|p| (p.y.wrapping_add(p.z.wrapping_mul(31))).wrapping_mul(31).wrapping_add(p.x)).collect();
+                let order = crate::entity::mob::ai::path::finder::java_hash_order(&hashes, crate::entity::mob::ai::path::finder::grown_table(chosen.len()));
+                let targets: Vec<BlockPos> = order.iter().map(|&k| chosen[k]).collect();
+                with_nav(w, i, |w, nm, nav, arena| nav.create_path_positions(w, nm, &targets, 1, arena))
+            };
+            match path {
+                Some(p) if p.reached => {
+                    if crate::entity::mob::ai::poi::poi_of(&w.get(p.target)).is_some() {
+                        ex_mut(w, i).mem.walk_target = Some(WalkTarget { target: Tracker::Block(p.target), speed: 0.5, close: 1 });
+                    }
+                }
+                _ => {
+                    if tried < 5 {
+                        batch.retain(|(_, until)| *until >= lu);
+                    }
+                }
+            }
+            if let Kind::SetClosestHomeAsWalkTarget { last_update, batch: b } = kind_mut(w, i, n) {
+                *last_update = lu;
+                *b = batch;
+            }
+            true
         }
         Kind::InsideBrownianWalk => {
             if !check(w, i, M::WalkTarget, Absent) {

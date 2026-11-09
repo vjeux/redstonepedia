@@ -84,7 +84,7 @@ pub enum Kind {
     StrollAroundPoi { mem: M, max_dist: i32, next_ok: i64 },
     StrollToPoi { mem: M, speed: f32, close: i32, max_dist: i32, next_ok: i64 },
     StrollToPoiList { next_ok: i64 },
-    SetClosestHomeAsWalkTarget { last_update: i64 },
+    SetClosestHomeAsWalkTarget { last_update: i64, batch: Vec<(BlockPos, i64)> },
     InsideBrownianWalk,
     GoToClosestVillage,
     VillagerCalmDown,
@@ -346,7 +346,7 @@ fn packages(b: &mut Builder, baby: bool) -> Vec<(Act, Vec<(i32, usize)>)> {
         v.push((3, b.add(Kind::SleepInBed { next_ok: 0 })));
         let r = b.run_one(
             vec![(M::Home, Status::Absent)],
-            vec![(Kind::SetClosestHomeAsWalkTarget { last_update: 0 }, 1), (Kind::InsideBrownianWalk, 4), (Kind::GoToClosestVillage, 2), (Kind::DoNothing { min: 20, max: 40 }, 2)],
+            vec![(Kind::SetClosestHomeAsWalkTarget { last_update: 0, batch: Vec::new() }, 1), (Kind::InsideBrownianWalk, 4), (Kind::GoToClosestVillage, 2), (Kind::DoNothing { min: 20, max: 40 }, 2)],
         );
         v.push((5, r));
         v.push((5, b.minimal_look()));
