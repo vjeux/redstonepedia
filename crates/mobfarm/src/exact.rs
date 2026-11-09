@@ -122,6 +122,7 @@ fn entity_probe() -> Option<(&'static [u32], i64, i64)> {
 /// The `MCTAS_EXACT_ENTITY` probe's lines for one compared tick: each probed entity's frame on
 /// both sides (pos, motion, on ground, fire, health, hurt time, yaw, its memories).
 fn print_probed(f: &Frame, ours: &Frame) {
+    print_summons(f, ours);
     let Some((ids, t0, t1)) = entity_probe() else { return };
     if f.t < t0 || f.t > t1 {
         return;
@@ -132,6 +133,42 @@ fn print_probed(f: &Frame, ours: &Frame) {
         eprintln!("t{} #{n} game:   {:?}", f.t, g.map(|e| (e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time, e.yaw, &e.memories)));
         eprintln!("t{} #{n} redsim: {:?}", f.t, o.map(|e| (e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time, e.yaw, &e.memories)));
     }
+}
+
+/// `MCTAS_EXACT_SUMMONS=1`: a probe of the golem summons on both sides: each iron golem entering
+/// (`summon t<T> <side> golem #<n>`) and each villager's GOLEM_DETECTED_RECENTLY appearing or
+/// going (`gdr t<T> <side> villager #<n>: set <value> | free`).
+fn print_summons(f: &Frame, ours: &Frame) {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if !*ON.get_or_init(|| std::env::var("MCTAS_EXACT_SUMMONS").is_ok()) {
+        return;
+    }
+    thread_local! {
+        static HELD: std::cell::RefCell<[std::collections::BTreeMap<u32, String>; 2]> = Default::default();
+    }
+    HELD.with(|h| {
+        let mut h = h.borrow_mut();
+        for (side, (name, frame)) in [("game", f), ("redsim", ours)].into_iter().enumerate() {
+            for n in &frame.entered {
+                if let Some(e) = frame.entities.iter().find(|e| e.n == *n && e.ty.ends_with("iron_golem")) {
+                    eprintln!("summon t{} {name} golem #{n} at ({:.1}, {:.1}, {:.1})", frame.t, e.pos[0], e.pos[1], e.pos[2]);
+                }
+            }
+            for e in frame.entities.iter().filter(|e| e.ty.ends_with("villager")) {
+                let now = e.memories.as_ref().and_then(|m| m.get("golem_detected_recently").cloned());
+                let was = h[side].get(&e.n).cloned();
+                match (&was, &now) {
+                    (None, Some(v)) => eprintln!("gdr t{} {name} villager #{}: set {v}", frame.t, e.n),
+                    (Some(_), None) => eprintln!("gdr t{} {name} villager #{}: free", frame.t, e.n),
+                    _ => {}
+                }
+                match now {
+                    Some(v) => h[side].insert(e.n, v),
+                    None => h[side].remove(&e.n),
+                };
+            }
+        }
+    });
 }
 
 /// `MCTAS_EXACT_TALLY="x0,y0,z0,x1,y1,z1"` (world coordinates): a probe tallying, on each side,
