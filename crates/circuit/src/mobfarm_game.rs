@@ -88,11 +88,14 @@ pub struct GateOpts {
     /// Natural monsters on (`spawn_monsters` in a terrain run; the default): off for an experiment
     /// that separates the farm from the natural mobs around it.
     pub monsters: bool,
+    /// A terrain sample's number of runs (0: `parallel`), `parallel` at once: enough runs for a
+    /// narrow interval without as many servers at once.
+    pub runs: usize,
 }
 
 impl GateOpts {
     pub fn new(version: &str) -> GateOpts {
-        GateOpts { version: version.to_string(), days: 3, rain_day: true, thunder_day: true, warmup: (150_000, 400_000), seed: 1, builds: Vec::new(), parallel: 8, keep: false, trace: false, terrain: None, world: None, monsters: true }
+        GateOpts { version: version.to_string(), days: 3, rain_day: true, thunder_day: true, warmup: (150_000, 400_000), seed: 1, builds: Vec::new(), parallel: 8, keep: false, trace: false, terrain: None, world: None, monsters: true, runs: 0 }
     }
 }
 
@@ -1244,9 +1247,10 @@ fn sd(v: &[f64]) -> f64 {
 /// The gate: every build in its own server (`parallel` at once), then the rate against redsim's.
 pub fn gate(c: &Circuit, o: &GateOpts) -> Result<GateReport> {
     let builds = match &o.terrain {
-        // a terrain sample: one placement (its Site), `parallel` runs of it (or the runs picked)
+        // a terrain sample: one placement (its Site), `runs` runs of it (`parallel` at once; 0:
+        // `parallel` runs), or the runs picked
         Some(_) if !o.builds.is_empty() => o.builds.clone(),
-        Some(_) => (0..o.parallel.max(1) as u8).map(|k| (k, [0, 0, 0])).collect(),
+        Some(_) => (0..(if o.runs > 0 { o.runs } else { o.parallel.max(1) }).min(256)).map(|k| (k as u8, [0, 0, 0])).collect(),
         None if o.builds.is_empty() => judge_builds(),
         None => o.builds.clone(),
     };
