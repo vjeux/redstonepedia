@@ -108,13 +108,47 @@ pub fn index(w: &mut World) -> &[(BlockPos, PoiKind)] {
     w.mob.ai.pois.as_deref().unwrap()
 }
 
+/// `PoiManager`'s tickets made explicit (from the memories' claims at that moment): a record's
+/// taken tickets live with the record, so a POI block broken and replaced is a fresh record with
+/// none taken while its old claimant keeps its memory (corrupt-poi-entity R1).
+fn ensure_tickets(w: &mut World) -> &mut std::collections::BTreeMap<(i32, i32, i32), u32> {
+    if w.mob.ai.poi_tickets.is_none() {
+        let mut t = std::collections::BTreeMap::new();
+        for p in claimed_by_memory(w) {
+            if poi_of(&w.get(p)).is_some() {
+                *t.entry((p.x, p.y, p.z)).or_insert(0) += 1;
+            }
+        }
+        w.mob.ai.poi_tickets = Some(t);
+    }
+    w.mob.ai.poi_tickets.as_mut().unwrap()
+}
+
+/// `PoiManager.take`: a ticket of the record at `p` taken.
+pub fn take(w: &mut World, p: BlockPos) {
+    *ensure_tickets(w).entry((p.x, p.y, p.z)).or_insert(0) += 1;
+}
+
+/// `PoiManager.release`: a ticket of the record at `p` given back (a record that is gone has none).
+pub fn release(w: &mut World, p: BlockPos) {
+    if let Some(n) = ensure_tickets(w).get_mut(&(p.x, p.y, p.z))
+        && *n > 0
+    {
+        *n -= 1;
+    }
+}
+
 /// `onBlockStateChange`'s POI update: a POI block placed or removed updates the index in place
 /// (it stays in the build's y, z, x order; a bed's `occupied` changing is no change of kind), a
 /// light source the AI's light list.
 pub fn on_block_changed(w: &mut World, pos: BlockPos, old: &Block, new: &Block) {
     let (was, now) = (poi_of(old), poi_of(new));
-    // PoiManager.add's order, kept for the record sets' collision chains
+    // PoiManager.add's order, kept for the record sets' collision chains; a removed record takes
+    // its tickets with it (a re-added one starts with none taken)
     if was != now {
+        if was.is_some() {
+            ensure_tickets(w).remove(&(pos.x, pos.y, pos.z));
+        }
         if now.is_some() {
             let n = w.mob.ai.poi_next;
             w.mob.ai.poi_seq.insert(pos, n);
@@ -148,9 +182,18 @@ pub fn on_block_changed(w: &mut World, pos: BlockPos, old: &Block, new: &Block) 
     }
 }
 
-/// The POIs a villager holds (taken tickets): its home, and with the exact brain its job site,
-/// potential job site and meeting point.
+/// The POIs a villager holds (taken tickets): with explicit tickets (`poi_tickets`, from the first
+/// take, release or record change on), the records with a ticket taken; before that the
+/// villagers' memories: its home, and with the exact brain its job site, potential job site and
+/// meeting point.
 pub fn claimed(w: &World) -> Vec<BlockPos> {
+    if let Some(t) = w.mob.ai.poi_tickets.as_ref() {
+        return t.iter().filter(|(_, n)| **n > 0).map(|(k, _)| BlockPos::new(k.0, k.1, k.2)).collect();
+    }
+    claimed_by_memory(w)
+}
+
+fn claimed_by_memory(w: &World) -> Vec<BlockPos> {
     let mut out = Vec::new();
     let mut add = |h: Option<BlockPos>| {
         if let Some(h) = h

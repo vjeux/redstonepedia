@@ -304,6 +304,8 @@ pub struct AiWorld {
     /// keeps colliding records in this order); a POI of the world's first scan has none.
     pub poi_seq: std::collections::HashMap<crate::pos::BlockPos, u64>,
     pub poi_next: u64,
+    /// The POI records' taken tickets (`poi::take`/`release`; `None`: still the memories' claims).
+    pub poi_tickets: Option<std::collections::BTreeMap<(i32, i32, i32), u32>>,
     /// The light sources of a design world (`goal::stroll::light_magic`; `None`: to rebuild).
     pub lights: Option<Vec<(crate::pos::BlockPos, i32)>>,
     /// The sky light of a design world's cells asked so far (cleared when a block changes).
@@ -331,7 +333,7 @@ pub fn unmodeled(ty: MobType, a: &MobAi) -> bool {
 
 impl Default for AiWorld {
     fn default() -> AiWorld {
-        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, pois: None, poi_seq: std::collections::HashMap::new(), poi_next: 0, lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new(), poi_hashes: None, strict: false, legacy: std::collections::BTreeSet::new() }
+        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, pois: None, poi_seq: std::collections::HashMap::new(), poi_next: 0, poi_tickets: None, lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new(), poi_hashes: None, strict: false, legacy: std::collections::BTreeSet::new() }
     }
 }
 

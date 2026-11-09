@@ -972,8 +972,9 @@ fn other_villager_coming_through(w: &World, i: usize, d: BlockPos) -> bool {
     })
 }
 
-/// `ValidateNearbyPoi`: within 16 of the POI, a POI no longer there (or a bed someone else sleeps
-/// in) is forgotten.
+/// `ValidateNearbyPoi`: within 16 of the POI, a POI no longer there is forgotten (its ticket left
+/// with its record); a bed OCCUPIED while this villager is awake is forgotten too, its ticket given
+/// back unless a villager sleeps in that bed's cell (`bedIsOccupiedByVillager`).
 fn validate_nearby_poi(w: &mut World, i: usize, poi: PoiSel, mem: M) -> bool {
     let pos = match mem {
         M::Home => brain(w, i).home,
@@ -996,10 +997,13 @@ fn validate_nearby_poi(w: &mut World, i: usize, poi: PoiSel, mem: M) -> bool {
     };
     if !exists {
         erase(w, i, mem);
-        refuse(w, "a villager losing its POI (the ticket's release) is not modeled");
     } else if poi == PoiSel::Home && matches!(w.get(p), crate::block::Block::Bed { occupied: true, .. }) && mob(w, i).sleeping_pos.is_none() {
         erase(w, i, mem);
-        refuse(w, "a villager whose bed another sleeps in is not modeled");
+        let cell = crate::entity::Aabb::of_block(p);
+        let sleeper = w.get_entities(cell, |e| matches!(&e.kind, crate::entity::EntityKind::Mob(m) if m.ty == crate::entity::mob::types::MobType::Villager && m.sleeping_pos.is_some()));
+        if sleeper.is_empty() {
+            crate::entity::mob::ai::poi::release(w, p);
+        }
     }
     true
 }
@@ -1098,8 +1102,9 @@ fn acquire_poi(w: &mut World, i: usize, n: usize, t: i64) -> bool {
         }
         Some(p) if p.reached => {
             let target = p.target;
-            // poiManager.take: the ticket (the home memory is the claim), the event 14 (client
-            // particles), the retry cache cleared
+            // poiManager.take: the ticket, the home memory, the event 14 (client particles), the
+            // retry cache cleared
+            crate::entity::mob::ai::poi::take(w, target);
             brain_mut(w, i).home = Some(target);
             if let Kind::AcquirePoi { batch, .. } = kind_mut(w, i, n) {
                 batch.clear();
@@ -1179,10 +1184,10 @@ fn walk_from_block_memory(w: &mut World, i: usize, mem: M, speed: f32, close: i3
                 }
                 tries += 1;
                 if tries == 1000 {
-                    // releasePoi: the memory erased frees its POI (the claims are the brains'
-                    // memories)
+                    // releasePoi (the record's ticket back), then the memory erased
                     let id = w.entities.list[i].id;
                     w.mob.events.push(crate::entity::mob::MobEvent::Released { t, id });
+                    release_poi(w, i, mem);
                     erase(w, i, mem);
                     ex_mut(w, i).mem.cant_reach_since = Some(t);
                     return true;
@@ -1192,13 +1197,38 @@ fn walk_from_block_memory(w: &mut World, i: usize, mem: M, speed: f32, close: i3
             ex_mut(w, i).mem.walk_target = Some(WalkTarget { target: Tracker::Block(target), speed, close });
         }
     } else {
-        // too long unreachable: releasePoi (the memory erased frees its POI)
+        // too long unreachable: releasePoi (the record's ticket back; no passenger check), then the
+        // memory erased
         let id = w.entities.list[i].id;
         w.mob.events.push(crate::entity::mob::MobEvent::Released { t, id });
+        release_poi(w, i, mem);
         erase(w, i, mem);
         ex_mut(w, i).mem.cant_reach_since = Some(t);
     }
     true
+}
+
+/// `Villager.releasePoi(memory)`: the memory's POI, still there and of the memory's kind, gives a
+/// ticket back (`PoiManager.release`: `PoiRecord.releaseTicket`, at most its max; a record shared
+/// by two claims after a replace gives back once per release). The memory itself stays.
+fn release_poi(w: &mut World, i: usize, mem: M) {
+    let pos = match mem {
+        M::Home => brain(w, i).home,
+        M::JobSite => ex(w, i).mem.job_site,
+        M::PotentialJobSite => ex(w, i).mem.potential_job_site,
+        M::MeetingPoint => ex(w, i).mem.meeting_point,
+        _ => None,
+    };
+    let Some(p) = pos else { return };
+    let kind_ok = match (mem, crate::entity::mob::ai::poi::poi_of(&w.get(p))) {
+        (M::Home, Some(crate::entity::mob::ai::poi::PoiKind::Home)) => true,
+        (M::MeetingPoint, Some(crate::entity::mob::ai::poi::PoiKind::Meeting)) => true,
+        (M::JobSite | M::PotentialJobSite, Some(crate::entity::mob::ai::poi::PoiKind::Job)) => true,
+        _ => false,
+    };
+    if kind_ok {
+        crate::entity::mob::ai::poi::release(w, p);
+    }
 }
 
 /// `SetEntityLookTarget`: the closest visible entity of the filter within 8 (not its passenger).
