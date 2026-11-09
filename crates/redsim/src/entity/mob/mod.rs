@@ -593,6 +593,13 @@ pub fn add(w: &mut World, ty: MobType, pos: Vec3, persistent: bool) -> u32 {
     if ai::goal::animal::adult_of(ty.def().id) == Some("chicken") {
         st.egg_time = ai::goal::animal::chicken_egg_time(&mut own);
     }
+    // the squid's constructor: its tentacles' speed
+    if ai::squid::is_squid_id(ty.def().id) {
+        let s = ai::squid::ctor_draw(&mut own);
+        if let Some(q) = st.ai.as_deref_mut().and_then(|a| a.squid.as_mut()) {
+            q.tentacle_speed = s;
+        }
+    }
     // ---- mob AI (the mob-AI lane): a mob whose goals are not modeled (villagers have their brain,
     // bats their own flight): a summoned one (the farm's own: `MobAi::strict`) is refused, never
     // run without them; an ambient natural one runs on the legacy walk model, its type named in
@@ -678,8 +685,9 @@ pub fn movement_emission(w: &mut World, i: usize, movement: Vec3) {
     } else if in_water {
         let m = mob_mut(w, i);
         m.next_step = (m.move_dist as i32 + 1) as f32;
-        // a bat's movement emits events only (`Bat.getMovementEmission`: no swim sound)
-        if mob(w, i).ty.def().id != "bat"
+        // a bat's and a squid's movement emit events only (`getMovementEmission`: EVENTS, no swim
+        // sound)
+        if !matches!(mob(w, i).ty.def().id, "bat" | "squid" | "glow_squid")
             && let Some(r) = w.entities.list[i].random.as_mut()
         {
             r.next_float();

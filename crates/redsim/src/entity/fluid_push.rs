@@ -186,7 +186,9 @@ pub fn update_fluid_interaction(w: &mut World, i: usize) -> bool {
     // (O(1): a clone of a villager's brain every tick was a fifth of the mob AI's time); nothing
     // here reads the entity list
     let mut e = w.entities.list.swap_remove(i);
-    let in_any = update(w, &mut e, false);
+    // AgeableWaterCreature.isPushedByFluid: false (a squid with its AI: no current, none applied)
+    let pushed = !matches!(&e.kind, crate::entity::EntityKind::Mob(m) if m.ai.is_some() && crate::entity::mob::ai::squid::is_squid_id(m.ty.def().id));
+    let in_any = update(w, &mut e, !pushed);
     let in_water = e.fluid.in_water();
     if in_water {
         e.fall_distance = 0.0;
@@ -224,11 +226,11 @@ pub fn update_fluid_interaction(w: &mut World, i: usize) -> bool {
     }
     e.was_touching_water = in_water;
     e.fluid_height = [e.fluid.water_height(), e.fluid.lava_height()];
-    if in_water {
+    if in_water && pushed {
         apply_current(&mut e, false, 0.014);
     }
     // the lava current (an overworld: not FAST_LAVA, 0.0023333333333333335)
-    if e.fluid.lava_height() > 0.0 {
+    if e.fluid.lava_height() > 0.0 && pushed {
         apply_current(&mut e, true, 0.0023333333333333335);
     }
     w.entities.list.push(e);

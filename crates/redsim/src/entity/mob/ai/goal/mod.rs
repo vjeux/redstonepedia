@@ -70,6 +70,8 @@ pub enum Goal {
     Cube(super::cube::CubeGoal),
     /// A farm animal's goals (panic, breeding, tempting, its parent, a sheep's grass).
     Animal(animal::AnimalGoal),
+    /// A squid's goals (its random swim, its flight).
+    Squid(super::squid::SquidGoal),
     ResetUniversalAnger,
     HurtByTarget(targets::HurtByTarget),
     NearestAttackableTarget(targets::NearestAttackableTarget),
@@ -98,6 +100,7 @@ impl Goal {
             Goal::LeapAtTarget => JUMP | MOVE,
             Goal::Cube(c) => c.flags(),
             Goal::Animal(a) => a.flags(),
+            Goal::Squid(_) => 0,
             Goal::ResetUniversalAnger => 0,
             Goal::HurtByTarget(_) | Goal::NearestAttackableTarget(_) => TARGET,
         }
@@ -107,6 +110,9 @@ impl Goal {
     pub fn every_tick(&self) -> bool {
         if let Goal::Cube(c) = self {
             return c.every_tick();
+        }
+        if let Goal::Squid(s) = self {
+            return s.every_tick();
         }
         matches!(self, Goal::Float | Goal::RandomLookAround(_) | Goal::MeleeAttack(_) | Goal::ZombieAttackTurtleEgg(_) | Goal::BreakDoor(_) | Goal::Swell | Goal::RangedBow)
     }
@@ -153,6 +159,7 @@ impl Goal {
             Goal::LeapAtTarget => "LeapAtTargetGoal",
             Goal::Cube(c) => c.name(),
             Goal::Animal(a) => a.name(),
+            Goal::Squid(s) => s.name(),
             Goal::ResetUniversalAnger => "ResetUniversalAngerTargetGoal",
             Goal::HurtByTarget(_) => "HurtByTargetGoal",
             Goal::NearestAttackableTarget(n) => match n.target_type {
@@ -316,6 +323,7 @@ pub fn can_use(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::LeapAtTarget => spider::leap_can_use(w, i),
         Goal::Cube(c) => super::cube::can_use(w, i, c),
         Goal::Animal(a) => animal::can_use(w, i, a),
+        Goal::Squid(s) => super::squid::can_use(w, i, s),
         Goal::ResetUniversalAnger => false,
         Goal::HurtByTarget(h) => targets::hurt_by_can_use(w, i, h),
         Goal::NearestAttackableTarget(n) => targets::nearest_can_use(w, i, n),
@@ -346,6 +354,7 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut Goal) -> bool {
         // Goal.canContinueToUse: canUse()
         Goal::Cube(c) => super::cube::can_use(w, i, c),
         Goal::Animal(a) => animal::can_continue(w, i, a),
+        Goal::Squid(s) => super::squid::can_use(w, i, s),
         Goal::HurtByTarget(h) => targets::target_can_continue(w, i, &mut h.base),
         Goal::NearestAttackableTarget(n) => targets::target_can_continue(w, i, &mut n.base),
     }
@@ -374,6 +383,7 @@ pub fn start(w: &mut World, i: usize, g: &mut Goal) {
         Goal::LeapAtTarget => spider::leap_start(w, i),
         Goal::Cube(_) => {}
         Goal::Animal(a) => animal::start(w, i, a),
+        Goal::Squid(_) => {}
         Goal::HurtByTarget(h) => targets::hurt_by_start(w, i, h),
         Goal::NearestAttackableTarget(n) => targets::nearest_start(w, i, n),
     }
@@ -399,6 +409,7 @@ pub fn stop(w: &mut World, i: usize, g: &mut Goal) {
         Goal::RestrictSun => super::ai_mut(w, i).nav.avoid_sun = false,
         Goal::FleeSun(_) | Goal::RangedBow | Goal::LeapAtTarget | Goal::Cube(_) => {}
         Goal::Animal(a) => animal::stop(w, i, a),
+        Goal::Squid(_) => {}
         Goal::HurtByTarget(h) => targets::target_stop(w, i, &mut h.base),
         Goal::NearestAttackableTarget(n) => targets::target_stop(w, i, &mut n.base),
     }
@@ -424,6 +435,7 @@ pub fn tick(w: &mut World, i: usize, g: &mut Goal) {
         Goal::RestrictSun | Goal::FleeSun(_) | Goal::LeapAtTarget => {}
         Goal::Cube(c) => super::cube::tick(w, i, c),
         Goal::Animal(a) => animal::tick(w, i, a),
+        Goal::Squid(s) => super::squid::tick(w, i, s),
         Goal::HurtByTarget(_) | Goal::NearestAttackableTarget(_) => {}
     }
 }

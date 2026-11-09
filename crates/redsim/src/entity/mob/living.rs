@@ -47,6 +47,7 @@ pub fn tick(w: &mut World, i: usize) {
             }
         }
     }
+    let pre_air = mob(w, i).air;
     base_tick(w, i);
     if w.entities.list[i].removed {
         return;
@@ -54,6 +55,10 @@ pub fn tick(w: &mut World, i: usize) {
     // ---- mob AI (the mob-AI lane): the rest of LivingEntity.baseTick and Mob.baseTick ----
     if super::ai::has_ai(w, i) {
         super::ai::after_base_tick(w, i);
+        // AgeableWaterCreature.baseTick's tail: handleAirSupply(the air before the tick)
+        if super::ai::squid::is_water_creature(w, i) && super::ai::squid::handle_air_supply(w, i, pre_air) {
+            hurt(w, i, Damage::Drown, 2.0);
+        }
     }
     // LivingEntity.tick: a sleeper whose bed is gone wakes up
     if let Some(bed) = mob(w, i).sleeping_pos
@@ -382,6 +387,12 @@ fn jump_in_liquid(w: &mut World, i: usize) {
 /// `LivingEntity.travel(input)`: in a liquid (`isInLiquid`, affected by fluids, not standing on
 /// it), else in the air.
 pub fn travel(w: &mut World, i: usize, input: Vec3) {
+    // Squid.travel: the motion alone (its aiStep sets it)
+    if super::ai::has_ai(w, i) && super::ai::squid::is_water_creature(w, i) {
+        let d = w.entities.list[i].delta_movement;
+        entity::move_(w, i, MoverType::Self_, d);
+        return;
+    }
     let in_water = w.entities.list[i].fluid.in_water();
     let in_lava = mob(w, i).lava_height > 0.0;
     if in_water || in_lava {

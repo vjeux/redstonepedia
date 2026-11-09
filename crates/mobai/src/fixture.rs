@@ -574,6 +574,41 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // two squids and a glow squid in a deep stone pool: SquidRandomMovementGoal, the tentacle
+    // cycle's impulse and turns, the glow squid's particle draws, a squid stranded on the rim
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 55, stone);
+        for (a, c) in [((11, 11), (11, 36)), ((36, 11), (36, 36)), ((11, 11), (36, 11)), ((11, 36), (36, 36))] {
+            wall(&mut b, a, c, 56, 8, stone);
+        }
+        for x in 12..36 {
+            for z in 12..36 {
+                for y in 56..63 {
+                    b.push(([x, y, z], "minecraft:water[level=0]".to_string()));
+                }
+            }
+        }
+        let p = |s: &str| Some(s.to_string());
+        v.push(Scene {
+            name: "squids".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:squid".into(), [18.5, 59.0, 18.5], p("{PersistenceRequired:1b}")),
+                ("minecraft:squid".into(), [28.5, 58.0, 26.5], p("{PersistenceRequired:1b}")),
+                ("minecraft:glow_squid".into(), [22.5, 57.0, 30.5], p("{PersistenceRequired:1b}")),
+                ("minecraft:squid".into(), [8.5, 56.0, 8.5], p("{PersistenceRequired:1b}")),
+            ],
+            day_time: 6000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 50, 0], [47, 70, 47]),
+            player: Some([24.5, 74.0, 24.5]),
+            player_creative: true,
+            random_tick_speed: 3,
+        });
+    }
     v
 }
 

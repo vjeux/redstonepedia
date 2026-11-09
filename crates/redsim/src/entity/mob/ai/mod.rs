@@ -15,6 +15,7 @@ pub mod attack;
 pub mod bat;
 pub mod brain;
 pub mod cube;
+pub mod squid;
 pub mod control;
 pub mod goal;
 pub mod path;
@@ -83,6 +84,8 @@ pub struct MobAi {
     pub swell_target: Option<u32>,
     /// A cube mob's move control and landing state ([`cube`]).
     pub cube: Option<cube::CubeState>,
+    /// A squid's tentacles and swim direction ([`squid`]).
+    pub squid: Option<squid::SquidState>,
     /// `AgeableMob.age` of a farm animal (0 an adult, a baby counts up from -24000).
     pub age: i32,
 }
@@ -142,11 +145,15 @@ impl MobAi {
             swell_dir: -1,
             swell_target: None,
             cube: None,
+            squid: None,
             age: 0,
         };
         goal::register_goals(&mut ai, ty);
         if let Some(_) = cube::cube_size(d.id) {
             cube::register(&mut ai, d.id, y_rot);
+        }
+        if squid::is_squid_id(d.id) {
+            squid::register(&mut ai, d.id);
         }
         ai
     }
@@ -579,6 +586,8 @@ pub fn body_rotation_tick(w: &mut World, i: usize) {
 /// The rest of `LivingEntity.tick` after `aiStep` for a mob with AI (`tickHeadTurn`, the rotation
 /// range checks) and `Mob.tick`'s `updateControlFlags` every 5 ticks.
 pub fn after_ai_step(w: &mut World, i: usize) {
+    // Squid.aiStep's tail (after LivingEntity.aiStep): the tentacles, the swim impulse, the turns
+    squid::after_ai_step(w, i);
     // IronGolem.aiStep's tail (after Mob.aiStep): attackAnimationTick/offerFlowerTick (client
     // looks) and the persistent anger update
     if mob(w, i).ty == MobType::IronGolem {
@@ -799,9 +808,10 @@ pub fn ambient_sound_tick(w: &mut World, i: usize) {
     };
     ai_mut(w, i).ambient_sound_time = t + 1;
     if roll < t {
-        // -getAmbientSoundInterval(): 120 for an Animal and an AbstractGolem, else Mob's 80
+        // -getAmbientSoundInterval(): 120 for an Animal, an AbstractGolem and an
+        // AgeableWaterCreature (the squids), else Mob's 80
         let id = mob(w, i).ty.def().id;
-        let interval = if goal::animal::is_animal(id) || mob(w, i).ty == MobType::IronGolem { 120 } else { 80 };
+        let interval = if goal::animal::is_animal(id) || squid::is_squid_id(id) || mob(w, i).ty == MobType::IronGolem { 120 } else { 80 };
         ai_mut(w, i).ambient_sound_time = -interval;
         if bat::is_bat(w, i) {
             bat::ambient_sound(w, i);
