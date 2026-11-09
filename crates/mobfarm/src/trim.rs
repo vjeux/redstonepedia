@@ -120,7 +120,7 @@ impl Facts {
     }
 
     fn line(&self) -> String {
-        format!("{} placed ({} caps, {} seals), {} dug, {:.1} build minutes", self.placed, self.caps, self.seals, self.dug, self.seconds / 60.0)
+        format!("{} placed ({} caps, {} seals), {} dug, {:.1} build minutes, the climb from the chest to y {:.1}", self.placed, self.caps, self.seals, self.dug, self.seconds / 60.0, self.climb)
     }
 }
 
@@ -274,6 +274,14 @@ fn climb(w: &World, chest: BlockPos) -> f64 {
             }
         }
     }
+    if std::env::var("MCTAS_TRIM_DEBUG").is_ok() {
+        eprintln!("trim climb: from the chest {chest}: {} cells reached, starts {:?}, best floor {best:.2}", cells.len(), cells.iter().take(4).collect::<Vec<_>>());
+        let mut top: Vec<&BlockPos> = cells.iter().collect();
+        top.sort_by_key(|c| -c.y);
+        for c in top.iter().take(8) {
+            eprintln!("trim climb:   reached {c} (floor {:.2})", floor_height(w, **c));
+        }
+    }
     best
 }
 
@@ -413,6 +421,20 @@ fn keep_of(pl: &Place, d: &Design) -> Result<Keep, String> {
             cells.insert([p[0], p[1] + 1, p[2]]);
         }
     }
+    // a built-in access (its open cells, steps, torches and hatch, connected to the ground layer):
+    // the player's way down to the chest is never trimmed (bed-plate-lava-out-of-sight's first
+    // trim refilled a staircase the climb could not walk anyway)
+    let passable = |s: &str| is_air(s) || s.contains("_slab") || s.contains("fence_gate") || s.contains("torch") || s.contains("ladder");
+    let mut todo: Vec<Pos> = d.blocks.iter().filter(|(p, s)| p[1] >= pl.ground && passable(s)).map(|(p, _)| *p).collect();
+    let mut access: BTreeSet<Pos> = todo.iter().copied().collect();
+    while let Some(p) = todo.pop() {
+        for q in neighbours(p) {
+            if q[1] <= p[1] && inside(&q) && d.blocks.get(&q).is_some_and(|s| passable(s)) && access.insert(q) {
+                todo.push(q);
+            }
+        }
+    }
+    cells.extend(access);
     Ok(Keep { golem, wet, floors, cells })
 }
 
@@ -672,6 +694,40 @@ pub fn trim_cmd(a: &TrimArgs) -> Result<()> {
         a.runs,
         a.days,
         t0.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+/// `mctas mobfarm climb <design>`: the player's way up from the chest at the design's spot (the
+/// trim's climb flood): the highest floor reached against the ground layer (farmopt: check a
+/// built-in access before an upload).
+pub fn climb_cmd(design: &Path) -> Result<()> {
+    let d = Design::load(design)?;
+    let c = circuit::Circuit::from_design(d.clone())?;
+    let spec = circuit::mobfarm::spec_of(&c).map_err(|e| anyhow!(e))?;
+    let (ground, _, _) = site::params(&spec, d.meta.get("ground").map(String::as_str), d.meta.get("afk").map(String::as_str), d.meta.get("terrain").map(String::as_str)).map_err(|e| anyhow!(e))?;
+    let site: Option<&'static Site> = match circuit::mobfarm::terrain_sample(&c).map_err(|e| anyhow!(e))? {
+        Some(s) => Some(Box::leak(Box::new(circuit::mobfarm::site_of(&c, &spec, s.name).map_err(|e| anyhow!(e))?))),
+        None => None,
+    };
+    let moved = match site {
+        Some(s) => s.spec(&spec),
+        None => spec.clone(),
+    };
+    let mut o = RunOpts::steady(1, 0, WalkMode::Random);
+    o.site = site;
+    let run = rfarm::Run::new(&moved, &o).map_err(|e| anyhow!(e))?;
+    let oy = site.map_or(0, |s| s.offset[1]);
+    let floor = climb(&run.world, moved.output);
+    // (the last step out, through the opened hatch onto the surface, is the player's: the flood
+    // stands it right under the ground layer)
+    let reached = floor >= (oy + ground - 1) as f64 - 1e-6;
+    println!(
+        "{}: from the chest (design y {}) the player climbs to a floor at design y {:.1}; the ground layer is y {ground}: {}",
+        design.display(),
+        moved.output.y - oy,
+        floor - oy as f64,
+        if reached { "the access reaches the surface" } else { "NO WAY UP: the access does not reach the surface" }
     );
     Ok(())
 }

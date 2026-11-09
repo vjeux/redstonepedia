@@ -156,6 +156,10 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 192)]
         runs: u32,
     },
+    /// The player's way up from the chest at the design's spot (trim's climb flood: a 0.6 x 1.8
+    /// box walking, jumping 1.25, dropping up to 3; fence gates open): the highest floor reached
+    /// against the ground layer (a built-in access must reach it).
+    Climb { design: PathBuf },
     /// The farm built into a terrain sample, then the terrain track's worst-case checks for
     /// natural mobs (`hostile::check`): each channel's exposure (brief revision 8: a card line,
     /// never a refusal).
@@ -647,6 +651,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         MobfarmCmd::Sight { design, terrain } => sight_cmd(version, &design, terrain.as_deref())?,
         MobfarmCmd::Cubes { design } => cubes_cmd(version, &design)?,
         MobfarmCmd::Trim { design, out, threads, days, runs } => crate::trim::trim_cmd(&crate::trim::TrimArgs { design, out, threads, days, runs })?,
+        MobfarmCmd::Climb { design } => crate::trim::climb_cmd(&design)?,
         MobfarmCmd::Bury { design, out, cover, seeds, ticks } => {
             let (c, spec) = load(version, &design)?;
             let (cells, fluids) = crate::bury::envelope(&spec, &c.clock.design, seeds, ticks)?;
