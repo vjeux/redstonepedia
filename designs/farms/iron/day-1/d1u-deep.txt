@@ -1,4 +1,4 @@
-# CIRCUIT: iron-day1-underground-deep-6 mob-farm iron_ingot day-1 iron per hour per block 0.60, iron per hour 320, iron range 95% 313-328 (96 runs), golems per hour 80.4, seconds per golem 44.8, share of ceiling 67%, modules 1, iron per hour per module 320, kill 314 gt, kill tail the longest 502 gt: no golem outlived 1200 gt in 12864 golems (95% bound 0.02% a golem), golems at the zombie 0 of 12864 golems targeted the farm's zombie, worst policy every constant walk reaches the kill, lips none (no golem stands dry beside a current), restarts after a missed night yes, restarts after days away yes (unloaded or not ticking, back by day or at night: the first golem 0.0-0.1 h after the return), rain clear day 317 iron/h; rain day 305 iron/h; thunder day 307 iron/h, lightning about 0.0 iron lost per thunderstorm; no villager ever turned into a witch; the zombie's boat broken never; a fire beside a flammable block about every 209 game days; a skeleton trap horse on the farm about every 2870 game days; the farm breaks in about 209 game days (a fire first); thunderstorms 1.4% of the time (6211 gt each on average), thunder loss 53.7, sunburn never (the zombie never sees the sky), fire burns its short_grass (first at -345 72 244) in about 17 min in 2 of 96 runs; the lava then flows in, misses 12352 of 25216 tries found no spot, 14318 golem sightings, bill 8 iron, 0 quartz, 3 villagers, 3 beds, 1 zombie, payback 1 min, build time 33 min at day-1 prices (146 placed with 8 cobblestone slabs capping stray golem spots and 31 cobblestone seals, 517 dug, 1 lava trips, 3 villagers moved; the most: 3 villager_moved 540 s, 517 dig 517 s, 1 zombie 180 s, 1 hopper 154 s, 146 place 146 s, 1 lava_trip 120 s, 1 tool:bucket 90 s, 106 travel:pillar_up 53 s), time to an iron kit 39 min at the cheapest spot (from dawn of day 1 until the chest holds 24 iron; runs 38-40 min; 39-40 min over the 12 nearest spots), build minutes 32.7, t kit minutes 38.7, collecting 31 s per trip to the chest (2 x its depth, 33 layers, at the access's speed), iron per hour sleeping 386, volume per module 4752, entities alive 5.4, entities peak 8, iron burnt per golem 0.02 (0.4% of the loot; 1 golem in 237), tools bucket 3, lava sources 1, materials day 1, chunk columns 1, storage 4.8 h (32 slots; 80 poppies/h), hoppers per 1000 iron/h 3.1, spot village-edge at -347 61 246 (the cheapest of the 12 nearest valid spots), exposures in village-edge (-347,246): C2 entry baby zombie 53 cells, bat 416, cave spider 54, creeper 34, fox 54, pillager 34, skeleton 34, slime 55, zombie 34; C4 presence village villager 661 cells, village golem 1416; C5 reach baby zombie 4 cells, cave spider 3, pillager 4, skeleton 4, slime 4, zombie 4; C8 creepers creeper 147 cells, creeper 107; C10 flyers phantom 1 cells, build minutes flat 35.1, villagers left 5, hostile break days exposed: C2 entry; C8 creepers, 531 blocks, 9x33x16, redsim (position-dependent: 1 of 12 builds fail: rotation 0 at [-2, 0, -1]: 401 iron ingots dropped, 398 in the chest, 0 in the farm's containers, 0 loose, 0 burnt: 3 lost)
+# CIRCUIT: iron-day1-underground-deep-6 mob-farm iron_ingot day-1 iron per hour per block 0.65, iron per hour 315, iron range 95% 309-322 (96 runs), golems per hour 79.4, seconds per golem 45.4, share of ceiling 66%, modules 1, iron per hour per module 315, kill 315 gt, kill tail the longest 502 gt: no golem outlived 1200 gt in 12700 golems (95% bound 0.02% a golem), golems at the zombie 0 of 12700 golems targeted the farm's zombie, worst policy every constant walk reaches the kill, lips none (no golem stands dry beside a current), restarts after a missed night yes, restarts after days away yes (unloaded or not ticking, back by day or at night: the first golem 0.0-0.1 h after the return), rain clear day 316 iron/h; rain day 306 iron/h; thunder day 308 iron/h, lightning about 0.0 iron lost per thunderstorm; no villager ever turned into a witch; the zombie's boat broken never; a fire beside a flammable block about every 209 game days; a skeleton trap horse on the farm about every 2870 game days; the farm breaks in about 209 game days (a fire first); thunderstorms 1.4% of the time (6211 gt each on average), thunder loss 52.8, sunburn never (the zombie never sees the sky), fire burns its short_grass (first at -340 72 241) in about 77 min in 1 of 96 runs; the lava then flows in, misses 11809 of 24509 tries found no spot, 13961 golem sightings, bill 8 iron, 0 quartz, 3 villagers, 3 beds, 1 zombie, payback 2 min, build time 31 min at day-1 prices (118 placed with 8 cobblestone slabs capping stray golem spots and 33 cobblestone seals, 473 dug, 1 lava trips, 3 villagers moved; the most: 3 villager_moved 540 s, 473 dig 473 s, 1 zombie 180 s, 1 hopper 154 s, 1 lava_trip 120 s, 118 place 118 s, 1 tool:bucket 90 s, 106 travel:pillar_up 53 s), time to an iron kit 38 min at the cheapest spot (from dawn of day 1 until the chest holds 24 iron; runs 36-40 min; 37-39 min over the 12 nearest spots), build minutes 31.2, t kit minutes 37.9, collecting 31 s per trip to the chest (2 x its depth, 33 layers, at the access's speed), iron per hour sleeping 384, volume per module 4752, entities alive 5.4, entities peak 8, iron burnt per golem 0.02 (0.4% of the loot; 1 golem in 152), tools bucket 3, lava sources 1, materials day 1, chunk columns 1, storage 4.9 h (32 slots; 79 poppies/h), hoppers per 1000 iron/h 3.2, spot village-edge at -347 61 246 (the cheapest of the 12 nearest valid spots), exposures in village-edge (-347,246): C2 entry baby zombie 51 cells, bat 413, cave spider 51, creeper 33, fox 52, pillager 33, skeleton 33, slime 53, zombie 33; C4 presence village villager 661 cells, village golem 1416; C5 reach baby zombie 4 cells, cave spider 4, pillager 4, skeleton 4, slime 4, zombie 4; C8 creepers creeper 147 cells, creeper 107; C10 flyers phantom 1 cells, build minutes flat 33.6, villagers left 5, hostile break days exposed: C2 entry; C8 creepers, 485 blocks, 9x33x16, redsim (position-dependent: 3 of 12 builds fail: rotation 0 at [-4, 0, 0]: a baby animal growing up against a block (fudgePositionAfterSizeChange) is not modeled; a hurt or burning animal's PanicGoal is not modeled yet)
 # Day-1 iron farm dug into the ground beside a village: two villagers on their beds watch a zombie parked in a boat
 # and keep summoning iron golems. At nightfall a third villager lies down in its bed, its pressure plate lets go and a
 # trapdoor hides the zombie: the two fall asleep, then see it again from their beds and wake scared, so golems come
@@ -56,8 +56,8 @@ layer -21:
   .
   .
   .
-  BAAAC
-  AA
+  .AAAC
+  .
   .
   .
   .
@@ -74,7 +74,7 @@ layer -20:
   .
   .
   AAAwH
-  BA
+  .
   .
   .
   .
@@ -91,7 +91,7 @@ layer -19:
   .
   .
   AA..AAAA
-  AB..AAAA
+  A...AAAA
   ....AAAA
   ....AAAS
   .
@@ -107,7 +107,7 @@ layer -18:
   .
   .
   .
-  AB..MAAA
+  A...MAAA
   AA..AAAA
   ....AAAA
   ....AAAA
@@ -124,7 +124,7 @@ layer -17:
   .
   .
   .
-  BQ..LMAA
+  .Q..LMAA
   AA..KAAA
   ....AAAA
   ....AAAA
@@ -142,7 +142,7 @@ layer -16:
   .
   .
   AA..AoAA
-  BA..OAAA
+  .A..OAAA
   ....AAAA
   ....AAAA
   .
@@ -159,7 +159,7 @@ layer -15:
   .
   .
   AA..AAAA
-  AB..AAAA
+  A...AAAA
   ....AAAA
   ....AAAA
   .
@@ -175,7 +175,7 @@ layer -14:
   .
   .
   .
-  AB..AAAA
+  A...AAAA
   AA..AAAA
   ....AAAA
   ....AAAA
@@ -192,7 +192,7 @@ layer -13:
   .
   .
   .
-  BA..AAAA
+  .A..AAAA
   AA..AAAA
   ....AAAA
   ....AAAA
@@ -210,7 +210,7 @@ layer -12:
   .
   .
   AA..AAAA
-  BA..AAAA
+  .A..AAAA
   ....AAAA
   ....AAAA
   .
@@ -227,7 +227,7 @@ layer -11:
   .
   .
   AA..AAAA
-  AB..AAAA
+  A...AAAA
   ....AAAA
   ....AAAA
   .
@@ -243,7 +243,7 @@ layer -10:
   .
   .
   .
-  AB..AAAA
+  A...AAAA
   AA..AAAA
   ....AAAA
   ....AAAA
@@ -260,7 +260,7 @@ layer -9:
   .
   .
   .
-  BQ..AAAA
+  .Q..AAAA
   AA..AAAA
   ....AAAA
   ....AAAA
@@ -278,7 +278,7 @@ layer -8:
   .
   .
   AA..AAAA
-  BA..AAAA
+  .A..AAAA
   ....AAAA
   ....AAAA
   .
@@ -295,7 +295,7 @@ layer -7:
   .
   ...cccccc
   AA.cFFFFc
-  AB.cFAAFc
+  A..cFAAFc
   ...cFAAFc
   ...cFFFFc
   ...cccccc
@@ -311,7 +311,7 @@ layer -6:
   .
   .
   ...SAAAAS
-  AB.AAAAAA
+  A..AAAAAA
   AA.AAFFAA
   ...AAFFAA
   ...AAAAAA
@@ -328,7 +328,7 @@ layer -5:
   .
   .
   ...AAAAAA
-  BA.AAAAAA
+  .A.AAAAAA
   AA.AAAAAA
   ...AAAAAA
   ...AAAAAA
@@ -346,7 +346,7 @@ layer -4:
   .
   ...AAAAAA
   AA.AAAAAA
-  BA.AAAAAA
+  .A.AAAAAA
   ...AAAAAA
   ...AAAAAA
   ...AAAAAA
@@ -363,7 +363,7 @@ layer -3:
   .
   .
   AA
-  AB
+  A
   .
   .
   .
@@ -379,7 +379,7 @@ layer -2:
   .
   .
   .
-  AB
+  A
   AA
   .
   .
@@ -396,7 +396,7 @@ layer -1:
   .
   .
   .
-  BQ
+  .Q
   AA
   .
   .
@@ -414,7 +414,7 @@ layer 0:
   ...R.R
   .
   AA
-  BA
+  .A
   .
   .
   .
@@ -422,16 +422,16 @@ layer 1:
   .....A
   .....A
   .....Jc
-  ...AAA
-  ...AAA
-  ...AAA
+  ....AA
+  ....AA
+  ....AA
   ...DAD
-  ...DAD
+  .
   ...I.I
   .
   .
   AA
-  AB
+  A
   .
   .
   .
@@ -439,11 +439,11 @@ layer 2:
   .
   .
   ......GPN
-  ...AAA
-  ...AAA
+  .
+  .
   ...WAA
   ...AAA
-  ...AAA
+  ...A.A
   ...A.A
   .
   .
@@ -455,7 +455,7 @@ layer 2:
 layer 3:
   .
   .
-  ......AAA
+  ......A
   .
   .
   .
@@ -515,7 +515,7 @@ layer 6:
   .
   .
   .
-  AB
+  A
   AA
   .
   .
@@ -532,7 +532,7 @@ layer 7:
   .
   .
   .
-  BQ
+  .Q
   AA
   .
   .
@@ -550,7 +550,7 @@ layer 8:
   .
   .
   AA
-  BA
+  .A
   .
   .
   .
@@ -567,7 +567,7 @@ layer 9:
   .
   .
   AA
-  AB
+  A
   .
   .
   .
@@ -583,7 +583,7 @@ layer 10:
   .
   .
   .
-  AB
+  A
   AA
   .
   .
