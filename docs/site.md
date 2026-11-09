@@ -175,16 +175,27 @@ index's `kind=farm` lists them, and `kind=circuit` no longer does. Their old pag
   and rewrites their rows the same way (a held one is left alone). A page that comes off the site
   redirects to `farms/iron/`. Commit the folder; the next deploy shows it, at
   `farms/iron/<stem>.html`.
-- **Components**: `designs/farms/<farm>/parts/<part>/` (part `module`, `cage`, `spawn-area`, `kill`,
-  `collection`, `sleep-trigger`) holds each member alone (`<stem>.txt`, no judge) and
+- **Components**: `designs/farms/<farm>/parts/<part>/` (part `module`, `cage`, `sleep-trigger`
+  (the optimizer's `calm`), `spawn-area` (its `pad`), `transport`, `kill`, `collection`, `storage`,
+  `access`) holds each member alone (`<stem>.txt`, no judge) and
   `members.tsv` (`file`, `name`, `stage`, `metrics` as `key value, key value`, `used_by` = the full
   farms' stems, space-separated), best first, written by the farm optimizer. A member whose file
   is not in the part's folder is a judged design of its stage (`designs/farms/<farm>/<stage>/`,
   gated like a variation): a farm module (ironspec 2026-11-08: the unit the bigger farms copy), its
   numbers read from its verdict (iron an hour, blocks, build minutes, villagers) when `metrics` is
   empty. Each part with members gets `farms/<farm>/parts/<part>/index.html` (each member's 3D
-  view, its numbers and the full farms built with it), and each full farm's page lists the members
-  it is built from.
+  view, its numbers as a player reads them: blocks placed, build time in minutes; and the full
+  farms built with it), the members the listed farms use first.
+- **A farm's parts** (the parent 2026-11-08 20:59: every farm page lists its parts, each with its
+  own numbers, linking to that part's version): `<stem>.parts.tsv` beside a listed farm's design
+  (its stage folder, or the archive), written by the farm optimizer, whose builder tags every block
+  with the part that placed it: `part member blocks dug build_seconds` (`#` lines are notes),
+  `part` a folder above or its other name (`calm`, `pad`), `member` that part's version in its
+  catalog (its stem; empty when it is not one), the rows summing to the farm's card. The farm's
+  page shows them as "What it is made of" (each part, the version it uses linked to its component
+  page, its blocks placed, blocks dug and build time, and the whole farm's); a part name the site
+  does not know fails the build's read of the file (a warning), a version its catalog lacks is
+  named in the build's notes. Without the file, the members whose `used_by` names the farm.
 - **Bars**: a judged design that is never listed (the copies of one module a stage's farms must
   beat) goes in `designs/farms/iron/bars/` with its `verdicts.tsv` row; a curated card quotes it
   (`{field@stem}`), as it can quote a stage's held variations.

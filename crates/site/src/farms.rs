@@ -33,14 +33,31 @@ pub const STAGES: [(&str, &str, &str, &str); 3] = [
 ];
 
 /// An iron farm's components: (folder, name, what it is, for the player).
-pub const PARTS: [(&str, &str, &str); 6] = [
-    ("module", "Farm module", "One whole farm, the unit bigger farms are copies of: its iron an hour, its blocks and its build time."),
-    ("cage", "Villager cage", "Where the villagers sleep and watch the zombie: how many villagers, and how many of them watch."),
-    ("spawn-area", "Golem spawn area", "The floor where the golems appear: its size, and how often a golem finds a spot on it."),
-    ("kill", "Kill chamber", "Where the golems die: the lava, the drop, and whether the villagers see it."),
-    ("collection", "Collection", "How the iron reaches your chest, and how long the chest holds it."),
-    ("sleep-trigger", "Sleep trigger", "What hides the zombie at night, so the villagers can sleep."),
+/// An iron farm's parts, in the order its pages list them: (folder, the other name the optimizer
+/// may write it under, name, what it is, for the player). The parent 2026-11-08 20:59: every farm
+/// page lists its parts (cage, calm, pad, transport, kill, collection, storage, access), each with
+/// its own numbers and a link to that part on its component page.
+pub const PARTS: [(&str, &str, &str, &str); 9] = [
+    ("module", "", "Farm module", "One whole farm, the unit bigger farms are copies of: its iron an hour, its blocks and its build time."),
+    ("cage", "", "Villager cage", "Where the villagers sleep and watch the zombie: how many villagers, and how many of them watch."),
+    ("sleep-trigger", "calm", "Sleep trigger", "What hides the zombie at night, so the villagers can sleep."),
+    ("spawn-area", "pad", "Golem spawn area", "The floor where the golems appear: its size, and how often a golem finds a spot on it."),
+    ("transport", "", "Golem drop", "How the golems get from where they appear to where they die."),
+    ("kill", "", "Kill chamber", "Where the golems die: the lava, the drop, and whether the villagers see it."),
+    ("collection", "", "Collection", "How the iron reaches your chest, and how long the chest holds it."),
+    ("storage", "", "Storage", "The chests that hold the iron until you come back for it."),
+    ("access", "", "Access", "The way to the chest and back, and the way in to build it."),
 ];
+
+/// A part's folder from its name or its other name (`calm` -> `sleep-trigger`).
+pub fn part_folder(key: &str) -> Option<&'static str> {
+    PARTS.iter().find(|p| p.0 == key || (!p.1.is_empty() && p.1 == key)).map(|p| p.0)
+}
+
+/// A part's name and what it is (`PARTS`).
+fn part_words(folder: &str) -> (&'static str, &'static str) {
+    PARTS.iter().find(|p| p.0 == folder).map(|p| (p.2, p.3)).unwrap_or(("Part", ""))
+}
 
 /// The title of a farm folder, by what it produces (`iron` -> `Iron farm`, `sugar-cane` ->
 /// `Sugar cane farm`, `melon-pumpkin` -> `Melon and pumpkin farm`: the names players search for,
@@ -253,7 +270,7 @@ pub fn read_members(repo: &Path, farm: &str, part: &str) -> Vec<Member> {
                 let s = staged.filter(|s| repo.join(s).join(&file).exists())?;
                 (format!("{s}/{file}"), Some(s))
             };
-            let mut metrics = crate::circuits::parse_metrics(r.get("metrics").map(String::as_str).unwrap_or(""));
+            let mut metrics = parse_member_metrics(r.get("metrics").map(String::as_str).unwrap_or(""));
             let row = from_stage.as_ref().and_then(|s| circuit::archive::read_rows(&repo.join(s)).ok()).and_then(|rows| rows.into_iter().find(|x| x.file == file));
             if metrics.is_empty()
                 && let Some(row) = &row
@@ -288,10 +305,39 @@ pub fn member_design(_farm: &str, m: &Member) -> String {
     m.src.clone()
 }
 
+/// The optimizer's member metrics (`members.tsv`: `key value, key value`) as (key, value): a known
+/// key of several words first (`watching villagers 2`, `hide time 28 ticks`, `storage hours at 480
+/// iron/h 3.2`); else the last word when it is the number (`spawn success per check 88%`, `in sight
+/// of the villagers yes`); else from the first number on (`drop 22 blocks`); else the first word.
+pub fn parse_member_metrics(s: &str) -> Vec<(String, String)> {
+    const KEYS: [&str; 12] = ["storage hours at 480 iron/h", "in sight of the villagers", "spawn success per check", "blocks with wiring", "watching villagers", "build seconds", "build minutes", "iron per hour", "lava buckets", "floor cells", "hide time", "storage hours"];
+    let number = |t: &str| t.trim_end_matches(['%', 's']).replace(',', "").parse::<f64>().is_ok() || t == "yes" || t == "no";
+    s.split(", ")
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            if let Some(k) = KEYS.iter().find(|k| p.strip_prefix(**k).is_some_and(|r| r.starts_with(' '))) {
+                return (k.to_string(), p[k.len() + 1..].trim().to_string());
+            }
+            let words: Vec<&str> = p.split_whitespace().collect();
+            if words.len() > 1 && number(words[words.len() - 1]) {
+                return (words[..words.len() - 1].join(" "), words[words.len() - 1].to_string());
+            }
+            if let Some(i) = words.iter().position(|w| w.starts_with(|c: char| c.is_ascii_digit())).filter(|i| *i > 0) {
+                return (words[..i].join(" "), words[i..].join(" "));
+            }
+            match p.split_once(' ') {
+                Some((k, v)) => (k.to_string(), v.to_string()),
+                None => (p.to_string(), String::new()),
+            }
+        })
+        .collect()
+}
+
 /// A member's design as the site serves it: its working comments out (the parent 2026-11-08: no
 /// internal notes in a published design), a header naming it and its page.
 pub fn member_text(farm: &str, m: &Member, text: &str) -> String {
-    let title = PARTS.iter().find(|p| p.0 == m.part).map(|p| p.1).unwrap_or("Part");
+    let title = part_words(&m.part).0;
     let body: String = text.lines().filter(|l| !l.starts_with('#')).map(|l| format!("{l}\n")).collect();
     format!("# {title}: {}\n# {}{}#{}\n{body}", m.name, crate::deploy::PAGES_URL, part_page_path(farm, &m.part), m.stem())
 }
@@ -308,7 +354,7 @@ fn member_viewer(prefix: &str, m: &Member) -> String {
     if let Some(t) = &m.terrain {
         a.push_str(&format!(" data-terrain=\"{}\"", esc(&format!("{prefix}{}", crate::pages::terrain_file(t)))));
     }
-    let title = PARTS.iter().find(|p| p.0 == m.part).map(|p| p.1).unwrap_or("");
+    let title = part_words(&m.part).0;
     format!(
         "<div class=\"viewer k-circuit\" data-mcview=\"full\" data-src=\"{}\"{a} data-kind=\"circuit\"><div class=\"fallback\"><span class=\"fb-big\">{}</span><span class=\"fb-small\">{}</span></div></div>",
         esc(&format!("{prefix}{}", m.src)),
@@ -324,13 +370,98 @@ pub fn part_page_path(farm: &str, part: &str) -> String {
 
 static PARTS_LOADED: std::sync::RwLock<Vec<Member>> = std::sync::RwLock::new(Vec::new());
 
-/// Load every iron-farm component's members (the build pages link a farm to its components).
+/// One part of a listed farm (`<stem>.parts.tsv` beside its design, written by the farm
+/// optimizer: each block tagged by the part that placed it; the parent 2026-11-08 20:59).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FarmPart {
+    /// The part's folder (`cage`, `sleep-trigger` for `calm`...: [`part_folder`]).
+    pub part: String,
+    /// Its member's stem in the part's catalog (`parts/<part>/members.tsv`), if it is one.
+    pub member: String,
+    pub blocks: u32,
+    pub dug: u32,
+    pub build_seconds: f64,
+}
+
+static FARM_PARTS: std::sync::RwLock<std::collections::BTreeMap<String, Vec<FarmPart>>> = std::sync::RwLock::new(std::collections::BTreeMap::new());
+
+/// A farm's parts file's rows (`part member blocks dug build_seconds`, `#` lines are notes),
+/// in the file's order; a part name the site does not know fails, naming it.
+pub fn read_farm_parts(text: &str) -> Result<Vec<FarmPart>> {
+    let mut v = Vec::new();
+    for r in tsv_rows(text) {
+        let key = r.get("part").cloned().unwrap_or_default();
+        if key.is_empty() {
+            continue;
+        }
+        let part = part_folder(&key).with_context(|| format!("unknown part {key:?} (one of {})", PARTS.iter().map(|p| if p.1.is_empty() { p.0.to_string() } else { format!("{} ({})", p.1, p.0) }).collect::<Vec<_>>().join(", ")))?;
+        let num = |c: &str| r.get(c).and_then(|v| v.replace(',', "").parse::<f64>().ok()).unwrap_or(0.0);
+        v.push(FarmPart { part: part.to_string(), member: r.get("member").cloned().unwrap_or_default().trim_end_matches(".txt").to_string(), blocks: num("blocks") as u32, dug: num("dug") as u32, build_seconds: num("build_seconds") });
+    }
+    Ok(v)
+}
+
+/// Every listed farm's parts: `designs/farms/<farm>/<stage>/<stem>.parts.tsv` and
+/// `designs/circuits/mobfarm/archive/<stem>.parts.tsv`, by stem.
+fn load_farm_parts(repo: &Path) -> Result<std::collections::BTreeMap<String, Vec<FarmPart>>> {
+    let mut dirs: Vec<PathBuf> = STAGES.iter().map(|s| repo.join("designs/farms/iron").join(s.0)).collect();
+    dirs.push(repo.join("designs/circuits/mobfarm/archive"));
+    let mut all = std::collections::BTreeMap::new();
+    for d in dirs {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if let Some(stem) = name.strip_suffix(".parts.tsv") {
+                let text = std::fs::read_to_string(e.path())?;
+                all.insert(stem.to_string(), read_farm_parts(&text).with_context(|| format!("{}", e.path().display()))?);
+            }
+        }
+    }
+    Ok(all)
+}
+
+/// Load every iron-farm component's members and every listed farm's parts (the build pages link a
+/// farm to its parts, the parts' pages to the farms built with them).
 pub fn load_parts(repo: &Path) -> Vec<Member> {
-    let all: Vec<Member> = PARTS.iter().flat_map(|(p, _, _)| read_members(repo, "iron", p)).collect();
+    let all: Vec<Member> = PARTS.iter().flat_map(|p| read_members(repo, "iron", p.0)).collect();
     if let Ok(mut g) = PARTS_LOADED.write() {
         *g = all.clone();
     }
+    match load_farm_parts(repo) {
+        Ok(f) => {
+            // (a parts file naming a version its part's catalog lacks: its row links to the part's
+            // page instead; said, so the optimizer can add it)
+            for (stem, parts) in &f {
+                for p in parts.iter().filter(|p| !p.member.is_empty() && !all.iter().any(|m| m.part == p.part && m.stem() == p.member)) {
+                    eprintln!("  note: {stem}.parts.tsv: {} names {}, which designs/farms/iron/parts/{}/members.tsv does not list", p.part, p.member, p.part);
+                }
+            }
+            if let Ok(mut g) = FARM_PARTS.write() {
+                *g = f;
+            }
+        }
+        Err(e) => eprintln!("  WARNING: the farms' parts files: {e:#}"),
+    }
     all
+}
+
+/// A farm's parts (its `<stem>.parts.tsv`), none without the file.
+pub fn farm_parts(stem: &str) -> Vec<FarmPart> {
+    FARM_PARTS.read().ok().and_then(|g| g.get(stem).cloned()).unwrap_or_default()
+}
+
+/// The stems of the listed farms a member is built into: its `used_by`, and every farm whose parts
+/// file names it.
+pub fn farms_using(m: &Member) -> Vec<String> {
+    let mut v = m.used_by.clone();
+    if let Ok(g) = FARM_PARTS.read() {
+        for (stem, parts) in g.iter() {
+            if parts.iter().any(|p| p.part == m.part && p.member == m.stem()) && !v.contains(stem) {
+                v.push(stem.clone());
+            }
+        }
+    }
+    v
 }
 
 /// The loaded members a full farm (by its design's stem) is built with.
@@ -344,17 +475,63 @@ pub fn loaded_part_pages() -> Vec<String> {
     parts.into_iter().map(|p| part_page_path("iron", &p)).collect()
 }
 
-/// A full farm page's "Its parts" section: the components it is built from, each linking to its
-/// member on the component's page (empty when it names none).
+/// Build seconds as a player reads them: `40 s`, `3 min`, `1 h 05 min`.
+fn build_time(s: f64) -> String {
+    let s = s.max(0.0).round() as u64;
+    match s {
+        0..=59 => format!("{s} s"),
+        60..=3599 => format!("{} min", (s + 30) / 60),
+        _ => format!("{} h {:02} min", s / 3600, (s % 3600 + 30) / 60),
+    }
+}
+
+/// A full farm page's "What it is made of" section (the parent 2026-11-08 20:59: a visitor sees
+/// what each part takes): each part of its parts file with its blocks placed, its blocks dug and
+/// its build time, linking to that part's version on its component page; else (no parts file) the
+/// members whose `used_by` names it; empty when it has neither.
 pub fn parts_section(b: &Build, prefix: &str) -> String {
     let farm = site_model::build_farm_folder(b).unwrap_or_default();
+    if farm.is_empty() {
+        return String::new();
+    }
+    let rows = farm_parts(&b.name);
+    if !rows.is_empty() {
+        let members = PARTS_LOADED.read().map(|g| g.clone()).unwrap_or_default();
+        let has_page = |part: &str| members.iter().any(|m| m.part == part);
+        let mut body = String::new();
+        for p in &rows {
+            let (title, _) = part_words(&p.part);
+            let name = match members.iter().find(|m| m.part == p.part && !p.member.is_empty() && m.stem() == p.member) {
+                Some(m) => format!("<a href=\"{prefix}{}#{}\">{}</a>", esc(&part_page_path(&farm, &p.part)), esc(m.stem()), esc(&m.name)),
+                None if has_page(&p.part) => format!("<a href=\"{prefix}{}\">other versions</a>", esc(&part_page_path(&farm, &p.part))),
+                None => String::new(),
+            };
+            body.push_str(&format!(
+                "<tr><th scope=\"row\">{}</th><td>{name}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                esc(title),
+                site_model::html::group_thousands(p.blocks as u64),
+                site_model::html::group_thousands(p.dug as u64),
+                esc(&build_time(p.build_seconds))
+            ));
+        }
+        let (blocks, dug, secs) = rows.iter().fold((0u64, 0u64, 0.0f64), |a, p| (a.0 + p.blocks as u64, a.1 + p.dug as u64, a.2 + p.build_seconds));
+        body.push_str(&format!(
+            "<tr class=\"total\"><th scope=\"row\">The whole farm</th><td></td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            site_model::html::group_thousands(blocks),
+            site_model::html::group_thousands(dug),
+            esc(&build_time(secs))
+        ));
+        return format!(
+            "<section><h2>What it is made of</h2><p>Each part of this farm, what it takes to build, and the version of it this farm uses: follow a part to see its other versions side by side.</p><div class=\"scroll-x\"><table class=\"list parts\"><thead><tr><th>part</th><th>this farm's</th><th>blocks placed</th><th>blocks dug</th><th>build time</th></tr></thead><tbody>{body}</tbody></table></div></section>\n"
+        );
+    }
     let used = parts_of(&b.name);
-    if used.is_empty() || farm.is_empty() {
+    if used.is_empty() {
         return String::new();
     }
     let items: String = PARTS
         .iter()
-        .flat_map(|(p, title, _)| used.iter().filter(move |m| m.part == *p).map(move |m| (title, m)))
+        .flat_map(|p| used.iter().filter(move |m| m.part == p.0).map(move |m| (p.2, m)))
         .map(|(title, m)| format!("<li><b>{}</b>: <a href=\"{prefix}{}#{}\">{}</a></li>", esc(title), esc(&part_page_path(&farm, &m.part)), esc(m.stem()), esc(&m.name)))
         .collect();
     format!("<section><h2>What it is made of</h2><ul class=\"parts\">{items}</ul></section>\n")
@@ -491,7 +668,7 @@ pub fn iron_hub(site: &Site, parts: &[Member], scripts: Scripts) -> String {
         stages.push_str(&format!("<section class=\"stage\"><h3>{}</h3><p class=\"hint\">{}</p>\n{body}</section>\n", esc(title), esc(line)));
     }
     let mut comps: Vec<String> = Vec::new();
-    for (p, title, what) in PARTS {
+    for (p, _, title, what) in PARTS {
         let members: Vec<&Member> = parts.iter().filter(|m| m.part == p).collect();
         let Some(best) = members.first() else { continue };
         comps.push(format!(
@@ -522,7 +699,7 @@ pub fn part_page(site: &Site, farm: &str, part: &str, members: &[Member], script
     let path = part_page_path(farm, part);
     let prefix_s = pages::prefix_of(&path);
     let prefix = prefix_s.as_str();
-    let (title, what) = PARTS.iter().find(|p| p.0 == part).map(|p| (p.1, p.2)).unwrap_or((part, ""));
+    let (title, what) = part_words(part);
     let mut body = format!(
         "<p class=\"crumbs\"><a href=\"{prefix}index.html\">{SITE_NAME}</a> › <a href=\"{prefix}farms/index.html\">Farms</a> › <a href=\"{prefix}farms/{farm}/index.html\">{}</a> › {}</p>\n<h1>{}</h1>\n<p class=\"lede\">{}</p>\n",
         esc(&farm_title(farm)),
@@ -530,13 +707,30 @@ pub fn part_page(site: &Site, farm: &str, part: &str, members: &[Member], script
         esc(title),
         esc(what)
     );
+    // the versions the listed farms are built with first (the parent 2026-11-08 20:59: each
+    // component page lists its part's best members first, with their numbers), then the others,
+    // each group in the catalog's order (best first)
+    let listed = |m: &Member| farms_using(m).iter().any(|u| site.builds.iter().any(|b| &b.name == u && site_model::is_farm(b)));
+    let mut members: Vec<&Member> = members.iter().collect();
+    members.sort_by_key(|m| !listed(m));
     for m in members {
         let design = member_design(farm, m);
-        let rows: String = m.metrics.iter().map(|(k, v)| format!("<tr><th scope=\"row\">{}</th><td>{}</td></tr>", esc(k), esc(&crate::explain::group_numbers(v)))).collect();
+        // (its numbers as a player reads them: blocks placed, build time in minutes)
+        let rows: String = m
+            .metrics
+            .iter()
+            .map(|(k, v)| {
+                let (k, v) = match k.as_str() {
+                    "blocks" => ("blocks placed".to_string(), v.clone()),
+                    "build seconds" => ("build time".to_string(), v.split_whitespace().next().and_then(|s| s.parse::<f64>().ok()).map(build_time).unwrap_or_else(|| v.clone())),
+                    _ => (k.clone(), v.clone()),
+                };
+                format!("<tr><th scope=\"row\">{}</th><td>{}</td></tr>", esc(&k), esc(&crate::explain::group_numbers(&v)))
+            })
+            .collect();
         // (a farm module reads as a component: no stage line, ironspec 2026-11-08)
         let stage = if m.part == "module" { String::new() } else { STAGES.iter().find(|s| s.0 == m.stage).map(|s| format!("<tr><th scope=\"row\">stage</th><td>{}</td></tr>", esc(s.1))).unwrap_or_default() };
-        let used: Vec<String> = m
-            .used_by
+        let used: Vec<String> = farms_using(m)
             .iter()
             .filter_map(|u| site.builds.iter().find(|b| &b.name == u && site_model::is_farm(b)))
             .map(|b| format!("<a href=\"{prefix}{}\">{}</a>", esc(&b.page), esc(&pages::page_title(b))))
@@ -915,6 +1109,24 @@ mod tests {
         assert_eq!(m.len(), 1, "a member whose design is missing is left out");
         assert_eq!(m[0].metrics[1], ("drop".to_string(), "22 blocks".to_string()));
         assert_eq!(m[0].used_by, vec!["m2-open".to_string(), "d4".to_string()]);
+    }
+
+    #[test]
+    fn a_farm_s_parts_and_its_members_numbers() {
+        // (the parent 2026-11-08 20:59: every farm page lists its parts with their numbers; the
+        // optimizer's parts file, its other names for two parts: calm, pad)
+        let p = read_farm_parts("# travel by share of placed blocks\npart\tmember\tblocks\tdug\tbuild_seconds\ncage\tbed-plate-2-watching.txt\t75\t40\t1122\ncalm\tbed-plate\t35\t10\t193\npad\t\t80\t60\t502.5\n").unwrap();
+        assert_eq!(p.iter().map(|p| p.part.as_str()).collect::<Vec<_>>(), ["cage", "sleep-trigger", "spawn-area"]);
+        assert_eq!(p[0].member, "bed-plate-2-watching");
+        assert_eq!((p[2].blocks, p[2].dug, p[2].build_seconds), (80, 60, 502.5));
+        assert!(read_farm_parts("part\tmember\tblocks\tdug\tbuild_seconds\nmoat\t\t1\t0\t1\n").unwrap_err().to_string().contains("unknown part"));
+        assert_eq!((build_time(40.0), build_time(193.0), build_time(1122.0), build_time(3930.0)), ("40 s".into(), "3 min".into(), "19 min".into(), "1 h 06 min".into()));
+        // the optimizer's member metrics, keys of several words
+        let m = parse_member_metrics("villagers 3, watching villagers 2, blocks 75, build seconds 1122, spawn success per check 88%, in sight of the villagers no, drop 22 blocks, hide time while the bed villager sleeps, storage hours at 480 iron/h 3.2");
+        let get = |k: &str| m.iter().find(|(kk, _)| kk == k).map(|(_, v)| v.as_str());
+        assert_eq!((get("villagers"), get("watching villagers"), get("blocks"), get("build seconds")), (Some("3"), Some("2"), Some("75"), Some("1122")));
+        assert_eq!((get("spawn success per check"), get("in sight of the villagers"), get("drop")), (Some("88%"), Some("no"), Some("22 blocks")));
+        assert_eq!((get("hide time"), get("storage hours at 480 iron/h")), (Some("while the bed villager sleeps"), Some("3.2")));
     }
 
     #[test]
