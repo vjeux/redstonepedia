@@ -926,6 +926,40 @@ fn check_inside_blocks(w: &mut World, i: usize, moves: &[Movement]) {
     }
 }
 
+/// `RedStoneOreBlock.stepOn` (nobody sneaks) → `interact`: `spawnParticles` (the level random's two
+/// floats for each face, in `Direction.values()` order, whose neighbour is not solid-render: the two
+/// coordinates off that face's axis), then lit (flags 3) unless it already is.
+pub fn redstone_ore_interact(w: &mut World, pos: BlockPos, id: u16) {
+    use crate::terrain::blocks;
+    let solid_render = |w: &World, p: BlockPos| -> bool {
+        let props = match w.get(p) {
+            Block::Terrain(t) => Some(blocks::props(t)),
+            Block::Air => blocks::id_of("minecraft:air").map(blocks::props),
+            b => blocks::id_of(&b.to_string()).map(blocks::props),
+        };
+        props.is_some_and(|q| q.solid_render)
+    };
+    for d in [crate::pos::Dir::Down, crate::pos::Dir::Up, crate::pos::Dir::North, crate::pos::Dir::South, crate::pos::Dir::West, crate::pos::Dir::East] {
+        if !solid_render(w, pos.rel(d)) {
+            let Some(r) = w.level_random.as_mut() else {
+                let why = "a redstone ore's particles draw from the level random (World::mirror_level_random)".to_string();
+                if !w.errors.contains(&why) {
+                    w.errors.push(why);
+                }
+                return;
+            };
+            r.next_float();
+            r.next_float();
+        }
+    }
+    let name = blocks::props(id).name.clone();
+    if name.contains("lit=false")
+        && let Ok(b) = crate::terrain::land::block_of(&name.replace("lit=false", "lit=true"))
+    {
+        w.set_block(pos, b, crate::world::flags::ALL);
+    }
+}
+
 /// The `stepOn` part of `Entity.applyEffectsFromBlocks(movements)`: an entity on the ground acts
 /// on the block at `getOnPosLegacy()`. Slime: `|vy| < 0.1` scales the horizontal motion by
 /// `0.4 + |vy| * 0.2` (nobody sneaks); magma under a living entity (damage) and sculk sensors
@@ -956,6 +990,9 @@ fn step_on(w: &mut World, i: usize) {
             let e = &w.entities.list[i];
             let at = [e.pos.x, e.pos.y, e.pos.z];
             crate::sculk::step_on(w, pos, at);
+        }
+        Block::Terrain(id) if matches!(crate::terrain::blocks::props(id).block_id(), "minecraft:redstone_ore" | "minecraft:deepslate_redstone_ore") => {
+            redstone_ore_interact(w, pos, id);
         }
         _ => {}
     }

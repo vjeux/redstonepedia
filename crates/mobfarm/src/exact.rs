@@ -119,6 +119,47 @@ fn entity_probe() -> Option<(&'static [u32], i64, i64)> {
     .map(|(ids, a, b)| (ids.as_slice(), *a, *b))
 }
 
+/// `MCTAS_EXACT_TALLY="x0,y0,z0,x1,y1,z1"` (world coordinates): a probe tallying, on each side,
+/// the entity ticks and the distinct entities of each type inside that box after the arrival,
+/// printed when the compare ends (a statistical side by side once the two runs have diverged).
+fn tally_box() -> Option<[f64; 6]> {
+    static P: std::sync::OnceLock<Option<[f64; 6]>> = std::sync::OnceLock::new();
+    *P.get_or_init(|| {
+        let v = std::env::var("MCTAS_EXACT_TALLY").ok()?;
+        let c: Vec<f64> = v.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+        (c.len() == 6).then(|| [c[0].min(c[3]), c[1].min(c[4]), c[2].min(c[5]), c[0].max(c[3]), c[1].max(c[4]), c[2].max(c[5])])
+    })
+}
+
+/// The tally's counts: per side, per type, (entity ticks, distinct entities).
+#[derive(Default)]
+struct Tally {
+    sides: [std::collections::BTreeMap<String, (u64, std::collections::BTreeSet<u32>)>; 2],
+}
+
+impl Tally {
+    fn add(&mut self, side: usize, frames: &[redsim::exact::EntityFrame]) {
+        let Some(b) = tally_box() else { return };
+        for e in frames {
+            let [x, y, z] = e.pos;
+            if x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5] {
+                let s = self.sides[side].entry(e.ty.clone()).or_default();
+                s.0 += 1;
+                s.1.insert(e.n);
+            }
+        }
+    }
+
+    fn print(&self) {
+        let Some(b) = tally_box() else { return };
+        println!("tally inside {b:?} after the arrival (entity ticks, distinct entities):");
+        for (k, side) in ["game", "redsim"].iter().enumerate() {
+            let rows: Vec<String> = self.sides[k].iter().map(|(t, (n, ids))| format!("{t} {n} ({})", ids.len())).collect();
+            println!("  {side}: {}", rows.join(", "));
+        }
+    }
+}
+
 /// The game's side alone over `seeds` (no redsim): each run's custom spawner events seen as
 /// entities entering (a siege's zombies, a patrol's pillagers, phantoms, cats, a trader), to find
 /// a seed where one fires (the siege and patrol fixtures).
@@ -891,6 +932,7 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
     let bonus = follow_bonuses(opts.seed, mobs);
     set_bonuses(&mut run.world, &bonus);
     game.arrive(&c, &spec, &run.world, &bonus)?;
+    let mut tally = Tally::default();
     let mut left = opts.ticks;
     while left > 0 {
         let n = left.min(opts.batch);
@@ -918,6 +960,8 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
                     eprintln!("t{} #{n} redsim: {:?}", f.t, o.map(|e| (e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time, &e.memories)));
                 }
             }
+            tally.add(0, &f.entities);
+            tally.add(1, &ours.entities);
             cmp.tick(&f, &ours);
         }
         t += n as i64;
@@ -928,6 +972,7 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
     }
     eprintln!("redsim's side: {:.2} s for {} ticks ({:.1} us a tick: {:.1} us ticking, the rest its frames)", redsim_time.as_secs_f64(), t, redsim_time.as_secs_f64() * 1e6 / t.max(1) as f64, tick_time.as_secs_f64() * 1e6 / t.max(1) as f64);
     eprintln!("container changes after the arrival: the game {}, redsim {}", changes[0], changes[1]);
+    tally.print();
     // (a probe: MCTAS_EXACT_LIGHT="x0,y0,z0,x1,y1,z1": each cell of the box whose sky or block light
     // differs at the end, the game's against redsim's)
     if let Ok(b) = std::env::var("MCTAS_EXACT_LIGHT") {

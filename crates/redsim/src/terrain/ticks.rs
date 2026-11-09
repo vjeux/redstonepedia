@@ -46,6 +46,13 @@ pub fn random_tick(w: &mut World, id: u16, p: BlockPos) {
         "minecraft:sulfur_spike" => speleothem(w, p, "minecraft:sulfur"),
         "minecraft:vine" => vine(w, p, id),
         "minecraft:sugar_cane" => sugar_cane(w, p, id),
+        // RedStoneOreBlock.randomTick (only lit ore ticks): back to unlit, no draws
+        "minecraft:redstone_ore" | "minecraft:deepslate_redstone_ore" => {
+            let name = blocks::props(id).name.clone();
+            if prop(&name, "lit") == Some("true") {
+                set(w, p, &name.replace("lit=true", "lit=false"), flags::ALL);
+            }
+        }
         _ => error(w, format!("the random tick of {} is not modeled", blocks::props(id).name)),
     }
 }
