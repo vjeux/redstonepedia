@@ -142,11 +142,61 @@ pub fn village_can_use(w: &mut World, i: usize, g: &mut MoveThroughVillage) -> b
     if !crate::entity::mob::ai::poi::is_close_to_village(w, pos, 6) {
         return false;
     }
-    let why = "a zombie at night near a village (MoveThroughVillageGoal with claimed POIs) is not modeled yet".to_string();
-    if !w.errors.contains(&why) {
-        w.errors.push(why);
+    use crate::entity::mob::ai::{poi, with_nav};
+    // PoiManager.find(the village POIs, not visited, center, 10, IS_OCCUPIED): the first claimed
+    // one in the POI manager's order
+    let find = |w: &mut World, center: BlockPos, visited: &[BlockPos]| poi::occupied_in_range_ordered(w, center, 10).into_iter().find(|q| !visited.contains(q));
+    let visited = g.visited.clone();
+    // LandRandomPos.getPos(15, 7): the candidate in a village whose nearest unvisited claimed POI
+    // is the closest to the zombie
+    let land = super::stroll::land_random_pos_by(w, i, 15, 7, |w, p| {
+        if !poi::is_village(w, p) {
+            return f64::NEG_INFINITY;
+        }
+        match find(w, p, &visited) {
+            Some(q) => {
+                let (dx, dy, dz) = ((q.x - pos.x) as f64, (q.y - pos.y) as f64, (q.z - pos.z) as f64);
+                -(dx * dx + dy * dy + dz * dz)
+            }
+            None => f64::NEG_INFINITY,
+        }
+    });
+    let Some(land) = land else { return false };
+    let Some(target) = find(w, crate::entity::mob::ai::brain::containing(land), &visited) else { return false };
+    g.poi_pos = target;
+    // createPath(poiPos, 0) with canOpenDoors = canDealWithDoors (the zombie's canBreakDoors),
+    // then setCanOpenDoors(true): it stays true afterwards (the game's own)
+    let doors = ai(w, i).can_break_doors;
+    let mut path = with_nav(w, i, |w, nm, nav, arena| {
+        nav.flags.can_open_doors = doors;
+        let p = nav.create_path_pos(w, nm, target, 0, arena);
+        nav.flags.can_open_doors = true;
+        p
+    });
+    if path.is_none() {
+        let towards = Vec3::new(target.x as f64 + 0.5, target.y as f64, target.z as f64 + 0.5);
+        let Some(step) = super::stroll::default_pos_towards(w, i, 10, 7, towards, (std::f64::consts::PI / 2.0) as f32 as f64) else { return false };
+        let sb = crate::entity::mob::ai::brain::containing(step);
+        path = with_nav(w, i, |w, nm, nav, arena| {
+            nav.flags.can_open_doors = doors;
+            let p = nav.create_path_pos(w, nm, sb, 0, arena);
+            nav.flags.can_open_doors = true;
+            p
+        });
+        if path.is_none() {
+            return false;
+        }
     }
-    false
+    // a wooden door over a node: the path to that node instead
+    let nodes: Vec<BlockPos> = path.as_ref().map(|p| p.nodes.iter().map(|n| BlockPos::new(n.x, n.y, n.z)).collect()).unwrap_or_default();
+    for n in nodes {
+        if is_wooden_door(w, n.above()) {
+            path = with_nav(w, i, |w, nm, nav, arena| nav.create_path_pos(w, nm, n, 0, arena));
+            break;
+        }
+    }
+    g.path = path;
+    g.path.is_some()
 }
 
 pub fn village_can_continue(w: &mut World, i: usize, g: &mut MoveThroughVillage) -> bool {

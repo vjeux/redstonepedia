@@ -450,6 +450,39 @@ fn scenes_raw() -> Vec<Scene> {
             player_creative: true,
         });
     }
+    // a zombie at night outside a closed stone house whose three villagers claim their beds:
+    // MoveThroughVillageGoal (the claimed POIs, LandRandomPos scored by the nearest unvisited
+    // one, the path toward it)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        for (a, c) in [((28, 18), (28, 30)), ((38, 18), (38, 30)), ((28, 18), (38, 18)), ((28, 30), (38, 30))] {
+            wall(&mut b, a, c, 63, 3, stone);
+        }
+        floor(&mut b, 28, 39, 18, 31, 67, stone);
+        for (k, z) in [21, 24, 27].into_iter().enumerate() {
+            let x = 31 + 2 * k as i32;
+            b.push(([x, 64, z], "minecraft:red_bed[facing=south,part=foot,occupied=false]".to_string()));
+            b.push(([x, 64, z + 1], "minecraft:red_bed[facing=south,part=head,occupied=false]".to_string()));
+        }
+        v.push(Scene {
+            name: "zombie-village".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:villager".into(), [30.5, 64.0, 20.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:villager".into(), [33.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:villager".into(), [36.5, 64.0, 28.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:zombie".into(), [10.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 14000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+        });
+    }
     v
 }
 
