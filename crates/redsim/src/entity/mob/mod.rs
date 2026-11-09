@@ -656,9 +656,31 @@ pub fn seed_entered(w: &mut World, id: u32) {
     }
     let mut own = w.entering_random(id);
     crate::rng::replay_uuid(&mut own);
-    own.next_float();
+    // the bridge's replayConstructor: the LivingEntity yaw, then a type's own constructor draws
+    // (a cube mob's move control keeps the yaw as degrees; a chicken's egg timer, a squid's
+    // tentacle speed)
+    let yaw = own.next_float() * (std::f64::consts::PI * 2.0) as f32;
+    let ty = w.entities.list.iter().rev().find(|e| e.id == id).and_then(|e| match &e.kind {
+        crate::entity::EntityKind::Mob(m) => Some(m.ty),
+        _ => None,
+    });
+    let egg = ty.filter(|t| ai::goal::animal::adult_of(t.def().id) == Some("chicken")).map(|_| ai::goal::animal::chicken_egg_time(&mut own));
+    let tentacle = ty.filter(|t| ai::squid::is_squid_id(t.def().id)).map(|_| ai::squid::ctor_draw(&mut own));
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
         e.random = Some(own);
+        if let crate::entity::EntityKind::Mob(m) = &mut e.kind {
+            if let Some(t) = egg {
+                m.egg_time = t;
+            }
+            if let Some(a) = m.ai.as_deref_mut() {
+                if let Some(c) = a.cube.as_mut() {
+                    c.yrot = 180.0f32 * yaw / std::f32::consts::PI;
+                }
+                if let (Some(q), Some(s)) = (a.squid.as_mut(), tentacle) {
+                    q.tentacle_speed = s;
+                }
+            }
+        }
     }
 }
 

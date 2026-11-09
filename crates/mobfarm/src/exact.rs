@@ -84,6 +84,28 @@ pub fn weather_on(opts: &Opts) -> bool {
     opts.weather || (opts.build.is_some() && opts.terrain.is_some())
 }
 
+/// `MCTAS_EXACT_TRACE="N:T"` (N an entity number or `level`): whose draws to trace at game time T.
+fn trace_probe() -> Option<(Option<u32>, i64)> {
+    static P: std::sync::OnceLock<Option<(Option<u32>, i64)>> = std::sync::OnceLock::new();
+    *P.get_or_init(|| {
+        let v = std::env::var("MCTAS_EXACT_TRACE").ok()?;
+        let (who, at) = v.split_once(':')?;
+        Some((if who == "level" { None } else { Some(who.parse().ok()?) }, at.parse().ok()?))
+    })
+}
+
+/// (a probe: `MCTAS_EXACT_TRACE="N:T"` prints redsim's draws of entity #N's own random during
+/// game time T, each with its call site; N = level for the level random) Arms it before the tick.
+fn trace_start(w: &redsim::world::World, t: i64) {
+    let Some((who, at)) = trace_probe().filter(|(_, at)| *at == t) else { return };
+    let addr = match who {
+        None => w.level_random.as_ref().map(|r| r as *const _ as usize).unwrap_or(0),
+        Some(id) => w.entities.list.iter().find(|e| e.id == id).and_then(|e| e.random.as_ref()).map(|r| r as *const _ as usize).unwrap_or(0),
+    };
+    eprintln!("redsim's draws at game time {at}:");
+    redsim::rng::TRACE.store(addr, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// `MCTAS_EXACT_ENTITY="N:T0:T1"`: entity #N's frames to print at game times T0..=T1.
 fn entity_probe() -> Option<(&'static [u32], i64, i64)> {
     static P: std::sync::OnceLock<Option<(Vec<u32>, i64, i64)>> = std::sync::OnceLock::new();
@@ -849,8 +871,10 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
         let n = left.min(opts.batch);
         for f in game.trace(n, window(t, n))? {
             print(&f);
+            trace_start(&run.world, f.t);
             let r0 = std::time::Instant::now();
             run.settle_tick();
+            redsim::rng::TRACE.store(0, std::sync::atomic::Ordering::Relaxed);
             tick_time += r0.elapsed();
             let ours = watch.frame(&run.world);
             redsim_time += r0.elapsed();
@@ -872,8 +896,10 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
         let n = left.min(opts.batch);
         for f in game.trace(n, window(t, n))? {
             print(&f);
+            trace_start(&run.world, f.t);
             let r0 = std::time::Instant::now();
             run.tick();
+            redsim::rng::TRACE.store(0, std::sync::atomic::Ordering::Relaxed);
             tick_time += r0.elapsed();
             let ours = watch.frame(&run.world);
             redsim_time += r0.elapsed();

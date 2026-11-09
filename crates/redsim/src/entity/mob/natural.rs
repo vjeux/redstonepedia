@@ -208,6 +208,8 @@ pub enum Finalize {
     /// `Mob.finalizeSpawn` only: the follow range's triangle (2 nextDouble) and the left hand
     /// (nextFloat).
     Mob,
+    /// `PatrollingMonster.finalizeSpawn` (a natural witch): the patrol leader's roll, then `Mob`'s.
+    Patrolling,
     /// `Zombie.finalizeSpawn` (zombies, zombie villagers): the loot pick-up, the group's baby, a
     /// baby's chicken jockey, door breaking, armor and weapon, their enchantments.
     Zombie,
@@ -301,7 +303,7 @@ pub static KINDS: &[Kind] = &[
     kind("minecraft:spider", MobType::Natural(0), C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::Spider, false, W::Monster),
     kind("minecraft:cave_spider", MobType::Natural(1), C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::Nothing, false, W::Monster),
     kind("minecraft:enderman", MobType::Natural(7), C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::Mob, false, W::Monster),
-    kind("minecraft:witch", MobType::Witch, C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::Mob, false, W::Monster),
+    kind("minecraft:witch", MobType::Witch, C::Monster, P::OnGround, Rule::Monster, 4, true, None, F::Patrolling, false, W::Monster),
     kind("minecraft:slime", MobType::Natural(6), C::Monster, P::OnGround, Rule::Slime, 4, true, None, F::Slime, false, W::None),
     kind("minecraft:sulfur_cube", MobType::Natural(9), C::Monster, P::OnGround, Rule::Always, 4, true, None, F::SulfurCube, false, W::None),
     kind("minecraft:sheep", MobType::Natural(10), C::Creature, P::OnGround, Rule::Animal, 4, false, Some(MobType::Natural(28)), F::Sheep, false, W::Animal),
@@ -1282,6 +1284,12 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
     match k.finalize {
         Finalize::Nothing => {}
         Finalize::Mob | Finalize::Cod => mob_base(w),
+        // PatrollingMonster.finalizeSpawn (a witch, NATURAL): the patrol leader's roll
+        // (nextFloat() < 0.06 first, then canBeLeader: a witch never), then Mob's
+        Finalize::Patrolling => {
+            rng(w).next_float();
+            mob_base(w);
+        }
         Finalize::Salmon => mob_base(w),
         Finalize::Zombie | Finalize::Drowned => {
             (baby, jockey) = zombie_finalize(w, nat, g, k.finalize == Finalize::Drowned, pos);
