@@ -219,10 +219,12 @@ pub struct BuildArgs {
     /// No 3D viewer even when the checkout has one (`web/viewer/`, used by default).
     #[arg(long)]
     pub no_viewer: bool,
-    /// Fail when the viewer bundle was not built from this checkout's viewer sources (its `SOURCE`,
-    /// written by `mctas web bundle`: mcview-web, mcview, redsim); without it, a warning. `site
-    /// publish` always checks (the parent 2026-11-08: a page whose 3D view does not run is worse
-    /// than a late page).
+    /// Use a viewer bundle built from this checkout's viewer sources (its `SOURCE`, written by
+    /// `mctas web bundle`: mcview-web, mcview, redsim and the workspace's lock): a stale one is
+    /// rebuilt now (or the build already made for these sources is reused, ~/.cache/mctas/viewer/),
+    /// and the build fails only when this node cannot build it; without the flag, a warning. `site
+    /// publish` always sets it (the parent 2026-11-08: a page whose 3D view does not run is worse
+    /// than a late page; the coordinator: deploys never wait on a bundle round-trip).
     #[arg(long)]
     pub fresh_viewer: bool,
     /// A prebuilt filtering UI (wasm-bindgen output of web/site), copied to pkg/ instead of

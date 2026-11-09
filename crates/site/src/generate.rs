@@ -708,8 +708,11 @@ pub fn build(a: &BuildArgs) -> Result<()> {
         }
         (None, None) => false,
     };
-    // the bundle's simulator is this checkout's, or the build says so (`--fresh-viewer`, always on
-    // `site publish`: it fails; the parent 2026-11-08, iron-day1's view on an older redsim)
+    // the bundle's simulator is this checkout's (`--fresh-viewer`, always on `site publish`: a
+    // stale bundle is rebuilt on this checkout's sources, or the cached build for them is used,
+    // and the build fails only when this node cannot build it; the parent 2026-11-08, iron-day1's
+    // view on an older redsim; the coordinator: deploys never wait on a bundle round-trip);
+    // without it, a warning
     if viewer {
         let from = match (&viewer_dir, &a.viewer_ref) {
             (Some(d), _) => d.display().to_string(),
@@ -718,9 +721,17 @@ pub fn build(a: &BuildArgs) -> Result<()> {
         };
         if let Some(why) = crate::web::stale_viewer(&repo, &out.join("viewer"), &from)? {
             if a.fresh_viewer {
-                bail!("{why}");
+                eprintln!("viewer: {why}");
+                let dir = crate::web::fresh_viewer_bundle(&repo)?;
+                let _ = std::fs::remove_dir_all(out.join("viewer"));
+                let n = copy_files(&dir, &out.join("viewer"), None)?;
+                eprintln!("viewer: {n} files from {}", dir.display());
+                if let Some(why) = crate::web::stale_viewer(&repo, &out.join("viewer"), &dir.display().to_string())? {
+                    bail!("{why}");
+                }
+            } else {
+                eprintln!("  WARNING: {why} (`site publish` rebuilds it)");
             }
-            eprintln!("  WARNING: {why} (`site publish` refuses it)");
         }
     }
     let app = if a.no_wasm {

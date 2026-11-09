@@ -124,6 +124,14 @@ pub fn viewer_source_hash(repo: &Path) -> Result<String> {
             h = h.wrapping_mul(0x100000001b3);
         }
     };
+    // (the workspace's manifest and lock too: the `web` profile and every dependency's version
+    // are theirs)
+    for f in ["Cargo.toml", "Cargo.lock"] {
+        let p = root.join(f);
+        if p.is_file() {
+            files.push(p);
+        }
+    }
     for f in &files {
         eat(f.strip_prefix(&root).unwrap_or(f).to_string_lossy().as_bytes());
         eat(&[0]);
@@ -131,6 +139,52 @@ pub fn viewer_source_hash(repo: &Path) -> Result<String> {
         eat(&[0]);
     }
     Ok(format!("{h:016x}"))
+}
+
+/// A viewer bundle built from the checkout's viewer sources ([`viewer_source_hash`]), for a deploy
+/// to use whatever bundle the checkout carries (the coordinator 2026-11-08: farm deploys never
+/// wait on a bundle round-trip after a simulator change): the one already built for these sources
+/// (`~/.cache/mctas/viewer/<source>/`), else built now by `mctas web bundle` (this binary, from
+/// the repository root; about 75 s) into that folder. Err: this node cannot build it (the wasm32
+/// target and wasm-bindgen 0.2.129 on PATH), with the build's last lines.
+pub fn fresh_viewer_bundle(repo: &Path) -> Result<PathBuf> {
+    let source = viewer_source_hash(repo)?;
+    let base = std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache"))).context("no cache folder (HOME)")?.join("mctas/viewer");
+    let done = base.join(&source);
+    let ready = |d: &Path| d.join("mcview.js").is_file() && std::fs::read_to_string(d.join("SOURCE")).is_ok_and(|s| s.trim() == source);
+    if ready(&done) {
+        eprintln!("viewer: the bundle already built for these sources ({source}): {}", done.display());
+        return Ok(done);
+    }
+    std::fs::create_dir_all(&base)?;
+    let tmp = base.join(format!("{source}.building-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let exe = std::env::current_exe().context("this binary's path")?;
+    let t0 = std::time::Instant::now();
+    eprintln!("viewer: building the bundle on this checkout's sources ({source}) with `mctas web bundle`...");
+    let o = Command::new(&exe).current_dir(repo).args(["web", "bundle", "--out"]).arg(&tmp).output().with_context(|| format!("running {} web bundle", exe.display()))?;
+    if !o.status.success() {
+        let _ = std::fs::remove_dir_all(&tmp);
+        let err = String::from_utf8_lossy(&o.stderr);
+        let tail: Vec<&str> = err.lines().filter(|l| !l.trim().is_empty()).collect();
+        bail!(
+            "this node could not build the viewer bundle (it needs a cargo with the wasm32-unknown-unknown target and wasm-bindgen 0.2.129 on PATH; run the deploy on a node that has them): {}",
+            tail[tail.len().saturating_sub(4)..].join(" | ")
+        );
+    }
+    if !ready(&tmp) {
+        let _ = std::fs::remove_dir_all(&tmp);
+        bail!("the bundle built has another SOURCE than {source}: the viewer's sources changed during the build; deploy again");
+    }
+    // (another deploy may have built the same sources meanwhile: either copy is the same)
+    if std::fs::rename(&tmp, &done).is_err() {
+        let _ = std::fs::remove_dir_all(&tmp);
+        if !ready(&done) {
+            bail!("could not keep the bundle built in {}", done.display());
+        }
+    }
+    eprintln!("viewer: built in {:.0} s: {}", t0.elapsed().as_secs_f64(), done.display());
+    Ok(done)
 }
 
 /// A viewer bundle in the site (`out/viewer`) must be built from the checkout's viewer sources
