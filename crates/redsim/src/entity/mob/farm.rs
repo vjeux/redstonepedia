@@ -813,8 +813,14 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
     let events = std::mem::take(&mut w.mob.events);
     for ev in events {
         match ev {
-            // the farm's villagers' summons only (a terrain run's village summons its own golems)
-            MobEvent::GolemTry { villager, .. } if !tr.own.contains(&villager) => {}
+            // the farm's villagers' summons only (a terrain run's village summons its own golems;
+            // `MCTAS_GOLEM_TRACE=1` prints those too, with their summoner)
+            MobEvent::GolemTry { villager, golem, at, .. } if !tr.own.contains(&villager) => {
+                if golem.is_some() && std::env::var_os("MCTAS_GOLEM_TRACE").is_some() {
+                    let s = crate::entity::index_of(w, villager).map(|i| w.entities.list[i].pos);
+                    eprintln!("village golem t {t} (day time {}): {golem:?} at {at:?}, summoned by village villager {villager} at {s:?}", w.day_time().rem_euclid(24000));
+                }
+            }
             MobEvent::GolemTry { golem: Some(id), at, villager, .. } => {
                 rep.golems += 1;
                 rep.spawn_times.push(t);

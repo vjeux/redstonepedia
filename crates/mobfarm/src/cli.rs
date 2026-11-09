@@ -100,6 +100,12 @@ pub enum MobfarmCmd {
         design: PathBuf,
         #[arg(long)]
         terrain: Option<String>,
+        /// Instead: every golem spawn cell (`SpawnUtil.trySpawnMob`'s LEGACY_IRON_GOLEM search,
+        /// 8 across, from 6 up to 6 down) from each villager standing at its cell and 1, 2 and 3
+        /// above it, in design coordinates, with the block it stands on and whose that block is
+        /// (the design's or natural).
+        #[arg(long)]
+        spawns: bool,
     },
     /// The late stage's coupling, exactly: the villager clusters (villagers within each other's
     /// 10-box), and every golem spawn spot of a cluster against every foreign villager's follow
@@ -658,7 +664,13 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&design, out)?;
             println!("{}", design.display());
         }
-        MobfarmCmd::Sight { design, terrain } => sight_cmd(version, &design, terrain.as_deref())?,
+        MobfarmCmd::Sight { design, terrain, spawns } => {
+            if spawns {
+                spawns_cmd(version, &design, terrain.as_deref())?
+            } else {
+                sight_cmd(version, &design, terrain.as_deref())?
+            }
+        }
         MobfarmCmd::Cubes { design } => cubes_cmd(version, &design)?,
         MobfarmCmd::Trim { design, out, threads, days, runs } => crate::trim::trim_cmd(&crate::trim::TrimArgs { design, out, threads, days, runs })?,
         MobfarmCmd::Climb { design } => crate::trim::climb_cmd(&design)?,
@@ -886,6 +898,52 @@ fn cubes_cmd(version: &str, design: &PathBuf) -> Result<()> {
 
 /// `mobfarm sight`: each villager's eye to the zombie's eye in the built farm, as built and with
 /// every trapdoor of the farm forced shut, then forced open.
+/// `mobfarm sight --spawns`: every golem spawn cell from each farm villager standing at its cell
+/// and 1, 2 and 3 above it (a villager on its bed's edge, a hop), in design coordinates.
+fn spawns_cmd(version: &str, design: &PathBuf, terrain: Option<&str>) -> Result<()> {
+    use redsim::entity::EntityKind;
+    use redsim::entity::mob::types::MobType;
+    let (c, spec) = load(version, design)?;
+    let mut o = redsim::entity::mob::farm::RunOpts::steady(1, 0, redsim::entity::mob::farm::WalkMode::Random);
+    let mut offset = [0, 0, 0];
+    let moved = match terrain {
+        Some(name) => {
+            let site: &'static redsim::entity::mob::site::Site = Box::leak(Box::new(circuit::mobfarm::site_of(&c, &spec, name).map_err(|e| anyhow::anyhow!(e))?));
+            o.site = Some(site);
+            offset = site.offset;
+            println!("terrain {}: offset {:?} (design = world - offset)", site.sample, site.offset);
+            site.spec(&spec)
+        }
+        None => spec.clone(),
+    };
+    let run = redsim::entity::mob::farm::Run::new(&moved, &o).map_err(|e| anyhow::anyhow!(e))?;
+    let w = &run.world;
+    let design_cells: std::collections::HashSet<redsim::BlockPos> = spec.blocks.iter().map(|(p, _)| *p).collect();
+    let d = |p: redsim::BlockPos| redsim::BlockPos::new(p.x - offset[0], p.y - offset[1], p.z - offset[2]);
+    for (i, e) in w.entities.list.iter().enumerate() {
+        let EntityKind::Mob(m) = &e.kind else { continue };
+        if m.ty != MobType::Villager || !run.own.contains(&e.id) {
+            continue;
+        }
+        let cell = e.block_position();
+        println!("villager #{i} at {:.2} {:.2} {:.2} (design cell {})", e.pos.x - offset[0] as f64, e.pos.y - offset[1] as f64, e.pos.z - offset[2] as f64, d(cell));
+        for up in 0..=3 {
+            let start = cell.offset(0, up, 0);
+            let cells: Vec<String> = redsim::entity::mob::spawn::golem_spawn_cells_from(w, start)
+                .into_iter()
+                .filter(|(_, r)| r.is_ok())
+                .map(|(p, _)| {
+                    let on = d(p.below());
+                    let whose = if design_cells.contains(&on) { "design" } else { "natural" };
+                    format!("{} on {} ({whose})", d(p), w.get(p.below()))
+                })
+                .collect();
+            println!("  standing {up} up (search from design y {}): {} spawn cells{}", d(start).y + 6, cells.len(), if cells.is_empty() { String::new() } else { format!(": {}", cells.join("; ")) });
+        }
+    }
+    Ok(())
+}
+
 fn sight_cmd(version: &str, design: &PathBuf, terrain: Option<&str>) -> Result<()> {
     use redsim::block::Block;
     use redsim::entity::EntityKind;
