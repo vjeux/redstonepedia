@@ -470,7 +470,11 @@ fn state_props(w: &World, p: BlockPos) -> Option<&'static blocks::Props> {
     let b = w.get(p);
     match b {
         crate::block::Block::Terrain(id) => Some(blocks::props(id)),
-        crate::block::Block::Air => blocks::id_of("minecraft:air").map(blocks::props),
+        crate::block::Block::Air => {
+            // (looked up once, not hashed into the table at every air cell a spawn check meets)
+            static AIR: std::sync::OnceLock<Option<u16>> = std::sync::OnceLock::new();
+            AIR.get_or_init(|| blocks::id_of("minecraft:air")).map(blocks::props)
+        }
         _ => row_of(&b).map(blocks::props),
     }
 }
@@ -943,38 +947,66 @@ fn spawnable_chunk(w: &World, cx: i32, cz: i32) -> bool {
     loaded_chunk(w, cx, cz)
 }
 
-/// The biome at a cell: the terrain's, or (a world without terrain, or a cell outside the sample's
-/// biome cells) the level's own (`Natural::void_biome`: the bridge sandbox's flat source).
-fn biome_name(w: &World, pos: BlockPos) -> Option<String> {
-    if w.land.is_some()
+/// The biome at a cell's row of the biome table: the terrain's, or (a world without terrain, or a
+/// cell outside the sample's biome cells) the level's own (`Natural::void_biome`: the bridge
+/// sandbox's flat source); the name's lookup remembered per name (tickexact 2026-11-08: a spawn
+/// check formatted the name and hashed it into the table at every candidate).
+fn biome_row(w: &World, pos: BlockPos) -> Option<&'static biome::Biome> {
+    let name: &str = if w.land.is_some()
         && let Some(b) = w.biome_at(pos)
     {
-        return Some(b.to_string());
+        b
+    } else {
+        w.mob.natural.as_ref().and_then(|n| n.void_biome)?
+    };
+    thread_local! {
+        static ROWS: std::cell::RefCell<crate::fxhash::FxHashMap<String, Option<&'static biome::Biome>>> = Default::default();
     }
-    w.mob.natural.as_ref().and_then(|n| n.void_biome).map(|s| s.to_string())
+    if let Some(v) = ROWS.with(|m| m.borrow().get(name).copied()) {
+        return v;
+    }
+    let v = biome::biome(name);
+    ROWS.with(|m| m.borrow_mut().insert(name.to_string(), v));
+    v
 }
 
 /// `NaturalSpawner.mobsAt` (`ChunkGenerator.getMobsAt`): a structure's spawn override when the
 /// cell is in it (its piece or its whole box, as the override says), else the biome's list
-/// (`minecraft:gameplay/natural_mob_spawns` at the fuzzed biome).
-pub fn mobs_at(w: &World, cat: Category, pos: BlockPos) -> Vec<Spawner> {
+/// (`minecraft:gameplay/natural_mob_spawns` at the fuzzed biome); the table's rows, not copies.
+pub fn mobs_at(w: &World, cat: Category, pos: BlockPos) -> Vec<&'static Spawner> {
     let inside = |b: &[i32; 6]| pos.x >= b[0] && pos.y >= b[1] && pos.z >= b[2] && pos.x <= b[3] && pos.y <= b[4] && pos.z <= b[5];
     if let Some(l) = w.land.as_ref() {
         for s in &l.structures {
             if let Some(o) = biome::overrides(&s.id).iter().find(|o| o.category == cat.name()) {
                 let hit = if o.piece { s.pieces.iter().any(inside) } else { inside(&[s.min[0], s.min[1], s.min[2], s.max[0], s.max[1], s.max[2]]) };
                 if hit {
-                    return o.spawns.clone();
+                    return o.spawns.iter().collect();
                 }
             }
         }
     }
-    biome_name(w, pos).and_then(|b| biome::biome(&b)).map(|b| b.mobs(cat.name()).cloned().collect()).unwrap_or_default()
+    biome_row(w, pos).map(|b| biome_mobs(b, cat)).unwrap_or_default()
+}
+
+/// A biome's spawners of a category (`Biome::mobs`), the list remembered per biome row and
+/// category (the rows are the table's statics; tickexact 2026-11-08: the filter compared every
+/// spawner's category name at every spawn candidate).
+fn biome_mobs(b: &'static biome::Biome, cat: Category) -> Vec<&'static Spawner> {
+    thread_local! {
+        static LISTS: std::cell::RefCell<crate::fxhash::FxHashMap<(usize, &'static str), Vec<&'static Spawner>>> = Default::default();
+    }
+    let key = (b as *const biome::Biome as usize, cat.name());
+    if let Some(v) = LISTS.with(|m| m.borrow().get(&key).cloned()) {
+        return v;
+    }
+    let v: Vec<&'static Spawner> = b.mobs(cat.name()).collect();
+    LISTS.with(|m| m.borrow_mut().insert(key, v.clone()));
+    v
 }
 
 /// `getRandomSpawnMobAt`: the list at the cell (`WeightedList.getRandom`).
 fn random_spawn_mob_at(w: &mut World, cat: Category, pos: BlockPos) -> Option<Spawner> {
-    let b = biome_name(w, pos).and_then(|b| biome::biome(&b))?;
+    let b = biome_row(w, pos)?;
     if cat == Category::WaterAmbient && b.has_tag("minecraft:reduce_water_ambient_spawns") && rng(w).next_float() < 0.98 {
         return None;
     }
@@ -987,7 +1019,7 @@ fn random_spawn_mob_at(w: &mut World, cat: Category, pos: BlockPos) -> Option<Sp
     for s in list {
         pick -= s.weight;
         if pick < 0 {
-            return Some(s);
+            return Some(s.clone());
         }
     }
     None
@@ -1086,7 +1118,7 @@ fn valid_spawn_position_for_type(w: &mut World, nat: &Natural, cat: Category, k:
         return false;
     }
     // still listed at this position (`canSpawnMobAt`)
-    let listed = mobs_at(w, cat, pos).iter().any(|t| t == s);
+    let listed = mobs_at(w, cat, pos).iter().any(|t| *t == s);
     if !listed {
         return false;
     }
@@ -1311,7 +1343,7 @@ fn zombie_finalize(w: &mut World, nat: &Natural, g: &mut GroupData, drowned: boo
         rng(w).next_float(); // the nautilus shell (0.03)
         if weapon == Some(Item::Trident) && rng(w).next_float() < 0.5 && !baby {
             // ... && !level.getBiome(pos).is(MORE_FREQUENT_DROWNED_SPAWNS) (rivers: no jockey)
-            let frequent = biome_name(w, pos).and_then(|b| biome::biome(&b)).is_some_and(|b| b.has_tag("minecraft:more_frequent_drowned_spawns"));
+            let frequent = biome_row(w, pos).is_some_and(|b| b.has_tag("minecraft:more_frequent_drowned_spawns"));
             if !frequent {
                 model_error(w, "natural spawning: a drowned's zombie nautilus jockey is not modeled".into());
             }

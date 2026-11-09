@@ -294,6 +294,14 @@ fn lprops(b: &Block) -> LightProps {
     light::props_of(b).unwrap_or(LightProps { dampening: 15, emission: 0, faces: None })
 }
 
+/// [`lprops`] of a natural state, per row of the table, computed once (tickexact 2026-11-08: the
+/// relight hashed every cell's block into a cache).
+fn terrain_lprops(id: u16) -> LightProps {
+    static ROWS: std::sync::OnceLock<Vec<LightProps>> = std::sync::OnceLock::new();
+    let rows = ROWS.get_or_init(|| (0..crate::terrain::blocks::table().props.len()).map(|i| lprops(&Block::Terrain(i as u16))).collect());
+    rows.get(id as usize).copied().unwrap_or_else(|| lprops(&Block::Terrain(id)))
+}
+
 /// `ChunkSkyLightSources.isEdgeOccluded` through the light module's rules.
 fn edge(top: &Block, bottom: &Block) -> bool {
     light::edge_occluded_pub(&lprops(top), &lprops(bottom))
@@ -441,7 +449,11 @@ impl World {
             for z in elo[2]..=ehi[2] {
                 for x in elo[0]..=ehi[0] {
                     let b = self.get(BlockPos::new(x, y, z));
-                    props.push(*cache.entry(b).or_insert_with(|| lprops(&b)));
+                    props.push(match b {
+                        // a natural state's from the per-row table, without hashing the block
+                        Block::Terrain(id) => terrain_lprops(id),
+                        _ => *cache.entry(b).or_insert_with(|| lprops(&b)),
+                    });
                 }
             }
         }

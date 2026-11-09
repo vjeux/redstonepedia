@@ -137,7 +137,7 @@ fn spawn_facts(w: &World, spec: &FarmSpec, c: &Cand, built: &crate::design::Buil
     // the blocks where they are in `w` (a site moved the design by `offset`)
     let moved: Vec<(BlockPos, redsim::Block)> = spec.blocks.iter().map(|(p, b)| (BlockPos::new(p.x + offset[0], p.y + offset[1], p.z + offset[2]), *b)).collect();
     let summoners = site::panicking(w, &moved);
-    let pad: std::collections::HashSet<BlockPos> = built.ports.iter().flat_map(|p| p.pad_cells.iter().map(|q| BlockPos::new(q[0] + offset[0], q[1] + 1 + offset[1], q[2] + offset[2]))).collect();
+    let pad: redsim::fxhash::FxHashSet<BlockPos> = built.ports.iter().flat_map(|p| p.pad_cells.iter().map(|q| BlockPos::new(q[0] + offset[0], q[1] + 1 + offset[1], q[2] + offset[2]))).collect();
     let mut stray = Vec::new();
     let mut f_of: BTreeMap<usize, f64> = BTreeMap::new();
     let mut worst_f: f64 = 1.0;

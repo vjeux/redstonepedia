@@ -302,9 +302,21 @@ pub fn props(id: u16) -> &'static Props {
     &table().props[id as usize]
 }
 
-/// The column of an entity type (`minecraft:zombie`) in the per-type bitsets.
+/// The column of an entity type (`minecraft:zombie`) in the per-type bitsets (an index built once:
+/// tickexact 2026-11-08, the spawn checks looked it up by a linear string search per candidate).
 pub fn type_index(type_id: &str) -> Option<usize> {
-    table().types.iter().position(|t| t == type_id)
+    static INDEX: std::sync::OnceLock<crate::fxhash::FxHashMap<&'static str, usize>> = std::sync::OnceLock::new();
+    INDEX
+        .get_or_init(|| {
+            let mut m = crate::fxhash::FxHashMap::default();
+            for (i, t) in table().types.iter().enumerate() {
+                // the first column of a name, as `position` found it
+                m.entry(t.as_str()).or_insert(i);
+            }
+            m
+        })
+        .get(type_id)
+        .copied()
 }
 
 /// A direction's index in the table's per-direction columns (down, up, north, south, west, east).
