@@ -456,19 +456,39 @@ fn wake_release(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, s: &Side) -> any
 ///   repeater lane (y 1, on the glass), a non-inverted daylight sensor beside that block's dust (y
 ///   2) keeping it off while its output is 1 or more (by day, in rain and thunder too).
 fn stop(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, s: Side, outer: bool) {
+    // (experiment, `MCTAS_SHIFTBED`: the rails as they are, the bed one rail back: its foot
+    // beside the activator, its head beside the brake, so the head's side cell is the parked
+    // cart's and the waking villager stands up in the pocket diagonal past the head; not at the
+    // north stops (the station's sight line), the activator's torch outside as under BIDE)
+    let shift = std::env::var_os("MCTAS_SHIFTBED").is_some() && s.d != [1, 0];
     let mut set = |p: [i32; 2], y: i32, block: &str| b.set(p[0], y, p[1], block);
     let facing = name(s.d);
-    set(s.at(BRAKE, 1), -1, &format!("red_bed[facing={facing},occupied=false,part=foot]"));
-    set(s.at(POCKET, 1), -1, &format!("red_bed[facing={facing},occupied=false,part=head]"));
+    let (foot, head) = if shift { (ACT, BRAKE) } else { (BRAKE, POCKET) };
+    set(s.at(foot, 1), -1, &format!("red_bed[facing={facing},occupied=false,part=foot]"));
+    set(s.at(head, 1), -1, &format!("red_bed[facing={facing},occupied=false,part=head]"));
     for i in ACT..=BOOST {
         set(s.at(i, 2), 0, GLASS);
     }
-    for i in [ACT, BOOST] {
+    for i in [foot - 1, head + 1] {
         for y in -1..=0 {
             set(s.at(i, 1), y, GLASS);
         }
     }
     set(s.at(1, 0), 1, GLASS);
+    if shift {
+        set(s.at(BOOST, 0), 0, GLASS);
+        for i in 1..=BOOST {
+            for y in (if outer { -1 } else { 0 })..=1 {
+                set(s.at(i, -1), y, GLASS);
+            }
+        }
+        let o = s.at(ACT, -1);
+        set(o, 1, STONE);
+        set(s.at(ACT, 0), 1, &format!("redstone_wall_torch[facing={},lit=true]", name(s.n)));
+        set(s.at(1, -1), 2, "daylight_detector[inverted=false,power=0]");
+        dust.insert([o[0], 2, o[1]]);
+        return;
+    }
     // (under `MCTAS_BIDE` one rail further: the brake's slope ends at rail 5, and the cart
     // leaving it still stands into y 0)
     set(s.at(if bide_at(&s) { BOOST + 1 } else { BOOST }, 0), 0, GLASS);
@@ -711,19 +731,20 @@ fn night_pulse(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, free_run: bool) {
     // the dusk drop's block over its torch, lit at night: the observer also fires when the
     // sleeper lies down), then around to a repeater into the dawn kick's block (11, -1, 19): the
     // comparator there makes it a pulse
-    if bide() {
-        // (the west stop's bus reaches its brake beside the head: the observer watches the head
-        // from over it (facing down), its stone over it feeds a dust on the bus lane's glass,
-        // down onto the line's first block)
-        b.set(1, 0, z0, "observer[facing=down,powered=false]");
-        b.set(1, 1, z0, STONE);
+    if bide() || std::env::var_os("MCTAS_SHIFTBED").is_some() {
+        // (the west stop's head (BIDE: brake) where the observer stood: the observer watches the
+        // head from over it (facing down), its stone over it feeds a dust on the bus lane's
+        // glass, down onto the line's first block)
+        let hz = if bide() { z0 } else { z0 + 1 };
+        b.set(1, 0, hz, "observer[facing=down,powered=false]");
+        b.set(1, 1, hz, STONE);
         // (stone, not the stop's glass, under the dust: a non-conductor there would join the bus's
         // end under it to the dust stepping down past it)
-        b.set(2, 0, z0, STONE);
-        dust.insert([2, 1, z0]);
-        dust.insert([3, 0, z0]);
-        b.set(3, -1, z0, STONE);
-        for x in 4..=7 {
+        b.set(2, 0, hz, STONE);
+        dust.insert([2, 1, hz]);
+        dust.insert([3, 0, hz]);
+        b.set(3, -1, hz, STONE);
+        for x in (if bide() { 4 } else { 3 })..=7 {
             dust.insert([x, -1, z0]);
         }
     } else {
