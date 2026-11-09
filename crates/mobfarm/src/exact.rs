@@ -61,7 +61,7 @@ pub fn judge_seed(k: u32, i: u32) -> i64 {
 }
 
 /// The judge's run options with the compare's day time.
-pub(crate) fn opts_of(opts: &Opts) -> RunOpts {
+pub fn opts_of(opts: &Opts) -> RunOpts {
     let mut o = match opts.build {
         // the judge's run: its seed, its random walking policy
         Some((k, i)) => redsim::entity::mob::farm::judge_opts(judge_seed(k, i), opts.ticks, redsim::entity::mob::farm::WalkMode::Random),

@@ -104,6 +104,18 @@ pub enum MobaiCmd {
         /// Build it into a terrain sample (as `mobfarm compare --terrain`).
         #[arg(long)]
         terrain: Option<String>,
+        /// The day time the farm starts at (as `mobfarm compare --day0`).
+        #[arg(long)]
+        day0: Option<i64>,
+        /// The judge's build K, run 0 (as `mobfarm compare --build`).
+        #[arg(long)]
+        build: Option<u32>,
+        /// No mob spawning on either side (as `mobfarm compare --no-spawning`).
+        #[arg(long)]
+        no_spawning: bool,
+        /// The weather's cycle on both sides (as `mobfarm compare --weather`).
+        #[arg(long)]
+        weather: bool,
     },
     /// redsim's math ports (Math.sin/cos, Mth.atan2, Mth.sin/cos) against the game JVM, bit for
     /// bit, on random inputs (and the given ones: decimals or 0x raw bits).
@@ -124,7 +136,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::Fixture { name, seed, ticks, full, probe, trace_at, entity } => crate::fixture::run(version, &name, seed, ticks, full, probe, trace_at, entity),
         MobaiCmd::Record { scenes, seed, ticks, dir } => crate::fixture::record(version, &scenes, seed, ticks, &dir),
         MobaiCmd::Replay { paths } => crate::fixture::replay(&paths),
-        MobaiCmd::FarmTrace { design, seed, at, entity, terrain } => crate::farmtrace::run(version, &design, seed, at, entity, terrain),
+        MobaiCmd::FarmTrace { design, seed, at, entity, terrain, day0, build, no_spawning, weather } => crate::farmtrace::run(version, &design, seed, at, entity, terrain, day0, build, no_spawning, weather),
         MobaiCmd::Mathfuzz { n, seed, inputs } => crate::mathfuzz::run(version, n, seed, &inputs),
     }
 }
