@@ -52,7 +52,10 @@ fn bide() -> bool {
 
 /// Whether stop side `s` is laid out for `MCTAS_BIDE` (every side but the north).
 fn bide_at(s: &Side) -> bool {
-    bide() && s.d != [1, 0]
+    // (`MCTAS_BIDE_INNER`: the inner two loops only; the outer loop (t -6; e 34 at pitch 28),
+    // unboosted, parks its carts too far from a villager standing past the brake to pick it up)
+    let outer = s.c[0] == -6 || s.c[1] == -6 || s.c == [34, 34];
+    bide() && s.d != [1, 0] && !(outer && std::env::var_os("MCTAS_BIDE_INNER").is_some())
 }
 
 /// The activator's rail (2; 3 under `MCTAS_BIDE`).
@@ -516,7 +519,7 @@ fn bus(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, t: i32, e: i32) {
         path.push([x, y, e - 2]);
     }
     path.push([t + 2, y, e - 3]);
-    if bide() {
+    if bide_at(&sides(t, e)[3]) {
         // (the west stop's brake one rail on)
         path.push([t + 2, y, e - 4]);
     }
