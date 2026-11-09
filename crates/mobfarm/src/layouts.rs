@@ -47,6 +47,30 @@ impl Builder {
         self.entity("villager", [x as f64 + 0.5, 0.5625, 0.5], None);
     }
 
+    /// [`Builder::pod`] in day-1 materials (vjeux 13:09: no glass, leaves or stone on day 1): a
+    /// cobblestone floor and walls (the villager sees out over its north trapdoor only), and a
+    /// roof of bottom cobblestone slabs (a golem's spawn fails on a half top, as on leaves).
+    pub fn pod_day1(&mut self, x: i32) {
+        self.set(x, 0, 0, "red_bed[facing=north,occupied=false,part=head]");
+        self.set(x, 0, 1, "red_bed[facing=north,occupied=false,part=foot]");
+        for z in 0..2 {
+            self.set(x, -1, z, STONE);
+        }
+        self.set(x, 1, 1, STONE);
+        self.set(x, 2, 1, STONE);
+        for w in [x - 1, x + 1] {
+            self.set(w, 1, 0, STONE);
+            self.set(w, 2, 0, STONE);
+        }
+        self.set(x, 1, 0, "oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]");
+        for dx in -1..=1 {
+            for z in 0..2 {
+                self.set(x + dx, 3, z, CAP);
+            }
+        }
+        self.entity("villager", [x as f64 + 0.5, 0.5625, 0.5], None);
+    }
+
     pub fn text(&self, caption: &[&str]) -> String {
         let mut s = String::new();
         for l in caption {
@@ -63,6 +87,8 @@ impl Builder {
 // cheapest at every stage's prices; mining stone without silk touch gives cobblestone)
 const STONE: &str = "cobblestone";
 const GLASS: &str = "glass";
+/// A day-1 cap: a bottom cobblestone slab (no golem spawns on its half top; 3 cobblestone make 6).
+const CAP: &str = "cobblestone_slab[type=bottom,waterlogged=false]";
 const LAVA: &str = "lava[level=0]";
 const SHUT: &str = "oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]";
 
@@ -374,11 +400,11 @@ pub fn l1() -> String {
 pub fn l3(pits: i32) -> String {
     let mut b = Builder::new(&format!("iron-day1-{pits}"));
     for x in [0, 2, 4] {
-        b.pod(x);
+        b.pod_day1(x);
     }
-    // the zombie: a boat on a slab, a roof of leaves over its eyes
-    b.set(2, 0, -7, "stone_slab[type=bottom,waterlogged=false]");
-    b.set(2, 2, -7, "oak_leaves[distance=1,persistent=true,waterlogged=false]");
+    // the zombie: a boat on a slab, a slab roof over its eyes (no sky: it never burns)
+    b.set(2, 0, -7, CAP);
+    b.set(2, 2, -7, CAP);
     b.entity("oak_boat", [2.5, 0.5, -6.8], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
     // the sight blocker, opened by the hook under it; a closed trapdoor west of it stops golems
     b.set(2, 1, -6, SHUT);
@@ -392,26 +418,31 @@ pub fn l3(pits: i32) -> String {
     }
     b.set(west, 0, -6, "tripwire_hook[attached=true,facing=east,powered=false]");
     b.set(west - 1, 0, -6, STONE);
-    b.set(west - 1, 1, -6, GLASS);
-    b.set(west, 1, -6, GLASS);
+    b.set(west - 1, 1, -6, STONE);
+    b.set(west, 1, -6, STONE);
     b.set(west, -1, -6, STONE);
-    // the pits
+    // the pits (day-1 materials, vjeux 13:09: cobblestone for glass; a bottom cobblestone slab
+    // holds a lava source and caps it: a golem's spawn fails on its half top)
     for px in (west + 1)..=-1 {
         b.set(px, -2, -6, STONE);
         b.set(px, 1, -6, SHUT);
-        b.set(px, 2, -6, GLASS);
+        // over the pit's trapdoor ceiling, a cobblestone with a torch on it (glass before): no
+        // golem spawns on the trapdoor or the cobblestone (a block is above each), and the
+        // golem search's scan passes the torch and goes on down to the pit
+        b.set(px, 2, -6, STONE);
+        b.set(px, 3, -6, "torch");
         for z in [-7, -5] {
             b.set(px, -1, z, STONE);
             b.set(px, 0, z, STONE);
             b.set(px, 1, z, LAVA);
-            b.set(px, 2, z, GLASS);
+            b.set(px, 2, z, CAP);
         }
-        b.set(px, 1, -8, GLASS);
-        b.set(px, 1, -4, GLASS);
+        b.set(px, 1, -8, CAP);
+        b.set(px, 1, -4, CAP);
     }
     for x in [west, 0] {
         for z in [-7, -5] {
-            b.set(x, 1, z, GLASS);
+            b.set(x, 1, z, CAP);
             b.set(x, 0, z, STONE);
             b.set(x, -1, z, STONE);
         }
@@ -419,10 +450,13 @@ pub fn l3(pits: i32) -> String {
     // the channel: a source at the west pit, dry at x = 0 over the hopper
     b.set(west + 1, -1, -6, "water[level=0]");
     b.set(0, -2, -6, "hopper[enabled=true,facing=down]");
-    b.set(0, 1, -6, GLASS);
+    b.set(0, 1, -6, STONE);
     b.set(1, -1, -6, STONE);
     b.d.ports.insert("output".into(), [0, -3, -6]);
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    // every other top a golem could spawn on gets its cap by its role (`parts::cap_spawns`: a torch
+    // over a pit's column, so the search scans on down to the pit, else a slab)
+    let _ = crate::parts::cap_spawns(&mut b, &|p| p[2] == -6 && p[0] > west && p[0] < 0 && p[1] == -1);
     b.text(&[
         &format!("L3, the day-1 iron farm ({pits} spawn pits): three villagers on their beds in closed 1-cell pods under"),
         "leaves, a zombie in a boat 7 blocks north of them in view of their standing and sleeping eyes.",
