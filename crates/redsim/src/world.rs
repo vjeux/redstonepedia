@@ -501,6 +501,7 @@ impl World {
         }
     }
 
+    #[inline]
     pub(crate) fn index(&self, p: BlockPos) -> Option<usize> {
         let x = p.x - self.min.x;
         let y = p.y - self.min.y;
@@ -532,12 +533,20 @@ impl World {
         }
     }
 
+    #[inline]
     pub fn get(&self, p: BlockPos) -> Block {
         match self.index(p) {
             Some(i) => self.cells[i],
-            None if self.outer.is_empty() => Block::Air,
-            None => self.outer.get(&p).copied().unwrap_or(Block::Air),
+            None => self.get_outside(p),
         }
+    }
+
+    /// A cell outside the box: air, or what a terrain world's natural update wrote there
+    /// (`outer`); out of line, so `get` stays the inlined array read it was (tickexact
+    /// 2026-11-08: with the map's lookup inside it, `get` stopped inlining, a tenth of a run).
+    #[inline(never)]
+    fn get_outside(&self, p: BlockPos) -> Block {
+        if self.outer.is_empty() { Block::Air } else { self.outer.get(&p).copied().unwrap_or(Block::Air) }
     }
 
     /// Write a state with no side effect at all (the chunk section write).

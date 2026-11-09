@@ -166,8 +166,17 @@ pub static TYPES: &[TypeDef] = &[
 impl MobType {
     /// Its row (a natural mob's in the terrain track's table).
     pub fn def(self) -> &'static TypeDef {
-        // (an index by type built once, each type's first row as the search found it: tickexact
-        // 2026-11-08, a linear search ran at every mob's every property read)
+        // (an index by type built once, each type's first row as the search found it, and the
+        // last answer remembered per thread: tickexact 2026-11-08, a linear search ran at every
+        // mob's every property read)
+        thread_local! {
+            static LAST: std::cell::Cell<Option<(MobType, &'static TypeDef)>> = const { std::cell::Cell::new(None) };
+        }
+        if let Some((t, d)) = LAST.with(|c| c.get())
+            && t == self
+        {
+            return d;
+        }
         static INDEX: std::sync::OnceLock<crate::fxhash::FxHashMap<MobType, &'static TypeDef>> = std::sync::OnceLock::new();
         let index = INDEX.get_or_init(|| {
             let mut m = crate::fxhash::FxHashMap::default();
@@ -176,10 +185,12 @@ impl MobType {
             }
             m
         });
-        match index.get(&self) {
-            Some(d) => d,
+        let d = match index.get(&self) {
+            Some(d) => *d,
             None => TYPES.iter().chain(super::natural::DEFS.iter()).find(|d| d.ty == self).expect("every MobType has a TypeDef row"),
-        }
+        };
+        LAST.with(|c| c.set(Some((self, d))));
+        d
     }
 
     /// The type of an entity id (`minecraft:` optional), if modeled.
