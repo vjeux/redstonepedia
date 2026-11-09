@@ -74,12 +74,6 @@ pub fn randomly_ticking(b: &Block) -> bool {
 const MIN_SECTION: i32 = -4;
 const MAX_SECTION: i32 = 19;
 
-/// Does chunk section (cx, sy, cz) hold a randomly ticking block now (`LevelChunkSection
-/// .isRandomlyTicking`, its part inside redsim's box: the game's sandbox is air elsewhere)?
-fn section_ticking(w: &World, cx: i32, sy: i32, cz: i32) -> bool {
-    w.ticking_sections.as_ref().is_some_and(|ts| ts.ticking(cx, sy, cz))
-}
-
 /// Whether a cell counts toward its section's random ticking (`state.isRandomlyTicking()` or its
 /// fluid state's): redsim's randomly ticking blocks, and the natural states the terrain lane's table
 /// marks (grass, leaves, plants...: their section ticks and draws its positions even where redsim
@@ -103,6 +97,10 @@ pub struct TickingSections {
     counts: Vec<u32>,
     /// 64 words a section: bit `(y * 16 + z) * 16 + x` of the section's cell (x, y, z).
     bits: Vec<u64>,
+    /// Per chunk column (`z * dims[0] + x`): bit `sy - lo[1]` set when that section has a
+    /// randomly ticking cell (a chunk's ticking sections without testing all 24: tickexact
+    /// 2026-11-08).
+    cols: Vec<u32>,
 }
 
 impl TickingSections {
@@ -113,7 +111,7 @@ impl TickingSections {
         let hi = [(min.x + size[0] - 1).div_euclid(16), (min.y + size[1] - 1).div_euclid(16), (min.z + size[2] - 1).div_euclid(16)];
         let dims = [hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1];
         let n = (dims[0] * dims[1] * dims[2]) as usize;
-        let mut ts = TickingSections { lo, dims, counts: vec![0; n], bits: vec![0; n * 64] };
+        let mut ts = TickingSections { lo, dims, counts: vec![0; n], bits: vec![0; n * 64], cols: vec![0; (dims[0] * dims[2]) as usize] };
         for y in 0..size[1] {
             for z in 0..size[2] {
                 for x in 0..size[0] {
@@ -125,6 +123,21 @@ impl TickingSections {
             }
         }
         ts
+    }
+
+    /// The lowest section at or above `sy` of chunk column (`cx`, `cz`) with a randomly ticking
+    /// cell (as testing [`TickingSections::ticking`] upward from `sy` finds it).
+    pub fn next_ticking(&self, cx: i32, cz: i32, sy: i32) -> Option<i32> {
+        let (x, z) = (cx - self.lo[0], cz - self.lo[2]);
+        if x < 0 || z < 0 || x >= self.dims[0] || z >= self.dims[2] || self.dims[1] > 32 {
+            return None;
+        }
+        let from = (sy - self.lo[1]).max(0);
+        if from >= self.dims[1] {
+            return None;
+        }
+        let m = self.cols[(z * self.dims[0] + x) as usize] >> from;
+        if m == 0 { None } else { Some(self.lo[1] + from + m.trailing_zeros() as i32) }
     }
 
     /// The word and bit of cell `p` (its section's index `i`).
@@ -168,6 +181,16 @@ impl TickingSections {
                 self.counts[i] = self.counts[i].saturating_sub(1);
                 self.bits[word] &= !mask;
             }
+            // the column's mask follows the section's count
+            let (x, sy, z) = (p.x.div_euclid(16) - self.lo[0], p.y.div_euclid(16) - self.lo[1], p.z.div_euclid(16) - self.lo[2]);
+            if sy < 32 {
+                let c = &mut self.cols[(z * self.dims[0] + x) as usize];
+                if self.counts[i] > 0 {
+                    *c |= 1 << sy;
+                } else {
+                    *c &= !(1 << sy);
+                }
+            }
         }
     }
 }
@@ -204,10 +227,15 @@ pub fn tick_chunks(w: &mut World) {
         if speed == 0 || w.random_ticks.is_none() {
             continue;
         }
-        for sy in sections.0..=sections.1 {
-            if !section_ticking(w, cx, sy, cz) {
-                continue;
+        // (the column's ticking sections from its mask, read afresh after each section: a random
+        // tick may start or stop a section above it ticking, as testing each one in turn sees)
+        let mut next = sections.0;
+        while next <= sections.1 {
+            let Some(sy) = w.ticking_sections.as_ref().and_then(|ts| ts.next_ticking(cx, cz, next)) else { break };
+            if sy > sections.1 {
+                break;
             }
+            next = sy + 1;
             for _ in 0..speed {
                 let Some(rt) = w.random_ticks.as_mut() else { return };
                 let p = rt.position(cx * 16, sy * 16, cz * 16);

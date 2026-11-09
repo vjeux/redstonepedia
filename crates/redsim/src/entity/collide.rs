@@ -452,22 +452,18 @@ pub fn find_supporting_block(w: &World, pos: Vec3, bb: Aabb) -> Option<BlockPos>
     let mut best: Option<BlockPos> = None;
     let mut best_d = f64::MAX;
     // (the cells whose boxes meet `bb`, in the cursor's order, without their boxes' list)
-    let mut meeting: Vec<BlockPos> = Vec::new();
     for_each_block_collision(w, bb, |p, s| {
         if block_meets(w, &s, p, bb) {
-            meeting.push(p);
+            let (dx, dy, dz) = (p.x as f64 + 0.5 - pos.x, p.y as f64 + 0.5 - pos.y, p.z as f64 + 0.5 - pos.z);
+            let d = dx * dx + dy * dy + dz * dz;
+            let greater = |a: BlockPos, b: BlockPos| (a.y, a.z, a.x) < (b.y, b.z, b.x);
+            if d < best_d || (d == best_d && best.is_none_or(|m| greater(m, p))) {
+                best = Some(p);
+                best_d = d;
+            }
         }
         true
     });
-    for p in meeting {
-        let (dx, dy, dz) = (p.x as f64 + 0.5 - pos.x, p.y as f64 + 0.5 - pos.y, p.z as f64 + 0.5 - pos.z);
-        let d = dx * dx + dy * dy + dz * dz;
-        let greater = |a: BlockPos, b: BlockPos| (a.y, a.z, a.x) < (b.y, b.z, b.x);
-        if d < best_d || (d == best_d && best.is_none_or(|m| greater(m, p))) {
-            best = Some(p);
-            best_d = d;
-        }
-    }
     best
 }
 

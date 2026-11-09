@@ -333,13 +333,24 @@ pub static KINDS: &[Kind] = &[
 
 /// A spawnable type by its game id.
 pub fn kind_of(game_id: &str) -> Option<&'static Kind> {
-    KINDS.iter().find(|k| k.id == game_id)
+    // (an index by id built once, each id's first row as the search found it: tickexact
+    // 2026-11-08)
+    static INDEX: std::sync::OnceLock<crate::fxhash::FxHashMap<&'static str, &'static Kind>> = std::sync::OnceLock::new();
+    INDEX
+        .get_or_init(|| {
+            let mut m = crate::fxhash::FxHashMap::default();
+            for k in KINDS.iter() {
+                m.entry(k.id).or_insert(k);
+            }
+            m
+        })
+        .get(game_id)
+        .copied()
 }
 
 /// The spawn data of a mob already in the world (its row, its baby or size rows included).
 pub fn kind_of_type(ty: MobType) -> Option<&'static Kind> {
-    let game = ty.def().game_id;
-    KINDS.iter().find(|k| k.id == game)
+    kind_of(ty.def().game_id)
 }
 
 /// The mob category of any modeled mob (villagers and golems are MISC).
