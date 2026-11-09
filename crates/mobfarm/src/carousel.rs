@@ -228,6 +228,22 @@ fn loop_rails(t: i32, e: i32, boost: bool) -> Vec<([i32; 3], String, &'static st
 /// eye (the head's centre, y -0.11) sees the zombie through the pocket rail's cell, its support
 /// (glass) and the open hatch: about 3.3 away, within the hostile sensor's 8.
 fn quick_flash(b: &mut Builder, s: &Side) {
+    if std::env::var_os("MCTAS_QUICK_V2").is_some() {
+        // (experiment, not committed: the zombie over the cage's barrier glass at the booster's
+        // column, always visible, to test the sleeping eye's line over the head)
+        let z = s.at(BOOST, 1);
+        for (i, lane) in [(BOOST, 0), (BOOST, 2), (BOOST + 1, 1)] {
+            let p = s.at(i, lane);
+            for y in [1, 2] {
+                b.set(p[0], y, p[1], STONE);
+            }
+        }
+        b.set(z[0], 3, z[1], STONE);
+        let q = s.at(POCKET, 1);
+        b.set(q[0], 2, q[1], STONE);
+        b.entity("zombie", [z[0] as f64 + 0.5, 1.0, z[1] as f64 + 0.5], Some("{PersistenceRequired:1b}"));
+        return;
+    }
     let o = s.at(POCKET, 1);
     b.set(o[0], -2, o[1], "observer[facing=up,powered=false]");
     b.set(o[0], -3, o[1], "copper_bulb[lit=false,powered=false]");
