@@ -592,12 +592,32 @@ pub fn run_t(spec: &FarmSpec, o: &RunOpts, iron: u32, hand_hide: bool) -> Result
             && t % n == 0
         {
             let w = &r.world;
+            for e in w.entities.list.iter() {
+                if let EntityKind::Mob(m) = &e.kind
+                    && m.ty == MobType::Zombie
+                {
+                    eprintln!("zombie t {t}: {} at {:.2} {:.2} {:.2} eye {:.2} vehicle {:?}", e.id, e.pos.x, e.pos.y, e.pos.z, e.pos.y + m.eye() as f64, e.vehicle);
+                }
+            }
             for e in w.entities.list.iter().filter(|e| tr.own.contains(&e.id)) {
                 if let EntityKind::Mob(m) = &e.kind
                     && m.ty == MobType::Villager
                 {
                     let home = m.brain.as_deref().and_then(|b| b.home);
                     eprintln!("villager t {t} (day time {}): {} at {:.2} {:.2} {:.2} vehicle {:?} asleep {} home {:?}", w.day_time().rem_euclid(24000), e.id, e.pos.x, e.pos.y, e.pos.z, e.vehicle, m.sleeping_pos.is_some(), home);
+                }
+            }
+        }
+        // (`MCTAS_BLOCK_TRACE=N:x,y,z;x,y,z...`: every N gt, those blocks' states)
+        if let Some((n, cells)) = std::env::var("MCTAS_BLOCK_TRACE").ok().and_then(|v| {
+            let (n, cells) = v.split_once(':')?;
+            Some((n.parse::<i64>().ok()?.max(1), cells.to_string()))
+        }) && t % n == 0
+        {
+            for c in cells.split(';') {
+                let v: Vec<i32> = c.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+                if let [x, y, z] = v[..] {
+                    eprintln!("block t {t} (day time {}): {x} {y} {z} {}", r.world.day_time().rem_euclid(24000), r.world.get(crate::pos::BlockPos::new(x, y, z)));
                 }
             }
         }
@@ -810,7 +830,13 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
                     tr.summoned_by.insert(id, *c);
                 }
             }
-            MobEvent::GolemTry { golem: None, .. } => rep.losses.no_spot += 1,
+            MobEvent::GolemTry { golem: None, villager, .. } => {
+                rep.losses.no_spot += 1;
+                if std::env::var_os("MCTAS_GOLEM_TRACE").is_some() {
+                    let s = crate::entity::index_of(w, villager).map(|i| w.entities.list[i].pos);
+                    eprintln!("golem try t {t}: no spot, summoned by {villager} at {s:?}");
+                }
+            }
             MobEvent::GolemSeen { villager, .. } if tr.own.contains(&villager) => {
                 rep.losses.seen += 1;
                 // (`MCTAS_SEEN_TRACE=1`: each sighting, the villager's position and the golems it

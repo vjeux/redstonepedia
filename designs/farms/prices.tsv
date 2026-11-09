@@ -25,6 +25,7 @@ rename	5	3	1	naming one item in an anvil (one level of experience each; the anvi
 iron_ingot	30	10	2	day 1: caving for exposed ore with a stone pickaxe, smelted (about 30 s an ingot for a fresh player); middle: from the day-1 farm; late: from an iron farm
 copper_ingot	10	3	1	copper ore with a stone pickaxe, smelted
 quartz	-	5	2	nether quartz ore with an iron pickaxe, a Nether trip shared over a stack
+mud	2	1	0.3	dirt splashed with a water bottle (one bottle refilled over a stack; the carousel's brake supports: 14 pixels high, the cell above has no floor)
 redstone	0	2	0.5	dust: on day 1 only in the redstone fork, where the player already holds it (the iron pickaxe counts as a tool); mined with an iron pickaxe later
 string	15	3	1	a spider at night or a cobweb cut with a sword
 wool	10	3	1	a sheep (killed, or sheared once shears exist)
