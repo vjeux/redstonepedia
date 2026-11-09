@@ -516,6 +516,32 @@ fn build_time(s: f64) -> String {
     }
 }
 
+/// A farm card's build line (`build time 39 min at day-1 prices (203 placed with 31 cobblestone
+/// seals, 617 dug, ...)`, `build minutes 39.0`): what the whole build takes where it stands.
+struct CardBuild {
+    placed: u64,
+    dug: u64,
+    minutes: Option<f64>,
+    /// What the placed blocks include beyond the design's own (`309 cobblestone slabs capping stray
+    /// golem spots and 28 cobblestone seals`), empty when nothing.
+    extras: String,
+}
+
+fn card_build(b: &Build) -> Option<CardBuild> {
+    let c = b.circuit.as_ref()?;
+    let line = c.metrics.iter().find(|(k, _)| k == "build time").map(|(_, v)| v.as_str())?;
+    let inner = line.split_once('(').map(|x| x.1).unwrap_or("");
+    let num_before = |word: &str| -> Option<u64> {
+        let i = inner.find(word)?;
+        inner[..i].trim_end().rsplit(|ch: char| !ch.is_ascii_digit()).next()?.parse().ok()
+    };
+    let placed = num_before(" placed")?;
+    let dug = num_before(" dug").unwrap_or(0);
+    let extras = inner.split_once(" placed with ").and_then(|(_, r)| r.split(", ").next()).map(|s| s.trim().to_string()).unwrap_or_default();
+    let minutes = c.metrics.iter().find(|(k, _)| k == "build minutes").and_then(|(_, v)| v.split_whitespace().next()?.parse::<f64>().ok());
+    Some(CardBuild { placed, dug, minutes, extras })
+}
+
 /// A full farm page's "What it is made of" section (the parent 2026-11-08 20:59: a visitor sees
 /// what each part takes): each part of its parts file with its blocks placed, its blocks dug and
 /// its build time, linking to that part's version on its component page; else (no parts file) the
@@ -534,7 +560,7 @@ pub fn parts_section(b: &Build, prefix: &str) -> String {
             let (title, _) = part_words(&p.part);
             let name = match members.iter().find(|m| m.part == p.part && !p.member.is_empty() && m.stem() == p.member) {
                 Some(m) => format!("<a href=\"{prefix}{}#{}\">{}</a>", esc(&part_page_path(&farm, &p.part)), esc(m.stem()), esc(&m.name)),
-                None if has_page(&p.part) => format!("<a href=\"{prefix}{}\">other versions</a>", esc(&part_page_path(&farm, &p.part))),
+                None if has_page(&p.part) => format!("its own · <a href=\"{prefix}{}\">other versions</a>", esc(&part_page_path(&farm, &p.part))),
                 None => String::new(),
             };
             body.push_str(&format!(
@@ -546,11 +572,29 @@ pub fn parts_section(b: &Build, prefix: &str) -> String {
             ));
         }
         let (blocks, dug, secs) = rows.iter().fold((0u64, 0u64, 0.0f64), |a, p| (a.0 + p.blocks as u64, a.1 + p.dug as u64, a.2 + p.build_seconds));
+        // what the farm takes where it is built, beyond its own parts (the card's build line: the
+        // slabs capping the spots where a stray golem could spawn, the seals, the digging at the
+        // spot), so the parts and that row add up to the whole farm's card
+        let card = card_build(b);
+        let (all_placed, all_dug, all_secs) = match &card {
+            Some(c) => (c.placed.max(blocks), c.dug.max(dug), c.minutes.map(|m| m * 60.0).unwrap_or(secs).max(secs)),
+            None => (blocks, dug, secs),
+        };
+        if all_placed > blocks || all_dug > dug {
+            let extra = all_secs - secs;
+            body.push_str(&format!(
+                "<tr><th scope=\"row\">At the farm's spot</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                esc(&card.as_ref().map(|c| c.extras.clone()).filter(|e| !e.is_empty()).unwrap_or_else(|| "fitting it into the ground".to_string())),
+                site_model::html::group_thousands(all_placed - blocks),
+                site_model::html::group_thousands(all_dug - dug),
+                if extra >= 30.0 { esc(&build_time(extra)) } else { "counted above".to_string() }
+            ));
+        }
         body.push_str(&format!(
             "<tr class=\"total\"><th scope=\"row\">The whole farm</th><td></td><td>{}</td><td>{}</td><td>{}</td></tr>",
-            site_model::html::group_thousands(blocks),
-            site_model::html::group_thousands(dug),
-            esc(&build_time(secs))
+            site_model::html::group_thousands(all_placed),
+            site_model::html::group_thousands(all_dug),
+            esc(&build_time(all_secs))
         ));
         return format!(
             "<section><h2>What it is made of</h2><p>Each part of this farm, what it takes to build, and the version of it this farm uses: follow a part to see its other versions side by side.</p><div class=\"scroll-x\"><table class=\"list parts\"><thead><tr><th>part</th><th>this farm's</th><th>blocks placed</th><th>blocks dug</th><th>build time</th></tr></thead><tbody>{body}</tbody></table></div></section>\n"
@@ -1152,6 +1196,17 @@ mod tests {
         assert_eq!((get("villagers"), get("watching villagers"), get("blocks"), get("build seconds")), (Some("3"), Some("2"), Some("75"), Some("1122")));
         assert_eq!((get("spawn success per check"), get("in sight of the villagers"), get("drop")), (Some("88%"), Some("no"), Some("22 blocks")));
         assert_eq!((get("hide time"), get("storage hours at 480 iron/h")), (Some("while the bed villager sleeps"), Some("3.2")));
+        // the card's build line: what the whole build takes where it stands
+        let b = Build {
+            circuit: Some(site_model::Circuit {
+                metrics: crate::circuits::parse_metrics("build time 39 min at day-1 prices (439 placed with 309 cobblestone slabs capping stray golem spots and 28 cobblestone seals, 502 dug, 1 lava trips, 3 villagers moved), build minutes 39.0"),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let c = card_build(&b).unwrap();
+        assert_eq!((c.placed, c.dug, c.minutes), (439, 502, Some(39.0)));
+        assert_eq!(c.extras, "309 cobblestone slabs capping stray golem spots and 28 cobblestone seals");
     }
 
     #[test]

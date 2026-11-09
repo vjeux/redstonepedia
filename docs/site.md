@@ -193,7 +193,10 @@ index's `kind=farm` lists them, and `kind=circuit` no longer does. Their old pag
   `part` a folder above or its other name (`calm`, `pad`), `member` that part's version in its
   catalog (its stem; empty when it is not one), the rows summing to the farm's card. The farm's
   page shows them as "What it is made of" (each part, the version it uses linked to its component
-  page, its blocks placed, blocks dug and build time, and the whole farm's); a part name the site
+  page, else "its own" and a link to the part's other versions, its blocks placed, blocks dug and
+  build time; a row "At the farm's spot" for what the card's build line counts beyond the parts:
+  the slabs capping the spots where a stray golem could spawn, the seals, the digging at the
+  spot; and the whole farm's, the card's own numbers); a part name the site
   does not know fails the build's read of the file (a warning), a version its catalog lacks is
   named in the build's notes. Without the file, the members whose `used_by` names the farm.
 - **Bars**: a judged design that is never listed (the copies of one module a stage's farms must
