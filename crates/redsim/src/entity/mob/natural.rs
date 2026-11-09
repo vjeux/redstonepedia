@@ -468,7 +468,16 @@ fn state_props(w: &World, p: BlockPos) -> Option<&'static blocks::Props> {
     match b {
         crate::block::Block::Terrain(id) => Some(blocks::props(id)),
         crate::block::Block::Air => blocks::id_of("minecraft:air").map(blocks::props),
-        _ => blocks::id_of(&b.to_string()).map(blocks::props),
+        _ => {
+            let name = b.to_string();
+            blocks::id_of(&name).or_else(|| {
+                // redstone dust and tripwire (1296 and 128 states): every state answers the same
+                // spawn questions (no collision, never a floor, no fluid, no tag), so any of their
+                // rows does (as their light: terrain::light::props_of)
+                let base = name.split('[').next().unwrap_or(&name);
+                if matches!(base, "minecraft:redstone_wire" | "minecraft:tripwire") { blocks::first_of_block(base) } else { None }
+            }).map(blocks::props)
+        }
     }
 }
 
@@ -1050,7 +1059,13 @@ fn valid_spawn_position_for_type(w: &mut World, nat: &Natural, cat: Category, k:
         return false;
     }
     if !placement_ok(w, k, pos) {
+        if probing(w) {
+            eprintln!("natural t{} {:?} {pos}: the placement refuses it (block {}, below {})", w.time, k.ty, outside_or_get(w, pos), outside_or_get(w, pos.below()));
+        }
         return false;
+    }
+    if probing(w) {
+        eprintln!("natural t{} {:?} {pos}: the spawn rules (surface {})", w.time, k.ty, w.height(crate::terrain::Heightmap::WorldSurface, pos.x, pos.z));
     }
     if !spawn_rules(w, k, pos, nat) {
         return false;
