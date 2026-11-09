@@ -69,6 +69,25 @@ pub fn tick(w: &mut World, i: usize) {
     if !w.entities.list[i].removed {
         ai_step(w, i);
     }
+    // SkeletonHorse.aiStep's tail: a trap horse no one keeps is discarded once its trapTime
+    // passes 18000; SkeletonTrapGoal springing (a player within 10) is not modeled: named
+    if let Some(t) = mob(w, i).trap_time
+        && !w.entities.list[i].removed
+    {
+        let near = w.mob.ai.players.iter().any(|p| p.pos.distance_to_sqr(w.entities.list[i].pos) < 100.0);
+        if near {
+            w.mob.ai.legacy.insert("a skeleton trap horse's trap springing (its four horsemen)");
+        }
+        if !mob(w, i).persistence_required {
+            mob_mut(w, i).trap_time = Some(t + 1);
+            if t >= 18000 {
+                let (tt, id) = (w.time, w.entities.list[i].id);
+                w.entities.list[i].removed = true;
+                w.mob.events.push(super::MobEvent::Removed { t: tt, id });
+                return;
+            }
+        }
+    }
     // ---- mob AI (the mob-AI lane): tickHeadTurn, Mob.tick's updateControlFlags ----
     if super::ai::has_ai(w, i) {
         super::ai::after_ai_step(w, i);

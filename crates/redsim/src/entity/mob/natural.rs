@@ -114,6 +114,9 @@ pub static DEFS: &[TypeDef] = &[
     // AgeableWaterCreature babies (`Squid.BABY_DIMENSIONS`: 0.5 x 0.5, eye 0.37)
     row(44, "baby_glow_squid", "minecraft:glow_squid", 0.5, 0.5, 0.37, 10.0, 0.7, false, false, 0.6),
     row(45, "baby_squid", "minecraft:squid", 0.5, 0.5, 0.37, 10.0, 0.7, false, false, 0.6),
+    // a lightning trap's skeleton horse (CREATURE: it counts toward the cap; never spawned
+    // naturally)
+    row(46, "skeleton_horse", "minecraft:skeleton_horse", 1.3964844, 1.6, 1.52, 15.0, 0.2f32 as f64, true, false, 1.0),
 ];
 
 // ------------------------------------------------------------------------- the categories
@@ -328,6 +331,7 @@ pub static KINDS: &[Kind] = &[
     kind("minecraft:salmon", MobType::Natural(23), C::WaterAmbient, P::InWater, Rule::SurfaceWater, 5, true, None, F::Salmon, true, W::None),
     kind("minecraft:cod", MobType::Natural(24), C::WaterAmbient, P::InWater, Rule::SurfaceWater, 8, true, None, F::Cod, true, W::None),
     kind("minecraft:cat", MobType::Natural(42), C::Creature, P::OnGround, Rule::Always, 4, false, None, F::Unmodeled, false, W::Animal),
+    kind("minecraft:skeleton_horse", MobType::Natural(46), C::Creature, P::OnGround, Rule::Always, 1, false, None, F::Unmodeled, false, W::Animal),
     kind("minecraft:bee", MobType::Natural(43), C::Creature, P::NoRestrictions, Rule::Always, 4, false, None, F::Unmodeled, false, W::Animal),
 ];
 

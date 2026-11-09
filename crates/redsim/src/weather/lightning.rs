@@ -429,10 +429,21 @@ pub fn strike(w: &mut World, x: i32, z: i32) {
     let t = w.time;
     if trap {
         w.weather.events.push(WeatherEvent::TrapHorse { t, at: [pos.x, pos.y, pos.z] });
-        // the trap horse is constructed and enters before the bolt (its entity is not modeled:
-        // the event fails a farm run closed; an exact world keeps the game's counters)
+        // the trap horse is constructed and enters before the bolt: in a mob world a skeleton
+        // horse (EntitySpawnReason.EVENT: no finalizeSpawn), setTrap(true), setAge(0),
+        // setPos(the block's corner), on the legacy walk model; else only the game's counters
         if w.exact_seed.is_some() {
             let _ = w.construct();
+        }
+        if w.mob.natural.is_some() {
+            let id = crate::entity::mob::add(w, crate::entity::mob::types::MobType::Natural(46), Vec3::new(pos.x as f64, pos.y as f64, pos.z as f64), false);
+            crate::entity::mob::seed_entered(w, id);
+            if let Some(j) = crate::entity::index_of(w, id)
+                && let crate::entity::EntityKind::Mob(m) = &mut w.entities.list[j].kind
+            {
+                m.trap_time = Some(0);
+            }
+        } else if w.exact_seed.is_some() {
             w.entities.next_id += 1;
         }
     }

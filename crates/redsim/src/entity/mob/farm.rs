@@ -901,12 +901,11 @@ fn absorb_weather(w: &mut World, rep: &mut RunReport, spec: &FarmSpec, tr: &Trac
             E::TrapHorse { at, .. } => {
                 ws.traps += 1;
                 if in_farm(at) {
-                    // the fallback rule for natural mobs' behaviours (2026-11-09): the trap's
-                    // horsemen are not simulated yet; named in the run's report, never a failure.
+                    // the trap's skeleton horse is in the world (on the legacy walk model, named in
+                    // the run's report, with its trap's springing when a player comes within 10).
                     // Counted: a measured hazard (iteration 23), the card's trap line per game day
                     // of thunder and the gate's hazard tally; a lightning rod prevents it
                     ws.traps_on_farm += 1;
-                    w.mob.ai.legacy.insert("skeleton trap horses on the farm (their horsemen not simulated yet)");
                 }
             }
             E::Sunburn { .. } => ws.sunburns += 1,

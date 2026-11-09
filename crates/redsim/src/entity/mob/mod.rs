@@ -289,6 +289,8 @@ pub struct MobState {
     /// `Chicken.isChickenJockey`: set by a baby zombie's jockey roll (it stays when the rider
     /// leaves): no eggs, and it despawns far away like a monster (`removeWhenFarAway`).
     pub chicken_jockey: bool,
+    /// A lightning trap's skeleton horse: `SkeletonHorse.trapTime` (`isTrap`).
+    pub trap_time: Option<i32>,
     /// The helmet on its head (`EquipmentSlot.HEAD`): its max damage and damage (natural undead
     /// from `populateDefaultEquipmentSlots`); it takes the sun's burn.
     pub helmet: Option<(i32, i32)>,
@@ -345,6 +347,7 @@ impl MobState {
             bat_target: None,
             egg_time: 0,
             chicken_jockey: false,
+            trap_time: None,
             helmet: None,
             color: 0,
             lava_height: 0.0,

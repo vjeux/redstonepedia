@@ -169,6 +169,50 @@ fn lightning_targets_in_section_order() {
 
 /// A rod that tops its column takes the strike (one above it); one under a block does not count.
 #[test]
+fn lightning_trap_horse() {
+    // in a mob world a trap brings a skeleton horse to the strike's block corner, before the bolt;
+    // nobody keeps it: discarded once its trapTime passes 18000
+    let mut w = stormy_world();
+    put(&mut w, 0, 1, 0, "minecraft:stone");
+    w.mob.natural = Some(crate::entity::mob::natural::Natural::new(vec![Vec3::new(0.5, -40.0, 0.5)], crate::entity::mob::natural::Difficulty::Hard));
+    let horse = |w: &World| w.entities.list.iter().position(|e| !e.removed && matches!(&e.kind, crate::entity::EntityKind::Mob(m) if m.ty.def().id == "skeleton_horse"));
+    let mut tries = 0;
+    while horse(&w).is_none() && tries < 5000 {
+        lightning::strike(&mut w, 0, 0);
+        tries += 1;
+    }
+    let i = horse(&w).expect("a trap within 5000 strikes");
+    // the earlier strikes' bolts and fires (the trap's own bolt is visual only and lights none)
+    w.weather.bolts.clear();
+    for x in -1..=1 {
+        for z in -1..=1 {
+            if matches!(w.get(BlockPos::new(x, 2, z)), Block::Fire { .. }) {
+                put(&mut w, x, 2, z, "minecraft:air");
+            }
+        }
+    }
+    let at = w.weather.events.iter().rev().find_map(|e| if let WeatherEvent::TrapHorse { at, .. } = e { Some(*at) } else { None }).unwrap();
+    let e = &w.entities.list[i];
+    assert_eq!([e.pos.x, e.pos.y, e.pos.z], [at[0] as f64, at[1] as f64, at[2] as f64]);
+    assert!(matches!(&e.kind, crate::entity::EntityKind::Mob(m) if m.trap_time == Some(0)));
+    let id = e.id;
+    for k in 0..17_990 {
+        w.tick();
+        if crate::entity::index_of(&w, id).is_none_or(|j| w.entities.list[j].removed) {
+            let nat: Vec<String> = w.mob.natural.as_ref().map(|n| n.log.iter().rev().take(3).map(|e| format!("{e:?}")).collect()).unwrap_or_default();
+            let ev: Vec<String> = w.mob.events.iter().rev().take(3).map(|e| format!("{e:?}")).collect();
+            panic!("gone at tick {k}: natural {nat:?} mob {ev:?} errors {:?}", w.errors);
+        }
+    }
+    assert!(crate::entity::index_of(&w, id).is_some_and(|j| !w.entities.list[j].removed), "still there before 18000 gt");
+    for _ in 0..12 {
+        w.tick();
+    }
+    assert!(crate::entity::index_of(&w, id).is_none_or(|j| w.entities.list[j].removed), "discarded after 18000 gt");
+}
+
+/// A rod that tops its column takes the strike (one above it); one under a block does not count.
+#[test]
 fn lightning_rods() {
     let mut w = stormy_world();
     put(&mut w, 5, 10, 5, "minecraft:stone");
