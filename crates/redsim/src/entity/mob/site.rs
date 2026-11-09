@@ -140,9 +140,14 @@ pub struct Priced {
 }
 
 impl Priced {
-    /// A spot's price with its seals, fire clearance and caps.
+    /// A spot's price with its seals, fire clearance and caps (the seals and the clearance
+    /// computed once and handed on: tickexact 2026-11-08, they were recomputed by each of the
+    /// three, the seals four times a spot).
     pub fn at(world: &World, spec: &FarmSpec, price: SpotPrice, clear_box: bool) -> Priced {
-        Priced { covers: covers_at(world, spec, price.offset, clear_box), seals: seals_at(world, spec, price.offset, clear_box), clears: clears_at(world, spec, price.offset, clear_box), price }
+        let seals = seals_at(world, spec, price.offset, clear_box);
+        let clears = clears_with(world, spec, price.offset, clear_box, &seals);
+        let covers = covers_with(world, spec, price.offset, clear_box, true, &seals, &clears);
+        Priced { covers, seals, clears, price }
     }
 
     /// Its blocks' share of the build time, the seals, the fire clearance and the covers placed.
@@ -164,6 +169,11 @@ impl Priced {
 /// and the walk runs again on the cleared cells until nothing is left. A flammable block of the
 /// design is the design's own (the judge's fire line); seals are cobblestone already.
 pub fn clears_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bool) -> Vec<(BlockPos, crate::block::Block)> {
+    clears_with(world, spec, offset, clear_box, &seals_at(world, spec, offset, clear_box))
+}
+
+/// [`clears_at`] with the spot's seals ([`seals_at`]) already found.
+fn clears_with(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bool, seals: &[(BlockPos, bool)]) -> Vec<(BlockPos, crate::block::Block)> {
     let at = |p: BlockPos| BlockPos::new(p.x + offset[0], p.y + offset[1], p.z + offset[2]);
     let (lo, hi) = blocks_box(spec);
     // lava within 4 of the farm, the walk's 2 up and 2 sideways, and a neighbour beyond
@@ -171,7 +181,7 @@ pub fn clears_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bo
     if clear_box {
         place::clear(&mut w, at(lo), at(hi));
     }
-    let seals: Vec<(BlockPos, crate::block::Block)> = seals_at(world, spec, offset, clear_box).into_iter().map(|(p, _)| (p, SEAL)).collect();
+    let seals: Vec<(BlockPos, crate::block::Block)> = seals.iter().map(|(p, _)| (*p, SEAL)).collect();
     w.place_raw(&seals);
     let moved: Vec<(BlockPos, crate::block::Block)> = spec.blocks.iter().map(|(p, b)| (at(*p), *b)).collect();
     w.place_raw(&moved);
@@ -427,6 +437,13 @@ pub fn covers_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bo
 /// [`covers_at`] for every farm villager's search (`all`) or only the panicking ones' (the
 /// searches that run at the farm's own zombie: `panicking`).
 pub fn covers_from(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bool, all: bool) -> Vec<BlockPos> {
+    let seals = seals_at(world, spec, offset, clear_box);
+    let clears = clears_with(world, spec, offset, clear_box, &seals);
+    covers_with(world, spec, offset, clear_box, all, &seals, &clears)
+}
+
+/// [`covers_from`] with the spot's seals and fire clearance already found.
+fn covers_with(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bool, all: bool, seals: &[(BlockPos, bool)], clears: &[(BlockPos, crate::block::Block)]) -> Vec<BlockPos> {
     let at = |p: BlockPos| BlockPos::new(p.x + offset[0], p.y + offset[1], p.z + offset[2]);
     let (lo, hi) = blocks_box(spec);
     let (mut clo, mut chi) = (at(lo).offset(-1, -1, -1), at(hi).offset(1, 1, 1));
@@ -441,9 +458,9 @@ pub fn covers_from(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: 
     }
     // the seals go in first (`seals_at`); they are not the farm's floors: a cave cell over one is
     // covered like any natural spot; then the fire clearance (`clears_at`)
-    let seals: Vec<(BlockPos, crate::block::Block)> = seals_at(world, spec, offset, clear_box).into_iter().map(|(p, _)| (p, SEAL)).collect();
+    let seals: Vec<(BlockPos, crate::block::Block)> = seals.iter().map(|(p, _)| (*p, SEAL)).collect();
     w.place_raw(&seals);
-    w.place_raw(&clears_at(world, spec, offset, clear_box));
+    w.place_raw(clears);
     let moved: Vec<(BlockPos, crate::block::Block)> = spec.blocks.iter().map(|(p, b)| (at(*p), *b)).collect();
     w.place_raw(&moved);
     let own: std::collections::HashSet<BlockPos> = moved.iter().filter(|(_, b)| !b.is_air()).map(|(p, _)| *p).collect();
@@ -494,12 +511,22 @@ pub fn crop(w: &World, lo: BlockPos, hi: BlockPos) -> World {
             for x in lo.x..=hi.x {
                 let p = BlockPos::new(x, y, z);
                 let b = w.get(p);
-                if !b.is_air() {
+                if b.is_air() {
+                    continue;
+                }
+                // a fresh world's raw write (no neighbour, shape or place update, no land, no
+                // AI) is the cell's write alone, but for a block entity's block (its entity
+                // made): written straight into the array (tickexact 2026-11-08: the full setBlock
+                // per cell of every spot's crop was a fifth of the static level)
+                if crate::behavior::has_block_entity(&b) {
                     c.set_block(p, b, crate::world::flags::RAW);
+                } else if let Some(i) = c.index(p) {
+                    c.cells[i] = b;
                 }
             }
         }
     }
+    c.light_version += 1;
     c
 }
 
