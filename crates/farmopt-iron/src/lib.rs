@@ -75,7 +75,8 @@ impl IronFarm {
 pub type CardRender = fn(&str, &std::collections::BTreeMap<String, String>) -> Result<String, String>;
 pub static CARD_RENDER: std::sync::OnceLock<CardRender> = std::sync::OnceLock::new();
 
-pub const VERSION: &str = "iron-v12";
+/// Day 1 (iron-v13: every villager's golem search also from the cell above it, a hop).
+pub const VERSION: &str = "iron-v13";
 /// Middle and late (iron-v7: the kind's tier in every design, late's 8-hour storage and its
 /// storage-capped net).
 pub const VERSION_VOID: &str = "iron-v8";
