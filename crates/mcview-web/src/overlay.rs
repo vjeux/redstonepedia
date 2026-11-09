@@ -483,15 +483,32 @@ impl Overlays {
                 layout.obstacles.push(Rect { x0: x - 10.0, y0: y - 10.0, x1: x + 10.0, y1: y + 10.0 });
             }
         }
-        // the still blocks' cells (a tag never covers the block right above its cell): read again
-        // only when the blocks change, and only with a tag to place
+        // the still block right above each output tag's top cell (a tag never covers it): asked
+        // of the session cell by cell (`Session::drawn_block_at`, what `render_blocks` draws
+        // there: test `session::tests::drawn_block_at_is_what_render_blocks_draws`), the whole set
+        // of still cells read only when it cannot tell (a moving block, a view of the design's
+        // text), again when the blocks change (it was read every frame of a farm in its terrain
+        // whose blocks change, its landscape's 50,000 cells: 2-3 ms of a frame in WebKit)
         let blocks_key = (p.session.blocks_version, if p.session.world.log_writes { 0 } else { p.session.tick });
-        if !self.tags.is_empty() && self.solid_cells.as_ref().is_none_or(|(k, _)| *k != blocks_key) {
-            let cells = p.session.render_blocks(0.0).into_iter().filter(|b| b.offset == [0.0; 3]).map(|b| b.cell).collect();
-            self.solid_cells = Some((blocks_key, std::rc::Rc::new(cells)));
+        let mut above_solid: Vec<bool> = vec![false; self.tags.len()];
+        let off = p.session.view_offset();
+        for (i, tg) in self.tags.iter().enumerate() {
+            let Some(top) = tg.cells.iter().max_by_key(|c| c[1]).copied().filter(|_| tg.out.is_some()) else { continue };
+            let c = [top[0], top[1] + 1, top[2]];
+            if tg.cells.contains(&c) {
+                continue;
+            }
+            above_solid[i] = match p.session.drawn_block_at([c[0] + off[0], c[1] + off[1], c[2] + off[2]]) {
+                Ok(b) => b.is_some(),
+                Err(()) => {
+                    if self.solid_cells.as_ref().is_none_or(|(k, _)| *k != blocks_key) {
+                        let cells = p.session.render_blocks(0.0).into_iter().filter(|b| b.offset == [0.0; 3]).map(|b| b.cell).collect();
+                        self.solid_cells = Some((blocks_key, std::rc::Rc::new(cells)));
+                    }
+                    self.solid_cells.as_ref().is_some_and(|(_, s)| s.contains(&c))
+                }
+            };
         }
-        let no_cells = std::rc::Rc::new(HashSet::new());
-        let solid = self.solid_cells.as_ref().map(|(_, s)| s.clone()).unwrap_or(no_cells);
         // every tag's point: no other tag covers it, or that tag's leader line could not reach
         // it (QA at phone size, lock2-alt: CODE 1 laid over OUT's point left OUT no free spot,
         // and OUT lay on CODE 1)
@@ -563,7 +580,7 @@ impl Overlays {
             // read as the observer's); an input's tag stays over its cell, torch or not (under
             // it, a gate's A tag landed on its OUT tag)
             let top = tg.cells.iter().max_by_key(|c| c[1]).copied().filter(|_| tg.out.is_some());
-            let above = top.map(|c| [c[0], c[1] + 1, c[2]]).filter(|c| !tg.cells.contains(c) && solid.contains(c)).and_then(|c| cell_box(c));
+            let above = top.map(|c| [c[0], c[1] + 1, c[2]]).filter(|_| above_solid[i]).and_then(|c| cell_box(c));
             if let Some(b) = above {
                 layout.obstacles.push(b);
             }

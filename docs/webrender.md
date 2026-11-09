@@ -837,6 +837,13 @@ clocks 120 gt; entity, TNT and shulker designs 400 gt) and fails on any differen
   before: 0 pixels), its shader (the gradient, the stars, the sun and the moon) run on the sky's
   samples alone. 2026-11-09 (part 8): a frame's draw step in WebKit at phone size 14.2-14.4
   against 15.0-15.5 ms on D1U, 14.3-14.6 against 15.0-15.4 on bed-plate-two-clusters.
+* The labels over a live view (`mcview-web::overlay`): an output tag's check for a block right
+  above its cell asks the session about that cell alone (`Session::drawn_block_at`, what
+  `render_blocks` draws there: test `session::tests::drawn_block_at_is_what_render_blocks_draws`),
+  the whole set of still cells read only when it cannot tell. It read every still cell, a farm's
+  terrain's landscape among them, each time the blocks changed: every frame of
+  bed-plate-two-clusters at 20x, 2-3 ms of its frames' 20 in WebKit (part 9: the labels step 0.9-1.0
+  against 2.5-3.4 ms, p50 18-19 against 19-23).
   The varyings are sampled at the centroid of the samples a triangle covers in a pixel, not at
   the pixel's centre (2026-11-08: an edge pixel read the atlas sprite next to its face, a line of
   that colour along every block edge, a grid on a stone wall, or a texel the alpha test drops, a

@@ -3435,6 +3435,60 @@ pub fn dir_step(d: Dir) -> [f32; 3] {
 pub(crate) mod tests {
     use super::*;
 
+    /// What the view draws at a cell asked alone (`Session::drawn_block_at`: the in-place mesh's
+    /// question, and the labels' for the block over an output's tag) is what `render_blocks`
+    /// draws there, a still block or none: farms in their terrain (blocks changing as they run),
+    /// a farm alone, a door, a circuit; every cell of the blocks' box and one around it, at three
+    /// moments of each.
+    #[test]
+    fn drawn_block_at_is_what_render_blocks_draws() {
+        let read = |path: &str| std::fs::read_to_string(format!("{}/../../{path}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        for (design, ticks) in [
+            ("designs/farms/iron/day-1/bed-plate-two-clusters.txt", 600),
+            ("designs/farms/iron/day-1/d1u-underground.txt", 300),
+            ("designs/circuits/mobfarm/archive/iron-day1.txt", 300),
+            ("designs/piston-door-3x3/v1.txt", 30),
+            ("designs/circuits/adder/archive/fa3d-36b.txt", 30),
+        ] {
+            let mut p = crate::player::Player::new_web(&read(design), 1.0).unwrap();
+            let mut asked = 0;
+            for _ in 0..3 {
+                for _ in 0..ticks / 3 {
+                    p.session.step();
+                }
+                let s = &p.session;
+                let drawn: HashMap<Pos, String> = s.render_blocks(0.0).into_iter().filter(|b| b.offset == [0.0; 3]).map(|b| (b.cell, b.state)).collect();
+                let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+                for c in drawn.keys() {
+                    for k in 0..3 {
+                        lo[k] = lo[k].min(c[k] - 1);
+                        hi[k] = hi[k].max(c[k] + 1);
+                    }
+                }
+                let off = s.view_offset();
+                for y in lo[1]..=hi[1] {
+                    for z in lo[2]..=hi[2] {
+                        for x in lo[0]..=hi[0] {
+                            let c = [x, y, z];
+                            match s.drawn_block_at([x + off[0], y + off[1], z + off[2]]) {
+                                Ok(Some(b)) => {
+                                    asked += 1;
+                                    assert!(b.cell == c && drawn.get(&c) == Some(&b.state), "{design} tick {}: {c:?} asked alone {} at {:?}, drawn {:?}", s.tick, b.state, b.cell, drawn.get(&c));
+                                }
+                                Ok(None) => {
+                                    asked += 1;
+                                    assert!(!drawn.contains_key(&c), "{design} tick {}: {c:?} drawn {:?}, asked alone none", s.tick, drawn.get(&c));
+                                }
+                                Err(()) => {}
+                            }
+                        }
+                    }
+                }
+            }
+            assert!(asked > 0, "{design}: no cell it could tell");
+        }
+    }
+
     /// The sorter agent's first auto-smelter (study 16), as archived 2026-10-21: a hopper feeding
     /// the furnace's top from the input chest, one its side from the fuel chest, one under it.
     const SMELTER_1: &str = "name: smelter-1\ncircuit: smelter 1\nport items: 0 3 0\nport fuel: 0 2 1\nport output: 0 -1 0\norigin: 0 0 0\npalette:\n  D minecraft:hopper[enabled=true,facing=down]\n  N minecraft:hopper[enabled=true,facing=north]\n  F minecraft:furnace[facing=north,lit=false]\nlayer 0:\n  D\n  .\nlayer 1:\n  F\n  N\nlayer 2:\n  D\n  .\n";

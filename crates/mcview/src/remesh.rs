@@ -20,7 +20,7 @@
 use crate::atlas::Atlas;
 use crate::mesh::{AsItem, Builder, BuilderParts, Mesh, Quad, Vertex};
 use crate::session::{RBlock, Session};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 type Pos = [i32; 3];
 
@@ -277,6 +277,7 @@ impl Remesh {
     /// (For a test: the cells whose block or light differ from `other`'s.)
     #[cfg(test)]
     fn differences(&self, other: &Remesh) -> (Vec<String>, Option<Vec<Pos>>) {
+        use std::collections::HashMap;
         let ours: HashMap<Pos, &str> = self.blocks.iter().zip(&self.removed).filter(|(_, r)| !**r).map(|(b, _)| (b.cell, b.state.as_str())).collect();
         let theirs: HashMap<Pos, &str> = other.blocks.iter().zip(&other.removed).filter(|(_, r)| !**r).map(|(b, _)| (b.cell, b.state.as_str())).collect();
         let mut blocks: Vec<String> = ours.iter().filter(|(c, s)| theirs.get(*c) != Some(*s)).map(|(c, s)| format!("{c:?} ours {s} theirs {:?}", theirs.get(c))).collect();
