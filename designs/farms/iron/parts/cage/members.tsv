@@ -8,3 +8,7 @@ dust-pulse-3-watching-regular.txt	dust-pulse cage, 3 watching villagers (regular
 bed-observer-2-watching-regular.txt	bed-observer cage, 2 watching villagers (regular)	middle	blocks 118, blocks dug 0, build seconds 200	module-two-watchers.txt
 bed-observer-3-watching-1-sleeping.txt	bed-observer cage, 3 watching villagers	middle	blocks 150, blocks dug 0, build seconds 264	module-three-watchers-sleeper.txt
 bed-observer-2-watching-1-sleeping.txt	bed-observer cage, 2 watching villagers	middle	blocks 128, blocks dug 0, build seconds 222	module-two-watchers-sleeper.txt
+bed-observer-3-watching-regular.txt	bed-observer cage, 3 watching villagers (regular)	middle	blocks 133, blocks dug 0, build seconds 231	module-three-watchers.txt late-module-three-watchers.txt
+bed-observer-3-watching-2-sleeping.txt	bed-observer cage, 3 watching villagers	late	blocks 174, blocks dug 0, build seconds 225	late-module-three-watchers-two-sleepers.txt
+bed-observer-2-watching-2-sleeping.txt	bed-observer cage, 2 watching villagers	late	blocks 152, blocks dug 0, build seconds 195	late-module-two-watchers-two-sleepers.txt
+bed-observer-2-watching.txt	bed-observer cage, 2 watching villagers	late	blocks 97, blocks dug 0, build seconds 124	late-module-compact.txt
