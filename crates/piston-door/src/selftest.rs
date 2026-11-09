@@ -1032,7 +1032,7 @@ pub(crate) fn checks() -> Vec<Check> {
     // covers, and the squeeze costs a player half a heart where memory costs twice the blocks)
     v.push(Check {
         name: "circuit:verify-autodoor".into(),
-        what: "`circuit verify` (the real game, 1 position x 4 rotations) on automatic doors: lock-v8 robust through the two-walker sweeps (open wait 6 gt, close delay 40 gt, the door stays open for someone standing in the doorway); a plate-order door with its rows 2 apart (selftest/autodoor-plate-order, clk-obs lock-v5) refused by them (two sprinting 2.75 apart: the door stays open with nobody inside); a door with no memory (plates only) robust, its reported stop saying the door closes on them; `circuit sim` says redsim does not model walkers",
+        what: "`circuit verify` (the real game, 1 position x 4 rotations) on automatic doors: lock-v8 robust through the two-walker sweeps (open wait 6 gt, close delay 40 gt, the door stays open for someone standing in the doorway); a plate-order door with its rows 2 apart (selftest/autodoor-plate-order, clk-obs lock-v5) refused by them (two sprinting 2.75 apart: the door stays open with nobody inside); a door with no memory (plates only) robust, its reported stop saying the door closes on them; `circuit sim` (the judge's redsim twin, tickexact) gives lock-v8 the same card",
         quick: false,
         jvm: true,
         steps: vec![
@@ -1044,8 +1044,30 @@ pub(crate) fn checks() -> Vec<Check> {
             has(&o[0], "CIRCUIT: auto-door-lock-v8 auto-door door 2x2, open wait 6 gt, close delay 40 gt, stop in doorway the door stays open, 99 blocks, 7x8x11, robust")?;
             has(&o[0], "FAIL: cal-autodoor-plate-order auto-door: walk 89 (two sprinting 2.75 apart): the door was not closed 300 gt after the last walker left (it stays open with nobody inside)")?;
             has(&o[0], "CIRCUIT: cal-autodoor-no-memory auto-door door 2x2, open wait 4 gt, close delay 40 gt, stop in doorway the door closes on them, 60 blocks, 8x5x5, robust")?;
-            has(&o[1], "automatic doors have their own runs in the game, with walkers (study 21)")?;
-            Ok("lock-v8 robust through the two-walker sweeps and safe for a stop; the plate-order door lock-v5 refused by them (open with nobody inside); a door with no memory robust, its stop reported as closing on them; redsim declines".into())
+            has(&o[1], "CIRCUIT: auto-door-lock-v8 auto-door door 2x2, open wait 6 gt, close delay 40 gt, stop in doorway the door stays open, 99 blocks, 7x8x11, redsim (robust)")?;
+            Ok("lock-v8 robust through the two-walker sweeps and safe for a stop; the plate-order door lock-v5 refused by them (open with nobody inside); a door with no memory robust, its stop reported as closing on them; redsim's twin gives lock-v8 the same card".into())
+        }),
+    });
+    // the autodoor judge's redsim twin (tickexact 2026-11-08, testgate's gap b): every build's
+    // walks in redsim (the armor-stand walkers summoned, teleported and killed as the game's
+    // commands do), on the three calibration designs; `circuit door-run --compare-verify` found
+    // them the same as the game's on all 16 builds of each (every verdict, metric and walk line)
+    v.push(Check {
+        name: "sim:autodoor-twin".into(),
+        what: "`circuit sim` on the three automatic-door calibration designs (the judge's redsim twin, 4 positions x 4 rotations, the walkers in redsim): lock-v8 robust (open wait 6 gt, close delay 40 gt, the door stays open for a stop), the plate-order door refused at walk 89 (open with nobody inside), the door with no memory robust (it closes on a stop): the game's verdicts",
+        quick: false,
+        jvm: false,
+        steps: vec![
+            args("circuit sim designs/circuits/autodoor/archive/auto-door-lock-v8.txt"),
+            args("circuit sim designs/circuits/selftest/autodoor-plate-order.txt"),
+            args("circuit sim designs/circuits/selftest/autodoor-no-memory.txt"),
+        ],
+        timeout: 600,
+        pred: Box::new(|o| {
+            has(&o[0], "CIRCUIT: auto-door-lock-v8 auto-door door 2x2, open wait 6 gt, close delay 40 gt, stop in doorway the door stays open, 99 blocks, 7x8x11, redsim (robust)")?;
+            has(&o[1], "FAIL: cal-autodoor-plate-order auto-door: walk 89 (two sprinting 2.75 apart): the door was not closed 300 gt after the last walker left (it stays open with nobody inside)")?;
+            has(&o[2], "CIRCUIT: cal-autodoor-no-memory auto-door door 2x2, open wait 4 gt, close delay 40 gt, stop in doorway the door closes on them, 60 blocks, 8x5x5, redsim (robust)")?;
+            Ok("redsim's walkers give the three calibration doors the game's verdicts".into())
         }),
     });
     // 10. study 8: shulker loaders and unloaders, judged in the game by their own runner (judge

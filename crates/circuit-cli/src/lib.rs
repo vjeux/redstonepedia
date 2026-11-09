@@ -478,6 +478,16 @@ pub enum CircuitCmd {
         offset: Vec<i32>,
         #[arg(long, default_value_t = 3)]
         margin: i32,
+        /// The run in redsim (`autodoor::sim_run`: the walkers teleported as the game's commands do)
+        /// instead of the game.
+        #[arg(long)]
+        sim: bool,
+        /// The whole judge's redsim twin (`autodoor::sim_verify`), every build's line.
+        #[arg(long)]
+        builds: bool,
+        /// The whole judge in the game and on its redsim twin, build by build (they must agree).
+        #[arg(long)]
+        compare_verify: bool,
     },
     /// The blocks a hopper-minecart unloader or loader does not need: each removed alone in parallel
     /// game runs, then the spare ones removed one at a time (crates/circuit/src/cartio.rs::trim).
@@ -1721,11 +1731,24 @@ pub fn run(version: &str, cmd: CircuitCmd) -> Result<()> {
                 }
             }
         }
-        CircuitCmd::DoorRun { design, turns, offset, margin } => {
+        CircuitCmd::DoorRun { design, turns, offset, margin, sim, builds, compare_verify } => {
             let c = Circuit::load(&design)?;
             let off = [offset.first().copied().unwrap_or(0), offset.get(1).copied().unwrap_or(0), offset.get(2).copied().unwrap_or(0)];
-            let pool = mctas::sim::Pool::spawn(1, &mctas::sim::WorkerConfig { version: version.to_string(), ..Default::default() })?;
-            let out = circuit::autodoor::run_one(&pool, &c, turns, off, margin)?;
+            if compare_verify || builds {
+                let o = circuit::verify::Options { margin, version: version.to_string(), ..Default::default() };
+                return if compare_verify { twin_compare_verify(&c, &o, circuit::autodoor::verify_in_pool, &circuit::autodoor::sim_verify) } else { print_twin_builds(&c, circuit::autodoor::sim_verify(&c, &o)) };
+            }
+            let out = if sim {
+                let rc = c.turned_pure(turns)?.translated(off)?;
+                match circuit::autodoor::sim_run(&rc, margin) {
+                    Ok(Ok(log)) => circuit::autodoor::judge(&rc, &log),
+                    Ok(Err(why)) => circuit::check::Outcome { pass: false, why, metrics: Vec::new(), table: Vec::new() },
+                    Err(why) => circuit::check::Outcome { pass: false, why: format!("redsim does not model it: {why:#}"), metrics: Vec::new(), table: Vec::new() },
+                }
+            } else {
+                let pool = mctas::sim::Pool::spawn(1, &mctas::sim::WorkerConfig { version: version.to_string(), ..Default::default() })?;
+                circuit::autodoor::run_one(&pool, &c, turns, off, margin)?
+            };
             for l in &out.table {
                 println!("  {l}");
             }

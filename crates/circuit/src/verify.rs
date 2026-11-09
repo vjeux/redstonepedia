@@ -272,9 +272,11 @@ pub fn sim(c: &Circuit, o: &Options) -> Result<SimReport> {
         return Ok(SimReport { schedule, kind: c.kind.clone(), trace: Err("cart loaders and unloaders have their own run (study 19), no stimulus: `mctas circuit sim` without --stimulus runs the redsim twin, `mctas circuit cart-run` one game run".into()), outcome: None });
     }
     if matches!(c.kind, Some(Kind::AutoDoor)) && o.stimulus.is_none() {
+        // the judge's redsim twin (tickexact 2026-11-08): every build's walks in redsim, the
+        // walkers teleported as the game's commands do (crate::autodoor::sim_verify)
         let mut schedule = Schedule::new(c.inputs.len());
         schedule.ticks = 0;
-        return Ok(SimReport { schedule, kind: c.kind.clone(), trace: Err("automatic doors have their own runs in the game, with walkers (study 21): `mctas circuit door-run` (one game run); the judge is `mctas circuit verify`".into()), outcome: None });
+        return Ok(twin_sim_report(c, schedule, crate::autodoor::sim_verify(c, o)));
     }
     // a registered study's kind (crate::registry): its twin's whole judge, or why it has none
     if let Some(Kind::Study(s)) = &c.kind

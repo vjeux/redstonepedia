@@ -182,7 +182,7 @@ What the game-running checks exercised and what covers it now:
 | mobs (no game check) | `sim:redsim-tests` |
 | the bridge itself | `sim:vanilla-*`; the live fuzzers (the bridge's game against redsim) |
 | chunk reload (clock:verify-reload) | the 5 reload recordings (`redsim::reload`: each chunk's scheduled ticks numbered -N..-1 again and run in `LevelTicks`' container order, block entities registered again in their chunk map's order, a moving block saved by its progressO); a model error: entities across a reload, block-entity kinds interleaved |
-| walkers and pressure plates (circuit:verify-autodoor) | not modeled (redsim declines walkers); the autodoor judge's own check |
+| walkers and pressure plates (circuit:verify-autodoor) | `sim:autodoor-twin`: the autodoor judge's redsim twin (`circuit sim`; `autodoor::sim_verify`: every build's walks in redsim, the walkers teleported as the game's commands do) on lock-v8, the plate-order door and the door with no memory; `circuit door-run --compare-verify` found the game and redsim the same on all 16 builds of each (2026-11-08) |
 | the unwaxed copper bulb (bulb-toggle-bud) | its recording (`sim:recorded-circuits`: 33076 frames, the oxidation at frame 19008 included) and the fixture `copper-bulb-unwaxed-toggle` (`sim:redsim-tests`) |
 
 The same map check by check: each game-running check of `door selftest` and the recordings that
@@ -203,7 +203,7 @@ replay what it ran in the game (all in `sim:recorded-*`, plus the live fuzzers o
 | clock:verify-reload | the 5 reload recordings (designs/redsim/recorded/clocks: the observer pair across a chunk border, a piston mid-retraction, a hopper pair across a border, the torch loop, the sculk piston); still model errors: entities across a reload (new objects, ids and randoms) and a reload that interleaves block-entity kinds (redsim ticks hoppers, then sensors, then moving blocks) |
 | circuit:verify-calibration-1 to -5 | the 37 calibration circuits' stimulus runs (`sim:recorded-circuits`); fly-start and flying-machine are not recorded (their game run stops at the corridor's end 10 frames before redsim's; every frame identical until then), the flying-machine mechanics are in the recorded two-way machine, elevator and watcher-stays flyers and clk-misc's horizontal flyer; bulb-toggle-bud: recorded (its unwaxed bulb oxidizes at frame 19008 in the game and in redsim) |
 | circuit:verify-station | the judged station-slope-v2 and the cart loader/unloader traces (clk-misc) |
-| circuit:verify-autodoor | not modeled (the walkers, filed) |
+| circuit:verify-autodoor | `sim:autodoor-twin` (the judge's redsim twin on its three calibration designs: the same verdicts, metrics and walk lines as the game's, 16 builds each) |
 | circuit:verify-shulker-loader, -unloader, -early | the 20 exact shulker traces (`circuit:shulker-compare`), the loaders' and unloaders' runs among them |
 | circuit:sorter-compare, circuit:sorter-verify | the 4 recorded sorter runs (`sim:recorded-studies`) |
 | circuit:smelter-compare, circuit:smelter-verify | the 4 recorded smelter runs |
@@ -217,13 +217,15 @@ is now three pieces, one per design, run side by side): it runs when its study's
 changes (the door, clock and circuit judges' checks on their calibration designs), with
 `mctas test --all`, and a design's own judge runs when the design changes.
 
-One behavior redsim does not model is filed with its owner (2026-11-08): the automatic doors'
-walkers (scripted armor stands teleported every tick; circuit:verify-autodoor), queued with the
-tick-exact lane. The unwaxed copper bulb and its oxidation (bulb-toggle-bud) is modeled since
-b497e5ef2 (mob-farm infrastructure lane) and recorded; chunk save/unload/reload for redstone is
-modeled (tickexact, `redsim::reload`: scheduled ticks, block entities; clock:verify-reload's repro
-is recorded). When redsim models one, its game run is recorded into designs/redsim/recorded/ and
-the simulator pieces cover it.
+The three behaviors testgate filed (2026-11-08) are all modeled now: the automatic doors' walkers
+(scripted armor stands teleported every tick; circuit:verify-autodoor) by the autodoor judge's
+redsim twin (tickexact: `circuit sim`, `circuit door-run --sim/--builds/--compare-verify`; the game
+and redsim agree on every build of the three calibration designs, and `sim:autodoor-twin` holds
+their verdicts); the unwaxed copper bulb and its oxidation (bulb-toggle-bud) since b497e5ef2
+(mob-farm infrastructure lane), recorded; chunk save/unload/reload for redstone (tickexact,
+`redsim::reload`: scheduled ticks, block entities; clock:verify-reload's repro is recorded). When
+redsim models another, its game run is recorded into designs/redsim/recorded/ (or its judge gets a
+twin) and the simulator pieces cover it.
 
 **The mutation test** (2026-11-08, `mctas test --mutants designs/redsim/mutants.tsv`,
 crates/piston-door/src/mutate.rs): ten one-line redsim bugs, each applied in a worktree, built,

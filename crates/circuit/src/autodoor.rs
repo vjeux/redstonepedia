@@ -296,11 +296,7 @@ pub fn game_run(w: &mut Worker, c: &Circuit, margin: i32) -> Result<std::result:
         Ok(o) => o,
         Err(e) => return Ok(Err(format!("{e:#}"))),
     };
-    let (mut from, mut to) = crate::run::watch_box(c, margin);
-    for i in 0..3 {
-        from[i] = from[i].min(o.lo[i] - if i == o.n { (REACH + SPREAD) as i32 + 2 } else { 0 });
-        to[i] = to[i].max(o.hi[i] + if i == o.n { (REACH + SPREAD) as i32 + 2 } else { 0 });
-    }
+    let (from, to) = run_box(c, &o, margin);
     let chunks = [from[0].div_euclid(16), from[2].div_euclid(16), to[0].div_euclid(16), to[2].div_euclid(16)];
     let sb = w.create(&SandboxOptions { chunks, seed: crate::shulker::build_seed(from, to, 0) })?;
     let r = run_in(w, sb, c, &o, from, to);
@@ -344,19 +340,122 @@ thread_local! {
     static TRACE_BOX: std::cell::RefCell<Option<(Pos, Pos)>> = const { std::cell::RefCell::new(None) };
 }
 
-fn run_in(w: &mut Worker, sb: u32, c: &Circuit, o: &Opening, from: Pos, to: Pos) -> Result<std::result::Result<RunLog, String>> {
-    if std::env::var("AUTODOOR_TRACE").is_ok() {
-        let (lo, hi) = c.clock.design.bounds().unwrap_or(([0; 3], [0; 3]));
-        TRACE_BOX.with(|t| *t.borrow_mut() = Some((lo, hi)));
+/// The world the walks run in: the game's sandbox (a [`Worker`]'s) or redsim's ([`SimDoor`],
+/// tickexact 2026-11-08: testgate's gap b, the walkers in redsim). The walks drive both through
+/// these five calls only, so both run the same script.
+trait DoorWorld {
+    fn get_region(&mut self, sb: u32, from: Pos, to: Pos) -> Result<mctas::sim::Region>;
+    fn step(&mut self, sb: u32, n: u32) -> Result<()>;
+    fn summon(&mut self, sb: u32, e: &[EntitySpec]) -> Result<Vec<String>>;
+    /// `tp <id> x y z` or `kill <id>`.
+    fn exec(&mut self, sb: u32, cmd: &str) -> Result<()>;
+    /// Every entity's id and position.
+    fn entities(&mut self, sb: u32) -> Result<Vec<Stand>>;
+}
+
+/// An entity of a walk's world: its id (the game's uuid, redsim's id) and position.
+struct Stand {
+    uuid: String,
+    pos: [f64; 3],
+}
+
+impl DoorWorld for Worker {
+    fn get_region(&mut self, sb: u32, from: Pos, to: Pos) -> Result<mctas::sim::Region> {
+        Worker::get_region(self, sb, from, to)
     }
-    clock::verify::place(w, sb, &c.clock)?;
-    let placed = w.get_region(sb, from, to)?;
-    let popped = c.clock.design.blocks.iter().find(|(p, _)| placed.get(**p).is_none_or(mctas::blockstate::is_air)).map(|(p, s)| (*p, s.clone()));
-    let floating = w.unsupported(sb, from, to)?.first().map(|p| (*p, c.clock.design.blocks.get(p).cloned().unwrap_or_default()));
-    if let Some((p, st)) = popped.or(floating) {
-        return Ok(Err(format!("{} at {p:?} has no support (a player could not build it: it pops at its first shape update)", clock::short(&st))));
+    fn step(&mut self, sb: u32, n: u32) -> Result<()> {
+        Worker::step(self, sb, n).map(|_| ())
     }
-    // the judge's floor under the walk paths (out to where the farthest walker starts)
+    fn summon(&mut self, sb: u32, e: &[EntitySpec]) -> Result<Vec<String>> {
+        Worker::summon(self, sb, e)
+    }
+    fn exec(&mut self, sb: u32, cmd: &str) -> Result<()> {
+        Worker::exec(self, sb, cmd)
+    }
+    fn entities(&mut self, sb: u32) -> Result<Vec<Stand>> {
+        Ok(Worker::entities(self, sb)?.into_iter().map(|e| Stand { uuid: e.uuid, pos: e.pos }).collect())
+    }
+}
+
+/// The walks in redsim: the design built as the game's sandbox builds it ([`crate::rig::sim_world_of`]),
+/// armor stands summoned, teleported (`tp`: the position, no motion) and killed as the game's
+/// commands do.
+pub struct SimDoor {
+    pub w: redsim::World,
+}
+
+impl DoorWorld for SimDoor {
+    fn get_region(&mut self, _sb: u32, from: Pos, to: Pos) -> Result<mctas::sim::Region> {
+        let size = [to[0] - from[0] + 1, to[1] - from[1] + 1, to[2] - from[2] + 1];
+        let mut palette: Vec<String> = Vec::new();
+        let mut index: std::collections::HashMap<String, u16> = std::collections::HashMap::new();
+        let mut data = Vec::with_capacity((size[0] * size[1] * size[2]) as usize);
+        for y in 0..size[1] {
+            for z in 0..size[2] {
+                for x in 0..size[0] {
+                    let s = self.w.get(redsim::BlockPos::new(from[0] + x, from[1] + y, from[2] + z)).to_string();
+                    let k = match index.get(&s) {
+                        Some(k) => *k,
+                        None => {
+                            palette.push(s.clone());
+                            index.insert(s, (palette.len() - 1) as u16);
+                            (palette.len() - 1) as u16
+                        }
+                    };
+                    data.push(k);
+                }
+            }
+        }
+        Ok(mctas::sim::Region { from, size, palette, flags: Vec::new(), data })
+    }
+    fn step(&mut self, _sb: u32, n: u32) -> Result<()> {
+        for _ in 0..n {
+            self.w.tick();
+        }
+        if let Some(e) = self.w.errors.first() {
+            bail!("redsim: {e}");
+        }
+        Ok(())
+    }
+    fn summon(&mut self, _sb: u32, es: &[EntitySpec]) -> Result<Vec<String>> {
+        es.iter().map(|e| redsim::entity::spawn(&mut self.w, &e.kind, e.pos, e.nbt.as_deref()).map(|id| id.to_string()).map_err(|x| anyhow!("redsim: {x}"))).collect()
+    }
+    fn exec(&mut self, _sb: u32, cmd: &str) -> Result<()> {
+        let f: Vec<&str> = cmd.split_whitespace().collect();
+        let find = |w: &redsim::World, id: &str| -> Result<usize> {
+            let id: u32 = id.parse()?;
+            w.entities.list.iter().position(|e| e.id == id && !e.removed).ok_or_else(|| anyhow!("redsim: no entity {id}"))
+        };
+        match f.as_slice() {
+            // `TeleportCommand` on an entity: `teleportSetPosition` (the position, the old position,
+            // the motion zero: an absolute teleport)
+            ["tp", id, x, y, z] => {
+                let i = find(&self.w, id)?;
+                let p = redsim::entity::Vec3::new(x.parse()?, y.parse()?, z.parse()?);
+                self.w.entities.set_pos(i, p);
+                let e = &mut self.w.entities.list[i];
+                e.xo = p.x;
+                e.yo = p.y;
+                e.zo = p.z;
+                e.delta_movement = redsim::entity::Vec3::new(0.0, 0.0, 0.0);
+                Ok(())
+            }
+            ["kill", id] => {
+                let i = find(&self.w, id)?;
+                self.w.entities.list[i].removed = true;
+                Ok(())
+            }
+            _ => bail!("redsim: the walks send no `{cmd}`"),
+        }
+    }
+    fn entities(&mut self, _sb: u32) -> Result<Vec<Stand>> {
+        Ok(self.w.entities.list.iter().filter(|e| !e.removed).map(|e| Stand { uuid: e.id.to_string(), pos: [e.pos.x, e.pos.y, e.pos.z] }).collect())
+    }
+}
+
+/// The judge's floor under the walk paths (out to where the farthest walker starts): stone under
+/// the opening's two columns, where the design has no block.
+fn walk_floor(c: &Circuit, o: &Opening) -> Vec<(Pos, String)> {
     let mut floor = Vec::new();
     for d in -((REACH + SPREAD) as i32 + 1)..=((REACH + SPREAD) as i32 + 1) {
         // under the opening's two columns only (the walker's lanes stay over them): the cells beside
@@ -371,8 +470,59 @@ fn run_in(w: &mut Worker, sb: u32, c: &Circuit, o: &Opening, from: Pos, to: Pos)
             }
         }
     }
+    floor
+}
+
+/// The box a run watches (the design's, out to where the farthest walker starts).
+fn run_box(c: &Circuit, o: &Opening, margin: i32) -> (Pos, Pos) {
+    let (mut from, mut to) = crate::run::watch_box(c, margin);
+    for i in 0..3 {
+        from[i] = from[i].min(o.lo[i] - if i == o.n { (REACH + SPREAD) as i32 + 2 } else { 0 });
+        to[i] = to[i].max(o.hi[i] + if i == o.n { (REACH + SPREAD) as i32 + 2 } else { 0 });
+    }
+    (from, to)
+}
+
+/// The run in redsim: [`game_run`]'s, the design built as the game's sandbox builds it. Outer Err:
+/// what redsim does not model.
+pub fn sim_run(c: &Circuit, margin: i32) -> Result<std::result::Result<RunLog, String>> {
+    let o = match opening(c) {
+        Ok(o) => o,
+        Err(e) => return Ok(Err(format!("{e:#}"))),
+    };
+    let (from, to) = run_box(c, &o, margin);
+    let floor = walk_floor(c, &o);
+    let w = match crate::rig::sim_world_of(&c.clock, from, to, &floor).map_err(|e| anyhow!("{e}"))? {
+        Ok(w) => w,
+        Err(why) => return Ok(Err(why)),
+    };
+    let mut sim = SimDoor { w };
+    DoorWorld::step(&mut sim, 0, c.clock.free_from() + SETTLE)?;
+    walks_in(&mut sim, 0, c, &o)
+}
+
+fn run_in(w: &mut Worker, sb: u32, c: &Circuit, o: &Opening, from: Pos, to: Pos) -> Result<std::result::Result<RunLog, String>> {
+    if std::env::var("AUTODOOR_TRACE").is_ok() {
+        let (lo, hi) = c.clock.design.bounds().unwrap_or(([0; 3], [0; 3]));
+        TRACE_BOX.with(|t| *t.borrow_mut() = Some((lo, hi)));
+    }
+    clock::verify::place(w, sb, &c.clock)?;
+    let placed = w.get_region(sb, from, to)?;
+    let popped = c.clock.design.blocks.iter().find(|(p, _)| placed.get(**p).is_none_or(mctas::blockstate::is_air)).map(|(p, s)| (*p, s.clone()));
+    let floating = w.unsupported(sb, from, to)?.first().map(|p| (*p, c.clock.design.blocks.get(p).cloned().unwrap_or_default()));
+    if let Some((p, st)) = popped.or(floating) {
+        return Ok(Err(format!("{} at {p:?} has no support (a player could not build it: it pops at its first shape update)", clock::short(&st))));
+    }
+    // the judge's floor under the walk paths (out to where the farthest walker starts)
+    let floor = walk_floor(c, o);
     w.set_blocks(sb, &floor, PlaceMode::Raw)?;
     w.step(sb, c.clock.free_from() + SETTLE)?;
+    walks_in(w, sb, c, o)
+}
+
+/// The walks after the settle (the game's or redsim's world): the door closed at rest, then every
+/// walk of [`walks`], the families' worst lines.
+fn walks_in(w: &mut dyn DoorWorld, sb: u32, c: &Circuit, o: &Opening) -> Result<std::result::Result<RunLog, String>> {
     let door_state = c.clock.design.blocks.get(&o.lo).cloned().unwrap_or_default();
     // the corridor read every tick
     let mut cf = o.lo;
@@ -440,7 +590,7 @@ fn run_in(w: &mut Worker, sb: u32, c: &Circuit, o: &Opening, from: Pos, to: Pos)
     Ok(Ok(log))
 }
 
-fn walk(w: &mut Worker, sb: u32, o: &Opening, wk: &Walk, door: &str, (cf, ct): (Pos, Pos), log: &mut RunLog) -> Result<std::result::Result<(u32, u32), String>> {
+fn walk(w: &mut dyn DoorWorld, sb: u32, o: &Opening, wk: &Walk, door: &str, (cf, ct): (Pos, Pos), log: &mut RunLog) -> Result<std::result::Result<(u32, u32), String>> {
     let n = wk.walkers.len();
     let dirs: Vec<f64> = wk.walkers.iter().map(|x| -x.from as f64).collect();
     let lanes: Vec<f64> = wk.walkers.iter().map(|x| x.lane).collect();
@@ -672,11 +822,36 @@ pub fn verify_in_pool(pool: &Pool, c: &Circuit, o: &Options) -> Result<VerifyRep
     for ((t, off), r) in jobs.into_iter().zip(results) {
         builds.push(Build { turns: t, offset: off, result: r.with_context(|| format!("rotation {t} at {off:?}"))? });
     }
+    Ok(report(c, kind, builds))
+}
+
+/// The judge's redsim twin (`circuit sim`, `circuit door-run --builds`): every build of
+/// [`verify_in_pool`], the walks in redsim ([`sim_run`]). Err: what redsim does not model.
+pub fn sim_verify(c: &Circuit, o: &Options) -> std::result::Result<VerifyReport, String> {
+    let kind = c.kind.clone().ok_or_else(|| "no kind".to_string())?;
+    let offsets = clock::offsets(o.positions);
+    let turns: Vec<u8> = if o.rotations { vec![0, 1, 2, 3] } else { vec![0] };
+    let family = c.kinds().into_iter().collect::<Vec<_>>().join("+");
+    let mut builds = Vec::new();
+    for t in &turns {
+        let tc = c.turned_pure(*t).map_err(|e| format!("rotation {t}: {e:#}"))?;
+        for off in &offsets {
+            let rc = tc.translated(*off).map_err(|e| format!("{e:#}"))?;
+            let r = sim_run(&rc, o.margin).map_err(|why| format!("rotation {t} at {off:?}: {why:#}"))?;
+            builds.push(Build { turns: *t, offset: *off, result: r.map(|log| BuildOk { outcome: judge(&rc, &log), dims: log.dims, family: family.clone() }) });
+        }
+    }
+    Ok(report(c, kind, builds))
+}
+
+/// The verdict over the builds, the base build's card carrying the worst metrics (the longest open
+/// wait and close delay; a door that closes on a stopped walker in any build closes on them).
+fn report(c: &Circuit, kind: crate::Kind, builds: Vec<Build>) -> VerifyReport {
     let mut schedule = Schedule::new(0);
     schedule.ticks = 0;
     let mut rep = crate::verify::verdict(VerifyReport { name: c.name().to_string(), kind: Some(kind), blocks: c.blocks(), schedule, builds, verdict: String::new(), pass: false, note: String::new() });
     if !rep.pass {
-        return Ok(rep);
+        return rep;
     }
     let num = |k: &BuildOk, name: &str| k.outcome.metrics.iter().find(|(n, _)| n == name).and_then(|(_, v)| v.split_whitespace().next()).and_then(|v| v.parse::<f64>().ok());
     let oks: Vec<&BuildOk> = rep.builds.iter().filter_map(|b| b.result.as_ref().ok()).filter(|k| k.outcome.pass).collect();
@@ -697,7 +872,7 @@ pub fn verify_in_pool(pool: &Pool, c: &Circuit, o: &Options) -> Result<VerifyRep
             }
         }
     }
-    Ok(rep)
+    rep
 }
 
 /// A design aid (`mctas circuit door-run`): one run turned and moved like one of `circuit verify`'s builds.
