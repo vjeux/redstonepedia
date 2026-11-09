@@ -19,6 +19,7 @@ pub mod squid;
 pub mod control;
 pub mod goal;
 pub mod path;
+pub mod player_body;
 pub mod poi;
 pub mod target;
 
@@ -346,6 +347,11 @@ pub struct AiWorld {
     pub strict: bool,
     /// The ambient natural mob types run on the legacy walk model (their AI not modeled yet).
     pub legacy: std::collections::BTreeSet<&'static str>,
+    /// The players' bodies (`player_body`: their motion, pushed by mobs), by player index.
+    pub bodies: Vec<player_body::Body>,
+    /// A player's body has moved it at least once (natural spawning then filters the ticking
+    /// chunks by its position each tick).
+    pub player_moved: bool,
 }
 
 /// A mob whose AI is not modeled: no goals and no targets (villagers have their brain, bats their
@@ -356,7 +362,7 @@ pub fn unmodeled(ty: MobType, a: &MobAi) -> bool {
 
 impl Default for AiWorld {
     fn default() -> AiWorld {
-        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, pois: None, poi_seq: std::collections::HashMap::new(), poi_next: 0, poi_tickets: Some(std::collections::BTreeMap::new()), lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new(), poi_hashes: None, strict: false, legacy: std::collections::BTreeSet::new() }
+        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, pois: None, poi_seq: std::collections::HashMap::new(), poi_next: 0, poi_tickets: Some(std::collections::BTreeMap::new()), lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new(), poi_hashes: None, strict: false, legacy: std::collections::BTreeSet::new(), bodies: Vec::new(), player_moved: false }
     }
 }
 

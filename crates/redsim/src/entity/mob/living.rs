@@ -1029,17 +1029,22 @@ fn push_entities(w: &mut World, i: usize) {
     // vehicle (isPassengerOfSameVehicle: a zombie never pushes its own boat)
     let root = root_vehicle(w, me);
     let others = w.get_entities(bb, |e| e.id != me && pushable(e) && root_vehicle(w, e.id) != root);
-    if others.is_empty() {
+    // the AFK players its box meets (the mob AI's player bodies; a rider pushes none)
+    let players = if w.mob.ai.on && w.entities.list[i].vehicle.is_none() { super::ai::player_body::touching(w, bb) } else { Vec::new() };
+    if others.is_empty() && players.is_empty() {
         return;
     }
     let cram = w.mob.cramming;
     // the cramming roll is the mob's own random (the stand-in without the mob AI's seeding)
     let roll = |w: &mut World| if super::ai::has_ai(w, i) { w.entities.list[i].random.as_mut().expect("random").next_int(4) } else { w.mob.rng_mut().next_int(4) };
-    if cram > 0 && others.len() as i32 > cram - 1 && roll(w) == 0 {
-        let count = others.iter().filter(|&&j| w.entities.list[j].vehicle.is_none()).count() as i32;
+    if cram > 0 && (others.len() + players.len()) as i32 > cram - 1 && roll(w) == 0 {
+        let count = others.iter().filter(|&&j| w.entities.list[j].vehicle.is_none()).count() as i32 + players.len() as i32;
         if count > cram - 1 {
             hurt(w, i, Damage::Cramming, 6.0);
         }
+    }
+    for k in players {
+        super::ai::player_body::pushed_by_mob(w, k, i);
     }
     for j in others {
         match &w.entities.list[j].kind {

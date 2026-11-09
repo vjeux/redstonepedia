@@ -1147,7 +1147,11 @@ impl World {
             crate::entity::frame::check_static(self);
         }
         // tickexact: the players tick after the levels (MinecraftServer.tickConnection ->
-        // ServerPlayer.doTick): the AFK player's TIME_SINCE_REST
+        // ServerPlayer.doTick): their bodies (pushed by mobs, sliding: the mob AI's), then the AFK
+        // player's TIME_SINCE_REST
+        if self.mob.ai.on && !self.mob.ai.players.is_empty() {
+            crate::entity::mob::ai::player_body::tick(self);
+        }
         if self.mob.custom.is_some() {
             crate::entity::mob::custom::player_tick(self);
         }
