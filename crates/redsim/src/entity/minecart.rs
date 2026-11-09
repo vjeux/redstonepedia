@@ -522,11 +522,12 @@ fn push_and_pickup_entities(w: &mut World, i: usize) {
     }
 }
 
-/// `AbstractMinecart.push(Entity entity)` on cart `j` (this) by cart `i` (the entity): both carts
-/// are minecarts here, so `pushOtherMinecart`.
+/// `AbstractMinecart.push(Entity entity)` on cart `j` (this) by entity `i`: another minecart
+/// (`pushOtherMinecart`), or any other entity not riding it (a mob's `pushEntities` touching the
+/// cart: the cart pushed by `(-xa, 0, -za)` and the entity by a quarter of the opposite).
 fn push_by(w: &mut World, j: usize, i: usize) {
     let (this, other) = (&w.entities.list[j], &w.entities.list[i]);
-    if this.removed || other.removed || this.no_physics || other.no_physics {
+    if this.removed || other.removed || this.no_physics || other.no_physics || this.passengers.contains(&other.id) {
         return;
     }
     let mut xa = other.pos.x - this.pos.x;
@@ -548,7 +549,21 @@ fn push_by(w: &mut World, j: usize, i: usize) {
     za *= 0.1f32 as f64;
     xa *= 0.5;
     za *= 0.5;
-    push_other_minecart(w, j, i, xa, za);
+    if matches!(w.entities.list[i].kind, entity::EntityKind::Minecart(_)) {
+        push_other_minecart(w, j, i, xa, za);
+    } else {
+        // `this.push(-xa, 0, -za); entity.push(xa / 4, 0, za / 4)` (Entity.push: the delta; its
+        // hasImpulse only syncs clients)
+        let c = &mut w.entities.list[j];
+        c.delta_movement = c.delta_movement.add(-xa, 0.0, -za);
+        let e = &mut w.entities.list[i];
+        e.delta_movement = e.delta_movement.add(xa / 4.0, 0.0, za / 4.0);
+    }
+}
+
+/// A mob's `pushEntities` meeting cart `j`: `doPush` = `cart.push(mob)` ([`push_by`]).
+pub fn pushed_by_mob(w: &mut World, j: usize, i: usize) {
+    push_by(w, j, i);
 }
 
 /// `AbstractMinecart.pushOtherMinecart(otherMinecart, xa, za)` on cart `j` (this), `i` the other

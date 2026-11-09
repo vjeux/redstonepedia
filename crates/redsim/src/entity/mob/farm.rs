@@ -581,6 +581,21 @@ pub fn run_t(spec: &FarmSpec, o: &RunOpts, iron: u32, hand_hide: bool) -> Result
         }
         r.tick();
         let t = r.world.time;
+        // (`MCTAS_VILLAGER_TRACE=N`: every N gt, each of the farm's villagers: its feet, its
+        // vehicle, asleep, its HOME)
+        if let Some(n) = std::env::var("MCTAS_VILLAGER_TRACE").ok().and_then(|v| v.parse::<i64>().ok()).filter(|n| *n > 0)
+            && t % n == 0
+        {
+            let w = &r.world;
+            for e in w.entities.list.iter().filter(|e| tr.own.contains(&e.id)) {
+                if let EntityKind::Mob(m) = &e.kind
+                    && m.ty == MobType::Villager
+                {
+                    let home = m.brain.as_deref().and_then(|b| b.home);
+                    eprintln!("villager t {t} (day time {}): {} at {:.2} {:.2} {:.2} vehicle {:?} asleep {} home {:?}", w.day_time().rem_euclid(24000), e.id, e.pos.x, e.pos.y, e.pos.z, e.vehicle, m.sleeping_pos.is_some(), home);
+                }
+            }
+        }
         if r.world.errors.len() > world_errors0 {
             let errs: Vec<String> = r.world.errors[world_errors0..].to_vec();
             return Err(format!("gt {t}: the world went wrong: {}", errs.join("; ")));
@@ -777,6 +792,12 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
                 }
                 if let Some(a) = at {
                     rep.spawn_cells.push(a);
+                }
+                // (`MCTAS_GOLEM_TRACE=1`: each of the farm's golems, its spawn cell and its
+                // summoner's position)
+                if std::env::var_os("MCTAS_GOLEM_TRACE").is_some() {
+                    let s = crate::entity::index_of(w, villager).map(|i| w.entities.list[i].pos);
+                    eprintln!("golem t {t} (day time {}): {id} at {at:?}, summoned by {villager} at {s:?}", w.day_time().rem_euclid(24000));
                 }
                 tr.golem_born.push((id, t));
                 tr.own.insert(id);

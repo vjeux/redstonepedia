@@ -977,12 +977,28 @@ fn push_entities(w: &mut World, i: usize) {
         }
     }
     for j in others {
-        if !matches!(w.entities.list[j].kind, EntityKind::Mob(_)) {
-            let why = format!("a mob touching a {} (its push) is not modeled", super::kind_name(&w.entities.list[j].kind));
-            if !w.errors.contains(&why) {
-                w.errors.push(why);
+        match &w.entities.list[j].kind {
+            EntityKind::Mob(_) => {}
+            // `doPush(cart)` = `AbstractMinecart.push(mob)`
+            EntityKind::Minecart(_) => {
+                crate::entity::minecart::pushed_by_mob(w, j, i);
+                continue;
             }
-            continue;
+            // `doPush(boat)` = `AbstractBoat.push(mob)`: `Entity.push` when the mob's box is no
+            // higher than the boat's
+            EntityKind::Boat(_) => {
+                if w.entities.list[i].bb.min_y <= w.entities.list[j].bb.min_y {
+                    crate::entity::push::generic(w, j, i);
+                }
+                continue;
+            }
+            k => {
+                let why = format!("a mob touching a {} (its push) is not modeled", super::kind_name(k));
+                if !w.errors.contains(&why) {
+                    w.errors.push(why);
+                }
+                continue;
+            }
         }
         if super::ai::has_ai(w, i) {
             super::ai::before_do_push(w, i, j);

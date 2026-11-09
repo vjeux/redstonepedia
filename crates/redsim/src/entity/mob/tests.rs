@@ -263,6 +263,25 @@ fn a_cart_picks_up_a_villager_and_an_activator_rail_throws_it_out() {
     assert!(thrown.is_some(), "the activator rail never threw the villager out");
 }
 
+/// A mob's `pushEntities` meeting a minecart it does not ride: `doPush` = `AbstractMinecart.push`,
+/// the cart pushed away by 0.05 (its delta, along the rail) and the mob by a quarter of it.
+#[test]
+fn a_villager_touching_a_parked_cart_pushes_it_along_its_rail() {
+    let mut w = world(3);
+    for x in 0..6 {
+        put(&mut w, x, -1, 0, "minecraft:stone");
+        put(&mut w, x, 0, 0, "minecraft:rail[shape=east_west,waterlogged=false]");
+    }
+    let cart = w.entities.add(EntityKind::Minecart(Default::default()), Vec3::new(2.5, 0.0, 0.5), 0.0);
+    let _v = add(&mut w, MobType::Villager, Vec3::new(3.2, 0.0, 0.5), false);
+    for _ in 0..3 {
+        w.tick();
+        assert!(w.errors.is_empty(), "{:?}", w.errors);
+    }
+    let ci = crate::entity::index_of(&w, cart).unwrap();
+    assert!(w.entities.list[ci].pos.x < 2.5, "the cart pushed west: {:?}", w.entities.list[ci].pos);
+}
+
 /// `AbstractBoat.tick`'s boarding branch: a mob meeting the zombie's boat (its box inflated 0.2
 /// sideways) takes the boat's free seat; with two, `positionRider` seats the zombie 0.2 forward and
 /// the newcomer 0.6 back (a boat at yaw 0 faces +z: `Vec3(0, y, f).yRot(0)`).
