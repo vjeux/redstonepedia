@@ -906,13 +906,14 @@ pub fn golem_breaks_rule(w: &World, g: usize, inner: Aabb, t: i64, own: &[u32]) 
     if !inner.intersects(e.bb) || e.bb.min_y < inner.min_y {
         return Some(format!("gt {t}: a golem left the build at {:.1} {:.1} {:.1}", e.pos.x, e.pos.y, e.pos.z));
     }
-    for z in w.entities.list.iter().filter(|z| own.contains(&z.id) && matches!(&z.kind, EntityKind::Mob(m) if m.ty == MobType::Zombie)) {
+    // (the kind tested before the `own` list: a few zombies and vehicles among many entities)
+    for z in w.entities.list.iter().filter(|z| matches!(&z.kind, EntityKind::Mob(m) if m.ty == MobType::Zombie) && own.contains(&z.id)) {
         if attack_box(e.bb, None).intersects(z.bb) {
             return Some(format!("gt {t}: a golem at {:.1} {:.1} {:.1} can reach the zombie", e.pos.x, e.pos.y, e.pos.z));
         }
     }
     for v in &w.entities.list {
-        if own.contains(&v.id) && matches!(v.kind, EntityKind::Boat(_) | EntityKind::Minecart(_)) && v.bb.intersects(e.bb) {
+        if matches!(v.kind, EntityKind::Boat(_) | EntityKind::Minecart(_)) && own.contains(&v.id) && v.bb.intersects(e.bb) {
             return Some(format!("gt {t}: a golem touches a vehicle at {:.1} {:.1} {:.1}", v.pos.x, v.pos.y, v.pos.z));
         }
     }

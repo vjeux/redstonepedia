@@ -32,14 +32,19 @@ pub fn sqrt(x: f32) -> f32 {
     (x as f64).sqrt() as f32
 }
 
-/// `Mth.floor(double)`.
+/// `Mth.floor(double)` (as `v.floor() as i32` for every input, NaN and the infinities included,
+/// without the libm call: tickexact 2026-11-08, it was a hundredth of a run).
+#[inline]
 pub fn floor(v: f64) -> i32 {
-    v.floor() as i32
+    let i = v as i32;
+    if (i as f64) > v { i.saturating_sub(1) } else { i }
 }
 
-/// `Mth.lfloor(double)`.
+/// `Mth.lfloor(double)` (as `v.floor() as i64`, without the libm call).
+#[inline]
 pub fn lfloor(v: f64) -> i64 {
-    v.floor() as i64
+    let i = v as i64;
+    if (i as f64) > v { i.saturating_sub(1) } else { i }
 }
 
 /// `Mth.frac(double)`.
@@ -217,5 +222,25 @@ mod tests {
         // the game's atan2 is an approximation (fastInvSqrt: one Newton step)
         assert!((atan2(1.0, 1.0) - std::f64::consts::FRAC_PI_4).abs() < 1e-2);
         assert!((atan2(-1.0, -2.0) - (-1.0f64).atan2(-2.0)).abs() < 1e-2);
+    }
+
+    /// `floor` and `lfloor` answer as `v.floor() as i32` / `as i64` everywhere: integers, halves,
+    /// signed zeros, NaN, the infinities, the edges of the integer ranges, tiny offsets.
+    #[test]
+    fn floor_is_the_libm_floor() {
+        let mut vs = vec![0.0, -0.0, 0.5, -0.5, 1.0, -1.0, 1.0e-7, -1.0e-7, 2.999999, -2.999999, 1.0e300, -1.0e300, f64::NAN, f64::INFINITY, f64::NEG_INFINITY, f64::MIN_POSITIVE, -f64::MIN_POSITIVE];
+        for b in [i32::MAX as f64, i32::MIN as f64, i64::MAX as f64, i64::MIN as f64, 4503599627370496.0, -4503599627370496.0] {
+            for d in [-1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5] {
+                vs.push(b + d);
+            }
+        }
+        let mut r = crate::rng::LegacyRandom::new(7);
+        for _ in 0..100_000 {
+            vs.push((r.next_double() - 0.5) * 1.0e4);
+        }
+        for v in vs {
+            assert_eq!(floor(v), v.floor() as i32, "floor({v})");
+            assert_eq!(lfloor(v), v.floor() as i64, "lfloor({v})");
+        }
     }
 }

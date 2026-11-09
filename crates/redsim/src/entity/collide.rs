@@ -1039,7 +1039,7 @@ fn collided_with_shape_moving_from(e: &Entity, from: Vec3, to: Vec3, parts: &[Aa
 }
 
 /// `Entity.checkInsideBlocks(from, to, collector, visited, maxIterations)`: the iterations used.
-fn check_inside_blocks_step(w: &mut World, i: usize, from: Vec3, to: Vec3, visited: &mut HashSet<BlockPos>, max_iter: i32) -> i32 {
+fn check_inside_blocks_step(w: &mut World, i: usize, from: Vec3, to: Vec3, visited: &mut Vec<BlockPos>, max_iter: i32) -> i32 {
     let (wd, ht) = w.entities.list[i].kind.dims();
     let d = 1.0e-5f32 as f64;
     let target = super::make_bounding_box(to, wd, ht).deflate(d, d, d);
@@ -1078,7 +1078,8 @@ fn check_inside_blocks_step(w: &mut World, i: usize, from: Vec3, to: Vec3, visit
             let h = fs.height(w, p) as f64;
             collided_with_shape_moving_from(e, from, to, &[Aabb::new(p.x as f64, p.y as f64, p.z as f64, (p.x + 1) as f64, p.y as f64 + h, (p.z + 1) as f64)])
         };
-        if (inside_block || inside_fluid) && visited.insert(p) {
+        if (inside_block || inside_fluid) && !visited.contains(&p) {
+            visited.push(p);
             // `effectCollector.advanceStep(iteration)` before each effect (a mob's or an item's
             // collector)
             match w.entities.list[i].kind {
@@ -1107,7 +1108,8 @@ fn check_inside_blocks(w: &mut World, i: usize, moves: &[Movement]) {
     if w.entities.list[i].removed {
         return;
     }
-    let mut visited = HashSet::default();
+    // (the cells already visited: a handful, kept in a list rather than a hashed set)
+    let mut visited: Vec<BlockPos> = Vec::new();
     for m in moves {
         let mut pos = m.from;
         let delta = m.to.subtract_v(m.from);

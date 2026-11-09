@@ -2,6 +2,7 @@
 //! operation order, and Java's `Math.min` / `Math.max` (a NaN wins, -0.0 < 0.0).
 
 /// Java's `Math.min(double, double)`.
+#[inline]
 pub fn jmin(a: f64, b: f64) -> f64 {
     if a.is_nan() {
         return a;
@@ -13,6 +14,7 @@ pub fn jmin(a: f64, b: f64) -> f64 {
 }
 
 /// Java's `Math.max(double, double)`.
+#[inline]
 pub fn jmax(a: f64, b: f64) -> f64 {
     if a.is_nan() {
         return a;
@@ -142,6 +144,7 @@ pub struct Aabb {
 
 impl Aabb {
     /// `new AABB(...)`: min/max sorted per axis.
+    #[inline]
     pub fn new(x0: f64, y0: f64, z0: f64, x1: f64, y1: f64, z1: f64) -> Aabb {
         Aabb { min_x: jmin(x0, x1), min_y: jmin(y0, y1), min_z: jmin(z0, z1), max_x: jmax(x0, x1), max_y: jmax(y0, y1), max_z: jmax(z0, z1) }
     }
