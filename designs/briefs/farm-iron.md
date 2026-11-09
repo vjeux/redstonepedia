@@ -132,6 +132,15 @@ Numbers, never refusals by themselves; each stage weighs them in its own rank:
   drops fall in it), measured on redsim with the mob AI on and in the game; the card's iron per
   hour already nets it out. A kill that loses none (a blade below a drop) competes on the
   objectives, not by refusal.
+- **Beds** (iteration 14, the mob-AI lane, 0 differences on the bridge): a pod villager releases
+  its bed at nearly every REST (a failed daytime IDLE stroll sets CANT_REACH_WALK_TARGET_SINCE,
+  nothing in a 1-cell pod clears it, and SetWalkTargetFromBlockMemory drops HOME past 1200 gt)
+  and re-claims it through AcquirePoi; when the re-claim fails it sleeps no more and the cluster
+  stops. The card prints the nights a villager spent homeless and the rate's spread across seeds
+  (the lowest seed's rate beside the mean), never only a mean (four modules packed tight: 78 to
+  423 golems an hour over 6 seeds; m2-open: 110 on every seed). A cage must make the re-claim
+  certain (its own bed the only free bed AcquirePoi can reach from the pod: within 48 blocks
+  along a path), and the grammar checks it for every multi-module layout.
 - **Storage, AFK and lag**: hours of output the chests and hoppers hold at the card's rate,
   poppies included (they take slots ahead of the iron); the hours it runs unattended; golem life,
   hoppers per 1000 iron per hour, entities alive at once, peak loose items.
@@ -236,24 +245,26 @@ Numbers, never refusals by themselves; each stage weighs them in its own rank:
   fire safety, the collection's hours and hoppers, the trigger's hide length and restart), then
   assembles builds from them. Per-stage part limits are written only where the player needs them
   (each stage's Parts line below); the rest is the stage's objectives.
-- **What reaches vjeux**: per stage, 1-4 farms from the merged fronts, each beating every other
-  presented farm by at least 10% on one of the stage's objectives, each with a one-line reason a
-  player would pick it and its tradeoffs in plain words, published to the site's Farms section
-  (`farms/iron/`, stages and components) once it passes the game gate (`mctas site variation
-  <design> --stage <stage> [--pick]`, then the coordinator's GO and deploy), never as previews
-  (vjeux 12:18: "Please stop with the preview mode. Just upload them to the website."; previews
-  were only the interim until the Farms section went live). The Farms section lists only the
-  farms presented here and the variations this brief's owner names as promising; no lane adds an
-  iron-farm variation on its own, and a bar (copies at the no-coupling pitch, each with its own
-  kill chamber and chests) is never listed: it is quoted only as the reference line on a listed
-  farm's card and beside the fronts (vjeux 14:51 on the stack of 8 copies: "Sounds like a stupid
-  design, why does each module have their own kill chamber?"). A stage with nothing that beats its
-  bar lists nothing. Each stage's bar: day 1, the live farm (the archived iron-day1), replaced only
-  by a game-gated farm that beats it; middle and late, copies of the best single module at the
-  no-coupling pitch. This overrides process.md G3's fallback (the obvious design published as the
-  pick when nothing clearly beats it) for copies, by vjeux's word (04:26: copies "gain nothing:
-  that is the bar, not a candidate"; 14:51). The middle module itself (one cluster) is listed as a
-  component, the unit the middle and late farms are built from, not as a stage's farm.
+- **What reaches vjeux**: per stage, the stage's pick first, then every promising candidate as a
+  variation of its stage (iteration 14, vjeux 16:27: "I asked you to stop using previews and
+  push to the site directly"; this supersedes iteration 10's listing rule), each with a one-line
+  reason a player would pick it and its tradeoffs in plain words, published to the site's Farms
+  section (`farms/iron/`, stages and components) with `mctas site variation <design> --stage
+  <stage> [--pick]` (it runs the kind's judge and the real-game gate itself and refuses a farm the
+  gate fails) and the coordinator's fast path (GO, main, deploy); every candidate discussed with
+  vjeux carries its live site URL. Previews are retired. Promising means: on a merged front of
+  the stage's search (near-duplicates within 10% on every objective stay one farm: vjeux 10:56,
+  "I also don't want hundreds of tiny variations"), not dominated by another listed farm by more
+  than 10% on one objective without a 10% gain on another. A bar (copies at the no-coupling pitch,
+  each with its own kill chamber and chests) and clearly dominated designs stay off; the bar is
+  quoted only as the reference line on a listed farm's card and beside the fronts (vjeux 14:51 on
+  the stack of 8 copies: "Sounds like a stupid design, why does each module have their own kill
+  chamber?"). The stage's pick is the farm that beats the stage's bar: day 1, the live farm (the
+  archived iron-day1), replaced only by a game-gated farm that beats it; middle and late, copies
+  of the best single module at the no-coupling pitch (this overrides process.md G3's fallback for
+  copies, by vjeux's word, 04:26: copies "gain nothing: that is the bar, not a candidate"; 14:51).
+  The best single module is listed as a component, the unit the middle and late farms are built
+  from, not as a stage's farm.
 - **A farm and its N** (iteration 4, the G1 review): a farm is a stacked unit (one cluster, or
   several sharing parts) and the parts its copies share; builds that differ only in how many
   copies of one unit they hold are ONE farm, never a ladder of front members. Each farm is
@@ -1199,3 +1210,4 @@ the spec was, what came back (the front's size before and after merging), what c
 | 11 | Burnt drops are a measured tradeoff, not a failure: the judge's "a drop touches lava" check becomes a measured line (iron lost per golem), the card's iron per hour counts only what reaches the chest, and a kill that loses none competes on the objectives. Spot pricing against the village's own villagers: no rule until a measured run shows coupling | The day-1 lane: the pit family's burnt drops come from golems bobbing in the corner's floor water (their goals' jumps, jumpInLiquid), dying anywhere from the floor to about 3.6 up; the AI-on judge burns drops on d1-bed-plate in 4 of 8 seeds; the game: D1U 3.95 iron a golem (about 1.2% lost); lava higher stalls the farm, a corner pillar pins golems on the hole's corner. At D1U's spot the village's villagers are at least 47.8 blocks from any farm villager (no 10-box coupling) | The parent's ruling on vjeux 08:26 ("It's all about tradeoffs"): about 1% of the iron for a design that is otherwise the T-optimal day-1 farm is a number a player weighs, not a refusal; the blade kill of day-1 run 2 competes with it on T and the rate |
 | 12 | Middle run 2 judged: nothing to present. "Where a middle farm can win" added to Middle (the module is at 92% of the ceiling, so a middle farm beats copies only on build minutes per module, at most 90% of theirs at 90% of their rate, by sharing the kill chamber and collection with almost free transport). Asked of run 3: current prices and roles (iron-v5), the copies bar priced the same way; families that share the kill and collection (iron-v5's shared-kill stack, the ironfarm lane's shared chamber, modules around one central shaft and chamber with every pad outside every foreign follow cube); candidates that cannot beat the bar pruned before their runs; the low-build end measured first; a sight blocker between pods so 5-villager clusters pass the gossip rule; one calm per module where routing a shared one fails | 230,419 builds (iron-v4: pre-roles materials, the old lava and villager prices), 3,000 quick runs, 4 full judges, 62,066 left open. Front 2, merged 1: two copies stacked 43 apart with 10 x 10 pads, 454 iron/h per module, 42.8 build minutes per module, against the copies bar's 444 and 31.8 under the same pricing: 2% more iron for 35% more build. The best per build minute (4 modules in a row sharing one calm, a pit kill) only ties the bar (420 iron/h per module at 30.1 minutes). About 130,000 candidates refused by the gossip rule (5+ villagers in a 10-box with sight), 25,758 by a shared calm with no route | The front's member is the bar's own shape (copies at a no-coupling pitch), so the middle section stays empty; run 2's space lacked the families where sharing can pay, and its build minutes are stale (glass and stone priced, one lava trip per source, 180 s a villager), so its numbers are not compared with run 3's |
 | 13 | Golem walking is judged by the AI-on runs and the game gate (a golem alive past 1200 gt in any run or the gate fails the build; the card prints the kill-time tail), with the exit flood's static guards kept under every input (no escape) and under the still policy (no dead water); the 8 constant walking inputs are reported, not refused | The ironfarm lane's shared kill: its water channel carries AI-driven golems (N = 2 at pitch 27: 880 iron/h, 92%) but fails the drift check under a constant walking input (recorded by the ironfarm lane: two westward constant walks from the pad cells ended at the channel's first step, the golem held at the step's lip against the side walls, 1.2 above the water's feet level; no still-policy failure, so a golem that stops walking is carried over the lip). Under the new rule the AI-on runs measure the same weakness: the channel's kill averages 671 gt with the longest at 1,107 gt, close enough to 1,200 to fail now and then, while drop blades over one shared items channel (the drops only) kill in 304 gt, longest 381, at 873 iron/h; so the blades are the shared-kill default, and the dropped refusal hid no hold the measurement misses; farmopt: that check alone blocks every family with horizontal golem transport to a shared chamber (the central-shaft ring) | The constant inputs stood in for walking AI before it was modeled (the brief's "not modeled as AI; instead ..."); now that the goals run tick for tick, a refusal on an input the real AI may never sustain contradicts vjeux 08:26 (robustness is measured, never a refusal by itself) and hides the families where sharing can pay. The game gate stays the backstop where the AI-on model still differs from the game (m2-open-ring reads about 5% low with the AI on, under investigation) |
+| 14 | Every promising candidate goes up as a variation of its stage, the stage's pick first, through `mctas site variation` (which runs the real-game gate) and the coordinator's fast path; candidates carry their live site URL; previews are retired (also in AGENTS.md's house rule). Promising: on a merged front, not dominated by more than 10% on one objective without a 10% gain on another; bars and clearly dominated designs stay off. New tradeoff line "Beds": the nights a villager spends homeless and the rate's spread across seeds | vjeux 16:27: "I asked you to stop using previews and push to the site directly, what's wrong!?"; the mob-AI lane (0 differences on the bridge): pod villagers release their bed at nearly every REST and re-claim it through AcquirePoi; m2-open re-claims every night (110 golems/h on every seed), four modules packed tight often fail (78 to 423 golems/h over 6 seeds) | Iteration 10's "list nothing unless it beats the bar" left vjeux nothing to look at; his word is to see every promising farm, near-duplicates still merged (10:56). A rate that swings with the seed is a property of the design a player must see, not noise for the mean to hide; the AI-on start-state fix (villagers arrive without HOME, as in the gate) closed the 5% gap of row 13 |

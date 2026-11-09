@@ -6,12 +6,12 @@ What was tried before (read it before starting a direction): [docs/history.md](d
 the track notebooks ([tracks/README.md](designs/piston-door-3x3/tracks/README.md)).
 
 ## House rules (from the repo owner, vjeux)
-- **Until the Farms section (/farms/) is live on the main site, show vjeux a farm with `mctas site
-  preview <design>...`** from your branch and send him the URL it prints (vjeux 2026-11-08 12:20:
-  "Just use the preview while the full thing works"): its page, 3D view, card and downloads on
-  vjeux/redstonepedia-preview, never on the site; no merge, no GO, no tests
-  ([site.md#previews](docs/site.md#previews)). Once /farms/ is live, the main site takes over:
-  designs go there through the coordinator (archive, GO, main, deploy).
+- **Farms go straight to the main site** (vjeux 2026-11-08 16:27: "I asked you to stop using
+  previews and push to the site directly"): the Farms section (/farms/) is live, so a farm
+  candidate goes up as a variation of its stage with `mctas site variation <design> --stage
+  <stage>` (it runs the kind's judge and the real-game gate itself) and the coordinator's fast
+  path (GO, main, deploy), and its live URL goes to vjeux. Previews (`mctas site preview`) are
+  retired.
 - **New components follow [docs/process.md](docs/process.md):** a brief, the obvious design as
   the bar and the mechanics' ceiling, a search against that bar, then a review. No internet and
   no one else's designs. No new kind, metric or judge rule without an approved brief.
