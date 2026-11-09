@@ -1048,9 +1048,11 @@ fn finish(w: &World, rep: &mut RunReport, tr: &Track, spec: &FarmSpec) {
         .filter(|s| s.item.ends_with("iron_ingot"))
         .map(|s| s.count as u32)
         .sum();
-    let accounted = rep.iron_in_chest + rep.iron_in_containers + loose;
+    // (a drop burnt in the farm's lava or fire is a measured loss, not a lost one: brief rev 9
+    // iteration 11, `RunReport::iron_burnt`)
+    let accounted = rep.iron_in_chest + rep.iron_in_containers + loose + rep.iron_burnt;
     if accounted != rep.iron_dropped && rep.failures.is_empty() {
-        rep.fail(format!("{} iron ingots dropped, {} in the chest, {} in the farm's containers, {} loose: {} lost", rep.iron_dropped, rep.iron_in_chest, rep.iron_in_containers, loose, rep.iron_dropped as i64 - accounted as i64));
+        rep.fail(format!("{} iron ingots dropped, {} in the chest, {} in the farm's containers, {} loose, {} burnt: {} lost", rep.iron_dropped, rep.iron_in_chest, rep.iron_in_containers, loose, rep.iron_burnt, rep.iron_dropped as i64 - accounted as i64));
     }
     for e in &w.errors {
         if !rep.errors.contains(e) && rep.errors.len() < 8 {

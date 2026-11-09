@@ -85,11 +85,14 @@ pub struct GateOpts {
     /// runs of the one placement instead of the 8 builds.
     pub terrain: Option<String>,
     pub world: Option<std::path::PathBuf>,
+    /// Natural monsters on (`spawn_monsters` in a terrain run; the default): off for an experiment
+    /// that separates the farm from the natural mobs around it.
+    pub monsters: bool,
 }
 
 impl GateOpts {
     pub fn new(version: &str) -> GateOpts {
-        GateOpts { version: version.to_string(), days: 3, rain_day: true, thunder_day: true, warmup: (150_000, 400_000), seed: 1, builds: Vec::new(), parallel: 8, keep: false, trace: false, terrain: None, world: None }
+        GateOpts { version: version.to_string(), days: 3, rain_day: true, thunder_day: true, warmup: (150_000, 400_000), seed: 1, builds: Vec::new(), parallel: 8, keep: false, trace: false, terrain: None, world: None, monsters: true }
     }
 }
 
@@ -515,7 +518,8 @@ pub fn run_terrain(c: &Circuit, name: &str, k: u8, o: &GateOpts) -> Result<Build
     s.cmd_ok("tick rate 10000")?;
     s.cmd_ok(&format!("forceload add {} {} {} {}", spec.lo.x, spec.lo.z, spec.hi.x, spec.hi.z))?;
     s.teleport_bot(site.afk.x, site.afk.y, site.afk.z)?;
-    for c in ["gamerule spawn_mobs true", "gamerule spawn_monsters true", "gamerule spawn_phantoms false", "gamerule spawn_patrols false", "gamerule spawn_wandering_traders false", "gamerule advance_time true", "gamerule advance_weather true"] {
+    let monsters = if o.monsters { "gamerule spawn_monsters true" } else { "gamerule spawn_monsters false" };
+    for c in ["gamerule spawn_mobs true", monsters, "gamerule spawn_phantoms false", "gamerule spawn_patrols false", "gamerule spawn_wandering_traders false", "gamerule advance_time true", "gamerule advance_weather true"] {
         s.cmd_ok(c)?;
     }
     if o.trace {

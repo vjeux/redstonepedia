@@ -294,7 +294,20 @@ pub fn d1u(n: i32) -> String {
 /// golem is out of every villager's golem sensor (`NearestLivingEntitySensor`'s 16-block box), so
 /// the 600 gt of GOLEM_DETECTED_RECENTLY start when it falls past, not when it dies.
 pub fn d1u_with(n: i32, k: i32) -> String {
+    d1u_with_access(n, k, false)
+}
+
+/// [`d1u_with`], its access built in when `access` ([`dug_access`]: a spiral staircase 3 west
+/// of the lava corner, clear of the pad's water).
+pub fn d1u_with_access(n: i32, k: i32, access: bool) -> String {
     let mut b = Builder::new(&format!("iron-day1-underground-{n}"));
+    d1u_front(&mut b);
+    d1u_pit(b, n, k, access)
+}
+
+/// D1U's front, shared by its variants: the two pods (S2 at x 0, S at x 2) and their sight tunnel
+/// north to the zombie in its boat behind the hide (D4's), and the plate villager U1 by the hide.
+fn d1u_front(b: &mut Builder) {
     let air = "air";
     // the pods: S2 (x 0) and S (x 2) on their beds, their in-cell trapdoors, the cell above
     for x in [0, 2] {
@@ -344,8 +357,14 @@ pub fn d1u_with(n: i32, k: i32) -> String {
     b.set(4, 3, -6, air);
     b.set(5, 3, -6, air);
     b.entity("villager", [3.5, 2.0, -5.5], None);
-    // the pad (pit_kill's, n x n at x 0..n-1, z 2..n+1): its floor and gates, water, the 2 cells of
-    // golem headroom over the water
+}
+
+/// D1U's pad (pit_kill's, n x n at x 0..n-1, z 2..n+1, its floor at -7): its floor and gates,
+/// water in its corners, the 2 cells of golem headroom over the water, its 4 x 4 hole (open gates
+/// in its floor around a 2 x 2 centre gated at the water's level) where golems drop; returns the
+/// hole's min corner (x, z).
+fn d1u_pad(b: &mut Builder, n: i32) -> (i32, i32) {
+    let air = "air";
     let (x1, z0, z1) = (n - 1, 2, n + 1);
     let (hx, hz) = (n / 2 - 2, z0 + n / 2 - 2);
     let hole = |x: i32, z: i32| (hx..=hx + 3).contains(&x) && (hz..=hz + 3).contains(&z);
@@ -367,6 +386,13 @@ pub fn d1u_with(n: i32, k: i32) -> String {
             b.set(x, -4, z, air);
         }
     }
+    (hx, hz)
+}
+
+/// D1U's pad over its kill pit (feet `k`), after [`d1u_front`].
+fn d1u_pit(mut b: Builder, n: i32, k: i32, access: bool) -> String {
+    let air = "air";
+    let (hx, hz) = d1u_pad(&mut b, n);
     // the pit under the hole (feet k, -13 by default; fire-safe like pit_kill's): dug, the water source pushing golems into the corner
     // under the lava, 3 wall signs holding the lava, the hopper over the output
     for x in hx..=hx + 3 {
@@ -390,6 +416,9 @@ pub fn d1u_with(n: i32, k: i32) -> String {
     b.set(lx + 1, k + 3, lz, "oak_button[face=wall,facing=south,powered=false]");
     b.set(lx, k - 1, lz, "hopper[enabled=true,facing=down]");
     b.d.ports.insert("output".into(), [lx, k - 2, lz]);
+    if access {
+        dug_access(&mut b, (lx, k - 2, lz), lx - 3);
+    }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     b.d.meta.insert("restart".into(), "yes".into());
     b.d.meta.insert("terrain".into(), "cells".into());
@@ -421,6 +450,175 @@ pub fn d1u_with(n: i32, k: i32) -> String {
             "under one lava source; the iron drops into a hopper and a chest at the bottom, reached by a staircase.",
         ])
     }
+}
+
+/// Day 1, D1U-side (vjeux 2026-11-08 18:02: "Don't put slabs, do it below the surface. And put
+/// the chute to the side"): D1U's front and pad at its depth (ground 11: no villager's golem search,
+/// from its cell or the cell above, reaches the natural surface, so nothing is placed on it; caps go
+/// only into caves in the rock), the pad's water carrying golems south into a 2-wide channel cut
+/// through the rock, a block lower every 6 cells so its water keeps flowing, to a kill pit beyond
+/// every villager's golem sensor (its 16-block box: the villagers summon the next golem while one
+/// burns), at about the pad's level (a 2-block drop), the chest under the pit's lava corner.
+pub fn d1u_side(n: i32) -> String {
+    d1u_side_with(n, 0, false)
+}
+
+/// [`d1u_side`] with everything under its pad `drop` blocks lower (the parent's 19:29 ask: drop
+/// first, then sideways): D1U's own pad (its 4 x 4 hole) at -7 drops the golems down a shaft to
+/// the sideways pad, below every villager's 16-block sensor when `drop` is 13 or more, so no
+/// golem is sensed on its way to the kill; its access built in when `access` ([`dug_access`]: 2
+/// west of the lava corner).
+pub fn d1u_side_with(n: i32, drop: i32, access: bool) -> String {
+    let name = if drop > 0 { "iron-day1-underground-drop-side" } else { "iron-day1-underground-side" };
+    let mut b = Builder::new(&format!("{name}-{n}"));
+    let air = "air";
+    d1u_front(&mut b);
+    let d = drop;
+    if d > 0 {
+        let (hx, hz) = d1u_pad(&mut b, 6);
+        for x in hx..=hx + 3 {
+            for z in hz..=hz + 3 {
+                for y in (-4 - d)..=-8 {
+                    b.set(x, y, z, air);
+                }
+            }
+        }
+    }
+    // the pad: 4 x 6 (x 1..4, z 3..8: its south end as far south as the pod villagers' golem
+    // searches reach, 8 from them, so a golem has the least way to go before it leaves their
+    // 16-block sensor), its floor at -7, 3 cells of golem room over it; a water source in each
+    // north corner, 6 cells from the channel's mouth so the water spreads over the whole pad
+    // (`FlowingFluid.getSlopeDistance` finds a drop up to 5 cells away, and then the water runs
+    // only toward it: closer, it would run straight down the edge columns and leave the middle
+    // dry), its level rising away from the corners: it pushes a golem off the side walls (one
+    // that spawned 0.2 into a wall cannot slide along it) and south into the mouth
+    let _ = n;
+    let (xa, xb, z0, z1) = (1, 4, 3, 8);
+    for x in xa..=xb {
+        for z in z0..=z1 {
+            let source = (x == xa || x == xb) && z == z0;
+            b.set(x, -7 - d, z, STONE);
+            b.set(x, -6 - d, z, if source { "water[level=0]" } else { air });
+            b.set(x, -5 - d, z, air);
+            b.set(x, -4 - d, z, air);
+        }
+    }
+    // the channel: 2 wide, flush with the pad's east wall (x n-3..n-2), its floor a block lower at
+    // z1 + 1 and at z1 + 7 (falling water spreads again: flowing water reaches 7 cells), 4 cells of
+    // room over it (a golem stepping off the level above keeps its head clear of the ceiling while
+    // it drops); a column wider than the pad on each side, so a golem that spawned against a pad
+    // wall (its 1.4-wide box 0.2 into the wall) never meets a channel wall: the water carries it
+    // straight south
+    let (cx0, cx1) = (xa - 1, xb + 1);
+    for (za, zb, fy) in [(z1 + 1, z1 + 6, -8 - d), (z1 + 7, z1 + 8, -9 - d)] {
+        for z in za..=zb {
+            for x in cx0..=cx1 {
+                b.set(x, fy, z, STONE);
+                for y in fy + 1..=fy + 4 {
+                    b.set(x, y, z, air);
+                }
+            }
+        }
+    }
+    // the kill: D1U's corner pit across the channel's end, as wide as the channel, 3 long (z t0..t0
+    // + 2; a golem's centre at z >= t0 + 0.7 is out of the pod villagers' 16-block boxes). Open
+    // fence gates in its first row at the channel's floor level carry the channel's water over the
+    // pit, gates in its second row at the water's level end it there (D1U's hole edge: water does
+    // not enter a fence gate, a golem passes through an open one), so a golem pushed into that
+    // water drops through the gates along its whole width while no water falls in: the pit's floor
+    // keeps one source in its north-east corner, its level rising to the south-west corner from
+    // every cell, which pushes every golem (walking or not) into the lava at head height there,
+    // held by 3 wall signs, buttons over the signs beside it (the fire shield), the hopper and chest
+    // under it
+    let t0 = z1 + 9;
+    let k = -15 - d;
+    for x in cx0..=cx1 {
+        for z in t0..=t0 + 2 {
+            b.set(x, k - 1, z, STONE);
+            for y in k..=-5 - d {
+                b.set(x, y, z, air);
+            }
+        }
+        b.set(x, -9 - d, t0, GATE_N);
+        b.set(x, -8 - d, t0 + 1, GATE_N);
+    }
+    b.set(cx1, k, t0 + 2, "water[level=0]");
+    // the lava corner on the pod side (min x, min z: D1U's own, toward the villagers the golems'
+    // AI walks to), its fire walk (2 cells up from the lava) clear of the oak gates' cells
+    let (lx, lz) = (cx0, t0);
+    b.set(lx, k + 2, lz, "lava[level=0]");
+    b.set(lx, k + 1, lz, "oak_wall_sign[facing=south,waterlogged=false]");
+    b.set(lx + 1, k + 2, lz, "oak_wall_sign[facing=south,waterlogged=false]");
+    b.set(lx, k + 2, lz + 1, "oak_wall_sign[facing=east,waterlogged=false]");
+    b.set(lx, k + 3, lz + 1, "oak_button[face=wall,facing=east,powered=false]");
+    b.set(lx + 1, k + 3, lz, "oak_button[face=wall,facing=south,powered=false]");
+    b.set(lx, k - 1, lz, "hopper[enabled=true,facing=down]");
+    b.d.ports.insert("output".into(), [lx, k - 2, lz]);
+    if access {
+        dug_access(&mut b, (lx, k - 2, lz), lx - 2);
+    }
+    b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    b.d.meta.insert("restart".into(), "yes".into());
+    b.d.meta.insert("terrain".into(), "cells".into());
+    b.d.meta.insert("ground".into(), "11".into());
+    b.d.meta.insert("afk".into(), "2.5 12 4.5".into());
+    if d > 0 {
+        return b.text(&[
+            "Day-1 iron farm dug into the ground beside a village: two villagers on their beds watch a zombie parked in a boat",
+            "and keep summoning iron golems. At nightfall a third villager lies down in its bed, its pressure plate lets go and a",
+            "trapdoor hides the zombie: the two fall asleep, then see it again from their beds and wake scared, so golems come",
+            "day and night. Golems appear on a water pad 7 blocks down and fall through its middle down a shaft, too deep for",
+            "the villagers to sense them, so they summon the next golem at once; at the bottom water carries them sideways along",
+            "a channel cut through the rock to a pit beside the farm where they burn in a corner under one lava source; the iron",
+            "drops into a hopper and a chest below it. Nothing is built on the surface.",
+        ]);
+    }
+    b.text(&[
+        "Day-1 iron farm dug into the ground beside a village: two villagers on their beds watch a zombie parked in a boat",
+        "and keep summoning iron golems. At nightfall a third villager lies down in its bed, its pressure plate lets go and a",
+        "trapdoor hides the zombie: the two fall asleep, then see it again from their beds and wake scared, so golems come",
+        "day and night. Golems appear on a water pad 7 blocks down; its water carries them sideways along a channel cut",
+        "through the rock to a pit 17 blocks away, too far for the villagers to sense them, so they summon the next golem",
+        "while one burns in the pit's corner under one lava source; the iron drops into a hopper and a chest below it.",
+        "Nothing is built on the surface: the farm lies deep enough that no golem can appear up there.",
+    ])
+}
+
+/// The access, built into a dug-in day-1 farm (ironspec, the parent: no stair left to the
+/// player; the brief: the hatch is the only block on the natural surface): a 2 x 2 spiral
+/// staircase dug in the rock from the chest's level (`chest`: its cell) up to the ground layer
+/// (design y 11), its first cell at (ax, chest z) west of the chest, the corridor between them (2
+/// high, a torch: no monster spawns at block light 1 or more); each layer one cell left as the
+/// step (cobblestone where a cave took the rock), the next a quarter turn up, 3 open cells over
+/// each step; a torch every 8 layers; closed fence gates over its open cells in the ground layer,
+/// its hatch. Keep it 2 or more cells from the farm's lava (lava flows into an open neighbour,
+/// and its fire walks up from it) and from its water. `access: built`: the judge digs no stair of
+/// its own for it.
+fn dug_access(b: &mut Builder, chest: (i32, i32, i32), ax: i32) {
+    let (cx, ay, cz) = chest;
+    for x in ax..cx {
+        b.set(x, ay, cz, "air");
+        b.set(x, ay + 1, cz, "air");
+    }
+    b.set(cx - 1, ay + 1, cz, "wall_torch[facing=north]");
+    let turn = [(ax, cz), (ax - 1, cz), (ax - 1, cz + 1), (ax, cz + 1)];
+    for y in ay..=11 {
+        let step = ((y - ay + 1).rem_euclid(4)) as usize;
+        for (j, &(x, z)) in turn.iter().enumerate() {
+            if j == step {
+                // a bottom slab (a golem's spawn fails on its half top, a monster's too; the
+                // player jumps each step)
+                b.set(x, y, z, "cobblestone_slab[type=bottom,waterlogged=false]");
+            } else if y == 11 {
+                b.set(x, y, z, "oak_fence_gate[facing=east,in_wall=false,open=false,powered=false]");
+            } else if (y - ay) % 8 == 4 && j == 0 {
+                b.set(x, y, z, "wall_torch[facing=west]");
+            } else if !(y == ay && j == 0) {
+                b.set(x, y, z, "air");
+            }
+        }
+    }
+    b.d.meta.insert("access".into(), "built".into());
 }
 
 /// L2d's chamber without its fire: lava only in the north row (x 1..4, head height k + 2, z 1),

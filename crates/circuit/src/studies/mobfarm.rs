@@ -544,6 +544,11 @@ fn access_of(c: &Circuit, s: &redsim::entity::mob::site::Site) -> (u32, u32) {
     if s.clear_box {
         return (0, 0);
     }
+    // an access built into the design (`access: built`: its dug cells and blocks are priced as
+    // its own, its travel by prices::Access::of) leaves no stair to dig
+    if c.clock.design.meta.get("access").is_some_and(|a| a.trim() == "built") {
+        return (0, 0);
+    }
     let ground = c.clock.design.meta.get("ground").and_then(|g| g.trim().parse::<i32>().ok()).unwrap_or(-1);
     let chest = c.clock.design.ports.get("output").map_or(ground, |p| p[1]);
     redsim::entity::mob::site::access_stair(ground - chest)

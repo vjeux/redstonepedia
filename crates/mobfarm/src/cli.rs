@@ -50,6 +50,10 @@ pub enum MobfarmCmd {
         /// burning golem is out of every villager's 16-block golem sensor).
         #[arg(long, default_value_t = -13, allow_hyphen_values = true)]
         kill: i32,
+        /// d1u, d1u-side, d1u-drop-side: build its access in (a spiral staircase dug from the
+        /// chest to the surface, a fence-gate hatch: `day1::dug_access`).
+        #[arg(long)]
+        access: bool,
         /// The tier the design is published in (`day-1`, `middle`, `fastest`: the kind's last
         /// word, `circuit: mob-farm iron_ingot middle`); none: a farm in no tier (catalog only).
         #[arg(long)]
@@ -207,8 +211,11 @@ pub enum MobfarmCmd {
         /// The kept world folder (default `$MCTAS_HOME/terrain/worlds/<the sample's world>`).
         #[arg(long)]
         world: Option<PathBuf>,
+        /// Natural monsters off in a terrain run (`spawn_monsters false`): an experiment that
+        /// separates the farm from the natural mobs around it (mob-AI's).
+        #[arg(long)]
+        no_monsters: bool,
     },
-    /// mobinfra: the weather cycle's statistics in official servers (empty plains worlds) beside
     /// redsim's over the same length.
     WeatherStats {
         #[arg(long, default_value_t = 200)]
@@ -368,7 +375,7 @@ fn load(_version: &str, path: &PathBuf) -> Result<(circuit::Circuit, redsim::ent
 
 pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
     match cmd {
-        MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, modules, pitch, dx, dz, gap, period, hide, kill, tier, out } => {
+        MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, modules, pitch, dx, dz, gap, period, hide, kill, access, tier, out } => {
             let (text, how) = match layout.as_str() {
                 "l3" => (crate::layouts::l3(pits), "golems burn in lava pits".to_string()),
                 "l1" => (crate::layouts::l1(), "water carries golems to a lava blade in the villagers' sight".to_string()),
@@ -379,7 +386,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "l6p-dry" => (crate::day1::l6p_dry(pad), "the bed-plate calm over a dry drop".to_string()),
                 "l6p-pad" => (crate::day1::l6p_pad(pad), "golems burn in a corner of their pad".to_string()),
                 "d4" => (crate::day1::d4_two_scared(pad), "golems burn in a corner of their pit".to_string()),
-                "d1u" => (crate::day1::d1u_with(pad, kill), if kill <= -19 { "golems burn in a pit too deep for the villagers to sense".to_string() } else { "golems burn in a corner of their pit".to_string() }),
+                "d1u" => (crate::day1::d1u_with_access(pad, kill, access), if kill <= -19 { "golems burn in a pit too deep for the villagers to sense".to_string() } else { "golems burn in a corner of their pit".to_string() }),
+                "d1u-side" => (crate::day1::d1u_side_with(pad, 0, access), "water carries golems sideways to a pit beyond the villagers' reach".to_string()),
+                "d1u-drop-side" => (crate::day1::d1u_side_with(pad, 13, access), "golems drop below the villagers' reach, then water carries them sideways to a pit".to_string()),
                 "m3" => (crate::day1::m3_bedplate(pad), "golems fall out of sight to a lava blade".to_string()),
                 "m2" => (crate::day1::m2_observer(pad), "golems fall out of sight to a lava blade".to_string()),
                 "m2open" => (crate::day1::m2_open_hide(pad, hide), "golems fall out of sight to a lava blade".to_string()),
@@ -662,8 +671,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
         }
         MobfarmCmd::Spots { design, terrain, repeat, panicking_only, caps } => spots_cmd(version, &design, &terrain, repeat, !panicking_only, caps)?,
-        MobfarmCmd::Gate { design, days, builds, no_rain_day, no_thunder_day, seed, parallel, warmup, keep, trace, terrain, world } => {
-            crate::gate::gate_cmd(version, &design, crate::gate::GateArgs { days, builds, rain_day: !no_rain_day, thunder_day: !no_thunder_day, seed, parallel, warmup: (warmup[0], warmup[1]), keep, trace, terrain, world })?
+        MobfarmCmd::Gate { design, days, builds, no_rain_day, no_thunder_day, seed, parallel, warmup, keep, trace, terrain, world, no_monsters } => {
+            crate::gate::gate_cmd(version, &design, crate::gate::GateArgs { days, builds, rain_day: !no_rain_day, thunder_day: !no_thunder_day, seed, parallel, warmup: (warmup[0], warmup[1]), keep, trace, terrain, world, no_monsters })?
         }
         MobfarmCmd::WeatherStats { days, servers, dt, sim_runs } => crate::weathercheck::weather_stats_cmd(version, days, servers, dt, sim_runs)?,
         MobfarmCmd::FireBurn { design, servers, max, seeds } => crate::weathercheck::fire_burn_cmd(version, &design, servers, max, seeds)?,
