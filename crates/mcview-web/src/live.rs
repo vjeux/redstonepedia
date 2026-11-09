@@ -31,6 +31,9 @@ struct FrameStats {
     since: f64,
     /// Each played frame's task, in ms.
     times: Vec<f64>,
+    /// Its steps' sums over the window, in ms: the ticks played, the mesh (picture), the draw
+    /// (the GPU's commands), the labels, the rest (badges, bar).
+    steps: [f64; 5],
 }
 
 pub struct Live {
@@ -1559,12 +1562,17 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
                 st.since = t0;
             }
             st.times.push(t_end - t0);
+            for (k, v) in [t_update - t0, t_mesh - t_pick, t_draw - t_mesh, t_over - t_draw, t_end - t_over.max(t_pick) + (t_pick - t_update)].into_iter().enumerate() {
+                st.steps[k] += v.max(0.0);
+            }
             let secs = (t_end - st.since) / 1000.0;
             if secs >= 5.0 {
                 let mut t = std::mem::take(&mut st.times);
                 t.sort_by(|a, b| a.total_cmp(b));
                 let at = |q: f64| t[((t.len() as f64 - 1.0) * q).round() as usize];
                 let mean = t.iter().sum::<f64>() / t.len() as f64;
+                let n = t.len() as f64;
+                let s = st.steps.map(|v| v / n);
                 log(&format!(
                     "live view {id} frames: {} played in {secs:.1} s ({:.0} a second), {} ticks, p50 {:.1} ms, p95 {:.1} ms, mean {mean:.1} ms, longest {:.1} ms (tick {tick})",
                     t.len(),
@@ -1572,8 +1580,9 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
                     tick - st.first_tick,
                     at(0.5),
                     at(0.95),
-                    t[t.len() - 1]
+                    t[t.len() - 1],
                 ));
+                log(&format!("live view {id} steps (a frame's mean): ticks {:.1}, mesh {:.1}, draw {:.1}, labels {:.1}, rest {:.1} ms", s[0], s[1], s[2], s[3], s[4]));
                 *st = FrameStats::default();
             }
         }

@@ -92,6 +92,11 @@ pub struct Overlays {
     drop: Option<(HtmlElement, [f32; 3], [f32; 3])>,
     /// The output strip's top (CSS px): under the time badge ([`Overlays::set_strip_top`]).
     strip_top: f64,
+    /// The still blocks' cells (a tag never covers the block right above its cell), with the
+    /// session's blocks version (and tick, where it does not log its writes) they were read at:
+    /// read again only when the blocks change (a farm in its terrain draws tens of thousands of
+    /// blocks: reading them every frame took ~4 ms of the phone's frame in WebKit).
+    solid_cells: Option<((u64, u32), std::rc::Rc<HashSet<[i32; 3]>>)>,
 }
 
 fn div(css: &str) -> HtmlElement {
@@ -190,6 +195,7 @@ impl Overlays {
             keep_clear: Vec::new(),
             drop: None,
             strip_top: 34.0,
+            solid_cells: None,
         }
     }
 
@@ -220,6 +226,7 @@ impl Overlays {
         }
         self.input_tags.clear();
         self.pinned.clear();
+        self.solid_cells = None;
         // what tells the story: a shulker design's port chests and boxes (its hoppers and carts
         // on a tap); any other design's containers all (an item counter's droppers hold its count);
         // a display's face: its digit (its lamps' OUT tags and its chest's label with Labels on)
@@ -476,8 +483,15 @@ impl Overlays {
                 layout.obstacles.push(Rect { x0: x - 10.0, y0: y - 10.0, x1: x + 10.0, y1: y + 10.0 });
             }
         }
-        // the still blocks' cells (a tag never covers the block right above its cell)
-        let solid: std::collections::HashSet<[i32; 3]> = p.session.render_blocks(0.0).into_iter().filter(|b| b.offset == [0.0; 3]).map(|b| b.cell).collect();
+        // the still blocks' cells (a tag never covers the block right above its cell): read again
+        // only when the blocks change, and only with a tag to place
+        let blocks_key = (p.session.blocks_version, if p.session.world.log_writes { 0 } else { p.session.tick });
+        if !self.tags.is_empty() && self.solid_cells.as_ref().is_none_or(|(k, _)| *k != blocks_key) {
+            let cells = p.session.render_blocks(0.0).into_iter().filter(|b| b.offset == [0.0; 3]).map(|b| b.cell).collect();
+            self.solid_cells = Some((blocks_key, std::rc::Rc::new(cells)));
+        }
+        let no_cells = std::rc::Rc::new(HashSet::new());
+        let solid = self.solid_cells.as_ref().map(|(_, s)| s.clone()).unwrap_or(no_cells);
         // every tag's point: no other tag covers it, or that tag's leader line could not reach
         // it (QA at phone size, lock2-alt: CODE 1 laid over OUT's point left OUT no free spot,
         // and OUT lay on CODE 1)

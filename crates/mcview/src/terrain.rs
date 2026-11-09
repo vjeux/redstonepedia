@@ -44,12 +44,23 @@ pub struct TerrainFarm {
     /// out of the cut face in relief, the rock around and behind it.
     pub cut_z: i32,
     pub cut_rows: HashMap<[i32; 2], i32>,
+    /// The columns the landscape is drawn in (world x and z, inclusive): within its reach of the
+    /// farm's middle ([`LANDSCAPE_REACH`]).
+    pub reach_xz: ([i32; 2], [i32; 2]),
 }
 
 impl TerrainFarm {
     /// Design coordinates to the sample's world: add it; the world's to the design's: subtract it.
     pub fn offset(&self) -> [i32; 3] {
         self.site.offset
+    }
+
+    /// Whether world cell `p` is in the part of the sample the view draws (its columns within the
+    /// landscape's reach, from its lowest y up): a block the run changes anywhere else (a crop
+    /// growing in the village 50 blocks off, an amethyst bud deep under the farm) is not drawn.
+    pub fn draws(&self, p: [i32; 3]) -> bool {
+        let ((x0, x1), (z0, z1)) = ((self.reach_xz.0[0], self.reach_xz.0[1]), (self.reach_xz.1[0], self.reach_xz.1[1]));
+        p[0] >= x0 && p[0] <= x1 && p[2] >= z0 && p[2] <= z1 && p[1] >= self.min_y
     }
 
     /// Whether the cutaway removes the natural block at world cell `p` (north of the farm's front,
@@ -216,7 +227,7 @@ pub async fn farm_for_staged(text: &str, d: &Design, spec: &FarmSpec, b: &crate:
     b.pause().await;
     // (the biomes at the farm's ground: the site's ground layer)
     let biomes = Rc::new(biome_colours(&world, site.offset[1] + ground));
-    let f = Rc::new(TerrainFarm { site, farm_box, landscape, hidden, biomes, min_y, cut_z, cut_rows });
+    let f = Rc::new(TerrainFarm { site, farm_box, landscape, hidden, biomes, min_y, cut_z, cut_rows, reach_xz: ([cx - reach, cx + reach], [cz - reach, cz + reach]) });
     FARMS.with(|m| m.borrow_mut().insert(text.to_string(), f.clone()));
     Ok(Some(f))
 }

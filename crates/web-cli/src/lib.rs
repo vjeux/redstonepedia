@@ -300,6 +300,25 @@ pub enum WebCmd {
         #[arg(long, default_value_t = 4)]
         shards: usize,
     },
+    /// What a live viewer's frames cost (natively, the browser's renderer on lavapipe: a software
+    /// GPU like the phone profile's WebKit): each design's live view at `--width x --height`
+    /// device pixels (`--dpr`), `--warm` ticks in, then `--frames` frames of `--ticks` ticks each:
+    /// the mesh and the draw (waited for) a frame, and the vertices on the GPU and uploaded.
+    Framecost {
+        designs: Vec<PathBuf>,
+        #[arg(long, default_value_t = 798)]
+        width: u32,
+        #[arg(long, default_value_t = 960)]
+        height: u32,
+        #[arg(long, default_value_t = 2.0)]
+        dpr: f32,
+        #[arg(long, default_value_t = 400)]
+        warm: u32,
+        #[arg(long, default_value_t = 40)]
+        frames: u32,
+        #[arg(long, default_value_t = 1)]
+        ticks: u32,
+    },
     /// What a card costs (natively): each design's still (`Session::new` with `Options::still`)
     /// and its picture's mesh, timed; the slowest first. A card over `--budget` ms here is surely
     /// over it in the browser (the wasm build runs a few times slower).
@@ -803,6 +822,28 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
         WebCmd::Recqa { pages, dir, out, engines, window, scale, timeout, browser, chrome } => crate::recqa::cmd_recqa(&dir, &pages, &out, &engines, &window, scale, timeout, &browser, chrome.as_deref()),
         WebCmd::Qa { pages, dir, kinds, clocks, out, window, at, watch, shards } => crate::qa::cmd_qa(&dir, &pages, kinds, clocks, &out, &window, &at, watch, shards),
         WebCmd::Cardcost { designs, budget, top, procedural } => cmd_cardcost(&designs, budget, top, procedural),
+        WebCmd::Framecost { designs, width, height, dpr, warm, frames, ticks } => {
+            let atlas = atlas(false);
+            let mut off = mcview::render::headless::Offscreen::new(&atlas).map_err(anyhow::Error::msg)?;
+            for d in &designs {
+                let text = std::fs::read_to_string(d).with_context(|| format!("reading {}", d.display()))?;
+                match mcview::tools::frame_cost(&mut off, &atlas, &text, width, height, dpr, warm, frames, ticks) {
+                    Ok(c) => println!(
+                        "{}: {width}x{height}: mesh {:.2} ms, draw {:.2} ms a frame ({} frames of {ticks} ticks; the blocks' mesh rebuilt {} times); vertices: {} on the GPU, {} solid + {} translucent uploaded a frame",
+                        d.display(),
+                        c.mesh_ms,
+                        c.draw_ms,
+                        c.frames,
+                        c.rebuilds,
+                        c.fixed,
+                        c.solid,
+                        c.translucent
+                    ),
+                    Err(e) => println!("{}: ERROR {e}", d.display()),
+                }
+            }
+            Ok(())
+        }
         WebCmd::Wakecost { designs, ticks, procedural, slices } => cmd_wakecost(&designs, ticks, procedural, slices),
         WebCmd::Camera { designs, size, procedural, picked, thumb } => cmd_camera(&designs, &size, procedural, picked, thumb),
         WebCmd::Stall { urls, window, scale, cpu, load, play, budget, show, browser } => crate::cdp::cmd_stall(&urls, &window, scale, cpu, load, play, budget, show, &browser),

@@ -1299,16 +1299,19 @@ impl Session {
             return;
         }
         let writes = std::mem::take(&mut self.world.writes);
-        if !writes.is_empty() {
-            self.blocks_version += 1;
-        }
         let (min, size) = self.machine();
         let in_machine = |p: BlockPos| p.x >= min.x && p.y >= min.y && p.z >= min.z && p.x < min.x + size[0] && p.y < min.y + size[1] && p.z < min.z + size[2];
+        // (a farm in its terrain: a block the run changes outside the part of the sample drawn
+        // is not drawn, and the picture's blocks stay as they are: a crop growing in the village
+        // 50 blocks off no longer rebuilds the farm's mesh, nor floats a block out there)
+        let terrain = self.terrain.clone();
+        let mut changed = false;
         for p in writes {
             let b = self.world.get(p);
             let c = p.arr();
             match self.floor.as_mut() {
                 Some(f) if f.contains(c) => {
+                    changed = true;
                     if b == f.layer(c[1]).0 {
                         f.changed.remove(&c);
                     } else {
@@ -1316,6 +1319,10 @@ impl Session {
                     }
                 }
                 _ if !in_machine(p) => {
+                    if terrain.as_ref().is_some_and(|t| !t.draws(c)) {
+                        continue;
+                    }
+                    changed = true;
                     // (in a terrain, a natural block gone stays listed, as air: the landscape
                     // drawn around the farm no longer shows it)
                     if b == Block::Air && self.terrain.is_none() {
@@ -1324,8 +1331,11 @@ impl Session {
                         self.outside.insert(c, b);
                     }
                 }
-                _ => {}
+                _ => changed = true,
             }
+        }
+        if changed {
+            self.blocks_version += 1;
         }
     }
 

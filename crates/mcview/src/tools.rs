@@ -810,6 +810,77 @@ pub fn edge_offset(real: &[[u8; 3]], ours: &[[u8; 3]], w: u32, h: u32) -> ((f32,
     ((best.1, best.2), if base > 0.0 { 1.0 - best.0 / base } else { 0.0 })
 }
 
+/// What a live viewer's frames cost natively ([`frame_cost`]): per frame, the mesh (the
+/// player's triangles, as the browser asks them), the draw (submitted and waited for: the
+/// GPU's work, lavapipe on a GPU-less box, like a software WebGL), and the vertices drawn.
+#[derive(Clone, Debug, Default)]
+pub struct FrameCost {
+    pub frames: u32,
+    pub mesh_ms: f64,
+    pub draw_ms: f64,
+    /// The vertices kept on the GPU (a mob farm's blocks), drawn each frame without an upload.
+    pub fixed: usize,
+    /// The vertices uploaded each frame: solid and translucent (a frame's mean).
+    pub solid: usize,
+    pub translucent: usize,
+    /// The blocks' mesh rebuilt this many times over the frames (the session's blocks changed).
+    pub rebuilds: u64,
+}
+
+/// A live viewer of `text` at `width x height` device pixels (`dpr`: its CSS size is that / dpr),
+/// framed as it loads ([`crate::player::Player::frame_live`]), played `warm` ticks, then
+/// `frames` frames of `ticks` ticks each, each frame's triangles drawn with the browser's renderer
+/// and waited for ([`FrameCost`]).
+pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, height: u32, dpr: f32, warm: u32, frames: u32, ticks: u32) -> Result<FrameCost, String> {
+    let mut p = crate::player::Player::new_web(text, width as f32 / height as f32)?;
+    p.frame_live(atlas, width as f32 / dpr.max(0.5), height as f32 / dpr.max(0.5));
+    for _ in 0..warm {
+        p.session.step();
+    }
+    let tex = off.r.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("framecost"),
+        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = tex.create_view(&Default::default());
+    off.r.void_below = true;
+    let mut c = FrameCost { frames, ..Default::default() };
+    let version = p.session.blocks_version;
+    // (one frame first: the meshes built and the fixed vertices uploaded, not counted)
+    for k in 0..=frames {
+        for _ in 0..ticks {
+            p.session.step();
+        }
+        let t0 = std::time::Instant::now();
+        let Some((fixed, solid, translucent)) = p.triangles_split_within(atlas, &mut || false) else { return Err("no triangles".into()) };
+        let t1 = std::time::Instant::now();
+        off.r.env = p.daylight();
+        off.r.set_fixed(fixed.as_ref().map(|(k, v)| (*k, v.as_slice())));
+        off.r.draw(&view, &Frame { solid: &solid, translucent: &translucent, camera: p.camera, width, height });
+        let _ = off.r.device.poll(wgpu::PollType::wait_indefinitely());
+        let t2 = std::time::Instant::now();
+        if k > 0 {
+            c.mesh_ms += (t1 - t0).as_secs_f64() * 1000.0;
+            c.draw_ms += (t2 - t1).as_secs_f64() * 1000.0;
+            c.fixed = fixed.as_ref().map(|(_, v)| v.len()).unwrap_or(0);
+            c.solid += solid.len();
+            c.translucent += translucent.len();
+        }
+    }
+    let n = frames.max(1) as f64;
+    c.rebuilds = p.session.blocks_version - version;
+    c.mesh_ms /= n;
+    c.draw_ms /= n;
+    c.solid = (c.solid as f64 / n) as usize;
+    c.translucent = (c.translucent as f64 / n) as usize;
+    Ok(c)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
