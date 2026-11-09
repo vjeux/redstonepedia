@@ -708,7 +708,7 @@ fn entity_box(ty: MobType, x: f64, y: f64, z: f64) -> Aabb {
 
 /// `CollisionGetter.noCollision(box)` (no entity): no block shape, no boat.
 fn no_collision(w: &World, bb: Aabb) -> bool {
-    crate::entity::collide::block_collisions(w, bb).is_empty() && w.get_entities(bb.inflate(1.0e-7, 1.0e-7, 1.0e-7), |e| matches!(e.kind, EntityKind::Boat(_))).is_empty()
+    !crate::entity::collide::collides_with_blocks(w, bb) && w.get_entities(bb.inflate(1.0e-7, 1.0e-7, 1.0e-7), |e| matches!(e.kind, EntityKind::Boat(_))).is_empty()
 }
 
 fn player_chunk_dist2(p: Vec3, cx: i32, cz: i32) -> f64 {

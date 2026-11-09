@@ -624,7 +624,7 @@ fn safe_dismount_location(w: &World, ty: MobType, p: BlockPos, check_dangerous: 
     let pos = Vec3::new(p.x as f64 + 0.5, p.y as f64 + floor, p.z as f64 + 0.5);
     let d = ty.def();
     let bb = crate::entity::make_bounding_box(pos, d.width, d.height);
-    if crate::entity::collide::block_collisions(w, bb).iter().any(|(_, boxes)| boxes.iter().any(|b| b.intersects(bb))) {
+    if crate::entity::collide::collides_with_blocks(w, bb) {
         return None;
     }
     Some(pos)

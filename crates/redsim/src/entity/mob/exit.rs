@@ -288,7 +288,7 @@ fn golem_box(p: Vec3) -> Aabb {
 /// A golem at `p` stands: no block shape meets its box, and one stops it moving down.
 fn stands(w: &World, p: Vec3) -> bool {
     let bb = golem_box(p);
-    crate::entity::collide::block_collisions(w, bb).is_empty() && crate::entity::collide::collide_box(w, bb, Vec3::new(0.0, -0.01, 0.0)).y > -0.01
+    !crate::entity::collide::collides_with_blocks(w, bb) && crate::entity::collide::collide_box(w, bb, Vec3::new(0.0, -0.01, 0.0)).y > -0.01
 }
 
 /// The golem's box slides from `a` to `b` (same height) without meeting a block shape, checked
@@ -298,7 +298,7 @@ fn free_path(w: &World, a: Vec3, b: Vec3) -> bool {
     (0..=n).all(|i| {
         let t = i as f64 / n as f64;
         let p = Vec3::new(a.x + (b.x - a.x) * t, a.y, a.z + (b.z - a.z) * t);
-        crate::entity::collide::block_collisions(w, golem_box(p)).is_empty()
+        !crate::entity::collide::collides_with_blocks(w, golem_box(p))
     })
 }
 

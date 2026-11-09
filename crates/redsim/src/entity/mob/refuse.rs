@@ -244,14 +244,14 @@ pub fn pod(w: &World, feet: Vec3) -> Result<Vec<BlockPos>, String> {
     let start = BlockPos::new(feet.x.floor() as i32, (feet.y + 1.0e-3).floor() as i32, feet.z.floor() as i32);
     let fits = |c: BlockPos, h: f64| {
         let bb = Aabb::new(c.x as f64 + 0.2, h + 1.0e-3, c.z as f64 + 0.2, c.x as f64 + 0.8, h + 1.95, c.z as f64 + 0.8);
-        crate::entity::collide::block_collisions(w, bb).iter().all(|(_, bs)| bs.iter().all(|b| !b.intersects(bb)))
+        !crate::entity::collide::collides_with_blocks(w, bb)
     };
     // the box swept from one cell's centre to the next's (a straight step across their face)
     let passes = |c: BlockPos, m: BlockPos, h: f64| {
         let (x0, z0) = (c.x.min(m.x) as f64 + 0.2, c.z.min(m.z) as f64 + 0.2);
         let (x1, z1) = (c.x.max(m.x) as f64 + 0.8, c.z.max(m.z) as f64 + 0.8);
         let bb = Aabb::new(x0, h + 1.0e-3, z0, x1, h + 1.95, z1);
-        crate::entity::collide::block_collisions(w, bb).iter().all(|(_, bs)| bs.iter().all(|b| !b.intersects(bb)))
+        !crate::entity::collide::collides_with_blocks(w, bb)
     };
     let mut cells = vec![start];
     let mut k = 0;

@@ -213,13 +213,38 @@ fn boxes_meeting(w: &World, s: &Block, p: BlockPos, bb: Aabb) -> Option<Vec<Aabb
 /// `bb`, with its position (the cursor skips corner cells, face cells unless the block's shape
 /// leaves its cell, edge cells unless it is a moving piston).
 pub fn block_collisions(w: &World, bb: Aabb) -> Vec<(BlockPos, Vec<Aabb>)> {
+    let mut out = Vec::new();
+    for_each_block_collision(w, bb, |p, s| {
+        if let Some(boxes) = boxes_meeting(w, &s, p, bb) {
+            out.push((p, boxes));
+        }
+        true
+    });
+    out
+}
+
+/// Whether [`block_collisions`] over `bb` is not empty, stopping at the first block that meets
+/// it, with no list built (tickexact 2026-11-08: the path finder's and the spawner's free-space
+/// tests only ask that).
+pub fn collides_with_blocks(w: &World, bb: Aabb) -> bool {
+    let mut hit = false;
+    for_each_block_collision(w, bb, |p, s| {
+        hit = block_meets(w, &s, p, bb);
+        !hit
+    });
+    hit
+}
+
+/// The cursor of [`block_collisions`]: every cell around `bb` it tests, with its block (the
+/// corner cells skipped, the face cells unless the block's shape leaves its cell, the edge cells
+/// unless it is a moving piston, air); `visit` returns false to stop.
+fn for_each_block_collision(w: &World, bb: Aabb, mut visit: impl FnMut(BlockPos, Block) -> bool) {
     let x0 = mth::floor(bb.min_x - 1.0e-7) - 1;
     let x1 = mth::floor(bb.max_x + 1.0e-7) + 1;
     let y0 = mth::floor(bb.min_y - 1.0e-7) - 1;
     let y1 = mth::floor(bb.max_y + 1.0e-7) + 1;
     let z0 = mth::floor(bb.min_z - 1.0e-7) - 1;
     let z1 = mth::floor(bb.max_z + 1.0e-7) + 1;
-    let mut out = Vec::new();
     for z in z0..=z1 {
         for y in y0..=y1 {
             for x in x0..=x1 {
@@ -232,13 +257,24 @@ pub fn block_collisions(w: &World, bb: Aabb) -> Vec<(BlockPos, Vec<Aabb>)> {
                 if s.is_air() || (face == 1 && !has_large_collision_shape(&s)) || (face == 2 && !matches!(s, Block::MovingPiston { .. })) {
                     continue;
                 }
-                if let Some(boxes) = boxes_meeting(w, &s, p, bb) {
-                    out.push((p, boxes));
+                if !visit(p, s) {
+                    return;
                 }
             }
         }
     }
-    out
+}
+
+/// Whether block `s` at `p` has a collision box meeting `bb` ([`boxes_meeting`] without its list).
+fn block_meets(w: &World, s: &Block, p: BlockPos, bb: Aabb) -> bool {
+    let (x, y, z) = (p.x as f64, p.y as f64, p.z as f64);
+    let f = |v: i32| v as f64 / 16.0;
+    match s {
+        Block::Terrain(id) if terrain_flags(*id) & 4 != 0 => false,
+        Block::Terrain(id) if !speleothem(*id) => crate::terrain::blocks::props(*id).boxes.iter().any(|b| Aabb::new(x + b[0], y + b[1], z + b[2], x + b[3], y + b[4], z + b[5]).intersects(bb)),
+        Block::Terrain(_) | Block::Bamboo { .. } | Block::Piston { .. } | Block::PistonHead { .. } | Block::MovingPiston { .. } => boxes_at(w, s, p).iter().any(|b| b.intersects(bb)),
+        _ => static_boxes(s).iter().any(|c| Aabb::new(x + f(c[0]), y + f(c[2]), z + f(c[4]), x + f(c[1]), y + f(c[3]), z + f(c[5])).intersects(bb)),
+    }
 }
 
 /// `BlockCollisions`' test of a block's shape against the query box: the full cube
@@ -415,7 +451,15 @@ pub fn collide(w: &World, i: usize, movement: Vec3) -> Vec3 {
 pub fn find_supporting_block(w: &World, pos: Vec3, bb: Aabb) -> Option<BlockPos> {
     let mut best: Option<BlockPos> = None;
     let mut best_d = f64::MAX;
-    for (p, _) in block_collisions(w, bb) {
+    // (the cells whose boxes meet `bb`, in the cursor's order, without their boxes' list)
+    let mut meeting: Vec<BlockPos> = Vec::new();
+    for_each_block_collision(w, bb, |p, s| {
+        if block_meets(w, &s, p, bb) {
+            meeting.push(p);
+        }
+        true
+    });
+    for p in meeting {
         let (dx, dy, dz) = (p.x as f64 + 0.5 - pos.x, p.y as f64 + 0.5 - pos.y, p.z as f64 + 0.5 - pos.z);
         let d = dx * dx + dy * dy + dz * dz;
         let greater = |a: BlockPos, b: BlockPos| (a.y, a.z, a.x) < (b.y, b.z, b.x);
@@ -1189,7 +1233,7 @@ pub fn apply_effects_from_blocks(w: &mut World, i: usize) {
 
 /// `CollisionGetter.noCollision(entity, box)`: no block shape and no collidable entity in `bb`.
 pub fn no_collision(w: &World, i: usize, bb: Aabb) -> bool {
-    block_collisions(w, bb).is_empty() && entity_collisions(w, i, bb).is_empty()
+    !collides_with_blocks(w, bb) && entity_collisions(w, i, bb).is_empty()
 }
 
 /// `Entity.applyEffectsFromBlocks(from, to)`: the blocks one given move sweeps (minecarts call it

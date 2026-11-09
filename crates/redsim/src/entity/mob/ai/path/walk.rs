@@ -97,7 +97,7 @@ impl<'w> Level<'w> {
 
     /// `!noCollision(mob, box)` through a `PathNavigationRegion` (no entity collisions).
     pub fn has_collisions(&self, bb: Aabb) -> bool {
-        !crate::entity::collide::block_collisions(self.w, bb).is_empty()
+        crate::entity::collide::collides_with_blocks(self.w, bb)
     }
 }
 
