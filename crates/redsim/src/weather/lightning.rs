@@ -422,7 +422,10 @@ pub fn strike(w: &mut World, x: i32, z: i32) {
     }
     let s = w.weather.lightning;
     let below_rod = matches!(w.get(pos.offset(0, -1, 0)), Block::LightningRod { .. });
-    let trap = s.spawn_mobs && draws(w).next_double() < (effective_difficulty(&s, w.day_time()) * 0.01f32) as f64 && !below_rod;
+    // `getCurrentDifficultyAt(pos)`: an exact world's (the overworld clock, the chunk's inhabited
+    // time: the ticks its spawner has run, the moon), else the settings' (a mature world or not)
+    let difficulty = if w.exact_seed.is_some() && w.mob.natural.is_some() { crate::entity::mob::custom::effective_difficulty(w, pos) } else { effective_difficulty(&s, w.day_time()) };
+    let trap = s.spawn_mobs && draws(w).next_double() < (difficulty * 0.01f32) as f64 && !below_rod;
     let t = w.time;
     if trap {
         w.weather.events.push(WeatherEvent::TrapHorse { t, at: [pos.x, pos.y, pos.z] });

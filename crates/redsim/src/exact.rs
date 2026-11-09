@@ -150,6 +150,14 @@ impl Watch {
             }
             f.entities.push(entity_frame(w, e));
         }
+        // the lightning bolts (entities in the game, a list of their own here: `weather::Weather`)
+        for b in w.weather.bolts.iter().filter(|b| !b.removed) {
+            now.insert(b.id);
+            if !self.present.contains(&b.id) {
+                f.entered.push(b.id);
+            }
+            f.entities.push(EntityFrame { n: b.id, ty: "lightning_bolt".into(), pos: [b.pos.x, b.pos.y, b.pos.z], random: Some(b.random.state()), ..Default::default() });
+        }
         f.entities.sort_by_key(|e| e.n);
         f.entered.sort();
         f.left = self.present.difference(&now).copied().collect();
