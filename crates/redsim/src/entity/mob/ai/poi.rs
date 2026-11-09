@@ -113,6 +113,16 @@ pub fn index(w: &mut World) -> &[(BlockPos, PoiKind)] {
 /// light source the AI's light list.
 pub fn on_block_changed(w: &mut World, pos: BlockPos, old: &Block, new: &Block) {
     let (was, now) = (poi_of(old), poi_of(new));
+    // PoiManager.add's order, kept for the record sets' collision chains
+    if was != now {
+        if now.is_some() {
+            let n = w.mob.ai.poi_next;
+            w.mob.ai.poi_seq.insert(pos, n);
+            w.mob.ai.poi_next += 1;
+        } else {
+            w.mob.ai.poi_seq.remove(&pos);
+        }
+    }
     if was != now
         && let Some(v) = w.mob.ai.pois.as_mut()
     {
@@ -276,39 +286,49 @@ pub fn occupied_in_range_ordered(w: &mut World, center: BlockPos, radius: i32) -
 /// The POIs `keep(kind, claimed)` keeps within `radius` of `center`, in the POI manager's order.
 fn pois_ordered(w: &mut World, center: BlockPos, radius: i32, keep: impl Fn(PoiKind, bool) -> bool) -> Vec<BlockPos> {
     let taken = claimed(w);
-    let type_rank = |k: PoiKind| match k {
-        PoiKind::Job => 0,
-        PoiKind::Home => 1,
-        PoiKind::Meeting => 2,
-    };
     let all: Vec<(BlockPos, PoiKind)> = index(w).to_vec();
     let cr = radius.div_euclid(16) + 1;
     let (ccx, ccz) = (center.x.div_euclid(16), center.z.div_euclid(16));
-    // the records of each (section, type) set, for its HashSet's table size and order
-    let mut groups: std::collections::BTreeMap<(i32, i32, i32, i32), Vec<BlockPos>> = std::collections::BTreeMap::new();
-    for (p, k) in &all {
+    // the records of each section by POI type (`PoiSection.byType`: a HashMap of the type holders,
+    // each a HashSet of records), for the map's and each set's table order
+    let mut sections: std::collections::BTreeMap<(i32, i32, i32), Vec<(&'static str, Vec<BlockPos>)>> = std::collections::BTreeMap::new();
+    for (p, _) in &all {
         let (cx, cz) = (p.x.div_euclid(16), p.z.div_euclid(16));
         if (cx - ccx).abs() > cr || (cz - ccz).abs() > cr {
             continue;
         }
-        // key: chunk z, chunk x, section y, type (rangeClosed walks x fastest, then z)
-        groups.entry((cz, cx, p.y.div_euclid(16), type_rank(*k))).or_default().push(*p);
+        let ty = poi_type_name(&w.get(*p)).unwrap_or("minecraft:home");
+        // key: chunk z, chunk x, section y (rangeClosed walks x fastest, then z; sections upward)
+        let types = sections.entry((cz, cx, p.y.div_euclid(16))).or_default();
+        match types.iter_mut().find(|(t, _)| *t == ty) {
+            Some((_, ps)) => ps.push(*p),
+            None => types.push((ty, vec![*p])),
+        }
     }
     let r2 = (radius as i64) * (radius as i64);
     let mut out = Vec::new();
-    for ((_, _, _, rank), ps) in groups {
-        let hashes: Vec<i32> = ps.iter().map(|p| (p.y.wrapping_add(p.z.wrapping_mul(31))).wrapping_mul(31).wrapping_add(p.x)).collect();
-        let order = super::path::finder::java_hash_order(&hashes, super::path::finder::grown_table(ps.len()));
-        for k in order {
-            let p = ps[k];
-            let kind = all.iter().find(|(q, _)| *q == p).map(|(_, k)| *k).unwrap();
-            debug_assert_eq!(type_rank(kind), rank);
-            if !keep(kind, taken.contains(&p)) {
-                continue;
-            }
-            let (dx, dy, dz) = ((p.x - center.x) as i64, (p.y - center.y) as i64, (p.z - center.z) as i64);
-            if dx * dx + dy * dy + dz * dz <= r2 {
-                out.push(p);
+    for (_, types) in sections {
+        // byType's iteration: its holders by their (identity) hashes in the map's table
+        let th: Vec<i32> = types.iter().map(|(t, _)| super::poi_holder_hash(w, t)).collect();
+        let torder = super::path::finder::java_hash_order(&th, super::path::finder::grown_table(types.len()));
+        for ti in torder {
+            // the set's colliding records in PoiManager.add's order: the world's first scan (no
+            // number, in its order) before the POIs placed since, in placement order
+            let mut ps = types[ti].1.clone();
+            ps.sort_by_key(|p| w.mob.ai.poi_seq.get(p).map_or(0, |n| n + 1));
+            let ps = &ps;
+            let hashes: Vec<i32> = ps.iter().map(|p| (p.y.wrapping_add(p.z.wrapping_mul(31))).wrapping_mul(31).wrapping_add(p.x)).collect();
+            let order = super::path::finder::java_hash_order(&hashes, super::path::finder::grown_table(ps.len()));
+            for k in order {
+                let p = ps[k];
+                let kind = all.iter().find(|(q, _)| *q == p).map(|(_, k)| *k).unwrap();
+                if !keep(kind, taken.contains(&p)) {
+                    continue;
+                }
+                let (dx, dy, dz) = ((p.x - center.x) as i64, (p.y - center.y) as i64, (p.z - center.z) as i64);
+                if dx * dx + dy * dy + dz * dz <= r2 {
+                    out.push(p);
+                }
             }
         }
     }
