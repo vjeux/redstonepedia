@@ -47,19 +47,13 @@ needs (villagers per golem an hour), at the stage's build minutes with travel an
 ## The ceiling
 
 One golem per 100 gt per station (the attempt grid): 720 golems an hour, about 2,880 iron an
-hour. A group of 3 stays locked through 700 gt, not 600: the summoner and the villagers that
-ticked before it still hold `GOLEM_DETECTED_RECENTLY` at T+600 (`Brain.tick` forgets before the
-behaviors; `ExpirableValue` checks before it decrements), so its next attempt is T+700. So **7
-groups of 3** reach one golem per 100 gt; 6 groups of 3 give 6 golems per 700 gt (86%). Groups of
-4 cannot hold a 600 gt rotation: at their second return only the 2 villagers that ticked after
-the second summoner are free, and the visit fails (a group of 4 alternates 600 and 700 on its
-own). With 4 groups of 3 on a 200 gt cycle each group returns every 800 gt: 360 golems an hour,
-about 1,440 iron. A static module's cap is 411 iron an hour with 3 villagers, 443 with 4 (farm-iron.md,
-Ceiling).
+hour, needing at least 6 groups of 3 rotating (each group locked 600 gt). With 4 groups on a
+200 gt cycle: 360 golems an hour, about 1,440 iron. A module's ceiling is one golem per 600 gt
+(120 an hour, about 480 iron).
 
 ## Trade-offs
 
-- Each extra group of 3 buys one more attempt slot per 700 gt, up to 7; villagers cost their moves
+- Each extra group buys one more attempt slot per 600 gt, up to 6; villagers cost their moves
   (or breeding), beds and carts.
 - The queue must stay out of the station's 10-box at every spawn and out of every live golem's
   cube at every sensor scan: distance, so loop length, so blocks and travel.
@@ -75,7 +69,7 @@ Ceiling).
 | # | layout | golems/h per station (estimate) | % of ceiling | what it brings |
 |---|---|---|---|---|
 | L0 | the bar: a static module (the module component, measured) | 111 (444 iron/h) | 15% | nothing moves; one cluster's lockout |
-| L1 | minecart carousel: groups of 3 villagers in carts on a powered loop, a station in sight of the zombie over one pad and drop, the advance fired by the golem's fall, a nightly stop of beds by activator rails | 360 at 4 groups x 200 gt, 720 at 7 groups of 3 x 100 | 50-100% | rails, a loop 11+ blocks out of the station's box, the bed stop |
+| L1 | minecart carousel: groups of 3 villagers in carts on a powered loop, a station in sight of the zombie over one pad and drop, the advance fired by the golem's fall, a nightly stop of beds by activator rails | 360 at 4 groups x 200 gt, 720 at 6 x 100 | 50-100% | rails, a loop 11+ blocks out of the station's box, the bed stop |
 | L2 | boat carousel: villagers in boats on a water loop, a gated stop at the station, the gate opened by the golem's fall | 300-360 (boats move slower than carts, about 0.1-0.4 a tick on water) | 40-50% | day-1 materials (boats, water, trapdoors); gates per stop |
 | L3 | static docks: 2-3 clusters more than 10.6 apart around ONE shared pad and drop, each locking only itself | 200-300 (each cluster's golems dwell in the others' cubes on the pad: the LT measurement kept 72%) | 30-40% | no moving parts; dwell on the shared pad is the loss |
 | L4 | pods moved by slime-block machines past the station | up to 720 | up to 100% | heavy redstone, late only; fragile on unload |
@@ -84,7 +78,7 @@ Ceiling).
 
 Build L1 first (the parent's choice): a void prototype by the ironfarm lane at the forgiving
 200 gt cycle with 4 groups, the advance driven by the golem's fall; then farmopt searches its
-parameters (groups of 3, 4 to 8 of them, the cycle 100-200 gt, the loop's length and shape, the bed stop, the
+parameters (groups 4-8, the cycle 100-200 gt, the loop's length and shape, the bed stop, the
 station's pad and drop). L2 and L3 stay in the search as the cheaper families.
 
 ## The nightly stop: a bed each, or a shared dormitory
