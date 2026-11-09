@@ -847,10 +847,9 @@ pub fn after_base_tick(w: &mut World, i: usize) {
 /// that is not persistent and would despawn (beyond 128, or the 1-in-800 roll past 600 idle
 /// ticks beyond 32: that roll is drawn) is refused.
 pub fn check_despawn(w: &mut World, i: usize) {
+    // (a dying mob too: ServerLevel.tickNonPassenger's checkDespawn runs for every entity; a
+    // player within 32 resets its noActionTime)
     let m = mob(w, i);
-    if m.dead {
-        return;
-    }
     if difficulty_id(w) == 0 && m.ty.def().monster {
         refuse_once(w, "a monster in a peaceful world (discarded) is not modeled");
         return;
