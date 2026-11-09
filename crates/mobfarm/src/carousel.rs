@@ -53,9 +53,12 @@ fn bide() -> bool {
 /// Whether stop side `s` is laid out for `MCTAS_BIDE` (every side but the north).
 fn bide_at(s: &Side) -> bool {
     // (`MCTAS_BIDE_INNER`: the inner two loops only; the outer loop (t -6; e 34 at pitch 28),
-    // unboosted, parks its carts too far from a villager standing past the brake to pick it up)
+    // unboosted, parks its carts too far from a villager standing past the brake to pick it up;
+    // `MCTAS_BIDE_ALL`: the north stops too: the station carts' sight line runs west along loop
+    // 0's track row, clear of an outside torch's stone)
     let outer = s.c[0] == -6 || s.c[1] == -6 || s.c == [34, 34];
-    bide() && s.d != [1, 0] && !(outer && std::env::var_os("MCTAS_BIDE_INNER").is_some())
+    let north_ok = s.d != [1, 0] || std::env::var_os("MCTAS_BIDE_ALL").is_some();
+    bide() && north_ok && !(outer && std::env::var_os("MCTAS_BIDE_INNER").is_some())
 }
 
 /// The activator's rail (2; 3 under `MCTAS_BIDE`).
@@ -135,7 +138,9 @@ fn carousel_impl(side: i32, latch: bool, free_run: bool, quick: bool) -> anyhow:
     let mut redstone_blocks: BTreeSet<[i32; 3]> = BTreeSet::new();
     for k in 0..3 {
         let (t, e) = (-3 * k, side + 3 * k);
-        let rails = loop_rails(t, e, k < 2);
+        // (`MCTAS_BIDE_BOOST`: the outer loop boosted too, so its carts arrive and park like the
+        // inner loops' at BIDE stops)
+        let rails = loop_rails(t, e, k < 2 || std::env::var_os("MCTAS_BIDE_BOOST").is_some());
         for (p, s, _) in &rails {
             b.set(p[0], p[1], p[2], s);
         }
