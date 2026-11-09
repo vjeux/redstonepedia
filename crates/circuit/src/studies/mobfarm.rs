@@ -1335,6 +1335,10 @@ pub fn judge(c: &Circuit, o: &Options, jo: &JudgeOpts) -> std::result::Result<Ve
     });
     let pooled: Vec<RunReport> = runs.iter().filter_map(|r| r.as_ref().ok()).flatten().cloned().collect();
     let mut builds = Vec::new();
+    // the base checks' card lines (rain, lightning, restarts, the exit flood's reports) go on the
+    // base build's card, or on the first build that passes when the base build failed (a
+    // position-dependent farm still shows its weather: the site's cards read them)
+    let mut base_used = false;
     for (k, ((t, off, rc, spec), r)) in jobs.iter().zip(runs).enumerate() {
         // mobinfra (vjeux 2026-11-08 08:26, "It's all about tradeoffs"): lightning is measured on
         // the card, never a refusal (`redsim::weather::lightning::check_farm` lists the bolts
@@ -1342,7 +1346,10 @@ pub fn judge(c: &Circuit, o: &Options, jo: &JudgeOpts) -> std::result::Result<Ve
         let result = match (k, r, &base) {
             (_, Err(e), _) => Err(e),
             (0, Ok(_), Err(e)) => Err(e.clone()),
-            (0, Ok(runs), Ok(b)) => Ok(BuildOk { outcome: outcome(rc, spec, &runs, &pooled, Some(b), None), dims: dims(rc), family: family.clone() }),
+            (_, Ok(runs), Ok(b)) if !base_used && (k == 0 || runs.iter().all(|r| r.failures.is_empty() && r.errors.is_empty())) => {
+                base_used = true;
+                Ok(BuildOk { outcome: outcome(rc, spec, &runs, &pooled, Some(b), None), dims: dims(rc), family: family.clone() })
+            }
             (_, Ok(runs), _) => Ok(BuildOk { outcome: outcome(rc, spec, &runs, &[], None, None), dims: dims(rc), family: family.clone() }),
         };
         builds.push(Build { turns: *t, offset: *off, result });
