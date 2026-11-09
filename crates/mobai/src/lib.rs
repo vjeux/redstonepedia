@@ -6,3 +6,4 @@ pub mod farmtrace;
 pub mod fixture;
 pub mod mathfuzz;
 pub mod pathfuzz;
+pub mod portal;

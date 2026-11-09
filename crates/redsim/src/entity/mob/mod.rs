@@ -566,6 +566,7 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
     let mut cube_size: Option<i32> = None;
     let mut animal_age: Option<i32> = None;
     let mut sheep_color: Option<u8> = None;
+    let mut portal_cooldown: Option<i32> = None;
     let mut yaw = None;
     if let Some(n) = nbt {
         let mut t = n.trim().to_string();
@@ -592,6 +593,8 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
                 Some(("Age", v)) if ai::goal::animal::is_animal(ty.def().id) => animal_age = v.parse::<i32>().ok(),
                 // a sheep's colour (`DyeColor` id)
                 Some(("Color", v)) if ty.def().game_id == "minecraft:sheep" => sheep_color = v.trim_end_matches(['b', 'B']).parse::<u8>().ok(),
+                // `Entity.load`'s portal cooldown
+                Some(("PortalCooldown", v)) => portal_cooldown = v.parse::<i32>().ok(),
                 _ => return Some(Err(format!("entity {type_id} with {kv} in its data is not modeled by redsim"))),
             }
         }
@@ -627,6 +630,11 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
         && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
     {
         m.color = c & 15;
+    }
+    if let Some(c) = portal_cooldown
+        && let Some(j) = crate::entity::index_of(w, id)
+    {
+        w.entities.list[j].portal_cooldown = c;
     }
     // a loaded bat rests only if its BatFlags say so (`readAdditionalSaveData`, default 0: a
     // summoned bat flies)

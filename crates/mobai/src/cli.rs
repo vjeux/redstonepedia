@@ -129,6 +129,12 @@ pub enum MobaiCmd {
         seed: i64,
         inputs: Vec<String>,
     },
+    /// Nether portal travel on the official server (the bridge has no Nether): each case's mob
+    /// counts per tick in the overworld and the Nether after its summon, beside redsim's model
+    PortalProbe {
+        #[arg(long, default_value_t = 8)]
+        ticks: u32,
+    },
 }
 
 pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
@@ -141,5 +147,6 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::Replay { paths } => crate::fixture::replay(&paths),
         MobaiCmd::FarmTrace { design, seed, at, entity, terrain, day0, build, run, no_spawning, weather } => crate::farmtrace::run(version, &design, seed, at, entity, terrain, day0, build.map(|k| (k, run)), no_spawning, weather),
         MobaiCmd::Mathfuzz { n, seed, inputs } => crate::mathfuzz::run(version, n, seed, &inputs),
+        MobaiCmd::PortalProbe { ticks } => crate::portal::run(version, ticks),
     }
 }

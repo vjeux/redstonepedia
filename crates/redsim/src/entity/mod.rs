@@ -25,6 +25,7 @@ pub mod leash;
 pub mod minecart;
 pub mod mth;
 pub mod piston_push;
+pub mod portal;
 pub mod primed_tnt;
 // ---- mob farms (ironfarm): villagers, iron golems, zombies (`mob/`) ----
 pub mod mob;
@@ -133,6 +134,9 @@ pub struct Entity {
     pub on_ground_no_blocks: bool,
     /// `stuckSpeedMultiplier` (cobwebs and the like: never set by a modeled block).
     pub stuck_speed: Vec3,
+    /// `portalCooldown` and the `PortalProcessor` (`entity::portal`).
+    pub portal_cooldown: i32,
+    pub portal: Option<portal::PortalProc>,
     pub no_physics: bool,
     /// `lastKnownPosition` / `lastKnownSpeed` (`computeSpeed`).
     pub last_known_position: Option<Vec3>,
@@ -235,6 +239,8 @@ impl Entity {
             main_support: None,
             on_ground_no_blocks: false,
             stuck_speed: Vec3::ZERO,
+            portal_cooldown: 0,
+            portal: None,
             no_physics: false,
             last_known_position: None,
             last_known_speed: Vec3::ZERO,

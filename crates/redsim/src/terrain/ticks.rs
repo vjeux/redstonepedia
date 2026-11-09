@@ -53,6 +53,24 @@ pub fn random_tick(w: &mut World, id: u16, p: BlockPos) {
                 set(w, p, &name.replace("lit=true", "lit=false"), flags::ALL);
             }
         }
+        // NetherPortalBlock.randomTick in the overworld (NETHER_PORTAL_SPAWNS_PIGLINS): with
+        // monsters spawning and not on peaceful, nextInt(2000) < the difficulty's id spawns a
+        // zombified piglin under the portal (refused: its spawn is not modeled)
+        "minecraft:nether_portal" => {
+            use crate::entity::mob::natural::Difficulty;
+            let (monsters, diff) = w.mob.natural.as_ref().map(|n| (n.spawn_enemies, n.difficulty)).unwrap_or((true, w.mob.ai.difficulty));
+            if monsters && diff != Difficulty::Peaceful {
+                let id = match diff {
+                    Difficulty::Peaceful => 0,
+                    Difficulty::Easy => 1,
+                    Difficulty::Normal => 2,
+                    Difficulty::Hard => 3,
+                };
+                if r(w).next_int(2000) < id {
+                    error(w, "a zombified piglin spawning from a nether portal (its spawn) is not modeled".into());
+                }
+            }
+        }
         _ => error(w, format!("the random tick of {} is not modeled", blocks::props(id).name)),
     }
 }

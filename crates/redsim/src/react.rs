@@ -113,6 +113,7 @@ pub fn entity_inside(w: &mut World, i: usize, s: Block, p: BlockPos, precise: bo
                     e.fall_distance = 0.0;
                     e.stuck_speed = crate::entity::Vec3::new(0.25, 0.05f32 as f64, 0.25);
                 }
+                "minecraft:nether_portal" => crate::entity::portal::entity_inside(w, i, p),
                 "minecraft:sweet_berry_bush" | "minecraft:powder_snow" => {
                     let why = format!("an entity inside a natural {name} (its stuck speed, damage or freezing) is not modeled yet");
                     if !w.errors.contains(&why) {

@@ -78,7 +78,7 @@ fn next_action(actions: &[(u32, Vec<([i32; 3], String)>)], done: i64) -> Option<
 /// redsim's side of an action: each block set with flags 3.
 fn apply_redsim(w: &mut World, blocks: &[([i32; 3], String)]) -> Result<()> {
     for (p, s) in blocks {
-        let b = Block::parse(s).map_err(|e| anyhow!("action block {s}: {e}"))?;
+        let b = Block::parse(s).or_else(|_| redsim::terrain::land::block_of(s)).map_err(|e| anyhow!("action block {s}: {e}"))?;
         w.set_block(BlockPos::new(p[0], p[1], p[2]), b, redsim::world::flags::ALL);
     }
     Ok(())
@@ -884,7 +884,8 @@ pub fn redsim_world(s: &Scene, seed: i64) -> Result<World> {
     }
     let mut list = Vec::new();
     for (p, st) in &s.blocks {
-        list.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(st).map_err(|e| anyhow!("{st}: {e}"))?));
+        // a block redsim models by kind, else a natural state from the table (a nether portal)
+        list.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(st).or_else(|_| redsim::terrain::land::block_of(st)).map_err(|e| anyhow!("{st}: {e}"))?));
     }
     w.place_raw(&list);
     w.mirror_level_random(seed, s.chunks);

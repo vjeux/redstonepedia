@@ -102,6 +102,10 @@ fn base_tick(w: &mut World, i: usize) {
         }
     }
     let was_in_lava = mob(w, i).lava_height > 0.0;
+    // Entity.baseTick's handlePortal (a mob through a nether portal leaves the overworld)
+    if crate::entity::portal::handle_portal(w, i) {
+        return;
+    }
     // ---- mob AI (the mob-AI lane): canSpawnSprintParticle's draw (iron golems) ----
     if super::ai::has_ai(w, i) {
         super::ai::before_base_tick(w, i);

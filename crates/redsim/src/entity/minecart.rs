@@ -322,6 +322,10 @@ pub fn tick(w: &mut World, i: usize) {
         return;
     }
     entity::compute_speed(w, i);
+    // AbstractMinecart.tick's handlePortal (the cart and its riders through a nether portal)
+    if crate::entity::portal::handle_portal(w, i) {
+        return;
+    }
     // OldMinecartBehavior.tick (server side)
     let g = entity::kinds::gravity(w, i);
     if g != 0.0 {
