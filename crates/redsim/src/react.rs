@@ -102,6 +102,26 @@ pub fn entity_inside(w: &mut World, i: usize, s: Block, p: BlockPos, precise: bo
                 }
             }
         }
+        // a natural cobweb (`WebBlock.entityInside`: makeStuckInBlock, the fall distance reset;
+        // the next move is scaled by (0.25, 0.05, 0.25) and the motion zeroed); a sweet berry
+        // bush's and powder snow's stuck (with their damage and freezing) are refused
+        Block::Terrain(id) => {
+            let name = crate::terrain::blocks::props(id).block_id();
+            match name {
+                "minecraft:cobweb" => {
+                    let e = &mut w.entities.list[i];
+                    e.fall_distance = 0.0;
+                    e.stuck_speed = crate::entity::Vec3::new(0.25, 0.05f32 as f64, 0.25);
+                }
+                "minecraft:sweet_berry_bush" | "minecraft:powder_snow" => {
+                    let why = format!("an entity inside a natural {name} (its stuck speed, damage or freezing) is not modeled yet");
+                    if !w.errors.contains(&why) {
+                        w.errors.push(why);
+                    }
+                }
+                _ => {}
+            }
+        }
         _ => {}
     }
 }

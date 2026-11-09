@@ -27,8 +27,14 @@ fn seed(x: i32, y: i32, z: i32) -> i64 {
 
 /// `OffsetType.XZ`'s offset of a cell (`getMaxHorizontalOffset` 0.25): (x, z).
 pub fn offset(p: BlockPos) -> (f64, f64) {
+    offset_max(p, 0.25)
+}
+
+/// `OffsetType.XZ`'s offset of a cell with the block's `getMaxHorizontalOffset` (a speleothem's
+/// 0.125: its base column's edge).
+pub fn offset_max(p: BlockPos, max: f32) -> (f64, f64) {
     let s = seed(p.x, 0, p.z);
-    let f = |v: i64| ((((v & 15) as f32 / 15.0f32) as f64 - 0.5) * 0.5).clamp(-0.25, 0.25);
+    let f = |v: i64| ((((v & 15) as f32 / 15.0f32) as f64 - 0.5) * 0.5).clamp(-max as f64, max as f64);
     (f(s), f(s >> 8))
 }
 

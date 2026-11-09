@@ -150,10 +150,99 @@ fn tally_box() -> Option<[f64; 6]> {
 #[derive(Default)]
 struct Tally {
     sides: [std::collections::BTreeMap<String, (u64, std::collections::BTreeSet<u32>)>; 2],
+    golems: [GolemLog; 2],
+}
+
+/// `MCTAS_EXACT_GOLEMS=1`: a probe following every iron golem on each side after the arrival:
+/// when it entered, when it last stood in a farm villager's sensing box (`NearestLivingEntitySensor`:
+/// the villager's box inflated 16 each way, against the golem's box), and every target it took
+/// (`target` changes, with the target's type), printed when the compare ends.
+fn golem_probe() -> bool {
+    static P: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *P.get_or_init(|| std::env::var("MCTAS_EXACT_GOLEMS").is_ok_and(|v| v != "0"))
+}
+
+#[derive(Default)]
+struct GolemLog {
+    /// Per golem: (first tick seen, last tick inside a villager's box, ticks inside, last target,
+    /// targets taken as (tick, target text, the target's type), inside when it first had a target).
+    golems: std::collections::BTreeMap<u32, GolemTrack>,
+    /// Ticks no golem stood in any farm villager's box.
+    ticks_without: u64,
+    ticks: u64,
+}
+
+#[derive(Default, Clone)]
+struct GolemTrack {
+    first: i64,
+    last_inside: Option<i64>,
+    inside_ticks: u64,
+    target: Option<String>,
+    targets: Vec<(i64, String, String)>,
+}
+
+impl GolemLog {
+    fn add(&mut self, t: i64, frames: &[redsim::exact::EntityFrame]) {
+        let villagers: Vec<&redsim::exact::EntityFrame> = frames.iter().filter(|e| e.ty == "villager").collect();
+        let inside = |g: &redsim::exact::EntityFrame| {
+            villagers.iter().any(|v| {
+                let (dx, dz) = ((g.pos[0] - v.pos[0]).abs(), (g.pos[2] - v.pos[2]).abs());
+                let (gy0, gy1, vy0, vy1) = (g.pos[1], g.pos[1] + 2.7, v.pos[1] - 16.0, v.pos[1] + 1.95 + 16.0);
+                dx < 16.0 + 0.3 + 0.7 && dz < 16.0 + 0.3 + 0.7 && gy1 > vy0 && gy0 < vy1
+            })
+        };
+        let mut any = false;
+        for g in frames.iter().filter(|e| e.ty == "iron_golem") {
+            let tr = self.golems.entry(g.n).or_insert_with(|| GolemTrack { first: t, ..GolemTrack::default() });
+            if inside(g) {
+                tr.last_inside = Some(t);
+                tr.inside_ticks += 1;
+                any = true;
+            }
+            if g.target != tr.target {
+                if let Some(tg) = &g.target {
+                    let n = tg.split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty()).next().and_then(|s| s.parse::<u32>().ok());
+                    let ty = n.and_then(|n| frames.iter().find(|e| e.n == n)).map(|e| e.ty.clone()).unwrap_or_else(|| format!("({tg})"));
+                    tr.targets.push((t, tg.clone(), ty));
+                }
+                tr.target = g.target.clone();
+            }
+        }
+        self.ticks += 1;
+        if !any {
+            self.ticks_without += 1;
+        }
+    }
+
+    fn print(&self, side: &str) {
+        let n = self.golems.len();
+        let mut exits: Vec<i64> = self.golems.values().filter_map(|g| g.last_inside.map(|l| l - g.first)).collect();
+        exits.sort();
+        let median = exits.get(exits.len() / 2).copied().unwrap_or(0);
+        let mean = if exits.is_empty() { 0.0 } else { exits.iter().sum::<i64>() as f64 / exits.len() as f64 };
+        let mut by_type: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        let mut with_target = 0;
+        for g in self.golems.values() {
+            if !g.targets.is_empty() {
+                with_target += 1;
+            }
+            for (_, _, ty) in &g.targets {
+                *by_type.entry(ty.clone()).or_default() += 1;
+            }
+        }
+        println!("  {side}: {n} golems; time from entering to leaving the villagers' sensing boxes: median {median} gt, mean {mean:.0} gt; {} of {} ticks with no golem in any box; {with_target} golems took a target: {}", self.ticks_without, self.ticks, by_type.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(", "));
+        for (id, g) in &self.golems {
+            let tg: Vec<String> = g.targets.iter().map(|(t, _, ty)| format!("t{t} {ty}")).collect();
+            println!("    #{id}: in at t{}, last inside t{}, {} ticks inside{}", g.first, g.last_inside.map(|l| l.to_string()).unwrap_or("-".into()), g.inside_ticks, if tg.is_empty() { String::new() } else { format!(", targets {}", tg.join(" ")) });
+        }
+    }
 }
 
 impl Tally {
-    fn add(&mut self, side: usize, frames: &[redsim::exact::EntityFrame]) {
+    fn add(&mut self, side: usize, t: i64, frames: &[redsim::exact::EntityFrame]) {
+        if golem_probe() {
+            self.golems[side].add(t, frames);
+        }
         let Some(b) = tally_box() else { return };
         for e in frames {
             let [x, y, z] = e.pos;
@@ -166,6 +255,11 @@ impl Tally {
     }
 
     fn print(&self) {
+        if golem_probe() {
+            println!("golems after the arrival:");
+            self.golems[0].print("game");
+            self.golems[1].print("redsim");
+        }
         let Some(b) = tally_box() else { return };
         println!("tally inside {b:?} after the arrival (entity ticks, distinct entities):");
         for (k, side) in ["game", "redsim"].iter().enumerate() {
@@ -985,8 +1079,8 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
             // (a probe: MCTAS_EXACT_ENTITY="N:T0:T1" prints entity #N's frame on both sides at each
             // game time T0..=T1)
             print_probed(&f, &ours);
-            tally.add(0, &f.entities);
-            tally.add(1, &ours.entities);
+            tally.add(0, f.t, &f.entities);
+            tally.add(1, f.t, &ours.entities);
             cmp.tick(&f, &ours);
         }
         t += n as i64;
@@ -1000,6 +1094,34 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
     tally.print();
     let burnt_text = |m: &std::collections::BTreeMap<String, u32>| if m.is_empty() { "none".to_string() } else { m.iter().map(|(k, v)| format!("{v} {k}")).collect::<Vec<_>>().join(", ") };
     println!("drops burnt: the game {} | redsim {}", burnt_text(&burnt[0]), burnt_text(&burnt[1]));
+    // (a probe: MCTAS_EXACT_BLOCKS="x0,y0,z0,x1,y1,z1": each cell of the box whose block differs at
+    // the end, the game's against redsim's; with `=all:` in front every cell is printed)
+    if let Ok(b) = std::env::var("MCTAS_EXACT_BLOCKS") {
+        let (all, b) = match b.strip_prefix("all:") {
+            Some(rest) => (true, rest.to_string()),
+            None => (false, b),
+        };
+        let v: Vec<i32> = b.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+        if v.len() == 6 {
+            let (a, c) = ([v[0].min(v[3]), v[1].min(v[4]), v[2].min(v[5])], [v[0].max(v[3]), v[1].max(v[4]), v[2].max(v[5])]);
+            if let Ok(region) = game.w.get_region(game.sb, a, c) {
+                let mut differ = 0;
+                for y in a[1]..=c[1] {
+                    for z in a[2]..=c[2] {
+                        for x in a[0]..=c[0] {
+                            let gs = region.get([x, y, z]).map(|s| s.to_string()).unwrap_or_default();
+                            let rs = run.world.get(redsim::BlockPos::new(x, y, z)).to_string();
+                            if gs != rs || all {
+                                differ += (gs != rs) as usize;
+                                eprintln!("block {x} {y} {z}: game {gs} | redsim {rs}");
+                            }
+                        }
+                    }
+                }
+                eprintln!("block box {a:?}..{c:?}: {differ} cells differ");
+            }
+        }
+    }
     // (a probe: MCTAS_EXACT_LIGHT="x0,y0,z0,x1,y1,z1": each cell of the box whose sky or block light
     // differs at the end, the game's against redsim's)
     if let Ok(b) = std::env::var("MCTAS_EXACT_LIGHT") {

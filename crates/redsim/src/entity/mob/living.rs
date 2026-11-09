@@ -949,8 +949,12 @@ fn root_vehicle(w: &World, id: u32) -> u32 {
 /// `Entity.isPushable` of the entities a mob can push.
 fn pushable(e: &entity::Entity) -> bool {
     match &e.kind {
-        // a bat is never pushed (`Bat.isPushable`)
-        EntityKind::Mob(m) => !m.dead && m.ty.def().id != "bat",
+        // a bat is never pushed (`Bat.isPushable`); a climbing mob is not (`LivingEntity.isPushable`:
+        // `!onClimbable()`, a spider's its climbing flag as Spider.tick last set it)
+        EntityKind::Mob(m) => {
+            let climbing = if matches!(m.ty.def().id, "spider" | "cave_spider") { m.climbing } else { m.on_climbable };
+            !m.dead && m.ty.def().id != "bat" && !climbing
+        }
         EntityKind::Boat(_) | EntityKind::Minecart(_) => true,
         _ => false,
     }
@@ -975,11 +979,13 @@ fn push_pair(w: &mut World, j: usize, i: usize) {
         za *= pow;
         xa *= 0.05f32 as f64;
         za *= 0.05f32 as f64;
-        if w.entities.list[j].passengers.is_empty() {
+        // each side only if it is pushable itself (`this.isPushable()`, `entity.isPushable()`: a
+        // climbing spider is pushed by nobody, though it pushes others) and carries no one
+        if w.entities.list[j].passengers.is_empty() && pushable(&w.entities.list[j]) {
             let e = &mut w.entities.list[j];
             e.delta_movement = e.delta_movement.add(-xa, 0.0, -za);
         }
-        if w.entities.list[i].passengers.is_empty() {
+        if w.entities.list[i].passengers.is_empty() && pushable(&w.entities.list[i]) {
             let e = &mut w.entities.list[i];
             e.delta_movement = e.delta_movement.add(xa, 0.0, za);
         }

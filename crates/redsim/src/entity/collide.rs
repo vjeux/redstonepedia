@@ -117,8 +117,18 @@ pub fn boxes_at(w: &World, s: &Block, p: BlockPos) -> Vec<Aabb> {
     }
     let (x, y, z) = (p.x as f64, p.y as f64, p.z as f64);
     if let Block::Terrain(id) = s {
-        // terrain: the game's own boxes, exactly (the natural-state table)
-        return crate::terrain::blocks::props(*id).boxes.iter().map(|b| Aabb::new(x + b[0], y + b[1], z + b[2], x + b[3], y + b[4], z + b[5])).collect();
+        // terrain: the game's own boxes, exactly (the natural-state table); a speleothem's
+        // (pointed dripstone, sulfur spike: `shape.move(state.getOffset(pos))`, OffsetType.XZ up
+        // to 0.125) were described at another cell: its centred column moved by this cell's offset
+        let props = crate::terrain::blocks::props(*id);
+        if props.classes.iter().any(|c| c == "SpeleothemBlock")
+            && let Some(first) = props.boxes.first()
+        {
+            let (cx, cz) = ((first[0] + first[3]) / 2.0 - 0.5, (first[2] + first[5]) / 2.0 - 0.5);
+            let (ox, oz) = crate::bamboo::offset_max(p, 0.125);
+            return props.boxes.iter().map(|b| Aabb::new(x + b[0] - cx + ox, y + b[1], z + b[2] - cz + oz, x + b[3] - cx + ox, y + b[4], z + b[5] - cz + oz)).collect();
+        }
+        return props.boxes.iter().map(|b| Aabb::new(x + b[0], y + b[1], z + b[2], x + b[3], y + b[4], z + b[5])).collect();
     }
     let f = |v: i32| v as f64 / 16.0;
     let raw: Vec<[i32; 6]> = match s {
