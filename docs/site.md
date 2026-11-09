@@ -261,11 +261,15 @@ work in progress for the owner to look at. Publishing to the site itself stays t
 - **Nothing internal**: the repository is public. Every text file a push writes and its commit
   message are checked for internal names first (`preview::internal_names`: company host and tool
   names, session ids, diff numbers); a hit refuses the push and names it (take it out of the
-  design's comments).
+  design's comments). No page goes up saying the copy vjeux rejected on 2026-11-08 at 10:10
+  (`explain::REJECTED_COPY`: "uses a tripwire", "normal speed", "our test", a warning box...), the
+  same check the site build runs on every page.
 - **Cleanup**: a new preview under a name replaces the old one; every preview removes the previews
   older than `--older-than` days (14) and the shared files nobody uses any more; `--clean` alone
-  prunes. Two lanes pushing at once: the second is rebuilt on the first's commit (never a force
-  push).
+  prunes. `--retire-stale` turns every preview page that says the rejected copy into a redirect to
+  the design's page on the site and drops it from the list (the parent's audit, 2026-11-08 18:05:
+  old previews of iron-day1 still said it; the site took over once the Farms section went live).
+  Two lanes pushing at once: the second is rebuilt on the first's commit (never a force push).
 - **Time**: measured from the command's start to the page answering 200 with its new content
   (the command polls it and prints the seconds): 25.9 s for the first preview (it uploaded the 11 MB
   viewer and textures; the workflow took 21 s), 34.9 s for two designs never judged before (their

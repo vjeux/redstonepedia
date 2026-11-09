@@ -1916,6 +1916,37 @@ pub fn period_codes(s: &str) -> String {
         .join(" ")
 }
 
+/// Copy vjeux rejected on 2026-11-08 at 10:10 ("you are writing for the user that's going to
+/// consider building this"), with his words: a page that says one of these fails the build, and a
+/// preview is not published with one (the parent's audit 2026-11-08 18:05: the old preview pages
+/// still said them).
+pub const REJECTED_COPY: [(&str, &str); 6] = [
+    ("uses a tripwire", "the use of a tripwire is not a warning"),
+    ("enclose it", "the use of a tripwire is not a warning"),
+    ("normal speed", "normal speed is expected"),
+    ("our test", "you are not writing for you"),
+    ("needs water where the view shows it", "no red box: the water is a build step"),
+    ("our simulation of the game", "you are not writing for you"),
+];
+
+/// The rejected copy ([`REJECTED_COPY`]) a page's visible text says, each once, with why.
+pub fn rejected_copy(text: &str) -> Vec<String> {
+    let low = text.to_lowercase();
+    REJECTED_COPY.iter().filter(|(p, _)| low.contains(p)).map(|(p, why)| format!("\"{p}\" (vjeux: {why})")).collect()
+}
+
+/// The internal names or rejected copy on a page a visitor reads ([`internal_tokens`],
+/// [`rejected_copy`]); the HTML's own warning box too (`class="warn"`: vjeux 10:10, "the use of a
+/// tripwire is not a warning").
+pub fn page_faults(html: &str, text: &str) -> Vec<String> {
+    let mut v = internal_tokens(text);
+    v.extend(rejected_copy(text));
+    if html.contains("class=\"warn\"") {
+        v.push("a warning box (class=\"warn\"; vjeux: the use of a tripwire is not a warning)".to_string());
+    }
+    v
+}
+
 /// The internal names in a text a visitor would read (the parent's ask, 2026-11-08: "U1/U2, L2d,
 /// D1U, M2, redsim, mctas, gt" never reach a page): a design's or a part's code (a letter or
 /// three, a number, maybe a letter: `U1`, `L2d`, `D1U`, `M2`, `M2-open`'s `M2`), our tools'
@@ -2335,6 +2366,18 @@ pub fn card_kind(b: &Build) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_copy_vjeux_rejected_is_caught() {
+        // (the old iron-day1 page's own sentences, from the preview the parent's audit found,
+        // 2026-11-08 18:05)
+        let old = "Uses a tripwire: anything that crosses the string sets it off, so enclose it. 74 golems an hour, one every 49 s, at the game's normal speed. Press play: the view runs the farm as our test runs it. Needs water where the view shows it.";
+        let f = rejected_copy(old);
+        assert_eq!(f.len(), 5, "{f:?}");
+        assert!(page_faults("<p class=\"warn\">x</p>", "x").iter().any(|w| w.contains("warning box")));
+        // (today's copy passes)
+        assert!(rejected_copy("Pour in the water where the view shows it. 295 iron an hour. Press play to watch it work.").is_empty());
+    }
 
     #[test]
     fn unsimulated_reasons_read_plainly() {

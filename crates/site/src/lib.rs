@@ -287,6 +287,12 @@ pub struct PreviewArgs {
     /// that.
     #[arg(long)]
     pub clean: bool,
+    /// Turn every preview page that says copy vjeux rejected (or an internal name, or a warning
+    /// box: `explain::page_faults`) into a redirect to the design's page on the site, and drop it
+    /// from the previews' list (the parent 2026-11-08 18:05: the old previews still said it; the
+    /// site has taken over since the Farms section went live).
+    #[arg(long)]
+    pub retire_stale: bool,
     /// Days a preview stays.
     #[arg(long, default_value_t = 14)]
     pub older_than: u32,

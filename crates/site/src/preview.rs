@@ -580,7 +580,9 @@ fn commit(store: &Path, head: Option<&str>, dirs: &[String], files: &[(String, V
     Ok(Some(c))
 }
 
-/// What one push changes: the pages of one preview (replacing the name's old ones), the prune.
+/// What one push changes: the pages of one preview (replacing the name's old ones), the prune;
+/// `retire`: every page that says copy the site no longer says becomes a redirect to its page on
+/// the site ([`retired_page`]).
 struct Change {
     slug: Option<String>,
     rows: Vec<Vec<String>>,
@@ -588,6 +590,44 @@ struct Change {
     assets: Option<Assets>,
     older_than: u32,
     msg: String,
+    retire: bool,
+}
+
+/// The design's page on the site for a preview page's stem: the published list's path ending in
+/// `/<stem>.html`, a `farms/` one first (else doors, clocks, circuits...), None when the site never
+/// had it.
+fn site_page_of(page: &str) -> Option<String> {
+    let stem = page.rsplit('/').next().and_then(|f| f.strip_suffix(".html")).unwrap_or("");
+    let listed = crate::published::read(&crate::published::repo_root().join(crate::published::FILE));
+    let mut found: Vec<&String> = listed.iter().filter(|(p, e)| e.what != "deleted" && p.ends_with(&format!("/{stem}.html"))).map(|(p, _)| p).collect();
+    found.sort_by_key(|p| (!p.starts_with("farms/"), p.matches('/').count(), p.to_string()));
+    found.first().map(|p| format!("{}{p}", crate::deploy::PAGES_URL))
+}
+
+/// Where a retired preview page leads: the design's page on the site ([`site_page_of`]), else an
+/// iron farm's to the iron farm's page, else the site's index.
+fn retired_target(page: &str, title: &str) -> String {
+    let site = crate::deploy::PAGES_URL;
+    match site_page_of(page) {
+        Some(p) => p,
+        None if title.starts_with("Iron farm") => format!("{site}farms/iron/index.html"),
+        None => site.to_string(),
+    }
+}
+
+/// The marker of a retired preview page ([`retired_page`]), and the target it leads to.
+const RETIRED_MARK: &str = "<p>This page has moved to <a href=\"";
+
+fn retired_target_of(html: &str) -> Option<String> {
+    Some(html.split(RETIRED_MARK).nth(1)?.split('"').next()?.replace("&amp;", "&"))
+}
+
+/// A retired preview page: a redirect to its page on the site.
+fn retired_page(target: &str) -> String {
+    let t = site_model::html::esc(target);
+    format!(
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"robots\" content=\"noindex, nofollow\">\n<title>Moved · REDSTONEPEDIA</title>\n<meta http-equiv=\"refresh\" content=\"0; url={t}\">\n<link rel=\"canonical\" href=\"{t}\">\n</head>\n<body>\n<p>This page has moved to <a href=\"{t}\">REDSTONEPEDIA</a>.</p>\n</body>\n</html>\n"
+    )
 }
 
 /// Commit `ch` on top of the remote's head and push it, again from a fresh head when another push
@@ -612,6 +652,35 @@ fn publish(repo: &str, ch: &Change) -> Result<Option<String>> {
         }
         let gone: BTreeSet<String> = newest.iter().filter(|(s, t)| **t < cutoff || ch.slug.as_deref() == Some(s.as_str())).map(|(s, _)| s.clone()).collect();
         let mut rows: Vec<Vec<String>> = old.into_iter().filter(|r| !gone.contains(&r[0])).collect();
+        // (--retire-stale: a page that says the copy vjeux rejected, or has a warning box, leads to
+        // the site's page and leaves the list; its folder stays, so its address keeps answering;
+        // a page retired before is led to its site page again when the site has it now)
+        let mut retired: Vec<(String, Vec<u8>)> = Vec::new();
+        if ch.retire
+            && let Some(h) = head.as_deref()
+        {
+            rows.retain(|r| {
+                let html = git(&store, &["show", &format!("{h}:{}", r[1])]).unwrap_or_default();
+                let stale = !crate::explain::rejected_copy(&crate::pages::visible_text(&html)).is_empty() || html.contains("class=\"warn\"");
+                if html.is_empty() || !stale {
+                    return true;
+                }
+                let to = retired_target(&r[1], &r[2]);
+                println!("retire {} -> {to}", r[1]);
+                retired.push((r[1].clone(), retired_page(&to).into_bytes()));
+                false
+            });
+            let listed: BTreeSet<&str> = rows.iter().map(|r| r[1].as_str()).collect();
+            for p in git(&store, &["ls-tree", "-r", "--name-only", h]).unwrap_or_default().lines().filter(|p| p.ends_with(".html") && p.contains('/') && !listed.contains(p)) {
+                let html = git(&store, &["show", &format!("{h}:{p}")]).unwrap_or_default();
+                if let (Some(was), Some(now)) = (retired_target_of(&html), site_page_of(p))
+                    && was != now
+                {
+                    println!("retarget {p}: {was} -> {now}");
+                    retired.push((p.to_string(), retired_page(&now).into_bytes()));
+                }
+            }
+        }
         rows.extend(ch.rows.iter().cloned());
         // the shared files nobody uses any more go too
         let used = |col: usize| -> BTreeSet<String> { rows.iter().map(|r| r[col].clone()).collect() };
@@ -650,6 +719,7 @@ fn publish(repo: &str, ch: &Change) -> Result<Option<String>> {
             }
         }
         files.extend(ch.files.iter().cloned());
+        files.extend(retired);
         let mut manifest = format!("{MANIFEST_HEADER}\n");
         for r in &rows {
             manifest.push_str(&r.join("\t"));
@@ -659,11 +729,23 @@ fn publish(repo: &str, ch: &Change) -> Result<Option<String>> {
         files.push((MANIFEST.into(), manifest.into_bytes()));
         files.push(("index.html".into(), index_page(&rows, &newest_css, site_url, ch.older_than).into_bytes()));
         // nothing internal goes out (the repository is public): every text file this push writes
-        // and its message (the viewer's and the textures' files are the site's own)
+        // and its message (the viewer's and the textures' files are the site's own); and no page
+        // says the copy vjeux rejected (`explain::rejected_copy`, a warning box: the parent's audit
+        // 2026-11-08 18:05)
         let mut found: Vec<String> = Vec::new();
         for (p, bytes) in files.iter().filter(|(p, _)| !p.starts_with("viewer/") && !p.starts_with("textures/") && !p.ends_with(".litematic")) {
-            for w in internal_names(&String::from_utf8_lossy(bytes)) {
+            let text = String::from_utf8_lossy(bytes);
+            for w in internal_names(&text) {
                 found.push(format!("{p}: {w}"));
+            }
+            if p.ends_with(".html") {
+                let visible = crate::pages::visible_text(&text);
+                for w in crate::explain::rejected_copy(&visible) {
+                    found.push(format!("{p}: {w}"));
+                }
+                if text.contains("class=\"warn\"") {
+                    found.push(format!("{p}: a warning box"));
+                }
             }
         }
         for w in internal_names(&ch.msg) {
@@ -772,10 +854,18 @@ pub fn preview(a: &PreviewArgs) -> Result<()> {
         return preview_site_pages(a, &repo_root, t0);
     }
     if a.designs.is_empty() {
+        if a.retire_stale {
+            let ch = Change { slug: None, rows: Vec::new(), files: Vec::new(), assets: None, older_than: a.older_than, msg: "retire the previews with copy the site no longer says: each page leads to its page on the site".into(), retire: true };
+            match publish(&a.repo, &ch)? {
+                Some(c) => println!("retired: {} ({c})", preview_url),
+                None => println!("nothing to retire"),
+            }
+            return Ok(());
+        }
         if !a.clean {
             bail!("no design given (`mctas site preview <design>... [--name <slug>]`; `--clean` alone prunes old previews)");
         }
-        let ch = Change { slug: None, rows: Vec::new(), files: Vec::new(), assets: None, older_than: a.older_than, msg: format!("prune previews older than {} days", a.older_than) };
+        let ch = Change { slug: None, rows: Vec::new(), files: Vec::new(), assets: None, older_than: a.older_than, msg: format!("prune previews older than {} days", a.older_than), retire: false };
         match publish(&a.repo, &ch)? {
             Some(c) => println!("pruned: {} ({c})", preview_url),
             None => println!("nothing to prune"),
@@ -866,7 +956,7 @@ pub fn preview(a: &PreviewArgs) -> Result<()> {
             .collect();
         let files: Vec<(String, Vec<u8>)> = pages_out.iter().flat_map(|p| p.files.iter().cloned()).collect();
         let msg = format!("preview {slug}: {} ({}@{})", pages_out.iter().map(|p| p.stem.as_str()).collect::<Vec<_>>().join(", "), from.branch, from.commit.chars().take(9).collect::<String>());
-        let ch = Change { slug: Some(slug.clone()), rows, files, assets: Some(Assets { viewer: assets.viewer.clone(), textures: assets.textures.clone(), css: assets.css.clone(), viewer_dir: assets.viewer_dir.clone(), textures_dir: assets.textures_dir.clone() }), older_than: a.older_than, msg };
+        let ch = Change { slug: Some(slug.clone()), rows, files, assets: Some(Assets { viewer: assets.viewer.clone(), textures: assets.textures.clone(), css: assets.css.clone(), viewer_dir: assets.viewer_dir.clone(), textures_dir: assets.textures_dir.clone() }), older_than: a.older_than, msg, retire: false };
         let t_push = Instant::now();
         let pushed = publish(&a.repo, &ch)?;
         if let Some(c) = &pushed {
@@ -971,7 +1061,7 @@ fn preview_site_pages(a: &PreviewArgs, repo_root: &Path, t0: Instant) -> Result<
         .collect();
     let files: Vec<(String, Vec<u8>)> = pages_out.iter().flat_map(|p| p.files.iter().cloned()).collect();
     let msg = format!("preview {slug}: site pages {} ({}@{})", pages_out.iter().map(|p| p.stem.as_str()).collect::<Vec<_>>().join(", "), from.branch, from.commit.chars().take(9).collect::<String>());
-    let ch = Change { slug: Some(slug.clone()), rows, files, assets: Some(Assets { viewer: assets.viewer.clone(), textures: assets.textures.clone(), css: assets.css.clone(), viewer_dir: assets.viewer_dir.clone(), textures_dir: assets.textures_dir.clone() }), older_than: a.older_than, msg };
+    let ch = Change { slug: Some(slug.clone()), rows, files, assets: Some(Assets { viewer: assets.viewer.clone(), textures: assets.textures.clone(), css: assets.css.clone(), viewer_dir: assets.viewer_dir.clone(), textures_dir: assets.textures_dir.clone() }), older_than: a.older_than, msg, retire: false };
     let pushed = publish(&a.repo, &ch)?;
     if let Some(c) = &pushed {
         println!("pushed {} to {} ({:.1} s since the start)", &c[..9.min(c.len())], a.repo, t0.elapsed().as_secs_f64());

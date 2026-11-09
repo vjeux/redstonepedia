@@ -788,8 +788,9 @@ pub fn build(a: &BuildArgs) -> Result<()> {
         let text = read_design(b, &repo, out).unwrap_or_default();
         let html = pages::build_page(&site, b, &text, &repo_path, scripts);
         // what a visitor reads holds none of our internal names (the parent's ask, 2026-11-08:
-        // "U1/U2, L2d, D1U, M2, redsim, mctas, gt"): every hit fails the build below
-        let hits: Vec<String> = crate::explain::internal_tokens(&pages::visible_text(&html)).into_iter().map(|t| format!("{}: {t}", b.page)).collect();
+        // "U1/U2, L2d, D1U, M2, redsim, mctas, gt") nor the copy vjeux rejected at 10:10 (the
+        // parent's audit 18:05): every hit fails the build below
+        let hits: Vec<String> = crate::explain::page_faults(&html, &pages::visible_text(&html)).into_iter().map(|t| format!("{}: {t}", b.page)).collect();
         write(&out.join(&b.page), &html)?;
         Ok(hits)
     });
@@ -801,7 +802,7 @@ pub fn build(a: &BuildArgs) -> Result<()> {
         for h in &internal {
             eprintln!("  internal name: {h}");
         }
-        bail!("internal names on {} page(s) a visitor reads (crates/site/src/explain.rs::internal_tokens; say it in the player's words or drop it): {}", internal.len(), internal.iter().take(20).cloned().collect::<Vec<_>>().join("; "));
+        bail!("internal names or rejected copy on {} page(s) a visitor reads (crates/site/src/explain.rs::page_faults; say it in the player's words or drop it): {}", internal.len(), internal.iter().take(20).cloned().collect::<Vec<_>>().join("; "));
     }
     // the generated members' design files as published too (read above as generated: their pages
     // and schematics are made; now the player's header in place of the repository's notes)
@@ -869,9 +870,9 @@ pub fn build(a: &BuildArgs) -> Result<()> {
         overviews.push((path, html));
     }
     let overview_paths: Vec<String> = overviews.iter().map(|(p, _)| p.clone()).collect();
-    let internal: Vec<String> = overviews.iter().flat_map(|(p, html)| crate::explain::internal_tokens(&pages::visible_text(html)).into_iter().map(move |t| format!("{p}: {t}"))).collect();
+    let internal: Vec<String> = overviews.iter().flat_map(|(p, html)| crate::explain::page_faults(html, &pages::visible_text(html)).into_iter().map(move |t| format!("{p}: {t}"))).collect();
     if !internal.is_empty() {
-        bail!("internal names on the overview pages (crates/site/src/explain.rs::internal_tokens): {}", internal.join("; "));
+        bail!("internal names or rejected copy on the overview pages (crates/site/src/explain.rs::page_faults): {}", internal.join("; "));
     }
     let mut by_card: BTreeMap<String, Vec<&Member>> = BTreeMap::new();
     for m in &site.members {
