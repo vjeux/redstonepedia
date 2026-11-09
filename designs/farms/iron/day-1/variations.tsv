@@ -6,10 +6,10 @@ bed-plate-lava-in-sight.txt		Bed-plate farm with the lava corner in sight, dug 8
 d1u-deep.txt	yes	Underground farm with a deep pit	
 d1u-side.txt		Underground farm with a sideways chute	
 d1u-drop-side.txt		Underground farm, drop then sideways chute	
-dust-pulse-dug10.txt		Dust-pulse farm dug 10 deep, its kill pit 13 below the beds (needs 45 redstone dust)	
-dust-pulse-three-watchers.txt		Dust-pulse farm with three watchers, its kill below the villagers' range, dug 9 deep (needs 44 redstone dust)	
 bed-plate-side-chute.txt		Bed-plate farm with its chute to the side, dug 11 deep	
 bed-plate-lava-out-of-sight.txt		Bed-plate farm dug 7 deep, its kill out of the villagers' sight	
 bed-plate-dug12.txt		Bed-plate farm dug 12 deep, nothing on the surface	
 bed-plate-two-sleepers.txt		Bed-plate farm with two watchers and two sleepers, dug 11 deep	
 dust-pulse-out-of-sight.txt	redstone	Dust-pulse farm, its kill below the villagers' range, dug 11 deep (needs 45 redstone dust)	
+dust-pulse-three-watchers.txt		Dust-pulse farm with three watchers, its kill below the villagers' range, dug 11 deep (needs 44 redstone dust)	
+dust-pulse-dug10.txt		Dust-pulse farm dug 11 deep, its kill pit 13 below the beds (needs 45 redstone dust)	

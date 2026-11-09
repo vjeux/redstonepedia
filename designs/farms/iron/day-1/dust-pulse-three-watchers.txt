@@ -1,12 +1,12 @@
-# CIRCUIT: pulsewr-s3b0-pad6f7x-1-pit21-n1-dug9 mob-farm iron_ingot day-1 iron per hour per block 0.68, iron per hour 444, iron range 95% 440-448 (96 runs), golems per hour 111.1, seconds per golem 32.4, share of ceiling 93%, modules 1, iron per hour per module 444, kill 317 gt, kill tail the longest 505 gt: no golem outlived 1200 gt in 17776 golems (95% bound 0.02% a golem), golems at the zombie 0 of 17776 golems targeted the farm's zombie, worst policy every constant walk reaches the kill, lips none (no golem stands dry beside a current), restarts after a missed night yes, restarts after days away yes (unloaded or not ticking, back by day or at night: the first golem 0.0-0.1 h after the return), rain clear day 442 iron/h; rain day 449 iron/h; thunder day 445 iron/h, lightning about 0.0 iron lost per thunderstorm; no villager ever turned into a witch; the zombie's boat broken never; a fire beside a flammable block about every 175 game days; a skeleton trap horse on the farm about every 2439 game days; the farm breaks in about 175 game days (a fire first); thunderstorms 1.4% of the time (6211 gt each on average), thunder loss 88.9, sunburn never (the zombie never sees the sky), fire never, misses 16615 of 34391 tries found no spot, 16962 golem sightings, bill 11 iron, 0 quartz, 4 villagers, 4 beds, 1 zombie, payback 1 min, build time 43 min at day-1 prices (206 placed with 31 cobblestone seals, 642 dug, 1 lava trips, 4 villagers moved; the most: 4 villager_moved 720 s, 642 dig 642 s, 206 place 206 s, 1 zombie 180 s, 1 hopper 154 s, 7 repeater 140 s, 1 lava_trip 120 s, 1 tool:bucket 90 s), time to an iron kit 46 min at the cheapest spot (from dawn of day 1 until the chest holds 24 iron; runs 46-47 min; 46-47 min over the 12 nearest spots), build minutes 42.6, t kit minutes 46.4, collecting 31 s per trip to the chest (2 x its depth, 33 layers, at the access's speed), iron per hour sleeping 445, volume per module 6336, entities alive 6.5, entities peak 9, iron burnt per golem 0.02 (0.4% of the loot; 1 golem in 164), tools bucket 3 + iron pickaxe 3, lava sources 1, materials day 1, chunk columns 1, storage 3.5 h (32 slots; 110 poppies/h), hoppers per 1000 iron/h 2.3, spot village-edge at -345 63 246 (the cheapest of the 12 nearest valid spots), exposures in village-edge (-345,246): C2 entry baby zombie 38 cells, bat 450, cave spider 39, creeper 35, fox 39, pillager 35, skeleton 35, slime 39, zombie 35; C4 presence village villager 624 cells, village golem 1369; C8 creepers creeper 141 cells, creeper 138; C10 flyers phantom 1 cells, build minutes flat 46.3, villagers left 4, hostile break days exposed: C2 entry; C8 creepers, 657 blocks, 12x33x16, redsim (robust)
-# farmopt candidate pulsewr-s3b0-pad6f7x-1-pit21-n1-dug9 (designs/briefs/farm-optimizer.md).
+# CIRCUIT: pulsewr-s3b0-pad6f7x-1-pit21-n1-dug11 mob-farm iron_ingot day-1 iron per hour per block 0.66, iron per hour 442, iron range 95% 439-445 (96 runs), golems per hour 110.8, seconds per golem 32.5, share of ceiling 92%, modules 1, iron per hour per module 442, kill 317 gt, kill tail the longest 504 gt: no golem outlived 1200 gt in 17723 golems (95% bound 0.02% a golem), golems at the zombie 0 of 17723 golems targeted the farm's zombie, worst policy every constant walk reaches the kill, lips none (no golem stands dry beside a current), restarts after a missed night yes, restarts after days away yes (unloaded or not ticking, back by day or at night: the first golem 0.0-0.1 h after the return), rain clear day 444 iron/h; rain day 436 iron/h; thunder day 436 iron/h, lightning about 0.0 iron lost per thunderstorm; no villager ever turned into a witch; the zombie's boat broken never; a fire beside a flammable block about every 182 game days; a skeleton trap horse on the farm about every 2439 game days (every 35 game days of thunder; a lightning rod topping its column within 128 blocks prevents it); a skeleton trap horse that triggers (within 10 blocks of the AFK spot) about every 3890 game days (a lightning rod within 128 blocks, topping its column, takes the bolts: none then); the farm breaks in about 182 game days (a fire first); thunderstorms 1.4% of the time (6211 gt each on average), thunder loss 84.8, sunburn never (the zombie never sees the sky), fire never, misses 17003 of 34726 tries found no spot, 17067 golem sightings, bill 11 iron, 0 quartz, 4 villagers, 4 beds, 1 zombie, payback 1 min, build time 43 min at day-1 prices (202 placed with 8 cobblestone slabs capping stray golem spots and 17 cobblestone seals, 650 dug, 1 lava trips, 4 villagers moved; the most: 4 villager_moved 720 s, 650 dig 650 s, 202 place 202 s, 1 zombie 180 s, 1 hopper 154 s, 7 repeater 140 s, 1 lava_trip 120 s, 1 tool:bucket 90 s), time to an iron kit 47 min at the cheapest spot (from dawn of day 1 until the chest holds 24 iron; runs 47-47 min; 47-48 min over the 12 nearest spots), build minutes 43.0, t kit minutes 46.8, collecting 33 s per trip to the chest (2 x its depth, 35 layers, at the access's speed), iron per hour sleeping 443, volume per module 6720, entities alive 6.5, entities peak 9, iron burnt per golem 0.02 (0.4% of the loot; 1 golem in 146), tools bucket 3 + iron pickaxe 3, lava sources 1, materials day 1, chunk columns 1, storage 3.5 h (32 slots; 110 poppies/h), hoppers per 1000 iron/h 2.3, spot village-edge at -345 61 246 (the cheapest of the 12 nearest valid spots), exposures in village-edge (-345,246): C2 entry baby zombie 41 cells, bat 456, cave spider 41, creeper 38, fox 41, pillager 38, skeleton 38, slime 41, zombie 38; C4 presence village villager 623 cells, village golem 1389; C6 pickup baby zombie 11 cells, fox 11, pillager 11, skeleton 11, village villager 11, zombie 11; C8 creepers creeper 134 cells, creeper 113; C9 endermen an enderman 32 cells; C10 flyers phantom 1 cells; C11 fire lightning 3 cells, build minutes flat 42.5, villagers left 4, hostile break days exposed: C2 entry; C8 creepers; C9 endermen, 665 blocks, 12x35x16, redsim (robust)
+# farmopt candidate pulsewr-s3b0-pad6f7x-1-pit21-n1-dug11 (designs/briefs/farm-optimizer.md).
 # 1 module(s); each: 3 scared and 0 blind villagers in 1-cell pods, a zombie in a boat, U1's plate into the falling-edge pulse (catalog row 189: torches, dust, repeaters; a 22 gt hide when U1 lies down at dusk);
 # golems spawn on a 6x6 pad 7 below the beds and fall through its dry hole into a pit corner 21 below the beds under one lava source.
-name: pulsewr-s3b0-pad6f7x-1-pit21-n1-dug9
+name: pulsewr-s3b0-pad6f7x-1-pit21-n1-dug11
 access: built
-afk: 2.5 10 4.5
+afk: 2.5 12 4.5
 circuit: mob-farm iron_ingot day-1
-ground: 9
+ground: 11
 how: golems fall out of sight into a lava pit
 restart: yes
 terrain: cells
@@ -610,8 +610,42 @@ layer 9:
   .
   .
   .
-  BE
+  BA
+  AA
+  .
+  .
+  .
+layer 10:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  AA
+  BA
+  .
+  .
+  .
+layer 11:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
   EE
+  EB
   .
   .
   .

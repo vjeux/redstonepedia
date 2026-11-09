@@ -1,9 +1,9 @@
-# pulsewr-s2b0-pad6f7x1-pit13-n1-dug10: every block by the part that placed it (farmopt split); build seconds at day-1 prices, the card's travel and height (415 s) shared by the blocks placed
+# pulsewr-s2b0-pad6f7x1-pit13-n1-dug11: every block by the part that placed it (farmopt split); build seconds at day-1 prices, the card's travel and height (422 s) shared by the blocks placed
 part	member	blocks	dug	build_seconds
-cage	dust-pulse-2-watching-regular	19	38	855
-calm		32	0	254
-pad	dry-floor-6x6	40	84	281
-transport	drop-shaft-5	25	32	145
-kill	lava-corner-6-drop	13	77	254
+cage	dust-pulse-2-watching-regular	19	38	856
+calm		32	0	255
+pad	dry-floor-6x6	40	84	282
+transport	drop-shaft-5	25	32	146
+kill	lava-corner-6-drop	13	77	255
 collection		2	0	165
-access	spiral-staircase	33	77	217
+access	spiral-staircase	34	80	225
