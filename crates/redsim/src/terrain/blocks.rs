@@ -22,6 +22,9 @@ pub enum FluidKind {
 pub struct Props {
     /// The game's string (`BlockStateParser.serialize`).
     pub name: String,
+    /// The length of `name`'s block id (before its properties' `[`): [`Props::block_id`] without a
+    /// search (tickexact 2026-11-08).
+    pub id_len: usize,
     /// The block's class chain (its own class first, up to `Block`).
     pub classes: Vec<String>,
     /// The reacting methods its classes declare (`updateShape`, `neighborChanged`, `tick`, ...).
@@ -121,7 +124,7 @@ impl Props {
 
     /// The block's id without properties (`minecraft:oak_leaves`).
     pub fn block_id(&self) -> &str {
-        self.name.split('[').next().unwrap_or(&self.name)
+        &self.name[..self.id_len]
     }
 
     /// Its collision shape leaves its cell (`hasLargeCollisionShape`).
@@ -205,6 +208,7 @@ fn parse_row(line: &str) -> Result<(Props, Vec<String>), String> {
     };
     let p = Props {
         name: f[0].to_string(),
+        id_len: f[0].find('[').unwrap_or(f[0].len()),
         classes: list(f[2], ','),
         reactive: list(f[3], ','),
         boxes,

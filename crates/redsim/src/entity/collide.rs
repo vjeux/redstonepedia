@@ -247,17 +247,26 @@ fn for_each_block_collision(w: &World, bb: Aabb, mut visit: impl FnMut(BlockPos,
     let z1 = mth::floor(bb.max_z + 1.0e-7) + 1;
     for z in z0..=z1 {
         for y in y0..=y1 {
+            // (a row of cells along x: read from the box's array by one index stepped along
+            // the row when the whole row lies in the box, the same cells in the same order)
+            let row_face = (y == y0 || y == y1) as u8 + (z == z0 || z == z1) as u8;
+            let base = match (w.index(BlockPos::new(x0, y, z)), w.contains(BlockPos::new(x1, y, z))) {
+                (Some(i), true) => Some(i),
+                _ => None,
+            };
             for x in x0..=x1 {
-                let face = (x == x0 || x == x1) as u8 + (y == y0 || y == y1) as u8 + (z == z0 || z == z1) as u8;
+                let face = row_face + (x == x0 || x == x1) as u8;
                 if face == 3 {
                     continue;
                 }
-                let p = BlockPos::new(x, y, z);
-                let s = w.get(p);
+                let s = match base {
+                    Some(i) => w.cells[i + (x - x0) as usize],
+                    None => w.get(BlockPos::new(x, y, z)),
+                };
                 if s.is_air() || (face == 1 && !has_large_collision_shape(&s)) || (face == 2 && !matches!(s, Block::MovingPiston { .. })) {
                     continue;
                 }
-                if !visit(p, s) {
+                if !visit(BlockPos::new(x, y, z), s) {
                     return;
                 }
             }

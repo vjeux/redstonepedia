@@ -348,9 +348,20 @@ pub fn kind_of(game_id: &str) -> Option<&'static Kind> {
         .copied()
 }
 
-/// The spawn data of a mob already in the world (its row, its baby or size rows included).
+/// The spawn data of a mob already in the world (its row, its baby or size rows included; the
+/// last answer remembered per thread).
 pub fn kind_of_type(ty: MobType) -> Option<&'static Kind> {
-    kind_of(ty.def().game_id)
+    thread_local! {
+        static LAST: std::cell::Cell<Option<(MobType, Option<&'static Kind>)>> = const { std::cell::Cell::new(None) };
+    }
+    if let Some((t, k)) = LAST.with(|c| c.get())
+        && t == ty
+    {
+        return k;
+    }
+    let k = kind_of(ty.def().game_id);
+    LAST.with(|c| c.set(Some((ty, k))));
+    k
 }
 
 /// The mob category of any modeled mob (villagers and golems are MISC).
