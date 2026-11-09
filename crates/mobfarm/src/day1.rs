@@ -1527,22 +1527,26 @@ pub fn cross_channel_cage(r: i32, arms: u8, regular: bool, n: i32, l_min: u32, s
     b.set(3, fj - 1, cz - 1, "hopper[enabled=true,facing=south]");
     b.set(2, fj - 1, cz, "hopper[enabled=true,facing=east]");
     b.set(3, fj - 1, cz, "hopper[enabled=true,facing=down]");
-    // the storage (iteration 20, vjeux 21:06 "You also need a proper storage system"): no chest
-    // chain; the centre's last hopper drops into the sorter's line hopper L under it
-    // (`collect_bottom_at1`, LS-open's: the iron slice to the crafter packing iron blocks into one
-    // chest, 27 stacks = 15,552 iron, 8.7 h of four modules; the poppies to their own two chests)
-    let mut t = Builder::new("collect");
-    collect_bottom_at1(&mut t, fj - 1);
-    // (L at (1, fj - 2, -1) in its frame goes under the centre's down hopper (3, fj - 1, cz))
-    let (dx, dz) = (2, cz + 1);
-    for (p, s) in &t.d.blocks {
-        b.d.blocks.insert([p[0] + dx, p[1], p[2] + dz], s.clone());
+    // the storage (iteration 20, vjeux 21:06 "You also need a proper storage system"; ironspec
+    // 22:32: the cheapest proper storage that holds 8 h): no chest chain, no sorter: the centre's
+    // last hopper drops onto a hopper line L running east under the junction (6 hoppers), each with
+    // a hopper under it pulling into a double chest beside it (the next chest fills when one is
+    // full: a full chest stops its hopper's pull and the line passes the items on); 6 double chests
+    // and the first a single chest (the judge's port): 297 stacks, 8.4 h of four modules' iron and poppies
+    let row = 6;
+    for i in 0..row {
+        let x = 3 + i;
+        b.set(x, fj - 2, cz, &format!("hopper[enabled=true,facing={}]", if i + 1 < row { "east" } else { "down" }));
+        b.set(x, fj - 3, cz, "hopper[enabled=true,facing=south]");
+        // (the first a single chest: the judge's output port)
+        if i == 0 {
+            b.set(x, fj - 3, cz + 1, "chest[facing=east,type=single,waterlogged=false]");
+            continue;
+        }
+        b.set(x, fj - 3, cz + 1, "chest[facing=east,type=left,waterlogged=false]");
+        b.set(x, fj - 3, cz + 2, "chest[facing=east,type=right,waterlogged=false]");
     }
-    for (p, s) in &t.d.block_entities {
-        b.d.block_entities.insert([p[0] + dx, p[1], p[2] + dz], s.clone());
-    }
-    let o = t.d.ports["output"];
-    b.d.ports.insert("output".into(), [o[0] + dx, o[1], o[2] + dz]);
+    b.d.ports.insert("output".into(), [3, fj - 3, cz + 1]);
     // (two arms: the junction's east and west sides fenced)
     if arms == 2 {
         for z in cz - 2..=cz + 1 {
@@ -1562,7 +1566,7 @@ pub fn cross_channel_cage(r: i32, arms: u8, regular: bool, n: i32, l_min: u32, s
     let (count, channels) = if arms == 4 { ("Four", "the four channels meet") } else { ("Two", "the two channels meet") };
     Ok(b.text(&[
         &format!("{count} farms around one kill chamber, {r} blocks from its centre: each farm's golems fall into a fenced water channel deep below"),
-        &format!("every farm's sight; {channels} in the middle under one lava blade; a sorter sends the poppies to their chests and the iron to a crafter packing it into one chest of iron blocks (8.7 hours)."),
+        &format!("every farm's sight; {channels} in the middle under one lava blade; a hopper line fills a row of six double chests under it, one after the other (8 hours)."),
     ]))
 }
 
