@@ -1,9 +1,26 @@
 hash	file	exact	verdict	recorded
 56968941d1a63b7b	designs/circuits/mobfarm/archive/iron-day1.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T05:36Z
 99ed450d12d65bca	designs/farms/iron/day-1/d1-bed-plate.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T06:15Z
-b2f4bf44a31548d7	designs/farms/iron/day-1/d1u-underground.txt	no	first difference: build 4 run 0 t7: entity #22 enderman random (mob-AI); 0/12 builds exact	2026-11-09T06:25Z
+d57e456c3e111c1a	designs/farms/iron/late/late-module-compact.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T12:39Z
+e0c9cba66e667b26	designs/farms/iron/late/late-module-three-watchers-two-sleepers.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T12:30Z
+1038f07ca0137d82	designs/farms/iron/late/late-module-three-watchers.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T12:44Z
+1c6c3c260aa1e4ac	designs/farms/iron/late/late-module-two-watchers-sleeper.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T12:48Z
+499a34cd912fffac	designs/farms/iron/late/late-module-two-watchers-two-sleepers.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T12:35Z
+6c9e19fda172fd71	designs/farms/iron/late/late-pair-stacks.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T13:00Z
+be701f831b69f6c5	designs/farms/iron/late/late-shared-kill-pair.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T13:47Z
+1578085075f7f86e	designs/farms/iron/late/stack-2x43.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T13:55Z
+88b4c903b2efcba2	designs/farms/iron/middle/cross-4-underground.txt	no	first difference: build 9 run 0 t11: level random (the level random: its call site with `mctas mobai farm-trace --at T`); 0/12 builds exact	2026-11-09T12:37Z
+cc8d8de35981cf38	designs/farms/iron/middle/cross-4.txt	no	first difference: build 2 run 0 t201: entity #12 villager yaw (mob-AI); 2/8 builds exact	2026-11-09T13:37Z
+16b23701f97a622c	designs/farms/iron/middle/drop-blades-2.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T13:29Z
 dfd43b5b96e0f66b	designs/farms/iron/middle/four-modules-one-timer-tight.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T06:11Z
 58a445d7d2cb485a	designs/farms/iron/middle/four-modules-one-timer.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T05:58Z
-4c902db7e1d522f3	designs/farms/iron/middle/m2-open-ring.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T05:45Z
+56d590ebb43edba1	designs/farms/iron/middle/m2-open-ring.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T13:05Z
 5d8bca5717d71054	designs/farms/iron/middle/m2-open.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T05:41Z
+fe4774b8e65f0b87	designs/farms/iron/middle/module-three-watchers-sleeper.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T12:25Z
+10d50169433681d4	designs/farms/iron/middle/module-three-watchers.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T12:20Z
+f1102cdf7987a89b	designs/farms/iron/middle/module-two-watchers-6x6.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T12:16Z
+46a7682d89cfd5d5	designs/farms/iron/middle/module-two-watchers-sleeper.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T12:11Z
+8f95ac189a415a9d	designs/farms/iron/middle/module-two-watchers.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T12:07Z
+f568ec0febdf52a7	designs/farms/iron/middle/module-underground.txt	no	first difference: build 9 run 0 t31: level random (the level random: its call site with `mctas mobai farm-trace --at T`); 0/12 builds exact	2026-11-09T12:35Z
 26072e47321a7b99	designs/farms/iron/middle/row-2x27.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T06:25Z
+bfab5769672dd042	designs/farms/iron/middle/water-channel-2.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T13:00Z
