@@ -135,6 +135,10 @@ pub struct BuildRun {
     /// The design's own iron in its containers as placed (its `nbt:` lines: a sorter's lock and
     /// filter stacks), not the farm's output.
     pub iron_start: u32,
+    /// (terrain) The farm's drops (iron, poppies) seen inside the farm's box, by UUID: one later
+    /// outside is a leak; one never inside is the world's (`items_foreign`, traced once).
+    pub items_inside: std::collections::BTreeSet<String>,
+    pub items_foreign: std::collections::BTreeSet<String>,
     pub poppies: u32,
     /// Bolts seen at a sample (a bolt lives 2..30 gt: most are missed).
     pub bolts_seen: Vec<[i32; 3]>,
@@ -1046,6 +1050,20 @@ fn sample(
     let (lo, hi) = (spec.lo, spec.hi);
     let all = s.count_entities(&format!("@e[type=minecraft:item{near}]"))?;
     let inside = s.count_entities(&format!("@e[type=minecraft:item,x={},y={},z={},dx={},dy={},dz={}]", lo.x, lo.y, lo.z, hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1))?;
+    let item_id = |a: &str| a.split("id: \"").nth(1).or_else(|| a.split("id:\"").nth(1)).and_then(|r| r.split('"').next()).unwrap_or("?").trim_start_matches("minecraft:").to_string();
+    let farm_item = |id: &str| matches!(id, "iron_ingot" | "iron_block" | "poppy");
+    // in a terrain sample a drop is the farm's when first seen inside the farm (a village golem
+    // killed by zombies at night over the farm drops its iron outside: not the farm's; a farm
+    // golem dying outside is an escape, failed on its own)
+    if !scope.all_golems && inside > 0 {
+        for a in entity_answers(&s.cmd_long(&format!("execute as @e[type=minecraft:item,x={},y={},z={},dx={},dy={},dz={}] run data get entity @s", lo.x, lo.y, lo.z, hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1))?) {
+            if farm_item(&item_id(&a))
+                && let Some(uuid) = list_after(&a, "UUID").map(|v| format!("{v:?}"))
+            {
+                run.items_inside.insert(uuid);
+            }
+        }
+    }
     if all > inside {
         // where, and what (one query only when something is out); only the farm's own drops (a
         // golem's iron and poppies) count: a trap horse a bolt left in the void falls and drops
@@ -1054,9 +1072,17 @@ fn sample(
         for a in entity_answers(&s.cmd_long(&format!("execute as @e[type=minecraft:item{near}] run data get entity @s"))?) {
             let p = list_after(&a, "Pos").unwrap_or_default();
             if p.len() == 3 && (p[0] < lo.x as f64 || p[0] > hi.x as f64 + 1.0 || p[1] < lo.y as f64 || p[1] > hi.y as f64 + 1.0 || p[2] < lo.z as f64 || p[2] > hi.z as f64 + 1.0) {
-                let id = a.split("id: \"").nth(1).or_else(|| a.split("id:\"").nth(1)).and_then(|r| r.split('"').next()).unwrap_or("?").trim_start_matches("minecraft:").to_string();
-                if matches!(id.as_str(), "iron_ingot" | "iron_block" | "poppy") {
+                let id = item_id(&a);
+                if !farm_item(&id) {
+                    continue;
+                }
+                let uuid = list_after(&a, "UUID").map(|v| format!("{v:?}")).unwrap_or_default();
+                if scope.all_golems || run.items_inside.contains(&uuid) {
                     out.push(format!("{id} at {:.1} {:.1} {:.1}", p[0], p[1], p[2]));
+                } else if let Some(label) = trace
+                    && run.items_foreign.insert(uuid)
+                {
+                    eprintln!("  {label} gt {t}: an {id} first seen outside the farm at {:.1} {:.1} {:.1} (not the farm's: never inside it)", p[0], p[1], p[2]);
                 }
             }
         }

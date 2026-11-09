@@ -1334,7 +1334,9 @@ kick) before the first input.
   villager's golem search (8 across, 6 up or down) fails it too, naming the cell and the tick: the
   farm spawned it at a spot it leaves open (D1U, 2026-11-08: such a golem lingering near the
   villagers stalled every spawn for ~9000 gt). Each build line and failure carries the run's
-  seed. The paste takes the farm's box and
+  seed. In a terrain sample a drop outside the farm is the farm's only if it was first seen inside
+  the farm's box (a leak); one never inside is the world's (a village golem killed over the farm).
+  The paste takes the farm's box and
   3 around it plus the Site's seals and caps. `circuit verify` and `circuit archive` run a design
   made for terrain (`terrain: cells`, `sample:`) through this mode, and say where the kept world is
   missing. The rates are redsim's terrain runs at the same Site. A
