@@ -445,10 +445,13 @@ impl World {
         let idx = |x: i32, y: i32, z: i32| (((y - elo[1]) * n[2] + (z - elo[2])) * n[0] + (x - elo[0])) as usize;
         let mut cache: crate::fxhash::FxHashMap<Block, LightProps> = Default::default();
         let mut props = Vec::with_capacity((n[0] * n[1] * n[2]) as usize);
+        // (the region's rows read from the box's array, each row one index stepped along x: the
+        // extended region lies in the box)
         for y in elo[1]..=ehi[1] {
             for z in elo[2]..=ehi[2] {
-                for x in elo[0]..=ehi[0] {
-                    let b = self.get(BlockPos::new(x, y, z));
+                let base = self.index(BlockPos::new(elo[0], y, z)).expect("the relit region lies in the box");
+                for k in 0..n[0] as usize {
+                    let b = self.cells[base + k];
                     props.push(match b {
                         // a natural state's from the per-row table, without hashing the block
                         Block::Terrain(id) => terrain_lprops(id),
@@ -457,6 +460,8 @@ impl World {
                 }
             }
         }
+        // each direction's step in the region's array
+        let stride = light::DIRS_PUB.map(|(_, [dx, dy, dz])| dx as isize + (dz * n[0]) as isize + (dy * n[0] * n[2]) as isize);
         let land = self.land.as_mut().unwrap();
         let gidx = |x: i32, y: i32, z: i32| (((y - min.y) * size[2] + (z - min.z)) * size[0] + (x - min.x)) as usize;
         let inside = |x: i32, y: i32, z: i32| x >= lo[0] && x <= hi[0] && y >= lo[1] && y <= hi[1] && z >= lo[2] && z <= hi[2];
@@ -498,12 +503,12 @@ impl World {
                     if level[i] as usize != l {
                         continue;
                     }
-                    for (d, [dx, dy, dz]) in light::DIRS_PUB {
+                    for (k, (d, [dx, dy, dz])) in light::DIRS_PUB.into_iter().enumerate() {
                         let (qx, qy, qz) = (x + dx, y + dy, z + dz);
                         if !inside(qx, qy, qz) {
                             continue;
                         }
-                        let j = idx(qx, qy, qz);
+                        let j = (i as isize + stride[k]) as usize;
                         let new = l as i32 - props[j].dampening.max(1) as i32;
                         if new > level[j] as i32 && !light::shape_occludes_pub(&props[i], &props[j], d) {
                             level[j] = new as u8;
@@ -516,14 +521,11 @@ impl World {
             }
             for y in lo[1]..=hi[1] {
                 for z in lo[2]..=hi[2] {
-                    for x in lo[0]..=hi[0] {
-                        let v = level[idx(x, y, z)];
-                        if sky {
-                            land.sky[gidx(x, y, z)] = v;
-                        } else {
-                            land.block[gidx(x, y, z)] = v;
-                        }
-                    }
+                    // (a row: one index stepped along x on each side)
+                    let (li, gi) = (idx(lo[0], y, z), gidx(lo[0], y, z));
+                    let len = (hi[0] - lo[0] + 1) as usize;
+                    let dst = if sky { &mut land.sky[gi..gi + len] } else { &mut land.block[gi..gi + len] };
+                    dst.copy_from_slice(&level[li..li + len]);
                 }
             }
         }
