@@ -19,6 +19,7 @@ pub struct GateArgs {
     pub world: Option<std::path::PathBuf>,
     pub no_monsters: bool,
     pub runs: usize,
+    pub sim_only: bool,
 }
 
 /// `mctas mobfarm gate <design>`.
@@ -37,6 +38,7 @@ pub fn gate_cmd(version: &str, design: &Path, a: GateArgs) -> Result<()> {
     o.world = a.world;
     o.monsters = !a.no_monsters;
     o.runs = a.runs;
+    o.sim_only = a.sim_only;
     // a terrain sample: `--builds K...` picks runs of its one placement by index (each its own
     // seed: run 6 of D1U's gate is the one to look at again)
     if o.terrain.is_some() {

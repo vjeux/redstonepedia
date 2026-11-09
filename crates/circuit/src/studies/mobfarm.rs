@@ -324,9 +324,9 @@ fn terrain_judge(c: &Circuit, jo: &JudgeOpts, sample: &'static redsim::terrain::
         let hs: Vec<_> = jobs.iter().enumerate().map(|(k, (_, spec, o))| s.spawn(move || build_runs(spec, o, k as u32, WalkMode::Random))).collect();
         let hand = c.clock.design.meta.get("restart").map(|r| r.trim()) != Some("yes");
         // (iteration 16: each T ends with the trip down to the chest for the 24 iron)
-        let ts: Vec<_> = jobs.iter().zip(&build_s).map(|((site, spec, _), bs)| s.spawn(move || bs.map_or_else(Vec::new, |(bs, cs)| t_kit_runs(spec, site, bs, kit, 8, hand).into_iter().map(|t| t.map(|t| t + cs / 60.0)).collect()))).collect();
+        let ts: Vec<_> = jobs.iter().zip(&build_s).map(|((site, spec, _), bs)| s.spawn(move || bs.map_or_else(Vec::new, |(bs, cs)| t_kit_runs(spec, site, bs, kit, 8, hand).into_iter().map(|t| t.map(|t| t.map(|t| t + cs / 60.0))).collect()))).collect();
         let runs: Vec<std::result::Result<Vec<RunReport>, String>> = hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("a build panicked".to_string()))).collect();
-        let tkit: Vec<Vec<Option<f64>>> = ts.into_iter().map(|h| h.join().unwrap_or_default()).collect();
+        let tkit: Vec<Vec<std::result::Result<Option<f64>, String>>> = ts.into_iter().map(|h| h.join().unwrap_or_else(|_| vec![Err("the T runs panicked".to_string())])).collect();
         (base.join().unwrap_or_else(|_| Err("the base checks panicked".to_string())), runs, ex.join().unwrap_or_else(|_| ("the exposure checks panicked".to_string(), vec!["the exposure checks panicked".to_string()])), tkit)
     });
     let pooled: Vec<RunReport> = runs.iter().filter_map(|r| r.as_ref().ok()).flatten().cloned().collect();
@@ -344,7 +344,14 @@ fn terrain_judge(c: &Circuit, jo: &JudgeOpts, sample: &'static redsim::terrain::
     // the measured T replaces the formula's on each build's card ("time to an iron kit", the stage
     // cards' "t kit minutes"); a run that never fills the chest within 3 game days is reported
     let mean_t = |ts: &[Option<f64>]| -> Option<f64> { if ts.iter().all(|t| t.is_some()) && !ts.is_empty() { Some(ts.iter().flatten().sum::<f64>() / ts.len() as f64) } else { None } };
-    for (b, ts) in builds.iter_mut().zip(&tkit) {
+    let tkit_raw = tkit;
+    let tkit: Vec<Vec<Option<f64>>> = tkit_raw.iter().map(|ts| ts.iter().map(|t| t.clone().unwrap_or(None)).collect()).collect();
+    for ((b, ts), raw) in builds.iter_mut().zip(&tkit).zip(&tkit_raw) {
+        // (a T run whose world went wrong fails the build, named)
+        if let Some(e) = raw.iter().find_map(|t| t.as_ref().err()) {
+            b.result = Err(e.clone());
+            continue;
+        }
         let Ok(k) = b.result.as_mut() else { continue };
         let text = match mean_t(ts) {
             Some(t) => format!("{t:.0} min"),
@@ -579,21 +586,24 @@ pub fn site_effort(c: &Circuit, site: Option<&redsim::entity::mob::site::Site>, 
 /// `seeds` seeds (at most 3 game days): T in minutes, `None` for a run that did not get there. A
 /// farm that cannot restart by itself (`hand_hide`: its design does not claim `restart: yes`) gets
 /// the first-night hide by hand its card prints (redsim `farm::run_t`).
-pub fn t_kit_runs(spec: &FarmSpec, site: &'static redsim::entity::mob::site::Site, build_s: f64, iron: u32, seeds: u32, hand_hide: bool) -> Vec<Option<f64>> {
+pub fn t_kit_runs(spec: &FarmSpec, site: &'static redsim::entity::mob::site::Site, build_s: f64, iron: u32, seeds: u32, hand_hide: bool) -> Vec<std::result::Result<Option<f64>, String>> {
     let day0 = ((build_s * 20.0).round() as i64).rem_euclid(24000);
     std::thread::scope(|s| {
         let hs: Vec<_> = (0..seeds)
             .map(|k| {
                 s.spawn(move || {
                     let o = RunOpts { day0, slept: true, slept_rest: true, ..farm::judge_opts_in(0x7d1 + k as i64, 3 * 24000, WalkMode::Random, Some(site)) };
+                    // (a run whose world went wrong fails the build: never a T from it, never a
+                    // silent "more than 3 days")
                     match farm::run_t(spec, &o, iron, hand_hide) {
-                        Ok((_, Some(t))) => Some(build_s / 60.0 + t as f64 / 1200.0),
-                        _ => None,
+                        Ok((_, Some(t))) => Ok(Some(build_s / 60.0 + t as f64 / 1200.0)),
+                        Ok((_, None)) => Ok(None),
+                        Err(e) => Err(format!("the T run {k}: {e}")),
                     }
                 })
             })
             .collect();
-        hs.into_iter().map(|h| h.join().unwrap_or(None)).collect()
+        hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("a T run panicked".to_string()))).collect()
     })
 }
 

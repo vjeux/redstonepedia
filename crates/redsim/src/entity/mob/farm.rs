@@ -563,12 +563,20 @@ pub fn run_t(spec: &FarmSpec, o: &RunOpts, iron: u32, hand_hide: bool) -> Result
     let mut tr = Track::new(&r, spec);
     let mut reached = None;
     let mut hand = hand_hide.then(HandHide::default);
+    // (the parent, 2026-11-08, vjeux's rule "nothing is silently dropped": a world error, a
+    // setBlock outside the box or a model error, ends the run and fails it, named; no card is made
+    // from a world that went wrong, whatever reads the report)
+    let world_errors0 = 0;
     for k in 0..o.ticks {
         if let Some(h) = hand.as_mut() {
             h.before_tick(&mut r.world, spec, &tr.own);
         }
         r.tick();
         let t = r.world.time;
+        if r.world.errors.len() > world_errors0 {
+            let errs: Vec<String> = r.world.errors[world_errors0..].to_vec();
+            return Err(format!("gt {t}: the world went wrong: {}", errs.join("; ")));
+        }
         absorb_events(&mut r.world, &mut rep, &mut tr, t);
         absorb_weather(&mut r.world, &mut rep, spec, &tr, t);
         check_tick(&r.world, &mut rep, &mut tr, spec, t);

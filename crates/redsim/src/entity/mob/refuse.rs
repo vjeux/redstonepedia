@@ -134,6 +134,11 @@ fn villager_checks(w: &World) -> Vec<String> {
     for i in villagers(w) {
         let e = &w.entities.list[i];
         let at = format!("the villager at {:.1} {:.1} {:.1}", e.pos.x, e.pos.y, e.pos.z);
+        // (a villager riding a minecart, the carousel's (brief farm-iron-carousel.md): it cannot
+        // walk while it rides, and its night is the run's to judge: "has not slept")
+        if e.vehicle.is_some_and(|v| crate::entity::index_of(w, v).is_some_and(|j| matches!(w.entities.list[j].kind, crate::entity::EntityKind::Minecart(_)))) {
+            continue;
+        }
         let Some(home) = mob(w, i).brain.as_deref().and_then(|b| b.home) else { continue };
         let cells = match pod(w, e.pos) {
             Err(why) => {

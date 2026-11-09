@@ -91,6 +91,9 @@ pub struct GateOpts {
     /// A terrain sample's number of runs (0: `parallel`), `parallel` at once: enough runs for a
     /// narrow interval without as many servers at once.
     pub runs: usize,
+    /// Only redsim's reference runs of the gate's schedule, no game (the parent 2026-11-08: a scan
+    /// of the listed farms for runs whose world went wrong): the report's failures name them.
+    pub sim_only: bool,
 }
 
 impl GateOpts {
@@ -98,7 +101,7 @@ impl GateOpts {
     /// many runs through `site variation --regate`; 8 servers at once).
     pub fn new(version: &str) -> GateOpts {
         let runs = std::env::var("MCTAS_GATE_RUNS").ok().and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
-        GateOpts { version: version.to_string(), days: 3, rain_day: true, thunder_day: true, warmup: (150_000, 400_000), seed: 1, builds: Vec::new(), parallel: 8, keep: false, trace: false, terrain: None, world: None, monsters: true, runs }
+        GateOpts { version: version.to_string(), days: 3, rain_day: true, thunder_day: true, warmup: (150_000, 400_000), seed: 1, builds: Vec::new(), parallel: 8, keep: false, trace: false, terrain: None, world: None, monsters: true, runs, sim_only: false }
     }
 }
 
@@ -1264,6 +1267,7 @@ fn sd(v: &[f64]) -> f64 {
 /// The gate: every build in its own server (`parallel` at once), then the rate against redsim's.
 pub fn gate(c: &Circuit, o: &GateOpts) -> Result<GateReport> {
     let builds = match &o.terrain {
+        _ if o.sim_only => Vec::new(),
         // a terrain sample: one placement (its Site), `runs` runs of it (`parallel` at once; 0:
         // `parallel` runs), or the runs picked
         Some(_) if !o.builds.is_empty() => o.builds.clone(),
@@ -1354,12 +1358,18 @@ pub fn gate(c: &Circuit, o: &GateOpts) -> Result<GateReport> {
     let mut sim_runs: Vec<farm::RunReport> = Vec::new();
     for (k, r) in crate::mobfarm::run_all(&spec, &sims).into_iter().enumerate() {
         match r {
+            // (a reference run that failed, a world error among them, fails the gate, named: the
+            // parent 2026-11-08, nothing silently dropped)
+            Ok(r) if !r.passed() => rep.failures.push(format!("redsim's reference run {k}: {}", r.failures.iter().chain(r.errors.iter()).cloned().collect::<Vec<_>>().join("; "))),
             Ok(r) => sim_runs.push(r),
             // never a run silently dropped from the interval
             Err(e) => rep.failures.push(format!("redsim's reference run {k}: {e}")),
         }
     }
     rep.sim_runs = sim_runs.len();
+    if o.sim_only {
+        return Ok(rep);
+    }
     // the iron each build delivered (chest, containers, floor, less the design's own) against
     // redsim's delivered iron per golem over the same schedule (each run's iron dropped less the
     // iron its drops lost to lava or fire, `RunReport::iron_burnt`, per dead golem: brief rev 9
