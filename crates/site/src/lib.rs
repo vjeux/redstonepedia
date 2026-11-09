@@ -326,15 +326,20 @@ pub struct VariationArgs {
     /// The stage: day-1, middle or late.
     #[arg(long, required_unless_present = "regate", default_value = "")]
     pub stage: String,
-    /// Make it the stage's pick (listed first; the stage's other variations stay).
+    /// Make it the stage's pick (listed first; the stage's other variations stay, and so do the
+    /// picks for a fork value).
     #[arg(long)]
     pub pick: bool,
+    /// Make it the stage's pick for one value of its fork (`--pick-for redstone`: day 1 keeps one
+    /// pick per redstone fork value, ironspec rev 9 iteration 19): listed first with the stage's
+    /// pick; the other picks stay.
+    #[arg(long, value_name = "FORK_VALUE")]
+    pub pick_for: Option<String>,
     /// A player-facing name for its card (default: the design's `how:` line).
     #[arg(long)]
     pub name: Option<String>,
-    /// Judge and gate every variation of the farm again (or only the designs named): a failing one
-    /// is held off the site (the reason in its variations.tsv row's `held`) until `site variation`
-    /// passes it.
+    /// Judge and gate every listed variation of the farm again (or only the designs named),
+    /// rewriting its row with what the game measured (a failure stays listed, its card showing it).
     #[arg(long)]
     pub regate: bool,
     /// Put it up on its redsim judge alone, the real-game gate left for later (`--regate`; vjeux

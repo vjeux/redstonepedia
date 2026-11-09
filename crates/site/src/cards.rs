@@ -209,6 +209,12 @@ pub fn fields(metrics: &[(String, String)], blocks: u32, dims: &str) -> BTreeMap
         let words = if fire.starts_with("never") { "nothing in the lava's reach can burn".to_string() } else { format!("fire: {fire}") };
         f.insert("fire".into(), words);
     }
+    // whether it needs redstone and how much, in a player's words (ironspec rev 9 iteration 19:
+    // day 1 has a pick per redstone fork value, each card saying plainly "needs 12 redstone dust";
+    // the count from its blocks by recipe, `crate::farms::redstone_dust`)
+    if let Some(n) = f.get("redstone_dust").and_then(|v| v.parse::<u32>().ok()) {
+        f.insert("redstone".into(), if n == 0 { "needs no redstone".to_string() } else { format!("needs {n} redstone dust") });
+    }
     f.insert("blocks".into(), blocks.to_string());
     f.insert("blocks_placed".into(), blocks.to_string());
     if !dims.is_empty() {

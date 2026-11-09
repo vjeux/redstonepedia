@@ -127,13 +127,20 @@ pub fn variation_dirs(circuits_root: &Path, study: &str) -> Vec<(String, PathBuf
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Variation {
     pub file: String,
-    /// The stage's current pick (listed first).
-    pub pick: bool,
+    /// The stage's pick, listed first: `yes`, or the value of the stage's fork it is the pick for
+    /// (`redstone`: day 1 has one pick per redstone fork value, ironspec rev 9 iteration 19); empty:
+    /// not a pick.
+    pub pick: String,
     /// A player-facing name (else the design's `how:` line).
     pub name: String,
-    /// Why it is held off the site (a failed real-game gate: `site variation --regate`); empty: on
-    /// the site.
+    /// Why it is held off the site (a bar, a takedown: ironspec's); empty: on the site.
     pub held: String,
+}
+
+impl Variation {
+    pub fn is_pick(&self) -> bool {
+        !self.pick.is_empty()
+    }
 }
 
 const VARIATIONS: &str = "variations.tsv";
@@ -154,7 +161,8 @@ pub fn read_variations(dir: &Path) -> Vec<Variation> {
         .into_iter()
         .filter_map(|r| {
             let file = r.get("file").cloned().filter(|f| !f.is_empty())?;
-            Some(Variation { file, pick: r.get("pick").is_some_and(|p| p == "yes"), name: r.get("name").cloned().unwrap_or_default(), held: r.get("held").cloned().unwrap_or_default() })
+            let pick = r.get("pick").map(|p| p.trim().to_lowercase()).filter(|p| !p.is_empty() && p != "no").unwrap_or_default();
+            Some(Variation { file, pick, name: r.get("name").cloned().unwrap_or_default(), held: r.get("held").cloned().unwrap_or_default() })
         })
         .collect()
 }
@@ -162,10 +170,40 @@ pub fn read_variations(dir: &Path) -> Vec<Variation> {
 fn write_variations(dir: &Path, rows: &[Variation]) -> Result<()> {
     let mut out = format!("{VARIATIONS_HEADER}\n");
     for r in rows {
-        out.push_str(&format!("{}\t{}\t{}\t{}\n", r.file, if r.pick { "yes" } else { "" }, r.name.replace(['\t', '\n'], " "), r.held.replace(['\t', '\n'], " ")));
+        out.push_str(&format!("{}\t{}\t{}\t{}\n", r.file, r.pick, r.name.replace(['\t', '\n'], " "), r.held.replace(['\t', '\n'], " ")));
     }
     std::fs::write(dir.join(VARIATIONS), out)?;
     Ok(())
+}
+
+/// The redstone dust a design's blocks take to craft, by recipe (ironspec rev 9 iteration 19: a
+/// day-1 card says plainly whether its farm needs redstone and how much): a dust, a redstone torch
+/// 1; a repeater 3 (2 torches and a dust); a comparator 3 (3 torches); an observer 2; a piston, a
+/// sticky piston, a dispenser, a dropper, a note block 1; a redstone lamp, a target 4; a crafter 3
+/// (2 and its dropper's); a block of redstone 9; a powered, detector or activator rail 1 per 6 (the
+/// recipe makes 6); a copper bulb 1 per 4 (the recipe makes 4). None: the design does not parse.
+pub fn redstone_dust(text: &str) -> Option<u32> {
+    let d = mctas::design::Design::parse(text).ok()?;
+    let (mut dust, mut rails, mut bulbs) = (0u32, 0u32, 0u32);
+    for s in d.blocks.values() {
+        let id = s.split('[').next().unwrap_or("").trim_start_matches("minecraft:");
+        dust += match id {
+            "redstone_wire" | "redstone_torch" | "redstone_wall_torch" => 1,
+            "repeater" | "comparator" | "crafter" => 3,
+            "observer" => 2,
+            "piston" | "sticky_piston" | "dispenser" | "dropper" | "note_block" => 1,
+            "redstone_lamp" | "target" => 4,
+            "redstone_block" => 9,
+            _ => 0,
+        };
+        if matches!(id, "powered_rail" | "detector_rail" | "activator_rail") {
+            rails += 1;
+        }
+        if id.ends_with("copper_bulb") {
+            bulbs += 1;
+        }
+    }
+    Some(dust + rails.div_ceil(6) + bulbs.div_ceil(4))
 }
 
 /// One member of a component's catalog (`members.tsv`).
@@ -382,11 +420,32 @@ pub fn crop_hub(site: &Site, folder: &str, scripts: Scripts) -> String {
     pages::shell_full(&title, &farm_blurb(folder), prefix, &body, scripts, site, None, Some("farm"))
 }
 
-/// The order of an iron farm stage's farms: the stage's pick first (a variation picked in its
-/// variations.tsv, else the archived design, the one live before the variations), then the most
-/// iron an hour.
-fn stage_key(b: &Build) -> (bool, bool, i64) {
-    (!b.flags.iter().any(|f| f == "pick"), is_variation(b), -(rate(b) * 1000.0) as i64)
+/// The order of an iron farm stage's farms: the stage's picks first (variations picked in its
+/// variations.tsv: the `yes` pick, then each fork value's pick by its value, e.g. day 1's
+/// no-redstone pick and then its redstone pick; else the archived design, the one live before the
+/// variations), then the most iron an hour.
+fn stage_key(b: &Build) -> (bool, String, bool, i64) {
+    let pick = b.flags.iter().any(|f| f == "pick");
+    let fork = b.flags.iter().find_map(|f| f.strip_prefix(PICK_FOR)).unwrap_or("").to_string();
+    (!pick, fork, is_variation(b), -(rate(b) * 1000.0) as i64)
+}
+
+/// The flag of a pick for a fork value (`pick-for-redstone`), beside `pick`.
+pub const PICK_FOR: &str = "pick-for-";
+
+/// A pick's slot name on its stage, by what its farm needs (the parent 2026-11-08: day 1's two
+/// pick slots, without and with redstone): its redstone dust (`farms::redstone_dust`, the
+/// `redstone dust` metric), else its fork value.
+fn pick_slot(b: &Build) -> String {
+    let dust = b.circuit.as_ref().and_then(|c| c.metrics.iter().find(|(k, _)| k == "redstone dust")).and_then(|(_, v)| v.trim().parse::<u32>().ok());
+    match dust {
+        Some(0) => "Without redstone".to_string(),
+        Some(_) => "With redstone".to_string(),
+        None => match b.flags.iter().find_map(|f| f.strip_prefix(PICK_FOR)) {
+            Some(v) => format!("With {}", v.replace('-', " ")),
+            None => "Our pick".to_string(),
+        },
+    }
 }
 
 /// The folders whose judged designs an iron-farm card can quote without listing them: the bars
@@ -408,16 +467,28 @@ pub fn iron_hub(site: &Site, parts: &[Member], scripts: Scripts) -> String {
         if of.is_empty() {
             continue;
         }
-        // (the stage's pick first: a variation picked in its variations.tsv, else the archived
+        // (the stage's picks first: variations picked in its variations.tsv, else the archived
         // design, the one live before the variations; then the most iron an hour)
         of.sort_by_key(|b| stage_key(b));
-        let cards: Vec<String> = of.iter().map(|b| build_card(b, prefix)).collect();
-        stages.push_str(&format!(
-            "<section class=\"stage\"><h3>{}</h3><p class=\"hint\">{}</p>\n{}</section>\n",
-            esc(title),
-            esc(line),
-            pages::grid(&cards)
-        ));
+        // a stage with a pick per fork value (day 1: with and without redstone, ironspec rev 9
+        // iteration 19; the parent 2026-11-08 20:59, "two pick slots"): each pick in its own slot,
+        // named by what its farm needs, then the other farms
+        let picks: Vec<&&&Build> = of.iter().filter(|b| b.flags.iter().any(|f| f == "pick")).collect();
+        let forked = picks.iter().any(|b| b.flags.iter().any(|f| f.starts_with(PICK_FOR)));
+        let body = if forked {
+            let mut s = String::new();
+            for b in &picks {
+                s.push_str(&format!("<h4>{}</h4>\n{}", esc(&pick_slot(b)), pages::grid(&[build_card(b, prefix)])));
+            }
+            let rest: Vec<String> = of.iter().filter(|b| !b.flags.iter().any(|f| f == "pick")).map(|b| build_card(b, prefix)).collect();
+            if !rest.is_empty() {
+                s.push_str(&format!("<h4>Other farms</h4>\n{}", pages::grid(&rest)));
+            }
+            s
+        } else {
+            pages::grid(&of.iter().map(|b| build_card(b, prefix)).collect::<Vec<_>>())
+        };
+        stages.push_str(&format!("<section class=\"stage\"><h3>{}</h3><p class=\"hint\">{}</p>\n{body}</section>\n", esc(title), esc(line)));
     }
     let mut comps: Vec<String> = Vec::new();
     for (p, title, what) in PARTS {
@@ -771,18 +842,48 @@ pub fn variation(a: &crate::VariationArgs) -> Result<()> {
                     eprintln!("{file}: still held off the site ({}); clear its `held` in variations.tsv to list it", v.held);
                 }
             }
-            None => vars.push(Variation { file: file.clone(), pick: false, name: a.name.clone().unwrap_or_default(), held: String::new() }),
+            None => vars.push(Variation { file: file.clone(), pick: String::new(), name: a.name.clone().unwrap_or_default(), held: String::new() }),
         }
-        if a.pick {
+        // the stage's pick (`--pick`: `yes`), or its pick for one value of the stage's fork
+        // (`--pick-for redstone`: day 1 keeps one pick per redstone fork value, ironspec rev 9
+        // iteration 19): it takes that value from any other variation, the other picks stay
+        let pick = pick_value(a)?;
+        if let Some(p) = &pick {
             for v in vars.iter_mut() {
-                v.pick = v.file == file;
+                if v.file == file {
+                    v.pick = p.clone();
+                } else if &v.pick == p {
+                    v.pick.clear();
+                }
             }
         }
-        println!("{}: {shown}; the real game: {gate_word} ({})", dir.join(&file).display(), if a.pick { "the stage's pick" } else { "a variation" });
+        let role = match pick.as_deref() {
+            Some("yes") => "the stage's pick".to_string(),
+            Some(p) => format!("the stage's pick for {p}"),
+            None => "a variation".to_string(),
+        };
+        println!("{}: {shown}; the real game: {gate_word} ({role})", dir.join(&file).display());
     }
     write_verdicts(&dir, &rows)?;
     write_variations(&dir, &vars)?;
     Ok(())
+}
+
+/// The pick `site variation` sets: `yes` for `--pick`, the fork value of `--pick-for` (a word:
+/// `redstone`), None for neither.
+fn pick_value(a: &crate::VariationArgs) -> Result<Option<String>> {
+    match (&a.pick_for, a.pick) {
+        (Some(_), true) => bail!("--pick and --pick-for: one or the other (--pick-for <value> is the pick for that fork value)"),
+        (Some(v), false) => {
+            let v = v.trim().to_lowercase();
+            if v.is_empty() || v == "yes" || v == "no" || !v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                bail!("--pick-for {v:?}: a fork value is one word (letters, digits, '-'), e.g. --pick-for redstone");
+            }
+            Ok(Some(v))
+        }
+        (None, true) => Ok(Some("yes".into())),
+        (None, false) => Ok(None),
+    }
 }
 
 #[cfg(test)]
@@ -846,6 +947,33 @@ mod tests {
     }
 
     #[test]
+    fn a_pick_per_fork_value_and_the_redstone_a_farm_takes() {
+        // (ironspec rev 9 iteration 19: day 1 keeps one pick per redstone fork value; each card
+        // says how much redstone its farm needs)
+        let dir = std::env::temp_dir().join(format!("mctas-farms-picks-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(VARIATIONS), "file\tpick\tname\theld\nd1u-deep.txt\tyes\tdeep\t\ndust.txt\tRedstone\tdust\t\nside.txt\tno\tside\t\n").unwrap();
+        let v = read_variations(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(v.iter().map(|v| v.pick.as_str()).collect::<Vec<_>>(), ["yes", "redstone", ""]);
+        assert!(v[0].is_pick() && v[1].is_pick() && !v[2].is_pick());
+        // the picks first (`yes`, then by fork value), then the most iron an hour
+        let b = |name: &str, flags: &[&str], rate: u32| Build {
+            name: name.into(),
+            flags: flags.iter().map(|f| f.to_string()).collect(),
+            circuit: Some(site_model::Circuit { metrics: vec![("iron per hour".into(), rate.to_string())], ..Default::default() }),
+            ..Default::default()
+        };
+        let mut farms = [b("other", &["variation"], 400), b("dust", &["variation", "pick", "pick-for-redstone"], 367), b("deep", &["variation", "pick"], 320)];
+        farms.sort_by_key(stage_key);
+        assert_eq!(farms.iter().map(|b| b.name.as_str()).collect::<Vec<_>>(), ["deep", "dust", "other"]);
+        // a repeater 3 (2 torches, a dust), a comparator 3, an observer 2, dust 1, 7 rails 2 (6 a dust)
+        let t = "name: t\npalette:\n  R minecraft:repeater[facing=north]\n  C minecraft:comparator[facing=north]\n  O minecraft:observer[facing=north]\n  W minecraft:redstone_wire\n  S minecraft:stone\n  P minecraft:powered_rail[shape=north_south]\nlayer 0:\n  RCOWS\nlayer 1:\n  PPPPPPP\n";
+        assert_eq!(redstone_dust(t), Some(3 + 3 + 2 + 1 + 2));
+        assert_eq!(redstone_dust("name: t\npalette:\n  S minecraft:stone\nlayer 0:\n  S\n"), Some(0));
+    }
+
+    #[test]
     fn a_held_variation_keeps_its_reason() {
         // (site variation --regate: a failed real-game gate holds it off the site; an old file
         // without the `held` column reads as on the site)
@@ -853,7 +981,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(VARIATIONS), "file\tpick\tname\nold.txt\tyes\tthe old one\n").unwrap();
         assert_eq!(read_variations(&dir)[0].held, "");
-        let rows = vec![Variation { file: "d1.txt".into(), pick: false, name: "bed plate".into(), held: "the real game: build 3: golems walk off the pad".into() }];
+        let rows = vec![Variation { file: "d1.txt".into(), pick: String::new(), name: "bed plate".into(), held: "the real game: build 3: golems walk off the pad".into() }];
         write_variations(&dir, &rows).unwrap();
         let back = read_variations(&dir);
         let _ = std::fs::remove_dir_all(&dir);

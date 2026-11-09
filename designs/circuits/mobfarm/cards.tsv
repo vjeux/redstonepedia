@@ -1,5 +1,7 @@
 key	slot	line
 mob-farm iron_ingot day-1	sub	{t_kit_minutes|round} minutes from the first block to a full set of iron armour, then {iron_per_hour|round} iron an hour
+mob-farm iron_ingot day-1	sub	{redstone}
+mob-farm iron_ingot day-1	if	redstone present
 mob-farm iron_ingot day-1	fact	To build it: {bill_iron} iron in hand, {lava_sources|plural:bucket} of lava and {villagers|plural:villager} from the village
 mob-farm iron_ingot day-1	fact	{first_night}
 mob-farm iron_ingot day-1	if	first_night present

@@ -36,10 +36,12 @@ fn comment_caption(text: &str) -> String {
 }
 
 /// Metric names of more than one word.
-const MULTI_WORD_METRICS: [&str; 76] = [
+const MULTI_WORD_METRICS: [&str; 77] = [
     // (a mob farm's, the ironfarm track: split at their first space they read `iron` = `per hour
     // per block 1.57`; the longer names first, `iron per hour` is a prefix of two others; the
-    // mobinfra track's `real game` and `thunder loss`; `site variation`'s `game tradeoffs`)
+    // mobinfra track's `real game` and `thunder loss`; `site variation`'s `game tradeoffs`; the
+    // site's own `redstone dust`)
+    "redstone dust",
     "iron per hour per block", "iron per hour per module", "iron per hour sleeping", "iron per hour", "iron range", "golems per hour", "seconds per golem", "share of ceiling", "worst policy", "restarts after a missed night", "restarts after days away", "lava sources", "chunk columns", "hoppers per 1000 iron/h", "real game", "game tradeoffs", "thunder loss", "build time", "time to an iron kit", "build minutes", "t kit minutes", "volume per module", "entities alive", "entities peak", "kill tail", "golems at the zombie", "neighbour sightings",
     "first box", "first item", "per pulse", "per period", "hoppers awake", "safe drop", "effective volume", "items smelted per hour per block", "items smelted per hour", "items per hour per cane", "per cane", "harvest height", "game rts", "at rest", "stop distance", "departure delay", "leaves at", "other way passes at", "first craft", "recipe class", "trip up", "calls and sends", "unload rate", "load rate", "per bit", "items per hour per block", "items per hour", "open wait", "close delay", "stop in doorway", "presses tried", "opens within", "closes within",
     // (an auto-smelter's, study 17, and sorter's `chest` run: split at their first space they read
@@ -677,6 +679,14 @@ pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) 
             {
                 metrics.push(("stands".into(), format!("{n} blocks above the ground (stand: in the design)")));
             }
+            // a mob farm's redstone, from its blocks by recipe (ironspec rev 9 iteration 19: each
+            // card says plainly whether it needs redstone and how much)
+            if r.kind.starts_with("mob-farm")
+                && !metrics.iter().any(|(k, _)| k == "redstone dust")
+                && let Some(n) = crate::farms::redstone_dust(&text)
+            {
+                metrics.push(("redstone dust".into(), n.to_string()));
+            }
             let mut flags = flags_of(&metrics, &r.robustness, &r.summary);
             let host_id = host.get(&i).map(|&h| id_of(&rows[h]));
             if host_id.is_some() {
@@ -709,8 +719,13 @@ pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) 
             let var = vars.iter().find(|v| v.file == r.file);
             if stage.is_some() {
                 flags.push("variation".into());
-                if var.is_some_and(|v| v.pick) {
+                if let Some(v) = var.filter(|v| v.is_pick()) {
                     flags.push("pick".into());
+                    // (a pick for one value of the stage's fork: day 1's redstone pick, ironspec
+                    // rev 9 iteration 19)
+                    if v.pick != "yes" {
+                        flags.push(format!("{}{}", crate::farms::PICK_FOR, v.pick));
+                    }
                 }
             }
             let id = id_of(r);

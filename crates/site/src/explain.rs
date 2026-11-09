@@ -268,6 +268,7 @@ pub const MOB_FARM_DIAGNOSTICS: [&str; 3] = ["worst policy", "misses", "game tra
 pub fn mob_farm_value(k: &str, v: &str) -> String {
     match k {
         "real game" => "yes, in rain and in thunder too".to_string(),
+        "redstone dust" if v.trim() == "0" => "none".to_string(),
         "iron range" => match v.rsplit_once(" (") {
             Some((head, tail)) if tail.ends_with(" runs)") => head.to_string(),
             _ => v.to_string(),
@@ -1243,6 +1244,8 @@ pub fn metric_definition(kind: &str, k: &str) -> &'static str {
         }
     }
     match (base(kind), k) {
+        // (a mob farm's redstone, counted by the site from its blocks: crate::farms::redstone_dust)
+        ("mob-farm", "redstone dust") => "the redstone dust its blocks take to craft (a repeater or a comparator 3, an observer 2, a piston 1...): redstone ore needs an iron pickaxe to mine",
         // (a whole minecart line's: sorter's system run, crate::cartsys; first, before the generic
         // "bill")
         ("cart-line", "minutes for a double chest") => "minutes from a full supply double chest (3,456 items) to the last item in the storage chest, one cart making every trip",

@@ -147,13 +147,20 @@ index's `kind=farm` lists them, and `kind=circuit` no longer does. Their old pag
 - `farms/iron/index.html`: the iron farm's hub. **Full farms** by stage (Day 1, Middle, Late), every
   variation of each stage on the site (vjeux 12:15: "ALL the promising variations"), the stage's
   pick first (a variation picked in its `variations.tsv`, else the archived design), then by iron
-  an hour. **Components**, once the optimizer's catalog has members: one page each.
+  an hour. A stage with a pick per fork value shows each pick in its own slot, named by what its
+  farm needs ("Without redstone", "With redstone"; the parent 2026-11-08: day 1's two pick slots),
+  then "Other farms". Every iron farm's card and page carry its redstone (`redstone dust`, counted
+  by the site from its blocks by recipe, `farms::redstone_dust`; the card fields `redstone_dust`
+  and `redstone`: "needs no redstone" / "needs 12 redstone dust"). **Components**, once the
+  optimizer's catalog has members: one page each.
 - **Variations**: `designs/farms/<farm>/<stage>/` (stage `day-1`, `middle` or `late`) holds each
   design (`<stem>.txt`, the judge's line on top), its judge row (`verdicts.tsv`, the archive's
-  format) and `variations.tsv` (`file`, `pick` = `yes` for the stage's pick, `name` = a
+  format) and `variations.tsv` (`file`, `pick` = `yes` for the stage's pick or the value of the
+  stage's fork it is the pick for, e.g. `redstone` (day 1 keeps one pick per redstone fork value:
+  ironspec rev 9 iteration 19), `name` = a
   player-facing name for its card, else its `how:` line, `held` = why it is off the site: a bar's
   or a takedown's alone). Add or update one with `mctas site variation <design>... --stage <stage>
-  [--pick] [--name "..."]`: it runs the kind's judge on redsim (a design it fails is refused), then
+  [--pick | --pick-for <value>] [--name "..."]`: it runs the kind's judge on redsim (a design it fails is refused), then
   a mob farm through the same real-game gate `circuit archive` runs (`circuit::mobfarm_game`: the
   26.3 server's builds, or terrain mode in the sample's kept world for a design with
   `terrain:`/`sample:`; about 2 minutes), and writes the three. What the gate measured goes in the
