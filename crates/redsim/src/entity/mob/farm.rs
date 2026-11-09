@@ -201,6 +201,9 @@ pub struct WeatherStats {
     pub hits: u32,
     pub fires: u32,
     pub traps: u32,
+    /// The skeleton trap horses that spawned on the farm (a measured hazard: the card's trap line;
+    /// the run goes on, their horsemen not simulated yet).
+    pub traps_on_farm: u32,
     pub sunburns: u32,
     pub rained_out: u32,
     /// mobinfra (the parent: "the judge should see the real consequences, not stop"): the farm's
@@ -899,8 +902,10 @@ fn absorb_weather(w: &mut World, rep: &mut RunReport, spec: &FarmSpec, tr: &Trac
                 ws.traps += 1;
                 if in_farm(at) {
                     // the fallback rule for natural mobs' behaviours (2026-11-09): the trap's
-                    // horsemen are not simulated yet; named in the run's report, never a failure
-                    let _ = at;
+                    // horsemen are not simulated yet; named in the run's report, never a failure.
+                    // Counted: a measured hazard (iteration 23), the card's trap line per game day
+                    // of thunder and the gate's hazard tally; a lightning rod prevents it
+                    ws.traps_on_farm += 1;
                     w.mob.ai.legacy.insert("skeleton trap horses on the farm (their horsemen not simulated yet)");
                 }
             }

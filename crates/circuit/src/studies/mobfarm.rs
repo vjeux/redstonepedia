@@ -921,7 +921,12 @@ pub fn lightning_line(m: &redsim::weather::lightning::Measure) -> String {
         },
         format!("the zombie's boat broken {}", every(m.vehicle * per_day)),
         format!("a fire beside a flammable block {}", every(m.fire * per_day)),
-        format!("a skeleton trap horse on the farm {}", every(m.trap * per_day)),
+        // (iteration 23: per game day of thunder too, and the part that prevents it)
+        if m.trap > 0.0 {
+            format!("a skeleton trap horse on the farm {} (every {} game days of thunder; a lightning rod topping its column within 128 blocks prevents it)", every(m.trap * per_day), days(1.0 / (m.trap * 24000.0)))
+        } else {
+            "a skeleton trap horse on the farm never".to_string()
+        },
     ];
     if m.breaks > 0.0 {
         let first = [(m.witch, "a villager made a witch"), (m.vehicle, "the zombie's boat broken"), (m.fire, "a fire")].into_iter().max_by(|a, b| a.0.total_cmp(&b.0)).map(|x| x.1).unwrap_or("");
