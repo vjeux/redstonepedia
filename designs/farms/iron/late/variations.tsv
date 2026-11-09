@@ -1,3 +1,4 @@
 file	pick	name	held
 stack-2x43.txt		two farms stacked, each with its own chests	not presented (ironspec 2026-11-08): copies of one farm 43 blocks apart, each with its own kill chamber and chests: the late stage's bar, not a farm (vjeux 14:51); never gated
 stack-8x43.txt		eight farms stacked, each with its own chests	not presented (ironspec 2026-11-08): copies of one farm 43 blocks apart, each with its own kill chamber and chests: the late stage's bar, not a farm (vjeux 14:51); never gated
+late-shared-kill-pair.txt		Two modules stacked, the upper one's golems falling into the lower one's lava blade	
