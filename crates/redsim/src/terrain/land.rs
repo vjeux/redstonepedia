@@ -39,8 +39,11 @@ pub struct Land {
     /// Per heightmap, per column: `getHeight` (the first free y).
     pub heights: Vec<Vec<i32>>,
     /// Cells changed since the light was last settled (settled at the next tick's start: the light
-    /// engine's timing, see `World::light_index`).
-    pub dirty: Vec<BlockPos>,
+    /// engine's timing, see `World::light_index`), each with the y span its change reaches in its
+    /// column: the cell, and the sky source's old and new heights when the change moved it
+    /// (tickexact 2026-11-08: the span ran from the cell to its column's source even when the
+    /// source stayed, 150 cells tall under a deep change; light moves 15 at most).
+    pub dirty: Vec<(BlockPos, i32, i32)>,
     /// The structure starts (their boxes and pieces: the spawn overrides).
     pub structures: Vec<crate::terrain::format::Structure>,
     /// What the light engine approximated (changes within 15 of the box's sides or bottom, whose
@@ -382,8 +385,10 @@ impl World {
                 l.heights[m][c] = h;
             }
             l.sources[c] = source;
-            if relevant || source != old_source {
-                l.dirty.push(p);
+            if source != old_source {
+                l.dirty.push((p, p.y.min(old_source).min(source), p.y.max(old_source).max(source)));
+            } else if relevant {
+                l.dirty.push((p, p.y, p.y));
             }
         }
     }
@@ -400,10 +405,8 @@ impl World {
         let (min, size) = (self.min, self.size);
         let mut lo = [i32::MAX; 3];
         let mut hi = [i32::MIN; 3];
-        for p in &land.dirty {
-            let c = Land::col(min, size, p.x, p.z).unwrap_or(0);
-            let s = land.sources[c];
-            let (ylo, yhi) = (p.y.min(s) - 1, p.y.max(s) + 1);
+        for &(p, y0, y1) in &land.dirty {
+            let (ylo, yhi) = (y0 - 1, y1 + 1);
             for (a, (l, h)) in [(p.x, p.x), (ylo, yhi), (p.z, p.z)].into_iter().enumerate() {
                 lo[a] = lo[a].min(l - 15);
                 hi[a] = hi[a].max(h + 15);
@@ -416,11 +419,13 @@ impl World {
             lo[a] = lo[a].max(boxlo[a]);
             hi[a] = hi[a].min(boxhi[a]);
         }
-        if touches_side {
+        // (the first few only: nothing reads them, and a farm at the box's edge made one at every
+        // relight)
+        if touches_side && self.land.as_ref().is_some_and(|l| l.notes.len() < 8) {
             // the crop's limit: light from outside the box is not known, so cells within 15 of the
             // box's sides or bottom keep their stored values as the border (an approximation there;
             // a farm far from the edges is unaffected); reported, not an error
-            let what: Vec<String> = self.land.as_ref().map(|l| l.dirty.iter().take(3).map(|p| format!("{p} now {}", self.get(*p))).collect()).unwrap_or_default();
+            let what: Vec<String> = self.land.as_ref().map(|l| l.dirty.iter().take(3).map(|(p, _, _)| format!("{p} now {}", self.get(*p))).collect()).unwrap_or_default();
             let note = format!("a light change within 15 of the terrain box's side or bottom ({lo:?}..{hi:?}; {}): the light outside the box is not known, the edge cells stay as stored", what.join(", "));
             if let Some(l) = self.land.as_mut()
                 && !l.notes.contains(&note)
