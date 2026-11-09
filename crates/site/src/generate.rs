@@ -835,7 +835,18 @@ pub fn build(a: &BuildArgs) -> Result<()> {
         for m in &members {
             let from = repo.join(crate::farms::member_design("iron", m));
             let text = std::fs::read_to_string(&from).with_context(|| format!("reading {}", from.display()))?;
-            write(&out.join(crate::farms::member_design("iron", m)), &text)?;
+            write(&out.join(crate::farms::member_design("iron", m)), &crate::farms::member_text("iron", m, &text))?;
+            // the terrain sample a member is judged in, for its viewer (`data-terrain`)
+            if let Some(t) = &m.terrain {
+                let to = out.join(crate::pages::terrain_file(t));
+                if !to.exists() {
+                    let s = redsim::terrain::samples::sample(t).with_context(|| format!("{}: no terrain sample {t}", m.src))?;
+                    if let Some(p) = to.parent() {
+                        std::fs::create_dir_all(p)?;
+                    }
+                    std::fs::copy(repo.join(s.file), &to).with_context(|| format!("copying {}", s.file))?;
+                }
+            }
         }
         let path = crate::farms::part_page_path("iron", part);
         let html = crate::farms::part_page(&site, "iron", part, &members, scripts);

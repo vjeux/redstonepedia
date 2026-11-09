@@ -182,6 +182,11 @@ pub struct Member {
     /// Its design's path in the repository (and on the site): the part's folder, else a judged
     /// design of its stage (`designs/farms/iron/<stage>/`: a farm module, ironspec 2026-11-08).
     pub src: String,
+    /// A judged stage design's kind (`mob-farm iron_ingot middle`): it runs in its viewer like a
+    /// farm's page; empty: a part that does not run alone (the orbit and layers viewer).
+    pub kind: String,
+    /// The terrain sample it is judged in, if any (its viewer fetches it, `data-terrain`).
+    pub terrain: Option<String>,
 }
 
 impl Member {
@@ -211,9 +216,9 @@ pub fn read_members(repo: &Path, farm: &str, part: &str) -> Vec<Member> {
                 (format!("{s}/{file}"), Some(s))
             };
             let mut metrics = crate::circuits::parse_metrics(r.get("metrics").map(String::as_str).unwrap_or(""));
+            let row = from_stage.as_ref().and_then(|s| circuit::archive::read_rows(&repo.join(s)).ok()).and_then(|rows| rows.into_iter().find(|x| x.file == file));
             if metrics.is_empty()
-                && let Some(s) = &from_stage
-                && let Some(row) = circuit::archive::read_rows(&repo.join(s)).ok().and_then(|rows| rows.into_iter().find(|x| x.file == file))
+                && let Some(row) = &row
             {
                 // (a module's numbers only: iron an hour, blocks, build minutes, villagers; no stage
                 // rank or tier, ironspec 2026-11-08)
@@ -224,6 +229,7 @@ pub fn read_members(repo: &Path, farm: &str, part: &str) -> Vec<Member> {
                     }
                 }
             }
+            let terrain = std::fs::read_to_string(repo.join(&src)).ok().and_then(|t| crate::pages::terrain_of(&t)).map(String::from);
             Some(Member {
                 part: part.to_string(),
                 name: r.get("name").cloned().filter(|n| !n.is_empty()).unwrap_or_else(|| file.trim_end_matches(".txt").to_string()),
@@ -231,6 +237,8 @@ pub fn read_members(repo: &Path, farm: &str, part: &str) -> Vec<Member> {
                 metrics,
                 used_by: r.get("used_by").map(|u| u.split_whitespace().map(String::from).collect()).unwrap_or_default(),
                 src,
+                kind: row.map(|r| r.kind).unwrap_or_default(),
+                terrain,
                 file,
             })
         })
@@ -240,6 +248,35 @@ pub fn read_members(repo: &Path, farm: &str, part: &str) -> Vec<Member> {
 /// The site path of a member's design file (the same in the repository).
 pub fn member_design(_farm: &str, m: &Member) -> String {
     m.src.clone()
+}
+
+/// A member's design as the site serves it: its working comments out (the parent 2026-11-08: no
+/// internal notes in a published design), a header naming it and its page.
+pub fn member_text(farm: &str, m: &Member, text: &str) -> String {
+    let title = PARTS.iter().find(|p| p.0 == m.part).map(|p| p.1).unwrap_or("Part");
+    let body: String = text.lines().filter(|l| !l.starts_with('#')).map(|l| format!("{l}\n")).collect();
+    format!("# {title}: {}\n# {}{}#{}\n{body}", m.name, crate::deploy::PAGES_URL, part_page_path(farm, &m.part), m.stem())
+}
+
+/// A member's viewer on its component's page (vjeux 2026-11-08 16:26, "Why is it not
+/// interactive?"): the full viewer a farm's page has. A judged whole farm (a farm module) runs as
+/// its farm page's does (its kind: play, speed, the scrubber, the spawn spots, day and night); a
+/// part that does not run alone gets the same viewer without a run to play (turn it, look inside).
+fn member_viewer(prefix: &str, m: &Member) -> String {
+    let mut a = String::new();
+    if !m.kind.is_empty() {
+        a.push_str(&format!(" data-input-mode=\"{}\" data-circuit=\"{}\"", crate::explain::input_mode(&m.kind), esc(&m.kind)));
+    }
+    if let Some(t) = &m.terrain {
+        a.push_str(&format!(" data-terrain=\"{}\"", esc(&format!("{prefix}{}", crate::pages::terrain_file(t)))));
+    }
+    let title = PARTS.iter().find(|p| p.0 == m.part).map(|p| p.1).unwrap_or("");
+    format!(
+        "<div class=\"viewer k-circuit\" data-mcview=\"full\" data-src=\"{}\"{a} data-kind=\"circuit\"><div class=\"fallback\"><span class=\"fb-big\">{}</span><span class=\"fb-small\">{}</span></div></div>",
+        esc(&format!("{prefix}{}", m.src)),
+        esc(&m.name),
+        esc(title)
+    )
 }
 
 /// The site path of a component's page.
@@ -433,11 +470,23 @@ pub fn part_page(site: &Site, farm: &str, part: &str, members: &[Member], script
             .filter_map(|u| site.builds.iter().find(|b| &b.name == u && site_model::is_farm(b)))
             .map(|b| format!("<a href=\"{prefix}{}\">{}</a>", esc(&b.page), esc(&pages::page_title(b))))
             .collect();
+        // (a judged whole farm runs in its viewer: what to press, as on a farm's page)
+        let try_line = if m.kind.is_empty() {
+            String::new()
+        } else {
+            let c = site_model::Circuit { kind: m.kind.clone(), study: "mobfarm".into(), ..Default::default() };
+            let t = crate::plain::try_it(&c, true);
+            if t.is_empty() { String::new() } else { format!("<p>{}</p>", esc(&t)) }
+        };
         body.push_str(&format!(
-            "<section class=\"member\" id=\"{}\"><h2>{}</h2><div class=\"grid\">{}</div><table class=\"props\">{stage}{rows}</table>{}<p><a href=\"{prefix}{}\" download>Download it as text</a></p></section>\n",
+            "<section class=\"member\" id=\"{}\"><h2>{}</h2>{}{try_line}<table class=\"props\">{stage}{rows}</table>{}<p><a href=\"{prefix}{}\" download>Download it as text</a></p></section>\n",
             esc(m.stem()),
-            esc(&m.name),
-            site_model::html::thumb(prefix, &design, None, None, None, "circuit", "", ""),
+            // (a heading starts with a capital, whatever members.tsv says: "Bed-plate cage, ...")
+            esc(&{
+                let mut ch = m.name.chars();
+                ch.next().map(|c| c.to_uppercase().collect::<String>() + ch.as_str()).unwrap_or_default()
+            }),
+            member_viewer(prefix, m),
             if used.is_empty() { String::new() } else { format!("<p>Built into: {}</p>", used.join(", ")) },
             esc(&design)
         ));
