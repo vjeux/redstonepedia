@@ -185,7 +185,7 @@ fn clears_with(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bool
     w.place_raw(&seals);
     let moved: Vec<(BlockPos, crate::block::Block)> = spec.blocks.iter().map(|(p, b)| (at(*p), *b)).collect();
     w.place_raw(&moved);
-    let ours: std::collections::HashSet<BlockPos> = moved.iter().map(|(p, _)| *p).chain(seals.iter().map(|(p, _)| *p)).collect();
+    let ours: crate::fxhash::FxHashSet<BlockPos> = moved.iter().map(|(p, _)| *p).chain(seals.iter().map(|(p, _)| *p)).collect();
     let is_lava = |w: &World, p: BlockPos| crate::fluid::fluid_state(w, p).fluid.is_lava();
     // the lava cells within 4 (each axis) of a farm block: the farm's box grown by 4 scanned
     // once, y then z then x (already the sorted order), each lava cell kept when a farm block is
@@ -273,7 +273,7 @@ pub fn seals_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: boo
         return Vec::new();
     }
     let at = |p: BlockPos| BlockPos::new(p.x + offset[0], p.y + offset[1], p.z + offset[2]);
-    let listed: std::collections::HashSet<BlockPos> = spec.blocks.iter().map(|(p, _)| at(*p)).collect();
+    let listed: crate::fxhash::FxHashSet<BlockPos> = spec.blocks.iter().map(|(p, _)| at(*p)).collect();
     let mut out: Vec<(BlockPos, bool)> = Vec::new();
     for (p, b) in &spec.blocks {
         if crate::behavior::full_cube(b) {
@@ -463,7 +463,7 @@ fn covers_with(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bool
     w.place_raw(clears);
     let moved: Vec<(BlockPos, crate::block::Block)> = spec.blocks.iter().map(|(p, b)| (at(*p), *b)).collect();
     w.place_raw(&moved);
-    let own: std::collections::HashSet<BlockPos> = moved.iter().filter(|(_, b)| !b.is_air()).map(|(p, _)| *p).collect();
+    let own: crate::fxhash::FxHashSet<BlockPos> = moved.iter().filter(|(_, b)| !b.is_air()).map(|(p, _)| *p).collect();
     // the villagers that panic: each sees its nearest zombie as built, or with every trapdoor
     // open, or every trapdoor shut (a hide shows or hides the zombie either way), and their
     // searches' starts

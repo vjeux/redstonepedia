@@ -2,7 +2,9 @@
 //! and tags): climate, colours, the tags the spawn rules read, and the natural spawns
 //! (`minecraft:gameplay/natural_mob_spawns`).
 
-use std::collections::HashMap;
+// (the tables are looked up by name at every spawn check: a fast hash, and no code walks them in
+// order; tickexact 2026-11-08)
+use crate::fxhash::FxHashMap as HashMap;
 use std::sync::OnceLock;
 
 pub const TSV: &str = include_str!("biomes.tsv");
@@ -83,7 +85,7 @@ fn hex(s: &str) -> Option<u32> {
 }
 
 fn parse(text: &str) -> Result<HashMap<String, Biome>, String> {
-    let mut out = HashMap::new();
+    let mut out = HashMap::default();
     for line in text.lines() {
         if line.starts_with('#') || line.starts_with("name\t") || line.is_empty() {
             continue;
@@ -159,7 +161,7 @@ pub struct Override {
 static STRUCTURES: OnceLock<HashMap<String, Vec<Override>>> = OnceLock::new();
 
 fn parse_structures(text: &str) -> HashMap<String, Vec<Override>> {
-    let mut out = HashMap::new();
+    let mut out = HashMap::default();
     for line in text.lines() {
         if line.starts_with('#') || line.starts_with("name\t") || line.is_empty() {
             continue;
