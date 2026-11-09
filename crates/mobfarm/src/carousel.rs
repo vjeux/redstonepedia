@@ -97,7 +97,7 @@ pub fn carousel_with(side: i32, latch: bool, free_run: bool) -> anyhow::Result<S
     let mut redstone_blocks: BTreeSet<[i32; 3]> = BTreeSet::new();
     for k in 0..3 {
         let (t, e) = (-3 * k, side + 3 * k);
-        let rails = loop_rails(t, e);
+        let rails = loop_rails(t, e, k < 2);
         for (p, s, _) in &rails {
             b.set(p[0], p[1], p[2], s);
         }
@@ -173,7 +173,13 @@ pub fn carousel_with(side: i32, latch: bool, free_run: bool) -> anyhow::Result<S
 /// waking one is put there, `getBlockFloorHeight`), the
 /// pocket, the booster (on a redstone block: a cart's speed grows only on boosters, and a brake
 /// must halve it to nothing within its one rail), plain rails, the climb back up to the corner.
-fn loop_rails(t: i32, e: i32) -> Vec<([i32; 3], String, &'static str)> {
+///
+/// `boost`: the booster after each stop's pocket; the outer loop has none: its carts leave the
+/// brake with the brake's own 8 gt of boost, which carries a ridden cart round its 40 rails, and
+/// arrive slower, braking as far from the next pocket as the inner loops' boosted ones do
+/// (boosted, they braked 0.84 from their villagers and met them with no speed: 2 seeds of 20 held
+/// 3 days, 7 without).
+fn loop_rails(t: i32, e: i32, boost: bool) -> Vec<([i32; 3], String, &'static str)> {
     let n = e - t;
     let corners = ["south_east", "south_west", "north_west", "north_east"];
     let mut out = Vec::new();
@@ -189,7 +195,7 @@ fn loop_rails(t: i32, e: i32) -> Vec<([i32; 3], String, &'static str)> {
                 1 => (0, format!("rail[shape={axis},waterlogged=false]"), STONE),
                 ACT => (0, format!("activator_rail[powered=false,shape={axis},waterlogged=false]"), STONE),
                 BRAKE => (-1, format!("powered_rail[powered=false,shape=ascending_{back},waterlogged=false]"), "mud"),
-                BOOST => (-1, format!("powered_rail[powered=true,shape={axis},waterlogged=false]"), "redstone_block"),
+                BOOST if boost => (-1, format!("powered_rail[powered=true,shape={axis},waterlogged=false]"), "redstone_block"),
                 _ if i == n - 1 => (-1, format!("rail[shape=ascending_{fwd},waterlogged=false]"), STONE),
                 _ => (-1, format!("rail[shape={axis},waterlogged=false]"), STONE),
             };
