@@ -117,6 +117,10 @@ pub static DEFS: &[TypeDef] = &[
     // a lightning trap's skeleton horse (CREATURE: it counts toward the cap; never spawned
     // naturally)
     row(46, "skeleton_horse", "minecraft:skeleton_horse", 1.3964844, 1.6, 1.52, 15.0, 0.2f32 as f64, true, false, 1.0),
+    // a nether portal's zombified piglin (MONSTER, fire immune; Zombie's FOLLOW_RANGE 35 and ARMOR
+    // 2; its baby's BABY_DIMENSIONS 0.49 x 0.98, eye 0.78)
+    TypeDef { follow_range: 35.0, armor: 2.0, riding_offset: -0.7, ..row(47, "zombified_piglin", "minecraft:zombified_piglin", 0.6, 1.95, 1.79, 20.0, 0.23f32 as f64, true, false, 0.6) },
+    TypeDef { follow_range: 35.0, armor: 2.0, ..row(48, "baby_zombified_piglin", "minecraft:zombified_piglin", 0.49, 0.98, 0.78, 20.0, 0.23f32 as f64 * 1.5, true, false, 0.6) },
 ];
 
 // ------------------------------------------------------------------------- the categories
@@ -332,6 +336,7 @@ pub static KINDS: &[Kind] = &[
     kind("minecraft:cod", MobType::Natural(24), C::WaterAmbient, P::InWater, Rule::SurfaceWater, 8, true, None, F::Cod, true, W::None),
     kind("minecraft:cat", MobType::Natural(42), C::Creature, P::OnGround, Rule::Always, 4, false, None, F::Unmodeled, false, W::Animal),
     kind("minecraft:skeleton_horse", MobType::Natural(46), C::Creature, P::OnGround, Rule::Always, 1, false, None, F::Unmodeled, false, W::Animal),
+    kind("minecraft:zombified_piglin", MobType::Natural(47), C::Monster, P::OnGround, Rule::Monster, 4, true, Some(MobType::Natural(48)), F::Unmodeled, false, W::Monster),
     kind("minecraft:bee", MobType::Natural(43), C::Creature, P::NoRestrictions, Rule::Always, 4, false, None, F::Unmodeled, false, W::Animal),
 ];
 
@@ -1381,6 +1386,95 @@ fn zombie_finalize(w: &mut World, nat: &Natural, g: &mut GroupData, drowned: boo
     (baby, jockey, (armor.0 > 0).then_some(armor.1), breaks_doors)
 }
 
+/// `ZombifiedPiglin`'s `finalizeSpawn(STRUCTURE, no group data)` (Zombie's, with its own golden
+/// sword: no equipment draws; its reinforcement chance set without a draw); returns (baby,
+/// jockey, breaks doors).
+fn piglin_finalize(w: &mut World, nat: &Natural) -> (bool, Jockey, bool) {
+    let special = special_multiplier(w, nat);
+    mob_base(w);
+    rng(w).next_float(); // setCanPickUpLoot
+    let baby = rng(w).next_float() < 0.05; // new ZombieGroupData(getSpawnAsBabyOdds, true)
+    let mut jockey = Jockey::None;
+    if baby {
+        if rng(w).next_float() < 0.05 {
+            jockey = Jockey::NearChicken;
+        } else if rng(w).next_float() < 0.05 {
+            // the new chicken: constructed, its finalizeSpawn (JOCKEY, no group data) here
+            if w.exact_seed.is_some() {
+                let _ = w.construct();
+            }
+            let mut cg = GroupData::default();
+            farm_finalize(w, &mut cg, 2);
+            jockey = Jockey::NewChicken;
+        }
+    }
+    let breaks_doors = rng(w).next_float() < special * 0.1; // setCanBreakDoors
+    enchant_draws(w, special, Some(super::enchant::Item::GoldenSword), (0, 0));
+    // SpecialDates.isHalloween: outside it (no draw); handleAttributes: its own random
+    (baby, jockey, breaks_doors)
+}
+
+/// `NetherPortalBlock.randomTick` after its roll (`nextInt(2000) < the difficulty's id`): with a
+/// player close enough for spawning (128 of the chunk's centre), down the portal column to the
+/// floor; on a floor valid for a zombified piglin (`isValidSpawn`: the zombie's, and magma, as it
+/// is fire immune) `EntityType.spawn(pos.above(), STRUCTURE)`: constructed, `snapTo` the cell's
+/// bottom centre at `wrapDegrees(nextFloat() x 360)` (head and body too), `finalizeSpawn`,
+/// `playAmbientSound` (its own random's pitch), added with its passengers; then
+/// `setPortalCooldown` (300) on it and its vehicle. Its AI is not modeled: the legacy walk model,
+/// named in the run's report. Returns the piglin's id.
+pub fn portal_piglin(w: &mut World, at: BlockPos) -> Option<u32> {
+    let nat = w.mob.natural.as_ref()?.clone();
+    let (cx, cz) = ((at.x >> 4) * 16 + 8, (at.z >> 4) * 16 + 8);
+    let close = nat.players.iter().any(|p| {
+        let (dx, dz) = (p.x - cx as f64, p.z - cz as f64);
+        dx * dx + dz * dz < 16384.0
+    });
+    if !close {
+        return None;
+    }
+    let mut pos = at;
+    let terrain_name = |b: &crate::block::Block| match b {
+        crate::block::Block::Terrain(id) => Some(crate::terrain::blocks::props(*id).name.clone()),
+        _ => None,
+    };
+    while terrain_name(&w.get(pos)).is_some_and(|n| n.starts_with("minecraft:nether_portal")) {
+        pos = pos.below();
+    }
+    let magma = terrain_name(&w.get(pos)).is_some_and(|n| n == "minecraft:magma_block") || matches!(w.get(pos), crate::block::Block::Simple(crate::block::Simple::MagmaBlock));
+    if !(magma || valid_spawn_floor(w, pos, "minecraft:zombie")) {
+        return None;
+    }
+    if w.exact_seed.is_some() {
+        let _ = w.construct();
+    }
+    let yaw = crate::entity::mth::wrap_degrees(rng(w).next_float() * 360.0);
+    if let Some(n) = w.mob.natural.as_mut() {
+        n.bonuses.clear();
+    }
+    let (baby, jockey, breaks_doors) = piglin_finalize(w, &nat);
+    let k = kind_of("minecraft:zombified_piglin")?;
+    let ty = if baby { MobType::Natural(48) } else { MobType::Natural(47) };
+    let f = Finalized { ty, baby, jockey, helmet: None, rider_helmet: None, breaks_doors, rider_breaks_doors: false, color: 0, rider_chicken: Jockey::None };
+    let id = spawn_mob(w, k, &f, Vec3::new(pos.x as f64 + 0.5, (pos.y + 1) as f64, pos.z as f64 + 0.5), yaw);
+    // the spawn's draws follow the game's code but no bridge scene has compared them yet (the
+    // bridge's scenes run without spawn_mobs, which the portal needs): named in the run's report
+    w.mob.ai.legacy.insert("a zombified piglin from a nether portal (its spawn's draws not yet compared with the game)");
+    if let Some(j) = crate::entity::index_of(w, id) {
+        // playAmbientSound: getVoicePitch's two floats of its own random
+        if let Some(r) = w.entities.list[j].random.as_mut() {
+            r.next_float();
+            r.next_float();
+        }
+        w.entities.list[j].portal_cooldown = 300;
+        if let Some(v) = w.entities.list[j].vehicle
+            && let Some(vj) = crate::entity::index_of(w, v)
+        {
+            w.entities.list[vj].portal_cooldown = 300;
+        }
+    }
+    Some(id)
+}
+
 /// `AbstractSkeleton.finalizeSpawn`; returns its helmet's armor type.
 fn skeleton_finalize(w: &mut World, nat: &Natural) -> Option<u8> {
     let special = special_multiplier(w, nat);
@@ -1905,5 +1999,41 @@ mod tests {
         // about one chunk in ten
         let n = (0..100).flat_map(|x| (0..100).map(move |z| (x, z))).filter(|&(x, z)| slime_chunk(x, z, 2)).count();
         assert!((800..1200).contains(&n), "{n}");
+    }
+
+    /// A nether portal's zombified piglin: on the portal's obsidian floor, the bottom portal
+    /// cell's centre, its portal cooldown 300; none without a player within 128 of the chunk's
+    /// centre, none on a floor no zombie can spawn on (glass).
+    #[test]
+    fn portal_piglin_spawns_on_the_floor() {
+        let world = |floor: &str, player: Vec3| {
+            let mut w = World::new(BlockPos::new(0, 0, 0), [16, 16, 16]);
+            w.mob.seed(5, 6000);
+            w.mob.natural = Some(Natural::new(vec![player], Difficulty::Hard));
+            let put = |w: &mut World, x: i32, y: i32, z: i32, s: &str| {
+                let b = crate::terrain::land::block_of(s).or_else(|_| crate::block::Block::parse(s).map_err(|e| e.to_string())).unwrap();
+                w.set_block(BlockPos::new(x, y, z), b, crate::world::flags::RAW);
+            };
+            for z in 4..=7 {
+                put(&mut w, 8, 1, z, floor);
+            }
+            for y in 2..=4 {
+                for z in 5..=6 {
+                    put(&mut w, 8, y, z, "minecraft:nether_portal[axis=z]");
+                }
+            }
+            w
+        };
+        let near = Vec3::new(8.5, 2.0, 2.5);
+        let mut w = world("minecraft:obsidian", near);
+        let id = portal_piglin(&mut w, BlockPos::new(8, 4, 5)).expect("a piglin");
+        let e = &w.entities.list[crate::entity::index_of(&w, id).unwrap()];
+        assert_eq!([e.pos.x, e.pos.y, e.pos.z], [8.5, 2.0, 5.5]);
+        assert_eq!(e.portal_cooldown, 300);
+        assert!(matches!(&e.kind, crate::entity::EntityKind::Mob(m) if m.ty.def().game_id == "minecraft:zombified_piglin"));
+        let mut w = world("minecraft:obsidian", Vec3::new(300.0, 2.0, 300.0));
+        assert!(portal_piglin(&mut w, BlockPos::new(8, 4, 5)).is_none(), "no player close enough");
+        let mut w = world("minecraft:glass", near);
+        assert!(portal_piglin(&mut w, BlockPos::new(8, 4, 5)).is_none(), "glass is no valid floor");
     }
 }

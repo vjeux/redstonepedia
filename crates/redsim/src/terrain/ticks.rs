@@ -55,10 +55,11 @@ pub fn random_tick(w: &mut World, id: u16, p: BlockPos) {
         }
         // NetherPortalBlock.randomTick in the overworld (NETHER_PORTAL_SPAWNS_PIGLINS): with
         // monsters spawning and not on peaceful, nextInt(2000) < the difficulty's id spawns a
-        // zombified piglin under the portal (refused: its spawn is not modeled)
+        // zombified piglin on the portal's floor (natural::portal_piglin)
         "minecraft:nether_portal" => {
             use crate::entity::mob::natural::Difficulty;
-            let (monsters, diff) = w.mob.natural.as_ref().map(|n| (n.spawn_enemies, n.difficulty)).unwrap_or((true, w.mob.ai.difficulty));
+            // ServerLevel.isSpawningMonsters: SPAWN_MOBS (the spawner runs) and SPAWN_MONSTERS
+            let (monsters, diff) = w.mob.natural.as_ref().map(|n| (n.spawning && n.spawn_enemies, n.difficulty)).unwrap_or((true, w.mob.ai.difficulty));
             if monsters && diff != Difficulty::Peaceful {
                 let id = match diff {
                     Difficulty::Peaceful => 0,
@@ -67,7 +68,13 @@ pub fn random_tick(w: &mut World, id: u16, p: BlockPos) {
                     Difficulty::Hard => 3,
                 };
                 if r(w).next_int(2000) < id {
-                    error(w, "a zombified piglin spawning from a nether portal (its spawn) is not modeled".into());
+                    // the spawn (or nothing: no player close enough, no valid floor); without a
+                    // natural mob world it is refused
+                    if w.mob.natural.is_none() {
+                        error(w, "a zombified piglin spawning from a nether portal (outside a natural mob world) is not modeled".into());
+                    } else {
+                        crate::entity::mob::natural::portal_piglin(w, p);
+                    }
                 }
             }
         }
