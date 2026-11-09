@@ -43,6 +43,44 @@ pub fn poi_of(b: &Block) -> Option<PoiKind> {
     }
 }
 
+/// The POI type's registry id of a block (`PoiTypes`: a bed's head is home, a bell the meeting
+/// point, each workstation its profession's), if it is one.
+pub fn poi_type_name(b: &Block) -> Option<&'static str> {
+    let job = |name: &str| -> Option<&'static str> {
+        Some(match name {
+            "blast_furnace" => "minecraft:armorer",
+            "smoker" => "minecraft:butcher",
+            "cartography_table" => "minecraft:cartographer",
+            "brewing_stand" => "minecraft:cleric",
+            "composter" => "minecraft:farmer",
+            "barrel" => "minecraft:fisherman",
+            "fletching_table" => "minecraft:fletcher",
+            "cauldron" | "water_cauldron" | "lava_cauldron" | "powder_snow_cauldron" => "minecraft:leatherworker",
+            "lectern" => "minecraft:librarian",
+            "stonecutter" => "minecraft:mason",
+            "loom" => "minecraft:shepherd",
+            "smithing_table" => "minecraft:toolsmith",
+            "grindstone" => "minecraft:weaponsmith",
+            "bell" => "minecraft:meeting",
+            _ => return None,
+        })
+    };
+    match b {
+        Block::Bed { head: true, .. } => Some("minecraft:home"),
+        Block::Composter { .. } => Some("minecraft:farmer"),
+        Block::BrewingStand { .. } => Some("minecraft:cleric"),
+        Block::Terrain(id) => {
+            let p = crate::terrain::blocks::props(*id);
+            let name = p.block_id();
+            if name.ends_with("_bed") {
+                return p.name.contains("part=head").then_some("minecraft:home");
+            }
+            job(name.trim_start_matches("minecraft:"))
+        }
+        _ => None,
+    }
+}
+
 /// The POI index (built on first use, rebuilt after a POI block changes).
 pub fn index(w: &mut World) -> &[(BlockPos, PoiKind)] {
     if w.mob.ai.pois.is_none() {

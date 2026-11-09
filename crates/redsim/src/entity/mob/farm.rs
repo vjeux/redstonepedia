@@ -381,7 +381,13 @@ impl Run {
             if let EntityKind::Mob(m) = &mut w.entities.list[i].kind
                 && let Some(b) = m.brain.as_deref_mut()
             {
-                b.home = Some(home);
+                // with the mob AI the villager claims its bed itself (AcquirePoi), as in the game
+                // gate's summons ("they claim their beds themselves"); a HOME set at the arrival
+                // would date its walk-target bookkeeping from before it: the first REST then
+                // releases it (SetWalkTargetFromBlockMemory's 1200 unreachable ticks)
+                if !self.o.ai {
+                    b.home = Some(home);
+                }
                 b.last_slept = if self.o.slept { Some(slept) } else { None };
             }
         }

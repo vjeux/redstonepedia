@@ -1074,10 +1074,6 @@ fn acquire_poi(w: &mut World, i: usize, n: usize, t: i64) -> bool {
     if valid.is_empty() {
         return true;
     }
-    if poi != PoiSel::Home {
-        refuse(w, "a villager acquiring a job site or a meeting point is not modeled yet");
-        return true;
-    }
     // findPathToPois: one path to the set of positions (a HashSet<BlockPos>), reach = the largest
     // validRange
     let hashes: Vec<i32> = valid.iter().map(|p| (p.y.wrapping_add(p.z.wrapping_mul(31))).wrapping_mul(31).wrapping_add(p.x)).collect();
@@ -1086,6 +1082,12 @@ fn acquire_poi(w: &mut World, i: usize, n: usize, t: i64) -> bool {
     let reach = crate::entity::mob::ai::poi::valid_range(poi).max(1);
     let path = with_nav(w, i, |w, nm, nav, arena| nav.create_path_positions(w, nm, &targets, reach, arena));
     match path {
+        Some(p) if p.reached && poi != PoiSel::Home => {
+            // a job site or a meeting point taken: the profession and the meeting point's
+            // behaviours are not modeled
+            let _ = p;
+            refuse(w, "a villager acquiring a job site or a meeting point is not modeled yet");
+        }
         Some(p) if p.reached => {
             let target = p.target;
             // poiManager.take: the ticket (the home memory is the claim), the event 14 (client
@@ -1096,13 +1098,25 @@ fn acquire_poi(w: &mut World, i: usize, n: usize, t: i64) -> bool {
             }
         }
         _ => {
-            // new retry markers in the HashSet<Pair<Holder, BlockPos>>'s order: the holders'
-            // identity hashes make it the JVM run's own with two new ones
-            let new: Vec<BlockPos> = targets.iter().copied().filter(|q| !matches!(kind(w, i, n), Kind::AcquirePoi { batch, .. } if batch.iter().any(|(b, _)| b == q))).collect();
-            if new.len() > 1 {
-                refuse(w, "a villager failing to reach several free POIs at once (the retry markers' order: the POI types' identity hashes) is not modeled");
-            }
-            for q in new {
+            // new retry markers, walking poiPositions (a HashSet<Pair<Holder<PoiType>,
+            // BlockPos>> filled closest first) in its order: a Pair's hash is
+            // 31 * (31 + the holder's identity hash) + the position's (the game JVM's holder
+            // hashes: the bridge's `identity_hashes`; a stand-in per type in the judge);
+            // computeIfAbsent draws for each position the cache lacks
+            let hashes: Vec<i32> = valid
+                .iter()
+                .map(|p| {
+                    let ty = crate::entity::mob::ai::poi::poi_type_name(&w.get(*p)).unwrap_or("minecraft:home");
+                    let h = crate::entity::mob::ai::poi_holder_hash(w, ty);
+                    let ph = (p.y.wrapping_add(p.z.wrapping_mul(31))).wrapping_mul(31).wrapping_add(p.x);
+                    31i32.wrapping_mul(31i32.wrapping_add(h)).wrapping_add(ph)
+                })
+                .collect();
+            let order = crate::entity::mob::ai::path::finder::java_hash_order(&hashes, crate::entity::mob::ai::path::finder::grown_table(valid.len()));
+            for q in order.into_iter().map(|k| valid[k]) {
+                if matches!(kind(w, i, n), Kind::AcquirePoi { batch, .. } if batch.iter().any(|(b, _)| *b == q)) {
+                    continue;
+                }
                 let add = level_rng(w).next_int(40);
                 let mut m = Retry { previous: 0, next: 0, delay: 0 };
                 mark_attempt(&mut m, t, add);

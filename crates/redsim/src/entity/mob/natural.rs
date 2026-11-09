@@ -1534,10 +1534,16 @@ pub fn check_despawn(w: &mut World, i: usize) {
 }
 
 fn discard(w: &mut World, i: usize, id: u32, k: &Kind, far: bool) {
+    discard_as(w, i, id, k.id, far);
+}
+
+/// `Entity.discard()` of a despawning mob (natural spawning's log, its riders freed); the mob AI's
+/// `checkDespawn` calls it too, with its type's game id.
+pub(crate) fn discard_as(w: &mut World, i: usize, id: u32, ty: &'static str, far: bool) {
     w.entities.list[i].removed = true;
     let t = w.time;
     if let Some(n) = w.mob.natural.as_mut() {
-        n.log.push(NaturalEvent::Despawn { t, entity: id, ty: k.id, far });
+        n.log.push(NaturalEvent::Despawn { t, entity: id, ty, far });
         // its riders dismount (no longer passengers)
         let freed: Vec<u32> = n.riders.iter().filter(|(_, v)| *v == id).map(|(r, _)| *r).collect();
         n.riders.retain(|(r, v)| *v != id && *r != id);

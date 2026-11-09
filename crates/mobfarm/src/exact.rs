@@ -185,6 +185,8 @@ pub struct GameFarm {
     pub full: Vec<[i32; 2]>,
     /// The level runs the five custom spawners.
     pub spawners: bool,
+    /// (mob-AI) The game JVM's POI holder identity hashes (the bridge's `identity_hashes`).
+    pub poi_hashes: std::collections::HashMap<String, i32>,
 }
 
 /// The design's block states at the spec's cells (moved to the site in terrain).
@@ -427,7 +429,10 @@ impl GameFarm {
             let s = text.get(&pos(*p)).ok_or_else(|| anyhow!("no design block at {p}"))?;
             rest.push((pos(*p), s.clone()));
         }
-        let mut g = GameFarm { w, sb, lo: pos(spec.lo), hi: pos(spec.hi), ticking, spawning, entity_ticking, spawn_chunk_count, text, full, spawners };
+        // (mob-AI) the POI holders' identity hashes: this JVM's, fixed for its life
+        let hv = w.call(json!({"op": "identity_hashes"}))?;
+        let poi_hashes: std::collections::HashMap<String, i32> = hv["poi_types"].as_object().map(|m| m.iter().filter_map(|(k, v)| v.as_i64().map(|h| (k.clone(), h as i32))).collect()).unwrap_or_default();
+        let mut g = GameFarm { w, sb, lo: pos(spec.lo), hi: pos(spec.hi), ticking, spawning, entity_ticking, spawn_chunk_count, text, full, spawners, poi_hashes };
         let bes: Vec<([i32; 3], String)> = spec.block_entities.iter().map(|(p, s)| (pos(*p), s.clone())).collect();
         g.place_with(&rest, &bes)?;
         let out = pos(spec.output);
@@ -520,7 +525,12 @@ impl GameFarm {
         let mut k = 0;
         let mut specs = Vec::new();
         for (ty, p, nbt) in &spec.entities {
-            let mobs_here = 1 + nbt.as_deref().map(|n| n.matches("id:").count()).unwrap_or(0);
+            // the tree's mobs (the bridge gives `follow_bonus` to its mobs only, in tree order): the
+            // root if it is a mob (a boat or a minecart is not), then each passenger `id:` that is
+            // (mob-AI lane: counting the boat shifted every later mob's bonus by one)
+            let is_mob = |id: &str| redsim::entity::mob::types::MobType::from_id(id.strip_prefix("minecraft:").unwrap_or(id)).is_some();
+            let passengers = nbt.as_deref().map(|n| n.split("id:").skip(1).filter(|s| is_mob(s.trim_start_matches('"').split(['"', ',', '}']).next().unwrap_or(""))).count()).unwrap_or(0);
+            let mobs_here = usize::from(is_mob(ty)) + passengers;
             let mut b = Vec::new();
             for _ in 0..mobs_here {
                 b.push(bonus.get(k).copied());
@@ -663,8 +673,10 @@ pub fn redsim_start(spec: &FarmSpec, o: &RunOpts, game: &GameFarm, bare: bool) -
     }
     run.world.random_ticks = Some(redsim::crops::RandomTicks::new(3, o.seed));
     // the mob AI (the mob-AI lane): goals and brains (every mob seeded from w.exact_seed, which
-    // mirror_level_random set)
+    // mirror_level_random set); the game JVM's POI holder identity hashes (AcquirePoi's retry
+    // markers' order)
     run.world.mob.ai.on = true;
+    run.world.mob.ai.poi_hashes = Some(game.poi_hashes.clone());
     if !game.ticking.is_empty() {
         run.world.chunk_order = game.ticking.clone();
     }

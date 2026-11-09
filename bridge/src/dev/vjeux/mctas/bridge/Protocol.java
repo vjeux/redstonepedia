@@ -170,6 +170,7 @@ public final class Protocol {
             case "world" -> world(r);
             case "chunk_lists" -> chunkLists(r);
             case "heights" -> heights(r);
+            case "identity_hashes" -> identityHashes();
             case "memory" -> memory(r);
             case "golem_spots" -> golemSpots(r);
             case "trace" -> trace(r);
@@ -884,6 +885,22 @@ public final class Protocol {
         JsonObject o = new JsonObject();
         o.add("heights", out);
         return o;
+    }
+
+    /**
+     * (mob-AI) The identity hash of every POI type's registry holder: {@code AcquirePoi}'s failed
+     * POIs get their retry markers in a {@code HashSet<Pair<Holder<PoiType>, BlockPos>>}'s order,
+     * and a Pair's hash holds its holder's identity hash (this JVM's own, fixed for its life).
+     */
+    private JsonObject identityHashes() {
+        JsonObject o = new JsonObject();
+        var reg = net.minecraft.core.registries.BuiltInRegistries.POINT_OF_INTEREST_TYPE;
+        for (var e : reg.entrySet()) {
+            o.addProperty(e.getKey().identifier().toString(), System.identityHashCode(reg.wrapAsHolder(e.getValue())));
+        }
+        JsonObject out = new JsonObject();
+        out.add("poi_types", o);
+        return out;
     }
 
     private JsonObject chunkLists(JsonObject r) {

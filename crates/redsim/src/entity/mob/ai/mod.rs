@@ -147,6 +147,17 @@ pub fn has_ai(w: &World, i: usize) -> bool {
     matches!(&w.entities.list[i].kind, crate::entity::EntityKind::Mob(m) if m.ai.is_some())
 }
 
+/// The identity hash of a POI type's registry holder (`System.identityHashCode`): the game's
+/// JVM's when the bridge gave them, else a fixed stand-in per type (any JVM run's is as good:
+/// the judge).
+pub fn poi_holder_hash(w: &World, ty: &str) -> i32 {
+    if let Some(h) = w.mob.ai.poi_hashes.as_ref().and_then(|m| m.get(ty)) {
+        return *h;
+    }
+    // String.hashCode of the id, as a 31-bit identity hash
+    ty.bytes().fold(0i32, |h, b| h.wrapping_mul(31).wrapping_add(b as i32)) & 0x7fff_ffff
+}
+
 /// `Collections.shuffle(List)`'s static random: in an exact world the bridge's per-sandbox seed
 /// (`rng::collections_seed`), else a stand-in drawn once from the mob layer's random (the judge).
 pub fn collections_rng(w: &mut World) -> &mut crate::rng::LegacyRandom {
@@ -243,11 +254,14 @@ pub struct AiWorld {
     /// The block light of a design world's cells asked so far, by the sky part it had to beat
     /// (cleared when a block changes).
     pub block_cache: std::collections::HashMap<(crate::pos::BlockPos, i32), i32>,
+    /// Each POI type's registry holder identity hash (the game's JVM's: the bridge's
+    /// `identity_hashes`; `None`: a stand-in per type, [`poi_holder_hash`]).
+    pub poi_hashes: Option<std::collections::HashMap<String, i32>>,
 }
 
 impl Default for AiWorld {
     fn default() -> AiWorld {
-        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, pois: None, lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new() }
+        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, pois: None, lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new(), poi_hashes: None }
     }
 }
 
@@ -654,7 +668,12 @@ pub fn check_despawn(w: &mut World, i: usize) {
     // `isPersistenceRequired() || requiresCustomPersistence()` (a passenger or a leashed mob)
     let persistent = m.persistence_required || w.entities.list[i].vehicle.is_some();
     let no_action = m.no_action_time;
-    let removes_far = !matches!(m.ty, MobType::Villager | MobType::IronGolem);
+    // `removeWhenFarAway`: natural spawning's per-kind rule (an animal never, a fish not from a
+    // bucket...), else villagers and golems never
+    let removes_far = match super::natural::kind_of_type(m.ty) {
+        Some(k) => k.removes_far,
+        None => !matches!(m.ty, MobType::Villager | MobType::IronGolem),
+    };
     let p = w.entities.list[i].pos;
     // `getNearestPlayer(this, -1.0)` (no spectators): the AI's players, the AFK player, natural
     // spawning's players
@@ -665,13 +684,17 @@ pub fn check_despawn(w: &mut World, i: usize) {
     }
     let near = players.iter().map(|q| q.distance_to_sqr(p)).fold(None, |a: Option<f64>, d| Some(a.map_or(d, |a| a.min(d))));
     let Some(d2) = near else { return };
-    if !persistent && d2 > 128.0 * 128.0 && removes_far {
-        refuse_once(w, "a mob despawning (beyond 128 of every player) is not modeled");
+    // the category's despawn distance (128; 64 for water ambient), the no-despawn distance 32
+    let far = super::natural::category_of(m.ty).despawn_distance();
+    let ty = m.ty;
+    let id = w.entities.list[i].id;
+    if !persistent && d2 > far * far && removes_far {
+        super::natural::discard_as(w, i, id, ty.game_id(), true);
         return;
     }
     let roll = !persistent && no_action > 600 && w.entities.list[i].random.as_mut().expect("random").next_int(800) == 0;
     if roll && d2 > 32.0 * 32.0 && removes_far {
-        refuse_once(w, "a mob despawning (the 1-in-800 roll) is not modeled");
+        super::natural::discard_as(w, i, id, ty.game_id(), false);
     } else if d2 < 32.0 * 32.0 {
         mob_mut(w, i).no_action_time = 0;
     }

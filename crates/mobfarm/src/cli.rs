@@ -220,6 +220,14 @@ pub enum MobfarmCmd {
         /// day time, and each villager's sleeping, instead of the report.
         #[arg(long)]
         watch: Vec<String>,
+        /// After the report, the N cells where living golems spent the most ticks (design
+        /// coordinates; the run's occupancy).
+        #[arg(long, default_value_t = 0)]
+        cells: usize,
+        /// Instead of the report: tick the run for `--days` and print the mobs by type (the most
+        /// alive at once, and alive every 1000 gt summed), and the time the entity ticks took.
+        #[arg(long)]
+        census: bool,
     },
     /// The brief's game check: the design run in the real server for `--days`, its golems (time
     /// and cell) and the iron in the chest, against redsim's runs of the same design.
@@ -352,7 +360,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("FAIL {f}");
             }
         }
-        MobfarmCmd::Run { design, seed, days, still, terrain, ticks_only, watch } => {
+        MobfarmCmd::Run { design, seed, days, still, terrain, ticks_only, watch, cells, census } => {
             let (c, spec) = load(version, &design)?;
             use redsim::entity::mob::farm::{RunOpts, WalkMode, run};
             let walk = if still { WalkMode::Fixed(redsim::entity::mob::walk::Walk::Still) } else { WalkMode::Random };
@@ -418,6 +426,38 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("built and settled in {built:.1} s; {days} game day(s) ticked in {:.1} s", t0.elapsed().as_secs_f64() - built);
                 return Ok(());
             }
+            if census {
+                let mut r = redsim::entity::mob::farm::Run::new(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
+                let built = t0.elapsed().as_secs_f64();
+                let mut peak: std::collections::BTreeMap<String, usize> = Default::default();
+                let mut sum: std::collections::BTreeMap<String, usize> = Default::default();
+                for t in 0..days * 24000 {
+                    r.tick();
+                    let mut now: std::collections::BTreeMap<String, usize> = Default::default();
+                    for e in &r.world.entities.list {
+                        if let redsim::entity::EntityKind::Mob(m) = &e.kind
+                            && !e.removed
+                            && !m.dead
+                        {
+                            *now.entry(m.ty.def().id.to_string()).or_insert(0) += 1;
+                        }
+                    }
+                    for (k, n) in &now {
+                        let p = peak.entry(k.clone()).or_insert(0);
+                        *p = (*p).max(*n);
+                        if t % 1000 == 0 {
+                            *sum.entry(k.clone()).or_insert(0) += n;
+                        }
+                    }
+                }
+                let mut v: Vec<_> = sum.iter().collect();
+                v.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+                for (k, s) in v {
+                    println!("{k}: peak {} alive, {s} summed over the 1000-gt samples", peak[k]);
+                }
+                println!("built and settled in {built:.1} s; {days} game day(s) ticked in {:.1} s; model errors: {}", t0.elapsed().as_secs_f64() - built, r.world.errors.join("; "));
+                return Ok(());
+            }
             let r = run(&spec, &o).map_err(|e| anyhow::anyhow!(e))?;
             // (the day time of a spawn: the mob layer starts at day0 - SETTLE_TICKS at game time 0)
             let night = r.spawn_times.iter().filter(|t| (o.day0 - redsim::entity::mob::farm::SETTLE_TICKS + **t).rem_euclid(24000) >= 12000).count();
@@ -440,6 +480,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             );
             for f in r.failures.iter().chain(r.errors.iter()) {
                 println!("FAIL {f}");
+            }
+            if cells > 0 {
+                let total: u64 = r.golem_cells.iter().map(|(_, n)| *n as u64).sum();
+                let mut v = r.golem_cells.clone();
+                v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+                println!("golem ticks by cell ({total} in all; the top {cells}):");
+                for (c, n) in v.iter().take(cells) {
+                    println!("  {} {} {}: {n} ({:.1}%)", c[0], c[1], c[2], 100.0 * *n as f64 / total.max(1) as f64);
+                }
             }
         }
         MobfarmCmd::Validate { design, days, kill, seeds, trace, repeat } => validate_cmd(version, &design, days, kill, seeds, trace, repeat)?,
