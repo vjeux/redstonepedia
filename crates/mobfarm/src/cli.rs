@@ -137,6 +137,25 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 24000)]
         ticks: u32,
     },
+    /// A local optimizer for any farm design (vjeux 2026-11-08 20:59; brief farm-iron rev 9
+    /// iteration 20): at the design's own spot, removes each placed block and refills each dug
+    /// cell that no static check needs, swaps blocks for cheaper ones of the same role, outer
+    /// shell first, every check as on the design (`mobfarm::trim`); then short AI-on runs against
+    /// the design's (within 3%, else the edits are bisected); prints before -> after.
+    Trim {
+        design: PathBuf,
+        /// Where the trimmed design goes (its caption kept).
+        #[arg(long)]
+        out: PathBuf,
+        /// Threads screening the edits (0: the machine's cores less 16).
+        #[arg(long, default_value_t = 0)]
+        threads: usize,
+        /// The short AI-on runs: game days each, and how many.
+        #[arg(long, default_value_t = 1.0)]
+        days: f64,
+        #[arg(long, default_value_t = 192)]
+        runs: u32,
+    },
     /// The farm built into a terrain sample, then the terrain track's worst-case checks for
     /// natural mobs (`hostile::check`): each channel's exposure (brief revision 8: a card line,
     /// never a refusal).
@@ -609,6 +628,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
         }
         MobfarmCmd::Sight { design, terrain } => sight_cmd(version, &design, terrain.as_deref())?,
         MobfarmCmd::Cubes { design } => cubes_cmd(version, &design)?,
+        MobfarmCmd::Trim { design, out, threads, days, runs } => crate::trim::trim_cmd(&crate::trim::TrimArgs { design, out, threads, days, runs })?,
         MobfarmCmd::Bury { design, out, cover, seeds, ticks } => {
             let (c, spec) = load(version, &design)?;
             let (cells, fluids) = crate::bury::envelope(&spec, &c.clock.design, seeds, ticks)?;
