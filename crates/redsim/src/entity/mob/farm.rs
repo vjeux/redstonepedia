@@ -861,8 +861,11 @@ fn absorb_weather(w: &mut World, rep: &mut RunReport, spec: &FarmSpec, tr: &Trac
             // the world's own blocks (a terrain sample's) are only simulated
             E::Fire { .. } => ws.fires += 1,
             E::Burned { at, what, .. } => {
-                let (lo, hi) = (spec.lo, spec.hi);
-                if (lo.x..=hi.x).contains(&at[0]) && (lo.y..=hi.y).contains(&at[1]) && (lo.z..=hi.z).contains(&at[2]) {
+                // the farm's own blocks only (its design's): a terrain sample's natural blocks in
+                // the farm's box (the surface grass over a dug farm, lit by lightning) are the
+                // world's, not the farm's (ironspec 2026-11-08: dust #2's card said its lava
+                // "flows in" after surface grass 30 blocks over it burned)
+                if spec.blocks.iter().any(|(p, b)| !b.is_air() && [p.x, p.y, p.z] == at) {
                     ws.burns += 1;
                     ws.first_burn.get_or_insert((t, what, at));
                 }

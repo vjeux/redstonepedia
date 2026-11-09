@@ -922,7 +922,10 @@ fn fire_line(spec: &FarmSpec, runs: &[RunReport], site: Option<&'static redsim::
     if let Some((_, what, at)) = burned.first() {
         let name = what.split('[').next().unwrap_or("").trim_start_matches("minecraft:");
         let minutes = burned.iter().map(|b| b.0 as f64 / 1200.0).sum::<f64>() / burned.len() as f64;
-        return Ok(format!("burns its {name} (first at {} {} {}) in about {minutes:.0} min in {} of {} runs; the lava then flows in", at[0], at[1], at[2], burned.len(), runs.len()));
+        // the lava flows into the burned cell only when it held the lava back (a lava block of
+        // the farm beside it)
+        let lava_beside = spec.blocks.iter().any(|(p, b)| matches!(b, redsim::block::Block::Lava { .. }) && (p.x - at[0]).abs() + (p.y - at[1]).abs() + (p.z - at[2]).abs() == 1);
+        return Ok(format!("burns its {name} (first at {} {} {}) in about {minutes:.0} min in {} of {} runs{}", at[0], at[1], at[2], burned.len(), runs.len(), if lava_beside { "; the lava then flows in" } else { "" }));
     }
     let run = farm::Run::new(spec, &RunOpts { site, ..RunOpts::steady(0, 0, WalkMode::Random) })?;
     Ok(match redsim::weather::fire::lava_can_burn(&run.world, spec.lo, spec.hi) {
