@@ -340,6 +340,19 @@ pub enum WebCmd {
         /// many frames.
         #[arg(long)]
         budget: Option<f64>,
+        /// Also write each frame's picture (the live view as drawn, its sky at the run's day time)
+        /// to `<dir>/frame_00001.png`, ... (one design): a film of the live view, for a video.
+        #[arg(long)]
+        png_dir: Option<PathBuf>,
+        /// The camera's yaw / pitch in degrees, framed as a page's `data-yaw` / `data-pitch`
+        /// frame it (default: the live camera).
+        #[arg(long)]
+        yaw: Option<f32>,
+        #[arg(long)]
+        pitch: Option<f32>,
+        /// The camera this many times closer (a film's framing).
+        #[arg(long)]
+        zoom: Option<f32>,
     },
     /// What a card costs (natively): each design's still (`Session::new` with `Options::still`)
     /// and its picture's mesh, timed; the slowest first. A card over `--budget` ms here is surely
@@ -873,13 +886,19 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
         WebCmd::Recqa { pages, dir, out, engines, window, scale, timeout, browser, chrome } => crate::recqa::cmd_recqa(&dir, &pages, &out, &engines, &window, scale, timeout, &browser, chrome.as_deref()),
         WebCmd::Qa { pages, dir, kinds, clocks, out, window, at, watch, shards } => crate::qa::cmd_qa(&dir, &pages, kinds, clocks, &out, &window, &at, watch, shards),
         WebCmd::Cardcost { designs, budget, top, procedural } => cmd_cardcost(&designs, budget, top, procedural),
-        WebCmd::Framecost { designs, width, height, dpr, warm, frames, ticks, cull, check, budget } => {
+        WebCmd::Framecost { designs, width, height, dpr, warm, frames, ticks, cull, check, budget, png_dir, yaw, pitch, zoom } => {
+            if png_dir.is_some() && designs.len() != 1 {
+                bail!("--png-dir: one design");
+            }
+            if let Some(dir) = &png_dir {
+                std::fs::create_dir_all(dir)?;
+            }
             let atlas = atlas(false);
             let mut off = mcview::render::headless::Offscreen::new(&atlas).map_err(anyhow::Error::msg)?;
             let mut bad = 0;
             for d in &designs {
                 let text = std::fs::read_to_string(d).with_context(|| format!("reading {}", d.display()))?;
-                match mcview::tools::frame_cost(&mut off, &atlas, &text, width, height, dpr, warm, frames, ticks, cull, check, budget) {
+                match mcview::tools::frame_cost(&mut off, &atlas, &text, width, height, dpr, warm, frames, ticks, cull, check, budget, png_dir.as_deref(), (yaw, pitch), zoom) {
                     Ok(c) => {
                         println!(
                             "{}: {width}x{height}: mesh {:.2} ms, draw {:.2} ms a frame ({} frames of {ticks} ticks; the blocks' mesh rebuilt {} times); vertices: {} on the GPU, {} solid + {} translucent uploaded a frame",

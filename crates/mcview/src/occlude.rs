@@ -820,7 +820,7 @@ mod tests {
         for (design, terrain) in [("designs/circuits/mobfarm/archive/iron-day1.txt", false), ("designs/farms/iron/day-1/d1u-underground.txt", true)] {
             let text = read(design);
             for (w, h, dpr) in [(798, 960, 2.0), (1232, 480, 1.0)] {
-                let c = crate::tools::frame_cost(&mut off, &atlas, &text, w, h, dpr, 0, 2, 1, true, true, None).unwrap();
+                let c = crate::tools::frame_cost(&mut off, &atlas, &text, w, h, dpr, 0, 2, 1, true, true, None, None, (None, None), None).unwrap();
                 assert_eq!(c.differing, 0, "{design} at {w}x{h}: {} pixels differ culled", c.differing);
                 assert_eq!(c.culls, 1, "{design} at {w}x{h}: worked out once for a camera at rest");
                 if terrain {

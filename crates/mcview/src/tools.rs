@@ -853,11 +853,31 @@ pub struct FrameCost {
 /// and waited for ([`FrameCost`]); `cull`: the kept triangles the camera can see only, as the
 /// browser draws them; `check`: each frame also drawn whole and the two pictures compared;
 /// `budget`: each frame's staged mesh work stops after that many ms, as in the browser (None: a
-/// changed mesh is built whole in its frame).
+/// changed mesh is built whole in its frame); `png_dir`: each frame's picture also written there
+/// (`frame_00001.png`, ...: a film of the live view); `view`: the camera's yaw and pitch in
+/// degrees, framed as a page's `data-yaw` / `data-pitch` frame it (None: the live camera); `zoom`:
+/// the camera that many times closer.
 #[allow(clippy::too_many_arguments)]
-pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, height: u32, dpr: f32, warm: u32, frames: u32, ticks: u32, cull: bool, check: bool, budget: Option<f64>) -> Result<FrameCost, String> {
+pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, height: u32, dpr: f32, warm: u32, frames: u32, ticks: u32, cull: bool, check: bool, budget: Option<f64>, png_dir: Option<&std::path::Path>, view: (Option<f32>, Option<f32>), zoom: Option<f32>) -> Result<FrameCost, String> {
     let mut p = crate::player::Player::new_web(text, width as f32 / height as f32)?;
     p.frame_live(atlas, width as f32 / dpr.max(0.5), height as f32 / dpr.max(0.5));
+    if view.0.is_some() || view.1.is_some() {
+        // (as `live::finish_load` frames a page's `data-yaw` / `data-pitch`)
+        if let Some(y) = view.0 {
+            p.camera.yaw = y.to_radians();
+        }
+        if let Some(pt) = view.1 {
+            p.camera.pitch = pt.to_radians();
+        }
+        let (lo, hi) = scene::frame_bounds(&p.session, &p.look);
+        p.camera.fit(lo, hi, width as f32 / height as f32, 0.85);
+        p.home = p.camera;
+    }
+    if let Some(z) = zoom.filter(|z| *z > 0.0) {
+        // (closer by that factor: the distance divided)
+        p.camera.dist /= z;
+        p.home = p.camera;
+    }
     for _ in 0..warm {
         p.session.step();
     }
@@ -929,6 +949,12 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
         off.r.draw(&view, &frame);
         let _ = off.r.device.poll(wgpu::PollType::wait_indefinitely());
         let t2 = std::time::Instant::now();
+        if let Some(dir) = png_dir
+            && k > 0
+        {
+            let rgba = off.render(&frame)?;
+            crate::render::headless::write_png(&dir.join(format!("frame_{k:05}.png")), width, height, &rgba)?;
+        }
         if check && k > 0 {
             let culled = off.render(&frame)?;
             let saved = (off.r.fixed_visible.take(), off.r.fixed_blend_visible.take());
