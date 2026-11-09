@@ -1509,7 +1509,7 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
                     if let Some((ok, nk, d)) = p.fixed_delta()
                         && nk == *key
                     {
-                        g.r.carry_cull((ok, nk, &d), v, &cam, w, h);
+                        g.r.carry_cull((ok, nk, &d), v, blend.as_ref().map(|(k, v)| (*k, v.as_slice())), &cam, w, h);
                     }
                     let tc = perf.as_ref().map(|q| q.now()).unwrap_or(0.0);
                     // (over as many frames as it takes: until this frame's task is CULL_BUDGET_MS

@@ -282,6 +282,12 @@ pub struct Renderer {
     /// theirs, the camera, width and height).
     fixed_blend: Option<(u64, wgpu::Buffer, u32)>,
     pub(crate) fixed_blend_visible: Option<((u64, u64, Camera, u32, u32), wgpu::Buffer, u32)>,
+    /// The same as a list (carried with the kept vertices' cull), and the triangles the last
+    /// exact cull and the last carried one kept (a carried cull close to the exact one is kept
+    /// as it is: [`Renderer::cull_fixed`]).
+    fixed_blend_visible_cpu: Option<std::rc::Rc<Vec<u32>>>,
+    last_exact_kept: usize,
+    carried_kept: usize,
     /// The occluders' side of the kept vertices ([`crate::occlude::Occluders`]), by their key.
     occluders: Option<(u64, std::rc::Rc<crate::occlude::Occluders>)>,
     /// The visible set being worked out, for its kept vertices, translucent ones, camera and size.
@@ -476,7 +482,7 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
-        Renderer { device, queue, format, samples, solid, blend, sky, uniforms, bind, targets: None, vbuf: None, fixed: None, fixed_visible: None, fixed_visible_cpu: None, fixed_provisional: false, fixed_blend: None, fixed_blend_visible: None, occluders: None, cull: None, tiles: tex, tiles_view: view, bgl, sampler, game_tex, game_of, view_chunks: None, void_below: false, env: None }
+        Renderer { device, queue, format, samples, solid, blend, sky, uniforms, bind, targets: None, vbuf: None, fixed: None, fixed_visible: None, fixed_visible_cpu: None, fixed_provisional: false, fixed_blend: None, fixed_blend_visible: None, fixed_blend_visible_cpu: None, last_exact_kept: 0, carried_kept: 0, occluders: None, cull: None, tiles: tex, tiles_view: view, bgl, sampler, game_tex, game_of, view_chunks: None, void_below: false, env: None }
     }
 
     fn bind_group(device: &wgpu::Device, bgl: &wgpu::BindGroupLayout, uniforms: &wgpu::Buffer, tiles: &wgpu::TextureView, sampler: &wgpu::Sampler, game: &wgpu::Texture) -> wgpu::BindGroup {
@@ -551,6 +557,7 @@ impl Renderer {
                 self.fixed_provisional = false;
                 self.fixed_blend = None;
                 self.fixed_blend_visible = None;
+                self.fixed_blend_visible_cpu = None;
                 self.occluders = None;
                 self.cull = None;
             }
@@ -576,6 +583,7 @@ impl Renderer {
             None => {
                 self.fixed_blend = None;
                 self.fixed_blend_visible = None;
+                self.fixed_blend_visible_cpu = None;
             }
             Some((key, v)) => {
                 if self.fixed_blend.as_ref().is_some_and(|(k, _, _)| *k == key) {
@@ -613,7 +621,10 @@ impl Renderer {
         let key = (fixed.0, *cam, width, height);
         let bkey = (fixed.0, bk, *cam, width, height);
         let blend_done = blend.is_none() || self.fixed_blend_visible.as_ref().is_some_and(|(k, _, _)| *k == bkey);
-        if self.fixed_visible.as_ref().is_some_and(|(k, _, _)| *k == key) && !self.fixed_provisional && blend_done {
+        // (a carried cull within a quarter of the last exact one's triangles is kept as it is:
+        // the same picture, and the exact cull's tens of ms saved until the camera moves)
+        let tight = self.fixed_provisional && self.carried_kept * 4 <= self.last_exact_kept * 5;
+        if self.fixed_visible.as_ref().is_some_and(|(k, _, _)| *k == key) && (!self.fixed_provisional || tight) && blend_done {
             return None;
         }
         if self.cull.as_ref().is_none_or(|(k, _)| *k != bkey) {
@@ -639,9 +650,11 @@ impl Renderer {
         // (the still translucent faces in front of the opaque ones, in their order)
         if blend.is_some() {
             self.fixed_blend_visible = Some((bkey, index("fixed translucent visible", &bidx), bidx.len() as u32));
+            self.fixed_blend_visible_cpu = Some(std::rc::Rc::new(bidx));
         }
         self.fixed_provisional = false;
         let kept = idx.len() / 3;
+        self.last_exact_kept = kept;
         self.fixed_visible_cpu = Some((key, std::rc::Rc::new(idx)));
         Some((kept, fixed.1.len() / 3))
     }
@@ -653,8 +666,11 @@ impl Renderer {
     /// have changed there and only there). A superset of the triangles the camera sees: the same
     /// picture, drawn until the exact cull of the new vertices is done ([`Renderer::cull_fixed`]
     /// runs on). The triangles kept and those of the new vertices; None when it does not apply
-    /// (no cull for the old, another camera, the new not yet kept, the change not on screen).
-    pub fn carry_cull(&mut self, delta: (u64, u64, &crate::remesh::Delta), verts: &[Vertex], cam: &Camera, width: u32, height: u32) -> Option<(usize, usize)> {
+    /// (no cull for the old, another camera, the new not yet kept, the change not on screen). The
+    /// still translucent faces' cull is carried too when they are the same (`blend`: their key and
+    /// vertices; Player keeps their key when no translucent face changed), with every one whose
+    /// place on screen meets that change.
+    pub fn carry_cull(&mut self, delta: (u64, u64, &crate::remesh::Delta), verts: &[Vertex], blend: Option<(u64, &[Vertex])>, cam: &Camera, width: u32, height: u32) -> Option<(usize, usize)> {
         let (old_key, new_key, d) = delta;
         let (k, old_idx) = self.fixed_visible_cpu.as_ref()?;
         if *k != (old_key, *cam, width, height) || self.fixed.as_ref().map(|f| f.0) != Some(new_key) || self.fixed_visible.as_ref().is_some_and(|(k, _, _)| k.0 == new_key) {
@@ -669,20 +685,35 @@ impl Renderer {
             }
             (c[3] > 1e-4).then(|| [(c[0] / c[3] + 1.0) * 0.5 * wf, (1.0 - c[1] / c[3]) * 0.5 * hf])
         };
-        // where the opaque faces changed on screen, 4 pixels out (the cull's cells and margins)
-        let rect = match d.world {
-            None => None,
-            Some((lo, hi)) => {
-                let (mut a, mut b) = ([f32::MAX; 2], [f32::MIN; 2]);
-                for c in 0..8 {
-                    let p = [if c & 1 == 0 { lo[0] } else { hi[0] }, if c & 2 == 0 { lo[1] } else { hi[1] }, if c & 4 == 0 { lo[2] } else { hi[2] }];
-                    let s = project(p)?;
-                    a = [a[0].min(s[0]), a[1].min(s[1])];
-                    b = [b[0].max(s[0]), b[1].max(s[1])];
-                }
-                Some(([a[0] - 4.0, a[1] - 4.0], [b[0] + 4.0, b[1] + 4.0]))
+        // where the opaque faces changed on screen: the tiles of 8 pixels a changed block's box
+        // meets, 4 pixels out (the cull's cells and margins); a box off screen hides nothing there
+        const TILE: f32 = 8.0;
+        let (tw, th) = ((wf / TILE) as usize + 1, (hf / TILE) as usize + 1);
+        let mut mask = vec![false; tw * th];
+        let tiles = |a: [f32; 2], b: [f32; 2]| -> Option<(usize, usize, usize, usize)> {
+            if b[0] < 0.0 || b[1] < 0.0 || a[0] > wf || a[1] > hf {
+                return None;
             }
+            let x = ((a[0].max(0.0) / TILE) as usize, ((b[0].min(wf) / TILE) as usize).min(tw - 1));
+            let y = ((a[1].max(0.0) / TILE) as usize, ((b[1].min(hf) / TILE) as usize).min(th - 1));
+            Some((x.0, x.1, y.0, y.1))
         };
+        for (lo, hi) in &d.boxes {
+            let (mut a, mut b) = ([f32::MAX; 2], [f32::MIN; 2]);
+            for c in 0..8 {
+                let p = [if c & 1 == 0 { lo[0] } else { hi[0] }, if c & 2 == 0 { lo[1] } else { hi[1] }, if c & 4 == 0 { lo[2] } else { hi[2] }];
+                // (a corner behind the eye: no screen box, no carrying)
+                let s = project(p)?;
+                a = [a[0].min(s[0]), a[1].min(s[1])];
+                b = [b[0].max(s[0]), b[1].max(s[1])];
+            }
+            if let Some((x0, x1, y0, y1)) = tiles([a[0] - 4.0, a[1] - 4.0], [b[0] + 4.0, b[1] + 4.0]) {
+                for y in y0..=y1 {
+                    mask[y * tw + x0..=y * tw + x1].fill(true);
+                }
+            }
+        }
+        let changed = mask.iter().any(|m| *m);
         let n = verts.len() / 3;
         let mut keep = vec![false; n];
         for t in old_idx.chunks_exact(3) {
@@ -696,31 +727,71 @@ impl Renderer {
                 keep[t as usize] = true;
             }
         }
-        if let Some((a, b)) = rect {
+        // (a triangle whose place on screen meets the change, or one not wholly in front of the
+        // eye; one off screen draws nothing)
+        let meets = |tri: &[Vertex]| match [project(tri[0].pos), project(tri[1].pos), project(tri[2].pos)] {
+            [Some(p), Some(q), Some(r)] => {
+                let a = [p[0].min(q[0]).min(r[0]), p[1].min(q[1]).min(r[1])];
+                let b = [p[0].max(q[0]).max(r[0]), p[1].max(q[1]).max(r[1])];
+                tiles(a, b).is_some_and(|(x0, x1, y0, y1)| (y0..=y1).any(|y| mask[y * tw + x0..=y * tw + x1].iter().any(|m| *m)))
+            }
+            _ => true,
+        };
+        if changed {
             for (t, k) in keep.iter_mut().enumerate() {
-                if *k {
-                    continue;
+                if !*k {
+                    *k = meets(&verts[t * 3..t * 3 + 3]);
                 }
-                let tri = &verts[t * 3..t * 3 + 3];
-                *k = match [project(tri[0].pos), project(tri[1].pos), project(tri[2].pos)] {
-                    [Some(p), Some(q), Some(r)] => {
-                        let (x0, x1) = (p[0].min(q[0]).min(r[0]), p[0].max(q[0]).max(r[0]));
-                        let (y0, y1) = (p[1].min(q[1]).min(r[1]), p[1].max(q[1]).max(r[1]));
-                        x1 >= a[0] && x0 <= b[0] && y1 >= a[1] && y0 <= b[1]
-                    }
-                    _ => true,
-                };
             }
         }
+        // the still translucent faces' cull, when they are the same: theirs and those meeting the
+        // change, in their order (back to front)
+        let old_bkey = (old_key, blend.map(|b| b.0).unwrap_or(0), *cam, width, height);
+        let carried_blend = match (blend, self.fixed_blend_visible_cpu.as_ref()) {
+            (Some((bk, bv)), Some(bidx)) if self.fixed_blend_visible.as_ref().is_some_and(|(k, _, _)| *k == old_bkey) && self.fixed_blend.as_ref().is_some_and(|f| f.0 == bk) => {
+                let mut bkeep = vec![false; bv.len() / 3];
+                for t in bidx.chunks_exact(3) {
+                    if let Some(k) = bkeep.get_mut((t[0] / 3) as usize) {
+                        *k = true;
+                    }
+                }
+                if changed {
+                    for (t, k) in bkeep.iter_mut().enumerate() {
+                        if !*k {
+                            *k = meets(&bv[t * 3..t * 3 + 3]);
+                        }
+                    }
+                }
+                let bidx: Vec<u32> = bkeep.iter().enumerate().filter(|(_, k)| **k).flat_map(|(t, _)| [(t * 3) as u32, (t * 3 + 1) as u32, (t * 3 + 2) as u32]).collect();
+                Some(((new_key, bk, *cam, width, height), bidx))
+            }
+            _ => None,
+        };
+        let upload = |label: &str, idx: &[u32]| {
+            let buf = self.device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size: ((idx.len() * 4) as u64).max(64), usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+            if !idx.is_empty() {
+                self.queue.write_buffer(&buf, 0, bytemuck::cast_slice(idx));
+            }
+            buf
+        };
         let idx: Vec<u32> = keep.iter().enumerate().filter(|(_, k)| **k).flat_map(|(t, _)| [(t * 3) as u32, (t * 3 + 1) as u32, (t * 3 + 2) as u32]).collect();
-        let buf = self.device.create_buffer(&wgpu::BufferDescriptor { label: Some("fixed visible (carried)"), size: ((idx.len() * 4) as u64).max(64), usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
-        if !idx.is_empty() {
-            self.queue.write_buffer(&buf, 0, bytemuck::cast_slice(&idx));
-        }
+        let buf = upload("fixed visible (carried)", &idx);
+        let blend_buf = carried_blend.as_ref().map(|(_, bidx)| upload("fixed translucent visible (carried)", bidx));
         let key = (new_key, *cam, width, height);
         self.fixed_visible = Some((key, buf, idx.len() as u32));
+        match (carried_blend, blend_buf) {
+            (Some((bkey, bidx)), Some(bbuf)) => {
+                self.fixed_blend_visible = Some((bkey, bbuf, bidx.len() as u32));
+                self.fixed_blend_visible_cpu = Some(std::rc::Rc::new(bidx));
+            }
+            _ => {
+                self.fixed_blend_visible = None;
+                self.fixed_blend_visible_cpu = None;
+            }
+        }
         self.fixed_provisional = true;
         let kept = idx.len() / 3;
+        self.carried_kept = kept;
         self.fixed_visible_cpu = Some((key, std::rc::Rc::new(idx)));
         Some((kept, n))
     }

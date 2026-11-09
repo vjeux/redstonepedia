@@ -895,6 +895,14 @@ clocks 120 gt; entity, TNT and shulker designs 400 gt) and fails on any differen
   compares each carried frame with the whole one too (`carried over N times`). WebKit at phone
   size, every frame of the run culled (cross-4-underground 127 of 127, against 109 of 123):
   cross-4-underground p95 57 against 65 ms, bed-plate-two-clusters p95 36-40 against 35-43.
+  Part 7: only the blocks whose faces changed count as changed (a block drawn again the same, its
+  neighbour changed, keeps its triangles' cull), each one's own screen box (tiles of 8 pixels,
+  not one box around them all); the still translucent faces keep their sorted list, its key and
+  its cull when none of theirs changed, and carry their cull too; and a carried cull within a
+  quarter of the last exact one's triangles is kept as it is (no exact cull until the camera
+  moves). From the start, 100 frames of 10 ticks: exact culls 64 -> 25 on bed-plate-two-clusters,
+  9 -> 1 on cross-4-underground, 46 -> 21 on bed-plate-lava-in-sight; WebKit p95
+  cross-4-underground 35/46 against 34/57 ms, bed-plate-two-clusters 36/33 against 40/36.
 
 ## Commands
 

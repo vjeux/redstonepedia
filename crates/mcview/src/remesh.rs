@@ -43,8 +43,8 @@ pub struct Remesh {
 /// What an update changed in the mesh's solid vertices (a renderer carries the old mesh's visible
 /// triangles over to the new: `Renderer::carry_cull`): each block's solid vertex range before and
 /// after, the blocks drawn again (sorted; a block new since among them), where the blocks' faces
-/// ended before and end now (what follows them, moved as a whole), and the world box of the solid
-/// faces drawn again, old and new (where the opaque faces changed: None, none).
+/// ended before and end now (what follows them, moved as a whole), and the world boxes of the
+/// solid faces drawn again, old and new, one per block (where the opaque faces changed).
 #[derive(Clone, Debug)]
 pub struct Delta {
     pub old: Vec<[u32; 2]>,
@@ -52,7 +52,10 @@ pub struct Delta {
     pub redrawn: Vec<usize>,
     pub old_end: u32,
     pub new_end: u32,
-    pub world: Option<([f32; 3], [f32; 3])>,
+    pub boxes: Vec<([f32; 3], [f32; 3])>,
+    /// Whether a block drawn again had or has translucent faces (else the blocks' translucent
+    /// faces are the same as before, in the same order).
+    pub translucent: bool,
 }
 
 impl Delta {
@@ -221,28 +224,42 @@ impl Remesh {
             return None;
         }
         let items_end = (solid.len(), translucent.len());
-        // what changed, for a renderer to carry the old visible triangles over
-        let mut world: Option<([f32; 3], [f32; 3])> = None;
-        let mut grow = |p: [f32; 3]| {
-            let (lo, hi) = world.get_or_insert((p, p));
-            for k in 0..3 {
-                lo[k] = lo[k].min(p[k]);
-                hi[k] = hi[k].max(p[k]);
-            }
-        };
+        // what changed, for a renderer to carry the old visible triangles over: each block's solid
+        // faces' box, old and new; a block drawn again the same as before (its neighbour changed,
+        // not its faces) counts as kept
+        let mut boxes: Vec<([f32; 3], [f32; 3])> = Vec::with_capacity(fresh.len());
+        let mut changed_items: Vec<usize> = Vec::with_capacity(fresh.len());
+        let mut translucent_changed = false;
         for &(i, r) in &fresh {
-            if let Some(o) = old_ranges.get(i) {
-                old.solid[o[0] as usize..o[1] as usize].iter().for_each(|v| grow(v.pos));
+            let old_faces = old_ranges.get(i).map(|o| &old.solid[o[0] as usize..o[1] as usize]).unwrap_or(&[]);
+            let new_faces = &scratch.solid[r[0] as usize..r[1] as usize];
+            let old_quads = old_ranges.get(i).map(|o| &old.translucent[o[2] as usize..o[3] as usize]).unwrap_or(&[]);
+            let new_quads = &scratch.translucent[r[2] as usize..r[3] as usize];
+            if old_quads.len() != new_quads.len() || old_quads.iter().zip(new_quads).any(|(a, b)| bytemuck::bytes_of(&a.v) != bytemuck::bytes_of(&b.v) || a.center.map(f32::to_bits) != b.center.map(f32::to_bits)) {
+                translucent_changed = true;
             }
-            scratch.solid[r[0] as usize..r[1] as usize].iter().for_each(|v| grow(v.pos));
+            if old_ranges.get(i).is_some() && bytemuck::cast_slice::<Vertex, u8>(old_faces) == bytemuck::cast_slice::<Vertex, u8>(new_faces) {
+                continue;
+            }
+            changed_items.push(i);
+            let mut bx: Option<([f32; 3], [f32; 3])> = None;
+            for v in old_faces.iter().chain(new_faces) {
+                let (lo, hi) = bx.get_or_insert((v.pos, v.pos));
+                for k in 0..3 {
+                    lo[k] = lo[k].min(v.pos[k]);
+                    hi[k] = hi[k].max(v.pos[k]);
+                }
+            }
+            boxes.extend(bx);
         }
         self.delta = Some(Delta {
             old: old_ranges.iter().map(|r| [r[0], r[1]]).collect(),
             new: ranges.iter().map(|r| [r[0], r[1]]).collect(),
-            redrawn: fresh.iter().map(|(i, _)| *i).collect(),
+            redrawn: changed_items,
+            translucent: translucent_changed,
             old_end: self.items_end.0 as u32,
             new_end: items_end.0 as u32,
-            world,
+            boxes,
         });
         solid.extend_from_slice(&old.solid[self.items_end.0..]);
         translucent.extend_from_slice(&old.translucent[self.items_end.1..]);

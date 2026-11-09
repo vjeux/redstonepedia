@@ -899,7 +899,7 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
             && let Some((key, v)) = &fixed
             && let Some((ok, nk, d)) = p.fixed_delta()
             && nk == *key
-            && let Some((kept, _)) = off.r.carry_cull((ok, nk, &d), v, &p.camera, width, height)
+            && let Some((kept, _)) = off.r.carry_cull((ok, nk, &d), v, blend.as_ref().map(|(k, v)| (*k, v.as_slice())), &p.camera, width, height)
         {
             c.carried += 1;
             c.carried_kept = kept;

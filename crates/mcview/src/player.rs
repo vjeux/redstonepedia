@@ -1577,6 +1577,14 @@ impl Player {
                     self.block_key = bkey;
                     // (what changed, for the renderer to carry its cull over: `fixed_delta`)
                     self.fixed_delta = self.remesh.as_mut().unwrap().take_delta().map(|d| (old_key, self.built, std::rc::Rc::new(d)));
+                    // (no translucent face changed: the blocks' sorted translucent faces, their key
+                    // and their cull stay)
+                    if self.fixed_delta.as_ref().is_some_and(|(_, _, d)| !d.translucent)
+                        && let Some((_, (k, _), _)) = self.fixed_blend.as_mut()
+                        && *k == old_key
+                    {
+                        *k = self.built;
+                    }
                 }
                 // (nothing drawn changed: the same mesh, its key and its cull kept)
                 Some(None) => self.block_key = bkey,
