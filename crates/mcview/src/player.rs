@@ -38,6 +38,9 @@ pub struct Player {
     /// What a mob farm's blocks' mesh is updated in place with when a few blocks change
     /// ([`crate::remesh::Remesh`]; None: the next change builds it whole).
     remesh: Option<crate::remesh::Remesh>,
+    /// The last update in place: the blocks' mesh key before and after, and what changed
+    /// ([`Player::fixed_delta`]).
+    fixed_delta: Option<(u64, u64, std::rc::Rc<crate::remesh::Delta>)>,
     staged_now: bool,
     /// Something changed since the last frame.
     pub dirty: bool,
@@ -339,6 +342,7 @@ impl Player {
             built: 0,
             staged: None,
             remesh: None,
+            fixed_delta: None,
             staged_now: false,
             dirty: true,
             hold_blocks: false,
@@ -1568,8 +1572,11 @@ impl Player {
             match m {
                 Some(Some(m)) => {
                     self.block_mesh = Some(m);
+                    let old_key = self.built;
                     self.built = next_build();
                     self.block_key = bkey;
+                    // (what changed, for the renderer to carry its cull over: `fixed_delta`)
+                    self.fixed_delta = self.remesh.as_mut().unwrap().take_delta().map(|d| (old_key, self.built, std::rc::Rc::new(d)));
                 }
                 // (nothing drawn changed: the same mesh, its key and its cull kept)
                 Some(None) => self.block_key = bkey,
@@ -1673,6 +1680,12 @@ impl Player {
     /// What its mesh is updated in place with ([`crate::remesh`]).
     pub fn remesh(&self) -> Option<&crate::remesh::Remesh> {
         self.remesh.as_ref()
+    }
+
+    /// The last update in place of a mob farm's blocks: the kept vertices' key before and after
+    /// and what changed (`Renderer::carry_cull` carries the cull of the one to the other).
+    pub fn fixed_delta(&self) -> Option<(u64, u64, std::rc::Rc<crate::remesh::Delta>)> {
+        self.fixed_delta.clone()
     }
 
     /// The key of the blocks' triangles a renderer keeps ([`Player::triangles_split_within`]'s

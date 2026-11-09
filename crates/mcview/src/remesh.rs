@@ -36,6 +36,38 @@ pub struct Remesh {
     /// Where the blocks' own faces end in the mesh (solid vertices, translucent quads): after
     /// them, what is drawn whole (outlines, markers), kept as it is.
     items_end: (usize, usize),
+    /// What the last update changed ([`Remesh::take_delta`]).
+    delta: Option<Delta>,
+}
+
+/// What an update changed in the mesh's solid vertices (a renderer carries the old mesh's visible
+/// triangles over to the new: `Renderer::carry_cull`): each block's solid vertex range before and
+/// after, the blocks drawn again (sorted; a block new since among them), where the blocks' faces
+/// ended before and end now (what follows them, moved as a whole), and the world box of the solid
+/// faces drawn again, old and new (where the opaque faces changed: None, none).
+#[derive(Clone, Debug)]
+pub struct Delta {
+    pub old: Vec<[u32; 2]>,
+    pub new: Vec<[u32; 2]>,
+    pub redrawn: Vec<usize>,
+    pub old_end: u32,
+    pub new_end: u32,
+    pub world: Option<([f32; 3], [f32; 3])>,
+}
+
+impl Delta {
+    /// An old solid vertex's place now (None: its block was drawn again).
+    pub fn map(&self, v: u32) -> Option<u32> {
+        if v >= self.old_end {
+            return Some(v - self.old_end + self.new_end);
+        }
+        // (the blocks' ranges lie in order: the last starting at or before it)
+        let i = self.old.partition_point(|r| r[0] <= v).checked_sub(1)?;
+        if self.redrawn.binary_search(&i).is_ok() || v >= self.old[i][1] {
+            return None;
+        }
+        Some(v - self.old[i][0] + self.new[i][0])
+    }
 }
 
 impl Remesh {
@@ -47,7 +79,12 @@ impl Remesh {
             return None;
         }
         parts.clear_mesh();
-        Some(Remesh { removed: vec![false; n], blocks, parts: Some(parts), items_end })
+        Some(Remesh { removed: vec![false; n], blocks, parts: Some(parts), items_end, delta: None })
+    }
+
+    /// What the last update changed (taken once).
+    pub fn take_delta(&mut self) -> Option<Delta> {
+        self.delta.take()
     }
 
     /// The mesh `old` (the last one built or updated) with the blocks at the world cells
@@ -184,6 +221,29 @@ impl Remesh {
             return None;
         }
         let items_end = (solid.len(), translucent.len());
+        // what changed, for a renderer to carry the old visible triangles over
+        let mut world: Option<([f32; 3], [f32; 3])> = None;
+        let mut grow = |p: [f32; 3]| {
+            let (lo, hi) = world.get_or_insert((p, p));
+            for k in 0..3 {
+                lo[k] = lo[k].min(p[k]);
+                hi[k] = hi[k].max(p[k]);
+            }
+        };
+        for &(i, r) in &fresh {
+            if let Some(o) = old_ranges.get(i) {
+                old.solid[o[0] as usize..o[1] as usize].iter().for_each(|v| grow(v.pos));
+            }
+            scratch.solid[r[0] as usize..r[1] as usize].iter().for_each(|v| grow(v.pos));
+        }
+        self.delta = Some(Delta {
+            old: old_ranges.iter().map(|r| [r[0], r[1]]).collect(),
+            new: ranges.iter().map(|r| [r[0], r[1]]).collect(),
+            redrawn: fresh.iter().map(|(i, _)| *i).collect(),
+            old_end: self.items_end.0 as u32,
+            new_end: items_end.0 as u32,
+            world,
+        });
         solid.extend_from_slice(&old.solid[self.items_end.0..]);
         translucent.extend_from_slice(&old.translucent[self.items_end.1..]);
         self.items_end = items_end;

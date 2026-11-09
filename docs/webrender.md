@@ -884,6 +884,17 @@ clocks 120 gt; entity, TNT and shulker designs 400 gt) and fails on any differen
   mesh, its key and its cull (no upload, no cull again); the splice copies the old faces in runs
   between the fresh ones; cross-4-underground's update natively: light 8-10 -> 2 ms, the splice
   1.2-4 ms (`MCVIEW_REMESH_LOG` prints each update's parts).
+* The cull carried over an update in place (part 6, `Renderer::carry_cull` with
+  `remesh::Delta`, `Player::fixed_delta`): the frame right after an update draws the last cull's
+  visible triangles where they are now, every triangle of the blocks drawn again, and every
+  triangle whose place on screen meets the screen box of the opaque faces that changed (old and
+  new, 4 pixels out): occlusion changes only where opaque faces changed, so it is a superset of
+  what the camera sees and the same picture, at once, while the exact cull of the new mesh runs
+  on (staged) and replaces it. bed-plate-two-clusters carries 21,000 triangles (the exact cull
+  14,400, all 51,900), cross-4-underground 43,300 (40,900 of 164,000); `framecost --cull --check`
+  compares each carried frame with the whole one too (`carried over N times`). WebKit at phone
+  size, every frame of the run culled (cross-4-underground 127 of 127, against 109 of 123):
+  cross-4-underground p95 57 against 65 ms, bed-plate-two-clusters p95 36-40 against 35-43.
 
 ## Commands
 

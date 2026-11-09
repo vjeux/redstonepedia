@@ -838,6 +838,10 @@ pub struct FrameCost {
     /// blocks' meshes finished over the frames, and the frames that worked on one.
     pub built: u32,
     pub staged_frames: u32,
+    /// With the cull: the updates in place whose last cull was carried over at once
+    /// (`Renderer::carry_cull`, checked with `check` too), and the last one's triangles kept.
+    pub carried: u32,
+    pub carried_kept: usize,
 }
 
 /// A live viewer of `text` at `width x height` device pixels (`dpr`: its CSS size is that / dpr),
@@ -889,6 +893,26 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
         off.r.env = p.daylight();
         off.r.set_fixed(fixed.as_ref().map(|(k, v)| (*k, v.as_slice())));
         off.r.set_fixed_blend(blend.as_ref().map(|(k, v)| (*k, v.as_slice())));
+        // an update in place: the last cull carried over at once (`Renderer::carry_cull`), its
+        // frame checked against the whole one too before the exact cull replaces it
+        if cull
+            && let Some((key, v)) = &fixed
+            && let Some((ok, nk, d)) = p.fixed_delta()
+            && nk == *key
+            && let Some((kept, _)) = off.r.carry_cull((ok, nk, &d), v, &p.camera, width, height)
+        {
+            c.carried += 1;
+            c.carried_kept = kept;
+            if check {
+                let frame = Frame { solid: &solid, translucent: &translucent, camera: p.camera, width, height };
+                let carried = off.render(&frame)?;
+                let saved = (off.r.fixed_visible.take(), off.r.fixed_blend_visible.take());
+                let whole = off.render(&frame)?;
+                (off.r.fixed_visible, off.r.fixed_blend_visible) = saved;
+                let differing = carried.chunks(4).zip(whole.chunks(4)).filter(|(a, b)| a != b).count();
+                c.differing = c.differing.max(differing);
+            }
+        }
         if cull && let Some((key, v)) = &fixed {
             let tc = std::time::Instant::now();
             if let Some((kept, tested)) = off.r.cull_fixed((*key, v), blend.as_ref().map(|(k, v)| (*k, v.as_slice())), &opaque, &p.camera, width, height, &mut || false) {

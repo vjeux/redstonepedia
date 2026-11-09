@@ -1504,6 +1504,13 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
                         l.opaque = Some((of, std::rc::Rc::new(mcview::occlude::Opaque::of(&atlas))));
                     }
                     let opaque = l.opaque.as_ref().unwrap().1.clone();
+                    // (blocks updated in place: the last cull carried over at once, a superset of
+                    // what the camera sees, until the exact one below is done)
+                    if let Some((ok, nk, d)) = p.fixed_delta()
+                        && nk == *key
+                    {
+                        g.r.carry_cull((ok, nk, &d), v, &cam, w, h);
+                    }
                     let tc = perf.as_ref().map(|q| q.now()).unwrap_or(0.0);
                     // (over as many frames as it takes: until this frame's task is CULL_BUDGET_MS
                     // long, a few ms at least)

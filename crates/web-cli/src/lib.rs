@@ -880,7 +880,7 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
                             c.translucent
                         );
                         if cull {
-                            println!("  culled: {} of {} kept triangles drawn, worked out {} times in {:.1} ms each", c.kept, c.tested, c.culls, c.cull_ms);
+                            println!("  culled: {} of {} kept triangles drawn, worked out {} times in {:.1} ms each; carried over {} times (the last {} triangles)", c.kept, c.tested, c.culls, c.cull_ms, c.carried, c.carried_kept);
                         }
                         if let Some(b) = budget {
                             println!("  staged at {b} ms a frame: {} blocks' meshes finished, {} frames of {} working on one", c.built, c.staged_frames, c.frames);
