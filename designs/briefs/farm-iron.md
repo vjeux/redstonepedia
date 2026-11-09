@@ -634,8 +634,8 @@ per hour per block is printed on every member. Per module, at the farm's own N, 
 and its copies are one member (iteration 4).
 
 Where a middle farm can win (iteration 12, from middle run 2 and the module's priced build): the
-module alone already reaches 92% of the ceiling (m2-open-ring: about 441 iron an hour per module
-against 480), so no farm beats copies by 10% on iron per hour per module; it beats them only on
+module alone already sits at its cap (m2-open-ring: about 441-444 iron an hour per module
+against 443 for its 4 villagers, iteration 22; written earlier as 92% of 480), so no farm beats copies by 10% on iron per hour per module; it beats them only on
 build minutes per module, at most 90% of the copies' (the role-materialized module costs about
 25 minutes at middle prices) while keeping at least 90% of their rate. A module's minutes go to
 its villagers (4 moved, 8 minutes, about a third: never shared), placing its blocks (about 7),
@@ -731,7 +731,8 @@ What couples modules (26.3):
 - **The spawn's 10-box.** `Villager.spawnGolemIfNeeded` counts the villagers that want a golem in
   the summoner's box inflated by 10 (at most 5 counted, 3 needed) and, after a spawn, calls
   `GolemSensor.golemDetected` on every villager in that box (`GOLEM_DETECTED_RECENTLY` for 599 gt).
-  Villagers within 10 of each other are one cluster: one golem per 600 gt (the ceiling).
+  Villagers within 10 of each other are one cluster: n - 2 golems per 600 (n - 2) + 100 gt for n
+  villagers (the cap, iteration 22).
 - **The follow cube.** `NearestLivingEntitySensor` (every 20 gt) lists every living entity in the
   villager's box inflated by its `FOLLOW_RANGE` on all three axes (16 x (1 + triangle(0,
   0.11485)): 14.2 to 17.8), with no sight test; `GolemSensor` (every 200 gt) resets the villager
@@ -800,16 +801,23 @@ its seeds (LS-open, the first measured gain from sharing, first).
 - **`wantsToSpawnGolem` = `golemSpawnConditionsMet && !GOLEM_DETECTED_RECENTLY`**.
   `golemSpawnConditionsMet` holds when the memory `LAST_SLEPT` exists and `gameTime - lastSlept
   < 24000`. **Without a sleep in the last game day, a villager never wants a golem.**
-- **Memory expiry order.** `Brain.tick` runs `forgetOutdatedMemories`, `tickSensors`,
-  `startEachNonRunningBehavior`, then `tickEachRunningBehavior`. `MemorySlot.tick` clears a
-  memory when `timeToLive <= 0`, else decrements it. When villager V spawns a golem at T:
-  - V and the villagers before it in the entity list clear the memory at their own brain tick
-    at T+600, the villagers after it at T+599;
-  - so at T+600 only V and the villagers after it can count 3: one earlier in the list still
-    reads V's memory at ttl 0 until V's own `forgetOutdatedMemories`.
+- **Memory expiry order** (corrected at iteration 22; revisions 1-21 read it as one golem per
+  600 gt per cluster). `Brain.tick` runs `forgetOutdatedMemories` before the behaviors, and
+  `ExpirableValue` checks its expiry before decrementing. When villager V spawns a golem at T
+  (in its behavior phase), `GOLEM_DETECTED_RECENTLY` is still present at T+600 for V and for the
+  villagers that ticked before it at T; only the villagers that tick after V are free at T+600.
+  So a cluster of n willing, panicking villagers makes n - 2 golems per 600 (n - 2) + 100 gt:
 
-  The next multiple of 100 is T+600. **One golem per 600 gt per villager cluster is the
-  ceiling** (below).
+  | villagers | golems per gt | golems an hour | iron an hour (about 4 a golem) |
+  |---|---|---|---|
+  | 3 | 1 per 700 | 102.9 | 411 |
+  | 4 | 2 per 1,300 (600, 700) | 110.8 | 443 |
+  | 5 | 3 per 1,900 (600, 600, 700) | 113.7 | 455 |
+  | many | toward 1 per 600 | toward 120 | toward 480 |
+
+  The measured modules sit at their caps: module-two-watchers (3 villagers) 408 of 411,
+  m2-open-ring (4) 444 of 443. (Pending the tick-exact lane's confirmation on the bridge: a
+  3-villager group's intervals exactly 700, a 4-villager group's 600 and 700 in turn.)
 - **The golem detector.** `GolemSensor` (scan rate 200) reads `NEAREST_LIVING_ENTITIES`. If any
   entity in it is an iron golem, it sets the same 599 gt memory. `NearestLivingEntitySensor`
   (rate 20) stores every living entity (`isAlive`) whose box meets the villager's box inflated by
@@ -1065,7 +1073,8 @@ its seeds (LS-open, the first measured gain from sharing, first).
 
 ## Six layouts
 
-Per cluster unless stated. Ceiling: 120 golems/h = 480 iron/h per cluster. The estimates are
+Per cluster unless stated. Ceiling (written at revision 2 as 120 golems/h = 480 iron/h per
+cluster; iteration 22: 411 for 3 villagers, 443 for 4, 455 for 5, see Ceiling). The estimates are
 mine, before the judge, with the review's corrections.
 
 | # | layout | calm moment | golem exit | estimate | bill (iron) | blocks |
@@ -1315,11 +1324,12 @@ whenever a world mirrors the level random: `World::exact_seed`).
 
 ## Ceiling
 
-- **Per cluster**: one golem per 600 gt (the 599 gt memory, cleared at the start of the brain
-  tick, and the multiple-of-100 attempts). That is 120 golems/h = **480 iron/h** and 120
-  poppies/h at vanilla speed.
+- **Per cluster** (iteration 22): n - 2 golems per 600 (n - 2) + 100 gt for n villagers (the
+  599 gt memory, still present at T+600 for the summoner and the villagers that ticked before it,
+  and the multiple-of-100 attempts): 411 iron/h for 3 villagers, 443 for 4, 455 for 5, toward
+  480 (120 golems/h) as n grows; poppies in proportion.
 - A cluster cannot do better: every golem marks every villager within 10 blocks.
-- A farm of N clusters: N x 480 iron/h.
+- A farm of N clusters: N x its clusters' cap.
 - Below it, in practice:
   - the panic gap, when every eligible villager is in its gap tick at once;
   - the sightings: at least about 47 gt in range for a pad and a drop;
@@ -1415,3 +1425,4 @@ the spec was, what came back (the front's size before and after merging), what c
 | 19 | The parent's decision (vjeux may overrule it): the chute to the side is a family every search must include and every stage lists, not a refusal; a drop under the pad competes on the objectives, which price its depth in every trip. Day 1 keeps one pick per value of its redstone fork (a fork, not an objective: a player has redstone or does not; redstone is priced 0 only in the dust fork, so the two fronts' T are not like for like): the no-redstone pick stays d1u-deep; the dust pick is the best member of the redstone fork's own front, never compared with the no-redstone pick: the dust farm with the regular row cage, its kill moved to 21 below the beds (outside every follow cube; on d1u-deep's terms 409 iron/h, T 42.9 min, 31 s a collection, "needs 45 redstone dust"), once its real-game gate passes and unless another redstone member on the same terms beats it by the rule; both are listed and each card says plainly whether it needs redstone and how much, in a player's words (e.g. "needs 12 redstone dust"); this is the parent's decision, replacing its 20:51 "switch once" wording. A kill 19 below the beds lies inside the follow cubes of a villager whose follow range draws above 16.3 (about 35% of draws: the sensor lists a golem whose feet are within R + 2.7 below a villager's feet, with no sight test), which made 1 of 12 positions fail; at 21 below it clears every draw. The bed-plate calm has no regular cage (settled by the second outcome of iteration 17's search), so D1U's cage stays in the bed-plate farms | vjeux 18:00: "Even digging down a lot is annoying because you have to go down and up way farther"; 18:02: "Don't put slabs, do it below the surface. And put the chute to the side". Equal terms: d1u-deep 320 iron/h, T 38.7 min, 31 s a collection; d1u-drop-side 326-328, T 48.4-49.1, 40 s. The dust farms with the regular row cage (1 irregularity against 3), AI on, travel priced: 301 iron/h at T 39.2, 367 at 39.8, 445 at 43.4. farmopt's day1-rooms enumeration: 946 zombie positions pass the rooms and in none does a watcher's standing ray cross a cell the plate powers (D4 reproduced as the positive control) | The side chute served the 18:00 point, and on equal terms it does not deliver it (a longer walk to the chest, 25% longer to the armour for 2.5% more iron); with travel priced into T, his concern sits in the objective itself. The dust farm (+15% iron at +3% time against d1u-deep) is the dust fork's pick, not a replacement for the no-redstone pick: its T leaves out the dive for redstone ore that the fork assumes done (the G1 review) |
 | 20 | Every part gets an objective vector and hard rules at every stage (Common, "Every part's objectives and hard rules"): the cage, the calm, the pad and its caps, the transport, the kill, the collection, the storage, the access and the containment; objectives: blocks placed, blocks dug, build minutes with travel and height, compactness, regularity (iteration 17's counts generalized, distinct block types included) and the part's measured effect in a reference farm; bounds printed where they exist, each labelled with its family beside the part's bound over the stage's materials (a lava kill 240 gt, fire charges about 190 middle, splash Harming II about 80 and falling anvils about 20 late; a gravity drop out of the cubes about 20 gt, a slime push about 11 middle and late; a mark share of 1; one hopper's 9,000 items an hour, enough up to about 16 late modules; the floods' minimal cut; 8 hours of storage); the calm keeps iteration 17's working rule, golems by night a measured line; part fronts kept per interface; farmopt searches part fronts per stage and assembles from them; every listed farm and component member passes the trim (`mctas mobfarm trim`) and takes the regular parts within 10%; storage becomes a proper system (a sorter for iron and poppies in the middle and late stages, day 1 sharing one row with no quartz for a comparator; the iron in a horizontal row of double chests on a hopper line at the player's level, a crafter packing iron blocks in the middle and late stages when it pays; capacity per block, build minutes, seconds per collection, regularity; capacity against the stage's AFK hours a measured line) | vjeux 20:59: "All of them look super unoptimized. Can you make sure to optimize every single part of the system during the night." | Searching whole farms left each part as the generator first wrote it; a part front per stage, measured in a reference farm, finds the cheapest part that keeps the farm's numbers, and the trim removes what no check needs |
 | 21 | Overnight judgements recorded: storage's sorter and crafter are storage-front members chosen where capacity binds, the plain horizontal row a member too; the middle and late bar is the cheapest copies arrangement, buried copies with travel priced (438 iron/h, 28.5 build minutes a module middle, 14.3 late), so the + (cross-4: 445, 26.6) is within 10% and the middle has no pick (cross-4 listed first); the Day 1 redstone pick is set (dust-pulse-out-of-sight: 409 iron/h, T 42.9, gate passed); the kill's measured gap to lava's 240 gt is 29-30%, caused by the golem's walk to the lava; the carousel family gets its own brief ([farm-iron-carousel.md](farm-iron-carousel.md)) | farmopt's storage (22:08), + / copies table with travel (22:22), day-1 run 5 (22:32) and kill fronts (22:43); vjeux 22:53 for the carousel | One module's 8 hours fit a plain row 35.6 build minutes cheaper than a sorter and crafter; a bar must be the cheapest arrangement of copies, and with travel priced that is copies dug into rock |
+| 22 | The per-cluster cap corrected (Mechanics, "Memory expiry order"; Ceiling): n - 2 golems per 600 (n - 2) + 100 gt for n villagers, 411 iron/h for 3, 443 for 4, 455 for 5, toward 480; the measured modules sit at their caps (module-two-watchers 408 of 411, m2-open-ring 444 of 443); percentages "of the ceiling" written before against 480 read about 8% higher against the true cap. The carousel brief takes it: 7 groups of 3 reach one golem per 100 gt (6 give 86%), groups of 4 cannot hold a 600 gt rotation | The parent's reading of the code: `Brain.tick` runs `forgetOutdatedMemories` before the behaviors and `ExpirableValue` checks expiry before it decrements, so `GOLEM_DETECTED_RECENTLY` set in the summoner's behavior phase is still present at T+600 for the summoner and the villagers that ticked before it; the measured modules fit it to 1%; the tick-exact lane is asked to confirm the intervals on the bridge (700 for 3 villagers; 600 and 700 in turn for 4) | The "8% headroom" of a module never existed: a module is optimal for its villager count, so the middle and late gains can only come from build, volume and sharing, or from rotating villagers (the carousel) |
