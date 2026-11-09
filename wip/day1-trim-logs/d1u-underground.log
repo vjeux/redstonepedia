@@ -1,0 +1,20 @@
+designs/farms/iron/day-1/d1u-underground.txt: 109 placed (26 caps, 17 seals), 257 dug, 27.9 build minutes at village-edge [-352, 61, 244] (15 s)
+round 1: class A 0 tried, 0 kept; class B 36 tried, 23 pass alone, 23 kept; 105 placed (26 caps, 17 seals), 234 dug, 27.5 build minutes (70 s)
+round 2: class A 0 tried, 0 kept; class B 13 tried, 0 pass alone, 0 kept; 105 placed (26 caps, 17 seals), 234 dug, 27.5 build minutes (92 s)
+the trimmed design misses the whole check or the short runs: bisecting 23 edits
+  refilled [5, 3, -6]: minecraft:air
+  refilled [4, 3, -6]: minecraft:air
+  refilled [0, 2, -5]: minecraft:air
+  refilled [1, 2, -5]: minecraft:air
+  refilled [2, 2, -5]: minecraft:air
+  refilled [0, 1, -5]: minecraft:air
+  refilled [0, 2, -4]: minecraft:air
+  refilled [1, 2, -4]: minecraft:air
+  refilled [2, 2, -4]: minecraft:air
+  refilled [0, 1, -4]: minecraft:air
+  refilled [0, 1, -3]: minecraft:air
+  refilled [1, 2, -1]: minecraft:air
+  removed [0, 1, -1]: minecraft:cobblestone_slab[type=top,waterlogged=false]
+  refilled [1, 1, -1]: minecraft:air
+  removed [2, 1, -1]: minecraft:cobblestone_slab[type=top,waterlogged=false]
+/tmp/trim/out/d1u-underground.txt: before 109 placed (26 caps, 17 seals), 257 dug, 27.9 build minutes -> after 107 placed (26 caps, 17 seals), 242 dug, 27.6 build minutes; 2 blocks removed, 13 dug cells refilled, 0 swapped; short AI-on runs 65.0 -> 65.4 golems/h (192 x 1 days); 1048 s

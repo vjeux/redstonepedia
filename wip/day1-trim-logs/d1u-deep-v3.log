@@ -1,0 +1,20 @@
+/tmp/fix/d1u-deep.txt: 131 placed (8 caps, 16 seals), 517 dug, 32.3 build minutes, the climb from the chest to y 81.0 at village-edge [-347, 61, 246] (19 s)
+round 1: class A 0 tried, 0 kept; class B 35 tried, 22 pass alone, 22 kept; 127 placed (8 caps, 16 seals), 495 dug, 31.8 build minutes, the climb from the chest to y 81.0 (106 s)
+round 2: class A 0 tried, 0 kept; class B 13 tried, 0 pass alone, 0 kept; 127 placed (8 caps, 16 seals), 495 dug, 31.8 build minutes, the climb from the chest to y 81.0 (140 s)
+the trimmed design misses the whole check or the short runs (the short runs: 51.4 golems/h against 79.9): bisecting 22 edits
+  refilled [5, 3, -6]: minecraft:air
+  refilled [4, 3, -6]: minecraft:air
+  refilled [0, 2, -5]: minecraft:air
+  refilled [2, 2, -5]: minecraft:air
+  refilled [1, 2, -5]: minecraft:air
+  refilled [0, 2, -4]: minecraft:air
+  refilled [2, 2, -4]: minecraft:air
+  refilled [1, 2, -4]: minecraft:air
+  refilled [0, 1, -5]: minecraft:air
+  refilled [0, 1, -4]: minecraft:air
+  refilled [0, 1, -3]: minecraft:air
+  refilled [1, 2, -1]: minecraft:air
+  removed [0, 1, -1]: minecraft:cobblestone_slab[type=top,waterlogged=false]
+  removed [2, 1, -1]: minecraft:cobblestone_slab[type=top,waterlogged=false]
+  refilled [1, 1, -1]: minecraft:air
+/tmp/trim/out/d1u-deep-v3.txt: before 131 placed (8 caps, 16 seals), 517 dug, 32.3 build minutes, the climb from the chest to y 81.0 -> after 129 placed (8 caps, 16 seals), 502 dug, 32.0 build minutes, the climb from the chest to y 81.0; 2 blocks removed, 13 dug cells refilled, 0 swapped; short AI-on runs 79.9 -> 79.7 golems/h (192 x 1 days); 972 s

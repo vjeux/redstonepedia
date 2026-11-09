@@ -1,0 +1,51 @@
+designs/farms/iron/day-1/d1u-deep.txt: 146 placed (8 caps, 31 seals), 517 dug, 32.7 build minutes at village-edge [-347, 61, 246] (16 s)
+round 1: class A 0 tried, 0 kept; class B 157 tried, 58 pass alone, 58 kept; 117 placed (13 caps, 33 seals), 461 dug, 31.0 build minutes (110 s)
+round 2: class A 0 tried, 0 kept; class B 99 tried, 0 pass alone, 0 kept; 117 placed (13 caps, 33 seals), 461 dug, 31.0 build minutes (149 s)
+the trimmed design misses the whole check or the short runs: bisecting 58 edits
+  removed [-2, 10, 3]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-2, 9, 4]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-3, 8, 4]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-3, 7, 3]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  refilled [5, 3, -6]: minecraft:air
+  refilled [4, 3, -6]: minecraft:air
+  removed [-2, 6, 3]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  refilled [-3, -21, 4]: minecraft:air
+  removed [-3, -21, 3]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  refilled [-2, -21, 4]: minecraft:air
+  refilled [0, 2, -5]: minecraft:air
+  refilled [2, 2, -5]: minecraft:air
+  refilled [1, 2, -5]: minecraft:air
+  removed [-3, -20, 4]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  refilled [-2, -20, 4]: minecraft:air
+  refilled [0, 2, -4]: minecraft:air
+  refilled [2, 2, -4]: minecraft:air
+  refilled [1, 2, -4]: minecraft:air
+  refilled [0, 1, -5]: minecraft:air
+  removed [-2, -19, 4]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  refilled [0, 1, -4]: minecraft:air
+  refilled [0, 1, -3]: minecraft:air
+  refilled [1, 2, -1]: minecraft:air
+  removed [-2, -18, 3]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-3, -17, 3]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [0, 1, -1]: minecraft:cobblestone_slab[type=top,waterlogged=false]
+  removed [2, 1, -1]: minecraft:cobblestone_slab[type=top,waterlogged=false]
+  refilled [1, 1, -1]: minecraft:air
+  removed [-2, 1, 4]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-3, -16, 4]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-3, 0, 4]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-3, -1, 3]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-2, -15, 4]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-2, -14, 3]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-3, -13, 3]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-2, -2, 3]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-3, -12, 4]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-2, -3, 4]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-3, -4, 4]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-3, -5, 3]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-2, -11, 4]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-3, -9, 3]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-3, -8, 4]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-2, -10, 3]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-2, -6, 3]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  removed [-2, -7, 4]: minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+/tmp/trim/d1u-deep.txt: before 146 placed (8 caps, 31 seals), 517 dug, 32.7 build minutes -> after 118 placed (8 caps, 33 seals), 473 dug, 31.2 build minutes; 30 blocks removed, 16 dug cells refilled, 0 swapped; short AI-on runs 80.8 -> 80.9 golems/h (192 x 1 days); 1513 s

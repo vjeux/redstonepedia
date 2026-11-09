@@ -1,0 +1,35 @@
+designs/farms/iron/day-1/bed-plate-two-clusters.txt: 571 placed (429 caps, 10 seals), 569 dug, 61.5 build minutes at village-edge [-352, 64, 246] (28 s)
+round 1: class A 0 tried, 0 kept; class B 72 tried, 46 pass alone, 46 kept; 563 placed (429 caps, 10 seals), 523 dug, 60.5 build minutes (122 s)
+round 2: class A 0 tried, 0 kept; class B 26 tried, 0 pass alone, 0 kept; 563 placed (429 caps, 10 seals), 523 dug, 60.5 build minutes (154 s)
+the trimmed design misses the whole check or the short runs (the short runs: gt 201: the zombie (entity 17) took 1 in_wall damage golems/h against 105.7): bisecting 46 edits
+  refilled [19, 3, -6]: minecraft:air
+  refilled [18, 3, -6]: minecraft:air
+  refilled [0, 2, -5]: minecraft:air
+  refilled [0, 1, -5]: minecraft:air
+  refilled [0, 2, -4]: minecraft:air
+  refilled [16, 2, -5]: minecraft:air
+  refilled [1, 2, -5]: minecraft:air
+  refilled [4, 3, -6]: minecraft:air
+  refilled [5, 3, -6]: minecraft:air
+  refilled [15, 2, -5]: minecraft:air
+  refilled [2, 2, -5]: minecraft:air
+  refilled [0, 1, -4]: minecraft:air
+  refilled [16, 2, -4]: minecraft:air
+  refilled [1, 2, -4]: minecraft:air
+  refilled [14, 2, -5]: minecraft:air
+  refilled [0, 1, -3]: minecraft:air
+  refilled [15, 2, -4]: minecraft:air
+  refilled [2, 2, -4]: minecraft:air
+  refilled [14, 1, -5]: minecraft:air
+  refilled [14, 2, -4]: minecraft:air
+  removed [0, 1, -1]: minecraft:cobblestone_slab[type=top,waterlogged=false]
+  refilled [1, 2, -1]: minecraft:air
+  refilled [14, 1, -4]: minecraft:air
+  refilled [15, 2, -1]: minecraft:air
+  removed [16, 1, -1]: minecraft:cobblestone_slab[type=top,waterlogged=false]
+  refilled [1, 1, -1]: minecraft:air
+  refilled [14, 1, -3]: minecraft:air
+  refilled [15, 1, -1]: minecraft:air
+  removed [2, 1, -1]: minecraft:cobblestone_slab[type=top,waterlogged=false]
+  removed [14, 1, -1]: minecraft:cobblestone_slab[type=top,waterlogged=false]
+/tmp/trim/out/bed-plate-two-clusters.txt: before 571 placed (429 caps, 10 seals), 569 dug, 61.5 build minutes -> after 567 placed (429 caps, 10 seals), 539 dug, 60.9 build minutes; 4 blocks removed, 26 dug cells refilled, 0 swapped; short AI-on runs 105.7 -> 106.3 golems/h (192 x 1 days); 2365 s
