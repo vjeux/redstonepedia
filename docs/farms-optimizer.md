@@ -54,8 +54,12 @@ gates as its hatch), placed west, east or south of the chest where all its cells
 lava and water and walled from the farm's open cells; `surface_blocks` exempts its top two layers.
 Middle and late modules store in a horizontal row (vjeux 21:06): one hopper under the judge's chest
 into a double chest beside it (11.8 h of one module). A shared chain of 2+ modules (the shared-kill
-stacks) uses the cheap sorter and iron-block crafter (the ironfarm lane's layout with filters of 41
-items and 4 plain sticks, empty lock hoppers: 1,110 s at middle against 1,786 s with named paper).
+stacks) uses the ironfarm lane's sorter and iron-block crafter (`mobfarm::day1::collect_bottom_at1`)
+with the classic stock: each filter 41 of its item and four papers named "<item> filter", each lock
+hopper under it 64 of the item and four papers named "<item> lock". The cheap stock (filters of 41
+and 4 plain sticks, empty locks: 1,110 s at middle against 1,786 s) keeps all the iron on redsim but
+lost a quarter of it in the real game over the gate's 3 days (late-shared-kill-pair, 2026-11-09:
+2.6-3.8 iron per golem; the classic stock 4.00 in 8 of 8 builds), so it is not used.
 
 ## The search
 

@@ -225,11 +225,10 @@ pub fn member_of(c: &Cand, part: &str) -> String {
             Kill::Side { len, .. } => format!("side-chute-{len}"),
             Kill::Shaft { .. } => String::new(),
         },
-        "storage" if c.place == Place::Void && c.family_gen == 3 && c.modules >= 2 => "sorter-crafter-cheap".into(),
+        "storage" if c.place == Place::Void && c.family_gen == 3 && c.modules >= 2 => "sorter-crafter".into(),
         "storage" if c.place == Place::Void && c.family_gen == 0 => match c.chain {
-            1 => "sorter-crafter".into(),
-            2 => "sorter-crafter-cheap".into(),
-            _ => "chest-row".into(),
+            0 => "chest-row".into(),
+            _ => "sorter-crafter".into(),
         },
         "access" if c.place == Place::Dug => "spiral-staircase".into(),
         "transport" => match m.kill {

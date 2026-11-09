@@ -222,6 +222,38 @@ fn build_fresh(c: &Cand, calm_parts: &[crate::calm::Part]) -> Result<Built> {
         b.set(o[0] + 1, y, o[2], "chest[facing=south,type=right,waterlogged=false]");
         b.set(o[0] + 2, y, o[2], "chest[facing=south,type=left,waterlogged=false]");
     };
+    // the ironfarm lane's own sorter and iron-block crafter (mobfarm::day1::collect_bottom_at1)
+    // placed where a module's chest was, as their row-2x27 places it, its stock rewritten to the
+    // classic one below (row-2x27's, whose real-game gate passes); returns its output chest. With
+    // the cheap stock (filters 41 + 4 sticks, empty locks) late-shared-kill-pair lost a quarter of
+    // its iron in the game (2026-11-09: 2.6-3.8 iron per golem; classic 4.00), the same frame
+    let ironfarm_sorter = |b: &mut Builder, o: [i32; 3]| -> [i32; 3] {
+        let mut t = Builder::new("collect");
+        mobfarm::day1::collect_bottom_at1(&mut t, o[1] + 1);
+        let (dx, dz) = (o[0] - 1, o[2] + 1);
+        for (q, s) in &t.d.blocks {
+            b.d.blocks.insert([q[0] + dx, q[1], q[2] + dz], s.clone());
+        }
+        for (q, s) in &t.d.block_entities {
+            b.d.block_entities.insert([q[0] + dx, q[1], q[2] + dz], s.clone());
+        }
+        // the classic stock (row-2x27's, which passes in the game): each filter 41 of its item and
+        // four papers named "<item> filter", its lock hopper under it 64 of the item and four
+        // papers named "<item> lock". The cheap stock (filters 41 + 4 sticks, empty locks) loses a
+        // quarter of the iron over the gate's 3 days in the game though redsim keeps it all
+        let papers = |name: &str| (1..=4).map(|k| format!("{{Slot:{k}b,id:\"minecraft:paper\",count:1,components:{{\"minecraft:custom_name\":\"{name}\"}}}}")).collect::<Vec<_>>().join(",");
+        for (q, s) in &t.d.block_entities {
+            if !s.contains("minecraft:stick") {
+                continue;
+            }
+            let (item, word) = if s.contains("minecraft:poppy") { ("poppy", "poppy") } else { ("iron_ingot", "iron") };
+            let at = [q[0] + dx, q[1], q[2] + dz];
+            b.d.block_entities.insert(at, format!("{{Items:[{{Slot:0b,id:\"minecraft:{item}\",count:41}},{}]}}", papers(&format!("{word} filter"))));
+            b.d.block_entities.insert([at[0], at[1] - 1, at[2]], format!("{{Items:[{{Slot:0b,id:\"minecraft:{item}\",count:64}},{}]}}", papers(&format!("{word} lock"))));
+        }
+        let to = t.d.ports["output"];
+        [to[0] + dx, to[1], to[2] + dz]
+    };
     if ring {
         // the ring's one collection holds the judge's run of its 4 groups (late: 8 hours)
         let extra = if late { 3 * c.modules as i32 - 1 } else { (c.modules as i32 + 1) / 2 - 1 };
@@ -239,24 +271,10 @@ fn build_fresh(c: &Cand, calm_parts: &[crate::calm::Part]) -> Result<Built> {
         let mut new_out = None;
         if c.place == Place::Void && c.family_gen == 0 && !WITHOUT.with(|w| w.get().1) {
             for (i, p) in ports.iter().enumerate() {
-                if c.chain == 2 {
-                    let port = parts::sorter_crafter_cheap(&mut b, p.output);
-                    if i == 0 {
-                        new_out = Some(port);
-                    }
-                } else if c.chain == 1 {
-                    let o = p.output;
-                    let mut t = Builder::new("collect");
-                    mobfarm::day1::collect_bottom_at1(&mut t, o[1] + 1);
-                    let (dx, dz) = (o[0] - 1, o[2] + 1);
-                    for (q, s) in &t.d.blocks {
-                        b.d.blocks.insert([q[0] + dx, q[1], q[2] + dz], s.clone());
-                    }
-                    for (q, s) in &t.d.block_entities {
-                        b.d.block_entities.insert([q[0] + dx, q[1], q[2] + dz], s.clone());
-                    }
-                    let to = t.d.ports["output"];
-                    let port = [to[0] + dx, to[1], to[2] + dz];
+                if c.chain >= 1 {
+                    // (chain 1 and 2 alike now: the ironfarm lane's own sorter and crafter with
+                    // the classic stock; the cheap stock lost iron in the game)
+                    let port = ironfarm_sorter(&mut b, p.output);
                     if i == 0 {
                         new_out = Some(port);
                     } else {
@@ -294,10 +312,12 @@ fn build_fresh(c: &Cand, calm_parts: &[crate::calm::Part]) -> Result<Built> {
             // blocks in one chest, the poppies in two), one module in the storage row
             if in_chain >= 2 && !WITHOUT.with(|w| w.get().1) {
                 b.d.blocks.remove(&o);
-                let port = parts::sorter_crafter_cheap(&mut b, o);
+                let port = ironfarm_sorter(&mut b, o);
                 if i == 0 {
                     out = port;
                     b.d.blocks.remove(&port);
+                } else {
+                    b.set(port[0], port[1], port[2], parts::CHEST);
                 }
             } else if !WITHOUT.with(|w| w.get().1) {
                 storage_row(&mut b, o);
