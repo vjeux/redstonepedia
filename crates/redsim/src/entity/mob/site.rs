@@ -808,6 +808,26 @@ mod tests {
         Block::parse(s).ok().or_else(|| crate::terrain::blocks::id_of(s).map(Block::Terrain)).unwrap_or_else(|| panic!("{s}: no block"))
     }
 
+    /// Water poured at the sample's edge goes on past it, into the bridge sandbox's void (the
+    /// world's `outer` cells) with no error (tickexact 2026-11-08: D1U's live view stopped on a
+    /// natural water's `setBlock outside the box`): it spreads out of the box and falls there.
+    #[test]
+    fn water_flows_past_the_sample_edge() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../designs/terrain/village-edge.mcterrain");
+        let t = crate::terrain::format::Terrain::decode(&std::fs::read(path).unwrap()).unwrap();
+        let mut w = crate::terrain::land::build_world(&t).unwrap();
+        let p = BlockPos::new(w.min.x, 100, w.min.z + 20);
+        assert!(w.get(p).is_air() && w.get(p.offset(-1, 0, 0)).is_air(), "an open cell at the edge");
+        w.set_block(p, Block::Water { level: 0 }, 3);
+        for _ in 0..200 {
+            w.tick();
+        }
+        assert!(w.errors.is_empty(), "errors: {:?}", w.errors);
+        let out: Vec<BlockPos> = w.outer.iter().filter(|(_, b)| matches!(b, Block::Water { .. })).map(|(q, _)| *q).collect();
+        assert!(out.iter().any(|q| q.x == w.min.x - 1 && q.y == 100), "the source spread west past the edge: {out:?}");
+        assert!(out.iter().any(|q| q.y < 95), "and fell there: {out:?}");
+    }
+
     /// The fire clearance's walk (`LavaFluid.randomTick`, every path): a short grass beside the
     /// farm's lava at its level is dug, a log over an air cell 2 up is replaced with cobblestone,
     /// a grass 3 columns away and a log 4 up are out of reach, and the farm's own flammable block

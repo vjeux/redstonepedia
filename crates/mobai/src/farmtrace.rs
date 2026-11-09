@@ -7,8 +7,8 @@ use mobfarm::exact::{GameFarm, Opts, Place, follow_bonuses, load_place, redsim_s
 use redsim::entity::EntityKind;
 use redsim::entity::mob::farm::SETTLE_TICKS;
 
-pub fn run(version: &str, design: &std::path::Path, seed: i64, at: i64, entity: Option<u32>, terrain: Option<String>, day0: Option<i64>, build: Option<u32>, no_spawning: bool, weather: bool) -> Result<()> {
-    let opts = Opts { seed, ticks: (at + 1).max(1) as u32, weather, probe: false, batch: 100, full: true, bare: false, draws_at: Some(at), terrain, day0, build: build.map(|k| (k, 0)), no_spawning, only: Vec::new() };
+pub fn run(version: &str, design: &std::path::Path, seed: i64, at: i64, entity: Option<u32>, terrain: Option<String>, day0: Option<i64>, build: Option<(u32, u32)>, no_spawning: bool, weather: bool) -> Result<()> {
+    let opts = Opts { seed, ticks: (at + 1).max(1) as u32, weather, probe: false, batch: 100, full: true, bare: false, draws_at: Some(at), terrain, day0, build, no_spawning, only: Vec::new() };
     let (c, spec, place) = load_place(design, &opts)?;
     // the compare's run options (its day time, the judge's build and weather when asked)
     let mut o = mobfarm::exact::opts_of(&opts);

@@ -297,6 +297,11 @@ pub enum MobfarmCmd {
         /// alive at once, and alive every 1000 gt summed), and the time the entity ticks took.
         #[arg(long)]
         census: bool,
+        /// The judge's terrain build K instead of the cheapest spot: the K-th site of the design's
+        /// sample (`circuit::mobfarm::terrain_sites`) with the judge's run options there (its
+        /// weather cycle; `--seed` is then the run's: JUDGE_SEED0 + 1000 K + I for its run I).
+        #[arg(long)]
+        build: Option<usize>,
     },
     /// Each design's tick-exactness as `circuit verify` finds it: run 0 of every judge build on
     /// the deterministic bridge against redsim for the judge's days (each build's result and the
@@ -459,19 +464,27 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("FAIL {f}");
             }
         }
-        MobfarmCmd::Run { design, seed, days, still, terrain, ticks_only, watch, cells, census } => {
+        MobfarmCmd::Run { design, seed, days, still, terrain, ticks_only, watch, cells, census, build } => {
             let (c, spec) = load(version, &design)?;
             use redsim::entity::mob::farm::{RunOpts, WalkMode, run};
             let walk = if still { WalkMode::Fixed(redsim::entity::mob::walk::Walk::Still) } else { WalkMode::Random };
             let mut o = RunOpts::steady(seed, days * 24000, walk);
-            let spec = match &terrain {
-                Some(name) => {
+            let spec = match (&terrain, build) {
+                (_, Some(k)) => {
+                    let sample = circuit::mobfarm::terrain_sample(&c).map_err(|e| anyhow::anyhow!(e))?.ok_or_else(|| anyhow::anyhow!("--build: the design is not judged in terrain"))?;
+                    let sites = circuit::mobfarm::terrain_sites(&c, &spec, sample).map_err(|e| anyhow::anyhow!(e))?;
+                    let site = *sites.get(k).ok_or_else(|| anyhow::anyhow!("--build {k}: the judge has {} builds", sites.len()))?;
+                    println!("terrain {} build {k}: offset {:?}, {} blocks placed + {} filled, {} dug, AFK at {:.1} {:.1} {:.1}", site.sample, site.offset, site.placed, site.fills.len(), site.dug, site.afk.x, site.afk.y, site.afk.z);
+                    o = redsim::entity::mob::farm::judge_opts_in(seed, days * 24000, walk, Some(site));
+                    site.spec(&spec)
+                }
+                (Some(name), None) => {
                     let site: &'static redsim::entity::mob::site::Site = Box::leak(Box::new(circuit::mobfarm::site_of(&c, &spec, name).map_err(|e| anyhow::anyhow!(e))?));
                     println!("terrain {}: offset {:?}, {} blocks placed + {} filled, {} dug, AFK at {:.1} {:.1} {:.1}; the cheapest of {} spots (block time {:.0}-{:.0} s)", site.sample, site.offset, site.placed, site.fills.len(), site.dug, site.afk.x, site.afk.y, site.afk.z, site.spots, site.build_range.0, site.build_range.1);
                     o.site = Some(site);
                     site.spec(&spec)
                 }
-                None => spec,
+                (None, None) => spec,
             };
             let t0 = std::time::Instant::now();
             if !watch.is_empty() {

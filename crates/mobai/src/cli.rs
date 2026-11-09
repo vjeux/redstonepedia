@@ -107,9 +107,12 @@ pub enum MobaiCmd {
         /// The day time the farm starts at (as `mobfarm compare --day0`).
         #[arg(long)]
         day0: Option<i64>,
-        /// The judge's build K, run 0 (as `mobfarm compare --build`).
+        /// The judge's build K, run `--run` (as `mobfarm compare --build`).
         #[arg(long)]
         build: Option<u32>,
+        /// With `--build`: the judge's run I of that build (seed JUDGE_SEED0 + 1000 K + I).
+        #[arg(long, default_value_t = 0)]
+        run: u32,
         /// No mob spawning on either side (as `mobfarm compare --no-spawning`).
         #[arg(long)]
         no_spawning: bool,
@@ -136,7 +139,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::Fixture { name, seed, ticks, full, probe, trace_at, entity } => crate::fixture::run(version, &name, seed, ticks, full, probe, trace_at, entity),
         MobaiCmd::Record { scenes, seed, ticks, dir } => crate::fixture::record(version, &scenes, seed, ticks, &dir),
         MobaiCmd::Replay { paths } => crate::fixture::replay(&paths),
-        MobaiCmd::FarmTrace { design, seed, at, entity, terrain, day0, build, no_spawning, weather } => crate::farmtrace::run(version, &design, seed, at, entity, terrain, day0, build, no_spawning, weather),
+        MobaiCmd::FarmTrace { design, seed, at, entity, terrain, day0, build, run, no_spawning, weather } => crate::farmtrace::run(version, &design, seed, at, entity, terrain, day0, build.map(|k| (k, run)), no_spawning, weather),
         MobaiCmd::Mathfuzz { n, seed, inputs } => crate::mathfuzz::run(version, n, seed, &inputs),
     }
 }

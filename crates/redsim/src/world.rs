@@ -258,6 +258,11 @@ pub struct World {
     /// void gate's stone 3 above its AFK player (the bridge places it; a cell `getRandomPosWithin`
     /// can pick, a redstone conductor that stops a spawn group there).
     pub outside: Vec<(BlockPos, Block)>,
+    /// (tickexact) Cells outside the box that a terrain world's natural updates wrote: the bridge's
+    /// sandbox beyond the sample is void superflat (air) in loaded chunks, so water pouring out of
+    /// a cave at the sample's edge, or a fire spreading past it, goes on there as in the game
+    /// (empty until then: every other outside cell reads air).
+    pub outer: crate::fxhash::FxHashMap<BlockPos, Block>,
     /// mobinfra: each chunk section's randomly ticking cells (`LevelChunkSection.tickingBlockCount`
     /// + `tickingFluidCount`, recalculated on load and kept by every write: [`World::put`]); built
     /// on the first chunk tick (`crops::tick_chunks`), `None` until then and after `load_cells`.
@@ -329,6 +334,7 @@ impl World {
             weather: Default::default(),
             afk: None,
             outside: Vec::new(),
+            outer: Default::default(),
             ticking_sections: None,
         }
     }
@@ -509,10 +515,28 @@ impl World {
         self.index(p).is_some()
     }
 
+    /// (tickexact) Whether a scheduled tick at `p` runs: every one inside the box; one outside it
+    /// (a terrain world's water or fire past the sample's edge, `outer`) only in a chunk the
+    /// bridge's sandbox ticks (`LevelTicks` collects ticking chunks' only): the compare's
+    /// entity-ticking list when known, else within the simulation distance, 6 chunks, of a natural
+    /// player (the sandbox's 13 x 13); one that never runs is dropped (its chunk never ticks).
+    fn ticks_at(&self, p: BlockPos) -> bool {
+        if self.contains(p) {
+            return true;
+        }
+        let (cx, cz) = (p.x.div_euclid(16), p.z.div_euclid(16));
+        match self.mob.natural.as_ref() {
+            Some(n) if !n.entity_ticking.is_empty() => n.entity_ticking.iter().any(|c| c[0] == cx && c[1] == cz),
+            Some(n) if !n.players.is_empty() => n.players.iter().any(|q| ((q.x.floor() as i32).div_euclid(16) - cx).abs() <= 6 && ((q.z.floor() as i32).div_euclid(16) - cz).abs() <= 6),
+            _ => true,
+        }
+    }
+
     pub fn get(&self, p: BlockPos) -> Block {
         match self.index(p) {
             Some(i) => self.cells[i],
-            None => Block::Air,
+            None if self.outer.is_empty() => Block::Air,
+            None => self.outer.get(&p).copied().unwrap_or(Block::Air),
         }
     }
 
@@ -547,6 +571,16 @@ impl World {
                 if self.land.is_some() && old != s {
                     // terrain worlds: heightmaps and sky sources follow the change (`terrain::land`)
                     self.land_changed(p, old, s);
+                }
+            }
+            None if self.land.is_some() => {
+                // a terrain world: the sandbox's void beyond the sample (`outer`)
+                if self.log_writes && self.get(p) != s {
+                    self.writes.push(p);
+                }
+                let old = if s.is_air() { self.outer.remove(&p) } else { self.outer.insert(p, s) }.unwrap_or(Block::Air);
+                if old != s && (crate::daylight::light_differs(&old, &s) || crate::entity::mob::sun::emission(&old) != crate::entity::mob::sun::emission(&s)) {
+                    self.light_version += 1;
                 }
             }
             None => {
@@ -603,15 +637,15 @@ impl World {
 
     /// `Level.setBlock` (+ `LevelChunk.setBlockState`).
     pub fn set_block_limit(&mut self, pos: BlockPos, state: Block, fl: u32, limit: i32) -> bool {
-        if !self.contains(pos) {
-            // (a terrain sample's crop: a natural fire spreading past its edge, from a lava lake
-            // at the crop's bottom, is the crop's edge, not the farm's doing; the game's world goes
-            // on there)
-            if !state.is_air() && !(self.land.is_some() && matches!(state, Block::Fire { .. })) {
+        if !self.contains(pos) && self.land.is_none() {
+            if !state.is_air() {
                 self.errors.push(format!("setBlock outside the box at {pos}: {state}"));
             }
             return false;
         }
+        // (a terrain world: a natural update past the sample's edge, water pouring out of a cave
+        // there or a fire spreading from a lava lake at its bottom, goes on in the sandbox's void
+        // beyond it, `outer`, as in the game)
         let old = self.get(pos);
         if old == state {
             return false;
@@ -993,6 +1027,9 @@ impl World {
         }
         let due = self.ticks.collect(self.time);
         for t in due {
+            if !self.ticks_at(t.pos) {
+                continue;
+            }
             self.ticks.start_running(&t);
             let s = self.get(t.pos);
             if s.kind() == t.kind {
@@ -1004,6 +1041,9 @@ impl World {
         if self.fluid_ticks.count() > 0 {
             let due = self.fluid_ticks.collect(self.time);
             for t in due {
+                if !self.ticks_at(t.pos) {
+                    continue;
+                }
                 self.fluid_ticks.start_running(&t);
                 crate::fluid::tick(self, t.pos, t.kind);
             }
