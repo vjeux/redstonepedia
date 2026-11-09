@@ -10,7 +10,7 @@ use super::targets::{HurtByTarget, NearestAttackableTarget, TargetType};
 use super::{Goal, reduced_tick_delay};
 use crate::entity::Vec3;
 use crate::entity::mob::ai::target::{self, Who};
-use crate::entity::mob::ai::{MobAi, ai, poi, with_nav};
+use crate::entity::mob::ai::{MobAi, poi, with_nav};
 use crate::entity::mob::types::MobType;
 use crate::pos::BlockPos;
 use crate::world::World;
@@ -55,7 +55,7 @@ pub fn towards_can_use(w: &mut World, i: usize, g: &mut MoveTowardsTarget) -> bo
 }
 
 pub fn towards_can_continue(w: &mut World, i: usize, g: &mut MoveTowardsTarget) -> bool {
-    if ai(w, i).nav.is_done() {
+    if crate::entity::mob::ai::nav_of(w, i).is_done() {
         return false;
     }
     let Some(t) = g.target.and_then(|id| target::who(w, id)) else { return false };

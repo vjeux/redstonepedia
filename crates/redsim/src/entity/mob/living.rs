@@ -133,7 +133,22 @@ fn base_tick(w: &mut World, i: usize) {
     if m.damage_cooldown > 0 {
         m.damage_cooldown -= 1;
     }
-    if m.health <= 0.0 {
+    // tickEffects: an instant health heals 4 (`heal`), the others count down
+    {
+        let m = mob_mut(w, i);
+        let e = &mut m.effects;
+        let heal = std::mem::take(&mut e.instant_health);
+        for d in [&mut e.water_breathing, &mut e.fire_resistance, &mut e.speed] {
+            if *d > 0 {
+                *d -= 1;
+            }
+        }
+        if heal && m.health > 0.0 {
+            let max = m.ty.def().max_health;
+            m.health = (m.health + 4.0).min(max);
+        }
+    }
+    if mob(w, i).health <= 0.0 {
         tick_death(w, i);
     }
 }
@@ -165,7 +180,8 @@ fn air_tick(w: &mut World, i: usize, ty: MobType) {
     let eye_cell = BlockPos::new(mth::floor(e.pos.x), mth::floor(e.pos.y + mob(w, i).eye() as f64), mth::floor(e.pos.z));
     let eye_in_water = e.fluid.eye_in_water() && !matches!(w.get(eye_cell), Block::BubbleColumn { .. });
     if eye_in_water {
-        if ty.def().drowns {
+        // hasWaterBreathing: a water breathing effect (a witch's potion) keeps its air
+        if ty.def().drowns && mob(w, i).effects.water_breathing == 0 {
             let m = mob_mut(w, i);
             m.air -= 1;
             if m.air <= -20 {
@@ -215,6 +231,7 @@ fn tick_death(w: &mut World, i: usize) {
         let t = w.time;
         w.entities.list[i].removed = true;
         w.mob.events.push(MobEvent::Removed { t, id });
+        crate::entity::eject_passengers(w, i);
     }
 }
 
@@ -635,6 +652,10 @@ fn hurt_inner(w: &mut World, i: usize, src: Damage, amount: f32) -> bool {
     let def = ty.def();
     // isInvulnerableTo: fire immunity, fall immunity
     if (src.is_fire() && def.fire_immune) || (src == Damage::Fall && def.fall_immune) {
+        return false;
+    }
+    // hurtServer: a fire damage does nothing under fire resistance
+    if src.is_fire() && mob(w, i).effects.fire_resistance > 0 {
         return false;
     }
     if mob(w, i).health <= 0.0 {

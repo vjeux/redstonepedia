@@ -2,7 +2,7 @@
 //! iron golem use the plain goal).
 
 use super::super::target::{self, Who};
-use super::super::{ai, ai_mut, with_nav};
+use super::super::{ai_mut, with_nav};
 use crate::world::World;
 
 /// Which class of melee goal.
@@ -82,7 +82,7 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut MeleeAttack) -> bool {
         return false;
     }
     if !g.following_even_if_not_seen {
-        return !ai(w, i).nav.is_done();
+        return !crate::entity::mob::ai::nav_of(w, i).is_done();
     }
     // isWithinHome (no home here); a spectator or creative player is no target already
     true

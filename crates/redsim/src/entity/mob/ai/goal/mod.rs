@@ -360,7 +360,7 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::Swell => creeper::swell_can_use(w, i),
         Goal::AvoidEntity => false,
         Goal::RestrictSun => skeleton::restrict_sun_can_use(w, i),
-        Goal::FleeSun(_) => !super::ai(w, i).nav.is_done(),
+        Goal::FleeSun(_) => !super::nav_of(w, i).is_done(),
         Goal::RangedBow => skeleton::bow_can_continue(w, i),
         Goal::LeapAtTarget => spider::leap_can_continue(w, i),
         // Goal.canContinueToUse: canUse()
@@ -392,7 +392,7 @@ pub fn start(w: &mut World, i: usize, g: &mut Goal) {
         Goal::DefendVillage | Goal::ResetUniversalAnger => {}
         Goal::Swell => creeper::swell_start(w, i),
         Goal::AvoidEntity => {}
-        Goal::RestrictSun => super::ai_mut(w, i).nav.avoid_sun = true,
+        Goal::RestrictSun => super::nav_of_mut(w, i).avoid_sun = true,
         Goal::FleeSun(g) => skeleton::flee_sun_start(w, i, g),
         Goal::RangedBow => {}
         Goal::LeapAtTarget => spider::leap_start(w, i),
@@ -423,7 +423,7 @@ pub fn stop(w: &mut World, i: usize, g: &mut Goal) {
         Goal::DefendVillage | Goal::ResetUniversalAnger => {}
         Goal::Swell => super::ai_mut(w, i).swell_target = None,
         Goal::AvoidEntity => {}
-        Goal::RestrictSun => super::ai_mut(w, i).nav.avoid_sun = false,
+        Goal::RestrictSun => super::nav_of_mut(w, i).avoid_sun = false,
         Goal::FleeSun(_) | Goal::RangedBow | Goal::LeapAtTarget | Goal::Cube(_) => {}
         Goal::Animal(a) => animal::stop(w, i, a),
         Goal::Squid(_) => {}

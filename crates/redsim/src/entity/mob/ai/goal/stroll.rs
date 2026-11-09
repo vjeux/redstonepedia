@@ -47,7 +47,10 @@ pub fn can_use(w: &mut World, i: usize, g: &mut RandomStroll) -> bool {
     if g.variant == Variant::MoveBackToVillage && !super::golem::back_to_village_gate(w, i) {
         return false;
     }
-    // hasControllingPassenger: no mob here controls another
+    // hasControllingPassenger: a mob steering this one (a spider jockey's skeleton)
+    if crate::entity::mob::ai::controlled_by_mob(w, i) {
+        return false;
+    }
     if !g.force_trigger {
         if g.check_no_action_time && mob(w, i).no_action_time >= 100 {
             return false;
@@ -86,7 +89,7 @@ fn position(w: &mut World, i: usize, g: &RandomStroll) -> Option<Vec3> {
 
 /// `canContinueToUse()`.
 pub fn can_continue(w: &mut World, i: usize, _g: &mut RandomStroll) -> bool {
-    !ai(w, i).nav.is_done()
+    !crate::entity::mob::ai::nav_of(w, i).is_done() && !crate::entity::mob::ai::controlled_by_mob(w, i)
 }
 
 /// `start()`: `navigation.moveTo(wanted, speed)`.

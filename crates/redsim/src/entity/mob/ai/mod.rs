@@ -92,6 +92,9 @@ pub struct MobAi {
     pub squid: Option<squid::SquidState>,
     /// An enderman's carried block and target change time.
     pub enderman: Option<goal::enderman::EndermanState>,
+    /// A witch drinking: the potion (0 water breathing, 1 fire resistance, 2 healing, 3 swiftness)
+    /// and its `usingTime`.
+    pub witch_drink: Option<(u8, i32)>,
     /// `AgeableMob.age` of a farm animal (0 an adult, a baby counts up from -24000).
     pub age: i32,
 }
@@ -160,6 +163,7 @@ impl MobAi {
             cube: None,
             squid: None,
             enderman: None,
+            witch_drink: None,
             age: 0,
         };
         goal::register_goals(&mut ai, ty);
@@ -218,7 +222,13 @@ pub fn movement_speed(w: &World, i: usize) -> f64 {
     if ai(w, i).enderman.is_some() {
         return base + goal::enderman::speed_bonus(w, i);
     }
-    base
+    // a witch drinking: -0.25 (ADD_VALUE); the speed effect: x (1 + 0.2F) (ADD_MULTIPLIED_TOTAL)
+    let add = if ai(w, i).witch_drink.is_some() { -0.25 } else { 0.0 };
+    let v = base + add;
+    if mob(w, i).effects.speed > 0 {
+        return v * (1.0 + 0.2f32 as f64);
+    }
+    v
 }
 
 /// `getAttributeValue(FOLLOW_RANGE)`.
@@ -350,6 +360,13 @@ pub fn nav_mob(w: &World, i: usize) -> NavMob {
 
 /// Run `f` on mob `i`'s navigation with its search buffers (taken out of the mob for the call).
 pub fn with_nav<R>(w: &mut World, i: usize, f: impl FnOnce(&World, &NavMob, &mut Navigation, &mut Arena) -> R) -> R {
+    // `getNavigation()`: a mob controlling a mob vehicle uses the vehicle's
+    let i = nav_owner(w, i);
+    with_own_nav(w, i, f)
+}
+
+/// The mob's own `navigation` field (`Mob.serverAiStep` ticks it, whoever steers it).
+pub fn with_own_nav<R>(w: &mut World, i: usize, f: impl FnOnce(&World, &NavMob, &mut Navigation, &mut Arena) -> R) -> R {
     let nm = nav_mob(w, i);
     let a = ai_mut(w, i);
     let mut nav = std::mem::replace(&mut a.nav, Navigation::new(NavKind::Ground, 0.0));
@@ -359,6 +376,37 @@ pub fn with_nav<R>(w: &mut World, i: usize, f: impl FnOnce(&World, &NavMob, &mut
     a.nav = nav;
     a.arena = arena;
     r
+}
+
+/// `Entity.getControlledVehicle()` of a mob: its vehicle when it is that vehicle's controlling
+/// passenger (`Mob.getControllingPassenger`: the first passenger, a mob, of a vehicle mob with AI).
+pub fn controlled_vehicle(w: &World, i: usize) -> Option<usize> {
+    let v = w.entities.list[i].vehicle?;
+    let vi = crate::entity::index_of(w, v)?;
+    let ve = &w.entities.list[vi];
+    let crate::entity::EntityKind::Mob(vm) = &ve.kind else { return None };
+    (vm.ai.is_some() && ve.passengers.first() == Some(&w.entities.list[i].id) && matches!(w.entities.list[i].kind, crate::entity::EntityKind::Mob(_))).then_some(vi)
+}
+
+/// `Mob.getControllingPassenger()` is a mob (its first passenger: a mob with AI controls it).
+pub fn controlled_by_mob(w: &World, i: usize) -> bool {
+    let e = &w.entities.list[i];
+    e.passengers.first().and_then(|p| crate::entity::index_of(w, *p)).is_some_and(|pi| matches!(w.entities.list[pi].kind, crate::entity::EntityKind::Mob(_)))
+}
+
+/// Whose navigation (and move control) `getNavigation()` answers for mob `i`.
+pub fn nav_owner(w: &World, i: usize) -> usize {
+    controlled_vehicle(w, i).unwrap_or(i)
+}
+
+/// `getNavigation()` of mob `i`.
+pub fn nav_of(w: &World, i: usize) -> &Navigation {
+    &ai(w, nav_owner(w, i)).nav
+}
+
+pub fn nav_of_mut(w: &mut World, i: usize) -> &mut Navigation {
+    let j = nav_owner(w, i);
+    &mut ai_mut(w, j).nav
 }
 
 /// `Mob.serverAiStep` after `noActionTime++`.
@@ -373,8 +421,8 @@ pub fn server_ai_step(w: &mut World, i: usize) {
     let every_other = id_based % 2 != 0 && e.tick_count > 1;
     goal::tick_selector(w, i, true, every_other);
     goal::tick_selector(w, i, false, every_other);
-    // navigation.tick()
-    let wanted = with_nav(w, i, |w, nm, nav, arena| nav.tick(w, nm, arena));
+    // navigation.tick() (its own, whoever steers it)
+    let wanted = with_own_nav(w, i, |w, nm, nav, arena| nav.tick(w, nm, arena));
     if let Some((x, y, z, s)) = wanted {
         ai_mut(w, i).move_ctl.set_wanted_position(x, y, z, s);
     }
@@ -540,8 +588,8 @@ pub fn look_control_tick(w: &mut World, i: usize) {
         let a = ai_mut(w, i);
         a.y_head_rot = control::rotate_towards(a.y_head_rot, a.y_body_rot, 10.0);
     }
-    // clampHeadRotationToBody
-    if !ai(w, i).nav.is_done() {
+    // clampHeadRotationToBody (`getNavigation().isDone()`: a rider asks its vehicle's)
+    if !nav_of(w, i).is_done() {
         let max = max_head_y_rot(w, i) as f32;
         let a = ai_mut(w, i);
         a.y_head_rot = control::rotate_if_necessary(a.y_head_rot, a.y_body_rot, max);
@@ -700,13 +748,15 @@ pub fn after_ai_step(w: &mut World, i: usize) {
     }
 }
 
-/// `Mob.updateControlFlags()`: no mob controls this one; JUMP is off in a boat.
+/// `Mob.updateControlFlags()`: a mob controlling this one turns its MOVE, JUMP and LOOK goals off;
+/// JUMP is off in a boat too.
 fn update_control_flags(w: &mut World, i: usize) {
     let in_boat = w.entities.list[i].vehicle.and_then(|v| crate::entity::index_of(w, v)).is_some_and(|vi| matches!(w.entities.list[vi].kind, crate::entity::EntityKind::Boat(_)));
+    let no_controller = !controlled_by_mob(w, i);
     let a = ai_mut(w, i);
-    a.goals.set_control_flag(goal::Flag::Move, true);
-    a.goals.set_control_flag(goal::Flag::Jump, !in_boat);
-    a.goals.set_control_flag(goal::Flag::Look, true);
+    a.goals.set_control_flag(goal::Flag::Move, no_controller);
+    a.goals.set_control_flag(goal::Flag::Jump, no_controller && !in_boat);
+    a.goals.set_control_flag(goal::Flag::Look, no_controller);
 }
 
 /// `Entity.baseTick`'s `canSpawnSprintParticle()` (before the fluid update): the iron golem's

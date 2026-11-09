@@ -299,7 +299,7 @@ fn teleport_to(w: &mut World, i: usize, xx: f64, yy: f64, zz: f64) -> bool {
             let e = &mut w.entities.list[i];
             (e.xo, e.yo, e.zo) = (xx, y, zz);
             (e.x_old, e.y_old, e.z_old) = (xx, y, zz);
-            crate::entity::mob::ai::ai_mut(w, i).nav.stop();
+            crate::entity::mob::ai::nav_of_mut(w, i).stop();
             return true;
         }
         y -= 1.0;

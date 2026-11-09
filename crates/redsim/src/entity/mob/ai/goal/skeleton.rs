@@ -9,7 +9,7 @@ use super::stroll::RandomStroll;
 use super::targets::{HurtByTarget, NearestAttackableTarget, TargetType};
 use super::Goal;
 use crate::entity::Vec3;
-use crate::entity::mob::ai::{MobAi, ai, target, with_nav};
+use crate::entity::mob::ai::{MobAi, target, with_nav};
 use crate::entity::mob::mob;
 use crate::pos::BlockPos;
 use crate::world::World;
@@ -88,7 +88,7 @@ pub fn bow_can_use(w: &World, i: usize) -> bool {
 
 /// `canContinueToUse()`: still a target, or the navigation not done.
 pub fn bow_can_continue(w: &World, i: usize) -> bool {
-    bow_can_use(w, i) || !ai(w, i).nav.is_done()
+    bow_can_use(w, i) || !crate::entity::mob::ai::nav_of(w, i).is_done()
 }
 
 /// `tick()`: the strafing, the bow drawn and shot: refused.

@@ -200,7 +200,7 @@ pub fn village_can_use(w: &mut World, i: usize, g: &mut MoveThroughVillage) -> b
 }
 
 pub fn village_can_continue(w: &mut World, i: usize, g: &mut MoveThroughVillage) -> bool {
-    if ai(w, i).nav.is_done() {
+    if crate::entity::mob::ai::nav_of(w, i).is_done() {
         return false;
     }
     let width = mob(w, i).dims().0 as f64;
@@ -217,7 +217,7 @@ pub fn village_start(w: &mut World, i: usize, g: &mut MoveThroughVillage) {
 pub fn village_stop(w: &mut World, i: usize, g: &mut MoveThroughVillage) {
     let c = Vec3::new(g.poi_pos.x as f64 + 0.5, g.poi_pos.y as f64 + 0.5, g.poi_pos.z as f64 + 0.5);
     let d = g.distance_to_poi as f64;
-    if ai(w, i).nav.is_done() || c.distance_to_sqr(w.entities.list[i].pos) < d * d {
+    if crate::entity::mob::ai::nav_of(w, i).is_done() || c.distance_to_sqr(w.entities.list[i].pos) < d * d {
         g.visited.push(g.poi_pos);
     }
 }
@@ -278,7 +278,7 @@ fn door_interact_can_use(w: &World, i: usize, g: &mut BreakDoor) -> bool {
     if !e.horizontal_collision {
         return false;
     }
-    let Some(path) = ai(w, i).nav.path.as_ref().filter(|p| !p.is_done()) else { return false };
+    let Some(path) = crate::entity::mob::ai::nav_of(w, i).path.as_ref().filter(|p| !p.is_done()) else { return false };
     let n = (path.next_node_index + 2).min(path.node_count());
     for k in 0..n {
         let node = path.nodes[k];

@@ -80,23 +80,52 @@ pub fn before_ai_step(w: &mut World, i: usize) {
     if mob(w, i).ty != crate::entity::mob::types::MobType::Witch || mob(w, i).health <= 0.0 {
         return;
     }
-    let eye_in_water = w.entities.list[i].fluid.eye_in_water();
-    let burning = mob(w, i).fire_ticks > 0;
-    let hurt = mob(w, i).health < mob(w, i).ty.def().max_health;
-    let far_target = crate::entity::mob::ai::target::get_target(w, i).is_some();
-    let Some(r) = w.entities.list[i].random.as_mut() else { return };
-    let potion = if r.next_float() < 0.15 && eye_in_water {
-        true
-    } else if r.next_float() < 0.15 && burning {
-        true
-    } else if r.next_float() < 0.05 && hurt {
-        true
+    if let Some((potion, t)) = crate::entity::mob::ai::ai(w, i).witch_drink {
+        // drinking: usingTime-- <= 0 finishes it (the potion's effects, the speed back)
+        if t <= 0 {
+            crate::entity::mob::ai::ai_mut(w, i).witch_drink = None;
+            let e = &mut crate::entity::mob::mob_mut(w, i).effects;
+            match potion {
+                0 => e.water_breathing = 3600,
+                1 => e.fire_resistance = 3600,
+                2 => e.instant_health = true,
+                _ => e.speed = 3600,
+            }
+        } else {
+            crate::entity::mob::ai::ai_mut(w, i).witch_drink = Some((potion, t - 1));
+        }
     } else {
-        r.next_float() < 0.5 && far_target
-    };
-    r.next_float();
-    if potion {
-        refuse(w, "a witch drinking a potion is not modeled yet");
+        let eye_in_water = w.entities.list[i].fluid.eye_in_water();
+        // isOnFire, or getLastDamageSource() a fire one (within 40 ticks)
+        let now = w.time;
+        let burning = mob(w, i).fire_ticks > 0 || mob(w, i).last_damage.is_some_and(|(t, s)| now - t <= 40 && s.is_fire());
+        let hurt = mob(w, i).health < mob(w, i).ty.def().max_health;
+        let fx = mob(w, i).effects;
+        let pos = w.entities.list[i].pos;
+        let far_target = crate::entity::mob::ai::target::get_target(w, i)
+            .and_then(|id| crate::entity::mob::ai::target::who(w, id))
+            .is_some_and(|t| crate::entity::mob::ai::target::pos_of(w, t).distance_to_sqr(pos) > 121.0);
+        let Some(r) = w.entities.list[i].random.as_mut() else { return };
+        let potion = if r.next_float() < 0.15 && eye_in_water && fx.water_breathing == 0 {
+            Some(0u8)
+        } else if r.next_float() < 0.15 && burning && fx.fire_resistance == 0 {
+            Some(1)
+        } else if r.next_float() < 0.05 && hurt {
+            Some(2)
+        } else if r.next_float() < 0.5 && far_target && fx.speed == 0 {
+            Some(3)
+        } else {
+            None
+        };
+        if let Some(p) = potion {
+            // the potion's use duration (32 ticks), the drink sound's pitch, the -0.25 speed
+            r.next_float();
+            crate::entity::mob::ai::ai_mut(w, i).witch_drink = Some((p, 32));
+        }
+    }
+    if let Some(r) = w.entities.list[i].random.as_mut() {
+        r.next_float();
     }
     let _ = ai;
+    let _ = refuse;
 }

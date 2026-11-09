@@ -38,6 +38,10 @@ pub fn eye_magic(w: &mut World, i: usize) -> f32 {
 /// `LeapAtTargetGoal.canUse()` (0.4 up): no controlling passenger, a target 2 to 4 away, on the
 /// ground, then `nextInt(reducedTickDelay(5)) == 0` on its own random.
 pub fn leap_can_use(w: &mut World, i: usize) -> bool {
+    // hasControllingPassenger
+    if crate::entity::mob::ai::controlled_by_mob(w, i) {
+        return false;
+    }
     let Some(t) = target::get_target(w, i).and_then(|id| target::who(w, id)) else { return false };
     let d = target::pos_of(w, t).distance_to_sqr(w.entities.list[i].pos);
     if !(4.0..=16.0).contains(&d) || !w.entities.list[i].on_ground {

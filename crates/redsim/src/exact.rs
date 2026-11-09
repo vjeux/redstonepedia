@@ -270,7 +270,9 @@ pub fn entity_frame(w: &World, e: &crate::entity::Entity) -> EntityFrame {
                 f.head = Some(a.y_head_rot);
                 f.body = Some(a.y_body_rot);
                 f.goals = Some(crate::entity::mob::ai::frame_goals(a));
-                f.path = Some(crate::entity::mob::ai::frame_path(a));
+                // getNavigation(): a rider steering a mob vehicle reports the vehicle's path
+                let owner = crate::entity::mob::ai::nav_owner(w, i);
+                f.path = Some(crate::entity::mob::ai::frame_path(crate::entity::mob::ai::ai(w, owner)));
                 f.target = Some(crate::entity::mob::ai::frame_target(w, i));
             }
         }

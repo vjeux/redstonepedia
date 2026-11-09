@@ -63,10 +63,10 @@ pub static DEFS: &[TypeDef] = &[
     // included
     TypeDef { follow_range: 35.0, armor: 2.0, ..row(2, "zombie_villager", "minecraft:zombie_villager", 0.6, 1.95, 1.74, 20.0, 0.23f32 as f64, true, true, 0.6) },
     row(3, "zombie_horse", "minecraft:zombie_horse", 1.3964844, 1.6, 1.52, 25.0, 0.2, true, false, 1.0),
-    TypeDef { loot: &[("minecraft:arrow", 0, 2), ("minecraft:bone", 0, 2)], ..row(4, "skeleton", "minecraft:skeleton", 0.6, 1.99, 1.74, 20.0, 0.25, true, true, 0.6) },
+    TypeDef { loot: &[("minecraft:arrow", 0, 2), ("minecraft:bone", 0, 2)], riding_offset: -0.7, ..row(4, "skeleton", "minecraft:skeleton", 0.6, 1.99, 1.74, 20.0, 0.25, true, true, 0.6) },
     TypeDef { loot: &[("minecraft:gunpowder", 0, 2)], ..row(5, "creeper", "minecraft:creeper", 0.6, 1.7, 1.445, 20.0, 0.25, true, false, 0.6) },
     row(6, "slime", "minecraft:slime", 0.52, 0.52, 0.325, 1.0, 0.2, true, false, 0.6),
-    TypeDef { speed: 0.3f32 as f64, ..row(7, "enderman", "minecraft:enderman", 0.6, 2.9, 2.55, 40.0, 0.3, true, false, 1.0) },
+    TypeDef { speed: 0.3f32 as f64, follow_range: 64.0, ..row(7, "enderman", "minecraft:enderman", 0.6, 2.9, 2.55, 40.0, 0.3, true, false, 1.0) },
     TypeDef { follow_range: 35.0, armor: 2.0, ..row(8, "drowned", "minecraft:drowned", 0.6, 1.95, 1.74, 20.0, 0.23f32 as f64, true, true, 1.0) },
     // a sulfur cube's size sets its speed (0.2F + 0.1F x size) and health (4 x size): size 1 is
     // the baby
@@ -1584,11 +1584,31 @@ fn spawn_mob(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) -> u32
             }
         }
         Jockey::SpiderSkeleton => {
-            let r = super::add(w, MobType::Natural(4), pos, true);
-            super::seed_entered(w, r);
-            super::set_helmet(w, r, f.rider_helmet);
-            ride(w, r, id);
-            rider = Some(r);
+            // with the mob AI on, the skeleton really rides (startRiding: the spider's passenger,
+            // persistent only while it rides); the legacy layer keeps its rider list
+            if w.mob.ai.on {
+                let r = super::add(w, MobType::Natural(4), pos, false);
+                super::seed_entered(w, r);
+                super::set_helmet(w, r, f.rider_helmet);
+                if let (Some(ri), Some(vi)) = (crate::entity::index_of(w, r), crate::entity::index_of(w, id)) {
+                    // Spider.finalizeSpawn: skeleton.snapTo(the spider's x, y, z, yRot, 0)
+                    let yaw = w.entities.list[vi].y_rot;
+                    let e = &mut w.entities.list[ri];
+                    e.y_rot = yaw;
+                    e.y_rot_o = yaw;
+                    e.x_rot = 0.0;
+                    e.x_rot_o = 0.0;
+                    w.entities.list[ri].vehicle = Some(id);
+                    w.entities.list[vi].passengers.push(r);
+                }
+                rider = Some(r);
+            } else {
+                let r = super::add(w, MobType::Natural(4), pos, true);
+                super::seed_entered(w, r);
+                super::set_helmet(w, r, f.rider_helmet);
+                ride(w, r, id);
+                rider = Some(r);
+            }
         }
         Jockey::HorseZombie | Jockey::HorseBabyZombie => {
             let rty = if f.jockey == Jockey::HorseBabyZombie { MobType::Natural(25) } else { MobType::Zombie };
@@ -1723,6 +1743,9 @@ fn discard(w: &mut World, i: usize, id: u32, k: &Kind, far: bool) {
 /// `checkDespawn` calls it too, with its type's game id.
 pub(crate) fn discard_as(w: &mut World, i: usize, id: u32, ty: &'static str, far: bool) {
     w.entities.list[i].removed = true;
+    // Entity.setRemoved: its passengers stop riding at once (a jockey's skeleton is no longer a
+    // passenger at its own checkDespawn later in the tick)
+    crate::entity::eject_passengers(w, i);
     let t = w.time;
     if let Some(n) = w.mob.natural.as_mut() {
         n.log.push(NaturalEvent::Despawn { t, entity: id, ty, far });

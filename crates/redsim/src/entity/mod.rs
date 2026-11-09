@@ -672,6 +672,90 @@ pub fn position_rider(w: &mut World, vi: usize, j: usize) {
 /// and the higher of the two y (`findFreePosition` is not modeled: a model error if the rider is
 /// still alive at the next tick, [`World::dismounted`]); a vehicle still there (an activator rail's
 /// eject) is not modeled. ENTITY_DISMOUNT at the old vehicle's position (a living, unremoved rider).
+/// `LivingEntity.dismountVehicle` from a removed vehicle: at its own x and z and the higher of the
+/// two y, a small rider (at most 4 x 4) moved to `findFreePosition` around its centre there (the
+/// free part of its box-sized centre region: block boxes inflated by half its size taken away,
+/// the point of what is left closest to the centre), then `dismountTo` (`teleportTo`: `snapTo`).
+fn dismount_from_removed(w: &mut World, i: usize, vpos: Option<Vec3>) {
+    let e = &w.entities.list[i];
+    let (wd, ht) = match &e.kind {
+        EntityKind::Mob(m) => {
+            let (a, b) = m.dims();
+            (a as f64, b as f64)
+        }
+        _ => return,
+    };
+    let y = e.pos.y.max(vpos.map_or(e.pos.y, |p| p.y));
+    let mut target = Vec3::new(e.pos.x, y, e.pos.z);
+    if wd <= 4.0 && ht <= 4.0 {
+        let half = ht / 2.0;
+        let center = target.add(0.0, half, 0.0);
+        let allowed = Aabb::new(center.x - wd / 2.0, center.y - ht / 2.0, center.z - wd / 2.0, center.x + wd / 2.0, center.y + ht / 2.0, center.z + wd / 2.0);
+        if let Some(p) = find_free_position(w, allowed, center, wd, ht, wd) {
+            target = p.add(0.0, -half, 0.0);
+        }
+    }
+    w.entities.set_pos(i, target);
+    let e = &mut w.entities.list[i];
+    (e.xo, e.yo, e.zo) = (target.x, target.y, target.z);
+    (e.x_old, e.y_old, e.z_old) = (target.x, target.y, target.z);
+}
+
+/// `CollisionGetter.findFreePosition(source, allowedCenters (one box), preferredCenter, sx, sy,
+/// sz)`: the block collisions over the box inflated by the size, each box inflated by half the
+/// size and taken from the allowed box (`Shapes.join(.., ONLY_FIRST)`), then `closestPointTo`.
+pub fn find_free_position(w: &World, allowed: Aabb, p: Vec3, sx: f64, sy: f64, sz: f64) -> Option<Vec3> {
+    let search = allowed.inflate(sx, sy, sz);
+    let blocks: Vec<Aabb> = collide::block_collisions(w, search).into_iter().flat_map(|(_, b)| b).map(|b| b.inflate(sx / 2.0, sy / 2.0, sz / 2.0)).collect();
+    // the allowed box cut along every inflated box's faces inside it: a cell is free when no box
+    // holds its centre
+    let axis = |lo: f64, hi: f64, f: &dyn Fn(&Aabb) -> (f64, f64)| -> Vec<f64> {
+        let mut v = vec![lo, hi];
+        for b in &blocks {
+            let (a, c) = f(b);
+            for x in [a, c] {
+                if x > lo && x < hi {
+                    v.push(x);
+                }
+            }
+        }
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        v.dedup();
+        v
+    };
+    let xs = axis(allowed.min_x, allowed.max_x, &|b| (b.min_x, b.max_x));
+    let ys = axis(allowed.min_y, allowed.max_y, &|b| (b.min_y, b.max_y));
+    let zs = axis(allowed.min_z, allowed.max_z, &|b| (b.min_z, b.max_z));
+    let mut best: Option<(f64, Vec3)> = None;
+    for xi in 0..xs.len() - 1 {
+        for yi in 0..ys.len() - 1 {
+            for zi in 0..zs.len() - 1 {
+                let c = Vec3::new((xs[xi] + xs[xi + 1]) / 2.0, (ys[yi] + ys[yi + 1]) / 2.0, (zs[zi] + zs[zi + 1]) / 2.0);
+                if blocks.iter().any(|b| b.min_x < c.x && c.x < b.max_x && b.min_y < c.y && c.y < b.max_y && b.min_z < c.z && c.z < b.max_z) {
+                    continue;
+                }
+                let q = Vec3::new(p.x.clamp(xs[xi], xs[xi + 1]), p.y.clamp(ys[yi], ys[yi + 1]), p.z.clamp(zs[zi], zs[zi + 1]));
+                let d = p.distance_to_sqr(q);
+                if best.is_none_or(|(bd, _)| d < bd) {
+                    best = Some((d, q));
+                }
+            }
+        }
+    }
+    best.map(|(_, q)| q)
+}
+
+/// `Entity.setRemoved`'s `getPassengers().forEach(Entity::stopRiding)`: each passenger of a
+/// removed entity dismounts now.
+pub fn eject_passengers(w: &mut World, i: usize) {
+    let riders = w.entities.list[i].passengers.clone();
+    for r in riders {
+        if let Some(j) = index_of(w, r) {
+            stop_riding(w, j);
+        }
+    }
+}
+
 pub fn stop_riding(w: &mut World, i: usize) {
     let Some(v) = w.entities.list[i].vehicle.take() else { return };
     let me = w.entities.list[i].id;
@@ -689,7 +773,13 @@ pub fn stop_riding(w: &mut World, i: usize) {
         w.game_event_at("entity_dismount", [vp.x, vp.y, vp.z], None, false);
     }
     if !removed {
-        if matches!(w.entities.list[i].kind, EntityKind::ArmorStand(_)) {
+        if matches!(w.entities.list[i].kind, EntityKind::Mob(_)) {
+            if vehicle_removed {
+                dismount_from_removed(w, i, vpos);
+            } else {
+                w.errors.push("a mob dismounting from a vehicle that stays (getDismountLocationForPassenger) is not modeled".into());
+            }
+        } else if matches!(w.entities.list[i].kind, EntityKind::ArmorStand(_)) {
             if vehicle_removed {
                 let e = &w.entities.list[i];
                 let y = e.pos.y.max(vpos.map_or(e.pos.y, |p| p.y));

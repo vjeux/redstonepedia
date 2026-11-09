@@ -297,6 +297,8 @@ pub struct MobState {
     pub inside: Inside,
     /// The last damage: (game time, source).
     pub last_damage: Option<(i64, Damage)>,
+    /// Its potion effects (a witch drinks them).
+    pub effects: Effects,
     /// A villager's brain.
     pub brain: Option<Box<villager::Brain>>,
     /// The walking input the judge gives a mob whose AI is not modeled.
@@ -344,6 +346,7 @@ impl MobState {
             lava_height: 0.0,
             inside: Inside::default(),
             last_damage: None,
+            effects: Effects::default(),
             brain: None,
             walk: walk::Walk::default(),
             ai: None,
@@ -364,6 +367,16 @@ impl MobState {
     pub fn eye(&self) -> f32 {
         if self.sleeping_pos.is_some() { types::SLEEPING.2 } else { self.ty.def().eye }
     }
+}
+
+/// A mob's potion effects (the ones a witch drinks): each its remaining duration in ticks (0:
+/// none); an instant health waits for the next `tickEffects`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Effects {
+    pub water_breathing: i32,
+    pub fire_resistance: i32,
+    pub speed: i32,
+    pub instant_health: bool,
 }
 
 /// The mob layer's level state.
@@ -871,6 +884,9 @@ pub fn rider_offset(v: &EntityKind, rider: &MobState) -> Option<f64> {
     let seat = match v {
         EntityKind::Minecart(_) => 0.1875f32,
         EntityKind::Boat(_) => 0.5625f32 / 3.0f32,
+        // a spider's passenger attachment (`passengerAttachments(0.765F)`: straight up, the same at
+        // every yaw)
+        EntityKind::Mob(m) if m.ty.def().id == "spider" => 0.765f32,
         _ => return None,
     };
     Some(seat as f64 + rider.ty.def().riding_offset as f64)
@@ -905,6 +921,15 @@ pub fn ride_tick(w: &mut World, j: usize) {
     {
         let vp = w.entities.list[vi].pos;
         w.entities.set_pos(j, vp.add(0.0, off, 0.0));
+        // AbstractSkeleton.rideTick / Drowned.rideTick: the body takes the controlled vehicle's
+        let id = mob(w, j).ty.def().id;
+        if matches!(id, "skeleton" | "stray" | "bogged" | "drowned" | "baby_drowned")
+            && ai::controlled_vehicle(w, j) == Some(vi)
+            && let Some(vb) = mob(w, vi).ai.as_deref().map(|a| a.y_body_rot)
+            && let Some(a) = mob_mut(w, j).ai.as_deref_mut()
+        {
+            a.y_body_rot = vb;
+        }
         // `AbstractBoat.positionRider` (the mob-AI lane): the rider turns with the boat
         // (deltaRotation), then `clampRotation`: a mob's body and yaw take the boat's yaw and its
         // head comes within `getMaxHeadYRot` of the body (`clampHeadRotationToBody`)
