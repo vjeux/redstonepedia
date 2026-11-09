@@ -1,4 +1,4 @@
-# CIRCUIT: iron-late-stack-2x43 mob-farm iron_ingot iron per hour per block 1.18, iron per hour 886, iron range 95% 879-892 (64 runs), golems per hour 222.3, seconds per golem 16.2, share of ceiling 93%, modules 2, iron per hour per module 443, kill 348 gt, worst policy 827 iron/h (still), restarts after a missed night yes, restarts after days away yes (unloaded or not ticking, back by day or at night: the first golem 0.0-0.1 h after the return), rain clear day 879 iron/h; rain day 879 iron/h; thunder day 848 iron/h, lightning about 0.0 iron lost per thunderstorm; villagers turned into witches about every 1994 game days (one strike can take up to 4); the zombie's boat broken about every 4976 game days; a fire beside a flammable block about every 11573 game days; a skeleton trap horse on the farm about every 12185 game days; the farm breaks in about 1285 game days (a villager made a witch first); thunderstorms 1.4% of the time (6211 gt each on average), thunder loss 24.1, sunburn never (the zombie never sees the sky), fire never, misses 22671 of 46386 tries found no spot, 22595 golem sightings, bill 46 iron, 6 quartz, 8 villagers, 8 beds, 2 zombies, payback 3 min, build time 65 min (738 placed, 0 dug, 8 lava trips, 8 villagers moved), time to an iron kit 69 min (the build, then (bill + 24) / rate), build minutes 64.6, t kit minutes 69.3, iron per hour sleeping 887, volume per module 6080, entities alive 13.2, entities peak 16, tools bucket 3 + iron pickaxe 3, lava sources 8, materials Nether: quartz in 6 blocks, chunk columns 1, storage 11.6 h (202 slots; 222 poppies/h), hoppers per 1000 iron/h 9.0, 748 blocks, 10x76x16, redsim (robust)
+# CIRCUIT: iron-late-stack-2x43 mob-farm iron_ingot fastest iron per hour per block 1.52, iron per hour 887, iron range 95% 881-892 (64 runs), golems per hour 222.3, seconds per golem 16.2, share of ceiling 93%, modules 2, iron per hour per module 443, kill 340 gt, kill tail the longest 386 gt: no golem outlived 1200 gt in 23716 golems (95% bound 0.01% a golem), golems at the zombie 7 of 23716 golems targeted the farm's zombie, neighbour sightings 0 of 23716 golems sensed by another group (0 sensings, 0.00 a golem), worst policy every constant walk reaches the kill, lips none (no golem stands dry beside a current), restarts after a missed night yes, restarts after days away yes (unloaded or not ticking, back by day or at night: the first golem 0.0-0.1 h after the return), rain clear day 897 iron/h; rain day 895 iron/h; thunder day 861 iron/h, lightning about 0.0 iron lost per thunderstorm; villagers turned into witches about every 2195 game days (one strike can take up to 4); the zombie's boat broken about every 5315 game days; a fire beside a flammable block about every 12348 game days; a skeleton trap horse on the farm about every 12321 game days (every 176 game days of thunder; a lightning rod topping its column within 128 blocks prevents it); a skeleton trap horse that triggers (within 10 blocks of the AFK spot) about every 58545 game days (a lightning rod within 128 blocks, topping its column, takes the bolts: none then); the farm breaks in about 1399 game days (a villager made a witch first); thunderstorms 1.4% of the time (6211 gt each on average), thunder loss 22.2, sunburn never (the zombie never sees the sky), fire never, misses 22740 of 46456 tries found no spot, 23548 golem sightings, bill 46 iron, 6 quartz, 8 villagers, 8 beds, 2 zombies, payback 3 min, build time 29 min at late prices (573 placed, 0 dug, 1 lava trips, 8 villagers moved), time to an iron kit 31 min (the build, then 24 iron at the card's rate, then the trip to the chest), build minutes 29.1, t kit minutes 30.8, collecting 4 s per trip to the chest (2 x its depth, 4 layers, at the access's speed), iron per hour sleeping 887, volume per module 6080, entities alive 13.2, entities peak 16, tools bucket 3 + iron pickaxe 3, lava sources 8, materials Nether: quartz in 6 blocks, chunk columns 1, storage 11.6 h (202 slots; 220 poppies/h), hoppers per 1000 iron/h 9.0, 583 blocks, 10x76x16, redsim (robust)
 # Late: 2 farms stacked 43 blocks apart (far enough that no farm's golems are seen by another's villagers), each with
 # its own villagers, zombie, comparator-ring timer, drop, lava chamber and three chests (8 hours of iron each).
 name: iron-late-stack-2x43
@@ -19,28 +19,29 @@ entity: minecraft:villager -1.5 43.5625 0.5
 entity: minecraft:oak_boat 2.5 43.5 -6.8 {Passengers:[{id:"minecraft:zombie"}]}
 origin: -3 0 -7
 palette:
-  A minecraft:comparator[facing=north,mode=compare,powered=false]
-  B minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  A minecraft:comparator[facing=east,mode=compare,powered=false]
+  B minecraft:comparator[facing=north,mode=compare,powered=false]
   C minecraft:chest[facing=north,type=single,waterlogged=false]
-  D minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
-  E minecraft:observer[facing=south,powered=false]
-  F minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=none]
+  D minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  E minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  F minecraft:observer[facing=south,powered=false]
   G minecraft:glass
   H minecraft:hopper[enabled=true,facing=down]
-  I minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
-  J minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
-  K minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  I minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=none]
+  J minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+  K minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
   L minecraft:lava[level=0]
-  M minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
-  N minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  M minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  N minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
   O minecraft:oak_fence_gate[facing=east,in_wall=false,open=true,powered=false]
-  P minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
-  Q minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  P minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  Q minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
   R minecraft:red_bed[facing=north,occupied=false,part=foot]
-  S minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
-  T minecraft:stone_slab[type=bottom,waterlogged=false]
+  S minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  T minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+  U minecraft:stone_slab[type=bottom,waterlogged=false]
   W minecraft:water[level=0]
-  c minecraft:comparator[facing=east,mode=compare,powered=false]
+  c minecraft:cobblestone
   h minecraft:hopper[enabled=true,facing=east]
   o minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
   r minecraft:red_bed[facing=north,occupied=false,part=head]
@@ -138,14 +139,14 @@ layer -23:
   .
   .
   .
-  ...s....s
-  ...sshHss
-  ...ssssss
-  ...ssssss
-  ...ssssss
-  ...ssssss
-  ...ssssss
-  ...ssssss
+  .
+  ....shHs
+  ....cssc
+  ....cccc
+  ....cccc
+  ....cccc
+  ...cccccc
+  ....c..c
   .
 layer -22:
   .
@@ -155,14 +156,14 @@ layer -22:
   .
   .
   .
-  ...ssssss
-  ...s....s
-  ...s....s
-  ...s....s
-  ...s....s
-  ...s....s
-  ...sW..Ws
-  ...ssssss
+  ....cccc
+  ...c....c
+  ...c....c
+  ...c....c
+  ...c....c
+  ...c....c
+  ...cW..Wc
+  ...cccccc
   .
 layer -21:
   .
@@ -172,14 +173,14 @@ layer -21:
   .
   .
   .
-  ...ssssss
+  ....ssss
   ...sOOOOs
-  ...s....s
-  ...s....s
-  ...s....s
-  ...s....s
-  ...s....s
-  ...ssssss
+  .
+  .
+  .
+  .
+  ...c....c
+  ....c..c
   .
 layer -20:
   .
@@ -189,14 +190,14 @@ layer -20:
   .
   .
   .
-  ...ssssss
-  ...sLLLLs
+  ...cccccc
+  ...cLLLLc
   ...sOOOOs
-  ...s....s
-  ...s....s
-  ...s....s
-  ...s....s
-  ...ssssss
+  .
+  ...c....c
+  .
+  .
+  .
   .
 layer -19:
   .
@@ -206,9 +207,9 @@ layer -19:
   .
   .
   .
-  ...ssssss
-  ...ssssss
-  ...ssssss
+  ....cccc
+  ...cccccc
+  ....ssss
   .
   .
   .
@@ -412,12 +413,12 @@ layer -7:
   .
   .
   .
-  ...ssssss
+  ...cssssc
   ...soooos
   ...so..os
   ...so..os
   ...soooos
-  ...ssssss
+  ...cssssc
   .
 layer -6:
   .
@@ -522,13 +523,13 @@ layer -1:
   .
   .
 layer 0:
-  .....T
-  scsQF.sI
-  A.P.NI.K
-  sPP..NMJ
+  .....U
+  sAsSI.sJ
+  B.Q.PJ.M
+  sQQ..PNK
   .s
-  .S
-  .E
+  .T
+  .F
   .r.r.r.r
   .R.R.R.R
   .
@@ -540,13 +541,13 @@ layer 0:
   .
 layer 1:
   .
-  G.G..BM
+  G.G..DN
   .
   G
   .G
   .
   .G
-  G.GDGDGDG
+  ..GEGEGEG
   .G.G.G.G
   .
   .
@@ -563,8 +564,8 @@ layer 2:
   .
   .
   .G
-  G.G.G.G.G
-  .G.G.G.G
+  c
+  .
   .
   .
   .
@@ -580,8 +581,8 @@ layer 3:
   .
   .
   .
-  sssssssss
-  sssssssss
+  .
+  .
   .
   .
   .
@@ -597,8 +598,8 @@ layer 4:
   .
   .
   .
-  GGGGGGGGG
-  GGGGGGGGG
+  G...G.G
+  ...G
   .
   .
   .
@@ -869,14 +870,14 @@ layer 20:
   .
   .
   .
-  ...s....s
-  ...sshHss
-  ...ssssss
-  ...ssssss
-  ...ssssss
-  ...ssssss
-  ...ssssss
-  ...ssssss
+  .
+  ....shHs
+  ....cssc
+  ....cccc
+  ....cccc
+  ....cccc
+  ...cccccc
+  ....c..c
   .
 layer 21:
   .
@@ -886,14 +887,14 @@ layer 21:
   .
   .
   .
-  ...ssssss
-  ...s....s
-  ...s....s
-  ...s....s
-  ...s....s
-  ...s....s
-  ...sW..Ws
-  ...ssssss
+  ....cccc
+  ...c....c
+  ...c....c
+  ...c....c
+  ...c....c
+  ...c....c
+  ...cW..Wc
+  ...cccccc
   .
 layer 22:
   .
@@ -903,14 +904,14 @@ layer 22:
   .
   .
   .
-  ...ssssss
+  ....ssss
   ...sOOOOs
-  ...s....s
-  ...s....s
-  ...s....s
-  ...s....s
-  ...s....s
-  ...ssssss
+  .
+  .
+  ...c....c
+  .
+  ...c....c
+  ....c..c
   .
 layer 23:
   .
@@ -920,14 +921,14 @@ layer 23:
   .
   .
   .
-  ...ssssss
-  ...sLLLLs
+  ...cccccc
+  ...cLLLLc
   ...sOOOOs
-  ...s....s
-  ...s....s
-  ...s....s
-  ...s....s
-  ...ssssss
+  .
+  .
+  .
+  .
+  .
   .
 layer 24:
   .
@@ -937,9 +938,9 @@ layer 24:
   .
   .
   .
-  ...ssssss
-  ...ssssss
-  ...ssssss
+  ....cccc
+  ...cccccc
+  ....ssss
   .
   .
   .
@@ -1143,12 +1144,12 @@ layer 36:
   .
   .
   .
-  ...ssssss
+  ...cssssc
   ...soooos
   ...so..os
   ...so..os
   ...soooos
-  ...ssssss
+  ...cssssc
   .
 layer 37:
   .
@@ -1253,13 +1254,13 @@ layer 42:
   .
   .
 layer 43:
-  .....T
-  scsQF.sI
-  A.P.NI.K
-  sPP..NMJ
+  .....U
+  sAsSI.sJ
+  B.Q.PJ.M
+  sQQ..PNK
   .s
-  .S
-  .E
+  .T
+  .F
   .r.r.r.r
   .R.R.R.R
   .
@@ -1271,13 +1272,13 @@ layer 43:
   .
 layer 44:
   .
-  G.G..BM
+  G.G..DN
   .
   G
   .G
   .
   .G
-  G.GDGDGDG
+  c.GEGEGEG
   .G.G.G.G
   .
   .
@@ -1294,8 +1295,8 @@ layer 45:
   .
   .
   .G
-  G.G.G.G.G
-  .G.G.G.G
+  .
+  .
   .
   .
   .
@@ -1311,8 +1312,8 @@ layer 46:
   .
   .
   .
-  sssssssss
-  sssssssss
+  .c.c.c.c
+  .
   .
   .
   .
@@ -1329,7 +1330,7 @@ layer 47:
   .
   .
   GGGGGGGGG
-  GGGGGGGGG
+  .G.G.G.G
   .
   .
   .
