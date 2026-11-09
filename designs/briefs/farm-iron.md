@@ -253,7 +253,11 @@ Numbers, never refusals by themselves; each stage weighs them in its own rank:
   <stage> [--pick]` (it runs the kind's judge and the real-game gate itself and refuses a farm the
   gate fails) and the coordinator's fast path (GO, main, deploy); every candidate discussed with
   vjeux carries its live site URL. Previews are retired. Every candidate that passes the gate is
-  listed, dominated ones included (vjeux 16:49: "Seriously, just upload them"); near-duplicates
+  listed, dominated ones included (vjeux 16:49: "Seriously, just upload them"); a candidate whose
+  gate is still running or has failed may go up at once (`site variation --no-gate`), its page
+  stating the gate's result as a measured fact (a failure as a tradeoff line with its counts:
+  "a golem stuck in the channel, never killed, in 1 of 16 game builds"), never a pass it did not
+  get; near-duplicates
   within 10% on every objective stay one farm (vjeux 10:56, "I also don't want hundreds of tiny
   variations"). Only a bar (copies at the no-coupling pitch, each with its own kill chamber and
   chests) stays off, quoted as the reference line on every listed farm's card and beside the
