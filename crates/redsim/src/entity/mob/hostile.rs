@@ -5,9 +5,11 @@
 //! lines, never refusals, until natural mobs' AI turns them into measured losses):
 //!
 //! * a **flood** per body class (the types' boxes and step heights) over the terrain plus the farm,
-//!   started at every standable position outside the farm whatever its light (natural spawns,
-//!   sieges, the village's own mobs, the box's edges all start somewhere in it); spiders climb,
-//!   endermen teleport (every standable position), flyers take any air;
+//!   started at every standable position outside the farm a mob of the class can spawn at (a
+//!   monster only at block light 0, whatever the sky; natural spawns, sieges, the village's own
+//!   mobs, the box's edges all start somewhere in it); closed trapdoors and fence gates are walls
+//!   (zombies break only doors); spiders climb, endermen teleport (every standable position),
+//!   flyers take any air;
 //! * the channels read the flood: entry into the farm's interior, a villager-hostile's sight of a
 //!   farm villager, melee reach, the village golem's and villagers' presence, the golem search
 //!   outside the farm's floors, creepers near the AFK player, endermen, fire, lightning, bed
@@ -298,6 +300,13 @@ pub fn flood(w: &World, b: Body, exclude: &HashSet<BlockPos>, bounds: (BlockPos,
             return residents.contains(&p);
         }
         if b.flies && p.y >= w.height(crate::terrain::Heightmap::WorldSurface, p.x, p.z) {
+            return false;
+        }
+        // (a monster spawns in the overworld only at block light 0: `Monster.isDarkEnoughToSpawn`
+        // against the dimension's monster_spawn_block_light_limit, 0; a torch-lit cell is no
+        // spawn start, ironspec's fix for a lit built-in access. Slimes, pillagers, bats and foxes
+        // keep their own rules: any light here)
+        if matches!(b.name, "zombie" | "baby zombie" | "skeleton" | "creeper" | "spider" | "cave spider") && w.block_light(p).unwrap_or(0) > 0 {
             return false;
         }
         types.iter().any(|t| valid_spawn_floor(w, p.below(), t))
