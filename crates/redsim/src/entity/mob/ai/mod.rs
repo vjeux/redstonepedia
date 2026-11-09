@@ -14,6 +14,7 @@
 pub mod attack;
 pub mod bat;
 pub mod brain;
+pub mod cube;
 pub mod control;
 pub mod goal;
 pub mod path;
@@ -80,6 +81,8 @@ pub struct MobAi {
     pub swell: i32,
     pub swell_dir: i32,
     pub swell_target: Option<u32>,
+    /// A cube mob's move control and landing state ([`cube`]).
+    pub cube: Option<cube::CubeState>,
 }
 
 impl MobAi {
@@ -127,8 +130,12 @@ impl MobAi {
             swell: 0,
             swell_dir: -1,
             swell_target: None,
+            cube: None,
         };
         goal::register_goals(&mut ai, ty);
+        if let Some(_) = cube::cube_size(d.id) {
+            cube::register(&mut ai, d.id, y_rot);
+        }
         ai
     }
 }
@@ -339,6 +346,9 @@ fn custom_server_ai_step(w: &mut World, i: usize) {
 
 /// `MoveControl.tick()`.
 pub fn move_control_tick(w: &mut World, i: usize) {
+    if ai(w, i).cube.is_some() {
+        return cube::move_control_tick(w, i);
+    }
     let op = ai(w, i).move_ctl.operation;
     match op {
         Operation::Strafe => {
@@ -495,9 +505,9 @@ pub fn max_head_y_rot(_w: &World, _i: usize) -> i32 {
     75
 }
 
-/// `Mob.getMaxHeadXRot()` (40).
-pub fn max_head_x_rot(_w: &World, _i: usize) -> i32 {
-    40
+/// `Mob.getMaxHeadXRot()` (40; a cube mob's 0).
+pub fn max_head_x_rot(w: &World, i: usize) -> i32 {
+    if ai(w, i).cube.is_some() { 0 } else { 40 }
 }
 
 /// `Mob.getHeadRotSpeed()` (10).
@@ -709,7 +719,8 @@ fn refuse_once(w: &mut World, why: &str) {
 /// `Monster.updateNoActionTime()` (first in `Monster.aiStep`): bright light at the eye counts
 /// double.
 pub fn update_no_action_time(w: &mut World, i: usize) {
-    if !mob(w, i).ty.def().monster {
+    // a Monster's (the cube mobs spawn as monsters but are AgeableMobs)
+    if !mob(w, i).ty.def().monster || ai(w, i).cube.is_some() {
         return;
     }
     let e = &w.entities.list[i];
@@ -785,7 +796,8 @@ fn has_ambient_sound(w: &World, i: usize) -> bool {
         MobType::IronGolem => false,
         MobType::Villager => m.sleeping_pos.is_none(),
         MobType::Zombie | MobType::Witch => true,
-        MobType::Natural(_) => !matches!(m.ty.def().id, "creeper"),
+        // the creeper and the cube mobs (AbstractCubeMob: none) have no ambient sound
+        MobType::Natural(_) => !matches!(m.ty.def().id, "creeper" | "sulfur_cube" | "sulfur_cube_2"),
     }
 }
 

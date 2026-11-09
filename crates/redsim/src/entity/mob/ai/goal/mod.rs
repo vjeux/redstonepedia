@@ -65,6 +65,8 @@ pub enum Goal {
     RangedBow,
     /// `LeapAtTargetGoal` (the spider's, 0.4 up).
     LeapAtTarget,
+    /// A cube mob's goals (`AbstractCubeMob`, the sulfur cube's).
+    Cube(super::cube::CubeGoal),
     ResetUniversalAnger,
     HurtByTarget(targets::HurtByTarget),
     NearestAttackableTarget(targets::NearestAttackableTarget),
@@ -91,6 +93,7 @@ impl Goal {
             Goal::FleeSun(_) => MOVE,
             Goal::RangedBow => MOVE | LOOK,
             Goal::LeapAtTarget => JUMP | MOVE,
+            Goal::Cube(c) => c.flags(),
             Goal::ResetUniversalAnger => 0,
             Goal::HurtByTarget(_) | Goal::NearestAttackableTarget(_) => TARGET,
         }
@@ -98,6 +101,9 @@ impl Goal {
 
     /// `requiresUpdateEveryTick()`.
     pub fn every_tick(&self) -> bool {
+        if let Goal::Cube(c) = self {
+            return c.every_tick();
+        }
         matches!(self, Goal::Float | Goal::RandomLookAround(_) | Goal::MeleeAttack(_) | Goal::ZombieAttackTurtleEgg(_) | Goal::BreakDoor(_) | Goal::Swell | Goal::RangedBow)
     }
 
@@ -141,6 +147,7 @@ impl Goal {
             Goal::FleeSun(_) => "FleeSunGoal",
             Goal::RangedBow => "RangedBowAttackGoal",
             Goal::LeapAtTarget => "LeapAtTargetGoal",
+            Goal::Cube(c) => c.name(),
             Goal::ResetUniversalAnger => "ResetUniversalAngerTargetGoal",
             Goal::HurtByTarget(_) => "HurtByTargetGoal",
             Goal::NearestAttackableTarget(n) => match n.target_type {
@@ -302,6 +309,7 @@ pub fn can_use(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::FleeSun(g) => skeleton::flee_sun_can_use(w, i, g),
         Goal::RangedBow => skeleton::bow_can_use(w, i),
         Goal::LeapAtTarget => spider::leap_can_use(w, i),
+        Goal::Cube(c) => super::cube::can_use(w, i, c),
         Goal::ResetUniversalAnger => false,
         Goal::HurtByTarget(h) => targets::hurt_by_can_use(w, i, h),
         Goal::NearestAttackableTarget(n) => targets::nearest_can_use(w, i, n),
@@ -329,6 +337,8 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::FleeSun(_) => !super::ai(w, i).nav.is_done(),
         Goal::RangedBow => skeleton::bow_can_continue(w, i),
         Goal::LeapAtTarget => spider::leap_can_continue(w, i),
+        // Goal.canContinueToUse: canUse()
+        Goal::Cube(c) => super::cube::can_use(w, i, c),
         Goal::HurtByTarget(h) => targets::target_can_continue(w, i, &mut h.base),
         Goal::NearestAttackableTarget(n) => targets::target_can_continue(w, i, &mut n.base),
     }
@@ -355,6 +365,7 @@ pub fn start(w: &mut World, i: usize, g: &mut Goal) {
         Goal::FleeSun(g) => skeleton::flee_sun_start(w, i, g),
         Goal::RangedBow => {}
         Goal::LeapAtTarget => spider::leap_start(w, i),
+        Goal::Cube(_) => {}
         Goal::HurtByTarget(h) => targets::hurt_by_start(w, i, h),
         Goal::NearestAttackableTarget(n) => targets::nearest_start(w, i, n),
     }
@@ -378,7 +389,7 @@ pub fn stop(w: &mut World, i: usize, g: &mut Goal) {
         Goal::Swell => super::ai_mut(w, i).swell_target = None,
         Goal::AvoidEntity => {}
         Goal::RestrictSun => super::ai_mut(w, i).nav.avoid_sun = false,
-        Goal::FleeSun(_) | Goal::RangedBow | Goal::LeapAtTarget => {}
+        Goal::FleeSun(_) | Goal::RangedBow | Goal::LeapAtTarget | Goal::Cube(_) => {}
         Goal::HurtByTarget(h) => targets::target_stop(w, i, &mut h.base),
         Goal::NearestAttackableTarget(n) => targets::target_stop(w, i, &mut n.base),
     }
@@ -402,6 +413,7 @@ pub fn tick(w: &mut World, i: usize, g: &mut Goal) {
         Goal::AvoidEntity => {}
         Goal::RangedBow => skeleton::bow_tick(w),
         Goal::RestrictSun | Goal::FleeSun(_) | Goal::LeapAtTarget => {}
+        Goal::Cube(c) => super::cube::tick(w, i, c),
         Goal::HurtByTarget(_) | Goal::NearestAttackableTarget(_) => {}
     }
 }

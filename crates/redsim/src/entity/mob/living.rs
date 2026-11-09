@@ -76,6 +76,10 @@ pub fn tick(w: &mut World, i: usize) {
     if super::ai::has_ai(w, i) && super::ai::bat::is_bat(w, i) {
         super::ai::bat::after_tick(w, i);
     }
+    // AbstractCubeMob.tick after super.tick: the landing's draws
+    if super::ai::has_ai(w, i) {
+        super::ai::cube::after_tick(w, i);
+    }
 }
 
 /// `LivingEntity.baseTick` (with `Entity.baseTick` inside).
@@ -343,6 +347,11 @@ fn fluid_jump_threshold(m: &MobState) -> f64 {
 /// `LivingEntity.jumpFromGround`: up at the jump power (0.42, nobody sprints).
 fn jump_from_ground(w: &mut World, i: usize) {
     let power = 0.42f32 * jump_factor(w, i);
+    // AbstractCubeMob.jumpFromGround: the power whatever the motion (no threshold, no max)
+    if super::ai::has_ai(w, i) && super::ai::cube::is_cube(w, i) {
+        super::ai::cube::jump_from_ground(w, i, power);
+        return;
+    }
     if power > 1.0e-5 {
         let e = &mut w.entities.list[i];
         let v = e.delta_movement;

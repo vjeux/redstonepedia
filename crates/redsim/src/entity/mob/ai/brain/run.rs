@@ -1173,6 +1173,8 @@ fn walk_from_block_memory(w: &mut World, i: usize, mem: M, speed: f32, close: i3
                 if tries == 1000 {
                     // releasePoi: the memory erased frees its POI (the claims are the brains'
                     // memories)
+                    let id = w.entities.list[i].id;
+                    w.mob.events.push(crate::entity::mob::MobEvent::Released { t, id });
                     erase(w, i, mem);
                     ex_mut(w, i).mem.cant_reach_since = Some(t);
                     return true;
@@ -1183,6 +1185,8 @@ fn walk_from_block_memory(w: &mut World, i: usize, mem: M, speed: f32, close: i3
         }
     } else {
         // too long unreachable: releasePoi (the memory erased frees its POI)
+        let id = w.entities.list[i].id;
+        w.mob.events.push(crate::entity::mob::MobEvent::Released { t, id });
         erase(w, i, mem);
         ex_mut(w, i).mem.cant_reach_since = Some(t);
     }

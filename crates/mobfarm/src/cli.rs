@@ -485,6 +485,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for f in r.failures.iter().chain(r.errors.iter()) {
                 println!("FAIL {f}");
             }
+            if !r.releases.is_empty() {
+                println!("POI releases (a villager's bed given up after 1200 gt unreachable) at gt {:?}", r.releases);
+            }
             if cells > 0 {
                 let total: u64 = r.golem_cells.iter().map(|(_, n)| *n as u64).sum();
                 let mut v = r.golem_cells.clone();

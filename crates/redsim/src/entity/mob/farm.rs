@@ -146,6 +146,9 @@ pub struct RunReport {
     pub max_sleep_gap: i64,
     /// Sleeps started.
     pub sleeps: u32,
+    /// The farm's villagers' POI releases (`releasePoi`: a bed given up after 1200 gt unreachable),
+    /// each with its game time.
+    pub releases: Vec<i64>,
     /// Must-have failures (first ones), each with its game time.
     pub failures: Vec<String>,
     /// Model errors (the world's), each once.
@@ -711,6 +714,7 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
                     s.1 = t;
                 }
             }
+            MobEvent::Released { id, .. } if tr.own.contains(&id) => rep.releases.push(t),
             _ => {}
         }
     }

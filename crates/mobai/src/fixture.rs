@@ -421,6 +421,35 @@ fn scenes_raw() -> Vec<Scene> {
             player_creative: true,
         });
     }
+    // sulfur cubes (size 2) hopping in a stone pen with a pool: CubeMobRandomDirectionGoal's
+    // directions, the jumping move control, landing draws, floating in the water
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        for (a, c) in [((8, 8), (8, 39)), ((39, 8), (39, 39)), ((8, 8), (39, 8)), ((8, 39), (39, 39))] {
+            wall(&mut b, a, c, 63, 3, stone);
+        }
+        for x in 28..34 {
+            for z in 28..34 {
+                b.push(([x, 63, z], "minecraft:water[level=0]".to_string()));
+            }
+        }
+        v.push(Scene {
+            name: "sulfur-cubes".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:sulfur_cube".into(), [16.5, 64.0, 16.5], Some("{PersistenceRequired:1b,Size:1}".into())),
+                ("minecraft:sulfur_cube".into(), [24.5, 64.0, 20.5], Some("{PersistenceRequired:1b,Size:1}".into())),
+            ],
+            day_time: 6000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: Some([24.5, 72.0, 24.5]),
+            player_creative: true,
+        });
+    }
     v
 }
 

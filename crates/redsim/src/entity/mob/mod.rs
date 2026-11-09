@@ -128,6 +128,9 @@ pub enum MobEvent {
     Removed { t: i64, id: u32 },
     Slept { t: i64, id: u32 },
     Woke { t: i64, id: u32 },
+    /// A villager gave up a POI memory (`Villager.releasePoi`: its HOME, job site or meeting point
+    /// unreachable too long: SetWalkTargetFromBlockMemory).
+    Released { t: i64, id: u32 },
     /// A villager's active activity changed (`Brain.setActiveActivity`).
     Activity { t: i64, id: u32, activity: villager::Activity },
 }
@@ -431,10 +434,11 @@ fn split_compounds(list: &str) -> Vec<String> {
 /// come from [`MobWorld::rng`]: the judge models a mob the player brought in (its
 /// `finalizeSpawn` ran where it spawned), not a `/summon` with data.
 pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> Option<Result<u32, String>> {
-    let ty = MobType::from_id(type_id)?;
+    let mut ty = MobType::from_id(type_id)?;
     let mut persistent = false;
     let mut can_break_doors = false;
     let mut bat_flags = 0;
+    let mut cube_size: Option<i32> = None;
     let mut yaw = None;
     if let Some(n) = nbt {
         let mut t = n.trim().to_string();
@@ -455,8 +459,18 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
                 Some(("CanBreakDoors", v)) if w.mob.ai.on && matches!(ty.def().id, "zombie" | "baby_zombie") => can_break_doors = matches!(v, "1b" | "true" | "1"),
                 // a bat's flags (resting: bit 1)
                 Some(("BatFlags", v)) if ty.def().id == "bat" => bat_flags = v.trim_end_matches(['b', 'B']).parse::<i32>().unwrap_or(0),
+                // a sulfur cube's size (`Size` = size - 1)
+                Some(("Size", v)) if ty.def().game_id == "minecraft:sulfur_cube" => cube_size = v.trim_end_matches(['b', 'B']).parse::<i32>().ok().map(|s| s + 1),
                 _ => return Some(Err(format!("entity {type_id} with {kv} in its data is not modeled by redsim"))),
             }
+        }
+    }
+    // a loaded sulfur cube of size 2 (an adult: no Age); size 1 loaded is an adult of the baby's
+    // size, not modeled
+    if ty.def().game_id == "minecraft:sulfur_cube" {
+        match cube_size.unwrap_or(1) {
+            2 => ty = MobType::from_id("sulfur_cube_2").expect("a row"),
+            s => return Some(Err(format!("a summoned sulfur cube of size {s} (an adult of that size) is not modeled"))),
         }
     }
     let id = add(w, ty, Vec3::new(pos[0], pos[1], pos[2]), persistent);
@@ -517,6 +531,10 @@ pub fn add(w: &mut World, ty: MobType, pos: Vec3, persistent: bool) -> u32 {
         if let Some(a) = st.ai.as_deref_mut() {
             a.y_head_rot = ctor_yaw;
             a.y_body_rot = 0.0;
+            // a cube mob's move control takes its direction from the constructor's yaw
+            if let Some(c) = a.cube.as_mut() {
+                c.yrot = 180.0f32 * ctor_yaw / std::f32::consts::PI;
+            }
         }
     }
     // ---- mob AI (the mob-AI lane): a mob whose goals are not modeled is refused, never run

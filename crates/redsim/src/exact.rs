@@ -205,7 +205,7 @@ pub fn entity_frame(w: &World, e: &crate::entity::Entity) -> EntityFrame {
     let mut f = EntityFrame {
         n: e.id,
         ty: match &e.kind {
-            EntityKind::Mob(m) => m.ty.def().id.to_string(),
+            EntityKind::Mob(m) => m.ty.def().game_id.trim_start_matches("minecraft:").to_string(),
             EntityKind::Item(_) => "item".into(),
             EntityKind::Boat(b) => if b.chest { "chest_boat".into() } else { "boat".into() },
             EntityKind::Minecart(m) => if m.hopper { "hopper_minecart".into() } else { "minecart".into() },
