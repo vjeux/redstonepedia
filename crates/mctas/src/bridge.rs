@@ -47,6 +47,11 @@ pub const GOLEM_AGENT: (&str, &str) = ("dev/vjeux/mctas/agent/GolemAgent.java", 
 /// The golem agent's jar for `version`'s Java (built with the JDK's own `javac` and `jar` next to
 /// the server's `java`, cached by a hash of the source): the value of `-javaagent:`.
 pub fn golem_agent(version: &str) -> Result<PathBuf> {
+    // one build at a time in this process (a gate's parallel builds all ask for it at once:
+    // they shared one `.tmp-<pid>` folder and removed it under each other, tick-exact), and a
+    // folder of its own per build across processes
+    static BUILDING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = BUILDING.lock().unwrap_or_else(|e| e.into_inner());
     let install = setup::install_server(version)?;
     let (name, text) = GOLEM_AGENT;
     let hash = &net::sha256_hex(format!("{version}{name}{text}").as_bytes())[..12];
@@ -54,7 +59,8 @@ pub fn golem_agent(version: &str) -> Result<PathBuf> {
     if jar.exists() {
         return Ok(jar);
     }
-    let tmp = paths::version_dir(version).join(format!("golem-agent-{hash}.tmp-{}", std::process::id()));
+    let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let tmp = paths::version_dir(version).join(format!("golem-agent-{hash}.tmp-{}-{nonce}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
     let src = tmp.join("src").join(name);
     std::fs::create_dir_all(src.parent().unwrap())?;
