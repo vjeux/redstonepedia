@@ -91,6 +91,18 @@ pub fn carousel(side: i32) -> anyhow::Result<String> {
 /// one to a stop before the villagers wake) or stopped (one advance at the night threshold's edge,
 /// the home phase's counter holding the evening's golems so it brings every villager home).
 pub fn carousel_with(side: i32, latch: bool, free_run: bool) -> anyhow::Result<String> {
+    carousel_impl(side, latch, free_run, false)
+}
+
+/// The brief's quick stop (vjeux 2026-11-09 06:35: "Fix the sleeping station"; work in progress,
+/// [`quick_flash`]): every stop gets a dorm zombie behind a hatch that its bed's sleeper sees from
+/// its sleeping eye, opened while the bed is OCCUPIED, so each villager lies down (LAST_SLEPT) and
+/// is woken within a hostile scan instead of sleeping until dawn.
+pub fn carousel_quick(side: i32) -> anyhow::Result<String> {
+    carousel_impl(side, true, false, true)
+}
+
+fn carousel_impl(side: i32, latch: bool, free_run: bool, quick: bool) -> anyhow::Result<String> {
     anyhow::ensure!(side >= 28, "the carousel's inner loop needs a side of 28 or more (its waiting stops out of the golems' follow box)");
     let mut b = Builder::new(&format!("iron-carousel-3x4-{side}"));
     let mut dust: BTreeSet<[i32; 3]> = BTreeSet::new();
@@ -114,6 +126,9 @@ pub fn carousel_with(side: i32, latch: bool, free_run: bool) -> anyhow::Result<S
         }
         bus(&mut b, &mut dust, t, e);
         for s in sides(t, e) {
+            if quick {
+                quick_flash(&mut b, &s);
+            }
             stop(&mut b, &mut dust, s, k == 2);
         }
     }
@@ -203,6 +218,42 @@ fn loop_rails(t: i32, e: i32, boost: bool) -> Vec<([i32; 3], String, &'static st
         }
     }
     out
+}
+
+/// The quick stop's flash at one stop (work in progress): an observer under the bed's head
+/// (lane 1, y -2, facing up) pulses when the sleeper lies down and again when it wakes; a copper
+/// bulb under it toggles on each pulse (lit exactly while the bed is OCCUPIED); a comparator in
+/// the track's column (y -3) reads it into an iron trapdoor outside the track (y -3, closed: a
+/// bottom plate), the hatch over a dorm zombie sealed in the cells below (y -5..-4). The sleeper's
+/// eye (the head's centre, y -0.11) sees the zombie through the pocket rail's cell, its support
+/// (glass) and the open hatch: about 3.3 away, within the hostile sensor's 8.
+fn quick_flash(b: &mut Builder, s: &Side) {
+    let o = s.at(POCKET, 1);
+    b.set(o[0], -2, o[1], "observer[facing=up,powered=false]");
+    b.set(o[0], -3, o[1], "copper_bulb[lit=false,powered=false]");
+    b.set(o[0], -4, o[1], STONE);
+    let c = s.at(POCKET, 0);
+    b.set(c[0], -2, c[1], GLASS);
+    b.set(c[0], -3, c[1], &format!("comparator[facing={},mode=compare,powered=false]", name(s.n)));
+    b.set(c[0], -4, c[1], STONE);
+    let h = s.at(POCKET, -1);
+    b.set(h[0], -3, h[1], &format!("iron_trapdoor[facing={},half=bottom,open=false,powered=false,waterlogged=false]", name(s.n)));
+    for (i, lane) in [(POCKET - 1, -1), (POCKET + 1, -1), (POCKET, -2), (POCKET, 0)] {
+        let p = s.at(i, lane);
+        // (the top ring glass: its tops at y -3 are within the station's golem search)
+        for (y, block) in [(-5, STONE), (-4, GLASS)] {
+            if !b.d.blocks.contains_key(&[p[0], y, p[1]]) || (y == -4 && lane == 0) {
+                b.set(p[0], y, p[1], block);
+            }
+        }
+    }
+    b.set(h[0], -6, h[1], STONE);
+    // (the outer loop's: nothing over its hatch but the outside wall's glass, and a zombie in the
+    // sky's light burns)
+    if !b.d.blocks.contains_key(&[h[0], -2, h[1]]) {
+        b.set(h[0], -2, h[1], STONE);
+    }
+    b.entity("zombie", [h[0] as f64 + 0.5, -5.0, h[1] as f64 + 0.5], Some("{PersistenceRequired:1b}"));
 }
 
 /// A stop's bed and its cage (side `s`; `outer`: the outer loop, nothing outside its track):
