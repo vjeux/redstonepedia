@@ -326,6 +326,11 @@ pub enum MobfarmCmd {
         designs: Vec<PathBuf>,
         #[arg(long)]
         record: bool,
+        /// Instead: the table's rows whose design changed since it was recorded (its file's content
+        /// hash is not the row's: a trimmed or edited design the ratchet no longer holds), to
+        /// record again.
+        #[arg(long)]
+        stale: bool,
     },
     /// The brief's game check: the design run in the real server for `--days`, its golems (time
     /// and cell) and the iron in the chest, against redsim's runs of the same design.
@@ -634,7 +639,29 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
         }
         MobfarmCmd::Validate { design, days, kill, seeds, trace, repeat } => validate_cmd(version, &design, days, kill, seeds, trace, repeat)?,
-        MobfarmCmd::Exact { designs, record } => {
+        MobfarmCmd::Exact { designs, record, stale } => {
+            if stale {
+                let root = std::env::current_dir()?;
+                let rows = circuit::mobfarm_exact::read_record(&root);
+                let (mut n, mut changed) = (0, 0);
+                for r in &rows {
+                    n += 1;
+                    let now = match circuit::Circuit::load(std::path::Path::new(&r.file)) {
+                        Ok(c) => clock::catalog::content_hash(&c.clock),
+                        Err(e) => {
+                            changed += 1;
+                            println!("stale: {} (exact {}): unreadable now: {e:#}", r.file, if r.exact { "yes" } else { "no" });
+                            continue;
+                        }
+                    };
+                    if now != r.hash {
+                        changed += 1;
+                        println!("stale: {} (exact {}, recorded {} as {}, now {now})", r.file, if r.exact { "yes" } else { "no" }, r.recorded, r.hash);
+                    }
+                }
+                println!("{changed} of {n} rows stale ({})", circuit::mobfarm_exact::RECORD);
+                return Ok(());
+            }
             let o = circuit::verify::Options { version: version.to_string(), ..Default::default() };
             for d in &designs {
                 let c = circuit::Circuit::load(d)?;

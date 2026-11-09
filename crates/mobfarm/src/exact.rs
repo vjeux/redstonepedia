@@ -99,6 +99,45 @@ fn trace_probe() -> Option<(Option<u32>, i64)> {
 /// Also `MCTAS_EXACT_EXPLAIN="type:x,y,z:T"`: redsim's natural-spawn checks of that type at that
 /// cell before game time T's tick (`natural::explain`).
 fn trace_start(w: &mut redsim::world::World, t: i64) {
+    // (a probe: `MCTAS_EXACT_TS_CHECK="T0:T1"`: before each tick in T0..=T1, the sections'
+    // ticking counts every write keeps against a recount of the cells)
+    static TS: std::sync::OnceLock<Option<(i64, i64)>> = std::sync::OnceLock::new();
+    if let Some((t0, t1)) = *TS.get_or_init(|| {
+        let v = std::env::var("MCTAS_EXACT_TS_CHECK").ok()?;
+        let (a, b) = v.split_once(':')?;
+        Some((a.parse().ok()?, b.parse().ok()?))
+    }) && t >= t0
+        && t <= t1
+        && let Some(kept) = w.ticking_sections.as_ref()
+    {
+        let fresh = redsim::crops::TickingSections::build(w);
+        for (s, a, b) in kept.differences(&fresh) {
+            eprintln!("ticking sections t{t}: section {s:?} kept {a} recount {b}");
+        }
+        // and at the window's first tick: every distinct state of the world whose random ticking
+        // redsim answers otherwise than the game's block table (`BlockState.isRandomlyTicking`)
+        if t == t0 {
+            for (p, b) in w.outer.iter() {
+                if redsim::crops::ticks_in_section(b) {
+                    eprintln!("ticking state t{t}: outside the box at {p}: {b}");
+                }
+            }
+            let mut seen = std::collections::HashSet::new();
+            let size = w.size;
+            for (x, y, z) in (0..size[1]).flat_map(|y| (0..size[2]).flat_map(move |z| (0..size[0]).map(move |x| (x, y, z)))) {
+                let b = w.get(w.min.offset(x, y, z));
+                if !seen.insert(b) {
+                    continue;
+                }
+                let name = b.to_string();
+                let game = redsim::terrain::blocks::id_of(&name).map(|id| redsim::terrain::blocks::props(id).random_ticking);
+                let ours = redsim::crops::ticks_in_section(&b);
+                if game != Some(ours) {
+                    eprintln!("ticking state t{t}: {name}: redsim {ours}, the game's table {game:?}");
+                }
+            }
+        }
+    }
     static EXPLAIN: std::sync::OnceLock<Option<(String, redsim::pos::BlockPos, i64)>> = std::sync::OnceLock::new();
     if let Some((ty, p, at)) = EXPLAIN
         .get_or_init(|| {

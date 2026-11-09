@@ -104,6 +104,25 @@ pub struct TickingSections {
 }
 
 impl TickingSections {
+    /// The sections whose counts differ from `other`'s (`[cx, sy, cz]`, ours, theirs): a probe
+    /// that the counts kept by every write still match a recount (`MCTAS_EXACT_TS_CHECK`).
+    pub fn differences(&self, other: &TickingSections) -> Vec<([i32; 3], u32, u32)> {
+        let mut out = Vec::new();
+        if self.lo != other.lo || self.dims != other.dims {
+            out.push(([i32::MIN; 3], 0, 0));
+            return out;
+        }
+        for (k, (a, b)) in self.counts.iter().zip(&other.counts).enumerate() {
+            if a != b {
+                let k = k as i32;
+                let (x, rest) = (k % self.dims[0], k / self.dims[0]);
+                let (z, y) = (rest % self.dims[2], rest / self.dims[2]);
+                out.push(([self.lo[0] + x, self.lo[1] + y, self.lo[2] + z], *a, *b));
+            }
+        }
+        out
+    }
+
     /// The counts of a world's cells (`LevelChunkSection.recalcBlockCounts`).
     pub fn build(w: &World) -> TickingSections {
         let (min, size) = (w.min, w.size);
