@@ -70,6 +70,14 @@ pub fn block_of(state: &str) -> Result<Block, String> {
         // flowing lava and the rest: inert natural states
         return Ok(Block::Terrain(id));
     }
+    // (mob-AI) natural sand, red sand and gravel are redsim's falling blocks: an update (a block
+    // taken from under them: an enderman's) schedules their fall (FallingBlock.updateShape)
+    if matches!(name, "minecraft:sand" | "minecraft:red_sand" | "minecraft:gravel")
+        && let Ok(b) = Block::parse(canonical)
+        && b.to_string() == *canonical
+    {
+        return Ok(b);
+    }
     Ok(Block::Terrain(id))
 }
 

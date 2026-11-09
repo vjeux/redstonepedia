@@ -158,6 +158,15 @@ impl Watch {
             }
             f.entities.push(EntityFrame { n: b.id, ty: "lightning_bolt".into(), pos: [b.pos.x, b.pos.y, b.pos.z], random: Some(b.random.state()), ..Default::default() });
         }
+        // the falling blocks (entities in the game, `gravity::State`'s list here: a natural sand
+        // or gravel an update dropped, a design's)
+        for fb in w.gravity.entities.iter().filter(|e| !e.removed) {
+            now.insert(fb.id);
+            if !self.present.contains(&fb.id) {
+                f.entered.push(fb.id);
+            }
+            f.entities.push(EntityFrame { n: fb.id, ty: "falling_block".into(), pos: [fb.x, fb.y, fb.z], motion: [fb.vx, fb.vy, fb.vz], fire: Some(0), ..Default::default() });
+        }
         f.entities.sort_by_key(|e| e.n);
         f.entered.sort();
         f.left = self.present.difference(&now).copied().collect();
