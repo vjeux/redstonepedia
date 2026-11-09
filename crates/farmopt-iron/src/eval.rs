@@ -293,21 +293,33 @@ pub fn bound(st: &Metrics) -> Metrics {
     b
 }
 
-/// The quick level: 4 runs of 1 game day (steady state, golems walking at random).
+/// The quick level: 4 runs of 1 game day (steady state, golems walking at random), at once (each
+/// its own thread; their reports in seed order: tickexact 2026-11-08, a candidate's quick level
+/// no longer waits for one run after another when the search has fewer candidates than cores).
 pub fn eval_quick(c: &Cand, ctx: &Ctx, st: &Metrics) -> Result<Evaluation, String> {
     let (_circ, spec, built) = spec_of(c, ctx)?;
     let reports: Vec<RunReport> = match c.place {
-        Place::Void => (0..4).map(|k| rfarm::run(&spec, &rfarm::judge_opts(rfarm::judge_seed(0, k), 24000, WalkMode::Random))).collect::<Result<_, _>>()?,
+        Place::Void => std::thread::scope(|s| {
+            let spec = &spec;
+            let hs: Vec<_> = (0..4).map(|k| s.spawn(move || rfarm::run(spec, &rfarm::judge_opts(rfarm::judge_seed(0, k), 24000, WalkMode::Random)))).collect();
+            hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("a quick run panicked".to_string()))).collect::<Result<Vec<_>, _>>()
+        })?,
         Place::Dug => {
             let st_site = site_of(&spec, built.ground.unwrap_or(8), c.surface || c.l3_pits > 0)?;
             let moved = st_site.spec(&spec);
-            with_site(st_site, |s| {
-                (0..4)
-                    .map(|k| {
-                        let o = rfarm::judge_opts_in(rfarm::judge_seed(0, k), 24000, WalkMode::Random, Some(s));
-                        rfarm::run(&moved, &o)
-                    })
-                    .collect::<Result<Vec<_>, _>>()
+            with_site(st_site, |site| {
+                std::thread::scope(|s| {
+                    let moved = &moved;
+                    let hs: Vec<_> = (0..4)
+                        .map(|k| {
+                            s.spawn(move || {
+                                let o = rfarm::judge_opts_in(rfarm::judge_seed(0, k), 24000, WalkMode::Random, Some(site));
+                                rfarm::run(moved, &o)
+                            })
+                        })
+                        .collect();
+                    hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("a quick run panicked".to_string()))).collect::<Result<Vec<_>, _>>()
+                })
             })?
         }
     };
