@@ -77,7 +77,7 @@ pub struct Picker {
 /// 90 ms natively to build), a map of lists otherwise.
 enum CellLists {
     Dense { lo: Pos, dims: [i32; 3], start: Vec<u32>, items: Vec<u32> },
-    Map(HashMap<Pos, Vec<u32>, FxBuild>),
+    Map(HashMap<Pos, Vec<u32>, FxBuild>, Option<(Pos, Pos)>),
 }
 
 impl CellLists {
@@ -93,7 +93,15 @@ impl CellLists {
                 let (s, e) = (start[i] as usize, start[i + 1] as usize);
                 (e > s).then(|| &items[s..e])
             }
-            CellLists::Map(m) => m.get(c).map(Vec::as_slice),
+            CellLists::Map(m, _) => m.get(c).map(Vec::as_slice),
+        }
+    }
+
+    /// The cells' box: the lowest cell and the highest (None: no box listed).
+    fn bounds(&self) -> Option<(Pos, Pos)> {
+        match self {
+            CellLists::Dense { lo, dims, .. } => Some((*lo, [lo[0] + dims[0] - 1, lo[1] + dims[1] - 1, lo[2] + dims[2] - 1])),
+            CellLists::Map(_, b) => *b,
         }
     }
 
@@ -145,7 +153,13 @@ impl CellLists {
     /// [`CellLists::build`] as a map of lists.
     fn map(reach: &[[[i32; 2]; 3]]) -> CellLists {
         let mut m: HashMap<Pos, Vec<u32>, FxBuild> = HashMap::default();
+        let mut bounds: Option<(Pos, Pos)> = None;
         for (i, r) in reach.iter().enumerate() {
+            let (lo, hi) = bounds.get_or_insert(([r[0][0], r[1][0], r[2][0]], [r[0][1], r[1][1], r[2][1]]));
+            for k in 0..3 {
+                lo[k] = lo[k].min(r[k][0]);
+                hi[k] = hi[k].max(r[k][1]);
+            }
             for x in r[0][0]..=r[0][1] {
                 for y in r[1][0]..=r[1][1] {
                     for z in r[2][0]..=r[2][1] {
@@ -154,7 +168,7 @@ impl CellLists {
                 }
             }
         }
-        CellLists::Map(m)
+        CellLists::Map(m, bounds)
     }
 }
 
@@ -206,9 +220,29 @@ impl Picker {
         })
     }
 
-    /// The first still block the ray hits within `max` blocks, and how far along the ray.
+    /// The first still block the ray hits within `max` blocks, and how far along the ray. (The
+    /// walk starts a cell's diagonal before the ray enters the boxes' cells, and stops once it
+    /// leaves them: a camera's ray from 50 blocks away walked every empty cell to the build;
+    /// the same hit: test `hits_skip_the_empty_cells`.)
     pub fn hit(&self, origin: [f32; 3], dir: [f32; 3], max: f32) -> Option<(Pos, f32)> {
-        let mut cell = [origin[0].floor() as i32, origin[1].floor() as i32, origin[2].floor() as i32];
+        let Some((blo, bhi)) = self.by_cell.bounds() else { return None };
+        let (lo, hi) = (blo.map(|v| v as f32), bhi.map(|v| v as f32 + 1.0));
+        // (every box lies in the cells' box: a ray missing it hits nothing, one entering it
+        // beyond `max` nothing within `max`)
+        let (t_in, t_out) = enter_box(origin, dir, lo, hi)?;
+        if t_in > max {
+            return None;
+        }
+        let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt().max(1e-12);
+        let t0 = (t_in - 1.75 / len).max(0.0);
+        let start = [origin[0] + dir[0] * t0, origin[1] + dir[1] * t0, origin[2] + dir[2] * t0];
+        self.walk(origin, dir, max, start, Some(t_out))
+    }
+
+    /// [`Picker::hit`]'s walk from the ray's cell at `start` (a point on it), until a box is
+    /// surely the first hit, past `max`, or past `t_out` (no box beyond).
+    fn walk(&self, origin: [f32; 3], dir: [f32; 3], max: f32, start: [f32; 3], t_out: Option<f32>) -> Option<(Pos, f32)> {
+        let mut cell = [start[0].floor() as i32, start[1].floor() as i32, start[2].floor() as i32];
         let step: [i32; 3] = std::array::from_fn(|k| if dir[k] > 0.0 { 1 } else { -1 });
         let mut tmax = [0f32; 3];
         let mut tdelta = [0f32; 3];
@@ -245,6 +279,10 @@ impl Picker {
             if exit > max {
                 return None;
             }
+            // (past the boxes' cells: nothing more to meet)
+            if t_out.is_some_and(|t| exit > t + 1e-3) {
+                return best.filter(|(h, _)| *h <= max).map(|(h, c)| (c, h));
+            }
             let k = if tmax[0] < tmax[1] && tmax[0] < tmax[2] {
                 0
             } else if tmax[1] < tmax[2] {
@@ -256,6 +294,34 @@ impl Picker {
             tmax[k] += tdelta[k];
         }
     }
+
+    /// [`Picker::hit`] walking every cell from the ray's origin (a test's oracle).
+    #[cfg(test)]
+    fn hit_from_origin(&self, origin: [f32; 3], dir: [f32; 3], max: f32) -> Option<(Pos, f32)> {
+        self.walk(origin, dir, max, origin, None)
+    }
+}
+
+/// Where a ray (`origin` + t `dir`, t >= 0) is inside the box `lo..hi`: (t entering, t leaving);
+/// None: it misses it.
+fn enter_box(o: [f32; 3], d: [f32; 3], lo: [f32; 3], hi: [f32; 3]) -> Option<(f32, f32)> {
+    let (mut t0, mut t1) = (0.0f32, f32::MAX);
+    for k in 0..3 {
+        if d[k].abs() < 1e-9 {
+            if o[k] < lo[k] || o[k] > hi[k] {
+                return None;
+            }
+            continue;
+        }
+        let (a, b) = ((lo[k] - o[k]) / d[k], (hi[k] - o[k]) / d[k]);
+        let (a, b) = if a < b { (a, b) } else { (b, a) };
+        t0 = t0.max(a);
+        t1 = t1.min(b);
+        if t0 > t1 {
+            return None;
+        }
+    }
+    Some((t0, t1))
 }
 
 /// The first still block the ray hits within `max` blocks.
@@ -266,6 +332,50 @@ pub fn pick(atlas: &Atlas, blocks: &[RBlock], origin: [f32; 3], dir: [f32; 3], m
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A ray's walk started where it enters the boxes' cells finds the very hit of the walk from
+    /// its origin (the block and its distance, bit for bit): rays from 60 blocks around a farm in
+    /// its terrain, a farm alone and a clock, at random points of the build and around it, and
+    /// rays starting inside it.
+    #[test]
+    fn hits_skip_the_empty_cells() {
+        let atlas = Atlas::build();
+        let mut seed = 0x0ddc_0ffe_e15e_ed01u64;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed >> 11) as f32 / (1u64 << 53) as f32
+        };
+        for design in ["designs/farms/iron/day-1/d1u-underground.txt", "designs/circuits/mobfarm/archive/iron-day1.txt", "designs/clocks/archive/clk-sculk-ringbig16-p224-1.txt"] {
+            let text = std::fs::read_to_string(format!("{}/../../{design}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+            let p = crate::player::Player::new_web(&text, 1.0).unwrap();
+            let picker = Picker::new(&atlas, &p.session.render_blocks(0.0));
+            let (lo, hi) = picker.by_cell.bounds().unwrap();
+            let (lo, hi) = (lo.map(|v| v as f32), hi.map(|v| v as f32 + 1.0));
+            let mid = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0];
+            let (mut hits, mut rays) = (0, 0);
+            for i in 0..3000 {
+                let target = [lo[0] + (hi[0] - lo[0]) * rnd(), lo[1] + (hi[1] - lo[1]) * rnd(), lo[2] + (hi[2] - lo[2]) * rnd()];
+                let origin = if i % 5 == 0 {
+                    // (inside the build)
+                    [lo[0] + (hi[0] - lo[0]) * rnd(), lo[1] + (hi[1] - lo[1]) * rnd(), lo[2] + (hi[2] - lo[2]) * rnd()]
+                } else {
+                    let (a, b) = (rnd() * std::f32::consts::TAU, rnd() * 1.4 - 0.2);
+                    [mid[0] + 60.0 * b.cos() * a.cos(), mid[1] + 60.0 * b.sin(), mid[2] + 60.0 * b.cos() * a.sin()]
+                };
+                let v = [target[0] - origin[0], target[1] - origin[1], target[2] - origin[2]];
+                let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().max(1e-6);
+                let d = [v[0] / len, v[1] / len, v[2] / len];
+                let max = if i % 7 == 0 { len * 0.5 } else { len + 1.0 };
+                let (a, b) = (picker.hit(origin, d, max), picker.hit_from_origin(origin, d, max));
+                assert_eq!(a.map(|(c, h)| (c, h.to_bits())), b.map(|(c, h)| (c, h.to_bits())), "{design}: ray {i} from {origin:?} along {d:?} (max {max})");
+                hits += a.is_some() as u32;
+                rays += 1;
+            }
+            assert!(hits > 20, "{design}: {hits} of {rays} rays hit");
+        }
+    }
 
     /// The dense cell lists are the map's (each cell's boxes, in their order): a farm in its
     /// terrain's blocks near it (the camera's picker) and a farm alone, every cell of their box

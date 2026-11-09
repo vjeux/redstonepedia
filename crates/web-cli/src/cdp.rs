@@ -953,9 +953,35 @@ const NAV_JS: &str = "(function(){ var n = performance.getEntriesByType('navigat
 /// agent, the CPU slowed `cpu` times) or in WebKitGTK (`engine` `webkit`: the site folder `dir`
 /// served, `url` a page path in it; an iPhone user agent, device scale 2). With `trace` (WebKit),
 /// the page runs with `?mcview-debug&mcview-trace` and each load frame over 50 ms is printed with
-/// what the viewer did in it.
+/// what the viewer did in it. Several pages (`urls`): each in turn, then a table of their first
+/// frames (the first 3D view drawn, the first screen's views all drawn), the slowest first.
 #[allow(clippy::too_many_arguments)]
-pub fn cmd_perf(url: &str, engine: &str, dir: Option<&Path>, window: &str, scale: f32, cpu: f64, load: f64, scroll: f64, speed: f64, browser: &Path, trace: bool) -> Result<()> {
+pub fn cmd_perf(urls: &[String], engine: &str, dir: Option<&Path>, window: &str, scale: f32, cpu: f64, load: f64, scroll: f64, speed: f64, browser: &Path, trace: bool) -> Result<()> {
+    let mut firsts: Vec<(Option<f64>, Option<f64>, String)> = Vec::new();
+    for url in urls {
+        if urls.len() > 1 {
+            println!("{url}:");
+        }
+        let run = perf_page(url, engine, dir, window, scale, cpu, load, scroll, speed, browser, trace)?;
+        firsts.push((run.0, run.1, url.clone()));
+    }
+    if urls.len() > 1 {
+        // (never drawn: last, as the slowest)
+        let key = |f: &(Option<f64>, Option<f64>, String)| f.1.or(f.0).unwrap_or(f64::MAX);
+        firsts.sort_by(|a, b| key(b).total_cmp(&key(a)));
+        println!("first frames, the slowest first (s: the first 3D view drawn, the first screen's views all drawn):");
+        let secs = |v: Option<f64>| v.map(|ms| format!("{:6.2}", ms / 1000.0)).unwrap_or_else(|| " never".into());
+        for (thumb, screen, url) in &firsts {
+            println!("{} {}  {url}", secs(*thumb), secs(*screen));
+        }
+    }
+    Ok(())
+}
+
+/// One page of [`cmd_perf`]: its report; (the first 3D view drawn, the first screen's views all
+/// drawn), in ms.
+#[allow(clippy::too_many_arguments)]
+fn perf_page(url: &str, engine: &str, dir: Option<&Path>, window: &str, scale: f32, cpu: f64, load: f64, scroll: f64, speed: f64, browser: &Path, trace: bool) -> Result<(Option<f64>, Option<f64>)> {
     let (w, h) = window.split_once(',').and_then(|(a, b)| Some((a.trim().parse::<u32>().ok()?, b.trim().parse::<u32>().ok()?))).context("--window w,h")?;
     let run = match engine {
         "webkit" => {
@@ -973,7 +999,14 @@ pub fn cmd_perf(url: &str, engine: &str, dir: Option<&Path>, window: &str, scale
     if trace {
         trace_report(&run);
     }
-    Ok(())
+    Ok(perf_firsts(&run))
+}
+
+/// A run's first 3D view drawn and its first screen's views all drawn, in ms ([`perf_report`]'s).
+fn perf_firsts(run: &PerfRun) -> (Option<f64>, Option<f64>) {
+    let f = |v: &Value, k: &str| v[k].as_f64().unwrap_or(0.0);
+    let screen = run.samples.iter().find(|s| f(s, "vis") > 0.0 && f(s, "visReady") >= f(s, "vis")).map(|s| f(s, "t"));
+    (run.ready.first().map(|r| r.0), screen)
 }
 
 /// `web perf --trace`: each load frame over 50 ms and the viewer's trace entries in it (its

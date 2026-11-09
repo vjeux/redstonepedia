@@ -2487,6 +2487,9 @@ impl Session {
         // the machine's part of the world (a TNT duper's ground is drawn on its own: `mesh::floor`),
         // then the blocks redsim wrote outside it (`outside`)
         let (min, size) = self.machine();
+        // (each block state's name worked out once: formatting one per block was a tenth of a
+        // card's time)
+        let names: std::cell::RefCell<HashMap<Block, String, crate::camera::FxBuild>> = Default::default();
         let cell = |q: BlockPos, out: &mut Vec<RBlock>| {
             let b = w.get(q);
             match b {
@@ -2499,16 +2502,21 @@ impl Session {
                 Block::Simple(redsim::block::Simple::Stone) if self.overlay.contains_key(&q.arr()) => {
                     out.push(RBlock { cell: q.arr(), offset: [0.0; 3], state: self.overlay[&q.arr()].clone() });
                 }
-                _ => out.push(RBlock { cell: q.arr(), offset: [0.0; 3], state: b.to_string() }),
+                _ => out.push(RBlock { cell: q.arr(), offset: [0.0; 3], state: names.borrow_mut().entry(b).or_insert_with(|| b.to_string()).clone() }),
             }
         };
         // (a farm in its terrain: its box's natural blocks the cutaway removes are not drawn)
         let terrain = self.terrain.as_deref();
-        let cut = |q: BlockPos| terrain.is_some_and(|t| t.cut_away(q.arr())) && matches!(w.get(q), Block::Terrain(_));
+        let cut = |q: BlockPos| matches!(w.get(q), Block::Terrain(_)) && terrain.is_some_and(|t| t.cut_away(q.arr()));
         for y in 0..size[1] {
             for z in 0..size[2] {
                 for x in 0..size[0] {
                     let q = min.offset(x, y, z);
+                    // (most of a farm's box is air: skipped before the floor's and the cutaway's
+                    // look-ups)
+                    if w.get(q) == Block::Air {
+                        continue;
+                    }
                     if self.in_floor(q.arr()) {
                         continue;
                     }

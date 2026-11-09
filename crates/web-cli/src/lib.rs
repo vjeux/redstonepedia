@@ -432,8 +432,10 @@ pub enum WebCmd {
     /// `--scroll` s: its frame times, the views drawn meanwhile (and how many already off screen),
     /// and how long the views on screen when it stops take to be drawn.
     Perf {
-        /// The page's URL (Chromium), or its path in the `--dir` site folder (WebKit).
-        url: String,
+        /// The pages' URLs (Chromium), or their paths in the `--dir` site folder (WebKit): with
+        /// several, each one's report, then a table of their first frames, the slowest first.
+        #[arg(required = true)]
+        urls: Vec<String>,
         /// `chromium` (headless, the CPU slowed `--cpu` times) or `webkit` (WebKitGTK through
         /// WebKitWebDriver in an Xvfb display, an iPhone user agent, device scale 2).
         #[arg(long, default_value = "chromium")]
@@ -909,7 +911,7 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
         WebCmd::Wakecost { designs, ticks, procedural, slices, slowest } => cmd_wakecost(&designs, ticks, procedural, slices, slowest),
         WebCmd::Camera { designs, size, procedural, picked, thumb } => cmd_camera(&designs, &size, procedural, picked, thumb),
         WebCmd::Stall { urls, window, scale, cpu, load, play, budget, show, browser } => crate::cdp::cmd_stall(&urls, &window, scale, cpu, load, play, budget, show, &browser),
-        WebCmd::Perf { url, engine, dir, window, scale, cpu, load, scroll, speed, browser, trace } => crate::cdp::cmd_perf(&url, &engine, dir.as_deref(), &window, scale, cpu, load, scroll, speed, &browser, trace),
+        WebCmd::Perf { urls, engine, dir, window, scale, cpu, load, scroll, speed, browser, trace } => crate::cdp::cmd_perf(&urls, &engine, dir.as_deref(), &window, scale, cpu, load, scroll, speed, &browser, trace),
         WebCmd::Snap { url, out, seconds, window, scale, scroll, eval, before, before_at, browser } => crate::cdp::cmd_snap(&url, &window, scale, seconds, scroll, eval.as_deref(), before.as_deref().map(|b| (b, before_at)), &out, &browser),
         WebCmd::Click { url, window, scale, touch, hold, wait, browser } => {
             if hold {
