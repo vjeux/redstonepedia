@@ -410,7 +410,12 @@ Numbers, never refusals by themselves; each stage weighs them in its own rank:
     HORIZONTAL row of double chests (each chest's hopper pulls from the line above it and the
     line carries the rest on), at the player's own level beside the access or the AFK spot,
     never chests hanging in a vertical chain under the farm; in the middle and late stages a
-    crafter packs the ingots 9 to 1 into iron blocks first, after the sorter, when it pays.
+    crafter packs the ingots 9 to 1 into iron blocks first, after the sorter, when it pays. The
+    sorter and the crafter are members of the storage front, chosen where they pay (where
+    capacity binds: a cross's four modules over 8 hours, a stack's shared collection); a plain
+    horizontal row where iron and poppies share the chests is a member too (one module: 11.8
+    hours in 96 slots, 35.6 build minutes fewer than a sorter and crafter in the middle stage,
+    7.2 late: farmopt, 22:08).
     Hard rules: every item the kill drops reaches storage or the poppies' disposal, iron is
     never voided, the line takes a golem's burst of 3-7 items and the farm's rate (under 9,000
     items an hour a hopper line), and it restarts after days away; when storage is full the loss
