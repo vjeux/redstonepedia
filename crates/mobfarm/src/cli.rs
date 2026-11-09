@@ -33,6 +33,10 @@ pub enum MobfarmCmd {
         /// The stack's vertical pitch (stack).
         #[arg(long, default_value_t = 43)]
         pitch: i32,
+        /// The regular cage (cross: blind U1 in the watchers' row in a pod like theirs; brief
+        /// iteration 17).
+        #[arg(long)]
+        regular: bool,
         /// The stack's step in x and z (stack: side by side).
         #[arg(long, default_value_t = 0)]
         dx: i32,
@@ -379,7 +383,7 @@ fn load(_version: &str, path: &PathBuf) -> Result<(circuit::Circuit, redsim::ent
 
 pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
     match cmd {
-        MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, modules, pitch, dx, dz, gap, period, hide, kill, access, tier, out } => {
+        MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, modules, pitch, regular, dx, dz, gap, period, hide, kill, access, tier, out } => {
             let (text, how) = match layout.as_str() {
                 "l3" => (crate::layouts::l3(pits), "golems burn in lava pits".to_string()),
                 "l1" => (crate::layouts::l1(), "water carries golems to a lava blade in the villagers' sight".to_string()),
@@ -398,12 +402,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "m2open" => (crate::day1::m2_open_hide(pad, hide), "golems fall out of sight to a lava blade".to_string()),
                 "m2open-rep" => (crate::day1::m2_open_rep(pad, hide), "golems fall out of sight to a lava blade".to_string()),
                 "m2open-loop" => (crate::day1::m2_open_loop(pad, hide / 10, hide % 10), "golems fall out of sight to a lava blade".to_string()),
-                "m2open-timer" => (crate::day1::m2_open_timer(pad, hide as u32, crate::parts::Stage::Nether)?, "golems fall out of sight to a lava blade".to_string()),
+                "m2open-timer" => (crate::day1::m2_open_timer_cage(pad, hide as u32, crate::parts::Stage::Nether, regular)?, "golems fall out of sight to a lava blade".to_string()),
                 "row" => (crate::day1::row(modules, pitch, pad, hide as u32, crate::parts::Stage::Nether)?, format!("{modules} modules in a row share one collection")),
                 "row-shared" => (crate::day1::row_shared(modules, pitch, pad, hide as u32, crate::parts::Stage::Nether)?, format!("{modules} modules in a row share one kill chamber")),
                 "row-channel" => (crate::day1::row_shared_form(modules, pitch, pad, hide as u32, crate::parts::Stage::Nether, crate::day1::KillForm::Channel)?, format!("{modules} modules in a row send their golems to one kill chamber")),
                 "tstack" => (crate::day1::stack(modules, pitch, pad, hide as u32, crate::parts::Stage::Nether)?, format!("{modules} modules stacked")),
-                "cross" => (crate::day1::cross_channel_arms(pitch, if modules == 2 { 2 } else { 4 }, pad, hide as u32, crate::parts::Stage::Nether)?, "farms around one kill chamber".to_string()),
+                "cross" => (crate::day1::cross_channel_cage(pitch, if modules == 2 { 2 } else { 4 }, regular, pad, hide as u32, crate::parts::Stage::Nether)?, "farms around one kill chamber".to_string()),
                 "stack" => (crate::day1::m2_stack(modules, [dx, pitch, dz], pad), format!("{modules} middle modules")),
                 "lp" => (crate::day1::lp(modules / 2, gap, period, pad), format!("{modules} clusters in up/down pairs")),
                 "twin" => (crate::day1::twin(pad, villagers - 4), "two clusters share a pad, a drop and a chamber".to_string()),

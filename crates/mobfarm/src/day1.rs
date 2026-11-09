@@ -820,12 +820,22 @@ pub fn m2_open_loop(n: i32, d1: i32, d2: i32) -> String {
 /// the pods, a repeater reading its output, and dust to the hide. Tries the part's 4 turns; None
 /// when none fits.
 pub fn m2_front_timer(n: i32, t: &crate::parts::Timer) -> Option<(Builder, Vec<[i32; 3]>)> {
+    m2_front_timer_cage(n, t, false)
+}
+
+/// [`m2_front_timer`]; `regular`: U1 at (-2, 0, 0) in the watchers' row, in a watcher's pod (blind
+/// by distance: 8.3 from the zombie, feet to feet), its bed observer beside the bed's head on the
+/// row's outer side (west), never in front of its pod (a pod like theirs).
+pub fn m2_front_timer_cage(n: i32, t: &crate::parts::Timer, regular: bool) -> Option<(Builder, Vec<[i32; 3]>)> {
     let mut best: Option<(Builder, Vec<[i32; 3]>)> = None;
     // the cage's coupling (the parent, 11:44): blind U1's bed head anywhere within the cluster
     // (its bed observer is the calm's input), so the trigger, the timer and the hide's power cell
     // can sit close together; the hide's power cell is the block east of the trapdoor
-    let u1s: [[i32; 3]; 7] = [[6, 0, 0], [5, 0, -4], [6, 0, -5], [-1, 0, -5], [-1, 0, -3], [6, 0, -2], [-2, 0, 0]];
+    let all_u1s: [[i32; 3]; 7] = [[6, 0, 0], [5, 0, -4], [6, 0, -5], [-1, 0, -5], [-1, 0, -3], [6, 0, -2], [-2, 0, 0]];
+    let u1s: Vec<[i32; 3]> = if regular { vec![[-2, 0, 0]] } else { all_u1s.to_vec() };
     let reserved = [[3, 0, -6], [2, 0, -6], [3, 1, -6]];
+    // (the regular cage's trigger sits west of the row: its timer and wiring may reach 4 further west)
+    let x_lo = if regular { -8 } else { -4 };
     for u1 in u1s {
         let mut cage = Builder::new(&format!("iron-middle-{}-{n}", t.row.name));
         for x in [0, 2, 4] {
@@ -835,9 +845,9 @@ pub fn m2_front_timer(n: i32, t: &crate::parts::Timer) -> Option<(Builder, Vec<[
             continue;
         }
         let before = cage.d.blocks.len();
-        pod_bare(&mut cage, u1[0], u1[2], false);
+        pod_bare(&mut cage, u1[0], u1[2], regular);
         // (a pod overlapping another's cells: refused)
-        if cage.d.blocks.len() < before + 12 {
+        if cage.d.blocks.len() < before + 12 - usize::from(regular) {
             continue;
         }
         cage.set(2, 0, -7, "cobblestone_slab[type=bottom,waterlogged=false]");
@@ -845,8 +855,10 @@ pub fn m2_front_timer(n: i32, t: &crate::parts::Timer) -> Option<(Builder, Vec<[
         cage.entity("oak_boat", [2.5, 0.5, -6.8], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
         cage.set(2, 1, -6, "oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]");
         // the bed observer on any side of U1's bed head but its foot's: (cell, facing, its pulse's
-        // direction, the stretching repeater's input side)
-        let sides = [([1, 0, 0], "west", "west"), ([-1, 0, 0], "east", "east"), ([0, 0, -1], "south", "south")];
+        // direction, the stretching repeater's input side); the regular cage: beside it on the
+        // row's outer side only (a pod like the watchers', nothing in front of it)
+        let all_sides = [([1, 0, 0], "west", "west"), ([-1, 0, 0], "east", "east"), ([0, 0, -1], "south", "south")];
+        let sides: Vec<([i32; 3], &str, &str)> = if regular { vec![all_sides[1]] } else { all_sides.to_vec() };
         for (d, facing, back) in sides {
             let obs = [u1[0] + d[0], 0, u1[2] + d[2]];
             if cage.d.blocks.contains_key(&obs) || cage.d.blocks.contains_key(&[obs[0], -1, obs[2]]) && false {
@@ -879,7 +891,7 @@ pub fn m2_front_timer(n: i32, t: &crate::parts::Timer) -> Option<(Builder, Vec<[
                 // the part in free cells, under the scared villagers' lines of sight (no cell at
                 // y 1 or more in front of them), clear of the zombie and the hide's cells, and
                 // touching the source only at its input cell
-                let region = |c: &[i32; 3]| (-4..=14).contains(&c[0]) && (-6..=8).contains(&c[2]) && (-3..=3).contains(&c[1]) && !reserved.contains(c) && !(c[1] >= 1 && (0..=4).contains(&c[0]) && (-6..=0).contains(&c[2]));
+                let region = |c: &[i32; 3]| (x_lo..=14).contains(&c[0]) && (-6..=8).contains(&c[2]) && (-3..=3).contains(&c[1]) && !reserved.contains(c) && !(c[1] >= 1 && (0..=4).contains(&c[0]) && (-6..=0).contains(&c[2]));
                 let fits = placed.cells.iter().all(|c| (*c == input || !base.d.blocks.contains_key(c)) && region(c) && (*c == input || source.iter().all(|s| !beside(*s, *c))));
                 if !fits {
                     continue;
@@ -890,7 +902,7 @@ pub fn m2_front_timer(n: i32, t: &crate::parts::Timer) -> Option<(Builder, Vec<[
                 // trapdoor), so the route keeps off its diagonals
                 b.set(3, 0, -6, STONE);
                 b.set(3, 1, -6, "redstone_wire[east=side,north=none,power=0,south=none,west=side]");
-                let forbid = |p: [i32; 3]| !(-4..=14).contains(&p[0]) || !(-6..=8).contains(&p[2]) || reserved.contains(&p) || (p[2] >= 0 && (-1..=5).contains(&p[0]));
+                let forbid = |p: [i32; 3]| !(x_lo..=14).contains(&p[0]) || !(-6..=8).contains(&p[2]) || reserved.contains(&p) || (p[2] >= 0 && (-1..=5).contains(&p[0]));
                 let Some(path) = crate::parts::route(&mut b, start, [4, 0, -6], &forbid, &placed.cells, &[out_rep, [3, 0, -6], [3, 1, -6]], 1) else { continue };
                 b.set(4, 0, -6, &b.d.blocks[&[4, 0, -6]].replace("west=none", "west=side"));
                 if best.as_ref().is_none_or(|(bb, _)| b.d.blocks.len() < bb.d.blocks.len()) {
@@ -906,7 +918,12 @@ pub fn m2_front_timer(n: i32, t: &crate::parts::Timer) -> Option<(Builder, Vec<[
 /// every part whose pulse from the bed observer lasts `l_min` gt or more with `stage`'s
 /// materials ([`crate::parts::timers`]), fewest blocks first, the first that fits.
 pub fn m2_open_timer(n: i32, l_min: u32, stage: crate::parts::Stage) -> anyhow::Result<String> {
-    let (b, t, path, caps) = m2_timer_module(n, l_min, stage, &chamber_safe)?;
+    m2_open_timer_cage(n, l_min, stage, false)
+}
+
+/// [`m2_open_timer`] with the regular cage ([`m2_timer_module_cage`]).
+pub fn m2_open_timer_cage(n: i32, l_min: u32, stage: crate::parts::Stage, regular: bool) -> anyhow::Result<String> {
+    let (b, t, path, caps) = m2_timer_module_cage(n, l_min, stage, &chamber_safe, regular)?;
     Ok(b.text(&[
         &format!("Middle (M2-open, its hide from the catalog): the bed observer's pulse, stretched to {} gt by {} ({} blocks with", t.0, t.1, t.2),
         &format!("its wiring of {path} dust and {caps} glass caps), hides the zombie while the villagers lie down; the dry hole, the open drop and the fire-safe chamber."),
@@ -918,10 +935,19 @@ pub fn m2_open_timer(n: i32, l_min: u32, stage: crate::parts::Stage) -> anyhow::
 /// stray golem spawn spots capped with glass. Returns the module, its timer (the pulse's gt, the
 /// part's name, its blocks), the wiring's dust and the glass caps.
 pub fn m2_timer_module(n: i32, l_min: u32, stage: crate::parts::Stage, chamber: &dyn Fn(&mut Builder, i32)) -> anyhow::Result<(Builder, (u32, String, u32), usize, u32)> {
+    m2_timer_module_cage(n, l_min, stage, chamber, false)
+}
+
+/// [`m2_timer_module`]; `regular`: the regular cage (brief rev 9 iteration 17, the cage's
+/// objectives: no irregularity a builder notices): the blind villager U1 in the watchers' row at
+/// their level (x -2, 4 columns from the zombie's: 8.3 from it feet to feet, out of its 8, so it
+/// lies down), in a pod like theirs, its bed observer beside its bed (west), the calm routed from
+/// there.
+pub fn m2_timer_module_cage(n: i32, l_min: u32, stage: crate::parts::Stage, chamber: &dyn Fn(&mut Builder, i32), regular: bool) -> anyhow::Result<(Builder, (u32, String, u32), usize, u32)> {
     let rows = crate::parts::catalog()?;
     let timers = crate::parts::timers(&rows, l_min, 400, 2, stage);
     for t in &timers {
-        let Some((mut b, path)) = m2_front_timer(n, t) else { continue };
+        let Some((mut b, path)) = m2_front_timer_cage(n, t, regular) else { continue };
         let (wl, k) = (-6, -22);
         crate::layouts::dry_hole_walls(&mut b, n, wl, k, -19);
         chamber(&mut b, k);
@@ -1343,6 +1369,12 @@ pub fn cross_channel(r: i32, n: i32, l_min: u32, stage: crate::parts::Stage) -> 
 /// [`cross_channel`] with `arms` modules: 4 (the +) or 2 (a straight trench: two modules facing
 /// each other across the junction, its two other sides fenced).
 pub fn cross_channel_arms(r: i32, arms: u8, n: i32, l_min: u32, stage: crate::parts::Stage) -> anyhow::Result<String> {
+    cross_channel_cage(r, arms, false, n, l_min, stage)
+}
+
+/// [`cross_channel_arms`] with the regular cage (`regular`, brief iteration 17, the cage's
+/// objectives: [`m2_timer_module_cage`]).
+pub fn cross_channel_cage(r: i32, arms: u8, regular: bool, n: i32, l_min: u32, stage: crate::parts::Stage) -> anyhow::Result<String> {
     anyhow::ensure!(arms == 2 || arms == 4, "the cross takes 2 or 4 arms");
     anyhow::ensure!(r >= 12, "the cross needs r of 12 or more (the module's drop and the junction)");
     let k = -22;
@@ -1350,7 +1382,7 @@ pub fn cross_channel_arms(r: i32, arms: u8, n: i32, l_min: u32, stage: crate::pa
     let none = |b: &mut Builder, k: i32| {
         b.d.ports.insert("output".into(), [3, k - 2, 1]);
     };
-    let (m, _, _, _) = m2_timer_module(n, l_min, stage, &none)?;
+    let (m, _, _, _) = m2_timer_module_cage(n, l_min, stage, &none, regular)?;
     // module 0's frame: the centre is the corner (3, r), the arm runs along z from under the drop
     // (z 3) to the junction (x 1..4, z r - 2..r + 1). Its steps (the floor down 1) in the channel
     // only (z 7 or more, never in the landing), counted back from the junction so the last stretch
