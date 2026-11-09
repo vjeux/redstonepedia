@@ -1,0 +1,5 @@
+# obs0wr-s3b0-pad8f7x-2-blade22-n1-void (late stage, iron-v8): N copies with no coupling (a row at 27 or a stack at 43, whichever box is smaller), the villagers by their cheapest route at that N, the module's rate judged in full; written by `mctas farmopt copies`
+n	build_minutes_per_module	volume_per_module	iron_per_hour_per_module
+1	18.2	7812	461
+4	16.7	10080	461
+16	16.4	10647	461
