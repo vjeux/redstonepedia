@@ -244,8 +244,10 @@ pub fn update_lava(w: &mut World, i: usize) {
 
 /// `LivingEntity.aiStep` (and `Mob.aiStep`'s tail).
 fn ai_step(w: &mut World, i: usize) {
-    // ---- mob AI (the mob-AI lane): Monster.aiStep's updateNoActionTime first ----
+    // ---- mob AI (the mob-AI lane): Witch.aiStep's potion rolls before super.aiStep, then
+    // Monster.aiStep's updateNoActionTime ----
     if super::ai::has_ai(w, i) {
+        super::ai::goal::witch::before_ai_step(w, i);
         super::ai::update_no_action_time(w, i);
     }
     {
