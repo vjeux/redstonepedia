@@ -812,7 +812,9 @@ its seeds (LS-open, the first measured gain from sharing, first).
   ceiling** (below). Measured on the bridge (the tick-exact lane, 23:15; redsim matched the game
   tick for tick): a villager due at T+600 is free in its own behavior phase at T+600, since
   `forgetOutdatedMemories` runs first, so 600 gt intervals are the common case; longer ones come
-  from tick order (the villager that checks at T+600 ticks before the 599 group) and from golems
+  from tick order (the summoner itself sees everyone free in its behavior phase at T+600, while
+  villagers earlier in the list still see it at ttl 0, so the interval slips only when the
+  summoner cannot attempt then: in its panic gap or when its search finds no spot) and from golems
   lingering in a villager's `GolemSensor` range, which set the memory again. Over one judge day:
   module-two-watchers (3 villagers) 37 summons, 600 x 18, 700 x 14, 800 x 3, 900 x 1, a mean of
   664 gt (about 90% of the ceiling); m2-open (4) a mean of 624 (600 x 29, 700 x 9); m2-open-ring

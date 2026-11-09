@@ -150,7 +150,18 @@ options, judged against each other on the objectives:
   station and the waiting groups, and the dorm zombie and the station's zombie are each out of
   the other villagers' sight. The mob-AI lane confirms the pieces redsim must model exactly
   before it is judged: an observer on a bed's OCCUPIED change, `SleepInBed`'s start conditions,
-  `WakeUp` on panic, and the double claims.
+  `WakeUp` on panic, and the double claims. **The nightly HOME release can break the sharing for
+  all** (the G1 review): `SetWalkTargetFromBlockMemory(HOME, …, 1200)` in REST has no passenger
+  check, so a sharer whose `CANT_REACH_WALK_TARGET_SINCE` is older than 1200 gt runs
+  `Villager.releasePoi` (`PoiManager.release` on the bed's record, HOME erased); the bed's one
+  ticket (`PoiRecord.releaseTicket`, capped at 1) then lets `AcquirePoi` give it to one homeless
+  villager only, and the other releasers stay homeless and stop wanting golems a day later. Riders
+  arm that memory (`MoveToTargetSink.tryComputePath` runs for passengers), and only a reached or
+  reachable target or `SleepInBed.start` clears it. So the one-bed stop stands only with a
+  mechanism, shown over many nights in the game gate, that keeps every sharer's memory younger than
+  1200 gt at every REST tick (or keeps it unset), with mob-AI confirming the release, the shared
+  bed's `releasePoi` and `AcquirePoi`'s re-claim first; otherwise re-claiming the bed every night
+  is priced as hand steps (the farm is then not AFK), or the stop falls back to a bed each.
 
 ## Must-haves (hard rules)
 
