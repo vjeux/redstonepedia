@@ -272,10 +272,16 @@ pub struct Renderer {
     /// in place of all of them while that camera, frame size and kept vertices hold: (the kept
     /// vertices' key, the camera, width, height), the index buffer and its count.
     pub(crate) fixed_visible: Option<((u64, Camera, u32, u32), wgpu::Buffer, u32)>,
+    /// The still translucent triangles kept on the GPU with them ([`Renderer::set_fixed_blend`]:
+    /// a mob farm's water, sorted back to front for the camera), by their key, and how many
+    /// vertices; and those a camera can see ([`Renderer::cull_fixed`]: by the kept vertices' key,
+    /// theirs, the camera, width and height).
+    fixed_blend: Option<(u64, wgpu::Buffer, u32)>,
+    pub(crate) fixed_blend_visible: Option<((u64, u64, Camera, u32, u32), wgpu::Buffer, u32)>,
     /// The occluders' side of the kept vertices ([`crate::occlude::Occluders`]), by their key.
     occluders: Option<(u64, std::rc::Rc<crate::occlude::Occluders>)>,
-    /// The visible set being worked out, for its kept vertices, camera and size.
-    cull: Option<((u64, Camera, u32, u32), crate::occlude::Cull)>,
+    /// The visible set being worked out, for its kept vertices, translucent ones, camera and size.
+    cull: Option<((u64, u64, Camera, u32, u32), crate::occlude::Cull)>,
     /// The tiles' texture array.
     tiles: wgpu::Texture,
     tiles_view: wgpu::TextureView,
@@ -466,7 +472,7 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
-        Renderer { device, queue, format, samples, solid, blend, sky, uniforms, bind, targets: None, vbuf: None, fixed: None, fixed_visible: None, occluders: None, cull: None, tiles: tex, tiles_view: view, bgl, sampler, game_tex, game_of, view_chunks: None, void_below: false, env: None }
+        Renderer { device, queue, format, samples, solid, blend, sky, uniforms, bind, targets: None, vbuf: None, fixed: None, fixed_visible: None, fixed_blend: None, fixed_blend_visible: None, occluders: None, cull: None, tiles: tex, tiles_view: view, bgl, sampler, game_tex, game_of, view_chunks: None, void_below: false, env: None }
     }
 
     fn bind_group(device: &wgpu::Device, bgl: &wgpu::BindGroupLayout, uniforms: &wgpu::Buffer, tiles: &wgpu::TextureView, sampler: &wgpu::Sampler, game: &wgpu::Texture) -> wgpu::BindGroup {
@@ -537,6 +543,8 @@ impl Renderer {
             None => {
                 self.fixed = None;
                 self.fixed_visible = None;
+                self.fixed_blend = None;
+                self.fixed_blend_visible = None;
                 self.occluders = None;
                 self.cull = None;
             }
@@ -550,6 +558,29 @@ impl Renderer {
                     self.queue.write_buffer(&buf, 0, bytemuck::cast_slice(v));
                 }
                 self.fixed = Some((key, buf, v.len() as u32));
+            }
+        }
+    }
+
+    /// The still translucent triangles kept on the GPU with the kept ones (a mob farm's water,
+    /// sorted back to front for the camera: `Player::fixed_blend`), drawn first in the translucent
+    /// pass, uploaded when their key changes; None: none.
+    pub fn set_fixed_blend(&mut self, blend: Option<(u64, &[Vertex])>) {
+        match blend {
+            None => {
+                self.fixed_blend = None;
+                self.fixed_blend_visible = None;
+            }
+            Some((key, v)) => {
+                if self.fixed_blend.as_ref().is_some_and(|(k, _, _)| *k == key) {
+                    return;
+                }
+                let bytes = (std::mem::size_of_val(v) as u64).max(64);
+                let buf = self.device.create_buffer(&wgpu::BufferDescriptor { label: Some("fixed translucent vertices"), size: bytes, usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+                if !v.is_empty() {
+                    self.queue.write_buffer(&buf, 0, bytemuck::cast_slice(v));
+                }
+                self.fixed_blend = Some((key, buf, v.len() as u32));
             }
         }
     }
@@ -571,34 +602,45 @@ impl Renderer {
     /// already are for this camera, size and kept vertices. A frame with another camera (it
     /// moved), size or kept vertices draws all of them meanwhile. The triangles kept and those
     /// tested, when done in this call.
-    pub fn cull_fixed(&mut self, fixed: (u64, &[Vertex]), opaque: &crate::occlude::Opaque, cam: &Camera, width: u32, height: u32, out_of_time: &mut dyn FnMut() -> bool) -> Option<(usize, usize)> {
+    pub fn cull_fixed(&mut self, fixed: (u64, &[Vertex]), blend: Option<(u64, &[Vertex])>, opaque: &crate::occlude::Opaque, cam: &Camera, width: u32, height: u32, out_of_time: &mut dyn FnMut() -> bool) -> Option<(usize, usize)> {
+        let (bk, bv): (u64, &[Vertex]) = blend.unwrap_or((0, &[]));
         let key = (fixed.0, *cam, width, height);
-        if self.fixed_visible.as_ref().is_some_and(|(k, _, _)| *k == key) {
+        let bkey = (fixed.0, bk, *cam, width, height);
+        let blend_done = blend.is_none() || self.fixed_blend_visible.as_ref().is_some_and(|(k, _, _)| *k == bkey);
+        if self.fixed_visible.as_ref().is_some_and(|(k, _, _)| *k == key) && blend_done {
             return None;
         }
-        if self.cull.as_ref().is_none_or(|(k, _)| *k != key) {
+        if self.cull.as_ref().is_none_or(|(k, _)| *k != bkey) {
             let view = crate::occlude::View { vp: cam.view_proj(width.max(1) as f32 / height.max(1) as f32), eye: cam.eye(), chunks: self.render_chunks(cam), width, height };
             // (the occluders' side of the kept vertices, worked out once for them)
             let occluders = self.occluders.as_ref().filter(|(k, _)| *k == fixed.0).map(|(_, o)| o.clone());
-            self.cull = Some((key, crate::occlude::Cull::new(view, occluders)));
+            self.cull = Some((bkey, crate::occlude::Cull::new(view, occluders)));
         }
         let (_, job) = self.cull.as_mut().unwrap();
-        let idx = job.step(fixed.1, opaque, out_of_time)?;
+        let (idx, bidx) = job.step_with(fixed.1, bv, opaque, out_of_time)?;
         if let Some(o) = job.occluders() {
             self.occluders = Some((fixed.0, o));
         }
         self.cull = None;
-        let buf = self.device.create_buffer(&wgpu::BufferDescriptor { label: Some("fixed visible"), size: ((idx.len() * 4) as u64).max(64), usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
-        if !idx.is_empty() {
-            self.queue.write_buffer(&buf, 0, bytemuck::cast_slice(&idx));
+        let index = |label: &str, idx: &[u32]| {
+            let buf = self.device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size: ((idx.len() * 4) as u64).max(64), usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+            if !idx.is_empty() {
+                self.queue.write_buffer(&buf, 0, bytemuck::cast_slice(idx));
+            }
+            buf
+        };
+        self.fixed_visible = Some((key, index("fixed visible", &idx), idx.len() as u32));
+        // (the still translucent faces in front of the opaque ones, in their order)
+        if blend.is_some() {
+            self.fixed_blend_visible = Some((bkey, index("fixed translucent visible", &bidx), bidx.len() as u32));
         }
-        self.fixed_visible = Some((key, buf, idx.len() as u32));
         Some((idx.len() / 3, fixed.1.len() / 3))
     }
 
     /// Draw all the kept triangles again (no visible set: [`Renderer::cull_fixed`]).
     pub fn uncull(&mut self) {
         self.fixed_visible = None;
+        self.fixed_blend_visible = None;
     }
 
     /// Draw a frame into `out` (a single-sample view of `self.format`, frame.width x height).
@@ -721,6 +763,23 @@ impl Renderer {
             if n_solid > 0 {
                 pass.set_pipeline(&self.solid);
                 pass.draw(0..n_solid, 0..1);
+            }
+            // the still translucent faces kept on the GPU first (sorted back to front; those the
+            // camera can see when worked out for it), then the frame's own
+            if let Some((bkey, buf, n)) = self.fixed_blend.as_ref().filter(|f| f.2 > 0) {
+                pass.set_pipeline(&self.blend);
+                pass.set_vertex_buffer(0, buf.slice(..));
+                let fkey = self.fixed.as_ref().map(|f| f.0).unwrap_or(0);
+                match self.fixed_blend_visible.as_ref().filter(|(k, _, _)| *k == (fkey, *bkey, frame.camera, w, h)) {
+                    Some((_, ib, ni)) => {
+                        if *ni > 0 {
+                            pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+                            pass.draw_indexed(0..*ni, 0, 0..1);
+                        }
+                    }
+                    None => pass.draw(0..*n, 0..1),
+                }
+                pass.set_vertex_buffer(0, vb.slice(..));
             }
             if n_blend > 0 {
                 pass.set_pipeline(&self.blend);

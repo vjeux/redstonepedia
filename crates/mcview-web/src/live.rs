@@ -1480,12 +1480,17 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
             p.hold_blocks = l.last_camera == Some(p.camera) && now - l.fixed_since.1 < BLOCKS_HOLD_MS;
             l.frame_stats.held += p.hold_blocks as u32;
             // (a mob farm's blocks stay on the GPU while none changes: `Player::triangles_split_within`)
+            // (a mob farm's blocks' translucent faces kept on the GPU too, sorted for the eye
+            // and culled with its blocks: `Player::fixed_blend`)
+            p.split_blend = true;
             let tris = p.triangles_split_within(&atlas, &mut mesh_out_of_time);
             t_mesh = perf.as_ref().map(|q| q.now()).unwrap_or(0.0);
             let tris = tris.filter(|_| !(p.staged_now() && t_mesh - t0 > MESH_BUDGET_MS / 2.0));
             staging = tris.is_none();
             if let Some((fixed, solid, translucent)) = tris {
                 g.r.set_fixed(fixed.as_ref().map(|(k, v)| (*k, v.as_slice())));
+                let blend = p.fixed_blend();
+                g.r.set_fixed_blend(blend.as_ref().map(|(k, v)| (*k, v.as_slice())));
                 // a camera at rest (the same as the last frame's): only the kept blocks' triangles
                 // it can see are drawn (`mcview::occlude`: the same picture; a software GL sets up
                 // every triangle it is given, most of a farm in its terrain's frame), worked out
@@ -1506,7 +1511,7 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
                         let now = q.now();
                         now - t0 > CULL_BUDGET_MS && now - tc > CULL_SLICE_MS
                     });
-                    if let Some((kept, all)) = g.r.cull_fixed((*key, v), &opaque, &cam, w, h, &mut cull_out_of_time)
+                    if let Some((kept, all)) = g.r.cull_fixed((*key, v), blend.as_ref().map(|(k, v)| (*k, v.as_slice())), &opaque, &cam, w, h, &mut cull_out_of_time)
                         && crate::debug()
                     {
                         log(&format!("live view {id}: the camera at rest sees {kept} of the {all} kept triangles (the last part worked out in {:.1} ms)", perf.as_ref().map(|q| q.now()).unwrap_or(0.0) - tc));

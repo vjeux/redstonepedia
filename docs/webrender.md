@@ -846,6 +846,14 @@ clocks 120 gt; entity, TNT and shulker designs 400 gt) and fails on any differen
   size draws 13,500 of its 49,000 triangles, the frame 32 -> 20 ms. `mctas web framecost --cull
   --check` draws each frame both ways and counts the pixels that differ (0; and the test
   `occlude::tests::culled_frames_are_the_whole_frames`).
+* The blocks' translucent faces (a farm's water) stay on the GPU too (`Renderer::set_fixed_blend`,
+  `Player::fixed_blend`: sorted back to front once for an eye and its blocks, not every frame),
+  drawn first in the translucent pass, and the cull tests them too without letting them hide
+  anything (`occlude::Cull::step_with`: drawn without writing depth, one behind the opaque faces
+  draws no sample; back faces are culled in both passes). cross-4-underground at phone size keeps
+  3,700 of its 12,900 water triangles; natively its frame at rest draws in 25 ms against 28 (and
+  no longer sorts and uploads 39,000 translucent vertices a frame); `framecost --cull --check`
+  compares those frames too (0 pixels on 10 farms with water).
 * `mcview::remesh`: a mob farm's blocks' mesh is updated in place when a few blocks change (the
   cells whose drawn block changed since: `Session::take_changed_cells`, each read again with
   `Session::drawn_block_at`): the first pass of the changed cells again (`Builder::begin_item`,

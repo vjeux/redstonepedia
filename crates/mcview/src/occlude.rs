@@ -364,6 +364,7 @@ enum Phase {
     Project,
     Fill,
     Test,
+    TestExtra,
     Done,
 }
 
@@ -389,6 +390,8 @@ pub struct Cull {
     occl: Vec<Poly>,
     z: Option<ZBuf>,
     out: Vec<u32>,
+    /// The extra triangles' kept ones ([`Cull::step_with`]: the still translucent faces).
+    out_extra: Vec<u32>,
 }
 
 impl Cull {
@@ -412,6 +415,7 @@ impl Cull {
             occl: Vec::new(),
             z: None,
             out: Vec::new(),
+            out_extra: Vec::new(),
         }
     }
 
@@ -450,6 +454,13 @@ impl Cull {
     /// view, as an index list in their order (three indices each): what
     /// [`crate::render::Renderer`] draws in place of all of them, the same picture.
     pub fn step(&mut self, v: &[Vertex], opaque: &Opaque, out_of_time: &mut dyn FnMut() -> bool) -> Option<Vec<u32>> {
+        self.step_with(v, &[], opaque, out_of_time).map(|(a, _)| a)
+    }
+
+    /// [`Cull::step`] with `extra` triangles tested too but hiding nothing (the still translucent
+    /// faces: drawn without writing depth, a face behind the opaque ones draws no sample): the
+    /// kept of `v` and the kept of `extra` (indices into each, in their order).
+    pub fn step_with(&mut self, v: &[Vertex], extra: &[Vertex], opaque: &Opaque, out_of_time: &mut dyn FnMut() -> bool) -> Option<(Vec<u32>, Vec<u32>)> {
         let n = v.len() / 3;
         loop {
             match self.phase {
@@ -650,12 +661,50 @@ impl Cull {
                     }
                     self.i = end;
                     if self.i == n {
+                        (self.phase, self.i) = (Phase::TestExtra, 0);
+                    }
+                }
+                Phase::TestExtra => {
+                    // the extra triangles the same way, each worked out here (none hides anything)
+                    let m = extra.len() / 3;
+                    let end = (self.i + STRIDE).min(m);
+                    let (w, h, _, _) = self.grid();
+                    let pos = |p: [f32; 3]| [p[0] as f64, p[1] as f64, p[2] as f64];
+                    for ti in self.i..end {
+                        let t = &extra[ti * 3..ti * 3 + 3];
+                        let keep = if t[0].layer & XRAY != 0 {
+                            true
+                        } else if let [Some(a), Some(b), Some(c)] = [self.screen(pos(t[0].pos)), self.screen(pos(t[1].pos)), self.screen(pos(t[2].pos))] {
+                            let s = [a, b, c];
+                            let area = (s[1][0] - s[0][0]) * (s[2][1] - s[0][1]) - (s[2][0] - s[0][0]) * (s[1][1] - s[0][1]);
+                            let scale = (s[1][0] - s[0][0]).abs() + (s[2][0] - s[0][0]).abs() + (s[1][1] - s[0][1]).abs() + (s[2][1] - s[0][1]).abs();
+                            if area.abs() <= 1e-9 * (1.0 + scale * scale) {
+                                true
+                            } else if area > 0.0 || s.iter().all(|q| q[2] > 1.0) {
+                                false
+                            } else {
+                                match Poly::new(&s, w, h) {
+                                    Some(p) if !p.empty() => p.seen(self.z.as_mut().unwrap()),
+                                    Some(_) => false,
+                                    None => true,
+                                }
+                            }
+                        } else {
+                            true
+                        };
+                        if keep {
+                            let b = (ti * 3) as u32;
+                            self.out_extra.extend_from_slice(&[b, b + 1, b + 2]);
+                        }
+                    }
+                    self.i = end;
+                    if self.i == m {
                         self.phase = Phase::Done;
                     }
                 }
                 Phase::Done => {
                     (self.kind, self.polys, self.alone, self.z) = (Vec::new(), Vec::new(), Vec::new(), None);
-                    return Some(std::mem::take(&mut self.out));
+                    return Some((std::mem::take(&mut self.out), std::mem::take(&mut self.out_extra)));
                 }
             }
             if self.phase != Phase::Done && out_of_time() {
@@ -902,6 +951,34 @@ mod tests {
                 let q = |f: f64| slack.get(((slack.len() as f64 - 1.0) * f) as usize).copied().unwrap_or_default();
                 eprintln!("opaque kept never seen: {inf} at a cell no occluder covers, {near} at a covered one (the occluder's farthest minus its centre depth, and its slack, at the 10/50/90%: {:?} {:?} {:?})", q(0.1), q(0.5), q(0.9));
             }
+        }
+    }
+
+    /// How many of a farm's still translucent triangles (its water) the cull would keep, were they
+    /// tested like the solid ones (`--nocapture`; `MCTAS_DESIGN`, default cross-4-underground).
+    #[test]
+    #[ignore]
+    fn print_translucent_kept() {
+        let mut atlas = Atlas::build();
+        let (png, idx, defs, models) = crate::tools::vanilla_assets().unwrap();
+        atlas.apply_vanilla_png(&png, &idx).unwrap();
+        let (rgba, gw, gh) = crate::tools::decode_png(&png).unwrap();
+        atlas.set_game(&rgba, gw, gh, &idx, &defs, &models).unwrap();
+        let text = read(&std::env::var("MCTAS_DESIGN").unwrap_or_else(|_| "designs/farms/iron/middle/cross-4-underground.txt".into()));
+        for (width, height, dpr) in [(798u32, 960u32, 2.0f32), (1232, 480, 1.0)] {
+            let mut p = crate::player::Player::new_web(&text, width as f32 / height as f32).unwrap();
+            p.frame_live(&atlas, width as f32 / dpr, height as f32 / dpr);
+            p.triangles_split_within(&atlas, &mut || false).unwrap();
+            let m = p.blocks_mesh().unwrap();
+            let solid = m.solid.clone();
+            let tr = m.sorted_translucent(p.camera.eye());
+            let mut all = solid.clone();
+            all.extend_from_slice(&tr);
+            let view = View { vp: p.camera.view_proj(width as f32 / height as f32), eye: p.camera.eye(), chunks: 64.0, width, height };
+            let kept = Cull::new(view, None).step(&all, &Opaque::of(&atlas), &mut || false).unwrap();
+            let first_tr = (solid.len() / 3) as u32;
+            let kept_tr = kept.chunks(3).filter(|t| t[0] / 3 >= first_tr).count();
+            eprintln!("{width}x{height}: translucent triangles kept {kept_tr} of {}; solid kept {} of {}", tr.len() / 3, kept.len() / 3 - kept_tr, solid.len() / 3);
         }
     }
 }

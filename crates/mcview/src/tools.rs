@@ -877,7 +877,10 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
         let t0 = std::time::Instant::now();
         let mut oot = || budget.is_some_and(|b| k > 0 && t0.elapsed().as_secs_f64() * 1000.0 > b);
         let before = p.fixed_key();
+        // (the blocks' translucent faces kept on the GPU and culled too, as the browser does)
+        p.split_blend = cull;
         let Some((fixed, solid, translucent)) = p.triangles_split_within(atlas, &mut oot) else { return Err("no triangles".into()) };
+        let blend = p.fixed_blend();
         if k > 0 {
             c.staged_frames += p.staged_now() as u32;
             c.built += (p.fixed_key() != before) as u32;
@@ -885,9 +888,10 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
         let t1 = std::time::Instant::now();
         off.r.env = p.daylight();
         off.r.set_fixed(fixed.as_ref().map(|(k, v)| (*k, v.as_slice())));
+        off.r.set_fixed_blend(blend.as_ref().map(|(k, v)| (*k, v.as_slice())));
         if cull && let Some((key, v)) = &fixed {
             let tc = std::time::Instant::now();
-            if let Some((kept, tested)) = off.r.cull_fixed((*key, v), &opaque, &p.camera, width, height, &mut || false) {
+            if let Some((kept, tested)) = off.r.cull_fixed((*key, v), blend.as_ref().map(|(k, v)| (*k, v.as_slice())), &opaque, &p.camera, width, height, &mut || false) {
                 c.culls += 1;
                 c.cull_ms += tc.elapsed().as_secs_f64() * 1000.0;
                 (c.kept, c.tested) = (kept, tested);
@@ -900,9 +904,9 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
         let t2 = std::time::Instant::now();
         if check && k > 0 {
             let culled = off.render(&frame)?;
-            let saved = off.r.fixed_visible.take();
+            let saved = (off.r.fixed_visible.take(), off.r.fixed_blend_visible.take());
             let whole = off.render(&frame)?;
-            off.r.fixed_visible = saved;
+            (off.r.fixed_visible, off.r.fixed_blend_visible) = saved;
             let differing = culled.chunks(4).zip(whole.chunks(4)).filter(|(a, b)| a != b).count();
             c.differing = c.differing.max(differing);
         }
@@ -911,7 +915,7 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
             c.draw_ms += (t2 - t1).as_secs_f64() * 1000.0;
             c.fixed = fixed.as_ref().map(|(_, v)| v.len()).unwrap_or(0);
             c.solid += solid.len();
-            c.translucent += translucent.len();
+            c.translucent += translucent.len() + blend.as_ref().map(|(_, v)| v.len()).unwrap_or(0);
         }
     }
     let n = frames.max(1) as f64;

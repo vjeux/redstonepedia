@@ -44,6 +44,10 @@ pub struct Player {
     /// Hold a mob farm's blocks' mesh as it is this frame (the caller's: a camera at rest whose
     /// cull of the blocks drawn is not done yet), unless it has none yet.
     pub hold_blocks: bool,
+    /// Keep a mob farm's blocks' translucent faces apart ([`Player::fixed_blend`]: the caller
+    /// keeps them on the GPU and culls them), sorted for an eye: their key, (blocks, eye), them.
+    pub split_blend: bool,
+    fixed_blend: Option<(u64, (u64, [u32; 3]), std::rc::Rc<Vec<Vertex>>)>,
     /// Seconds spent at a flying machine's end before it starts again.
     hold: f32,
     /// A travelling design's last centre: the camera follows it.
@@ -338,6 +342,8 @@ impl Player {
             staged_now: false,
             dirty: true,
             hold_blocks: false,
+            split_blend: false,
+            fixed_blend: None,
             hold: 0.0,
             follow: None,
             pulse_inputs,
@@ -1516,10 +1522,30 @@ impl Player {
         if self.fixed.as_ref().is_none_or(|(k, _)| *k != key) {
             self.fixed = Some((key, std::rc::Rc::new(blocks.solid.clone())));
         }
-        let mut translucent = blocks.sorted_translucent(self.camera.eye());
         let (solid, t2) = scene::triangles(self.mesh.as_ref()?, &self.camera);
+        if self.split_blend {
+            // the blocks' translucent faces sorted for this eye, kept with their own key (sorted
+            // again only when the eye or the blocks change: [`Player::fixed_blend`])
+            let eye = self.camera.eye();
+            let at = (key, eye.map(f32::to_bits));
+            if self.fixed_blend.as_ref().is_none_or(|(_, k, _)| *k != at) {
+                self.fixed_blend = Some((next_build(), at, std::rc::Rc::new(blocks.sorted_translucent(eye))));
+            }
+            return Some((self.fixed.clone(), solid, t2));
+        }
+        let mut translucent = blocks.sorted_translucent(self.camera.eye());
         translucent.extend(t2);
         Some((self.fixed.clone(), solid, translucent))
+    }
+
+    /// With [`Player::split_blend`]: a mob farm's blocks' translucent faces sorted back to front
+    /// for the camera, by their key (a renderer keeps them: `Renderer::set_fixed_blend`), left out
+    /// of [`Player::triangles_split_within`]'s translucent ones.
+    pub fn fixed_blend(&self) -> Option<(u64, std::rc::Rc<Vec<Vertex>>)> {
+        if !self.split_blend || self.session.mob.is_none() {
+            return None;
+        }
+        self.fixed_blend.as_ref().map(|(k, _, v)| (*k, v.clone()))
     }
 
     /// A mob farm's two meshes brought up to date ([`Player::triangles_within`]): its blocks'
