@@ -56,10 +56,20 @@ pub fn entities_in(w: &World, b: Bounds, f: Filter) -> usize {
     .len()
 }
 
+/// `FluidState.entityInside` for a fluid an entity's sweep met (`Entity.checkInsideBlocks`'s
+/// `collidedWithFluid`: the box at the step's start swept to its end meets the fluid's box):
+/// a mob's LAVA_IGNITE or EXTINGUISH.
+pub fn fluid_inside(w: &mut World, i: usize, fs: crate::fluid::FluidState, p: BlockPos) {
+    let _ = p;
+    if matches!(w.entities.list[i].kind, crate::entity::EntityKind::Mob(_)) {
+        crate::entity::mob::living::fluid_inside(w, i, fs.fluid.is_lava());
+    }
+}
+
 /// `BlockBehaviour.entityInside` for the blocks an entity's sweep meets (called by the entity
 /// core's `checkInsideBlocks`; `precise`: the entity's box at its target meets the cell).
 pub fn entity_inside(w: &mut World, i: usize, s: Block, p: BlockPos, precise: bool) {
-    // ironfarm: lava and water on a mob (`LavaFluid` / `WaterFluid.entityInside`)
+    // a fire's cell on a mob (`BaseFireBlock.entityInside`)
     if matches!(w.entities.list[i].kind, crate::entity::EntityKind::Mob(_)) {
         crate::entity::mob::living::entity_inside(w, i, s, p);
     }

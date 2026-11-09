@@ -871,9 +871,22 @@ fn check_inside_blocks_step(w: &mut World, i: usize, from: Vec3, to: Vec3, visit
             let h = fs.height(w, p) as f64;
             collided_with_shape_moving_from(e, from, to, &[Aabb::new(p.x as f64, p.y as f64, p.z as f64, (p.x + 1) as f64, p.y as f64 + h, (p.z + 1) as f64)])
         };
-        if (inside_block || inside_fluid) && visited.insert(p) && inside_block {
-            let precise = moved_far || target.intersects(Aabb::of_block(p));
-            crate::react::entity_inside(w, i, s, p, precise);
+        if (inside_block || inside_fluid) && visited.insert(p) {
+            // `effectCollector.advanceStep(iteration)` before each effect (a mob's collector)
+            if matches!(w.entities.list[i].kind, crate::entity::EntityKind::Mob(_)) {
+                crate::entity::mob::living::advance_step(w, i, iteration);
+            }
+            if inside_block {
+                let precise = moved_far || target.intersects(Aabb::of_block(p));
+                crate::react::entity_inside(w, i, s, p, precise);
+            }
+            // `state.getFluidState().entityInside` when the box swept from `from` to `to` meets
+            // the fluid's box (`collidedWithFluid`): lava's LAVA_IGNITE, water's EXTINGUISH
+            // (tickexact: redsim read the box at `to` alone, and missed a golem that touched
+            // lava during its step)
+            if inside_fluid && !w.entities.list[i].removed {
+                crate::react::fluid_inside(w, i, fs, p);
+            }
         }
     }
     iterations + 1

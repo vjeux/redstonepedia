@@ -135,13 +135,42 @@ pub enum MobEvent {
     Activity { t: i64, id: u32, activity: villager::Activity },
 }
 
-/// The block effects `checkInsideBlocks` collected for a mob this tick (`InsideBlockEffectApplier`).
-#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+/// The block effects `checkInsideBlocks` collected for a mob this tick (`InsideBlockEffectApplier`
+/// `StepBasedCollector`): one entry per step of the sweep that met something, in the order the
+/// steps came (each step's effects then apply in `InsideBlockEffectType` order: a step's water
+/// before a later step's lava leaves the mob burning, tickexact 2026-11-08).
+#[derive(Clone, PartialEq, Eq, Default, Debug)]
 pub struct Inside {
+    pub steps: Vec<InsideStep>,
+    /// The step of the last effect (`advanceStep`: a new step starts a new entry).
+    pub last_step: Option<i32>,
+}
+
+/// One step's effects.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub struct InsideStep {
     pub lava: bool,
     pub water: bool,
     /// mobinfra: a fire a bolt set (`BaseFireBlock.entityInside`: FIRE_IGNITE, then 1 `inFire`).
     pub fire: bool,
+}
+
+impl Inside {
+    /// `StepBasedCollector.advanceStep(step)`.
+    pub fn advance(&mut self, step: i32) {
+        if self.last_step != Some(step) || self.steps.is_empty() {
+            self.last_step = Some(step);
+            self.steps.push(InsideStep::default());
+        }
+    }
+
+    /// The current step's effects (a step started if none was).
+    pub fn now(&mut self) -> &mut InsideStep {
+        if self.steps.is_empty() {
+            self.steps.push(InsideStep::default());
+        }
+        self.steps.last_mut().unwrap()
+    }
 }
 
 /// A mob's state (the `LivingEntity` / `Mob` fields the rules read and write).

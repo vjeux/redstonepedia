@@ -656,6 +656,8 @@ pub fn after_block_effects(w: &mut World, i: usize, fire_before: i32) {
         return;
     }
     let crate::entity::EntityKind::Mob(m) = &e.kind else { return };
+    // `wasOnFire = isOnFire()` before the inside-block effects
+    let was_on_fire = !m.ty.def().fire_immune && fire_before > 0;
     if m.fire_ticks > 0 && entity_in_rain(w, i) {
         let id = w.entities.list[i].id;
         let m = crate::entity::mob::mob_mut(w, i);
@@ -665,6 +667,16 @@ pub fn after_block_effects(w: &mut World, i: usize, fire_before: i32) {
     }
     let m = crate::entity::mob::mob_mut(w, i);
     let on_fire = !m.ty.def().fire_immune && m.fire_ticks > 0;
+    // `playEntityOnFireExtinguishedSound` when the fire went out this tick (water, rain): its pitch
+    // `1.6F + (random.nextFloat() - random.nextFloat()) * 0.4F` from the entity's own random
+    // (tickexact 2026-11-08: a golem put out by the water beside its lava)
+    if was_on_fire && !on_fire
+        && let Some(r) = w.entities.list[i].random.as_mut()
+    {
+        r.next_float();
+        r.next_float();
+    }
+    let m = crate::entity::mob::mob_mut(w, i);
     // `setRemainingFireTicks(-getFireImmuneTicks())`: 0 for every entity but a player in 26.3
     // (ironfarm's tick-exact compare: the game's mobs keep fire 0, not -1)
     if !on_fire && m.fire_ticks <= fire_before {

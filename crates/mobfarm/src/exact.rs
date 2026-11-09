@@ -84,6 +84,16 @@ pub fn weather_on(opts: &Opts) -> bool {
     opts.weather || (opts.build.is_some() && opts.terrain.is_some())
 }
 
+/// `MCTAS_EXACT_ENTITY="N:T0:T1"`: entity #N's frames to print at game times T0..=T1.
+fn entity_probe() -> Option<(u32, i64, i64)> {
+    static P: std::sync::OnceLock<Option<(u32, i64, i64)>> = std::sync::OnceLock::new();
+    *P.get_or_init(|| {
+        let v = std::env::var("MCTAS_EXACT_ENTITY").ok()?;
+        let f: Vec<&str> = v.split(':').collect();
+        Some((f.first()?.parse().ok()?, f.get(1)?.parse().ok()?, f.get(2)?.parse().ok()?))
+    })
+}
+
 /// The game's side alone over `seeds` (no redsim): each run's custom spawner events seen as
 /// entities entering (a siege's zombies, a patrol's pillagers, phantoms, cats, a trader), to find
 /// a seed where one fires (the siege and patrol fixtures).
@@ -866,6 +876,17 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
             redsim_time += r0.elapsed();
             changes[0] += f.containers.len();
             changes[1] += ours.containers.len();
+            // (a probe: MCTAS_EXACT_ENTITY="N:T0:T1" prints entity #N's frame on both sides at each
+            // game time T0..=T1)
+            if let Some((n, t0, t1)) = entity_probe()
+                && f.t >= t0
+                && f.t <= t1
+            {
+                let g = f.entities.iter().find(|e| e.n == n);
+                let o = ours.entities.iter().find(|e| e.n == n);
+                eprintln!("t{} #{n} game:   {:?}", f.t, g.map(|e| (e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time)));
+                eprintln!("t{} #{n} redsim: {:?}", f.t, o.map(|e| (e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time)));
+            }
             cmp.tick(&f, &ours);
         }
         t += n as i64;
