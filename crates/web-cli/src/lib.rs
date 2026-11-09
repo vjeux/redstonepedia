@@ -1114,6 +1114,11 @@ fn cmd_bundle(out: &Path) -> Result<()> {
         let p = out.join(f);
         println!("{} ({} KB)", p.display(), std::fs::metadata(&p)?.len() / 1024);
     }
+    // the sources it was built from (the site build refuses a bundle whose simulator is not its
+    // checkout's: `site::web::stale_viewer`)
+    let source = site::web::viewer_source_hash(Path::new("."))?;
+    std::fs::write(out.join("SOURCE"), format!("{source}\n"))?;
+    println!("{} ({source})", out.join("SOURCE").display());
     // the bundle is flat (the site copies the files of web/viewer/, not its folders): wasm-bindgen's
     // snippets move next to mcview.js and its imports follow
     let snippets = out.join("snippets");

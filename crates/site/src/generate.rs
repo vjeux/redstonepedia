@@ -708,6 +708,21 @@ pub fn build(a: &BuildArgs) -> Result<()> {
         }
         (None, None) => false,
     };
+    // the bundle's simulator is this checkout's, or the build says so (`--fresh-viewer`, always on
+    // `site publish`: it fails; the parent 2026-11-08, iron-day1's view on an older redsim)
+    if viewer {
+        let from = match (&viewer_dir, &a.viewer_ref) {
+            (Some(d), _) => d.display().to_string(),
+            (None, Some(r)) => format!("{r}:web/viewer"),
+            _ => "the viewer".to_string(),
+        };
+        if let Some(why) = crate::web::stale_viewer(&repo, &out.join("viewer"), &from)? {
+            if a.fresh_viewer {
+                bail!("{why}");
+            }
+            eprintln!("  WARNING: {why} (`site publish` refuses it)");
+        }
+    }
     let app = if a.no_wasm {
         false
     } else {

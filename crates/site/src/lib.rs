@@ -219,6 +219,12 @@ pub struct BuildArgs {
     /// No 3D viewer even when the checkout has one (`web/viewer/`, used by default).
     #[arg(long)]
     pub no_viewer: bool,
+    /// Fail when the viewer bundle was not built from this checkout's viewer sources (its `SOURCE`,
+    /// written by `mctas web bundle`: mcview-web, mcview, redsim); without it, a warning. `site
+    /// publish` always checks (the parent 2026-11-08: a page whose 3D view does not run is worse
+    /// than a late page).
+    #[arg(long)]
+    pub fresh_viewer: bool,
     /// A prebuilt filtering UI (wasm-bindgen output of web/site), copied to pkg/ instead of
     /// building it.
     #[arg(long)]
@@ -421,6 +427,10 @@ pub fn run(cmd: SiteCmd) -> Result<()> {
         SiteCmd::Deploy(a) => deploy::deploy(&a),
         SiteCmd::Preview(a) => preview::preview(&a),
         SiteCmd::Publish(a) => {
+            // (a published site's 3D views run its own simulator: the viewer bundle must come from
+            // this commit's sources, `--fresh-viewer`; the parent 2026-11-08)
+            let mut a = a;
+            a.fresh_viewer = true;
             // build and deploy; no browser end-to-end gate (vjeux 14:20Z: "I think we're
             // overreacting to a single bug we had. Please remove the e2e tests"). The live site's
             // pages first join the list of published pages, so the build writes a redirect for any
