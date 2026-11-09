@@ -1,0 +1,26 @@
+name: side-chute-16
+origin: 0 0 20
+palette:
+  L minecraft:lava[level=0]
+  O minecraft:oak_fence_gate[facing=east,in_wall=false,open=true,powered=false]
+  W minecraft:water[level=0]
+layer -23:
+  .
+  .
+  .
+  ...W
+layer -22:
+  .
+  .
+  .
+  OOOO
+layer -21:
+  .
+  OOOO
+  OOOO
+  LLLL
+layer -20:
+  OOOO
+  LLLL
+  LLLL
+  .

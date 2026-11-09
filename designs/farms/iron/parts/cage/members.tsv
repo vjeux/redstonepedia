@@ -3,3 +3,6 @@ bed-plate-2-watching.txt	bed-plate cage, 2 watching villagers	day-1	villagers 3,
 bed-plate-2-watching-1-sleeping.txt	bed-plate cage, 2 watching villagers + 1 sleeper	day-1	villagers 4, watching villagers 2, blocks 93, build seconds 1402	
 bed-observer-3-watching.txt	bed-observer cage, 3 watching villagers	middle	villagers 4, watching villagers 3, blocks 81, build seconds 1059	
 bed-observer-4-watching.txt	bed-observer cage, 4 watching villagers	middle	villagers 5, watching villagers 4, blocks 98, build seconds 1285	
+dust-pulse-2-watching-regular.txt	dust-pulse cage, 2 watching villagers (regular)	day-1	blocks 19, blocks dug 38, build seconds 84	dust-pulse-dug10.txt dust-pulse-out-of-sight.txt
+dust-pulse-3-watching-regular.txt	dust-pulse cage, 3 watching villagers (regular)	day-1	blocks 24, blocks dug 59, build seconds 118	dust-pulse-three-watchers.txt
+bed-observer-2-watching-regular.txt	bed-observer cage, 2 watching villagers (regular)	middle	blocks 118, blocks dug 0, build seconds 200	module-two-watchers.txt

@@ -1,105 +1,93 @@
 name: spiral-staircase
-origin: -6 0 3
+origin: -5 0 3
 palette:
   C minecraft:cobblestone_slab[type=bottom,waterlogged=false]
   O minecraft:oak_fence_gate[facing=east,in_wall=false,open=false,powered=false]
   T minecraft:torch
-layer -23:
+layer -21:
   C
   .
-layer -22:
+layer -20:
   ....T
   C
-layer -21:
-  .
-  .C
-layer -20:
-  .C
-  .
 layer -19:
-  C
-  .T
+  .
+  .C
 layer -18:
+  .C
   .
-  C
 layer -17:
-  .
-  .C
+  C
+  .T
 layer -16:
-  .C
   .
+  C
 layer -15:
-  C
   .
+  .C
 layer -14:
+  .C
   .
-  C
 layer -13:
+  C
   .
-  .C
 layer -12:
-  .C
   .
+  C
 layer -11:
-  C
-  .T
+  .
+  .C
 layer -10:
+  .C
   .
-  C
 layer -9:
-  .
-  .C
+  C
+  .T
 layer -8:
-  .C
   .
+  C
 layer -7:
-  C
   .
+  .C
 layer -6:
+  .C
   .
-  C
 layer -5:
+  C
   .
-  .C
 layer -4:
-  .C
   .
+  C
 layer -3:
-  C
-  .T
+  .
+  .C
 layer -2:
+  .C
   .
-  C
 layer -1:
-  .
-  .C
-layer 0:
-  .C
-  .
-layer 1:
-  C
-  .
-layer 2:
-  .
-  C
-layer 3:
-  .
-  .C
-layer 4:
-  .C
-  .
-layer 5:
   C
   .T
-layer 6:
+layer 0:
   .
   C
+layer 1:
+  .
+  .C
+layer 2:
+  .C
+  .
+layer 3:
+  C
+  .
+layer 4:
+  .
+  C
+layer 5:
+  .
+  .C
+layer 6:
+  .C
+  .
 layer 7:
-  .
-  .C
-layer 8:
-  .C
-  .
-layer 9:
   CO
   OO

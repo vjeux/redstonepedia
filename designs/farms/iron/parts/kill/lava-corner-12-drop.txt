@@ -1,0 +1,29 @@
+name: lava-corner-12-drop
+origin: 0 0 3
+palette:
+  A minecraft:oak_wall_sign[facing=east,waterlogged=false]
+  B minecraft:oak_wall_sign[facing=south,waterlogged=false]
+  L minecraft:lava[level=0]
+  O minecraft:oak_button[face=wall,facing=east,powered=false]
+  W minecraft:water[level=0]
+  o minecraft:oak_button[face=wall,facing=south,powered=false]
+layer -19:
+  .
+  .
+  .
+  ...W
+layer -18:
+  B
+  .
+  .
+  .
+layer -17:
+  LB
+  A
+  .
+  .
+layer -16:
+  .o
+  O
+  .
+  .

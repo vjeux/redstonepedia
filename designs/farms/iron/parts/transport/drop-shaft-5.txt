@@ -1,0 +1,15 @@
+name: drop-shaft-5
+origin: -2 0 -6
+palette:
+  C minecraft:cobblestone
+layer -2:
+  ......C
+  ......C
+  ......C
+  ......CC
+  .......CC
+  CCCCCCC.C
+  C.......C
+  C.......C
+  CCC.....C
+  .......CC
