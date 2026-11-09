@@ -34,9 +34,12 @@ above. The site shows none of it. One run by hand: `mctas mobfarm compare
 world,blocks,entities,<category>] [--full] [--probe] [--draws-at T] [--twin]` (`--build`: the
 judge's build K and run I, its seed, walking and weather; `--no-spawning`: no mob spawning on
 either side, the random ticks alone, terrain's regression check `sim:terrain-ticks-*`; `--only`:
-only those kinds of difference count; `--twin`: the bridge against itself), and the level
+only those kinds of difference count; `--twin`: the bridge against itself; the last line counts
+the drops each side burnt: items that left while on fire, by item), and the level
 random's draws of one tick by call site on both sides: `mctas mobai farm-trace <design> --seed S
---at T` (`MCTAS_NATURAL_LOG=T` prints redsim's natural spawner calls of that tick).
+--at T [--build K --day0 D --no-spawning --weather]` (`MCTAS_NATURAL_LOG=T` prints redsim's
+natural spawner calls of that tick; `MCTAS_EXACT_LIGHT=x0,y0,z0,x1,y1,z1` the cells whose sky or
+block light differs at the end).
 Real terrain and natural spawning (`mctas terrain gen | find | info | crop | map | spot | light |
 probe | chunk | blockinfo | biomes | paste-check | biome-check | spawn-check | spawn-explain |
 hostile | slab-fixture`, and `mctas mobfarm exposures | spawn-rules`: the official server's world

@@ -907,6 +907,10 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
     let mut redsim_time = std::time::Duration::ZERO;
     let mut tick_time = std::time::Duration::ZERO;
     let mut changes = [0usize; 2];
+    // the drops each side burnt (day-1's ask: the official server cannot see an item's death): an
+    // item that left while burning (its last frame's fire above 0), counted by item, both sides
+    let mut burnt: [std::collections::BTreeMap<String, u32>; 2] = Default::default();
+    let mut last_items: [std::collections::BTreeMap<u32, (String, i32)>; 2] = Default::default();
     let mut left = SETTLE_TICKS as u32;
     while left > 0 {
         let n = left.min(opts.batch);
@@ -947,6 +951,21 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
             redsim_time += r0.elapsed();
             changes[0] += f.containers.len();
             changes[1] += ours.containers.len();
+            for (side, frame) in [&f, &ours].into_iter().enumerate() {
+                for n in &frame.left {
+                    if let Some((item, fire)) = last_items[side].remove(n)
+                        && fire > 0
+                    {
+                        let (id, count) = item.rsplit_once(' ').map(|(a, b)| (a.to_string(), b.parse::<u32>().unwrap_or(1))).unwrap_or((item.clone(), 1));
+                        *burnt[side].entry(id).or_insert(0) += count;
+                    }
+                }
+                for e in &frame.entities {
+                    if let (Some(item), Some(fire)) = (&e.item, e.fire) {
+                        last_items[side].insert(e.n, (item.clone(), fire));
+                    }
+                }
+            }
             // (a probe: MCTAS_EXACT_ENTITY="N:T0:T1" prints entity #N's frame on both sides at each
             // game time T0..=T1)
             if let Some((ids, t0, t1)) = entity_probe()
@@ -973,6 +992,8 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
     eprintln!("redsim's side: {:.2} s for {} ticks ({:.1} us a tick: {:.1} us ticking, the rest its frames)", redsim_time.as_secs_f64(), t, redsim_time.as_secs_f64() * 1e6 / t.max(1) as f64, tick_time.as_secs_f64() * 1e6 / t.max(1) as f64);
     eprintln!("container changes after the arrival: the game {}, redsim {}", changes[0], changes[1]);
     tally.print();
+    let burnt_text = |m: &std::collections::BTreeMap<String, u32>| if m.is_empty() { "none".to_string() } else { m.iter().map(|(k, v)| format!("{v} {k}")).collect::<Vec<_>>().join(", ") };
+    println!("drops burnt: the game {} | redsim {}", burnt_text(&burnt[0]), burnt_text(&burnt[1]));
     // (a probe: MCTAS_EXACT_LIGHT="x0,y0,z0,x1,y1,z1": each cell of the box whose sky or block light
     // differs at the end, the game's against redsim's)
     if let Ok(b) = std::env::var("MCTAS_EXACT_LIGHT") {
