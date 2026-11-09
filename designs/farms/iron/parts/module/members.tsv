@@ -1,3 +1,10 @@
 file	name	stage	metrics	used_by
-module-two-watchers.txt	One module: three villagers in one row, a bed observer and the smallest timer	middle		
+module-three-watchers.txt	Farm module: three watchers, a regular cage, an 8x8 pad and a storage row	middle	iron per hour 460, blocks 477, build minutes 37.9	
+module-two-watchers.txt	Farm module: two watchers, a regular cage, an 8x8 pad and a storage row	middle	iron per hour 426, blocks 463, build minutes 34.8	
+module-two-watchers-6x6.txt	Farm module: two watchers, a regular cage, a 6x6 pad and a storage row	middle	iron per hour 408, blocks 425, build minutes 33.7	
 m2-open-ring.txt	One module: a comparator ring times the zombie's hide	middle	iron per hour 444, blocks 392, build minutes 24.7	
+late-module-three-watchers-two-sleepers.txt	Late module: three watchers and two sleepers, an 8x8 pad	late	iron per hour 473, blocks 507, build minutes 19.8	
+late-module-three-watchers.txt	Late module: three watchers, a regular cage, an 8x8 pad	late	iron per hour 461, blocks 481, build minutes 18.2	
+late-module-two-watchers-sleeper.txt	Late module: two watchers and a sleeper, an 8x8 pad	late	iron per hour 453, blocks 459, build minutes 17.4	
+late-module-two-watchers-two-sleepers.txt	Late module: two watchers and two sleepers, a 6x6 pad	late	iron per hour 440, blocks 444, build minutes 17.6	
+late-module-compact.txt	Late module: two watchers, a 6x6 pad, the most compact	late	iron per hour 409, blocks 387, build minutes 15.2	
