@@ -448,6 +448,12 @@ impl World {
         let land = self.land.as_mut().unwrap();
         let gidx = |x: i32, y: i32, z: i32| (((y - min.y) * size[2] + (z - min.z)) * size[0] + (x - min.x)) as usize;
         let inside = |x: i32, y: i32, z: i32| x >= lo[0] && x <= hi[0] && y >= lo[1] && y <= hi[1] && z >= lo[2] && z <= hi[2];
+        // a cell on the box's side: light may reach it from outside the box, where redsim knows
+        // nothing (the sample's neighbours in the world it was cut from); the game keeps such light
+        // until an update of its own reaches it (tickexact 2026-11-08: d1u-deep's west edge kept the
+        // sample's block light 5 through the settle, where this fixed point had made it 0), so a
+        // side cell keeps at least its stored light
+        let side = |x: i32, z: i32| x == min.x || z == min.z || x == min.x + size[0] - 1 || z == min.z + size[2] - 1;
         for sky in [true, false] {
             let mut level = vec![0u8; props.len()];
             let mut queue: Vec<Vec<(i32, i32, i32)>> = vec![Vec::new(); 16];
@@ -455,14 +461,17 @@ impl World {
                 for z in elo[2]..=ehi[2] {
                     for x in elo[0]..=ehi[0] {
                         let i = idx(x, y, z);
+                        let stored = if sky { land.sky[gidx(x, y, z)] } else { land.block[gidx(x, y, z)] };
                         let v = if !inside(x, y, z) {
                             // the border keeps its light
-                            if sky { land.sky[gidx(x, y, z)] } else { land.block[gidx(x, y, z)] }
+                            stored
                         } else if sky {
                             let c = Land::col(min, size, x, z).unwrap();
-                            if y >= land.sources[c] { 15 } else { 0 }
+                            let v = if y >= land.sources[c] { 15 } else { 0 };
+                            if side(x, z) { v.max(stored) } else { v }
                         } else {
-                            props[i].emission.min(15)
+                            let v = props[i].emission.min(15);
+                            if side(x, z) { v.max(stored) } else { v }
                         };
                         level[i] = v;
                         if v > 1 {
