@@ -108,6 +108,23 @@ options, judged against each other on the objectives:
   waiting groups, one group is at the dormitory at a time, and the sharers lie down in turn
   (panicking villagers do not validate). Costs: a one-time break-and-replace setup per extra
   sharer (its hand steps priced), and a longer nightly stop.
+- **One bed for all** (vjeux 23:16: "Okay can you figure out how to use a single bed"): the
+  dormitory reduced to ONE bed shared by all 18 villagers (6 groups of 3) through the same double
+  claim. Setup once: 17 break-and-replace steps, each with every earlier claimant more than 16
+  away, priced as hand steps. Each night (REST), per villager: a cart drops it within 2.0 of the
+  bed's head, and `SleepInBed` starts within a tick (HOME present, not a passenger, `LAST_WOKEN`
+  at least 100 gt ago, the bed not OCCUPIED), setting `LAST_SLEPT`; an observer facing the bed
+  sees OCCUPIED flip and opens a hatch on a dorm zombie; the villager panics within one
+  `VillagerHostilesSensor` scan (20 gt), and the `WakeUp` core behavior wakes it (no longer in
+  REST); OCCUPIED flips back, the observer closes the hatch, a cart takes the villager away, and
+  the next comes in. While the bed is occupied, no other sharer in REST may be within 16 of it
+  (`ValidateNearbyPoi` erases an awake validator's HOME when its bed is OCCUPIED), so the queue
+  waits more than 16 out, and the leaver clears 16 (or is still panicking) before the next lies
+  down: about 4-5 s a villager, about 90 s a night. The dormitory sits more than 16 from the
+  station and the waiting groups, and the dorm zombie and the station's zombie are each out of
+  the other villagers' sight. The mob-AI lane confirms the pieces redsim must model exactly
+  before it is judged: an observer on a bed's OCCUPIED change, `SleepInBed`'s start conditions,
+  `WakeUp` on panic, and the double claims.
 
 ## Must-haves (hard rules)
 
