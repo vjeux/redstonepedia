@@ -856,6 +856,10 @@ pub fn module(b: &mut Builder, at: [i32; 3], place: Place, m: &Module, with_u1: 
     Ports { output, hide_feed, u1_bed, summoners, pad_cells, pit: pit_box, row: (at[0] + lo, at[0] + hi) }
 }
 
+/// NOT USED (2026-11-09): this cheap stock loses a quarter of the iron in the real game over the
+/// gate's 3 days (late-shared-kill-pair: 2.6-3.8 iron per golem, the classic stock 4.00) though
+/// redsim keeps it all; the generator places the ironfarm lane's collect_bottom_at1 with the
+/// classic stock instead (design.rs `ironfarm_sorter`). Kept for the redsim/game trace.
 /// The cheap sorter and iron-block crafter (ironspec iteration 20's storage: the classic sorter's
 /// filter stock only, its fillers plain, no lock stock): the ironfarm lane's collect_bottom_at1 laid
 /// out the same way (the line hopper L at `l`, the iron slice's filter under it, the poppy slice
