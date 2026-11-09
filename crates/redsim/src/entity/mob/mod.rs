@@ -286,6 +286,9 @@ pub struct MobState {
     pub bat_target: Option<BlockPos>,
     /// The chicken's `eggTime`.
     pub egg_time: i32,
+    /// `Chicken.isChickenJockey`: set by a baby zombie's jockey roll (it stays when the rider
+    /// leaves): no eggs, and it despawns far away like a monster (`removeWhenFarAway`).
+    pub chicken_jockey: bool,
     /// The helmet on its head (`EquipmentSlot.HEAD`): its max damage and damage (natural undead
     /// from `populateDefaultEquipmentSlots`); it takes the sun's burn.
     pub helmet: Option<(i32, i32)>,
@@ -341,6 +344,7 @@ impl MobState {
             bat_resting: d.id == "bat",
             bat_target: None,
             egg_time: 0,
+            chicken_jockey: false,
             helmet: None,
             color: 0,
             lava_height: 0.0,
@@ -567,6 +571,8 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
     let mut animal_age: Option<i32> = None;
     let mut sheep_color: Option<u8> = None;
     let mut portal_cooldown: Option<i32> = None;
+    let mut chicken_jockey = false;
+    let mut egg_lay_time: Option<i32> = None;
     let mut yaw = None;
     if let Some(n) = nbt {
         let mut t = n.trim().to_string();
@@ -595,6 +601,9 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
                 Some(("Color", v)) if ty.def().game_id == "minecraft:sheep" => sheep_color = v.trim_end_matches(['b', 'B']).parse::<u8>().ok(),
                 // `Entity.load`'s portal cooldown
                 Some(("PortalCooldown", v)) => portal_cooldown = v.parse::<i32>().ok(),
+                // a chicken's jockey flag and egg timer (Chicken.readAdditionalSaveData)
+                Some(("IsChickenJockey", v)) if ty.def().game_id == "minecraft:chicken" => chicken_jockey = matches!(v, "1b" | "true" | "1"),
+                Some(("EggLayTime", v)) if ty.def().game_id == "minecraft:chicken" => egg_lay_time = v.parse::<i32>().ok(),
                 _ => return Some(Err(format!("entity {type_id} with {kv} in its data is not modeled by redsim"))),
             }
         }
@@ -635,6 +644,16 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
         && let Some(j) = crate::entity::index_of(w, id)
     {
         w.entities.list[j].portal_cooldown = c;
+    }
+    if let Some(j) = crate::entity::index_of(w, id)
+        && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
+    {
+        if chicken_jockey {
+            m.chicken_jockey = true;
+        }
+        if let Some(t) = egg_lay_time {
+            m.egg_time = t;
+        }
     }
     // a loaded bat rests only if its BatFlags say so (`readAdditionalSaveData`, default 0: a
     // summoned bat flies)

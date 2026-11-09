@@ -421,7 +421,8 @@ fn chicken_after_ai_step(w: &mut World, i: usize) {
         let d = e.delta_movement;
         e.delta_movement = crate::entity::Vec3::new(d.x, d.y * 0.6, d.z);
     }
-    if age(w, i) < 0 || w.entities.list[i].vehicle.is_some() {
+    // (ServerLevel, alive) not a baby, not a chicken jockey, then --eggTime <= 0
+    if age(w, i) < 0 || mob(w, i).chicken_jockey {
         return;
     }
     let t = mob(w, i).egg_time - 1;

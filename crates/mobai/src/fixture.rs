@@ -726,6 +726,32 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // a chicken jockey's flag (Chicken.isChickenJockey: no eggs): two adult chickens with their
+    // egg timers at 30, the second flagged as a jockey (as a baby zombie's roll leaves it)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        for (a, c) in [((8, 8), (8, 39)), ((39, 8), (39, 39)), ((8, 8), (39, 8)), ((8, 39), (39, 39))] {
+            wall(&mut b, a, c, 63, 2, stone);
+        }
+        let p = |s: &str| Some(s.to_string());
+        v.push(Scene {
+            name: "chicken-jockey-flag".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:chicken".into(), [16.5, 64.0, 16.5], p("{PersistenceRequired:1b,EggLayTime:30}")),
+                ("minecraft:chicken".into(), [30.5, 64.0, 30.5], p("{PersistenceRequired:1b,EggLayTime:30,IsChickenJockey:1b}")),
+            ],
+            day_time: 6000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: Some([24.5, 74.0, 24.5]),
+            player_creative: true,
+            random_tick_speed: 0,
+        });
+    }
     // the farm animals' babies by their parents in a grass pen: FollowParentGoal, a baby sheep's
     // EatBlockGoal (25) and its age-up, two babies growing up during the run
     {

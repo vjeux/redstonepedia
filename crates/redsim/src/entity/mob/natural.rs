@@ -1189,6 +1189,9 @@ struct Finalized {
     rider_breaks_doors: bool,
     /// A sheep's colour (`DyeColor` id).
     color: u8,
+    /// A zombie horse rider's own jockey roll (`NearChicken`, `NewChicken`): the chicken keeps
+    /// its jockey flag when the rider leaves it for the horse.
+    rider_chicken: Jockey,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1408,6 +1411,7 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
     let mut rider_helmet = None;
     let mut breaks_doors = false;
     let mut rider_breaks_doors = false;
+    let mut rider_chicken = Jockey::None;
     let mut color = 0u8;
     match k.finalize {
         Finalize::Nothing => {}
@@ -1527,10 +1531,9 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
             let (zbaby, zj, zh, zb) = zombie_finalize(w, nat, &mut zg, false, pos);
             rider_helmet = zh;
             rider_breaks_doors = zb;
-            if zj != Jockey::None {
-                // the fallback rule: the rider's chicken is left out, named in the run's report
-                w.mob.ai.legacy.insert("a zombie horse rider's chicken jockey");
-            }
+            // the rider's chicken jockey: a near chicken flagged, or a new chicken (its draws
+            // above) added before the horse; the rider then leaves it for the horse
+            rider_chicken = zj;
             jockey = if zbaby { Jockey::HorseBabyZombie } else { Jockey::HorseZombie };
             g.ageable.get_or_insert((0, 0.2, true));
             let r = rng(w);
@@ -1549,7 +1552,7 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
             None => {}
         }
     }
-    Finalized { ty, baby, jockey, helmet, rider_helmet, breaks_doors, rider_breaks_doors, color }
+    Finalized { ty, baby, jockey, helmet, rider_helmet, breaks_doors, rider_breaks_doors, color, rider_chicken }
 }
 
 /// `isValidPositionForMob`: the despawn distance, `checkSpawnRules` (the walk target value) and
@@ -1578,13 +1581,55 @@ fn valid_position_for_mob(w: &mut World, k: &Kind, ty: MobType, pos: Vec3, d2: f
     super::spawn::is_unobstructed(w, bb)
 }
 
+/// `Zombie.finalizeSpawn`'s near chicken: the first chicken (entity order) in the zombie's box at
+/// `pos` inflated by (5, 3, 5) that nobody rides.
+fn near_chicken(w: &World, zombie: MobType, pos: Vec3, not: u32) -> Option<u32> {
+    let bb = entity_box(zombie, pos.x, pos.y, pos.z);
+    let riders: Vec<u32> = w.mob.natural.as_ref().map(|n| n.riders.iter().map(|r| r.1).collect()).unwrap_or_default();
+    w.entities
+        .list
+        .iter()
+        .find(|e| {
+            !e.removed
+                && e.id != not
+                && matches!(&e.kind, EntityKind::Mob(m) if m.ty.def().game_id == "minecraft:chicken")
+                && !riders.contains(&e.id)
+                && e.passengers.is_empty()
+                && e.pos.x > bb.min_x - 5.0
+                && e.pos.x < bb.max_x + 5.0
+                && e.pos.y > bb.min_y - 3.0
+                && e.pos.y < bb.max_y + 3.0
+                && e.pos.z > bb.min_z - 5.0
+                && e.pos.z < bb.max_z + 5.0
+        })
+        .map(|e| e.id)
+}
+
+/// `Chicken.setChickenJockey(true)`.
+fn set_chicken_jockey(w: &mut World, id: u32) {
+    if let Some(j) = crate::entity::index_of(w, id)
+        && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
+    {
+        m.chicken_jockey = true;
+    }
+}
+
 /// Add the mob (and what its `finalizeSpawn` adds: a jockey's chicken, a spider's skeleton, a
 /// zombie horse's rider).
 fn spawn_mob(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) -> u32 {
-    // a new chicken enters during the zombie's finalizeSpawn, before the zombie
-    let chicken = (f.jockey == Jockey::NewChicken).then(|| {
+    // a new chicken enters during the zombie's finalizeSpawn, before the zombie (a zombie horse
+    // rider's: before the horse); snapTo(the zombie's x, y, z, its yRot, 0); a chicken jockey
+    let chicken = (f.jockey == Jockey::NewChicken || f.rider_chicken == Jockey::NewChicken).then(|| {
         let c = super::add(w, MobType::Natural(12), pos, false);
         super::seed_entered(w, c);
+        if let Some(j) = crate::entity::index_of(w, c) {
+            let e = &mut w.entities.list[j];
+            e.y_rot = yaw;
+            e.y_rot_o = yaw;
+            if let EntityKind::Mob(m) = &mut e.kind {
+                m.chicken_jockey = true;
+            }
+        }
         c
     });
     let id = super::add(w, f.ty, pos, false);
@@ -1617,24 +1662,20 @@ fn spawn_mob(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) -> u32
     let mut rider: Option<u32> = None;
     match f.jockey {
         Jockey::None => {}
-        Jockey::NewChicken => ride(w, id, chicken.unwrap()),
+        Jockey::NewChicken => {
+            if w.mob.ai.on {
+                w.mob.ai.legacy.insert("baby zombie chicken jockeys (the riding itself)");
+            }
+            ride(w, id, chicken.unwrap())
+        }
         Jockey::NearChicken => {
             // the first chicken in the zombie's box inflated by (5, 3, 5) that nobody rides
-            let bb = entity_box(f.ty, pos.x, pos.y, pos.z);
-            let riders: Vec<u32> = w.mob.natural.as_ref().map(|n| n.riders.iter().map(|r| r.1).collect()).unwrap_or_default();
-            let near = w.entities.list.iter().find(|e| {
-                !e.removed
-                    && e.id != id
-                    && matches!(&e.kind, EntityKind::Mob(m) if m.ty.def().game_id == "minecraft:chicken")
-                    && !riders.contains(&e.id)
-                    && e.pos.x > bb.min_x - 5.0
-                    && e.pos.x < bb.max_x + 5.0
-                    && e.pos.y > bb.min_y - 3.0
-                    && e.pos.y < bb.max_y + 3.0
-                    && e.pos.z > bb.min_z - 5.0
-                    && e.pos.z < bb.max_z + 5.0
-            });
-            if let Some(c) = near.map(|e| e.id) {
+            // (setChickenJockey(true), then startRiding)
+            if let Some(c) = near_chicken(w, f.ty, pos, id) {
+                set_chicken_jockey(w, c);
+                if w.mob.ai.on {
+                    w.mob.ai.legacy.insert("baby zombie chicken jockeys (the riding itself)");
+                }
                 ride(w, id, c);
             }
         }
@@ -1667,6 +1708,13 @@ fn spawn_mob(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) -> u32
         }
         Jockey::HorseZombie | Jockey::HorseBabyZombie => {
             let rty = if f.jockey == Jockey::HorseBabyZombie { MobType::Natural(25) } else { MobType::Zombie };
+            // the rider's own jockey roll, inside its finalizeSpawn before it is added: a near
+            // chicken (searched before the rider exists) flagged; it then rides the horse
+            if f.rider_chicken == Jockey::NearChicken
+                && let Some(c) = near_chicken(w, rty, pos, id)
+            {
+                set_chicken_jockey(w, c);
+            }
             let r = super::add(w, rty, pos, true);
             super::seed_entered(w, r);
             super::set_helmet(w, r, f.rider_helmet);
@@ -1678,7 +1726,22 @@ fn spawn_mob(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) -> u32
     // draw order: a zombie horse's rider was finalized first, a jockey's chicken or a spider's
     // skeleton after the mob
     let bonuses = w.mob.natural.as_ref().map(|n| n.bonuses.clone()).unwrap_or_default();
+    // with a zombie horse rider's new chicken: rider, chicken (inside the rider's), horse
+    if f.rider_chicken == Jockey::NewChicken {
+        let set = |w: &mut World, who: Option<u32>, b: Option<&f64>| {
+            if let (Some(id), Some(b)) = (who, b)
+                && let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
+                && let EntityKind::Mob(m) = &mut e.kind
+            {
+                m.follow_range = m.ty.def().follow_range * (1.0 + *b);
+            }
+        };
+        set(w, Some(id), bonuses.get(2));
+        set(w, rider, bonuses.first());
+        set(w, chicken, bonuses.get(1));
+    }
     let (mine, other) = match f.jockey {
+        _ if f.rider_chicken == Jockey::NewChicken => (None, None),
         Jockey::HorseZombie | Jockey::HorseBabyZombie => (bonuses.get(1), bonuses.first()),
         _ => (bonuses.first(), bonuses.get(1)),
     };
@@ -1744,11 +1807,13 @@ pub fn check_despawn(w: &mut World, i: usize) {
     // (tickexact 2026-11-08: read in place; a clone of the spawner per mob per tick copied its
     // whole event log, quadratic over a run)
     let Some(nat) = w.mob.natural.as_ref() else { return };
-    let (ty, persistent, pos, eye) = match &w.entities.list[i].kind {
-        EntityKind::Mob(m) if !m.dead => (m.ty, m.persistence_required, w.entities.list[i].pos, m.eye()),
+    let (ty, persistent, pos, eye, jockey_chicken) = match &w.entities.list[i].kind {
+        EntityKind::Mob(m) if !m.dead => (m.ty, m.persistence_required, w.entities.list[i].pos, m.eye(), m.chicken_jockey),
         _ => return,
     };
     let Some(k) = kind_of_type(ty) else { return };
+    // removeWhenFarAway: the kind's, or a chicken jockey's (Chicken.removeWhenFarAway)
+    let removes_far = k.removes_far || jockey_chicken;
     let id = w.entities.list[i].id;
     let difficulty = nat.difficulty;
     let rider = nat.riders.iter().any(|(r, _)| *r == id);
@@ -1763,7 +1828,7 @@ pub fn check_despawn(w: &mut World, i: usize) {
     let persistent = persistent || passenger || carrying;
     if let Some(d2) = nearest {
         let far = k.category.despawn_distance();
-        if !persistent && d2 > far * far && k.removes_far {
+        if !persistent && d2 > far * far && removes_far {
             discard(w, i, id, k, true);
             return;
         }
@@ -1772,7 +1837,7 @@ pub fn check_despawn(w: &mut World, i: usize) {
             _ => 0,
         };
         let roll = if !persistent && no_action > 600 { w.entities.list[i].random.as_mut().map(|r| r.next_int(800) == 0).unwrap_or(false) } else { false };
-        if roll && d2 > 1024.0 && k.removes_far {
+        if roll && d2 > 1024.0 && removes_far {
             discard(w, i, id, k, false);
             return;
         } else if d2 < 1024.0
