@@ -47,9 +47,18 @@ needs (villagers per golem an hour), at the stage's build minutes with travel an
 ## The ceiling
 
 One golem per 100 gt per station (the attempt grid): 720 golems an hour, about 2,880 iron an
-hour, needing at least 6 groups of 3 rotating (each group locked 600 gt). With 4 groups on a
-200 gt cycle: 360 golems an hour, about 1,440 iron. A module's ceiling is one golem per 600 gt
-(120 an hour, about 480 iron).
+hour, needing 6 groups of 3 rotating (each group locked 600 gt: a villager due at T+600 is free
+in its own behavior phase at T+600). With 4 groups on a 200 gt cycle: 360 golems an hour, about
+1,440 iron. A module's ceiling is one golem per 600 gt (120 an hour, about 480 iron).
+
+What the carousel must beat, the static module's two losses (measured on the bridge, the
+tick-exact lane, 23:15): tick order (a summon slips to T+700 when the villager that checks at
+T+600 ticks before the group freed at T+599) and golems lingering in a villager's `GolemSensor`
+range (a re-detection sets the lock again: a summon at t300 with a villager re-detecting the golem
+at t333 slipped the next summon to t1100). A 3-villager module's intervals average 664 gt (600 x
+18, 700 x 14, 800 x 3, 900 x 1 in a day), a 4-villager module's 624-629. A carousel group arrives
+fresh (no golem in range, its lock long expired), so neither loss applies to it, provided the
+last golem has left the station's range before the next group's sensors scan.
 
 ## Trade-offs
 
@@ -78,7 +87,7 @@ hour, needing at least 6 groups of 3 rotating (each group locked 600 gt). With 4
 
 Build L1 first (the parent's choice): a void prototype by the ironfarm lane at the forgiving
 200 gt cycle with 4 groups, the advance driven by the golem's fall; then farmopt searches its
-parameters (groups 4-8, the cycle 100-200 gt, the loop's length and shape, the bed stop, the
+parameters (groups of 3, 4 to 8 of them, the cycle 100-200 gt, the loop's length and shape, the bed stop, the
 station's pad and drop). L2 and L3 stay in the search as the cheaper families.
 
 ## The nightly stop: a bed each, or a shared dormitory
