@@ -734,6 +734,12 @@ pub fn variation(a: &crate::VariationArgs) -> Result<()> {
         // (vjeux 2026-11-08 16:49, "Seriously, just upload them": `--no-gate` puts it up on its
         // redsim judge; `--regate` runs the game gate afterwards)
         let row = judge_for_stage(path, &text, &c, &a.stage, &file, !a.no_gate).map_err(|why| anyhow::anyhow!("{}: not on the site: {why}", path.display()))?;
+        // its card must render as the site will render it (the parent 2026-11-08: a --no-gate
+        // farm's missing weather fields failed the deploy's site build; caught here instead)
+        let cards = crate::cards::read(&repo, study)?;
+        let mine = crate::cards::fields(&crate::circuits::parse_metrics(&row.metrics), row.blocks as u32, &row.dims);
+        let other = |s: &str| crate::cards::archived_fields(&repo, study, s);
+        crate::cards::card_of(&cards, &format!("{}/{study}/cards.tsv", crate::circuits::ROOT), &stem, &row.kind, &mine, &other).map_err(|e| anyhow::anyhow!("{}: not on the site: its card does not render: {e:#}", path.display()))?;
         // the design with its judge's line on top, as the archive writes it
         let body: String = text.lines().filter(|l| !l.starts_with("# archived ") && !l.starts_with("# CIRCUIT: ")).map(|l| format!("{l}\n")).collect();
         std::fs::write(dir.join(&file), format!("# {}\n{body}", row.summary.trim_start_matches("# ")))?;

@@ -18,7 +18,11 @@
 //!   the difference between the two, `{ratio:field@stem}` this one's over the other's. The fields:
 //!   [`fields`].
 //! - The build fails on a placeholder that names no field of the design, and on any digit outside a
-//!   placeholder.
+//!   placeholder; an `if` row (`<field> <op> <value>`) after a row must hold, or the build fails,
+//!   except `<field> present`: the row before it is left out of a design that lacks the field (a
+//!   farm with no weather or restart runs, a `--no-gate` upload: the parent 2026-11-08). `mctas site
+//!   variation` renders a farm's card before it writes anything, so an upload whose card fails is
+//!   refused there, not at the deploy's site build.
 
 use anyhow::{Result, bail};
 use site_model::{Build, Curated};
@@ -318,8 +322,14 @@ pub fn render(line: &str, mine: &BTreeMap<String, String>, other: &dyn Fn(&str) 
     Ok(out)
 }
 
-/// A check row (`<field> <op> <value>`) against the design's fields.
+/// A check row (`<field> <op> <value>`) against the design's fields; `<field> present` holds when
+/// the design has the field (its row is then the design's; without it, [`card_of`] leaves the row
+/// out instead of failing: a card without weather runs, a `--no-gate` farm's, the parent
+/// 2026-11-08).
 fn holds(check: &str, mine: &BTreeMap<String, String>) -> Result<bool, String> {
+    if let Some(f) = present_field(check) {
+        return Ok(mine.contains_key(f));
+    }
     let mut w = check.split_whitespace();
     let (Some(field), Some(op)) = (w.next(), w.next()) else { return Err(format!("not `<field> <op> <value>`: {check:?}")) };
     let want = w.collect::<Vec<_>>().join(" ");
@@ -333,8 +343,17 @@ fn holds(check: &str, mine: &BTreeMap<String, String>) -> Result<bool, String> {
         ("=", _, _) => have.trim() == want,
         ("!=", _, _) => have.trim() != want,
         (">=" | "<=", _, _) => return Err(format!("{field} = {have:?} is not a number to compare")),
-        _ => return Err(format!("unknown op {op:?} (=, !=, >=, <=)")),
+        _ => return Err(format!("unknown op {op:?} (=, !=, >=, <=, present)")),
     })
+}
+
+/// The field of a `<field> present` check.
+fn present_field(check: &str) -> Option<&str> {
+    let mut w = check.split_whitespace();
+    match (w.next(), w.next(), w.next()) {
+        (Some(f), Some("present"), None) => Some(f),
+        _ => None,
+    }
 }
 
 /// A card row as a sentence: its first letter up, a full stop at its end unless it has one.
@@ -346,7 +365,9 @@ fn sentence(s: &str) -> String {
 }
 
 /// A design's card from the rows that are its own (its stem's), else its kind's; None when it
-/// has none. An unknown field, a written-out digit or a failing check fails, naming the row.
+/// has none. An unknown field, a written-out digit or a failing check fails, naming the row; a row
+/// followed by a `<field> present` check whose field the design lacks is left out (a card without
+/// those runs: a `--no-gate` farm has no weather or restart runs, the parent 2026-11-08).
 pub fn card_of(rows: &[Row], file: &str, stem: &str, kind: &str, mine: &BTreeMap<String, String>, other: &dyn Fn(&str) -> Option<BTreeMap<String, String>>) -> Result<Option<Curated>> {
     let own: Vec<&Row> = rows.iter().filter(|r| r.key == stem).collect();
     let chosen = if own.is_empty() { rows.iter().filter(|r| r.key == kind).collect() } else { own };
@@ -354,26 +375,41 @@ pub fn card_of(rows: &[Row], file: &str, stem: &str, kind: &str, mine: &BTreeMap
         return Ok(None);
     }
     let mut card = Curated::default();
-    for r in chosen {
-        let fail = |why: String| anyhow::anyhow!("{file} line {} ({} {}, for {stem}): {why}: {:?}", r.at, r.key, r.slot, r.line);
-        match r.slot.as_str() {
-            "if" => {
-                if !holds(&r.line, mine).map_err(fail)? {
-                    return Err(fail(format!("the check does not hold ({} is {:?})", r.line.split_whitespace().next().unwrap_or(""), mine.get(r.line.split_whitespace().next().unwrap_or("")).cloned().unwrap_or_default())));
+    let mut i = 0;
+    while i < chosen.len() {
+        let r = chosen[i];
+        // the row's own checks: the `if` rows right after it
+        let mut j = i + 1;
+        while r.slot != "if" && j < chosen.len() && chosen[j].slot == "if" {
+            j += 1;
+        }
+        let checks = &chosen[i + 1..j];
+        if checks.iter().any(|g| present_field(&g.line).is_some_and(|f| !mine.contains_key(f))) {
+            i = j;
+            continue;
+        }
+        for r in std::iter::once(r).chain(checks.iter().copied()) {
+            let fail = |why: String| anyhow::anyhow!("{file} line {} ({} {}, for {stem}): {why}: {:?}", r.at, r.key, r.slot, r.line);
+            match r.slot.as_str() {
+                "if" => {
+                    if !holds(&r.line, mine).map_err(fail)? {
+                        return Err(fail(format!("the check does not hold ({} is {:?})", r.line.split_whitespace().next().unwrap_or(""), mine.get(r.line.split_whitespace().next().unwrap_or("")).cloned().unwrap_or_default())));
+                    }
                 }
-            }
-            slot => {
-                let text = render(&r.line, mine, other).map_err(fail)?;
-                match slot {
-                    "sub" => card.sub.push(text),
-                    // (a fact or a diff row is a sentence of its own: its first letter up, its
-                    // full stop added, so rows written as fragments or as one phrase field read
-                    // one after the other)
-                    "fact" => card.facts.push(sentence(&text)),
-                    _ => card.diff.push(sentence(&text)),
+                slot => {
+                    let text = render(&r.line, mine, other).map_err(fail)?;
+                    match slot {
+                        "sub" => card.sub.push(text),
+                        // (a fact or a diff row is a sentence of its own: its first letter up, its
+                        // full stop added, so rows written as fragments or as one phrase field read
+                        // one after the other)
+                        "fact" => card.facts.push(sentence(&text)),
+                        _ => card.diff.push(sentence(&text)),
+                    }
                 }
             }
         }
+        i = j;
     }
     Ok(Some(card))
 }
@@ -436,6 +472,28 @@ mod tests {
     fn day1() -> BTreeMap<String, String> {
         let metrics = crate::circuits::parse_metrics("iron per hour per block 1.56, iron per hour 295, iron range 95% 292-298 (64 runs), golems per hour 74.1, seconds per golem 48.6, share of ceiling 62%, modules 1, kill 241 gt, restarts after a missed night no (hide the zombie by hand the first night), restarts after days away no, rain clear day 305 iron/h; rain day 293 iron/h; thunder day 299 iron/h, lightning about 0.00032 iron lost per thunderstorm; a witch about every 5332 game days; the farm breaks in about 2871 game days (a fire first); thunderstorms 1.4% of the time (6211 gt each on average), sunburn never (the zombie never sees the sky), fire never, bill 11 iron, 0 quartz, 3 villagers, 3 beds, 1 zombie, build time 47 min (185 placed, 0 dug, 16 lava trips, 3 villagers moved), time to an iron kit 54 min (the build, then (bill + 24) / rate), lava sources 16, storage 5.2 h (32 slots; 74 poppies/h), hoppers per 1000 iron/h 3.4");
         fields(&metrics, 189, "16x7x10")
+    }
+
+    #[test]
+    fn a_present_check_leaves_out_a_row_the_design_has_no_fields_for() {
+        // (the parent 2026-11-08: a --no-gate farm has no weather runs; its card builds without
+        // the weather line instead of failing the site build)
+        let row = |at: usize, slot: &str, line: &str| Row { key: "mob-farm iron_ingot middle".into(), slot: slot.into(), line: line.into(), at };
+        let rows = vec![
+            row(2, "fact", "{rain_iron_per_hour|round} iron an hour on a rainy day"),
+            row(3, "if", "rain_iron_per_hour present"),
+            row(4, "fact", "Iron to build: {bill_iron}"),
+        ];
+        let none = |_: &str| None;
+        let with = card_of(&rows, "cards.tsv", "d1", "mob-farm iron_ingot middle", &day1(), &none).unwrap().unwrap();
+        assert_eq!(with.facts, vec!["293 iron an hour on a rainy day.".to_string(), "Iron to build: 11.".to_string()]);
+        let mut bare = day1();
+        bare.retain(|k, _| !k.contains("rain") && !k.contains("thunder") && !k.contains("clear"));
+        let without = card_of(&rows, "cards.tsv", "d1", "mob-farm iron_ingot middle", &bare, &none).unwrap().unwrap();
+        assert_eq!(without.facts, vec!["Iron to build: 11.".to_string()], "the weather row is left out, the rest stays");
+        // (a row with no such check still fails on a field the design lacks: a typo never hides)
+        let strict = vec![row(2, "fact", "{rain_iron_per_hour|round} iron an hour on a rainy day")];
+        assert!(card_of(&strict, "cards.tsv", "d1", "mob-farm iron_ingot middle", &bare, &none).is_err());
     }
 
     #[test]

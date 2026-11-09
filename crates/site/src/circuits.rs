@@ -587,7 +587,18 @@ pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) 
             if !held.is_empty() {
                 notes.push(format!("farms: {} variations held off the site (a `held` reason in variations.tsv): {}", held.len(), held.iter().map(|r| r.file.as_str()).collect::<Vec<_>>().join(", ")));
             }
-            keep
+            // (a gate that has not run says nothing on the page, ironspec rev 9 iteration 14: a
+            // `real game not run yet ...` line some uploads write is no real-game line)
+            keep.into_iter()
+                .map(|mut r| {
+                    if let Some(i) = r.metrics.find("real game not ") {
+                        let end = r.metrics[i..].find(", ").map(|e| i + e + 2).unwrap_or(r.metrics.len());
+                        r.metrics.replace_range(i..end, "");
+                        r.metrics = r.metrics.trim_end_matches(", ").to_string();
+                    }
+                    r
+                })
+                .collect()
         } else {
             rows
         };

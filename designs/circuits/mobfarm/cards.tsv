@@ -2,16 +2,22 @@ key	slot	line
 mob-farm iron_ingot day-1	sub	{t_kit_minutes|round} minutes from the first block to a full set of iron armour, then {iron_per_hour|round} iron an hour
 mob-farm iron_ingot day-1	fact	To build it: {bill_iron} iron in hand, {lava_sources|plural:bucket} of lava and {villagers|plural:villager} from the village
 mob-farm iron_ingot day-1	fact	{first_night}
+mob-farm iron_ingot day-1	if	first_night present
 mob-farm iron_ingot day-1	fact	{days_away}
+mob-farm iron_ingot day-1	if	days_away present
 mob-farm iron_ingot middle	sub	{iron_per_hour|round} iron an hour from a {build_minutes|round}-minute build
 mob-farm iron_ingot middle	fact	{rain_iron_per_hour|round} iron an hour on a rainy day, {thunder_iron_per_hour|round} in a thunderstorm
+mob-farm iron_ingot middle	if	rain_iron_per_hour present
+mob-farm iron_ingot middle	if	thunder_iron_per_hour present
 mob-farm iron_ingot middle	fact	Nether quartz: {quartz}; iron: {bill_iron}
 mob-farm iron_ingot middle	fact	Fits in {chunk_columns|plural:chunk column}: {dims}
 mob-farm iron_ingot middle	fact	{days_away}
+mob-farm iron_ingot middle	if	days_away present
 mob-farm iron_ingot middle	fact	Its storage holds {storage_hours|round} hours of iron
 mob-farm iron_ingot fastest	sub	{iron_per_hour|thousands} iron an hour, {iron_per_night|thousands} in a night AFK
 mob-farm iron_ingot fastest	fact	Runs {storage_hours|round} hours AFK before its storage fills
 mob-farm iron_ingot fastest	fact	Lag: {entities_alive|round} entities alive at once, {hoppers_per_1000_iron} hoppers per thousand iron an hour
 mob-farm iron_ingot fastest	fact	{days_away}
+mob-farm iron_ingot fastest	if	days_away present
 mob-farm iron_ingot fastest	fact	{volume_per_module|thousands} blocks of room per module, {chunk_columns|plural:chunk column} in all
 mob-farm iron_ingot fastest	fact	{build_minutes|round} minutes to build, {villagers|plural:villager} moved
