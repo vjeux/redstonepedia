@@ -1059,6 +1059,45 @@ mod tests {
         }
     }
 
+    /// A terrain farm's slowest ticks natively with the mob AI on (a diagnostic for the browser's
+    /// frame budget: `MCTAS_DESIGN=<path> cargo test -p mcview print_slow_ticks -- --ignored
+    /// --nocapture`): each tick over 15 ms, its path searches and their time, the mobs alive.
+    #[test]
+    #[ignore]
+    fn print_slow_ticks() {
+        use redsim::entity::mob::ai::path::navigation::{SEARCHES, SEARCH_NANOS};
+        use std::sync::atomic::Ordering::Relaxed;
+        let path = std::env::var("MCTAS_DESIGN").unwrap_or_else(|_| format!("{}/../../designs/circuits/mobfarm/tracks/ironfarm/d1u-underground.txt", env!("CARGO_MANIFEST_DIR")));
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut s = crate::session::Session::new(&text, &crate::session::Options::live()).unwrap();
+        let (mut total, mut slow) = (0.0f64, 0u32);
+        let n = 8000;
+        for _ in 0..n {
+            let (s0, n0) = (SEARCHES.load(Relaxed), SEARCH_NANOS.load(Relaxed));
+            let t0 = std::time::Instant::now();
+            s.step();
+            let ms = t0.elapsed().as_secs_f64() * 1000.0;
+            total += ms;
+            if ms > 15.0 {
+                slow += 1;
+                let mut kinds: HashMap<String, u32> = HashMap::new();
+                for e in s.world.entities.list.iter().filter(|e| !e.removed) {
+                    if let EntityKind::Mob(m) = &e.kind {
+                        *kinds.entry(format!("{:?}", m.ty)).or_default() += 1;
+                    }
+                }
+                let mut k: Vec<_> = kinds.into_iter().collect();
+                k.sort();
+                println!("tick {}: {ms:.1} ms, {} path searches ({:.1} ms), mobs {k:?}", s.tick, SEARCHES.load(Relaxed) - s0, (SEARCH_NANOS.load(Relaxed) - n0) as f64 / 1e6);
+            }
+            if s.halted.is_some() {
+                println!("stopped: {:?}", s.halted);
+                break;
+            }
+        }
+        println!("{n} ticks: {:.2} ms a tick on average, {slow} over 15 ms", total / n as f64);
+    }
+
     /// The staged camera search finds the very camera of the search at once on every archived
     /// circuit and door, desktop and phone (`--ignored`: a few hundred designs).
     #[test]
