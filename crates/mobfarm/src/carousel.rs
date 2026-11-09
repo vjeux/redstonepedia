@@ -74,6 +74,12 @@ fn name(d: [i32; 2]) -> &'static str {
 /// The 3 villagers' loops, 4 stops each (one after each corner), the inner loop's side `side`
 /// (28: the waiting stops more than 18.8 from every golem on the pad).
 pub fn carousel(side: i32) -> anyhow::Result<String> {
+    carousel_with(side, true)
+}
+
+/// [`carousel`], its curtain latched (`latch`: shut from dusk to the dawn kick) or not (shut from
+/// the evening threshold, output under 8, to the morning's).
+pub fn carousel_with(side: i32, latch: bool) -> anyhow::Result<String> {
     anyhow::ensure!(side >= 28, "the carousel's inner loop needs a side of 28 or more (its waiting stops out of the golems' follow box)");
     let mut b = Builder::new(&format!("iron-carousel-3x4-{side}"));
     let mut dust: BTreeSet<[i32; 3]> = BTreeSet::new();
@@ -123,7 +129,7 @@ pub fn carousel(side: i32) -> anyhow::Result<String> {
     night_gate(&mut b, &mut dust);
     night_pulse(&mut b, &mut dust);
     station(&mut b);
-    curtain_dust(&mut dust);
+    curtain_latch(&mut b, &mut dust, latch);
     carts(&mut b, side);
     // every dust on a block, its shape from its neighbours
     for p in &dust {
@@ -281,10 +287,11 @@ fn bus(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, t: i32, e: i32) {
 
 /// The night gate: the golem's pulse leaves the tripwire hook's block (3, -8, 5) through a
 /// repeater (2, -8, 5) that a second repeater locks from its side while a redstone wall torch
-/// burns (lit at night: a non-inverted daylight sensor's dust powers its block by day; the sensor
-/// sees the sky through the pad's glass wall). A golem summoned at night (the villagers dropped
-/// by the station stops still see the zombie) then advances nothing: an empty cart leaving its
-/// brake would strand mid-side. The night's own pulses enter after the gate, at the stair's top.
+/// burns (lit from the evening's output under 2, day time about 13,450, to the morning: a
+/// non-inverted daylight sensor's 2nd dust powers its block; the sensor sees the sky through the
+/// pad's glass wall). The last golem advance of the day thus ends before the dusk drop's (output
+/// 0) pulse, and a golem summoned at night advances nothing (an empty cart leaving its brake
+/// would strand mid-side). The night's own pulses enter after the gate, at the stair's top.
 fn night_gate(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>) {
     b.set(2, -8, 5, "repeater[delay=1,facing=east,locked=false,powered=false]");
     b.set(2, -9, 5, STONE);
@@ -293,7 +300,8 @@ fn night_gate(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>) {
     b.set(2, -8, 7, "redstone_wall_torch[facing=north,lit=true]");
     b.set(2, -8, 8, STONE);
     dust.insert([2, -7, 8]);
-    b.set(2, -7, 7, "daylight_detector[inverted=false,power=0]");
+    dust.insert([2, -6, 9]);
+    b.set(3, -6, 9, "daylight_detector[inverted=false,power=0]");
 }
 
 /// The night's two pulses into the feed, each the rising edge of a daylight sensor's threshold (a
@@ -341,6 +349,25 @@ fn night_pulse(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>) {
     b.set(10, -1, z0 - 6, "repeater[delay=1,facing=north,locked=false,powered=false]");
     b.set(10, -2, z0 - 6, STONE);
     dust.insert([9, -1, z0 - 5]);
+    // the wake kick: an observer beside loop 0's west stop's bed head (in the bus lane's air at
+    // (2, -1, 24)) fires when its sleeper wakes (day time 0, before the villagers stroll off their
+    // pockets), east along z 24 to a repeater K (8, -1, 24) that the night locks (a repeater from
+    // the dusk drop's block over its torch, lit at night: the observer also fires when the
+    // sleeper lies down), then around to a repeater into the dawn kick's block (11, -1, 19): the
+    // comparator there makes it a pulse
+    b.set(2, -1, z0, "observer[facing=west,powered=false]");
+    for x in 3..=7 {
+        dust.insert([x, -1, z0]);
+    }
+    b.set(8, -1, z0, "repeater[delay=4,facing=west,locked=false,powered=false]");
+    b.set(8, -2, z0, STONE);
+    b.set(8, -1, z0 - 1, "repeater[delay=1,facing=north,locked=false,powered=false]");
+    b.set(8, -2, z0 - 1, STONE);
+    for p in [[9, -1, z0], [10, -1, z0], [11, -1, z0], [12, -1, z0], [12, -1, z0 - 1], [12, -1, z0 - 2], [12, -1, z0 - 3], [11, -1, z0 - 3]] {
+        dust.insert(p);
+    }
+    b.set(11, -1, z0 - 4, "repeater[delay=1,facing=south,locked=false,powered=false]");
+    b.set(11, -2, z0 - 4, STONE);
     // the dusk drop: the night signal's rising edge (z0 - 2 = 22 for side 28): a non-inverted
     // daylight sensor's dust powers a block holding a redstone wall torch by day; the torch, lit
     // at night, strongly powers the block over it, which a subtracting comparator reads from
@@ -450,8 +477,8 @@ fn station(b: &mut Builder) {
     // cells: the lines pass over them) and open from evening to morning (upright: they hide the
     // zombie), so no villager panics at night (a panicking one never gives up a HOME it cannot
     // reach, never sleeps, and summons golems the parked empty carts would strand on): powered
-    // by a redstone wall torch whose block a non-inverted daylight sensor's 8th dust powers while
-    // the output is 8 or more (day time about 300 to 11,500)
+    // by a redstone wall torch whose block the curtain's latch powers by day and through the
+    // evening ([`curtain_latch`]: shut from dusk to the dawn kick)
     b.set(-1, 4, 0, "oak_trapdoor[facing=east,half=top,open=false,powered=false,waterlogged=false]");
     b.set(-2, 4, -1, "oak_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]");
     b.set(-1, 3, 0, "oak_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false]");
@@ -472,16 +499,50 @@ fn station(b: &mut Builder) {
             b.set(x, y, 2, GLASS);
         }
     }
-    b.set(9, 3, -1, "daylight_detector[inverted=false,power=0]");
 }
 
-/// The night curtain's dust: from its sensor (9, 3, -1) west, the 8th pointing into the torch's
-/// block (0, 3, -1) (from the side: a dust on it would meet the block over the torch, which the
-/// lit torch powers, and the torch would burn out).
-fn curtain_dust(dust: &mut BTreeSet<[i32; 3]>) {
-    for x in 1..=8 {
+/// The curtain's latch (ironspec 2026-11-09: shut only from dusk to the dawn kick): the curtain
+/// torch's block (0, 3, -1) is powered (the curtain open) while a memory repeater M (1, 3, -1)
+/// is on. M's input is D8 (a non-inverted daylight sensor's output 8 or more: its 8th dust at
+/// (3, 3, -1), then a 4-tick repeater); a lock repeater L presses on M's side while a torch on
+/// the NOR block (4, 3, -3) burns, that is while neither D8 (a branch dust from the line's 7th)
+/// nor the night (a torch under the NOR block, lit while another sensor's output is 0) powers
+/// it. So M keeps D8's last value from the evening (on: the curtain stays open, the station
+/// works until dusk) and the night's (off: it stays shut until the dawn kick's D8), weather
+/// included (a storm by day locks M on). The lock comes 4 gt after D8 falls, the 4-tick
+/// repeater's 8 gt before M's input does.
+fn curtain_latch(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, latch: bool) {
+    b.set(11, 3, -1, "daylight_detector[inverted=false,power=0]");
+    for x in 3..=10 {
         dust.insert([x, 3, -1]);
     }
+    b.set(2, 3, -1, "repeater[delay=4,facing=east,locked=false,powered=false]");
+    b.set(2, 2, -1, STONE);
+    b.set(1, 3, -1, "repeater[delay=1,facing=east,locked=false,powered=false]");
+    b.set(1, 2, -1, STONE);
+    if !latch {
+        return;
+    }
+    // the NOR block: D8 through a repeater from the line's 8th dust (one way: the night torch
+    // strongly powers the block, which would feed a dust back into the line), the night torch
+    // under it, its torch to L
+    b.set(3, 3, -2, "repeater[delay=1,facing=south,locked=false,powered=false]");
+    b.set(3, 2, -2, STONE);
+    b.set(3, 3, -3, STONE);
+    b.set(3, 4, -3, GLASS);
+    b.set(3, 3, -4, "redstone_wall_torch[facing=north,lit=true]");
+    for p in [[2, 3, -4], [1, 3, -4], [1, 3, -3]] {
+        dust.insert(p);
+    }
+    b.set(1, 3, -2, "repeater[delay=1,facing=north,locked=false,powered=false]");
+    b.set(1, 2, -2, STONE);
+    // the night: a torch under the NOR block on a block a sensor's dust holds off by day (glass
+    // under that dust: it hangs over loop 1's track, where a rider's eyes pass)
+    b.set(3, 2, -3, "redstone_torch[lit=true]");
+    b.set(3, 1, -3, STONE);
+    dust.insert([4, 1, -3]);
+    b.set(4, 0, -3, GLASS);
+    b.set(5, 1, -3, "daylight_detector[inverted=false,power=0]");
 }
 
 /// A dust's state from its neighbours (`RedStoneWireBlock.getConnectionState`): a side to dust
