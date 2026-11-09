@@ -177,13 +177,20 @@ pub fn clears_at(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bo
     w.place_raw(&moved);
     let ours: std::collections::HashSet<BlockPos> = moved.iter().map(|(p, _)| *p).chain(seals.iter().map(|(p, _)| *p)).collect();
     let is_lava = |w: &World, p: BlockPos| crate::fluid::fluid_state(w, p).fluid.is_lava();
+    // the lava cells within 4 (each axis) of a farm block: the farm's box grown by 4 scanned
+    // once, y then z then x (already the sorted order), each lava cell kept when a farm block is
+    // within 4 of it (tickexact 2026-11-08: the 9 x 9 x 9 cube around every farm block was read,
+    // a tenth of the static level)
     let mut lava: Vec<BlockPos> = Vec::new();
-    for (p, _) in &moved {
-        for dy in -4..=4 {
-            for dz in -4..=4 {
-                for dx in -4..=4 {
-                    let q = p.offset(dx, dy, dz);
-                    if w.contains(q) && is_lava(&w, q) {
+    if let (Some(gl), Some(gh)) = (
+        moved.iter().map(|(p, _)| *p).reduce(|a, b| BlockPos::new(a.x.min(b.x), a.y.min(b.y), a.z.min(b.z))),
+        moved.iter().map(|(p, _)| *p).reduce(|a, b| BlockPos::new(a.x.max(b.x), a.y.max(b.y), a.z.max(b.z))),
+    ) {
+        for y in gl.y - 4..=gh.y + 4 {
+            for z in gl.z - 4..=gh.z + 4 {
+                for x in gl.x - 4..=gh.x + 4 {
+                    let q = BlockPos::new(x, y, z);
+                    if w.contains(q) && is_lava(&w, q) && moved.iter().any(|(p, _)| (p.x - x).abs() <= 4 && (p.y - y).abs() <= 4 && (p.z - z).abs() <= 4) {
                         lava.push(q);
                     }
                 }

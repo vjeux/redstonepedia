@@ -102,12 +102,59 @@ impl Clone for Flag {
     }
 }
 
+/// (tickexact) A world's cells, their buffer recycled: a dropped world's big buffer goes to a
+/// small pool the next copy writes into, memory already mapped (each fresh 44 MB buffer of a
+/// terrain sample's copy cost its page faults: a tenth of the optimizer's static level).
+#[derive(Default, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct Cells(pub(crate) Vec<Block>);
+
+/// Recycled cell buffers (at most [`CELL_POOL_MAX`], each of at least [`CELL_POOLED`] cells).
+static CELL_POOL: std::sync::Mutex<Vec<Vec<Block>>> = std::sync::Mutex::new(Vec::new());
+const CELL_POOLED: usize = 1 << 20;
+const CELL_POOL_MAX: usize = 16;
+
+impl Clone for Cells {
+    fn clone(&self) -> Cells {
+        if self.0.len() < CELL_POOLED {
+            return Cells(self.0.clone());
+        }
+        let mut buf = CELL_POOL.lock().map(|mut p| p.pop()).ok().flatten().unwrap_or_default();
+        buf.clear();
+        buf.extend_from_slice(&self.0);
+        Cells(buf)
+    }
+}
+
+impl Drop for Cells {
+    fn drop(&mut self) {
+        if self.0.capacity() >= CELL_POOLED
+            && let Ok(mut p) = CELL_POOL.lock()
+            && p.len() < CELL_POOL_MAX
+        {
+            p.push(std::mem::take(&mut self.0));
+        }
+    }
+}
+
+impl std::ops::Deref for Cells {
+    type Target = Vec<Block>;
+    fn deref(&self) -> &Vec<Block> {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Cells {
+    fn deref_mut(&mut self) -> &mut Vec<Block> {
+        &mut self.0
+    }
+}
+
 /// The simulated level: a box of cells (outside: air, writes dropped and reported).
 #[derive(Clone)]
 pub struct World {
     pub min: BlockPos,
     pub size: [i32; 3],
-    pub(crate) cells: Vec<Block>,
+    pub(crate) cells: Cells,
     /// Bumped by every write that changes a cell's light behaviour (`daylight::light_differs`)
     /// and every whole-box fill: the sky light answers of [`Self::sky_cache`] hold until it moves.
     pub(crate) light_version: u64,
@@ -276,7 +323,7 @@ impl World {
         World {
             min,
             size,
-            cells: vec![Block::Air; n],
+            cells: Cells(vec![Block::Air; n]),
             light_version: 0,
             sky_cache: Default::default(),
             time: 0,
@@ -621,7 +668,7 @@ impl World {
     /// change record; `terrain::build_world` then installs the land).
     pub fn load_cells(&mut self, cells: Vec<Block>) {
         assert_eq!(cells.len(), self.cells.len(), "load_cells: the box holds {} cells", self.cells.len());
-        self.cells = cells;
+        self.cells = Cells(cells);
         self.light_version += 1;
         // the sections' ticking counts are recalculated on the next chunk tick (a section's load)
         self.ticking_sections = None;
@@ -633,7 +680,7 @@ impl World {
         assert_eq!(cells.len(), (size[0] * size[1] * size[2]) as usize, "with_cells: the box needs {} cells", size[0] * size[1] * size[2]);
         let mut w = World::new(min, [0, 0, 0]);
         w.size = size;
-        w.cells = cells;
+        w.cells = Cells(cells);
         w.light_version += 1;
         w
     }
