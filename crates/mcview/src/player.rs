@@ -35,9 +35,15 @@ pub struct Player {
     built: u64,
     /// A mesh being built over several frames ([`Player::triangles_within`]) and what it is of.
     staged: Option<(scene::Staged, (u64, u64))>,
+    /// What a mob farm's blocks' mesh is updated in place with when a few blocks change
+    /// ([`crate::remesh::Remesh`]; None: the next change builds it whole).
+    remesh: Option<crate::remesh::Remesh>,
     staged_now: bool,
     /// Something changed since the last frame.
     pub dirty: bool,
+    /// Hold a mob farm's blocks' mesh as it is this frame (the caller's: a camera at rest whose
+    /// cull of the blocks drawn is not done yet), unless it has none yet.
+    pub hold_blocks: bool,
     /// Seconds spent at a flying machine's end before it starts again.
     hold: f32,
     /// A travelling design's last centre: the camera follows it.
@@ -328,8 +334,10 @@ impl Player {
             fixed: None,
             built: 0,
             staged: None,
+            remesh: None,
             staged_now: false,
             dirty: true,
+            hold_blocks: false,
             hold: 0.0,
             follow: None,
             pulse_inputs,
@@ -1524,13 +1532,35 @@ impl Player {
         // block changes (`Session::blocks_version`) or an output's box turns red
         let powered: u64 = self.session.outputs.iter().enumerate().map(|(i, o)| (self.session.output_powered(*o) as u64) << (i % 64)).fold(0, |a, b| a ^ b);
         let bkey = (self.session.blocks_version, powered);
-        if self.block_mesh.is_none() || bkey != self.block_key {
-            if self.staged.as_ref().is_none_or(|(_, k)| *k != bkey) {
-                self.staged = Some((scene::Staged::new(&self.session, self.partial, &self.look, scene::Part::Blocks), bkey));
+        // (held: the blocks drawn stay as they are this frame, the changes kept for later)
+        let held = self.hold_blocks && self.block_mesh.is_some() && self.staged.is_none();
+        // a few blocks changed since the mesh (and no output's box): their faces and those around
+        // them drawn again in place ([`crate::remesh`]), the mesh's key new as if built whole
+        if !held && self.block_mesh.is_some() && bkey != self.block_key && bkey.1 == self.block_key.1 && self.staged.is_none() && self.remesh.is_some() {
+            let cells = self.session.take_changed_cells();
+            let m = cells.and_then(|cells| self.remesh.as_mut().unwrap().update(atlas, &self.session, &cells, self.block_mesh.as_ref().unwrap()));
+            match m {
+                Some(m) => {
+                    self.block_mesh = Some(m);
+                    self.built = next_build();
+                    self.block_key = bkey;
+                }
+                None => self.remesh = None,
+            }
+        }
+        if !held && (self.block_mesh.is_none() || bkey != self.block_key) {
+            // a build under way is finished first, then the next one starts from the blocks of
+            // then: restarted at each change, a farm whose blocks change every few ticks (grass
+            // spreading and dying, pressure plates, at 20x) never finished one
+            if self.staged.is_none() {
+                // (the changes after this are the next update's)
+                let _ = self.session.take_changed_cells();
+                self.staged = Some((scene::Staged::new(&self.session, self.partial, &self.look, scene::Part::Blocks).keeping(), bkey));
             }
             self.staged_now = true;
             let (st, k) = self.staged.as_mut().unwrap();
             if let Some(m) = st.step(atlas, &self.session, self.partial, &self.look, out_of_time) {
+                self.remesh = st.take_remesh();
                 self.block_mesh = Some(m);
                 self.built = next_build();
                 self.block_key = *k;
@@ -1607,11 +1637,28 @@ impl Player {
         self.staged_now
     }
 
+    /// A mob farm's blocks' mesh as it stands (built whole or updated in place).
+    pub fn blocks_mesh(&self) -> Option<&Mesh> {
+        self.block_mesh.as_ref()
+    }
+
+    /// What its mesh is updated in place with ([`crate::remesh`]).
+    pub fn remesh(&self) -> Option<&crate::remesh::Remesh> {
+        self.remesh.as_ref()
+    }
+
+    /// The key of the blocks' triangles a renderer keeps ([`Player::triangles_split_within`]'s
+    /// fixed part): a new one each time a blocks' mesh is finished.
+    pub fn fixed_key(&self) -> u64 {
+        self.built
+    }
+
     /// Forget the cached mesh (the look changed).
     pub fn invalidate(&mut self) {
         self.mesh = None;
         self.block_mesh = None;
         self.staged = None;
+        self.remesh = None;
         self.dirty = true;
     }
 

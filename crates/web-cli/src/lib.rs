@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 mod cdp;
 mod qa;
 mod recqa;
+mod single;
 
 #[derive(Subcommand)]
 pub enum WebCmd {
@@ -108,6 +109,16 @@ pub enum WebCmd {
     /// (`cargo install wasm-bindgen-cli --version =0.2.129`). Run from the repository root.
     Bundle {
         #[arg(long, short, default_value = "web/viewer")]
+        out: PathBuf,
+    },
+    /// A generated page with its live viewer as ONE self-contained HTML file (the viewer's script,
+    /// WebAssembly and textures, the design and terrain files it fetches, the page's style), to
+    /// share where only a single file goes (an artifact): the files are served from inside the page
+    /// by a `fetch` shim (crates/web-cli/src/single.rs).
+    Single {
+        /// The page (in a generated site folder, or a page laid out like one).
+        page: PathBuf,
+        #[arg(long, short)]
         out: PathBuf,
     },
     /// Write a standalone demo page: `<out>/index.html` (a grid of thumbnails and live viewers),
@@ -324,6 +335,11 @@ pub enum WebCmd {
         /// With `--cull`: draw each frame whole too and count the pixels that differ (must be 0).
         #[arg(long)]
         check: bool,
+        /// Each frame's staged mesh work stops after this many ms, as in the browser (a changed
+        /// blocks' mesh is then built over several frames): how many were finished and over how
+        /// many frames.
+        #[arg(long)]
+        budget: Option<f64>,
     },
     /// What a card costs (natively): each design's still (`Session::new` with `Options::still`)
     /// and its picture's mesh, timed; the slowest first. A card over `--budget` ms here is surely
@@ -658,6 +674,7 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
         WebCmd::Shot { designs, out, width, height, tick, flips, yaw, pitch, procedural, live, dpr, crop, day_time, rain, thunder, against } => cmd_shot(&designs, &out, mcview::tools::ShotOptions { width, height, tick, flips, yaw, pitch, picture: false, floor_margin: None, live, dpr, as_written: false, full_frame: false }, procedural, crop.as_deref(), day_time.map(|t| mcview::daylight::at(t, rain, thunder)), against.as_deref()),
         WebCmd::Check { designs, horizon, quiet, wasm, unverified } => cmd_check(&designs, horizon, quiet, wasm.as_deref(), unverified),
         WebCmd::Bundle { out } => cmd_bundle(&out),
+        WebCmd::Single { page, out } => single::single_page(&page, &out),
         WebCmd::Demo { designs, out, viewer, live, autoplay } => cmd_demo(&designs, &out, &viewer, live, autoplay),
         WebCmd::Serve { dir, port } => cmd_serve(&dir, port),
         WebCmd::Compare { designs, img_dir, out, procedural, zoom, floor_margin, still, before } => cmd_compare(&designs, &img_dir, &out, procedural, zoom.as_deref(), floor_margin, still, before.as_deref()),
@@ -843,13 +860,13 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
         WebCmd::Recqa { pages, dir, out, engines, window, scale, timeout, browser, chrome } => crate::recqa::cmd_recqa(&dir, &pages, &out, &engines, &window, scale, timeout, &browser, chrome.as_deref()),
         WebCmd::Qa { pages, dir, kinds, clocks, out, window, at, watch, shards } => crate::qa::cmd_qa(&dir, &pages, kinds, clocks, &out, &window, &at, watch, shards),
         WebCmd::Cardcost { designs, budget, top, procedural } => cmd_cardcost(&designs, budget, top, procedural),
-        WebCmd::Framecost { designs, width, height, dpr, warm, frames, ticks, cull, check } => {
+        WebCmd::Framecost { designs, width, height, dpr, warm, frames, ticks, cull, check, budget } => {
             let atlas = atlas(false);
             let mut off = mcview::render::headless::Offscreen::new(&atlas).map_err(anyhow::Error::msg)?;
             let mut bad = 0;
             for d in &designs {
                 let text = std::fs::read_to_string(d).with_context(|| format!("reading {}", d.display()))?;
-                match mcview::tools::frame_cost(&mut off, &atlas, &text, width, height, dpr, warm, frames, ticks, cull, check) {
+                match mcview::tools::frame_cost(&mut off, &atlas, &text, width, height, dpr, warm, frames, ticks, cull, check, budget) {
                     Ok(c) => {
                         println!(
                             "{}: {width}x{height}: mesh {:.2} ms, draw {:.2} ms a frame ({} frames of {ticks} ticks; the blocks' mesh rebuilt {} times); vertices: {} on the GPU, {} solid + {} translucent uploaded a frame",
@@ -864,6 +881,9 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
                         );
                         if cull {
                             println!("  culled: {} of {} kept triangles drawn, worked out {} times in {:.1} ms each", c.kept, c.tested, c.culls, c.cull_ms);
+                        }
+                        if let Some(b) = budget {
+                            println!("  staged at {b} ms a frame: {} blocks' meshes finished, {} frames of {} working on one", c.built, c.staged_frames, c.frames);
                         }
                         if check {
                             println!("  {}: the most pixels a culled frame differs by from the same frame drawn whole: {}", if c.differing == 0 { "ok" } else { "FAIL" }, c.differing);

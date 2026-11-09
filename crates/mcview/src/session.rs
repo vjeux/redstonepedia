@@ -368,6 +368,10 @@ pub struct Session {
     /// Bumped whenever a block drawn may have changed (a write the world logged, a reset or a
     /// rewind): a mob farm's view keeps its blocks' mesh until then (`Player::triangles`).
     pub blocks_version: u64,
+    /// The cells (the world's) whose drawn block changed since the view last took them
+    /// ([`Session::take_changed_cells`]), for a mesh updated in place (`crate::remesh`); None:
+    /// anything may have changed (a reset, a rewind, too many): the mesh is built again.
+    changed_cells: Option<Vec<[i32; 3]>>,
     /// What the view draws of each cell a write logged since the start ([`drawn_state`]): a
     /// write leaving it the same bumps no [`Session::blocks_version`].
     drawn: HashMap<[i32; 3], String>,
@@ -853,6 +857,7 @@ impl Session {
             mob: None,
             mob_initial: None,
             blocks_version: 0,
+            changed_cells: None,
             drawn: HashMap::new(),
             terrain: None,
         };
@@ -1329,6 +1334,15 @@ impl Session {
         // 50 blocks off no longer rebuilds the farm's mesh, nor floats a block out there)
         let terrain = self.terrain.clone();
         let mut changed = false;
+        let mut note = |cells: &mut Option<Vec<[i32; 3]>>, c: [i32; 3]| {
+            if let Some(v) = cells.as_mut() {
+                if v.len() >= 1 << 16 {
+                    *cells = None;
+                } else {
+                    v.push(c);
+                }
+            }
+        };
         for p in writes {
             let b = self.world.get(p);
             let c = p.arr();
@@ -1339,6 +1353,10 @@ impl Session {
             match self.floor.as_mut() {
                 Some(f) if f.contains(c) => {
                     changed |= !same;
+                    // (the ground is drawn whole: `mesh::floor`)
+                    if !same {
+                        self.changed_cells = None;
+                    }
                     if b == f.layer(c[1]).0 {
                         f.changed.remove(&c);
                     } else {
@@ -1350,6 +1368,9 @@ impl Session {
                         continue;
                     }
                     changed |= !same;
+                    if !same {
+                        note(&mut self.changed_cells, c);
+                    }
                     // (in a terrain, a natural block gone stays listed, as air: the landscape
                     // drawn around the farm no longer shows it)
                     if b == Block::Air && self.terrain.is_none() {
@@ -1358,7 +1379,12 @@ impl Session {
                         self.outside.insert(c, b);
                     }
                 }
-                _ => changed |= !same,
+                _ => {
+                    changed |= !same;
+                    if !same {
+                        note(&mut self.changed_cells, c);
+                    }
+                }
             }
             self.drawn.insert(c, drawn);
         }
@@ -1373,6 +1399,7 @@ impl Session {
         self.drawn.clear();
         self.outside = self.outside_start.clone();
         self.blocks_version += 1;
+        self.changed_cells = None;
         if let Some(f) = self.floor.as_mut() {
             f.changed.clear();
         }
@@ -2396,6 +2423,52 @@ impl Session {
         self.actions.is_empty() && self.world.idle()
     }
 
+    /// The cells whose drawn block changed since the last call (the world's coordinates; None:
+    /// anything may have changed since, a reset or a rewind or too many: build the mesh again),
+    /// and from now on the changes after this call.
+    pub fn take_changed_cells(&mut self) -> Option<Vec<[i32; 3]>> {
+        std::mem::replace(&mut self.changed_cells, Some(Vec::new()))
+    }
+
+    /// What [`Session::render_blocks`] draws at the world's cell `c`, a still block (Ok(None):
+    /// nothing; Err: a moving block, or a view that draws no simulated world: only a whole
+    /// rebuild knows), in the view's coordinates.
+    pub fn drawn_block_at(&self, c: Pos) -> Result<Option<RBlock>, ()> {
+        if self.replay.is_some() || (self.terrain.is_none() && !self.simulated()) {
+            return Err(());
+        }
+        let w = &self.world;
+        let q = bp(c);
+        let (min, size) = self.machine();
+        let in_machine = (0..3).all(|k| c[k] >= min.arr()[k] && c[k] < min.arr()[k] + size[k]);
+        let terrain = self.terrain.as_deref();
+        let cut = terrain.is_some_and(|t| t.cut_away(c)) && matches!(w.get(q), Block::Terrain(_));
+        let off = self.view_offset();
+        let at = |state: String| Some(RBlock { cell: [c[0] - off[0], c[1] - off[1], c[2] - off[2]], offset: [0.0; 3], state });
+        let world_block = || -> Result<Option<RBlock>, ()> {
+            match w.get(q) {
+                Block::Air => Ok(None),
+                Block::MovingPiston { .. } => Err(()),
+                Block::Simple(redsim::block::Simple::Stone) if self.overlay.contains_key(&c) => Ok(at(self.overlay[&c].clone())),
+                b => Ok(at(b.to_string())),
+            }
+        };
+        if in_machine {
+            if self.in_floor(c) || cut {
+                return Ok(None);
+            }
+            return world_block();
+        }
+        if self.outside.contains_key(&c) {
+            return if cut { Ok(None) } else { world_block() };
+        }
+        // the landscape as it was (the natural blocks the run never changed)
+        match terrain {
+            Some(t) => Ok(t.landscape_at(c).and_then(|s| at(s.to_string()))),
+            None => Ok(None),
+        }
+    }
+
     /// Every visible block at a moment between this tick and the next (`partial` in 0..1):
     /// moving blocks at their interpolated offset, like the client draws them.
     pub fn render_blocks(&self, partial: f32) -> Vec<RBlock> {
@@ -2592,6 +2665,12 @@ pub struct RBlock {
     pub cell: Pos,
     pub offset: [f32; 3],
     pub state: String,
+}
+
+impl crate::mesh::AsItem for RBlock {
+    fn item(&self) -> crate::mesh::Item<'_> {
+        crate::mesh::Item { cell: self.cell, offset: self.offset, state: &self.state }
+    }
 }
 
 /// A moving block entity as the client's `PistonHeadRenderer` draws it.
@@ -2930,6 +3009,7 @@ impl Session {
             mob: self.mob_initial.clone(),
             mob_initial: None,
             blocks_version: 0,
+            changed_cells: None,
             drawn: HashMap::new(),
             terrain: self.terrain.clone(),
         };

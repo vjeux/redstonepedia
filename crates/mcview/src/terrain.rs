@@ -47,9 +47,18 @@ pub struct TerrainFarm {
     /// The columns the landscape is drawn in (world x and z, inclusive): within its reach of the
     /// farm's middle ([`LANDSCAPE_REACH`]).
     pub reach_xz: ([i32; 2], [i32; 2]),
+    /// [`TerrainFarm::landscape`] by cell (its index there), made the first time it is asked
+    /// ([`TerrainFarm::landscape_at`]).
+    pub landscape_index: std::cell::OnceCell<HashMap<[i32; 3], u32, crate::camera::FxBuild>>,
 }
 
 impl TerrainFarm {
+    /// The natural block drawn at world cell `c` as the landscape had it (None: none drawn there).
+    pub fn landscape_at(&self, c: [i32; 3]) -> Option<&str> {
+        let ix = self.landscape_index.get_or_init(|| self.landscape.iter().enumerate().map(|(k, (p, _))| (*p, k as u32)).collect());
+        ix.get(&c).map(|&k| self.landscape[k as usize].1.as_str())
+    }
+
     /// Design coordinates to the sample's world: add it; the world's to the design's: subtract it.
     pub fn offset(&self) -> [i32; 3] {
         self.site.offset
@@ -227,7 +236,7 @@ pub async fn farm_for_staged(text: &str, d: &Design, spec: &FarmSpec, b: &crate:
     b.pause().await;
     // (the biomes at the farm's ground: the site's ground layer)
     let biomes = Rc::new(biome_colours(&world, site.offset[1] + ground));
-    let f = Rc::new(TerrainFarm { site, farm_box, landscape, hidden, biomes, min_y, cut_z, cut_rows, reach_xz: ([cx - reach, cx + reach], [cz - reach, cz + reach]) });
+    let f = Rc::new(TerrainFarm { site, farm_box, landscape, hidden, biomes, min_y, cut_z, cut_rows, reach_xz: ([cx - reach, cx + reach], [cz - reach, cz + reach]), landscape_index: Default::default() });
     FARMS.with(|m| m.borrow_mut().insert(text.to_string(), f.clone()));
     Ok(Some(f))
 }

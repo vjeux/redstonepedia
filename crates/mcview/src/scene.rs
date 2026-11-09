@@ -6,7 +6,7 @@
 use crate::atlas::Atlas;
 use crate::camera::{CAM_DIR, Camera, VFOV};
 use crate::design::Pos;
-use crate::mesh::{self, Builder, EntityDraw, Item, Mesh, Vertex};
+use crate::mesh::{self, Builder, EntityDraw, Mesh, Vertex};
 use crate::session::{Session, bp};
 use redsim::Block;
 use std::collections::HashSet;
@@ -253,6 +253,9 @@ pub struct Staged {
     lit: bool,
     /// The next block to draw.
     next: usize,
+    /// Keep what a mesh updated in place needs ([`Staged::keeping`], [`Staged::take_remesh`]).
+    keep: bool,
+    kept: Option<crate::remesh::Remesh>,
 }
 
 impl Staged {
@@ -299,7 +302,19 @@ impl Staged {
             let off = t.offset();
             extra_occ.extend(t.hidden.iter().map(|c| [c[0] - off[0], c[1] - off[1], c[2] - off[2]]));
         }
-        Staged { part, blocks, skip, extra_occ, builder: None, begun: 0, lit: false, next: 0 }
+        Staged { part, blocks, skip, extra_occ, builder: None, begun: 0, lit: false, next: 0, keep: false, kept: None }
+    }
+
+    /// Keep, once built, what updating the mesh in place takes (a mob farm's blocks:
+    /// [`crate::remesh::Remesh`]): each block's faces' ranges, the first pass and the light.
+    pub fn keeping(mut self) -> Staged {
+        self.keep = self.part == Part::Blocks && self.blocks.iter().all(|b| b.offset == [0.0; 3]);
+        self
+    }
+
+    /// What [`Staged::keeping`] kept, once the mesh is done.
+    pub fn take_remesh(&mut self) -> Option<crate::remesh::Remesh> {
+        self.kept.take()
     }
 
     /// The blocks it draws.
@@ -316,7 +331,7 @@ impl Staged {
     /// with: its entities, outlines and ground are added at the end).
     pub fn step(&mut self, atlas: &Atlas, s: &Session, partial: f32, look: &Look, out_of_time: &mut dyn FnMut() -> bool) -> Option<Mesh> {
         let floor = s.floor.as_ref().filter(|_| s.simulated() && s.replay.is_none());
-        let items: Vec<Item> = self.blocks.iter().map(|b| Item { cell: b.cell, offset: b.offset, state: &b.state }).collect();
+        let items: &[crate::session::RBlock] = &self.blocks;
         let mut b = match self.builder.take() {
             Some(p) => Builder::from_parts(atlas, p),
             None => {
@@ -328,6 +343,9 @@ impl Staged {
                 b.light_holes = floor.map(|f| f.changed.keys().copied().collect()).unwrap_or_default();
                 b.extra_occ = std::mem::take(&mut self.extra_occ);
                 b.ghost = look.ghost.iter().copied().collect();
+                if self.keep {
+                    b.ranges = Some(Vec::new());
+                }
                 // a farm in its terrain: lit from its landscape's own top down to the cut under
                 // the farm (nothing below is drawn), its grass and leaves its biomes' colours
                 if let Some(t) = &s.terrain {
@@ -340,7 +358,7 @@ impl Staged {
         // the first pass (each cell's name, occupancy and light) over as many calls as it takes,
         // then the light
         if !self.lit {
-            self.begun = b.blocks_begin_from(&items, self.begun, out_of_time);
+            self.begun = b.blocks_begin_from(items, self.begun, out_of_time);
             if self.begun < items.len() {
                 self.builder = Some(b.into_parts());
                 return None;
@@ -352,11 +370,13 @@ impl Staged {
                 return None;
             }
         }
-        self.next = b.blocks_from(&items, self.next, out_of_time);
+        self.next = b.blocks_from(items, self.next, out_of_time);
         if self.next < items.len() {
             self.builder = Some(b.into_parts());
             return None;
         }
+        // (the blocks' own faces end here: what follows is drawn whole each time)
+        let items_end = (b.mesh.solid.len(), b.mesh.translucent.len());
         if self.part == Part::All {
             entities_into(&mut b, s, partial, look);
         }
@@ -389,7 +409,7 @@ impl Staged {
         }
         let light = b.take_light();
         let light_at = |c: Pos| -> (u8, u8) { light.as_ref().map_or((15, 0), |l| l.at(c)) };
-        let mut m = b.mesh;
+        let mut m = std::mem::take(&mut b.mesh);
         if let Some(f) = floor {
             m.solid.extend_from_slice(&mesh::floor(atlas, f.lo, f.hi, &FLOOR_SIDES, &self.skip, f.design_box, &light_at));
         }
@@ -404,6 +424,10 @@ impl Staged {
             let g = mesh::ground(atlas, [lo[0] as f32, 0.0, lo[2] as f32], [hi[0] as f32 + 1.0, 0.0, hi[2] as f32 + 1.0], y, margin, &light_at);
             m.solid.extend_from_slice(&g);
         }
+        if self.keep {
+            b.put_light(light);
+            self.kept = crate::remesh::Remesh::new(std::mem::take(&mut self.blocks), b.into_parts(), items_end);
+        }
         Some(m)
     }
 }
@@ -417,7 +441,16 @@ fn entities_into(b: &mut Builder, s: &Session, partial: f32, look: &Look) {
         }
     } else if !s.simulated() {
         for e in &s.design.entities {
-            b.entity(&EntityDraw { kind: e.kind.clone(), pos: [e.pos[0] as f32, e.pos[1] as f32, e.pos[2] as f32], yaw: entity_yaw(e.nbt.as_deref()), ..Default::default() });
+            let pos = [e.pos[0] as f32, e.pos[1] as f32, e.pos[2] as f32];
+            let yaw = entity_yaw(e.nbt.as_deref());
+            b.entity(&EntityDraw { kind: e.kind.clone(), pos, yaw, mob: still_mob(&e.kind, yaw, false), ..Default::default() });
+            // its passengers (`Passengers:[{id:"minecraft:villager"}]`), seated: a minecart's at
+            // its seat (`AbstractMinecart.getPassengerAttachmentPoint`: 0.1875 up), a boat's at its
+            // floor (0.25 up: `AbstractBoat`'s first seat), legs forward (`isPassenger`)
+            for id in passenger_ids(e.nbt.as_deref()) {
+                let up = if e.kind.ends_with("boat") || e.kind.ends_with("raft") { 0.25 } else { 0.1875 };
+                b.entity(&EntityDraw { kind: id.clone(), pos: [pos[0], pos[1] + up, pos[2]], yaw, mob: still_mob(&id, yaw, true), ..Default::default() });
+            }
         }
     } else {
         for e in s.entities(partial) {
@@ -485,6 +518,30 @@ pub fn entity_yaw(nbt: Option<&str>) -> f32 {
     let rest = &s[i + "Rotation:[".len()..];
     let num: String = rest.chars().take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-').collect();
     num.parse().unwrap_or(0.0)
+}
+
+/// A design entity's passengers' ids (`Passengers:[{id:"minecraft:villager"},...]`).
+pub fn passenger_ids(nbt: Option<&str>) -> Vec<String> {
+    let Some(s) = nbt else { return Vec::new() };
+    let Some(i) = s.find("Passengers:[") else { return Vec::new() };
+    let mut out = Vec::new();
+    let mut rest = &s[i + "Passengers:[".len()..];
+    while let Some(j) = rest.find("id:\"") {
+        let after = &rest[j + 4..];
+        let Some(end) = after.find('"') else { break };
+        let id = &after[..end];
+        out.push(if id.contains(':') { id.to_string() } else { format!("minecraft:{id}") });
+        rest = &after[end..];
+    }
+    out
+}
+
+/// A still's mob as placed (a design entity: standing, or seated as a passenger), drawn with the
+/// game's model like a mob farm's (None: not a mob the viewer models: its own stand-in).
+pub fn still_mob(kind: &str, yaw: f32, riding: bool) -> Option<crate::mesh::MobDraw> {
+    let ty = redsim::entity::mob::types::MobType::from_id(kind)?;
+    let def = ty.def();
+    Some(crate::mesh::MobDraw { body_yaw: yaw, eye_standing: def.eye, riding, width: def.width, height: def.height, ..Default::default() })
 }
 
 /// The box the default camera frames: the design (and marker), 0.25 margin like the pictures.

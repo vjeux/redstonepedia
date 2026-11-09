@@ -834,15 +834,21 @@ pub struct FrameCost {
     /// With the check: the most pixels any frame drawn culled differs by from the same frame
     /// drawn whole (0: the same picture).
     pub differing: usize,
+    /// With a budget ([`frame_cost`]'s `budget`, the browser's per-frame time for staged work): the
+    /// blocks' meshes finished over the frames, and the frames that worked on one.
+    pub built: u32,
+    pub staged_frames: u32,
 }
 
 /// A live viewer of `text` at `width x height` device pixels (`dpr`: its CSS size is that / dpr),
 /// framed as it loads ([`crate::player::Player::frame_live`]), played `warm` ticks, then
 /// `frames` frames of `ticks` ticks each, each frame's triangles drawn with the browser's renderer
 /// and waited for ([`FrameCost`]); `cull`: the kept triangles the camera can see only, as the
-/// browser draws them; `check`: each frame also drawn whole and the two pictures compared.
+/// browser draws them; `check`: each frame also drawn whole and the two pictures compared;
+/// `budget`: each frame's staged mesh work stops after that many ms, as in the browser (None: a
+/// changed mesh is built whole in its frame).
 #[allow(clippy::too_many_arguments)]
-pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, height: u32, dpr: f32, warm: u32, frames: u32, ticks: u32, cull: bool, check: bool) -> Result<FrameCost, String> {
+pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, height: u32, dpr: f32, warm: u32, frames: u32, ticks: u32, cull: bool, check: bool, budget: Option<f64>) -> Result<FrameCost, String> {
     let mut p = crate::player::Player::new_web(text, width as f32 / height as f32)?;
     p.frame_live(atlas, width as f32 / dpr.max(0.5), height as f32 / dpr.max(0.5));
     for _ in 0..warm {
@@ -869,7 +875,13 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
             p.session.step();
         }
         let t0 = std::time::Instant::now();
-        let Some((fixed, solid, translucent)) = p.triangles_split_within(atlas, &mut || false) else { return Err("no triangles".into()) };
+        let mut oot = || budget.is_some_and(|b| k > 0 && t0.elapsed().as_secs_f64() * 1000.0 > b);
+        let before = p.fixed_key();
+        let Some((fixed, solid, translucent)) = p.triangles_split_within(atlas, &mut oot) else { return Err("no triangles".into()) };
+        if k > 0 {
+            c.staged_frames += p.staged_now() as u32;
+            c.built += (p.fixed_key() != before) as u32;
+        }
         let t1 = std::time::Instant::now();
         off.r.env = p.daylight();
         off.r.set_fixed(fixed.as_ref().map(|(k, v)| (*k, v.as_slice())));

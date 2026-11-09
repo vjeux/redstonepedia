@@ -771,12 +771,136 @@ mod tests {
         for (design, terrain) in [("designs/circuits/mobfarm/archive/iron-day1.txt", false), ("designs/farms/iron/day-1/d1u-underground.txt", true)] {
             let text = read(design);
             for (w, h, dpr) in [(798, 960, 2.0), (1232, 480, 1.0)] {
-                let c = crate::tools::frame_cost(&mut off, &atlas, &text, w, h, dpr, 0, 2, 1, true, true).unwrap();
+                let c = crate::tools::frame_cost(&mut off, &atlas, &text, w, h, dpr, 0, 2, 1, true, true, None).unwrap();
                 assert_eq!(c.differing, 0, "{design} at {w}x{h}: {} pixels differ culled", c.differing);
                 assert_eq!(c.culls, 1, "{design} at {w}x{h}: worked out once for a camera at rest");
                 if terrain {
                     assert!(c.kept * 2 < c.tested, "{design} at {w}x{h}: {} of {} triangles kept", c.kept, c.tested);
                 }
+            }
+        }
+    }
+
+    /// How close the culled set is to the triangles really seen (`--nocapture`): D1U's live view
+    /// at phone size, the triangles winning a sample of a z-buffer at `MCTAS_SS` x the pixels
+    /// (point samples at the sub-pixels' centres, every face taken as opaque: a lower bound of
+    /// what any exact cull keeps), against [`Cull`]'s.
+    #[test]
+    #[ignore]
+    fn print_visible_bound() {
+        let mut atlas = Atlas::build();
+        let (png, idx, defs, models) = crate::tools::vanilla_assets().unwrap();
+        atlas.apply_vanilla_png(&png, &idx).unwrap();
+        let (rgba, gw, gh) = crate::tools::decode_png(&png).unwrap();
+        atlas.set_game(&rgba, gw, gh, &idx, &defs, &models).unwrap();
+        let text = read(&std::env::var("MCTAS_DESIGN").unwrap_or_else(|_| "designs/farms/iron/day-1/d1u-underground.txt".into()));
+        let (width, height, dpr) = (798u32, 960u32, 2.0f32);
+        let mut p = crate::player::Player::new_web(&text, width as f32 / height as f32).unwrap();
+        p.frame_live(&atlas, width as f32 / dpr, height as f32 / dpr);
+        let (fixed, _, _) = p.triangles_split_within(&atlas, &mut || false).unwrap();
+        let v = fixed.map(|(_, v)| v).unwrap_or_default();
+        let m = p.camera.view_proj(width as f32 / height as f32);
+        let view = View { vp: m, eye: p.camera.eye(), chunks: 64.0, width, height };
+        let culled = Cull::new(view, None).step(&v, &Opaque::of(&atlas), &mut || false).unwrap().len() / 3;
+        for ss in [1usize, 2, 3] {
+            let (w, h) = (width as usize * ss, height as usize * ss);
+            let mut zbuf = vec![f64::MAX; w * h];
+            let mut ids = vec![u32::MAX; w * h];
+            for (ti, t) in v.chunks(3).enumerate() {
+                let c: Vec<[f64; 4]> = t
+                    .iter()
+                    .map(|x| {
+                        let q = x.pos;
+                        let mut o = [0.0f64; 4];
+                        for (i, oi) in o.iter_mut().enumerate() {
+                            *oi = m[0][i] as f64 * q[0] as f64 + m[1][i] as f64 * q[1] as f64 + m[2][i] as f64 * q[2] as f64 + m[3][i] as f64;
+                        }
+                        o
+                    })
+                    .collect();
+                if c.iter().any(|q| q[3] <= 1e-3) {
+                    continue;
+                }
+                let s: Vec<[f64; 3]> = c.iter().map(|q| [(q[0] / q[3] + 1.0) * 0.5 * w as f64, (1.0 - q[1] / q[3]) * 0.5 * h as f64, q[2] / q[3]]).collect();
+                let area = (s[1][0] - s[0][0]) * (s[2][1] - s[0][1]) - (s[2][0] - s[0][0]) * (s[1][1] - s[0][1]);
+                if area >= 0.0 {
+                    continue;
+                }
+                let (x0, x1) = (s.iter().map(|q| q[0]).fold(f64::MAX, f64::min).floor().max(0.0) as usize, s.iter().map(|q| q[0]).fold(f64::MIN, f64::max).ceil().min(w as f64) as usize);
+                let (y0, y1) = (s.iter().map(|q| q[1]).fold(f64::MAX, f64::min).floor().max(0.0) as usize, s.iter().map(|q| q[1]).fold(f64::MIN, f64::max).ceil().min(h as f64) as usize);
+                for y in y0..y1 {
+                    for x in x0..x1 {
+                        let (px, py) = (x as f64 + 0.5, y as f64 + 0.5);
+                        let e = |a: [f64; 3], b: [f64; 3]| (b[0] - a[0]) * (py - a[1]) - (b[1] - a[1]) * (px - a[0]);
+                        let (e0, e1, e2) = (e(s[1], s[2]), e(s[2], s[0]), e(s[0], s[1]));
+                        if e0 > 0.0 || e1 > 0.0 || e2 > 0.0 {
+                            continue;
+                        }
+                        let z = (e0 * s[0][2] + e1 * s[1][2] + e2 * s[2][2]) / (e0 + e1 + e2);
+                        let k = y * w + x;
+                        if z < zbuf[k] {
+                            zbuf[k] = z;
+                            ids[k] = ti as u32;
+                        }
+                    }
+                }
+            }
+            let seen: std::collections::HashSet<u32> = ids.iter().copied().filter(|&i| i != u32::MAX).collect();
+            eprintln!("{ss}x{ss} samples a pixel: {} triangles seen; the cull keeps {culled} of {}", seen.len(), v.len() / 3);
+            if ss == 3 {
+                // the kept triangles never seen: by the plane they lie in (axis and facing), and
+                // how far behind the nearest surface at their centre they are
+                let kept: Vec<u32> = Cull::new(view, None).step(&v, &Opaque::of(&atlas), &mut || false).unwrap().chunks(3).map(|t| t[0] / 3).collect();
+                let mut by: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+                for &ti in &kept {
+                    if seen.contains(&ti) {
+                        continue;
+                    }
+                    let t = &v[ti as usize * 3..ti as usize * 3 + 3];
+                    let axis = (0..3).find(|&a| t[1].pos[a] == t[0].pos[a] && t[2].pos[a] == t[0].pos[a]);
+                    let op = Opaque::of(&atlas).triangle(t);
+                    *by.entry(format!("axis {axis:?} opaque {op}")).or_default() += 1;
+                }
+                eprintln!("kept, never seen: {by:?}");
+                // why the opaque ones are kept: at the first pixel cell that keeps each, no
+                // occluder there (INF), or one not surely in front
+                let mut job = Cull::new(view, None);
+                while job.phase != Phase::Test {
+                    let _ = job.step(&v, &Opaque::of(&atlas), &mut || true);
+                }
+                let (mut inf, mut near, mut slack) = (0usize, 0usize, Vec::new());
+                let z = job.z.as_mut().unwrap();
+                for &ti in &kept {
+                    let t = &v[ti as usize * 3..ti as usize * 3 + 3];
+                    if seen.contains(&ti) || !Opaque::of(&atlas).triangle(t) {
+                        continue;
+                    }
+                    let k = job.kind[ti as usize];
+                    if k == OUT || k == KEEP {
+                        continue;
+                    }
+                    let p = &job.polys[k as usize];
+                    let sl = p.dz * (1.0 + 2.0 * EDGE_MARGIN) + DEPTH_MARGIN;
+                    'cells: for y in p.bbox[1]..p.bbox[3] {
+                        let (x0, x1) = p.span(y, false);
+                        for x in x0..x1 {
+                            let d = p.depth[0] * (x as f64 + 0.5) + p.depth[1] * (y as f64 + 0.5) + p.depth[2] - sl;
+                            let c = z.px[y * z.w + x];
+                            if d <= c as f64 {
+                                if c == f32::INFINITY {
+                                    inf += 1;
+                                } else {
+                                    near += 1;
+                                    slack.push((sl, c as f64 - (d + sl)));
+                                }
+                                break 'cells;
+                            }
+                        }
+                    }
+                }
+                slack.sort_by(|a, b| a.1.total_cmp(&b.1));
+                let q = |f: f64| slack.get(((slack.len() as f64 - 1.0) * f) as usize).copied().unwrap_or_default();
+                eprintln!("opaque kept never seen: {inf} at a cell no occluder covers, {near} at a covered one (the occluder's farthest minus its centre depth, and its slack, at the 10/50/90%: {:?} {:?} {:?})", q(0.1), q(0.5), q(0.9));
             }
         }
     }

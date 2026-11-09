@@ -753,7 +753,13 @@ clocks 120 gt; entity, TNT and shulker designs 400 gt) and fails on any differen
   of every wood, the minecart, the armor stand) and the vendored item atlas, packed below the block
   atlas in the game texture when a page first draws an entity (`entities.png`,
   `entities.min.json`, `items.png`, `items.min.json` in a `data-mcview-textures` directory);
-  until then (or without them) the viewer's stand-in boxes are drawn.
+  until then (or without them) the viewer's stand-in boxes are drawn. A still's mobs placed by
+  the design (`entity: minecraft:villager ...`, a design redsim does not run) are drawn with the
+  game's models standing at their `Rotation` (`scene::still_mob`), and a vehicle's
+  `Passengers:[{id:"minecraft:villager"}]` seated in it, legs forward: a minecart's at its seat
+  (0.1875 up), a boat's at its floor (0.25 up) (`scene::passenger_ids`; 2026-11-08: the portal
+  carousel illustration's villagers in carts and zombie in a boat had been stand-in boxes or
+  missing).
 * A design that travels (`travel:` / `distance:`, the circuits' headers) runs in its judge's
   corridor (`circuit fly sim`'s box: the design, kick cell and `stop:` blocks swept `distance`
   cells, plus 3; a piston extender sweeps its N), never in its own box; `stop:` blocks are placed
@@ -840,6 +846,30 @@ clocks 120 gt; entity, TNT and shulker designs 400 gt) and fails on any differen
   size draws 13,500 of its 49,000 triangles, the frame 32 -> 20 ms. `mctas web framecost --cull
   --check` draws each frame both ways and counts the pixels that differ (0; and the test
   `occlude::tests::culled_frames_are_the_whole_frames`).
+* `mcview::remesh`: a mob farm's blocks' mesh is updated in place when a few blocks change (the
+  cells whose drawn block changed since: `Session::take_changed_cells`, each read again with
+  `Session::drawn_block_at`): the first pass of the changed cells again (`Builder::begin_item`,
+  `forget_cell`), the light of the whole box again and compared cell by cell
+  (`Light::changed_from`), and only the faces of the blocks within two cells of a changed block
+  (a face's ambient occlusion looks one past its corner's neighbours along its normal:
+  `face_light`'s `permeable`) or within one of a cell whose light changed are drawn again
+  (`Builder::emit_item`), spliced into the mesh in place of their old ones (the whole build's
+  ranges: `Builder::ranges`, `Staged::keeping`). Anything else (a moving block, the light's box
+  or floor moving, an output's box, a TNT duper's ground, too many cells) builds it whole; a
+  staged whole build is no longer restarted by each change (it finishes, the next starts from
+  the blocks of then). While the camera rests the blocks drawn change at most every
+  `BLOCKS_HOLD_MS` (500 ms) so their cull is done in between and used for the frames after.
+  2026-11-09: farms in their terrain whose blocks change every few ticks (grass dying and
+  spreading, pressure plates) had never finished a mesh in the browser at 20x
+  (bed-plate-two-clusters, cross-4-underground: 0 of 200 frames, `framecost --budget 10`; now
+  every change in place, bed-plate's phone frame in WebKit p50 30 -> 19-23 ms with its blocks
+  up to date). The ignored test `remesh::tests::updated_in_place_is_built_whole` holds every
+  update to exactly the whole build's triangles (143 on bed-plate-two-clusters, 8 on
+  cross-4-underground with its fires' light, 10 on dust-pulse-out-of-sight). Also: a staged
+  build's calls no longer rebuild the cells' state map and item list each (it took a frame's
+  budget on a 200k-block terrain), and a water cell no longer copies the waterlogged set.
+  `?mcview-perf`'s steps line counts the frames drawn culled, the blocks' meshes that came and
+  the frames held for the cull.
 
 ## Commands
 
@@ -854,7 +884,9 @@ clocks 120 gt; entity, TNT and shulker designs 400 gt) and fails on any differen
 | `mctas web strip <design> -o <png>` | a grid of frames over time (a door from its flip, a clock from its still moment), half ticks apart: the animation |
 | `mctas web sheet <pngs> -o <png>` | textures scaled up in a grid, to compare them by eye |
 | `mctas web bundle -o web/viewer` | the wasm bundle (needs `rustup target add wasm32-unknown-unknown` and `cargo install wasm-bindgen-cli --version =0.2.129`) |
+| `mctas web framecost <designs> [--width 798 --height 960 --dpr 2] [--warm 400 --frames 40 --ticks 1] [--cull [--check]] [--budget ms]` | a live viewer's frames natively (lavapipe without a GPU): the mesh and draw time a frame, the vertices kept on the GPU and uploaded, the blocks' mesh rebuilds; `--cull` with the occlusion cull (`mcview::occlude`), `--check` each frame also drawn whole and the pixels that differ counted (must be 0); `--budget` each frame's staged mesh work cut after that many ms as in the browser (about a third of the browser's 24: native runs 2-3x faster), counting the blocks' meshes finished and the frames spent on one |
 | `mctas web demo <designs> -o <dir> [--autoplay]` | a standalone demo page (live viewers + a thumbnail grid) |
+| `mctas web single <page.html> -o <file.html>` | a generated page (or one laid out like one: a `data-mcview-textures` root, `data-src` viewers, the bundle's module script) as ONE self-contained file to share where only a file goes (an artifact): the viewer's script, WebAssembly and textures, the design and terrain files it fetches and the page's style inlined; a `fetch` shim serves them from inside the page and the viewer's modules load from blob URLs (2026-11-08: the portal carousel illustration, 18 MB) |
 | `mctas web serve <dir> --port 8000` | serve it on localhost |
 | `mctas web layout <url> [--window 390,844 --scale 2]` | layout-shift check: the page's live viewers (give them `data-autoplay`) in headless Chromium, each brought on screen in turn until it ran `--min-ticks` (a viewer plays only on screen); fails if any viewer, bar, counter or badge box moved (relative to the viewer) |
 | `mctas web still <designs...>` | each design's thumbnail `data-still` attribute (`mcview::tools::still_attr`: the still frame found ahead), one `<path>\t<attribute>` line each (`-`: the design does not load in the viewer) |

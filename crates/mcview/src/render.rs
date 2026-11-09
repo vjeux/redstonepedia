@@ -560,6 +560,11 @@ impl Renderer {
         (((cam.dist * 2.0 + 16.0) / 16.0).ceil()).max(self.view_chunks.unwrap_or(6.0))
     }
 
+    /// Whether the kept vertices `key` have their camera's cull done ([`Renderer::cull_fixed`]).
+    pub fn culled(&self, key: u64, cam: &Camera, width: u32, height: u32) -> bool {
+        self.fixed_visible.as_ref().is_some_and(|(k, _, _)| *k == (key, *cam, width, height))
+    }
+
     /// Draw only the kept triangles (`fixed`: the vertices [`Renderer::set_fixed`] keeps, by
     /// their key) that `cam` can see at `width x height` ([`crate::occlude::Cull`]: the same
     /// picture), worked out over as many calls as it takes within `out_of_time`, unless they

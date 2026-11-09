@@ -241,6 +241,24 @@ impl Light {
         Some(((d[1] * self.dims[2] + d[2]) * self.dims[0] + d[0]) as usize)
     }
 
+    /// The cells whose light, block or flags differ from `old`'s (a mesh updated in place redraws
+    /// the faces around them: `crate::remesh`); None when the two are not over the same box,
+    /// floor and holes (only a whole rebuild knows then).
+    pub fn changed_from(&self, old: &Light) -> Option<Vec<Pos>> {
+        if self.lo != old.lo || self.dims != old.dims || self.floor != old.floor || self.holes != old.holes {
+            return None;
+        }
+        let mut out = Vec::new();
+        for i in 0..self.sky.len() {
+            if self.sky[i] != old.sky[i] || self.block[i] != old.block[i] || self.cells[i] != old.cells[i] || self.flags[i] != old.flags[i] {
+                let (dx, rest) = ((i as i32) % self.dims[0], (i as i32) / self.dims[0]);
+                let (dz, dy) = (rest % self.dims[2], rest / self.dims[2]);
+                out.push([self.lo[0] + dx, self.lo[1] + dy, self.lo[2] + dz]);
+            }
+        }
+        Some(out)
+    }
+
     /// The ground there: below the floor and no hole.
     fn ground(&self, c: Pos) -> bool {
         c[1] < self.floor && !self.holes.contains(&c)

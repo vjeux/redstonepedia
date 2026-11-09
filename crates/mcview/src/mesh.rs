@@ -139,10 +139,23 @@ impl Sprite {
 }
 
 /// A block to draw: cell, offset (blocks), state string.
+#[derive(Clone, Copy)]
 pub struct Item<'a> {
     pub cell: Pos,
     pub offset: [f32; 3],
     pub state: &'a str,
+}
+
+/// What [`Builder::blocks_begin_from`] and [`Builder::blocks_from`] draw: an [`Item`], or a
+/// session's own block (`crate::session::RBlock`: a staged build draws them without a copy).
+pub trait AsItem {
+    fn item(&self) -> Item<'_>;
+}
+
+impl AsItem for Item<'_> {
+    fn item(&self) -> Item<'_> {
+        *self
+    }
 }
 
 fn rotate(p: [f32; 3], axis: u8, angle_deg: f32, o: [f32; 3]) -> [f32; 3] {
@@ -247,6 +260,8 @@ pub struct BuilderParts {
     weights: HashMap<String, Option<Vec<u32>>>,
     vcache: HashMap<String, Vec<Option<Option<Model>>>>,
     light_cells: Vec<(Pos, crate::light::Cell, u8)>,
+    states: Option<HashMap<Pos, u32, crate::camera::FxBuild>>,
+    ranges: Option<Vec<[u32; 4]>>,
     low: i32,
     mesh: Mesh,
     xf: Option<crate::entitymodel::M>,
@@ -255,6 +270,28 @@ pub struct BuilderParts {
     light_floor: Option<i32>,
     light_holes: HashSet<Pos>,
     biome_tint: Option<BiomeTintFn>,
+}
+
+impl BuilderParts {
+    /// Each item's ranges in the mesh, when kept ([`Builder::ranges`]).
+    pub(crate) fn ranges(&self) -> Option<&Vec<[u32; 4]>> {
+        self.ranges.as_ref()
+    }
+
+    /// How many cells for the light (one per still item).
+    pub(crate) fn light_cells_len(&self) -> usize {
+        self.light_cells.len()
+    }
+
+    /// The mesh dropped (kept elsewhere: a mesh updated in place draws into an empty one).
+    pub(crate) fn clear_mesh(&mut self) {
+        self.mesh = Mesh::default();
+    }
+
+    /// The light (a test compares it).
+    pub(crate) fn light(&self) -> Option<&crate::light::Light> {
+        self.light.as_ref()
+    }
 }
 
 /// A terrain's biome colour at a cell for a face the game tints by biome (`tint`: the plains
@@ -286,6 +323,12 @@ pub struct Builder<'a> {
     vcache: HashMap<String, Vec<Option<Option<Model>>>>,
     /// [`Builder::blocks_begin_from`]'s cells for the light so far, and the lowest cell's y.
     light_cells: Vec<(Pos, crate::light::Cell, u8)>,
+    /// [`Builder::blocks_from`]'s still cells by cell (their index in its items), kept from one
+    /// call of a staged build to the next.
+    states: Option<HashMap<Pos, u32, crate::camera::FxBuild>>,
+    /// When kept (`Some`): each item's vertices drawn by [`Builder::blocks_from`], its ranges of
+    /// solid vertices and translucent quads (a mesh updated in place: `crate::remesh`).
+    pub ranges: Option<Vec<[u32; 4]>>,
     low: i32,
     pub mesh: Mesh,
     /// A transform for the block model being drawn as part of an entity (a minecart's hopper, a
@@ -322,6 +365,8 @@ impl<'a> Builder<'a> {
             weights: HashMap::new(),
             vcache: HashMap::new(),
             light_cells: Vec::new(),
+            states: None,
+            ranges: None,
             low: i32::MAX,
             mesh: Mesh { lo: [f32::MAX; 3], hi: [f32::MIN; 3], ..Default::default() },
             xf: None,
@@ -369,6 +414,11 @@ impl<'a> Builder<'a> {
     /// The light computed by [`Builder::blocks`], for the grass under the build.
     pub fn take_light(&mut self) -> Option<crate::light::Light> {
         self.light.take()
+    }
+
+    /// The light back after [`Builder::take_light`].
+    pub(crate) fn put_light(&mut self, l: Option<crate::light::Light>) {
+        self.light = l;
     }
 
     /// A cell's shade for the game's ambient occlusion (`getShadeBrightness`).
@@ -446,7 +496,7 @@ impl<'a> Builder<'a> {
     /// `out_of_time` says so (asked every 256 items): the next item (`items.len()`: done, then
     /// [`Builder::blocks_begin_finish`]). A farm in its terrain's tens of thousands of blocks take
     /// several frames ([`crate::scene::Staged`]); the same cells in the same order either way.
-    pub fn blocks_begin_from(&mut self, items: &[Item], from: usize, out_of_time: &mut dyn FnMut() -> bool) -> usize {
+    pub fn blocks_begin_from<T: AsItem>(&mut self, items: &[T], from: usize, out_of_time: &mut dyn FnMut() -> bool) -> usize {
         if from == 0 {
             self.occ.clear();
             self.names.clear();
@@ -454,37 +504,16 @@ impl<'a> Builder<'a> {
             self.light = None;
             self.light_cells = Vec::with_capacity(items.len() + self.extra_occ.len());
             self.low = i32::MAX;
+            self.states = None;
         }
         let mut i = from;
         while i < items.len() {
-            let it = &items[i];
+            let it = items[i].item();
             i += 1;
             self.low = self.low.min(it.cell[1]);
             if it.offset == [0.0; 3] {
-                // water and bubble columns are one fluid: no faces between them
-                let n = match base_name(it.state) {
-                    "minecraft:bubble_column" => "minecraft:water",
-                    n => n,
-                };
-                self.names.insert(it.cell, n.to_string());
-                if it.state.contains("waterlogged=true") {
-                    self.wet.insert(it.cell);
-                }
-                let m = self.model_at(it.state, Some(it.cell));
-                let opaque = m.as_ref().is_some_and(|m| m.full && m.parts.iter().all(|p| p.layer == Layer::Opaque)) && !self.ghost.contains(&it.cell);
-                if opaque {
-                    self.occ.insert(it.cell);
-                }
-                let fills = m.as_ref().is_some_and(|m| m.fills);
-                // what darkens corners like a full block (`getShadeBrightness`): a full collision
-                // box, but not glass and the other `TransparentBlock`s, nor a honey block
-                let name = n.trim_start_matches("minecraft:");
-                let shade_full = opaque || (fills && !self.ghost.contains(&it.cell) && !name.ends_with("glass") && !matches!(name, "honey_block" | "barrier" | "light" | "structure_void"));
-                // a full collision box (`isCollisionShapeFullBlock`): not a honey block's, soul
-                // sand's or mud's (smaller), whatever they draw
-                let collision_full = (opaque || fills) && !matches!(name, "honey_block" | "soul_sand" | "mud" | "powder_snow" | "light" | "structure_void");
-                let flags = if shade_full { crate::light::SHADE_FULL } else { 0 } | if collision_full { crate::light::COLLISION_FULL } else { 0 };
-                self.light_cells.push((it.cell, crate::light::cell_of(it.state, opaque, fills), flags));
+                let lc = self.begin_item(&it);
+                self.light_cells.push(lc);
             }
             if i % 256 == 0 && i < items.len() && out_of_time() {
                 break;
@@ -493,36 +522,156 @@ impl<'a> Builder<'a> {
         i
     }
 
+    /// The first pass of one still block: its cell's name, water and occupancy noted, and its
+    /// cell for the light (its light properties and flags).
+    pub(crate) fn begin_item(&mut self, it: &Item) -> (Pos, crate::light::Cell, u8) {
+        // water and bubble columns are one fluid: no faces between them
+        let n = match base_name(it.state) {
+            "minecraft:bubble_column" => "minecraft:water",
+            n => n,
+        };
+        self.names.insert(it.cell, n.to_string());
+        if it.state.contains("waterlogged=true") {
+            self.wet.insert(it.cell);
+        }
+        let m = self.model_at(it.state, Some(it.cell));
+        let opaque = m.as_ref().is_some_and(|m| m.full && m.parts.iter().all(|p| p.layer == Layer::Opaque)) && !self.ghost.contains(&it.cell);
+        if opaque {
+            self.occ.insert(it.cell);
+        }
+        let fills = m.as_ref().is_some_and(|m| m.fills);
+        // what darkens corners like a full block (`getShadeBrightness`): a full collision
+        // box, but not glass and the other `TransparentBlock`s, nor a honey block
+        let name = n.trim_start_matches("minecraft:");
+        let shade_full = opaque || (fills && !self.ghost.contains(&it.cell) && !name.ends_with("glass") && !matches!(name, "honey_block" | "barrier" | "light" | "structure_void"));
+        // a full collision box (`isCollisionShapeFullBlock`): not a honey block's, soul
+        // sand's or mud's (smaller), whatever they draw
+        let collision_full = (opaque || fills) && !matches!(name, "honey_block" | "soul_sand" | "mud" | "powder_snow" | "light" | "structure_void");
+        let flags = if shade_full { crate::light::SHADE_FULL } else { 0 } | if collision_full { crate::light::COLLISION_FULL } else { 0 };
+        (it.cell, crate::light::cell_of(it.state, opaque, fills), flags)
+    }
+
+    /// A still cell's block gone from the first pass (its name, water and occupancy).
+    pub(crate) fn forget_cell(&mut self, c: Pos) {
+        self.names.remove(&c);
+        self.wet.remove(&c);
+        self.occ.remove(&c);
+    }
+
     /// [`Builder::blocks_begin`]'s end: the game's light over the cells gathered.
     pub fn blocks_begin_finish(&mut self) {
-        let mut light_cells = std::mem::take(&mut self.light_cells);
+        self.light = self.compute_light();
+    }
+
+    /// The game's light over the cells gathered (the still blocks' and [`Builder::extra_occ`]),
+    /// the cells kept (a mesh updated in place lights them again: [`Builder::relight`]).
+    fn compute_light(&mut self) -> Option<crate::light::Light> {
+        let n = self.light_cells.len();
         for c in &self.extra_occ {
-            light_cells.push((*c, crate::light::Cell { opaque: true, dampening: 15, ..Default::default() }, crate::light::SHADE_FULL | crate::light::COLLISION_FULL));
+            self.light_cells.push((*c, crate::light::Cell { opaque: true, dampening: 15, ..Default::default() }, crate::light::SHADE_FULL | crate::light::COLLISION_FULL));
         }
         // the game's light around them: the build stands on the judge's grass (one block of air
         // under its lowest cell) or on its own ground
-        self.light = if light_cells.is_empty() { None } else { Some(crate::light::Light::compute(&light_cells, self.light_floor.or(self.ground).unwrap_or(self.low - 1), &self.light_holes)) };
+        let light = if self.light_cells.is_empty() { None } else { Some(crate::light::Light::compute(&self.light_cells, self.light_floor.or(self.ground).unwrap_or(self.low - 1), &self.light_holes)) };
+        self.light_cells.truncate(n);
+        light
+    }
+
+    /// Item `i`'s cell for the light (a mesh updated in place: [`Builder::begin_item`]'s, or an air
+    /// cell for a block gone), or a new item's at the end (`i` = the cells so far).
+    pub(crate) fn set_light_cell(&mut self, i: usize, cell: (Pos, crate::light::Cell, u8)) {
+        if i == self.light_cells.len() {
+            self.light_cells.push(cell);
+        } else {
+            self.light_cells[i] = cell;
+        }
+    }
+
+    /// The light again after cells changed: the cells whose light (or block) differs, None when
+    /// only a whole rebuild knows (its box, floor or holes moved: the light is left as it was).
+    pub(crate) fn relight(&mut self) -> Option<Vec<Pos>> {
+        if self.light_floor.or(self.ground).is_none() {
+            // (the floor under the lowest cell: a cell lower than it moves it)
+            let low = self.light_cells.iter().map(|(c, _, _)| c[1]).min().unwrap_or(i32::MAX);
+            if low != self.low {
+                return None;
+            }
+        }
+        let old = self.light.take()?;
+        let Some(new) = self.compute_light() else {
+            self.light = Some(old);
+            return None;
+        };
+        let Some(changed) = new.changed_from(&old) else {
+            self.light = Some(old);
+            return None;
+        };
+        self.light = Some(new);
+        Some(changed)
+    }
+
+    /// The faces of one still block drawn into the mesh ([`Builder::blocks_from`]'s, a mesh updated
+    /// in place: `states` a still cell's state): the solid vertices' and translucent quads' ranges.
+    pub(crate) fn emit_item<'s>(&mut self, it: &Item, states: &dyn Fn(Pos) -> Option<&'s str>) -> [u32; 4] {
+        let (s0, t0) = (self.mesh.solid.len() as u32, self.mesh.translucent.len() as u32);
+        self.block_item(it, states);
+        [s0, self.mesh.solid.len() as u32, t0, self.mesh.translucent.len() as u32]
+    }
+
+    /// The still cells' states by cell (their index in the items), taken out for a mesh updated
+    /// in place (put back with [`Builder::put_states`]).
+    pub(crate) fn take_states(&mut self) -> Option<HashMap<Pos, u32, crate::camera::FxBuild>> {
+        self.states.take()
+    }
+
+    pub(crate) fn put_states(&mut self, s: HashMap<Pos, u32, crate::camera::FxBuild>) {
+        self.states = Some(s);
     }
 
     /// [`Builder::blocks`]' second pass from item `from`, in order, until the last or until
     /// `out_of_time` says so (asked every 16 blocks): the next item to draw (`items.len()`: done).
     /// The same faces in the same order whether it runs at once or over several calls (a big
     /// design's still is built over several frames: [`crate::scene::Staged`]).
-    pub fn blocks_from(&mut self, items: &[Item], from: usize, out_of_time: &mut dyn FnMut() -> bool) -> usize {
-        let states: HashMap<Pos, &str> = items.iter().filter(|it| it.offset == [0.0; 3]).map(|it| (it.cell, it.state)).collect();
+    pub fn blocks_from<T: AsItem>(&mut self, items: &[T], from: usize, out_of_time: &mut dyn FnMut() -> bool) -> usize {
+        // the still cells' states by cell (a water cell's neighbours' levels), worked out once a
+        // build: a staged build's calls share it (it took a whole frame's time on a farm in its
+        // terrain, every call)
+        let states = match self.states.take() {
+            Some(s) if from > 0 => s,
+            _ => {
+                let mut s: HashMap<Pos, u32, crate::camera::FxBuild> = HashMap::with_capacity_and_hasher(items.len(), Default::default());
+                for (k, it) in items.iter().enumerate() {
+                    let it = it.item();
+                    if it.offset == [0.0; 3] {
+                        s.insert(it.cell, k as u32);
+                    }
+                }
+                s
+            }
+        };
         let mut i = from;
+        if from == 0
+            && let Some(r) = self.ranges.as_mut()
+        {
+            r.clear();
+        }
         while i < items.len() {
-            self.block_item(&items[i], &states);
+            let it = items[i].item();
+            let r = self.emit_item(&it, &|p: Pos| states.get(&p).map(|&k| items[k as usize].item().state));
+            if let Some(v) = self.ranges.as_mut() {
+                v.push(r);
+            }
             i += 1;
             if i % 16 == 0 && i < items.len() && out_of_time() {
                 break;
             }
         }
+        self.states = Some(states);
         i
     }
 
-    /// One block of [`Builder::blocks_from`].
-    fn block_item(&mut self, it: &Item, states: &HashMap<Pos, &str>) {
+    /// One block of [`Builder::blocks_from`] (`states`: a still cell's state).
+    fn block_item<'s>(&mut self, it: &Item, states: &dyn Fn(Pos) -> Option<&'s str>) {
         // water: the game's sloped surface (corner heights from the neighbouring cells), not
         // cuboids (their steps showed as lines across a pool)
         if it.offset == [0.0; 3] && matches!(base_name(it.state), "minecraft:water" | "minecraft:bubble_column") {
@@ -565,6 +714,8 @@ impl<'a> Builder<'a> {
             weights: self.weights,
             vcache: self.vcache,
             light_cells: self.light_cells,
+            states: self.states,
+            ranges: self.ranges,
             low: self.low,
             mesh: self.mesh,
             xf: self.xf,
@@ -590,6 +741,8 @@ impl<'a> Builder<'a> {
             weights: p.weights,
             vcache: p.vcache,
             light_cells: p.light_cells,
+            states: p.states,
+            ranges: p.ranges,
             low: p.low,
             mesh: p.mesh,
             xf: p.xf,
@@ -841,13 +994,12 @@ impl<'a> Builder<'a> {
     /// A water (or bubble column) cell like the game draws fluids: its surface at each corner the
     /// average height of the water cells sharing that corner (full when water stands above any
     /// of them), faces only toward cells that are neither water nor opaque cubes.
-    fn water(&mut self, cell: Pos, states: &HashMap<Pos, &str>) {
+    fn water<'s>(&mut self, cell: Pos, states: &dyn Fn(Pos) -> Option<&'s str>) {
         // water cells, and waterlogged blocks' (their own water: a source)
-        let wet = self.wet.clone();
-        let is_water = |names: &HashMap<Pos, String>, p: Pos| names.get(&p).is_some_and(|n| n == "minecraft:water") || wet.contains(&p);
+        let is_water = |b: &Self, p: Pos| b.names.get(&p).is_some_and(|n| n == "minecraft:water") || b.wet.contains(&p);
         // the own height of a water cell (in blocks): full under water, else the game's amount / 9
         let level_of = |p: Pos| -> Option<u32> {
-            states.get(&p).map(|s| {
+            states(p).map(|s| {
                 if base_name(s) == "minecraft:bubble_column" {
                     0
                 } else {
@@ -855,18 +1007,18 @@ impl<'a> Builder<'a> {
                 }
             })
         };
-        let names = &self.names;
+        let me = &*self;
         let height = |p: Pos| -> Option<f32> {
-            if !is_water(names, p) {
+            if !is_water(me, p) {
                 return None;
             }
-            if is_water(names, [p[0], p[1] + 1, p[2]]) {
+            if is_water(me, [p[0], p[1] + 1, p[2]]) {
                 return Some(1.0);
             }
             let l = level_of(p).unwrap_or(0);
             Some(if l == 0 || l >= 8 { 8.0 / 9.0 } else { (8 - l) as f32 / 9.0 })
         };
-        let above = is_water(names, [cell[0], cell[1] + 1, cell[2]]);
+        let above = is_water(me, [cell[0], cell[1] + 1, cell[2]]);
         // corner (dx, dz) in {0,1}: the cells sharing it
         let corner = |dx: i32, dz: i32| -> f32 {
             if above {
@@ -908,7 +1060,7 @@ impl<'a> Builder<'a> {
                 }
             }
         };
-        let open = |b: &Self, q: Pos| !is_water(&b.names, q) && !b.occupied(q);
+        let open = |b: &Self, q: Pos| !is_water(b, q) && !b.occupied(q);
         // the surface (seen from above and below)
         if !above {
             quad(self, [[x, y + h[0], z], [x, y + h[1], z + 1.0], [x + 1.0, y + h[2], z + 1.0], [x + 1.0, y + h[3], z]], [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]], [0.0, 1.0, 0.0], tile);

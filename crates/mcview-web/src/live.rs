@@ -34,6 +34,11 @@ struct FrameStats {
     /// Its steps' sums over the window, in ms: the ticks played, the mesh (picture), the draw
     /// (the GPU's commands), the labels, the rest (badges, bar).
     steps: [f64; 5],
+    /// Frames drawn with only the kept blocks' triangles the camera sees (their cull done), the
+    /// kept blocks' meshes that came, and frames their changes were held for the cull.
+    culled: u32,
+    meshes: u32,
+    held: u32,
 }
 
 pub struct Live {
@@ -101,6 +106,8 @@ pub struct Live {
     /// textures' opacity those use (`mcview::occlude::Opaque`, by the game assets they are of).
     last_camera: Option<mcview::camera::Camera>,
     opaque: Option<(usize, std::rc::Rc<mcview::occlude::Opaque>)>,
+    /// The kept blocks' key drawn and when it came ([`BLOCKS_HOLD_MS`]).
+    fixed_since: (u64, f64),
     /// The design's text and name (a recording replays it from tick 0, a file named after it),
     /// and the auto-demo's schedule (a recording plays it whole).
     text: Option<std::rc::Rc<str>>,
@@ -238,6 +245,13 @@ const MESH_BUDGET_MS: f64 = 24.0;
 /// in the next frames, every triangle drawn meanwhile.
 const CULL_BUDGET_MS: f64 = 16.0;
 const CULL_SLICE_MS: f64 = 3.0;
+
+/// A mob farm's blocks changed while the camera rests: the blocks drawn change at most this
+/// often, their cull (`Renderer::cull_fixed`, 25-100 ms of a few frames' tasks) done in between
+/// and used for the frames after it (bed-plate-two-clusters' blocks change every few ticks:
+/// updated each time, its cull was never done and every frame drew all its triangles or worked
+/// on the cull, 24-26 ms of a 46 ms frame in WebKit at phone size).
+const BLOCKS_HOLD_MS: f64 = 500.0;
 
 /// A task's time for the live camera's search ([`mcview::scene::LiveCameraSearch`]): the
 /// candidates past it are weighed in the next task.
@@ -645,6 +659,7 @@ pub fn start(app: &mut App, id: u32) {
         frame_stats: FrameStats::default(),
         last_camera: None,
         opaque: None,
+        fixed_since: (0, 0.0),
         text: None,
         name: String::from("design"),
         demo: None,
@@ -1455,6 +1470,15 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
         let mut staging = false;
         if changed {
             let mut mesh_out_of_time = || perf.as_ref().is_some_and(|q| q.now() - t0 > MESH_BUDGET_MS);
+            // (the blocks drawn wait for their cull while the camera rests: [`BLOCKS_HOLD_MS`])
+            let now = perf.as_ref().map(|q| q.now()).unwrap_or(0.0);
+            let fk = p.fixed_key();
+            if l.fixed_since.0 != fk {
+                l.fixed_since = (fk, now);
+                l.frame_stats.meshes += 1;
+            }
+            p.hold_blocks = l.last_camera == Some(p.camera) && now - l.fixed_since.1 < BLOCKS_HOLD_MS;
+            l.frame_stats.held += p.hold_blocks as u32;
             // (a mob farm's blocks stay on the GPU while none changes: `Player::triangles_split_within`)
             let tris = p.triangles_split_within(&atlas, &mut mesh_out_of_time);
             t_mesh = perf.as_ref().map(|q| q.now()).unwrap_or(0.0);
@@ -1487,6 +1511,7 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
                     {
                         log(&format!("live view {id}: the camera at rest sees {kept} of the {all} kept triangles (the last part worked out in {:.1} ms)", perf.as_ref().map(|q| q.now()).unwrap_or(0.0) - tc));
                     }
+                    l.frame_stats.culled += g.r.culled(*key, &cam, w, h) as u32;
                 }
                 l.last_camera = Some(cam);
                 // the game's day (a mob farm's run: its sky, sun, moon and light)
@@ -1623,7 +1648,7 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
                     at(0.95),
                     t[t.len() - 1],
                 ));
-                log(&format!("live view {id} steps (a frame's mean): ticks {:.1}, mesh {:.1}, draw {:.1}, labels {:.1}, rest {:.1} ms", s[0], s[1], s[2], s[3], s[4]));
+                log(&format!("live view {id} steps (a frame's mean): ticks {:.1}, mesh {:.1}, draw {:.1}, labels {:.1}, rest {:.1} ms; culled frames {}, blocks' meshes {}, frames held for the cull {}", s[0], s[1], s[2], s[3], s[4], st.culled, st.meshes, st.held));
                 *st = FrameStats::default();
             }
         }
