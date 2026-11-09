@@ -1,0 +1,6 @@
+name: side-chute-arm-16-d20
+origin: 0 0 3
+palette:
+  W minecraft:water[level=0]
+layer -20:
+  WWWW

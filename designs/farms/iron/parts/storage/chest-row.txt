@@ -1,0 +1,8 @@
+name: chest-row
+origin: 2 0 1
+palette:
+  C minecraft:chest[facing=south,type=left,waterlogged=false]
+  H minecraft:hopper[enabled=true,facing=east]
+  c minecraft:chest[facing=south,type=right,waterlogged=false]
+layer -25:
+  HcC

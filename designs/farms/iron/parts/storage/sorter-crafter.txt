@@ -1,0 +1,84 @@
+name: sorter-crafter
+nbt: 2 -28 0 {disabled_slots:[I;0,1,2,3,4,5,6,7,8]}
+nbt: 2 -26 1 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:64},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}}]}
+nbt: 2 -25 1 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:41},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}}]}
+nbt: 3 -25 1 {Items:[{Slot:0b,id:"minecraft:poppy",count:64},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy lock"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy lock"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy lock"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy lock"}}]}
+nbt: 3 -24 1 {Items:[{Slot:0b,id:"minecraft:poppy",count:41},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}}]}
+origin: 2 0 -3
+palette:
+  A minecraft:comparator[facing=north,mode=compare,powered=false]
+  B minecraft:comparator[facing=south,mode=compare,powered=false]
+  C minecraft:chest[facing=north,type=single,waterlogged=false]
+  D minecraft:comparator[facing=west,mode=compare,powered=false]
+  E minecraft:crafter[crafting=false,orientation=down_south,triggered=false]
+  F minecraft:crafter[crafting=false,orientation=south_up,triggered=false]
+  G minecraft:hopper[enabled=true,facing=east]
+  H minecraft:hopper[enabled=false,facing=down]
+  I minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  J minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  K minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  L minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  R minecraft:redstone_wall_torch[facing=north,lit=true]
+  c minecraft:cobblestone
+  h minecraft:hopper[enabled=true,facing=down]
+  r minecraft:redstone_wall_torch[facing=south,lit=true]
+layer -29:
+  .
+  .
+  .
+  .cc
+  .Ccc
+  ..cc
+  .
+  .
+  .
+layer -28:
+  .
+  .
+  .
+  FDI
+  GEDI
+  .cJI
+  .
+  c
+  .
+layer -27:
+  .
+  .c
+  .
+  .
+  CGC
+  R
+  c
+  L
+  c
+layer -26:
+  .c
+  .K
+  .c
+  .r
+  HC
+  c
+  c
+  c
+  I
+layer -25:
+  .I
+  .c
+  .c
+  .c
+  hH
+  A
+  I
+  I
+  .
+layer -24:
+  .
+  .I
+  .I
+  .B
+  Gh
+  .
+  .
+  .
+  .

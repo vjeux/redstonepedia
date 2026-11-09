@@ -1,10 +1,11 @@
-# CIRCUIT: plate-s2b0-pad6f7x0-pit19-n1-dug7 mob-farm iron_ingot iron per hour per block 0.78, iron per hour 308, iron range 95% 300-315 (96 runs), golems per hour 77.6, seconds per golem 46.4, share of ceiling 65%, modules 1, iron per hour per module 308, kill 326 gt, kill tail the longest 377 gt: no golem outlived 1200 gt in 12416 golems (95% bound 0.02% a golem), golems at the zombie 0 of 12416 golems targeted the farm's zombie, worst policy 328 iron/h (walk yaw 45 x1), lips none (no golem stands dry beside a current), restarts after a missed night yes, restarts after days away yes (unloaded or not ticking, back by day or at night: the first golem 0.0-0.1 h after the return), rain clear day 311 iron/h; rain day 299 iron/h; thunder day 294 iron/h, lightning about 0.0 iron lost per thunderstorm; a villager turned into a witch about every 7464 game days; the zombie's boat broken never; a fire beside a flammable block about every 476 game days; a skeleton trap horse on the farm about every 8020 game days; the farm breaks in about 455 game days (a fire first); thunderstorms 1.4% of the time (6211 gt each on average), thunder loss 23.7, sunburn never (the zombie never sees the sky), fire never, misses 11980 of 24396 tries found no spot, 15269 golem sightings, bill 8 iron, 0 quartz, 3 villagers, 3 beds, 1 zombie, payback 2 min, build time 36 min at day-1 prices (404 placed with 323 cobblestone slabs capping stray golem spots and 10 cobblestone seals, 454 dug (the stair down to the chest: 84 dug, 5 placed), 1 lava trips, 3 villagers moved; the most: 3 villager_moved 540 s, 454 dig 454 s, 404 place 404 s, 1 zombie 180 s, 328 cobblestone_slab 164 s, 1 hopper 154 s, 1 lava_trip 120 s, 1 tool:bucket 90 s), time to an iron kit 42 min at the cheapest spot (from dawn of day 1 until the chest holds 24 iron; runs 41-43 min; 42-42 min over the 12 nearest spots), build minutes 36.4, t kit minutes 42.0, iron per hour sleeping 374, volume per module 2800, entities alive 5.4, entities peak 7, tools bucket 3, lava sources 1, materials day 1, chunk columns 1, storage 5.0 h (32 slots; 77 poppies/h), hoppers per 1000 iron/h 3.3, spot village-edge at -352 65 246 (the cheapest of the 12 nearest valid spots), exposures in village-edge (-352,246): C4 presence village villager 717 cells, village golem 576; C8 creepers creeper 134 cells, creeper 145; C10 flyers phantom 1 cells, build minutes flat 37.4, villagers left 5, hostile break days exposed: C8 creepers, 395 blocks, 7x25x16, redsim (robust)
+# CIRCUIT: plate-s2b0-pad6f7x0-pit19-n1-dug7 mob-farm iron_ingot day-1 iron per hour per block 0.61, iron per hour 316, iron range 95% 309-324 (96 runs), golems per hour 79.3, seconds per golem 45.4, share of ceiling 66%, modules 1, iron per hour per module 316, kill 315 gt, kill tail the longest 502 gt: no golem outlived 1200 gt in 12688 golems (95% bound 0.02% a golem), golems at the zombie 0 of 12688 golems targeted the farm's zombie, worst policy every constant walk reaches the kill, lips none (no golem stands dry beside a current), restarts after a missed night yes, restarts after days away yes (unloaded or not ticking, back by day or at night: the first golem 0.0-0.1 h after the return), rain clear day 327 iron/h; rain day 315 iron/h; thunder day 320 iron/h, lightning about 0.0 iron lost per thunderstorm; a villager turned into a witch about every 4665 game days; the zombie's boat broken never; a fire beside a flammable block about every 368 game days; a skeleton trap horse on the farm about every 2568 game days; the farm breaks in about 350 game days (a fire first); thunderstorms 1.4% of the time (6211 gt each on average), thunder loss 31.6, sunburn never (the zombie never sees the sky), fire burns its short_grass (first at -349 72 237) in about 50 min in 1 of 96 runs; the lava then flows in, misses 11924 of 24612 tries found no spot, 13807 golem sightings, bill 8 iron, 0 quartz, 3 villagers, 3 beds, 1 zombie, payback 2 min, build time 39 min at day-1 prices (439 placed with 309 cobblestone slabs capping stray golem spots and 28 cobblestone seals, 502 dug, 1 lava trips, 3 villagers moved; the most: 3 villager_moved 540 s, 502 dig 502 s, 439 place 439 s, 1 zombie 180 s, 343 cobblestone_slab 172 s, 1 hopper 154 s, 1 lava_trip 120 s, 1 tool:bucket 90 s), time to an iron kit 44 min at the cheapest spot (from dawn of day 1 until the chest holds 24 iron; runs 43-44 min; 44-44 min over the 12 nearest spots), build minutes 39.3, t kit minutes 43.7, collecting 28 s per trip to the chest (2 x its depth, 29 layers, at the access's speed), iron per hour sleeping 384, volume per module 5104, entities alive 5.4, entities peak 8, iron burnt per golem 0.02 (0.4% of the loot; 1 golem in 145), tools bucket 3, lava sources 1, materials day 1, chunk columns 1, storage 4.9 h (32 slots; 78 poppies/h), hoppers per 1000 iron/h 3.2, spot village-edge at -345 65 246 (the cheapest of the 12 nearest valid spots), exposures in village-edge (-345,246): C2 entry baby zombie 50 cells, bat 405, cave spider 51, creeper 31, fox 51, pillager 31, skeleton 31, slime 52, zombie 31; C4 presence village villager 647 cells, village golem 717; C8 creepers creeper 142 cells, creeper 145; C10 flyers phantom 1 cells, build minutes flat 40.3, villagers left 5, hostile break days exposed: C2 entry; C8 creepers, 516 blocks, 11x29x16, redsim (robust)
 # farmopt candidate plate-s2b0-pad6f7x0-pit19-n1-dug7 (designs/briefs/farm-optimizer.md).
 # 1 module(s); each: 2 scared and 0 blind villagers in 1-cell pods, a zombie in a boat, the bed plate (U1's wooden plate holds the hide open by day; at nightfall it lies down and the hide shuts);
 # golems spawn on a 6x6 pad 7 below the beds and fall through its dry hole into a pit corner 19 below the beds under one lava source.
 name: plate-s2b0-pad6f7x0-pit19-n1-dug7
+access: built
 afk: 2.5 8 4.5
-circuit: mob-farm iron_ingot
+circuit: mob-farm iron_ingot day-1
 ground: 7
 how: golems fall out of sight into a lava pit
 restart: yes
@@ -14,24 +15,26 @@ entity: minecraft:villager 0.5 0.5625 0.5
 entity: minecraft:villager 2.5 0.5625 0.5
 entity: minecraft:oak_boat 2.5 0.5 -6.8 {Passengers:[{id:"minecraft:zombie"}]}
 entity: minecraft:villager 3.5 2 -5.5
-origin: -1 0 -8
+origin: -5 0 -8
 palette:
   A minecraft:air
   B minecraft:cobblestone_slab[type=bottom,waterlogged=false]
   C minecraft:chest[facing=north,type=single,waterlogged=false]
   D minecraft:cobblestone_slab[type=top,waterlogged=false]
-  E minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
-  F minecraft:oak_pressure_plate[powered=false]
-  G minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  E minecraft:oak_fence_gate[facing=east,in_wall=false,open=false,powered=false]
+  F minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+  G minecraft:oak_pressure_plate[powered=false]
   H minecraft:hopper[enabled=true,facing=down]
-  I minecraft:oak_trapdoor[facing=west,half=top,open=false,powered=false,waterlogged=false]
-  J minecraft:oak_wall_sign[facing=east,waterlogged=false]
-  K minecraft:oak_wall_sign[facing=south,waterlogged=false]
+  I minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  J minecraft:oak_trapdoor[facing=west,half=top,open=false,powered=false,waterlogged=false]
+  K minecraft:oak_wall_sign[facing=east,waterlogged=false]
   L minecraft:lava[level=0]
-  M minecraft:red_bed[facing=west,occupied=false,part=foot]
-  N minecraft:red_bed[facing=west,occupied=false,part=head]
+  M minecraft:oak_wall_sign[facing=south,waterlogged=false]
+  N minecraft:red_bed[facing=west,occupied=false,part=foot]
   O minecraft:oak_button[face=wall,facing=east,powered=false]
+  P minecraft:red_bed[facing=west,occupied=false,part=head]
   R minecraft:red_bed[facing=north,occupied=false,part=foot]
+  T minecraft:torch
   W minecraft:wall_torch[facing=east]
   c minecraft:cobblestone
   o minecraft:oak_button[face=wall,facing=south,powered=false]
@@ -49,8 +52,8 @@ layer -21:
   .
   .
   .
-  .C
-  .
+  B.AAAC
+  AA
   .
   .
   .
@@ -66,8 +69,8 @@ layer -20:
   .
   .
   .
-  .H
-  .
+  AAAATH
+  BA
   .
   .
   .
@@ -83,10 +86,10 @@ layer -19:
   .
   .
   .
-  .AAAA
-  .AAAA
-  .AAAA
-  .AAAw
+  AA...AAAA
+  AB...AAAA
+  .....AAAA
+  .....AAAw
   .
 layer -18:
   .
@@ -100,10 +103,10 @@ layer -18:
   .
   .
   .
-  .KAAA
-  .AAAA
-  .AAAA
-  .AAAA
+  AB...MAAA
+  AA...AAAA
+  .....AAAA
+  .....AAAA
   .
 layer -17:
   .
@@ -117,10 +120,10 @@ layer -17:
   .
   .
   .
-  .LKAA
-  .JAAA
-  .AAAA
-  .AAAA
+  BA...LMAA
+  AT...KAAA
+  .....AAAA
+  .....AAAA
   .
 layer -16:
   .
@@ -134,10 +137,10 @@ layer -16:
   .
   .
   .
-  .AoAA
-  .OAAA
-  .AAAA
-  .AAAA
+  AA...AoAA
+  BA...OAAA
+  .....AAAA
+  .....AAAA
   .
 layer -15:
   .
@@ -151,10 +154,10 @@ layer -15:
   .
   .
   .
-  .AAAA
-  .AAAA
-  .AAAA
-  .AAAA
+  AA...AAAA
+  AB...AAAA
+  .....AAAA
+  .....AAAA
   .
 layer -14:
   .
@@ -168,10 +171,10 @@ layer -14:
   .
   .
   .
-  .AAAA
-  .AAAA
-  .AAAA
-  .AAAA
+  AB...AAAA
+  AA...AAAA
+  .....AAAA
+  .....AAAA
   .
 layer -13:
   .
@@ -185,10 +188,10 @@ layer -13:
   .
   .
   .
-  .AAAA
-  .AAAA
-  .AAAA
-  .AAAA
+  BA...AAAA
+  AA...AAAA
+  .....AAAA
+  .....AAAA
   .
 layer -12:
   .
@@ -202,10 +205,10 @@ layer -12:
   .
   .
   .
-  .AAAA
-  .AAAA
-  .AAAA
-  .AAAA
+  AA...AAAA
+  BA...AAAA
+  .....AAAA
+  .....AAAA
   .
 layer -11:
   .
@@ -219,10 +222,10 @@ layer -11:
   .
   .
   .
-  .AAAA
-  .AAAA
-  .AAAA
-  .AAAA
+  AA...AAAA
+  AB...AAAA
+  .....AAAA
+  .....AAAA
   .
 layer -10:
   .
@@ -236,10 +239,10 @@ layer -10:
   .
   .
   .
-  .AAAA
-  .AAAA
-  .AAAA
-  .AAAA
+  AB...AAAA
+  AA...AAAA
+  .....AAAA
+  .....AAAA
   .
 layer -9:
   .
@@ -253,10 +256,10 @@ layer -9:
   .
   .
   .
-  .AAAA
-  .AAAA
-  .AAAA
-  .AAAA
+  BA...AAAA
+  AT...AAAA
+  .....AAAA
+  .....AAAA
   .
 layer -8:
   .
@@ -270,10 +273,10 @@ layer -8:
   .
   .
   .
-  .AAAA
-  .AAAA
-  .AAAA
-  .AAAA
+  AA...AAAA
+  BA...AAAA
+  .....AAAA
+  .....AAAA
   .
 layer -7:
   .
@@ -286,12 +289,12 @@ layer -7:
   .
   .
   .
-  cccccc
-  cEEEEc
-  cEAAEc
-  cEAAEc
-  cEEEEc
-  cccccc
+  ....cccccc
+  AA..cFFFFc
+  AB..cFAAFc
+  ....cFAAFc
+  ....cFFFFc
+  ....cccccc
 layer -6:
   .
   .
@@ -303,12 +306,12 @@ layer -6:
   .
   .
   .
-  wAAAAw
-  AAAAAA
-  AAEEAA
-  AAEEAA
-  AAAAAA
-  wAAAAw
+  ....wAAAAw
+  AB..AAAAAA
+  AA..AAFFAA
+  ....AAFFAA
+  ....AAAAAA
+  ....wAAAAw
 layer -5:
   .
   .
@@ -320,12 +323,12 @@ layer -5:
   .
   .
   .
-  AAAAAA
-  AAAAAA
-  AAAAAA
-  AAAAAA
-  AAAAAA
-  AAAAAA
+  ....AAAAAA
+  BA..AAAAAA
+  AA..AAAAAA
+  ....AAAAAA
+  ....AAAAAA
+  ....AAAAAA
 layer -4:
   .
   .
@@ -337,12 +340,12 @@ layer -4:
   .
   .
   .
-  AAAAAA
-  AAAAAA
-  AAAAAA
-  AAAAAA
-  AAAAAA
-  AAAAAA
+  ....AAAAAA
+  AA..AAAAAA
+  BA..AAAAAA
+  ....AAAAAA
+  ....AAAAAA
+  ....AAAAAA
 layer -3:
   .
   .
@@ -355,8 +358,8 @@ layer -3:
   .
   .
   .
-  .
-  .
+  AA
+  AB
   .
   .
   .
@@ -372,8 +375,8 @@ layer -2:
   .
   .
   .
-  .
-  .
+  AB
+  AA
   .
   .
   .
@@ -389,66 +392,80 @@ layer -1:
   .
   .
   .
-  .
-  .
+  BA
+  AT
   .
   .
   .
 layer 0:
   .
-  ...B
+  .......B
   .
   .
   .
   .
-  .A.A
-  .A.A
-  .r.r
-  .R.R
+  .....A.A
+  .....A.A
+  .....r.r
+  .....R.R
   .
-  .
-  .
+  AA
+  BA
   .
   .
   .
 layer 1:
-  ...A
-  ...A
-  ...Ic
-  .AAA
-  .AAA
-  .AAA
-  .DAD
-  .DAD
-  .G.G
+  .......A
+  .......A
+  .......Jc
+  .....AAA
+  .....AAA
+  .....AAA
+  .....DAD
+  .....DAD
+  .....I.I
   .
   .
-  .
-  .
+  AA
+  AB
   .
   .
   .
 layer 2:
   .
   .
-  ....FNM
-  .AAA
-  .AAA
-  .WAA
-  .AAA
-  .AAA
-  .A.A
+  ........GPN
+  .....AAA
+  .....AAA
+  .....WAA
+  .....AAA
+  .....AAA
+  .....A.A
   .
   .
-  .
-  .
+  AB
+  AA
   .
   .
   .
 layer 3:
   .
   .
-  ....AAA
+  ........AAA
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  BA
+  AA
+  .
+  .
+  .
+layer 4:
   .
   .
   .
@@ -459,6 +476,60 @@ layer 3:
   .
   .
   .
+  .
+  AA
+  BA
+  .
+  .
+  .
+layer 5:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  AA
+  AB
+  .
+  .
+  .
+layer 6:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  AB
+  AA
+  .
+  .
+  .
+layer 7:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  BE
+  EE
   .
   .
   .
