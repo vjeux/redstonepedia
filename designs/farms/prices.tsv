@@ -81,3 +81,19 @@ tool:bucket	90	0	0	3 iron, once a build (vjeux 2026-11-08 12:29: day-1 iron coun
 tool:shears	60	0	0	2 iron, once, when the build has leaves (or shears its wool); in hand later
 tool:iron_pickaxe	90	0	0	3 iron, once, in the redstone fork (redstone ore needs an iron pickaxe); in hand later
 tool:anvil	930	310	0	31 iron, once, when the build names items (a sorter's filler); a late player has one
+access:stairs	5.5	3.25	2.2	iteration 16 (vjeux 17:59, 18:00): one layer of a 1-wide staircase dug through rock, built once: 3 digs + 1 stair block (place 1 s + 1.5 filler: 6 cobblestone make 4 stairs)
+travel:stairs	0.25	0.25	0.25	one layer up or down that staircase on foot, per trip (walking 4.317 blocks/s, one layer a block)
+access:ladder	2.6	1.85	1.4	one layer of a 1x1 ladder shaft, built once: 1 dig + 1 ladder placed (7 sticks make 3)
+travel:ladder_up	0.43	0.43	0.43	one layer up a ladder or scaffolding, per trip (0.1176 blocks/tick: LivingEntity sets 0.2 while climbing, then gravity 0.08 and drag 0.98)
+travel:ladder_down	0.33	0.33	0.33	one layer down a ladder or scaffolding, per trip (the climb clamp, 0.15 blocks/tick)
+travel:pillar_up	0.5	0.5	0.5	building up with no lasting column: one layer up by jumping and placing a block under you, per trip (a 10 gt cycle: jump 0.42, gravity 0.08, drag 0.98; the block lands at the 3rd tick, the player at the 9th)
+travel:pillar_down	0.45	0.45	0.45	one layer down a pillar, per trip: the dirt under you broken with a shovel (4 gt) and a one-block fall (5 gt); the block comes back
+access:scaffolding	-	-	0.3	late: one layer of a scaffolding column placed from its base at the use rate (4 gt), bamboo and string from farms; climbed like a ladder; removed by breaking its base
+access:bubble_column	-	3	1.6	middle and late: one layer of a soul-sand column up and a magma column down, built once: a dug shaft cell + a water source each (the kelp trick), the soul sand and magma from the Nether
+travel:bubble_up	-	0.07	0.07	one layer up a soul-sand bubble column, per trip (0.7 blocks/tick inside it); a villager rides it the same way
+travel:bubble_down	-	0.06	0.06	one layer down a magma bubble column, per trip (0.9 blocks/tick)
+travel:elytra	-	-	0.05	late: one layer up by rocket-boosted elytra, per trip
+travel:elytra_trip	-	-	3	late: take-off and landing, per elytra trip (rockets from a gunpowder farm)
+place:edge	1	1	0.4	extra seconds for a block placed more than 2 above every standable surface the player already has: sneaking to an edge at 0.3 of walking speed and placing against a side face; late, one scaffolding cell to stand on
+villager:down	0.05	0.05	0.05	one layer of a villager's way down to its pod: dropped into water at the access shaft's foot (a free fall)
+villager:up_rail	13.3	5.8	2.8	one layer of a villager's way up by a minecart on a rail ramp: a rail + its support block + placing both (where no bubble column stands)
