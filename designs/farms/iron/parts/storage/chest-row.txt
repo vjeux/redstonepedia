@@ -1,5 +1,5 @@
 name: chest-row
-origin: 2 0 1
+origin: 3 0 2
 palette:
   C minecraft:chest[facing=south,type=left,waterlogged=false]
   H minecraft:hopper[enabled=true,facing=east]

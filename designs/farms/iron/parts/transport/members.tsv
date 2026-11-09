@@ -4,3 +4,4 @@ drop-shaft-13.txt	open drop 13 blocks down to the kill	day-1	blocks 27, blocks d
 drop-shaft-5.txt	open drop 5 blocks down to the kill	day-1	blocks 25, blocks dug 48, build seconds 98	bed-plate-lava-in-sight.txt dust-pulse-dug10.txt bed-plate-dug12.txt
 side-chute-arm-16-d20.txt	drop out of the villagers' range, then a water channel 16 long to the side	day-1	blocks 4, blocks dug 328, build seconds 336	bed-plate-side-chute.txt
 drop-shaft-14.txt	open drop 14 blocks down to the kill	middle	blocks 112, blocks dug 0, build seconds 172	module-two-watchers.txt
+drop-shaft-15.txt	open drop 15 blocks down to the kill	middle	blocks 107, blocks dug 0, build seconds 165	module-two-watchers.txt

@@ -1,4 +1,4 @@
 file	name	stage	metrics	used_by
-chest-row.txt	hopper into a double chest beside the chest	middle	blocks 3, blocks dug 0, build seconds 59, storage hours at 480 iron/h 9.2	module-two-watchers.txt
 sorter-crafter.txt	sorter and iron-block crafter (named-paper filters)	middle	blocks 50, blocks dug 0, build seconds 1786, storage hours at 480 iron/h 32.4	
 sorter-crafter-cheap.txt	sorter and iron-block crafter (plain filters)	middle	blocks 50, blocks dug 0, build seconds 1110, storage hours at 480 iron/h 32.4	
+chest-row.txt	hopper into a double chest beside the chest	middle	blocks 3, blocks dug 0, build seconds 59, storage hours at 480 iron/h 9.2	module-two-watchers.txt
