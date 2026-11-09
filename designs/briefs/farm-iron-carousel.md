@@ -12,8 +12,15 @@ to it in turns instead of waiting out their own lockout in place.
 
 ## The number
 
-Golems per hour per station (and iron per hour: about 4 iron a golem), against the villagers it
-needs (villagers per golem an hour), at the stage's build minutes with travel and height.
+The stage rules of farm-iron.md, unchanged: the carousel competes in the middle and late searches
+against copies with the SAME villagers (6 groups of 3 against 6 three-villager modules), on iron
+an hour and build minutes per module of 3 villagers (late adds volume per module), priced the
+same way. Per villager it cannot win: every golem locks at least 3 villagers for 600 gt
+(`spawnGolemIfNeeded` needs 3 willing and locks everyone in its box), so no design passes 40
+golems an hour per villager, the same ceiling a static 3-villager cluster has. Its win is
+compactness: one pad, kill, zombie, calm and collection shared by every group, and fresh groups
+that escape the static module's losses (below). Golems per hour per station is reported, not
+ranked; L0, the single module, is a reference line.
 
 ## The mechanics, from the game code (26.3)
 
@@ -27,7 +34,8 @@ needs (villagers per golem an hour), at the stage's build minutes with travel an
   `spawnGolemIfNeeded` when `timestamp % 100 == 0` while the villager is panicking; panic needs
   `NEAREST_HOSTILE`, which `VillagerHostilesSensor` sets from the visible-entity list
   (`NearestLivingEntitySensor`, a scan every 20 gt): a zombie within 8 blocks, feet to feet, in
-  sight. A group that arrives sees the zombie within 20 gt of its first scan and tries at the next
+  sight. A group that arrives sees the zombie within about 40 gt (the hostile sensor reads a list
+  the living-entity sensor refreshes every 20 gt on its own phase) and tries at the next
   multiple of 100.
 - **Wanting a golem needs a night in bed.** `wantsToSpawnGolem` = `LAST_SLEPT` within 24,000 gt
   and no `GOLEM_DETECTED_RECENTLY`. A villager sleeps only in its claimed bed (`SleepInBed` in the
@@ -39,10 +47,16 @@ needs (villagers per golem an hour), at the stage's build minutes with travel an
 - **A golem cannot die at once**: 100 health, fall-immune; a lava kill takes 240 gt (25 hits at
   t = 0, 10, …, 240). It must LEAVE the station's cubes: a free fall to the lowest villager's
   y - 20.54 takes about 20 gt.
-- **Carts.** A rideable minecart on powered rail reaches 0.4 blocks a tick (8 a second); a moving
-  cart that touches a mob other than a player or an iron golem takes it as a passenger; a powered
-  activator rail ejects the passenger (`AbstractMinecart.activateMinecart`). Detector rails and
-  pressure plates give the events.
+- **Carts.** A rideable minecart on powered rail reaches 0.4 blocks a tick
+  (`OldMinecartBehavior.getMaxSpeed`; the new behaviour needs the minecart_improvements flag); a
+  cart moving at least 0.1 blocks a tick horizontally takes one mob it touches as its rider (not a
+  player or an iron golem; `OldMinecartBehavior.pushAndPickupEntities`), one rider a cart, and a
+  slower cart takes none; a powered activator rail ejects the rider (`Minecart.activateMinecart`).
+  Detector rails and pressure plates give the events. Rails are priced (prices.tsv:
+  `powered_rail`, `activator_rail`, `detector_rail`), so L1 is a middle or late design.
+- **No sleeping in a cart.** `SleepInBed.checkExtraStartConditions` refuses a passenger, and a
+  sleeper stays asleep while REST lasts (`canStillUse`) unless a hostile in sight from its sleeping
+  eye (bed + 0.8875) makes it panic, when `WakeUp` wakes it.
 
 ## The ceiling
 
@@ -59,6 +73,13 @@ at t333 slipped the next summon to t1100). A 3-villager module's intervals avera
 18, 700 x 14, 800 x 3, 900 x 1 in a day), a 4-villager module's 624-629. A carousel group arrives
 fresh (no golem in range, its lock long expired), so neither loss applies to it, provided the
 last golem has left the station's range before the next group's sensors scan.
+
+Every number here assumes the station runs through the night, less the nightly stop: no villager
+sleeps in a cart, so each group leaves the loop once a day to lie down (`LAST_SLEPT`), is woken
+and re-boarded. With one bed (below), about 15 s a group a day, about 2.5% of a 100 gt rotation's
+slots; a stop where every group lies down at once loses its own length; with no stop the night
+(day time 12000 to the next 0) is lost, and 4 groups x 200 gt read about 180 golems an hour over a
+day. Each estimate states its stop's length.
 
 ## Trade-offs
 
@@ -78,7 +99,7 @@ last golem has left the station's range before the next group's sensors scan.
 | # | layout | golems/h per station (estimate) | % of ceiling | what it brings |
 |---|---|---|---|---|
 | L0 | the bar: a static module (the module component, measured) | 111 (444 iron/h) | 15% | nothing moves; one cluster's lockout |
-| L1 | minecart carousel: groups of 3 villagers in carts on a powered loop, a station in sight of the zombie over one pad and drop, the advance fired by the golem's fall, a nightly stop of beds by activator rails | 360 at 4 groups x 200 gt, 720 at 6 x 100 | 50-100% | rails, a loop 11+ blocks out of the station's box, the bed stop |
+| L1 | minecart carousel: groups of 3 villagers in carts on a powered loop, a station in sight of the zombie over one pad and drop, the advance fired by the golem's fall, a nightly stop of beds by activator rails | 360 at 4 groups x 200 gt, 720 at 6 x 100 (through the night, less a 2.5% one-bed stop; about 180 at 4 x 200 with no stop) | 50-100% | rails, a loop 11+ blocks out of the station's box, the bed stop |
 | L2 | boat carousel: villagers in boats on a water loop, a gated stop at the station, the gate opened by the golem's fall | 300-360 (boats move slower than carts, about 0.1-0.4 a tick on water) | 40-50% | day-1 materials (boats, water, trapdoors); gates per stop |
 | L3 | static docks: 2-3 clusters more than 10.6 apart around ONE shared pad and drop, each locking only itself | 200-300 (each cluster's golems dwell in the others' cubes on the pad: the LT measurement kept 72%) | 30-40% | no moving parts; dwell on the shared pad is the loss |
 | L4 | pods moved by slime-block machines past the station | up to 720 | up to 100% | heavy redstone, late only; fragile on unload |
@@ -120,7 +141,12 @@ options, judged against each other on the objectives:
   the next comes in. While the bed is occupied, no other sharer in REST may be within 16 of it
   (`ValidateNearbyPoi` erases an awake validator's HOME when its bed is OCCUPIED), so the queue
   waits more than 16 out, and the leaver clears 16 (or is still panicking) before the next lies
-  down: about 4-5 s a villager, about 90 s a night. The dormitory sits more than 16 from the
+  down: about 4-5 s a villager, about 90 s a night. A cart cannot take a sleeper (its box is
+  0.2 x 0.2 at the bed head's centre, `setPosToBed`, and a cart's pickup box reaches about 0.69
+  from its centre), so the pickup comes after the wake: `LivingEntity.stopSleeping` stands the
+  villager up at `BedBlock.findStandUpPosition` (a fixed order of candidate cells around the bed,
+  or on top of it when none is free), and the dormitory leaves exactly ONE stand-up cell free, on
+  the rail, where a cart passing at 0.1 blocks a tick or more takes it. The dormitory sits more than 16 from the
   station and the waiting groups, and the dorm zombie and the station's zombie are each out of
   the other villagers' sight. The mob-AI lane confirms the pieces redsim must model exactly
   before it is judged: an observer on a bed's OCCUPIED change, `SleepInBed`'s start conditions,
@@ -128,22 +154,34 @@ options, judged against each other on the objectives:
 
 ## Must-haves (hard rules)
 
-- A group at the station is panicking on an attempt tick (it sees the zombie after its sensor's
-  scan), unlocked, and slept within 24,000 gt.
+- A group at the station is panicking on an attempt tick (it sees the zombie after its sensors'
+  scans, up to about 40 gt after it arrives), unlocked, and slept within 24,000 gt.
 - Every waiting group is more than 10.6 blocks (box) from the summoner at the spawn tick, and out
   of every live golem's follow box (R + 1 sideways, R + 2.7 below) whenever its GolemSensor scans.
+- **Every way to summon, at every position a villager occupies** (the loop, the queue, the
+  approach, the bed stop), judged along the loop: either the path cannot fire, or every spawn
+  search from there lands only on pad or unspawnable cells. The panic path cannot fire when the
+  villager is more than 8 from the farm's zombie or out of its sight except at the station, and no
+  natural hostile can stand in its sight on a dark surface (the parent brief's every-villager
+  rule); the gossip path (`InteractWith`, `TradeWithVillager`, `Villager.gossip`,
+  `spawnGolemIfNeeded(5)`, off the 100 gt grid: a calm pair within the square root of 5 that see
+  each other within 8, both 1,200 gt cooldowns over) cannot fire when waiting groups are more than
+  10.6 apart and the bed stop is split so that no 5 villagers share a 10-box in sight (at dawn all
+  of them are slept, unlocked and calm in IDLE).
 - The golem leaves the station's cubes within a few ticks (a drop below the cubes, or a kill that
   fast), and dies in the kill as the parent brief says (no golem outlives 1,200 gt).
-- Every villager sleeps in its own bed once per game day (the nightly stop: dismount, beds,
-  re-boarding by a moving cart), the Beds rule holds, and the farm restarts after days away (a
+- Every villager lies down once per game day (the nightly stop: dismount, a bed, woken by a
+  hostile in sight, re-boarded by a cart moving at least 0.1 blocks a tick), the Beds rule holds
+  (a shared dormitory keeps its claims through the nightly HOME release of iteration 14, judged
+  over many nights, not only through a save and load), and the farm restarts after days away (a
   stalled advance recovers: a fallback pulse when no golem has come for a full cycle).
 - No escapes (villagers, golems, the zombie), the hostile and sky rules of the parent brief.
 
 ## Objectives
 
-Golems per hour per station (max), villagers per golem an hour (min), blocks (min), build minutes
-with travel and height (min), volume (min), regularity (min irregularities, as iteration 17
-counts them).
+The stage's objectives against copies with the same villagers (The number). Reported: golems per
+hour per station, villagers per golem an hour, the nightly stop's length, blocks, volume,
+regularity (iteration 17's counts).
 
 ## Not goals
 
