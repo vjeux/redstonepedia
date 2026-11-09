@@ -1,5 +1,6 @@
 # recordings of the real game replayed on redsim (mctas recorded check; crates/mctas/src/recorded.rs)
 file	hash	deps	version	recorded	how
+animal-panic.rec	896e58d641fe8ada		26.3	2026-11-09T08:49Z on dd744b4378	mctas mobai record animal-panic --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 animals.rec	d2dcf5e8a3afbd8b		26.3	2026-11-09T01:44Z on 556db985e	mctas mobai record animals --seed 1 --ticks 7000 --dir designs/redsim/recorded/mobai
 baby-animals.rec	81acab55f63cfa99		26.3	2026-11-09T02:29Z on 4fc4dee38	mctas mobai record baby-animals --seed 1 --ticks 6000 --dir designs/redsim/recorded/mobai
 bat-hall.rec	10e97b7cec176aaa		26.3	2026-11-08T22:46Z on c7600e306	mctas mobai record bat-hall --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai

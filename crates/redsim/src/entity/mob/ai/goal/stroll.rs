@@ -340,6 +340,16 @@ pub fn land_pos_in_direction(w: &mut World, i: usize, min_h: f64, max_h: f64, v:
     })
 }
 
+/// `DefaultRandomPos.getPos(mob, h, v)` (no home: no restriction): ten random directions, each
+/// cell inside the world, stable and without malus, the best by walk-target value.
+pub fn default_pos(w: &mut World, i: usize, h: i32, v: i32) -> Option<Vec3> {
+    best_of_ten(w, i, |w| {
+        let d = random_direction(w, i, h, v);
+        let p = toward_direction(w, i, d);
+        (!outside_build_height(p.y) && is_stable_destination(w, p) && !has_malus(w, i, p)).then_some(p)
+    })
+}
+
 /// `DefaultRandomPos.getPosTowards(mob, h, v, towardsPos, maxRadians)`.
 pub fn default_pos_towards(w: &mut World, i: usize, h: i32, v: i32, towards: Vec3, max_rad: f64) -> Option<Vec3> {
     let p = w.entities.list[i].pos;

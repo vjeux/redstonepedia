@@ -11,13 +11,15 @@ use crate::block::Block;
 use crate::entity::EntityKind;
 use crate::entity::mob::ai::{ai, ai_mut};
 use crate::entity::mob::types::MobType;
-use crate::entity::mob::{mob, mob_mut};
+use crate::entity::mob::{Damage, mob, mob_mut};
+use crate::entity::Vec3;
 use crate::pos::BlockPos;
 use crate::world::World;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum AnimalGoal {
-    Panic,
+    /// `PanicGoal`: its speed, the position it runs to.
+    Panic { speed: f64, pos: crate::entity::Vec3 },
     Breed,
     Tempt,
     /// `FollowParentGoal`: its speed, the parent and `timeToRecalcPath`.
@@ -29,7 +31,7 @@ pub enum AnimalGoal {
 impl AnimalGoal {
     pub fn flags(&self) -> u8 {
         match self {
-            AnimalGoal::Panic => MOVE,
+            AnimalGoal::Panic { .. } => MOVE,
             AnimalGoal::Breed | AnimalGoal::Tempt => MOVE | LOOK,
             AnimalGoal::FollowParent { .. } => 0,
             AnimalGoal::EatBlock { .. } => MOVE | LOOK | JUMP,
@@ -38,7 +40,7 @@ impl AnimalGoal {
 
     pub fn name(&self) -> &'static str {
         match self {
-            AnimalGoal::Panic => "PanicGoal",
+            AnimalGoal::Panic { .. } => "PanicGoal",
             AnimalGoal::Breed => "BreedGoal",
             AnimalGoal::Tempt => "TemptGoal",
             AnimalGoal::FollowParent { .. } => "FollowParentGoal",
@@ -78,7 +80,7 @@ pub fn register(a: &mut crate::entity::mob::ai::MobAi, id: &str) {
     match adult_of(id) {
         Some("pig") => {
             g.add(0, Goal::Float);
-            g.add(1, an(AnimalGoal::Panic));
+            g.add(1, an(AnimalGoal::Panic { speed: 1.25, pos: crate::entity::Vec3::ZERO }));
             g.add(3, an(AnimalGoal::Breed));
             g.add(4, an(AnimalGoal::Tempt));
             g.add(4, an(AnimalGoal::Tempt));
@@ -89,7 +91,7 @@ pub fn register(a: &mut crate::entity::mob::ai::MobAi, id: &str) {
         }
         Some(k @ ("cow" | "chicken")) => {
             g.add(0, Goal::Float);
-            g.add(1, an(AnimalGoal::Panic));
+            g.add(1, an(AnimalGoal::Panic { speed: if k == "cow" { 2.0 } else { 1.4 }, pos: crate::entity::Vec3::ZERO }));
             g.add(2, an(AnimalGoal::Breed));
             g.add(3, an(AnimalGoal::Tempt));
             g.add(4, follow(if k == "cow" { 1.25 } else { 1.1 }));
@@ -99,7 +101,7 @@ pub fn register(a: &mut crate::entity::mob::ai::MobAi, id: &str) {
         }
         Some("sheep") => {
             g.add(0, Goal::Float);
-            g.add(1, an(AnimalGoal::Panic));
+            g.add(1, an(AnimalGoal::Panic { speed: 1.25, pos: crate::entity::Vec3::ZERO }));
             g.add(2, an(AnimalGoal::Breed));
             g.add(3, an(AnimalGoal::Tempt));
             g.add(4, follow(1.1));
@@ -203,14 +205,31 @@ fn follow_can_continue(w: &mut World, i: usize, parent: Option<u32>) -> bool {
 
 pub fn can_use(w: &mut World, i: usize, g: &mut AnimalGoal) -> bool {
     match g {
-        AnimalGoal::Panic => {
-            let m = mob(w, i);
-            if m.hurt_time > 0 || m.fire_ticks > 0 {
-                // the fallback rule for natural mobs' behaviours (2026-11-09): not modeled yet, so
-                // it does not run; named in the run's report
-                w.mob.ai.legacy.insert("animals' PanicGoal when hurt or burning");
+        AnimalGoal::Panic { speed, pos } => {
+            // PanicGoal.canUse: shouldPanic (the last damage within 40 ticks, of #panic_causes);
+            // burning, the closest water within 5 (lookForWater, from a cell without a collision
+            // shape); else DefaultRandomPos.getPos(5, 4)
+            let now = w.time;
+            let panics = mob(w, i).last_damage.is_some_and(|(t, s)| {
+                now - t <= 40 && matches!(s, Damage::Lava | Damage::OnFire | Damage::HotFloor | Damage::Lightning | Damage::InFire | Damage::MobAttack)
+            });
+            if !panics {
+                return false;
             }
-            false
+            let _ = speed;
+            if mob(w, i).fire_ticks > 0
+                && let Some(p) = look_for_water(w, i, 5)
+            {
+                *pos = Vec3::new(p.x as f64, p.y as f64, p.z as f64);
+                return true;
+            }
+            match super::stroll::default_pos(w, i, 5, 4) {
+                Some(v) => {
+                    *pos = v;
+                    true
+                }
+                None => false,
+            }
         }
         AnimalGoal::Breed | AnimalGoal::Tempt => false,
         AnimalGoal::FollowParent { parent, .. } => follow_can_use(w, i, parent),
@@ -227,10 +246,45 @@ pub fn can_use(w: &mut World, i: usize, g: &mut AnimalGoal) -> bool {
     }
 }
 
+/// `PanicGoal.lookForWater(level, mob, xz)`: from a cell without a collision shape, the first water
+/// cell of `BlockPos.findClosestMatch(pos, xz, 1)` (`withinManhattan`'s order).
+fn look_for_water(w: &World, i: usize, xz: i32) -> Option<BlockPos> {
+    let me = w.entities.list[i].block_position();
+    if !crate::entity::collide::boxes_at(w, &w.get(me), me).is_empty() {
+        return None;
+    }
+    within_manhattan(me, xz, 1, xz).into_iter().find(|p| crate::fluid::fluid_state(w, *p).fluid.is_water())
+}
+
+/// `BlockPos.withinManhattan(origin, rx, ry, rz)`: by Manhattan depth, then x from -maxX, y from
+/// -maxY, each z and its mirror.
+pub fn within_manhattan(o: BlockPos, rx: i32, ry: i32, rz: i32) -> Vec<BlockPos> {
+    let mut out = Vec::new();
+    let max_depth = rx + ry + rz;
+    for depth in 0..=max_depth {
+        let max_x = rx.min(depth);
+        for x in -max_x..=max_x {
+            let max_y = ry.min(depth - x.abs());
+            for y in -max_y..=max_y {
+                let z = depth - x.abs() - y.abs();
+                if z <= rz {
+                    out.push(BlockPos::new(o.x + x, o.y + y, o.z + z));
+                    if z != 0 {
+                        out.push(BlockPos::new(o.x + x, o.y + y, o.z - z));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 pub fn can_continue(w: &mut World, i: usize, g: &mut AnimalGoal) -> bool {
     match g {
         AnimalGoal::EatBlock { tick } => *tick > 0,
         AnimalGoal::FollowParent { parent, .. } => follow_can_continue(w, i, *parent),
+        // PanicGoal.canContinueToUse: the navigation still going
+        AnimalGoal::Panic { .. } => !crate::entity::mob::ai::nav_of(w, i).is_done(),
         _ => can_use(w, i, g),
     }
 }
@@ -243,6 +297,11 @@ pub fn start(w: &mut World, i: usize, g: &mut AnimalGoal) {
             crate::entity::mob::ai::with_nav(w, i, |_, _, nav, _| nav.stop());
         }
         AnimalGoal::FollowParent { recalc, .. } => *recalc = 0,
+        // PanicGoal.start: navigation.moveTo(the position, its speed)
+        AnimalGoal::Panic { speed, pos } => {
+            let (p, s) = (*pos, *speed);
+            crate::entity::mob::ai::with_nav(w, i, |w, nm, nav, arena| nav.move_to_xyz(w, nm, p.x, p.y, p.z, 1, s, arena));
+        }
         _ => {}
     }
 }

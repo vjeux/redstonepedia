@@ -648,7 +648,47 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
-    // the farm animals' babies by their parents in a grass pen: FollowParentGoal, a baby sheep's
+    // animals that panic (PanicGoal): a cow and a sheep on magma blocks (hot floor damage), a pig
+    // set burning by a fire and a chicken beside lava, a water pool to run to (lookForWater), on a
+    // stone floor inside a low wall
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        for (a, c) in [((8, 8), (8, 39)), ((39, 8), (39, 39)), ((8, 8), (39, 8)), ((8, 39), (39, 39))] {
+            wall(&mut b, a, c, 63, 2, stone);
+        }
+        for x in 14..=16 {
+            for z in 14..=16 {
+                b.push(([x, 63, z], "minecraft:magma_block".to_string()));
+            }
+        }
+        for x in 26..=28 {
+            for z in 26..=27 {
+                b.push(([x, 63, z], "minecraft:water[level=0]".to_string()));
+            }
+        }
+        b.push(([22, 64, 24], "minecraft:fire[age=0,east=false,north=false,south=false,up=false,west=false]".to_string()));
+        b.push(([20, 63, 30], "minecraft:lava[level=0]".to_string()));
+        let p = |s: &str| Some(s.to_string());
+        v.push(Scene {
+            name: "animal-panic".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:cow".into(), [15.5, 64.0, 15.5], p("{PersistenceRequired:1b}")),
+                ("minecraft:sheep".into(), [14.5, 64.0, 14.5], p("{PersistenceRequired:1b}")),
+                ("minecraft:pig".into(), [22.5, 64.0, 24.5], p("{PersistenceRequired:1b}")),
+                ("minecraft:chicken".into(), [21.5, 64.0, 30.5], p("{PersistenceRequired:1b}")),
+            ],
+            day_time: 6000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: Some([24.5, 74.0, 24.5]),
+            player_creative: true,
+            random_tick_speed: 0,
+        });
+    }
     // EatBlockGoal (25) and its age-up, two babies growing up during the run
     {
         let mut b = Vec::new();

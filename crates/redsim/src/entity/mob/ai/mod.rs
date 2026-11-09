@@ -108,10 +108,16 @@ impl MobAi {
         let kind = if d.id == "spider" || d.id == "cave_spider" { NavKind::WallClimber } else { NavKind::Ground };
         let malus = if ty == MobType::Villager {
             Malus::villager()
-        } else if goal::animal::adult_of(d.id) == Some("chicken") {
-            // the chicken's constructor: setPathfindingMalus(WATER, 0)
+        } else if goal::animal::is_animal(d.id) {
+            // Animal's constructor: FIRE_IN_NEIGHBOR 16, FIRE -1; then the chicken's own
+            // setPathfindingMalus(WATER, 0)
+            use crate::entity::mob::ai::path::path_type::PathType;
             let mut m = Malus::default();
-            m.set(crate::entity::mob::ai::path::path_type::PathType::Water, 0.0);
+            m.set(PathType::FireInNeighbor, 16.0);
+            m.set(PathType::Fire, -1.0);
+            if goal::animal::adult_of(d.id) == Some("chicken") {
+                m.set(PathType::Water, 0.0);
+            }
             m
         } else if d.id == "enderman" {
             // the enderman's constructor: setPathfindingMalus(WATER, -1)
