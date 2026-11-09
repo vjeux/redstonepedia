@@ -152,6 +152,8 @@ pub struct Variation {
     pub name: String,
     /// Why it is held off the site (a bar, a takedown: ironspec's); empty: on the site.
     pub held: String,
+    /// Columns this tool does not know (another lane's), kept as they are when it writes the file.
+    pub extra: Vec<(String, String)>,
 }
 
 impl Variation {
@@ -161,7 +163,20 @@ impl Variation {
 }
 
 const VARIATIONS: &str = "variations.tsv";
-const VARIATIONS_HEADER: &str = "file\tpick\tname\theld";
+const VARIATIONS_COLUMNS: [&str; 4] = ["file", "pick", "name", "held"];
+
+/// Make `file` the stage's pick for `pick` (`yes`, or a fork value: `redstone`): only the rows
+/// holding that same value lose it; every other pick stays (the day-1 lane 2026-11-08: a `--pick`
+/// had cleared the redstone pick, by a binary older than the fork picks).
+pub fn apply_pick(vars: &mut [Variation], file: &str, pick: &str) {
+    for v in vars.iter_mut() {
+        if v.file == file {
+            v.pick = pick.to_string();
+        } else if v.pick == pick {
+            v.pick.clear();
+        }
+    }
+}
 
 /// A tab-separated file's rows by its header's column names.
 fn tsv_rows(text: &str) -> Vec<std::collections::BTreeMap<String, String>> {
@@ -174,20 +189,36 @@ fn tsv_rows(text: &str) -> Vec<std::collections::BTreeMap<String, String>> {
 /// A stage folder's `variations.tsv` rows (none without the file).
 pub fn read_variations(dir: &Path) -> Vec<Variation> {
     let text = std::fs::read_to_string(dir.join(VARIATIONS)).unwrap_or_default();
+    // (the header's own order, for the columns this tool does not know)
+    let head: Vec<String> = text.lines().find(|l| !l.trim().is_empty() && !l.starts_with('#')).map(|h| h.split('\t').map(|c| c.trim().to_string()).collect()).unwrap_or_default();
     tsv_rows(&text)
         .into_iter()
         .filter_map(|r| {
             let file = r.get("file").cloned().filter(|f| !f.is_empty())?;
             let pick = r.get("pick").map(|p| p.trim().to_lowercase()).filter(|p| !p.is_empty() && p != "no").unwrap_or_default();
-            Some(Variation { file, pick, name: r.get("name").cloned().unwrap_or_default(), held: r.get("held").cloned().unwrap_or_default() })
+            let extra = head.iter().filter(|c| !c.is_empty() && !VARIATIONS_COLUMNS.contains(&c.as_str())).map(|c| (c.clone(), r.get(c).cloned().unwrap_or_default())).collect();
+            Some(Variation { file, pick, name: r.get("name").cloned().unwrap_or_default(), held: r.get("held").cloned().unwrap_or_default(), extra })
         })
         .collect()
 }
 
 fn write_variations(dir: &Path, rows: &[Variation]) -> Result<()> {
-    let mut out = format!("{VARIATIONS_HEADER}\n");
+    let mut extra_cols: Vec<String> = Vec::new();
     for r in rows {
-        out.push_str(&format!("{}\t{}\t{}\t{}\n", r.file, r.pick, r.name.replace(['\t', '\n'], " "), r.held.replace(['\t', '\n'], " ")));
+        for (c, _) in &r.extra {
+            if !extra_cols.contains(c) {
+                extra_cols.push(c.clone());
+            }
+        }
+    }
+    let clean = |s: &str| s.replace(['\t', '\n'], " ");
+    let mut out = VARIATIONS_COLUMNS.iter().map(|c| c.to_string()).chain(extra_cols.iter().cloned()).collect::<Vec<_>>().join("\t");
+    out.push('\n');
+    for r in rows {
+        let mut cells = vec![r.file.clone(), r.pick.clone(), clean(&r.name), clean(&r.held)];
+        cells.extend(extra_cols.iter().map(|c| r.extra.iter().find(|(k, _)| k == c).map(|(_, v)| clean(v)).unwrap_or_default()));
+        out.push_str(&cells.join("\t"));
+        out.push('\n');
     }
     std::fs::write(dir.join(VARIATIONS), out)?;
     Ok(())
@@ -1036,20 +1067,14 @@ pub fn variation(a: &crate::VariationArgs) -> Result<()> {
                     eprintln!("{file}: still held off the site ({}); clear its `held` in variations.tsv to list it", v.held);
                 }
             }
-            None => vars.push(Variation { file: file.clone(), pick: String::new(), name: a.name.clone().unwrap_or_default(), held: String::new() }),
+            None => vars.push(Variation { file: file.clone(), name: a.name.clone().unwrap_or_default(), ..Default::default() }),
         }
         // the stage's pick (`--pick`: `yes`), or its pick for one value of the stage's fork
         // (`--pick-for redstone`: day 1 keeps one pick per redstone fork value, ironspec rev 9
         // iteration 19): it takes that value from any other variation, the other picks stay
         let pick = pick_value(a)?;
         if let Some(p) = &pick {
-            for v in vars.iter_mut() {
-                if v.file == file {
-                    v.pick = p.clone();
-                } else if &v.pick == p {
-                    v.pick.clear();
-                }
-            }
+            apply_pick(&mut vars, &file, p);
         }
         let role = match pick.as_deref() {
             Some("yes") => "the stage's pick".to_string(),
@@ -1186,6 +1211,32 @@ mod tests {
     }
 
     #[test]
+    fn a_pick_leaves_the_other_fork_s_pick_and_unknown_columns_alone() {
+        // (the day-1 lane 2026-11-08: a `--pick` cleared the redstone pick; the file as on main,
+        // with a column this tool does not know)
+        let dir = std::env::temp_dir().join(format!("mctas-farms-pick-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(VARIATIONS), "file\tpick\tname\theld\tnote\nd1u-underground.txt\t\tUnderground farm\t\tkeep me\nd1u-deep.txt\tyes\tDeep pit\t\t\ndust-pulse-out-of-sight.txt\tredstone\tDust pulse\t\t\nd1-bed-plate.txt\t\t\tnot presented\t\n").unwrap();
+        let mut v = read_variations(&dir);
+        // `--pick` on another design: only the `yes` row moves
+        apply_pick(&mut v, "d1u-underground.txt", "yes");
+        write_variations(&dir, &v).unwrap();
+        let back = read_variations(&dir);
+        let text = std::fs::read_to_string(dir.join(VARIATIONS)).unwrap();
+        // `--pick-for redstone` on the deep farm: only the redstone row moves
+        let mut w = back.clone();
+        apply_pick(&mut w, "d1u-deep.txt", "redstone");
+        let _ = std::fs::remove_dir_all(&dir);
+        let picks = |v: &[Variation]| -> Vec<(String, String)> { v.iter().map(|v| (v.file.clone(), v.pick.clone())).collect() };
+        let pair = |f: &str, p: &str| (f.to_string(), p.to_string());
+        assert_eq!(picks(&back), [pair("d1u-underground.txt", "yes"), pair("d1u-deep.txt", ""), pair("dust-pulse-out-of-sight.txt", "redstone"), pair("d1-bed-plate.txt", "")]);
+        assert_eq!(picks(&w)[1..3], [pair("d1u-deep.txt", "redstone"), pair("dust-pulse-out-of-sight.txt", "")]);
+        assert_eq!(w[0].pick, "yes", "the yes pick stays");
+        assert!(text.starts_with("file\tpick\tname\theld\tnote\n") && text.contains("\tkeep me\n"), "{text}");
+        assert_eq!(back[3].held, "not presented");
+    }
+
+    #[test]
     fn a_held_variation_keeps_its_reason() {
         // (site variation --regate: a failed real-game gate holds it off the site; an old file
         // without the `held` column reads as on the site)
@@ -1193,7 +1244,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(VARIATIONS), "file\tpick\tname\nold.txt\tyes\tthe old one\n").unwrap();
         assert_eq!(read_variations(&dir)[0].held, "");
-        let rows = vec![Variation { file: "d1.txt".into(), pick: String::new(), name: "bed plate".into(), held: "the real game: build 3: golems walk off the pad".into() }];
+        let rows = vec![Variation { file: "d1.txt".into(), name: "bed plate".into(), held: "the real game: build 3: golems walk off the pad".into(), ..Default::default() }];
         write_variations(&dir, &rows).unwrap();
         let back = read_variations(&dir);
         let _ = std::fs::remove_dir_all(&dir);
