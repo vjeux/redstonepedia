@@ -510,7 +510,8 @@ pub enum WebCmd {
         dist: String,
     },
     /// Texture contact sheet: PNGs scaled up (nearest) in a grid, in the given order (row by row),
-    /// to pick textures by eye.
+    /// to pick textures by eye. With `--crop x,y,w,h`: that part of each picture instead, at its
+    /// own size (any pictures: a WebKit film's frames, to read many in one).
     Sheet {
         pngs: Vec<PathBuf>,
         #[arg(long, short)]
@@ -519,6 +520,8 @@ pub enum WebCmd {
         scale: u32,
         #[arg(long, default_value_t = 8)]
         cols: u32,
+        #[arg(long)]
+        crop: Option<String>,
     },
     /// The viewer's own textures as PNGs (`<out>/<tile>.png`), to compare with the game's.
     Tiles {
@@ -815,7 +818,11 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
         WebCmd::Record { url, out, index, window, scale, timeout, browser } => crate::cdp::cmd_record(&url, &out, index, &window, scale, timeout, &browser),
         WebCmd::Layout { url, seconds, window, scale, min_ticks, browser } => crate::cdp::cmd_layout(&url, seconds, &window, scale, min_ticks, &browser),
         WebCmd::Reference { out, version, names } => cmd_reference(&out, &version, &names),
-        WebCmd::Sheet { pngs, out, scale, cols } => {
+        WebCmd::Sheet { pngs, out, scale, cols, crop: Some(c) } => {
+            let _ = scale;
+            cmd_sheet(&pngs, &out, Some(&c), cols, 1.0)
+        }
+        WebCmd::Sheet { pngs, out, scale, cols, crop: None } => {
             let (rgba, w, h) = mcview::tools::sheet(&pngs, scale, cols).map_err(anyhow::Error::msg)?;
             mcview::render::headless::write_png(&out, w, h, &rgba).map_err(anyhow::Error::msg)?;
             println!("{} ({} textures)", out.display(), pngs.len());
@@ -1153,6 +1160,57 @@ fn cmd_bundle(out: &Path) -> Result<()> {
     std::fs::copy(vendor.join("mediabunny.min.mjs"), out.join("mediabunny.min.js")).context("copying the vendored mediabunny")?;
     std::fs::copy(vendor.join("LICENSE"), out.join("mediabunny.LICENSE.txt"))?;
     println!("{} ({} KB, MPL-2.0: mediabunny.LICENSE.txt)", out.join("mediabunny.min.js").display(), std::fs::metadata(out.join("mediabunny.min.js"))?.len() / 1024);
+    Ok(())
+}
+
+fn cmd_sheet(pngs: &[PathBuf], out: &Path, crop: Option<&str>, cols: u32, scale: f32) -> Result<()> {
+    if pngs.is_empty() {
+        bail!("no picture given");
+    }
+    let crop: Option<[u32; 4]> = match crop {
+        None => None,
+        Some(s) => {
+            let v: Vec<u32> = s.split(',').map(|x| x.trim().parse::<u32>()).collect::<Result<_, _>>().with_context(|| format!("--crop {s}: x,y,w,h"))?;
+            let [x, y, w, h] = v[..] else { bail!("--crop {s}: x,y,w,h") };
+            Some([x, y, w, h])
+        }
+    };
+    // each picture's part, scaled (nearest), then tiled `cols` a row with a 4 px gap
+    let mut tiles: Vec<(Vec<u8>, u32, u32)> = Vec::new();
+    for p in pngs {
+        let (px, w, h) = mcview::atlas::vanilla::decode_png(&std::fs::read(p).with_context(|| format!("reading {}", p.display()))?).map_err(anyhow::Error::msg)?;
+        let [cx, cy, cw, ch] = crop.unwrap_or([0, 0, w, h]);
+        if cx + cw > w || cy + ch > h {
+            bail!("--crop is outside {} ({w}x{h})", p.display());
+        }
+        let (tw, th) = (((cw as f32 * scale).round() as u32).max(1), ((ch as f32 * scale).round() as u32).max(1));
+        let mut t = vec![0u8; (tw * th * 4) as usize];
+        for y in 0..th {
+            for x in 0..tw {
+                let (sx, sy) = (cx + ((x as f32 / scale) as u32).min(cw - 1), cy + ((y as f32 / scale) as u32).min(ch - 1));
+                let s = ((sy * w + sx) * 4) as usize;
+                let d = ((y * tw + x) * 4) as usize;
+                t[d..d + 4].copy_from_slice(&px[s..s + 4]);
+            }
+        }
+        tiles.push((t, tw, th));
+    }
+    let (tw, th) = (tiles.iter().map(|t| t.1).max().unwrap_or(1), tiles.iter().map(|t| t.2).max().unwrap_or(1));
+    let cols = cols.max(1).min(tiles.len() as u32);
+    let rows = (tiles.len() as u32).div_ceil(cols);
+    let gap = 4;
+    let (w, h) = (cols * tw + (cols - 1) * gap, rows * th + (rows - 1) * gap);
+    let mut sheet = vec![255u8; (w * h * 4) as usize];
+    for (i, (t, iw, ih)) in tiles.iter().enumerate() {
+        let (ox, oy) = ((i as u32 % cols) * (tw + gap), (i as u32 / cols) * (th + gap));
+        for y in 0..*ih {
+            let s = (y * iw * 4) as usize;
+            let d = (((oy + y) * w + ox) * 4) as usize;
+            sheet[d..d + (iw * 4) as usize].copy_from_slice(&t[s..s + (iw * 4) as usize]);
+        }
+    }
+    mcview::render::headless::write_png(out, w, h, &sheet).map_err(anyhow::Error::msg)?;
+    println!("{}: {} pictures, {cols} a row ({w}x{h})", out.display(), tiles.len());
     Ok(())
 }
 
@@ -2723,21 +2781,25 @@ fn mob_pair(text: &str, path: &Path, probe: Option<&mut mcview::tools::WasmProbe
         return Err(format!("the viewer's world leaves redsim's run at tick {t} after the mobs arrive"));
     }
     let ticks = judge::JUDGE_DAYS * 24000;
+    // the judge's run 0 with the card's hand step (the view performs it as the T run does:
+    // `farm::run_t`; the run itself is `farm::run` without it)
+    let hand = mcview::mobfarm::hand_hide_of(&md);
     let rep = match site {
-        Some(js) => redsim::entity::mob::farm::run(&js.spec(&theirs), &redsim::entity::mob::farm::judge_opts_in(jo.seed0, ticks, WalkMode::Random, Some(js)))?,
-        None => redsim::entity::mob::farm::run(&theirs, &RunOpts::steady(jo.seed0, ticks, WalkMode::Random))?,
+        Some(js) => redsim::entity::mob::farm::run_t(&js.spec(&theirs), &redsim::entity::mob::farm::judge_opts_in(jo.seed0, ticks, WalkMode::Random, Some(js)), u32::MAX, hand)?.0,
+        None => redsim::entity::mob::farm::run_t(&theirs, &RunOpts::steady(jo.seed0, ticks, WalkMode::Random), u32::MAX, hand)?.0,
     };
     let (golems, iron, chest) = mcview::mobfarm::view_counts(text, ticks)?;
     // (a run its own checks stop, after its 4th failure, holds no totals to compare: the farm
     // fails its judge, which the card says; the view is redsim's run tick for tick all the same)
     let stopped = rep.failures.len() >= 4;
+    let with_hand = if hand { " with the card's first-night hide by hand" } else { "" };
     if !stopped && (golems, iron) != (rep.golems, rep.iron_dropped) {
-        return Err(format!("over {} days the viewer summons {golems} golems dropping {iron} iron, the judge's run 0 {} and {}", judge::JUDGE_DAYS, rep.golems, rep.iron_dropped));
+        return Err(format!("over {} days the viewer summons {golems} golems dropping {iron} iron, the judge's run 0{with_hand} {} and {}", judge::JUDGE_DAYS, rep.golems, rep.iron_dropped));
     }
     let totals = if stopped {
         format!("the judge's run 0 stops on its farm's failures (the first: {}), its totals not compared", rep.failures[0])
     } else {
-        format!("{} days = the judge's run 0: {golems} golems ({:.1}/h), {iron} iron ({chest} in the chests)", judge::JUDGE_DAYS, golems as f64 * 72000.0 / ticks as f64)
+        format!("{} days = the judge's run 0{with_hand}: {golems} golems ({:.1}/h), {iron} iron ({chest} in the chests)", judge::JUDGE_DAYS, golems as f64 * 72000.0 / ticks as f64)
     };
     let wasm = match probe {
         // (a terrain world in the wasm interpreter: its native run is the browser's, the same code)

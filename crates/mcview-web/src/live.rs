@@ -1817,10 +1817,13 @@ impl Live {
         let _ = scrub.set_attribute("aria-valuemin", &floor.to_string());
         let _ = scrub.set_attribute("aria-valuemax", &high.to_string());
         let _ = scrub.set_attribute("aria-valuenow", &p.session.tick.to_string());
-        if p.activity_version() == *version {
+        // (redrawn as the run's activity changes, or a hand step joins the marks)
+        let marks = p.hand_events();
+        let v = p.activity_version().wrapping_add((marks.len() as u64) << 56);
+        if v == *version {
             return;
         }
-        *version = p.activity_version();
+        *version = v;
         strip.set_inner_html("");
         // a run of the game's clock: its nights, a darker band from dusk to dawn under the
         // activity (vjeux 2026-11-08: the day/night cycle matters to how the farm works)
@@ -1857,6 +1860,42 @@ impl Live {
                 ],
             );
             let _ = strip.append_child(&seg);
+        }
+        // the card's hand steps (a mob farm whose card says "hide the zombie by hand the first
+        // night": the view performs it as the judge's T run does): an amber mark each, across the
+        // scrubber's height, named in its tooltip
+        let layer = match scrub.query_selector("[data-mcview-marks]").ok().flatten() {
+            Some(e) => e,
+            None => {
+                let e: web_sys::Element = el("div").into();
+                let _ = e.set_attribute("data-mcview-marks", "");
+                let _ = e.set_attribute("style", "position:absolute;left:0;right:0;top:0;bottom:0;pointer-events:none");
+                let _ = scrub.append_child(&e);
+                e
+            }
+        };
+        layer.set_inner_html("");
+        for (t, words) in marks {
+            if high <= floor || t < floor || t > high {
+                continue;
+            }
+            let m = el("div");
+            style(
+                &m,
+                &[
+                    ("position", "absolute"),
+                    ("top", "5px"),
+                    ("height", "18px"),
+                    ("width", "3px"),
+                    ("margin-left", "-1px"),
+                    ("border-radius", "2px"),
+                    ("left", &format!("{}%", (t - floor) as f64 / (high - floor) as f64 * 100.0)),
+                    ("background", "#ffb020"),
+                ],
+            );
+            let _ = m.set_attribute("title", words);
+            let _ = m.set_attribute("data-mcview-mark", words);
+            let _ = layer.append_child(&m);
         }
     }
 

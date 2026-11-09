@@ -17,7 +17,7 @@
 //! animation from position deltas, `entitymodel` draws the models) and the readout's counts.
 
 use crate::design::{Design, Pos};
-use redsim::entity::mob::farm::{FarmSpec, Run, RunOpts, WalkMode};
+use redsim::entity::mob::farm::{FarmSpec, HandHide, HandStep, Run, RunOpts, WalkMode};
 use redsim::entity::mob::types::MobType;
 use redsim::entity::mob::MobEvent;
 use redsim::entity::EntityKind;
@@ -140,6 +140,31 @@ pub struct MobRun {
     pub spawned: HashMap<BlockPos, u32>,
     /// The cells golems spawned on in the last tick.
     pub last_spawns: Vec<BlockPos>,
+    /// Its farm as built (moved into its terrain, if any) and the farm's own mobs (the design's
+    /// entities, by id, once they arrived).
+    spec: FarmSpec,
+    own: std::collections::HashSet<u32>,
+    /// The card's hand step, as the judge's T run performs it (`farm::run_t`; the parent
+    /// 2026-11-08: "Does the view perform the card's hand steps? If not, the view shows a night the
+    /// player wouldn't have"): a farm whose design does not claim `restart: yes` has its zombie
+    /// hidden by hand the first night ([`hand_hide_of`]). And what it did, at which game time (the
+    /// timeline's marks).
+    pub hand: Option<HandHide>,
+    pub hand_events: Vec<(i64, HandStep)>,
+}
+
+/// A farm's card prints "hide the zombie by hand the first night" (its design does not claim
+/// `restart: yes`: `circuit::mobfarm::claims_restart`): the view performs it like the T run.
+pub fn hand_hide_of(d: &Design) -> bool {
+    d.meta.get("restart").map(|v| v.trim()) != Some("yes")
+}
+
+/// The words of a hand step for the timeline and the badge.
+pub fn hand_words(s: HandStep) -> &'static str {
+    match s {
+        HandStep::Hid => "you hide the zombie",
+        HandStep::Restored => "you open the trapdoors again",
+    }
 }
 
 impl MobRun {
@@ -165,7 +190,8 @@ impl MobRun {
                 chests.push(*p);
             }
         }
-        Ok(MobRun { run, chests, golems: 0, iron_dropped: 0, poppies_dropped: 0, arrived: 0, walk: HashMap::new(), spots: Vec::new(), spots_key: Vec::new(), spawned: HashMap::new(), last_spawns: Vec::new() })
+        let hand = hand_hide_of(d).then(HandHide::default);
+        Ok(MobRun { run, chests, golems: 0, iron_dropped: 0, poppies_dropped: 0, arrived: 0, walk: HashMap::new(), spots: Vec::new(), spots_key: Vec::new(), spawned: HashMap::new(), last_spawns: Vec::new(), spec, own: Default::default(), hand, hand_events: Vec::new() })
     }
 
     /// One tick of the water's settle; false once none is left.
@@ -177,6 +203,7 @@ impl MobRun {
     pub fn arrive(&mut self) -> Result<(), String> {
         self.run.arrive()?;
         self.arrived = self.run.world.time;
+        self.own = self.run.own.iter().copied().collect();
         let w = std::mem::replace(&mut self.run.world, World::new(BlockPos::new(0, 0, 0), [1, 1, 1]));
         self.refresh_spots(&w, true);
         self.run.world = w;
@@ -193,6 +220,12 @@ impl MobRun {
     /// tick), then the record taken: the counts, each mob's walk animation, the spawn spots.
     pub fn tick(&mut self, w: &mut World) {
         std::mem::swap(w, &mut self.run.world);
+        // (the card's hand step due before the tick, as the T run does it)
+        if let Some(h) = self.hand.as_mut()
+            && let Some(step) = h.before_tick(&mut self.run.world, &self.spec, &self.own)
+        {
+            self.hand_events.push((self.run.world.time, step));
+        }
         self.run.tick();
         std::mem::swap(w, &mut self.run.world);
         self.absorb(w);
@@ -565,7 +598,13 @@ pub fn reference_digests(d: &Design, ticks: u32, site: Option<&'static redsim::e
     let mut r = Run::new(&spec, &opts)?;
     let mut v = vec![world_digest(&mut r.world)];
     let mut golems = 0;
+    // (the card's hand step, as the view and the T run perform it)
+    let mut hand = hand_hide_of(d).then(HandHide::default);
+    let own: std::collections::HashSet<u32> = r.own.iter().copied().collect();
     for _ in 0..ticks {
+        if let Some(h) = hand.as_mut() {
+            h.before_tick(&mut r.world, &spec, &own);
+        }
         r.tick();
         golems += std::mem::take(&mut r.world.mob.events).iter().filter(|e| matches!(e, MobEvent::GolemTry { golem: Some(_), .. })).count() as u32;
         v.push(world_digest(&mut r.world));
@@ -946,6 +985,80 @@ mod tests {
         println!("live: {} cells reached, {} open", m.spots.len(), m.spots.iter().filter(|(_, r)| spot_open(r)).count());
     }
 
+    /// The parent 2026-11-08 ("Does the view perform the card's hand steps (the judge's T run
+    /// does)? If not, the view shows a night the player wouldn't have"): iron-day1's card says
+    /// "hide the zombie by hand the first night", and the view does it as the T run does: at day
+    /// time 12000 of its first night the trapdoors flip so no villager sees the zombie, and once the
+    /// three villagers sleep they flip back; the view stays the judge's run with that step, tick
+    /// for tick.
+    #[test]
+    fn the_view_hides_the_zombie_the_first_night_like_the_t_run() {
+        let text = archived("iron-day1");
+        let d = Design::parse(&text).unwrap();
+        assert!(hand_hide_of(&d));
+        let mut s = crate::session::Session::new(&text, &crate::session::Options::live()).unwrap();
+        let mut hid = None;
+        let mut restored = None;
+        for _ in 0..30000 {
+            s.step();
+            let m = s.mob.as_ref().unwrap();
+            if hid.is_none() && let Some((t, HandStep::Hid)) = m.hand_events.first() {
+                hid = Some(*t);
+                assert_eq!((s.world.mob.day_offset + t).rem_euclid(24000), 12000, "the hide at the first day time 12000");
+                assert!(status_words(&s).starts_with("you hid the zombie"), "{}", status_words(&s));
+            }
+            if let Some((t, HandStep::Restored)) = m.hand_events.get(1) {
+                restored = Some(*t);
+                break;
+            }
+        }
+        let (hid, restored) = (hid.expect("the zombie hidden"), restored.expect("the trapdoors back"));
+        assert!(restored - hid >= 20 && restored - hid < 600, "{hid} -> {restored}");
+        // every villager asleep when the trapdoors flip back
+        assert_eq!(status_words(&s), "villagers: 3 asleep");
+        // and the view is the judge's run with the same step, tick for tick, through it
+        let n = (restored + 100 - s.mob.as_ref().unwrap().arrived) as u32;
+        let (want, _) = reference_digests(&d, n, None).unwrap();
+        let (got, _) = view_digests(&text, n).unwrap();
+        assert_eq!(want.iter().zip(&got).position(|(a, b)| a != b), None);
+    }
+
+    /// What the villagers do through the first two nights of a farm's view (a diagnostic:
+    /// `MCTAS_DESIGN=<path> cargo test -p mcview print_nights -- --ignored --nocapture`).
+    #[test]
+    #[ignore]
+    fn print_nights() {
+        let path = std::env::var("MCTAS_DESIGN").unwrap_or_else(|_| format!("{}/../../designs/circuits/mobfarm/archive/iron-day1.txt", env!("CARGO_MANIFEST_DIR")));
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut s = crate::session::Session::new(&text, &crate::session::Options::live()).unwrap();
+        // (MCTAS_NO_HAND=1: without the card's hand step, as the view ran before)
+        if std::env::var("MCTAS_NO_HAND").is_ok() {
+            s.mob.as_mut().unwrap().hand = None;
+        }
+        // each night's first sleep and its panics, and the golems at each dawn
+        let (mut first_sleep, mut panics, mut was_panic): (Option<String>, u32, bool) = (None, 0, false);
+        for _ in 0..60000 {
+            s.step();
+            let day = s.world.day_time();
+            let w = status_words(&s);
+            let d = day.rem_euclid(24000);
+            if (12000..23000).contains(&d) {
+                if first_sleep.is_none() && w.contains("asleep") {
+                    first_sleep = Some(clock_words(day));
+                }
+                let p = w.contains("panicking");
+                if p && !was_panic {
+                    panics += 1;
+                }
+                was_panic = p;
+            }
+            if d == 23000 {
+                println!("night ending {}: first asleep at {}, {panics} panics; {}", clock_words(day), first_sleep.take().unwrap_or_else(|| "never".into()), readout(&s));
+                panics = 0;
+            }
+        }
+    }
+
     /// The staged camera search finds the very camera of the search at once on every archived
     /// circuit and door, desktop and phone (`--ignored`: a few hundred designs).
     #[test]
@@ -1238,12 +1351,22 @@ pub fn status_words(s: &crate::session::Session) -> String {
             calm += 1;
         }
     }
+    // the card's hand step under way (the zombie hidden until the villagers sleep)
+    if s.mob.as_ref().is_some_and(|m| m.hand.as_ref().is_some_and(|h| h.hidden.is_some())) {
+        return hand_status_text(asleep, panic, calm);
+    }
     status_text(asleep, panic, calm)
 }
 
 fn status_text(asleep: u32, panic: u32, calm: u32) -> String {
     let parts: Vec<String> = [(asleep, "asleep"), (panic, "panicking"), (calm, "calm")].iter().filter(|(n, _)| *n > 0).map(|(n, w)| format!("{n} {w}")).collect();
     if parts.is_empty() { String::new() } else { format!("villagers: {}", parts.join(", ")) }
+}
+
+/// The badge while the card's hand step is under way: `you hid the zombie: 2 asleep, 1 calm`.
+fn hand_status_text(asleep: u32, panic: u32, calm: u32) -> String {
+    let v = status_text(asleep, panic, calm);
+    format!("{}: {}", hand_words(HandStep::Hid).replace("hide", "hid"), v.strip_prefix("villagers: ").unwrap_or(&v))
 }
 
 /// The widest texts [`status_words`] can say for a farm of `n` villagers (the badge is sized once
@@ -1257,6 +1380,12 @@ pub fn status_texts(n: u32) -> Vec<String> {
     if n >= 2 {
         v.push(status_text(n / 2, n - n / 2, 0));
         v.push(status_text(0, n / 2, n - n / 2));
+    }
+    // (the card's hand step under way: the zombie hidden while they fall asleep)
+    v.push(hand_status_text(n, 0, 0));
+    if n >= 2 {
+        v.push(hand_status_text(n / 2, n - n / 2, 0));
+        v.push(hand_status_text(n / 2, 0, n - n / 2));
     }
     v
 }

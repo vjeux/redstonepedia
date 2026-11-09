@@ -539,7 +539,12 @@ each build's page.
   output chest and watch box) and steps it with redsim's one runner, `entity::mob::farm::Run`,
   the code the judge runs (`start`, its 200-tick water settle paused between ticks over the wake's
   frames, `arrive`, then `tick`: the golems' random walking policy, then the world's tick), seed
-  `JUDGE_SEED` = the judge's first run of its base build, played on past its 5 days. Nothing of
+  `JUDGE_SEED` = the judge's first run of its base build, played on past its 5 days. A farm
+  whose card says "hide the zombie by hand the first night" (its design does not claim
+  `restart: yes`) gets that step as the judge's T run performs it (`farm::HandHide`, shared with
+  `farm::run_t`): at day time 12000 of its first night the trapdoors flip so no villager sees the
+  zombie, and flip back once every villager sleeps; the badge says "you hid the zombie" meanwhile
+  and the scrubber marks each step in amber. Nothing of
   the mob layer is approximated in the view: what it adds is the client's drawing of redsim's
   state (`MobRun::draw` over `mob::view`): `LivingEntityRenderer`'s transforms (a sleeper laid on
   its bed toward its pillow, a dying mob falling sideways over 20 ticks, a walking golem's sway,
@@ -567,7 +572,7 @@ each build's page.
   holds each archived farm's view to its judge: the viewer's constants and farm are the judge's,
   its world is redsim's run every tick (6000 ticks natively, 1200 in the shipped wasm through
   `mcview_mob_digest`), and over the judge's 5 days its golems and iron are the judge's run 0's
-  (`farm::run`, with its checks); `mctas web mobrate` plays all 64 of the judge's runs (8 builds
+  (`farm::run`, with its checks; `farm::run_t` with the card's hand step for a farm that has one); `mctas web mobrate` plays all 64 of the judge's runs (8 builds
   x 8 seeds) through the view's own session (`Options::mob_seed`) and requires the card's iron
   and golems an hour exactly. Test `a_mob_farm_runs_like_its_judge`.
   The golem spawn spots (vjeux 2026-11-08: "show the places where golems spawn"): every cell the

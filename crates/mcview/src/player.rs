@@ -1653,6 +1653,15 @@ impl Player {
         Some(crate::daylight::at(w.day_time(), w.rain_level(1.0), w.thunder_level(1.0)))
     }
 
+    /// The card's hand steps the run performed so far (`mobfarm::MobRun::hand_events`), as
+    /// (session tick, words): the scrubber's marks.
+    pub fn hand_events(&self) -> Vec<(u32, &'static str)> {
+        match &self.session.mob {
+            Some(m) => m.hand_events.iter().map(|(t, s)| (*t as u32, crate::mobfarm::hand_words(*s))).collect(),
+            None => Vec::new(),
+        }
+    }
+
     /// The scrubber's night spans (`daylight::Env::is_day` false: from dusk to dawn), as
     /// (from, to) session ticks within `floor..high` (a mob farm's run; none for anything else).
     pub fn night_spans(&self, floor: u32, high: u32) -> Vec<(u32, u32)> {

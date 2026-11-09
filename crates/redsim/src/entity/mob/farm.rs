@@ -519,22 +519,10 @@ pub fn run_t(spec: &FarmSpec, o: &RunOpts, iron: u32, hand_hide: bool) -> Result
     let mut rep = RunReport { ticks: o.ticks, ..Default::default() };
     let mut tr = Track::new(&r, spec);
     let mut reached = None;
-    let mut hide: Option<(i64, Vec<(BlockPos, Block)>)> = None;
-    let mut hid = !hand_hide;
+    let mut hand = hand_hide.then(HandHide::default);
     for k in 0..o.ticks {
-        if !hid && r.world.day_time().rem_euclid(24000) == 12000 {
-            hid = true;
-            hide = hand_hide_start(&mut r.world, spec, &tr.own).map(|orig| (r.world.time, orig));
-        }
-        if let Some((since, orig)) = &hide {
-            let asleep = r.world.entities.list.iter().enumerate().filter(|(_, e)| tr.own.contains(&e.id) && matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Villager)).all(|(i, _)| mob(&r.world, i).sleeping_pos.is_some());
-            let t = r.world.time - since;
-            if (t >= 20 && asleep) || t >= 600 {
-                for (p, b) in orig {
-                    r.world.set_block(*p, *b, crate::world::flags::CLIENTS);
-                }
-                hide = None;
-            }
+        if let Some(h) = hand.as_mut() {
+            h.before_tick(&mut r.world, spec, &tr.own);
         }
         r.tick();
         let t = r.world.time;
@@ -552,6 +540,54 @@ pub fn run_t(spec: &FarmSpec, o: &RunOpts, iron: u32, hand_hide: bool) -> Result
     }
     finish(&r.world, &mut rep, &tr, spec);
     Ok((rep, reached))
+}
+
+/// The player's first-night hide by hand ([`run_t`]'s; a card's "hide the zombie by hand the first
+/// night"), one step before each tick: at the first day time 12000 he flips the farm's trapdoors
+/// so that no farm villager (`own`) sees the farm's zombie ([`hand_hide_start`]), and flips them
+/// back once every farm villager sleeps, at least 20 gt and at most 600 gt later. The view (mcview's
+/// mob farm run) performs it the same way.
+#[derive(Clone, Debug, Default)]
+pub struct HandHide {
+    /// The hide was tried (it happens once).
+    pub tried: bool,
+    /// Under way: since this game time, the trapdoors' states to put back.
+    pub hidden: Option<(i64, Vec<(BlockPos, Block)>)>,
+}
+
+/// What [`HandHide::before_tick`] did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HandStep {
+    /// The trapdoors flipped: the zombie hidden from the villagers.
+    Hid,
+    /// The trapdoors back as they were.
+    Restored,
+}
+
+impl HandHide {
+    /// The step due before the tick at `w`'s time (`w` at a tick boundary), done.
+    pub fn before_tick(&mut self, w: &mut World, spec: &FarmSpec, own: &std::collections::HashSet<u32>) -> Option<HandStep> {
+        let mut did = None;
+        if !self.tried && w.day_time().rem_euclid(24000) == 12000 {
+            self.tried = true;
+            self.hidden = hand_hide_start(w, spec, own).map(|orig| (w.time, orig));
+            if self.hidden.is_some() {
+                did = Some(HandStep::Hid);
+            }
+        }
+        if let Some((since, orig)) = &self.hidden {
+            let asleep = w.entities.list.iter().enumerate().filter(|(_, e)| own.contains(&e.id) && matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Villager)).all(|(i, _)| mob(w, i).sleeping_pos.is_some());
+            let t = w.time - since;
+            if (t >= 20 && asleep) || t >= 600 {
+                for (p, b) in orig {
+                    w.set_block(*p, *b, crate::world::flags::CLIENTS);
+                }
+                self.hidden = None;
+                did = Some(HandStep::Restored);
+            }
+        }
+        did
+    }
 }
 
 /// The hand hide's trapdoor flip: the farm's trapdoors all flipped, else all shut, else all open,
