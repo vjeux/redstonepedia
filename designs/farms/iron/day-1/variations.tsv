@@ -1,6 +1,6 @@
 file	pick	name	held
 d1-bed-plate.txt			not presented (ironspec 2026-11-08): it passes the real-game gate only in the void; in terrain with the mob AI on, its drops burn, so it cannot be the day-1 farm a player builds by a village
 d1u-underground.txt	yes	Underground farm beside the village	
-bed-plate-lava-out-of-sight.txt		Bed-plate farm with the lava corner out of sight, dug 7 deep	
+bed-plate-lava-out-of-sight.txt		Bed-plate farm with the lava corner out of sight, dug 7 deep	held (ironspec 2026-11-08): its card is stale — it counted 2 covers where main's every-villager + cell+1 rule needs ~323 (mctas mobfarm spots); its T 34.4 min is stale; re-judged before listing
 bed-plate-lava-in-sight.txt		Bed-plate farm with the lava corner in sight, dug 8 deep	the same farm as d1u-underground (ironspec 2026-11-08: within 10% on every objective: T 31.3 vs 32.1 min, 252 vs 254 iron/h)
 d1u-deep.txt		Underground farm with a deep pit	
