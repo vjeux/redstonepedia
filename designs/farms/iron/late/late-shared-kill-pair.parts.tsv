@@ -1,9 +1,9 @@
-# obs0-s3b0-pad6f7x0-blade22-skn2stack30-void: every block by the part that placed it (farmopt split); build seconds at late prices, the card's travel and height (366 s) shared by the blocks placed
+# obs0-s3b0-pad6f7x0-blade22-skn2stack30-void: every block by the part that placed it (farmopt split); build seconds at late prices, the card's travel and height (279 s) shared by the blocks placed
 part	member	blocks	dug	build_seconds
-cage	bed-observer-3-watching	274	0	987
+cage	bed-observer-3-watching	214	0	891
 calm		16	0	65
 pad	dry-floor-6x6	116	0	192
-transport	drop-shaft-14	336	0	541
-kill	lava-blade-15-drop	120	0	227
+transport	drop-shaft-14	204	0	330
+kill	lava-blade-15-drop	94	0	186
 collection		2	0	24
 storage	sorter-crafter	50	0	435
