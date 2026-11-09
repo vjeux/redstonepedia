@@ -27,18 +27,25 @@ pub fn poi_of(b: &Block) -> Option<PoiKind> {
     match b {
         Block::Bed { head: true, .. } => Some(PoiKind::Home),
         Block::Composter { .. } | Block::BrewingStand { .. } => Some(PoiKind::Job),
+        // a natural state's kind from its row, once per id (the index scans every cell)
         Block::Terrain(id) => {
-            let p = crate::terrain::blocks::props(*id);
-            let name = p.block_id();
-            if name.ends_with("_bed") {
-                return p.name.contains("part=head").then_some(PoiKind::Home);
-            }
-            match name.trim_start_matches("minecraft:") {
-                "bell" => Some(PoiKind::Meeting),
-                "blast_furnace" | "smoker" | "cartography_table" | "brewing_stand" | "composter" | "barrel" | "fletching_table" | "cauldron" | "water_cauldron" | "lava_cauldron" | "powder_snow_cauldron" | "lectern" | "stonecutter" | "loom" | "smithing_table" | "grindstone" => Some(PoiKind::Job),
-                _ => None,
-            }
+            static TABLE: std::sync::OnceLock<Vec<Option<PoiKind>>> = std::sync::OnceLock::new();
+            let t = TABLE.get_or_init(|| (0..crate::terrain::blocks::table().props.len()).map(|k| terrain_poi(k as u16)).collect());
+            t.get(*id as usize).copied().flatten()
         }
+        _ => None,
+    }
+}
+
+fn terrain_poi(id: u16) -> Option<PoiKind> {
+    let p = crate::terrain::blocks::props(id);
+    let name = p.block_id();
+    if name.ends_with("_bed") {
+        return p.name.contains("part=head").then_some(PoiKind::Home);
+    }
+    match name.trim_start_matches("minecraft:") {
+        "bell" => Some(PoiKind::Meeting),
+        "blast_furnace" | "smoker" | "cartography_table" | "brewing_stand" | "composter" | "barrel" | "fletching_table" | "cauldron" | "water_cauldron" | "lava_cauldron" | "powder_snow_cauldron" | "lectern" | "stonecutter" | "loom" | "smithing_table" | "grindstone" => Some(PoiKind::Job),
         _ => None,
     }
 }
@@ -101,11 +108,24 @@ pub fn index(w: &mut World) -> &[(BlockPos, PoiKind)] {
     w.mob.ai.pois.as_deref().unwrap()
 }
 
-/// `onBlockStateChange`'s POI update: a POI block placed or removed rebuilds the index (and a
-/// light source the AI's light list).
-pub fn on_block_changed(w: &mut World, old: &Block, new: &Block) {
-    if poi_of(old).is_some() || poi_of(new).is_some() {
-        w.mob.ai.pois = None;
+/// `onBlockStateChange`'s POI update: a POI block placed or removed updates the index in place
+/// (it stays in the build's y, z, x order; a bed's `occupied` changing is no change of kind), a
+/// light source the AI's light list.
+pub fn on_block_changed(w: &mut World, pos: BlockPos, old: &Block, new: &Block) {
+    let (was, now) = (poi_of(old), poi_of(new));
+    if was != now
+        && let Some(v) = w.mob.ai.pois.as_mut()
+    {
+        let key = |p: &BlockPos| (p.y, p.z, p.x);
+        if was.is_some()
+            && let Ok(k) = v.binary_search_by(|(p, _)| key(p).cmp(&key(&pos)))
+        {
+            v.remove(k);
+        }
+        if let Some(kind) = now {
+            let k = v.binary_search_by(|(p, _)| key(p).cmp(&key(&pos))).unwrap_or_else(|k| k);
+            v.insert(k, (pos, kind));
+        }
     }
     if crate::entity::mob::sun::emission(old) != crate::entity::mob::sun::emission(new) {
         w.mob.ai.lights = None;

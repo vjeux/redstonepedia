@@ -606,7 +606,7 @@ impl World {
             // ---- mob AI (the mob-AI lane): the POI index; `sendBlockUpdated` (flag 2): paths
             // near it recompute ----
             if self.mob.ai.on {
-                crate::entity::mob::ai::poi::on_block_changed(self, &old, &state);
+                crate::entity::mob::ai::poi::on_block_changed(self, pos, &old, &state);
                 if fl & flags::CLIENTS != 0 {
                     crate::entity::mob::ai::send_block_updated(self, pos, old, state);
                 }
