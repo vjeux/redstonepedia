@@ -613,7 +613,13 @@ fn game_findings(metrics: &str, g: &circuit::mobfarm_game::GateReport, blocks: u
 /// game gate's findings unless `gate` is off), or why it cannot go on the site.
 fn judge_for_stage(path: &Path, text: &str, c: &circuit::Circuit, stage: &str, file: &str, gate: bool) -> std::result::Result<circuit::archive::Row, String> {
     let kind = c.kind.clone().ok_or_else(|| "no `circuit: <kind>` line".to_string())?;
-    let j = crate::preview::judge(text);
+    // judged at its stage's prices (ironspec: the late pair's card read "48 min at middle prices"):
+    // an untiered design's circuit line takes the stage's tier for the judge
+    let tiered: String = text.lines().map(|l| match l.strip_prefix("circuit: ") {
+        Some(k) => format!("circuit: {}\n", stage_kind(k.trim(), stage)),
+        None => format!("{l}\n"),
+    }).collect();
+    let j = crate::preview::judge(&tiered);
     if !j.pass {
         return Err(format!("its judge does not pass it on redsim: {}", if j.why.is_empty() { j.summary.clone() } else { j.why.clone() }));
     }
