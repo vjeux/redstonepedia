@@ -46,6 +46,10 @@ pub enum MobfarmCmd {
         /// m2open: the hide's length in gt (the bed observer's delay line, 12..=48).
         #[arg(long, default_value_t = 48)]
         hide: i32,
+        /// d1u: its kill pit's floor, the villagers' beds at 0 (default -13; at -19 or deeper a
+        /// burning golem is out of every villager's 16-block golem sensor).
+        #[arg(long, default_value_t = -13, allow_hyphen_values = true)]
+        kill: i32,
         /// The tier the design is published in (`day-1`, `middle`, `fastest`: the kind's last
         /// word, `circuit: mob-farm iron_ingot middle`); none: a farm in no tier (catalog only).
         #[arg(long)]
@@ -307,7 +311,7 @@ fn load(_version: &str, path: &PathBuf) -> Result<(circuit::Circuit, redsim::ent
 
 pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
     match cmd {
-        MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, modules, pitch, dx, dz, gap, period, hide, tier, out } => {
+        MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, modules, pitch, dx, dz, gap, period, hide, kill, tier, out } => {
             let (text, how) = match layout.as_str() {
                 "l3" => (crate::layouts::l3(pits), "golems burn in lava pits".to_string()),
                 "l1" => (crate::layouts::l1(), "water carries golems to a lava blade in the villagers' sight".to_string()),
@@ -318,7 +322,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "l6p-dry" => (crate::day1::l6p_dry(pad), "the bed-plate calm over a dry drop".to_string()),
                 "l6p-pad" => (crate::day1::l6p_pad(pad), "golems burn in a corner of their pad".to_string()),
                 "d4" => (crate::day1::d4_two_scared(pad), "golems burn in a corner of their pit".to_string()),
-                "d1u" => (crate::day1::d1u(pad), "golems burn in a corner of their pit".to_string()),
+                "d1u" => (crate::day1::d1u_with(pad, kill), if kill <= -19 { "golems burn in a pit too deep for the villagers to sense".to_string() } else { "golems burn in a corner of their pit".to_string() }),
                 "m3" => (crate::day1::m3_bedplate(pad), "golems fall out of sight to a lava blade".to_string()),
                 "m2" => (crate::day1::m2_observer(pad), "golems fall out of sight to a lava blade".to_string()),
                 "m2open" => (crate::day1::m2_open_hide(pad, hide), "golems fall out of sight to a lava blade".to_string()),

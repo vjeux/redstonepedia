@@ -287,6 +287,13 @@ pub fn d4_two_scared(n: i32) -> String {
 /// exposure on its card). A void judge cannot run it
 /// (nothing holds its water): it is judged in a terrain sample (`terrain: cells`).
 pub fn d1u(n: i32) -> String {
+    d1u_with(n, -13)
+}
+
+/// [`d1u`] with its kill pit's floor at `k` (the villagers' beds at 0): at -19 or deeper a burning
+/// golem is out of every villager's golem sensor (`NearestLivingEntitySensor`'s 16-block box), so
+/// the 600 gt of GOLEM_DETECTED_RECENTLY start when it falls past, not when it dies.
+pub fn d1u_with(n: i32, k: i32) -> String {
     let mut b = Builder::new(&format!("iron-day1-underground-{n}"));
     let air = "air";
     // the pods: S2 (x 0) and S (x 2) on their beds, their in-cell trapdoors, the cell above
@@ -360,9 +367,8 @@ pub fn d1u(n: i32) -> String {
             b.set(x, -4, z, air);
         }
     }
-    // the pit under the hole (feet k = -13, fire-safe like pit_kill's): dug, the water source pushing golems into the corner
+    // the pit under the hole (feet k, -13 by default; fire-safe like pit_kill's): dug, the water source pushing golems into the corner
     // under the lava, 3 wall signs holding the lava, the hopper over the output
-    let k = -13;
     for x in hx..=hx + 3 {
         for z in hz..=hz + 3 {
             for y in k..=-8 {
@@ -396,13 +402,25 @@ pub fn d1u(n: i32) -> String {
     // over the pad
     b.d.meta.insert("ground".into(), "11".into());
     b.d.meta.insert("afk".into(), "2.5 12 4.5".into());
-    b.text(&[
-        "Day-1 iron farm dug into the ground beside a village: two villagers on their beds watch a zombie parked in a boat",
-        "and keep summoning iron golems. At nightfall a third villager lies down in its bed, its pressure plate lets go and a",
-        "trapdoor hides the zombie: the two fall asleep, then see it again from their beds and wake scared, so golems come",
-        "day and night. Golems appear on a water pad 7 blocks down, fall through its middle into a pit and burn in its corner",
-        "under one lava source; the iron drops into a hopper and a chest at the bottom, reached by a staircase.",
-    ])
+    if k <= -19 {
+        b.d.name = format!("iron-day1-underground-deep-{n}");
+        b.text(&[
+            "Day-1 iron farm dug into the ground beside a village: two villagers on their beds watch a zombie parked in a boat",
+            "and keep summoning iron golems. At nightfall a third villager lies down in its bed, its pressure plate lets go and a",
+            "trapdoor hides the zombie: the two fall asleep, then see it again from their beds and wake scared, so golems come",
+            "day and night. Golems appear on a water pad 7 blocks down and fall through its middle down a shaft into a pit 19",
+            "below the beds, too deep for the villagers to sense them, so they summon the next golem while one burns in the",
+            "pit's corner under one lava source; the iron drops into a hopper and a chest at the bottom, reached by a staircase.",
+        ])
+    } else {
+        b.text(&[
+            "Day-1 iron farm dug into the ground beside a village: two villagers on their beds watch a zombie parked in a boat",
+            "and keep summoning iron golems. At nightfall a third villager lies down in its bed, its pressure plate lets go and a",
+            "trapdoor hides the zombie: the two fall asleep, then see it again from their beds and wake scared, so golems come",
+            "day and night. Golems appear on a water pad 7 blocks down, fall through its middle into a pit and burn in its corner",
+            "under one lava source; the iron drops into a hopper and a chest at the bottom, reached by a staircase.",
+        ])
+    }
 }
 
 /// L2d's chamber without its fire: lava only in the north row (x 1..4, head height k + 2, z 1),
