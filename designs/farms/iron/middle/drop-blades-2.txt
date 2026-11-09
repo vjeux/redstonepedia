@@ -1,4 +1,4 @@
-# CIRCUIT: iron-late-row-shared-2x24 mob-farm iron_ingot middle iron per hour per block 0.76, iron per hour 888, iron range 95% 881-894 (64 runs), golems per hour 222.6, seconds per golem 16.2, share of ceiling 93%, modules 2, iron per hour per module 444, kill 304 gt, kill tail the longest 405 gt: no golem outlived 1200 gt in 23741 golems (95% bound 0.01% a golem), golems at the zombie 3 of 23741 golems targeted the farm's zombie, worst policy every constant walk reaches the kill, lips none (no golem stands dry beside a current), restarts after a missed night yes, restarts after days away yes (unloaded or not ticking, back by day or at night: the first golem 0.0-0.1 h after the return), rain clear day 900 iron/h; rain day 892 iron/h; thunder day 835 iron/h, lightning about 0.0019 iron lost per thunderstorm; villagers turned into witches about every 996 game days (one strike can take up to 4); the zombie's boat broken about every 2488 game days; a fire beside a flammable block about every 5780 game days; a skeleton trap horse on the farm about every 3983 game days; the farm breaks in about 642 game days (a villager made a witch first); thunderstorms 1.4% of the time (6211 gt each on average), thunder loss 48.4, sunburn never (the zombie never sees the sky), fire never, misses 22675 of 46416 tries found no spot, 23541 golem sightings, bill 31 iron, 6 quartz, 8 villagers, 8 beds, 2 zombies, payback 2 min, build time 61 min at middle prices (1162 placed, 0 dug, 2 lava trips, 8 villagers moved), time to an iron kit 63 min (the build, then 24 iron at the card's rate), build minutes 61.2, t kit minutes 62.8, iron per hour sleeping 889, volume per module 10080, entities alive 13.3, entities peak 18, iron burnt per golem 0.00 (0.0% of the loot; 1 golem in 2629), tools bucket 3 + iron pickaxe 3, lava sources 32, materials Nether: quartz in 6 blocks, chunk columns 3, storage 4.5 h (79 slots; 220 poppies/h), hoppers per 1000 iron/h 5.6, 1172 blocks, 35x36x16, redsim (robust)
+# CIRCUIT: iron-late-row-shared-2x24 mob-farm iron_ingot middle iron per hour per block 0.73, iron per hour 916, iron range 95% 909-922 (64 runs), golems per hour 229.8, seconds per golem 15.7, share of ceiling 96%, modules 2, iron per hour per module 458, kill 313 gt, kill tail the longest 393 gt: no golem outlived 1200 gt in 24509 golems (95% bound 0.01% a golem), golems at the zombie 12 of 24509 golems targeted the farm's zombie, neighbour sightings 569 of 24509 golems sensed by another group (569 sensings, 0.02 a golem), worst policy every constant walk reaches the kill, lips none (no golem stands dry beside a current), restarts after a missed night yes, restarts after days away yes (unloaded or not ticking, back by day or at night: the first golem 0.0-0.1 h after the return), rain clear day 926 iron/h; rain day 914 iron/h; thunder day 895 iron/h, lightning about 0.0016 iron lost per thunderstorm; villagers turned into witches about every 842 game days (one strike can take up to 4); the zombie's boat broken about every 2488 game days; a fire beside a flammable block about every 5787 game days; a skeleton trap horse on the farm about every 3556 game days; the farm breaks in about 574 game days (a villager made a witch first); thunderstorms 1.4% of the time (6211 gt each on average), thunder loss 55.8, sunburn never (the zombie never sees the sky), fire never, misses 6763 of 31272 tries found no spot, 24871 golem sightings, bill 46 iron, 6 quartz, 8 villagers, 8 beds, 2 zombies, payback 3 min, build time 87 min at middle prices (1248 placed, 0 dug, 2 lava trips, 8 villagers moved), time to an iron kit 89 min (the build, then 24 iron at the card's rate, then the trip to the chest), build minutes 87.2, t kit minutes 88.9, collecting 8 s per trip to the chest (2 x its depth, 8 layers, at the access's speed), iron per hour sleeping 916, volume per module 12495, entities alive 13.4, entities peak 18, iron burnt per golem 0.00 (0.1% of the loot; 1 golem in 555), tools bucket 3 + iron pickaxe 3, lava sources 32, materials Nether: quartz in 6 blocks, chunk columns 6, storage 9.7 h (175 slots; 227 poppies/h), hoppers per 1000 iron/h 8.7, 1258 blocks, 35x42x17, redsim (robust)
 # 2 farms side by side, 24 blocks apart, each with its own villagers, zombie and comparator-ring timer; their
 # golems fall to one water channel deep below every farm's sight, which carries them to one lava chamber and one chest.
 name: iron-late-row-shared-2x24
@@ -45,6 +45,114 @@ palette:
   h minecraft:hopper[enabled=true,facing=north]
   o minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
   r minecraft:red_bed[facing=north,occupied=false,part=head]
+layer -37:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .................................C
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -36:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .................................H
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -35:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .................................C
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -34:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .................................H
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -33:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .................................C
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer -32:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .................................H
+  .
+  .
+  .
+  .
+  .
+  .
+  .
 layer -31:
   .
   .
@@ -56,6 +164,7 @@ layer -31:
   .
   .
   .................................C
+  .
   .
   .
   .
@@ -79,6 +188,7 @@ layer -30:
   .
   .
   .
+  .
 layer -29:
   .
   .
@@ -95,6 +205,7 @@ layer -29:
   ............................AAAAAhA
   ............................AAAAAhA
   ............................AAAAAAA
+  .
   .
 layer -28:
   .
@@ -113,6 +224,7 @@ layer -28:
   .........................AAAW.....A
   .........................AAAAAAAAAA
   .
+  .
 layer -27:
   .
   .
@@ -129,6 +241,7 @@ layer -27:
   ..................AAAAAAA...OOOO..A
   ..................AAAAAAA...OOOO..A
   ..................AAAAAAAAAAAAAAAAA
+  .
   .
 layer -26:
   .
@@ -147,6 +260,7 @@ layer -26:
   ...........AAAAAAA.........ALLLLA.A
   ...........AAAAAAAAAAAAAAAAAAAAAAAA
   .
+  .
 layer -25:
   .
   .
@@ -163,6 +277,7 @@ layer -25:
   ...AAAAAAAA.......................A
   ...AAAAAAAA.......................A
   ...AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  .
   .
 layer -24:
   .
@@ -181,6 +296,7 @@ layer -24:
   ...AW...........................A
   ...AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
   .
+  .
 layer -23:
   .
   .
@@ -197,6 +313,7 @@ layer -23:
   ...AOOOO...................A....A
   ...AOOOO...................A....A
   ...AAAAAAAAAAAAAAAAAAAAAAA.AAAAAA
+  .
   .
 layer -22:
   .
@@ -215,6 +332,7 @@ layer -22:
   ...ALLLLA..................A....A
   ...AAAAAAAAAAAAAAAA........AAAAAA
   .
+  .
 layer -21:
   .
   .
@@ -231,6 +349,7 @@ layer -21:
   ...A.......................A....A
   ...A.......................A....A
   ...AAAAAAAAA...............AAAAAA
+  .
   .
 layer -20:
   .
@@ -249,7 +368,9 @@ layer -20:
   ...A....A..................A....A
   ...AAAAAA..................AAAAAA
   .
+  .
 layer -19:
+  .
   .
   .
   .
@@ -283,7 +404,9 @@ layer -18:
   .
   .
   .
+  .
 layer -17:
+  .
   .
   .
   .
@@ -317,7 +440,9 @@ layer -16:
   .
   .
   .
+  .
 layer -15:
+  .
   .
   .
   .
@@ -351,7 +476,9 @@ layer -14:
   .
   .
   .
+  .
 layer -13:
+  .
   .
   .
   .
@@ -385,7 +512,9 @@ layer -12:
   .
   .
   .
+  .
 layer -11:
+  .
   .
   .
   .
@@ -419,7 +548,9 @@ layer -10:
   .
   .
   .
+  .
 layer -9:
+  .
   .
   .
   .
@@ -453,6 +584,7 @@ layer -8:
   .
   .
   .
+  .
 layer -7:
   .
   .
@@ -462,13 +594,14 @@ layer -7:
   .
   .
   .
-  .
-  ...AAAAAA..................AAAAAA
-  ...AooooA..................AooooA
-  ...Ao..oA..................Ao..oA
-  ...Ao..oA..................Ao..oA
-  ...AooooA..................AooooA
-  ...AAAAAA..................AAAAAA
+  ..AAAAAAAA................AAAAAAAA
+  ..AAAAAAAA................AAAAAAAA
+  ..AAooooAA................AAooooAA
+  ..AAo..oAA................AAo..oAA
+  ..AAo..oAA................AAo..oAA
+  ..AAooooAA................AAooooAA
+  ..AAAAAAAA................AAAAAAAA
+  ..AAAAAAAA................AAAAAAAA
   .
 layer -6:
   .
@@ -478,15 +611,16 @@ layer -6:
   .
   .
   .
-  .
-  ..AAAAAAAA................AAAAAAAA
-  ..AW....WA................AW....WA
-  ..A......A................A......A
-  ..A..oo..A................A..oo..A
-  ..A..oo..A................A..oo..A
-  ..A......A................A......A
-  ..AW....WA................AW....WA
-  ..AAAAAAAA................AAAAAAAA
+  .AAAAAAAAAA..............AAAAAAAAAA
+  .AW......WA..............AW......WA
+  .A........A..............A........A
+  .A........A..............A........A
+  .A...oo...A..............A...oo...A
+  .A...oo...A..............A...oo...A
+  .A........A..............A........A
+  .A........A..............A........A
+  .AW......WA..............AW......WA
+  .AAAAAAAAAA..............AAAAAAAAAA
 layer -5:
   .
   .
@@ -495,15 +629,16 @@ layer -5:
   .
   .
   .
-  .
-  ..AAAAAAAA................AAAAAAAA
-  ..A......A................A......A
-  ..A......A................A......A
-  ..A......A................A......A
-  ..A......A................A......A
-  ..A......A................A......A
-  ..A......A................A......A
-  ..AAAAAAAA................AAAAAAAA
+  .AAAAAAAAAA..............AAAAAAAAAA
+  .A........A..............A........A
+  .A........A..............A........A
+  .A........A..............A........A
+  .A........A..............A........A
+  .A........A..............A........A
+  .A........A..............A........A
+  .A........A..............A........A
+  .A........A..............A........A
+  .AAAAAAAAAA..............AAAAAAAAAA
 layer -4:
   .
   .
@@ -512,16 +647,18 @@ layer -4:
   .
   .
   .
+  .........BB......................BB
+  ..........B.......................B
+  .B........B..............B........B
+  .B........B..............B........B
+  .B........B..............B........B
+  .B........B..............B........B
+  .B........B..............B........B
+  .B........B..............B........B
+  .B........B..............B........B
   .
-  .........B.......................B
-  ..B......B................B......B
-  ..B......B................B......B
-  ..B......B................B......B
-  ..B......B................B......B
-  ..B......B................B......B
-  ..B......B................B......B
-  ..BBBBBBBB................BBBBBBBB
 layer -3:
+  .
   .
   .
   .
@@ -555,6 +692,7 @@ layer -2:
   .
   .
   .
+  .
 layer -1:
   .
   .A.AA..A.................A.AA..A
@@ -565,6 +703,7 @@ layer -1:
   .
   .A.A.A.A.................A.A.A.A
   .A.A.A.A.................A.A.A.A
+  .
   .
   .
   .
@@ -589,6 +728,7 @@ layer 0:
   .
   .
   .
+  .
 layer 1:
   .
   B.B..FP.................B.B..FP
@@ -599,6 +739,7 @@ layer 1:
   .A.......................A
   A.AGAGAGA...............A.AGAGAGA
   .A.A.A.A.................A.A.A.A
+  .
   .
   .
   .
@@ -623,6 +764,7 @@ layer 2:
   .
   .
   .
+  .
 layer 3:
   .....B.......................B
   .
@@ -640,6 +782,7 @@ layer 3:
   .
   .
   .
+  .
 layer 4:
   .
   .
@@ -650,6 +793,7 @@ layer 4:
   .
   BBBBBBBBB...............BBBBBBBBB
   BBBBBBBBB...............BBBBBBBBB
+  .
   .
   .
   .
