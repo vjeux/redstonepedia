@@ -825,13 +825,24 @@ pub struct FrameCost {
     pub translucent: usize,
     /// The blocks' mesh rebuilt this many times over the frames (the session's blocks changed).
     pub rebuilds: u64,
+    /// With the occlusion cull ([`crate::render::Renderer::cull_fixed`]): how many times it was
+    /// worked out, its mean time, and the last one's triangles kept of those tested.
+    pub culls: u32,
+    pub cull_ms: f64,
+    pub kept: usize,
+    pub tested: usize,
+    /// With the check: the most pixels any frame drawn culled differs by from the same frame
+    /// drawn whole (0: the same picture).
+    pub differing: usize,
 }
 
 /// A live viewer of `text` at `width x height` device pixels (`dpr`: its CSS size is that / dpr),
 /// framed as it loads ([`crate::player::Player::frame_live`]), played `warm` ticks, then
 /// `frames` frames of `ticks` ticks each, each frame's triangles drawn with the browser's renderer
-/// and waited for ([`FrameCost`]).
-pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, height: u32, dpr: f32, warm: u32, frames: u32, ticks: u32) -> Result<FrameCost, String> {
+/// and waited for ([`FrameCost`]); `cull`: the kept triangles the camera can see only, as the
+/// browser draws them; `check`: each frame also drawn whole and the two pictures compared.
+#[allow(clippy::too_many_arguments)]
+pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, height: u32, dpr: f32, warm: u32, frames: u32, ticks: u32, cull: bool, check: bool) -> Result<FrameCost, String> {
     let mut p = crate::player::Player::new_web(text, width as f32 / height as f32)?;
     p.frame_live(atlas, width as f32 / dpr.max(0.5), height as f32 / dpr.max(0.5));
     for _ in 0..warm {
@@ -849,6 +860,7 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
     });
     let view = tex.create_view(&Default::default());
     off.r.void_below = true;
+    let opaque = crate::occlude::Opaque::of(atlas);
     let mut c = FrameCost { frames, ..Default::default() };
     let version = p.session.blocks_version;
     // (one frame first: the meshes built and the fixed vertices uploaded, not counted)
@@ -861,9 +873,27 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
         let t1 = std::time::Instant::now();
         off.r.env = p.daylight();
         off.r.set_fixed(fixed.as_ref().map(|(k, v)| (*k, v.as_slice())));
-        off.r.draw(&view, &Frame { solid: &solid, translucent: &translucent, camera: p.camera, width, height });
+        if cull && let Some((key, v)) = &fixed {
+            let tc = std::time::Instant::now();
+            if let Some((kept, tested)) = off.r.cull_fixed((*key, v), &opaque, &p.camera, width, height, &mut || false) {
+                c.culls += 1;
+                c.cull_ms += tc.elapsed().as_secs_f64() * 1000.0;
+                (c.kept, c.tested) = (kept, tested);
+            }
+        }
+        let t1 = if cull { std::time::Instant::now() } else { t1 };
+        let frame = Frame { solid: &solid, translucent: &translucent, camera: p.camera, width, height };
+        off.r.draw(&view, &frame);
         let _ = off.r.device.poll(wgpu::PollType::wait_indefinitely());
         let t2 = std::time::Instant::now();
+        if check && k > 0 {
+            let culled = off.render(&frame)?;
+            let saved = off.r.fixed_visible.take();
+            let whole = off.render(&frame)?;
+            off.r.fixed_visible = saved;
+            let differing = culled.chunks(4).zip(whole.chunks(4)).filter(|(a, b)| a != b).count();
+            c.differing = c.differing.max(differing);
+        }
         if k > 0 {
             c.mesh_ms += (t1 - t0).as_secs_f64() * 1000.0;
             c.draw_ms += (t2 - t1).as_secs_f64() * 1000.0;
@@ -876,6 +906,7 @@ pub fn frame_cost(off: &mut Offscreen, atlas: &Atlas, text: &str, width: u32, he
     c.rebuilds = p.session.blocks_version - version;
     c.mesh_ms /= n;
     c.draw_ms /= n;
+    c.cull_ms /= c.culls.max(1) as f64;
     c.solid = (c.solid as f64 / n) as usize;
     c.translucent = (c.translucent as f64 / n) as usize;
     Ok(c)

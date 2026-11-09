@@ -96,6 +96,11 @@ pub struct Live {
     camera_search: Option<mcview::scene::LiveCameraSearch>,
     /// With `?mcview-debug`: the played frames' times since the last summary.
     frame_stats: FrameStats,
+    /// The last frame's camera (a camera the same as the last frame's has come to rest: the
+    /// kept blocks' triangles it can see are worked out then: `Renderer::cull_fixed`), and the
+    /// textures' opacity those use (`mcview::occlude::Opaque`, by the game assets they are of).
+    last_camera: Option<mcview::camera::Camera>,
+    opaque: Option<(usize, std::rc::Rc<mcview::occlude::Opaque>)>,
     /// The design's text and name (a recording replays it from tick 0, a file named after it),
     /// and the auto-demo's schedule (a recording plays it whole).
     text: Option<std::rc::Rc<str>>,
@@ -226,6 +231,13 @@ const STEP_BUDGET_MS: f64 = 12.0;
 /// ([`mcview::player::Player::triangles_within`]); one that took more than half of it is drawn in
 /// the next frame (the draw of a big build takes 15-25 ms in a software GL).
 const MESH_BUDGET_MS: f64 = 24.0;
+
+/// A frame's time, from its start, for working out which kept triangles a camera at rest sees
+/// ([`mcview::render::Renderer::cull_fixed`]: a farm in its terrain's took 21-24 ms in WebKit's
+/// wasm, a bigger terrain's several times that), at least [`CULL_SLICE_MS`] a frame: the rest
+/// in the next frames, every triangle drawn meanwhile.
+const CULL_BUDGET_MS: f64 = 16.0;
+const CULL_SLICE_MS: f64 = 3.0;
 
 /// A task's time for the live camera's search ([`mcview::scene::LiveCameraSearch`]): the
 /// candidates past it are weighed in the next task.
@@ -631,6 +643,8 @@ pub fn start(app: &mut App, id: u32) {
         shown_status: String::from("\u{0}"),
         camera_search: None,
         frame_stats: FrameStats::default(),
+        last_camera: None,
+        opaque: None,
         text: None,
         name: String::from("design"),
         demo: None,
@@ -1448,6 +1462,33 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
             staging = tris.is_none();
             if let Some((fixed, solid, translucent)) = tris {
                 g.r.set_fixed(fixed.as_ref().map(|(k, v)| (*k, v.as_slice())));
+                // a camera at rest (the same as the last frame's): only the kept blocks' triangles
+                // it can see are drawn (`mcview::occlude`: the same picture; a software GL sets up
+                // every triangle it is given, most of a farm in its terrain's frame), worked out
+                // once for it and those blocks
+                let cam = p.camera;
+                if let Some((key, v)) = &fixed
+                    && l.last_camera == Some(cam)
+                {
+                    let of = atlas.game.as_ref().map(|a| std::rc::Rc::as_ptr(a) as usize).unwrap_or(0);
+                    if l.opaque.as_ref().is_none_or(|(k, _)| *k != of) {
+                        l.opaque = Some((of, std::rc::Rc::new(mcview::occlude::Opaque::of(&atlas))));
+                    }
+                    let opaque = l.opaque.as_ref().unwrap().1.clone();
+                    let tc = perf.as_ref().map(|q| q.now()).unwrap_or(0.0);
+                    // (over as many frames as it takes: until this frame's task is CULL_BUDGET_MS
+                    // long, a few ms at least)
+                    let mut cull_out_of_time = || perf.as_ref().is_some_and(|q| {
+                        let now = q.now();
+                        now - t0 > CULL_BUDGET_MS && now - tc > CULL_SLICE_MS
+                    });
+                    if let Some((kept, all)) = g.r.cull_fixed((*key, v), &opaque, &cam, w, h, &mut cull_out_of_time)
+                        && crate::debug()
+                    {
+                        log(&format!("live view {id}: the camera at rest sees {kept} of the {all} kept triangles (the last part worked out in {:.1} ms)", perf.as_ref().map(|q| q.now()).unwrap_or(0.0) - tc));
+                    }
+                }
+                l.last_camera = Some(cam);
                 // the game's day (a mob farm's run: its sky, sun, moon and light)
                 g.r.env = p.daylight();
                 match g.draw(&Frame { solid: &solid, translucent: &translucent, camera: p.camera, width: w, height: h }) {

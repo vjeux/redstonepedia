@@ -81,9 +81,12 @@ fn lightmap(sky: f32, block: f32) -> vec3<f32> {
 
 struct VOut {
     @builtin(position) pos: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-    @location(1) color: vec4<f32>,
-    @location(2) world: vec3<f32>,
+    // (sampled at the centroid of the samples a pixel's triangle covers, not at the pixel's centre
+    // outside it: an edge pixel read the sprite next to its face in the atlas, a line of that
+    // colour along block edges, or a texel the alpha test drops, a hole there)
+    @location(0) @interpolate(perspective, centroid) uv: vec2<f32>,
+    @location(1) @interpolate(perspective, centroid) color: vec4<f32>,
+    @location(2) @interpolate(perspective, centroid) world: vec3<f32>,
     @location(3) @interpolate(flat) layer: u32,
 };
 
@@ -265,6 +268,14 @@ pub struct Renderer {
     /// Solid triangles kept on the GPU between frames ([`Renderer::set_fixed`]: a mob farm's
     /// blocks), by their key, and how many vertices.
     fixed: Option<(u64, wgpu::Buffer, u32)>,
+    /// The kept triangles a camera can see ([`Renderer::cull_fixed`]: [`crate::occlude`]), drawn
+    /// in place of all of them while that camera, frame size and kept vertices hold: (the kept
+    /// vertices' key, the camera, width, height), the index buffer and its count.
+    pub(crate) fixed_visible: Option<((u64, Camera, u32, u32), wgpu::Buffer, u32)>,
+    /// The occluders' side of the kept vertices ([`crate::occlude::Occluders`]), by their key.
+    occluders: Option<(u64, std::rc::Rc<crate::occlude::Occluders>)>,
+    /// The visible set being worked out, for its kept vertices, camera and size.
+    cull: Option<((u64, Camera, u32, u32), crate::occlude::Cull)>,
     /// The tiles' texture array.
     tiles: wgpu::Texture,
     tiles_view: wgpu::TextureView,
@@ -455,7 +466,7 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
-        Renderer { device, queue, format, samples, solid, blend, sky, uniforms, bind, targets: None, vbuf: None, fixed: None, tiles: tex, tiles_view: view, bgl, sampler, game_tex, game_of, view_chunks: None, void_below: false, env: None }
+        Renderer { device, queue, format, samples, solid, blend, sky, uniforms, bind, targets: None, vbuf: None, fixed: None, fixed_visible: None, occluders: None, cull: None, tiles: tex, tiles_view: view, bgl, sampler, game_tex, game_of, view_chunks: None, void_below: false, env: None }
     }
 
     fn bind_group(device: &wgpu::Device, bgl: &wgpu::BindGroupLayout, uniforms: &wgpu::Buffer, tiles: &wgpu::TextureView, sampler: &wgpu::Sampler, game: &wgpu::Texture) -> wgpu::BindGroup {
@@ -523,7 +534,12 @@ impl Renderer {
     /// None: no such triangles.
     pub fn set_fixed(&mut self, fixed: Option<(u64, &[Vertex])>) {
         match fixed {
-            None => self.fixed = None,
+            None => {
+                self.fixed = None;
+                self.fixed_visible = None;
+                self.occluders = None;
+                self.cull = None;
+            }
             Some((key, v)) => {
                 if self.fixed.as_ref().is_some_and(|(k, _, _)| *k == key) {
                     return;
@@ -536,6 +552,48 @@ impl Renderer {
                 self.fixed = Some((key, buf, v.len() as u32));
             }
         }
+    }
+
+    /// The render distance a camera's frame draws (chunks): the pictures' client's 6, pushed back
+    /// for a far camera so the build stays clear, or the browser viewer's own (`view_chunks`).
+    pub fn render_chunks(&self, cam: &Camera) -> f32 {
+        (((cam.dist * 2.0 + 16.0) / 16.0).ceil()).max(self.view_chunks.unwrap_or(6.0))
+    }
+
+    /// Draw only the kept triangles (`fixed`: the vertices [`Renderer::set_fixed`] keeps, by
+    /// their key) that `cam` can see at `width x height` ([`crate::occlude::Cull`]: the same
+    /// picture), worked out over as many calls as it takes within `out_of_time`, unless they
+    /// already are for this camera, size and kept vertices. A frame with another camera (it
+    /// moved), size or kept vertices draws all of them meanwhile. The triangles kept and those
+    /// tested, when done in this call.
+    pub fn cull_fixed(&mut self, fixed: (u64, &[Vertex]), opaque: &crate::occlude::Opaque, cam: &Camera, width: u32, height: u32, out_of_time: &mut dyn FnMut() -> bool) -> Option<(usize, usize)> {
+        let key = (fixed.0, *cam, width, height);
+        if self.fixed_visible.as_ref().is_some_and(|(k, _, _)| *k == key) {
+            return None;
+        }
+        if self.cull.as_ref().is_none_or(|(k, _)| *k != key) {
+            let view = crate::occlude::View { vp: cam.view_proj(width.max(1) as f32 / height.max(1) as f32), eye: cam.eye(), chunks: self.render_chunks(cam), width, height };
+            // (the occluders' side of the kept vertices, worked out once for them)
+            let occluders = self.occluders.as_ref().filter(|(k, _)| *k == fixed.0).map(|(_, o)| o.clone());
+            self.cull = Some((key, crate::occlude::Cull::new(view, occluders)));
+        }
+        let (_, job) = self.cull.as_mut().unwrap();
+        let idx = job.step(fixed.1, opaque, out_of_time)?;
+        if let Some(o) = job.occluders() {
+            self.occluders = Some((fixed.0, o));
+        }
+        self.cull = None;
+        let buf = self.device.create_buffer(&wgpu::BufferDescriptor { label: Some("fixed visible"), size: ((idx.len() * 4) as u64).max(64), usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+        if !idx.is_empty() {
+            self.queue.write_buffer(&buf, 0, bytemuck::cast_slice(&idx));
+        }
+        self.fixed_visible = Some((key, buf, idx.len() as u32));
+        Some((idx.len() / 3, fixed.1.len() / 3))
+    }
+
+    /// Draw all the kept triangles again (no visible set: [`Renderer::cull_fixed`]).
+    pub fn uncull(&mut self) {
+        self.fixed_visible = None;
     }
 
     /// Draw a frame into `out` (a single-sample view of `self.format`, frame.width x height).
@@ -551,7 +609,7 @@ impl Renderer {
         // blocks, to the render distance; the overworld's environment fog from 0 to 1024); a
         // farther camera (zoomed out) pushes the render distance back so the build stays clear;
         // the browser viewer's client sees farther (`view_chunks`)
-        let chunks = (((d * 2.0 + 16.0) / 16.0).ceil()).max(self.view_chunks.unwrap_or(6.0));
+        let chunks = self.render_chunks(&frame.camera);
         let blocks = chunks * 16.0;
         let span = (blocks / 10.0).clamp(4.0, 64.0);
         // the pictures' noon (no day): their sky's colours, the lightmap at noon (the dimension's
@@ -639,10 +697,20 @@ impl Renderer {
             pass.set_bind_group(0, &self.bind, &[]);
             pass.set_pipeline(&self.sky);
             pass.draw(0..3, 0..1);
-            if let Some((_, buf, n)) = self.fixed.as_ref().filter(|f| f.2 > 0) {
+            if let Some((fkey, buf, n)) = self.fixed.as_ref().filter(|f| f.2 > 0) {
                 pass.set_pipeline(&self.solid);
                 pass.set_vertex_buffer(0, buf.slice(..));
-                pass.draw(0..*n, 0..1);
+                // (only the triangles this camera can see, once worked out for it: the same
+                // picture, a fraction of the triangles for a software GL to set up)
+                match self.fixed_visible.as_ref().filter(|(k, _, _)| *k == (*fkey, frame.camera, w, h)) {
+                    Some((_, ib, ni)) => {
+                        if *ni > 0 {
+                            pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+                            pass.draw_indexed(0..*ni, 0, 0..1);
+                        }
+                    }
+                    None => pass.draw(0..*n, 0..1),
+                }
             }
             pass.set_vertex_buffer(0, vb.slice(..));
             if n_solid > 0 {

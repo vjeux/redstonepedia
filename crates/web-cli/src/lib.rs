@@ -318,6 +318,12 @@ pub enum WebCmd {
         frames: u32,
         #[arg(long, default_value_t = 1)]
         ticks: u32,
+        /// Draw only the kept triangles the camera can see (`mcview::occlude`), as the browser does.
+        #[arg(long)]
+        cull: bool,
+        /// With `--cull`: draw each frame whole too and count the pixels that differ (must be 0).
+        #[arg(long)]
+        check: bool,
     },
     /// What a card costs (natively): each design's still (`Session::new` with `Options::still`)
     /// and its picture's mesh, timed; the slowest first. A card over `--budget` ms here is surely
@@ -535,8 +541,9 @@ pub enum WebCmd {
         pngs: Vec<PathBuf>,
         #[arg(long, short)]
         out: PathBuf,
-        #[arg(long, default_value_t = 8)]
-        scale: u32,
+        /// How many times bigger (nearest): textures 8 by default, `--crop` parts 1.
+        #[arg(long)]
+        scale: Option<u32>,
         #[arg(long, default_value_t = 8)]
         cols: u32,
         #[arg(long)]
@@ -822,25 +829,41 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
         WebCmd::Recqa { pages, dir, out, engines, window, scale, timeout, browser, chrome } => crate::recqa::cmd_recqa(&dir, &pages, &out, &engines, &window, scale, timeout, &browser, chrome.as_deref()),
         WebCmd::Qa { pages, dir, kinds, clocks, out, window, at, watch, shards } => crate::qa::cmd_qa(&dir, &pages, kinds, clocks, &out, &window, &at, watch, shards),
         WebCmd::Cardcost { designs, budget, top, procedural } => cmd_cardcost(&designs, budget, top, procedural),
-        WebCmd::Framecost { designs, width, height, dpr, warm, frames, ticks } => {
+        WebCmd::Framecost { designs, width, height, dpr, warm, frames, ticks, cull, check } => {
             let atlas = atlas(false);
             let mut off = mcview::render::headless::Offscreen::new(&atlas).map_err(anyhow::Error::msg)?;
+            let mut bad = 0;
             for d in &designs {
                 let text = std::fs::read_to_string(d).with_context(|| format!("reading {}", d.display()))?;
-                match mcview::tools::frame_cost(&mut off, &atlas, &text, width, height, dpr, warm, frames, ticks) {
-                    Ok(c) => println!(
-                        "{}: {width}x{height}: mesh {:.2} ms, draw {:.2} ms a frame ({} frames of {ticks} ticks; the blocks' mesh rebuilt {} times); vertices: {} on the GPU, {} solid + {} translucent uploaded a frame",
-                        d.display(),
-                        c.mesh_ms,
-                        c.draw_ms,
-                        c.frames,
-                        c.rebuilds,
-                        c.fixed,
-                        c.solid,
-                        c.translucent
-                    ),
-                    Err(e) => println!("{}: ERROR {e}", d.display()),
+                match mcview::tools::frame_cost(&mut off, &atlas, &text, width, height, dpr, warm, frames, ticks, cull, check) {
+                    Ok(c) => {
+                        println!(
+                            "{}: {width}x{height}: mesh {:.2} ms, draw {:.2} ms a frame ({} frames of {ticks} ticks; the blocks' mesh rebuilt {} times); vertices: {} on the GPU, {} solid + {} translucent uploaded a frame",
+                            d.display(),
+                            c.mesh_ms,
+                            c.draw_ms,
+                            c.frames,
+                            c.rebuilds,
+                            c.fixed,
+                            c.solid,
+                            c.translucent
+                        );
+                        if cull {
+                            println!("  culled: {} of {} kept triangles drawn, worked out {} times in {:.1} ms each", c.kept, c.tested, c.culls, c.cull_ms);
+                        }
+                        if check {
+                            println!("  {}: the most pixels a culled frame differs by from the same frame drawn whole: {}", if c.differing == 0 { "ok" } else { "FAIL" }, c.differing);
+                            bad += (c.differing > 0) as usize;
+                        }
+                    }
+                    Err(e) => {
+                        println!("{}: ERROR {e}", d.display());
+                        bad += 1;
+                    }
                 }
+            }
+            if bad > 0 {
+                anyhow::bail!("{bad} design(s) failed");
             }
             Ok(())
         }
@@ -859,11 +882,9 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
         WebCmd::Record { url, out, index, window, scale, timeout, browser } => crate::cdp::cmd_record(&url, &out, index, &window, scale, timeout, &browser),
         WebCmd::Layout { url, seconds, window, scale, min_ticks, browser } => crate::cdp::cmd_layout(&url, seconds, &window, scale, min_ticks, &browser),
         WebCmd::Reference { out, version, names } => cmd_reference(&out, &version, &names),
-        WebCmd::Sheet { pngs, out, scale, cols, crop: Some(c) } => {
-            let _ = scale;
-            cmd_sheet(&pngs, &out, Some(&c), cols, 1.0)
-        }
+        WebCmd::Sheet { pngs, out, scale, cols, crop: Some(c) } => cmd_sheet(&pngs, &out, Some(&c), cols, scale.unwrap_or(1) as f32),
         WebCmd::Sheet { pngs, out, scale, cols, crop: None } => {
+            let scale = scale.unwrap_or(8);
             let (rgba, w, h) = mcview::tools::sheet(&pngs, scale, cols).map_err(anyhow::Error::msg)?;
             mcview::render::headless::write_png(&out, w, h, &rgba).map_err(anyhow::Error::msg)?;
             println!("{} ({} textures)", out.display(), pngs.len());

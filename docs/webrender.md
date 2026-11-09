@@ -825,6 +825,21 @@ clocks 120 gt; entity, TNT and shulker designs 400 gt) and fails on any differen
   environment fog (spherical distance, linear from 0 to 1024 blocks) and the render distance's
   (cylindrical distance `max(|xz|, |y|)`, from 6 chunks minus a tenth to 6 chunks; a zoomed-out
   camera pushes the render distance back so the build is never cut), toward the sky colour.
+  The varyings are sampled at the centroid of the samples a triangle covers in a pixel, not at
+  the pixel's centre (2026-11-08: an edge pixel read the atlas sprite next to its face, a line of
+  that colour along every block edge, a grid on a stone wall, or a texel the alpha test drops, a
+  hole there).
+* `mcview::occlude`: a mob farm's blocks stay on the GPU (`Renderer::set_fixed`); once the camera
+  rests, only those of their triangles it can see are drawn, by an index list
+  (`Renderer::cull_fixed`, worked out over a few frames within a budget: `occlude::Cull`). Exact:
+  a triangle is left out only when the GPU would keep none of its samples (it faces away, is out
+  of view, or opaque faces surely cover every sample it could touch, by conservative tests at the
+  frame's pixels in 2x2 cells, with margins past the GPU's snapping and depth precision; coplanar
+  block faces merged into rectangles cover their shared edges together). A software GL (WebKit
+  on a GPU-less box: the phone rig) sets up every triangle it is given on one thread: D1U at phone
+  size draws 13,500 of its 49,000 triangles, the frame 32 -> 20 ms. `mctas web framecost --cull
+  --check` draws each frame both ways and counts the pixels that differ (0; and the test
+  `occlude::tests::culled_frames_are_the_whole_frames`).
 
 ## Commands
 

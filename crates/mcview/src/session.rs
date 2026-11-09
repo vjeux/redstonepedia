@@ -368,6 +368,9 @@ pub struct Session {
     /// Bumped whenever a block drawn may have changed (a write the world logged, a reset or a
     /// rewind): a mob farm's view keeps its blocks' mesh until then (`Player::triangles`).
     pub blocks_version: u64,
+    /// What the view draws of each cell a write logged since the start ([`drawn_state`]): a
+    /// write leaving it the same bumps no [`Session::blocks_version`].
+    drawn: HashMap<[i32; 3], String>,
     /// A farm judged in its terrain sample ([`crate::terrain`]): its world is the sample's with
     /// the farm built in at the site's offset; the view draws the design's coordinates (the
     /// world's minus the offset: [`Session::view_offset`]) and the landscape around the farm.
@@ -446,6 +449,25 @@ pub const SHULKER_PROBE: u32 = 1000;
 
 pub fn bp(p: Pos) -> BlockPos {
     BlockPos::new(p[0], p[1], p[2])
+}
+
+/// What the view draws of a block: its state, less the properties no model of the game's reads
+/// (`web/textures/<version>/block_definition.min.json`): a bed's `occupied` (its variants are by
+/// facing and part: a villager lying down at night toggled it every few ticks, each toggle a whole
+/// rebuild of a farm's mesh: 187 rebuilds in D1U's first 8000 ticks), a hopper's `enabled`, a
+/// dispenser's or dropper's `triggered`, leaves' `distance` and `persistent`.
+pub fn drawn_state(b: &Block) -> String {
+    let s = b.to_string();
+    let Some((name, props)) = s.split_once('[') else { return s };
+    let ignored: &[&str] = match name {
+        n if n.ends_with("_bed") => &["occupied"],
+        "minecraft:hopper" => &["enabled"],
+        "minecraft:dispenser" | "minecraft:dropper" => &["triggered"],
+        n if n.ends_with("_leaves") => &["distance", "persistent"],
+        _ => return s,
+    };
+    let kept: Vec<&str> = props.trim_end_matches(']').split(',').filter(|kv| !ignored.contains(&kv.split('=').next().unwrap_or(""))).collect();
+    format!("{name}[{}]", kept.join(","))
 }
 
 /// A design block as redsim state; quartz-like plain blocks (`crates/piston-door/src/properties.rs`)
@@ -831,6 +853,7 @@ impl Session {
             mob: None,
             mob_initial: None,
             blocks_version: 0,
+            drawn: HashMap::new(),
             terrain: None,
         };
         // a farm judged in its terrain sample (`crate::terrain`; vjeux 2026-11-08: "The day 1 farm
@@ -1309,9 +1332,13 @@ impl Session {
         for p in writes {
             let b = self.world.get(p);
             let c = p.arr();
+            // (a write that changes nothing drawn changes no mesh: a villager lying down toggles
+            // its bed's `occupied` every few ticks at night, each a whole rebuild of D1U's mesh)
+            let drawn = drawn_state(&b);
+            let same = self.drawn.get(&c) == Some(&drawn);
             match self.floor.as_mut() {
                 Some(f) if f.contains(c) => {
-                    changed = true;
+                    changed |= !same;
                     if b == f.layer(c[1]).0 {
                         f.changed.remove(&c);
                     } else {
@@ -1322,7 +1349,7 @@ impl Session {
                     if terrain.as_ref().is_some_and(|t| !t.draws(c)) {
                         continue;
                     }
-                    changed = true;
+                    changed |= !same;
                     // (in a terrain, a natural block gone stays listed, as air: the landscape
                     // drawn around the farm no longer shows it)
                     if b == Block::Air && self.terrain.is_none() {
@@ -1331,8 +1358,9 @@ impl Session {
                         self.outside.insert(c, b);
                     }
                 }
-                _ => changed = true,
+                _ => changed |= !same,
             }
+            self.drawn.insert(c, drawn);
         }
         if changed {
             self.blocks_version += 1;
@@ -1342,6 +1370,7 @@ impl Session {
     /// Start over from the world as placed: nothing changed in the ground, nothing outside.
     fn clear_writes(&mut self) {
         self.world.writes.clear();
+        self.drawn.clear();
         self.outside = self.outside_start.clone();
         self.blocks_version += 1;
         if let Some(f) = self.floor.as_mut() {
@@ -2901,6 +2930,7 @@ impl Session {
             mob: self.mob_initial.clone(),
             mob_initial: None,
             blocks_version: 0,
+            drawn: HashMap::new(),
             terrain: self.terrain.clone(),
         };
         // the world as placed: its ground intact

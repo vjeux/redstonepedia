@@ -22,6 +22,7 @@ pub mod light;
 pub mod mesh;
 pub mod mobfarm;
 pub mod models;
+pub mod occlude;
 pub mod particles;
 pub mod pick;
 pub mod player;
