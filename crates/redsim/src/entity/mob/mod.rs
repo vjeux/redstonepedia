@@ -473,7 +473,10 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
             s => return Some(Err(format!("a summoned sulfur cube of size {s} (an adult of that size) is not modeled"))),
         }
     }
+    // a summon (the farm's own mob, a scene's): an unmodeled AI fails closed
+    let strict = std::mem::replace(&mut w.mob.ai.strict, true);
     let id = add(w, ty, Vec3::new(pos[0], pos[1], pos[2]), persistent);
+    w.mob.ai.strict = strict;
     // a loaded bat rests only if its BatFlags say so (`readAdditionalSaveData`, default 0: a
     // summoned bat flies)
     if ty.def().id == "bat"
@@ -537,17 +540,22 @@ pub fn add(w: &mut World, ty: MobType, pos: Vec3, persistent: bool) -> u32 {
             }
         }
     }
-    // ---- mob AI (the mob-AI lane): a mob whose goals are not modeled is refused, never run
-    // without them (villagers have their brain, bats their own flight) ----
+    // ---- mob AI (the mob-AI lane): a mob whose goals are not modeled (villagers have their brain,
+    // bats their own flight): a summoned one (the farm's own: `MobAi::strict`) is refused, never
+    // run without them; an ambient natural one runs on the legacy walk model, its type named in
+    // the run's report (the parent's rule, 2026-11-08) ----
     if let Some(a) = st.ai.as_deref()
-        && ty != MobType::Villager
-        && ty.def().id != "bat"
-        && a.goals.goals.is_empty()
-        && a.targets.goals.is_empty()
+        && ai::unmodeled(ty, a)
     {
-        let why = format!("the AI of {} (its goals) is not modeled", ty.game_id());
-        if !w.errors.contains(&why) {
-            w.errors.push(why);
+        if w.mob.ai.strict {
+            let why = format!("the AI of {} (its goals) is not modeled", ty.game_id());
+            if !w.errors.contains(&why) {
+                w.errors.push(why);
+            }
+        } else {
+            st.ai = None;
+            st.speed = ty.def().speed as f32;
+            w.mob.ai.legacy.insert(ty.game_id());
         }
     }
     if ty == MobType::Villager {

@@ -151,6 +151,9 @@ pub struct RunReport {
     pub releases: Vec<i64>,
     /// Must-have failures (first ones), each with its game time.
     pub failures: Vec<String>,
+    /// The ambient natural mob types the run ran on the legacy walk model (their AI not modeled
+    /// yet: `MobWorld.ai.legacy`).
+    pub legacy_ai: Vec<String>,
     /// Model errors (the world's), each once.
     pub errors: Vec<String>,
     /// mobinfra: what the weather did over the run.
@@ -932,6 +935,7 @@ fn finish(w: &World, rep: &mut RunReport, tr: &Track, spec: &FarmSpec) {
     rep.golem_cells = tr.golem_cells.iter().map(|(c, n)| (*c, *n)).collect();
     rep.drop_cells = tr.drop_cells.iter().map(|(c, n)| (*c, *n)).collect();
     rep.cell_ticks = tr.cell_ticks;
+    rep.legacy_ai = w.mob.ai.legacy.iter().map(|s| s.to_string()).collect();
     let (out, rest) = container_iron(w, spec.output);
     rep.iron_in_chest += out;
     rep.iron_in_containers += rest.saturating_sub(tr.seed_iron);

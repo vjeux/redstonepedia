@@ -488,6 +488,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             if !r.releases.is_empty() {
                 println!("POI releases (a villager's bed given up after 1200 gt unreachable) at gt {:?}", r.releases);
             }
+            if !r.legacy_ai.is_empty() {
+                println!("natural mobs on the legacy walk model (their AI not modeled yet): {}", r.legacy_ai.join(", "));
+            }
             if cells > 0 {
                 let total: u64 = r.golem_cells.iter().map(|(_, n)| *n as u64).sum();
                 let mut v = r.golem_cells.clone();

@@ -501,14 +501,14 @@ fn enter_spawned(w: &mut World, ty: MobType, pos: Vec3, yaw: f32, bonus: f64) ->
         let mut a = super::ai::MobAi::new(ty, yaw);
         a.y_head_rot = ctor_yaw;
         a.y_body_rot = 0.0;
-        if ty != MobType::Villager && ty.def().id != "bat" && a.goals.goals.is_empty() && a.targets.goals.is_empty() {
-            let why = format!("the AI of {} (its goals) is not modeled", ty.game_id());
-            if !w.errors.contains(&why) {
-                w.errors.push(why);
-            }
+        // the custom spawners' mobs are ambient natural mobs: one whose AI is not modeled yet runs
+        // on the legacy walk model, named in the run's report (the parent's rule, 2026-11-08)
+        if super::ai::unmodeled(ty, &a) {
+            w.mob.ai.legacy.insert(ty.game_id());
+        } else {
+            st.ai = Some(Box::new(a));
+            st.speed = 0.0;
         }
-        st.ai = Some(Box::new(a));
-        st.speed = 0.0;
     }
     let id = w.entities.add(EntityKind::Mob(Box::new(st)), pos, yaw);
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {

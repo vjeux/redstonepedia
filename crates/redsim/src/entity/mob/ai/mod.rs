@@ -264,11 +264,22 @@ pub struct AiWorld {
     /// Each POI type's registry holder identity hash (the game's JVM's: the bridge's
     /// `identity_hashes`; `None`: a stand-in per type, [`poi_holder_hash`]).
     pub poi_hashes: Option<std::collections::HashMap<String, i32>>,
+    /// A summon is adding the mob (the farm's own): an unmodeled AI is refused, not run on the
+    /// legacy walk model.
+    pub strict: bool,
+    /// The ambient natural mob types run on the legacy walk model (their AI not modeled yet).
+    pub legacy: std::collections::BTreeSet<&'static str>,
+}
+
+/// A mob whose AI is not modeled: no goals and no targets (villagers have their brain, bats their
+/// own flight).
+pub fn unmodeled(ty: MobType, a: &MobAi) -> bool {
+    ty != MobType::Villager && ty.def().id != "bat" && a.goals.goals.is_empty() && a.targets.goals.is_empty()
 }
 
 impl Default for AiWorld {
     fn default() -> AiWorld {
-        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, pois: None, lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new(), poi_hashes: None }
+        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, pois: None, lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new(), poi_hashes: None, strict: false, legacy: std::collections::BTreeSet::new() }
     }
 }
 

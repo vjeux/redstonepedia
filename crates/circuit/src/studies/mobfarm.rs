@@ -960,6 +960,14 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
             format!("{} of {g} golems targeted the farm's zombie", all.iter().map(|r| r.golems_at_zombie).sum::<u32>())
         }),
     ];
+    // (the mob-AI lane, the parent's rule 2026-11-08) the ambient natural mob types the runs ran
+    // on the legacy walk model, their AI not modeled yet: named in the run's output, never on the
+    // card or the page (no caveats on pages: vjeux); the bridge compare's first difference shows
+    // them too
+    let legacy: std::collections::BTreeSet<&str> = all.iter().flat_map(|r| r.legacy_ai.iter().map(|s| s.as_str())).collect();
+    if !legacy.is_empty() {
+        eprintln!("note: natural mobs on the legacy walk model (their AI not modeled yet): {}", legacy.into_iter().collect::<Vec<_>>().join(", "));
+    }
     if let Some(bc) = base {
         if let Some((p, r)) = bc.worst.iter().min_by(|a, b| a.1.iron_per_hour().total_cmp(&b.1.iron_per_hour())) {
             metrics.push(("worst policy".to_string(), format!("{:.0} iron/h ({})", r.iron_per_hour(), p.name())));
