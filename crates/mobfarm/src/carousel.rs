@@ -469,6 +469,12 @@ fn stop(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, s: Side, outer: bool) {
     // (under `MCTAS_BIDE` one rail further: the brake's slope ends at rail 5, and the cart
     // leaving it still stands into y 0)
     set(s.at(if bide_at(&s) { BOOST + 1 } else { BOOST }, 0), 0, GLASS);
+    if bide_at(&s) && std::env::var_os("MCTAS_BIDE_SLAB").is_some() {
+        // (experiment: a top slab over rail 5 (y 0.5-1: the cart leaving the slope passes under,
+        // riders' heads do not suffocate in a slab) so the waking villager cannot stand there:
+        // it stands further on, giving the released cart a longer run to it)
+        set(s.at(BOOST, 0), 0, "smooth_stone_slab[type=top,waterlogged=false]");
+    }
     for i in 1..=BOOST {
         for y in (if outer { -1 } else { 0 })..=1 {
             set(s.at(i, -1), y, GLASS);
