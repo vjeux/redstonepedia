@@ -516,6 +516,19 @@ pub enum WebCmd {
         #[arg(long, default_value_t = 32)]
         threads: usize,
     },
+    /// One of a mob farm's judge runs (its build `--build` of the judge's 8, `--seed`) played both
+    /// ways, the judge's runner (`farm::Run`, with the card's hand step) and the viewer's session,
+    /// compared every tick (each world's time, mob random and entities: kind, position, motion):
+    /// the first tick they part and how, or that they agree to the end.
+    Mobdiff {
+        design: PathBuf,
+        #[arg(long, default_value_t = 0)]
+        build: usize,
+        #[arg(long)]
+        seed: i64,
+        #[arg(long, default_value_t = 120000)]
+        ticks: u32,
+    },
     /// Fit the default camera to the real-game pictures: renders each design under camera tweaks
     /// (zoom, pitch, yaw, height, distance) and prints the best by mean pixel difference.
     Fit {
@@ -815,6 +828,7 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
         WebCmd::Lose { url, window, browser } => crate::cdp::cmd_lose(&url, &window, &browser),
         WebCmd::Swap { url, to, window, browser } => crate::cdp::cmd_swap(&url, &to, &window, &browser),
         WebCmd::Mobrate { designs, threads } => cmd_mobrate(&designs, threads),
+        WebCmd::Mobdiff { design, build, seed, ticks } => cmd_mobdiff(&design, build, seed, ticks),
         WebCmd::Luma { designs, url, min, window, browser } => match url {
             Some(u) => crate::cdp::cmd_luma(&u, &window, min, &browser),
             None => cmd_luma_native(&designs, min),
@@ -2665,6 +2679,101 @@ const FARM_WASM_TICKS: u32 = 2000;
 /// as built).
 /// A mob farm's builds as its judge builds them (`circuit::mobfarm::judge`: every turn, then both
 /// places) as design texts, each checked to be the viewer's farm too.
+/// One judge run of a mob farm (its build `build` of the judge's 8: [`mob_judge_builds`], seed
+/// `seed`) played both ways, the judge's runner (`farm::Run` with the card's hand step) and the
+/// viewer's session, each world compared every tick (time, mob random, every entity's kind,
+/// position and motion: `mcview::session::entity_hash`): None when they are the same to the end
+/// with no world error, else where and how they part (or the view stopped).
+pub fn mob_diff(design: &Path, build: usize, seed: i64, ticks: u32) -> Result<Option<String>> {
+    use circuit::mobfarm as judge;
+    use redsim::entity::mob::farm::{HandHide, Run, WalkMode};
+    let text = std::fs::read_to_string(design).with_context(|| format!("reading {}", design.display()))?;
+    let c = circuit::Circuit::from_design(mctas::design::Design::parse(&text)?)?;
+    let offsets = clock::offsets(2);
+    let (t, k) = (build / offsets.len(), build % offsets.len());
+    let rc = c.turned_pure(t as u8).and_then(|r| r.translated(offsets[k]))?;
+    let btext = rc.clock.design.to_text();
+    let md = mcview::Design::parse(&btext).map_err(anyhow::Error::msg)?;
+    let spec = judge::spec_of(&rc).map_err(anyhow::Error::msg)?;
+    let site: Option<&'static redsim::entity::mob::site::Site> = match judge::terrain_site(&rc) {
+        Some(s) => Some(Box::leak(Box::new(s.map_err(anyhow::Error::msg)?))),
+        None => None,
+    };
+    let opts = redsim::entity::mob::farm::judge_opts_in(seed, judge::JUDGE_DAYS * 24000, WalkMode::Random, site);
+    let rspec = match site {
+        Some(s) => s.spec(&spec),
+        None => spec.clone(),
+    };
+    let mut r = Run::new(&rspec, &opts).map_err(anyhow::Error::msg)?;
+    let mut hand = mcview::mobfarm::hand_hide_of(&md).then(HandHide::default);
+    let own: std::collections::HashSet<u32> = r.own.iter().copied().collect();
+    let mut s = mcview::session::Session::new(&btext, &mcview::session::Options { mob_seed: Some(seed), ..mcview::session::Options::live() }).map_err(anyhow::Error::msg)?;
+    if let Some(why) = &s.unsimulated {
+        bail!("the view does not run it: {why}");
+    }
+    let dig = |w: &redsim::world::World| -> u64 {
+        let mut h = mcview::session::entity_hash(0, w);
+        for b in format!("{} {} {:?}", w.time, w.mob.day_offset, w.mob.rng).bytes() {
+            h = (h ^ b as u64).wrapping_mul(0x100000001b3);
+        }
+        h
+    };
+    let ents = |w: &redsim::world::World| -> Vec<String> {
+        w.entities.list.iter().filter(|e| !e.removed).map(|e| format!("{:?} pos ({:.4}, {:.4}, {:.4}) motion ({:.4}, {:.4}, {:.4})", std::mem::discriminant(&e.kind), e.pos.x, e.pos.y, e.pos.z, e.delta_movement.x, e.delta_movement.y, e.delta_movement.z)).collect()
+    };
+    if dig(&r.world) != dig(&s.world) {
+        return Ok(Some(format!("they differ before the first tick: judge time {} rng {:?}, view time {} rng {:?}", r.world.time, r.world.mob.rng, s.world.time, s.world.mob.rng)));
+    }
+    let t0 = std::time::Instant::now();
+    for n in 1..=ticks {
+        if let Some(h) = hand.as_mut() {
+            h.before_tick(&mut r.world, &rspec, &own);
+        }
+        r.tick();
+        s.step();
+        if let Some(h) = &s.halted {
+            return Ok(Some(format!(
+                "tick {n} (world time {}): the view stopped: {h}; the judge's world errors so far: {:?}; the digests at this tick: judge {:x}, view {:x}",
+                s.world.time,
+                r.world.errors.iter().take(4).collect::<Vec<_>>(),
+                dig(&r.world),
+                dig(&s.world)
+            )));
+        }
+        let (a, b) = (dig(&r.world), dig(&s.world));
+        if a != b {
+            let mut out = format!("tick {n}: the runs part (world time judge {} view {}; mob random judge {:?} view {:?})", r.world.time, s.world.time, r.world.mob.rng, s.world.mob.rng);
+            let (ea, eb) = (ents(&r.world), ents(&s.world));
+            out += &format!("\n  entities: judge {}, view {}", ea.len(), eb.len());
+            for e in ea.iter().filter(|e| !eb.contains(e)).take(6) {
+                out += &format!("\n  judge only: {e}");
+            }
+            for e in eb.iter().filter(|e| !ea.contains(e)).take(6) {
+                out += &format!("\n  view only:  {e}");
+            }
+            return Ok(Some(out));
+        }
+        if n % 20000 == 0 {
+            eprintln!("tick {n}: the same ({:.0} s)", t0.elapsed().as_secs_f64());
+        }
+    }
+    if let Some(e) = r.world.errors.first() {
+        return Ok(Some(format!("the same every tick over {ticks} ticks, but the judge's world logged: {e}")));
+    }
+    Ok(None)
+}
+
+/// [`WebCmd::Mobdiff`]: [`mob_diff`], failing when the runs part.
+fn cmd_mobdiff(design: &Path, build: usize, seed: i64, ticks: u32) -> Result<()> {
+    match mob_diff(design, build, seed, ticks)? {
+        None => {
+            println!("{} build {build} seed {seed}: the judge's run and the view's are the same every tick over {ticks} ticks", design.display());
+            Ok(())
+        }
+        Some(why) => bail!("{} build {build} seed {seed}: {why}", design.display()),
+    }
+}
+
 fn mob_judge_builds(c: &circuit::Circuit) -> std::result::Result<Vec<String>, String> {
     use circuit::mobfarm as judge;
     let offsets = clock::offsets(2);
@@ -3104,5 +3213,22 @@ fn clock_pair(text: &str, horizon: u32, probe: Option<&mut mcview::tools::WasmPr
         (clock::sim::Verdict::Invalid, Ok(p)) if r.why.contains("the output cell") => Ok(Some(format!("W{} P{} (state W{} P{}); clock sim INVALID by the output rule: {}", p.warmup, p.period, p.state_warmup, p.state_period, r.why))),
         (v, Ok(p)) => Err(format!("clock sim {} but the viewer finds W{} P{}", v.word(), p.state_warmup, p.state_period)),
         (v, Err(e)) => Err(format!("clock sim {} (W{} P{}) but the viewer: {e}", v.word(), r.state_warmup, r.state_period)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// D1U's judge build 7 seed 1769114314 (`judge_seed(7, 4)`): the viewer's session is the
+    /// judge's runner every tick over the 5 days (2026-11-09: both stopped at t103206 on natural
+    /// water pouring past the sample's west edge, until b686373716; it had looked like a wasm
+    /// divergence). `--ignored` (40 s).
+    #[test]
+    #[ignore]
+    fn d1u_build7_seed_1769114314_view_is_the_judge_run() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        // (the terrain sample's file is read from the repository root, as `mctas` runs)
+        std::env::set_current_dir(&root).unwrap();
+        let why = super::mob_diff(std::path::Path::new("designs/farms/iron/day-1/d1u-underground.txt"), 7, 1769114314, 120000).unwrap();
+        assert_eq!(why, None);
     }
 }
