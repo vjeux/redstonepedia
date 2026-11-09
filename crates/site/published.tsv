@@ -10065,6 +10065,7 @@ farms/crops/index.html	page				2026-11-08 20:44Z
 farms/crops/melon-lattice8.html	circuit	farm/harvester melon		Crop farm: 3,200 melon slices an hour · 64 stems · 800 blocks · 4.0 an hour per block · ~2,200 iron to build · needs open sky or light 9	2026-11-08 20:42Z
 farms/crops/pumpkin-lattice8.html	circuit	farm/harvester pumpkin		Crop farm: 664 pumpkins an hour · 64 stems · 800 blocks · 0.83 an hour per block · ~2,200 iron to build · needs open sky or light 9	2026-11-08 20:42Z
 farms/index.html	page				2026-11-08 20:44Z
+farms/iron/bed-plate-dug12.html	circuit	mobfarm/-mob-farm iron_ingot day-1		Iron farm: 255 iron an hour · 416 blocks · 0.61 an hour per block · 8 iron to build · bed-plate farm dug 12 deep, nothing on the surface	2026-11-09 06:41Z
 farms/iron/bed-plate-lava-out-of-sight.html	circuit	mobfarm/-mob-farm iron_ingot day-1		Iron farm: 307 iron an hour · 395 blocks · 0.78 an hour per block · 8 iron to build · bed-plate farm with the lava corner out of sight, dug 7 deep	2026-11-09 01:26Z
 farms/iron/bed-plate-side-chute.html	circuit	mobfarm/-mob-farm iron_ingot day-1		Iron farm: 334 iron an hour · 730 blocks · 0.46 an hour per block · 32 iron to build · bed-plate farm with its chute to the side, dug 11 deep	2026-11-09 03:27Z
 farms/iron/bed-plate-two-clusters.html	circuit	mobfarm/-mob-farm iron_ingot day-1		Iron farm: 403 iron an hour · 598 blocks · 0.67 an hour per block · 16 iron to build · two bed-plate farms side by side, dug 8 deep	2026-11-09 01:51Z
@@ -10088,12 +10089,15 @@ farms/iron/late-shared-kill-pair.html	circuit	mobfarm/mob-farm iron_ingot fastes
 farms/iron/m2-open-ring.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 440 iron an hour · 370 blocks · 1.2 an hour per block · 16 iron to build · a comparator ring times the zombie's hide	2026-11-08 20:42Z
 farms/iron/m2-open.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 439 iron an hour · 404 blocks · 1.1 an hour per block · 16 iron to build · a repeater line times the zombie's hide	2026-11-08 20:42Z
 farms/iron/module-underground.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 439 iron an hour · 720 blocks · 0.61 an hour per block · 16 iron to build · golems fall out of sight to a lava blade	2026-11-09 05:08Z
+farms/iron/parts/access/index.html	page				2026-11-09 06:41Z
 farms/iron/parts/cage/index.html	page				2026-11-08 21:21Z
 farms/iron/parts/collection/index.html	page				2026-11-08 21:21Z
 farms/iron/parts/kill/index.html	page				2026-11-08 21:21Z
 farms/iron/parts/module/index.html	page				2026-11-08 23:05Z
 farms/iron/parts/sleep-trigger/index.html	page				2026-11-08 21:21Z
 farms/iron/parts/spawn-area/index.html	page				2026-11-08 21:21Z
+farms/iron/parts/storage/index.html	page				2026-11-09 06:41Z
+farms/iron/parts/transport/index.html	page				2026-11-09 06:41Z
 farms/iron/row-2x27.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 886 iron an hour · 812 blocks · 1.1 an hour per block · 226 iron to build · two farms side by side share one sorter, one iron-block crafter and one composter	2026-11-08 22:43Z
 farms/iron/stack-2x43.html	circuit	mobfarm/-mob-farm iron_ingot fastest		Iron farm: 886 iron an hour · 748 blocks · 1.2 an hour per block · 46 iron to build · two farms stacked, each with its own chests	2026-11-08 22:43Z
 farms/iron/stack-8x43.html	circuit	mobfarm/-mob-farm iron_ingot fastest		Iron farm: 3,600 iron an hour · 2,992 blocks · 1.2 an hour per block · 166 iron to build · eight farms stacked, each with its own chests	2026-11-08 22:43Z
