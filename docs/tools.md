@@ -37,9 +37,17 @@ either side, the random ticks alone, terrain's regression check `sim:terrain-tic
 only those kinds of difference count; `--twin`: the bridge against itself; the last line counts
 the drops each side burnt: items that left while on fire, by item), and the level
 random's draws of one tick by call site on both sides: `mctas mobai farm-trace <design> --seed S
---at T [--build K --day0 D --no-spawning --weather]` (`MCTAS_NATURAL_LOG=T` prints redsim's
+--at T [--build K --run I --day0 D --no-spawning --weather]` (`MCTAS_NATURAL_LOG=T` prints redsim's
 natural spawner calls of that tick; `MCTAS_EXACT_LIGHT=x0,y0,z0,x1,y1,z1` the cells whose sky or
-block light differs at the end).
+block light differs at the end; `MCTAS_EXACT_SUMMONS=1` each golem summon and each villager's
+GOLEM_DETECTED_RECENTLY set and freed, both sides). One judge run on redsim alone: `mctas mobfarm
+run <design> [--terrain <sample> | --build K] --seed S --days D` (`--build K`: the judge's K-th
+terrain site with its run options, so a live view's "build 7 seed S" is `--build 7 --seed S`).
+The judge's speed, results unchanged: `mctas farmopt bench <spec> --n 16 --quick 8 [--full N]
+--threads 16 --out <file>` evaluates N candidates spread evenly over the spec's space level by
+level (static, quick for the first `--quick` passing static, full for the first `--full` passing
+quick), prints each level's wall time and time a candidate, and writes every result with a digest;
+a speed change keeps the digest of the binary before it.
 Real terrain and natural spawning (`mctas terrain gen | find | info | crop | map | spot | light |
 probe | chunk | blockinfo | biomes | paste-check | biome-check | spawn-check | spawn-explain |
 hostile | slab-fixture`, and `mctas mobfarm exposures | spawn-rules`: the official server's world
