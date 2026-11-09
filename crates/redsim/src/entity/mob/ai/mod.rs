@@ -71,6 +71,10 @@ pub struct MobAi {
     pub last_hurt_by_mob_timestamp: i32,
     /// `Zombie.canBreakDoors`.
     pub can_break_doors: bool,
+    /// `Zombie.drowningTracker` (a zombie whose `convertsInWater`): ticks its eye has been in water
+    /// (`afflictionTime`, -1 once out) and the conversion's countdown once started.
+    pub drown_time: i32,
+    pub drown_conversion: Option<i32>,
     /// `lastHurtMob` (the last entity this one hit).
     pub last_hurt_mob: Option<u32>,
     /// The attacker of the last damage (`lastDamageSource.getEntity()`).
@@ -137,6 +141,8 @@ impl MobAi {
             last_hurt_by_mob: None,
             last_hurt_by_mob_timestamp: 0,
             can_break_doors: false,
+            drown_time: 0,
+            drown_conversion: None,
             last_hurt_mob: None,
             last_damage_entity: None,
             anger_target: None,
@@ -585,9 +591,44 @@ pub fn body_rotation_tick(w: &mut World, i: usize) {
 
 /// The rest of `LivingEntity.tick` after `aiStep` for a mob with AI (`tickHeadTurn`, the rotation
 /// range checks) and `Mob.tick`'s `updateControlFlags` every 5 ticks.
+/// `Zombie.tick`'s `drowningTracker.tick()` (`ConversionTracker`; zombies and baby zombies:
+/// `convertsInWater`, not zombie villagers or drowned): its eye in water 600 ticks starts a
+/// 300-tick conversion, out of water resets both; the conversion to a drowned is refused. It runs
+/// after the living tick, with the eye state of this tick's base tick (no draws).
+fn zombie_drowning(w: &mut World, i: usize) {
+    if !matches!(mob(w, i).ty.def().id, "zombie" | "baby_zombie") || mob(w, i).health <= 0.0 {
+        return;
+    }
+    let eye = w.entities.list[i].fluid.eye_in_water();
+    let a = ai_mut(w, i);
+    if !eye {
+        a.drown_time = -1;
+        a.drown_conversion = None;
+        return;
+    }
+    match a.drown_conversion.as_mut() {
+        Some(c) => {
+            *c -= 1;
+            if *c < 0 {
+                let why = "a zombie's conversion to a drowned (600 ticks with its eye in water, then 300) is not modeled yet".to_string();
+                if !w.errors.contains(&why) {
+                    w.errors.push(why);
+                }
+            }
+        }
+        None => {
+            a.drown_time += 1;
+            if a.drown_time >= 600 {
+                a.drown_conversion = Some(300);
+            }
+        }
+    }
+}
+
 pub fn after_ai_step(w: &mut World, i: usize) {
     // Squid.aiStep's tail (after LivingEntity.aiStep): the tentacles, the swim impulse, the turns
     squid::after_ai_step(w, i);
+    zombie_drowning(w, i);
     // IronGolem.aiStep's tail (after Mob.aiStep): attackAnimationTick/offerFlowerTick (client
     // looks) and the persistent anger update
     if mob(w, i).ty == MobType::IronGolem {
@@ -753,6 +794,11 @@ fn refuse_once(w: &mut World, why: &str) {
 pub fn update_no_action_time(w: &mut World, i: usize) {
     // a Monster's (the cube mobs spawn as monsters but are AgeableMobs)
     if !mob(w, i).ty.def().monster || ai(w, i).cube.is_some() {
+        return;
+    }
+    // Raider.updateNoActionTime (a witch): +2 whatever the light
+    if mob(w, i).ty == MobType::Witch {
+        mob_mut(w, i).no_action_time += 2;
         return;
     }
     let e = &w.entities.list[i];

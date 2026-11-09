@@ -701,19 +701,84 @@ fn die(w: &mut World, i: usize, src: Damage) {
         super::ai::attack::killed_entity(w, i, src);
     }
     w.game_event_at("entity_die", [pos.x, pos.y, pos.z], None, false);
-    drop_loot(w, i);
+    drop_loot(w, i, src);
+}
+
+/// The dying mob's facts its loot table reads (`loot::Victim`).
+fn victim(w: &World, i: usize, src: Damage) -> super::loot::Victim {
+    let m = mob(w, i);
+    let e = &w.entities.list[i];
+    let rides_zombie_horse = e
+        .vehicle
+        .and_then(|v| w.entities.list.iter().find(|x| x.id == v))
+        .is_some_and(|x| matches!(&x.kind, EntityKind::Mob(vm) if vm.ty.def().game_id == "minecraft:zombie_horse"));
+    let cube_size = match m.ty.def().id {
+        "slime" => Some(1),
+        "slime_2" => Some(2),
+        "slime_4" => Some(4),
+        _ => None,
+    };
+    let wool = (m.ty.def().game_id == "minecraft:sheep").then(|| super::loot::wool_of(m.color));
+    let killer_skeleton = src == Damage::MobAttack && w.mob.ai.attacker.and_then(|a| w.entities.list.iter().find(|x| x.id == a)).is_some_and(|x| matches!(&x.kind, EntityKind::Mob(km) if matches!(km.ty.def().id, "skeleton" | "stray" | "bogged" | "wither_skeleton")));
+    super::loot::Victim { on_fire: m.fire_ticks > 0 && !m.ty.def().fire_immune, cube_size, rides_zombie_horse, wool, killed_by_skeleton: killer_skeleton, lightning: src == Damage::Lightning }
+}
+
+/// `LivingEntity.shouldDropLoot`: no baby drops anything.
+fn drops_loot(w: &World, i: usize) -> bool {
+    let id = mob(w, i).ty.def().id;
+    !(id.starts_with("baby_") || super::ai::goal::animal::is_baby(id))
 }
 
 /// `dropFromLootTable`: each pool's count (`set_count uniform`), each non-empty stack an item at
 /// the mob's position (`Entity.spawnAtLocation`: `new ItemEntity(level, x, y, z, stack)` with the
 /// item's own random motion (+-0.1, 0.2, +-0.1) and yaw, pickup delay 10). The loot random and
 /// the item's own random are the seeded stand-ins (`MobWorld::rng`).
-fn drop_loot(w: &mut World, i: usize) {
+fn drop_loot(w: &mut World, i: usize, src: Damage) {
+    if !drops_loot(w, i) {
+        return;
+    }
     if w.exact_seed.is_some() && w.loot_salt.is_some() {
-        return drop_loot_exact(w, i);
+        return drop_loot_exact(w, i, src);
     }
     let (pos, ty) = (w.entities.list[i].pos, mob(w, i).ty);
     let src_id = w.entities.list[i].id;
+    // a natural mob's table (pools, weighted entries): every stack first, then the items
+    if let Some(pools) = super::loot::table(ty.def().game_id) {
+        let v = victim(w, i, src);
+        let stacks = match super::loot::roll(pools, &v, w.mob.rng_mut()) {
+            Ok(s) => s,
+            Err(why) => {
+                if !w.errors.contains(&why) {
+                    w.errors.push(why);
+                }
+                return;
+            }
+        };
+        for (item, n) in stacks {
+            if n <= 0 {
+                continue;
+            }
+            let (mx, mz, y_rot, own) = {
+                let r = w.mob.rng_mut();
+                let seed = r.next_long();
+                let mut own = crate::rng::LegacyRandom::new(seed);
+                own.next_float();
+                let y_rot = own.next_float() * 360.0;
+                let mx = own.next_double() * 0.2 - 0.1;
+                let mz = own.next_double() * 0.2 - 0.1;
+                (mx, mz, y_rot, own)
+            };
+            let state = crate::entity::item::ItemState { item: item.to_string(), count: n as u8, pickup_delay: 10, age: 0, payload: 0, health: 5 };
+            let id = w.entities.add(EntityKind::Item(state), Vec3::new(pos.x, pos.y, pos.z), y_rot);
+            if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
+                e.delta_movement = Vec3::new(mx, 0.2, mz);
+                e.random = Some(own);
+            }
+            let t = w.time;
+            w.mob.events.push(MobEvent::Drop { t, from: src_id, item: id, what: item, count: n as u32 });
+        }
+        return;
+    }
     for &(item, lo, hi) in ty.def().loot {
         let n = {
             let r = w.mob.rng_mut();
@@ -777,16 +842,36 @@ pub fn spawn_item(w: &mut World, i: usize, item: &'static str, count: u8) {
 /// `spawnAtLocation` (`new ItemEntity(level, x, y, z, stack)`): the item enters with its own random
 /// seeded as its entity number, the constructor's UUID, bobOffs, yaw and drift replayed (the
 /// drift kept: x and z, 0.2 up).
-fn drop_loot_exact(w: &mut World, i: usize) {
+fn drop_loot_exact(w: &mut World, i: usize, src: Damage) {
     let (pos, ty) = (w.entities.list[i].pos, mob(w, i).ty);
     let src_id = w.entities.list[i].id;
-    let key = format!("minecraft:entities/{}", ty.def().id);
+    // the table's random sequence is named by the entity type (a baby's rows share it)
+    let key = format!("minecraft:entities/{}", ty.def().game_id.strip_prefix("minecraft:").unwrap_or(ty.def().game_id));
     let salt = w.loot_salt.unwrap_or(0);
-    for &(item, lo, hi) in ty.def().loot {
-        let n = {
-            let r = w.loot_sequences.entry(key.clone()).or_insert_with(|| crate::stems::LootSequence::new(salt, &key));
-            if lo >= hi { lo } else { lo + r.next_int(hi - lo + 1) }
-        };
+    // a natural mob's table: getRandomItems makes every stack, then spawnAtLocation drops each
+    let stacks: Vec<(&'static str, i32)> = if let Some(pools) = super::loot::table(ty.def().game_id) {
+        let v = victim(w, i, src);
+        let r = w.loot_sequences.entry(key.clone()).or_insert_with(|| crate::stems::LootSequence::new(salt, &key));
+        match super::loot::roll(pools, &v, r) {
+            Ok(s) => s,
+            Err(why) => {
+                if !w.errors.contains(&why) {
+                    w.errors.push(why);
+                }
+                return;
+            }
+        }
+    } else {
+        ty.def()
+            .loot
+            .iter()
+            .map(|&(item, lo, hi)| {
+                let r = w.loot_sequences.entry(key.clone()).or_insert_with(|| crate::stems::LootSequence::new(salt, &key));
+                (item, if lo >= hi { lo } else { lo + r.next_int(hi - lo + 1) })
+            })
+            .collect()
+    };
+    for (item, n) in stacks {
         if n <= 0 {
             continue;
         }

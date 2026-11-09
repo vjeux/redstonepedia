@@ -631,6 +631,38 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 3,
         });
     }
+    // natural mobs' loot: each mob falls 30 blocks onto stone and dies on landing (no panic, no
+    // potion): a spider's string, a skeleton's arrows and bones, a creeper's gunpowder, a zombie
+    // villager's flesh, a cow's leather and beef, a pig's porkchops, a black sheep's mutton and
+    // black wool, a witch's weighted rolls and redstone
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 60, stone);
+        let p = |s: &str| Some(s.to_string());
+        let fall = |id: &str, x: f64, z: f64, nbt: &str| (id.to_string(), [x, 91.0, z], p(nbt));
+        v.push(Scene {
+            name: "loot".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                fall("minecraft:spider", 12.5, 12.5, "{PersistenceRequired:1b}"),
+                fall("minecraft:skeleton", 18.5, 12.5, "{PersistenceRequired:1b}"),
+                fall("minecraft:creeper", 24.5, 12.5, "{PersistenceRequired:1b}"),
+                fall("minecraft:zombie_villager", 30.5, 12.5, "{PersistenceRequired:1b}"),
+                fall("minecraft:cow", 12.5, 30.5, "{PersistenceRequired:1b}"),
+                fall("minecraft:pig", 18.5, 30.5, "{PersistenceRequired:1b}"),
+                fall("minecraft:sheep", 24.5, 30.5, "{PersistenceRequired:1b,Color:15b}"),
+                fall("minecraft:witch", 30.5, 30.5, "{PersistenceRequired:1b}"),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Hard,
+            mob_griefing: true,
+            watch: ([0, 58, 0], [47, 95, 47]),
+            player: Some([24.5, 100.0, 4.5]),
+            player_creative: true,
+            random_tick_speed: 0,
+        });
+    }
     v
 }
 

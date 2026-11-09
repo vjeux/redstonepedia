@@ -27,6 +27,7 @@ pub mod exit;
 pub mod farm;
 pub mod hostile;
 pub mod living;
+pub mod loot;
 pub mod los;
 pub mod natural;
 pub mod prices;
@@ -44,7 +45,70 @@ mod tests;
 
 /// The items the mob farms add to the item registry (`redstone::container`, collected by
 /// build.rs): an iron golem's poppy.
-pub const MODULE_ITEMS: &[(&str, u8)] = &[("poppy", 64)];
+pub const MODULE_ITEMS: &[(&str, u8)] = &[
+    ("poppy", 64),
+    // the natural mobs' loot (entity::mob::loot), the cooked forms a mob on fire drops, and the
+    // player-only drops their tables name
+    ("rotten_flesh", 64),
+    ("red_mushroom", 64),
+    ("arrow", 64),
+    ("bone", 64),
+    ("gunpowder", 64),
+    ("string", 64),
+    ("glowstone_dust", 64),
+    ("sugar", 64),
+    ("spider_eye", 64),
+    ("glass_bottle", 64),
+    ("stick", 64),
+    ("redstone", 64),
+    ("ender_pearl", 16),
+    ("slime_ball", 64),
+    ("ink_sac", 64),
+    ("glow_ink_sac", 64),
+    ("feather", 64),
+    ("chicken", 64),
+    ("cooked_chicken", 64),
+    ("leather", 64),
+    ("beef", 64),
+    ("cooked_beef", 64),
+    ("porkchop", 64),
+    ("cooked_porkchop", 64),
+    ("mutton", 64),
+    ("cooked_mutton", 64),
+    ("white_wool", 64),
+    ("orange_wool", 64),
+    ("magenta_wool", 64),
+    ("light_blue_wool", 64),
+    ("yellow_wool", 64),
+    ("lime_wool", 64),
+    ("pink_wool", 64),
+    ("gray_wool", 64),
+    ("light_gray_wool", 64),
+    ("cyan_wool", 64),
+    ("purple_wool", 64),
+    ("blue_wool", 64),
+    ("brown_wool", 64),
+    ("green_wool", 64),
+    ("red_wool", 64),
+    ("black_wool", 64),
+    ("rabbit_hide", 64),
+    ("rabbit", 64),
+    ("cooked_rabbit", 64),
+    ("rabbit_foot", 64),
+    ("seagrass", 64),
+    ("bowl", 64),
+    ("salmon", 64),
+    ("cooked_salmon", 64),
+    ("cod", 64),
+    ("cooked_cod", 64),
+    ("bone_meal", 64),
+    ("iron_ingot", 64),
+    ("carrot", 64),
+    ("potato", 64),
+    ("baked_potato", 64),
+    ("copper_ingot", 64),
+    ("music_disc_lava_chicken", 1),
+];
 
 use crate::entity::{EntityKind, Vec3};
 use crate::pos::BlockPos;
@@ -218,6 +282,8 @@ pub struct MobState {
     /// The helmet on its head (`EquipmentSlot.HEAD`): its max damage and damage (natural undead
     /// from `populateDefaultEquipmentSlots`); it takes the sun's burn.
     pub helmet: Option<(i32, i32)>,
+    /// A sheep's `DyeColor` id (0 white; a natural one's from `SheepColorSpawnRules`): its wool.
+    pub color: u8,
     /// The lava tracker's height (`getFluidHeight(LAVA)`; `isInLava` when positive).
     pub lava_height: f64,
     /// This tick's collected block effects.
@@ -265,6 +331,7 @@ impl MobState {
             bat_target: None,
             egg_time: 0,
             helmet: None,
+            color: 0,
             lava_height: 0.0,
             inside: Inside::default(),
             last_damage: None,
@@ -476,6 +543,7 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
     let mut bat_flags = 0;
     let mut cube_size: Option<i32> = None;
     let mut animal_age: Option<i32> = None;
+    let mut sheep_color: Option<u8> = None;
     let mut yaw = None;
     if let Some(n) = nbt {
         let mut t = n.trim().to_string();
@@ -500,6 +568,8 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
                 Some(("Size", v)) if ty.def().game_id == "minecraft:sulfur_cube" => cube_size = v.trim_end_matches(['b', 'B']).parse::<i32>().ok().map(|s| s + 1),
                 // a farm animal's age (a baby below 0)
                 Some(("Age", v)) if ai::goal::animal::is_animal(ty.def().id) => animal_age = v.parse::<i32>().ok(),
+                // a sheep's colour (`DyeColor` id)
+                Some(("Color", v)) if ty.def().game_id == "minecraft:sheep" => sheep_color = v.trim_end_matches(['b', 'B']).parse::<u8>().ok(),
                 _ => return Some(Err(format!("entity {type_id} with {kv} in its data is not modeled by redsim"))),
             }
         }
@@ -529,6 +599,12 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
         && let Some(x) = m.ai.as_deref_mut()
     {
         x.age = a;
+    }
+    if let Some(c) = sheep_color
+        && let Some(j) = crate::entity::index_of(w, id)
+        && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
+    {
+        m.color = c & 15;
     }
     // a loaded bat rests only if its BatFlags say so (`readAdditionalSaveData`, default 0: a
     // summoned bat flies)

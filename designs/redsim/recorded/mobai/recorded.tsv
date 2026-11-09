@@ -5,6 +5,7 @@ baby-animals.rec	81acab55f63cfa99		26.3	2026-11-09T02:29Z on 4fc4dee38	mctas mob
 bat-hall.rec	10e97b7cec176aaa		26.3	2026-11-08T22:46Z on c7600e306	mctas mobai record bat-hall --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 creeper-player.rec	1a9cdc8984c37345		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record creeper-player --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 golem-zombie.rec	ef19b029d877d590		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record golem-zombie --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
+loot.rec	331598a691332d70		26.3	2026-11-09T03:55Z on dc7ec7ffd	mctas mobai record loot --seed 1 --ticks 1200 --dir designs/redsim/recorded/mobai
 skeleton-night.rec	0c0593037b2d3fb3		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record skeleton-night --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 skeleton-sun.rec	2c1222b87fbd3641		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record skeleton-sun --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 spider-golem.rec	68e63d0d953653ad		26.3	2026-11-08T22:18Z on 8068118d7	mctas mobai record spider-golem --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai

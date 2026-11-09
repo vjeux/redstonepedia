@@ -110,6 +110,11 @@ impl LootSequence {
         result
     }
 
+    /// `XoroshiroRandomSource.nextFloat()`: `nextBits(24) * 5.9604645E-8F` (the long's top 24 bits).
+    pub fn next_float(&mut self) -> f32 {
+        ((self.next_long() as u64) >> 40) as i32 as f32 * 5.960_464_5e-8_f32
+    }
+
     /// `XoroshiroRandomSource.nextInt(bound)` (Lemire's unbiased multiply).
     pub fn next_int(&mut self, bound: i32) -> i32 {
         let bound64 = bound as u64;
