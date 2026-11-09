@@ -137,6 +137,14 @@ fn drift(base: &World, spec: &FarmSpec, own: &[u32], start: Vec3, policy: Walk) 
             return fail(visited, why);
         }
         let e = &w.entities.list[g];
+        // (`MCTAS_DRIFT_TRACE=x,y,z`: every tick of the drifts that start there, for finding the
+        // way a golem left)
+        if let Ok(tr) = std::env::var("MCTAS_DRIFT_TRACE") {
+            let at: Vec<f64> = tr.split(',').filter_map(|v| v.trim().parse().ok()).collect();
+            if at.len() == 3 && (start.x - at[0]).abs() < 0.01 && (start.y - at[1]).abs() < 0.01 && (start.z - at[2]).abs() < 0.01 {
+                eprintln!("drift {} t {t}: {:.2} {:.2} {:.2} ground {}", policy.name(), e.pos.x, e.pos.y, e.pos.z, e.on_ground);
+            }
+        }
         if e.on_ground {
             let c = e.block_position();
             if !visited.iter().any(|(q, _)| *q == c) {

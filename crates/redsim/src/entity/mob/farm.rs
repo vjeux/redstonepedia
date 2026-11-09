@@ -176,6 +176,10 @@ pub struct RunReport {
     /// Golems whose AI target was the farm's zombie at some tick (each once; brief rev 9
     /// iteration 13: printed per run).
     pub golems_at_zombie: u32,
+    /// Golems sensed by a villager of another cluster than their summoner's (each once), and every
+    /// such sensing: the coupling between a farm's groups (vjeux 18:16, the + layouts).
+    pub golems_seen_by_others: u32,
+    pub cross_sightings: u32,
     /// Iron-bearing drops that touched lava or a fire (each once) and the iron they carried: a
     /// measured loss (brief farm-iron.md revision 9, iteration 11: burnt iron is a tradeoff, not
     /// a refusal; the rate counts only what reaches the containers).
@@ -453,6 +457,11 @@ struct Track {
     own: std::collections::HashSet<u32>,
     /// The golems already counted in `RunReport::golems_at_zombie`.
     at_zombie: std::collections::HashSet<u32>,
+    /// Each own villager's cluster (villagers within each other's 10-block box, joined), each
+    /// golem's summoner's cluster, and the golems another cluster sensed.
+    cluster_of: std::collections::HashMap<u32, usize>,
+    summoned_by: std::collections::HashMap<u32, usize>,
+    seen_by_others: std::collections::HashSet<u32>,
     /// The drops counted as burnt (once each).
     burnt: std::collections::HashSet<u32>,
 }
@@ -461,7 +470,7 @@ impl Track {
     /// The tracking of a run that just arrived: its own villagers' homes and last sleeps.
     fn new(r: &Run, spec: &FarmSpec) -> Track {
         let own: std::collections::HashSet<u32> = r.own.iter().copied().collect();
-        let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0, own, at_zombie: Default::default(), burnt: Default::default() };
+        let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0, own, at_zombie: Default::default(), burnt: Default::default(), cluster_of: Default::default(), summoned_by: Default::default(), seen_by_others: Default::default() };
         for e in &r.world.entities.list {
             if let EntityKind::Mob(m) = &e.kind
                 && m.ty == MobType::Villager
@@ -470,6 +479,31 @@ impl Track {
                 tr.villager_home.push((e.id, e.pos));
                 tr.last_sleep.push((e.id, m.brain.as_deref().and_then(|b| b.last_slept).unwrap_or(0)));
             }
+        }
+        // the clusters: villagers within each other's 10-block box (Villager.spawnGolemIfNeeded's
+        // count), joined
+        let homes = tr.villager_home.clone();
+        let mut cluster: Vec<usize> = (0..homes.len()).collect();
+        fn root(c: &mut [usize], i: usize) -> usize {
+            let mut i = i;
+            while c[i] != i {
+                c[i] = c[c[i]];
+                i = c[i];
+            }
+            i
+        }
+        for a in 0..homes.len() {
+            for b in a + 1..homes.len() {
+                let (p, q) = (homes[a].1, homes[b].1);
+                if (p.x - q.x).abs() <= 10.0 && (p.y - q.y).abs() <= 10.0 && (p.z - q.z).abs() <= 10.0 {
+                    let (ra, rb) = (root(&mut cluster, a), root(&mut cluster, b));
+                    cluster[ra] = rb;
+                }
+            }
+        }
+        for (k, (id, _)) in homes.iter().enumerate() {
+            let c = root(&mut cluster, k);
+            tr.cluster_of.insert(*id, c);
         }
         tr
     }
@@ -710,7 +744,7 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
         match ev {
             // the farm's villagers' summons only (a terrain run's village summons its own golems)
             MobEvent::GolemTry { villager, .. } if !tr.own.contains(&villager) => {}
-            MobEvent::GolemTry { golem: Some(id), at, .. } => {
+            MobEvent::GolemTry { golem: Some(id), at, villager, .. } => {
                 rep.golems += 1;
                 rep.spawn_times.push(t);
                 if w.day_time().rem_euclid(24000) < SLEEPER_DAY {
@@ -721,9 +755,25 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
                 }
                 tr.golem_born.push((id, t));
                 tr.own.insert(id);
+                if let Some(c) = tr.cluster_of.get(&villager) {
+                    tr.summoned_by.insert(id, *c);
+                }
             }
             MobEvent::GolemTry { golem: None, .. } => rep.losses.no_spot += 1,
-            MobEvent::GolemSeen { villager, .. } if tr.own.contains(&villager) => rep.losses.seen += 1,
+            MobEvent::GolemSeen { villager, .. } if tr.own.contains(&villager) => {
+                rep.losses.seen += 1;
+                // (a golem another cluster summoned: the coupling between a farm's groups)
+                if let (Some(c), Some(i)) = (tr.cluster_of.get(&villager).copied(), crate::entity::index_of(w, villager)) {
+                    for g in super::villager::nearest_golems(w, i) {
+                        if tr.summoned_by.get(&g).is_some_and(|s| *s != c) {
+                            rep.cross_sightings += 1;
+                            if tr.seen_by_others.insert(g) {
+                                rep.golems_seen_by_others += 1;
+                            }
+                        }
+                    }
+                }
+            }
             // the farm's own mobs (its villagers, its zombie): a natural mob's damage in a terrain
             // run is not the farm's
             MobEvent::Hurt { id, ty, src, amount, .. } if matches!(ty, MobType::Villager | MobType::Zombie) && tr.own.contains(&id) => {

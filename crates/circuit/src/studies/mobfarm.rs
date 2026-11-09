@@ -960,6 +960,13 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
             format!("{} of {g} golems targeted the farm's zombie", all.iter().map(|r| r.golems_at_zombie).sum::<u32>())
         }),
     ];
+    // the coupling between a farm's groups (vjeux 18:16, the + layouts): golems another cluster's
+    // golem sensor caught (each resets that group's summoning for 600 gt)
+    if modules > 1 {
+        let g: u32 = all.iter().map(|r| r.golems).sum();
+        let (seen, sightings): (u32, u32) = all.iter().fold((0, 0), |(a, b), r| (a + r.golems_seen_by_others, b + r.cross_sightings));
+        metrics.push(("neighbour sightings".to_string(), format!("{seen} of {g} golems sensed by another group ({sightings} sensings, {:.2} a golem)", sightings as f64 / g.max(1) as f64)));
+    }
     // (the mob-AI lane, the parent's rule 2026-11-08) the ambient natural mob types the runs ran
     // on the legacy walk model, their AI not modeled yet: named in the run's output, never on the
     // card or the page (no caveats on pages: vjeux); the bridge compare's first difference shows

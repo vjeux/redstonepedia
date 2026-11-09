@@ -339,6 +339,12 @@ fn sense_hostiles(w: &mut World, i: usize) {
     brain_mut(w, i).nearest_hostile = found;
 }
 
+/// The iron golems in villager `i`'s `NEAREST_LIVING_ENTITIES` as last stored (what its golem
+/// sensor read): the judge's count of golems sensed by another cluster than their summoner's.
+pub fn nearest_golems(w: &World, i: usize) -> Vec<u32> {
+    brain(w, i).nearest_living.iter().filter(|(_, ty)| *ty == MobType::IronGolem).map(|(id, _)| *id).collect()
+}
+
 /// `GolemSensor.checkForNearbyGolem`: an iron golem in `NEAREST_LIVING_ENTITIES` (as last stored:
 /// a golem that died since still counts) sets `GOLEM_DETECTED_RECENTLY` for 599 gt.
 fn sense_golem(w: &mut World, i: usize) {

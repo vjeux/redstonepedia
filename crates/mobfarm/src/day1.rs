@@ -1099,6 +1099,36 @@ pub fn row_shared_form(modules: i32, pitch: i32, n: i32, l_min: u32, stage: crat
     ]))
 }
 
+/// Every oak fence's connections as the game shapes them (`FenceBlock.getStateForPlacement` and
+/// `updateShape`): toward a fence, a fence gate across it, or a full sturdy block.
+pub fn fix_fences(b: &mut Builder) {
+    let cells: Vec<[i32; 3]> = b.d.blocks.iter().filter(|(_, s)| s.trim_start_matches("minecraft:").starts_with("oak_fence[")).map(|(p, _)| *p).collect();
+    for p in cells {
+        let id = |q: [i32; 3]| b.d.blocks.get(&q).map(|s| s.trim_start_matches("minecraft:").to_string()).unwrap_or_default();
+        let joins = |q: [i32; 3], axis_x: bool| {
+            let s = id(q);
+            let name = s.split('[').next().unwrap_or("");
+            if name.ends_with("_fence") {
+                return true;
+            }
+            if name.ends_with("_fence_gate") {
+                // a gate joins a fence beside it along its wall (its facing across the fence)
+                let along_x = s.contains("facing=north") || s.contains("facing=south");
+                return along_x == axis_x;
+            }
+            matches!(name, "cobblestone" | "stone" | "glass" | "dirt" | "cobbled_deepslate" | "deepslate" | "smooth_stone" | "obsidian")
+        };
+        let st = format!(
+            "oak_fence[east={},north={},south={},waterlogged=false,west={}]",
+            joins([p[0] + 1, p[1], p[2]], true),
+            joins([p[0], p[1], p[2] - 1], false),
+            joins([p[0], p[1], p[2] + 1], false),
+            joins([p[0] - 1, p[1], p[2]], true)
+        );
+        b.set(p[0], p[1], p[2], &st);
+    }
+}
+
 /// farmopt's uncoupled cross (vjeux 17:54: "Why do we not build the villager chambers around the
 /// kill chamber?"): four M2-open-ring modules around one centre, each `r` (12 or more) from it and
 /// facing inward (its pad toward the centre), every drop straight down into a 4-wide water channel
@@ -1109,6 +1139,13 @@ pub fn row_shared_form(modules: i32, pitch: i32, n: i32, l_min: u32, stage: crat
 /// floor is hoppers into ONE chest with 8 hours of storage under it (iteration 13: golems may ride
 /// a channel).
 pub fn cross_channel(r: i32, n: i32, l_min: u32, stage: crate::parts::Stage) -> anyhow::Result<String> {
+    cross_channel_arms(r, 4, n, l_min, stage)
+}
+
+/// [`cross_channel`] with `arms` modules: 4 (the +) or 2 (a straight trench: two modules facing
+/// each other across the junction, its two other sides fenced).
+pub fn cross_channel_arms(r: i32, arms: u8, n: i32, l_min: u32, stage: crate::parts::Stage) -> anyhow::Result<String> {
+    anyhow::ensure!(arms == 2 || arms == 4, "the cross takes 2 or 4 arms");
     anyhow::ensure!(r >= 12, "the cross needs r of 12 or more (the module's drop and the junction)");
     let k = -22;
     // (the module without a chamber of its own; the judge's port where it was)
@@ -1117,18 +1154,25 @@ pub fn cross_channel(r: i32, n: i32, l_min: u32, stage: crate::parts::Stage) -> 
     };
     let (m, _, _, _) = m2_timer_module(n, l_min, stage, &none)?;
     // module 0's frame: the centre is the corner (3, r), the arm runs along z from under the drop
-    // (z 3) to the junction (x 1..4, z r - 2..r + 1); its steps (down 1, where the flow would reach
-    // level 7) counted from the junction, so its last stretch before the junction is 5 cells long
-    // (a step right before the junction pinned a still golem on its lip: r 21, first try)
+    // (z 3) to the junction (x 1..4, z r - 2..r + 1). Its steps (the floor down 1) in the channel
+    // only (z 7 or more, never in the landing), counted back from the junction so the last stretch
+    // is 5 cells (a step right before the junction pinned a still golem on its lip), 7 apart (a
+    // flow from a fall reaches 7 cells), the first by z 10 (the landing's sources at z 3 reach a
+    // level-2 cell at z 9)
     let cz = r;
     let (za, ze) = (3, cz - 3);
-    let steps = |z: i32| {
-        let d = ze - z.clamp(za, ze);
-        if d <= 4 { 0 } else { (d - 5) / 7 + 1 }
-    };
-    let fj = -24 - steps(za);
-    let feet = |z: i32| fj + steps(z);
-    let f0 = feet(za);
+    let mut steps: Vec<i32> = Vec::new();
+    let mut s = ze - 4;
+    while s >= 7 {
+        steps.push(s);
+        s -= 7;
+    }
+    if steps.last().is_some_and(|&first| first > 10) {
+        steps.push(7);
+    }
+    let f0 = -24;
+    let feet = |z: i32| f0 - steps.iter().filter(|&&s| s <= z.clamp(za, ze)).count() as i32;
+    let fj = feet(ze);
     let mut m0 = Builder::new("cross-arm");
     m0.d.meta = m.d.meta.clone();
     for (p, s) in &m.d.blocks {
@@ -1136,26 +1180,56 @@ pub fn cross_channel(r: i32, n: i32, l_min: u32, stage: crate::parts::Stage) -> 
         if (1..=4).contains(&p[0]) && (3..=6).contains(&p[2]) && p[1] <= k {
             continue;
         }
+        // (the drop's own walls at y k - 1..-20 stay: with the landing's below them they catch a
+        // golem that walks while it falls)
         m0.d.blocks.insert(*p, s.clone());
-    }
-    for x in 1..=4 {
-        for y in k..=k + 2 {
-            m0.set(x, y, 2, STONE);
-        }
     }
     m0.d.block_entities = m.d.block_entities.clone();
     m0.d.entities = m.d.entities.clone();
+    // (the channel's first cells walled like the landing: a golem walking while it falls can come
+    // down past the landing's end; `MCTAS_CROSS_TALL` cells, 2 by default)
+    let tall: i32 = std::env::var("MCTAS_CROSS_TALL").ok().and_then(|v| v.parse().ok()).unwrap_or(2);
     for z in 2..=ze {
         let f = feet(z);
         let top = feet(z - 1).max(f) + 3;
-        for x in 0..=5 {
-            m0.set(x, f - 1, z, STONE);
-            let wall = x == 0 || x == 5 || z == 2;
-            for y in f..=top {
-                if wall {
-                    m0.set(x, y, z, STONE);
-                } else {
+        if z <= 6 + tall {
+            // the landing under the drop and the channel's first cells: walled 4 high (a golem
+            // walking while it falls drifts into these walls, never over them)
+            for x in 0..=5 {
+                m0.set(x, f - 1, z, STONE);
+                let wall = x == 0 || x == 5 || z == 2;
+                for y in f..=top {
+                    if wall {
+                        m0.set(x, y, z, STONE);
+                    } else {
+                        m0.d.blocks.remove(&[x, y, z]);
+                    }
+                }
+            }
+        } else {
+            // the channel (vjeux 18:18: "We literally share the kill chamber"): as wide as the
+            // landing (a funnel to 2 wide pinned golems from the landing's edges against its
+            // shoulders: the flow there has no sideways part), a fence on each side instead of a
+            // 4-high wall (1.5 tall: a golem steps up 1.0), 2 high where the floor steps down (from
+            // the upper floor a 1-high fence would be a 0.5 step)
+            for x in 1..=4 {
+                m0.set(x, f - 1, z, STONE);
+                for y in f..=top {
                     m0.d.blocks.remove(&[x, y, z]);
+                }
+            }
+            for x in [0, 5] {
+                for y in f..=top {
+                    m0.d.blocks.remove(&[x, y, z]);
+                }
+                // (2 high over a step's cell and the next: a golem still on the upper floor
+                // reaches 1.4 past its edge, and a 1-high fence there is a 0.5 step for it; and 2
+                // high over the 4 cells from a step: a golem pushing on the fence swims up the
+                // step's falling water and comes out 1.7 above the lower floor)
+                let near_step = steps.iter().any(|&s| (s..=s + 3).contains(&z));
+                let fence_top = feet(z - 1).max(feet(z - 2)).max(f + i32::from(near_step));
+                for y in f..=fence_top {
+                    m0.set(x, y, z, "oak_fence[east=false,north=false,south=false,waterlogged=false,west=false]");
                 }
             }
         }
@@ -1167,10 +1241,10 @@ pub fn cross_channel(r: i32, n: i32, l_min: u32, stage: crate::parts::Stage) -> 
     // the four turns about the corner (3, r): `turned_pure` turns about the centre of the cell
     // (0, 0) (`(X, Z) -> (1 - Z, X)`), then a whole-block move puts the corner back
     let c0 = circuit::Circuit::from_design(m0.d.clone())?;
-    let mut b = Builder::new(&format!("iron-cross-{r}"));
+    let mut b = Builder::new(&format!("iron-cross-{arms}x{r}"));
     b.d.meta = m.d.meta.clone();
     let (qx, qz) = (2.5, cz as f64 - 0.5);
-    for t in 0..4u8 {
+    for t in (0..4u8).filter(|t| arms == 4 || t % 2 == 0) {
         let ct = c0.turned_pure(t)?;
         let (rx, rz) = match t {
             0 => (qx, qz),
@@ -1209,24 +1283,43 @@ pub fn cross_channel(r: i32, n: i32, l_min: u32, stage: crate::parts::Stage) -> 
             b.set(x, fj + 3, z, STONE);
         }
     }
-    // the collection: the centre 2 x 2 hoppers into one chest, 8 hours of storage under it
+    // the collection: the centre 2 x 2 hoppers into one chest (two arms: the junction's two middle
+    // rows across, where the north and south flows meet; no flow carries a drop sideways there),
+    // 8 hours of storage under it
+    if arms == 2 {
+        for z in [cz - 1, cz] {
+            b.set(1, fj - 1, z, "hopper[enabled=true,facing=east]");
+            b.set(2, fj - 1, z, "hopper[enabled=true,facing=east]");
+            b.set(4, fj - 1, z, "hopper[enabled=true,facing=west]");
+        }
+    }
     b.set(2, fj - 1, cz - 1, "hopper[enabled=true,facing=east]");
     b.set(3, fj - 1, cz - 1, "hopper[enabled=true,facing=south]");
     b.set(2, fj - 1, cz, "hopper[enabled=true,facing=east]");
     b.set(3, fj - 1, cz, "hopper[enabled=true,facing=down]");
     let out = [3, fj - 2, cz];
     b.set(out[0], out[1], out[2], "chest[facing=north,type=single,waterlogged=false]");
-    for i in 0..storage_pairs(4) {
+    for i in 0..storage_pairs(arms as usize) {
         b.set(out[0], out[1] - 1 - 2 * i, out[2], "hopper[enabled=true,facing=down]");
         b.set(out[0], out[1] - 2 - 2 * i, out[2], "chest[facing=north,type=single,waterlogged=false]");
     }
     b.d.ports.insert("output".into(), out);
+    // (two arms: the junction's east and west sides fenced)
+    if arms == 2 {
+        for z in cz - 2..=cz + 1 {
+            for x in [0, 5] {
+                b.set(x, fj, z, "oak_fence[east=false,north=false,south=false,waterlogged=false,west=false]");
+            }
+        }
+    }
+    fix_fences(&mut b);
     // every villager's golem search over the whole cross: stray tops capped by their roles
     let wl = -6;
     crate::parts::cap_spawns(&mut b, &|p| p[1] <= wl + 1)?;
+    let (count, channels) = if arms == 4 { ("Four", "the four channels meet") } else { ("Two", "the two channels meet") };
     Ok(b.text(&[
-        &format!("Four farms around one kill chamber, {r} blocks from its centre: each farm's golems fall into a water channel deep below every"),
-        "farm's sight; the four channels meet in the middle under one lava blade, and one chest with 8 hours of storage collects everything.",
+        &format!("{count} farms around one kill chamber, {r} blocks from its centre: each farm's golems fall into a fenced water channel deep below"),
+        &format!("every farm's sight; {channels} in the middle under one lava blade, and one chest with 8 hours of storage collects everything."),
     ]))
 }
 
