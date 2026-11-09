@@ -212,12 +212,17 @@ pub fn village_sections(w: &World) -> Vec<(i32, i32, i32)> {
     claimed_village_pois(w).into_iter().map(section).collect()
 }
 
-/// `sectionsToVillage` against precomputed [`village_sections`] (7 when none is within 6).
+/// `sectionsToVillage` against precomputed [`village_sections`]: the Chebyshev distance in sections
+/// up to 5, else 7. PoiManager's DistanceTracker is a SectionTracker of 7 levels (clamped to 0..6)
+/// whose decreases spread from a section only below level 5 (`checkNeighborsAfterUpdate`: `level
+/// < levelCount - 2`), so a section 6 away is never reached and keeps the map's default 7.
 pub fn sections_to_village_in(v: &[(i32, i32, i32)], s: (i32, i32, i32)) -> i32 {
     let mut best = 7;
     for c in v {
         let d = (c.0 - s.0).abs().max((c.1 - s.1).abs()).max((c.2 - s.2).abs());
-        best = best.min(d);
+        if d <= 5 {
+            best = best.min(d);
+        }
     }
     best
 }

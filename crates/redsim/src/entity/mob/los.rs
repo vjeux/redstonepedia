@@ -55,6 +55,29 @@ pub fn first_hit(w: &World, from: Vec3, to: Vec3) -> Option<BlockPos> {
     hit
 }
 
+/// `level.clip(OUTLINE, Fluid.NONE)`: the first cell whose outline shape (`getShape`, a natural
+/// state's from its row, moved by its cell's offset; a design block's its collision boxes) stops
+/// the segment.
+pub fn first_hit_outline(w: &World, from: Vec3, to: Vec3) -> Option<BlockPos> {
+    let mut hit = None;
+    collide::traverse_blocks(from, to, |p| {
+        let s = w.get(p);
+        if s.is_air() {
+            return false;
+        }
+        let boxes: Vec<Aabb> = match s {
+            crate::block::Block::Terrain(id) => crate::terrain::blocks::props(id).outline_at(p).iter().map(|b| Aabb::new(b[0], b[1], b[2], b[3], b[4], b[5])).collect(),
+            _ => collide::boxes_at(w, &s, p),
+        };
+        let stop = shape_hits(&boxes, p, from, to);
+        if stop {
+            hit = Some(p);
+        }
+        stop
+    });
+    hit
+}
+
 /// `LivingEntity.hasLineOfSight(target)` from the eye `from` to the target's eye `to` (the
 /// target's x and z, its eye y): false past 128 blocks.
 pub fn has_line_of_sight(w: &World, from: Vec3, to: Vec3) -> bool {

@@ -7,6 +7,7 @@
 pub mod float;
 pub mod animal;
 pub mod witch;
+pub mod enderman;
 pub mod golem;
 pub mod creeper;
 pub mod skeleton;
@@ -75,6 +76,8 @@ pub enum Goal {
     Squid(super::squid::SquidGoal),
     /// A witch's ranged attack and its raiders' healing target.
     Witch(witch::WitchGoal),
+    /// An enderman's own goals (freeze, leave and take a block, look for a player).
+    Enderman(enderman::EndermanGoal),
     ResetUniversalAnger,
     HurtByTarget(targets::HurtByTarget),
     NearestAttackableTarget(targets::NearestAttackableTarget),
@@ -105,6 +108,7 @@ impl Goal {
             Goal::Animal(a) => a.flags(),
             Goal::Squid(_) => 0,
             Goal::Witch(g) => g.flags(),
+            Goal::Enderman(g) => g.flags(),
             Goal::ResetUniversalAnger => 0,
             Goal::HurtByTarget(_) | Goal::NearestAttackableTarget(_) => TARGET,
         }
@@ -165,6 +169,7 @@ impl Goal {
             Goal::Animal(a) => a.name(),
             Goal::Squid(s) => s.name(),
             Goal::Witch(g) => g.name(),
+            Goal::Enderman(g) => g.name(),
             Goal::ResetUniversalAnger => "ResetUniversalAngerTargetGoal",
             Goal::HurtByTarget(_) => "HurtByTargetGoal",
             Goal::NearestAttackableTarget(n) => match n.target_type {
@@ -330,6 +335,7 @@ pub fn can_use(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::Animal(a) => animal::can_use(w, i, a),
         Goal::Squid(s) => super::squid::can_use(w, i, s),
         Goal::Witch(g) => witch::can_use(w, i, g),
+        Goal::Enderman(g) => enderman::can_use(w, i, g),
         Goal::ResetUniversalAnger => false,
         Goal::HurtByTarget(h) => targets::hurt_by_can_use(w, i, h),
         Goal::NearestAttackableTarget(n) => targets::nearest_can_use(w, i, n),
@@ -362,6 +368,8 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::Animal(a) => animal::can_continue(w, i, a),
         Goal::Squid(s) => super::squid::can_use(w, i, s),
         Goal::Witch(g) => witch::can_use(w, i, g),
+        // Goal.canContinueToUse: canUse()
+        Goal::Enderman(g) => enderman::can_use(w, i, g),
         Goal::HurtByTarget(h) => targets::target_can_continue(w, i, &mut h.base),
         Goal::NearestAttackableTarget(n) => targets::target_can_continue(w, i, &mut n.base),
     }
@@ -392,6 +400,7 @@ pub fn start(w: &mut World, i: usize, g: &mut Goal) {
         Goal::Animal(a) => animal::start(w, i, a),
         Goal::Squid(_) => {}
         Goal::Witch(_) => {}
+        Goal::Enderman(_) => {}
         Goal::HurtByTarget(h) => targets::hurt_by_start(w, i, h),
         Goal::NearestAttackableTarget(n) => targets::nearest_start(w, i, n),
     }
@@ -419,6 +428,7 @@ pub fn stop(w: &mut World, i: usize, g: &mut Goal) {
         Goal::Animal(a) => animal::stop(w, i, a),
         Goal::Squid(_) => {}
         Goal::Witch(_) => {}
+        Goal::Enderman(_) => {}
         Goal::HurtByTarget(h) => targets::target_stop(w, i, &mut h.base),
         Goal::NearestAttackableTarget(n) => targets::target_stop(w, i, &mut n.base),
     }
@@ -446,6 +456,7 @@ pub fn tick(w: &mut World, i: usize, g: &mut Goal) {
         Goal::Animal(a) => animal::tick(w, i, a),
         Goal::Squid(s) => super::squid::tick(w, i, s),
         Goal::Witch(_) => {}
+        Goal::Enderman(g) => enderman::tick(w, i, g),
         Goal::HurtByTarget(_) | Goal::NearestAttackableTarget(_) => {}
     }
 }
@@ -459,6 +470,7 @@ pub fn register_goals(ai: &mut MobAi, ty: MobType) {
         "skeleton" | "stray" | "bogged" => skeleton::register(ai),
         "spider" | "cave_spider" => spider::register(ai),
         "witch" => witch::register(ai),
+        "enderman" => enderman::register(ai),
         id if animal::is_animal(id) => animal::register(ai, id),
         _ => {}
     }

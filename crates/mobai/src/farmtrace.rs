@@ -3,7 +3,7 @@
 //! entity's own random) by call site.
 
 use anyhow::{Result, anyhow};
-use mobfarm::exact::{GameFarm, Opts, Place, follow_bonuses, load_place, redsim_start, set_bonuses};
+use mobfarm::exact::{GameFarm, Opts, Place, follow_bonuses, load_place, redsim_start};
 use redsim::entity::EntityKind;
 use redsim::entity::mob::farm::SETTLE_TICKS;
 
@@ -53,10 +53,11 @@ pub fn run(version: &str, design: &std::path::Path, seed: i64, at: i64, entity: 
         t += n as i64;
         left -= n;
     }
+    let skip = mobfarm::exact::mob_count(&run.world);
     run.arrive().map_err(|e| anyhow!(e))?;
     let mobs = run.world.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Mob(_))).count();
     let bonus = follow_bonuses(opts.seed, mobs);
-    set_bonuses(&mut run.world, &bonus);
+    mobfarm::exact::set_bonuses_after(&mut run.world, &bonus, skip);
     game.arrive(&c, &spec, &run.world, &bonus)?;
     while t < at + 1 {
         let n = ((at + 1 - t) as u32).min(opts.batch);

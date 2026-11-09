@@ -66,7 +66,7 @@ pub static DEFS: &[TypeDef] = &[
     TypeDef { loot: &[("minecraft:arrow", 0, 2), ("minecraft:bone", 0, 2)], ..row(4, "skeleton", "minecraft:skeleton", 0.6, 1.99, 1.74, 20.0, 0.25, true, true, 0.6) },
     TypeDef { loot: &[("minecraft:gunpowder", 0, 2)], ..row(5, "creeper", "minecraft:creeper", 0.6, 1.7, 1.445, 20.0, 0.25, true, false, 0.6) },
     row(6, "slime", "minecraft:slime", 0.52, 0.52, 0.325, 1.0, 0.2, true, false, 0.6),
-    row(7, "enderman", "minecraft:enderman", 0.6, 2.9, 2.55, 40.0, 0.3, true, false, 1.0),
+    TypeDef { speed: 0.3f32 as f64, ..row(7, "enderman", "minecraft:enderman", 0.6, 2.9, 2.55, 40.0, 0.3, true, false, 1.0) },
     TypeDef { follow_range: 35.0, armor: 2.0, ..row(8, "drowned", "minecraft:drowned", 0.6, 1.95, 1.74, 20.0, 0.23f32 as f64, true, true, 1.0) },
     // a sulfur cube's size sets its speed (0.2F + 0.1F x size) and health (4 x size): size 1 is
     // the baby
@@ -111,6 +111,9 @@ pub static DEFS: &[TypeDef] = &[
     // a village's cats and bees (CREATURE: they count toward the cap; not in these biomes' lists)
     row(42, "cat", "minecraft:cat", 0.6, 0.7, 0.35, 10.0, 0.3, false, false, 0.6),
     row(43, "bee", "minecraft:bee", 0.7, 0.6, 0.3, 10.0, 0.3, false, false, 0.6),
+    // AgeableWaterCreature babies (`Squid.BABY_DIMENSIONS`: 0.5 x 0.5, eye 0.37)
+    row(44, "baby_glow_squid", "minecraft:glow_squid", 0.5, 0.5, 0.37, 10.0, 0.7, false, false, 0.6),
+    row(45, "baby_squid", "minecraft:squid", 0.5, 0.5, 0.37, 10.0, 0.7, false, false, 0.6),
 ];
 
 // ------------------------------------------------------------------------- the categories
@@ -319,8 +322,8 @@ pub static KINDS: &[Kind] = &[
     kind("minecraft:fox", MobType::Natural(18), C::Creature, P::NoRestrictions, Rule::AnimalTag("minecraft:foxes_spawnable_on"), 4, false, Some(MobType::Natural(36)), F::Unmodeled, false, W::Animal),
     kind("minecraft:turtle", MobType::Natural(19), C::Creature, P::OnGround, Rule::Turtle, 4, false, Some(MobType::Natural(37)), F::Unmodeled, false, W::Animal),
     kind("minecraft:bat", MobType::Natural(20), C::Ambient, P::OnGround, Rule::Bat, 4, true, None, F::Mob, false, W::None),
-    kind("minecraft:glow_squid", MobType::Natural(21), C::UndergroundWaterCreature, P::InWater, Rule::GlowSquid, 4, true, None, F::Squid, true, W::None),
-    kind("minecraft:squid", MobType::Natural(22), C::WaterCreature, P::InWater, Rule::SurfaceWater, 4, true, None, F::Squid, true, W::None),
+    kind("minecraft:glow_squid", MobType::Natural(21), C::UndergroundWaterCreature, P::InWater, Rule::GlowSquid, 4, true, Some(MobType::Natural(44)), F::Squid, true, W::None),
+    kind("minecraft:squid", MobType::Natural(22), C::WaterCreature, P::InWater, Rule::SurfaceWater, 4, true, Some(MobType::Natural(45)), F::Squid, true, W::None),
     // AbstractFish.getMaxSpawnClusterSize 8; a salmon's school is 5 (Salmon.getMaxSchoolSize)
     kind("minecraft:salmon", MobType::Natural(23), C::WaterAmbient, P::InWater, Rule::SurfaceWater, 5, true, None, F::Salmon, true, W::None),
     kind("minecraft:cod", MobType::Natural(24), C::WaterAmbient, P::InWater, Rule::SurfaceWater, 8, true, None, F::Cod, true, W::None),
@@ -1680,7 +1683,9 @@ pub fn check_despawn(w: &mut World, i: usize) {
         return;
     }
     let passenger = w.entities.list[i].vehicle.is_some() || rider;
-    let persistent = persistent || passenger;
+    // requiresCustomPersistence: a passenger, an enderman carrying a block
+    let carrying = super::ai::has_ai(w, i) && super::ai::ai(w, i).enderman.as_ref().is_some_and(|s| s.carried.is_some());
+    let persistent = persistent || passenger || carrying;
     if let Some(d2) = nearest {
         let far = k.category.despawn_distance();
         if !persistent && d2 > far * far && k.removes_far {

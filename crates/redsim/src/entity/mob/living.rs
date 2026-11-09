@@ -302,6 +302,11 @@ fn ai_step(w: &mut World, i: usize) {
         return;
     }
     push_entities(w, i);
+    // LivingEntity.aiStep's last line: a water-sensitive mob (an enderman) in water or rain drowns
+    // for 1
+    if super::ai::has_ai(w, i) && super::ai::ai(w, i).enderman.is_some() && !w.entities.list[i].removed {
+        super::ai::goal::enderman::water_tick(w, i);
+    }
     // Mob.aiStep: burnUndead after LivingEntity.aiStep (mobinfra: zombies in daylight)
     super::sun::burn_undead(w, i);
 }
@@ -612,7 +617,17 @@ pub fn step_on(w: &mut World, i: usize, s: Block) {
 
 /// `LivingEntity.hurtServer(level, source, damage)` for the modeled sources (no attacker, no
 /// shield, no knockback: none of them has a source position). True when it took damage.
+/// `hurtServer` of mob `i` (an enderman's override: after the hurt, a damage no living entity
+/// caused teleports it nine times in ten).
 pub fn hurt(w: &mut World, i: usize, src: Damage, amount: f32) -> bool {
+    let r = hurt_inner(w, i, src, amount);
+    if !w.entities.list[i].removed && super::ai::has_ai(w, i) && super::ai::ai(w, i).enderman.is_some() {
+        super::ai::goal::enderman::after_hurt(w, i, src);
+    }
+    r
+}
+
+fn hurt_inner(w: &mut World, i: usize, src: Damage, amount: f32) -> bool {
     if w.entities.list[i].removed {
         return false;
     }

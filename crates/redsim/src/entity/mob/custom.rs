@@ -185,10 +185,11 @@ fn occupied_village_pois(w: &World) -> Vec<BlockPos> {
 pub fn sections_to_village(w: &World, p: BlockPos) -> i32 {
     let sec = |q: BlockPos| (q.x.div_euclid(16), q.y.div_euclid(16), q.z.div_euclid(16));
     let (px, py, pz) = sec(p);
+    // (a section 6 away reads 7: poi::sections_to_village_in)
     occupied_village_pois(w).into_iter().map(|q| {
         let (x, y, z) = sec(q);
         (x - px).abs().max((y - py).abs()).max((z - pz).abs())
-    }).filter(|d| *d <= 6).min().unwrap_or(7)
+    }).filter(|d| *d <= 5).min().unwrap_or(7)
 }
 
 /// `ServerLevel.isCloseToVillage(pos, range)`.

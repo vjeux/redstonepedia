@@ -111,6 +111,8 @@ pub enum TargetType {
     IronGolem,
     /// `Turtle` with `BABY_ON_LAND_SELECTOR` (no turtles are modeled: never found).
     BabyTurtle,
+    /// `Endermite` (none are modeled: never found).
+    Endermite,
     /// `Mob` with `Enemy && !Creeper` (the iron golem's).
     EnemyNotCreeper,
     /// `SpiderTargetGoal` of players / iron golems: only in the dark (the brightness at the
@@ -168,7 +170,7 @@ fn find_target(w: &mut World, i: usize, g: &mut NearestAttackableTarget) {
             target::mobs_in(w, area, |ty| match t {
                 TargetType::Villager => ty == MobType::Villager,
                 TargetType::IronGolem | TargetType::SpiderIronGolem => ty == MobType::IronGolem,
-                TargetType::BabyTurtle => false,
+                TargetType::BabyTurtle | TargetType::Endermite => false,
                 TargetType::EnemyNotCreeper => is_enemy(ty),
                 TargetType::Player | TargetType::AngryPlayer | TargetType::SpiderPlayer => false,
             })

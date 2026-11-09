@@ -142,8 +142,9 @@ pub fn after_hurt(w: &mut World, i: usize, src: Damage, took_full: bool) {
             voice_pitch_draws(w, i);
         }
     } else if took_full {
+        // Mob.playHurtSound: resetAmbientSoundTime (-getAmbientSoundInterval())
         if has_ai(w, i) {
-            ai_mut(w, i).ambient_sound_time = -80;
+            ai_mut(w, i).ambient_sound_time = -super::ambient_interval(w, i);
         }
         voice_pitch_draws(w, i);
     }

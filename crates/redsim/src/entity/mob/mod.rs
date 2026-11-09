@@ -261,6 +261,9 @@ pub struct MobState {
     /// `Entity.moveDist` and `nextStep` (the step and swim sounds' clock; the mob-AI lane).
     pub move_dist: f32,
     pub next_step: f32,
+    /// `crystalSoundIntensity` and `lastCrystalSoundPlayTick` (a step on an amethyst block's chime).
+    pub crystal_intensity: f32,
+    pub last_crystal_tick: i32,
     /// `getSleepingPos()`: sleeping (pose SLEEPING) when set.
     pub sleeping_pos: Option<BlockPos>,
     /// `FOLLOW_RANGE` with `Mob.finalizeSpawn`'s random bonus.
@@ -320,6 +323,8 @@ impl MobState {
             air: 300,
             move_dist: 0.0,
             next_step: 1.0,
+            crystal_intensity: 0.0,
+            last_crystal_tick: 0,
             sleeping_pos: None,
             follow_range: d.follow_range * (1.0 + bonus),
             xxa: 0.0,
@@ -803,6 +808,30 @@ pub fn movement_emission(w: &mut World, i: usize, movement: Vec3) {
     }
     let (on_ground, in_water) = (e.on_ground, e.was_touching_water);
     if on_ground {
+        // walkingStepSound on the effect cell (`getOnPosLegacy`: 0.2 down) for a mob whose steps
+        // sound: an amethyst block (`#crystal_sound_blocks`) 20 ticks after the last chime draws
+        // the chime's pitch from its own random
+        let effect = crate::entity::collide::get_on_pos(w, e, 0.2);
+        let tick = e.tick_count;
+        let sounds = !matches!(mob(w, i).ty.def().id, "bat" | "squid" | "glow_squid" | "baby_squid" | "baby_glow_squid");
+        if sounds && tick >= mob(w, i).last_crystal_tick + 20 {
+            let s = w.get(effect);
+            let crystal = match s {
+                crate::block::Block::Terrain(id) => crate::terrain::blocks::props(id).has_tag("minecraft:crystal_sound_blocks"),
+                crate::block::Block::Air => false,
+                b => crate::terrain::blocks::id_of(&b.to_string()).is_some_and(|id| crate::terrain::blocks::props(id).has_tag("minecraft:crystal_sound_blocks")),
+            };
+            if crystal {
+                let m = mob_mut(w, i);
+                let elapsed = tick - m.last_crystal_tick;
+                m.crystal_intensity *= 0.997f64.powi(elapsed) as f32;
+                m.crystal_intensity = (m.crystal_intensity + 0.07).min(1.0);
+                m.last_crystal_tick = tick;
+                if let Some(r) = w.entities.list[i].random.as_mut() {
+                    r.next_float();
+                }
+            }
+        }
         let m = mob_mut(w, i);
         m.next_step = (m.move_dist as i32 + 1) as f32;
     } else if in_water {
@@ -810,7 +839,7 @@ pub fn movement_emission(w: &mut World, i: usize, movement: Vec3) {
         m.next_step = (m.move_dist as i32 + 1) as f32;
         // a bat's and a squid's movement emit events only (`getMovementEmission`: EVENTS, no swim
         // sound)
-        if !matches!(mob(w, i).ty.def().id, "bat" | "squid" | "glow_squid")
+        if !matches!(mob(w, i).ty.def().id, "bat" | "squid" | "glow_squid" | "baby_squid" | "baby_glow_squid")
             && let Some(r) = w.entities.list[i].random.as_mut()
         {
             r.next_float();

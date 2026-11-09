@@ -45,9 +45,40 @@ impl SquidGoal {
     }
 }
 
-/// Is this a squid row (`Squid`, `GlowSquid`)?
+/// Is this a squid row (`Squid`, `GlowSquid`, adult or baby)?
 pub fn is_squid_id(id: &str) -> bool {
-    matches!(id, "squid" | "glow_squid")
+    matches!(id, "squid" | "glow_squid" | "baby_squid" | "baby_glow_squid")
+}
+
+/// `AgeableMob.aiStep`'s age of a squid (after `super.aiStep()`, before the squid's own tail): a
+/// baby's counts up to 0 and grows it into its adult (the adult's box at the same feet;
+/// `fudgePositionAfterSizeChange` only where nothing collides).
+pub fn age_step(w: &mut World, i: usize) {
+    let id = crate::entity::mob::mob(w, i).ty.def().id;
+    if !is_squid_id(id) || crate::entity::mob::mob(w, i).health <= 0.0 || w.entities.list[i].removed {
+        return;
+    }
+    let a = super::ai(w, i).age;
+    if a < 0 {
+        super::ai_mut(w, i).age = a + 1;
+        if a + 1 >= 0
+            && let Some(ty) = crate::entity::mob::types::MobType::from_id(id.trim_start_matches("baby_"))
+        {
+            crate::entity::mob::mob_mut(w, i).ty = ty;
+            let pos = w.entities.list[i].pos;
+            let (wd, h) = crate::entity::mob::mob(w, i).dims();
+            let bb = crate::entity::make_bounding_box(pos, wd, h);
+            w.entities.list[i].bb = bb;
+            if !crate::entity::no_collision(w, i, bb.deflate(1.0e-7, 1.0e-7, 1.0e-7)) {
+                let why = "a baby squid growing up against a block (fudgePositionAfterSizeChange) is not modeled".to_string();
+                if !w.errors.contains(&why) {
+                    w.errors.push(why);
+                }
+            }
+        }
+    } else if a > 0 {
+        super::ai_mut(w, i).age = a - 1;
+    }
 }
 
 /// Is entity `i` a water creature (`AgeableWaterCreature`: not pushed by fluids, its own air)?
@@ -60,7 +91,9 @@ pub fn register(a: &mut super::MobAi, id: &str) {
     use super::goal::Goal;
     a.goals.add(0, Goal::Squid(SquidGoal::RandomMovement));
     a.goals.add(1, Goal::Squid(SquidGoal::Flee));
-    a.squid = Some(SquidState { glow: id == "glow_squid", ..SquidState::default() });
+    a.squid = Some(SquidState { glow: id.ends_with("glow_squid"), ..SquidState::default() });
+    // a natural baby spawns at age -24000 (AgeableMob.finalizeSpawn)
+    a.age = if id.starts_with("baby_") { -24000 } else { 0 };
 }
 
 /// The squid's constructor draw: `tentacleSpeed = 1 / (nextFloat() + 1) * 0.2` (after the

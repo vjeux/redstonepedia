@@ -29,7 +29,7 @@ fn rule_tag(t: &str) -> bool {
     t.contains("spawnable_on")
         || matches!(
             t,
-            "prevent_mob_spawning_inside" | "enderman_holdable" | "leaves" | "logs" | "dirt" | "climbable" | "doors" | "wooden_doors" | "mob_interactable_doors" | "fence_gates" | "fences" | "walls" | "trapdoors" | "beds" | "infiniburn_overworld" | "fire" | "snow" | "ice" | "sand" | "replaceable" | "replaceable_by_trees" | "blocks_motion" | "blocks_motion_no_leaves" | "blocks_motion_in_heightmap" | "blocks_motion_in_heightmap_no_leaves" | "unstable_bottom_center" | "portals" | "rails" | "bee_growables" | "crops" | "saplings" | "flowers" | "small_flowers" | "baby_turtle_hatches_on" | "dripstone_replaceable_blocks" | "stone_ore_replaceables" | "deepslate_ore_replaceables" | "base_stone_overworld" | "wool" | "planks" | "wooden_slabs" | "slabs" | "stairs"
+            "prevent_mob_spawning_inside" | "enderman_holdable" | "entities_can_teleport_to" | "enderman_does_not_teleport_to" | "dangerous_for_teleportation" | "crystal_sound_blocks" | "leaves" | "logs" | "dirt" | "climbable" | "doors" | "wooden_doors" | "mob_interactable_doors" | "fence_gates" | "fences" | "walls" | "trapdoors" | "beds" | "infiniburn_overworld" | "fire" | "snow" | "ice" | "sand" | "replaceable" | "replaceable_by_trees" | "blocks_motion" | "blocks_motion_no_leaves" | "blocks_motion_in_heightmap" | "blocks_motion_in_heightmap_no_leaves" | "unstable_bottom_center" | "portals" | "rails" | "bee_growables" | "crops" | "saplings" | "flowers" | "small_flowers" | "baby_turtle_hatches_on" | "dripstone_replaceable_blocks" | "stone_ore_replaceables" | "deepslate_ore_replaceables" | "base_stone_overworld" | "wool" | "planks" | "wooden_slabs" | "slabs" | "stairs"
         )
 }
 
@@ -127,12 +127,38 @@ fn row(v: &Value, aliases: &[String]) -> String {
         num(v, "resistance"),
         v["support"].as_str().unwrap_or("111111").into(),
         b(v, "ignited_by_lava").into(),
+        {
+            // the outline shape: `=` when it is the collision shape, `-` when empty
+            let outline: Vec<String> = v["outline"]
+                .as_array()
+                .map(|a| a.iter().map(|bx| bx.as_array().map(|c| c.iter().map(|x| x.as_f64().unwrap_or(0.0).to_string()).collect::<Vec<_>>().join(" ")).unwrap_or_default()).collect())
+                .unwrap_or_default();
+            if outline == boxes {
+                "=".into()
+            } else if outline.is_empty() {
+                "-".into()
+            } else {
+                outline.join(";")
+            }
+        },
+        {
+            // an offset block whose outline moves with its offset: the offset its shapes carry at
+            // the described cell, then its max horizontal and vertical offsets (`-`: none)
+            let mh = v["offset_max_h"].as_f64().unwrap_or(0.0);
+            let mv = v["offset_max_v"].as_f64().unwrap_or(0.0);
+            if (mh == 0.0 && mv == 0.0) || !v["outline_moves"].as_bool().unwrap_or(false) {
+                "-".into()
+            } else {
+                let o: Vec<String> = v["offset"].as_array().map(|a| a.iter().map(|x| x.as_f64().unwrap_or(0.0).to_string()).collect()).unwrap_or_default();
+                format!("{} {mh} {mv}", o.join(" "))
+            }
+        },
     ];
     fields.join("\t")
 }
 
 /// The table's columns (its header line).
-pub const COLUMNS: &str = "name\taliases\tclasses\treactive\tcollision\tcan_occlude\tshape_occlusion\tfaces\tdampening\temission\tskylight_down\tsolid\tsolid_render\tconductor\tfull_collision\tsturdy\tsignal\tair\tliquid\treplaceable\tsuffocating\tpath\tfluid\tfluid_amount\tfluid_source\ttags\tleaves_block\trandom_ticking\tfriction\tspeed_factor\tjump_factor\tpush\tblock_entity\theightmaps\tvalid_spawn\tdangerous\tburn_odds\tignite_odds\tresistance\tsupport\tignited_by_lava";
+pub const COLUMNS: &str = "name\taliases\tclasses\treactive\tcollision\tcan_occlude\tshape_occlusion\tfaces\tdampening\temission\tskylight_down\tsolid\tsolid_render\tconductor\tfull_collision\tsturdy\tsignal\tair\tliquid\treplaceable\tsuffocating\tpath\tfluid\tfluid_amount\tfluid_source\ttags\tleaves_block\trandom_ticking\tfriction\tspeed_factor\tjump_factor\tpush\tblock_entity\theightmaps\tvalid_spawn\tdangerous\tburn_odds\tignite_odds\tresistance\tsupport\tignited_by_lava\toutline\toffset";
 
 /// Build the table text from the files' palettes (and `extra` states).
 /// Every possible state of each block id (the bridge's `blockstates`).

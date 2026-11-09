@@ -79,6 +79,39 @@ pub struct Props {
     pub support: [bool; 6],
     /// `BlockState.ignitedByLava()` (`LavaFluid.randomTick`'s flammable test).
     pub ignited_by_lava: bool,
+    /// The outline shape (`getShape`: `ClipContext.Block.OUTLINE`), as described (an offset block's
+    /// carries the described cell's offset).
+    pub outline: Vec<[f64; 6]>,
+    /// An offset block (`hasOffsetFunction`): the offset its described shapes carry, its max
+    /// horizontal and vertical offsets (`getMaxHorizontalOffset`, `getMaxVerticalOffset`; 0 when
+    /// it moves only in x and z).
+    pub offset: Option<([f64; 3], f32, f32)>,
+}
+
+impl Props {
+    /// The outline boxes at cell `p` (world coordinates): an offset block's moved from the
+    /// described cell's offset to this cell's (`BlockStateBase.getOffset`: `Mth.getSeed(x, 0, z)`).
+    pub fn outline_at(&self, p: crate::pos::BlockPos) -> Vec<[f64; 6]> {
+        let (dx, dy, dz) = match self.offset {
+            None => (0.0, 0.0, 0.0),
+            Some((o, mh, mv)) => {
+                let (ox, oy, oz) = state_offset(p, mh, mv);
+                (ox - o[0], oy - o[1], oz - o[2])
+            }
+        };
+        let (x, y, z) = (p.x as f64, p.y as f64, p.z as f64);
+        self.outline.iter().map(|b| [x + b[0] + dx, y + b[1] + dy, z + b[2] + dz, x + b[3] + dx, y + b[4] + dy, z + b[5] + dz]).collect()
+    }
+}
+
+/// `BlockStateBase.getOffset(pos)` of an offset block with these maxima: x and z from
+/// `Mth.getSeed(x, 0, z)`'s low nibbles, y (an XYZ block) from the next one.
+pub fn state_offset(p: crate::pos::BlockPos, max_h: f32, max_v: f32) -> (f64, f64, f64) {
+    let s = (p.x.wrapping_mul(3_129_871) as i64) ^ (p.z as i64).wrapping_mul(116_129_781);
+    let s = (s.wrapping_mul(s).wrapping_mul(42_317_861).wrapping_add(s.wrapping_mul(11))) >> 16;
+    let h = |v: i64| ((((v & 15) as f32 / 15.0f32) as f64 - 0.5) * 0.5).clamp(-max_h as f64, max_h as f64);
+    let y = if max_v != 0.0 { (((s >> 4 & 15) as f32 / 15.0f32) as f64 - 1.0) * max_v as f64 } else { 0.0 };
+    (h(s), y, h(s >> 8))
 }
 
 impl Props {
@@ -113,21 +146,38 @@ fn bits(s: &str) -> Vec<bool> {
 
 fn parse_row(line: &str) -> Result<(Props, Vec<String>), String> {
     let f: Vec<&str> = line.split('\t').collect();
-    if f.len() != 41 {
+    if f.len() != 41 && f.len() != 43 {
         return Err(format!("{} fields in {}", f.len(), line.chars().take(80).collect::<String>()));
     }
     let list = |s: &str, sep: char| -> Vec<String> { if s == "-" { Vec::new() } else { s.split(sep).map(|x| x.to_string()).collect() } };
     let num = |s: &str| -> Result<f64, String> { s.parse::<f64>().map_err(|_| format!("bad number {s:?}")) };
     let b = |s: &str| s == "1";
-    let boxes = if f[4] == "-" {
-        Vec::new()
-    } else {
-        f[4].split(';')
+    let parse_boxes = |s: &str| -> Result<Vec<[f64; 6]>, String> {
+        if s == "-" {
+            return Ok(Vec::new());
+        }
+        s.split(';')
             .map(|bx| {
                 let v: Vec<f64> = bx.split(' ').filter_map(|x| x.parse().ok()).collect();
                 if v.len() == 6 { Ok([v[0], v[1], v[2], v[3], v[4], v[5]]) } else { Err(format!("bad box {bx:?}")) }
             })
-            .collect::<Result<Vec<_>, _>>()?
+            .collect::<Result<Vec<_>, _>>()
+    };
+    let boxes = parse_boxes(f[4])?;
+    // the outline shape (`=`: the collision's) and an offset block's described offset and maxima
+    let outline = match f.get(41) {
+        None | Some(&"=") => boxes.clone(),
+        Some(s) => parse_boxes(s)?,
+    };
+    let offset = match f.get(42) {
+        None | Some(&"-") => None,
+        Some(s) => {
+            let v: Vec<f64> = s.split(' ').filter_map(|x| x.parse().ok()).collect();
+            if v.len() != 5 {
+                return Err(format!("bad offset {s:?}"));
+            }
+            Some(([v[0], v[1], v[2]], v[3] as f32, v[4] as f32))
+        }
     };
     let faces = if f[7] == "-" {
         None
@@ -200,6 +250,8 @@ fn parse_row(line: &str) -> Result<(Props, Vec<String>), String> {
             [s[0], s[1], s[2], s[3], s[4], s[5]]
         },
         ignited_by_lava: f[40] == "1",
+        outline,
+        offset,
     };
     Ok((p, list(f[1], ' ')))
 }

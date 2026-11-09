@@ -138,7 +138,8 @@ pub fn walk_target_value(w: &mut World, i: usize, p: BlockPos) -> f64 {
     if super::animal::is_animal(ty.def().id) {
         return super::animal::walk_target_value(w, p);
     }
-    if !ty.def().monster {
+    // an enderman's: every cell 0 (`Enderman.getWalkTargetValue`)
+    if !ty.def().monster || ty.def().id == "enderman" {
         return 0.0;
     }
     -(light_magic(w, p) - 0.5) as f64

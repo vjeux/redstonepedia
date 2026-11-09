@@ -325,10 +325,11 @@ fn scan_one(version: &str, design: &std::path::Path, opts: &Opts, want: &str) ->
         see(&f);
     }
     while run.settle_tick() {}
+    let skip = mob_count(&run.world);
     arrive(&mut run)?;
     let mobs = run.world.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Mob(_))).count();
     let bonus = follow_bonuses(opts.seed, mobs);
-    set_bonuses(&mut run.world, &bonus);
+    set_bonuses_after(&mut run.world, &bonus, skip);
     game.arrive(&c, &spec, &run.world, &bonus)?;
     let mut left = opts.ticks;
     while left > 0 {
@@ -1041,10 +1042,11 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
             return Ok(cmp);
         }
     }
+    let skip = mob_count(&run.world);
     arrive(&mut run)?;
     let mobs = run.world.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Mob(_))).count();
     let bonus = follow_bonuses(opts.seed, mobs);
-    set_bonuses(&mut run.world, &bonus);
+    set_bonuses_after(&mut run.world, &bonus, skip);
     game.arrive(&c, &spec, &run.world, &bonus)?;
     let mut tally = Tally::default();
     let mut left = opts.ticks;
@@ -1223,10 +1225,11 @@ pub fn spots_check(version: &str, design: &std::path::Path, opts: &Opts, mut vie
     // blocks and the farm's entities as they arrive, each placed the same way on both sides: the
     // cells say whether they match)
     let parted = cmp.first.as_ref().map(|d| format!("{d:?}"));
+    let skip = mob_count(&run.world);
     arrive(&mut run)?;
     let mobs = run.world.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Mob(_))).count();
     let bonus = follow_bonuses(opts.seed, mobs);
-    set_bonuses(&mut run.world, &bonus);
+    set_bonuses_after(&mut run.world, &bonus, skip);
     game.arrive(&c, &spec, &run.world, &bonus)?;
     let mut out = SpotsCheck::default();
     let fmt = |c: &[i32; 3]| format!("{} {} {}", c[0], c[1], c[2]);
@@ -1264,9 +1267,21 @@ pub fn spots_check(version: &str, design: &std::path::Path, opts: &Opts, mut vie
 /// Give redsim's mobs the run's follow-range bonuses (in id order): `AttributeInstance`'s value,
 /// base + base x bonus (`ADD_MULTIPLIED_BASE`).
 pub fn set_bonuses(w: &mut redsim::world::World, bonus: &[f64]) {
+    set_bonuses_after(w, bonus, 0);
+}
+
+/// [`set_bonuses`] for the farm's mobs only: the mobs after the first `skip` (a terrain run's
+/// natural mobs, spawned before the arrival, keep their own finalizeSpawn bonus; the bridge gives
+/// `follow_bonus` to the summoned mobs only, in order).
+pub fn set_bonuses_after(w: &mut redsim::world::World, bonus: &[f64], skip: usize) {
     let mut k = 0;
+    let mut seen = 0;
     for e in w.entities.list.iter_mut() {
         if let EntityKind::Mob(m) = &mut e.kind {
+            seen += 1;
+            if seen <= skip {
+                continue;
+            }
             let base = m.ty.def().follow_range;
             if let Some(b) = bonus.get(k) {
                 m.follow_range = base + base * b;
@@ -1274,6 +1289,11 @@ pub fn set_bonuses(w: &mut redsim::world::World, bonus: &[f64]) {
             k += 1;
         }
     }
+}
+
+/// The mobs a world holds (a terrain run's natural ones before the arrival).
+pub fn mob_count(w: &redsim::world::World) -> usize {
+    w.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Mob(_))).count()
 }
 
 /// The bridge against itself: the same farm run twice in two workers, frame for frame (every
@@ -1324,10 +1344,11 @@ pub fn twin(version: &str, design: &std::path::Path, opts: &Opts, draws_at: Opti
         left -= n;
     }
     while run.settle_tick() {}
+    let skip = mob_count(&run.world);
     arrive(&mut run)?;
     let mobs = run.world.entities.list.iter().filter(|e| matches!(e.kind, EntityKind::Mob(_))).count();
     let bonus = follow_bonuses(opts.seed, mobs);
-    set_bonuses(&mut run.world, &bonus);
+    set_bonuses_after(&mut run.world, &bonus, skip);
     a.arrive(&c, &spec, &run.world, &bonus)?;
     b.arrive(&c, &spec, &run.world, &bonus)?;
     let mut left = opts.ticks;

@@ -123,10 +123,15 @@ pub fn get_target(w: &World, i: usize) -> Option<u32> {
     as_valid_target(w, i, ai(w, i).target)
 }
 
-/// `Mob.setTarget(target)`.
+/// `Mob.setTarget(target)` (an enderman's override keeps its target change time: the tick count, 0
+/// without one).
 pub fn set_target(w: &mut World, i: usize, t: Option<u32>) {
     let v = as_valid_target(w, i, t);
     ai_mut(w, i).target = v;
+    let now = w.entities.list[i].tick_count;
+    if let Some(s) = ai_mut(w, i).enderman.as_mut() {
+        s.target_change_time = if v.is_some() { now } else { 0 };
+    }
 }
 
 /// `Sensing.hasLineOfSight(target)` (cached for this AI step).

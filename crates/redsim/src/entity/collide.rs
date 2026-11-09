@@ -180,21 +180,31 @@ fn speleothem(id: u16) -> bool {
 fn boxes_meeting(w: &World, s: &Block, p: BlockPos, bb: Aabb) -> Option<Vec<Aabb>> {
     let (x, y, z) = (p.x as f64, p.y as f64, p.z as f64);
     let f = |v: i32| v as f64 / 16.0;
+    // a strict intersection is needed for any overlap; the shape test then folds coordinates
+    // within 1e-7 (`shape_meets_box`)
     match s {
         Block::Terrain(id) if terrain_flags(*id) & 4 != 0 => None,
         Block::Terrain(id) if !speleothem(*id) => {
             let boxes = &crate::terrain::blocks::props(*id).boxes;
             let at = |b: &[f64; 6]| Aabb::new(x + b[0], y + b[1], z + b[2], x + b[3], y + b[4], z + b[5]);
-            boxes.iter().any(|b| at(b).intersects(bb)).then(|| boxes.iter().map(at).collect())
+            if !boxes.iter().any(|b| at(b).intersects(bb)) {
+                return None;
+            }
+            let v: Vec<Aabb> = boxes.iter().map(at).collect();
+            shape_meets_box(&v, p, bb).then_some(v)
         }
         Block::Terrain(_) | Block::Bamboo { .. } | Block::Piston { .. } | Block::PistonHead { .. } | Block::MovingPiston { .. } => {
             let boxes = boxes_at(w, s, p);
-            boxes.iter().any(|b| b.intersects(bb)).then_some(boxes)
+            (boxes.iter().any(|b| b.intersects(bb)) && shape_meets_box(&boxes, p, bb)).then_some(boxes)
         }
         _ => {
             let boxes = static_boxes(s);
             let at = |c: &crate::behavior::Box16| Aabb::new(x + f(c[0]), y + f(c[2]), z + f(c[4]), x + f(c[1]), y + f(c[3]), z + f(c[5]));
-            boxes.iter().any(|c| at(c).intersects(bb)).then(|| boxes.iter().map(at).collect())
+            if !boxes.iter().any(|c| at(c).intersects(bb)) {
+                return None;
+            }
+            let v: Vec<Aabb> = boxes.iter().map(at).collect();
+            shape_meets_box(&v, p, bb).then_some(v)
         }
     }
 }
@@ -229,6 +239,97 @@ pub fn block_collisions(w: &World, bb: Aabb) -> Vec<(BlockPos, Vec<Aabb>)> {
         }
     }
     out
+}
+
+/// `BlockCollisions`' test of a block's shape against the query box: the full cube
+/// (`Shapes.block()`) by `AABB.intersects` (strict); any other shape by `Shapes.joinIsNotEmpty(
+/// shape, Shapes.create(box), AND)`, whose coordinate merge (`IndirectMerger`) folds coordinates
+/// within 1e-7 of each other, so an overlap thinner than that is no overlap (a bat in a cobweb
+/// grazing a fence post by 9e-9 passes it).
+fn shape_meets_box(boxes: &[Aabb], p: BlockPos, bb: Aabb) -> bool {
+    let (x, y, z) = (p.x as f64, p.y as f64, p.z as f64);
+    if boxes.len() == 1 {
+        let b = boxes[0];
+        if b.min_x == x && b.min_y == y && b.min_z == z && b.max_x == x + 1.0 && b.max_y == y + 1.0 && b.max_z == z + 1.0 {
+            return b.intersects(bb);
+        }
+    }
+    let coords = |lo: fn(&Aabb) -> f64, hi: fn(&Aabb) -> f64| -> Vec<f64> {
+        let mut v: Vec<f64> = boxes.iter().flat_map(|b| [lo(b), hi(b)]).collect();
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        v.dedup();
+        v
+    };
+    let xs = coords(|b| b.min_x, |b| b.max_x);
+    let ys = coords(|b| b.min_y, |b| b.max_y);
+    let zs = coords(|b| b.min_z, |b| b.max_z);
+    let (ex, ey, ez) = ([bb.min_x, bb.max_x], [bb.min_y, bb.max_y], [bb.min_z, bb.max_z]);
+    // joinIsNotEmpty's early outs (AND): apart by more than 1e-7 on an axis
+    for (s, e) in [(&xs, &ex), (&ys, &ey), (&zs, &ez)] {
+        if s[s.len() - 1] < e[0] - 1.0e-7 || e[1] < s[0] - 1.0e-7 {
+            return false;
+        }
+    }
+    let (mx, my, mz) = (merge_and(&xs, &ex), merge_and(&ys, &ey), merge_and(&zs, &ez));
+    let full = |fx: i32, fy: i32, fz: i32| -> bool {
+        if fx < 0 || fy < 0 || fz < 0 || fx as usize + 1 >= xs.len() || fy as usize + 1 >= ys.len() || fz as usize + 1 >= zs.len() {
+            return false;
+        }
+        let c = ((xs[fx as usize] + xs[fx as usize + 1]) / 2.0, (ys[fy as usize] + ys[fy as usize + 1]) / 2.0, (zs[fz as usize] + zs[fz as usize + 1]) / 2.0);
+        boxes.iter().any(|b| b.min_x <= c.0 && c.0 < b.max_x && b.min_y <= c.1 && c.1 < b.max_y && b.min_z <= c.2 && c.2 < b.max_z)
+    };
+    for &(fx, sx) in &mx {
+        for &(fy, sy) in &my {
+            for &(fz, sz) in &mz {
+                if sx == 0 && sy == 0 && sz == 0 && full(fx, fy, fz) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// `IndirectMerger(first, second, false, false)` (an AND: coordinates where only one list runs are
+/// skipped): the merged cells, each with its voxel index in each list.
+fn merge_and(first: &[f64], second: &[f64]) -> Vec<(i32, i32)> {
+    let (fs, ss) = (first.len(), second.len());
+    let mut res: Vec<(f64, i32, i32)> = Vec::with_capacity(fs + ss);
+    let mut last = f64::NAN;
+    let (mut fi, mut si) = (0usize, 0usize);
+    loop {
+        let ran_f = fi >= fs;
+        let ran_s = si >= ss;
+        if ran_f && ran_s {
+            break;
+        }
+        let chose_first = !ran_f && (ran_s || first[fi] < second[si] + 1.0e-7);
+        if chose_first {
+            fi += 1;
+            if si == 0 || ran_s {
+                continue;
+            }
+        } else {
+            si += 1;
+            if fi == 0 || ran_f {
+                continue;
+            }
+        }
+        let (cf, cs) = (fi as i32 - 1, si as i32 - 1);
+        let next = if chose_first { first[cf as usize] } else { second[cs as usize] };
+        if !(last >= next - 1.0e-7) {
+            res.push((next, cf, cs));
+            last = next;
+        } else if let Some(l) = res.last_mut() {
+            l.1 = cf;
+            l.2 = cs;
+        }
+    }
+    // forMergedIndexes: the cells between consecutive merged coordinates
+    if res.len() < 2 {
+        return Vec::new();
+    }
+    res[..res.len() - 1].iter().map(|r| (r.1, r.2)).collect()
 }
 
 /// `Level.getEntityCollisions(source, box)`: the boxes of the entities `source` collides with

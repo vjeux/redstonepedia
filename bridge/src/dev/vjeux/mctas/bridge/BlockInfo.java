@@ -178,6 +178,73 @@ final class BlockInfo {
             boxes.add(a);
         }
         o.add("collision", boxes);
+        // the outline (selection) shape (`getShape`: ClipContext.Block.OUTLINE), at this cell; an
+        // offset block's shapes carry this cell's offset, reported so a reader can move them
+        JsonArray outline = new JsonArray();
+        for (AABB b : st.getShape(sb.level, pos).toAabbs()) {
+            JsonArray a = new JsonArray();
+            a.add(b.minX);
+            a.add(b.minY);
+            a.add(b.minZ);
+            a.add(b.maxX);
+            a.add(b.maxY);
+            a.add(b.maxZ);
+            outline.add(a);
+        }
+        o.add("outline", outline);
+        net.minecraft.world.phys.Vec3 off = st.getOffset(pos);
+        JsonArray offset = new JsonArray();
+        offset.add(off.x);
+        offset.add(off.y);
+        offset.add(off.z);
+        o.add("offset", offset);
+        float maxH = 0.0F;
+        float maxV = 0.0F;
+        if (st.hasOffsetFunction()) {
+            for (Class<?> c = block.getClass(); c != null; c = c.getSuperclass()) {
+                try {
+                    Method mh = c.getDeclaredMethod("getMaxHorizontalOffset");
+                    mh.setAccessible(true);
+                    maxH = (Float) mh.invoke(block);
+                    break;
+                } catch (NoSuchMethodException e) {
+                    // look further up
+                } catch (ReflectiveOperationException e) {
+                    break;
+                }
+            }
+            for (Class<?> c = block.getClass(); c != null; c = c.getSuperclass()) {
+                try {
+                    Method mv = c.getDeclaredMethod("getMaxVerticalOffset");
+                    mv.setAccessible(true);
+                    maxV = (Float) mv.invoke(block);
+                    break;
+                } catch (NoSuchMethodException e) {
+                    // look further up
+                } catch (ReflectiveOperationException e) {
+                    break;
+                }
+            }
+        }
+        o.addProperty("offset_max_h", st.hasOffsetFunction() ? maxH : 0.0F);
+        // XYZ blocks move vertically too: their offset's y is not 0 somewhere (probed at two cells)
+        boolean xyz = st.hasOffsetFunction() && (off.y != 0.0 || st.getOffset(pos.offset(5, 0, 3)).y != 0.0 || st.getOffset(pos.offset(1, 0, 9)).y != 0.0);
+        o.addProperty("offset_max_v", xyz ? maxV : 0.0F);
+        // whether the outline moves with the offset (getShape applies it): compared at a cell whose
+        // offset differs
+        boolean moves = false;
+        if (st.hasOffsetFunction()) {
+            BlockPos other = pos.offset(5, 0, 3);
+            net.minecraft.world.phys.Vec3 off2 = st.getOffset(other);
+            net.minecraft.world.phys.shapes.VoxelShape a = st.getShape(sb.level, pos);
+            net.minecraft.world.phys.shapes.VoxelShape b2 = st.getShape(sb.level, other);
+            if (!a.isEmpty() && !b2.isEmpty()) {
+                AABB ab = a.bounds();
+                AABB bb = b2.bounds();
+                moves = Math.abs((bb.minX - ab.minX) - (off2.x - off.x)) < 1e-9 && Math.abs((bb.minZ - ab.minZ) - (off2.z - off.z)) < 1e-9 && (off2.x != off.x || off2.z != off.z);
+            }
+        }
+        o.addProperty("outline_moves", moves);
         o.addProperty("can_occlude", st.canOcclude());
         o.addProperty("shape_occlusion", st.useShapeForLightOcclusion());
         if (st.canOcclude() && st.useShapeForLightOcclusion()) {

@@ -90,6 +90,8 @@ pub struct MobAi {
     pub cube: Option<cube::CubeState>,
     /// A squid's tentacles and swim direction ([`squid`]).
     pub squid: Option<squid::SquidState>,
+    /// An enderman's carried block and target change time.
+    pub enderman: Option<goal::enderman::EndermanState>,
     /// `AgeableMob.age` of a farm animal (0 an adult, a baby counts up from -24000).
     pub age: i32,
 }
@@ -107,6 +109,11 @@ impl MobAi {
             // the chicken's constructor: setPathfindingMalus(WATER, 0)
             let mut m = Malus::default();
             m.set(crate::entity::mob::ai::path::path_type::PathType::Water, 0.0);
+            m
+        } else if d.id == "enderman" {
+            // the enderman's constructor: setPathfindingMalus(WATER, -1)
+            let mut m = Malus::default();
+            m.set(crate::entity::mob::ai::path::path_type::PathType::Water, -1.0);
             m
         } else {
             Malus::default()
@@ -152,6 +159,7 @@ impl MobAi {
             swell_target: None,
             cube: None,
             squid: None,
+            enderman: None,
             age: 0,
         };
         goal::register_goals(&mut ai, ty);
@@ -205,7 +213,12 @@ pub fn collections_rng(w: &mut World) -> &mut crate::rng::LegacyRandom {
 
 /// `getAttributeValue(MOVEMENT_SPEED)`.
 pub fn movement_speed(w: &World, i: usize) -> f64 {
-    mob(w, i).ty.def().speed
+    let base = mob(w, i).ty.def().speed;
+    // an enderman with a target: SPEED_MODIFIER_ATTACKING (+0.15)
+    if ai(w, i).enderman.is_some() {
+        return base + goal::enderman::speed_bonus(w, i);
+    }
+    base
 }
 
 /// `getAttributeValue(FOLLOW_RANGE)`.
@@ -381,6 +394,8 @@ fn custom_server_ai_step(w: &mut World, i: usize) {
         super::villager::brain_tick(w, i);
     } else if bat::is_bat(w, i) {
         bat::custom_server_ai_step(w, i);
+    } else if ai(w, i).enderman.is_some() {
+        goal::enderman::custom_server_ai_step(w, i);
     }
 }
 
@@ -630,7 +645,9 @@ fn zombie_drowning(w: &mut World, i: usize) {
 }
 
 pub fn after_ai_step(w: &mut World, i: usize) {
-    // Squid.aiStep's tail (after LivingEntity.aiStep): the tentacles, the swim impulse, the turns
+    // AgeableMob.aiStep's age (a baby squid's), then Squid.aiStep's tail (after
+    // LivingEntity.aiStep): the tentacles, the swim impulse, the turns
+    squid::age_step(w, i);
     squid::after_ai_step(w, i);
     zombie_drowning(w, i);
     // IronGolem.aiStep's tail (after Mob.aiStep): attackAnimationTick/offerFlowerTick (client
@@ -858,10 +875,7 @@ pub fn ambient_sound_tick(w: &mut World, i: usize) {
     };
     ai_mut(w, i).ambient_sound_time = t + 1;
     if roll < t {
-        // -getAmbientSoundInterval(): 120 for an Animal, an AbstractGolem and an
-        // AgeableWaterCreature (the squids), else Mob's 80
-        let id = mob(w, i).ty.def().id;
-        let interval = if goal::animal::is_animal(id) || squid::is_squid_id(id) || mob(w, i).ty == MobType::IronGolem { 120 } else { 80 };
+        let interval = ambient_interval(w, i);
         ai_mut(w, i).ambient_sound_time = -interval;
         if bat::is_bat(w, i) {
             bat::ambient_sound(w, i);
@@ -872,6 +886,13 @@ pub fn ambient_sound_tick(w: &mut World, i: usize) {
             r.next_float();
         }
     }
+}
+
+/// `getAmbientSoundInterval()`: 120 for an Animal, an AbstractGolem and an AgeableWaterCreature
+/// (the squids), else Mob's 80 (`resetAmbientSoundTime` sets the timer to minus it).
+pub fn ambient_interval(w: &World, i: usize) -> i32 {
+    let id = mob(w, i).ty.def().id;
+    if goal::animal::is_animal(id) || squid::is_squid_id(id) || mob(w, i).ty == MobType::IronGolem { 120 } else { 80 }
 }
 
 /// `getAmbientSound() != null`: zombies, creepers? (no: `Creeper` has none), skeletons, spiders;
