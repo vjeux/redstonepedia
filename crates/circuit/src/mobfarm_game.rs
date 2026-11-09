@@ -246,6 +246,22 @@ fn entity_answers(out: &str) -> Vec<String> {
     out.split("has the following entity data: ").skip(1).map(compact).collect()
 }
 
+/// The four ints of a `UUID` answer (`[I;1,2,3,4]`).
+fn uuid_ints(a: &str) -> Option<[i64; 4]> {
+    let v: Vec<i64> = a.trim().trim_start_matches('[').trim_start_matches("I;").split(']').next()?.split(',').filter_map(|t| t.trim().parse::<i64>().ok()).collect();
+    (v.len() == 4).then(|| [v[0], v[1], v[2], v[3]])
+}
+
+/// The summoner the golem agent tagged a golem with (`Tags:["mctas.by.<uuid>"]`), as the four
+/// ints of its `UUID:[I;...]`.
+fn summoner_of(nbt: &str) -> Option<[i64; 4]> {
+    let i = nbt.find("mctas.by.")? + "mctas.by.".len();
+    let hex: String = nbt[i..].chars().take(36).filter(|c| *c != '-').collect();
+    let u = u128::from_str_radix(&hex, 16).ok()?;
+    let int = |shift: u32| i64::from((u >> shift) as u32 as i32);
+    Some([int(96), int(64), int(32), int(0)])
+}
+
 /// SNBT without the spaces 26.3's printer puts after `:`, `,` and `;`.
 fn compact(s: &str) -> String {
     s.replace(": ", ":").replace(", ", ",").replace("; ", ";")
@@ -456,6 +472,7 @@ fn start_server(o: &GateOpts, spec: &FarmSpec) -> Result<(VanillaServer, [i32; 3
         simulation_distance: 6,
         difficulty: "hard".into(),
         biome: "minecraft:plains".into(),
+        java_agent: Some(mctas::bridge::golem_agent(&o.version)?),
         ..Default::default()
     };
     let mut s = VanillaServer::start(&v)?;
@@ -521,6 +538,8 @@ pub fn run_terrain(c: &Circuit, name: &str, k: u8, o: &GateOpts) -> Result<Build
         world: Some(world),
         default_world: true,
         saved_weather: Some(saved),
+        // the golem agent: every golem a villager summons carries its summoner's UUID
+        java_agent: Some(mctas::bridge::golem_agent(&o.version)?),
         ..Default::default()
     };
     let mut s = VanillaServer::start(&v)?;
@@ -984,6 +1003,9 @@ fn sample(
             }
         }
     }
+    // the farm's villagers' UUIDs (the golem agent tags each golem a villager summons with its
+    // summoner's: attribution by summoner)
+    let farm_ids: Vec<[i64; 4]> = entity_answers(&s.cmd_long(&format!("execute as @e[type=minecraft:villager{own}] run data get entity @s UUID"))?).iter().filter_map(|a| uuid_ints(a)).collect();
     for a in entity_answers(&s.cmd_long(&format!("execute as @e[type=minecraft:iron_golem{near}] run data get entity @s"))?) {
         let Some(uuid) = list_after(&a, "UUID").map(|v| format!("{v:?}")) else { continue };
         let pos = list_after(&a, "Pos").unwrap_or_default();
@@ -994,6 +1016,32 @@ fn sample(
         if golems.get(&uuid).is_some_and(|g| g.foreign) {
             continue;
         }
+        // a golem a villager summoned carries its summoner (the golem agent's `mctas.by.<uuid>`):
+        // the farm's when one of the farm's villagers summoned it, wherever it stands; the open
+        // cells' rule (`Scope::outside`) is the cross-check: a golem one rule gives the farm and
+        // the other the village fails the run, naming both
+        let mut by_farm = false;
+        if !golems.contains_key(&uuid)
+            && let Some(by) = summoner_of(&a)
+        {
+            let farm_by = farm_ids.contains(&by);
+            let outside = scope.outside(&inner, p);
+            if farm_by == outside {
+                run.fail(format!(
+                    "gt {t}: a golem's attribution disagrees: summoned by {} but first seen {} the farm's open cells, at {:.1} {:.1} {:.1}",
+                    if farm_by { "one of the farm's villagers" } else { "a villager not the farm's" },
+                    if outside { "outside" } else { "inside" },
+                    p[0],
+                    p[1],
+                    p[2]
+                ));
+            }
+            if !farm_by {
+                golems.insert(uuid, Golem { born: t, first: p, last: p, dead: false, seen: true, reported: true, foreign: true });
+                continue;
+            }
+            by_farm = true;
+        }
         // in a terrain sample a golem is the farm's when first seen inside it (the village's golem
         // and wanderers are not); one first seen outside the farm but within a farm villager's
         // golem search (`SpawnUtil.trySpawnMob`: 8 across, 6 up or down), with no village villager
@@ -1002,7 +1050,7 @@ fn sample(
         // farm spawned at a spot it leaves open: the run fails on it, naming the cell and the tick
         // (an escape is not a rate drop)
         let outside = scope.outside(&inner, p);
-        if !scope.all_golems && outside && !golems.contains_key(&uuid) {
+        if !scope.all_golems && outside && !by_farm && !golems.contains_key(&uuid) {
             let searched = villagers.iter().any(|v| (p[0] - v[0]).abs() <= 9.0 && (p[1] - v[1]).abs() <= 7.0 && (p[2] - v[2]).abs() <= 9.0);
             let village = searched && s.count_entities(&format!("@e[type=minecraft:villager,tag=!mf,x={:.1},y={:.1},z={:.1},dx=48,dy=24,dz=48]", p[0] - 24.0, p[1] - 12.0, p[2] - 24.0))? > 0;
             if searched && !village {
@@ -1024,7 +1072,7 @@ fn sample(
         // --trace: every farm golem's spawn (first seen) and, while outside the farm, its path
         if let Some(label) = trace {
             if new {
-                eprintln!("  {label} gt {t}: golem spawned (first seen) at {:.1} {:.1} {:.1}", p[0], p[1], p[2]);
+                eprintln!("  {label} gt {t}: golem spawned (first seen) at {:.1} {:.1} {:.1}{}", p[0], p[1], p[2], if by_farm { ", summoned by one of the farm's villagers" } else { ", no summoner tag" });
             } else if outside && !g.dead {
                 eprintln!("  {label} gt {t}: golem from gt {} (first seen at {:.1} {:.1} {:.1}) outside the farm at {:.1} {:.1} {:.1}", g.born, g.first[0], g.first[1], g.first[2], p[0], p[1], p[2]);
             }

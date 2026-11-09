@@ -169,6 +169,9 @@ pub struct VanillaOptions {
     /// before the server starts (the mob-farm gate in a terrain sample's kept world: the cycle's
     /// stationary state without warm-up ticks that would age the world).
     pub saved_weather: Option<SavedWeather>,
+    /// A Java agent for the server (`-javaagent:`): the mob-farm gate's golem agent
+    /// (`bridge::golem_agent`) tags every golem a villager summons with the villager's UUID.
+    pub java_agent: Option<PathBuf>,
 }
 
 /// A world's saved weather (`WeatherData`: 26.x `data/minecraft/weather.dat`).
@@ -238,6 +241,7 @@ impl Default for VanillaOptions {
             simulation_distance: 3,
             biome: "minecraft:the_void".into(),
             saved_weather: None,
+            java_agent: None,
         }
     }
 }
@@ -396,7 +400,11 @@ impl VanillaServer {
             .arg(format!("-Xmx{}m", opts.heap_mb))
             .arg("-XX:+UseSerialGC")
             .arg("-XX:ActiveProcessorCount=2")
-            .arg(format!("-DbundlerRepoDir={}", repo.display()))
+            .arg(format!("-DbundlerRepoDir={}", repo.display()));
+        if let Some(agent) = &opts.java_agent {
+            command.arg(format!("-javaagent:{}", agent.display()));
+        }
+        command
             .arg("-jar")
             .arg(&bundle)
             .arg("nogui")

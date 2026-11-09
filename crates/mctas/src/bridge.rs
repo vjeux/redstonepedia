@@ -39,6 +39,52 @@ pub const LOG4J_CONFIG: &str = include_str!("../../../bridge/resources/mctas-log
 /// The main class of the bridge.
 pub const MAIN_CLASS: &str = "dev.vjeux.mctas.bridge.Main";
 
+/// The mob-farm gate's Java agent (`bridge/agent`): every iron golem a villager summons on the
+/// official server is tagged `mctas.by.<the villager's UUID>` (the gate attributes golems by their
+/// summoner).
+pub const GOLEM_AGENT: (&str, &str) = ("dev/vjeux/mctas/agent/GolemAgent.java", include_str!("../../../bridge/agent/dev/vjeux/mctas/agent/GolemAgent.java"));
+
+/// The golem agent's jar for `version`'s Java (built with the JDK's own `javac` and `jar` next to
+/// the server's `java`, cached by a hash of the source): the value of `-javaagent:`.
+pub fn golem_agent(version: &str) -> Result<PathBuf> {
+    let install = setup::install_server(version)?;
+    let (name, text) = GOLEM_AGENT;
+    let hash = &net::sha256_hex(format!("{version}{name}{text}").as_bytes())[..12];
+    let jar = paths::version_dir(version).join(format!("golem-agent-{hash}.jar"));
+    if jar.exists() {
+        return Ok(jar);
+    }
+    let tmp = paths::version_dir(version).join(format!("golem-agent-{hash}.tmp-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let src = tmp.join("src").join(name);
+    std::fs::create_dir_all(src.parent().unwrap())?;
+    std::fs::write(&src, text)?;
+    let classes = tmp.join("classes");
+    std::fs::create_dir_all(&classes)?;
+    let javac = setup::javac_for(&install.java);
+    let major = setup::required_java(version)?;
+    let out = Command::new(&javac).args(["--release", &major.to_string(), "-nowarn", "-encoding", "UTF-8", "-d"]).arg(&classes).arg(&src).output().with_context(|| format!("running {}", javac.display()))?;
+    if !out.status.success() {
+        let _ = std::fs::remove_dir_all(&tmp);
+        bail!("javac (golem agent) failed:\n{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    }
+    let manifest = tmp.join("MANIFEST.MF");
+    std::fs::write(&manifest, "Premain-Class: dev.vjeux.mctas.agent.GolemAgent\n")?;
+    let jar_tool = javac.with_file_name("jar");
+    let part = tmp.join("agent.jar");
+    let out = Command::new(&jar_tool).arg("--create").arg("--file").arg(&part).arg("--manifest").arg(&manifest).arg("-C").arg(&classes).arg(".").output().with_context(|| format!("running {}", jar_tool.display()))?;
+    if !out.status.success() {
+        let _ = std::fs::remove_dir_all(&tmp);
+        bail!("jar (golem agent) failed:\n{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    }
+    // renamed into place (processes starting together build the same jar)
+    if std::fs::rename(&part, &jar).is_err() && !jar.exists() {
+        bail!("moving the golem agent into {}", jar.display());
+    }
+    let _ = std::fs::remove_dir_all(&tmp);
+    Ok(jar)
+}
+
 /// A compiled bridge for one Minecraft version.
 #[derive(Clone, Debug)]
 pub struct BridgeBuild {
