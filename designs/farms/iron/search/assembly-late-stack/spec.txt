@@ -1,0 +1,15 @@
+farm: iron
+stage: late
+objective: max iron_per_hour_per_module
+objective: min build_minutes_per_module
+objective: min volume_per_module
+constraint: afk_spots <= 1
+space: placement void
+space: family stack-shared-kill
+bar: none
+merge: 10%
+space: calm observer
+space: pad 6,8
+space: floor -7
+space: kill shared-blade,blade
+space: u1 west

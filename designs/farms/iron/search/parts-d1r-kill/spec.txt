@@ -1,0 +1,18 @@
+farm: iron
+stage: day-1
+objective: min t_kit_minutes
+objective: max iron_per_hour
+constraint: materials <= day-1
+constraint: villagers <= 8
+constraint: surface_blocks <= 0
+space: placement dug
+space: modules 1
+merge: 10%
+space: redstone dust
+space: regular true
+space: u1 west
+space: scared 2
+space: blind 0
+space: pad 6
+space: floor -7
+space: ground 9

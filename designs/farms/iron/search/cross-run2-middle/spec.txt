@@ -1,0 +1,10 @@
+farm: iron
+stage: middle
+objective: max iron_per_hour_per_module
+objective: min build_minutes_per_module
+objective: min blocks_per_module
+constraint: afk_spots <= 1
+space: family cross
+merge: 10%
+space: pad 6
+bar: none

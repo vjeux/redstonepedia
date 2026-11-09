@@ -1,0 +1,16 @@
+farm: iron
+stage: middle
+objective: max iron_per_hour_per_module
+objective: min build_minutes_per_module
+constraint: afk_spots <= 1
+space: modules 1
+space: placement void
+space: family module
+bar: none
+merge: 10%
+space: calm observer
+space: regular true
+space: scared 2
+space: kill blade
+space: depth -22
+space: u1 west

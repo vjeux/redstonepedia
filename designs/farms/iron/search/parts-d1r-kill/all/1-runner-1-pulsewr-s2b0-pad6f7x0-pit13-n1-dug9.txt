@@ -1,0 +1,478 @@
+# farmopt candidate pulsewr-s2b0-pad6f7x0-pit13-n1-dug9 (designs/briefs/farm-optimizer.md).
+# 1 module(s); each: 2 scared and 0 blind villagers in 1-cell pods, a zombie in a boat, U1's plate into the falling-edge pulse (catalog row 189: torches, dust, repeaters; a 22 gt hide when U1 lies down at dusk);
+# golems spawn on a 6x6 pad 7 below the beds and fall through its dry hole into a pit corner 13 below the beds under one lava source.
+name: pulsewr-s2b0-pad6f7x0-pit13-n1-dug9
+access: built
+afk: 2.5 10 4.5
+circuit: mob-farm iron_ingot day-1
+ground: 9
+how: golems burn in a corner of their pit
+restart: yes
+terrain: cells
+port output: 0 -15 3
+entity: minecraft:villager 0.5 0.5625 0.5
+entity: minecraft:villager 2.5 0.5625 0.5
+entity: minecraft:oak_boat 1.5 0.5 -6.8 {Passengers:[{id:"minecraft:zombie"}]}
+entity: minecraft:villager -1.5 0 -0.5
+origin: -5 0 -8
+palette:
+  A minecraft:air
+  B minecraft:cobblestone_slab[type=bottom,waterlogged=false]
+  C minecraft:chest[facing=north,type=single,waterlogged=false]
+  D minecraft:cobblestone_slab[type=top,waterlogged=false]
+  E minecraft:oak_fence_gate[facing=east,in_wall=false,open=false,powered=false]
+  F minecraft:oak_fence_gate[facing=north,in_wall=false,open=true,powered=false]
+  G minecraft:oak_pressure_plate[powered=false]
+  H minecraft:hopper[enabled=true,facing=down]
+  I minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  J minecraft:oak_trapdoor[facing=south,half=bottom,open=true,powered=false,waterlogged=false]
+  K minecraft:oak_wall_sign[facing=east,waterlogged=false]
+  L minecraft:lava[level=0]
+  M minecraft:oak_wall_sign[facing=south,waterlogged=false]
+  N minecraft:redstone_wall_torch[facing=south,lit=false]
+  O minecraft:oak_button[face=wall,facing=east,powered=false]
+  P minecraft:redstone_wall_torch[facing=south,lit=true]
+  Q minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=none]
+  R minecraft:red_bed[facing=north,occupied=false,part=foot]
+  S minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+  T minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+  U minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  V minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=none]
+  W minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  X minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  Y minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  Z minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
+  a minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  b minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  c minecraft:cobblestone
+  d minecraft:repeater[delay=2,facing=west,locked=false,powered=false]
+  e minecraft:water[level=0]
+  o minecraft:oak_button[face=wall,facing=south,powered=false]
+  r minecraft:red_bed[facing=north,occupied=false,part=head]
+  t minecraft:torch
+  w minecraft:wall_torch[facing=east]
+layer -15:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  B.AAAC
+  AA
+  .
+  .
+  .
+layer -14:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  AAAAtH
+  BA
+  .
+  .
+  .
+layer -13:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  AA...AAAA
+  AB...AAAA
+  .....AAAA
+  .....AAAe
+  .
+layer -12:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  AB...MAAA
+  AA...AAAA
+  .....AAAA
+  .....AAAA
+  .
+layer -11:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  BA...LMAA
+  At...KAAA
+  .....AAAA
+  .....AAAA
+  .
+layer -10:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  AA...AoAA
+  BA...OAAA
+  .....AAAA
+  .....AAAA
+  .
+layer -9:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  AA...AAAA
+  AB...AAAA
+  .....AAAA
+  .....AAAA
+  .
+layer -8:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  AB...AAAA
+  AA...AAAA
+  .....AAAA
+  .....AAAA
+  .
+layer -7:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ....cccccc
+  BA..cFFFFc
+  AA..cFAAFc
+  ....cFAAFc
+  ....cFFFFc
+  ....cccccc
+layer -6:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ....eAAAAe
+  AA..AAAAAA
+  BA..AAFFAA
+  ....AAFFAA
+  ....AAAAAA
+  ....eAAAAe
+layer -5:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ....AAAAAA
+  AA..AAAAAA
+  AB..AAAAAA
+  ....AAAAAA
+  ....AAAAAA
+  ....AAAAAA
+layer -4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ....AAAAAA
+  AB..AAAAAA
+  AA..AAAAAA
+  ....AAAAAA
+  ....AAAAAA
+  ....AAAAAA
+layer -3:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  BA
+  At
+  .
+  .
+  .
+layer -2:
+  .
+  .
+  .........c
+  .........c
+  .........c
+  .........cc
+  ..........cc
+  ...ccccccc.c
+  ...c.......c
+  ...c.....c.c
+  ...ccccccc.c
+  AA........cc
+  BA
+  .
+  .
+  .
+layer -1:
+  .
+  .
+  ........cQ
+  .........U
+  .........U
+  .........XS
+  ..........XS
+  ...cdddddc.U
+  ...Y.....P.U
+  ...Y.....a.U
+  ...YYYYYbc.U
+  AA.......NVT
+  AB
+  .
+  .
+  .
+layer 0:
+  .
+  ......B
+  .......cZA
+  .
+  .
+  .
+  .....A.A
+  ...G.A.A
+  ...r.r.r
+  ...R.R.R
+  .
+  AB
+  AA
+  .
+  .
+  .
+layer 1:
+  ......A
+  ......A
+  ......IWA
+  .....AAA
+  .....AAA
+  .....AAA
+  .....DAD
+  ...A.DAD
+  ...A.J.J
+  .
+  .
+  BA
+  AA
+  .
+  .
+  .
+layer 2:
+  .
+  .
+  .
+  .....AAA
+  .....AAA
+  .....wAA
+  .....AAA
+  .....AAA
+  ...A.A.A
+  .
+  .
+  AA
+  BA
+  .
+  .
+  .
+layer 3:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  AA
+  AB
+  .
+  .
+  .
+layer 4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  AB
+  AA
+  .
+  .
+  .
+layer 5:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  BA
+  At
+  .
+  .
+  .
+layer 6:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  AA
+  BA
+  .
+  .
+  .
+layer 7:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  AA
+  AB
+  .
+  .
+  .
+layer 8:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  AB
+  AA
+  .
+  .
+  .
+layer 9:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  BE
+  EE
+  .
+  .
+  .

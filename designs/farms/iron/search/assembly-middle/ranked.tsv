@@ -1,0 +1,215 @@
+key	fork	level	fate	iron_per_hour_per_module	build_minutes_per_module	bound iron_per_hour_per_module	bound build_minutes_per_module	calm	redstone	scared	villagers	pad	floor	kill	depth	modules	tiling	pitch	placement	ground	regular	u1	blind	build	family	pits	calm_part	shared_calm	seed
+obs0w-s2b2-pad8f6x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	472 (453-490)	39.5	476	39.5	observer	dust	2	5	8	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs0w-s3b1-pad8f7x0-blade22-n1-void	all	full	judged	471 (468-473)	40.0	473	40.0	observer	dust	3	5	8	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s3b1-pad8f6x-1-blade23-n1-void	all	full	judged	470 (468-472)	39.9	472	39.9	observer	dust	3	5	8	-6	blade	-23	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s3b1-pad8f6x-1-blade21-n1-void	all	full	judged	470 (468-472)	39.5	472	39.5	observer	dust	3	5	8	-6	blade	-21	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s3b1-pad8f6x1-blade22-n1-void	all	full	judged	470 (468-473)	39.8	473	39.8	observer	dust	3	5	8	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s3b1-pad8f6x-1-blade22-n1-void	all	full	judged	470 (468-472)	39.7	472	39.7	observer	dust	3	5	8	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs1w-s3b1-pad8f6x1-blade22-n1-void	all	full	judged	470 (468-473)	39.8	473	39.8	observer	dust	3	5	8	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs0w-s3b1-pad8f7x-1-blade22-n1-void	all	full	judged	470 (468-472)	40.0	472	40.0	observer	dust	3	5	8	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s3b1-pad8f6x-2-blade22-n1-void	all	full	judged	470 (468-472)	39.7	472	39.7	observer	dust	3	5	8	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s3b1-pad8f6x0-blade22-n1-void	all	full	judged	470 (467-473)	39.7	473	39.7	observer	dust	3	5	8	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs1w-s3b1-pad8f6x-1-blade22-n1-void	all	full	judged	470 (468-472)	39.7	472	39.7	observer	dust	3	5	8	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs1w-s2b2-pad8f6x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	470 (453-486)	39.7	476	39.7	observer	dust	2	5	8	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs1w-s3b1-pad8f6x0-blade22-n1-void	all	full	judged	469 (467-472)	39.7	472	39.7	observer	dust	3	5	8	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs1w-s2b2-pad8f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	467 (442-492)	39.8	476	39.8	observer	dust	2	5	8	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs1w-s2b2-pad8f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	467 (444-491)	40.0	476	40.0	observer	dust	2	5	8	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs0w-s2b2-pad8f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	466 (441-492)	39.6	476	39.6	observer	dust	2	5	8	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs0w-s2b2-pad8f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	466 (436-497)	39.8	476	39.8	observer	dust	2	5	8	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs1w-s3b2-pad8f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	466 (451-480)	43.2	479	43.2	observer	dust	3	6	8	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs1w-s3b1-pad8f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	465 (448-482)	40.0	479	40.0	observer	dust	3	5	8	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs1w-s3b2-pad8f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	465 (458-472)	43.1	472	43.1	observer	dust	3	6	8	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs1w-s3b2-pad8f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	465 (449-481)	43.5	479	43.5	observer	dust	3	6	8	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs0w-s3b2-pad8f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	464 (457-471)	43.1	471	43.1	observer	dust	3	6	8	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs1w-s3b2-pad8f6x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	464 (417-512)	43.1	479	43.1	observer	dust	3	6	8	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs0w-s3b2-pad8f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	464 (448-480)	43.2	479	43.2	observer	dust	3	6	8	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs0w-s3b2-pad8f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	464 (443-484)	43.5	479	43.5	observer	dust	3	6	8	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs1w-s3b2-pad8f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	464 (443-484)	43.5	479	43.5	observer	dust	3	6	8	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs0w-s3b2-pad8f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	463 (454-472)	43.5	472	43.5	observer	dust	3	6	8	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs0w-s2b2-pad8f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	462 (425-499)	39.8	476	39.8	observer	dust	2	5	8	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs1w-s2b2-pad8f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	462 (423-501)	40.0	476	40.0	observer	dust	2	5	8	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs1w-s2b2-pad8f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	462 (438-486)	40.0	476	40.0	observer	dust	2	5	8	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs0w-s3b2-pad6f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	462 (443-481)	41.8	470	41.8	observer	dust	3	6	6	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs0w-s3b2-pad8f6x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	462 (408-516)	43.1	479	43.1	observer	dust	3	6	8	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs1w-s2b2-pad8f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	461 (427-495)	39.8	476	39.8	observer	dust	2	5	8	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs1w-s3b0-pad8f7x-2-blade22-n1-void	all	full	judged	460 (456-465)	36.7	465	36.7	observer	dust	3	4	8	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs1w-s3b0-pad8f7x-1-blade21-n1-void	all	full	judged	460 (455-465)	36.5	465	36.5	observer	dust	3	4	8	-7	blade	-21	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs1w-s3b0-pad8f7x-1-blade22-n1-void	all	full	judged	460 (455-465)	36.7	465	36.7	observer	dust	3	4	8	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs0w-s3b0-pad8f6x0-blade22-n1-void	all	full	judged	460 (456-465)	36.4	465	36.4	observer	dust	3	4	8	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs1w-s3b0-pad8f7x-1-blade23-n1-void	all	full	judged	460 (455-465)	36.9	465	36.9	observer	dust	3	4	8	-7	blade	-23	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs0w-s3b0-pad8f6x0-blade21-n1-void	all	full	judged	460 (456-464)	36.2	464	36.2	observer	dust	3	4	8	-6	blade	-21	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs0w-s3b0-pad8f6x0-blade23-n1-void	all	full	judged	460 (455-464)	36.6	464	36.6	observer	dust	3	4	8	-6	blade	-23	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs0wr-s3b0-pad8f6x0-blade22-n1-void	all	full	judged	460 (455-465)	37.9	465	37.9	observer	dust	3	4	8	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs0w-s3b1-pad8f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	460 (436-484)	40.0	479	40.0	observer	dust	3	5	8	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs1wr-s3b0-pad8f6x0-blade22-n1-void	all	full	judged	460 (455-464)	38.4	464	38.4	observer	dust	3	4	8	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs0wr-s3b0-pad8f7x-1-blade22-n1-void	all	full	judged	460 (455-464)	38.2	464	38.2	observer	dust	3	4	8	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs0w-s3b0-pad8f7x-1-blade22-n1-void	all	full	judged	460 (455-464)	36.7	464	36.7	observer	dust	3	4	8	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs1wr-s3b0-pad8f7x-1-blade22-n1-void	all	full	judged	459 (455-464)	38.8	464	38.8	observer	dust	3	4	8	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs0wr-s3b0-pad8f6x1-blade22-n1-void	all	full	judged	459 (455-464)	37.9	464	37.9	observer	dust	3	4	8	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs1w-s3b0-pad8f7x1-blade22-n1-void	all	full	judged	459 (455-464)	36.7	464	36.7	observer	dust	3	4	8	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs1w-s3b0-pad8f6x1-blade22-n1-void	all	full	judged	459 (455-463)	36.4	463	36.4	observer	dust	3	4	8	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs0w-s3b0-pad8f7x1-blade22-n1-void	all	full	judged	459 (455-463)	36.7	463	36.7	observer	dust	3	4	8	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs1wr-s3b0-pad8f6x-1-blade22-n1-void	all	full	judged	459 (454-464)	38.4	464	38.4	observer	dust	3	4	8	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs1w-s3b0-pad8f6x-1-blade22-n1-void	all	full	judged	459 (454-464)	36.4	464	36.4	observer	dust	3	4	8	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs0w-s3b0-pad8f6x1-blade22-n1-void	all	full	judged	459 (455-463)	36.4	463	36.4	observer	dust	3	4	8	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs0wr-s3b0-pad8f6x-1-blade22-n1-void	all	full	judged	459 (454-464)	37.9	464	37.9	observer	dust	3	4	8	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs1w-s3b0-pad8f6x0-blade22-n1-void	all	full	judged	459 (454-464)	36.4	464	36.4	observer	dust	3	4	8	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs0w-s3b0-pad8f6x-1-blade22-n1-void	all	full	judged	459 (454-464)	36.4	464	36.4	observer	dust	3	4	8	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs1w-s3b1-pad8f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	459 (434-484)	40.0	479	40.0	observer	dust	3	5	8	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs1w-s3b2-pad8f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	459 (416-502)	43.5	479	43.5	observer	dust	3	6	8	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs1wr-s3b0-pad8f6x1-blade22-n1-void	all	full	judged	459 (455-463)	38.5	463	38.5	observer	dust	3	4	8	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs1wr-s3b0-pad8f7x1-blade22-n1-void	all	full	judged	459 (455-463)	38.8	463	38.8	observer	dust	3	4	8	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs0wr-s3b0-pad8f7x1-blade22-n1-void	all	full	judged	459 (455-463)	38.2	463	38.2	observer	dust	3	4	8	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs1w-s3b2-pad6f6x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	458 (422-494)	41.8	470	41.8	observer	dust	3	6	6	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs0w-s2b2-pad8f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	458 (438-477)	39.8	476	39.8	observer	dust	2	5	8	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs0w-s2b2-pad8f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	457 (417-497)	39.6	476	39.6	observer	dust	2	5	8	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs1w-s3b1-pad8f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	457 (424-490)	40.0	479	40.0	observer	dust	3	5	8	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs0w-s3b2-pad8f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	457 (404-509)	43.5	479	43.5	observer	dust	3	6	8	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs0w-s3b2-pad6f6x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	456 (423-489)	41.8	470	41.8	observer	dust	3	6	6	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs0w-s3b2-pad6f7x1-blade22-n1-void	all	quick	pruned at quick by obs0w-s3b1-pad8f6x-1-blade22-n1-void	454 (446-463)	42.1	463	42.1	observer	dust	3	6	6	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs1w-s3b2-pad6f6x1-blade22-n1-void	all	quick	pruned at quick by obs0w-s3b1-pad8f6x-1-blade22-n1-void	454 (448-460)	41.8	460	41.8	observer	dust	3	6	6	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs0w-s2b1-pad8f6x0-blade21-n1-void	all	full	judged	454 (449-458)	36.0	458	36.0	observer	dust	2	4	8	-6	blade	-21	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s2b1-pad8f6x0-blade22-n1-void	all	full	judged	454 (449-458)	36.2	458	36.2	observer	dust	2	4	8	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s2b1-pad8f6x0-blade23-n1-void	all	full	judged	453 (449-458)	36.4	458	36.4	observer	dust	2	4	8	-6	blade	-23	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s2b1-pad8f7x-1-blade22-n1-void	all	full	judged	453 (449-458)	36.5	458	36.5	observer	dust	2	4	8	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s2b1-pad8f6x-1-blade21-n1-void	all	full	judged	453 (449-458)	35.9	458	35.9	observer	dust	2	4	8	-6	blade	-21	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s2b1-pad8f6x-1-blade22-n1-void	all	full	judged	453 (449-458)	36.1	458	36.1	observer	dust	2	4	8	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s2b1-pad8f6x-1-blade23-n1-void	all	full	judged	453 (449-458)	36.3	458	36.3	observer	dust	2	4	8	-6	blade	-23	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s2b1-pad8f7x0-blade22-n1-void	all	full	judged	453 (448-458)	36.5	458	36.5	observer	dust	2	4	8	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s2b1-pad8f6x-2-blade22-n1-void	all	full	judged	453 (449-457)	36.1	457	36.1	observer	dust	2	4	8	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs1w-s3b2-pad6f7x1-blade22-n1-void	all	quick	pruned at quick by obs0w-s3b1-pad8f6x-1-blade22-n1-void	452 (445-459)	42.1	459	42.1	observer	dust	3	6	6	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs1w-s2b1-pad8f6x0-blade22-n1-void	all	full	judged	452 (447-457)	36.3	457	36.3	observer	dust	2	4	8	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs1w-s2b1-pad8f6x-1-blade22-n1-void	all	full	judged	452 (448-457)	36.3	457	36.3	observer	dust	2	4	8	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs0wr-s3b0-pad6f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	452 (418-485)	36.9	475	36.9	observer	dust	3	4	6	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs1wr-s3b0-pad6f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	451 (418-483)	37.4	475	37.4	observer	dust	3	4	6	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs0w-s3b1-pad6f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	449 (430-469)	38.7	469	38.7	observer	dust	3	5	6	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs1w-s3b1-pad6f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	449 (430-469)	38.7	469	38.7	observer	dust	3	5	6	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs1w-s3b2-pad6f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	449 (421-478)	42.1	470	42.1	observer	dust	3	6	6	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs0w-s3b2-pad6f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	448 (418-479)	42.1	470	42.1	observer	dust	3	6	6	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs1w-s3b2-pad6f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	448 (416-479)	41.8	470	41.8	observer	dust	3	6	6	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs0w-s3b0-pad6f6x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	447 (395-499)	35.1	470	35.1	observer	dust	3	4	6	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs1w-s3b1-pad6f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	447 (416-478)	38.4	470	38.4	observer	dust	3	5	6	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs0w-s3b1-pad6f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	447 (402-492)	38.7	470	38.7	observer	dust	3	5	6	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s3b1-pad6f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	446 (421-472)	38.7	470	38.7	observer	dust	3	5	6	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s3b2-pad6f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	446 (410-483)	41.8	470	41.8	observer	dust	3	6	6	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs0wr-s3b0-pad6f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	446 (379-512)	36.9	475	36.9	observer	dust	3	4	6	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs0w-s3b1-pad6f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	446 (418-473)	38.4	470	38.4	observer	dust	3	5	6	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs1w-s3b1-pad6f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	446 (403-488)	38.7	470	38.7	observer	dust	3	5	6	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs1w-s3b0-pad6f6x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	445 (396-494)	35.1	470	35.1	observer	dust	3	4	6	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs1w-s3b1-pad6f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	445 (428-462)	38.7	462	38.7	observer	dust	3	5	6	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs0wr-s3b0-pad6f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	444 (366-522)	36.6	475	36.6	observer	dust	3	4	6	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs0w-s3b1-pad6f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	444 (410-478)	38.4	470	38.4	observer	dust	3	5	6	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s3b1-pad6f6x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	443 (418-469)	38.4	469	38.4	observer	dust	3	5	6	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs1w-s3b2-pad6f7x0-blade22-n1-void	all	quick	pruned at quick by obs0w-s3b1-pad8f6x-1-blade22-n1-void	443 (424-463)	42.1	463	42.1	observer	dust	3	6	6	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs1w-s3b1-pad6f6x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	442 (417-468)	38.4	468	38.4	observer	dust	3	5	6	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs1w-s3b1-pad6f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	442 (411-474)	38.4	470	38.4	observer	dust	3	5	6	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs0w-s3b0-pad6f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	442 (399-484)	35.4	470	35.4	observer	dust	3	4	6	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs0w-s3b0-pad6f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	442 (403-480)	35.4	470	35.4	observer	dust	3	4	6	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs1w-s3b0-pad6f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	442 (402-481)	35.4	470	35.4	observer	dust	3	4	6	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs1w-s2b1-pad8f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	442 (392-491)	36.6	476	36.6	observer	dust	2	4	8	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs1w-s3b0-pad6f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	441 (400-482)	35.1	470	35.1	observer	dust	3	4	6	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs0w-s3b0-pad6f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	441 (384-498)	35.4	470	35.4	observer	dust	3	4	6	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs1wr-s3b0-pad6f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	441 (384-498)	37.4	475	37.4	observer	dust	3	4	6	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs0w-s3b2-pad6f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	441 (404-478)	42.1	470	42.1	observer	dust	3	6	6	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs1w-s3b0-pad6f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	440 (399-482)	35.4	470	35.4	observer	dust	3	4	6	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs1wr-s3b0-pad6f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	440 (370-511)	37.1	475	37.1	observer	dust	3	4	6	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs0w-s2b2-pad6f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	440 (423-457)	38.5	456	38.5	observer	dust	2	5	6	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs0wr-s3b0-pad6f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	440 (413-466)	36.6	466	36.6	observer	dust	3	4	6	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs0wr-s3b0-pad6f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	440 (395-484)	36.9	475	36.9	observer	dust	3	4	6	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs1wr-s3b0-pad6f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	440 (410-469)	37.1	469	37.1	observer	dust	3	4	6	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs0w-s2b1-pad6f6x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	438 (351-525)	34.8	456	34.8	observer	dust	2	4	6	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs1w-s3b0-pad6f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	438 (369-507)	35.1	470	35.1	observer	dust	3	4	6	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs1w-s2b1-pad6f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	438 (351-525)	35.3	456	35.3	observer	dust	2	4	6	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs0wr-s3b0-pad6f6x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	438 (383-493)	36.6	475	36.6	observer	dust	3	4	6	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs1wr-s3b0-pad6f6x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	438 (383-493)	37.1	475	37.1	observer	dust	3	4	6	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs0w-s3b0-pad6f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	437 (369-506)	35.1	470	35.1	observer	dust	3	4	6	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs0w-s3b0-pad6f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	437 (391-484)	35.1	470	35.1	observer	dust	3	4	6	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs1w-s3b0-pad6f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	437 (374-500)	35.4	470	35.4	observer	dust	3	4	6	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs1w-s2b1-pad8f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	437 (393-481)	36.6	476	36.6	observer	dust	2	4	8	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs1wr-s3b0-pad6f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	437 (395-479)	37.4	475	37.4	observer	dust	3	4	6	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs1w-s2b2-pad6f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	437 (410-465)	38.7	456	38.7	observer	dust	2	5	6	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs0w-s2b1-pad8f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	436 (400-473)	36.5	473	36.5	observer	dust	2	4	8	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0wr-s3b0-pad8f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	436 (402-471)	38.2	471	38.2	observer	dust	3	4	8	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs1w-s2b1-pad6f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	436 (369-503)	35.1	456	35.1	observer	dust	2	4	6	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs1w-s2b1-pad8f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	436 (400-472)	36.6	472	36.6	observer	dust	2	4	8	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs0w-s3b0-pad8f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	436 (402-469)	36.7	469	36.7	observer	dust	3	4	8	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs0w-s2b2-pad6f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	436 (397-474)	38.5	456	38.5	observer	dust	2	5	6	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs1wr-s3b0-pad8f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	436 (400-472)	38.8	472	38.8	observer	dust	3	4	8	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs1w-s3b0-pad8f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	435 (402-468)	36.7	468	36.7	observer	dust	3	4	8	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs0w-s2b2-pad6f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	435 (400-470)	38.2	456	38.2	observer	dust	2	5	6	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs0w-s2b2-pad6f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	435 (391-479)	38.3	456	38.3	observer	dust	2	5	6	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs1w-s2b2-pad6f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	435 (404-466)	38.4	456	38.4	observer	dust	2	5	6	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs1w-s2b1-pad6f6x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	434 (354-513)	35.0	456	35.0	observer	dust	2	4	6	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs1w-s2b1-pad6f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	433 (369-496)	35.3	456	35.3	observer	dust	2	4	6	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs0w-s2b1-pad6f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	430 (352-509)	35.1	456	35.1	observer	dust	2	4	6	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s2b1-pad8f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	430 (397-464)	36.2	464	36.2	observer	dust	2	4	8	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0w-s2b1-pad6f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	430 (370-489)	35.1	456	35.1	observer	dust	2	4	6	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs1w-s2b1-pad8f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	430 (400-460)	36.4	460	36.4	observer	dust	2	4	8	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs1w-s2b2-pad6f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	430 (397-462)	38.7	456	38.7	observer	dust	2	5	6	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs1w-s2b2-pad6f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	428 (396-460)	38.5	456	38.5	observer	dust	2	5	6	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs1w-s2b1-pad6f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	428 (362-493)	35.0	456	35.0	observer	dust	2	4	6	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs1w-s2b0-pad8f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	427 (403-451)	33.3	451	33.3	observer	dust	2	3	8	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs0wr-s2b0-pad8f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	427 (397-457)	35.1	457	35.1	observer	dust	2	3	8	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs0w-s2b0-pad8f7x1-blade22-n1-void	all	full	judged	427 (421-433)	32.9	433	32.9	observer	dust	2	3	8	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs0w-s2b0-pad8f6x1-blade22-n1-void	all	full	judged	426 (420-432)	32.7	432	32.7	observer	dust	2	3	8	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs1w-s2b0-pad8f6x1-blade22-n1-void	all	full	judged	426 (420-432)	33.0	432	33.0	observer	dust	2	3	8	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs1w-s2b0-pad8f7x-1-blade22-n1-void	all	full	judged	426 (420-432)	33.3	432	33.3	observer	dust	2	3	8	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs1w-s2b0-pad8f6x-1-blade21-n1-void	all	full	judged	426 (420-432)	32.9	432	32.9	observer	dust	2	3	8	-6	blade	-21	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs1w-s2b0-pad8f6x-1-blade22-n1-void	all	full	judged	426 (420-432)	33.0	432	33.0	observer	dust	2	3	8	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs1w-s2b0-pad8f6x-1-blade23-n1-void	all	full	judged	426 (420-432)	33.2	432	33.2	observer	dust	2	3	8	-6	blade	-23	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs0w-s2b0-pad8f6x-1-blade23-n1-void	all	full	judged	426 (419-432)	32.8	432	32.8	observer	dust	2	3	8	-6	blade	-23	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs0w-s2b0-pad8f6x-1-blade21-n1-void	all	full	judged	425 (419-432)	32.5	432	32.5	observer	dust	2	3	8	-6	blade	-21	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs0w-s2b0-pad8f6x-1-blade22-n1-void	all	full	judged	425 (419-432)	32.7	432	32.7	observer	dust	2	3	8	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs1w-s2b0-pad8f7x0-blade22-n1-void	all	full	judged	425 (419-432)	33.3	432	33.3	observer	dust	2	3	8	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs0w-s2b0-pad8f7x0-blade22-n1-void	all	full	judged	425 (419-432)	32.9	432	32.9	observer	dust	2	3	8	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs0w-s2b0-pad8f7x-1-blade22-n1-void	all	full	judged	425 (419-431)	32.9	431	32.9	observer	dust	2	3	8	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs1w-s2b0-pad8f6x0-blade22-n1-void	all	full	judged	425 (419-431)	33.0	431	33.0	observer	dust	2	3	8	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs0w-s2b1-pad6f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	425 (371-480)	34.9	456	34.9	observer	dust	2	4	6	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs1wr-s2b0-pad8f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	425 (398-452)	35.6	452	35.6	observer	dust	2	3	8	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs1w-s2b2-pad6f7x-1-blade22-n1-void	all	quick	pruned at quick by obs0w-s2b1-pad8f6x-1-blade22-n1-void	425 (404-446)	38.7	446	38.7	observer	dust	2	5	6	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs0w-s2b0-pad8f6x0-blade22-n1-void	all	full	judged	425 (419-431)	32.7	431	32.7	observer	dust	2	3	8	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs0w-s2b0-pad8f6x-2-blade22-n1-void	all	full	judged	425 (419-431)	32.7	431	32.7	observer	dust	2	3	8	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs1w-s2b0-pad8f6x-2-blade22-n1-void	all	full	judged	424 (419-430)	33.0	430	33.0	observer	dust	2	3	8	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs0w-s2b1-pad6f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	422 (354-491)	35.1	456	35.1	observer	dust	2	4	6	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs1wr-s2b0-pad8f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	422 (384-461)	35.3	461	35.3	observer	dust	2	3	8	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs1wr-s2b0-pad8f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	422 (400-445)	35.4	445	35.4	observer	dust	2	3	8	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs1w-s2b2-pad6f6x-1-blade22-n1-void	all	quick	pruned at quick by obs0w-s2b1-pad8f6x-1-blade22-n1-void	422 (410-434)	38.4	434	38.4	observer	dust	2	5	6	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	1	false	-
+obs0w-s2b2-pad6f7x-1-blade22-n1-void	all	quick	pruned at quick by obs0w-s2b1-pad8f6x-1-blade22-n1-void	422 (403-442)	38.5	442	38.5	observer	dust	2	5	6	-7	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs1w-s2b1-pad6f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	422 (354-489)	35.3	456	35.3	observer	dust	2	4	6	-7	blade	-22	1	row	17	void	0	false	west	1	void	module	0	1	false	-
+obs0w-s2b2-pad6f6x-1-blade22-n1-void	all	quick	pruned at quick by obs0w-s2b1-pad8f6x-1-blade22-n1-void	422 (402-441)	38.2	441	38.2	observer	dust	2	5	6	-6	blade	-22	1	row	17	void	0	false	west	2	void	module	0	0	false	-
+obs0wr-s2b0-pad8f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	421 (387-455)	34.8	455	34.8	observer	dust	2	3	8	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs0w-s2b1-pad6f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	421 (359-482)	34.8	456	34.8	observer	dust	2	4	6	-6	blade	-22	1	row	17	void	0	false	west	1	void	module	0	0	false	-
+obs0wr-s2b0-pad8f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	419 (399-439)	34.8	439	34.8	observer	dust	2	3	8	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs0wr-s2b0-pad8f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	417 (368-466)	35.1	466	35.1	observer	dust	2	3	8	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs0wr-s2b0-pad8f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	416 (386-445)	35.1	445	35.1	observer	dust	2	3	8	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs1wr-s2b0-pad8f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	416 (371-460)	35.6	460	35.6	observer	dust	2	3	8	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs1wr-s2b0-pad8f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	415 (385-445)	35.6	445	35.6	observer	dust	2	3	8	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs0wr-s2b0-pad8f6x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	413 (371-456)	34.7	456	34.7	observer	dust	2	3	8	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs1wr-s2b0-pad8f6x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	412 (373-451)	35.3	451	35.3	observer	dust	2	3	8	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs0w-s2b0-pad6f6x-1-blade23-n1-void	all	full	judged	410 (405-415)	31.5	415	31.5	observer	dust	2	3	6	-6	blade	-23	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs0w-s2b0-pad6f6x-1-blade22-n1-void	all	full	judged	410 (404-415)	31.3	415	31.3	observer	dust	2	3	6	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs1w-s2b0-pad6f6x-1-blade22-n1-void	all	full	judged	409 (404-414)	31.7	414	31.7	observer	dust	2	3	6	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs0w-s2b0-pad6f6x-1-blade21-n1-void	all	full	judged	409 (404-414)	31.1	414	31.1	observer	dust	2	3	6	-6	blade	-21	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs1w-s2b0-pad6f6x1-blade22-n1-void	all	full	judged	409 (404-415)	31.8	415	31.8	observer	dust	2	3	6	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs0w-s2b0-pad6f6x1-blade22-n1-void	all	full	judged	409 (404-414)	31.4	414	31.4	observer	dust	2	3	6	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs0w-s2b0-pad6f7x-1-blade22-n1-void	all	full	judged	409 (404-414)	31.6	414	31.6	observer	dust	2	3	6	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs0w-s2b0-pad6f7x1-blade22-n1-void	all	full	judged	409 (404-414)	31.6	414	31.6	observer	dust	2	3	6	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs1w-s2b0-pad6f7x-1-blade22-n1-void	all	full	judged	409 (404-414)	32.0	414	32.0	observer	dust	2	3	6	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs1w-s2b0-pad6f7x1-blade22-n1-void	all	full	judged	409 (404-414)	32.0	414	32.0	observer	dust	2	3	6	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs0w-s2b0-pad6f6x-2-blade22-n1-void	all	full	judged	408 (404-413)	31.4	413	31.4	observer	dust	2	3	6	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs1wr-s2b0-pad6f7x0-blade22-n1-void	all	full	judged	408 (403-412)	34.3	412	34.3	observer	dust	2	3	6	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs0w-s2b0-pad6f7x0-blade22-n1-void	all	full	judged	408 (403-412)	31.6	412	31.6	observer	dust	2	3	6	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs1w-s2b0-pad6f7x0-blade22-n1-void	all	full	judged	408 (403-412)	32.0	412	32.0	observer	dust	2	3	6	-7	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs0w-s2b0-pad6f6x0-blade22-n1-void	all	full	judged	407 (403-412)	31.3	412	31.3	observer	dust	2	3	6	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	0	false	-
+obs1w-s2b0-pad6f6x0-blade22-n1-void	all	full	judged	407 (403-412)	31.7	412	31.7	observer	dust	2	3	6	-6	blade	-22	1	row	17	void	0	false	west	0	void	module	0	1	false	-
+obs0wr-s2b0-pad6f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	406 (366-447)	33.5	447	33.5	observer	dust	2	3	6	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs0wr-s2b0-pad6f7x0-blade22-n1-void	all	quick	open: undecided when the search stopped	406 (366-446)	33.7	446	33.7	observer	dust	2	3	6	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs1wr-s2b0-pad6f6x1-blade22-n1-void	all	quick	open: undecided when the search stopped	403 (367-439)	34.1	439	34.1	observer	dust	2	3	6	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs0wr-s2b0-pad6f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	401 (361-441)	33.5	441	33.5	observer	dust	2	3	6	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs1wr-s2b0-pad6f6x0-blade22-n1-void	all	quick	open: undecided when the search stopped	401 (361-441)	34.0	441	34.0	observer	dust	2	3	6	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs1wr-s2b0-pad6f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	401 (357-445)	34.3	445	34.3	observer	dust	2	3	6	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs0wr-s2b0-pad6f7x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	400 (360-439)	33.7	439	33.7	observer	dust	2	3	6	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs0wr-s2b0-pad6f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	400 (357-443)	33.7	443	33.7	observer	dust	2	3	6	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-
+obs1wr-s2b0-pad6f6x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	400 (351-449)	34.0	449	34.0	observer	dust	2	3	6	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs1wr-s2b0-pad6f7x1-blade22-n1-void	all	quick	open: undecided when the search stopped	400 (360-440)	34.3	440	34.3	observer	dust	2	3	6	-7	blade	-22	1	row	17	void	0	true	west	0	void	module	0	1	false	-
+obs0wr-s2b0-pad6f6x-1-blade22-n1-void	all	quick	open: undecided when the search stopped	399 (349-449)	33.5	449	33.5	observer	dust	2	3	6	-6	blade	-22	1	row	17	void	0	true	west	0	void	module	0	0	false	-

@@ -1,0 +1,12 @@
+key	fork	level	fate	iron_per_hour_per_module	build_minutes_per_module	blocks_per_module	bound iron_per_hour_per_module	bound build_minutes_per_module	bound blocks_per_module	calm	redstone	scared	villagers	pad	floor	kill	depth	modules	tiling	pitch	placement	ground	build	family	pits	calm_part	shared_calm	seed
+plate-s1b1-pad6f7x-1-pit13-cross2r16-void	all	quick	invalid: full: build 1: 1526 iron ingots dropped, 0 in the chest, 1523 in the farm's containers, 0 loose, 0 burnt: 3 lost	448 (430-467)	36.1	470	467	36.1	470	plate	none	1	3	6	-7	pit	-13	2	row	16	void	0	void	cross	0	0	false	-
+plate-s1b1-pad6f7x-1-pit13-cross4r21-void	all	full	judged	445 (443-447)	26.6	475	447	26.6	475	plate	none	1	3	6	-7	pit	-13	4	row	21	void	0	void	cross	0	0	false	-
+plate-s1b1-pad6f7x-1-pit13-cross4r24-void	all	full	judged	444 (442-447)	26.7	495	447	26.7	495	plate	none	1	3	6	-7	pit	-13	4	row	24	void	0	void	cross	0	0	false	-
+plate-s1b1-pad6f7x-1-pit13-cross2r21-void	all	quick	invalid: full: build 4: 1482 iron ingots dropped, 0 in the chest, 1477 in the farm's containers, 0 loose, 0 burnt: 5 lost	444 (417-472)	37.0	506	470	37.0	506	plate	none	1	3	6	-7	pit	-13	2	row	21	void	0	void	cross	0	0	false	-
+plate-s1b1-pad6f7x-1-pit13-cross2r14-void	all	full	judged	443 (440-446)	35.6	456	446	35.6	456	plate	none	1	3	6	-7	pit	-13	2	row	14	void	0	void	cross	0	0	false	-
+plate-s1b1-pad6f7x-1-pit13-cross2r18-void	all	full	judged	443 (440-446)	36.5	488	446	36.5	488	plate	none	1	3	6	-7	pit	-13	2	row	18	void	0	void	cross	0	0	false	-
+plate-s1b1-pad6f7x-1-pit13-cross2r24-void	all	full	judged	442 (439-445)	37.6	526	445	37.6	526	plate	none	1	3	6	-7	pit	-13	2	row	24	void	0	void	cross	0	0	false	-
+plate-s1b1-pad6f7x-1-pit13-cross4r18-void	all	full	judged	399 (392-405)	26.6	457	405	26.6	457	plate	none	1	3	6	-7	pit	-13	4	row	18	void	0	void	cross	0	0	false	-
+plate-s1b1-pad6f7x-1-pit13-cross4r14-void	all	quick	invalid: full: build 0: 1958 iron ingots dropped, 0 in the chest, 1953 in the farm's containers, 0 loose, 0 burnt: 5 lost	321 (244-397)	26.5	425	397	26.5	425	plate	none	1	3	6	-7	pit	-13	4	row	14	void	0	void	cross	0	0	false	-
+plate-s1b1-pad6f7x-1-pit13-cross4r16-void	all	full	judged	317 (309-325)	26.7	439	325	26.7	439	plate	none	1	3	6	-7	pit	-13	4	row	16	void	0	void	cross	0	0	false	-
+plate-s1b1-pad6f7x-1-pit13-cross4r15-void	all	quick	open: undecided when the search stopped	301 (268-334)	26.7	433	334	26.7	433	plate	none	1	3	6	-7	pit	-13	4	row	15	void	0	void	cross	0	0	false	-
