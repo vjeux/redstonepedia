@@ -1,8 +1,9 @@
-# plate-s2b0-pad6f7x0-pit19-n1-dug7: every block by the part that placed it (farmopt split); build seconds at day-1 prices, the card's travel and height (709 s) shared by the blocks placed
+# plate-s2b0-pad6f7x0-pit19-n1-dug7: every block by the part that placed it (farmopt split); build seconds at day-1 prices, the card's travel and height (734 s) shared by the blocks placed
 part	member	blocks	dug	build_seconds
-cage	bed-plate-2-watching	14	23	922
-calm		1	0	12
-pad	dry-floor-6x6	40	84	579
-transport	drop-shaft-11	4	136	184
-kill	lava-corner-12-drop	10	77	318
-collection		2	0	180
+cage	bed-plate-2-watching	16	36	913
+calm		1	0	9
+pad	dry-floor-6x6	40	84	468
+transport	drop-shaft-11	0	128	128
+kill	lava-corner-12-drop	7	77	260
+collection		2	0	174
+access	spiral-staircase	36	86	406
