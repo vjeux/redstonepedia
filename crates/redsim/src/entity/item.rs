@@ -134,7 +134,9 @@ pub fn advance_step(w: &mut World, i: usize, step: i32) {
 pub fn fluid_inside(w: &mut World, i: usize, lava: bool) {
     if let EntityKind::Item(s) = &mut w.entities.list[i].kind {
         if lava {
-            s.inside.now().lava = true;
+            let st = s.inside.now();
+            st.lava = true;
+            st.lava_cells = st.lava_cells.saturating_add(1);
         } else {
             s.inside.now().water = true;
         }
@@ -144,7 +146,9 @@ pub fn fluid_inside(w: &mut World, i: usize, lava: bool) {
 /// `BaseFireBlock.entityInside` on an item: FIRE_IGNITE and its `inFire` hurt.
 pub fn fire_inside(w: &mut World, i: usize) {
     if let EntityKind::Item(s) = &mut w.entities.list[i].kind {
-        s.inside.now().fire = true;
+        let st = s.inside.now();
+        st.fire = true;
+        st.fire_cells = st.fire_cells.saturating_add(1);
     }
 }
 
@@ -172,18 +176,33 @@ fn apply_block_effects(w: &mut World, i: usize, fire_before: i32) {
                 }
             }
             set_state(w, i, s);
-            hurt(w, i, 1.0);
+            // each fire cell's `inFire` hurt (`runAfter`), while it lives
+            for _ in 0..step.fire_cells.max(1) {
+                if w.entities.list[i].removed {
+                    break;
+                }
+                hurt(w, i, 1.0);
+            }
         }
         if step.lava && !w.entities.list[i].removed && !resistant {
             let mut s = state(w, i);
             s.fire = s.fire.max(300);
             set_state(w, i, s);
-            if hurt(w, i, 4.0) {
-                let (health, tick) = (state(w, i).health, w.entities.list[i].tick_count);
-                if (health <= 0 || tick % 10 == 0)
-                    && let Some(r) = w.entities.list[i].random.as_mut()
-                {
-                    r.next_float();
+            // each lava cell's `lavaHurt` (`runAfter`), while it lives
+            for _ in 0..step.lava_cells.max(1) {
+                if w.entities.list[i].removed {
+                    break;
+                }
+                let mut s = state(w, i);
+                s.fire = s.fire.max(300);
+                set_state(w, i, s);
+                if hurt(w, i, 4.0) {
+                    let (health, tick) = (state(w, i).health, w.entities.list[i].tick_count);
+                    if (health <= 0 || tick % 10 == 0)
+                        && let Some(r) = w.entities.list[i].random.as_mut()
+                    {
+                        r.next_float();
+                    }
                 }
             }
         }

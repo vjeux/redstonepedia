@@ -221,6 +221,12 @@ pub struct InsideStep {
     pub water: bool,
     /// mobinfra: a fire a bolt set (`BaseFireBlock.entityInside`: FIRE_IGNITE, then 1 `inFire`).
     pub fire: bool,
+    /// The lava and fire cells of the step: `StepBasedCollector` keeps the type's effect once a
+    /// step but every cell's `runAfter` action (`lavaHurt`, the `inFire` hurt), so a box over 4
+    /// lava cells takes 4 hits in one tick (tickexact 2026-11-09: drop-blades-2's drops burnt in
+    /// one tick in the game; a mob's invulnerability absorbs the extra hits, an item has none).
+    pub lava_cells: u8,
+    pub fire_cells: u8,
 }
 
 impl Inside {
