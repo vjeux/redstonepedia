@@ -532,7 +532,11 @@ pub fn run_terrain(c: &Circuit, name: &str, k: u8, o: &GateOpts) -> Result<Build
         eprintln!("terrain run {k}: {name} offset {:?}, {} cells changed, the AFK bot at {:.1} {:.1} {:.1}, weather {saved:?}", site.offset, built.blocks.len(), site.afk.x, site.afk.y, site.afk.z);
     }
     let run = BuildRun { turns: k, offset: site.offset, seed, ..Default::default() };
-    let p = Prepared { entities: spec.entities.clone(), scope: Scope::terrain(&spec), label: format!("terrain run {k}"), day0: ro.day0, spec, built, seats, output, boxes };
+    // a dug farm's natural surface (the ground layer's top, world feet height): above it a golem
+    // is outside the farm
+    let ground = c.clock.design.meta.get("ground").and_then(|g| g.trim().parse::<i32>().ok());
+    let surface = if site.clear_box { None } else { ground.map(|g| (site.offset[1] + g + 1) as f64) };
+    let p = Prepared { entities: spec.entities.clone(), scope: Scope::terrain(&spec, surface), label: format!("terrain run {k}"), day0: ro.day0, spec, built, seats, output, boxes };
     run_farm(s, p, run, o, t0)
 }
 
@@ -629,16 +633,26 @@ struct Scope {
     own: String,
     near: String,
     all_golems: bool,
+    /// A dug farm in a terrain sample: the feet height of the natural surface (the ground layer's
+    /// top): a golem standing there is outside the farm whatever the farm's box (the box reaches
+    /// the surface over a dug farm: d1u-drop-side's gate counted the village's golem walking over
+    /// the farm as its own, then as an escape).
+    surface: Option<f64>,
 }
 
 impl Scope {
     fn void() -> Scope {
-        Scope { own: String::new(), near: String::new(), all_golems: true }
+        Scope { own: String::new(), near: String::new(), all_golems: true, surface: None }
     }
 
-    fn terrain(spec: &FarmSpec) -> Scope {
+    fn terrain(spec: &FarmSpec, surface: Option<f64>) -> Scope {
         let (lo, hi) = (spec.lo.offset(-8, -8, -8), spec.hi.offset(8, 8, 8));
-        Scope { own: ",tag=mf".into(), near: format!(",x={},y={},z={},dx={},dy={},dz={}", lo.x, lo.y, lo.z, hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1), all_golems: false }
+        Scope { own: ",tag=mf".into(), near: format!(",x={},y={},z={},dx={},dy={},dz={}", lo.x, lo.y, lo.z, hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1), all_golems: false, surface }
+    }
+
+    /// Outside the farm: outside its box, or on the natural surface over a dug farm.
+    fn outside(&self, inner: &redsim::entity::Aabb, p: [f64; 3]) -> bool {
+        p[0] < inner.min_x || p[0] > inner.max_x || p[1] < inner.min_y || p[1] > inner.max_y || p[2] < inner.min_z || p[2] > inner.max_z || self.surface.is_some_and(|s| p[1] >= s - 0.01)
     }
 }
 
@@ -954,7 +968,7 @@ fn sample(
         for a in entity_answers(&s.cmd_long(&format!("execute as @e[type=minecraft:iron_golem{wide}] run data get entity @s"))?) {
             let (Some(uuid), Some(pos)) = (list_after(&a, "UUID").map(|v| format!("{v:?}")), list_after(&a, "Pos").filter(|p| p.len() == 3)) else { continue };
             let p = [pos[0], pos[1], pos[2]];
-            let outside = p[0] < inner.min_x || p[0] > inner.max_x || p[1] < inner.min_y || p[1] > inner.max_y || p[2] < inner.min_z || p[2] > inner.max_z;
+            let outside = scope.outside(&inner, p);
             let in_near = p[0] >= nlo.x as f64 && p[0] < nhi.x as f64 + 1.0 && p[1] >= nlo.y as f64 && p[1] < nhi.y as f64 + 1.0 && p[2] >= nlo.z as f64 && p[2] < nhi.z as f64 + 1.0;
             if outside && (t <= 20 || !in_near) {
                 golems.entry(uuid).or_insert(Golem { born: t, first: p, last: p, dead: false, seen: true, reported: true, foreign: true });
@@ -978,7 +992,7 @@ fn sample(
         // site saw four in 200 gt at the surface above the farm, the village's) is a golem the
         // farm spawned at a spot it leaves open: the run fails on it, naming the cell and the tick
         // (an escape is not a rate drop)
-        let outside = p[0] < inner.min_x || p[0] > inner.max_x || p[1] < inner.min_y || p[1] > inner.max_y || p[2] < inner.min_z || p[2] > inner.max_z;
+        let outside = scope.outside(&inner, p);
         if !scope.all_golems && outside && !golems.contains_key(&uuid) {
             let searched = villagers.iter().any(|v| (p[0] - v[0]).abs() <= 9.0 && (p[1] - v[1]).abs() <= 7.0 && (p[2] - v[2]).abs() <= 9.0);
             let village = searched && s.count_entities(&format!("@e[type=minecraft:villager,tag=!mf,x={:.1},y={:.1},z={:.1},dx=48,dy=24,dz=48]", p[0] - 24.0, p[1] - 12.0, p[2] - 24.0))? > 0;
@@ -1011,7 +1025,7 @@ fn sample(
             run.deaths += 1;
         }
         if !g.dead && !g.reported && checking {
-            if p[0] < inner.min_x || p[0] > inner.max_x || p[1] < inner.min_y || p[1] > inner.max_y || p[2] < inner.min_z || p[2] > inner.max_z {
+            if scope.outside(&inner, p) {
                 g.reported = true;
                 run.fail(format!("gt {t}: a golem left the farm at {:.1} {:.1} {:.1} (first seen at {:.1} {:.1} {:.1} at gt {})", p[0], p[1], p[2], g.first[0], g.first[1], g.first[2], g.born));
             } else if t - g.born > farm::MAX_GOLEM_LIFE as u32 + 20 {
@@ -1027,7 +1041,7 @@ fn sample(
     for k in gone {
         let g = &golems[&k];
         let p = g.last;
-        if p[0] < inner.min_x || p[0] > inner.max_x || p[1] < inner.min_y || p[1] > inner.max_y || p[2] < inner.min_z || p[2] > inner.max_z {
+        if scope.outside(&inner, p) {
             if checking {
                 run.fail(format!("gt {t}: a golem vanished outside the farm at {:.1} {:.1} {:.1} (it left the world)", p[0], p[1], p[2]));
             }

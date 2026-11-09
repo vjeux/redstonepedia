@@ -628,7 +628,14 @@ pub fn trim_cmd(a: &TrimArgs) -> Result<()> {
     let r0 = short_rate(&pl, &d0, a.days, a.runs).map_err(|e| anyhow!("the design's own short runs: {e}"))?;
     let good = |d: &Design| facts(&pl, d, Some(threads), true).is_ok_and(|f| f.keeps(&base, &Facts { seconds: f64::INFINITY, ..base.clone() }).is_ok()) && short_rate(&pl, d, a.days, a.runs).is_ok_and(|r| r >= (1.0 - RATE_TOLERANCE) * r0);
     if !kept_all.is_empty() && !good(&cur) {
-        println!("the trimmed design misses the whole check or the short runs: bisecting {} edits", kept_all.len());
+        let why = match facts(&pl, &cur, Some(threads), true) {
+            Err(e) => e,
+            Ok(f) => match f.keeps(&base, &Facts { seconds: f64::INFINITY, ..base.clone() }) {
+                Err(e) => format!("{e} (golem stalls {} -> {}, longest life {} -> {} gt)", base.stalls, f.stalls, base.worst_life, f.worst_life),
+                Ok(()) => format!("the short runs: {} golems/h against {r0:.1}", short_rate(&pl, &cur, a.days, a.runs).map_or_else(|e| e, |r| format!("{r:.1}"))),
+            },
+        };
+        println!("the trimmed design misses the whole check or the short runs ({why}): bisecting {} edits", kept_all.len());
         let mut kept: Vec<Edit> = Vec::new();
         let mut todo: Vec<Vec<Edit>> = vec![kept_all.clone()];
         while let Some(group) = todo.pop() {
