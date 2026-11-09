@@ -393,7 +393,8 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
             pitch = *p;
         }
     }
-    let id = w.entities.add(kind, Vec3::new(pos[0], pos[1], pos[2]), yaw);
+    // (`Entity.load` ends with `setRot`: the loaded yaw's remainder by 360, Java's, the pitch's too)
+    let id = w.entities.add(kind, Vec3::new(pos[0], pos[1], pos[2]), yaw % 360.0);
     // the bridge's summon numbering (`Sandbox.summon`): after the design entities alive (item
     // frames, which never leave, among them), past any number a live one still holds; its own
     // random reseeded to 0x6d63746173 + that number

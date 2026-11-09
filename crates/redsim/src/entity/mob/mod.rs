@@ -677,15 +677,20 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
         m.bat_resting = bat_flags & 1 != 0;
     }
     // a summoned mob faces its `Rotation`, else 0 (`Entity.load` reads it with the default
-    // Vec2.ZERO): the constructor's random yaw is drawn and thrown away
+    // Vec2.ZERO): the constructor's random yaw is drawn and thrown away. Entity.load gives the
+    // head and the body the loaded yaw, then ends with `setRot(getYRot(), getXRot())`, which
+    // keeps the yaw's remainder by 360 (Java's: the dividend's sign), the head and the body as
+    // loaded (tickexact 2026-11-09: a turned build's -450 is the game's -90 from its first tick)
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
-        e.y_rot = yaw.unwrap_or(0.0);
+        let loaded = yaw.unwrap_or(0.0);
+        e.y_rot = loaded % 360.0;
+        e.y_rot_o = e.y_rot;
         // ---- mob AI (the mob-AI lane): Entity.load: the head and the body take the loaded yaw ----
         if let EntityKind::Mob(m) = &mut e.kind
             && let Some(a) = m.ai.as_deref_mut()
         {
-            a.y_head_rot = e.y_rot;
-            a.y_body_rot = e.y_rot;
+            a.y_head_rot = loaded;
+            a.y_body_rot = loaded;
         }
     }
     if can_break_doors
