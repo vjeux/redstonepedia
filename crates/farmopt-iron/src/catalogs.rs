@@ -44,12 +44,13 @@ pub fn cages(stage: &str) -> Vec<Row> {
         let (scareds, wests): (Vec<u8>, Vec<bool>) = match calm {
             CalmKind::Plate => (vec![1, 2], vec![false]),
             CalmKind::Observer => (vec![2, 3, 4], vec![false, true]),
+            CalmKind::Pulse => (vec![2, 3], vec![false, true]),
         };
         let mut part = Vec::new();
         for &scared in &scareds {
             for blind in 0..=3u8 {
                 for &u1_west in &wests {
-                    let c = Cage { scared, blind, calm, u1_west };
+                    let c = Cage { scared, blind, calm, u1_west, regular: false };
                     let villagers = scared + blind + 1;
                     if villagers < 3 {
                         continue;
@@ -78,13 +79,13 @@ fn cage_blocks(b: &Builder) -> usize {
 /// plate with 2): the mark's success bound p from the scared villagers' exact spawn cells, the
 /// pad's blocks. Front: the highest p for the fewest blocks.
 pub fn pads(stage: &str, ctx: &Ctx) -> Vec<Row> {
-    let cage = if stage == "day-1" { Cage { scared: 2, blind: 0, calm: CalmKind::Plate, u1_west: false } } else { Cage { scared: 3, blind: 0, calm: CalmKind::Observer, u1_west: true } };
+    let cage = if stage == "day-1" { Cage { scared: 2, blind: 0, calm: CalmKind::Plate, u1_west: false, regular: false } } else { Cage { scared: 3, blind: 0, calm: CalmKind::Observer, u1_west: true, regular: false } };
     let mut rows = Vec::new();
     for n in [6u8, 8, 10] {
         for floor in [-7i8, -6, -5] {
             for dx in [-1i8, 0, 1] {
                 let m = Module { cage, pad: Pad { n, floor, dx }, kill: Kill::Pit { k: floor - 6 } };
-                let c = crate::cand::Cand { seed: None, module: m, modules: 1, tiling: crate::cand::Tiling::Row(0), calm_part: 0, shared_calm: false, place: Place::Void, ground: 0, surface: false, l3_pits: 0 };
+                let c = crate::cand::Cand { seed: None, module: m, modules: 1, tiling: crate::cand::Tiling::Row(0), calm_part: 0, shared_calm: false, place: Place::Void, ground: 0, surface: false, l3_pits: 0, family_gen: 0, chain: 0 };
                 let Ok(e) = eval::eval_static(&c, ctx) else { continue };
                 let p = e.metrics.get("mark_success").map(|v| v.v).unwrap_or(0.0);
                 let share = e.metrics.get("spawn_share").map(|v| v.v).unwrap_or(0.0);
@@ -100,14 +101,20 @@ pub fn pads(stage: &str, ctx: &Ctx) -> Vec<Row> {
 /// The kills: lava sources (a bucket trip each on day 1), blocks (void), whether the golem dies in
 /// the villagers' smallest follow cube (in sight: every villager reset by every golem, the bound's
 /// +100 gt) and the drop's depth. Front: fewest lava and blocks, out of sight.
-pub fn kills() -> Vec<Row> {
+pub fn kills(stage: &str) -> Vec<Row> {
     let mut rows = Vec::new();
-    let cage = Cage { scared: 2, blind: 0, calm: CalmKind::Plate, u1_west: false };
+    let cage = Cage { scared: 2, blind: 0, calm: CalmKind::Plate, u1_west: false, regular: false };
+    let st = crate::price::stage_ix(stage);
     for kill in (0..6).map(|i| Kill::Pit { k: -13 - 2 * i }).chain([-19i8, -22, -25].map(|k| Kill::Blade { k })) {
         let m = Module { cage, pad: Pad { n: 6, floor: -7, dx: 0 }, kill };
         let mut b = Builder::new("kill");
         parts::module(&mut b, [0, 0, 0], Place::Void, &m, true);
-        let kill_blocks = b.d.blocks.iter().filter(|(p, s)| p[1] < -7 && !s.ends_with(":air")).count();
+        crate::design::truthful_materials(&mut b);
+        let states: Vec<String> = b.d.blocks.iter().filter(|(p, s)| p[1] < -7 && !s.ends_with(":air")).map(|(_, s)| s.clone()).collect();
+        let kill_blocks = states.len();
+        // the player's currency (ironspec): the kill's priced build seconds at the stage, lava per
+        // realistic action (a day-1 blade's 4 sources are 2 trips and an extra bucket)
+        let secs = seconds(&states, &[], st);
         let k = kill.k() as f64;
         // in sight: the kill's golem feet above the smallest cube's floor (villager feet 0.5625 -
         // 14.16 - 2.7)
@@ -115,10 +122,12 @@ pub fn kills() -> Vec<Row> {
         let key = match kill {
             Kill::Pit { k } => format!("pit{}", -k),
             Kill::Blade { k } => format!("blade{}", -k),
+            Kill::Shaft { k } => format!("shaft{}", -k),
+            Kill::Side { len, feet, one } => format!("side{len}{}{}", if feet == 0 { "s".to_string() } else { format!("d{}", -feet) }, if one { "h1" } else { "" }),
         };
-        rows.push(Row { key, metrics: vec![("lava_sources", kill.lava() as f64), ("blocks", kill_blocks as f64), ("out_of_sight", if in_sight { 0.0 } else { 1.0 }), ("depth", -k)], front: false });
+        rows.push(Row { key, metrics: vec![("build_seconds", secs), ("lava_sources", kill.lava() as f64), ("blocks", kill_blocks as f64), ("out_of_sight", if in_sight { 0.0 } else { 1.0 }), ("depth", -k)], front: false });
     }
-    mark_front(&mut rows, &[("lava_sources", false), ("blocks", false), ("out_of_sight", true)]);
+    mark_front(&mut rows, &[("build_seconds", false), ("out_of_sight", true)]);
     rows
 }
 
@@ -128,7 +137,7 @@ pub fn calms(parts_list: &[Part]) -> Vec<Row> {
     let mut rows = Vec::new();
     for (i, part) in parts_list.iter().enumerate() {
         for u1_west in [false, true] {
-            let m = Module { cage: Cage { scared: 3, blind: 0, calm: CalmKind::Observer, u1_west }, pad: Pad { n: 6, floor: -7, dx: 0 }, kill: Kill::Blade { k: -22 } };
+            let m = Module { cage: Cage { scared: 3, blind: 0, calm: CalmKind::Observer, u1_west, regular: false }, pad: Pad { n: 6, floor: -7, dx: 0 }, kill: Kill::Blade { k: -22 } };
             let mut b = Builder::new("calm");
             let p = parts::module(&mut b, [0, 0, 0], Place::Void, &m, true);
             let before = count(&b);
@@ -172,7 +181,7 @@ fn tsv(rows: &[Row]) -> String {
 pub fn write_all(stage: &str, dir: &std::path::Path) -> Result<Vec<String>> {
     std::fs::create_dir_all(dir)?;
     let ctx = Ctx { calm_parts: crate::calm::parts(stage), stage: crate::price::stage_ix(stage) };
-    let sets: Vec<(&str, Vec<Row>)> = vec![("cage", cages(stage)), ("pad", pads(stage, &ctx)), ("kill", kills()), ("calm", calms(&ctx.calm_parts)), ("collection", collections())];
+    let sets: Vec<(&str, Vec<Row>)> = vec![("cage", cages(stage)), ("pad", pads(stage, &ctx)), ("kill", kills(stage)), ("calm", calms(&ctx.calm_parts)), ("collection", collections())];
     let mut lines = Vec::new();
     for (name, rows) in sets {
         std::fs::write(dir.join(format!("{stage}-{name}.tsv")), tsv(&rows))?;
@@ -207,6 +216,8 @@ fn alone(m: &Module, title: &str, caption: &str, keep: &dyn Fn([i32; 3], &str) -
         b.d.meta.clear();
     }
     let mut out = Builder::new(title);
+    // the blocks a player places (cobblestone, not stone or glass), like every farm's
+    crate::design::truthful_materials(&mut b);
     for (q, s) in &b.d.blocks {
         if !s.ends_with(":air") && keep(*q, s) {
             out.d.blocks.insert(*q, s.clone());
@@ -236,7 +247,7 @@ fn seconds(states: &[String], ents: &[(String, String)], stage: usize) -> f64 {
 pub fn write_site(dir: &std::path::Path) -> Result<Vec<String>> {
     let pad6 = Pad { n: 6, floor: -7, dx: 0 };
     let blade = Kill::Blade { k: -22 };
-    let cage_of = |scared: u8, blind: u8, calm: CalmKind| Cage { scared, blind, calm, u1_west: calm == CalmKind::Observer };
+    let cage_of = |scared: u8, blind: u8, calm: CalmKind| Cage { scared, blind, calm, u1_west: calm == CalmKind::Observer, regular: false };
     let mut parts_out: Vec<(&str, Vec<Member>)> = Vec::new();
     let middle_parts = crate::calm::parts("middle");
     let ctx_mid = Ctx { calm_parts: middle_parts.clone(), stage: 1 };
@@ -249,6 +260,7 @@ pub fn write_site(dir: &std::path::Path) -> Result<Vec<String>> {
         let (name, how) = match calm {
             CalmKind::Plate => (format!("bed-plate cage, {scared} watching villager{}{}", if scared > 1 { "s" } else { "" }, if blind > 0 { format!(" + {blind} sleeper{}", if blind > 1 { "s" } else { "" }) } else { String::new() }), "the bed villager's pressure plate holds the hide open by day"),
             CalmKind::Observer => (format!("bed-observer cage, {scared} watching villagers"), "an observer on the sleeper's bed starts the timer that hides the zombie"),
+            CalmKind::Pulse => (format!("bed-plate pulse cage, {scared} watching villagers"), "the sleeper's pressure plate lets go at dusk and a torch circuit hides the zombie for a second"),
         };
         let stem = format!("{}-{scared}-watching{}", if calm == CalmKind::Plate { "bed-plate" } else { "bed-observer" }, if blind > 0 { format!("-{blind}-sleeping") } else { String::new() });
         let (design, states, ents) = alone(&m, &stem, &format!("{name}: {villagers} villagers in 1-block pods, {scared} watching the zombie in its boat; {how}."), &|q, _| q[1] >= -1 && q[2] <= 1, true, None)?;
@@ -262,7 +274,7 @@ pub fn write_site(dir: &std::path::Path) -> Result<Vec<String>> {
     let mut pads_m = Vec::new();
     for n in [6u8, 8, 10] {
         let m = Module { cage: cage_of(3, 0, CalmKind::Observer), pad: Pad { n, floor: -7, dx: 0 }, kill: blade };
-        let c = crate::cand::Cand { seed: None, module: m, modules: 1, tiling: crate::cand::Tiling::Row(0), calm_part: 0, shared_calm: false, place: Place::Void, ground: 0, surface: false, l3_pits: 0 };
+        let c = crate::cand::Cand { seed: None, module: m, modules: 1, tiling: crate::cand::Tiling::Row(0), calm_part: 0, shared_calm: false, place: Place::Void, ground: 0, surface: false, l3_pits: 0, family_gen: 0, chain: 0 };
         let p = eval::eval_static(&c, &ctx_mid).ok().and_then(|e| e.metrics.get("mark_success").map(|v| v.v)).unwrap_or(f64::NAN);
         let stem = format!("dry-floor-{n}x{n}");
         let name = format!("{n}x{n} dry floor 7 below the beds");
@@ -281,6 +293,8 @@ pub fn write_site(dir: &std::path::Path) -> Result<Vec<String>> {
         let (stem, name) = match kill {
             Kill::Pit { .. } => (format!("lava-corner-{depth}-drop"), format!("lava corner after a {depth}-block drop{}", if in_sight { " (the villagers still see it)" } else { " (out of the villagers' sight)" })),
             Kill::Blade { .. } => (format!("lava-blade-{depth}-drop"), format!("lava blade after a {depth}-block drop, fire-safe chamber")),
+            Kill::Shaft { .. } => (format!("shaft-{depth}"), format!("a {depth}-block shaft down to a shared kill")),
+            Kill::Side { len, .. } => (format!("side-chute-{len}"), format!("a water channel {len} blocks to the side, to a lava blade")),
         };
         let (design, states, ents) = alone(&m, &stem, &format!("{name}."), &|q, _| q[1] < -8, false, None)?;
         kills_m.push(Member { stem, name, stage, metrics: vec![("lava buckets".into(), kill.lava().to_string()), ("in sight of the villagers".into(), (if in_sight { "yes" } else { "no" }).into()), ("drop".into(), format!("{depth} blocks")), ("blocks".into(), states.len().to_string()), ("build seconds".into(), format!("{:.0}", seconds(&states, &ents, 0)))], design });
@@ -306,6 +320,36 @@ pub fn write_site(dir: &std::path::Path) -> Result<Vec<String>> {
         let name = format!("{} behind a bed observer", timer_name(&part.name, part.length));
         let (design, states, ents) = alone(&m, &stem, &format!("{name}: the sleeper's bed changes at dusk, the observer pulses, the timer holds the trapdoor across the zombie's view for {} ticks while the villagers lie down.", part.length), &|q, s| !before.contains(&q) || s.contains("trapdoor[facing=north,half=bottom") || (q[2] == -6 && q[1] >= 0), false, Some(part))?;
         trig.push(Member { stem, name, stage: "middle", metrics: vec![("hide time".into(), format!("{} ticks", part.length)), ("blocks with wiring".into(), states.len().to_string()), ("build seconds".into(), format!("{:.0}", seconds(&states, &ents, 1)))], design });
+    }
+    // the joint calm (U1's pod, observer, timer and its output repeater beside the trapdoor):
+    // the best sleep trigger the search places
+    if let Some(part) = middle_parts.first() {
+        let m = Module { cage: cage_of(3, 0, CalmKind::Observer), pad: pad6, kill: blade };
+        let mut b = Builder::new("joint");
+        parts::module(&mut b, [0, 0, 0], Place::Void, &m, false);
+        let before: std::collections::BTreeMap<[i32; 3], String> = b.d.blocks.clone();
+        let n_ents = b.d.entities.len();
+        if crate::calm::wire_direct(&mut b, part, &m.cage, [0, 0, 0], Place::Void).is_ok() {
+            crate::design::truthful_materials(&mut b);
+            let mut out = Builder::new("timer-beside-the-trapdoor");
+            for (q, s) in &b.d.blocks {
+                let new = !before.contains_key(q);
+                if (new || s.contains("trapdoor[facing=north,half=bottom")) && !s.ends_with(":air") {
+                    out.d.blocks.insert(*q, s.clone());
+                }
+            }
+            for (q, s) in &b.d.block_entities {
+                if out.d.blocks.contains_key(q) {
+                    out.d.block_entities.insert(*q, s.clone());
+                }
+            }
+            out.d.entities = b.d.entities[n_ents..].to_vec();
+            let states: Vec<String> = out.d.blocks.values().cloned().collect();
+            let ents: Vec<(String, String)> = out.d.entities.iter().map(|e| (e.kind.clone(), e.nbt.clone().unwrap_or_default())).collect();
+            let name = format!("{} beside the trapdoor, its bed observer and sleeper", timer_name(&part.name, part.length));
+            let design = out.text(&[&format!("{name}: the sleeper's bed changes at dusk, the observer pulses, the timer's output repeater opens the trapdoor across the zombie's view for {} ticks while the villagers lie down; no dust.", part.length)]);
+            trig.insert(1, Member { stem: "timer-beside-the-trapdoor".into(), name, stage: "middle", metrics: vec![("hide time".into(), format!("{} ticks", part.length)), ("blocks with wiring".into(), states.len().to_string()), ("build seconds".into(), format!("{:.0}", seconds(&states, &ents, 1)))], design });
+        }
     }
     parts_out.push(("sleep-trigger", trig));
 

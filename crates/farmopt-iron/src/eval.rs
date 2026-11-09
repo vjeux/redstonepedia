@@ -45,15 +45,15 @@ pub fn spec_of(c: &Cand, ctx: &Ctx) -> Result<(circuit::Circuit, FarmSpec, crate
 /// The day-1 site of a build in the terrain: priced at the 12 nearest valid spots of the sample,
 /// the cheapest kept (the day-1 lane's `site` API; every site shares the sample's one world).
 /// `clear_box`: a void build on the surface (its box cleared to the sky), else dug cell by cell.
-pub fn site_of(spec: &FarmSpec, ground: i32, clear_box: bool) -> Result<Site, String> {
-    let sample = redsim::terrain::samples::sample(SAMPLE).ok_or("no terrain sample")?;
+pub fn site_of(spec: &FarmSpec, ground: i32, clear_box: bool, sample_name: &str) -> Result<Site, String> {
+    let sample = redsim::terrain::samples::sample(sample_name).ok_or("no terrain sample")?;
     let shared = site::sample_world_shared(sample)?;
     let priced = {
         let world = shared.read().unwrap_or_else(|e| e.into_inner());
         let fp = site::footprint(spec, ground)?;
         let spots = spots_cached(&world, sample, fp);
         if spots.is_empty() {
-            return Err(format!("no spot for a {}x{} footprint {} deep in {SAMPLE}", fp.size[0], fp.size[1], fp.below));
+            return Err(format!("no spot for a {}x{} footprint {} deep in {sample_name}", fp.size[0], fp.size[1], fp.below));
         }
         site::price_all(&world, spec, fp, ground, clear_box, &spots)
     };
@@ -63,16 +63,24 @@ pub fn site_of(spec: &FarmSpec, ground: i32, clear_box: bool) -> Result<Site, St
 }
 
 fn spots_cached(w: &World, sample: &'static redsim::terrain::samples::Sample, fp: site::Footprint) -> Vec<([i32; 2], i32)> {
-    static CACHE: std::sync::OnceLock<std::sync::Mutex<BTreeMap<([i32; 2], i32), Vec<([i32; 2], i32)>>>> = std::sync::OnceLock::new();
+    type Key = (&'static str, [i32; 2], i32);
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<BTreeMap<Key, Vec<([i32; 2], i32)>>>> = std::sync::OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
-    if let Some(v) = cache.lock().ok().and_then(|m| m.get(&(fp.size, fp.below)).cloned()) {
+    let key = (sample.name, fp.size, fp.below);
+    if let Some(v) = cache.lock().ok().and_then(|m| m.get(&key).cloned()) {
         return v;
     }
     let v = site::spots_for(w, sample, fp);
     if let Ok(mut m) = cache.lock() {
-        m.insert((fp.size, fp.below), v.clone());
+        m.insert(key, v.clone());
     }
     v
+}
+
+/// The terrain sample a stage builds in: day 1 by the village (village-edge), middle and late on
+/// flat ground (plains).
+pub fn sample_of(stage: usize) -> &'static str {
+    if stage == 0 { SAMPLE } else { "plains" }
 }
 
 /// Run `f` with the site as the `'static` reference `RunOpts` takes; the site is dropped after
@@ -131,7 +139,10 @@ struct Spawn {
 fn spawn_facts(w: &World, spec: &FarmSpec, c: &Cand, built: &crate::design::Built, offset: [i32; 3]) -> Spawn {
     use redsim::entity::EntityKind;
     use redsim::entity::mob::types::MobType;
-    let vs: Vec<(usize, [f64; 3], BlockPos)> = w.entities.list.iter().enumerate().filter(|(_, e)| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Villager)).map(|(i, e)| (i, [e.pos.x, e.pos.y, e.pos.z], e.block_position())).collect();
+    // the farm's own villagers (a terrain sample's village keeps its own)
+    let own: Vec<[f64; 3]> = spec.entities.iter().filter(|(k, _, _)| k.trim_start_matches("minecraft:") == "villager").map(|(_, p, _)| [p[0] + offset[0] as f64, p[1] + offset[1] as f64, p[2] + offset[2] as f64]).collect();
+    let is_own = |p: [f64; 3]| own.iter().any(|q| (q[0] - p[0]).abs() < 1.5 && (q[1] - p[1]).abs() < 2.0 && (q[2] - p[2]).abs() < 1.5);
+    let vs: Vec<(usize, [f64; 3], BlockPos)> = w.entities.list.iter().enumerate().filter(|(_, e)| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Villager) && (own.is_empty() || is_own([e.pos.x, e.pos.y, e.pos.z]))).map(|(i, e)| (i, [e.pos.x, e.pos.y, e.pos.z], e.block_position())).collect();
     let feet: Vec<[f64; 3]> = vs.iter().map(|v| v.1).collect();
     let roots = clusters(&feet);
     // the blocks where they are in `w` (a site moved the design by `offset`)
@@ -142,15 +153,19 @@ fn spawn_facts(w: &World, spec: &FarmSpec, c: &Cand, built: &crate::design::Buil
     let mut f_of: BTreeMap<usize, f64> = BTreeMap::new();
     let mut worst_f: f64 = 1.0;
     for (k, (_, _, cell)) in vs.iter().enumerate() {
-        if !summoners.contains(cell) {
-            continue;
-        }
         let cells = redsim::entity::mob::spawn::golem_spawn_cells_from(w, *cell);
         let ok: Vec<BlockPos> = cells.iter().filter(|(_, r)| r.is_ok()).map(|(p, _)| *p).collect();
+        // EVERY villager can summon (the day-1 lane's D1U escape: a blind villager panics at a
+        // natural hostile and its search lands wherever it reaches), so every villager's cells
+        // must be the pads'
         for p in &ok {
             if !pad.contains(p) && !stray.contains(p) {
                 stray.push(*p);
             }
+        }
+        // the rate's bound counts the villagers that panic at the farm's own zombie
+        if !summoners.contains(cell) {
+            continue;
         }
         let f = ok.len() as f64 / 289.0;
         worst_f = worst_f.min(f);
@@ -182,7 +197,21 @@ fn spawn_facts(w: &World, spec: &FarmSpec, c: &Cand, built: &crate::design::Buil
     Spawn { clusters: out, stray, worst_f }
 }
 
-/// A cluster's long-run rate bound (iron/h): 480 x 600 / (600 + 100 (1 - p) / p + 100 [sure]).
+/// A cluster's long-run rate bound (iron/h): 480 x 600 / (600 + 100 (1 - p) / p + 100 [sure])
+/// (designs/briefs/farm-optimizer.md, "The bound").
+///
+/// Read as a bound on the EXPECTED long-run rate: each golem cycle lasts at least 600 gt (the
+/// 600-gt spawn check), plus the marks that fail (each mark finds no cell with probability at most
+/// 1 - p, independently of the past given the villagers' panic: E[failed marks] <= (1 - p) / p, 100
+/// gt each), plus one mark when the kill keeps every villager's sighting fresh ([sure]). The
+/// almost-sure reading (the renewal-reward limit) needs the cycle lengths' conditional variance
+/// bounded: it holds when p > 0 bounds every mark's success from below (the geometric tail of the
+/// failed marks); p = 0 gives rate 0.
+///
+/// [sure] needs the golem to stay in sight at least one GolemSensor period (200 gt): the pit box
+/// lies inside the smallest follow cube of all but two villagers (`in_smallest_cube`, static
+/// geometry), the pit is closed (its walls hold a golem: the judge's exit flood), and a golem dies
+/// in lava no sooner than 100 HP / (4 HP per 10 gt) = 250 gt less the fire's ticks, over 220 gt.
 pub fn cluster_bound(p: f64, sure: bool) -> f64 {
     if p <= 0.0 {
         return 0.0;
@@ -197,22 +226,50 @@ pub fn eval_static(c: &Cand, ctx: &Ctx) -> Result<Evaluation, String> {
     let mut m = Metrics::new();
     let mut lines = BTreeMap::new();
     let placed = circ.clock.design.blocks.values().filter(|s| !matches!(s.split('[').next().unwrap_or("").trim_start_matches("minecraft:"), "air" | "cave_air" | "void_air")).count() as f64;
-    let (w, offset, effort) = match c.place {
+    let (w, offset, effort, priced) = match c.place {
         Place::Void => {
             let refused = redsim::entity::mob::refuse::static_checks(&spec);
             if !refused.is_empty() {
                 return Err(format!("refused: {}", refused.join("; ")));
             }
             let w = rfarm::build(&spec, &RunOpts::steady(1, 0, WalkMode::Random))?;
-            (w, [0, 0, 0], site::Effort { placed: placed as u32, dug: 0, lava: bill.lava, villagers: bill.villagers })
+            // the judge card's own bill (circuit::mobfarm::site_bill: the same prices)
+            let priced = mobfarm::site_bill(&circ, None, ctx.stage)?;
+            (w, [0, 0, 0], site::Effort { placed: placed as u32, dug: 0, lava: bill.lava, villagers: bill.villagers }, priced)
         }
         Place::Dug => {
             let ground = built.ground.ok_or("a dug design without its ground")?;
-            let st = site_of(&spec, ground, c.surface || c.l3_pits > 0)?;
+            let st = site_of(&spec, ground, c.surface || c.l3_pits > 0, sample_of(ctx.stage))?;
             let effort = st.effort(bill.lava, bill.villagers);
             let moved = st.spec(&spec);
             let offset = st.offset;
-            lines.insert("spot".into(), format!("{SAMPLE} at offset {:?}: {} placed + {} covers, {} dug; the cheapest of {} spots ({:.0}-{:.0} s of blocks)", st.offset, st.placed, st.fills.len(), st.dug, st.spots, st.build_range.0, st.build_range.1));
+            // the judge card's own bill at this site: the spot's digging, its seals and caps, the
+            // stair down to the chest
+            let priced = mobfarm::site_bill(&circ, Some(&st), ctx.stage)?;
+            let covers_n = {
+                // the blocks placed on the NATURAL SURFACE (vjeux 18:02 "Don't put slabs, do it
+                // below the surface"; ironspec and the parent's correction: at or above the
+                // ground's top at its column, caps in caves and rock below it allowed): the
+                // design's own blocks and the site's covers, against the sample's surface
+                let w = st.world.read().map_err(|_| "the site's world lock".to_string())?;
+                let on_top = |p: BlockPos| p.y >= redsim::terrain::place::surface_y(&w, p.x, p.z) - 1;
+                // (the access's hatch, its top two layers (design y >= ground - 1: its closed fence
+                // gates and the steps beneath them), the one place allowed on the surface; a dug
+                // farm reaches no higher)
+                let ground_y = circ.clock.design.meta.get("ground").and_then(|g| g.trim().parse::<i32>().ok());
+                let hatch: std::collections::HashSet<[i32; 3]> = circ.clock.design.blocks.iter().filter(|(p, _)| ground_y.is_some_and(|g| p[1] >= g - 1)).map(|(p, _)| [p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]]).collect();
+                let own = moved.blocks.iter().filter(|(p, b)| !b.is_air() && on_top(*p) && !hatch.contains(&[p.x, p.y, p.z])).count();
+                if std::env::var("FARMOPT_DEBUG").is_ok() {
+                    for (p, b) in moved.blocks.iter().filter(|(p, b)| !b.is_air() && on_top(*p) && !hatch.contains(&[p.x, p.y, p.z])) {
+                        eprintln!("surface block {p:?} {b:?} (design {:?})", [p.x - offset[0], p.y - offset[1], p.z - offset[2]]);
+                    }
+                    for p in st.fills.iter().filter(|p| on_top(**p)) {
+                        eprintln!("surface cover {p:?} (design {:?})", [p.x - offset[0], p.y - offset[1], p.z - offset[2]]);
+                    }
+                }
+                own + st.fills.iter().filter(|p| on_top(**p)).count()
+            };
+            lines.insert("spot".into(), format!("{} at offset {:?}: {} placed + {} covers, {} dug; the cheapest of {} spots ({:.0}-{:.0} s of blocks)", sample_of(ctx.stage), st.offset, st.placed, st.fills.len(), st.dug, st.spots, st.build_range.0, st.build_range.1));
             let w = with_site(st, |s| {
                 // the terrain judge's refusals (the day-1 lane's `static_checks_in`)
                 let refused = redsim::entity::mob::refuse::static_checks_in(&moved, Some(s));
@@ -224,11 +281,17 @@ pub fn eval_static(c: &Cand, ctx: &Ctx) -> Result<Evaluation, String> {
                 rfarm::build(&moved, &o)
             })?;
             m.insert("blocks_dug".into(), ex(effort.dug as f64));
-            (w, offset, effort)
+            // the blocks on the natural surface (vjeux 18:02: "Don't put slabs, do it below the
+            // surface": a spec's `constraint: surface_blocks <= 0` keeps only farms that place
+            // nothing at or above the ground's top; caps in caves below count as blocks only)
+            m.insert("surface_blocks".into(), ex(covers_n as f64));
+            (w, offset, effort, priced)
         }
     };
     let sp = spawn_facts(&w, &spec, c, &built, offset);
-    if c.place == Place::Void && !sp.stray.is_empty() {
+    // a generated module's stray spawn cells refuse it (its parts are spawn bases); a generator
+    // family's (or a seed's) cells are its own design's, checked by the judge's exit flood
+    if c.place == Place::Void && !built.ports.is_empty() && !sp.stray.is_empty() {
         return Err(format!("{} golem spawn cells off the pads (first {:?}): a part is a spawn base", sp.stray.len(), sp.stray[0]));
     }
     if sp.clusters.iter().any(|(_, p, _)| *p <= 0.0) {
@@ -238,17 +301,23 @@ pub fn eval_static(c: &Cand, ctx: &Ctx) -> Result<Evaluation, String> {
     let n_clusters = sp.clusters.len() as f64;
     let (lo, hi) = circ.bounds();
     let volume = ((hi[0] - lo[0] + 1) * (hi[1] - lo[1] + 1) * (hi[2] - lo[2] + 1)) as f64;
-    // build minutes at the stage's prices (ironspec iteration 3): every block placed, the site's
-    // glass covers, the natural blocks dug, the items, lava, villagers and the zombie
-    let states: Vec<&str> = circ.clock.design.blocks.values().map(|s| s.as_str()).collect();
-    let ents: Vec<(&str, &str)> = circ.clock.design.entities.iter().map(|e| (e.kind.as_str(), e.nbt.as_deref().unwrap_or(""))).collect();
-    let covers: Vec<&str> = vec!["minecraft:glass"; effort.placed.saturating_sub(placed as u32) as usize];
-    let priced = crate::price::bill(&states, &ents, effort.dug, &covers, ctx.stage)?;
+    // build minutes at the stage's prices (ironspec iteration 3+): the judge card's bill above
     let build_s = priced.seconds;
     lines.insert("prices".into(), format!("{:.1} min at the {} prices: {}", build_s / 60.0, ["day-1", "middle", "late"][ctx.stage], priced.line()));
+    // the card's lava line counts trips at the per-action price (ironspec's {lava_trips})
+    m.insert("lava_trips".into(), ex(priced.items.get("lava_trip").map(|x| x.0 as f64).unwrap_or(0.0)));
     m.insert("blocks".into(), ex(effort.placed as f64));
+    // the storage's capacity in items (a chest 27 stacks, a hopper 5; the judge's chest at an
+    // unlisted output port counts): the late net's cap before the judge's card measures it
+    let d = &circ.clock.design;
+    let kind = |s: &str| s.split('[').next().unwrap_or("").trim_start_matches("minecraft:").to_string();
+    let chests = d.blocks.values().filter(|s| kind(s) == "chest").count() as f64 + d.ports.get("output").map_or(0.0, |o| if d.blocks.contains_key(o) { 0.0 } else { 1.0 });
+    let hoppers = d.blocks.values().filter(|s| kind(s) == "hopper").count() as f64;
+    m.insert("storage_items".into(), ex(chests * 27.0 * 64.0 + hoppers * 5.0 * 64.0));
     m.insert("build_minutes".into(), ex(build_s / 60.0));
-    m.insert("bill_iron".into(), ex(bill.iron.ceil()));
+    // the iron in hand: the build's, plus 3 for each extra day-1 bucket the lava plan takes
+    let extra_buckets = priced.items.get("extra_bucket").map(|x| x.0 as f64).unwrap_or(0.0);
+    m.insert("bill_iron".into(), ex(bill.iron.ceil() + 3.0 * extra_buckets));
     m.insert("quartz".into(), ex(bill.quartz as f64));
     m.insert("lava_sources".into(), ex(bill.lava as f64));
     m.insert("villagers".into(), ex(bill.villagers as f64));
@@ -305,7 +374,7 @@ pub fn eval_quick(c: &Cand, ctx: &Ctx, st: &Metrics) -> Result<Evaluation, Strin
             hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("a quick run panicked".to_string()))).collect::<Result<Vec<_>, _>>()
         })?,
         Place::Dug => {
-            let st_site = site_of(&spec, built.ground.unwrap_or(8), c.surface || c.l3_pits > 0)?;
+            let st_site = site_of(&spec, built.ground.unwrap_or(8), c.surface || c.l3_pits > 0, sample_of(ctx.stage))?;
             let moved = st_site.spec(&spec);
             with_site(st_site, |site| {
                 std::thread::scope(|s| {
@@ -361,6 +430,17 @@ fn rates(c: &Cand, st: &Metrics, spec: &FarmSpec, runs: &[RunReport], lightning_
         if lw < 1e-12 { r } else { r * (1.0 - (-lw).exp()) / lw }
     };
     let net = Value { v: stage_net(gross.v), lo: stage_net(gross.lo), hi: stage_net(gross.hi) };
+    // late (ironspec, rev 9: the net over an 8-hour absence, the iron the storage can't hold
+    // lost): capped by the storage's hours, the judge's card's when it has one, else the static
+    // capacity over the rate (a poppy for every 4 iron)
+    let card_storage = card.and_then(|cd| cd.iter().find(|(n, _)| n == "storage").map(|(_, v)| v.clone())).and_then(|s| s.trim().split(|ch: char| !(ch.is_ascii_digit() || ch == '.')).find(|t| !t.is_empty()).and_then(|t| t.parse::<f64>().ok()));
+    let net = if stage == 2 {
+        let hours = |r: f64| card_storage.unwrap_or_else(|| g("storage_items") / (r * 1.25).max(1e-9));
+        let cap = |r: f64| r * (hours(r) / 8.0).min(1.0);
+        Value { v: cap(net.v), lo: cap(net.lo), hi: cap(net.hi) }
+    } else {
+        net
+    };
     m.insert("iron_per_hour".into(), net);
     let n = g("modules").max(1.0);
     m.insert("iron_per_hour_per_module".into(), Value { v: net.v / n, lo: net.lo / n, hi: net.hi / n });

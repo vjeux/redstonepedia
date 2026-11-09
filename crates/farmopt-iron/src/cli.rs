@@ -32,9 +32,64 @@ pub enum FarmoptCmd {
         seeds: bool,
         #[arg(long)]
         threads: Option<usize>,
+        /// Forget the journal's keys containing this (repeatable): they are evaluated again (a part
+        /// of the evaluator changed for those candidates only, e.g. `-sk` for the shared-kill
+        /// stacks).
+        #[arg(long)]
+        forget: Vec<String>,
+        /// Prune nothing: every feasible candidate measured (a part front's members kept whether or
+        /// not the reference farm dominates them).
+        #[arg(long)]
+        exhaustive: bool,
     },
     /// The size of a spec's space: candidates, per fork.
     Count { spec: PathBuf },
+    /// The cages of a spec's space on their own (ironspec iteration 17): each distinct cage's
+    /// irregularities, bounding box and blocks, fewest irregularities first.
+    Cages { spec: PathBuf },
+    /// The regular day-1 bed-plate room searched by its sight lines (ironspec iteration 18: U1 in
+    /// the watchers' row, the zombie anywhere ahead and below, fence gates and trapdoors in the
+    /// cells U1's plate powers): every layout whose rays work, or none.
+    Day1Rooms,
+    /// A grammar farm's parts (page copy's <stem>.parts.tsv): every part's member, blocks placed,
+    /// blocks dug and build seconds at the stage's prices, summing to the card.
+    PartsTsv {
+        spec: PathBuf,
+        key: String,
+        #[arg(long)]
+        out: PathBuf,
+        /// The card's build minutes (its terrain site's seals, caps and digging included): the
+        /// parts then sum to it.
+        #[arg(long)]
+        card_minutes: Option<f64>,
+        /// The listed design as it is (after `mobfarm trim`): its cells split, the key's build
+        /// naming the access and the storage.
+        #[arg(long)]
+        design: Option<PathBuf>,
+    },
+    /// The transport, storage and access catalogs (designs/farms/iron/parts/<part>/members.tsv):
+    /// each member the part's blocks in a reference farm (`stage:key`), its numbers, the listed
+    /// farms (designs/farms/iron/<stage>/*.txt named by a grammar key) that use it.
+    PartMembers {
+        #[arg(long, default_value = "designs/farms/iron/parts")]
+        out: PathBuf,
+        /// `stage:key` reference farms.
+        refs: Vec<String>,
+    },
+    /// A part front's table (iteration 20): every member a part run judged in full, the part's
+    /// own blocks placed, dug and build seconds (the split), its effect in the reference farm (the
+    /// stage's objectives, the kill's mean and longest time, iron burnt, attempts with no spot, a
+    /// fire warning), the members on the part's front marked, the family's bound and the gap.
+    PartFront {
+        spec: PathBuf,
+        #[arg(long)]
+        journal: PathBuf,
+        /// cage, calm, pad, transport, kill, collection, storage or access
+        #[arg(long)]
+        part: String,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Write one candidate's design file (by its key).
     Design {
         spec: PathBuf,
@@ -86,7 +141,7 @@ fn journal_path(spec: &Spec) -> PathBuf {
 
 pub fn run(cmd: FarmoptCmd) -> Result<()> {
     match cmd {
-        FarmoptCmd::Run { spec, out, journal, no_full, quick_budget, full_budget, local, seeds, threads } => {
+        FarmoptCmd::Run { spec, out, journal, no_full, quick_budget, full_budget, local, seeds, threads, forget, exhaustive } => {
             let s = Spec::parse(&std::fs::read_to_string(&spec)?)?;
             if s.farm != "iron" {
                 bail!("no farm {:?} (iron)", s.farm);
@@ -94,7 +149,7 @@ pub fn run(cmd: FarmoptCmd) -> Result<()> {
             let mut farm = crate::IronFarm::new(&s.stage);
             farm.seeds = seeds;
             let threads = threads.unwrap_or_else(farmopt::pool::threads);
-            let o = farmopt::search::Opts { journal: journal.unwrap_or_else(|| journal_path(&s)), threads, quick_budget, full_budget, quick_batch: threads, full_batch: 4, local_rounds: local, no_full, verbose: true };
+            let o = farmopt::search::Opts { journal: journal.unwrap_or_else(|| journal_path(&s)), threads, quick_budget, full_budget, quick_batch: threads, full_batch: 4, local_rounds: local, no_full, verbose: true, forget, exhaustive };
             let res = farmopt::search::run(&farm, &s, &o)?;
             let dir = out.unwrap_or_else(|| PathBuf::from(format!("designs/farms/{}/{}", s.farm, s.stage)));
             let files = farmopt::report::write(&farm, &s, &res, &dir)?;
@@ -103,6 +158,89 @@ pub fn run(cmd: FarmoptCmd) -> Result<()> {
                 println!("fork {}: {} on the front, {} merged, {} open", f.fork, f.members.len(), f.merged.len(), f.open.len());
             }
             println!("{} files in {}", files.len(), dir.display());
+        }
+        FarmoptCmd::Cages { spec } => {
+            let s = Spec::parse(&std::fs::read_to_string(&spec)?)?;
+            let farm = crate::IronFarm::new(&s.stage);
+            let all = farmopt::Farm::enumerate(&farm, &s)?;
+            let mut seen = std::collections::HashSet::new();
+            let mut rows = Vec::new();
+            for c in &all {
+                if c.family_gen != 0 || c.modules != 1 || !seen.insert((c.module.cage, c.place)) {
+                    continue;
+                }
+                match crate::design::cage_shape(&c.module, c.place, &farm.ctx.calm_parts, c.calm_part) {
+                    Ok(sh) => rows.push((sh.irregular, sh.blocks, sh.volume, crate::cand::key(c), sh.why.join("; "))),
+                    Err(e) => println!("{}: {e}", crate::cand::key(c)),
+                }
+            }
+            rows.sort();
+            println!("irregularities\tblocks\tbox\tcandidate (its cage)\twhy");
+            for (i, b, v, k, w) in rows {
+                println!("{i}\t{b}\t{v}\t{k}\t{w}");
+            }
+        }
+        FarmoptCmd::PartFront { spec, journal, part, out } => {
+            let s = Spec::parse(&std::fs::read_to_string(&spec)?)?;
+            let farm = crate::IronFarm::new(&s.stage);
+            let stage = crate::price::stage_ix(&s.stage);
+            let all = farmopt::Farm::enumerate(&farm, &s)?;
+            let j = farmopt::journal::Journal::open(&journal, crate::version_of(stage))?;
+            let text = crate::split::part_front(&all, &j, &part, stage, &farm.ctx.calm_parts)?;
+            std::fs::write(&out, &text)?;
+            print!("{text}");
+        }
+        FarmoptCmd::PartMembers { out, refs } => {
+            let mut rs = Vec::new();
+            for r in &refs {
+                let (stage, key) = r.split_once(':').ok_or_else(|| anyhow::anyhow!("{r}: expected stage:key"))?;
+                let stage: &'static str = match stage { "day-1" => "day-1", "middle" => "middle", "late" => "late", s => bail!("{s}: day-1, middle or late") };
+                crate::design::STAGE.get_or_init(|| crate::price::stage_ix(stage));
+                let c = crate::cand::single_from_key(stage, key).ok_or_else(|| anyhow::anyhow!("{key}: not a grammar single module"))?;
+                rs.push((c, stage));
+            }
+            // the listed farms named by a grammar key
+            let mut used = Vec::new();
+            for stage in ["day-1", "middle", "late"] {
+                let dir = std::path::Path::new("designs/farms/iron").join(stage);
+                let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+                for e in rd.flatten() {
+                    let p = e.path();
+                    if p.extension().and_then(|x| x.to_str()) != Some("txt") {
+                        continue;
+                    }
+                    let text = std::fs::read_to_string(&p)?;
+                    let Some(name) = text.lines().find_map(|l| l.strip_prefix("name: ")) else { continue };
+                    if let Some(c) = crate::cand::single_from_key(stage, name.trim()) {
+                        used.push((p.file_name().and_then(|f| f.to_str()).unwrap_or("").to_string(), c, text.clone()));
+                    }
+                }
+            }
+            for l in crate::split::write_members(&out, &rs, &used)? {
+                println!("{l}");
+            }
+        }
+        FarmoptCmd::PartsTsv { spec, key, out, card_minutes, design } => {
+            let s = Spec::parse(&std::fs::read_to_string(&spec)?)?;
+            let farm = crate::IronFarm::new(&s.stage);
+            let all = farmopt::Farm::enumerate(&farm, &s)?;
+            let found = all.iter().find(|c| crate::cand::key(c) == key).cloned().or_else(|| crate::cand::single_from_key(&s.stage, &key));
+            let Some(c) = found else { bail!("no candidate {key} in the space") };
+            let actual = match &design {
+                Some(p) => Some(mctas::design::Design::parse(&std::fs::read_to_string(p)?)?),
+                None => None,
+            };
+            let text = crate::split::parts_tsv_of(&c, &farm.ctx.calm_parts, crate::price::stage_ix(&s.stage), card_minutes.map(|m| m * 60.0), actual.as_ref())?;
+            std::fs::write(&out, &text)?;
+            print!("{text}");
+        }
+        FarmoptCmd::Day1Rooms => {
+            let (zombies, tried, found) = crate::sight::search();
+            println!("{zombies} zombie positions pass the rooms' walls and distances; {tried} hide layouts tried; {} work", found.len());
+            for l in found.iter().take(40) {
+                let hides: Vec<String> = l.hides.iter().map(|(p, h)| format!("{} at {p:?}", h.name())).collect();
+                println!("watchers {:?}, U1 at x {}, zombie slab {:?}: {}", l.watchers, l.u1, l.zombie, hides.join(", "));
+            }
         }
         FarmoptCmd::Count { spec } => {
             let s = Spec::parse(&std::fs::read_to_string(&spec)?)?;
@@ -134,7 +272,7 @@ pub fn run(cmd: FarmoptCmd) -> Result<()> {
             let s = Spec::parse(&std::fs::read_to_string(&spec)?)?;
             // the design as judged, when a journal of this spec's space holds it
             let journal = journal_path(&s);
-            if let Ok(j) = farmopt::journal::Journal::open(&journal, crate::VERSION)
+            if let Ok(j) = farmopt::journal::Journal::open(&journal, crate::version_of(crate::price::stage_ix(&s.stage)))
                 && let Some(e) = j.at(&key, farmopt::Level::Full)
                 && let Some(t) = e.lines.get("design_text")
             {
@@ -145,8 +283,9 @@ pub fn run(cmd: FarmoptCmd) -> Result<()> {
             let mut farm = crate::IronFarm::new(&s.stage);
             farm.seeds = true;
             let all = farmopt::Farm::enumerate(&farm, &s)?;
-            let Some(c) = all.iter().find(|c| crate::cand::key(c) == key) else { bail!("no candidate {key} in the space") };
-            std::fs::write(&out, farmopt::Farm::design(&farm, c, &s)?)?;
+            let found = all.iter().find(|c| crate::cand::key(c) == key).cloned().or_else(|| crate::cand::single_from_key(&s.stage, &key));
+            let Some(c) = found else { bail!("no candidate {key} in the space") };
+            std::fs::write(&out, farmopt::Farm::design(&farm, &c, &s)?)?;
             println!("{}", out.display());
         }
     }

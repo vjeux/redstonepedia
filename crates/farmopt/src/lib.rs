@@ -66,6 +66,17 @@ pub fn t95(df: usize) -> f64 {
 /// A candidate's metrics by name.
 pub type Metrics = BTreeMap<String, Value>;
 
+/// Metrics pairs as JSON (a farm's on-disk caches, e.g. its copies bar's judge), so a farm crate
+/// needs no JSON dependency of its own.
+pub fn metrics_pair_to_json(v: &(Metrics, Metrics)) -> Option<String> {
+    serde_json::to_string(v).ok()
+}
+
+/// The pair `metrics_pair_to_json` wrote.
+pub fn metrics_pair_from_json(s: &str) -> Option<(Metrics, Metrics)> {
+    serde_json::from_str(s).ok()
+}
+
 /// What one evaluation level returns: numeric metrics (objectives, constraints, the bound) and the
 /// judge's text lines (a card's facts: "restarts after days away", "dims", ...).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -160,6 +171,23 @@ pub trait Farm: Sync {
         None
     }
     fn curve(&self, _m: &Metrics) -> Option<f64> {
+        None
+    }
+    /// Bars printed beside every fork's front (e.g. "copies of the best single module"): what a
+    /// front member must beat to be more than copies.
+    fn bars(&self, _spec: &spec::Spec) -> Vec<String> {
+        Vec::new()
+    }
+    /// The bar a candidate must beat (the copies bar at its own N), as metrics on the spec's
+    /// objectives: a candidate whose optimistic vector cannot beat it by the merge threshold on
+    /// one objective without losing by more than it on another is pruned before any run (ironspec
+    /// iteration 12). None: no bar.
+    fn bar_of(&self, _spec: &spec::Spec, _c: &Self::Cand) -> Option<Metrics> {
+        None
+    }
+    /// A card row rendered the way the farm's site renders it (None: the core's own `{metric}`
+    /// filling).
+    fn render_card(&self, _row: &str, _m: &Metrics, _lines: &BTreeMap<String, String>) -> Option<String> {
         None
     }
 }

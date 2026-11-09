@@ -64,6 +64,11 @@ impl Journal {
                 if v != version {
                     continue;
                 }
+                // a forgotten key: its earlier lines no longer count (`forget`)
+                if level == "forget" {
+                    map.remove(key);
+                    continue;
+                }
                 let level = match level {
                     "invalid" => Level::Invalid,
                     "static" => Level::Static,
@@ -109,6 +114,23 @@ impl Journal {
     /// Keys recorded.
     pub fn len(&self) -> usize {
         self.map.lock().map(|m| m.len()).unwrap_or(0)
+    }
+
+    /// Forget every key containing `pat` (a part of the evaluator changed for them only): a
+    /// `forget` line is appended for each, so they are evaluated again now and on every later
+    /// open. Returns how many.
+    pub fn forget(&self, pat: &str) -> Result<usize> {
+        let keys: Vec<String> = self.map.lock().map(|m| m.keys().filter(|k| k.contains(pat)).cloned().collect()).unwrap_or_default();
+        for k in &keys {
+            let line = format!("{}\t{}\tforget\t\t{{}}\t{{}}\n", self.version, clean(k));
+            if let Ok(mut f) = self.file.lock() {
+                f.write_all(line.as_bytes())?;
+            }
+            if let Ok(mut m) = self.map.lock() {
+                m.remove(k);
+            }
+        }
+        Ok(keys.len())
     }
 
     pub fn is_empty(&self) -> bool {

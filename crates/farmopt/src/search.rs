@@ -32,6 +32,13 @@ pub struct Opts {
     pub no_full: bool,
     /// Print progress lines.
     pub verbose: bool,
+    /// Journal keys containing any of these are forgotten first (evaluated again): a part of the
+    /// evaluator changed for those candidates only.
+    pub forget: Vec<String>,
+    /// Prune nothing: every feasible candidate is measured (quick, then full within the budget),
+    /// a part front's members kept whether or not one reference farm dominates them (ironspec
+    /// iteration 20: part fronts per interface).
+    pub exhaustive: bool,
 }
 
 /// Why a candidate left the search, or where it stands.
@@ -64,6 +71,8 @@ pub struct Cand<C> {
     pub fate: Fate,
     /// Found by local search (a neighbour of a front member).
     pub local: bool,
+    /// The bar it must beat (`Farm::bar_of`), oriented on the spec's objectives.
+    pub bar: Option<Vec<f64>>,
 }
 
 impl<C> Cand<C> {
@@ -128,6 +137,8 @@ pub struct ForkFront {
     /// Per objective: the best optimistic value of any valid feasible candidate of the fork (the
     /// ideal point), and the best measured mean on the front.
     pub ideal: Vec<f64>,
+    /// Per objective: the candidate whose optimistic value is the bound (the gap's cause).
+    pub ideal_by: Vec<Option<usize>>,
     pub best: Vec<f64>,
 }
 
@@ -193,7 +204,8 @@ fn statics<F: Farm>(farm: &F, spec: &Spec, j: &Journal, cs: Vec<F::Cand>, local:
                 }
                 Err(why) => (Metrics::new(), BTreeMap::new(), Metrics::new(), Fate::Invalid(why)),
             };
-            let mut cand = Cand { c, key, fork, statics, lines, bound, quick: None, full: None, fate, local };
+            let bar = if matches!(fate, Fate::Open) { farm.bar_of(spec, &c).and_then(|m| pareto::oriented(&spec.objectives, &m, Pick::Optimistic)) } else { None };
+            let mut cand = Cand { c, key, fork, statics, lines, bound, quick: None, full: None, fate, local, bar };
             for level in [Level::Quick, Level::Full] {
                 if let Some(e) = j.at(&cand.key, level)
                     && e.note.is_empty()
@@ -282,9 +294,26 @@ fn prune<C>(spec: &Spec, cs: &mut [Cand<C>], fork: &str) -> usize {
         if let Some((by, _)) = judges.iter().find(|(k, p)| *k != c.key && pareto::weakly_dominates(p, &opt)) {
             c.fate = Fate::Pruned { by: by.clone(), level: c.level() };
             n += 1;
+            continue;
+        }
+        // the bar (ironspec iteration 12): a candidate that cannot beat it by the merge threshold
+        // on one objective without losing by more than the threshold on another is only copies
+        if let Some(bar) = &c.bar
+            && !beats_bar(&opt, bar, spec.merge)
+        {
+            c.fate = Fate::Pruned { by: "the bar".into(), level: c.level() };
+            n += 1;
         }
     }
     n
+}
+
+/// `v` beats `bar` (both oriented: larger is better) by more than `t` (a fraction of the bar's
+/// magnitude) on some objective while losing by no more than `t` on any.
+pub fn beats_bar(v: &[f64], bar: &[f64], t: f64) -> bool {
+    let better = v.iter().zip(bar).any(|(a, b)| a - b > t * b.abs());
+    let not_worse = v.iter().zip(bar).all(|(a, b)| b - a <= t * b.abs());
+    better && not_worse
 }
 
 /// The open candidates of `fork`, best optimistic first (the first objective, then the next, then
@@ -350,9 +379,46 @@ fn open_order<C>(spec: &Spec, cs: &[Cand<C>], fork: &str) -> Vec<usize> {
 
 /// Best-first branch and bound on one fork until nothing is open or the budgets end.
 fn search_fork<F: Farm>(farm: &F, spec: &Spec, j: &Journal, cs: &mut [Cand<F::Cand>], fork: &str, o: &Opts, spent: &mut (usize, usize)) {
-    let mut full_here = cs.iter().filter(|c| c.fork == fork && c.full.is_some()).count();
-    prune(spec, cs, fork);
+    // the full budget counts this run's judges (a resumed run's stored ones are free)
+    let stored_full = cs.iter().filter(|c| c.fork == fork && c.full.is_some()).count();
+    let mut full_here = 0usize;
+    let mut last_full_at = spent.0;
+    log(o, &format!("{fork}: {stored_full} judged in full already (stored); this run's budget {}", o.full_budget));
+    if !o.exhaustive {
+        prune(spec, cs, fork);
+    }
     loop {
+        let order = open_order(spec, cs, fork);
+        let Some(&top) = order.first() else { break };
+        // the full judge keeps pace with the quick runs: after every quick batch, the best measured
+        // candidates in the layered order (best on any objective first) get it, so the front
+        // forms while the open set is still being measured (a loose bound keeps unmeasured
+        // candidates on top of the order for the whole quick budget otherwise)
+        let interleave = !o.no_full && full_here < o.full_budget && cs[top].quick.is_none() && spent.0 >= last_full_at + 2 * o.quick_batch && order.iter().any(|&i| cs[i].quick.is_some());
+        if interleave {
+            last_full_at = spent.0;
+            let take: Vec<usize> = order.iter().copied().filter(|&i| cs[i].quick.is_some()).take(o.full_batch.min(o.full_budget - full_here)).collect();
+            log(o, &format!("{fork}: full judge on {} between quick batches (best measured {})", take.len(), cs[take[0]].key));
+            evaluate(farm, spec, j, cs, &take, Level::Full, (o.threads / take.len().max(1)).max(1));
+            full_here += take.len();
+            spent.1 += take.len();
+            let failed: std::collections::HashSet<String> = take.iter().filter(|&&i| matches!(cs[i].fate, Fate::Invalid(_) | Fate::Infeasible(_))).map(|&i| cs[i].key.clone()).collect();
+            if !failed.is_empty() {
+                for c in cs.iter_mut() {
+                    if matches!(&c.fate, Fate::Pruned { by, .. } if failed.contains(by)) {
+                        c.fate = Fate::Open;
+                    }
+                }
+            }
+            let n = if o.exhaustive { 0 } else { prune(spec, cs, fork) };
+            if n > 0 {
+                log(o, &format!("{fork}: {n} pruned"));
+            }
+            // the quick runs go on below in the next round
+            if spent.0 >= o.quick_budget {
+                continue;
+            }
+        }
         let order = open_order(spec, cs, fork);
         let Some(&top) = order.first() else { break };
         if cs[top].quick.is_none() {
@@ -385,10 +451,18 @@ fn search_fork<F: Farm>(farm: &F, spec: &Spec, j: &Journal, cs: &mut [Cand<F::Ca
             for i in order.iter().copied().filter(|&i| cs[i].quick.is_some()).take(o.quick_batch).collect::<Vec<_>>() {
                 cs[i].fate = Fate::Judged;
             }
+        } else if spent.0 < o.quick_budget && order.iter().any(|&i| cs[i].quick.is_none()) {
+            // the full budget is spent: the quick runs go on over the unmeasured open candidates
+            // (best first), so their measured upper ends replace their bounds in the gap and prune
+            // what they can
+            let take: Vec<usize> = order.iter().copied().filter(|&i| cs[i].quick.is_none()).take(o.quick_batch.min(o.quick_budget - spent.0)).collect();
+            log(o, &format!("{fork}: quick runs on {} after the full budget (best {})", take.len(), cs[take[0]].key));
+            evaluate(farm, spec, j, cs, &take, Level::Quick, o.threads);
+            spent.0 += take.len();
         } else {
             break;
         }
-        let n = prune(spec, cs, fork);
+        let n = if o.exhaustive { 0 } else { prune(spec, cs, fork) };
         if n > 0 {
             log(o, &format!("{fork}: {n} pruned"));
         }
@@ -408,10 +482,14 @@ fn front_of<C>(spec: &Spec, cs: &[Cand<C>], fork: &str, tie: Option<&str>, own: 
     let open: Vec<usize> = (0..cs.len()).filter(|&i| cs[i].fork == fork && cs[i].fate == Fate::Open).collect();
     let k = spec.objectives.len();
     let mut ideal = vec![f64::NEG_INFINITY; k];
-    for c in cs.iter().filter(|c| c.fork == fork && !matches!(c.fate, Fate::Invalid(_) | Fate::Infeasible(_))) {
+    let mut ideal_by = vec![None; k];
+    for (ci, c) in cs.iter().enumerate().filter(|(_, c)| c.fork == fork && !matches!(c.fate, Fate::Invalid(_) | Fate::Infeasible(_))) {
         if let Some(v) = pareto::oriented(&spec.objectives, &c.optimistic(), Pick::Optimistic) {
             for a in 0..k {
-                ideal[a] = ideal[a].max(v[a]);
+                if v[a] > ideal[a] {
+                    ideal[a] = v[a];
+                    ideal_by[a] = Some(ci);
+                }
             }
         }
     }
@@ -423,14 +501,26 @@ fn front_of<C>(spec: &Spec, cs: &[Cand<C>], fork: &str, tie: Option<&str>, own: 
             }
         }
     }
-    ForkFront { fork: fork.to_string(), members, merged, open, ideal, best }
+    ForkFront { fork: fork.to_string(), members, merged, open, ideal, ideal_by, best }
 }
 
 /// Answer a spec: every fork's merged front.
 pub fn run<F: Farm>(farm: &F, spec: &Spec, o: &Opts) -> Result<Outcome<F::Cand>> {
     let t0 = std::time::Instant::now();
     let j = Journal::open(&o.journal, farm.version())?;
+    for pat in &o.forget {
+        let n = j.forget(pat)?;
+        log(o, &format!("forgot {n} journal keys containing {pat:?}"));
+    }
     let all = farm.enumerate(spec)?;
+    // the bars first (the copies bar's judge runs once, before the parallel statics ask for it)
+    for line in farm.bars(spec) {
+        log(o, &line);
+    }
+    // one candidate per key (a grammar may reach one build two ways, e.g. a single module at
+    // every row pitch)
+    let mut keys_seen: HashSet<String> = HashSet::new();
+    let all: Vec<F::Cand> = all.into_iter().filter(|c| keys_seen.insert(farm.key(c))).collect();
     log(o, &format!("{} candidates enumerated; journal {} ({} keys)", all.len(), j.path().display(), j.len()));
     let mut cs = statics(farm, spec, &j, all, false, o);
     settle_stored::<F>(spec, &j, &mut cs);
@@ -585,7 +675,21 @@ mod tests {
     fn opts(name: &str) -> Opts {
         let dir = std::env::temp_dir().join(format!("farmopt-search-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        Opts { journal: dir.join("journal.tsv"), threads: 4, quick_budget: 1000, full_budget: 100, quick_batch: 8, full_batch: 2, local_rounds: 1, no_full: false, verbose: false }
+        Opts { journal: dir.join("journal.tsv"), threads: 4, quick_budget: 1000, full_budget: 100, quick_batch: 8, full_batch: 2, local_rounds: 1, no_full: false, verbose: false, forget: Vec::new(), exhaustive: false }
+    }
+
+    #[test]
+    fn the_bar_must_be_beaten_by_the_threshold_without_losing_by_more() {
+        // oriented (larger is better): rate 444, -build 24.7 for the bar
+        let bar = [444.0, -24.7];
+        // 10% faster to build at 95% of the rate: beats it
+        assert!(beats_bar(&[422.0, -22.0], &bar, 0.10));
+        // only 5% faster to build: not by the threshold
+        assert!(!beats_bar(&[444.0, -23.5], &bar, 0.10));
+        // 20% faster to build but 15% slower: loses by more than the threshold
+        assert!(!beats_bar(&[377.0, -19.0], &bar, 0.10));
+        // 12% more iron at 5% more build: beats it
+        assert!(beats_bar(&[500.0, -25.9], &bar, 0.10));
     }
 
     #[test]
