@@ -10070,6 +10070,8 @@ farms/iron/four-modules-one-timer-tight.html	circuit	mobfarm/-mob-farm iron_ingo
 farms/iron/four-modules-one-timer.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 1,700 iron an hour · 2,197 blocks · 0.78 an hour per block · 26 iron to build · four modules sharing one sleep timer, lava corners 21 below	2026-11-08 21:21Z
 farms/iron/index.html	page				2026-11-08 20:44Z
 farms/iron/iron-day1.html	circuit	mobfarm/mob-farm iron_ingot day-1		Iron farm: 295 iron an hour · 189 blocks · 1.6 an hour per block · 11 iron to build · golems burn in lava pits	2026-11-08 20:42Z
+farms/iron/late-pair-stacks.html	circuit	mobfarm/mob-farm iron_ingot fastest		Iron farm: 1,700 iron an hour · 1,668 blocks · 1.0 an hour per block · 26 iron to build · two pairs of stacked modules, each pair sharing one lava blade	2026-11-09 01:03Z
+farms/iron/late-shared-kill-pair.html	circuit	mobfarm/mob-farm iron_ingot fastest		Iron farm: 851 iron an hour · 875 blocks · 0.97 an hour per block · 16 iron to build · two modules stacked, the upper one's golems falling into the lower one's lava blade	2026-11-09 01:03Z
 farms/iron/m2-open-ring.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 440 iron an hour · 370 blocks · 1.2 an hour per block · 16 iron to build · a comparator ring times the zombie's hide	2026-11-08 20:42Z
 farms/iron/m2-open.html	circuit	mobfarm/-mob-farm iron_ingot middle		Iron farm: 439 iron an hour · 404 blocks · 1.1 an hour per block · 16 iron to build · a repeater line times the zombie's hide	2026-11-08 20:42Z
 farms/iron/parts/cage/index.html	page				2026-11-08 21:21Z
