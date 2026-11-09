@@ -425,6 +425,10 @@ pub struct Natural {
     /// A bridge sandbox's `collectSpawningChunks` list before the shuffle, in the game's order
     /// (empty: redsim computes the spawning chunks).
     pub spawn_order: Vec<[i32; 2]>,
+    /// The chunks `collectSpawningChunks` walks before its 128-block filter, in its order (a
+    /// bridge sandbox's `getSpawnCandidateChunks`): filtered each tick by the players' positions
+    /// now (the AFK player moves when a mob pushes it); empty: `spawn_order` as given.
+    pub spawn_candidates: Vec<[i32; 2]>,
     /// The sandbox's `getNaturalSpawnChunkCount()` (None: redsim's count).
     pub spawn_chunk_count: Option<i32>,
     /// The chunks where `canSpawnEntitiesInChunk` holds (entity-ticking); empty: every spawning
@@ -442,7 +446,7 @@ pub struct Natural {
 
 impl Natural {
     pub fn new(players: Vec<Vec3>, difficulty: Difficulty) -> Natural {
-        Natural { players, difficulty, spawning: true, spawn_enemies: true, void_biome: None, world_min_y: -64, world_spawn: None, spawn_order: Vec::new(), spawn_chunk_count: None, entity_ticking: Vec::new(), riders: Vec::new(), bonuses: Vec::new(), log: Vec::new(), ticks: 0 }
+        Natural { players, difficulty, spawning: true, spawn_enemies: true, void_biome: None, world_min_y: -64, world_spawn: None, spawn_order: Vec::new(), spawn_candidates: Vec::new(), spawn_chunk_count: None, entity_ticking: Vec::new(), riders: Vec::new(), bonuses: Vec::new(), log: Vec::new(), ticks: 0 }
     }
 }
 
@@ -864,7 +868,14 @@ pub fn tick_chunks(w: &mut World) {
     // game's own order (`World::chunk_order`), in a terrain box the candidate square (Chebyshev 8
     // of a player's chunk) that is loaded — then Util.shuffle with the level random
     let mut chunks: Vec<(i32, i32)> = Vec::new();
-    if !nat.spawn_order.is_empty() {
+    if !nat.spawn_candidates.is_empty() {
+        // the bridge's candidates (getSpawnCandidateChunks' order), within 128 of a player now
+        for c in &nat.spawn_candidates {
+            if nat.players.iter().any(|q| player_chunk_dist2(*q, c[0], c[1]) < 16384.0) {
+                chunks.push((c[0], c[1]));
+            }
+        }
+    } else if !nat.spawn_order.is_empty() {
         // the bridge's own list (collectSpawningChunks, before the shuffle)
         chunks.extend(nat.spawn_order.iter().map(|c| (c[0], c[1])));
     } else if !w.chunk_order.is_empty() {

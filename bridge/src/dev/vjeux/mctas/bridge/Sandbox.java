@@ -1357,6 +1357,30 @@ final class Sandbox {
     }
 
     /**
+     * (mob-AI) The chunks {@code ChunkMap.collectSpawningChunks} walks, in its order
+     * ({@code DistanceManager.getSpawnCandidateChunks}), that have a ticking chunk: its list before
+     * the players' 128-block filter.
+     */
+    List<int[]> spawnCandidates() {
+        ChunkMap cm = this.level.getChunkSource().chunkMap;
+        it.unimi.dsi.fastutil.longs.LongIterator it = cm.getDistanceManager().getSpawnCandidateChunks();
+        List<int[]> out = new ArrayList<>();
+        while (it.hasNext()) {
+            long k = it.nextLong();
+            net.minecraft.server.level.ChunkHolder h;
+            try {
+                h = (net.minecraft.server.level.ChunkHolder) VISIBLE_HOLDER.invoke(cm, k);
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException(e);
+            }
+            if (h != null && h.getTickingChunk() != null) {
+                out.add(new int[] {ChunkPos.getX(k), ChunkPos.getZ(k)});
+            }
+        }
+        return out;
+    }
+
+    /**
      * Every chunk within {@code d} of the player's chunk is ticking ({@code ChunkHolder
      * .getTickingChunk}) with its entities and entity-ticking tickets, and every chunk of the ring
      * at {@code d + 1} is block ticking (the spawning chunks reach it).

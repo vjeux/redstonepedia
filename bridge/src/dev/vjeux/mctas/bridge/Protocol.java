@@ -855,6 +855,17 @@ public final class Protocol {
             spawning.add(a);
         }
         o.add("spawning_chunks", spawning);
+        // (mob-AI) the chunks collectSpawningChunks walks, in its order, before its distance
+        // filter (DistanceManager.getSpawnCandidateChunks with a ticking chunk): redsim filters
+        // them each tick by the players' positions, as the game does once its AFK player is pushed
+        JsonArray candidates = new JsonArray();
+        for (int[] c : sb.spawnCandidates()) {
+            JsonArray a = new JsonArray();
+            a.add(c[0]);
+            a.add(c[1]);
+            candidates.add(a);
+        }
+        o.add("spawn_candidates", candidates);
         o.addProperty("spawn_chunk_count", sb.level.getChunkSource().chunkMap.getDistanceManager().getNaturalSpawnChunkCount());
         // (tickexact) the respawn position NaturalSpawner keeps 24 blocks clear (the server's)
         net.minecraft.core.BlockPos respawn = sb.level.getRespawnData().pos();

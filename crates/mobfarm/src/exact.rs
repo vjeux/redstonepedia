@@ -494,6 +494,9 @@ pub struct GameFarm {
     /// player's block-ticking ring within 128 blocks), and the natural spawn chunk count (the mob
     /// cap's divisor).
     pub spawning: Vec<[i32; 2]>,
+    /// The chunks collectSpawningChunks walks, in its order, before its players' 128-block filter
+    /// (redsim filters them each tick: the AFK player moves when pushed).
+    pub spawn_candidates: Vec<[i32; 2]>,
     pub spawn_chunk_count: u32,
     /// The chunks where entities may spawn and tick (`ServerLevel.canSpawnEntitiesInChunk`).
     pub entity_ticking: Vec<[i32; 2]>,
@@ -757,7 +760,7 @@ impl GameFarm {
         // (mob-AI) the POI holders' identity hashes: this JVM's, fixed for its life
         let hv = w.call(json!({"op": "identity_hashes"}))?;
         let poi_hashes: std::collections::HashMap<String, i32> = hv["poi_types"].as_object().map(|m| m.iter().filter_map(|(k, v)| v.as_i64().map(|h| (k.clone(), h as i32))).collect()).unwrap_or_default();
-        let mut g = GameFarm { w, sb, lo: pos(spec.lo), hi: pos(spec.hi), ticking, spawning, entity_ticking, spawn_chunk_count, text, full, spawners, poi_hashes, respawn: None, natural: spawn_on && !bare };
+        let mut g = GameFarm { w, sb, lo: pos(spec.lo), hi: pos(spec.hi), ticking, spawning, spawn_candidates: Vec::new(), entity_ticking, spawn_chunk_count, text, full, spawners, poi_hashes, respawn: None, natural: spawn_on && !bare };
         let bes: Vec<([i32; 3], String)> = spec.block_entities.iter().map(|(p, s)| (pos(*p), s.clone())).collect();
         g.place_with(&rest, &bes)?;
         let out = pos(spec.output);
@@ -771,6 +774,7 @@ impl GameFarm {
         let list = |k: &str| -> Vec<[i32; 2]> { v[k].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default() };
         g.ticking = list("ticking_chunks");
         g.spawning = list("spawning_chunks");
+        g.spawn_candidates = list("spawn_candidates");
         g.entity_ticking = list("entity_ticking_chunks");
         g.full = list("full_chunks");
         g.spawn_chunk_count = v["spawn_chunk_count"].as_u64().unwrap_or(0) as u32;
@@ -1032,6 +1036,7 @@ pub fn redsim_start(spec: &FarmSpec, o: &RunOpts, game: &GameFarm, bare: bool) -
     let spawn_enemies = base.spawn_enemies;
     run.world.mob.natural = Some(Natural {
         spawn_order: game.spawning.clone(),
+        spawn_candidates: game.spawn_candidates.clone(),
         spawn_chunk_count: Some(game.spawn_chunk_count as i32),
         entity_ticking: game.entity_ticking.clone(),
         // `--no-spawning`: the spawner off, its chunk shuffle still drawn (as the game's
