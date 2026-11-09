@@ -418,9 +418,19 @@ pub fn eval_full(c: &Cand, ctx: &Ctx, st: &Metrics) -> Result<Evaluation, String
     if let Some(f) = base.failures().first() {
         return Err(f.clone());
     }
+    // the 8 builds at once (each runs its seeds at once: the judge's own `sim_verify` does the
+    // same), their results read in build order, so the first failing build is the same one
+    // (tickexact 2026-11-08: one build after the other left most of the machine idle)
+    let results: Vec<std::result::Result<Vec<RunReport>, String>> = std::thread::scope(|s| {
+        let hs: Vec<_> = builds.iter().enumerate().map(|(k, (_, sp))| {
+            let jo = &jo;
+            s.spawn(move || mobfarm::build_runs(sp, jo, k as u32, WalkMode::Random))
+        }).collect();
+        hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err("a build panicked".to_string()))).collect()
+    });
     let mut all: Vec<Vec<RunReport>> = Vec::new();
-    for (k, (_, sp)) in builds.iter().enumerate() {
-        let runs = mobfarm::build_runs(sp, &jo, k as u32, WalkMode::Random)?;
+    for (k, runs) in results.into_iter().enumerate() {
+        let runs = runs?;
         if let Some(f) = runs.iter().flat_map(|r| r.failures.iter().chain(r.errors.iter())).next() {
             return Err(format!("build {k}: {f}"));
         }

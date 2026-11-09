@@ -447,6 +447,28 @@ fn sky_light_compute(w: &World, p: BlockPos, unknown: Option<Props>, r: i32) -> 
     })
 }
 
+/// [`block_light_from`] with the mob layer's light sources (`sun::emission`), answered from the
+/// world's [`SkyCache`] while the box's light and light sources are unchanged (tickexact
+/// 2026-11-08: a zombie's sunburn reads it at its eye every daytime tick).
+pub fn block_light_cached(w: &World, p: BlockPos, need: i32) -> Result<i32, String> {
+    let key = (p, need, 3u8);
+    if let Ok(g) = w.sky_cache.inner.lock()
+        && g.0 == w.light_version
+        && let Some(v) = g.1.get(&key)
+    {
+        return v.clone();
+    }
+    let v = block_light_from(w, p, need, &crate::entity::mob::sun::emission);
+    if let Ok(mut g) = w.sky_cache.inner.lock() {
+        if g.0 != w.light_version {
+            g.1.clear();
+            g.0 = w.light_version;
+        }
+        g.1.insert(key, v.clone());
+    }
+    v
+}
+
 /// The block light at `p` where only whether it reaches `need` matters, and its exact value
 /// when it does (mobinfra 2026-11-08: a zombie's sunburn reads the brightness at its eye only
 /// when it can pass 0.5, raw 12): the block-light engine's propagation (`emission` of each

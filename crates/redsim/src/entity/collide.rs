@@ -17,7 +17,8 @@ use super::{Aabb, Entity, MoverType, Vec3, mth};
 use crate::block::Block;
 use crate::pos::BlockPos;
 use crate::world::World;
-use std::collections::HashSet;
+// (the cells an entity's move has visited: a fast hasher, membership only)
+use crate::fxhash::FxHashSet as HashSet;
 
 /// One recorded move (`Entity.Movement`): from, to, and the delta asked for (its axis order
 /// replays the collision order in `checkInsideBlocks`).
@@ -99,11 +100,26 @@ fn collide_with_shapes(movement: Vec3, bb: Aabb, shapes: &[Vec<Aabb>]) -> Vec3 {
     resolved
 }
 
+/// Per row of the natural-state table, what the collision cursor asks of it (tickexact
+/// 2026-11-08: computed once instead of at every cell of every move): bit 0 a speleothem (its boxes
+/// move with the cell's offset), bit 1 a shape leaving its cell, bit 2 no box at all.
+fn terrain_flags(id: u16) -> u8 {
+    static FLAGS: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    let f = FLAGS.get_or_init(|| {
+        crate::terrain::blocks::table()
+            .props
+            .iter()
+            .map(|p| (p.classes.iter().any(|c| c == "SpeleothemBlock") as u8) | ((p.large_shape() as u8) << 1) | ((p.boxes.is_empty() as u8) << 2))
+            .collect()
+    });
+    f.get(id as usize).copied().unwrap_or(0)
+}
+
 /// `BlockStateBase.hasLargeCollisionShape`: a collision shape leaving the cell, or no shape
 /// cache (dynamic shapes: a bamboo stalk).
 fn has_large_collision_shape(s: &Block) -> bool {
     if let Block::Terrain(id) = s {
-        return crate::terrain::blocks::props(*id).large_shape();
+        return terrain_flags(*id) & 2 != 0;
     }
     matches!(s, Block::FenceGate { open: false, .. } | Block::MovingPiston { .. } | Block::Scaffolding { .. } | Block::Fence { .. } | Block::Bamboo { .. })
 }
@@ -154,17 +170,9 @@ fn static_boxes(s: &Block) -> std::rc::Rc<[crate::behavior::Box16]> {
     v
 }
 
-/// Whether a terrain row is a speleothem's (its boxes move with the cell's offset), per row.
+/// Whether a terrain row is a speleothem's (its boxes move with the cell's offset).
 fn speleothem(id: u16) -> bool {
-    thread_local! {
-        static ROWS: std::cell::RefCell<crate::fxhash::FxHashMap<u16, bool>> = Default::default();
-    }
-    if let Some(v) = ROWS.with(|m| m.borrow().get(&id).copied()) {
-        return v;
-    }
-    let v = crate::terrain::blocks::props(id).classes.iter().any(|c| c == "SpeleothemBlock");
-    ROWS.with(|m| m.borrow_mut().insert(id, v));
-    v
+    terrain_flags(id) & 1 != 0
 }
 
 /// Whether block `s` at `p` has a collision box meeting `bb`, and then its boxes ([`boxes_at`]'s,
@@ -173,6 +181,7 @@ fn boxes_meeting(w: &World, s: &Block, p: BlockPos, bb: Aabb) -> Option<Vec<Aabb
     let (x, y, z) = (p.x as f64, p.y as f64, p.z as f64);
     let f = |v: i32| v as f64 / 16.0;
     match s {
+        Block::Terrain(id) if terrain_flags(*id) & 4 != 0 => None,
         Block::Terrain(id) if !speleothem(*id) => {
             let boxes = &crate::terrain::blocks::props(*id).boxes;
             let at = |b: &[f64; 6]| Aabb::new(x + b[0], y + b[1], z + b[2], x + b[3], y + b[4], z + b[5]);
@@ -859,7 +868,7 @@ fn for_each_block_intersected_between(from: Vec3, to: Vec3, target: Aabb, visit:
         }
         return true;
     }
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     let back = target.move_v(travel.scale(-1.0));
     let (a, b) = floor_corners(back);
     for p in between_corners_in_direction(a, b, travel) {
@@ -957,7 +966,7 @@ fn check_inside_blocks(w: &mut World, i: usize, moves: &[Movement]) {
     if w.entities.list[i].removed {
         return;
     }
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     for m in moves {
         let mut pos = m.from;
         let delta = m.to.subtract_v(m.from);

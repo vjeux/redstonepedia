@@ -167,7 +167,7 @@ fn raw_brightness(w: &World, p: BlockPos) -> Result<i32, String> {
     if lo != hi && hi - darken >= 12 {
         return Err(format!("the sky light reads {lo}..{hi} (an unclassified block within its reach)"));
     }
-    let block = crate::daylight::block_light_from(w, p, 12, &emission)?;
+    let block = crate::daylight::block_light_cached(w, p, 12)?;
     Ok((lo - darken).max(block).max(0))
 }
 

@@ -531,8 +531,8 @@ impl World {
                 }
                 let old = self.cells[i];
                 self.cells[i] = s;
-                // the sky light answers hold while no cell's light behaviour changes
-                if old != s && crate::daylight::light_differs(&old, &s) {
+                // the light answers hold while no cell's light behaviour or emission changes
+                if old != s && (crate::daylight::light_differs(&old, &s) || crate::entity::mob::sun::emission(&old) != crate::entity::mob::sun::emission(&s)) {
                     self.light_version += 1;
                 }
                 // the section's ticking count (`LevelChunkSection.setBlockState`)

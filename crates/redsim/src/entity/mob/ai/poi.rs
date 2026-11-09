@@ -152,20 +152,23 @@ pub fn on_block_changed(w: &mut World, pos: BlockPos, old: &Block, new: &Block) 
 /// potential job site and meeting point.
 pub fn claimed(w: &World) -> Vec<BlockPos> {
     let mut out = Vec::new();
+    let mut add = |h: Option<BlockPos>| {
+        if let Some(h) = h
+            && !out.contains(&h)
+        {
+            out.push(h);
+        }
+    };
     for e in w.entities.list.iter().filter(|e| !e.removed) {
         if let EntityKind::Mob(m) = &e.kind
             && let Some(b) = m.brain.as_deref()
         {
-            let mut held: Vec<BlockPos> = b.home.into_iter().collect();
+            // (in order: its home, then its job site, potential job site and meeting point)
+            add(b.home);
             if let Some(x) = b.ex.as_deref() {
-                held.extend(x.mem.job_site);
-                held.extend(x.mem.potential_job_site);
-                held.extend(x.mem.meeting_point);
-            }
-            for h in held {
-                if !out.contains(&h) {
-                    out.push(h);
-                }
+                add(x.mem.job_site);
+                add(x.mem.potential_job_site);
+                add(x.mem.meeting_point);
             }
         }
     }
