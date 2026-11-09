@@ -777,6 +777,16 @@ impl Site {
 
     /// The site at the `k`-th cheapest of its priced spots (the judge's other builds).
     pub fn at_priced(world: std::sync::Arc<std::sync::RwLock<World>>, sample: &'static Sample, priced: Vec<Priced>, k: usize, afk: [f64; 3], clear_box: bool) -> Site {
+        // the sections' ticking cells counted once here, so every copy of the site's world keeps
+        // them (each run's first tick recounted 5.5M cells otherwise: tickexact 2026-11-09, 7% of
+        // a cached farm's view session; the shared sample worlds have them already)
+        if world.read().map(|w| w.ticking_sections.is_none()).unwrap_or(false)
+            && let Ok(mut w) = world.write()
+            && w.ticking_sections.is_none()
+        {
+            let ts = crate::crops::TickingSections::build(&w);
+            w.ticking_sections = Some(ts);
+        }
         let range = (priced.iter().map(Priced::seconds).fold(f64::INFINITY, f64::min), priced.iter().map(Priced::seconds).fold(0.0, f64::max));
         let chosen = priced[k.min(priced.len() - 1)].clone();
         let offset = chosen.price.offset;
