@@ -927,6 +927,10 @@ pub fn lightning_line(m: &redsim::weather::lightning::Measure) -> String {
         } else {
             "a skeleton trap horse on the farm never".to_string()
         },
+        // brief rev 9 iteration 23: the trap horses that trigger (landing within 10 blocks of the
+        // AFK player; an untriggered one discards itself after 15 minutes), and the part that
+        // stops them all
+        format!("a skeleton trap horse that triggers (within 10 blocks of the AFK spot) {} (a lightning rod within 128 blocks, topping its column, takes the bolts: none then)", every(m.trap_player * per_day)),
     ];
     if m.breaks > 0.0 {
         let first = [(m.witch, "a villager made a witch"), (m.vehicle, "the zombie's boat broken"), (m.fire, "a fire")].into_iter().max_by(|a, b| a.0.total_cmp(&b.0)).map(|x| x.1).unwrap_or("");

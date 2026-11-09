@@ -846,6 +846,10 @@ pub struct Measure {
     /// The chance a bolt brings a skeleton trap horse onto the farm (Hard, `spawn_mobs`, no rod
     /// under it; the effective difficulty's mean over the moon's phases).
     pub trap: f64,
+    /// ... landing within 10 blocks of the AFK player (brief farm-iron rev 9 iteration 23, G1: a
+    /// trap triggers only with a player within 10, `SkeletonTrapGoal`, and discards itself after
+    /// 18,000 gt untriggered; its strike is visual only): the triggered ones, wherever they land.
+    pub trap_player: f64,
     /// The chance the farm breaks (a witch, the vehicle, or such a fire).
     pub breaks: f64,
 }
@@ -901,6 +905,12 @@ fn fire_chance(w: &World, b: BlockPos, protect: &[Aabb], farm: (BlockPos, BlockP
 /// the model cannot decide (at a villager, the zombie, a golem's block or a bolt's) is an error:
 /// treated as no sky it would hide strikes.
 pub fn measure(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)], inner: Aabb, farm: (BlockPos, BlockPos)) -> Result<Measure, String> {
+    measure_at(w, golems, iron, inner, farm, None)
+}
+
+/// [`measure`] with the AFK player's feet (`player`: the trap horses that trigger, landing within
+/// 10 blocks of it).
+pub fn measure_at(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)], inner: Aabb, farm: (BlockPos, BlockPos), player: Option<Vec3>) -> Result<Measure, String> {
     use crate::entity::mob::types::MobType;
     let sky = |p: BlockPos| can_see_sky(w, p).map_err(|e| format!("lightning: the sky at {p}: {e}"));
     let q = CHUNK_STRIKE / 256.0;
@@ -1011,19 +1021,28 @@ pub fn measure(w: &World, golems: &[(BlockPos, f64)], iron: &[(BlockPos, f64)], 
             let wgt = q * columns * p;
             let hit = hit_box_at(Vec3::new(b.x as f64 + 0.5, b.y as f64, b.z as f64 + 0.5));
             m.bolts += wgt;
+            // a trap's own strike is visual only (`setVisualOnly(isTrap)`: no damage, no witch, no
+            // fire; iteration 23's G1): only the other bolts harm (every bolt on a rod)
+            let harm = if rod { wgt } else { wgt * (1.0 - trap) };
             let struck = villagers.iter().filter(|v| hit.intersects(**v)).count() as u32;
             let witch = struck > 0;
             m.witch_max = m.witch_max.max(struck);
             let broke = vehicle.iter().any(|v| hit.intersects(*v));
-            m.witch += if witch { wgt } else { 0.0 };
-            m.vehicle += if broke { wgt } else { 0.0 };
-            m.iron += wgt * iron.iter().filter(|(c, _)| hit.intersects(Aabb::of_block(*c))).map(|(_, n)| n).sum::<f64>();
+            m.witch += if witch { harm } else { 0.0 };
+            m.vehicle += if broke { harm } else { 0.0 };
+            m.iron += harm * iron.iter().filter(|(c, _)| hit.intersects(Aabb::of_block(*c))).map(|(_, n)| n).sum::<f64>();
             let fire = fire_chance(w, b, &protect, farm);
-            m.fire += wgt * fire;
-            m.breaks += wgt * if witch || broke { 1.0 } else { fire };
+            m.fire += harm * fire;
+            m.breaks += harm * if witch || broke { 1.0 } else { fire };
             let (hx, hy, hz) = (b.x as f64, b.y as f64, b.z as f64);
-            if !rod && (on_farm.min_x..on_farm.max_x).contains(&hx) && (on_farm.min_y..on_farm.max_y).contains(&hy) && (on_farm.min_z..on_farm.max_z).contains(&hz) {
-                m.trap += wgt * trap;
+            if !rod {
+                if (on_farm.min_x..on_farm.max_x).contains(&hx) && (on_farm.min_y..on_farm.max_y).contains(&hy) && (on_farm.min_z..on_farm.max_z).contains(&hz) {
+                    m.trap += wgt * trap;
+                }
+                // the horse spawns at the bolt's block (its bottom centre)
+                if player.is_some_and(|p| (p.x - (hx + 0.5)).powi(2) + (p.y - hy).powi(2) + (p.z - (hz + 0.5)).powi(2) <= 100.0) {
+                    m.trap_player += wgt * trap;
+                }
             }
         }
     }
@@ -1067,5 +1086,11 @@ pub fn measure_farm_in(spec: &crate::entity::mob::farm::FarmSpec, runs: &[crate:
             sky = true;
         }
     }
-    Ok((measure(w, &golems, &iron, spec.inner(), (spec.lo, spec.hi))?, sky))
+    // the AFK player: the site's (a terrain run), else on top of the farm's middle (the judge's
+    // default `afk:`)
+    let player = match site {
+        Some(s) => s.afk,
+        None => Vec3::new((spec.lo.x + spec.hi.x) as f64 / 2.0 + 0.5, spec.hi.y as f64 + 1.0, (spec.lo.z + spec.hi.z) as f64 / 2.0 + 0.5),
+    };
+    Ok((measure_at(w, &golems, &iron, spec.inner(), (spec.lo, spec.hi), Some(player))?, sky))
 }

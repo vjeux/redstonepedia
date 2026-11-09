@@ -417,7 +417,9 @@ fn d1u_pit(mut b: Builder, n: i32, k: i32, access: bool) -> String {
     b.set(lx, k - 1, lz, "hopper[enabled=true,facing=down]");
     b.d.ports.insert("output".into(), [lx, k - 2, lz]);
     if access {
-        dug_access(&mut b, (lx, k - 2, lz), lx - 3);
+        // (its first column 2 west of the pad's west edge at least: a column of rock between the
+        // spiral and the pad's water whatever the pad's size)
+        dug_access(&mut b, (lx, k - 2, lz), (lx - 3).min(-2));
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     b.d.meta.insert("restart".into(), "yes".into());

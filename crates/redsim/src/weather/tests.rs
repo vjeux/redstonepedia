@@ -353,8 +353,11 @@ fn lightning_measure() {
     let farm = (BlockPos::new(-8, 0, -8), BlockPos::new(7, 23, 7));
     let q = lightning::CHUNK_STRIKE / 256.0;
     let open = lightning::measure(&w, &[], &[(BlockPos::new(2, 2, 0), 2.0)], inner, farm).unwrap();
-    assert!((open.witch / q - 49.0).abs() < 1e-6, "{open:?}");
-    assert!((open.iron / q - 98.0).abs() < 1e-6, "{open:?}");
+    // (iteration 23's G1: a bolt that brings a trap horse is visual only, so the villager's 49
+    // columns harm it at 1 - the trap chance each)
+    let harm = 1.0 - lightning::trap_chance(&lightning::Settings::default());
+    assert!((open.witch / q - 49.0 * harm).abs() < 1e-6, "{open:?}");
+    assert!((open.iron / q - 98.0 * harm).abs() < 1e-6, "{open:?}");
     assert_eq!(open.vehicle, 0.0);
     assert!((open.breaks - open.witch).abs() < 1e-12);
     for x in -2..=2 {
