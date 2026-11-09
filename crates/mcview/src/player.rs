@@ -1641,6 +1641,41 @@ impl Player {
         }
         out
     }
+
+    /// The game's day as the view shows it (vjeux 2026-11-08: "a visual indication for the day
+    /// night cycle since it's important for how the farm works"): a mob farm's run, at its world's
+    /// day time with its rain and thunder (`crate::daylight::at`: the sky, the sun and the moon,
+    /// the lightmap). None (the pictures' noon) for anything that does not run the game's clock.
+    pub fn daylight(&self) -> Option<crate::daylight::Env> {
+        let s = &self.session;
+        s.mob.as_ref()?;
+        let w = &s.world;
+        Some(crate::daylight::at(w.day_time(), w.rain_level(1.0), w.thunder_level(1.0)))
+    }
+
+    /// The scrubber's night spans (`daylight::Env::is_day` false: from dusk to dawn), as
+    /// (from, to) session ticks within `floor..high` (a mob farm's run; none for anything else).
+    pub fn night_spans(&self, floor: u32, high: u32) -> Vec<(u32, u32)> {
+        let s = &self.session;
+        if s.mob.is_none() || high <= floor {
+            return Vec::new();
+        }
+        // the day time of session tick t: the world's day offset plus t (the world's time is the
+        // session's tick)
+        let off = s.world.mob.day_offset;
+        let (dusk, dawn) = (crate::daylight::DUSK, crate::daylight::DAWN);
+        let mut out = Vec::new();
+        let first_day = (off + floor as i64).div_euclid(24000) - 1;
+        let last_day = (off + high as i64).div_euclid(24000) + 1;
+        for d in first_day..=last_day {
+            let (a, b) = (d * 24000 + dusk - off, d * 24000 + 24000 + dawn - off);
+            let (a, b) = (a.max(floor as i64), b.min(high as i64));
+            if a < b {
+                out.push((a as u32, b as u32));
+            }
+        }
+        out
+    }
 }
 
 /// Where a ray (origin, direction) enters a box, if it does (slab test).

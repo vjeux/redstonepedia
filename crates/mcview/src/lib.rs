@@ -31,6 +31,7 @@ pub mod scene;
 pub mod session;
 pub mod staged;
 pub mod terrain;
+pub mod daylight;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod tools;
 

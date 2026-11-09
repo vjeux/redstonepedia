@@ -114,6 +114,12 @@ const NARROW_PX: f64 = 520.0;
 /// The time badge's text: `6.15 s · 123 ticks`, on a narrow viewer one part per line.
 fn time_text(p: &Player, narrow: bool) -> String {
     let t = p.label();
+    // a run of the game's clock: a sun or a moon by the clock, as the sky shows it (text
+    // presentation: the phone's emoji sun would be a coloured picture)
+    let t = match p.daylight() {
+        Some(env) => format!("{} {t}", if env.is_day() { "\u{2600}\u{fe0e}" } else { "\u{263e}" }),
+        None => t,
+    };
     if narrow { t.replace(" · ", "\n") } else { t }
 }
 
@@ -1439,6 +1445,8 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
             staging = tris.is_none();
             if let Some((fixed, solid, translucent)) = tris {
                 g.r.set_fixed(fixed.as_ref().map(|(k, v)| (*k, v.as_slice())));
+                // the game's day (a mob farm's run: its sky, sun, moon and light)
+                g.r.env = p.daylight();
                 match g.draw(&Frame { solid: &solid, translucent: &translucent, camera: p.camera, width: w, height: h }) {
                     Ok(()) => need_ready = true,
                     Err(e) => log(&e),
@@ -1655,6 +1663,7 @@ impl Live {
         let (solid, translucent) = r.player.triangles(atlas);
         // (the recording's own run: every triangle its own, none the live view kept on the GPU)
         g.r.set_fixed(None);
+        g.r.env = r.player.daylight();
         if let Err(e) = g.draw(&Frame { solid: &solid, translucent: &translucent, camera: r.player.camera, width: v.w.max(1), height: v.h.max(1) }) {
             log(&format!("record: {e}"));
             return false;
@@ -1813,6 +1822,24 @@ impl Live {
         }
         *version = p.activity_version();
         strip.set_inner_html("");
+        // a run of the game's clock: its nights, a darker band from dusk to dawn under the
+        // activity (vjeux 2026-11-08: the day/night cycle matters to how the farm works)
+        for (s, e) in p.night_spans(floor, high) {
+            let seg = el("div");
+            style(
+                &seg,
+                &[
+                    ("position", "absolute"),
+                    ("top", "0"),
+                    ("bottom", "0"),
+                    ("left", &format!("{}%", (s - floor) as f64 / (high - floor) as f64 * 100.0)),
+                    ("width", &format!("{}%", (e - s) as f64 / (high - floor) as f64 * 100.0)),
+                    ("background", "rgba(8,12,40,0.75)"),
+                ],
+            );
+            let _ = seg.set_attribute("data-mcview-night", "");
+            let _ = strip.append_child(&seg);
+        }
         for (s, e, active) in p.activity_runs() {
             if high <= floor {
                 break;

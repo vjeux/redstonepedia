@@ -66,6 +66,21 @@ pub enum WebCmd {
         /// a flame), written at that size.
         #[arg(long)]
         crop: Option<String>,
+        /// The game's day time (ticks, 0..24000; 6000 noon, 18000 midnight): the picture's sky,
+        /// sun, moon and light as a live view shows that moment (`mcview::daylight`; default: the
+        /// pictures' noon, no sun drawn).
+        #[arg(long)]
+        day_time: Option<i64>,
+        /// With --day-time: the rain's and the thunder's levels (0..1).
+        #[arg(long, default_value_t = 0.0)]
+        rain: f32,
+        #[arg(long, default_value_t = 0.0)]
+        thunder: f32,
+        /// Compare each picture with the PNG of the same name in this folder (or this PNG, for one
+        /// design): the share of pixels that differ by more than 2 levels and the largest
+        /// difference (a renderer change that must keep the pictures).
+        #[arg(long)]
+        against: Option<PathBuf>,
     },
     /// Check the viewer against the repo's tools: its design parser against `mctas::design` on
     /// every block and port, and its clock period detector (the code the browser runs) against
@@ -598,7 +613,7 @@ fn atlas(procedural: bool) -> mcview::atlas::Atlas {
 
 pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
     match cmd {
-        WebCmd::Shot { designs, out, width, height, tick, flips, yaw, pitch, procedural, live, dpr, crop } => cmd_shot(&designs, &out, mcview::tools::ShotOptions { width, height, tick, flips, yaw, pitch, picture: false, floor_margin: None, live, dpr, as_written: false, full_frame: false }, procedural, crop.as_deref()),
+        WebCmd::Shot { designs, out, width, height, tick, flips, yaw, pitch, procedural, live, dpr, crop, day_time, rain, thunder, against } => cmd_shot(&designs, &out, mcview::tools::ShotOptions { width, height, tick, flips, yaw, pitch, picture: false, floor_margin: None, live, dpr, as_written: false, full_frame: false }, procedural, crop.as_deref(), day_time.map(|t| mcview::daylight::at(t, rain, thunder)), against.as_deref()),
         WebCmd::Check { designs, horizon, quiet, wasm, unverified } => cmd_check(&designs, horizon, quiet, wasm.as_deref(), unverified),
         WebCmd::Bundle { out } => cmd_bundle(&out),
         WebCmd::Demo { designs, out, viewer, live, autoplay } => cmd_demo(&designs, &out, &viewer, live, autoplay),
@@ -1346,7 +1361,7 @@ fn cmd_serve(dir: &Path, port: u16) -> Result<()> {
     Ok(())
 }
 
-fn cmd_shot(designs: &[PathBuf], out: &Path, o: mcview::tools::ShotOptions, procedural: bool, crop: Option<&str>) -> Result<()> {
+fn cmd_shot(designs: &[PathBuf], out: &Path, o: mcview::tools::ShotOptions, procedural: bool, crop: Option<&str>, env: Option<mcview::daylight::Env>, against: Option<&Path>) -> Result<()> {
     if designs.is_empty() {
         bail!("no design given");
     }
@@ -1363,13 +1378,15 @@ fn cmd_shot(designs: &[PathBuf], out: &Path, o: mcview::tools::ShotOptions, proc
     };
     let atlas = atlas(procedural);
     let mut off = mcview::render::headless::Offscreen::new(&atlas).map_err(anyhow::Error::msg)?;
+    off.r.env = env;
     let to_dir = designs.len() > 1 || out.is_dir();
     if to_dir {
         std::fs::create_dir_all(out)?;
     }
     for d in designs {
         let text = std::fs::read_to_string(d).with_context(|| format!("reading {}", d.display()))?;
-        let path = if to_dir { out.join(format!("{}.png", d.file_stem().unwrap_or_default().to_string_lossy())) } else { out.to_path_buf() };
+        let name = format!("{}.png", d.file_stem().unwrap_or_default().to_string_lossy());
+        let path = if to_dir { out.join(&name) } else { out.to_path_buf() };
         let t = std::time::Instant::now();
         match mcview::tools::shot(&mut off, &atlas, &text, &o) {
             Ok((rgba, what)) => {
@@ -1385,7 +1402,28 @@ fn cmd_shot(designs: &[PathBuf], out: &Path, o: mcview::tools::ShotOptions, proc
                     None => (rgba, o.width, o.height),
                 };
                 mcview::render::headless::write_png(&path, w, h, &rgba).map_err(anyhow::Error::msg)?;
-                println!("{} -> {} ({what}, {:.0} ms)", d.display(), path.display(), t.elapsed().as_secs_f64() * 1000.0);
+                let cmp = match against {
+                    None => String::new(),
+                    Some(a) => {
+                        let other = if a.is_dir() { a.join(&name) } else { a.to_path_buf() };
+                        let bytes = std::fs::read(&other).with_context(|| format!("reading {}", other.display()))?;
+                        let (px, ow, oh) = mcview::atlas::vanilla::decode_png(&bytes).map_err(anyhow::Error::msg)?;
+                        if (ow, oh) != (w, h) {
+                            format!("; against {}: {ow}x{oh}, not {w}x{h}", other.display())
+                        } else {
+                            let (mut differ, mut most) = (0usize, 0u8);
+                            for (p, q) in rgba.chunks(4).zip(px.chunks(4)) {
+                                let d = (0..3).map(|k| p[k].abs_diff(q[k])).max().unwrap_or(0);
+                                most = most.max(d);
+                                if d > 2 {
+                                    differ += 1;
+                                }
+                            }
+                            format!("; against {}: {:.3}% of the pixels differ by more than 2 levels, at most {most}", other.display(), differ as f64 * 100.0 / (w * h) as f64)
+                        }
+                    }
+                };
+                println!("{} -> {} ({what}, {:.0} ms){cmp}", d.display(), path.display(), t.elapsed().as_secs_f64() * 1000.0);
             }
             Err(e) => println!("{}: ERROR {e}", d.display()),
         }

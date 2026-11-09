@@ -820,6 +820,43 @@ mod tests {
         assert_eq!(edges, 2 * boundary, "the outline on the boundary only");
     }
 
+    /// vjeux 2026-11-08 ("a visual indication for the day night cycle since it's important for how
+    /// the farm works"): a mob farm's run shows the game's day (its sky and light from its day
+    /// time), the clock's sun or moon turns with it, and the scrubber's night spans run from dusk
+    /// to dawn; a view without the game's clock keeps the pictures' noon.
+    #[test]
+    fn a_mob_farms_view_shows_the_games_day() {
+        let text = archived("iron-day1");
+        let mut p = crate::player::Player::new_web(&text, 1.5).unwrap();
+        let env = p.daylight().expect("a mob farm's run shows the day");
+        let day = p.session.world.day_time();
+        assert_eq!(env, crate::daylight::at(day, 0.0, 0.0));
+        assert!(env.is_day(), "the judge's run starts by day ({day})");
+        // over the five days of the judge's run: five nights, each from dusk to dawn
+        let (floor, high) = (p.session.tick, p.session.tick + 5 * 24000);
+        let spans = p.night_spans(floor, high);
+        assert!(spans.len() >= 5 && spans.len() <= 6, "{spans:?}");
+        let off = p.session.world.mob.day_offset;
+        for (a, b) in &spans {
+            if *a > floor {
+                assert_eq!((off + *a as i64).rem_euclid(24000), crate::daylight::DUSK);
+            }
+            if *b < high {
+                assert_eq!((off + *b as i64).rem_euclid(24000), 24000 + crate::daylight::DAWN);
+            }
+        }
+        // in the first night the clock shows the moon
+        let night = spans[0].0 + 100;
+        while p.session.tick < night {
+            p.session.step();
+        }
+        assert!(!p.daylight().unwrap().is_day());
+        // a clock (no game time of its own): the pictures' noon
+        let clock = std::fs::read_to_string(format!("{}/../../designs/clocks/archive/census-p129-calibrated_sculk_sensor-dispenser-note_block-observer-sculk_sensor-sticky_piston-6b.txt", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let q = crate::player::Player::new_web(&clock, 1.5).unwrap();
+        assert!(q.daylight().is_none() && q.night_spans(0, 50000).is_empty());
+    }
+
     /// vjeux 2026-11-08 ("I don't see any zombie, why are they panicking?"): a boat's passenger is
     /// drawn as itself, not as the design's next entity (d1-bed-plate: a villager line follows the
     /// boat), and every drawn entity is redsim's, of its kind.
@@ -890,6 +927,21 @@ mod tests {
             s.step();
         }
         println!("no divergence in 200 ticks");
+    }
+
+    /// The spawn cells a design's still and its live view draw (a diagnostic:
+    /// `MCTAS_DESIGN=<path> cargo test -p mcview print_drawn_spawn_cells -- --ignored --nocapture`).
+    #[test]
+    #[ignore]
+    fn print_drawn_spawn_cells() {
+        let path = std::env::var("MCTAS_DESIGN").unwrap_or_else(|_| format!("{}/../../designs/circuits/mobfarm/iron-day1.txt", env!("CARGO_MANIFEST_DIR")));
+        let text = std::fs::read_to_string(&path).unwrap();
+        let still = crate::session::Session::new(&text, &crate::session::Options::default()).unwrap();
+        let spots = spawn_spots(&still.world);
+        println!("still: {} villagers, {} cells reached, {} open: {:?}", villager_cells(&still.world).len(), spots.len(), spots.iter().filter(|(_, r)| spot_open(r)).count(), spots.iter().map(|(c, r)| format!("{} {} {} {:?}", c.x, c.y, c.z, r)).take(12).collect::<Vec<_>>());
+        let live = crate::session::Session::new(&text, &crate::session::Options::live()).unwrap();
+        let m = live.mob.as_ref().unwrap();
+        println!("live: {} cells reached, {} open", m.spots.len(), m.spots.iter().filter(|(_, r)| spot_open(r)).count());
     }
 
     /// The staged camera search finds the very camera of the search at once on every archived

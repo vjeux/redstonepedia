@@ -17,6 +17,18 @@ struct U {
     sky_low: vec4<f32>,
     inv_vp: mat4x4<f32>,
     sky_void: vec4<f32>,
+    // the lightmap's inputs (`lightmap.fsh`): the sky light's colour and factor, the ambient
+    // colour and the block factor, the block light's tint and the brightness
+    sky_light: vec4<f32>,
+    ambient: vec4<f32>,
+    block_tint: vec4<f32>,
+    // the sky's bodies (`SkyRenderer`): the sun's direction and the stars' brightness, the moon's
+    // direction and whether they are drawn, the sunrise colour, the star field's turn (cos, sin)
+    // and the rain's dimming of them
+    sun: vec4<f32>,
+    moon: vec4<f32>,
+    sunrise: vec4<f32>,
+    stars: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var tex: texture_2d_array<f32>;
@@ -33,6 +45,40 @@ fn texel(uv: vec2<f32>, layer: u32) -> vec4<f32> {
     return select(a, b, game);
 }
 
+/// One texel of the game's lightmap at whole light levels (`lightmap.fsh`: the sky light scaled
+/// by the day's factor and coloured, the block light warm and flickerless, the ambient colour,
+/// then half way to the brightened curve).
+fn lightmap_texel(sky: f32, block: f32) -> vec3<f32> {
+    let bl = block / 15.0;
+    let sl = sky / 15.0;
+    let block_b = bl / (4.0 - 3.0 * bl) * u.ambient.w;
+    let sky_b = sl / (4.0 - 3.0 * sl) * u.sky_light.w;
+    let pm = (2.0 * bl - 1.0) * (2.0 * bl - 1.0);
+    let blc = u.block_tint.rgb + (vec3<f32>(1.0) - u.block_tint.rgb) * 0.9 * pm;
+    var c = clamp(u.ambient.rgb + u.sky_light.rgb * sky_b + blc * block_b, vec3<f32>(0.0), vec3<f32>(1.0));
+    let mx = max(c.r, max(c.g, c.b));
+    if (mx > 0.0) {
+        let inv = 1.0 - mx;
+        let scaled = 1.0 - inv * inv * inv * inv;
+        c = c + (c * scaled / mx - c) * u.block_tint.w;
+    }
+    return c;
+}
+
+/// The lightmap at fractional levels (a smooth-lit corner's mean), between texels like the
+/// game's linear sampler.
+fn lightmap(sky: f32, block: f32) -> vec3<f32> {
+    let s = clamp(sky, 0.0, 15.0);
+    let b = clamp(block, 0.0, 15.0);
+    let s0 = floor(s);
+    let b0 = floor(b);
+    let s1 = min(s0 + 1.0, 15.0);
+    let b1 = min(b0 + 1.0, 15.0);
+    let lo = mix(lightmap_texel(s0, b0), lightmap_texel(s0, b1), b - b0);
+    let hi = mix(lightmap_texel(s1, b0), lightmap_texel(s1, b1), b - b0);
+    return mix(lo, hi, s - s0);
+}
+
 struct VOut {
     @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -42,7 +88,7 @@ struct VOut {
 };
 
 @vertex
-fn vs(@location(0) pos: vec3<f32>, @location(1) uv: vec2<f32>, @location(2) layer: u32, @location(3) color: vec4<f32>) -> VOut {
+fn vs(@location(0) pos: vec3<f32>, @location(1) uv: vec2<f32>, @location(2) layer: u32, @location(3) color: vec4<f32>, @location(4) light: vec4<f32>) -> VOut {
     var o: VOut;
     o.pos = u.vp * vec4<f32>(pos, 1.0);
     // an X-ray face (the layer's top bit, `mesh::XRAY`: a mob farm's spawn spots) at the nearest
@@ -52,6 +98,10 @@ fn vs(@location(0) pos: vec3<f32>, @location(1) uv: vec2<f32>, @location(2) laye
     }
     o.uv = uv;
     o.color = color;
+    // a lit vertex (`mesh::lit`: its sky and block light x 16): the frame's lightmap
+    if (light.z > 0.0) {
+        o.color = vec4<f32>(color.rgb * lightmap(light.x * 255.0 / 16.0, light.y * 255.0 / 16.0), color.a);
+    }
     o.world = pos;
     o.layer = layer & 0x7fffffffu;
     return o;
@@ -117,7 +167,48 @@ fn fs_sky(i: SkyOut) -> @location(0) vec4<f32> {
     let far = u.inv_vp * vec4<f32>(i.ndc, 1.0, 1.0);
     let dir = normalize(far.xyz / far.w - u.eye.xyz);
     let t = clamp(dir.y * 1.6 + 0.1, 0.0, 1.0);
-    let c = mix(u.sky_low.rgb, u.sky_top.rgb, t);
+    var c = mix(u.sky_low.rgb, u.sky_top.rgb, t);
+    // the game's day (the live view of a run: `daylight::Env`): the sunrise fan on the sun's
+    // side of the horizon, the stars, the sun and the moon (drawn additively, dimmed by rain)
+    if (u.moon.w > 0.5) {
+        let side = normalize(vec3<f32>(u.sun.x, 0.0, 0.0) + vec3<f32>(0.0001, 0.0, 0.0));
+        let toward = max(dot(normalize(vec3<f32>(dir.x, 0.0, dir.z)), side), 0.0);
+        let fan = u.sunrise.a * toward * toward * toward * (1.0 - smoothstep(0.0, 0.45, abs(dir.y)));
+        c = mix(c, u.sunrise.rgb, clamp(fan, 0.0, 1.0));
+        // the stars turn with the sky (about the north-south axis, like the sun): a fixed field,
+        // hashed in the sky's own frame
+        let sd = vec3<f32>(dir.x * u.stars.x + dir.y * u.stars.y, -dir.x * u.stars.y + dir.y * u.stars.x, dir.z);
+        let cell = floor(sd * 180.0);
+        let h = fract(sin(dot(cell, vec3<f32>(12.9898, 78.233, 37.719))) * 43758.5453);
+        if (h > 0.9975) {
+            c = c + vec3<f32>(u.sun.w * u.stars.z);
+        }
+        // the sun (30 wide at 100 away: a square of half-size 0.3 in its plane) and the moon (20)
+        let bodies = array<vec4<f32>, 2>(vec4<f32>(u.sun.xyz, 0.3), vec4<f32>(u.moon.xyz, 0.2));
+        for (var k = 0; k < 2; k = k + 1) {
+            let b = bodies[k];
+            let along = dot(dir, b.xyz);
+            if (along > 0.0) {
+                // its plane's axes: north-south, and the one across (`SkyRenderer`'s rotations)
+                let ax = vec3<f32>(0.0, 0.0, 1.0);
+                let ay = normalize(cross(b.xyz, ax));
+                let p = vec2<f32>(dot(dir, ax), dot(dir, ay)) / along;
+                let m = max(abs(p.x), abs(p.y)) / b.w;
+                if (m < 1.0) {
+                    if (k == 0) {
+                        // the sun's texture: a bright core, its glow around
+                        let core = 1.0 - smoothstep(0.42, 0.5, m);
+                        let glow = (1.0 - m) * 0.55;
+                        c = c + vec3<f32>(1.0, 0.95, 0.7) * max(core, glow) * u.stars.z;
+                    } else {
+                        let core = 1.0 - smoothstep(0.4, 0.5, m);
+                        c = c + vec3<f32>(0.75, 0.78, 0.85) * core * u.stars.z;
+                    }
+                }
+            }
+        }
+        c = min(c, vec3<f32>(1.0));
+    }
     // under the horizon in the viewer (no ground under a design: the judges' void): the sky fades
     // into a quiet void tone, no surface
     if (u.sky_void.a > 0.5 && dir.y < 0.0) {
@@ -138,6 +229,13 @@ struct Uniforms {
     inv_vp: Mat4,
     /// The void's tone under the horizon (alpha 0: the pictures' sky, unchanged).
     sky_void: [f32; 4],
+    sky_light: [f32; 4],
+    ambient: [f32; 4],
+    block_tint: [f32; 4],
+    sun: [f32; 4],
+    moon: [f32; 4],
+    sunrise: [f32; 4],
+    stars: [f32; 4],
 }
 
 /// What one frame draws.
@@ -182,6 +280,10 @@ pub struct Renderer {
     /// The viewer's sky under the horizon: a void tone (it draws no ground under a design);
     /// false: the pictures' sky (`web compare`).
     pub void_below: bool,
+    /// The game's day (a live view of a run: its time and weather, `daylight::at`): the sky's
+    /// colours, the sun, the moon and the stars, and the lightmap of every lit vertex. None: the
+    /// pictures' noon sky and light.
+    pub env: Option<crate::daylight::Env>,
 }
 
 /// The game texture of an atlas (its game assets' mip levels), or a 1x1 placeholder.
@@ -299,6 +401,7 @@ impl Renderer {
                 wgpu::VertexAttribute { format: wgpu::VertexFormat::Float32x2, offset: 12, shader_location: 1 },
                 wgpu::VertexAttribute { format: wgpu::VertexFormat::Uint32, offset: 20, shader_location: 2 },
                 wgpu::VertexAttribute { format: wgpu::VertexFormat::Unorm8x4, offset: 24, shader_location: 3 },
+                wgpu::VertexAttribute { format: wgpu::VertexFormat::Unorm8x4, offset: 28, shader_location: 4 },
             ],
         };
         let ms = wgpu::MultisampleState { count: samples, mask: !0, alpha_to_coverage_enabled: false };
@@ -352,7 +455,7 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
-        Renderer { device, queue, format, samples, solid, blend, sky, uniforms, bind, targets: None, vbuf: None, fixed: None, tiles: tex, tiles_view: view, bgl, sampler, game_tex, game_of, view_chunks: None, void_below: false }
+        Renderer { device, queue, format, samples, solid, blend, sky, uniforms, bind, targets: None, vbuf: None, fixed: None, tiles: tex, tiles_view: view, bgl, sampler, game_tex, game_of, view_chunks: None, void_below: false, env: None }
     }
 
     fn bind_group(device: &wgpu::Device, bgl: &wgpu::BindGroupLayout, uniforms: &wgpu::Buffer, tiles: &wgpu::TextureView, sampler: &wgpu::Sampler, game: &wgpu::Texture) -> wgpu::BindGroup {
@@ -451,14 +554,52 @@ impl Renderer {
         let chunks = (((d * 2.0 + 16.0) / 16.0).ceil()).max(self.view_chunks.unwrap_or(6.0));
         let blocks = chunks * 16.0;
         let span = (blocks / 10.0).clamp(4.0, 64.0);
+        // the pictures' noon (no day): their sky's colours, the lightmap at noon (the dimension's
+        // values: `daylight::Env::noon`'s), no sun drawn
+        let noon = crate::daylight::Env::noon();
+        let e = self.env.unwrap_or(noon);
+        let (sky_top, sky_low) = match &self.env {
+            Some(env) => {
+                let (f, _, _) = frame.camera.basis();
+                let low = crate::daylight::horizon(env, f, chunks);
+                ([env.sky_color[0], env.sky_color[1], env.sky_color[2], 1.0], [low[0], low[1], low[2], 1.0])
+            }
+            None => ([0.55, 0.70, 1.0, 1.0], [0.70, 0.81, 1.0, 1.0]),
+        };
+        // the sun's and the moon's directions (`SkyRenderer`: turned -90 degrees about y, then by
+        // their angle about x: up at noon, east at dawn), the stars' turn with the sun's, and the
+        // rain's dimming of them all
+        let body = |deg: f32| {
+            let a = deg.to_radians();
+            [-a.sin(), a.cos(), 0.0]
+        };
+        let (sun, moon) = (body(e.sun_angle), body(e.moon_angle));
+        let rain_dim = 1.0 - e.rain;
         let u = Uniforms {
             vp,
             eye: [eye[0], eye[1], eye[2], 1.0],
             fog: [blocks - span, blocks, chunks, 1024.0],
-            sky_top: [0.55, 0.70, 1.0, 1.0],
-            sky_low: [0.70, 0.81, 1.0, 1.0],
+            sky_top,
+            sky_low,
             inv_vp: invert(&vp),
-            sky_void: if self.void_below { [0.47, 0.55, 0.68, 1.0] } else { [0.0; 4] },
+            sky_void: if self.void_below {
+                // (dimmed with the day: the horizon's brightness against noon's)
+                let luma = |c: [f32; 4]| 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
+                let k = match &self.env {
+                    Some(_) => (luma(sky_low) / luma([0.70, 0.81, 1.0, 1.0])).min(1.0),
+                    None => 1.0,
+                };
+                [0.47 * k, 0.55 * k, 0.68 * k, 1.0]
+            } else {
+                [0.0; 4]
+            },
+            sky_light: [e.sky_light_color[0], e.sky_light_color[1], e.sky_light_color[2], e.sky_light_factor],
+            ambient: [e.ambient[0], e.ambient[1], e.ambient[2], 1.4],
+            block_tint: [e.block_tint[0], e.block_tint[1], e.block_tint[2], 0.5],
+            sun: [sun[0], sun[1], sun[2], e.star_brightness],
+            moon: [moon[0], moon[1], moon[2], if self.env.is_some() { 1.0 } else { 0.0 }],
+            sunrise: e.sunrise,
+            stars: [e.sun_angle.to_radians().cos(), e.sun_angle.to_radians().sin(), rain_dim, 0.0],
         };
         self.queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&u));
         let n_solid = frame.solid.len() as u32;
@@ -520,7 +661,7 @@ impl Renderer {
     /// pass), so a page's first real frame does not also pay for the GL programs' first use.
     pub fn warm_up(&mut self) {
         let view = self.offscreen(1, 1);
-        let v = Vertex { pos: [0.0; 3], uv: [0.0; 2], layer: 0, color: [0; 4] };
+        let v = Vertex { pos: [0.0; 3], uv: [0.0; 2], layer: 0, color: [0; 4], light: crate::mesh::UNLIT };
         let tri = [v, v, v];
         let targets = self.targets.take();
         let camera = Camera { target: [0.0; 3], yaw: 0.5, pitch: 0.5, dist: 10.0, vfov: 0.8 };

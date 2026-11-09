@@ -17,6 +17,19 @@ pub struct Vertex {
     pub layer: u32,
     /// rgb = tint x shade x ambient occlusion, a = alpha (cutout faces are tested in the shader).
     pub color: [u8; 4],
+    /// The game's light here, for the lightmap the frame applies ([`LIT`]: the day's own,
+    /// `crate::daylight`): sky and block levels x 16 (a smooth-lit corner's fractional mean), and
+    /// 1 when `color` is to be lit by them; [`UNLIT`]: `color` as it is (overlays, the sky's
+    /// sprites, a design shown without light).
+    pub light: [u8; 4],
+}
+
+/// A vertex's colour drawn as it is (no lightmap).
+pub const UNLIT: [u8; 4] = [0; 4];
+
+/// The light of a vertex lit at (sky, block) light levels (0..15, fractional).
+pub fn lit(sky: f32, block: f32) -> [u8; 4] {
+    [(sky.clamp(0.0, 15.0) * 16.0).round() as u8, (block.clamp(0.0, 15.0) * 16.0).round() as u8, 1, 0]
 }
 
 /// One quad (two triangles), kept for back-to-front sorting.
@@ -119,7 +132,7 @@ impl Sprite {
         let h = self.half;
         let at = |sx: f32, sy: f32| [c[0] + (right[0] * sx + up[0] * sy) * h, c[1] + (right[1] * sx + up[1] * sy) * h, c[2] + (right[2] * sx + up[2] * sy) * h];
         let [u0, v0, u1, v1] = self.uv;
-        let v = |pos: [f32; 3], uv: [f32; 2]| Vertex { pos, uv, layer: self.layer, color: self.color };
+        let v = |pos: [f32; 3], uv: [f32; 2]| Vertex { pos, uv, layer: self.layer, color: self.color, light: UNLIT };
         let (bl, br, tr, tl) = (v(at(-1.0, -1.0), [u0, v1]), v(at(1.0, -1.0), [u1, v1]), v(at(1.0, 1.0), [u1, v0]), v(at(-1.0, 1.0), [u0, v0]));
         [bl, br, tr, bl, tr, tl]
     }
@@ -337,6 +350,20 @@ impl<'a> Builder<'a> {
             Some(l) => l.at(c),
             None => (15, 0),
         }
+    }
+
+    /// The light in a cell a renderer lights an entity or a block entity by (its block position):
+    /// its own, or, a block the light model counts as filling it (a chest, a bed), the brightest
+    /// of its six neighbours' less one (the game's light passes into it: such a block blocks at
+    /// most one level).
+    pub fn light_inside(&self, c: Pos) -> (u8, u8) {
+        let (mut s, mut b) = self.light_at(c);
+        for d in [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] {
+            let (ns, nb) = self.light_at([c[0] + d[0], c[1] + d[1], c[2] + d[2]]);
+            s = s.max(ns.saturating_sub(1));
+            b = b.max(nb.saturating_sub(1));
+        }
+        (s, b)
     }
 
     /// The light computed by [`Builder::blocks`], for the grass under the build.
@@ -587,8 +614,12 @@ impl<'a> Builder<'a> {
             return false;
         }
         match crate::entitymodel::block_entity_triangles(&g, state, cell) {
-            Some(tris) => {
-                for v in &tris {
+            Some(mut tris) => {
+                // its light (the block entity renderer's: its cell's), for the frame's lightmap
+                let (s, b) = self.light_inside(cell);
+                let l = lit(s as f32, b as f32);
+                for v in tris.iter_mut() {
+                    v.light = l;
                     for k in 0..3 {
                         self.mesh.lo[k] = self.mesh.lo[k].min(v.pos[k]);
                         self.mesh.hi[k] = self.mesh.hi[k].max(v.pos[k]);
@@ -601,8 +632,30 @@ impl<'a> Builder<'a> {
         }
     }
 
-    /// An entity model at a feet position, turned by yaw (degrees, the game's: 0 = south).
+    /// An entity model at a feet position, turned by yaw (degrees, the game's: 0 = south), lit by
+    /// its cell's light (`EntityRenderer.getPackedLightCoords`: the light at its block position)
+    /// for the frame's lightmap.
     pub fn entity(&mut self, e: &EntityDraw) {
+        let (s0, t0) = (self.mesh.solid.len(), self.mesh.translucent.len());
+        self.entity_parts(e);
+        let cell = [e.pos[0].floor() as i32, e.pos[1].floor() as i32, e.pos[2].floor() as i32];
+        let (s, b) = self.light_inside(cell);
+        let l = lit(s as f32, b as f32);
+        for v in &mut self.mesh.solid[s0..] {
+            if v.light == UNLIT {
+                v.light = l;
+            }
+        }
+        for q in &mut self.mesh.translucent[t0..] {
+            for v in q.v.iter_mut() {
+                if v.light == UNLIT {
+                    v.light = l;
+                }
+            }
+        }
+    }
+
+    fn entity_parts(&mut self, e: &EntityDraw) {
         if let Some(rest) = e.kind.strip_prefix("frame:") {
             self.item_frame(e.pos, rest);
             return;
@@ -836,10 +889,16 @@ impl<'a> Builder<'a> {
         let tile = self.atlas.tile("water") as u32;
         let flow = self.atlas.tile("water_flow") as u32;
         let (x, y, z) = (cell[0] as f32, cell[1] as f32, cell[2] as f32);
+        // its light (`LiquidBlockRenderer.getLightColor`: each of sky and block, the larger of the
+        // cell's and the one above's), for the frame's lightmap
+        let wl = {
+            let (a, b) = (self.light_at(cell), self.light_at([cell[0], cell[1] + 1, cell[2]]));
+            lit(a.0.max(b.0) as f32, a.1.max(b.1) as f32)
+        };
         let quad = |b: &mut Self, pts: [[f32; 3]; 4], uv: [[f32; 2]; 4], n: [f32; 3], layer: u32| {
             let l = shade(n);
             let c = (255.0 * l).round() as u8;
-            let v: [Vertex; 4] = std::array::from_fn(|k| Vertex { pos: pts[k], uv: uv[k], layer, color: [c, c, c, 255] });
+            let v: [Vertex; 4] = std::array::from_fn(|k| Vertex { pos: pts[k], uv: uv[k], layer, color: [c, c, c, 255], light: wl });
             let center = [(pts[0][0] + pts[2][0]) / 2.0, (pts[0][1] + pts[2][1]) / 2.0, (pts[0][2] + pts[2][2]) / 2.0];
             b.mesh.translucent.push(Quad { v, center });
             for q in pts {
@@ -1004,7 +1063,7 @@ impl<'a> Builder<'a> {
             let center = [(pts[0][0] + pts[2][0]) / 2.0, (pts[0][1] + pts[2][1]) / 2.0, (pts[0][2] + pts[2][2]) / 2.0];
             // (seen from above and from under it)
             for p in [pts, [pts[0], pts[3], pts[2], pts[1]]] {
-                let v: [Vertex; 4] = std::array::from_fn(|k| Vertex { pos: p[k], uv: uv[k], layer: tile, color: col });
+                let v: [Vertex; 4] = std::array::from_fn(|k| Vertex { pos: p[k], uv: uv[k], layer: tile, color: col, light: UNLIT });
                 b.mesh.translucent.push(Quad { v, center });
             }
         };
@@ -1075,18 +1134,18 @@ impl<'a> Builder<'a> {
     /// The game's light at a still block's face corners (`BlockModelLighter`), before the face's
     /// direction shade: smooth for a block that gives off no light and whose model allows it
     /// (each corner the mean of the four cells around it in front of the face: their shade, the
-    /// ambient occlusion, and their light), flat otherwise (the light in front of the face); then
-    /// the lightmap of that light. `pts`: the face's corners in the block (0..1).
-    fn face_light(&self, m: &Model, c: Pos, n: [f32; 3], side: Option<(usize, i32)>, pts: &[[f32; 3]; 4]) -> [[f32; 3]; 4] {
+    /// ambient occlusion, and their light), flat otherwise (the light in front of the face). Each
+    /// corner's (ambient occlusion, sky light, block light): the lightmap of that light is the
+    /// frame's (`Vertex::light`). `pts`: the face's corners in the block (0..1).
+    fn face_light(&self, m: &Model, c: Pos, n: [f32; 3], side: Option<(usize, i32)>, pts: &[[f32; 3]; 4]) -> [(f32, f32, f32); 4] {
         let step = |p: Pos, (axis, s): (usize, i32)| -> Pos {
             let mut q = p;
             q[axis] += s;
             q
         };
-        let lm = |sky: f32, block: f32| crate::light::lightmap(sky, block);
-        let flat = |at: Pos| -> [[f32; 3]; 4] {
+        let flat = |at: Pos| -> [(f32, f32, f32); 4] {
             let (s, b) = self.light_at(at);
-            [lm(s as f32, b.max(m.emission) as f32); 4]
+            [(1.0, s as f32, b.max(m.emission) as f32); 4]
         };
         // the face's direction (a turned face: flat at the block's own light)
         let Some(d) = (0..3).find(|&k| n[k].abs() > 0.999).map(|axis| (axis, if n[axis] > 0.0 { 1 } else { -1 })) else {
@@ -1137,7 +1196,7 @@ impl<'a> Builder<'a> {
             let ao: f32 = ws.iter().map(|(w, v)| w * v.0).sum();
             let sky: f32 = ws.iter().map(|(w, v)| w * v.1.0).sum();
             let block: f32 = ws.iter().map(|(w, v)| w * v.1.1).sum();
-            lm(sky, block).map(|v| v * ao)
+            (ao, sky, block)
         })
     }
 
@@ -1201,18 +1260,22 @@ impl<'a> Builder<'a> {
             }
         }
         let sh = if f.emissive || !p.shade { 1.0 } else { shade(n) };
-        // the game's light on the face (`BlockModelLighter`), times its direction's shade
-        let lum: [[f32; 3]; 4] = if f.emissive {
+        // the game's light on the face (`BlockModelLighter`): each corner's ambient occlusion
+        // times its direction's shade in the colour, its (sky, block) light for the lightmap the
+        // frame applies (`Vertex::light`: the day's own); and the corners' brightness at noon's
+        // lightmap (the pictures') for the diagonal rule below
+        let (lum, light, ao): ([[f32; 3]; 4], [[u8; 4]; 4], [f32; 4]) = if f.emissive {
             // the viewer's own marks: as bright as they are
-            [[1.0; 3]; 4]
+            ([[1.0; 3]; 4], [UNLIT; 4], [3.0; 4])
         } else {
             match cell {
-                Some(c) => self.face_light(m, c, n, side, &pts).map(|l| l.map(|v| v * sh)),
-                None => [[sh; 3]; 4],
+                Some(c) => {
+                    let fl = self.face_light(m, c, n, side, &pts);
+                    (fl.map(|(a, _, _)| [a * sh; 3]), fl.map(|(_, s, b)| lit(s, b)), fl.map(|(a, s, b)| crate::light::lightmap(s, b).iter().sum::<f32>() * a * sh))
+                }
+                None => ([[sh; 3]; 4], [UNLIT; 4], [3.0 * sh; 4]),
             }
         };
-        // the corners' brightness for the diagonal rule below
-        let ao: [f32; 4] = lum.map(|l| l[0] + l[1] + l[2]);
         let r = f.uv.unwrap_or(auto);
         // uvlock: the texture keeps the world's orientation: each corner's pixel from its final
         // place on the block, like the automatic UVs of an unturned face
@@ -1291,7 +1354,7 @@ impl<'a> Builder<'a> {
             let l = lum[k];
             let c = |t: u8, ch: usize| (t as f32 * l[ch]).round().clamp(0.0, 255.0) as u8;
             let layer = if p.xray { layer | XRAY } else { layer };
-            Vertex { pos: pts[k], uv: uv[k], layer, color: [c(tint[0], 0), c(tint[1], 1), c(tint[2], 2), alpha] }
+            Vertex { pos: pts[k], uv: uv[k], layer, color: [c(tint[0], 0), c(tint[1], 1), c(tint[2], 2), alpha], light: light[k] }
         });
         match p.layer {
             _ if ghost => {
@@ -1354,14 +1417,16 @@ pub fn variant_of_4(x: i32, y: i32, z: i32) -> u32 {
 }
 
 /// A grass top's corner (`cx`, `cz`) lit like the game's smooth lighting: the light of the four
-/// air cells around it over the grass (row `ly`: darker under the build, its contact shadow),
-/// through the lightmap.
+/// air cells around it over the grass (row `ly`: darker under the build, its contact shadow), for
+/// the frame's lightmap.
 fn grass_corner(light: &dyn Fn(Pos) -> (u8, u8), cx: i32, ly: i32, cz: i32) -> [u8; 4] {
     let at = |x: i32, z: i32| light([x, ly, z]);
     let (sky, block) = crate::light::smooth_blend(at(cx - 1, cz - 1), at(cx, cz - 1), at(cx - 1, cz), at(cx, cz));
-    let c = crate::light::lightmap(sky, block).map(|v| (255.0 * v).round().clamp(0.0, 255.0) as u8);
-    [c[0], c[1], c[2], 255]
+    lit(sky, block)
 }
+
+/// The open sky's light (sky 15, no block light): the ground's far strips and edges.
+pub const OPEN_SKY: [u8; 4] = [240, 0, 1, 0];
 
 /// No light computed: the open sky everywhere.
 pub fn daylight(_: Pos) -> (u8, u8) {
@@ -1411,10 +1476,10 @@ pub fn ground(atlas: &Atlas, lo: [f32; 3], hi: [f32; 3], y: f32, r: f32, light: 
             };
             let (fx, fz) = (bx as f32, bz as f32);
             quad([
-                Vertex { pos: [fx, y, fz], uv: uv(0.0, 0.0), layer: top, color: corner(bx, bz) },
-                Vertex { pos: [fx, y, fz + 1.0], uv: uv(0.0, 1.0), layer: top, color: corner(bx, bz + 1) },
-                Vertex { pos: [fx + 1.0, y, fz + 1.0], uv: uv(1.0, 1.0), layer: top, color: corner(bx + 1, bz + 1) },
-                Vertex { pos: [fx + 1.0, y, fz], uv: uv(1.0, 0.0), layer: top, color: corner(bx + 1, bz) },
+                Vertex { pos: [fx, y, fz], uv: uv(0.0, 0.0), layer: top, color: [255; 4], light: corner(bx, bz) },
+                Vertex { pos: [fx, y, fz + 1.0], uv: uv(0.0, 1.0), layer: top, color: [255; 4], light: corner(bx, bz + 1) },
+                Vertex { pos: [fx + 1.0, y, fz + 1.0], uv: uv(1.0, 1.0), layer: top, color: [255; 4], light: corner(bx + 1, bz + 1) },
+                Vertex { pos: [fx + 1.0, y, fz], uv: uv(1.0, 0.0), layer: top, color: [255; 4], light: corner(bx + 1, bz) },
             ]);
         }
     }
@@ -1425,44 +1490,44 @@ pub fn ground(atlas: &Atlas, lo: [f32; 3], hi: [f32; 3], y: f32, r: f32, light: 
             continue;
         }
         quad([
-            Vertex { pos: [a[0], y, a[1]], uv: [a[0], a[1]], layer: top, color: c },
-            Vertex { pos: [a[0], y, b[1]], uv: [a[0], b[1]], layer: top, color: c },
-            Vertex { pos: [b[0], y, b[1]], uv: [b[0], b[1]], layer: top, color: c },
-            Vertex { pos: [b[0], y, a[1]], uv: [b[0], a[1]], layer: top, color: c },
+            Vertex { pos: [a[0], y, a[1]], uv: [a[0], a[1]], layer: top, color: c, light: OPEN_SKY },
+            Vertex { pos: [a[0], y, b[1]], uv: [a[0], b[1]], layer: top, color: c, light: OPEN_SKY },
+            Vertex { pos: [b[0], y, b[1]], uv: [b[0], b[1]], layer: top, color: c, light: OPEN_SKY },
+            Vertex { pos: [b[0], y, a[1]], uv: [b[0], a[1]], layer: top, color: c, light: OPEN_SKY },
         ]);
     }
     let c = lum(0.5);
     quad([
-        Vertex { pos: [x0, yb, z0], uv: [x0, z0], layer: dirt, color: c },
-        Vertex { pos: [x1, yb, z0], uv: [x1, z0], layer: dirt, color: c },
-        Vertex { pos: [x1, yb, z1], uv: [x1, z1], layer: dirt, color: c },
-        Vertex { pos: [x0, yb, z1], uv: [x0, z1], layer: dirt, color: c },
+        Vertex { pos: [x0, yb, z0], uv: [x0, z0], layer: dirt, color: c, light: OPEN_SKY },
+        Vertex { pos: [x1, yb, z0], uv: [x1, z0], layer: dirt, color: c, light: OPEN_SKY },
+        Vertex { pos: [x1, yb, z1], uv: [x1, z1], layer: dirt, color: c, light: OPEN_SKY },
+        Vertex { pos: [x0, yb, z1], uv: [x0, z1], layer: dirt, color: c, light: OPEN_SKY },
     ]);
     // sides, wound to face outward (north -z, south +z, west -x, east +x)
     let (cz, cx) = (lum(0.8), lum(0.6));
     quad([
-        Vertex { pos: [x0, y, z0], uv: [x0, 0.0], layer: side, color: cz },
-        Vertex { pos: [x1, y, z0], uv: [x1, 0.0], layer: side, color: cz },
-        Vertex { pos: [x1, yb, z0], uv: [x1, 1.0], layer: side, color: cz },
-        Vertex { pos: [x0, yb, z0], uv: [x0, 1.0], layer: side, color: cz },
+        Vertex { pos: [x0, y, z0], uv: [x0, 0.0], layer: side, color: cz, light: OPEN_SKY },
+        Vertex { pos: [x1, y, z0], uv: [x1, 0.0], layer: side, color: cz, light: OPEN_SKY },
+        Vertex { pos: [x1, yb, z0], uv: [x1, 1.0], layer: side, color: cz, light: OPEN_SKY },
+        Vertex { pos: [x0, yb, z0], uv: [x0, 1.0], layer: side, color: cz, light: OPEN_SKY },
     ]);
     quad([
-        Vertex { pos: [x1, y, z1], uv: [x1, 0.0], layer: side, color: cz },
-        Vertex { pos: [x0, y, z1], uv: [x0, 0.0], layer: side, color: cz },
-        Vertex { pos: [x0, yb, z1], uv: [x0, 1.0], layer: side, color: cz },
-        Vertex { pos: [x1, yb, z1], uv: [x1, 1.0], layer: side, color: cz },
+        Vertex { pos: [x1, y, z1], uv: [x1, 0.0], layer: side, color: cz, light: OPEN_SKY },
+        Vertex { pos: [x0, y, z1], uv: [x0, 0.0], layer: side, color: cz, light: OPEN_SKY },
+        Vertex { pos: [x0, yb, z1], uv: [x0, 1.0], layer: side, color: cz, light: OPEN_SKY },
+        Vertex { pos: [x1, yb, z1], uv: [x1, 1.0], layer: side, color: cz, light: OPEN_SKY },
     ]);
     quad([
-        Vertex { pos: [x0, y, z1], uv: [z1, 0.0], layer: side, color: cx },
-        Vertex { pos: [x0, y, z0], uv: [z0, 0.0], layer: side, color: cx },
-        Vertex { pos: [x0, yb, z0], uv: [z0, 1.0], layer: side, color: cx },
-        Vertex { pos: [x0, yb, z1], uv: [z1, 1.0], layer: side, color: cx },
+        Vertex { pos: [x0, y, z1], uv: [z1, 0.0], layer: side, color: cx, light: OPEN_SKY },
+        Vertex { pos: [x0, y, z0], uv: [z0, 0.0], layer: side, color: cx, light: OPEN_SKY },
+        Vertex { pos: [x0, yb, z0], uv: [z0, 1.0], layer: side, color: cx, light: OPEN_SKY },
+        Vertex { pos: [x0, yb, z1], uv: [z1, 1.0], layer: side, color: cx, light: OPEN_SKY },
     ]);
     quad([
-        Vertex { pos: [x1, y, z0], uv: [z0, 0.0], layer: side, color: cx },
-        Vertex { pos: [x1, y, z1], uv: [z1, 0.0], layer: side, color: cx },
-        Vertex { pos: [x1, yb, z1], uv: [z1, 1.0], layer: side, color: cx },
-        Vertex { pos: [x1, yb, z0], uv: [z0, 1.0], layer: side, color: cx },
+        Vertex { pos: [x1, y, z0], uv: [z0, 0.0], layer: side, color: cx, light: OPEN_SKY },
+        Vertex { pos: [x1, y, z1], uv: [z1, 0.0], layer: side, color: cx, light: OPEN_SKY },
+        Vertex { pos: [x1, yb, z1], uv: [z1, 1.0], layer: side, color: cx, light: OPEN_SKY },
+        Vertex { pos: [x1, yb, z0], uv: [z0, 1.0], layer: side, color: cx, light: OPEN_SKY },
     ]);
     out
 }
@@ -1499,10 +1564,10 @@ pub fn floor(atlas: &Atlas, lo: Pos, hi: Pos, sides: &[&str], skip: &HashSet<Pos
                 // a run of far grass tops: the texture repeated (world coordinates)
                 let (a, b, fz) = (a as f32, bx as f32, bz as f32);
                 quad([
-                    Vertex { pos: [a, y, fz], uv: [a, fz], layer: top, color: c },
-                    Vertex { pos: [a, y, fz + 1.0], uv: [a, fz + 1.0], layer: top, color: c },
-                    Vertex { pos: [b, y, fz + 1.0], uv: [b, fz + 1.0], layer: top, color: c },
-                    Vertex { pos: [b, y, fz], uv: [b, fz], layer: top, color: c },
+                    Vertex { pos: [a, y, fz], uv: [a, fz], layer: top, color: c, light: OPEN_SKY },
+                    Vertex { pos: [a, y, fz + 1.0], uv: [a, fz + 1.0], layer: top, color: c, light: OPEN_SKY },
+                    Vertex { pos: [b, y, fz + 1.0], uv: [b, fz + 1.0], layer: top, color: c, light: OPEN_SKY },
+                    Vertex { pos: [b, y, fz], uv: [b, fz], layer: top, color: c, light: OPEN_SKY },
                 ]);
             }
             if bx > hi[0] || !is_near(bx, bz) || skip.contains(&[bx, gy, bz]) {
@@ -1519,10 +1584,10 @@ pub fn floor(atlas: &Atlas, lo: Pos, hi: Pos, sides: &[&str], skip: &HashSet<Pos
             };
             let (fx, fz) = (bx as f32, bz as f32);
             quad([
-                Vertex { pos: [fx, y, fz], uv: uv(0.0, 0.0), layer: top, color: corner(bx, bz) },
-                Vertex { pos: [fx, y, fz + 1.0], uv: uv(0.0, 1.0), layer: top, color: corner(bx, bz + 1) },
-                Vertex { pos: [fx + 1.0, y, fz + 1.0], uv: uv(1.0, 1.0), layer: top, color: corner(bx + 1, bz + 1) },
-                Vertex { pos: [fx + 1.0, y, fz], uv: uv(1.0, 0.0), layer: top, color: corner(bx + 1, bz) },
+                Vertex { pos: [fx, y, fz], uv: uv(0.0, 0.0), layer: top, color: [255; 4], light: corner(bx, bz) },
+                Vertex { pos: [fx, y, fz + 1.0], uv: uv(0.0, 1.0), layer: top, color: [255; 4], light: corner(bx, bz + 1) },
+                Vertex { pos: [fx + 1.0, y, fz + 1.0], uv: uv(1.0, 1.0), layer: top, color: [255; 4], light: corner(bx + 1, bz + 1) },
+                Vertex { pos: [fx + 1.0, y, fz], uv: uv(1.0, 0.0), layer: top, color: [255; 4], light: corner(bx + 1, bz) },
             ]);
         }
     }
@@ -1542,18 +1607,18 @@ pub fn floor(atlas: &Atlas, lo: Pos, hi: Pos, sides: &[&str], skip: &HashSet<Pos
                     if north {
                         let z = zc as f32;
                         quad([
-                            Vertex { pos: [x0, yt, z], uv: [x0, 0.0], layer: tile, color: cz },
-                            Vertex { pos: [x1, yt, z], uv: [x1, 0.0], layer: tile, color: cz },
-                            Vertex { pos: [x1, yb, z], uv: [x1, 1.0], layer: tile, color: cz },
-                            Vertex { pos: [x0, yb, z], uv: [x0, 1.0], layer: tile, color: cz },
+                            Vertex { pos: [x0, yt, z], uv: [x0, 0.0], layer: tile, color: cz, light: OPEN_SKY },
+                            Vertex { pos: [x1, yt, z], uv: [x1, 0.0], layer: tile, color: cz, light: OPEN_SKY },
+                            Vertex { pos: [x1, yb, z], uv: [x1, 1.0], layer: tile, color: cz, light: OPEN_SKY },
+                            Vertex { pos: [x0, yb, z], uv: [x0, 1.0], layer: tile, color: cz, light: OPEN_SKY },
                         ]);
                     } else {
                         let z = zc as f32 + 1.0;
                         quad([
-                            Vertex { pos: [x1, yt, z], uv: [x1, 0.0], layer: tile, color: cz },
-                            Vertex { pos: [x0, yt, z], uv: [x0, 0.0], layer: tile, color: cz },
-                            Vertex { pos: [x0, yb, z], uv: [x0, 1.0], layer: tile, color: cz },
-                            Vertex { pos: [x1, yb, z], uv: [x1, 1.0], layer: tile, color: cz },
+                            Vertex { pos: [x1, yt, z], uv: [x1, 0.0], layer: tile, color: cz, light: OPEN_SKY },
+                            Vertex { pos: [x0, yt, z], uv: [x0, 0.0], layer: tile, color: cz, light: OPEN_SKY },
+                            Vertex { pos: [x0, yb, z], uv: [x0, 1.0], layer: tile, color: cz, light: OPEN_SKY },
+                            Vertex { pos: [x1, yb, z], uv: [x1, 1.0], layer: tile, color: cz, light: OPEN_SKY },
                         ]);
                     }
                 }
@@ -1570,18 +1635,18 @@ pub fn floor(atlas: &Atlas, lo: Pos, hi: Pos, sides: &[&str], skip: &HashSet<Pos
                     if west {
                         let x = xc as f32;
                         quad([
-                            Vertex { pos: [x, yt, z1], uv: [z1, 0.0], layer: tile, color: cx },
-                            Vertex { pos: [x, yt, z0], uv: [z0, 0.0], layer: tile, color: cx },
-                            Vertex { pos: [x, yb, z0], uv: [z0, 1.0], layer: tile, color: cx },
-                            Vertex { pos: [x, yb, z1], uv: [z1, 1.0], layer: tile, color: cx },
+                            Vertex { pos: [x, yt, z1], uv: [z1, 0.0], layer: tile, color: cx, light: OPEN_SKY },
+                            Vertex { pos: [x, yt, z0], uv: [z0, 0.0], layer: tile, color: cx, light: OPEN_SKY },
+                            Vertex { pos: [x, yb, z0], uv: [z0, 1.0], layer: tile, color: cx, light: OPEN_SKY },
+                            Vertex { pos: [x, yb, z1], uv: [z1, 1.0], layer: tile, color: cx, light: OPEN_SKY },
                         ]);
                     } else {
                         let x = xc as f32 + 1.0;
                         quad([
-                            Vertex { pos: [x, yt, z0], uv: [z0, 0.0], layer: tile, color: cx },
-                            Vertex { pos: [x, yt, z1], uv: [z1, 0.0], layer: tile, color: cx },
-                            Vertex { pos: [x, yb, z1], uv: [z1, 1.0], layer: tile, color: cx },
-                            Vertex { pos: [x, yb, z0], uv: [z0, 1.0], layer: tile, color: cx },
+                            Vertex { pos: [x, yt, z0], uv: [z0, 0.0], layer: tile, color: cx, light: OPEN_SKY },
+                            Vertex { pos: [x, yt, z1], uv: [z1, 0.0], layer: tile, color: cx, light: OPEN_SKY },
+                            Vertex { pos: [x, yb, z1], uv: [z1, 1.0], layer: tile, color: cx, light: OPEN_SKY },
+                            Vertex { pos: [x, yb, z0], uv: [z0, 1.0], layer: tile, color: cx, light: OPEN_SKY },
                         ]);
                     }
                 }
@@ -1598,10 +1663,10 @@ pub fn floor(atlas: &Atlas, lo: Pos, hi: Pos, sides: &[&str], skip: &HashSet<Pos
             } else if let Some(a) = run.take() {
                 let (x0, x1, z0, z1) = (a as f32, bx as f32, bz as f32, bz as f32 + 1.0);
                 quad([
-                    Vertex { pos: [x0, yb, z0], uv: [x0, z0], layer: bottom, color: c },
-                    Vertex { pos: [x1, yb, z0], uv: [x1, z0], layer: bottom, color: c },
-                    Vertex { pos: [x1, yb, z1], uv: [x1, z1], layer: bottom, color: c },
-                    Vertex { pos: [x0, yb, z1], uv: [x0, z1], layer: bottom, color: c },
+                    Vertex { pos: [x0, yb, z0], uv: [x0, z0], layer: bottom, color: c, light: OPEN_SKY },
+                    Vertex { pos: [x1, yb, z0], uv: [x1, z0], layer: bottom, color: c, light: OPEN_SKY },
+                    Vertex { pos: [x1, yb, z1], uv: [x1, z1], layer: bottom, color: c, light: OPEN_SKY },
+                    Vertex { pos: [x0, yb, z1], uv: [x0, z1], layer: bottom, color: c, light: OPEN_SKY },
                 ]);
             }
         }
@@ -1618,7 +1683,10 @@ mod tests {
     fn top_corners(b: &Builder, cell: Pos) -> Vec<f32> {
         let top = cell[1] as f32 + 1.0;
         let inside = |v: &Vertex| (v.pos[1] - top).abs() < 1e-4 && (v.pos[0] - cell[0] as f32 - 0.5).abs() <= 0.5 && (v.pos[2] - cell[2] as f32 - 0.5).abs() <= 0.5;
-        b.mesh.solid.chunks(3).filter(|t| t.iter().all(inside)).flatten().map(|v| v.color[0] as f32 / 255.0).collect()
+        // (as drawn at noon: the colour times the lightmap of its light)
+        let noon = crate::daylight::Env::noon();
+        let drawn = |v: &Vertex| v.color[0] as f32 / 255.0 * if v.light[2] > 0 { crate::daylight::lightmap(&noon, v.light[0] as f32 / 16.0, v.light[1] as f32 / 16.0)[0] } else { 1.0 };
+        b.mesh.solid.chunks(3).filter(|t| t.iter().all(inside)).flatten().map(drawn).collect()
     }
 
     /// The game's smooth lighting (`BlockModelLighter`): a corner next to an opaque block is 0.8

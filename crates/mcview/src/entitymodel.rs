@@ -235,7 +235,7 @@ fn emit(out: &mut Vec<Vertex>, parts: &[EPart], m: &M, tex_size: [f32; 2], rect:
                     let y = rect[1] as f32 + (t[1] / tex_size[1]).clamp(0.0, 1.0) * rect[3] as f32;
                     [(x.clamp(rect[0] as f32 + 0.02, (rect[0] + rect[2]) as f32 - 0.02)) / tw, (y.clamp(rect[1] as f32 + 0.02, (rect[1] + rect[3]) as f32 - 0.02)) / th]
                 };
-                let vx: [Vertex; 4] = std::array::from_fn(|k| Vertex { pos: world[k], uv: tex(uv[k]), layer: crate::atlas::GAME_LAYER, color: [l, l, l, 255] });
+                let vx: [Vertex; 4] = std::array::from_fn(|k| Vertex { pos: world[k], uv: tex(uv[k]), layer: crate::atlas::GAME_LAYER, color: [l, l, l, 255], light: crate::mesh::UNLIT });
                 out.extend_from_slice(&[vx[0], vx[1], vx[2], vx[0], vx[2], vx[3]]);
             }
         }
@@ -587,7 +587,7 @@ pub fn flame_triangles(f: &crate::mesh::Flame, right: [f32; 3], back: [f32; 3]) 
         if (ss / 2) % 2 == 0 {
             std::mem::swap(&mut u0, &mut u1);
         }
-        let v = |p: [f32; 3], u: f32, vv: f32| Vertex { pos: p, uv: [u, vv], layer: crate::atlas::GAME_LAYER, color: [255, 255, 255, 255] };
+        let v = |p: [f32; 3], u: f32, vv: f32| Vertex { pos: p, uv: [u, vv], layer: crate::atlas::GAME_LAYER, color: [255, 255, 255, 255], light: crate::mesh::UNLIT };
         let q = [v(at(-r, -yo, zo), u1, v1), v(at(r, -yo, zo), u0, v1), v(at(r, 1.4 - yo, zo), u0, v0), v(at(-r, 1.4 - yo, zo), u1, v0)];
         out.extend_from_slice(&[q[0], q[1], q[2], q[0], q[2], q[3]]);
         h -= 0.45;
@@ -687,7 +687,7 @@ pub fn sprite_triangles_of(g: &GameAssets, name: &str, m: &M) -> Option<Vec<Vert
     let mut out = Vec::new();
     for (side, nn) in [(false, n), (true, [-n[0], -n[1], -n[2]])] {
         let l = (entity_light(nn) * 255.0).round() as u8;
-        let mk = |k: usize, u: f32, v: f32| Vertex { pos: q[k], uv: uv(u, v), layer: crate::atlas::GAME_LAYER, color: [l, l, l, 255] };
+        let mk = |k: usize, u: f32, v: f32| Vertex { pos: q[k], uv: uv(u, v), layer: crate::atlas::GAME_LAYER, color: [l, l, l, 255], light: crate::mesh::UNLIT };
         let vs = [mk(0, 0.0, 0.0), mk(1, 0.0, 1.0), mk(2, 1.0, 1.0), mk(3, 1.0, 0.0)];
         if side {
             out.extend_from_slice(&[vs[0], vs[2], vs[1], vs[0], vs[3], vs[2]]);
