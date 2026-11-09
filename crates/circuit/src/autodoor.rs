@@ -832,14 +832,47 @@ pub fn sim_verify(c: &Circuit, o: &Options) -> std::result::Result<VerifyReport,
     let offsets = clock::offsets(o.positions);
     let turns: Vec<u8> = if o.rotations { vec![0, 1, 2, 3] } else { vec![0] };
     let family = c.kinds().into_iter().collect::<Vec<_>>().join("+");
-    let mut builds = Vec::new();
+    // the builds in the loop's order (a rotation or a move that fails is an entry of its own,
+    // where the loop would have stopped), run at once, then read in that order: the first error
+    // is the one the loop met first (tickexact 2026-11-08: one build after the other made the
+    // three calibration doors the slowest piece of `mctas test`)
+    let mut jobs: Vec<std::result::Result<(u8, [i32; 3], Circuit), String>> = Vec::new();
     for t in &turns {
-        let tc = c.turned_pure(*t).map_err(|e| format!("rotation {t}: {e:#}"))?;
+        let tc = match c.turned_pure(*t) {
+            Ok(tc) => tc,
+            Err(e) => {
+                jobs.push(Err(format!("rotation {t}: {e:#}")));
+                break;
+            }
+        };
+        let mut failed = false;
         for off in &offsets {
-            let rc = tc.translated(*off).map_err(|e| format!("{e:#}"))?;
-            let r = sim_run(&rc, o.margin).map_err(|why| format!("rotation {t} at {off:?}: {why:#}"))?;
-            builds.push(Build { turns: *t, offset: *off, result: r.map(|log| BuildOk { outcome: judge(&rc, &log), dims: log.dims, family: family.clone() }) });
+            match tc.translated(*off) {
+                Ok(rc) => jobs.push(Ok((*t, *off, rc))),
+                Err(e) => {
+                    jobs.push(Err(format!("{e:#}")));
+                    failed = true;
+                    break;
+                }
+            }
         }
+        if failed {
+            break;
+        }
+    }
+    let margin = o.margin;
+    let runs: Vec<Option<std::result::Result<_, String>>> = std::thread::scope(|s| {
+        let hs: Vec<_> = jobs
+            .iter()
+            .map(|j| j.as_ref().ok().map(|(t, off, rc)| s.spawn(move || sim_run(rc, margin).map_err(|why| format!("rotation {t} at {off:?}: {why:#}")))))
+            .collect();
+        hs.into_iter().map(|h| h.map(|h| h.join().unwrap_or_else(|_| Err("a build panicked".to_string())))).collect()
+    });
+    let mut builds = Vec::new();
+    for (j, r) in jobs.into_iter().zip(runs) {
+        let (t, off, rc) = j?;
+        let r = r.expect("a run for every build")?;
+        builds.push(Build { turns: t, offset: off, result: r.map(|log| BuildOk { outcome: judge(&rc, &log), dims: log.dims, family: family.clone() }) });
     }
     Ok(report(c, kind, builds))
 }
