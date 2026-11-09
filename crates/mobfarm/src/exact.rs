@@ -1231,6 +1231,7 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
             }
         }
         eprintln!("ticking sections: the game {}, redsim {} (the ticking chunks'); redsim's box {} size {:?}, {} cells outside it held", theirs.len(), ours.len(), w.min, w.size, w.outer.len());
+        eprintln!("redsim's world: land {}, {} errors{}", w.land.is_some(), w.errors.len(), w.errors.first().map(|e| format!(", the first: {e}")).unwrap_or_default());
     }
     // (a probe: MCTAS_EXACT_BLOCKS="x0,y0,z0,x1,y1,z1": each cell of the box whose block differs at
     // the end, the game's against redsim's; with `=all:` in front every cell is printed)
