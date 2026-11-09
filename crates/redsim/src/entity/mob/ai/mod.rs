@@ -701,6 +701,9 @@ fn zombie_drowning(w: &mut World, i: usize) {
 }
 
 pub fn after_ai_step(w: &mut World, i: usize) {
+    // inside aiStep, before tickHeadTurn: AgeableMob.aiStep's age (a grown baby's box and its
+    // fudge move, which the body's turn sees), Chicken.aiStep's tail (the slow fall, the egg)
+    goal::animal::after_ai_step(w, i);
     // AgeableMob.aiStep's age (a baby squid's), then Squid.aiStep's tail (after
     // LivingEntity.aiStep): the tentacles, the swim impulse, the turns
     squid::age_step(w, i);

@@ -376,14 +376,16 @@ fn set_age(w: &mut World, i: usize, new: i32) {
 fn grow_up(w: &mut World, i: usize) {
     let Some(adult) = adult_of(mob(w, i).ty.def().id) else { return };
     let Some(ty) = MobType::from_id(adult) else { return };
+    let (ow, oh) = mob(w, i).dims();
     mob_mut(w, i).ty = ty;
+    // refreshDimensions: the adult's box at the same feet (reapplyPosition), then
+    // fudgePositionAfterSizeChange (a grown box finds the free position closest to its old centre)
     let pos = w.entities.list[i].pos;
     let (wd, h) = mob(w, i).dims();
     let bb = crate::entity::make_bounding_box(pos, wd, h);
     w.entities.list[i].bb = bb;
-    if !crate::entity::no_collision(w, i, bb.deflate(1.0e-7, 1.0e-7, 1.0e-7)) {
-        // the fallback rule: grown in place, named in the run's report
-        w.mob.ai.legacy.insert("a baby animal growing up against a block (fudgePositionAfterSizeChange)");
+    if !w.entities.list[i].first_tick {
+        crate::entity::fudge_position_after_size_change(w, i, ow, oh);
     }
 }
 

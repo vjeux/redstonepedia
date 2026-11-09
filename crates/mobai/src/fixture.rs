@@ -689,6 +689,44 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // babies growing up against blocks (refreshDimensions' fudgePositionAfterSizeChange): a baby
+    // cow, sheep, pig and chicken each off-centre in a 1x1 pen (the adult's box overlaps a wall:
+    // pushed to the free position closest to its old centre), a baby cow under a ceiling one block
+    // up (no room for the adult's height: the second search, ignoring y); Age -60
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        let pens = [12, 16, 20, 24, 28];
+        for &x in &pens {
+            for (dx, dz) in [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)] {
+                for y in 64..=66 {
+                    b.push(([x + dx, y, 12 + dz], "minecraft:stone".to_string()));
+                }
+            }
+        }
+        b.push(([28, 65, 12], "minecraft:stone".to_string()));
+        let p = |s: &str| Some(s.to_string());
+        v.push(Scene {
+            name: "baby-grow-wall".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:cow".into(), [12.3, 64.0, 12.5], p("{PersistenceRequired:1b,Age:-60}")),
+                ("minecraft:sheep".into(), [16.72, 64.0, 12.4], p("{PersistenceRequired:1b,Age:-60}")),
+                ("minecraft:pig".into(), [20.5, 64.0, 12.26], p("{PersistenceRequired:1b,Age:-60}")),
+                ("minecraft:chicken".into(), [24.2, 64.0, 12.21], p("{PersistenceRequired:1b,Age:-60}")),
+                ("minecraft:cow".into(), [28.5, 64.0, 12.5], p("{PersistenceRequired:1b,Age:-60}")),
+            ],
+            day_time: 6000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: Some([24.5, 74.0, 24.5]),
+            player_creative: true,
+            random_tick_speed: 0,
+        });
+    }
+    // the farm animals' babies by their parents in a grass pen: FollowParentGoal, a baby sheep's
     // EatBlockGoal (25) and its age-up, two babies growing up during the run
     {
         let mut b = Vec::new();

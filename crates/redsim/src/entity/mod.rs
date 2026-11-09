@@ -711,6 +711,32 @@ fn dismount_from_removed(w: &mut World, i: usize, vpos: Option<Vec3>) {
     (e.x_old, e.y_old, e.z_old) = (target.x, target.y, target.z);
 }
 
+/// `Entity.fudgePositionAfterSizeChange(previous)` of a mob grown from (`ow`, `oh`): the free
+/// position closest to the old centre among the centres within the growth (+1e-6) of it, else for
+/// a box grown both ways the same ignoring y with the old height; `setPos` there. True when moved.
+pub fn fudge_position_after_size_change(w: &mut World, i: usize, ow: f32, oh: f32) -> bool {
+    let (nw, nh) = match &w.entities.list[i].kind {
+        EntityKind::Mob(m) => m.dims(),
+        _ => return false,
+    };
+    let pos = w.entities.list[i].pos;
+    let old_center = pos.add(0.0, oh as f64 / 2.0, 0.0);
+    let wd = (nw - ow).max(0.0) as f64 + 1.0e-6;
+    let hd = (nh - oh).max(0.0) as f64 + 1.0e-6;
+    let of_size = |c: Vec3, x: f64, y: f64, z: f64| Aabb::new(c.x - x / 2.0, c.y - y / 2.0, c.z - z / 2.0, c.x + x / 2.0, c.y + y / 2.0, c.z + z / 2.0);
+    if let Some(p) = find_free_position(w, of_size(old_center, wd, hd, wd), old_center, nw as f64, nh as f64, nw as f64) {
+        w.entities.set_pos(i, p.add(0.0, -(nh as f64) / 2.0, 0.0));
+        return true;
+    }
+    if nw > ow && nh > oh
+        && let Some(p) = find_free_position(w, of_size(old_center, wd, 1.0e-6, wd), old_center, nw as f64, oh as f64, nw as f64)
+    {
+        w.entities.set_pos(i, p.add(0.0, -(oh as f64) / 2.0 + 1.0e-6, 0.0));
+        return true;
+    }
+    false
+}
+
 /// `CollisionGetter.findFreePosition(source, allowedCenters (one box), preferredCenter, sx, sy,
 /// sz)`: the block collisions over the box inflated by the size, each box inflated by half the
 /// size and taken from the allowed box (`Shapes.join(.., ONLY_FIRST)`), then `closestPointTo`.

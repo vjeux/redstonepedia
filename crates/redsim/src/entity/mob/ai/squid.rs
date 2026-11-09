@@ -64,14 +64,14 @@ pub fn age_step(w: &mut World, i: usize) {
         if a + 1 >= 0
             && let Some(ty) = crate::entity::mob::types::MobType::from_id(id.trim_start_matches("baby_"))
         {
+            let (ow, oh) = crate::entity::mob::mob(w, i).dims();
             crate::entity::mob::mob_mut(w, i).ty = ty;
             let pos = w.entities.list[i].pos;
             let (wd, h) = crate::entity::mob::mob(w, i).dims();
             let bb = crate::entity::make_bounding_box(pos, wd, h);
             w.entities.list[i].bb = bb;
-            if !crate::entity::no_collision(w, i, bb.deflate(1.0e-7, 1.0e-7, 1.0e-7)) {
-                // the fallback rule: grown in place, named in the run's report
-                w.mob.ai.legacy.insert("a baby squid growing up against a block (fudgePositionAfterSizeChange)");
+            if !w.entities.list[i].first_tick {
+                crate::entity::fudge_position_after_size_change(w, i, ow, oh);
             }
         }
     } else if a > 0 {

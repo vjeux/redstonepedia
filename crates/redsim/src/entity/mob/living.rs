@@ -84,8 +84,6 @@ pub fn tick(w: &mut World, i: usize) {
     // AbstractCubeMob.tick after super.tick: the landing's draws
     if super::ai::has_ai(w, i) {
         super::ai::cube::after_tick(w, i);
-        // Chicken.aiStep's tail: the slow fall, the egg; AgeableMob.aiStep's age
-        super::ai::goal::animal::after_ai_step(w, i);
     }
 }
 
