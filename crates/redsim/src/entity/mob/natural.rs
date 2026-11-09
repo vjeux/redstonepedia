@@ -1490,6 +1490,15 @@ fn spawn_mob(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) -> u32
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
         // snapTo keeps the drawn yaw as it is (0..360, not wrapped to -180..180)
         e.y_rot = yaw;
+        // a cube mob whose finalizeSpawn sets a size other than the default 1:
+        // onSyncedDataUpdated(ID_SIZE) turns it to its head (the constructor's yaw), the body too
+        if let EntityKind::Mob(m) = &mut e.kind
+            && let Some(a) = m.ai.as_deref_mut()
+            && a.cube.as_ref().is_some_and(|c| c.size != 1)
+        {
+            e.y_rot = a.y_head_rot;
+            a.y_body_rot = a.y_head_rot;
+        }
     }
     super::set_helmet(w, id, f.helmet);
     if f.color != 0

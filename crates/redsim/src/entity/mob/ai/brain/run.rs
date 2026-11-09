@@ -1067,7 +1067,15 @@ fn acquire_poi(w: &mut World, i: usize, n: usize, t: i64) -> bool {
     let valid: Vec<BlockPos> = passed
         .into_iter()
         .filter(|p| match poi {
-            PoiSel::Home => matches!(w.get(*p), crate::block::Block::Bed { occupied: false, .. }),
+            // a bed (a design's or a natural state's) nobody sleeps in
+            PoiSel::Home => match w.get(*p) {
+                crate::block::Block::Bed { occupied, .. } => !occupied,
+                crate::block::Block::Terrain(id) => {
+                    let props = crate::terrain::blocks::props(id);
+                    props.block_id().ends_with("_bed") && props.name.contains("occupied=false")
+                }
+                _ => false,
+            },
             _ => true,
         })
         .collect();

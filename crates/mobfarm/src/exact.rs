@@ -119,6 +119,21 @@ fn entity_probe() -> Option<(&'static [u32], i64, i64)> {
     .map(|(ids, a, b)| (ids.as_slice(), *a, *b))
 }
 
+/// The `MCTAS_EXACT_ENTITY` probe's lines for one compared tick: each probed entity's frame on
+/// both sides (pos, motion, on ground, fire, health, hurt time, yaw, its memories).
+fn print_probed(f: &Frame, ours: &Frame) {
+    let Some((ids, t0, t1)) = entity_probe() else { return };
+    if f.t < t0 || f.t > t1 {
+        return;
+    }
+    for &n in ids {
+        let g = f.entities.iter().find(|e| e.n == n);
+        let o = ours.entities.iter().find(|e| e.n == n);
+        eprintln!("t{} #{n} game:   {:?}", f.t, g.map(|e| (e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time, e.yaw, &e.memories)));
+        eprintln!("t{} #{n} redsim: {:?}", f.t, o.map(|e| (e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time, e.yaw, &e.memories)));
+    }
+}
+
 /// `MCTAS_EXACT_TALLY="x0,y0,z0,x1,y1,z1"` (world coordinates): a probe tallying, on each side,
 /// the entity ticks and the distinct entities of each type inside that box after the arrival,
 /// printed when the compare ends (a statistical side by side once the two runs have diverged).
@@ -923,6 +938,7 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
             tick_time += r0.elapsed();
             let ours = watch.frame(&run.world);
             redsim_time += r0.elapsed();
+            print_probed(&f, &ours);
             cmp.tick(&f, &ours);
         }
         t += n as i64;
@@ -968,17 +984,7 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
             }
             // (a probe: MCTAS_EXACT_ENTITY="N:T0:T1" prints entity #N's frame on both sides at each
             // game time T0..=T1)
-            if let Some((ids, t0, t1)) = entity_probe()
-                && f.t >= t0
-                && f.t <= t1
-            {
-                for &n in ids {
-                    let g = f.entities.iter().find(|e| e.n == n);
-                    let o = ours.entities.iter().find(|e| e.n == n);
-                    eprintln!("t{} #{n} game:   {:?}", f.t, g.map(|e| (e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time, &e.memories)));
-                    eprintln!("t{} #{n} redsim: {:?}", f.t, o.map(|e| (e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time, &e.memories)));
-                }
-            }
+            print_probed(&f, &ours);
             tally.add(0, &f.entities);
             tally.add(1, &ours.entities);
             cmp.tick(&f, &ours);

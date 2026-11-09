@@ -245,6 +245,9 @@ pub enum TerrainCmd {
         /// the heightmaps, structures, entities, block entities and inhabited times.
         #[arg(long)]
         same_as: Option<PathBuf>,
+        /// List every saved entity with its position.
+        #[arg(long)]
+        entities: bool,
     },
     /// Cut a box out of a file (`--lo X,Y,Z --hi X,Y,Z`, inclusive), or a column box around a
     /// centre (`--around X,Z --radius R`) from `--below` blocks under the lowest surface to
@@ -505,9 +508,14 @@ pub fn run(version: &str, cmd: TerrainCmd) -> Result<()> {
                 }
             }
         }
-        TerrainCmd::Info { file, palette, locate, ticking, same_as } => {
+        TerrainCmd::Info { file, palette, locate, ticking, same_as, entities } => {
             let t = read(&file)?;
             print_info(&t, palette);
+            if entities {
+                for e in &t.entities {
+                    println!("  entity {} at {:.2} {:.2} {:.2}", e.id, e.pos[0], e.pos[1], e.pos[2]);
+                }
+            }
             if let Some(other) = same_as {
                 let o = read(&other)?;
                 for line in compare_files(&t, &o) {
