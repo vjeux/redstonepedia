@@ -1,0 +1,9 @@
+hash	file	exact	verdict	recorded
+56968941d1a63b7b	designs/circuits/mobfarm/archive/iron-day1.txt	no	first difference: build 4 run 0 t311: entity #5 iron_golem random (mob-AI); 0/8 builds exact	2026-11-09T01:45Z
+b2f4bf44a31548d7	designs/circuits/mobfarm/tracks/ironfarm/d1u-underground.txt	no	first difference: build 3 run 0 t1: entity #0 glow_squid pos (mob-AI); 0/12 builds exact	2026-11-09T02:22Z
+99ed450d12d65bca	designs/farms/iron/day-1/d1-bed-plate.txt	no	first difference: build 4 run 0 t348: entity #5 iron_golem motion (mob-AI); 1/8 builds exact	2026-11-09T02:21Z
+dfd43b5b96e0f66b	designs/farms/iron/middle/four-modules-one-timer-tight.txt	no	first difference: build 1 run 0 t3981: entity #68 iron_golem motion (mob-AI); 1/8 builds exact	2026-11-09T02:17Z
+58a445d7d2cb485a	designs/farms/iron/middle/four-modules-one-timer.txt	no	first difference: build 6 run 0 t13785: entity #236 iron_golem motion (mob-AI); 1/8 builds exact	2026-11-09T02:06Z
+4c902db7e1d522f3	designs/farms/iron/middle/m2-open-ring.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T01:53Z
+5d8bca5717d71054	designs/farms/iron/middle/m2-open.txt	yes	tick-exact: 8/8 builds, 961600 ticks	2026-11-09T01:49Z
+26072e47321a7b99	designs/farms/iron/middle/row-2x27.txt	no	first difference: build 1 run 0 t1451: level random (the level random: its call site with `mctas mobai farm-trace --at T`); 0/8 builds exact	2026-11-09T02:22Z
