@@ -87,6 +87,25 @@ Build L1 first (the parent's choice): a void prototype by the ironfarm lane at t
 parameters (groups of 3, 4 to 8 of them, the cycle 100-200 gt, the loop's length and shape, the bed stop, the
 station's pad and drop). L2 and L3 stay in the search as the cheaper families.
 
+## The nightly stop: a bed each, or a shared dormitory
+
+Every villager must lie down once a game day (`LAST_SLEPT` is set as it starts sleeping). Two
+options, judged against each other on the objectives:
+- **A bed each** (the default): a stop with one bed per villager, each reachable only by its
+  owner (the Beds rule), the riders ejected by activator rails and re-boarded by a moving cart.
+- **A shared dormitory** (vjeux 23:10: "In the notes of the project there was a mention of being
+  able to confuse villagers for their bed / working station, can you find it and see if that could
+  be used here"; designs/corrupt-poi-entity/NOTES.md, R1, verified on the official server): a bed
+  claimed by villager A, A taken more than 16 blocks away, the bed broken and replaced at the same
+  position (a fresh POI record with a free ticket), and villager B claims it; both HOME memories
+  persist through save and load, and repeating adds sharers (for example 3 beds for 7 groups of
+  3). Rules: `ValidateNearbyPoi` runs only within 16 blocks and HOME only in REST, and a villager
+  that validates its HOME in REST within 16 while its bed is OCCUPIED by another drops its claim
+  (whichever order), so the dormitory sits more than 16 blocks from the station and from the
+  waiting groups, one group is at the dormitory at a time, and the sharers lie down in turn
+  (panicking villagers do not validate). Costs: a one-time break-and-replace setup per extra
+  sharer (its hand steps priced), and a longer nightly stop.
+
 ## Must-haves (hard rules)
 
 - A group at the station is panicking on an attempt tick (it sees the zombie after its sensor's
