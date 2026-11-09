@@ -1053,6 +1053,18 @@ pub fn outcome(c: &Circuit, spec: &FarmSpec, runs: &[RunReport], pooled: &[RunRe
         let (seen, sightings): (u32, u32) = all.iter().fold((0, 0), |(a, b), r| (a + r.golems_seen_by_others, b + r.cross_sightings));
         metrics.push(("neighbour sightings".to_string(), format!("{seen} of {g} golems sensed by another group ({sightings} sensings, {:.2} a golem)", sightings as f64 / g.max(1) as f64)));
     }
+    // a minecart carousel's riding (ironspec 2026-11-09): the villagers riding at each midday
+    // against those that ever rode, and the golems their riders summoned (the station's) against
+    // the others (a stalled loop's static cages): a stalled loop never passes as a farm
+    if all.iter().any(|r| !r.riding_middays.is_empty()) {
+        let g: u32 = all.iter().map(|r| r.golems).sum();
+        let by_riders: u32 = all.iter().map(|r| r.golems_by_riders).sum();
+        let middays: Vec<(u32, u32)> = all.iter().flat_map(|r| r.riding_middays.iter().copied()).collect();
+        let short = middays.iter().filter(|(riding, rode)| riding < rode).count();
+        let least = middays.iter().map(|(riding, _)| *riding).min().unwrap_or(0);
+        let rode = middays.iter().map(|(_, rode)| *rode).max().unwrap_or(0);
+        metrics.push(("riding".to_string(), format!("{} middays, {short} with a villager not riding (the fewest {least} of {rode}); {by_riders} of {g} golems summoned by riders, {} by villagers off their carts", middays.len(), g - by_riders.min(g))));
+    }
     // (the mob-AI lane, the parent's rule 2026-11-08) the ambient natural mob types the runs ran
     // on the legacy walk model, their AI not modeled yet: named in the run's output, never on the
     // card or the page (no caveats on pages: vjeux); the bridge compare's first difference shows

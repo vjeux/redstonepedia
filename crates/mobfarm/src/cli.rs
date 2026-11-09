@@ -441,8 +441,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 "tstack" => (crate::day1::stack(modules, pitch, pad, hide as u32, crate::parts::Stage::Nether)?, format!("{modules} modules stacked")),
                 "cross" => (crate::day1::cross_channel_cage(pitch, if modules == 2 { 2 } else { 4 }, regular, pad, hide as u32, crate::parts::Stage::Nether)?, "farms around one kill chamber".to_string()),
                 "carousel" => (crate::carousel::carousel(pitch)?, "the villager carousel (L1 prototype)".to_string()),
-                "carousel-nolatch" => (crate::carousel::carousel_with(pitch, false, true)?, "the villager carousel (L1 prototype), its curtain shut from the evening threshold".to_string()),
-                "carousel-home" => (crate::carousel::carousel_with(pitch, true, false)?, "the villager carousel (L1 prototype), its night one advance brought home by the counter".to_string()),
+                "carousel-nolatch" => (crate::carousel::carousel_with(pitch, false, false)?, "the villager carousel (L1 prototype), its curtain shut from the evening threshold".to_string()),
+                "carousel-free" => (crate::carousel::carousel_with(pitch, true, true)?, "the villager carousel (L1 prototype), its night running free (boosters every 6 rails)".to_string()),
                 "stack" => (crate::day1::m2_stack(modules, [dx, pitch, dz], pad), format!("{modules} middle modules")),
                 "lp" => (crate::day1::lp(modules / 2, gap, period, pad), format!("{modules} clusters in up/down pairs")),
                 "twin" => (crate::day1::twin(pad, villagers - 4), "two clusters share a pad, a drop and a chamber".to_string()),
@@ -602,6 +602,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             );
             for f in r.failures.iter().chain(r.errors.iter()) {
                 println!("FAIL {f}");
+            }
+            if !r.riding_middays.is_empty() {
+                println!(
+                    "riding at each midday (of the villagers that rode): {}; golems summoned by riders {} of {}",
+                    r.riding_middays.iter().map(|(riding, rode)| format!("{riding}/{rode}")).collect::<Vec<_>>().join(" "),
+                    r.golems_by_riders,
+                    r.golems
+                );
             }
             if !r.releases.is_empty() {
                 println!("POI releases (a villager's bed given up after 1200 gt unreachable) at gt {:?}", r.releases);

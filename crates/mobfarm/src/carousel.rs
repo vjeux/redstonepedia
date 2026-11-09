@@ -8,19 +8,22 @@
 //! the next stop. The north stops are the station, in sight of the zombie within 8 blocks and over
 //! the pad; the others wait out of the station's 10-box and every golem's follow box.
 //!
-//! The night (each stop a bed stop, [`stop`]): from the night threshold to its end every brake is
-//! powered ([`night_pulse`]: the night's level on the feed), so the carts run round their loops all
-//! night, keeping their spacing; an activator rail just before each brake, powered at night, drops
-//! each villager at the first stop its cart reaches (one villager a stop, as one cart a stop ran),
-//! onto the stop's bed. The villager sleeps (a HOME it cannot reach from the bed's cage it gives up
-//! after 1200 gt and claims this bed). Before dawn the night's level ends and each empty cart brakes
-//! on the next stop (an empty cart slows by 0.96 a tick against a ridden one's 0.997, so it never
-//! coasts a whole side: the brakes stay powered while carts run); at dawn its villager stands up
-//! in a pocket just past the brake, and the pulse of its bed's waking (an observer on one bed)
-//! releases the carts, each picking its villager up as it rolls off its brake. (`carousel-home`
-//! keeps the earlier night: one advance at the night threshold's edge, the carts parked empty all
-//! night, a counter holding the evening's golems so that advance brings every villager home; it
-//! holds 3 days on 2 seeds of 10, the running night on all 20 tried.)
+//! The night (each stop a bed stop, [`stop`]), safe for empty carts: an empty cart slows by 0.96 a
+//! tick against a ridden one's 0.997 (`applyNaturalSlowdown`), so it coasts about 10 rails and
+//! strands mid-side; no empty cart travels here. From dusk to dawn an activator rail just before
+//! each brake drops the arriving cart's villager onto the stop's bed and the cart stays parked on
+//! the brake, empty, all night: the night's one advance is the dusk pulse that drops (the night
+//! signal's rising edge, [`night_pulse`]), and the home phase's counter ([`phase_hold`]) holds the
+//! evening's golems so that advance brings every villager to the bed it claimed. The villager
+//! sleeps; at dawn it stands up in a pocket just past the brake, and the pulse of its bed's waking
+//! (an observer on one bed) releases the carts, each picking its villager up as it rolls off its
+//! brake. It holds 3 days on 2 seeds of 10: a cart braked too near its villager has no speed at
+//! the contact, one braked too far steps over the pickup's 0.2 and stops against it (minecarts
+//! collide with pushable mobs). (`carousel-free` runs the night instead: every brake powered from
+//! the night threshold to its end, the carts round all night with a booster every 6 rails, the
+//! activators dropping each villager at the first stop its cart reaches; without those boosters
+//! every empty cart stranded on the first night and the carousel stood still while the judge
+//! passed it, so the judge now counts the riders at each midday.)
 //!
 //! Coordinates: loop k's track runs on the square from (t, t) to (e, e), t = -3k, e = side + 3k;
 //! each side from its start corner: the corner and two rails at y 0 (the second the activator), the
@@ -78,7 +81,7 @@ fn name(d: [i32; 2]) -> &'static str {
 /// The 3 villagers' loops, 4 stops each (one after each corner), the inner loop's side `side`
 /// (28: the waiting stops more than 18.8 from every golem on the pad).
 pub fn carousel(side: i32) -> anyhow::Result<String> {
-    carousel_with(side, true, true)
+    carousel_with(side, true, false)
 }
 
 /// [`carousel`], its curtain latched (`latch`: shut from dusk to the dawn kick) or not (shut from
@@ -142,6 +145,9 @@ pub fn carousel_with(side: i32, latch: bool, free_run: bool) -> anyhow::Result<S
     station(&mut b);
     curtain_latch(&mut b, &mut dust, latch);
     carts(&mut b, side);
+    if free_run {
+        night_boosters(&mut b, &dust, side);
+    }
     // every dust on a block, its shape from its neighbours
     for p in &dust {
         if !b.d.blocks.contains_key(&[p[0], p[1] - 1, p[2]]) {
@@ -361,6 +367,37 @@ fn phase_hold(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>) {
     b.set(-1, -10, 2, STONE);
     b.set(2, -8, 4, "repeater[delay=4,facing=north,locked=false,powered=false]");
     b.set(2, -9, 4, STONE);
+}
+
+/// The running night's boosters: an empty cart slows by 0.96 a tick, so it coasts about 10 rails
+/// from a booster's 0.4 and strands; on the running night every cart is empty from its drop to
+/// dawn, so each side gets a booster every 6 rails after its first (the brake powered at night is
+/// the next stop's), the last 4 rails before the climb. A booster whose redstone block would touch
+/// anything but inert blocks (a dust, a repeater: the feed, the basement, the night's circuits) is
+/// left out.
+fn night_boosters(b: &mut Builder, dust: &BTreeSet<[i32; 3]>, side: i32) {
+    const INERT: [&str; 4] = [STONE, GLASS, "mud", "redstone_block"];
+    for k in 0..3 {
+        let (t, e) = (-3 * k, side + 3 * k);
+        let n = e - t;
+        for s in sides(t, e) {
+            let axis = if s.d[1] == 0 { "east_west" } else { "north_south" };
+            let mut i = BOOST + 6;
+            while i <= n - 2 {
+                let p = s.at(i, 0);
+                let q = [p[0], -2, p[1]];
+                let inert = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]].iter().all(|d| {
+                    let r = [q[0] + d[0], q[1] + d[1], q[2] + d[2]];
+                    !dust.contains(&r) && b.d.blocks.get(&r).is_none_or(|name| INERT.iter().any(|x| name.trim_start_matches("minecraft:") == *x))
+                });
+                if inert {
+                    b.set(p[0], -1, p[1], &format!("powered_rail[powered=true,shape={axis},waterlogged=false]"));
+                    b.set(q[0], q[1], q[2], "redstone_block");
+                }
+                i += 6;
+            }
+        }
+    }
 }
 
 /// The night's signals into the feed, through a dust inside loop 0 (x 4, south to north) down to a

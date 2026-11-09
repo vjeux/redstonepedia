@@ -188,6 +188,12 @@ pub struct RunReport {
     /// a refusal; the rate counts only what reaches the containers).
     pub drops_burnt: u32,
     pub iron_burnt: u32,
+    /// ironfarm (ironspec 2026-11-09): a minecart carousel's riding, so a stalled loop cannot pass
+    /// as a farm: each day's midday count (day time 6000) of the villagers riding beside how many
+    /// ever rode (the run fails when one is missing), and the golems whose summoner rode (the
+    /// station's) against the others (a stalled carousel's static cages).
+    pub riding_middays: Vec<(u32, u32)>,
+    pub golems_by_riders: u32,
 }
 
 /// The weather of one run (mobinfra): ticks raining (`isRaining`) and thundering, bolts, what they
@@ -826,6 +832,9 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
                 }
                 tr.golem_born.push((id, t));
                 tr.own.insert(id);
+                if crate::entity::index_of(w, villager).is_some_and(|i| w.entities.list[i].vehicle.is_some()) {
+                    rep.golems_by_riders += 1;
+                }
                 if let Some(c) = tr.cluster_of.get(&villager) {
                     tr.summoned_by.insert(id, *c);
                 }
@@ -1088,6 +1097,17 @@ fn check_tick(w: &World, rep: &mut RunReport, tr: &mut Track, spec: &FarmSpec, t
             if t - last > super::villager::SLEPT_WITHIN + 6000 {
                 rep.fail(format!("gt {t}: villager {id} has not slept for {} gt (no golems: golemSpawnConditionsMet)", t - last));
             }
+        }
+    }
+    // a carousel's riding (ironspec 2026-11-09): every villager that rode rides again by midday
+    // (its cart picked it up at dawn); a loop whose carts stranded leaves its villagers in their
+    // night cages, a static farm the other checks pass
+    if !tr.riders.is_empty() && w.day_time().rem_euclid(24000) == 6000 {
+        let riding = w.entities.list.iter().filter(|e| tr.riders.contains(&e.id) && !e.removed && e.vehicle.is_some()).count() as u32;
+        let rode = tr.riders.len() as u32;
+        rep.riding_middays.push((riding, rode));
+        if riding < rode {
+            rep.fail(format!("gt {t}: the carousel stalled: {riding} of the {rode} villagers that rode ride at midday"));
         }
     }
 }
