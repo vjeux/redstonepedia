@@ -513,6 +513,10 @@ fn stop(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, s: Side, outer: bool) {
     }
     let a = s.at(ACT, 1);
     if bide_at(&s) {
+        // (glass over the lane-1 barrier before the foot (y 1): the base's torch stone stood
+        // there; without it a villager on the track at y 0 climbs that barrier, the glass over
+        // rail 1 and the walls out of its cage: the falls, the cross-loop riders)
+        set(s.at(ACT, 1), 1, GLASS);
         // the activator beside the foot: its torch over it hangs on a stone in the outside lane
         // (y 1; over the foot it would cut the dropped villager's headroom, over the rail before
         // it the riders' heads: they pass at y 0 with their eyes over 1), that stone's dust and
@@ -759,11 +763,25 @@ fn night_pulse(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, free_run: bool) {
     // the dusk drop's block over its torch, lit at night: the observer also fires when the
     // sleeper lies down), then around to a repeater into the dawn kick's block (11, -1, 19): the
     // comparator there makes it a pulse
-    if bide() || std::env::var_os("MCTAS_SHIFTBED").is_some() {
-        // (the west stop's head (BIDE: brake) where the observer stood: the observer watches the
-        // head from over it (facing down), its stone over it feeds a dust on the bus lane's
-        // glass, down onto the line's first block)
-        let hz = if bide() { z0 } else { z0 + 1 };
+    if bide() {
+        // (BIDE: the west stop's bus reaches its brake beside the head, where the observer
+        // stood; an observer over the head would obstruct the bed (no sleeping under a solid
+        // block). The observer takes the lane-1 barrier past the head (rail 5, z0 - 1), facing
+        // the head, its pulse north into a dust (rail 6), east along z0 - 2 and south onto the
+        // line's first dust)
+        b.set(1, -1, z0 - 1, "observer[facing=south,powered=false]");
+        for p in [[1, -1, z0 - 2], [2, -1, z0 - 2], [3, -1, z0 - 2], [3, -1, z0 - 1]] {
+            dust.insert(p);
+            b.set(p[0], p[1] - 1, p[2], STONE);
+        }
+        for x in 3..=7 {
+            dust.insert([x, -1, z0]);
+        }
+    } else if std::env::var_os("MCTAS_SHIFTBED").is_some() {
+        // (the west stop's head where the observer stood: the observer watches the head from
+        // over it (facing down), its stone over it feeds a dust on the bus lane's glass, down
+        // onto the line's first block)
+        let hz = z0 + 1;
         b.set(1, 0, hz, "observer[facing=down,powered=false]");
         b.set(1, 1, hz, STONE);
         // (stone, not the stop's glass, under the dust: a non-conductor there would join the bus's
@@ -772,7 +790,7 @@ fn night_pulse(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, free_run: bool) {
         dust.insert([2, 1, hz]);
         dust.insert([3, 0, hz]);
         b.set(3, -1, hz, STONE);
-        for x in (if bide() { 4 } else { 3 })..=7 {
+        for x in 3..=7 {
             dust.insert([x, -1, z0]);
         }
     } else {
