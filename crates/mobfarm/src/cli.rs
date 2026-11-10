@@ -673,6 +673,12 @@ pub enum MobfarmCmd {
         /// The traces' window, gt after the start: "a,b".
         #[arg(long, default_value = "0,4000")]
         trace_window: String,
+        /// Arrivals launched from rest on the bench's launcher (as a drive can replay them).
+        #[arg(long)]
+        launch: bool,
+        /// Write the first seed's run as a drive (the viewer replays it; use with --launch).
+        #[arg(long)]
+        drive_out: Option<PathBuf>,
         /// The first seed's first visits' ticks on stderr.
         #[arg(long)]
         trace: bool,
@@ -1272,7 +1278,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window } => {
+        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out } => {
             let (_c, spec) = load(version, &design)?;
             let two_i = |s: &str| -> Result<(i64, i64)> {
                 let v: Vec<i64> = s.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
@@ -1292,7 +1298,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     sc.spawn(|| loop {
                         let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some(&seed) = seeds.get(k) else { break };
-                        let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: two_i(&trace_window).unwrap_or((0, 4000)) });
+                        let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: two_i(&trace_window).unwrap_or((0, 4000)), launch, drive: drive_out.is_some() && seed == from });
                         out.lock().unwrap().push((seed, r));
                     });
                 }
@@ -1399,6 +1405,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("problems: {problems:?}");
             for e in &examples {
                 println!("  {e}");
+            }
+            if let Some(path) = &drive_out {
+                let text = rows.iter().find(|r| r.0 == from).and_then(|r| r.1.as_ref().ok()).and_then(|r| r.drive.clone()).ok_or_else(|| anyhow::anyhow!("no drive from seed {from}"))?;
+                std::fs::write(path, &text)?;
+                println!("drive: {} ({} acts, {} expectations)", path.display(), text.lines().filter(|l| l.starts_with("act ")).count(), text.lines().filter(|l| l.starts_with("expect")).count());
             }
             println!("{:.1} s", t0.elapsed().as_secs_f64());
         }

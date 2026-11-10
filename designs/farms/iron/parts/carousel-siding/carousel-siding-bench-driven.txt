@@ -38,16 +38,18 @@ palette:
   A minecraft:activator_rail[powered=true,shape=north_south,waterlogged=false]
   B minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
   C minecraft:cobblestone
-  D minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
-  E minecraft:rail[shape=south_west,waterlogged=false]
-  F minecraft:red_bed[facing=north,occupied=false,part=foot]
+  D minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  E minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  F minecraft:rail[shape=south_west,waterlogged=false]
   G minecraft:glass
-  H minecraft:red_bed[facing=north,occupied=false,part=head]
+  H minecraft:red_bed[facing=north,occupied=false,part=foot]
   I minecraft:iron_trapdoor[facing=east,half=bottom,open=true,powered=true,waterlogged=false]
-  J minecraft:redstone_block
+  J minecraft:red_bed[facing=north,occupied=false,part=head]
+  K minecraft:redstone_block
   O minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
   P minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
   R minecraft:rail[shape=east_west,waterlogged=false]
+  S minecraft:stone
   p minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
   r minecraft:rail[shape=north_south,waterlogged=false]
 layer -2:
@@ -106,10 +108,10 @@ layer -1:
   .
   .
   .
-  ..............GGGGGGGJGGPRRRRRRRG
-  ....................GJ
+  ...........KKKGGGGGGGKGGPRRRRRRRG
+  ....................GK
   ....................GG
-  ....................GJ
+  ....................GK
   .....................G
   .....................G
   .....................G
@@ -138,10 +140,10 @@ layer 0:
   .
   .
   .
-  ..............RRRRRRRERR
-  .....................DG
-  ...................GHrJ.G
-  ...................GFAG
+  ..........SDDDRRRRRRRFRR
+  .....................EG
+  ...................GJrK.G
+  ...................GHAG
   ....................GrG
   .....................r
   .....................B
@@ -170,7 +172,7 @@ layer 1:
   .
   .
   .
-  .
+  ..........G
   .....................GG
   ...................G..I
   ...................G.GG

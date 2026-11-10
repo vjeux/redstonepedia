@@ -39,28 +39,29 @@ palette:
   B minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
   C minecraft:cobblestone
   D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
-  E minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
-  F minecraft:rail[shape=south_west,waterlogged=false]
+  E minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  F minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
   G minecraft:glass
-  H minecraft:red_bed[facing=north,occupied=false,part=foot]
+  H minecraft:rail[shape=south_west,waterlogged=false]
   I minecraft:iron_trapdoor[facing=east,half=bottom,open=true,powered=true,waterlogged=false]
-  J minecraft:red_bed[facing=north,occupied=false,part=head]
-  K minecraft:redstone_block
-  L minecraft:redstone_torch[lit=true]
-  M minecraft:redstone_wall_torch[facing=east,lit=false]
-  N minecraft:redstone_wall_torch[facing=south,lit=true]
+  J minecraft:red_bed[facing=north,occupied=false,part=foot]
+  K minecraft:red_bed[facing=north,occupied=false,part=head]
+  L minecraft:redstone_block
+  M minecraft:redstone_torch[lit=true]
+  N minecraft:redstone_wall_torch[facing=east,lit=false]
   O minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
   P minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
-  Q minecraft:redstone_wall_torch[facing=west,lit=false]
+  Q minecraft:redstone_wall_torch[facing=south,lit=true]
   R minecraft:rail[shape=east_west,waterlogged=false]
-  S minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
-  T minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
-  U minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
-  V minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
-  W minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
-  X minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
-  Y minecraft:tripwire_hook[attached=true,facing=north,powered=false]
-  Z minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+  S minecraft:redstone_wall_torch[facing=west,lit=false]
+  T minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  U minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  V minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  W minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  X minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  Y minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  Z minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+  a minecraft:tripwire_hook[attached=true,facing=south,powered=false]
   o minecraft:observer[facing=north,powered=false]
   p minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
   r minecraft:rail[shape=north_south,waterlogged=false]
@@ -121,19 +122,19 @@ layer -3:
   .
   .
   .
-  .............Ss
-  .............T
-  .............sMS
-  .............S.SVSSSVs
-  .............S.S...S
-  .............S.sWS.S
-  .............SSN.s.SVss
-  ..............X....S..s
-  ..............X....SSSs
-  ..............X......ss
-  ..............X.......s
-  ..............X.......sssss
-  ..............SSSSVSSSS
+  .............Ts
+  .............U
+  .............sNT
+  .............T.TWTTTWs
+  .............T.T...T
+  .............T.sXT.T
+  .............TTQ.s.TWss
+  ..............Y....T..s
+  ..............Y....TTTs
+  ..............Y......ss
+  ..............Y.......s
+  ..............Y.......sssss
+  ..............TTTTWTTTT
 layer -2:
   .
   .
@@ -155,18 +156,18 @@ layer -2:
   .
   .
   .
-  ..............Ss
+  ..............Ts
   .
   .............G
-  .....................L..GGGGGGGG
+  .....................M..GGGGGGGG
   .
   ...............G......s
-  .................S...LU
-  .................s....S
-  ......................S
-  .....................Qs
-  ......................S...s
-  ......................SSSSS
+  .................T...MV
+  .................s....T
+  ......................T
+  .....................Ss
+  ......................T...s
+  ......................TTTTT
   .
 layer -1:
   ..G.......G.......G.......G.......G.......G
@@ -189,17 +190,17 @@ layer -1:
   .
   .
   .
-  ...............Sssssssss
+  ...............Tssssssss
   .......................s
   .......................s
-  ..............GGGGGGGsGGPRRRRRRRG
-  ....................GK...ss
-  ....................GGL...s
+  ...........LLLGGGGGGGsGGPRRRRRRRG
+  ....................GL...ss
+  ....................GGM...s
   ....................Gs....s
-  .................S...G....s
+  .................T...G....s
   .................ssssG....s
   .....................sG...s
-  .....................G....S
+  .....................G....T
   .
   .
 layer 0:
@@ -223,16 +224,16 @@ layer 0:
   .
   .
   .
-  ................SSSSSSSS
-  .......................Us
-  .......................UZ
-  ..............RRRRRRRFRDt
-  .....................EG.YVS
-  ...................GJrs.G.S
-  ...................GHAG...S
-  ....................orG...S
-  .................SSSSr....S
-  .....................B....S
+  ................TTTTTTTT
+  .......................Vs
+  .......................Va
+  ..........sEEERRRRRRRHRDt
+  .....................FG.ZWT
+  ...................GKrs.G.T
+  ...................GJAG...T
+  ....................orG...T
+  .................TTTTr....T
+  .....................B....T
   .....................C
   .
   .
@@ -260,7 +261,7 @@ layer 1:
   .
   ........................G
   .
-  .
+  ..........G
   .....................GG
   ...................G..I
   ...................G.GG
