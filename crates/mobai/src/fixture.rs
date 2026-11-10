@@ -65,8 +65,8 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
     if name == "carousel-loop" {
         return carousel_loop_actions();
     }
-    if name == "carousel-catch" {
-        return carousel_catch_actions();
+    if let Some(v) = drive_actions(name) {
+        return v;
     }
     match name {
         // corrupt-poi-entity R1: the claimed bed broken, then placed again (a fresh POI record
@@ -215,54 +215,71 @@ fn carousel_loop_actions() -> Vec<(u32, Vec<([i32; 3], String)>)> {
     v
 }
 
-/// (tickexact 2026-11-10) ironfarm's carousel loop with its stand catch (explore/ironfarm
-/// 7f6c75643, `carousel-single-lane-loop-wip.txt`, frozen): the turn slot, the deep tail slots and
-/// a real detector rail on the release run. Its bench's drive log (`mctas mobfarm queue-loop-run
-/// <file> --cycles 6 --stand-detect 28 --intake-brake 110,116 --drive-out`, frozen) plays every
-/// control change at its tick: the timers, and the stand's brake 28 gt after the detector rail
-/// powered in the bench's redsim run (the game's detector compared in the watched box).
-const CAROUSEL_CATCH: &str = include_str!("../scenes/carousel-catch.txt");
-const CAROUSEL_CATCH_DRIVE: &str = include_str!("../scenes/carousel-catch-28.drive");
+/// (tickexact 2026-11-10) Loop scenes driven by a bench's drive log: (name, the frozen design, the
+/// frozen drive log). Each design is ironfarm's single-lane carousel loop taken as it is (its
+/// blocks and entities, in its own coordinates); its bench's drive log (`mctas mobfarm
+/// queue-loop-run <file> ... --drive-out`) plays every control change at its tick: the bench's
+/// timers, and the stand's brake the bench timed from the design's real detector rail in its
+/// redsim run (the game's detector compared in the watched box). No other redstone drives them.
+/// - carousel-catch: explore/ironfarm 7f6c75643 (the turn slot, the deep tail slots, the detector
+///   rail), `--cycles 6 --stand-detect 28 --intake-brake 110,116`.
+/// - carousel-catch2: explore/ironfarm ab96cd355 (8 release-run boosters, 7 zombies in boats by
+///   the loop), `--cycles 6 --release-for 36 --pulse 12 --stand-detect 27 --intake-brake 116,124
+///   --stand-offset 6 --tail0-late 2`.
+const DRIVE_SCENES: &[(&str, &str, &str)] = &[
+    ("carousel-catch", include_str!("../scenes/carousel-catch.txt"), include_str!("../scenes/carousel-catch-28.drive")),
+    ("carousel-catch2", include_str!("../scenes/carousel-catch2.txt"), include_str!("../scenes/carousel-catch2-27.drive")),
+];
 
-fn carousel_catch_design() -> mctas::design::Design {
-    mctas::design::Design::parse(CAROUSEL_CATCH).expect("the frozen carousel catch design parses")
+/// A drive scene's design.
+fn drive_design(name: &str) -> Option<mctas::design::Design> {
+    let (_, d, _) = DRIVE_SCENES.iter().find(|(n, _, _)| *n == name)?;
+    Some(mctas::design::Design::parse(d).unwrap_or_else(|e| panic!("the frozen design of {name}: {e}")))
 }
 
-/// The catch design's place in the sandbox: its own coordinates (the bench's: cart physics in
-/// floating point is not translation-invariant, so a knife-edge catch that is exact in one place
-/// may land a hair apart in another; the bench's expectations hold only where it ran).
-fn carousel_catch_shift(_d: &mctas::design::Design) -> [i32; 3] {
-    [0, 0, 0]
+/// A drive scene's drive log: the frozen one, or `MOBAI_DRIVE=<file>` (another drive log of the
+/// same design: the catch's tick window, `--stand-detect` 26, 27, 29...).
+fn drive_text(name: &str) -> Option<String> {
+    let (_, _, t) = DRIVE_SCENES.iter().find(|(n, _, _)| *n == name)?;
+    Some(std::env::var("MOBAI_DRIVE").ok().map(|p| std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("MOBAI_DRIVE {p}: {e}"))).unwrap_or_else(|| t.to_string()))
 }
 
-/// The drive log's `act T set x y z <state>` lines, grouped by tick (T = ticks after the carts'
-/// spawn, applied before the next tick, as the fixture applies its actions), moved like the
-/// design. `MOBAI_DRIVE=<file>` plays another drive log of the same design (the catch's tick
-/// window: `--stand-detect` 26, 27, 29...). Any other `act` (a bench `tp`) is refused.
-fn carousel_catch_actions() -> Vec<(u32, Vec<([i32; 3], String)>)> {
-    let text = std::env::var("MOBAI_DRIVE").ok().map(|p| std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("MOBAI_DRIVE {p}: {e}"))).unwrap_or_else(|| CAROUSEL_CATCH_DRIVE.to_string());
-    let sh = carousel_catch_shift(&carousel_catch_design());
+/// The drive log's `act T set x y z <state>` lines, grouped by tick (T = ticks after the spawn,
+/// applied before the next tick, as the fixture applies its actions). Any other `act` (a bench
+/// `tp`) is refused. The design sits in its own coordinates (the bench's: cart physics in floating
+/// point is not translation-invariant, so a knife-edge catch exact in one place may land a hair
+/// apart in another; the bench's expectations hold only where it ran).
+fn drive_actions(name: &str) -> Option<Vec<(u32, Vec<([i32; 3], String)>)>> {
+    let text = drive_text(name)?;
     let mut v: Vec<(u32, Vec<([i32; 3], String)>)> = Vec::new();
     for line in text.lines().filter(|l| l.starts_with("act ")) {
         let f: Vec<&str> = line.split_whitespace().collect();
         let parsed = (f.len() == 7 && f[2] == "set").then(|| Some((f[1].parse::<u32>().ok()?, [f[3].parse::<i32>().ok()?, f[4].parse::<i32>().ok()?, f[5].parse::<i32>().ok()?]))).flatten();
-        let Some((t, p)) = parsed else { panic!("the carousel catch's drive log: {line:?} is not `act T set x y z <state>`") };
-        let c = ([p[0] + sh[0], p[1] + sh[1], p[2] + sh[2]], f[6].to_string());
+        let Some((t, p)) = parsed else { panic!("the drive log of {name}: {line:?} is not `act T set x y z <state>`") };
+        let c = (p, f[6].to_string());
         match v.last_mut() {
             Some((lt, b)) if *lt == t => b.push(c),
             _ => v.push((t, vec![c])),
         }
     }
-    v
+    Some(v)
 }
 
-/// The drive log's `expect T pos eK x y z` lines (cart K of the design at tick T, the bench's
-/// redsim run): (T, the cart's entity number in the scene (2K: each cart before its villager),
-/// its position moved like the design). The fixture checks the game's frames against them: the
-/// scripted replay reproduces the bench's run (a positive control on the drive log's timing).
-fn carousel_catch_expects() -> Vec<(i64, u32, [f64; 3])> {
-    let text = std::env::var("MOBAI_DRIVE").ok().map(|p| std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("MOBAI_DRIVE {p}: {e}"))).unwrap_or_else(|| CAROUSEL_CATCH_DRIVE.to_string());
-    let sh = carousel_catch_shift(&carousel_catch_design());
+/// The drive log's `expect T pos eK x y z` lines (the design's minecart K at tick T, the bench's
+/// redsim run): (T, the cart's entity number in the scene, its position). Each entity line is
+/// numbered in summon order with its passengers after it (one per `id:"` in its data). The fixture
+/// checks the game's frames against them: the scripted replay reproduces the bench's run (a
+/// positive control on the drive log's timing).
+fn drive_expects(name: &str) -> Vec<(i64, u32, [f64; 3])> {
+    let (Some(d), Some(text)) = (drive_design(name), drive_text(name)) else { return Vec::new() };
+    let mut carts = Vec::new();
+    let mut n = 0u32;
+    for e in &d.entities {
+        if e.kind == "minecraft:minecart" {
+            carts.push(n);
+        }
+        n += 1 + e.nbt.as_deref().map(|s| s.matches("id:\"").count() as u32).unwrap_or(0);
+    }
     text.lines()
         .filter(|l| l.starts_with("expect "))
         .filter_map(|l| {
@@ -270,16 +287,16 @@ fn carousel_catch_expects() -> Vec<(i64, u32, [f64; 3])> {
             if f.len() != 7 || f[2] != "pos" {
                 return None;
             }
-            let k: u32 = f[3].strip_prefix('e')?.parse().ok()?;
-            let p = [f[4].parse::<f64>().ok()? + sh[0] as f64, f[5].parse::<f64>().ok()? + sh[1] as f64, f[6].parse::<f64>().ok()? + sh[2] as f64];
-            Some((f[1].parse().ok()?, 2 * k, p))
+            let k: usize = f[3].strip_prefix('e')?.parse().ok()?;
+            let p = [f[4].parse::<f64>().ok()?, f[5].parse::<f64>().ok()?, f[6].parse::<f64>().ok()?];
+            Some((f[1].parse().ok()?, *carts.get(k)?, p))
         })
         .collect()
 }
 
-/// A scene's expected positions (tick, entity number, position): the carousel catch's drive log.
+/// A scene's expected positions (tick, entity number, position): a drive scene's drive log.
 fn scene_expects(name: &str) -> Vec<(i64, u32, [f64; 3])> {
-    if name == "carousel-catch" { carousel_catch_expects() } else { Vec::new() }
+    drive_expects(name)
 }
 
 /// A stone floor over `x0..x1`, `z0..z1` at height `y`.
@@ -1633,27 +1650,28 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 3,
         });
     }
-    // (tickexact 2026-11-10, ironfarm's stand catch) its loop design with the detector rail as it
-    // is, driven by its bench's drive log ([`carousel_catch_actions`]): cart physics and the
-    // detector rail under scripted controls (no other redstone in the design)
-    {
-        let d = carousel_catch_design();
-        let sh = carousel_catch_shift(&d);
-        let blocks: Vec<([i32; 3], String)> = d.blocks.iter().map(|(p, st)| ([p[0] + sh[0], p[1] + sh[1], p[2] + sh[2]], st.clone())).collect();
-        let mobs: Vec<(String, [f64; 3], Option<String>)> = d.entities.iter().map(|e| (e.kind.clone(), [e.pos[0] + sh[0] as f64, e.pos[1] + sh[1] as f64, e.pos[2] + sh[2] as f64], e.nbt.clone())).collect();
+    // (tickexact 2026-11-10, ironfarm's stand catch) its loop designs as they are, each driven by
+    // its bench's drive log ([`DRIVE_SCENES`], [`drive_actions`]): cart physics, the riders (and
+    // carousel-catch2's zombies in boats) and the detector rail under scripted controls (no other
+    // redstone in the designs). carousel-catch2 runs on Hard at day time 200, as the bench's world.
+    for (name, _, _) in DRIVE_SCENES {
+        let d = drive_design(name).expect("a drive scene's design");
+        let blocks: Vec<([i32; 3], String)> = d.blocks.iter().map(|(p, st)| (*p, st.clone())).collect();
+        let mobs: Vec<(String, [f64; 3], Option<String>)> = d.entities.iter().map(|e| (e.kind.clone(), e.pos, e.nbt.clone())).collect();
         let max_x = blocks.iter().map(|(p, _)| p[0]).chain(mobs.iter().map(|m| m.1[0] as i32)).max().unwrap_or(0);
         let max_z = blocks.iter().map(|(p, _)| p[2]).chain(mobs.iter().map(|m| m.1[2] as i32)).max().unwrap_or(0);
         let min_x = blocks.iter().map(|(p, _)| p[0]).chain(mobs.iter().map(|m| m.1[0].floor() as i32)).min().unwrap_or(0);
         let min_z = blocks.iter().map(|(p, _)| p[2]).chain(mobs.iter().map(|m| m.1[2].floor() as i32)).min().unwrap_or(0);
         // (2 cells of margin to the sandbox's edge walls)
         let c = [(min_x - 2).div_euclid(16), (min_z - 2).div_euclid(16), (max_x + 2).div_euclid(16), (max_z + 2).div_euclid(16)];
+        let first = *name == "carousel-catch";
         v.push(Scene {
-            name: "carousel-catch".into(),
+            name: name.to_string(),
             chunks: c,
             blocks,
             mobs,
-            day_time: 1000,
-            difficulty: Difficulty::Easy,
+            day_time: if first { 1000 } else { 200 },
+            difficulty: if first { Difficulty::Easy } else { Difficulty::Hard },
             mob_griefing: true,
             watch: ([c[0] * 16, -6, c[1] * 16], [c[2] * 16 + 15, 6, c[3] * 16 + 15]),
             player: None,
