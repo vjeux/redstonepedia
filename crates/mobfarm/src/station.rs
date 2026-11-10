@@ -1020,15 +1020,18 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
     });
     let mut returned: std::collections::BTreeSet<u32> = Default::default();
     let mut ev_seen = run.world.mob.events.len();
-    // the timing view, if asked (farmopt's tags): the stand cells, the pad, the holds, the pulse
+    // the timing view, if asked (farmopt's tags): the stand cells, the pad, the holds, the pulse;
+    // the stand and holds from the lanes' own geometry (as hold-bench: paired lanes move them)
     let mut tl = match &bo.timeline {
         Some(_) => {
             use crate::timeline::Tag;
             let p = o.pulse();
+            let top = lanes.level_gap * (lanes.levels - 1) + 2;
+            let (x0, x1) = (lanes.x(0), lanes.x(BATCHES - 1));
             let tags = vec![
-                Tag::Region { name: "station".into(), lo: [0, 0, 0], hi: [6, 8, 3] },
-                Tag::Region { name: "pad".into(), lo: [-3, 0, -6], hi: [9, 6, -1] },
-                Tag::Region { name: "hold".into(), lo: [lanes.x(0), -1, lanes.hold_z().ceil() as i32], hi: [lanes.x(BATCHES - 1), lanes.level_gap * (lanes.levels - 1) + 2, lanes.run + 1] },
+                Tag::Region { name: "station".into(), lo: [x0, -1, 0], hi: [x1, top, lanes.stand_z().ceil() as i32 - 1] },
+                Tag::Region { name: "pad".into(), lo: [-3, 0, -6], hi: [x1.max(9), 6, -1] },
+                Tag::Region { name: "hold".into(), lo: [x0, -1, lanes.hold_z().ceil() as i32], hi: [x1, top + lanes.yard as i32, lanes.run + 1 + lanes.yard as i32] },
                 Tag::Signal { name: "pulse".into(), at: [p[0], p[1], p[2]] },
             ];
             Some(crate::timeline::Timeline::start("station-bench", spec, &run, bo.seed, [0, 0, 0], &tags, bo.days * 24000).map_err(|e| e.to_string())?)
