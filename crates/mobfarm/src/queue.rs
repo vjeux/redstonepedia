@@ -389,11 +389,17 @@ pub struct LoopOpts {
     /// farmopt's pocket stand: each cart of the batch in its own gate pocket (counting gates, no
     /// brake timing, no contact), all three released at once.
     pub stand_stop: bool,
+    /// With `stand_stop`: the pockets' gates wired (real redstone in the design, no bench
+    /// triggers): a detector rail D1 on pocket 1's flat sets a latch Q (a two-torch loop) that
+    /// shuts G1 and G2; one input cell REL (a redstone block on, glass off) opens all three gates
+    /// and resets Q (the reset dominating while REL is on). G0 open = REL; G1, G2 open = REL or
+    /// not Q.
+    pub stand_wired: bool,
 }
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false, stand_wired: false }
     }
 }
 
@@ -422,6 +428,9 @@ pub struct LoopLayout {
     /// the last (gate 0) back: each pocket's gate and the rail cell under it (the gate's slope).
     pub stop_gate: Option<BlockPos>,
     pub pockets: Vec<(BlockPos, [i32; 3])>,
+    /// The wired pocket stand's (`stand_wired`) input cell REL: a redstone block opens the three
+    /// gates and resets the latch, glass lets the latch count.
+    pub stand_rel: Option<BlockPos>,
 }
 
 /// The loop's layout: the entry at (0, 1, 0); queue row A going -x (slots 0 .. slots/2), a U-turn,
@@ -592,7 +601,7 @@ fn finish_layout(mut path: Vec<([i32; 3], Cell)>, slot_cells: Vec<[i32; 3]>, sta
             }
         }
     }
-    LoopLayout { slots: slot_cells.iter().map(ctrl).collect(), stand: stand_cells.iter().map(ctrl).collect(), stand_b, tail_b, slot_dir, slot_peak, path, slot_cells, stand_cells, stop_gate: None, pockets: Vec::new() }
+    LoopLayout { slots: slot_cells.iter().map(ctrl).collect(), stand: stand_cells.iter().map(ctrl).collect(), stand_b, tail_b, slot_dir, slot_peak, path, slot_cells, stand_cells, stop_gate: None, pockets: Vec::new(), stand_rel: None }
 }
 
 /// The bridge loop: the stand along +x at z 0 (S3's slope at x 0, catch slots) bridging the two
@@ -788,7 +797,8 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         let mut pockets = Vec::new();
         for k in 0..3 {
             let (b, l) = (xb + 1 + 4 * k, 1 - k);
-            path.push(([b, l, 0], Cell::Plain));
+            // (wired: pocket 1's flat a detector rail D1, the first cart past G1 sets the latch)
+            path.push(([b, l, 0], if o.stand_wired && k == 2 { Cell::Detector } else { Cell::Plain }));
             path.push(([b + 1, l - 1, 0], Cell::Plain));
             path.push(([b + 2, l - 2, 0], Cell::Boost));
             pockets.insert(0, (BlockPos::new(b + 2, l - 1, 0), [b + 2, l - 2, 0]));
@@ -823,6 +833,8 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         lay.stand = Vec::new();
         lay.stop_gate = None;
         lay.pockets = pockets;
+        // (wired: the input cell REL, right behind G0's driver dust: see `stand_circuit`)
+        lay.stand_rel = o.stand_wired.then(|| BlockPos::new(xb + 11, -2, 2));
         return lay;
     }
     path.push(([xb + 1, 1, 0], if o.plain { Cell::Plain } else { Cell::Linked }));
@@ -1006,6 +1018,75 @@ fn loop_layout_straight(o: &LoopOpts) -> LoopLayout {
     finish_layout(path, slot_cells, stand_cells, Vec::new(), Vec::new())
 }
 
+/// The wired pocket stand's circuit (`stand_wired`), every cell north of the stand (z 1..5; nothing
+/// over the track, nothing at z <= -1), `ox` the gate G2's x (G1 at `ox` + 4, G0 at `ox` + 8,
+/// D1 at `ox` + 6), as written in the latched state (Q set: the three carts in their pockets).
+/// - Gate drivers: a dust pointing north into each gate from z 1 (a repeater would shut G1 and
+///   G2 2 gt later: release stagger 2 then fails), so all three open in REL's own tick.
+/// - REL (`ox` + 8, -2, 2): G0's dust takes it directly; a dust on top of it climbs a glass step
+///   (one way: power goes up a glass step, never down) into the bus O.
+/// - The latch: D1's dust d1 points into block Y; torch T2 on Y is "not Q" and feeds O; O (REL or
+///   T2) drives G1's and G2's dusts and, through repeater RX, block X; wall torch T1 on X (not O)
+///   sits under Y and holds it. D1 rises: Y on, T2 off (2 gt), O off: G1 and G2 shut 2 gt after
+///   the first cart reaches D1 (the second cart is then past G2: the train runs ~11 gt apart, and
+///   D2's detector could not count it: a detector rail stays on 20 gt, so carts 1 and 2 give it
+///   one pulse); then RX off, T1 on: Y held after D1 falls. REL on: O on (G0, G1, G2 open
+///   together), RX on, T1 off, Y off once D1 is off, T2 on: reset; while REL is on, O stays on
+///   whatever D1 does, and REL must outlast D1's last departing cart (`rel-for`'s early end).
+pub fn stand_circuit(ox: i32) -> Vec<([i32; 3], String)> {
+    let mut v: Vec<([i32; 3], String)> = Vec::new();
+    let mut put = |x: i32, y: i32, z: i32, s: &str| v.push(([ox + x, y, z], s.to_string()));
+    let wire = |n: &str, e: &str, s: &str, w: &str, p: i32| format!("redstone_wire[east={e},north={n},power={p},south={s},west={w}]");
+    let rep = "repeater[delay=1,facing=south,locked=false,powered=false]";
+    // the gate drivers: a dust north into each gate from z 1 (each on glass; dust, not a
+    // repeater: the gates shut 2 gt sooner, and all three still open in the same tick), and REL
+    // (glass: off) right behind G0's
+    put(0, 0, 1, &wire("side", "none", "side", "none", 0));
+    put(4, -1, 1, &wire("side", "none", "side", "none", 0));
+    put(8, -2, 1, &wire("side", "side", "side", "side", 0));
+    for (x, y) in [(0, 0), (4, -1), (8, -2)] {
+        put(x, y - 1, 1, "glass");
+    }
+    put(8, -2, 2, "glass");
+    // REL's dust, up a glass step into O
+    put(8, -1, 2, &wire("none", "side", "none", "up", 0));
+    put(7, -1, 2, "glass");
+    // the bus O at y 0: round T2 (6, 0, 2), west along z 3 to G2's dust, down a stone step to
+    // G1's, south to RX
+    put(7, 0, 2, &wire("none", "side", "side", "side", 0));
+    put(7, 0, 3, &wire("side", "none", "none", "side", 0));
+    put(6, 0, 3, &wire("side", "side", "side", "side", 0));
+    put(5, 0, 3, &wire("none", "side", "none", "side", 0));
+    put(4, 0, 3, &wire("side", "side", "none", "side", 0));
+    put(4, -1, 2, &wire("side", "none", "up", "none", 0));
+    for x in 1..=3 {
+        put(x, 0, 3, &wire("none", "side", "none", "side", 0));
+    }
+    put(0, 0, 3, &wire("side", "side", "none", "none", 0));
+    put(0, 0, 2, &wire("side", "none", "side", "none", 0));
+    for x in [7, 6, 5, 3, 2, 1, 0] {
+        put(x, -1, 3, "glass");
+    }
+    // (a stone step: power goes down it, a glass one would only let it up)
+    put(4, -1, 3, "stone");
+    put(0, -1, 2, "glass");
+    put(4, -2, 2, "glass");
+    put(6, 0, 4, &wire("side", "none", "side", "none", 0));
+    put(6, -1, 4, "stone");
+    put(6, -1, 5, &wire("up", "none", "side", "none", 0));
+    put(6, -2, 5, "stone");
+    put(6, -2, 4, rep);
+    put(6, -3, 4, "glass");
+    // the latch: X with T1 (lit: Q set), Y with T2 (off), D1's dust d1 (powered through Y)
+    put(6, -2, 3, "stone");
+    put(6, -2, 2, "redstone_wall_torch[facing=north,lit=true]");
+    put(6, -1, 2, "stone");
+    put(6, 0, 2, "redstone_torch[lit=false]");
+    put(6, -1, 1, &wire("side", "none", "side", "none", 15));
+    put(6, -2, 1, "glass");
+    v
+}
+
 /// The loop's design: its path (each rail on its support), 21 carts with villagers: the queue's
 /// slots full, the stand's three slots full.
 pub fn loop_design(o: &LoopOpts) -> Result<String> {
@@ -1088,6 +1169,16 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
     for (k, (g, _)) in lay.pockets.iter().enumerate() {
         b.set(g.x, g.y, g.z, &format!("oak_fence_gate[facing={},in_wall=false,open={},powered=false]", if o.stand_stop { "east" } else { "south" }, k > 0 && !o.stand_stop));
     }
+    // the wired pocket stand's circuit (G2 at x xb + 3), nothing in its cells yet
+    if o.stand_stop && o.stand_wired {
+        let ox = -o.row_gap + 3;
+        for (c, s) in stand_circuit(ox) {
+            if b.d.blocks.contains_key(&c) {
+                bail!("the stand's circuit meets the loop at {c:?}");
+            }
+            b.set(c[0], c[1], c[2], &s);
+        }
+    }
     // the zombie posts (PANIC for every rider): a zombie in a boat on glass (no golem spawns on
     // glass) at y 3, out of the carts' attack reach (2 above the highest rail; a zombie's attack
     // box grows only sideways), leaves over it for shade, every `zombie_every` cells along the
@@ -1112,7 +1203,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         }
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}{}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32, if o.stand_wired { " stand_wired=1" } else { "" }));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     Ok(b.text(&["The single-lane carousel's loop (prototype): a sawtooth queue register, the release run, the 3-slot stand, the return run."]))
 }
@@ -1145,6 +1236,7 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "peak_pad" => o.peak_pad = v != "0",
             "short_depart" => o.short_depart = v != "0",
             "stand_stop" => o.stand_stop = v != "0",
+            "stand_wired" => o.stand_wired = v != "0",
             "detector" => o.detector = v != "0",
             "zombie_every" => o.zombie_every = v.parse()?,
             "zombie_x" => o.zombie_x = v.parse()?,
@@ -1262,6 +1354,13 @@ pub struct LoopTiming {
     /// The pocket stand's counting gates shut this many gt after their count is reached (0: at
     /// once; the tolerance probe of the gates' own circuit).
     pub pocket_close_delay: i64,
+    /// The wired pocket stand (`stand_wired`): its input cell REL a redstone block from
+    /// `stand_offset` + `pocket_release` for this many gt (then glass), the only control the
+    /// bench drives there.
+    pub rel_for: i64,
+    /// The wired stand's REL start shifted alone, its end left at `pocket_release` + `rel_for`
+    /// (the tolerance probe whose windows stack with `rel_for`'s in the corners).
+    pub rel_on: i64,
     /// A nap visit to the bed siding (see `Visit`).
     pub visit: Option<Visit>,
 }
@@ -1326,7 +1425,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, visit: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, rel_for: 40, rel_on: 0, visit: None }
     }
 }
 
@@ -1397,7 +1496,12 @@ pub fn loop_shifted(tm: &LoopTiming, control: &str, s: i64) -> Result<LoopTiming
         // (a counting gate shuts on its count, never before: a negative delay never shuts it, so
         // the run fails, which is the line's early end)
         "gate-close" => t.pocket_close_delay += s,
-        _ => return Err(format!("unknown control {control}: release-start, release-end, adv1-time .. adv3-time, adv1-width .. adv3-width, s1, s2, s3, stand-brake, tail12, tail0, pocket-release, pocket-reset, gate-close, speed")),
+        // (the wired stand's input: REL's start, its end moving with it (a pulse of fixed length
+        // shifted), its length, and its start alone, the end at its own time)
+        "rel-start" => t.pocket_release += s,
+        "rel-for" => t.rel_for += s,
+        "rel-on" => t.rel_on += s,
+        _ => return Err(format!("unknown control {control}: release-start, release-end, adv1-time .. adv3-time, adv1-width .. adv3-width, s1, s2, s3, stand-brake, tail12, tail0, pocket-release, pocket-reset, gate-close, rel-start, rel-for, rel-on, speed")),
     }
     Ok(t)
 }
@@ -1852,6 +1956,8 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     // (when each counting gate shuts: its count reached, plus `pocket_close_delay`)
     let mut pocket_close_at: Vec<Option<i64>> = vec![None; lay.pockets.len()];
     let mut pocket_released_at: Option<i64> = None;
+    // (the wired stand: when the bench turns REL off again)
+    let mut rel_off_at: Option<i64> = None;
     // (the slot-boundary order check: the last slot's queue, train and stand batch; clean slots)
     let mut order_prev: Option<(Vec<Option<u32>>, Vec<u32>, Vec<u32>)> = None;
     let mut order_dep2: Option<Vec<u32>> = None;
@@ -2249,9 +2355,20 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 }
                 // (a release before the slot's start is the end of the slot before: the batch
                 // caught there leaves for this one; slot 0's own batch leaves at its start)
-                let rel = so + tm.pocket_release;
+                let rel = so + tm.pocket_release + if o.stand_wired { tm.rel_on } else { 0 };
                 let fire = if rel >= 0 { dt == rel } else { (c + 1 < cycles && dt == 100 + rel) || (c == 0 && dt == 0) };
-                if fire {
+                if fire && o.stand_wired {
+                    // the wired stand: REL on (the design's latch and gates do the rest), off
+                    // `rel_for` gt later
+                    if let Some(r) = lay.stand_rel {
+                        run.world.set_block(r, on.clone(), redsim::world::flags::ALL);
+                        drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_origin, r.x, r.y, r.z));
+                        // (`rel_on` moves the start alone: the end stays at the nominal start +
+                        // `rel_for`)
+                        rel_off_at = Some((t - tm.rel_on + tm.rel_for).max(t + 1));
+                    }
+                    pocket_released_at = Some(t);
+                } else if fire {
                     for (g, _) in &lay.pockets {
                         set_gate(&mut run.world, *g, "east", true);
                     }
@@ -2260,7 +2377,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 }
                 // (the reset at its own time of the slot, not counted from the release: the two
                 // controls' windows then stack, the release late and the reset late together)
-                if pocket_released_at.is_some() && dt == so + tm.pocket_reset {
+                if !o.stand_wired && pocket_released_at.is_some() && dt == so + tm.pocket_reset {
                     for (k, (g, _)) in lay.pockets.iter().enumerate() {
                         set_gate(&mut run.world, *g, "east", k > 0);
                     }
@@ -2332,6 +2449,14 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                     set(&mut run.world, &intake[..1], true);
                 }
             }
+        }
+        // (the wired stand's REL back to glass, whatever slot that falls in)
+        if rel_off_at == Some(t) {
+            if let Some(r) = lay.stand_rel {
+                run.world.set_block(r, off.clone(), redsim::world::flags::ALL);
+                drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:glass", run.world.time - t_origin, r.x, r.y, r.z));
+            }
+            rel_off_at = None;
         }
         // (`ideal_stand`, a diagnostic: the batch put at rest at the stand's nominal offsets once it
         // has arrived, as a stand that always delivers would leave it: what the rest of the loop
@@ -2500,7 +2625,12 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 let r = e.passengers.first().and_then(|p| run.world.entities.list.iter().find(|x| x.id == *p)).map(|x| format!(" r{:.2},{:.2} [{:.2}..{:.2} y {:.2}..{:.2}]{}", x.pos.x, x.pos.y, x.bb.min_x, x.bb.max_x, x.bb.min_y, x.bb.max_y, if redsim::entity::minecart::is_pushable(x) { "" } else { " unpushable" })).unwrap_or_default();
                 format!("{:.2},{:.2},{:.2} v{:.3}{r}", e.pos.x, e.pos.y, e.pos.z, e.delta_movement.horizontal_distance())
             }).unwrap_or_default()).collect();
-            println!("c{c} +{dt}: {}", ps.join(" | "));
+            // (the pocket stand: each gate open or shut, G2 G1 G0, and the wired stand's REL and
+            // detector D1)
+            let gates: String = lay.pockets.iter().rev().map(|(g, _)| if matches!(run.world.get(*g), Block::FenceGate { open: true, .. }) { 'o' } else { '-' }).collect();
+            let wired_cells = lay.stand_rel.map(|r| format!(" REL {} D1 {}", if matches!(run.world.get(r), Block::RedstoneBlock) { "on" } else { "-" }, if lay.path.iter().any(|(c, k)| *k == Cell::Detector && c[2] == 0 && matches!(run.world.get(BlockPos::new(c[0], c[1], c[2])), Block::DetectorRail { powered: true, .. })) { "on" } else { "-" })).unwrap_or_default();
+            let stand = if o.stand_stop { format!(" | gates {gates}{wired_cells}") } else { String::new() };
+            println!("c{c} +{dt}: {}{stand}", ps.join(" | "));
         }
         // the stand fills front first: every slot braked at once (slopes down and up) as the
         // train's front cart reaches S2's peak; its second cart is then in S2 (the train runs 3
@@ -2534,8 +2664,9 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             }
         } else if o.stand_stop {
             // the pocket stand's gates while they hold: gate k shuts once k carts have passed it (a
-            // cart's centre 1.29 past the gate slope's start: its tail past the gate)
-            if pocket_hold {
+            // cart's centre 1.29 past the gate slope's start: its tail past the gate); the wired
+            // stand's gates are the design's own
+            if pocket_hold && !o.stand_wired {
                 for k in 1..lay.pockets.len() {
                     let (g, cell) = lay.pockets[k];
                     for id in &carts {
