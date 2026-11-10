@@ -119,6 +119,8 @@ struct VLane {
     /// The open spans of the 16 rule and of CANT_REACH over 1200 (their start ticks).
     over16: Option<(u32, f64)>,
     over1200: Option<u32>,
+    /// Its HOME after the last tick (a HOME erased this tick is checked against the 16 rule).
+    prev_home: Option<BlockPos>,
 }
 
 impl VLane {
@@ -143,6 +145,7 @@ impl VLane {
             prev_ttl: None,
             over16: None,
             over1200: None,
+            prev_home: None,
         }
     }
 }
@@ -747,7 +750,7 @@ impl Timeline {
                 }
             }
             prev = tl.villagers.iter().zip(&reads).filter_map(|(v, r)| r.as_ref().map(|r| (v.id, (r.ttl, r.sleeping, r.home.is_some(), r.willing)))).collect();
-            let cells: Vec<BlockPos> = tl.beds.iter().map(|b| b.head).chain(tl.signals.iter().filter_map(|s| s.at)).chain(reads.iter().flatten().filter_map(|r| r.home)).collect();
+            let cells: Vec<BlockPos> = tl.beds.iter().map(|b| b.head).chain(tl.signals.iter().filter_map(|s| s.at)).chain(reads.iter().flatten().filter_map(|r| r.home)).chain(tl.villagers.iter().filter_map(|v| v.prev_home)).collect();
             let block: HashMap<BlockPos, String> = cells.into_iter().filter_map(|p| blocks.get(&p).map(|s| (p, s.clone()))).collect();
             tl.ingest(k, Snap { t, villagers: reads, carts: riders, ents, block, events });
         }
@@ -797,7 +800,7 @@ impl Timeline {
         // (a golem a portal removed this tick is still in the list until the tick's end)
         let ents = w.entities.list.iter().filter(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::IronGolem)).map(|e| (e.id, (e.pos, e.bb))).collect();
         let mut block: HashMap<BlockPos, String> = HashMap::new();
-        let cells: Vec<BlockPos> = self.beds.iter().map(|b| b.head).chain(self.signals.iter().filter_map(|s| s.at)).chain(villagers.iter().flatten().filter_map(|r| r.home)).collect();
+        let cells: Vec<BlockPos> = self.beds.iter().map(|b| b.head).chain(self.signals.iter().filter_map(|s| s.at)).chain(villagers.iter().flatten().filter_map(|r| r.home)).chain(self.villagers.iter().filter_map(|v| v.prev_home)).collect();
         for p in cells {
             block.entry(p).or_insert_with(|| w.get(p).to_string());
         }
@@ -1044,6 +1047,34 @@ impl Timeline {
             let Some(rd) = &reads[vi] else { continue };
             let label = self.villagers[vi].label.clone();
             let in_rest = rd.act == "rest";
+            // a HOME erased this tick within 16 of its own bed while the bed is OCCUPIED (the 16
+            // rule's effect: a sharer that validates in the tick the bed fills loses its HOME
+            // before any check after the tick sees it)
+            if let (Some(h), None) = (self.villagers[vi].prev_home, rd.home)
+                && occupied(h)
+                && !rd.sleeping
+            {
+                let d = dist_center(h, rd.pos);
+                if d < 16.0 {
+                    let note = format!(" (its HOME erased at t={k:06})");
+                    match self.villagers[vi].over16 {
+                        Some((k0, _)) => {
+                            if let Some(f) = self.flags.iter_mut().rev().find(|f| f.rule == "16" && f.lane == label && f.k == k0) {
+                                f.text.push_str(&note);
+                            }
+                            let tag = format!("VIOLATION 16 {label}: ");
+                            if let Some((_, line)) = self.lines.iter_mut().rev().find(|(kk, l)| *kk == k0 && l.contains(&tag)) {
+                                line.push_str(&note);
+                            }
+                        }
+                        None => {
+                            let hc = cell(h, off);
+                            self.flag(k, "16", &label, format!("its HOME {hc} erased {d:.2} from the bed while the bed is OCCUPIED (in {}): ValidateNearbyPoi", rd.act));
+                        }
+                    }
+                }
+            }
+            self.villagers[vi].prev_home = rd.home;
             let near16 = match rd.home {
                 Some(h) if in_rest && !rd.sleeping && occupied(h) => {
                     let d = dist_center(h, rd.pos);
@@ -1614,6 +1645,19 @@ mod tests {
         assert!(tl.summary(0, 300).contains("2 signal lanes, 2 mark lanes (2 marks), 1 violations"));
         assert!(Timeline::from_dump("x", "x", "t=5 gt=5 mark a\nt=3 gt=3 signal a=b\n").is_err(), "out of tick order");
         assert!(Timeline::from_dump("x", "x", "nothing here\n").is_err());
+    }
+
+    /// The occupied erase on the bridge (bed-shared: three villagers holding one bed, 1cac09513):
+    /// V2 lies down at 1179; V3, awake in REST 12.3 away, loses its HOME in that very tick (no
+    /// check after the tick sees it held: the erased-HOME branch flags it), and V1, 3.45 away, is
+    /// flagged at 1179 and loses it at 1180.
+    #[test]
+    fn the_occupied_erase_is_flagged() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../designs/redsim/recorded/mobai/bed-shared.rec");
+        let text = mctas::recorded::read_text(&path).unwrap();
+        let tl = Timeline::from_recording("bed-shared", "bed-shared.rec", &text, &[]).unwrap();
+        let f16: Vec<(i64, &str, bool)> = tl.flags.iter().filter(|f| f.rule == "16").map(|f| (tl.t0 + f.k as i64, f.lane.as_str(), f.text.contains("erased"))).collect();
+        assert_eq!(f16, vec![(1179, "V1", true), (1179, "V3", true)]);
     }
 
     /// A bridge recording reads through the same lanes: mob-AI's golem-summon scene (three

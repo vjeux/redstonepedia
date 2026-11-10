@@ -69,7 +69,7 @@ batch included: the villager's box inflated by its follow range, any tick, whate
 phase), `follow` (a golem sensor's actual sighting away from the station), `arrival` (a spawning
 batch member that reached the station less than 39 gt before the slot and did not arrive
 panicking; every spawn's margins are a `margin of` line), `16` (awake in REST within 16 of its home
-bed while the bed is OCCUPIED), `1200` (CANT_REACH older than 1200 gt in REST with a HOME; noted
+bed while the bed is OCCUPIED, or a HOME erased that way in the tick the bed fills), `1200` (CANT_REACH older than 1200 gt in REST with a HOME; noted
 whether the HOME went), `home` (no HOME at a dawn or midday), `sleep` (not exactly one sleep since
 the last dawn) and `gossip` (a summon off the 100 gt grid). A part bench that is not a mob farm run
 (the counter's) writes its own trace in the dump's format and draws it with `mctas mobfarm timeline
