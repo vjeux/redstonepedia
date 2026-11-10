@@ -82,6 +82,7 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         ],
         // (tickexact) the nap's panic wake: the window on the penned zombie opened, shut, opened
         "cart-queue" => vec![(300, (2..=9).map(|x| s([x, 63, 24], "minecraft:redstone_block")).collect())],
+        "cart-queue-bend" => vec![(300, (5..=8).map(|x| s([x, 63, 30], "minecraft:redstone_block")).collect())],
         "cart-queue-slope" => vec![
             (300, vec![s([41, 65, 24], "minecraft:redstone_block"), s([42, 64, 24], "minecraft:redstone_block"), s([43, 63, 24], "minecraft:redstone_block")]),
             (600, (2..=9).map(|x| s([x, 66, 24], "minecraft:redstone_block")).collect()),
@@ -1365,6 +1366,54 @@ fn scenes_raw() -> Vec<Scene> {
             name: "cart-queue-slope".into(),
             chunks: [0, 0, 2, 2],
             blocks: qb,
+            mobs: carts,
+            day_time: 1000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
+    }
+    // (tickexact 2026-11-10, the single-lane carousel's bends, the reviewer's ask) a U of track on
+    // the floor: lane A along x at z 30 (a stone kick at x 4, boosters x 5..8 whose redstone blocks
+    // come at 300, plain rails x 9..15, brakes x 16..30), a curve at (31, 30) turning north, lane B
+    // up x 31 (brakes z 21..29), a curve at (31, 20) turning west, lane C back along z 20 (brakes
+    // x 11..30) to a glass stop at x 10. 12 carts with villagers rest 1.25 apart on lane A's brakes,
+    // the front one by the first curve; at 300 three carts launch off the kick into the tail and
+    // the queue is pushed around the bend (the curves are plain rails: no brake on them)
+    {
+        let mut ub = Vec::new();
+        floor(&mut ub, 0, 48, 0, 48, 63, stone);
+        let powered = |s: &str| format!("minecraft:powered_rail[powered=false,shape={s},waterlogged=false]");
+        let rail = |s: &str| format!("minecraft:rail[shape={s},waterlogged=false]");
+        ub.push(([4, 64, 30], stone.to_string()));
+        for x in 5..=8 {
+            ub.push(([x, 64, 30], powered("east_west")));
+        }
+        for x in 9..=15 {
+            ub.push(([x, 64, 30], rail("east_west")));
+        }
+        for x in 16..=30 {
+            ub.push(([x, 64, 30], powered("east_west")));
+        }
+        ub.push(([31, 64, 30], rail("north_west")));
+        for z in 21..=29 {
+            ub.push(([31, 64, z], powered("north_south")));
+        }
+        ub.push(([31, 64, 20], rail("south_west")));
+        for x in 11..=30 {
+            ub.push(([x, 64, 20], powered("east_west")));
+        }
+        ub.push(([10, 64, 20], "minecraft:glass".to_string()));
+        let cart = |x: f64, z: f64| ("minecraft:minecart".to_string(), [x, 64.0, z], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".to_string()));
+        let mut carts: Vec<_> = (0..12).map(|k| cart(30.375 - 1.25 * k as f64, 30.5)).collect();
+        carts.extend((0..3).map(|k| cart(5.5 + 1.25 * k as f64, 30.5)));
+        v.push(Scene {
+            name: "cart-queue-bend".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: ub,
             mobs: carts,
             day_time: 1000,
             difficulty: Difficulty::Easy,
