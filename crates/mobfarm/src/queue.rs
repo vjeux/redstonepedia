@@ -1144,11 +1144,18 @@ pub struct LoopTiming {
     pub build_gap: Option<i64>,
     /// With `build_gap`: each cell's own priced gap instead (20 gt, 40 gt for a place:edge cell).
     pub build_priced: bool,
+    /// With `release_stagger`: each staggered slot's off delayed like its on (a repeater in front
+    /// of its control), not all three off together at `release_for`.
+    pub stagger_off: bool,
+    /// Day-1's merge (b): at cycle C (after the 3rd advance, +97) the cart in `slot` leaves the
+    /// loop; at cycle C+1, gt D, it rolls off a side rail beside the slot's braked slope at V b/t
+    /// (C, slot, D, V).
+    pub side_drop: Option<(i64, usize, i64, f64)>,
 }
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None }
     }
 }
 
@@ -1522,6 +1529,31 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             built_diff = Some(format!("built in order: {} cells differ from the file after the build, e.g. {}", diff.len(), diff.iter().take(6).cloned().collect::<Vec<_>>().join("; ")));
         }
     }
+    // (`side_drop`'s side rail, placed like a player places it (each block with its updates) after
+    // the loop is built: three plain rails west of the slot's slope at the peaks' height on glass,
+    // a stone stop east of it; any loop cell it reshapes is a problem)
+    let mut side_changed: Vec<String> = Vec::new();
+    if let Some((_, slot, _, _)) = tm.side_drop {
+        let lay0 = loop_layout(o);
+        let before: Vec<([i32; 3], Block)> = lay0.path.iter().map(|(c, _)| (*c, run.world.get(BlockPos::new(c[0], c[1], c[2])))).collect();
+        let s = lay0.slot_cells[slot];
+        let glass = Block::parse("minecraft:glass").map_err(|e| e.to_string())?;
+        let rail = Block::parse("minecraft:rail[shape=east_west,waterlogged=false]").map_err(|e| e.to_string())?;
+        let stone = Block::parse("minecraft:stone").map_err(|e| e.to_string())?;
+        for dx in [3, 2, 1] {
+            run.world.set_block(BlockPos::new(s[0] - dx, s[1], s[2]), glass, redsim::world::flags::ALL);
+            run.world.set_block(BlockPos::new(s[0] - dx, s[1] + 1, s[2]), rail, redsim::world::flags::ALL);
+        }
+        run.world.set_block(BlockPos::new(s[0] + 1, s[1] + 1, s[2]), stone, redsim::world::flags::ALL);
+        for (c, b) in before {
+            let now = run.world.get(BlockPos::new(c[0], c[1], c[2]));
+            if now != b {
+                side_changed.push(format!("{} {} {}: {} (was {})", c[0], c[1], c[2], now, b));
+            }
+        }
+    }
+    let mut side_cart: Option<u32> = None;
+    let mut side_rest: Option<(i64, f64)> = None;
     let first = run.world.entities.next_id;
     for (ty, pos, nbt) in &spec.entities {
         redsim::entity::spawn(&mut run.world, ty, *pos, nbt.as_deref())?;
@@ -1698,6 +1730,48 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 drive.borrow_mut().push(format!("act {} tp e{} {:.3} {:.3} {:.3}", run.world.time - t_origin, carts.iter().position(|c| c == id).unwrap_or(0), p.x, p.y, p.z));
             }
         }
+        // (`side_drop`, day-1's merge (b) for the bed siding: a cart that left its slot comes back
+        // by rolling off the end of a side rail beside the slot's braked slope, onto it: at cycle
+        // C, once the queue is at rest after the 3rd advance, the cart in `slot` is parked off
+        // the loop; at cycle C+1, gt D, it is put on the side rail moving toward the slot at V b/t)
+        if let Some((cy, slot, d, v)) = tm.side_drop {
+            if c == cy && dt == 4 && side_cart.is_none() {
+                side_cart = carts.iter().copied().find(|id| place_of(&run.world, *id) == Some(slot));
+                match side_cart {
+                    Some(id) => {
+                        let stone = Block::parse("minecraft:stone").map_err(|e| e.to_string())?;
+                        run.world.set_block(BlockPos::new(70, -1, 70), stone, redsim::world::flags::ALL);
+                        if let Some(i) = redsim::entity::index_of(&run.world, id) {
+                            run.world.entities.set_pos(i, redsim::entity::Vec3::new(70.5, 0.0, 70.5));
+                            run.world.entities.list[i].delta_movement = redsim::entity::Vec3::new(0.0, 0.0, 0.0);
+                        }
+                    }
+                    None => problems.push(format!("side drop: no cart at rest in slot {slot} at slot {c}'s +4")),
+                }
+            }
+            if let (Some(id), true) = (side_cart, c == cy && dt == d) {
+                let cell = lay.slot_cells[slot];
+                // (the side rail runs toward the slot along -x from the west; the cart starts on
+                // its middle cell)
+                let p = redsim::entity::Vec3::new(cell[0] as f64 - 1.5, cell[1] as f64 + 1.0625, cell[2] as f64 + 0.5);
+                if let Some(i) = redsim::entity::index_of(&run.world, id) {
+                    run.world.entities.set_pos(i, p);
+                    run.world.entities.list[i].delta_movement = redsim::entity::Vec3::new(v, 0.0, 0.0);
+                }
+            }
+            if let (Some(id), true) = (side_cart, c == cy && dt > d && side_rest.is_none()) {
+                if place_of(&run.world, id) == Some(slot) {
+                    let along = pos_of(&run.world, id).map(|p| p.z - (lay.slot_cells[slot][2] as f64)).unwrap_or(0.0);
+                    side_rest = Some((dt, along));
+                }
+            }
+            if let (Some(_), true) = (side_cart, c == cy && dt == tm.advance_at - 1) {
+                match side_rest {
+                    Some((at, along)) => arrivals.push(format!("side drop: the cart from slot {slot} dropped at +{d} at {v} b/t, at rest in its slot at +{at} (z offset {along:.2} in the cell)")),
+                    None => problems.push(format!("side drop: the cart dropped at slot {cy}'s +{d} at {v} b/t is not at rest in slot {slot} before the advance")),
+                }
+            }
+        }
         if c < cycles && dt == tm.tail_check_at.unwrap_or(tm.advance_at) {
             // the queue's tail must hold every earlier returning train before the advance
             for (c0, _, st) in &intake_trains {
@@ -1708,17 +1782,20 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             intake_trains.retain(|(c0, _, st)| *c0 + lag > c || (*st < 2 || (o.plain && *st != 9) || (tm.tail_check_rest && *st == 2)));
         }
         if c < cycles {
-            if dt == tm.release_for {
-                set(&mut run.world, &release_group, false);
-            }
-            // (a staggered release: the group's front slot at the start, the next two
-            // `release_stagger` gt apart, so the train runs wider apart)
-            if tm.release_stagger > 0 {
-                if dt == tm.release_stagger {
-                    set(&mut run.world, &release_group[1..2], true);
+            // the release group's window per slot (k: 0 = slot q-3, 2 = the head): on from the
+            // release start (with `release_stagger`, the head first and the others that many gt
+            // apart), off at `release_for` (with `stagger_off`, each as late as it went on). A
+            // control is the OR of its lines: the release's off waits for an advance pulse in
+            // progress, and the advance's off (below) for a release window still open
+            let st_on = |k: usize| tm.release_start + if tm.release_stagger > 0 { (2 - k as i64) * tm.release_stagger } else { 0 };
+            let st_off = |k: usize| tm.release_for + if tm.stagger_off && tm.release_stagger > 0 { (2 - k as i64) * tm.release_stagger } else { 0 };
+            let adv_on = |s: usize, dt: i64| (0..3usize).any(|k| { let a = tm.advance_at + k as i64 * tm.advance_every + tm.adv_shift[k] + tm.skew.get(s).copied().unwrap_or(0); dt >= a && dt < a + tm.pulse + tm.adv_width[k] });
+            for k in 0..3usize {
+                if tm.release_stagger > 0 && k < 2 && dt == st_on(k) {
+                    set(&mut run.world, &release_group[k..k + 1], true);
                 }
-                if dt == 2 * tm.release_stagger {
-                    set(&mut run.world, &release_group[..1], true);
+                if dt == st_off(k) && !adv_on(q - 3 + k, dt) {
+                    set(&mut run.world, &release_group[k..k + 1], false);
                 }
             }
             // the stand's batch leaves one slot at a time, front first (S1 at the slot's start,
@@ -1772,7 +1849,8 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                         set(&mut run.world, &lay.slots[s..s + 1], true);
                     }
                     let open_at = a + w + if s == 0 { tm.tail0_late } else { 0 };
-                    if dt == a + w + sk && !(k == 2 && s < 3 && open_at <= a + w + sk) {
+                    let release_open = s + 3 >= q && { let k = s + 3 - q; dt >= st_on(k) && dt < st_off(k) };
+                    if dt == a + w + sk && !(k == 2 && s < 3 && open_at <= a + w + sk) && !release_open {
                         set(&mut run.world, &lay.slots[s..s + 1], false);
                     }
                 }
@@ -2070,6 +2148,9 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     }
     if let Some(d) = built_diff {
         out.push(d);
+    }
+    if !side_changed.is_empty() {
+        problems.insert(0, format!("side drop: the side rail reshaped {} loop cells: {}", side_changed.len(), side_changed.iter().take(4).cloned().collect::<Vec<_>>().join("; ")));
     }
     out.extend(arrivals);
     if verbose {
