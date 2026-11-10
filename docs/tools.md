@@ -91,7 +91,8 @@ spawn: the batch's late arrivals are told apart with the rest of the run, a leav
 batch included: the villager's box inflated by its follow range, any tick, whatever the sensors'
 phase), `follow` (a golem sensor's actual sighting away from the station), `arrival` (at a slot, a
 member of the batch at or coming into the station that entered the station region less than 39 gt
-before the slot and did not arrive panicking; every slot's batch margin, the smallest of its
+before the slot and did not arrive panicking (the PANIC activity, or its trigger running, on the tick
+before: the trigger's 60-gt run restarts with a one-tick gap); every slot's batch margin, the smallest of its
 members', is a `margin at the slot` line, and the summary's min and mean), `16` (awake in REST within
 16 of its home bed while the bed is OCCUPIED, or a HOME erased that way in the tick the bed fills),
 `1200` (CANT_REACH older than 1200 gt in REST with a HOME; noted

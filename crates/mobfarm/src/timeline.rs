@@ -1345,6 +1345,21 @@ impl Timeline {
         (here, false)
     }
 
+    /// Whether villager `vi` came into the station at tick `a` already panicking (the brief: no
+    /// panic onset to wait for): in the PANIC activity on the tick before (NEAREST_HOSTILE set;
+    /// VillagerPanicTrigger then restarts every 61 gt while it lasts: its 60-gt run times out and
+    /// it starts again the next tick, so its own lane has a one-tick gap there, ironfarm
+    /// 2026-11-10), or its trigger running on either of the two ticks before.
+    fn arrived_panicking(&self, vi: usize, a: u32) -> bool {
+        if a == 0 {
+            return false;
+        }
+        let v = &self.villagers[vi];
+        let act = v.act.window(a - 1, a - 1).first().is_some_and(|(_, x)| x == "panic");
+        let trig = |k: u32| v.panic.window(k, k).first().is_some_and(|(_, p)| *p);
+        act || trig(a - 1) || (a >= 2 && trig(a - 2))
+    }
+
     /// Whether villager `vi`'s feet are in a station region after tick `k`.
     fn in_station_at(&self, vi: usize, k: u32) -> bool {
         let p = &self.villagers[vi].pos;
@@ -1408,7 +1423,7 @@ impl Timeline {
                         continue;
                     }
                     let m = k as i64 - a as i64;
-                    let panicking = a > 0 && self.villagers[vi].panic.window(a - 1, a - 1).first().is_some_and(|(_, p)| *p);
+                    let panicking = self.arrived_panicking(vi, a);
                     let l = self.villagers[vi].label.clone();
                     parts.push(format!("{l} {m:+}{}", if panicking { " (arrived panicking)" } else { "" }));
                     if m < 39 && !panicking {
@@ -1688,6 +1703,27 @@ mod tests {
         assert!(tl.summary(0, 300).contains("2 signal lanes, 2 mark lanes (2 marks), 1 violations"));
         assert!(Timeline::from_dump("x", "x", "t=5 gt=5 mark a\nt=3 gt=3 signal a=b\n").is_err(), "out of tick order");
         assert!(Timeline::from_dump("x", "x", "nothing here\n").is_err());
+    }
+
+    /// "Arrived panicking" reads the PANIC activity: VillagerPanicTrigger's 60-gt run times out and
+    /// restarts a tick later, so its lane has a one-tick gap every 61 gt; a gap on the tick before
+    /// the arrival is no calm arrival (ironfarm 2026-11-10: 6 false `arrival` flags on hold-bench).
+    #[test]
+    fn a_trigger_gap_is_no_calm_arrival() {
+        let mut tl = Timeline::from_dump("t", "t", "t=0 gt=0 signal a=b\n").unwrap();
+        let mut v = VLane::new(1, "V1".into(), String::new());
+        v.act.set(0, "panic".into());
+        v.panic.set(0, true);
+        v.panic.set(99, false);
+        v.panic.set(100, true);
+        let mut calm = VLane::new(2, "V2".into(), String::new());
+        calm.act.set(0, "idle".into());
+        calm.panic.set(0, false);
+        calm.panic.set(130, true);
+        tl.villagers = vec![v, calm];
+        assert!(tl.arrived_panicking(0, 100), "a gap at 99 inside PANIC");
+        assert!(!tl.arrived_panicking(1, 100), "calm until 130");
+        assert!(!tl.arrived_panicking(0, 0));
     }
 
     /// The occupied erase on the bridge (bed-shared: three villagers holding one bed, 1cac09513):
