@@ -728,6 +728,27 @@ pub fn spec_of(c: &Circuit) -> std::result::Result<FarmSpec, String> {
         let output = d.nether_ports.get("nether-output").map(|p| bp(clock::rotate_pos(*p, turns)));
         Some(redsim::entity::mob::farm::NetherSpec { anchor: bp(anchor), blocks: nb, output })
     };
+    // the link (ironspec 2026-11-10): every overworld portal cell's target (its centre over 8)
+    // finds a Nether portal cell within PortalForcer's 16 (else the game would create a portal);
+    // a farm portal without a Nether part would lose what goes through it
+    let portal_cells: Vec<mctas::sim::Pos> = d.blocks.iter().filter(|(_, s)| s.starts_with("minecraft:nether_portal")).map(|(p, _)| *p).collect();
+    if !portal_cells.is_empty() {
+        let Some(ns) = &nether else {
+            return Err("a nether portal without a Nether part (`nether-origin:` and `nether layer Y:` sections): what goes through it would be lost".into());
+        };
+        let base = ns.base();
+        let turns = d.nether_turns().unwrap_or(0);
+        let nether_portals: Vec<[i32; 3]> = d.nether_blocks.iter().filter(|(_, s)| s.starts_with("minecraft:nether_portal")).map(|(p, _)| {
+            let q = clock::rotate_pos(*p, turns);
+            [q[0] + base.x, q[1], q[2] + base.z]
+        }).collect();
+        for c in &portal_cells {
+            let (tx, tz) = (((c[0] as f64 + 0.5) * 0.125).floor() as i32, ((c[2] as f64 + 0.5) * 0.125).floor() as i32);
+            if !nether_portals.iter().any(|q| (q[0] - tx).abs() <= 16 && (q[2] - tz).abs() <= 16) {
+                return Err(format!("the overworld portal cell {c:?} links to no Nether portal within 16 of {tx} {tz} (the game would create one there)"));
+            }
+        }
+    }
     Ok(FarmSpec { blocks, entities, output: bp(out), lo: bp(from), hi: bp(to), block_entities, rock: d.meta.get("terrain").map(|t| t.trim()) == Some("rock"), nether })
 }
 
