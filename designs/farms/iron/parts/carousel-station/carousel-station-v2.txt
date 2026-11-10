@@ -1,0 +1,249 @@
+# The carousel's station + portal pad: 2 portal plane(s) 11 x 3 at z [-5, -2], a trench row on both sides of each (x -3..9, floors at y 2),
+# a tripwire line on each frame's top row (the counter's pulse); the Nether part: a lava-sheet kill over a hopper floor, the sorter, the iron-block crafter, the double chest.
+name: carousel-station-part
+circuit: mob-farm iron_ingot
+station: x0=-3 x1=9 planes=-5,-2 by=0 h=3
+port nether-anchor: 0 0 0
+port nether-axis: 1 0 0
+port output: 12 0 -2
+port output.pulse: 10 6 -2
+port nether-output: 0 54 0
+nether nbt: 1 56 -1 {disabled_slots:[I;0,1,2,3,4,5,6,7,8]}
+nether nbt: 1 58 0 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:64},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron lock"}}]}
+nether nbt: 1 59 0 {Items:[{Slot:0b,id:"minecraft:iron_ingot",count:41},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"iron filter"}}]}
+nether nbt: 2 59 0 {Items:[{Slot:0b,id:"minecraft:poppy",count:64},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy lock"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy lock"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy lock"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy lock"}}]}
+nether nbt: 2 60 0 {Items:[{Slot:0b,id:"minecraft:poppy",count:41},{Slot:1b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}},{Slot:2b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}},{Slot:3b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}},{Slot:4b,id:"minecraft:paper",count:1,components:{"minecraft:custom_name":"poppy filter"}}]}
+origin: -4 0 -6
+palette:
+  A minecraft:chest[facing=west,type=right,waterlogged=false]
+  B minecraft:cobblestone
+  C minecraft:chest[facing=north,type=single,waterlogged=false]
+  D minecraft:comparator[facing=north,mode=compare,powered=false]
+  E minecraft:comparator[facing=south,mode=compare,powered=false]
+  F minecraft:comparator[facing=west,mode=compare,powered=false]
+  G minecraft:composter[level=0]
+  H minecraft:crafter[crafting=false,orientation=down_south,triggered=false]
+  I minecraft:crafter[crafting=false,orientation=south_up,triggered=false]
+  J minecraft:hopper[enabled=true,facing=down]
+  K minecraft:hopper[enabled=true,facing=east]
+  L minecraft:hopper[enabled=true,facing=north]
+  M minecraft:hopper[enabled=true,facing=west]
+  N minecraft:nether_portal[axis=x]
+  O minecraft:oak_wall_sign[facing=north,waterlogged=false]
+  P minecraft:obsidian
+  Q minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  R minecraft:redstone_wall_torch[facing=north,lit=true]
+  S minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  T minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  U minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  V minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  W minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+  X minecraft:tripwire_hook[attached=true,facing=west,powered=false]
+  c minecraft:chest[facing=west,type=left,waterlogged=false]
+  g minecraft:glass
+  h minecraft:hopper[enabled=false,facing=down]
+  l minecraft:lava[level=0]
+  n minecraft:nether_portal[axis=z]
+  o minecraft:oak_wall_sign[facing=south,waterlogged=false]
+  r minecraft:redstone_wall_torch[facing=south,lit=true]
+  t minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+layer 0:
+  .
+  ..PPPPPPPPPPP
+  .
+  .
+  ..PPPPPPPPPPP
+  .
+layer 1:
+  .
+  .PNNNNNNNNNNNP
+  .
+  .
+  .PNNNNNNNNNNNP
+  .
+layer 2:
+  .BBBBBBBBBBBBB
+  .PNNNNNNNNNNNP
+  .BBBBBBBBBBBBB
+  .BBBBBBBBBBBBB
+  .PNNNNNNNNNNNP
+  .BBBBBBBBBBBBB
+layer 3:
+  .
+  .PNNNNNNNNNNNP
+  .
+  .
+  .PNNNNNNNNNNNP
+  .
+layer 4:
+  .
+  ..PPPPPPPPPPP
+  .
+  .
+  ..PPPPPPPPPPP
+  .
+layer 5:
+  .
+  gWtttttttttttXB
+  ..............g
+  ..............g
+  gWtttttttttttXB
+  .
+layer 6:
+  .
+  ..............Q
+  ..............Q
+  ..............Q
+  ..............Q
+  .
+nether-origin: -3 0 -4
+nether layer 53:
+  .
+  .
+  .
+  .
+  .BB
+  ..B
+  .
+  .
+  .
+nether layer 54:
+  .
+  .
+  .
+  .
+  ...AMM
+  .B.c
+  .
+  .
+  .
+nether layer 55:
+  .
+  .
+  .
+  .....BB
+  .....CBB
+  B.....BB
+  .
+  .
+  .
+nether layer 56:
+  .
+  .
+  .
+  ....IFS
+  B...KHFS
+  .....BTS
+  .
+  ....B
+  .
+nether layer 57:
+  .
+  .....B
+  .
+  .
+  .B..CKC
+  ....R
+  ....B
+  ....V
+  ....B
+nether layer 58:
+  .....B
+  .....U
+  .....B
+  .....r
+  ....hG
+  .B..B
+  ....B
+  ....B
+  ....S
+nether layer 59:
+  .....S
+  .....B
+  .....B
+  .....B
+  ....Jh
+  B...D
+  ....S
+  ....S
+  .
+nether layer 60:
+  .
+  .....S
+  .....S
+  .....E
+  B...KJ
+  .
+  .
+  .
+  .
+nether layer 61:
+  .
+  .
+  .
+  .
+  .B..JM
+  ....LL
+  .
+  .
+  .
+nether layer 62:
+  .
+  .
+  .
+  ....BB
+  ...B..B
+  .B.B..B
+  ....BB
+  .
+  .
+nether layer 63:
+  .
+  .
+  .
+  ....BB
+  ..BPooB
+  ..BPOOB
+  ....BB
+  .
+  .
+nether layer 64:
+  .
+  .
+  .
+  ...PBB
+  ...nl.B
+  ...nl.B
+  ...PBB
+  .
+  .
+nether layer 65:
+  .
+  .
+  .
+  ...PBB
+  ...n..B
+  ...n..B
+  ...PBB
+  .
+  .
+nether layer 66:
+  .
+  .
+  .
+  ...P
+  ..Bn
+  ..Bn
+  ...P
+  .
+  .
+nether layer 67:
+  .
+  .
+  .
+  .
+  ...P
+  ...P
+  .
+  .
+  .

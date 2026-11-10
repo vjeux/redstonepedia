@@ -56,7 +56,7 @@ pub struct PadOpts {
 
 impl Default for PadOpts {
     fn default() -> PadOpts {
-        PadOpts { x0: -2, x1: 8, planes: vec![-5, -2], by: 0, h: 3, skip: Vec::new() }
+        PadOpts { x0: -3, x1: 9, planes: vec![-5, -2], by: 0, h: 3, skip: Vec::new() }
     }
 }
 
@@ -832,6 +832,10 @@ pub struct BenchOpts {
     /// the line, the stand controls its inverse) instead of the drawn switch schedule, and each
     /// slot's batch is the lane last raised.
     pub counter: Option<Vec<BlockPos>>,
+    /// With the counter in the loop: each level's delay (gt) from a line's change to its hold
+    /// control's, and to its stand control's (the physical wiring's: transport, torches).
+    pub hold_delay: [i64; 3],
+    pub stand_delay: [i64; 3],
 }
 
 /// What the dynamic bench measured.
@@ -849,6 +853,8 @@ pub struct BenchReport {
     /// slot; None: not all there at the slot).
     pub gaps: Vec<i64>,
     pub margins: Vec<Option<i64>>,
+    /// Golems summoned before the counter's rotation settled (its power-on).
+    pub startup_golems: u32,
     /// Slots where a golem spawned.
     pub summoned: u32,
     /// Per slot: the batch's riders that wanted a golem at the slot (0..=3), and how many tried.
@@ -934,7 +940,9 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
     }
     // the slot grid and the line switches (as the release + hold bench draws them)
     let mut rng = redsim::rng::LegacyRandom::new(bo.seed ^ 0x686f_6c64);
-    let s0 = ((t0 + 150) / 100 + 1) * 100;
+    // (the counter in the loop: every summon tick from the start, those before its rotation
+    // settles skipped below; the drawn schedule: the first slot its first batch reaches)
+    let s0 = if bo.counter.is_some() { ((t0 + 1) / 100 + 1) * 100 } else { ((t0 + 150) / 100 + 1) * 100 };
     let end = t0 + bo.days as i64 * 24000;
     let mut slots: Vec<i64> = Vec::new();
     let mut s = s0;
@@ -973,6 +981,9 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
     let mut selected: Option<i32> = None;
     let mut line_state = [false; BATCHES as usize];
     let (mut gap_run, mut arrived_at): (i64, Option<i64>) = (0, None);
+    // the wiring's delayed control changes: (tick, control, powered)
+    let mut pending: Vec<(i64, BlockPos, bool)> = Vec::new();
+    let mut warm: Option<i64> = None;
     // every golem: (id, spawn tick, pulse rise, pulse fall, removal); `alive` indexes the ones
     // still in the overworld
     let mut golems: Vec<(u32, i64, Option<i64>, Option<i64>, Option<i64>)> = Vec::new();
@@ -1040,12 +1051,40 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
                 let high = matches!(run.world.get(*tap), Block::Comparator { powered: true, .. });
                 if high != line_state[b] {
                     line_state[b] = high;
-                    set_line(&mut run.world, b as i32, high);
+                    if bo.verbose && t_next < t0 + 2000 {
+                        eprintln!("gt {t_next}: line {b} {}", if high { "up" } else { "down" });
+                    }
+                    if bo.hold_delay == [0; 3] && bo.stand_delay == [0; 3] {
+                        set_line(&mut run.world, b as i32, high);
+                    } else {
+                        // the wiring's delays: each level's hold control follows the line after
+                        // its hold delay, each stand control its inverse after its stand delay
+                        for (k, p) in lanes.hold_ctrls(b as i32).into_iter().enumerate() {
+                            pending.push((t_next + bo.hold_delay[k.min(2)], p, high));
+                        }
+                        for (k, p) in lanes.stand_ctrls(b as i32).into_iter().enumerate() {
+                            pending.push((t_next + bo.stand_delay[k.min(2)], p, !high));
+                        }
+                    }
                     if high {
                         selected = Some(b as i32);
                         rep.advances.push(t_next);
                         arrived_at = None;
+                        // the rotation settles with the first rise after power-on (its batch
+                        // then has the travel time to the stand)
+                        if warm.is_none() && t_next > t0 + 1 {
+                            warm = Some(t_next + 60);
+                        }
                     }
+                }
+            }
+            // the delayed control changes due this tick
+            if !pending.is_empty() {
+                let fl = redsim::world::flags::ALL;
+                let due: Vec<(i64, BlockPos, bool)> = pending.iter().filter(|c| c.0 <= t_next).cloned().collect();
+                pending.retain(|c| c.0 > t_next);
+                for (_, p, on_) in due {
+                    run.world.set_block(p, if on_ { on.clone() } else { off.clone() }, fl);
                 }
             }
             let n_high = line_state.iter().filter(|&&h| h).count();
@@ -1070,11 +1109,16 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
             {
                 let all_in = riders.iter().filter(|(_, l)| *l == k).all(|(id, _)| index_of(&run.world, *id).is_some_and(|i| run.world.entities.list[i].pos.z < lanes.stand_z()));
                 if all_in {
-                    arrived_at = Some(t_next);
+                    // (the positions read before tick t_next are tick t_next - 1's)
+                    arrived_at = Some(t_next - 1);
                 }
             }
         }
         // the slot about to tick: who of the batch wants a golem, who panics
+        // (the counter's power-on: slots before its rotation settles are not counted)
+        if bo.counter.is_some() && next_slot < slots.len() && slots[next_slot] == t_next && !warm.is_some_and(|w| t_next >= w) {
+            next_slot += 1;
+        }
         if next_slot < slots.len() && slots[next_slot] == t_next {
             let k = if bo.counter.is_some() { selected.unwrap_or(0) } else { (next_slot % BATCHES as usize) as i32 };
             rep.slot_lanes.push(k as u8);
@@ -1131,7 +1175,13 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
                         rep.stray.push(format!("gt {et}: a golem at {c:?} touches no portal"));
                     }
                     if !slot_tries.as_ref().is_some_and(|(st, ids, _, _)| *st == et && ids.contains(&villager)) {
-                        violate(&mut rep, et, format!("a golem summoned by villager {villager}, not the stand batch's"));
+                        if bo.counter.is_some() && !warm.is_some_and(|w| et >= w) {
+                            // the counter's power-on: a batch its first line sent before the
+                            // rotation settles (not a stray: the spot is the pad's)
+                            rep.startup_golems += 1;
+                        } else {
+                            violate(&mut rep, et, format!("a golem summoned by villager {villager}, not the stand batch's"));
+                        }
                     }
                     golems.push((id, et, None, None, None));
                     alive.push(golems.len() - 1);

@@ -157,15 +157,19 @@ pub fn v0a(pad: &crate::station::PadOpts, lanes: &crate::hold::LaneOpts, o: &Asm
         put(&mut d, [x, y - 1, z], "stone")?;
         steps += 1;
     }
-    // flat along z at the input's height to the input's z, then west into the input cell
+    // flat along z at the input's height to the input's z, then along x into the input cell
     anyhow::ensure!(z <= to[2], "the pulse wire reaches z {z} past the counter's input at z {}: move the counter", to[2]);
     while z < to[2] {
         z += 1;
         put(&mut d, [x, y, z], dust)?;
         put(&mut d, [x, y - 1, z], "stone")?;
     }
-    put(&mut d, [to[0], to[1], to[2]], dust)?;
-    put(&mut d, [to[0], to[1] - 1, to[2]], "stone")?;
+    let mut xx = x;
+    while xx != to[0] {
+        xx += if to[0] < xx { -1 } else { 1 };
+        put(&mut d, [xx, y, z], dust)?;
+        put(&mut d, [xx, y - 1, z], "stone")?;
+    }
     d.name = "carousel-v0".into();
     d.meta.insert("assembly".into(), o.meta());
     let mut s = String::new();

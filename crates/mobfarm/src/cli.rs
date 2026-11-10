@@ -440,10 +440,11 @@ pub enum MobfarmCmd {
     /// bench design, the pad (portal planes with a trench row on both sides, a tripwire line on
     /// each frame) on the release + hold part's bench (`mobfarm hold`).
     Station {
-        /// The trench rows' x range (the portals' interior one in from each end).
-        #[arg(long, default_value_t = -2, allow_hyphen_values = true)]
+        /// The trench rows' x range (the portals' interior one in from each end; 13 wide on the
+        /// stand shifted one south: its level-2 riders miss row -6).
+        #[arg(long, default_value_t = -3, allow_hyphen_values = true)]
         x0: i32,
-        #[arg(long, default_value_t = 8)]
+        #[arg(long, default_value_t = 9)]
         x1: i32,
         /// The portal planes' z, comma-separated (3 or more apart).
         #[arg(long, default_value = "-5,-2", allow_hyphen_values = true)]
@@ -504,15 +505,26 @@ pub enum MobfarmCmd {
         /// this directory.
         #[arg(long)]
         timeline: Option<PathBuf>,
+        /// With an assembly's counter in the loop: each level's delay (gt) from a line's change to
+        /// its hold control's change (levels 0,1,2), as a physical wiring would add.
+        #[arg(long, default_value = "0,0,0")]
+        hold_delay: String,
+        /// The same for the stand controls.
+        #[arg(long, default_value = "0,0,0")]
+        stand_delay: String,
+        /// The first seed's counter line changes (the first 2,000 gt) on stderr.
+        #[arg(long)]
+        verbose: bool,
     },
     /// Assembly v0 (step a): the station design (release + hold, pad, Nether part) with day-1's
     /// counter v7 under the stand and the pad's pulse wired to its input; station-bench runs it with
     /// the counter in the loop (its lines drive the slope controls).
     Assembly {
-        /// The trench rows' x range (the portals' interior one in from each end).
-        #[arg(long, default_value_t = -2, allow_hyphen_values = true)]
+        /// The trench rows' x range (the portals' interior one in from each end; 13 wide on the
+        /// stand shifted one south: its level-2 riders miss row -6).
+        #[arg(long, default_value_t = -3, allow_hyphen_values = true)]
         x0: i32,
-        #[arg(long, default_value_t = 8)]
+        #[arg(long, default_value_t = 9)]
         x1: i32,
         /// The counter frame's shift (x,y,z).
         #[arg(long, default_value = "3,-10,15", allow_hyphen_values = true)]
@@ -893,11 +905,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::StationBench { design, from, to, days, jitter, jobs, timeline } => {
+        MobfarmCmd::StationBench { design, from, to, days, jitter, jobs, timeline, hold_delay, stand_delay, verbose } => {
             let (c, spec) = load(version, &design)?;
             let lanes = crate::hold::lanes_of(&c.clock.design.meta)?;
             let pad = crate::station::PadOpts::of(&c.clock.design.meta)?;
             let static_check = crate::station::check(&spec, &lanes, &pad).map_err(|e| anyhow::anyhow!(e))?;
+            let three = |s: &str| -> Result<[i64; 3]> {
+                let v: Vec<i64> = s.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "three delays (levels 0,1,2)");
+                Ok([v[0], v[1], v[2]])
+            };
+            let (hold_delay, stand_delay) = (three(&hold_delay)?, three(&stand_delay)?);
             // an assembly design: its counter in the loop
             let counter = match crate::assembly::AsmOpts::of(&c.clock.design.meta)? {
                 Some(a) => Some(crate::assembly::counter_taps(&a)?),
@@ -913,7 +931,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     sc.spawn(|| loop {
                         let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some(&seed) = seeds.get(k) else { break };
-                        let r = crate::station::bench(&spec, &lanes, &pad, &crate::station::BenchOpts { seed, days, jitter, verbose: false, timeline: if seed == from { timeline.clone() } else { None }, counter: counter.clone() });
+                        let r = crate::station::bench(&spec, &lanes, &pad, &crate::station::BenchOpts { seed, days, jitter, verbose: verbose && seed == from, timeline: if seed == from { timeline.clone() } else { None }, counter: counter.clone(), hold_delay, stand_delay });
                         out.lock().unwrap().push((seed, r));
                     });
                 }
@@ -929,6 +947,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let mut adv_per_slot = [0u64; 4];
             let mut adv_delay: std::collections::BTreeMap<i64, u64> = Default::default();
             let mut line_faults = 0u64;
+            let mut startup = 0u64;
             let mut gaps: std::collections::BTreeMap<i64, u64> = Default::default();
             let mut margins: std::collections::BTreeMap<Option<i64>, u64> = Default::default();
             let mut willing = [0u64; 4];
@@ -980,6 +999,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         // advance's delay after the slot before it
                         if !r.advances.is_empty() {
                             line_faults += r.line_faults as u64;
+                            startup += r.startup_golems as u64;
                             for &g in &r.gaps {
                                 *gaps.entry(g).or_insert(0) += 1;
                             }
@@ -1033,7 +1053,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 delays.sort();
                 let short: Vec<String> = delays.iter().take(6).map(|(d, n)| format!("{d}: {n}")).collect();
                 let long: Vec<String> = delays.iter().rev().take(4).map(|(d, n)| format!("{d}: {n}")).collect();
-                println!("counter in the loop: advances between consecutive slots (0/1/2/3+): {adv_per_slot:?}; advance delay after the slot before it (gt: count) shortest {short:?}, longest {long:?}; ticks with 2+ lines high: {line_faults}; no-line gaps (gt: count) {gaps:?}");
+                println!("counter in the loop: advances between consecutive slots (0/1/2/3+): {adv_per_slot:?}; advance delay after the slot before it (gt: count) shortest {short:?}, longest {long:?}; ticks with 2+ lines high: {line_faults}; no-line gaps (gt: count) {gaps:?}; golems at the counter's power-on (before its rotation settles): {startup}");
                 let late = margins.get(&None).copied().unwrap_or(0);
                 let ms: Vec<(i64, u64)> = margins.iter().filter_map(|(k, v)| k.map(|k| (k, *v))).collect();
                 let min = ms.first().map(|m| m.0);

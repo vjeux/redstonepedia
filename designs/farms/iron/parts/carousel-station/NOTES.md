@@ -11,6 +11,7 @@ on ironfarm's real carts and lines, 100 seeds x 6 days), `station-storage [--off
 
 | design | blocks | success per slot | storage | build min (middle / late) |
 |---|---|---|---|---|
+| carousel-station-v2.txt | 332 (pad 210, Nether 122) | 99.31% (static 99.30% worst lanes, shifted stand) | 18.4 h | 64.8 / 17.7 |
 | carousel-station-v1.txt | 300 (pad 178, Nether 122) | 99.06% (static 99.30%) | 18.4 h | 62.1 / 16.6 |
 
 ## How it works
@@ -49,5 +50,8 @@ on ironfarm's real carts and lines, 100 seeds x 6 days), `station-storage [--off
 
 ## Next ideas
 
-- 13 wide for ironfarm's stand shifted one block south (the level-2 riders then miss row -6:
-  99.30% at the worst lanes instead of 98.91%).
+- v2 is v1 13 wide for ironfarm's stand shifted one block south (234af4b65; the shift gives the
+  level-1 stand control a free face for the torch chain): its level-2 riders then miss row -6,
+  and 11 wide would give 98.91% at 3 callers.
+- Paired lanes (ironspec's ruling, x 0,1 | 3,4 | 6,7 | 9): each rider needs 12 pad columns in its
+  +-8 window, so the pad goes x -3..12 (16 wide) unless the end lanes come within 8 of each other.
