@@ -13,6 +13,7 @@ pub mod loopbench;
 pub mod loopgen;
 pub mod loopmodel;
 pub mod releasegen;
+pub mod releasebench;
 pub mod schedbench;
 pub mod schedgen;
 pub mod schedmodel;
@@ -122,6 +123,29 @@ enum Cmd {
         /// Repeat the run with this many chunk reloads at random ticks: the outputs must match.
         #[arg(long, default_value_t = 0)]
         restarts: u32,
+    },
+    /// The release controller driven alone (crates/circuit-memory/src/releasebench.rs): golems in
+    /// time, early (held), missed (fallback) and doubled (merged), checked against an exact model.
+    ReleaseBench {
+        design: PathBuf,
+        #[arg(long, default_value_t = 1000)]
+        pulses: u32,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        #[arg(long, default_value_t = 0.05)]
+        miss: f64,
+        #[arg(long, default_value_t = 0.05)]
+        early: f64,
+        #[arg(long, default_value_t = 0.1)]
+        double: f64,
+        #[arg(long, default_value_t = 0)]
+        restarts: u32,
+        /// Replay the first N ticks in the real game (the shared server) and compare the outputs.
+        #[arg(long, default_value_t = 0)]
+        game: u32,
+        /// Quarter turns the same run is repeated on (comma-separated, e.g. 1,2,3).
+        #[arg(long, value_delimiter = ',')]
+        turns: Vec<u8>,
     },
     /// The single-lane loop's release controller, generated (crates/circuit-memory/src/releasegen.rs).
     ReleaseGen {
@@ -360,6 +384,12 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::CounterV8 { v7, out } => counter8::generate(&v7, &out)?,
         Cmd::LoopGen { out, modules, offdelay } => loopgen::generate(&out, &modules, &offdelay)?,
         Cmd::ReleaseGen { out, offdelay } => releasegen::generate(&out, &offdelay)?,
+        Cmd::ReleaseBench { design, pulses, seed, miss, early, double, restarts, game, turns } => {
+            let ok = releasebench::bench(&design, &releasebench::Opts { pulses, seed, miss, early, double, restarts, game, turns })?;
+            if !ok {
+                anyhow::bail!("release-bench: violations");
+            }
+        }
         Cmd::LoopBench { design, days, seed, miss, burst, dusk, end, game, weather, restarts } => {
             let o = loopbench::Opts { days, seed, miss, burst, dusk, end, game_days: game, weather, restarts, ..Default::default() };
             if !loopbench::bench(&design, &o)? {

@@ -114,6 +114,10 @@ pub fn generate(out: &Path, offdelay: &Path) -> Result<()> {
     // the bulb's reset: REL + 8 .. REL + 56 continuous (overlapping 10-gt pulses), so an X edge
     // inside it toggles nothing (the merge window); its rising edge turns REQ off
     for zz in -16..=-1 {
+        if zz == -9 {
+            b.on([7, y, zz], &rep("north", 1))?; // restores the line for the far taps
+            continue;
+        }
         b.on([7, y, zz], DUST)?;
     }
     b.on([7, y, 0], &rep("north", 1))?; // into the bulb

@@ -137,6 +137,16 @@ the slot lines, and prints per villager its naps and gap windows; `--game N` as 
 under that weather (redsim's sensor model; `cycle`: random spells, the levels ramping 0.01 a tick)
 instead of the ideal [dusk, end]; `--restarts R` repeats the run with R chunk reloads at random
 ticks and requires the same output changes tick for tick.
+The single-lane loop's release controller: `mctas circuit memory release-gen --out F` generates it
+(golem input; a 3-comparator countdown ring with a busy threshold and an empty-ring torch for the
+fallback; GO = (golem or held request or fallback) minus busy, a self-timed ~10-gt release pulse;
+the held request in a waxed copper bulb set by the input's rising edge, with a merge window from
+the delay chain; the release group window and the advance pulses off the same chain);
+`mctas circuit memory release-bench <design> [--pulses 1000] [--seed S] [--miss 0.05] [--early
+0.05] [--double 0.1] [--restarts R] [--game N]` drives its `golem` cell (golems in time, early ones
+to hold, missed slots, double detections to merge), checks every `group` window's start against an
+exact model and its length, the three `adv` pulses after it (start + 38/58/78, 7..12 gt, identical)
+and that nothing else lights; `--restarts`/`--game` as for loop-bench.
 A design's Nether part as a design of its own: `mctas mobfarm nether-part <design> --out F` writes
 its `nether layer` blocks, `nether nbt:` data and `port nether-<name>` ports as the blocks, data and
 ports of F, so `web shot F` pictures the Nether side (the kill, the collection); the viewer draws a
