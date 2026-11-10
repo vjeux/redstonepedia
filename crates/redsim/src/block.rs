@@ -601,8 +601,10 @@ pub enum Block {
     Jukebox { has_record: bool },
     /// Furnace (`FurnaceBlock`, track sorter's smelter study): `lit` while it burns; its 3 slots
     /// (input, fuel, result) and burn and cooking timers live in the block entity
-    /// (`container.rs`, `AbstractFurnaceBlockEntity`).
-    Furnace { facing: Dir, lit: bool },
+    /// (`container.rs`, `AbstractFurnaceBlockEntity`). `blast`: a blast furnace
+    /// (`BlastFurnaceBlock`, tickexact 2026-11-10: blasting recipes, `#block/fast_cooking`: fuel
+    /// burns half as long, cooking twice as fast).
+    Furnace { facing: Dir, lit: bool, blast: bool },
     /// Brewing stand (`BrewingStandBlock`, track sorter's brewer study): `bottles` = the
     /// `has_bottle_0..2` bits; its 5 slots (3 potions, ingredient, fuel), brew time and fuel uses
     /// live in the block entity (`container.rs`, `BrewingStandBlockEntity`).
@@ -1112,7 +1114,8 @@ impl Block {
             "daylight_detector" => Block::DaylightDetector { inverted: bool_of("inverted", false)?, power: int_of("power", 0, 0, 15)? },
             "powder_snow" => Block::PowderSnow,
             "jukebox" => Block::Jukebox { has_record: bool_of("has_record", false)? },
-            "furnace" => Block::Furnace { facing: hdir_of("facing", Dir::North)?, lit: bool_of("lit", false)? },
+            "furnace" => Block::Furnace { facing: hdir_of("facing", Dir::North)?, lit: bool_of("lit", false)?, blast: false },
+            "blast_furnace" => Block::Furnace { facing: hdir_of("facing", Dir::North)?, lit: bool_of("lit", false)?, blast: true },
             "brewing_stand" => Block::BrewingStand { bottles: (0..3).try_fold(0u8, |b, i| Ok::<u8, String>(b | (u8::from(bool_of(["has_bottle_0", "has_bottle_1", "has_bottle_2"][i], false)?) << i)))? },
             "dispenser" | "dropper" => Block::Dispenser { dropper: name == "dropper", facing: dir_of("facing", Dir::North)?, triggered: bool_of("triggered", false)? },
             "crafter" => Block::Crafter {
@@ -1551,7 +1554,7 @@ impl fmt::Display for Block {
             Block::DaylightDetector { inverted, power } => write!(f, "minecraft:daylight_detector[inverted={},power={power}]", b(inverted)),
             Block::PowderSnow => write!(f, "minecraft:powder_snow"),
             Block::Jukebox { has_record } => write!(f, "minecraft:jukebox[has_record={}]", b(has_record)),
-            Block::Furnace { facing, lit } => write!(f, "minecraft:furnace[facing={},lit={}]", facing.name(), b(lit)),
+            Block::Furnace { facing, lit, blast } => write!(f, "minecraft:{}[facing={},lit={}]", if blast { "blast_furnace" } else { "furnace" }, facing.name(), b(lit)),
             Block::BrewingStand { bottles } => write!(f, "minecraft:brewing_stand[has_bottle_0={},has_bottle_1={},has_bottle_2={}]", b(bottles & 1 != 0), b(bottles & 2 != 0), b(bottles & 4 != 0)),
             Block::Water { level } => write!(f, "minecraft:water[level={level}]"),
             Block::BubbleColumn { drag } => write!(f, "minecraft:bubble_column[drag={}]", b(drag)),

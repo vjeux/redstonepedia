@@ -1,0 +1,24 @@
+# (tickexact 2026-11-10) smelter-1 with a blast furnace: the blast furnace's bridge check
+# (blasting recipes, fuel at half its burn time, cooking twice as fast).
+# One blast furnace: the hopper under the input chest drops items into its top, the hopper under
+# the fuel chest pushes coal into its side, and the hopper under it takes each result down into
+# the output chest.
+name: blast-smelter-1
+circuit: smelter 1
+port items: 0 3 0
+port fuel: 0 2 1
+port output: 0 -1 0
+origin: 0 0 0
+palette:
+  D minecraft:hopper[enabled=true,facing=down]
+  N minecraft:hopper[enabled=true,facing=north]
+  F minecraft:blast_furnace[facing=north,lit=false]
+layer 0:
+  D
+  .
+layer 1:
+  F
+  N
+layer 2:
+  D
+  .

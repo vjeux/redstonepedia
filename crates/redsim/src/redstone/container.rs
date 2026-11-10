@@ -193,6 +193,43 @@ pub fn smelting(item: u8) -> Option<(u8, i32)> {
     Some((item_id(result)?, 200))
 }
 
+/// (tickexact 2026-11-10) `RecipeType.BLASTING` among the modeled items (the `*_from_blasting*`
+/// recipes: raw metals, iron tools and armour), cooking time 200 like smelting's (the blast
+/// furnace's speed is its fuel's `cooking/speed_default`: 2 under `#block/fast_cooking`).
+pub fn blasting(item: u8) -> Option<(u8, i32)> {
+    let result = match item_name(item) {
+        "raw_iron" => "iron_ingot",
+        "raw_copper" => "copper_ingot",
+        "raw_gold" => "gold_ingot",
+        "iron_shovel" => "iron_nugget",
+        _ => return None,
+    };
+    Some((item_id(result)?, 200))
+}
+
+/// The recipe of a furnace (`fast`: a blast furnace's blasting) for an input item.
+pub fn cooking_recipe(fast: bool, item: u8) -> Option<(u8, i32)> {
+    if fast { blasting(item) } else { smelting(item) }
+}
+
+/// `CookingFuel.burnTime` under the furnace's loot context: the `cooking/time_*` providers divide
+/// by `fast_burn_time_reduction_factor` (2) in a `#block/fast_cooking` block (a blast furnace),
+/// by 1 elsewhere.
+pub fn burn_time_in(item: u8, fast: bool) -> i32 {
+    burn_time(item) / if fast { 2 } else { 1 }
+}
+
+/// `CookingFuel.speedMultiplier` (`cooking/speed_default`): 2 in a fast-cooking block, else 1.
+pub fn speed_multiplier(fast: bool) -> f32 {
+    if fast { 2.0 } else { 1.0 }
+}
+
+/// `AbstractFurnaceBlockEntity.getTotalCookTime(recipe, entity)`: the recipe's time over the
+/// furnace's speed multiplier, rounded up (`(int)Math.ceil(time / speedMultiplier)`).
+pub fn total_cook_time(time: i32, speed: f32) -> i32 {
+    if speed > 0.0 { (time as f32 / speed).ceil() as i32 } else { time }
+}
+
 /// The `COOKING_FUEL` burn time of a modeled item in a plain furnace (`ContextIntProviders`
 /// `cooking/time_*`, not a fast furnace: divisor 1), 0 when it is no fuel.
 pub fn burn_time(item: u8) -> i32 {
@@ -358,6 +395,9 @@ pub struct ContainerBe {
     pub cook_timer: i32,
     pub cook_total: i32,
     pub smelted: u32,
+    /// (tickexact 2026-11-10) `speedMultiplier`: the last fuel's (1 until one burns; 2 in a blast
+    /// furnace), dividing the recipes' cooking time (the modeled fuels' are whole: 1 or 2).
+    pub speed_mult: u8,
     /// A brewing stand (`BrewingStandBlockEntity`, the brewer study): slots potion 0..2,
     /// ingredient, fuel; `brewTime`, `totalBrewTime`, `fuel` (uses left), `totalFuel`, the
     /// ingredient item the current brew started with, `lastPotionCount` (bits; None = null until
@@ -393,6 +433,7 @@ impl ContainerBe {
             cook_timer: 0,
             cook_total: 0,
             smelted: 0,
+            speed_mult: 1,
             brewing: false,
             brew_time: 0,
             brew_total: 400,
@@ -640,7 +681,7 @@ impl Containers {
                 (c.song, c.song_ticks).hash(h);
             }
             if c.furnace {
-                (c.lit_time, c.lit_total, c.cook_timer, c.cook_total, c.smelted).hash(h);
+                (c.lit_time, c.lit_total, c.cook_timer, c.cook_total, c.smelted, c.speed_mult).hash(h);
             }
             if c.brewing {
                 (c.brew_time, c.brew_total, c.fuel_uses, c.fuel_total, c.brew_ingredient, c.last_bits, c.brews).hash(h);
@@ -934,10 +975,13 @@ pub(crate) fn set_item(w: &mut World, r: CRef, slot: usize, st: Option<Stack>) {
         // notifies; the other slots are just set
         let old = w.containers.map[&pos].slots[slot];
         let same = matches!((old, st), (Some(o), Some(s)) if o.item == s.item && same_payload(w, o.payload, s.payload));
+        let fast = matches!(w.get(pos), Block::Furnace { blast: true, .. });
         let c = w.containers.map.get_mut(&pos).unwrap();
         c.slots[slot] = st;
         if slot == 0 && !same {
-            c.cook_total = st.and_then(|s| smelting(s.item)).map(|x| x.1).unwrap_or(200);
+            // getTotalCookTime(level, entity): the recipe's time over the furnace's speed
+            // multiplier (a blast furnace's blasting recipes), 200 without a recipe
+            c.cook_total = st.and_then(|s| cooking_recipe(fast, s.item)).map(|x| total_cook_time(x.1, c.speed_mult as f32)).unwrap_or(200);
             c.cook_timer = 0;
             changed(w, r);
         }
@@ -1405,6 +1449,9 @@ pub fn remove_ticker(w: &mut World, pos: BlockPos) {
 /// cools 2 gt a tick. A change of `lit` is written with updates (`setBlockAndUpdate`), any change
 /// notifies the comparators (`setChanged`).
 fn furnace_tick(w: &mut World, pos: BlockPos) {
+    // (tickexact 2026-11-10) a blast furnace: `#block/fast_cooking` (half the fuel's burn time,
+    // speed multiplier 2) and the blasting recipes
+    let fast = matches!(w.get(pos), Block::Furnace { blast: true, .. });
     let Some(c) = w.containers.map.get_mut(&pos) else { return };
     let mut changed = false;
     let was_lit = c.lit_time > 0;
@@ -1417,7 +1464,7 @@ fn furnace_tick(w: &mut World, pos: BlockPos) {
     if is_lit || (fuel.is_some() && ingredient.is_some()) {
         match ingredient {
             Some(ing) => {
-                if let Some((result, time)) = smelting(ing.item) {
+                if let Some((result, time)) = cooking_recipe(fast, ing.item) {
                     // canBurn(items, getMaxStackSize() = 99, result x1)
                     let can = match result_slot {
                         None => true,
@@ -1425,13 +1472,14 @@ fn furnace_tick(w: &mut World, pos: BlockPos) {
                     };
                     if can {
                         if !is_lit {
-                            let new_lit = fuel.map(|f| burn_time(f.item)).unwrap_or(0);
+                            let new_lit = fuel.map(|f| burn_time_in(f.item, fast)).unwrap_or(0);
                             let c = w.containers.map.get_mut(&pos).unwrap();
                             c.lit_time = new_lit;
                             c.lit_total = new_lit;
+                            c.speed_mult = speed_multiplier(fast) as u8;
                             if c.cook_total > 0 && c.cook_timer < c.cook_total {
                                 let ratio = c.cook_timer as f32 / c.cook_total as f32;
-                                c.cook_total = time;
+                                c.cook_total = total_cook_time(time, c.speed_mult as f32);
                                 c.cook_timer = ((ratio * c.cook_total as f32) as f64).ceil() as i32;
                             }
                             if new_lit > 0 {
@@ -1445,7 +1493,7 @@ fn furnace_tick(w: &mut World, pos: BlockPos) {
                             c.cook_timer += 1;
                             if c.cook_timer >= c.cook_total {
                                 c.cook_timer = 0;
-                                c.cook_total = time;
+                                c.cook_total = total_cook_time(time, c.speed_mult as f32);
                                 // burn: the result in (or grown), the input shrinks
                                 c.slots[2] = Some(match c.slots[2] {
                                     None => Stack::new(result, 1),
@@ -1470,8 +1518,8 @@ fn furnace_tick(w: &mut World, pos: BlockPos) {
     }
     if was_lit != is_lit {
         changed = true;
-        if let Block::Furnace { facing, .. } = w.get(pos) {
-            w.set_block_and_update(pos, Block::Furnace { facing, lit: is_lit });
+        if let Block::Furnace { facing, blast, .. } = w.get(pos) {
+            w.set_block_and_update(pos, Block::Furnace { facing, lit: is_lit, blast });
         }
     }
     if changed {
@@ -2231,6 +2279,8 @@ pub fn apply_block_entity(w: &mut World, pos: BlockPos, snbt: &str) -> Result<bo
     let mut song_ticks: Option<i64> = None;
     // a furnace's cooking_time_spent, cooking_total_time, lit_time_remaining, lit_total_time
     let mut furnace_timers: [Option<i32>; 4] = [None; 4];
+    // (tickexact 2026-11-10) a furnace's speed multiplier (1, or a blast furnace's 2)
+    let mut furnace_speed: Option<u8> = None;
     // a brewing stand's BrewTime, total_brew_time, Fuel, total_fuel
     let mut brew_fields: [Option<i32>; 4] = [None; 4];
     // shulker box items with contents (clk-rt): their payloads are registered once `c` is done
@@ -2282,7 +2332,9 @@ pub fn apply_block_entity(w: &mut World, pos: BlockPos, snbt: &str) -> Result<bo
             ("cooking_total_time", Snbt::Int(n)) if c.furnace => furnace_timers[1] = Some(*n as i32),
             ("lit_time_remaining", Snbt::Int(n)) if c.furnace => furnace_timers[2] = Some(*n as i32),
             ("lit_total_time", Snbt::Int(n)) if c.furnace => furnace_timers[3] = Some(*n as i32),
-            ("speed_multiplier", Snbt::Word(s)) if c.furnace && s.trim_end_matches(['f', 'F']).parse::<f32>() == Ok(1.0) => {}
+            ("speed_multiplier", Snbt::Word(s)) if c.furnace && matches!(s.trim_end_matches(['f', 'F']).parse::<f32>(), Ok(v) if v == 1.0 || v == 2.0) => {
+                furnace_speed = s.trim_end_matches(['f', 'F']).parse::<f32>().ok().map(|v| v as u8);
+            }
             ("RecipesUsed", Snbt::Compound(_)) if c.furnace => {}
             // ---- brewer study: BrewTime, total_brew_time, Fuel, total_fuel (speed 1) ----
             ("BrewTime", Snbt::Int(n)) if c.brewing => brew_fields[0] = Some(*n as i32),
@@ -2331,6 +2383,7 @@ pub fn apply_block_entity(w: &mut World, pos: BlockPos, snbt: &str) -> Result<bo
         c.cook_total = b.unwrap_or(c.cook_total);
         c.lit_time = l.unwrap_or(c.lit_time);
         c.lit_total = t.unwrap_or(c.lit_total);
+        c.speed_mult = furnace_speed.unwrap_or(c.speed_mult);
         if c.brewing {
             // loadAdditional: the brew's ingredient is the ingredient slot's item while brewing
             let [bt, btot, f, ftot] = brew_fields;

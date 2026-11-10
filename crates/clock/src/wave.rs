@@ -96,8 +96,9 @@ pub fn be_extra_from_nbt(kind: &str, nbt: &str) -> Option<String> {
             let cd = if kind == "hopper" { format!(",cd={}", int_after("TransferCooldown:").unwrap_or(-1)) } else { String::new() };
             Some(format!("{{items={}{cd}}}", list.join(",")))
         }
-        // the smelter study (track sorter): a furnace's slots, burn time left and cooking timer
-        "furnace" => {
+        // the smelter study (track sorter): a furnace's slots, burn time left and cooking timer (a
+        // blast furnace's alike, tickexact 2026-11-10)
+        "furnace" | "blast_furnace" => {
             let mut items = items_of(nbt);
             items.sort();
             let list: Vec<String> = items.iter().map(|(s, c, i)| format!("{s}:{c}:{i}")).collect();
