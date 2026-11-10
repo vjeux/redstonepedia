@@ -457,6 +457,11 @@ pub enum MobfarmCmd {
         /// printed each tick.
         #[arg(long, allow_hyphen_values = true)]
         probe: Option<String>,
+        /// Instead: the pad and its Nether part on the official server, a golem summoned on each
+        /// of these trench cells (x,y,z;x,y,z;...: feet) 60 ticks apart, its world and the
+        /// pulse printed each tick for 14 ticks.
+        #[arg(long, allow_hyphen_values = true)]
+        official: Option<String>,
     },
     /// The station's bench: the seven batches through the slots on the release + hold part's lines,
     /// measuring each slot's willing riders, tries and golem, each golem's stay in the overworld and
@@ -735,10 +740,22 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, text)?;
             println!("{}", out.display());
         }
-        MobfarmCmd::StationCheck { design, verbose, probe } => {
+        MobfarmCmd::StationCheck { design, verbose, probe, official } => {
             let (c, spec) = load(version, &design)?;
             let lanes = crate::hold::lanes_of(&c.clock.design.meta)?;
             let pad = crate::station::PadOpts::of(&c.clock.design.meta)?;
+            if let Some(list) = official {
+                let mut cells = Vec::new();
+                for p in list.split(';') {
+                    let v: Vec<i32> = p.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+                    anyhow::ensure!(v.len() == 3, "--official x,y,z;x,y,z;...");
+                    cells.push([v[0], v[1], v[2]]);
+                }
+                for l in crate::station::probe_official(version, &pad, &cells, 14, 60)? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
             if let Some(p) = probe {
                 let v: Vec<i32> = p.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
                 anyhow::ensure!(v.len() == 3, "--probe x,y,z");

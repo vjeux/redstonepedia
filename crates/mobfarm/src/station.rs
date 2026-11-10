@@ -488,6 +488,80 @@ pub fn probe_pulse(spec: &FarmSpec, o: &PadOpts, cell: [i32; 3], ticks: u32) -> 
     Ok(out)
 }
 
+/// `station-check --official`: the pad and its Nether part on the official server, one golem
+/// summoned on each given trench cell `stagger` ticks apart, printed each tick for `ticks` ticks
+/// after each summon: where the golem is (overworld, Nether or gone) and the pulse's dust power.
+pub fn probe_official(version: &str, o: &PadOpts, cells: &[[i32; 3]], ticks: u32, stagger: u32) -> Result<Vec<String>> {
+    use mctas::vanilla::{VanillaOptions, VanillaServer};
+    let mut srv = VanillaServer::start(&VanillaOptions { version: version.to_string(), difficulty: "easy".into(), ..Default::default() })?;
+    srv.cmd_ok("gamerule spawn_mobs false")?;
+    srv.cmd_ok("gamerule advance_time false")?;
+    srv.cmd_ok("time set 6000")?;
+    let ow = pad(o)?;
+    let (ne, _) = nether_part();
+    let boxed = |b: &[([i32; 3], String)], m: i32| {
+        let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+        for (p, _) in b {
+            for i in 0..3 {
+                lo[i] = lo[i].min(p[i] - m);
+                hi[i] = hi[i].max(p[i] + m);
+            }
+        }
+        (lo, hi)
+    };
+    let mut out = Vec::new();
+    for (dim, blocks) in [("minecraft:overworld", &ow), ("minecraft:the_nether", &ne)] {
+        let run = format!("execute in {dim} run");
+        let (lo, hi) = boxed(blocks, 4);
+        srv.cmd_ok(&format!("{run} forceload add {} {} {} {}", lo[0], lo[2], hi[0], hi[2]))?;
+        srv.step(40)?;
+        for y in lo[1]..=hi[1] {
+            srv.cmd(&format!("{run} fill {} {y} {} {} {y} {} minecraft:air", lo[0], lo[2], hi[0], hi[2]))?;
+        }
+        // (strict: no updates, so the portal cells stand before their frame is whole; the
+        // attached blocks after their supports; fluids last, each its own placing update)
+        let fluid = |s: &str| s.starts_with("minecraft:lava");
+        let late = |s: &str| s.contains("tripwire") || s.contains("wall_sign") || s.contains("redstone_wire") || s.contains("nether_portal");
+        for pass in 0..3 {
+            for (p, s) in blocks.iter().filter(|(_, s)| match pass {
+                0 => !fluid(s) && !late(s),
+                1 => late(s),
+                _ => fluid(s),
+            }) {
+                let r = srv.cmd(&format!("{run} setblock {} {} {} {s}{}", p[0], p[1], p[2], if pass == 2 { "" } else { " strict" }))?;
+                if !r.contains("Changed the block") && !r.contains("Could not set the block") {
+                    anyhow::bail!("setblock {p:?} {s} in {dim}: {r}");
+                }
+            }
+        }
+    }
+    srv.step(200)?;
+    let pulse = o.pulse();
+    for (k, c) in cells.iter().enumerate() {
+        if k > 0 {
+            srv.step(stagger)?;
+        }
+        let tag = format!("sp{k}");
+        srv.cmd_ok(&format!("summon minecraft:iron_golem {} {} {} {{PersistenceRequired:1b,Tags:[\"{tag}\"]}}", c[0] as f64 + 0.5, c[1], c[2] as f64 + 0.5))?;
+        for t in 0..=ticks {
+            if t > 0 {
+                srv.step(1)?;
+            }
+            let here = |srv: &mut VanillaServer, dim: &str| -> Result<bool> { Ok(srv.cmd(&format!("execute in {dim} positioned 0 0 0 if entity @e[tag={tag},distance=0..]"))?.contains("passed")) };
+            let at = if here(&mut srv, "minecraft:overworld")? {
+                "overworld"
+            } else if here(&mut srv, "minecraft:the_nether")? {
+                "nether"
+            } else {
+                "gone"
+            };
+            let unpowered = srv.cmd(&format!("execute if block {} {} {} minecraft:redstone_wire[power=0]", pulse[0], pulse[1], pulse[2]))?.contains("passed");
+            out.push(format!("golem {k} on {c:?} t+{t}: {at}, pulse {}", if unpowered { "off" } else { "ON" }));
+        }
+    }
+    Ok(out)
+}
+
 /// The dynamic bench's options.
 #[derive(Clone, Copy, Debug)]
 pub struct BenchOpts {
