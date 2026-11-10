@@ -1144,6 +1144,11 @@ pub enum MobfarmCmd {
         /// The stand's track along z (default: along x, parallel to the pad).
         #[arg(long)]
         along_z: bool,
+        /// The stand carts' spacing along the track (1: back to back) and each next cart's drop.
+        #[arg(long, default_value_t = 1)]
+        pitch: i32,
+        #[arg(long, default_value_t = 0)]
+        drop: i32,
         #[arg(long)]
         out: PathBuf,
         /// Write the cells as the generator writes them, not settled (the default writes every
@@ -1151,6 +1156,15 @@ pub enum MobfarmCmd {
         /// as block entities: "settled as placed", mobfarm::placing::settle_design).
         #[arg(long)]
         unsettled: bool,
+        /// The pad and its Nether part alone (no stand track, zombies, hold or bed): the part
+        /// another design pastes, with its ports (the golem pulse `output.pulse`, the Nether's
+        /// anchor, axis and output) and its build steps.
+        #[arg(long)]
+        alone: bool,
+        /// Trench floor cells written as top slabs ("x,y,z;x,y,z"): a golem floor that does not
+        /// suffocate a rider whose eye passes through it (the pocket stand's: "-2,2,-1;-1,2,-1").
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        slab_floor: String,
     },
     /// The linear stand's static check: each of the 3 stand riders' golem search (the judge's
     /// function), the held riders' searches, the boxes near the portals, success per slot.
@@ -2037,7 +2051,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 Some(s) => s.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?,
                 None => Vec::new(),
             };
-            let o = crate::station::PadOpts { x0, x1, planes, by, h, skip };
+            let o = crate::station::PadOpts { x0, x1, planes, by, h, skip, slabs: Vec::new() };
             let text = if part { crate::station::part(&o, &crate::hold::LaneOpts::default())? } else { crate::station::design(&o, &crate::hold::LaneOpts::default())? };
             std::fs::write(&out, text)?;
             println!("{}", out.display());
@@ -2152,11 +2166,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let ok = r.crosstalk_count == 0 && r.stuck_count == 0 && r.two_lines == 0 && r.order_faults == 0 && r.delays.len() == ends;
             println!("{}", if ok { "PASS" } else { "FAIL" });
         }
-        MobfarmCmd::Linear { x0, x1, stand, along_z, out, unsettled } => {
+        MobfarmCmd::Linear { x0, x1, stand, along_z, pitch, drop, out, unsettled, alone, slab_floor } => {
             let p: Vec<i32> = stand.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(p.len() == 3, "--stand x,y,z");
-            let pad = crate::station::PadOpts { x0, x1, ..Default::default() };
-            let o = crate::linear::LinearOpts { x0: p[0], y: p[1], z: p[2], along_x: !along_z, ..Default::default() };
+            let pad = crate::station::PadOpts { x0, x1, slabs: crate::station::parse_cells(&slab_floor)?, ..Default::default() };
+            let o = crate::linear::LinearOpts { x0: p[0], y: p[1], z: p[2], along_x: !along_z, pitch, drop, ..Default::default() };
             std::fs::write(&out, crate::linear::design(&pad, &o)?)?;
             if !unsettled {
                 let changes = crate::placing::settle_file(&out)?;
@@ -2164,6 +2178,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 for c in &changes {
                     println!("  {c}");
                 }
+            }
+            if alone {
+                let text = std::fs::read_to_string(&out)?;
+                std::fs::write(&out, crate::linear::alone(&text, &pad)?)?;
+                let d = mctas::design::Design::parse(&std::fs::read_to_string(&out)?)?;
+                println!("alone: {} pad blocks, {} Nether blocks, the golem pulse at {:?}", d.blocks.len(), d.nether_blocks.len(), d.ports.get("output.pulse"));
             }
             println!("{}", out.display());
         }
