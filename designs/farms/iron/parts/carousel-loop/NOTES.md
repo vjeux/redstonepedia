@@ -18,6 +18,10 @@ section. This folder holds the loop as it is built.
 
 "Clean" below always means with bench-driven controls unless it says wired.
 
+members.tsv (the site's list) holds only the wired loop, `carousel-single-lane-loop-wired.txt`; the
+wip file is the bench's scene (its 21 controls are glass blocks the bench switches), kept here for
+the benches and the generator, not a design to build.
+
 ## The queue: a sawtooth shift register
 
 Each queue slot is one 3-cell period: a powered rail sloping down (the cart's resting cell, braked
