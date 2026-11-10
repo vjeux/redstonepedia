@@ -287,7 +287,7 @@ fn nether_iron(s: &mut VanillaServer, ns: &farm::NetherSpec) -> Result<(u32, u32
     let mut rest = 0;
     for (p, b) in &placed {
         let st = b.to_string();
-        if !(st.starts_with("minecraft:chest") || st.starts_with("minecraft:hopper") || st.starts_with("minecraft:barrel") || st.starts_with("minecraft:dropper") || st.starts_with("minecraft:dispenser")) {
+        if !(st.starts_with("minecraft:chest") || st.starts_with("minecraft:hopper") || st.starts_with("minecraft:barrel") || st.starts_with("minecraft:dropper") || st.starts_with("minecraft:dispenser") || st.starts_with("minecraft:crafter")) {
             continue;
         }
         let iron = count_iron(&s.cmd_long(&format!("{n} data get block {} {} {} Items", p.x, p.y, p.z))?);
@@ -610,7 +610,8 @@ fn built_blocks(spec: &FarmSpec, seed: i64) -> Result<Built> {
 /// The containers of the farm that can hold its drops (hoppers, chests, barrels...), not the
 /// output chest.
 fn containers(blocks: &[([i32; 3], String)], output: [i32; 3]) -> Vec<[i32; 3]> {
-    blocks.iter().filter(|(p, s)| *p != output && (s.contains("hopper") || s.contains(":chest") || s.contains("barrel") || s.contains("dropper") || s.contains("dispenser"))).map(|(p, _)| *p).collect()
+    // (tickexact 2026-11-10, farmopt) a crafter too: the judge counts the ingots its grid holds
+    blocks.iter().filter(|(p, s)| *p != output && (s.contains("hopper") || s.contains(":chest") || s.contains("barrel") || s.contains("dropper") || s.contains("dispenser") || s.contains(":crafter"))).map(|(p, _)| *p).collect()
 }
 
 /// Start the build's server: plains void superflat, Hard, frozen at `tick rate 10000`, the bot
