@@ -13,6 +13,7 @@
 //! live in `gravity.rs` (they move into this list as a kind in M2, bit-identical).
 
 pub mod armor_stand;
+pub mod arrow;
 pub mod boat;
 pub mod collide;
 pub mod fluid_push;
@@ -58,6 +59,8 @@ pub enum EntityKind {
     PrimedTnt(primed_tnt::PrimedTntState),
     /// ironfarm: a mob (`mob/`: villager, iron golem, zombie).
     Mob(Box<mob::MobState>),
+    /// mob AI: an arrow (`arrow.rs`: a skeleton's shot).
+    Arrow(arrow::ArrowState),
 }
 
 impl EntityKind {
@@ -70,6 +73,7 @@ impl EntityKind {
             EntityKind::ArmorStand(_) => (armor_stand::WIDTH, armor_stand::HEIGHT),
             EntityKind::PrimedTnt(_) => (primed_tnt::WIDTH, primed_tnt::HEIGHT),
             EntityKind::Mob(m) => m.dims(),
+            EntityKind::Arrow(_) => (arrow::WIDTH, arrow::HEIGHT),
         }
     }
 
@@ -82,6 +86,7 @@ impl EntityKind {
             EntityKind::ArmorStand(_) => 1.7775,
             EntityKind::PrimedTnt(_) => primed_tnt::EYE_HEIGHT,
             EntityKind::Mob(m) => m.eye(),
+            EntityKind::Arrow(_) => arrow::EYE_HEIGHT,
         }
     }
 }
@@ -631,6 +636,7 @@ pub fn tick_one(w: &mut World, i: usize) {
         EntityKind::ArmorStand(_) => armor_stand::tick(w, i),
         EntityKind::PrimedTnt(_) => primed_tnt::tick(w, i),
         EntityKind::Mob(_) => mob::tick(w, i),
+        EntityKind::Arrow(_) => arrow::tick(w, i),
     }
     let me = w.entities.list[i].id;
     let riders = w.entities.list[i].passengers.clone();

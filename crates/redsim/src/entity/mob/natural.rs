@@ -1230,8 +1230,8 @@ struct Finalized {
     ty: MobType,
     baby: bool,
     jockey: Jockey,
-    /// The helmet `populateDefaultEquipmentSlots` gave it (its armor type: 0 leather, 1 gold, 2
-    /// chain, 3 iron, 4 diamond): the head comes first in `EQUIPMENT_POPULATION_ORDER`.
+    /// The helmet `populateDefaultEquipmentSlots` gave it (its armor type: 0 leather, 1 copper, 2
+    /// golden, 3 chainmail, 4 iron, 5 diamond): the head comes first in `EQUIPMENT_POPULATION_ORDER`.
     helmet: Option<u8>,
     /// A spider jockey's skeleton's helmet, likewise.
     rider_helmet: Option<u8>,

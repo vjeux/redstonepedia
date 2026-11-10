@@ -134,6 +134,10 @@ pub enum Damage {
     /// mob AI: a mob's melee hit (`mob_attack`: armor counts, knockback from the attacker, who is
     /// `MobWorld.ai.attacker` during the call).
     MobAttack,
+    /// mob AI: an arrow's hit (`arrow`: a projectile; armor counts; its owner is
+    /// `MobWorld.ai.attacker` and its motion `MobWorld.ai.projectile_motion` during the call: the
+    /// knockback goes along the arrow's motion).
+    Arrow,
 }
 
 impl Damage {
@@ -159,6 +163,7 @@ impl Damage {
             Damage::Lightning => "lightning_bolt",
             Damage::InFire => "in_fire",
             Damage::MobAttack => "mob_attack",
+            Damage::Arrow => "arrow",
         }
     }
 
@@ -175,6 +180,7 @@ impl Damage {
             Damage::Lightning => "lightningBolt",
             Damage::InFire => "inFire",
             Damage::MobAttack => "mob",
+            Damage::Arrow => "arrow",
         }
     }
 }
@@ -497,6 +503,7 @@ pub fn kind_name(k: &EntityKind) -> &'static str {
         EntityKind::ArmorStand(_) => "armor stand",
         EntityKind::PrimedTnt(_) => "primed TNT",
         EntityKind::Mob(m) => m.ty.def().id,
+        EntityKind::Arrow(_) => "arrow",
     }
 }
 
@@ -631,6 +638,7 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
     let mut portal_cooldown: Option<i32> = None;
     let mut chicken_jockey = false;
     let mut can_pick_up_loot = false;
+    let mut mainhand: Option<Held> = None;
     let mut egg_lay_time: Option<i32> = None;
     let mut yaw = None;
     // (tickexact 2026-11-09, ironspec's one-bed carousel) a villager's loaded memories: HOME (a
@@ -690,6 +698,42 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
                 Ok(v) => yaw = Some(v),
                 Err(_) => return Some(Err(format!("entity {type_id}: bad Rotation in {n}"))),
             }
+            t = format!("{}{}", &t[..s], &t[e + 1..]);
+        }
+        // (mob AI) `equipment:{mainhand:{id:"..",count:N}}`: the main hand only (a skeleton's bow)
+        if let Some(s) = t.find("equipment:{") {
+            let mut depth = 0;
+            let mut end = None;
+            for (k, c) in t[s..].char_indices() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = Some(s + k);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let Some(e) = end else { return Some(Err(format!("entity {type_id}: unclosed equipment in {n}"))) };
+            let eq = t[s + "equipment:{".len()..e].to_string();
+            let Some(body) = eq.trim().strip_prefix("mainhand:{").and_then(|b| b.strip_suffix('}')) else {
+                return Some(Err(format!("entity {type_id}: only a main-hand item is modeled in equipment: {eq}")));
+            };
+            let mut id = None;
+            let mut count = 1u8;
+            for part in body.split(',') {
+                match part.trim().split_once(':') {
+                    Some(("id", v)) => id = Some(v.trim().trim_matches('"').to_string()),
+                    Some(("count", v)) => count = v.trim().trim_end_matches(['b', 'B']).parse().unwrap_or(1),
+                    _ => return Some(Err(format!("entity {type_id}: a main-hand item with {part} is not modeled"))),
+                }
+            }
+            let Some(id) = id else { return Some(Err(format!("entity {type_id}: a main-hand item needs an id: {eq}"))) };
+            let id = if id.contains(':') { id } else { format!("minecraft:{id}") };
+            mainhand = Some(Held { item: id, count, guaranteed: false, enchanted: false });
             t = format!("{}{}", &t[..s], &t[e + 1..]);
         }
         let inner = t.trim().strip_prefix('{').and_then(|s| s.strip_suffix('}')).unwrap_or(&t).trim().to_string();
@@ -754,6 +798,15 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
         && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
     {
         m.can_pick_up_loot = true;
+    }
+    // a loaded main hand (AbstractSkeleton.readAdditionalSaveData: reassessWeaponGoal)
+    if let Some(j) = crate::entity::index_of(w, id) {
+        if let Some(h) = mainhand
+            && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
+        {
+            m.mainhand = Some(h);
+        }
+        ai::goal::skeleton::reassess_weapon_goal(w, j);
     }
     if let Some(c) = portal_cooldown
         && let Some(j) = crate::entity::index_of(w, id)
@@ -930,10 +983,13 @@ pub fn tick(w: &mut World, i: usize) {
 /// 4 diamond; the helmet's durability: 55, 77, 165, 165, 363).
 pub fn set_helmet(w: &mut World, id: u32, armor: Option<u8>) {
     let Some(a) = armor else { return };
+    // `getEquipmentForSlot(HEAD, type)`: 0 leather, 1 copper, 2 golden, 3 chainmail, 4 iron, 5
+    // diamond; a helmet's durability is 11 x its material's (5, 11, 7, 15, 15, 33)
     let max = match a {
         0 => 55,
-        1 => 77,
-        2 | 3 => 165,
+        1 => 121,
+        2 => 77,
+        3 | 4 => 165,
         _ => 363,
     };
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
@@ -962,6 +1018,10 @@ pub fn set_hand(w: &mut World, id: u32, loot: bool, weapon: Option<(&'static str
     {
         m.can_pick_up_loot = loot;
         m.mainhand = weapon.map(|(item, enchanted)| Held { item: item.to_string(), count: 1, guaranteed: false, enchanted });
+    }
+    // setItemSlot -> onEquipItem: a skeleton reassesses its weapon goal (its bow)
+    if let Some(j) = crate::entity::index_of(w, id) {
+        ai::goal::skeleton::reassess_weapon_goal(w, j);
     }
 }
 

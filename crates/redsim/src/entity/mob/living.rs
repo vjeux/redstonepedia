@@ -59,6 +59,10 @@ pub fn tick(w: &mut World, i: usize) {
         if super::ai::squid::is_water_creature(w, i) && super::ai::squid::handle_air_supply(w, i, pre_air) {
             hurt(w, i, Damage::Drown, 2.0);
         }
+        // LivingEntity.tick after super.tick(): updatingUsingItem (a skeleton's drawn bow)
+        if !w.entities.list[i].removed {
+            super::ai::goal::skeleton::updating_using_item(w, i);
+        }
     }
     // LivingEntity.tick: a sleeper whose bed is gone wakes up
     if let Some(bed) = mob(w, i).sleeping_pos
@@ -809,7 +813,7 @@ fn hurt_inner(w: &mut World, i: usize, src: Damage, amount: f32) -> bool {
     // (tickexact 2026-11-10) Zombie.hurtServer after the hurt (zombies, zombie villagers, husks,
     // drowned, zombified piglins): the reinforcement roll on Hard with a target, and the call
     if super::natural::is_zombie_class(ty) && super::ai::has_ai(w, i) {
-        let attacker = if src == Damage::MobAttack { w.mob.ai.attacker } else { None };
+        let attacker = if matches!(src, Damage::MobAttack | Damage::Arrow) { w.mob.ai.attacker } else { None };
         super::natural::zombie_reinforcements(w, i, attacker);
     }
     true
@@ -886,7 +890,7 @@ fn victim(w: &World, i: usize, src: Damage) -> super::loot::Victim {
         _ => None,
     };
     let wool = (m.ty.def().game_id == "minecraft:sheep").then(|| super::loot::wool_of(m.color));
-    let killer_skeleton = src == Damage::MobAttack && w.mob.ai.attacker.and_then(|a| w.entities.list.iter().find(|x| x.id == a)).is_some_and(|x| matches!(&x.kind, EntityKind::Mob(km) if matches!(km.ty.def().id, "skeleton" | "stray" | "bogged" | "wither_skeleton")));
+    let killer_skeleton = matches!(src, Damage::MobAttack | Damage::Arrow) && w.mob.ai.attacker.and_then(|a| w.entities.list.iter().find(|x| x.id == a)).is_some_and(|x| matches!(&x.kind, EntityKind::Mob(km) if matches!(km.ty.def().id, "skeleton" | "stray" | "bogged" | "wither_skeleton")));
     super::loot::Victim { on_fire: m.fire_ticks > 0 && !m.ty.def().fire_immune, cube_size, rides_zombie_horse, wool, killed_by_skeleton: killer_skeleton, lightning: src == Damage::Lightning }
 }
 

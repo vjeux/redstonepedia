@@ -777,6 +777,37 @@ pub fn clip(b: Aabb, from: Vec3, to: Vec3) -> Option<Vec3> {
     dir.map(|_| from.add(scale * dx, scale * dy, scale * dz))
 }
 
+/// `AABB.clip(Iterable<AABB> boxes, from, to, pos)`: the nearest hit point over all the boxes
+/// (one scale shared by every box, so the first box crossed wins), if any.
+pub fn clip_boxes(boxes: &[Aabb], from: Vec3, to: Vec3) -> Option<Vec3> {
+    let mut scale = 1.0f64;
+    let (dx, dy, dz) = (to.x - from.x, to.y - from.y, to.z - from.z);
+    let mut dir = None;
+    for b in boxes {
+        if dx > 1.0e-7 {
+            dir = clip_point(&mut scale, dir, dx, dy, dz, b.min_x, b.min_y, b.max_y, b.min_z, b.max_z, 0, from.x, from.y, from.z);
+        } else if dx < -1.0e-7 {
+            dir = clip_point(&mut scale, dir, dx, dy, dz, b.max_x, b.min_y, b.max_y, b.min_z, b.max_z, 1, from.x, from.y, from.z);
+        }
+        if dy > 1.0e-7 {
+            dir = clip_point(&mut scale, dir, dy, dz, dx, b.min_y, b.min_z, b.max_z, b.min_x, b.max_x, 2, from.y, from.z, from.x);
+        } else if dy < -1.0e-7 {
+            dir = clip_point(&mut scale, dir, dy, dz, dx, b.max_y, b.min_z, b.max_z, b.min_x, b.max_x, 3, from.y, from.z, from.x);
+        }
+        if dz > 1.0e-7 {
+            dir = clip_point(&mut scale, dir, dz, dx, dy, b.min_z, b.min_x, b.max_x, b.min_y, b.max_y, 4, from.z, from.x, from.y);
+        } else if dz < -1.0e-7 {
+            dir = clip_point(&mut scale, dir, dz, dx, dy, b.max_z, b.min_x, b.max_x, b.min_y, b.max_y, 5, from.z, from.x, from.y);
+        }
+    }
+    dir.map(|_| from.add(scale * dx, scale * dy, scale * dz))
+}
+
+/// `AABB.contains(Vec3)` (half-open).
+pub fn aabb_contains(b: Aabb, v: Vec3) -> bool {
+    contains(b, v)
+}
+
 // ------------------------------------------------------------- the fall-distance raycast
 
 /// `BlockGetter.traverseBlocks`: the cells along the segment (each end pushed 1e-7 outward), in

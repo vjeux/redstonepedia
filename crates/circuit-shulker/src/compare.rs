@@ -63,6 +63,7 @@ fn entity_rows(w: &World) -> Vec<(String, [f64; 3], [f64; 3], f32, f32, i32)> {
                 EntityKind::ArmorStand(_) => "minecraft:armor_stand".to_string(),
                 EntityKind::PrimedTnt(_) => "minecraft:tnt".to_string(),
                 EntityKind::Mob(m) => m.ty.game_id().to_string(),
+                EntityKind::Arrow(_) => "minecraft:arrow".to_string(),
             };
             (kind, [e.pos.x, e.pos.y, e.pos.z], [e.delta_movement.x, e.delta_movement.y, e.delta_movement.z], e.y_rot, e.x_rot, e.network_id)
         })

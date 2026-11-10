@@ -64,6 +64,9 @@ pub struct MobAi {
     pub ambient_sound_time: i32,
     /// `Mob.isAggressive()` (`DATA_MOB_FLAGS` bit 4).
     pub aggressive: bool,
+    /// `LivingEntity.isUsingItem()` and `useItemRemaining` (a skeleton drawing its bow).
+    pub using_item: bool,
+    pub use_item_remaining: i32,
     /// `getPathfindingMalus` overrides.
     pub malus: Malus,
     /// The search buffers (reused between searches).
@@ -174,6 +177,8 @@ impl MobAi {
             y_body_rot_o: y_rot,
             ambient_sound_time: 0,
             aggressive: false,
+            using_item: false,
+            use_item_remaining: 0,
             malus,
             arena: Arena::default(),
             last_hurt_by_mob: None,
@@ -337,6 +342,9 @@ pub struct AiWorld {
     pub mob_griefing: bool,
     /// The attacker of the hit `living::hurt` is dealing (set by [`attack::do_hurt_target`]).
     pub attacker: Option<u32>,
+    /// The motion of the arrow whose hit `living::hurt` is dealing (`arrow::hit_entity`): the
+    /// knockback's direction (`Projectile.calculateHorizontalHurtKnockbackDirection`).
+    pub projectile_motion: Option<crate::entity::Vec3>,
     /// The POI index (`poi::index`; `None`: to rebuild).
     pub pois: Option<Vec<(crate::pos::BlockPos, poi::PoiKind)>>,
     /// The order POIs were added (`PoiManager.add` on a POI block placed: a section's record set
@@ -377,7 +385,7 @@ pub fn unmodeled(ty: MobType, a: &MobAi) -> bool {
 
 impl Default for AiWorld {
     fn default() -> AiWorld {
-        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, pois: None, poi_seq: std::collections::HashMap::new(), poi_next: 0, poi_tickets: Some(std::collections::BTreeMap::new()), lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new(), poi_hashes: None, strict: false, legacy: std::collections::BTreeSet::new(), bodies: Vec::new(), player_moved: false }
+        AiWorld { on: false, difficulty: super::natural::Difficulty::Normal, players: Vec::new(), mob_griefing: true, attacker: None, projectile_motion: None, pois: None, poi_seq: std::collections::HashMap::new(), poi_next: 0, poi_tickets: Some(std::collections::BTreeMap::new()), lights: None, sky_cache: std::collections::HashMap::new(), collections: None, block_cache: std::collections::HashMap::new(), poi_hashes: None, strict: false, legacy: std::collections::BTreeSet::new(), bodies: Vec::new(), player_moved: false }
     }
 }
 
@@ -1025,6 +1033,25 @@ impl NavMob {
 pub fn eye_pos(w: &World, j: usize) -> Vec3 {
     let e = &w.entities.list[j];
     Vec3::new(e.pos.x, e.pos.y + e.kind.eye_height() as f64, e.pos.z)
+}
+
+/// `Mob.lookAt(entity, yMax, xMax)` of mob `i` at living entity `j`: the yaw and pitch toward
+/// its eye, each turned at most by its maximum (`Mob.rotlerp`).
+pub fn mob_look_at(w: &mut World, i: usize, j: usize, y_max: f32, x_max: f32) {
+    let (me, it) = (eye_pos(w, i), eye_pos(w, j));
+    let (xd, yd, zd) = (it.x - me.x, it.y - me.y, it.z - me.z);
+    let sd = (xd * xd + zd * zd).sqrt();
+    let y_rot_d = control::atan2_degrees(zd, xd) - 90.0f32;
+    let x_rot_d = -control::atan2_degrees(yd, sd);
+    let e = &mut w.entities.list[i];
+    e.x_rot = mob_rotlerp(e.x_rot, x_rot_d, x_max);
+    e.y_rot = mob_rotlerp(e.y_rot, y_rot_d, y_max);
+}
+
+/// `Mob.rotlerp(a, b, max)` (not wrapped into [0, 360], unlike `MoveControl.rotlerp`).
+fn mob_rotlerp(a: f32, b: f32, max: f32) -> f32 {
+    let diff = crate::entity::mth::wrap_degrees(b - a).clamp(-max, max);
+    a + diff
 }
 
 // ------------------------------------------------------------------ the exact compare's fields

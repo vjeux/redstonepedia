@@ -130,7 +130,7 @@ pub fn after_hurt(w: &mut World, i: usize, src: Damage, took_full: bool) {
     if !w.mob.ai.on {
         return;
     }
-    let attacker = if src == Damage::MobAttack { w.mob.ai.attacker } else { None };
+    let attacker = if matches!(src, Damage::MobAttack | Damage::Arrow) { w.mob.ai.attacker } else { None };
     if has_ai(w, i) {
         ai_mut(w, i).last_damage_entity = attacker;
     }
@@ -143,6 +143,12 @@ pub fn after_hurt(w: &mut World, i: usize, src: Damage, took_full: bool) {
         s.last_hurt_by_mob_timestamp = tc;
     }
     if took_full
+        && src == Damage::Arrow
+        && let Some(m) = w.mob.ai.projectile_motion
+    {
+        // Projectile.calculateHorizontalHurtKnockbackDirection: along the arrow's motion
+        knockback(w, i, 0.4f32 as f64, -m.x, -m.z);
+    } else if took_full
         && let Some(a) = attacker
         && let Some(ai_idx) = crate::entity::index_of(w, a)
     {

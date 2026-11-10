@@ -216,6 +216,8 @@ fn pick_up_item(w: &mut World, i: usize, j: usize, item: &str, count: u8) {
         m.mainhand = Some(Held { item: item.to_string(), count, guaranteed: true, enchanted: false });
         m.persistence_required = true;
     }
+    // setItemSlot -> onEquipItem: a skeleton reassesses its weapon goal
+    crate::entity::mob::ai::goal::skeleton::reassess_weapon_goal(w, i);
     // take + shrink: the main hand took the whole stack, the item entity is discarded
     let item_id = w.entities.list[j].id;
     w.entities.list[j].removed = true;

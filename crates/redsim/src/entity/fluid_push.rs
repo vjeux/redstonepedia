@@ -187,8 +187,10 @@ pub fn update_fluid_interaction(w: &mut World, i: usize) -> bool {
     // here reads the entity list
     let mut e = w.entities.list.swap_remove(i);
     // AgeableWaterCreature.isPushedByFluid: false (a squid with its AI: no current, none applied);
-    // Drowned.isPushedByFluid: not while it swims (last tick's updateSwimming)
-    let pushed = !matches!(&e.kind, crate::entity::EntityKind::Mob(m) if m.ai.is_some() && (crate::entity::mob::ai::squid::is_squid_id(m.ty.def().id) || m.ai.as_deref().is_some_and(|a| a.swimming)));
+    // Drowned.isPushedByFluid: not while it swims (last tick's updateSwimming); AbstractArrow:
+    // not while in the ground
+    let pushed = !matches!(&e.kind, crate::entity::EntityKind::Mob(m) if m.ai.is_some() && (crate::entity::mob::ai::squid::is_squid_id(m.ty.def().id) || m.ai.as_deref().is_some_and(|a| a.swimming)))
+        && !matches!(&e.kind, crate::entity::EntityKind::Arrow(a) if crate::entity::arrow::in_ground(a));
     let in_any = update(w, &mut e, !pushed);
     let in_water = e.fluid.in_water();
     if in_water {

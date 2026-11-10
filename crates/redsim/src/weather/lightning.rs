@@ -565,6 +565,13 @@ fn thunder_hit(w: &mut World, bolt: u32, id: u32) {
         }
         // ArmorStand.thunderHit does nothing; a primed TNT is not hurt by it (no health)
         EntityKind::ArmorStand(_) | EntityKind::PrimedTnt(_) => {}
+        // Entity.thunderHit sets an arrow on fire: not modeled
+        EntityKind::Arrow(_) => {
+            let why = "lightning setting an arrow on fire is not modeled".to_string();
+            if !w.errors.contains(&why) {
+                w.errors.push(why);
+            }
+        }
     }
 }
 

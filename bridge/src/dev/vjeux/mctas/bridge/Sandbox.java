@@ -485,6 +485,27 @@ final class Sandbox {
                 r.nextDouble();
             } else if (preSeeded.remove(e)) {
                 // a design mob: summonSeeded seeded it before its data loaded
+            } else if (ticking && e instanceof net.minecraft.world.entity.projectile.arrow.AbstractArrow arrow
+                    && arrow.getOwner() instanceof net.minecraft.world.entity.monster.skeleton.AbstractSkeleton shooter
+                    && shooter.getTarget() != null) {
+                // (mob-AI 2026-11-10) a skeleton's arrow (AbstractSkeleton.performRangedAttack): its
+                // constructor's draw (the UUID) and the shot's (setBaseDamageFromMob's triangle,
+                // shoot's three) came from its unseeded random before it entered. Reseeded as
+                // entity n and all redone in that order from it: the power is 1 (the bow goal
+                // shoots at a pull of 20 or more), the direction toward the shooter's target as
+                // performRangedAttack aimed it a moment ago (nothing moved since), which redsim
+                // mirrors (entity::arrow::shoot_from_mob)
+                java.util.UUID old = e.getUUID();
+                Exact.Seeded info = Exact.seed(e, seed, n, false, true, Exact.ItemPath.NONE, ctor);
+                renameUuid(old, e.getUUID());
+                seeded.put(e, info);
+                net.minecraft.world.entity.LivingEntity target = shooter.getTarget();
+                arrow.setBaseDamageFromMob(1.0F);
+                double xd = target.getX() - shooter.getX();
+                double yd = target.getY(0.3333333333333333) - arrow.getY();
+                double zd = target.getZ() - shooter.getZ();
+                double dist = Math.sqrt(xd * xd + zd * zd);
+                arrow.shoot(xd, yd + dist * 0.2F, zd, 1.6F, shooter.rangedAttackUncertainty(Sandbox.this.level));
             } else if (!e.entityTags().contains(DESIGN_TAG) || (ticking && ctor != null)) {
                 // (tickexact 2026-11-08) every other entity: its own random from the sandbox seed
                 // and its number, the constructor's draws redone (Exact); (mob-AI 2026-11-09) a

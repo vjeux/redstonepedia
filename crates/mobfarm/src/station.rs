@@ -510,6 +510,7 @@ pub(crate) fn kind_name(k: &EntityKind) -> &'static str {
         EntityKind::ArmorStand(_) => "armor stand",
         EntityKind::PrimedTnt(_) => "tnt",
         EntityKind::Mob(m) => m.ty.def().id,
+        EntityKind::Arrow(_) => "arrow",
     }
 }
 

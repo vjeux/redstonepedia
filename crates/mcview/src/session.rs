@@ -2322,6 +2322,7 @@ impl Session {
                         EntityKind::ArmorStand(_) => "minecraft:armor_stand".to_string(),
                         EntityKind::PrimedTnt(_) => "minecraft:tnt".to_string(),
                         EntityKind::Mob(m) => format!("minecraft:{}", m.ty.def().id),
+                        EntityKind::Arrow(_) => "minecraft:arrow".to_string(),
                     },
                 };
                 let kind = match &e.kind {
@@ -2807,6 +2808,7 @@ fn redsim_kind(k: &redsim::entity::EntityKind) -> String {
         EntityKind::ArmorStand(_) => "minecraft:armor_stand".into(),
         EntityKind::PrimedTnt(_) => "primed tnt".into(),
         EntityKind::Item(it) => format!("item {}", it.item),
+        EntityKind::Arrow(_) => "minecraft:arrow".into(),
     }
 }
 
@@ -2825,6 +2827,7 @@ fn kind_ok(k: &redsim::entity::EntityKind, drawn: &str) -> bool {
         EntityKind::ArmorStand(_) => drawn == "minecraft:armor_stand",
         EntityKind::Item(_) => drawn.starts_with("item:"),
         EntityKind::PrimedTnt(_) => drawn.starts_with("primed:"),
+        EntityKind::Arrow(_) => drawn == "minecraft:arrow",
     }
 }
 

@@ -40,7 +40,7 @@ fn can_interact(entity: &Entity) -> bool {
     !entity.removed && match &entity.kind {
         EntityKind::Mob(m) => m.health > 0.0,
         EntityKind::Boat(_) | EntityKind::Minecart(_) | EntityKind::Item(_)
-        | EntityKind::ArmorStand(_) | EntityKind::PrimedTnt(_) => true,
+        | EntityKind::ArmorStand(_) | EntityKind::PrimedTnt(_) | EntityKind::Arrow(_) => true,
     }
 }
 
@@ -91,7 +91,7 @@ fn center_distance(entity: &Entity, holder: &Entity) -> f64 {
 fn known_movement(e: &Entity) -> Vec3 {
     match e.kind {
         EntityKind::Boat(_) | EntityKind::Minecart(_) | EntityKind::Item(_)
-        | EntityKind::ArmorStand(_) | EntityKind::PrimedTnt(_) => e.delta_movement,
+        | EntityKind::ArmorStand(_) | EntityKind::PrimedTnt(_) | EntityKind::Arrow(_) => e.delta_movement,
         EntityKind::Mob(_) => e.delta_movement,
     }
 }

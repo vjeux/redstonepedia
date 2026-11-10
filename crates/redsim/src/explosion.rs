@@ -895,6 +895,8 @@ fn hurt(w: &mut World, t: Target, damage: f32) {
         EntityKind::Mob(_) => {
             w.errors.push("explosion: damage to a mob is not modeled".into());
         }
+        // Projectile.hurtServer: false
+        EntityKind::Arrow(_) => {}
     }
 }
 

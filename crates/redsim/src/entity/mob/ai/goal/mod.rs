@@ -65,8 +65,8 @@ pub enum Goal {
     RestrictSun,
     /// `FleeSunGoal` (a burning skeleton's shade).
     FleeSun(skeleton::FleeSun),
-    /// `RangedBowAttackGoal` (its tick is refused).
-    RangedBow,
+    /// `RangedBowAttackGoal` (a skeleton's with a bow in hand).
+    RangedBow(skeleton::RangedBow),
     /// `LeapAtTargetGoal` (the spider's, 0.4 up).
     LeapAtTarget,
     /// A cube mob's goals (`AbstractCubeMob`, the sulfur cube's).
@@ -105,7 +105,7 @@ impl Goal {
             Goal::Swell | Goal::AvoidEntity => MOVE,
             Goal::RestrictSun => 0,
             Goal::FleeSun(_) => MOVE,
-            Goal::RangedBow => MOVE | LOOK,
+            Goal::RangedBow(_) => MOVE | LOOK,
             Goal::LeapAtTarget => JUMP | MOVE,
             Goal::Cube(c) => c.flags(),
             Goal::Animal(a) => a.flags(),
@@ -129,7 +129,7 @@ impl Goal {
         if let Goal::Drowned(d) = self {
             return d.every_tick();
         }
-        matches!(self, Goal::Float | Goal::RandomLookAround(_) | Goal::MeleeAttack(_) | Goal::ZombieAttackTurtleEgg(_) | Goal::BreakDoor(_) | Goal::Swell | Goal::RangedBow)
+        matches!(self, Goal::Float | Goal::RandomLookAround(_) | Goal::MeleeAttack(_) | Goal::ZombieAttackTurtleEgg(_) | Goal::BreakDoor(_) | Goal::Swell | Goal::RangedBow(_))
     }
 
     /// `isInterruptable()`.
@@ -170,7 +170,7 @@ impl Goal {
             Goal::AvoidEntity => "AvoidEntityGoal",
             Goal::RestrictSun => "RestrictSunGoal",
             Goal::FleeSun(_) => "FleeSunGoal",
-            Goal::RangedBow => "RangedBowAttackGoal",
+            Goal::RangedBow(_) => "RangedBowAttackGoal",
             Goal::LeapAtTarget => "LeapAtTargetGoal",
             Goal::Cube(c) => c.name(),
             Goal::Animal(a) => a.name(),
@@ -337,7 +337,7 @@ pub fn can_use(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::AvoidEntity => false,
         Goal::RestrictSun => skeleton::restrict_sun_can_use(w, i),
         Goal::FleeSun(g) => skeleton::flee_sun_can_use(w, i, g),
-        Goal::RangedBow => skeleton::bow_can_use(w, i),
+        Goal::RangedBow(_) => skeleton::bow_can_use(w, i),
         Goal::LeapAtTarget => spider::leap_can_use(w, i),
         Goal::Cube(c) => super::cube::can_use(w, i, c),
         Goal::Animal(a) => animal::can_use(w, i, a),
@@ -370,7 +370,7 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::AvoidEntity => false,
         Goal::RestrictSun => skeleton::restrict_sun_can_use(w, i),
         Goal::FleeSun(_) => !super::nav_of(w, i).is_done(),
-        Goal::RangedBow => skeleton::bow_can_continue(w, i),
+        Goal::RangedBow(_) => skeleton::bow_can_continue(w, i),
         Goal::LeapAtTarget => spider::leap_can_continue(w, i),
         // Goal.canContinueToUse: canUse() (the slime's attack: its own)
         Goal::Cube(c) => super::cube::can_continue(w, i, c),
@@ -404,7 +404,7 @@ pub fn start(w: &mut World, i: usize, g: &mut Goal) {
         Goal::AvoidEntity => {}
         Goal::RestrictSun => super::nav_of_mut(w, i).avoid_sun = true,
         Goal::FleeSun(g) => skeleton::flee_sun_start(w, i, g),
-        Goal::RangedBow => {}
+        Goal::RangedBow(_) => skeleton::bow_start(w, i),
         Goal::LeapAtTarget => spider::leap_start(w, i),
         Goal::Cube(c) => super::cube::start(w, i, c),
         Goal::Animal(a) => animal::start(w, i, a),
@@ -435,7 +435,8 @@ pub fn stop(w: &mut World, i: usize, g: &mut Goal) {
         Goal::Swell => super::ai_mut(w, i).swell_target = None,
         Goal::AvoidEntity => {}
         Goal::RestrictSun => super::nav_of_mut(w, i).avoid_sun = false,
-        Goal::FleeSun(_) | Goal::RangedBow | Goal::LeapAtTarget | Goal::Cube(_) => {}
+        Goal::RangedBow(g) => skeleton::bow_stop(w, i, g),
+        Goal::FleeSun(_) | Goal::LeapAtTarget | Goal::Cube(_) => {}
         Goal::Animal(a) => animal::stop(w, i, a),
         Goal::Squid(_) => {}
         Goal::Witch(_) => {}
@@ -462,7 +463,7 @@ pub fn tick(w: &mut World, i: usize, g: &mut Goal) {
         Goal::MoveTowardsTarget(_) | Goal::DefendVillage | Goal::ResetUniversalAnger => {}
         Goal::Swell => creeper::swell_tick(w, i),
         Goal::AvoidEntity => {}
-        Goal::RangedBow => skeleton::bow_tick(w),
+        Goal::RangedBow(g) => skeleton::bow_tick(w, i, g),
         Goal::RestrictSun | Goal::FleeSun(_) | Goal::LeapAtTarget => {}
         Goal::Cube(c) => super::cube::tick(w, i, c),
         Goal::Animal(a) => animal::tick(w, i, a),
