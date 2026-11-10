@@ -1009,6 +1009,37 @@ impl Default for LoopTiming {
 /// slope; the queue advanced 3 slots; the queue's 3 empty tail slots powered for the returning
 /// train, braked as its front cart reaches the third. Checks the loop order (every cart 3
 /// places on per slot) and prints each slot's times.
+/// Golem spawn cells around the loop: for a villager riding at each rail cell of the loop, every
+/// cell where its golem search (`golem_spawn_cells_from`, the game's LEGACY_IRON_GOLEM scan of the
+/// 17 x 17 columns with `checkSpawnObstruction`) would spawn a golem, with the design built and
+/// its carts in place. A summon anywhere but the pad must find none.
+pub fn loop_spots(spec: &FarmSpec, o: &LoopOpts) -> Result<String, String> {
+    let ro = RunOpts { ai: true, ..RunOpts::steady(1, 400, WalkMode::Random) };
+    let mut run = Run::start(spec, &ro)?;
+    while run.settle_tick() {}
+    for (ty, pos, nbt) in &spec.entities {
+        redsim::entity::spawn(&mut run.world, ty, *pos, nbt.as_deref())?;
+    }
+    for _ in 0..20 {
+        run.tick();
+    }
+    let lay = loop_layout(o);
+    let mut found: std::collections::BTreeMap<[i32; 3], Vec<[i32; 3]>> = std::collections::BTreeMap::new();
+    for (c, _) in &lay.path {
+        let start = BlockPos::new(c[0], c[1], c[2]);
+        for (cell, ok) in redsim::entity::mob::spawn::golem_spawn_cells_from(&run.world, start) {
+            if ok.is_ok() {
+                found.entry([cell.x, cell.y, cell.z]).or_default().push(*c);
+            }
+        }
+    }
+    let mut out = vec![format!("{} golem spawn cells seen from the loop's {} rail cells", found.len(), lay.path.len())];
+    for (cell, from) in found.iter().take(40) {
+        out.push(format!("  {} {} {} (from {} rail cells, e.g. {:?})", cell[0], cell[1], cell[2], from.len(), from[0]));
+    }
+    Ok(out.join("\n"))
+}
+
 pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, seed: i64, verbose: bool, watch: Option<&[usize]>, drive_out: Option<&std::path::Path>) -> Result<String, String> {
     let ticks = 200 + cycles * 100 + 200;
     let ro = RunOpts { ai: true, ..RunOpts::steady(seed, ticks as u32, WalkMode::Random) };

@@ -428,6 +428,11 @@ pub enum MobfarmCmd {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Lists the golem spawn cells a villager riding anywhere on a loop scene's track would find
+    /// (none may exist away from the pad).
+    QueueLoopSpots {
+        design: PathBuf,
+    },
     /// Runs a loop scene (`queue-loop`) for `--cycles` slots with ideal controls and checks the
     /// loop order.
     QueueLoopRun {
@@ -1130,6 +1135,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("queue slots 0..{} (tail first): {}", lay.slots.len() - 1, fmt(&lay.slots));
             println!("release group (the last 3): {}", fmt(&lay.slots[lay.slots.len() - 3..]));
             println!("stand S1 S2 S3: {}", fmt(&lay.stand));
+        }
+        MobfarmCmd::QueueLoopSpots { design } => {
+            let (c, spec) = load(version, &design)?;
+            let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
+            println!("{}", crate::queue::loop_spots(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
         MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, verbose, watch, drive_out } => {
             let (c, spec) = load(version, &design)?;
