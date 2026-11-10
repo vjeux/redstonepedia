@@ -60,12 +60,21 @@ pub struct NetherSpec {
     pub blocks: Vec<(BlockPos, Block)>,
     /// The Nether output chest (`port nether-output`), relative to [`NetherSpec::base`].
     pub output: Option<BlockPos>,
+    /// (farmopt 2026-11-10) Block-entity data merged after the paste (`nether nbt:`), relative to
+    /// [`NetherSpec::base`].
+    pub block_entities: Vec<(BlockPos, String)>,
 }
 
 impl NetherSpec {
     /// The anchor's Nether image: floor(x / 8), 0, floor(z / 8) (the y as written).
     pub fn base(&self) -> BlockPos {
         BlockPos::new(self.anchor.x.div_euclid(8), 0, self.anchor.z.div_euclid(8))
+    }
+
+    /// The block-entity data at their Nether positions.
+    pub fn block_entities_at(&self) -> Vec<(BlockPos, String)> {
+        let b = self.base();
+        self.block_entities.iter().map(|(p, s)| (BlockPos::new(p.x + b.x, p.y + b.y, p.z + b.z), s.clone())).collect()
     }
 
     /// The blocks at their Nether positions.
@@ -423,6 +432,9 @@ impl Run {
             n.level_random = Some(crate::rng::LegacyRandom::new(o.seed ^ 0x6e6c_7672));
             n.random_ticks = Some(crate::crops::RandomTicks::new(3, o.seed ^ 0x4e45));
             n.place_like_judge(&placed);
+            // the part's block-entity data (`nether nbt:`), as the overworld's after its paste
+            let bes = ns.block_entities_at();
+            crate::redstone::container::apply_block_entities(&mut n, bes.iter().map(|(p, s)| (*p, s.as_str())))?;
             if let Some(out) = ns.output_at() {
                 if !matches!(n.get(out), Block::Chest { .. }) {
                     n.set_block(out, chest, crate::world::flags::RAW);

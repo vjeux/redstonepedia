@@ -673,6 +673,43 @@ pub fn hostile_farm(w: &redsim::World, spec: &FarmSpec, afk: redsim::entity::Vec
     farm
 }
 
+/// (farmopt 2026-11-10) Entity data `n` (a vehicle's, with `Passengers:[..]`) with the shared HOME
+/// memory `home` (`Brain:{memories:{..}}`) put into each villager passenger's own compound; a
+/// passenger with its own Brain data is refused.
+fn with_passenger_home(n: &str, home: &str) -> std::result::Result<String, String> {
+    let key = "id:\"minecraft:villager\"";
+    let mut out = String::new();
+    let mut rest = n;
+    while let Some(i) = rest.find(key) {
+        let after = &rest[i + key.len()..];
+        // the passenger's compound from its id to its closing brace (depth 0 again)
+        let mut depth = 0i32;
+        let mut end = after.len();
+        for (k, c) in after.char_indices() {
+            match c {
+                '{' | '[' => depth += 1,
+                '}' | ']' => {
+                    if depth == 0 {
+                        end = k;
+                        break;
+                    }
+                    depth -= 1;
+                }
+                _ => {}
+            }
+        }
+        if after[..end].contains("Brain:") {
+            return Err(format!("a villager passenger with its own Brain data and `port home`: {n}"));
+        }
+        out.push_str(&rest[..i + key.len()]);
+        out.push(',');
+        out.push_str(home);
+        rest = after;
+    }
+    out.push_str(rest);
+    Ok(out)
+}
+
 /// A mob farm's block in redsim: the modeled ones, and (tickexact 2026-11-10, the portal pad) a
 /// nether portal (a terrain block whose entity contact `entity::portal` models).
 fn farm_block(s: &str) -> std::result::Result<Block, String> {
@@ -708,6 +745,14 @@ pub fn spec_of(c: &Circuit) -> std::result::Result<FarmSpec, String> {
                 _ => format!("{{{h}}}"),
             });
         }
+        // (farmopt 2026-11-10) a villager riding a vehicle (`Passengers:[{id:"minecraft:villager"..}]`,
+        // the carousel's carts) holds the same HOME: the memory goes into its own compound
+        if let Some(h) = &home
+            && let Some(n) = nbt.as_deref()
+            && n.contains("Passengers:[")
+        {
+            nbt = Some(with_passenger_home(n, h)?);
+        }
         entities.push((e.kind.clone(), e.pos, nbt));
     }
     let block_entities = d.block_entities.iter().map(|(p, s)| (bp(*p), s.clone())).collect();
@@ -726,7 +771,8 @@ pub fn spec_of(c: &Circuit) -> std::result::Result<FarmSpec, String> {
         }
         nb.sort_by_key(|(q, _)| [q.x, q.y, q.z]);
         let output = d.nether_ports.get("nether-output").map(|p| bp(clock::rotate_pos(*p, turns)));
-        Some(redsim::entity::mob::farm::NetherSpec { anchor: bp(anchor), blocks: nb, output })
+        let block_entities = d.nether_block_entities.iter().map(|(p, s)| (bp(clock::rotate_pos(*p, turns)), s.clone())).collect();
+        Some(redsim::entity::mob::farm::NetherSpec { anchor: bp(anchor), blocks: nb, output, block_entities })
     };
     // the link (ironspec 2026-11-10): every overworld portal cell's target (its centre over 8)
     // finds a Nether portal cell within PortalForcer's 16 (else the game would create a portal);
@@ -1573,6 +1619,18 @@ fn run_kind(_pool: Option<&Pool>, c: &Circuit, at: &RunAt) -> Result<Outcome> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn port_home_reaches_villager_passengers() {
+        let h = "Brain:{memories:{\"minecraft:home\":{value:{dimension:\"minecraft:overworld\",pos:[I;1,2,3]}}}}";
+        assert_eq!(with_passenger_home("{Passengers:[{id:\"minecraft:villager\"}]}", h).unwrap(), format!("{{Passengers:[{{id:\"minecraft:villager\",{h}}}]}}"));
+        // other riders untouched, data kept, each villager its own copy
+        assert_eq!(
+            with_passenger_home("{Passengers:[{id:\"minecraft:zombie\"},{id:\"minecraft:villager\",PersistenceRequired:1b}],Rotation:[90.0f,0.0f]}", h).unwrap(),
+            format!("{{Passengers:[{{id:\"minecraft:zombie\"}},{{id:\"minecraft:villager\",{h},PersistenceRequired:1b}}],Rotation:[90.0f,0.0f]}}")
+        );
+        assert!(with_passenger_home("{Passengers:[{id:\"minecraft:villager\",Brain:{memories:{}}}]}", h).is_err());
+    }
 
     /// The tier is the kind's last word (one site page per tier): day-1, middle, fastest, or none.
     #[test]

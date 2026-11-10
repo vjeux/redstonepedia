@@ -125,6 +125,9 @@ pub struct Design {
     /// Its ports (`port nether-<name>:`, the Nether output chest `nether-output`), in the same
     /// coordinates.
     pub nether_ports: BTreeMap<String, Pos>,
+    /// (farmopt 2026-11-10) Its block-entity data (`nether nbt: x y z {snbt}`, in the same
+    /// coordinates), merged after the part's paste: a sorter's stock, a crafter's slots.
+    pub nether_block_entities: BTreeMap<Pos, String>,
 }
 
 /// `nbt: x y z {snbt}` (the text after `nbt:`): the position and the SNBT.
@@ -230,6 +233,12 @@ impl Design {
                 } else if let Some(rest) = l.strip_prefix("entity:") {
                     d.entities.push(EntitySpec::parse(rest).with_context(err)?);
                     section = Section::Header;
+                } else if let Some(rest) = l.strip_prefix("nether nbt:") {
+                    let (p, nbt) = parse_block_entity(rest).with_context(err)?;
+                    if d.nether_block_entities.insert(p, nbt).is_some() {
+                        bail!("two nether nbt: lines for {p:?} at {}", err());
+                    }
+                    section = Section::Header;
                 } else if let Some(rest) = l.strip_prefix("nbt:") {
                     let (p, nbt) = parse_block_entity(rest).with_context(err)?;
                     if d.block_entities.insert(p, nbt).is_some() {
@@ -292,7 +301,7 @@ impl Design {
             }
         }
         // a Nether part's anchor: the design's 0 0 0 and its x axis, moved and turned with it
-        if !d.nether_blocks.is_empty() || !d.nether_ports.is_empty() {
+        if !d.nether_blocks.is_empty() || !d.nether_ports.is_empty() || !d.nether_block_entities.is_empty() {
             match (d.ports.contains_key("nether-anchor"), d.ports.contains_key("nether-axis")) {
                 (false, false) => {
                     d.ports.insert("nether-anchor".into(), [0, 0, 0]);
@@ -359,6 +368,7 @@ impl Design {
             // the Nether part follows its anchor port (moved above)
             nether_blocks: self.nether_blocks.clone(),
             nether_ports: self.nether_ports.clone(),
+            nether_block_entities: self.nether_block_entities.clone(),
         }
     }
 
@@ -376,6 +386,9 @@ impl Design {
         }
         if !self.nether_blocks.is_empty() || !self.nether_ports.is_empty() {
             key.push_str(&format!("|nether{:?}{:?}", self.nether_blocks, self.nether_ports));
+        }
+        if !self.nether_block_entities.is_empty() {
+            key.push_str(&format!("|nethernbt{:?}", self.nether_block_entities));
         }
         key
     }
@@ -411,6 +424,9 @@ impl Design {
         }
         for (p, nbt) in &self.block_entities {
             out.push_str(&format!("nbt: {} {} {} {nbt}\n", p[0], p[1], p[2]));
+        }
+        for (p, nbt) in &self.nether_block_entities {
+            out.push_str(&format!("nether nbt: {} {} {} {nbt}\n", p[0], p[1], p[2]));
         }
         let Some((lo, hi)) = self.bounds() else { return out };
         out.push_str(&format!("origin: {} 0 {}\n", lo[0], lo[2]));
@@ -494,11 +510,14 @@ mod tests {
 
     #[test]
     fn nether_part_round_trip() {
-        let text = "name: n\nport output: 0 0 0\npalette:\n  S stone\n  P nether_portal[axis=z]\nlayer 0:\n  S\nnether-origin: 2 0 3\nnether layer 64:\n  SP\nport nether-output: 4 64 3\n";
+        let text = "name: n\nport output: 0 0 0\npalette:\n  S stone\n  P nether_portal[axis=z]\n  H hopper\nlayer 0:\n  S\nnether-origin: 2 0 3\nnether layer 64:\n  SPH\nport nether-output: 4 64 3\nnether nbt: 4 64 3 {Items:[{Slot:0b,id:\"minecraft:paper\",count:1}]}\n";
         let d = Design::parse(text).unwrap();
         assert_eq!(d.nether_blocks[&[2, 64, 3]], "minecraft:stone");
         assert_eq!(d.nether_blocks[&[3, 64, 3]], "minecraft:nether_portal[axis=z]");
         assert_eq!(d.nether_ports["nether-output"], [4, 64, 3]);
+        assert_eq!(d.nether_block_entities[&[4, 64, 3]], "{Items:[{Slot:0b,id:\"minecraft:paper\",count:1}]}");
+        assert!(d.block_entities.is_empty());
+        assert!(d.content_key().contains("|nethernbt"));
         assert_eq!(d.ports["nether-anchor"], [0, 0, 0]);
         assert_eq!(d.ports["nether-axis"], [1, 0, 0]);
         assert_eq!(d.nether_turns(), Some(0));
@@ -508,6 +527,7 @@ mod tests {
         // moved: the anchor moves, the part (relative to its image) stays
         let moved = d.translated([9, 1, -17]);
         assert_eq!(moved.nether_blocks, d.nether_blocks);
+        assert_eq!(moved.nether_block_entities, d.nether_block_entities);
         assert_eq!(moved.ports["nether-anchor"], [9, 1, -17]);
         assert_eq!(moved.nether_turns(), Some(0));
     }

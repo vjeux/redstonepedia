@@ -1242,10 +1242,13 @@ kick) before the first input.
   `port home: x y z` (a bed's head) gives every villager HOME = that bed, the R1 double claim's
   shared bed, as a loaded memory (`Brain:{memories:{"minecraft:home":...}}` in its summon data,
   moved with the farm; no POI ticket taken, as the game loads it): redsim, the bridge (which maps
-  the overworld to its sandbox's dimension) and the real-game gate's summons all read it. A farm
+  the overworld to its sandbox's dimension) and the real-game gate's summons all read it; a
+  villager riding a vehicle (`Passengers:[{id:"minecraft:villager"}]`, the carousel's carts)
+  holds it too, and the gate summons such a rider as one of the farm's villagers at its seat. A farm
   that sends its golems through a nether portal (ironspec's portal pad) has a Nether part in the
-  same file: `nether-origin: x y z` and `nether layer Y:` sections (sharing the palette), and its
-  output chest `port nether-output: x y z`, in coordinates relative to the Nether image of the
+  same file: `nether-origin: x y z` and `nether layer Y:` sections (sharing the palette), its
+  output chest `port nether-output: x y z` and its block-entity data `nether nbt: x y z {snbt}`
+  (merged after its paste, as `nbt:`), in coordinates relative to the Nether image of the
   design's anchor (`port nether-anchor`, written for you at the design's 0 0 0 with `port
   nether-axis` one step along x; both move and turn with the design): the part stands at
   floor(anchor x / 8), its y as written, floor(anchor z / 8), turned by the design's quarter turns.

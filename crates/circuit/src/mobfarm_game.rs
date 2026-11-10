@@ -244,6 +244,17 @@ fn paste_nether(s: &mut VanillaServer, ns: &farm::NetherSpec) -> Result<()> {
     for (p, st) in placed.iter().filter(|(_, st)| fluid(st)) {
         s.cmd_ok(&format!("{n} setblock {} {st}", xyz(*p)))?;
     }
+    // (farmopt 2026-11-10) the part's block-entity data (`nether nbt:`), merged and read back as
+    // the overworld's
+    for (p, snbt) in ns.block_entities_at() {
+        let at = [p.x, p.y, p.z];
+        let out = s.cmd(&format!("{n} data merge block {} {snbt}", xyz(at)))?;
+        if !out.contains("Modified block data") && !out.contains("Nothing changed") {
+            bail!("the Nether part: data merge block {at:?} {snbt}: {out}");
+        }
+        let back = s.cmd_long(&format!("{n} data get block {}", xyz(at)))?;
+        check_block_entity(&back, &snbt).with_context(|| format!("the Nether part's block entity at {at:?} (`nether nbt: {snbt}`) after the paste"))?;
+    }
     if let Some(out) = ns.output_at() {
         let at = [out.x, out.y, out.z];
         if !s.cmd(&format!("{n} execute if block {} minecraft:chest", xyz(at)))?.contains("passed") {
@@ -460,25 +471,84 @@ fn rider_seats(spec: &FarmSpec, o: &RunOpts) -> Result<Vec<(String, [f64; 3])>> 
         .collect())
 }
 
+/// (tickexact 2026-11-09) The loaded HOME memory in entity data (`"minecraft:home":{value:{..}}`, a
+/// design's `port home` the spec put there) as `,<entry>` for a summon's memories.
+fn home_memory(n: &str) -> Option<String> {
+    let h = n.find("\"minecraft:home\"")?;
+    let mut depth = 0;
+    let mut end = None;
+    for (k, c) in n[h..].char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = Some(h + k);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    end.map(|e| format!(",{}", &n[h..=e]))
+}
+
 /// A vehicle's `Passengers:[{id:"..."},...]` (riders with no data of their own) and the rest of its
 /// data (a turned build's `Rotation`...); `None` without such a list (summoned as written).
-fn split_passengers(nbt: &str) -> Option<(Vec<String>, String)> {
+fn split_passengers(nbt: &str) -> Option<(Vec<(String, String)>, String)> {
     let start = nbt.find("Passengers:[")?;
     let list_start = start + "Passengers:[".len();
-    let len = nbt[list_start..].find(']')?;
-    let inner = &nbt[list_start..list_start + len];
-    let mut ids = Vec::new();
-    for part in inner.split("},") {
-        let part = part.trim().trim_start_matches('{').trim_end_matches('}');
-        let id = part.strip_prefix("id:\"")?.strip_suffix('"')?;
-        // a rider with data of its own: summoned as written
-        if id.contains(['"', ',', '{', '[', ':']) && !id.starts_with("minecraft:") {
-            return None;
+    // the list's end: its closing bracket at depth 0 (a rider's data may hold lists and compounds)
+    let mut depth = 0i32;
+    let mut len = None;
+    for (k, c) in nbt[list_start..].char_indices() {
+        match c {
+            '{' | '[' => depth += 1,
+            '}' | ']' => {
+                if depth == 0 {
+                    len = Some(k);
+                    break;
+                }
+                depth -= 1;
+            }
+            _ => {}
         }
-        ids.push(id.to_string());
+    }
+    let len = len?;
+    let inner = &nbt[list_start..list_start + len];
+    // each rider's compound: its id, and its other data as a compound (`{}` without any)
+    let mut riders = Vec::new();
+    let (mut depth, mut cur) = (0i32, String::new());
+    for c in inner.chars() {
+        match c {
+            '{' | '[' => {
+                depth += 1;
+                cur.push(c);
+            }
+            '}' | ']' => {
+                depth -= 1;
+                cur.push(c);
+                if depth == 0 {
+                    let part = std::mem::take(&mut cur);
+                    let t = part.trim();
+                    let body = t.strip_prefix('{').and_then(|b| b.strip_suffix('}')).unwrap_or(t).trim().to_string();
+                    let id_at = body.find("id:\"")?;
+                    let id_end = id_at + 4 + body[id_at + 4..].find('"')?;
+                    let id = body[id_at + 4..id_end].to_string();
+                    let data = format!("{{{}{}}}", &body[..id_at], &body[id_end + 1..]).replace("{,", "{").replace(",}", "}").replace(",,", ",");
+                    riders.push((id, data));
+                }
+            }
+            ',' if depth == 0 => {}
+            _ => {
+                if depth > 0 {
+                    cur.push(c);
+                }
+            }
+        }
     }
     let rest = format!("{}{}", &nbt[..start], &nbt[list_start + len + 1..]).replace("{,", "{").replace(",}", "}").replace(",,", ",");
-    (!ids.is_empty()).then_some((ids, rest))
+    (!riders.is_empty()).then_some((riders, rest))
 }
 
 /// Entity data `nbt` (a compound, or `{}`) with `tag` added to its `Tags` (made when missing).
@@ -815,6 +885,8 @@ fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, 
     let now = s.game_time()?;
     let slept = now - (day0 - 10);
     let mut villager_spots: Vec<[f64; 3]> = Vec::new();
+    // the rider seats taken (each of redsim's seats once)
+    let mut seats_used: Vec<usize> = Vec::new();
     for (n, (kind, pos, nbt)) in entities.iter().enumerate() {
         let k = kind.trim_start_matches("minecraft:");
         let [x, y, z] = *pos;
@@ -824,16 +896,33 @@ fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, 
         // block before positionRider seats it (a hit the farm never takes)
         if let Some((riders, rest)) = nbt.as_deref().and_then(split_passengers) {
             s.cmd_ok(&format!("summon minecraft:{k} {x} {y} {z} {}", with_tag(&with_tag(&rest, &format!("mf_vehicle_{n}")), "mf"))).with_context(|| format!("summon {k}"))?;
-            for (j, rider) in riders.iter().enumerate() {
+            for (j, (rider, data)) in riders.iter().enumerate() {
                 let short = rider.trim_start_matches("minecraft:");
-                let seat = seats
+                // the seat redsim gave a rider of this type nearest this vehicle (each seat once)
+                let seat_at = seats
                     .iter()
-                    .filter(|(id, _)| id.trim_start_matches("minecraft:") == short)
-                    .nth(j)
-                    .map(|(_, p)| *p)
+                    .enumerate()
+                    .filter(|(i, (id, _))| id.trim_start_matches("minecraft:") == short && !seats_used.contains(i))
+                    .min_by(|(_, (_, a)), (_, (_, b))| {
+                        let d = |p: &[f64; 3]| (p[0] - x).powi(2) + (p[1] - y).powi(2) + (p[2] - z).powi(2);
+                        d(a).total_cmp(&d(b))
+                    })
+                    .map(|(i, (_, p))| (i, *p))
                     .ok_or_else(|| anyhow!("redsim seats no {rider} on the {k} at {x} {y} {z}"))?;
-                s.cmd_ok(&format!("summon {rider} {} {} {} {{Tags:[\"mf_rider_{n}_{j}\",\"mf\"]}}", seat[0], seat[1], seat[2])).with_context(|| format!("summon {rider}"))?;
-                let out = s.cmd(&format!("ride @e[tag=mf_rider_{n}_{j},limit=1] mount @e[tag=mf_vehicle_{n},limit=1]"))?;
+                seats_used.push(seat_at.0);
+                let seat = seat_at.1;
+                let tag = format!("mf_rider_{n}_{j}");
+                let cmd = if short == "villager" {
+                    // (farmopt 2026-11-10) a villager rider is the farm's villager: summoned as a
+                    // top-level one (LAST_SLEPT, the design's shared HOME from its data)
+                    villager_spots.push(seat);
+                    let home = home_memory(data).unwrap_or_default();
+                    format!("summon minecraft:villager {} {} {} {{PersistenceRequired:1b,Tags:[\"{tag}\",\"mf\"],Brain:{{memories:{{\"minecraft:last_slept\":{{value:{slept}L}}{home}}}}}}}", seat[0], seat[1], seat[2])
+                } else {
+                    format!("summon {rider} {} {} {} {}", seat[0], seat[1], seat[2], with_tag(&with_tag(data, &tag), "mf"))
+                };
+                s.cmd_ok(&cmd).with_context(|| format!("summon {rider}"))?;
+                let out = s.cmd(&format!("ride @e[tag={tag},limit=1] mount @e[tag=mf_vehicle_{n},limit=1]"))?;
                 if !out.contains("started riding") {
                     bail!("ride {rider} on its {k}: {out}");
                 }
@@ -845,25 +934,7 @@ fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, 
                 villager_spots.push(*pos);
                 // (tickexact 2026-11-09) the design's shared HOME (`port home`, moved with the
                 // farm into the entity's data by the spec), its memory beside LAST_SLEPT
-                let home = nbt.as_deref().and_then(|n| {
-                    let h = n.find("\"minecraft:home\"")?;
-                    let mut depth = 0;
-                    let mut end = None;
-                    for (k, c) in n[h..].char_indices() {
-                        match c {
-                            '{' => depth += 1,
-                            '}' => {
-                                depth -= 1;
-                                if depth == 0 {
-                                    end = Some(h + k);
-                                    break;
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                    end.map(|e| format!(",{}", &n[h..=e]))
-                });
+                let home = nbt.as_deref().and_then(home_memory);
                 let home = home.unwrap_or_default();
                 format!("summon minecraft:villager {x} {y} {z} {{PersistenceRequired:1b,Tags:[\"mf\"],Brain:{{memories:{{\"minecraft:last_slept\":{{value:{slept}L}}{home}}}}}}}")
             }
@@ -1726,14 +1797,18 @@ mod tests {
     /// A vehicle's riders split from its data, a turned build's Rotation kept.
     #[test]
     fn passengers_split_from_the_vehicle() {
-        assert_eq!(split_passengers("{Passengers:[{id:\"minecraft:zombie\"}]}"), Some((vec!["minecraft:zombie".to_string()], "{}".to_string())));
-        assert_eq!(
-            split_passengers("{Passengers:[{id:\"minecraft:zombie\"}],Rotation:[90.0f,0.0f]}"),
-            Some((vec!["minecraft:zombie".to_string()], "{Rotation:[90.0f,0.0f]}".to_string()))
-        );
+        let z = |d: &str| ("minecraft:zombie".to_string(), d.to_string());
+        assert_eq!(split_passengers("{Passengers:[{id:\"minecraft:zombie\"}]}"), Some((vec![z("{}")], "{}".to_string())));
+        assert_eq!(split_passengers("{Passengers:[{id:\"minecraft:zombie\"}],Rotation:[90.0f,0.0f]}"), Some((vec![z("{}")], "{Rotation:[90.0f,0.0f]}".to_string())));
         assert_eq!(split_passengers("{Rotation:[90.0f,0.0f]}"), None);
-        // a rider with data of its own: summoned as written
-        assert_eq!(split_passengers("{Passengers:[{id:\"minecraft:zombie\",IsBaby:1b}]}"), None);
+        // a rider with data of its own: its data kept for its own summon (farmopt 2026-11-10: the
+        // carousel's villagers hold the shared HOME)
+        assert_eq!(split_passengers("{Passengers:[{id:\"minecraft:zombie\",IsBaby:1b}]}"), Some((vec![z("{IsBaby:1b}")], "{}".to_string())));
+        let v = "{Passengers:[{id:\"minecraft:villager\",Brain:{memories:{\"minecraft:home\":{value:{dimension:\"minecraft:overworld\",pos:[I;1,2,3]}}}}}],Rotation:[90.0f,0.0f]}";
+        let (riders, rest) = split_passengers(v).expect("split");
+        assert_eq!(rest, "{Rotation:[90.0f,0.0f]}");
+        assert_eq!(riders[0].0, "minecraft:villager");
+        assert_eq!(home_memory(&riders[0].1).as_deref(), Some(",\"minecraft:home\":{value:{dimension:\"minecraft:overworld\",pos:[I;1,2,3]}}"));
         assert_eq!(with_tag("{}", "t"), "{Tags:[\"t\"]}");
         assert_eq!(with_tag("{Rotation:[90.0f,0.0f]}", "t"), "{Tags:[\"t\"],Rotation:[90.0f,0.0f]}");
         assert_eq!(with_tag(&with_tag("{Rotation:[90.0f,0.0f]}", "a"), "mf"), "{Tags:[\"mf\",\"a\"],Rotation:[90.0f,0.0f]}");

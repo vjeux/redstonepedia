@@ -574,14 +574,24 @@ fn split_compounds(list: &str) -> Vec<String> {
 /// (`"minecraft:home":{value:{...,pos:[I;x,y,z]}}`, a design's `port home`) moves with it.
 pub fn shift_home_nbt(nbt: &Option<String>, d: [i32; 3]) -> Option<String> {
     let n = nbt.as_ref()?;
-    let Some(h) = n.find("\"minecraft:home\"") else { return Some(n.clone()) };
-    let Some(p) = n[h..].find("pos:[I;").map(|q| h + q + "pos:[I;".len()) else { return Some(n.clone()) };
-    let Some(e) = n[p..].find(']').map(|q| p + q) else { return Some(n.clone()) };
-    let v: Vec<i32> = n[p..e].split(',').filter_map(|x| x.trim().parse().ok()).collect();
-    if v.len() != 3 {
-        return Some(n.clone());
+    // every loaded HOME in the data (a vehicle's villager passengers each hold one)
+    let mut out = String::new();
+    let mut rest = n.as_str();
+    while let Some(h) = rest.find("\"minecraft:home\"") {
+        let Some(p) = rest[h..].find("pos:[I;").map(|q| h + q + "pos:[I;".len()) else { break };
+        let Some(e) = rest[p..].find(']').map(|q| p + q) else { break };
+        let v: Vec<i32> = rest[p..e].split(',').filter_map(|x| x.trim().parse().ok()).collect();
+        if v.len() != 3 {
+            out.push_str(&rest[..e]);
+            rest = &rest[e..];
+            continue;
+        }
+        out.push_str(&rest[..p]);
+        out.push_str(&format!("{},{},{}", v[0] + d[0], v[1] + d[1], v[2] + d[2]));
+        rest = &rest[e..];
     }
-    Some(format!("{}{},{},{}{}", &n[..p], v[0] + d[0], v[1] + d[1], v[2] + d[2], &n[e..]))
+    out.push_str(rest);
+    Some(out)
 }
 
 /// `summon <mob> x y z [nbt]` (the entity core's spawn hook): `Some` for a modeled mob type, else
