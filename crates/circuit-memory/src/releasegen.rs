@@ -283,23 +283,33 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()
     for z in [45, 42, 39, 36] {
         b.on([1, yy, z], &rep("east", 1))?;
     }
-    // ---- the descending tail slots (ironfarm 9bd8f2ff9): slot 2 at (0,-1,33), slot 1 at (0,0,29),
-    // slot 0 at (0,1,25), each fed by a repeater at x 1. Net N12 (slots 1-2): x 2 from z 33 at y -1
-    // climbing to (2,0,29); net N0 (slot 0): x 6 from z 34 to 27 at y -1, up (6,0,26) (6,1,25),
-    // west along z 25 at y 1. The advance reaches each through its own diode off row A's line
-    // ((2,-1,34) into N12; (6,-1,35) into N0, branched along z 36), so the windows stay apart; the
-    // tail lands 2 gt after the other slots (its diode; ironfarm 10:30: fine)
+    // ---- the descending tail slots (ironfarm 9bd8f2ff9 / a5f46f390): slot 2 at (0,-1,33), slot 1
+    // at (0,0,29), slot 0 at (0,1,25), each fed by a repeater at x 1. Each slot has its own net
+    // (ironfarm 10:58: slot 2 OFF t0 + 100, slot 1 + 118, slot 0 + 120). The advance reaches each
+    // net through its own diode (+2, the tail's skew; ironfarm 10:30: fine): N2 from the hub
+    // (2,-1,35) through (2,-1,34); N1 from the z 36 branch through (4,-1,35), down x 4 at y -1 and
+    // up to (4..2,0,29); N0 from the z 36 branch through (6,-1,35), x 6 at y -1, up to y 1 along
+    // z 25
     b.on([2, yy, 35], DUST)?;
     b.on([2, yy, 34], &rep("south", 1))?;
-    for c in [[2, -1, 33], [2, -1, 32], [2, -1, 31], [2, 0, 30], [2, 0, 29]] {
+    for c in [[2, -1, 33], [2, -1, 32]] {
         b.on(c, DUST)?;
     }
     b.on([1, -1, 33], &rep("east", 1))?;
-    b.on([1, 0, 29], &rep("east", 1))?;
     for x in 3..=6 {
         b.on([x, yy, 36], DUST)?;
     }
-    b.on([6, yy, 35], &rep("south", 1))?;
+    b.on([4, yy, 35], &rep("south", 1))?; // N1's diode
+    for z in 25..=34 {
+        if z != 29 {
+            b.on([4, yy, z], DUST)?; // z 25..28: N1's window from the z 24 line; z 30..34: its advance
+        }
+    }
+    for c in [[4, 0, 29], [3, 0, 29], [2, 0, 29]] {
+        b.on(c, DUST)?;
+    }
+    b.on([1, 0, 29], &rep("east", 1))?;
+    b.on([6, yy, 35], &rep("south", 1))?; // N0's diode
     for z in 27..=34 {
         b.on([6, yy, z], DUST)?;
     }
@@ -307,14 +317,17 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()
         b.on(c, DUST)?;
     }
     b.on([1, 1, 25], &rep("east", 1))?;
-    // ---- the tail windows (at the controls, t0-relative: slots 1-2 ON +88..+120, slot 0 +88..+128,
-    // both merged with the 3rd advance): the chain from A3 (REL + 70) runs under the loop at y -3
-    // along z 43, climbs at x 8 to y -1 and runs along x 8 toward -z, stones at golem + 86 (z 34),
-    // + 96 (z 31), + 104 (z 29) and + 114 (z 26). N0 taps (delay-2 repeaters at x 7 into N0's x 6
-    // line, the last into its climb's support (6,-1,26)): control = stone + 6, ON + 92..+ 132. N12
-    // taps (repeaters at x 9 into an OR line along x 10, restored at (10,-1,25), west along z 24, up
-    // x 4, into N12 at (2,-1,31) through (3,-1,31)): control = stone + 8, ON + 94..+ 124 (the first
-    // three stones)
+    // ---- the tail windows (at the controls, golem-relative; each merged with the tail's 3rd advance
+    // at + 84..+ 96): the chain from A3 (REL + 70) runs under the loop at y -3 along z 43, climbs at
+    // x 8 to y -1 and runs along x 8 toward -z, stones at golem + 86 (z 34), + 96 (z 31), + 104
+    // (z 29), + 106 (z 27).
+    // - N0: taps (delay-2 repeaters at x 7) into its x 6 line, control = stone + 6: stones 86/96/106,
+    //   ON + 92..+ 124 (t0 + 120).
+    // - N1: taps (repeaters at x 9) into an OR line along x 10, restored at (10,-1,25), west along
+    //   z 24, up x 4 into N1, control = stone + 6: stones 86/96/104, ON + 92..+ 122 (t0 + 118).
+    // - N2: a branch off the z 43 line (golem 82) along x 3 at y -3 (R3 at z 41), up a step to
+    //   (2,-2,30), a repeater (2,-2,31) into N2's support (2,-2,32), which powers N2's dust above:
+    //   control ON + 92..+ 104 (t0 + 100)
     let (ax, az) = (a3[0], a3[2]);
     b.on([ax, yy, az + 1], &rep("north", 4))?; // golem + 80
     b.on([ax, yy, az + 2], DUST)?;
@@ -334,26 +347,28 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()
     let chain_tail: [(i32, It); 15] = [
         (40, R(2)),
         (39, D), (38, D), (37, D), (36, D), (35, D),
-        (34, S(0)), // golem + 86: N12 + N0
+        (34, S(0)), // golem + 86: N1 + N0
         (33, R(4)), (32, R(1)),
-        (31, S(0)), // + 96: N12 + N0
+        (31, S(0)), // + 96: N1 + N0
         (30, R(4)),
-        (29, S(0)), // + 104: N12 + N0
-        (28, R(4)), (27, R(1)),
-        (26, S(0)), // + 114: N0
+        (29, S(0)), // + 104: N1
+        (28, R(1)),
+        (27, S(0)), // + 106: N0
+        (26, D),
     ];
     for (z, it) in chain_tail {
         match it {
             R(d) => b.on([8, yy, z], &rep("south", d))?,
+            D if z == 26 => {} // (the chain ends at the stone)
             D => b.on([8, yy, z], DUST)?,
             S(_) => b.put([8, yy, z], STONE)?,
         }
     }
-    for z in [34, 31, 29, 26] {
+    for z in [34, 31, 27] {
         b.on([7, yy, z], &rep("east", 2))?; // N0 taps (+4)
     }
     for z in [34, 31, 29] {
-        b.on([9, yy, z], &rep("west", 1))?; // N12 taps into x 10
+        b.on([9, yy, z], &rep("west", 1))?; // N1 taps into x 10
     }
     for z in 24..=34 {
         if z == 25 {
@@ -365,10 +380,14 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()
     for x in 4..=9 {
         b.on([x, yy, 24], DUST)?;
     }
-    for z in 25..=31 {
-        b.on([4, yy, z], DUST)?;
+    // N2's window
+    b.on([3, -3, zl - 1], DUST)?;
+    b.on([3, -3, zl - 2], &rep("south", 3))?;
+    for z in 30..=zl - 3 {
+        b.on([3, -3, z], DUST)?;
     }
-    b.on([3, yy, 31], &rep("east", 1))?; // into N12
+    b.on([2, -2, 30], DUST)?;
+    b.on([2, -2, 31], &rep("north", 1))?;
     // ---- the stand (S1 S2 S3 at (5|2|-1,-1,0)): copper-bulb latches north of it, read by
     // comparators straight into the controls; set by REL (a tap off the REL route, 3 repeaters to a
     // common line along z -6: t0 + 4) through dust (S1: control at t0 + 6), 3 rt (S2: + 12) and
@@ -392,11 +411,11 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()
     for z in -5..=-3 {
         b.on([5, yy, z], DUST)?; // S1: dust into its bulb
     }
-    b.on([2, yy, -5], &rep("north", 4))?; // S2: 8 gt more (+14; ironfarm 10:30: 8 apart)
+    b.on([2, yy, -5], &rep("north", 3))?; // S2: 6 gt more (+12; ironfarm 10:58: 6 apart)
     b.on([2, yy, -4], DUST)?;
     b.on([2, yy, -3], DUST)?;
-    b.on([-1, yy, -5], &rep("north", 4))?; // S3: 16 gt more (+22)
-    b.on([-1, yy, -4], &rep("north", 4))?;
+    b.on([-1, yy, -5], &rep("north", 4))?; // S3: 12 gt more (+18)
+    b.on([-1, yy, -4], &rep("north", 2))?;
     b.on([-1, yy, -3], DUST)?;
     for x in [5, 2, -1] {
         b.put([x, yy, -2], "minecraft:waxed_copper_bulb[lit=false,powered=false]")?;

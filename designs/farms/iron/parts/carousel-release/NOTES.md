@@ -47,22 +47,29 @@ Changes from v0, each found while wiring it into ironfarm's loop:
   - 20 restarts and turns 90/180/270°: the same 800,016 output changes, tick for tick;
   - real game: IDENTICAL over 50,001 ticks (500 slots, 15/15/30%).
 
-## The loop wiring (`release-gen --loop <ironfarm's loop file>`, WIP; 10:42 on explore/ironfarm 9bd8f2ff9)
+## The loop wiring (`release-gen --loop <ironfarm's loop file>`; 11:20 on explore/ironfarm a5f46f390)
+The generated file is designs/farms/iron/parts/carousel-loop/carousel-single-lane-loop-wired.txt (ironfarm keeps its members.tsv and NOTES rows).
 The controller is built into a copy of ironfarm's carousel-single-lane-loop-wip.txt, west of row B (turned 180°); 761 blocks of redstone in all.
 - **Release group:** its line feeds the 3 group controls by dust: ON at golem + 4 (= t0) for 36 gt.
 - **Advance:** slots 3..17 all on one tick (t0 + 38/58/78, 12 gt): each feeder's delay pads its path to the slowest (row A). The 3 descending tail slots get it 2 gt later, through their own diodes (ironfarm 10:30: fine).
-- **Tail windows** (merged into the 3rd advance), t0-relative: slots 1-2 OFF at + 120, slot 0 at + 128.
-  - Source: an east-side chain from the delay chain's last advance stone, run under the loop at y -3 and up at x 8; four stones at golem + 86/96/104/114.
-  - Slot 0's taps go into its x 6 feed line; slots 1-2's go through an OR line along x 10.
+- **Tail windows** (each slot its own net, merged into the 3rd advance), t0-relative: slot 2 OFF at + 100, slot 1 at + 118, slot 0 at + 120 (ironfarm 10:58).
+  - Slots 1 and 0: an east-side chain from the delay chain's last advance stone, run under the loop at y -3 and up at x 8; stones at golem + 86/96/104/106. Slot 0's taps go into its x 6 feed line, slot 1's through an OR line along x 10 and the z 24 line.
+  - Slot 2: a branch off the y -3 line along x 3, into the support block of slot 2's net.
+  - Each net gets the advance through its own diode, so a short window can't leak into a longer one.
 - **Stand:** three waxed copper bulb latches.
-  - Set at t0 + 6 / + 14 / + 22 (8 apart: ironfarm 10:30).
+  - Set at t0 + 6 / + 12 / + 18 (6 apart: ironfarm 10:58).
   - Reset by line 4, 28 gt after the release run's detector rail (-3,1,4) powers. That equals ironfarm's bench + 27: his bench brakes after the tick it reads, so its carts feel bench + N on tick + N + 1. Redstone + 26 behaved like his + 25 and missed a cart.
   - The train's three carts merge in 4 pulse-stretching repeaters; an edge comparator makes one reset per train.
 - **Controls:** all 21 glass control blocks become stone.
 - **Probe file:** `F.probe.txt` holds the controller alone with the 21 controls as ports. `release-trace F.probe.txt --at <golems> --det <detector ticks>` prints every control's on/off ticks.
-- **Cart runs** (`queue-loop-run F --wired=-7,-1,5`, the golem pulse the only input), 60 slots × 3 seeds:
-  - every slot, the release group holds 3 carts and the stand 3, with the same offsets as ironfarm's bench stand;
-  - the wired tail check fails on every slot: the returning train lands in slots 2/1/0, but its 3rd cart is still settling when the tail's first advance comes (t0 + 40). Sent to ironfarm (10:42): loop margin or check rule, his call.
+- **Cart runs** (`queue-loop-run F --wired=-7,-1,5 --tail-check-at 43`, the golem pulse the only input; the at-rest tail check one tick before the tail moves):
+  - 3 seeds × 60 slots: 0 problems; 10 seeds × 300 slots (seeds 11..20): 0 problems.
+  - Film (mobviewer, the viewer replaying the bench's drive, all 1,281 cart positions matching): https://artifacts.internalmeta.com/a/2697218614068712
+  - Wired = the controller and all 21 control lines. Bench-driven = the golem pulse. Not in the file: the station, zombies' farm, beds, the scheduler; farmopt's pad not yet wired.
+- **Tolerance** (ironfarm's sweeps, bench-driven with these times and a stand forced to deliver, at-rest check, one control at a time; t0-relative):
+  - release end − 10..+ 16; S1 − 6..+ 3, S2 − 2..+ 6, S3 − 3..+ 6; tail slot 1 − 3..+ 2, slot 0 − 2..+ 3; slot 2 + 92..+ 114 (wired + 100: − 8..+ 14);
+  - corners: every control at its early limit together, then every one at its late limit together: both pass;
+  - **flags:** advance 2's width with 12-gt pulses − 3..0 (0 late; v2 shapes the pulses to 10 gt); the stand brake, the 2-tick catch: redstone + 28 only (0 either way; farmopt's stop-based stand replaces it).
 
 ## Bench (2026-11-10 08:28)
 - 100,000 slots × 2 seeds, 0 violations against the exact model:
