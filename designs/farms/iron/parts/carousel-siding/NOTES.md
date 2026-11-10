@@ -27,10 +27,11 @@ joined to the loop.**
 - **Also kept:** `carousel-siding-bench-driven.txt`, the same siding with the controls switched
   by the bench (set_block): the first bench, before the circuit.
 
-Tools: `mctas mobfarm siding [--wired] --out F`, `siding-check F` (every rider/napper cell's golem
-search, the siding's own block count and box), `siding-bench F [--wired] [--launch] --from --to
---nights --speed a,b --gap a,b --release a,b [--visits N] [--drive-out F] [--trace --trace-window
-a,b]`.
+Tools: `mctas mobfarm siding [--wired] [--alone] [--exit-brake] [--unsettled] --out F` (settled by
+default), `siding-check F` (every rider/napper cell's golem search, the siding's own block count and
+box), `siding-bench F [--wired] [--launch] --from --to --nights --speed a,b --gap a,b --release a,b
+[--visits N] [--release-held] [--placed-raw | --placed-in-order [GAP] | --placed-all |
+--build-gap-sweep] [--drive-out F] [--trace --trace-window a,b]`.
 
 ## Interface (local frame: x east, z south, y up)
 
@@ -94,6 +95,69 @@ panicking 99.58% of night ticks; exit 0.36 b/t; 0 problems. (The member's metric
 
 `siding-check`: 0 golem-valid spots in the searches from every rider and napper cell
 (entry, T, bed line, free cell, branch, slot, exit).
+
+## Settled as placed, and built in order (the brief's two checks; redsim, not yet the real game)
+
+The wired file is written settled (`mobfarm siding --wired --out`, `placing::settle_design`): every
+cell as the bench finds it after the settle. 65 cells changed: every dust in its settled shape and
+power (the generator wrote dots at power 0) and the powered repeaters (the five 4-tick repeaters of
+the delayed "not visit" line). Its `build: last -6,-3,-1 1,-2,6` line lists the two torches that are
+off at rest as the build's last steps.
+
+`siding-bench --wired --launch`, 24 seeds x 2 nights each (arrivals launched from rest on the bench's
+launcher, the release placed as a block by the bench):
+- the judge's placement: 24 of 24 seeds clean, 1,596 visits;
+- settled as placed (`--placed-raw`, pasted raw, no settle): 24 of 24 clean, 1,596 visits;
+- built in order (`--placed-in-order`, the priced gaps: 319 cells in 319 steps, 8,360 gt): 24 of 24
+  clean, 1,588 visits; the build ends exactly as the file;
+- `--build-gap-sweep`: every gap from 1 to 40 gt passes (4 seeds x 1 night each, 174-179 visits a
+  gap).
+Clean: every visit dropped, napped, woken, back in its own cart, ready on the slot and released.
+
+What the build needed: the latch is bistable. In the default order its first source is W2, the H
+torch (-6,-3,-1), placed unlit with its block not yet powered; the first neighbour update lit it, so
+the build ended with a visit set and the first arrival went to the exit unnapped (59 cells unlike
+the file). Placed last, N2 is already powered through D1 by W1, and W2 stays unlit. K, the kick
+torch (1,-2,6), placed early, was lit by the first update; BK's power arrived later through dust
+written at its settled power, which tells K nothing (no power change), so K stayed lit and the park
+rail powered. Placed last, BK is powered already.
+
+Drives for tick-exact: `carousel-siding-wired-raw.drive.txt` (`--placed-raw`) and
+`carousel-siding-wired-built.drive.txt` (the build's `act t set` lines, then the bench's acts;
+`# spawn 8360`), both `siding-bench --wired --launch --from 1 --to 1 --nights 1`. Besides `set`, the
+bench's acts are `tp` (a cart onto the launcher, back to the hold), `home`, `last-slept` and
+`poi-take`, as in the viewer's drive. The viewer's `carousel-siding-wired.drive.txt`, recorded again
+from the settled file, is byte-identical.
+
+`mobfarm siding --wired --alone` writes the siding by itself for ironfarm's loop bench (no launcher,
+approach, run-out, hold or carts): 234 blocks in x -7..6, y -4..4, z -3..9, and the dorm zombie.
+
+## Ready time, the release held, and the exit speed (day-1's questions, 2026-11-10)
+
+Bench-driven arrivals as before (teleported onto the approach at 0.15-1.1 b/t, visits 400-600 gt
+apart), `siding-bench --wired`, 100 seeds x 6 nights, 15,490 visits a run, every one clean:
+- **Released by the bench's pulses** (560-610 gt after the arrival): ready (napped, back in its own
+  cart, at rest on the slot) p50 145, p90 229, p99 263, max 290 gt. The tail is the kick, not the
+  walk or the nap: woken to re-boarded 69/155/191/225 gt (p50/p90/p99/max; the slowest 1%: 195 gt
+  against 86 for all), the nap 25/33/35/35, and the napper wakes standing in the free cell. The kick
+  waits while the slot is taken (the slot's tripwire is OR'd into it), and the bench's previous cart
+  is often still waiting there for its release: visits come 400-600 gt apart, releases 560-610 gt
+  after arrival.
+- **The release held on** (`--release-held`): every visit napped, re-boarded its own cart and left;
+  ready (on the slot with its villager) p50 111, p90 125, p99 141, max 225 gt; woken to re-boarded
+  46/54/56/58. What is left of the tail is the lie-down: drop to asleep 0/0/9/115 gt (a few nappers
+  walk round the bed first).
+- **Exit speed** (stored, leaving the exit cell): with the pulses 0.281-0.436 b/t (median 0.286), 926
+  of 15,490 over 0.36: exactly the carts that came to rest higher on the slot's slope (x 4.3-4.5);
+  every cart at rest at x 4.7-4.8 leaves at 0.28-0.29. With the release held 0.536-0.719, every one
+  over 0.36.
+- **One slowing cell does not fix it.** A braked powered rail is a stop: it halves the speed every
+  tick the cart is on it and stops it under 0.03 b/t. One just past the exit (`siding --exit-brake`,
+  x 7) stopped 346 of 350 carts with the pulses and 356 of 356 with the release held (8 seeds x 1
+  night). On the exit cell itself it is powered whenever the slot's tripwire fires (the stone under
+  the tripwire line's dust at (6,-1,1) is beside it), and boosted the carts to 0.66-0.84 b/t with the
+  release held. An uphill cell takes off only the slope's gravity, 0.0078 b/t per tick on it (the
+  game's rule; not benched).
 
 ## What failed on the way (and why)
 

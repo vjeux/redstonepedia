@@ -92,6 +92,13 @@ impl Drive {
         }
     }
 
+    /// A line already written with its time from the drive's start (a build's `act t set ...`).
+    pub fn push(&self, line: String) {
+        if self.on {
+            self.lines.borrow_mut().push(line);
+        }
+    }
+
     pub fn text(&self, header: &[String]) -> String {
         let mut s = String::new();
         for h in header {

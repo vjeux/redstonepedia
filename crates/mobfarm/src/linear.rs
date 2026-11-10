@@ -16,7 +16,7 @@ use anyhow::Result;
 use mctas::design::Design;
 use redsim::block::Block;
 use redsim::entity::mob::ai::brain::{self, Act};
-use redsim::entity::mob::farm::{FarmSpec, Run, RunOpts, WalkMode};
+use redsim::entity::mob::farm::{FarmSpec, RunOpts, WalkMode};
 use redsim::entity::mob::types::MobType;
 use redsim::entity::mob::MobEvent;
 use redsim::entity::{Aabb, EntityKind, Vec3};
@@ -159,6 +159,13 @@ pub fn design(pad: &PadOpts, o: &LinearOpts) -> Result<String> {
     b.set(bed.x, bed.y - 1, bed.z, glass);
     b.set(bed.x, bed.y - 1, bed.z + 1, glass);
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+    // the build's listed steps (brief farm-iron-carousel, "built in order"): the sorter's stocks
+    // after every block. Filled as their hoppers are placed (the default order), the lock hoppers
+    // are not locked yet (their torches come with the redstone, later): the iron lock hopper passes
+    // its 64 iron to the crafter and the filter hopper refills it, 38 of its 41 iron gone by the
+    // end of the build (one iron block in the double chest); filled after the redstone, each lock
+    // hopper is locked when its stock goes in, and the lock before its filter (bottom up).
+    b.d.meta.insert("build".into(), crate::placing::BuildPlan { last: Vec::new(), fills_last: true }.meta());
     b.d.ports.insert("output".into(), [bed.x + 2, bed.y, bed.z]);
     let text = b.text(&[
         &format!("The carousel's station + portal pad on the linear stand (bench): the release's front {RIDERS} carts back to back on one track {} at y {}, the pad's {} planes at z {:?},", if o.along_x { format!("along x from x {} at z {}", o.x0, o.z) } else { format!("along z from z {} at x {}", o.z, o.x0) }, o.y, pad.planes.len(), pad.planes),
@@ -266,12 +273,20 @@ pub struct BenchOpts {
     pub lead: i64,
     /// Record the drive (`--drive-out`).
     pub drive: bool,
+    /// How the design is put in the world (the brief's placement checks: mobfarm::placing).
+    pub placement: crate::placing::Placement,
+    /// The design's listed build steps (its `build:` line), for a build in order.
+    pub plan: crate::placing::BuildPlan,
 }
 
 /// What the linear bench measured.
 #[derive(Clone, Debug, Default)]
 pub struct BenchReport {
     pub drive: Option<String>,
+    /// Built in order: the cells the build left unlike the file (none: the build ends as written),
+    /// and the build's steps, cells and ticks.
+    pub built_diff: Vec<String>,
+    pub build: Option<(usize, usize, i64)>,
     pub slots: u32,
     pub summoned: u32,
     pub willing: Vec<u8>,
@@ -310,8 +325,9 @@ fn move_cart(w: &mut World, cart: u32, c: BlockPos) {
 /// and panicking riders, tries and golem; every golem's stay, contact and pulse; the Nether.
 pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> Result<BenchReport, String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(bo.seed, bo.days * 24000, WalkMode::Random) };
-    let mut run = Run::start(spec, &ro)?;
-    while run.settle_tick() {}
+    // (the judge's placement and the settle; the raw paste; or built in order)
+    let (mut run, built) = crate::placing::start(spec, &ro, bo.placement, &bo.plan)?;
+    let built_diff = if built.is_some() { crate::placing::diff_from_file(&run.world, spec, &ro)? } else { Vec::new() };
     let first = run.world.entities.next_id;
     let mut spawned = Vec::new();
     for (ty, pos, nbt) in &spec.entities {
@@ -320,8 +336,13 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
     run.own = (first..run.world.entities.next_id).collect();
     let bed = o.bed();
     let t0 = run.world.time;
+    // (the drive's times count from the spawn, or from the build's start when built in order)
+    let origin = built.as_ref().map_or(t0, |b| b.start);
     let mut drive = crate::drive::Drive::new(bo.drive);
-    drive.name_entities(&run.world, &spawned, t0);
+    drive.name_entities(&run.world, &spawned, origin);
+    for l in built.iter().flat_map(|b| b.lines.iter()) {
+        drive.push(l.clone());
+    }
     let drive = drive;
     redsim::entity::mob::ai::poi::take(&mut run.world, bed);
     drive.act(t0, format!("poi-take {} {} {}", bed.x, bed.y, bed.z));
@@ -359,7 +380,7 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
             br.home = Some(bed);
             br.last_slept = Some(t0 - 100);
             drive.act(t0, format!("home {} {} {} {}", drive.name(*r), bed.x, bed.y, bed.z));
-            drive.act(t0, format!("last-slept {} -100", drive.name(*r)));
+            drive.act(t0, format!("last-slept {} {}", drive.name(*r), t0 - 100 - origin));
         }
     }
     let mut rep = BenchReport::default();
@@ -370,7 +391,10 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
         }
     };
     let end = t0 + bo.days as i64 * 24000;
-    let s0 = ((t0 + bo.lead + 1) / 100 + 1) * 100;
+    // (the first slot after the spawn: batch 0 starts at the stand, so it needs no lead; the slots
+    // after it move their batch in `lead` gt before. A start no settle or build rounds to 200 can
+    // fall within the lead of the next hundred, whose summons are batch 0's)
+    let s0 = (t0 / 100 + 1) * 100;
     // the stand's batch, each held batch's hold slot (its 3 cells), and the slot each batch
     // visits next
     let mut at_stand: usize = 0;
@@ -394,7 +418,7 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
             for r in &villagers {
                 if let Some(i) = index_of(&run.world, *r) {
                     brain::brain_mut(&mut run.world, i).last_slept = Some(now);
-                    drive.act(now, format!("last-slept {} {}", drive.name(*r), now - t0));
+                    drive.act(now, format!("last-slept {} {}", drive.name(*r), now - origin));
                 }
             }
         }
@@ -581,18 +605,33 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
         drive.expect_end(format!("golems {}", golems.len()));
         drive.expect_end(format!("nether-deaths {}", rep.nether_deaths));
         drive.expect_end(format!("iron-in-nether-containers {} (the sorter's stock of {stock} included)", chest));
-        rep.drive = Some(drive.text(&[
-            format!("drive v1: mctas mobfarm linear-bench <design> --from {s} --to {s} --days {} --lead {} --drive-out F", bo.days, bo.lead, s = bo.seed),
+        let flag = match bo.placement {
+            crate::placing::Placement::Judge => String::new(),
+            crate::placing::Placement::Raw => " --placed-raw".into(),
+            crate::placing::Placement::Built { gap: None } => " --placed-in-order".into(),
+            crate::placing::Placement::Built { gap: Some(g) } => format!(" --placed-in-order {g}"),
+        };
+        let start = match bo.placement {
+            crate::placing::Placement::Judge => "start Run::start(spec, RunOpts { ai: true, ..RunOpts::steady(seed, days * 24000, WalkMode::Random) }); settle_tick until false; the design's entity lines spawned in order (eN: line N from 0, eN.pK: its passenger K from 0); t0 = the world's time then",
+            crate::placing::Placement::Raw => "start Run::start(spec, RunOpts { ai: true, raw: true, ..RunOpts::steady(seed, days * 24000, WalkMode::Random) }) (the file pasted as written, the Nether part too, no settle); the design's entity lines spawned in order (eN: line N from 0, eN.pK: its passenger K from 0); t0 = the world's time then",
+            crate::placing::Placement::Built { .. } => "start Run::start(spec with no blocks, RunOpts { ai: true, ..RunOpts::steady(seed, days * 24000, WalkMode::Random) }) and an empty Nether world, the build (the `build:` line), then the design's entity lines spawned in order (eN: line N from 0, eN.pK: its passenger K from 0); t0 = the world's time then",
+        };
+        let mut header = vec![
+            format!("drive v1: mctas mobfarm linear-bench <design> --from {s} --to {s} --days {} --lead {}{flag} --drive-out F", bo.days, bo.lead, s = bo.seed),
             // (mobviewer's badge line, 2026-11-10: the view shows it first while the run plays)
             "caption batches teleported to the stand by the test bench (the release is stubbed)".into(),
             format!("seed {}", bo.seed),
             format!("days {}", bo.days),
             "walk random".into(),
             "ai on".into(),
-            "start Run::start(spec, RunOpts { ai: true, ..RunOpts::steady(seed, days * 24000, WalkMode::Random) }); settle_tick until false; the design's entity lines spawned in order (eN: line N from 0, eN.pK: its passenger K from 0); t0 = the world's time then".into(),
-            "act t: applied when the world's time is t0 + t, before the run's next tick (the bench's own order: at the top of its loop)".into(),
+            start.into(),
+            if built.is_some() { "act t: applied when the world's time is the build's start + t, before the run's next tick (the bench's own order: at the top of its loop)".into() } else { "act t: applied when the world's time is t0 + t, before the run's next tick (the bench's own order: at the top of its loop)".into() },
             format!("t0 {}", t0),
-        ]));
+        ];
+        header.extend(crate::placing::header(bo.placement, built.as_ref(), t0, &bo.plan));
+        rep.drive = Some(drive.text(&header));
     }
+    rep.built_diff = built_diff;
+    rep.build = built.as_ref().map(|b| (b.steps, b.cells, t0 - b.start));
     Ok(rep)
 }
