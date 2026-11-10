@@ -6,16 +6,17 @@ section. This folder holds the loop as it is built.
 
 ## What is real (vjeux 07:29: "You can't say it's working when nothing is wired")
 
-| part | in the file | controls | plays on its own | missing |
+| part | in this file | controls | plays on its own | missing |
 |---|---|---|---|---|
-| queue register (18 slots) | track built | bench-driven (each slope's support switched glass / redstone block by the bench) | no | day-1's release controller (works on redsim, not yet in this file) |
-| release of the front 3 | track built | bench-driven | no | day-1's controller |
-| stand (3 slots) | track built, a sketch: farmopt owns the real stand (part 2) | bench-driven, position-triggered brake | no | farmopt's linear stand and pad |
-| return to the queue's tail | track built | bench-driven, position-triggered brakes | no | timer circuits for the stand and tail brakes |
-| zombies (PANIC), golem-floor gate | none | | | all |
-| bed siding (naps) | none (farmopt is designing it) | | | all |
+| queue register (18 slots) | track built | bench-driven here; day-1 has wired its controller into a copy of this file (explore/day1-sched-wip) | not yet | day-1's wiring merged into this file, then the wired end-to-end run |
+| release of the front 3 | track built | as above | not yet | as above |
+| stand (3 slots) | track built, a sketch (farmopt owns the real stand) | its brake is a real detector rail on the release run plus a delay (day-1 wired it); departures bench-driven here | not yet | farmopt's stand and pad; a catch with more than 2 ticks of slack |
+| return to the queue's tail | track built | timers (day-1 wired them) | not yet | as above |
+| zombies (PANIC) | 7 posts built | none needed | yes (in the bench) | the pad's own stand zombies (farmopt) |
+| bed siding (naps) | not in this file (farmopt's is wired separately) | | | the two junctions |
+| golem-floor gate | none | | | all |
 
-Nothing here is wired redstone yet. "Clean" below always means with bench-driven controls.
+"Clean" below always means with bench-driven controls unless it says wired.
 
 ## The queue: a sawtooth shift register
 
@@ -25,19 +26,19 @@ One power pulse on every slope (7..12 gt) rolls every cart down, up, over the pe
 next braked slope: every cart one slot on, the front one out. A cart starting lower arrives slower
 and stops sooner, so the resting offsets converge (0.32 of the cell down the slope): no drift. The
 carts sit 3 cells apart, outside the 0.2 push range: no creep, no bounce, no momentum build-up.
-tick-exact bridged the register's one-slot moves against the real server (0 differences;
-controls still bench-driven).
+tick-exact bridged the register's one-slot moves against the real server (0 differences).
 
-## The loop (`mctas mobfarm queue-loop` + `queue-loop-run`)
+## The loop (`mctas mobfarm queue-loop --detector --boost-first 8 --zombie-every 8`)
 
 Top view, the pad (farmopt's) south of z -1:
 
-- **Stand** (sketch) along +x at z 0, S3's slope at x -1: 3 catch slots, i.e. sawtooth slots
-  whose preceding flat cell (the run's last cell, S3's peak, S2's peak) is a powered rail linked
-  to the slope (a powered rail takes its connected neighbour's power). The fast release train
-  crosses its braked catch cells and stops 0.4..0.6 down the slopes.
-- **Release run** south along x -3 from the queue's head (z 19) into the stand's west end; 3
-  boosters right after the head.
+- **Stand** (sketch) along +x at z 0, S3's slope at x -1, S2 x 2, S1 x 5: catch slots, i.e.
+  sawtooth slots whose preceding flat cell (the run's last cell, S3's peak, S2's peak) is a
+  powered rail linked to the slope (a powered rail takes its connected neighbour's power).
+- **Release run** south along x -3 from the queue's head (z 19) into the stand's west end; 8
+  boosters right after the head (the carts are capped at 0.4 b/t anyway; the boosters raise the
+  train's speed into the stand, which widens the catch's window from 1 to 2 ticks); a detector
+  rail at (-3,1,4).
 - **Departure** from the stand's east end north along x 9, west along z 20 into the queue's tail.
 - **Queue** north of z 20 in two rows 3 apart: row A (the tail) north along x 0, 7 slots; a turn
   slot (row A's last peak is a curve, the slot runs west, its peak a curve again) so no queue move
@@ -45,30 +46,52 @@ Top view, the pad (farmopt's) south of z -1:
 - **Tail slots 0-2 are deep slots**: a braked slope linked to the slot's own (two blocks of braked
   descent), then two plain slopes up and the peak. A fast returning cart stops on one of the two
   slopes, never on a flat cell; a slow queue move stops on the first.
+- **Zombie posts**: a zombie in a boat on glass at (3,3,5+8k), k = 0..6, leaves over it; every
+  rider within 8 blocks and in sight of one, all along the loop.
 
-Per slot (t0 = the release start = golem pulse + 4 in day-1's controller; every control
-bench-driven, the times day-1's controller produces):
-- t0: the release group (the queue's front 3 slopes) on for 34 gt: the 3 leave as a train; the
-  stand's batch leaves one slot at a time (S1 at t0, S2 +12, S3 +24);
-- the stand braked (all 3 slopes) 28 gt after the release train's front cart switches on the
-  detector rail at (-3,1,4) on the release run (t0+71..73). This one is tick-exact: +27 and +29
-  both fail (the catch cell's window is ~0.6 block, one tick of the train's travel); the
-  position trigger (front cart 0.45 into S2's peak) gives the same result;
-- the queue advances 3 slots: pulses at t0+38, +58, +78, 10 gt each;
-- the queue's tail opens (slots 0-2 powered) at t0+88;
-- the returning train fills the tail front first, by timers from its departure: slots 1-2 braked
-  at +110 (works from +108 to +114), slot 0 at +116 (works from +112 to +120).
+`mctas mobfarm queue-loop` prints the control cells (each the block under a powered slope).
 
-Bench-driven results:
-- position triggers: `queue-loop-run <file> --cycles 60 --seed S`, seeds 1..9, 0 problems;
-- timers and the detector only (what a circuit does): `--stand-detect 28 --intake-brake 110,116`,
-  4 seeds x 200 slots and 3 x 60, 0 problems.
-Each slot the queue releases exactly its front 3; the batch is settled at the stand at t0+81
-(offsets 0.41 / 0.55 / 0.58 down the slopes); the previous batch is in the queue's tail before
-the next advance at t0+138.
+Per slot (t0 = the release start = golem pulse + 4 in day-1's controller; the times day-1's
+controller produces):
+- the release group (the queue's front 3 slopes) on for 36 gt from t0: the 3 leave as a train;
+- the stand's batch leaves one slot at a time: S1 on at t0+6, S2 +18, S3 +30;
+- the stand braked (all 3 slopes) 26 gt after the detector rail switches on, in redstone terms
+  (the bench's +27: it applies a change after the tick, a repeater during it);
+- the queue advances 3 slots: pulses at t0+38, +58, +78, 12 gt each;
+- the queue's tail opens at t0+88 (slots 1-2) and +90 (slot 0);
+- the returning batch fills the tail front first, by timers from its departure: slots 1-2 braked
+  at +116 (works +114..+120), slot 0 at +124 (works +120..+128).
 
-Arrival margin: the batch settles at the stand at t0+81 = golem+85, 15 gt before the slot (T+100),
-so the riders must be panicking on arrival (zombies along the loop, not in yet).
+## Results
+
+- Bench-driven, position-triggered stand brake, tail timers +110/+116 (3 boosters): 100 seeds x
+  1,440 slots (6 days each), 0 problems.
+- Every control a timer or the detector (3 boosters, bench +28; day-1's latencies): 100 seeds x
+  1,440 slots, 0 problems.
+- 8 boosters: the stand works at bench +26 and +27 (redstone +25 and +26), 3 seeds x 300 slots
+  each with day-1's 36/12-gt pulses; +25 and +28 fail.
+- Every slot: the queue releases exactly its front 3; the batch settles at the stand at t0+81
+  (golem+85); the previous batch rests in the queue's tail before the next advance.
+- PANIC: with the zombie posts every rider panics 100.00% of deep-night ticks (day time
+  13,670..22,330), 3 seeds x 720 slots; 7 of 7 zombies alive at the end; riders all in their own
+  carts. Without the posts: 0%. Posts every 16: 72.6%.
+- Golem spawns: a villager riding anywhere on the loop's 118 rail cells finds 0 golem spawn cells
+  (`queue-loop-spots`, redsim's copy of the game's LEGACY_IRON_GOLEM search).
+- tick-exact bridged the stand catch against the 26.3 server: the game matches the bench tick for
+  tick, the window included.
+
+## The stand catch's window (open)
+
+The release train runs 3 cells apart, the stand's period. A braked catch cell slows each cart
+over ~1 block, so where it stops depends on where it was when the brake came: the band that
+leaves it in its slope is ~0.4 cell, one or two ticks of the train's travel. Tried and measured:
+- a detector per slot instead of one: the same window;
+- a deep (self-centering) stand, each slot two braked slopes and two plain slopes up: tolerant
+  but 15 cells long, the batch settles at t0+93, too late for the slot at golem+100;
+- a descending stand (each slot one block lower): tolerant catch, but the departing carts leave
+  at different speeds and the returning batch misses the tail's window;
+- a staggered release (train wider apart): no clean setting found;
+- more release-run boosters: 1 tick -> 2 ticks (in the file now).
 
 ## What did not work (same tools)
 
@@ -85,4 +108,6 @@ so the riders must be panicking on arrival (zombies along the loop, not in yet).
 - the stand at the far end of the release run (return back along it): the return took ~130 gt,
   outside the tail's window;
 - the queue in one straight row with the return round it: the return took ~235 gt, at the edge
-  of its window.
+  of its window;
+- the stand's batch leaving like a queue advance (3 pulses): the third cart reaches the tail too
+  late.
