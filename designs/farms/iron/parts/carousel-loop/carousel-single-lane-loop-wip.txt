@@ -1,0 +1,53 @@
+# The single-lane carousel's loop (prototype): a sawtooth queue register, the release run, the 3-slot stand, the return run.
+name: carousel-loop-scene
+circuit: mob-farm iron_ingot
+queue: scene=Loop carts=21 spacing=3 release=3 riders=1 slots=18 run=20 depart=3 boost=0 boost_first=3 straight=0
+port output: 0 1 8
+entity: minecraft:minecart -0.5 0.5 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -3.5 0.5 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -6.5 0.5 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -9.5 0.5 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -12.5 0.5 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -15.5 0.5 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -18.5 0.5 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -21.5 0.5 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -24.5 0.5 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -26.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -23.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -20.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -17.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -14.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -11.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -8.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -5.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -2.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 26.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 23.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 20.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+origin: -28 0 0
+palette:
+  A minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  B minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  C minecraft:rail[shape=east_west,waterlogged=false]
+  D minecraft:rail[shape=north_east,waterlogged=false]
+  E minecraft:rail[shape=north_west,waterlogged=false]
+  F minecraft:rail[shape=south_east,waterlogged=false]
+  G minecraft:glass
+  H minecraft:rail[shape=south_west,waterlogged=false]
+  I minecraft:redstone_block
+  P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
+  R minecraft:rail[shape=ascending_east,waterlogged=false]
+  p minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
+  r minecraft:rail[shape=ascending_west,waterlogged=false]
+layer -1:
+  ..GG.GG.GG.GG.GG.GG.GG.GG.GG
+  .
+  .GG.GG.GG.GG.GG.GG.GG.GG.GG.....................GG.GG.GG
+layer 0:
+  GGrPGrPGrPGrPGrPGrPGrPGrPGrPGGGGGGGGGGGGGGGGGGGGGGGGGGGGGIIIG
+  I...........................................................I
+  GpRGpRGpRGpRGpRGpRGpRGpRGpRGIIIGGGGGGGGGGGGGGGGGpRGpRGpRGGGGG
+layer 1:
+  FC..C..C..C..C..C..C..C..C..CCCCCCCCCCCCCCCCCCCCCCCCCCCCCAAAH
+  B...........................................................B
+  D..C..C..C..C..C..C..C..C..CAAACCCCCCCCCCCCCCCCC..C..C..CCCCE

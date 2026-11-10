@@ -367,12 +367,104 @@ pub enum MobfarmCmd {
         #[arg(long, short, default_value = ".")]
         out: PathBuf,
     },
-    /// A design's plane x = X as text (rows y from the top, columns z): what each cell holds, for
-    /// laying out wiring in a stacked part. Legend: `.` air, `-` rail, `/` rail slope, `P`/`p`
-    /// powered rail flat/slope, `A` activator, `D` detector, `R` redstone block, `T` target, `g`
-    /// glass, `s` stone or cobblestone, `B` bed, `h` trapdoor, `L` leaves, `O` observer, `r`
-    /// repeater, `t` torch, `*` dust, `#` any other block; `c` a minecart's cell (its rider's eye
-    /// cell `e`, the eye 1.62 over the cart's position), `Z` a boat's cell.
+    /// The single-lane carousel's queue: a physics scene (carts back to back on one track, a
+    /// release of the front ones down braked slopes) for `queue-run`.
+    QueueLoop {
+        #[arg(long, default_value_t = 18)]
+        slots: i32,
+        #[arg(long, default_value_t = 20)]
+        run: i32,
+        #[arg(long, default_value_t = 3)]
+        depart: i32,
+        #[arg(long, default_value_t = 0)]
+        boost_every: i32,
+        #[arg(long, default_value_t = 3)]
+        boost_first: i32,
+        /// The queue in one straight row (else folded in two rows with a U-turn).
+        #[arg(long)]
+        straight: bool,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Runs a loop scene (`queue-loop`) for `--cycles` slots with ideal controls and checks the
+    /// loop order.
+    QueueLoopRun {
+        design: PathBuf,
+        #[arg(long, default_value_t = 14)]
+        cycles: i64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long, default_value_t = 20)]
+        release_for: i64,
+        #[arg(long, default_value_t = 40)]
+        advance_at: i64,
+        #[arg(long, default_value_t = 20)]
+        advance_every: i64,
+        #[arg(long, default_value_t = 9)]
+        pulse: i64,
+        #[arg(long)]
+        verbose: bool,
+        /// Print these carts (design order) every gt.
+        #[arg(long, value_delimiter = ',')]
+        watch: Vec<usize>,
+    },
+    /// The single-lane carousel's queue: a physics scene (carts back to back on one track, a
+    /// release of the front ones down braked slopes) for `queue-run`.
+    Queue {
+        #[arg(long, value_enum, default_value = "flat")]
+        scene: crate::queue::Scene,
+        #[arg(long, default_value_t = 21)]
+        carts: i32,
+        /// The queue's spacing at rest along the track (the flat scene).
+        #[arg(long, default_value_t = 1.0)]
+        spacing: f64,
+        #[arg(long, default_value_t = 3)]
+        release: i32,
+        /// Empty carts.
+        #[arg(long)]
+        no_riders: bool,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Runs a queue scene: the release slopes powered at `--release-at` for `--release-for` gt,
+    /// the queue's rails at `--queue-at` for `--queue-for`; prints every cart's x and speed every
+    /// `--every` gt, then which carts left and each cart's largest move, speed and bounces.
+    QueueRun {
+        design: PathBuf,
+        #[arg(long, default_value_t = 600)]
+        ticks: i64,
+        #[arg(long)]
+        release_at: Option<i64>,
+        #[arg(long, default_value_t = 40)]
+        release_for: i64,
+        #[arg(long)]
+        queue_at: Option<i64>,
+        #[arg(long, default_value_t = 40)]
+        queue_for: i64,
+        #[arg(long, default_value_t = 0)]
+        every: i64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        /// Lockstep cycles: the first at this tick, then every `--cycle-every`, `--cycles` in all
+        /// (every rail powered, braked when the cycle's first held cart passes `--trigger-x`).
+        #[arg(long)]
+        cycle_start: Option<i64>,
+        #[arg(long, default_value_t = 100)]
+        cycle_every: i64,
+        #[arg(long, default_value_t = 1)]
+        cycles: i64,
+        #[arg(long, default_value_t = 20.0)]
+        trigger_x: f64,
+        /// Each cycle braked again this many gt after it starts (0: at the trigger).
+        #[arg(long, default_value_t = 0)]
+        pulse: i64,
+    },
+    /// A design's plane x = X as text, for laying out wiring in a stacked part: `.` air, `-` and
+    /// `/` a rail (flat, sloped), `P`/`p` a powered rail (flat, sloped), `A` activator, `D`
+    /// detector, `R` redstone block, `T` target, `g` glass, `s` stone or cobblestone, `B` bed, `h`
+    /// trapdoor, `L` leaves, `O` observer, `r` repeater, `t` torch, `*` dust, `#` any other block;
+    /// `c` a minecart's cell (its rider's eye cell `e`, the eye 1.62 over the cart's position), `Z`
+    /// a boat's cell.
     Slice {
         design: PathBuf,
         /// The plane.
@@ -908,6 +1000,38 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{} ({} KB)", html.display(), std::fs::metadata(&html)?.len() / 1024);
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
+        }
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, out } => {
+            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight };
+            std::fs::write(&out, crate::queue::loop_design(&o)?)?;
+            println!("{}", out.display());
+        }
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, release_for, advance_at, advance_every, pulse, verbose, watch } => {
+            let (c, spec) = load(version, &design)?;
+            let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
+            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse };
+            let s = crate::queue::run_loop(&spec, &o, &tm, cycles, seed, verbose, if watch.is_empty() { None } else { Some(&watch) }).map_err(|e| anyhow::anyhow!(e))?;
+            println!("{s}");
+        }
+        MobfarmCmd::Queue { scene, carts, spacing, release, no_riders, out } => {
+            let o = crate::queue::QueueOpts { scene, carts, spacing, release, riders: !no_riders };
+            let text = crate::queue::design(&o)?;
+            std::fs::write(&out, text)?;
+            println!("{}", out.display());
+        }
+        MobfarmCmd::QueueRun { design, ticks, release_at, release_for, queue_at, queue_for, every, seed, cycle_start, cycle_every, cycles, trigger_x, pulse } => {
+            let (c, spec) = load(version, &design)?;
+            let o = crate::queue::opts_of(&c.clock.design.meta)?;
+            let cyc: Vec<i64> = cycle_start.map(|s| (0..cycles).map(|k| s + k * cycle_every).collect()).unwrap_or_default();
+            let mut plan = crate::queue::RunPlan { ticks, release: Vec::new(), queue: Vec::new(), every, cycles: cyc, trigger_x, pulse };
+            if let Some(t) = release_at {
+                plan.release = vec![(t, true), (t + release_for, false)];
+            }
+            if let Some(t) = queue_at {
+                plan.queue = vec![(t, true), (t + queue_for, false)];
+            }
+            let s = crate::queue::run(&spec, &o, &plan, seed).map_err(|e| anyhow::anyhow!(e))?;
+            println!("{s}");
         }
         MobfarmCmd::Slice { design, x, y_from, y_to, z_from, z_to } => {
             let d = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;

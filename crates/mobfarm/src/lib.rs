@@ -13,6 +13,7 @@ pub mod hold;
 pub mod layouts;
 pub mod naps;
 pub mod parts;
+pub mod queue;
 pub mod spawnrules;
 pub mod station;
 pub mod assembly;
