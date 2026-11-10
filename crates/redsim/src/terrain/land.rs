@@ -4,11 +4,13 @@
 //!
 //! The light starts from what the game saved, not from a fresh fixed point: the game's own light is
 //! not always the fixed point (a tree a neighbour chunk's features grew after this chunk's sky
-//! sources were filled leaves its leaves out of `ChunkSkyLightSources`: about 0.04% of a forest's
-//! open cells read one or two more than the fixed point, which `mctas terrain probe` confirms at
-//! run time). Around a change, the sky sources follow `ChunkSkyLightSources.update` step by step and
-//! the light settles to the engines' fixed point inside the changed region, the unchanged cells
-//! around it as its border.
+//! sources were filled left its leaves out of them when the light was made: about 0.04% of a
+//! forest's open cells read one or two more than the fixed point, which `mctas terrain probe`
+//! confirms at run time). The sky sources are not saved: the game fills them from the blocks when it
+//! loads a chunk (leaves stop them), and so does `sky_sources`; the first light check in such a
+//! column then lowers the stale cells (`removeSourcesBelow`). Around a change, the sky sources
+//! follow `ChunkSkyLightSources.update` step by step and the light settles with the game's
+//! incremental engines (`terrain::engine`).
 
 use super::blocks;
 use super::format::{Heightmap, Terrain};
@@ -97,10 +99,10 @@ pub fn build_world(t: &Terrain) -> Result<World, String> {
     let min = BlockPos::new(t.origin[0], t.origin[1], t.origin[2]);
     let mut w = World::new(min, t.size);
     let cells = cells_of(t)?;
+    let sources = sky_sources(t, &cells, 0, (t.size[0] * t.size[2]) as usize);
     w.load_cells(cells);
     let g = light::grid_of_world(&w)?;
     let (sky, block) = light::compute(&g);
-    let sources = sky_sources(t, &sky, 0, (t.size[0] * t.size[2]) as usize);
     w.land = Some(Box::new(land_of(t, sky, block, sources)));
     Ok(w)
 }
@@ -158,7 +160,7 @@ impl<'a> Builder<'a> {
             let per = (t.size[1] as usize).max(1);
             let k = (budget / per).max(1).min(cols - self.sources.len());
             let from = self.sources.len();
-            let more = sky_sources(t, &self.sky, from, from + k);
+            let more = sky_sources(t, &self.cells, from, from + k);
             self.sources.extend(more);
             budget = budget.saturating_sub(k * per);
             if budget == 0 {
@@ -178,18 +180,32 @@ impl<'a> Builder<'a> {
     }
 }
 
-/// Columns `from..to` (x fastest, then z): the lowest y of the run of full sky light from the top
-/// (`ChunkSkyLightSources`' source y).
-fn sky_sources(t: &Terrain, sky: &[u8], from: usize, to: usize) -> Vec<i32> {
+/// Columns `from..to` (x fastest, then z): `ChunkSkyLightSources.fillFrom`'s lowest source y, from
+/// the blocks as the game computes it when it loads a chunk (`initializeLightSources`): down from
+/// the box's top (air above it), the first edge `isEdgeOccluded` closes ends the sources at the cell
+/// above it. Not from the saved light (tickexact 2026-11-10, forest's terrain compare t60549): the
+/// game saves stale sky light under leaves a neighbour chunk's features added (15 where the fixed
+/// point has 14), but its sources at load stop at those leaves, so the first check in the column
+/// (`removeSourcesBelow`) lowers them; sources read from that light kept them at 15 for good.
+fn sky_sources(t: &Terrain, cells: &[Block], from: usize, to: usize) -> Vec<i32> {
     let [sx, sy, sz] = t.size;
+    let props = |b: &Block| match *b {
+        Block::Terrain(id) => terrain_lprops(id),
+        _ => lprops(b),
+    };
+    let air = lprops(&Block::Air);
     (from..to)
         .map(|c| {
             let (x, z) = ((c as i32) % sx, (c as i32) / sx);
-            let mut y = sy - 1;
-            while y >= 0 && sky[((y * sz + z) * sx + x) as usize] == 15 {
-                y -= 1;
+            let mut top = air;
+            for y in (0..sy).rev() {
+                let bottom = props(&cells[((y * sz + z) * sx + x) as usize]);
+                if light::edge_occluded_pub(&top, &bottom) {
+                    return t.origin[1] + y + 1;
+                }
+                top = bottom;
             }
-            t.origin[1] + y + 1
+            t.origin[1]
         })
         .collect()
 }
@@ -229,25 +245,16 @@ fn build_world_one_step(t: &Terrain) -> Result<World, String> {
     let min = BlockPos::new(t.origin[0], t.origin[1], t.origin[2]);
     let mut w = World::new(min, t.size);
     let cells = cells_of(t)?;
-    w.load_cells(cells);
     let cols = (t.size[0] * t.size[2]) as usize;
+    // the sky sources from the blocks (`sky_sources`: as the game fills them at load)
+    let sources = sky_sources(t, &cells, 0, cols);
+    w.load_cells(cells);
     let (sky, block) = if !t.sky.is_empty() && !t.block.is_empty() {
         (t.sky.clone(), t.block.clone())
     } else {
         let g = light::grid_of_world(&w)?;
         light::compute(&g)
     };
-    let mut sources = vec![0i32; cols];
-    let [sx, sy, sz] = t.size;
-    for z in 0..sz {
-        for x in 0..sx {
-            let mut y = sy - 1;
-            while y >= 0 && sky[((y * sz + z) * sx + x) as usize] == 15 {
-                y -= 1;
-            }
-            sources[(z * sx + x) as usize] = t.origin[1] + y + 1;
-        }
-    }
     let heights = (0..4)
         .map(|m| match t.heightmaps.get(m) {
             Some(h) if h.len() == cols => h.iter().map(|v| *v as i32).collect(),
