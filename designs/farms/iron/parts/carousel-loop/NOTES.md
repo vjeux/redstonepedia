@@ -141,6 +141,11 @@ slots per step, bench-driven controls, day-1's times):
   Shifted together: the 3 advance widths pass -1..+2 (not their one-at-a-time -3..+4), the 3
   advance times pass -2..+2, S1-S3 pass -2..+3 (-3 and +4 fail). day-1's pulses are exact
   redstone, 10 gt each; these joint numbers are the margins to quote.
+- **Entry speed** (a kick along each release cart's slope as the release opens, every control as
+  timed): +0.00..+0.58 b/t passes, FLAGGED on the slow side: a cart drifting backward at the
+  release is pushed backward by its powered slope (a powered rail boosts a moving cart the way it
+  moves) and rolls back over the peak. The corners with both speed extremes: the early corner
+  passes at +0.00 and +0.58, the late corner fails at both.
 
 ## The bed siding's merge: the side drop (day-1's (b))
 
@@ -160,6 +165,36 @@ the stand forced to deliver (the queue alone):
 - A cart's hole visits, in the long rests, the slots of one class mod 3 (the batch's front cart
   2, 5, 8, 11, 14; middle 1, 4, ..., 13; back 0, 3, ..., 12): day-1's plan has three drop rails,
   slots 12, 13, 14.
+
+## Nap visits on day-1's layout (bench-driven; the siding's bed is the blocker)
+
+`queue-loop-run F --wired=-7,-1,5 --visit S,K,REL`: during slot S the stand's cart K goes to the
+bed siding (the divert on for 10 gt from golem +16+10K, T1/T2 set for its drop slot 14-K, the
+siding released at +REL), and the bench reports the divert rail, the riders holding a bed and every
+claim, the sleep ticks, the roll-off from the drop rail, the slot it rests in and its batch's order
+before slot S+5's first advance. Bench-driven: the four controls (divert, T1, T2, release) are
+switched by the bench; nothing in the file drives them yet.
+
+On day-1's b51e4c875 layout (the pocket loop, day-1's controller, the siding pasted at (-20,2,10)),
+S30 (night):
+- the divert works: the corner T (9,-3,0) is north_west while its control is on, south_west after;
+- K0's rider sleeps +211..+229, its cart is at the siding's exit slot by +320;
+- **K1's and K2's riders never sleep**: rider e14 holds HOME on the bed (-20,2,12) from slot 0
+  (claimed during the settle from queue slot 14, ~24 blocks away) and never lets it go (panicking
+  riders never run REST's give-up); their carts stay at the bed spot and the batch comes back short
+  (the loop breaks at S+6). The siding's own bench handed the bed out with `home`/`poi-take` acts:
+  the bed's assignment is open (farmopt's child 58f770cc: the bed reachable only from the cage, the
+  ticket let go after each nap, a give-up when no sleep comes);
+- the exit route takes ~230 gt (0.29 b/t leaving the exit slot, 0.105 at the drop end): past the
+  drop window; it needs <= ~200 gt and 0.10-0.36 b/t at the drop end;
+- the 5-booster entry climb brings carts in at 0.84 (front) and ~1.1 b/t (middle), within the
+  siding's tested 0.10-1.2.
+
+A T rail reshapes only on an update from a signal source, and a placed block updates its
+neighbours as the old block (vanilla's `blockUpdated(pos, oldState.getBlock())`, as redsim): a
+redstone block placed over glass under a T leaves it as it was. The bench switches its T's from a
+target block (full, a signal source, no power); real wiring (dust, repeaters, torches powering the
+support) switches them as expected.
 
 ## Wired
 
