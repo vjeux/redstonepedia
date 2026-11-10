@@ -72,6 +72,16 @@ pub enum MobaiCmd {
         #[arg(long)]
         entity: Option<u32>,
     },
+    /// A scene run in the game alone, its mobs' changes printed tick by tick (pose, vehicle,
+    /// activities, running behaviors, memories) with the watched blocks' changes: when a villager
+    /// lies down, wakes, loses its HOME.
+    Timeline {
+        name: String,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long, default_value_t = 2000)]
+        ticks: u32,
+    },
     /// Record scenes in the game for `mctas test` (`<dir>/<scene>.rec`: the bridge's frames,
     /// gzipped, with the scene's hash in the header), then `mctas recorded write <dir>`.
     Record {
@@ -144,6 +154,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::Pathfuzz { cases, seed, density, verbose } => crate::pathfuzz::pathfuzz(version, cases, seed, density, verbose),
         MobaiCmd::Fixture { name, seed, ticks, full, probe, trace_at, entity } => crate::fixture::run(version, &name, seed, ticks, full, probe, trace_at, entity),
         MobaiCmd::Record { scenes, seed, ticks, dir } => crate::fixture::record(version, &scenes, seed, ticks, &dir),
+        MobaiCmd::Timeline { name, seed, ticks } => crate::fixture::timeline(version, &name, seed, ticks),
         MobaiCmd::Replay { paths } => crate::fixture::replay(&paths),
         MobaiCmd::FarmTrace { design, seed, at, entity, terrain, day0, build, run, no_spawning, weather } => crate::farmtrace::run(version, &design, seed, at, entity, terrain, day0, build.map(|k| (k, run)), no_spawning, weather),
         MobaiCmd::Mathfuzz { n, seed, inputs } => crate::mathfuzz::run(version, n, seed, &inputs),

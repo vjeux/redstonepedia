@@ -66,6 +66,20 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         ],
         // the carousel's rider: the second villager's pen opened once the carted one holds the bed
         "bed-cart" => vec![(400, vec![s([40, 64, 38], "minecraft:air"), s([40, 65, 38], "minecraft:air")])],
+        // (tickexact) the nap's panic wake: the window on the penned zombie opened, shut, opened
+        "bed-panic" => vec![
+            (2000, vec![s([35, 65, 21], "minecraft:air")]),
+            (2400, vec![s([35, 65, 21], "minecraft:stone")]),
+            (4600, vec![s([35, 65, 21], "minecraft:air")]),
+        ],
+        // (tickexact) the summon tick: the window row on the dorm's zombie opened; the golems' pad
+        // taken away under the first golem (summoned at 2100) so it falls out of every sensor, and
+        // put back at 2600 for the slot 600 after the summon
+        "golem-summon" => vec![
+            (2000, (27..=35).map(|x| s([x, 65, 23], "minecraft:air")).collect()),
+            (2100, (27..=35).flat_map(|x| (12..=14).map(move |z| s([x, 63, z], "minecraft:air"))).collect()),
+            (2600, (27..=35).flat_map(|x| (12..=14).map(move |z| s([x, 63, z], "minecraft:stone"))).collect()),
+        ],
         _ => Vec::new(),
     }
 }
@@ -431,6 +445,122 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Easy,
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
+    }
+    // (tickexact 2026-11-09, ironspec's one-bed carousel) the nap and the panic wake: a homeless
+    // villager claims the one bed and lies down in REST, the bed's stand-up cells walled but the
+    // one east of its head (the brief's single free cell), an observer looking at the bed's foot
+    // (OCCUPIED's flips reach the foot by its shape update); at 2000 a window opens on a zombie
+    // penned 5 east of the head, in its sight within 8 (VillagerHostilesSensor, PANIC, WakeUp,
+    // stopSleeping's findStandUpPosition); at 2400 the window shuts: it calms down, walks back and
+    // lies down again (SleepInBed: LAST_WOKEN 100 gt before, the bed free); at 4600 it opens again
+    {
+        let mut pb = Vec::new();
+        floor(&mut pb, 0, 48, 0, 48, 63, stone);
+        pb.push(([31, 64, 20], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
+        pb.push(([31, 64, 21], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
+        // the surround of a south-facing bed's head (findStandUpPosition's ten cells), all walled
+        // 2 high but (32, 64, 21); the observer takes (31, 19), looking south at the foot
+        for (x, z) in [(30, 19), (32, 19), (30, 20), (32, 20), (30, 21), (30, 22), (31, 22), (32, 22)] {
+            pb.push(([x, 64, z], stone.to_string()));
+            pb.push(([x, 65, z], stone.to_string()));
+        }
+        pb.push(([31, 64, 19], "minecraft:observer[facing=south,powered=false]".to_string()));
+        pb.push(([31, 65, 19], stone.to_string()));
+        // the zombie's pen (36, 64..65, 21): walls 2 high, a roof, the window (35, 65, 21) shut
+        for (x, z) in [(35, 21), (37, 21), (36, 20), (36, 22)] {
+            pb.push(([x, 64, z], stone.to_string()));
+            pb.push(([x, 65, z], stone.to_string()));
+        }
+        pb.push(([36, 66, 21], stone.to_string()));
+        v.push(Scene {
+            name: "bed-panic".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: pb,
+            mobs: vec![
+                ("minecraft:villager".into(), [36.5, 64.0, 12.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:zombie".into(), [36.5, 64.0, 21.5], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 11000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
+    }
+    // (tickexact 2026-11-09, ironspec's carousel timing) the summon tick: three homeless
+    // villagers shut in a dorm with three beds sleep at REST (LAST_SLEPT); at 2000 a window opens
+    // on a zombie penned against the dorm's south wall (5 from them, in sight): PANIC wakes them,
+    // and each panicking villager's VillagerPanicTrigger tries spawnGolemIfNeeded(3) at the game
+    // time's multiples of 100; a golem's only floor in reach is one stone pad north of the dorm
+    // over the void (it walks off and falls out of every sensor's 16), so GOLEM_DETECTED_RECENTLY
+    // (600 gt from golemDetected on every villager in the summoner's 10-box) is the only lock:
+    // the slots it holds, and when each villager is free again
+    {
+        let mut gb = Vec::new();
+        // the dorm's floor only (x 26..36, z 17..23), its walls 2 high and a glass roof: no golem
+        // fits inside (2.7 tall) and none stands on glass (SpawnUtil's LEGACY_IRON_GOLEM)
+        floor(&mut gb, 26, 36, 17, 23, 63, stone);
+        for x in 26..=36 {
+            for z in 17..=23 {
+                if x == 26 || x == 36 || z == 17 || z == 23 {
+                    for y in 64..=65 {
+                        gb.push(([x, y, z], stone.to_string()));
+                    }
+                }
+                gb.push(([x, 66, z], "minecraft:glass".to_string()));
+            }
+        }
+        for x in [28, 31, 34] {
+            gb.push(([x, 64, 19], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
+            gb.push(([x, 64, 20], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
+        }
+        // the zombie's pen (30..32, 64..65, 24) against the dorm's wall, the wall's eye row
+        // (27..35, 65, 23) its window, shut: open, every sleeper sees the zombie
+        for x in 30..=32 {
+            gb.push(([x, 63, 24], stone.to_string()));
+            gb.push(([x, 64, 25], stone.to_string()));
+            gb.push(([x, 65, 25], stone.to_string()));
+        }
+        for x in [29, 33] {
+            gb.push(([x, 64, 24], stone.to_string()));
+            gb.push(([x, 65, 24], stone.to_string()));
+        }
+        for x in 29..=33 {
+            for z in 24..=25 {
+                // stone keeps the sun off the zombie, glass over it keeps golems off its roof
+                gb.push(([x, 66, z], stone.to_string()));
+                gb.push(([x, 67, z], "minecraft:glass".to_string()));
+            }
+        }
+        // the golems' only floor: a 9 x 3 stone pad over a 33-deep pit north of the dorm (within
+        // the summon's 8 of the beds), taken away right after the first golem stands on it; the
+        // pit's floor keeps the fallen golem alive, more than 16 below every villager
+        for x in 27..=35 {
+            for z in 12..=14 {
+                gb.push(([x, 63, z], stone.to_string()));
+            }
+        }
+        floor(&mut gb, 24, 38, 8, 16, 30, stone);
+        v.push(Scene {
+            name: "golem-summon".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: gb,
+            mobs: vec![
+                ("minecraft:villager".into(), [29.5, 64.0, 21.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:villager".into(), [31.5, 64.0, 21.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:villager".into(), [33.5, 64.0, 21.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:zombie".into(), [31.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 11000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 0, 0], [47, 70, 47]),
             player: None,
             player_creative: false,
             random_tick_speed: 3,
@@ -1335,6 +1465,70 @@ pub fn record(version: &str, names: &[String], seed: i64, ticks: u32, dir: &std:
         eprintln!("recorded {}: {} frames in {:.1} s ({})", s.name, frames.len(), t0.elapsed().as_secs_f64(), path.display());
     }
     eprintln!("then: mctas recorded write {} --fresh", dir.display());
+    Ok(())
+}
+
+/// `mctas mobai timeline`: a scene run in the game alone, each tick where a mob's pose, vehicle,
+/// activities, running behaviors or memories (its HOME, LAST_SLEPT, LAST_WOKEN, walk target and
+/// CANT_REACH_WALK_TARGET_SINCE among them) or a watched block change, printed as it happens (the
+/// numbers a design is built on: when a villager lies down, wakes, loses its HOME).
+pub fn timeline(version: &str, name: &str, seed: i64, ticks: u32) -> Result<()> {
+    let all = scenes();
+    let s = all.iter().find(|s| s.name == name).ok_or_else(|| anyhow!("no scene {name}"))?;
+    let mut game = GameScene::start(version, s, seed, false)?;
+    game.summon(s)?;
+    let actions = scene_actions(&s.name);
+    let mut last: std::collections::BTreeMap<(u64, &'static str), String> = Default::default();
+    let mut mem_last: std::collections::BTreeMap<String, String> = Default::default();
+    let mut left = ticks;
+    let mut done: i64 = 0;
+    while left > 0 {
+        let mut n = left.min(100);
+        if let Some((t, _)) = next_action(&actions, done + 1) {
+            n = n.min((*t as i64 - done).max(1) as u32);
+        }
+        for f in game.trace_raw(n, false)? {
+            let t = f["t"].as_i64().unwrap_or(0);
+            for (p, b) in f["blocks"].as_array().into_iter().flatten().filter_map(|x| Some((x.get(0)?, x.get(1)?.as_str()?))) {
+                println!("t {t} block {p}: {b}");
+            }
+            for e in f["entities"].as_array().into_iter().flatten() {
+                let n = e["n"].as_u64().unwrap_or(0);
+                let ty = e["ty"].as_str().or(e["type"].as_str()).unwrap_or("?").trim_start_matches("minecraft:");
+                let at = e["pos"].as_array().map(|p| p.iter().map(|c| format!("{:.2}", c.as_f64().unwrap_or(0.0))).collect::<Vec<_>>().join(" ")).unwrap_or_default();
+                for (k, v) in [("pose", &e["pose"]), ("vehicle", &e["vehicle"]), ("activities", &e["activities"])] {
+                    let now = if v.is_null() { String::new() } else { v.to_string() };
+                    let was = last.insert((n, k), now.clone());
+                    if was.as_ref() != Some(&now) && !(was.is_none() && now.is_empty()) {
+                        println!("t {t} #{n} {ty} at {at} {k}: {now}");
+                    }
+                }
+                // the memories a bed's story is told in (the sensors' lists, paths and gaze left out)
+                for (m, v) in e["memories"].as_object().into_iter().flatten() {
+                    if matches!(m.as_str(), "mobs" | "visible_mobs" | "path" | "walk_target" | "look_target" | "nearest_players" | "nearest_visible_player" | "interactable_doors" | "doors_to_close" | "secondary_job_site" | "nearest_bed") {
+                        continue;
+                    }
+                    let now = v.to_string();
+                    let key = format!("{n} {m}");
+                    if mem_last.insert(key, now.clone()).as_ref() != Some(&now) {
+                        println!("t {t} #{n} {ty} at {at} memory {m}: {now}");
+                    }
+                }
+                let keys: Vec<String> = e["memories"].as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+                let gone: Vec<String> = mem_last.keys().filter(|k| k.split_once(' ').is_some_and(|(id, m)| id == n.to_string() && !keys.iter().any(|x| x == m))).cloned().collect();
+                for k in gone {
+                    mem_last.remove(&k);
+                    println!("t {t} #{n} {ty} at {at} memory {} erased", k.split_once(' ').map(|(_, m)| m).unwrap_or(""));
+                }
+            }
+        }
+        left -= n;
+        done += n as i64;
+        if let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == done) {
+            println!("(scene action after {done} ticks: {b:?})");
+            game.apply(b)?;
+        }
+    }
     Ok(())
 }
 

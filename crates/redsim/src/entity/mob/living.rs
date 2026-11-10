@@ -1078,6 +1078,12 @@ fn push_entities(w: &mut World, i: usize) {
         if super::ai::has_ai(w, i) {
             super::ai::before_do_push(w, i, j);
         }
+        // `doPush(e)` = `e.push(this)`, and `LivingEntity.push(Entity)` does nothing for a
+        // sleeper: neither moves (tickexact 2026-11-09, golem-summon: a panicking villager
+        // walking over a sleeping one's bed)
+        if mob(w, j).sleeping_pos.is_some() {
+            continue;
+        }
         push_pair(w, j, i);
     }
 }
