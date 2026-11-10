@@ -428,7 +428,8 @@ pub fn price_stage(c: &Circuit) -> usize {
 /// fence gate); its entities (each villager moved, the zombie and its boat); each lava source; the
 /// tools once (a bucket, the shears for leaves).
 pub fn site_bill(c: &Circuit, site: Option<&redsim::entity::mob::site::Site>, stage: usize) -> std::result::Result<redsim::entity::mob::prices::Bill, String> {
-    let blocks: Vec<String> = c.clock.design.block_list().into_iter().map(|(_, s)| s).collect();
+    // (ironspec 2026-11-10) the Nether part's blocks are priced with the overworld's
+    let blocks: Vec<String> = c.clock.design.block_list().into_iter().map(|(_, s)| s).chain(c.clock.design.nether_blocks.values().cloned()).collect();
     let blocks: Vec<&str> = blocks.iter().map(String::as_str).collect();
     let ents: Vec<(String, String)> = c.clock.design.entities.iter().map(|e| (e.kind.clone(), e.nbt.clone().unwrap_or_default())).collect();
     let ents: Vec<(&str, &str)> = ents.iter().map(|(k, n)| (k.as_str(), n.as_str())).collect();
@@ -463,7 +464,7 @@ pub fn site_bill(c: &Circuit, site: Option<&redsim::entity::mob::site::Site>, st
         e.1 += each * n as f64;
         bill.seconds += each * n as f64;
     };
-    for snbt in c.clock.design.block_entities.values() {
+    for snbt in c.clock.design.block_entities.values().chain(c.clock.design.nether_block_entities.values()) {
         for (item, n, named) in held_items(snbt) {
             add(&mut bill, &item, n, p.price(&item, stage)?);
             renamed += if named { n } else { 0 };
@@ -497,7 +498,10 @@ pub fn site_bill(c: &Circuit, site: Option<&redsim::entity::mob::site::Site>, st
     let in_rock = site.is_some() || ground_meta.is_some();
     let standing = d.meta.get("afk").and_then(|a| a.split_whitespace().nth(1)?.parse::<f64>().ok()).map_or(surface, |y| y.floor() as i32);
     let output = d.ports.get("output").copied().unwrap_or([0, surface, 0]);
-    let mut access = Access::of(&blocks);
+    // (the ways up and down are the overworld build's: its own blocks only)
+    let ow: Vec<String> = c.clock.design.block_list().into_iter().map(|(_, s)| s).collect();
+    let ow: Vec<&str> = ow.iter().map(String::as_str).collect();
+    let mut access = Access::of(&ow);
     if let Some(s) = site
         && access_of(c, s).1 > 0
     {
@@ -511,6 +515,21 @@ pub fn site_bill(c: &Circuit, site: Option<&redsim::entity::mob::site::Site>, st
     // pays its way into its pod, no trip of the player's; every design the same)
     let layout = Layout { blocks: &placed, entities: &ents3, surface, standing, output, in_rock, delivered: stage == 2, access };
     redsim::entity::mob::prices::add_travel(&mut bill, &layout, lava_trips, moved, hand, stage)?;
+    // (ironspec 2026-11-10, the portal pad) the build's trips to the Nether part, 1,728 items a trip
+    // as the overworld's inventories, and a collection from its chest each cross the portal both
+    // ways (prices.tsv `portal_crossing`: a player's 80 gt in the portal)
+    if !d.nether_blocks.is_empty() {
+        let carried = d.nether_blocks.values().filter(|s| redsim::entity::mob::prices::item_of(s).is_some() || s.contains("lava")).count() as u32;
+        let trips = carried.div_ceil(1728).max(1);
+        let cross = p.price("portal_crossing", stage)?;
+        let e = bill.items.entry("portal_crossing".to_string()).or_insert((0, 0.0));
+        e.0 += 2 * trips;
+        e.1 += cross * (2 * trips) as f64;
+        bill.seconds += cross * (2 * trips) as f64;
+        if d.nether_ports.contains_key("nether-output") {
+            bill.collect_s += 2.0 * cross;
+        }
+    }
     Ok(bill)
 }
 

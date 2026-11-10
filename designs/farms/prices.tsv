@@ -89,6 +89,7 @@ activator_rail	30.1	10.4	2.1	6 iron + 2 sticks + 1 redstone torch make 6
 detector_rail	32.2	10.7	2.2	6 iron + 1 stone pressure plate + 1 redstone dust make 6
 obsidian	-	12	2	the carousel's portals: middle, cast in place (a lava source poured and a water source over it, then the water taken back) or mined with a diamond pickaxe (9.4 s); late, bartering or an obsidian farm
 nether_portal	-	0.1	0.1	portal blocks fill a lit frame (flint and steel in hand): one light per portal shared over its blocks; the frame's overhead is its obsidian (interior at least 2 x 3: 10 obsidian without corners), so longer portals (up to 21 interior) cost less per trench cell served
+portal_crossing	-	4	4	(ironspec 2026-11-10, the portal pad) one crossing of a nether portal by the player: 80 gt standing in it (a survival player's portal wait); a build trip to a design's Nether part (1,728 items a trip) and a collection from its Nether chest each cross twice
 ladder	0.6	0.35	0.12	iteration 16 (vjeux 17:59, 18:00), a block of the access the design builds: 7 sticks make 3 (each wood)
 cobblestone_stairs	1.5	0.75	0.3	a block of the access: 6 cobblestone make 4 (a staircase dug through rock: its digs priced as digging)
 travel:stairs	0.25	0.25	0.25	one layer up or down a staircase on foot, per trip (walking 4.317 blocks/s, one layer a block)

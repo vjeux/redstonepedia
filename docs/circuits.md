@@ -1257,7 +1257,10 @@ kick) before the first input.
   past them, a farm entity frozen there, a golem leaving the part or alive 1200 gt after its spawn
   fail), follows each golem through the portal, counts the iron in both chests, and fails a drop
   that goes through a portal; the gate pastes the part in the server's Nether (its box cleared)
-  and counts its iron the same way. A farm portal's zombified piglins (`mctas mobai portal-probe
+  and counts its iron the same way; the bill (`mobfarm bill`, the card's build minutes) prices the
+  part's blocks and its containers' items as the overworld's, and each build trip to it (1,728
+  items a trip) and each collection from its chest cross the portal both ways (prices.tsv
+  `portal_crossing`, 80 gt). A farm portal's zombified piglins (`mctas mobai portal-probe
   --piglins`: on Normal and Hard each portal cell's random tick, near a player (a void run's: its
   AFK player), puts one on the bottom frame with a 300-gt portal cooldown) are modeled with their
   AI (Zombie's goals, the anger, golems taking them as targets: the piglin-golem scene, exact) and
