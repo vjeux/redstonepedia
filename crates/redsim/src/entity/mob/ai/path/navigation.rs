@@ -259,7 +259,20 @@ impl Navigation {
             let mut flags = self.flags;
             flags.amphibious = self.kind == NavKind::Amphibious;
             let mut eval = WalkEval::new(w, m.path_mob(), flags, arena);
-            finder::find_path(&mut eval, targets, max_path_length, reach, max_visited)
+            let p = finder::find_path(&mut eval, targets, max_path_length, reach, max_visited);
+            // MCTAS_PATH_DUMP: the search's nodes within 4 of the target too
+            if let Some(want) = path_dump_target()
+                && targets.contains(&want)
+            {
+                for n in eval.arena.nodes.iter() {
+                    let (dx, dy, dz) = ((n.x - want.x) as f32, (n.y - want.y) as f32, (n.z - want.z) as f32);
+                    if (dx * dx + dy * dy + dz * dz).sqrt() <= 4.0 {
+                        let from = if n.came_from == super::node::NONE { "-".to_string() } else { let c = eval.arena.n(n.came_from); format!("{},{},{}", c.x, c.y, c.z) };
+                        eprintln!("path node t{}: {},{},{} {:?} malus {} g {} walked {} closed {} open {} from {}", m.game_time, n.x, n.y, n.z, n.ty, n.cost_malus, n.g, n.walked_distance, n.closed, n.heap_idx >= 0, from);
+                    }
+                }
+            }
+            p
         };
         #[cfg(not(target_arch = "wasm32"))]
         SEARCH_NANOS.fetch_add(t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
@@ -269,7 +282,7 @@ impl Navigation {
             && want == p.target
         {
             let nodes: Vec<String> = p.nodes.iter().map(|n| format!("{},{},{}:{:?}", n.x, n.y, n.z, n.ty)).collect();
-            eprintln!("path dump t{} from {:?} reach {} max {}: {} nodes [{}] reached {}", m.game_time, m.pos, reach, max_path_length, nodes.len(), nodes.join(" "), p.can_reach());
+            eprintln!("path dump t{} from {:?} reach {} max {} (follow {} required {}): {} nodes [{}] reached {} (searched {} of {} nodes)", m.game_time, m.pos, reach, max_path_length, m.follow_range, self.required_path_length, nodes.len(), nodes.join(" "), p.can_reach(), finder::LAST_COUNT.load(std::sync::atomic::Ordering::Relaxed), finder::LAST_BUDGET.load(std::sync::atomic::Ordering::Relaxed));
         }
         if let Some(p) = &path {
             self.target_pos = Some(p.target);

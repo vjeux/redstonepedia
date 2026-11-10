@@ -174,6 +174,11 @@ fn grass(w: &mut World, p: BlockPos) {
         return;
     }
     let d = crate::entity::mob::natural::darken(w);
+    // (a probe: MCTAS_TRACE_GRASS_AT=T prints each grass tick of game time T with its light)
+    if std::env::var("MCTAS_TRACE_GRASS_AT").ok().and_then(|v| v.parse::<i64>().ok()) == Some(w.time) {
+        let (t, b) = (w.time, brightness(w, p.above(), d));
+        eprintln!("grass tick t{t} at {p:?}: brightness above {b} (darken {d})");
+    }
     if brightness(w, p.above(), d) < 9 {
         return;
     }

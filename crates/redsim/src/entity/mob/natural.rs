@@ -2358,6 +2358,15 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
     };
     set(w, Some(id), mine);
     set(w, rider.or(chicken), other);
+    // a finalizeSpawn that draws no bonus (CaveSpider.finalizeSpawn: no super call) leaves the
+    // follow range at its base (not `add`'s stand-in bonus)
+    if mine.is_none()
+        && f.rider_chicken != Jockey::NewChicken
+        && let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
+        && let EntityKind::Mob(m) = &mut e.kind
+    {
+        m.follow_range = m.ty.def().follow_range;
+    }
     // the zombies that break doors: the goal joins and the navigation opens doors
     let doors = |w: &mut World, who: Option<u32>, v: bool| {
         if !v {

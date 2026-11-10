@@ -1185,8 +1185,18 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
     game.arrive(&c, &spec, &run.world, &bonus)?;
     let mut tally = Tally::default();
     let mut left = opts.ticks;
+    // (a probe: MCTAS_EXACT_MOBSTATE=T: right after the run's tick T, the game's mobs with a path,
+    // each node (the bridge's `mobstate`), to set beside MCTAS_PATH_DUMP's redsim paths; the batch
+    // is cut to end there)
+    let mobstate_at: Option<i64> = std::env::var("MCTAS_EXACT_MOBSTATE").ok().and_then(|v| v.parse().ok());
     while left > 0 {
-        let n = left.min(opts.batch);
+        let mut n = left.min(opts.batch);
+        if let Some(ms) = mobstate_at
+            && t < ms
+            && t + n as i64 > ms
+        {
+            n = (ms - t) as u32;
+        }
         for f in game.trace(n, window(t, n))? {
             print(&f);
             trace_start(&mut run.world, f.t);
@@ -1222,6 +1232,27 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
         }
         t += n as i64;
         left -= n;
+        if mobstate_at == Some(t) {
+            let v = game.w.call(json!({"op": "mobstate", "sandbox": game.sb}))?;
+            for m in v["mobs"].as_array().into_iter().flatten() {
+                if let Some(p) = m["path"].as_str() {
+                    eprintln!("mobstate t{t}: {} at {} {} {}: path {p}", m["type"].as_str().unwrap_or("?"), m["x"].as_str().unwrap_or("?"), m["y"].as_str().unwrap_or("?"), m["z"].as_str().unwrap_or("?"));
+                }
+            }
+            // MCTAS_EXACT_PATHNODES="N:X,Y,Z:REACH": entity #N's search toward the cell again, every
+            // node the game's evaluator made (the bridge's `path_nodes`)
+            if let Ok(spec) = std::env::var("MCTAS_EXACT_PATHNODES") {
+                let parts: Vec<&str> = spec.split(':').collect();
+                if let [n, xyz, reach] = parts[..] {
+                    let c: Vec<i64> = xyz.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+                    let v = game.w.call(json!({"op": "path_nodes", "sandbox": game.sb, "entity": n.parse::<i64>().unwrap_or(0), "target": c, "reach": reach.parse::<i64>().unwrap_or(0)}))?;
+                    eprintln!("game path t{t}: {} (max {})", v["path"].as_str().unwrap_or("none"), v["max_path_length"].as_str().unwrap_or("?"));
+                    for node in v["nodes"].as_array().into_iter().flatten() {
+                        eprintln!("game node t{t}: {}", node.as_str().unwrap_or(""));
+                    }
+                }
+            }
+        }
         if cmp.first.is_some() && !opts.full && opts.draws_at.is_none_or(|d| d < t) {
             break;
         }
