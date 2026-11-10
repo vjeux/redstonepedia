@@ -65,6 +65,9 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
     if name == "carousel-loop" {
         return carousel_loop_actions();
     }
+    if name == "carousel-catch" {
+        return carousel_catch_actions();
+    }
     match name {
         // corrupt-poi-entity R1: the claimed bed broken, then placed again (a fresh POI record
         // with its ticket free), then the second villager's pen opened
@@ -210,6 +213,73 @@ fn carousel_loop_actions() -> Vec<(u32, Vec<([i32; 3], String)>)> {
         }
     }
     v
+}
+
+/// (tickexact 2026-11-10) ironfarm's carousel loop with its stand catch (explore/ironfarm
+/// 7f6c75643, `carousel-single-lane-loop-wip.txt`, frozen): the turn slot, the deep tail slots and
+/// a real detector rail on the release run. Its bench's drive log (`mctas mobfarm queue-loop-run
+/// <file> --cycles 6 --stand-detect 28 --intake-brake 110,116 --drive-out`, frozen) plays every
+/// control change at its tick: the timers, and the stand's brake 28 gt after the detector rail
+/// powered in the bench's redsim run (the game's detector compared in the watched box).
+const CAROUSEL_CATCH: &str = include_str!("../scenes/carousel-catch.txt");
+const CAROUSEL_CATCH_DRIVE: &str = include_str!("../scenes/carousel-catch-28.drive");
+
+fn carousel_catch_design() -> mctas::design::Design {
+    mctas::design::Design::parse(CAROUSEL_CATCH).expect("the frozen carousel catch design parses")
+}
+
+/// The catch design's place in the sandbox: its own coordinates (the bench's: cart physics in
+/// floating point is not translation-invariant, so a knife-edge catch that is exact in one place
+/// may land a hair apart in another; the bench's expectations hold only where it ran).
+fn carousel_catch_shift(_d: &mctas::design::Design) -> [i32; 3] {
+    [0, 0, 0]
+}
+
+/// The drive log's `act T set x y z <state>` lines, grouped by tick (T = ticks after the carts'
+/// spawn, applied before the next tick, as the fixture applies its actions), moved like the
+/// design. `MOBAI_DRIVE=<file>` plays another drive log of the same design (the catch's tick
+/// window: `--stand-detect` 26, 27, 29...). Any other `act` (a bench `tp`) is refused.
+fn carousel_catch_actions() -> Vec<(u32, Vec<([i32; 3], String)>)> {
+    let text = std::env::var("MOBAI_DRIVE").ok().map(|p| std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("MOBAI_DRIVE {p}: {e}"))).unwrap_or_else(|| CAROUSEL_CATCH_DRIVE.to_string());
+    let sh = carousel_catch_shift(&carousel_catch_design());
+    let mut v: Vec<(u32, Vec<([i32; 3], String)>)> = Vec::new();
+    for line in text.lines().filter(|l| l.starts_with("act ")) {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        let parsed = (f.len() == 7 && f[2] == "set").then(|| Some((f[1].parse::<u32>().ok()?, [f[3].parse::<i32>().ok()?, f[4].parse::<i32>().ok()?, f[5].parse::<i32>().ok()?]))).flatten();
+        let Some((t, p)) = parsed else { panic!("the carousel catch's drive log: {line:?} is not `act T set x y z <state>`") };
+        let c = ([p[0] + sh[0], p[1] + sh[1], p[2] + sh[2]], f[6].to_string());
+        match v.last_mut() {
+            Some((lt, b)) if *lt == t => b.push(c),
+            _ => v.push((t, vec![c])),
+        }
+    }
+    v
+}
+
+/// The drive log's `expect T pos eK x y z` lines (cart K of the design at tick T, the bench's
+/// redsim run): (T, the cart's entity number in the scene (2K: each cart before its villager),
+/// its position moved like the design). The fixture checks the game's frames against them: the
+/// scripted replay reproduces the bench's run (a positive control on the drive log's timing).
+fn carousel_catch_expects() -> Vec<(i64, u32, [f64; 3])> {
+    let text = std::env::var("MOBAI_DRIVE").ok().map(|p| std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("MOBAI_DRIVE {p}: {e}"))).unwrap_or_else(|| CAROUSEL_CATCH_DRIVE.to_string());
+    let sh = carousel_catch_shift(&carousel_catch_design());
+    text.lines()
+        .filter(|l| l.starts_with("expect "))
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split_whitespace().collect();
+            if f.len() != 7 || f[2] != "pos" {
+                return None;
+            }
+            let k: u32 = f[3].strip_prefix('e')?.parse().ok()?;
+            let p = [f[4].parse::<f64>().ok()? + sh[0] as f64, f[5].parse::<f64>().ok()? + sh[1] as f64, f[6].parse::<f64>().ok()? + sh[2] as f64];
+            Some((f[1].parse().ok()?, 2 * k, p))
+        })
+        .collect()
+}
+
+/// A scene's expected positions (tick, entity number, position): the carousel catch's drive log.
+fn scene_expects(name: &str) -> Vec<(i64, u32, [f64; 3])> {
+    if name == "carousel-catch" { carousel_catch_expects() } else { Vec::new() }
 }
 
 /// A stone floor over `x0..x1`, `z0..z1` at height `y`.
@@ -1563,6 +1633,34 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 3,
         });
     }
+    // (tickexact 2026-11-10, ironfarm's stand catch) its loop design with the detector rail as it
+    // is, driven by its bench's drive log ([`carousel_catch_actions`]): cart physics and the
+    // detector rail under scripted controls (no other redstone in the design)
+    {
+        let d = carousel_catch_design();
+        let sh = carousel_catch_shift(&d);
+        let blocks: Vec<([i32; 3], String)> = d.blocks.iter().map(|(p, st)| ([p[0] + sh[0], p[1] + sh[1], p[2] + sh[2]], st.clone())).collect();
+        let mobs: Vec<(String, [f64; 3], Option<String>)> = d.entities.iter().map(|e| (e.kind.clone(), [e.pos[0] + sh[0] as f64, e.pos[1] + sh[1] as f64, e.pos[2] + sh[2] as f64], e.nbt.clone())).collect();
+        let max_x = blocks.iter().map(|(p, _)| p[0]).chain(mobs.iter().map(|m| m.1[0] as i32)).max().unwrap_or(0);
+        let max_z = blocks.iter().map(|(p, _)| p[2]).chain(mobs.iter().map(|m| m.1[2] as i32)).max().unwrap_or(0);
+        let min_x = blocks.iter().map(|(p, _)| p[0]).chain(mobs.iter().map(|m| m.1[0].floor() as i32)).min().unwrap_or(0);
+        let min_z = blocks.iter().map(|(p, _)| p[2]).chain(mobs.iter().map(|m| m.1[2].floor() as i32)).min().unwrap_or(0);
+        // (2 cells of margin to the sandbox's edge walls)
+        let c = [(min_x - 2).div_euclid(16), (min_z - 2).div_euclid(16), (max_x + 2).div_euclid(16), (max_z + 2).div_euclid(16)];
+        v.push(Scene {
+            name: "carousel-catch".into(),
+            chunks: c,
+            blocks,
+            mobs,
+            day_time: 1000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([c[0] * 16, -6, c[1] * 16], [c[2] * 16 + 15, 6, c[3] * 16 + 15]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
+    }
     v
 }
 
@@ -1793,6 +1891,10 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
     });
     let mut done: i64 = 0;
     let actions = scene_actions(&s.name);
+    // (tickexact 2026-11-10) the scene's expected positions (a drive log's): checked on the game's
+    // frames, summed up at the end
+    let expects = scene_expects(&s.name);
+    let (mut exp_ok, mut exp_bad) = (0usize, Vec::<String>::new());
     while left > 0 {
         // one tick per traced step inside the state window (the controls between ticks)
         let in_window = state_range.is_some_and(|(a, b)| done + 1 >= a && done < b);
@@ -1838,6 +1940,19 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
                     eprintln!("t {} #{} {} pos {:?} goals {:?} path {:?} target {:?} no_action {:?}", o.t, e.n, e.ty, e.pos, e.goals, e.path, e.target, e.no_action);
                 }
             }
+            // (tickexact probe: MOBAI_SHOW_IDS="n,n:T0:T1": those entities' position and motion on
+            // both sides at each tick of T0..=T1)
+            if let Ok(v) = std::env::var("MOBAI_SHOW_IDS") {
+                let parts: Vec<&str> = v.split(':').collect();
+                let ids: Vec<u32> = parts.first().map(|s| s.split(',').filter_map(|x| x.parse().ok()).collect()).unwrap_or_default();
+                let (a, b) = (parts.get(1).and_then(|x| x.parse::<i64>().ok()).unwrap_or(0), parts.get(2).and_then(|x| x.parse::<i64>().ok()).unwrap_or(i64::MAX));
+                if f.t >= a && f.t <= b {
+                    for n in ids {
+                        let (g, e) = (f.entities.iter().find(|e| e.n == n), o.entities.iter().find(|e| e.n == n));
+                        eprintln!("t {} #{n} game {:?} {:?} | redsim {:?} {:?}", f.t, g.map(|e| e.pos), g.map(|e| e.motion), e.map(|e| e.pos), e.map(|e| e.motion));
+                    }
+                }
+            }
             if let Some(n) = show_until
                 && o.t <= n
             {
@@ -1847,6 +1962,13 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
                         eprintln!("    game behaviors {:?} memories {:?}", g.behaviors, g.memories);
                         eprintln!("    redsim behaviors {:?} memories {:?}", e.behaviors, e.memories);
                     }
+                }
+            }
+            for (_, n, p) in expects.iter().filter(|(t, _, _)| *t == f.t) {
+                match f.entities.iter().find(|e| e.n == *n) {
+                    Some(e) if (0..3).all(|k| (e.pos[k] - p[k]).abs() < 0.0006) => exp_ok += 1,
+                    Some(e) => exp_bad.push(format!("t {} #{n}: the game at {:?}, the drive log expects {:?}", f.t, e.pos, p)),
+                    None => exp_bad.push(format!("t {} #{n}: not in the game's frame", f.t)),
                 }
             }
             cmp.tick(&f, &o);
@@ -1871,6 +1993,9 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
         if cmp.first.is_some() && !full {
             break;
         }
+    }
+    if !expects.is_empty() {
+        eprintln!("the drive log's expected positions: {exp_ok} of {} matched in the game (within 0.0006){}", expects.len(), if exp_bad.is_empty() { String::new() } else { format!("; first misses: {}", exp_bad.iter().take(6).cloned().collect::<Vec<_>>().join("; ")) });
     }
     if !ours.errors.is_empty() {
         eprintln!("redsim model errors: {:?}", ours.errors);
