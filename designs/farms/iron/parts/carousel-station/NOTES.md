@@ -11,6 +11,7 @@ on ironfarm's real carts and lines, 100 seeds x 6 days), `station-storage [--off
 
 | design | blocks | success per slot | storage | build min (middle / late) |
 |---|---|---|---|---|
+| carousel-linear-stand.txt | 300 (pad 178, Nether 122) as v1, on the single-lane linear stand | 99.28% (static 99.30%, 44 spots per rider) | 18.4 h | 62.1 / 16.6 (v1) |
 | carousel-station-v3.txt | 380 (pad 258, Nether 122) | 99.50% (static 99.30% at the end lanes; paired lanes) | 18.4 h | 68.8 / 19.2 |
 | carousel-station-v2.txt | 332 (pad 210, Nether 122) | 99.31% (static 99.30% worst lanes, shifted stand) | 18.4 h | 64.8 / 17.7 |
 | carousel-station-v1.txt | 300 (pad 178, Nether 122) | 99.06% (static 99.30%) | 18.4 h | 62.1 / 16.6 |
@@ -50,6 +51,17 @@ on ironfarm's real carts and lines, 100 seeds x 6 days), `station-storage [--off
   scaffolding): replaced by steps.
 
 ## Next ideas
+
+- The single lane (vjeux 05:58: all 21 villagers in carts back to back, released 3 by 3): the
+  stand is the release's front 3 carts on one track. `mobfarm linear` writes the bench design
+  (carousel-linear-stand.txt: the pad and Nether part of v1, the 3 carts along x at z 0, x 2..4,
+  two stand zombies in boats, the other 18 villagers in a far calm hold, the release stubbed by
+  moving each batch's carts to the stand 60 gt before its slot); `linear-check`: each rider 44
+  spots, 0 strays (99.30% at 3 callers; also at x0 1..2, z 0..1, or along z at x 3);
+  `linear-bench`, 100 seeds x 6 days: 99.28% of 143,900 slots, every golem 2 gt in the
+  overworld, 142,670 killed in the Nether. Its drive (`linear-bench --from 1 --to 1 --days 1
+  --drive-out carousel-linear-stand.drive.txt`, mobfarm::drive's format) is what the live viewer
+  replays.
 
 - v2 is v1 13 wide for ironfarm's stand shifted one block south (234af4b65; the shift gives the
   level-1 stand control a free face for the torch chain): its level-2 riders then miss row -6,

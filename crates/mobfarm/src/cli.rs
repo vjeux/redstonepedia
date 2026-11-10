@@ -554,6 +554,10 @@ pub enum MobfarmCmd {
         /// The first seed's counter line changes (the first 2,000 gt) on stderr.
         #[arg(long)]
         verbose: bool,
+        /// Write the first seed's drive as data (mobfarm::drive: every action the bench takes on
+        /// the world, and the golems, pulses, crossings and Nether deaths it saw) to this file.
+        #[arg(long)]
+        drive_out: Option<PathBuf>,
     },
     /// Assembly v0 (step a): the station design (release + hold, pad, Nether part) with day-1's
     /// counter v7 under the stand and the pad's pulse wired to its input; station-bench runs it with
@@ -624,6 +628,9 @@ pub enum MobfarmCmd {
         lead: i64,
         #[arg(long)]
         jobs: Option<usize>,
+        /// Write the first seed's drive as data (mobfarm::drive) to this file.
+        #[arg(long)]
+        drive_out: Option<PathBuf>,
     },
     /// The station's storage alone: the Nether part's pit floor and collection (sorter, crafter,
     /// composter, the double chest) in a test world, a golem's drops on a random pit cell each 100
@@ -1132,7 +1139,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let ok = strays == 0 && touching == 0 && r.held_strays.is_empty();
             println!("{}", if ok { "PASS" } else { "FAIL" });
         }
-        MobfarmCmd::LinearBench { design, from, to, days, lead, jobs } => {
+        MobfarmCmd::LinearBench { design, from, to, days, lead, jobs, drive_out } => {
             let (c, spec) = load(version, &design)?;
             let pad = crate::station::PadOpts::of(&c.clock.design.meta)?;
             let o = crate::linear::LinearOpts::of(&c.clock.design.meta)?;
@@ -1147,7 +1154,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     sc.spawn(|| loop {
                         let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some(&seed) = seeds.get(k) else { break };
-                        let r = crate::linear::bench(&spec, &pad, &o, &crate::linear::BenchOpts { seed, days, lead });
+                        let r = crate::linear::bench(&spec, &pad, &o, &crate::linear::BenchOpts { seed, days, lead, drive: drive_out.is_some() && seed == from });
                         out.lock().unwrap().push((seed, r));
                     });
                 }
@@ -1161,6 +1168,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let mut plen: std::collections::BTreeMap<i64, u64> = Default::default();
             let (mut predicted, mut strays) = (0.0, 0usize);
             for (seed, r) in &rows {
+                if let (Ok(crate::linear::BenchReport { drive: Some(text), .. }), Some(f)) = (r, &drive_out) {
+                    std::fs::write(f, text)?;
+                    println!("seed {seed}'s drive: {} ({} lines)", f.display(), text.lines().count());
+                }
                 match r {
                     Err(e) => println!("seed {seed}: ERROR {e}"),
                     Ok(r) => {
@@ -1212,7 +1223,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::StationBench { design, from, to, days, jitter, jobs, timeline, hold_delay, stand_delay, verbose } => {
+        MobfarmCmd::StationBench { design, from, to, days, jitter, jobs, timeline, hold_delay, stand_delay, verbose, drive_out } => {
             let (c, spec) = load(version, &design)?;
             let lanes = crate::hold::lanes_of(&c.clock.design.meta)?;
             let pad = crate::station::PadOpts::of(&c.clock.design.meta)?;
@@ -1240,7 +1251,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     sc.spawn(|| loop {
                         let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some(&seed) = seeds.get(k) else { break };
-                        let r = crate::station::bench(&spec, &lanes, &pad, &crate::station::BenchOpts { seed, days, jitter, verbose: verbose && seed == from, timeline: if seed == from { timeline.clone() } else { None }, counter: counter.clone(), hold_delay, stand_delay, wired });
+                        let r = crate::station::bench(&spec, &lanes, &pad, &crate::station::BenchOpts { seed, days, jitter, verbose: verbose && seed == from, timeline: if seed == from { timeline.clone() } else { None }, counter: counter.clone(), hold_delay, stand_delay, wired, drive: drive_out.is_some() && seed == from });
                         out.lock().unwrap().push((seed, r));
                     });
                 }
@@ -1269,6 +1280,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let mut predicted = 0.0;
             let mut strays: Vec<String> = Vec::new();
             for (seed, r) in &rows {
+                if let (Ok(crate::station::BenchReport { drive: Some(text), .. }), Some(f)) = (r, &drive_out) {
+                    std::fs::write(f, text)?;
+                    println!("seed {seed}'s drive: {} ({} lines)", f.display(), text.lines().count());
+                }
                 if let Ok(crate::station::BenchReport { timeline: Some((page, summary)), .. }) = r {
                     println!("seed {seed}'s timing view: {page}\n  {summary}");
                 }
