@@ -55,6 +55,61 @@ pub struct ArrowState {
     pub effect: Option<&'static str>,
     /// Fired from an enchanted bow (its enchantments' damage, knockback and fire).
     pub enchanted_weapon: bool,
+    /// This tick's fluid effects (`FlowingFluid.entityInside`): lava's LAVA_IGNITE, water's
+    /// EXTINGUISH ([`with_block_effects`]).
+    pub inside_lava: bool,
+    pub inside_water: bool,
+}
+
+/// `FluidState.entityInside` on an arrow (its sweep met the fluid's box): collected for
+/// [`with_block_effects`].
+pub fn fluid_inside(w: &mut World, i: usize, lava: bool) {
+    let s = st_mut(w, i);
+    if lava {
+        s.inside_lava = true;
+    } else {
+        s.inside_water = true;
+    }
+}
+
+/// `Entity.applyEffectsFromBlocks(movements)` on an arrow around `f` (the sweep): the collected
+/// effects in `InsideBlockEffectType` order (LAVA_IGNITE: `igniteForSeconds(15)`, 300 ticks at
+/// least, then `lavaHurt`, which a projectile does not take; EXTINGUISH; one step's worth: an arrow
+/// meeting lava and water in different steps of one tick is not told apart), the rain puts the
+/// fire out, a fire gone out plays GENERIC_EXTINGUISH_FIRE (two floats of its own random), a fire
+/// not lit this tick resets to 0 (`-getFireImmuneTicks()`).
+fn with_block_effects(w: &mut World, i: usize, f: impl FnOnce(&mut World)) {
+    let fire_before = st(w, i).fire;
+    {
+        let s = st_mut(w, i);
+        s.inside_lava = false;
+        s.inside_water = false;
+    }
+    f(w);
+    if w.entities.list[i].removed || !matches!(w.entities.list[i].kind, EntityKind::Arrow(_)) {
+        return;
+    }
+    let (lava, water) = (st(w, i).inside_lava, st(w, i).inside_water);
+    if lava && st(w, i).fire < 300 {
+        st_mut(w, i).fire = 300;
+    }
+    if water {
+        st_mut(w, i).fire = 0;
+    }
+    if st(w, i).fire > 0 && crate::weather::entity_in_rain(w, i) {
+        st_mut(w, i).fire = 0;
+    }
+    let fire = st(w, i).fire;
+    if fire_before > 0
+        && fire <= 0
+        && let Some(r) = w.entities.list[i].random.as_mut()
+    {
+        r.next_float();
+        r.next_float();
+    }
+    if fire <= 0 && fire <= fire_before {
+        st_mut(w, i).fire = 0;
+    }
 }
 
 fn st(w: &World, i: usize) -> &ArrowState {
@@ -179,7 +234,7 @@ pub fn tick(w: &mut World, i: usize) {
         }
         st_mut(w, i).in_ground_time += 1;
         if !w.entities.list[i].removed {
-            collide::apply_effects_from_blocks(w, i);
+            with_block_effects(w, i, |w| collide::apply_effects_from_blocks(w, i));
         }
         return;
     }
@@ -368,7 +423,7 @@ fn step_move_and_hit(w: &mut World, i: usize, block_hit: los::BlockHit) {
         });
         let next = hits.first().map(|h| h.1).unwrap_or(block_hit.location);
         w.entities.set_pos(i, next);
-        collide::apply_effects_from_blocks_between(w, i, initial, next);
+        with_block_effects(w, i, |w| collide::apply_effects_from_blocks_between(w, i, initial, next));
         if w.entities.list[i].portal.is_some() {
             refuse(w, "an arrow in a portal is not modeled");
         }
@@ -458,8 +513,12 @@ fn hit_entity(w: &mut World, i: usize, j: usize, at: Vec3) {
         EntityKind::Mob(m) => m.fire_ticks,
         _ => 0,
     };
-    if st(w, i).fire > 0 {
-        refuse(w, "a burning arrow setting its victim on fire is not modeled");
+    // a burning arrow: `igniteForSeconds(5)` (100 ticks at least) before the hurt
+    if st(w, i).fire > 0
+        && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
+        && m.fire_ticks < 100
+    {
+        m.fire_ticks = 100;
     }
     let enderman = matches!(&w.entities.list[j].kind, EntityKind::Mob(m) if m.ty.def().id == "enderman");
     let hurt = if enderman {

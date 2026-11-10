@@ -232,6 +232,7 @@ impl Navigation {
     /// `createPath(BlockPos, reach)` (GroundPathNavigation: the surface first; WallClimber
     /// remembers the position).
     pub fn create_path_pos(&mut self, w: &World, m: &NavMob, pos: BlockPos, reach: i32, arena: &mut Arena) -> Option<Path> {
+        let requested = pos;
         if self.kind == NavKind::WallClimber {
             self.path_to_position = Some(pos);
         }
@@ -245,6 +246,10 @@ impl Navigation {
             return None;
         }
         let pos = if self.can_path_to_targets_below_surface || self.kind == NavKind::Amphibious { pos } else { self.find_surface_position(w, pos) };
+        if path_dump_target() == Some(pos) {
+            let col: Vec<String> = (-2..=2).map(|d| format!("{}:{}", pos.y + d, w.get(BlockPos::new(pos.x, pos.y + d, pos.z)))).collect();
+            eprintln!("path dump t{}: target {:?} surface-searched to {:?}; column {}", m.game_time, requested, pos, col.join(" "));
+        }
         let max = self.max_path_length(m);
         self.create_path_set(w, m, &[pos], 8, false, reach, max, arena)
     }

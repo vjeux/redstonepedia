@@ -178,7 +178,10 @@ pub fn is_solid(s: &Block) -> bool {
         // a cactus flower has no collision (a cactus's 14 x 15 px column is solid)
         Block::CactusFlower => false,
         // ---- mob farms (ironfarm): lava has no collision (a bed's 9 px box averages 0.85: solid) ----
-        Block::Lava { .. } | Block::Sign { .. } => false,
+        Block::Lava { .. } => false,
+        // (mob-AI 2026-11-10) a sign has no collision but is forceSolidOn: solid (a skeleton's
+        // stroll target on a wall sign is moved above it: d1-bed-plate plains t37233)
+        Block::Sign { .. } => true,
         // ---- fire (mobinfra): no collision, not forced solid ----
         Block::Fire { .. } => false,
         _ => true,

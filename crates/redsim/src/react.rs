@@ -65,6 +65,8 @@ pub fn fluid_inside(w: &mut World, i: usize, fs: crate::fluid::FluidState, p: Bl
         crate::entity::EntityKind::Mob(_) => crate::entity::mob::living::fluid_inside(w, i, fs.fluid.is_lava()),
         // a drop: lava burns it, water puts its fire out (tickexact 2026-11-08)
         crate::entity::EntityKind::Item(_) => crate::entity::item::fluid_inside(w, i, fs.fluid.is_lava()),
+        // an arrow: lava lights it, water puts it out (mob-AI 2026-11-10)
+        crate::entity::EntityKind::Arrow(_) => crate::entity::arrow::fluid_inside(w, i, fs.fluid.is_lava()),
         _ => {}
     }
 }
