@@ -33,6 +33,8 @@ pub struct Opts {
     /// detector reading 0 under `clear`, `rain`, `thunder` or `cycle` (random weather spells of 0.5
     /// to 1.5 days, the rain and thunder levels ramping 0.01 a tick like the game's).
     pub weather: String,
+    /// Repeat the run with this many chunk reloads at random ticks; the outputs must match.
+    pub restarts: u32,
 }
 
 /// A normal daylight detector seeing the sky at day time `day` with these weather levels (redsim's
@@ -51,13 +53,31 @@ pub fn detector_normal(day: i64, rain: f32, thunder: f32) -> i32 {
 
 impl Default for Opts {
     fn default() -> Opts {
-        Opts { days: 60, seed: 1, miss: 0.01, burst: 0.3, dusk: 13_670, end: 22_330, nap: (115, 135), ready: 40, pulse: 10, game_days: 0, weather: "ideal".into() }
+        Opts { days: 60, seed: 1, miss: 0.01, burst: 0.3, dusk: 13_670, end: 22_330, nap: (115, 135), ready: 40, pulse: 10, game_days: 0, weather: "ideal".into(), restarts: 0 }
     }
 }
 
 pub fn bench(design: &Path, o: &Opts) -> Result<bool> {
     let mut recorded = Vec::new();
-    let ok = run(design, o, &mut recorded)?;
+    let mut trace = Vec::new();
+    let mut ok = run(design, o, &mut recorded, &[], &mut trace)?;
+    if o.restarts > 0 {
+        // the same run with chunk reloads at random ticks (a player leaving and coming back): the
+        // outputs must change at the same ticks
+        let mut rng = Rng(o.seed ^ 0x0e10_ad5);
+        let ticks = (o.days as u64 * DAY) as u32;
+        let mut reloads: Vec<u32> = (0..o.restarts).map(|_| rng.range(100, ticks - 100)).collect();
+        reloads.sort_unstable();
+        let (mut rec2, mut trace2) = (Vec::new(), Vec::new());
+        run(design, o, &mut rec2, &reloads, &mut trace2)?;
+        if trace2 == trace {
+            println!("{} restarts (chunk reloads at random ticks): the same {} output changes, tick for tick", o.restarts, trace.len());
+        } else {
+            let i = trace.iter().zip(&trace2).position(|(a, b)| a != b).unwrap_or(trace.len().min(trace2.len()));
+            println!("RESTARTS DIVERGE at output change {i}: {:?} vs {:?}", trace.get(i), trace2.get(i));
+            ok = false;
+        }
+    }
     if o.game_days > 0 {
         let probes: Vec<String> = Circuit::load(design)?.clock.design.ports.keys().filter(|k| k.starts_with("output.")).cloned().collect();
         return Ok(crate::schedbench::game_check_named(design, (o.game_days as u64 * DAY) as u32, &recorded, &probes)? && ok);
@@ -65,8 +85,14 @@ pub fn bench(design: &Path, o: &Opts) -> Result<bool> {
     Ok(ok)
 }
 
-fn run(design: &Path, o: &Opts, recorded: &mut Vec<(u32, clock::Action)>) -> Result<bool> {
+fn run(design: &Path, o: &Opts, recorded: &mut Vec<(u32, clock::Action)>, reloads: &[u32], trace: &mut Vec<(u32, u8)>) -> Result<bool> {
     let c = Circuit::load(design)?;
+    let chunks = {
+        let (from, to) = circuit::run::watch_box(&c, 3);
+        redsim::reload::box_chunks([from[0].div_euclid(16), from[2].div_euclid(16), to[0].div_euclid(16), to[2].div_euclid(16)])
+    };
+    let mut ri = 0usize;
+    let mut last_bits = 0u8;
     let find = |name: &str| -> Result<redsim::pos::BlockPos> {
         let p = c.clock.design.ports.get(name).ok_or_else(|| anyhow!("{}: no port {name}", design.display()))?;
         Ok(redsim::pos::BlockPos::new(p[0], p[1], p[2]))
@@ -135,6 +161,12 @@ fn run(design: &Path, o: &Opts, recorded: &mut Vec<(u32, clock::Action)>) -> Res
     let mut window = (u64::MAX, 0u64, u64::MAX, 0u64);
     let res = clock::sim::drive_live(&cc.clock, &[], ticks, from, to, |t, w| {
         let g = t as u64 + t0;
+        while ri < reloads.len() && reloads[ri] <= t {
+            if reloads[ri] == t {
+                redsim::reload::reload_chunks(w, &chunks);
+            }
+            ri += 1;
+        }
         pending_naps.retain(|&(at, v)| {
             if at == g {
                 naps[v].push(g);
@@ -259,6 +291,11 @@ fn run(design: &Path, o: &Opts, recorded: &mut Vec<(u32, clock::Action)>) -> Res
             }
         }
         v_was = v;
+        let bits = (v as u8) | levels_now.iter().fold(0u8, |a, k| a | (2 << k));
+        if bits != last_bits {
+            trace.push((t, bits));
+            last_bits = bits;
+        }
         true
     });
     match res {

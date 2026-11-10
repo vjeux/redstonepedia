@@ -132,7 +132,11 @@ delay chain, the window latch and the slot-out module); `mctas circuit memory lo
 [--days 60] [--seed S] [--miss 0.01] [--game N]` drives its `release` (a 10-gt pulse per release)
 and `win` cells, reads each visit's napper slot off `s0..s2`, checks every slot's willingness, the
 ring's token against the policy at every release, the window `v` (from the release, >= 85 gt) and
-the slot lines, and prints per villager its naps and gap windows; `--game N` as for sched-bench.
+the slot lines, and prints per villager its naps and gap windows; `--game N` as for sched-bench;
+`--weather clear|rain|thunder|cycle` drives the window from a normal daylight detector reading 0
+under that weather (redsim's sensor model; `cycle`: random spells, the levels ramping 0.01 a tick)
+instead of the ideal [dusk, end]; `--restarts R` repeats the run with R chunk reloads at random
+ticks and requires the same output changes tick for tick.
 A design's Nether part as a design of its own: `mctas mobfarm nether-part <design> --out F` writes
 its `nether layer` blocks, `nether nbt:` data and `port nether-<name>` ports as the blocks, data and
 ports of F, so `web shot F` pictures the Nether side (the kill, the collection); the viewer draws a

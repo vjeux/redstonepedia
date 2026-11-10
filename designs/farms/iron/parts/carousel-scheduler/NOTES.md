@@ -28,6 +28,10 @@ and the window driven, visits read off the design, the ring's token checked agai
 every release): 120 days at 1% and at 5% misses: 0 slots lost to an unwilling villager, 2,580
 visits, every villager napped every night, 59 second naps in 2,499 villager-nights, every window
 [T+10, T+88], every slot line clean; real game IDENTICAL over 96,001 ticks (4 days, 5% misses).
+Weather (`--weather`): the window from a normal daylight detector reading 0 opens at day time 13,670
+and closes at 22,331 in clear, rain, thunder and a 60-day random weather cycle (5% misses: 0 lost,
+0 napless villager-nights); restarts (`--restarts 20`, 20 days): the same 1,722 output changes tick
+for tick.
 The release input is a stub cell until ironfarm's loop geometry names it.
 
 ## The 7-lane scheduler (archived)
