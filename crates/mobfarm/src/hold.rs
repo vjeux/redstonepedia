@@ -352,6 +352,7 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &BenchOpts) -> Result<BenchRe
     let mut arrived: Option<i64> = None;
     let mut margins: Vec<i64> = Vec::new();
     let mut selected: Option<i32> = None;
+    let mut slept_night: Option<i64> = None;
     let index_of = |w: &redsim::world::World, id: u32| w.entities.list.iter().position(|e| e.id == id);
     // the timing view, if asked: the stand zone and the holds as regions, the lines as signals
     let mut tl = match &o.timeline {
@@ -430,6 +431,18 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &BenchOpts) -> Result<BenchRe
             next_slot += 1;
         }
         run.tick();
+        // the sleep routine's ideal stand-in: every villager's LAST_SLEPT set once each night (a
+        // nap's effect without the bed visit, so the riders keep wanting golems after day one)
+        let night_of = run.world.day_time() / 24000;
+        if run.world.day_time() % 24000 >= 13000 && slept_night != Some(night_of) {
+            slept_night = Some(night_of);
+            let now = run.world.time;
+            for (id, _) in &riders {
+                if let Some(i) = index_of(&run.world, *id) {
+                    brain::brain_mut(&mut run.world, i).last_slept = Some(now);
+                }
+            }
+        }
         if let Some(tl) = tl.as_mut() {
             stepped += 1;
             // (a model error stays the bench's to report, at its end)
@@ -462,9 +475,9 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &BenchOpts) -> Result<BenchRe
                 if x.active != Act::Panic {
                     rep.calm_ticks += 1;
                     let c = e.block_position();
-                    let night = (t % 24000) >= 12000;
+                    let night = (w.day_time() % 24000) >= 12000;
                     *rep.calm_at.entry((c.x, c.y, c.z, night)).or_insert(0) += 1;
-                    if o.verbose && night && rep.calm_printed < 8 {
+                    if o.verbose && (night || e.pos.z < 6.0) && rep.calm_printed < 12 {
                         rep.calm_printed += 1;
                         println!("calm gt {t}: rider {} ({:?}) at {:.2} {:.2} {:.2}, hostile memory {:?};{}", e.id, x.active, e.pos.x, e.pos.y, e.pos.z, brain::brain(w, i).nearest_hostile, zombies_near(w, i));
                     }

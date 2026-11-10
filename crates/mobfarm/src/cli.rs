@@ -743,6 +743,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 for ((x, y, z, _), v) in top.iter().take(24) {
                     println!("  {x} {y} {z}: {v}");
                 }
+                let mut day: Vec<_> = calm_at.iter().filter(|(k, _)| !k.3 && k.2 < 8).collect();
+                day.sort_by(|a, b| b.1.cmp(a.1));
+                println!("calm by day within 8 of the stand end by cell (x y z: villager-ticks), the worst 24:");
+                for ((x, y, z, _), v) in day.iter().take(24) {
+                    println!("  {x} {y} {z}: {v}");
+                }
             }
             let n = rows.len().max(1) as f64;
             let (lo, hi) = c.bounds();
