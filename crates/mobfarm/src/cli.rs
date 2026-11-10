@@ -808,6 +808,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let mut rows = out.into_inner().unwrap();
             rows.sort_by_key(|r| r.0);
             let (mut slots, mut summoned, mut lingering, mut viol, mut spurious, mut piglins, mut crossed) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+            let (mut n_alive, mut back, mut items_back, mut iron_chest, mut iron_hoppers, mut iron_loose) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+            let (mut iron_dropped, mut full_at): (u64, Vec<i64>) = (0, Vec::new());
+            let (mut iron_burnt, mut poppies) = (0u64, 0u64);
+            let (mut piglins_out, mut piglins_alive) = (0u64, 0u64);
+            let mut n_life: std::collections::BTreeMap<i64, u64> = Default::default();
             let mut willing = [0u64; 4];
             let mut tries = [0u64; 4];
             let mut failed_at = [0u64; 4];
@@ -828,6 +833,23 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         spurious += r.spurious_pulses as u64;
                         piglins += r.piglins as u64;
                         crossed += r.piglins_crossed as u64;
+                        piglins_out += r.piglins_out as u64;
+                        piglins_alive += r.piglins_alive as u64;
+                        n_alive += r.nether_alive as u64;
+                        back += r.returned as u64;
+                        items_back += r.items_back as u64;
+                        iron_chest += r.iron_chest as u64;
+                        iron_hoppers += r.iron_hoppers as u64;
+                        iron_loose += r.iron_loose as u64;
+                        iron_dropped += r.iron_dropped as u64;
+                        iron_burnt += r.iron_burnt as u64;
+                        poppies += r.poppies_dropped as u64;
+                        if let Some(f) = r.chest_full_at {
+                            full_at.push(f);
+                        }
+                        for &l in &r.nether_life {
+                            *n_life.entry(l / 10 * 10).or_insert(0) += 1;
+                        }
                         for (n, &w) in r.willing.iter().enumerate() {
                             willing[(w as usize).min(3)] += 1;
                             let lane = (n % crate::hold::BATCHES as usize) as i32;
@@ -867,7 +889,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for s in strays.iter().take(8) {
                 println!("  {s}");
             }
-            println!("zombified piglins: {piglins} seen, {crossed} crossed (a void run spawns none: the portal's piglins need the natural spawner)");
+            println!("zombified piglins: {piglins} spawned ({:.2} a day), {crossed} crossed, {piglins_out} ever out of the portal cells, {piglins_alive} alive at the end (the rest despawned)", piglins as f64 / (rows.len() as f64 * days as f64));
+            let deaths: u64 = n_life.values().sum();
+            println!("Nether: {deaths} golems died there, life from arrival (gt, by tens: count) {n_life:?}; {n_alive} alive at the end; golems back in the overworld {back}; items back {items_back}");
+            println!("Nether iron: {iron_dropped} dropped ({:.2} a golem that died; {poppies} poppies); {iron_chest} in the chest, {iron_hoppers} in the hoppers, {iron_loose} loose, {iron_burnt} burnt; unaccounted (despawned) {}", if deaths == 0 { 0.0 } else { iron_dropped as f64 / deaths as f64 }, iron_dropped as i64 - (iron_chest + iron_hoppers + iron_loose + iron_burnt) as i64);
+            if !full_at.is_empty() {
+                full_at.sort();
+                println!("the output chest full in {} of {} runs, first after {} gt ({:.1} game days), median {} gt", full_at.len(), rows.len(), full_at[0], full_at[0] as f64 / 24000.0, full_at[full_at.len() / 2]);
+            }
             println!("violations: {viol}; {:.1} s", t0.elapsed().as_secs_f64());
         }
         MobfarmCmd::HoldBench { design, from, to, days, jitter, jobs, verbose, timeline } => {

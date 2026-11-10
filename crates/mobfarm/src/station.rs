@@ -166,7 +166,60 @@ pub fn pad(o: &PadOpts) -> Result<Vec<([i32; 3], String)>> {
     Ok(out)
 }
 
-/// The station's bench design: the release + hold part ([`crate::hold::design`]) with the pad.
+/// The pad's Nether part (relative to the Nether image of the design's anchor, its y as written):
+/// a 2 x 3 Nether portal (axis z, plane x 0, interior z 0..1, y 64..66) linked to every pad plane
+/// (it is the only portal within 16 of their targets). A golem arrives centred on the plane, the
+/// collision-free search moving it 0.2 east off the player corridor's ceiling (west of the plane,
+/// 2 high: a golem never fits in it). East of the plane, a pit 2 deep (x 1..`len`, z 0..1, hopper
+/// floor at y 61, feet 62) under a lava sheet at y 64: sources at x 1 against the plane, held by
+/// wall signs at y 63, flowing to the wall at x len+1. The sheet at its feet pushes the golem off
+/// the frame's bottom row into the pit (it cannot step back up 2) and burns it with the sheet at
+/// its head; the flow carries it east, clear of the next golem's drop (a short pit piles them at
+/// the drop and their pushes lift the newcomer onto the walls: 4 long, the last one is past it);
+/// it dies with its feet over the hoppers, which feed the chest at (1, 60, 0). Every wall rises to
+/// y 66 (its top 3 over the frame's bottom row and 5 over the pit: a golem steps up 1).
+pub fn nether_part() -> (Vec<([i32; 3], String)>, [i32; 3]) {
+    let len = 4;
+    let mut out: Vec<([i32; 3], String)> = Vec::new();
+    let mut put = |x: i32, y: i32, z: i32, s: &str| out.push(([x, y, z], if s.starts_with("minecraft:") { s.to_string() } else { format!("minecraft:{s}") }));
+    for z in 0..=1 {
+        put(0, 63, z, "obsidian");
+        put(0, 67, z, "obsidian");
+        for y in 64..=66 {
+            put(0, y, z, "nether_portal[axis=z]");
+        }
+        // the player corridor's floor and ceiling (2 high: the player's way out, a golem's no)
+        put(-1, 63, z, "cobblestone");
+        put(-1, 66, z, "cobblestone");
+        // under the frame: the pit's west end
+        put(0, 62, z, "cobblestone");
+        // the end wall
+        for y in 62..=66 {
+            put(len + 1, y, z, "cobblestone");
+        }
+        put(1, 64, z, "lava[level=0]");
+    }
+    for y in 64..=66 {
+        put(0, y, -1, "obsidian");
+        put(0, y, 2, "obsidian");
+    }
+    for x in 1..=len {
+        for y in 62..=66 {
+            put(x, y, -1, "cobblestone");
+            put(x, y, 2, "cobblestone");
+        }
+        put(x, 63, 0, "oak_wall_sign[facing=south,waterlogged=false]");
+        put(x, 63, 1, "oak_wall_sign[facing=north,waterlogged=false]");
+        // the hopper floor: row z 1 north into row z 0, row z 0 west to x 1, down into the chest
+        put(x, 61, 1, "hopper[enabled=true,facing=north]");
+        put(x, 61, 0, if x == 1 { "hopper[enabled=true,facing=down]" } else { "hopper[enabled=true,facing=west]" });
+    }
+    put(1, 60, 0, "chest[facing=east,type=single,waterlogged=false]");
+    (out, [1, 60, 0])
+}
+
+/// The station's bench design: the release + hold part ([`crate::hold::design`]) with the pad
+/// and its Nether part.
 pub fn design(o: &PadOpts, lanes: &LaneOpts) -> Result<String> {
     let text = crate::hold::design(lanes)?;
     let mut d = Design::parse(&text)?;
@@ -178,9 +231,19 @@ pub fn design(o: &PadOpts, lanes: &LaneOpts) -> Result<String> {
         }
         d.blocks.insert(p, s);
     }
+    let (nether, out) = nether_part();
+    for (p, s) in nether {
+        d.nether_blocks.insert(p, s);
+    }
+    d.nether_ports.insert("nether-output".into(), out);
+    d.ports.insert("nether-anchor".into(), [0, 0, 0]);
+    d.ports.insert("nether-axis".into(), [1, 0, 0]);
     d.name = "carousel-station-7".into();
     d.meta.insert("station".into(), o.meta());
     d.ports.insert("output.pulse".into(), o.pulse());
+    // every villager's HOME the shared bed (the R1 double claim, as the judge loads it)
+    let bed = lanes.bed();
+    d.ports.insert("home".into(), [bed.x, bed.y, bed.z]);
     let w = o.x1 - o.x0 - 1;
     let caption = [
         format!("The carousel's station + portal pad (bench): {} portal plane(s) {w} x {} at z {:?}, a trench row on both sides of each (x {}..{}, floors at y {}),", o.planes.len(), o.h, o.planes, o.x0, o.x1, o.floor_y()),
@@ -462,6 +525,25 @@ pub struct BenchReport {
     /// Zombified piglins: seen (distinct ids) and those that left the overworld.
     pub piglins: u32,
     pub piglins_crossed: u32,
+    /// Piglins ever out of the portal cells, and alive at the end (the rest despawned).
+    pub piglins_out: u32,
+    pub piglins_alive: u32,
+    /// The Nether part: each golem's life there (gt from its arrival to its death), the ones still
+    /// alive at the end, golems that came back to the overworld, items seen in the overworld
+    /// (drops sent back), the iron in the Nether chest, its hoppers and lying loose.
+    pub nether_life: Vec<i64>,
+    pub nether_alive: u32,
+    pub returned: u32,
+    pub items_back: u32,
+    pub iron_chest: u32,
+    pub iron_hoppers: u32,
+    pub iron_loose: u32,
+    /// The iron that dropped in the Nether (each iron item counted when first seen), and when the
+    /// output chest was first full (gt after the run's start).
+    pub iron_dropped: u32,
+    pub poppies_dropped: u32,
+    pub iron_burnt: u32,
+    pub chest_full_at: Option<i64>,
     pub violations: Vec<String>,
     pub violation_count: u32,
     pub errors: Vec<String>,
@@ -508,7 +590,7 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
     let end = t0 + bo.days as i64 * 24000;
     let mut slots: Vec<i64> = Vec::new();
     let mut s = s0;
-    while s < end {
+    while s <= end {
         slots.push(s);
         s += 100;
     }
@@ -547,11 +629,31 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
     let mut alive: Vec<usize> = Vec::new();
     let mut pulse_on: Option<(i64, Option<usize>)> = None;
     let mut piglins: std::collections::BTreeSet<u32> = Default::default();
+    let mut piglins_out: std::collections::BTreeSet<u32> = Default::default();
+    // the Nether: (copy id, arrival tick, death tick); crossings read so far; ids seen back
+    let mut nether: Vec<(u32, i64, Option<i64>, (Vec3, f32, i64))> = Vec::new();
+    let mut crossed_seen = run.world.crossings.len();
+    let mut items_back: std::collections::BTreeSet<u32> = Default::default();
+    let mut nether_ev_seen = run.world.nether.as_deref().map_or(0, |n| n.mob.events.len());
+    let mut returned: std::collections::BTreeSet<u32> = Default::default();
     let mut ev_seen = run.world.mob.events.len();
     // the slot being summoned: its tick, the batch's riders, tries, success
     let mut slot_tries: Option<(i64, Vec<u32>, u8, bool)> = None;
+    let mut slept_night: Option<i64> = None;
     while run.world.time < end {
         let t_next = run.world.time + 1;
+        // the sleep routine's ideal stand-in (as the release + hold bench): every villager's
+        // LAST_SLEPT set once each night, so the riders keep wanting golems past day one
+        let night_of = run.world.day_time() / 24000;
+        if run.world.day_time() % 24000 >= 13000 && slept_night != Some(night_of) {
+            slept_night = Some(night_of);
+            let now = run.world.time;
+            for (id, _) in &riders {
+                if let Some(i) = index_of(&run.world, *id) {
+                    brain::brain_mut(&mut run.world, i).last_slept = Some(now);
+                }
+            }
+        }
         while next_switch < switches.len() && switches[next_switch] <= t_next {
             let k = (next_switch % BATCHES as usize) as i32;
             if let Some(p) = selected {
@@ -659,10 +761,62 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
                 violate(&mut rep, t, format!("golem {id} still in the overworld 20 gt after its spawn"));
             }
         }
-        // the zombified piglins
+        // the zombified piglins: seen, ever out of the portal cells (not confined), in a golem's
+        // spawn box at a summon (they would block it)
         for e in &w.entities.list {
             if is_piglin(&e.kind) && !e.removed {
                 piglins.insert(e.id);
+                if portal_cells_met(w, e.bb).is_empty() && piglins_out.insert(e.id) {
+                    violate(&mut rep, t, format!("a zombified piglin out of the portal at {:.2} {:.2} {:.2}", e.pos.x, e.pos.y, e.pos.z));
+                }
+            }
+        }
+        // the Nether: each crossing golem's copy, its death; golems back; items back
+        for &(ct, from, to) in &w.crossings[crossed_seen.min(w.crossings.len())..] {
+            if golems.iter().any(|g| g.0 == from) {
+                nether.push((to, ct, None, (Vec3::new(0.0, 0.0, 0.0), 100.0, ct)));
+            }
+        }
+        crossed_seen = w.crossings.len();
+        if let Some(n) = w.nether.as_deref() {
+            for g in nether.iter_mut().filter(|g| g.2.is_none()) {
+                match n.entities.list.iter().find(|e| e.id == g.0 && !e.removed) {
+                    None => g.2 = Some(t),
+                    Some(e) => {
+                        let hp = match &e.kind {
+                            EntityKind::Mob(m) => m.health,
+                            _ => 0.0,
+                        };
+                        g.3 = (e.pos, hp, t);
+                    }
+                }
+            }
+            // the iron dropped there (the golems' Drop events) and burnt
+            let evs = &n.mob.events[nether_ev_seen.min(n.mob.events.len())..];
+            for ev in evs {
+                match ev {
+                    MobEvent::Drop { what: "minecraft:iron_ingot", count, .. } => rep.iron_dropped += *count,
+                    MobEvent::Drop { what: "minecraft:poppy", count, .. } => rep.poppies_dropped += *count,
+                    MobEvent::Burnt { what, count, .. } if what == "minecraft:iron_ingot" => rep.iron_burnt += *count,
+                    _ => {}
+                }
+            }
+            nether_ev_seen = n.mob.events.len();
+            if rep.chest_full_at.is_none() {
+                let full = spec.nether.as_ref().and_then(|ns| ns.output_at()).and_then(|p| n.containers.map.get(&p)).is_some_and(|c| c.slots.iter().all(|s| s.as_ref().is_some_and(|s| s.count >= 64)));
+                if full {
+                    rep.chest_full_at = Some(t - t0);
+                }
+            }
+        }
+        for e in &w.entities.list {
+            if e.removed {
+                continue;
+            }
+            match &e.kind {
+                EntityKind::Item(_) if items_back.insert(e.id) => violate(&mut rep, t, format!("an item ({}) in the overworld at {:.2} {:.2} {:.2}", kind_name(&e.kind), e.pos.x, e.pos.y, e.pos.z)),
+                EntityKind::Mob(m) if m.ty == MobType::IronGolem && !golems.iter().any(|g| g.0 == e.id) && returned.insert(e.id) => violate(&mut rep, t, format!("a golem back in the overworld at {:.2} {:.2} {:.2}", e.pos.x, e.pos.y, e.pos.z)),
+                _ => {}
             }
         }
     }
@@ -677,9 +831,40 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
             _ => {}
         }
     }
-    rep.lingering = alive.len() as u32;
+    rep.lingering = alive.iter().filter(|&&gi| end - golems[gi].1 > 2).count() as u32;
+    for (id, arrived, died, last) in &nether {
+        match died {
+            Some(d) => rep.nether_life.push(d - arrived),
+            None => rep.nether_alive += 1,
+        }
+        let life = died.unwrap_or(end) - arrived;
+        if life > 300 {
+            violate(&mut rep, *arrived, format!("golem {id} lived {life} gt in the Nether{}: last seen at gt {} at {:.2} {:.2} {:.2} with {} HP", if died.is_none() { " (still alive)" } else { "" }, last.2, last.0.x, last.0.y, last.0.z, last.1));
+        }
+    }
+    rep.returned = returned.len() as u32;
+    rep.items_back = items_back.len() as u32;
+    if let Some(n) = run.world.nether.as_deref() {
+        use redsim::redstone::container as rc;
+        let (ingot, block) = (rc::item_id("iron_ingot"), rc::item_id("iron_block"));
+        let out = spec.nether.as_ref().and_then(|ns| ns.output_at());
+        for (p, c) in &n.containers.map {
+            let iron: u32 = c.slots.iter().flatten().map(|s| if Some(s.item) == ingot { s.count as u32 } else if Some(s.item) == block { 9 * s.count as u32 } else { 0 }).sum();
+            if Some(*p) == out {
+                rep.iron_chest += iron;
+            } else {
+                rep.iron_hoppers += iron;
+            }
+        }
+        rep.iron_loose = n.entities.list.iter().filter(|e| !e.removed).map(|e| match &e.kind {
+            EntityKind::Item(it) if it.item == "minecraft:iron_ingot" => it.count as u32,
+            _ => 0,
+        }).sum();
+    }
     rep.piglins = piglins.len() as u32;
     rep.piglins_crossed = run.world.crossings.iter().filter(|(_, from, _)| piglins.contains(from)).count() as u32;
+    rep.piglins_out = piglins_out.len() as u32;
+    rep.piglins_alive = run.world.entities.list.iter().filter(|e| is_piglin(&e.kind) && !e.removed).count() as u32;
     rep.errors = run.world.errors.clone();
     let _ = bo.verbose;
     Ok(rep)
