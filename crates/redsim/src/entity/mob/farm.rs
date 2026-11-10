@@ -576,6 +576,9 @@ struct Track {
     last_sleep: Vec<(u32, i64)>,
     /// The iron the farm's containers hold when it starts (a sorter's filter items).
     seed_iron: u32,
+    /// (tickexact 2026-11-10) The same in the Nether part's containers (its sorter's stock, its
+    /// `nether nbt:` lines): not the farm's iron either.
+    nether_seed_iron: u32,
     /// mobinfra: the ticks a living golem was in each block, the iron (items x ticks) in each
     /// block a drop was in, and the ticks counted: the lightning measurement's occupancy.
     golem_cells: std::collections::BTreeMap<[i32; 3], u32>,
@@ -606,7 +609,7 @@ impl Track {
     /// The tracking of a run that just arrived: its own villagers' homes and last sleeps.
     fn new(r: &Run, spec: &FarmSpec) -> Track {
         let own: std::collections::HashSet<u32> = r.own.iter().copied().collect();
-        let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0, own, at_zombie: Default::default(), burnt: Default::default(), cluster_of: Default::default(), summoned_by: Default::default(), seen_by_others: Default::default(), riders: Default::default(), crossed: 0, piglins: Default::default() };
+        let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, nether_seed_iron: nether_container_iron(&r.world, spec).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0, own, at_zombie: Default::default(), burnt: Default::default(), cluster_of: Default::default(), summoned_by: Default::default(), seen_by_others: Default::default(), riders: Default::default(), crossed: 0, piglins: Default::default() };
         for e in &r.world.entities.list {
             if let EntityKind::Mob(m) = &e.kind
                 && m.ty == MobType::Villager
@@ -646,6 +649,15 @@ impl Track {
 }
 
 /// The iron in the farm's containers (`ingots + 9 x blocks`): (in the output chest, in the others).
+/// (tickexact 2026-11-10) [`container_iron`] of the Nether part's world (its output chest, its other
+/// containers); (0, 0) without one.
+fn nether_container_iron(w: &World, spec: &FarmSpec) -> (u32, u32) {
+    match (w.nether.as_deref(), spec.nether.as_ref()) {
+        (Some(n), Some(ns)) => container_iron(n, ns.output_at().unwrap_or(BlockPos::new(i32::MIN, 0, 0))),
+        _ => (0, 0),
+    }
+}
+
 fn container_iron(w: &World, output: BlockPos) -> (u32, u32) {
     use crate::redstone::container as rc;
     let (ingot, block) = (rc::item_id("iron_ingot"), rc::item_id("iron_block"));
@@ -1343,11 +1355,12 @@ fn finish(w: &World, rep: &mut RunReport, tr: &Track, spec: &FarmSpec) {
     let (out, rest) = container_iron(w, spec.output);
     rep.iron_in_chest += out;
     rep.iron_in_containers += rest.saturating_sub(tr.seed_iron);
-    // (tickexact 2026-11-10) the Nether part's: its output chest counts as the farm's chest
-    if let (Some(n), Some(ns)) = (w.nether.as_deref(), spec.nether.as_ref()) {
-        let (nout, nrest) = container_iron(n, ns.output_at().unwrap_or(BlockPos::new(i32::MIN, 0, 0)));
+    // (tickexact 2026-11-10) the Nether part's: its output chest counts as the farm's chest, its
+    // other containers less the iron they were stocked with (a sorter's filter and lock stacks)
+    if w.nether.is_some() && spec.nether.is_some() {
+        let (nout, nrest) = nether_container_iron(w, spec);
         rep.iron_in_chest += nout;
-        rep.iron_in_containers += nrest;
+        rep.iron_in_containers += nrest.saturating_sub(tr.nether_seed_iron);
     }
     {
         use crate::redstone::container as rc;

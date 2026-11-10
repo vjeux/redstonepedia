@@ -869,13 +869,19 @@ fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, 
             bail!("the comparator at {at:?}: output {n}: {out}");
         }
     }
-    // (tickexact 2026-11-10, ironspec's portal pad) the Nether part, at its mapped place
+    // (tickexact 2026-11-10, the portal pad) the Nether part, at its mapped place
     if let Some(ns) = &spec.nether {
         paste_nether(&mut s, ns)?;
     }
     // the iron the design placed in its containers (not the farm's output)
     for p in &boxes {
         run.iron_start += count_iron(&s.cmd_long(&format!("data get block {} Items", xyz(*p)))?);
+    }
+    // (tickexact 2026-11-10, farmopt's assembly v0) and in the Nether part's (its sorter's stock,
+    // from its `nether nbt:` lines), read back from the game after the merge
+    if let Some(ns) = &spec.nether {
+        let (_, rest, _) = nether_iron(&mut s, ns)?;
+        run.iron_start += rest;
     }
     // the judge's steady state: a day time in the day, LAST_SLEPT at the end of the last rest
     s.cmd_ok(&format!("time set {day0}"))?;
