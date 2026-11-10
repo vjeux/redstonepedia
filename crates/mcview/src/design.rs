@@ -47,6 +47,10 @@ pub struct Design {
     /// `stop: x y z <state>` lines (circuits: environment blocks placed before the build, like a
     /// flying machine's stop wall), in file order.
     pub stops: Vec<(Pos, String)>,
+    /// A mob farm's Nether part (`nether layer Y:` sections from `nether-origin:`, sharing the
+    /// palette, as `mctas::design` reads them), in the file's coordinates: parsed so a design with
+    /// one loads (the carousel station's page); the view draws the overworld blocks only.
+    pub nether_blocks: BTreeMap<Pos, String>,
 }
 
 /// `+x`, `-y`, `east`, `up`, or `dx dy dz` (a unit vector along one axis), like
@@ -130,9 +134,11 @@ impl Design {
             Header,
             Palette,
             Layer(i32),
+            NetherLayer(i32),
         }
         let mut d = Design::default();
         let mut origin: Pos = [0, 0, 0];
+        let mut nether_origin: Pos = [0, 0, 0];
         let mut palette: BTreeMap<char, String> = BTreeMap::new();
         let mut section = Section::Header;
         let mut row = 0i32;
@@ -158,6 +164,12 @@ impl Design {
                 } else if let Some(y) = l.strip_prefix("layer ").and_then(|r| r.strip_suffix(':')) {
                     section = Section::Layer(y.trim().parse().map_err(|_| err("bad layer"))?);
                     row = 0;
+                } else if let Some(y) = l.strip_prefix("nether layer ").and_then(|r| r.strip_suffix(':')) {
+                    section = Section::NetherLayer(y.trim().parse().map_err(|_| err("bad nether layer"))?);
+                    row = 0;
+                } else if l.starts_with("nether nbt:") {
+                    // (the Nether part's block-entity data: not drawn)
+                    section = Section::Header;
                 } else if let Some(rest) = l.strip_prefix("port ") {
                     let (name, pos) = rest.split_once(':').ok_or_else(|| err("bad port"))?;
                     let words: Vec<&str> = pos.split_whitespace().collect();
@@ -185,6 +197,7 @@ impl Design {
                     match k {
                         "name" => d.name = v.to_string(),
                         "origin" => origin = parse_pos(v).map_err(|e| err(&e))?,
+                        "nether-origin" => nether_origin = parse_pos(v).map_err(|e| err(&e))?,
                         "stop" => {
                             let words: Vec<&str> = v.split_whitespace().collect();
                             if words.len() != 4 {
@@ -222,6 +235,16 @@ impl Design {
                         }
                         let state = palette.get(&c).ok_or_else(|| err(&format!("unknown palette char {c:?}")))?;
                         d.blocks.insert([origin[0] + col as i32, origin[1] + y, origin[2] + row], state.clone());
+                    }
+                    row += 1;
+                }
+                Section::NetherLayer(y) => {
+                    for (col, c) in line[2..].chars().enumerate() {
+                        if c == '.' || c == ' ' {
+                            continue;
+                        }
+                        let state = palette.get(&c).ok_or_else(|| err(&format!("unknown palette char {c:?}")))?;
+                        d.nether_blocks.insert([nether_origin[0] + col as i32, nether_origin[1] + y, nether_origin[2] + row], state.clone());
                     }
                     row += 1;
                 }
@@ -288,5 +311,19 @@ mod tests {
         assert_eq!(d.entities[0].kind, "minecraft:minecart");
         assert_eq!(d.entities[0].nbt.as_deref(), Some("{Rotation:[90f,0f]}"));
         assert_eq!(d.block_entities[&[1, 0, 0]], "{Items:[]}");
+    }
+
+    #[test]
+    fn a_nether_part_loads() {
+        // (mctas::design's own test text: the overworld blocks drawn, the Nether part kept apart)
+        let text = "name: n\nport output: 0 0 0\npalette:\n  S stone\n  P nether_portal[axis=z]\n  H hopper\nlayer 0:\n  S\nnether-origin: 2 0 3\nnether layer 64:\n  SPH\nport nether-output: 4 64 3\nnether nbt: 4 64 3 {Items:[{Slot:0b,id:\"minecraft:paper\",count:1}]}\n";
+        let d = Design::parse(text).unwrap();
+        assert_eq!(d.blocks.len(), 1);
+        assert_eq!(d.blocks[&[0, 0, 0]], "minecraft:stone");
+        assert_eq!(d.nether_blocks.len(), 3);
+        assert_eq!(d.nether_blocks[&[3, 64, 3]], "minecraft:nether_portal[axis=z]");
+        assert_eq!(d.nether_blocks[&[4, 64, 3]], "minecraft:hopper");
+        assert_eq!(d.port("nether-output"), Some([4, 64, 3]));
+        assert!(d.block_entities.is_empty());
     }
 }
