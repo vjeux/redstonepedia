@@ -205,7 +205,9 @@ same way. Per villager it cannot win: every golem locks at least 3 villagers for
 golems an hour per villager, the same ceiling a static 3-villager cluster has. Its win is
 compactness: one pad, kill, zombie, calm and collection shared by every group, and fresh groups
 that escape the static module's losses (below). Golems per hour per station is reported, not
-ranked; L0, the single module, is a reference line.
+ranked; L0, the single module, is a reference line. On rate it cannot win against the bar: its
+ceiling (720 golems an hour, about 2,880 iron) is below 7 copies of the 8x8 module (about 2,982
+iron an hour), so the carousel's case is volume and build minutes, not rate.
 
 ## The mechanics, from the game code (26.3)
 
@@ -259,6 +261,7 @@ at t333 slipped the next summon to t1100). A 3-villager module's intervals avera
 fresh (no golem in range, its lock long expired), so neither loss applies to it, provided the
 last golem has left the station's range before the next group's sensors scan.
 
+(Superseded by the three hard rules: the one-bed nightly visit, once per villager per night.)
 Every number here assumes the station runs through the night, less the nightly stop: no villager
 sleeps in a cart, so each group leaves the loop once a day to lie down (`LAST_SLEPT`), is woken
 and re-boarded. With one bed (below), about 15 s a group a day, about 2.5% of a 100 gt rotation's
@@ -268,13 +271,15 @@ day. Each estimate states its stop's length.
 
 ## Trade-offs
 
-- Each extra group buys one more attempt slot per 600 gt, up to 6; villagers cost their moves
+- Each extra group buys one more attempt slot per 600 gt, up to 6 (superseded by the three hard
+  rules: 7 groups of 3, a turn every 700 gt); villagers cost their moves
   (or breeding), beds and carts.
 - The queue must stay out of the station's 10-box at every spawn and out of every live golem's
   cube at every sensor scan: distance, so loop length, so blocks and travel.
 - Short cycles are fragile: arrival, a 20 gt sensor scan and a panic start must fit between two
   attempt ticks, and the last golem must have left the cubes; a 200 gt cycle forgives all three.
-- The nightly bed stop costs a dismount, a bed per villager (the Beds rule: each villager's only
+- The nightly bed stop costs a dismount, a bed per villager (superseded by the three hard rules:
+  one bed for all 21; the Beds rule: each villager's only
   reachable free bed is its own) and a re-boarding by a moving cart at dawn.
 - An event-driven advance (the golem's landing or fall closes a detector) follows the farm's own
   rhythm and cannot drift; a free clock is simpler but loses slots when an attempt fails.
