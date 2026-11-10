@@ -1852,6 +1852,8 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut order_ok = 0;
     // (a nap visit's state: the carts off the loop, the visiting cart and its batch, what it did)
     let mut away: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    // (carts back from a visit since the last slot's order check)
+    let mut returned: std::collections::HashSet<u32> = std::collections::HashSet::new();
     let mut visits: Vec<VisitRun> = Vec::new();
     // (the nightly schedule: visits started tonight, the next slot one may start, the nights)
     let mut tonight = 0usize;
@@ -1989,8 +1991,12 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                         if want.is_none() && s < 3 && order_dep2.is_none() {
                             continue;
                         }
-                        // (a cart away on a nap visit leaves a hole that rides the queue)
+                        // (a cart away on a nap visit leaves a hole that rides the queue; back from
+                        // it, it fills the hole)
                         if want.is_some_and(|w| away.contains(&w)) && queue_now[s + 3].is_none() {
+                            continue;
+                        }
+                        if want.is_none() && queue_now[s + 3].is_some_and(|id| returned.contains(&id) || away.contains(&id)) {
                             continue;
                         }
                         if queue_now[s + 3] != want {
@@ -2008,6 +2014,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 }
                 order_dep2 = order_prev.as_ref().map(|(_, _, d)| d.clone());
                 order_prev = Some((queue_now, rel.clone(), dep.clone()));
+                returned.clear();
             }
             stand_train = Some((c, rel, if wired.is_some() && tm.stand_reset.is_none() && !tm.bench_stand { 2 } else { 0 }));
             detect_at = None;
@@ -2077,6 +2084,8 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 side_cart = carts.iter().copied().find(|id| place_of(&run.world, *id) == Some(park));
                 match side_cart {
                     Some(id) => {
+                        // (off the loop until it rests in a slot again: the order check's hole)
+                        away.insert(id);
                         let stone = Block::parse("minecraft:stone").map_err(|e| e.to_string())?;
                         run.world.set_block(BlockPos::new(70, -1, 70), stone, redsim::world::flags::ALL);
                         if let Some(i) = redsim::entity::index_of(&run.world, id) {
@@ -2112,6 +2121,8 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                     if let Some(s) = place_of(&run.world, id) {
                         let along = pos_of(&run.world, id).map(|p| p.z - (places[s][2] as f64)).unwrap_or(0.0);
                         side_rest = Some((dt + 100 * (c - cy), along, s));
+                        away.remove(&id);
+                        returned.insert(id);
                     }
                 }
                 if c == cy + 2 && dt == 99 {
@@ -2423,6 +2434,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                         if let Some(s) = place_of(&run.world, id) {
                             vr.back = Some((now, s));
                             away.remove(&id);
+                            returned.insert(id);
                         }
                     }
                 }
