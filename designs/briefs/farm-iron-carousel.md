@@ -173,14 +173,17 @@ the timing diagram checks every coupling.
    path with reach 1 succeeds and no other bed with a free ticket lies within 48 (a failed path
    backs off 40-79 gt, growing to 400). Invariants: every villager's HOME = the bed at every dawn and
    midday (the R1 claims kept); while the bed is occupied, every other villager is in PANIC or more
-   than 16 from it; each villager's LAST_SLEPT advances exactly once a night. Contract: each visit fits
-   inside that villager's wait; the 21 visits fit inside the night. Each villager's consecutive naps
-   are less than 24,000 gt apart (the golem condition is gameTime − LAST_SLEPT < 24,000, strictly),
-   and the gap window [its last nap + 24,000, its next nap) never covers one of its batch's slots;
-   with 7 batches the batch at the station at a given day time shifts by 2 every day (240 slots a
-   day, 240 mod 7 = 2), so the nightly scheduler (a sub-part, owned by the day-1 lane) keeps each
-   villager's nap inside its wait and no later in the day than the night before; the bench reports
-   the worst interval per villager per night. Bench: 21 villagers with R1
+   than 16 from it; each villager's LAST_SLEPT advances at least once a night. Contract: each visit fits
+   inside that villager's wait; the 21 visits fit inside the night. The golem condition is
+   gameTime − LAST_SLEPT < 24,000 (strict), so for each villager no gap window [its last nap +
+   24,000, its next nap) may contain one of its batch's slots; that window condition is the
+   contract. Each villager naps at least once a night; a second nap the same night is allowed
+   (SleepInBed permits it 100 gt after LAST_WOKEN and 40 gt after its nextOkStartTime). Because 240
+   mod 7 = 2, a batch's slots move 200 gt earlier in day time each day, so the scheduler's rule is:
+   each nap at most the drift earlier than the night before, or later only when the window it opens
+   is slot-free (e.g. a second nap at the later time that same night). Part 3a's bench runs the
+   scheduler alone for at least 60 in-game days and prints each villager's nap day-time range and
+   worst gap window. Bench: 21 villagers with R1
    claims, 6 days on 100 seeds, the station and counter driven ideal, HOME, LAST_SLEPT and
    distances logged every tick. It waits on tick-exact's bed pieces (ValidateNearbyPoi's reach,
    SleepInBed's conditions, the wake delay, findStandUpPosition). Objectives: blocks, volume, the
