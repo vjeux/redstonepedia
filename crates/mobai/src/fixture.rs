@@ -62,6 +62,9 @@ fn difficulty_name(d: Difficulty) -> &'static str {
 /// neighbor and shape updates, `onPlace`), on both sides between the same two ticks.
 pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
     let s = |p: [i32; 3], b: &str| (p, b.to_string());
+    if name == "carousel-loop" {
+        return carousel_loop_actions();
+    }
     match name {
         // corrupt-poi-entity R1: the claimed bed broken, then placed again (a fresh POI record
         // with its ticket free), then the second villager's pen opened
@@ -154,6 +157,59 @@ impl Scene {
     pub fn hash(&self) -> String {
         format!("{:016x}", mctas::recorded::fnv64(self.canonical().as_bytes()))
     }
+}
+
+/// (tickexact 2026-11-10) ironfarm's single-lane carousel loop (explore/ironfarm c69c22943,
+/// `carousel-single-lane-loop-wip.txt`, frozen here): its blocks and carts as they are, moved into
+/// the sandbox (design x + 34, y + 64, z + 10).
+const CAROUSEL_LOOP: &str = include_str!("../scenes/carousel-loop-wip.txt");
+const CAROUSEL_SHIFT: [i32; 3] = [34, 64, 10];
+
+/// The carousel loop's design, parsed.
+fn carousel_loop_design() -> mctas::design::Design {
+    mctas::design::Design::parse(CAROUSEL_LOOP).expect("the frozen carousel loop design parses")
+}
+
+/// The loop's slot controls (each braked slope's support: glass a brake, a redstone block go), in
+/// sandbox coordinates: the queue's 18 slots in travel order (row A at design z 0 going -x: slot
+/// 0 at its east end; then row B at z 2 going +x up to slot 17), and the stand's 3 (row B east of
+/// the release run, travel order).
+fn carousel_loop_controls() -> (Vec<[i32; 3]>, Vec<[i32; 3]>) {
+    let d = carousel_loop_design();
+    let mut row_a = Vec::new();
+    let mut row_b = Vec::new();
+    for (p, st) in &d.blocks {
+        if st.starts_with("minecraft:powered_rail[powered=false,shape=ascending") {
+            let c = [p[0] + CAROUSEL_SHIFT[0], p[1] - 1 + CAROUSEL_SHIFT[1], p[2] + CAROUSEL_SHIFT[2]];
+            if p[2] == 0 { row_a.push(c) } else { row_b.push(c) }
+        }
+    }
+    row_a.sort_by_key(|c| -c[0]);
+    row_b.sort_by_key(|c| c[0]);
+    let stand = row_b.split_off(9);
+    let mut slots = row_a;
+    slots.extend(row_b);
+    (slots, stand)
+}
+
+/// ironfarm's per-slot schedule (`queue-loop-run`'s ideal controls) for two slots from t0 = 100
+/// and 200, without its position triggers: the release group (slots 15..17) and the stand powered
+/// at t0 (both trains leave), the release group braked at t0 + 20; the advance's three 9-gt pulses
+/// on every queue slot at t0 + 40, 60, 80 (the register's one-slot moves, the U-turn's chaining).
+fn carousel_loop_actions() -> Vec<(u32, Vec<([i32; 3], String)>)> {
+    let (slots, stand) = carousel_loop_controls();
+    let set = |cs: &[[i32; 3]], on: bool| cs.iter().map(|c| (*c, if on { "minecraft:redstone_block" } else { "minecraft:glass" }.to_string())).collect::<Vec<_>>();
+    let release = &slots[15..18];
+    let mut v = Vec::new();
+    for t0 in [100u32, 200] {
+        v.push((t0, [set(release, true), set(&stand, true)].concat()));
+        v.push((t0 + 20, set(release, false)));
+        for k in 0..3 {
+            v.push((t0 + 40 + 20 * k, set(&slots, true)));
+            v.push((t0 + 49 + 20 * k, set(&slots, false)));
+        }
+    }
+    v
 }
 
 /// A stone floor over `x0..x1`, `z0..z1` at height `y`.
@@ -1419,6 +1475,30 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Easy,
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
+    }
+    // (tickexact 2026-11-10) ironfarm's single-lane carousel loop as it is (its WIP design, frozen:
+    // the sawtooth register of 18 slots on two rows joined by a boosted U-turn, the release run, the
+    // 3-slot stand, the departure and return runs; 21 carts with villagers), driven by its slot
+    // schedule ([`carousel_loop_actions`]): the release train, the register's one-slot moves on
+    // 9-gt pulses, the U-turn's chaining at 20-gt pulses
+    {
+        let d = carousel_loop_design();
+        let sh = CAROUSEL_SHIFT;
+        let blocks: Vec<([i32; 3], String)> = d.blocks.iter().map(|(p, st)| ([p[0] + sh[0], p[1] + sh[1], p[2] + sh[2]], st.clone())).collect();
+        let mobs: Vec<(String, [f64; 3], Option<String>)> = d.entities.iter().map(|e| (e.kind.clone(), [e.pos[0] + sh[0] as f64, e.pos[1] + sh[1] as f64, e.pos[2] + sh[2] as f64], e.nbt.clone())).collect();
+        v.push(Scene {
+            name: "carousel-loop".into(),
+            chunks: [0, 0, 4, 1],
+            blocks,
+            mobs,
+            day_time: 1000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [79, 70, 31]),
             player: None,
             player_creative: false,
             random_tick_speed: 3,
