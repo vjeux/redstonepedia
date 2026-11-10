@@ -31,6 +31,125 @@ pub fn register(ai: &mut MobAi) {
     ai.targets.add(5, Goal::NearestAttackableTarget(NearestAttackableTarget::new(TargetType::BabyTurtle, 10, true, false)));
 }
 
+// ----------------------------------------------------------------------- zombified piglins
+
+/// (tickexact 2026-11-10, ironspec's portal pad) A zombified piglin's own state
+/// (`ZombifiedPiglin`): `playFirstAngerSoundIn`, `ticksUntilNextAlert`, and whether
+/// `SPEED_MODIFIER_ATTACKING` (+0.05) is on its speed.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct PiglinState {
+    pub first_anger_sound_in: i32,
+    pub ticks_until_next_alert: i32,
+    pub attacking: bool,
+}
+
+/// `ZombifiedPiglin`: its constructor's `setPathfindingMalus(LAVA, 8)`, then `Zombie.registerGoals`
+/// (the turtle eggs, the looks) and its own `addBehaviourGoals`: the spear (1), `ZombieAttackGoal`
+/// (2), the water-avoiding stroll (7); targets `HurtByTargetGoal.setAlertOthers()` (its own class),
+/// a player it is angry at, `ResetUniversalAngerTargetGoal`.
+pub fn register_zombified_piglin(ai: &mut MobAi) {
+    ai.malus.set(crate::entity::mob::ai::path::path_type::PathType::Lava, 8.0);
+    ai.goals.add(4, Goal::ZombieAttackTurtleEgg(TurtleEgg::default()));
+    ai.goals.add(8, Goal::LookAtPlayer(LookAtPlayer::new(LookType::Player, 8.0)));
+    ai.goals.add(8, Goal::RandomLookAround(RandomLookAround::default()));
+    ai.goals.add(1, Goal::SpearUse);
+    ai.goals.add(2, Goal::MeleeAttack(MeleeAttack::new(MeleeKind::Zombie, 1.0, false)));
+    ai.goals.add(7, Goal::RandomStroll(RandomStroll::water_avoiding(1.0)));
+    ai.targets.add(1, Goal::HurtByTarget(HurtByTarget::new(true)));
+    ai.targets.add(2, Goal::NearestAttackableTarget(NearestAttackableTarget::new(TargetType::AngryPlayer, 10, true, false)));
+    ai.targets.add(3, Goal::ResetUniversalAnger);
+    ai.piglin = Some(PiglinState::default());
+}
+
+/// Is mob `i` a zombified piglin (of either size: one class)?
+pub fn is_piglin_type(ty: crate::entity::mob::types::MobType) -> bool {
+    matches!(ty.def().id, "zombified_piglin" | "baby_zombified_piglin")
+}
+
+/// `ZombifiedPiglin.setTarget`: a first target (none before) draws `FIRST_ANGER_SOUND_DELAY`
+/// (0..20 ticks) and `ALERT_INTERVAL` (80..120) from its own random.
+pub fn piglin_on_set_target(w: &mut World, i: usize, before: Option<u32>, after: Option<u32>) {
+    if before.is_some() || after.is_none() || ai(w, i).piglin.is_none() {
+        return;
+    }
+    let r = w.entities.list[i].random.as_mut().expect("random");
+    let first = r.next_int(21);
+    let alert = r.next_int(41) + 80;
+    if let Some(p) = crate::entity::mob::ai::ai_mut(w, i).piglin.as_mut() {
+        p.first_anger_sound_in = first;
+        p.ticks_until_next_alert = alert;
+    }
+}
+
+/// `ZombifiedPiglin.customServerAiStep`: angry, an adult's attacking speed and the first anger
+/// sound's countdown (its sound's `getVoicePitch`: two floats of its own random); calm, the
+/// modifier off; `updatePersistentAnger(level, true)`; with a target, `maybeAlertOthers`; then
+/// `Zombie.customServerAiStep` (a zombified piglin never converts in water: nothing).
+pub fn piglin_custom_server_ai_step(w: &mut World, i: usize) {
+    let a = ai(w, i);
+    let angry = a.anger_end > 0 && a.anger_end - w.time > 0;
+    let baby = mob(w, i).ty.def().id.starts_with("baby_");
+    if angry {
+        let p = crate::entity::mob::ai::ai_mut(w, i).piglin.as_mut().expect("a piglin");
+        if !baby {
+            p.attacking = true;
+        }
+        // maybePlayFirstAngerSound
+        if p.first_anger_sound_in > 0 {
+            p.first_anger_sound_in -= 1;
+            if p.first_anger_sound_in == 0 {
+                let r = w.entities.list[i].random.as_mut().expect("random");
+                r.next_float();
+                r.next_float();
+            }
+        }
+    } else if let Some(p) = crate::entity::mob::ai::ai_mut(w, i).piglin.as_mut() {
+        p.attacking = false;
+    }
+    super::golem::update_anger(w, i);
+    if crate::entity::mob::ai::target::get_target(w, i).is_some() {
+        piglin_maybe_alert_others(w, i);
+    }
+}
+
+/// `ZombifiedPiglin.maybeAlertOthers`: every `ALERT_INTERVAL` (80..120) ticks, seeing its target,
+/// `alertOthers`.
+fn piglin_maybe_alert_others(w: &mut World, i: usize) {
+    let left = ai(w, i).piglin.map(|p| p.ticks_until_next_alert).unwrap_or(0);
+    if left > 0 {
+        if let Some(p) = crate::entity::mob::ai::ai_mut(w, i).piglin.as_mut() {
+            p.ticks_until_next_alert -= 1;
+        }
+        return;
+    }
+    let Some(t) = crate::entity::mob::ai::target::get_target(w, i) else { return };
+    if let Some(who) = crate::entity::mob::ai::target::who(w, t)
+        && crate::entity::mob::ai::target::has_line_of_sight(w, i, who)
+    {
+        piglin_alert_others(w, i, t);
+    }
+    let n = w.entities.list[i].random.as_mut().expect("random").next_int(41) + 80;
+    if let Some(p) = crate::entity::mob::ai::ai_mut(w, i).piglin.as_mut() {
+        p.ticks_until_next_alert = n;
+    }
+}
+
+/// `ZombifiedPiglin.alertOthers`: the zombified piglins in its follow range (y 10) around the
+/// unit cube at its feet, but itself, with no target, not allied to the target, take its target.
+fn piglin_alert_others(w: &mut World, i: usize, t: u32) {
+    use crate::entity::mob::ai::target;
+    let within = crate::entity::mob::ai::follow_range(w, i);
+    let p = w.entities.list[i].pos;
+    let area = crate::entity::Aabb::new(p.x, p.y, p.z, p.x + 1.0, p.y + 1.0, p.z + 1.0).inflate(within, 10.0, within);
+    for o in target::mobs_in(w, area, is_piglin_type) {
+        let target::Who::Entity(j) = o else { continue };
+        if j == i || !crate::entity::mob::ai::has_ai(w, j) || ai(w, j).target.is_some() {
+            continue;
+        }
+        target::set_target(w, j, Some(t));
+    }
+}
+
 /// `Zombie.setCanBreakDoors(true)`: the navigation opens doors (its path types), and
 /// `BreakDoorGoal` joins at priority 1 (last in the list).
 pub fn set_can_break_doors(ai: &mut MobAi, v: bool) {

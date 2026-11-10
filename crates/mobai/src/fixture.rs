@@ -43,6 +43,12 @@ pub struct Scene {
     pub random_tick_speed: u32,
 }
 
+/// (tickexact 2026-11-10) A scene with monsters spawning on (`spawn_mobs`, `spawn_monsters`: a
+/// nether portal's zombified piglins need `isSpawningMonsters`); every other scene has them off.
+fn scene_spawns(name: &str) -> bool {
+    matches!(name, "portal-piglin")
+}
+
 fn difficulty_name(d: Difficulty) -> &'static str {
     match d {
         Difficulty::Peaceful => "peaceful",
@@ -794,6 +800,62 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 3,
         });
     }
+    // (tickexact 2026-11-10, ironspec's portal pad) zombified piglins from a nether portal's random
+    // ticks: a 2 x 3 portal (x 24, z 21..22, axis z) on a stone yard, a creative player above (a
+    // player close enough for spawning: `anyPlayerCloseEnoughForSpawning`), Hard, monsters on
+    // (`scene_spawns`: the natural spawner finds nothing in the noon light), random ticks x1000:
+    // each piglin spawned on the portal's bottom frame with PortalCooldown 300, then its walk. The
+    // game's side only (`mobai timeline portal-piglin`): with spawn_mobs on, redsim's natural
+    // spawner needs the block light it models in terrain worlds only, so the fixture cannot compare
+    // it yet (the piglins' AI is checked in piglin-golem)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        for y in 63..=67 {
+            for z in 20..=23 {
+                let inside = (64..=66).contains(&y) && (21..=22).contains(&z);
+                b.push(([24, y, z], if inside { "minecraft:nether_portal[axis=z]".to_string() } else { "minecraft:obsidian".to_string() }));
+            }
+        }
+        v.push(Scene {
+            name: "portal-piglin".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: Vec::new(),
+            day_time: 6000,
+            difficulty: Difficulty::Hard,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: Some([24.5, 72.0, 30.5]),
+            player_creative: true,
+            random_tick_speed: 3000,
+        });
+    }
+    // (tickexact 2026-11-10) zombified piglins and an iron golem on a stone yard at noon (Hard):
+    // the golem takes a piglin as its target (an Enemy), hits it; the piglin's HurtByTargetGoal
+    // alerts the other (its own class), both fight back (ZombieAttackGoal, 5 damage), angry
+    // (+0.05 speed, the anger timer)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        v.push(Scene {
+            name: "piglin-golem".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:iron_golem".into(), [18.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:zombified_piglin".into(), [27.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into())),
+                ("minecraft:zombified_piglin".into(), [31.5, 64.0, 27.5], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 6000,
+            difficulty: Difficulty::Hard,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
+    }
     // a spider and an iron golem 10 apart at night: each targets the other (the spider only in the
     // dark), the spider leaps (LeapAtTargetGoal) and bites, the golem hits
     {
@@ -1230,7 +1292,7 @@ impl GameScene {
         w.call(json!({
             "op": "world", "sandbox": sb,
             "advance_time": true, "day_time": s.day_time,
-            "advance_weather": false, "spawn_mobs": false, "spawn_monsters": false,
+            "advance_weather": false, "spawn_mobs": scene_spawns(&s.name), "spawn_monsters": scene_spawns(&s.name),
             "difficulty": difficulty_name(s.difficulty),
             "rules": {"mob_griefing": if s.mob_griefing { "true" } else { "false" }, "random_tick_speed": s.random_tick_speed.to_string()},
             "trace_randoms": trace_randoms,
@@ -1414,10 +1476,12 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
         ours.chunk_order = ticking;
     }
     if let Some(p) = s.player {
-        // spawn_mobs off: natural spawning only shuffles its chunks (and checks despawning)
+        // spawn_mobs off: natural spawning only shuffles its chunks (and checks despawning); a
+        // spawning scene has monsters on (`scene_spawns`)
         use redsim::entity::mob::natural::Natural;
         let pos = redsim::entity::Vec3::new(p[0], p[1], p[2]);
-        ours.mob.natural = Some(Natural { spawning: false, spawn_enemies: false, void_biome: Some("minecraft:plains"), spawn_order: game.spawning(), ..Natural::new(vec![pos], s.difficulty) });
+        let on = scene_spawns(&s.name);
+        ours.mob.natural = Some(Natural { spawning: on, spawn_enemies: on, void_biome: Some("minecraft:plains"), spawn_order: game.spawning(), ..Natural::new(vec![pos], s.difficulty) });
     }
     let game_ids = game.summon(s)?;
     let our_ids = redsim_summon(&mut ours, s)?;
@@ -1625,7 +1689,8 @@ pub fn sensor_sweep(name: &str, villager: u32, reveal: u32, dir: &std::path::Pat
     if let Some(p) = s.player {
         use redsim::entity::mob::natural::Natural;
         let pos = redsim::entity::Vec3::new(p[0], p[1], p[2]);
-        ours.mob.natural = Some(Natural { spawning: false, spawn_enemies: false, void_biome: Some("minecraft:plains"), spawn_order: list("spawning"), ..Natural::new(vec![pos], s.difficulty) });
+        let on = scene_spawns(&s.name);
+        ours.mob.natural = Some(Natural { spawning: on, spawn_enemies: on, void_biome: Some("minecraft:plains"), spawn_order: list("spawning"), ..Natural::new(vec![pos], s.difficulty) });
     }
     redsim_summon(&mut ours, s)?;
     let t0 = first["t"].as_i64().unwrap_or(1);

@@ -120,8 +120,8 @@ pub static DEFS: &[TypeDef] = &[
     row(46, "skeleton_horse", "minecraft:skeleton_horse", 1.3964844, 1.6, 1.52, 15.0, 0.2f32 as f64, false, false, 1.0),
     // a nether portal's zombified piglin (MONSTER, fire immune; Zombie's FOLLOW_RANGE 35 and ARMOR
     // 2; its baby's BABY_DIMENSIONS 0.49 x 0.98, eye 0.78)
-    TypeDef { follow_range: 35.0, armor: 2.0, riding_offset: -0.7, ..row(47, "zombified_piglin", "minecraft:zombified_piglin", 0.6, 1.95, 1.79, 20.0, 0.23f32 as f64, true, false, 0.6) },
-    TypeDef { follow_range: 35.0, armor: 2.0, ..row(48, "baby_zombified_piglin", "minecraft:zombified_piglin", 0.49, 0.98, 0.78, 20.0, 0.23f32 as f64 * 1.5, true, false, 0.6) },
+    TypeDef { follow_range: 35.0, armor: 2.0, riding_offset: -0.7, fire_immune: true, loot: &[("minecraft:rotten_flesh", 0, 1), ("minecraft:gold_nugget", 0, 1)], ..row(47, "zombified_piglin", "minecraft:zombified_piglin", 0.6, 1.95, 1.79, 20.0, 0.23f32 as f64, true, false, 0.6) },
+    TypeDef { follow_range: 35.0, armor: 2.0, fire_immune: true, loot: &[("minecraft:rotten_flesh", 0, 1), ("minecraft:gold_nugget", 0, 1)], ..row(48, "baby_zombified_piglin", "minecraft:zombified_piglin", 0.49, 0.98, 0.78, 20.0, 0.23f32 as f64 * 1.5, true, false, 0.6) },
 ];
 
 // ------------------------------------------------------------------------- the categories
@@ -1456,10 +1456,16 @@ fn piglin_finalize(w: &mut World, nat: &Natural) -> (bool, Jockey, bool) {
 /// is fire immune) `EntityType.spawn(pos.above(), STRUCTURE)`: constructed, `snapTo` the cell's
 /// bottom centre at `wrapDegrees(nextFloat() x 360)` (head and body too), `finalizeSpawn`,
 /// `playAmbientSound` (its own random's pitch), added with its passengers; then
-/// `setPortalCooldown` (300) on it and its vehicle. Its AI is not modeled: the legacy walk model,
-/// named in the run's report. Returns the piglin's id.
+/// `setPortalCooldown` (300) on it and its vehicle. Its AI: `goal::zombie::register_zombified_piglin`
+/// (tickexact 2026-11-10, bridge-checked in the piglin-golem scene). A void run (no natural mob
+/// world: the judge's) has its AFK player as the one player. Returns the piglin's id.
 pub fn portal_piglin(w: &mut World, at: BlockPos) -> Option<u32> {
-    let nat = w.mob.natural.as_ref()?.clone();
+    // a natural mob world's players; a void run's (the judge's): its AFK player, the mob layer's
+    // difficulty (tickexact 2026-11-10)
+    let nat = match w.mob.natural.as_ref() {
+        Some(n) => n.clone(),
+        None => Natural::new(vec![w.afk?], w.mob.ai.difficulty),
+    };
     let (cx, cz) = ((at.x >> 4) * 16 + 8, (at.z >> 4) * 16 + 8);
     let close = nat.players.iter().any(|p| {
         let (dx, dz) = (p.x - cx as f64, p.z - cz as f64);
@@ -1492,9 +1498,10 @@ pub fn portal_piglin(w: &mut World, at: BlockPos) -> Option<u32> {
     let ty = if baby { MobType::Natural(48) } else { MobType::Natural(47) };
     let f = Finalized { ty, baby, jockey, helmet: None, rider_helmet: None, breaks_doors, rider_breaks_doors: false, color: 0, rider_chicken: Jockey::None, horse: None };
     let id = spawn_mob(w, k, &f, Vec3::new(pos.x as f64 + 0.5, (pos.y + 1) as f64, pos.z as f64 + 0.5), yaw);
-    // the spawn's draws follow the game's code but no bridge scene has compared them yet (the
-    // bridge's scenes run without spawn_mobs, which the portal needs): named in the run's report
-    w.mob.ai.legacy.insert("a zombified piglin from a nether portal (its spawn's draws not yet compared with the game)");
+    // the spawn's draws follow the game's code but no bridge scene has compared them yet (a scene
+    // with spawn_mobs on, which the portal needs, runs the natural spawner, whose light redsim
+    // models in terrain worlds only: `portal-piglin`); its AI is modeled (the piglin-golem scene)
+    // and its rate is the game's (random ticks x 3/2000 on Hard, `portal-probe --piglins`)
     if let Some(j) = crate::entity::index_of(w, id) {
         // playAmbientSound: getVoicePitch's two floats of its own random
         if let Some(r) = w.entities.list[j].random.as_mut() {

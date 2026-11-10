@@ -243,7 +243,8 @@ fn alert_others(w: &mut World, i: usize) {
     let p = w.entities.list[i].pos;
     let area = Aabb::new(p.x, p.y, p.z, p.x + 1.0, p.y + 1.0, p.z + 1.0).inflate(within, 10.0, within);
     let ty = mob(w, i).ty;
-    let family = |t: MobType| t == ty || (ty == MobType::Zombie && matches!(t.def().id, "zombie_villager" | "drowned" | "baby_zombie" | "baby_zombie_villager" | "baby_drowned"));
+    // (a zombified piglin's alertOthers is its class's: both sizes)
+    let family = |t: MobType| t == ty || (ty == MobType::Zombie && matches!(t.def().id, "zombie_villager" | "drowned" | "baby_zombie" | "baby_zombie_villager" | "baby_drowned")) || (super::zombie::is_piglin_type(ty) && super::zombie::is_piglin_type(t));
     let Some(by) = ai(w, i).last_hurt_by_mob else { return };
     for t in target::mobs_in(w, area, family) {
         let Who::Entity(j) = t else { continue };

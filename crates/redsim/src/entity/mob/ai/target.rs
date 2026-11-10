@@ -127,6 +127,10 @@ pub fn get_target(w: &World, i: usize) -> Option<u32> {
 /// without one).
 pub fn set_target(w: &mut World, i: usize, t: Option<u32>) {
     let v = as_valid_target(w, i, t);
+    let before = ai(w, i).target;
+    // (tickexact 2026-11-10) ZombifiedPiglin.setTarget: a first target draws its anger-sound
+    // delay and alert interval
+    super::goal::zombie::piglin_on_set_target(w, i, before, v);
     ai_mut(w, i).target = v;
     // a zombie holding an iron spear with a target: SpearUseGoal (priority 2) would charge with
     // it; not modeled, its melee attack runs instead (named in the run's legacy list)

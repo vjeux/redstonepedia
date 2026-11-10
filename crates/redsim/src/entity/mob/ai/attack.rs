@@ -16,6 +16,8 @@ use crate::world::World;
 pub fn attack_damage(w: &World, i: usize) -> f32 {
     match mob(w, i).ty.def().id {
         "zombie" | "baby_zombie" | "zombie_villager" | "baby_zombie_villager" | "husk" | "drowned" | "baby_drowned" => 3.0,
+        // ZombifiedPiglin.createAttributes
+        "zombified_piglin" | "baby_zombified_piglin" => 5.0,
         "iron_golem" => 15.0,
         "spider" | "cave_spider" => 2.0,
         "skeleton" | "stray" | "bogged" => 2.0,

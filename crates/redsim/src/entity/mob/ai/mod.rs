@@ -93,6 +93,9 @@ pub struct MobAi {
     pub squid: Option<squid::SquidState>,
     /// An enderman's carried block and target change time.
     pub enderman: Option<goal::enderman::EndermanState>,
+    /// (tickexact 2026-11-10, the portal pad) A zombified piglin's own state (its first anger
+    /// sound's countdown, its alert interval): `ZombifiedPiglin`.
+    pub piglin: Option<goal::zombie::PiglinState>,
     /// A witch drinking: the potion (0 water breathing, 1 fire resistance, 2 healing, 3 swiftness)
     /// and its `usingTime`.
     pub witch_drink: Option<(u8, i32)>,
@@ -183,6 +186,7 @@ impl MobAi {
             cube: None,
             squid: None,
             enderman: None,
+            piglin: None,
             witch_drink: None,
             horse: None,
             spear: false,
@@ -245,6 +249,10 @@ pub fn movement_speed(w: &World, i: usize) -> f64 {
     // an enderman with a target: SPEED_MODIFIER_ATTACKING (+0.15)
     if ai(w, i).enderman.is_some() {
         return base + goal::enderman::speed_bonus(w, i);
+    }
+    // an angry adult zombified piglin: SPEED_MODIFIER_ATTACKING (+0.05, ADD_VALUE)
+    if ai(w, i).piglin.is_some_and(|p| p.attacking) {
+        return base + 0.05;
     }
     // a witch drinking: -0.25 (ADD_VALUE); the speed effect: x (1 + 0.2F) (ADD_MULTIPLIED_TOTAL)
     let add = if ai(w, i).witch_drink.is_some() { -0.25 } else { 0.0 };
@@ -475,6 +483,8 @@ fn custom_server_ai_step(w: &mut World, i: usize) {
         bat::custom_server_ai_step(w, i);
     } else if ai(w, i).enderman.is_some() {
         goal::enderman::custom_server_ai_step(w, i);
+    } else if ai(w, i).piglin.is_some() {
+        goal::zombie::piglin_custom_server_ai_step(w, i);
     }
 }
 

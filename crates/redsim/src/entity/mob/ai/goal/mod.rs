@@ -478,6 +478,7 @@ pub fn tick(w: &mut World, i: usize, g: &mut Goal) {
 pub fn register_goals(ai: &mut MobAi, ty: MobType) {
     match ty.def().id {
         "zombie" | "baby_zombie" | "zombie_villager" | "baby_zombie_villager" => zombie::register(ai),
+        "zombified_piglin" | "baby_zombified_piglin" => zombie::register_zombified_piglin(ai),
         "drowned" | "baby_drowned" => drowned::register(ai),
         "iron_golem" => golem::register(ai),
         "creeper" => creeper::register(ai),

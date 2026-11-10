@@ -1135,9 +1135,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for f in r.failures.iter().chain(r.errors.iter()) {
                 println!("FAIL {f}");
             }
-            // (the portal pad: golems through the Nether portal, the iron burnt on the way)
+            // (the portal pad: golems through the Nether portal, the iron burnt on the way, and
+            // the zombified piglins its portal spawned)
             if r.crossings > 0 || spec.nether.is_some() {
                 println!("the Nether: {} golems through the portal, {} iron burnt", r.crossings, r.iron_burnt);
+            }
+            if r.piglins_spawned > 0 || spec.nether.is_some() {
+                let days = r.ticks as f64 / 24000.0;
+                println!("zombified piglins: {} spawned, {} killed, {} through a portal ({:.2} spawned per day)", r.piglins_spawned, r.piglins_killed, r.piglins_crossed, r.piglins_spawned as f64 / days.max(1e-9));
             }
             if !r.riding_middays.is_empty() {
                 println!(

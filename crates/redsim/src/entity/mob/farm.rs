@@ -165,6 +165,11 @@ pub struct RunReport {
     pub deaths: u32,
     /// (tickexact 2026-11-10) The farm's golems through a nether portal (the portal pad's).
     pub crossings: u32,
+    /// The zombified piglins the farm's portals spawned (random ticks near the AFK player on
+    /// Hard), those killed, and those through a portal (ironspec 2026-11-10: the card prints them).
+    pub piglins_spawned: u32,
+    pub piglins_killed: u32,
+    pub piglins_crossed: u32,
     pub iron_dropped: u32,
     pub poppies_dropped: u32,
     pub iron_in_chest: u32,
@@ -581,13 +586,15 @@ struct Track {
     riders: std::collections::HashSet<u32>,
     /// (tickexact 2026-11-10) The crossings (`World::crossings`) already followed.
     crossed: usize,
+    /// The zombified piglins seen (the portal's, in either world).
+    piglins: std::collections::HashSet<u32>,
 }
 
 impl Track {
     /// The tracking of a run that just arrived: its own villagers' homes and last sleeps.
     fn new(r: &Run, spec: &FarmSpec) -> Track {
         let own: std::collections::HashSet<u32> = r.own.iter().copied().collect();
-        let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0, own, at_zombie: Default::default(), burnt: Default::default(), cluster_of: Default::default(), summoned_by: Default::default(), seen_by_others: Default::default(), riders: Default::default(), crossed: 0 };
+        let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0, own, at_zombie: Default::default(), burnt: Default::default(), cluster_of: Default::default(), summoned_by: Default::default(), seen_by_others: Default::default(), riders: Default::default(), crossed: 0, piglins: Default::default() };
         for e in &r.world.entities.list {
             if let EntityKind::Mob(m) = &e.kind
                 && m.ty == MobType::Villager
@@ -919,6 +926,21 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
             tr.drops.push(to);
             rep.fail(format!("gt {at}: a drop went through a nether portal (the farm must keep its drops out of the portal's cells)"));
         }
+        if tr.piglins.contains(&from) {
+            tr.piglins.insert(to);
+            rep.piglins_crossed += 1;
+        }
+    }
+    // the zombified piglins the portals spawned (new ones in the overworld; a copy through a
+    // portal was followed above)
+    for e in &w.entities.list {
+        if let EntityKind::Mob(m) = &e.kind
+            && !e.removed
+            && super::ai::goal::zombie::is_piglin_type(m.ty)
+            && tr.piglins.insert(e.id)
+        {
+            rep.piglins_spawned += 1;
+        }
     }
     // the Nether's events after the overworld's (its level ticks second)
     let mut events = std::mem::take(&mut w.mob.events);
@@ -1002,6 +1024,7 @@ fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
                 }
             }
             MobEvent::Death { id, ty, .. } if tr.own.contains(&id) => rep.fail(format!("gt {t}: the {} (entity {id}) died", ty.def().id)),
+            MobEvent::Death { id, ty, .. } if super::ai::goal::zombie::is_piglin_type(ty) && tr.piglins.contains(&id) => rep.piglins_killed += 1,
             // the farm's golems' drops (a natural mob's are not the farm's)
             MobEvent::Drop { from, item, what, count, .. } if tr.own.contains(&from) => {
                 match what {

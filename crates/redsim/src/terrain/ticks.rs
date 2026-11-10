@@ -70,13 +70,9 @@ pub fn random_tick(w: &mut World, id: u16, p: BlockPos) {
                     Difficulty::Hard => 3,
                 };
                 if r(w).next_int(2000) < id {
-                    // the spawn (or nothing: no player close enough, no valid floor); without a
-                    // natural mob world it is refused
-                    if w.mob.natural.is_none() {
-                        error(w, "a zombified piglin spawning from a nether portal (outside a natural mob world) is not modeled".into());
-                    } else {
-                        crate::entity::mob::natural::portal_piglin(w, p);
-                    }
+                    // the spawn (or nothing: no player close enough, no valid floor); a void
+                    // run's player is its AFK player (tickexact 2026-11-10, the portal pad)
+                    crate::entity::mob::natural::portal_piglin(w, p);
                 }
             }
         }

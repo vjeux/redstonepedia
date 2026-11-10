@@ -1254,10 +1254,12 @@ kick) before the first input.
   past them, a farm entity frozen there, a golem leaving the part or alive 1200 gt after its spawn
   fail), follows each golem through the portal, counts the iron in both chests, and fails a drop
   that goes through a portal; the gate pastes the part in the server's Nether (its box cleared)
-  and counts its iron the same way. Not modeled yet (refused): a portal the game would create
-  (no Nether portal within 16 of a crossing's target), riders crossing, zombified piglins from the
-  pad's portal in a void run (`mctas mobai portal-probe --piglins`: they spawn on its bottom frame
-  near a player, on Normal and Hard). The judge refuses what the mob layer does not model (static checks:
+  and counts its iron the same way. A farm portal's zombified piglins (`mctas mobai portal-probe
+  --piglins`: on Normal and Hard each portal cell's random tick, near a player (a void run's: its
+  AFK player), puts one on the bottom frame with a 300-gt portal cooldown) are modeled with their
+  AI (Zombie's goals, the anger, golems taking them as targets: the piglin-golem scene, exact) and
+  counted on the card (spawned, killed, through a portal). Not modeled yet (refused): a portal the
+  game would create (no Nether portal within 16 of a crossing's target), riders crossing. The judge refuses what the mob layer does not model (static checks:
   job sites, a zombie that does not ride, villagers that can walk,
   gossip, climbable blocks...), floods every position a golem can stand on from every spawn spot
   (with its edge spots: box sides 0.0005 inside or outside block boundaries, where a current can

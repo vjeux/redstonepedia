@@ -783,6 +783,17 @@ fn hurt_inner(w: &mut World, i: usize, src: Damage, amount: f32) -> bool {
     if mob(w, i).health <= 0.0 {
         die(w, i, src);
     }
+    // (tickexact 2026-11-10) Zombie.hurtServer after the hurt, for a zombified piglin: on Hard
+    // with a target (its own, or the living attacker), the reinforcements' roll (`nextFloat() <
+    // SPAWN_REINFORCEMENTS_CHANCE`: 0 for it, never a spawn) draws from its own random
+    if super::ai::goal::zombie::is_piglin_type(ty)
+        && super::ai::has_ai(w, i)
+        && super::ai::difficulty_id(w) == 3
+        && (super::ai::target::get_target(w, i).is_some() || (src == Damage::MobAttack && w.mob.ai.attacker.is_some()))
+        && let Some(r) = w.entities.list[i].random.as_mut()
+    {
+        r.next_float();
+    }
     true
 }
 
