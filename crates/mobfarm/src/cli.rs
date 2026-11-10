@@ -423,6 +423,58 @@ pub enum MobfarmCmd {
         #[arg(long)]
         timeline: Option<PathBuf>,
     },
+    /// The carousel's station + portal pad (brief farm-iron-carousel.md, "The parts" 3): write its
+    /// bench design, the pad (portal planes with a trench row on both sides, a tripwire line on
+    /// each frame) on the release + hold part's bench (`mobfarm hold`).
+    Station {
+        /// The trench rows' x range (the portals' interior one in from each end).
+        #[arg(long, default_value_t = -2, allow_hyphen_values = true)]
+        x0: i32,
+        #[arg(long, default_value_t = 8)]
+        x1: i32,
+        /// The portal planes' z, comma-separated (3 or more apart).
+        #[arg(long, default_value = "-5,-2", allow_hyphen_values = true)]
+        planes: String,
+        /// The frames' bottom row (y).
+        #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+        by: i32,
+        /// The portals' height.
+        #[arg(long, default_value_t = 3)]
+        h: i32,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// The station's static check: each of the 21 stand riders' golem search, cell by cell (the
+    /// judge's function), every spawn spot classed by its portal contact; the batch's own parked
+    /// carts against each spot; every entity a cell clear of the portals; each batch's success per
+    /// slot for 1, 2 and 3 willing callers; the pad's counts.
+    StationCheck {
+        design: PathBuf,
+        /// Print every stray spot.
+        #[arg(long)]
+        verbose: bool,
+        /// Instead: a golem placed on this trench cell (x,y,z: its feet) and the pulse's path
+        /// printed each tick.
+        #[arg(long, allow_hyphen_values = true)]
+        probe: Option<String>,
+    },
+    /// The station's bench: the seven batches through the slots on the release + hold part's lines,
+    /// measuring each slot's willing riders, tries and golem, each golem's stay in the overworld and
+    /// contact, the counter's pulse (its delay from the spawn and its length), the zombified
+    /// piglins.
+    StationBench {
+        design: PathBuf,
+        #[arg(long, default_value_t = 1)]
+        from: i64,
+        #[arg(long, default_value_t = 20)]
+        to: i64,
+        #[arg(long, default_value_t = 1)]
+        days: u32,
+        #[arg(long, default_value_t = 20)]
+        jitter: u32,
+        #[arg(long)]
+        jobs: Option<usize>,
+    },
     /// The judge's run of a design on many seeds at once (the carousel's robustness: "21 of 100
     /// seeds hold 3 days"): each seed's verdict (its first failure, or PASS) with its golems, iron
     /// and riders at each midday, then how many hold and the first failures counted by kind.
@@ -675,6 +727,148 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let text = crate::hold::design(&o)?;
             std::fs::write(&out, text)?;
             println!("{}", out.display());
+        }
+        MobfarmCmd::Station { x0, x1, planes, by, h, out } => {
+            let planes: Vec<i32> = planes.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
+            let o = crate::station::PadOpts { x0, x1, planes, by, h };
+            let text = crate::station::design(&o, &crate::hold::LaneOpts::default())?;
+            std::fs::write(&out, text)?;
+            println!("{}", out.display());
+        }
+        MobfarmCmd::StationCheck { design, verbose, probe } => {
+            let (c, spec) = load(version, &design)?;
+            let lanes = crate::hold::lanes_of(&c.clock.design.meta)?;
+            let pad = crate::station::PadOpts::of(&c.clock.design.meta)?;
+            if let Some(p) = probe {
+                let v: Vec<i32> = p.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 3, "--probe x,y,z");
+                for l in crate::station::probe_pulse(&spec, &pad, [v[0], v[1], v[2]], 14).map_err(|e| anyhow::anyhow!(e))? {
+                    println!("{l}");
+                }
+                return Ok(());
+            }
+            let r = crate::station::check(&spec, &lanes, &pad).map_err(|e| anyhow::anyhow!(e))?;
+            let ks: Vec<usize> = r.riders.iter().map(|s| s.valid.len() - s.obstructed.len().min(s.valid.len())).collect();
+            let strays: usize = r.riders.iter().map(|s| s.stray.len()).sum();
+            let mut union: std::collections::BTreeSet<[i32; 3]> = Default::default();
+            let mut inter: Option<std::collections::BTreeSet<[i32; 3]>> = None;
+            for s in &r.riders {
+                let set: std::collections::BTreeSet<[i32; 3]> = s.valid.iter().copied().collect();
+                union.extend(set.iter().copied());
+                inter = Some(match inter {
+                    None => set,
+                    Some(i) => i.intersection(&set).copied().collect(),
+                });
+            }
+            println!("pad: {} blocks ({} obsidian, {} portal cells), box x {}..{} y {}..{} z {}..{}", r.pad_blocks, r.obsidian, r.portal_cells, r.pad_box.0[0], r.pad_box.1[0], r.pad_box.0[1], r.pad_box.1[1], r.pad_box.0[2], r.pad_box.1[2]);
+            println!("valid spots per rider (portal contact, not under the batch's own carts): min {} max {}; union {}, in every search {}", ks.iter().min().unwrap_or(&0), ks.iter().max().unwrap_or(&0), union.len(), inter.map_or(0, |i| i.len()));
+            for b in 0..crate::hold::BATCHES {
+                let row: Vec<String> = r.riders.iter().filter(|s| s.lane == b).map(|s| format!("L{} {}{}", s.level, s.valid.len() - s.obstructed.len().min(s.valid.len()), if s.obstructed.is_empty() { String::new() } else { format!(" ({} under its carts)", s.obstructed.len()) })).collect();
+                println!("lane {b}: {} | success per slot: 3 callers {:.3}%, 2 {:.3}%, 1 {:.3}%", row.join(", "), 100.0 * r.success(b, 3), 100.0 * r.success(b, 2), 100.0 * r.success(b, 1));
+            }
+            println!("stray spots (spawnable, no portal contact): {strays}");
+            if verbose || strays <= 12 {
+                for s in &r.riders {
+                    for c in &s.stray {
+                        println!("  lane {} level {}: {c:?}", s.lane, s.level);
+                    }
+                }
+            }
+            let touching = r.near_portal.iter().filter(|(_, g)| *g <= 0.0).count();
+            println!("boxes within a cell of a portal: {} ({touching} touching one)", r.near_portal.len());
+            for (n, g) in r.near_portal.iter().take(12) {
+                println!("  {n}: {g:.3} from the nearest portal cell");
+            }
+            let ok = strays == 0 && touching == 0;
+            println!("{}{}", if ok { "PASS" } else { "FAIL" }, if ok && !r.near_portal.is_empty() { " (with boxes under a cell from a portal: the contract's margin)" } else { "" });
+            if !ok {
+                std::process::exit(1);
+            }
+        }
+        MobfarmCmd::StationBench { design, from, to, days, jitter, jobs } => {
+            let (c, spec) = load(version, &design)?;
+            let lanes = crate::hold::lanes_of(&c.clock.design.meta)?;
+            let pad = crate::station::PadOpts::of(&c.clock.design.meta)?;
+            let static_check = crate::station::check(&spec, &lanes, &pad).map_err(|e| anyhow::anyhow!(e))?;
+            let seeds: Vec<i64> = (from..=to).collect();
+            let jobs = jobs.unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8)).max(1);
+            let next = std::sync::atomic::AtomicUsize::new(0);
+            let out: std::sync::Mutex<Vec<(i64, Result<crate::station::BenchReport, String>)>> = std::sync::Mutex::new(Vec::new());
+            let t0 = std::time::Instant::now();
+            std::thread::scope(|sc| {
+                for _ in 0..jobs.min(seeds.len()) {
+                    sc.spawn(|| loop {
+                        let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(&seed) = seeds.get(k) else { break };
+                        let r = crate::station::bench(&spec, &lanes, &pad, &crate::station::BenchOpts { seed, days, jitter, verbose: false });
+                        out.lock().unwrap().push((seed, r));
+                    });
+                }
+            });
+            let mut rows = out.into_inner().unwrap();
+            rows.sort_by_key(|r| r.0);
+            let (mut slots, mut summoned, mut lingering, mut viol, mut spurious, mut piglins, mut crossed) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+            let mut willing = [0u64; 4];
+            let mut tries = [0u64; 4];
+            let mut failed_at = [0u64; 4];
+            let mut panicking = [0u64; 4];
+            let mut dwell: std::collections::BTreeMap<i64, u64> = Default::default();
+            let mut pulse_delay: std::collections::BTreeMap<Option<i64>, u64> = Default::default();
+            let mut pulse_len: std::collections::BTreeMap<i64, u64> = Default::default();
+            let mut predicted = 0.0;
+            let mut strays: Vec<String> = Vec::new();
+            for (seed, r) in &rows {
+                match r {
+                    Err(e) => println!("seed {seed}: ERROR {e}"),
+                    Ok(r) => {
+                        slots += r.slots as u64;
+                        summoned += r.summoned as u64;
+                        lingering += r.lingering as u64;
+                        viol += r.violation_count as u64;
+                        spurious += r.spurious_pulses as u64;
+                        piglins += r.piglins as u64;
+                        crossed += r.piglins_crossed as u64;
+                        for (n, &w) in r.willing.iter().enumerate() {
+                            willing[(w as usize).min(3)] += 1;
+                            let lane = (n % crate::hold::BATCHES as usize) as i32;
+                            predicted += static_check.success(lane, w as usize);
+                        }
+                        for (j, &t) in r.tries.iter().enumerate() {
+                            tries[(t as usize).min(3)] += 1;
+                            if !r.ok.get(j).copied().unwrap_or(false) {
+                                failed_at[(t as usize).min(3)] += 1;
+                            }
+                        }
+                        for &p in &r.panicking {
+                            panicking[(p as usize).min(3)] += 1;
+                        }
+                        for &d in &r.dwell {
+                            *dwell.entry(d).or_insert(0) += 1;
+                        }
+                        for &(d, l) in &r.pulse {
+                            *pulse_delay.entry(d).or_insert(0) += 1;
+                            if d.is_some() {
+                                *pulse_len.entry(l).or_insert(0) += 1;
+                            }
+                        }
+                        strays.extend(r.stray.iter().cloned());
+                        if !r.violations.is_empty() || !r.errors.is_empty() {
+                            println!("seed {seed}: {} violation(s): {}; errors: {}", r.violation_count, r.violations.join("; "), r.errors.join("; "));
+                        }
+                    }
+                }
+            }
+            let pct = |a: u64, b: u64| if b == 0 { 0.0 } else { 100.0 * a as f64 / b as f64 };
+            println!("{} seeds x {days} day(s): {slots} slots, a golem in {summoned} ({:.3}%; the static check's odds at each slot's willing count: {:.3}%)", rows.len(), pct(summoned, slots), if slots == 0 { 0.0 } else { 100.0 * predicted / slots as f64 });
+            println!("riders wanting a golem at the slot (0/1/2/3): {:?}; tries per slot (0/1/2/3): {:?}, of which no golem: {:?}; riders panicking at the slot (0/1/2/3): {:?}", willing, tries, failed_at, panicking);
+            println!("golems' overworld stay (gt: count): {dwell:?}; still there at the end: {lingering}");
+            println!("pulse delay from the spawn tick (gt: count; None = no pulse): {pulse_delay:?}; length (gt: count): {pulse_len:?}; pulses without a golem: {spurious}");
+            println!("golems touching no portal: {}", strays.len());
+            for s in strays.iter().take(8) {
+                println!("  {s}");
+            }
+            println!("zombified piglins: {piglins} seen, {crossed} crossed (a void run spawns none: the portal's piglins need the natural spawner)");
+            println!("violations: {viol}; {:.1} s", t0.elapsed().as_secs_f64());
         }
         MobfarmCmd::HoldBench { design, from, to, days, jitter, jobs, verbose, timeline } => {
             let (c, spec) = load(version, &design)?;
