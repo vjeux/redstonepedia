@@ -1041,6 +1041,11 @@ pub fn base_tick(w: &mut World, i: usize) {
         e.was_eye_in_water = e.fluid.eye_in_water();
     }
     fluid_push::update_fluid_interaction(w, i);
+    // (tickexact 2026-11-10) Entity.baseTick's updateSwimming: a drowned with its AI swims under
+    // water while it wants to (the other modeled mobs never swim)
+    if matches!(&w.entities.list[i].kind, EntityKind::Mob(m) if m.ai.is_some() && crate::entity::mob::ai::goal::drowned::is_drowned_id(m.ty.def().id)) {
+        crate::entity::mob::ai::goal::drowned::update_swimming(w, i);
+    }
     let e = &mut w.entities.list[i];
     // `checkBelowWorld`: below the world's bottom by 64
     if e.pos.y < (crate::gravity::MIN_Y - 64) as f64 {

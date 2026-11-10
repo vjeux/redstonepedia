@@ -440,7 +440,7 @@ pub fn stop(w: &mut World, i: usize, g: &mut Goal) {
         Goal::Squid(_) => {}
         Goal::Witch(_) => {}
         Goal::Enderman(_) => {}
-        Goal::Drowned(_) => {}
+        Goal::Drowned(d) => drowned::stop(w, i, d),
         Goal::HurtByTarget(h) => targets::target_stop(w, i, &mut h.base),
         Goal::NearestAttackableTarget(n) => targets::target_stop(w, i, &mut n.base),
     }
@@ -469,7 +469,7 @@ pub fn tick(w: &mut World, i: usize, g: &mut Goal) {
         Goal::Squid(s) => super::squid::tick(w, i, s),
         Goal::Witch(_) => {}
         Goal::Enderman(g) => enderman::tick(w, i, g),
-        Goal::Drowned(_) => {}
+        Goal::Drowned(d) => drowned::tick(w, i, d),
         Goal::HurtByTarget(_) | Goal::NearestAttackableTarget(_) => {}
     }
 }

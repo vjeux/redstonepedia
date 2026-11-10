@@ -186,8 +186,9 @@ pub fn update_fluid_interaction(w: &mut World, i: usize) -> bool {
     // (O(1): a clone of a villager's brain every tick was a fifth of the mob AI's time); nothing
     // here reads the entity list
     let mut e = w.entities.list.swap_remove(i);
-    // AgeableWaterCreature.isPushedByFluid: false (a squid with its AI: no current, none applied)
-    let pushed = !matches!(&e.kind, crate::entity::EntityKind::Mob(m) if m.ai.is_some() && crate::entity::mob::ai::squid::is_squid_id(m.ty.def().id));
+    // AgeableWaterCreature.isPushedByFluid: false (a squid with its AI: no current, none applied);
+    // Drowned.isPushedByFluid: not while it swims (last tick's updateSwimming)
+    let pushed = !matches!(&e.kind, crate::entity::EntityKind::Mob(m) if m.ai.is_some() && (crate::entity::mob::ai::squid::is_squid_id(m.ty.def().id) || m.ai.as_deref().is_some_and(|a| a.swimming)));
     let in_any = update(w, &mut e, !pushed);
     let in_water = e.fluid.in_water();
     if in_water {

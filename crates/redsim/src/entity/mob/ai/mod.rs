@@ -93,6 +93,10 @@ pub struct MobAi {
     pub squid: Option<squid::SquidState>,
     /// An enderman's carried block and target change time.
     pub enderman: Option<goal::enderman::EndermanState>,
+    /// (tickexact 2026-11-10) A drowned's `searchingForLand` (its swim up's) and the entity's
+    /// `isSwimming` (`Drowned.updateSwimming` in `baseTick`: under water and wanting to swim).
+    pub searching_for_land: bool,
+    pub swimming: bool,
     /// (tickexact 2026-11-10, the portal pad) A zombified piglin's own state (its first anger
     /// sound's countdown, its alert interval): `ZombifiedPiglin`.
     pub piglin: Option<goal::zombie::PiglinState>,
@@ -186,6 +190,8 @@ impl MobAi {
             cube: None,
             squid: None,
             enderman: None,
+            searching_for_land: false,
+            swimming: false,
             piglin: None,
             witch_drink: None,
             horse: None,
@@ -493,9 +499,10 @@ pub fn move_control_tick(w: &mut World, i: usize) {
     if ai(w, i).cube.is_some() {
         return cube::move_control_tick(w, i);
     }
-    // DrownedMoveControl.tick: its swim (refused), else 0.008 more fall off the ground first
-    if goal::drowned::is_drowned(w, i) {
-        goal::drowned::move_control_before(w, i);
+    // DrownedMoveControl.tick: swimming (it wants to and is in water) replaces MoveControl's tick;
+    // else 0.008 more fall off the ground first
+    if goal::drowned::is_drowned(w, i) && goal::drowned::move_control_before(w, i) {
+        return;
     }
     let op = ai(w, i).move_ctl.operation;
     match op {

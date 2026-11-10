@@ -583,6 +583,16 @@ fn fluid_falling_adjusted(gravity: f64, falling: bool, m: Vec3) -> Vec3 {
 
 /// `LivingEntity.travelInWater` (no water walker, no dolphin's grace, nobody sprints).
 fn travel_in_water(w: &mut World, i: usize, input: Vec3, gravity: f64, falling: bool, old_y: f64) {
+    // (tickexact 2026-11-10) Drowned.travelInWater: under water and wanting to swim, 0.01 of the
+    // input, the move, the motion x 0.9 (no gravity, no jump out)
+    if super::ai::has_ai(w, i) && super::ai::goal::drowned::is_drowned(w, i) && super::ai::goal::drowned::is_under_water(w, i) && super::ai::goal::drowned::wants_to_swim(w, i) {
+        move_relative(w, i, 0.01, input);
+        let d = w.entities.list[i].delta_movement;
+        entity::move_(w, i, MoverType::Self_, d);
+        let e = &mut w.entities.list[i];
+        e.delta_movement = e.delta_movement.scale(0.9);
+        return;
+    }
     let slow = 0.8f32;
     move_relative(w, i, 0.02, input);
     let d = w.entities.list[i].delta_movement;

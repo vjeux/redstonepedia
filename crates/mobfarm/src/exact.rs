@@ -193,8 +193,21 @@ fn print_probed(f: &Frame, ours: &Frame) {
     for &n in ids {
         let g = f.entities.iter().find(|e| e.n == n);
         let o = ours.entities.iter().find(|e| e.n == n);
-        eprintln!("t{} #{n} game:   {:?}", f.t, g.map(|e| (e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time, e.yaw, &e.memories)));
-        eprintln!("t{} #{n} redsim: {:?}", f.t, o.map(|e| (e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time, e.yaw, &e.memories)));
+        eprintln!("t{} #{n} game:   {:?}", f.t, g.map(|e| (&e.ty, &e.item, e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time, e.yaw, &e.memories)));
+        eprintln!("t{} #{n} redsim: {:?}", f.t, o.map(|e| (&e.ty, &e.item, e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time, e.yaw, &e.memories)));
+        // (tickexact 2026-11-10) the game's other entities within 3 of it (who picks it up, who
+        // pushes it)
+        if let Some(c) = g {
+            let near: Vec<String> = f
+                .entities
+                .iter()
+                .filter(|e| e.n != n && (0..3).map(|k| (e.pos[k] - c.pos[k]).powi(2)).sum::<f64>() < 9.0)
+                .map(|e| format!("#{} {} at {:.2} {:.2} {:.2}", e.n, e.ty, e.pos[0], e.pos[1], e.pos[2]))
+                .collect();
+            if !near.is_empty() {
+                eprintln!("t{} #{n} near (game): {}", f.t, near.join("; "));
+            }
+        }
     }
 }
 
