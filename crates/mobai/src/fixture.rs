@@ -67,6 +67,11 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         // the carousel's rider: the second villager's pen opened once the carted one holds the bed
         "bed-cart" => vec![(400, vec![s([40, 64, 38], "minecraft:air"), s([40, 65, 38], "minecraft:air")])],
         // (tickexact) the nap's panic wake: the window on the penned zombie opened, shut, opened
+        "cart-train" => vec![
+            (100, vec![s([24, 62, 13], "minecraft:redstone_torch")]),
+            (700, vec![s([24, 62, 13], "minecraft:air")]),
+            (800, vec![s([24, 62, 30], "minecraft:redstone_torch")]),
+        ],
         "bed-panic" => vec![
             (2000, vec![s([35, 65, 21], "minecraft:air")]),
             (2400, vec![s([35, 65, 21], "minecraft:stone")]),
@@ -442,6 +447,69 @@ fn scenes_raw() -> Vec<Scene> {
                 ("minecraft:villager".into(), [14.5, 64.0, 10.5], Some("{PersistenceRequired:1b}".into())),
             ],
             day_time: 11000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
+    }
+    // (tickexact 2026-11-09, ironfarm's release + hold, its geometry as described) a lane along z
+    // on glass supports: at each end a 3-rail incline of powered rails descending into the lane
+    // with 2 flat powered rails at its foot (stone supports: a redstone torch under one powers the
+    // end), a glass stop at the incline's top; 15 flat rails between with a booster (a powered rail
+    // on a redstone block) every 4. Three carts with villagers aboard, touching, rest braked on the
+    // north incline. At 100 a torch under the north foot powers that end: they roll down (gravity
+    // and boost, no kick), run the lane and climb the unpowered south incline (brake: x0.5 a tick,
+    // zero under 0.03), the lead into the incline, the followers compressed onto the flat brakes.
+    // At 700 the north torch goes; at 800 a torch under the south foot launches them back north
+    {
+        let mut tb = Vec::new();
+        floor(&mut tb, 0, 24, 0, 48, 63, stone);
+        floor(&mut tb, 25, 48, 0, 48, 63, stone);
+        let powered = |s: &str| format!("minecraft:powered_rail[powered=false,shape={s},waterlogged=false]");
+        let rail = |s: &str| format!("minecraft:rail[shape={s},waterlogged=false]");
+        let glass = "minecraft:glass".to_string();
+        // the north end: the stop, the incline (its low end at z 12 level with the lane, its top at
+        // z 10, y 66: an ascending rail joins the lane's level on its low side), the flat foot
+        tb.push(([24, 66, 9], glass.clone()));
+        tb.push(([24, 67, 9], glass.clone()));
+        for (z, y) in [(10, 66), (11, 65), (12, 64)] {
+            tb.push(([24, y - 1, z], glass.clone()));
+            tb.push(([24, y, z], powered("ascending_north")));
+        }
+        for z in [13, 14] {
+            tb.push(([24, 63, z], stone.to_string()));
+            tb.push(([24, 64, z], powered("north_south")));
+        }
+        // the lane: 15 flat rails, a booster every 4 (z 18, 22, 26)
+        for z in 15..=29 {
+            let booster = matches!(z, 18 | 22 | 26);
+            tb.push(([24, 63, z], if booster { "minecraft:redstone_block".to_string() } else { glass.clone() }));
+            tb.push(([24, 64, z], if booster { "minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]".to_string() } else { rail("north_south") }));
+        }
+        // the south end, the mirror image: the flat foot (z 30, 31), the incline up to z 34, the stop
+        for z in [30, 31] {
+            tb.push(([24, 63, z], stone.to_string()));
+            tb.push(([24, 64, z], powered("north_south")));
+        }
+        for (z, y) in [(32, 64), (33, 65), (34, 66)] {
+            tb.push(([24, y - 1, z], glass.clone()));
+            tb.push(([24, y, z], powered("ascending_south")));
+        }
+        tb.push(([24, 66, 35], glass.clone()));
+        tb.push(([24, 67, 35], glass.clone()));
+        // the torches' floors under the two feet (the torch itself is the signal)
+        tb.push(([24, 61, 13], stone.to_string()));
+        tb.push(([24, 61, 30], stone.to_string()));
+        let cart = |y: f64, z: f64| ("minecraft:minecart".to_string(), [24.5, y, z], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".to_string()));
+        v.push(Scene {
+            name: "cart-train".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: tb,
+            mobs: vec![cart(66.0, 10.5), cart(65.0, 11.5), cart(64.0, 12.5)],
+            day_time: 1000,
             difficulty: Difficulty::Easy,
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
