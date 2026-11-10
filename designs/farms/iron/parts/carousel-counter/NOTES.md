@@ -8,6 +8,7 @@ inside it advances it when a slot is missed, and 7 level lines say which batch g
 
 | design | blocks | box | build min (middle) | T_c | gap | m |
 |---|---|---|---|---|---|---|
+| carousel-counter-v8.txt (paired-lane frame) | 249 | 17x5x15 | 24.3 | 25 gt | <= 7 gt, never two lines | 6..8 |
 | carousel-counter-v7.txt | 95 | 11x3x13 | 15.2 | 21 gt | <= 7 gt, never two lines | 6..8 |
 | carousel-counter-v6.txt | 106 | 11x5x13 | 16.6 | 21 gt | <= 7 gt, never two lines | 6..8 |
 
@@ -27,6 +28,24 @@ the 7 open hopper tops (ironspec 2026-11-10: an assembly constraint of the timin
   watched box every gt, the game against redsim): IDENTICAL over 39,220 frames (302 pulses, 79
   missed slots, 89 fallbacks) and over 292,618 frames (2,003 pulses, 796 missed slots, 911
   fallbacks).
+
+## v8: the paired-lane frame (2026-11-10)
+
+ironspec's paired lanes (x 0,1 | 3,4 | 6,7 | 9, wiring columns at x -1, 2, 5, 8) want every line
+landing on one face at its column. `mctas circuit memory counter-v8 --out F`
+(crates/circuit-memory/src/counter8.rs) regenerates v7 that way: the ring and taps mirrored front
+to back (even taps face south), the logic turned a quarter and moved east of the ring (its branch
+enters the loop's east end), and all 7 lines out the south face at frame x = design x + 3: even
+lanes low (y 0, a 2-rt repeater), odd lanes high (y 2: the tap powers a stone under a two-torch
+tower to y 3, over the ring's roof, one step down). Both paths take 4 gt, so v7's transition gap
+stands (a torch tower plus a mid-run repeater made the odd lanes 4 gt slower and the bench lost
+lines). The fan-out is ~150 of its 249 blocks.
+
+Evidence: 100,003 pulses at 1% misses (7,226 missed slots, 7,529 fallbacks) and at 20%/50%
+(39,850 missed slots), no violation, 20 restarts and the turns 90/180/270 identical tick for tick;
+the real game IDENTICAL over 314,421 frames (2,903 pulses, 229 missed slots) and 40,014 frames (301
+pulses, 93 missed). T_c 25 (v7's 21 plus the lines' 4 gt; the bench's farm sees the advance 4 gt
+later, so a few more slots fall outside its ready window than with v7's bare taps).
 
 ## How it works
 

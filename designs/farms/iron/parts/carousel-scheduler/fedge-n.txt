@@ -1,0 +1,21 @@
+# Falling-edge pulse, side path to the north (fedge mirrored front to back): subtract comparator E
+# (rear = input via a 3-rt repeater, side = input via dust and a 1-rt repeater from the north).
+name: sched-fedge-n
+port input: -1 1 0
+port output: 4 1 0
+origin: -1 0 -2
+palette:
+  S minecraft:stone
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  R minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  Q minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  E minecraft:comparator[facing=west,mode=subtract,powered=false]
+  O minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+layer 0:
+  .SSS
+  .S.S
+  .SSSS
+layer 1:
+  .ddd
+  .d.Q
+  .dREO

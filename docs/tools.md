@@ -107,7 +107,22 @@ may be absorbed: the brief's case (c)); then the same run with `--restarts` chun
 ticks and on the design turned `--turns` quarter turns, each identical tick for tick. `--dump`
 writes the trace for `mobfarm timeline --from-dump`; `--stimulus-out` a copy of the design whose
 `stimulus:` line is the run's input, which `mctas circuit trace-compare` runs in the game and on
-redsim, every cell compared every gt (designs/farms/iron/parts/carousel-counter/NOTES.md).
+redsim, every cell compared every gt (designs/farms/iron/parts/carousel-counter/NOTES.md). It
+prints the design's blocks, box and build minutes first. `mctas circuit memory counter-v8 --out F`
+regenerates counter v8 (v7 for the paired-lane frame) from v7.
+The carousel's nightly scheduler (part 3): `mctas circuit memory sched-model [--policy block|pring|
+...] [--every 4] [--dusk D --pring-end E] [--days N] [--miss p]` is the policy model (lost slots,
+second naps); `mctas circuit memory sched-gen --out F` generates the scheduler core from the module
+designs in designs/farms/iron/parts/carousel-scheduler/; `mctas circuit memory sched-bench <design>
+[--days 60] [--seed S] [--miss 0.01] [--burst 0.3] [--dusk 13670 --end 22330] [--game N] [--watch
+FROM..TO --probes 'x,y,z ...']` runs it on redsim with the counter's lines and the night window
+driven ideal (direct-driven input cells: a redstone block while high, stone while low), reads each
+visit off the design (`v` rising names the `p<b>` and `l<k>` high), naps the villager after its
+line falls, and checks every slot's willingness (gameTime - LAST_SLEPT < 24,000), the hump window
+(up at the line's fall, >= 100 gt past it) and prints per villager its naps a night, nap day-time
+range and worst gap window, plus the blocks, box and build minutes; `--game N` replays the run's
+first N days' input actions in the real game, every output probe compared every tick
+(designs/farms/iron/parts/carousel-scheduler/NOTES.md).
 A run's tick-level timing view (the carousel's parts and assembly): `mctas mobfarm timeline
 <design> --seed S --days D [--terrain <sample> | --build K] [--tag '<tag>'...] [--from T --to T]
 [--out DIR]` replays `mobfarm run`'s run (its counters printed beside the judge's: the same run tick

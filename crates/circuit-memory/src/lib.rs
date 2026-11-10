@@ -8,6 +8,9 @@
 pub mod compose;
 pub mod items;
 pub mod ring;
+pub mod counter8;
+pub mod schedbench;
+pub mod schedgen;
 pub mod schedmodel;
 pub mod seqbench;
 pub mod specs;
@@ -78,6 +81,54 @@ enum Cmd {
         #[arg(long, default_value = "composed")]
         name: String,
         parts: Vec<String>,
+    },
+    /// The carousel's nightly scheduler core, generated (crates/circuit-memory/src/schedgen.rs):
+    /// the head-pointer ring, the 7 lane cells and their OR bus, the visit edge, the hump window,
+    /// STEP, the level ring.
+    SchedGen {
+        #[arg(long)]
+        out: PathBuf,
+        /// The module designs (vcell.txt, vedge-c2.txt, fedge.txt, l-ring.txt).
+        #[arg(long, default_value = "designs/farms/iron/parts/carousel-scheduler")]
+        modules: PathBuf,
+        #[arg(long, default_value = "designs/farms/iron/parts/carousel-scheduler/offdelay-k3.txt")]
+        offdelay: PathBuf,
+    },
+    /// Carousel counter v8 generated from v7 (crates/circuit-memory/src/counter8.rs): all 7 lines
+    /// out of the south face at the paired-lane frame's wiring columns, two heights.
+    CounterV8 {
+        #[arg(long, default_value = "designs/farms/iron/parts/carousel-counter/carousel-counter-v7.txt")]
+        v7: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// The nightly scheduler's bench on redsim (crates/circuit-memory/src/schedbench.rs): the
+    /// counter's lines driven ideal through days and nights with missed slots, the night window,
+    /// visits read from the design, every slot's willingness; per villager its naps, nap
+    /// day-time range and worst gap window.
+    SchedBench {
+        design: PathBuf,
+        #[arg(long, default_value_t = 60)]
+        days: u32,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        #[arg(long, default_value_t = 0.01)]
+        miss: f64,
+        #[arg(long, default_value_t = 0.3)]
+        burst: f64,
+        #[arg(long, default_value_t = 13_670)]
+        dusk: u64,
+        #[arg(long, default_value_t = 22_330)]
+        end: u64,
+        /// Replay the run's first N days in the real game, every output probe compared every tick.
+        #[arg(long, default_value_t = 0)]
+        game: u32,
+        /// Print every change of the lines and outputs over `FROM..TO` (ticks of the run).
+        #[arg(long)]
+        watch: Option<String>,
+        /// Extra cells `x,y,z x,y,z ...` whose signal --watch prints.
+        #[arg(long, default_value = "")]
+        probes: String,
     },
     /// The sleep routine's nightly scheduler, its policy judged on timing alone (no circuit): the
     /// counter's advances with misses, a visit per dispatch (nap, length, one bed), every slot's
@@ -229,6 +280,28 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::Ring { n, max_dust, keep, bulbs, then, divider, unchecked, out } => ring::run(&n, max_dust, keep, bulbs, &then, divider, !unchecked, &out)?,
         Cmd::StampGroups { dry_run, files } => stamp::run(&files, dry_run)?,
         Cmd::Compose { out, name, parts } => compose::compose(&out, &name, &parts)?,
+        Cmd::SchedGen { out, modules, offdelay } => schedgen::generate(&out, &modules, &offdelay)?,
+        Cmd::CounterV8 { v7, out } => counter8::generate(&v7, &out)?,
+        Cmd::SchedBench { design, days, seed, miss, burst, dusk, end, game, watch, probes } => {
+            let watch = match watch {
+                Some(s) => {
+                    let (a, z) = s.split_once("..").ok_or_else(|| anyhow::anyhow!("--watch FROM..TO"))?;
+                    Some((a.parse()?, z.parse()?))
+                }
+                None => None,
+            };
+            let probes: Vec<[i32; 3]> = probes
+                .split_whitespace()
+                .map(|s| {
+                    let v: Vec<i32> = s.split(',').filter_map(|n| n.parse().ok()).collect();
+                    [v.first().copied().unwrap_or(0), v.get(1).copied().unwrap_or(0), v.get(2).copied().unwrap_or(0)]
+                })
+                .collect();
+            let o = schedbench::Opts { days, seed, miss, burst, dusk, end, game_days: game, watch, probes, ..Default::default() };
+            if !schedbench::bench(&design, &o)? {
+                bail!("the scheduler fails its bench");
+            }
+        }
         Cmd::SchedModel { policy, days, seed, miss, burst, every, dusk, dawn, nap, visit, ready, phase_always, rotate, pring_end, queue, hold, retake, visit_tail, visit_body, verbose } => {
             let range = |s: &str| -> Result<(u32, u32)> {
                 let (a, b) = s.split_once("..").ok_or_else(|| anyhow!("{s:?}: MIN..MAX"))?;

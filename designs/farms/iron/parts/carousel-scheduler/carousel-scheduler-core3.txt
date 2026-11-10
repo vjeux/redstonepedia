@@ -1,0 +1,183 @@
+name: carousel-scheduler-core
+port input.line0: -10 0 9
+port input.line1: 5 0 9
+port input.line2: -4 0 9
+port input.line3: -1 0 9
+port input.line4: 2 0 9
+port input.line5: -7 0 9
+port input.line6: 8 0 9
+port input.win: 3 0 15
+port output.l0: 16 -1 25
+port output.l1: 14 -1 25
+port output.l2: 15 -1 20
+port output.p0: -3 0 0
+port output.p1: 4 0 3
+port output.p2: -3 0 4
+port output.p3: -3 0 6
+port output.p4: 4 0 5
+port output.p5: -3 0 2
+port output.p6: 4 0 1
+port output.v: 9 0 23
+port output.x: 9 0 23
+nbt: 0 0 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: 16 -1 23 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: -12 0 0
+palette:
+  A minecraft:comparator[facing=north,mode=subtract,powered=false]
+  B minecraft:comparator[facing=south,mode=compare,powered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:comparator[facing=west,mode=compare,powered=false]
+  E minecraft:comparator[facing=west,mode=subtract,powered=false]
+  F minecraft:dropper[facing=north,triggered=false]
+  G minecraft:dropper[facing=south,triggered=false]
+  H minecraft:dropper[facing=west,triggered=false]
+  I minecraft:hopper[enabled=true,facing=north]
+  J minecraft:hopper[enabled=true,facing=south]
+  K minecraft:hopper[enabled=true,facing=west]
+  L minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  M minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  N minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  O minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  P minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  Q minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  R minecraft:redstone_wall_torch[facing=east,lit=true]
+  S minecraft:stone
+  c minecraft:comparator[facing=north,mode=compare,powered=false]
+  d minecraft:dropper[facing=east,triggered=false]
+  h minecraft:hopper[enabled=true,facing=east]
+  r minecraft:redstone_wall_torch[facing=west,lit=true]
+layer -2:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...........................S
+  .
+  .
+  ..........................S.S
+  .
+layer -1:
+  SSSSSSSSSSSS
+  S.............SSSSSSSSS
+  S..SSSSSSSSS..........S
+  S..S..........SSSSSS..S
+  S..S..SSSSSS.......S..S
+  S..S..S.......SSS..S..S
+  S..S..S..SSS....S..S..S
+  S..S..S..S......S..S..S
+  S..S..S..S......S..S..S
+  .
+  .SS.SS.SS.SS..SS.SS.SS
+  ..S..S..S..S..S..S..S
+  SSSSSSSSSSSSSSSSSSSSSSS
+  ............S
+  ............S
+  ............SS
+  ..........SSS
+  ..........S.S
+  ..........SSS
+  ............S
+  .
+  ...........SS........SSS...B
+  ...........S.S.......S.S..hdJ
+  ............S.S.SSS.SSSSS.FKH
+  ...............S...S......c.c
+  ...............SSSS
+layer 0:
+  LMLLLLLLLLMCGK
+  L...........JFDPLLLLLLL
+  L..LLLLLLLMCGI........L
+  L..L........JFDPLLLL..N
+  L..N..LLLLMCGI.....L..L
+  L..L..L.....JFDPL..L..L
+  L..L..L..LMCdI..L..L..L
+  L..L..L..L......L..L..L
+  L..L..L..L......L..L..L
+  SR.SR.SR.SR....rS.rS.rS
+  .LA.LA.LA.LA..AL.AL.AL
+  ..L..L..L..L..L..L..L
+  LLLLLLLLLLLLLLLLLLLLLLL
+  ............N
+  ............L
+  ............ALr
+  ..........LLL
+  ..........L.N
+  ..........LQA
+  ............N
+  ............S
+  ...........LLS.......LLL
+  ...........L.B.......L.N..LLL
+  ...........SDSPSDDDSPLQEPSLLL
+  ...............L...c
+  ...............LCCCS
+layer 1:
+  ............LL
+  ............LL
+  ............LL
+  ............LL
+  ............LL
+  ............LL
+  ............LL
+  .............S
+  .............S
+  .............S
+  .............S
+  .............S
+  .............S
+  .............S
+  .............S
+  .............S
+  .............S
+  .............S
+  .............S
+  .............S
+  .............S
+  .............S
+  .............SSSSSSSSSSSSS
+  .........................L
+  .
+  .
+layer 2:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .............L
+  .............L
+  .............O
+  .............L
+  .............L
+  .............L
+  .............L
+  .............L
+  .............L
+  .............L
+  .............O
+  .............L
+  .............L
+  .............L
+  .............L
+  .............LLLLLMLLLLLLL
+  .
+  .
+  .

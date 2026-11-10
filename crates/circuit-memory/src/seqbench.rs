@@ -370,6 +370,11 @@ fn spread(v: &[u32]) -> String {
 /// `mctas circuit memory counter-bench`.
 pub fn bench(design: &Path, o: &Opts) -> Result<bool> {
     let c = Circuit::load(design)?;
+    {
+        let (lo, hi) = c.clock.design.bounds().unwrap_or(([0, 0, 0], [0, 0, 0]));
+        let minutes = circuit::mobfarm::site_bill(&c, None, 1).map(|b| format!("{:.1}", b.seconds / 60.0)).unwrap_or_else(|e| format!("? ({e})"));
+        println!("{}: {} blocks, box {}x{}x{}, {} build minutes at middle prices", design.display(), c.clock.design.blocks.len(), hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1, minutes);
+    }
     let t0 = std::time::Instant::now();
     let base = run_once(&c, o, &[])?;
     if let Some(path) = &o.stimulus_out {
