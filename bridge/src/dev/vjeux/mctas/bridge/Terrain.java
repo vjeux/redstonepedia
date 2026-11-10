@@ -52,6 +52,10 @@ final class Terrain {
     private Terrain() {}
 
     static JsonObject load(Protocol p, Sandbox sb, JsonObject r) throws Exception {
+        // the real world's seed, as the level reports it (the slime chunks: Sandbox#worldSeed)
+        if (r.has("world_seed")) {
+            sb.worldSeed[0] = r.get("world_seed").getAsLong();
+        }
         // the real world's biome zoom seed (BiomeManager.obfuscateSeed of its seed): getBiome's
         // fuzzy zoom near a border picks the sample's cell, not the sandbox seed's. Set in place on
         // the level's own BiomeManager: the environment attributes (the natural spawn lists among

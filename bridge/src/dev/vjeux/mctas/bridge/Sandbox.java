@@ -182,6 +182,11 @@ final class Sandbox {
                     new ExactVillageSiege(),
                     trader);
         }
+        // the level's world seed (`ServerLevel.getSeed`: the slime chunks, `WorldgenRandom.seedSlimeChunk`)
+        // is the server's unless a terrain sample's import names its real world's seed (tickexact
+        // 2026-11-09: a terrain compare's slime spawn rules used the bridge server's seed, redsim
+        // and the real world the sample's)
+        final long[] worldSeed = {Long.MIN_VALUE};
         ServerLevel level = new ServerLevel(
                 server,
                 Util.backgroundExecutor(),
@@ -192,7 +197,12 @@ final class Sandbox {
                 false,
                 BiomeManager.obfuscateSeed(seed),
                 spawners,
-                true);
+                true) {
+            @Override
+            public long getSeed() {
+                return worldSeed[0] == Long.MIN_VALUE ? super.getSeed() : worldSeed[0];
+            }
+        };
         level.noSave = true;
         server.registerLevel(level);
         // the forced tickets first, then the loads (clk-misc 2026-10-21, exact random ticks): the
@@ -231,6 +241,7 @@ final class Sandbox {
         seedLootSequences(level, seed);
         seedSounds(level, seed);
         Sandbox sb = new Sandbox(id, level, data, minChunkX, minChunkZ, maxChunkX, maxChunkZ, seed);
+        sb.worldSeed = worldSeed;
         sb.installDropSeeder(entityManager);
         Exact.hookFactories();
         BY_LEVEL.put(level, sb);
@@ -238,6 +249,8 @@ final class Sandbox {
     }
 
     private static final Field TRADER_RANDOM = field(net.minecraft.world.entity.npc.wanderingtrader.WanderingTraderSpawner.class, "random");
+    /** The world seed the level reports ({@code getSeed}), Long.MIN_VALUE: the server's ({@link #create}). */
+    long[] worldSeed = {Long.MIN_VALUE};
 
     // ---- shulker study (clk-rt): reproducible drops ---------------------------------------------
 

@@ -592,6 +592,7 @@ pub fn import_terrain(w: &mut Worker, sb: u32, t: &redsim::terrain::format::Terr
         "op": "terrain", "sandbox": sb, "sections": sections,
         "biomes": {"origin": t.biome_origin, "size": t.biome_size, "palette": t.biome_palette, "cells": b64.encode(&biome_cells)},
         "structures": structures, "inhabited": inhabited, "block_entities": block_entities, "zoom_seed": t.zoom_seed, "spawn": t.spawn,
+        "world_seed": t.seed,
         "heightmaps": {"maps": maps, "origin": [ox, oz], "size": [sx, sz], "data": heights},
     });
     // (a bisect switch: the sandbox's own zoom seed)
