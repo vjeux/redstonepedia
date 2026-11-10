@@ -123,6 +123,10 @@ line falls, and checks every slot's willingness (gameTime - LAST_SLEPT < 24,000)
 range and worst gap window, plus the blocks, box and build minutes; `--game N` replays the run's
 first N days' input actions in the real game, every output probe compared every tick
 (designs/farms/iron/parts/carousel-scheduler/NOTES.md).
+A design's Nether part as a design of its own: `mctas mobfarm nether-part <design> --out F` writes
+its `nether layer` blocks, `nether nbt:` data and `port nether-<name>` ports as the blocks, data and
+ports of F, so `web shot F` pictures the Nether side (the kill, the collection); the viewer draws a
+design's overworld blocks only.
 A run's tick-level timing view (the carousel's parts and assembly): `mctas mobfarm timeline
 <design> --seed S --days D [--terrain <sample> | --build K] [--tag '<tag>'...] [--from T --to T]
 [--out DIR]` replays `mobfarm run`'s run (its counters printed beside the judge's: the same run tick

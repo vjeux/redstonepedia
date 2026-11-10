@@ -317,6 +317,14 @@ pub enum MobfarmCmd {
         #[arg(long)]
         build: Option<usize>,
     },
+    /// A mob farm design's Nether part as a design of its own (its `nether layer` blocks and
+    /// `nether nbt:` data as the blocks, its `port nether-<name>` ports as ports): to picture the
+    /// Nether side (the kill, the collection) with `web shot`, whose parser reads the overworld only.
+    NetherPart {
+        design: PathBuf,
+        #[arg(long, short)]
+        out: PathBuf,
+    },
     /// A run's tick-level timing view (the carousel's parts and assembly: the parent and ironspec
     /// 2026-11-09): one judge run (`run`'s options: the same run), sampled after every tick, written
     /// as a page (`<out>/<stem>-seed<S>.timeline.html`: zoom, pan and pinch; a tap reads every lane
@@ -883,6 +891,20 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for f in &rep.failures {
                 println!("FAIL {f}");
             }
+        }
+        MobfarmCmd::NetherPart { design, out } => {
+            let d = mctas::design::Design::load(&design)?;
+            anyhow::ensure!(!d.nether_blocks.is_empty(), "{}: no Nether part (`nether layer Y:` sections)", design.display());
+            let n = mctas::design::Design {
+                name: format!("{} nether part", d.name),
+                meta: d.meta.iter().filter(|(k, _)| k.as_str() == "circuit" || k.as_str() == "origin").map(|(k, v)| (k.clone(), v.clone())).collect(),
+                ports: d.nether_ports.clone(),
+                blocks: d.nether_blocks.clone(),
+                block_entities: d.nether_block_entities.clone(),
+                ..Default::default()
+            };
+            n.save(&out)?;
+            println!("{} ({} blocks)", out.display(), n.blocks.len());
         }
         MobfarmCmd::Timeline { design, from_dump, recording, seed, days, still, terrain, build, tag, from, to, out } => {
             if let Some(rec) = recording {
