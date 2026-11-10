@@ -108,41 +108,89 @@ pub struct Yard {
     pub zombie: [f64; 3],
     /// The highest z any part of the yard reaches.
     pub z_max: i32,
+    /// Laid on paired lanes ([`LaneOpts::paired`]): the junctions in [`Yard::junctions`]' paired
+    /// order.
+    pub paired: bool,
 }
 
 impl Yard {
     /// The states (powered?) of a level's junctions, in [`Yard::junctions`]' order, routing lane
-    /// `lane`'s track to the level's output: on the east chain (lanes 0-3) a junction joins its
-    /// own lane's track unpowered (`south_east`: east arm to the stem) and passes the shared line
-    /// powered; on the west chain (lanes 4-6, mirrored) it joins its track powered
-    /// (`south_west`) and passes the shared line unpowered; the Y takes the east chain powered.
-    /// A junction the cart never reaches keeps its state (`None`).
-    pub fn junction_states(lane: i32) -> [Option<bool>; 6] {
+    /// `lane`'s track to the level's output. A junction the cart never reaches keeps its state
+    /// (`None`).
+    ///
+    /// At pitch 1: on the east chain (lanes 0-3) a junction joins its own lane's track unpowered
+    /// (`south_east`: east arm to the stem) and passes the shared line powered; on the west chain
+    /// (lanes 4-6, mirrored) it joins its track powered (`south_west`) and passes the shared line
+    /// unpowered; the Y takes the east chain powered. On paired lanes every junction has a west
+    /// arm, an east arm and its stem south: powered (`south_west`) it takes the west arm,
+    /// unpowered (`south_east`) the east one.
+    pub fn junction_states(&self, lane: i32) -> [Option<bool>; 6] {
+        if self.paired {
+            // J_12, J_34, J_56 (each the pair of lanes on either side of its column), T_0 (lane 0
+            // west, J_12 east), T_25 (T_0 west, J_34 east), T_f (T_25 west, J_56 east)
+            let (w, e) = (Some(true), Some(false));
+            return match lane {
+                0 => [None, None, None, w, w, w],
+                1 => [w, None, None, e, w, w],
+                2 => [e, None, None, e, w, w],
+                3 => [None, w, None, None, e, w],
+                4 => [None, e, None, None, e, w],
+                5 => [None, None, w, None, None, e],
+                _ => [None, None, e, None, None, e],
+            };
+        }
         let east = |c: i32| if lane > 3 { None } else if c == lane { Some(false) } else if c > lane { Some(true) } else { None };
         let west = |c: i32| if lane < 4 { None } else if c == lane { Some(true) } else if c < lane { Some(false) } else { None };
         [east(1), east(2), east(3), west(5), west(4), Some(lane <= 3)]
     }
 }
 
-/// Lane b's turn z: the east chain's lanes 0-3 turn west 2 apart from z0, the west chain's lanes
-/// 6-4 turn east 2 apart from z0.
+/// Lane b's turn: its z and its step in x into its junction. At pitch 1 the east chain's lanes 0-3
+/// turn west 2 apart from z0, the west chain's lanes 6-4 east 2 apart from z0; on paired lanes
+/// lanes 1-6 turn at z0 into the junction in the column beside them (odd lanes east, even west),
+/// lane 0 east 2 further, into T_0.
+fn turn(o: &LaneOpts, y: &YardOpts, lane: i32) -> (i32, i32) {
+    if o.paired {
+        return match lane {
+            0 => (y.z0 + 2, 1),
+            l if l % 2 == 1 => (y.z0, 1),
+            _ => (y.z0, -1),
+        };
+    }
+    (zj(y, lane), if lane <= 3 { -1 } else { 1 })
+}
+
+/// Lane b's turn z at pitch 1.
 fn zj(y: &YardOpts, lane: i32) -> i32 {
     if lane <= 3 { y.z0 + 2 * lane } else { y.z0 + 2 * (BATCHES - 1 - lane) }
 }
 
-/// The chains' output z (the Y's stem).
-fn zout(y: &YardOpts) -> i32 {
-    y.z0 + 9
+/// The chains' output z (the first cell past the Y's stem at pitch 1; past T_f's stem on paired
+/// lanes).
+fn zout(o: &LaneOpts, y: &YardOpts) -> i32 {
+    y.z0 + if o.paired { 8 } else { 9 }
+}
+
+/// The chains' output x (the Y's at pitch 1, T_f's on paired lanes); the merges and the bed line
+/// stand this far east of where they stand at pitch 1, less 3.
+fn xout(o: &LaneOpts) -> i32 {
+    if o.paired { 5 } else { 3 }
 }
 
 /// The yard's parts (positions only).
 pub fn layout(o: &LaneOpts, y: &YardOpts) -> Yard {
-    let zo = zout(y);
+    let zo = zout(o, y);
+    let dx = xout(o) - 3;
     let p = |x: i32, yy: i32, z: i32| BlockPos::new(x, yy, z);
-    // each level's junctions: J_1..J_3 at (lane - 1, z0 + 2 lane), J_5 at (6, z0 + 2), J_4 at
-    // (5, z0 + 4), the Y at (3, z0 + 8)
+    // each level's junctions: at pitch 1 J_1..J_3 at (lane - 1, z0 + 2 lane), J_5 at (6, z0 + 2),
+    // J_4 at (5, z0 + 4), the Y at (3, z0 + 8); on paired lanes J_12, J_34, J_56 in the columns
+    // at z0, T_0 at (1, z0 + 2), T_25 at (3, z0 + 4), T_f at (5, z0 + 6)
     let at = |k: i32, dy: i32| -> Vec<BlockPos> {
         let h = o.level_gap * k + dy;
+        if o.paired {
+            let z = y.z0;
+            return vec![p(2, h, z), p(5, h, z), p(8, h, z), p(1, h, z + 2), p(3, h, z + 4), p(5, h, z + 6)];
+        }
         let mut v: Vec<BlockPos> = (1..=3).map(|l| p(l - 1, h, zj(y, l))).collect();
         v.push(p(6, h, zj(y, 5)));
         v.push(p(5, h, zj(y, 4)));
@@ -152,18 +200,19 @@ pub fn layout(o: &LaneOpts, y: &YardOpts) -> Yard {
     Yard {
         junctions: (0..o.levels).map(|k| at(k, 0)).collect(),
         junction_rails: (0..o.levels).map(|k| at(k, 1)).collect(),
-        merges: [p(2, 3, zo + 4), p(4, 3, zo + 6)],
-        merge_rails: [p(2, 4, zo + 4), p(4, 4, zo + 6)],
-        activator_rail: p(4, 4, zo + 10),
-        activator: p(4, 3, zo + 10),
-        park_rail: p(4, 4, zo + 14),
-        park: p(4, 3, zo + 14),
-        free_cell: p(4, 4, zo + 9),
-        bed_head: p(3, 4, zo + 9),
-        bed_foot: p(3, 4, zo + 10),
-        hatch: p(5, 5, zo + 9),
-        zombie: [7.5, 5.0, (zo + 9) as f64 + 0.5],
+        merges: [p(2 + dx, 3, zo + 4), p(4 + dx, 3, zo + 6)],
+        merge_rails: [p(2 + dx, 4, zo + 4), p(4 + dx, 4, zo + 6)],
+        activator_rail: p(4 + dx, 4, zo + 10),
+        activator: p(4 + dx, 3, zo + 10),
+        park_rail: p(4 + dx, 4, zo + 14),
+        park: p(4 + dx, 3, zo + 14),
+        free_cell: p(4 + dx, 4, zo + 9),
+        bed_head: p(3 + dx, 4, zo + 9),
+        bed_foot: p(3 + dx, 4, zo + 10),
+        hatch: p(5 + dx, 5, zo + 9),
+        zombie: [(7 + dx) as f64 + 0.5, 5.0, (zo + 9) as f64 + 0.5],
         z_max: zo + 15,
+        paired: o.paired,
     }
 }
 
@@ -253,97 +302,140 @@ fn lay(b: &mut Builder, cells: &[([i32; 3], R)]) -> Result<()> {
     Ok(())
 }
 
+/// One level's chains at pitch 1, at rail height `ye`: the east chain (J_0 a plain curve, then
+/// for lanes 1-3 the previous junction's stem (a booster), the junction's west arm, the junction;
+/// J_3's stem and its turn east into the Y's west arm) and the west chain, mirrored (J_6 a plain
+/// curve, its stem, J_5's east arm, J_5, its stem, J_4's east arm, J_4, its stem on south and its
+/// turn west into the Y's east arm).
+fn chains_pitch1(b: &mut Builder, ye: i32, y: &YardOpts) -> Result<()> {
+    let mut east = vec![([0, ye, zj(y, 0)], R::Skip), ([-1, ye, zj(y, 0)], R::Plain)];
+    for lane in 1..=3 {
+        east.push(([lane - 2, ye, zj(y, lane) - 1], R::Boost));
+        east.push(([lane - 2, ye, zj(y, lane)], R::Plain));
+        east.push(([lane - 1, ye, zj(y, lane)], R::Skip));
+    }
+    east.extend([([2, ye, y.z0 + 7], R::Boost), ([2, ye, y.z0 + 8], R::Plain), ([3, ye, y.z0 + 8], R::Skip)]);
+    lay(b, &east)?;
+    let z0 = y.z0;
+    lay(
+        b,
+        &[
+            ([6, ye, z0], R::Skip),
+            ([7, ye, z0], R::Plain),
+            ([7, ye, z0 + 1], R::Boost),
+            ([7, ye, z0 + 2], R::Plain),
+            ([6, ye, z0 + 2], R::Skip),
+            ([6, ye, z0 + 3], R::Boost),
+            ([6, ye, z0 + 4], R::Plain),
+            ([5, ye, z0 + 4], R::Skip),
+            ([5, ye, z0 + 5], R::Boost),
+            ([5, ye, z0 + 6], R::Plain),
+            ([5, ye, z0 + 7], R::Plain),
+            ([5, ye, z0 + 8], R::Plain),
+            ([4, ye, z0 + 8], R::Plain),
+            ([3, ye, z0 + 8], R::Skip),
+        ],
+    )
+}
+
+/// One level's chains on paired lanes, at rail height `ye`: J_12, J_34, J_56 in the columns at x
+/// 2, 5, 8 (z0), each joining the lanes on either side of its column; T_0 at (1, z0 + 2) joins
+/// lane 0 (west) and J_12's stem (east), T_25 at (3, z0 + 4) T_0's stem (west) and J_34's (east),
+/// T_f at (5, z0 + 6) T_25's stem (west) and J_56's (east). Every stem starts with a booster.
+fn chains_paired(b: &mut Builder, ye: i32, z: i32) -> Result<()> {
+    // J_12's stem, west into T_0's east arm
+    lay(b, &[([2, ye, z], R::Skip), ([2, ye, z + 1], R::Boost), ([2, ye, z + 2], R::Plain), ([1, ye, z + 2], R::Skip)])?;
+    // J_34's stem, west into T_25's east arm
+    lay(b, &[([5, ye, z], R::Skip), ([5, ye, z + 1], R::Boost), ([5, ye, z + 2], R::Plain), ([5, ye, z + 3], R::Boost), ([5, ye, z + 4], R::Plain), ([4, ye, z + 4], R::Plain), ([3, ye, z + 4], R::Skip)])?;
+    // J_56's stem, west into T_f's east arm
+    lay(
+        b,
+        &[
+            ([8, ye, z], R::Skip),
+            ([8, ye, z + 1], R::Boost),
+            ([8, ye, z + 2], R::Plain),
+            ([8, ye, z + 3], R::Boost),
+            ([8, ye, z + 4], R::Plain),
+            ([8, ye, z + 5], R::Boost),
+            ([8, ye, z + 6], R::Plain),
+            ([7, ye, z + 6], R::Plain),
+            ([6, ye, z + 6], R::Plain),
+            ([5, ye, z + 6], R::Skip),
+        ],
+    )?;
+    // T_0's stem, east into T_25's west arm
+    lay(b, &[([1, ye, z + 2], R::Skip), ([1, ye, z + 3], R::Boost), ([1, ye, z + 4], R::Plain), ([2, ye, z + 4], R::Plain), ([3, ye, z + 4], R::Skip)])?;
+    // T_25's stem, east into T_f's west arm
+    lay(b, &[([3, ye, z + 4], R::Skip), ([3, ye, z + 5], R::Boost), ([3, ye, z + 6], R::Plain), ([4, ye, z + 6], R::Plain), ([5, ye, z + 6], R::Skip)])
+}
+
 /// Builds the yard onto the release + hold design (its hold caps left out: each extension's
 /// first rail stands on its hold control).
 pub fn build(b: &mut Builder, o: &LaneOpts, y: &YardOpts) -> Result<Yard> {
-    ensure!(o.pitch == 1 && o.levels == 3 && o.level_gap == 3 && !o.paired, "the yard is laid for 3 levels 3 apart at pitch 1 (the paired-lane yard is next)");
+    ensure!(o.levels == 3 && o.level_gap == 3 && (o.paired || o.pitch == 1), "the yard is laid for 3 levels 3 apart, on paired lanes or at pitch 1");
     ensure!(y.z0 >= o.run + 4, "the first turn (z {}) must stand past the bottom level's hump (z {})", y.z0, o.run + 3);
     let yd = layout(o, y);
-    let zo = zout(y);
+    let zo = zout(o, y);
+    let (xo, dx) = (xout(o), xout(o) - 3);
     for k in 0..o.levels {
         let ye = o.level_gap * k + 1;
-        let hz = o.run - k;
         // each lane's way out: the hold slope (shaping only), the hump (a second braked slope on
         // the hold control, so a returning cart brakes over two slopes and stops on them; a flat
-        // top, a plain slope down), then the extension straight on to its turn west into its
-        // junction
+        // top, a plain slope down), then the extension straight on to its turn into its junction
         for lane in 0..BATCHES {
             let x = o.x(lane);
+            let hz = o.hold_slope_z(lane, k);
+            let (zt, step) = turn(o, y, lane);
             let mut cells = vec![([x, ye - 1, hz], R::Skip), ([x, ye, hz + 1], R::Hump), ([x, ye + 1, hz + 2], R::Plain), ([x, ye, hz + 3], R::Fall)];
-            let n = zj(y, lane) - (hz + 4);
+            let n = zt - (hz + 4);
+            ensure!(n >= 0, "lane {lane}'s turn (z {zt}) stands before its level-{k} hump's foot (z {})", hz + 3);
             for i in 0..n {
                 // (boosters from the third rail on, none next to the turn)
                 let boost = y.boost_every > 0 && i >= 2 && i < n - 1 && (i - 2) % y.boost_every == 0;
                 cells.push(([x, ye, hz + 4 + i], if boost { R::Boost } else { R::Plain }));
             }
-            cells.push(([x, ye, zj(y, lane)], R::Plain));
-            // (the east chain's lanes turn west into their junctions, the west chain's east)
-            cells.push(([x + if lane <= 3 { -1 } else { 1 }, ye, zj(y, lane)], R::Skip));
+            cells.push(([x, ye, zt], R::Plain));
+            cells.push(([x + step, ye, zt], R::Skip));
             lay(b, &cells)?;
         }
-        // the east chain: J_0 (a plain curve), then for lanes 1-3 the previous junction's stem (a
-        // booster), the junction's west arm, the junction; J_3's stem and its turn east into the
-        // Y's west arm
-        let mut east = vec![([0, ye, zj(y, 0)], R::Skip), ([-1, ye, zj(y, 0)], R::Plain)];
-        for lane in 1..=3 {
-            east.push(([lane - 2, ye, zj(y, lane) - 1], R::Boost));
-            east.push(([lane - 2, ye, zj(y, lane)], R::Plain));
-            east.push(([lane - 1, ye, zj(y, lane)], R::Skip));
-        }
-        east.extend([([2, ye, y.z0 + 7], R::Boost), ([2, ye, y.z0 + 8], R::Plain), ([3, ye, y.z0 + 8], R::Skip)]);
-        lay(b, &east)?;
-        // the west chain, mirrored: J_6 (a plain curve), its stem, J_5's east arm, J_5, its stem,
-        // J_4's east arm, J_4, its stem on south and its turn west into the Y's east arm
-        let z0 = y.z0;
-        lay(
-            b,
-            &[
-                ([6, ye, z0], R::Skip),
-                ([7, ye, z0], R::Plain),
-                ([7, ye, z0 + 1], R::Boost),
-                ([7, ye, z0 + 2], R::Plain),
-                ([6, ye, z0 + 2], R::Skip),
-                ([6, ye, z0 + 3], R::Boost),
-                ([6, ye, z0 + 4], R::Plain),
-                ([5, ye, z0 + 4], R::Skip),
-                ([5, ye, z0 + 5], R::Boost),
-                ([5, ye, z0 + 6], R::Plain),
-                ([5, ye, z0 + 7], R::Plain),
-                ([5, ye, z0 + 8], R::Plain),
-                ([4, ye, z0 + 8], R::Plain),
-                ([3, ye, z0 + 8], R::Skip),
-            ],
-        )?;
-        // the Y's stem on to the merges
-        let mut line = vec![([3, ye, z0 + 8], R::Skip)];
+        let mut line = if o.paired {
+            chains_paired(b, ye, y.z0)?;
+            // T_f's stem
+            vec![([xo, ye, y.z0 + 6], R::Skip), ([xo, ye, y.z0 + 7], R::Boost)]
+        } else {
+            chains_pitch1(b, ye, y)?;
+            vec![([xo, ye, y.z0 + 8], R::Skip)]
+        };
+        // the output's stem on to the merges
+        let c = |x: i32, yy: i32, z: i32, r: R| ([x + dx, yy, z], r);
         match k {
             // level 0: west, up three slopes south, east into M1's west arm
             0 => line.extend([
-                ([3, 1, zo], R::Plain),
-                ([2, 1, zo], R::Plain),
-                ([1, 1, zo], R::Plain),
-                ([1, 1, zo + 1], R::Plain),
-                ([1, 2, zo + 2], R::Plain),
-                ([1, 3, zo + 3], R::Plain),
-                ([1, 4, zo + 4], R::Plain),
-                ([2, 4, zo + 4], R::Skip),
+                c(3, 1, zo, R::Plain),
+                c(2, 1, zo, R::Plain),
+                c(1, 1, zo, R::Plain),
+                c(1, 1, zo + 1, R::Plain),
+                c(1, 2, zo + 2, R::Plain),
+                c(1, 3, zo + 3, R::Plain),
+                c(1, 4, zo + 4, R::Plain),
+                c(2, 4, zo + 4, R::Skip),
             ]),
             // level 1: straight south, west into M1's east arm
-            1 => line.extend([([3, 4, zo], R::Plain), ([3, 4, zo + 1], R::Boost), ([3, 4, zo + 2], R::Plain), ([3, 4, zo + 3], R::Plain), ([3, 4, zo + 4], R::Plain), ([2, 4, zo + 4], R::Skip)]),
+            1 => line.extend([c(3, 4, zo, R::Plain), c(3, 4, zo + 1, R::Boost), c(3, 4, zo + 2, R::Plain), c(3, 4, zo + 3, R::Plain), c(3, 4, zo + 4, R::Plain), c(2, 4, zo + 4, R::Skip)]),
             // level 2: east, down three slopes south, west into M2's east arm
             _ => line.extend([
-                ([3, 7, zo], R::Plain),
-                ([4, 7, zo], R::Plain),
-                ([5, 7, zo], R::Plain),
-                ([6, 7, zo], R::Plain),
-                ([6, 6, zo + 1], R::Plain),
-                ([6, 5, zo + 2], R::Plain),
-                ([6, 4, zo + 3], R::Plain),
-                ([6, 4, zo + 4], R::Plain),
-                ([6, 4, zo + 5], R::Plain),
-                ([6, 4, zo + 6], R::Plain),
-                ([5, 4, zo + 6], R::Plain),
-                ([4, 4, zo + 6], R::Skip),
+                c(3, 7, zo, R::Plain),
+                c(4, 7, zo, R::Plain),
+                c(5, 7, zo, R::Plain),
+                c(6, 7, zo, R::Plain),
+                c(6, 6, zo + 1, R::Plain),
+                c(6, 5, zo + 2, R::Plain),
+                c(6, 4, zo + 3, R::Plain),
+                c(6, 4, zo + 4, R::Plain),
+                c(6, 4, zo + 5, R::Plain),
+                c(6, 4, zo + 6, R::Plain),
+                c(5, 4, zo + 6, R::Plain),
+                c(4, 4, zo + 6, R::Skip),
             ]),
         }
         lay(b, &line)?;
@@ -356,7 +448,7 @@ pub fn build(b: &mut Builder, o: &LaneOpts, y: &YardOpts) -> Result<Yard> {
     // M1's stem into M2's west arm, the bed line: M2's stem, the rail under the walkers' glass,
     // the free cell, the activator, the slow run, the park slope (its top's stop: the control,
     // glass over it)
-    lay(b, &[([2, 4, zo + 4], R::Skip), ([2, 4, zo + 5], R::Plain), ([2, 4, zo + 6], R::Plain), ([3, 4, zo + 6], R::Plain), ([4, 4, zo + 6], R::Skip)])?;
+    lay(b, &[([2 + dx, 4, zo + 4], R::Skip), ([2 + dx, 4, zo + 5], R::Plain), ([2 + dx, 4, zo + 6], R::Plain), ([3 + dx, 4, zo + 6], R::Plain), ([4 + dx, 4, zo + 6], R::Skip)])?;
     let lx = yd.free_cell.x;
     lay(
         b,

@@ -80,11 +80,11 @@ box (19.3 from the pad) and outside the summoner's 10-box, never two batches at 
 rider on its cart and in its lane, REST ticks and CANT_REACH at REST, and every cell a rider took
 scanned for a golem spawn spot; it prints the clean seeds, the arrival margin, the blocks and box;
 `--verbose` adds each slot and the first calm villagers at night with the zombies they see, and
-`--trace ID` prints that villager's position and its cart's to stderr. With `hold --unpaired --yard`
-(the paired-lane yard is being re-laid) the
+`--trace ID` prints that villager's position and its cart's to stderr. With `hold --yard` the
 design carries the sleep routine's part 3 (`mobfarm/src/yard.rs`): a hump of a second braked
 slope at each hold end, each track's extension past it into its level's switched rail junctions
-(an east chain for lanes 0-3, a west chain for lanes 6-4, a Y; the three levels' chains stacked
+(on paired lanes J_12, J_34, J_56 in the wiring columns, then T_0, T_25, T_f; at pitch 1 an east
+chain for lanes 0-3, a west chain for lanes 6-4, a Y; the three levels' chains stacked
 and merged by two more junctions), and one shared bed past them, its cage, an activator, a free
 stand-up cell, a park rail and a dorm zombie behind an iron trapdoor; the bench then runs the
 nightly dispatch with the scheduler's timed controls (`mobfarm/src/naps.rs`: every 4th line fall

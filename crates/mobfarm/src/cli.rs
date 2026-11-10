@@ -427,6 +427,11 @@ pub enum MobfarmCmd {
         /// 9 with wiring columns, every other pair's hold ends one nearer: ironspec's ruling).
         #[arg(long)]
         unpaired: bool,
+        /// With `--yard` on paired lanes: each track's hold end driven through its wired feed
+        /// from an input under the stack (a torch under level 0's control; dust lines up the
+        /// feed columns for levels 1 and 2) instead of its control switched directly.
+        #[arg(long)]
+        feeds: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -908,8 +913,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let d = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
             print!("{}", slice_text(&d, x, y_from, y_to, z_from, z_to));
         }
-        MobfarmCmd::Hold { pitch, levels, level_gap, run, stand_z0, boost_every, margin, no_zombies, yard, unpaired, out } => {
-            let o = crate::hold::LaneOpts { pitch, levels, level_gap, run, stand_z0, boost_every, margin, zombies: !no_zombies, yard, paired: !unpaired, ..Default::default() };
+        MobfarmCmd::Hold { pitch, levels, level_gap, run, stand_z0, boost_every, margin, no_zombies, yard, unpaired, feeds, out } => {
+            let o = crate::hold::LaneOpts { pitch, levels, level_gap, run, stand_z0, boost_every, margin, zombies: !no_zombies, yard, paired: !unpaired, feeds, ..Default::default() };
             let text = crate::hold::design(&o)?;
             std::fs::write(&out, text)?;
             println!("{}", out.display());

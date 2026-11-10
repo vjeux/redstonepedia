@@ -653,7 +653,7 @@ fn curtain_latch(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, latch: bool) {
 /// A dust's state from its neighbours (`RedStoneWireBlock.getConnectionState`): a side to dust
 /// beside it (or one down past a non-solid cell, or one up under a non-solid cell), to a
 /// repeater in line, to a signal source; one side runs through to the opposite one; none: a cross.
-fn dust_state(blocks: &BTreeMap<[i32; 3], String>, dust: &BTreeSet<[i32; 3]>, p: [i32; 3]) -> String {
+pub(crate) fn dust_state(blocks: &BTreeMap<[i32; 3], String>, dust: &BTreeSet<[i32; 3]>, p: [i32; 3]) -> String {
     // `isRedstoneConductor`: the full opaque blocks used here (not glass, leaves or a redstone block)
     let solid = |q: [i32; 3]| blocks.get(&q).is_some_and(|s| {
         let s = s.trim_start_matches("minecraft:");

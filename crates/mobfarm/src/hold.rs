@@ -74,11 +74,15 @@ pub struct LaneOpts {
     /// rail: every control has a side neighbour for a direct feed (the 7-wide pitch-1 stack has
     /// none for its middle level).
     pub paired: bool,
+    /// The hold ends' feeds wired in (paired lanes with the yard, [`feeds`]): each track's hump
+    /// driven from an input under the stack through its own torch or dust line instead of its
+    /// control block switched directly.
+    pub feeds: bool,
 }
 
 impl Default for LaneOpts {
     fn default() -> LaneOpts {
-        LaneOpts { pitch: 1, levels: 3, level_gap: 3, run: 21, stand_z0: 1, boost_every: 2, margin: 1, zombies: true, pad_z: -1.0, yard: false, paired: true }
+        LaneOpts { pitch: 1, levels: 3, level_gap: 3, run: 21, stand_z0: 1, boost_every: 2, margin: 1, zombies: true, pad_z: -1.0, yard: false, paired: true, feeds: false }
     }
 }
 
@@ -114,6 +118,20 @@ impl LaneOpts {
         (0..self.levels).map(|k| BlockPos::new(self.x(b), self.level_gap * k, self.hold_slope_z(b, k) + 1)).collect()
     }
 
+    /// What drives track (b, k)'s hold end: the cell a bench switches, the block there that
+    /// powers the hold slope (and the hump), the block that leaves it unpowered. Without
+    /// [`LaneOpts::feeds`] the hold control itself (a redstone block or glass); with them the
+    /// feed's input ([`feeds`]: a redstone block or nothing beside a column line's first dust; a
+    /// redstone block or stone under a torch, inverted).
+    pub fn hold_input(&self, b: i32, k: i32) -> (BlockPos, &'static str, &'static str) {
+        if !self.feeds {
+            return (self.hold_ctrls(b)[k as usize], "redstone_block", "glass");
+        }
+        let f = feed(self, b, k);
+        let (powered, unpowered) = if k == 0 { ("redstone_block", "stone") } else { ("redstone_block", "air") };
+        if f.inverted { (f.input, unpowered, powered) } else { (f.input, powered, unpowered) }
+    }
+
     /// The stand zone: a rider with its z under this is at the station (on its level's slope).
     pub fn stand_z(&self) -> f64 {
         (self.stand_z0 + self.levels) as f64
@@ -132,6 +150,158 @@ impl LaneOpts {
         }
         BlockPos::new(self.x(BATCHES / 2), 0, self.run + 3)
     }
+}
+
+/// One track's hold feed ([`LaneOpts::feeds`]): the cell the counter side drives, its sense, and
+/// the blocks from it to the track's hold slope or hump.
+#[derive(Clone, Debug)]
+pub struct Feed {
+    /// The input: level 0's torch support (a block the counter side powers), or the cell north of
+    /// a column line's first dust (y -2: the counter side's last component points south into the
+    /// dust from there; the bench puts a redstone block there).
+    pub input: BlockPos,
+    /// The input powered leaves the hump unpowered (a torch on the way: the counter side delivers
+    /// NOT feed).
+    pub inverted: bool,
+    /// The blocks, dust as `redstone_wire` (its state set from its neighbours when laid).
+    pub blocks: Vec<([i32; 3], &'static str)>,
+}
+
+/// Lane b's feed column (paired lanes): lane 0's x -1, lanes 1 and 2's x 2, lanes 3 and 4's x 5,
+/// lane 5's x 8, lane 6's x 10 (the free column east of it, inside the hold zombies at x 11).
+pub fn feed_column(b: i32) -> i32 {
+    [-1, 2, 2, 5, 5, 8, 10][b as usize]
+}
+
+/// A dust line up a feed column: from (w, -2, z0) one up and one south a cell to row `row`, then
+/// flat to (w, row, z1), each dust on glass. (Glass carries a staircase's signal up: the upper dust
+/// reads the lower one past the open cell over it; down a staircase it needs a conductor under the
+/// upper dust.) The climbs start on odd z: their dust at y -1, 2 and 5 (beside the levels' booster
+/// redstone blocks, which a dust would connect to) then stands at a z with no booster.
+fn column_line(w: i32, z0: i32, row: i32, z1: i32, out: &mut Vec<([i32; 3], &'static str)>) {
+    for i in 0..=row + 2 {
+        out.push(([w, -2 + i, z0 + i], "redstone_wire"));
+        out.push(([w, -3 + i, z0 + i], "glass"));
+    }
+    for z in z0 + row + 3..=z1 {
+        out.push(([w, row, z], "redstone_wire"));
+        out.push(([w, row - 1, z], "glass"));
+    }
+}
+
+/// Track (b, k)'s hold feed (paired lanes, 3 levels 3 apart, the yard's humps).
+///
+/// Level 0: a torch under the hold control (stone: the torch powers it, it powers the hold slope
+/// north of it and the hump on it), on a stone block, the input: NOT feed.
+///
+/// Levels 1 and 2 along the lane's feed column ([`feed_column`]), each a dust line climbing from
+/// under the stack (y -2) on the station side (the climbs 4 apart in z, the later one ending
+/// lower, so none crosses another) into a stone block beside the track's hold slope or hump: on a
+/// column's offset -1 lane (lanes 2, 3) and on a lane alone in its column, level k's line runs at
+/// y 3k into a block beside the hold slope; on the offset-0 lane sharing a column (lanes 1, 4)
+/// level 1's line runs at y 1 into a torch's support under a block beside the hold slope (the
+/// input NOT feed), level 2's at y 9 over the stack, stepping down to y 7 into a block beside the
+/// hump. The climbs start at z 3 (y 9), 7 (y 6), 11 (y 3), 15 (y 1).
+pub fn feed(o: &LaneOpts, b: i32, k: i32) -> Feed {
+    let x = o.x(b);
+    let mut blocks: Vec<([i32; 3], &'static str)> = Vec::new();
+    if k == 0 {
+        let z = o.hold_slope_z(b, 0) + 1;
+        blocks.extend([([x, 0, z], "stone"), ([x, -1, z], "redstone_torch[lit=false]"), ([x, -2, z], "stone")]);
+        return Feed { input: BlockPos::new(x, -2, z), inverted: true, blocks };
+    }
+    let w = feed_column(b);
+    let hz = o.hold_slope_z(b, k);
+    // the offset-0 lane of a shared column (lanes 1 and 4)
+    let second = matches!(b, 1 | 4);
+    let (z0, inverted) = match (second, k) {
+        (true, 1) => {
+            column_line(w, 15, 1, hz - 1, &mut blocks);
+            blocks.extend([([w, 1, hz], "stone"), ([w, 2, hz], "redstone_torch[lit=false]"), ([w, 3, hz], "stone"), ([w, 6, hz], "glass")]);
+            (15, true)
+        }
+        (true, _) => {
+            // y 9 to z hz - 2 (a repeater on its first flat cell: 17 dust cells are more than a
+            // signal's 15), a stone under its last dust; down to (w, 8, hz - 1) on stone, to
+            // (w, 7, hz) on glass, into the block beside the hump (w, 7, hz + 1), glass two over it
+            // (one cell of air on it then: no golem floor; the parked riders' sight lines run
+            // under y 9)
+            column_line(w, 3, 9, hz - 2, &mut blocks);
+            blocks.retain(|(c, _)| *c != [w, 8, hz - 2] && *c != [w, 9, hz - 4]);
+            blocks.extend([
+                ([w, 9, hz - 4], "repeater[delay=1,facing=north,locked=false,powered=false]"),
+                ([w, 8, hz - 2], "stone"),
+                ([w, 8, hz - 1], "redstone_wire"),
+                ([w, 7, hz - 1], "stone"),
+                ([w, 7, hz], "redstone_wire"),
+                ([w, 6, hz], "glass"),
+                ([w, 7, hz + 1], "stone"),
+                ([w, 9, hz + 1], "glass"),
+            ]);
+            (3, false)
+        }
+        _ => {
+            let (z0, row) = if k == 1 { (11, 3) } else { (7, 6) };
+            column_line(w, z0, row, hz - 1, &mut blocks);
+            blocks.push(([w, row, hz], "stone"));
+            // (glass three over the block: two cells of air on it, no golem's height; row 6 and
+            // row 9 hold none of the riders' sight lines there)
+            blocks.push(([w, row + 3, hz], "glass"));
+            (z0, false)
+        }
+    };
+    Feed { input: BlockPos::new(w, -2, z0 - 1), inverted, blocks }
+}
+
+/// The glass over a column line's input (the bench's redstone block there is no golem floor
+/// then; the counter side's own component there, a repeater, is none either).
+fn input_cap(f: &Feed) -> Option<[i32; 3]> {
+    (f.input.y == -2 && !f.blocks.iter().any(|(c, _)| *c == [f.input.x, f.input.y, f.input.z])).then(|| [f.input.x, f.input.y + 1, f.input.z])
+}
+
+/// Every track's hold feed, lane by lane.
+pub fn feeds(o: &LaneOpts) -> Vec<Feed> {
+    (0..BATCHES).flat_map(|b| (0..o.levels).map(move |k| feed(o, b, k))).collect()
+}
+
+/// Lays the hold feeds (the level-0 hold controls become their stone), each input in its
+/// unpowered-hump state (every line low at the start), and sets each dust's state.
+fn lay_feeds(b: &mut Builder, o: &LaneOpts) -> Result<()> {
+    anyhow::ensure!(o.paired && o.yard && o.levels == 3 && o.level_gap == 3, "the hold feeds are laid for the yard on paired lanes, 3 levels 3 apart");
+    let ctrl0: std::collections::BTreeSet<[i32; 3]> = (0..BATCHES).map(|l| o.hold_ctrls(l)[0]).map(|p| [p.x, p.y, p.z]).collect();
+    let mut dust = std::collections::BTreeSet::new();
+    for l in 0..BATCHES {
+        for k in 0..o.levels {
+            let f = feed(o, l, k);
+            for (c, s) in &f.blocks {
+                if let Some(old) = b.d.blocks.get(c) {
+                    anyhow::ensure!(ctrl0.contains(c) || old.trim_start_matches("minecraft:") == *s, "lane {l} level {k}'s feed: its {s} at {c:?} meets {old}");
+                }
+                b.set(c[0], c[1], c[2], s);
+                if *s == "redstone_wire" {
+                    dust.insert(*c);
+                }
+            }
+            if let Some(c) = input_cap(&f) {
+                anyhow::ensure!(!b.d.blocks.contains_key(&c), "lane {l} level {k}'s input cap at {c:?} is taken");
+                b.set(c[0], c[1], c[2], "glass");
+            }
+            let (p, _, off) = o.hold_input(l, k);
+            if off != "air" {
+                if let Some(old) = b.d.blocks.get(&[p.x, p.y, p.z]) {
+                    anyhow::ensure!(old.ends_with("stone") || old.ends_with("redstone_block"), "lane {l} level {k}'s input at {p:?} meets {old}");
+                }
+                b.set(p.x, p.y, p.z, off);
+            } else {
+                anyhow::ensure!(!b.d.blocks.contains_key(&[p.x, p.y, p.z]), "lane {l} level {k}'s input at {p:?} is taken");
+            }
+        }
+    }
+    for c in &dust {
+        let s = crate::carousel::dust_state(&b.d.blocks, &dust, *c);
+        b.set(c[0], c[1], c[2], &s);
+    }
+    Ok(())
 }
 
 /// The part's bench design: the seven lanes of stacked tracks, every cart with its villager
@@ -191,7 +361,15 @@ pub fn design(o: &LaneOpts) -> Result<String> {
         for k in 0..o.levels {
             let h = o.level_gap * k;
             let hold = o.run - k;
-            let mut spots = vec![(o.stand_z0 + k, 0), ((o.stand_z0 + o.run) / 2, 0)];
+            let mut spots = vec![(o.stand_z0 + k, 0)];
+            if o.feeds {
+                // (the feed columns' climbs put a glass support in the riders' sight rows (y 1,
+                // 4, 7) at z 7, 10, 11, 13, 14, 15: zombies at z 5, 9 and 17 instead of one at
+                // z 11, so a rider on its way always has one near, across columns clear there)
+                spots.extend([(5, 0), (9, 0), (17, 0)]);
+            } else {
+                spots.push(((o.stand_z0 + o.run) / 2, 0));
+            }
             if o.paired {
                 spots.extend([(hold - 1, 0), (hold, 1)]);
             } else {
@@ -211,6 +389,9 @@ pub fn design(o: &LaneOpts) -> Result<String> {
     let bed = o.bed();
     if o.yard {
         crate::yard::build(&mut b, o, &crate::yard::YardOpts::of(o))?;
+        if o.feeds {
+            lay_feeds(&mut b, o)?;
+        }
     } else {
         b.set(bed.x, bed.y, bed.z, "red_bed[facing=north,occupied=false,part=head]");
         b.set(bed.x, bed.y, bed.z + 1, "red_bed[facing=north,occupied=false,part=foot]");
@@ -218,10 +399,15 @@ pub fn design(o: &LaneOpts) -> Result<String> {
         b.set(bed.x, bed.y - 1, bed.z + 1, glass);
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("hold".into(), format!("pitch={} levels={} level_gap={} run={} stand_z0={} boost={} margin={} zombies={} yard={} paired={}", o.pitch, o.levels, o.level_gap, o.run, o.stand_z0, o.boost_every, o.margin, o.zombies as i32, o.yard as i32, o.paired as i32));
+    b.d.meta.insert("hold".into(), format!("pitch={} levels={} level_gap={} run={} stand_z0={} boost={} margin={} zombies={} yard={} paired={} feeds={}", o.pitch, o.levels, o.level_gap, o.run, o.stand_z0, o.boost_every, o.margin, o.zombies as i32, o.yard as i32, o.paired as i32, o.feeds as i32));
     b.d.ports.insert("output".into(), if o.yard { [o.x(BATCHES - 1) + 1, 0, o.run / 4] } else { [bed.x + 1, 0, bed.z] });
     Ok(b.text(&[
-        &format!("The carousel's release + hold part (bench): {BATCHES} lanes at pitch {}, each {} stacked single-cart tracks {} apart (one villager a track, a batch a lane),", o.pitch, o.levels, o.level_gap),
+        &format!(
+            "The carousel's release + hold part (bench): {BATCHES} lanes {}, each {} stacked single-cart tracks {} apart (one villager a track, a batch a lane),",
+            if o.paired { "paired (x 0,1 | 3,4 | 6,7 | 9)".to_string() } else { format!("at pitch {}", o.pitch) },
+            o.levels,
+            o.level_gap
+        ),
         "each track a cart between two braked one-rail slopes, each slope's control switched by the bench; zombies beside every level, one shared bed.",
     ]))
 }
@@ -246,6 +432,7 @@ pub fn lanes_of(meta: &std::collections::BTreeMap<String, String>) -> Result<Lan
             "zombies" => o.zombies = n != 0,
             "yard" => o.yard = n != 0,
             "paired" => o.paired = n != 0,
+            "feeds" => o.feeds = n != 0,
             _ => anyhow::bail!("unknown `hold:` entry {k:?}"),
         }
     }
@@ -428,10 +615,22 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &BenchOpts) -> Result<BenchRe
     let switches: Vec<i64> = (0..slots.len()).map(|n| switch_at(n, &mut rng)).collect();
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let off = Block::parse("minecraft:glass").map_err(|e| e.to_string())?;
+    // each track's hold drive (its control, or with the feeds wired its feed's input) in both
+    // states, parsed once
+    let mut drives: Vec<Vec<(BlockPos, Block, Block)>> = Vec::new();
+    for l in 0..BATCHES {
+        let mut v = Vec::new();
+        for k in 0..lanes.levels {
+            let (p, hi, lo) = lanes.hold_input(l, k);
+            let parse = |s: &str| Block::parse(&format!("minecraft:{s}")).map_err(|e| e.to_string());
+            v.push((p, parse(hi)?, parse(lo)?));
+        }
+        drives.push(v);
+    }
     let set_line = |w: &mut redsim::world::World, k: i32, high: bool| {
         let fl = redsim::world::flags::ALL;
-        for p in lanes.hold_ctrls(k) {
-            w.set_block(p, if high { on.clone() } else { off.clone() }, fl);
+        for (p, hi, lo) in &drives[k as usize] {
+            w.set_block(*p, if high { hi.clone() } else { lo.clone() }, fl);
         }
         for p in lanes.stand_ctrls(k) {
             w.set_block(p, if high { off.clone() } else { on.clone() }, fl);

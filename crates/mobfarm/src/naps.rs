@@ -128,7 +128,7 @@ impl Naps {
 
     /// The junctions and merges set for a napper of `level` from lane `lane`.
     fn route(&self, w: &mut redsim::world::World, lane: i32, level: i32) {
-        for (p, s) in self.yard.junctions[level as usize].iter().zip(Yard::junction_states(lane)) {
+        for (p, s) in self.yard.junctions[level as usize].iter().zip(self.yard.junction_states(lane)) {
             if let Some(on) = s {
                 set(w, *p, if on { "redstone_block" } else { "target[power=0]" });
             }
@@ -171,9 +171,9 @@ impl Naps {
             self.problems.push(format!("gt {t}: napper {id} dispatched again while still out (since gt {})", v.start));
             return;
         }
-        let hold = self.lanes.hold_ctrls(lane)[level as usize];
-        set(w, hold, "redstone_block");
-        self.pending.push((t + self.hump_for, hold, "glass"));
+        let (hold, on, off) = self.lanes.hold_input(lane, level);
+        set(w, hold, on);
+        self.pending.push((t + self.hump_for, hold, off));
         set(w, self.yard.activator, "redstone_block");
         self.pending.push((t + self.activator_for, self.yard.activator, "glass"));
         self.routes.push((t + self.route_after, lane, level, id));
@@ -224,7 +224,7 @@ impl Naps {
         let e = &w.entities.list[i];
         let (pos, riding) = (e.pos, e.vehicle.is_some());
         let asleep = redsim::entity::mob::mob(w, i).sleeping_pos.is_some();
-        let hz = self.lanes.run - v.level;
+        let hz = self.lanes.hold_slope_z(v.lane, v.level);
         let home = redsim::entity::mob::ai::brain::brain(w, i).home;
         if self.trace == Some(v.id) {
             let cart = v.cart.and_then(|c| w.entities.list.iter().find(|x| x.id == c)).map(|c| (c.pos, c.delta_movement));
@@ -240,7 +240,12 @@ impl Naps {
                 pos.x,
                 pos.y,
                 pos.z,
-                cart.map(|(p, d)| format!("{:.2} {:.2} {:.2} d {:.3} {:.3}", p.x, p.y, p.z, d.x, d.z)),
+                cart.map(|(p, d)| {
+                    // (the rail cell under the cart and the next one along its motion)
+                    let c = BlockPos::new(p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32);
+                    let n = BlockPos::new(c.x, c.y, c.z + if d.z < 0.0 { -1 } else { 1 });
+                    format!("{:.2} {:.2} {:.2} d {:.3} {:.3} on {} next {}", p.x, p.y, p.z, d.x, d.z, w.get(c), w.get(n))
+                }),
                 act,
                 b.home,
                 b.nearest_hostile,
