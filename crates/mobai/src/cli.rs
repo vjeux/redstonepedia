@@ -82,6 +82,20 @@ pub enum MobaiCmd {
         #[arg(long, default_value_t = 2000)]
         ticks: u32,
     },
+    /// A recorded scene's panic onset over every phase pair of a sleeping villager's two sensors
+    /// (NearestLivingEntitySensor, VillagerHostilesSensor; 400 redsim runs from the scene's state
+    /// before its revealing action): the recorded pair's delay first, then the distribution.
+    SensorSweep {
+        name: String,
+        /// The villager's entity number.
+        #[arg(long, default_value_t = 0)]
+        villager: u32,
+        /// The scene action's tick that reveals the hostile.
+        #[arg(long)]
+        reveal: u32,
+        #[arg(long, default_value = "designs/redsim/recorded/mobai")]
+        dir: std::path::PathBuf,
+    },
     /// Record scenes in the game for `mctas test` (`<dir>/<scene>.rec`: the bridge's frames,
     /// gzipped, with the scene's hash in the header), then `mctas recorded write <dir>`.
     Record {
@@ -155,6 +169,7 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::Fixture { name, seed, ticks, full, probe, trace_at, entity } => crate::fixture::run(version, &name, seed, ticks, full, probe, trace_at, entity),
         MobaiCmd::Record { scenes, seed, ticks, dir } => crate::fixture::record(version, &scenes, seed, ticks, &dir),
         MobaiCmd::Timeline { name, seed, ticks } => crate::fixture::timeline(version, &name, seed, ticks),
+        MobaiCmd::SensorSweep { name, villager, reveal, dir } => crate::fixture::sensor_sweep(&name, villager, reveal, &dir),
         MobaiCmd::Replay { paths } => crate::fixture::replay(&paths),
         MobaiCmd::FarmTrace { design, seed, at, entity, terrain, day0, build, run, no_spawning, weather } => crate::farmtrace::run(version, &design, seed, at, entity, terrain, day0, build.map(|k| (k, run)), no_spawning, weather),
         MobaiCmd::Mathfuzz { n, seed, inputs } => crate::mathfuzz::run(version, n, seed, &inputs),

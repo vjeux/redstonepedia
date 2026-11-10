@@ -66,6 +66,14 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
         ],
         // the carousel's rider: the second villager's pen opened once the carted one holds the bed
         "bed-cart" => vec![(400, vec![s([40, 64, 38], "minecraft:air"), s([40, 65, 38], "minecraft:air")])],
+        // (tickexact) the release and the re-take: A's box shut, the R1 double claim, A's box opened
+        "bed-retake" => vec![
+            (300, vec![s([11, 64, 10], "minecraft:stone"), s([11, 65, 10], "minecraft:stone")]),
+            (600, vec![s([31, 64, 21], "minecraft:air"), s([31, 64, 20], "minecraft:air")]),
+            (601, vec![s([31, 64, 20], "minecraft:red_bed[facing=south,occupied=false,part=foot]"), s([31, 64, 21], "minecraft:red_bed[facing=south,occupied=false,part=head]")]),
+            (602, vec![s([40, 64, 38], "minecraft:air"), s([40, 65, 38], "minecraft:air")]),
+            (12600, vec![s([11, 64, 10], "minecraft:air"), s([11, 65, 10], "minecraft:air")]),
+        ],
         // (tickexact) the nap's panic wake: the window on the penned zombie opened, shut, opened
         "cart-train" => vec![
             (100, vec![s([24, 62, 13], "minecraft:redstone_torch")]),
@@ -415,7 +423,7 @@ fn scenes_raw() -> Vec<Scene> {
         // stays in it through the night (REST's walk target unreachable: CANT_REACH, then the
         // release after 1200 ticks), villager B (let out at 400) walks to the bed homeless and
         // takes it when it is free
-        let mut cb = rb;
+        let mut cb = rb.clone();
         cb.push(([10, 64, 10], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
         v.push(Scene {
             name: "bed-cart".into(),
@@ -426,6 +434,41 @@ fn scenes_raw() -> Vec<Scene> {
                 ("minecraft:villager".into(), [40.5, 64.0, 40.5], Some("{PersistenceRequired:1b}".into())),
             ],
             day_time: 11000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
+        // (tickexact 2026-11-09, ironspec's one-bed carousel) the release and the re-take on a
+        // shared bed: villager A claims the one bed from a minecart in a closed box 23 away whose
+        // door is open; the door shuts at 300 (the bed out of A's reach), the bed is broken and
+        // placed again (600, 601) and B, let out at 602, takes the fresh record (the R1 double
+        // claim: both HOMEs on one bed). In REST A's walk target cannot be reached (CANT_REACH from
+        // its first REST tick); 1200 gt later SetWalkTargetFromBlockMemory releases its HOME
+        // (Villager.releasePoi: the record's one ticket free while B keeps its HOME); A's AcquirePoi
+        // fails while shut in; the door opens at 12600 and A takes the ticket back
+        let mut kb = rb;
+        kb.push(([10, 64, 10], "minecraft:rail[shape=north_south,waterlogged=false]".to_string()));
+        for x in 9..=11 {
+            for z in 9..=11 {
+                if (x, z) != (10, 10) && (x, z) != (11, 10) {
+                    kb.push(([x, 64, z], "minecraft:stone".to_string()));
+                    kb.push(([x, 65, z], "minecraft:stone".to_string()));
+                }
+                kb.push(([x, 66, z], "minecraft:stone".to_string()));
+            }
+        }
+        v.push(Scene {
+            name: "bed-retake".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: kb,
+            mobs: vec![
+                ("minecraft:minecart".into(), [10.5, 64.0, 10.5], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".into())),
+                ("minecraft:villager".into(), [40.5, 64.0, 40.5], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 1000,
             difficulty: Difficulty::Easy,
             mob_griefing: true,
             watch: ([0, 60, 0], [47, 70, 47]),
@@ -1533,6 +1576,96 @@ pub fn record(version: &str, names: &[String], seed: i64, ticks: u32, dir: &std:
         eprintln!("recorded {}: {} frames in {:.1} s ({})", s.name, frames.len(), t0.elapsed().as_secs_f64(), path.display());
     }
     eprintln!("then: mctas recorded write {} --fresh", dir.display());
+    Ok(())
+}
+
+/// `mctas mobai sensor-sweep`: a recorded scene replayed on redsim to its action at `reveal`
+/// (the window that shows a sleeper a hostile), then once for each of the 400 phase pairs of the
+/// villager's NearestLivingEntitySensor and VillagerHostilesSensor (the ticks until each fires
+/// next, 1..20), the action applied and the ticks until it wakes (PANIC's WakeUp) counted: the
+/// distribution of the panic onset over the sensors' phases (the bridge's recording fixes one
+/// pair per villager: `--check` replays it first, the delay the game showed).
+pub fn sensor_sweep(name: &str, villager: u32, reveal: u32, dir: &std::path::Path) -> Result<()> {
+    let all = scenes();
+    let s = all.iter().find(|s| s.name == name).ok_or_else(|| anyhow!("no scene {name}"))?;
+    let path = dir.join(format!("{name}.rec"));
+    let text = mctas::recorded::read_text(&path)?;
+    let mut lines = text.lines();
+    let header: serde_json::Value = serde_json::from_str(lines.next().unwrap_or("")).map_err(|e| anyhow!("{}: header: {e}", path.display()))?;
+    anyhow::ensure!(header["scene_hash"].as_str() == Some(s.hash().as_str()), "{}: the scene changed since it was recorded", path.display());
+    let first: serde_json::Value = serde_json::from_str(lines.next().unwrap_or("{}"))?;
+    let list = |k: &str| -> Vec<[i32; 2]> { header[k].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default() };
+    let seed = header["seed"].as_i64().unwrap_or(1);
+    let mut ours = redsim_world(s, seed)?;
+    let ticking = list("ticking");
+    if !ticking.is_empty() {
+        ours.chunk_order = ticking;
+    }
+    if let Some(p) = s.player {
+        use redsim::entity::mob::natural::Natural;
+        let pos = redsim::entity::Vec3::new(p[0], p[1], p[2]);
+        ours.mob.natural = Some(Natural { spawning: false, spawn_enemies: false, void_biome: Some("minecraft:plains"), spawn_order: list("spawning"), ..Natural::new(vec![pos], s.difficulty) });
+    }
+    redsim_summon(&mut ours, s)?;
+    let t0 = first["t"].as_i64().unwrap_or(1);
+    ours.time = t0 - 1;
+    if let Some(d) = first["day"].as_i64() {
+        ours.mob.day_offset = d - t0;
+    }
+    let actions = scene_actions(name);
+    for done in 1..=reveal as i64 {
+        ours.tick();
+        if done < reveal as i64
+            && let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == done)
+        {
+            apply_redsim(&mut ours, b)?;
+        }
+    }
+    let (_, shown) = actions.iter().find(|(t, _)| *t == reveal).ok_or_else(|| anyhow!("no action of {name} at {reveal}"))?;
+    let idx = ours.entities.list.iter().position(|e| e.id == villager).ok_or_else(|| anyhow!("no entity #{villager}"))?;
+    let sleeping = |w: &World| matches!(&w.entities.list[idx].kind, redsim::entity::EntityKind::Mob(m) if m.sleeping_pos.is_some());
+    anyhow::ensure!(sleeping(&ours), "#{villager} is not asleep at {reveal}");
+    let phases = |w: &World| -> (i64, i64) {
+        match &w.entities.list[idx].kind {
+            redsim::entity::EntityKind::Mob(m) => m.brain.as_deref().map(|b| (b.sensors[0], b.sensors[5])).unwrap_or((0, 0)),
+            _ => (0, 0),
+        }
+    };
+    let wake = |mut w: World| -> Result<Option<u32>> {
+        apply_redsim(&mut w, shown)?;
+        for d in 1..=80u32 {
+            w.tick();
+            if !sleeping(&w) {
+                return Ok(Some(d));
+            }
+        }
+        Ok(None)
+    };
+    let (la, ha) = phases(&ours);
+    println!("#{villager} at {reveal}: the recorded phases (ticks to the next scan) living {la}, hostiles {ha}: wakes after {:?} gt", wake(ours.clone())?);
+    let mut hist = std::collections::BTreeMap::new();
+    let mut never = 0;
+    for a in 1..=20i64 {
+        for b in 1..=20i64 {
+            let mut w = ours.clone();
+            if let redsim::entity::EntityKind::Mob(m) = &mut w.entities.list[idx].kind
+                && let Some(br) = m.brain.as_deref_mut()
+            {
+                br.sensors[0] = a;
+                br.sensors[5] = b;
+            }
+            match wake(w)? {
+                Some(d) => *hist.entry(d).or_insert(0u32) += 1,
+                None => never += 1,
+            }
+        }
+    }
+    let n: u32 = hist.values().sum();
+    let mean = hist.iter().map(|(d, c)| *d as f64 * *c as f64).sum::<f64>() / n.max(1) as f64;
+    println!("400 phase pairs: woke in {n} (never within 80: {never}); min {:?}, max {:?}, mean {mean:.2} gt", hist.keys().next(), hist.keys().last());
+    for (d, c) in &hist {
+        println!("  {d:>2} gt: {c:>3} {}", "#".repeat(*c as usize));
+    }
     Ok(())
 }
 
