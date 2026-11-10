@@ -1,0 +1,374 @@
+# The carousel's bed siding (bench): a napper's cart enters at the origin moving +x, a T sends it down the bed line (the free cell, the activator, the park rail),
+# the napper naps in the one bed and is woken by the dorm zombie through the hatch, re-boards its cart, which waits on the exit slot until the release pulse.
+name: carousel-bed-siding-wired
+circuit: mob-farm iron_ingot
+siding: v1 wired entry=0,0,0 exit=6,-1,0 release=4,-2,0
+port home: 0 0 2
+port output: 12 0 6
+entity: minecraft:oak_boat 4.5 1 2.5 {Passengers:[{id:"minecraft:zombie"}]}
+entity: minecraft:minecart -19.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -17.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -15.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -13.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -11.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -9.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -7.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -5.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -3.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -1.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 2.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 4.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 6.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 8.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 10.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 12.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 14.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 16.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 18.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 20.5 0.0625 -19.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:oak_boat -17.5 0 -22.5 {Passengers:[{id:"minecraft:zombie"}]}
+entity: minecraft:oak_boat -9.5 0 -22.5 {Passengers:[{id:"minecraft:zombie"}]}
+entity: minecraft:oak_boat -1.5 0 -22.5 {Passengers:[{id:"minecraft:zombie"}]}
+entity: minecraft:oak_boat 6.5 0 -22.5 {Passengers:[{id:"minecraft:zombie"}]}
+entity: minecraft:oak_boat 14.5 0 -22.5 {Passengers:[{id:"minecraft:zombie"}]}
+entity: minecraft:oak_boat 22.5 0 -22.5 {Passengers:[{id:"minecraft:zombie"}]}
+origin: -20 0 -23
+palette:
+  A minecraft:activator_rail[powered=true,shape=north_south,waterlogged=false]
+  B minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
+  C minecraft:cobblestone
+  D minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
+  E minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  F minecraft:rail[shape=south_west,waterlogged=false]
+  G minecraft:glass
+  H minecraft:red_bed[facing=north,occupied=false,part=foot]
+  I minecraft:iron_trapdoor[facing=east,half=bottom,open=true,powered=true,waterlogged=false]
+  J minecraft:red_bed[facing=north,occupied=false,part=head]
+  K minecraft:redstone_block
+  L minecraft:redstone_torch[lit=true]
+  M minecraft:redstone_wall_torch[facing=east,lit=false]
+  N minecraft:redstone_wall_torch[facing=south,lit=true]
+  O minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
+  P minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
+  Q minecraft:redstone_wall_torch[facing=west,lit=false]
+  R minecraft:rail[shape=east_west,waterlogged=false]
+  S minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
+  T minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  U minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  V minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  W minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  X minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  Y minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+  Z minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+  o minecraft:observer[facing=north,powered=false]
+  p minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+  r minecraft:rail[shape=north_south,waterlogged=false]
+  s minecraft:stone
+  t minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
+layer -4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .............s
+  .............s
+  .............sss
+  .............s.ssssss
+  .............s.s...s
+  .............s.sss.s
+  .............sss...ss
+  ..............s....s
+  ..............s....sss
+  ..............s
+  ..............s
+  ..............s
+  ..............sssssssss
+layer -3:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .............Ss
+  .............T
+  .............sMS
+  .............S.SVSSSVs
+  .............S.S...S
+  .............S.sWS.S
+  .............SSN.s.SVss
+  ..............X....S..s
+  ..............X....SSSs
+  ..............X......ss
+  ..............X.......s
+  ..............X.......sssss
+  ..............SSSSVSSSS
+layer -2:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ..............Ss
+  .
+  .............G
+  .....................L..GGGGGGGG
+  .
+  ...............G......s
+  .................S...LU
+  .................s....S
+  ......................S
+  .....................Qs
+  ......................S...s
+  ......................SSSSS
+  .
+layer -1:
+  ..G.......G.......G.......G.......G.......G
+  .
+  .
+  G.G.G.G.G.G.G.G.G.G.G.G.G.G.G.G.G.G.G.G.G
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ...............Sssssssss
+  .......................s
+  .......................s
+  ..............GGGGGGGsGGPRRRRRRRG
+  ....................GK...ss
+  ....................GGL...s
+  ....................Gs....s
+  .................S...G....s
+  .................ssssG....s
+  .....................sG...s
+  .....................G....S
+  .
+  .
+layer 0:
+  .
+  .
+  .
+  p.p.p.p.p.p.p.p.p.p.p.p.p.p.p.p.p.p.p.p.p
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ................SSSSSSSS
+  .......................Us
+  .......................UZ
+  ..............RRRRRRRFRDt
+  .....................EG.YVS
+  ...................GJrs.G.S
+  ...................GHAG...S
+  ....................orG...S
+  .................SSSSr....S
+  .....................B....S
+  .....................C
+  .
+  .
+layer 1:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ........................G
+  .
+  .
+  .....................GG
+  ...................G..I
+  ...................G.GG
+  ....................GGG
+  .....................G
+  .
+  .....................G
+  .
+  .
+layer 2:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ......................G
+  ....................G.G
+  ....................G.G
+  ......................G
+  .
+  .
+  .
+  .
+  .
+layer 3:
+  ..O.......O.......O.......O.......O.......O
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 4:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ........................O
+  .
+  .
+  .
+  .
+  .
+  .
+  .

@@ -15,6 +15,7 @@ pub mod naps;
 pub mod parts;
 pub mod spawnrules;
 pub mod station;
+pub mod siding;
 pub mod drive;
 pub mod linear;
 pub mod assembly;
