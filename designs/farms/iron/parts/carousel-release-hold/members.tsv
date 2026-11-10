@@ -1,2 +1,0 @@
-file	name	stage	metrics	used_by
-carousel-release-hold-paired-v1.txt	carousel release + hold v1, paired lanes: 7 lanes of 3 stacked single-cart tracks (x 0,1 | 3,4 | 6,7 | 9, wiring columns at x -1, 2, 5, 8), each cart between two braked one-rail slopes, zombies beside every level	middle	100 of 100 seeds clean over 6 days with the counter's lines 1..21 gt after each slot (and 1..46 gt), arrival margin min 29 gt (4 gt), mean 39.8 (27.4); REST 0 villager-ticks, golem spawn spots from riders 0; blocks 908, box 14x11x26	
