@@ -902,6 +902,10 @@ pub fn terrain_of(design_text: &str) -> Option<&'static str> {
 pub fn site_of(design_text: &str) -> Option<String> {
     crate::cache::get_or(crate::cache::Domain::View, &[b"site", design_text.as_bytes()], || {
         let d = mcview::Design::parse(design_text).ok()?;
+        // (a part in its terrain carries its reference farm's site: `mcview::terrain::site_meta`)
+        if let Some(o) = mcview::terrain::site_meta(&d) {
+            return Some(format!("{},{},{}", o[0], o[1], o[2]));
+        }
         let spec = mcview::mobfarm::spec(&d).ok()?;
         let o = mcview::terrain::site_offset(&d, &spec).ok()??;
         Some(format!("{},{},{}", o[0], o[1], o[2]))

@@ -33,6 +33,11 @@ each build's page.
   unreadable, the view searches. 2026-11-09: ~55 ms natively, the first 3D view in WebKitGTK
   bed-plate-side-chute 1.19-1.31 -> 1.12-1.13 s, bed-plate-two-clusters 1.11-1.15 -> 1.02-1.05,
   cross-4-underground 2.19-2.23 -> 2.02-2.03 (two loads each).
+  A part in its terrain (`mcview::terrain::is_part_in_terrain`: a design that is no mob farm, with
+  `terrain:` and `site: x,y,z`; ironspec 2026-11-10 on the dug-only drop shaft drop-shaft-11) is
+  its cells cut into the sample's world at that site (its reference farm's: the farm optimizer
+  writes it, the farm page's own `data-site`), the landscape around it as a farm's; no farm runs
+  (played, the world ticks). Its page's `data-site` is that `site:` (`site_of`).
 * `data-still` (thumbnails): the still frame found ahead, `mcview::tools::still_attr(text)` at
   build time (`mctas web still <designs>` prints it): `<tick>`, then ` out=x,y,z` (the clock
   judge's output it adds when the design declares none) and ` box=x0,y0,z0,x1,y1,z1` (the picture

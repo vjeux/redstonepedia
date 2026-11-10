@@ -179,7 +179,11 @@ index's `kind=farm` lists them, and `kind=circuit` no longer does. Their old pag
   (the optimizer's `calm`), `spawn-area` (its `pad`), `transport`, `kill`, `collection`, `storage`,
   `access`) holds each member alone (`<stem>.txt`, no judge) and
   `members.tsv` (`file`, `name`, `stage`, `metrics` as `key value, key value`, `used_by` = the full
-  farms' stems, space-separated), best first, written by the farm optimizer. A member whose file
+  farms' stems, space-separated), best first, written by the farm optimizer. A dug-only member
+  (nothing placed: drop-shaft-11, an open drop) carries its dug cells as air, its reference farm's
+  `terrain:`, `ground:` and `afk:` lines and that farm's site (`site: x,y,z`, the judge's spot): its
+  view shows it dug into that farm's ground ([webrender.md](webrender.md), a part in its terrain).
+  A member whose file
   is not in the part's folder is a judged design of its stage (`designs/farms/<farm>/<stage>/`,
   gated like a variation): a farm module (ironspec 2026-11-08: the unit the bigger farms copy), its
   numbers read from its verdict (iron an hour, blocks, build minutes, villagers) when `metrics` is

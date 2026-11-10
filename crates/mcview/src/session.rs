@@ -873,9 +873,35 @@ impl Session {
                     None
                 }
             }
+        } else if o.terrain && crate::terrain::is_part_in_terrain(&s.design) {
+            // (a part in its terrain: its reference farm's site, `site:`)
+            match crate::terrain::part_for(text, &s.design) {
+                Ok(t) => t,
+                Err(e) => {
+                    s.unsimulated = Some(format!("its terrain: {e}"));
+                    None
+                }
+            }
         } else {
             None
         };
+        // a part in its terrain (ironspec 2026-11-10: a dug-only part, the drop shaft, "the view
+        // shows the shaft dug into the ground"): its cells cut into the sample's world at its
+        // reference farm's site, the landscape around it; no farm runs (played, the world ticks)
+        if let Some(t) = terrain.clone().filter(|_| crate::terrain::is_part_in_terrain(&s.design)) {
+            let spec = crate::terrain::part_spec(&s.design)?;
+            s.world = crate::terrain::part_world(&t, &spec);
+            s.world.errors.clear();
+            // (a cell the world changes when played is drawn: `take_writes`)
+            s.world.log_writes = true;
+            s.world.writes.clear();
+            let (lo, hi) = t.farm_box;
+            s.machine_box = Some((lo, [hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1]));
+            s.terrain = Some(t);
+            s.still = !o.simulate;
+            s.initial = Some((s.world.clone(), s.actions.clone(), s.tick));
+            return Ok(s);
+        }
         if !o.simulate {
             // a farm judged in its terrain sample: its still is the judge's world before its run
             // (the sample, the farm built in), its mobs as placed

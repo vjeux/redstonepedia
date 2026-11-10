@@ -1498,6 +1498,19 @@ mod tests {
     }
 
     #[test]
+    fn a_dug_part_is_shown_in_its_terrain() {
+        // (ironspec 2026-11-10: drop-shaft-11, a dug-only part, back in the transport catalog,
+        // its view in its reference farm's terrain at that farm's site)
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let members = read_members(&repo, "iron", "transport");
+        let m = members.iter().find(|m| m.stem() == "drop-shaft-11").expect("drop-shaft-11 in the transport catalog");
+        assert_eq!(m.terrain.as_deref(), Some("village-edge"));
+        assert_eq!(m.site.as_deref(), Some("-345,65,246"));
+        let html = member_viewer("../", m);
+        assert!(html.contains("data-terrain=\"../terrain/village-edge.mcterrain\"") && html.contains("data-site=\"-345,65,246\""), "{html}");
+    }
+
+    #[test]
     fn the_bed_siding_plays_its_bench_run_in_plain_words() {
         // (the carousel's third component, 2026-11-10: its drive beside it, its page's words free of
         // the guard's internal names)

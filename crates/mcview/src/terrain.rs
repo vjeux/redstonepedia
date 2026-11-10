@@ -170,6 +170,52 @@ pub fn farm_for(text: &str, d: &Design, spec: &FarmSpec) -> Result<Option<Rc<Ter
     crate::staged::block_on(farm_for_staged(text, d, spec, None, &crate::staged::Budget::none()))
 }
 
+/// A part shown in its terrain (ironspec 2026-11-10 on the dug-only drop shaft: "keep it, its file
+/// carrying the terrain sample and its dug cells as air, so the view shows the shaft dug into the
+/// ground"): a design that is no mob farm, with `terrain:` and `site: x,y,z` (its reference farm's
+/// site offset, the judge's spot for that farm): its cells (the dug ones as air) at that offset in
+/// the sample's world. Nothing of a farm runs in it.
+pub fn is_part_in_terrain(d: &Design) -> bool {
+    !crate::mobfarm::is_mob_farm(d) && sample_of(d).is_some() && site_meta(d).is_some()
+}
+
+/// A design's `site: x,y,z` (or `x y z`): the offset of its coordinates in its terrain sample.
+pub fn site_meta(d: &Design) -> Option<[i32; 3]> {
+    let v: Vec<i32> = d.meta.get("site")?.split([',', ' ']).filter(|t| !t.is_empty()).map(|t| t.trim().parse::<i32>()).collect::<Result<_, _>>().ok()?;
+    let [x, y, z] = v[..] else { return None };
+    Some([x, y, z])
+}
+
+/// A part's cells as a farm spec for its terrain ([`is_part_in_terrain`]): its blocks (the dug ones
+/// as air), no entity, its box with the judge's margin; its output an unused cell (nothing runs).
+pub fn part_spec(d: &Design) -> Result<FarmSpec, String> {
+    let mut blocks = Vec::with_capacity(d.blocks.len());
+    for (q, s) in &d.blocks {
+        blocks.push((BlockPos::new(q[0], q[1], q[2]), crate::mobfarm::farm_block(s).map_err(|e| format!("not modeled by redsim: {e}"))?));
+    }
+    blocks.sort_by_key(|(q, _)| [q.x, q.y, q.z]);
+    let (lo, hi) = d.bounds().ok_or("an empty design")?;
+    let m = crate::mobfarm::WATCH_MARGIN;
+    let block_entities = d.block_entities.iter().map(|(p, s)| (BlockPos::new(p[0], p[1], p[2]), s.clone())).collect();
+    Ok(FarmSpec { blocks, entities: Vec::new(), output: BlockPos::new(lo[0], lo[1], lo[2]), lo: BlockPos::new(lo[0] - m, lo[1] - m, lo[2] - m), hi: BlockPos::new(hi[0] + m, hi[1] + m, hi[2] + m), block_entities, rock: d.meta.get("terrain").map(|t| t.trim()) == Some("rock"), nether: None })
+}
+
+/// A part's terrain ([`is_part_in_terrain`]): the sample's site at its `site:` offset alone (priced
+/// there as the judge prices a spot: the seals its dug cells need), made once, then shared.
+pub fn part_for(text: &str, d: &Design) -> Result<Option<Rc<TerrainFarm>>, String> {
+    let spec = part_spec(d)?;
+    crate::staged::block_on(farm_for_staged(text, d, &spec, site_meta(d), &crate::staged::Budget::none()))
+}
+
+/// A part's world in its terrain: the site's world (its seals) with the part's cells written raw
+/// (a dug cell: air), in the world's coordinates.
+pub fn part_world(t: &TerrainFarm, spec: &FarmSpec) -> World {
+    let moved = t.site.spec(spec);
+    let mut w = t.site.world_for(&moved);
+    w.place_raw(&moved.blocks);
+    w
+}
+
 /// Whether a design's terrain farm is made already (or it needs none): a live view makes it over
 /// frames first ([`farm_for_staged`]), then its still and its run take it from here at once.
 pub fn farm_ready(text: &str, d: &Design) -> bool {
@@ -448,6 +494,39 @@ mod tests {
         // a card stays void
         let card = crate::session::Session::new(&text, &crate::session::Options { terrain: false, ..crate::session::Options::still() }).unwrap();
         assert!(card.terrain.is_none());
+    }
+
+    /// ironspec 2026-11-10 on drop-shaft-11 (a dug-only part: "keep it, its file carrying the
+    /// terrain sample and its dug cells as air, so the view shows the shaft dug into the ground"):
+    /// a part in its terrain is its cells cut into the sample's world at its reference farm's site
+    /// (`site:`, the farm's page's), the landscape around; its cells air in the world, no farm runs.
+    #[test]
+    fn a_dug_part_shows_in_its_ground() {
+        let text = String::from_utf8(read("designs/farms/iron/parts/transport/drop-shaft-11.txt")).unwrap();
+        let d = Design::parse(&text).unwrap();
+        assert!(is_part_in_terrain(&d) && site_meta(&d) == Some([-345, 65, 246]));
+        // (its reference farm's page site: the judge's spot for bed-plate-lava-out-of-sight)
+        let farm_text = String::from_utf8(read("designs/farms/iron/day-1/bed-plate-lava-out-of-sight.txt")).unwrap();
+        let farm = Design::parse(&farm_text).unwrap();
+        assert_eq!(site_offset(&farm, &crate::mobfarm::spec(&farm).unwrap()).unwrap(), site_meta(&d), "the part's site is its farm's");
+        for o in [crate::session::Options::still(), crate::session::Options::live()] {
+            let s = crate::session::Session::new(&text, &o).unwrap();
+            let t = s.terrain.as_ref().expect("shown in its terrain");
+            assert!(s.unsimulated.is_none() && s.mob.is_none(), "{:?}", s.unsimulated);
+            assert_eq!(t.offset(), [-345, 65, 246]);
+            // every dug cell is air in the world, natural blocks around (the shaft's walls)
+            for (p, _) in &d.blocks {
+                let q = BlockPos::new(p[0] - 345, p[1] + 65, p[2] + 246);
+                assert!(matches!(s.world.get(q), Block::Air), "{p:?}: {}", s.world.get(q));
+            }
+            assert!(matches!(s.world.get(BlockPos::new(-1 - 345, -10 + 65, 4 + 246)), Block::Terrain(_)), "the shaft's west wall is the sample's ground");
+            let blocks = s.render_blocks(0.0);
+            assert!(blocks.iter().filter(|b| b.state.starts_with("minecraft:grass_block")).count() > 100, "the landscape's grass");
+            assert!(!blocks.iter().any(|b| d.blocks.contains_key(&b.cell)), "nothing drawn in the shaft");
+        }
+        // a void design with `site:` but no `terrain:` stays void; a mob farm never takes this path
+        assert!(!is_part_in_terrain(&Design::parse("name: x\nsite: 1,2,3\npalette:\n  S stone\nlayer 0:\n  S\n").unwrap()));
+        assert!(!is_part_in_terrain(&farm));
     }
 
     /// What a farm in its terrain costs in the view (`--nocapture`): its still, its run's session

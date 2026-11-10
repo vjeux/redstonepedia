@@ -17,6 +17,19 @@ use std::collections::BTreeMap;
 
 const PARTS: [&str; 8] = ["cage", "calm", "pad", "transport", "kill", "collection", "storage", "access"];
 
+/// A farm's site in its terrain sample (the judge's spot: `site::Site::new`, where the farm's page
+/// shows it), for a dug-only part of it shown in its ground; None for a void farm.
+fn farm_site(d: &mctas::design::Design) -> Result<Option<[i32; 3]>> {
+    use redsim::entity::mob::site;
+    let meta = |k: &str| d.meta.get(k).map(String::as_str);
+    let Some(sample) = site::sample_of(meta("terrain"), meta("sample")).map_err(|e| anyhow::anyhow!(e))? else { return Ok(None) };
+    let c = circuit::Circuit::from_design(d.clone())?;
+    let spec = circuit::mobfarm::spec_of(&c).map_err(|e| anyhow::anyhow!(e))?;
+    let (ground, afk, clear_box) = site::params(&spec, meta("ground"), meta("afk"), meta("terrain")).map_err(|e| anyhow::anyhow!(e))?;
+    let s = site::Site::new(sample, &spec, ground, afk, clear_box).map_err(|e| anyhow::anyhow!(e))?;
+    Ok(Some(s.offset))
+}
+
 fn design_of(c: &Cand, calm_parts: &[crate::calm::Part], without: (bool, bool)) -> Result<mctas::design::Design> {
     crate::design::WITHOUT.with(|w| w.set(without));
     let built = crate::design::build_uncached(c, calm_parts);
@@ -278,6 +291,25 @@ pub fn write_members(dir: &std::path::Path, refs: &[(Cand, &str)], used: &[(Stri
             }
             if placed == 0 && dug == 0 {
                 continue;
+            }
+            // a dug-only part (nothing placed: an open drop dug into the ground): its dug cells as
+            // air and its reference farm's terrain lines and site (ironspec 2026-11-10: "its file
+            // carrying the terrain sample and its dug cells as air, so the view shows the shaft dug
+            // into the ground"; the view draws it there: `mcview::terrain::is_part_in_terrain`)
+            if placed == 0 {
+                for (p, s) in &d.blocks {
+                    if roles.get(p).copied() == Some(part) && id(s) == "air" {
+                        out.blocks.insert(*p, s.clone());
+                    }
+                }
+                for k in ["terrain", "sample", "ground", "afk"] {
+                    if let Some(v) = d.meta.get(k) {
+                        out.meta.insert(k.to_string(), v.clone());
+                    }
+                }
+                if let Some(o) = farm_site(&d)? {
+                    out.meta.insert("site".into(), format!("{},{},{}", o[0], o[1], o[2]));
+                }
             }
             let (name, extra) = match part {
                 "storage" => {

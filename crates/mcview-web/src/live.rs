@@ -893,17 +893,18 @@ pub fn load(app: &mut App, id: u32) {
     // site, the landscape layer by layer: `mcview::terrain::farm_for_staged`; no task over ~50 ms;
     // the page's `data-site`: the judge's spot found ahead, priced alone), then its still at once
     if let Ok(d) = mcview::Design::parse(&text)
-        && mcview::mobfarm::is_mob_farm(&d)
+        && (mcview::mobfarm::is_mob_farm(&d) || mcview::terrain::is_part_in_terrain(&d))
         && !mcview::terrain::farm_ready(&text, &d)
     {
         let key = text.to_string();
-        let chosen = app.views.get(&id).and_then(|v| v.site);
+        // (a part in its terrain: its own `site:`, its reference farm's)
+        let chosen = app.views.get(&id).and_then(|v| v.site).or_else(|| mcview::terrain::site_meta(&d));
         if app.terrain_jobs.insert(key.clone()) {
             wasm_bindgen_futures::spawn_local(async move {
                 let t = crate::window().performance().map(|p| p.now()).unwrap_or(0.0);
                 let r = crate::run_staged(12.0, |b| {
                     mcview::staged::Task::new(async move {
-                        let spec = mcview::mobfarm::spec(&d)?;
+                        let spec = if mcview::mobfarm::is_mob_farm(&d) { mcview::mobfarm::spec(&d)? } else { mcview::terrain::part_spec(&d)? };
                         mcview::terrain::farm_for_staged(&key, &d, &spec, chosen, &b).await.map(|_| key)
                     })
                 })
