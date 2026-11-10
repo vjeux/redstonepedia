@@ -140,7 +140,10 @@ carousel-single-lane-loop-wip.txt`. Fully wired, the golem pulse the only input:
   hopper's stock merged (its build step: 23 stone in the hopper at (-5,-1,12)).
 - v2 (10-gt advance pulses, release group 34 gt, every cell written settled): 10 seeds x 300 slots
   clean; `--placed-all` 3 x 60 clean placed the judge's way, as a raw paste and built in order
-  (each cell's priced gap: 20 gt, 40 gt at a place:edge cell).
+  (each cell's priced gap: 20 gt, 40 gt at a place:edge cell); tick-exact bridged it against the
+  26.3 server placed as written (60 slots, 0 differences) and built in order at 20 gt a placement
+  (the build and the run, 27,920 ticks, 0 differences; all 1,260 slot-end positions match):
+  recorded scenes carousel-wired-v2 and carousel-wired-built (GO 8171a0da2).
 - Its flag: the stand's 2-tick catch.
 
 ## Placement checks (the brief's "settled as placed, and built in order")
