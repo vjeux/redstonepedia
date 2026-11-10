@@ -1211,6 +1211,9 @@ struct GroupData {
     ageable: Option<(u32, f32, bool)>,
     /// `SpiderEffectsGroupData` made (its effect drawn on Hard).
     spider: bool,
+    /// (tickexact 2026-11-10) Its effect: `setRandomEffect`'s `nextInt(5)` (0-1 speed, 2 strength,
+    /// 3 regeneration, 4 invisibility), every spider of the group gets it.
+    spider_effect: Option<i32>,
     /// `HorseGroupData` made (its variant drawn).
     horse: bool,
     /// `WolfPackData` made (its variant drawn).
@@ -1237,6 +1240,8 @@ struct Finalized {
     rider_chicken: Jockey,
     /// A horse's attributes as `randomizeAttributes` drew them: max health, speed, jump strength.
     horse: Option<(f32, f64, f64)>,
+    /// (tickexact 2026-11-10) A spider's group effect (`addEffect(effect, -1)`: infinite).
+    spider_effect: Option<i32>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1502,7 +1507,7 @@ pub fn portal_piglin(w: &mut World, at: BlockPos) -> Option<u32> {
     let (baby, jockey, breaks_doors) = piglin_finalize(w, &nat);
     let k = kind_of("minecraft:zombified_piglin")?;
     let ty = if baby { MobType::Natural(48) } else { MobType::Natural(47) };
-    let f = Finalized { ty, baby, jockey, helmet: None, rider_helmet: None, breaks_doors, rider_breaks_doors: false, color: 0, rider_chicken: Jockey::None, horse: None };
+    let f = Finalized { ty, baby, jockey, helmet: None, rider_helmet: None, breaks_doors, rider_breaks_doors: false, color: 0, rider_chicken: Jockey::None, horse: None, spider_effect: None };
     let id = spawn_mob(w, k, &f, Vec3::new(pos.x as f64 + 0.5, (pos.y + 1) as f64, pos.z as f64 + 0.5), yaw);
     // EntityType.create (STRUCTURE): after the snap, the head and the body take the yaw too
     if let Some(j) = crate::entity::index_of(w, id)
@@ -1858,6 +1863,7 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
     let mut rider_breaks_doors = false;
     let mut rider_chicken = Jockey::None;
     let mut horse: Option<(f32, f64, f64)> = None;
+    let mut spider_effect: Option<i32> = None;
     let mut color = 0u8;
     match k.finalize {
         Finalize::Nothing => {}
@@ -1886,11 +1892,11 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
             if !g.spider {
                 g.spider = true;
                 if hard && rng(w).next_float() < 0.1 * special {
-                    // the group's effect (speed, strength, regeneration, invisibility): only the
-                    // spiders' unmodeled AI reads it
-                    rng(w).next_int(5);
+                    // the group's effect (speed, strength, regeneration, invisibility)
+                    g.spider_effect = Some(rng(w).next_int(5));
                 }
             }
+            spider_effect = g.spider_effect;
         }
         Finalize::Slime => {
             ageable(w, g, false, 0.05);
@@ -2000,7 +2006,7 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
             None => {}
         }
     }
-    Finalized { ty, baby, jockey, helmet, rider_helmet, breaks_doors, rider_breaks_doors, color, rider_chicken, horse }
+    Finalized { ty, baby, jockey, helmet, rider_helmet, breaks_doors, rider_breaks_doors, color, rider_chicken, horse, spider_effect }
 }
 
 /// `isValidPositionForMob`: the despawn distance, `checkSpawnRules` (the walk target value) and
@@ -2114,6 +2120,27 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
         }
     }
     super::set_helmet(w, id, f.helmet);
+    // (tickexact 2026-11-10) a spider's group effect, infinite (`addEffect(effect, -1)`): speed
+    // (x 1.2 on its MOVEMENT_SPEED, the witch's speed effect's way); the others are named
+    if let Some(sel) = f.spider_effect {
+        if sel <= 1 {
+            if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
+                && let EntityKind::Mob(m) = &mut e.kind
+            {
+                m.effects.speed = i32::MAX;
+            }
+        } else {
+            let what = match sel {
+                2 => "strength",
+                3 => "regeneration",
+                _ => "invisibility",
+            };
+            let why = format!("a spider spawned with {what} (SpiderEffectsGroupData) is not modeled");
+            if !w.errors.contains(&why) {
+                w.errors.push(why);
+            }
+        }
+    }
     // a horse's attributes as randomizeAttributes drew them: its health is its max health
     if let Some((health, speed, jump)) = f.horse
         && let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
