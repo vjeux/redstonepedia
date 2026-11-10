@@ -889,8 +889,21 @@ fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, 
     let chest = s.cmd_long(&format!("data get block {} Items", xyz(output)))?;
     run.iron_chest = count_iron(&chest);
     run.poppies = count_item(&chest, "minecraft:poppy");
+    // (a probe: MCTAS_GATE_CONTAINERS=1 prints the chest's and every container's items at the end,
+    // and every item on the floor near the farm: what a sorter holds, foreign items among them)
+    let show = std::env::var_os("MCTAS_GATE_CONTAINERS").is_some();
+    if show {
+        eprintln!("  container {} (the chest): {}", xyz(output), chest.trim());
+    }
     for p in &boxes {
-        run.iron_containers += count_iron(&s.cmd_long(&format!("data get block {} Items", xyz(*p)))?);
+        let items = s.cmd_long(&format!("data get block {} Items", xyz(*p)))?;
+        if show {
+            eprintln!("  container {}: {}", xyz(*p), items.trim());
+        }
+        run.iron_containers += count_iron(&items);
+    }
+    if show {
+        eprintln!("  loose items: {}", s.cmd_long(&format!("execute as @e[type=minecraft:item{}] run data get entity @s Item", scope.near))?.trim());
     }
     run.iron_loose = count_iron(&s.cmd_long(&format!("execute as @e[type=minecraft:item{}] run data get entity @s Item", scope.near))?);
     // what changed in the build: every cell's block type against the paste
