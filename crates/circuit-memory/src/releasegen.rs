@@ -652,15 +652,20 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         sp.blocks.remove(&det);
         let m = |q: P3| [q[0] + crate::sidinggen::MODULE_AT[0], q[1] + crate::sidinggen::MODULE_AT[1], q[2] + crate::sidinggen::MODULE_AT[2]];
         sp.ports.insert("input.golem".into(), golem);
-        for (n, q) in [("rel", [-2, -1, 13]), ("rel_in", m([14, -2, -4])), ("g2", m([14, -2, 4])), ("divert", [9, -3, 0]), ("t1", [-13, 1, 28]), ("t2", [-15, 1, 31]), ("srel", [-16, 1, 10])] {
+        for (n, q) in [("rel", [-2, -1, 13]), ("rel_in", m([14, -2, -4])), ("g2", m([14, -2, 4])), ("unit_t0", [20, -6, 9]), ("divert", [9, -3, 0]), ("t1", [-15, 1, 28]), ("t2", [-17, 1, 31]), ("ka", [-21, -4, 31]), ("hold14", [-12, 1, 28]), ("hold13", [-12, 1, 31]), ("hold12", [-12, 1, 34])] {
             sp.ports.insert(format!("output.{n}"), q);
         }
         if std::env::var("MCTAS_SIDING_PROBE_MORE").is_ok() {
-            for (n, q) in [("r1", [0, -1, 15]), ("r2", [5, -6, 15]), ("r3", [5, -6, 0]), ("r4", [5, -6, -10]), ("r5", [-20, -6, -10]), ("r6", [-45, -6, -10]), ("r7", [-45, -6, -7]), ("r8", [-45, -6, -6]), ("t2a", m([2, -2, 10])), ("t2b", [-15, -4, 31]), ("t2c", [-17, -4, 31]), ("t1b", [-13, -4, 28]), ("u1", [-57, -6, 23]), ("u2", [-57, -6, 25]), ("u3", [-40, -6, 25]), ("u4", [-17, -6, 25]), ("u5", [-17, -6, 29]), ("v1", [-48, -8, 23]), ("v2", [-30, -8, 23]), ("v3", [-20, -8, 23]), ("v4", [-15, -4, 23]), ("v5", [-15, -4, 27]), ("w1", m([22, -2, 2])), ("w2", m([19, -2, 4])), ("w3", [-15, 1, 8]), ("x1", m([10, 0, 18])), ("x2", [12, -8, 10]), ("x3", [11, -4, 0])] {
+            for (n, q) in [("row7", [23, -6, 7]), ("row1", [23, -6, 1]), ("row_5", [23, -6, -5]), ("step_in", [20, -4, 12]), ("step_end", [28, -5, 6]), ("ring_top", [27, -5, 4]), ("p0", [22, -6, 9]), ("p1", [22, -6, 3]), ("p2", [22, -6, -3]), ("or_out", [11, -4, 0]), ("ns5", [-23, -4, 30]), ("bus", [-15, -1, 33])] {
                 sp.ports.insert(format!("output.{n}"), q);
             }
         }
         sp.save(&out.with_extension("siding-probe.txt"))?;
+        // and the whole file with day forced (a redstone block for the detector: no visit ever),
+        // for the daytime loop checks (`queue-loop-run` knows nothing of visits)
+        let mut dd = d.clone();
+        dd.blocks.insert(det, "minecraft:redstone_block".into());
+        dd.save(&out.with_extension("day.txt"))?;
     }
     probe.save(&out.with_extension("probe.txt"))?;
     d.name = "carousel-release-loop-wired".into();

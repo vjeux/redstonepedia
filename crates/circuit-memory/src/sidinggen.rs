@@ -413,16 +413,15 @@ pub fn control_blocks(sched: &Path) -> Result<B> {
     }
     b.ports.insert("output.ns5".into(), [27, -2, 2]);
     // ---- NV out: a dust on NV's block (-4, 0, 3), up two stairs to y 3 (over the D ring), east
-    // along z 3 to `output.nv` (28, 3, 3)
-    if std::env::var("MCTAS_NO_NV_TAP").is_err() {
+    // along z 3 to `output.nv` (28, 4, 3): at y 4, two above the D ring's loop dust (y 1): a line
+    // at y 3 strongly powers its support stones at y 2, which sit right over the loop dust and so
+    // count for the ring's droppers' quasi-connectivity (they jammed the ring)
     b.on([-4, 1, 3], DUST)?;
     b.on([-3, 2, 3], DUST)?;
-    let nvo: Vec<P3> = (-2..=28).map(|x| [x, 3, 3]).collect();
-    if std::env::var("MCTAS_NV_SHORT").is_err() {
-    b.wire([-3, 2, 3], &nvo, 10)?;
-    }
-    b.ports.insert("output.nv".into(), [28, 3, 3]);
-    }
+    b.on([-2, 3, 3], DUST)?;
+    let nvo: Vec<P3> = (-1..=28).map(|x| [x, 4, 3]).collect();
+    b.wire([-2, 3, 3], &nvo, 10)?;
+    b.ports.insert("output.nv".into(), [28, 4, 3]);
     Ok(b)
 }
 
@@ -443,13 +442,19 @@ pub fn control_gen(out: &Path, sched: &Path) -> Result<()> {
 /// neighbours (same level, or a stair's reach) hold dust that is not this wire's, and a stair
 /// whose upper landing has something solid over the lower cell.
 fn route(b: &mut B, from: P3, cells: &[P3], every: usize) -> Result<()> {
+    route_d(b, from, cells, every, every, 1)
+}
+
+/// `route` with the dust count since the source's last repeater (`run0`: 0 right after a repeater,
+/// `every` for "take one on the first flat cell") and the repeaters' delay.
+fn route_d(b: &mut B, from: P3, cells: &[P3], every: usize, run0: usize, delay: u8) -> Result<()> {
     use crate::schedgen::{DUST, rep};
     let mine: std::collections::BTreeSet<P3> = cells.iter().copied().chain(std::iter::once(from)).collect();
     let mut prev = from;
     // dust cells since the last repeater (starting full: the first flat cell takes one, whatever the
     // source's strength): a repeater goes on the first flat cell (with a flat cell after it) once
     // `every` dust cells have passed, stairs included
-    let mut run = every;
+    let mut run = run0;
     for (i, &c) in cells.iter().enumerate() {
         let (dx, dy, dz) = (c[0] - prev[0], c[1] - prev[1], c[2] - prev[2]);
         if dx.abs() + dz.abs() != 1 || dy.abs() > 1 {
@@ -478,7 +483,7 @@ fn route(b: &mut B, from: P3, cells: &[P3], every: usize) -> Result<()> {
                 (0, 1) => "north",
                 _ => "south",
             };
-            b.on(c, &rep(facing, 1))?;
+            b.on(c, &rep(facing, delay))?;
             run = 0;
         } else {
             b.on(c, DUST)?;
@@ -507,6 +512,11 @@ fn seg_to(cells: &mut Vec<P3>, to: P3) {
     }
 }
 
+/// The R'' step line's repeater delay (the line has ~25 repeaters).
+fn step_delay() -> u8 {
+    3
+}
+
 /// The module's place in the loop (its frame's 0 0 0), under the ground west of the siding.
 pub(crate) const MODULE_AT: P3 = [-59, -4, 0];
 
@@ -518,28 +528,29 @@ pub(crate) const MODULE_AT: P3 = [-59, -4, 0];
 /// stairs east to an OR column along x 24 at y -4, west along z 0 into the corner's repeater.
 /// R'' is a copy of the module's k counter (2 items in 3 droppers), stepped ~120 gt after each
 /// visit pulse (in sync with the module's R'); the router (T1 = NOT l1, T2 = l0) hangs off it.
-fn divert_unit(b: &mut B, nv_in: P3) -> Result<(P3, P3)> {
+fn divert_unit(b: &mut B) -> Result<(P3, P3)> {
     use crate::schedgen::{DUST, rep};
-    // REL: a second tap on the core's REL dust (0, -1, 11), east along z 11 at y -1, down to y -6,
-    // north into G2''s rear (20, -6, 11)
+    // REL: a second tap on the core's REL dust (0, -1, 11), east along z 11 at y -1 to x 8, south to
+    // z 13, down a stair east to y -6, east along z 13, north to (20, -6, 12), a repeater into G2''s
+    // rear (full strength for the windows' long OR path; one repeater mid-way)
     b.on([1, -1, 11], &rep("west", 1))?;
     let mut rel = vec![[2, -1, 11]];
     seg_to(&mut rel, [8, -1, 11]);
-    seg_to(&mut rel, [13, -6, 11]);
-    seg_to(&mut rel, [20, -6, 11]);
-    route(b, [1, -1, 11], &rel, 6)?;
-    // REL 10 gt late into G2''s west side with NV: a junction dust (18, -6, 10) fed by two repeaters
-    b.on([19, -6, 12], DUST)?;
+    seg_to(&mut rel, [8, -1, 13]);
+    seg_to(&mut rel, [13, -6, 13]);
+    seg_to(&mut rel, [20, -6, 13]);
+    rel.push([20, -6, 12]);
+    route_d(b, [1, -1, 11], &rel, 13, 0, 1)?;
+    b.on([20, -6, 11], &rep("south", 1))?;
+    // REL 10 gt late into G2''s west side with NV: a junction dust (18, -6, 10) fed by two
+    // repeaters, REL's from the south (18, -6, 11) off a branch (18, -6, 12), NV's from the west
+    // (17, -6, 10) (NV comes along z 10 into (16, -6, 10))
     b.on([18, -6, 12], DUST)?;
     b.on([18, -6, 11], &rep("south", 4))?;
     b.on([18, -6, 10], DUST)?;
-    b.on([19, -6, 10], &rep("west", 1))?;
+    b.on([19, -6, 10], &rep("west", 2))?;
     b.on([20, -6, 10], &comp("south", "subtract"))?;
-    // NV's last repeater into the junction from the west
     b.on([17, -6, 10], &rep("west", 1))?;
-    let mut nv = vec![nv_in];
-    seg_to(&mut nv, [16, -6, 10]);
-    route(b, [nv_in[0] - 1, nv_in[1], nv_in[2]], &nv, 6)?;
     // the chain north: T0 (20, -6, 9), five repeaters, T1 (20, -6, 3), five, T2 (20, -6, -3)
     let tz = [9, 3, -3];
     for (k, &z) in tz.iter().enumerate() {
@@ -552,18 +563,18 @@ fn divert_unit(b: &mut B, nv_in: P3) -> Result<(P3, P3)> {
         // P_k east of the tap, its side from the north: a repeater fed by the row of NOT l_k
         b.on([21, -6, z], &comp("west", "subtract"))?;
         b.on([21, -6, z - 1], &rep("north", 1))?;
-        b.on([21, -6, z - 2], DUST)?;
+        // (its feed dust (21, -6, z - 2) is the end of R'''s row)
         // its output east, up two stairs to the OR column (24, -4, z)
         b.on([22, -6, z], DUST)?;
         b.on([23, -5, z], DUST)?;
         b.on([24, -4, z], DUST)?;
     }
-    let mut or = vec![[24, -4, 8]];
-    seg_to(&mut or, [24, -4, -2]);
-    route(b, [24, -4, 9], &or, 0)?;
-    let mut out = vec![[24, -4, 0], [23, -4, 0]];
+    for z in -2..=8 {
+        b.on([24, -4, z], DUST)?;
+    }
+    let mut out = vec![[23, -4, 0]];
     seg_to(&mut out, [11, -4, 0]);
-    route(b, [24, -4, 1], &out, 6)?;
+    route(b, [24, -4, 0], &out, 12)?;
     b.on([10, -4, 0], &rep("east", 1))?;
     // R'': droppers a (26, -6, 4), b (28, -6, 4), c (27, -6, 5), hoppers h (27, -6, 4), H (28, -6, 5),
     // j (26, -6, 5); a -> b -> c -> a; state 0 = c empty at power-on. Rows of NOT l_k west to the
@@ -587,27 +598,26 @@ fn divert_unit(b: &mut B, nv_in: P3) -> Result<(P3, P3)> {
     // c's tap (state 0) south -> row 7
     b.on([27, -6, 6], &comp("north", "compare"))?;
     b.on([27, -6, 7], &rep("north", 1))?;
-    let mut r0 = vec![[27, -6, 8], [26, -6, 8]];
-    seg_to(&mut r0, [22, -6, 8]);
-    r0.push([22, -6, 7]);
+    // (along z 8 only to x 25, then z 7: clear of P0's output stair at z 9)
+    let mut r0 = vec![[27, -6, 8], [26, -6, 8], [25, -6, 8], [25, -6, 7]];
+    seg_to(&mut r0, [21, -6, 7]);
     route(b, [27, -6, 7], &r0, 0)?;
-    b.on([21, -6, 7], DUST)?;
     // a's tap (state 1) north -> row 1
     b.on([26, -6, 3], &comp("south", "compare"))?;
     b.on([26, -6, 2], &rep("south", 1))?;
     let mut r1 = vec![[26, -6, 1]];
-    seg_to(&mut r1, [22, -6, 1]);
+    seg_to(&mut r1, [21, -6, 1]);
     route(b, [26, -6, 2], &r1, 0)?;
-    b.on([21, -6, 1], DUST)?;
     // b's tap (state 2) east -> north along x 31 -> row -5
     b.on([29, -6, 4], &comp("west", "compare"))?;
     b.on([30, -6, 4], &rep("west", 1))?;
     let mut r2 = vec![[31, -6, 4]];
     seg_to(&mut r2, [31, -6, -5]);
-    seg_to(&mut r2, [22, -6, -5]);
+    seg_to(&mut r2, [21, -6, -5]);
     route(b, [30, -6, 4], &r2, 8)?;
-    b.on([21, -6, -5], DUST)?;
-    // R'''s step: off T0's top, a delay line (~120 gt) east and back into j's top
+    // R'''s step: off T0's top, a delay line east and back into j's top, ~140 gt after the visit
+    // pulse: after this visit's own windows (+0..+30), and after the cart of the visit 4 releases
+    // back has gone through T1/T2 (the router reads R'' as "the next visit's k" until then)
     b.on([20, -5, 9], DUST)?;
     let mut st = vec![[20, -4, 10]];
     seg_to(&mut st, [20, -4, 14]);
@@ -615,10 +625,10 @@ fn divert_unit(b: &mut B, nv_in: P3) -> Result<(P3, P3)> {
     seg_to(&mut st, [34, -4, 6]);
     seg_to(&mut st, [30, -4, 6]);
     seg_to(&mut st, [29, -5, 6]);
-    route(b, [20, -5, 9], &st, 1)?;
+    route_d(b, [20, -5, 9], &st, 1, 1, step_delay())?;
     b.on([28, -5, 6], DUST)?;
     // (the router: T1 = NOT l1 = row 1's signal, T2 = l0 = NOT row 7's: returned as their cells)
-    Ok(([24, -6, 1], [24, -6, 8]))
+    Ok(([24, -6, 1], [25, -6, 8]))
 }
 
 /// Stamps the control module into the loop at `MODULE_AT` and wires it: REL from the release
@@ -656,24 +666,25 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     // (the feed dust touches the module's REL branch on purpose: the same signal)
     b.on(at([14, -2, -6]), DUST)?;
     b.on(at([14, -2, -5]), &rep("north", 1))?;
-    // divert: down east to y -8, east along z 18, north along x 12, up a stair north to y -4, into
-    // a repeater west into the corner T's support (glass -> stone)
-    let mut dv = vec![at([10, 0, 18])];
-    seg_to(&mut dv, [-45, -8, 18]);
-    seg_to(&mut dv, [12, -8, 18]);
-    seg_to(&mut dv, [12, -8, 9]);
-    for k in 1..=4 {
-        dv.push([12, -8 + k, 9 - k]);
+    // ---- NV, the module's steady "the next release is a visit", to the divert unit: from its port
+    // (28, 4, 3) down a stair south to y -9, east along z 12, north to z 10, up a stair east into
+    // (16, -6, 10)
+    let nv_port = at([28, 4, 3]);
+    let mut nv = vec![[nv_port[0], nv_port[1], 4], [nv_port[0], nv_port[1], 5]];
+    for k in 1..=9 {
+        nv.push([nv_port[0], nv_port[1] - k, 5 + k]);
     }
-    seg_to(&mut dv, [12, -4, 0]);
-    dv.push([11, -4, 0]);
-    route(&mut b, at([10, 0, 17]), &dv, 6)?;
-    b.on([10, -4, 0], &rep("east", 1))?;
+    seg_to(&mut nv, [13, -9, 14]);
+    seg_to(&mut nv, [13, -9, 10]);
+    nv.push([14, -8, 10]);
+    nv.push([15, -7, 10]);
+    nv.push([16, -6, 10]);
+    route(&mut b, nv_port, &nv, 6)?;
+    let (t1_row, t2_row) = divert_unit(&mut b)?;
     b.blocks.insert(DIVERT, STONE.into());
-    // T1 and T2: each T's support driven from below by two torches (a block, a torch on it, a
-    // block, a torch under the support: the same sense as the line), the line into the lowest
-    // block through a repeater from the west. T1: east along z 22 (y -8) to x -20, up a stair east
-    // to (-16, -4, 22), east and south along x -15 (y -4) to (-15, -4, 28)
+    // ---- T1 and T2 from the unit's ring: each T's support driven from below by two torches (a
+    // block, a torch on it, a block, a torch under the support: the same sense as the line), the
+    // line into the lowest block through a repeater from the west
     let tower = |b: &mut B, sup: P3| -> Result<()> {
         b.put([sup[0], sup[1] - 4, sup[2]], STONE)?;
         b.put([sup[0], sup[1] - 3, sup[2]], "minecraft:redstone_torch[lit=true]")?;
@@ -682,42 +693,90 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
         b.blocks.insert(sup, STONE.into());
         b.on([sup[0] - 1, sup[1] - 4, sup[2]], &rep("west", 1))
     };
-    let mut t1 = vec![at([11, -4, 23])];
-    seg_to(&mut t1, [-20, -8, 23]);
-    for k in 1..=4 {
-        t1.push([-20 + k, -8 + k, 23]);
+    // T1 = NOT l1: off row 1 at (24, -6, 1), north, down a stair to y -11, west along z -5, south
+    // along x -17, up a stair south to (-17, -4, 27), into (-17, -4, 28)
+    let mut t1 = vec![[t1_row[0], -6, 0]];
+    for k in 1..=5 {
+        t1.push([t1_row[0], -6 - k, -k]);
     }
-    seg_to(&mut t1, [-15, -4, 23]);
-    seg_to(&mut t1, [-15, -4, 28]);
-    route(&mut b, at([11, -4, 22]), &t1, 6)?;
-    tower(&mut b, T1)?;
-    // T2: south to z 25, east along z 25 (y -6) to x -17, south along x -17 to z 29, up a stair
-    // south to (-17, -4, 31)
-    let mut t2 = vec![at([2, -2, 23])];
-    t2.push([t2[0][0], t2[0][1], 24]);
-    t2.push([t2[0][0], t2[0][1], 25]);
-    seg_to(&mut t2, [-17, -6, 25]);
-    seg_to(&mut t2, [-17, -6, 29]);
-    t2.push([-17, -5, 30]);
-    t2.push([-17, -4, 31]);
-    route(&mut b, at([2, -2, 22]), &t2, 6)?;
-    tower(&mut b, T2)?;
-    // siding release: east along z 4 (y -6), up a stair east to (-15, 1, 4), south along x -15 to
-    // z 8 (clear of the siding's north dust line at y 2), west to (-16, 1, 8), a repeater north into
-    // the exit slot's rail (-16, 1, 10)
-    let mut sr = vec![at([19, -2, 4])];
-    seg_to(&mut sr, [-22, -6, 4]);
+    seg_to(&mut t1, [-17, -11, -5]);
+    seg_to(&mut t1, [-17, -11, 20]);
     for k in 1..=7 {
-        sr.push([-22 + k, -6 + k, 4]);
+        t1.push([-17, -11 + k, 20 + k]);
     }
-    seg_to(&mut sr, [-15, 1, 8]);
-    sr.push([-16, 1, 8]);
-    route(&mut b, at([19, -2, 3]), &sr, 6)?;
-    b.on([-16, 1, 9], &rep("north", 1))?;
-    if std::env::var("MCTAS_SIDING_CELLS").is_ok() {
-        for q in [[-17, -6, 24], [-17, -6, 25], [-17, -6, 26], [-17, -6, 27], [-17, -6, 28], [-17, -6, 29], [-17, -7, 26], [-47, -8, 23], [-46, -8, 23], [-45, -8, 23], [-44, -8, 23], [-43, -8, 23], [-42, -8, 23], [-41, -8, 23], [-48, -9, 23]] {
-            println!("cell {q:?}: {:?}", b.blocks.get(&q));
-        }
+    t1.push([-17, -4, 28]);
+    route(&mut b, t1_row, &t1, 6)?;
+    tower(&mut b, T1)?;
+    // T2 = l0 = NOT (row 7's NOT l0): off row 7 at (24, -6, 8), a repeater south into a block
+    // (24, -6, 10), a torch on it, down a stair south to y -13, west along z 19, south along x -19,
+    // up a stair south to (-19, -4, 30), into (-19, -4, 31)
+    b.on([t2_row[0], -6, 9], &rep("north", 1))?;
+    b.put([t2_row[0], -6, 10], STONE)?;
+    b.put([t2_row[0], -6, 11], "minecraft:redstone_wall_torch[facing=south,lit=true]")?;
+    let mut t2 = vec![[t2_row[0], -6, 12]];
+    for k in 1..=7 {
+        t2.push([t2_row[0], -6 - k, 12 + k]);
+    }
+    seg_to(&mut t2, [-19, -13, 19]);
+    seg_to(&mut t2, [-19, -13, 21]);
+    for k in 1..=9 {
+        t2.push([-19, -13 + k, 21 + k]);
+    }
+    t2.push([-19, -4, 31]);
+    route(&mut b, [t2_row[0], -6, 11], &t2, 6)?;
+    tower(&mut b, T2)?;
+    // ---- the holds' kick: REL from the core's REL stone (-2, -1, 13) through (-2, -1, 14), down a
+    // stair south to y -4, west along z 18 to x -21, a delay (`kick_delay` repeaters of 4 gt)
+    // south along x -21, the gate KA (-21, -4, 30): REL late minus NS5 (the module's NOT "a
+    // visit's item in D5": high except from the 4th release after a visit to the 5th), its output
+    // south, east along z 37 up to y -1, into the bus along x -13 (y -1, z 30..36) that feeds the
+    // three holds' drivers: a dust up a stair onto (-12, 0, z + 2), a repeater north into the
+    // hold's support (-12, 0, z)
+    let mut kr = vec![[-2, -1, 14], [-2, -1, 15]];
+    for k in 1..=3 {
+        kr.push([-2, -1 - k, 15 + k]);
+    }
+    seg_to(&mut kr, [-21, -4, 18]);
+    route(&mut b, [-2, -1, 13], &kr, 6)?;
+    let kick_delay = 8;
+    for k in 0..kick_delay {
+        b.on([-21, -4, 19 + k], &rep("north", 4))?;
+    }
+    for z in 19 + kick_delay..=29 {
+        b.on([-21, -4, z], DUST)?;
+    }
+    b.on([-21, -4, 30], &comp("north", "subtract"))?;
+    // NS5 into KA's west side through a repeater (-22, -4, 30), from the module's port: east one,
+    // south along x -30 (y -6) to z 30, east to x -25, up a stair east to (-23, -4, 30)
+    let ns5_port = at([27, -2, 2]);
+    let mut ns = vec![[ns5_port[0] + 1, ns5_port[1], ns5_port[2]]];
+    seg_to(&mut ns, [-28, -6, 2]);
+    seg_to(&mut ns, [-28, -6, 30]);
+    seg_to(&mut ns, [-25, -6, 30]);
+    ns.push([-24, -5, 30]);
+    ns.push([-23, -4, 30]);
+    route(&mut b, ns5_port, &ns, 6)?;
+    b.on([-22, -4, 30], &rep("west", 1))?;
+    let mut ko = vec![[-21, -4, 31], [-21, -4, 32], [-21, -4, 33], [-21, -4, 34], [-21, -4, 35], [-21, -4, 36], [-21, -4, 37]];
+    seg_to(&mut ko, [-18, -4, 37]);
+    for k in 1..=3 {
+        ko.push([-18 + k, -4 + k, 37]);
+    }
+    seg_to(&mut ko, [-15, -1, 30]);
+    route(&mut b, [-21, -4, 30], &ko, 6)?;
+    // each hold's driver: the bus dust (-15, -1, z + 2) up a stair onto (-14, 0, z + 2), a repeater
+    // east into a block (-12, 0, z + 2), a repeater north into the hold's support (-12, 0, z) (a
+    // block, not a dust, next to the other holds' supports: their kicks stay apart)
+    for &h in &HOLDS {
+        b.blocks.insert(h, STONE.into());
+        b.on([h[0], 0, h[2] + 1], &rep("south", 1))?;
+        b.put([h[0], 0, h[2] + 2], STONE)?;
+        b.on([h[0] - 1, 0, h[2] + 2], &rep("west", 1))?;
+        b.on([h[0] - 2, 0, h[2] + 2], DUST)?;
+    }
+    // (the divert unit's ring items)
+    for (q, n) in &b.nbt {
+        d.block_entities.insert(*q, n.clone());
     }
     let added: Vec<P3> = b.blocks.keys().copied().filter(|p| !before.contains(p)).collect();
     d.blocks = b.blocks;
