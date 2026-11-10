@@ -63,7 +63,7 @@ records the count as a row of `<stem>.seeds.tsv` beside the design (`days held o
 order; a run again on the same days and seeds replaces its row), which the farm's card quotes.
 The carousel's release + hold part (designs/briefs/farm-iron-carousel.md, "The parts" 2): `mctas
 mobfarm hold [--levels 3] [--level-gap 3] [--run 20] [--boost-every 2] [--margin 1] [--pitch 1]
-[--no-zombies] --out <file>` writes its bench design (7 lanes of stacked single-cart tracks, one
+[--no-zombies] [--yard] --out <file>` writes its bench design (7 lanes of stacked single-cart tracks, one
 villager a track, a batch a lane; each track a cart between two braked one-rail slopes; zombies
 beside every level; one shared bed), and `mctas mobfarm hold-bench <file> --from 1 --to 100
 --days 6 [--jitter 20] [--jobs N] [--verbose]` runs the 7 batches on the 100-gt slot grid with the
@@ -72,7 +72,20 @@ tick: the selected batch at its stand slopes at the slot, every other rider past
 box (19.3 from the pad) and outside the summoner's 10-box, never two batches at the station, every
 rider on its cart and in its lane, REST ticks and CANT_REACH at REST, and every cell a rider took
 scanned for a golem spawn spot; it prints the clean seeds, the arrival margin, the blocks and box;
-`--verbose` adds each slot and the first calm villagers at night with the zombies they see.
+`--verbose` adds each slot and the first calm villagers at night with the zombies they see, and
+`--trace ID` prints that villager's position and its cart's to stderr. With `hold --yard` the
+design carries the sleep routine's part 3 (`mobfarm/src/yard.rs`): a hump of a second braked
+slope at each hold end, each track's extension past it into its level's switched rail junctions
+(an east chain for lanes 0-3, a west chain for lanes 6-4, a Y; the three levels' chains stacked
+and merged by two more junctions), and one shared bed past them, its cage, an activator, a free
+stand-up cell, a park rail and a dorm zombie behind an iron trapdoor; the bench then runs the
+nightly dispatch with the scheduler's timed controls (`mobfarm/src/naps.rs`: every 4th line fall
+in the deep night a batch's rider goes to the bed in its own cart; the hump, the activator and the
+route timed from that fall, the hatch and the park rail from the bed's observer) and checks a nap
+per villager per night (second naps counted), HOME at each dawn and midday, no other villager in
+REST within 16 of the occupied bed, each visit's length, when its return clears the junctions,
+the routes the scheduler would have to hold, each napper's HOME re-take and the longest interval
+between a villager's naps.
 The carousel's counter (the brief's part 1): `mctas circuit memory counter-bench <design>
 [--pulses 100000] [--seed S] [--restarts 20] [--miss 0.05] [--burst 0.3] [--width 2..15] [--jitter
 5] [--ready 40] [--tc 40] [--m 6..10] [--turns 1,2,3] [--dump FILE] [--stimulus-out FILE]` runs a

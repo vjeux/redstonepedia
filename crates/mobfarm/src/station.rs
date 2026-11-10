@@ -442,14 +442,15 @@ fn design_with(o: &PadOpts, lanes: &LaneOpts, with_hold: bool) -> Result<String>
     Ok(s)
 }
 
-/// A stand rider's cell: lane `b`, level `k` (the part's parked carts: (b+0.5, 3k+0.57, k+0.49)).
+/// A stand rider's cell: lane `b`, level `k` (the part's parked carts: (b+0.5, 3k+0.57,
+/// stand_z0+k+0.49)).
 pub fn rider_cell(lanes: &LaneOpts, b: i32, k: i32) -> BlockPos {
-    BlockPos::new(lanes.x(b), lanes.level_gap * k, k)
+    BlockPos::new(lanes.x(b), lanes.level_gap * k, lanes.stand_z0 + k)
 }
 
 /// A stand rider's parked feet.
 pub fn rider_feet(lanes: &LaneOpts, b: i32, k: i32) -> Vec3 {
-    Vec3::new(lanes.x(b) as f64 + 0.5, (lanes.level_gap * k) as f64 + 0.57, k as f64 + 0.49)
+    Vec3::new(lanes.x(b) as f64 + 0.5, (lanes.level_gap * k) as f64 + 0.57, (lanes.stand_z0 + k) as f64 + 0.49)
 }
 
 fn is_portal(w: &World, p: BlockPos) -> bool {

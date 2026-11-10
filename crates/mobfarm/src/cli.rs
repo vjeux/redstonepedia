@@ -381,8 +381,12 @@ pub enum MobfarmCmd {
         #[arg(long, default_value_t = 3)]
         level_gap: i32,
         /// The bottom level's hold slope (z); level k's is run - k.
-        #[arg(long, default_value_t = 20)]
+        #[arg(long, default_value_t = 21)]
         run: i32,
+        /// The bottom level's stand slope (z); level k's is stand-z0 + k (1: the stand ends'
+        /// torch chain fits in each lane's column, clear of the pad's nearest row at z -1).
+        #[arg(long, default_value_t = 1)]
+        stand_z0: i32,
         /// A booster every this many flat rails (0: none; 2 keeps the leaving batch past the
         /// follow box at the next slot with the switch up to 45 gt late).
         #[arg(long, default_value_t = 2)]
@@ -393,6 +397,10 @@ pub enum MobfarmCmd {
         /// No hold zombies (a calm hold).
         #[arg(long)]
         no_zombies: bool,
+        /// The sleep routine's yard past the hold ends (the shared bed reached by each napper in
+        /// its own cart through switched rails; the bench sends each villager there once a night).
+        #[arg(long)]
+        yard: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -418,10 +426,15 @@ pub enum MobfarmCmd {
         #[arg(long)]
         verbose: bool,
         /// Write the first seed's tick-level timing view (`mobfarm timeline`'s page and dump:
-        /// the stand zone and the holds as regions, each lane's hold-end control as a signal)
+        /// the stand zone and the holds as regions, each lane's hold-end control as a signal;
+        /// with the yard, every junction, merge, the activator, the park slope and the hatch too)
         /// into this directory.
         #[arg(long)]
         timeline: Option<PathBuf>,
+        /// Trace this villager (its entity id) to stderr: its position and its cart's every
+        /// other tick, its sleep visit's stage every tick.
+        #[arg(long)]
+        trace: Option<u32>,
     },
     /// The carousel's station + portal pad (brief farm-iron-carousel.md, "The parts" 3): write its
     /// bench design, the pad (portal planes with a trench row on both sides, a tripwire line on
@@ -769,8 +782,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::Hold { pitch, levels, level_gap, run, boost_every, margin, no_zombies, out } => {
-            let o = crate::hold::LaneOpts { pitch, levels, level_gap, run, boost_every, margin, zombies: !no_zombies, ..Default::default() };
+        MobfarmCmd::Hold { pitch, levels, level_gap, run, stand_z0, boost_every, margin, no_zombies, yard, out } => {
+            let o = crate::hold::LaneOpts { pitch, levels, level_gap, run, stand_z0, boost_every, margin, zombies: !no_zombies, yard, ..Default::default() };
             let text = crate::hold::design(&o)?;
             std::fs::write(&out, text)?;
             println!("{}", out.display());
@@ -1041,7 +1054,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             println!("violations: {viol}; {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::HoldBench { design, from, to, days, jitter, jobs, verbose, timeline } => {
+        MobfarmCmd::HoldBench { design, from, to, days, jitter, jobs, verbose, timeline, trace } => {
             let (c, spec) = load(version, &design)?;
             let lanes = crate::hold::lanes_of(&c.clock.design.meta)?;
             let seeds: Vec<i64> = (from..=to).collect();
@@ -1054,7 +1067,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     sc.spawn(|| loop {
                         let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some(&seed) = seeds.get(k) else { break };
-                        let r = crate::hold::bench(&spec, &lanes, &crate::hold::BenchOpts { seed, days, jitter, verbose, timeline: if seed == from { timeline.clone() } else { None } });
+                        let r = crate::hold::bench(&spec, &lanes, &crate::hold::BenchOpts { seed, days, jitter, verbose, timeline: if seed == from { timeline.clone() } else { None }, trace });
                         out.lock().unwrap().push((seed, r));
                     });
                 }
@@ -1118,6 +1131,38 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let n = rows.len().max(1) as f64;
             let (lo, hi) = c.bounds();
             println!("{clean} of {} seeds clean over {days} days (jitter 0..={jitter}); arrival margin min {min_margin} gt, mean {:.1}; stand z {stand_lo:.2}..{stand_hi:.2}, hold z >= {hold_lo:.2}; villager-ticks: REST {rest} (oldest CANT_REACH {cant}), calm {calm}, off-cart {off}; golem spawn spots from rider positions: {} {:?}; {} blocks, box {}x{}x{} = {}; {:.0} s on {jobs} threads", rows.len(), margins / n, spots.len(), spots.iter().take(6).collect::<Vec<_>>(), c.clock.design.blocks.len(), hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1, (hi[0] - lo[0] + 1) * (hi[1] - lo[1] + 1) * (hi[2] - lo[2] + 1), t0.elapsed().as_secs_f64());
+            if lanes.yard {
+                let ok: Vec<&crate::hold::BenchReport> = rows.iter().filter_map(|(_, r)| r.as_ref().ok()).collect();
+                let mut visits: Vec<i64> = ok.iter().flat_map(|r| r.visits.iter().copied()).collect();
+                visits.sort();
+                let pct = |p: f64| visits.get(((visits.len() as f64 - 1.0) * p).round() as usize).copied().unwrap_or(0);
+                let (nights, misses, home, r16): (u32, u32, u32, u32) = ok.iter().fold((0, 0, 0, 0), |a, r| (a.0 + r.nights, a.1 + r.sleep_misses, a.2 + r.home_misses, a.3 + r.rule16));
+                let second: u32 = ok.iter().map(|r| r.second_naps).sum();
+                let worst_gap = ok.iter().map(|r| r.worst_gap).max().unwrap_or(0);
+                let mut clear: Vec<i64> = ok.iter().flat_map(|r| r.clear.iter().copied()).collect();
+                clear.sort();
+                let cpct = |p: f64| clear.get(((clear.len() as f64 - 1.0) * p).round() as usize).copied().unwrap_or(0);
+                let problems: usize = ok.iter().map(|r| r.nap_problems.len()).sum();
+                let holds: u32 = ok.iter().map(|r| r.holds).sum();
+                let lost: u32 = ok.iter().map(|r| r.lost_homes).sum();
+                let mut retakes: Vec<(i64, bool)> = ok.iter().flat_map(|r| r.retakes.iter().copied()).collect();
+                retakes.sort();
+                let riding = retakes.iter().filter(|r| r.1).count();
+                let rpct = |p: f64| retakes.get(((retakes.len() as f64 - 1.0) * p).round() as usize).map(|r| r.0).unwrap_or(0);
+                println!("HOME in the yard: {} released and re-taken ({riding} released riding), re-take min {} / median {} / p95 {} / max {} gt after the release; {lost} never re-taken during the visit; routes the scheduler would hold (another return still in the junctions at the route's time): {holds}", retakes.len(), rpct(0.0), rpct(0.5), rpct(0.95), rpct(1.0));
+                println!("sleep routine: {} visits, length min {} / median {} / p95 {} / max {} gt (the junctions clear of the return: median {} / p95 {} / max {} gt after the dispatch); {problems} visit problems; {nights} whole nights, villager-nights without a nap {misses}, second naps {second}; worst interval between a villager's naps {worst_gap} gt; HOME missing {home} times at dawn/midday; REST within 16 of the occupied bed {r16} ticks", visits.len(), pct(0.0), pct(0.5), pct(0.95), pct(1.0), cpct(0.5), cpct(0.95), cpct(1.0));
+                for (seed, r) in &rows {
+                    let Ok(r) = r else { continue };
+                    for p in r.nap_problems.iter().take(3) {
+                        println!("  seed {seed}: {p}");
+                    }
+                    if verbose {
+                        for l in &r.nap_log {
+                            println!("  seed {seed}: {l}");
+                        }
+                    }
+                }
+            }
         }
         MobfarmCmd::Seeds { design, from, to, days, jobs, write } => {
             let (_c, spec) = load(version, &design)?;
