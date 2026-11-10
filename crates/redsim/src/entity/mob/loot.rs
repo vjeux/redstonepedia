@@ -5,7 +5,8 @@
 //! taken without a draw, several by `nextInt(total weight)`; then the entry's `set_count` (a
 //! uniform count draws `Mth.nextInt(lo, hi)`), `furnace_smelt` when the mob is on fire, and
 //! looting (no killer holds it: nothing). A table not listed here is the type's `TypeDef::loot`
-//! (one pool per entry, its uniform count). Babies drop nothing (`shouldDropLoot`).
+//! (one pool per entry, its uniform count). A baby drops nothing (`shouldDropLoot`) unless it is a
+//! monster (`Monster.shouldDropLoot`: a baby zombie drops its table's loot).
 
 use crate::rng::LegacyRandom;
 

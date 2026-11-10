@@ -882,9 +882,14 @@ fn victim(w: &World, i: usize, src: Damage) -> super::loot::Victim {
     super::loot::Victim { on_fire: m.fire_ticks > 0 && !m.ty.def().fire_immune, cube_size, rides_zombie_horse, wool, killed_by_skeleton: killer_skeleton, lightning: src == Damage::Lightning }
 }
 
-/// `LivingEntity.shouldDropLoot`: no baby drops anything.
+/// `LivingEntity.shouldDropLoot`: no baby drops anything; `Monster.shouldDropLoot`: a monster drops
+/// whatever its age (tickexact 2026-11-10: a baby zombie's death draws the zombie table's sequence,
+/// d1u-deep t37298). The cube mobs are no `Monster` (an `AgeableMob`).
 fn drops_loot(w: &World, i: usize) -> bool {
     let id = mob(w, i).ty.def().id;
+    if mob(w, i).ty.def().monster && super::ai::cube::cube_size(id).is_none() {
+        return true;
+    }
     !(id.starts_with("baby_") || super::ai::goal::animal::is_baby(id))
 }
 
