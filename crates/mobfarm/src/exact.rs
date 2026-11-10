@@ -79,6 +79,12 @@ pub fn opts_of(opts: &Opts) -> RunOpts {
     o
 }
 
+/// (tickexact 2026-11-10) `MCTAS_EXACT_RANDOM_TICKS=N`: the compare's `random_tick_speed` on both
+/// sides (3 without it).
+pub fn random_tick_speed() -> Option<u32> {
+    std::env::var("MCTAS_EXACT_RANDOM_TICKS").ok().and_then(|v| v.parse().ok())
+}
+
 /// The compare runs the weather: asked for, or a judge's terrain run (the judge's weather).
 pub fn weather_on(opts: &Opts) -> bool {
     opts.weather || (opts.build.is_some() && opts.terrain.is_some())
@@ -743,6 +749,13 @@ impl GameFarm {
             }
         }
         let v = w.call(world).context("world sandbox")?;
+        // (tickexact 2026-11-10) MCTAS_EXACT_RANDOM_TICKS=N: gamerule random_tick_speed N on both
+        // sides (a stress of the random ticks; a portal's zombified piglins N/3 times as often)
+        if let Some(n) = random_tick_speed() {
+            let mut rules = json!({"op": "world", "sandbox": sb});
+            rules["rules"] = json!({"random_tick_speed": n.to_string()});
+            w.call(rules).context("random_tick_speed")?;
+        }
         let full = v["full_chunks"].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default();
         let ticking = v["ticking_chunks"].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default();
         let spawning = v["spawning_chunks"].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default();
@@ -1011,7 +1024,7 @@ pub fn redsim_start(spec: &FarmSpec, o: &RunOpts, game: &GameFarm, bare: bool) -
         None => run.world.mirror_level_random(o.seed, forced_chunks(spec)),
         Some(_) => run.world.mirror_level_random(o.seed, game_chunks(game)),
     }
-    run.world.random_ticks = Some(redsim::crops::RandomTicks::new(3, o.seed));
+    run.world.random_ticks = Some(redsim::crops::RandomTicks::new(random_tick_speed().unwrap_or(3), o.seed));
     // the mob AI (the mob-AI lane): goals and brains (every mob seeded from w.exact_seed, which
     // mirror_level_random set); the game JVM's POI holder identity hashes (AcquirePoi's retry
     // markers' order)

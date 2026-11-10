@@ -41,7 +41,9 @@ random's draws of one tick by call site on both sides: `mctas mobai farm-trace <
 natural spawner calls of that tick; `MCTAS_EXACT_LIGHT=x0,y0,z0,x1,y1,z1` the cells whose sky or
 block light differs at the end (redsim lights a terrain world with the game's incremental light
 engines, `terrain::engine`; `MCTAS_LIGHT_ENGINE=0` uses the old fixed-point relight instead, to
-compare the two); `MCTAS_EXACT_SUMMONS=1` each golem summon and each villager's
+compare the two); `MCTAS_EXACT_RANDOM_TICKS=N` the `random_tick_speed` gamerule N on both sides (a
+stress of the terrain's random ticks: 300 runs a day's random ticks in 80 ticks; a portal's zombified
+piglins 100 times as often); `MCTAS_EXACT_SUMMONS=1` each golem summon and each villager's
 GOLEM_DETECTED_RECENTLY set and freed, both sides). One judge run on redsim alone: `mctas mobfarm
 run <design> [--terrain <sample> | --build K] --seed S --days D` (`--build K`: the judge's K-th
 terrain site with its run options, so a live view's "build 7 seed S" is `--build 7 --seed S`).

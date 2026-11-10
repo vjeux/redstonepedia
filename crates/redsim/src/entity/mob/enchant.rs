@@ -77,6 +77,8 @@ pub enum Item {
     IronShovel,
     /// A zombified piglin's (`ZombifiedPiglin.populateDefaultEquipmentSlots`).
     GoldenSword,
+    /// A zombified piglin's, 1 in 20 (26.3's golden spear).
+    GoldenSpear,
     Trident,
     FishingRod,
     /// A piece of armor: `slot` 0 head, 1 chest, 2 legs, 3 feet; `material` the
@@ -90,7 +92,7 @@ impl Item {
         match self {
             Item::Bow | Item::Trident | Item::FishingRod => 1,
             Item::IronSword | Item::IronSpear | Item::IronShovel => 14,
-            Item::GoldenSword => 22,
+            Item::GoldenSword | Item::GoldenSpear => 22,
             Item::Armor { material, .. } => [15, 8, 25, 12, 9, 10][material as usize],
         }
     }
@@ -103,7 +105,7 @@ impl Item {
         match self {
             Item::Bow => matches!(id, "unbreaking" | "power" | "punch" | "flame" | "infinity"),
             Item::IronSword | Item::GoldenSword => matches!(id, "sharpness" | "smite" | "bane_of_arthropods" | "knockback" | "fire_aspect" | "looting" | "sweeping_edge" | "unbreaking"),
-            Item::IronSpear => matches!(id, "sharpness" | "smite" | "bane_of_arthropods" | "knockback" | "fire_aspect" | "looting" | "unbreaking" | "lunge"),
+            Item::IronSpear | Item::GoldenSpear => matches!(id, "sharpness" | "smite" | "bane_of_arthropods" | "knockback" | "fire_aspect" | "looting" | "unbreaking" | "lunge"),
             Item::IronShovel => matches!(id, "efficiency" | "silk_touch" | "unbreaking" | "fortune"),
             Item::Trident => matches!(id, "unbreaking" | "loyalty" | "impaling" | "riptide" | "channeling"),
             Item::FishingRod => matches!(id, "unbreaking" | "luck_of_the_sea" | "lure"),

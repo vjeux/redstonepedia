@@ -1445,7 +1445,13 @@ fn piglin_finalize(w: &mut World, nat: &Natural) -> (bool, Jockey, bool) {
         }
     }
     let breaks_doors = rng(w).next_float() < special * 0.1; // setCanBreakDoors
-    enchant_draws(w, special, Some(super::enchant::Item::GoldenSword), (0, 0));
+    // ZombifiedPiglin.populateDefaultEquipmentSlots: a golden spear 1 in 20, else a golden sword
+    // (tickexact 2026-11-10: the portal-piglin terrain compare at t1193 drew it)
+    let spear = rng(w).next_int(20) == 0;
+    if spear {
+        w.mob.ai.legacy.insert("a zombified piglin's golden spear (SpearUseGoal: it attacks in melee instead)");
+    }
+    enchant_draws(w, special, Some(if spear { super::enchant::Item::GoldenSpear } else { super::enchant::Item::GoldenSword }), (0, 0));
     // SpecialDates.isHalloween: outside it (no draw); handleAttributes: its own random
     (baby, jockey, breaks_doors)
 }
@@ -1498,10 +1504,20 @@ pub fn portal_piglin(w: &mut World, at: BlockPos) -> Option<u32> {
     let ty = if baby { MobType::Natural(48) } else { MobType::Natural(47) };
     let f = Finalized { ty, baby, jockey, helmet: None, rider_helmet: None, breaks_doors, rider_breaks_doors: false, color: 0, rider_chicken: Jockey::None, horse: None };
     let id = spawn_mob(w, k, &f, Vec3::new(pos.x as f64 + 0.5, (pos.y + 1) as f64, pos.z as f64 + 0.5), yaw);
-    // the spawn's draws follow the game's code but no bridge scene has compared them yet (a scene
-    // with spawn_mobs on, which the portal needs, runs the natural spawner, whose light redsim
-    // models in terrain worlds only: `portal-piglin`); its AI is modeled (the piglin-golem scene)
-    // and its rate is the game's (random ticks x 3/2000 on Hard, `portal-probe --piglins`)
+    // EntityType.create (STRUCTURE): after the snap, the head and the body take the yaw too
+    if let Some(j) = crate::entity::index_of(w, id)
+        && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
+        && let Some(a) = m.ai.as_deref_mut()
+    {
+        a.y_head_rot = yaw;
+        a.y_head_rot_o = yaw;
+        a.y_body_rot = yaw;
+        a.y_body_rot_o = yaw;
+    }
+    // the spawn's draws checked against the bridge (tickexact 2026-11-10): d1-bed-plate with a 2 x 3
+    // portal at village-edge, MCTAS_EXACT_RANDOM_TICKS=300 (the portal's rolls 100 times as often),
+    // the first piglin at t1193 and the run exact to t3766 (a zombie's spear, mob AI's); its AI is
+    // the piglin-golem scene's
     if let Some(j) = crate::entity::index_of(w, id) {
         // playAmbientSound: getVoicePitch's two floats of its own random
         if let Some(r) = w.entities.list[j].random.as_mut() {
