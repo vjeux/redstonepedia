@@ -100,7 +100,8 @@ controller produces):
   posts is the same in the game, tick for tick.
 - This file, day-1's times (tail +2, departures 6 apart, tail brakes +100/+118/+120, the
   at-rest check): 3 seeds x 200 slots clean at bench +26 and +27 (redstone +27/+28); 100 seeds x
-  1,440 slots (6 days each) clean at bench +27 (day-1's v1 times: release 36, 12-gt pulses).
+  1,440 slots (6 days each) clean at bench +27, with day-1's v1 times (release 36, 12-gt pulses)
+  and again with its v2 times (release 34, 10-gt pulses, slot 2's tail brake at +98).
 - day-1's fully wired run on the previous file (9bd8f2ff9, its redstone for every control, 60 slots
   x 3 seeds): the release group holds 3 and the stand holds 3 on every slot, no rider problem; the
   one failure was the returning batch still settling when the tail's first advance came (fixed
@@ -124,12 +125,41 @@ slots per step, bench-driven controls, day-1's times):
   flagged line is the catch's: the advance's timing sets where the release group's carts rest,
   that sets the train's stored speed into the stand, and the catch cannot absorb it.
 - **The no-catch table** (this file, a stand that always delivers, the returning batch checked at
-  rest, day-1's times; the target for the stop-based stand): release end -10..+16 (the sweep's
+  rest, day-1's v1 times; the target for the stop-based stand): release end -10..+16 (the sweep's
   edge), advance 1 time -7..+2 / width -5..+2, advance 2 time -2..+1 / width -3..0 (FLAGGED late,
   12-gt pulses), advance 3 time -1..+1 / width -5..+1, S1 -6..+3, S2 -2..+6, S3 -3..+6, tail slot 1
   -3..+2, tail slot 0 -2..+3, tail slot 2 +92..+114 passes; both corners (every control at its
   early limit together, then at its late limit) pass. With 10-gt advance pulses the widths pass
   -3..+4, -1..+2, -3..+3 and the times -7..+3, -3..+2, -2..+1 (no flag).
+- **Again with day-1's v2 times** (release 34, 10-gt pulses, departures 6 apart, tail brakes
+  +98/+118/+120) and the bench's controls as the OR of their lines (a release window running into
+  the first advance no longer cuts it short): release end -8..+16 (the edge), advance 1 time -7..+3
+  / width -3..+4, advance 2 time -3..+2 / width -1..+2, advance 3 time -2..+1 / width -3..+3, S1
+  -6..+3, S2 -2..+6, S3 -3..+6, tail slot 1 -3..+2, tail slot 0 -2..+3. The early corner passes;
+  **the late corner fails**: its smallest failing sets are {advance 1 +3 gt late and +4 wide,
+  advance 2 +2 wide, advance 3 +3 wide} and {advance 2 +2 wide, advance 3 +3 wide, S1-S3 late}.
+  Shifted together: the 3 advance widths pass -1..+2 (not their one-at-a-time -3..+4), the 3
+  advance times pass -2..+2, S1-S3 pass -2..+3 (-3 and +4 fail). day-1's pulses are exact
+  redstone, 10 gt each; these joint numbers are the margins to quote.
+
+## The bed siding's merge: the side drop (day-1's (b))
+
+`queue-loop-run --side-drop C,SLOT,D,V[,PARK]` (bench-driven): a cart parked off the loop comes
+back by rolling off a side rail beside a queue slot's braked slope (3 plain rails west of it at
+the peaks' height, a stone stop east; placed with their updates, they reshape no loop cell). With
+the stand forced to deliver (the queue alone):
+- into slots 12, 13 and 14 during the long rest (the 3rd advance's end, ~+97, to the next +38): it
+  works at 0.10..0.36 b/t, resting 0.60..0.80 down the slope 12..26 gt after rolling off; as late
+  as +24 of the next slot (0.29..0.36 b/t), +18 (0.15); 0.05 is too slow, 0.38 rests 0.83 down and
+  does not climb out at the next pulse;
+- staged on a braked staging slope and kicked: lands 0.81..0.88 down, pass or fail with where the
+  cart stopped on the staging slope; a kick block under the staging slope also powers the slot's
+  own rail beside it;
+- into the release group at the release's start: fails (the cart, landing moving onto a powered
+  slope, outruns the train); 4..8 gt before it: works at 0.2 b/t in a ~5 gt window.
+- A cart's hole visits, in the long rests, the slots of one class mod 3 (the batch's front cart
+  2, 5, 8, 11, 14; middle 1, 4, ..., 13; back 0, 3, ..., 12): day-1's plan has three drop rails,
+  slots 12, 13, 14.
 
 ## Wired
 
