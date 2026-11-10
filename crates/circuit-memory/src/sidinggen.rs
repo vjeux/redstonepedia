@@ -37,6 +37,7 @@ pub(crate) const DIVERT: P3 = [9, -4, 0];
 pub(crate) const T1: P3 = [-13, 0, 28];
 pub(crate) const T2: P3 = [-15, 0, 31];
 pub(crate) const RELEASE: P3 = [-16, 0, 10];
+pub(crate) const HOLD: P3 = [-13, 0, 23];
 
 fn rail(shape: &str) -> String {
     format!("minecraft:rail[shape={shape},waterlogged=false]")
@@ -80,6 +81,10 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
     if b.blocks.get(&RELEASE).map(|s| s.as_str()) != Some(GLASS) {
         bail!("the siding's release input {RELEASE:?} is {:?}, not glass: the siding file changed", b.blocks.get(&RELEASE));
     }
+    // the siding releases each napper as soon as it is back in its cart (farmopt's release-held
+    // mode, benched by his child: every napper re-boards and leaves): its release input is a
+    // redstone block; the timed release is the hold near T1 (ironfarm 14:35)
+    b.blocks.insert(RELEASE, RBLOCK.into());
     // the bed's port (R1's home: the runner gives the bed to each napper from it; ironfarm 14:00)
     let home = s.ports.get("home").copied().ok_or_else(|| anyhow::anyhow!("the siding file has no `port home:`"))?;
     d.ports.insert("home".into(), at(&home));
@@ -117,7 +122,18 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
     b.put([-13, 0, 11], RBLOCK)?;
     // (no drag loop: ironfarm 14:30 measured this loop's side drop clean at 0.10-0.48 b/t; the
     // booster's 0.49-0.53 decays to ~0.43-0.46 over the ~25 rails to the drop ends)
-    for z in 12..=27 {
+    // ---- the hold near T1: the cart climbs to y 2 at (-13, 1, 21) (ascending south), runs flat to
+    // (-13, 2, 22), and rolls down onto a braked powered rail ascending north (-13, 1, 23), where it
+    // stops; powered (its support (-13, 0, 23), a control), it rolls on south to T1. The short leg
+    // keeps the hold -> roll-off time nearly the same for all three drops.
+    for z in 12..=20 {
+        lay(&mut b, [-13, 1, z], &rail("north_south"), false)?;
+    }
+    lay(&mut b, [-13, 1, 21], &rail("ascending_south"), false)?;
+    lay(&mut b, [-13, 2, 22], &rail("north_south"), false)?;
+    b.put([-13, 1, 23], "minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]")?;
+    b.put(HOLD, GLASS)?;
+    for z in 24..=27 {
         lay(&mut b, [-13, 1, z], &rail("north_south"), false)?;
     }
     // T1 (-13, 1, 28): stem north, unpowered north_east (east along z 28: slot 14), powered
@@ -483,6 +499,117 @@ fn seg_to(cells: &mut Vec<P3>, to: P3) {
 
 /// The module's place in the loop (its frame's 0 0 0), under the ground west of the siding.
 pub(crate) const MODULE_AT: P3 = [-59, -4, 0];
+
+/// The divert unit, next to the departure corner (REL from the core reaches it in ~6 gt; the far
+/// module's own visit pulse comes ~30 gt after REL, too late for the corner): G2' = REL and not
+/// (NV or REL 10 gt late) at (20, -6, 10), a 10-gt pulse on a visit release; T0 its block, the
+/// chain north along x 20 (T1 = T0 + 10 gt, T2 = T0 + 20 gt, 4 cells apart... 6 apart here), P_k
+/// east of each tap (comparators, rear the tap, side NOT l_k from R''); their outputs up two
+/// stairs east to an OR column along x 24 at y -4, west along z 0 into the corner's repeater.
+/// R'' is a copy of the module's k counter (2 items in 3 droppers), stepped ~120 gt after each
+/// visit pulse (in sync with the module's R'); the router (T1 = NOT l1, T2 = l0) hangs off it.
+fn divert_unit(b: &mut B, nv_in: P3) -> Result<(P3, P3)> {
+    use crate::schedgen::{DUST, rep};
+    // REL: a second tap on the core's REL dust (0, -1, 11), east along z 11 at y -1, down to y -6,
+    // north into G2''s rear (20, -6, 11)
+    b.on([1, -1, 11], &rep("west", 1))?;
+    let mut rel = vec![[2, -1, 11]];
+    seg_to(&mut rel, [8, -1, 11]);
+    seg_to(&mut rel, [13, -6, 11]);
+    seg_to(&mut rel, [20, -6, 11]);
+    route(b, [1, -1, 11], &rel, 6)?;
+    // REL 10 gt late into G2''s west side with NV: a junction dust (18, -6, 10) fed by two repeaters
+    b.on([19, -6, 12], DUST)?;
+    b.on([18, -6, 12], DUST)?;
+    b.on([18, -6, 11], &rep("south", 4))?;
+    b.on([18, -6, 10], DUST)?;
+    b.on([19, -6, 10], &rep("west", 1))?;
+    b.on([20, -6, 10], &comp("south", "subtract"))?;
+    // NV's last repeater into the junction from the west
+    b.on([17, -6, 10], &rep("west", 1))?;
+    let mut nv = vec![nv_in];
+    seg_to(&mut nv, [16, -6, 10]);
+    route(b, [nv_in[0] - 1, nv_in[1], nv_in[2]], &nv, 6)?;
+    // the chain north: T0 (20, -6, 9), five repeaters, T1 (20, -6, 3), five, T2 (20, -6, -3)
+    let tz = [9, 3, -3];
+    for (k, &z) in tz.iter().enumerate() {
+        b.put([20, -6, z], STONE)?;
+        if k < 2 {
+            for dz in 1..=5 {
+                b.on([20, -6, z - dz], &rep("south", 1))?;
+            }
+        }
+        // P_k east of the tap, its side from the north: a repeater fed by the row of NOT l_k
+        b.on([21, -6, z], &comp("west", "subtract"))?;
+        b.on([21, -6, z - 1], &rep("north", 1))?;
+        b.on([21, -6, z - 2], DUST)?;
+        // its output east, up two stairs to the OR column (24, -4, z)
+        b.on([22, -6, z], DUST)?;
+        b.on([23, -5, z], DUST)?;
+        b.on([24, -4, z], DUST)?;
+    }
+    let mut or = vec![[24, -4, 8]];
+    seg_to(&mut or, [24, -4, -2]);
+    route(b, [24, -4, 9], &or, 0)?;
+    let mut out = vec![[24, -4, 0], [23, -4, 0]];
+    seg_to(&mut out, [11, -4, 0]);
+    route(b, [24, -4, 1], &out, 6)?;
+    b.on([10, -4, 0], &rep("east", 1))?;
+    // R'': droppers a (26, -6, 4), b (28, -6, 4), c (27, -6, 5), hoppers h (27, -6, 4), H (28, -6, 5),
+    // j (26, -6, 5); a -> b -> c -> a; state 0 = c empty at power-on. Rows of NOT l_k west to the
+    // P sides (21, -6, z_k - 2): l0 (c, tap south) -> row 7; l1 (a, tap north) -> row 1; l2 (b, tap
+    // east) -> row -5.
+    let item = "{Items:[{Slot:0b,id:\"minecraft:stone\",count:1}]}";
+    let ring: [(P3, &str); 6] = [
+        ([26, -6, 4], "minecraft:dropper[facing=east,triggered=false]"),
+        ([27, -6, 4], "minecraft:hopper[enabled=true,facing=east]"),
+        ([28, -6, 4], "minecraft:dropper[facing=south,triggered=false]"),
+        ([28, -6, 5], "minecraft:hopper[enabled=true,facing=west]"),
+        ([27, -6, 5], "minecraft:dropper[facing=west,triggered=false]"),
+        ([26, -6, 5], "minecraft:hopper[enabled=true,facing=north]"),
+    ];
+    for (p, s) in ring {
+        b.put(p, s)?;
+        b.put([p[0], -5, p[2]], DUST)?;
+    }
+    b.nbt.insert([26, -6, 4], item.into());
+    b.nbt.insert([28, -6, 4], item.into());
+    // c's tap (state 0) south -> row 7
+    b.on([27, -6, 6], &comp("north", "compare"))?;
+    b.on([27, -6, 7], &rep("north", 1))?;
+    let mut r0 = vec![[27, -6, 8], [26, -6, 8]];
+    seg_to(&mut r0, [22, -6, 8]);
+    r0.push([22, -6, 7]);
+    route(b, [27, -6, 7], &r0, 0)?;
+    b.on([21, -6, 7], DUST)?;
+    // a's tap (state 1) north -> row 1
+    b.on([26, -6, 3], &comp("south", "compare"))?;
+    b.on([26, -6, 2], &rep("south", 1))?;
+    let mut r1 = vec![[26, -6, 1]];
+    seg_to(&mut r1, [22, -6, 1]);
+    route(b, [26, -6, 2], &r1, 0)?;
+    b.on([21, -6, 1], DUST)?;
+    // b's tap (state 2) east -> north along x 31 -> row -5
+    b.on([29, -6, 4], &comp("west", "compare"))?;
+    b.on([30, -6, 4], &rep("west", 1))?;
+    let mut r2 = vec![[31, -6, 4]];
+    seg_to(&mut r2, [31, -6, -5]);
+    seg_to(&mut r2, [22, -6, -5]);
+    route(b, [30, -6, 4], &r2, 8)?;
+    b.on([21, -6, -5], DUST)?;
+    // R'''s step: off T0's top, a delay line (~120 gt) east and back into j's top
+    b.on([20, -5, 9], DUST)?;
+    let mut st = vec![[20, -4, 10]];
+    seg_to(&mut st, [20, -4, 14]);
+    seg_to(&mut st, [34, -4, 14]);
+    seg_to(&mut st, [34, -4, 6]);
+    seg_to(&mut st, [30, -4, 6]);
+    seg_to(&mut st, [29, -5, 6]);
+    route(b, [20, -5, 9], &st, 1)?;
+    b.on([28, -5, 6], DUST)?;
+    // (the router: T1 = NOT l1 = row 1's signal, T2 = l0 = NOT row 7's: returned as their cells)
+    Ok(([24, -6, 1], [24, -6, 8]))
+}
 
 /// Stamps the control module into the loop at `MODULE_AT` and wires it: REL from the release
 /// controller's REL stone (-2, -1, 13), a normal daylight detector for the night window, and the

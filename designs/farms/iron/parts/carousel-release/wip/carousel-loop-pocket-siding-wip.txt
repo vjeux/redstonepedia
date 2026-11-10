@@ -38,34 +38,34 @@ nbt: -5 -1 11 {OutputSignal:2}
 nbt: -5 -1 12 {Items:[{Slot:0b,id:"minecraft:stone",count:23}]}
 origin: -29 0 -2
 palette:
-  ! minecraft:redstone_wire[east=side,north=up,power=0,south=none,west=none]
-  " minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
-  $ minecraft:redstone_wire[east=side,north=none,power=15,south=side,west=side]
-  % minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
-  & minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=side]
-  ' minecraft:repeater[delay=3,facing=north,locked=false,powered=false]
-  ( minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
-  ) minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
-  * minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=none]
-  + minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
-  , minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
-  / minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
-  0 minecraft:redstone_wire[east=none,north=side,power=12,south=side,west=none]
-  1 minecraft:redstone_wire[east=none,north=side,power=13,south=side,west=none]
-  2 minecraft:redstone_wire[east=none,north=up,power=0,south=none,west=side]
-  3 minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
-  4 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
-  5 minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
-  6 minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=side]
-  7 minecraft:redstone_wire[east=side,north=none,power=12,south=none,west=side]
-  8 minecraft:redstone_wire[east=side,north=none,power=13,south=none,west=side]
-  9 minecraft:redstone_wire[east=side,north=none,power=14,south=none,west=side]
-  ; minecraft:repeater[delay=2,facing=north,locked=false,powered=false]
-  < minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
-  = minecraft:redstone_wire[east=side,north=side,power=14,south=none,west=none]
-  > minecraft:redstone_wire[east=up,north=none,power=0,south=side,west=none]
-  ? minecraft:redstone_wire[east=side,north=side,power=15,south=none,west=none]
-  @ minecraft:redstone_wire[east=side,north=none,power=15,south=none,west=side]
+  ! minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
+  " minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  $ minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  % minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=side]
+  & minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=none]
+  ' minecraft:repeater[delay=3,facing=south,locked=false,powered=false]
+  ( minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  ) minecraft:repeater[delay=4,facing=north,locked=false,powered=true]
+  * minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  + minecraft:redstone_wire[east=side,north=side,power=14,south=none,west=none]
+  , minecraft:repeater[delay=3,facing=north,locked=false,powered=false]
+  / minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  0 minecraft:redstone_wire[east=none,north=side,power=13,south=side,west=none]
+  1 minecraft:redstone_wire[east=none,north=up,power=0,south=none,west=side]
+  2 minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
+  3 minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  4 minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
+  5 minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=side]
+  6 minecraft:redstone_wire[east=side,north=none,power=12,south=none,west=side]
+  7 minecraft:redstone_wire[east=side,north=none,power=13,south=none,west=side]
+  8 minecraft:redstone_wire[east=side,north=none,power=14,south=none,west=side]
+  9 minecraft:redstone_wire[east=side,north=none,power=15,south=none,west=side]
+  ; minecraft:repeater[delay=2,facing=south,locked=false,powered=false]
+  < minecraft:redstone_wire[east=up,north=none,power=0,south=side,west=none]
+  = minecraft:redstone_wire[east=side,north=side,power=15,south=none,west=none]
+  > minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  ? minecraft:redstone_wire[east=side,north=up,power=0,south=none,west=none]
+  @ minecraft:redstone_wire[east=side,north=none,power=15,south=side,west=side]
   A minecraft:activator_rail[powered=true,shape=north_south,waterlogged=false]
   B minecraft:comparator[facing=east,mode=subtract,powered=false]
   C minecraft:cobblestone
@@ -78,64 +78,63 @@ palette:
   J minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]
   K minecraft:observer[facing=north,powered=false]
   L minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
-  M minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
-  N minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]
+  M minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]
+  N minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
   O minecraft:oak_fence_gate[facing=east,in_wall=false,open=false,powered=false]
   P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
-  Q minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
-  R minecraft:powered_rail[powered=true,shape=ascending_west,waterlogged=false]
-  S minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
-  T minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
-  U minecraft:rail[shape=ascending_south,waterlogged=false]
-  V minecraft:rail[shape=ascending_west,waterlogged=false]
-  W minecraft:rail[shape=east_west,waterlogged=false]
-  X minecraft:rail[shape=north_east,waterlogged=false]
-  Y minecraft:rail[shape=north_south,waterlogged=false]
-  Z minecraft:rail[shape=north_west,waterlogged=false]
-  \ minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
-  ^ minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
-  ` minecraft:repeater[delay=3,facing=south,locked=false,powered=false]
-  a minecraft:rail[shape=south_east,waterlogged=false]
-  b minecraft:rail[shape=south_west,waterlogged=false]
+  Q minecraft:powered_rail[powered=true,shape=ascending_west,waterlogged=false]
+  R minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  S minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  T minecraft:rail[shape=ascending_south,waterlogged=false]
+  U minecraft:rail[shape=ascending_west,waterlogged=false]
+  V minecraft:rail[shape=east_west,waterlogged=false]
+  W minecraft:rail[shape=north_east,waterlogged=false]
+  X minecraft:rail[shape=north_south,waterlogged=false]
+  Y minecraft:rail[shape=north_west,waterlogged=false]
+  Z minecraft:rail[shape=south_east,waterlogged=false]
+  \ minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  ^ minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  ` minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  a minecraft:rail[shape=south_west,waterlogged=false]
+  b minecraft:red_bed[facing=north,occupied=false,part=foot]
   c minecraft:comparator[facing=east,mode=compare,powered=false]
   d minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]
-  e minecraft:red_bed[facing=north,occupied=false,part=foot]
-  f minecraft:red_bed[facing=north,occupied=false,part=head]
+  e minecraft:red_bed[facing=north,occupied=false,part=head]
+  f minecraft:redstone_block
   g minecraft:glass
   h minecraft:hopper[enabled=true,facing=down]
   i minecraft:iron_trapdoor[facing=east,half=bottom,open=true,powered=true,waterlogged=false]
-  j minecraft:redstone_block
-  k minecraft:redstone_torch[lit=true]
-  l minecraft:redstone_wall_torch[facing=east,lit=false]
-  m minecraft:redstone_wall_torch[facing=north,lit=true]
-  n minecraft:redstone_wall_torch[facing=south,lit=true]
+  j minecraft:redstone_torch[lit=true]
+  k minecraft:redstone_wall_torch[facing=east,lit=false]
+  l minecraft:redstone_wall_torch[facing=north,lit=true]
+  m minecraft:redstone_wall_torch[facing=south,lit=true]
+  n minecraft:redstone_wall_torch[facing=west,lit=true]
   o minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
   p minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]
-  q minecraft:redstone_wall_torch[facing=west,lit=true]
+  q minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
   r minecraft:rail[shape=ascending_north,waterlogged=false]
-  s minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
-  t minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=up]
-  u minecraft:redstone_wire[east=none,north=none,power=0,south=up,west=side]
-  v minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
-  w minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
-  x minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
-  y minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=none]
-  z minecraft:redstone_wire[east=none,north=side,power=11,south=side,west=none]
-  { minecraft:repeater[delay=4,facing=north,locked=false,powered=true]
-  | minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
-  } minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
-  ~ minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
-  À minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
-  Á minecraft:stone
-  Â minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
-  Ã minecraft:tripwire_hook[attached=true,facing=north,powered=false]
-  Ä minecraft:tripwire_hook[attached=true,facing=south,powered=false]
-  Å minecraft:waxed_copper_bulb[lit=false,powered=false]
+  s minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=up]
+  t minecraft:redstone_wire[east=none,north=none,power=0,south=up,west=side]
+  u minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+  v minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  w minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=side]
+  x minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=none]
+  y minecraft:redstone_wire[east=none,north=side,power=11,south=side,west=none]
+  z minecraft:redstone_wire[east=none,north=side,power=12,south=side,west=none]
+  { minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  | minecraft:repeater[delay=2,facing=north,locked=false,powered=false]
+  } minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  ~ minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  À minecraft:stone
+  Á minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
+  Â minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+  Ã minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+  Ä minecraft:waxed_copper_bulb[lit=false,powered=false]
 layer -4:
-  ÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁ
-  Á.....................................Á
-  j....................................jg
-  ......................................j
+  ÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀ
+  À.....................................À
+  f....................................fg
+  ......................................f
   .
   .
   .
@@ -164,20 +163,20 @@ layer -4:
   .
   .
   .
-  ................................Á
-  ................................Á
-  ................................Á
-  ................................Á
-  ................................Á
-  ................................Á
-  ................................Á
-  ................................Á
-  ................................Á
-  ................................Á
-  ................................Á
-  ................................Á
-  ................................Á
-  ......................ÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁÁ
+  ................................À
+  ................................À
+  ................................À
+  ................................À
+  ................................À
+  ................................À
+  ................................À
+  ................................À
+  ................................À
+  ................................À
+  ................................À
+  ................................À
+  ................................À
+  ......................ÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀÀ
   .
   .
   .
@@ -189,11 +188,11 @@ layer -4:
   .
   .
 layer -3:
-  aWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWb
-  Y.....................................Y
-  Q................................jj.gRb
-  Á.....................................Q
-  ......................................j
+  ZVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVa
+  X.....................................X
+  N................................ff.gQa
+  À.....................................N
+  ......................................f
   .
   .
   .
@@ -221,20 +220,20 @@ layer -3:
   .
   .
   .
-  ...............................Át
-  ...............................Áw
-  ................................w
-  ................................w
-  ................................w
-  ................................w
-  ................................w
-  ................................w
-  ................................w
-  ................................w
-  ................................w
-  ................................`
-  ......................Á.........w....Á
-  ......................!44444\444&44442
+  ...............................Às
+  ...............................Àv
+  ................................v
+  ................................v
+  ................................v
+  ................................v
+  ................................v
+  ................................v
+  ................................v
+  ................................v
+  ................................v
+  ................................'
+  ......................À.........v....À
+  ......................?33333/333%33331
   .
   .
   .
@@ -248,56 +247,56 @@ layer -3:
 layer -2:
   .
   .
-  .............................jj.gRNgVO
-  Q
-  Á....................ÁÁÁÁÁÁ...........Q
-  .....................Á...ÁÁ...........j
-  .....................Á...ÁÁ
-  .....................Á...Á
-  ......................ÁÁÁ
-  ..Á...............ÁÁÁÁÁÁÁ
-  ..Á...............Á..ÁÁ...ÁÁ
-  ..ÁÁÁ.............ÁÁ.ÁÁ..Á.Á
-  ..Á.ÁÁÁÁÁÁ..........Á.ÁÁÁ.Á
-  ..Á.Á...Á.........ÁÁÁ.Á.Á..ÁÁÁ
-  ..Á.ÁÁÁ.Á.........Á...Á..ÁÁ..Á
-  ..ÁÁÁ...ÁÁ........Á.ÁÁÁÁÁÁÁ.ÁÁ
-  ...Á....Á.........Á.Á.Á.Á
-  ...Á....ÁÁÁ.......Á.ÁÁÁ.Á
-  ...Á..............Á...Á.Á
-  ...Á..............ÁÁÁÁ.ÁÁ
-  ...Á..............Á...Á.Á
-  ...ÁÁÁÁÁÁÁÁÁ......ÁÁÁÁ.ÁÁÁ
-  ..................Á...Á.Á
-  ..................ÁÁÁÁ.ÁÁ
-  ..................Á...Á.ÁÁ
-  ..................Á...Á.Á
-  ..................Á...Á.Á........ÁÁÁÁÁÁÁ
-  ..................Á...Á.ÁÁ.......Á.....Á
-  ..................Á...Á.Á........Á..Á..Á
-  ..................ÁÁÁÁ.ÁÁ........Á.Á.Á.Á
-  ..................Á...Á.ÁÁ.......Á.Á..ÁÁ
-  ..................ÁÁÁÁ..Á..........Á.Á.Á
-  ..................Á...Á.Á......5.Á.ÁÁ.ÁÁ
-  ..................ÁÁÁÁ..ÁÁ.....~.Á.Á.Á.Á
-  ..................Á...Á.Á......Á.Á.ÁÁ.ÁÁ
-  ..................ÁÁÁÁ..Á.....ÁÁ.Á.Á.Á.Á
-  ......................Á.ÁÁ.....Á.Á.ÁÁ.ÁÁ
-  .......................ÁÁ......Á.Á.Á.Á
-  ......................Á.Á.....ÁÁÁÁÁÁ.Á
-  ......................Á.ÁÁ.....Á.....Á
-  ......................Á.Á......Á.....Á
-  .......................ÁÁ.....ÁÁ.....Á
-  ......................Á.ÁÁ.....Á.....Á
-  ......................Á.Á......Á.....Á
-  ......................3.Á.....ÁÁ.....3
-  ........................ÁÁ.....Á
-  ........................Á......Á
-  ........................Á.....ÁÁ
-  ........................ÁÁ.....Á
-  ........................Á......Á
-  ........................Á...Á..Á
-  ........................ÁÁÁÁÁÁÁÁ
+  .............................ff.gQMgUO
+  N
+  À....................ÀÀÀÀÀÀ...........N
+  .....................À...ÀÀ...........f
+  .....................À...ÀÀ
+  .....................À...À
+  ......................ÀÀÀ
+  ..À...............ÀÀÀÀÀÀÀ
+  ..À...............À..ÀÀ...ÀÀ
+  ..ÀÀÀ.............ÀÀ.ÀÀ..À.À
+  ..À.ÀÀÀÀÀÀ..........À.ÀÀÀ.À
+  ..À.À...À.........ÀÀÀ.À.À..ÀÀÀ
+  ..À.ÀÀÀ.À.........À...À..ÀÀ..À
+  ..ÀÀÀ...ÀÀ........À.ÀÀÀÀÀÀÀ.ÀÀ
+  ...À....À.........À.À.À.À
+  ...À....ÀÀÀ.......À.ÀÀÀ.À
+  ...À..............À...À.À
+  ...À..............ÀÀÀÀ.ÀÀ
+  ...À..............À...À.À
+  ...ÀÀÀÀÀÀÀÀÀ......ÀÀÀÀ.ÀÀÀ
+  ..................À...À.À
+  ..................ÀÀÀÀ.ÀÀ
+  ..................À...À.ÀÀ
+  ..................À...À.À
+  ..................À...À.À........ÀÀÀÀÀÀÀ
+  ..................À...À.ÀÀ.......À.....À
+  ..................À...À.À........À..À..À
+  ..................ÀÀÀÀ.ÀÀ........À.À.À.À
+  ..................À...À.ÀÀ.......À.À..ÀÀ
+  ..................ÀÀÀÀ..À..........À.À.À
+  ..................À...À.À......4.À.ÀÀ.ÀÀ
+  ..................ÀÀÀÀ..ÀÀ.....^.À.À.À.À
+  ..................À...À.À......À.À.ÀÀ.ÀÀ
+  ..................ÀÀÀÀ..À.....ÀÀ.À.À.À.À
+  ......................À.ÀÀ.....À.À.ÀÀ.ÀÀ
+  .......................ÀÀ......À.À.À.À
+  ......................À.À.....ÀÀÀÀÀÀ.À
+  ......................À.ÀÀ.....À.....À
+  ......................À.À......À.....À
+  .......................ÀÀ.....ÀÀ.....À
+  ......................À.ÀÀ.....À.....À
+  ......................À.À......À.....À
+  ......................2.À.....ÀÀ.....2
+  ........................ÀÀ.....À
+  ........................À......À
+  ........................À.....ÀÀ
+  ........................ÀÀ.....À
+  ........................À......À
+  ........................À...À..À
+  ........................ÀÀÀÀÀÀÀÀ
   .
   .
   .
@@ -305,56 +304,56 @@ layer -2:
 layer -1:
   .
   .
-  ............................gRNgVO.W
+  ............................gQMgUO.V
   .
-  Q....................54446s
-  Á....................w...~w...........Q
-  .....................w...*v...........j
-  .....................w.j.~
-  ......................5E^Á
-  ..>Á..............54\6+B@m
-  ..~...............w..'w..ÁIs
-  ..Áls.............%cÅBx..F.w
-  ..z.*\446\Á........./.D^BÁcÁ
-  ..0.w...w.........54v.w.G..H(s
-  ..1.Á(u.w.........w...w.h5\Á.w
-  ..=$n.Á.*\ÁÁ......w.5(+46&\Á4v
-  ...{....w..Á......w.w.w.~
-  ...{....%4<Á....../.%\D.w
-  ...{......ÁÁ......w...'.w
-  ...{.......Á......*44^Á\x
-  ...{.......ÁÁÁÁÁ..w...).w.g
-  ...?987\4442......*44^Á\+4Á
-  ..................w...).w
-  ..................*44^Á\x.g
-  ..................w...~.*4Á
-  ..................w...w.w
-  ..................w...;.w.g......544444s
-  ..................w...w.*4Á......w...../
-  ..................w...w.}........w.Á|Á.w
-  ..................*44^Á\x.g......w.3./.w
-  ..................w...).*ÀÁ......y.w.Á\x
-  ..................*44^Á.w.....ÁÁÁÁ.w.,.w
-  ..................w...).w.g......3.*|Á\x
-  ..................*44^Á.*ÀÁ......w.w.}.w
-  ..................w...~.w......w.w.*|Á\x
-  ..................%44^Á.w.g..Á^x.w.w.}.w
-  ......................~.*ÀÁ..g./.w.*|Á\v
-  ......................Á\x......w././.w
-  ......................).w.g..Á^+4&4v.w
-  ......................).*ÀÁ..g.w.....w
-  ......................;.w......w.....w
-  ......................Á\x.g..Á^x.....w
-  ......................).*ÀÁ..g.w.....,
-  ......................w.~......w.....w
-  ........................w.g..Á^x
-  ........................*"Á..g.w
-  ........................w......w
-  ........................w.g..Á^x
-  ........................*"Á..g.w
-  ........................~..gÁ../
-  ........................w...,..w
-  ........................%444&44v
+  N....................43335q
+  À....................v...^v...........N
+  .....................v...&u...........f
+  .....................v.f.^
+  ......................4E>À
+  ..<À..............43/5*B9l
+  ..^...............v..,v..ÀIq
+  ..Àkq.............$cÄBw..F.v
+  ..y.&/335/À.........~.D>BÀcÀ
+  ..z.v...v.........43u.v.G..H"q
+  ..0.À"t.v.........v...v.h4/À.v
+  ..+@m.À.&/ÀÀ......v.4"*35%/À3u
+  ...)....v..À......v.v.v.^
+  ...)....$3!À......~.$/D.v
+  ...)......ÀÀ......v...,.v
+  ...).......À......&33>À/w
+  ...).......ÀÀÀÀÀ..v...(.v.g
+  ...=876/3331......&33>À/*3À
+  ..................v...(.v
+  ..................&33>À/w.g
+  ..................v...^.&3À
+  ..................v...v.v
+  ..................v...|.v.g......433333q
+  ..................v...v.&3À......v.....~
+  ..................v...v.{........v.À\À.v
+  ..................&33>À/w.g......v.2.~.v
+  ..................v...(.&}À......x.v.À/w
+  ..................&33>À.v.....ÀÀÀÀ.v.;.v
+  ..................v...(.v.g......2.&\À/w
+  ..................&33>À.&}À......v.v.{.v
+  ..................v...^.v......v.v.&\À/w
+  ..................$33>À.v.g..À>w.v.v.{.v
+  ......................^.&}À..g.~.v.&\À/u
+  ......................À/w......v.~.~.v
+  ......................(.v.g..À>*3%3u.v
+  ......................(.&}À..g.v.....v
+  ......................|.v......v.....v
+  ......................À/w.g..À>w.....v
+  ......................(.&}À..g.v.....;
+  ......................v.^......v.....v
+  ........................v.g..À>w
+  ........................&`À..g.v
+  ........................v......v
+  ........................v.g..À>w
+  ........................&`À..g.v
+  ........................^..gÀ..~
+  ........................v...;..v
+  ........................$333%33u
   .
   .
   .
@@ -362,54 +361,54 @@ layer -1:
 layer 0:
   .
   .
-  ..........................ggVO.W
+  ..........................ggUO.V
   ..........................g
   ..........................g
-  Q.........................g
-  Á.........................g...........Q
-  ..........................g...........j
+  N.........................g
+  À.........................g...........N
+  ..........................g...........f
   ..........................g
-  ...<Á.....................g
+  ...!À.....................g
   ..........................g
-  ..g.......................j
-  ..........k..gggÁ.........j
-  ................j.........j
-  ....g......Á....Á.........j
-  ......y...k/....Á.........j
-  ......Á....w....Á.........j
-  ...........v....Á.........j
-  ..........qÁ....Á.........j
-  ...........w...ÁÁ.........g
-  ...........*4442Á.........r
-  ................Á.........L
-  ................Á.........g
-  ................Á.........r
-  ................Á.........L
-  ................Á.........g
-  ................Á.........r
-  ................Á.........L...ÁÁÁÁÁÁ
-  ................Á.........g........3
-  ................Á.........r
-  ..............ÁÁgÁÁÁÁÁÁgggL
-  ..............Á...........g..Á^44x
-  ..............Á...........r..g
-  ............ÁÁgÁÁÁÁÁÁÁÁgggL
-  ............Á.............g..g
-  ............Á.............r..p
-  ............ÁÁÁÁÁÁÁÁÁÁÁgggL..U
+  ..g.......................f
+  ..........j..fggÀ.........f
+  ................f.........f
+  ....g......À....À.........f
+  ......x...j~....À.........f
+  ......À....v....À.........f
+  ...........u....À.........f
+  ..........nÀ....À.........f
+  ...........v...ÀÀ.........g
+  ...........&3331À.........r
+  ................À.........L
+  ................À.........g
+  ................À.........r
+  ..........................L
+  ................g.........g
+  ................À.........r
+  ................À.........L...ÀÀÀÀÀÀ
+  ................À.........g........2
+  ................À.........r
+  ..............ÀÀgÀÀÀÀÀÀgggL
+  ..............À...........g..À>33w
+  ..............À...........r..g
+  ............ÀÀgÀÀÀÀÀÀÀÀgggL
+  ............À.............g..g
+  ............À.............r..p
+  ............ÀÀÀÀÀÀÀÀÀÀÀgggL..T
   ..........................g..g
   ..........................r..p
-  ..........................L..U
+  ..........................L..T
   ..........................g..g
   ..........................r..p
-  ..........................L..U
+  ..........................L..T
   ..........................g..g
   ..........................r..p
-  ..........................L..U
+  ..........................L..T
   ..........................g..g
   ..........................r..p
-  ..........................L..U
-  ..........................gVPg
+  ..........................L..T
+  ..........................gUPg
   .
   .
   .
@@ -419,54 +418,54 @@ layer 0:
 layer 1:
   .
   .
-  ..........................aW
-  ..........................Y
-  ..........................Y
-  ..........................Y
-  Q.........................J
-  Á.........................Y...........Q
-  Á.........................Y...........j
-  Á...<ÁÁÁÁÁÁÁÁ.............Y
-  Á...........Á.............Y
-  Á...........Á.............T
-  ÁÁjgggggggÁggMWWb.........T
-  .........gj...ÁÁT.........T
-  .........ggk...ÁY.........T
-  .........gÁ....ÁY.........T
-  ......y...g....ÁY.........T
-  ......ÁÁÁÁg....ÁY.........T
-  ..........Ág...ÁY.........T
-  ..........g....3Y.........Y
-  ................Y
-  ................Y
-  ................Y.........Y
-  ................Y
-  ................Y
-  ................Y.........Y
-  ................Y
-  ................Y............Á^4444s
-  ................Y.........Y..g
-  ................Y
-  ..............aWXWWWWWWWWW.Á.g
-  ..............Y...........Y..p
-  ..............Y..............U
-  ............aWXWWWWWWWWWWW.Á.g
-  ............Y.............Y..p
-  ............Y
-  ............XWWWWWWWWWWWWW.Á
-  ..........................Y..Y
+  ..........................ZV
+  ..........................X
+  ..........................X
+  ..........................X
+  N.........................J
+  À.........................X...........N
+  À.........................X...........f
+  À...!ÀÀÀÀÀÀÀÀ.............X
+  À...........À.............X
+  À...........À.............S
+  ÀÀfgggggggÀggQVVa.........S
+  .........gf...ÀÀS.........S
+  .........ggj...ÀX.........S
+  .........gÀ....ÀX.........S
+  ......x...g....ÀX.........S
+  ......ÀÀÀÀg....ÀX.........S
+  ..........Àg...ÀX.........S
+  ..........g....2X.........X
+  ................X
+  ................X
+  ................X.........X
+  ................T
+  ................À
+  ................p.........X
+  ................X
+  ................X............À>3333q
+  ................X.........X..g
+  ................X
+  ..............ZVWVVVVVVVVV.À.g
+  ..............X...........X..p
+  ..............X..............T
+  ............ZVWVVVVVVVVVVV.À.g
+  ............X.............X..p
+  ............X
+  ............WVVVVVVVVVVVVV.À
+  ..........................X..X
   .
   .
-  ..........................Y..Y
+  ..........................X..X
   .
   .
-  ..........................Y..Y
+  ..........................X..X
   .
   .
-  ..........................Y..Y
+  ..........................X..X
   .
   .
-  ..........................X..Z
+  ..........................W..Y
   .
   .
   .
@@ -481,33 +480,33 @@ layer 2:
   .
   .
   .
-  Y...............................g
-  Y.....................................Q
-  Y....4444444s.........................j
-  Y.........../Á
-  Y.........../Ä
-  XWSWWWWWWWbWdÂ
-  ..........Tg.Ã\s
-  ........gfYÁ.g.w
-  ........geAg...w................g
-  .........KYg...w
-  ......%44vY....w
-  ..........T....w
+  X...............................g
+  X.....................................N
+  X....3333333q.........................f
+  X...........~À
+  X...........~Ã
+  WVRVVVVVVVaVdÁ
+  ..........Sg.Â/q
+  ........geXÀ.g.v
+  ........gbAg...v................g
+  .........KXg...v
+  ......$33uX....v
+  ..........S....v
   ..........C
   .
   .
   .
   .......................g........g
-  .
+  ................X
   .
   .............................g
   .............................p
-  .............................U
+  .............................T
   .............................g
   .............................p
   ................................g
   .
-  .............................Y
+  .............................X
   .
   .
   .
@@ -540,7 +539,7 @@ layer 3:
   .
   .
   .
-  ......................................Q
+  ......................................N
   .............g........................g
   ......................................g
   ......................................g
@@ -560,7 +559,7 @@ layer 3:
   .............................p
   .
   .
-  .............................Y
+  .............................X
   .
   .
   .
@@ -598,22 +597,22 @@ layer 4:
   .
   .
   .
-  ......................................Y
-  ......................................Y
-  ......................................Y
-  ...........g..........................Y
-  .........g.g..........................Y
-  .........g.g..........................Y
-  ...........g..........................Y
-  ......................................Y
-  ......................................Y
-  ......................................Y
-  ......................................Y
-  ......................................Y
-  .............................aWWWWWWWWZ
-  .............................Y
-  .............................Y
-  .............................Y
+  ......................................X
+  ......................................X
+  ......................................X
+  ...........g..........................X
+  .........g.g..........................X
+  .........g.g..........................X
+  ...........g..........................X
+  ......................................X
+  ......................................X
+  ......................................X
+  ......................................X
+  ......................................X
+  .............................ZVVVVVVVVY
+  .............................X
+  .............................X
+  .............................X
   .
   .
   .

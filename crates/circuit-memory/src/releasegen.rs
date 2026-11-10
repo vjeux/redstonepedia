@@ -597,7 +597,7 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
             bail!("--siding needs farmopt's pocket-stand loop (stand_stop=1)");
         }
         siding_cells = crate::sidinggen::physical(&mut d, sp)?;
-        println!("siding pasted at {:?}: {} cells added; controls divert {:?}, T1 {:?}, T2 {:?}, siding release {:?}", crate::sidinggen::SIDING_AT, siding_cells.len(), crate::sidinggen::DIVERT, crate::sidinggen::T1, crate::sidinggen::T2, crate::sidinggen::RELEASE);
+        println!("siding pasted at {:?}: {} cells added; controls divert {:?}, T1 {:?}, T2 {:?}, hold {:?} (the siding's release {:?} held on)", crate::sidinggen::SIDING_AT, siding_cells.len(), crate::sidinggen::DIVERT, crate::sidinggen::T1, crate::sidinggen::T2, crate::sidinggen::HOLD, crate::sidinggen::RELEASE);
         if let Some(sched) = siding_ctl {
             let more = crate::sidinggen::wire_control(&mut d, sched)?;
             println!("siding control module at {:?}: {} cells (the scheduler, the night window, the windows, R', the visit-delay register, the routes to the 4 controls)", crate::sidinggen::MODULE_AT, more.len());
