@@ -1,5 +1,9 @@
 # Carousel counter (brief farm-iron-carousel.md, part 1)
 
+**Archived (2026-11-10 06:01):** vjeux chose a single-lane loop (21 villagers in carts back to back,
+released 3 by 3, rejoining the tail): the queue order is the rotation, so the 7-lane carousel's
+7-state counter is no longer used. Kept as it is (v8 for the paired-lane frame, v7 the compact one).
+
 The 7-state sequencer of the iron carousel: one golem pulse per slot advances it by one, a fallback
 inside it advances it when a slot is missed, and 7 level lines say which batch goes next. Bench:
 `mctas circuit memory counter-bench <design>` (crates/circuit-memory/src/seqbench.rs).

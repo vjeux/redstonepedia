@@ -1,4 +1,9 @@
-# Carousel nightly scheduler (brief farm-iron-carousel.md, part 3) — work in progress
+# Carousel nightly scheduler (brief farm-iron-carousel.md, part 3) — archived
+
+**Archived (2026-11-10 06:01):** vjeux chose a single-lane loop (21 villagers in carts back to back,
+released 3 by 3, rejoining the tail) instead of the 7-lane carousel, so this 7-lane scheduler (and
+the planned counter + scheduler block with 21 per-track feeds) stops here, kept as it is. The
+single-lane loop's own sleep scheduler is a new part.
 
 The sleep routine's scheduler: inside the night window it sends one villager at a time to the bed,
 each exactly once a night (a rare second nap for the head), never a batch due at the station.
