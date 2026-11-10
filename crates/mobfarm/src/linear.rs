@@ -583,6 +583,8 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
         drive.expect_end(format!("iron-in-nether-containers {} (the sorter's stock of {stock} included)", chest));
         rep.drive = Some(drive.text(&[
             format!("drive v1: mctas mobfarm linear-bench <design> --from {s} --to {s} --days {} --lead {} --drive-out F", bo.days, bo.lead, s = bo.seed),
+            // (mobviewer's badge line, 2026-11-10: the view shows it first while the run plays)
+            "caption batches teleported to the stand by the test bench (the release is stubbed)".into(),
             format!("seed {}", bo.seed),
             format!("days {}", bo.days),
             "walk random".into(),

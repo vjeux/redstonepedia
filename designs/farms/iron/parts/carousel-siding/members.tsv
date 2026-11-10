@@ -1,0 +1,2 @@
+file	name	stage	metrics	used_by
+carousel-siding-wired.txt	bed siding on its test bench: the bench launches each villager's cart in and releases it; the siding's own redstone switches the track, the hatch and the drop	middle	visits ok 15490 of 15490 (100 seeds x 6 days: every villager slept, woke and got back into its own cart), ready after arrival 118-283 gt (the loop allows 500), nap 16-35 gt, waiting villagers panicking 99.6% of night ticks, leaves at 0.36 blocks a tick, golem spawn spots 0, blocks 234, box 14x9x13	

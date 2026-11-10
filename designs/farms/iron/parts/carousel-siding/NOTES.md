@@ -5,23 +5,32 @@ the siding. The napper is dropped beside the bed, naps, is woken by the dorm zom
 hatch, and re-boards the same cart. The cart then waits on the exit slot until ironfarm's release
 pulse sends it out to rejoin its batch on the release run (~600 gt after it left).
 
-Status, in vjeux's terms (07:29: "you can't say it's working when nothing is wired"):
+Status, in vjeux's terms (07:29: "you can't say it's working when nothing is wired"), the page's
+line: **Real redstone; tested on its own; arrivals and release are driven by the test bench; not yet
+joined to the loop.**
 - **Wired:** `carousel-siding-wired.txt`, real redstone.
   - The bench touches no control.
-  - It does two things in place of ironfarm's loop: it teleports each arriving cart onto a 6-rail
-    approach at a drawn speed, and it places the 10-gt release as a block at the release input.
+  - It does two things in place of ironfarm's loop. It brings each arriving cart in: on the page's
+    run, launched from rest on the bench's launcher (three boosters west of the approach); in the
+    statistics runs, also teleported onto the approach at a drawn speed. And it places the 10-gt
+    release as a block at the release input.
   - The riders wait in a bench hold (21 carts, over 16 from the bed) made to panic all night by
     hold zombies, as the loop's riders must.
-- **Real build, but a bench design.** The approach, the run-out past the exit and the hold are the
-  bench's. It does not play in the viewer yet (no drive file).
+- **Real build, but a bench design.** The launcher, the approach, the run-out past the exit and the
+  hold are the bench's.
+- **Plays in the viewer:** `carousel-siding-wired.drive.txt` (`siding-bench --wired --launch --from
+  1 --to 1 --nights 1 --drive-out`, captioned for the view's badge). `mctas web drive-check` holds
+  the view's own run to it: "ok: the view's run is the bench's" (219 acts, 325 cart positions,
+  48,000 ticks).
 - **Missing:** ironfarm's two junctions (the entry off the departure run, the merge into the
   release run) and the zombies along the loop.
 - **Also kept:** `carousel-siding-bench-driven.txt`, the same siding with the controls switched
   by the bench (set_block): the first bench, before the circuit.
 
 Tools: `mctas mobfarm siding [--wired] --out F`, `siding-check F` (every rider/napper cell's golem
-search, the siding's own block count and box), `siding-bench F [--wired] --from --to --nights
---speed a,b --gap a,b --release a,b [--visits N] [--trace --trace-window a,b]`.
+search, the siding's own block count and box), `siding-bench F [--wired] [--launch] --from --to
+--nights --speed a,b --gap a,b --release a,b [--visits N] [--drive-out F] [--trace --trace-window
+a,b]`.
 
 ## Interface (local frame: x east, z south, y up)
 
@@ -77,6 +86,11 @@ Wired, `siding-bench --wired`, 100 seeds × 6 nights:
 - Exit speed 0.28-0.44 b/t.
 
 The same bench with the controls bench-driven gave 15,490 of 15,490 as well (ready 119-277 gt).
+
+Wired, launched (the page's design and its arrivals), `siding-bench --wired --launch`, 100 seeds × 6
+nights: 15,490 of 15,490 visits napped, re-boarded their own cart and were released; ready 118-283
+gt after arrival (median 151); naps 16-35 gt; re-board 73+ gt after the drop; waiting riders
+panicking 99.58% of night ticks; exit 0.36 b/t; 0 problems. (The member's metrics.)
 
 `siding-check`: 0 golem-valid spots in the searches from every rider and napper cell
 (entry, T, bed line, free cell, branch, slot, exit).

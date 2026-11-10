@@ -1,4 +1,5 @@
 # drive v1: mctas mobfarm linear-bench <design> --from 1 --to 1 --days 1 --lead 60 --drive-out F
+# caption batches teleported to the stand by the test bench (the release is stubbed)
 # seed 1
 # days 1
 # walk random

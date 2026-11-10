@@ -68,6 +68,10 @@ pub fn hold_cell(i: i32) -> BlockPos {
 /// The bench's approach start (the cart teleported there moving +x).
 pub const APPROACH_X: f64 = -4.5;
 
+/// The bench's launcher (west of the approach): a cart at rest on its first booster, against the
+/// glass stop, is kicked east and boosted twice more.
+pub const LAUNCH_X: f64 = -8.5;
+
 pub fn layout() -> Siding {
     let p = BlockPos::new;
     Siding {
@@ -108,6 +112,16 @@ fn at(p: BlockPos) -> [i32; 3] {
 pub fn build(b: &mut Builder, s: &Siding) -> Result<()> {
     let rail = |sh: &str| format!("rail[shape={sh},waterlogged=false]");
     // the approach (the bench's) and the entry
+    // the approach (the bench's) and the entry, west of it the bench's launcher: a glass stop and
+    // three always-on boosters
+    // (the stop a conductor, which a stationary cart on a powered rail is kicked away from; glass
+    // over it, no golem floor)
+    put(b, [-10, 0, 0], "stone")?;
+    put(b, [-10, 1, 0], "glass")?;
+    for x in -9..=-7 {
+        put(b, [x, 0, 0], "powered_rail[powered=true,shape=east_west,waterlogged=false]")?;
+        put(b, [x, -1, 0], "redstone_block")?;
+    }
     for x in -6..=0 {
         put(b, [x, 0, 0], &rail("east_west"))?;
         put(b, [x, -1, 0], "glass")?;
@@ -390,7 +404,7 @@ pub fn check(spec: &FarmSpec) -> Result<Vec<String>, String> {
     let own: Vec<&(BlockPos, Block)> = spec
         .blocks
         .iter()
-        .filter(|(p, b)| !matches!(b, Block::Air) && p.z > -15 && !(p.z == 0 && p.x < 0 && (p.y == 0 || p.y == -1)) && !(p.z == 0 && p.x > s.exit.x && (p.y == -1 || p.y == -2)))
+        .filter(|(p, b)| !matches!(b, Block::Air) && p.z > -15 && !(p.z == 0 && p.x < 0 && (-1..=1).contains(&p.y)) && !(p.z == 0 && p.x > s.exit.x && (p.y == -1 || p.y == -2)))
         .collect();
     let lo = own.iter().fold([i32::MAX; 3], |a, (p, _)| [a[0].min(p.x), a[1].min(p.y), a[2].min(p.z)]);
     let hi = own.iter().fold([i32::MIN; 3], |a, (p, _)| [a[0].max(p.x), a[1].max(p.y), a[2].max(p.z)]);
@@ -423,6 +437,11 @@ pub struct BenchOpts {
     pub wired: bool,
     /// The traces' window (gt after the start).
     pub trace_window: (i64, i64),
+    /// Arrivals launched from rest on the bench's launcher (the drive's `tp` moves carts at rest),
+    /// not teleported moving at a drawn speed.
+    pub launch: bool,
+    /// Record the run as a drive (acts, cart positions every 25 gt of a visit, the totals).
+    pub drive: bool,
 }
 
 /// One visit's record.
@@ -448,6 +467,8 @@ pub struct VisitRec {
     pub sees: Option<(bool, f64, f64)>,
     /// The first few distinct states of a calm waiting rider (activity, hostile, vehicle, day).
     pub calm_acts: Vec<String>,
+    /// Launched: it has reached the entry (its `arrived` is that tick).
+    pub entered: bool,
     pub calm: Option<(i64, i64)>,
     pub problem: Option<String>,
 }
@@ -457,6 +478,8 @@ pub struct VisitRec {
 pub struct BenchReport {
     pub visits: Vec<VisitRec>,
     pub errors: Vec<String>,
+    /// The run as a drive (`bo.drive`): the viewer replays it.
+    pub drive: Option<String>,
 }
 
 fn block(s: &str) -> Block {
@@ -494,16 +517,21 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     let mut run = Run::start(spec, &ro)?;
     while run.settle_tick() {}
     let first = run.world.entities.next_id;
+    let mut spawned = Vec::new();
     for (ty, pos, nbt) in &spec.entities {
-        redsim::entity::spawn(&mut run.world, ty, *pos, nbt.as_deref())?;
+        spawned.push(redsim::entity::spawn(&mut run.world, ty, *pos, nbt.as_deref())?);
     }
     run.own = (first..run.world.entities.next_id).collect();
     let t0 = run.world.time;
     if bo.trace {
         eprintln!("t0 {t0} (traces' gt are after it; the visits' arrival times are absolute)");
     }
+    let mut drive = crate::drive::Drive::new(bo.drive);
+    drive.name_entities(&run.world, &spawned, t0);
+    let drive = drive;
     let bed = s.bed_head;
     redsim::entity::mob::ai::poi::take(&mut run.world, bed);
+    drive.act(t0, format!("poi-take {} {} {}", bed.x, bed.y, bed.z));
     // the villagers and their carts (by the hold cell they start on)
     let mut pairs: Vec<(u32, u32, i32)> = Vec::new();
     for i in 0..run.world.entities.list.len() {
@@ -523,6 +551,8 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             let br = brain::brain_mut(&mut run.world, i);
             br.home = Some(bed);
             br.last_slept = Some(t0 - 100);
+            drive.act(t0, format!("home {} {} {} {}", drive.name(*v), bed.x, bed.y, bed.z));
+            drive.act(t0, format!("last-slept {} -100", drive.name(*v)));
         }
     }
     let mut rng = redsim::rng::LegacyRandom::new(bo.seed ^ 0x7369_6469);
@@ -573,8 +603,17 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 if let Some(k) = pick {
                     let (cart, villager, _) = pairs[k];
                     let v = bo.speed.0 + (bo.speed.1 - bo.speed.0) * rng.next_float() as f64;
-                    teleport(&mut run.world, cart, Vec3::new(APPROACH_X, 0.0625, 0.5), Vec3::new(v, 0.0, 0.0));
-                    rep.visits.push(VisitRec { villager, cart, arrived: now + ((-APPROACH_X - 0.0) / v).round() as i64, ..Default::default() });
+                    if bo.launch {
+                        // (at rest on the launcher's first booster, against its glass stop: the
+                        // drive's `tp` moves a cart at rest)
+                        let p = Vec3::new(LAUNCH_X, 0.0625, 0.5);
+                        teleport(&mut run.world, cart, p, Vec3::new(0.0, 0.0, 0.0));
+                        drive.act(now, format!("tp {} {} {} {}", drive.name(cart), p.x, p.y, p.z));
+                    } else {
+                        teleport(&mut run.world, cart, Vec3::new(APPROACH_X, 0.0625, 0.5), Vec3::new(v, 0.0, 0.0));
+                    }
+                    let eta = if bo.launch { 30 } else { ((-APPROACH_X - 0.0) / v).round() as i64 };
+                    rep.visits.push(VisitRec { villager, cart, arrived: now + eta, ..Default::default() });
                     active = Some(rep.visits.len() - 1);
                     last_nap[k] = now;
                 }
@@ -621,6 +660,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                     rep.visits[k].problem.get_or_insert(format!("not ready at its release (gt {})", due - arrived));
                 }
                 set(&mut run.world, s.release, "redstone_block");
+                drive.act(now, format!("set {} {} {} minecraft:redstone_block", s.release.x, s.release.y, s.release.z));
                 release_off = Some(now + 10);
                 rep.visits[k].released = Some(now);
                 waiting.retain(|&x| x != k);
@@ -629,6 +669,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         }
         if release_off == Some(now) {
             set(&mut run.world, s.release, "glass");
+            drive.act(now, format!("set {} {} {} minecraft:glass", s.release.x, s.release.y, s.release.z));
             release_off = None;
         }
         run.tick();
@@ -637,6 +678,17 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         // the visit inside: its stages
         if let Some(k) = active {
             let (villager, cart) = (rep.visits[k].villager, rep.visits[k].cart);
+            // (launched from rest: its arrival is the tick it reaches the entry; the drive's check
+            // holds the view's cart to the bench's every 25 gt of the visit)
+            if let Some(c) = w.entities.list.iter().find(|x| x.id == cart && !x.removed) {
+                if bo.launch && !rep.visits[k].entered && c.pos.x >= s.entry.x as f64 + 0.5 {
+                    rep.visits[k].entered = true;
+                    rep.visits[k].arrived = t;
+                }
+                if (t - t0) % 25 == 0 {
+                    drive.expect(t, format!("pos {} {:.4} {:.4} {:.4}", drive.name(cart), c.pos.x, c.pos.y, c.pos.z));
+                }
+            }
             if let Some(i) = index_of(w, villager) {
                 let e = &w.entities.list[i];
                 let riding = e.vehicle;
@@ -812,13 +864,30 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         }
         for k in done {
             out.retain(|(x, _)| *x != k);
-            let (cart, villager) = (rep.visits[k].cart, rep.visits[k].villager);
+            let cart = rep.visits[k].cart;
             let h = pairs.iter().find(|p| p.0 == cart).map(|p| p.2).unwrap_or(0);
             let c = hold_cell(h);
-            teleport(&mut run.world, cart, Vec3::new(c.x as f64 + 0.5, 0.0625, c.z as f64 + 0.5), Vec3::new(0.0, 0.0, 0.0));
-            let _ = villager;
+            let p = Vec3::new(c.x as f64 + 0.5, 0.0625, c.z as f64 + 0.5);
+            teleport(&mut run.world, cart, p, Vec3::new(0.0, 0.0, 0.0));
+            // (after the tick to t: applied before the next one, the drive's act at t)
+            drive.act(run.world.time, format!("tp {} {} {} {}", drive.name(cart), p.x, p.y, p.z));
         }
     }
     rep.errors = run.world.errors.iter().take(6).cloned().collect();
+    if bo.drive {
+        drive.expect_end("golems 0".into());
+        rep.drive = Some(drive.text(&[
+            format!("drive v1: mctas mobfarm siding-bench <design> --wired --launch --from {s} --to {s} --nights {} --drive-out F (arrivals launched from rest on the bench's launcher; the release placed as a block: the loop's input)", bo.nights, s = bo.seed),
+            // (mobviewer's badge line, 2026-11-10: the view shows it first while the run plays)
+            "caption carts launched in and released by the test bench; the siding's own redstone does the rest".into(),
+            format!("seed {}", bo.seed),
+            format!("days {}", bo.nights + 1),
+            "walk random".into(),
+            "ai on".into(),
+            "start Run::start(spec, RunOpts { ai: true, ..RunOpts::steady(seed, days * 24000, WalkMode::Random) }); settle_tick until false; the design's entity lines spawned in order (eN: line N from 0, eN.pK: its passenger K from 0); t0 = the world's time then".into(),
+            "act t: applied when the world's time is t0 + t, before the run's next tick (the bench's own order)".into(),
+            format!("t0 {}", t0),
+        ]));
+    }
     Ok(rep)
 }

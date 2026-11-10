@@ -58,12 +58,14 @@ pub fn part_folder(key: &str) -> Option<&'static str> {
 /// can see how it looks like"; the parent: under a "Villager carousel (in progress)" heading on the
 /// iron farm's page): (folder under designs/farms/iron/parts/, name, what it is, for the player).
 /// Each gets its component page as soon as its catalog (`members.tsv`) has a member.
-pub const CAROUSEL: [(&str, &str, &str, &str); 2] = [
+pub const CAROUSEL: [(&str, &str, &str, &str); 3] = [
     // (vjeux 2026-11-10 rejected the 7-lane layout for one lane of 21 carts released 3 by 3: only the
     // station carries over; the counter, the hold, the yard, the scheduler and the assembly were
     // the 7-lane farm's and stay off)
     ("carousel-station", "", "Station, portal pad and Nether kill", "Where each batch of villagers panics and summons its golem: the golem lands on a pad touching a portal, leaves for the Nether at once, dies there in lava, and its iron is sorted and stored."),
     ("carousel-release", "", "Release controller", "The redstone that sends the villagers out 3 by 3: each golem pulse releases the 3 head carts, then moves the 18-cart queue up 3 slots in three steps; a missed golem falls back to a timed release, and an early one is held."),
+    // (the parent 2026-11-10 09:24, vjeux wants every carousel component on the site)
+    ("carousel-siding", "", "Bed siding", "The one bed of the farm, beside the loop: each night every villager's cart turns off into it by turns; the villager is dropped beside the bed, sleeps, is woken by a zombie behind an iron hatch that opens and shuts by itself, gets back into its own cart, and waits there until its group passes again."),
 ];
 
 /// A part's name and what it is (`PARTS`, `CAROUSEL`).
@@ -1058,6 +1060,9 @@ pub fn part_page(site: &Site, farm: &str, part: &str, members: &[Member], script
         // release redstone was, 2026-11-10)
         let extra = if part == "carousel-release" {
             "<p>Real redstone; tested on its own; its golem input is driven by the test bench and its outputs light lamps; not yet connected to the queue.</p>\n"
+        } else if part == "carousel-siding" {
+            // (the parent 2026-11-10 09:24, its plain standing line)
+            "<p>Real redstone; tested on its own; arrivals and release are driven by the test bench; not yet joined to the loop.</p>\n"
         } else {
             ""
         };
@@ -1485,6 +1490,27 @@ mod tests {
         assert_eq!(html.matches("data-drive=\"../designs/farms/iron/parts/carousel-station/carousel-linear-stand.drive.txt\"").count(), 1, "{html}");
         let plain = Member { nether: false, ..members[0].clone() };
         assert!(!member_viewer("../", &plain).contains("data-part"));
+    }
+
+    #[test]
+    fn the_bed_siding_plays_its_bench_run_in_plain_words() {
+        // (the carousel's third component, 2026-11-10: its drive beside it, its page's words free of
+        // the guard's internal names)
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let members = part_members(&repo, "carousel-siding");
+        assert_eq!(members.len(), 1, "{members:?}");
+        let m = &members[0];
+        let html = member_viewer("../", m);
+        assert_eq!(html.matches("data-drive=\"../designs/farms/iron/parts/carousel-siding/carousel-siding-wired.drive.txt\"").count(), 1, "{html}");
+        let mut text = format!("{} {}", part_words("carousel-siding").0, part_words("carousel-siding").1);
+        text.push(' ');
+        text.push_str(&carousel_name(&m.name));
+        for (k, v) in &m.metrics {
+            let (a, b) = carousel_metric(k, v);
+            text.push_str(&format!(" {a} {b}"));
+        }
+        let faults = crate::explain::page_faults("", &text);
+        assert!(faults.is_empty(), "{faults:?} in {text}");
     }
 
     #[test]
