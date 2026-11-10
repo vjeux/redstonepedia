@@ -278,6 +278,10 @@ pub struct MobState {
     /// (nextDouble x 0.1F; 0 for the drowned and zombified piglins), a leader's bonus, the charges
     /// of its calls (-0.05 each) and of being one (-0.05); 0 where its spawn's draws are not modeled.
     pub reinforcement_chance: f64,
+    /// (tickexact 2026-11-10) A leader zombie's MAX_HEALTH modifier (`LEADER_ZOMBIE_BONUS`,
+    /// ADD_MULTIPLIED_TOTAL: `nextDouble() * 3 + 1`; 0: none): its max health is the base x (1 +
+    /// this), which `setHealth` clamps to (a leader's fall damage left it at 20).
+    pub max_health_bonus: f64,
     /// `xxa`, `zza`, `jumping`, `speed` (the walking input).
     pub xxa: f32,
     pub zza: f32,
@@ -348,6 +352,7 @@ impl MobState {
             sleeping_pos: None,
             follow_range: d.follow_range * (1.0 + bonus),
             reinforcement_chance: 0.0,
+            max_health_bonus: 0.0,
             xxa: 0.0,
             zza: 0.0,
             jumping: false,

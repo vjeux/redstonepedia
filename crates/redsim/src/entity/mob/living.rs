@@ -173,7 +173,7 @@ fn base_tick(w: &mut World, i: usize) {
             }
         }
         if heal && m.health > 0.0 {
-            let max = m.ty.def().max_health;
+            let max = max_health(m);
             m.health = (m.health + 4.0).min(max);
         }
     }
@@ -302,6 +302,10 @@ fn tick_death(w: &mut World, i: usize) {
     let m = mob_mut(w, i);
     m.death_time += 1;
     if m.death_time >= 20 && !w.entities.list[i].removed {
+        // (tickexact 2026-11-10) AbstractCubeMob.remove: a dead cube bigger than 1 splits first
+        if super::ai::has_ai(w, i) && super::ai::cube::is_cube(w, i) {
+            super::ai::cube::split_on_death(w, i);
+        }
         let id = w.entities.list[i].id;
         let t = w.time;
         w.entities.list[i].removed = true;
@@ -450,8 +454,13 @@ fn jump(w: &mut World, i: usize) {
     }
 }
 
-/// `Entity.getFluidJumpThreshold`: 0.4 if the eye is under 0.4 high, else 0.4.
+/// `Entity.getFluidJumpThreshold`: 0 if the eye is under 0.4 high, else 0.4; a sulfur cube's
+/// `getBbHeight() * 0.2` (`SulfurCube.getFluidJumpThreshold`; tickexact 2026-11-10: a size-2 cube
+/// on the floor of 0.11 of water jumps from the ground, plains t1120).
 fn fluid_jump_threshold(m: &MobState) -> f64 {
+    if m.ty.def().game_id == "minecraft:sulfur_cube" {
+        return m.ty.def().height as f64 * 0.2;
+    }
     if (m.eye() as f64) < 0.4 { 0.0 } else { 0.4 }
 }
 
@@ -812,11 +821,23 @@ fn actually_hurt(w: &mut World, i: usize, src: Damage, mut dmg: f32) {
         dmg *= 1.0f32 - real / 25.0f32;
     }
     if dmg != 0.0 {
-        // setHealth: clamped to [0, max]
-        let max = mob(w, i).ty.def().max_health;
+        // setHealth: clamped to [0, getMaxHealth()] (a horse's drawn max, a leader zombie's bonus)
+        let max = max_health(mob(w, i));
         let m = mob_mut(w, i);
         m.health = (m.health - dmg).clamp(0.0, max);
     }
+}
+
+/// `LivingEntity.getMaxHealth()`: the type's, a horse's as `randomizeAttributes` drew it, a leader
+/// zombie's with its `LEADER_ZOMBIE_BONUS` (ADD_MULTIPLIED_TOTAL).
+pub fn max_health(m: &MobState) -> f32 {
+    if let Some(h) = m.ai.as_deref().and_then(|a| a.horse) {
+        return h.max_health;
+    }
+    if m.max_health_bonus > 0.0 {
+        return (m.ty.def().max_health as f64 * (1.0 + m.max_health_bonus)) as f32;
+    }
+    m.ty.def().max_health
 }
 
 /// `LivingEntity.die`: dead; a sleeper wakes; the loot drops at once (`dropAllDeathLoot`: no

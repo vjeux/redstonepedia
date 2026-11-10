@@ -1681,6 +1681,7 @@ fn zombie_handle_attributes(w: &mut World, id: u32, ctor: Option<crate::rng::Leg
             m.follow_range *= 1.0 + follow;
         }
         if bonus {
+            m.max_health_bonus = health;
             m.health = (m.ty.def().max_health as f64 * (1.0 + health)) as f32;
         }
     }

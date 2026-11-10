@@ -267,3 +267,47 @@ pub fn jump_from_ground(w: &mut World, i: usize, power: f32) {
     let v = e.delta_movement;
     e.delta_movement = crate::entity::Vec3::new(v.x, power as f64, v.z);
 }
+
+/// (tickexact 2026-11-10, mob-AI's (d)) `AbstractCubeMob.remove` of a dead cube bigger than 1, as
+/// its body goes (`tickDeath`'s 20th tick): `getSplitCount` cubes of half its size (a sulfur cube's:
+/// 2), each `convertTo(its type, SPLIT_ON_DEATH, TRIGGERED)`: constructed, `convertCommon` (its
+/// persistence and portal cooldown), `setUpSplitCube` (`setSize(half, true)`, a baby; `snapTo` its
+/// x and z shifted by (i % 2 - 0.5, i / 2 - 0.5) x half its width, 0.5 higher, at a yaw of the
+/// dying cube's own random), then entering.
+pub fn split_on_death(w: &mut World, i: usize) {
+    let Some(size) = ai(w, i).cube.as_ref().map(|c| c.size) else { return };
+    if size <= 1 {
+        return;
+    }
+    let ty = mob(w, i).ty;
+    let child = match (ty.def().game_id, size / 2) {
+        ("minecraft:sulfur_cube", 1) => crate::entity::mob::types::MobType::Natural(9),
+        _ => {
+            let why = format!("a {} of size {size} splitting is not modeled", ty.def().game_id);
+            if !w.errors.contains(&why) {
+                w.errors.push(why);
+            }
+            return;
+        }
+    };
+    let off = ty.def().width / 2.0f32;
+    let (persistent, portal) = (mob(w, i).persistence_required, w.entities.list[i].portal_cooldown);
+    let p = w.entities.list[i].pos;
+    for k in 0..2i32 {
+        let xd = ((k % 2) as f32 - 0.5f32) * off;
+        let zd = ((k / 2) as f32 - 0.5f32) * off;
+        // EntityType.create(level, TRIGGERED): a construction
+        if w.exact_seed.is_some() {
+            let _ = w.construct();
+        }
+        let yaw = own(w, i).next_float() * 360.0f32;
+        let id = crate::entity::mob::add(w, child, crate::entity::Vec3::new(p.x + xd as f64, p.y + 0.5, p.z + zd as f64), persistent);
+        crate::entity::mob::seed_entered(w, id);
+        if let Some(j) = crate::entity::index_of(w, id) {
+            let e = &mut w.entities.list[j];
+            e.y_rot = yaw;
+            e.y_rot_o = yaw;
+            e.portal_cooldown = portal;
+        }
+    }
+}
