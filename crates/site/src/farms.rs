@@ -1064,7 +1064,7 @@ pub fn part_page(site: &Site, farm: &str, part: &str, members: &[Member], script
             "<p>Real redstone; tested on its own; its golem input is driven by the test bench and its outputs light lamps; not yet connected to the queue.</p>\n"
         } else if part == "carousel-siding" {
             // (the parent 2026-11-10 09:24, its plain standing line)
-            "<p>Real redstone; tested on its own; arrivals and release are driven by the test bench; not yet joined to the loop.</p>\n"
+            "<p>Real redstone; tested on its own; arrivals, release and the bed's claim are handled by the test bench; not yet joined to the loop.</p>\n"
         } else if part == "carousel-loop" {
             // (the parent 2026-11-10, its plain standing line)
             "<p>Real redstone; runs on its own in the real game, pasted as written or built block by block; its golem signal is supplied by the test; the stand is a placeholder; not yet joined to the pad or the bed stop.</p>\n"
