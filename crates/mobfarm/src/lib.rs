@@ -13,6 +13,7 @@ pub mod hold;
 pub mod layouts;
 pub mod naps;
 pub mod parts;
+pub mod placing;
 pub mod spawnrules;
 pub mod station;
 pub mod siding;

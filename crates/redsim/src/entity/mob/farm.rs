@@ -88,6 +88,35 @@ impl NetherSpec {
         let b = self.base();
         self.output.map(|p| BlockPos::new(p.x + b.x, p.y + b.y, p.z + b.z))
     }
+
+    /// The part's Nether world with none of its blocks yet ([`Run::start`]'s, moved out so a bench
+    /// can build the part in it cell by cell, farmopt 2026-11-10): its box (the blocks' with an
+    /// 8-cell margin, the Nether's full height), ultra-warm, its mob layer, level random and random
+    /// ticks seeded from the run's.
+    pub fn world(&self, o: &RunOpts) -> Result<World, String> {
+        let placed = self.placed();
+        let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+        for (p, _) in &placed {
+            for (i, v) in [p.x, p.y, p.z].into_iter().enumerate() {
+                lo[i] = lo[i].min(v);
+                hi[i] = hi[i].max(v);
+            }
+        }
+        if placed.is_empty() || lo[1] < 1 || hi[1] > 254 {
+            return Err(format!("the Nether part lies at y {}..{}: the Nether's is 0..255", lo[1], hi[1]));
+        }
+        let mut n = World::new(BlockPos::new(lo[0] - 8, 0, lo[2] - 8), [hi[0] - lo[0] + 17, 256, hi[2] - lo[2] + 17]);
+        n.ultrawarm = true;
+        n.mob.seed(o.seed ^ 0x4e45_5448, o.day0 - SETTLE_TICKS);
+        if o.ai {
+            n.mob.ai.on = true;
+            n.mob.ai.difficulty = super::natural::Difficulty::Hard;
+            n.mob.ai.mob_griefing = true;
+        }
+        n.level_random = Some(crate::rng::LegacyRandom::new(o.seed ^ 0x6e6c_7672));
+        n.random_ticks = Some(crate::crops::RandomTicks::new(3, o.seed ^ 0x4e45));
+        Ok(n)
+    }
 }
 
 impl FarmSpec {
@@ -135,6 +164,12 @@ pub struct RunOpts {
     /// tick perfect precision?"): every mob on its real goals and brain (the golems' walking
     /// policies unused), a mob whose AI is not modeled a model error. The default.
     pub ai: bool,
+    /// (ironfarm 2026-11-10) The design placed as written, a raw paste: blocks raw and block
+    /// entities merged as `data merge` merges them (the stock a build step puts in), no shape
+    /// updates (`place_updates`); the caller skips the settle too. tick-exact's raw paste in the
+    /// game does the same. The judge's way is `false`: a design must work placed either way to
+    /// count as working "settled as placed".
+    pub raw: bool,
 }
 
 impl std::fmt::Debug for super::site::Site {
@@ -148,7 +183,7 @@ impl RunOpts {
     /// weather ([`RunOpts::with_weather`]).
     pub fn steady(seed: i64, ticks: u32, walk: WalkMode) -> RunOpts {
         let mut r = crate::rng::LegacyRandom::new(seed ^ 0x6461_7930);
-        RunOpts { seed, ticks, day0: 10 + r.next_int(11990) as i64, walk, slept: true, slept_rest: false, site: None, weather: crate::weather::Plan::Off, ai: judge_ai() }
+        RunOpts { seed, ticks, day0: 10 + r.next_int(11990) as i64, walk, slept: true, slept_rest: false, site: None, weather: crate::weather::Plan::Off, ai: judge_ai(), raw: false }
     }
 
     /// The same run under a weather plan.
@@ -398,7 +433,9 @@ impl Run {
         let (detectors, rest): (Vec<_>, Vec<_>) = spec.blocks.iter().cloned().partition(|(_, b)| matches!(b, Block::DaylightDetector { .. }));
         w.place_raw(&rest);
         crate::redstone::container::apply_block_entities(&mut w, spec.block_entities.iter().map(|(p, s)| (*p, s.as_str())))?;
-        w.place_updates(&rest);
+        if !o.raw {
+            w.place_updates(&rest);
+        }
         let chest = Block::parse("minecraft:chest[facing=north,type=single,waterlogged=false]")?;
         if !matches!(w.get(spec.output), Block::Chest { .. }) {
             w.set_block(spec.output, chest, crate::world::flags::RAW);
@@ -408,30 +445,16 @@ impl Run {
         // (`World::nether`: ultra-warm, no weather, no player there so no natural spawning, the
         // mob layer and random ticks like the overworld's), built and settled while its chunks are
         // loaded (the player builds it there), its output chest emptied; it ticks only while a
-        // crossing's PORTAL ticket holds it
+        // crossing's PORTAL ticket holds it (farmopt 2026-11-10: `raw`, pasted as written and not
+        // settled, as the overworld's)
         if let Some(ns) = &spec.nether {
             let placed = ns.placed();
-            let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
-            for (p, _) in &placed {
-                for (i, v) in [p.x, p.y, p.z].into_iter().enumerate() {
-                    lo[i] = lo[i].min(v);
-                    hi[i] = hi[i].max(v);
-                }
+            let mut n = ns.world(o)?;
+            if o.raw {
+                n.place_raw(&placed);
+            } else {
+                n.place_like_judge(&placed);
             }
-            if placed.is_empty() || lo[1] < 1 || hi[1] > 254 {
-                return Err(format!("the Nether part lies at y {}..{}: the Nether's is 0..255", lo[1], hi[1]));
-            }
-            let mut n = World::new(BlockPos::new(lo[0] - 8, 0, lo[2] - 8), [hi[0] - lo[0] + 17, 256, hi[2] - lo[2] + 17]);
-            n.ultrawarm = true;
-            n.mob.seed(o.seed ^ 0x4e45_5448, o.day0 - SETTLE_TICKS);
-            if o.ai {
-                n.mob.ai.on = true;
-                n.mob.ai.difficulty = super::natural::Difficulty::Hard;
-                n.mob.ai.mob_griefing = true;
-            }
-            n.level_random = Some(crate::rng::LegacyRandom::new(o.seed ^ 0x6e6c_7672));
-            n.random_ticks = Some(crate::crops::RandomTicks::new(3, o.seed ^ 0x4e45));
-            n.place_like_judge(&placed);
             // the part's block-entity data (`nether nbt:`), as the overworld's after its paste
             let bes = ns.block_entities_at();
             crate::redstone::container::apply_block_entities(&mut n, bes.iter().map(|(p, s)| (*p, s.as_str())))?;
@@ -441,7 +464,9 @@ impl Run {
                 }
                 crate::redstone::container::apply_block_entities(&mut n, [(out, "{Items:[]}")])?;
             }
-            n.run_until_idle(4000);
+            if !o.raw {
+                n.run_until_idle(4000);
+            }
             n.time = w.time;
             w.nether = Some(Box::new(n));
         }

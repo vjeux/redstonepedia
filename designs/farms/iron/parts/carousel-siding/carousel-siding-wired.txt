@@ -1,6 +1,7 @@
 # The carousel's bed siding (bench): a napper's cart enters at the origin moving +x, a T sends it down the bed line (the free cell, the activator, the park rail),
 # the napper naps in the one bed and is woken by the dorm zombie through the hatch, re-boards its cart, which waits on the exit slot until the release pulse.
 name: carousel-bed-siding-wired
+build: last -6,-3,-1 1,-2,6
 circuit: mob-farm iron_ingot
 siding: v1 wired entry=0,0,0 exit=6,-1,0 release=4,-2,0
 port home: 0 0 2
@@ -35,6 +36,20 @@ entity: minecraft:oak_boat 14.5 0 -22.5 {Passengers:[{id:"minecraft:zombie"}]}
 entity: minecraft:oak_boat 22.5 0 -22.5 {Passengers:[{id:"minecraft:zombie"}]}
 origin: -20 0 -23
 palette:
+  $ minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
+  % minecraft:tripwire_hook[attached=true,facing=north,powered=false]
+  & minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+  0 minecraft:redstone_wire[east=side,north=side,power=14,south=none,west=none]
+  1 minecraft:redstone_wire[east=side,north=side,power=15,south=none,west=none]
+  2 minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
+  3 minecraft:redstone_wire[east=up,north=none,power=0,south=side,west=none]
+  4 minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  5 minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  6 minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  7 minecraft:repeater[delay=1,facing=west,locked=false,powered=true]
+  8 minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  9 minecraft:repeater[delay=4,facing=north,locked=false,powered=true]
+  @ minecraft:stone
   A minecraft:activator_rail[powered=true,shape=north_south,waterlogged=false]
   B minecraft:powered_rail[powered=false,shape=north_south,waterlogged=false]
   C minecraft:cobblestone
@@ -54,19 +69,39 @@ palette:
   Q minecraft:redstone_wall_torch[facing=south,lit=true]
   R minecraft:rail[shape=east_west,waterlogged=false]
   S minecraft:redstone_wall_torch[facing=west,lit=false]
-  T minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]
-  U minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
-  V minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
-  W minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
-  X minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
-  Y minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
-  Z minecraft:tripwire_hook[attached=true,facing=north,powered=false]
-  a minecraft:tripwire_hook[attached=true,facing=south,powered=false]
+  T minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+  U minecraft:redstone_wire[east=none,north=none,power=0,south=up,west=side]
+  V minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+  W minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  X minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=none]
+  Y minecraft:redstone_wire[east=none,north=side,power=1,south=side,west=none]
+  Z minecraft:redstone_wire[east=none,north=side,power=10,south=side,west=none]
+  a minecraft:redstone_wire[east=none,north=side,power=11,south=side,west=none]
+  b minecraft:redstone_wire[east=none,north=side,power=12,south=side,west=none]
+  c minecraft:redstone_wire[east=none,north=side,power=13,south=side,west=none]
+  d minecraft:redstone_wire[east=none,north=side,power=2,south=side,west=none]
+  e minecraft:redstone_wire[east=none,north=side,power=3,south=side,west=none]
+  f minecraft:redstone_wire[east=none,north=side,power=4,south=side,west=none]
+  g minecraft:redstone_wire[east=none,north=side,power=5,south=side,west=none]
+  h minecraft:redstone_wire[east=none,north=up,power=12,south=none,west=side]
+  i minecraft:redstone_wire[east=none,north=up,power=6,south=side,west=none]
+  j minecraft:redstone_wire[east=none,north=up,power=7,south=none,west=side]
+  k minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  l minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=side]
+  m minecraft:redstone_wire[east=side,north=none,power=10,south=none,west=side]
+  n minecraft:redstone_wire[east=side,north=none,power=12,south=none,west=side]
   o minecraft:observer[facing=north,powered=false]
   p minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+  q minecraft:redstone_wire[east=side,north=none,power=13,south=none,west=side]
   r minecraft:rail[shape=north_south,waterlogged=false]
-  s minecraft:stone
-  t minecraft:tripwire[attached=true,disarmed=false,east=false,north=true,powered=false,south=true,west=false]
+  s minecraft:redstone_wire[east=side,north=none,power=14,south=none,west=side]
+  t minecraft:redstone_wire[east=side,north=none,power=15,south=none,west=side]
+  u minecraft:redstone_wire[east=side,north=none,power=15,south=side,west=side]
+  v minecraft:redstone_wire[east=side,north=none,power=8,south=none,west=side]
+  w minecraft:redstone_wire[east=side,north=none,power=9,south=none,west=side]
+  x minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  y minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=none]
+  z minecraft:redstone_wire[east=side,north=side,power=11,south=side,west=none]
 layer -4:
   .
   .
@@ -88,19 +123,19 @@ layer -4:
   .
   .
   .
-  .............s
-  .............s
-  .............sss
-  .............s.ssssss
-  .............s.s...s
-  .............s.sss.s
-  .............sss...ss
-  ..............s....s
-  ..............s....sss
-  ..............s
-  ..............s
-  ..............s
-  ..............sssssssss
+  .............@
+  .............@
+  .............@@@
+  .............@.@@@@@@
+  .............@.@...@
+  .............@.@@@.@
+  .............@@@...@@
+  ..............@....@
+  ..............@....@@@
+  ..............@
+  ..............@
+  ..............@
+  ..............@@@@@@@@@
 layer -3:
   .
   .
@@ -122,19 +157,19 @@ layer -3:
   .
   .
   .
-  .............Ts
-  .............U
-  .............sNT
-  .............T.TWTTTWs
-  .............T.T...T
-  .............T.sXT.T
-  .............TTQ.s.TWss
-  ..............Y....T..s
-  ..............Y....TTTs
-  ..............Y......ss
-  ..............Y.......s
-  ..............Y.......sssss
-  ..............TTTTWTTTT
+  .............3@
+  .............4
+  .............@NT
+  .............a.y6kkl6@
+  .............b.W...W
+  .............c.@8U.W
+  .............0uQ.@.y6@@
+  ..............9....W..@
+  ..............9....xk2@
+  ..............9......@@
+  ..............9.......@
+  ..............9.......@@@@@
+  ..............1sqn7tsqh
 layer -2:
   .
   .
@@ -156,18 +191,18 @@ layer -2:
   .
   .
   .
-  ..............Ts
+  ..............2@
   .
   .............G
   .....................M..GGGGGGGG
   .
-  ...............G......s
-  .................T...MV
-  .................s....T
-  ......................T
-  .....................Ss
-  ......................T...s
-  ......................TTTTT
+  ...............G......@
+  .................X...M5
+  .................@....W
+  ......................V
+  .....................S@
+  ......................Z...@
+  ......................zmwvj
   .
 layer -1:
   ..G.......G.......G.......G.......G.......G
@@ -190,17 +225,17 @@ layer -1:
   .
   .
   .
-  ...............Tssssssss
-  .......................s
-  .......................s
-  ...........LLLGGGGGGGsGGPRRRRRRRG
-  ....................GL...ss
-  ....................GGM...s
-  ....................Gs....s
-  .................T...G....s
-  .................ssssG....s
-  .....................sG...s
-  .....................G....T
+  ...............2@@@@@@@@
+  .......................@
+  .......................@
+  ...........LLLGGGGGGG@GGPRRRRRRRG
+  ....................GL...@@
+  ....................GGM...@
+  ....................G@....@
+  .................X...G....@
+  .................@@@@G....@
+  .....................@G...@
+  .....................G....i
   .
   .
 layer 0:
@@ -224,16 +259,16 @@ layer 0:
   .
   .
   .
-  ................TTTTTTTT
-  .......................Vs
-  .......................Va
-  ..........sEEERRRRRRRHRDt
-  .....................FG.ZWT
-  ...................GKrs.G.T
-  ...................GJAG...T
-  ....................orG...T
-  .................TTTTr....T
-  .....................B....T
+  ................kkkkkkkT
+  .......................5@
+  .......................5&
+  ..........@EEERRRRRRRHRD$
+  .....................FG.%6T
+  ...................GKr@.G.Y
+  ...................GJAG...d
+  ....................orG...e
+  .................xkkVr....f
+  .....................B....g
   .....................C
   .
   .

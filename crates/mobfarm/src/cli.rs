@@ -610,6 +610,11 @@ pub enum MobfarmCmd {
         along_z: bool,
         #[arg(long)]
         out: PathBuf,
+        /// Write the cells as the generator writes them, not settled (the default writes every
+        /// cell as the bench finds it after the settle, the Nether part's too, comparator outputs
+        /// as block entities: "settled as placed", mobfarm::placing::settle_design).
+        #[arg(long)]
+        unsettled: bool,
     },
     /// The linear stand's static check: each of the 3 stand riders' golem search (the judge's
     /// function), the held riders' searches, the boxes near the portals, success per slot.
@@ -631,6 +636,24 @@ pub enum MobfarmCmd {
         /// Write the first seed's drive as data (mobfarm::drive) to this file.
         #[arg(long)]
         drive_out: Option<PathBuf>,
+        /// Place the design as written: blocks raw, block entities merged, no shape updates and no
+        /// settle, the Nether part too ("settled as placed"); the bench must run as clean.
+        #[arg(long)]
+        placed_raw: bool,
+        /// Build the design in order instead ("built in order"): the worlds empty, the Nether part
+        /// then the overworld's, each cell placed with the game's updates in the build order
+        /// (mobfarm::placing::build_steps_of: ironfarm's order, each portal lit after its frame,
+        /// fluids poured last), containers filled as placed, each cell's priced gap (20 gt; 40 gt at
+        /// a place:edge cell), or GAP gt for every cell; then the entities.
+        #[arg(long, num_args = 0..=1, default_missing_value = "0")]
+        placed_in_order: Option<i64>,
+        /// All three placements, each reported: the judge's, the raw paste, built in order.
+        #[arg(long)]
+        placed_all: bool,
+        /// Built in order at every gap from 1 gt up to 40 (or --placed-in-order's GAP), to the first
+        /// gap that fails.
+        #[arg(long)]
+        build_gap_sweep: bool,
     },
     /// The carousel's bed siding (ironfarm's hand-over, vjeux's single lane): write its bench design
     /// (the siding, the bench's approach and run-out, 21 villagers in carts in a far hold).
@@ -640,6 +663,19 @@ pub enum MobfarmCmd {
         /// The circuit in place of the bench-driven controls (mobfarm::siding::wire).
         #[arg(long)]
         wired: bool,
+        /// The siding by itself: no launcher, approach, run-out, hold or carts, only its own
+        /// blocks and its dorm zombie (for pasting into ironfarm's loop bench).
+        #[arg(long)]
+        alone: bool,
+        /// A braked powered rail just past the exit cell (day-1's side-drop merge wants at most
+        /// 0.36 b/t).
+        #[arg(long)]
+        exit_brake: bool,
+        /// Write the cells as the judge's placement leaves them (the generator's own states), not
+        /// settled (the default writes every cell as the bench finds it after the settle, comparator
+        /// outputs as block entities: "settled as placed", mobfarm::placing::settle_design).
+        #[arg(long)]
+        unsettled: bool,
     },
     /// The bed siding's static check: every rider and napper cell's golem search (any spot is a
     /// stray).
@@ -682,6 +718,29 @@ pub enum MobfarmCmd {
         /// The first seed's first visits' ticks on stderr.
         #[arg(long)]
         trace: bool,
+        /// Place the design as written: blocks raw, block entities merged, no shape updates and no
+        /// settle ("settled as placed"); the bench must run as clean (mobfarm::placing).
+        #[arg(long)]
+        placed_raw: bool,
+        /// Build the design in order instead ("built in order"): the world empty, each cell placed
+        /// with the game's updates in the build order (mobfarm::placing::build_steps_of: ironfarm's
+        /// order), containers filled as placed, each cell's priced gap between placements (20 gt;
+        /// 40 gt at a place:edge cell), or GAP gt for every cell; then the entities.
+        #[arg(long, num_args = 0..=1, default_missing_value = "0")]
+        placed_in_order: Option<i64>,
+        /// All three placements, each reported: the judge's, the raw paste, built in order (each
+        /// cell's priced gap, or --placed-in-order's GAP).
+        #[arg(long)]
+        placed_all: bool,
+        /// Built in order at every gap from 1 gt up to 40 (or --placed-in-order's GAP), to the first
+        /// gap that fails.
+        #[arg(long)]
+        build_gap_sweep: bool,
+        /// The release input (4,-2,0) held powered the whole run, no release pulses: each napped
+        /// cart leaves its slot as soon as it reaches it (day-1's case); ready = on the slot with
+        /// its villager.
+        #[arg(long)]
+        release_held: bool,
     },
     /// The station's storage alone: the Nether part's pit floor and collection (sorter, crafter,
     /// composter, the double chest) in a test world, a golem's drops on a random pit cell each 100
@@ -822,6 +881,78 @@ fn load(_version: &str, path: &PathBuf) -> Result<(circuit::Circuit, redsim::ent
     let c = circuit::Circuit::load(path)?;
     let spec = circuit::mobfarm::spec_of(&c).map_err(|e| anyhow::anyhow!(e))?;
     Ok((c, spec))
+}
+
+/// A built run's cells unlike the file, as a problem line (None: the build ended as written).
+fn built_problem(diff: &[String]) -> Option<String> {
+    (!diff.is_empty()).then(|| format!("built in order: {} cells unlike the file after the build, e.g. {}", diff.len(), diff.iter().take(4).cloned().collect::<Vec<_>>().join("; ")))
+}
+
+/// A siding bench run's first problem (None: clean, the bench's criteria): its error, a build that
+/// left cells unlike the file, a world error, no visit, a visit with a problem or not through every
+/// stage (dropped, napped, woken, back in its own cart, ready on the slot, released).
+fn siding_problem(r: &std::result::Result<crate::siding::BenchReport, String>) -> Option<String> {
+    let r = match r {
+        Err(e) => return Some(format!("ERROR {e}")),
+        Ok(r) => r,
+    };
+    if let Some(p) = built_problem(&r.built_diff) {
+        return Some(p);
+    }
+    if !r.errors.is_empty() {
+        return Some(format!("errors: {}", r.errors.join("; ")));
+    }
+    // (a visit the run's end cut short is not counted)
+    let counted: Vec<&crate::siding::VisitRec> = r.visits.iter().filter(|v| v.released.is_some() || v.problem.is_some()).collect();
+    if counted.is_empty() {
+        return Some("no visit".into());
+    }
+    for v in counted {
+        if let Some(p) = &v.problem {
+            return Some(format!("villager {} arrived {}: {p}", v.villager, v.arrived));
+        }
+        if !(v.dropped.is_some() && v.slept.is_some() && v.woken.is_some() && v.reboarded.is_some() && v.own_cart && v.ready.is_some() && v.released.is_some()) {
+            return Some(format!("villager {} arrived {}: dropped {:?} slept {:?} woken {:?} re-boarded {:?} (own cart {}) ready {:?} released {:?}", v.villager, v.arrived, v.dropped, v.slept, v.woken, v.reboarded, v.own_cart, v.ready, v.released));
+        }
+    }
+    None
+}
+
+/// A linear bench run's first problem (None: clean, the bench's criteria): its error, a build that
+/// left cells unlike the file, a world error, a violation (a golem not the stand batch's, one back
+/// in the overworld or still there 20 gt after its spawn), a golem touching no portal, a pulse
+/// without a golem, a golem not 2 gt in the overworld or not pulsed at +1 gt for 10 gt, more
+/// golems alive in the Nether at the end than the last 300 gt's slots make.
+fn linear_problem(r: &std::result::Result<crate::linear::BenchReport, String>) -> Option<String> {
+    let r = match r {
+        Err(e) => return Some(format!("ERROR {e}")),
+        Ok(r) => r,
+    };
+    if let Some(p) = built_problem(&r.built_diff) {
+        return Some(p);
+    }
+    if !r.errors.is_empty() {
+        return Some(format!("errors: {}", r.errors.join("; ")));
+    }
+    if r.violation_count > 0 {
+        return Some(format!("{} violation(s): {}", r.violation_count, r.violations.join("; ")));
+    }
+    if !r.stray.is_empty() {
+        return Some(format!("{} golem(s) touching no portal: {}", r.stray.len(), r.stray.iter().take(3).cloned().collect::<Vec<_>>().join("; ")));
+    }
+    if r.spurious_pulses > 0 || r.returned > 0 || r.slots == 0 {
+        return Some(format!("{} pulse(s) without a golem, {} golem(s) back in the overworld, {} slots", r.spurious_pulses, r.returned, r.slots));
+    }
+    if let Some(d) = r.dwell.iter().find(|d| **d != 2) {
+        return Some(format!("a golem {d} gt in the overworld (the pad's 2)"));
+    }
+    if let Some(p) = r.pulse.iter().find(|p| **p != (Some(1), 10)) {
+        return Some(format!("a pulse {p:?} (delay, length; the pad's +1 gt for 10 gt)"));
+    }
+    if r.nether_alive > 3 {
+        return Some(format!("{} golems alive in the Nether at the end", r.nether_alive));
+    }
+    None
 }
 
 /// `mobfarm slice`: the plane x = `x` of a design as text (rows y from the top, columns z).
@@ -1155,12 +1286,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let ok = r.crosstalk_count == 0 && r.stuck_count == 0 && r.two_lines == 0 && r.order_faults == 0 && r.delays.len() == ends;
             println!("{}", if ok { "PASS" } else { "FAIL" });
         }
-        MobfarmCmd::Linear { x0, x1, stand, along_z, out } => {
+        MobfarmCmd::Linear { x0, x1, stand, along_z, out, unsettled } => {
             let p: Vec<i32> = stand.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(p.len() == 3, "--stand x,y,z");
             let pad = crate::station::PadOpts { x0, x1, ..Default::default() };
             let o = crate::linear::LinearOpts { x0: p[0], y: p[1], z: p[2], along_x: !along_z, ..Default::default() };
             std::fs::write(&out, crate::linear::design(&pad, &o)?)?;
+            if !unsettled {
+                let changes = crate::placing::settle_file(&out)?;
+                println!("settled: {} cells written as the settle leaves them", changes.len());
+                for c in &changes {
+                    println!("  {c}");
+                }
+            }
             println!("{}", out.display());
         }
         MobfarmCmd::LinearCheck { design } => {
@@ -1190,28 +1328,73 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let ok = strays == 0 && touching == 0 && r.held_strays.is_empty();
             println!("{}", if ok { "PASS" } else { "FAIL" });
         }
-        MobfarmCmd::LinearBench { design, from, to, days, lead, jobs, drive_out } => {
+        MobfarmCmd::LinearBench { design, from, to, days, lead, jobs, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep } => {
             let (c, spec) = load(version, &design)?;
             let pad = crate::station::PadOpts::of(&c.clock.design.meta)?;
             let o = crate::linear::LinearOpts::of(&c.clock.design.meta)?;
+            let plan = crate::placing::BuildPlan::of(&c.clock.design.meta)?;
             let st = crate::linear::check(&spec, &pad, &o).map_err(|e| anyhow::anyhow!(e))?;
             let seeds: Vec<i64> = (from..=to).collect();
             let jobs = jobs.unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8)).max(1);
-            let next = std::sync::atomic::AtomicUsize::new(0);
-            let out: std::sync::Mutex<Vec<(i64, Result<crate::linear::BenchReport, String>)>> = std::sync::Mutex::new(Vec::new());
             let t0 = std::time::Instant::now();
-            std::thread::scope(|sc| {
-                for _ in 0..jobs.min(seeds.len()) {
-                    sc.spawn(|| loop {
-                        let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let Some(&seed) = seeds.get(k) else { break };
-                        let r = crate::linear::bench(&spec, &pad, &o, &crate::linear::BenchOpts { seed, days, lead, drive: drive_out.is_some() && seed == from });
-                        out.lock().unwrap().push((seed, r));
-                    });
+            let run_seeds = |placement: crate::placing::Placement, drive: bool| -> Vec<(i64, Result<crate::linear::BenchReport, String>)> {
+                let next = std::sync::atomic::AtomicUsize::new(0);
+                let out: std::sync::Mutex<Vec<(i64, Result<crate::linear::BenchReport, String>)>> = std::sync::Mutex::new(Vec::new());
+                std::thread::scope(|sc| {
+                    for _ in 0..jobs.min(seeds.len()) {
+                        sc.spawn(|| loop {
+                            let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let Some(&seed) = seeds.get(k) else { break };
+                            let r = crate::linear::bench(&spec, &pad, &o, &crate::linear::BenchOpts { seed, days, lead, drive: drive && seed == from, placement, plan: plan.clone() });
+                            out.lock().unwrap().push((seed, r));
+                        });
+                    }
+                });
+                let mut rows = out.into_inner().unwrap();
+                rows.sort_by_key(|r| r.0);
+                rows
+            };
+            let modes = crate::placing::Placement::modes(placed_raw, placed_in_order, placed_all, build_gap_sweep);
+            if modes.len() > 1 {
+                // one line per placement (and per seed with a problem); the sweep stops at the first
+                // gap that fails
+                let mut all_clean = true;
+                for m in &modes {
+                    let rows = run_seeds(*m, false);
+                    let bad: Vec<(i64, String)> = rows.iter().filter_map(|(s, r)| linear_problem(r).map(|p| (*s, p))).collect();
+                    let (slots, summoned) = rows.iter().filter_map(|r| r.1.as_ref().ok()).fold((0u64, 0u64), |a, r| (a.0 + r.slots as u64, a.1 + r.summoned as u64));
+                    let build = rows.iter().find_map(|r| r.1.as_ref().ok().and_then(|r| r.build)).map(|(stp, cl, t)| format!(" (build: {cl} cells in {stp} steps, {t} gt)")).unwrap_or_default();
+                    println!("{}: {} of {} seeds clean over {days} day(s) each; a golem in {summoned} of {slots} slots ({:.2}%){build}{}", m.label(), rows.len() - bad.len(), rows.len(), 100.0 * summoned as f64 / slots.max(1) as f64, if bad.is_empty() { String::new() } else { format!("; problems on seeds {:?}", bad.iter().map(|b| b.0).collect::<Vec<_>>()) });
+                    for (s, p) in bad.iter().take(4) {
+                        println!("  seed {s}: {p}");
+                    }
+                    all_clean &= bad.is_empty();
+                    if build_gap_sweep && !bad.is_empty() {
+                        if let crate::placing::Placement::Built { gap: Some(g) } = m {
+                            println!("built in order: the first gap that fails is {g} gt");
+                        }
+                        break;
+                    }
                 }
-            });
-            let mut rows = out.into_inner().unwrap();
-            rows.sort_by_key(|r| r.0);
+                if placed_all {
+                    println!("{}", if all_clean { "works every way placed" } else { "FAILS in at least one placement" });
+                }
+                if build_gap_sweep && all_clean {
+                    println!("built in order: every gap from 1 to {} gt passes", placed_in_order.filter(|g| *g > 0).unwrap_or(40));
+                }
+                println!("{:.1} s", t0.elapsed().as_secs_f64());
+                return Ok(());
+            }
+            let rows = run_seeds(modes[0], drive_out.is_some());
+            let bad: Vec<(i64, String)> = rows.iter().filter_map(|(s, r)| linear_problem(r).map(|p| (*s, p))).collect();
+            println!("{}: {} of {} seeds clean{}", modes[0].label(), rows.len() - bad.len(), rows.len(), rows.iter().find_map(|r| r.1.as_ref().ok().and_then(|r| r.build)).map(|(stp, cl, t)| format!(" (build: {cl} cells in {stp} steps, {t} gt)")).unwrap_or_default());
+            for (s, p) in bad.iter().take(6) {
+                println!("  seed {s}: {p}");
+            }
+            // (the first seed's build: every cell it left unlike the file)
+            for l in rows.first().and_then(|r| r.1.as_ref().ok()).map(|r| r.built_diff.clone()).unwrap_or_default().iter().take(100) {
+                println!("  built unlike the file: {l}");
+            }
             let (mut slots, mut summoned, mut viol, mut spurious, mut deaths, mut alive, mut back) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
             let (mut willing, mut panicking, mut tries, mut failed) = ([0u64; 4], [0u64; 4], [0u64; 4], [0u64; 4]);
             let mut dwell: std::collections::BTreeMap<i64, u64> = Default::default();
@@ -1268,8 +1451,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("golems touching no portal: {strays}; Nether: {deaths} dead, {alive} alive at the end, {back} back in the overworld");
             println!("violations: {viol}; {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::Siding { out, wired } => {
-            std::fs::write(&out, crate::siding::design_with(wired)?)?;
+        MobfarmCmd::Siding { out, wired, alone, exit_brake, unsettled } => {
+            std::fs::write(&out, crate::siding::design_opts(wired, alone, exit_brake)?)?;
+            if !unsettled {
+                let changes = crate::placing::settle_file(&out)?;
+                println!("settled: {} cells written as the settle leaves them", changes.len());
+                for c in &changes {
+                    println!("  {c}");
+                }
+            }
             println!("{}", out.display());
         }
         MobfarmCmd::SidingCheck { design } => {
@@ -1278,8 +1468,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{l}");
             }
         }
-        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out } => {
-            let (_c, spec) = load(version, &design)?;
+        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window, launch, drive_out, placed_raw, placed_in_order, placed_all, build_gap_sweep, release_held } => {
+            let (c, spec) = load(version, &design)?;
+            let plan = crate::placing::BuildPlan::of(&c.clock.design.meta)?;
             let two_i = |s: &str| -> Result<(i64, i64)> {
                 let v: Vec<i64> = s.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
                 anyhow::ensure!(v.len() == 2, "two numbers a,b");
@@ -1290,26 +1481,76 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (gap, release) = (two_i(&gap)?, two_i(&release)?);
             let seeds: Vec<i64> = (from..=to).collect();
             let jobs = jobs.unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8)).max(1);
-            let next = std::sync::atomic::AtomicUsize::new(0);
-            let out: std::sync::Mutex<Vec<(i64, Result<crate::siding::BenchReport, String>)>> = std::sync::Mutex::new(Vec::new());
             let t0 = std::time::Instant::now();
-            std::thread::scope(|sc| {
-                for _ in 0..jobs.min(seeds.len()) {
-                    sc.spawn(|| loop {
-                        let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let Some(&seed) = seeds.get(k) else { break };
-                        let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: two_i(&trace_window).unwrap_or((0, 4000)), launch, drive: drive_out.is_some() && seed == from });
-                        out.lock().unwrap().push((seed, r));
-                    });
+            let tw = two_i(&trace_window).unwrap_or((0, 4000));
+            let run_seeds = |placement: crate::placing::Placement, drive: bool| -> Vec<(i64, Result<crate::siding::BenchReport, String>)> {
+                let next = std::sync::atomic::AtomicUsize::new(0);
+                let out: std::sync::Mutex<Vec<(i64, Result<crate::siding::BenchReport, String>)>> = std::sync::Mutex::new(Vec::new());
+                std::thread::scope(|sc| {
+                    for _ in 0..jobs.min(seeds.len()) {
+                        sc.spawn(|| loop {
+                            let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let Some(&seed) = seeds.get(k) else { break };
+                            let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: tw, launch, drive: drive && seed == from, placement, plan: plan.clone(), release_held });
+                            out.lock().unwrap().push((seed, r));
+                        });
+                    }
+                });
+                let mut rows = out.into_inner().unwrap();
+                rows.sort_by_key(|r| r.0);
+                rows
+            };
+            let modes = crate::placing::Placement::modes(placed_raw, placed_in_order, placed_all, build_gap_sweep);
+            if modes.len() > 1 {
+                // one line per placement (and per seed with a problem); the sweep stops at the first
+                // gap that fails
+                let mut all_clean = true;
+                for m in &modes {
+                    let rows = run_seeds(*m, false);
+                    let bad: Vec<(i64, String)> = rows.iter().filter_map(|(s, r)| siding_problem(r).map(|p| (*s, p))).collect();
+                    let n_visits: usize = rows.iter().filter_map(|r| r.1.as_ref().ok()).map(|r| r.visits.iter().filter(|v| v.released.is_some() || v.problem.is_some()).count()).sum();
+                    let build = rows.iter().find_map(|r| r.1.as_ref().ok().and_then(|r| r.build)).map(|(st, c, t)| format!(" (build: {c} cells in {st} steps, {t} gt)")).unwrap_or_default();
+                    println!("{}: {} of {} seeds clean over {nights} night(s) each, {n_visits} visits{build}{}", m.label(), rows.len() - bad.len(), rows.len(), if bad.is_empty() { String::new() } else { format!("; problems on seeds {:?}", bad.iter().map(|b| b.0).collect::<Vec<_>>()) });
+                    for (s, p) in bad.iter().take(4) {
+                        println!("  seed {s}: {p}");
+                    }
+                    all_clean &= bad.is_empty();
+                    if build_gap_sweep && !bad.is_empty() {
+                        if let crate::placing::Placement::Built { gap: Some(g) } = m {
+                            println!("built in order: the first gap that fails is {g} gt");
+                        }
+                        break;
+                    }
                 }
-            });
-            let mut rows = out.into_inner().unwrap();
-            rows.sort_by_key(|r| r.0);
+                if placed_all {
+                    println!("{}", if all_clean { "works every way placed" } else { "FAILS in at least one placement" });
+                }
+                if build_gap_sweep && all_clean {
+                    println!("built in order: every gap from 1 to {} gt passes", placed_in_order.filter(|g| *g > 0).unwrap_or(40));
+                }
+                println!("{:.1} s", t0.elapsed().as_secs_f64());
+                return Ok(());
+            }
+            let rows = run_seeds(modes[0], drive_out.is_some());
+            let bad: Vec<(i64, String)> = rows.iter().filter_map(|(s, r)| siding_problem(r).map(|p| (*s, p))).collect();
+            println!("{}: {} of {} seeds clean{}", modes[0].label(), rows.len() - bad.len(), rows.len(), rows.iter().find_map(|r| r.1.as_ref().ok().and_then(|r| r.build)).map(|(st, c, t)| format!(" (build: {c} cells in {st} steps, {t} gt)")).unwrap_or_default());
+            for (s, p) in bad.iter().take(6) {
+                println!("  seed {s}: {p}");
+            }
+            // (the first seed's build: every cell it left unlike the file)
+            for l in rows.first().and_then(|r| r.1.as_ref().ok()).map(|r| r.built_diff.clone()).unwrap_or_default().iter().take(100) {
+                println!("  built unlike the file: {l}");
+            }
             let (mut visits, mut dropped, mut slept, mut woken, mut reboarded, mut own, mut ready, mut released) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
             let (mut wait_ticks, mut wait_panic) = (0u64, 0u64);
             let mut ready_t: Vec<i64> = Vec::new();
             let mut stages: Vec<(i64, i64, i64, i64)> = Vec::new();
+            // (each napped visit's segments: arrival to drop, drop to sleep, the nap, wake to
+            // re-board, re-board to ready on the slot, and the whole ready time)
+            let mut segs: Vec<[i64; 6]> = Vec::new();
+            let mut seg_who: Vec<(i64, u32, i64)> = Vec::new();
             let mut speeds: Vec<f64> = Vec::new();
+            let mut leaves: Vec<f64> = Vec::new();
             let mut problems: std::collections::BTreeMap<String, u64> = Default::default();
             let mut examples: Vec<String> = Vec::new();
             for (seed, r) in &rows {
@@ -1336,9 +1577,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                             }
                             if let (Some(d), Some(s), Some(w), Some(b)) = (v.dropped, v.slept, v.woken, v.reboarded) {
                                 stages.push((d - v.arrived, s - v.arrived, w - v.arrived, b - v.arrived));
+                                if let Some(r) = v.ready {
+                                    segs.push([d - v.arrived, s - d, w - s, b - w, r - b, r - v.arrived]);
+                                    seg_who.push((*seed, v.villager, v.arrived));
+                                }
                             }
                             if let Some(e) = v.exit_speed {
                                 speeds.push(e);
+                            }
+                            if let Some(e) = v.leave_speed {
+                                leaves.push(e);
                             }
                             if let Some(p) = &v.problem {
                                 let key: String = p.split(" (").next().unwrap_or(p).to_string();
@@ -1359,6 +1607,28 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let pct = |v: &[i64], q: f64| v.get(((v.len() as f64 - 1.0) * q).round() as usize).copied();
             println!("{} seeds x {nights} nights: {visits} visits; dropped {dropped}, slept {slept}, woken {woken}, re-boarded {reboarded} (own cart {own}), ready on the slot {ready}, released {released}", rows.len());
             println!("ready after the arrival (gt): min {:?} median {:?} p99 {:?} max {:?}; over 500: {}", ready_t.first(), pct(&ready_t, 0.5), pct(&ready_t, 0.99), ready_t.last(), ready_t.iter().filter(|&&r| r > 500).count());
+            if !segs.is_empty() {
+                // (what the ready time is made of: each segment's p50/p90/p99/max, and the mean
+                // segments of the slowest 1% of visits against all)
+                let names = ["arrival to drop", "drop to asleep", "nap", "woken to re-boarded", "re-boarded to ready", "ready (all)"];
+                let mut cols: Vec<String> = Vec::new();
+                for (i, n) in names.iter().enumerate() {
+                    let mut v: Vec<i64> = segs.iter().map(|s| s[i]).collect();
+                    v.sort();
+                    cols.push(format!("{n} {:?}/{:?}/{:?}/{:?}", pct(&v, 0.5).unwrap_or(0), pct(&v, 0.9).unwrap_or(0), pct(&v, 0.99).unwrap_or(0), v.last().copied().unwrap_or(0)));
+                }
+                println!("segments, p50/p90/p99/max gt ({} napped visits): {}", segs.len(), cols.join("; "));
+                let mut by_ready = segs.clone();
+                by_ready.sort_by_key(|s| s[5]);
+                let tail = &by_ready[by_ready.len() - (by_ready.len() / 100).max(1)..];
+                let mean = |v: &[[i64; 6]], i: usize| v.iter().map(|s| s[i] as f64).sum::<f64>() / v.len().max(1) as f64;
+                println!("the slowest {} visits (ready {}..{} gt), mean segments vs all: {}", tail.len(), tail[0][5], tail[tail.len() - 1][5], (0..5).map(|i| format!("{} {:.1} vs {:.1}", names[i], mean(tail, i), mean(&segs, i))).collect::<Vec<_>>().join("; "));
+                let mut order: Vec<usize> = (0..segs.len()).collect();
+                order.sort_by_key(|&i| std::cmp::Reverse(segs[i][5]));
+                for &i in order.iter().take(3) {
+                    println!("  slow: seed {} villager {} arrived at time {}: segments {:?}", seg_who[i].0, seg_who[i].1, seg_who[i].2, segs[i]);
+                }
+            }
             if !stages.is_empty() {
                 let n = stages.len() as f64;
                 let mean = |f: &dyn Fn(&(i64, i64, i64, i64)) -> i64| stages.iter().map(|s| f(s) as f64).sum::<f64>() / n;
@@ -1401,6 +1671,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             }
             if !speeds.is_empty() {
                 println!("exit speed at the exit cell (b/t, stored): min {:.3} median {:.3} max {:.3}", speeds[0], speeds[speeds.len() / 2], speeds[speeds.len() - 1]);
+            }
+            if !leaves.is_empty() {
+                leaves.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let over = leaves.iter().filter(|&&v| v > 0.36).count();
+                println!("speed leaving the exit cell (b/t, stored): min {:.3} median {:.3} max {:.3}; over 0.36: {over} of {}", leaves[0], leaves[leaves.len() / 2], leaves[leaves.len() - 1], leaves.len());
             }
             println!("problems: {problems:?}");
             for e in &examples {

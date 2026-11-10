@@ -27,7 +27,7 @@ use anyhow::{bail, ensure, Result};
 use mctas::design::Design;
 use redsim::block::Block;
 use redsim::entity::mob::ai::brain::{self, Act};
-use redsim::entity::mob::farm::{FarmSpec, Run, RunOpts, WalkMode};
+use redsim::entity::mob::farm::{FarmSpec, RunOpts, WalkMode};
 use redsim::entity::{EntityKind, Vec3};
 use redsim::pos::BlockPos;
 use redsim::world::World;
@@ -108,21 +108,23 @@ fn at(p: BlockPos) -> [i32; 3] {
     [p.x, p.y, p.z]
 }
 
-/// The siding's blocks.
-pub fn build(b: &mut Builder, s: &Siding) -> Result<()> {
+/// The siding's blocks; `bench`: with the bench's launcher, approach and run-out (`--alone` leaves
+/// them out: the siding's own blocks only, for pasting into another bench).
+pub fn build(b: &mut Builder, s: &Siding, bench: bool) -> Result<()> {
     let rail = |sh: &str| format!("rail[shape={sh},waterlogged=false]");
-    // the approach (the bench's) and the entry
     // the approach (the bench's) and the entry, west of it the bench's launcher: a glass stop and
     // three always-on boosters
     // (the stop a conductor, which a stationary cart on a powered rail is kicked away from; glass
     // over it, no golem floor)
-    put(b, [-10, 0, 0], "stone")?;
-    put(b, [-10, 1, 0], "glass")?;
-    for x in -9..=-7 {
-        put(b, [x, 0, 0], "powered_rail[powered=true,shape=east_west,waterlogged=false]")?;
-        put(b, [x, -1, 0], "redstone_block")?;
+    if bench {
+        put(b, [-10, 0, 0], "stone")?;
+        put(b, [-10, 1, 0], "glass")?;
+        for x in -9..=-7 {
+            put(b, [x, 0, 0], "powered_rail[powered=true,shape=east_west,waterlogged=false]")?;
+            put(b, [x, -1, 0], "redstone_block")?;
+        }
     }
-    for x in -6..=0 {
+    for x in if bench { -6 } else { 0 }..=0 {
         put(b, [x, 0, 0], &rail("east_west"))?;
         put(b, [x, -1, 0], "glass")?;
     }
@@ -161,11 +163,14 @@ pub fn build(b: &mut Builder, s: &Siding) -> Result<()> {
     put(b, at(s.release), "glass")?;
     put(b, at(s.slot_rails[1]), &rail("east_west"))?;
     put(b, [s.slot_rails[1].x, -2, 0], "glass")?;
-    for x in s.exit.x..=11 {
+    // (the exit cell the siding's; the run-out past it and its end stop the bench's)
+    for x in s.exit.x..=if bench { 11 } else { s.exit.x } {
         put(b, [x, -1, 0], &rail("east_west"))?;
         put(b, [x, -2, 0], "glass")?;
     }
-    put(b, [12, -1, 0], "glass")?;
+    if bench {
+        put(b, [12, -1, 0], "glass")?;
+    }
     // the bed west of the free cell (head) and the activator (foot), facing north, on glass
     put(b, at(s.bed_foot), "red_bed[facing=north,occupied=false,part=foot]")?;
     put(b, at(s.bed_head), "red_bed[facing=north,occupied=false,part=head]")?;
@@ -337,6 +342,16 @@ pub fn wire(b: &mut Builder, s: &Siding) -> Result<()> {
     for c in [[-5, -2, 2], [-7, -2, -1], [2, -1, 6], [4, 1, -2]] {
         put(b, c, "glass")?;
     }
+    // the build's listed last steps (brief farm-iron-carousel, "built in order"): the two torches
+    // unlit at rest, after everything else. W2, the latch's H torch: the latch is bistable, and
+    // built in the default order its first source is W2 (placed unlit, its block not yet powered):
+    // the first neighbour update lights it, setting H with no visit (the first arrival then goes to
+    // the exit unnapped); placed last, N2 is already powered through D1 by W1, so it stays unlit, the
+    // latch at rest as written. K, the kick torch: placed early (a source) it is lit by the first
+    // update, and BK's power arrives later through dust written at its settled power, which tells K
+    // nothing (no power change), so K stays lit and the park rail powered; placed last, BK is
+    // powered already.
+    b.d.meta.insert("build".into(), crate::placing::BuildPlan { last: vec![BlockPos::new(-6, -3, -1), BlockPos::new(1, -2, 6)], fills_last: false }.meta());
     Ok(())
 }
 
@@ -346,13 +361,35 @@ pub fn design() -> Result<String> {
 
 /// The bench design, its controls bench-driven or `wired` ([`wire`]).
 pub fn design_with(wired: bool) -> Result<String> {
+    design_opts(wired, false, false)
+}
+
+/// The bench design ([`design_with`]), or with `alone` the siding by itself (farmopt 2026-11-10 for
+/// ironfarm's loop bench, `queue-loop-run --siding`): no launcher, approach, run-out, hold, hold
+/// zombies or carts, only the siding's own blocks and its dorm zombie. `exit_brake` (day-1's
+/// side-drop merge wants at most 0.36 b/t): a braked powered rail just past the exit cell, at x
+/// exit+1 on glass (not the exit cell itself: the slot tripwire's line runs down x 6, and the stone
+/// under its dust beside the exit cell would power a powered rail there whenever the slot's
+/// tripwire fires).
+pub fn design_opts(wired: bool, alone: bool, exit_brake: bool) -> Result<String> {
     let s = layout();
-    let mut b = Builder::new(if wired { "carousel-bed-siding-wired" } else { "carousel-bed-siding" });
-    build(&mut b, &s)?;
+    let name = format!("carousel-bed-siding{}{}{}", if wired { "-wired" } else { "" }, if exit_brake { "-brake" } else { "" }, if alone { "-alone" } else { "" });
+    let mut b = Builder::new(&name);
+    build(&mut b, &s, !alone)?;
+    if exit_brake {
+        let brake = "powered_rail[powered=false,shape=east_west,waterlogged=false]";
+        let c = [s.exit.x + 1, s.exit.y, s.exit.z];
+        if alone {
+            put(&mut b, c, brake)?;
+            put(&mut b, [c[0], c[1] - 1, c[2]], "glass")?;
+        } else {
+            swap(&mut b, c, brake)?;
+        }
+    }
     if wired {
         wire(&mut b, &s)?;
     }
-    for i in 0..21 {
+    for i in (0..21).filter(|_| !alone) {
         let c = hold_cell(i);
         put(&mut b, at(c), "powered_rail[powered=false,shape=east_west,waterlogged=false]")?;
         put(&mut b, [c.x, c.y - 1, c.z], "glass")?;
@@ -364,16 +401,22 @@ pub fn design_with(wired: bool) -> Result<String> {
     // behaviour, so they neither give up the bed nor take its one ticket)
     // the hold zombies: in boats on glass 3 north of the hold row, every 8 along it (each rider
     // sees one within 8: every held rider panics at night, as on the loop), roofed
-    for zx in [-18, -10, -2, 6, 14, 22] {
+    for zx in [-18, -10, -2, 6, 14, 22].into_iter().filter(|_| !alone) {
         put(&mut b, [zx, -1, -23], "glass")?;
         put(&mut b, [zx, 3, -23], "oak_leaves[distance=1,persistent=true,waterlogged=false]")?;
         b.entity("oak_boat", [zx as f64 + 0.5, 0.0, -22.5], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
     // (the interface cells: a mob farm takes no input port)
-    b.d.meta.insert("siding".into(), format!("v1{} entry={},{},{} exit={},{},{} release={},{},{}", if wired { " wired" } else { "" }, s.entry.x, s.entry.y, s.entry.z, s.exit.x, s.exit.y, s.exit.z, s.release.x, s.release.y, s.release.z));
+    b.d.meta.insert("siding".into(), format!("v1{}{} entry={},{},{} exit={},{},{} release={},{},{}", if wired { " wired" } else { "" }, if alone { " alone" } else { "" }, s.entry.x, s.entry.y, s.entry.z, s.exit.x, s.exit.y, s.exit.z, s.release.x, s.release.y, s.release.z));
     b.d.ports.insert("output".into(), [12, 0, 6]);
     b.d.ports.insert("home".into(), at(s.bed_head));
+    if alone {
+        return Ok(b.text(&[
+            "The carousel's bed siding by itself (no bench: no launcher, approach, run-out, hold or carts; for pasting into a loop bench): a napper's cart enters at the origin moving +x,",
+            "a T sends it down the bed line, the napper naps in the one bed and is woken by the dorm zombie through the hatch, re-boards its cart, which waits on the exit slot until the release pulse at (4,-2,0); out at (6,-1,0) moving +x.",
+        ]));
+    }
     Ok(b.text(&[
         "The carousel's bed siding (bench): a napper's cart enters at the origin moving +x, a T sends it down the bed line (the free cell, the activator, the park rail),",
         "the napper naps in the one bed and is woken by the dorm zombie through the hatch, re-boards its cart, which waits on the exit slot until the release pulse.",
@@ -440,8 +483,16 @@ pub struct BenchOpts {
     /// Arrivals launched from rest on the bench's launcher (the drive's `tp` moves carts at rest),
     /// not teleported moving at a drawn speed.
     pub launch: bool,
+    /// The release input held powered the whole run (day-1's case: a napped cart leaves its slot
+    /// as soon as it reaches it): no release pulses; a visit counts as ready and released when its
+    /// cart reaches the slot with its villager.
+    pub release_held: bool,
     /// Record the run as a drive (acts, cart positions every 25 gt of a visit, the totals).
     pub drive: bool,
+    /// How the design is put in the world (the brief's placement checks: mobfarm::placing).
+    pub placement: crate::placing::Placement,
+    /// The design's listed build steps (its `build:` line), for a build in order.
+    pub plan: crate::placing::BuildPlan,
 }
 
 /// One visit's record.
@@ -457,6 +508,9 @@ pub struct VisitRec {
     pub ready: Option<i64>,
     pub released: Option<i64>,
     pub exit_speed: Option<f64>,
+    /// Its speed leaving the exit cell (x past the exit cell's east edge; with `--exit-brake` the
+    /// speed past the brake).
+    pub leave_speed: Option<f64>,
     pub own_cart: bool,
     /// Ticks waiting on the slot at night, and of those panicking.
     pub wait_ticks: u32,
@@ -480,6 +534,10 @@ pub struct BenchReport {
     pub errors: Vec<String>,
     /// The run as a drive (`bo.drive`): the viewer replays it.
     pub drive: Option<String>,
+    /// Built in order: the cells the build left unlike the file (none: the build ends as written),
+    /// and the build's steps, cells and ticks.
+    pub built_diff: Vec<String>,
+    pub build: Option<(usize, usize, i64)>,
 }
 
 fn block(s: &str) -> Block {
@@ -514,8 +572,9 @@ fn short_state(s: &str) -> String {
 pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     let s = layout();
     let ro = RunOpts { ai: true, ..RunOpts::steady(bo.seed, bo.nights * 24000 + 24000, WalkMode::Random) };
-    let mut run = Run::start(spec, &ro)?;
-    while run.settle_tick() {}
+    // (the judge's placement and the settle; the raw paste; or built in order)
+    let (mut run, built) = crate::placing::start(spec, &ro, bo.placement, &bo.plan)?;
+    let built_diff = if built.is_some() { crate::placing::diff_from_file(&run.world, spec, &ro)? } else { Vec::new() };
     let first = run.world.entities.next_id;
     let mut spawned = Vec::new();
     for (ty, pos, nbt) in &spec.entities {
@@ -526,8 +585,13 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     if bo.trace {
         eprintln!("t0 {t0} (traces' gt are after it; the visits' arrival times are absolute)");
     }
+    // (the drive's times count from the spawn, or from the build's start when built in order)
+    let origin = built.as_ref().map_or(t0, |b| b.start);
     let mut drive = crate::drive::Drive::new(bo.drive);
-    drive.name_entities(&run.world, &spawned, t0);
+    drive.name_entities(&run.world, &spawned, origin);
+    for l in built.iter().flat_map(|b| b.lines.iter()) {
+        drive.push(l.clone());
+    }
     let drive = drive;
     let bed = s.bed_head;
     redsim::entity::mob::ai::poi::take(&mut run.world, bed);
@@ -552,7 +616,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             br.home = Some(bed);
             br.last_slept = Some(t0 - 100);
             drive.act(t0, format!("home {} {} {} {}", drive.name(*v), bed.x, bed.y, bed.z));
-            drive.act(t0, format!("last-slept {} -100", drive.name(*v)));
+            drive.act(t0, format!("last-slept {} {}", drive.name(*v), t0 - 100 - origin));
         }
     }
     let mut rng = redsim::rng::LegacyRandom::new(bo.seed ^ 0x7369_6469);
@@ -570,6 +634,10 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     };
     let mut rep = BenchReport::default();
     let end = t0 + (bo.nights as i64 + 1) * 24000;
+    if bo.release_held {
+        set(&mut run.world, s.release, "redstone_block");
+        drive.act(t0, format!("set {} {} {} minecraft:redstone_block", s.release.x, s.release.y, s.release.z));
+    }
     // the schedule: each night's visit ticks
     let mut next_visit: Option<i64> = None;
     let mut last_nap: Vec<i64> = vec![i64::MIN; pairs.len()];
@@ -653,6 +721,9 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         reset_pending = false;
         // releases due
         for &k in &waiting.clone() {
+            if bo.release_held {
+                break;
+            }
             let (arrived, villager, released, ready) = (rep.visits[k].arrived, rep.visits[k].villager, rep.visits[k].released, rep.visits[k].ready);
             let due = arrived + bo.release.0 + ((villager as i64 * 7919) % (bo.release.1 - bo.release.0 + 1));
             if now >= due && released.is_none() {
@@ -802,6 +873,7 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             eprintln!("gt {} (day {day}): riders {acts:?}, {homes} with HOME", t - t0);
         }
         // the waiting visits: ready (at rest on the slot with its villager), panic at night
+        let mut held_out: Vec<usize> = Vec::new();
         for &k in &waiting {
             let (villager, cart) = (rep.visits[k].villager, rep.visits[k].cart);
             let Some(ci) = w.entities.list.iter().position(|x| x.id == cart && !x.removed) else { continue };
@@ -809,6 +881,20 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             let on_slot = c.pos.x >= s.slot_rails[0].x as f64 && c.pos.x < s.exit.x as f64 && c.pos.z < 1.0;
             let rest = c.delta_movement.x.abs() < 1e-3 && c.delta_movement.z.abs() < 1e-3;
             let with = c.passengers.contains(&villager);
+            // (the release held: the cart runs over the slot without stopping, ready and released
+            // as it reaches the slot with its villager)
+            if bo.release_held {
+                if c.pos.x >= s.slot_rails[0].x as f64 && c.pos.z < 1.0 {
+                    if with {
+                        rep.visits[k].ready = Some(t);
+                        rep.visits[k].released = Some(t);
+                    } else {
+                        rep.visits[k].problem.get_or_insert("reached the slot without its villager".into());
+                    }
+                    held_out.push(k);
+                }
+                continue;
+            }
             if rep.visits[k].ready.is_none() && on_slot && rest && with {
                 rep.visits[k].ready = Some(t);
                 rep.visits[k].rest_x = Some(c.pos.x);
@@ -847,6 +933,10 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                 }
             }
         }
+        for k in held_out {
+            waiting.retain(|&x| x != k);
+            out.push((k, t));
+        }
         // the released carts: the exit speed, then back to the hold
         let mut done: Vec<usize> = Vec::new();
         for &(k, rt) in &out {
@@ -854,6 +944,9 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             let Some(c) = w.entities.list.iter().find(|x| x.id == cart && !x.removed) else { continue };
             if rep.visits[k].exit_speed.is_none() && c.pos.x >= s.exit.x as f64 + 0.5 {
                 rep.visits[k].exit_speed = Some(c.delta_movement.x);
+            }
+            if rep.visits[k].leave_speed.is_none() && c.pos.x >= s.exit.x as f64 + 1.0 {
+                rep.visits[k].leave_speed = Some(c.delta_movement.x);
             }
             if c.pos.x >= s.exit.x as f64 + 2.5 || t - rt > 400 {
                 if c.pos.x < s.exit.x as f64 + 2.5 {
@@ -874,20 +967,35 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         }
     }
     rep.errors = run.world.errors.iter().take(6).cloned().collect();
+    rep.built_diff = built_diff;
+    rep.build = built.as_ref().map(|b| (b.steps, b.cells, t0 - b.start));
     if bo.drive {
         drive.expect_end("golems 0".into());
-        rep.drive = Some(drive.text(&[
-            format!("drive v1: mctas mobfarm siding-bench <design> --wired --launch --from {s} --to {s} --nights {} --drive-out F (arrivals launched from rest on the bench's launcher; the release placed as a block: the loop's input)", bo.nights, s = bo.seed),
+        let flag = match bo.placement {
+            crate::placing::Placement::Judge => String::new(),
+            crate::placing::Placement::Raw => " --placed-raw".into(),
+            crate::placing::Placement::Built { gap: None } => " --placed-in-order".into(),
+            crate::placing::Placement::Built { gap: Some(g) } => format!(" --placed-in-order {g}"),
+        };
+        let start = match bo.placement {
+            crate::placing::Placement::Judge => "start Run::start(spec, RunOpts { ai: true, ..RunOpts::steady(seed, days * 24000, WalkMode::Random) }); settle_tick until false; the design's entity lines spawned in order (eN: line N from 0, eN.pK: its passenger K from 0); t0 = the world's time then",
+            crate::placing::Placement::Raw => "start Run::start(spec, RunOpts { ai: true, raw: true, ..RunOpts::steady(seed, days * 24000, WalkMode::Random) }) (the file pasted as written, no settle); the design's entity lines spawned in order (eN: line N from 0, eN.pK: its passenger K from 0); t0 = the world's time then",
+            crate::placing::Placement::Built { .. } => "start Run::start(spec with no blocks, RunOpts { ai: true, ..RunOpts::steady(seed, days * 24000, WalkMode::Random) }), the build (the `build:` line), then the design's entity lines spawned in order (eN: line N from 0, eN.pK: its passenger K from 0); t0 = the world's time then",
+        };
+        let mut header = vec![
+            format!("drive v1: mctas mobfarm siding-bench <design> --wired --launch --from {s} --to {s} --nights {}{flag} --drive-out F (arrivals launched from rest on the bench's launcher; the release placed as a block: the loop's input)", bo.nights, s = bo.seed),
             // (mobviewer's badge line, 2026-11-10: the view shows it first while the run plays)
             "caption carts launched in and released by the test bench; the siding's own redstone does the rest".into(),
             format!("seed {}", bo.seed),
             format!("days {}", bo.nights + 1),
             "walk random".into(),
             "ai on".into(),
-            "start Run::start(spec, RunOpts { ai: true, ..RunOpts::steady(seed, days * 24000, WalkMode::Random) }); settle_tick until false; the design's entity lines spawned in order (eN: line N from 0, eN.pK: its passenger K from 0); t0 = the world's time then".into(),
-            "act t: applied when the world's time is t0 + t, before the run's next tick (the bench's own order)".into(),
+            start.into(),
+            if built.is_some() { "act t: applied when the world's time is the build's start + t, before the run's next tick (the bench's own order)".into() } else { "act t: applied when the world's time is t0 + t, before the run's next tick (the bench's own order)".into() },
             format!("t0 {}", t0),
-        ]));
+        ];
+        header.extend(crate::placing::header(bo.placement, built.as_ref(), t0, &bo.plan));
+        rep.drive = Some(drive.text(&header));
     }
     Ok(rep)
 }
