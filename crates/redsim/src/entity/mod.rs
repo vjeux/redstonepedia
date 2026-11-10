@@ -365,9 +365,11 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
         }
     }
     let kind = match id {
-        "oak_boat" | "spruce_boat" | "birch_boat" | "jungle_boat" | "acacia_boat" | "dark_oak_boat" | "mangrove_boat" | "cherry_boat" | "pale_oak_boat" | "bamboo_raft" => EntityKind::Boat(boat::BoatState::default()),
+        "oak_boat" | "spruce_boat" | "birch_boat" | "jungle_boat" | "acacia_boat" | "dark_oak_boat" | "mangrove_boat" | "cherry_boat" | "pale_oak_boat" | "bamboo_raft" => {
+            EntityKind::Boat(boat::BoatState { item: boat::type_item(id).unwrap_or("minecraft:oak_boat"), ..Default::default() })
+        }
         "oak_chest_boat" | "spruce_chest_boat" | "birch_chest_boat" | "jungle_chest_boat" | "acacia_chest_boat" | "dark_oak_chest_boat" | "mangrove_chest_boat" | "cherry_chest_boat" | "pale_oak_chest_boat" | "bamboo_chest_raft" => {
-            EntityKind::Boat(boat::BoatState { chest: true, ..Default::default() })
+            EntityKind::Boat(boat::BoatState { chest: true, item: boat::type_item(id).unwrap_or("minecraft:oak_chest_boat"), ..Default::default() })
         }
         "minecart" => EntityKind::Minecart(minecart::MinecartState::default()),
         "hopper_minecart" => EntityKind::Minecart(minecart::MinecartState { hopper: true, enabled: true, ..Default::default() }),

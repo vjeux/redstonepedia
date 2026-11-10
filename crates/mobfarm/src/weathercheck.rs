@@ -312,19 +312,31 @@ fn scenarios() -> Vec<Scenario> {
         Scenario { name: "villager, the bolt 3 blocks east", blocks: vec![], entities: villager.clone(), bolt: [3, 0, 0] },
         Scenario { name: "villager, the bolt 4 blocks east", blocks: vec![], entities: villager, bolt: [4, 0, 0] },
         Scenario { name: "zombie in a boat, the bolt on it", blocks: vec![], entities: vec![("minecraft:oak_boat", [0.5, 0.0, 0.5], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"))], bolt: [0, 0, 0] },
+        // (tickexact 2026-11-09, carousel-gate's station) the rider of a destroyed boat under a
+        // roof: LivingEntity.dismountVehicle's free-position search moves it below the roof
+        Scenario {
+            name: "zombie in a boat, a stone roof 2 above, the bolt on the roof",
+            blocks: roof(2),
+            entities: vec![("minecraft:oak_boat", [0.5, 0.0, 0.5], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"))],
+            bolt: [0, 3, 0],
+        },
         Scenario { name: "an iron ingot 2 east of the bolt", blocks: vec![], entities: vec![("minecraft:item", [2.5, 0.0, 0.5], Some("{Item:{id:\"minecraft:iron_ingot\",count:1}}"))], bolt: [0, 0, 0] },
         Scenario { name: "iron golem, the bolt on it", blocks: vec![], entities: vec![("minecraft:iron_golem", [0.5, 0.0, 0.5], None)], bolt: [0, 0, 0] },
     ]
 }
 
 /// What a scenario looks like 5 ticks after its bolt.
-fn outcome(villagers: usize, witches: usize, boats: usize, zombie_hp: Option<f32>, items: usize, golem_hp: Option<f32>, golem_burning: bool, fire: bool) -> String {
+#[allow(clippy::too_many_arguments)]
+fn outcome(villagers: usize, witches: usize, boats: usize, zombie_hp: Option<f32>, zombie_at: Option<[f64; 3]>, items: usize, golem_hp: Option<f32>, golem_burning: bool, fire: bool) -> String {
     let mut v = Vec::new();
     if villagers + witches > 0 {
         v.push(format!("{villagers} villager, {witches} witch"));
     }
     if let Some(h) = zombie_hp {
-        v.push(format!("{boats} boat, zombie health {h:.0}"));
+        // (the rider of a destroyed vehicle: where its dismount put it, from the scenario's
+        // origin, and the vehicle's dropped item, burned or not)
+        let at = zombie_at.map(|p| format!(" at {:.4},{:.4},{:.4}", p[0], p[1], p[2])).unwrap_or_default();
+        v.push(format!("{boats} boat, zombie health {h:.0}{at}, {items} item"));
     }
     if let Some(h) = golem_hp {
         v.push(format!("golem health {h:.0}{}", if golem_burning { " burning" } else { "" }));
@@ -382,7 +394,19 @@ pub fn bolt_check_cmd(version: &str) -> Result<()> {
         let o = origin(k);
         s.cmd_ok(&format!("summon minecraft:lightning_bolt {} {} {}", (o[0] + x.bolt[0]) as f64 + 0.5, x.bolt[1], x.bolt[2] as f64 + 0.5))?;
     }
-    s.step(5)?;
+    // the bolts hit at their first tick (a vehicle destroyed, its rider dismounted): the riders'
+    // positions then, before their own AI moves them (they tick before the bolt, summoned last)
+    s.step(1)?;
+    let mut riders_at = Vec::new();
+    for k in 0..sc.len() {
+        let o = origin(k);
+        let zpos = s.cmd_long(&format!("execute as @e[type=minecraft:zombie,x={},y=-3,z=-6,dx=12,dy=14,dz=12] run data get entity @s Pos", o[0] - 6))?;
+        riders_at.push(zpos.split("has the following entity data: ").nth(1).and_then(|v| {
+            let v: Vec<f64> = v.trim().trim_start_matches('[').trim_end_matches(']').split(',').filter_map(|c| c.trim().trim_end_matches('d').parse().ok()).collect();
+            (v.len() == 3).then(|| [v[0] - o[0] as f64, v[1], v[2]])
+        }));
+    }
+    s.step(4)?;
     let mut game = Vec::new();
     for (k, x) in sc.iter().enumerate() {
         let o = origin(k);
@@ -396,12 +420,13 @@ pub fn bolt_check_cmd(version: &str) -> Result<()> {
             Ok(out.split("has the following entity data: ").nth(1).and_then(|v| v.trim().trim_end_matches('f').parse::<f32>().ok()))
         };
         let zombie_hp = hp(&mut s, "zombie")?;
+        let zombie_at = riders_at[k];
         let golem_hp = hp(&mut s, "iron_golem")?;
         let fire_ticks = s.cmd_long(&format!("execute as {} run data get entity @s Fire", sel("iron_golem")))?;
         let golem_burning = fire_ticks.split("has the following entity data: ").nth(1).and_then(|v| v.trim().trim_end_matches('s').parse::<i32>().ok()).is_some_and(|f| f > 0);
         let b = [o[0] + x.bolt[0], x.bolt[1], x.bolt[2]];
         let fire = s.cmd(&format!("execute if block {} {} {} minecraft:fire", b[0], b[1], b[2]))?.contains("passed");
-        game.push(outcome(villagers, witches, boats, zombie_hp, items, golem_hp, golem_burning, fire));
+        game.push(outcome(villagers, witches, boats, zombie_hp, zombie_at, items, golem_hp, golem_burning, fire));
     }
     drop(s);
     // redsim: the same world, the same night
@@ -433,11 +458,24 @@ pub fn bolt_check_cmd(version: &str) -> Result<()> {
         let o = origin(k);
         redsim::weather::lightning::summon_bolt(&mut w, BlockPos::new(o[0] + x.bolt[0], x.bolt[1], x.bolt[2]));
     }
-    for _ in 0..5 {
-        w.tick();
-    }
     use redsim::entity::EntityKind;
     use redsim::entity::mob::types::MobType;
+    // the riders' positions after the bolts' first tick, as in the game
+    w.tick();
+    let riders_at: Vec<Option<[f64; 3]>> = (0..sc.len())
+        .map(|k| {
+            let o = origin(k);
+            w.entities
+                .list
+                .iter()
+                .filter(|e| !e.removed && (e.pos.x - (o[0] as f64 + 0.5)).abs() < 6.0)
+                .find(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Zombie))
+                .map(|e| [e.pos.x - o[0] as f64, e.pos.y, e.pos.z])
+        })
+        .collect();
+    for _ in 0..4 {
+        w.tick();
+    }
     let mut sim = Vec::new();
     for (k, x) in sc.iter().enumerate() {
         let o = origin(k);
@@ -449,7 +487,11 @@ pub fn bolt_check_cmd(version: &str) -> Result<()> {
         let golem_burning = w.entities.list.iter().filter(|e| near(e)).any(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::IronGolem && m.fire_ticks > 0));
         let b = BlockPos::new(o[0] + x.bolt[0], x.bolt[1], x.bolt[2]);
         let fire = matches!(w.get(b), Block::Fire { .. });
-        sim.push(outcome(mobs(MobType::Villager), mobs(MobType::Witch), boats, hp(MobType::Zombie), items, hp(MobType::IronGolem), golem_burning, fire));
+        sim.push(outcome(mobs(MobType::Villager), mobs(MobType::Witch), boats, hp(MobType::Zombie), riders_at[k], items, hp(MobType::IronGolem), golem_burning, fire));
+    }
+    // a model error is a difference too (a rider's dismount, a vehicle's drop)
+    for e in &w.errors {
+        println!("redsim error: {e}");
     }
     let mut same = 0;
     for (k, x) in sc.iter().enumerate() {
@@ -457,6 +499,6 @@ pub fn bolt_check_cmd(version: &str) -> Result<()> {
         same += ok as usize;
         println!("{} {}: game: {} | redsim: {}", if ok { "SAME" } else { "DIFF" }, x.name, game[k], sim[k]);
     }
-    println!("{same} of {} scenarios the same", sc.len());
+    println!("{same} of {} scenarios the same{}", sc.len(), if w.errors.is_empty() { "" } else { ", redsim reported model errors" });
     Ok(())
 }

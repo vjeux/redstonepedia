@@ -47,6 +47,9 @@ pub struct BoatState {
     pub bubble_column_direction_is_down: bool,
     /// `DATA_ID_BUBBLE_TIME`.
     pub bubble_time: i32,
+    /// `getDropItem()`: the boat's own item (its entity type: `minecraft:oak_boat`, ...), what
+    /// `VehicleEntity.destroy` drops.
+    pub item: &'static str,
 }
 
 impl Default for BoatState {
@@ -63,8 +66,39 @@ impl Default for BoatState {
             is_above_bubble_column: false,
             bubble_column_direction_is_down: false,
             bubble_time: 0,
+            item: "minecraft:oak_boat",
         }
     }
+}
+
+/// Every boat and raft type, chest ones too: each is its own item (`getDropItem`).
+pub const TYPES: [&str; 20] = [
+    "minecraft:oak_boat",
+    "minecraft:spruce_boat",
+    "minecraft:birch_boat",
+    "minecraft:jungle_boat",
+    "minecraft:acacia_boat",
+    "minecraft:dark_oak_boat",
+    "minecraft:mangrove_boat",
+    "minecraft:cherry_boat",
+    "minecraft:pale_oak_boat",
+    "minecraft:bamboo_raft",
+    "minecraft:oak_chest_boat",
+    "minecraft:spruce_chest_boat",
+    "minecraft:birch_chest_boat",
+    "minecraft:jungle_chest_boat",
+    "minecraft:acacia_chest_boat",
+    "minecraft:dark_oak_chest_boat",
+    "minecraft:mangrove_chest_boat",
+    "minecraft:cherry_chest_boat",
+    "minecraft:pale_oak_chest_boat",
+    "minecraft:bamboo_chest_raft",
+];
+
+/// The boat type of an entity id (`oak_boat` or `minecraft:oak_boat`), as its item.
+pub fn type_item(id: &str) -> Option<&'static str> {
+    let id = id.strip_prefix("minecraft:").unwrap_or(id);
+    TYPES.iter().copied().find(|t| t.strip_prefix("minecraft:") == Some(id))
 }
 
 /// `getDefaultGravity`.

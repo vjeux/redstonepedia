@@ -518,14 +518,44 @@ fn thunder_hit(w: &mut World, bolt: u32, id: u32) {
         EntityKind::Mob(_) => mob_thunder_hit(w, i),
         EntityKind::Boat(_) | EntityKind::Minecart(_) => {
             // Entity.thunderHit: the fire ticks (a vehicle does not burn), then hurtServer(5):
-            // VehicleEntity adds 5 x 10 = 50 damage, over 40: destroy (kill, its item dropped)
+            // VehicleEntity: ENTITY_DAMAGE at it, 5 x 10 = 50 damage, over 40: destroy(level,
+            // source) = destroy(level, getDropItem()): kill = remove(KILLED) (a container
+            // vehicle's dropContents first, then setRemoved: its passengers stop riding now,
+            // LivingEntity.dismountVehicle's free-position search: `entity::stop_riding`), then
+            // ENTITY_DIE; then its item (spawnAtLocation); a container vehicle then
+            // chestVehicleDestroyed: dropContents again
             lead_unmodeled(w, i, "lightning destroyed");
+            let pos = w.entities.list[i].pos;
+            w.game_event_at("entity_damage", [pos.x, pos.y, pos.z], None, false);
+            let item = match &w.entities.list[i].kind {
+                EntityKind::Boat(b) => b.item,
+                EntityKind::Minecart(m) if m.hopper => "minecraft:hopper_minecart",
+                _ => "minecraft:minecart",
+            };
+            // Containers.dropContents: the drop spot's three nextDouble from the level random for
+            // every slot, empty ones too (`entity::kill`); a stack would drop: not modeled
+            let slots = w.containers.entities.get(&id).map(|c| (c.slots.len(), c.slots.iter().any(|s| s.is_some())));
+            if let Some((_, true)) = slots {
+                let why = format!("lightning destroyed container vehicle {id}, which holds items: their drop (Containers.dropContents) is not modeled");
+                if !w.errors.contains(&why) {
+                    w.errors.push(why);
+                }
+            }
+            let drop_contents = |w: &mut World| {
+                if let (Some((n, _)), Some(r)) = (slots, w.level_random.as_mut()) {
+                    for _ in 0..n * 3 {
+                        r.next_double();
+                    }
+                }
+            };
+            drop_contents(w);
             w.entities.list[i].removed = true;
             w.weather.events.push(WeatherEvent::VehicleDestroyed { t, entity: id });
-            let riders = w.entities.list[i].passengers.clone();
-            for r in riders {
-                w.dismounted.push(r);
-            }
+            crate::entity::stop_riding(w, i);
+            crate::entity::eject_passengers(w, i);
+            w.game_event_at("entity_die", [pos.x, pos.y, pos.z], None, false);
+            crate::entity::mob::living::spawn_item_at(w, pos, id, item, 1);
+            drop_contents(w);
         }
         EntityKind::Item(s) => {
             // ItemEntity.hurtServer: health 5 - 5
