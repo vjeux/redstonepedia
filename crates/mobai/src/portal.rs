@@ -684,13 +684,21 @@ pub fn nether_designs(version: &str, ow: &std::path::Path, ne: &std::path::Path,
             last[j] = (Some(dn), hp);
         }
         if k % every == 0 {
-            let lying = srv.cmd(&format!("{nrun} execute if entity @e[type=minecraft:item,distance=0..]"))?;
+            // the items lying in the Nether: each one's item, count and position
+            let all = srv.cmd_long(&format!("{nrun} execute as @e[type=minecraft:item,distance=0..] run data get entity @s"))?;
+            let mut lying = Vec::new();
+            for a in all.split("has the following entity data: ").skip(1) {
+                let id = a.split("id: \"").nth(1).and_then(|s| s.split('"').next()).unwrap_or("?").trim_start_matches("minecraft:").to_string();
+                let count = a.split("count: ").nth(1).and_then(|s| s.split(|c: char| !c.is_ascii_digit()).next()).unwrap_or("1").to_string();
+                let pos: Vec<String> = a.split("Pos: [").nth(1).and_then(|s| s.split(']').next()).map(|s| s.split(',').map(|v| format!("{:.2}", v.trim().trim_end_matches('d').parse::<f64>().unwrap_or(f64::NAN))).collect()).unwrap_or_default();
+                lying.push(format!("{count} {id} at {}", pos.join(" ")));
+            }
             let mut held = 0u32;
             for c in &containers {
                 let out = srv.cmd_long(&format!("{nrun} data get block {} {} {} Items", c[0], c[1], c[2]))?;
                 held += out.matches("iron_ingot").count() as u32;
             }
-            println!("t+{k} nether: items lying {} ; container slots holding iron {held}", lying.rsplit(':').next().unwrap_or("").trim());
+            println!("t+{k} nether: items lying {} [{}] ; container slots holding iron {held}", lying.len(), lying.join("; "));
         }
     }
     Ok(())
@@ -779,9 +787,15 @@ pub fn nether_designs_redsim(ow: &std::path::Path, ne: &std::path::Path, ticks: 
         }
         if k % every == 0 {
             let n = w.nether.as_deref().expect("the Nether");
-            let lying = n.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, redsim::entity::EntityKind::Item(_))).count();
+            let lying: Vec<String> = n
+                .entities
+                .list
+                .iter()
+                .filter(|e| !e.removed)
+                .filter_map(|e| if let redsim::entity::EntityKind::Item(it) = &e.kind { Some(format!("{} {} at {:.2} {:.2} {:.2}", it.count, it.item.trim_start_matches("minecraft:"), e.pos.x, e.pos.y, e.pos.z)) } else { None })
+                .collect();
             let held = containers.iter().map(|c| n.containers.map.get(c).map(|be| be.slots.iter().flatten().filter(|s| redsim::redstone::container::item_name(s.item).contains("iron_ingot")).count()).unwrap_or(0)).sum::<usize>();
-            println!("t+{k} nether: items lying {lying} ; container slots holding iron {held}");
+            println!("t+{k} nether: items lying {} [{}] ; container slots holding iron {held}", lying.len(), lying.join("; "));
         }
     }
     if !w.errors.is_empty() {
