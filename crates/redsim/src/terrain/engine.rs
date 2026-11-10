@@ -9,10 +9,14 @@
 //! `LightEngine$QueueEntry`). The game's results depend on that order where light goes stale (a
 //! decrease that does not reach a cell leaves its old light), so the order is the game's.
 //!
-//! The world's box is the stored light (`storingLightForSection`): a cell outside it is not
-//! stored, so light neither leaves the box nor comes back in (the game's margins around a terrain
-//! sample are stored there; a farm far from the box's sides never reaches them). Every section of
-//! the box holds light data, so the sky engine's empty-section paths
+//! The stored light (`storingLightForSection`) reaches past the box: the bridge imports whole
+//! sections, so the cells of the sample's chunks outside the box are air holding light 0 in the
+//! game, and the sandbox's lit void chunks around them hold 15; the game's engines light all of
+//! them like any other cell (tickexact 2026-11-10: water pouring out of a cave at the box's side
+//! relit them, and the light came back into the box through the cave). A section holds data only
+//! next to a non-empty one (`LayerLightSectionStorage.updateSectionStatus`), so outside the box
+//! light goes no higher than its column's top section, and one section under the box. Every
+//! section of the box holds light data, so the sky engine's empty-section paths
 //! (`countEmptySectionsBelowIfAtBorder`, `propagateFromEmptySections`) never run.
 
 use super::land;
@@ -192,23 +196,50 @@ enum Layer {
     Sky,
 }
 
-/// One engine's run over the world's box.
+/// One engine's run over the stored light: the world's box, the rest of the chunks the sample fills
+/// ([`World::stored_chunks`]) and the sandbox's void chunks around them, from the section under
+/// the box (`currentLowestY`) to the box's top: `ext`. A section holds data only below its
+/// column's top ([`World::chunk_top_section`]: next to a non-empty section), so light goes no
+/// higher outside the box. A cell of `ext` outside the box keeps its light in
+/// [`land::Land::outer_sky`] / `outer_block` and its block in `World::outer` (air under the box).
 struct Engine {
     min: BlockPos,
     size: [i32; 3],
-    /// Each direction's step in the box's arrays.
+    /// The box inside `ext`: its offset and size.
+    box_off: [i32; 3],
+    box_size: [i32; 3],
+    /// The sample's chunks (`[min cx, min cz]`, `[max cx, max cz]`); the first one imported is the
+    /// only one whose section under the box was made from its own data ([`Engine::default_sky`]).
+    imported: ([i32; 2], [i32; 2]),
+    /// Each direction's step in `ext`'s cell numbering.
     stride: [isize; 6],
     decrease: VecDeque<(usize, u64)>,
     increase: VecDeque<(usize, u64)>,
     /// The light behaviour of the states met (natural states have their own table).
     cache: crate::fxhash::FxHashMap<Block, LightProps>,
+    /// Each chunk's top section (`SkyLightSectionStorage.isAboveData`), once per run.
+    tops: std::cell::RefCell<crate::fxhash::FxHashMap<[i32; 2], i32>>,
 }
 
 impl Engine {
     fn new(w: &World) -> Engine {
-        let size = w.size;
+        let (lo, hi) = w.stored_chunks();
+        let min = BlockPos::new((lo[0] - 1) * 16, w.min.y - 16, (lo[1] - 1) * 16);
+        let size = [(hi[0] - lo[0] + 3) * 16, w.size[1] + 16, (hi[1] - lo[1] + 3) * 16];
         let stride = light::DIRS_PUB.map(|(_, [dx, dy, dz])| dx as isize + (dz * size[0]) as isize + (dy * size[0] * size[2]) as isize);
-        Engine { min: w.min, size, stride, decrease: VecDeque::new(), increase: VecDeque::new(), cache: Default::default() }
+        let box_off = [w.min.x - min.x, 16, w.min.z - min.z];
+        Engine {
+            min,
+            size,
+            box_off,
+            box_size: w.size,
+            imported: (lo, hi),
+            stride,
+            decrease: VecDeque::new(),
+            increase: VecDeque::new(),
+            cache: Default::default(),
+            tops: Default::default(),
+        }
     }
 
     fn index(&self, p: BlockPos) -> Option<usize> {
@@ -224,32 +255,113 @@ impl Engine {
         BlockPos::new(self.min.x + x, self.min.y + y, self.min.z + z)
     }
 
-    /// The neighbour of cell `i` (at `p`) in direction `d`, if it is stored (in the box).
-    fn neighbour(&self, i: usize, p: BlockPos, d: usize) -> Option<usize> {
+    /// Where cell `i` keeps its block and light: the box's arrays (`Ok`), or outside the box.
+    fn slot(&self, i: usize) -> Result<usize, BlockPos> {
+        let i = i as i32;
+        let x = i % self.size[0] - self.box_off[0];
+        let z = (i / self.size[0]) % self.size[2] - self.box_off[2];
+        let y = i / (self.size[0] * self.size[2]) - self.box_off[1];
+        if y >= 0 && x >= 0 && z >= 0 && x < self.box_size[0] && z < self.box_size[2] {
+            Ok(((y * self.box_size[2] + z) * self.box_size[0] + x) as usize)
+        } else {
+            Err(BlockPos::new(self.min.x + x + self.box_off[0], self.min.y + y + self.box_off[1], self.min.z + z + self.box_off[2]))
+        }
+    }
+
+    /// The stored sky light of a cell outside the box before any engine wrote it: in a void chunk
+    /// the lit void's 15; beside the box the import's 0; under it, the section the storage made
+    /// when a neighbour first needed it (`SkyLightSectionStorage.createDataLayer`): a column with
+    /// no data yet, light on (the sandbox's chunks were lit before the import), 15, but for the
+    /// first chunk imported, whose own bottom section came first: its bottom layer repeated
+    /// (`repeatFirstLayer`).
+    fn default_sky(&self, w: &World, p: BlockPos) -> u8 {
+        let (lo, hi) = self.imported;
+        let c = [p.x.div_euclid(16), p.z.div_euclid(16)];
+        if c[0] < lo[0] || c[0] > hi[0] || c[1] < lo[1] || c[1] > hi[1] {
+            return 15;
+        }
+        let box_bottom = self.min.y + self.box_off[1];
+        if p.y >= box_bottom {
+            return 0;
+        }
+        if c != lo {
+            return 15;
+        }
+        match w.light_index(BlockPos::new(p.x, box_bottom, p.z)) {
+            Some(k) => w.land.as_ref().unwrap().sky[k],
+            None => 0,
+        }
+    }
+
+    /// Whether the game stores light at a cell of `ext` (`storingLightForSection`): every cell of
+    /// the box; outside it, below its column's top section.
+    fn stored(&self, w: &World, p: BlockPos) -> bool {
+        if w.contains(p) {
+            return true;
+        }
+        p.y >> 4 < self.column_top(w, p.x, p.z)
+    }
+
+    /// The neighbour of cell `i` (at `p`) in direction `d`, if it is stored.
+    fn neighbour(&self, w: &World, i: usize, p: BlockPos, d: usize) -> Option<usize> {
         let [dx, dy, dz] = light::DIRS_PUB[d].1;
         let (x, y, z) = (p.x - self.min.x + dx, p.y - self.min.y + dy, p.z - self.min.z + dz);
-        (x >= 0 && y >= 0 && z >= 0 && x < self.size[0] && y < self.size[1] && z < self.size[2]).then(|| (i as isize + self.stride[d]) as usize)
+        if !(x >= 0 && y >= 0 && z >= 0 && x < self.size[0] && y < self.size[1] && z < self.size[2]) {
+            return None;
+        }
+        self.stored(w, BlockPos::new(p.x + dx, p.y + dy, p.z + dz)).then(|| (i as isize + self.stride[d]) as usize)
     }
 
     fn props(&mut self, w: &World, i: usize) -> LightProps {
-        match w.cells[i] {
+        let b = match self.slot(i) {
+            Ok(k) => w.cells[k],
+            Err(p) => w.get(p),
+        };
+        match b {
             Block::Terrain(id) => land::terrain_lprops(id),
             Block::Air => LightProps::AIR,
             b => *self.cache.entry(b).or_insert_with(|| land::lprops(&b)),
         }
     }
 
-    fn level(w: &World, layer: Layer, i: usize) -> u8 {
+    fn level(&self, w: &World, layer: Layer, i: usize) -> u8 {
         let l = w.land.as_ref().unwrap();
-        if layer == Layer::Sky { l.sky[i] } else { l.block[i] }
+        match self.slot(i) {
+            Ok(k) => {
+                if layer == Layer::Sky {
+                    l.sky[k]
+                } else {
+                    l.block[k]
+                }
+            }
+            Err(p) => {
+                if layer == Layer::Sky {
+                    l.outer_sky.get(&p).copied().unwrap_or_else(|| self.default_sky(w, p))
+                } else {
+                    l.outer_block.get(&p).copied().unwrap_or(0)
+                }
+            }
+        }
     }
 
-    fn set_level(w: &mut World, layer: Layer, i: usize, v: u8) {
+    fn set_level(&self, w: &mut World, layer: Layer, i: usize, v: u8) {
+        let slot = self.slot(i);
         let l = w.land.as_mut().unwrap();
-        if layer == Layer::Sky {
-            l.sky[i] = v;
-        } else {
-            l.block[i] = v;
+        match slot {
+            Ok(k) => {
+                if layer == Layer::Sky {
+                    l.sky[k] = v;
+                } else {
+                    l.block[k] = v;
+                }
+            }
+            Err(p) => {
+                if layer == Layer::Sky {
+                    l.outer_sky.insert(p, v);
+                } else {
+                    l.outer_block.insert(p, v);
+                }
+            }
         }
     }
 
@@ -260,11 +372,14 @@ impl Engine {
 
     /// `BlockLightEngine.checkNode`.
     fn check_block_node(&mut self, w: &mut World, i: usize) {
+        if !self.stored(w, self.pos_of(i)) {
+            return;
+        }
         let state = self.props(w, i);
         let emission = state.emission.min(15);
-        let level = Self::level(w, Layer::Block, i);
+        let level = self.level(w, Layer::Block, i);
         if emission < level {
-            Self::set_level(w, Layer::Block, i, 0);
+            self.set_level(w, Layer::Block, i, 0);
             self.decrease.push_back((i, decrease_all_directions(level)));
         } else {
             self.decrease.push_back((i, PULL_LIGHT_IN));
@@ -274,15 +389,34 @@ impl Engine {
         }
     }
 
-    /// The lowest sky source of a column (`ChunkSkyLightSources.getLowestSourceY`), `default`
-    /// outside the box.
-    fn lowest_source(w: &World, x: i32, z: i32, default: i32) -> i32 {
-        match land::Land::col(w.min, w.size, x, z) {
-            Some(c) => w.land.as_ref().unwrap().sources[c],
-            None => default,
+    /// The lowest sky source of a column (`ChunkSkyLightSources.getLowestSourceY`): the box's
+    /// kept sources; a column of the sample's chunks outside the box from its blocks (air, but
+    /// for what the natural updates wrote there: `World::outer`); `default` past them.
+    fn lowest_source(&self, w: &World, x: i32, z: i32, default: i32) -> i32 {
+        if let Some(c) = land::Land::col(w.min, w.size, x, z) {
+            let s = w.land.as_ref().unwrap().sources[c];
+            // extendSourcesBelowWorld
+            return if s == w.min.y { i32::MIN } else { s };
         }
+        let (lx, lz) = (x - self.min.x, z - self.min.z);
+        if lx < 0 || lz < 0 || lx >= self.size[0] || lz >= self.size[2] {
+            return default;
+        }
+        if w.outer.is_empty() {
+            return i32::MIN;
+        }
+        let mut top = LightProps::AIR;
+        for y in (w.min.y..w.min.y + w.size[1]).rev() {
+            let bottom = land::lprops(&w.get(BlockPos::new(x, y, z)));
+            if light::edge_occluded_pub(&top, &bottom) {
+                return y + 1;
+            }
+            top = bottom;
+        }
+        i32::MIN
     }
 
+    /// The lowest section holding light data (`getBottomSectionY`: the one under the box).
     fn bottom_section(&self) -> i32 {
         self.min.y >> 4
     }
@@ -291,23 +425,32 @@ impl Engine {
         (self.min.y + self.size[1] - 1) >> 4
     }
 
+    /// A column's first section above its light data (`SkyLightSectionStorage.isAboveData`).
+    fn column_top(&self, w: &World, x: i32, z: i32) -> i32 {
+        let c = [x.div_euclid(16), z.div_euclid(16)];
+        *self.tops.borrow_mut().entry(c).or_insert_with(|| w.chunk_top_section(w.land.as_ref().unwrap(), c[0], c[1]))
+    }
+
     /// `SkyLightEngine.checkNode`.
     fn check_sky_node(&mut self, w: &mut World, i: usize) {
         let p = self.pos_of(i);
-        let lowest = Self::lowest_source(w, p.x, p.z, i32::MAX);
+        let lowest = self.lowest_source(w, p.x, p.z, i32::MAX);
         if lowest != i32::MAX {
             // updateSourcesInColumn
             let bottom = self.bottom_section() << 4;
             self.remove_sources_below(w, p.x, p.z, lowest, bottom);
             self.add_sources_above(w, p.x, p.z, lowest, bottom);
         }
+        if !self.stored(w, p) {
+            return;
+        }
         if p.y >= lowest {
             self.decrease.push_back((i, REMOVE_SKY_SOURCE));
             self.increase.push_back((i, ADD_SKY_SOURCE));
         } else {
-            let level = Self::level(w, Layer::Sky, i);
+            let level = self.level(w, Layer::Sky, i);
             if level > 0 {
-                Self::set_level(w, Layer::Sky, i, 0);
+                self.set_level(w, Layer::Sky, i, 0);
                 self.decrease.push_back((i, decrease_all_directions(level)));
             } else {
                 self.decrease.push_back((i, PULL_LIGHT_IN));
@@ -329,10 +472,10 @@ impl Engine {
                 let mut y = (sb + 15).min(y0);
                 while y >= sb {
                     if let Some(i) = self.index(BlockPos::new(x, y, z)) {
-                        if Self::level(w, Layer::Sky, i) != 15 {
+                        if self.level(w, Layer::Sky, i) != 15 {
                             return;
                         }
-                        Self::set_level(w, Layer::Sky, i, 0);
+                        self.set_level(w, Layer::Sky, i, 0);
                         self.decrease.push_back((i, if y == lowest - 1 { REMOVE_TOP_SKY_SOURCE } else { REMOVE_SKY_SOURCE }));
                     }
                     y -= 1;
@@ -346,19 +489,22 @@ impl Engine {
     /// hold a source's 15 yet, to 15; an increase from those below every neighbour column's
     /// lowest source, and from the lowest.
     fn add_sources_above(&mut self, w: &mut World, x: i32, z: i32, lowest: i32, bottom: i32) {
-        let low = |w: &World, x: i32, z: i32| Self::lowest_source(w, x, z, i32::MIN);
-        let neighbours = low(w, x - 1, z).max(low(w, x + 1, z)).max(low(w, x, z - 1).max(low(w, x, z + 1)));
+        let neighbours = {
+            let low = |x: i32, z: i32| self.lowest_source(w, x, z, i32::MIN);
+            low(x - 1, z).max(low(x + 1, z)).max(low(x, z - 1).max(low(x, z + 1)))
+        };
         let start = lowest.max(bottom);
         let mut sy = start >> 4;
-        while sy <= self.top_section() {
+        let top = self.column_top(w, x, z).min(self.top_section() + 1);
+        while sy < top {
             if sy >= self.bottom_section() {
                 let sb = sy << 4;
                 for y in sb.max(start)..=sb + 15 {
                     let Some(i) = self.index(BlockPos::new(x, y, z)) else { continue };
-                    if Self::level(w, Layer::Sky, i) == 15 {
+                    if self.level(w, Layer::Sky, i) == 15 {
                         return;
                     }
-                    Self::set_level(w, Layer::Sky, i, 15);
+                    self.set_level(w, Layer::Sky, i, 15);
                     if y < neighbours || y == lowest {
                         self.increase.push_back((i, ADD_SKY_SOURCE));
                     }
@@ -383,8 +529,8 @@ impl Engine {
             if !propagates(e, d) {
                 continue;
             }
-            let Some(j) = self.neighbour(i, p, d) else { continue };
-            let to_level = Self::level(w, layer, j);
+            let Some(j) = self.neighbour(w, i, p, d) else { continue };
+            let to_level = self.level(w, layer, j);
             if to_level == 0 {
                 continue;
             }
@@ -392,7 +538,7 @@ impl Engine {
                 if layer == Layer::Block {
                     let to_state = self.props(w, j);
                     let emission = to_state.emission.min(15);
-                    Self::set_level(w, layer, j, 0);
+                    self.set_level(w, layer, j, 0);
                     if emission < to_level {
                         self.decrease.push_back((j, decrease_skip_one_direction(to_level, opposite(d))));
                     }
@@ -400,7 +546,7 @@ impl Engine {
                         self.increase.push_back((j, increase_light_from_emission(emission, Self::empty_shape(&to_state))));
                     }
                 } else {
-                    Self::set_level(w, layer, j, 0);
+                    self.set_level(w, layer, j, 0);
                     self.decrease.push_back((j, decrease_skip_one_direction(to_level, opposite(d))));
                 }
             } else {
@@ -413,10 +559,10 @@ impl Engine {
     /// its cell first, and an entry whose level its cell no longer holds is dropped.
     fn propagate_increases(&mut self, w: &mut World, layer: Layer) {
         while let Some((i, e)) = self.increase.pop_front() {
-            let mut level = Self::level(w, layer, i);
+            let mut level = self.level(w, layer, i);
             let from = from_level(e);
             if e & FLAG_INCREASE_FROM_EMISSION != 0 && level < from {
-                Self::set_level(w, layer, i, from);
+                self.set_level(w, layer, i, from);
                 level = from;
             }
             if level == from {
@@ -433,8 +579,8 @@ impl Engine {
             if !propagates(e, d) {
                 continue;
             }
-            let Some(j) = self.neighbour(i, p, d) else { continue };
-            let to_level = Self::level(w, layer, j);
+            let Some(j) = self.neighbour(w, i, p, d) else { continue };
+            let to_level = self.level(w, layer, j);
             if level as i32 - 1 <= to_level as i32 {
                 continue;
             }
@@ -454,7 +600,7 @@ impl Engine {
             if light::shape_occludes_pub(&fs, &to_state, d) {
                 continue;
             }
-            Self::set_level(w, layer, j, target as u8);
+            self.set_level(w, layer, j, target as u8);
             if target > 1 {
                 self.increase.push_back((j, increase_skip_one_direction(target as u8, Self::empty_shape(&to_state), opposite(d))));
             }

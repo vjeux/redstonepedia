@@ -1371,6 +1371,32 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
             }
         }
     }
+    // (a probe: MCTAS_TRACE_TICKS_AT=T: at the end, each random-tick position redsim picked at
+    // game time T (and the cell above) whose block or light differs between the game and redsim)
+    let traced: Vec<[i32; 3]> = redsim::crops::TRACED_TICKS.lock().unwrap().clone();
+    if !traced.is_empty() {
+        use base64::Engine as _;
+        let mut differ = 0;
+        for p in &traced {
+            let (from, to) = (*p, [p[0], p[1] + 1, p[2]]);
+            let region = game.w.get_region(game.sb, from, to).ok();
+            let r = game.w.call(json!({"op": "light_box", "sandbox": game.sb, "from": from, "to": to}))?;
+            let dec = |k: &str| base64::engine::general_purpose::STANDARD.decode(r[k].as_str().unwrap_or("")).unwrap_or_default();
+            let (sky, block) = (dec("sky"), dec("block"));
+            for (i, y) in [p[1], p[1] + 1].into_iter().enumerate() {
+                let q = redsim::BlockPos::new(p[0], y, p[2]);
+                let gs = region.as_ref().and_then(|g| g.get([p[0], y, p[2]])).map(|s| s.to_string()).unwrap_or_default();
+                let rs = run.world.get(q).to_string();
+                let gl = (sky.get(i).copied().unwrap_or(0) as i32, block.get(i).copied().unwrap_or(0) as i32);
+                let rl = (run.world.sky_light(q).unwrap_or(-1), run.world.block_light(q).unwrap_or(-1));
+                if gs != rs || gl != rl {
+                    differ += 1;
+                    eprintln!("traced tick {} {} {}{}: the game {gs} light {gl:?} | redsim {rs} light {rl:?}", p[0], p[1], p[2], if i == 1 { " (above)" } else { "" });
+                }
+            }
+        }
+        eprintln!("traced random ticks: {} positions, {differ} cells differ", traced.len());
+    }
     // (a probe: MCTAS_EXACT_LIGHT="x0,y0,z0,x1,y1,z1": each cell of the box whose sky or block light
     // differs at the end, the game's against redsim's)
     if let Ok(b) = std::env::var("MCTAS_EXACT_LIGHT") {

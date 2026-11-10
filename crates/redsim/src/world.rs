@@ -661,6 +661,13 @@ impl World {
                 if old != s && (crate::daylight::light_differs(&old, &s) || crate::entity::mob::sun::emission(&old) != crate::entity::mob::sun::emission(&s)) {
                     self.light_version += 1;
                 }
+                // (tickexact 2026-11-10) a cell of the sample's chunks: the game's engines check
+                // it (`LevelLightEngine.checkBlock`) like a cell of the box
+                if old != s && crate::terrain::engine::enabled() && crate::terrain::light::different_light(&old, &s) && self.stores_light_outside(p)
+                    && let Some(l) = self.land.as_mut()
+                {
+                    l.dirty.push((p, p.y, p.y));
+                }
             }
             None => {
                 if !s.is_air() {
