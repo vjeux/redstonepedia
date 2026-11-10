@@ -123,6 +123,16 @@ line falls, and checks every slot's willingness (gameTime - LAST_SLEPT < 24,000)
 range and worst gap window, plus the blocks, box and build minutes; `--game N` replays the run's
 first N days' input actions in the real game, every output probe compared every tick
 (designs/farms/iron/parts/carousel-scheduler/NOTES.md).
+The single-lane loop's scheduler (vjeux's one queue of 21 carts): `mctas circuit memory loop-model
+[--policy pring|every|k0|first-unvisited] [--rejoin exact|tail|place|batch] [--every 4] [--days N]
+[--miss p] [--visit A..B]` models the queue (the front 3 released per release, a napper's way back)
+and prints lost slots, napless villager-nights and second naps; `mctas circuit memory loop-gen --out
+F` generates the scheduler (one 7-state ring of D = pointer - release index, the visit gate, the
+delay chain, the window latch and the slot-out module); `mctas circuit memory loop-bench <design>
+[--days 60] [--seed S] [--miss 0.01] [--game N]` drives its `release` (a 10-gt pulse per release)
+and `win` cells, reads each visit's napper slot off `s0..s2`, checks every slot's willingness, the
+ring's token against the policy at every release, the window `v` (from the release, >= 85 gt) and
+the slot lines, and prints per villager its naps and gap windows; `--game N` as for sched-bench.
 A design's Nether part as a design of its own: `mctas mobfarm nether-part <design> --out F` writes
 its `nether layer` blocks, `nether nbt:` data and `port nether-<name>` ports as the blocks, data and
 ports of F, so `web shot F` pictures the Nether side (the kill, the collection); the viewer draws a

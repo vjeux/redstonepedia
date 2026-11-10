@@ -1,0 +1,117 @@
+name: carousel-loop-scheduler
+port input.release: -5 0 -3
+port input.win: -2 0 1
+port output.s0: -3 0 14
+port output.s1: -5 0 14
+port output.s2: -4 0 21
+port output.v: -4 0 10
+nbt: -3 0 17 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+nbt: 0 0 0 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: -13 0 -5
+palette:
+  A minecraft:comparator[facing=south,mode=subtract,powered=false]
+  B minecraft:dropper[facing=south,triggered=false]
+  C minecraft:comparator[facing=east,mode=compare,powered=false]
+  D minecraft:dropper[facing=east,triggered=false]
+  E minecraft:dropper[facing=west,triggered=false]
+  F minecraft:hopper[enabled=true,facing=south]
+  G minecraft:hopper[enabled=true,facing=west]
+  H minecraft:hopper[enabled=true,facing=east]
+  I minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  J minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  K minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  L minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  M minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  N minecraft:repeater[delay=2,facing=east,locked=false,powered=false]
+  O minecraft:repeater[delay=3,facing=east,locked=false,powered=false]
+  P minecraft:repeater[delay=3,facing=west,locked=false,powered=false]
+  Q minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  R minecraft:redstone_wall_torch[facing=south,lit=true]
+  S minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  T minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  c minecraft:comparator[facing=north,mode=subtract,powered=false]
+  d minecraft:dropper[facing=north,triggered=false]
+  h minecraft:hopper[enabled=true,facing=north]
+  r minecraft:redstone_wall_torch[facing=west,lit=true]
+  s minecraft:stone
+layer -1:
+  .
+  .
+  .
+  ........s
+  .
+  ........s..ss
+  ........ss
+  ........s
+  ........s
+  .ss.ss.s
+  s.......sss
+  .sssss.ss.s
+  ........s.s
+  ........sss
+  ..........ss
+  ..........ss
+  .
+  .........ssss
+  .........s..s
+  .........s..s
+  ........sss.s
+  ........sss.s
+  ............s
+  ............s
+  .........ssss
+  .........s
+layer 0:
+  ssssssssssssss
+  s..s..s......s
+  s..s..s.s....s
+  s..s..s.K....s
+  s..s..s.sssss
+  s..s..s.KrsJCBG
+  s..s..s.cIrs.Fd
+  s..s..s.I....Bh
+  s..s..s.K....Fd
+  sOQsOQsNs....Bh
+  K.......III..Fd
+  sTTTTPsMc.I..Dh
+  ......s.K.I
+  ......s.III
+  ......s...II
+  ......s..sJI
+  ......s..R
+  ......s..IIII
+  ......s..I..I
+  ......s..K..I
+  ......s.LIL.I
+  ......s.AIA.I
+  ......ssBGE.I
+  ........HDh.I
+  .........cIII
+  .........K
+layer 1:
+  IIIIMIIIIIIIMI
+  L..L..L......I
+  I..I..I......I
+  I..I..I......K
+  I..I..I.IIIIMs
+  I..I..I......II
+  I..I..I......II
+  I..I..I......II
+  I..I..I......II
+  I..I..I......II
+  .............II
+  ......I......II
+  ......I
+  ......I
+  ......I
+  ......I
+  ......I
+  ......S
+  ......I
+  ......I
+  ......I
+  ......I..s
+  ......IMIII
+  ........III
+  ..........s
+  .
