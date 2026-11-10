@@ -161,6 +161,9 @@ impl Scene {
         if scene_judge_placed(&self.name) {
             v["judge_placed"] = json!(true);
             v["block_entities"] = json!(scene_block_entities(&self.name));
+        } else if scene_placement(&self.name) == Placement::Merged {
+            v["placed"] = json!("as written");
+            v["block_entities"] = json!(scene_block_entities(&self.name));
         }
         v.to_string()
     }
@@ -244,6 +247,7 @@ const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     ("carousel-catch", include_str!("../scenes/carousel-catch.txt"), include_str!("../scenes/carousel-catch-28.drive")),
     ("carousel-catch2", include_str!("../scenes/carousel-catch2.txt"), include_str!("../scenes/carousel-catch2-27.drive")),
     ("carousel-wired", include_str!("../scenes/carousel-wired.txt"), include_str!("../scenes/carousel-wired.drive")),
+    ("carousel-wired-raw", include_str!("../scenes/carousel-wired.txt"), include_str!("../scenes/carousel-wired-raw.drive")),
 ];
 
 /// A drive scene's day time at its spawn in its bench's run: the bench's world is
@@ -331,20 +335,41 @@ fn scene_settle(name: &str) -> u32 {
     if name == "carousel-wired" { redsim::entity::mob::farm::SETTLE_TICKS as u32 } else { 0 }
 }
 
-/// (tickexact 2026-11-10) Whether a scene is placed the way the judge places a design (the bench's
-/// `Run::start`): raw writes, its block entities' data merged ([`scene_block_entities`]), a shape
-/// update of every wire, then a `self` update of every block, in the design's order
-/// (`World::place_updates`; in the game the clock verifier's `Placement::Judge`). The wired loop's
-/// file holds every wire as a cross and a container's stock as an `nbt:` line, as its generator
-/// wrote them; its bench builds them this way (every other scene: raw states as written).
-fn scene_judge_placed(name: &str) -> bool {
-    name == "carousel-wired"
+/// (tickexact 2026-11-10) How a scene's blocks are put in the world.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Placement {
+    /// Raw states as written (every scene but the wired loop's).
+    Raw,
+    /// "Placed as written" (the bench's `--placed-raw`, the brief's "works as placed"): raw
+    /// states, then the design's block entities' data merged ([`scene_block_entities`]: the
+    /// game's `data merge`, which tells a comparator reading a container), nothing else.
+    Merged,
+    /// The judge's way (the bench's `Run::start`): raw writes, the block entities merged, a shape
+    /// update of every wire, then a `self` update of every block, in the design's order
+    /// (`World::place_updates`; in the game the clock verifier's `Placement::Judge`).
+    Judge,
 }
 
-/// A judge-placed scene's block-entity data (its design's `nbt:` lines), merged after the raw
-/// paste.
+/// A scene's [`Placement`]. The wired loop's file (v1) holds every wire as a cross and a
+/// container's stock as an `nbt:` line, as its generator wrote them; carousel-wired builds it the
+/// judge's way, carousel-wired-raw places it as written.
+fn scene_placement(name: &str) -> Placement {
+    match name {
+        "carousel-wired" => Placement::Judge,
+        "carousel-wired-raw" => Placement::Merged,
+        _ => Placement::Raw,
+    }
+}
+
+/// Whether a scene is placed the judge's way ([`Placement::Judge`]).
+fn scene_judge_placed(name: &str) -> bool {
+    scene_placement(name) == Placement::Judge
+}
+
+/// A scene's block-entity data merged after the raw paste (its design's `nbt:` lines; none for a
+/// [`Placement::Raw`] scene).
 fn scene_block_entities(name: &str) -> Vec<([i32; 3], String)> {
-    if !scene_judge_placed(name) {
+    if scene_placement(name) == Placement::Raw {
         return Vec::new();
     }
     drive_design(name).map(|d| d.block_entities.into_iter().collect()).unwrap_or_default()
@@ -1761,8 +1786,9 @@ fn scenes_raw() -> Vec<Scene> {
         // seed, less the settle before the summon)
         let day_time = if first {
             1000
-        } else if *name == "carousel-wired" {
-            drive_day0(name).unwrap_or(200) - scene_settle(name) as i64
+        } else if name.starts_with("carousel-wired") {
+            // (the bench's world: day0 at the end of its settle, which the raw paste skips)
+            drive_day0(name).unwrap_or(200) - redsim::entity::mob::farm::SETTLE_TICKS
         } else {
             200
         };
@@ -1821,12 +1847,13 @@ impl GameScene {
         if !s.blocks.is_empty() {
             w.set_blocks(sb, &s.blocks, PlaceMode::Raw)?;
         }
-        // (tickexact 2026-11-10) a judge-placed scene: the block entities' data, then the shape
-        // update of every wire and the `self` update of every block (`scene_judge_placed`)
+        // (tickexact 2026-11-10) the block entities' data (a merged or judge-placed scene), then
+        // for a judge-placed one the shape update of every wire and the `self` update of every
+        // block ([`Placement`])
+        for (p, nbt) in scene_block_entities(&s.name) {
+            w.merge_block_entity(sb, p, &nbt)?;
+        }
         if scene_judge_placed(&s.name) {
-            for (p, nbt) in scene_block_entities(&s.name) {
-                w.merge_block_entity(sb, p, &nbt)?;
-            }
             let wires: Vec<[i32; 3]> = s.blocks.iter().filter(|(_, st)| st.starts_with("minecraft:redstone_wire")).map(|(p, _)| *p).collect();
             w.update(sb, &wires, "shape")?;
             let all: Vec<[i32; 3]> = s.blocks.iter().map(|(p, _)| *p).collect();
@@ -1912,10 +1939,11 @@ pub fn redsim_world(s: &Scene, seed: i64) -> Result<World> {
         list.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(st).or_else(|_| redsim::terrain::land::block_of(st)).map_err(|e| anyhow!("{st}: {e}"))?));
     }
     w.place_raw(&list);
-    // (a judge-placed scene: its block entities' data, then the judge's updates)
+    // (a merged or judge-placed scene: its block entities' data; a judge-placed one then the
+    // judge's updates)
+    let bes: Vec<(BlockPos, String)> = scene_block_entities(&s.name).into_iter().map(|(p, nbt)| (BlockPos::new(p[0], p[1], p[2]), nbt)).collect();
+    redsim::redstone::container::apply_block_entities(&mut w, bes.iter().map(|(p, nbt)| (*p, nbt.as_str()))).map_err(|e| anyhow!(e))?;
     if scene_judge_placed(&s.name) {
-        let bes: Vec<(BlockPos, String)> = scene_block_entities(&s.name).into_iter().map(|(p, nbt)| (BlockPos::new(p[0], p[1], p[2]), nbt)).collect();
-        redsim::redstone::container::apply_block_entities(&mut w, bes.iter().map(|(p, nbt)| (*p, nbt.as_str()))).map_err(|e| anyhow!(e))?;
         w.place_updates(&list);
     }
     w.mirror_level_random(seed, s.chunks);
