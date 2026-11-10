@@ -747,13 +747,22 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
             path.push(([xd, -2, 4], Cell::Plain));
             path.push(([xd, -1, 5], Cell::Plain));
             path.push(([xd, 0, 6], Cell::Plain));
-            for z in 7..zr {
-                path.push(([xd, 1, z], Cell::Plain));
+            // (with `tail_desc`: boosters on the flat, then up 3 more blocks to the jog at y 4)
+            let top = if o.tail_desc { zr - 4 } else { zr };
+            for z in 7..top {
+                path.push(([xd, 1, z], if o.tail_desc && z <= 10 { Cell::Boost } else { Cell::Plain }));
+            }
+            if o.tail_desc {
+                path.push(([xd, 1, zr - 4], Cell::Plain));
+                path.push(([xd, 2, zr - 3], Cell::Plain));
+                path.push(([xd, 3, zr - 2], Cell::Plain));
+                path.push(([xd, 4, zr - 1], Cell::Plain));
             }
         }
-        path.push(([xd, 1, zr], Cell::Plain));
+        let ye = if o.tail_desc && !o.stand_deep { 4 } else { 1 };
+        path.push(([xd, ye, zr], Cell::Plain));
         for x in (1..xd).rev() {
-            path.push(([x, 1, zr], Cell::Plain));
+            path.push(([x, ye, zr], Cell::Plain));
         }
         return finish_layout(path, slot_cells, stand_cells, Vec::new(), tail_b);
     }
@@ -1126,11 +1135,14 @@ pub struct LoopTiming {
     pub tail_check_rest: bool,
     /// Slot 2's tail brake on its own, at this gt after the train's departure (else with slot 1's).
     pub tail2_at: Option<i64>,
+    /// The design placed as written (blocks raw, block entities merged, no shape updates, no
+    /// settle): a file that works only built the judge's way fails here.
+    pub placed_raw: bool,
 }
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false }
     }
 }
 
@@ -1281,9 +1293,12 @@ pub fn loop_corners(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, lines: &[Swe
 
 pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, seed: i64, verbose: bool, watch: Option<&[usize]>, drive_out: Option<&std::path::Path>) -> Result<String, String> {
     let ticks = 200 + cycles * 100 + 200;
-    let ro = RunOpts { ai: true, ..RunOpts::steady(seed, ticks as u32, WalkMode::Random) };
+    let ro = RunOpts { ai: true, raw: tm.placed_raw, ..RunOpts::steady(seed, ticks as u32, WalkMode::Random) };
     let mut run = Run::start(spec, &ro)?;
-    while run.settle_tick() {}
+    // (`placed_raw`: the file as written, no settle either: it must start at rest by itself)
+    if !tm.placed_raw {
+        while run.settle_tick() {}
+    }
     let first = run.world.entities.next_id;
     for (ty, pos, nbt) in &spec.entities {
         redsim::entity::spawn(&mut run.world, ty, *pos, nbt.as_deref())?;

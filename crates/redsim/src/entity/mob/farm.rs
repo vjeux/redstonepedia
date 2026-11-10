@@ -135,6 +135,10 @@ pub struct RunOpts {
     /// tick perfect precision?"): every mob on its real goals and brain (the golems' walking
     /// policies unused), a mob whose AI is not modeled a model error. The default.
     pub ai: bool,
+    /// (ironfarm 2026-11-10) The design placed as written: blocks raw and block entities merged,
+    /// no shape updates (`place_updates`); the caller skips the settle too. The judge's way is
+    /// `false`: a design must work placed either way to count as working "as placed".
+    pub raw: bool,
 }
 
 impl std::fmt::Debug for super::site::Site {
@@ -148,7 +152,7 @@ impl RunOpts {
     /// weather ([`RunOpts::with_weather`]).
     pub fn steady(seed: i64, ticks: u32, walk: WalkMode) -> RunOpts {
         let mut r = crate::rng::LegacyRandom::new(seed ^ 0x6461_7930);
-        RunOpts { seed, ticks, day0: 10 + r.next_int(11990) as i64, walk, slept: true, slept_rest: false, site: None, weather: crate::weather::Plan::Off, ai: judge_ai() }
+        RunOpts { seed, ticks, day0: 10 + r.next_int(11990) as i64, walk, slept: true, slept_rest: false, site: None, weather: crate::weather::Plan::Off, ai: judge_ai(), raw: false }
     }
 
     /// The same run under a weather plan.
@@ -398,7 +402,9 @@ impl Run {
         let (detectors, rest): (Vec<_>, Vec<_>) = spec.blocks.iter().cloned().partition(|(_, b)| matches!(b, Block::DaylightDetector { .. }));
         w.place_raw(&rest);
         crate::redstone::container::apply_block_entities(&mut w, spec.block_entities.iter().map(|(p, s)| (*p, s.as_str())))?;
-        w.place_updates(&rest);
+        if !o.raw {
+            w.place_updates(&rest);
+        }
         let chest = Block::parse("minecraft:chest[facing=north,type=single,waterlogged=false]")?;
         if !matches!(w.get(spec.output), Block::Chest { .. }) {
             w.set_block(spec.output, chest, crate::world::flags::RAW);
