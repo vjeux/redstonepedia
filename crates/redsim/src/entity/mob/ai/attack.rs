@@ -14,7 +14,18 @@ use crate::world::World;
 
 /// `Attributes.ATTACK_DAMAGE` of the modeled attackers.
 pub fn attack_damage(w: &World, i: usize) -> f32 {
-    let base = match mob(w, i).ty.def().id {
+    let base = base_attack_damage(w, i);
+    // the main hand's ATTACK_DAMAGE modifier (a natural zombie's iron sword +5, a zombified
+    // piglin's golden sword +3; a picked-up item's)
+    match &mob(w, i).mainhand {
+        Some(h) => (base as f64 + super::loot::weapon_damage(&h.item)) as f32,
+        None => base,
+    }
+}
+
+/// `getAttributeBaseValue(ATTACK_DAMAGE)` of the modeled attackers (a spear's stab adds to it).
+pub fn base_attack_damage(w: &World, i: usize) -> f32 {
+    match mob(w, i).ty.def().id {
         "zombie" | "baby_zombie" | "zombie_villager" | "baby_zombie_villager" | "husk" | "drowned" | "baby_drowned" => 3.0,
         // ZombifiedPiglin.createAttributes
         "zombified_piglin" | "baby_zombified_piglin" => 5.0,
@@ -23,12 +34,6 @@ pub fn attack_damage(w: &World, i: usize) -> f32 {
         "skeleton" | "stray" | "bogged" => 2.0,
         "pillager" | "vindicator" => 5.0,
         _ => 2.0,
-    };
-    // the main hand's ATTACK_DAMAGE modifier (a natural zombie's iron sword +5, a zombified
-    // piglin's golden sword +3; a picked-up item's)
-    match &mob(w, i).mainhand {
-        Some(h) => (base as f64 + super::loot::weapon_damage(&h.item)) as f32,
-        None => base,
     }
 }
 
@@ -106,7 +111,8 @@ fn voice_pitch_draws(w: &mut World, i: usize) {
 /// villager on Hard, or on Normal when its own random's `nextBoolean()` is false, converts it
 /// into a zombie villager: refused (zombie villagers are not modeled).
 pub fn killed_entity(w: &mut World, victim: usize, src: Damage) {
-    if src != Damage::MobAttack {
+    // Zombie.killedEntity: whatever the zombie killed it with (its hit, its spear)
+    if !matches!(src, Damage::MobAttack | Damage::Spear) {
         return;
     }
     let Some(att) = w.mob.ai.attacker.and_then(|id| crate::entity::index_of(w, id)) else { return };
@@ -130,7 +136,7 @@ pub fn after_hurt(w: &mut World, i: usize, src: Damage, took_full: bool) {
     if !w.mob.ai.on {
         return;
     }
-    let attacker = if matches!(src, Damage::MobAttack | Damage::Arrow) { w.mob.ai.attacker } else { None };
+    let attacker = if src.by_attacker() { w.mob.ai.attacker } else { None };
     if has_ai(w, i) {
         ai_mut(w, i).last_damage_entity = attacker;
     }
@@ -149,6 +155,8 @@ pub fn after_hurt(w: &mut World, i: usize, src: Damage, took_full: bool) {
         // Projectile.calculateHorizontalHurtKnockbackDirection: along the arrow's motion
         knockback(w, i, 0.4f32 as f64, -m.x, -m.z);
     } else if took_full
+        // a spear's stab: #no_knockback (stabAttack pushes on its own)
+        && src != Damage::Spear
         && let Some(a) = attacker
         && let Some(ai_idx) = crate::entity::index_of(w, a)
     {

@@ -212,19 +212,28 @@ pub fn stop_using_item(w: &mut World, i: usize) {
 }
 
 /// `LivingEntity.updatingUsingItem()` (`tick()` after `baseTick`): the item still in hand ticks
-/// down (a bow's 72000 never run out here), else the use stops.
+/// (`onUseTick`: a spear's `KineticWeapon.damageEntities`) and counts down (72000 never run out
+/// here), else the use stops.
 pub fn updating_using_item(w: &mut World, i: usize) {
     if !crate::entity::mob::ai::has_ai(w, i) || !crate::entity::mob::ai::ai(w, i).using_item {
         return;
     }
-    if !holding_bow(w, i) {
+    let spear = super::spear::held(w, i).is_some();
+    if !holding_bow(w, i) && !spear {
         stop_using_item(w, i);
         return;
+    }
+    if spear {
+        let remaining = crate::entity::mob::ai::ai(w, i).use_item_remaining;
+        super::spear::damage_entities(w, i, remaining);
+        if w.entities.list[i].removed || !crate::entity::mob::ai::ai(w, i).using_item {
+            return;
+        }
     }
     let a = crate::entity::mob::ai::ai_mut(w, i);
     a.use_item_remaining -= 1;
     if a.use_item_remaining == 0 {
-        let why = "a bow drawn for 72000 ticks (completeUsingItem) is not modeled".to_string();
+        let why = "an item used for 72000 ticks (completeUsingItem) is not modeled".to_string();
         if !w.errors.contains(&why) {
             w.errors.push(why);
         }

@@ -20,7 +20,7 @@ pub fn register(ai: &mut MobAi) {
     ai.goals.add(4, Goal::ZombieAttackTurtleEgg(TurtleEgg::default()));
     ai.goals.add(8, Goal::LookAtPlayer(LookAtPlayer::new(LookType::Player, 8.0)));
     ai.goals.add(8, Goal::RandomLookAround(RandomLookAround::default()));
-    ai.goals.add(2, Goal::SpearUse);
+    ai.goals.add(2, Goal::SpearUse(Default::default()));
     ai.goals.add(3, Goal::MeleeAttack(MeleeAttack::new(MeleeKind::Zombie, 1.0, false)));
     ai.goals.add(6, Goal::MoveThroughVillage(MoveThroughVillage::new(1.0, true, 4)));
     ai.goals.add(7, Goal::RandomStroll(RandomStroll::water_avoiding(1.0)));
@@ -52,7 +52,7 @@ pub fn register_zombified_piglin(ai: &mut MobAi) {
     ai.goals.add(4, Goal::ZombieAttackTurtleEgg(TurtleEgg::default()));
     ai.goals.add(8, Goal::LookAtPlayer(LookAtPlayer::new(LookType::Player, 8.0)));
     ai.goals.add(8, Goal::RandomLookAround(RandomLookAround::default()));
-    ai.goals.add(1, Goal::SpearUse);
+    ai.goals.add(1, Goal::SpearUse(Default::default()));
     ai.goals.add(2, Goal::MeleeAttack(MeleeAttack::new(MeleeKind::Zombie, 1.0, false)));
     ai.goals.add(7, Goal::RandomStroll(RandomStroll::water_avoiding(1.0)));
     ai.targets.add(1, Goal::HurtByTarget(HurtByTarget::new(true)));
@@ -219,11 +219,6 @@ pub fn turtle_can_continue(_w: &mut World, _i: usize, _g: &mut TurtleEgg) -> boo
 pub fn turtle_start(_w: &mut World, _i: usize, _g: &mut TurtleEgg) {}
 pub fn turtle_stop(_w: &mut World, _i: usize, _g: &mut TurtleEgg) {}
 pub fn turtle_tick(_w: &mut World, _i: usize, _g: &mut TurtleEgg) {}
-
-/// `SpearUseGoal.canUse()`: a target and a spear in the main hand (no mob holds items here).
-pub fn spear_can_use(_w: &mut World, _i: usize) -> bool {
-    false
-}
 
 // ----------------------------------------------------------------------- the village
 

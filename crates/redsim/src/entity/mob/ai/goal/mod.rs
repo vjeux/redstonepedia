@@ -18,6 +18,7 @@ pub mod stroll;
 pub mod targets;
 pub mod zombie;
 pub mod drowned;
+pub mod spear;
 
 use super::{MobAi, ai_mut};
 use crate::entity::mob::types::MobType;
@@ -51,7 +52,8 @@ pub enum Goal {
     RandomLookAround(look::RandomLookAround),
     MeleeAttack(melee::MeleeAttack),
     ZombieAttackTurtleEgg(zombie::TurtleEgg),
-    SpearUse,
+    /// `SpearUseGoal` (a zombie's, a zombified piglin's): its state while it runs.
+    SpearUse(spear::SpearUse),
     MoveThroughVillage(zombie::MoveThroughVillage),
     BreakDoor(zombie::BreakDoor),
     MoveTowardsTarget(golem::MoveTowardsTarget),
@@ -98,7 +100,7 @@ impl Goal {
             Goal::RandomLookAround(_) => MOVE | LOOK,
             Goal::MeleeAttack(_) => MOVE | LOOK,
             Goal::ZombieAttackTurtleEgg(_) => MOVE | JUMP,
-            Goal::SpearUse => MOVE | LOOK,
+            Goal::SpearUse(_) => MOVE | LOOK,
             Goal::MoveThroughVillage(_) => MOVE,
             Goal::BreakDoor(_) => 0,
             Goal::MoveTowardsTarget(_) => MOVE,
@@ -165,7 +167,7 @@ impl Goal {
             Goal::RandomLookAround(_) => "RandomLookAroundGoal",
             Goal::MeleeAttack(m) => m.kind.name(),
             Goal::ZombieAttackTurtleEgg(_) => "ZombieAttackTurtleEggGoal",
-            Goal::SpearUse => "SpearUseGoal",
+            Goal::SpearUse(_) => "SpearUseGoal",
             Goal::MoveThroughVillage(_) => "MoveThroughVillageGoal",
             Goal::BreakDoor(_) => "BreakDoorGoal",
             Goal::MoveTowardsTarget(_) => "MoveTowardsTargetGoal",
@@ -333,7 +335,7 @@ pub fn can_use(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::RandomLookAround(l) => look::random_can_use(w, i, l),
         Goal::MeleeAttack(m) => melee::can_use(w, i, m),
         Goal::ZombieAttackTurtleEgg(t) => zombie::turtle_can_use(w, i, t),
-        Goal::SpearUse => zombie::spear_can_use(w, i),
+        Goal::SpearUse(s) => spear::can_use(w, i, s),
         Goal::MoveThroughVillage(v) => zombie::village_can_use(w, i, v),
         Goal::BreakDoor(d) => zombie::door_can_use(w, i, d),
         Goal::MoveTowardsTarget(g) => golem::towards_can_use(w, i, g),
@@ -367,7 +369,7 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::RandomLookAround(l) => l.look_time >= 0,
         Goal::MeleeAttack(m) => melee::can_continue(w, i, m),
         Goal::ZombieAttackTurtleEgg(t) => zombie::turtle_can_continue(w, i, t),
-        Goal::SpearUse => false,
+        Goal::SpearUse(s) => spear::can_continue(w, i, s),
         Goal::MoveThroughVillage(v) => zombie::village_can_continue(w, i, v),
         Goal::BreakDoor(d) => zombie::door_can_continue(w, i, d),
         Goal::MoveTowardsTarget(g) => golem::towards_can_continue(w, i, g),
@@ -402,7 +404,7 @@ pub fn start(w: &mut World, i: usize, g: &mut Goal) {
         Goal::RandomLookAround(l) => look::random_start(w, i, l),
         Goal::MeleeAttack(m) => melee::start(w, i, m),
         Goal::ZombieAttackTurtleEgg(t) => zombie::turtle_start(w, i, t),
-        Goal::SpearUse => {}
+        Goal::SpearUse(s) => spear::start(w, i, s),
         Goal::MoveThroughVillage(v) => zombie::village_start(w, i, v),
         Goal::BreakDoor(d) => zombie::door_start(w, i, d),
         Goal::MoveTowardsTarget(g) => golem::towards_start(w, i, g),
@@ -435,7 +437,7 @@ pub fn stop(w: &mut World, i: usize, g: &mut Goal) {
         Goal::RandomLookAround(_) => {}
         Goal::MeleeAttack(m) => melee::stop(w, i, m),
         Goal::ZombieAttackTurtleEgg(t) => zombie::turtle_stop(w, i, t),
-        Goal::SpearUse => {}
+        Goal::SpearUse(s) => spear::stop(w, i, s),
         Goal::MoveThroughVillage(v) => zombie::village_stop(w, i, v),
         Goal::BreakDoor(d) => zombie::door_stop(w, i, d),
         Goal::MoveTowardsTarget(g) => g.target = None,
@@ -466,7 +468,7 @@ pub fn tick(w: &mut World, i: usize, g: &mut Goal) {
         Goal::RandomLookAround(l) => look::random_tick(w, i, l),
         Goal::MeleeAttack(m) => melee::tick(w, i, m),
         Goal::ZombieAttackTurtleEgg(t) => zombie::turtle_tick(w, i, t),
-        Goal::SpearUse => {}
+        Goal::SpearUse(s) => spear::tick(w, i, s),
         Goal::MoveThroughVillage(_) => {}
         Goal::BreakDoor(d) => zombie::door_tick(w, i, d),
         Goal::OfferFlower(g) => golem::flower_tick(w, i, g),

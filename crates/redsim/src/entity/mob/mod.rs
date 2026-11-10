@@ -138,6 +138,17 @@ pub enum Damage {
     /// `MobWorld.ai.attacker` and its motion `MobWorld.ai.projectile_motion` during the call: the
     /// knockback goes along the arrow's motion).
     Arrow,
+    /// mob AI: a spear's stab (`spear`: armor counts; `#no_knockback`, the stab pushes on its
+    /// own; `#is_player_attack`, so a panic cause; the attacker is `MobWorld.ai.attacker`).
+    Spear,
+}
+
+impl Damage {
+    /// Caused by a living attacker (`MobWorld.ai.attacker` during the call): a melee hit, an
+    /// arrow's owner, a spear's holder.
+    pub fn by_attacker(self) -> bool {
+        matches!(self, Damage::MobAttack | Damage::Arrow | Damage::Spear)
+    }
 }
 
 impl Damage {
@@ -164,6 +175,7 @@ impl Damage {
             Damage::InFire => "in_fire",
             Damage::MobAttack => "mob_attack",
             Damage::Arrow => "arrow",
+            Damage::Spear => "spear",
         }
     }
 
@@ -181,6 +193,7 @@ impl Damage {
             Damage::InFire => "inFire",
             Damage::MobAttack => "mob",
             Damage::Arrow => "arrow",
+            Damage::Spear => "spear",
         }
     }
 }

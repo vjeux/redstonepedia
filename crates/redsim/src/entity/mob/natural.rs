@@ -2387,9 +2387,6 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
                     e.x_rot_o = 0.0;
                     w.entities.list[ri].vehicle = Some(id);
                     w.entities.list[vi].passengers.push(r);
-                    if let Some(a) = super::mob_mut(w, ri).ai.as_deref_mut() {
-                        a.spear = true;
-                    }
                 }
                 rider = Some(r);
             } else {

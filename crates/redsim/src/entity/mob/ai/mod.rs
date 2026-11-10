@@ -113,7 +113,8 @@ pub struct MobAi {
     /// A horse's state (`AbstractHorse`: attributes, eating, standing).
     pub horse: Option<goal::animal::Horse>,
     /// A zombie holding an iron spear (a zombie horseman's, or 1 in 6 of the rare weapons).
-    pub spear: bool,
+    /// `LivingEntity.recentKineticEnemies` (a spear in use: each entity it stabbed and when).
+    pub stabbed: Vec<(u32, i64)>,
     /// A drowned holding a trident (its own spawn's 10 in 16 of 1 in 10).
     pub trident: bool,
     /// `AgeableMob.age` of a farm animal (0 an adult, a baby counts up from -24000).
@@ -205,7 +206,7 @@ impl MobAi {
             piglin: None,
             witch_drink: None,
             horse: None,
-            spear: false,
+            stabbed: Vec::new(),
             trident: false,
             age: 0,
         };

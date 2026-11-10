@@ -336,7 +336,8 @@ fn teleport_to(w: &mut World, i: usize, xx: f64, yy: f64, zz: f64) -> bool {
 /// `Enderman.hurtServer`'s tail: a damage no living entity caused teleports it nine times in ten
 /// (the roll drawn whether it lived or not).
 pub fn after_hurt(w: &mut World, i: usize, src: crate::entity::mob::Damage) {
-    if src == crate::entity::mob::Damage::MobAttack {
+    // a living attacker's (a hit, a spear's stab) teleports it not
+    if matches!(src, crate::entity::mob::Damage::MobAttack | crate::entity::mob::Damage::Spear) {
         return;
     }
     if rnd(w, i).next_int(10) != 0 {

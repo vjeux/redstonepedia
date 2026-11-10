@@ -387,7 +387,7 @@ pub fn can_use(w: &mut World, i: usize, g: &mut AnimalGoal) -> bool {
             // DefaultRandomPos.getPos(5, 4)
             let now = w.time;
             let panics = mob(w, i).last_damage.is_some_and(|(t, s)| {
-                now - t <= 40 && matches!(s, Damage::Lava | Damage::OnFire | Damage::HotFloor | Damage::Lightning | Damage::InFire | Damage::MobAttack | Damage::Arrow)
+                now - t <= 40 && matches!(s, Damage::Lava | Damage::OnFire | Damage::HotFloor | Damage::Lightning | Damage::InFire | Damage::MobAttack | Damage::Arrow | Damage::Spear)
             });
             if !panics || (*mount && crate::entity::mob::ai::controlled_by_mob(w, i)) {
                 return false;

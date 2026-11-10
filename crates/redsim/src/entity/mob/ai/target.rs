@@ -132,11 +132,6 @@ pub fn set_target(w: &mut World, i: usize, t: Option<u32>) {
     // delay and alert interval
     super::goal::zombie::piglin_on_set_target(w, i, before, v);
     ai_mut(w, i).target = v;
-    // a zombie holding an iron spear with a target: SpearUseGoal (priority 2) would charge with
-    // it; not modeled, its melee attack runs instead (named in the run's legacy list)
-    if v.is_some() && ai(w, i).spear {
-        w.mob.ai.legacy.insert("a zombie's iron spear (SpearUseGoal: it attacks in melee instead)");
-    }
     let now = w.entities.list[i].tick_count;
     if let Some(s) = ai_mut(w, i).enderman.as_mut() {
         s.target_change_time = if v.is_some() { now } else { 0 };

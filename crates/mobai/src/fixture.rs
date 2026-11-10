@@ -1018,6 +1018,34 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (mob-AI 2026-11-10) a zombie with an iron spear and a villager in a walled arena at night:
+    // SpearUseGoal (the walk up to 10, the spear lowered for reducedTickDelay(12 + 225), the
+    // charge, the backing off and the flight), KineticWeapon's stabs (the look's reach, the
+    // speeds, the damage and knockback conditions, stabAttack, the spear damage type)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        wall(&mut b, (4, 4), (44, 4), 64, 3, stone);
+        wall(&mut b, (4, 44), (44, 44), 64, 3, stone);
+        wall(&mut b, (4, 4), (4, 44), 64, 3, stone);
+        wall(&mut b, (44, 4), (44, 44), 64, 3, stone);
+        v.push(Scene {
+            name: "zombie-spear".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                ("minecraft:zombie".into(), [14.5, 64.0, 24.5], Some("{PersistenceRequired:1b,equipment:{mainhand:{id:\"minecraft:iron_spear\",count:1}}}".into())),
+                ("minecraft:villager".into(), [30.5, 64.0, 24.5], Some("{PersistenceRequired:1b}".into())),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // a skeleton alone at night: strolls, looks around (RestrictSunGoal idle in the dark)
     {
         let mut b = Vec::new();
