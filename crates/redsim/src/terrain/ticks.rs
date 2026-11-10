@@ -55,7 +55,9 @@ pub fn random_tick(w: &mut World, id: u16, p: BlockPos) {
         }
         // NetherPortalBlock.randomTick in the overworld (NETHER_PORTAL_SPAWNS_PIGLINS): with
         // monsters spawning and not on peaceful, nextInt(2000) < the difficulty's id spawns a
-        // zombified piglin on the portal's floor (natural::portal_piglin)
+        // zombified piglin on the portal's floor (natural::portal_piglin); in the Nether
+        // (NETHER_PORTAL_SPAWNS_PIGLINS is the overworld's) nothing, no draw
+        "minecraft:nether_portal" if w.ultrawarm => {}
         "minecraft:nether_portal" => {
             use crate::entity::mob::natural::Difficulty;
             // ServerLevel.isSpawningMonsters: SPAWN_MOBS (the spawner runs) and SPAWN_MONSTERS

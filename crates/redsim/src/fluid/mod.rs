@@ -88,19 +88,19 @@ const CAN_CONVERT_TO_SOURCE: bool = true;
 /// `LavaFluid.getTickDelay` (a dimension that is not ultra-warm: the overworld).
 pub const LAVA_TICK_DELAY: i32 = 30;
 
-/// `FlowingFluid.getTickDelay` of a fluid.
-pub fn tick_delay(f: Fluid) -> i32 {
-    if f.is_lava() { LAVA_TICK_DELAY } else { TICK_DELAY }
+/// `FlowingFluid.getTickDelay` of a fluid (lava every 10 gt in an ultra-warm dimension: the Nether).
+pub fn tick_delay(w: &World, f: Fluid) -> i32 {
+    if f.is_lava() { if w.ultrawarm { 10 } else { LAVA_TICK_DELAY } } else { TICK_DELAY }
 }
 
-/// `getDropOff` (lava 2 outside ultra-warm dimensions).
-fn drop_off(f: Fluid) -> i32 {
-    if f.is_lava() { 2 } else { DROP_OFF }
+/// `getDropOff` (lava 2 outside ultra-warm dimensions, 1 in them).
+fn drop_off(w: &World, f: Fluid) -> i32 {
+    if f.is_lava() { if w.ultrawarm { 1 } else { 2 } } else { DROP_OFF }
 }
 
-/// `getSlopeFindDistance` (lava 2 outside ultra-warm dimensions).
-fn slope_find_distance(f: Fluid) -> i32 {
-    if f.is_lava() { 2 } else { SLOPE_FIND_DISTANCE }
+/// `getSlopeFindDistance` (lava 2 outside ultra-warm dimensions, 4 in them).
+fn slope_find_distance(w: &World, f: Fluid) -> i32 {
+    if f.is_lava() { if w.ultrawarm { 4 } else { 2 } } else { SLOPE_FIND_DISTANCE }
 }
 
 /// `canConvertToSource` (`GameRules.LAVA_SOURCE_CONVERSION` default false).
@@ -539,7 +539,7 @@ pub fn get_new_liquid_of(w: &World, kind: Fluid, p: BlockPos, s: &Block) -> Flui
     if !af.is_empty() && af.fluid.same(kind) && can_pass_through_wall(Dir::Up, w, p, s, ap, &a) {
         return FluidState::flowing_of(kind, 8, true);
     }
-    let amount = highest - drop_off(kind);
+    let amount = highest - drop_off(w, kind);
     if amount <= 0 { FluidState::EMPTY } else { FluidState::flowing_of(kind, amount as u8, false) }
 }
 
@@ -558,7 +558,7 @@ fn get_slope_distance(w: &World, kind: Fluid, p: BlockPos, pass: i32, from: Dir,
             if is_hole(w, kind, tp) {
                 return pass;
             }
-            if pass < slope_find_distance(kind) {
+            if pass < slope_find_distance(w, kind) {
                 let v = get_slope_distance(w, kind, tp, pass + 1, d.opposite(), &ts);
                 if v < lowest {
                     lowest = v;
@@ -633,7 +633,7 @@ fn spread_to(w: &mut World, kind: Fluid, p: BlockPos, s: Block, d: Dir, target: 
 /// `FlowingFluid.spreadToSides`.
 fn spread_to_sides(w: &mut World, p: BlockPos, f: FluidState, s: &Block) {
     let kind = f.fluid;
-    let mut neighbor = f.amount as i32 - drop_off(kind);
+    let mut neighbor = f.amount as i32 - drop_off(w, kind);
     if f.falling {
         neighbor = 7;
     }
@@ -673,7 +673,7 @@ fn spread(w: &mut World, p: BlockPos, s: Block, f: FluidState) {
 /// `FlowingFluid.getSpreadDelay`: the tick delay; lava's x4 when the cell rises (neither falling)
 /// and the level random's `nextInt(4)` is not 0 (`LavaFluid.getSpreadDelay`).
 fn spread_delay(w: &mut World, p: BlockPos, old: FluidState, new: FluidState) -> i32 {
-    let mut d = tick_delay(old.fluid);
+    let mut d = tick_delay(w, old.fluid);
     if old.fluid.is_lava() && !old.is_empty() && !new.is_empty() && !old.falling && !new.falling && new.height(w, p) > old.height(w, p) && crate::weather::fire::rng(w).next_int(4) != 0 {
         d *= 4;
     }
@@ -790,7 +790,7 @@ fn try_schedule_bubble_block_column(w: &mut World, p: BlockPos, below: &Block) {
 pub fn liquid_on_place(w: &mut World, s: Block, p: BlockPos) {
     if should_spread_liquid(w, p, &s) {
         let f = fluid_state_of(&s).fluid;
-        w.schedule_fluid_tick(p, f, tick_delay(f));
+        w.schedule_fluid_tick(p, f, tick_delay(w, f));
     }
     if should_bubble_column_occupy(&s) {
         let below = w.get(p.below());
@@ -820,7 +820,7 @@ fn should_spread_liquid(w: &mut World, p: BlockPos, s: &Block) -> bool {
 pub fn liquid_update_shape(w: &mut World, s: Block, p: BlockPos, d: Dir, ns: Block) -> Block {
     if fluid_state_of(&s).is_source() || fluid_state_of(&ns).is_source() {
         let f = fluid_state_of(&s).fluid;
-        w.schedule_fluid_tick(p, f, tick_delay(f));
+        w.schedule_fluid_tick(p, f, tick_delay(w, f));
     }
     if d == Dir::Down && should_bubble_column_occupy(&s) {
         try_schedule_bubble_block_column(w, p, &ns);

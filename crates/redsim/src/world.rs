@@ -273,6 +273,24 @@ pub struct World {
     /// sandbox artifact (in a real world the player keeps those chunks loaded), which a judge
     /// fails or avoids by forcing more chunks.
     pub frozen: Vec<(i64, u32)>,
+    // ---- the Nether (tickexact 2026-11-09, ironspec's portal pad: `entity::portal`) ----
+    /// The Nether beside this overworld: its own blocks, entities and ticks. It ticks after the
+    /// overworld's levels and before the players (MinecraftServer.tickChildren's order), and only
+    /// while a PORTAL ticket holds it. None (the default): an entity through a portal leaves the
+    /// simulation (removed).
+    pub nether: Option<Box<World>>,
+    /// This world is the Nether (`DimensionType.ultraWarm`): lava flows every 10 gt, drops off by
+    /// 1, looks 4 blocks for a slope and pushes entities by 0.007; a portal's random tick spawns
+    /// nothing; an entity through a portal goes to the overworld (`outgoing`).
+    pub ultrawarm: bool,
+    /// The PORTAL tickets on this world (chunk, game time made: `TicketType.PORTAL`, 300 gt, radius
+    /// 3): entities tick within 1 chunk of one, blocks within 2.
+    pub portal_tickets: Vec<([i32; 2], i64)>,
+    /// Entities through a portal out of this Nether this tick, for the overworld to place.
+    pub outgoing: Vec<crate::entity::portal::Crossing>,
+    /// The crossings placed in this world or sent from it to the Nether (game time, the entity's
+    /// id, its copy's id), for a caller following an entity through portals.
+    pub crossings: Vec<(i64, u32, u32)>,
     // ---- explosions and TNT outcomes (clk-misc, `explosion.rs`) ----
     /// How an explosion draws its rays' power (`explosion::Rolls`: the level random by default).
     pub explosion_rolls: crate::explosion::Rolls,
@@ -370,6 +388,11 @@ impl World {
             chunk_order: Vec::new(),
             entity_chunks: None,
             frozen: Vec::new(),
+            nether: None,
+            ultrawarm: false,
+            portal_tickets: Vec::new(),
+            outgoing: Vec::new(),
+            crossings: Vec::new(),
             explosion_rolls: Default::default(),
             tnt_kicks: Vec::new(),
             tnt_spawned: 0,
@@ -1145,6 +1168,10 @@ impl World {
         crate::piston::tick_block_entities(self);
         if !self.frames.is_empty() {
             crate::entity::frame::check_static(self);
+        }
+        // the Nether's level ticks after the overworld's (tickexact: ironspec's portal pad)
+        if self.nether.is_some() {
+            crate::entity::portal::tick_nether(self);
         }
         // tickexact: the players tick after the levels (MinecraftServer.tickConnection ->
         // ServerPlayer.doTick): their bodies (pushed by mobs, sliding: the mob AI's), then the AFK

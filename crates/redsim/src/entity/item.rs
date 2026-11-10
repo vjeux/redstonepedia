@@ -289,7 +289,10 @@ pub fn tick(w: &mut World, i: usize) {
         w.entities.list[i].removed = true;
         return;
     }
-    // Entity.tick = baseTick
+    // Entity.tick = baseTick: its handlePortal first (tickexact: an item through a nether portal)
+    if crate::entity::portal::handle_portal(w, i) {
+        return;
+    }
     crate::entity::base_tick(w, i);
     if w.entities.list[i].removed {
         return;

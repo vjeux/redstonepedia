@@ -546,6 +546,16 @@ impl Entities {
     pub fn is_empty(&self) -> bool {
         self.list.iter().all(|e| e.removed)
     }
+
+    /// (tickexact) An entity entering this world whole (a copy through a nether portal): appended,
+    /// its section entry new. Returns its index.
+    pub fn insert(&mut self, mut e: Entity) -> usize {
+        e.section = section_of(e.pos);
+        e.section_seq = self.section_counter;
+        self.section_counter += 1;
+        self.list.push(e);
+        self.list.len() - 1
+    }
 }
 
 /// The entity phase: every live entity's `commonTick` then `tick` (`ServerLevel.tickNonPassenger`),

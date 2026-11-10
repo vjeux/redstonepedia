@@ -229,9 +229,9 @@ pub fn update_fluid_interaction(w: &mut World, i: usize) -> bool {
     if in_water && pushed {
         apply_current(&mut e, false, 0.014);
     }
-    // the lava current (an overworld: not FAST_LAVA, 0.0023333333333333335)
+    // the lava current (FAST_LAVA in an ultra-warm dimension: 0.007; else 0.0023333333333333335)
     if e.fluid.lava_height() > 0.0 && pushed {
-        apply_current(&mut e, true, 0.0023333333333333335);
+        apply_current(&mut e, true, if w.ultrawarm { 0.007 } else { 0.0023333333333333335 });
     }
     w.entities.list.push(e);
     let last = w.entities.list.len() - 1;

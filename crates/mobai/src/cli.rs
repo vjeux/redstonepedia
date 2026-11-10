@@ -158,6 +158,33 @@ pub enum MobaiCmd {
     PortalProbe {
         #[arg(long, default_value_t = 8)]
         ticks: u32,
+        /// The Nether side instead (ironspec's portal pad): a golem's arrival through a linked
+        /// Nether portal (its position, the exit cooldown, the PORTAL ticket's window), an item
+        /// sent back, a golem in Nether lava.
+        #[arg(long)]
+        nether: bool,
+        /// With --nether: the overworld side as a design file (its blocks at their own coordinates,
+        /// its `entity:` lines summoned and followed), instead of the built-in room.
+        #[arg(long)]
+        overworld: Option<std::path::PathBuf>,
+        /// With --nether: the Nether side as a design file (placed at its own coordinates in the
+        /// Nether: choose coordinates that link).
+        #[arg(long)]
+        nether_design: Option<std::path::PathBuf>,
+        /// With the design files: print each entity every this many ticks (and at every event).
+        #[arg(long, default_value_t = 20)]
+        every: u32,
+        /// With the design files: run them on redsim (its Nether model) instead of the official
+        /// server, printing the same lines.
+        #[arg(long)]
+        redsim: bool,
+        /// Check how a pasted lava source spreads on the official server, in each dimension.
+        #[arg(long)]
+        fluid_test: bool,
+        /// With the design files: summon the overworld design's k-th entity k x this many ticks
+        /// in (golems arriving one after another, as a farm sends them).
+        #[arg(long, default_value_t = 0)]
+        stagger: u32,
     },
 }
 
@@ -173,6 +200,13 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::Replay { paths } => crate::fixture::replay(&paths),
         MobaiCmd::FarmTrace { design, seed, at, entity, terrain, day0, build, run, no_spawning, weather } => crate::farmtrace::run(version, &design, seed, at, entity, terrain, day0, build.map(|k| (k, run)), no_spawning, weather),
         MobaiCmd::Mathfuzz { n, seed, inputs } => crate::mathfuzz::run(version, n, seed, &inputs),
-        MobaiCmd::PortalProbe { ticks } => crate::portal::run(version, ticks),
+        MobaiCmd::PortalProbe { ticks, nether, overworld, nether_design, every, redsim, fluid_test, stagger } => match (nether, overworld, nether_design) {
+            _ if fluid_test => crate::portal::fluid_test(version),
+            (true, Some(o), Some(n)) if redsim => crate::portal::nether_designs_redsim(&o, &n, ticks, every, stagger),
+            (true, Some(o), Some(n)) => crate::portal::nether_designs(version, &o, &n, ticks, every, stagger),
+            (true, None, None) => crate::portal::nether(version, ticks),
+            (true, _, _) => anyhow::bail!("--overworld and --nether-design go together"),
+            (false, _, _) => crate::portal::run(version, ticks),
+        },
     }
 }

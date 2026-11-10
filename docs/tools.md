@@ -43,6 +43,17 @@ block light differs at the end; `MCTAS_EXACT_SUMMONS=1` each golem summon and ea
 GOLEM_DETECTED_RECENTLY set and freed, both sides). One judge run on redsim alone: `mctas mobfarm
 run <design> [--terrain <sample> | --build K] --seed S --days D` (`--build K`: the judge's K-th
 terrain site with its run options, so a live view's "build 7 seed S" is `--build 7 --seed S`).
+Nether portals and the Nether (redsim's `World::nether`, `entity::portal`: crossings both ways, the
+arrival placement, the 300-gt cooldown, the PORTAL ticket that keeps the Nether ticking, items,
+ultra-warm lava) against the official server, which has a Nether (the bridge has none): `mctas
+mobai portal-probe --nether` (built-in cases, each beside redsim's), and for two design files, each
+pasted at its own coordinates (choose coordinates that link), `mctas mobai portal-probe --nether
+--overworld <design> --nether-design <design> [--ticks N --every K --stagger S] [--redsim]`: every
+K ticks and at each event each of the overworld design's entities (the k-th summoned S x k ticks
+in) with its dimension, position, motion, health and PortalCooldown, and the iron in the Nether;
+`--redsim` prints the same run on redsim. Known difference: a crossing into Nether chunks no longer
+loaded waits for the game's chunk load (1 to 7 ticks measured) before its first tick there;
+redsim, like a farm running steadily, keeps them loaded.
 The judge's run on many seeds at once: `mctas mobfarm seeds <design> --from 1 --to 100 --days 3
 [--jobs N] [--write]` prints each seed's verdict (PASS or its first failure, with golems, iron and
 a carousel's riders at each midday), how many hold and the first failures by kind; `--write`
