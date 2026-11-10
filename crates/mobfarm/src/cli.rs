@@ -532,6 +532,21 @@ pub enum MobfarmCmd {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Assembly v0's wiring check: the design's redstone alone on redsim (no villagers), a golem
+    /// pulse at every slot but a `miss` share, for `slots` slots: every lane's slope rails against
+    /// its counter line (stand slopes powered while the line is low, hold slopes while it is high):
+    /// the delays per end and level, crosstalk, rails stuck over `tolerance` gt, two lines high.
+    AssemblyCheck {
+        design: PathBuf,
+        #[arg(long, default_value_t = 2000)]
+        slots: u32,
+        #[arg(long, default_value_t = 0.05)]
+        miss: f64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long, default_value_t = 40)]
+        tolerance: i64,
+    },
     /// The station's storage alone: the Nether part's pit floor and collection (sorter, crafter,
     /// composter, the double chest) in a test world, a golem's drops on a random pit cell each 100
     /// gt at the given success rate, for `hours`: the iron where it ends each hour and when the
@@ -894,10 +909,25 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let p: Vec<i32> = counter_at.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(p.len() == 3, "--counter-at x,y,z");
             let pad = crate::station::PadOpts { x0, x1, ..Default::default() };
-            let o = crate::assembly::AsmOpts { counter_at: [p[0], p[1], p[2]] };
+            let o = crate::assembly::AsmOpts { counter_at: [p[0], p[1], p[2]], wired: false };
             let text = crate::assembly::v0a(&pad, &crate::hold::LaneOpts::default(), &o)?;
             std::fs::write(&out, text)?;
             println!("{}", out.display());
+        }
+        MobfarmCmd::AssemblyCheck { design, slots, miss, seed, tolerance } => {
+            let (c, spec) = load(version, &design)?;
+            let lanes = crate::hold::lanes_of(&c.clock.design.meta)?;
+            let pad = crate::station::PadOpts::of(&c.clock.design.meta)?;
+            let asm = crate::assembly::AsmOpts::of(&c.clock.design.meta)?.ok_or_else(|| anyhow::anyhow!("not an assembly design (no `assembly:` line)"))?;
+            let r = crate::assembly::wiring_check(&spec, &lanes, &pad, &asm, slots, miss, seed, tolerance).map_err(|e| anyhow::anyhow!(e))?;
+            println!("{} slots, {} golem pulses ({:.1}% missed), {} advances; ticks with 2+ lines high: {}", r.slots, r.pulses, 100.0 * (1.0 - r.pulses as f64 / r.slots.max(1) as f64), r.advances, r.two_lines);
+            for (k, (lo, hi, n)) in &r.delays {
+                println!("  {k}: delay {lo}..{hi} gt over {n} changes");
+            }
+            println!("crosstalk: {} {:?}", r.crosstalk_count, r.crosstalk);
+            println!("stuck: {} {:?}", r.stuck_count, r.stuck);
+            let ok = r.crosstalk_count == 0 && r.stuck_count == 0 && r.two_lines == 0 && r.delays.len() == 2 * lanes.levels as usize;
+            println!("{}", if ok { "PASS" } else { "FAIL" });
         }
         MobfarmCmd::StationStorage { hours, seed, success, official } => {
             let lines = if official { crate::station::storage_official(version, hours, seed, success)? } else { crate::station::storage_bench(hours, seed, success).map_err(|e| anyhow::anyhow!(e))? };
@@ -917,7 +947,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             };
             let (hold_delay, stand_delay) = (three(&hold_delay)?, three(&stand_delay)?);
             // an assembly design: its counter in the loop
-            let counter = match crate::assembly::AsmOpts::of(&c.clock.design.meta)? {
+            let asm = crate::assembly::AsmOpts::of(&c.clock.design.meta)?;
+            let wired = asm.is_some_and(|a| a.wired);
+            let counter = match asm {
                 Some(a) => Some(crate::assembly::counter_taps(&a)?),
                 None => None,
             };
@@ -931,7 +963,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     sc.spawn(|| loop {
                         let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some(&seed) = seeds.get(k) else { break };
-                        let r = crate::station::bench(&spec, &lanes, &pad, &crate::station::BenchOpts { seed, days, jitter, verbose: verbose && seed == from, timeline: if seed == from { timeline.clone() } else { None }, counter: counter.clone(), hold_delay, stand_delay });
+                        let r = crate::station::bench(&spec, &lanes, &pad, &crate::station::BenchOpts { seed, days, jitter, verbose: verbose && seed == from, timeline: if seed == from { timeline.clone() } else { None }, counter: counter.clone(), hold_delay, stand_delay, wired });
                         out.lock().unwrap().push((seed, r));
                     });
                 }

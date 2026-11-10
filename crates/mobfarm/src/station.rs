@@ -836,6 +836,9 @@ pub struct BenchOpts {
     /// control's, and to its stand control's (the physical wiring's: transport, torches).
     pub hold_delay: [i64; 3],
     pub stand_delay: [i64; 3],
+    /// The design's own wiring drives the controls (an assembly's `wired=1`): the bench only
+    /// reads the counter's lines.
+    pub wired: bool,
 }
 
 /// What the dynamic bench measured.
@@ -1054,7 +1057,9 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
                     if bo.verbose && t_next < t0 + 2000 {
                         eprintln!("gt {t_next}: line {b} {}", if high { "up" } else { "down" });
                     }
-                    if bo.hold_delay == [0; 3] && bo.stand_delay == [0; 3] {
+                    if bo.wired {
+                        // the design's own wiring switches the controls
+                    } else if bo.hold_delay == [0; 3] && bo.stand_delay == [0; 3] {
                         set_line(&mut run.world, b as i32, high);
                     } else {
                         // the wiring's delays: each level's hold control follows the line after

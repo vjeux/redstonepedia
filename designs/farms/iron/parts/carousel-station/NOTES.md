@@ -52,6 +52,8 @@ on ironfarm's real carts and lines, 100 seeds x 6 days), `station-storage [--off
 
 - v2 is v1 13 wide for ironfarm's stand shifted one block south (234af4b65; the shift gives the
   level-1 stand control a free face for the torch chain): its level-2 riders then miss row -6,
-  and 11 wide would give 98.91% at 3 callers.
+  and 11 wide would give 98.91% at 3 callers. On the official server (`station-check --official`,
+  5 cells: both ends of the long rows and a middle cell) every pulse is on at t+1, the golem in the
+  Nether at t+2 and the pulse off at t+11, as the 11-wide pad.
 - Paired lanes (ironspec's ruling, x 0,1 | 3,4 | 6,7 | 9): each rider needs 12 pad columns in its
   +-8 window, so the pad goes x -3..12 (16 wide) unless the end lanes come within 8 of each other.

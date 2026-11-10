@@ -25,18 +25,21 @@ pub const COUNTER_V7: &str = include_str!("../../../designs/farms/iron/parts/car
 #[derive(Clone, Copy, Debug)]
 pub struct AsmOpts {
     pub counter_at: [i32; 3],
+    /// The lines drive the slope controls through the design's own wiring (step b): the bench
+    /// then only reads the lines (the batch at each slot, the margins), it switches nothing.
+    pub wired: bool,
 }
 
 impl Default for AsmOpts {
     fn default() -> AsmOpts {
-        AsmOpts { counter_at: [3, -10, 15] }
+        AsmOpts { counter_at: [3, -10, 15], wired: false }
     }
 }
 
 impl AsmOpts {
     /// The `assembly:` line.
     pub fn meta(&self) -> String {
-        format!("counter=v7 at={},{},{}", self.counter_at[0], self.counter_at[1], self.counter_at[2])
+        format!("counter=v7 at={},{},{}{}", self.counter_at[0], self.counter_at[1], self.counter_at[2], if self.wired { " wired=1" } else { "" })
     }
 
     pub fn of(meta: &std::collections::BTreeMap<String, String>) -> Result<Option<AsmOpts>> {
@@ -51,6 +54,7 @@ impl AsmOpts {
                     anyhow::ensure!(p.len() == 3, "at=x,y,z");
                     o.counter_at = [p[0], p[1], p[2]];
                 }
+                "wired" => o.wired = v == "1",
                 _ => anyhow::bail!("unknown `assembly:` entry {k:?}"),
             }
         }
@@ -183,4 +187,135 @@ pub fn v0a(pad: &crate::station::PadOpts, lanes: &crate::hold::LaneOpts, o: &Asm
     }
     s.push_str(&d.to_text());
     Ok(s)
+}
+
+/// What the wiring check measured.
+#[derive(Clone, Debug, Default)]
+pub struct WiringReport {
+    pub slots: u32,
+    pub pulses: u32,
+    pub advances: u32,
+    /// Per end and level ("stand L0", "hold L2"...): the delays from a line's change to its rail's
+    /// (min, max, count).
+    pub delays: std::collections::BTreeMap<String, (i64, i64, u32)>,
+    /// Rail changes away from what their line asks (crosstalk, glitches), and mismatches lasting
+    /// over the tolerance.
+    pub crosstalk: Vec<String>,
+    pub crosstalk_count: u32,
+    pub stuck: Vec<String>,
+    pub stuck_count: u32,
+    /// Ticks with two or more lines high.
+    pub two_lines: u32,
+}
+
+/// The physical wiring's check (`mobfarm assembly-check`): the design's redstone alone on redsim
+/// (no entities), a golem pulse (a redstone block over the pad's output dust for 10 gt, from the
+/// tick after each slot) at every slot but a random `miss` share (the counter's fallback then
+/// runs), for `slots` slots; every tick each lane's line (its tap) against its slope rails: the
+/// stand slopes powered while the line is low, the hold slopes while it is high. Each rail change
+/// toward its line's ask is a delay from the line's last change; each change away from it is
+/// crosstalk; each mismatch lasting over `tolerance` gt is stuck.
+pub fn wiring_check(spec: &redsim::entity::mob::farm::FarmSpec, lanes: &crate::hold::LaneOpts, pad: &crate::station::PadOpts, asm: &AsmOpts, slots: u32, miss: f64, seed: i64, tolerance: i64) -> Result<WiringReport, String> {
+    use redsim::block::Block;
+    use redsim::entity::mob::farm::{Run, RunOpts, WalkMode};
+    let ro = RunOpts { ai: false, ..RunOpts::steady(seed, slots * 100 + 400, WalkMode::Random) };
+    let mut run = Run::start(spec, &ro)?;
+    while run.settle_tick() {}
+    let taps = counter_taps(asm).map_err(|e| e.to_string())?;
+    let n = crate::hold::BATCHES as usize;
+    // each lane's rails: (end, level, cell)
+    let mut rails: Vec<Vec<(&'static str, i32, BlockPos)>> = Vec::new();
+    for b in 0..n as i32 {
+        let x = lanes.x(b);
+        let mut v = Vec::new();
+        for k in 0..lanes.levels {
+            v.push(("stand", k, BlockPos::new(x, lanes.level_gap * k, lanes.stand_z0 + k)));
+            v.push(("hold", k, BlockPos::new(x, lanes.level_gap * k, lanes.run - k)));
+        }
+        rails.push(v);
+    }
+    let powered = |w: &redsim::world::World, p: BlockPos| matches!(w.get(p), Block::Rail { activator: false, powered: true, .. });
+    let line = |w: &redsim::world::World, p: BlockPos| matches!(w.get(p), Block::Comparator { powered: true, .. });
+    let mut rep = WiringReport::default();
+    let mut rng = redsim::rng::LegacyRandom::new(seed ^ 0x7769_7265);
+    let pulse = pad.pulse();
+    let src = BlockPos::new(pulse[0], pulse[1] + 1, pulse[2]);
+    let rblock = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
+    let air = Block::parse("minecraft:air").map_err(|e| e.to_string())?;
+    let fl = redsim::world::flags::ALL;
+    let t0 = run.world.time;
+    let first = (t0 / 100 + 2) * 100;
+    let end = first + slots as i64 * 100;
+    let mut lines: Vec<bool> = taps.iter().map(|p| line(&run.world, *p)).collect();
+    let mut last_change: Vec<i64> = vec![t0; n];
+    let mut rail_state: Vec<Vec<bool>> = rails.iter().map(|v| v.iter().map(|(_, _, p)| powered(&run.world, *p)).collect()).collect();
+    let mut wrong_since: Vec<Vec<Option<i64>>> = rails.iter().map(|v| vec![None; v.len()]).collect();
+    let mut off_at: Option<i64> = None;
+    // the counter's power-on settles before the check counts anything
+    let warm = first + 300;
+    while run.world.time < end {
+        let t = run.world.time + 1;
+        if t >= first && (t - first) % 100 == 1 {
+            rep.slots += 1;
+            if (rng.next_float() as f64) >= miss {
+                run.world.set_block(src, rblock.clone(), fl);
+                off_at = Some(t + 10);
+                rep.pulses += 1;
+            }
+        }
+        if off_at == Some(t) {
+            run.world.set_block(src, air.clone(), fl);
+            off_at = None;
+        }
+        run.tick();
+        let w = &run.world;
+        let now: Vec<bool> = taps.iter().map(|p| line(w, *p)).collect();
+        for b in 0..n {
+            if now[b] != lines[b] {
+                lines[b] = now[b];
+                last_change[b] = t;
+                if now[b] && t >= warm {
+                    rep.advances += 1;
+                }
+            }
+        }
+        if t >= warm && now.iter().filter(|&&h| h).count() > 1 {
+            rep.two_lines += 1;
+        }
+        for b in 0..n {
+            for (j, (end_, k, p)) in rails[b].iter().enumerate() {
+                let want = if *end_ == "stand" { !lines[b] } else { lines[b] };
+                let got = powered(w, *p);
+                if got != rail_state[b][j] {
+                    rail_state[b][j] = got;
+                    if t >= warm {
+                        if got == want {
+                            let d = t - last_change[b];
+                            let e = rep.delays.entry(format!("{end_} L{k}")).or_insert((i64::MAX, i64::MIN, 0));
+                            e.0 = e.0.min(d);
+                            e.1 = e.1.max(d);
+                            e.2 += 1;
+                        } else {
+                            rep.crosstalk_count += 1;
+                            if rep.crosstalk.len() < 8 {
+                                rep.crosstalk.push(format!("gt {t}: lane {b}'s {end_} rail L{k} at {p} turned {} while its line is {}", if got { "on" } else { "off" }, if lines[b] { "high" } else { "low" }));
+                            }
+                        }
+                    }
+                }
+                if got != want {
+                    let since = *wrong_since[b][j].get_or_insert(t);
+                    if t >= warm && t - since == tolerance {
+                        rep.stuck_count += 1;
+                        if rep.stuck.len() < 8 {
+                            rep.stuck.push(format!("gt {t}: lane {b}'s {end_} rail L{k} at {p} {} for {tolerance} gt while its line is {}", if got { "on" } else { "off" }, if lines[b] { "high" } else { "low" }));
+                        }
+                    }
+                } else {
+                    wrong_since[b][j] = None;
+                }
+            }
+        }
+    }
+    Ok(rep)
 }
