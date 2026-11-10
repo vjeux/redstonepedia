@@ -363,11 +363,14 @@ pub struct LoopOpts {
     /// booster after the queue and after the stand), each slot braked as its own cart comes,
     /// and the stand's batch leaves like a queue advance (3 pulses).
     pub plain: bool,
+    /// A descending stand: each slot a braked slope linked to its own (C, A) and a plain slope up,
+    /// each slot a block lower than the last (the catch is a slope wherever the brake comes).
+    pub stand_desc: bool,
 }
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false }
     }
 }
 
@@ -651,6 +654,39 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
     // the curve into the stand, the catch cell before S3's slope
     let xs = xb + 2;
     path.push(([xb, 1, 0], Cell::Plain));
+    if o.stand_desc {
+        // a descending stand: each slot a braked slope C linked to its own slope A, then a plain
+        // slope up B, every slot one block lower than the last (S3's slope at y -1, S1's at -3):
+        // a fast cart entering a braked slot stops on C or A, always on a slope, wherever the
+        // brake caught it
+        for j in 0..3 {
+            let x = xb + 1 + 3 * j;
+            let y = -j;
+            stand_cells.insert(0, [x + 1, y - 1, 0]);
+            path.push(([x, y, 0], Cell::Linked));
+            path.push(([x + 1, y - 1, 0], Cell::Slot));
+            path.push(([x + 2, y - 1, 0], Cell::Plain));
+        }
+        // the departure at y -2: east, north along x xd, up 3 blocks, on north at y 1, west along
+        // zr back to row A
+        let xd = xb + 11;
+        path.push(([xd - 1, -2, 0], Cell::Boost));
+        path.push(([xd, -2, 0], Cell::Plain));
+        for z in 1..=3 {
+            path.push(([xd, -2, z], Cell::Boost));
+        }
+        path.push(([xd, -2, 4], Cell::Plain));
+        path.push(([xd, -1, 5], Cell::Plain));
+        path.push(([xd, 0, 6], Cell::Plain));
+        for z in 7..zr {
+            path.push(([xd, 1, z], Cell::Plain));
+        }
+        path.push(([xd, 1, zr], Cell::Plain));
+        for x in (1..xd).rev() {
+            path.push(([x, 1, zr], Cell::Plain));
+        }
+        return finish_layout(path, slot_cells, stand_cells, Vec::new(), tail_b);
+    }
     path.push(([xb + 1, 1, 0], if o.plain { Cell::Plain } else { Cell::Linked }));
     for j in 0..3 {
         let x = xs + 3 * j;
@@ -864,7 +900,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         b.entity("minecart", [x, c[1] as f64 + 1.0 - off + 0.05, z], rider);
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     Ok(b.text(&["The single-lane carousel's loop (prototype): a sawtooth queue register, the release run, the 3-slot stand, the return run."]))
 }
@@ -891,6 +927,7 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "line" => o.line = v != "0",
             "tail_deep" => o.tail_deep = v != "0",
             "plain" => o.plain = v != "0",
+            "stand_desc" => o.stand_desc = v != "0",
             _ => {}
         }
     }
@@ -916,6 +953,9 @@ pub struct LoopTiming {
     /// The stand braked this many gt after the release train's front cart first stands on S2's
     /// slope up (a detector rail there), instead of the bench's position trigger.
     pub stand_detect: Option<i64>,
+    /// Each stand slot braked this many gt after its own cart first stands on the cell two
+    /// before its slope (a detector rail per slot).
+    pub stand_detect_each: Option<i64>,
     pub intake_brake: Option<(i64, i64)>,
     /// The line loop's startup: the gt (in slot 0) at which the bench places the batch that is on
     /// the return at the start into the queue's tail.
@@ -925,11 +965,18 @@ pub struct LoopTiming {
     pub depart_at: i64,
     pub depart_period: i64,
     pub open_after: i64,
+    /// The design's own redstone drives the controls: the bench only powers this input cell
+    /// (a redstone block) for `golem_for` gt at each slot's start and checks the carts.
+    pub wired: Option<BlockPos>,
+    pub golem_for: i64,
+    /// With `wired`: the stand latch's reset input, which the bench pulses (a redstone block for
+    /// 2 gt) at its own stand-brake trigger, until the stand's brake is wired too.
+    pub stand_reset: Option<BlockPos>,
 }
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8 }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None }
     }
 }
 
@@ -984,7 +1031,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             let across = (ox * d[1] as f64).abs() + (oz * d[0] as f64).abs();
             let tail = !lay.tail_b.is_empty() && k < 3;
             let deep = o.tail_deep && k < 3;
-            let span = if (wide && k >= q) || tail { (-1.0, 2.5) } else if deep { (-2.0, 1.0) } else { (-1.0, 1.0) };
+            let span = if (wide && k >= q) || tail { (-1.0, 2.5) } else if deep || (o.stand_desc && k >= q) { (-2.0, 1.0) } else { (-1.0, 1.0) };
             let e_y_ok = if deep { e.pos.y < 1.5 } else { true };
             along > span.0 && along < span.1 && across < 0.6 && e.pos.y < 1.5 && e.delta_movement.horizontal_distance_sqr() < 1e-6
         })
@@ -995,12 +1042,21 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     // to spawn + t
     let t_spawn = run.world.time;
     let drive: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(Vec::new());
+    // (`wired`: the controls are the design's own redstone; the bench only pulses the golem input
+    // cell each slot and checks where the carts go)
+    let wired = tm.wired;
     let set = |w: &mut redsim::world::World, ps: &[BlockPos], p: bool| {
+        if wired.is_some() {
+            return;
+        }
         for c in ps {
             w.set_block(*c, if p { on.clone() } else { off.clone() }, redsim::world::flags::ALL);
             drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:{}", w.time - t_spawn, c.x, c.y, c.z, if p { "redstone_block" } else { "glass" }));
         }
     };
+    let input_was = wired.map(|p| run.world.get(p));
+    let reset_was = tm.stand_reset.map(|p| run.world.get(p));
+    let mut reset_off_at: Option<i64> = None;
     // (who is where at the start: the design's order)
     for _ in 0..40 {
         run.tick();
@@ -1031,6 +1087,8 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     // the triggers: (slot, the train's carts front first)
     let mut stand_train: Option<(i64, Vec<u32>, u8)> = None;
     let mut detect_at: Option<i64> = None;
+    let mut each_at: [Option<i64>; 3] = [None; 3];
+    let mut each_done = [false; 3];
     let mut intake_trains: Vec<(i64, Vec<u32>, u8)> = Vec::new();
     let mut arrivals: Vec<String> = Vec::new();
     let mut stand_braked_at: Vec<i64> = Vec::new();
@@ -1042,14 +1100,30 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             let in_slot = |id: u32, cell: [i32; 3]| pos_of(&run.world, id).is_some_and(|p| p.x.floor() as i32 == cell[0] && p.z.floor() as i32 == cell[2] && p.y < 1.5);
             let by_cell = |cell: [i32; 3]| carts.iter().copied().find(|id| in_slot(*id, cell));
             let rel: Vec<u32> = (0..3).filter_map(|k| by_cell(lay.slot_cells[q - 1 - k])).collect();
-            let dep: Vec<u32> = (0..3).filter_map(|k| { let c = lay.stand_cells[k]; let span = if lay.stand_b.is_empty() { 1.0 } else { 3.0 }; carts.iter().copied().find(|id| pos_of(&run.world, *id).is_some_and(|p| p.x >= c[0] as f64 && p.x < c[0] as f64 + span && (p.z - (c[2] as f64 + 0.5)).abs() < 0.6 && p.y < 1.5)) }).collect();
+            let dep: Vec<u32> = (0..3).filter_map(|k| { let c = lay.stand_cells[k]; let span = if lay.stand_b.is_empty() { 1.0 } else { 3.0 }; let back = if o.stand_desc { 1.0 } else { 0.0 }; carts.iter().copied().find(|id| pos_of(&run.world, *id).is_some_and(|p| p.x >= c[0] as f64 - back && p.x < c[0] as f64 + span && (p.z - (c[2] as f64 + 0.5)).abs() < 0.6 && p.y < 1.5)) }).collect();
             if rel.len() != 3 || dep.len() != 3 {
                 problems.push(format!("slot {c}: the release group holds {} carts and the stand {} at the slot's start", rel.len(), dep.len()));
             }
             set(&mut run.world, &release_group, true);
-            stand_train = Some((c, rel, 0));
+            stand_train = Some((c, rel, if wired.is_some() && tm.stand_reset.is_none() { 2 } else { 0 }));
             detect_at = None;
+            each_at = [None; 3];
+            each_done = [false; 3];
             intake_trains.push((c, dep, 0));
+            if let Some(p) = wired {
+                // the golem pulse into the design's input cell
+                run.world.set_block(p, on.clone(), redsim::world::flags::ALL);
+                drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_spawn, p.x, p.y, p.z));
+            }
+        }
+        if let (Some(p), Some(was), true) = (wired, &input_was, c < cycles && dt == tm.golem_for) {
+            run.world.set_block(p, was.clone(), redsim::world::flags::ALL);
+            drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_spawn, p.x, p.y, p.z, was));
+        }
+        if let (Some(r), Some(was), true) = (tm.stand_reset, &reset_was, reset_off_at == Some(t)) {
+            run.world.set_block(r, was.clone(), redsim::world::flags::ALL);
+            drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_spawn, r.x, r.y, r.z, was));
+            reset_off_at = None;
         }
         if c == 0 && tm.inject_at == Some(dt) {
             // the startup batch into the queue's tail, at rest where a caught train rests
@@ -1173,19 +1247,45 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             let trig = if lay.stand_b.is_empty() { [s2[0] + 1, 0, s2[2]] } else { [s2[0] + 3, 1, s2[2]] };
             // (catch slots: braked once the front cart is 0.45 into its catch cell, S2's peak; it
             // then stops ~0.4 down S1's slope, the train's other two likewise in theirs)
-            let caught = |w: &redsim::world::World| if lay.stand_b.is_empty() { pos_of(w, tr[0]).is_some_and(|p| p.x >= s2[0] as f64 + 2.45 && (p.z - (s2[2] as f64 + 0.5)).abs() < 0.6) } else { in_cell(w, tr[0], trig) };
+            let caught = |w: &redsim::world::World| if o.stand_desc { in_cell(w, tr[0], [s2[0] + 1, s2[1], s2[2]]) } else if lay.stand_b.is_empty() { pos_of(w, tr[0]).is_some_and(|p| p.x >= s2[0] as f64 + 2.45 && (p.z - (s2[2] as f64 + 0.5)).abs() < 0.6) } else { in_cell(w, tr[0], trig) };
             // (a detector rail on S2's slope up, the cell before S1's catch cell: the brake
             // `stand_detect` gt after the front cart first stands on it)
             if let Some(d) = tm.stand_detect {
-                if detect_at.is_none() && tr.len() == 3 && in_cell(&run.world, tr[0], [s2[0] + 1, 0, s2[2]]) {
+                if detect_at.is_none() && tr.len() == 3 && in_cell(&run.world, tr[0], [s2[0] + 1, s2[1], s2[2]]) {
                     detect_at = Some(t + d);
                 }
             }
+            // (one detector rail per stand slot, two cells before its slope: each slot braked
+            // `stand_detect_each` gt after its own cart first stands on its detector)
+            if let (Some(d), true, 0) = (tm.stand_detect_each, tr.len() == 3, *st) {
+                for k in 0..3usize {
+                    let det = cell_before(cell_before(lay.stand_cells[k]));
+                    if each_at[k].is_none() && in_cell(&run.world, tr[k], det) {
+                        each_at[k] = Some(t + d);
+                    }
+                    if each_at[k] == Some(t) {
+                        set(&mut run.world, &[lay.stand[k]], false);
+                        each_done[k] = true;
+                        if k == 0 {
+                            stand_braked_at.push(t - *c0 * 100);
+                        }
+                    }
+                }
+                if each_done.iter().all(|b| *b) {
+                    *st = 2;
+                }
+            }
             let detected = detect_at == Some(t);
-            let due = tr.len() == 3 && match (tm.stand_brake, tm.stand_detect) { (Some(b), _) => t - *c0 * 100 == b, (None, Some(_)) => detected, (None, None) => caught(&run.world) };
+            let due = tr.len() == 3 && tm.stand_detect_each.is_none() && match (tm.stand_brake, tm.stand_detect) { (Some(b), _) => t - *c0 * 100 == b, (None, Some(_)) => detected, (None, None) => caught(&run.world) };
             if *st == 0 && tr.len() == 3 && due {
                 set(&mut run.world, &lay.stand, false);
                 set(&mut run.world, &lay.stand_b, false);
+                if let (Some(r), Some(_)) = (tm.stand_reset, wired) {
+                    // the wired stand's brake: the bench pulses the latch's reset input
+                    run.world.set_block(r, on.clone(), redsim::world::flags::ALL);
+                    drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_spawn, r.x, r.y, r.z));
+                    reset_off_at = Some(t + 2);
+                }
                 stand_braked_at.push(t - *c0 * 100);
                 *st = 2;
             }
@@ -1201,6 +1301,15 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         // the queue's tail fills front first: slots 1 and 2 braked as the returning front cart
         // reaches slot 1's peak, slot 0 as its second reaches slot 0's peak
         for (c0, tr, st) in intake_trains.iter_mut() {
+            if wired.is_some() {
+                // the design's own redstone brakes the tail: done once the train's 3 carts rest
+                // in slots 2, 1, 0
+                if *st < 2 && tr.len() == 3 && (0..3).all(|k| place_of(&run.world, tr[k]) == Some(2 - k)) {
+                    arrivals.push(format!("slot {c0}: returning train at rest in the tail +{}", t - *c0 * 100));
+                    *st = 2;
+                }
+                continue;
+            }
             if o.plain {
                 // plain tail slots: slot 2 braked as the front cart is one cell before its slope,
                 // slot 1 likewise for the second, slot 0 for the third

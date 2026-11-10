@@ -417,6 +417,10 @@ pub enum MobfarmCmd {
         /// each slot braked as its own cart comes, the stand's batch out like a queue advance.
         #[arg(long)]
         plain: bool,
+        /// A descending stand: each slot a braked slope linked to its own and a plain slope up,
+        /// a block lower each slot (the catch is a slope wherever the brake comes).
+        #[arg(long)]
+        stand_desc: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -428,6 +432,9 @@ pub enum MobfarmCmd {
         cycles: i64,
         #[arg(long, default_value_t = 1)]
         seed: i64,
+        /// Run this many seeds from `--seed` on and print one line each plus the total.
+        #[arg(long, default_value_t = 1)]
+        seeds: i64,
         /// The release group's slopes powered this long from the slot's start (day-1's release
         /// controller: 34).
         #[arg(long, default_value_t = 34)]
@@ -451,6 +458,10 @@ pub enum MobfarmCmd {
         /// slope up (what a detector rail there gives) instead of the bench's position trigger.
         #[arg(long)]
         stand_detect: Option<i64>,
+        /// Brake each stand slot this many gt after its own cart first stands on the cell two
+        /// before its slope (one detector rail per slot).
+        #[arg(long)]
+        stand_detect_each: Option<i64>,
         /// Brake the queue's tail slots 1-2, then slot 0, at these gt after the returning train's
         /// departure (timers) instead of the bench's position triggers.
         #[arg(long, value_delimiter = ',')]
@@ -467,6 +478,17 @@ pub enum MobfarmCmd {
         depart_period: i64,
         #[arg(long, default_value_t = 8)]
         open_after: i64,
+        /// The design's own redstone drives the controls: the bench touches none of them and
+        /// only powers this input cell (x,y,z: a redstone block there) for `--golem-for` gt at
+        /// each slot's start, the golem pulse; the checks stay.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        wired: Vec<i32>,
+        #[arg(long, default_value_t = 10)]
+        golem_for: i64,
+        /// With `--wired`: the stand latch's reset input (x,y,z), pulsed by the bench (a
+        /// redstone block for 2 gt) at its own stand-brake trigger, until that brake is wired.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        stand_reset: Vec<i32>,
         #[arg(long)]
         verbose: bool,
         /// Print these carts (design order) every gt.
@@ -1073,10 +1095,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, out } => {
             let tail_deep = !no_tail_deep && !plain;
             let slots = if line && slots == 18 { 15 } else { slots };
-            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain };
+            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc };
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             println!("{}", out.display());
             // the control cells (each a block under a powered slope: glass = braked, a redstone
@@ -1087,12 +1109,28 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("release group (the last 3): {}", fmt(&lay.slots[lay.slots.len() - 3..]));
             println!("stand S1 S2 S3: {}", fmt(&lay.stand));
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, intake_brake, inject_at, depart_at, depart_period, open_after, verbose, watch, drive_out } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, verbose, watch, drive_out } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             let intake_brake = match intake_brake.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--intake-brake takes two values: slots 1-2, then slot 0") };
             let inject_at = inject_at.or(if o.line { Some(110) } else { None });
-            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, intake_brake, inject_at, depart_at, depart_period, open_after };
+            let wired = match wired.as_slice() { [x, y, z] => Some(redsim::pos::BlockPos::new(*x, *y, *z)), [] => None, _ => anyhow::bail!("--wired takes the input cell: x,y,z") };
+            let stand_reset = match stand_reset.as_slice() { [x, y, z] => Some(redsim::pos::BlockPos::new(*x, *y, *z)), [] => None, _ => anyhow::bail!("--stand-reset takes a cell: x,y,z") };
+            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset };
+            if seeds > 1 {
+                // one line per seed, then the total (the drive log, watch and verbose apply to
+                // single runs)
+                let (mut clean, mut bad) = (0, Vec::new());
+                for s in seed..seed + seeds {
+                    let r = crate::queue::run_loop(&spec, &o, &tm, cycles, s, false, None, None).map_err(|e| anyhow::anyhow!(e))?;
+                    let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").to_string();
+                    let first = r.lines().skip_while(|l| !l.ends_with("problems:")).nth(1).unwrap_or("").trim().to_string();
+                    println!("seed {s}: {probs} {first}");
+                    if probs.starts_with("0 problems") { clean += 1 } else { bad.push(s) }
+                }
+                println!("{clean} of {seeds} seeds clean over {cycles} slots each{}", if bad.is_empty() { String::new() } else { format!("; problems on seeds {bad:?}") });
+                return Ok(());
+            }
             let s = crate::queue::run_loop(&spec, &o, &tm, cycles, seed, verbose, if watch.is_empty() { None } else { Some(&watch) }, drive_out.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
             println!("{s}");
         }
