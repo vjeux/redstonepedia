@@ -1303,6 +1303,12 @@ pub fn loop_corners(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, lines: &[Swe
 /// touch, wire's up and down steps included; a cell no source reaches starts a new search, the
 /// lowest first). Each entry: the cell, its block, the container's fill (SNBT).
 pub fn build_order(spec: &FarmSpec) -> Vec<(BlockPos, Block, Option<String>)> {
+    build_order_of(&spec.blocks, &spec.block_entities)
+}
+
+/// [`build_order`] on any design's blocks and block entities (`nbt:` lines), for a circuit with no
+/// farm spec (day-1's scheduler and release benches).
+pub fn build_order_of(blocks: &[(BlockPos, Block)], block_entities: &[(BlockPos, String)]) -> Vec<(BlockPos, Block, Option<String>)> {
     fn class(b: &Block) -> u8 {
         match b {
             Block::Air => 9,
@@ -1317,17 +1323,17 @@ pub fn build_order(spec: &FarmSpec) -> Vec<(BlockPos, Block, Option<String>)> {
     // support whatever it is, a redstone block under a booster included: placed first, or what it
     // holds up would pop off)
     let needs_floor = |b: &Block| matches!(b, Block::Rail { .. } | Block::PlainRail { .. } | Block::DetectorRail { .. } | Block::Wire { .. } | Block::Repeater { .. } | Block::Comparator { .. } | Block::Torch { .. } | Block::Plate { .. });
-    let holds: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| needs_floor(b)).map(|(p, _)| BlockPos::new(p.x, p.y - 1, p.z)).chain(spec.blocks.iter().filter_map(|(p, b)| match b { Block::WallTorch { facing, .. } => Some(p.rel(facing.opposite())), _ => None })).collect();
+    let holds: std::collections::HashSet<BlockPos> = blocks.iter().filter(|(_, b)| needs_floor(b)).map(|(p, _)| BlockPos::new(p.x, p.y - 1, p.z)).chain(blocks.iter().filter_map(|(p, b)| match b { Block::WallTorch { facing, .. } => Some(p.rel(facing.opposite())), _ => None })).collect();
     let class_at = |p: &BlockPos, b: &Block| if holds.contains(p) && !needs_floor(b) && class(b) == 3 { 0 } else { class(b) };
-    let fills: std::collections::HashMap<BlockPos, String> = spec.block_entities.iter().cloned().collect();
+    let fills: std::collections::HashMap<BlockPos, String> = block_entities.iter().cloned().collect();
     let key = |p: &BlockPos| (p.y, p.x, p.z);
     let mut out = Vec::new();
     for c in 0..3u8 {
-        let mut v: Vec<(BlockPos, Block)> = spec.blocks.iter().filter(|(p, b)| class_at(p, b) == c).cloned().collect();
+        let mut v: Vec<(BlockPos, Block)> = blocks.iter().filter(|(p, b)| class_at(p, b) == c).cloned().collect();
         v.sort_by_key(|(p, _)| key(p));
         out.extend(v.into_iter().map(|(p, b)| (p, b, fills.get(&p).cloned())));
     }
-    let reds: Vec<(BlockPos, Block)> = spec.blocks.iter().filter(|(p, b)| class_at(p, b) == 3).cloned().collect();
+    let reds: Vec<(BlockPos, Block)> = blocks.iter().filter(|(p, b)| class_at(p, b) == 3).cloned().collect();
     let idx: std::collections::HashMap<BlockPos, usize> = reds.iter().enumerate().map(|(i, (p, _))| (*p, i)).collect();
     let mut seen = vec![false; reds.len()];
     let mut queue: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
@@ -1377,11 +1383,16 @@ pub fn build_order(spec: &FarmSpec) -> Vec<(BlockPos, Block, Option<String>)> {
 /// player can stand on, two air above it) within 3 horizontally and 1 or 2 below. A player takes
 /// an extra second to place each (sneaking to an edge), so the in-order build gives it a longer gap.
 pub fn edge_cells(spec: &FarmSpec) -> std::collections::HashSet<BlockPos> {
-    let cells: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| !matches!(b, Block::Air)).map(|(p, _)| *p).collect();
+    edge_cells_of(&spec.blocks)
+}
+
+/// [`edge_cells`] on any design's blocks.
+pub fn edge_cells_of(blocks: &[(BlockPos, Block)]) -> std::collections::HashSet<BlockPos> {
+    let cells: std::collections::HashSet<BlockPos> = blocks.iter().filter(|(_, b)| !matches!(b, Block::Air)).map(|(p, _)| *p).collect();
     let standable = |b: &Block| !matches!(b, Block::Air | Block::Wire { .. } | Block::Torch { .. } | Block::WallTorch { .. } | Block::Rail { .. } | Block::PlainRail { .. } | Block::DetectorRail { .. } | Block::Button { .. } | Block::Plate { .. } | Block::Tripwire { .. } | Block::TripwireHook { .. } | Block::Water { .. } | Block::Lava { .. } | Block::Fire { .. } | Block::BubbleColumn { .. });
     let up = |p: &BlockPos, d: i32| BlockPos::new(p.x, p.y + d, p.z);
-    let surfaces: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(p, b)| standable(b) && !cells.contains(&up(p, 1)) && !cells.contains(&up(p, 2))).map(|(p, _)| *p).collect();
-    let low = spec.blocks.iter().map(|(p, _)| p.y).min().unwrap_or(0);
+    let surfaces: std::collections::HashSet<BlockPos> = blocks.iter().filter(|(p, b)| standable(b) && !cells.contains(&up(p, 1)) && !cells.contains(&up(p, 2))).map(|(p, _)| *p).collect();
+    let low = blocks.iter().map(|(p, _)| p.y).min().unwrap_or(0);
     cells
         .iter()
         .filter(|c| c.y - low > 2 && !(-3..=3).any(|dx| (-3..=3).any(|dz| (1..=2).any(|dy| surfaces.contains(&BlockPos::new(c.x + dx, c.y - dy, c.z + dz))))))
