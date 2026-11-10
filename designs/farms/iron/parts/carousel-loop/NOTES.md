@@ -248,7 +248,26 @@ longest priced one (40 gt). The bench-driven loop file: clean all three ways, an
 to 40 gt passes; day-1's v2 wired file: the same (every gap from 1 to 40 gt, 2 seeds x 20 slots
 each). The first build in order failed: the release run's boosters popped off, their
 redstone-block supports placed after the rails; the default order now places any block that holds
-up a rail or a component first.
+up a rail or a component first. Then day-1's drop ends: placed by (y, x, z), a drop end (-4,1,z) went
+down before the slot slope's peak, and the slope (-3,0,z), with one link down, took the drop end and
+turned ascending_west. Rails now go down only when no rail already down could take them as a link it
+was not meant to have (a rail with both its own links down is fixed); a design's `build: last
+x,y,z ...` cells go after every other; the check counts the differing cells by kind and lists those
+that differ in more than power. A T junction with no driver can still come out either way built in
+order (day-1's bench-cell files); a driven T is set by its driver's updates.
+
+## Riders' safety: the zombie posts' reach
+
+A zombie riding a boat attacks over the boat's box (1.375 wide) grown 0.83 sideways: a rider (0.6
+wide) is hit when its centre comes within 1.82 of the post on both axes while their heights overlap
+(rails at y 1..4, the zombie at y 3). The --tail-desc return's jog (y 4 along z 20) passed inside the
+post at z 21: on day-1's pocket loop (851a583a9) rider e0 took 3 damage every 7 laps at
+(5.03,4.06,20.5), always at slot +1, and died at slot 49 (with or without visits). The generator now
+moves a post in reach north a cell at a time (up to 4) or drops it: z 21 -> z 23. Pocket loop after:
+3 seeds x 240 slots clean, no rider hurt, PANIC 98.65/99.03% (98.70/99.13% before). Every run now
+reports each rider's damage and any rider gone from the world (a problem). The published wired v2
+file has the post at z 21: no rider hurt in 3 seeds x 480 slots on its own timing; 10 seeds x 1,440
+slots running.
 
 ## The stand catch's window (open)
 

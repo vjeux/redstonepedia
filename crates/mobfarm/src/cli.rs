@@ -1551,7 +1551,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").to_string();
                         let first = r.lines().skip_while(|l| !l.ends_with("problems:")).nth(1).unwrap_or("").trim().to_string();
                         if seeds > 1 {
-                            println!("{label}, seed {s}: {probs} {first}");
+                            // (and how often a rider took damage, a zombie in reach say)
+                            let hurt = r.matches(" hurt at slot ").count();
+                            println!("{label}, seed {s}: {probs} {first}{}", if hurt > 0 { format!(" (riders hurt {hurt} times)") } else { String::new() });
                         }
                         if probs.starts_with("0 problems") { clean += 1 } else { bad.push(s) }
                     }
