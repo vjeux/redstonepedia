@@ -212,7 +212,7 @@ pub fn generate(out: &Path, _offdelay: &Path) -> Result<()> {
 
 /// The design's at-rest block states after the judge's placement and 40 quiet ticks (no input):
 /// each cell's state, and every comparator's stored output.
-fn settle(design: &Path, cells: &[P3]) -> Result<(BTreeMap<P3, String>, BTreeMap<P3, u8>)> {
+pub(crate) fn settle(design: &Path, cells: &[P3]) -> Result<(BTreeMap<P3, String>, BTreeMap<P3, u8>)> {
     use anyhow::anyhow;
     let c = circuit::Circuit::load(design)?;
     let cc = c.with_consumers().map_err(|e| anyhow!("{e:#}"))?;
@@ -240,7 +240,7 @@ fn settle(design: &Path, cells: &[P3]) -> Result<(BTreeMap<P3, String>, BTreeMap
 
 /// Writes the settled states into the design (the cells settled), and each comparator's output as
 /// its block entity (`OutputSignal`), so a raw paste starts at rest.
-fn apply_settled(d: &mut Design, states: &BTreeMap<P3, String>, outs: &BTreeMap<P3, u8>) {
+pub(crate) fn apply_settled(d: &mut Design, states: &BTreeMap<P3, String>, outs: &BTreeMap<P3, u8>) {
     for (p, s) in states {
         if let Some(old) = d.blocks.get_mut(p) {
             if !old.starts_with("minecraft:hopper") {

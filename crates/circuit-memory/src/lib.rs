@@ -123,6 +123,10 @@ enum Cmd {
         /// Repeat the run with this many chunk reloads at random ticks: the outputs must match.
         #[arg(long, default_value_t = 0)]
         restarts: u32,
+        /// Place the design raw: written states and block entities, no shape or neighbour
+        /// updates, no settle ("works as placed").
+        #[arg(long)]
+        placed_raw: bool,
     },
     /// Golem pulses at the given ticks into a release controller design; every output port's on
     /// intervals relative to the first pulse (the loop-wired probe file: each control).
@@ -414,8 +418,8 @@ pub fn run(args: Vec<String>) -> Result<()> {
                 anyhow::bail!("release-bench: violations");
             }
         }
-        Cmd::LoopBench { design, days, seed, miss, burst, dusk, end, game, weather, restarts } => {
-            let o = loopbench::Opts { days, seed, miss, burst, dusk, end, game_days: game, weather, restarts, ..Default::default() };
+        Cmd::LoopBench { design, days, seed, miss, burst, dusk, end, game, weather, restarts, placed_raw } => {
+            let o = loopbench::Opts { days, seed, miss, burst, dusk, end, game_days: game, weather, restarts, raw: placed_raw, ..Default::default() };
             if !loopbench::bench(&design, &o)? {
                 bail!("the loop scheduler fails its bench");
             }

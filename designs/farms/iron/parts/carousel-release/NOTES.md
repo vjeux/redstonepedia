@@ -45,7 +45,7 @@ benched by `mctas circuit memory release-bench`.
   - 100k slots, seed 1 (5/5/10% missed/early/doubled): 0 violations; 20 restarts and turns 90/180/270°: identical tick for tick.
   - 3,000 slots placed raw (`release-bench --placed-raw`: written states, block entities merged, no updates, no settle): 0 violations; 100k slots seed 2 (15/15/30%) placed raw: 0 violations.
   - Real game (judge's placement): IDENTICAL over 50,001 ticks (500 slots, 15/15/30%).
-- **Bench, wired loop** (ironfarm a5f46f390), `--tail-check-at 43`: 3 × 60 and 10 × 300 clean (judge's placement); 3 × 60 clean placed raw (ironfarm's `--placed-raw`).
+- **Bench, wired loop** (ironfarm a5f46f390), `--tail-check-at 43`: 3 × 60 and 10 × 300 clean (judge's placement); `--placed-all` 3 × 60 each way: judge's placement, settled as placed (raw paste) and built in order (20 gt between placements): "works every way placed".
   - The hopper's stock is what matters placed raw (tick-exact 11:59): with the 23 stone merged, even v1 runs 60 slots at 0 differences against the game placed raw; its earlier raw failure was a run without the container merge.
 
 ## v1 (2026-11-10 09:40): carousel-release-v1.txt (261 blocks)

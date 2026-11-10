@@ -169,6 +169,12 @@ pub fn generate(out: &Path, modules: &Path, offdelay: &Path) -> Result<()> {
     d.ports = b.ports;
     d.block_entities = b.nbt;
     d.save(out)?;
+    // works as placed (ironspec 11:40): every cell in its settled at-rest state, comparator outputs
+    // as block entities; the two ring tokens (1 stone each) stay as the build step's stock
+    let cells: Vec<[i32; 3]> = d.blocks.keys().copied().collect();
+    let (states, outs) = crate::releasegen::settle(out, &cells)?;
+    crate::releasegen::apply_settled(&mut d, &states, &outs);
+    d.save(out)?;
     println!("{}: {} blocks", out.display(), d.blocks.len());
     Ok(())
 }

@@ -2,6 +2,12 @@
 
 ## Single-lane loop scheduler (current, 2026-11-10)
 
+**Works as placed (12:04, ironspec's rule).** carousel-loop-scheduler-v0.txt now holds every cell in its settled at-rest state (wire shapes, comparator outputs as block entities: `loop-gen` settles it).
+- Build steps: one item (stone) in each ring's container: the D ring's token at (0,0,0) and the slot ring's at (-3,0,17).
+- `loop-bench --placed-raw` (written states and block entities, no updates, no settle), 60 days seed 2 at 5% misses: 0 lost, every window T + 10..T + 88, slot lines in place. The judge's placement, 60 days seed 1: the same.
+- Status: wired (290 blocks), inputs bench-driven, not connected to the loop.
+- Tolerance: its timed outputs feed the napper siding, which isn't built yet, so the margins are against ironfarm's contract only: v opens T + 10 (by T + 20: 10 late, 0 early); v closes T + 88 (between T + 60 and T + 120: 28 early, 32 late). No physics sweep until the siding exists.
+
 vjeux's single lane: one queue of 21 carts back to back, the front 3 released per release pulse
 (a golem, or the fallback), rejoining the tail. ironfarm: the napper alone diverts to a siding at
 the bed and re-merges into its own gap, so the queue keeps its order and release i sends batch

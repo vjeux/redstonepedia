@@ -35,6 +35,8 @@ pub struct Opts {
     pub weather: String,
     /// Repeat the run with this many chunk reloads at random ticks; the outputs must match.
     pub restarts: u32,
+    /// Place the design raw (written states and block entities, no updates, no settle).
+    pub raw: bool,
 }
 
 /// A normal daylight detector seeing the sky at day time `day` with these weather levels (redsim's
@@ -53,7 +55,7 @@ pub fn detector_normal(day: i64, rain: f32, thunder: f32) -> i32 {
 
 impl Default for Opts {
     fn default() -> Opts {
-        Opts { days: 60, seed: 1, miss: 0.01, burst: 0.3, dusk: 13_670, end: 22_330, nap: (115, 135), ready: 40, pulse: 10, game_days: 0, weather: "ideal".into(), restarts: 0 }
+        Opts { days: 60, seed: 1, miss: 0.01, burst: 0.3, dusk: 13_670, end: 22_330, nap: (115, 135), ready: 40, pulse: 10, game_days: 0, weather: "ideal".into(), restarts: 0, raw: false }
     }
 }
 
@@ -159,7 +161,7 @@ fn run(design: &Path, o: &Opts, recorded: &mut Vec<(u32, clock::Action)>, reload
     let mut win_edges = (u64::MAX, 0u64, u64::MAX, 0u64);
     let (mut short, mut slot_changes) = (0u32, 0u32);
     let mut window = (u64::MAX, 0u64, u64::MAX, 0u64);
-    let res = clock::sim::drive_live(&cc.clock, &[], ticks, from, to, |t, w| {
+    let cb = |t: u32, w: &mut redsim::world::World| -> bool {
         let g = t as u64 + t0;
         while ri < reloads.len() && reloads[ri] <= t {
             if reloads[ri] == t {
@@ -297,9 +299,10 @@ fn run(design: &Path, o: &Opts, recorded: &mut Vec<(u32, clock::Action)>, reload
             last_bits = bits;
         }
         true
-    });
+    };
+    let res = if o.raw { crate::releasebench::drive_raw(&cc.clock, ticks, from, to, cb) } else { clock::sim::drive_live(&cc.clock, &[], ticks, from, to, cb).map_err(|(_, why)| why) };
     match res {
-        Err((_, why)) => bail!("the run failed: {why}"),
+        Err(why) => bail!("the run failed: {why}"),
         Ok(Some((t, why))) if !why.is_empty() => bail!("the run stopped at tick {t}: {why}"),
         _ => {}
     }

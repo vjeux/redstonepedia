@@ -136,7 +136,8 @@ the slot lines, and prints per villager its naps and gap windows; `--game N` as 
 `--weather clear|rain|thunder|cycle` drives the window from a normal daylight detector reading 0
 under that weather (redsim's sensor model; `cycle`: random spells, the levels ramping 0.01 a tick)
 instead of the ideal [dusk, end]; `--restarts R` repeats the run with R chunk reloads at random
-ticks and requires the same output changes tick for tick.
+ticks and requires the same output changes tick for tick; `--placed-raw` places the design raw (its
+written states and block entities, no shape or neighbour updates, no settle).
 The single-lane loop's release controller: `mctas circuit memory release-gen --out F` generates it
 (golem input; a 3-comparator countdown ring with a busy threshold and an empty-ring torch for the
 fallback; GO = (golem or held request or fallback) minus busy, a self-timed ~10-gt release pulse;
