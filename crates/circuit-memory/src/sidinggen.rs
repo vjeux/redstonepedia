@@ -115,22 +115,9 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
     lay(&mut b, [-13, 1, 10], &rail("south_west"), false)?;
     b.put([-13, 1, 11], &booster("north_south"))?;
     b.put([-13, 0, 11], RBLOCK)?;
-    for z in 12..=19 {
-        lay(&mut b, [-13, 1, z], &rail("north_south"), false)?;
-    }
-    lay(&mut b, [-13, 1, 20], &rail("north_west"), false)?;
-    for x in -21..=-14 {
-        lay(&mut b, [x, 1, 20], &rail("east_west"), false)?;
-    }
-    lay(&mut b, [-22, 1, 20], &rail("south_east"), false)?;
-    lay(&mut b, [-22, 1, 21], &rail("north_south"), false)?;
-    lay(&mut b, [-22, 1, 22], &rail("north_south"), false)?;
-    lay(&mut b, [-22, 1, 23], &rail("north_east"), false)?;
-    for x in -21..=-14 {
-        lay(&mut b, [x, 1, 23], &rail("east_west"), false)?;
-    }
-    lay(&mut b, [-13, 1, 23], &rail("south_west"), false)?;
-    for z in 24..=27 {
+    // (no drag loop: ironfarm 14:30 measured this loop's side drop clean at 0.10-0.48 b/t; the
+    // booster's 0.49-0.53 decays to ~0.43-0.46 over the ~25 rails to the drop ends)
+    for z in 12..=27 {
         lay(&mut b, [-13, 1, z], &rail("north_south"), false)?;
     }
     // T1 (-13, 1, 28): stem north, unpowered north_east (east along z 28: slot 14), powered
@@ -378,10 +365,13 @@ pub fn control_blocks(sched: &Path) -> Result<B> {
     b.on([17, -2, -2], &rep("west", 1))?;
     // the REL branch: east along z -6, the clock south along x 25 and up into the patch's repeater;
     // RELd on along z -6 to x 27 and south along x 27 (its delay), west along z 2
+    // (the branch keeps off (15, -2, -5..-6): the loop's REL line feeds the input block from the
+    // north through (14, -2, -6) and a repeater, and must not touch it, or it latches)
     b.on([15, -2, -4], DUST)?;
-    b.on([15, -2, -5], DUST)?;
-    let relb: Vec<P3> = (15..=25).map(|x| [x, -2, -6]).collect();
-    b.wire([15, -2, -5], &relb, 8)?;
+    b.on([16, -2, -4], DUST)?;
+    b.on([16, -2, -5], DUST)?;
+    let relb: Vec<P3> = (16..=25).map(|x| [x, -2, -6]).collect();
+    b.wire([16, -2, -5], &relb, 8)?;
     for z in -5..=-2 {
         b.on([25, -2, z], DUST)?;
     }
@@ -430,7 +420,10 @@ fn route(b: &mut B, from: P3, cells: &[P3], every: usize) -> Result<()> {
     use crate::schedgen::{DUST, rep};
     let mine: std::collections::BTreeSet<P3> = cells.iter().copied().chain(std::iter::once(from)).collect();
     let mut prev = from;
-    let mut run = 0usize;
+    // dust cells since the last repeater (starting full: the first flat cell takes one, whatever the
+    // source's strength): a repeater goes on the first flat cell (with a flat cell after it) once
+    // `every` dust cells have passed, stairs included
+    let mut run = every;
     for (i, &c) in cells.iter().enumerate() {
         let (dx, dy, dz) = (c[0] - prev[0], c[1] - prev[1], c[2] - prev[2]);
         if dx.abs() + dz.abs() != 1 || dy.abs() > 1 {
@@ -442,9 +435,6 @@ fn route(b: &mut B, from: P3, cells: &[P3], every: usize) -> Result<()> {
             if b.blocks.get(&over).is_some_and(|s| !s.contains("air")) && !mine.contains(&over) {
                 bail!("route: the stair {prev:?} -> {c:?} has {:?} over its lower cell", b.blocks.get(&over));
             }
-            run = 0;
-        } else {
-            run += 1;
         }
         for n in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [1, -1, 0], [-1, -1, 0], [0, -1, 1], [0, -1, -1]] {
             let q = [c[0] + n[0], c[1] + n[1], c[2] + n[2]];
@@ -452,8 +442,10 @@ fn route(b: &mut B, from: P3, cells: &[P3], every: usize) -> Result<()> {
                 bail!("route: {c:?} would touch foreign dust at {q:?} ({})", b.blocks[&q]);
             }
         }
-        let next_flat = cells.get(i + 1).is_some_and(|n| n[1] == c[1]);
-        if dy == 0 && every > 0 && run % every == 0 && next_flat {
+        // (a repeater only on a straight flat cell: the next cell one more step the same way)
+        let next_straight = cells.get(i + 1).is_some_and(|n| n[1] == c[1] && n[0] - c[0] == dx && n[2] - c[2] == dz);
+        let prev_flat = dy == 0;
+        if every > 0 && run >= every && prev_flat && next_straight {
             let facing = match (dx, dz) {
                 (1, 0) => "west",
                 (-1, 0) => "east",
@@ -461,8 +453,13 @@ fn route(b: &mut B, from: P3, cells: &[P3], every: usize) -> Result<()> {
                 _ => "south",
             };
             b.on(c, &rep(facing, 1))?;
+            run = 0;
         } else {
             b.on(c, DUST)?;
+            run += 1;
+            if run > 14 {
+                bail!("route: dust {c:?} is {run} cells past its last repeater (dead)");
+            }
         }
         prev = c;
     }
@@ -518,7 +515,7 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     seg_to(&mut rel, [5, -6, -10]);
     seg_to(&mut rel, [-45, -6, -10]);
     seg_to(&mut rel, at([14, -2, -7]));
-    route(&mut b, [0, -1, 14], &rel, 12)?;
+    route(&mut b, [0, -1, 14], &rel, 6)?;
     // (the feed dust touches the module's REL branch on purpose: the same signal)
     b.on(at([14, -2, -6]), DUST)?;
     b.on(at([14, -2, -5]), &rep("north", 1))?;
@@ -527,19 +524,19 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     let mut dv = vec![at([10, 0, 18])];
     seg_to(&mut dv, [-45, -8, 18]);
     seg_to(&mut dv, [12, -8, 18]);
-    seg_to(&mut dv, [12, -8, 5]);
+    seg_to(&mut dv, [12, -8, 9]);
     for k in 1..=4 {
-        dv.push([12, -8 + k, 5 - k]);
+        dv.push([12, -8 + k, 9 - k]);
     }
     seg_to(&mut dv, [12, -4, 0]);
     dv.push([11, -4, 0]);
-    route(&mut b, at([10, 0, 17]), &dv, 12)?;
+    route(&mut b, at([10, 0, 17]), &dv, 6)?;
     b.on([10, -4, 0], &rep("east", 1))?;
     b.blocks.insert(DIVERT, STONE.into());
     // T1 and T2: each T's support driven from below by two torches (a block, a torch on it, a
     // block, a torch under the support: the same sense as the line), the line into the lowest
-    // block through a repeater from the west. T1: east along z 23 (y -8) to x -15, up a stair
-    // south to (-15, -4, 27), into (-15, -4, 28)
+    // block through a repeater from the west. T1: east along z 22 (y -8) to x -20, up a stair east
+    // to (-16, -4, 22), east and south along x -15 (y -4) to (-15, -4, 28)
     let tower = |b: &mut B, sup: P3| -> Result<()> {
         b.put([sup[0], sup[1] - 4, sup[2]], STONE)?;
         b.put([sup[0], sup[1] - 3, sup[2]], "minecraft:redstone_torch[lit=true]")?;
@@ -549,25 +546,24 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
         b.on([sup[0] - 1, sup[1] - 4, sup[2]], &rep("west", 1))
     };
     let mut t1 = vec![at([11, -4, 23])];
-    seg_to(&mut t1, [-15, -8, 23]);
+    seg_to(&mut t1, [-20, -8, 23]);
     for k in 1..=4 {
-        t1.push([-15, -8 + k, 23 + k]);
+        t1.push([-20 + k, -8 + k, 23]);
     }
-    t1.push([-15, -4, 28]);
-    route(&mut b, at([11, -4, 22]), &t1, 12)?;
+    seg_to(&mut t1, [-15, -4, 23]);
+    seg_to(&mut t1, [-15, -4, 28]);
+    route(&mut b, at([11, -4, 22]), &t1, 6)?;
     tower(&mut b, T1)?;
-    // T2: down east to y -10, east along z 23 to x -17, south to z 25, up a stair south to
-    // (-17, -4, 31)
+    // T2: south to z 25, east along z 25 (y -6) to x -17, south along x -17 to z 29, up a stair
+    // south to (-17, -4, 31)
     let mut t2 = vec![at([2, -2, 23])];
-    for k in 1..=4 {
-        t2.push([t2[0][0] + k, t2[0][1] - k, 23]);
-    }
-    seg_to(&mut t2, [-17, -10, 23]);
-    seg_to(&mut t2, [-17, -10, 25]);
-    for k in 1..=6 {
-        t2.push([-17, -10 + k, 25 + k]);
-    }
-    route(&mut b, at([2, -2, 22]), &t2, 12)?;
+    t2.push([t2[0][0], t2[0][1], 24]);
+    t2.push([t2[0][0], t2[0][1], 25]);
+    seg_to(&mut t2, [-17, -6, 25]);
+    seg_to(&mut t2, [-17, -6, 29]);
+    t2.push([-17, -5, 30]);
+    t2.push([-17, -4, 31]);
+    route(&mut b, at([2, -2, 22]), &t2, 6)?;
     tower(&mut b, T2)?;
     // siding release: east along z 4 (y -6), up a stair east to (-15, 1, 4), south along x -15 to
     // z 8 (clear of the siding's north dust line at y 2), west to (-16, 1, 8), a repeater north into
@@ -579,8 +575,13 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     }
     seg_to(&mut sr, [-15, 1, 8]);
     sr.push([-16, 1, 8]);
-    route(&mut b, at([19, -2, 3]), &sr, 12)?;
+    route(&mut b, at([19, -2, 3]), &sr, 6)?;
     b.on([-16, 1, 9], &rep("north", 1))?;
+    if std::env::var("MCTAS_SIDING_CELLS").is_ok() {
+        for q in [[-17, -6, 24], [-17, -6, 25], [-17, -6, 26], [-17, -6, 27], [-17, -6, 28], [-17, -6, 29], [-17, -7, 26], [-47, -8, 23], [-46, -8, 23], [-45, -8, 23], [-44, -8, 23], [-43, -8, 23], [-42, -8, 23], [-41, -8, 23], [-48, -9, 23]] {
+            println!("cell {q:?}: {:?}", b.blocks.get(&q));
+        }
+    }
     let added: Vec<P3> = b.blocks.keys().copied().filter(|p| !before.contains(p)).collect();
     d.blocks = b.blocks;
     Ok(added)

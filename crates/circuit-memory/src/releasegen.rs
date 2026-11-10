@@ -642,6 +642,26 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     }
     apply_settled(&mut d, &states, &outs);
     apply_settled(&mut probe, &states, &outs);
+    // (with the siding's control module: a probe of the whole file for `release-trace`, its night
+    // forced (the daylight detector taken out), no entities, the controls and taps as ports)
+    if siding_ctl.is_some() {
+        let mut sp = Design::parse("name: carousel-siding-probe\n")?;
+        sp.blocks = d.blocks.clone();
+        sp.block_entities = d.block_entities.clone();
+        let det = [crate::sidinggen::MODULE_AT[0] + 2, crate::sidinggen::MODULE_AT[1] - 1, crate::sidinggen::MODULE_AT[2] + 1];
+        sp.blocks.remove(&det);
+        let m = |q: P3| [q[0] + crate::sidinggen::MODULE_AT[0], q[1] + crate::sidinggen::MODULE_AT[1], q[2] + crate::sidinggen::MODULE_AT[2]];
+        sp.ports.insert("input.golem".into(), golem);
+        for (n, q) in [("rel", [-2, -1, 13]), ("rel_in", m([14, -2, -4])), ("g2", m([14, -2, 4])), ("divert", [9, -3, 0]), ("t1", [-13, 1, 28]), ("t2", [-15, 1, 31]), ("srel", [-16, 1, 10])] {
+            sp.ports.insert(format!("output.{n}"), q);
+        }
+        if std::env::var("MCTAS_SIDING_PROBE_MORE").is_ok() {
+            for (n, q) in [("r1", [0, -1, 15]), ("r2", [5, -6, 15]), ("r3", [5, -6, 0]), ("r4", [5, -6, -10]), ("r5", [-20, -6, -10]), ("r6", [-45, -6, -10]), ("r7", [-45, -6, -7]), ("r8", [-45, -6, -6]), ("t2a", m([2, -2, 10])), ("t2b", [-15, -4, 31]), ("t2c", [-17, -4, 31]), ("t1b", [-13, -4, 28]), ("u1", [-57, -6, 23]), ("u2", [-57, -6, 25]), ("u3", [-40, -6, 25]), ("u4", [-17, -6, 25]), ("u5", [-17, -6, 29]), ("v1", [-48, -8, 23]), ("v2", [-30, -8, 23]), ("v3", [-20, -8, 23]), ("v4", [-15, -4, 23]), ("v5", [-15, -4, 27]), ("w1", m([22, -2, 2])), ("w2", m([19, -2, 4])), ("w3", [-15, 1, 8]), ("x1", m([10, 0, 18])), ("x2", [12, -8, 10]), ("x3", [11, -4, 0])] {
+                sp.ports.insert(format!("output.{n}"), q);
+            }
+        }
+        sp.save(&out.with_extension("siding-probe.txt"))?;
+    }
     probe.save(&out.with_extension("probe.txt"))?;
     d.name = "carousel-release-loop-wired".into();
     d.save(out)?;
