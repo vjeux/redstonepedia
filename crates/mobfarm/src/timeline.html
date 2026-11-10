@@ -147,7 +147,7 @@ function readout(t){if(t==null)return;let s='<b>'+stamp(t)+'</b>\n';
   s+=l.id.padEnd(4)+' '+String(cl).padEnd(10)+' '+(cart||'-').padEnd(4)+' '+String(at(l.act,t)).padEnd(5)+(at(l.panic,t)?' PANIC':'      ')+' lock '+(lock!=null&&lock>=0?String(lock-t).padEnd(3):'-  ')+' '+(at(l.willing,t)?'wants':'calm ')+' home '+(at(l.home,t)||'-')+' slept '+(slept==null?'-':(t-slept)+' ago')+' cant '+(cant==null?'-':String(t-cant))+(p?' @'+p.map(v=>v.toFixed(2)).join(','):'')+'\n';}
  for(const l of C){const p=posAt(l.tr,t),q=posAt(l.tr,t-1);const sp=p&&q?Math.hypot(p[0]-q[0],p[2]-q[2]):0;s+=l.id.padEnd(4)+' at '+(p?p.map(v=>v.toFixed(2)).join(','):'?')+' speed '+sp.toFixed(3)+' rider '+(at(l.rider,t)||'-')+'\n';}
  for(const l of B){s+='bed '+l.id+': '+(at(l.occ,t)?'OCCUPIED by '+(at(l.by,t)||'?'):'free')+'\n';}
- for(const l of S){s+=l.id+': '+at(l.val,t)+'  '+at(l.full,t)+'\n';}
+ for(const l of S){const v=at(l.val,t);s+=l.id+': '+(v==null?'-':v)+'  '+(v==null?'(no value yet)':at(l.full,t))+'\n';}
  for(const l of M){for(const x of l.ev)if(x[0]==t)s+=l.id+': '+(x[1]||'(mark)')+'\n';}
  const alive=D.golems.filter(g=>g.t<=t&&(!g.gone||g.gone[0]>t));for(const g of alive)s+=g.id+': spawned t='+g.t+' by '+g.by+' at '+g.at.join(',')+(g.died&&g.died[0]<=t?', died t='+g.died[0]+' ('+g.died[1]+')':'')+(g.gone?', gone t='+g.gone[0]:'')+'\n';
  ro.innerHTML=s;}
