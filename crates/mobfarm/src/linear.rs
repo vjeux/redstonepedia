@@ -264,11 +264,14 @@ pub struct BenchOpts {
     pub days: u32,
     /// Each batch's carts reach the stand this many gt before its slot (the release stubbed).
     pub lead: i64,
+    /// Record the drive (`--drive-out`).
+    pub drive: bool,
 }
 
 /// What the linear bench measured.
 #[derive(Clone, Debug, Default)]
 pub struct BenchReport {
+    pub drive: Option<String>,
     pub slots: u32,
     pub summoned: u32,
     pub willing: Vec<u8>,
@@ -310,13 +313,18 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
     let mut run = Run::start(spec, &ro)?;
     while run.settle_tick() {}
     let first = run.world.entities.next_id;
+    let mut spawned = Vec::new();
     for (ty, pos, nbt) in &spec.entities {
-        redsim::entity::spawn(&mut run.world, ty, *pos, nbt.as_deref())?;
+        spawned.push(redsim::entity::spawn(&mut run.world, ty, *pos, nbt.as_deref())?);
     }
     run.own = (first..run.world.entities.next_id).collect();
     let bed = o.bed();
     let t0 = run.world.time;
+    let mut drive = crate::drive::Drive::new(bo.drive);
+    drive.name_entities(&run.world, &spawned, t0);
+    let drive = drive;
     redsim::entity::mob::ai::poi::take(&mut run.world, bed);
+    drive.act(t0, format!("poi-take {} {} {}", bed.x, bed.y, bed.z));
     // the carts, by their starting cell: batch 0 at the stand, batch 1 + j / 3 at hold cell j
     let mut batches: Vec<Vec<(u32, u32)>> = vec![Vec::new(); BATCHES as usize];
     for i in 0..run.world.entities.list.len() {
@@ -342,13 +350,16 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
         v.sort_by_key(|(c, _)| *c);
     }
     let index_of = |w: &World, id: u32| w.entities.list.iter().position(|e| e.id == id && !e.removed);
-    for v in &batches {
-        for (_, r) in v {
-            if let Some(i) = index_of(&run.world, *r) {
-                let br = brain::brain_mut(&mut run.world, i);
-                br.home = Some(bed);
-                br.last_slept = Some(t0 - 100);
-            }
+    // (in the design's entity order, as the drive names them)
+    let mut villagers: Vec<u32> = batches.iter().flatten().map(|(_, r)| *r).collect();
+    villagers.sort();
+    for r in &villagers {
+        if let Some(i) = index_of(&run.world, *r) {
+            let br = brain::brain_mut(&mut run.world, i);
+            br.home = Some(bed);
+            br.last_slept = Some(t0 - 100);
+            drive.act(t0, format!("home {} {} {} {}", drive.name(*r), bed.x, bed.y, bed.z));
+            drive.act(t0, format!("last-slept {} -100", drive.name(*r)));
         }
     }
     let mut rep = BenchReport::default();
@@ -380,11 +391,10 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
         if run.world.day_time() % 24000 >= 13000 && slept_night != Some(night_of) {
             slept_night = Some(night_of);
             let now = run.world.time;
-            for v in &batches {
-                for (_, r) in v {
-                    if let Some(i) = index_of(&run.world, *r) {
-                        brain::brain_mut(&mut run.world, i).last_slept = Some(now);
-                    }
+            for r in &villagers {
+                if let Some(i) = index_of(&run.world, *r) {
+                    brain::brain_mut(&mut run.world, i).last_slept = Some(now);
+                    drive.act(now, format!("last-slept {} {}", drive.name(*r), now - t0));
                 }
             }
         }
@@ -396,11 +406,18 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
             if next != at_stand {
                 // the leaving batch takes the arriving batch's hold cells
                 let h = hold_of[next];
+                let now = run.world.time;
                 for (k, (cart, _)) in batches[at_stand].clone().iter().enumerate() {
-                    move_cart(&mut run.world, *cart, o.hold_cell(h * RIDERS + k as i32));
+                    let c = o.hold_cell(h * RIDERS + k as i32);
+                    move_cart(&mut run.world, *cart, c);
+                    let p = LinearOpts::cart_at(c);
+                    drive.act(now, format!("tp {} {} {} {}", drive.name(*cart), p.x, p.y, p.z));
                 }
                 for (k, (cart, _)) in batches[next].clone().iter().enumerate() {
-                    move_cart(&mut run.world, *cart, o.cell(k as i32));
+                    let c = o.cell(k as i32);
+                    move_cart(&mut run.world, *cart, c);
+                    let p = LinearOpts::cart_at(c);
+                    drive.act(now, format!("tp {} {} {} {}", drive.name(*cart), p.x, p.y, p.z));
                 }
                 hold_of[at_stand] = h;
                 at_stand = next;
@@ -463,6 +480,7 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
                         violate(&mut rep, et, format!("a golem summoned by villager {villager}, not the stand batch's"));
                     }
                     golems.push((id, et, None, None));
+                    drive.expect(et, format!("golem g{} {} {} {}", drive.golem(id), c[0], c[1], c[2]));
                 }
             }
         }
@@ -480,6 +498,7 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
                 pulse_on = None;
                 if let Some(g) = golems.iter_mut().rev().find(|g| g.2 == Some(on)) {
                     g.3 = Some(t - on);
+                    drive.expect(on, format!("pulse g{} {}", drive.golem(g.0), t - on));
                 }
             }
             _ => {}
@@ -487,6 +506,8 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
         for &(ct, from, to) in &run.world.crossings[crossed_seen.min(run.world.crossings.len())..] {
             if golems.iter().any(|g| g.0 == from) {
                 nether.push((to, None));
+                drive.expect(ct, format!("cross g{}", drive.golem(from)));
+                drive.alias(to, from);
                 if let Some(g) = golems.iter().find(|g| g.0 == from) {
                     rep.dwell.push(ct - g.1);
                 }
@@ -497,6 +518,7 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
             for g in nether.iter_mut().filter(|g| g.1.is_none()) {
                 if !n.entities.list.iter().any(|e| e.id == g.0 && !e.removed) {
                     g.1 = Some(t);
+                    drive.expect(t, format!("nether-death g{}", drive.golem(g.0)));
                 }
             }
         }
@@ -539,5 +561,36 @@ pub fn bench(spec: &FarmSpec, pad: &PadOpts, o: &LinearOpts, bo: &BenchOpts) -> 
     rep.nether_alive = nether.iter().filter(|g| g.1.is_none()).count() as u32;
     rep.returned = returned.len() as u32;
     rep.errors = run.world.errors.iter().filter(|e| !e.contains("zombified piglin")).take(6).cloned().collect();
+    if bo.drive {
+        // the iron the Nether part's containers hold beyond the design's own stock, and loose
+        let (mut chest, mut stock) = (0u32, 0u32);
+        if let Some(n) = run.world.nether.as_deref() {
+            use redsim::redstone::container as rc;
+            let (ingot, block) = (rc::item_id("iron_ingot"), rc::item_id("iron_block"));
+            for c in n.containers.map.values() {
+                for s in c.slots.iter().flatten() {
+                    if Some(s.item) == ingot {
+                        chest += s.count as u32;
+                    } else if Some(s.item) == block {
+                        chest += 9 * s.count as u32;
+                    }
+                }
+            }
+            stock = 41 + 64;
+        }
+        drive.expect_end(format!("golems {}", golems.len()));
+        drive.expect_end(format!("nether-deaths {}", rep.nether_deaths));
+        drive.expect_end(format!("iron-in-nether-containers {} (the sorter's stock of {stock} included)", chest));
+        rep.drive = Some(drive.text(&[
+            format!("drive v1: mctas mobfarm linear-bench <design> --from {s} --to {s} --days {} --lead {} --drive-out F", bo.days, bo.lead, s = bo.seed),
+            format!("seed {}", bo.seed),
+            format!("days {}", bo.days),
+            "walk random".into(),
+            "ai on".into(),
+            "start Run::start(spec, RunOpts { ai: true, ..RunOpts::steady(seed, days * 24000, WalkMode::Random) }); settle_tick until false; the design's entity lines spawned in order (eN: line N from 0, eN.pK: its passenger K from 0); t0 = the world's time then".into(),
+            "act t: applied when the world's time is t0 + t, before the run's next tick (the bench's own order: at the top of its loop)".into(),
+            format!("t0 {}", t0),
+        ]));
+    }
     Ok(rep)
 }
