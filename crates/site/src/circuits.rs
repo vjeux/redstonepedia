@@ -504,7 +504,16 @@ fn simulate_row(dir: &Path, r: &circuit::archive::Row) -> Simulated {
     if let Some(d) = det.as_mut() {
         d.farm_rts = farm_rts;
         let rts_key = farm_rts.unwrap_or(0).to_le_bytes();
-        let v: simulate::ViewCheck = cache::get_or(Domain::View, &[text.as_bytes(), &simulate::VIEW_RUN.to_le_bytes(), &rts_key], || simulate::view_check_with(&text, farm_rts));
+        // (a slice its judge tiles: its page's view runs the judge's row, the view text set with
+        // the page's other views below: the view checked on that row)
+        let row_text: Option<String> = loaded
+            .as_ref()
+            .map(|(c, _)| c)
+            .filter(|c| matches!(c.kind, Some(circuit::Kind::Composter(_))) && c.tile.is_some())
+            .and_then(|c| circuit::composter::scenario_for(c, circuit::composter::Run::Base).ok())
+            .map(|(_, row)| row.clock.design.to_text());
+        let view_text: &str = row_text.as_deref().unwrap_or(&text);
+        let v: simulate::ViewCheck = cache::get_or(Domain::View, &[view_text.as_bytes(), &simulate::VIEW_RUN.to_le_bytes(), &rts_key], || simulate::view_check_with(view_text, farm_rts));
         // (the run counts shulker boxes: a shulker machine's only; the viewer's machine supply now
         // feeds the item sorter too, whose run read "WARNING ... NO box")
         let shulker = loaded.as_ref().is_some_and(|(c, _)| c.kind.as_ref().is_some_and(|k| k.name().starts_with("shulker-")));
@@ -863,6 +872,22 @@ pub(crate) fn archived(root: &Path, notes: &mut Vec<String>, keep_hidden: bool) 
             if let Some(c) = out.last_mut().and_then(|b| b.circuit.as_mut())
                 && !c.view_text.is_empty()
             {
+                c.view_src = format!("designs/stills/{study}/{}", r.file);
+            }
+            // an auto-composter its judge tiles (`tile:`): its page view runs the judge's base run
+            // on the row of slices the judge builds (`circuit::composter::scenario_for`: the crops
+            // rotated, the row's load, `circuit: composter <m>`), so the view replays the test
+            // exactly (vjeux 06:58: no "not simulated" views; the view ran one slice before)
+            if let Some(c) = out.last_mut().and_then(|b| b.circuit.as_mut())
+                && c.view_text.is_empty()
+                && c.kind.starts_with("composter")
+                && text.lines().any(|l| l.trim_start().starts_with("tile:"))
+                && let Ok(cc) = mctas::design::Design::parse(&text).and_then(Design::from_design)
+                && let Ok((_, row)) = circuit::composter::scenario_for(&cc, circuit::composter::Run::Base)
+            {
+                // (its `circuit: composter <n>` a slice's, `tiled: <copies>` the row's: the
+                // judge's count and load, n x copies)
+                c.view_text = row.clock.design.to_text();
                 c.view_src = format!("designs/stills/{study}/{}", r.file);
             }
         }

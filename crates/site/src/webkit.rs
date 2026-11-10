@@ -670,7 +670,7 @@ pub fn film(dir: &Path, remote: Option<&str>, pages: &[String], frames: u32, int
         for page in pages {
             // (an index or a study page: its first thumbnail; a design page or a component page,
             // whose views are full ones: its 3D view)
-            let full_views = remote.is_none() && std::fs::read_to_string(dir.join(page)).is_ok_and(|h| h.contains("data-mcview=\"full\""));
+            let full_views = std::fs::read_to_string(dir.join(page)).is_ok_and(|h| h.contains("data-mcview=\"full\""));
             let sel = if !full_views && (page.starts_with("index.html") || page.ends_with("/index.html")) { ".thumb[data-mcview]" } else { "[data-mcview=\"full\"]" };
             match check_page(&s, &r.base, page, sel) {
                 Ok(d) => println!("{tag} {page}: ready, {d}"),

@@ -447,6 +447,7 @@ mod tests {
             furnace: true,
             lit_time: 0,
             lit_total: 0,
+            speed_mult: 1,
             cook_timer: 0,
             cook_total: 0,
             smelted: 0,

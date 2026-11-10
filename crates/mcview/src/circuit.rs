@@ -509,7 +509,9 @@ pub const NOT_REPLAYED: &str = "this view does not replay our test exactly yet";
 pub fn not_replayed_yet(d: &Design) -> Option<String> {
     let kind = d.meta.get("circuit")?.split_whitespace().next()?;
     let what = match kind {
-        "composter" => "an auto-composter",
+        // (a slice its judge tiles into a row, `tile:`: the page's view runs the judge's row,
+        // `site::circuits`' view text, `tiled:`; a fixed composter is judged as built)
+        "composter" if d.meta.contains_key("tile") => "an auto-composter",
         _ => return None,
     };
     Some(format!("{NOT_REPLAYED} ({what})"))
@@ -844,6 +846,9 @@ pub fn composter_chests(d: &Design) -> Option<redsim::redstone::shulker::Chests>
         return None;
     }
     let n: u32 = d.meta.get("circuit")?.split_whitespace().nth(1)?.parse().ok()?;
+    // (the judge's row of a tiled slice, `tiled: <copies>`: n composters a copy, its load for
+    // all of them, `circuit::Circuit`'s count)
+    let n = n * d.meta.get("tiled").and_then(|t| t.trim().parse::<u32>().ok()).unwrap_or(1);
     let cell = |name: &str| d.ports.iter().find(|(k, _)| is_named(k, name)).map(|(_, (p, _))| crate::session::bp(*p));
     let (items, pass) = (cell("items")?, cell("pass")?);
     let mut outs = vec![pass];

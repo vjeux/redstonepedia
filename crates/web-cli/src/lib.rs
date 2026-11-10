@@ -30,6 +30,17 @@ pub enum WebCmd {
         #[arg(long, short)]
         out: PathBuf,
     },
+    /// Every page of a built site whose 3D view says "not simulated" (vjeux 06:58, "Why does it
+    /// keep saying not simulated in the viewer"): each full viewer of each page (its design, its
+    /// Nether part, its bench's drive, its farm's speed) built as the browser's live view builds
+    /// its session, natively; the views it does not run listed with the reason the badge shows,
+    /// grouped by reason, and the views the site keeps as built (`data-asbuilt`).
+    Unsimulated {
+        #[arg(long, default_value = "site")]
+        dir: PathBuf,
+        #[arg(long, default_value_t = 32)]
+        threads: usize,
+    },
     /// A part's page plays its bench's run (`data-drive`: the bench's `--drive-out`, replayed by
     /// `redsim::entity::mob::drive` in the view's own session): run the view's session of
     /// <design> with <drive> natively for the bench's ticks and hold it to every `expect` line
@@ -718,6 +729,7 @@ fn atlas(procedural: bool) -> mcview::atlas::Atlas {
 
 pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
     match cmd {
+        WebCmd::Unsimulated { dir, threads } => cmd_unsimulated(&dir, threads),
         WebCmd::DriveCheck { design, drive } => cmd_drive_check(&design, &drive),
         WebCmd::Shot { designs, out, width, height, tick, flips, yaw, pitch, procedural, live, dpr, crop, day_time, rain, thunder, against, part } => cmd_shot(&designs, &out, mcview::tools::ShotOptions { width, height, tick, flips, yaw, pitch, picture: false, floor_margin: None, live, dpr, as_written: false, full_frame: false }, procedural, crop.as_deref(), day_time.map(|t| mcview::daylight::at(t, rain, thunder)), against.as_deref(), part.as_deref()),
         WebCmd::Check { designs, horizon, quiet, wasm, unverified } => cmd_check(&designs, horizon, quiet, wasm.as_deref(), unverified),
@@ -1591,6 +1603,129 @@ fn cmd_serve(dir: &Path, port: u16) -> Result<()> {
     Ok(())
 }
 
+/// One full viewer of a built page: what its live view builds its session from.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct PageView {
+    src: PathBuf,
+    part: Option<String>,
+    drive: Option<PathBuf>,
+    farm_rts: Option<u32>,
+    asbuilt: bool,
+}
+
+/// The value of attribute `name` in an HTML tag's text.
+fn tag_attr(tag: &str, name: &str) -> Option<String> {
+    let key = format!(" {name}=\"");
+    let i = tag.find(&key)? + key.len();
+    let j = tag[i..].find('"')? + i;
+    Some(tag[i..j].replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'"))
+}
+
+/// `web unsimulated`: every page's full viewers built as the browser builds them.
+fn cmd_unsimulated(dir: &Path, threads: usize) -> Result<()> {
+    // the pages and their full viewers
+    let mut pages: Vec<PathBuf> = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).with_context(|| format!("reading {}", d.display()))? {
+            let p = e?.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "html") {
+                pages.push(p);
+            }
+        }
+    }
+    pages.sort();
+    let mut views: std::collections::BTreeMap<PageView, Vec<String>> = Default::default();
+    for page in &pages {
+        let html = std::fs::read_to_string(page)?;
+        let base = page.parent().unwrap_or(dir);
+        let rel = page.strip_prefix(dir).unwrap_or(page).display().to_string();
+        let mut rest = html.as_str();
+        while let Some(i) = rest.find("data-mcview=\"full\"") {
+            let start = rest[..i].rfind('<').unwrap_or(0);
+            let end = rest[i..].find('>').map(|k| i + k).unwrap_or(rest.len());
+            let tag = &rest[start..end];
+            if let Some(src) = tag_attr(tag, "data-src") {
+                let v = PageView {
+                    src: base.join(&src),
+                    part: tag_attr(tag, "data-part"),
+                    drive: tag_attr(tag, "data-drive").map(|d| base.join(d)),
+                    farm_rts: tag_attr(tag, "data-farm-rts").and_then(|r| r.trim().parse().ok()),
+                    asbuilt: tag.contains(" data-asbuilt"),
+                };
+                views.entry(v).or_default().push(rel.clone());
+            }
+            rest = &rest[end..];
+        }
+    }
+    let list: Vec<(PageView, Vec<String>)> = views.into_iter().collect();
+    let t0 = std::time::Instant::now();
+    // (each view's session, as the live view builds it: `Options::live`, its farm's speed, its
+    // part, its drive given by the design's name; in threads, each with its own registries)
+    let n = threads.max(1);
+    let chunks: Vec<Vec<(usize, PageView)>> = (0..n).map(|k| list.iter().enumerate().filter(|(i, _)| i % n == k).map(|(i, (v, _))| (i, v.clone())).collect()).collect();
+    let results: Vec<(usize, Option<String>)> = std::thread::scope(|sc| {
+        let hs: Vec<_> = chunks
+            .into_iter()
+            .map(|chunk| {
+                sc.spawn(move || {
+                    chunk
+                        .into_iter()
+                        .map(|(i, v)| {
+                            let why = (|| -> std::result::Result<Option<String>, String> {
+                                let text = std::fs::read_to_string(&v.src).map_err(|e| format!("its design {}: {e}", v.src.display()))?;
+                                let text = if v.part.as_deref() == Some("nether") { mcview::design::nether_part_text(&text)? } else { text };
+                                if let Some(d) = &v.drive {
+                                    let dt = std::fs::read_to_string(d).map_err(|e| format!("its drive {}: {e}", d.display()))?;
+                                    let name = mcview::design::Design::parse(&text)?.name;
+                                    mcview::mobfarm::provide_drive(&name, &dt)?;
+                                }
+                                let s = mcview::session::Session::new(&text, &mcview::session::Options { farm_rts: v.farm_rts, probe: true, ..mcview::session::Options::live() })?;
+                                Ok(s.unsimulated.clone())
+                            })();
+                            (i, match why {
+                                Ok(w) => w,
+                                Err(e) => Some(format!("the view fails: {e}")),
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        hs.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
+    });
+    let mut by_reason: std::collections::BTreeMap<String, Vec<usize>> = Default::default();
+    for (i, why) in results {
+        let (v, _) = &list[i];
+        // (a nether view's still never plays: its overworld view's run is its scene)
+        let why = match (why, v.asbuilt) {
+            (Some(w), _) => Some(w),
+            (None, true) => Some("kept as built by the site (data-asbuilt): the browser's simulator cannot run it yet".to_string()),
+            (None, false) => None,
+        };
+        if let Some(w) = why {
+            // (the reason's kind: a position or a tick in it would split one cause per design)
+            by_reason.entry(w).or_default().push(i);
+        }
+    }
+    let total_pages: usize = list.iter().map(|(_, p)| p.len()).sum();
+    let bad_views: usize = by_reason.values().map(|v| v.len()).sum();
+    let bad_pages: std::collections::BTreeSet<&String> = by_reason.values().flatten().flat_map(|i| list[*i].1.iter()).collect();
+    println!("{} full viewers ({} placements) on {} pages, built natively in {:.1} s: {bad_views} views on {} pages say \"not simulated\"", list.len(), total_pages, pages.len(), t0.elapsed().as_secs_f64(), bad_pages.len());
+    let mut reasons: Vec<(&String, &Vec<usize>)> = by_reason.iter().collect();
+    reasons.sort_by_key(|(_, v)| std::cmp::Reverse(v.len()));
+    for (why, idx) in reasons {
+        println!("{} view(s): {why}", idx.len());
+        for i in idx {
+            let (v, ps) = &list[*i];
+            println!("  {} ({}{}{}){}", ps[0], v.src.strip_prefix(dir).unwrap_or(&v.src).display(), v.part.as_deref().map(|p| format!(", its {p} part")).unwrap_or_default(), if v.drive.is_some() { ", with its drive" } else { "" }, if ps.len() > 1 { format!(" and {} more page(s)", ps.len() - 1) } else { String::new() });
+        }
+    }
+    Ok(())
+}
+
 /// `web drive-check`: the view's session of a part with its bench's drive, run natively, against
 /// the bench's expectations.
 fn cmd_drive_check(design: &Path, drive: &Path) -> Result<()> {
@@ -1821,6 +1956,23 @@ fn cmd_check(designs: &[PathBuf], horizon: u32, quiet: bool, wasm: Option<&Path>
         // judge's run not replayed exactly yet; the coordinator 2026-10-22: shown as built counts
         // as a pass): what it shows is the build, and the viewer must not simulate it
         if !unverified && mcview::Design::parse(&text).ok().and_then(|md| mcview::circuit::not_replayed_yet(&md)).is_some() {
+            // (a slice its judge tiles: its page's view runs the judge's row, `site::circuits`'
+            // view text: that row held to the judge's base run, frame by frame)
+            if text.lines().any(|l| l.starts_with("circuit: composter")) && text.lines().any(|l| l.trim_start().starts_with("tile:")) {
+                match chest_twin_pair(&text) {
+                    Ok(Some(m)) => {
+                        if !quiet {
+                            println!("ok   {} its page's view: {m}", d.display());
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        bad += 1;
+                        println!("FAIL {} its page's view (the judge's row): {e}", d.display());
+                    }
+                }
+                continue;
+            }
             match mcview::Session::new(&text, &mcview::Options::default()) {
                 Ok(s) if !s.simulated() => {
                     skipped += 1;
@@ -1939,6 +2091,13 @@ fn chest_twin_pair(text: &str) -> Result<Option<String>, String> {
     let c = circuit::Circuit::from_design(d).map_err(|e| format!("{e:#}"))?;
     let frames = match &c.kind {
         Some(circuit::Kind::Brewer(_)) => circuit::brewer::sim_frames(&c, circuit::brewer::Run::Base, 3)?,
+        // (a slice its judge tiles: the page's view runs the judge's row, `site::circuits`' view
+        // text, held to the judge's base run on that row)
+        Some(circuit::Kind::Composter(_)) if c.tile.is_some() => {
+            let frames = circuit::composter::sim_frames(&c, circuit::composter::Run::Base, 3)?;
+            let (_, row) = circuit::composter::scenario_for(&c, circuit::composter::Run::Base).map_err(|e| format!("{e:#}"))?;
+            return twin_frames_pair(&row.clock.design.to_text(), &row, &frames, 3).map(|r| Some(format!("{r} (the view running its judge's row of {} slices)", row.clock.design.meta.get("tiled").map(String::as_str).unwrap_or("?"))));
+        }
         Some(circuit::Kind::Composter(_)) => circuit::composter::sim_frames(&c, circuit::composter::Run::Base, 3)?,
         _ => return Ok(None),
     };

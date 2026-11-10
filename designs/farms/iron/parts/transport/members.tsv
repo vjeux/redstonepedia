@@ -4,4 +4,3 @@ side-chute-arm-16-d20.txt	drop out of the villagers' range, then a water channel
 drop-shaft-15.txt	open drop 15 blocks down to the kill	middle	blocks 106, blocks dug 0, build seconds 164	module-two-watchers.txt module-three-watchers.txt
 drop-shaft-14.txt	open drop 14 blocks down to the kill	late	blocks 108, blocks dug 0, build seconds 131	module-three-watchers-sleeper.txt module-two-watchers-sleeper.txt module-two-watchers-6x6.txt late-module-three-watchers-two-sleepers.txt late-module-three-watchers.txt late-module-two-watchers-sleeper.txt
 drop-shaft-13.txt	open drop 13 blocks down to the kill	late	blocks 112, blocks dug 0, build seconds 136	dust-pulse-out-of-sight.txt dust-pulse-three-watchers.txt late-module-two-watchers-two-sleepers.txt late-module-compact.txt
-drop-shaft-11.txt	open drop 11 blocks down to the kill	day-1	blocks 0, blocks dug 128, build seconds 128	bed-plate-lava-out-of-sight.txt bed-plate-two-sleepers.txt
