@@ -23,7 +23,6 @@
 //! Spawning what is not modeled yet (a phantom, a pillager, a cat, a trader and its llamas) is a
 //! model error ([`World::errors`]): the draws up to it are exact, what follows would not be.
 
-use super::types::MobType;
 use crate::entity::{EntityKind, Vec3};
 use crate::pos::BlockPos;
 use crate::rng::LegacyRandom;
@@ -424,35 +423,9 @@ fn siege_spot(w: &mut World, pos: BlockPos) -> Option<Vec3> {
 /// (EVENT), its snap yaw from the level random.
 fn siege_spawn(w: &mut World, c: &mut Custom) {
     let Some(at) = siege_spot(w, c.siege.spawn) else { return };
-    let mut own = w.construct();
+    // `getCurrentDifficultyAt(zombie.blockPosition())`: the new zombie stands at the origin; with
+    // no chunk there (a sandbox) no inhabited time and no moon
     let origin_loaded = c.full_chunks.contains(&[0, 0]);
-    let (bonus, chance) = match finalize_siege_zombie(w, &mut own, origin_loaded) {
-        Ok(b) => b,
-        Err(e) => {
-            model_error(w, format!("gt {}: the siege zombie's finalizeSpawn: {e}", w.time));
-            (0.0, 0.0)
-        }
-    };
-    let yaw = level(w).next_float() * 360.0;
-    let id = enter_spawned(w, MobType::Zombie, at, yaw, bonus);
-    // (tickexact 2026-11-10) its reinforcement chance, for Zombie.hurtServer's call
-    if let Some(j) = crate::entity::index_of(w, id)
-        && let crate::entity::EntityKind::Mob(m) = &mut w.entities.list[j].kind
-    {
-        m.reinforcement_chance = chance;
-    }
-    c.log.push((w.time, format!("siege zombie #{id} at {:.1} {:.1} {:.1}", at.x, at.y, at.z)));
-}
-
-/// `Zombie.finalizeSpawn(level, getCurrentDifficultyAt(origin), EVENT, null)` of a siege zombie:
-/// `new Zombie(level)` stands at the origin when its difficulty is read (no chunk there in a
-/// sandbox: no inhabited time, no moon). The level random's draws in order (Mob's follow-range
-/// triangle and left-handedness, the loot pickup, the baby odds, the doors, the armor and weapon
-/// rolls), then `handleAttributes` from its own random (`own`: the construction seed). Returns the
-/// follow-range bonus and the reinforcement chance (`randomizeReinforcementsChance`). A path redsim
-/// does not model yet (a baby, armor, a weapon, a leader's bonuses, the doubled follow range) is an
-/// `Err` after its draws.
-fn finalize_siege_zombie(w: &mut World, own: &mut LegacyRandom, origin_loaded: bool) -> Result<(f64, f64), String> {
     let special = if origin_loaded {
         special_multiplier(effective_difficulty(w, BlockPos::new(0, 0, 0)))
     } else {
@@ -460,69 +433,10 @@ fn finalize_siege_zombie(w: &mut World, own: &mut LegacyRandom, origin_loaded: b
         let global = ((total + -72000.0) / 1440000.0).clamp(0.0, 1.0) * 0.25;
         special_multiplier(3.0 * (0.75 + global))
     };
-    let r = level(w);
-    let bonus = r.triangle(0.0, 0.11485000000000001);
-    r.next_float();
-    // canPickUpLoot
-    r.next_float();
-    // ZombieGroupData(getSpawnAsBabyOdds(random), true)
-    if r.next_float() < 0.05 {
-        return Err("a baby zombie (not modeled)".into());
-    }
-    // setCanBreakDoors
-    r.next_float();
-    // Mob.populateDefaultEquipmentSlots, then Zombie's weapon roll
-    if r.next_float() < 0.15 * special {
-        return Err("an armored zombie (not modeled)".into());
-    }
-    if r.next_float() < 0.05 {
-        return Err("a zombie with a weapon (not modeled)".into());
-    }
-    // populateDefaultEquipmentEnchantments: no item, no draw; Halloween (the real date): not now
-    // handleAttributes(special, EVENT) from its own random: randomizeReinforcementsChance first
-    let chance = own.next_double() * 0.10000000149011612;
-    own.next_double();
-    let follow = own.next_double() * 1.5 * special as f64;
-    if follow > 1.0 {
-        return Err("a zombie's spawn follow-range bonus (not modeled)".into());
-    }
-    if own.next_float() < special * 0.05 {
-        own.next_double();
-        own.next_double();
-        return Err("a leader zombie (not modeled)".into());
-    }
-    Ok((bonus, chance))
-}
-
-/// A mob a custom spawner made enters the level (`addFreshEntityWithPassengers`): its own random
-/// seeded as its entity number, the constructor's UUID and yaw replayed (the head keeps that yaw:
-/// the snap set only the body's).
-fn enter_spawned(w: &mut World, ty: MobType, pos: Vec3, yaw: f32, bonus: f64) -> u32 {
-    let mut st = super::MobState::new(ty, bonus);
-    let n = w.entities.next_id;
-    let mut own = w.entering_random(n);
-    crate::rng::replay_uuid(&mut own);
-    let ctor_yaw = own.next_float() * (std::f64::consts::PI * 2.0) as f32;
-    // ---- mob AI (the mob-AI lane): its goals; the head at the constructor's yaw, the body at 0
-    // (the snap sets only the yaw) ----
-    if w.mob.ai.on {
-        let mut a = super::ai::MobAi::new(ty, yaw);
-        a.y_head_rot = ctor_yaw;
-        a.y_body_rot = 0.0;
-        // the custom spawners' mobs are ambient natural mobs: one whose AI is not modeled yet runs
-        // on the legacy walk model, named in the run's report (the parent's rule, 2026-11-08)
-        if super::ai::unmodeled(ty, &a) {
-            w.mob.ai.legacy.insert(ty.game_id());
-        } else {
-            st.ai = Some(Box::new(a));
-            st.speed = 0.0;
-        }
-    }
-    let id = w.entities.add(EntityKind::Mob(Box::new(st)), pos, yaw);
-    if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
-        e.random = Some(own);
-    }
-    id
+    // (mob-AI 2026-11-10) Zombie's whole finalizeSpawn (a baby, armor, a weapon, a leader: D1U's
+    // siege made a baby at t7422), the snap's yaw, its handleAttributes: natural::siege_zombie
+    let id = super::natural::siege_zombie(w, at, special);
+    c.log.push((w.time, format!("siege zombie #{id} at {:.1} {:.1} {:.1}", at.x, at.y, at.z)));
 }
 
 /// `WanderingTraderSpawner.tick`: its own random; the player from the level's.

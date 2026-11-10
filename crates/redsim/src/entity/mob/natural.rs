@@ -1398,6 +1398,46 @@ fn weapon_id(item: super::enchant::Item) -> Option<&'static str> {
 fn zombie_finalize(w: &mut World, nat: &Natural, g: &mut GroupData, drowned: bool, pos: BlockPos, hand: &mut Hand) -> (bool, Jockey, Option<u8>, bool) {
     let special = special_multiplier(w, nat);
     let hard = nat.difficulty == Difficulty::Hard;
+    zombie_finalize_at(w, special, hard, g, drowned, pos, hand)
+}
+
+/// `VillageSiege.trySpawn` past its spot (custom.rs): `new Zombie(level)` (the bridge's
+/// construction), `finalizeSpawn(EVENT, no group data)` with the origin's difficulty (`special`:
+/// the zombie stands at the origin then) — Zombie's whole finalizeSpawn, a baby, its armor and
+/// weapon included; `snapTo(the spot, level random yaw x 360, 0)`; added with its passengers;
+/// `handleAttributes` from the construction's random. A siege zombie's chicken jockey (its
+/// chicken looked for or made at the origin) is a model error. Returns the zombie's id.
+pub fn siege_zombie(w: &mut World, at: Vec3, special: f32) -> u32 {
+    // a void run (the judge's) has no natural spawning: its finalize's bonuses live here meanwhile
+    let temp = w.mob.natural.is_none();
+    if temp {
+        let players: Vec<Vec3> = w.afk.into_iter().collect();
+        w.mob.natural = Some(Natural::new(players, w.mob.ai.difficulty));
+    }
+    let ctor = w.construct();
+    if let Some(n) = w.mob.natural.as_mut() {
+        n.bonuses.clear();
+    }
+    let hard = w.mob.ai.difficulty == Difficulty::Hard;
+    let mut hand = Hand::default();
+    let mut g = GroupData::default();
+    let (baby, jockey, helmet, breaks_doors) = zombie_finalize_at(w, special, hard, &mut g, false, BlockPos::new(0, 0, 0), &mut hand);
+    if jockey != Jockey::None {
+        model_error(w, "a siege zombie's chicken jockey (its chicken looked for or made at the origin) is not modeled".into());
+    }
+    let yaw = rng(w).next_float() * 360.0;
+    let k = kind_of("minecraft:zombie").expect("a zombie row");
+    let ty = if baby { k.baby.unwrap_or(k.ty) } else { k.ty };
+    let f = Finalized { ty, baby, jockey: Jockey::None, helmet, rider_helmet: None, breaks_doors, rider_breaks_doors: false, color: 0, rider_chicken: Jockey::None, horse: None, spider_effect: None, hand, rider_hand: Hand::default() };
+    let id = spawn_mob(w, k, &f, at, yaw);
+    zombie_handle_attributes(w, id, Some(ctor), special, true);
+    if temp {
+        w.mob.natural = None;
+    }
+    id
+}
+
+fn zombie_finalize_at(w: &mut World, special: f32, hard: bool, g: &mut GroupData, drowned: bool, pos: BlockPos, hand: &mut Hand) -> (bool, Jockey, Option<u8>, bool) {
     mob_base(w);
     hand.loot = rng(w).next_float() < 0.55 * special; // setCanPickUpLoot
     let baby = match g.zombie {

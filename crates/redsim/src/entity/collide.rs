@@ -1094,7 +1094,11 @@ fn check_inside_blocks_step(w: &mut World, i: usize, from: Vec3, to: Vec3, visit
         true
     });
     for (p, iteration) in seq {
-        if w.entities.list[i].removed {
+        // `if (!this.isAlive()) return false;`: a removed entity, or a living one at 0 health (a
+        // squid that dried out in a magma bubble column is not dragged down on its dying tick:
+        // D1U t39528)
+        let dead = matches!(&w.entities.list[i].kind, crate::entity::EntityKind::Mob(m) if m.health <= 0.0);
+        if w.entities.list[i].removed || dead {
             break;
         }
         if iteration >= max_iter {
