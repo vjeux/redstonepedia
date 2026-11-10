@@ -48,6 +48,24 @@ The judge's run on many seeds at once: `mctas mobfarm seeds <design> --from 1 --
 a carousel's riders at each midday), how many hold and the first failures by kind; `--write`
 records the count as a row of `<stem>.seeds.tsv` beside the design (`days held of seeds`, in run
 order; a run again on the same days and seeds replaces its row), which the farm's card quotes.
+A run's tick-level timing view (the carousel's parts and assembly): `mctas mobfarm timeline
+<design> --seed S --days D [--terrain <sample> | --build K] [--tag '<tag>'...] [--from T --to T]
+[--out DIR]` replays `mobfarm run`'s run (its counters printed beside the judge's: the same run tick
+for tick) and writes `<stem>-seed<S>.timeline.html` (lanes on a canvas: drag, pinch or ctrl+wheel to
+zoom, a tap reads every lane at that tick, `#t=<tick>&w=<ticks>` links to a moment) and
+`.timeline.txt` (one line per change, `t=<ticks after the arrival> gt=<game time> day=<n>
+dt=<day time> ...`, for grep): each farm villager's position class (asleep, at-bed, travelling, a
+tagged region, held in a still cart, loose), activity, panic trigger, GOLEM_DETECTED_RECENTLY and
+the tick it is free, wanting a golem, cart, HOME, LAST_SLEPT and CANT_REACH; each cart's position,
+speed and rider; each bed's OCCUPIED and sleeper; every gameTime % 100 slot with each summoner's
+10-box (redsim's box test) and result; the golems' spawns, deaths and exits. Tags, in the design
+(`timeline: <tag>` lines) or `--tag` (design coordinates): `signal NAME x y z` (a block's state as a
+lane: a counter's bulb, a release line) and `region NAME x0 y0 z0 x1 y1 z1` (a villager there is at
+NAME; `station...` is the summoners' group). `VIOLATION <rule>` lines: `10.6` (a villager outside the
+summoner's group, arriving and leaving ones counted in, locked by a spawn), `16` (awake in REST
+within 16 of its home bed while the bed is OCCUPIED), `1200` (CANT_REACH older than 1200 gt in REST
+with a HOME; noted whether the HOME went), `follow` (a golem sensor's sighting away from the
+station) and `gossip` (a summon off the 100 gt grid).
 The judge's speed, results unchanged: `mctas farmopt bench <spec> --n 16 --quick 8 [--full N]
 --threads 16 --out <file>` evaluates N candidates spread evenly over the spec's space level by
 level (static, quick for the first `--quick` passing static, full for the first `--full` passing

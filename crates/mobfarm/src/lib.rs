@@ -12,6 +12,7 @@ pub mod gate;
 pub mod layouts;
 pub mod parts;
 pub mod spawnrules;
+pub mod timeline;
 pub mod trim;
 pub mod validate;
 pub mod weathercheck;

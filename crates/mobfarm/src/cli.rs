@@ -317,6 +317,44 @@ pub enum MobfarmCmd {
         #[arg(long)]
         build: Option<usize>,
     },
+    /// A run's tick-level timing view (the carousel's parts and assembly: the parent and ironspec
+    /// 2026-11-09): one judge run (`run`'s options: the same run), sampled after every tick, written
+    /// as a page (`<out>/<stem>-seed<S>.timeline.html`: zoom, pan and pinch; a tap reads every lane
+    /// at a tick) and a text dump (`.timeline.txt`: one line per change, `VIOLATION <rule>` lines):
+    /// each farm villager's position class, activity, panic trigger, GOLEM_DETECTED_RECENTLY and its
+    /// expiry, wanting a golem, cart, HOME, LAST_SLEPT and CANT_REACH; each cart's position, speed
+    /// and rider; each bed's OCCUPIED; the design's tagged blocks and regions (`timeline: signal
+    /// NAME x y z`, `timeline: region NAME x0 y0 z0 x1 y1 z1`; a region `station...` is the
+    /// summoners' group); the gameTime % 100 slots, each summoner's 10-box and result; the golems'
+    /// spawns and exits; and the violations: the 10.6 rule at a spawn, the 16 rule, CANT_REACH over
+    /// 1200 in REST, a golem in a waiting villager's follow box.
+    Timeline {
+        design: PathBuf,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long, default_value_t = 1)]
+        days: u32,
+        /// Every golem stands still (default: a random policy each).
+        #[arg(long)]
+        still: bool,
+        /// Build it into a standard terrain sample (as `run --terrain`).
+        #[arg(long)]
+        terrain: Option<String>,
+        /// The judge's terrain build K (as `run --build`).
+        #[arg(long)]
+        build: Option<usize>,
+        /// More tags, in the design's syntax (`signal NAME x y z`, `region NAME x0 y0 z0 x1 y1 z1`,
+        /// design coordinates); repeatable.
+        #[arg(long)]
+        tag: Vec<String>,
+        /// The window written: ticks after the arrival (default: the whole run).
+        #[arg(long, default_value_t = 0)]
+        from: u32,
+        #[arg(long)]
+        to: Option<u32>,
+        #[arg(long, short, default_value = ".")]
+        out: PathBuf,
+    },
     /// The judge's run of a design on many seeds at once (the carousel's robustness: "21 of 100
     /// seeds hold 3 days"): each seed's verdict (its first failure, or PASS) with its golems, iron
     /// and riders at each midday, then how many hold and the first failures counted by kind.
@@ -503,6 +541,43 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for f in &rep.failures {
                 println!("FAIL {f}");
             }
+        }
+        MobfarmCmd::Timeline { design, seed, days, still, terrain, build, tag, from, to, out } => {
+            let (c, spec) = load(version, &design)?;
+            use redsim::entity::mob::farm::{RunOpts, WalkMode};
+            let walk = if still { WalkMode::Fixed(redsim::entity::mob::walk::Walk::Still) } else { WalkMode::Random };
+            let mut o = RunOpts::steady(seed, days * 24000, walk);
+            // (the run `run` makes: the same site, the same options)
+            let (spec, offset) = match (&terrain, build) {
+                (_, Some(k)) => {
+                    let sample = circuit::mobfarm::terrain_sample(&c).map_err(|e| anyhow::anyhow!(e))?.ok_or_else(|| anyhow::anyhow!("--build: the design is not judged in terrain"))?;
+                    let sites = circuit::mobfarm::terrain_sites(&c, &spec, sample).map_err(|e| anyhow::anyhow!(e))?;
+                    let site = *sites.get(k).ok_or_else(|| anyhow::anyhow!("--build {k}: the judge has {} builds", sites.len()))?;
+                    o = redsim::entity::mob::farm::judge_opts_in(seed, days * 24000, walk, Some(site));
+                    (site.spec(&spec), site.offset)
+                }
+                (Some(name), None) => {
+                    let site: &'static redsim::entity::mob::site::Site = Box::leak(Box::new(circuit::mobfarm::site_of(&c, &spec, name).map_err(|e| anyhow::anyhow!(e))?));
+                    o.site = Some(site);
+                    (site.spec(&spec), site.offset)
+                }
+                (None, None) => (spec, [0, 0, 0]),
+            };
+            let text = std::fs::read_to_string(&design)?;
+            let mut tags = crate::timeline::tags_in(&text)?;
+            for t in &tag {
+                tags.push(crate::timeline::Tag::parse(t)?);
+            }
+            let t0 = std::time::Instant::now();
+            let ticks = days * 24000;
+            let stem = design.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "design".into());
+            let tl = crate::timeline::record(&stem, &spec, &o, offset, &tags, ticks)?;
+            let to = to.unwrap_or(ticks).min(ticks);
+            let (html, txt) = crate::timeline::write(&tl, &out, &stem, from.min(to), to)?;
+            println!("{}", tl.summary(from.min(to), to));
+            println!("{} ({} KB)", html.display(), std::fs::metadata(&html)?.len() / 1024);
+            println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
+            println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
         }
         MobfarmCmd::Seeds { design, from, to, days, jobs, write } => {
             let (_c, spec) = load(version, &design)?;
