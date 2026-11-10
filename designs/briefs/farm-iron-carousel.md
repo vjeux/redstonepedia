@@ -24,6 +24,8 @@ Baseline: the 2-tick redstone catch, which powers the stand's brake at +25/+26 g
 
 Every carousel part with timed controls prints its tolerance: how many ticks each control's timing can move early and late, and how much cart-speed perturbation at the part's entry (± blocks per tick) it survives with its contract met. Each is measured on the part's bench by sweeping one perturbation at a time to the first failure. The assembly prints the same for its couplings. A part with 0 ticks of tolerance in either direction on any control is flagged.
 
+Each part's tolerance line also includes two corner runs: every timed control at its measured early limit together, then every one at its late limit, each with the entry-speed extreme, so a part whose margins hold only one at a time shows up; the assembly repeats the corners across its couplings.
+
 ### Archived: measured, superseded by vjeux's single lane
 
 The 7-lane hold (stacked single carts, 100 of 100 seeds clean), the 7-state counter (v7 and v8, exact in the real game), the paired-lane geometry with its 7-lane junction yard (12,600 visits clean) and the scheduler core (0 lost slots over 120 days) stay as evidence with their benches and numbers. Their mechanisms carry over where the single lane needs them: the counter's fallback, the sensor budgets, the bed's release-and-reclaim, the BLOCK policy.
