@@ -11,7 +11,7 @@ section. This folder holds the loop as it is built.
 | queue register (18 slots) | track built | bench-driven here; day-1 has wired its controller into a copy of this file (explore/day1-sched-wip) | not yet | day-1's wiring merged into this file, then the wired end-to-end run |
 | release of the front 3 | track built | as above | not yet | as above |
 | stand (3 slots) | track built, a sketch (farmopt owns the real stand; a stop-based stand is being built) | its brake is a real detector rail on the release run plus a delay (day-1 wired it); departures bench-driven here | not yet | farmopt's stand and pad; a catch with more than 2 ticks of slack |
-| return to the queue's tail | track built | timers (day-1 wired them; to move to +120/+128 for this file) | not yet | as above |
+| return to the queue's tail | track built | timers (day-1 wired them on the previous file; this file moves them to +100/+118/+120) | not yet | as above |
 | zombies (PANIC) | 7 posts built | none needed | yes (bench, and bridged: the game agrees tick for tick) | the pad's own stand zombies (farmopt) |
 | bed siding (naps) | not in this file (farmopt's is wired separately) | | | the two junctions |
 | golem-floor gate | none | | | all |
@@ -28,7 +28,7 @@ and stops sooner, so the resting offsets converge (0.32 of the cell down the slo
 carts sit 3 cells apart, outside the 0.2 push range: no creep, no bounce, no momentum build-up.
 tick-exact bridged the register's one-slot moves against the real server (0 differences).
 
-## The loop (`mctas mobfarm queue-loop --detector --boost-first 8 --tail-desc --zombie-every 8`)
+## The loop (`mctas mobfarm queue-loop --detector --boost-first 8 --tail-desc --short-depart --zombie-every 8`)
 
 Top view, the pad (farmopt's) south of z -1:
 
@@ -39,8 +39,8 @@ Top view, the pad (farmopt's) south of z -1:
   boosters right after the head (the carts are capped at 0.4 b/t anyway; the boosters raise the
   train's speed into the stand, which widens the catch's window from 1 to 2 ticks); a detector
   rail at (-3,1,4).
-- **Departure** from the stand's east end north along x 9, up 3 blocks at z 16..19, west along z
-  20 at y 4 into the queue's tail.
+- **Departure** from the stand's east end: north along x 8 right after S1's peak, up 3 blocks at
+  z 16..19, west along z 20 at y 4 into the queue's tail.
 - **Queue** north of z 20 in two rows 3 apart: row A (the tail) north along x 0, 7 slots; a turn
   slot (row A's last peak is a curve, the slot runs west, its peak a curve again) so no queue move
   is longer than another; row B (the head) south along x -3, 10 slots.
@@ -51,8 +51,9 @@ Top view, the pad (farmopt's) south of z -1:
   fast as out of any sawtooth slot (the earlier level deep slots climbed two blocks and crawled
   over the peak, ~22 gt per move: the next pulse caught them mid-move, so the advance needed
   pulses exactly 20 gt apart in every slot).
-- **Zombie posts**: a zombie in a boat on glass at (3,3,5+8k), k = 0..6, leaves over it; every
-  rider within 8 blocks and in sight of one, all along the loop.
+- **Zombie posts**: a zombie in a boat on glass at (3,3,5+8k), k = 0..6, and one at (-6,3,21)
+  west of the queue's head (the raised jog's supports hide the head from the post at z 21),
+  leaves over each; every rider within 8 blocks and in sight of one, all along the loop.
 
 `mctas mobfarm queue-loop` prints the control cells (each the block under a powered slope); the
 tail's are (0,1,25), (0,0,29), (0,-1,33).
@@ -60,14 +61,18 @@ tail's are (0,1,25), (0,0,29), (0,-1,33).
 Per slot (t0 = the release start = golem pulse + 4 in day-1's controller; the times day-1's
 controller produces):
 - the release group (the queue's front 3 slopes) on for 36 gt from t0: the 3 leave as a train;
-- the stand's batch leaves one slot at a time: S1 on at t0+6, S2 +18, S3 +30;
-- the stand braked (all 3 slopes) 26 gt after the detector rail switches on, in redstone terms
-  (the bench's +27: it applies a change after the tick, a repeater during it);
-- the queue advances 3 slots: pulses at t0+38, +58, +78, 12 gt each, every queue control on the
-  same tick;
+- the stand's batch leaves one slot at a time: S1 on at t0+6, S2 +12, S3 +18 (6 gt apart; with 12,
+  S3's cart reached the tail at ~t0+140, after the next slot's first advance pulse);
+- the stand braked (all 3 slopes) 28 gt after the detector rail switches on, in redstone terms
+  (the bench's +27: the bench applies a change after the tick, a repeater during it, so bench +N
+  is redstone +(N+1); day-1 found it in its wired run);
+- the queue advances 3 slots: pulses at t0+38, +58, +78, 12 gt each, slots 3-17 on the same tick,
+  the 3 tail slots 2 gt later (day-1's wiring; `--skew 2,2,2`);
 - the queue's tail opens at t0+90 (slots 1-2) and +92 (slot 0);
-- the returning batch fills the tail front first, by timers from its departure: slots 1-2 braked
-  at +120 (works +118..+122), slot 0 at +128 (works +126..+130).
+- the returning batch fills the tail front first, by timers from its departure: slot 2 braked at
+  +100 (works +92..+114 at least), slot 1 at +118 (works +116..+120), slot 0 at +120 (works
+  +118..+122); the batch is at rest in the tail by +131..+132, 8 gt before the tail's first
+  advance pulse (+140), checked at rest (`--tail-check-rest`), as the wired run checks it.
 
 ## Results
 
@@ -75,21 +80,26 @@ controller produces):
   1,440 slots (6 days each), 0 problems.
 - Every control a timer or the detector (3 boosters, bench +28; day-1's latencies): 100 seeds x
   1,440 slots, 0 problems.
-- 8 boosters: the stand works at bench +26 and +27 (redstone +25 and +26), 3 seeds x 300 slots
+- 8 boosters: the stand works at bench +26 and +27 (redstone +27 and +28), 3 seeds x 300 slots
   each with day-1's 36/12-gt pulses; +25 and +28 fail.
 - Every slot: the queue releases exactly its front 3; the batch settles at the stand at t0+81
   (golem+85); the previous batch rests in the queue's tail before the next advance.
 - PANIC: with the zombie posts every rider panics 100.00% of deep-night ticks (day time
   13,670..22,330), 3 seeds x 720 slots; 7 of 7 zombies alive at the end; riders all in their own
-  carts. Without the posts: 0%. Posts every 16: 72.6%.
-- Golem spawns: a villager riding anywhere on the loop's 118 rail cells finds 0 golem spawn cells
+  carts. Without the posts: 0%. Posts every 16: 72.6%. This file (8 posts): 100.00%, 1 seed x 100
+  slots, 8 of 8 zombies alive (without the post at the head: 94.77%, the head's riders calm).
+- Golem spawns: a villager riding anywhere on the loop's 116 rail cells finds 0 golem spawn cells
   (`queue-loop-spots`, redsim's copy of the game's LEGACY_IRON_GOLEM search).
 - tick-exact bridged the stand catch against the 26.3 server: the game matches the bench tick for
   tick, the window included (the 1-tick catch, then the 2-tick one: carousel-catch2, GO
   ea7960400, 15,750 of 15,750 cart-ticks equal at +26 and +27). The riders' PANIC near the zombie
   posts is the same in the game, tick for tick.
-- This file (descending tail slots), day-1's times, tail +120/+128: 3 seeds x 200 slots clean at
-  bench +26 and +27 (redstone +25/+26).
+- This file, day-1's times (tail +2, departures 6 apart, tail brakes +100/+118/+120, the
+  at-rest check): 3 seeds x 200 slots clean at bench +26 and +27 (redstone +27/+28).
+- day-1's fully wired run on the previous file (9bd8f2ff9, its redstone for every control, 60 slots
+  x 3 seeds): the release group holds 3 and the stand holds 3 on every slot, no rider problem; the
+  one failure was the returning batch still settling when the tail's first advance came (fixed
+  here: departures 6 apart, the departure 1 cell shorter each way).
 
 ## Tolerance lines (`queue-loop-run --sweep <control>|all [--corners]`)
 

@@ -381,11 +381,16 @@ pub struct LoopOpts {
     /// The queue's 3 tail slots as descending deep slots (braked slopes C and A, one plain slope
     /// up, each a block lower), the return coming in at y 4: fast queue moves out of the tail.
     pub tail_desc: bool,
+    /// With `tail_desc`: the 3 spare cells as second peak cells on slots 3-5 instead of flat
+    /// cells before the tail.
+    pub peak_pad: bool,
+    /// The departure turns north right after S1's peak (one cell shorter each way).
+    pub short_depart: bool,
 }
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false }
     }
 }
 
@@ -604,7 +609,7 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
     // row A from its entry curve at (0, ye, zr): north (+z)
     path.push(([0, ye, zr], Cell::Plain));
     let mut z = zr + 1;
-    if o.tail_desc {
+    if o.tail_desc && !o.peak_pad {
         // (3 flat cells first: the descending slots are 3 cells shorter than deep ones, and the
         // queue's head stays 19 cells north of the stand, outside the follow box)
         for _ in 0..3 {
@@ -652,6 +657,14 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
             path.push(([0, 0, z + 1], Cell::Plain));
             path.push(([0, 1, z + 2], Cell::Plain));
             z += 3;
+            if o.tail_desc && (3..6).contains(&k) && o.peak_pad {
+                // (a 2-cell peak on slots 3-5: the descending tail slots are 3 cells shorter than
+                // deep ones, and the queue's head stays 19 cells north of the stand, outside the
+                // follow box, without lengthening the return; a move over a 2-cell peak takes
+                // ~17 gt, inside the 20 between pulses)
+                path.push(([0, 1, z], Cell::Plain));
+                z += 1;
+            }
         }
     }
     // the U-turn west at the peaks' height: rows 1 apart, two curves; rows 2 apart, a curve, a
@@ -755,9 +768,13 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
     // the departure: east, north along x xd (boosters first), west along zr back to row A; with
     // `drop` the last stretch is a ledge: up to y 2 before the turn west, off the edge at x 5,
     // landing on y 1 at x 4 (the landing clamps every cart's speed to 0.4 and the fall slows it
-    // to ~0.3, so the tail's plain slots catch it like a queue move)
-    let xd = xs + 10;
-    path.push(([xd - 1, 1, 0], Cell::Boost));
+    // to ~0.3, so the tail's plain slots catch it like a queue move); with `tail_desc` the turn
+    // north is right after S1's peak (2 cells shorter: the return's last cart reaches the tail
+    // sooner)
+    let xd = if o.short_depart { xs + 9 } else { xs + 10 };
+    if !o.short_depart {
+        path.push(([xd - 1, 1, 0], Cell::Boost));
+    }
     path.push(([xd, 1, 0], Cell::Plain));
     let top = if o.drop { zr - 2 } else if o.tail_desc { zr - 4 } else { zr };
     for z in 1..top {
@@ -973,16 +990,25 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
     // strip's middle line north of the stand (the stand's own zombies are the pad's)
     if o.zombie_every > 0 {
         let zx = o.zombie_x;
+        let mut posts: Vec<(i32, i32)> = Vec::new();
         let mut z = 5;
         while z <= 58 {
-            b.set(zx, 2, z, "glass");
-            b.set(zx, 6, z, "oak_leaves[distance=1,persistent=true,waterlogged=false]");
-            b.entity("oak_boat", [zx as f64 + 0.5, 3.0, z as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"));
+            posts.push((zx, z));
             z += o.zombie_every;
+        }
+        if o.tail_desc {
+            // (the raised jog's supports at y 3 hide the queue's head from the post at z 21: one
+            // more post west of the head)
+            posts.push((-6, 21));
+        }
+        for (px, pz) in posts {
+            b.set(px, 2, pz, "glass");
+            b.set(px, 6, pz, "oak_leaves[distance=1,persistent=true,waterlogged=false]");
+            b.entity("oak_boat", [px as f64 + 0.5, 3.0, pz as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\",PersistenceRequired:1b}]}"));
         }
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     Ok(b.text(&["The single-lane carousel's loop (prototype): a sawtooth queue register, the release run, the 3-slot stand, the return run."]))
 }
@@ -1012,6 +1038,8 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "stand_desc" => o.stand_desc = v != "0",
             "stand_deep" => o.stand_deep = v != "0",
             "tail_desc" => o.tail_desc = v != "0",
+            "peak_pad" => o.peak_pad = v != "0",
+            "short_depart" => o.short_depart = v != "0",
             "detector" => o.detector = v != "0",
             "zombie_every" => o.zombie_every = v.parse()?,
             "zombie_x" => o.zombie_x = v.parse()?,
@@ -1093,11 +1121,16 @@ pub struct LoopTiming {
     /// A diagnostic: at this gt of each slot the batch, if it is near the stand, is put at rest
     /// at the stand's nominal offsets (a stand that always delivers).
     pub ideal_stand_at: Option<i64>,
+    /// The at-the-advance check requires the returning train at rest (as the wired run's flag),
+    /// not only braked into the tail.
+    pub tail_check_rest: bool,
+    /// Slot 2's tail brake on its own, at this gt after the train's departure (else with slot 1's).
+    pub tail2_at: Option<i64>,
 }
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None }
     }
 }
 
@@ -1361,6 +1394,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut arrivals: Vec<String> = Vec::new();
     let mut stand_braked_at: Vec<i64> = Vec::new();
     let mut intake_braked_at: Vec<(i64, i64)> = Vec::new();
+    let mut tail_rest_at: Vec<i64> = Vec::new();
     for t in 0..cycles * 100 + 150 {
         let (c, dt) = (t / 100, t % 100);
         if c < cycles && dt == 0 {
@@ -1427,11 +1461,11 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         if c < cycles && dt == tm.tail_check_at.unwrap_or(tm.advance_at) {
             // the queue's tail must hold every earlier returning train before the advance
             for (c0, _, st) in &intake_trains {
-                if *c0 + lag <= c && (*st < 2 || (o.plain && *st != 9)) {
+                if *c0 + lag <= c && (*st < 2 || (o.plain && *st != 9) || (tm.tail_check_rest && *st == 2)) {
                     problems.push(format!("slot {c}: slot {c0}'s returning train not in the queue's tail at the advance"));
                 }
             }
-            intake_trains.retain(|(c0, _, st)| *c0 + lag > c || (*st < 2 || (o.plain && *st != 9)));
+            intake_trains.retain(|(c0, _, st)| *c0 + lag > c || (*st < 2 || (o.plain && *st != 9) || (tm.tail_check_rest && *st == 2)));
         }
         if c < cycles {
             if dt == tm.release_for {
@@ -1700,9 +1734,16 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             }
             if (t - *c0 * 100) > tm.advance_at + 2 * tm.advance_every + tm.pulse && tr.len() == 3 {
                 let rel_t = t - *c0 * 100;
+                // (`tail2_at`: slot 2, the front cart's, braked on its own, any time before that
+                // cart arrives: the front cart stops in it whenever the brake came)
+                if let (Some(b2), 0) = (tm.tail2_at, *st) {
+                    if rel_t == b2 {
+                        set(&mut run.world, &[intake[2]], false);
+                    }
+                }
                 let due1 = match tm.intake_brake { Some((b, _)) => rel_t == b, None => in_cell(&run.world, tr[0], lay.slot_peak[1]) };
                 if *st == 0 && due1 {
-                    set(&mut run.world, &[intake[1], intake[2]], false);
+                    set(&mut run.world, if tm.tail2_at.is_some() { &intake[1..2] } else { &intake[1..3] }, false);
                     set(&mut run.world, &lay.tail_b.iter().skip(1).copied().collect::<Vec<_>>(), false);
                     intake_braked_at.push((t - *c0 * 100, 1));
                     *st = 1;
@@ -1714,6 +1755,11 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                     intake_braked_at.push((t - *c0 * 100, 0));
                     *st = 2;
                     arrivals.push(format!("slot {c0}: returning train braked into the tail +{}", t - *c0 * 100));
+                }
+                // (and at rest: the 3 carts still in slots 2, 1, 0)
+                if *st == 2 && (0..3).all(|k| place_of(&run.world, tr[k]) == Some(2 - k)) {
+                    tail_rest_at.push(t - *c0 * 100);
+                    *st = 3;
                 }
             }
         }
@@ -1747,6 +1793,9 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     out.push(format!("{} settled snapshots, {} clean 3-place moves", snaps.len(), moves));
     let span = |v: &[i64]| if v.is_empty() { "-".to_string() } else { format!("+{}..+{}", v.iter().min().unwrap(), v.iter().max().unwrap()) };
     out.push(format!("stand braked at {} after its slot's start; tail slots 1-2 braked at {}, slot 0 at {} after the train's departure", span(&stand_braked_at), span(&intake_braked_at.iter().filter(|x| x.1 == 1).map(|x| x.0).collect::<Vec<_>>()), span(&intake_braked_at.iter().filter(|x| x.1 == 0).map(|x| x.0).collect::<Vec<_>>())));
+    if !tail_rest_at.is_empty() {
+        out.push(format!("returning trains at rest in the tail at {} after their departure (the next slot's first advance reaches the tail at +{})", span(&tail_rest_at), 100 + tm.advance_at + tm.adv_shift[0] + tm.skew[0].min(tm.skew[1]).min(tm.skew[2])));
+    }
     let nights: u64 = night_ticks.iter().sum();
     // (every rider alive and still in its own cart)
     let lost: Vec<usize> = (0..riders.len()).filter(|k| !run.world.entities.list.iter().any(|e| e.id == carts[*k] && e.passengers.first() == Some(&riders[*k]))).collect();

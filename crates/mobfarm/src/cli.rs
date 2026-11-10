@@ -439,6 +439,13 @@ pub enum MobfarmCmd {
         /// up out of it), the return coming in at y 4.
         #[arg(long)]
         tail_desc: bool,
+        /// With --tail-desc: the 3 spare cells as second peak cells on slots 3-5, not flat cells
+        /// before the tail.
+        #[arg(long)]
+        peak_pad: bool,
+        /// The departure turns north right after S1's peak.
+        #[arg(long)]
+        short_depart: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -569,6 +576,14 @@ pub enum MobfarmCmd {
         /// the stand's nominal offsets, a stand that always delivers.
         #[arg(long)]
         ideal_stand_at: Option<i64>,
+        /// The at-the-advance check requires the returning train at rest in the tail (as the
+        /// wired run's flag), not only braked into it; pair with --tail-check-at.
+        #[arg(long)]
+        tail_check_rest: bool,
+        /// Slot 2's tail brake on its own, at this gt after the train's departure (else braked
+        /// with slot 1's, the first --intake-brake value).
+        #[arg(long)]
+        tail2_at: Option<i64>,
         #[arg(long)]
         verbose: bool,
         /// Print these carts (design order) every gt.
@@ -1175,10 +1190,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc;
             let slots = if line && slots == 18 { 15 } else { slots };
-            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc };
+            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart };
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             println!("{}", out.display());
             // the control cells (each a block under a powered slope: glass = braked, a redstone
@@ -1194,7 +1209,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             println!("{}", crate::queue::loop_spots(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, verbose, watch, drive_out } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, verbose, watch, drive_out } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             let intake_brake = match intake_brake.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--intake-brake takes two values: slots 1-2, then slot 0") };
@@ -1202,7 +1217,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let wired = match wired.as_slice() { [x, y, z] => Some(redsim::pos::BlockPos::new(*x, *y, *z)), [] => None, _ => anyhow::bail!("--wired takes the input cell: x,y,z") };
             let stand_reset = match stand_reset.as_slice() { [x, y, z] => Some(redsim::pos::BlockPos::new(*x, *y, *z)), [] => None, _ => anyhow::bail!("--stand-reset takes a cell: x,y,z") };
             let stand_detect_slots = match stand_detect_slots.as_slice() { [a, b, c] => Some([*a, *b, *c]), [] => None, _ => anyhow::bail!("--stand-detect-slots takes 3 delays: S1,S2,S3") };
-            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, entry_speed, adv_shift: match adv_shift.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-shift takes 3 shifts") }, adv_width: match adv_width.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-width takes 3 deltas") }, skew: { let mut s = [0i64; 24]; for (i, v) in skew.iter().enumerate().take(24) { s[i] = *v; } s }, ideal_stand_at, ..Default::default() };
+            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, entry_speed, adv_shift: match adv_shift.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-shift takes 3 shifts") }, adv_width: match adv_width.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-width takes 3 deltas") }, skew: { let mut s = [0i64; 24]; for (i, v) in skew.iter().enumerate().take(24) { s[i] = *v; } s }, ideal_stand_at, tail_check_rest, tail2_at, ..Default::default() };
             if !sweep.is_empty() {
                 // the tolerance lines: one control at a time, to the first failure each way
                 let names: Vec<String> = if sweep == ["all"] { ["release-start", "release-end", "adv1-time", "adv1-width", "adv2-time", "adv2-width", "adv3-time", "adv3-width", "s1", "s2", "s3", "stand-brake", "tail12", "tail0", "speed"].iter().map(|s| s.to_string()).collect() } else { sweep.clone() };

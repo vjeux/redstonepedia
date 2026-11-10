@@ -1,7 +1,7 @@
 # The single-lane carousel's loop (prototype): a sawtooth queue register, the release run, the 3-slot stand, the return run.
 name: carousel-loop-scene
 circuit: mob-farm iron_ingot
-queue: scene=Loop carts=21 spacing=3 release=3 riders=1 slots=18 run=20 depart=3 boost=0 boost_first=8 straight=0 drop=0 vstand=0 tail_v=0 bridge=1 row_gap=3 uturn_boost=0 line=0 tail_deep=0 plain=0 stand_desc=0 detector=1 zombie_every=8 zombie_x=3 stand_deep=0 tail_desc=1
+queue: scene=Loop carts=21 spacing=3 release=3 riders=1 slots=18 run=20 depart=3 boost=0 boost_first=8 straight=0 drop=0 vstand=0 tail_v=0 bridge=1 row_gap=3 uturn_boost=0 line=0 tail_deep=0 plain=0 stand_desc=0 detector=1 zombie_every=8 zombie_x=3 stand_deep=0 tail_desc=1 peak_pad=0 short_depart=1
 port output: -5 1 -3
 entity: minecraft:minecart 0.5 2.73 25.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
 entity: minecraft:minecart 0.5 1.73 29.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
@@ -31,31 +31,31 @@ entity: minecraft:oak_boat 3.5 3 29.5 {Passengers:[{id:"minecraft:zombie",Persis
 entity: minecraft:oak_boat 3.5 3 37.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 entity: minecraft:oak_boat 3.5 3 45.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
 entity: minecraft:oak_boat 3.5 3 53.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
-origin: -3 0 0
+entity: minecraft:oak_boat -5.5 3 21.5 {Passengers:[{id:"minecraft:zombie",PersistenceRequired:1b}]}
+origin: -6 0 0
 palette:
   A minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
   B minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
   C minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
   D minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]
-  E minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
-  F minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  E minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  F minecraft:rail[shape=ascending_south,waterlogged=false]
   G minecraft:glass
-  H minecraft:rail[shape=ascending_south,waterlogged=false]
-  I minecraft:rail[shape=ascending_west,waterlogged=false]
-  J minecraft:rail[shape=east_west,waterlogged=false]
-  K minecraft:rail[shape=north_east,waterlogged=false]
-  L minecraft:rail[shape=north_south,waterlogged=false]
-  M minecraft:rail[shape=north_west,waterlogged=false]
-  N minecraft:rail[shape=south_east,waterlogged=false]
+  H minecraft:rail[shape=ascending_west,waterlogged=false]
+  I minecraft:rail[shape=east_west,waterlogged=false]
+  J minecraft:rail[shape=north_east,waterlogged=false]
+  K minecraft:rail[shape=north_south,waterlogged=false]
+  L minecraft:rail[shape=north_west,waterlogged=false]
+  M minecraft:rail[shape=south_east,waterlogged=false]
+  N minecraft:rail[shape=south_west,waterlogged=false]
   O minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
   P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
-  Q minecraft:rail[shape=south_west,waterlogged=false]
+  Q minecraft:redstone_block
   R minecraft:rail[shape=ascending_east,waterlogged=false]
-  S minecraft:redstone_block
   p minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]
   r minecraft:rail[shape=ascending_north,waterlogged=false]
 layer -1:
-  ..GG.GG.GG
+  .....GG.GG.GG
   .
   .
   .
@@ -73,36 +73,36 @@ layer -1:
   .
   .
   .
-  G
-  G
+  ...G
+  ...G
   .
-  G
-  G
+  ...G
+  ...G
   .
-  G
-  G
+  ...G
+  ...G
   .
-  G
-  G
+  ...G
+  ...G
   .
-  G
-  G
+  ...G
+  ...G
   .
-  G..G
-  G..G
+  ...G..G
+  ...G..G
   .
-  G..G
-  G..G
+  ...G..G
+  ...G..G
   .
-  G..G
-  G..G
+  ...G..G
+  ...G..G
   .
-  G..G
-  G..G
+  ...G..G
+  ...G..G
   .
-  G..G
-  G..G
-  .GG
+  ...G..G
+  ...G..G
+  ....GG
   .
   .
   .
@@ -110,54 +110,54 @@ layer -1:
   .
   .
 layer 0:
-  GGBRGBRGBRGSG
-  G...........S
-  G...........S
-  G...........S
-  G...........S
-  G...........S
-  G...........S
-  G...........S
-  G...........S
-  S...........G
-  S...........G
-  S...........G
-  S...........G
-  S...........G
-  S...........G
-  S...........G
-  S...........G
-  G
-  r
-  A
-  G
-  r
-  A
-  G
-  r
-  A
-  G
-  r
-  A
-  G..G
-  r..G
-  A
-  G..G
-  r..p
-  A..H
-  G..G
-  r..p
-  A..H
-  G..G
-  r..p
-  A..H
-  G..G
-  r..p
-  A..H
-  G..G
-  r..p
-  A..H
-  GIPG
+  ...GGBRGBRGBRGG
+  ...G..........Q
+  ...G..........Q
+  ...G..........Q
+  ...G..........Q
+  ...G..........Q
+  ...G..........Q
+  ...G..........Q
+  ...G..........Q
+  ...Q..........G
+  ...Q..........G
+  ...Q..........G
+  ...Q..........G
+  ...Q..........G
+  ...Q..........G
+  ...Q..........G
+  ...Q..........G
+  ...G
+  ...r
+  ...A
+  ...G
+  ...r
+  ...A
+  ...G
+  ...r
+  ...A
+  ...G
+  ...r
+  ...A
+  ...G..G
+  ...r..G
+  ...A
+  ...G..G
+  ...r..p
+  ...A..F
+  ...G..G
+  ...r..p
+  ...A..F
+  ...G..G
+  ...r..p
+  ...A..F
+  ...G..G
+  ...r..p
+  ...A..F
+  ...G..G
+  ...r..p
+  ...A..F
+  ...GHPG
   .
   .
   .
@@ -165,54 +165,54 @@ layer 0:
   .
   .
 layer 1:
-  NC..C..C..JEQ
-  L...........F
-  L...........F
-  L...........F
-  D...........F
-  L...........F
-  L...........F
-  L...........F
-  L...........F
-  F...........L
-  F...........L
-  F...........L
-  F...........L
-  F...........L
-  F...........L
-  F...........L
-  F...........H
-  L...........G
+  ...MC..C..C..IN
+  ...K..........E
+  ...K..........E
+  ...K..........E
+  ...D..........E
+  ...K..........E
+  ...K..........E
+  ...K..........E
+  ...K..........E
+  ...E..........K
+  ...E..........K
+  ...E..........K
+  ...E..........K
+  ...E..........K
+  ...E..........K
+  ...E..........K
+  ...E..........F
+  ...K..........G
   .
   .
-  L
+  ...K
   .
   .
-  L
+  ...K
   .
-  ...G
-  L..G
+  ......G
+  ...K..G
   .
-  ...G
-  L..p
-  ...H
-  ...G
-  L..p
-  .
-  .
-  L..L
+  ......G
+  ...K..p
+  ......F
+  ......G
+  ...K..p
   .
   .
-  L..L
+  ...K..K
   .
   .
-  L..L
+  ...K..K
   .
   .
-  L..L
+  ...K..K
   .
   .
-  K..M
+  ...K..K
+  .
+  .
+  ...J..L
   .
   .
   .
@@ -225,7 +225,7 @@ layer 2:
   .
   .
   .
-  ......G
+  .........G
   .
   .
   .
@@ -233,39 +233,31 @@ layer 2:
   .
   .
   .
-  ......G
+  .........G
   .
   .
   .
-  ............H
-  ............G
+  ..............F
+  ..............G
   .
   .
-  ......G
-  .
-  .
-  ...G
-  ...p
-  ...H
-  ...G
-  ...p
-  ......G
-  .
-  ...L
-  .
-  .
-  .
+  G........G
   .
   .
   ......G
-  .
-  .
-  .
-  .
-  .
-  .
-  .
+  ......p
+  ......F
   ......G
+  ......p
+  .........G
+  .
+  ......K
+  .
+  .
+  .
+  .
+  .
+  .........G
   .
   .
   .
@@ -273,7 +265,15 @@ layer 2:
   .
   .
   .
-  ......G
+  .........G
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .........G
 layer 3:
   .
   .
@@ -293,16 +293,16 @@ layer 3:
   .
   .
   .
-  ............H
-  ............G
-  ...GGGGGGGGGG
-  ...G
-  ...G
-  ...G
-  ...p
+  ..............F
+  ..............G
+  ......GGGGGGGGG
+  ......G
+  ......G
+  ......G
+  ......p
   .
   .
-  ...L
+  ......K
   .
   .
   .
@@ -349,11 +349,11 @@ layer 4:
   .
   .
   .
-  ............L
-  ...NJJJJJJJJM
-  ...L
-  ...L
-  ...L
+  ..............K
+  ......MIIIIIIIL
+  ......K
+  ......K
+  ......K
   .
   .
   .
@@ -445,7 +445,7 @@ layer 6:
   .
   .
   .
-  ......O
+  .........O
   .
   .
   .
@@ -453,7 +453,7 @@ layer 6:
   .
   .
   .
-  ......O
+  .........O
   .
   .
   .
@@ -461,7 +461,7 @@ layer 6:
   .
   .
   .
-  ......O
+  O........O
   .
   .
   .
@@ -469,7 +469,7 @@ layer 6:
   .
   .
   .
-  ......O
+  .........O
   .
   .
   .
@@ -477,7 +477,7 @@ layer 6:
   .
   .
   .
-  ......O
+  .........O
   .
   .
   .
@@ -485,7 +485,7 @@ layer 6:
   .
   .
   .
-  ......O
+  .........O
   .
   .
   .
@@ -493,4 +493,4 @@ layer 6:
   .
   .
   .
-  ......O
+  .........O
