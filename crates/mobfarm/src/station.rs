@@ -462,7 +462,7 @@ fn is_portal(w: &World, p: BlockPos) -> bool {
 
 /// The portal cells a box meets (`Entity.checkInsideBlocks`: the cells its box spans, a hair in
 /// from each face).
-fn portal_cells_met(w: &World, bb: Aabb) -> Vec<BlockPos> {
+pub(crate) fn portal_cells_met(w: &World, bb: Aabb) -> Vec<BlockPos> {
     let e = 1.0e-7;
     let mut out = Vec::new();
     for x in (bb.min_x + e).floor() as i32..=(bb.max_x - e).floor() as i32 {
@@ -478,14 +478,14 @@ fn portal_cells_met(w: &World, bb: Aabb) -> Vec<BlockPos> {
     out
 }
 
-fn golem_box(cell: BlockPos) -> Aabb {
+pub(crate) fn golem_box(cell: BlockPos) -> Aabb {
     let d = MobType::IronGolem.def();
     redsim::entity::make_bounding_box(Vec3::new(cell.x as f64 + 0.5, cell.y as f64, cell.z as f64 + 0.5), d.width, d.height)
 }
 
 /// The smallest inflation (every axis alike) that makes box `bb` meet a portal cell within 2 of
 /// it: the largest of its per-axis gaps to the nearest such cell; None with none within 2.
-fn portal_gap(w: &World, bb: Aabb) -> Option<f64> {
+pub(crate) fn portal_gap(w: &World, bb: Aabb) -> Option<f64> {
     let mut best: Option<f64> = None;
     for x in bb.min_x.floor() as i32 - 2..=bb.max_x.floor() as i32 + 2 {
         for y in bb.min_y.floor() as i32 - 2..=bb.max_y.floor() as i32 + 2 {
@@ -502,7 +502,7 @@ fn portal_gap(w: &World, bb: Aabb) -> Option<f64> {
     best
 }
 
-fn kind_name(k: &EntityKind) -> &'static str {
+pub(crate) fn kind_name(k: &EntityKind) -> &'static str {
     match k {
         EntityKind::Boat(_) => "boat",
         EntityKind::Minecart(_) => "minecart",
@@ -513,7 +513,7 @@ fn kind_name(k: &EntityKind) -> &'static str {
     }
 }
 
-fn is_piglin(k: &EntityKind) -> bool {
+pub(crate) fn is_piglin(k: &EntityKind) -> bool {
     matches!(k, EntityKind::Mob(m) if m.ty.def().id == "zombified_piglin")
 }
 
@@ -563,7 +563,7 @@ impl CheckReport {
 }
 
 /// The world a station design runs in (the bench's: built, settled, its entities spawned).
-fn world_of(spec: &FarmSpec, seed: i64) -> Result<Run, String> {
+pub(crate) fn world_of(spec: &FarmSpec, seed: i64) -> Result<Run, String> {
     let ro = RunOpts { ai: true, ..RunOpts::steady(seed, 24000, WalkMode::Random) };
     let mut run = Run::start(spec, &ro)?;
     while run.settle_tick() {}
@@ -920,7 +920,7 @@ pub struct BenchReport {
     pub timeline: Option<(String, String)>,
 }
 
-fn wire_power(w: &World, p: [i32; 3]) -> i32 {
+pub(crate) fn wire_power(w: &World, p: [i32; 3]) -> i32 {
     match w.get(BlockPos::new(p[0], p[1], p[2])) {
         Block::Wire { power, .. } => power as i32,
         _ => 0,
