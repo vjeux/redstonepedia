@@ -112,9 +112,12 @@ before: the trigger's 60-gt run restarts with a one-tick gap); every slot's batc
 members', is a `margin at the slot` line, and the summary's min and mean), `16` (awake in REST within
 16 of its home bed while the bed is OCCUPIED, or a HOME erased that way in the tick the bed fills),
 `1200` (CANT_REACH older than 1200 gt in REST with a HOME; noted
-whether the HOME went), `home` (no HOME at a dawn or midday), `sleep` (LAST_SLEPT not advanced
-exactly once since the last dawn: a sleep's start, or a bench's ideal stand-in for the sleep routine)
-and `gossip` (a summon off the 100 gt grid). A part bench that is not a mob farm run
+whether the HOME went), `home` (no HOME at a dawn or midday), `sleep` (no nap since the last dawn:
+LAST_SLEPT did not advance, by a sleep's start or a bench's ideal stand-in for the sleep routine; a
+second nap the same night is allowed and counted: a `naps since the last dawn` line and the
+summary's `second naps N over M villager-nights`), `gap` (a batch slot inside the golem condition's
+window [LAST_SLEPT + 24,000, the next nap): that villager does not want a golem there; one flag a
+window, with its slots) and `gossip` (a summon off the 100 gt grid). A part bench that is not a mob farm run
 (the counter's) writes its own trace in the dump's format and draws it with `mctas mobfarm timeline
 --from-dump <file> [--out DIR]` (`<stem>.timeline.html`): lines `t=<tick> gt=<game time> ...` then
 `signal NAME=VALUE [(full state)]`, `mark NAME [text]` (a point event) or `VIOLATION <rule> <lane>:

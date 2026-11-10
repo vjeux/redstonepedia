@@ -114,6 +114,8 @@ struct VLane {
     /// Its feet (hundredths), each change of a hundredth or more.
     pos: Vec<(u32, [i32; 3])>,
     alive: bool,
+    /// The tick it was gone (died, converted, removed).
+    gone: Option<u32>,
     prev: Option<Vec3>,
     prev_ttl: Option<i64>,
     /// The open spans of the 16 rule and of CANT_REACH over 1200 (their start ticks).
@@ -141,6 +143,7 @@ impl VLane {
             cant: Ch::default(),
             pos: Vec::new(),
             alive: true,
+            gone: None,
             prev: None,
             prev_ttl: None,
             over16: None,
@@ -900,6 +903,7 @@ impl Timeline {
         for vi in 0..self.villagers.len() {
             if reads[vi].is_none() && self.villagers[vi].alive {
                 self.villagers[vi].alive = false;
+                self.villagers[vi].gone = Some(k);
                 let l = self.villagers[vi].label.clone();
                 self.line(k, format!("{l} is gone (died, converted or removed)"));
             }
@@ -1320,16 +1324,82 @@ impl Timeline {
         }
         if k > 0 && dt == 0 {
             if self.whole_night {
+                // the brief (ironspec 2026-11-10): a villager with no nap since the last dawn is a
+                // failure; a second nap the same night is allowed, counted (the scheduler keeps it
+                // near 0)
+                let mut seconds: Vec<String> = Vec::new();
                 for vi in 0..self.villagers.len() {
-                    let n = self.night_sleeps[vi];
-                    if n != 1 && reads[vi].is_some() {
-                        let l = self.villagers[vi].label.clone();
-                        self.flag(k, "sleep", &l, format!("LAST_SLEPT advanced {n} times since the last dawn (once a night)"));
+                    if reads[vi].is_none() {
+                        continue;
                     }
+                    let n = self.night_sleeps[vi];
+                    let l = self.villagers[vi].label.clone();
+                    self.counts.push((k, "night"));
+                    if n == 0 {
+                        self.flag(k, "sleep", &l, "no nap since the last dawn (LAST_SLEPT did not advance)".to_string());
+                    }
+                    for _ in 1..n {
+                        self.counts.push((k, "second-nap"));
+                    }
+                    if n >= 2 {
+                        seconds.push(format!("{l} {n}"));
+                    }
+                }
+                if !seconds.is_empty() {
+                    self.line(k, format!("naps since the last dawn, more than one (allowed, counted): {}", seconds.join(", ")));
                 }
             }
             self.night_sleeps.iter_mut().for_each(|n| *n = 0);
             self.whole_night = true;
+        }
+    }
+
+    /// Whether villager `vi` belongs with the batch at slot `k`: at the station, or coming into it
+    /// before the next slot (with station regions); its panic trigger running within 100 gt of the
+    /// slot (without); never once it is gone.
+    fn batch_at(&self, vi: usize, k: u32) -> bool {
+        if self.villagers[vi].gone.is_some_and(|g| g <= k) || self.villagers[vi].class.window(k, k).is_empty() {
+            return false;
+        }
+        if !self.has_station() {
+            return self.role(vi, k).1;
+        }
+        self.in_station_at(vi, k) || (self.role(vi, k).1 && self.arrival(vi, k).is_some_and(|a| a < k + 100))
+    }
+
+    /// The golem condition's window (ironspec 2026-11-10): a villager of the batch at a slot whose
+    /// LAST_SLEPT (after the slot's tick) is 24,000 gt old or more, the slot inside [its last
+    /// nap's LAST_SLEPT + 24,000, its next nap's LAST_SLEPT), does not want a golem there; one
+    /// `gap` flag a villager and window, with its slots.
+    fn gap_flags(&mut self) {
+        let mut k = ((100 - self.t0.rem_euclid(100)) % 100) as u32;
+        let mut gaps: std::collections::BTreeMap<(usize, i64), Vec<u32>> = std::collections::BTreeMap::new();
+        while k < self.ticks {
+            for vi in 0..self.villagers.len() {
+                if k == 0 || !self.batch_at(vi, k) {
+                    continue;
+                }
+                // (LAST_SLEPT after the slot's tick: a nap starting in the slot's own tick is the
+                // window's end, which it excludes)
+                let s = self.villagers[vi].slept.window(k, k).first().map(|(_, s)| *s).unwrap_or(i64::MIN);
+                if s == i64::MIN || k as i64 - s >= 24000 {
+                    gaps.entry((vi, s)).or_default().push(k);
+                }
+            }
+            k += 100;
+        }
+        for ((vi, s), ks) in gaps {
+            let l = self.villagers[vi].label.clone();
+            let next = self.villagers[vi].slept.v.iter().find(|(kk, x)| *kk >= ks[0] && *x != i64::MIN && *x > s).map(|(_, x)| *x);
+            let tk = |x: i64| format!("t={x:06}");
+            let window = if s == i64::MIN { "it has never slept".to_string() } else { format!("LAST_SLEPT {} + 24,000 = {}, next nap {}", tk(s), tk(s + 24000), next.map_or("none".to_string(), tk)) };
+            let slots: Vec<String> = ks.iter().take(8).map(|k| tk(*k as i64)).collect();
+            let more = if ks.len() > 8 { format!(" and {} more", ks.len() - 8) } else { String::new() };
+            let text = format!("{} of its batch's slots inside the golem condition's gap ({window}): {}{more}", ks.len(), slots.join(", "));
+            self.flag(ks[0], "gap", &l, text);
+            if let Some(f) = self.flags.last_mut() {
+                f.until = Some(*ks.last().unwrap());
+            }
         }
     }
 
@@ -1504,6 +1574,7 @@ impl Timeline {
             }
         }
         // each CANT_REACH span: did the HOME go?
+        self.gap_flags();
         for fi in 0..self.flags.len() {
             if self.flags[fi].rule != "1200" {
                 continue;
@@ -1569,6 +1640,8 @@ impl Timeline {
         let n = |what: &str| self.counts.iter().filter(|(k, c)| *k >= from && *k <= to && *c == what).count();
         let ms: Vec<i64> = self.margins.iter().filter(|(k, _)| *k >= from && *k <= to).map(|(_, m)| *m).collect();
         let margin = if ms.is_empty() { String::new() } else { format!("; arrival margin min {} mean {:.1} over {} slots", ms.iter().min().unwrap(), ms.iter().sum::<i64>() as f64 / ms.len() as f64, ms.len()) };
+        let nights = n("night");
+        let margin = if nights == 0 { margin } else { format!("{margin}; second naps {} over {nights} villager-nights", n("second-nap")) };
         if self.recording.is_some() {
             // (a recording shows no tries without a spot, and its sightings are fresh locks in ticks without a spawn)
             return format!(
@@ -1754,6 +1827,29 @@ mod tests {
         b.finish();
         assert!(kept > 0 && seen == kept, "the events stay in the world");
         assert_eq!(a.text(0, 1500), b.text(0, 1500));
+    }
+
+    /// The golem condition's gap (ironspec 2026-11-10): a batch slot inside [LAST_SLEPT + 24,000,
+    /// the next nap) is flagged, one flag a window with its slots; a nap before it closes the gap.
+    #[test]
+    fn the_gap_window_is_flagged() {
+        let mut tl = Timeline::from_dump("t", "t", "t=0 gt=0 signal a=b\n").unwrap();
+        tl.ticks = 30000;
+        let mut late = VLane::new(1, "V1".into(), String::new());
+        let mut fine = VLane::new(2, "V2".into(), String::new());
+        for v in [&mut late, &mut fine] {
+            v.class.set(0, "held".into());
+            v.act.set(0, "panic".into());
+            v.panic.set(0, true);
+            v.slept.set(0, -100);
+        }
+        late.slept.set(25000, 25000);
+        fine.slept.set(12000, 12000);
+        tl.villagers = vec![late, fine];
+        tl.gap_flags();
+        let g: Vec<(u32, Option<u32>, &str)> = tl.flags.iter().map(|f| (f.k, f.until, f.lane.as_str())).collect();
+        assert_eq!(g, vec![(23900, Some(24900), "V1")]);
+        assert!(tl.flags[0].text.starts_with("11 of its batch's slots"), "{}", tl.flags[0].text);
     }
 
     /// "Arrived panicking" reads the PANIC activity: VillagerPanicTrigger's 60-gt run times out and
