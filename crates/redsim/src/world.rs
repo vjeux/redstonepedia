@@ -532,16 +532,55 @@ impl World {
     /// with a drop seed the item entity the bridge spawns (`rng::Drop`, the sandbox's n-th drop;
     /// `payload`: a shulker box item's contents).
     pub fn pop_resource(&mut self, pos: BlockPos, item: &str, count: u32, payload: u16) {
-        self.draw_pop_resource();
-        let Some(seed) = self.drop_seed else { return };
-        let d = crate::rng::Drop::seeded(seed, self.drop_count, pos);
-        self.drop_count += 1;
-        let state = crate::entity::item::ItemState { item: item.to_string(), count: count.min(255) as u8, pickup_delay: 10, age: 0, payload, health: 5, ..Default::default() };
-        let id = self.entities.add(crate::entity::EntityKind::Item(state), crate::entity::Vec3::new(d.pos[0], d.pos[1], d.pos[2]), d.y_rot);
-        if let Some(e) = self.entities.list.iter_mut().rev().find(|e| e.id == id) {
-            e.delta_movement = crate::entity::Vec3::new(d.motion[0], d.motion[1], d.motion[2]);
-            e.random = Some(d.random.clone());
+        if let Some(seed) = self.drop_seed {
+            self.draw_pop_resource();
+            if count == 0 {
+                return;
+            }
+            let d = crate::rng::Drop::seeded(seed, self.drop_count, pos);
+            self.drop_count += 1;
+            let state = crate::entity::item::ItemState { item: item.to_string(), count: count.min(255) as u8, pickup_delay: 10, age: 0, payload, health: 5, ..Default::default() };
+            let id = self.entities.add(crate::entity::EntityKind::Item(state), crate::entity::Vec3::new(d.pos[0], d.pos[1], d.pos[2]), d.y_rot);
+            if let Some(e) = self.entities.list.iter_mut().rev().find(|e| e.id == id) {
+                e.delta_movement = crate::entity::Vec3::new(d.motion[0], d.motion[1], d.motion[2]);
+                e.random = Some(d.random.clone());
+            }
+            return;
         }
+        // (tickexact 2026-11-10) Block.popResource: the position from the level random (a stack of
+        // 0 draws it too, then pops nothing), then `new ItemEntity(level, x, y, z, stack)` with
+        // setDefaultPickUpDelay ([`World::spawn_item`])
+        let Some(r) = self.level_random.as_mut() else { return };
+        let dx = r.next_double_between(-0.25, 0.25);
+        let dy = r.next_double_between(-0.25, 0.25);
+        let dz = r.next_double_between(-0.25, 0.25);
+        if count == 0 {
+            return;
+        }
+        // EntityType.ITEM is 0.25 tall: its center at the cell's
+        let at = crate::entity::Vec3::new(pos.x as f64 + 0.5 + dx, pos.y as f64 + 0.5 + dy - 0.125, pos.z as f64 + 0.5 + dz);
+        self.spawn_item(at, item, count, payload);
+    }
+
+    /// (tickexact 2026-11-10) `new ItemEntity(level, x, y, z, stack)` then `setDefaultPickUpDelay`
+    /// and `addFreshEntity`: its own random as the bridge seeds an entering entity
+    /// ([`World::entering_random`]), the constructor's UUID, `bobOffs` and yaw replayed, its drift
+    /// drawn (x and z, 0.2 up), a pickup delay of 10, health 5. Its entity number.
+    pub fn spawn_item(&mut self, at: crate::entity::Vec3, item: &str, count: u32, payload: u16) -> u32 {
+        let n = self.entities.next_id;
+        let mut own = self.entering_random(n);
+        crate::rng::replay_uuid(&mut own);
+        own.next_float();
+        let y_rot = own.next_float() * 360.0;
+        let mx = own.next_double() * 0.2 - 0.1;
+        let mz = own.next_double() * 0.2 - 0.1;
+        let state = crate::entity::item::ItemState { item: item.to_string(), count: count.min(255) as u8, pickup_delay: 10, age: 0, payload, health: 5, ..Default::default() };
+        let id = self.entities.add(crate::entity::EntityKind::Item(state), at, y_rot);
+        if let Some(e) = self.entities.list.iter_mut().rev().find(|e| e.id == id) {
+            e.delta_movement = crate::entity::Vec3::new(mx, 0.2, mz);
+            e.random = Some(own);
+        }
+        id
     }
 
     /// `Block.dropResources(state, level, pos)` of the block `s` just broken at `pos` (callers
@@ -553,6 +592,23 @@ impl World {
             return;
         }
         let payload = crate::redstone::shulker::box_payload(self, pos, &s).unwrap_or(0);
+        // (tickexact 2026-11-10) a natural state: its table evaluated with its random sequence
+        // (`terrain::loot`)
+        if let Block::Terrain(_) = s {
+            match crate::terrain::loot::drops(self, &s, pos, None) {
+                Ok(v) => {
+                    for (item, n) in v {
+                        self.pop_resource(pos, &item, n.max(0) as u32, 0);
+                    }
+                }
+                Err(e) => {
+                    if !self.errors.contains(&e) {
+                        self.errors.push(e);
+                    }
+                }
+            }
+            return;
+        }
         // a melon's slices draw from its loot table's random sequence (stems::melon_slices)
         if s == Block::Simple(crate::block::Simple::Melon) {
             match crate::stems::melon_slices(self) {

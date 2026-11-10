@@ -326,6 +326,11 @@ final class Sandbox {
     /** Which constructor made the item entering now, and whether its drift stayed (Exact.ItemPath). */
     private static Exact.ItemPath itemPath() {
         return StackWalker.getInstance().walk(frames -> {
+            // (tickexact 2026-11-10) Block.popResource(level, pos, stack): the 5-argument
+            // constructor's drift stays (a block's drop); popResourceFromFace passes its own motion
+            // to the 8-argument one (no drift drawn). Both reach the private popResource(level,
+            // supplier, stack), so the frame under it decides
+            boolean pop = false;
             for (StackWalker.StackFrame f : (Iterable<StackWalker.StackFrame>) frames::iterator) {
                 String c = f.getClassName();
                 String m = f.getMethodName();
@@ -336,8 +341,20 @@ final class Sandbox {
                         || (c.equals("net.minecraft.world.Containers") && m.equals("dropItemStack"))) {
                     return Exact.ItemPath.DRIFT_REPLACED;
                 }
+                if (c.equals("net.minecraft.world.level.block.Block")) {
+                    if (m.equals("popResourceFromFace")) {
+                        return Exact.ItemPath.NO_DRIFT;
+                    }
+                    if (m.equals("popResource")) {
+                        pop = true;
+                        continue;
+                    }
+                }
+                if (pop) {
+                    return Exact.ItemPath.DRIFT_KEPT;
+                }
             }
-            return Exact.ItemPath.NO_DRIFT;
+            return pop ? Exact.ItemPath.DRIFT_KEPT : Exact.ItemPath.NO_DRIFT;
         });
     }
 

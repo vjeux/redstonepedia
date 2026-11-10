@@ -68,6 +68,9 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
     if let Some(v) = drive_actions(name) {
         return v;
     }
+    if name == "plant-supports" {
+        return plant_supports().1;
+    }
     match name {
         // corrupt-poi-entity R1: the claimed bed broken, then placed again (a fresh POI record
         // with its ticket free), then the second villager's pen opened
@@ -410,6 +413,90 @@ fn scene_block_entities(name: &str) -> Vec<([i32; 3], String)> {
         return Vec::new();
     }
     drive_design(name).map(|d| d.block_entities.into_iter().collect()).unwrap_or_default()
+}
+
+/// (tickexact 2026-11-10) The plant-supports scene: a stone floor at y 63 and three rows (z 4, 8,
+/// 12) of natural plants at y 65 on their supports at y 64, x 2..30 every 2; then, from tick 20,
+/// every 10 ticks one row's action: its support set to air, or a two-block plant's upper half, or
+/// a stone beside the plant (a shape update it survives). The plants cover every plant class of
+/// the natural table (leaf litter, grass, ferns, flowers, flower beds, bushes, a mushroom, a
+/// carpet, dry vegetation, two-block plants), and the random tables (short grass, ferns, dead
+/// bushes) several times over.
+fn plant_supports() -> (Vec<([i32; 3], String)>, Vec<(u32, Vec<([i32; 3], String)>)>) {
+    // what a row's action sets to air
+    #[derive(Clone, Copy)]
+    enum Cut {
+        Support,
+        Upper,
+        Side,
+    }
+    use Cut::*;
+    // (dirt, not grass blocks: a void sandbox's grass would spread by its random ticks, whose light
+    // test needs block light, which redsim models in terrain worlds only)
+    const DIRT: &str = "minecraft:dirt";
+    const PODZOL: &str = "minecraft:podzol[snowy=false]";
+    const SAND: &str = "minecraft:sand";
+    const STONE: &str = "minecraft:stone";
+    // (support, plant, its upper half, the action)
+    let rows: Vec<(&str, &str, Option<&str>, Cut)> = vec![
+        (DIRT, "minecraft:leaf_litter[facing=north,segment_amount=3]", None, Support),
+        (PODZOL, "minecraft:leaf_litter[facing=east,segment_amount=1]", None, Support),
+        (STONE, "minecraft:leaf_litter[facing=south,segment_amount=4]", None, Support),
+        (DIRT, "minecraft:short_grass", None, Support),
+        (PODZOL, "minecraft:fern", None, Support),
+        (DIRT, "minecraft:tall_grass[half=lower]", Some("minecraft:tall_grass[half=upper]"), Support),
+        (DIRT, "minecraft:peony[half=lower]", Some("minecraft:peony[half=upper]"), Support),
+        (DIRT, "minecraft:peony[half=lower]", Some("minecraft:peony[half=upper]"), Upper),
+        (DIRT, "minecraft:tall_grass[half=lower]", Some("minecraft:tall_grass[half=upper]"), Upper),
+        (DIRT, "minecraft:azure_bluet", None, Support),
+        (DIRT, "minecraft:wildflowers[facing=north,flower_amount=4]", None, Support),
+        (DIRT, "minecraft:bush", None, Support),
+        (DIRT, "minecraft:firefly_bush", None, Support),
+        // the podzol under the mushroom lifts its light rule: it stays
+        (PODZOL, "minecraft:brown_mushroom", None, Side),
+        (DIRT, "minecraft:poppy", None, Side),
+        (STONE, "minecraft:moss_carpet", None, Support),
+        (SAND, "minecraft:dead_bush", None, Support),
+        (SAND, "minecraft:short_dry_grass", None, Support),
+        (SAND, "minecraft:tall_dry_grass", None, Support),
+        (DIRT, "minecraft:large_fern[half=lower]", Some("minecraft:large_fern[half=upper]"), Support),
+        (DIRT, "minecraft:pink_petals[facing=north,flower_amount=2]", None, Support),
+        (DIRT, "minecraft:poppy", None, Support),
+        (DIRT, "minecraft:sunflower[half=lower]", Some("minecraft:sunflower[half=upper]"), Support),
+    ];
+    let mut all = rows.clone();
+    // the random tables again: short grass's 1-in-8 seeds, a dead bush's 0-2 sticks, a large fern's
+    // seeds
+    for _ in 0..14 {
+        all.push((DIRT, "minecraft:short_grass", None, Support));
+    }
+    for _ in 0..4 {
+        all.push((SAND, "minecraft:dead_bush", None, Support));
+    }
+    for _ in 0..4 {
+        all.push((DIRT, "minecraft:large_fern[half=lower]", Some("minecraft:large_fern[half=upper]"), Support));
+    }
+    let mut blocks = Vec::new();
+    floor(&mut blocks, 0, 32, 0, 16, 63, STONE);
+    let mut actions = Vec::new();
+    for (k, (support, plant, upper, cut)) in all.iter().enumerate() {
+        let (x, z) = (2 + 2 * (k as i32 % 15), 4 + 4 * (k as i32 / 15));
+        blocks.push(([x, 64, z], support.to_string()));
+        blocks.push(([x, 65, z], plant.to_string()));
+        if let Some(u) = upper {
+            blocks.push(([x, 66, z], u.to_string()));
+        }
+        let at = match cut {
+            Support => [x, 64, z],
+            Upper => [x, 66, z],
+            Side => {
+                blocks.push(([x + 1, 65, z], STONE.to_string()));
+                [x + 1, 65, z]
+            }
+        };
+        actions.push((20 + 10 * k as u32, vec![(at, "minecraft:air".to_string())]));
+    }
+    (blocks, actions)
 }
 
 /// A stone floor over `x0..x1`, `z0..z1` at height `y`.
@@ -1891,6 +1978,27 @@ fn scenes_raw() -> Vec<Scene> {
             difficulty: Difficulty::Easy,
             mob_griefing: true,
             watch: ([0, 60, 0], [79, 70, 31]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
+    }
+    // (tickexact 2026-11-10, mob-AI's forest t2504: a leaf litter whose support an enderman took)
+    // natural plants on their supports ([`plant_supports`]), each support (or a two-block plant's
+    // upper half) set to air in turn: the plant's canSurvive, its updateShape to air, the
+    // destroyBlock drop (its loot table with its random sequence, popResource's level draws, the
+    // item entity)
+    {
+        let (pb, _) = plant_supports();
+        v.push(Scene {
+            name: "plant-supports".into(),
+            chunks: [0, 0, 1, 0],
+            blocks: pb,
+            mobs: Vec::new(),
+            day_time: 6000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [31, 70, 15]),
             player: None,
             player_creative: false,
             random_tick_speed: 3,

@@ -10,7 +10,10 @@ pub mod engine;
 pub mod format;
 pub mod land;
 pub mod light;
+pub mod loot;
+pub mod loot_tables;
 pub mod place;
+pub mod plants;
 pub mod samples;
 pub mod ticks;
 

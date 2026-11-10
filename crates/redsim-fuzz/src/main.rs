@@ -153,6 +153,18 @@ enum Cmd {
         #[arg(long, default_value = "crates/redsim/src/loot_gen.rs")]
         out: PathBuf,
     },
+    /// Generate crates/redsim/src/terrain/loot_tables.rs: the loot tables of the natural blocks
+    /// that break by themselves (plants whose support goes, blocks water washes away), as JSON for
+    /// redsim's evaluator (`terrain::loot`).
+    NaturalLootGen {
+        /// The game's data (default ~/.cache/mctas/versions/26.3/src/data/minecraft).
+        #[arg(long)]
+        data: Option<PathBuf>,
+        #[arg(long, default_value = "crates/redsim/src/terrain/blocks.tsv")]
+        table: PathBuf,
+        #[arg(long, default_value = "crates/redsim/src/terrain/loot_tables.rs")]
+        out: PathBuf,
+    },
     /// Run archived clocks and circuits on redsim (`clock sim` / `circuit sim`) and compare each
     /// line with the real-game judge's line in its header; totals and problems by reason.
     ArchiveCheck {
@@ -398,6 +410,13 @@ fn main() -> Result<()> {
                 None => PathBuf::from(std::env::var("HOME")?).join(".cache/mctas/versions").join(&cli.version).join("src/data/minecraft"),
             };
             redsim_fuzz::loot_gen::run(&data, &out)?;
+        }
+        Cmd::NaturalLootGen { data, table, out } => {
+            let data = match data {
+                Some(d) => d,
+                None => PathBuf::from(std::env::var("HOME")?).join(".cache/mctas/versions").join(&cli.version).join("src/data/minecraft"),
+            };
+            redsim_fuzz::loot_gen::run_natural(&data, &table, &out)?;
         }
         Cmd::ArchiveCheck { designs, problems } => {
             anyhow::ensure!(!designs.is_empty(), "archive-check <archived designs>... (designs/clocks/archive/*.txt, designs/circuits/*/archive/*.txt)");
