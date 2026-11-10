@@ -42,11 +42,14 @@ pub struct QueueOpts {
     pub release: i32,
     /// Villagers in the carts.
     pub riders: bool,
+    /// The saw scene: each cart at its own offset down its slope (0.1 at the head .. 0.95 at the
+    /// tail), to see from how deep a slot a pulse still lifts a cart out.
+    pub sweep: bool,
 }
 
 impl Default for QueueOpts {
     fn default() -> QueueOpts {
-        QueueOpts { scene: Scene::Flat, carts: 21, spacing: 1.0, release: 3, riders: true }
+        QueueOpts { scene: Scene::Flat, carts: 21, spacing: 1.0, release: 3, riders: true, sweep: false }
     }
 }
 
@@ -154,7 +157,8 @@ pub fn design(o: &QueueOpts) -> Result<String> {
                 b.set(x + 1, -1, 0, "glass");
                 b.set(x + 2, 1, 0, "rail[shape=east_west,waterlogged=false]");
                 b.set(x + 2, 0, 0, "glass");
-                b.entity("minecart", [x as f64 + 0.5, 0.5, 0.5], rider);
+                let off = if o.sweep { 0.1 + 0.85 * i as f64 / (n - 1).max(1) as f64 } else { 0.5 };
+                b.entity("minecart", [x as f64 + off, 1.0 - off + 0.05, 0.5], rider);
             }
             y_end = 1;
             x_end = 3 * n;
@@ -166,7 +170,7 @@ pub fn design(o: &QueueOpts) -> Result<String> {
         b.set(x, y_end - 1, 0, "glass");
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene={:?} carts={} spacing={} release={} riders={}", o.scene, o.carts, o.spacing, o.release, o.riders as i32));
+    b.d.meta.insert("queue".into(), format!("scene={:?} carts={} spacing={} release={} riders={} sweep={}", o.scene, o.carts, o.spacing, o.release, o.riders as i32, o.sweep as i32));
     b.d.ports.insert("output".into(), [x_end + 31, y_end, 2]);
     Ok(b.text(&["The single-lane carousel's queue + release-3: a physics scene (carts back to back, a release slope)."]))
 }
@@ -183,6 +187,7 @@ pub fn opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result<Queu
             "spacing" => o.spacing = v.parse()?,
             "release" => o.release = v.parse()?,
             "riders" => o.riders = v != "0",
+            "sweep" => o.sweep = v != "0",
             _ => bail!("unknown `queue:` entry {k:?}"),
         }
     }
@@ -548,7 +553,7 @@ pub struct LoopTiming {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 20, advance_at: 40, advance_every: 20, pulse: 9 }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9 }
     }
 }
 
@@ -558,7 +563,7 @@ impl Default for LoopTiming {
 /// slope; the queue advanced 3 slots; the queue's 3 empty tail slots powered for the returning
 /// train, braked as its front cart reaches the third. Checks the loop order (every cart 3
 /// places on per slot) and prints each slot's times.
-pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, seed: i64, verbose: bool, watch: Option<&[usize]>) -> Result<String, String> {
+pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, seed: i64, verbose: bool, watch: Option<&[usize]>, drive_out: Option<&std::path::Path>) -> Result<String, String> {
     let ticks = 200 + cycles * 100 + 200;
     let ro = RunOpts { ai: true, ..RunOpts::steady(seed, ticks as u32, WalkMode::Random) };
     let mut run = Run::start(spec, &ro)?;
@@ -584,9 +589,15 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         places.iter().position(|c| (e.pos.x - (c[0] as f64 + 0.5)).abs() < 1.0 && (e.pos.z - (c[2] as f64 + 0.5)).abs() < 0.6 && e.pos.y < 1.5 && e.delta_movement.horizontal_distance_sqr() < 1e-6)
     };
     let pos_of = |w: &redsim::world::World, id: u32| w.entities.list.iter().find(|e| e.id == id).map(|e| e.pos);
+    // the drive log (mobviewer's replay format): every control change as `act <t> set x y z
+    // <state>`, t = gt after the entities' spawn, applied before the tick that brings the time
+    // to spawn + t
+    let t_spawn = run.world.time;
+    let drive: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(Vec::new());
     let set = |w: &mut redsim::world::World, ps: &[BlockPos], p: bool| {
         for c in ps {
             w.set_block(*c, if p { on.clone() } else { off.clone() }, redsim::world::flags::ALL);
+            drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:{}", w.time + 1 - t_spawn, c.x, c.y, c.z, if p { "redstone_block" } else { "glass" }));
         }
     };
     // (who is where at the start: the design's order)
@@ -684,6 +695,14 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 }
             }
         }
+        // the drive log's expectations: every cart's position at each slot's end
+        if dt == 99 {
+            for (k, id) in carts.iter().enumerate() {
+                if let Some(p) = pos_of(&run.world, *id) {
+                    drive.borrow_mut().push(format!("expect {} pos e{k} {:.3} {:.3} {:.3}", run.world.time - t_spawn, p.x, p.y, p.z));
+                }
+            }
+        }
         // a settled snapshot
         let now: Vec<Option<usize>> = carts.iter().map(|id| place_of(&run.world, *id)).collect();
         if now.iter().all(|p| p.is_some()) {
@@ -704,6 +723,15 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         }
     }
     out.push(format!("{} settled snapshots, {} clean 3-place moves", snaps.len(), moves));
+    if let Some(path) = drive_out {
+        let mut text = format!("seed {seed}\ndays 0\nwalk random\nticks {}\n# mctas mobfarm queue-loop-run <design> --cycles {cycles} --seed {seed} --release-for {} --advance-at {} --advance-every {} --pulse {}\n# start: Run::start(spec, RunOpts {{ ai: true, ..steady(seed, ticks, Random) }}); settle_tick until false; spawn the design's entity lines in order (e0 .. e20, each a minecart with its villager e<N>.p0); t = gt after that spawn\n", run.world.time - t_spawn, tm.release_for, tm.advance_at, tm.advance_every, tm.pulse);
+        for l in drive.borrow().iter() {
+            text.push_str(l);
+            text.push('\n');
+        }
+        std::fs::write(path, text).map_err(|e| e.to_string())?;
+        out.push(format!("drive log: {}", path.display()));
+    }
     out.extend(arrivals);
     if verbose {
         let ps: Vec<String> = carts.iter().map(|id| pos_of(&run.world, *id).map(|p| format!("{:.1},{:.1},{:.1}", p.x, p.y, p.z)).unwrap_or_default()).collect();

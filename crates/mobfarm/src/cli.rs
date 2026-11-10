@@ -394,7 +394,7 @@ pub enum MobfarmCmd {
         cycles: i64,
         #[arg(long, default_value_t = 1)]
         seed: i64,
-        #[arg(long, default_value_t = 20)]
+        #[arg(long, default_value_t = 30)]
         release_for: i64,
         #[arg(long, default_value_t = 40)]
         advance_at: i64,
@@ -407,6 +407,10 @@ pub enum MobfarmCmd {
         /// Print these carts (design order) every gt.
         #[arg(long, value_delimiter = ',')]
         watch: Vec<usize>,
+        /// Write the run's drive log (every control change as `act <t> set x y z <state>`, each
+        /// slot's cart positions as `expect <t> pos eN x y z`) for mobviewer's replay.
+        #[arg(long)]
+        drive_out: Option<PathBuf>,
     },
     /// The single-lane carousel's queue: a physics scene (carts back to back on one track, a
     /// release of the front ones down braked slopes) for `queue-run`.
@@ -423,6 +427,9 @@ pub enum MobfarmCmd {
         /// Empty carts.
         #[arg(long)]
         no_riders: bool,
+        /// The saw scene: carts at offsets 0.1 .. 0.95 down their slopes.
+        #[arg(long)]
+        sweep: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -1006,15 +1013,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             println!("{}", out.display());
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, release_for, advance_at, advance_every, pulse, verbose, watch } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, release_for, advance_at, advance_every, pulse, verbose, watch, drive_out } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse };
-            let s = crate::queue::run_loop(&spec, &o, &tm, cycles, seed, verbose, if watch.is_empty() { None } else { Some(&watch) }).map_err(|e| anyhow::anyhow!(e))?;
+            let s = crate::queue::run_loop(&spec, &o, &tm, cycles, seed, verbose, if watch.is_empty() { None } else { Some(&watch) }, drive_out.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
             println!("{s}");
         }
-        MobfarmCmd::Queue { scene, carts, spacing, release, no_riders, out } => {
-            let o = crate::queue::QueueOpts { scene, carts, spacing, release, riders: !no_riders };
+        MobfarmCmd::Queue { scene, carts, spacing, release, no_riders, sweep, out } => {
+            let o = crate::queue::QueueOpts { scene, carts, spacing, release, riders: !no_riders, sweep };
             let text = crate::queue::design(&o)?;
             std::fs::write(&out, text)?;
             println!("{}", out.display());
