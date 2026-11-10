@@ -386,11 +386,14 @@ pub struct LoopOpts {
     pub peak_pad: bool,
     /// The departure turns north right after S1's peak (one cell shorter each way).
     pub short_depart: bool,
+    /// farmopt's pocket stand: each cart of the batch in its own gate pocket (counting gates, no
+    /// brake timing, no contact), all three released at once.
+    pub stand_stop: bool,
 }
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false, zombie_every: 0, zombie_x: 3, stand_deep: false, tail_desc: false, peak_pad: false, short_depart: false, stand_stop: false }
     }
 }
 
@@ -415,6 +418,10 @@ pub struct LoopLayout {
     /// Each queue slot's travel direction (x, z) and its peak cell.
     pub slot_dir: Vec<[i32; 2]>,
     pub slot_peak: Vec<[i32; 3]>,
+    /// The stop-based stand (`stand_stop`): its gate (the stop), and the re-spacer's pockets from
+    /// the last (gate 0) back: each pocket's gate and the rail cell under it (the gate's slope).
+    pub stop_gate: Option<BlockPos>,
+    pub pockets: Vec<(BlockPos, [i32; 3])>,
 }
 
 /// The loop's layout: the entry at (0, 1, 0); queue row A going -x (slots 0 .. slots/2), a U-turn,
@@ -585,7 +592,7 @@ fn finish_layout(mut path: Vec<([i32; 3], Cell)>, slot_cells: Vec<[i32; 3]>, sta
             }
         }
     }
-    LoopLayout { slots: slot_cells.iter().map(ctrl).collect(), stand: stand_cells.iter().map(ctrl).collect(), stand_b, tail_b, slot_dir, slot_peak, path, slot_cells, stand_cells }
+    LoopLayout { slots: slot_cells.iter().map(ctrl).collect(), stand: stand_cells.iter().map(ctrl).collect(), stand_b, tail_b, slot_dir, slot_peak, path, slot_cells, stand_cells, stop_gate: None, pockets: Vec::new() }
 }
 
 /// The bridge loop: the stand along +x at z 0 (S3's slope at x 0, catch slots) bridging the two
@@ -765,6 +772,58 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
             path.push(([x, ye, zr], Cell::Plain));
         }
         return finish_layout(path, slot_cells, stand_cells, Vec::new(), tail_b);
+    }
+    if o.stand_stop {
+        // farmopt's pocket stand (2026-11-10, the parent's call (a)): each cart of the batch stops
+        // in its own gate pocket, the pockets 4 cells apart: a flat (a rail peak needs one: a slope
+        // up straight into a slope down is reshaped flat by its neighbour updates), a plain slope
+        // down (the cart rests on it, pressed by gravity against the gate), the gate's slope (a
+        // fence gate over its high end; a booster), a booster back up. Counting gates (the bench's
+        // position triggers): the first pocket's gate lets two carts by, the second's one, the
+        // last's none, so each cart stops in its own pocket with no brake timing, and no two
+        // carts touch (a contact jam is pushed apart by its panicking riders). The departure: all
+        // three gates opened at once; the pockets being alike, the three leave in step, 4 cells
+        // apart. Riders at x -1, 3, 7 (y 0, -1, -2): `linear-check` gives them 40, 44 and 40
+        // valid columns, 0 strays, 99.03% per slot (3 cells apart would give 44 each, 99.30%)
+        let mut pockets = Vec::new();
+        for k in 0..3 {
+            let (b, l) = (xb + 1 + 4 * k, 1 - k);
+            path.push(([b, l, 0], Cell::Plain));
+            path.push(([b + 1, l - 1, 0], Cell::Plain));
+            path.push(([b + 2, l - 2, 0], Cell::Boost));
+            pockets.insert(0, (BlockPos::new(b + 2, l - 1, 0), [b + 2, l - 2, 0]));
+            if k < 2 {
+                path.push(([b + 3, l - 2, 0], Cell::Boost));
+            }
+        }
+        // (S1, S2, S3: the rest cells, front first; no rail control)
+        stand_cells.extend([[xb + 10, -2, 0], [xb + 6, -1, 0], [xb + 2, 0, 0]]);
+        // the departure: a curve north right after the last gate, a boosted climb along the run up
+        // to the tail's level (y 4 with `tail_desc`), the run north, west along zr into the tail
+        // (the shortest return from the stand: the returning batch reaches the tail ~20 gt sooner
+        // than by a ramp east first)
+        let xd = xb + 12;
+        let top = if o.tail_desc { 4 } else { 1 };
+        path.push(([xd, -3, 0], Cell::Plain));
+        let mut z = 1;
+        for y in -3..top {
+            path.push(([xd, y, z], Cell::Boost));
+            z += 1;
+        }
+        while z < zr {
+            path.push(([xd, top, z], Cell::Plain));
+            z += 1;
+        }
+        path.push(([xd, top, zr], Cell::Plain));
+        for x in (1..xd).rev() {
+            path.push(([x, top, zr], Cell::Plain));
+        }
+        let mut lay = finish_layout(path, slot_cells, stand_cells, Vec::new(), tail_b);
+        // (no rail control: the stand's departure is its three gates)
+        lay.stand = Vec::new();
+        lay.stop_gate = None;
+        lay.pockets = pockets;
+        return lay;
     }
     path.push(([xb + 1, 1, 0], if o.plain { Cell::Plain } else { Cell::Linked }));
     for j in 0..3 {
@@ -984,14 +1043,50 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         b.set(c[0], c[1], c[2], &rail);
         b.set(c[0], c[1] - 1, c[2], support);
     }
+    // (the stop stand's braked slope starts braked, as the catch leaves it)
+    if o.stand_stop && false {
+        for (c, k) in &lay.path {
+            if matches!(k, Cell::Slot | Cell::Linked) && c[2] == 0 && (2..=3).contains(&c[0]) {
+                let i = lay.path.iter().position(|(p, _)| p == c).unwrap_or(0);
+                let sh = crate::yard::shape(Some(lay.path[(i + n - 1) % n].0), *c, Some(lay.path[(i + 1) % n].0))?;
+                b.set(c[0], c[1], c[2], &format!("powered_rail[powered=true,shape={sh},waterlogged=false]"));
+            }
+        }
+        for s in &lay.stand {
+            b.set(s.x, s.y, s.z, "redstone_block");
+        }
+    }
     let rider = Some("{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}");
     // (each cart where the loop's steady state rests it: a queue cart 0.32 down its slope, a
-    // stand cart 0.45, measured from the slope's top edge along its travel direction)
-    for (k, c) in lay.slot_cells.iter().chain(lay.stand_cells.iter()).enumerate() {
-        let (off, d) = if k < lay.slot_cells.len() { (0.32, lay.slot_dir[k]) } else { (0.45, [1, 0]) };
+    // stand cart 0.45, measured from the slope's top edge along its travel direction; the stop
+    // stand's three where its catch rests them, against the gate and each other)
+    let stand_carts: Vec<[f64; 3]> = if o.stand_stop {
+        // (on the approach flats, rolling in: they settle against the gate as any batch does; set
+        // down at the rest itself, the push of the first tick sends the third back off its slope)
+        // (each at rest in its own pocket, pressed against its gate: no two touch)
+        vec![[7.885, -1.8225, 0.5], [3.885, -0.8225, 0.5], [-0.115, 0.1775, 0.5]]
+    } else {
+        lay.stand_cells.iter().map(|c| [c[0] as f64 + 0.5 + (0.45 - 0.5), c[1] as f64 + 1.0 - 0.45 + 0.05, c[2] as f64 + 0.5]).collect()
+    };
+    for (k, c) in lay.slot_cells.iter().enumerate() {
+        let (off, d) = (0.32, lay.slot_dir[k]);
         let x = c[0] as f64 + 0.5 + d[0] as f64 * (off - 0.5);
         let z = c[2] as f64 + 0.5 + d[1] as f64 * (off - 0.5);
         b.entity("minecart", [x, c[1] as f64 + 1.0 - off + 0.05, z], rider);
+    }
+    // (the stop stand's three rolling in at a train's speed)
+    // (the stand's three at rest in their pockets from the start)
+    let stand_rider = Some("{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}");
+    for p in &stand_carts {
+        b.entity("minecart", *p, if o.stand_stop { stand_rider } else { rider });
+    }
+    // the stop stand's gates: the stand's stop shut; the pockets' last gate shut, the other two
+    // open (gate 2 lets two carts by, gate 1 one)
+    if let Some(g) = lay.stop_gate {
+        b.set(g.x, g.y, g.z, "oak_fence_gate[facing=east,in_wall=false,open=false,powered=false]");
+    }
+    for (k, (g, _)) in lay.pockets.iter().enumerate() {
+        b.set(g.x, g.y, g.z, &format!("oak_fence_gate[facing={},in_wall=false,open={},powered=false]", if o.stand_stop { "east" } else { "south" }, k > 0 && !o.stand_stop));
     }
     // the zombie posts (PANIC for every rider): a zombie in a boat on glass (no golem spawns on
     // glass) at y 3, out of the carts' attack reach (2 above the highest rail; a zombie's attack
@@ -1017,7 +1112,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         }
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={} zombie_every={} zombie_x={} stand_deep={} tail_desc={} peak_pad={} short_depart={} stand_stop={}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32, o.zombie_every, o.zombie_x, o.stand_deep as i32, o.tail_desc as i32, o.peak_pad as i32, o.short_depart as i32, o.stand_stop as i32));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     Ok(b.text(&["The single-lane carousel's loop (prototype): a sawtooth queue register, the release run, the 3-slot stand, the return run."]))
 }
@@ -1049,6 +1144,7 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "tail_desc" => o.tail_desc = v != "0",
             "peak_pad" => o.peak_pad = v != "0",
             "short_depart" => o.short_depart = v != "0",
+            "stand_stop" => o.stand_stop = v != "0",
             "detector" => o.detector = v != "0",
             "zombie_every" => o.zombie_every = v.parse()?,
             "zombie_x" => o.zombie_x = v.parse()?,
@@ -1149,6 +1245,23 @@ pub struct LoopTiming {
     pub stagger_off: bool,
     /// Day-1's merge (b), the side drop (see `SideDrop`).
     pub side_drop: Option<SideDrop>,
+    /// The stop stand (`stand_stop`): its gate opened and its braked slope powered at
+    /// `stand_offset` + `stop_open`, shut and braked again at `stand_offset` + `stop_close`; the
+    /// re-spacer's three pockets all opened at `stand_offset` + `pocket_release` and reset (the
+    /// last gate shut, the other two open) `pocket_reset` gt later.
+    pub stop_open: i64,
+    pub stop_close: i64,
+    pub pocket_release: i64,
+    pub pocket_reset: i64,
+    /// The stop stand's brake: set this many gt after the batch's third cart is on the braked
+    /// slopes (the bench's trigger; a tolerance probe).
+    pub stop_brake_delay: i64,
+    /// The stop stand's braked slope powered at `stand_offset` + `stop_cv` (after the gate has
+    /// opened and the front cart has rolled off).
+    pub stop_cv: i64,
+    /// The pocket stand's counting gates shut this many gt after their count is reached (0: at
+    /// once; the tolerance probe of the gates' own circuit).
+    pub pocket_close_delay: i64,
 }
 
 /// Day-1's merge (b): at cycle `cycle`, +4, the cart in queue slot `park` leaves the loop; at +`at`
@@ -1168,7 +1281,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 40, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0 }
     }
 }
 
@@ -1234,7 +1347,15 @@ pub fn loop_shifted(tm: &LoopTiming, control: &str, s: i64) -> Result<LoopTiming
             }
             None => return Err("tail brakes: give them as --intake-brake A,B".into()),
         },
-        _ => return Err(format!("unknown control {control}: release-start, release-end, adv1-time .. adv3-time, adv1-width .. adv3-width, s1, s2, s3, stand-brake, tail12, tail0, speed")),
+        "pocket-release" => t.pocket_release += s,
+        "pocket-reset" => t.pocket_reset += s,
+        "gate-close" => {
+            if t.pocket_close_delay + s < 0 {
+                return Err("gate-close: a counting gate shuts on its count, never before".into());
+            }
+            t.pocket_close_delay += s
+        }
+        _ => return Err(format!("unknown control {control}: release-start, release-end, adv1-time .. adv3-time, adv1-width .. adv3-width, s1, s2, s3, stand-brake, tail12, tail0, pocket-release, pocket-reset, gate-close, speed")),
     }
     Ok(t)
 }
@@ -1620,6 +1741,21 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let wide = !lay.stand_b.is_empty();
     let place_of = |w: &redsim::world::World, id: u32| -> Option<usize> {
         let e = w.entities.list.iter().find(|e| e.id == id)?;
+        // (the stop stand's three places by x, the batch at rest against the gate and each
+        // other: S1 the front)
+        // (the pocket stand's three places: a cart at rest on a pocket's rest slope, S1 the front)
+        if o.stand_stop && (e.pos.z - 0.5).abs() < 0.6 && e.pos.y < 1.0 && e.pos.x > -0.6 && e.pos.x < 8.5 {
+            if e.delta_movement.horizontal_distance_sqr() > 1e-6 {
+                return None;
+            }
+            let s = match e.pos.x {
+                x if (7.5..8.0).contains(&x) => 0,
+                x if (3.5..4.0).contains(&x) => 1,
+                x if (-0.5..0.0).contains(&x) => 2,
+                _ => return None,
+            };
+            return Some(q + 2 - s);
+        }
         places.iter().enumerate().position(|(k, c)| {
             // (along and across the place's travel direction, from its slope cell's centre)
             let d = if k < q { lay.slot_dir[k] } else { [1, 0] };
@@ -1655,11 +1791,54 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         }
     };
     let input_was = wired.map(|p| run.world.get(p));
+    // (the stop stand's fence gates: shut or open, facing the travel)
+    let set_gate = |w: &mut redsim::world::World, p: BlockPos, facing: &str, open: bool| {
+        let s = format!("minecraft:oak_fence_gate[facing={facing},in_wall=false,open={open},powered=false]");
+        if let Ok(b) = Block::parse(&s)
+            && w.get(p) != b
+        {
+            w.set_block(p, b, redsim::world::flags::ALL);
+            drive.borrow_mut().push(format!("act {} set {} {} {} {s}", w.time - t_spawn, p.x, p.y, p.z));
+        }
+    };
+    // (the re-spacer's pockets: the carts each gate has seen leave it while it holds)
+    let mut pocket_seen: Vec<Vec<u32>> = vec![Vec::new(); lay.pockets.len()];
+    let mut pocket_hold = true;
+    // (when each counting gate shuts: its count reached, plus `pocket_close_delay`)
+    let mut pocket_close_at: Vec<Option<i64>> = vec![None; lay.pockets.len()];
+    let mut pocket_released_at: Option<i64> = None;
+    // (the slot-boundary order check: the last slot's queue, train and stand batch; clean slots)
+    let mut order_prev: Option<(Vec<Option<u32>>, Vec<u32>, Vec<u32>)> = None;
+    let mut order_dep2: Option<Vec<u32>> = None;
+    let mut order_ok = 0;
+    // (the stop stand's brake: armed with a batch's third cart, set `stop_brake_delay` gt after
+    // that cart is on the braked slopes; the design's first batch arms it from the start)
+    let mut stop_arm: Option<(u32, Option<i64>)> = None;
+    let stop_brake = |w: &mut redsim::world::World, arm: &mut Option<(u32, Option<i64>)>| {
+        let Some((id, at)) = *arm else { return };
+        let now = w.time as i64;
+        let entered = at.or_else(|| w.entities.list.iter().find(|e| e.id == id).filter(|e| e.pos.x >= 2.0 && e.pos.x < 4.7 && (e.pos.z - 0.5).abs() < 0.6 && e.pos.y < 1.5).map(|_| now));
+        *arm = Some((id, entered));
+        if let Some(t_in) = entered
+            && now >= t_in + tm.stop_brake_delay
+        {
+            for c in &lay.stand {
+                w.set_block(*c, off.clone(), redsim::world::flags::ALL);
+                drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:glass", w.time - t_spawn, c.x, c.y, c.z));
+            }
+            *arm = None;
+        }
+    };
     let reset_was = tm.stand_reset.map(|p| run.world.get(p));
     let mut reset_off_at: Option<i64> = None;
     // (who is where at the start: the design's order)
-    for _ in 0..40 {
+    for s in 0..40 {
         run.tick();
+        stop_brake(&mut run.world, &mut stop_arm);
+        if let Some(w) = watch {
+            let ps: Vec<String> = w.iter().filter_map(|k| carts.get(*k)).filter_map(|id| pos_of(&run.world, *id)).map(|p| format!("{:.3},{:.3}", p.x, p.y)).collect();
+            println!("settle {s}: {}", ps.join(" | "));
+        }
     }
     let mut out = Vec::new();
     let mut problems = Vec::new();
@@ -1703,9 +1882,53 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             let in_slot = |id: u32, cell: [i32; 3]| pos_of(&run.world, id).is_some_and(|p| p.x.floor() as i32 == cell[0] && p.z.floor() as i32 == cell[2] && p.y < 1.5);
             let by_cell = |cell: [i32; 3]| carts.iter().copied().find(|id| in_slot(*id, cell));
             let rel: Vec<u32> = (0..3).filter_map(|k| by_cell(lay.slot_cells[q - 1 - k])).collect();
-            let dep: Vec<u32> = (0..3).filter_map(|k| { let c = lay.stand_cells[k]; let span = if lay.stand_b.is_empty() { 1.0 } else { 3.0 }; let back = if o.stand_desc || o.stand_deep { 1.0 } else { 0.0 }; carts.iter().copied().find(|id| pos_of(&run.world, *id).is_some_and(|p| p.x >= c[0] as f64 - back && p.x < c[0] as f64 + span && (p.z - (c[2] as f64 + 0.5)).abs() < 0.6 && p.y < 1.5)) }).collect();
+            let dep: Vec<u32> = if o.stand_stop {
+                // (the pocket stand: the carts at rest in its 3 pockets, front first)
+                let mut v: Vec<(f64, u32)> = carts.iter().filter_map(|id| {
+                    let k = place_of(&run.world, *id)?;
+                    (k >= q).then(|| (pos_of(&run.world, *id).map_or(0.0, |p| p.x), *id))
+                }).collect();
+                v.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+                v.into_iter().map(|(_, id)| id).collect()
+            } else {
+                (0..3).filter_map(|k| { let c = lay.stand_cells[k]; let span = if lay.stand_b.is_empty() { 1.0 } else { 3.0 }; let back = if o.stand_desc || o.stand_deep { 1.0 } else { 0.0 }; carts.iter().copied().find(|id| pos_of(&run.world, *id).is_some_and(|p| p.x >= c[0] as f64 - back && p.x < c[0] as f64 + span && (p.z - (c[2] as f64 + 0.5)).abs() < 0.6 && p.y < 1.5)) }).collect()
+            };
             if rel.len() != 3 || dep.len() != 3 {
                 problems.push(format!("slot {c}: the release group holds {} carts and the stand {} at the slot's start", rel.len(), dep.len()));
+            }
+            // the order at each slot's start, cart by cart (no moment has all 21 at rest with a
+            // pocket stand): every queue cart 3 slots on from the last slot's start, the tail's
+            // 3 the batch that left the stand (its front in slot 2), the stand's 3 the train that
+            // left the queue's head (front first)
+            if o.stand_stop {
+                let queue_now: Vec<Option<u32>> = (0..q).map(|s| by_cell(lay.slot_cells[s])).collect();
+                if let Some((pq, prel, _)) = &order_prev {
+                    // (the tail's 3 at the last slot's start, or, when it was empty there, the
+                    // batch that reached it during the last slot: the stand's batch of the slot
+                    // before, its front in tail slot 2)
+                    let mut bad = Vec::new();
+                    for s in 0..q - 3 {
+                        let want = pq[s].or_else(|| if s < 3 { order_dep2.as_ref().and_then(|d: &Vec<u32>| d.get(2 - s).copied()) } else { None });
+                        // (slot 1: the design's own tail carts, raised out of `by_cell`'s reach, and
+                        // no stand batch two slots back to stand in for them)
+                        if want.is_none() && s < 3 && order_dep2.is_none() {
+                            continue;
+                        }
+                        if queue_now[s + 3] != want {
+                            bad.push(format!("queue slot {} holds {:?}, not {:?}", s + 3, queue_now[s + 3], want));
+                        }
+                    }
+                    if &dep != prel {
+                        bad.push(format!("the stand holds {dep:?}, not the train {prel:?}"));
+                    }
+                    if !bad.is_empty() {
+                        problems.push(format!("slot {c}: order: {}", bad.join("; ")));
+                    } else {
+                        order_ok += 1;
+                    }
+                }
+                order_dep2 = order_prev.as_ref().map(|(_, _, d)| d.clone());
+                order_prev = Some((queue_now, rel.clone(), dep.clone()));
             }
             stand_train = Some((c, rel, if wired.is_some() && tm.stand_reset.is_none() && !tm.bench_stand { 2 } else { 0 }));
             detect_at = None;
@@ -1846,6 +2069,54 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             // S2 and S3 `depart_every` gt apart; a cart behind crosses more powered cells and
             // would catch the one ahead), each slot's slope up `lead` gt before its slope down
             let shift = o.plain || tm.shift_depart;
+            // the stop stand's departure: its gate open and S1's braked slope powered (the batch
+            // rolls out bunched), then shut and braked for the next batch; the re-spacer's pockets
+            // all opened at once (each cart its own pocket), then reset
+            if o.stand_stop {
+                let so = tm.stand_offset;
+                if dt == so + tm.stop_open || dt == so + tm.stop_close {
+                    let open = dt == so + tm.stop_open;
+                    // (the gate opens first and the front rolls off by gravity; the braked slope
+                    // is powered `stop_cv` gt later, once the front's rider no longer touches the
+                    // second cart: powered while a rider's push has the second moving back, it
+                    // boosts it back into the third)
+                    if !open {
+                        set(&mut run.world, &lay.stand, false);
+                    }
+                    if !open && tm.stop_brake_delay < 0 {
+                        if let Some((_, tr, _)) = &stand_train
+                            && tr.len() == 3
+                        {
+                            stop_arm = Some((tr[2], None));
+                        }
+                    }
+                    if let Some(g) = lay.stop_gate {
+                        set_gate(&mut run.world, g, "east", open);
+                    }
+                }
+                if dt == so + tm.stop_cv {
+                    set(&mut run.world, &lay.stand, true);
+                }
+                // (a release before the slot's start is the end of the slot before: the batch
+                // caught there leaves for this one; slot 0's own batch leaves at its start)
+                let rel = so + tm.pocket_release;
+                let fire = if rel >= 0 { dt == rel } else { (c + 1 < cycles && dt == 100 + rel) || (c == 0 && dt == 0) };
+                if fire {
+                    for (g, _) in &lay.pockets {
+                        set_gate(&mut run.world, *g, "east", true);
+                    }
+                    pocket_hold = false;
+                    pocket_released_at = Some(t);
+                }
+                if pocket_released_at.is_some_and(|r| t == r + tm.pocket_reset) {
+                    for (k, (g, _)) in lay.pockets.iter().enumerate() {
+                        set_gate(&mut run.world, *g, "east", k > 0);
+                    }
+                    pocket_seen = vec![Vec::new(); lay.pockets.len()];
+                    pocket_close_at = vec![None; lay.pockets.len()];
+                    pocket_hold = true;
+                }
+            }
             if shift {
                 // plain stand: the batch leaves like a queue advance, 3 pulses on all 3 stand
                 // slopes (each pulse moves every stand cart one slot on, S1's out), so the 3 leave
@@ -1864,7 +2135,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 }
             }
             for k in 0..3usize {
-                if shift {
+                if shift || o.stand_stop {
                     break;
                 }
                 let at = tm.stand_offset + tm.stand_shift[k] + if k == 0 { tm.s1_at } else { k as i64 * tm.depart_every };
@@ -1930,6 +2201,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             }
         }
         run.tick();
+        stop_brake(&mut run.world, &mut stop_arm);
         // PANIC at night (the deep night, day time 13,670..22,330): every rider, and where the
         // calm ones ride
         let tod = run.world.day_time().rem_euclid(24000);
@@ -1946,7 +2218,11 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             }
         }
         if let Some(w) = watch {
-            let ps: Vec<String> = w.iter().filter_map(|k| carts.get(*k)).map(|id| run.world.entities.list.iter().find(|e| e.id == *id).map(|e| format!("{:.2},{:.2},{:.2} v{:.3}", e.pos.x, e.pos.y, e.pos.z, e.delta_movement.horizontal_distance())).unwrap_or_default()).collect();
+            let ps: Vec<String> = w.iter().filter_map(|k| carts.get(*k)).map(|id| run.world.entities.list.iter().find(|e| e.id == *id).map(|e| {
+                // (and its rider: where, its box's x span)
+                let r = e.passengers.first().and_then(|p| run.world.entities.list.iter().find(|x| x.id == *p)).map(|x| format!(" r{:.2},{:.2} [{:.2}..{:.2} y {:.2}..{:.2}]{}", x.pos.x, x.pos.y, x.bb.min_x, x.bb.max_x, x.bb.min_y, x.bb.max_y, if redsim::entity::minecart::is_pushable(x) { "" } else { " unpushable" })).unwrap_or_default();
+                format!("{:.2},{:.2},{:.2} v{:.3}{r}", e.pos.x, e.pos.y, e.pos.z, e.delta_movement.horizontal_distance())
+            }).unwrap_or_default()).collect();
             println!("c{c} +{dt}: {}", ps.join(" | "));
         }
         // the stand fills front first: every slot braked at once (slopes down and up) as the
@@ -1978,6 +2254,41 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                         *st = 8;
                     }
                 }
+            }
+        } else if o.stand_stop {
+            // the pocket stand's gates while they hold: gate k shuts once k carts have passed it (a
+            // cart's centre 1.29 past the gate slope's start: its tail past the gate)
+            if pocket_hold {
+                for k in 1..lay.pockets.len() {
+                    let (g, cell) = lay.pockets[k];
+                    for id in &carts {
+                        if let Some(p) = pos_of(&run.world, *id)
+                            && (p.z - (cell[2] as f64 + 0.5)).abs() < 0.6
+                            && p.x >= cell[0] as f64 + 1.29
+                            && p.x < cell[0] as f64 + 3.0
+                            && !pocket_seen[k].contains(id)
+                        {
+                            pocket_seen[k].push(*id);
+                            if pocket_seen[k].len() == k {
+                                pocket_close_at[k] = Some(t + tm.pocket_close_delay);
+                            }
+                        }
+                    }
+                    if pocket_close_at[k] == Some(t) {
+                        set_gate(&mut run.world, g, "east", false);
+                    }
+                }
+            }
+            // the pocket stand catches with no rail control: the batch is in once its three carts
+            // rest in S1, S2, S3 (each against its own gate)
+            if let Some((c0, tr, st)) = &mut stand_train
+                && *st == 0
+                && tr.len() == 3
+                && (0..3).all(|k| place_of(&run.world, tr[k]) == Some(q + 2 - k))
+            {
+                arrivals.push(format!("slot {c0}: batch at rest at the stand +{}", t - *c0 * 100));
+                stand_braked_at.push(t - *c0 * 100);
+                *st = 3;
             }
         } else if let Some((c0, tr, st)) = &mut stand_train {
             let (s1, s2, s3) = (lay.stand_cells[0], lay.stand_cells[1], lay.stand_cells[2]);
@@ -2153,6 +2464,9 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         }
     }
     out.push(format!("{} settled snapshots, {} clean 3-place moves", snaps.len(), moves));
+    if o.stand_stop {
+        out.push(format!("slot-boundary order: {order_ok} clean slots (every queue cart 3 slots on, the tail the stand's last batch, the stand the last train)"));
+    }
     let span = |v: &[i64]| if v.is_empty() { "-".to_string() } else { format!("+{}..+{}", v.iter().min().unwrap(), v.iter().max().unwrap()) };
     out.push(format!("stand braked at {} after its slot's start; tail slots 1-2 braked at {}, slot 0 at {} after the train's departure", span(&stand_braked_at), span(&intake_braked_at.iter().filter(|x| x.1 == 1).map(|x| x.0).collect::<Vec<_>>()), span(&intake_braked_at.iter().filter(|x| x.1 == 0).map(|x| x.0).collect::<Vec<_>>())));
     if !tail_rest_at.is_empty() {

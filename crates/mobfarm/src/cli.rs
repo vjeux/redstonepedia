@@ -446,6 +446,10 @@ pub enum MobfarmCmd {
         /// The departure turns north right after S1's peak.
         #[arg(long)]
         short_depart: bool,
+        /// farmopt's pocket stand: each cart of the batch in its own gate pocket (counting gates,
+        /// no brake timing, no contact), all three released at once.
+        #[arg(long)]
+        stand_stop: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -453,6 +457,66 @@ pub enum MobfarmCmd {
     /// (none may exist away from the pad).
     QueueLoopSpots {
         design: PathBuf,
+    },
+    /// The stop-based stand's lab (farmopt): a run, the stand's cells from a spec (`mobfarm::
+    /// standlab`), three ridden carts moving +x at each speed of a sweep: where they rest, when,
+    /// whether they stay put; then the departure (the spec's `c` cells powered) and how they leave.
+    StandLab {
+        /// The stand's cells from x 0 east (e.g. "rv rv b. c^ c^").
+        #[arg(long)]
+        spec: String,
+        /// Stored speeds on the run: "a,b,step".
+        #[arg(long, default_value = "0.4,2.0,0.2")]
+        speeds: String,
+        /// Added to the 2nd and 3rd carts' speeds: "a,b".
+        #[arg(long, default_value = "0,0")]
+        skew: String,
+        /// The mob AI on (the loop bench's setting).
+        #[arg(long)]
+        ai: bool,
+        /// The back cart first in the entity list (the loop's order).
+        #[arg(long)]
+        reverse: bool,
+        /// The train's two gaps (cells, front to back).
+        #[arg(long, default_value = "3,3")]
+        gaps: String,
+        #[arg(long, default_value_t = -2.5)]
+        start_x: f64,
+        #[arg(long)]
+        depart_at: Option<i64>,
+        /// The `k` cells (powered for the catch) braked at this tick, powered again at
+        /// `--release-at`.
+        #[arg(long)]
+        hold_at: Option<i64>,
+        #[arg(long)]
+        release_at: Option<i64>,
+        /// Metering: 3 departure pulses this many gt apart, one cart each.
+        #[arg(long)]
+        meter: Option<i64>,
+        /// Metering: the gate shuts once a leaving cart's centre is this far past the gate cell's
+        /// west edge.
+        #[arg(long, default_value_t = 1.29)]
+        close_at: f64,
+        /// Pockets: every gate its own stop (shut by the falling-edge logic), released gate 0,
+        /// 1, 2 at `--depart-at` + k `--meter`.
+        #[arg(long)]
+        pockets: bool,
+        /// Pockets: the stand's gate `S` opened (its `c` cells powered) at this tick, shut again
+        /// at `--stand-close-at`.
+        #[arg(long)]
+        stand_open_at: Option<i64>,
+        #[arg(long)]
+        stand_close_at: Option<i64>,
+        /// Pockets: gate k opened (with every gate east of it) at `--depart-at` + the k-th offset.
+        #[arg(long, default_value = "0,12,24")]
+        releases: String,
+        #[arg(long, default_value_t = 300)]
+        ticks: i64,
+        /// Write the lab's design here too.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        trace: bool,
     },
     /// Runs a loop scene (`queue-loop`) for `--cycles` slots with ideal controls and checks the
     /// loop order.
@@ -644,6 +708,27 @@ pub enum MobfarmCmd {
         /// tail0, ...), comma-separated: a corner rerun without one of its controls, say.
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         shift: Vec<String>,
+        /// The stop stand (`--stand-stop` scenes): its gate open and its braked slopes powered at
+        /// this gt of the slot (after `--stand-offset`), the gate shut at `--stop-close` (the
+        /// slopes stay powered for the next batch, braked `--stop-brake-delay` gt after its third
+        /// cart is on them); the re-spacer's pockets all opened at `--pocket-release`, reset
+        /// `--pocket-reset` gt later.
+        #[arg(long, default_value_t = 0)]
+        stop_open: i64,
+        #[arg(long, default_value_t = 40)]
+        stop_close: i64,
+        #[arg(long, default_value_t = 10, allow_hyphen_values = true)]
+        pocket_release: i64,
+        #[arg(long, default_value_t = 40)]
+        pocket_reset: i64,
+        #[arg(long, default_value_t = 0)]
+        stop_brake_delay: i64,
+        /// The stop stand's braked slope powered at this gt of the slot (after the gate opened).
+        #[arg(long, default_value_t = 8)]
+        stop_cv: i64,
+        /// `--seeds` runs on this many threads (one process).
+        #[arg(long, default_value_t = 1)]
+        jobs: usize,
         #[arg(long)]
         verbose: bool,
         /// Print these carts (design order) every gt.
@@ -1250,10 +1335,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop, out } => {
             let tail_deep = !no_tail_deep && !plain && !tail_desc;
             let slots = if line && slots == 18 { 15 } else { slots };
-            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart };
+            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain && !tail_desc, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector, zombie_every, zombie_x, stand_deep, tail_desc, peak_pad, short_depart, stand_stop };
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             println!("{}", out.display());
             // the control cells (each a block under a powered slope: glass = braked, a redstone
@@ -1269,7 +1354,32 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             println!("{}", crate::queue::loop_spots(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, verbose, watch, drive_out } => {
+        MobfarmCmd::StandLab { spec, speeds, skew, ai, reverse, gaps, start_x, depart_at, hold_at, release_at, meter, close_at, pockets, stand_open_at, stand_close_at, releases, ticks, out, trace } => {
+            let text = crate::standlab::design(&spec)?;
+            let path = out.clone().unwrap_or_else(|| std::env::temp_dir().join(format!("stand-lab-{}.txt", std::process::id())));
+            std::fs::write(&path, &text)?;
+            let (_c, fspec) = load(version, &path)?;
+            let cells = crate::standlab::parse(&spec)?;
+            let nums = |s: &str| -> Result<Vec<f64>> { Ok(s.split(',').map(|p| p.trim().parse::<f64>()).collect::<Result<Vec<_>, _>>()?) };
+            let sp = nums(&speeds)?;
+            anyhow::ensure!(sp.len() == 3 && sp[2] > 0.0, "--speeds a,b,step");
+            let g = nums(&gaps)?;
+            anyhow::ensure!(g.len() == 2, "--gaps a,b");
+            println!("cells: {}", cells.iter().map(|c| format!("{}{}@({},{})", c.kind, c.slope, c.x, c.y)).collect::<Vec<_>>().join(" "));
+            let mut v = sp[0];
+            while v <= sp[1] + 1e-9 {
+                let o = crate::standlab::LabOpts { speed: v, ai, reverse, skew: { let s = nums(&skew)?; [s.first().copied().unwrap_or(0.0), s.get(1).copied().unwrap_or(0.0)] }, gaps: [g[0], g[1]], start_x, depart_at, hold_at, release_at, meter, close_at, pockets, stand_open_at, stand_close_at, releases: releases.split(',').filter(|s| !s.is_empty()).map(|s| s.trim().parse::<i64>()).collect::<Result<Vec<_>, _>>()?, ticks, trace };
+                let r = crate::standlab::bench(&fspec, &cells, &o).map_err(|e| anyhow::anyhow!(e))?;
+                let rest: Vec<String> = r.rest.iter().map(|(x, y, s)| format!("{x:.2},{y:.2}{}", if *s > 1e-3 { format!(" v{s:.3}") } else { String::new() })).collect();
+                let exits: Vec<String> = r.exits.iter().map(|e| e.map(|(t, s)| format!("{t}@{s:.2}")).unwrap_or("-".into())).collect();
+                println!("speed {v:.2}: rest [{}] frozen at {:?} wobble {:.3} ordered {}{}", rest.join(" | "), r.frozen_at, r.wobble, r.ordered, if depart_at.is_some() { format!(" exits [{}]", exits.join(" ")) } else { String::new() });
+                v += sp[2];
+            }
+            if out.is_none() {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, stagger_off, side_drop, side_drop_staged, side_drop_staged2, shift, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, jobs, verbose, watch, drive_out } => {
             let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             if let Some(sf) = &siding {
@@ -1285,7 +1395,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let wired = match wired.as_slice() { [x, y, z] => Some(redsim::pos::BlockPos::new(*x, *y, *z)), [] => None, _ => anyhow::bail!("--wired takes the input cell: x,y,z") };
             let stand_reset = match stand_reset.as_slice() { [x, y, z] => Some(redsim::pos::BlockPos::new(*x, *y, *z)), [] => None, _ => anyhow::bail!("--stand-reset takes a cell: x,y,z") };
             let stand_detect_slots = match stand_detect_slots.as_slice() { [a, b, c] => Some([*a, *b, *c]), [] => None, _ => anyhow::bail!("--stand-detect-slots takes 3 delays: S1,S2,S3") };
-            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, entry_speed, adv_shift: match adv_shift.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-shift takes 3 shifts") }, adv_width: match adv_width.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-width takes 3 deltas") }, skew: { let mut s = [0i64; 24]; for (i, v) in skew.iter().enumerate().take(24) { s[i] = *v; } s }, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, build_gap: placed_in_order.filter(|_| !placed_all && !build_gap_sweep).map(|g| if g == 0 { 20 } else { g }), build_priced: placed_in_order == Some(0), stagger_off, side_drop: match side_drop.as_slice() { [c, s, d, v] => Some(crate::queue::SideDrop { cycle: *c as i64, slot: *s as usize, at: *d as i64, speed: *v, park: *s as usize, staged: side_drop_staged || side_drop_staged2, staged2: side_drop_staged2 }), [c, s, d, v, p] => Some(crate::queue::SideDrop { cycle: *c as i64, slot: *s as usize, at: *d as i64, speed: *v, park: *p as usize, staged: side_drop_staged || side_drop_staged2, staged2: side_drop_staged2 }), [] => None, _ => anyhow::bail!("--side-drop takes C,SLOT,D,V[,PARK]") }, ..Default::default() };
+            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, entry_speed, adv_shift: match adv_shift.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-shift takes 3 shifts") }, adv_width: match adv_width.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-width takes 3 deltas") }, skew: { let mut s = [0i64; 24]; for (i, v) in skew.iter().enumerate().take(24) { s[i] = *v; } s }, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, build_gap: placed_in_order.filter(|_| !placed_all && !build_gap_sweep).map(|g| if g == 0 { 20 } else { g }), build_priced: placed_in_order == Some(0), stagger_off, side_drop: match side_drop.as_slice() { [c, s, d, v] => Some(crate::queue::SideDrop { cycle: *c as i64, slot: *s as usize, at: *d as i64, speed: *v, park: *s as usize, staged: side_drop_staged || side_drop_staged2, staged2: side_drop_staged2 }), [c, s, d, v, p] => Some(crate::queue::SideDrop { cycle: *c as i64, slot: *s as usize, at: *d as i64, speed: *v, park: *p as usize, staged: side_drop_staged || side_drop_staged2, staged2: side_drop_staged2 }), [] => None, _ => anyhow::bail!("--side-drop takes C,SLOT,D,V[,PARK]") }, stop_open, stop_close, pocket_release, pocket_reset, stop_brake_delay, stop_cv, ..Default::default() };
             // (`--shift name=gt,...`: controls shifted as the sweep shifts them, e.g. to rerun a
             // corner without one of its controls)
             let mut tm = tm;
@@ -1332,8 +1442,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         (false, None, _) => "the judge's placement".to_string(),
                     };
                     let (mut clean, mut bad) = (0, Vec::new());
-                    for s in seed..seed + seeds {
-                        let r = crate::queue::run_loop(&spec, &o, &tm, cycles, s, false, None, None).map_err(|e| anyhow::anyhow!(e))?;
+                    // (`--jobs`: the seeds run on that many threads at once, results in seed order)
+                    let mut results: Vec<(i64, String)> = Vec::new();
+                    let all: Vec<i64> = (seed..seed + seeds).collect();
+                    for chunk in all.chunks(jobs.max(1)) {
+                        let got: Vec<(i64, Result<String, String>)> = std::thread::scope(|sc| {
+                            let hs: Vec<_> = chunk.iter().map(|&s| { let (spec, o, tm) = (&spec, &o, &tm); sc.spawn(move || (s, crate::queue::run_loop(spec, o, tm, cycles, s, false, None, None))) }).collect();
+                            hs.into_iter().map(|h| h.join().expect("a bench thread panicked")).collect()
+                        });
+                        for (s, r) in got {
+                            results.push((s, r.map_err(|e| anyhow::anyhow!(e))?));
+                        }
+                    }
+                    for (s, r) in results {
                         let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").to_string();
                         let first = r.lines().skip_while(|l| !l.ends_with("problems:")).nth(1).unwrap_or("").trim().to_string();
                         if seeds > 1 {
