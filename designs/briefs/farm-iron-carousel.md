@@ -18,7 +18,7 @@ vjeux 05:58: "Okay, I don't think that my request has been correctly understood.
 
 #### Part 1: the stand catch (decided Nov 10, 9:49 AM)
 
-Baseline: the 2-tick redstone catch, which powers the stand's brake at +25/+26 gt after the stand detector fires. It is accepted so the wired run proceeds, and it is bridged against the real game (a bridge scene of the catch, tick-exact against redsim). In parallel, farmopt and ironfarm build a stop-based stand: a physical stop with no brake timing (about 15 gt faster), with re-spacing on the return path to restore the queue's 3-cell period. The stop-based stand replaces the baseline once it passes the same benches (the full-loop bench and the station bench with the real release).
+Baseline: the 2-tick redstone catch, which powers the stand's brake at +27/+28 gt after the stand detector fires (the bench's +26/+27; redstone +28 is wired). It is accepted so the wired run proceeds, and it is bridged against the real game (a bridge scene of the catch, tick-exact against redsim). In parallel, farmopt and ironfarm build a stop-based stand: a physical stop with no brake timing (about 15 gt faster), with re-spacing on the return path to restore the queue's 3-cell period. The stop-based stand replaces the baseline once it passes the same benches (the full-loop bench and the station bench with the real release).
 
 #### Tolerance, a measured line for every part with timed controls
 
