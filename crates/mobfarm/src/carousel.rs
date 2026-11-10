@@ -215,6 +215,15 @@ fn carousel_impl(side: i32, latch: bool, free_run: bool, quick: bool) -> anyhow:
     }
     night_pulse(&mut b, &mut dust, free_run);
     station(&mut b);
+    if gate() {
+        // (a lightning rod in the middle of the inner loop, on a stone, the top of its column: every
+        // bolt within 128 strikes it, so none destroys the station zombie's boat (a judge build
+        // failed so: redsim does not model the rider's dismount from a destroyed vehicle); 14 or more
+        // from every rail, rider and golem, out of a bolt's 3-block reach)
+        let c = side / 2;
+        b.set(c, 0, c, STONE);
+        b.set(c, 1, c, "lightning_rod[facing=up,powered=false,waterlogged=false]");
+    }
     curtain_latch(&mut b, &mut dust, latch);
     if gate() {
         for k in 0..3 {
