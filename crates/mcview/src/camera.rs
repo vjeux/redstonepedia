@@ -13,12 +13,13 @@ fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 
 /// FxHash's step (a multiply and a rotate): [`hull_candidates`]' maps, keyed by two coordinates'
 /// bits, and the picker's cell maps (the standard SipHash costs more than the work it saves: a
-/// big card's camera search spent a third of its time hashing cells).
+/// big card's camera search spent a third of its time hashing cells). Public: the terrain farm's
+/// public maps (`TerrainFarm::cut_rows`, `landscape_index`) are keyed with it.
 #[derive(Default)]
-pub(crate) struct FxHasher(u64);
+pub struct FxHasher(u64);
 
 /// A map or set with [`FxHasher`] (`HashMap<K, V, FxBuild>`; made with `default()`).
-pub(crate) type FxBuild = std::hash::BuildHasherDefault<FxHasher>;
+pub type FxBuild = std::hash::BuildHasherDefault<FxHasher>;
 
 impl std::hash::Hasher for FxHasher {
     fn write(&mut self, bytes: &[u8]) {
