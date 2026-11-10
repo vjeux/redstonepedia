@@ -985,11 +985,21 @@ pub struct LoopTiming {
     /// The stand's batch leaves like a queue advance (3 pulses on all 3 stand slopes,
     /// `depart_at` + k·`depart_period`, then the stand opens) instead of front first.
     pub shift_depart: bool,
+    /// S1's departure slope on at this gt (S2 and S3 at `depart_every`, twice that).
+    pub s1_at: i64,
+    /// The tail's slot 0 opens this many gt after slots 1-2.
+    pub tail0_late: i64,
+    /// With `wired`: the bench still drives the stand's 3 controls (the departure lines and the
+    /// brake), the design's redstone the queue's 18.
+    pub bench_stand: bool,
+    /// Added to the stand's departure times (with `wired`, the release starts after the golem
+    /// pulse: day-1's GO at +4).
+    pub stand_offset: i64,
 }
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0 }
     }
 }
 
@@ -1058,11 +1068,12 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     // (`wired`: the controls are the design's own redstone; the bench only pulses the golem input
     // cell each slot and checks where the carts go)
     let wired = tm.wired;
+    let stand_cells_ctl: Vec<BlockPos> = lay.stand.clone();
     let set = |w: &mut redsim::world::World, ps: &[BlockPos], p: bool| {
-        if wired.is_some() {
-            return;
-        }
         for c in ps {
+            if wired.is_some() && !(tm.bench_stand && stand_cells_ctl.contains(c)) {
+                continue;
+            }
             w.set_block(*c, if p { on.clone() } else { off.clone() }, redsim::world::flags::ALL);
             drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:{}", w.time - t_spawn, c.x, c.y, c.z, if p { "redstone_block" } else { "glass" }));
         }
@@ -1119,7 +1130,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 problems.push(format!("slot {c}: the release group holds {} carts and the stand {} at the slot's start", rel.len(), dep.len()));
             }
             set(&mut run.world, &release_group, true);
-            stand_train = Some((c, rel, if wired.is_some() && tm.stand_reset.is_none() { 2 } else { 0 }));
+            stand_train = Some((c, rel, if wired.is_some() && tm.stand_reset.is_none() && !tm.bench_stand { 2 } else { 0 }));
             detect_at = None;
             each_at = [None; 3];
             each_done = [false; 3];
@@ -1193,7 +1204,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 if shift {
                     break;
                 }
-                let at = k as i64 * tm.depart_every;
+                let at = tm.stand_offset + if k == 0 { tm.s1_at } else { k as i64 * tm.depart_every };
                 if let (true, Some(b)) = (dt == at, lay.stand_b.get(k)) {
                     set(&mut run.world, &[*b], true);
                 }
@@ -1216,9 +1227,13 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 if dt == a + tm.pulse {
                     set(&mut run.world, &lay.slots, false);
                     if k == 2 {
-                        // the tail open for the returning train: slopes down powered too
-                        set(&mut run.world, &intake, true);
+                        // the tail open for the returning train: slopes down powered too (slot 0
+                        // `tail0_late` gt after slots 1-2)
+                        set(&mut run.world, if tm.tail0_late > 0 { &intake[1..] } else { &intake[..] }, true);
                     }
+                }
+                if k == 2 && tm.tail0_late > 0 && dt == a + tm.pulse + tm.tail0_late {
+                    set(&mut run.world, &intake[..1], true);
                 }
             }
         }

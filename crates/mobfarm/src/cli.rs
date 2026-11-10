@@ -497,6 +497,20 @@ pub enum MobfarmCmd {
         /// `--depart-at` + k·`--depart-period`, `--pulse` long, then the stand opens.
         #[arg(long)]
         shift_depart: bool,
+        /// S1's departure slope on at this gt (S2, S3 at `--depart-every` and twice that).
+        #[arg(long, default_value_t = 0)]
+        s1_at: i64,
+        /// The tail's slot 0 opens this many gt after slots 1-2.
+        #[arg(long, default_value_t = 0)]
+        tail0_late: i64,
+        /// With `--wired`: the bench still drives the stand's 3 controls (its departure times
+        /// and the brake), the design's redstone the queue's 18.
+        #[arg(long)]
+        bench_stand: bool,
+        /// Added to the stand's departure times (with `--wired`, day-1's release starts 4 gt
+        /// after the golem pulse: pass 4).
+        #[arg(long, default_value_t = 0)]
+        stand_offset: i64,
         #[arg(long)]
         verbose: bool,
         /// Print these carts (design order) every gt.
@@ -1117,14 +1131,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("release group (the last 3): {}", fmt(&lay.slots[lay.slots.len() - 3..]));
             println!("stand S1 S2 S3: {}", fmt(&lay.stand));
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, verbose, watch, drive_out } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, verbose, watch, drive_out } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             let intake_brake = match intake_brake.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--intake-brake takes two values: slots 1-2, then slot 0") };
             let inject_at = inject_at.or(if o.line { Some(110) } else { None });
             let wired = match wired.as_slice() { [x, y, z] => Some(redsim::pos::BlockPos::new(*x, *y, *z)), [] => None, _ => anyhow::bail!("--wired takes the input cell: x,y,z") };
             let stand_reset = match stand_reset.as_slice() { [x, y, z] => Some(redsim::pos::BlockPos::new(*x, *y, *z)), [] => None, _ => anyhow::bail!("--stand-reset takes a cell: x,y,z") };
-            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart };
+            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset };
             if seeds > 1 {
                 // one line per seed, then the total (the drive log, watch and verbose apply to
                 // single runs)
