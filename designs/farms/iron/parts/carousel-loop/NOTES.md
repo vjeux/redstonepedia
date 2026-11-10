@@ -166,27 +166,31 @@ the stand forced to deliver (the queue alone):
   2, 5, 8, 11, 14; middle 1, 4, ..., 13; back 0, 3, ..., 12): day-1's plan has three drop rails,
   slots 12, 13, 14.
 
-## Nap visits on day-1's layout (bench-driven; the siding's bed is the blocker)
+## Nap visits on day-1's layout (bench-driven controls; R1's shared bed from the file)
 
 `queue-loop-run F --wired=-7,-1,5 --visit S,K,REL`: during slot S the stand's cart K goes to the
 bed siding (the divert on for 10 gt from golem +16+10K, T1/T2 set for its drop slot 14-K, the
 siding released at +REL), and the bench reports the divert rail, the riders holding a bed and every
 claim, the sleep ticks, the roll-off from the drop rail, the slot it rests in and its batch's order
-before slot S+5's first advance. Bench-driven: the four controls (divert, T1, T2, release) are
-switched by the bench; nothing in the file drives them yet.
+before slot S+5's first advance. `--visits-nightly EVERY,REL[,FROM]`: 21 visits a night (every
+EVERY slots from day time FROM, the j-th taking the stand's cart j div 7), checked besides: every
+rider asleep once a night, every rider's HOME at each dawn and midday as at the start (ironspec's
+check, 100 seeds x 6 nights when the layout is ready). Bench-driven: the four controls (divert, T1,
+T2, release) are switched by the bench; nothing in the file drives them yet. The bench never
+assigns a bed: the riders hold one only as the design states it (`port home:`, R1's shared claim
+as loaded memories, no ticket taken).
 
 On day-1's b51e4c875 layout (the pocket loop, day-1's controller, the siding pasted at (-20,2,10)),
 S30 (night):
 - the divert works: the corner T (9,-3,0) is north_west while its control is on, south_west after;
-- K0's rider sleeps +211..+229, its cart is at the siding's exit slot by +320;
-- **K1's and K2's riders never sleep**: rider e14 holds HOME on the bed (-20,2,12) from slot 0
-  (claimed during the settle from queue slot 14, ~24 blocks away) and never lets it go (panicking
-  riders never run REST's give-up); their carts stay at the bed spot and the batch comes back short
-  (the loop breaks at S+6). The siding's own bench handed the bed out with `home`/`poi-take` acts:
-  the bed's assignment is open (farmopt's child 58f770cc: the bed reachable only from the cage, the
-  ticket let go after each nap, a give-up when no sleep comes);
+- **without `port home:`** the first rider to find a path takes the bed's one ticket (e14, during
+  the settle, from queue slot 14 ~24 blocks away) and keeps it (panicking riders never run REST's
+  give-up): only e14 sleeps; K1's and K2's carts stay at the bed spot and the loop breaks at S+6;
+- **with `port home: -20 2 12`** (the only change): all 21 riders hold HOME = the bed throughout,
+  no rider takes the ticket, and K0/K1/K2 sleep +211..+225, +190..+209, +200..+223;
 - the exit route takes ~230 gt (0.29 b/t leaving the exit slot, 0.105 at the drop end): past the
-  drop window; it needs <= ~200 gt and 0.10-0.36 b/t at the drop end;
+  drop window; it needs <= ~200 gt and 0.10-0.36 b/t at the drop end (day-1: a booster after the
+  exit and a longer flat run, coming);
 - the 5-booster entry climb brings carts in at 0.84 (front) and ~1.1 b/t (middle), within the
   siding's tested 0.10-1.2.
 
