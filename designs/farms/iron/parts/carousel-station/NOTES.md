@@ -11,10 +11,16 @@ on ironfarm's real carts and lines, 100 seeds x 6 days), `station-storage [--off
 
 | design | blocks | success per slot | storage | build min (middle / late) |
 |---|---|---|---|---|
-| carousel-linear-stand.txt | 300 (pad 178, Nether 122) as the first version, on the single-lane linear stand | 99.28% (static 99.30%, 44 spots per rider) | 18.4 h | 62.1 / 16.6 (v1) |
-| carousel-station-v3.txt | 380 (pad 258, Nether 122) | 99.50% (static 99.30% at the end lanes; paired lanes) | 18.4 h | 68.8 / 19.2 |
-| carousel-station-v2.txt | 332 (pad 210, Nether 122) | 99.31% (static 99.30% worst lanes, shifted stand) | 18.4 h | 64.8 / 17.7 |
-| carousel-station-v1.txt | 300 (pad 178, Nether 122) | 99.06% (static 99.30%) | 18.4 h | 62.1 / 16.6 |
+| carousel-linear-stand.txt | 300 (pad 178, Nether 122) as the first version, on the single-lane linear stand | 99.28% (static 99.30%, 44 spots per rider) | 18.4 h | 62.1 / 16.6 (as the first version) |
+
+Archived in `archive/` (the 7-lane layout, which vjeux turned down on 2026-11-10 at 05:58 for a
+single lane with the batches back to back; kept as evidence, not on the site):
+
+| design | blocks | success per slot | storage | build min (middle / late) |
+|---|---|---|---|---|
+| archive/carousel-station-v3.txt | 380 (pad 258, Nether 122) | 99.50% (static 99.30% at the end lanes; paired lanes) | 18.4 h | 68.8 / 19.2 |
+| archive/carousel-station-v2.txt | 332 (pad 210, Nether 122) | 99.31% (static 99.30% worst lanes, shifted stand) | 18.4 h | 64.8 / 17.7 |
+| archive/carousel-station-v1.txt | 300 (pad 178, Nether 122) | 99.06% (static 99.30%) | 18.4 h | 62.1 / 16.6 |
 
 ## How it works
 
