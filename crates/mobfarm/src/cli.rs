@@ -338,6 +338,10 @@ pub enum MobfarmCmd {
         /// Draw this dump instead of running a design.
         #[arg(long)]
         from_dump: Option<PathBuf>,
+        /// Read this bridge recording (a `.rec` of `mctas mobai record`: the game's own frames)
+        /// instead of running a design; `--tag` coordinates are then the recording's world's.
+        #[arg(long)]
+        recording: Option<PathBuf>,
         #[arg(long, default_value_t = 1)]
         seed: i64,
         #[arg(long, default_value_t = 1)]
@@ -550,7 +554,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("FAIL {f}");
             }
         }
-        MobfarmCmd::Timeline { design, from_dump, seed, days, still, terrain, build, tag, from, to, out } => {
+        MobfarmCmd::Timeline { design, from_dump, recording, seed, days, still, terrain, build, tag, from, to, out } => {
+            if let Some(rec) = recording {
+                let text = mctas::recorded::read_text(&rec)?;
+                let stem = rec.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "recording".into());
+                let tags: Vec<crate::timeline::Tag> = tag.iter().map(|t| crate::timeline::Tag::parse(t)).collect::<Result<_>>()?;
+                let tl = crate::timeline::Timeline::from_recording(&stem, &rec.display().to_string(), &text, &tags)?;
+                let to = to.unwrap_or(tl.ticks).min(tl.ticks);
+                let (html, txt) = crate::timeline::write(&tl, &out, &stem, from.min(to), to)?;
+                println!("{}", tl.summary(from.min(to), to));
+                println!("{} ({} KB)", html.display(), std::fs::metadata(&html)?.len() / 1024);
+                println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
+                return Ok(());
+            }
             if let Some(dump) = from_dump {
                 let text = std::fs::read_to_string(&dump)?;
                 let stem = dump.file_stem().map(|s| s.to_string_lossy().trim_end_matches(".timeline").to_string()).unwrap_or_else(|| "dump".into());

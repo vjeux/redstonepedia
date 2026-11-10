@@ -121,6 +121,32 @@ struct VLane {
     over1200: Option<u32>,
 }
 
+impl VLane {
+    fn new(id: u32, label: String, first_cart: String) -> VLane {
+        VLane {
+            id,
+            label,
+            first_cart,
+            class: Ch::default(),
+            act: Ch::default(),
+            panic: Ch::default(),
+            sleep: Ch::default(),
+            lock: Ch::default(),
+            willing: Ch::default(),
+            cart: Ch::default(),
+            home: Ch::default(),
+            slept: Ch::default(),
+            cant: Ch::default(),
+            pos: Vec::new(),
+            alive: true,
+            prev: None,
+            prev_ttl: None,
+            over16: None,
+            over1200: None,
+        }
+    }
+}
+
 /// A farm cart's lane.
 struct CLane {
     id: u32,
@@ -228,6 +254,8 @@ pub struct Timeline {
     marks: Vec<MLane>,
     /// The dump it was read from (`--from-dump`), none for a run.
     source: Option<String>,
+    /// The bridge recording it was read from (`--recording`), none for a run.
+    recording: Option<String>,
 }
 
 /// A check resolved once the run is over.
@@ -269,6 +297,35 @@ fn dist_center(b: BlockPos, p: Vec3) -> f64 {
 }
 
 /// What a villager is: its brain's readings.
+/// One tick's state, whatever its source: a redsim run's world after the tick
+/// ([`Timeline::sample`]) or a bridge recording's frame ([`Timeline::from_recording`]); both go
+/// through the same lanes and checks ([`Timeline::ingest`]).
+struct Snap {
+    /// Game time.
+    t: i64,
+    /// Each villager lane's reading (none: gone).
+    villagers: Vec<Option<Read>>,
+    /// Each cart lane's position and rider (an entity id).
+    carts: Vec<Option<(Vec3, Option<u32>)>>,
+    /// The iron golems' positions and boxes by entity id (a golem removed this tick included).
+    ents: HashMap<u32, (Vec3, Aabb)>,
+    /// The block state of the cells the checks read: the beds, the tagged blocks, the homes.
+    block: HashMap<BlockPos, String>,
+    events: Vec<Ev>,
+}
+
+/// What happened in a tick (a run's mob events; a recording's, read off its frames).
+enum Ev {
+    /// A summon's tries (`spawnGolemIfNeeded`): its villager, the willing it counted, its golem.
+    Try { villager: u32, willing: u32, golem: Option<u32>, at: Option<[i32; 3]> },
+    /// A golem sensor's sighting (GOLEM_DETECTED_RECENTLY set by a scan).
+    Seen { villager: u32 },
+    Slept { id: u32 },
+    Death { id: u32, how: String, pos: [f64; 3] },
+    Removed { id: u32, pos: Option<Vec3> },
+    Released { id: u32 },
+}
+
 struct Read {
     pos: Vec3,
     bb: Aabb,
@@ -284,6 +341,53 @@ struct Read {
     follow: f64,
     /// The iron golems in its nearest-living list (what its GolemSensor reads).
     golems_listed: Vec<u32>,
+}
+
+/// A recording's entity reference (`#3`).
+fn ent_ref(s: &str) -> Option<u32> {
+    s.strip_prefix('#')?.parse().ok()
+}
+
+fn pos3(v: &serde_json::Value) -> Option<Vec3> {
+    let a = v.as_array()?;
+    Some(Vec3::new(a.first()?.as_f64()?, a.get(1)?.as_f64()?, a.get(2)?.as_f64()?))
+}
+
+/// A recording's block change's cell (`[x, y, z, state]`).
+fn block_cell(b: &serde_json::Value) -> Option<BlockPos> {
+    Some(BlockPos::new(b.get(0)?.as_i64()? as i32, b.get(1)?.as_i64()? as i32, b.get(2)?.as_i64()? as i32))
+}
+
+/// A recording's villager (one frame's entity) as a reading: its memories as the game wrote them
+/// (`golem_detected_recently: "true ttl 598"`, `home: "28 64 20"`, `last_slept: "1009"`,
+/// `cant_reach_walk_target_since`, `mobs: "[#3 #1 #2]"`), its running behaviors (the panic
+/// trigger), pose, vehicle and activities; its follow range the attribute's base (16).
+fn read_frame_villager(e: &serde_json::Value, t: i64, golems: &[u32]) -> Option<Read> {
+    let pos = pos3(&e["pos"])?;
+    let mem = &e["memories"];
+    let ms = |k: &str| mem[k].as_str();
+    let int = |k: &str| ms(k).and_then(|s| s.trim().parse::<i64>().ok());
+    let ttl = ms("golem_detected_recently").and_then(|s| s.rsplit(' ').next()?.parse::<i64>().ok());
+    let slept = int("last_slept");
+    let home = ms("home").and_then(|s| {
+        let v: Vec<i32> = s.split_whitespace().filter_map(|w| w.parse().ok()).collect();
+        (v.len() == 3).then(|| BlockPos::new(v[0], v[1], v[2]))
+    });
+    Some(Read {
+        pos,
+        bb: Aabb::new(pos.x - 0.3, pos.y, pos.z - 0.3, pos.x + 0.3, pos.y + 1.95, pos.z + 0.3),
+        vehicle: e["vehicle"].as_str().and_then(ent_ref),
+        sleeping: e["pose"].as_str() == Some("sleeping"),
+        act: e["activities"].as_str().unwrap_or("").split_whitespace().filter(|a| *a != "core").last().unwrap_or("core").to_string(),
+        panic: e["behaviors"].as_str().is_some_and(|b| b.split_whitespace().any(|x| x == "VillagerPanicTrigger")),
+        ttl,
+        willing: slept.is_some_and(|s| t - s < 24000) && ttl.is_none(),
+        home,
+        slept,
+        cant: int("cant_reach_walk_target_since"),
+        follow: 16.0,
+        golems_listed: ms("mobs").map(|s| s.trim_matches(|c| c == '[' || c == ']').split_whitespace().filter_map(ent_ref).filter(|id| golems.contains(id)).collect()).unwrap_or_default(),
+    })
 }
 
 fn read_villager(w: &World, i: usize) -> Option<Read> {
@@ -320,77 +424,77 @@ fn read_villager(w: &World, i: usize) -> Option<Read> {
 /// for `ticks` ticks after the arrival, sampling every tick.
 pub fn record(title: &str, spec: &FarmSpec, o: &RunOpts, offset: [i32; 3], tags: &[Tag], ticks: u32) -> Result<Timeline> {
     let mut r = Run::new(spec, o).map_err(|e| anyhow!(e))?;
-    let w = &r.world;
-    let t0 = w.time;
-    let day0 = w.day_time();
-    let own = r.own.clone();
-    let mut villagers: Vec<VLane> = Vec::new();
-    let mut carts: Vec<CLane> = Vec::new();
-    // the carts first (their riders' labels follow them), in the design's order
-    for e in w.entities.list.iter().filter(|e| own.contains(&e.id)) {
-        if matches!(e.kind, EntityKind::Minecart(_)) {
-            carts.push(CLane { id: e.id, label: format!("C{}", carts.len() + 1), rider: Ch::default(), pos: Vec::new(), prev: None, moving: None });
-        }
-    }
-    let cart_label = |carts: &[CLane], id: Option<u32>| -> String { id.and_then(|v| carts.iter().find(|c| c.id == v)).map(|c| c.label.clone()).unwrap_or_default() };
-    for e in w.entities.list.iter().filter(|e| own.contains(&e.id)) {
-        if matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Villager) {
-            let first_cart = cart_label(&carts, e.vehicle);
-            villagers.push(VLane {
-                id: e.id,
-                label: format!("V{}", villagers.len() + 1),
-                first_cart,
-                class: Ch::default(),
-                act: Ch::default(),
-                panic: Ch::default(),
-                sleep: Ch::default(),
-                lock: Ch::default(),
-                willing: Ch::default(),
-                cart: Ch::default(),
-                home: Ch::default(),
-                slept: Ch::default(),
-                cant: Ch::default(),
-                pos: Vec::new(),
-                alive: true,
-                prev: None,
-                prev_ttl: None,
-                over16: None,
-                over1200: None,
-            });
-        }
-    }
-    // (a design with no villager still shows its carts, beds, tagged blocks and golems: a part's
-    // bench, the counter's)
-    // the beds: every bed head of the design, in its order
-    let mut beds: Vec<BLane> = Vec::new();
-    for (p, b) in &spec.blocks {
-        let s = b.to_string();
-        if s.contains("_bed[") && s.contains("part=head") {
-            beds.push(BLane { head: *p, label: format!("B{} {}", beds.len() + 1, cell(*p, offset)), occ: Ch::default(), by: Ch::default(), nap: None });
-        }
-    }
-    let at = |p: [i32; 3]| BlockPos::new(p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]);
-    let signals: Vec<SLane> = tags.iter().filter_map(|t| if let Tag::Signal { name, at: p } = t { Some(SLane { name: name.clone(), at: Some(at(*p)), val: Ch::default(), full: Ch::default() }) } else { None }).collect();
-    let regions: Vec<(String, [i32; 3], [i32; 3])> = tags
-        .iter()
-        .filter_map(|t| if let Tag::Region { name, lo, hi } = t { Some((name.clone(), std::array::from_fn(|k| lo[k] + offset[k]), std::array::from_fn(|k| hi[k] + offset[k]))) } else { None })
-        .collect();
-    let nv = villagers.len();
-    // (the first dawn closes a whole night only when the run began before that night's dusk)
-    let whole_night = day0.rem_euclid(24000) < 12000;
-    let mut tl = Timeline { title: title.to_string(), seed: o.seed, t0, day0, ticks, offset, regions, villagers, carts, beds, signals, golems: Vec::new(), slots: Vec::new(), flags: Vec::new(), lines: Vec::new(), pending: Vec::new(), counts: Vec::new(), exposed: HashMap::new(), night_sleeps: vec![0; nv], whole_night, marks: Vec::new(), source: None };
-    tl.sample(&r.world, 0, Vec::new());
+    let mut tl = Timeline::start(title, spec, &r, o.seed, offset, tags, ticks)?;
     for k in 1..=ticks {
         r.tick();
-        let events = std::mem::take(&mut r.world.mob.events);
-        r.world.weather.events.clear();
-        if let Some(e) = r.world.errors.first() {
-            bail!("gt {}: the world went wrong: {e}", r.world.time);
-        }
-        tl.sample(&r.world, k, events);
+        tl.step(&mut r.world, k)?;
     }
     tl.finish();
     Ok(tl)
+}
+
+impl Timeline {
+    /// A timeline on a run the caller drives (a part bench whose driver does more than `mobfarm
+    /// run`: ironfarm's hold bench toggling its lanes' control blocks on the slot grid): `run` just
+    /// built (`Run::new`), sampled now as tick 0; call [`Timeline::step`] after each of its ticks
+    /// and [`Timeline::finish`] at the end, then [`write`]. `spec`: the run's (its beds), `offset`:
+    /// design to world, `ticks`: how many the caller will run.
+    pub fn start(title: &str, spec: &FarmSpec, run: &Run, seed: i64, offset: [i32; 3], tags: &[Tag], ticks: u32) -> Result<Timeline> {
+        let w = &run.world;
+        let t0 = w.time;
+        let day0 = w.day_time();
+        let own = run.own.clone();
+        let mut villagers: Vec<VLane> = Vec::new();
+        let mut carts: Vec<CLane> = Vec::new();
+        // the carts first (their riders' labels follow them), in the design's order
+        for e in w.entities.list.iter().filter(|e| own.contains(&e.id)) {
+            if matches!(e.kind, EntityKind::Minecart(_)) {
+                carts.push(CLane { id: e.id, label: format!("C{}", carts.len() + 1), rider: Ch::default(), pos: Vec::new(), prev: None, moving: None });
+            }
+        }
+        let cart_label = |carts: &[CLane], id: Option<u32>| -> String { id.and_then(|v| carts.iter().find(|c| c.id == v)).map(|c| c.label.clone()).unwrap_or_default() };
+        for e in w.entities.list.iter().filter(|e| own.contains(&e.id)) {
+            if matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::Villager) {
+                let first_cart = cart_label(&carts, e.vehicle);
+                let label = format!("V{}", villagers.len() + 1);
+                villagers.push(VLane::new(e.id, label, first_cart));
+            }
+        }
+        // (a design with no villager still shows its carts, beds, tagged blocks and golems: a
+        // part's bench, the counter's)
+        // the beds: every bed head of the design, in its order
+        let mut beds: Vec<BLane> = Vec::new();
+        for (p, b) in &spec.blocks {
+            let s = b.to_string();
+            if s.contains("_bed[") && s.contains("part=head") {
+                beds.push(BLane { head: *p, label: format!("B{} {}", beds.len() + 1, cell(*p, offset)), occ: Ch::default(), by: Ch::default(), nap: None });
+            }
+        }
+        let at = |p: [i32; 3]| BlockPos::new(p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]);
+        let signals: Vec<SLane> = tags.iter().filter_map(|t| if let Tag::Signal { name, at: p } = t { Some(SLane { name: name.clone(), at: Some(at(*p)), val: Ch::default(), full: Ch::default() }) } else { None }).collect();
+        let regions: Vec<(String, [i32; 3], [i32; 3])> = tags
+            .iter()
+            .filter_map(|t| if let Tag::Region { name, lo, hi } = t { Some((name.clone(), std::array::from_fn(|k| lo[k] + offset[k]), std::array::from_fn(|k| hi[k] + offset[k]))) } else { None })
+            .collect();
+        let nv = villagers.len();
+        // (the first dawn closes a whole night only when the run began before that night's dusk)
+        let whole_night = day0.rem_euclid(24000) < 12000;
+        let mut tl = Timeline { title: title.to_string(), seed, t0, day0, ticks, offset, regions, villagers, carts, beds, signals, golems: Vec::new(), slots: Vec::new(), flags: Vec::new(), lines: Vec::new(), pending: Vec::new(), counts: Vec::new(), exposed: HashMap::new(), night_sleeps: vec![0; nv], whole_night, marks: Vec::new(), source: None, recording: None };
+        tl.sample(w, 0, Vec::new());
+        Ok(tl)
+    }
+
+    /// The tick `k` the caller just ran on its run's world: its mob events drained (and the
+    /// weather's, which the timeline does not read) and the world sampled.
+    pub fn step(&mut self, w: &mut World, k: u32) -> Result<()> {
+        let events = std::mem::take(&mut w.mob.events);
+        w.weather.events.clear();
+        if let Some(e) = w.errors.first() {
+            bail!("gt {}: the world went wrong: {e}", w.time);
+        }
+        self.sample(w, k, events);
+        Ok(())
+    }
 }
 
 impl Timeline {
@@ -423,6 +527,7 @@ impl Timeline {
             whole_night: false,
             marks: Vec::new(),
             source: Some(path.to_string()),
+            recording: None,
         };
         let mut t0: Option<i64> = None;
         let mut last = 0u32;
@@ -480,6 +585,176 @@ impl Timeline {
         Ok(tl)
     }
 
+    /// A timeline read from a bridge recording (`--recording`: a `.rec` of `mctas mobai record`,
+    /// the official server's own frames, one a tick): its villagers (pose, vehicle, activities,
+    /// running behaviors, memories), minecarts and iron golems and its block changes go through
+    /// the same lanes and checks as a run. What the frames do not carry is inferred and said so:
+    /// a golem's summoner (the panicking villager nearest its spawn, else the nearest) and the
+    /// willing it counted (those in that one's 10-box that wanted a golem the tick before), tries
+    /// that found no spot (never shown), a villager's follow range (16, the attribute's base: the
+    /// spawn bonus is not recorded), a sensor lock (a fresh GOLEM_DETECTED_RECENTLY in a tick with
+    /// no spawn). `tags`: regions and signals in the recording's world coordinates.
+    pub fn from_recording(title: &str, path: &str, text: &str, tags: &[Tag]) -> Result<Timeline> {
+        use serde_json::Value;
+        let n_of = |e: &Value| e["n"].as_u64().unwrap_or(u64::MAX) as u32;
+        let mut lines = text.lines();
+        let header: Value = serde_json::from_str(lines.next().unwrap_or("")).map_err(|e| anyhow!("{path}: its header: {e}"))?;
+        let frames: Vec<Value> = lines.filter(|l| !l.trim().is_empty()).map(serde_json::from_str).collect::<std::result::Result<_, _>>().map_err(|e| anyhow!("{path}: a frame: {e}"))?;
+        let first = frames.first().ok_or_else(|| anyhow!("{path}: no frame"))?;
+        let t0 = first["t"].as_i64().ok_or_else(|| anyhow!("{path}: a frame without t"))?;
+        let day0 = first["day"].as_i64().unwrap_or(t0);
+        let last_t = frames.last().and_then(|f| f["t"].as_i64()).unwrap_or(t0);
+        let ents_of = |f: &Value| -> Vec<Value> { f["entities"].as_array().cloned().unwrap_or_default() };
+        // the lanes: every villager and minecart of any frame, by entity number
+        let (mut vids, mut cids): (Vec<u32>, Vec<u32>) = (Vec::new(), Vec::new());
+        for f in &frames {
+            for e in f["entities"].as_array().into_iter().flatten() {
+                let n = n_of(e);
+                match e["type"].as_str().unwrap_or("") {
+                    "villager" if !vids.contains(&n) => vids.push(n),
+                    "minecart" if !cids.contains(&n) => cids.push(n),
+                    _ => {}
+                }
+            }
+        }
+        vids.sort_unstable();
+        cids.sort_unstable();
+        let carts: Vec<CLane> = cids.iter().enumerate().map(|(i, &id)| CLane { id, label: format!("C{}", i + 1), rider: Ch::default(), pos: Vec::new(), prev: None, moving: None }).collect();
+        let first_vehicle = |id: u32| frames.iter().find_map(|f| f["entities"].as_array()?.iter().find(|e| n_of(e) == id).map(|e| e["vehicle"].as_str().and_then(ent_ref)));
+        let villagers: Vec<VLane> = vids
+            .iter()
+            .enumerate()
+            .map(|(i, &id)| {
+                let cart = first_vehicle(id).flatten().and_then(|v| carts.iter().find(|c| c.id == v)).map(|c| c.label.clone()).unwrap_or_default();
+                VLane::new(id, format!("V{}", i + 1), cart)
+            })
+            .collect();
+        // the beds: every bed head the frames' block changes show
+        let mut heads: Vec<BlockPos> = Vec::new();
+        for f in &frames {
+            for b in f["blocks"].as_array().into_iter().flatten() {
+                if let (Some(p), Some(s)) = (block_cell(b), b.get(3).and_then(|s| s.as_str()))
+                    && s.contains("_bed[")
+                    && s.contains("part=head")
+                    && !heads.contains(&p)
+                {
+                    heads.push(p);
+                }
+            }
+        }
+        let beds: Vec<BLane> = heads.iter().enumerate().map(|(i, &p)| BLane { head: p, label: format!("B{} {}", i + 1, cell(p, [0, 0, 0])), occ: Ch::default(), by: Ch::default(), nap: None }).collect();
+        let signals: Vec<SLane> = tags.iter().filter_map(|t| if let Tag::Signal { name, at } = t { Some(SLane { name: name.clone(), at: Some(BlockPos::new(at[0], at[1], at[2])), val: Ch::default(), full: Ch::default() }) } else { None }).collect();
+        let regions: Vec<(String, [i32; 3], [i32; 3])> = tags.iter().filter_map(|t| if let Tag::Region { name, lo, hi } = t { Some((name.clone(), *lo, *hi)) } else { None }).collect();
+        let nv = villagers.len();
+        let mut tl = Timeline {
+            title: title.to_string(),
+            seed: header["seed"].as_i64().unwrap_or(0),
+            t0,
+            day0,
+            ticks: (last_t - t0).max(0) as u32,
+            offset: [0, 0, 0],
+            regions,
+            villagers,
+            carts,
+            beds,
+            signals,
+            golems: Vec::new(),
+            slots: Vec::new(),
+            flags: Vec::new(),
+            lines: Vec::new(),
+            pending: Vec::new(),
+            counts: Vec::new(),
+            exposed: HashMap::new(),
+            night_sleeps: vec![0; nv],
+            whole_night: day0.rem_euclid(24000) < 12000,
+            marks: Vec::new(),
+            source: None,
+            recording: Some(path.to_string()),
+        };
+        let mut blocks: HashMap<BlockPos, String> = HashMap::new();
+        let mut golem_at: Vec<(u32, Vec3)> = Vec::new();
+        let mut known: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        let mut dead: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        // each villager's last frame: (its lock's time to live, asleep, a HOME, wanting a golem)
+        let mut prev: HashMap<u32, (Option<i64>, bool, bool, bool)> = HashMap::new();
+        for f in &frames {
+            let t = f["t"].as_i64().unwrap_or(t0);
+            let k = (t - t0).max(0) as u32;
+            for b in f["blocks"].as_array().into_iter().flatten() {
+                if let (Some(p), Some(s)) = (block_cell(b), b.get(3).and_then(|s| s.as_str())) {
+                    blocks.insert(p, s.to_string());
+                }
+            }
+            let list = ents_of(f);
+            let mut golems: Vec<(u32, Vec3, &Value)> = list.iter().filter(|e| e["type"].as_str() == Some("iron_golem")).filter_map(|e| Some((n_of(e), pos3(&e["pos"])?, e))).collect();
+            golems.sort_by_key(|g| g.0);
+            let golem_ids: Vec<u32> = golems.iter().map(|g| g.0).collect();
+            let ents: HashMap<u32, (Vec3, Aabb)> = golems.iter().map(|&(n, p, _)| (n, (p, Aabb::new(p.x - 0.7, p.y, p.z - 0.7, p.x + 0.7, p.y + 2.7, p.z + 0.7)))).collect();
+            let by_n: HashMap<u32, &Value> = list.iter().map(|e| (n_of(e), e)).collect();
+            let reads: Vec<Option<Read>> = tl.villagers.iter().map(|v| by_n.get(&v.id).and_then(|e| read_frame_villager(e, t, &golem_ids))).collect();
+            let riders: Vec<Option<(Vec3, Option<u32>)>> = tl
+                .carts
+                .iter()
+                .map(|c| by_n.get(&c.id).and_then(|e| pos3(&e["pos"])).map(|p| (p, tl.villagers.iter().zip(&reads).find(|(_, r)| r.as_ref().is_some_and(|r| r.vehicle == Some(c.id))).map(|(v, _)| v.id))))
+                .collect();
+            let mut events: Vec<Ev> = Vec::new();
+            // a golem new in this frame: summoned. Its summoner: golemDetected locked its whole box
+            // at once (time to live 599), and the villagers that brain-tick after the summoner in
+            // that tick count down once more (598): the summoner is the last, in tick order (the
+            // entity number), of the panicking villagers reading 599; else the panicking villager
+            // nearest the golem
+            let mut spawned = false;
+            for &(n, p, _) in &golems {
+                if !known.insert(n) {
+                    continue;
+                }
+                spawned = true;
+                let by_ttl = tl.villagers.iter().zip(&reads).filter_map(|(v, r)| r.as_ref().filter(|r| r.panic && r.ttl == Some(599)).map(|r| (v.id, 0.0, r.bb))).max_by_key(|x| x.0);
+                let near = |panicking: bool| tl.villagers.iter().zip(&reads).filter_map(|(v, r)| r.as_ref().filter(|r| r.panic || !panicking).map(|r| (v.id, r.pos.distance_to_sqr(p), r.bb))).min_by(|a, b| a.1.total_cmp(&b.1));
+                let Some((sid, _, sbb)) = by_ttl.or_else(|| near(true)).or_else(|| near(false)) else { continue };
+                let bx = sbb.inflate(10.0, 10.0, 10.0);
+                let willing = tl.villagers.iter().zip(&reads).filter(|(v, r)| r.as_ref().is_some_and(|r| r.bb.intersects(bx)) && prev.get(&v.id).is_some_and(|w| w.3)).count().min(5) as u32;
+                events.push(Ev::Try { villager: sid, willing, golem: Some(n), at: Some([p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32]) });
+            }
+            // a golem's death (its health at 0), a golem of the last frame missing from this one
+            for &(n, p, e) in &golems {
+                let gone = e["health"].as_str().and_then(|h| h.parse::<f64>().ok()).is_some_and(|h| h <= 0.0) || e["death_time"].as_i64().is_some_and(|d| d > 0);
+                if gone && dead.insert(n) {
+                    events.push(Ev::Death { id: n, how: "died".to_string(), pos: [p.x, p.y, p.z] });
+                }
+            }
+            for &(n, p) in &golem_at {
+                if !ents.contains_key(&n) {
+                    events.push(Ev::Removed { id: n, pos: Some(p) });
+                }
+            }
+            golem_at = golems.iter().map(|&(n, p, _)| (n, p)).collect();
+            // the villagers' memories against the tick before: a sleep begun, a sensor's lock (a
+            // fresh GOLEM_DETECTED_RECENTLY in a tick without a spawn), a HOME gone
+            for (v, r) in tl.villagers.iter().zip(&reads) {
+                let (Some(r), Some(was)) = (r, prev.get(&v.id)) else { continue };
+                if r.sleeping && !was.1 {
+                    events.push(Ev::Slept { id: v.id });
+                }
+                if let Some(ttl) = r.ttl
+                    && !spawned
+                    && was.0.is_none_or(|p| ttl > p - 1)
+                {
+                    events.push(Ev::Seen { villager: v.id });
+                }
+                if r.home.is_none() && was.2 {
+                    events.push(Ev::Released { id: v.id });
+                }
+            }
+            prev = tl.villagers.iter().zip(&reads).filter_map(|(v, r)| r.as_ref().map(|r| (v.id, (r.ttl, r.sleeping, r.home.is_some(), r.willing)))).collect();
+            let cells: Vec<BlockPos> = tl.beds.iter().map(|b| b.head).chain(tl.signals.iter().filter_map(|s| s.at)).chain(reads.iter().flatten().filter_map(|r| r.home)).collect();
+            let block: HashMap<BlockPos, String> = cells.into_iter().filter_map(|p| blocks.get(&p).map(|s| (p, s.clone()))).collect();
+            tl.ingest(k, Snap { t, villagers: reads, carts: riders, ents, block, events });
+        }
+        tl.finish();
+        Ok(tl)
+    }
+
     fn stamp(&self, k: u32) -> String {
         let gt = self.t0 + k as i64;
         let dt = self.day0 + k as i64;
@@ -514,16 +789,43 @@ impl Timeline {
         self.regions.iter().any(|(n, _, _)| n.starts_with("station"))
     }
 
+    /// Sample a redsim run's world after tick `k` (its mob events of the tick drained).
     fn sample(&mut self, w: &World, k: u32, events: Vec<MobEvent>) {
-        let t = w.time;
-        let off = self.offset;
         let index: HashMap<u32, usize> = w.entities.list.iter().enumerate().filter(|(_, e)| !e.removed).map(|(i, e)| (e.id, i)).collect();
+        let villagers: Vec<Option<Read>> = self.villagers.iter().map(|v| index.get(&v.id).and_then(|&i| read_villager(w, i))).collect();
+        let carts = self.carts.iter().map(|c| index.get(&c.id).map(|&i| (w.entities.list[i].pos, w.entities.list[i].passengers.first().copied()))).collect();
+        // (a golem a portal removed this tick is still in the list until the tick's end)
+        let ents = w.entities.list.iter().filter(|e| matches!(&e.kind, EntityKind::Mob(m) if m.ty == MobType::IronGolem)).map(|e| (e.id, (e.pos, e.bb))).collect();
+        let mut block: HashMap<BlockPos, String> = HashMap::new();
+        let cells: Vec<BlockPos> = self.beds.iter().map(|b| b.head).chain(self.signals.iter().filter_map(|s| s.at)).chain(villagers.iter().flatten().filter_map(|r| r.home)).collect();
+        for p in cells {
+            block.entry(p).or_insert_with(|| w.get(p).to_string());
+        }
+        let events = events
+            .into_iter()
+            .filter_map(|ev| match ev {
+                MobEvent::GolemTry { villager, willing, golem, at, .. } => Some(Ev::Try { villager, willing, golem, at }),
+                MobEvent::GolemSeen { villager, .. } => Some(Ev::Seen { villager }),
+                MobEvent::Slept { id, .. } => Some(Ev::Slept { id }),
+                MobEvent::Death { id, src, pos, .. } => Some(Ev::Death { id, how: format!("{src:?}").to_lowercase(), pos }),
+                MobEvent::Removed { id, .. } => Some(Ev::Removed { id, pos: w.entities.list.iter().find(|e| e.id == id).map(|e| e.pos) }),
+                MobEvent::Released { id, .. } => Some(Ev::Released { id }),
+                _ => None,
+            })
+            .collect();
+        self.ingest(k, Snap { t: w.time, villagers, carts, ents, block, events });
+    }
+
+    /// One tick's state through the lanes and the checks.
+    fn ingest(&mut self, k: u32, snap: Snap) {
+        let Snap { t, villagers: reads_in, carts: cart_reads, ents, block, events } = snap;
+        let off = self.offset;
         // the events: attempts, golems, sensor locks, releases
         let mut tries: HashMap<u32, (u32, Option<u32>, Option<[i32; 3]>)> = HashMap::new();
         let mut seen: Vec<u32> = Vec::new();
         for ev in &events {
             match ev {
-                MobEvent::GolemTry { villager, willing, golem, at, .. } => {
+                Ev::Try { villager, willing, golem, at } => {
                     tries.insert(*villager, (*willing, *golem, *at));
                     if golem.is_none() {
                         self.counts.push((k, "fail"));
@@ -536,30 +838,28 @@ impl Timeline {
                         self.golems.push(Golem { id: *g, label, t: k, by, at: p, died: None, gone: None, batch: Vec::new() });
                     }
                 }
-                MobEvent::GolemSeen { villager, .. } => {
+                Ev::Seen { villager } => {
                     self.counts.push((k, "sight"));
                     seen.push(*villager);
                 }
-                MobEvent::Slept { id, .. } => {
+                Ev::Slept { id } => {
                     self.counts.push((k, "sleep"));
                     if let Some(vi) = self.villagers.iter().position(|v| v.id == *id) {
                         self.night_sleeps[vi] += 1;
                     }
                 }
-                MobEvent::Death { id, src, pos, .. } => {
+                Ev::Death { id, how, pos } => {
                     if let Some(gi) = self.golems.iter().position(|g| g.id == *id && g.died.is_none()) {
-                        let how = format!("{src:?}").to_lowercase();
+                        let how = how.clone();
                         let label = self.golems[gi].label.clone();
                         self.golems[gi].died = Some((k, how.clone()));
                         self.line(k, format!("golem {label} died ({how}) at {:.2},{:.2},{:.2}", pos[0] - off[0] as f64, pos[1] - off[1] as f64, pos[2] - off[2] as f64));
                     }
                 }
-                MobEvent::Removed { id, .. } => {
+                Ev::Removed { id, pos } => {
                     if let Some(gi) = self.golems.iter().position(|g| g.id == *id && g.gone.is_none()) {
-                        // (removed this tick: its last position is the previous tick's; a portal's
-                        // removal keeps it in the list until the end of the tick)
-                        let p = index.get(id).map(|&i| w.entities.list[i].pos).or_else(|| w.entities.list.iter().find(|e| e.id == *id).map(|e| e.pos));
-                        let p = p.map(|p| [p.x - off[0] as f64, p.y - off[1] as f64, p.z - off[2] as f64]).unwrap_or([f64::NAN; 3]);
+                        // (removed this tick: its last position)
+                        let p = pos.map(|p| [p.x - off[0] as f64, p.y - off[1] as f64, p.z - off[2] as f64]).unwrap_or([f64::NAN; 3]);
                         let g = &mut self.golems[gi];
                         g.gone = Some((k, p));
                         let (label, how) = (g.label.clone(), if g.died.is_some() { "removed (dead)" } else { "left the world without dying (a portal)" });
@@ -567,25 +867,21 @@ impl Timeline {
                         self.line(k, format!("golem {label} {how} at {:.2},{:.2},{:.2}, {life} gt after its spawn", p[0], p[1], p[2]));
                     }
                 }
-                MobEvent::Released { id, .. } => {
+                Ev::Released { id } => {
                     self.counts.push((k, "release"));
                     let l = self.villager_label(*id);
                     self.line(k, format!("{l} released a POI (Villager.releasePoi)"));
                 }
-                _ => {}
             }
         }
         // the villagers
-        let mut reads: Vec<Option<Read>> = Vec::new();
+        let reads: Vec<Option<Read>> = reads_in;
         for vi in 0..self.villagers.len() {
-            let id = self.villagers[vi].id;
-            let rd = index.get(&id).and_then(|&i| read_villager(w, i));
-            if rd.is_none() && self.villagers[vi].alive {
+            if reads[vi].is_none() && self.villagers[vi].alive {
                 self.villagers[vi].alive = false;
                 let l = self.villagers[vi].label.clone();
                 self.line(k, format!("{l} is gone (died, converted or removed)"));
             }
-            reads.push(rd);
         }
         let cart_labels: HashMap<u32, String> = self.carts.iter().map(|c| (c.id, c.label.clone())).collect();
         for vi in 0..self.villagers.len() {
@@ -664,44 +960,43 @@ impl Timeline {
         }
         // the carts
         for ci in 0..self.carts.len() {
-            let id = self.carts[ci].id;
-            let Some(&i) = index.get(&id) else { continue };
-            let e = &w.entities.list[i];
-            let rider = e.passengers.first().map(|p| self.villager_label(*p)).unwrap_or_default();
+            let Some((epos, rider_id)) = cart_reads[ci] else { continue };
+            let rider = rider_id.map(|p| self.villager_label(p)).unwrap_or_default();
             let c = &mut self.carts[ci];
             let mut said: Vec<String> = Vec::new();
             if c.rider.set(k, rider.clone()) {
                 said.push(format!("rider={}", if rider.is_empty() { "-" } else { &rider }));
             }
-            let step = c.prev.map(|p| (e.pos.x - p.x).hypot(e.pos.z - p.z)).unwrap_or(0.0);
-            let q = [(e.pos.x * 100.0).round() as i32, (e.pos.y * 100.0).round() as i32, (e.pos.z * 100.0).round() as i32];
+            let step = c.prev.map(|p| (epos.x - p.x).hypot(epos.z - p.z)).unwrap_or(0.0);
+            let q = [(epos.x * 100.0).round() as i32, (epos.y * 100.0).round() as i32, (epos.z * 100.0).round() as i32];
             if c.pos.last().is_none_or(|(_, p)| *p != q) {
                 c.pos.push((k, q));
             }
             match c.moving {
                 None if step >= 0.005 => {
-                    let from = c.prev.unwrap_or(e.pos);
+                    let from = c.prev.unwrap_or(epos);
                     c.moving = Some((k, from, step));
                     said.push(format!("departs from {}", fmt_pos(from, off)));
                 }
                 Some((k0, from, top)) if step < 0.005 => {
                     c.moving = None;
-                    let d = (e.pos.x - from.x).hypot(e.pos.z - from.z);
-                    said.push(format!("stops at {} ({} gt, {:.2} blocks from its start, top speed {:.3})", fmt_pos(e.pos, off), k - k0, d, top));
+                    let d = (epos.x - from.x).hypot(epos.z - from.z);
+                    said.push(format!("stops at {} ({} gt, {:.2} blocks from its start, top speed {:.3})", fmt_pos(epos, off), k - k0, d, top));
                 }
                 Some((k0, from, top)) => c.moving = Some((k0, from, top.max(step))),
                 None => {}
             }
-            c.prev = Some(e.pos);
+            c.prev = Some(epos);
             if !said.is_empty() {
                 let l = c.label.clone();
                 self.line(k, format!("{l} {}", said.join(", ")));
             }
         }
+        let occupied = |h: BlockPos| block.get(&h).is_some_and(|s| s.contains("occupied=true"));
         // the beds, and the naps' claimants (the 16 rule's distances)
         for bi in 0..self.beds.len() {
             let head = self.beds[bi].head;
-            let occ = w.get(head).to_string().contains("occupied=true");
+            let occ = occupied(head);
             let sleeper = reads.iter().zip(&self.villagers).find(|(r, _)| r.as_ref().is_some_and(|r| r.sleeping && r.pos.distance_to_sqr(Vec3::new(head.x as f64 + 0.5, r.pos.y, head.z as f64 + 0.5)) < 1.0)).map(|(_, v)| v.label.clone()).unwrap_or_default();
             let homes: Vec<(String, f64)> = reads.iter().zip(&self.villagers).filter_map(|(r, v)| r.as_ref().filter(|r| r.home == Some(head) && !r.sleeping).map(|r| (v.label.clone(), dist_center(head, r.pos)))).collect();
             let b = &mut self.beds[bi];
@@ -736,7 +1031,7 @@ impl Timeline {
         // the tagged blocks
         for si in 0..self.signals.len() {
             let Some(at) = self.signals[si].at else { continue };
-            let s = w.get(at).to_string();
+            let Some(s) = block.get(&at).cloned() else { continue };
             if self.signals[si].full.set(k, s.clone()) {
                 let v = signal_value(&s);
                 self.signals[si].val.set(k, v.clone());
@@ -745,7 +1040,6 @@ impl Timeline {
             }
         }
         // the 16 rule and CANT_REACH over 1200, villager by villager
-        let occupied = |h: BlockPos| w.get(h).to_string().contains("occupied=true");
         for vi in 0..self.villagers.len() {
             let Some(rd) = &reads[vi] else { continue };
             let label = self.villagers[vi].label.clone();
@@ -799,8 +1093,8 @@ impl Timeline {
                 .iter()
                 .map(|gid| {
                     let label = self.golems.iter().find(|g| g.id == *gid).map(|g| g.label.clone()).unwrap_or_else(|| format!("golem {gid}"));
-                    match index.get(gid).map(|&i| &w.entities.list[i]) {
-                        Some(e) => format!("{label} at {} (dy {:+.1})", fmt_pos(e.pos, off), e.pos.y - rd.pos.y),
+                    match ents.get(gid) {
+                        Some((p, _)) => format!("{label} at {} (dy {:+.1})", fmt_pos(*p, off), p.y - rd.pos.y),
                         None => format!("{label} (gone since the list's scan)"),
                     }
                 })
@@ -856,6 +1150,7 @@ impl Timeline {
                     }
                     Some((wl, None, _)) => (format!("no spot in 10 tries ({wl} willing)"), None, *wl),
                     None if !s.willing => (if s.ttl.is_some() { "no try: it is locked".to_string() } else { "no try: it has not slept within 24000 gt".to_string() }, None, 0),
+                    None if self.recording.is_some() && in_box_willing >= 3 => (format!("no golem: {} willing in its 10-box, so its tries found no spot (a recording shows no tries)", in_box_willing.min(5)), None, in_box_willing.min(5)),
                     None => (format!("no try: {} willing in its 10-box (3 needed)", in_box_willing.min(5)), None, in_box_willing.min(5)),
                 };
                 if slot_tick && !s.panic {
@@ -905,8 +1200,7 @@ impl Timeline {
             if g.gone.is_some() {
                 continue;
             }
-            let Some(&ei) = index.get(&g.id) else { continue };
-            let gb = w.entities.list[ei].bb;
+            let Some(&(_, gb)) = ents.get(&g.id) else { continue };
             for (vi, r) in reads.iter().enumerate() {
                 let Some(r) = r else { continue };
                 if g.batch.contains(&vi) {
@@ -922,7 +1216,7 @@ impl Timeline {
                 self.exposed.insert((gi, vi), k);
                 let g = &self.golems[gi];
                 let r = reads[vi].as_ref().unwrap();
-                let gp = index.get(&g.id).map(|&i| w.entities.list[i].pos).unwrap_or(r.pos);
+                let gp = ents.get(&g.id).map(|(p, _)| *p).unwrap_or(r.pos);
                 let class = self.villagers[vi].class.v.last().map(|(_, c)| c.clone()).unwrap_or_default();
                 let text = format!(
                     "{} (spawned t={:06} by {}) in its follow box (range {:.2}) {} gt into its life: the golem at {}, the villager at {} ({class}; dx {:+.2} dy {:+.2} dz {:+.2})",
@@ -1032,8 +1326,9 @@ impl Timeline {
         None
     }
 
-    /// Resolve the checks that needed the rest of the run, and order the flags and lines.
-    fn finish(&mut self) {
+    /// Resolve the checks that needed the rest of the run, and order the flags and lines (the end
+    /// of a run, after its last [`Timeline::step`]).
+    pub fn finish(&mut self) {
         // the arrival margins (the brief's timing diagram: a batch reaches the station at least 39
         // gt before its slot, for the panic onset; none needed by a villager that arrives already
         // panicking)
@@ -1121,7 +1416,10 @@ impl Timeline {
     /// The text dump of the window `[from, to]`.
     pub fn text(&self, from: u32, to: u32) -> String {
         let mut s = String::new();
-        s.push_str(&format!("# {} seed {}: {} ticks from the arrival at gt {} (day time {}); window t={from:06}..t={to:06}\n", self.title, self.seed, self.ticks, self.t0, self.day0.rem_euclid(24000)));
+        match &self.recording {
+            Some(rec) => s.push_str(&format!("# {}: the bridge recording {rec}, {} ticks from its first frame at gt {} (day time {}); window t={from:06}..t={to:06}\n", self.title, self.ticks, self.t0, self.day0.rem_euclid(24000))),
+            None => s.push_str(&format!("# {} seed {}: {} ticks from the arrival at gt {} (day time {}); window t={from:06}..t={to:06}\n", self.title, self.seed, self.ticks, self.t0, self.day0.rem_euclid(24000))),
+        }
         s.push_str("# t = ticks after the arrival, gt = game time (the slots are gt % 100 == 0), day = days since the arrival's day, dt = day time\n");
         s.push_str(&format!("# {}\n", self.summary(from, to)));
         let names: Vec<String> = self.villagers.iter().map(|v| format!("{} (id {}, starts in {})", v.label, v.id, if v.first_cart.is_empty() { "no cart" } else { &v.first_cart })).collect();
@@ -1157,6 +1455,18 @@ impl Timeline {
         let v: Vec<String> = by.iter().map(|(r, n)| format!("{r} x{n}")).collect();
         let golems = self.golems.iter().filter(|g| g.t >= from && g.t <= to).count();
         let n = |what: &str| self.counts.iter().filter(|(k, c)| *k >= from && *k <= to && *c == what).count();
+        if self.recording.is_some() {
+            // (a recording shows no tries without a spot, and its sightings are fresh locks in ticks without a spawn)
+            return format!(
+                "{} slots with summoners: {spawned} spawned, {} without a golem; violations: {}; the recording's counts: {golems} golems, {} sensor locks, {} sleeps, {} HOME losses",
+                slots.len(),
+                slots.len() - spawned,
+                if v.is_empty() { "none".to_string() } else { v.join(", ") },
+                n("sight"),
+                n("sleep"),
+                n("release")
+            );
+        }
         format!(
             "{} slots with summoners: {spawned} spawned, {tried} tried without a spot, {none} without a try; violations: {}; the judge's counters: {golems} golems, {} tries without a spot, {} sightings, {} sleeps, {} POI releases",
             slots.len(),
@@ -1237,7 +1547,7 @@ impl Timeline {
     /// The page of the window `[from, to]`: one self-contained HTML file.
     pub fn html(&self, from: u32, to: u32) -> String {
         let data = self.json(from, to).to_string().replace("</", "<\\/");
-        let title = if self.source.is_some() { format!("{}: timeline", self.title) } else { format!("{} seed {}: timeline", self.title, self.seed) }.replace('<', "&lt;");
+        let title = if self.recording.is_some() { format!("{} (bridge recording): timeline", self.title) } else if self.source.is_some() { format!("{}: timeline", self.title) } else { format!("{} seed {}: timeline", self.title, self.seed) }.replace('<', "&lt;");
         PAGE.replace("__TITLE__", &title).replace("__DATA__", &data)
     }
 }
@@ -1248,7 +1558,7 @@ const PAGE: &str = include_str!("timeline.html");
 pub fn write(tl: &Timeline, dir: &Path, stem: &str, from: u32, to: u32) -> Result<(PathBuf, PathBuf)> {
     std::fs::create_dir_all(dir)?;
     // (a dump's page: `<stem>.timeline.html` beside nothing else, the dump being its text)
-    let base = if tl.source.is_some() { dir.join(format!("{stem}.timeline")) } else { dir.join(format!("{stem}-seed{}.timeline", tl.seed)) };
+    let base = if tl.source.is_some() || tl.recording.is_some() { dir.join(format!("{stem}.timeline")) } else { dir.join(format!("{stem}-seed{}.timeline", tl.seed)) };
     let (html, txt) = (base.with_extension("timeline.html"), base.with_extension("timeline.txt"));
     std::fs::write(&html, tl.html(from, to))?;
     if tl.source.is_none() {
@@ -1304,6 +1614,25 @@ mod tests {
         assert!(tl.summary(0, 300).contains("2 signal lanes, 2 mark lanes (2 marks), 1 violations"));
         assert!(Timeline::from_dump("x", "x", "t=5 gt=5 mark a\nt=3 gt=3 signal a=b\n").is_err(), "out of tick order");
         assert!(Timeline::from_dump("x", "x", "nothing here\n").is_err());
+    }
+
+    /// A bridge recording reads through the same lanes: mob-AI's golem-summon scene (three
+    /// villagers, a zombie shown at 2000), as its commit tells it: the first summon at 2100 by the
+    /// villager whose lock frees last (V1: the others brain-tick after it and free a tick
+    /// earlier), V3's sensor still seeing the falling golem 23 gt later (free at 2723), so the
+    /// 2700 slot has 2 willing and the next golem comes at 2800.
+    #[test]
+    fn a_recording_reads_back() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../designs/redsim/recorded/mobai/golem-summon.rec");
+        let text = mctas::recorded::read_text(&path).unwrap();
+        let tl = Timeline::from_recording("golem-summon", "golem-summon.rec", &text, &[]).unwrap();
+        let gt = |k: u32| tl.t0 + k as i64;
+        assert_eq!(tl.golems.iter().map(|g| (gt(g.t), g.by.as_str())).take(2).collect::<Vec<_>>(), vec![(2100, "V1"), (2800, "V3")]);
+        let v3 = tl.villagers.iter().find(|v| v.label == "V3").unwrap();
+        assert!(v3.lock.v.iter().any(|(k, free)| gt(*k) == 2123 && tl.t0 + *free == 2723), "V3's sensor lock at 2123 frees at 2723");
+        let s2700 = tl.slots.iter().find(|s| gt(s.k) == 2700).expect("the 2700 slot");
+        assert!(s2700.summoners.iter().all(|m| m.golem.is_none()));
+        assert!(s2700.summoners.iter().any(|m| m.result.contains("2 willing")));
     }
 
     /// The timeline is the judge's run tick for tick: on the carousel's first 3000 ticks (its first

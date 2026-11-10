@@ -75,7 +75,19 @@ the last dawn) and `gossip` (a summon off the 100 gt grid). A part bench that is
 (the counter's) writes its own trace in the dump's format and draws it with `mctas mobfarm timeline
 --from-dump <file> [--out DIR]` (`<stem>.timeline.html`): lines `t=<tick> gt=<game time> ...` then
 `signal NAME=VALUE [(full state)]`, `mark NAME [text]` (a point event) or `VIOLATION <rule> <lane>:
-<text>`, the rest skipped.
+<text>`, the rest skipped. A bridge recording (a `.rec` of `mctas mobai record`, the official
+server's own frames) goes through the same lanes and checks with `mctas mobfarm timeline
+--recording <file.rec> [--tag ...] [--out DIR]` (`<stem>.timeline.html` and `.txt`; tags in the
+recording's world coordinates): each frame's villagers (pose, vehicle, activities, running
+behaviors such as VillagerPanicTrigger, memories), minecarts, iron golems and block changes. What
+the frames do not carry is inferred and said so: a golem's summoner (golemDetected locks its box at
+599 and those that brain-tick after the summoner read 598, so the summoner is the last panicking
+villager reading 599 in tick order), tries without a spot (never shown), the follow range (16, the
+base) and a sensor lock (a fresh GOLEM_DETECTED_RECENTLY in a tick without a spawn). A bench whose
+driver does more than `mobfarm run` (ironfarm's hold bench toggling its lanes' control blocks) keeps
+the villager lanes and checks by calling `mobfarm::timeline::Timeline::start(title, &spec, &run,
+seed, offset, &tags, ticks)` on its `Run`, `step(&mut run.world, k)` after each tick, `finish()`
+and `mobfarm::timeline::write(&tl, dir, stem, 0, ticks)`; its control blocks can be `signal` tags.
 The judge's speed, results unchanged: `mctas farmopt bench <spec> --n 16 --quick 8 [--full N]
 --threads 16 --out <file>` evaluates N candidates spread evenly over the spec's space level by
 level (static, quick for the first `--quick` passing static, full for the first `--full` passing
