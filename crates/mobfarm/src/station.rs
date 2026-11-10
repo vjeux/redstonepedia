@@ -50,11 +50,13 @@ pub struct PadOpts {
     pub by: i32,
     /// The portals' height (3..21).
     pub h: i32,
+    /// Trench rows left out (z): the assembly's row -1 gives its cells to the stand's wiring.
+    pub skip: Vec<i32>,
 }
 
 impl Default for PadOpts {
     fn default() -> PadOpts {
-        PadOpts { x0: -2, x1: 8, planes: vec![-5, -2], by: 0, h: 3 }
+        PadOpts { x0: -2, x1: 8, planes: vec![-5, -2], by: 0, h: 3, skip: Vec::new() }
     }
 }
 
@@ -78,7 +80,7 @@ impl PadOpts {
 
     /// The trench rows (z), each once, in order.
     pub fn rows(&self) -> Vec<i32> {
-        let mut r: Vec<i32> = self.planes.iter().flat_map(|&p| [p - 1, p + 1]).collect();
+        let mut r: Vec<i32> = self.planes.iter().flat_map(|&p| [p - 1, p + 1]).filter(|z| !self.skip.contains(z)).collect();
         r.sort();
         r.dedup();
         r
@@ -93,7 +95,12 @@ impl PadOpts {
     /// The `station:` line of a bench design.
     pub fn meta(&self) -> String {
         let planes: Vec<String> = self.planes.iter().map(|p| p.to_string()).collect();
-        format!("x0={} x1={} planes={} by={} h={}", self.x0, self.x1, planes.join(","), self.by, self.h)
+        let mut s = format!("x0={} x1={} planes={} by={} h={}", self.x0, self.x1, planes.join(","), self.by, self.h);
+        if !self.skip.is_empty() {
+            let skip: Vec<String> = self.skip.iter().map(|p| p.to_string()).collect();
+            s.push_str(&format!(" skip={}", skip.join(",")));
+        }
+        s
     }
 
     /// The pad's shape from a bench design's `station:` line.
@@ -108,6 +115,7 @@ impl PadOpts {
                 "planes" => o.planes = v.split(',').map(|p| p.parse()).collect::<Result<_, _>>()?,
                 "by" => o.by = v.parse()?,
                 "h" => o.h = v.parse()?,
+                "skip" => o.skip = v.split(',').map(|p| p.parse()).collect::<Result<_, _>>()?,
                 _ => anyhow::bail!("unknown `station:` entry {k:?}"),
             }
         }
@@ -174,7 +182,7 @@ pub fn pad(o: &PadOpts) -> Result<Vec<([i32; 3], String)>> {
 /// stores them (a jammed poppy side would stop L). The crafter's blocks drop into the buffer chest
 /// under it (a crafter above a chest stops the player opening it), which a hopper line drains west
 /// into a double chest at the player's level (x 0, y 54, z 0..1, facing the player's room at x
-/// -1). The player's way: the corridor west of the portal, a ladder down at x -2 to the room.
+/// -1). The player's way: the corridor west of the portal, a 2 x 2 spiral of steps down to the room.
 /// Returns the blocks, the block entities (the sorter's stock, the crafter's disabled slots) and
 /// the output (the double chest's north half).
 pub fn collection() -> (Vec<([i32; 3], String)>, Vec<([i32; 3], String)>, [i32; 3]) {
@@ -193,15 +201,18 @@ pub fn collection() -> (Vec<([i32; 3], String)>, Vec<([i32; 3], String)>, [i32; 
     put(1, 54, 0, "hopper[enabled=true,facing=west]");
     put(0, 54, 0, "chest[facing=west,type=right,waterlogged=false]");
     put(0, 54, 1, "chest[facing=west,type=left,waterlogged=false]");
-    // the player's room (x -1, y 54..55, z 0..1) and the scaffolding column down from the
-    // corridor (x -2, z 0: climbed, a sneak to go down; 1 x 1, walled)
+    // the player's room (x -1, y 54..55, z 0..1) and the way down from the corridor: a 2 x 2
+    // spiral of steps (x -3..-2, z 0..1), one block down a step, walked down and jumped up (the
+    // brief's cheapest walkable way down, iteration 16; 3 clear over every step): from the
+    // corridor at y 64 west onto (-2, z 1) at y 63, then north, west, south, east around, the
+    // tenth step at (-2, z 0) at y 54, east into the room
     for z in 0..=1 {
         put(-1, 53, z, "cobblestone");
     }
-    put(-2, 53, 0, "cobblestone");
-    for y in 54..=64 {
-        put(-3, y, 0, "cobblestone");
-        put(-2, y, 0, "scaffolding[bottom=false,distance=0,waterlogged=false]");
+    let cells = [(-2, 1), (-2, 0), (-3, 0), (-3, 1)];
+    for k in 1..=10 {
+        let (x, z) = cells[((k - 1) % 4) as usize];
+        put(x, 63 - k, z, "cobblestone");
     }
     (blocks.into_iter().collect(), bes, [0, 54, 0])
 }
@@ -345,7 +356,7 @@ pub fn nether_part() -> (Vec<([i32; 3], String)>, Vec<([i32; 3], String)>, [i32;
         put(x, 61, 0, if x == 1 { "hopper[enabled=true,facing=down]" } else { "hopper[enabled=true,facing=west]" });
     }
     // the collection under the pit (its line hopper under the pit's last hopper), the player's
-    // room and ladder
+    // room and steps
     let (coll, bes, output) = collection();
     let mut seen: std::collections::BTreeMap<[i32; 3], String> = out.into_iter().collect();
     for (p, s) in coll {
@@ -362,7 +373,24 @@ pub fn nether_part() -> (Vec<([i32; 3], String)>, Vec<([i32; 3], String)>, [i32;
 /// The station's bench design: the release + hold part ([`crate::hold::design`]) with the pad
 /// and its Nether part.
 pub fn design(o: &PadOpts, lanes: &LaneOpts) -> Result<String> {
-    let text = crate::hold::design(lanes)?;
+    design_with(o, lanes, true)
+}
+
+/// The station part alone (the pad and the Nether part, no release + hold): its catalog member,
+/// which `mobfarm bill` prices.
+pub fn part(o: &PadOpts, lanes: &LaneOpts) -> Result<String> {
+    design_with(o, lanes, false)
+}
+
+fn design_with(o: &PadOpts, lanes: &LaneOpts, with_hold: bool) -> Result<String> {
+    let text = if with_hold {
+        crate::hold::design(lanes)?
+    } else {
+        // an empty design carrying the farm's circuit line
+        let mut b = crate::layouts::Builder::new("carousel-station-part");
+        b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
+        b.text(&["The carousel's station + portal pad part alone."])
+    };
     let mut d = Design::parse(&text)?;
     for (p, s) in pad(o)? {
         if let Some(old) = d.blocks.get(&p)
@@ -383,16 +411,26 @@ pub fn design(o: &PadOpts, lanes: &LaneOpts) -> Result<String> {
     d.nether_ports.insert("nether-output".into(), out);
     d.ports.insert("nether-anchor".into(), [0, 0, 0]);
     d.ports.insert("nether-axis".into(), [1, 0, 0]);
-    d.name = "carousel-station-7".into();
+    d.name = if with_hold { "carousel-station-7".into() } else { "carousel-station-part".into() };
     d.meta.insert("station".into(), o.meta());
     d.ports.insert("output.pulse".into(), o.pulse());
     // every villager's HOME the shared bed (the R1 double claim, as the judge loads it)
-    let bed = lanes.bed();
-    d.ports.insert("home".into(), [bed.x, bed.y, bed.z]);
+    if with_hold {
+        let bed = lanes.bed();
+        d.ports.insert("home".into(), [bed.x, bed.y, bed.z]);
+    } else {
+        // the loader's output (an air cell: the farm's chest is the Nether part's)
+        let z = *o.planes.iter().max().unwrap_or(&0);
+        d.ports.insert("output".into(), [o.x1 + 3, o.by, z]);
+    }
     let w = o.x1 - o.x0 - 1;
     let caption = [
-        format!("The carousel's station + portal pad (bench): {} portal plane(s) {w} x {} at z {:?}, a trench row on both sides of each (x {}..{}, floors at y {}),", o.planes.len(), o.h, o.planes, o.x0, o.x1, o.floor_y()),
-        "a tripwire line on each frame's top row (the counter's pulse); on the release + hold part's bench (7 lanes of 3 stacked tracks).".into(),
+        format!("The carousel's station + portal pad{}: {} portal plane(s) {w} x {} at z {:?}, a trench row on both sides of each (x {}..{}, floors at y {}),", if with_hold { " (bench)" } else { "" }, o.planes.len(), o.h, o.planes, o.x0, o.x1, o.floor_y()),
+        if with_hold {
+            "a tripwire line on each frame's top row (the counter's pulse); on the release + hold part's bench (7 lanes of 3 stacked tracks).".into()
+        } else {
+            "a tripwire line on each frame's top row (the counter's pulse); the Nether part: a lava-sheet kill over a hopper floor, the sorter, the iron-block crafter, the double chest.".into()
+        },
     ];
     let mut s = String::new();
     for l in caption {
@@ -788,12 +826,28 @@ pub struct BenchOpts {
     /// counter's pulse block as signal `pulse` (the timeline reads the world's mob events without
     /// draining them: the bench reads them too).
     pub timeline: Option<std::path::PathBuf>,
+    /// The assembly's counter in the loop: each lane's tap (the comparator whose output is the
+    /// lane's line). The lines then drive the slope controls (ideally: the hold controls follow
+    /// the line, the stand controls its inverse) instead of the drawn switch schedule, and each
+    /// slot's batch is the lane last raised.
+    pub counter: Option<Vec<BlockPos>>,
 }
 
 /// What the dynamic bench measured.
 #[derive(Clone, Debug, Default)]
 pub struct BenchReport {
     pub slots: u32,
+    /// The counter in the loop: each advance's tick (a line rising), each slot's batch, and the
+    /// ticks with no line or several lines high.
+    pub advances: Vec<i64>,
+    pub slot_lanes: Vec<u8>,
+    pub slot_ticks: Vec<i64>,
+    pub line_faults: u32,
+    /// The counter in the loop: each run of ticks with no line high (the ring's transfer gap), and
+    /// per slot the raised batch's arrival margin (gt from all its riders in the stand zone to the
+    /// slot; None: not all there at the slot).
+    pub gaps: Vec<i64>,
+    pub margins: Vec<Option<i64>>,
     /// Slots where a golem spawned.
     pub summoned: u32,
     /// Per slot: the batch's riders that wanted a golem at the slot (0..=3), and how many tried.
@@ -916,6 +970,8 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
     let mut next_switch = 0usize;
     let mut next_slot = 0usize;
     let mut selected: Option<i32> = None;
+    let mut line_state = [false; BATCHES as usize];
+    let (mut gap_run, mut arrived_at): (i64, Option<i64>) = (0, None);
     // every golem: (id, spawn tick, pulse rise, pulse fall, removal); `alive` indexes the ones
     // still in the overworld
     let mut golems: Vec<(u32, i64, Option<i64>, Option<i64>, Option<i64>)> = Vec::new();
@@ -968,7 +1024,7 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
                 }
             }
         }
-        while next_switch < switches.len() && switches[next_switch] <= t_next {
+        while bo.counter.is_none() && next_switch < switches.len() && switches[next_switch] <= t_next {
             let k = (next_switch % BATCHES as usize) as i32;
             if let Some(p) = selected {
                 set_line(&mut run.world, p, false);
@@ -977,9 +1033,54 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
             selected = Some(k);
             next_switch += 1;
         }
+        // the counter in the loop: its lines as they stand now drive the controls
+        if let Some(taps) = &bo.counter {
+            for (b, tap) in taps.iter().enumerate() {
+                let high = matches!(run.world.get(*tap), Block::Comparator { powered: true, .. });
+                if high != line_state[b] {
+                    line_state[b] = high;
+                    set_line(&mut run.world, b as i32, high);
+                    if high {
+                        selected = Some(b as i32);
+                        rep.advances.push(t_next);
+                        arrived_at = None;
+                    }
+                }
+            }
+            let n_high = line_state.iter().filter(|&&h| h).count();
+            if n_high == 0 {
+                // the ring's transfer gap (counter v7: <= 7 gt with no line high)
+                gap_run += 1;
+            } else {
+                if gap_run > 0 {
+                    rep.gaps.push(gap_run);
+                }
+                gap_run = 0;
+            }
+            if n_high > 1 {
+                rep.line_faults += 1;
+                if rep.line_faults <= 4 {
+                    violate(&mut rep, t_next, format!("{n_high} counter lines high"));
+                }
+            }
+            // the raised batch's arrival: the first tick all its riders stand in the stand zone
+            if let Some(k) = selected
+                && arrived_at.is_none()
+            {
+                let all_in = riders.iter().filter(|(_, l)| *l == k).all(|(id, _)| index_of(&run.world, *id).is_some_and(|i| run.world.entities.list[i].pos.z < lanes.stand_z()));
+                if all_in {
+                    arrived_at = Some(t_next);
+                }
+            }
+        }
         // the slot about to tick: who of the batch wants a golem, who panics
         if next_slot < slots.len() && slots[next_slot] == t_next {
-            let k = (next_slot % BATCHES as usize) as i32;
+            let k = if bo.counter.is_some() { selected.unwrap_or(0) } else { (next_slot % BATCHES as usize) as i32 };
+            rep.slot_lanes.push(k as u8);
+            rep.slot_ticks.push(t_next);
+            if bo.counter.is_some() {
+                rep.margins.push(arrived_at.map(|a| t_next - a));
+            }
             let w = &run.world;
             let (mut want, mut panic) = (0u8, 0u8);
             let mut ids = Vec::new();

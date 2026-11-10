@@ -1,0 +1,2 @@
+file	name	stage	metrics	used_by
+carousel-station-v1.txt	carousel station + portal pad v1: two 9x3 portal planes, four trench rows, tripwire caps as the counter's pulse; Nether lava-sheet kill, classic sorter + iron-block crafter + double chest	middle	success per slot 99.06% (static 99.30% at 3 callers), pulse +1 gt 10 gt, golem stay 2 gt, Nether kill 250-269 gt 4.00 iron a golem, storage 18.4 h at 2850 iron/h, blocks 300 (pad 178, Nether 122), box pad 13x7x6 Nether 8x15x9, build minutes 62.1 middle 16.6 late	

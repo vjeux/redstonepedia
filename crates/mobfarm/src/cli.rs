@@ -441,6 +441,13 @@ pub enum MobfarmCmd {
         /// The portals' height.
         #[arg(long, default_value_t = 3)]
         h: i32,
+        /// Trench rows to leave out (z, comma-separated).
+        #[arg(long, allow_hyphen_values = true)]
+        skip: Option<String>,
+        /// The station part alone (the pad and the Nether part, no release + hold): the catalog
+        /// member that `mobfarm bill` prices.
+        #[arg(long)]
+        part: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -484,6 +491,21 @@ pub enum MobfarmCmd {
         /// this directory.
         #[arg(long)]
         timeline: Option<PathBuf>,
+    },
+    /// Assembly v0 (step a): the station design (release + hold, pad, Nether part) with day-1's
+    /// counter v7 under the stand and the pad's pulse wired to its input; station-bench runs it with
+    /// the counter in the loop (its lines drive the slope controls).
+    Assembly {
+        /// The trench rows' x range (the portals' interior one in from each end).
+        #[arg(long, default_value_t = -2, allow_hyphen_values = true)]
+        x0: i32,
+        #[arg(long, default_value_t = 8)]
+        x1: i32,
+        /// The counter frame's shift (x,y,z).
+        #[arg(long, default_value = "3,-10,15", allow_hyphen_values = true)]
+        counter_at: String,
+        #[arg(long)]
+        out: PathBuf,
     },
     /// The station's storage alone: the Nether part's pit floor and collection (sorter, crafter,
     /// composter, the double chest) in a test world, a golem's drops on a random pit cell each 100
@@ -753,10 +775,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             std::fs::write(&out, text)?;
             println!("{}", out.display());
         }
-        MobfarmCmd::Station { x0, x1, planes, by, h, out } => {
+        MobfarmCmd::Station { x0, x1, planes, by, h, skip, part, out } => {
             let planes: Vec<i32> = planes.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
-            let o = crate::station::PadOpts { x0, x1, planes, by, h };
-            let text = crate::station::design(&o, &crate::hold::LaneOpts::default())?;
+            let skip: Vec<i32> = match skip {
+                Some(s) => s.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?,
+                None => Vec::new(),
+            };
+            let o = crate::station::PadOpts { x0, x1, planes, by, h, skip };
+            let text = if part { crate::station::part(&o, &crate::hold::LaneOpts::default())? } else { crate::station::design(&o, &crate::hold::LaneOpts::default())? };
             std::fs::write(&out, text)?;
             println!("{}", out.display());
         }
@@ -839,6 +865,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
+        MobfarmCmd::Assembly { x0, x1, counter_at, out } => {
+            let p: Vec<i32> = counter_at.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(p.len() == 3, "--counter-at x,y,z");
+            let pad = crate::station::PadOpts { x0, x1, ..Default::default() };
+            let o = crate::assembly::AsmOpts { counter_at: [p[0], p[1], p[2]] };
+            let text = crate::assembly::v0a(&pad, &crate::hold::LaneOpts::default(), &o)?;
+            std::fs::write(&out, text)?;
+            println!("{}", out.display());
+        }
         MobfarmCmd::StationStorage { hours, seed, success, official } => {
             let lines = if official { crate::station::storage_official(version, hours, seed, success)? } else { crate::station::storage_bench(hours, seed, success).map_err(|e| anyhow::anyhow!(e))? };
             for l in lines {
@@ -850,6 +885,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let lanes = crate::hold::lanes_of(&c.clock.design.meta)?;
             let pad = crate::station::PadOpts::of(&c.clock.design.meta)?;
             let static_check = crate::station::check(&spec, &lanes, &pad).map_err(|e| anyhow::anyhow!(e))?;
+            // an assembly design: its counter in the loop
+            let counter = match crate::assembly::AsmOpts::of(&c.clock.design.meta)? {
+                Some(a) => Some(crate::assembly::counter_taps(&a)?),
+                None => None,
+            };
             let seeds: Vec<i64> = (from..=to).collect();
             let jobs = jobs.unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8)).max(1);
             let next = std::sync::atomic::AtomicUsize::new(0);
@@ -860,7 +900,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     sc.spawn(|| loop {
                         let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some(&seed) = seeds.get(k) else { break };
-                        let r = crate::station::bench(&spec, &lanes, &pad, &crate::station::BenchOpts { seed, days, jitter, verbose: false, timeline: if seed == from { timeline.clone() } else { None } });
+                        let r = crate::station::bench(&spec, &lanes, &pad, &crate::station::BenchOpts { seed, days, jitter, verbose: false, timeline: if seed == from { timeline.clone() } else { None }, counter: counter.clone() });
                         out.lock().unwrap().push((seed, r));
                     });
                 }
@@ -873,6 +913,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let (mut iron_burnt, mut poppies) = (0u64, 0u64);
             let (mut piglins_out, mut piglins_alive) = (0u64, 0u64);
             let mut n_life: std::collections::BTreeMap<i64, u64> = Default::default();
+            let mut adv_per_slot = [0u64; 4];
+            let mut adv_delay: std::collections::BTreeMap<i64, u64> = Default::default();
+            let mut line_faults = 0u64;
+            let mut gaps: std::collections::BTreeMap<i64, u64> = Default::default();
+            let mut margins: std::collections::BTreeMap<Option<i64>, u64> = Default::default();
             let mut willing = [0u64; 4];
             let mut tries = [0u64; 4];
             let mut failed_at = [0u64; 4];
@@ -915,8 +960,29 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                         }
                         for (n, &w) in r.willing.iter().enumerate() {
                             willing[(w as usize).min(3)] += 1;
-                            let lane = (n % crate::hold::BATCHES as usize) as i32;
+                            let lane = r.slot_lanes.get(n).map_or((n % crate::hold::BATCHES as usize) as i32, |&l| l as i32);
                             predicted += static_check.success(lane, w as usize);
+                        }
+                        // the counter in the loop: advances between consecutive slots, and each
+                        // advance's delay after the slot before it
+                        if !r.advances.is_empty() {
+                            line_faults += r.line_faults as u64;
+                            for &g in &r.gaps {
+                                *gaps.entry(g).or_insert(0) += 1;
+                            }
+                            for m in &r.margins {
+                                *margins.entry(*m).or_insert(0) += 1;
+                            }
+                            let slot_ticks: Vec<i64> = r.slot_ticks.clone();
+                            for w in slot_ticks.windows(2) {
+                                let n = r.advances.iter().filter(|&&a| a > w[0] && a <= w[1]).count();
+                                adv_per_slot[n.min(3)] += 1;
+                            }
+                            for &a in &r.advances {
+                                if let Some(&s) = slot_ticks.iter().rev().find(|&&s| s < a) {
+                                    *adv_delay.entry(a - s).or_insert(0) += 1;
+                                }
+                            }
                         }
                         for (j, &t) in r.tries.iter().enumerate() {
                             tries[(t as usize).min(3)] += 1;
@@ -949,6 +1015,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("golems' overworld stay (gt: count): {dwell:?}; still there at the end: {lingering}");
             println!("pulse delay from the spawn tick (gt: count; None = no pulse): {pulse_delay:?}; length (gt: count): {pulse_len:?}; pulses without a golem: {spurious}");
             println!("golems touching no portal: {}", strays.len());
+            if counter.is_some() {
+                let mut delays: Vec<(i64, u64)> = adv_delay.iter().map(|(k, v)| (*k, *v)).collect();
+                delays.sort();
+                let short: Vec<String> = delays.iter().take(6).map(|(d, n)| format!("{d}: {n}")).collect();
+                let long: Vec<String> = delays.iter().rev().take(4).map(|(d, n)| format!("{d}: {n}")).collect();
+                println!("counter in the loop: advances between consecutive slots (0/1/2/3+): {adv_per_slot:?}; advance delay after the slot before it (gt: count) shortest {short:?}, longest {long:?}; ticks with 2+ lines high: {line_faults}; no-line gaps (gt: count) {gaps:?}");
+                let late = margins.get(&None).copied().unwrap_or(0);
+                let ms: Vec<(i64, u64)> = margins.iter().filter_map(|(k, v)| k.map(|k| (k, *v))).collect();
+                let min = ms.first().map(|m| m.0);
+                let n: u64 = ms.iter().map(|m| m.1).sum();
+                let mean = if n == 0 { 0.0 } else { ms.iter().map(|(k, v)| *k as f64 * *v as f64).sum::<f64>() / n as f64 };
+                println!("raised batch's arrival margin before its slot: min {min:?} gt, mean {mean:.1}; slots it was not all there: {late}; the 5 smallest (gt: count) {:?}", ms.iter().take(5).collect::<Vec<_>>());
+            }
             for s in strays.iter().take(8) {
                 println!("  {s}");
             }

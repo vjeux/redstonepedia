@@ -14,6 +14,7 @@ pub mod layouts;
 pub mod parts;
 pub mod spawnrules;
 pub mod station;
+pub mod assembly;
 pub mod timeline;
 pub mod trim;
 pub mod validate;
