@@ -151,7 +151,8 @@ block entities merged as `data merge`, no shape updates, no settle) and the buil
 default order, each cell's priced gap or GAP for all, then the carts; cells the build leaves
 different from the file are listed); `--build-gap-sweep` builds at every gap from 1 gt to the
 longest priced one (40 gt). The bench-driven loop file: clean all three ways, and every gap from 1
-to 20 gt passes. The first build in order failed: the release run's boosters popped off, their
+to 40 gt passes; day-1's v2 wired file: the same (every gap from 1 to 40 gt, 2 seeds x 20 slots
+each). The first build in order failed: the release run's boosters popped off, their
 redstone-block supports placed after the rails; the default order now places any block that holds
 up a rail or a component first.
 
