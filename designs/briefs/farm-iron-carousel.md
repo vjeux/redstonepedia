@@ -159,7 +159,12 @@ the timing diagram checks every coupling.
    station, no villager left behind, every villager back in its own slot. Bench: 7 batches
    cycling with the counter driven ideal and the villager AI on, positions logged every tick, zero
    violations over 6 days on 100 seeds. Objectives: blocks, volume, the arrival margin, build
-   minutes.
+   minutes. Geometry (ruled Nov 10, 4:14 AM, volume decides): paired lanes at x 0,1 | 3,4 | 6,7 |
+   9 with wiring columns at x −1, 2, 5, 8 and the pair's hold ends staggered 1 in z, so every
+   hold, hump, stand and yard control has a side neighbour for a direct ≤ 2 gt feed; the 7-wide
+   pitch-1 stack can't be wired (the middle level's controls have no free neighbour). Box ~7,700
+   for release + hold + sleep (+27% over the unwirable 6,050). A later optimization pass looks for
+   a cheaper wirable geometry (staggered or offset levels), measured against 7,700.
 3. **The sleep routine.** In: the night window (a daylight-sensor signal) and the counter's
    state, so it never takes a villager whose batch is due. Out: each of the 21 villagers once a
    night, one at a time, within 2.0 of the one bed and not riding; it sleeps, the observer on
