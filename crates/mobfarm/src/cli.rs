@@ -485,6 +485,21 @@ pub enum MobfarmCmd {
         #[arg(long)]
         timeline: Option<PathBuf>,
     },
+    /// The station's storage alone: the Nether part's pit floor and collection (sorter, crafter,
+    /// composter, the double chest) in a test world, a golem's drops on a random pit cell each 100
+    /// gt at the given success rate, for `hours`: the iron where it ends each hour and when the
+    /// collection first falls behind (a drop lying 300 gt).
+    StationStorage {
+        #[arg(long, default_value_t = 8.0)]
+        hours: f64,
+        #[arg(long, default_value_t = 1)]
+        seed: i64,
+        #[arg(long, default_value_t = 0.99)]
+        success: f64,
+        /// On the official server instead of redsim.
+        #[arg(long)]
+        official: bool,
+    },
     /// The judge's run of a design on many seeds at once (the carousel's robustness: "21 of 100
     /// seeds hold 3 days"): each seed's verdict (its first failure, or PASS) with its golems, iron
     /// and riders at each midday, then how many hold and the first failures counted by kind.
@@ -783,6 +798,23 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 });
             }
             println!("pad: {} blocks ({} obsidian, {} portal cells), box x {}..{} y {}..{} z {}..{}", r.pad_blocks, r.obsidian, r.portal_cells, r.pad_box.0[0], r.pad_box.1[0], r.pad_box.0[1], r.pad_box.1[1], r.pad_box.0[2], r.pad_box.1[2]);
+            {
+                // the Nether part (kill, collection, the player's way): its blocks by kind
+                let (nb, nbes, _) = crate::station::nether_part();
+                let mut kinds: std::collections::BTreeMap<String, u32> = Default::default();
+                let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+                for (p, s) in &nb {
+                    let name = s.trim_start_matches("minecraft:").split('[').next().unwrap_or("").to_string();
+                    *kinds.entry(name).or_insert(0) += 1;
+                    for i in 0..3 {
+                        lo[i] = lo[i].min(p[i]);
+                        hi[i] = hi[i].max(p[i]);
+                    }
+                }
+                let mut v: Vec<(String, u32)> = kinds.into_iter().collect();
+                v.sort_by(|a, b| b.1.cmp(&a.1));
+                println!("Nether part: {} blocks, box x {}..{} y {}..{} z {}..{} ({} with block-entity data): {}", nb.len(), lo[0], hi[0], lo[1], hi[1], lo[2], hi[2], nbes.len(), v.iter().map(|(k, n)| format!("{n} {k}")).collect::<Vec<_>>().join(", "));
+            }
             println!("valid spots per rider (portal contact, not under the batch's own carts): min {} max {}; union {}, in every search {}", ks.iter().min().unwrap_or(&0), ks.iter().max().unwrap_or(&0), union.len(), inter.map_or(0, |i| i.len()));
             for b in 0..crate::hold::BATCHES {
                 let row: Vec<String> = r.riders.iter().filter(|s| s.lane == b).map(|s| format!("L{} {}{}", s.level, s.valid.len() - s.obstructed.len().min(s.valid.len()), if s.obstructed.is_empty() { String::new() } else { format!(" ({} under its carts)", s.obstructed.len()) })).collect();
@@ -805,6 +837,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{}{}", if ok { "PASS" } else { "FAIL" }, if ok && !r.near_portal.is_empty() { " (with boxes under a cell from a portal: the contract's margin)" } else { "" });
             if !ok {
                 std::process::exit(1);
+            }
+        }
+        MobfarmCmd::StationStorage { hours, seed, success, official } => {
+            let lines = if official { crate::station::storage_official(version, hours, seed, success)? } else { crate::station::storage_bench(hours, seed, success).map_err(|e| anyhow::anyhow!(e))? };
+            for l in lines {
+                println!("{l}");
             }
         }
         MobfarmCmd::StationBench { design, from, to, days, jitter, jobs, timeline } => {

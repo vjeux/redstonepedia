@@ -166,6 +166,135 @@ pub fn pad(o: &PadOpts) -> Result<Vec<([i32; 3], String)>> {
     Ok(out)
 }
 
+/// The Nether part's collection under the pit: the catalog's storage member (sorter-crafter,
+/// [`crate::day1::collect_bottom_at1`]: the classic-stock comparator sorter and the iron-block
+/// crafter) with its line hopper L at (1, 60, 0), under the pit's last hopper. The sorter's iron
+/// slice pulls the iron out of L down to the crafter; the poppy slice takes the poppies east, into
+/// a composter (disposal: its bone meal a hopper moves into a chest, 25 h of it) where the catalog
+/// stores them (a jammed poppy side would stop L). The crafter's blocks drop into the buffer chest
+/// under it (a crafter above a chest stops the player opening it), which a hopper line drains west
+/// into a double chest at the player's level (x 0, y 54, z 0..1, facing the player's room at x
+/// -1). The player's way: the corridor west of the portal, a ladder down at x -2 to the room.
+/// Returns the blocks, the block entities (the sorter's stock, the crafter's disabled slots) and
+/// the output (the double chest's north half).
+pub fn collection() -> (Vec<([i32; 3], String)>, Vec<([i32; 3], String)>, [i32; 3]) {
+    let mut t = crate::layouts::Builder::new("collection");
+    crate::day1::collect_bottom_at1(&mut t, 61);
+    let mut blocks: std::collections::BTreeMap<[i32; 3], String> = t.d.blocks.iter().map(|(p, s)| ([p[0], p[1], p[2] + 1], s.clone())).collect();
+    let bes: Vec<([i32; 3], String)> = t.d.block_entities.iter().map(|(p, s)| ([p[0], p[1], p[2] + 1], s.clone())).collect();
+    let mut put = |x: i32, y: i32, z: i32, s: &str| {
+        blocks.insert([x, y, z], if s.starts_with("minecraft:") { s.to_string() } else { format!("minecraft:{s}") });
+    };
+    // the poppies: a composter where the catalog's first poppy chest stood (its hopper and chest
+    // under it now take the bone meal)
+    put(2, 58, 0, "composter[level=0]");
+    // the crafter's buffer chest (2, 55, 0) drained by a hopper line west into the double chest
+    put(2, 54, 0, "hopper[enabled=true,facing=west]");
+    put(1, 54, 0, "hopper[enabled=true,facing=west]");
+    put(0, 54, 0, "chest[facing=west,type=right,waterlogged=false]");
+    put(0, 54, 1, "chest[facing=west,type=left,waterlogged=false]");
+    // the player's room (x -1, y 54..55, z 0..1) and the scaffolding column down from the
+    // corridor (x -2, z 0: climbed, a sneak to go down; 1 x 1, walled)
+    for z in 0..=1 {
+        put(-1, 53, z, "cobblestone");
+    }
+    put(-2, 53, 0, "cobblestone");
+    for y in 54..=64 {
+        put(-3, y, 0, "cobblestone");
+        put(-2, y, 0, "scaffolding[bottom=false,distance=0,waterlogged=false]");
+    }
+    (blocks.into_iter().collect(), bes, [0, 54, 0])
+}
+
+/// The storage's own bench (`station-storage`): the Nether part's pit floor and collection built
+/// in a test world (no portal, no lava), one golem's drops (3..5 iron, 0..2 poppies: its loot
+/// table) falling on a random pit cell each 100 gt with the measured success rate, for `hours`;
+/// every 1000 gt the iron in the double chest, the buffer and the line, the bone meal, and any
+/// drop lying 300 gt or more (the collection full). Returns the report lines.
+pub fn storage_bench(hours: f64, seed: i64, success: f64) -> Result<Vec<String>, String> {
+    let (blocks, bes, out) = nether_part();
+    let placed: Vec<(BlockPos, Block)> = blocks
+        .iter()
+        .filter(|(_, s)| !s.contains("nether_portal") && !s.contains("lava"))
+        .map(|(p, s)| Ok((BlockPos::new(p[0], p[1], p[2]), Block::parse(s).map_err(|e| format!("{s}: {e}"))?)))
+        .collect::<Result<_, String>>()?;
+    let mut w = World::new(BlockPos::new(-8, 40, -8), [20, 40, 16]);
+    // the level random (the composter's chance draws from it)
+    w.level_random = Some(redsim::rng::LegacyRandom::new(seed ^ 0x636f_6d70));
+    w.place_like_judge(&placed);
+    redsim::redstone::container::apply_block_entities(&mut w, bes.iter().map(|(p, s)| (BlockPos::new(p[0], p[1], p[2]), s.as_str())))?;
+    w.run_until_idle(400);
+    let mut rng = redsim::rng::LegacyRandom::new(seed);
+    let ticks = (hours * 72_000.0) as i64;
+    let (ingot, block) = (redsim::redstone::container::item_id("iron_ingot"), redsim::redstone::container::item_id("iron_block"));
+    let iron_in = |w: &World, p: BlockPos| -> u32 { w.containers.map.get(&p).map_or(0, |c| c.slots.iter().flatten().map(|s| if Some(s.item) == ingot { s.count as u32 } else if Some(s.item) == block { 9 * s.count as u32 } else { 0 }).sum()) };
+    let mut lines = Vec::new();
+    let (mut dropped, mut poppies) = (0u32, 0u32);
+    let mut lying: std::collections::BTreeMap<u32, i64> = Default::default();
+    let mut full_at: Option<i64> = None;
+    for t in 1..=ticks {
+        if t % 100 == 0 && (rng.next_float() as f64) < success {
+            let (x, z) = (1.1 + (PIT_LEN as f64 - 0.2) * rng.next_float() as f64, 0.3 + 1.4 * rng.next_float() as f64);
+            let iron = 3 + rng.next_int(3);
+            let pop = rng.next_int(3);
+            dropped += iron as u32;
+            poppies += pop as u32;
+            redsim::entity::spawn(&mut w, "minecraft:item", [x, 62.0, z], Some(&format!("{{Item:{{id:\"minecraft:iron_ingot\",count:{iron}}}}}")))?;
+            if pop > 0 {
+                redsim::entity::spawn(&mut w, "minecraft:item", [x, 62.0, z], Some(&format!("{{Item:{{id:\"minecraft:poppy\",count:{pop}}}}}")))?;
+            }
+        }
+        w.tick();
+        if full_at.is_none() && !w.errors.is_empty() {
+            full_at = Some(t);
+        }
+        if t % 100 == 50 {
+            let now: Vec<u32> = w.entities.list.iter().filter(|e| !e.removed && matches!(e.kind, EntityKind::Item(_))).map(|e| e.id).collect();
+            lying.retain(|id, _| now.contains(id));
+            for id in now {
+                let since = *lying.entry(id).or_insert(t);
+                if t - since >= 300 && full_at.is_none() {
+                    full_at = Some(t);
+                }
+            }
+        }
+        if t % 72_000 == 0 || t == ticks {
+            let chest = iron_in(&w, BlockPos::new(out[0], out[1], out[2])) + iron_in(&w, BlockPos::new(out[0], out[1], out[2] + 1));
+            let rest: u32 = w.containers.map.keys().filter(|p| !(p.x == out[0] && p.y == out[1] && (p.z == out[2] || p.z == out[2] + 1))).map(|p| iron_in(&w, *p)).sum();
+            let meal = redsim::redstone::container::item_id("bone_meal");
+            let bone: u32 = w.containers.map.values().map(|c| c.slots.iter().flatten().filter(|s| Some(s.item) == meal).map(|s| s.count as u32).sum::<u32>()).sum();
+            let loose: u32 = w.entities.list.iter().filter(|e| !e.removed).map(|e| match &e.kind {
+                EntityKind::Item(it) if it.item == "minecraft:iron_ingot" => it.count as u32,
+                _ => 0,
+            }).sum();
+            lines.push(format!("{:.1} h: iron dropped {dropped} (poppies {poppies}); in the double chest {chest}, elsewhere in the collection {rest}, loose {loose}; bone meal {bone}", t as f64 / 72_000.0));
+        }
+    }
+    lines.push(match full_at {
+        Some(t) => format!("full at {:.2} h: {}", t as f64 / 72_000.0, w.errors.first().cloned().unwrap_or_else(|| "a drop lay 300 gt".into())),
+        None => format!("holds {hours} h: no drop lay 300 gt"),
+    });
+    // where everything is (the containers' contents; the composter's level)
+    for (p, c) in &w.containers.map {
+        let items: Vec<String> = c.slots.iter().flatten().map(|s| format!("{} {}", s.count, redsim::redstone::container::item_name(s.item))).collect();
+        if !items.is_empty() {
+            lines.push(format!("  {} {} {} {}: {}", p.x, p.y, p.z, w.get(*p), items.join(", ")));
+        }
+    }
+    lines.push(format!("  composter: {}", w.get(BlockPos::new(2, 58, 0))));
+    for e in w.entities.list.iter().filter(|e| !e.removed) {
+        if let EntityKind::Item(it) = &e.kind {
+            lines.push(format!("  loose {} {} at {:.2} {:.2} {:.2} (age {})", it.count, it.item, e.pos.x, e.pos.y, e.pos.z, it.age));
+        }
+    }
+    let burnt: Vec<String> = w.mob.events.iter().filter_map(|ev| if let MobEvent::Burnt { what, count, .. } = ev { Some(format!("{count} {what}")) } else { None }).take(5).collect();
+    lines.push(format!("  burnt (first 5): {burnt:?}; events {}", w.mob.events.len()));
+    Ok(lines)
+}
+
+/// The Nether pit's length (x 1..PIT_LEN).
+pub const PIT_LEN: i32 = 2;
+
 /// The pad's Nether part (relative to the Nether image of the design's anchor, its y as written):
 /// a 2 x 3 Nether portal (axis z, plane x 0, interior z 0..1, y 64..66) linked to every pad plane
 /// (it is the only portal within 16 of their targets). A golem arrives centred on the plane, the
@@ -174,12 +303,13 @@ pub fn pad(o: &PadOpts) -> Result<Vec<([i32; 3], String)>> {
 /// floor at y 61, feet 62) under a lava sheet at y 64: sources at x 1 against the plane, held by
 /// wall signs at y 63, flowing to the wall at x len+1. The sheet at its feet pushes the golem off
 /// the frame's bottom row into the pit (it cannot step back up 2) and burns it with the sheet at
-/// its head; the flow carries it east, clear of the next golem's drop (a short pit piles them at
-/// the drop and their pushes lift the newcomer onto the walls: 4 long, the last one is past it);
-/// it dies with its feet over the hoppers, which feed the chest at (1, 60, 0). Every wall rises to
-/// y 66 (its top 3 over the frame's bottom row and 5 over the pit: a golem steps up 1).
-pub fn nether_part() -> (Vec<([i32; 3], String)>, [i32; 3]) {
-    let len = 4;
+/// its head; it dies with its feet over the hoppers, which feed the collection. Every wall rises to
+/// y 65: its top 2 over the frame's bottom row (a golem steps up 1; the first version's end wall,
+/// its top 1 over that row, let a golem pushed by the pit's crowd step onto it, then onto the side
+/// walls and out; a 2, 3 or 4 long pit then all hold: 2, the smallest).
+pub fn nether_part() -> (Vec<([i32; 3], String)>, Vec<([i32; 3], String)>, [i32; 3]) {
+    let len = PIT_LEN;
+    let top = 65;
     let mut out: Vec<([i32; 3], String)> = Vec::new();
     let mut put = |x: i32, y: i32, z: i32, s: &str| out.push(([x, y, z], if s.starts_with("minecraft:") { s.to_string() } else { format!("minecraft:{s}") }));
     for z in 0..=1 {
@@ -194,7 +324,7 @@ pub fn nether_part() -> (Vec<([i32; 3], String)>, [i32; 3]) {
         // under the frame: the pit's west end
         put(0, 62, z, "cobblestone");
         // the end wall
-        for y in 62..=66 {
+        for y in 62..=top {
             put(len + 1, y, z, "cobblestone");
         }
         put(1, 64, z, "lava[level=0]");
@@ -204,7 +334,7 @@ pub fn nether_part() -> (Vec<([i32; 3], String)>, [i32; 3]) {
         put(0, y, 2, "obsidian");
     }
     for x in 1..=len {
-        for y in 62..=66 {
+        for y in 62..=top {
             put(x, y, -1, "cobblestone");
             put(x, y, 2, "cobblestone");
         }
@@ -214,8 +344,19 @@ pub fn nether_part() -> (Vec<([i32; 3], String)>, [i32; 3]) {
         put(x, 61, 1, "hopper[enabled=true,facing=north]");
         put(x, 61, 0, if x == 1 { "hopper[enabled=true,facing=down]" } else { "hopper[enabled=true,facing=west]" });
     }
-    put(1, 60, 0, "chest[facing=east,type=single,waterlogged=false]");
-    (out, [1, 60, 0])
+    // the collection under the pit (its line hopper under the pit's last hopper), the player's
+    // room and ladder
+    let (coll, bes, output) = collection();
+    let mut seen: std::collections::BTreeMap<[i32; 3], String> = out.into_iter().collect();
+    for (p, s) in coll {
+        if let Some(old) = seen.get(&p)
+            && *old != s
+        {
+            panic!("the collection's {s} at {p:?} meets the Nether part's {old}");
+        }
+        seen.insert(p, s);
+    }
+    (seen.into_iter().collect(), bes, output)
 }
 
 /// The station's bench design: the release + hold part ([`crate::hold::design`]) with the pad
@@ -231,9 +372,13 @@ pub fn design(o: &PadOpts, lanes: &LaneOpts) -> Result<String> {
         }
         d.blocks.insert(p, s);
     }
-    let (nether, out) = nether_part();
+    let (nether, nether_bes, out) = nether_part();
     for (p, s) in nether {
         d.nether_blocks.insert(p, s);
+    }
+    // the sorter's stock and the crafter's disabled slots (`nether nbt:` lines)
+    for (p, s) in nether_bes {
+        d.nether_block_entities.insert(p, s);
     }
     d.nether_ports.insert("nether-output".into(), out);
     d.ports.insert("nether-anchor".into(), [0, 0, 0]);
@@ -488,6 +633,106 @@ pub fn probe_pulse(spec: &FarmSpec, o: &PadOpts, cell: [i32; 3], ticks: u32) -> 
     Ok(out)
 }
 
+/// Paste `blocks` at their own coordinates in `dim` of the official server (forceloaded, the box
+/// cleared with a margin): strict setblocks (no updates, so a portal's cells stand before their
+/// frame is whole), the attached blocks after their supports, fluids last (each its own placing
+/// update), then the block entities (`data merge block`).
+fn paste_official(srv: &mut mctas::vanilla::VanillaServer, dim: &str, blocks: &[([i32; 3], String)], bes: &[([i32; 3], String)]) -> Result<()> {
+    let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+    for (p, _) in blocks {
+        for i in 0..3 {
+            lo[i] = lo[i].min(p[i] - 4);
+            hi[i] = hi[i].max(p[i] + 4);
+        }
+    }
+    let run = format!("execute in {dim} run");
+    srv.cmd_ok(&format!("{run} forceload add {} {} {} {}", lo[0], lo[2], hi[0], hi[2]))?;
+    srv.step(40)?;
+    for y in lo[1]..=hi[1] {
+        srv.cmd(&format!("{run} fill {} {y} {} {} {y} {} minecraft:air", lo[0], lo[2], hi[0], hi[2]))?;
+    }
+    let fluid = |s: &str| s.starts_with("minecraft:lava");
+    let late = |s: &str| s.contains("tripwire") || s.contains("wall_sign") || s.contains("redstone_wire") || s.contains("nether_portal") || s.contains("torch") || s.contains("comparator") || s.contains("repeater");
+    for pass in 0..3 {
+        for (p, s) in blocks.iter().filter(|(_, s)| match pass {
+            0 => !fluid(s) && !late(s),
+            1 => late(s),
+            _ => fluid(s),
+        }) {
+            let r = srv.cmd(&format!("{run} setblock {} {} {} {s}{}", p[0], p[1], p[2], if pass == 2 { "" } else { " strict" }))?;
+            if !r.contains("Changed the block") && !r.contains("Could not set the block") {
+                anyhow::bail!("setblock {p:?} {s} in {dim}: {r}");
+            }
+        }
+    }
+    for (p, snbt) in bes {
+        srv.cmd_ok(&format!("{run} data merge block {} {} {} {snbt}", p[0], p[1], p[2]))?;
+    }
+    Ok(())
+}
+
+/// `station-storage --official`: the storage bench on the official server (the Nether part's pit
+/// floor and collection in the overworld of a void world, no portal or lava): each 100 gt a
+/// golem's drops summoned on a random pit cell (the same draws as the redsim bench), for `hours`;
+/// each hour the iron blocks and ingots in the double chest, the buffer and the line, and the bone
+/// meal (read with `data get block`), and any item entity left in the world at the end.
+pub fn storage_official(version: &str, hours: f64, seed: i64, success: f64) -> Result<Vec<String>> {
+    use mctas::vanilla::{VanillaOptions, VanillaServer};
+    let mut srv = VanillaServer::start(&VanillaOptions { version: version.to_string(), difficulty: "easy".into(), tick_rate: 1000, ..Default::default() })?;
+    srv.cmd_ok("gamerule spawn_mobs false")?;
+    srv.cmd_ok("gamerule advance_time false")?;
+    srv.cmd_ok("gamerule advance_weather false")?;
+    let (blocks, bes, out) = nether_part();
+    let blocks: Vec<([i32; 3], String)> = blocks.into_iter().filter(|(_, s)| !s.contains("nether_portal") && !s.contains("lava")).collect();
+    paste_official(&mut srv, "minecraft:overworld", &blocks, &bes)?;
+    srv.step(100)?;
+    let count = |srv: &mut VanillaServer, p: [i32; 3], item: &str| -> Result<u32> {
+        let r = srv.cmd_long(&format!("data get block {} {} {} Items", p[0], p[1], p[2]))?;
+        // each stack prints as {count: N, id: "minecraft:item"} (in either order)
+        let mut n = 0u32;
+        for part in r.split('{').skip(1) {
+            if part.contains(&format!("\"minecraft:{item}\""))
+                && let Some(c) = part.split("count: ").nth(1)
+            {
+                n += c.chars().take_while(|ch| ch.is_ascii_digit()).collect::<String>().parse::<u32>().unwrap_or(0);
+            }
+        }
+        Ok(n)
+    };
+    let mut rng = redsim::rng::LegacyRandom::new(seed);
+    let mut lines = Vec::new();
+    let (mut dropped, mut poppies) = (0u32, 0u32);
+    let steps = (hours * 720.0) as i64;
+    for k in 1..=steps {
+        if (rng.next_float() as f64) < success {
+            let (x, z) = (1.1 + (PIT_LEN as f64 - 0.2) * rng.next_float() as f64, 0.3 + 1.4 * rng.next_float() as f64);
+            let iron = 3 + rng.next_int(3);
+            let pop = rng.next_int(3);
+            dropped += iron as u32;
+            poppies += pop as u32;
+            srv.cmd_ok(&format!("summon minecraft:item {x:.3} 62 {z:.3} {{Item:{{id:\"minecraft:iron_ingot\",count:{iron}}}}}"))?;
+            if pop > 0 {
+                srv.cmd_ok(&format!("summon minecraft:item {x:.3} 62 {z:.3} {{Item:{{id:\"minecraft:poppy\",count:{pop}}}}}"))?;
+            }
+        }
+        srv.step(100)?;
+        if k % 720 == 0 || k == steps {
+            let mut chest = 0;
+            for p in [out, [out[0], out[1], out[2] + 1]] {
+                chest += 9 * count(&mut srv, p, "iron_block")? + count(&mut srv, p, "iron_ingot")?;
+            }
+            let mut line = 0;
+            for p in [[2, 55, 0], [2, 54, 0], [1, 54, 0], [1, 57, 0], [1, 56, 0], [2, 56, 0]] {
+                line += 9 * count(&mut srv, p, "iron_block")? + count(&mut srv, p, "iron_ingot")?;
+            }
+            let bone = count(&mut srv, [3, 57, 0], "bone_meal")?;
+            let loose = srv.cmd("execute if entity @e[type=item]")?;
+            lines.push(format!("{:.1} h: iron dropped {dropped} (poppies {poppies}); in the double chest {chest}, buffer + line + crafter {line}; bone meal {bone}; items in the world: {}", k as f64 / 720.0, loose.trim()));
+        }
+    }
+    Ok(lines)
+}
+
 /// `station-check --official`: the pad and its Nether part on the official server, one golem
 /// summoned on each given trench cell `stagger` ticks apart, printed each tick for `ticks` ticks
 /// after each summon: where the golem is (overworld, Nether or gone) and the pulse's dust power.
@@ -498,43 +743,10 @@ pub fn probe_official(version: &str, o: &PadOpts, cells: &[[i32; 3]], ticks: u32
     srv.cmd_ok("gamerule advance_time false")?;
     srv.cmd_ok("time set 6000")?;
     let ow = pad(o)?;
-    let (ne, _) = nether_part();
-    let boxed = |b: &[([i32; 3], String)], m: i32| {
-        let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
-        for (p, _) in b {
-            for i in 0..3 {
-                lo[i] = lo[i].min(p[i] - m);
-                hi[i] = hi[i].max(p[i] + m);
-            }
-        }
-        (lo, hi)
-    };
+    let (ne, nbes, _) = nether_part();
     let mut out = Vec::new();
-    for (dim, blocks) in [("minecraft:overworld", &ow), ("minecraft:the_nether", &ne)] {
-        let run = format!("execute in {dim} run");
-        let (lo, hi) = boxed(blocks, 4);
-        srv.cmd_ok(&format!("{run} forceload add {} {} {} {}", lo[0], lo[2], hi[0], hi[2]))?;
-        srv.step(40)?;
-        for y in lo[1]..=hi[1] {
-            srv.cmd(&format!("{run} fill {} {y} {} {} {y} {} minecraft:air", lo[0], lo[2], hi[0], hi[2]))?;
-        }
-        // (strict: no updates, so the portal cells stand before their frame is whole; the
-        // attached blocks after their supports; fluids last, each its own placing update)
-        let fluid = |s: &str| s.starts_with("minecraft:lava");
-        let late = |s: &str| s.contains("tripwire") || s.contains("wall_sign") || s.contains("redstone_wire") || s.contains("nether_portal");
-        for pass in 0..3 {
-            for (p, s) in blocks.iter().filter(|(_, s)| match pass {
-                0 => !fluid(s) && !late(s),
-                1 => late(s),
-                _ => fluid(s),
-            }) {
-                let r = srv.cmd(&format!("{run} setblock {} {} {} {s}{}", p[0], p[1], p[2], if pass == 2 { "" } else { " strict" }))?;
-                if !r.contains("Changed the block") && !r.contains("Could not set the block") {
-                    anyhow::bail!("setblock {p:?} {s} in {dim}: {r}");
-                }
-            }
-        }
-    }
+    paste_official(&mut srv, "minecraft:overworld", &ow, &[])?;
+    paste_official(&mut srv, "minecraft:the_nether", &ne, &nbes)?;
     srv.step(200)?;
     let pulse = o.pulse();
     for (k, c) in cells.iter().enumerate() {
@@ -716,6 +928,11 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
     let mut crossed_seen = run.world.crossings.len();
     let mut items_back: std::collections::BTreeSet<u32> = Default::default();
     let mut nether_ev_seen = run.world.nether.as_deref().map_or(0, |n| n.mob.events.len());
+    // the iron the design stocks in the Nether part (the sorter's iron filter and lock)
+    let stock_iron: u32 = run.world.nether.as_deref().map_or(0, |n| {
+        let ingot = redsim::redstone::container::item_id("iron_ingot");
+        n.containers.map.values().map(|c| c.slots.iter().flatten().filter(|s| Some(s.item) == ingot).map(|s| s.count as u32).sum::<u32>()).sum()
+    });
     let mut returned: std::collections::BTreeSet<u32> = Default::default();
     let mut ev_seen = run.world.mob.events.len();
     // the timing view, if asked (farmopt's tags): the stand cells, the pad, the holds, the pulse
@@ -905,7 +1122,14 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
             }
             nether_ev_seen = n.mob.events.len();
             if rep.chest_full_at.is_none() {
-                let full = spec.nether.as_ref().and_then(|ns| ns.output_at()).and_then(|p| n.containers.map.get(&p)).is_some_and(|c| c.slots.iter().all(|s| s.as_ref().is_some_and(|s| s.count >= 64)));
+                // (the output chest and, a double one, its other half: both full)
+                let full = spec.nether.as_ref().and_then(|ns| ns.output_at()).is_some_and(|o| {
+                    let halves: Vec<BlockPos> = match redsim::redstone::container::double_chest(n, o) {
+                        Some((a, b)) => vec![a, b],
+                        None => vec![o],
+                    };
+                    halves.iter().all(|p| n.containers.map.get(p).is_some_and(|c| c.slots.iter().all(|s| s.as_ref().is_some_and(|s| s.count >= 64))))
+                });
                 if full {
                     rep.chest_full_at = Some(t - t0);
                 }
@@ -952,12 +1176,16 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
         let out = spec.nether.as_ref().and_then(|ns| ns.output_at());
         for (p, c) in &n.containers.map {
             let iron: u32 = c.slots.iter().flatten().map(|s| if Some(s.item) == ingot { s.count as u32 } else if Some(s.item) == block { 9 * s.count as u32 } else { 0 }).sum();
-            if Some(*p) == out {
+            // the output chest and the other half of a double one; every other container (the
+            // sorter's hoppers, the crafter, the buffer chest) is the collection's
+            let paired = out.is_some_and(|o| redsim::redstone::container::double_chest(n, o).is_some_and(|(a, b)| a == *p || b == *p));
+            if Some(*p) == out || paired {
                 rep.iron_chest += iron;
             } else {
                 rep.iron_hoppers += iron;
             }
         }
+        rep.iron_hoppers = rep.iron_hoppers.saturating_sub(stock_iron);
         rep.iron_loose = n.entities.list.iter().filter(|e| !e.removed).map(|e| match &e.kind {
             EntityKind::Item(it) if it.item == "minecraft:iron_ingot" => it.count as u32,
             _ => 0,
