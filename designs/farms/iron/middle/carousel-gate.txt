@@ -1,4 +1,4 @@
-# CIRCUIT: iron-carousel-3x4-28 mob-farm iron_ingot middle iron per hour per block 0.17, iron per hour 434, iron range 95% 429-439 (8 runs), golems per hour 109.6, seconds per golem 32.8, share of ceiling 91%, modules 1, iron per hour per module 434, kill 416 gt, kill tail the longest 1122 gt: no golem outlived 1200 gt in 1462 golems (95% bound 0.21% a golem), golems at the zombie 0 of 1462 golems targeted the farm's zombie, riding 40 middays, 0 with a villager not riding (the fewest 12 of 12); 1460 of 1462 golems summoned by riders, 2 by villagers off their carts, misses 1136 of 2598 tries found no spot, 4055 golem sightings, bill 333 iron, 56 quartz, 0 villagers, 12 beds, 1 zombie, payback 46 min, build time 211 min at middle prices (2547 placed, 0 dug, 1 lava trips, 0 villagers moved), time to an iron kit 214 min (the build, then 24 iron at the card's rate, then the trip to the chest), build minutes 210.8, t kit minutes 214.2, collecting 0 s per trip to the chest (2 x its depth, 0 layers, at the access's speed), iron per hour sleeping 793, volume per module 57319, entities alive 26.7, entities peak 29, tools bucket 3 + shears 2 + iron pickaxe 3, lava sources 4, materials Nether: quartz in 22 blocks, chunk columns 9, storage 5.3 h (47 slots; 108 poppies/h), hoppers per 1000 iron/h 9.2, 2560 blocks, 43x31x43, redsim (position-dependent: 7 of 8 builds fail: rotation 0 at [0, 0, 0]: gt 51379: the world went wrong: entity 1 dismounted from a removed vehicle and lives on: LivingEntity.dismountVehicle's findFreePosition is not modeled)
+# CIRCUIT: iron-carousel-3x4-28 mob-farm iron_ingot middle iron per hour per block 0.17, iron per hour 430, iron range 95% 420-441 (8 runs), golems per hour 108.6, seconds per golem 33.1, share of ceiling 90%, modules 1, iron per hour per module 430, kill 416 gt, kill tail the longest 1099 gt: no golem outlived 1200 gt in 1448 golems (95% bound 0.21% a golem), golems at the zombie 0 of 1448 golems targeted the farm's zombie, riding 40 middays, 0 with a villager not riding (the fewest 12 of 12); 1448 of 1448 golems summoned by riders, 0 by villagers off their carts, misses 1240 of 2688 tries found no spot, 3838 golem sightings, bill 333 iron, 56 quartz, 0 villagers, 12 beds, 1 zombie, payback 46 min, build time 211 min at middle prices (2549 placed, 0 dug, 1 lava trips, 0 villagers moved), time to an iron kit 214 min (the build, then 24 iron at the card's rate, then the trip to the chest), build minutes 211.1, t kit minutes 214.4, collecting 0 s per trip to the chest (2 x its depth, 0 layers, at the access's speed), iron per hour sleeping 786, volume per module 57319, entities alive 26.7, entities peak 29, tools bucket 3 + shears 2 + iron pickaxe 3, lava sources 4, materials Nether: quartz in 22 blocks, chunk columns 9, storage 5.4 h (47 slots; 108 poppies/h), hoppers per 1000 iron/h 9.3, 2562 blocks, 43x31x43, redsim (position-dependent: 7 of 8 builds fail: rotation 0 at [0, 0, 0]: gt 63000: villager 11 has not slept for 30050 gt (no golems: golemSpawnConditionsMet); gt 64000: villager 11 has not slept for 31050 gt (no golems: golemSpawnConditionsMet); gt 65000: villager 11 has not slept for 32050 gt (no golems: golemSpawnConditionsMet); golem exit: a golem from 6.2995 1.00 6.3005 walking still: pinned at 6.30 1.00 6.30: it stood still 100 gt out of the lava (no current carries it); golem exit: a golem from 6.3005 1.00 6.2995 walking still: pinned at 6.30 1.00 6.30: it stood still 100 gt out of the lava (no current carries it); golem exit: a golem from 8.2995 1.00 6.3005 walking still: pinned at 6.00 1.00 6.30: it stood still 100 gt out of the lava (no current carries it); golem exit: a golem from 6.3005 1.00 8.2995 walking still: pinned at 6.30 1.00 6.00: it stood still 100 gt out of the lava (no current carries it); golem exit: a golem from 8.5000 0.00 22.5000 walking still: pinned at 8.50 0.00 22.50: it stood still 100 gt out of the lava (no current carries it); golem exit: a golem from 8.5000 0.00 22.5000 walking walk yaw 0 x1: gt 130: a golem left the build at 8.5 -27.8 37.7; after 3 days away (chunks unloaded, back by day): gt 121024: the carousel stalled: 0 of the 12 villagers that rode ride at midday)
 # Carousel (L1 prototype): 4 groups of 3 villagers, one per minecart, on 3 concentric loops (inner side 28); the golem's fall
 # through a tripwire releases every cart at once to its next stop; the north stops are the station over the pad. At dusk each cart drops its
 # villager onto its stop's bed and waits there empty; at dawn it picks the villager up from a pocket past the brake.
@@ -22,34 +22,34 @@ entity: minecraft:minecart 31.7 -0.2375 34.5 {Passengers:[{id:"minecraft:village
 entity: minecraft:minecart -5.5 -0.2375 31.7 {Passengers:[{id:"minecraft:villager"}]}
 origin: -7 0 -7
 palette:
-  ! minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
-  " minecraft:redstone_wire[east=side,north=up,power=0,south=none,west=none]
-  $ minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
-  % minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=up]
-  & minecraft:redstone_wire[east=none,north=none,power=0,south=up,west=side]
-  ' minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=none]
-  ( minecraft:redstone_wire[east=side,north=up,power=0,south=none,west=side]
-  ) minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
-  * minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
-  + minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
-  , minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=side]
-  / minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=side]
-  0 minecraft:red_bed[facing=north,occupied=false,part=head]
-  1 minecraft:red_bed[facing=south,occupied=false,part=foot]
-  2 minecraft:red_bed[facing=south,occupied=false,part=head]
-  3 minecraft:red_bed[facing=west,occupied=false,part=foot]
-  4 minecraft:red_bed[facing=west,occupied=false,part=head]
-  5 minecraft:redstone_block
-  6 minecraft:redstone_torch[lit=true]
-  7 minecraft:redstone_wall_torch[facing=east,lit=true]
-  8 minecraft:redstone_wall_torch[facing=north,lit=true]
-  9 minecraft:redstone_wall_torch[facing=south,lit=true]
-  ; minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
-  < minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=up]
-  = minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=none]
-  > minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
-  ? minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=up]
-  @ minecraft:redstone_wall_torch[facing=west,lit=true]
+  ! minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=up]
+  " minecraft:redstone_wire[east=side,north=side,power=0,south=up,west=side]
+  $ minecraft:redstone_wall_torch[facing=west,lit=true]
+  % minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=side]
+  & minecraft:redstone_wire[east=none,north=none,power=0,south=side,west=up]
+  ' minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=side]
+  ( minecraft:redstone_wire[east=side,north=up,power=0,south=none,west=none]
+  ) minecraft:redstone_wire[east=side,north=up,power=0,south=none,west=side]
+  * minecraft:redstone_wire[east=none,north=none,power=0,south=up,west=side]
+  + minecraft:redstone_wire[east=none,north=side,power=0,south=none,west=side]
+  , minecraft:redstone_wire[east=side,north=side,power=0,south=none,west=none]
+  / minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
+  0 minecraft:red_bed[facing=north,occupied=false,part=foot]
+  1 minecraft:red_bed[facing=north,occupied=false,part=head]
+  2 minecraft:red_bed[facing=south,occupied=false,part=foot]
+  3 minecraft:red_bed[facing=south,occupied=false,part=head]
+  4 minecraft:red_bed[facing=west,occupied=false,part=foot]
+  5 minecraft:red_bed[facing=west,occupied=false,part=head]
+  6 minecraft:redstone_block
+  7 minecraft:redstone_torch[lit=true]
+  8 minecraft:redstone_wall_torch[facing=east,lit=true]
+  9 minecraft:redstone_wall_torch[facing=north,lit=true]
+  ; minecraft:redstone_wire[east=side,north=none,power=0,south=up,west=side]
+  < minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=none]
+  = minecraft:redstone_wire[east=none,north=side,power=0,south=side,west=none]
+  > minecraft:redstone_wire[east=none,north=up,power=0,south=side,west=up]
+  ? minecraft:redstone_wire[east=none,north=side,power=0,south=up,west=none]
+  @ minecraft:redstone_wall_torch[facing=south,lit=true]
   A minecraft:activator_rail[powered=false,shape=east_west,waterlogged=false]
   B minecraft:comparator[facing=east,mode=compare,powered=false]
   C minecraft:chest[facing=north,type=single,waterlogged=false]
@@ -66,63 +66,64 @@ palette:
   N minecraft:iron_trapdoor[facing=south,half=top,open=true,powered=true,waterlogged=false]
   O minecraft:iron_trapdoor[facing=west,half=bottom,open=true,powered=false,waterlogged=false]
   P minecraft:iron_trapdoor[facing=west,half=top,open=true,powered=true,waterlogged=false]
-  Q minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
-  R minecraft:oak_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false]
-  S minecraft:oak_trapdoor[facing=east,half=top,open=false,powered=false,waterlogged=false]
-  T minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
-  U minecraft:oak_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
-  V minecraft:oak_wall_sign[facing=east,waterlogged=false]
-  W minecraft:oak_wall_sign[facing=west,waterlogged=false]
-  X minecraft:observer[facing=west,powered=false]
-  Y minecraft:powered_rail[powered=true,shape=ascending_north,waterlogged=false]
-  Z minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
-  \ minecraft:redstone_wire[east=side,north=none,power=0,south=up,west=none]
-  ^ minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=up]
-  ` minecraft:redstone_wire[east=side,north=side,power=0,south=up,west=side]
+  Q minecraft:lightning_rod[facing=up,powered=false,waterlogged=false]
+  R minecraft:oak_leaves[distance=1,persistent=true,waterlogged=false]
+  S minecraft:oak_trapdoor[facing=east,half=bottom,open=false,powered=false,waterlogged=false]
+  T minecraft:oak_trapdoor[facing=east,half=top,open=false,powered=false,waterlogged=false]
+  U minecraft:oak_trapdoor[facing=north,half=bottom,open=false,powered=false,waterlogged=false]
+  V minecraft:oak_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]
+  W minecraft:oak_wall_sign[facing=east,waterlogged=false]
+  X minecraft:oak_wall_sign[facing=west,waterlogged=false]
+  Y minecraft:observer[facing=west,powered=false]
+  Z minecraft:powered_rail[powered=true,shape=ascending_north,waterlogged=false]
+  \ minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=side]
+  ^ minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=side]
+  ` minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=none]
   a minecraft:activator_rail[powered=false,shape=north_south,waterlogged=false]
-  b minecraft:powered_rail[powered=true,shape=ascending_west,waterlogged=false]
+  b minecraft:powered_rail[powered=true,shape=ascending_south,waterlogged=false]
   c minecraft:cobblestone
   d minecraft:daylight_detector[inverted=false,power=0]
-  e minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
-  f minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  e minecraft:powered_rail[powered=true,shape=ascending_west,waterlogged=false]
+  f minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
   g minecraft:glass
   h minecraft:hopper[enabled=true,facing=east]
   i minecraft:iron_trapdoor[facing=east,half=bottom,open=true,powered=false,waterlogged=false]
-  j minecraft:rail[shape=ascending_north,waterlogged=false]
-  k minecraft:rail[shape=ascending_south,waterlogged=false]
+  j minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  k minecraft:rail[shape=ascending_north,waterlogged=false]
   l minecraft:lava[level=0]
   m minecraft:mud
-  n minecraft:rail[shape=ascending_west,waterlogged=false]
+  n minecraft:rail[shape=ascending_south,waterlogged=false]
   o minecraft:oak_fence_gate[facing=east,in_wall=false,open=true,powered=false]
   p minecraft:powered_rail[powered=true,shape=ascending_east,waterlogged=false]
-  q minecraft:rail[shape=east_west,waterlogged=false]
+  q minecraft:rail[shape=ascending_west,waterlogged=false]
   r minecraft:rail[shape=ascending_east,waterlogged=false]
-  s minecraft:rail[shape=north_east,waterlogged=false]
-  t minecraft:rail[shape=north_south,waterlogged=false]
-  u minecraft:rail[shape=north_west,waterlogged=false]
-  v minecraft:rail[shape=south_east,waterlogged=false]
-  w minecraft:rail[shape=south_west,waterlogged=false]
-  x minecraft:red_bed[facing=east,occupied=false,part=foot]
-  y minecraft:red_bed[facing=east,occupied=false,part=head]
-  z minecraft:red_bed[facing=north,occupied=false,part=foot]
-  { minecraft:redstone_wire[east=up,north=side,power=0,south=none,west=none]
-  | minecraft:redstone_wire[east=side,north=none,power=0,south=up,west=side]
-  } minecraft:redstone_wire[east=up,north=side,power=0,south=side,west=none]
-  ~ minecraft:redstone_wire[east=side,north=none,power=0,south=side,west=none]
-  À minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
-  Á minecraft:repeater[delay=1,facing=east,locked=false,powered=true]
-  Â minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
-  Ã minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
-  Ä minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
-  Å minecraft:repeater[delay=1,facing=west,locked=false,powered=true]
-  Æ minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
-  Ç minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
-  È minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
-  É minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
-  Ê minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
-  Ë minecraft:tripwire_hook[attached=true,facing=east,powered=false]
-  Ì minecraft:tripwire_hook[attached=true,facing=west,powered=false]
-  Í minecraft:water[level=0]
+  s minecraft:rail[shape=east_west,waterlogged=false]
+  t minecraft:rail[shape=north_east,waterlogged=false]
+  u minecraft:rail[shape=north_south,waterlogged=false]
+  v minecraft:rail[shape=north_west,waterlogged=false]
+  w minecraft:rail[shape=south_east,waterlogged=false]
+  x minecraft:rail[shape=south_west,waterlogged=false]
+  y minecraft:red_bed[facing=east,occupied=false,part=foot]
+  z minecraft:red_bed[facing=east,occupied=false,part=head]
+  { minecraft:redstone_wire[east=up,north=none,power=0,south=none,west=side]
+  | minecraft:redstone_wire[east=side,north=none,power=0,south=up,west=none]
+  } minecraft:redstone_wire[east=up,north=side,power=0,south=none,west=none]
+  ~ minecraft:redstone_wire[east=side,north=none,power=0,south=none,west=up]
+  À minecraft:redstone_wire[east=up,north=side,power=0,south=side,west=none]
+  Á minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  Â minecraft:repeater[delay=1,facing=east,locked=false,powered=true]
+  Ã minecraft:repeater[delay=1,facing=north,locked=false,powered=false]
+  Ä minecraft:repeater[delay=1,facing=south,locked=false,powered=false]
+  Å minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  Æ minecraft:repeater[delay=1,facing=west,locked=false,powered=true]
+  Ç minecraft:repeater[delay=4,facing=east,locked=false,powered=false]
+  È minecraft:repeater[delay=4,facing=north,locked=false,powered=false]
+  É minecraft:repeater[delay=4,facing=south,locked=false,powered=false]
+  Ê minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  Ë minecraft:tripwire[attached=true,disarmed=false,east=true,north=false,powered=false,south=false,west=true]
+  Ì minecraft:tripwire_hook[attached=true,facing=east,powered=false]
+  Í minecraft:tripwire_hook[attached=true,facing=west,powered=false]
+  Î minecraft:water[level=0]
 layer -24:
   .
   .
@@ -793,15 +794,15 @@ layer -9:
   .
   .
   .
-  ..>>>>É>$
-  ..8.....{c
-  ~)c^>>...c..cc
-  +...c@cBFc.c..c
-  +........c.c..c
-  +...........cc
-  +
-  +
-  +
+  ..^^^^Ê^%
+  ..9.....}c
+  /{c~^^...c..cc
+  =...c$cBFc.c..c
+  =........c.c..c
+  =...........cc
+  =
+  =
+  =
   d
   .
   .
@@ -838,11 +839,11 @@ layer -8:
   .
   .
   .
-  .........$
-  ..>......Ç..cc
-  ..@cBG..\ÀcËÊÊÌc
-  ........cÃ.c..c
-  .........8..cc
+  .........%
+  ..^......È..cc
+  ..$cBG..|ÁcÌËËÍc
+  ........cÄ.c..c
+  .........9..cc
   .........c
   .
   .
@@ -885,9 +886,9 @@ layer -7:
   .
   ............cc
   ...g.g.....c..c
-  ........=..c..c
+  ........?..c..c
   ........c...cc
-  .........=
+  .........?
   .........c
   .
   .
@@ -930,9 +931,9 @@ layer -6:
   ............cc
   ...........c..c
   ...........c..c
-  ........=...cc
+  ........?...cc
   ........c
-  .........;d
+  .........,d
   .
   .
   .
@@ -975,7 +976,7 @@ layer -5:
   ...........c..c
   ...........c..c
   ............cc
-  ........=
+  ........?
   ........cc
   .
   .
@@ -1020,7 +1021,7 @@ layer -4:
   ...........c..c
   ............cc
   .
-  ........;&
+  ........,*
   ...ccccccccc
   ...........c
   .
@@ -1049,24 +1050,24 @@ layer -4:
   .
 layer -3:
   .
-  ....6
+  ....7
   ....c
   .
-  .......6................................c6
+  .......7................................c7
   .......c
   .
-  ..........6..........................c6
+  ..........7..........................c7
   ..........c
   .
-  ..................................c6
+  ..................................c7
   ............cc
   ...........c..c
   ...........c..c
   ............cc
   .
   ...c..c
-  ...">>(>Æ`À$
-  .........c.=
+  ...(^^)^Ç"Á%
+  .........c.?
   ...........c
   .
   .
@@ -1080,38 +1081,38 @@ layer -3:
   .................c
   .........c
   .........c
-  .......6c
+  .......7c
   .
   ................................c
-  ....6c..........................6
+  ....7c..........................7
   .
   ...................................c
-  .6c................................6
+  .7c................................7
   .
   ......................................c
-  ......................................6
+  ......................................7
   .
 layer -2:
   .
-  ....mc5cccccccccccccccccccccccccccccccccc
-  .c..Ã
+  ....mc6cccccccccccccccccccccccccccccccccc
+  .c..Ä
   .ccccccccccccccccccccccccccccccccccccccc
-  .c.c...mc5cccccccccccccccccccccccccccc.cÄm
-  .c.cc..Ã...............................c.c
-  .c.cccccccccccccccccccccccccccccccccc..c.5
-  .c.cc.c...mc5cccccccccccccccccccccc.cÄmc.c
-  .c.cc.cc..Ã.........................c.cc.c
-  .c.cc.cccccccccccccccccccccccccccc..c.5c.c
-  .c.cc.ccc........................cÄmc.cc.c
+  .c.c...mc6cccccccccccccccccccccccccccc.cÅm
+  .c.cc..Ä...............................c.c
+  .c.cccccccccccccccccccccccccccccccccc..c.6
+  .c.cc.c...mc6cccccccccccccccccccccc.cÅmc.c
+  .c.cc.cc..Ä.........................c.cc.c
+  .c.cc.cccccccccccccccccccccccccccc..c.6c.c
+  .c.cc.ccc........................cÅmc.cc.c
   .c.cc.ccc...cc...................c.cc.cc.c
-  .c.cc.ccc..c..c..................c.5c.cc.c
+  .c.cc.ccc..c..c..................c.6c.cc.c
   .c.cc.ccc..c..c..................c.cc.cc.c
   .c.cc.ccc...cc...................c.cc.cc.c
   .c.cc.ccc........................c.cc.cc.c
-  .c.!c.!cc........................c.cc.cc.c
+  .c.<c.<cc........................c.cc.cc.c
   .c..c..cc........................c.cc.cc.c
-  .c..c..cc?.......................c.cc.cc.c
-  .c..c..ccc.=.....................c.cc.cc.c
+  .c..c..cc!.......................c.cc.cc.c
+  .c..c..ccc.?.....................c.cc.cc.c
   .c..c..c...c.....................c.cc.cc.c
   .c..c..c...c.....................c.cc.cc.c
   .c..c..c...c.....................c.cc.cc.c
@@ -1121,163 +1122,163 @@ layer -2:
   .c..c..c...ccccccc...............c.cc.cc.c
   .c..c..c.......c..c..............c.cc.cc.c
   .c..c..c.c...ccc..cc.............c.cc.cc.c
-  .c..c..c.c...cc@c>dc.............c.cc.cc.c
-  .c..c..5.!.....c...c.............c.cc.cc.c
-  .c..c.cc.Ãcccccccccc.............c.cc.cc.c
-  .c..c.cmÀc.......................c.cc.cc.c
-  .c..5.c..ccccccccccccccccccccccccc.cc.cc.c
-  .c.cc.c.........................Â..cc.cc.c
-  .c.cmÀc.cccccccccccccccccccccc5cm...c.cc.c
-  .5.c..ccccccccccccccccccccccccccccccc.cc.c
-  .c.c...............................Â..cc.c
-  .mÀc.cccccccccccccccccccccccccccc5cm...c.c
+  .c..c..c.c...cc$c^dc.............c.cc.cc.c
+  .c..c..6.<.....c...c.............c.cc.cc.c
+  .c..c.cc.Äcccccccccc.............c.cc.cc.c
+  .c..c.cmÁc.......................c.cc.cc.c
+  .c..6.c..ccccccccccccccccccccccccc.cc.cc.c
+  .c.cc.c.........................Ã..cc.cc.c
+  .c.cmÁc.cccccccccccccccccccccc6cm...c.cc.c
+  .6.c..ccccccccccccccccccccccccccccccc.cc.c
+  .c.c...............................Ã..cc.c
+  .mÁc.cccccccccccccccccccccccccccc6cm...c.c
   ...ccccccccccccccccccccccccccccccccccccc.c
-  ......................................Â..c
-  ..cccccccccccccccccccccccccccccccccc5cm
+  ......................................Ã..c
+  ..cccccccccccccccccccccccccccccccccc6cm
   .
 layer -1:
   ..ggggg
-  .cccbqeqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqrc
-  .j.gxyg..c...............................cg
-  .t>/>>>Ä>(>>>>>>>>>>Ä>>>>>>>>>>>>Ä>>>>>$gcg
-  .t.+cccbqeqqqqqqqqqqqqqqqqqqqqqqqqqqqrc+1Yg
-  .t.+j.gxyg............................c+2tg
-  .t.+t>/>>>Ä>>>>>>>>>>>>Ä>>>>>>>>>>>>$gc+gfg
-  .t.+t.+cccbqeqqqqqqqqqqqqqqqqqqqqqrc+1YÂ.t
-  .t.+t.+j.gxyg.c....................cÂ2t}ct
-  .t.+t.+t~>>>>Ä(>>>>>>>>>>>Ä>>>>>>$gc+gf+.t
-  .t.+t.+t+........................+1YÂ.t+.t
-  .t.Èt.Èt+...cc...................+2t}ct+.t
-  .t.+t.+t+..c..c..................+gf+.t+.t
-  .t.+t.+t+..c..c..................Â.t+.t+.t
-  .t.+t.+t+...cc...................}ct+.t+.t
-  .t.+t.+t+........................+.t+.t+.t
-  .t..t..tÈ........................+.t+.t+.t
-  .t..t..t+........................+.t+.t+.t
-  .t..t..t'........................+.t+.t+.t
-  .t..t..t;*.......................+.t+.t+.t
-  .t..t..t...+.....................+.t+.tÂ.t
-  .t..t..t...+.....................+.t+.t+.t
-  .t..t..t...+.....................+.t+.t+.t
-  .t..t..t...+.....................+.tÂ.t+.t
-  .t..t..t...+.....~$..............+.t+.t+.t
-  .t..t..t...Ã.....ÂÃ..............+.t+.t+.t
-  .t..t..t...;>>>/>Dc..............Â.t+.t+.t
-  .t..t..t.......+..Ã..............+.t+.t+.t
-  .t..t..tc%...~ÅE..;$.............+.t+.t+.t
-  .t..t..t.+...;Ác...+.............+.t+.t+.t
-  .t..t..fg......Â...+.............+.t+.t+.t
-  .t..tc%t0X>>>>>É>>>*.............+.t+.t+.t
-  .t..t.ÃZz+.......................+.t+.t+.t
-  .t..fg+cg;>>>>>>À>>>>>>>>>>>|À>>>*.t+.tÂ.t
-  .tc%t0Ãc....................c.g43g.k+.t+.t
-  .t.ÃZz+cnqqqqqqqqqqqqqqqqqqqqqeqpccc+.t+.t
-  gfg+cg;>>>>>>>>>>>>À>>>>>>>>>>>|À>À>*.t+.t
-  gt0+c..........................c.g43g.k+.t
-  gZz+cnqqqqqqqqqqqqqqqqqqqqqqqqqqqeqpccc+.t
-  gcg;>>>>>À>>>>>>>>>>>>À>>>>>>>>>>>|À>>>*.t
-  gc................................c.g43g.k
-  .cnqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqeqpccc
+  .cccesfsssssssssssssssssssssssssssssssssrc
+  .k.gyzg..c...............................cg
+  .u^\^^^Å^)^^^^^^^^^^Å^^^^^^^^^^^^Å^^^^^%gcg
+  .u.=cccesfsssssssssssssssssssssssssssrc=2Zg
+  .u.=k.gyzg............................c=3ug
+  .u.=u^\^^^Å^^^^^^^^^^^^Å^^^^^^^^^^^^%gc=gjg
+  .u.=u.=cccesfsssssssssssssssssssssrc=2ZÃ.u
+  .u.=u.=k.gyzg.c....................cÃ3uÀcu
+  .u.=u.=u/^^^^Å)^^^^^^^^^^^Å^^^^^^%gc=gj=.u
+  .u.=u.=u=........................=2ZÃ.u=.u
+  .u.Éu.Éu=...cc...................=3uÀcu=.u
+  .u.=u.=u=..c..c..................=gj=.u=.u
+  .u.=u.=u=..c..c..................Ã.u=.u=.u
+  .u.=u.=u=...cc...................Àcu=.u=.u
+  .u.=u.=u=........................=.u=.u=.u
+  .u..u..uÉ........................=.u=.u=.u
+  .u..u..u=........................=.u=.u=.u
+  .u..u..u`........................=.u=.u=.u
+  .u..u..u,+.......................=.u=.u=.u
+  .u..u..u...=.....................=.u=.uÃ.u
+  .u..u..u...=.....................=.u=.u=.u
+  .u..u..u...=.....................=.u=.u=.u
+  .u..u..u...=.....................=.uÃ.u=.u
+  .u..u..u...=...../%..............=.u=.u=.u
+  .u..u..u...Ä.....ÃÄ..............=.u=.u=.u
+  .u..u..u...,^^^\^Dc..............Ã.u=.u=.u
+  .u..u..u.......=..Ä..............=.u=.u=.u
+  .u..u..uc&.../ÆE..,%.............=.u=.u=.u
+  .u..u..u.=...,Âc...=.............=.u=.u=.u
+  .u..u..jg......Ã...=.............=.u=.u=.u
+  .u..uc&u1Y^^^^^Ê^^^+.............=.u=.u=.u
+  .u..u.Äb0=.......................=.u=.u=.u
+  .u..jg=cg,^^^^^^Á^^^^^^^^^^^;Á^^^+.u=.uÃ.u
+  .uc&u1Äc....................c.g54g.n=.u=.u
+  .u.Äb0=cqsssssssssssssssssssssfspccc=.u=.u
+  gjg=cg,^^^^^^^^^^^^Á^^^^^^^^^^^;Á^Á^+.u=.u
+  gu1=c..........................c.g54g.n=.u
+  gb0=cqsssssssssssssssssssssssssssfspccc=.u
+  gcg,^^^^^Á^^^^^^^^^^^^Á^^^^^^^^^^^;Á^^^+.u
+  gc................................c.g54g.n
+  .cqsssssssssssssssssssssssssssssssssfspccc
   ....................................ggggg
 layer 0:
   ..ggggg
-  .vqAP.gggg...............................w
-  ...gM.g.c<...............................tg
+  .wsAP.gggg...............................x
+  ...gM.g.c>...............................ug
   ...ggggggg.............................ggag
-  ....vqAP.g.g..........................wgOLg
-  ......g..g............................tg..g
+  ....wsAP.g.g..........................xgOLg
+  ......g..g............................ug..g
   ......ggggggg.......................ggagggg
-  .......vqAP.ggg....................wgOLg.g
-  .........gM.g.!....................tg..g)g
+  .......wsAP.ggg....................xgOLg.g
+  .........gM.g.<....................ug..g{g
   .........gggg....................ggagggg
   ..........cccccc.................gOLg.g
-  ..........cccccc.................g..g)g
-  ..........ccVWcc.................gggg
-  ..........ccVWcc...................g
-  ..........cccccc..................)g
+  ..........cccccc.................g..g{g
+  ..........ccWXcc.................gggg
+  ..........ccWXcc...................g
+  ..........cccccc..................{g
   ..........cccccc
   .
   .
   .
   .
   .
+  .....................c
   .
   .
   .
   .
   .
   .
-  .
-  .......g^
+  .......g~
   .......g
   ......gggg
-  ....g^g..g
+  ....g~g..g
   ....g.gNig
   ...ggggagg....................gggg
-  .g^g..gt....................=.g.Kg
-  .g.gNigs....................ggg.JAqu
+  .g~g..gu....................?.g.Kg
+  .g.gNigt....................ggg.JAsv
   ggggagg.......................ggggggg
-  g..gt..........................=.g.Kg
-  gNigs..........................ggg.JAqu
+  g..gu..........................?.g.Kg
+  gNigt..........................ggg.JAsv
   gagg.............................ggggggg
-  gt................................=.g.Kg
-  .s................................ggg.JAqu
+  gu................................?.g.Kg
+  .t................................ggg.JAsv
   ....................................ggggg
 layer 1:
   ..ggggg
-  ..g8@c>>/$
-  ...c....'................................gg
-  .....gggÂg..............................c7g
-  .....g8@c.c>d............................8g
+  ..g9$c^^\%
+  ...c....`................................gg
+  .....gggÃg..............................c8g
+  .....g9$c.c^d............................9g
   ......c...............................gg.cg
-  ........ggggg........................c7g.+g
-  ........g8@c>>$.......................8g.+
-  .........c.........................gg.cg.*
-  .........gggggggg.................c7g.+g
-  .........gÍ....Íg..................8g.+
-  .........g......g..................cg.*
-  .........g......g..................+g
+  ........ggggg........................c8g.=g
+  ........g9$c^^%.......................9g.=
+  .........c.........................gg.cg.+
+  .........gggggggg.................c8g.=g
+  .........gÎ....Îg..................9g.=
+  .........g......g..................cg.+
+  .........g......g..................=g
+  .........g......g..................=
   .........g......g..................+
-  .........g......g..................*
-  .........gÍ....Íg
+  .........gÎ....Îg
   .........gggggggg
   .
   .
   .
   .
+  .....................Q
   .
   .
   .
   .
   .
   .
-  .
-  .......~
-  .......+
-  ......g+
-  ....~.gc
-  ....+.g9
-  ...g+.g@c
-  .~.gc.gg.........................c
-  .+.g9.......................;>>c79g
-  g+.g@c........................ggggg
+  ......./
+  .......=
+  ......g=
+  ..../.gc
+  ....=.g@
+  ...g=.g$c
+  ./.gc.gg.........................c
+  .=.g@.......................,^^c8@g
+  g=.g$c........................ggggg
   gc.gg...............................c
-  g9.............................;>>c79g
-  g@c..............................ggggg
+  g@.............................,^^c8@g
+  g$c..............................ggggg
   gg.....................................c
-  ..................................;>>c79g
+  ..................................,^^c8@g
   ....................................ggggg
 layer 2:
   .
   .....g
-  ..d>....................................d
-  ........cc..............................+
-  ........g.6
-  .....d>.c.c..........................d...g
-  ........cccccccccc...................+
+  ..d^....................................d
+  ........cc..............................=
+  ........g.7
+  .....d^.c.c..........................d...g
+  ........cccccccccc...................=
   .....g.....g
-  ........d>........................d...g
-  ...gggg..gggggggg.................+
+  ........d^........................d...g
+  ...gggg..gggggggg.................=
   .........g......g
   .........g......g..................g
   .........g......g
@@ -1301,25 +1302,25 @@ layer 2:
   .
   .......g
   .
-  ........+
-  ....g...d........................>d
+  ........=
+  ....g...d........................^d
   ...............................g
-  .....+
-  .g...d..............................>d
+  .....=
+  .g...d..............................^d
   ..................................g
-  ..+
-  ..d....................................>d
+  ..=
+  ..d....................................^d
   .....................................g
   .
 layer 3:
   .
   .
   .
-  ........~>8
-  ........+.c
-  ........Â.Ã
-  .....T@cÀÆ,>>>>>>>d
-  ......R
+  ......../^9
+  ........=.c
+  ........Ã.Ä
+  .....U$cÁÇ'^^^^^^^d
+  ......S
   .
   ...gggg..gggggggg
   .........g......g
@@ -1362,8 +1363,8 @@ layer 4:
   .
   ..........g
   .
-  .....Ucg
-  ......S
+  .....Vcg
+  ......T
   .
   ...gggg
   .
@@ -1451,7 +1452,7 @@ layer 6:
   .
   .
   .
-  .....Q
+  .....R
   .
   .
   .
