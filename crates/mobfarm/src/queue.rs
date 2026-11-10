@@ -1147,10 +1147,23 @@ pub struct LoopTiming {
     /// With `release_stagger`: each staggered slot's off delayed like its on (a repeater in front
     /// of its control), not all three off together at `release_for`.
     pub stagger_off: bool,
-    /// Day-1's merge (b): at cycle C (after the 3rd advance, +97) the cart in `slot` leaves the
-    /// loop; at cycle C+1, gt D, it rolls off a side rail beside the slot's braked slope at V b/t
-    /// (C, slot, D, V).
-    pub side_drop: Option<(i64, usize, i64, f64)>,
+    /// Day-1's merge (b), the side drop (see `SideDrop`).
+    pub side_drop: Option<SideDrop>,
+}
+
+/// Day-1's merge (b): at cycle `cycle`, +4, the cart in queue slot `park` leaves the loop; at +`at`
+/// it comes back by a side rail beside slot `slot`'s braked slope, moving toward it at `speed`
+/// b/t, or (`staged`) arriving at `speed` 20 gt earlier onto a braked staging slope that is
+/// powered for 10 gt at +`at`.
+#[derive(Clone, Copy, Debug)]
+pub struct SideDrop {
+    pub cycle: i64,
+    pub slot: usize,
+    pub at: i64,
+    pub speed: f64,
+    pub park: usize,
+    pub staged: bool,
+    pub staged2: bool,
 }
 
 impl Default for LoopTiming {
@@ -1533,16 +1546,32 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     // the loop is built: three plain rails west of the slot's slope at the peaks' height on glass,
     // a stone stop east of it; any loop cell it reshapes is a problem)
     let mut side_changed: Vec<String> = Vec::new();
-    if let Some((_, slot, _, _)) = tm.side_drop {
+    if let Some(sd) = tm.side_drop {
+        let slot = sd.slot;
         let lay0 = loop_layout(o);
         let before: Vec<([i32; 3], Block)> = lay0.path.iter().map(|(c, _)| (*c, run.world.get(BlockPos::new(c[0], c[1], c[2])))).collect();
         let s = lay0.slot_cells[slot];
         let glass = Block::parse("minecraft:glass").map_err(|e| e.to_string())?;
         let rail = Block::parse("minecraft:rail[shape=east_west,waterlogged=false]").map_err(|e| e.to_string())?;
         let stone = Block::parse("minecraft:stone").map_err(|e| e.to_string())?;
-        for dx in [3, 2, 1] {
-            run.world.set_block(BlockPos::new(s[0] - dx, s[1], s[2]), glass, redsim::world::flags::ALL);
-            run.world.set_block(BlockPos::new(s[0] - dx, s[1] + 1, s[2]), rail, redsim::world::flags::ALL);
+        if sd.staged {
+            // (day-1's staged drop: two plain rails one block higher, then a braked powered rail
+            // ascending west on the end cell, its support a control the bench switches; with
+            // `staged2` the upper rail's east cell is a braked powered rail too, powered through
+            // the slope)
+            let stage = Block::parse("minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]").map_err(|e| e.to_string())?;
+            let brake = Block::parse("minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]").map_err(|e| e.to_string())?;
+            for dx in [3, 2] {
+                run.world.set_block(BlockPos::new(s[0] - dx, s[1] + 1, s[2]), glass, redsim::world::flags::ALL);
+                run.world.set_block(BlockPos::new(s[0] - dx, s[1] + 2, s[2]), if sd.staged2 && dx == 2 { brake } else { rail }, redsim::world::flags::ALL);
+            }
+            run.world.set_block(BlockPos::new(s[0] - 1, s[1], s[2]), glass, redsim::world::flags::ALL);
+            run.world.set_block(BlockPos::new(s[0] - 1, s[1] + 1, s[2]), stage, redsim::world::flags::ALL);
+        } else {
+            for dx in [3, 2, 1] {
+                run.world.set_block(BlockPos::new(s[0] - dx, s[1], s[2]), glass, redsim::world::flags::ALL);
+                run.world.set_block(BlockPos::new(s[0] - dx, s[1] + 1, s[2]), rail, redsim::world::flags::ALL);
+            }
         }
         run.world.set_block(BlockPos::new(s[0] + 1, s[1] + 1, s[2]), stone, redsim::world::flags::ALL);
         for (c, b) in before {
@@ -1553,7 +1582,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         }
     }
     let mut side_cart: Option<u32> = None;
-    let mut side_rest: Option<(i64, f64)> = None;
+    let mut side_rest: Option<(i64, f64, usize)> = None;
     let first = run.world.entities.next_id;
     for (ty, pos, nbt) in &spec.entities {
         redsim::entity::spawn(&mut run.world, ty, *pos, nbt.as_deref())?;
@@ -1730,13 +1759,16 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 drive.borrow_mut().push(format!("act {} tp e{} {:.3} {:.3} {:.3}", run.world.time - t_origin, carts.iter().position(|c| c == id).unwrap_or(0), p.x, p.y, p.z));
             }
         }
-        // (`side_drop`, day-1's merge (b) for the bed siding: a cart that left its slot comes back
-        // by rolling off the end of a side rail beside the slot's braked slope, onto it: at cycle
-        // C, once the queue is at rest after the 3rd advance, the cart in `slot` is parked off
-        // the loop; at cycle C+1, gt D, it is put on the side rail moving toward the slot at V b/t)
-        if let Some((cy, slot, d, v)) = tm.side_drop {
+        // (`side_drop`, day-1's merge (b) for the bed siding: a cart that left the queue comes back
+        // by rolling off the end of a side rail beside a slot's braked slope, onto it. At cycle C,
+        // +4 (the queue at rest), the cart in slot `park` leaves the loop (its hole then moves one
+        // slot per advance); at +D it comes back: put on the side rail moving toward `slot` at V
+        // b/t, or (`staged`) put on the upper side rail at V 20 gt earlier to roll onto the braked
+        // staging slope, which is powered for 10 gt at +D)
+        if let Some(sd) = tm.side_drop {
+            let (cy, slot, d, v, park) = (sd.cycle, sd.slot, sd.at, sd.speed, sd.park);
             if c == cy && dt == 4 && side_cart.is_none() {
-                side_cart = carts.iter().copied().find(|id| place_of(&run.world, *id) == Some(slot));
+                side_cart = carts.iter().copied().find(|id| place_of(&run.world, *id) == Some(park));
                 match side_cart {
                     Some(id) => {
                         let stone = Block::parse("minecraft:stone").map_err(|e| e.to_string())?;
@@ -1746,29 +1778,41 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                             run.world.entities.list[i].delta_movement = redsim::entity::Vec3::new(0.0, 0.0, 0.0);
                         }
                     }
-                    None => problems.push(format!("side drop: no cart at rest in slot {slot} at slot {c}'s +4")),
+                    None => problems.push(format!("side drop: no cart at rest in slot {park} at slot {c}'s +4")),
                 }
             }
-            if let (Some(id), true) = (side_cart, c == cy && dt == d) {
-                let cell = lay.slot_cells[slot];
-                // (the side rail runs toward the slot along -x from the west; the cart starts on
-                // its middle cell)
-                let p = redsim::entity::Vec3::new(cell[0] as f64 - 1.5, cell[1] as f64 + 1.0625, cell[2] as f64 + 0.5);
+            let cell = lay.slot_cells[slot];
+            let put_at = if sd.staged { (d - 20).max(5) } else { d };
+            // (times past +99 fall in the next slot: +100 is the next release's start)
+            let now = c * 100 + dt;
+            if let (Some(id), true) = (side_cart, now == cy * 100 + put_at) {
+                // (the side rail runs toward the slot along +x from the west; the cart starts on
+                // its middle cell, or on the upper rail's west cell when staged)
+                let p = if sd.staged { redsim::entity::Vec3::new(cell[0] as f64 - 2.5, cell[1] as f64 + 2.0625, cell[2] as f64 + 0.5) } else { redsim::entity::Vec3::new(cell[0] as f64 - 1.5, cell[1] as f64 + 1.0625, cell[2] as f64 + 0.5) };
                 if let Some(i) = redsim::entity::index_of(&run.world, id) {
                     run.world.entities.set_pos(i, p);
                     run.world.entities.list[i].delta_movement = redsim::entity::Vec3::new(v, 0.0, 0.0);
                 }
             }
-            if let (Some(id), true) = (side_cart, c == cy && dt > d && side_rest.is_none()) {
-                if place_of(&run.world, id) == Some(slot) {
-                    let along = pos_of(&run.world, id).map(|p| p.z - (lay.slot_cells[slot][2] as f64)).unwrap_or(0.0);
-                    side_rest = Some((dt, along));
-                }
+            if sd.staged && (c * 100 + dt == cy * 100 + d || c * 100 + dt == cy * 100 + d + 10) {
+                // (the kick: a redstone block for 10 gt under the upper rail's east cell, beside
+                // the staging slope: two blocks from the slot's own powered rail, which a block
+                // under the staging slope would power too)
+                let support = BlockPos::new(cell[0] - 2, cell[1] + 1, cell[2]);
+                run.world.set_block(support, if c * 100 + dt == cy * 100 + d { on } else { off }, redsim::world::flags::ALL);
             }
-            if let (Some(_), true) = (side_cart, c == cy && dt == tm.advance_at - 1) {
-                match side_rest {
-                    Some((at, along)) => arrivals.push(format!("side drop: the cart from slot {slot} dropped at +{d} at {v} b/t, at rest in its slot at +{at} (z offset {along:.2} in the cell)")),
-                    None => problems.push(format!("side drop: the cart dropped at slot {cy}'s +{d} at {v} b/t is not at rest in slot {slot} before the advance")),
+            if let (Some(id), true) = (side_cart, now > cy * 100 + put_at && c <= cy + 2) {
+                if side_rest.is_none() {
+                    if let Some(s) = place_of(&run.world, id) {
+                        let along = pos_of(&run.world, id).map(|p| p.z - (places[s][2] as f64)).unwrap_or(0.0);
+                        side_rest = Some((dt + 100 * (c - cy), along, s));
+                    }
+                }
+                if c == cy + 2 && dt == 99 {
+                    match side_rest {
+                        Some((at, along, s)) => arrivals.push(format!("side drop: the cart from slot {park}, back by the side rail at slot {slot} at +{d} ({} {v} b/t), first at rest in slot {s} at +{at} (z offset {along:.2} in the cell)", if sd.staged { "staged, arriving at" } else { "at" })),
+                        None => problems.push(format!("side drop: the cart from slot {park} (back at slot {slot} at +{d}) never at rest in a queue or stand slot by slot {}'s end", cy + 2)),
+                    }
                 }
             }
         }
