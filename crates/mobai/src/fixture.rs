@@ -81,6 +81,11 @@ pub fn scene_actions(name: &str) -> Vec<(u32, Vec<([i32; 3], String)>)> {
             (12600, vec![s([11, 64, 10], "minecraft:air"), s([11, 65, 10], "minecraft:air")]),
         ],
         // (tickexact) the nap's panic wake: the window on the penned zombie opened, shut, opened
+        "cart-queue" => vec![(300, (2..=9).map(|x| s([x, 63, 24], "minecraft:redstone_block")).collect())],
+        "cart-queue-slope" => vec![
+            (300, vec![s([41, 65, 24], "minecraft:redstone_block"), s([42, 64, 24], "minecraft:redstone_block"), s([43, 63, 24], "minecraft:redstone_block")]),
+            (600, (2..=9).map(|x| s([x, 66, 24], "minecraft:redstone_block")).collect()),
+        ],
         "cart-train" => vec![
             (100, vec![s([24, 62, 13], "minecraft:redstone_torch")]),
             (700, vec![s([24, 62, 13], "minecraft:air")]),
@@ -1268,6 +1273,106 @@ fn scenes_raw() -> Vec<Scene> {
             player: Some([24.5, 100.0, 4.5]),
             player_creative: true,
             random_tick_speed: 0,
+        });
+    }
+    // (tickexact 2026-11-10, the parent's single-lane carousel: 21 carts with villagers back to
+    // back, released 3 at a time, rejoining the tail; the release mechanism is ironfarm's, this is
+    // the queue's own physics) a lane along x at z 24 on the floor: a stone kick at x 1, boosters
+    // x 2..9 (powered rails whose redstone blocks come at 300), plain rails x 10..24, then the queue
+    // on 21 unpowered powered rails x 25..45 (the brakes) against a glass stop at x 46. The 21 carts
+    // sit one a block (x 25.5..45.5) and settle (pushOtherMinecart between neighbours, the brakes'
+    // halving and stop under 0.03); at 300 the 3 carts at x 2.5..4.5 launch off the kick, coast and
+    // run into the queue's tail at speed
+    {
+        let mut qb = Vec::new();
+        floor(&mut qb, 0, 48, 0, 48, 63, stone);
+        let powered = |s: &str| format!("minecraft:powered_rail[powered=false,shape={s},waterlogged=false]");
+        let rail = |s: &str| format!("minecraft:rail[shape={s},waterlogged=false]");
+        qb.push(([1, 64, 24], stone.to_string()));
+        qb.push(([46, 64, 24], "minecraft:glass".to_string()));
+        for x in 2..=9 {
+            qb.push(([x, 64, 24], powered("east_west")));
+        }
+        for x in 10..=24 {
+            qb.push(([x, 64, 24], rail("east_west")));
+        }
+        for x in 25..=45 {
+            qb.push(([x, 64, 24], powered("east_west")));
+        }
+        let cart = |x: f64| ("minecraft:minecart".to_string(), [x, 64.0, 24.5], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".to_string()));
+        let mut carts: Vec<_> = (25..=45).map(|x| cart(x as f64 + 0.5)).collect();
+        carts.extend((2..=4).map(|x| cart(x as f64 + 0.5)));
+        v.push(Scene {
+            name: "cart-queue".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: qb,
+            mobs: carts,
+            day_time: 1000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
+    }
+    // (tickexact 2026-11-10, the single-lane carousel with ironfarm's answers: a slope release, the
+    // queue spaced 1.25 so neighbours never touch, the returning carts at speed into the tail, a
+    // bend) a causeway along x at z 24 (stone y 64..66, rails at y 67): a stone kick at x 1,
+    // boosters x 2..9 (redstone blocks replace the causeway under them at 600), plain rails x 10..17,
+    // the queue's brakes x 18..39 (unpowered powered rails), a plain rail at x 40 (no power along
+    // the line), then the release: 3 braked powered-rail slopes descending east (x 41..43, y 66 to
+    // 64), their supports turned to redstone blocks at 300; a run-out east and a bend north (x 45
+    // turns to z 23..18) to a glass stop. 21 carts with villagers: 3 on the slopes, 18 on the flat
+    // brakes 1.25 apart (the tail cart on the first brake); 3 more at x 2.5..5.0 launched at 600
+    {
+        let mut qb = Vec::new();
+        floor(&mut qb, 0, 48, 0, 48, 63, stone);
+        let powered = |s: &str| format!("minecraft:powered_rail[powered=false,shape={s},waterlogged=false]");
+        let rail = |s: &str| format!("minecraft:rail[shape={s},waterlogged=false]");
+        // the causeway (the slopes' supports below)
+        for x in 1..=40 {
+            for y in 64..=66 {
+                qb.push(([x, y, 24], stone.to_string()));
+            }
+        }
+        qb.push(([1, 67, 24], stone.to_string()));
+        for x in 2..=9 {
+            qb.push(([x, 67, 24], powered("east_west")));
+        }
+        for x in 10..=17 {
+            qb.push(([x, 67, 24], rail("east_west")));
+        }
+        for x in 18..=39 {
+            qb.push(([x, 67, 24], powered("east_west")));
+        }
+        qb.push(([40, 67, 24], rail("east_west")));
+        for (x, y) in [(41, 66), (42, 65), (43, 64)] {
+            qb.push(([x, y - 1, 24], stone.to_string()));
+            qb.push(([x, y, 24], powered("ascending_west")));
+        }
+        qb.push(([44, 64, 24], rail("east_west")));
+        qb.push(([45, 64, 24], rail("north_west")));
+        for z in 18..=23 {
+            qb.push(([45, 64, z], rail("north_south")));
+        }
+        qb.push(([45, 64, 17], "minecraft:glass".to_string()));
+        let cart = |x: f64, y: f64, z: f64| ("minecraft:minecart".to_string(), [x, y, z], Some("{Passengers:[{id:\"minecraft:villager\",PersistenceRequired:1b}]}".to_string()));
+        let mut carts: Vec<_> = [(41.5, 66.5), (42.5, 65.5), (43.5, 64.5)].into_iter().map(|(x, y)| cart(x, y, 24.5)).collect();
+        carts.extend((0..18).map(|k| cart(39.375 - 1.25 * k as f64, 67.0, 24.5)));
+        carts.extend((0..3).map(|k| cart(2.5 + 1.25 * k as f64, 67.0, 24.5)));
+        v.push(Scene {
+            name: "cart-queue-slope".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: qb,
+            mobs: carts,
+            day_time: 1000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
         });
     }
     v
