@@ -14,7 +14,7 @@ use crate::world::World;
 
 /// `Attributes.ATTACK_DAMAGE` of the modeled attackers.
 pub fn attack_damage(w: &World, i: usize) -> f32 {
-    match mob(w, i).ty.def().id {
+    let base = match mob(w, i).ty.def().id {
         "zombie" | "baby_zombie" | "zombie_villager" | "baby_zombie_villager" | "husk" | "drowned" | "baby_drowned" => 3.0,
         // ZombifiedPiglin.createAttributes
         "zombified_piglin" | "baby_zombified_piglin" => 5.0,
@@ -23,6 +23,12 @@ pub fn attack_damage(w: &World, i: usize) -> f32 {
         "skeleton" | "stray" | "bogged" => 2.0,
         "pillager" | "vindicator" => 5.0,
         _ => 2.0,
+    };
+    // the main hand's ATTACK_DAMAGE modifier (a natural zombie's iron sword +5, a zombified
+    // piglin's golden sword +3; a picked-up item's)
+    match &mob(w, i).mainhand {
+        Some(h) => (base as f64 + super::loot::weapon_damage(&h.item)) as f32,
+        None => base,
     }
 }
 
@@ -70,8 +76,13 @@ pub fn do_hurt_target(w: &mut World, i: usize, t: Who) -> bool {
             ai_mut(w, i).last_hurt_mob = Some(w.entities.list[j].id);
         }
     }
-    // Zombie.doHurtTarget: a burning zombie with an empty hand may set the target on fire
-    if hurt && mob(w, i).fire_ticks > 0 && matches!(mob(w, i).ty.def().id, "zombie" | "baby_zombie" | "zombie_villager" | "husk" | "drowned") {
+    // an enchanted weapon's hit (EnchantmentHelper.modifyDamage, its post-attack effects): named
+    if mob(w, i).mainhand.as_ref().is_some_and(|h| h.enchanted) {
+        w.mob.ai.legacy.insert("an enchanted weapon's hit (its enchantments)");
+    }
+    // Zombie.doHurtTarget: a burning zombie with an empty hand may set the target on fire (with
+    // something in its hand: no roll)
+    if hurt && mob(w, i).fire_ticks > 0 && mob(w, i).mainhand.is_none() && matches!(mob(w, i).ty.def().id, "zombie" | "baby_zombie" | "zombie_villager" | "husk" | "drowned") {
         let why = "a burning zombie's hit (the fire it passes on, regional difficulty) is not modeled".to_string();
         if !w.errors.contains(&why) {
             w.errors.push(why);

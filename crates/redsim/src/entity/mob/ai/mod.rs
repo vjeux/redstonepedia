@@ -19,6 +19,7 @@ pub mod squid;
 pub mod control;
 pub mod goal;
 pub mod path;
+pub mod loot;
 pub mod player_body;
 pub mod poi;
 pub mod target;

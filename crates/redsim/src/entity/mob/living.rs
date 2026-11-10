@@ -410,6 +410,10 @@ fn ai_step(w: &mut World, i: usize) {
     }
     // Mob.aiStep: burnUndead after LivingEntity.aiStep (mobinfra: zombies in daylight)
     super::sun::burn_undead(w, i);
+    // Mob.aiStep's looting (the mob AI on): the item entities it picks up (`ai::loot`)
+    if w.mob.ai.on && mob(w, i).can_pick_up_loot && !w.entities.list[i].removed {
+        super::ai::loot::pick_up(w, i);
+    }
 }
 
 /// `Mob.serverAiStep`: `noActionTime`, then (`customServerAiStep`) the villager's brain; the
@@ -861,6 +865,10 @@ fn die(w: &mut World, i: usize, src: Damage) {
     }
     w.game_event_at("entity_die", [pos.x, pos.y, pos.z], None, false);
     drop_loot(w, i, src);
+    // dropCustomDeathLoot (after the loot table, when it drops loot): a picked-up item in hand
+    if drops_loot(w, i) {
+        super::ai::loot::drop_hand(w, i);
+    }
 }
 
 /// The dying mob's facts its loot table reads (`loot::Victim`).

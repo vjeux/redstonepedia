@@ -719,10 +719,15 @@ pub fn rules_can_pass(w: &World, k: &Kind, p: BlockPos, difficulty: Difficulty) 
     }
 }
 
-/// `WorldgenRandom.seedSlimeChunk(x, z, seed, 987234911).nextInt(10) == 0`.
+/// `WorldgenRandom.seedSlimeChunk(x, z, seed, 987234911).nextInt(10) == 0`: `seed + x * x *
+/// 4987142 + x * 5947611 + z * z * 4392871L + z * 389711 ^ salt`, Java's `int` products (they
+/// wrap past 2^31: a chunk x of 21 or more each way) but for `z * z * 4392871L`'s long one.
 pub fn slime_chunk(x: i32, z: i32, seed: i64) -> bool {
-    let (x, z) = (x as i64, z as i64);
-    let s = seed.wrapping_add(x.wrapping_mul(x).wrapping_mul(4987142)).wrapping_add(x.wrapping_mul(5947611)).wrapping_add(z.wrapping_mul(z).wrapping_mul(4392871)).wrapping_add(z.wrapping_mul(389711)) ^ 987234911;
+    let xx = x.wrapping_mul(x).wrapping_mul(4987142) as i64;
+    let x1 = x.wrapping_mul(5947611) as i64;
+    let zz = (z.wrapping_mul(z) as i64).wrapping_mul(4392871);
+    let z1 = z.wrapping_mul(389711) as i64;
+    let s = seed.wrapping_add(xx).wrapping_add(x1).wrapping_add(zz).wrapping_add(z1) ^ 987234911;
     crate::rng::LegacyRandom::new(s).next_int(10) == 0
 }
 
@@ -1242,6 +1247,9 @@ struct Finalized {
     horse: Option<(f32, f64, f64)>,
     /// (tickexact 2026-11-10) A spider's group effect (`addEffect(effect, -1)`: infinite).
     spider_effect: Option<i32>,
+    /// What finalizeSpawn put in the mob's hand, and in a jockey rider's (`Hand`).
+    hand: Hand,
+    rider_hand: Hand,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1345,26 +1353,53 @@ fn mob_armor(w: &mut World, special: f32, hard: bool) -> (usize, u8) {
 /// `Mob.populateDefaultEquipmentEnchantments`: the weapon (0.25), then each armor piece (0.5) in
 /// `EquipmentSlot.VALUES` order (feet, legs, chest, head), times the special multiplier, each
 /// enchanted by `MOB_SPAWN_EQUIPMENT` (`enchant::mob_spawn_equipment`, its draws in order).
-fn enchant_draws(w: &mut World, special: f32, weapon: Option<super::enchant::Item>, armor: (usize, u8)) {
+/// Returns whether the weapon got enchantments.
+fn enchant_draws(w: &mut World, special: f32, weapon: Option<super::enchant::Item>, armor: (usize, u8)) -> bool {
+    let mut enchanted = false;
     if let Some(item) = weapon
         && rng(w).next_float() < 0.25 * special
     {
-        super::enchant::mob_spawn_equipment(rng(w), item, special);
+        enchanted = !super::enchant::mob_spawn_equipment(rng(w), item, special).is_empty();
     }
     for slot in (0..4u8).rev() {
         if (slot as usize) < armor.0 && rng(w).next_float() < 0.5 * special {
             super::enchant::mob_spawn_equipment(rng(w), super::enchant::Item::Armor { slot, material: armor.1 }, special);
         }
     }
+    enchanted
+}
+
+/// What finalizeSpawn put in a natural mob's hand (`Mob::set_hand`): `setCanPickUpLoot`'s roll
+/// and its main-hand weapon (id, enchanted).
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+struct Hand {
+    loot: bool,
+    weapon: Option<(&'static str, bool)>,
+}
+
+/// The item id of a spawn weapon.
+fn weapon_id(item: super::enchant::Item) -> Option<&'static str> {
+    use super::enchant::Item;
+    Some(match item {
+        Item::IronSword => "minecraft:iron_sword",
+        Item::IronSpear => "minecraft:iron_spear",
+        Item::IronShovel => "minecraft:iron_shovel",
+        Item::Trident => "minecraft:trident",
+        Item::FishingRod => "minecraft:fishing_rod",
+        Item::Bow => "minecraft:bow",
+        Item::GoldenSword => "minecraft:golden_sword",
+        Item::GoldenSpear => "minecraft:golden_spear",
+        _ => return None,
+    })
 }
 
 /// `Zombie.finalizeSpawn` (`drowned`: with `Drowned`'s equipment and its extra rolls); returns
 /// (baby, jockey).
-fn zombie_finalize(w: &mut World, nat: &Natural, g: &mut GroupData, drowned: bool, pos: BlockPos) -> (bool, Jockey, Option<u8>, bool) {
+fn zombie_finalize(w: &mut World, nat: &Natural, g: &mut GroupData, drowned: bool, pos: BlockPos, hand: &mut Hand) -> (bool, Jockey, Option<u8>, bool) {
     let special = special_multiplier(w, nat);
     let hard = nat.difficulty == Difficulty::Hard;
     mob_base(w);
-    rng(w).next_float(); // setCanPickUpLoot
+    hand.loot = rng(w).next_float() < 0.55 * special; // setCanPickUpLoot
     let baby = match g.zombie {
         Some(b) => b,
         None => {
@@ -1411,7 +1446,8 @@ fn zombie_finalize(w: &mut World, nat: &Natural, g: &mut GroupData, drowned: boo
         };
         (armor, weapon)
     };
-    enchant_draws(w, special, weapon, armor);
+    let enchanted = enchant_draws(w, special, weapon, armor);
+    hand.weapon = weapon.and_then(weapon_id).map(|id| (id, enchanted));
     // SpecialDates.isHalloween: the server's date is outside it (no draw); handleAttributes draws
     // from the zombie's own random
     if drowned {
@@ -1430,10 +1466,10 @@ fn zombie_finalize(w: &mut World, nat: &Natural, g: &mut GroupData, drowned: boo
 /// `ZombifiedPiglin`'s `finalizeSpawn(STRUCTURE, no group data)` (Zombie's, with its own golden
 /// sword: no equipment draws; its reinforcement chance set without a draw); returns (baby,
 /// jockey, breaks doors).
-fn piglin_finalize(w: &mut World, nat: &Natural) -> (bool, Jockey, bool) {
+fn piglin_finalize(w: &mut World, nat: &Natural, hand: &mut Hand) -> (bool, Jockey, bool) {
     let special = special_multiplier(w, nat);
     mob_base(w);
-    rng(w).next_float(); // setCanPickUpLoot
+    hand.loot = rng(w).next_float() < 0.55 * special; // setCanPickUpLoot
     let baby = rng(w).next_float() < 0.05; // new ZombieGroupData(getSpawnAsBabyOdds, true)
     let mut jockey = Jockey::None;
     if baby {
@@ -1456,7 +1492,9 @@ fn piglin_finalize(w: &mut World, nat: &Natural) -> (bool, Jockey, bool) {
     if spear {
         w.mob.ai.legacy.insert("a zombified piglin's golden spear (SpearUseGoal: it attacks in melee instead)");
     }
-    enchant_draws(w, special, Some(if spear { super::enchant::Item::GoldenSpear } else { super::enchant::Item::GoldenSword }), (0, 0));
+    let weapon = if spear { super::enchant::Item::GoldenSpear } else { super::enchant::Item::GoldenSword };
+    let enchanted = enchant_draws(w, special, Some(weapon), (0, 0));
+    hand.weapon = weapon_id(weapon).map(|id| (id, enchanted));
     // SpecialDates.isHalloween: outside it (no draw); handleAttributes: its own random
     (baby, jockey, breaks_doors)
 }
@@ -1504,10 +1542,11 @@ pub fn portal_piglin(w: &mut World, at: BlockPos) -> Option<u32> {
     if let Some(n) = w.mob.natural.as_mut() {
         n.bonuses.clear();
     }
-    let (baby, jockey, breaks_doors) = piglin_finalize(w, &nat);
+    let mut hand = Hand::default();
+    let (baby, jockey, breaks_doors) = piglin_finalize(w, &nat, &mut hand);
     let k = kind_of("minecraft:zombified_piglin")?;
     let ty = if baby { MobType::Natural(48) } else { MobType::Natural(47) };
-    let f = Finalized { ty, baby, jockey, helmet: None, rider_helmet: None, breaks_doors, rider_breaks_doors: false, color: 0, rider_chicken: Jockey::None, horse: None, spider_effect: None };
+    let f = Finalized { ty, baby, jockey, helmet: None, rider_helmet: None, breaks_doors, rider_breaks_doors: false, color: 0, rider_chicken: Jockey::None, horse: None, spider_effect: None, hand, rider_hand: Hand::default() };
     let id = spawn_mob(w, k, &f, Vec3::new(pos.x as f64 + 0.5, (pos.y + 1) as f64, pos.z as f64 + 0.5), yaw);
     // EntityType.create (STRUCTURE): after the snap, the head and the body take the yaw too
     if let Some(j) = crate::entity::index_of(w, id)
@@ -1759,6 +1798,9 @@ pub fn zombie_to_drowned(w: &mut World, i: usize) -> Option<u32> {
         let m = mob(w, i);
         (m.persistence_required, m.helmet, m.hurt_time, m.effects, m.damage_cooldown, m.natural)
     };
+    // ConversionParams.single(keepEquipment, preserveCanPickUpLoot): the hand and its drop chance,
+    // the loot flag
+    let (loot, mainhand) = (mob(w, i).can_pick_up_loot, mob(w, i).mainhand.clone());
     let (body, doors) = mob(w, i).ai.as_deref().map(|a| (a.y_body_rot, a.can_break_doors)).unwrap_or((y_rot, false));
     let vehicle = w.entities.list[i].vehicle;
     let d = super::add(w, dty, pos, persistent);
@@ -1791,6 +1833,8 @@ pub fn zombie_to_drowned(w: &mut World, i: usize) -> Option<u32> {
         m.effects = effects;
         m.damage_cooldown = cooldown;
         m.natural = natural;
+        m.can_pick_up_loot = loot;
+        m.mainhand = mainhand;
         if let Some(a) = m.ai.as_deref_mut() {
             a.y_body_rot = body;
             a.y_body_rot_o = body;
@@ -1828,13 +1872,15 @@ pub fn zombie_to_drowned(w: &mut World, i: usize) -> Option<u32> {
 }
 
 /// `AbstractSkeleton.finalizeSpawn`; returns its helmet's armor type.
-fn skeleton_finalize(w: &mut World, nat: &Natural) -> Option<u8> {
+fn skeleton_finalize(w: &mut World, nat: &Natural, hand: &mut Hand) -> Option<u8> {
     let special = special_multiplier(w, nat);
     let hard = nat.difficulty == Difficulty::Hard;
     mob_base(w);
     let armor = mob_armor(w, special, hard);
-    enchant_draws(w, special, Some(super::enchant::Item::Bow), armor);
-    rng(w).next_float(); // setCanPickUpLoot
+    // AbstractSkeleton.populateDefaultEquipmentSlots: a bow
+    let enchanted = enchant_draws(w, special, Some(super::enchant::Item::Bow), armor);
+    hand.weapon = Some(("minecraft:bow", enchanted));
+    hand.loot = rng(w).next_float() < 0.55 * special; // setCanPickUpLoot
     (armor.0 > 0).then_some(armor.1)
 }
 
@@ -1865,6 +1911,8 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
     let mut horse: Option<(f32, f64, f64)> = None;
     let mut spider_effect: Option<i32> = None;
     let mut color = 0u8;
+    let mut hand = Hand::default();
+    let mut rider_hand = Hand::default();
     match k.finalize {
         Finalize::Nothing => {}
         Finalize::Mob | Finalize::Cod => mob_base(w),
@@ -1876,9 +1924,9 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
         }
         Finalize::Salmon => mob_base(w),
         Finalize::Zombie | Finalize::Drowned => {
-            (baby, jockey, helmet, breaks_doors) = zombie_finalize(w, nat, g, k.finalize == Finalize::Drowned, pos);
+            (baby, jockey, helmet, breaks_doors) = zombie_finalize(w, nat, g, k.finalize == Finalize::Drowned, pos, &mut hand);
         }
-        Finalize::Skeleton => helmet = skeleton_finalize(w, nat),
+        Finalize::Skeleton => helmet = skeleton_finalize(w, nat, &mut hand),
         Finalize::Spider => {
             mob_base(w);
             if rng(w).next_int(100) == 0 {
@@ -1886,7 +1934,7 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
                 if w.exact_seed.is_some() {
                     let _ = w.construct();
                 }
-                rider_helmet = skeleton_finalize(w, nat);
+                rider_helmet = skeleton_finalize(w, nat, &mut rider_hand);
                 jockey = Jockey::SpiderSkeleton;
             }
             if !g.spider {
@@ -1981,7 +2029,9 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
                 let _ = w.construct();
             }
             let mut zg = GroupData::default();
-            let (zbaby, zj, zh, zb) = zombie_finalize(w, nat, &mut zg, false, pos);
+            let (zbaby, zj, zh, zb) = zombie_finalize(w, nat, &mut zg, false, pos, &mut rider_hand);
+            // ZombieHorse.finalizeSpawn: then a fresh iron spear in the rider's hand
+            rider_hand.weapon = Some(("minecraft:iron_spear", false));
             rider_helmet = zh;
             rider_breaks_doors = zb;
             // the rider's chicken jockey: a near chicken flagged, or a new chicken (its draws
@@ -2006,7 +2056,7 @@ fn finalize_spawn(w: &mut World, nat: &Natural, k: &Kind, g: &mut GroupData, pos
             None => {}
         }
     }
-    Finalized { ty, baby, jockey, helmet, rider_helmet, breaks_doors, rider_breaks_doors, color, rider_chicken, horse, spider_effect }
+    Finalized { ty, baby, jockey, helmet, rider_helmet, breaks_doors, rider_breaks_doors, color, rider_chicken, horse, spider_effect, hand, rider_hand }
 }
 
 /// `isValidPositionForMob`: the despawn distance, `checkSpawnRules` (the walk target value) and
@@ -2120,6 +2170,9 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
         }
     }
     super::set_helmet(w, id, f.helmet);
+    if f.hand != Hand::default() {
+        super::set_hand(w, id, f.hand.loot, f.hand.weapon);
+    }
     // (tickexact 2026-11-10) a spider's group effect, infinite (`addEffect(effect, -1)`): speed
     // (x 1.2 on its MOVEMENT_SPEED, the witch's speed effect's way); the others are named
     if let Some(sel) = f.spider_effect {
@@ -2202,6 +2255,7 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
                 let r = super::add(w, MobType::Natural(4), pos, false);
                 super::seed_entered(w, r);
                 super::set_helmet(w, r, f.rider_helmet);
+                super::set_hand(w, r, f.rider_hand.loot, f.rider_hand.weapon);
                 if let (Some(ri), Some(vi)) = (crate::entity::index_of(w, r), crate::entity::index_of(w, id)) {
                     // Spider.finalizeSpawn: skeleton.snapTo(the spider's x, y, z, yRot, 0)
                     let yaw = w.entities.list[vi].y_rot;
@@ -2218,6 +2272,7 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
                 let r = super::add(w, MobType::Natural(4), pos, true);
                 super::seed_entered(w, r);
                 super::set_helmet(w, r, f.rider_helmet);
+                super::set_hand(w, r, f.rider_hand.loot, f.rider_hand.weapon);
                 ride(w, r, id);
                 rider = Some(r);
             }
@@ -2238,6 +2293,7 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
                 let r = super::add(w, rty, pos, false);
                 super::seed_entered(w, r);
                 super::set_helmet(w, r, f.rider_helmet);
+                super::set_hand(w, r, f.rider_hand.loot, f.rider_hand.weapon);
                 if let (Some(ri), Some(vi)) = (crate::entity::index_of(w, r), crate::entity::index_of(w, id)) {
                     // the bridge reports the rider at yaw 0 on its first tick (its snapTo's yaw is
                     // not the horse's here: D1U's t4032)
@@ -2263,6 +2319,7 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
                 let r = super::add(w, rty, pos, true);
                 super::seed_entered(w, r);
                 super::set_helmet(w, r, f.rider_helmet);
+                super::set_hand(w, r, f.rider_hand.loot, f.rider_hand.weapon);
                 ride(w, r, id);
                 rider = Some(r);
             }
@@ -2448,6 +2505,20 @@ mod tests {
         // about one chunk in ten
         let n = (0..100).flat_map(|x| (0..100).map(move |z| (x, z))).filter(|&(x, z)| slime_chunk(x, z, 2)).count();
         assert!((800..1200).contains(&n), "{n}");
+        // Java's int products wrap: chunk x -22's x * x * 4987142 is 2413776728 - 2^32. The game
+        // spawned a natural slime at y -1 in chunk -22 16 of village-edge's world (seed 2: the
+        // d1-bed-plate village-edge compare, t26828), where the long products had said no
+        assert!(slime_chunk(-22, 16, 2), "chunk -22 16 of seed 2 is a slime chunk");
+        let java = |x: i64, z: i64, seed: i64| {
+            let wrap = |v: i64| v as i32 as i64;
+            (seed + wrap(x * x * 4987142) + wrap(x * 5947611) + wrap(z * z) * 4392871 + wrap(z * 389711)) ^ 987234911
+        };
+        for (x, z) in [(-22, 16), (21, -30), (-400, 7000), (3, 4)] {
+            for seed in [0i64, 2, -7_123_456_789_012] {
+                let want = crate::rng::LegacyRandom::new(java(x as i64, z as i64, seed)).next_int(10) == 0;
+                assert_eq!(slime_chunk(x, z, seed), want, "chunk {x} {z} seed {seed}");
+            }
+        }
     }
 
     /// A nether portal's zombified piglin: on the portal's obsidian floor, the bottom portal

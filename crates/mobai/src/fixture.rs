@@ -1332,6 +1332,40 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (mob-AI 2026-11-10) loot pickup (Mob.aiStep's looting) among item entities, in the noon
+    // sun: zombie A (CanPickUpLoot) takes the 3 rotten flesh at its feet whole and leaves the iron
+    // ingot beside it (a plain item never replaces a plain one in hand); B refuses the glow ink
+    // sac and takes the 2 bones once their 10-tick pickup delay is over; C (no CanPickUpLoot)
+    // leaves its flesh. They burn and die: the loot table first, then the item in hand
+    // (dropCustomDeathLoot's guaranteed drop)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        let p = |s: &str| Some(s.to_string());
+        let item = |x: f64, z: f64, id: &str, n: u32, delay: u32| ("minecraft:item".to_string(), [x, 64.0, z], p(&format!("{{Item:{{id:\"minecraft:{id}\",count:{n}}},PickupDelay:{delay}s}}")));
+        v.push(Scene {
+            name: "loot-pickup".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                item(13.0, 12.5, "rotten_flesh", 3, 0),
+                item(12.5, 13.3, "iron_ingot", 1, 0),
+                ("minecraft:zombie".into(), [12.5, 64.0, 12.5], p("{CanPickUpLoot:1b}")),
+                item(24.9, 12.5, "glow_ink_sac", 1, 0),
+                item(24.5, 12.9, "bone", 2, 10),
+                ("minecraft:zombie".into(), [24.5, 64.0, 12.5], p("{CanPickUpLoot:1b}")),
+                item(36.9, 12.5, "rotten_flesh", 1, 0),
+                ("minecraft:zombie".into(), [36.5, 64.0, 12.5], None),
+            ],
+            day_time: 6000,
+            difficulty: Difficulty::Hard,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: Some([24.5, 74.0, 40.5]),
+            player_creative: true,
+            random_tick_speed: 0,
+        });
+    }
     // (tickexact 2026-11-10, the parent's single-lane carousel: 21 carts with villagers back to
     // back, released 3 at a time, rejoining the tail; the release mechanism is ironfarm's, this is
     // the queue's own physics) a lane along x at z 24 on the floor: a stone kick at x 1, boosters

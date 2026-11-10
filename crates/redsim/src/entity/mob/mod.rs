@@ -193,6 +193,8 @@ pub enum MobEvent {
     /// then `discard`), the drop gone within its tick; the judge's burnt drops (brief rev 9
     /// iteration 11: a measured loss, not a lost drop).
     Burnt { t: i64, item: u32, what: String, count: u32 },
+    /// A mob picked an item entity up (`Mob.pickUpItem`: the whole stack into its main hand).
+    PickedUp { t: i64, by: u32, item: u32, what: String, count: u32 },
     Removed { t: i64, id: u32 },
     Slept { t: i64, id: u32 },
     Woke { t: i64, id: u32 },
@@ -308,6 +310,12 @@ pub struct MobState {
     /// Spawned by the world (natural spawning, a jockey's rider, a portal's piglin, a trap horse),
     /// not brought by a design: an unmodeled behaviour of it runs on the legacy model, named.
     pub natural: bool,
+    /// `Mob.canPickUpLoot`: a natural undead's `setCanPickUpLoot(nextFloat() < 0.55 x the special
+    /// multiplier)` in finalizeSpawn; a summon's `CanPickUpLoot` data (`ai::loot`).
+    pub can_pick_up_loot: bool,
+    /// The main hand (`EquipmentSlot.MAINHAND`): its weapon from `populateDefaultEquipmentSlots`,
+    /// or an item it picked up (`ai::loot`); None: empty.
+    pub mainhand: Option<Held>,
     /// The helmet on its head (`EquipmentSlot.HEAD`): its max damage and damage (natural undead
     /// from `populateDefaultEquipmentSlots`); it takes the sun's burn.
     pub helmet: Option<(i32, i32)>,
@@ -368,6 +376,8 @@ impl MobState {
             chicken_jockey: false,
             trap_time: None,
             natural: false,
+            can_pick_up_loot: false,
+            mainhand: None,
             helmet: None,
             color: 0,
             lava_height: 0.0,
@@ -619,6 +629,7 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
     let mut sheep_color: Option<u8> = None;
     let mut portal_cooldown: Option<i32> = None;
     let mut chicken_jockey = false;
+    let mut can_pick_up_loot = false;
     let mut egg_lay_time: Option<i32> = None;
     let mut yaw = None;
     // (tickexact 2026-11-09, ironspec's one-bed carousel) a villager's loaded memories: HOME (a
@@ -699,6 +710,8 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
                 // a chicken's jockey flag and egg timer (Chicken.readAdditionalSaveData)
                 Some(("IsChickenJockey", v)) if ty.def().game_id == "minecraft:chicken" => chicken_jockey = matches!(v, "1b" | "true" | "1"),
                 Some(("EggLayTime", v)) if ty.def().game_id == "minecraft:chicken" => egg_lay_time = v.parse::<i32>().ok(),
+                // `Mob.readAdditionalSaveData`'s CanPickUpLoot (the mob AI's loot pickup)
+                Some(("CanPickUpLoot", v)) if w.mob.ai.on => can_pick_up_loot = matches!(v, "1b" | "true" | "1"),
                 _ => return Some(Err(format!("entity {type_id} with {kv} in its data is not modeled by redsim"))),
             }
         }
@@ -734,6 +747,12 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
         && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
     {
         m.color = c & 15;
+    }
+    if can_pick_up_loot
+        && let Some(j) = crate::entity::index_of(w, id)
+        && let EntityKind::Mob(m) = &mut w.entities.list[j].kind
+    {
+        m.can_pick_up_loot = true;
     }
     if let Some(c) = portal_cooldown
         && let Some(j) = crate::entity::index_of(w, id)
@@ -920,6 +939,28 @@ pub fn set_helmet(w: &mut World, id: u32, armor: Option<u8>) {
         && let crate::entity::EntityKind::Mob(m) = &mut e.kind
     {
         m.helmet = Some((max, 0));
+    }
+}
+
+/// An item in a mob's main hand: its id and count, whether it drops for sure when the mob dies
+/// (`setGuaranteedDrop`: an item it picked up; a spawn weapon's 0.085 drops only on a player's
+/// kill), whether it is enchanted (a spawn weapon's `populateDefaultEquipmentEnchantments`).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Held {
+    pub item: String,
+    pub count: u8,
+    pub guaranteed: bool,
+    pub enchanted: bool,
+}
+
+/// finalizeSpawn's hand of a natural mob: `setCanPickUpLoot`'s roll and the main-hand weapon
+/// `populateDefaultEquipmentSlots` gave it (and whether it got enchantments).
+pub fn set_hand(w: &mut World, id: u32, loot: bool, weapon: Option<(&'static str, bool)>) {
+    if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id)
+        && let crate::entity::EntityKind::Mob(m) = &mut e.kind
+    {
+        m.can_pick_up_loot = loot;
+        m.mainhand = weapon.map(|(item, enchanted)| Held { item: item.to_string(), count: 1, guaranteed: false, enchanted });
     }
 }
 
