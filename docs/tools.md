@@ -59,6 +59,18 @@ The judge's run on many seeds at once: `mctas mobfarm seeds <design> --from 1 --
 a carousel's riders at each midday), how many hold and the first failures by kind; `--write`
 records the count as a row of `<stem>.seeds.tsv` beside the design (`days held of seeds`, in run
 order; a run again on the same days and seeds replaces its row), which the farm's card quotes.
+The carousel's release + hold part (designs/briefs/farm-iron-carousel.md, "The parts" 2): `mctas
+mobfarm hold [--levels 3] [--level-gap 3] [--run 20] [--boost-every 2] [--margin 1] [--pitch 1]
+[--no-zombies] --out <file>` writes its bench design (7 lanes of stacked single-cart tracks, one
+villager a track, a batch a lane; each track a cart between two braked one-rail slopes; zombies
+beside every level; one shared bed), and `mctas mobfarm hold-bench <file> --from 1 --to 100
+--days 6 [--jitter 20] [--jobs N] [--verbose]` runs the 7 batches on the 100-gt slot grid with the
+counter's lines ideal (each switch 1 + 0..=jitter gt after a slot) and checks every villager every
+tick: the selected batch at its stand slopes at the slot, every other rider past the golems' follow
+box (19.3 from the pad) and outside the summoner's 10-box, never two batches at the station, every
+rider on its cart and in its lane, REST ticks and CANT_REACH at REST, and every cell a rider took
+scanned for a golem spawn spot; it prints the clean seeds, the arrival margin, the blocks and box;
+`--verbose` adds each slot and the first calm villagers at night with the zombies they see.
 A run's tick-level timing view (the carousel's parts and assembly): `mctas mobfarm timeline
 <design> --seed S --days D [--terrain <sample> | --build K] [--tag '<tag>'...] [--from T --to T]
 [--out DIR]` replays `mobfarm run`'s run (its counters printed beside the judge's: the same run tick

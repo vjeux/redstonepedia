@@ -367,6 +367,57 @@ pub enum MobfarmCmd {
         #[arg(long, short, default_value = ".")]
         out: PathBuf,
     },
+    /// The carousel's release + hold part (brief farm-iron-carousel.md, "The parts" 2): write its
+    /// bench design, 7 lanes of stacked single-cart tracks, one villager a track, a batch a lane
+    /// (`mobfarm hold-bench` runs it).
+    Hold {
+        /// Lane spacing in x.
+        #[arg(long, default_value_t = 1)]
+        pitch: i32,
+        /// Tracks a lane (a batch's villagers).
+        #[arg(long, default_value_t = 3)]
+        levels: i32,
+        /// Height between levels (3: a rider's eyes under the level above's supports).
+        #[arg(long, default_value_t = 3)]
+        level_gap: i32,
+        /// The bottom level's hold slope (z); level k's is run - k.
+        #[arg(long, default_value_t = 20)]
+        run: i32,
+        /// A booster every this many flat rails (0: none; 2 keeps the leaving batch past the
+        /// follow box at the next slot with the switch up to 45 gt late).
+        #[arg(long, default_value_t = 2)]
+        boost_every: i32,
+        /// Flat rails at each end without a booster (1 or more).
+        #[arg(long, default_value_t = 1)]
+        margin: i32,
+        /// No hold zombies (a calm hold).
+        #[arg(long)]
+        no_zombies: bool,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// The release + hold bench (brief farm-iron-carousel.md, "The parts" 2): the 7 batches
+    /// cycling on the 100-gt slot grid with the counter's lines ideal (each switch 1 + 0..=jitter gt
+    /// after a slot), every villager checked every tick: the selected batch at its stand end at
+    /// every slot, every other rider held past the golems' follow box and outside the summoner's
+    /// 10-box, never two batches at the station, every rider on its cart and in its lane, REST
+    /// ticks and CANT_REACH, and every cell any rider took scanned for a golem spawn spot.
+    HoldBench {
+        design: PathBuf,
+        #[arg(long, default_value_t = 1)]
+        from: i64,
+        #[arg(long, default_value_t = 100)]
+        to: i64,
+        #[arg(long, default_value_t = 6)]
+        days: u32,
+        #[arg(long, default_value_t = 20)]
+        jitter: u32,
+        #[arg(long)]
+        jobs: Option<usize>,
+        /// Print each slot and the first calm villagers at night with the zombies they see.
+        #[arg(long)]
+        verbose: bool,
+    },
     /// The judge's run of a design on many seeds at once (the carousel's robustness: "21 of 100
     /// seeds hold 3 days"): each seed's verdict (its first failure, or PASS) with its golems, iron
     /// and riders at each midday, then how many hold and the first failures counted by kind.
@@ -613,6 +664,81 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{} ({} KB)", html.display(), std::fs::metadata(&html)?.len() / 1024);
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
+        }
+        MobfarmCmd::Hold { pitch, levels, level_gap, run, boost_every, margin, no_zombies, out } => {
+            let o = crate::hold::LaneOpts { pitch, levels, level_gap, run, boost_every, margin, zombies: !no_zombies, ..Default::default() };
+            let text = crate::hold::design(&o)?;
+            std::fs::write(&out, text)?;
+            println!("{}", out.display());
+        }
+        MobfarmCmd::HoldBench { design, from, to, days, jitter, jobs, verbose } => {
+            let (c, spec) = load(version, &design)?;
+            let lanes = crate::hold::lanes_of(&c.clock.design.meta)?;
+            let seeds: Vec<i64> = (from..=to).collect();
+            let jobs = jobs.unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8)).max(1);
+            let next = std::sync::atomic::AtomicUsize::new(0);
+            let out: std::sync::Mutex<Vec<(i64, Result<crate::hold::BenchReport, String>)>> = std::sync::Mutex::new(Vec::new());
+            let t0 = std::time::Instant::now();
+            std::thread::scope(|sc| {
+                for _ in 0..jobs.min(seeds.len()) {
+                    sc.spawn(|| loop {
+                        let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(&seed) = seeds.get(k) else { break };
+                        let r = crate::hold::bench(&spec, &lanes, &crate::hold::BenchOpts { seed, days, jitter, verbose });
+                        out.lock().unwrap().push((seed, r));
+                    });
+                }
+            });
+            let mut rows = out.into_inner().unwrap();
+            rows.sort_by_key(|r| r.0);
+            let (mut clean, mut min_margin, mut margins, mut rest, mut calm, mut off) = (0, i64::MAX, 0.0, 0u64, 0u64, 0u64);
+            let mut calm_at: std::collections::BTreeMap<(i32, i32, i32, bool), u64> = Default::default();
+            let mut spots: Vec<redsim::pos::BlockPos> = Vec::new();
+            let (mut stand_lo, mut stand_hi, mut hold_lo, mut cant) = (f64::MAX, f64::MIN, f64::MAX, 0i64);
+            for (seed, r) in &rows {
+                match r {
+                    Err(e) => println!("seed {seed}: ERROR {e}"),
+                    Ok(r) => {
+                        if r.violation_count == 0 && r.errors.is_empty() {
+                            clean += 1;
+                        }
+                        if r.violation_count > 0 || !r.errors.is_empty() || verbose {
+                            println!("seed {seed}: {} violations in {} slots, margin min {} mean {:.1}, stand z {:.2}..{:.2}, hold z >= {:.2}, rest {} calm {} off-cart {}, errors {:?}", r.violation_count, r.slots, r.min_margin, r.mean_margin, r.stand_z.0, r.stand_z.1, r.hold_min_z, r.rest_ticks, r.calm_ticks, r.off_cart, r.errors);
+                            for v in r.violations.iter().take(4) {
+                                println!("    {v}");
+                            }
+                        }
+                        min_margin = min_margin.min(r.min_margin);
+                        margins += r.mean_margin;
+                        rest += r.rest_ticks;
+                        calm += r.calm_ticks;
+                        off += r.off_cart;
+                        cant = cant.max(r.max_cant_reach_at_rest);
+                        stand_lo = stand_lo.min(r.stand_z.0);
+                        stand_hi = stand_hi.max(r.stand_z.1);
+                        hold_lo = hold_lo.min(r.hold_min_z);
+                        for s in &r.spawn_spots {
+                            if !spots.contains(s) {
+                                spots.push(*s);
+                            }
+                        }
+                        for (k, v) in &r.calm_at {
+                            *calm_at.entry(*k).or_insert(0u64) += v;
+                        }
+                    }
+                }
+            }
+            if verbose {
+                let mut top: Vec<_> = calm_at.iter().filter(|(k, _)| k.3).collect();
+                top.sort_by(|a, b| b.1.cmp(a.1));
+                println!("calm at night by cell (x y z: villager-ticks), the worst 24:");
+                for ((x, y, z, _), v) in top.iter().take(24) {
+                    println!("  {x} {y} {z}: {v}");
+                }
+            }
+            let n = rows.len().max(1) as f64;
+            let (lo, hi) = c.bounds();
+            println!("{clean} of {} seeds clean over {days} days (jitter 0..={jitter}); arrival margin min {min_margin} gt, mean {:.1}; stand z {stand_lo:.2}..{stand_hi:.2}, hold z >= {hold_lo:.2}; villager-ticks: REST {rest} (oldest CANT_REACH {cant}), calm {calm}, off-cart {off}; golem spawn spots from rider positions: {} {:?}; {} blocks, box {}x{}x{} = {}; {:.0} s on {jobs} threads", rows.len(), margins / n, spots.len(), spots.iter().take(6).collect::<Vec<_>>(), c.clock.design.blocks.len(), hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1, (hi[0] - lo[0] + 1) * (hi[1] - lo[1] + 1) * (hi[2] - lo[2] + 1), t0.elapsed().as_secs_f64());
         }
         MobfarmCmd::Seeds { design, from, to, days, jobs, write } => {
             let (_c, spec) = load(version, &design)?;
