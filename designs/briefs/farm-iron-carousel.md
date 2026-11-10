@@ -75,7 +75,8 @@ lists. Every candidate meets all three rules; there is no first version without 
    the card.
 
 Unchanged: ranked against copies with the same villagers on volume and on rate per villager; every
-summon path closed at every position (panic only at the station, gossip groups apart); golems
+summon path closed at every position (panic only at the station, gossip closed by PANIC and the
+static gate); golems
 removed by portal, with the Nether side's exit kill and portal-ticket rules; the judge counts riders
 at every midday and HOME holders at every dawn.
 
@@ -460,9 +461,11 @@ station needs no drop and no overworld kill.
   natural hostile can stand in its sight on a dark surface (the parent brief's every-villager
   rule); the gossip path (`InteractWith`, `TradeWithVillager`, `Villager.gossip`,
   `spawnGolemIfNeeded(5)`, off the 100 gt grid: a calm pair within the square root of 5 that see
-  each other within 8, both 1,200 gt cooldowns over) cannot fire when waiting groups are more than
-  10.6 apart and the bed stop is split so that no 5 villagers share a 10-box in sight (at dawn all
-  of them are slept, unlocked and calm in IDLE).
+  each other within 8, both 1,200 gt cooldowns over) is closed by PANIC (no TradeWithVillager
+  while panicking: every held villager panics at every tick, day and night) and by the static gate
+  (spawnGolemIfNeeded from gossip finds no valid floor from any held position); held batches sit
+  1-3 blocks apart on paired lanes; the bed stop is split so that no 5 villagers share a 10-box in
+  sight (at dawn all of them are slept, unlocked and calm in IDLE).
 - The golem leaves the station's cubes within a few ticks (a drop below the cubes, or a kill that
   fast), and dies in the kill as the parent brief says (no golem outlives 1,200 gt).
 - Every villager lies down once per game day (the nightly stop: dismount, a bed, woken by a
