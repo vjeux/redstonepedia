@@ -372,8 +372,8 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::FleeSun(_) => !super::nav_of(w, i).is_done(),
         Goal::RangedBow => skeleton::bow_can_continue(w, i),
         Goal::LeapAtTarget => spider::leap_can_continue(w, i),
-        // Goal.canContinueToUse: canUse()
-        Goal::Cube(c) => super::cube::can_use(w, i, c),
+        // Goal.canContinueToUse: canUse() (the slime's attack: its own)
+        Goal::Cube(c) => super::cube::can_continue(w, i, c),
         Goal::Animal(a) => animal::can_continue(w, i, a),
         Goal::Squid(s) => super::squid::can_use(w, i, s),
         Goal::Witch(g) => witch::can_use(w, i, g),
@@ -406,7 +406,7 @@ pub fn start(w: &mut World, i: usize, g: &mut Goal) {
         Goal::FleeSun(g) => skeleton::flee_sun_start(w, i, g),
         Goal::RangedBow => {}
         Goal::LeapAtTarget => spider::leap_start(w, i),
-        Goal::Cube(_) => {}
+        Goal::Cube(c) => super::cube::start(w, i, c),
         Goal::Animal(a) => animal::start(w, i, a),
         Goal::Squid(_) => {}
         Goal::Witch(_) => {}

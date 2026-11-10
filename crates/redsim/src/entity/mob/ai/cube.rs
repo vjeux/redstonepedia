@@ -1,10 +1,11 @@
-//! The cube mobs (`AbstractCubeMob`: today the sulfur cube without a swallowed block; slimes and
-//! magma cubes share it but are not registered yet): no navigation, a jumping move control
+//! The cube mobs (`AbstractCubeMob`: the sulfur cube without a swallowed block and the slime; the
+//! magma cube shares it but is not registered yet): no navigation, a jumping move control
 //! (`CubeMobMoveControl`: the yaw turns toward a chosen direction, a jump every 10..29 ticks on the
 //! ground, a third of that when aggressive), its goals (`CubeMobFloatGoal`, the sulfur cube's
-//! `SulfurCubeTemptGoal` and `SulfurCubeSearchForItemsGoal`, `CubeMobRandomDirectionGoal`,
-//! `CubeMobKeepOnJumpingGoal`) and `AbstractCubeMob.tick`'s landing (its particles' and squish
-//! sound's draws).
+//! `SulfurCubeTemptGoal` and `SulfurCubeSearchForItemsGoal`, the slime's `CubeMobAttackGoal` and
+//! targets, `CubeMobRandomDirectionGoal`, `CubeMobKeepOnJumpingGoal`), `AbstractCubeMob.tick`'s
+//! landing (its particles' and squish sound's draws) and its split on death. A slime hurting an
+//! iron golem (`dealDamage`) is named, not modeled.
 
 use super::goal::{JUMP, LOOK, MOVE, reduced_tick_delay};
 use super::{ai, ai_mut, control};
@@ -32,8 +33,23 @@ pub fn cube_size(id: &str) -> Option<i32> {
     match id {
         "sulfur_cube" => Some(1),
         "sulfur_cube_2" => Some(2),
+        // (tickexact 2026-11-10, mob-AI's (d)) the slimes
+        "slime" => Some(1),
+        "slime_2" => Some(2),
+        "slime_4" => Some(4),
         _ => None,
     }
+}
+
+/// Is this cube mob a slime (`Slime`: it attacks; a sulfur cube does not)?
+pub fn is_slime_id(id: &str) -> bool {
+    matches!(id, "slime" | "slime_2" | "slime_4")
+}
+
+/// `AbstractCubeMob.canDealDamage`: not tiny (with its AI); a sulfur cube never
+/// (`SulfurCube.canDealDamage`).
+pub fn can_deal_damage(w: &World, i: usize) -> bool {
+    is_slime_id(mob(w, i).ty.def().id) && ai(w, i).cube.as_ref().is_some_and(|c| c.size > 1)
 }
 
 /// A cube mob's goals.
@@ -44,18 +60,20 @@ pub enum CubeGoal {
     SearchItems,
     RandomDirection { chosen: f32, next: i32 },
     KeepOnJumping,
+    /// `CubeMobAttackGoal` (a slime's): its `growTiredTimer`.
+    Attack { grow_tired: i32 },
 }
 
 impl CubeGoal {
     pub fn flags(&self) -> u8 {
         match self {
             CubeGoal::Float | CubeGoal::KeepOnJumping => JUMP | MOVE,
-            CubeGoal::Tempt | CubeGoal::SearchItems | CubeGoal::RandomDirection { .. } => LOOK,
+            CubeGoal::Tempt | CubeGoal::SearchItems | CubeGoal::RandomDirection { .. } | CubeGoal::Attack { .. } => LOOK,
         }
     }
 
     pub fn every_tick(&self) -> bool {
-        matches!(self, CubeGoal::Float)
+        matches!(self, CubeGoal::Float | CubeGoal::Attack { .. })
     }
 
     pub fn name(&self) -> &'static str {
@@ -65,23 +83,34 @@ impl CubeGoal {
             CubeGoal::SearchItems => "SulfurCubeSearchForItemsGoal",
             CubeGoal::RandomDirection { .. } => "CubeMobRandomDirectionGoal",
             CubeGoal::KeepOnJumping => "CubeMobKeepOnJumpingGoal",
+            CubeGoal::Attack { .. } => "CubeMobAttackGoal",
         }
     }
 }
 
-/// `SulfurCube.registerGoals` (AbstractCubeMob's, with the sulfur cube's behaviour goals and no
-/// targets). The move control's direction starts at `180 * yaw / PI` (its constructor's formula,
-/// with the yaw the entity's constructor drew).
+/// `SulfurCube.registerGoals` / `Slime.registerGoals` (AbstractCubeMob's float, direction and
+/// jumping, then the kind's behaviour goals: the sulfur cube's tempt and item search, the slime's
+/// attack; its targets: a slime's players within 4 up or down and iron golems). The move control's
+/// direction starts at `180 * yaw / PI` (its constructor's formula, with the yaw the entity's
+/// constructor drew).
 pub fn register(a: &mut super::MobAi, id: &str, ctor_yaw: f32) {
     use super::goal::Goal;
     a.goals.add(1, Goal::Cube(CubeGoal::Float));
     a.goals.add(4, Goal::Cube(CubeGoal::RandomDirection { chosen: 0.0, next: 0 }));
     a.goals.add(5, Goal::Cube(CubeGoal::KeepOnJumping));
-    a.goals.add(2, Goal::Cube(CubeGoal::Tempt));
-    a.goals.add(3, Goal::Cube(CubeGoal::SearchItems));
+    if is_slime_id(id) {
+        use super::goal::targets::{NearestAttackableTarget, TargetType};
+        a.goals.add(2, Goal::Cube(CubeGoal::Attack { grow_tired: 0 }));
+        a.targets.add(1, Goal::NearestAttackableTarget(NearestAttackableTarget::new(TargetType::SlimePlayer, 10, true, false)));
+        a.targets.add(3, Goal::NearestAttackableTarget(NearestAttackableTarget::new(TargetType::IronGolem, 10, true, false)));
+    } else {
+        a.goals.add(2, Goal::Cube(CubeGoal::Tempt));
+        a.goals.add(3, Goal::Cube(CubeGoal::SearchItems));
+    }
     a.nav.flags.can_float = true;
     let size = cube_size(id).unwrap_or(1);
-    a.cube = Some(CubeState { yrot: 180.0f32 * ctor_yaw / std::f32::consts::PI, size, age: if size == 1 { -24000 } else { 0 }, ..CubeState::default() });
+    let baby = !is_slime_id(id) && size == 1;
+    a.cube = Some(CubeState { yrot: 180.0f32 * ctor_yaw / std::f32::consts::PI, size, age: if baby { -24000 } else { 0 }, ..CubeState::default() });
 }
 
 pub fn is_cube(w: &World, i: usize) -> bool {
@@ -128,7 +157,53 @@ pub fn can_use(w: &mut World, i: usize, g: &mut CubeGoal) -> bool {
         CubeGoal::SearchItems => search_can_use(w, i),
         CubeGoal::RandomDirection { .. } => ai(w, i).target.is_none() && (w.entities.list[i].on_ground || in_liquid(w, i)),
         CubeGoal::KeepOnJumping => w.entities.list[i].vehicle.is_none(),
+        // a target it may attack (`canAttack`: alive), the cube's move control
+        CubeGoal::Attack { .. } => attack_target(w, i).is_some(),
     }
+}
+
+/// `canContinueToUse()`: `canUse()`, the attack's own (its target still attackable and not yet
+/// tired: `--growTiredTimer > 0`).
+pub fn can_continue(w: &mut World, i: usize, g: &mut CubeGoal) -> bool {
+    match g {
+        CubeGoal::Attack { grow_tired } => {
+            if attack_target(w, i).is_none() {
+                return false;
+            }
+            *grow_tired -= 1;
+            *grow_tired > 0
+        }
+        _ => can_use(w, i, g),
+    }
+}
+
+/// `start()`: the attack's `growTiredTimer` (`reducedTickDelay(300)`).
+pub fn start(_w: &mut World, _i: usize, g: &mut CubeGoal) {
+    if let CubeGoal::Attack { grow_tired } = g {
+        *grow_tired = reduced_tick_delay(300);
+    }
+}
+
+/// The cube's target, if it may attack it (`LivingEntity.canAttack`: `canBeSeenAsEnemy`, alive).
+fn attack_target(w: &World, i: usize) -> Option<usize> {
+    let id = ai(w, i).target?;
+    let j = crate::entity::index_of(w, id)?;
+    match &w.entities.list[j].kind {
+        EntityKind::Mob(m) if !m.dead => Some(j),
+        _ => None,
+    }
+}
+
+/// `Mob.lookAt(entity, yMax, xMax)`: the yaw and pitch toward the target's eye (a living one's).
+fn look_at(w: &mut World, i: usize, j: usize, y_max: f32, x_max: f32) {
+    let (me, it) = (super::eye_pos(w, i), super::eye_pos(w, j));
+    let (xd, yd, zd) = (it.x - me.x, it.y - me.y, it.z - me.z);
+    let sd = (xd * xd + zd * zd).sqrt();
+    let y_rot_d = control::atan2_degrees(zd, xd) - 90.0f32;
+    let x_rot_d = -control::atan2_degrees(yd, sd);
+    let e = &mut w.entities.list[i];
+    e.x_rot = control::rotlerp(e.x_rot, x_rot_d, x_max);
+    e.y_rot = control::rotlerp(e.y_rot, y_rot_d, y_max);
 }
 
 /// `SulfurCubeSearchForItemsGoal.canUse`: an adult with no pickup timer looks for the nearest
@@ -172,6 +247,15 @@ pub fn tick(w: &mut World, i: usize, g: &mut CubeGoal) {
             set_direction(w, i, *chosen, false);
         }
         CubeGoal::KeepOnJumping => set_wanted_movement(w, i, 1.0),
+        // CubeMobAttackGoal.tick: look at the target (10 degrees a tick), then the move control's
+        // direction its yaw, aggressive when it may deal damage
+        CubeGoal::Attack { .. } => {
+            if let Some(j) = attack_target(w, i) {
+                look_at(w, i, j, 10.0, 10.0);
+            }
+            let (y, hurts) = (w.entities.list[i].y_rot, can_deal_damage(w, i));
+            set_direction(w, i, y, hurts);
+        }
         CubeGoal::Tempt | CubeGoal::SearchItems => {}
     }
 }
@@ -282,6 +366,9 @@ pub fn split_on_death(w: &mut World, i: usize) {
     let ty = mob(w, i).ty;
     let child = match (ty.def().game_id, size / 2) {
         ("minecraft:sulfur_cube", 1) => crate::entity::mob::types::MobType::Natural(9),
+        // (a slime's halves: AbstractCubeMob's setUpSplitCube, no baby)
+        ("minecraft:slime", 1) => crate::entity::mob::types::MobType::Natural(6),
+        ("minecraft:slime", 2) => crate::entity::mob::types::MobType::Natural(38),
         _ => {
             let why = format!("a {} of size {size} splitting is not modeled", ty.def().game_id);
             if !w.errors.contains(&why) {
@@ -290,10 +377,12 @@ pub fn split_on_death(w: &mut World, i: usize) {
             return;
         }
     };
+    // getSplitCount: a sulfur cube's 2 (none is primed here); AbstractCubeMob's 2 + nextInt(3)
+    let count = if ty.def().game_id == "minecraft:slime" { 2 + own(w, i).next_int(3) } else { 2 };
     let off = ty.def().width / 2.0f32;
     let (persistent, portal) = (mob(w, i).persistence_required, w.entities.list[i].portal_cooldown);
     let p = w.entities.list[i].pos;
-    for k in 0..2i32 {
+    for k in 0..count {
         let xd = ((k % 2) as f32 - 0.5f32) * off;
         let zd = ((k / 2) as f32 - 0.5f32) * off;
         // EntityType.create(level, TRIGGERED): a construction

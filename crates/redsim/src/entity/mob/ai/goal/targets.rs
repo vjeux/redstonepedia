@@ -123,6 +123,8 @@ pub enum TargetType {
     DrownedPlayer,
     /// `Axolotl` (none are modeled: never found).
     Axolotl,
+    /// (tickexact 2026-11-10) `Player` with the slime's selector: within 4 up or down of it.
+    SlimePlayer,
 }
 
 /// `NearestAttackableTargetGoal`.
@@ -165,6 +167,10 @@ fn find_target(w: &mut World, i: usize, g: &mut NearestAttackableTarget) {
     let at = super::super::eye_pos(w, i);
     let list: Vec<Who> = match g.target_type {
         TargetType::Player | TargetType::SpiderPlayer => target::players(w),
+        TargetType::SlimePlayer => {
+            let y = w.entities.list[i].pos.y;
+            target::players(w).into_iter().filter(|p| (target::pos_of(w, *p).y - y).abs() <= 4.0).collect()
+        }
         TargetType::DrownedPlayer => target::players(w)
             .into_iter()
             .filter(|p| {
@@ -184,7 +190,7 @@ fn find_target(w: &mut World, i: usize, g: &mut NearestAttackableTarget) {
                 TargetType::IronGolem | TargetType::SpiderIronGolem => ty == MobType::IronGolem,
                 TargetType::BabyTurtle | TargetType::Endermite | TargetType::Axolotl => false,
                 TargetType::EnemyNotCreeper => is_enemy(ty),
-                TargetType::Player | TargetType::AngryPlayer | TargetType::SpiderPlayer | TargetType::DrownedPlayer => false,
+                TargetType::Player | TargetType::AngryPlayer | TargetType::SpiderPlayer | TargetType::DrownedPlayer | TargetType::SlimePlayer => false,
             })
         }
     };

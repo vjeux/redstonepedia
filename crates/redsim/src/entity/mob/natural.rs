@@ -65,7 +65,7 @@ pub static DEFS: &[TypeDef] = &[
     row(3, "zombie_horse", "minecraft:zombie_horse", 1.3964844, 1.6, 1.52, 25.0, 0.2f32 as f64, false, true, 1.0),
     TypeDef { loot: &[("minecraft:arrow", 0, 2), ("minecraft:bone", 0, 2)], riding_offset: -0.7, ..row(4, "skeleton", "minecraft:skeleton", 0.6, 1.99, 1.74, 20.0, 0.25, true, true, 0.6) },
     TypeDef { loot: &[("minecraft:gunpowder", 0, 2)], ..row(5, "creeper", "minecraft:creeper", 0.6, 1.7, 1.445, 20.0, 0.25, true, false, 0.6) },
-    row(6, "slime", "minecraft:slime", 0.52, 0.52, 0.325, 1.0, 0.2, true, false, 0.6),
+    row(6, "slime", "minecraft:slime", 0.52, 0.52, 0.325, 1.0, (0.2f32 + 0.1f32) as f64, true, false, 0.6),
     TypeDef { speed: 0.3f32 as f64, follow_range: 64.0, ..row(7, "enderman", "minecraft:enderman", 0.6, 2.9, 2.55, 40.0, 0.3, true, false, 1.0) },
     TypeDef { follow_range: 35.0, armor: 2.0, riding_offset: -0.7, ..row(8, "drowned", "minecraft:drowned", 0.6, 1.95, 1.74, 20.0, 0.23f32 as f64, true, true, 1.0) },
     // a sulfur cube's size sets its speed (0.2F + 0.1F x size) and health (4 x size): size 1 is
@@ -105,8 +105,8 @@ pub static DEFS: &[TypeDef] = &[
     row(36, "baby_fox", "minecraft:fox", 0.3, 0.35, 0.2, 10.0, 0.3, false, false, 0.6),
     row(37, "baby_turtle", "minecraft:turtle", 0.36, 0.12, 0.102, 30.0, 0.25, false, false, 1.0),
     // slimes of size 2 and 4 (`Slime.getDefaultDimensions` = the type's scaled by the size)
-    row(38, "slime_2", "minecraft:slime", 1.04, 1.04, 0.65, 4.0, 0.2, true, false, 0.6),
-    row(39, "slime_4", "minecraft:slime", 2.08, 2.08, 1.3, 16.0, 0.2, true, false, 0.6),
+    row(38, "slime_2", "minecraft:slime", 1.04, 1.04, 0.65, 4.0, (0.2f32 + 0.1f32 * 2.0) as f64, true, false, 0.6),
+    row(39, "slime_4", "minecraft:slime", 2.08, 2.08, 1.3, 16.0, (0.2f32 + 0.1f32 * 4.0) as f64, true, false, 0.6),
     row(40, "sulfur_cube_2", "minecraft:sulfur_cube", 0.98, 0.98, 0.35, 8.0, (0.2f32 + 0.1f32 * 2.0) as f64, true, false, 0.6),
     row(41, "sulfur_cube_4", "minecraft:sulfur_cube", 1.96, 1.96, 0.7, 16.0, 0.2, true, false, 0.6),
     // a village's cats and bees (CREATURE: they count toward the cap; not in these biomes' lists)

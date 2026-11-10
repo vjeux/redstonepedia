@@ -1122,6 +1122,14 @@ fn push_entities(w: &mut World, i: usize) {
             continue;
         }
         push_pair(w, j, i);
+        // (tickexact 2026-11-10) AbstractCubeMob.push(golem): a slime bigger than 1 hurts an iron
+        // golem pushing it (dealDamage: its melee range, sight, ATTACK_DAMAGE): not modeled, named
+        if mob(w, i).ty == MobType::IronGolem && super::ai::has_ai(w, j) && super::ai::cube::is_cube(w, j) && super::ai::cube::can_deal_damage(w, j) {
+            let why = "a slime hurting an iron golem that pushes it (AbstractCubeMob.dealDamage) is not modeled".to_string();
+            if !w.errors.contains(&why) {
+                w.errors.push(why);
+            }
+        }
     }
 }
 
