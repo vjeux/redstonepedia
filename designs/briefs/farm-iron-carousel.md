@@ -26,9 +26,9 @@ Every carousel part with timed controls prints its tolerance: how many ticks eac
 
 Each part's tolerance line also includes two corner runs: every timed control at its measured early limit together, then every one at its late limit, each with the entry-speed extreme, so a part whose margins hold only one at a time shows up; the assembly repeats the corners across its couplings.
 
-#### Works as placed, in build order (every part)
+#### Settled as placed (every part)
 
-Every carousel part's checks include a raw paste: the design file placed in build order, with no settle ticks and no shape or neighbour updates, must stay clean on the part's bench under the same pass criteria as the settled run. So every cell is written in its settled state (wire and rail shapes, repeater and comparator states, powered states consistent with their inputs), and anything that needs items or a pre-run state (a hopper's or dropper's stock, a sorter's fillers) is a listed build step, not a pre-stocked file state. Why: the wired loop matched the real game only when pasted the judge's way (shape-updated wires, a pre-stocked hopper); placed raw, its release failed from slot 1.
+Every carousel part's checks include a raw paste: the design file placed as written, with no settle ticks and no shape or neighbour updates, must stay clean on the part's bench under the same pass criteria as the settled run. So every cell is written in its settled state (wire and rail shapes, repeater and comparator states, powered states consistent with their inputs), and anything that needs items or a pre-run state (a hopper's or dropper's stock, a sorter's fillers) is a listed build step, not a pre-stocked file state. Why: the wired loop matched the real game only when pasted the judge's way (shape-updated wires, a pre-stocked hopper); placed raw, its release failed from slot 1. (This checks that the file is settled; it does not check a build in placement order, where each placement runs its own updates: observers, pistons and half-built circuits can fire then.)
 
 ### Archived: measured, superseded by vjeux's single lane
 
