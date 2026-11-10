@@ -588,6 +588,10 @@ pub enum MobfarmCmd {
         /// updates and no settle; the loop must still run clean ("works as placed").
         #[arg(long)]
         placed_raw: bool,
+        /// Run both placements (the judge's, then the raw paste) and report each: the brief's
+        /// "works as placed" check.
+        #[arg(long)]
+        placed_both: bool,
         #[arg(long)]
         verbose: bool,
         /// Print these carts (design order) every gt.
@@ -1213,7 +1217,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             println!("{}", crate::queue::loop_spots(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, verbose, watch, drive_out } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, verbose, watch, drive_out } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             let intake_brake = match intake_brake.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--intake-brake takes two values: slots 1-2, then slot 0") };
@@ -1236,18 +1240,28 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 }
                 return Ok(());
             }
-            if seeds > 1 {
+            if seeds > 1 || placed_both {
                 // one line per seed, then the total (the drive log, watch and verbose apply to
-                // single runs)
-                let (mut clean, mut bad) = (0, Vec::new());
-                for s in seed..seed + seeds {
-                    let r = crate::queue::run_loop(&spec, &o, &tm, cycles, s, false, None, None).map_err(|e| anyhow::anyhow!(e))?;
-                    let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").to_string();
-                    let first = r.lines().skip_while(|l| !l.ends_with("problems:")).nth(1).unwrap_or("").trim().to_string();
-                    println!("seed {s}: {probs} {first}");
-                    if probs.starts_with("0 problems") { clean += 1 } else { bad.push(s) }
+                // single runs); `placed_both`: the judge's placement, then the raw paste
+                let modes: Vec<bool> = if placed_both { vec![false, true] } else { vec![tm.placed_raw] };
+                let mut all_clean = true;
+                for raw in modes {
+                    let tm = crate::queue::LoopTiming { placed_raw: raw, ..tm };
+                    let label = if raw { "placed raw" } else { "settled (the judge's placement)" };
+                    let (mut clean, mut bad) = (0, Vec::new());
+                    for s in seed..seed + seeds {
+                        let r = crate::queue::run_loop(&spec, &o, &tm, cycles, s, false, None, None).map_err(|e| anyhow::anyhow!(e))?;
+                        let probs = r.lines().find(|l| l.ends_with("problems") || l.ends_with("problems:")).unwrap_or("?").to_string();
+                        let first = r.lines().skip_while(|l| !l.ends_with("problems:")).nth(1).unwrap_or("").trim().to_string();
+                        println!("{label}, seed {s}: {probs} {first}");
+                        if probs.starts_with("0 problems") { clean += 1 } else { bad.push(s) }
+                    }
+                    all_clean &= bad.is_empty();
+                    println!("{label}: {clean} of {seeds} seeds clean over {cycles} slots each{}", if bad.is_empty() { String::new() } else { format!("; problems on seeds {bad:?}") });
                 }
-                println!("{clean} of {seeds} seeds clean over {cycles} slots each{}", if bad.is_empty() { String::new() } else { format!("; problems on seeds {bad:?}") });
+                if placed_both {
+                    println!("{}", if all_clean { "works both ways" } else { "FAILS in at least one placement" });
+                }
                 return Ok(());
             }
             let s = crate::queue::run_loop(&spec, &o, &tm, cycles, seed, verbose, if watch.is_empty() { None } else { Some(&watch) }, drive_out.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
