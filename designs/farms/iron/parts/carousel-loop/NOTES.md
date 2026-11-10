@@ -100,7 +100,8 @@ controller produces):
   posts is the same in the game, tick for tick.
 - This file, day-1's times (tail +2, departures 6 apart, tail brakes +100/+118/+120, the
   at-rest check): 3 seeds x 200 slots clean at bench +26 and +27 (redstone +27/+28); 100 seeds x
-  1,440 slots (6 days each) clean at bench +27 (day-1's v1 times: release 36, 12-gt pulses).
+  1,440 slots (6 days each) clean at bench +27, with day-1's v1 times (release 36, 12-gt pulses)
+  and again with its v2 times (release 34, 10-gt pulses, slot 2's tail brake at +98).
 - day-1's fully wired run on the previous file (9bd8f2ff9, its redstone for every control, 60 slots
   x 3 seeds): the release group holds 3 and the stand holds 3 on every slot, no rider problem; the
   one failure was the returning batch still settling when the tail's first advance came (fixed
