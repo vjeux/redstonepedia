@@ -1262,6 +1262,26 @@ pub struct LoopTiming {
     /// The pocket stand's counting gates shut this many gt after their count is reached (0: at
     /// once; the tolerance probe of the gates' own circuit).
     pub pocket_close_delay: i64,
+    /// A nap visit to the bed siding (see `Visit`).
+    pub visit: Option<Visit>,
+}
+
+/// A nap visit: during slot `slot` the stand's cart `k` (0 = S1, the batch's front, first across
+/// the departure corner) is diverted to the bed siding: the divert control on for 10 gt from
+/// +`divert_at`; T1/T2 set for its drop slot (q-4-k: its hole rests there in the long rest of
+/// slot `slot`+4); the siding's release control on for 10 gt at +`release_at` from slot `slot`'s
+/// start. Checked: the rider sleeps, the cart rolls off its drop rail, rests in its own slot, and
+/// its batch is in order (slots q-4, q-5, q-6) before slot `slot`+5's first advance.
+#[derive(Clone, Copy, Debug)]
+pub struct Visit {
+    pub slot: i64,
+    pub k: usize,
+    pub divert_at: i64,
+    pub release_at: i64,
+    pub divert: BlockPos,
+    pub t1: BlockPos,
+    pub t2: BlockPos,
+    pub release: BlockPos,
 }
 
 /// Day-1's merge (b): at cycle `cycle`, +4, the cart in queue slot `park` leaves the loop; at +`at`
@@ -1281,7 +1301,7 @@ pub struct SideDrop {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0 }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false, stagger_off: false, side_drop: None, stop_open: 0, stop_close: 40, pocket_release: 10, pocket_reset: 52, stop_brake_delay: 0, stop_cv: 8, pocket_close_delay: 0, visit: None }
     }
 }
 
@@ -1709,6 +1729,8 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let lay = loop_layout(o);
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let off = Block::parse("minecraft:glass").map_err(|e| e.to_string())?;
+    // (a nap visit's T controls are off as a target block: see the visit's T's)
+    let target = Block::parse("minecraft:target[power=0]").map_err(|e| e.to_string())?;
     // (the line loop's startup: one batch is on its long return at the start; the bench parks its
     // 3 carts off the loop and places them in the queue's tail at `inject_at`, bench-driven)
     let mut parked: Vec<u32> = Vec::new();
@@ -1808,6 +1830,18 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut order_prev: Option<(Vec<Option<u32>>, Vec<u32>, Vec<u32>)> = None;
     let mut order_dep2: Option<Vec<u32>> = None;
     let mut order_ok = 0;
+    // (a nap visit's state: the carts off the loop, the visiting cart and its batch, what it did)
+    let mut away: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    let mut visit_cart: Option<u32> = None;
+    let mut visit_rider: Option<u32> = None;
+    let mut visit_batch: Vec<u32> = Vec::new();
+    let mut visit_sleep: (Option<i64>, Option<i64>) = (None, None);
+    let mut visit_rolled: Option<(i64, f64)> = None;
+    let mut visit_on_rail = false;
+    let mut visit_back: Option<(i64, usize)> = None;
+    let mut visit_lines: Vec<String> = Vec::new();
+    let mut home_was: Vec<Option<BlockPos>> = vec![None; riders.len()];
+    let mut bed_claims: Vec<String> = Vec::new();
     // (the stop stand's brake: armed with a batch's third cart, set `stop_brake_delay` gt after
     // that cart is on the braked slopes; the design's first batch arms it from the start)
     let mut stop_arm: Option<(u32, Option<i64>)> = None;
@@ -1893,6 +1927,28 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             if rel.len() != 3 || dep.len() != 3 {
                 problems.push(format!("slot {c}: the release group holds {} carts and the stand {} at the slot's start", rel.len(), dep.len()));
             }
+            // (a nap visit: its cart is the stand's cart k now; T1/T2 set for its drop slot)
+            let mut visit_sets: Vec<(BlockPos, Block)> = Vec::new();
+            if let Some(v) = tm.visit {
+                if c == v.slot {
+                    visit_batch = dep.clone();
+                    visit_cart = dep.get(v.k).copied();
+                    let idx = visit_cart.and_then(|id| carts.iter().position(|x| *x == id));
+                    visit_rider = idx.map(|i| riders[i]);
+                    let drop = q - 4 - v.k;
+                    for (cell, powered) in [(v.t1, drop != q - 4), (v.t2, drop == q - 6)] {
+                        // (a T rail reshapes only on an update from a signal source: a block
+                        // placed over glass updates its neighbours as glass and leaves the T as it
+                        // was, so a T's control is off as a target block (a full block, a signal
+                        // source, no power) and switched on from it)
+                        visit_sets.push((cell, target.clone()));
+                        if powered {
+                            visit_sets.push((cell, on.clone()));
+                        }
+                    }
+                    visit_lines.push(format!("visit: slot {c} (day time {}), the stand's cart {} (e{}) to the siding, its drop slot {drop}", run.world.day_time().rem_euclid(24000), v.k, idx.map_or(-1, |i| i as i64)));
+                }
+            }
             // the order at each slot's start, cart by cart (no moment has all 21 at rest with a
             // pocket stand): every queue cart 3 slots on from the last slot's start, the tail's
             // 3 the batch that left the stand (its front in slot 2), the stand's 3 the train that
@@ -1909,6 +1965,10 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                         // (slot 1: the design's own tail carts, raised out of `by_cell`'s reach, and
                         // no stand batch two slots back to stand in for them)
                         if want.is_none() && s < 3 && order_dep2.is_none() {
+                            continue;
+                        }
+                        // (a cart away on a nap visit leaves a hole that rides the queue)
+                        if want.is_some_and(|w| away.contains(&w)) && queue_now[s + 3].is_none() {
                             continue;
                         }
                         if queue_now[s + 3] != want {
@@ -1933,6 +1993,10 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             each_at = [None; 3];
             each_done = [false; 3];
             intake_trains.push((c, dep, 0));
+            for (cell, b) in visit_sets {
+                run.world.set_block(cell, b.clone(), redsim::world::flags::ALL);
+                drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, cell.x, cell.y, cell.z, b));
+            }
             if let Some(p) = wired {
                 // the golem pulse into the design's input cell
                 run.world.set_block(p, on.clone(), redsim::world::flags::ALL);
@@ -2032,6 +2096,29 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                     match side_rest {
                         Some((at, along, s)) => arrivals.push(format!("side drop: the cart from slot {park}, back by the side rail at slot {slot} at +{d} ({} {v} b/t), first at rest in slot {s} at +{at} (z offset {along:.2} in the cell)", if sd.staged { "staged, arriving at" } else { "at" })),
                         None => problems.push(format!("side drop: the cart from slot {park} (back at slot {slot} at +{d}) never at rest in a queue or stand slot by slot {}'s end", cy + 2)),
+                    }
+                }
+            }
+        }
+        // (a nap visit's two timed controls: the divert at the departure corner while its cart
+        // crosses, the siding's release; the cart is off the loop from the divert on)
+        if let Some(v) = tm.visit {
+            let now = c * 100 + dt;
+            for (cell, at, is_divert) in [(v.divert, v.divert_at, true), (v.release, v.release_at, false)] {
+                // (the divert, a T: off as a target block, set one tick before its window, see
+                // the T's above; the siding's release: glass and a redstone block)
+                if is_divert && now == v.slot * 100 + at - 1 {
+                    run.world.set_block(cell, target.clone(), redsim::world::flags::ALL);
+                    drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, cell.x, cell.y, cell.z, target));
+                }
+                if now == v.slot * 100 + at || now == v.slot * 100 + at + 10 {
+                    let b = if now == v.slot * 100 + at { on.clone() } else if is_divert { target.clone() } else { off.clone() };
+                    run.world.set_block(cell, b.clone(), redsim::world::flags::ALL);
+                    drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, cell.x, cell.y, cell.z, b));
+                    if is_divert && now == v.slot * 100 + at {
+                        if let Some(id) = visit_cart {
+                            away.insert(id);
+                        }
                     }
                 }
             }
@@ -2201,11 +2288,107 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         }
         run.tick();
         stop_brake(&mut run.world, &mut stop_arm);
+        // (with a visit: each rider's bed claim, when it starts and ends, and where it rode then)
+        if tm.visit.is_some() {
+            for (k, r) in riders.iter().enumerate() {
+                let Some(i) = redsim::entity::index_of(&run.world, *r) else { continue };
+                let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind else { continue };
+                let h = m.brain.as_deref().and_then(|b| b.home);
+                if h != home_was[k] {
+                    let p = run.world.entities.list[i].pos;
+                    bed_claims.push(format!("e{k} {} at slot {c} +{dt} riding at {:.1},{:.1},{:.1}", h.map_or("let its bed go".to_string(), |h| format!("took the bed ({},{},{})", h.x, h.y, h.z)), p.x, p.y, p.z));
+                    home_was[k] = h;
+                }
+            }
+        }
+        // (a nap visit: the rider's sleep, the cart rolling off its drop rail, back at rest in a
+        // slot; its batch's order before the first advance of slot `slot`+5)
+        if let (Some(v), Some(id)) = (tm.visit, visit_cart) {
+            let now = c * 100 + dt - v.slot * 100;
+            let drop = q - 4 - v.k;
+            let cell = lay.slot_cells[drop];
+            let _ = &v;
+            // (the bed's holders again once the napper should be in the cage)
+            if now == 250 {
+                let homes: Vec<String> = riders.iter().enumerate().filter_map(|(k, r)| {
+                    let i = redsim::entity::index_of(&run.world, *r)?;
+                    let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind else { return None };
+                    let h = m.brain.as_deref()?.home?;
+                    Some(format!("e{k} ({},{},{})", h.x, h.y, h.z))
+                }).collect();
+                visit_lines.push(format!("visit: +{now}: riders holding a bed: {}", if homes.is_empty() { "none".to_string() } else { homes.join(", ") }));
+            }
+            // (the divert's rail, above its control, as the window opens and after it shuts; and
+            // the visiting cart's whereabouts then)
+            if now == v.divert_at + 1 || now == v.divert_at + 12 {
+                // (who holds a bed: the riders' HOME memories)
+                if now == v.divert_at + 1 {
+                    let homes: Vec<String> = riders.iter().enumerate().filter_map(|(k, r)| {
+                        let i = redsim::entity::index_of(&run.world, *r)?;
+                        let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind else { return None };
+                        let h = m.brain.as_deref()?.home?;
+                        Some(format!("e{k} ({},{},{})", h.x, h.y, h.z))
+                    }).collect();
+                    visit_lines.push(format!("visit: +{now}: riders holding a bed: {}", if homes.is_empty() { "none".to_string() } else { homes.join(", ") }));
+                }
+                let rail = BlockPos::new(v.divert.x, v.divert.y + 1, v.divert.z);
+                let p = pos_of(&run.world, id).map_or("gone".to_string(), |p| format!("{:.2},{:.2},{:.2}", p.x, p.y, p.z));
+                let around: Vec<String> = [("N", 0, -1), ("S", 0, 1), ("W", -1, 0), ("E", 1, 0)].iter().map(|(n, dx, dz)| {
+                    let at: Vec<String> = (-1..=1).map(|dy| BlockPos::new(rail.x + dx, rail.y + dy, rail.z + dz)).map(|b| run.world.get(b).to_string()).filter(|s| s.contains("rail")).collect();
+                    format!("{n}: {}", if at.is_empty() { "-".to_string() } else { at.join("/") })
+                }).collect();
+                visit_lines.push(format!("visit: +{now}: the divert's rail ({},{},{}) is {} over {} (around it {}); the cart at {p}", rail.x, rail.y, rail.z, run.world.get(rail), run.world.get(v.divert), around.join(", ")));
+            }
+            if away.contains(&id) {
+                if let Some(r) = visit_rider.and_then(|r| redsim::entity::index_of(&run.world, r)) {
+                    if matches!(&run.world.entities.list[r].kind, redsim::entity::EntityKind::Mob(_)) && redsim::entity::mob::mob(&run.world, r).sleeping_pos.is_some() {
+                        visit_sleep.0.get_or_insert(now);
+                        visit_sleep.1 = Some(now);
+                    }
+                }
+                if visit_rolled.is_none() && now > v.release_at {
+                    if let Some(i) = redsim::entity::index_of(&run.world, id) {
+                        let e = &run.world.entities.list[i];
+                        // (on the drop rail first: west of the slot's cell at the peaks' height;
+                        // then into the slot's column)
+                        let on_rail = e.pos.x >= cell[0] as f64 - 3.0 && e.pos.x < cell[0] as f64 && e.pos.y >= cell[1] as f64 + 0.9 && (e.pos.z - (cell[2] as f64 + 0.5)).abs() < 0.6;
+                        if on_rail {
+                            visit_on_rail = true;
+                        }
+                        if visit_on_rail && e.pos.x >= cell[0] as f64 && e.pos.x < cell[0] as f64 + 1.0 && (e.pos.z - (cell[2] as f64 + 0.5)).abs() < 0.6 {
+                            visit_rolled = Some((now, e.delta_movement.horizontal_distance()));
+                        }
+                    }
+                }
+                if visit_rolled.is_some() {
+                    if let Some(s) = place_of(&run.world, id) {
+                        visit_back = Some((now, s));
+                        away.remove(&id);
+                    }
+                }
+            }
+            if c == v.slot + 5 && dt == tm.advance_at - 1 {
+                let at: Vec<Option<usize>> = visit_batch.iter().map(|b| place_of(&run.world, *b)).collect();
+                let want: Vec<Option<usize>> = (0..visit_batch.len()).map(|j| Some(q - 4 - j)).collect();
+                visit_lines.push(format!("visit: the batch at slots {at:?} at slot {c}'s +{dt} (want {want:?})"));
+                if at != want {
+                    problems.push(format!("visit: the batch at slots {at:?} at slot {c}'s +{dt}, not {want:?}"));
+                }
+                let aboard = redsim::entity::index_of(&run.world, id).and_then(|i| run.world.entities.list[i].passengers.first().copied()) == visit_rider;
+                if !aboard {
+                    problems.push("visit: the napper is not back in its own cart".to_string());
+                }
+            }
+        }
         // PANIC at night (the deep night, day time 13,670..22,330): every rider, and where the
         // calm ones ride
         let tod = run.world.day_time().rem_euclid(24000);
         if (13670..22330).contains(&tod) {
             for (k, r) in riders.iter().enumerate() {
+                // (the napper on its visit is meant to sleep, not panic)
+                if away.contains(&carts[k]) {
+                    continue;
+                }
                 let Some(i) = redsim::entity::index_of(&run.world, *r) else { continue };
                 night_ticks[k] += 1;
                 let panicking = redsim::entity::mob::ai::brain::has_exact(&run.world, i) && redsim::entity::mob::ai::brain::ex(&run.world, i).active == redsim::entity::mob::ai::brain::Act::Panic;
@@ -2378,7 +2561,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             if wired.is_some() {
                 // the design's own redstone brakes the tail: done once the train's 3 carts rest
                 // in slots 2, 1, 0
-                if *st < 2 && tr.len() == 3 && (0..3).all(|k| place_of(&run.world, tr[k]) == Some(2 - k)) {
+                if *st < 2 && tr.len() == 3 && (0..3).all(|k| away.contains(&tr[k]) || place_of(&run.world, tr[k]) == Some(2 - k)) {
                     arrivals.push(format!("slot {c0}: returning train at rest in the tail +{}", t - *c0 * 100));
                     *st = 2;
                 }
@@ -2505,6 +2688,17 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     }
     if let Some(d) = built_diff {
         out.push(d);
+    }
+    if let Some(v) = tm.visit {
+        out.extend(visit_lines.iter().cloned());
+        out.push(format!("visit: bed claims: {}", if bed_claims.is_empty() { "none".to_string() } else { bed_claims.join("; ") }));
+        out.push(format!("visit: rider asleep {}; rolled off its drop rail {}; back at rest {}", match visit_sleep { (Some(a), Some(b)) => format!("+{a}..+{b}"), _ => "never".into() }, visit_rolled.map_or("never".into(), |(t, s)| format!("at +{t} at {s:.2} b/t")), visit_back.map_or("never".into(), |(t, s)| format!("in slot {s} at +{t}"))));
+        if visit_sleep.0.is_none() {
+            problems.push(format!("visit: the napper (slot {}, cart {}) never slept", v.slot, v.k));
+        }
+        if visit_back.is_none() {
+            problems.push(format!("visit: the cart (slot {}, cart {}) never came back to rest in a slot", v.slot, v.k));
+        }
     }
     if !side_changed.is_empty() {
         problems.insert(0, format!("side drop: the side rail reshaped {} loop cells: {}", side_changed.len(), side_changed.iter().take(4).cloned().collect::<Vec<_>>().join("; ")));
