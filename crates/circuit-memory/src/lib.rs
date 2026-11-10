@@ -99,6 +99,14 @@ enum Cmd {
         dump: Option<PathBuf>,
         #[arg(long, default_value_t = 20_000)]
         dump_ticks: u32,
+        /// Write a copy of the design carrying the base run's input as its `stimulus:` line: `mctas
+        /// circuit trace-compare <copy>` is the real game's check of this very run.
+        #[arg(long)]
+        stimulus_out: Option<PathBuf>,
+        /// Quarter turns the same run is repeated on, comma-separated (each must give the same
+        /// advances tick for tick); empty for none.
+        #[arg(long, default_value = "1,2,3")]
+        turns: String,
     },
     /// Stamp the tunable-group headers (`group:`, `group title:`, `group note:`) on counter
     /// designs by their name: bulb-chain, dropper-ring, ring-bulbs, ring-chain, ring-divider (the
@@ -151,13 +159,14 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::Items { n, out } => items::run(&n, &out)?,
         Cmd::Ring { n, max_dust, keep, bulbs, then, divider, unchecked, out } => ring::run(&n, max_dust, keep, bulbs, &then, divider, !unchecked, &out)?,
         Cmd::StampGroups { dry_run, files } => stamp::run(&files, dry_run)?,
-        Cmd::CounterBench { design, pulses, seed, restarts, width, jitter, miss, burst, ready, tc, m, dump, dump_ticks } => {
+        Cmd::CounterBench { design, pulses, seed, restarts, width, jitter, miss, burst, ready, tc, m, dump, dump_ticks, stimulus_out, turns } => {
+            let turns: Vec<u8> = turns.split(',').map(str::trim).filter(|s| !s.is_empty()).map(|s| s.parse::<u8>().with_context(|| format!("--turns {s:?}"))).collect::<Result<_>>()?;
             let range = |s: &str| -> Result<(i64, i64)> {
                 let (a, b) = s.split_once("..").ok_or_else(|| anyhow!("{s:?}: MIN..MAX"))?;
                 Ok((a.trim().parse()?, b.trim().parse()?))
             };
             let (w0, w1) = range(&width)?;
-            let o = seqbench::Opts { pulses, seed, restarts, width: (w0 as u32, w1 as u32), jitter, miss, burst, ready, tc, m: range(&m)?, dump, dump_ticks, ..Default::default() };
+            let o = seqbench::Opts { pulses, seed, restarts, width: (w0 as u32, w1 as u32), jitter, miss, burst, ready, tc, m: range(&m)?, dump, dump_ticks, stimulus_out, turns, ..Default::default() };
             if !seqbench::bench(&design, &o)? {
                 bail!("the counter fails its bench");
             }

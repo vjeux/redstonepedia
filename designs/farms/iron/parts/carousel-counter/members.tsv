@@ -1,0 +1,3 @@
+file	name	stage	metrics	used_by
+carousel-counter-v7.txt	carousel counter v7: dropper/hopper ring, edge-merged monostable fallback, repeater front (keep drops and mobs off its 7 open hopper tops)	middle	T_c 21 gt, transition gap 7 gt, fallback m 6..8, blocks 95, box 11x3x13, build minutes 15.2	
+carousel-counter-v6.txt	carousel counter v6: dropper/hopper ring, edge-merged monostable fallback, copper-bulb front (keep drops and mobs off its 7 open hopper tops)	middle	T_c 21 gt, transition gap 7 gt, fallback m 6..8, blocks 106, box 11x5x13, build minutes 16.6	

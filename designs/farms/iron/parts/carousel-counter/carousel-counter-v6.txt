@@ -1,7 +1,7 @@
-# Carousel counter v5 (day-1 lane 2026-11-10): golem pulse and fallback torch enter the
+# Carousel counter v6 (day-1 lane 2026-11-10): golem pulse and fallback torch enter the
 # monostable's bulb (stage 1 then merges every retrigger within ~28 gt). A rising-edge detector on
-# stage 1's output A1 (subtract comparator Y: rear A1, side A1 through repeaters Z and P, 8 gt)
-# gives ONE 8-gt pulse per burst; that pulse fires the ring (branch north to the loop) and refills
+# stage 1's output A1 (subtract comparator Y: rear A1, side A1 through repeaters Z and P, 10 gt)
+# gives ONE 10-gt pulse per burst; that pulse fires the ring (branch north to the loop) and refills
 # stage 2 (repeater r into I2, at 15), so the fallback countdown always starts from the burst's
 # first edge whatever later retriggers do. Ring: 2x7 droppers/hoppers, one stone, comparator taps
 # (even lanes north, odd lanes south), cycle 0-2-4-6-5-3-1.

@@ -25,7 +25,7 @@
 //! `--dump FILE`: the trace in mobviewer's `timeline --from-dump` format (`t= gt=` then `signal
 //! NAME=on|off`, `mark pulse golem|fallback`, `mark slot missed`, `VIOLATION <rule> <lane>: ...`).
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context as _, Result, anyhow, bail};
 use circuit::{Circuit, InputHow};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -60,11 +60,18 @@ pub struct Opts {
     pub dump: Option<PathBuf>,
     /// Ticks of the trace written to the dump (from 0); violations are written wherever they are.
     pub dump_ticks: u32,
+    /// Write a copy of the design carrying the base run's input as its `stimulus:` line
+    /// (`in R+ F- ...`, the circuit judge's format): the real game's check of this very run is
+    /// `mctas circuit trace-compare <copy>` (every cell, every gt, redsim against the game).
+    pub stimulus_out: Option<PathBuf>,
+    /// Quarter turns the same run is repeated on (the design turned clockwise seen from above):
+    /// each must give the same advances tick for tick.
+    pub turns: Vec<u8>,
 }
 
 impl Default for Opts {
     fn default() -> Opts {
-        Opts { pulses: 100_000, seed: 1, restarts: 20, width: (2, 15), jitter: 5, miss: 0.05, burst: 0.3, ready: 40, tc: 40, tc_min: 4, m: (6, 10), warmup: 200, dump: None, dump_ticks: 20_000 }
+        Opts { pulses: 100_000, seed: 1, restarts: 20, width: (2, 15), jitter: 5, miss: 0.05, burst: 0.3, ready: 40, tc: 40, tc_min: 4, m: (6, 10), warmup: 200, dump: None, dump_ticks: 20_000, stimulus_out: None, turns: vec![1, 2, 3] }
     }
 }
 
@@ -107,6 +114,8 @@ struct Advance {
 #[derive(Default)]
 struct Run {
     advances: Vec<Advance>,
+    /// Every golem pulse the farm sent: (rise, fall) of the input.
+    pulses: Vec<(u32, u32)>,
     golems: usize,
     /// Golem pulses within 95 gt after a fallback advance the counter absorbed (contract (c)).
     absorbed: usize,
@@ -216,7 +225,7 @@ fn run_once(c: &Circuit, o: &Opts, reloads: &[u32]) -> Result<Run> {
                 change_start = Some(t);
             }
         }
-        let mut violate = |r: &mut Run, rule: &str, lane: &str, text: String| {
+        let violate = |r: &mut Run, rule: &str, lane: &str, text: String| {
             r.violations.push((t, rule.to_string(), lane.to_string(), text.clone()));
             let _ = writeln!(r.dump, "t={t} gt={t} VIOLATION {rule} {lane}: {text}");
         };
@@ -328,6 +337,7 @@ fn run_once(c: &Circuit, o: &Opts, reloads: &[u32]) -> Result<Run> {
                 let rise = s + rng.range(0, o.jitter);
                 let width = rng.range(o.width.0, o.width.1);
                 pulse = Some(Pulse { rise, fall: rise + width, answered: false });
+                r.pulses.push((rise, rise + width));
                 r.golems += 1;
             }
         }
@@ -362,6 +372,28 @@ pub fn bench(design: &Path, o: &Opts) -> Result<bool> {
     let c = Circuit::load(design)?;
     let t0 = std::time::Instant::now();
     let base = run_once(&c, o, &[])?;
+    if let Some(path) = &o.stimulus_out {
+        let tokens: Vec<String> = base.pulses.iter().map(|(a, b)| format!("{a}+ {b}-")).collect();
+        let name = c.inputs.first().map(|i| i.name.clone()).unwrap_or_else(|| "in".into());
+        let stim = format!("stimulus: {name} {}", tokens.join(" "));
+        // the design's own text with the stimulus after its `name:` line (or first)
+        let text = std::fs::read_to_string(design)?;
+        let mut out = String::new();
+        let mut put = false;
+        for l in text.lines() {
+            out.push_str(l);
+            out.push('\n');
+            if !put && l.starts_with("name:") {
+                out.push_str(&stim);
+                out.push('\n');
+                put = true;
+            }
+        }
+        if !put {
+            out = format!("{stim}\n{out}");
+        }
+        std::fs::write(path, out).with_context(|| format!("writing {}", path.display()))?;
+    }
     let mut ok = base.violations.is_empty() && base.stopped.is_none();
     let mut restart_line = String::from("no restart run");
     if o.restarts > 0 && ok {
@@ -384,6 +416,35 @@ pub fn bench(design: &Path, o: &Opts) -> Result<bool> {
             )
         };
     }
+    // the same run on the design turned a quarter, half and three quarters (the assembly may
+    // build it any way round; redstone's update order can depend on the direction)
+    let mut turn_line = String::new();
+    if ok && !o.turns.is_empty() {
+        let mut same_all = true;
+        let mut why = String::new();
+        for &k in &o.turns {
+            let tc = c.turned_pure(k)?;
+            let again = run_once(&tc, o, &[])?;
+            if again.advances != base.advances || !again.violations.is_empty() {
+                same_all = false;
+                let first = base.advances.iter().zip(again.advances.iter()).position(|(a, b)| a != b).unwrap_or(base.advances.len().min(again.advances.len()));
+                why = format!(
+                    "turned {k}: DIFFERENT from advance {first} ({:?} vs {:?}){}",
+                    base.advances.get(first),
+                    again.advances.get(first),
+                    again.violations.first().map(|v| format!("; first violation at {}: {} {} {}", v.0, v.1, v.2, v.3)).unwrap_or_default()
+                );
+                break;
+            }
+        }
+        turn_line = if same_all {
+            format!("; turned {}: the same advances, tick for tick", o.turns.iter().map(|k| format!("{}", u32::from(*k) * 90)).collect::<Vec<_>>().join(", ") + " degrees")
+        } else {
+            ok = false;
+            format!("; {why}")
+        };
+    }
+    let restart_line = format!("{restart_line}{turn_line}");
     let ms: Vec<i64> = base.m.clone();
     let mline = if ms.is_empty() { "no fallback".to_string() } else { format!("m {}..{}", ms.iter().min().unwrap(), ms.iter().max().unwrap()) };
     println!(

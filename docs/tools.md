@@ -73,6 +73,20 @@ box (19.3 from the pad) and outside the summoner's 10-box, never two batches at 
 rider on its cart and in its lane, REST ticks and CANT_REACH at REST, and every cell a rider took
 scanned for a golem spawn spot; it prints the clean seeds, the arrival margin, the blocks and box;
 `--verbose` adds each slot and the first calm villagers at night with the zombies they see.
+The carousel's counter (the brief's part 1): `mctas circuit memory counter-bench <design>
+[--pulses 100000] [--seed S] [--restarts 20] [--miss 0.05] [--burst 0.3] [--width 2..15] [--jitter
+5] [--ready 40] [--tc 40] [--m 6..10] [--turns 1,2,3] [--dump FILE] [--stimulus-out FILE]` runs a
+design with one driven input (the golem pulse) and seven `port output.<name>` lines on redsim
+against a reactive farm (after each advance the next batch is ready `--ready` gt later and summons
+at the next slot tick, its pulse rising 0..jitter gt after it; a slot is missed with `--miss`, and
+again with `--burst` after a miss) and checks every tick: never two lines high, one advance within
+`--tc` of each golem pulse, the cycle's order (learned on the first lap) kept, a fallback 100 + m
+after the previous advance with m in `--m`, no stall (a golem pulse within 95 gt after a fallback
+may be absorbed: the brief's case (c)); then the same run with `--restarts` chunk reloads at random
+ticks and on the design turned `--turns` quarter turns, each identical tick for tick. `--dump`
+writes the trace for `mobfarm timeline --from-dump`; `--stimulus-out` a copy of the design whose
+`stimulus:` line is the run's input, which `mctas circuit trace-compare` runs in the game and on
+redsim, every cell compared every gt (designs/farms/iron/parts/carousel-counter/NOTES.md).
 A run's tick-level timing view (the carousel's parts and assembly): `mctas mobfarm timeline
 <design> --seed S --days D [--terrain <sample> | --build K] [--tag '<tag>'...] [--from T --to T]
 [--out DIR]` replays `mobfarm run`'s run (its counters printed beside the judge's: the same run tick
