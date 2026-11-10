@@ -11,6 +11,7 @@ on ironfarm's real carts and lines, 100 seeds x 6 days), `station-storage [--off
 
 | design | blocks | success per slot | storage | build min (middle / late) |
 |---|---|---|---|---|
+| carousel-station-v3.txt | 380 (pad 258, Nether 122) | 99.50% (static 99.30% at the end lanes; paired lanes) | 18.4 h | 68.8 / 19.2 |
 | carousel-station-v2.txt | 332 (pad 210, Nether 122) | 99.31% (static 99.30% worst lanes, shifted stand) | 18.4 h | 64.8 / 17.7 |
 | carousel-station-v1.txt | 300 (pad 178, Nether 122) | 99.06% (static 99.30%) | 18.4 h | 62.1 / 16.6 |
 
@@ -56,4 +57,9 @@ on ironfarm's real carts and lines, 100 seeds x 6 days), `station-storage [--off
   5 cells: both ends of the long rows and a middle cell) every pulse is on at t+1, the golem in the
   Nether at t+2 and the pulse off at t+11, as the 11-wide pad.
 - Paired lanes (ironspec's ruling, x 0,1 | 3,4 | 6,7 | 9): each rider needs 12 pad columns in its
-  +-8 window, so the pad goes x -3..12 (16 wide) unless the end lanes come within 8 of each other.
+  +-8 window, so the pad goes x -3..12 (16 wide; ironspec accepted it over the box: any wirable
+  single-level arrangement puts the end lanes 9 apart): v3. Static check of all 21 riders: lanes
+  0 and 6 k 48/48/36 (99.30% at 3 callers), the middle lanes up to 64/64/48 (99.89%); 0 strays;
+  the held riders' searches (every batch at its hold) find no spot. station-bench, 100 seeds x 6
+  days: a golem in 99.50% of 143,900 slots, every golem 2 gt in the overworld, 142,873 killed in
+  the Nether, none back, 571,613 iron, 0 lost; piglins 2.07 a day (84 portal cells), all held.

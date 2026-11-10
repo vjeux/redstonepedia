@@ -56,7 +56,7 @@ pub struct PadOpts {
 
 impl Default for PadOpts {
     fn default() -> PadOpts {
-        PadOpts { x0: -3, x1: 9, planes: vec![-5, -2], by: 0, h: 3, skip: Vec::new() }
+        PadOpts { x0: -3, x1: 12, planes: vec![-5, -2], by: 0, h: 3, skip: Vec::new() }
     }
 }
 
@@ -543,6 +543,8 @@ pub struct CheckReport {
     pub pad_blocks: usize,
     /// The pad's box (x, y, z extents) and volume.
     pub pad_box: ([i32; 3], [i32; 3]),
+    /// Spawnable spots in any held rider's search (a held batch must find none).
+    pub held_strays: Vec<[i32; 3]>,
 }
 
 impl CheckReport {
@@ -612,6 +614,18 @@ pub fn check(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts) -> Result<CheckRepo
                 }
             }
             rep.riders.push(r);
+        }
+    }
+    // the held riders' searches (every batch parked at its hold): any spawnable spot there is a
+    // stray (the hold is far from the pad: a held batch must never find a floor)
+    for b in 0..BATCHES {
+        for k in 0..lanes.levels {
+            let start = BlockPos::new(lanes.x(b), lanes.level_gap * k, lanes.hold_slope_z(b, k));
+            for (cell, res) in redsim::entity::mob::spawn::golem_spawn_cells_from(w, start) {
+                if res.is_ok() && !rep.held_strays.contains(&[cell.x, cell.y, cell.z]) {
+                    rep.held_strays.push([cell.x, cell.y, cell.z]);
+                }
+            }
         }
     }
     // every staying box clear of the portals (a cell clear, the contract's margin): the design's

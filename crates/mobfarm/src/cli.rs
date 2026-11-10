@@ -466,11 +466,11 @@ pub enum MobfarmCmd {
     /// bench design, the pad (portal planes with a trench row on both sides, a tripwire line on
     /// each frame) on the release + hold part's bench (`mobfarm hold`).
     Station {
-        /// The trench rows' x range (the portals' interior one in from each end; 13 wide on the
-        /// stand shifted one south: its level-2 riders miss row -6).
+        /// The trench rows' x range (the portals' interior one in from each end; 16 wide for the
+        /// paired lanes at x 0..9: each rider needs 12 pad columns in its +-8 window).
         #[arg(long, default_value_t = -3, allow_hyphen_values = true)]
         x0: i32,
-        #[arg(long, default_value_t = 9)]
+        #[arg(long, default_value_t = 12)]
         x1: i32,
         /// The portal planes' z, comma-separated (3 or more apart).
         #[arg(long, default_value = "-5,-2", allow_hyphen_values = true)]
@@ -546,11 +546,11 @@ pub enum MobfarmCmd {
     /// counter v7 under the stand and the pad's pulse wired to its input; station-bench runs it with
     /// the counter in the loop (its lines drive the slope controls).
     Assembly {
-        /// The trench rows' x range (the portals' interior one in from each end; 13 wide on the
-        /// stand shifted one south: its level-2 riders miss row -6).
+        /// The trench rows' x range (the portals' interior one in from each end; 16 wide for the
+        /// paired lanes at x 0..9: each rider needs 12 pad columns in its +-8 window).
         #[arg(long, default_value_t = -3, allow_hyphen_values = true)]
         x0: i32,
-        #[arg(long, default_value_t = 9)]
+        #[arg(long, default_value_t = 12)]
         x1: i32,
         /// The counter frame's shift (x,y,z).
         #[arg(long, default_value = "3,-10,15", allow_hyphen_values = true)]
@@ -999,7 +999,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for (n, g) in r.near_portal.iter().take(12) {
                 println!("  {n}: {g:.3} from the nearest portal cell");
             }
-            let ok = strays == 0 && touching == 0;
+            println!("held riders' searches (every batch at its hold): {} spawnable spots{}", r.held_strays.len(), if r.held_strays.is_empty() { String::new() } else { format!(" {:?}", r.held_strays.iter().take(12).collect::<Vec<_>>()) });
+            let ok = strays == 0 && touching == 0 && r.held_strays.is_empty();
             println!("{}{}", if ok { "PASS" } else { "FAIL" }, if ok && !r.near_portal.is_empty() { " (with boxes under a cell from a portal: the contract's margin)" } else { "" });
             if !ok {
                 std::process::exit(1);
