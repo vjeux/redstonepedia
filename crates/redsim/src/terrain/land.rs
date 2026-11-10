@@ -276,7 +276,7 @@ fn build_world_one_step(t: &Terrain) -> Result<World, String> {
 }
 
 impl Land {
-    fn col(w_min: BlockPos, size: [i32; 3], x: i32, z: i32) -> Option<usize> {
+    pub(crate) fn col(w_min: BlockPos, size: [i32; 3], x: i32, z: i32) -> Option<usize> {
         let (lx, lz) = (x - w_min.x, z - w_min.z);
         (lx >= 0 && lz >= 0 && lx < size[0] && lz < size[2]).then(|| (lz * size[0] + lx) as usize)
     }
@@ -301,13 +301,13 @@ fn opaque(b: &Block, map: usize) -> bool {
 
 /// The light behaviour of a block (a block missing from the table counts as opaque, and the change
 /// is recorded as a model error by the caller).
-fn lprops(b: &Block) -> LightProps {
+pub(crate) fn lprops(b: &Block) -> LightProps {
     light::props_of(b).unwrap_or(LightProps { dampening: 15, emission: 0, faces: None })
 }
 
 /// [`lprops`] of a natural state, per row of the table, computed once (tickexact 2026-11-08: the
 /// relight hashed every cell's block into a cache).
-fn terrain_lprops(id: u16) -> LightProps {
+pub(crate) fn terrain_lprops(id: u16) -> LightProps {
     static ROWS: std::sync::OnceLock<Vec<LightProps>> = std::sync::OnceLock::new();
     let rows = ROWS.get_or_init(|| (0..crate::terrain::blocks::table().props.len()).map(|i| lprops(&Block::Terrain(i as u16))).collect());
     rows.get(id as usize).copied().unwrap_or_else(|| lprops(&Block::Terrain(id)))
@@ -383,10 +383,15 @@ impl World {
                 }
             }
         }
-        let relevant = match (light::props_of(&old), light::props_of(&new)) {
-            (Ok(a), Ok(b)) => a != b,
-            // a state the table does not know: settle_light reports it
-            _ => true,
+        let relevant = if super::engine::enabled() {
+            // the game's engines check exactly the cells hasDifferentLightProperties names
+            light::different_light(&old, &new)
+        } else {
+            match (light::props_of(&old), light::props_of(&new)) {
+                (Ok(a), Ok(b)) => a != b,
+                // a state the table does not know: settle_light reports it
+                _ => true,
+            }
         };
         if let Some(l) = self.land.as_mut() {
             for (m, h) in heights.into_iter().enumerate() {
@@ -408,6 +413,11 @@ impl World {
     pub fn settle_light(&mut self) {
         let Some(land) = self.land.as_ref() else { return };
         if land.dirty.is_empty() {
+            return;
+        }
+        // (tickexact 2026-11-09, explore: the game's incremental engines, `terrain::engine`)
+        if super::engine::enabled() {
+            super::engine::run(self);
             return;
         }
         let (min, size) = (self.min, self.size);

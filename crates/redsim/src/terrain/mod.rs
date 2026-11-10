@@ -6,6 +6,7 @@
 
 pub mod biome;
 pub mod blocks;
+pub mod engine;
 pub mod format;
 pub mod land;
 pub mod light;
