@@ -1962,7 +1962,7 @@ pub fn page_faults(html: &str, text: &str) -> Vec<String> {
 /// three, a number, maybe a letter: `U1`, `L2d`, `D1U`, `M2`, `M2-open`'s `M2`), our tools'
 /// names, the judge, a candidate, "gt" (each once, in order).
 pub fn internal_tokens(text: &str) -> Vec<String> {
-    const WORDS: [&str; 7] = ["redsim", "mctas", "gt", "judge", "judged", "candidate", "census"];
+    const WORDS: [&str; 11] = ["redsim", "mctas", "gt", "judge", "judged", "candidate", "census", "ironfarm", "farmopt", "ironspec", "pagecopy"];
     let mut out: Vec<String> = Vec::new();
     for raw in text.split(|c: char| c.is_whitespace() || matches!(c, '-' | '/' | '(' | ')' | ',' | ';' | ':' | '.' | '"' | '\'' | '“' | '”' | '’' | '!' | '?' | '[' | ']' | '{' | '}' | '·' | '=' | '+' | '*' | '<' | '>')) {
         let t = raw.trim_matches(|c: char| !c.is_alphanumeric());
