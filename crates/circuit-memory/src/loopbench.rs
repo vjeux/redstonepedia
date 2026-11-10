@@ -29,11 +29,29 @@ pub struct Opts {
     pub ready: u64,
     pub pulse: u64,
     pub game_days: u32,
+    /// The night window's source: `ideal` (high inside [dusk, end] of day time) or a normal daylight
+    /// detector reading 0 under `clear`, `rain`, `thunder` or `cycle` (random weather spells of 0.5
+    /// to 1.5 days, the rain and thunder levels ramping 0.01 a tick like the game's).
+    pub weather: String,
+}
+
+/// A normal daylight detector seeing the sky at day time `day` with these weather levels (redsim's
+/// model of the game, as `sched-model --policy sensor` prints): its output.
+pub fn detector_normal(day: i64, rain: f32, thunder: f32) -> i32 {
+    let dark = redsim::weather::sky_darken_at(day, rain, thunder);
+    let target = (15 - dark).max(0);
+    if target == 0 {
+        return 0;
+    }
+    let mut sun = redsim::daylight::sun_angle(day) * (std::f64::consts::PI / 180.0) as f32;
+    let offset = if sun < std::f64::consts::PI as f32 { 0.0f32 } else { (std::f64::consts::PI * 2.0) as f32 };
+    sun += (offset - sun) * 0.2f32;
+    ((target as f32 * redsim::entity::mth::cos(sun as f64) + 0.5).floor() as i32).clamp(0, 15)
 }
 
 impl Default for Opts {
     fn default() -> Opts {
-        Opts { days: 60, seed: 1, miss: 0.01, burst: 0.3, dusk: 13_670, end: 22_330, nap: (115, 135), ready: 40, pulse: 10, game_days: 0 }
+        Opts { days: 60, seed: 1, miss: 0.01, burst: 0.3, dusk: 13_670, end: 22_330, nap: (115, 135), ready: 40, pulse: 10, game_days: 0, weather: "ideal".into() }
     }
 }
 
@@ -107,6 +125,12 @@ fn run(design: &Path, o: &Opts, recorded: &mut Vec<(u32, clock::Action)>) -> Res
     let mut v_levels: Vec<usize> = Vec::new();
     let mut v_rise_at: Option<(u64, u64)> = None;
     let mut v_fall_at: Option<u64> = None;
+    // the weather and the night window's edges seen (day time it opens min..max, closes min..max)
+    let mut wrng = Rng(o.seed ^ 0x5eed_0f_ea7e);
+    let (mut spell, mut spell_end) = (0u8, 0u64);
+    let (mut rain_level, mut thunder_level) = (0.0f32, 0.0f32);
+    let mut win_prev = false;
+    let mut win_edges = (u64::MAX, 0u64, u64::MAX, 0u64);
     let (mut short, mut slot_changes) = (0u32, 0u32);
     let mut window = (u64::MAX, 0u64, u64::MAX, 0u64);
     let res = clock::sim::drive_live(&cc.clock, &[], ticks, from, to, |t, w| {
@@ -157,7 +181,30 @@ fn run(design: &Path, o: &Opts, recorded: &mut Vec<(u32, clock::Action)>) -> Res
         let high = pulse_end.is_some_and(|e| g < e);
         set(w, rel, high, recorded);
         let dt = g % DAY;
-        set(w, win, dt >= o.dusk && dt <= o.end, recorded);
+        // the weather: spells of clear, rain or thunder, the levels ramping 0.01 a tick
+        if o.weather == "cycle" && g >= spell_end {
+            spell_end = g + wrng.range(12_000, 36_000) as u64;
+            spell = (wrng.range(0, 2)) as u8;
+        }
+        let (rt, tt) = match (o.weather.as_str(), spell) {
+            ("rain", _) | ("cycle", 1) => (1.0f32, 0.0f32),
+            ("thunder", _) | ("cycle", 2) => (1.0, 1.0),
+            _ => (0.0, 0.0),
+        };
+        rain_level += (rt - rain_level).clamp(-0.01, 0.01);
+        thunder_level += (tt - thunder_level).clamp(-0.01, 0.01);
+        let win_on = if o.weather == "ideal" { dt >= o.dusk && dt <= o.end } else { detector_normal(dt as i64, rain_level, thunder_level) == 0 };
+        if win_on != win_prev {
+            win_prev = win_on;
+            if win_on {
+                win_edges.0 = win_edges.0.min(dt);
+                win_edges.1 = win_edges.1.max(dt);
+            } else {
+                win_edges.2 = win_edges.2.min(dt);
+                win_edges.3 = win_edges.3.max(dt);
+            }
+        }
+        set(w, win, win_on, recorded);
         let v = w.best_neighbor_signal(vv) > 0;
         let levels_now: Vec<usize> = (0..3).filter(|k| w.best_neighbor_signal(ll[*k]) > 0).collect();
         if v && !v_was {
@@ -250,6 +297,10 @@ fn run(design: &Path, o: &Opts, recorded: &mut Vec<(u32, clock::Action)>) -> Res
     let (lo, hi) = c.clock.design.bounds().unwrap_or(([0, 0, 0], [0, 0, 0]));
     let minutes = circuit::mobfarm::site_bill(&c, None, 1).map(|b| format!("{:.1}", b.seconds / 60.0)).unwrap_or_else(|e| format!("? ({e})"));
     println!("{}: {} blocks, box {}x{}x{}, {} build minutes at middle prices", design.display(), c.clock.design.blocks.len(), hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1, minutes);
+    println!(
+        "night window ({}): opens at day time {}..{}, closes at {}..{}",
+        o.weather, win_edges.0, win_edges.1, win_edges.2, win_edges.3
+    );
     println!(
         "visit window: v rises {}..{} gt after its release and falls {}..{} gt after it ({} under 85); slot lines out of place {} times (one rises inside each window, falls within 12 gt of its end)",
         window.0, window.1, window.2, window.3, short, slot_changes

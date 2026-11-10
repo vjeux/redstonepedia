@@ -114,6 +114,10 @@ enum Cmd {
         end: u64,
         #[arg(long, default_value_t = 0)]
         game: u32,
+        /// The night window: `ideal`, or a normal daylight detector reading 0 under `clear`,
+        /// `rain`, `thunder` or `cycle` (random weather spells).
+        #[arg(long, default_value = "ideal")]
+        weather: String,
     },
     /// The single-lane loop's nightly scheduler, generated (crates/circuit-memory/src/loopgen.rs).
     LoopGen {
@@ -344,8 +348,8 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::SchedGen { out, modules, offdelay } => schedgen::generate(&out, &modules, &offdelay)?,
         Cmd::CounterV8 { v7, out } => counter8::generate(&v7, &out)?,
         Cmd::LoopGen { out, modules, offdelay } => loopgen::generate(&out, &modules, &offdelay)?,
-        Cmd::LoopBench { design, days, seed, miss, burst, dusk, end, game } => {
-            let o = loopbench::Opts { days, seed, miss, burst, dusk, end, game_days: game, ..Default::default() };
+        Cmd::LoopBench { design, days, seed, miss, burst, dusk, end, game, weather } => {
+            let o = loopbench::Opts { days, seed, miss, burst, dusk, end, game_days: game, weather, ..Default::default() };
             if !loopbench::bench(&design, &o)? {
                 bail!("the loop scheduler fails its bench");
             }
