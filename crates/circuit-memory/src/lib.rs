@@ -13,7 +13,9 @@ pub mod loopbench;
 pub mod loopgen;
 pub mod loopmodel;
 pub mod releasegen;
+pub mod sidinggen;
 pub mod releasebench;
+pub mod droptest;
 pub mod schedbench;
 pub mod schedgen;
 pub mod schedmodel;
@@ -128,6 +130,20 @@ enum Cmd {
         #[arg(long)]
         placed_raw: bool,
     },
+    /// The bed siding's rejoin as a side drop into an empty queue slot (crates/circuit-memory/src/droptest.rs).
+    DropTest {
+        #[arg(long, default_value_t = 0.2)]
+        speed: f64,
+        #[arg(long)]
+        occupied: bool,
+        #[arg(long, default_value_t = 60)]
+        ticks: u32,
+        #[arg(long)]
+        no_stop: bool,
+        /// The cart waits at rest on a braked powered rail 1 cell from the end, released at this tick.
+        #[arg(long)]
+        staged: Option<u32>,
+    },
     /// Golem pulses at the given ticks into a release controller design; every output port's on
     /// intervals relative to the first pulse (the loop-wired probe file: each control).
     ReleaseTrace {
@@ -177,6 +193,11 @@ enum Cmd {
         /// its 21 controls.
         #[arg(long = "loop")]
         loop_file: Option<PathBuf>,
+        /// (with `--loop` on farmopt's pocket-stand loop) Paste this bed siding (farmopt's
+        /// carousel-siding-wired.txt) and lay its junctions: the corner diverter, the entry and exit
+        /// routes, T1/T2 and the three side drops (sidinggen.rs; four bench controls for now).
+        #[arg(long)]
+        siding: Option<PathBuf>,
     },
     /// The single-lane loop's nightly scheduler, generated (crates/circuit-memory/src/loopgen.rs).
     LoopGen {
@@ -408,8 +429,11 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::CounterV8 { v7, out } => counter8::generate(&v7, &out)?,
         Cmd::LoopGen { out, modules, offdelay } => loopgen::generate(&out, &modules, &offdelay)?,
         Cmd::ReleaseTrace { design, at, det, ticks } => releasebench::trace(&design, &at, &det, ticks)?,
-        Cmd::ReleaseGen { out, offdelay, loop_file } => match loop_file {
-            Some(l) => releasegen::generate_loop(&out, &l, &offdelay)?,
+        Cmd::DropTest { speed, occupied, ticks, no_stop, staged } => {
+            droptest::run(speed, occupied, ticks, !no_stop, staged)?;
+        }
+        Cmd::ReleaseGen { out, offdelay, loop_file, siding } => match loop_file {
+            Some(l) => releasegen::generate_loop(&out, &l, &offdelay, siding.as_deref())?,
             None => releasegen::generate(&out, &offdelay)?,
         },
         Cmd::ReleaseBench { design, pulses, seed, miss, early, double, restarts, game, turns, placed_raw } => {

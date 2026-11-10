@@ -288,7 +288,7 @@ fn turn2(s: &str) -> String {
 /// the module turned 180 degrees west of row B (frame: global = (-2 - x, y - 2, 10 - z)), its
 /// lines wired to the 18 queue controls head first, the tail windows (slots 1-2 ON at +88..+110,
 /// slot 0 +90..+116 from the departure) and the 21 control glass blocks replaced by stone.
-pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()> {
+pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Option<&Path>) -> Result<()> {
     // the chain, stretched so the group line (x -5, z 15..25) and the advance line (z 27..) do not
     // touch; the advance taps 2 gt early for the feeder repeaters (+36/56/76 -> +38/58/78 at the
     // controls); reset taps 8..44 keep the merge window to ~+58
@@ -459,6 +459,11 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()
     }
     b.on([2, -2, 30], DUST)?;
     b.on([2, -2, 31], &rep("north", 1))?;
+    // (the pocket stand (farmopt, `stand_stop=1` in the loop's `queue:` line) has its own gates: the
+    // S1/S2/S3 latches and line 4 below are dropped for it)
+    let base = Design::load(loop_file)?;
+    let pocket = base.meta.get("queue").is_some_and(|q| q.contains("stand_stop=1"));
+    let before_stand: std::collections::BTreeSet<P3> = b.blocks.keys().copied().collect();
     // ---- the stand (S1 S2 S3 at (5|2|-1,-1,0)): copper-bulb latches north of it, read by
     // comparators straight into the controls; set by REL (a tap off the REL route, 3 repeaters to a
     // common line along z -6: t0 + 4) through dust (S1: control at t0 + 6), 3 rt (S2: + 12) and
@@ -553,14 +558,20 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()
     }
     b.on([-2, 1, -3], DUST)?;
     b.on([-2, 1, -2], DUST)?;
+    if pocket {
+        b.blocks.retain(|p, _| before_stand.contains(p));
+        b.nbt.retain(|p, _| before_stand.contains(p));
+        b.ports.remove("input.stand_reset");
+    }
     // ---- merge into the loop file: the 21 controls become stone (the stand's stay unwired here)
-    let mut d = Design::load(loop_file)?;
-    let controls: [P3; 21] = [
+    let mut d = base;
+    let all_controls: [P3; 21] = [
         [0, 1, 25], [0, 0, 29], [0, -1, 33], [0, -1, 36], [0, -1, 39], [0, -1, 42], [0, -1, 45], [-1, -1, 47],
         [-3, -1, 46], [-3, -1, 43], [-3, -1, 40], [-3, -1, 37], [-3, -1, 34], [-3, -1, 31], [-3, -1, 28], [-3, -1, 25], [-3, -1, 22], [-3, -1, 19],
         [5, -1, 0], [2, -1, 0], [-1, -1, 0],
     ];
-    for c in controls {
+    let controls: &[P3] = if pocket { &all_controls[..18] } else { &all_controls[..] };
+    for &c in controls {
         match d.blocks.get(&c).map(|s| s.as_str()) {
             Some("minecraft:glass") => {
                 d.blocks.insert(c, STONE.into());
@@ -578,6 +589,15 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()
     }
     for (p, n) in &b.nbt {
         d.block_entities.insert(*p, n.clone());
+    }
+    // the bed siding and its junctions (pocket stand only)
+    let mut siding_cells: Vec<P3> = Vec::new();
+    if let Some(sp) = siding {
+        if !pocket {
+            bail!("--siding needs farmopt's pocket-stand loop (stand_stop=1)");
+        }
+        siding_cells = crate::sidinggen::physical(&mut d, sp)?;
+        println!("siding pasted at {:?}: {} cells added; controls divert {:?}, T1 {:?}, T2 {:?}, siding release {:?}", crate::sidinggen::SIDING_AT, siding_cells.len(), crate::sidinggen::DIVERT, crate::sidinggen::T1, crate::sidinggen::T2, crate::sidinggen::RELEASE);
     }
     // (no ports: a mob-farm design runs by itself; the runner takes the cells as flags)
     let reset = b.ports.get("input.stand_reset").copied();
@@ -601,10 +621,20 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()
     sd.ports.insert("input.golem".into(), golem);
     let settle_path = out.with_extension("settle.txt");
     sd.save(&settle_path)?;
-    let cells: Vec<P3> = b.blocks.keys().copied().collect();
+    let mut cells: Vec<P3> = b.blocks.keys().copied().collect();
+    cells.extend(siding_cells.iter().copied());
     let settled = settle(&settle_path, &cells);
     let _ = std::fs::remove_file(&settle_path);
     let (states, outs) = settled?;
+    {
+        let changed: Vec<String> = siding_cells.iter().filter_map(|p| states.get(p).filter(|s| d.blocks.get(p) != Some(*s)).map(|s| format!("{p:?} {} -> {s}", d.blocks.get(p).map(|x| x.as_str()).unwrap_or("air")))).collect();
+        if !changed.is_empty() {
+            println!("settling changed {} siding/junction cells:", changed.len());
+            for c in &changed {
+                println!("  {c}");
+            }
+        }
+    }
     apply_settled(&mut d, &states, &outs);
     apply_settled(&mut probe, &states, &outs);
     probe.save(&out.with_extension("probe.txt"))?;
