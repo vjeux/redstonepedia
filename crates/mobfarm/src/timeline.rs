@@ -199,6 +199,8 @@ struct Golem {
     /// The summoning batch: the villagers its spawn locked (in the summoner's 10-box, the
     /// summoner included), by lane index.
     batch: Vec<usize>,
+    /// Its feet the last tick it was seen (a portal's removal leaves no position behind).
+    last: Option<Vec3>,
 }
 
 /// One summoner on a slot: its attempt's result and its 10-box.
@@ -268,7 +270,7 @@ enum Pending {
     /// A villager in summoner `who`'s 10-box at the spawn of golem `g`.
     Spawn { k: u32, who: String, g: String, vi: usize, d: [f64; 3] },
     /// A villager's golem sensor saw golems `seen` (its lock before: `prev`, an expiry tick).
-    Follow { k: u32, vi: usize, seen: String, follow: f64, prev: i64 },
+    Follow { k: u32, vi: usize, seen: String, follow: f64, prev: i64, golems: Vec<u32> },
 }
 
 /// A block state's short value for a lane: its power level, and its true flags (lit, powered,
@@ -497,6 +499,20 @@ impl Timeline {
         let events = std::mem::take(&mut w.mob.events);
         w.weather.events.clear();
         // (sampled first: a bench that goes on past a model error keeps every tick)
+        self.sample(w, k, events);
+        if let Some(e) = w.errors.first() {
+            bail!("gt {}: the world went wrong: {e}", w.time);
+        }
+        Ok(())
+    }
+
+    /// [`Timeline::step`] for a bench that reads the world's mob events itself and keeps them (farmopt's
+    /// station bench reads `w.mob.events` by index and never clears it): the events after `*seen`
+    /// are read, not drained, and `*seen` moves to the end; nothing in the world changes.
+    pub fn observe(&mut self, w: &World, k: u32, seen: &mut usize) -> Result<()> {
+        let from = (*seen).min(w.mob.events.len());
+        let events = w.mob.events[from..].to_vec();
+        *seen = w.mob.events.len();
         self.sample(w, k, events);
         if let Some(e) = w.errors.first() {
             bail!("gt {}: the world went wrong: {e}", w.time);
@@ -845,19 +861,14 @@ impl Timeline {
                         let label = format!("G{}", self.golems.len() + 1);
                         let p = [p[0] - off[0], p[1] - off[1], p[2] - off[2]];
                         self.line(k, format!("golem {label} spawned at {},{},{} (summoned by {by})", p[0], p[1], p[2]));
-                        self.golems.push(Golem { id: *g, label, t: k, by, at: p, died: None, gone: None, batch: Vec::new() });
+                        self.golems.push(Golem { id: *g, label, t: k, by, at: p, died: None, gone: None, batch: Vec::new(), last: None });
                     }
                 }
                 Ev::Seen { villager } => {
                     self.counts.push((k, "sight"));
                     seen.push(*villager);
                 }
-                Ev::Slept { id } => {
-                    self.counts.push((k, "sleep"));
-                    if let Some(vi) = self.villagers.iter().position(|v| v.id == *id) {
-                        self.night_sleeps[vi] += 1;
-                    }
-                }
+                Ev::Slept { .. } => self.counts.push((k, "sleep")),
                 Ev::Death { id, how, pos } => {
                     if let Some(gi) = self.golems.iter().position(|g| g.id == *id && g.died.is_none()) {
                         let how = how.clone();
@@ -869,7 +880,7 @@ impl Timeline {
                 Ev::Removed { id, pos } => {
                     if let Some(gi) = self.golems.iter().position(|g| g.id == *id && g.gone.is_none()) {
                         // (removed this tick: its last position)
-                        let p = pos.map(|p| [p.x - off[0] as f64, p.y - off[1] as f64, p.z - off[2] as f64]).unwrap_or([f64::NAN; 3]);
+                        let p = pos.or(self.golems[gi].last).map(|p| [p.x - off[0] as f64, p.y - off[1] as f64, p.z - off[2] as f64]).unwrap_or([f64::NAN; 3]);
                         let g = &mut self.golems[gi];
                         g.gone = Some((k, p));
                         let (label, how) = (g.label.clone(), if g.died.is_some() { "removed (dead)" } else { "left the world without dying (a portal)" });
@@ -951,8 +962,14 @@ impl Timeline {
             if v.home.set(k, home.clone()) {
                 said.push(format!("home={}", if home.is_empty() { "-" } else { &home }));
             }
+            // a night's sleep: LAST_SLEPT advancing (the brief's rule: set as a sleep starts, or
+            // by a bench's ideal stand-in for the sleep routine)
+            let advanced = slept != i64::MIN && v.slept.v.last().is_some_and(|(_, s)| slept > *s);
             if v.slept.set(k, slept) {
                 said.push(if slept == i64::MIN { "last-slept=-".to_string() } else { format!("last-slept=t={slept:06}") });
+            }
+            if advanced {
+                self.night_sleeps[vi] += 1;
             }
             if v.cant.set(k, cant) {
                 said.push(if cant == i64::MIN { "cant-reach=-".to_string() } else { format!("cant-reach-since=t={cant:06}") });
@@ -1144,7 +1161,7 @@ impl Timeline {
             let prev = if lk.last().is_some_and(|(kk, _)| *kk == k) { lk.iter().rev().nth(1).map(|(_, e)| *e) } else { lk.last().map(|(_, e)| *e) }.unwrap_or(-1);
             let seen = if gs.is_empty() { "a golem".to_string() } else { gs.join(", ") };
             self.line(k, format!("{label} golem sensor saw {seen} (follow range {:.2}) while {class}: locked 599 gt", rd.follow));
-            self.pending.push(Pending::Follow { k, vi, seen, follow: rd.follow, prev });
+            self.pending.push(Pending::Follow { k, vi, seen, follow: rd.follow, prev, golems: rd.golems_listed.clone() });
         }
         // the slot (gameTime % 100 == 0): every villager whose panic trigger runs summons
         // (`VillagerPanicTrigger.tick`); a try off the slots is the gossip path's
@@ -1232,6 +1249,12 @@ impl Timeline {
         // the golem's follow box): the villager's box inflated by its follow range (what its
         // NearestLivingEntitySensor lists, no sight test) meeting the golem's box, at any tick,
         // whatever its sensors' phase
+        // each live golem's last position (a portal's removal leaves none behind)
+        for g in self.golems.iter_mut().filter(|g| g.gone.is_none()) {
+            if let Some((p, _)) = ents.get(&g.id) {
+                g.last = Some(*p);
+            }
+        }
         let mut now: Vec<(usize, usize)> = Vec::new();
         for gi in 0..self.golems.len() {
             let g = &self.golems[gi];
@@ -1301,7 +1324,7 @@ impl Timeline {
                     let n = self.night_sleeps[vi];
                     if n != 1 && reads[vi].is_some() {
                         let l = self.villagers[vi].label.clone();
-                        self.flag(k, "sleep", &l, format!("slept {n} times since the last dawn (LAST_SLEPT advances once a night)"));
+                        self.flag(k, "sleep", &l, format!("LAST_SLEPT advanced {n} times since the last dawn (once a night)"));
                     }
                 }
             }
@@ -1454,23 +1477,26 @@ impl Timeline {
                         self.flag(k, "10.6", &l, text);
                     }
                 }
-                Pending::Follow { k, vi, seen, follow, prev } => {
+                Pending::Follow { k, vi, seen, follow, prev, golems } => {
                     let (role, grouped) = self.role(vi, k);
                     // a sighting at the station is the station's own business; a villager of the
-                    // station's group arriving or leaving that its group's spawn already locked
-                    // only has its lock extended (a line); anywhere else it locks (or keeps
-                    // locked) a villager the next slots need
+                    // station's group arriving or leaving that its group's spawn already locked,
+                    // or that only saw the golems its own batch summoned (the sensor's list is up
+                    // to 20 gt old: a golem gone through the portal can still be in it), only has
+                    // its lock extended (a line); anywhere else it locks (or keeps locked) a
+                    // villager the next slots need
                     if role.starts_with("station") {
                         continue;
                     }
+                    let own = !golems.is_empty() && golems.iter().all(|g| self.golems.iter().find(|x| x.id == *g).is_some_and(|x| x.batch.contains(&vi)));
                     let l = self.villagers[vi].label.clone();
                     let locked = prev > k as i64;
                     let free = |e: i64| format!("free at t={e:06}");
                     let now = self.villagers[vi].lock.window(k, k).first().map(|(_, e)| *e).unwrap_or(-1);
                     let before = if locked { format!("already locked ({}), now {}", free(prev), free(now)) } else { format!("locked, {}", free(now)) };
                     let text = format!("its golem sensor saw {seen} (follow range {follow:.2}) while {role}: {before}");
-                    if grouped && locked {
-                        self.line(k, format!("{l} lock extended: {text}"));
+                    if (grouped || own) && locked {
+                        self.line(k, format!("{l} lock extended{}: {text}", if own { " by its own batch's golem" } else { "" }));
                     } else {
                         self.flag(k, "follow", &l, text);
                     }
@@ -1703,6 +1729,31 @@ mod tests {
         assert!(tl.summary(0, 300).contains("2 signal lanes, 2 mark lanes (2 marks), 1 violations"));
         assert!(Timeline::from_dump("x", "x", "t=5 gt=5 mark a\nt=3 gt=3 signal a=b\n").is_err(), "out of tick order");
         assert!(Timeline::from_dump("x", "x", "nothing here\n").is_err());
+    }
+
+    /// `observe` reads a kept event list the way `step` reads a drained one: the same carousel run
+    /// stepped both ways gives the same dump, and `observe` leaves the world's events in place.
+    #[test]
+    fn observe_keeps_the_events() {
+        use redsim::entity::mob::farm::WalkMode;
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../designs/farms/iron/middle/carousel-gate.txt");
+        let c = circuit::Circuit::load(&path).unwrap();
+        let spec = circuit::mobfarm::spec_of(&c).unwrap();
+        let o = RunOpts::steady(1, 1500, WalkMode::Random);
+        let tags = [Tag::parse("region station -4 -2 -7 4 1 1").unwrap()];
+        let a = record("cg", &spec, &o, [0, 0, 0], &tags, 1500).unwrap();
+        let mut r = Run::new(&spec, &o).unwrap();
+        let mut b = Timeline::start("cg", &spec, &r, 1, [0, 0, 0], &tags, 1500).unwrap();
+        let mut seen = r.world.mob.events.len();
+        let mut kept = 0;
+        for k in 1..=1500 {
+            r.tick();
+            b.observe(&r.world, k, &mut seen).unwrap();
+            kept = r.world.mob.events.len();
+        }
+        b.finish();
+        assert!(kept > 0 && seen == kept, "the events stay in the world");
+        assert_eq!(a.text(0, 1500), b.text(0, 1500));
     }
 
     /// "Arrived panicking" reads the PANIC activity: VillagerPanicTrigger's 60-gt run times out and

@@ -479,6 +479,11 @@ pub enum MobfarmCmd {
         jitter: u32,
         #[arg(long)]
         jobs: Option<usize>,
+        /// Write the first seed's tick-level timing view (`mobfarm timeline`'s page and dump: the
+        /// stand cells, the pad and the holds as regions, the counter's pulse as a signal) into
+        /// this directory.
+        #[arg(long)]
+        timeline: Option<PathBuf>,
     },
     /// The judge's run of a design on many seeds at once (the carousel's robustness: "21 of 100
     /// seeds hold 3 days"): each seed's verdict (its first failure, or PASS) with its golems, iron
@@ -802,7 +807,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::StationBench { design, from, to, days, jitter, jobs } => {
+        MobfarmCmd::StationBench { design, from, to, days, jitter, jobs, timeline } => {
             let (c, spec) = load(version, &design)?;
             let lanes = crate::hold::lanes_of(&c.clock.design.meta)?;
             let pad = crate::station::PadOpts::of(&c.clock.design.meta)?;
@@ -817,7 +822,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     sc.spawn(|| loop {
                         let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some(&seed) = seeds.get(k) else { break };
-                        let r = crate::station::bench(&spec, &lanes, &pad, &crate::station::BenchOpts { seed, days, jitter, verbose: false });
+                        let r = crate::station::bench(&spec, &lanes, &pad, &crate::station::BenchOpts { seed, days, jitter, verbose: false, timeline: if seed == from { timeline.clone() } else { None } });
                         out.lock().unwrap().push((seed, r));
                     });
                 }
@@ -840,6 +845,9 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let mut predicted = 0.0;
             let mut strays: Vec<String> = Vec::new();
             for (seed, r) in &rows {
+                if let Ok(crate::station::BenchReport { timeline: Some((page, summary)), .. }) = r {
+                    println!("seed {seed}'s timing view: {page}\n  {summary}");
+                }
                 match r {
                     Err(e) => println!("seed {seed}: ERROR {e}"),
                     Ok(r) => {

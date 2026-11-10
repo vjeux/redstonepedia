@@ -563,7 +563,7 @@ pub fn probe_official(version: &str, o: &PadOpts, cells: &[[i32; 3]], ticks: u32
 }
 
 /// The dynamic bench's options.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct BenchOpts {
     pub seed: i64,
     pub days: u32,
@@ -571,6 +571,11 @@ pub struct BenchOpts {
     /// the counter's).
     pub jitter: u32,
     pub verbose: bool,
+    /// Write this run's tick-level timing view (`mobfarm timeline`'s page and dump) into this
+    /// directory: the stand cells as region `station`, the pad as `pad`, the holds as `hold`, the
+    /// counter's pulse block as signal `pulse` (the timeline reads the world's mob events without
+    /// draining them: the bench reads them too).
+    pub timeline: Option<std::path::PathBuf>,
 }
 
 /// What the dynamic bench measured.
@@ -621,6 +626,8 @@ pub struct BenchReport {
     pub violations: Vec<String>,
     pub violation_count: u32,
     pub errors: Vec<String>,
+    /// The timing view written (`BenchOpts::timeline`): its page and its summary.
+    pub timeline: Option<(String, String)>,
 }
 
 fn wire_power(w: &World, p: [i32; 3]) -> i32 {
@@ -711,6 +718,22 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
     let mut nether_ev_seen = run.world.nether.as_deref().map_or(0, |n| n.mob.events.len());
     let mut returned: std::collections::BTreeSet<u32> = Default::default();
     let mut ev_seen = run.world.mob.events.len();
+    // the timing view, if asked (farmopt's tags): the stand cells, the pad, the holds, the pulse
+    let mut tl = match &bo.timeline {
+        Some(_) => {
+            use crate::timeline::Tag;
+            let p = o.pulse();
+            let tags = vec![
+                Tag::Region { name: "station".into(), lo: [0, 0, 0], hi: [6, 8, 3] },
+                Tag::Region { name: "pad".into(), lo: [-3, 0, -6], hi: [9, 6, -1] },
+                Tag::Region { name: "hold".into(), lo: [lanes.x(0), -1, lanes.hold_z().ceil() as i32], hi: [lanes.x(BATCHES - 1), lanes.level_gap * (lanes.levels - 1) + 2, lanes.run + 1] },
+                Tag::Signal { name: "pulse".into(), at: [p[0], p[1], p[2]] },
+            ];
+            Some(crate::timeline::Timeline::start("station-bench", spec, &run, bo.seed, [0, 0, 0], &tags, bo.days * 24000).map_err(|e| e.to_string())?)
+        }
+        None => None,
+    };
+    let (mut tl_seen, mut stepped) = (ev_seen, 0u32);
     // the slot being summoned: its tick, the batch's riders, tries, success
     let mut slot_tries: Option<(i64, Vec<u32>, u8, bool)> = None;
     let mut slept_night: Option<i64> = None;
@@ -765,6 +788,11 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
             next_slot += 1;
         }
         run.tick();
+        if let Some(tl) = tl.as_mut() {
+            stepped += 1;
+            // (a model error stays the bench's to report, at its end)
+            let _ = tl.observe(&run.world, stepped, &mut tl_seen);
+        }
         let t = run.world.time;
         // the tick's events: the stand batch's tries and every golem
         let evs: Vec<MobEvent> = run.world.mob.events[ev_seen.min(run.world.mob.events.len())..].to_vec();
@@ -941,5 +969,10 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &PadOpts, bo: &BenchOpts) -> 
     rep.piglins_alive = run.world.entities.list.iter().filter(|e| is_piglin(&e.kind) && !e.removed).count() as u32;
     rep.errors = run.world.errors.clone();
     let _ = bo.verbose;
+    if let (Some(mut tl), Some(dir)) = (tl, &bo.timeline) {
+        tl.finish();
+        let (html, _) = crate::timeline::write(&tl, dir, "station-bench", 0, stepped).map_err(|e| e.to_string())?;
+        rep.timeline = Some((html.display().to_string(), tl.summary(0, stepped)));
+    }
     Ok(rep)
 }
