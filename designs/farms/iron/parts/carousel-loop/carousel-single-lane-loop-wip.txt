@@ -46,8 +46,8 @@ layer -1:
 layer 0:
   GGrPGrPGrPGrPGrPGrPGrPGrPGrPGGGGGGGGGGGGGGGGGGGGGGGGGGGGGIIIG
   I...........................................................I
-  GpRGpRGpRGpRGpRGpRGpRGpRGpRGIIIGGGGGGGGGGGGGGGGGpRGpRGpRGGGGG
+  GpRGpRGpRGpRGpRGpRGpRGpRGpRGIIIGGGGGGGGGGGGGGGGGpRGpRGpRGIIGG
 layer 1:
   FC..C..C..C..C..C..C..C..C..CCCCCCCCCCCCCCCCCCCCCCCCCCCCCAAAH
   B...........................................................B
-  D..C..C..C..C..C..C..C..C..CAAACCCCCCCCCCCCCCCCC..C..C..CCCCE
+  D..C..C..C..C..C..C..C..C..CAAACCCCCCCCCCCCCCCCC..C..C..CAACE

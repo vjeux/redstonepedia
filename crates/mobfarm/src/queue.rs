@@ -392,7 +392,7 @@ pub fn loop_layout(o: &LoopOpts) -> LoopLayout {
     }
     let x0 = xu + 1 + 3 * (o.slots - half);
     let flat = |path: &mut Vec<([i32; 3], Cell)>, x: i32, z: i32, i: i32, n: i32| {
-        let boost = (o.boost_every > 0 && i > 0 && i < n - 1 && i % o.boost_every == 0) || (n > 4 && i < o.boost_first.min(n - 2));
+        let boost = (o.boost_every > 0 && i > 0 && i < n - 1 && i % o.boost_every == 0) || (n > 2 && i < o.boost_first.min(n - 1));
         path.push(([x, 1, z], if boost { Cell::Boost } else { Cell::Plain }));
     };
     for i in 0..o.run {
@@ -597,7 +597,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let set = |w: &mut redsim::world::World, ps: &[BlockPos], p: bool| {
         for c in ps {
             w.set_block(*c, if p { on.clone() } else { off.clone() }, redsim::world::flags::ALL);
-            drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:{}", w.time + 1 - t_spawn, c.x, c.y, c.z, if p { "redstone_block" } else { "glass" }));
+            drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:{}", w.time - t_spawn, c.x, c.y, c.z, if p { "redstone_block" } else { "glass" }));
         }
     };
     // (who is where at the start: the design's order)
@@ -724,7 +724,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     }
     out.push(format!("{} settled snapshots, {} clean 3-place moves", snaps.len(), moves));
     if let Some(path) = drive_out {
-        let mut text = format!("seed {seed}\ndays 0\nwalk random\nticks {}\n# mctas mobfarm queue-loop-run <design> --cycles {cycles} --seed {seed} --release-for {} --advance-at {} --advance-every {} --pulse {}\n# start: Run::start(spec, RunOpts {{ ai: true, ..steady(seed, ticks, Random) }}); settle_tick until false; spawn the design's entity lines in order (e0 .. e20, each a minecart with its villager e<N>.p0); t = gt after that spawn\n", run.world.time - t_spawn, tm.release_for, tm.advance_at, tm.advance_every, tm.pulse);
+        let mut text = format!("seed {seed}\ndays 0\nwalk random\n# ticks {}\n# t0 {t_spawn}\n# mctas mobfarm queue-loop-run <design> --cycles {cycles} --seed {seed} --release-for {} --advance-at {} --advance-every {} --pulse {}\n# start: Run::start(spec, RunOpts {{ ai: true, ..steady(seed, ticks, Random) }}); settle_tick until false; spawn the design's entity lines in order (e0 .. e20, each a minecart with its villager e<N>.p0); t0 = the time right after that spawn; act t applied when the time is t0 + t, before the next tick\n", run.world.time - t_spawn, tm.release_for, tm.advance_at, tm.advance_every, tm.pulse);
         for l in drive.borrow().iter() {
             text.push_str(l);
             text.push('\n');
