@@ -143,7 +143,11 @@ fn carousel_impl(side: i32, latch: bool, free_run: bool, quick: bool) -> anyhow:
         let (t, e) = (-3 * k, side + 3 * k);
         // (`MCTAS_BIDE_BOOST`: the outer loop boosted too, so its carts arrive and park like the
         // inner loops' at BIDE stops)
-        let rails = loop_rails(t, e, k < 2 || std::env::var_os("MCTAS_BIDE_BOOST").is_some());
+        let boosted = match std::env::var("MCTAS_BOOSTLOOPS") {
+            Ok(v) => v.contains(&k.to_string()),
+            Err(_) => (k < 2 || std::env::var_os("MCTAS_BIDE_BOOST").is_some()) && std::env::var_os("MCTAS_NOBOOST").is_none(),
+        };
+        let rails = loop_rails(t, e, boosted);
         for (p, s, _) in &rails {
             b.set(p[0], p[1], p[2], s);
         }
@@ -250,7 +254,7 @@ fn loop_rails(t: i32, e: i32, boost: bool) -> Vec<([i32; 3], String, &'static st
                 _ if i == brake => (-1, format!("powered_rail[powered=false,shape=ascending_{back},waterlogged=false]"), "mud"),
                 // (under `MCTAS_BIDE` one rail further: beside the brake it would power it through
                 // the powered rails' own line)
-                _ if boost && i == if bide_at(&s) { BOOST + 1 } else { BOOST } => (-1, format!("powered_rail[powered=true,shape={axis},waterlogged=false]"), "redstone_block"),
+                _ if boost && i == std::env::var(format!("MCTAS_BOOSTAT_{}", -t / 3)).ok().and_then(|v| v.parse::<i32>().ok()).unwrap_or(if bide_at(&s) { BOOST + 1 } else { BOOST }) => (-1, format!("powered_rail[powered=true,shape={axis},waterlogged=false]"), "redstone_block"),
                 _ if i == n - 1 => (-1, format!("rail[shape=ascending_{fwd},waterlogged=false]"), STONE),
                 _ => (-1, format!("rail[shape={axis},waterlogged=false]"), STONE),
             };
@@ -552,6 +556,19 @@ fn stop(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, s: Side, outer: bool) {
     set(s.at(ACT, 0), 1, &format!("redstone_wall_torch[facing={},lit=true]", name([-s.n[0], -s.n[1]])));
     set(s.at(1, 1), 2, "daylight_detector[inverted=false,power=0]");
     dust.insert([a[0], 2, a[1]]);
+    if std::env::var_os("MCTAS_TRAP").is_some() {
+        // (experiment: a closed iron trapdoor at the top of the cell over the brake, y 0.81-1:
+        // under it the cart's box (0.7 high, at most y 0.7 on the slope) passes, its riders pass
+        // through, but a standing villager (1.95 high from the pocket's floor at y -1, the bed's
+        // at -0.44) cannot enter the brake's column: it never reaches its parked cart to push it;
+        // a torch on it: a closed trapdoor is a golem's spawn floor (`isSolid`: its box's mean
+        // side 0.729), and the station riders' eyes pass through that cell)
+        set(s.at(BRAKE, 0), 0, &format!("iron_trapdoor[facing={},half=top,open=false,powered=false,waterlogged=false]", name(s.d)));
+        // (glass 2 over it, y 2-3: on the trapdoor's top (y 1) a dropped villager would find the
+        // dismount's first floor (the level over the cart's, before the bed's under it) and a
+        // golem a spawn floor; the station riders' sight lines leave that column under y 1.8)
+        set(s.at(BRAKE, 0), 2, GLASS);
+    }
 }
 
 /// Loop (t, e)'s pulse bus at y -1 in its bus lane (2 in from the track) along its north, east
