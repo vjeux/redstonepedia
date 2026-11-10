@@ -1329,12 +1329,9 @@ pub fn loop_shifted(tm: &LoopTiming, control: &str, s: i64) -> Result<LoopTiming
         },
         "pocket-release" => t.pocket_release += s,
         "pocket-reset" => t.pocket_reset += s,
-        "gate-close" => {
-            if t.pocket_close_delay + s < 0 {
-                return Err("gate-close: a counting gate shuts on its count, never before".into());
-            }
-            t.pocket_close_delay += s
-        }
+        // (a counting gate shuts on its count, never before: a negative delay never shuts it, so
+        // the run fails, which is the line's early end)
+        "gate-close" => t.pocket_close_delay += s,
         _ => return Err(format!("unknown control {control}: release-start, release-end, adv1-time .. adv3-time, adv1-width .. adv3-width, s1, s2, s3, stand-brake, tail12, tail0, pocket-release, pocket-reset, gate-close, speed")),
     }
     Ok(t)
