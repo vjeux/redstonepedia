@@ -1138,11 +1138,15 @@ pub struct LoopTiming {
     /// The design placed as written (blocks raw, block entities merged, no shape updates, no
     /// settle): a file that works only built the judge's way fails here.
     pub placed_raw: bool,
+    /// Built in order (the brief's check): the world starts empty and the design is placed cell
+    /// by cell in its build order with the game's updates, this many ticks between placements
+    /// (the priced rate: prices.tsv's `place`, 1 s = 20 gt at every stage), then the carts.
+    pub build_gap: Option<i64>,
 }
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None }
     }
 }
 
@@ -1291,13 +1295,116 @@ pub fn loop_corners(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, lines: &[Swe
     Ok(out.join("\n"))
 }
 
+/// The default build order (the brief's "built in order", for a design that lists none): supports
+/// first, bottom up; then containers, each filled as it is placed (before power can reach it);
+/// then rails, bottom up; then redstone from its sources outward (breadth-first over cells that
+/// touch, wire's up and down steps included; a cell no source reaches starts a new search, the
+/// lowest first). Each entry: the cell, its block, the container's fill (SNBT).
+pub fn build_order(spec: &FarmSpec) -> Vec<(BlockPos, Block, Option<String>)> {
+    fn class(b: &Block) -> u8 {
+        match b {
+            Block::Air => 9,
+            Block::Rail { .. } | Block::PlainRail { .. } | Block::DetectorRail { .. } => 2,
+            Block::Chest { .. } | Block::Hopper { .. } | Block::Dispenser { .. } | Block::Furnace { .. } | Block::ShulkerBox { .. } | Block::BrewingStand { .. } | Block::Crafter { .. } | Block::Jukebox { .. } | Block::Composter { .. } | Block::ChiseledBookshelf { .. } => 1,
+            Block::Wire { .. } | Block::RedstoneBlock | Block::Torch { .. } | Block::WallTorch { .. } | Block::Lever { .. } | Block::Button { .. } | Block::Repeater { .. } | Block::Comparator { .. } | Block::Observer { .. } | Block::Lamp { .. } | Block::Bulb { .. } | Block::Note { .. } | Block::Target { .. } | Block::Piston { .. } | Block::PistonHead { .. } | Block::Plate { .. } | Block::Tripwire { .. } | Block::TripwireHook { .. } | Block::DaylightDetector { .. } | Block::Tnt { .. } | Block::Trapdoor { .. } | Block::Door { .. } | Block::FenceGate { .. } | Block::Sculk { .. } => 3,
+            _ => 0,
+        }
+    }
+    let source = |b: &Block| matches!(b, Block::RedstoneBlock | Block::Torch { .. } | Block::WallTorch { .. } | Block::Lever { .. } | Block::Button { .. } | Block::DaylightDetector { .. } | Block::Plate { .. } | Block::TripwireHook { .. } | Block::Observer { .. } | Block::Target { .. });
+    // (a block that holds up a rail, a wire, a repeater, a comparator, a torch or a plate is a
+    // support whatever it is, a redstone block under a booster included: placed first, or what it
+    // holds up would pop off)
+    let needs_floor = |b: &Block| matches!(b, Block::Rail { .. } | Block::PlainRail { .. } | Block::DetectorRail { .. } | Block::Wire { .. } | Block::Repeater { .. } | Block::Comparator { .. } | Block::Torch { .. } | Block::Plate { .. });
+    let holds: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| needs_floor(b)).map(|(p, _)| BlockPos::new(p.x, p.y - 1, p.z)).chain(spec.blocks.iter().filter_map(|(p, b)| match b { Block::WallTorch { facing, .. } => Some(p.rel(facing.opposite())), _ => None })).collect();
+    let class_at = |p: &BlockPos, b: &Block| if holds.contains(p) && !needs_floor(b) && class(b) == 3 { 0 } else { class(b) };
+    let fills: std::collections::HashMap<BlockPos, String> = spec.block_entities.iter().cloned().collect();
+    let key = |p: &BlockPos| (p.y, p.x, p.z);
+    let mut out = Vec::new();
+    for c in 0..3u8 {
+        let mut v: Vec<(BlockPos, Block)> = spec.blocks.iter().filter(|(p, b)| class_at(p, b) == c).cloned().collect();
+        v.sort_by_key(|(p, _)| key(p));
+        out.extend(v.into_iter().map(|(p, b)| (p, b, fills.get(&p).cloned())));
+    }
+    let reds: Vec<(BlockPos, Block)> = spec.blocks.iter().filter(|(p, b)| class_at(p, b) == 3).cloned().collect();
+    let idx: std::collections::HashMap<BlockPos, usize> = reds.iter().enumerate().map(|(i, (p, _))| (*p, i)).collect();
+    let mut seen = vec![false; reds.len()];
+    let mut queue: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
+    let mut starts: Vec<usize> = (0..reds.len()).filter(|&i| source(&reds[i].1)).collect();
+    starts.sort_by_key(|&i| key(&reds[i].0));
+    for i in starts {
+        seen[i] = true;
+        queue.push_back(i);
+    }
+    let mut order = Vec::new();
+    loop {
+        while let Some(i) = queue.pop_front() {
+            order.push(i);
+            let p = reds[i].0;
+            for dx in -1..=1i32 {
+                for dy in -1..=1i32 {
+                    for dz in -1..=1i32 {
+                        let m = dx.abs() + dy.abs() + dz.abs();
+                        // (face neighbours, and the up and down steps of a wire)
+                        if m == 0 || m > 2 || (m == 2 && dy == 0) {
+                            continue;
+                        }
+                        if let Some(&j) = idx.get(&BlockPos::new(p.x + dx, p.y + dy, p.z + dz)) {
+                            if !seen[j] {
+                                seen[j] = true;
+                                queue.push_back(j);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        match (0..reds.len()).filter(|&i| !seen[i]).min_by_key(|&i| key(&reds[i].0)) {
+            Some(i) => {
+                seen[i] = true;
+                queue.push_back(i);
+            }
+            None => break,
+        }
+    }
+    out.extend(order.into_iter().map(|i| (reds[i].0, reds[i].1, fills.get(&reds[i].0).cloned())));
+    out
+}
+
 pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, seed: i64, verbose: bool, watch: Option<&[usize]>, drive_out: Option<&std::path::Path>) -> Result<String, String> {
     let ticks = 200 + cycles * 100 + 200;
     let ro = RunOpts { ai: true, raw: tm.placed_raw, ..RunOpts::steady(seed, ticks as u32, WalkMode::Random) };
-    let mut run = Run::start(spec, &ro)?;
+    // (`build_gap`, the brief's "built in order": the world starts empty and the design is placed
+    // cell by cell in its build order, each placement with the game's updates, `build_gap` ticks
+    // between placements, the carts spawned after the last)
+    let empty = FarmSpec { blocks: Vec::new(), block_entities: Vec::new(), ..spec.clone() };
+    let mut run = Run::start(if tm.build_gap.is_some() { &empty } else { spec }, &ro)?;
     // (`placed_raw`: the file as written, no settle either: it must start at rest by itself)
-    if !tm.placed_raw {
+    if !tm.placed_raw && tm.build_gap.is_none() {
         while run.settle_tick() {}
+    }
+    let drive: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(Vec::new());
+    let mut build_start: Option<i64> = None;
+    let mut built_diff: Option<String> = None;
+    if let Some(g) = tm.build_gap {
+        let t_b = run.world.time;
+        build_start = Some(t_b);
+        for (p, b, fill) in build_order(spec) {
+            run.world.set_block(p, b, redsim::world::flags::ALL);
+            drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_b, p.x, p.y, p.z, b));
+            if let Some(f) = fill {
+                redsim::redstone::container::apply_block_entities(&mut run.world, [(p, f.as_str())])?;
+                drive.borrow_mut().push(format!("act {} nbt {} {} {} {}", run.world.time - t_b, p.x, p.y, p.z, f));
+            }
+            for _ in 0..g.max(1) {
+                run.tick();
+            }
+        }
+        // (the cells the build left different from the file: a design that needs a listed order
+        // or a "place this last" step shows up here)
+        let diff: Vec<String> = spec.blocks.iter().filter(|(p, b)| run.world.get(*p) != *b).map(|(p, b)| format!("{} {} {}: {} (file: {})", p.x, p.y, p.z, run.world.get(*p), b)).collect();
+        if !diff.is_empty() {
+            built_diff = Some(format!("built in order: {} cells differ from the file after the build, e.g. {}", diff.len(), diff.iter().take(6).cloned().collect::<Vec<_>>().join("; ")));
+        }
     }
     let first = run.world.entities.next_id;
     for (ty, pos, nbt) in &spec.entities {
@@ -1354,7 +1461,9 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     // <state>`, t = gt after the entities' spawn, applied before the tick that brings the time
     // to spawn + t
     let t_spawn = run.world.time;
-    let drive: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(Vec::new());
+    // (the drive log's times count from the build's start when the bench builds the design, from
+    // the spawn otherwise)
+    let t_origin = build_start.unwrap_or(t_spawn);
     // (`wired`: the controls are the design's own redstone; the bench only pulses the golem input
     // cell each slot and checks where the carts go)
     let wired = tm.wired;
@@ -1365,7 +1474,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 continue;
             }
             w.set_block(*c, if p { on.clone() } else { off.clone() }, redsim::world::flags::ALL);
-            drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:{}", w.time - t_spawn, c.x, c.y, c.z, if p { "redstone_block" } else { "glass" }));
+            drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:{}", w.time - t_origin, c.x, c.y, c.z, if p { "redstone_block" } else { "glass" }));
         }
     };
     let input_was = wired.map(|p| run.world.get(p));
@@ -1430,12 +1539,12 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             if let Some(p) = wired {
                 // the golem pulse into the design's input cell
                 run.world.set_block(p, on.clone(), redsim::world::flags::ALL);
-                drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_spawn, p.x, p.y, p.z));
+                drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_origin, p.x, p.y, p.z));
             }
         }
         if let (Some(p), Some(was), true) = (wired, &input_was, c < cycles && dt == tm.golem_for) {
             run.world.set_block(p, was.clone(), redsim::world::flags::ALL);
-            drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_spawn, p.x, p.y, p.z, was));
+            drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, p.x, p.y, p.z, was));
         }
         if c < cycles && dt == tm.release_start {
             set(&mut run.world, if tm.release_stagger > 0 { &release_group[2..] } else { &release_group[..] }, true);
@@ -1454,7 +1563,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         }
         if let (Some(r), Some(was), true) = (tm.stand_reset, &reset_was, reset_off_at == Some(t)) {
             run.world.set_block(r, was.clone(), redsim::world::flags::ALL);
-            drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_spawn, r.x, r.y, r.z, was));
+            drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, r.x, r.y, r.z, was));
             reset_off_at = None;
         }
         if c == 0 && tm.inject_at == Some(dt) {
@@ -1470,7 +1579,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                     run.world.entities.set_pos(i, p);
                     run.world.entities.list[i].delta_movement = redsim::entity::Vec3::new(0.0, 0.0, 0.0);
                 }
-                drive.borrow_mut().push(format!("act {} tp e{} {:.3} {:.3} {:.3}", run.world.time - t_spawn, carts.iter().position(|c| c == id).unwrap_or(0), p.x, p.y, p.z));
+                drive.borrow_mut().push(format!("act {} tp e{} {:.3} {:.3} {:.3}", run.world.time - t_origin, carts.iter().position(|c| c == id).unwrap_or(0), p.x, p.y, p.z));
             }
         }
         if c < cycles && dt == tm.tail_check_at.unwrap_or(tm.advance_at) {
@@ -1700,7 +1809,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 if let (Some(r), Some(_)) = (tm.stand_reset, wired) {
                     // the wired stand's brake: the bench pulses the latch's reset input
                     run.world.set_block(r, on.clone(), redsim::world::flags::ALL);
-                    drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_spawn, r.x, r.y, r.z));
+                    drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_origin, r.x, r.y, r.z));
                     reset_off_at = Some(t + 2);
                 }
                 stand_braked_at.push(t - *c0 * 100);
@@ -1782,7 +1891,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         if dt == 99 {
             for (k, id) in carts.iter().enumerate() {
                 if let Some(p) = pos_of(&run.world, *id) {
-                    drive.borrow_mut().push(format!("expect {} pos e{k} {:.3} {:.3} {:.3}", run.world.time - t_spawn, p.x, p.y, p.z));
+                    drive.borrow_mut().push(format!("expect {} pos e{k} {:.3} {:.3} {:.3}", run.world.time - t_origin, p.x, p.y, p.z));
                 }
             }
         }
@@ -1831,13 +1940,19 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         out.push(format!("PANIC at night (day time 13,670..22,330, {} rider-ticks): {:.2}% of rider-ticks, the least-panicking rider {:.2}%; calm most at {}", nights, 100.0 * mean, 100.0 * min, if top.is_empty() { "-".to_string() } else { top.join(", ") }));
     }
     if let Some(path) = drive_out {
-        let mut text = format!("seed {seed}\ndays 0\nwalk random\n# ticks {}\n# t0 {t_spawn}\n# mctas mobfarm queue-loop-run <design> --cycles {cycles} --seed {seed} --release-for {} --advance-at {} --advance-every {} --pulse {}\n# start: Run::start(spec, RunOpts {{ ai: true, ..steady(seed, ticks, Random) }}); settle_tick until false; spawn the design's entity lines in order (e0 .. e20, each a minecart with its villager e<N>.p0); t0 = the time right after that spawn; act t applied when the time is t0 + t, before the next tick\n", run.world.time - t_spawn, tm.release_for, tm.advance_at, tm.advance_every, tm.pulse);
+        let mut text = format!("seed {seed}\ndays 0\nwalk random\n# ticks {}\n# t0 {t_spawn}\n# mctas mobfarm queue-loop-run <design> --cycles {cycles} --seed {seed} --release-for {} --advance-at {} --advance-every {} --pulse {}\n# start: Run::start(spec, RunOpts {{ ai: true, ..steady(seed, ticks, Random) }}); settle_tick until false; spawn the design's entity lines in order (e0 .. e20, each a minecart with its villager e<N>.p0); t0 = the time right after that spawn; act t applied when the time is t0 + t, before the next tick\n", run.world.time - t_origin, tm.release_for, tm.advance_at, tm.advance_every, tm.pulse);
+        if let (Some(b), Some(g)) = (build_start, tm.build_gap) {
+            text.push_str(&format!("# build: built in order instead: Run::start with the design's blocks and block entities removed (no settle), then each `act t set x y z <state>` a placement with the game's updates (flags 3) and each `act t nbt x y z <snbt>` a container's fill, in the build order, {g} gt between placements; every time here counts from the build's start (time {b}), not from t0\n# spawn {}\n", t_spawn - b));
+        }
         for l in drive.borrow().iter() {
             text.push_str(l);
             text.push('\n');
         }
         std::fs::write(path, text).map_err(|e| e.to_string())?;
         out.push(format!("drive log: {}", path.display()));
+    }
+    if let Some(d) = built_diff {
+        out.push(d);
     }
     out.extend(arrivals);
     if verbose {

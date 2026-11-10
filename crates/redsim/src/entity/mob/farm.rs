@@ -135,9 +135,11 @@ pub struct RunOpts {
     /// tick perfect precision?"): every mob on its real goals and brain (the golems' walking
     /// policies unused), a mob whose AI is not modeled a model error. The default.
     pub ai: bool,
-    /// (ironfarm 2026-11-10) The design placed as written: blocks raw and block entities merged,
-    /// no shape updates (`place_updates`); the caller skips the settle too. The judge's way is
-    /// `false`: a design must work placed either way to count as working "as placed".
+    /// (ironfarm 2026-11-10) The design placed as written, a raw paste: blocks raw and block
+    /// entities merged as `data merge` merges them (the stock a build step puts in), no shape
+    /// updates (`place_updates`); the caller skips the settle too. tick-exact's raw paste in the
+    /// game does the same. The judge's way is `false`: a design must work placed either way to
+    /// count as working "settled as placed".
     pub raw: bool,
 }
 
