@@ -1,5 +1,189 @@
 # Iron farm: the villager carousel (brief, G1)
 
+## The design (vjeux Nov 9 22:25): three hard rules
+
+vjeux 22:25: "The carousel is utterly terrible. I asked you to use the trick where we can only have
+one bed. Also why did you make it a giant circle, this defeats the purpose of making it small. And
+the villahers don't wake up at night... you didn't get any of the assignment". The rail carousel
+(carousel-gate: three loops in a 43 x 43 x 31 box, a bed per villager, the station shut at night)
+broke all three of his asks. It is the wrong design and leaves the site when the design below
+lists. Every candidate meets all three rules; there is no first version without one of them.
+
+1. **One bed for every villager.** All N = 21 villagers hold HOME = the same bed through the R1
+   double claim (corrupt-poi-entity: a villager claims the bed, the bed is broken and placed
+   again, the next villager claims the fresh record; N - 1 = 20 break-and-replace steps, priced as
+   hand steps at build time). The design includes the mechanism that keeps every claim, and the
+   judge proves it over many nights (6 days on 100 seeds at least; every villager's HOME = the bed
+   at every midday and every dawn):
+   - **CANT_REACH:** SetWalkTargetFromBlockMemory(HOME), in the REST package only, releases the
+     bed and erases HOME when CANT_REACH_WALK_TARGET_SINCE is older than 1200 gt. A panicking hold
+     still arms that memory (MoveToTargetSink is CORE and paths to PANIC's flee targets and 2-block
+     strolls; an unreachable one sets it, and it keeps its first-failure time into REST), and at the
+     napper's first REST tick SetWalkTargetFromBlockMemory (priority 2) runs before SleepInBed (3).
+     Two paths, release-and-reclaim the default: (a) the napper may release the bed at its first
+     REST tick and reclaims it through AcquirePoi(HOME) (CORE priority 10, a scan every 20-40 gt)
+     because it is the only villager in REST, the bed is free and reachable from beside it, and the
+     ticket cap is 1; the nap's timing budgets the reclaim (≤ 40 gt), and the judge checks every
+     villager's HOME = the bed at every dawn and midday. The ≤ 40 gt reclaim holds only if the
+     napper's first path to the bed succeeds: AcquirePoi scans when HOME is absent (at once if it
+     scanned before; within nextInt(20) on a fresh brain), then every 20 + nextInt(20) gt, for a
+     bed with a free ticket that isn't OCCUPIED; a failed path puts the bed in its batchCache with
+     a jittered linear retry that waits longer each time. So the delivery leaves the bed unoccupied
+     and reachable from where the napper stands at its release, or the bench shows the retry fits
+     inside the visit. (b) The alternative: holds and lanes generate no unreachable panic walk
+     target, and the bench logs every held villager's CANT_REACH every tick. A rider whose path
+     from its cart reaches the bed never arms it (bridge scene bed-cart); reaching the walk target
+     or starting to sleep clears it.
+   - **The occupied erase:** no other sharer in REST within 16 of the bed while it's occupied
+     (ValidateNearbyPoi(HOME), in the REST package only, erases the HOME of any villager within 16
+     of an occupied bed that isn't the sleeper). So a nap happens only when every other sharer is
+     farther than 16 from the bed or not in REST (panicking).
+   - No second bed within any villager's POI search: a free bed would be claimed and break the
+     sharing.
+2. **Compact.** The target is the portal-pad station of "Golems removed by portal, and the
+   smallest box" (about 24 x 12 x 5 at 99% summon success), with the queue and the bed inside a
+   small box. The objective is the whole build's box volume, the queue and the bed included. No
+   rail loops. Villagers move in short hops: carts on short shuttles, water streams, pistons,
+   whatever measures smallest. The lock box still holds (waiting groups more than 10.6 from every
+   summoner on one horizontal axis, or 11.95 vertically, at every summon tick), and so does the
+   occupied-erase distance (16 from the bed during a nap); the layout is the smallest arrangement
+   of the station, the queue and the bed that keeps both. GolemSensor re-locks any villager whose
+   scan still sees a golem within its follow range (16, up to 17.8 with the spawn bonus; no sight
+   test), and the detection is phase-locked to the slot grid (the sensor periods 20 and 200 divide
+   the slots, so an exposed villager is locked at every other golem, permanently). So during each
+   golem's overworld dwell (T to T+2), every villager outside the summoning batch, the arriving
+   batch included, stays outside the golem's follow box (19.3 sideways, 19.8 below or 20.6 above
+   the golem's feet).
+3. **Runs at night.** Each villager naps once a day in the one bed, OCCUPIED for up to about 39 gt
+   (the wake's latency, two sensors). It is
+   delivered within 2.0 of the bed and not riding (SleepInBed's conditions; it can't sleep again
+   within 100 gt of a wake). Falling asleep sets LAST_SLEPT (the golem condition needs a sleep
+   within the last 24,000 gt). An observer on the bed's OCCUPIED flashes a dorm zombie into its
+   sight; the panic wakes it at once (WakeUp); it stands up at the bed's one free stand-up cell
+   and is carried straight back into the rotation. The station summons through the night. The
+   judge prints golems per hour by day and by night; a night rate short of the day's by more than
+   the naps' share is a defect to fix, not a trade-off.
+4. **Seven groups of three.** 21 villagers in 7 groups of 3, one station, one golem per 100-gt
+   slot. With 7 groups each group gets 700 gt between turns: 100 gt of slack after its 600-gt
+   lockout, which absorbs travel jitter, the panic onset (up to 39 gt after the zombie becomes
+   visible: NearestLivingEntitySensor, then VillagerHostilesSensor, each every 20 gt on its own
+   random phase; the bridge measured 8-18, a few of the 400 phase pairs) and
+   tick order, so every slot fills. The one bed serves all 21, visited one villager at a time
+   during the night with the queue more than 16 from the bed. The compact box holds all 7 groups.
+   The carousel's own line is slot fill: golems per 100-gt slot, by day and by night, printed on
+   the card.
+
+Unchanged: ranked against copies with the same villagers on volume and on rate per villager; every
+summon path closed at every position (panic only at the station, gossip groups apart); golems
+removed by portal, with the Nether side's exit kill and portal-ticket rules; the judge counts riders
+at every midday and HOME holders at every dawn.
+
+Who: mob AI confirms on the bridge ValidateNearbyPoi's reach and its occupied branch, SleepInBed's
+conditions and the wake (bed-observer, bed-r1, bed-cart are exact; the occupied-erase scene is
+pending) and models the Nether side for the portal pad; ironfarm sketches the compact layout now and
+builds it; farmopt searches its parameters once one runs.
+
+### The operating cycle
+
+vjeux 22:29: "The idea is to send 3 villagers that get frightened spawn a golem and then send the
+batch of 3 villagers and repeat. Then at night we put villagers to be and wake them up one by one
+once during the night. Not at every step." A batch of 3 arrives at the station, panics, summons a
+golem, and leaves; the next batch arrives 100 gt later; the 7 batches repeat in turn, day and
+night. Only the summoner must panic; the other villagers it counts need only be willing
+(LAST_SLEPT within 24,000 gt, no GOLEM_DETECTED_RECENTLY) and inside its 10-box; golemDetected
+locks every villager in that box for 600 gt (erased at T+599 or T+600 by brain-tick order), which
+is why a batch's turn comes every 700 gt. The bed is visited once per night by each villager, one villager at a time: it lies down
+(which sets LAST_SLEPT), is woken at once, and rejoins its batch, the visit slotted between two of
+that villager's station turns (inside its wait between turns). It is not a stop on every cycle.
+The once-a-night selection (each villager drops at the bed exactly once per night, never twice,
+never skipped) is part of the design, and the judge checks it: every villager's LAST_SLEPT
+advances once each night.
+
+### The timing diagram
+
+vjeux 22:30: "The timings are tight so need to be precise. This is not an easy task". The carousel
+is designed from a tick-level timing diagram, and the layout report carries it: the slots sit on
+the gameTime % 100 grid (summon attempts happen only there); a batch arrives at least 39 gt
+before its slot (the panic onset, up to 39 gt after the zombie becomes visible; none for a batch
+that arrives already panicking with a zombie kept in its sight the whole way), with the counter's
+2-miss drift (2m, 12-20 gt) on top; during each golem's dwell (T to T+2) the arriving batch is
+still outside the golem's follow box; the summon happens at the slot; the golem leaves through the
+portal 1-2 gt later; the leaving batch is out of the station's 10.6 box before the next slot; each
+villager's once-a-night bed visit fits inside its 600-gt wait, with the rest of the queue more than
+16 from the bed while it sleeps. Dispatch is event-driven from each golem spawn, so the farm
+phase-locks to the game clock, and a slot with no golem still advances the rotation on the next
+grid tick (a fallback clock), so one failed summon never stalls it. Every interval in the diagram
+is checked tick by tick in redsim and on the bridge, and G1 checks the diagram against the code.
+
+### The parts: built, tested and optimized alone, then assembled
+
+vjeux 22:32: "Also you probably want to build the counter, sleep routine, 3 villager release + hold
+for the rest separately and optimize each independently before coming with a final assembly".
+Four parts, each with a typed interface (inputs, outputs, a timing contract), its own tick-exact
+redsim bench (bridge scenes where the pieces exist), its own objectives (blocks, box volume, build
+minutes, timing margin), optimized alone and archived like the clocks. The assembly comes after;
+the timing diagram checks every coupling.
+
+1. **The counter.** In: one pulse per golem spawn (the station's detector), plus the fallback
+   clock's pulse on a slot with no golem. Out: 7 lines, one per batch, exactly one high at a time,
+   advanced one state per pulse. Contract: the next line is high within T_c gt of the pulse (T_c
+   is budgeted in the diagram); no skipped or doubled state at any pulse spacing the farm can
+   produce; the state is held in blocks, so it survives an unload, a reload and a restart. Bench:
+   random pulse trains on the 100-gt grid with missed slots and early or late pulses, 100,000
+   pulses, zero skips or doubles, plus the restart test. Objectives: blocks, volume, build
+   minutes, T_c and its margin.
+2. **Release + hold.** In: the counter's 7 lines and the station's take-back pulse. Out: exactly
+   the selected batch of 3 at the station's stand cells, then back in its own hold slots; the
+   other 18 held more than 10.6 from every summoner on one axis at every summon tick, with paths
+   that keep CANT_REACH young (rule 1). Held batches may panic (hold zombies in sight, out of
+   reach) so they never run REST: then the hold's own summon search has no spawnable floor (a
+   static check), and only the napper is calm. The static gate covers every position a villager
+   occupies (hold lanes, travel paths, stand cells, the bed's area: a bed is likely a valid golem
+   floor) for valid floors in its summon search, the pad counted only for the stand cells; with 7
+   batches a batch's lock ends exactly at an attempt tick, so any valid floor anywhere a willing,
+   panicking villager waits summons out of turn. Contract: the batch reaches its stand cells at
+   least 39 gt before its slot (the panic onset; none for a batch that arrives already panicking),
+   with the counter's 2-miss drift on top; the leaving batch is out of the 10.6 box before the
+   next slot; the round trip fits the batch's 700 gt. Invariants: never two batches at the
+   station, no villager left behind, every villager back in its own slot. Bench: 7 batches
+   cycling with the counter driven ideal and the villager AI on, positions logged every tick, zero
+   violations over 6 days on 100 seeds. Objectives: blocks, volume, the arrival margin, build
+   minutes.
+3. **The sleep routine.** In: the night window (a daylight-sensor signal) and the counter's
+   state, so it never takes a villager whose batch is due. Out: each of the 21 villagers once a
+   night, one at a time, within 2.0 of the one bed and not riding; it sleeps, the observer on
+   OCCUPIED flashes the dorm zombie, it wakes, stands up at the one free cell and returns to its
+   hold slot before its next turn. Sequence: out of every zombie's sight, the villager calms within
+   one sensor scan pair (up to 39 gt), is within 2.0 of the bed and not riding, SleepInBed starts
+   (LAST_SLEPT set at start: a one-tick nap counts), the observer on OCCUPIED opens a hatch on a
+   dorm zombie, it panics and wakes within up to 39 gt (measured 18), stands up at the one free cell,
+   and is taken back; SleepInBed can't restart until 40 gt after a wake (nextOkStartTime) and 100
+   gt after LAST_WOKEN. With the panicking hold, only the napper is in REST, so the occupied erase
+   can't hit anyone else. Invariants: every villager's HOME = the bed at every dawn and
+   midday (the R1 claims kept); while the bed is occupied, every other villager is in PANIC or more
+   than 16 from it; each villager's LAST_SLEPT advances exactly once a night. Contract: each visit fits
+   inside that villager's wait; the 21 visits fit inside the night. Bench: 21 villagers with R1
+   claims, 6 days on 100 seeds, the station and counter driven ideal, HOME, LAST_SLEPT and
+   distances logged every tick. It waits on tick-exact's bed pieces (ValidateNearbyPoi's reach,
+   SleepInBed's conditions, the wake delay, findStandUpPosition). Objectives: blocks, volume, the
+   visit's length and its margin, build minutes.
+4. **The station + portal pad.** In: a batch of 3 at the stand cells. Out: the batch panics (the
+   zombie in sight, out of its melee reach) and summons at the slot; the golem lands on the trench
+   pad and leaves through the portal in 1-2 gt; a golem-spawn pulse for the counter; the Nether
+   side's exit kill and collection (or the drops sent back). Contract: summon success per slot (k
+   valid columns: 1 - (1 - k/289)^30 for a batch's 30 attempts), the golem's overworld dwell, the
+   pulse's delay. Invariants: no golem stays in the overworld; no summon path for a held villager;
+   every box meant to stay keeps out of every portal cell. Bench: a batch held at the stand cells
+   in the void, 10,000 slots (the Nether side once modeled). Objectives: blocks, volume, summon
+   success, build minutes (obsidian priced).
+
+The assembly places the four parts in the compact box; the timing diagram checks each coupling
+(golem pulse → counter → release → arrival margin → slot → take-back; the sleep routine's visits
+against the counter), and it is judged as a farm: slot fill, iron/h, volume, against copies with
+the same villagers. Build order: the counter (day-1 lane), release + hold (ironfarm) and the station
+(farmopt) in parallel; the sleep routine (ironfarm) once tick-exact's bed pieces are exact; then the
+assembly (ironfarm).
+
 vjeux 2026-11-08 22:53: "But the farm is soooo big and spread out. I'd love to pack tons of villagers
 and move them around or something so we can have golems spawning constantly". This brief is the
 family's G1 doc (docs/process.md step 1); the stages, prices, travel, parts and judge rules of
@@ -94,7 +278,7 @@ day. Each estimate states its stop's length.
 - An event-driven advance (the golem's landing or fall closes a detector) follows the farm's own
   rhythm and cannot drift; a free clock is simpler but loses slots when an attempt fails.
 
-## Layouts
+## Layouts (superseded by the three hard rules)
 
 | # | layout | golems/h per station (estimate) | % of ceiling | what it brings |
 |---|---|---|---|---|
@@ -104,14 +288,14 @@ day. Each estimate states its stop's length.
 | L3 | static docks: 2-3 clusters more than 10.6 apart around ONE shared pad and drop, each locking only itself | 200-300 (each cluster's golems dwell in the others' cubes on the pad: the LT measurement kept 72%) | 30-40% | no moving parts; dwell on the shared pad is the loss |
 | L4 | pods moved by slime-block machines past the station | up to 720 | up to 100% | heavy redstone, late only; fragile on unload |
 
-## Decision
+## Decision (superseded by the three hard rules)
 
 Build L1 first (the parent's choice): a void prototype by the ironfarm lane at the forgiving
 200 gt cycle with 4 groups, the advance driven by the golem's fall; then farmopt searches its
 parameters (groups of 3, 4 to 8 of them, the cycle 100-200 gt, the loop's length and shape, the bed stop, the
 station's pad and drop). L2 and L3 stay in the search as the cheaper families.
 
-## The nightly stop: a bed each, or a shared dormitory
+## The nightly stop: a bed each, or a shared dormitory (superseded by the three hard rules)
 
 Every villager must lie down once a game day (`LAST_SLEPT` is set as it starts sleeping). Two
 options, judged against each other on the objectives:
