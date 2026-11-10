@@ -43,6 +43,11 @@ block light differs at the end; `MCTAS_EXACT_SUMMONS=1` each golem summon and ea
 GOLEM_DETECTED_RECENTLY set and freed, both sides). One judge run on redsim alone: `mctas mobfarm
 run <design> [--terrain <sample> | --build K] --seed S --days D` (`--build K`: the judge's K-th
 terrain site with its run options, so a live view's "build 7 seed S" is `--build 7 --seed S`).
+The judge's run on many seeds at once: `mctas mobfarm seeds <design> --from 1 --to 100 --days 3
+[--jobs N] [--write]` prints each seed's verdict (PASS or its first failure, with golems, iron and
+a carousel's riders at each midday), how many hold and the first failures by kind; `--write`
+records the count as a row of `<stem>.seeds.tsv` beside the design (`days held of seeds`, in run
+order; a run again on the same days and seeds replaces its row), which the farm's card quotes.
 The judge's speed, results unchanged: `mctas farmopt bench <spec> --n 16 --quick 8 [--full N]
 --threads 16 --out <file>` evaluates N candidates spread evenly over the spec's space level by
 level (static, quick for the first `--quick` passing static, full for the first `--full` passing

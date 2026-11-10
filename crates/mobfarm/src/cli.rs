@@ -332,8 +332,12 @@ pub enum MobfarmCmd {
         /// Runs at once (default: the machine's cores).
         #[arg(long)]
         jobs: Option<usize>,
+        /// Also record the count in `<stem>.seeds.tsv` beside the design (page copy's card
+        /// fields, `{holds_days}`: header `days held of seeds`, one row per run in run order; a
+        /// run of the same days and seeds replaces its row).
+        #[arg(long)]
+        write: bool,
     },
-    /// the deterministic bridge against redsim for the judge's days (each build's result and the
     /// lane owning its first difference); `--record` writes it to the ratchet's table
     /// (designs/circuits/mobfarm/exact.tsv: a design recorded exact fails a later verify that
     /// differs).
@@ -500,7 +504,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("FAIL {f}");
             }
         }
-        MobfarmCmd::Seeds { design, from, to, days, jobs } => {
+        MobfarmCmd::Seeds { design, from, to, days, jobs, write } => {
             let (_c, spec) = load(version, &design)?;
             use redsim::entity::mob::farm::{RunOpts, WalkMode, run};
             let seeds: Vec<i64> = (from..=to).collect();
@@ -551,6 +555,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             kv.sort_by(|a, b| b.1.cmp(&a.1));
             for (k, n) in kv {
                 println!("  first failure {n}x: {k}");
+            }
+            if write {
+                let path = seeds_file(&design);
+                write_seeds_row(&path, days, held.len(), rows.len(), &format!("{from}-{to}"))?;
+                println!("recorded in {}", path.display());
             }
         }
         MobfarmCmd::Run { design, seed, days, still, terrain, ticks_only, watch, cells, census, build } => {
@@ -1097,6 +1106,38 @@ fn sight_cmd(version: &str, design: &PathBuf, terrain: Option<&str>) -> Result<(
             }
         }
     }
+    Ok(())
+}
+
+/// A design's seeds record, `<stem>.seeds.tsv` beside it (page copy's card fields).
+fn seeds_file(design: &std::path::Path) -> PathBuf {
+    let stem = design.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    design.with_file_name(format!("{stem}.seeds.tsv"))
+}
+
+/// Record one `mobfarm seeds` run in the design's seeds file: the header `days held of seeds` and a
+/// note when the file is new, then this run's row; a row with the same days and seeds is replaced
+/// in place (a run again on the same seeds is the same measurement, newer), any other appended.
+fn write_seeds_row(path: &std::path::Path, days: u32, held: usize, of: usize, seeds: &str) -> Result<()> {
+    let old = std::fs::read_to_string(path).unwrap_or_default();
+    let mut lines: Vec<String> = old.lines().map(str::to_string).collect();
+    if lines.iter().all(|l| l.starts_with('#') || l.trim().is_empty()) {
+        lines = vec![
+            "# the judge's runs on many seeds, redsim (riders counted at every midday): written by `mctas mobfarm seeds <design> --from A --to B --days N --write`".to_string(),
+            "days\theld\tof\tseeds".to_string(),
+        ];
+    }
+    let row = format!("{days}\t{held}\t{of}\t{seeds}");
+    let same = |l: &str| {
+        let c: Vec<&str> = l.split('\t').collect();
+        c.len() >= 4 && c[0] == days.to_string() && c[3] == seeds
+    };
+    if let Some(i) = lines.iter().position(|l| same(l)) {
+        lines[i] = row;
+    } else {
+        lines.push(row);
+    }
+    std::fs::write(path, lines.join("\n") + "\n")?;
     Ok(())
 }
 

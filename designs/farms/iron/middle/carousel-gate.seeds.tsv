@@ -1,0 +1,5 @@
+# the judge's runs on many seeds, redsim (riders counted at every midday): written by `mctas mobfarm seeds <design> --from A --to B --days N --write`
+days	held	of	seeds
+3	87	100	1-100
+3	82	100	101-200
+6	72	100	1-100
