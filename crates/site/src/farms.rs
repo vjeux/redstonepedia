@@ -58,7 +58,7 @@ pub fn part_folder(key: &str) -> Option<&'static str> {
 /// can see how it looks like"; the parent: under a "Villager carousel (in progress)" heading on the
 /// iron farm's page): (folder under designs/farms/iron/parts/, name, what it is, for the player).
 /// Each gets its component page as soon as its catalog (`members.tsv`) has a member.
-pub const CAROUSEL: [(&str, &str, &str, &str); 3] = [
+pub const CAROUSEL: [(&str, &str, &str, &str); 4] = [
     // (vjeux 2026-11-10 rejected the 7-lane layout for one lane of 21 carts released 3 by 3: only the
     // station carries over; the counter, the hold, the yard, the scheduler and the assembly were
     // the 7-lane farm's and stay off)
@@ -66,6 +66,8 @@ pub const CAROUSEL: [(&str, &str, &str, &str); 3] = [
     ("carousel-release", "", "Release controller", "The redstone that sends the villagers out 3 by 3: each golem pulse releases the 3 head carts, then moves the 18-cart queue up 3 slots in three steps; a missed golem falls back to a timed release, and an early one is held."),
     // (the parent 2026-11-10 09:24, vjeux wants every carousel component on the site)
     ("carousel-siding", "", "Bed siding", "The one bed of the farm, beside the loop: each night every villager's cart turns off into it by turns; the villager is dropped beside the bed, sleeps, is woken by a zombie behind an iron hatch that opens and shuts by itself, gets back into its own cart, and waits there until its group passes again."),
+    // (the parent 2026-11-10: the wired loop v2 runs on its own in the real game: the fourth component)
+    ("carousel-loop", "", "Single-lane loop", "The villagers ride one track in carts: the queue moves up 3 places after each golem, the front 3 leave for the station and come back to the tail."),
 ];
 
 /// A part's name and what it is (`PARTS`, `CAROUSEL`).
@@ -1063,6 +1065,9 @@ pub fn part_page(site: &Site, farm: &str, part: &str, members: &[Member], script
         } else if part == "carousel-siding" {
             // (the parent 2026-11-10 09:24, its plain standing line)
             "<p>Real redstone; tested on its own; arrivals and release are driven by the test bench; not yet joined to the loop.</p>\n"
+        } else if part == "carousel-loop" {
+            // (the parent 2026-11-10, its plain standing line)
+            "<p>Real redstone; runs on its own in the real game, pasted as written or built block by block; its golem signal is supplied by the test; the stand is a placeholder; not yet joined to the pad or the bed stop.</p>\n"
         } else {
             ""
         };
