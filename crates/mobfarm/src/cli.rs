@@ -607,6 +607,19 @@ pub enum MobfarmCmd {
         /// --placed-in-order's GAP), to the first gap that fails.
         #[arg(long)]
         build_gap_sweep: bool,
+        /// Paste a part into the loop before the run (farmopt's bed siding): its blocks, block
+        /// entities and entities inside --siding-box (minecarts left out), turned --siding-turn
+        /// quarter turns clockwise seen from above (+x to +z), moved to --siding-at.
+        #[arg(long)]
+        siding: Option<PathBuf>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        siding_at: Vec<i32>,
+        #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+        siding_turn: i32,
+        /// The part's box in its own frame, x0,y0,z0,x1,y1,z1 (default: the siding's documented
+        /// box, -7,-4,-3,6,4,9).
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        siding_box: Vec<i32>,
         #[arg(long)]
         verbose: bool,
         /// Print these carts (design order) every gt.
@@ -1232,9 +1245,17 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             println!("{}", crate::queue::loop_spots(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, verbose, watch, drive_out } => {
-            let (c, spec) = load(version, &design)?;
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, corners, entry_speed, adv_shift, adv_width, skew, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, placed_both, placed_in_order, placed_all, build_gap_sweep, siding, siding_at, siding_turn, siding_box, verbose, watch, drive_out } => {
+            let (c, mut spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
+            if let Some(sf) = &siding {
+                // (a part pasted into the loop: farmopt's bed siding, inside its box)
+                let (_, part) = load(version, sf)?;
+                let at = match siding_at.as_slice() { [x, y, z] => [*x, *y, *z], _ => anyhow::bail!("--siding needs --siding-at x,y,z") };
+                let bx = match siding_box.as_slice() { [a, b, c, d, e, f] => ([*a, *b, *c], [*d, *e, *f]), [] => ([-7, -4, -3], [6, 4, 9]), _ => anyhow::bail!("--siding-box takes x0,y0,z0,x1,y1,z1 in the part's own frame") };
+                let n = crate::queue::paste_part(&mut spec, &part, at, siding_turn, bx).map_err(|e| anyhow::anyhow!(e))?;
+                eprintln!("pasted {n} blocks of {} at {:?}, turned {siding_turn}", sf.display(), at);
+            }
             let intake_brake = match intake_brake.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--intake-brake takes two values: slots 1-2, then slot 0") };
             let inject_at = inject_at.or(if o.line { Some(110) } else { None });
             let wired = match wired.as_slice() { [x, y, z] => Some(redsim::pos::BlockPos::new(*x, *y, *z)), [] => None, _ => anyhow::bail!("--wired takes the input cell: x,y,z") };

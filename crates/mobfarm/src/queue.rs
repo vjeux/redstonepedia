@@ -1400,6 +1400,88 @@ pub fn edge_cells_of(blocks: &[(BlockPos, Block)]) -> std::collections::HashSet<
         .collect()
 }
 
+/// A rail's `shape` turned `turn` quarter turns clockwise seen from above (north to east), named
+/// the game's way (a curve's north/south word first). `BlockState::rotate_y` leaves `shape` alone.
+fn rail_shape_turned(shape: &str, turn: i32) -> String {
+    let rot = |d: &str| -> String {
+        let order = ["north", "east", "south", "west"];
+        match order.iter().position(|o| *o == d) {
+            Some(i) => order[(i + turn.rem_euclid(4) as usize) % 4].to_string(),
+            None => d.to_string(),
+        }
+    };
+    match shape {
+        "north_south" | "east_west" => {
+            if turn.rem_euclid(2) == 1 {
+                if shape == "north_south" { "east_west" } else { "north_south" }.to_string()
+            } else {
+                shape.to_string()
+            }
+        }
+        s if s.starts_with("ascending_") => format!("ascending_{}", rot(&s["ascending_".len()..])),
+        s => {
+            let Some((a, b)) = s.split_once('_') else { return s.to_string() };
+            let (a, b) = (rot(a), rot(b));
+            if a == "north" || a == "south" { format!("{a}_{b}") } else { format!("{b}_{a}") }
+        }
+    }
+}
+
+/// A block turned `turn` quarter turns clockwise seen from above (+x to +z).
+fn block_turned(b: &Block, turn: i32) -> Result<Block, String> {
+    if turn.rem_euclid(4) == 0 {
+        return Ok(*b);
+    }
+    let mut st = mctas::blockstate::BlockState::parse(&b.to_string()).map_err(|e| e.to_string())?.rotate_y(turn);
+    if st.name.ends_with("rail") {
+        if let Some(s) = st.props.get("shape").cloned() {
+            st.props.insert("shape".into(), rail_shape_turned(&s, turn));
+        }
+    }
+    Block::parse(&st.to_string()).map_err(|e| e.to_string())
+}
+
+/// Pastes a part (farmopt's bed siding, ...) into the loop's spec: its blocks, block entities and
+/// entities that lie in its local box `bx` (lo, hi; the part's bench parts outside it are left
+/// out), minecarts dropped (the loop brings its own 21), turned `turn` quarter turns clockwise
+/// seen from above (+x to +z) about its origin, then moved to `at`. A cell the loop already uses
+/// is an error. Returns the blocks pasted.
+pub fn paste_part(spec: &mut FarmSpec, part: &FarmSpec, at: [i32; 3], turn: i32, bx: ([i32; 3], [i32; 3])) -> Result<usize, String> {
+    let t = turn.rem_euclid(4);
+    let inside = |x: i32, y: i32, z: i32| (bx.0[0]..=bx.1[0]).contains(&x) && (bx.0[1]..=bx.1[1]).contains(&y) && (bx.0[2]..=bx.1[2]).contains(&z);
+    let cell = |p: BlockPos| -> BlockPos {
+        let (mut x, mut z) = (p.x, p.z);
+        for _ in 0..t {
+            (x, z) = (-z, x);
+        }
+        BlockPos::new(x + at[0], p.y + at[1], z + at[2])
+    };
+    let used: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| !matches!(b, Block::Air)).map(|(p, _)| *p).collect();
+    let mut n = 0;
+    for (p, b) in part.blocks.iter().filter(|(p, b)| inside(p.x, p.y, p.z) && !matches!(b, Block::Air)) {
+        let q = cell(*p);
+        if used.contains(&q) {
+            return Err(format!("paste: the part's {} at {} {} {} lands on the loop's cell {} {} {}", b, p.x, p.y, p.z, q.x, q.y, q.z));
+        }
+        spec.blocks.push((q, block_turned(b, t)?));
+        spec.lo = BlockPos::new(spec.lo.x.min(q.x), spec.lo.y.min(q.y), spec.lo.z.min(q.z));
+        spec.hi = BlockPos::new(spec.hi.x.max(q.x), spec.hi.y.max(q.y), spec.hi.z.max(q.z));
+        n += 1;
+    }
+    for (p, s) in part.block_entities.iter().filter(|(p, _)| inside(p.x, p.y, p.z)) {
+        spec.block_entities.push((cell(*p), s.clone()));
+    }
+    for (ty, pos, nbt) in part.entities.iter().filter(|(ty, pos, _)| !ty.ends_with("minecart") && inside(pos[0].floor() as i32, pos[1].floor() as i32, pos[2].floor() as i32)) {
+        // (a continuous point turned about the origin block's centre: (x, z) to (1 - z, x))
+        let (mut x, mut z) = (pos[0], pos[2]);
+        for _ in 0..t {
+            (x, z) = (1.0 - z, x);
+        }
+        spec.entities.push((ty.clone(), [x + at[0] as f64, pos[1] + at[1] as f64, z + at[2] as f64], nbt.clone()));
+    }
+    Ok(n)
+}
+
 pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, seed: i64, verbose: bool, watch: Option<&[usize]>, drive_out: Option<&std::path::Path>) -> Result<String, String> {
     let ticks = 200 + cycles * 100 + 200;
     let ro = RunOpts { ai: true, raw: tm.placed_raw, ..RunOpts::steady(seed, ticks as u32, WalkMode::Random) };
@@ -1999,4 +2081,33 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         }
     }
     Ok(format!("{}\n{} problems{}", out.join("\n"), problems.len(), if problems.is_empty() { String::new() } else { format!(":\n  {}", problems.iter().take(20).cloned().collect::<Vec<_>>().join("\n  ")) }))
+}
+
+#[cfg(test)]
+mod paste_tests {
+    use super::*;
+
+    #[test]
+    fn a_rail_turned_once_runs_the_turned_way() {
+        // (+x to +z: an east-west rail becomes north-south, a curve's ends turn with it, a slope
+        // rises toward the turned side)
+        assert_eq!(rail_shape_turned("east_west", 1), "north_south");
+        assert_eq!(rail_shape_turned("south_west", 1), "north_west");
+        assert_eq!(rail_shape_turned("north_east", 1), "south_east");
+        assert_eq!(rail_shape_turned("ascending_east", 1), "ascending_south");
+        assert_eq!(rail_shape_turned("north_west", 2), "south_east");
+    }
+
+    #[test]
+    fn four_turns_give_the_block_back() {
+        for s in ["minecraft:rail[shape=south_west,waterlogged=false]", "minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]", "minecraft:detector_rail[powered=false,shape=east_west,waterlogged=false]", "minecraft:repeater[delay=2,facing=east,locked=false,powered=false]", "minecraft:comparator[facing=north,mode=subtract,powered=false]", "minecraft:redstone_wire[east=side,north=up,power=0,south=none,west=side]", "minecraft:observer[facing=down,powered=false]"] {
+            let b = Block::parse(s).unwrap();
+            let mut t = b;
+            for _ in 0..4 {
+                t = block_turned(&t, 1).unwrap();
+            }
+            assert_eq!(t, b, "{s}");
+            assert_eq!(block_turned(&block_turned(&b, 1).unwrap(), 3).unwrap(), b, "{s}");
+        }
+    }
 }
