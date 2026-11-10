@@ -196,7 +196,7 @@ pub fn lanes_of(meta: &std::collections::BTreeMap<String, String>) -> Result<Lan
 }
 
 /// The bench's options.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct BenchOpts {
     pub seed: i64,
     pub days: u32,
@@ -205,6 +205,9 @@ pub struct BenchOpts {
     pub jitter: u32,
     /// Print each slot's line and the first calm villagers at night.
     pub verbose: bool,
+    /// Write this run's tick-level timing view (`mobfarm timeline`'s page and dump) into this
+    /// directory: the stand zone and the holds as regions, each lane's hold-end control as a signal.
+    pub timeline: Option<std::path::PathBuf>,
 }
 
 /// What the bench measured.
@@ -234,6 +237,8 @@ pub struct BenchReport {
     pub spawn_spots: Vec<BlockPos>,
     /// Model errors.
     pub errors: Vec<String>,
+    /// The timing view written (`BenchOpts::timeline`): its page and its summary.
+    pub timeline: Option<(String, String)>,
 }
 
 /// The cells a golem could spawn on for a villager at `cell` (`spawn_spots_of`'s scan, one start).
@@ -348,6 +353,25 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &BenchOpts) -> Result<BenchRe
     let mut margins: Vec<i64> = Vec::new();
     let mut selected: Option<i32> = None;
     let index_of = |w: &redsim::world::World, id: u32| w.entities.list.iter().position(|e| e.id == id);
+    // the timing view, if asked: the stand zone and the holds as regions, the lines as signals
+    let mut tl = match &o.timeline {
+        Some(_) => {
+            use crate::timeline::Tag;
+            let top = lanes.level_gap * (lanes.levels - 1) + 2;
+            let (x0, x1) = (lanes.x(0), lanes.x(BATCHES - 1));
+            let mut tags = vec![
+                Tag::Region { name: "station".into(), lo: [x0, -1, -2], hi: [x1, top, lanes.stand_z().ceil() as i32 - 1] },
+                Tag::Region { name: "hold".into(), lo: [x0, -1, lanes.hold_z().ceil() as i32], hi: [x1, top, lanes.run + 1] },
+            ];
+            for b in 0..BATCHES {
+                let p = lanes.hold_ctrls(b)[0];
+                tags.push(Tag::Signal { name: format!("line{b}"), at: [p.x, p.y, p.z] });
+            }
+            Some(crate::timeline::Timeline::start("hold-bench", spec, &run, o.seed, [0, 0, 0], &tags, o.days * 24000).map_err(|e| e.to_string())?)
+        }
+        None => None,
+    };
+    let mut stepped = 0u32;
     while run.world.time < end {
         let t_next = run.world.time + 1;
         // the line switch due this tick
@@ -406,6 +430,11 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &BenchOpts) -> Result<BenchRe
             next_slot += 1;
         }
         run.tick();
+        if let Some(tl) = tl.as_mut() {
+            stepped += 1;
+            // (a model error stays the bench's to report, at its end)
+            let _ = tl.step(&mut run.world, stepped);
+        }
         let w = &run.world;
         let t = w.time;
         // every rider, every tick
@@ -469,5 +498,10 @@ pub fn bench(spec: &FarmSpec, lanes: &LaneOpts, o: &BenchOpts) -> Result<BenchRe
     rep.mean_margin = if margins.is_empty() { 0.0 } else { margins.iter().sum::<i64>() as f64 / margins.len() as f64 };
     rep.min_margin = margins.iter().copied().min().unwrap_or(0);
     rep.errors = run.world.errors.clone();
+    if let (Some(mut tl), Some(dir)) = (tl, &o.timeline) {
+        tl.finish();
+        let (html, _) = crate::timeline::write(&tl, dir, "hold-bench", 0, stepped).map_err(|e| e.to_string())?;
+        rep.timeline = Some((html.display().to_string(), tl.summary(0, stepped)));
+    }
     Ok(rep)
 }

@@ -89,10 +89,12 @@ designs/briefs/farm-iron-carousel.md): `10.6` (a villager outside the summoning 
 spawn: the batch's late arrivals are told apart with the rest of the run, a leaving batch is not),
 `follow-box` (a live golem in the follow box of a villager outside its summoning batch, the arriving
 batch included: the villager's box inflated by its follow range, any tick, whatever the sensors'
-phase), `follow` (a golem sensor's actual sighting away from the station), `arrival` (a spawning
-batch member that reached the station less than 39 gt before the slot and did not arrive
-panicking; every spawn's margins are a `margin of` line), `16` (awake in REST within 16 of its home
-bed while the bed is OCCUPIED, or a HOME erased that way in the tick the bed fills), `1200` (CANT_REACH older than 1200 gt in REST with a HOME; noted
+phase), `follow` (a golem sensor's actual sighting away from the station), `arrival` (at a slot, a
+member of the batch at or coming into the station that entered the station region less than 39 gt
+before the slot and did not arrive panicking; every slot's batch margin, the smallest of its
+members', is a `margin at the slot` line, and the summary's min and mean), `16` (awake in REST within
+16 of its home bed while the bed is OCCUPIED, or a HOME erased that way in the tick the bed fills),
+`1200` (CANT_REACH older than 1200 gt in REST with a HOME; noted
 whether the HOME went), `home` (no HOME at a dawn or midday), `sleep` (not exactly one sleep since
 the last dawn) and `gossip` (a summon off the 100 gt grid). A part bench that is not a mob farm run
 (the counter's) writes its own trace in the dump's format and draws it with `mctas mobfarm timeline
@@ -111,6 +113,10 @@ driver does more than `mobfarm run` (ironfarm's hold bench toggling its lanes' c
 the villager lanes and checks by calling `mobfarm::timeline::Timeline::start(title, &spec, &run,
 seed, offset, &tags, ticks)` on its `Run`, `step(&mut run.world, k)` after each tick, `finish()`
 and `mobfarm::timeline::write(&tl, dir, stem, 0, ticks)`; its control blocks can be `signal` tags.
+`mctas mobfarm hold-bench <design> --from S --to S --timeline DIR` does so for the release + hold
+part: the first seed's `hold-bench-seed<S>.timeline.html`, the stand zone as `station`, the holds as
+`hold`, each lane's hold-end control as `line0`..`line6` (its arrival margins are the bench's own,
+slot for slot).
 The judge's speed, results unchanged: `mctas farmopt bench <spec> --n 16 --quick 8 [--full N]
 --threads 16 --out <file>` evaluates N candidates spread evenly over the spec's space level by
 level (static, quick for the first `--quick` passing static, full for the first `--full` passing

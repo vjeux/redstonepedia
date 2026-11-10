@@ -259,6 +259,8 @@ pub struct Timeline {
     source: Option<String>,
     /// The bridge recording it was read from (`--recording`), none for a run.
     recording: Option<String>,
+    /// Each slot's batch arrival margin (the smallest of its members'), with a station region.
+    margins: Vec<(u32, i64)>,
 }
 
 /// A check resolved once the run is over.
@@ -270,9 +272,11 @@ enum Pending {
 }
 
 /// A block state's short value for a lane: its power level, and its true flags (lit, powered,
-/// open, triggered, occupied), else "off".
+/// open, triggered, occupied), else "off"; a block with no state its name (a control cell's
+/// redstone block or glass).
 fn signal_value(state: &str) -> String {
-    let props = state.split_once('[').map(|(_, p)| p.trim_end_matches(']')).unwrap_or("");
+    let Some((_, props)) = state.split_once('[') else { return state.trim_start_matches("minecraft:").to_string() };
+    let props = props.trim_end_matches(']');
     let mut out: Vec<String> = Vec::new();
     for kv in props.split(',') {
         let Some((k, v)) = kv.split_once('=') else { continue };
@@ -482,7 +486,7 @@ impl Timeline {
         let nv = villagers.len();
         // (the first dawn closes a whole night only when the run began before that night's dusk)
         let whole_night = day0.rem_euclid(24000) < 12000;
-        let mut tl = Timeline { title: title.to_string(), seed, t0, day0, ticks, offset, regions, villagers, carts, beds, signals, golems: Vec::new(), slots: Vec::new(), flags: Vec::new(), lines: Vec::new(), pending: Vec::new(), counts: Vec::new(), exposed: HashMap::new(), night_sleeps: vec![0; nv], whole_night, marks: Vec::new(), source: None, recording: None };
+        let mut tl = Timeline { title: title.to_string(), seed, t0, day0, ticks, offset, regions, villagers, carts, beds, signals, golems: Vec::new(), slots: Vec::new(), flags: Vec::new(), lines: Vec::new(), pending: Vec::new(), counts: Vec::new(), exposed: HashMap::new(), night_sleeps: vec![0; nv], whole_night, marks: Vec::new(), source: None, recording: None, margins: Vec::new() };
         tl.sample(w, 0, Vec::new());
         Ok(tl)
     }
@@ -492,10 +496,11 @@ impl Timeline {
     pub fn step(&mut self, w: &mut World, k: u32) -> Result<()> {
         let events = std::mem::take(&mut w.mob.events);
         w.weather.events.clear();
+        // (sampled first: a bench that goes on past a model error keeps every tick)
+        self.sample(w, k, events);
         if let Some(e) = w.errors.first() {
             bail!("gt {}: the world went wrong: {e}", w.time);
         }
-        self.sample(w, k, events);
         Ok(())
     }
 }
@@ -531,6 +536,7 @@ impl Timeline {
             marks: Vec::new(),
             source: Some(path.to_string()),
             recording: None,
+            margins: Vec::new(),
         };
         let mut t0: Option<i64> = None;
         let mut last = 0u32;
@@ -673,6 +679,7 @@ impl Timeline {
             marks: Vec::new(),
             source: None,
             recording: Some(path.to_string()),
+            margins: Vec::new(),
         };
         let mut blocks: HashMap<BlockPos, String> = HashMap::new();
         let mut golem_at: Vec<(u32, Vec3)> = Vec::new();
@@ -1338,23 +1345,33 @@ impl Timeline {
         (here, false)
     }
 
-    /// The tick villager `vi` reached the station for the visit holding slot `k` (a cart's one- or
-    /// two-tick jitter at the station does not count as leaving it), if it was at the station or
-    /// travelling into it at `k`.
+    /// Whether villager `vi`'s feet are in a station region after tick `k`.
+    fn in_station_at(&self, vi: usize, k: u32) -> bool {
+        let p = &self.villagers[vi].pos;
+        p.partition_point(|(kk, _)| *kk <= k).checked_sub(1).is_some_and(|i| self.in_station(p[i].1))
+    }
+
+    /// Whether a position (hundredths, world coordinates) is in a station region.
+    fn in_station(&self, q: [i32; 3]) -> bool {
+        let c = [q[0].div_euclid(100), q[1].div_euclid(100), q[2].div_euclid(100)];
+        self.regions.iter().any(|(n, lo, hi)| n.starts_with("station") && (0..3).all(|a| c[a] >= lo[a] && c[a] <= hi[a]))
+    }
+
+    /// The tick villager `vi` reached the station for the visit holding slot `k`: the first tick of
+    /// its feet's stay in the station region around `k` (moving or not: the zombie's sight there
+    /// does not wait for the cart to stop; ironfarm's hold bench counts the same), or, still
+    /// outside at `k`, the first tick it comes in after.
     fn arrival(&self, vi: usize, k: u32) -> Option<u32> {
-        let c = &self.villagers[vi].class.v;
-        let i = c.partition_point(|(kk, _)| *kk <= k).checked_sub(1)?;
-        if c[i].1.starts_with("station") {
+        let p = &self.villagers[vi].pos;
+        let i = p.partition_point(|(kk, _)| *kk <= k).checked_sub(1)?;
+        if self.in_station(p[i].1) {
             let mut j = i;
-            while j >= 2 && c[j - 1].1 == "travelling" && c[j].0 - c[j - 1].0 <= 2 && c[j - 2].1.starts_with("station") {
-                j -= 2;
+            while j > 0 && self.in_station(p[j - 1].1) {
+                j -= 1;
             }
-            return Some(c[j].0);
+            return Some(p[j].0);
         }
-        if c[i].1 == "travelling" {
-            return c.get(i + 1).filter(|(_, x)| x.starts_with("station")).map(|(kk, _)| *kk);
-        }
-        None
+        p[i + 1..].iter().find(|(_, q)| self.in_station(*q)).map(|(kk, _)| *kk)
     }
 
     /// Resolve the checks that needed the rest of the run, and order the flags and lines (the end
@@ -1362,14 +1379,34 @@ impl Timeline {
     pub fn finish(&mut self) {
         // the arrival margins (the brief's timing diagram: a batch reaches the station at least 39
         // gt before its slot, for the panic onset; none needed by a villager that arrives already
-        // panicking)
+        // panicking), at every slot, golem or not (a bench without a pad has its margins too): the
+        // batch is every villager at the station or travelling into it at the slot; its margin the
+        // smallest of its members'
         if self.has_station() {
-            for gi in 0..self.golems.len() {
-                let (k, label, by, batch) = (self.golems[gi].t, self.golems[gi].label.clone(), self.golems[gi].by.clone(), self.golems[gi].batch.clone());
+            let mut k = ((100 - self.t0.rem_euclid(100)) % 100) as u32;
+            // (each arrival counted once: a late member at the slot it was late for)
+            let mut counted: std::collections::HashSet<(usize, u32)> = std::collections::HashSet::new();
+            // (the slots before the run's last tick: a bench's driver stops its rotation there)
+            while k < self.ticks {
                 let mut parts: Vec<String> = Vec::new();
                 let mut short: Vec<String> = Vec::new();
-                for &vi in &batch {
+                let mut worst: Option<i64> = None;
+                // the batch: every villager in the station region at the slot, and its late members
+                // (coming in before the next slot while the rest of the batch is there); counted
+                // at the first slot after its arrival only (a batch waiting through slots whose
+                // summons failed had its margin at the first), and neither a villager placed there
+                // when the run began nor one asleep there
+                let fresh = |vi: usize| -> bool {
+                    let asleep = self.villagers[vi].sleep.window(k, k).first().is_some_and(|(_, s)| *s);
+                    !asleep && self.arrival(vi, k).is_some_and(|a| a > 0 && (k as i64 - a as i64) < 100 && (a as i64 - k as i64) < 100)
+                };
+                let here: Vec<usize> = (0..self.villagers.len()).filter(|&vi| self.in_station_at(vi, k)).collect();
+                let late: Vec<usize> = if here.is_empty() { Vec::new() } else { (0..self.villagers.len()).filter(|&vi| !here.contains(&vi) && self.role(vi, k).1 && self.arrival(vi, k).is_some_and(|a| a > k)).collect() };
+                for vi in here.into_iter().chain(late).filter(|&vi| fresh(vi)) {
                     let Some(a) = self.arrival(vi, k) else { continue };
+                    if !counted.insert((vi, a)) {
+                        continue;
+                    }
                     let m = k as i64 - a as i64;
                     let panicking = a > 0 && self.villagers[vi].panic.window(a - 1, a - 1).first().is_some_and(|(_, p)| *p);
                     let l = self.villagers[vi].label.clone();
@@ -1377,14 +1414,17 @@ impl Timeline {
                     if m < 39 && !panicking {
                         short.push(format!("{l} {m:+}"));
                     }
+                    worst = Some(worst.map_or(m, |w| w.min(m)));
                 }
-                if parts.is_empty() {
-                    continue;
+                if let Some(wm) = worst {
+                    self.margins.push((k, wm));
+                    self.line(k, format!("margin at the slot {wm:+} (gt from each batch member's arrival at the station: {})", parts.join(", ")));
+                    if !short.is_empty() {
+                        let lane = short[0].split(' ').next().unwrap_or("").to_string();
+                        self.flag(k, "arrival", &lane, format!("{} reached the station less than 39 gt before the slot (the panic onset)", short.join(", ")));
+                    }
                 }
-                self.line(k, format!("margin of {label}'s batch (gt from its arrival at the station to the slot): {}", parts.join(", ")));
-                if !short.is_empty() {
-                    self.flag(k, "arrival", &by, format!("{label}'s batch: {} reached the station less than 39 gt before the slot (the panic onset)", short.join(", ")));
-                }
+                k += 100;
             }
         }
         for p in std::mem::take(&mut self.pending) {
@@ -1486,10 +1526,12 @@ impl Timeline {
         let v: Vec<String> = by.iter().map(|(r, n)| format!("{r} x{n}")).collect();
         let golems = self.golems.iter().filter(|g| g.t >= from && g.t <= to).count();
         let n = |what: &str| self.counts.iter().filter(|(k, c)| *k >= from && *k <= to && *c == what).count();
+        let ms: Vec<i64> = self.margins.iter().filter(|(k, _)| *k >= from && *k <= to).map(|(_, m)| *m).collect();
+        let margin = if ms.is_empty() { String::new() } else { format!("; arrival margin min {} mean {:.1} over {} slots", ms.iter().min().unwrap(), ms.iter().sum::<i64>() as f64 / ms.len() as f64, ms.len()) };
         if self.recording.is_some() {
             // (a recording shows no tries without a spot, and its sightings are fresh locks in ticks without a spawn)
             return format!(
-                "{} slots with summoners: {spawned} spawned, {} without a golem; violations: {}; the recording's counts: {golems} golems, {} sensor locks, {} sleeps, {} HOME losses",
+                "{} slots with summoners: {spawned} spawned, {} without a golem; violations: {}; the recording's counts: {golems} golems, {} sensor locks, {} sleeps, {} HOME losses{margin}",
                 slots.len(),
                 slots.len() - spawned,
                 if v.is_empty() { "none".to_string() } else { v.join(", ") },
@@ -1499,7 +1541,7 @@ impl Timeline {
             );
         }
         format!(
-            "{} slots with summoners: {spawned} spawned, {tried} tried without a spot, {none} without a try; violations: {}; the judge's counters: {golems} golems, {} tries without a spot, {} sightings, {} sleeps, {} POI releases",
+            "{} slots with summoners: {spawned} spawned, {tried} tried without a spot, {none} without a try; violations: {}; the judge's counters: {golems} golems, {} tries without a spot, {} sightings, {} sleeps, {} POI releases{margin}",
             slots.len(),
             if v.is_empty() { "none".to_string() } else { v.join(", ") },
             n("fail"),
@@ -1617,7 +1659,8 @@ mod tests {
         assert_eq!(signal_value("minecraft:redstone_wire[east=side,north=none,power=7,south=none,west=side]"), "p7");
         assert_eq!(signal_value("minecraft:copper_bulb[lit=true,powered=false]"), "lit");
         assert_eq!(signal_value("minecraft:tripwire_hook[attached=true,facing=east,powered=true]"), "powered");
-        assert_eq!(signal_value("minecraft:stone"), "off");
+        assert_eq!(signal_value("minecraft:stone"), "stone");
+        assert_eq!(signal_value("minecraft:redstone_wire[east=none,north=none,power=0,south=none,west=none]"), "p0");
     }
 
     #[test]
