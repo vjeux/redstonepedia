@@ -174,11 +174,20 @@ the timing diagram checks every coupling.
    backs off 40-79 gt, growing to 400). Invariants: every villager's HOME = the bed at every dawn and
    midday (the R1 claims kept); while the bed is occupied, every other villager is in PANIC or more
    than 16 from it; each villager's LAST_SLEPT advances exactly once a night. Contract: each visit fits
-   inside that villager's wait; the 21 visits fit inside the night. Bench: 21 villagers with R1
+   inside that villager's wait; the 21 visits fit inside the night. Each villager's consecutive naps
+   are less than 24,000 gt apart (the golem condition is gameTime − LAST_SLEPT < 24,000, strictly),
+   and the gap window [its last nap + 24,000, its next nap) never covers one of its batch's slots;
+   with 7 batches the batch at the station at a given day time shifts by 2 every day (240 slots a
+   day, 240 mod 7 = 2), so the nightly scheduler (a sub-part, owned by the day-1 lane) keeps each
+   villager's nap inside its wait and no later in the day than the night before; the bench reports
+   the worst interval per villager per night. Bench: 21 villagers with R1
    claims, 6 days on 100 seeds, the station and counter driven ideal, HOME, LAST_SLEPT and
    distances logged every tick. It waits on tick-exact's bed pieces (ValidateNearbyPoi's reach,
    SleepInBed's conditions, the wake delay, findStandUpPosition). Objectives: blocks, volume, the
    visit's length and its margin, build minutes.
+   3a. **The nightly scheduler** (day-1 lane): in, the night window and the counter's advance and
+   lines; out, one dispatch at a time naming (b, k), each of the 21 once a night, spaced for the
+   visit length, each visit ending before its batch's next release.
 4. **The station + portal pad.** In: a batch of 3 at the stand cells. Out: the batch panics (the
    zombie in sight, out of its melee reach) and summons at the slot; the golem lands on the trench
    pad and leaves through the portal in 1-2 gt; a golem-spawn pulse for the counter; the Nether
