@@ -763,6 +763,13 @@ impl Circuit {
                 "door" => {}
                 // a bedrock breaker's target, swap piston and player cell (crate::bedrock)
                 "bedrock" | "swap" | "press" => {}
+                // (tickexact 2026-11-09) a mob farm's shared bed: every villager holds HOME = this
+                // bed head (the R1 double claim's state, loaded as a memory: studies::mobfarm::spec_of)
+                "home" => {
+                    if !design.blocks.get(pos).is_some_and(|s| s.contains("_bed[") && s.contains("part=head")) {
+                        bail!("port {name}: a shared HOME is a bed's head, the design has {:?} at {pos:?}", design.blocks.get(pos).map(|s| s.as_str()).unwrap_or("air"));
+                    }
+                }
                 "items" | "boxes" | "reject" | "pass" | "feed" | "fuel" | "crop" | "bottles" | "wart" | "sugar" => {
                     // a smelter's input and fuel chests may stand where the design has a cover (a
                     // full block on its first line hopper, there for the copies after it: the

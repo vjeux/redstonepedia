@@ -10,6 +10,7 @@ bed-observer.rec	0788e408cae41642		26.3	uncommitted	recorded before manifests: s
 bed-panic.rec	1c9f38eb41aa7b28		26.3	2026-11-10T06:52Z on 38f8d65e4	mctas mobai record bed-panic --seed 1 --ticks 6000 --dir designs/redsim/recorded/mobai
 bed-r1.rec	c2199fa6955a6c94		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 bed-retake.rec	07e5f7c3f65e781e		26.3	2026-11-10T07:11Z on 0609ee3f7	mctas mobai record bed-retake --seed 1 --ticks 24500 --dir designs/redsim/recorded/mobai
+bed-shared.rec	dab056dfa27a591c		26.3	2026-11-10T07:21Z on a5d224f10	mctas mobai record bed-shared --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
 cart-train.rec	17ec81151bf10b6f		26.3	2026-11-10T07:00Z on d811d6f2a	mctas mobai record cart-train --seed 1 --ticks 1400 --dir designs/redsim/recorded/mobai
 chicken-jockey-flag.rec	8fa3fe767611d11e		26.3	2026-11-09T09:18Z on 05e0d74842	mctas mobai record chicken-jockey-flag --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
 creeper-player.rec	1a9cdc8984c37345		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record creeper-player --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai

@@ -570,6 +570,20 @@ fn split_compounds(list: &str) -> Vec<String> {
     out
 }
 
+/// (tickexact 2026-11-09) An entity's SNBT moved by `d` blocks: a loaded HOME memory's position
+/// (`"minecraft:home":{value:{...,pos:[I;x,y,z]}}`, a design's `port home`) moves with it.
+pub fn shift_home_nbt(nbt: &Option<String>, d: [i32; 3]) -> Option<String> {
+    let n = nbt.as_ref()?;
+    let Some(h) = n.find("\"minecraft:home\"") else { return Some(n.clone()) };
+    let Some(p) = n[h..].find("pos:[I;").map(|q| h + q + "pos:[I;".len()) else { return Some(n.clone()) };
+    let Some(e) = n[p..].find(']').map(|q| p + q) else { return Some(n.clone()) };
+    let v: Vec<i32> = n[p..e].split(',').filter_map(|x| x.trim().parse().ok()).collect();
+    if v.len() != 3 {
+        return Some(n.clone());
+    }
+    Some(format!("{}{},{},{}{}", &n[..p], v[0] + d[0], v[1] + d[1], v[2] + d[2], &n[e..]))
+}
+
 /// `summon <mob> x y z [nbt]` (the entity core's spawn hook): `Some` for a modeled mob type, else
 /// `None` (the caller goes on). NBT is refused except `PersistenceRequired` and `Rotation` (the
 /// yaw; a design turned by the judge carries one). The mob's own random and its follow-range bonus
@@ -587,8 +601,56 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
     let mut chicken_jockey = false;
     let mut egg_lay_time: Option<i32> = None;
     let mut yaw = None;
+    // (tickexact 2026-11-09, ironspec's one-bed carousel) a villager's loaded memories: HOME (a
+    // GlobalPos: the R1 double claim's shared bed, set for many villagers by the design file) and
+    // LAST_SLEPT; `Villager.readAdditionalSaveData` builds its brain from them (no POI ticket taken)
+    let mut home: Option<crate::pos::BlockPos> = None;
+    let mut last_slept: Option<i64> = None;
     if let Some(n) = nbt {
         let mut t = n.trim().to_string();
+        if let Some(s) = t.find("Brain:{") {
+            // the compound to its matching brace
+            let mut depth = 0;
+            let mut end = None;
+            for (k, c) in t[s..].char_indices() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = Some(s + k);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let Some(e) = end else { return Some(Err(format!("entity {type_id}: unclosed Brain in {n}"))) };
+            let brain = t[s..=e].to_string();
+            if ty.def().id != "villager" {
+                return Some(Err(format!("entity {type_id}: loaded Brain memories are modeled for villagers only")));
+            }
+            let mut known = 0;
+            if let Some(h) = brain.find("\"minecraft:home\"") {
+                let p = brain[h..].find("pos:[I;").map(|q| h + q + "pos:[I;".len());
+                let v: Vec<i32> = p.and_then(|p| brain[p..].split(']').next()).map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
+                if v.len() != 3 || !brain[h..].contains("minecraft:overworld") {
+                    return Some(Err(format!("entity {type_id}: a HOME memory needs {{value:{{dimension:\"minecraft:overworld\",pos:[I;x,y,z]}}}}: {brain}")));
+                }
+                home = Some(crate::pos::BlockPos::new(v[0], v[1], v[2]));
+                known += 1;
+            }
+            if let Some(h) = brain.find("\"minecraft:last_slept\"") {
+                let v = brain[h..].find("value:").and_then(|q| brain[h + q + 6..].split(['}', ',']).next()).and_then(|s| s.trim().trim_end_matches(['L', 'l']).parse::<i64>().ok());
+                let Some(v) = v else { return Some(Err(format!("entity {type_id}: a LAST_SLEPT memory needs {{value:<game time>L}}: {brain}"))) };
+                last_slept = Some(v);
+                known += 1;
+            }
+            if brain.matches("\":{value:").count() != known {
+                return Some(Err(format!("entity {type_id}: only HOME and LAST_SLEPT memories are modeled when loaded: {brain}")));
+            }
+            t = format!("{}{}", &t[..s], &t[e + 1..]);
+        }
         if let Some(s) = t.find("Rotation:[") {
             let Some(e) = t[s..].find(']').map(|e| s + e) else { return Some(Err(format!("entity {type_id}: unclosed Rotation in {n}"))) };
             let first = t[s + "Rotation:[".len()..e].split(',').next().unwrap_or("").trim().trim_end_matches(['f', 'F', 'd', 'D']).to_string();
@@ -657,6 +719,33 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
         && let Some(j) = crate::entity::index_of(w, id)
     {
         w.entities.list[j].portal_cooldown = c;
+    }
+    if (home.is_some() || last_slept.is_some())
+        && let Some(j) = crate::entity::index_of(w, id)
+    {
+        // a loaded Brain builds the live brain again (`makeBrain(data)`): its 9 sensors draw their
+        // start delays once more from the villager's own random (tickexact 2026-11-09, bed-shared:
+        // the game's 9 more draws)
+        let mut delays = [0i64; 9];
+        if let Some(r) = w.entities.list[j].random.as_mut() {
+            for (k, (_, rate)) in crate::entity::mob::villager::SENSORS.iter().enumerate() {
+                delays[k] = r.next_int(*rate as i32) as i64;
+            }
+        }
+        let fresh = w.entities.list[j].random.is_some();
+        if let EntityKind::Mob(m) = &mut w.entities.list[j].kind
+            && let Some(b) = m.brain.as_deref_mut()
+        {
+            if fresh {
+                b.sensors = delays;
+            }
+            if home.is_some() {
+                b.home = home;
+            }
+            if last_slept.is_some() {
+                b.last_slept = last_slept;
+            }
+        }
     }
     if let Some(j) = crate::entity::index_of(w, id)
         && let EntityKind::Mob(m) = &mut w.entities.list[j].kind

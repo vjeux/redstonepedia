@@ -754,7 +754,29 @@ fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, 
         let cmd = match (k, nbt.as_deref()) {
             ("villager", _) => {
                 villager_spots.push(*pos);
-                format!("summon minecraft:villager {x} {y} {z} {{PersistenceRequired:1b,Tags:[\"mf\"],Brain:{{memories:{{\"minecraft:last_slept\":{{value:{slept}L}}}}}}}}")
+                // (tickexact 2026-11-09) the design's shared HOME (`port home`, moved with the
+                // farm into the entity's data by the spec), its memory beside LAST_SLEPT
+                let home = nbt.as_deref().and_then(|n| {
+                    let h = n.find("\"minecraft:home\"")?;
+                    let mut depth = 0;
+                    let mut end = None;
+                    for (k, c) in n[h..].char_indices() {
+                        match c {
+                            '{' => depth += 1,
+                            '}' => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    end = Some(h + k);
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    end.map(|e| format!(",{}", &n[h..=e]))
+                });
+                let home = home.unwrap_or_default();
+                format!("summon minecraft:villager {x} {y} {z} {{PersistenceRequired:1b,Tags:[\"mf\"],Brain:{{memories:{{\"minecraft:last_slept\":{{value:{slept}L}}{home}}}}}}}")
             }
             (_, Some(n)) => format!("summon minecraft:{k} {x} {y} {z} {}", with_tag(n, "mf")),
             (_, None) => format!("summon minecraft:{k} {x} {y} {z} {{Tags:[\"mf\"]}}"),

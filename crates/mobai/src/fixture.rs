@@ -480,6 +480,27 @@ fn scenes_raw() -> Vec<Scene> {
             b.push(([x, 64, 20], "minecraft:red_bed[facing=south,occupied=false,part=foot]".to_string()));
             b.push(([x, 64, 21], "minecraft:red_bed[facing=south,occupied=false,part=head]".to_string()));
         }
+        // (tickexact 2026-11-09, ironspec's one-bed carousel) the R1 state from a design file:
+        // three villagers summoned with HOME = the one bed in their data (`Brain:{memories:
+        // {"minecraft:home":...}}`, no ticket taken), free on the floor at dusk: at REST each walks
+        // to the bed; the first lies down; the others, awake within 16 of their OCCUPIED bed,
+        // drop their HOME (ValidateNearbyPoi; not released while a villager sleeps in it)
+        let mut sb = b.clone();
+        sb.retain(|(p, _)| !(p[1] == 64 && p[2] >= 20 && p[2] <= 21 && (p[0] == 28 || p[0] == 34)));
+        let home = |x: f64| ("minecraft:villager".to_string(), [x, 64.0, 10.5], Some("{PersistenceRequired:1b,Brain:{memories:{\"minecraft:home\":{value:{dimension:\"minecraft:overworld\",pos:[I;31,64,21]}}}}}".to_string()));
+        v.push(Scene {
+            name: "bed-shared".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: sb,
+            mobs: vec![home(10.5), home(12.5), home(14.5)],
+            day_time: 11000,
+            difficulty: Difficulty::Easy,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 3,
+        });
         v.push(Scene {
             name: "villager-beds".into(),
             chunks: [0, 0, 2, 2],

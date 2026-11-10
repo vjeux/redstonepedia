@@ -683,7 +683,24 @@ pub fn spec_of(c: &Circuit) -> std::result::Result<FarmSpec, String> {
         blocks.push((bp(q), Block::parse(&s).map_err(|e| format!("not modeled by redsim: {e}"))?));
     }
     blocks.sort_by_key(|(q, _)| [q.x, q.y, q.z]);
-    let entities = d.entities.iter().map(|e| (e.kind.clone(), e.pos, e.nbt.clone())).collect();
+    // (tickexact 2026-11-09, ironspec's one-bed carousel) `port home: x y z`: every villager holds
+    // HOME = that bed (the R1 double claim's shared bed, turned and moved with the design), loaded
+    // as a memory (`Brain:{memories:{"minecraft:home":...}}`: no POI ticket taken, as the game loads it)
+    let home = d.ports.get("home").map(|h| format!("Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}", h[0], h[1], h[2]));
+    let mut entities = Vec::new();
+    for e in &d.entities {
+        let mut nbt = e.nbt.clone();
+        if let Some(h) = &home
+            && e.kind.trim_start_matches("minecraft:") == "villager"
+        {
+            nbt = Some(match nbt.as_deref().map(str::trim) {
+                Some(n) if n.contains("Brain:") => return Err(format!("a villager with its own Brain data and `port home`: {n}")),
+                Some(n) if n.len() > 2 => format!("{},{h}}}", n.strip_suffix('}').unwrap_or(n)),
+                _ => format!("{{{h}}}"),
+            });
+        }
+        entities.push((e.kind.clone(), e.pos, nbt));
+    }
     let block_entities = d.block_entities.iter().map(|(p, s)| (bp(*p), s.clone())).collect();
     Ok(FarmSpec { blocks, entities, output: bp(out), lo: bp(from), hi: bp(to), block_entities, rock: d.meta.get("terrain").map(|t| t.trim()) == Some("rock") })
 }

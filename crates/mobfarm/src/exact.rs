@@ -876,18 +876,26 @@ impl GameFarm {
         if game_ids != ours_ids {
             eprintln!("note: the design's entities entered the game as {game_ids:?}, redsim as {ours_ids:?} (the worlds already differ)");
         }
+        // (tickexact 2026-11-09) the HOMEs the entities loaded from their own data (a design's
+        // `port home`): the game loaded them too, with no POI ticket taken
+        let loaded: Vec<String> = specs.iter().filter_map(|s| s["nbt"].as_str()).filter(|n| n.contains("\"minecraft:home\"")).map(|n| n.to_string()).collect();
+        let loaded_home = |h: redsim::BlockPos| loaded.iter().any(|n| n.contains(&format!("pos:[I;{},{},{}]", h.x, h.y, h.z)));
         for (e, gid) in ours.entities.list[first_mob..].iter().zip(game_ids.iter()) {
             if let EntityKind::Mob(m) = &e.kind
                 && let Some(b) = m.brain.as_deref()
             {
                 let mut mem = serde_json::Map::new();
-                if let Some(h) = b.home {
+                let mut take = false;
+                if let Some(h) = b.home
+                    && !loaded_home(h)
+                {
                     mem.insert("home".into(), json!([h.x, h.y, h.z]));
+                    take = true;
                 }
                 if let Some(t) = b.last_slept {
                     mem.insert("last_slept".into(), json!(t));
                 }
-                self.w.call(json!({"op": "memory", "sandbox": self.sb, "entity": gid, "memories": mem, "take_poi": true}))?;
+                self.w.call(json!({"op": "memory", "sandbox": self.sb, "entity": gid, "memories": mem, "take_poi": take}))?;
             }
         }
         Ok(())

@@ -904,6 +904,18 @@ final class Sandbox {
         tag.putIntArray("block_pos", new int[] {(int) Math.floor(x), (int) Math.floor(y), (int) Math.floor(z)});
     }
 
+    /**
+     * (tickexact 2026-11-09, ironspec's one-bed carousel) A summon's data as this sandbox reads
+     * it: a GlobalPos memory (a villager's HOME from a design file, the R1 shared bed) names the
+     * overworld, the level a farm is built in; a sandbox stands for it under its own key, so the
+     * memory gets that key (SleepInBed, ValidateNearbyPoi and SetWalkTargetFromBlockMemory compare
+     * the memory's dimension with the level's: the overworld's key here released the HOME at the
+     * first REST tick).
+     */
+    String inSandbox(String snbt) {
+        return snbt.replace("dimension:\"minecraft:overworld\"", "dimension:\"" + this.level.dimension().identifier() + "\"");
+    }
+
     List<Entity> summon(com.google.gson.JsonArray specs) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
         return summon(specs, false);
     }
@@ -941,7 +953,7 @@ final class Sandbox {
             double y = p.get(1).getAsDouble();
             double z = p.get(2).getAsDouble();
             net.minecraft.nbt.CompoundTag tag = s.has("nbt") && !s.get("nbt").isJsonNull()
-                    ? net.minecraft.nbt.TagParser.parseCompoundFully(s.get("nbt").getAsString())
+                    ? net.minecraft.nbt.TagParser.parseCompoundFully(inSandbox(s.get("nbt").getAsString()))
                     : new net.minecraft.nbt.CompoundTag();
             tag.putString("id", type);
             attachAt(tag, type, x, y, z);
@@ -1004,7 +1016,7 @@ final class Sandbox {
         net.minecraft.nbt.CompoundTag tag;
         try {
             tag = s.has("nbt") && !s.get("nbt").isJsonNull()
-                    ? net.minecraft.nbt.TagParser.parseCompoundFully(s.get("nbt").getAsString())
+                    ? net.minecraft.nbt.TagParser.parseCompoundFully(inSandbox(s.get("nbt").getAsString()))
                     : new net.minecraft.nbt.CompoundTag();
         } catch (com.mojang.brigadier.exceptions.CommandSyntaxException ex) {
             throw new IllegalArgumentException("bad nbt for " + type + ": " + ex.getMessage());

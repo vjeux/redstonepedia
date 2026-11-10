@@ -472,6 +472,7 @@ fn covers_with(world: &World, spec: &FarmSpec, offset: [i32; 3], clear_box: bool
     // open, or every trapdoor shut (a hide shows or hides the zombie either way), and their
     // searches' starts
     for (k, p, n) in &spec.entities {
+        let n = super::shift_home_nbt(n, offset);
         let _ = crate::entity::spawn(&mut w, k, [p[0] + offset[0] as f64, p[1] + offset[1] as f64, p[2] + offset[2] as f64], n.as_deref());
     }
     let starts = if all { summoner_starts(&w) } else { panicking(&w, &moved) };
@@ -811,7 +812,7 @@ impl Site {
         let at = |p: BlockPos| BlockPos::new(p.x + ox, p.y + oy, p.z + oz);
         FarmSpec {
             blocks: spec.blocks.iter().map(|(p, b)| (at(*p), *b)).collect(),
-            entities: spec.entities.iter().map(|(k, p, n)| (k.clone(), [p[0] + ox as f64, p[1] + oy as f64, p[2] + oz as f64], n.clone())).collect(),
+            entities: spec.entities.iter().map(|(k, p, n)| (k.clone(), [p[0] + ox as f64, p[1] + oy as f64, p[2] + oz as f64], super::shift_home_nbt(n, [ox, oy, oz]))).collect(),
             output: at(spec.output),
             lo: at(spec.lo),
             hi: at(spec.hi),

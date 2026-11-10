@@ -396,6 +396,20 @@ impl Run {
         let villagers: Vec<usize> = (0..w.entities.list.len()).filter(|&i| own.contains(&w.entities.list[i].id) && matches!(&w.entities.list[i].kind, EntityKind::Mob(m) if m.ty == MobType::Villager)).collect();
         let mut taken: Vec<BlockPos> = Vec::new();
         for i in villagers {
+            // (tickexact 2026-11-09) a villager loaded with its HOME (the design's R1 shared bed,
+            // `Brain:{memories:{"minecraft:home":...}}`) keeps it: no bed search, no ticket (as
+            // the game loads it)
+            let loaded_home = matches!(&w.entities.list[i].kind, EntityKind::Mob(m) if m.brain.as_deref().is_some_and(|b| b.home.is_some()));
+            if loaded_home {
+                if let EntityKind::Mob(m) = &mut w.entities.list[i].kind
+                    && let Some(b) = m.brain.as_deref_mut()
+                    && self.o.slept
+                    && b.last_slept.is_none()
+                {
+                    b.last_slept = Some(slept);
+                }
+                continue;
+            }
             let feet = w.entities.list[i].pos;
             let cell = w.entities.list[i].block_position();
             let heads = super::blocks::bed_heads(w, cell.offset(-3, -2, -3), cell.offset(3, 2, 3));

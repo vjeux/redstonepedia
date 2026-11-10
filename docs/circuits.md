@@ -1238,7 +1238,11 @@ kick) before the first input.
   and confirmed in the real game: `circuit verify` (so `circuit archive`) runs every build in the
   26.3 server after the redsim judge passes (`crate::mobfarm_game`, `mctas mobfarm gate`). One
   `port output:` (the farm's single chest in the design, or an air cell where the judge puts one;
-  every archived farm holds its chest, so its download and its 3D view show it). The judge refuses what the mob layer does not model (static checks:
+  every archived farm holds its chest, so its download and its 3D view show it). An optional
+  `port home: x y z` (a bed's head) gives every villager HOME = that bed, the R1 double claim's
+  shared bed, as a loaded memory (`Brain:{memories:{"minecraft:home":...}}` in its summon data,
+  moved with the farm; no POI ticket taken, as the game loads it): redsim, the bridge (which maps
+  the overworld to its sandbox's dimension) and the real-game gate's summons all read it. The judge refuses what the mob layer does not model (static checks:
   job sites, a zombie that does not ride, villagers that can walk,
   gossip, climbable blocks...), floods every position a golem can stand on from every spawn spot
   (with its edge spots: box sides 0.0005 inside or outside block boundaries, where a current can
