@@ -139,8 +139,8 @@ slots per step, bench-driven controls, day-1's times):
   **the late corner fails**: its smallest failing sets are {advance 1 +3 gt late and +4 wide,
   advance 2 +2 wide, advance 3 +3 wide} and {advance 2 +2 wide, advance 3 +3 wide, S1-S3 late}.
   Shifted together: the 3 advance widths pass -1..+2 (not their one-at-a-time -3..+4), the 3
-  advance times pass -2..+2, S1-S3 pass +3 but not -3 or +6. day-1's pulses are exact redstone,
-  10 gt each; these joint numbers are the margins to quote.
+  advance times pass -2..+2, S1-S3 pass -2..+3 (-3 and +4 fail). day-1's pulses are exact
+  redstone, 10 gt each; these joint numbers are the margins to quote.
 
 ## The bed siding's merge: the side drop (day-1's (b))
 
