@@ -783,6 +783,44 @@ fn drive_each(c: &Clock, extra: &[(u32, Action)], ticks: u32, from: Pos, to: Pos
     Ok(None)
 }
 
+/// A live run for long benches (the carousel counter's 100,000-pulse bench, day-1 lane
+/// 2026-11-10): the build started as [`drive_seeded`] starts it (no level random), `extra`
+/// applied between ticks in order (walked by index: a bench brings hundreds of thousands of
+/// actions, which `between_ticks`' `remove(0)` walk would make quadratic), then `each(t, world)`
+/// (it reads its probes and may reload chunks: `redsim::reload`; false stops the run), then the
+/// tick. Nothing is recorded.
+pub fn drive_live(c: &Clock, extra: &[(u32, Action)], ticks: u32, from: Pos, to: Pos, mut each: impl FnMut(u32, &mut World) -> bool) -> Result<Option<(u32, String)>, (Verdict, String)> {
+    let mut blocks = parse_blocks(c).map_err(|e| (Verdict::Unmodeled, format!("not modeled by redsim: {e}")))?;
+    for (_, a) in extra {
+        if let Action::Place { state, .. } | Action::ShapeSet { state, .. } = a {
+            Block::parse(state).map_err(|e| (Verdict::Unmodeled, format!("not modeled by redsim: {e}")))?;
+        }
+    }
+    blocks.sort_by_key(|(p, _)| *p);
+    let mut s = start_box(c, &blocks, from, to)?;
+    let mut all: Vec<(u32, Action)> = std::mem::take(&mut s.actions);
+    all.extend(extra.iter().cloned());
+    all.sort_by_key(|(t, _)| *t);
+    let mut k = 0usize;
+    for t in 0..=ticks {
+        let first = k;
+        while k < all.len() && all[k].0 <= t {
+            k += 1;
+        }
+        s.actions = all[first..k].iter().map(|(_, a)| (t, a.clone())).collect();
+        if let Err((_, why)) = between_ticks(&mut s, t) {
+            return Ok(Some((t, why)));
+        }
+        if !each(t, &mut s.world) {
+            return Ok(Some((t, String::new())));
+        }
+        if t < ticks {
+            s.world.tick();
+        }
+    }
+    Ok(None)
+}
+
 /// Why a declared output cell is not where a builder can take the signal (vjeux / coordinator,
 /// 2026-10-20), or None: it must be AIR (only the judge's lamp lives there; `first` is its block at
 /// the start of the period: the entered check covers the rest of the cycle), on the swept box's

@@ -1,0 +1,110 @@
+# Carousel counter v5 (day-1 lane 2026-11-10): golem pulse and fallback torch enter the
+# monostable's bulb (stage 1 then merges every retrigger within ~28 gt). A rising-edge detector on
+# stage 1's output A1 (subtract comparator Y: rear A1, side A1 through repeaters Z and P, 8 gt)
+# gives ONE 8-gt pulse per burst; that pulse fires the ring (branch north to the loop) and refills
+# stage 2 (repeater r into I2, at 15), so the fallback countdown always starts from the burst's
+# first edge whatever later retriggers do. Ring: 2x7 droppers/hoppers, one stone, comparator taps
+# (even lanes north, odd lanes south), cycle 0-2-4-6-5-3-1.
+name: carousel-counter-v6
+port input: 6 3 -4
+port output.b0: -3 0 -10
+port output.b2: -1 0 -10
+port output.b4: 1 0 -10
+port output.b6: 3 0 -10
+port output.b1: -2 0 -5
+port output.b3: 0 0 -5
+port output.b5: 2 0 -5
+nbt: -3 0 -8 {Items:[{Slot:0b,id:"minecraft:stone",count:1}]}
+origin: -4 0 -10
+palette:
+  S minecraft:stone
+  G minecraft:glass
+  d minecraft:redstone_wire[east=side,north=side,power=0,south=side,west=side]
+  E minecraft:comparator[facing=east,mode=compare,powered=false]
+  Y minecraft:comparator[facing=south,mode=subtract,powered=false]
+  n minecraft:comparator[facing=north,mode=compare,powered=false]
+  w minecraft:comparator[facing=west,mode=compare,powered=false]
+  s minecraft:comparator[facing=south,mode=compare,powered=false]
+  r minecraft:repeater[delay=1,facing=west,locked=false,powered=false]
+  P minecraft:repeater[delay=4,facing=west,locked=false,powered=false]
+  Z minecraft:repeater[delay=1,facing=east,locked=false,powered=false]
+  O minecraft:observer[facing=east,powered=false]
+  U minecraft:observer[facing=up,powered=false]
+  b minecraft:waxed_copper_bulb[lit=false,powered=false]
+  t minecraft:redstone_torch[lit=true]
+  A minecraft:dropper[facing=east,triggered=false]
+  B minecraft:dropper[facing=south,triggered=false]
+  C minecraft:dropper[facing=west,triggered=false]
+  h minecraft:hopper[enabled=true,facing=east]
+  H minecraft:hopper[enabled=true,facing=west]
+  j minecraft:hopper[enabled=true,facing=north]
+layer -1:
+  .
+  .S.S.S.S
+  .
+  .
+  ..S.S.S
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+layer 0:
+  .
+  .s.s.s.s
+  .AhAhAhB
+  .jCHCHCH
+  ..n.nGn
+  .....G
+  .....S.SS
+  .....S.S.S
+  .....SS.S
+  ...SSS
+  ...SS.S.S
+  .....S.S
+  ......SS
+layer 1:
+  .
+  .
+  .ddddddd
+  .ddddddd
+  .....d
+  .....d
+  .....d.dES
+  .....d.d.s
+  .....drSwS
+  ...dPY
+  ...dZSESdS
+  .....n.d
+  .....Sdd
+layer 2:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ..........S
+  .........tS
+  ..........S
+  .......dOU
+  .
+  .
+layer 3:
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ..........d
+  .........Sd
+  ..........d
+  .........Eb
+  .
+  .

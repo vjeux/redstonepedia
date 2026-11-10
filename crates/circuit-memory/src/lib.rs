@@ -7,6 +7,7 @@
 
 pub mod items;
 pub mod ring;
+pub mod seqbench;
 pub mod specs;
 pub mod stamp;
 
@@ -66,6 +67,39 @@ enum Cmd {
     /// Run a design under this track's census spec for its kind (`circuit:` header) and print the
     /// output's rest state, change frames, samples and the spec's verdict (debugging the census).
     Check { design: PathBuf, #[arg(long, default_value_t = 40)] gap: u32 },
+    /// The carousel counter's bench (designs/briefs/farm-iron-carousel.md, part 1): golem pulses
+    /// on the 100-gt slot grid from a reactive farm (missed slots, early and late pulses), the 7
+    /// lines read every tick (one advance per pulse within --tc, the cycle order kept, the fallback
+    /// at 100 + m), then the same run with chunk reloads at random ticks, which must match it.
+    CounterBench {
+        design: PathBuf,
+        #[arg(long, default_value_t = 100_000)]
+        pulses: usize,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        #[arg(long, default_value_t = 20)]
+        restarts: usize,
+        /// Golem pulse lengths `MIN..MAX` (gt).
+        #[arg(long, default_value = "2..15")]
+        width: String,
+        #[arg(long, default_value_t = 5)]
+        jitter: u32,
+        #[arg(long, default_value_t = 0.05)]
+        miss: f64,
+        #[arg(long, default_value_t = 0.3)]
+        burst: f64,
+        #[arg(long, default_value_t = 40)]
+        ready: u32,
+        #[arg(long, default_value_t = 40)]
+        tc: u32,
+        /// The fallback's m `MIN..MAX` (gt past 100).
+        #[arg(long, default_value = "6..10")]
+        m: String,
+        #[arg(long)]
+        dump: Option<PathBuf>,
+        #[arg(long, default_value_t = 20_000)]
+        dump_ticks: u32,
+    },
     /// Stamp the tunable-group headers (`group:`, `group title:`, `group note:`) on counter
     /// designs by their name: bulb-chain, dropper-ring, ring-bulbs, ring-chain, ring-divider (the
     /// catalog shows each group as one card). The ring generator stamps its own designs.
@@ -117,6 +151,17 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::Items { n, out } => items::run(&n, &out)?,
         Cmd::Ring { n, max_dust, keep, bulbs, then, divider, unchecked, out } => ring::run(&n, max_dust, keep, bulbs, &then, divider, !unchecked, &out)?,
         Cmd::StampGroups { dry_run, files } => stamp::run(&files, dry_run)?,
+        Cmd::CounterBench { design, pulses, seed, restarts, width, jitter, miss, burst, ready, tc, m, dump, dump_ticks } => {
+            let range = |s: &str| -> Result<(i64, i64)> {
+                let (a, b) = s.split_once("..").ok_or_else(|| anyhow!("{s:?}: MIN..MAX"))?;
+                Ok((a.trim().parse()?, b.trim().parse()?))
+            };
+            let (w0, w1) = range(&width)?;
+            let o = seqbench::Opts { pulses, seed, restarts, width: (w0 as u32, w1 as u32), jitter, miss, burst, ready, tc, m: range(&m)?, dump, dump_ticks, ..Default::default() };
+            if !seqbench::bench(&design, &o)? {
+                bail!("the counter fails its bench");
+            }
+        }
         Cmd::Check { design, gap } => {
             let c = circuit_tff::model::Circuit::load(&design)?;
             let words: Vec<String> = std::iter::once(c.kind.clone()).chain(c.args.iter().cloned()).collect();
