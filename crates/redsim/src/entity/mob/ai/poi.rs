@@ -129,6 +129,27 @@ pub fn take(w: &mut World, p: BlockPos) {
     *ensure_tickets(w).entry((p.x, p.y, p.z)).or_insert(0) += 1;
 }
 
+/// (tickexact 2026-11-10, ironfarm's stranded napper) `PoiManager.take(acquirable, (type, pos) ->
+/// pos.equals(p), p, 1)` as AcquirePoi calls it: the record at `p`, when its kind is the
+/// selection's and it has a free ticket (homes and job sites hold 1, a meeting point 32), takes
+/// one; else nothing (the caller sets its memory anyway, as the game does).
+pub fn take_if_free(w: &mut World, sel: PoiSel, p: BlockPos) -> bool {
+    let Some(kind) = poi_of(&w.get(p)) else { return false };
+    let matches = match sel {
+        PoiSel::Home => kind == PoiKind::Home,
+        PoiSel::Meeting => kind == PoiKind::Meeting,
+        PoiSel::AcquirableJob => kind == PoiKind::Job,
+        PoiSel::HeldJob => false,
+    };
+    let max = if kind == PoiKind::Meeting { 32 } else { 1 };
+    let held = ensure_tickets(w).get(&(p.x, p.y, p.z)).copied().unwrap_or(0);
+    if !matches || held >= max {
+        return false;
+    }
+    take(w, p);
+    true
+}
+
 /// `PoiManager.release`: a ticket of the record at `p` given back (a record that is gone has none).
 pub fn release(w: &mut World, p: BlockPos) {
     if let Some(n) = ensure_tickets(w).get_mut(&(p.x, p.y, p.z))

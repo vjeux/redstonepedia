@@ -1141,12 +1141,18 @@ fn acquire_poi(w: &mut World, i: usize, n: usize, t: i64) -> bool {
         }
         Some(p) if p.reached => {
             let target = p.target;
-            // poiManager.take: the ticket, the home memory, the event 14 (client particles), the
+            // poiManager.getType(target).ifPresent(..): only a target that is a POI (createPath
+            // can hand back the current path, whose target is another, when its targetPos is in
+            // the set: ironfarm 2026-11-10, a napper's reused stroll path to a rail cell); then
+            // poiManager.take (the record at the target, if this selection's and free), the home
+            // memory (set even when the take found nothing), the event 14 (client particles), the
             // retry cache cleared
-            crate::entity::mob::ai::poi::take(w, target);
-            brain_mut(w, i).home = Some(target);
-            if let Kind::AcquirePoi { batch, .. } = kind_mut(w, i, n) {
-                batch.clear();
+            if crate::entity::mob::ai::poi::poi_of(&w.get(target)).is_some() {
+                crate::entity::mob::ai::poi::take_if_free(w, poi, target);
+                brain_mut(w, i).home = Some(target);
+                if let Kind::AcquirePoi { batch, .. } = kind_mut(w, i, n) {
+                    batch.clear();
+                }
             }
         }
         _ => {
