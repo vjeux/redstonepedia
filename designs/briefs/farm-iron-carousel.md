@@ -261,3 +261,38 @@ module 444 iron/h (111.4 golems/h; the game 112.6-114.2).
 ## Ceiling
 
 720 golems an hour per station (one per 100 gt), about 2,880 iron an hour.
+
+## The rail carousel, measured and parked (2026-11-09)
+
+What the minecart carousel (`mobfarm gen carousel`, 3 concentric loops, 4 stops each, 12
+villagers, the station over the pad) reached after vjeux's "Fix the sleeping station" (2026-11-09
+06:35), judged in redsim with the riders counted at every midday (`mobfarm seeds <design> --from 1
+--to 100 --days N`):
+
+| variant | seeds 1-100, 3 days | 101-200, 3 days | 1-100, 6 days |
+|---|---|---|---|
+| `carousel` (main, the stopped night) | 21 hold | - | - |
+| a closed trapdoor over each brake (the waking villager can never push its parked cart) + tuned boosters | 88 | 80 | 54 |
+| `carousel-gate`: a gate at every stop (below) | 89 (no stall) | 85 | 66 |
+
+The gate (branch explore/ironfarm-gate): an iron trapdoor in the cell over each brake, held open by
+a torch, its plate on that cell's front face; the slope always boosts, so every arriving cart rolls
+into the plate (a cart's box is lifted to y 0-0.7 on a slope cell) and parks at one spot, 0.19
+short of the pocket. The release turns the torch off (the bus climbs over the track on glass into
+its block), the trapdoor shuts to its top half and the cart rolls under it. Shut, it is the brake
+column's villager-proof cover, so the villager's back never comes nearer than 0.19: every pocket
+position is then inside the pickup's window (a released empty cart touching its villager under 0.1
+b/t stays pinned; its 5th and 6th boosted steps outgrow the 0.2 reach). An unpowered open trapdoor
+over the track side of the bed's foot keeps villagers from stepping into the brake column. Left
+failing: a villager whose HOME is at another stop walks into its cart as the gate opens, closing
+faster than the window; its push starts the cart back up the always-boosting slope and it runs the
+loop in reverse.
+
+Passing seeds: 12 of 12 riding at every midday, about 108 golems and 428 iron an hour; 210.8 build
+minutes at middle prices; box 43 x 43 x 31 = 57,319 (14,330 per group of 3). Against the late
+stage's compact module (409 iron/h per group of 3, 15.2 build minutes, 3,968 volume) and four
+3-villager copies (about 1,632 iron/h, 135 minutes), the rail carousel has 3.6 times the volume per
+group at a quarter of the rate. It is listed as a middle variation with these numbers (vjeux's
+"just upload them": a dominated candidate is listed, its robustness a measured line), and further
+work on it is parked; the portal pad (golems removed by portal) stays the compact version, for when
+mob AI's Nether side lands.

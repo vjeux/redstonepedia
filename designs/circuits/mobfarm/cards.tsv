@@ -27,3 +27,10 @@ mob-farm iron_ingot fastest	fact	{volume_per_module|thousands} blocks of room pe
 mob-farm iron_ingot fastest	fact	{build_minutes|round} minutes to build, {villagers|plural:villager} moved
 mob-farm iron_ingot fastest	fact	{copies}
 mob-farm iron_ingot fastest	if	copies present
+carousel-gate	sub	{iron_per_hour|round} iron an hour from a {build_minutes|round}-minute build
+carousel-gate	sub	twelve villagers riding minecarts past one golem station
+carousel-gate	fact	Twelve villagers ride minecarts on three loops; {volume_per_module|thousands} blocks of room ({dims})
+carousel-gate	fact	{iron_per_hour|round} iron an hour against {iron_per_hour@module-two-watchers} for one three-villager module (module-two-watchers), at {ratio:build_minutes@module-two-watchers} times its build
+carousel-gate	fact	Four three-villager modules side by side make {copies_iron_per_hour_at_4@module-two-watchers} iron an hour each, at {copies_build_minutes_at_4@module-two-watchers} build minutes each
+carousel-gate	fact	Nether quartz: {quartz}; iron: {bill_iron}
+carousel-gate	fact	Its storage holds {storage_hours|round} hours of iron
