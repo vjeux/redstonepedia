@@ -2046,6 +2046,13 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut order_ok = 0;
     // (a nap visit's state: the carts off the loop, the visiting cart and its batch, what it did)
     let mut away: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    let mut visit_lines_pre: Vec<String> = Vec::new();
+    // (the wired stand's REL: the bench drives it only where the file leaves it glass, a bench
+    // cell; a file whose controller drives it (stone, a repeater into it) keeps it)
+    let rel_bench: Option<BlockPos> = lay.stand_rel.filter(|r| run.world.get(*r).to_string() == "minecraft:glass");
+    if let (Some(r), None) = (lay.stand_rel, rel_bench) {
+        visit_lines_pre.push(format!("the stand's REL cell {} {} {} is the file's own ({}): the bench leaves it", r.x, r.y, r.z, run.world.get(r)));
+    }
     // (the stand's batch at the latest slot start: an observed visit's batch and place in it)
     let mut dep_now: Vec<u32> = Vec::new();
     // (carts back from a visit since the last slot's order check)
@@ -2469,8 +2476,8 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 let fire = if rel >= 0 { dt == rel } else { (c + 1 < cycles && dt == 100 + rel) || (c == 0 && dt == 0) };
                 if fire && o.stand_wired {
                     // the wired stand: REL on (the design's latch and gates do the rest), off
-                    // `rel_for` gt later
-                    if let Some(r) = lay.stand_rel {
+                    // `rel_for` gt later; a file whose REL cell is not glass drives it itself
+                    if let Some(r) = rel_bench {
                         run.world.set_block(r, on.clone(), redsim::world::flags::ALL);
                         drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:redstone_block", run.world.time - t_origin, r.x, r.y, r.z));
                         // (`rel_on` moves the start alone: the end stays at the nominal start +
@@ -2562,7 +2569,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         }
         // (the wired stand's REL back to glass, whatever slot that falls in)
         if rel_off_at == Some(t) {
-            if let Some(r) = lay.stand_rel {
+            if let Some(r) = rel_bench {
                 run.world.set_block(r, off.clone(), redsim::world::flags::ALL);
                 drive.borrow_mut().push(format!("act {} set {} {} {} minecraft:glass", run.world.time - t_origin, r.x, r.y, r.z));
             }
@@ -3058,6 +3065,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     if let Some(d) = built_diff {
         out.push(d);
     }
+    out.extend(visit_lines_pre.iter().cloned());
     if !rider_hurt.is_empty() {
         out.push(format!("riders hurt: {}", rider_hurt.join("; ")));
     }
