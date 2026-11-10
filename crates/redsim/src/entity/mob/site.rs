@@ -695,10 +695,13 @@ fn summoners(w: &World) -> Vec<BlockPos> {
 /// Every cell a golem can spawn at for searches started at `starts` (`trySpawnMob`'s 17 x 17
 /// columns, `checkSpawnObstruction`).
 fn spawn_cells(w: &World, starts: &[BlockPos]) -> Vec<BlockPos> {
+    // (the cells in their first-found order; a set answers "seen" without searching the list:
+    // tickexact 2026-11-09, the covers' rounds were a tenth of a day-1 page's spot pricing)
     let mut out: Vec<BlockPos> = Vec::new();
+    let mut seen: crate::fxhash::FxHashSet<BlockPos> = Default::default();
     for s in starts {
         for (c, ok) in super::spawn::golem_spawn_cells_from(w, *s) {
-            if ok.is_ok() && !out.contains(&c) {
+            if ok.is_ok() && seen.insert(c) {
                 out.push(c);
             }
         }

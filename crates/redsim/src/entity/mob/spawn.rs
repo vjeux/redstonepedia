@@ -163,6 +163,22 @@ fn try_spawn_golem_exact(w: &mut World, start: BlockPos) -> Option<u32> {
 /// (= start + (dx, rangeY, dz)): down from `top - 1` to `top - 1 - 2 * rangeY`, the first cell
 /// whose block passes `LEGACY_IRON_GOLEM` with the block above it; the spawn cell is above it.
 pub fn possible_spawn_position(w: &World, top: BlockPos, range_y: i32) -> Option<BlockPos> {
+    // (the column read by index when it lies in the box: tickexact 2026-11-09, the spot search's
+    // column walks were 4% of a day-1 farm page's first frame)
+    if let (Some(it), Some(_)) = (w.index(top), w.index(top.offset(0, -(2 * range_y + 1), 0))) {
+        let stride = (w.size[0] * w.size[2]) as usize;
+        let mut above = w.cells[it];
+        let mut i = it;
+        for k in 0..(2 * range_y + 1) {
+            i -= stride;
+            let here = w.cells[i];
+            if super::blocks::legacy_golem_can_spawn_on(&here, &above) {
+                return Some(top.offset(0, -k, 0));
+            }
+            above = here;
+        }
+        return None;
+    }
     let mut above = w.get(top);
     let mut p = top;
     for _ in 0..(2 * range_y + 1) {
