@@ -8,12 +8,12 @@ section. This folder holds the loop as it is built.
 
 | part | in the file | controls | plays on its own | missing |
 |---|---|---|---|---|
-| queue register (18 slots) | track built | bench-driven (the slope supports switched glass/redstone block by the bench) | no | day-1's controller (being built) |
+| queue register (18 slots) | track built | bench-driven (each slope's support switched glass / redstone block by the bench) | no | day-1's release controller (works on redsim, not yet in this file) |
 | release of the front 3 | track built | bench-driven | no | day-1's controller |
-| stand (3 slots) | a sketch (farmopt owns the real stand, part 2) | bench-driven, position-triggered brake | no | farmopt's linear stand and pad |
-| return to the queue's tail | track built | bench-driven, position-triggered brakes | no | timer circuits for the tail's brakes |
+| stand (3 slots) | track built, a sketch: farmopt owns the real stand (part 2) | bench-driven, position-triggered brake | no | farmopt's linear stand and pad |
+| return to the queue's tail | track built | bench-driven, position-triggered brakes | no | timer circuits for the stand and tail brakes |
 | zombies (PANIC), golem-floor gate | none | | | all |
-| bed siding (naps) | none (farmopt designing it) | | | all |
+| bed siding (naps) | none (farmopt is designing it) | | | all |
 
 Nothing here is wired redstone yet. "Clean" below always means with bench-driven controls.
 
@@ -25,46 +25,58 @@ One power pulse on every slope (7..12 gt) rolls every cart down, up, over the pe
 next braked slope: every cart one slot on, the front one out. A cart starting lower arrives slower
 and stops sooner, so the resting offsets converge (0.32 of the cell down the slope): no drift. The
 carts sit 3 cells apart, outside the 0.2 push range: no creep, no bounce, no momentum build-up.
+tick-exact bridged the register's one-slot moves against the real server (0 differences;
+controls still bench-driven).
 
-Measured on redsim (`mctas mobfarm queue --scene saw` + `queue-run --cycle-start ... --pulse K`):
-pulses of 7..12 gt identical, one cart out per pulse; pulses at least 16 gt apart (12..14 slip).
-tick-exact bridged the register's one-slot moves and the U-turn against the real server (0
-differences; controls still bench-driven).
+## The loop (`mctas mobfarm queue-loop` + `queue-loop-run`)
 
-What did not work (same tool):
-- flat brakes, carts 1.0 apart: one release dragged 10 carts out (push momentum);
-- flat brakes 1.25 apart: holds and releases exactly 3, but a flat queue cannot advance (a
-  stopped cart on a flat powered rail starts only off a solid block at its rail's end);
-- a gravity staircase (one cart per slope cell, all released together): lockstep but drifting,
-  no reference, and 21 tall;
-- a fast train caught by plain sawtooth slots settles deep (0.8..0.95 down the slope) and cannot
-  climb out at its next departure;
-- a 1-block ledge before a catch (off a rail a cart's speed is clamped to 0.4): lands too slow
-  (~0.12 b/t), carts crawl and bump at the edge.
+Top view, the pad (farmopt's) south of z -1:
 
-## The loop (`mctas mobfarm queue-loop` + `queue-loop-run`), bridge layout
+- **Stand** (sketch) along +x at z 0, S3's slope at x -1: 3 catch slots, i.e. sawtooth slots
+  whose preceding flat cell (the run's last cell, S3's peak, S2's peak) is a powered rail linked
+  to the slope (a powered rail takes its connected neighbour's power). The fast release train
+  crosses its braked catch cells and stops 0.4..0.6 down the slopes.
+- **Release run** south along x -3 from the queue's head (z 19) into the stand's west end; 3
+  boosters right after the head.
+- **Departure** from the stand's east end north along x 9, west along z 20 into the queue's tail.
+- **Queue** north of z 20 in two rows 3 apart: row A (the tail) north along x 0, 7 slots; a turn
+  slot (row A's last peak is a curve, the slot runs west, its peak a curve again) so no queue move
+  is longer than another; row B (the head) south along x -3, 10 slots.
+- **Tail slots 0-2 are deep slots**: a braked slope linked to the slot's own (two blocks of braked
+  descent), then two plain slopes up and the peak. A fast returning cart stops on one of the two
+  slopes, never on a flat cell; a slow queue move stops on the first.
 
-- The stand (sketch) runs along +x at z 0: 3 catch slots, i.e. sawtooth slots whose preceding
-  flat cell (S2's peak, S3's peak, the run's last cell) is a powered rail linked to the slope (a
-  powered rail takes its connected neighbour's power): a fast train crosses its braked catch cell
-  and stops halfway down its slope.
-- The release run comes south along x -2 into the stand's west end; the departure leaves its east
-  end north along x 10, jogs west along z 20 and enters the queue's tail; the queue sits north of
-  z 20 in two rows (row A, the tail, north along x 0; a boosted U-turn; row B, the head, south
-  along x -2 straight into the release run). The return is about as short as the release run.
-- The queue's 3 tail slots are V slots (slope down, plain valley, slope up on its own line): a
-  fast returning cart stops on the slope down or up; the slopes up go on 12 gt before the advance
-  and stay on through it (a cart on one rolls back first, then leaves forward).
-
-Per slot (t0 = the golem pulse; every control bench-driven):
-- t0: the release group (the queue's front 3 slopes) on for 30 gt: the 3 leave as a train; the
+Per slot (t0 = the release start = golem pulse + 4 in day-1's controller; every control
+bench-driven, the times day-1's controller produces):
+- t0: the release group (the queue's front 3 slopes) on for 34 gt: the 3 leave as a train; the
   stand's batch leaves one slot at a time (S1 at t0, S2 +12, S3 +24);
-- the stand braked as the train's front cart is 0.45 into its catch cell (about t0+89..91);
-- the queue advances 3 slots: pulses at t0+40, +60, +80, 9 gt each (the tail's slopes up on from
-  t0+28);
+- the stand braked as the train's front cart is 0.45 into its catch cell (t0+71..73);
+- the queue advances 3 slots: pulses at t0+38, +58, +78, 10 gt each;
 - the returning train fills the queue's tail front first: slots 1-2 braked as its front cart
-  reaches slot 1's peak, slot 0 as its second reaches slot 0's peak (about t0+111..122).
+  reaches slot 1's peak (t0+111 after its departure), slot 0 as its second reaches slot 0's peak
+  (t0+114..115).
 
-Bench-driven result: 3 slots clean (batch at the stand +97..99, riders at 0.66..0.87 of their
-slopes; returning train in the tail +117..122). From the 4th slot the queue's row B degrades:
-carts that came round the U-turn fast settle deep and crawl over the next peaks. Next: the U-turn.
+Bench-driven result (`queue-loop-run <file> --cycles 60 --seed S`, seeds 1..9): 0 problems in
+every run. Each slot the queue releases exactly its front 3; the batch is settled at the stand at
+t0+81 (offsets 0.41 / 0.55 / 0.58 down the slopes); the previous batch is braked into the queue's
+tail at t0+114..115, before the next advance at t0+138.
+
+Arrival margin: the batch settles at the stand at t0+81 = golem+85, 15 gt before the slot (T+100),
+so the riders must be panicking on arrival (zombies along the loop, not in yet).
+
+## What did not work (same tools)
+
+- flat brakes, carts 1.0 apart: one release dragged 10 carts out (push momentum);
+- flat brakes 1.25 apart: holds and releases exactly 3, but a flat queue cannot advance;
+- a gravity staircase: lockstep but drifting, no reference, and 21 tall;
+- a fast train caught by plain sawtooth slots settles 0.8..1.0 down the slope and cannot climb
+  out at its next departure;
+- a 1-block ledge before a catch: lands too slow (~0.12 b/t), carts crawl and bump at the edge;
+- V slots at the queue's tail (slope down, flat valley, slope up on its own line): carts stranded
+  on the flat valley, or crested from the top of the slope up when it powered;
+- a U-turn inside the queue (2 or 3 cells, with or without a booster): the cart taking it moves
+  ~25 gt where the others take ~14, is carried by the next pulse, settles deep and crawls;
+- the stand at the far end of the release run (return back along it): the return took ~130 gt,
+  outside the tail's window;
+- the queue in one straight row with the return round it: the return took ~235 gt, at the edge
+  of its window.

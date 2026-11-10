@@ -348,11 +348,26 @@ pub struct LoopOpts {
     /// The bridge layout: the stand across the ends of the release run and the return run, the
     /// queue beyond them (a return as short as the release run).
     pub bridge: bool,
+    /// The bridge layout's queue rows this far apart: 1 (a U-turn of two curves), 2 (a curve, a
+    /// booster, a curve).
+    pub row_gap: i32,
+    /// A booster in the middle of the queue's U-turn (rows 2 apart).
+    pub uturn_boost: bool,
+    /// The line layout: the queue one straight row, the return the long way round it (12 slots;
+    /// two batches on the return at any time).
+    pub line: bool,
+    /// The queue's 3 tail slots as deep slots (a braked slope down linked to the slot's own: a
+    /// fast returning cart stops on one of the two, never on a flat cell; two plain slopes up).
+    pub tail_deep: bool,
+    /// Plain loop: every slot (queue, stand) a plain sawtooth slot; the trains kept slow (one
+    /// booster after the queue and after the stand), each slot braked as its own cart comes,
+    /// and the stand's batch leaves like a queue advance (3 pulses).
+    pub plain: bool,
 }
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false }
     }
 }
 
@@ -386,6 +401,9 @@ pub struct LoopLayout {
 pub fn loop_layout(o: &LoopOpts) -> LoopLayout {
     if o.straight {
         return loop_layout_straight(o);
+    }
+    if o.line {
+        return loop_layout_line(o);
     }
     if o.bridge {
         return loop_layout_bridge(o);
@@ -559,11 +577,25 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
     let mut slot_cells = Vec::new();
     let mut stand_cells = Vec::new();
     let mut tail_b = Vec::new();
-    let half = o.slots / 2;
+    // (with a turn slot, row A gets one slot fewer than half: its V slots are longer, and the
+    // queue's head lands 19 cells from the stand; with deep tail slots, two fewer)
+    let half = if o.row_gap == 3 { if o.tail_deep { o.slots / 2 - 2 } else { o.slots / 2 - 1 } } else { o.slots / 2 };
     // row A from its entry curve at (0, 1, zr): north (+z)
     path.push(([0, 1, zr], Cell::Plain));
     let mut z = zr + 1;
     for k in 0..half {
+        if o.tail_deep && k < 3 {
+            // a deep slot (see `loop_layout_line`): braked slopes C (linked) and A, plain slopes
+            // up B and B', the peak
+            slot_cells.push([0, -1, z + 1]);
+            path.push(([0, 0, z], Cell::Linked));
+            path.push(([0, -1, z + 1], Cell::Slot));
+            path.push(([0, -1, z + 2], Cell::Plain));
+            path.push(([0, 0, z + 3], Cell::Plain));
+            path.push(([0, 1, z + 4], Cell::Plain));
+            z += 5;
+            continue;
+        }
         slot_cells.push([0, 0, z]);
         if o.tail_v && k < 3 {
             path.push(([0, 0, z], Cell::Slot));
@@ -579,61 +611,160 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
             z += 3;
         }
     }
-    // the U-turn west at the peaks' height: a curve, a booster, a curve
-    path.push(([0, 1, z], Cell::Plain));
-    path.push(([-1, 1, z], Cell::Boost));
-    path.push(([-2, 1, z], Cell::Plain));
-    // row B south (-z) along x -2
-    let mut z = z - 1;
-    for _ in 0..(o.slots - half) {
-        slot_cells.push([-2, 0, z]);
-        path.push(([-2, 0, z], Cell::Slot));
+    // the U-turn west at the peaks' height: rows 1 apart, two curves; rows 2 apart, a curve, a
+    // booster, a curve; rows 3 apart (`row_gap` 3), a turn slot: row A's last peak is a curve, the
+    // next slot runs west (slope down, slope up, a curve for its peak) and row B starts below it,
+    // so no queue move is longer than another
+    let xb = -o.row_gap;
+    let mut z = z;
+    let mut row_b = o.slots - half;
+    if o.row_gap == 3 {
+        slot_cells.push([-1, 0, z - 1]);
+        path.push(([-1, 0, z - 1], Cell::Slot));
         path.push(([-2, 0, z - 1], Cell::Plain));
-        path.push(([-2, 1, z - 2], Cell::Plain));
+        path.push(([-3, 1, z - 1], Cell::Plain));
+        row_b -= 1;
+        z -= 1;
+    } else {
+        path.push(([0, 1, z], Cell::Plain));
+        if o.row_gap == 2 {
+            path.push(([-1, 1, z], if o.uturn_boost { Cell::Boost } else { Cell::Plain }));
+        }
+        path.push(([xb, 1, z], Cell::Plain));
+    }
+    // row B south (-z) along x xb
+    let mut z = z - 1;
+    for _ in 0..row_b {
+        slot_cells.push([xb, 0, z]);
+        path.push(([xb, 0, z], Cell::Slot));
+        path.push(([xb, 0, z - 1], Cell::Plain));
+        path.push(([xb, 1, z - 2], Cell::Plain));
         z -= 3;
     }
-    // the release run south along x -2 down to z 1, its first cells boosters
+    // the release run south along x xb down to z 1, its first cells boosters
     let mut i = 0;
     while z >= 1 {
-        path.push(([-2, 1, z], if i < o.boost_first { Cell::Boost } else { Cell::Plain }));
+        path.push(([xb, 1, z], if i < o.boost_first { Cell::Boost } else { Cell::Plain }));
         z -= 1;
         i += 1;
     }
     // the curve into the stand, the catch cell before S3's slope
-    path.push(([-2, 1, 0], Cell::Plain));
-    path.push(([-1, 1, 0], Cell::Linked));
+    let xs = xb + 2;
+    path.push(([xb, 1, 0], Cell::Plain));
+    path.push(([xb + 1, 1, 0], if o.plain { Cell::Plain } else { Cell::Linked }));
     for j in 0..3 {
-        let x = 3 * j;
+        let x = xs + 3 * j;
         stand_cells.insert(0, [x, 0, 0]);
         path.push(([x, 0, 0], Cell::Slot));
         path.push(([x + 1, 0, 0], Cell::Plain));
-        path.push(([x + 2, 1, 0], if j < 2 { Cell::Linked } else { Cell::Plain }));
+        path.push(([x + 2, 1, 0], if j < 2 && !o.plain { Cell::Linked } else { Cell::Plain }));
     }
-    // the departure: east, north along x 10 (boosters first), west along zr back to row A; with
+    // the departure: east, north along x xd (boosters first), west along zr back to row A; with
     // `drop` the last stretch is a ledge: up to y 2 before the turn west, off the edge at x 5,
     // landing on y 1 at x 4 (the landing clamps every cart's speed to 0.4 and the fall slows it
     // to ~0.3, so the tail's plain slots catch it like a queue move)
-    path.push(([9, 1, 0], Cell::Boost));
-    path.push(([10, 1, 0], Cell::Plain));
+    let xd = xs + 10;
+    path.push(([xd - 1, 1, 0], Cell::Boost));
+    path.push(([xd, 1, 0], Cell::Plain));
     let top = if o.drop { zr - 2 } else { zr };
     for z in 1..top {
-        path.push(([10, 1, z], if z <= o.boost_first.max(1) { Cell::Boost } else { Cell::Plain }));
+        path.push(([xd, 1, z], if z <= o.boost_first.max(1) { Cell::Boost } else { Cell::Plain }));
     }
     if o.drop {
-        path.push(([10, 1, zr - 2], Cell::Plain));
-        path.push(([10, 2, zr - 1], Cell::Plain));
-        path.push(([10, 2, zr], Cell::Plain));
-        for x in (6..10).rev() {
+        path.push(([xd, 1, zr - 2], Cell::Plain));
+        path.push(([xd, 2, zr - 1], Cell::Plain));
+        path.push(([xd, 2, zr], Cell::Plain));
+        for x in (6..xd).rev() {
             path.push(([x, 2, zr], Cell::Plain));
         }
         for x in (1..5).rev() {
             path.push(([x, 1, zr], Cell::Plain));
         }
     } else {
-        path.push(([10, 1, zr], Cell::Plain));
-        for x in (1..10).rev() {
+        path.push(([xd, 1, zr], Cell::Plain));
+        for x in (1..xd).rev() {
             path.push(([x, 1, zr], Cell::Plain));
         }
+    }
+    finish_layout(path, slot_cells, stand_cells, Vec::new(), tail_b)
+}
+
+/// The line loop: the queue one straight row (no U-turn inside it) along -z at x 0, its tail at
+/// the north end, its head 19 cells north of the stand; the release run south along x 0 into the
+/// stand's west end (the stand along +x at z 0, catch slots); the departure north along x 12, past
+/// the queue, west along the queue's north end into its tail. With 12 slots the loop holds 12
+/// carts in the queue, 3 at the stand and 2 batches (6 carts) on the long return: the return takes
+/// about two slots, and each batch rejoins the queue's tail in the window after the advance.
+fn loop_layout_line(o: &LoopOpts) -> LoopLayout {
+    let mut path: Vec<([i32; 3], Cell)> = Vec::new();
+    let mut slot_cells = Vec::new();
+    let mut stand_cells = Vec::new();
+    let mut tail_b = Vec::new();
+    let nv = if o.tail_v { 3 } else { 0 };
+    let nd = if o.tail_deep { 3 } else { 0 };
+    let len = 4 * nv + 5 * nd + 3 * (o.slots - nv - nd);
+    // the head's slot at z >= 19 (its cart 19.3+ from the pad's edge at z -1)
+    let ze = 19 + len - 2;
+    path.push(([0, 1, ze], Cell::Plain));
+    let mut z = ze - 1;
+    for k in 0..o.slots {
+        if k < nd {
+            // a deep slot: a braked slope down linked to the slot's own (two blocks of braked
+            // descent: a fast cart stops on one of them, never on a flat cell), two plain slopes
+            // up, the peak
+            slot_cells.push([0, -1, z - 1]);
+            path.push(([0, 0, z], Cell::Linked));
+            path.push(([0, -1, z - 1], Cell::Slot));
+            path.push(([0, -1, z - 2], Cell::Plain));
+            path.push(([0, 0, z - 3], Cell::Plain));
+            path.push(([0, 1, z - 4], Cell::Plain));
+            z -= 5;
+            continue;
+        }
+        slot_cells.push([0, 0, z]);
+        if k < nv {
+            path.push(([0, 0, z], Cell::Slot));
+            path.push(([0, 0, z - 1], Cell::Plain));
+            path.push(([0, 0, z - 2], Cell::Slot));
+            path.push(([0, 1, z - 3], Cell::Plain));
+            tail_b.push(BlockPos::new(0, -1, z - 2));
+            z -= 4;
+        } else {
+            path.push(([0, 0, z], Cell::Slot));
+            path.push(([0, 0, z - 1], Cell::Plain));
+            path.push(([0, 1, z - 2], Cell::Plain));
+            z -= 3;
+        }
+    }
+    // the release run south down to z 1, its first cells boosters
+    let mut i = 0;
+    while z >= 1 {
+        path.push(([0, 1, z], if i < o.boost_first { Cell::Boost } else { Cell::Plain }));
+        z -= 1;
+        i += 1;
+    }
+    // the curve into the stand, the catch cell before S3's slope
+    path.push(([0, 1, 0], Cell::Plain));
+    path.push(([1, 1, 0], Cell::Linked));
+    let xs = 2;
+    for j in 0..3 {
+        let x = xs + 3 * j;
+        stand_cells.insert(0, [x, 0, 0]);
+        path.push(([x, 0, 0], Cell::Slot));
+        path.push(([x + 1, 0, 0], Cell::Plain));
+        path.push(([x + 2, 1, 0], if j < 2 { Cell::Linked } else { Cell::Plain }));
+    }
+    // the departure: east, north along x xd (boosters first) to the queue's north end, west into
+    // the tail's entry curve
+    let xd = xs + 10;
+    path.push(([xd - 1, 1, 0], Cell::Boost));
+    path.push(([xd, 1, 0], Cell::Plain));
+    for z in 1..ze {
+        path.push(([xd, 1, z], if z <= o.boost_first.max(1) { Cell::Boost } else { Cell::Plain }));
+    }
+    path.push(([xd, 1, ze], Cell::Plain));
+    for x in (1..xd).rev() {
+        path.push(([x, 1, ze], Cell::Plain));
     }
     finish_layout(path, slot_cells, stand_cells, Vec::new(), tail_b)
 }
@@ -690,8 +821,10 @@ fn loop_layout_straight(o: &LoopOpts) -> LoopLayout {
 /// The loop's design: its path (each rail on its support), 21 carts with villagers: the queue's
 /// slots full, the stand's three slots full.
 pub fn loop_design(o: &LoopOpts) -> Result<String> {
-    if o.slots + 3 != 21 {
-        bail!("the queue's slots and the stand's 3 must hold the 21 carts (slots 18)");
+    // (the line loop starts with one batch on its return: the bench adds it)
+    let held = o.slots + 3 + if o.line { 3 } else { 0 };
+    if held != 21 {
+        bail!("the queue's {} slots and the stand's 3{} must hold the 21 carts", o.slots, if o.line { " and the returning batch's 3" } else { "" });
     }
     let lay = loop_layout(o);
     let mut b = Builder::new("carousel-loop-scene");
@@ -731,8 +864,8 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         b.entity("minecart", [x, c[1] as f64 + 1.0 - off + 0.05, z], rider);
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32));
-    b.d.ports.insert("output".into(), [0, 1, 8]);
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32));
+    b.d.ports.insert("output".into(), [-5, 1, -3]);
     Ok(b.text(&["The single-lane carousel's loop (prototype): a sawtooth queue register, the release run, the 3-slot stand, the return run."]))
 }
 
@@ -753,6 +886,11 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "vstand" => o.vstand = v != "0",
             "tail_v" => o.tail_v = v != "0",
             "bridge" => o.bridge = v != "0",
+            "row_gap" => o.row_gap = v.parse()?,
+            "uturn_boost" => o.uturn_boost = v != "0",
+            "line" => o.line = v != "0",
+            "tail_deep" => o.tail_deep = v != "0",
+            "plain" => o.plain = v != "0",
             _ => {}
         }
     }
@@ -776,11 +914,19 @@ pub struct LoopTiming {
     /// slot 0 braked these many gt after the returning train's departure.
     pub stand_brake: Option<i64>,
     pub intake_brake: Option<(i64, i64)>,
+    /// The line loop's startup: the gt (in slot 0) at which the bench places the batch that is on
+    /// the return at the start into the queue's tail.
+    pub inject_at: Option<i64>,
+    /// Plain loops: the stand's 3 departure pulses (gt after the slot's start, apart), and how long
+    /// after the last one ends the stand opens (all slopes powered) for the next batch.
+    pub depart_at: i64,
+    pub depart_period: i64,
+    pub open_after: i64,
 }
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, intake_brake: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8 }
     }
 }
 
@@ -803,6 +949,17 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let lay = loop_layout(o);
     let on = Block::parse("minecraft:redstone_block").map_err(|e| e.to_string())?;
     let off = Block::parse("minecraft:glass").map_err(|e| e.to_string())?;
+    // (the line loop's startup: one batch is on its long return at the start; the bench parks its
+    // 3 carts off the loop and places them in the queue's tail at `inject_at`, bench-driven)
+    let mut parked: Vec<u32> = Vec::new();
+    if tm.inject_at.is_some() {
+        let stone = Block::parse("minecraft:stone").map_err(|e| e.to_string())?;
+        for k in 0..3 {
+            run.world.set_block(BlockPos::new(60, -1, 60 + 3 * k), stone.clone(), redsim::world::flags::ALL);
+            parked.push(redsim::entity::spawn(&mut run.world, "minecraft:minecart", [60.5, 0.0, 60.5 + 3.0 * k as f64], Some("{Rotation:[0f,0f],Passengers:[{id:\"minecraft:villager\"}]}"))?);
+        }
+        run.own = (first..run.world.entities.next_id).collect();
+    }
     let carts: Vec<u32> = run.world.entities.list.iter().filter(|e| matches!(e.kind, redsim::entity::EntityKind::Minecart(_))).map(|e| e.id).collect();
     if carts.len() != 21 {
         return Err(format!("{} carts, not 21", carts.len()));
@@ -823,7 +980,9 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             let along = ox * d[0] as f64 + oz * d[1] as f64;
             let across = (ox * d[1] as f64).abs() + (oz * d[0] as f64).abs();
             let tail = !lay.tail_b.is_empty() && k < 3;
-            let span = if (wide && k >= q) || tail { (-1.0, 2.5) } else { (-1.0, 1.0) };
+            let deep = o.tail_deep && k < 3;
+            let span = if (wide && k >= q) || tail { (-1.0, 2.5) } else if deep { (-2.0, 1.0) } else { (-1.0, 1.0) };
+            let e_y_ok = if deep { e.pos.y < 1.5 } else { true };
             along > span.0 && along < span.1 && across < 0.6 && e.pos.y < 1.5 && e.delta_movement.horizontal_distance_sqr() < 1e-6
         })
     };
@@ -846,6 +1005,9 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut out = Vec::new();
     let mut problems = Vec::new();
     let release_group: Vec<BlockPos> = lay.slots[q - 3..].to_vec();
+    // (slots from a departure to the slot whose advance must find that batch in the queue's
+    // tail: the line loop's long return takes two)
+    let lag: i64 = if o.line { 2 } else { 1 };
     // (the stand's slope-up controls lead its slopes down by this much at the departure)
     let lead: i64 = if lay.stand_b.is_empty() { 0 } else { 5 };
     let intake: Vec<BlockPos> = lay.slots[..3].to_vec();
@@ -854,6 +1016,12 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let tpk = if lay.tail_b.is_empty() { 2 } else { 3 };
     let peak = |c: [i32; 3], d: i32| [c[0] + tpk * d, 1, c[2]];
     let in_cell = |w: &redsim::world::World, id: u32, c: [i32; 3]| pos_of(w, id).is_some_and(|p| p.x.floor() as i32 == c[0] && p.z.floor() as i32 == c[2] && (p.y.floor() as i32 == c[1] || (p.y - c[1] as f64).abs() < 0.2));
+    // (the loop's cell before a given one)
+    let cell_before = |c: [i32; 3]| -> [i32; 3] {
+        let n = lay.path.len();
+        let i = lay.path.iter().position(|(p, _)| *p == c).unwrap_or(0);
+        lay.path[(i + n - 1) % n].0
+    };
     // settled snapshots: every cart at rest in a place
     let mut snaps: Vec<(i64, Vec<usize>)> = Vec::new();
     let t_start = run.world.time;
@@ -878,14 +1046,30 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             stand_train = Some((c, rel, 0));
             intake_trains.push((c, dep, 0));
         }
+        if c == 0 && tm.inject_at == Some(dt) {
+            // the startup batch into the queue's tail, at rest where a caught train rests
+            set(&mut run.world, &intake, false);
+            set(&mut run.world, &lay.tail_b, false);
+            for (k, id) in parked.iter().enumerate() {
+                let cell = lay.slot_cells[2 - k];
+                let d = lay.slot_dir[2 - k];
+                let off = 0.32;
+                let p = redsim::entity::Vec3::new(cell[0] as f64 + 0.5 + d[0] as f64 * (off - 0.5), cell[1] as f64 + 1.0 - off + 0.05, cell[2] as f64 + 0.5 + d[1] as f64 * (off - 0.5));
+                if let Some(i) = redsim::entity::index_of(&run.world, *id) {
+                    run.world.entities.set_pos(i, p);
+                    run.world.entities.list[i].delta_movement = redsim::entity::Vec3::new(0.0, 0.0, 0.0);
+                }
+                drive.borrow_mut().push(format!("act {} tp e{} {:.3} {:.3} {:.3}", run.world.time - t_spawn, carts.iter().position(|c| c == id).unwrap_or(0), p.x, p.y, p.z));
+            }
+        }
         if c < cycles && dt == tm.advance_at {
             // the queue's tail must hold every earlier returning train before the advance
             for (c0, _, st) in &intake_trains {
-                if *c0 < c && *st < 2 {
+                if *c0 + lag <= c && (*st < 2 || (o.plain && *st != 9)) {
                     problems.push(format!("slot {c}: slot {c0}'s returning train not in the queue's tail at the advance"));
                 }
             }
-            intake_trains.retain(|(c0, _, st)| *c0 >= c || *st < 2);
+            intake_trains.retain(|(c0, _, st)| *c0 + lag > c || (*st < 2 || (o.plain && *st != 9)));
         }
         if c < cycles {
             if dt == tm.release_for {
@@ -894,7 +1078,27 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             // the stand's batch leaves one slot at a time, front first (S1 at the slot's start,
             // S2 and S3 `depart_every` gt apart; a cart behind crosses more powered cells and
             // would catch the one ahead), each slot's slope up `lead` gt before its slope down
+            if o.plain {
+                // plain stand: the batch leaves like a queue advance, 3 pulses on all 3 stand
+                // slopes (each pulse moves every stand cart one slot on, S1's out), so the 3 leave
+                // one by one at the same speed; then the stand opens for the next batch
+                for k in 0..3i64 {
+                    let a = tm.depart_at + k * tm.depart_period;
+                    if dt == a {
+                        set(&mut run.world, &lay.stand, true);
+                    }
+                    if dt == a + tm.pulse {
+                        set(&mut run.world, &lay.stand, false);
+                    }
+                }
+                if dt == tm.depart_at + 2 * tm.depart_period + tm.pulse + tm.open_after {
+                    set(&mut run.world, &lay.stand, true);
+                }
+            }
             for k in 0..3usize {
+                if o.plain {
+                    break;
+                }
                 let at = k as i64 * tm.depart_every;
                 if let (true, Some(b)) = (dt == at, lay.stand_b.get(k)) {
                     set(&mut run.world, &[*b], true);
@@ -932,7 +1136,34 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         // the stand fills front first: every slot braked at once (slopes down and up) as the
         // train's front cart reaches S2's peak; its second cart is then in S2 (the train runs 3
         // cells apart), its third in S3, and each stops in its own slot
-        if let Some((c0, tr, st)) = &mut stand_train {
+        if o.plain {
+            // plain stand slots: each braked as its own cart is one cell before its slope (S1 for
+            // the front cart at S2's peak, S2 for the second at S3's peak, S3 for the third on the
+            // run's last cell)
+            if let Some((c0, tr, st)) = &mut stand_train {
+                if tr.len() == 3 && *st < 7 {
+                    // (st's bits: which of S1, S2, S3 are braked; each checked on its own)
+                    for k in 0..3usize {
+                        if *st & (1 << k) == 0 && in_cell(&run.world, tr[k], cell_before(lay.stand_cells[k])) {
+                            set(&mut run.world, &[lay.stand[k]], false);
+                            if k == 0 {
+                                stand_braked_at.push(t - *c0 * 100);
+                            }
+                            *st |= 1 << k;
+                        }
+                    }
+                }
+                if *st == 7 {
+                    let (s1, s2, s3) = (lay.stand_cells[0], lay.stand_cells[1], lay.stand_cells[2]);
+                    let rest = [s1, s2, s3].iter().zip(tr.iter()).all(|(cell, id)| place_of(&run.world, *id).is_some_and(|p| places[p] == *cell));
+                    if rest {
+                        let offs: Vec<String> = [s1, s2, s3].iter().zip(tr.iter()).filter_map(|(cell, id)| pos_of(&run.world, *id).map(|p| format!("{:+.2}", p.x - cell[0] as f64))).collect();
+                        arrivals.push(format!("slot {c0}: batch at the stand +{} (offsets {})", t - *c0 * 100, offs.join(" ")));
+                        *st = 8;
+                    }
+                }
+            }
+        } else if let Some((c0, tr, st)) = &mut stand_train {
             let (s1, s2, s3) = (lay.stand_cells[0], lay.stand_cells[1], lay.stand_cells[2]);
             let trig = if lay.stand_b.is_empty() { [s2[0] + 1, 0, s2[2]] } else { [s2[0] + 3, 1, s2[2]] };
             // (catch slots: braked once the front cart is 0.45 into its catch cell, S2's peak; it
@@ -957,6 +1188,26 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         // the queue's tail fills front first: slots 1 and 2 braked as the returning front cart
         // reaches slot 1's peak, slot 0 as its second reaches slot 0's peak
         for (c0, tr, st) in intake_trains.iter_mut() {
+            if o.plain {
+                // plain tail slots: slot 2 braked as the front cart is one cell before its slope,
+                // slot 1 likewise for the second, slot 0 for the third
+                if (t - *c0 * 100) > tm.advance_at + 2 * tm.advance_every + tm.pulse && tr.len() == 3 && *st < 7 {
+                    // (st's bits: which of slots 2, 1, 0 are braked; each checked on its own)
+                    for k in 0..3usize {
+                        let slot = 2 - k;
+                        if *st & (1 << k) == 0 && in_cell(&run.world, tr[k], cell_before(lay.slot_cells[slot])) {
+                            set(&mut run.world, &[intake[slot]], false);
+                            intake_braked_at.push((t - *c0 * 100, slot as i64));
+                            *st |= 1 << k;
+                        }
+                    }
+                    if *st == 7 {
+                        arrivals.push(format!("slot {c0}: returning train braked into the tail +{}", t - *c0 * 100));
+                        *st = 9;
+                    }
+                }
+                continue;
+            }
             if (t - *c0 * 100) > tm.advance_at + 2 * tm.advance_every + tm.pulse && tr.len() == 3 {
                 let rel_t = t - *c0 * 100;
                 let due1 = match tm.intake_brake { Some((b, _)) => rel_t == b, None => in_cell(&run.world, tr[0], lay.slot_peak[1]) };

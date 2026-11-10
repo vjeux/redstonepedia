@@ -398,6 +398,25 @@ pub enum MobfarmCmd {
         /// back along it) instead of the bridge layout.
         #[arg(long)]
         folded: bool,
+        /// The bridge layout's queue rows this far apart: 1 (a U-turn of two curves) or 2 (a
+        /// curve, a booster, a curve).
+        #[arg(long, default_value_t = 3)]
+        row_gap: i32,
+        /// A booster in the middle of the queue's U-turn (rows 2 apart).
+        #[arg(long)]
+        uturn_boost: bool,
+        /// The line layout: the queue one straight row (15 slots), the return the long way round
+        /// it (two batches on the return at a time).
+        #[arg(long)]
+        line: bool,
+        /// The queue's 3 tail slots as V slots (or plain with `--plain`) instead of deep slots (a
+        /// braked slope down linked to the slot's own, two plain slopes up).
+        #[arg(long)]
+        no_tail_deep: bool,
+        /// Plain loop: plain sawtooth slots everywhere (stand and queue tail too), slow trains,
+        /// each slot braked as its own cart comes, the stand's batch out like a queue advance.
+        #[arg(long)]
+        plain: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -409,13 +428,17 @@ pub enum MobfarmCmd {
         cycles: i64,
         #[arg(long, default_value_t = 1)]
         seed: i64,
-        #[arg(long, default_value_t = 30)]
+        /// The release group's slopes powered this long from the slot's start (day-1's release
+        /// controller: 34).
+        #[arg(long, default_value_t = 34)]
         release_for: i64,
-        #[arg(long, default_value_t = 40)]
+        /// The queue's 3 advance pulses: the first this many gt after the slot's start, then
+        /// every `--advance-every`, each `--pulse` long (day-1's controller: 38, 20, 10).
+        #[arg(long, default_value_t = 38)]
         advance_at: i64,
         #[arg(long, default_value_t = 20)]
         advance_every: i64,
-        #[arg(long, default_value_t = 9)]
+        #[arg(long, default_value_t = 10)]
         pulse: i64,
         /// The stand's slots powered for the departure front first, this many gt apart.
         #[arg(long, default_value_t = 12)]
@@ -428,6 +451,18 @@ pub enum MobfarmCmd {
         /// departure (timers) instead of the bench's position triggers.
         #[arg(long, value_delimiter = ',')]
         intake_brake: Vec<i64>,
+        /// The line loop's startup: when (gt into slot 0) the bench places the batch that is on
+        /// the return at the start into the queue's tail (default 110 for the line loop).
+        #[arg(long)]
+        inject_at: Option<i64>,
+        /// Plain loop: the stand's 3 departure pulses start this many gt after the slot's start
+        /// and this many gt apart; the stand opens this long after the last one ends.
+        #[arg(long, default_value_t = 4)]
+        depart_at: i64,
+        #[arg(long, default_value_t = 16)]
+        depart_period: i64,
+        #[arg(long, default_value_t = 8)]
+        open_after: i64,
         #[arg(long)]
         verbose: bool,
         /// Print these carts (design order) every gt.
@@ -1034,16 +1069,19 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, out } => {
-            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v, bridge: !folded && !straight };
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, out } => {
+            let tail_deep = !no_tail_deep && !plain;
+            let slots = if line && slots == 18 { 15 } else { slots };
+            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain };
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             println!("{}", out.display());
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, intake_brake, verbose, watch, drive_out } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, intake_brake, inject_at, depart_at, depart_period, open_after, verbose, watch, drive_out } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             let intake_brake = match intake_brake.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--intake-brake takes two values: slots 1-2, then slot 0") };
-            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, intake_brake };
+            let inject_at = inject_at.or(if o.line { Some(110) } else { None });
+            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, intake_brake, inject_at, depart_at, depart_period, open_after };
             let s = crate::queue::run_loop(&spec, &o, &tm, cycles, seed, verbose, if watch.is_empty() { None } else { Some(&watch) }, drive_out.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
             println!("{s}");
         }
