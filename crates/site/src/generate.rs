@@ -854,7 +854,7 @@ pub fn build(a: &BuildArgs) -> Result<()> {
         write(&out.join(&path), &html)?;
         overviews.push((path, html));
     }
-    for (part, _, _, _) in crate::farms::PARTS {
+    for part in crate::farms::all_part_folders() {
         let members: Vec<crate::farms::Member> = parts.iter().filter(|m| m.part == part).cloned().collect();
         if members.is_empty() {
             continue;

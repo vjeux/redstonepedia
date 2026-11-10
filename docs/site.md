@@ -209,6 +209,16 @@ index's `kind=farm` lists them, and `kind=circuit` no longer does. Their old pag
   cells in ten in the same parts as farmopt's own files on its day-1 farms and its middle module
   (eight on the side chute; a test holds it). A design of another shape (golems spawning at the
   villagers' level, no lava) gets no table, and a note in the build.
+- **The villager carousel (in progress)** (vjeux 2026-11-10: "Can you publish the components in the
+  site so I can see how it looks like"): its parts (farms::CAROUSEL; for now the station + portal
+  pad + Nether kill alone: vjeux rejected the 7-lane layout the counter, the hold, the yard, the
+  scheduler and the assembly were built for) each in `designs/farms/iron/parts/<carousel-part>/`
+  with its owner's `members.tsv` (a member may be named by its repository path, `designs/...`),
+  listed under their own "Villager carousel (in progress)" heading on the iron farm's page, each
+  with its component page (its crumbs through the heading, a line saying the farm is being built).
+  Their numbers in a player's words (farms::carousel_metric: `T_c 25 gt` -> "next batch called:
+  within 25 game ticks (1.25 s) of a golem", seeds as worlds, ticks with seconds; the benches' REST
+  ticks left out) and their names' versions spelled out (`v8` -> "version 8").
 - **A module's copies curve** (ironspec 2026-11-09: each module's iron an hour, build minutes and
   room per module at N copies, from a number source): `<stem>.copies.tsv` beside a farm's design
   (its stage folder), written by the farm optimizer from its copies pricing: `n
