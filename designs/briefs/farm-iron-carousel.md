@@ -137,7 +137,13 @@ the timing diagram checks every coupling.
    other 18 held more than 10.6 from every summoner on one axis at every summon tick, with paths
    that keep CANT_REACH young (rule 1). Held batches may panic (hold zombies in sight, out of
    reach) so they never run REST: then the hold's own summon search has no spawnable floor (a
-   static check), and only the napper is calm. The static gate covers every position a villager
+   static check), and only the napper is calm. At every night tick, every villager except the
+   napper is in PANIC, the batch in transit included (a zombie in its sight at every
+   VillagerHostilesSensor scan along the lanes, or the transit shorter than the gap between two of
+   its scans with the zombie in sight at both ends). A villager that calms at night enters REST,
+   and if its CANT_REACH (armed by day) is older than 1200 gt it releases the shared bed at its
+   first REST tick; with one ticket, only one releaser can re-take it, so a second releaser loses
+   HOME for good. The static gate covers every position a villager
    occupies (hold lanes, travel paths, stand cells, the bed's area: a bed is likely a valid golem
    floor) for valid floors in its summon search, the pad counted only for the stand cells; with 7
    batches a batch's lock ends exactly at an attempt tick, so any valid floor anywhere a willing,
@@ -159,7 +165,10 @@ the timing diagram checks every coupling.
    dorm zombie, it panics and wakes within up to 39 gt (measured 18), stands up at the one free cell,
    and is taken back; SleepInBed can't restart until 40 gt after a wake (nextOkStartTime) and 100
    gt after LAST_WOKEN. With the panicking hold, only the napper is in REST, so the occupied erase
-   can't hit anyone else. Invariants: every villager's HOME = the bed at every dawn and
+   can't hit anyone else. The napper's release at its first REST tick is expected; AcquirePoi(HOME)
+   re-takes the bed 20-39 gt after it is unoccupied (measured 28), from the cart too, provided a
+   path with reach 1 succeeds and no other bed with a free ticket lies within 48 (a failed path
+   backs off 40-79 gt, growing to 400). Invariants: every villager's HOME = the bed at every dawn and
    midday (the R1 claims kept); while the bed is occupied, every other villager is in PANIC or more
    than 16 from it; each villager's LAST_SLEPT advances exactly once a night. Contract: each visit fits
    inside that villager's wait; the 21 visits fit inside the night. Bench: 21 villagers with R1
