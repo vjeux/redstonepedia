@@ -1,6 +1,26 @@
 # Iron farm: the villager carousel (brief, G1)
 
-## The design (vjeux Nov 9 22:25): three hard rules
+## The design (vjeux Nov 10 05:58): one lane, back to back, released 3 by 3
+
+vjeux 05:58: "Okay, I don't think that my request has been correctly understood. I don't want one lane per villager. I want a single lane where the villagers are riding on back to back with a mechanism to release them 3 by 3".
+
+- **One lane.** All 21 villagers ride minecarts back to back in a single queue on one track. A release at the queue's head lets exactly the front 3 carts go to the station; after the summon they ride on and rejoin the queue's tail (a compact loop; the volume objective decides its shape).
+- **No counter.** The queue's order is the 7-batch rotation: each golem pulse releases the next 3, and a fallback releases them on a slot with no golem (the counter's fallback contract carries over: the last release + 100 + m, m in [6, 10], only without a golem pulse).
+- **What stands:** rules 1-4 and the timing diagram: one bed for all 21 (R1) with its claims kept; compact; runs at night, each villager napping once a night (a second nap only as the rare escape); 7 batches of 3, one golem per 100-gt slot. And every per-position rule: the lock box at every summon tick; the follow box for every villager outside the summoning batch during each golem's dwell, the leaving batch included (a re-lock at T+100..T+102 would outlast its next slot); the static gate on every position a villager occupies (queue, release, station, return path, bed); PANIC at every night tick except the napper; the occupied-erase distance.
+
+### Parts (single lane), built and benched alone, then assembled
+
+1. **Queue + release-3** (ironfarm). In: the golem pulse (1 gt after the spawn, 10 gt long) and the fallback. Out: exactly the front 3 carts released per trigger, the rest held still, back to back; the released 3 at the station's stand by T+100 − 39 gt (or arriving panicking, a zombie in sight throughout) and outside the follow box until T+2. The core risk, benched first: carts in contact (pushOtherMinecart averages the two carts' motion and keeps 0.2x each, which drove the 3-cart trains to the speed cap), so the held queue must stay still and the release must take exactly 3 every time, over 100 seeds x 6 days.
+2. **The station, re-fit to a linear 3-cart stand** (farmopt): the 3 riders back to back on the track; each rider's ±8 search keeps the k the 99% bar needs; the rest of its contract stands (the portal pad, the piglins, the Nether kill and storage).
+3. **The return path to the tail** (ironfarm): the leaving batch out of the station's 10.6 box before the next slot and out of every later golem's follow box during its dwell; PANIC at night; no valid golem floor in any rider's search; it rejoins the tail without disturbing the held queue.
+4. **The sleep routine inside the loop** (ironfarm's mechanics, day-1's scheduler): each villager once a night, alone, to the one bed and back into its own cart before its batch reaches the head again (a cart reaching the station empty leaves a batch of 2, which can't summon); the BLOCK policy and the gap-window contract carry over, keyed to the queue's release order instead of the counter's lines.
+5. **Assembly**: the timing diagram checks every coupling (golem pulse → release → arrival margin → slot → leave → return → tail; the sleep visits against the queue).
+
+### Archived: measured, superseded by vjeux's single lane
+
+The 7-lane hold (stacked single carts, 100 of 100 seeds clean), the 7-state counter (v7 and v8, exact in the real game), the paired-lane geometry with its 7-lane junction yard (12,600 visits clean) and the scheduler core (0 lost slots over 120 days) stay as evidence with their benches and numbers. Their mechanisms carry over where the single lane needs them: the counter's fallback, the sensor budgets, the bed's release-and-reclaim, the BLOCK policy.
+
+## The design (vjeux Nov 9 22:25): three hard rules (archived Nov 10: the 7-lane carousel below is superseded by the single lane above; rules 1-4 and the timing diagram stand)
 
 vjeux 22:25: "The carousel is utterly terrible. I asked you to use the trick where we can only have
 one bed. Also why did you make it a giant circle, this defeats the purpose of making it small. And
@@ -119,7 +139,7 @@ phase-locks to the game clock, and a slot with no golem still advances the rotat
 grid tick (a fallback clock), so one failed summon never stalls it. Every interval in the diagram
 is checked tick by tick in redsim and on the bridge, and G1 checks the diagram against the code.
 
-### The parts: built, tested and optimized alone, then assembled
+### The parts: built, tested and optimized alone, then assembled (7 lanes, archived Nov 10: superseded by the single lane's parts at the top; the paired-lane geometry and the yard below stay as evidence)
 
 vjeux 22:32: "Also you probably want to build the counter, sleep routine, 3 villager release + hold
 for the rest separately and optimize each independently before coming with a final assembly".
