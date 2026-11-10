@@ -96,9 +96,11 @@ locks every villager in that box for 600 gt (erased at T+599 or T+600 by brain-t
 is why a batch's turn comes every 700 gt. The bed is visited once per night by each villager, one villager at a time: it lies down
 (which sets LAST_SLEPT), is woken at once, and rejoins its batch, the visit slotted between two of
 that villager's station turns (inside its wait between turns). It is not a stop on every cycle.
-The once-a-night selection (each villager drops at the bed exactly once per night, never twice,
-never skipped) is part of the design, and the judge checks it: every villager's LAST_SLEPT
-advances once each night.
+The once-a-night selection is part of the design: each villager naps once a night (vjeux: "wake
+them up one by one once during the night. Not at every step"); a second nap the same night is only
+the scheduler's rare escape (allowed by SleepInBed), so the judge accepts at least one nap per
+villager-night and never fails a legal second nap, but prints second naps per villager-night as a
+measured line, which the scheduler keeps near 0.
 
 ### The timing diagram
 
@@ -177,8 +179,9 @@ the timing diagram checks every coupling.
    inside that villager's wait; the 21 visits fit inside the night. The golem condition is
    gameTime − LAST_SLEPT < 24,000 (strict), so for each villager no gap window [its last nap +
    24,000, its next nap) may contain one of its batch's slots; that window condition is the
-   contract. Each villager naps at least once a night; a second nap the same night is allowed
-   (SleepInBed permits it 100 gt after LAST_WOKEN and 40 gt after its nextOkStartTime). Because 240
+   contract. Each villager naps once a night (vjeux's target); a second nap the same night is only
+   the scheduler's rare escape (SleepInBed permits it 100 gt after LAST_WOKEN and 40 gt after its
+   nextOkStartTime): the judge accepts it and prints second naps per villager-night. Because 240
    mod 7 = 2, a batch's slots move 200 gt earlier in day time each day, so the scheduler's rule is:
    each nap at most the drift earlier than the night before, or later only when the window it opens
    is slot-free (e.g. a second nap at the later time that same night). Part 3a's bench runs the
@@ -189,7 +192,10 @@ the timing diagram checks every coupling.
    SleepInBed's conditions, the wake delay, findStandUpPosition). Objectives: blocks, volume, the
    visit's length and its margin, build minutes.
    3a. **The nightly scheduler** (day-1 lane): in, the night window and the counter's advance and
-   lines; out, one dispatch at a time naming (b, k), each of the 21 once a night, spaced for the
+   lines; out, one dispatch at a time naming (b, k), each villager napping once a night (vjeux: "wake
+   them up one by one once during the night. Not at every step"; a second nap the same night only as
+   the scheduler's rare escape, accepted by the judge and printed per villager-night as a measured
+   line kept near 0), spaced for the
    visit length, each visit ending before its batch's next release.
 4. **The station + portal pad.** In: a batch of 3 at the stand cells. Out: the batch panics (the
    zombie in sight, out of its melee reach) and summons at the slot; the golem lands on the trench
