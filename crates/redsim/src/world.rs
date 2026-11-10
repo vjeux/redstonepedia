@@ -173,6 +173,9 @@ pub struct World {
     nu_count: u32,
     /// `ServerLevel.handlingTick`: true from the tick's start through the block-event phase.
     pub handling_tick: bool,
+    /// (tickexact 2026-11-10) Inside [`World::tick`], entities included (the bridge's
+    /// `Sandbox.ticking`: a drop then is reseeded by its drop seeder, [`World::pop_resource`]).
+    pub in_tick: bool,
     /// Comparator block entities: their output signal.
     pub comparator_out: HashMap<BlockPos, u8>,
     /// Container block entities (droppers, dispensers, hoppers): contents, hopper cooldowns.
@@ -353,6 +356,7 @@ impl World {
             nu_added: Vec::new(),
             nu_count: 0,
             handling_tick: false,
+            in_tick: false,
             comparator_out: HashMap::new(),
             containers: Default::default(),
             torch_toggles: Vec::new(),
@@ -555,6 +559,23 @@ impl World {
         let dy = r.next_double_between(-0.25, 0.25);
         let dz = r.next_double_between(-0.25, 0.25);
         if count == 0 {
+            return;
+        }
+        // (mob-AI's forest t2504: a pop while the world ticks (an enderman's take) is reseeded by
+        // the bridge's drop seeder (Sandbox.DropSeeder: `seed ^ (0x6d63746173 + n)`, n its own
+        // count), which draws the item's position, yaw and drift from it; between ticks (a
+        // fixture's action) the item enters like any entity)
+        if self.in_tick
+            && let Some(seed) = self.exact_seed
+        {
+            let d = crate::rng::Drop::seeded(seed, self.drop_count, pos);
+            self.drop_count += 1;
+            let state = crate::entity::item::ItemState { item: item.to_string(), count: count.min(255) as u8, pickup_delay: 10, age: 0, payload, health: 5, ..Default::default() };
+            let id = self.entities.add(crate::entity::EntityKind::Item(state), crate::entity::Vec3::new(d.pos[0], d.pos[1], d.pos[2]), d.y_rot);
+            if let Some(e) = self.entities.list.iter_mut().rev().find(|e| e.id == id) {
+                e.delta_movement = crate::entity::Vec3::new(d.motion[0], d.motion[1], d.motion[2]);
+                e.random = Some(d.random.clone());
+            }
             return;
         }
         // EntityType.ITEM is 0.25 tall: its center at the cell's
@@ -1147,6 +1168,13 @@ impl World {
 
     /// `ServerLevel.tick` for a world with no entities, fluids or random ticks.
     pub fn tick(&mut self) {
+        self.in_tick = true;
+        self.tick_level();
+        self.in_tick = false;
+    }
+
+    /// The tick's work ([`World::tick`]).
+    fn tick_level(&mut self) {
         self.handling_tick = true;
         self.time += 1;
         // terrain worlds: the light engine settles last tick's changes between ticks

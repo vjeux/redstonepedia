@@ -154,11 +154,114 @@ pub fn unmodeled_update(w: &mut World, id: u16, p: BlockPos, d: Dir, ns: &Block)
         return;
     }
     let props = blocks::props(id);
-    if !props.support[blocks::dir_index(d)] {
+    // (only a state whose class declares updateShape reacts: an AirBlock (cave_air, void_air)
+    // never does, whatever its support column says; mobviewer 2026-11-10: cross-4-underground
+    // stopped at tick 440 on a cave_air)
+    if props.air || !props.reactive.iter().any(|r| r == "updateShape") || !props.support[blocks::dir_index(d)] {
         return;
     }
     let e = format!("natural {} at {p}: its {d:?} neighbour turned to air (its updateShape reacts there), not modeled", props.name);
     if !w.errors.contains(&e) {
         w.errors.push(e);
+    }
+}
+
+// ------------------------------------------------------------------ natural connections
+
+/// Whether a natural row's class chain holds `class`.
+fn is_class(p: &Props, class: &str) -> bool {
+    p.classes.iter().any(|c| c == class)
+}
+
+/// The natural states whose connections follow their horizontal neighbours: `FenceBlock` and
+/// `IronBarsBlock` (glass panes, iron bars).
+pub fn connects(id: u16) -> bool {
+    let p = blocks::props(id);
+    is_class(p, "FenceBlock") || is_class(p, "IronBarsBlock")
+}
+
+/// The block id of any block (`minecraft:...`, no properties).
+fn block_id(b: &Block) -> String {
+    let s = b.to_string();
+    s.split('[').next().unwrap_or(&s).to_string()
+}
+
+/// `Block.isExceptionForConnection`: leaves, barrier, pumpkins (carved, jack o'lantern), melon,
+/// shulker boxes.
+fn connection_exception(b: &Block) -> bool {
+    if matches!(b, Block::Leaves { .. }) || has_tag(b, "minecraft:leaves") {
+        return true;
+    }
+    let id = block_id(b);
+    matches!(id.as_str(), "minecraft:barrier" | "minecraft:carved_pumpkin" | "minecraft:jack_o_lantern" | "minecraft:melon" | "minecraft:pumpkin") || id.ends_with("shulker_box")
+}
+
+/// A fence's family: wooden (`#wooden_fences`), or the nether brick fence's own.
+fn fence_family(b: &Block) -> Option<bool> {
+    match *b {
+        Block::Fence { kind, .. } => Some(crate::fence::wooden(kind)),
+        Block::Terrain(id) if is_class(blocks::props(id), "FenceBlock") => Some(blocks::props(id).block_id() != "minecraft:nether_brick_fence"),
+        _ => None,
+    }
+}
+
+/// A fence gate's facing axis is the direction's clockwise axis (`FenceGateBlock.connectsToDirection`).
+fn gate_along(b: &Block, d: Dir) -> bool {
+    match *b {
+        Block::FenceGate { facing, .. } => facing.axis() == d.clockwise().axis(),
+        Block::Terrain(id) if is_class(blocks::props(id), "FenceGateBlock") => {
+            let name = &blocks::props(id).name;
+            let ns = name.contains("facing=north") || name.contains("facing=south");
+            let axis_x = d.clockwise().axis() == Dir::East.axis();
+            // facing north/south: its axis is z
+            if ns { !axis_x } else { axis_x }
+        }
+        _ => false,
+    }
+}
+
+/// `FenceBlock.updateShape` / `IronBarsBlock.updateShape` of the natural state `s` (row `id`) at
+/// `p`, its neighbour `d` now `ns` at `np`: a waterlogged one schedules its water tick; from a
+/// horizontal neighbour, that side's connection (`connectsTo` / `attachsTo`) with the neighbour's
+/// face toward it sturdy (FULL). The new state's row: a state the table lacks is a named model
+/// error (the old one stays).
+pub fn connection_update(w: &mut World, s: Block, id: u16, p: BlockPos, d: Dir, np: BlockPos, ns: Block) -> Block {
+    let props = blocks::props(id);
+    if props.name.contains("waterlogged=true") {
+        w.schedule_fluid_tick(p, crate::fluid::Fluid::Water, crate::fluid::TICK_DELAY);
+    }
+    if !d.is_horizontal() {
+        return s;
+    }
+    let sturdy = crate::behavior::sturdy(w, &ns, np, d.opposite(), crate::behavior::Support::Full);
+    let from = d.opposite();
+    let c = if is_class(props, "FenceBlock") {
+        // FenceBlock.connectsTo(neighbour, faceSolid, direction from the neighbour)
+        let mine = props.block_id() != "minecraft:nether_brick_fence";
+        (!connection_exception(&ns) && sturdy) || fence_family(&ns) == Some(mine) || gate_along(&ns, from)
+    } else {
+        // IronBarsBlock.attachsTo(neighbour, faceSolid)
+        (!connection_exception(&ns) && sturdy) || row(&ns).is_some_and(|r| is_class(r, "IronBarsBlock")) || has_tag(&ns, "minecraft:walls")
+    };
+    let key = match d {
+        Dir::North => "north",
+        Dir::South => "south",
+        Dir::West => "west",
+        _ => "east",
+    };
+    let (old_v, new_v) = (format!("{key}={}", !c), format!("{key}={c}"));
+    if !props.name.contains(&old_v) {
+        return s;
+    }
+    let name = props.name.replacen(&old_v, &new_v, 1);
+    match blocks::id_of(&name) {
+        Some(n) => Block::Terrain(n),
+        None => {
+            let e = format!("natural {} at {p}: its connection turns to {name}, a state the natural table lacks (mctas terrain blockinfo --block)", props.name);
+            if !w.errors.contains(&e) {
+                w.errors.push(e);
+            }
+            s
+        }
     }
 }

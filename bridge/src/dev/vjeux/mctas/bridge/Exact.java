@@ -191,10 +191,15 @@ final class Exact {
         // constructor drew from the unseeded random, replaced by the seeded draw
         boolean headIsCtor = false;
         boolean yawIsCtor = false;
+        // (tickexact 2026-11-10) a cube mob's body too: setUpSplitCube's setSize runs
+        // AbstractCubeMob.onSyncedDataUpdated(ID_SIZE), yBodyRot = yHeadRot (the constructor's
+        // unseeded yaw) before it enters; left alone, a split slime's body was the JVM's chance
+        boolean bodyIsCtor = false;
         if (e instanceof LivingEntity living && !applyYaw) {
             if (ctorYaw != null) {
                 headIsCtor = living.yHeadRot == ctorYaw;
                 yawIsCtor = living.getYRot() == ctorYaw;
+                bodyIsCtor = living.yBodyRot == ctorYaw;
             } else if (r instanceof net.minecraft.world.level.levelgen.LegacyRandomSource) {
                 // the constructor's draws are the last ones the random made: step it back
                 long cur = state(r);
@@ -202,9 +207,11 @@ final class Exact {
                     float v = (int) (cur >>> 24) * 5.9604645E-8F * (float) (Math.PI * 2);
                     headIsCtor = v == living.yHeadRot;
                     yawIsCtor |= v == living.getYRot();
+                    bodyIsCtor |= v == living.yBodyRot;
                     cur = ((cur - 0xBL) * LCG_INVERSE) & ((1L << 48) - 1);
                 }
                 yawIsCtor &= headIsCtor;
+                bodyIsCtor &= headIsCtor;
             }
         }
         r.setSeed(s);
@@ -216,6 +223,9 @@ final class Exact {
             if (yawIsCtor) {
                 living.setYRot(yaw);
                 living.yRotO = yaw;
+            }
+            if (bodyIsCtor) {
+                living.yBodyRot = yaw;
             }
         }
         Seeded info = new Seeded(n, s);
