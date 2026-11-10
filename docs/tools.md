@@ -61,11 +61,21 @@ speed and rider; each bed's OCCUPIED and sleeper; every gameTime % 100 slot with
 10-box (redsim's box test) and result; the golems' spawns, deaths and exits. Tags, in the design
 (`timeline: <tag>` lines) or `--tag` (design coordinates): `signal NAME x y z` (a block's state as a
 lane: a counter's bulb, a release line) and `region NAME x0 y0 z0 x1 y1 z1` (a villager there is at
-NAME; `station...` is the summoners' group). `VIOLATION <rule>` lines: `10.6` (a villager outside the
-summoner's group, arriving and leaving ones counted in, locked by a spawn), `16` (awake in REST
-within 16 of its home bed while the bed is OCCUPIED), `1200` (CANT_REACH older than 1200 gt in REST
-with a HOME; noted whether the HOME went), `follow` (a golem sensor's sighting away from the
-station) and `gossip` (a summon off the 100 gt grid).
+NAME; `station...` is the summoners' group). `VIOLATION <rule>` lines (the brief's timing diagram,
+designs/briefs/farm-iron-carousel.md): `10.6` (a villager outside the summoning batch locked by a
+spawn: the batch's late arrivals are told apart with the rest of the run, a leaving batch is not),
+`follow-box` (a live golem in the follow box of a villager outside its summoning batch, the arriving
+batch included: the villager's box inflated by its follow range, any tick, whatever the sensors'
+phase), `follow` (a golem sensor's actual sighting away from the station), `arrival` (a spawning
+batch member that reached the station less than 39 gt before the slot and did not arrive
+panicking; every spawn's margins are a `margin of` line), `16` (awake in REST within 16 of its home
+bed while the bed is OCCUPIED), `1200` (CANT_REACH older than 1200 gt in REST with a HOME; noted
+whether the HOME went), `home` (no HOME at a dawn or midday), `sleep` (not exactly one sleep since
+the last dawn) and `gossip` (a summon off the 100 gt grid). A part bench that is not a mob farm run
+(the counter's) writes its own trace in the dump's format and draws it with `mctas mobfarm timeline
+--from-dump <file> [--out DIR]` (`<stem>.timeline.html`): lines `t=<tick> gt=<game time> ...` then
+`signal NAME=VALUE [(full state)]`, `mark NAME [text]` (a point event) or `VIOLATION <rule> <lane>:
+<text>`, the rest skipped.
 The judge's speed, results unchanged: `mctas farmopt bench <spec> --n 16 --quick 8 [--full N]
 --threads 16 --out <file>` evaluates N candidates spread evenly over the spec's space level by
 level (static, quick for the first `--quick` passing static, full for the first `--full` passing

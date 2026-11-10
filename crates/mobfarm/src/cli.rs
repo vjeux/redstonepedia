@@ -325,11 +325,19 @@ pub enum MobfarmCmd {
     /// expiry, wanting a golem, cart, HOME, LAST_SLEPT and CANT_REACH; each cart's position, speed
     /// and rider; each bed's OCCUPIED; the design's tagged blocks and regions (`timeline: signal
     /// NAME x y z`, `timeline: region NAME x0 y0 z0 x1 y1 z1`; a region `station...` is the
-    /// summoners' group); the gameTime % 100 slots, each summoner's 10-box and result; the golems'
-    /// spawns and exits; and the violations: the 10.6 rule at a spawn, the 16 rule, CANT_REACH over
-    /// 1200 in REST, a golem in a waiting villager's follow box.
+    /// summoners' group); the gameTime % 100 slots, each summoner's 10-box and result, each spawning
+    /// batch's arrival margin; the golems' spawns and exits; and the violations: the 10.6 rule at a
+    /// spawn, the 16 rule, CANT_REACH over 1200 in REST, a golem sensor's sighting and any follow-box
+    /// exposure away from the summoning batch, an arrival under 39 gt before the slot, no HOME at a
+    /// dawn or midday, not exactly one sleep a night, a summon off the grid. `--from-dump FILE`
+    /// instead draws a part bench's own trace in the dump's format (`t=<tick> gt=<gt> signal
+    /// NAME=VALUE`, `mark NAME text`, `VIOLATION <rule> <lane>: text` lines) as `<out>/<stem>.timeline.html`.
     Timeline {
-        design: PathBuf,
+        /// The design (none with `--from-dump`).
+        design: Option<PathBuf>,
+        /// Draw this dump instead of running a design.
+        #[arg(long)]
+        from_dump: Option<PathBuf>,
         #[arg(long, default_value_t = 1)]
         seed: i64,
         #[arg(long, default_value_t = 1)]
@@ -542,7 +550,18 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("FAIL {f}");
             }
         }
-        MobfarmCmd::Timeline { design, seed, days, still, terrain, build, tag, from, to, out } => {
+        MobfarmCmd::Timeline { design, from_dump, seed, days, still, terrain, build, tag, from, to, out } => {
+            if let Some(dump) = from_dump {
+                let text = std::fs::read_to_string(&dump)?;
+                let stem = dump.file_stem().map(|s| s.to_string_lossy().trim_end_matches(".timeline").to_string()).unwrap_or_else(|| "dump".into());
+                let tl = crate::timeline::Timeline::from_dump(&stem, &dump.display().to_string(), &text)?;
+                let to = to.unwrap_or(tl.ticks).min(tl.ticks);
+                let (html, _) = crate::timeline::write(&tl, &out, &stem, from.min(to), to)?;
+                println!("{}", tl.summary(from.min(to), to));
+                println!("{} ({} KB)", html.display(), std::fs::metadata(&html)?.len() / 1024);
+                return Ok(());
+            }
+            let design = design.ok_or_else(|| anyhow::anyhow!("timeline: a design, or --from-dump FILE"))?;
             let (c, spec) = load(version, &design)?;
             use redsim::entity::mob::farm::{RunOpts, WalkMode};
             let walk = if still { WalkMode::Fixed(redsim::entity::mob::walk::Walk::Still) } else { WalkMode::Random };

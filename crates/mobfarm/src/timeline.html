@@ -39,14 +39,15 @@ function clsCol(c){return CLASS_COL[c]||(c.startsWith('station')?'#2fa36b':hcol(
 // the lanes: decode the delta-coded tracks
 function track(f){const n=f.length/4,T=new Int32Array(n),X=new Float64Array(n),Y=new Float64Array(n),Z=new Float64Array(n);let t=0,x=0,y=0,z=0;for(let i=0;i<n;i++){t+=f[4*i];x+=f[4*i+1];y+=f[4*i+2];z+=f[4*i+3];T[i]=t;X[i]=x/100;Y[i]=y/100;Z[i]=z/100;}return {T,X,Y,Z};}
 for(const l of D.lanes){if(l.pos)l.tr=track(l.pos);}
-const V=D.lanes.filter(l=>l.k=='v'),C=D.lanes.filter(l=>l.k=='c'),B=D.lanes.filter(l=>l.k=='b'),S=D.lanes.filter(l=>l.k=='s');
+const V=D.lanes.filter(l=>l.k=='v'),C=D.lanes.filter(l=>l.k=='c'),B=D.lanes.filter(l=>l.k=='b'),S=D.lanes.filter(l=>l.k=='s'),M=D.lanes.filter(l=>l.k=='m');
+const slotAt=new Map(D.slots.map(s=>[s.t,s]));
 // golem rows (bars that do not overlap share a row)
 const grows=[];for(const g of D.golems){const a=g.t,b=g.gone?g.gone[0]:D.to;let r=0;while(grows[r]!==undefined&&grows[r]>=a)r++;grows[r]=b+30;g.row=r;}
 const GR=Math.max(1,grows.length);
 // the rows
-const rows=[];const H={v:47,c:26,b:15,s:17};
-for(const l of V)rows.push({l,h:H.v});for(const l of C)rows.push({l,h:H.c});for(const l of B)rows.push({l,h:H.b});for(const l of S)rows.push({l,h:H.s});
-rows.push({g:1,h:GR*9+8});
+const rows=[];const H={v:47,c:26,b:15,s:17,m:17};
+for(const l of V)rows.push({l,h:H.v});for(const l of C)rows.push({l,h:H.c});for(const l of B)rows.push({l,h:H.b});for(const l of S)rows.push({l,h:H.s});for(const l of M)rows.push({l,h:H.m});
+if(D.golems.length||V.length)rows.push({g:1,h:GR*9+8});
 let yy=0;for(const r of rows){r.y=yy;yy+=r.h+3;}const totalH=yy;
 // value of a change list at tick t (the last change at or before t)
 function at(a,t){let lo=0,hi=a.length-1,r=-1;while(lo<=hi){const m=(lo+hi)>>1;if(a[m][0]<=t){r=m;lo=m+1}else hi=m-1;}return r<0?null:a[r][1];}
@@ -56,7 +57,7 @@ function posAt(tr,t){const i=tidx(tr.T,t);return i<0?null:[tr.X[i],tr.Y[i],tr.Z[
 function stamp(t){const gt=D.t0+t,dt=D.day0+t;return 't='+t+' gt='+gt+' day='+(Math.floor(dt/24000)-Math.floor(D.day0/24000))+' dt='+(((dt%24000)+24000)%24000);}
 const cv=document.getElementById('cv'),ctx=cv.getContext('2d'),ro=document.getElementById('ro'),top_=document.getElementById('top');
 document.getElementById('sum').textContent=D.summary+' · window t='+D.from+'..'+D.to+' of '+D.ticks;
-document.getElementById('legend').innerHTML='<i style="background:#2fa36b"></i>station<i style="background:#c79a49"></i>held<i style="background:#8b929c"></i>travelling<i style="background:#3f6fd1"></i>asleep<i style="background:#79a3ee"></i>at bed<i style="background:#e0605e"></i>loose'+'<i style="background:#e5484d"></i>panic trigger<i style="background:#f5a524"></i>golem lock<i style="background:#46a758"></i>wants a golem<i style="background:#8e4ec6"></i>CANT_REACH (red over 1200)<i style="background:#2c4787"></i>REST<i style="background:#2bb3b3"></i>HOME'+'<i style="background:#46a758;border-radius:6px"></i>slot: spawn<i style="background:#f5a524;border-radius:6px"></i>no spot<i style="background:#6b7280;border-radius:6px"></i>no try<i style="background:#ff4d4f;transform:rotate(45deg)"></i>violation';
+document.getElementById('legend').innerHTML=(V.length?'<i style="background:#2fa36b"></i>station<i style="background:#c79a49"></i>held<i style="background:#8b929c"></i>travelling<i style="background:#3f6fd1"></i>asleep<i style="background:#79a3ee"></i>at bed<i style="background:#e0605e"></i>loose'+'<i style="background:#e5484d"></i>panic trigger<i style="background:#f5a524"></i>golem lock<i style="background:#46a758"></i>wants a golem<i style="background:#8e4ec6"></i>CANT_REACH (red over 1200)<i style="background:#2c4787"></i>REST<i style="background:#2bb3b3"></i>HOME'+'<i style="background:#46a758;border-radius:6px"></i>slot: spawn<i style="background:#f5a524;border-radius:6px"></i>no spot<i style="background:#6b7280;border-radius:6px"></i>no try':'grid: gameTime % 100')+'<i style="background:#ff4d4f;transform:rotate(45deg)"></i>violation';
 const LW=60,AX=36;let W=0,Hc=0,dpr=1;
 const view={t:D.from,ppt:1};let sy=0,cursor=null,dirty=true;
 function resize(){dpr=window.devicePixelRatio||1;W=cv.clientWidth;const roH=ro.style.display=='none'?0:ro.offsetHeight;Hc=Math.max(220,window.innerHeight-top_.offsetHeight-roH);cv.style.height=Hc+'px';cv.width=Math.round(W*dpr);cv.height=Math.round(Hc*dpr);clamp();dirty=true;}
@@ -77,8 +78,8 @@ const ta=view.t,tb=view.t+span();
 // night shading (day time 12000-24000: REST)
 ctx.save();ctx.beginPath();ctx.rect(LW,0,W-LW,Hc);ctx.clip();
 const d0=D.day0;for(let k=Math.floor((d0+ta)/24000)-1;k<=Math.floor((d0+tb)/24000)+1;k++){const a=k*24000+12000-d0,b=k*24000+24000-d0;const x0=X(a),x1=X(b);if(x1<LW||x0>W)continue;ctx.fillStyle='rgba(60,80,160,0.10)';ctx.fillRect(x0,0,x1-x0,Hc);}
-// the slots' grid when it is wider than 4 px
-if(view.ppt*100>=4){for(const s of D.slots){if(s.t<ta||s.t>tb)continue;const x=X(s.t);const g=s.s.some(m=>m.g);ctx.fillStyle=g?'rgba(70,167,88,0.35)':'rgba(140,140,150,0.18)';ctx.fillRect(x,AX,1,Hc-AX);}}
+// the slots' grid (gameTime % 100 == 0) when it is wider than 4 px: green where a golem spawned
+if(view.ppt*100>=4){for(let g=Math.ceil((D.t0+ta)/100)*100;g<=D.t0+tb;g+=100){const t=g-D.t0;const x=X(t);const s=slotAt.get(t);const sp=s&&s.s.some(m=>m.g);ctx.fillStyle=sp?'rgba(70,167,88,0.35)':s?'rgba(140,140,150,0.22)':'rgba(140,140,150,0.10)';ctx.fillRect(x,AX,1,Hc-AX);}}
 ctx.restore();
 // lanes
 ctx.save();ctx.beginPath();ctx.rect(0,AX,W,Hc-AX);ctx.clip();ctx.translate(0,AX-sy);
@@ -98,11 +99,12 @@ for(const r of rows){if(r.y+r.h<sy||r.y>sy+Hc)continue;const y=r.y;
   band(l.home,y+43,3,v=>v?'#2bb3b3':null);
  } else if(l.k=='c'){drawCart(l,y,r.h);} else if(l.k=='b'){band(l.occ,y+2,r.h-4,v=>v?'#3f6fd1':null);text(l.by,y+r.h/2,'#fff',(v)=>v||'');}
  else if(l.k=='s'){band(l.val,y+2,r.h-4,v=>v=='off'?'#2a2e36':hcol(v));text(l.val,y+r.h/2,'#fff',v=>v);}
+ else if(l.k=='m'){drawMarks(l,y,r.h);}
  }
  ctx.restore();
  // label
  ctx.fillStyle='#15171c';ctx.fillRect(0,y,LW-2,r.h);ctx.fillStyle='#cfd3da';ctx.font='12px system-ui';ctx.textBaseline='top';
- if(r.g)ctx.fillText('golems',4,y+2);else{const l=r.l;let s=l.id;if(l.k=='s'||l.k=='b'){ctx.font='10px system-ui';}
+ if(r.g)ctx.fillText('golems',4,y+2);else{const l=r.l;let s=l.id;if(l.k=='s'||l.k=='b'||l.k=='m'){ctx.font='10px system-ui';}
   const parts=s.split(' ');ctx.fillText(parts[0],4,y+2);if(l.k=='v'&&l.sub){ctx.font='10px system-ui';ctx.fillStyle='#8b929c';ctx.fillText('in '+l.sub,4,y+17);}else if(parts.length>1){ctx.font='9.5px system-ui';ctx.fillStyle='#8b929c';ctx.fillText(parts.slice(1).join(' ').slice(0,11),4,y+Math.min(13,r.h-9));}}
 }
 // flags
@@ -119,6 +121,8 @@ ctx.font='10.5px system-ui';ctx.textBaseline='top';
 for(let t=Math.ceil(ta/st)*st;t<=tb;t+=st){const x=X(t);if(x<LW)continue;ctx.fillStyle='#4a505c';ctx.fillRect(x,0,1,AX);ctx.fillStyle='#cfd3da';ctx.fillText('t '+t,x+3,2);const dt=(((D.day0+t)%24000)+24000)%24000;ctx.fillStyle='#8b929c';ctx.fillText('dt '+dt,x+3,13);}
 for(const s of D.slots){if(s.t<ta||s.t>tb)continue;const x=X(s.t);const g=s.s.some(m=>m.g),tr=s.s.some(m=>m.res.startsWith('no spot'));ctx.fillStyle=g?'#46a758':tr?'#f5a524':'#6b7280';ctx.beginPath();ctx.moveTo(x,AX-1);ctx.lineTo(x-4,AX-8);ctx.lineTo(x+4,AX-8);ctx.closePath();ctx.fill();}
 ctx.fillStyle='#8b929c';ctx.font='10px system-ui';ctx.fillText('tick',4,4);ctx.fillText('day time',4,15);
+// flags on a lane the page does not have (a dump's): on the axis
+for(const f of D.flags){if(f.t<ta||f.t>tb||rows.some(r=>r.l&&r.l.id==f.lane))continue;const x=X(f.t);ctx.fillStyle='#ff4d4f';ctx.beginPath();ctx.moveTo(x,1);ctx.lineTo(x+5,7);ctx.lineTo(x,13);ctx.lineTo(x-5,7);ctx.closePath();ctx.fill();}
 // the cursor
 if(cursor!=null){const x=X(cursor);if(x>=LW&&x<=W){ctx.fillStyle='rgba(255,255,255,0.85)';ctx.fillRect(x,0,1,Hc);if(view.ppt>=3){ctx.fillStyle='rgba(255,255,255,0.10)';ctx.fillRect(x,0,view.ppt,Hc);}}}
 }
@@ -129,6 +133,9 @@ function drawCart(l,y,h){const tr=l.tr,ta=view.t,tb=view.t+span();const base=y+h
   else{const c=Math.floor(x);if(c!=col){if(col>=0&&mx>0){const hh=Math.min(full,mx/0.4*full);ctx.fillRect(col,base-hh,1,Math.max(1,hh));}col=c;mx=0;}if(sp>mx)mx=sp;}}
  if(col>=0&&mx>0){const hh=Math.min(full,mx/0.4*full);ctx.fillRect(col,base-hh,1,Math.max(1,hh));}
  ctx.fillStyle='#2a2e36';ctx.fillRect(LW,base,W-LW,1);text(l.rider,y+6,'#cfd3da',v=>v?'rider '+v:'empty');}
+function drawMarks(l,y,h){const ta=view.t,tb=view.t+span();const ev=l.ev;let i=Math.max(0,idx(ev,ta));let lastX=-1e9;ctx.font='10px system-ui';ctx.textBaseline='middle';
+ for(;i<ev.length;i++){const t=ev[i][0];if(t>tb)break;if(t<ta)continue;const x=X(t);ctx.fillStyle=hcol(ev[i][1]||l.id);ctx.fillRect(x-1,y+1,3,h-2);
+  const nx=i+1<ev.length?X(ev[i+1][0]):W;const txt=ev[i][1];if(txt&&nx-x>ctx.measureText(txt).width+8&&x-lastX>4){ctx.fillStyle='#e4e6eb';ctx.fillText(txt,x+4,y+h/2);lastX=x;}}}
 function drawGolems(y){for(const g of D.golems){const a=g.t,b=g.gone?g.gone[0]:D.to,d=g.died?g.died[0]:null;const yy=y+4+g.row*9;const x0=Math.max(LW,X(a)),x1=Math.min(W,X(b));if(x1<LW||x0>W)continue;
  const xd=d!=null?X(d):x1;ctx.fillStyle='#46a758';ctx.fillRect(x0,yy,Math.max(1,Math.min(xd,x1)-x0),7);if(d!=null&&xd<x1){ctx.fillStyle='#8b2b2b';ctx.fillRect(Math.max(x0,xd),yy,x1-Math.max(x0,xd),7);}
  if(x1-x0>26){ctx.fillStyle='#fff';ctx.font='9px system-ui';ctx.textBaseline='top';ctx.fillText(g.id,x0+2,yy-1);}}}
@@ -141,6 +148,7 @@ function readout(t){if(t==null)return;let s='<b>'+stamp(t)+'</b>\n';
  for(const l of C){const p=posAt(l.tr,t),q=posAt(l.tr,t-1);const sp=p&&q?Math.hypot(p[0]-q[0],p[2]-q[2]):0;s+=l.id.padEnd(4)+' at '+(p?p.map(v=>v.toFixed(2)).join(','):'?')+' speed '+sp.toFixed(3)+' rider '+(at(l.rider,t)||'-')+'\n';}
  for(const l of B){s+='bed '+l.id+': '+(at(l.occ,t)?'OCCUPIED by '+(at(l.by,t)||'?'):'free')+'\n';}
  for(const l of S){s+=l.id+': '+at(l.val,t)+'  '+at(l.full,t)+'\n';}
+ for(const l of M){for(const x of l.ev)if(x[0]==t)s+=l.id+': '+(x[1]||'(mark)')+'\n';}
  const alive=D.golems.filter(g=>g.t<=t&&(!g.gone||g.gone[0]>t));for(const g of alive)s+=g.id+': spawned t='+g.t+' by '+g.by+' at '+g.at.join(',')+(g.died&&g.died[0]<=t?', died t='+g.died[0]+' ('+g.died[1]+')':'')+(g.gone?', gone t='+g.gone[0]:'')+'\n';
  ro.innerHTML=s;}
 function setCursor(t){cursor=Math.max(D.from,Math.min(D.to,Math.round(t)));document.getElementById('tick').value=cursor;readout(cursor);const x=X(cursor);if(x<LW||x>W){view.t=cursor-span()/2;clamp();}history.replaceState(null,'','#t='+cursor+'&w='+Math.round(span()));dirty=true;}
