@@ -5,8 +5,10 @@
 //!   on track tff's census engine (`circuit_tff::census`).
 //! * [`ring`]: dropper-ring counters around the input cell (`circuit memory ring --n N`).
 
+pub mod compose;
 pub mod items;
 pub mod ring;
+pub mod schedmodel;
 pub mod seqbench;
 pub mod specs;
 pub mod stamp;
@@ -67,6 +69,73 @@ enum Cmd {
     /// Run a design under this track's census spec for its kind (`circuit:` header) and print the
     /// output's rest state, change frames, samples and the spec's verdict (debugging the census).
     Check { design: PathBuf, #[arg(long, default_value_t = 40)] gap: u32 },
+    /// One design from several placed at offsets (and turned): `PATH@DX,DY,DZ[,TURNS][=PREFIX]`
+    /// each; a cell two modules fill must hold the same block; ports renamed with the prefix
+    /// (`input` -> `input.PREFIX`, `output.n` -> `output.PREFIX-n`) or dropped (`=-`).
+    Compose {
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, default_value = "composed")]
+        name: String,
+        parts: Vec<String>,
+    },
+    /// The sleep routine's nightly scheduler, its policy judged on timing alone (no circuit): the
+    /// counter's advances with misses, a visit per dispatch (nap, length, one bed), every slot's
+    /// willingness (gameTime - LAST_SLEPT < 24,000); per villager its naps a night, nap day-time
+    /// range, worst gap window and slots lost (crates/circuit-memory/src/schedmodel.rs).
+    SchedModel {
+        /// dusk21, crt, round or urgent.
+        #[arg(long, default_value = "round")]
+        policy: String,
+        #[arg(long, default_value_t = 60)]
+        days: u32,
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        #[arg(long, default_value_t = 0.05)]
+        miss: f64,
+        #[arg(long, default_value_t = 0.3)]
+        burst: f64,
+        /// A dispatch every this many advances.
+        #[arg(long, default_value_t = 5)]
+        every: u32,
+        #[arg(long, default_value_t = 12_000)]
+        dusk: u64,
+        #[arg(long, default_value_t = 24_010)]
+        dawn: u64,
+        /// The nap's delay after the dispatch, `MIN..MAX` gt.
+        #[arg(long, default_value = "135..185")]
+        nap: String,
+        /// The visit's length, `MIN..MAX` gt.
+        #[arg(long, default_value = "291..486")]
+        visit: String,
+        #[arg(long, default_value_t = 40)]
+        ready: u64,
+        /// Step the dispatch phase on every advance, day and night.
+        #[arg(long)]
+        phase_always: bool,
+        /// `block`: a block starting within this many gt of dusk runs 22 visits and moves the head.
+        #[arg(long, default_value_t = 200)]
+        rotate: u64,
+        /// `pring`: the window's last day time for a dispatch.
+        #[arg(long, default_value_t = 22_965)]
+        pring_end: u64,
+        /// The yard queues a napper dispatched while the bed is busy.
+        #[arg(long)]
+        queue: bool,
+        /// `pring`: hold a dispatch while the yard is busy (the pointer stays).
+        #[arg(long)]
+        hold: bool,
+        /// The share of visits whose nap (and the yard's idle) slips 40..200 gt (the HOME re-take).
+        #[arg(long, default_value_t = 0.0)]
+        retake: f64,
+        /// The share of visits drawn from the tail [--visit-body, the longest] (0: uniform).
+        #[arg(long, default_value_t = 0.0)]
+        visit_tail: f64,
+        #[arg(long, default_value_t = 330)]
+        visit_body: u32,
+        #[arg(long)]
+        verbose: bool,
+    },
     /// The carousel counter's bench (designs/briefs/farm-iron-carousel.md, part 1): golem pulses
     /// on the 100-gt slot grid from a reactive farm (missed slots, early and late pulses), the 7
     /// lines read every tick (one advance per pulse within --tc, the cycle order kept, the fallback
@@ -159,6 +228,17 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::Items { n, out } => items::run(&n, &out)?,
         Cmd::Ring { n, max_dust, keep, bulbs, then, divider, unchecked, out } => ring::run(&n, max_dust, keep, bulbs, &then, divider, !unchecked, &out)?,
         Cmd::StampGroups { dry_run, files } => stamp::run(&files, dry_run)?,
+        Cmd::Compose { out, name, parts } => compose::compose(&out, &name, &parts)?,
+        Cmd::SchedModel { policy, days, seed, miss, burst, every, dusk, dawn, nap, visit, ready, phase_always, rotate, pring_end, queue, hold, retake, visit_tail, visit_body, verbose } => {
+            let range = |s: &str| -> Result<(u32, u32)> {
+                let (a, b) = s.split_once("..").ok_or_else(|| anyhow!("{s:?}: MIN..MAX"))?;
+                Ok((a.trim().parse()?, b.trim().parse()?))
+            };
+            let o = schedmodel::Opts { policy, days, seed, miss, burst, every, dusk, dawn, nap: range(&nap)?, visit: range(&visit)?, ready, phase_always, verbose, rotate, pring_end, queue, hold, retake, visit_tail, visit_body };
+            if !schedmodel::run(&o)? {
+                bail!("the policy loses slots or leaves a villager a night without a nap");
+            }
+        }
         Cmd::CounterBench { design, pulses, seed, restarts, width, jitter, miss, burst, ready, tc, m, dump, dump_ticks, stimulus_out, turns } => {
             let turns: Vec<u8> = turns.split(',').map(str::trim).filter(|s| !s.is_empty()).map(|s| s.parse::<u8>().with_context(|| format!("--turns {s:?}"))).collect::<Result<_>>()?;
             let range = |s: &str| -> Result<(i64, i64)> {
