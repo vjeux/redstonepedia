@@ -68,18 +68,39 @@ pub struct LaneOpts {
     /// The sleep routine's yard past the hold ends ([`crate::yard`]): the hold caps give way to
     /// the extensions, the bed is the yard's, the bench sends each villager to it once a night.
     pub yard: bool,
+    /// Paired lanes (ironspec's ruling, Nov 10, 4:14 AM): lanes at x 0,1 | 3,4 | 6,7 | 9 with a
+    /// wiring column at x -1, 2, 5, 8 beside each lane, and every other pair's hold ends one
+    /// nearer (z - 1), so a column block beside one lane's hold slope meets the other lane's flat
+    /// rail: every control has a side neighbour for a direct feed (the 7-wide pitch-1 stack has
+    /// none for its middle level).
+    pub paired: bool,
 }
 
 impl Default for LaneOpts {
     fn default() -> LaneOpts {
-        LaneOpts { pitch: 1, levels: 3, level_gap: 3, run: 21, stand_z0: 1, boost_every: 2, margin: 1, zombies: true, pad_z: -1.0, yard: false }
+        LaneOpts { pitch: 1, levels: 3, level_gap: 3, run: 21, stand_z0: 1, boost_every: 2, margin: 1, zombies: true, pad_z: -1.0, yard: false, paired: true }
     }
 }
 
 impl LaneOpts {
     /// Lane `b`'s x.
     pub fn x(&self, b: i32) -> i32 {
-        b * self.pitch
+        if self.paired { b + b / 2 } else { b * self.pitch }
+    }
+
+    /// Lane `b`'s hold ends' offset in z (paired lanes: every other pair one nearer).
+    pub fn hold_off(&self, b: i32) -> i32 {
+        if self.paired { -((b / 2) % 2) } else { 0 }
+    }
+
+    /// Lane `b`'s level-`k` hold slope (z).
+    pub fn hold_slope_z(&self, b: i32, k: i32) -> i32 {
+        self.run - k + self.hold_off(b)
+    }
+
+    /// Lane `b`'s wiring column (paired lanes): the free column beside it.
+    pub fn column(&self, b: i32) -> Option<i32> {
+        self.paired.then(|| if b % 2 == 0 { self.x(b) - 1 } else { self.x(b) + 1 })
     }
 
     /// Every control cell of a lane's stand end: one a level, beside the level's slope rail in its
@@ -90,7 +111,7 @@ impl LaneOpts {
 
     /// Every control cell of a lane's hold end.
     pub fn hold_ctrls(&self, b: i32) -> Vec<BlockPos> {
-        (0..self.levels).map(|k| BlockPos::new(self.x(b), self.level_gap * k, self.run - k + 1)).collect()
+        (0..self.levels).map(|k| BlockPos::new(self.x(b), self.level_gap * k, self.hold_slope_z(b, k) + 1)).collect()
     }
 
     /// The stand zone: a rider with its z under this is at the station (on its level's slope).
@@ -118,7 +139,7 @@ impl LaneOpts {
 pub fn design(o: &LaneOpts) -> Result<String> {
     anyhow::ensure!(o.pitch >= 1 && o.levels >= 1 && o.level_gap >= 3, "a pitch of 1 or more and levels 3 or more apart (a rider's eyes under the level above's supports)");
     anyhow::ensure!(o.boost_every >= 0 && o.margin >= 1, "boosters every 0 (none) or more, at least one flat rail from each slope");
-    let hold_first = o.run - (o.levels - 1);
+    let hold_first = o.run - (o.levels - 1) + (0..BATCHES).map(|b| o.hold_off(b)).min().unwrap_or(0);
     anyhow::ensure!((hold_first as f64) + 0.5 > o.hold_z(), "the top level holds at z {hold_first} but held riders must be past {:.1} (19.3 from the pad)", o.hold_z());
     anyhow::ensure!(hold_first - (o.levels - 1) - o.stand_z0 > 2 * o.margin + 1, "the top level's track is too short for its margins");
     let mut b = Builder::new("carousel-hold-7");
@@ -131,7 +152,7 @@ pub fn design(o: &LaneOpts) -> Result<String> {
                 b.set(x, h, z, block);
                 b.set(x, h - 1, z, support);
             };
-            let (zs, zh) = (o.stand_z0 + k, o.run - k);
+            let (zs, zh) = (o.stand_z0 + k, o.hold_slope_z(lane, k));
             // the stand slope, rising toward its stop (-z); its control a redstone block at the
             // start (every line low: the stand ends powered, the carts at the hold); glass over
             // the control where the cart would climb on
@@ -162,13 +183,25 @@ pub fn design(o: &LaneOpts) -> Result<String> {
     if o.zombies {
         let east = o.x(BATCHES - 1) + 2;
         let roof = o.level_gap * o.levels;
+        // (paired lanes: at each hold end a second zombie a block higher than the level's rails,
+        // on glass: its eye at the parked riders' eye height, so its sight lines run over the other
+        // lanes' caps, top supports and controls (every other pair's hold ends one nearer) and
+        // under the level above's supports; the zombie level with the rails moves one nearer, in
+        // line with the nearer pairs' parked riders and seen by every rider on its way in)
         for k in 0..o.levels {
             let h = o.level_gap * k;
-            for z in [o.stand_z0 + k, (o.stand_z0 + o.run) / 2, o.run - k] {
+            let hold = o.run - k;
+            let mut spots = vec![(o.stand_z0 + k, 0), ((o.stand_z0 + o.run) / 2, 0)];
+            if o.paired {
+                spots.extend([(hold - 1, 0), (hold, 1)]);
+            } else {
+                spots.push((hold, 0));
+            }
+            for (z, lift) in spots {
                 for x in [-2, east] {
-                    b.set(x, h - 1, z, glass);
+                    b.set(x, h - 1 + lift, z, glass);
                     b.set(x, roof, z, "oak_leaves[distance=1,persistent=true,waterlogged=false]");
-                    b.entity("oak_boat", [x as f64 + 0.5, h as f64, z as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
+                    b.entity("oak_boat", [x as f64 + 0.5, (h + lift) as f64, z as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:zombie\"}]}"));
                 }
             }
         }
@@ -185,7 +218,7 @@ pub fn design(o: &LaneOpts) -> Result<String> {
         b.set(bed.x, bed.y - 1, bed.z + 1, glass);
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("hold".into(), format!("pitch={} levels={} level_gap={} run={} stand_z0={} boost={} margin={} zombies={} yard={}", o.pitch, o.levels, o.level_gap, o.run, o.stand_z0, o.boost_every, o.margin, o.zombies as i32, o.yard as i32));
+    b.d.meta.insert("hold".into(), format!("pitch={} levels={} level_gap={} run={} stand_z0={} boost={} margin={} zombies={} yard={} paired={}", o.pitch, o.levels, o.level_gap, o.run, o.stand_z0, o.boost_every, o.margin, o.zombies as i32, o.yard as i32, o.paired as i32));
     b.d.ports.insert("output".into(), if o.yard { [o.x(BATCHES - 1) + 1, 0, o.run / 4] } else { [bed.x + 1, 0, bed.z] });
     Ok(b.text(&[
         &format!("The carousel's release + hold part (bench): {BATCHES} lanes at pitch {}, each {} stacked single-cart tracks {} apart (one villager a track, a batch a lane),", o.pitch, o.levels, o.level_gap),
@@ -197,8 +230,8 @@ pub fn design(o: &LaneOpts) -> Result<String> {
 pub fn lanes_of(meta: &std::collections::BTreeMap<String, String>) -> Result<LaneOpts> {
     let line = meta.get("hold").ok_or_else(|| anyhow::anyhow!("not a release + hold design (no `hold:` line)"))?;
     // (a line without `stand_z0` is from before 2026-11-10: the stand slopes from z 0, the yard
-    // absent)
-    let mut o = LaneOpts { stand_z0: 0, yard: false, ..LaneOpts::default() };
+    // absent; without `paired`: pitch-1 lanes)
+    let mut o = LaneOpts { stand_z0: 0, yard: false, paired: false, ..LaneOpts::default() };
     for kv in line.split_whitespace() {
         let (k, v) = kv.split_once('=').ok_or_else(|| anyhow::anyhow!("bad `hold:` entry {kv:?}"))?;
         let n: i32 = v.parse()?;
@@ -212,6 +245,7 @@ pub fn lanes_of(meta: &std::collections::BTreeMap<String, String>) -> Result<Lan
             "margin" => o.margin = n,
             "zombies" => o.zombies = n != 0,
             "yard" => o.yard = n != 0,
+            "paired" => o.paired = n != 0,
             _ => anyhow::bail!("unknown `hold:` entry {k:?}"),
         }
     }

@@ -256,7 +256,7 @@ fn lay(b: &mut Builder, cells: &[([i32; 3], R)]) -> Result<()> {
 /// Builds the yard onto the release + hold design (its hold caps left out: each extension's
 /// first rail stands on its hold control).
 pub fn build(b: &mut Builder, o: &LaneOpts, y: &YardOpts) -> Result<Yard> {
-    ensure!(o.pitch == 1 && o.levels == 3 && o.level_gap == 3, "the yard is laid for 3 levels 3 apart at pitch 1");
+    ensure!(o.pitch == 1 && o.levels == 3 && o.level_gap == 3 && !o.paired, "the yard is laid for 3 levels 3 apart at pitch 1 (the paired-lane yard is next)");
     ensure!(y.z0 >= o.run + 4, "the first turn (z {}) must stand past the bottom level's hump (z {})", y.z0, o.run + 3);
     let yd = layout(o, y);
     let zo = zout(y);

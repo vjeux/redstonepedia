@@ -367,6 +367,28 @@ pub enum MobfarmCmd {
         #[arg(long, short, default_value = ".")]
         out: PathBuf,
     },
+    /// A design's plane x = X as text (rows y from the top, columns z): what each cell holds, for
+    /// laying out wiring in a stacked part. Legend: `.` air, `-` rail, `/` rail slope, `P`/`p`
+    /// powered rail flat/slope, `A` activator, `D` detector, `R` redstone block, `T` target, `g`
+    /// glass, `s` stone or cobblestone, `B` bed, `h` trapdoor, `L` leaves, `O` observer, `r`
+    /// repeater, `t` torch, `*` dust, `#` any other block; `c` a minecart's cell (its rider's eye
+    /// cell `e`, the eye 1.62 over the cart's position), `Z` a boat's cell.
+    Slice {
+        design: PathBuf,
+        /// The plane.
+        #[arg(long)]
+        x: i32,
+        /// The rows shown (default: the design's extent).
+        #[arg(long, allow_hyphen_values = true)]
+        y_from: Option<i32>,
+        #[arg(long, allow_hyphen_values = true)]
+        y_to: Option<i32>,
+        /// The columns shown (default: the design's extent).
+        #[arg(long, allow_hyphen_values = true)]
+        z_from: Option<i32>,
+        #[arg(long, allow_hyphen_values = true)]
+        z_to: Option<i32>,
+    },
     /// The carousel's release + hold part (brief farm-iron-carousel.md, "The parts" 2): write its
     /// bench design, 7 lanes of stacked single-cart tracks, one villager a track, a batch a lane
     /// (`mobfarm hold-bench` runs it).
@@ -401,6 +423,10 @@ pub enum MobfarmCmd {
         /// its own cart through switched rails; the bench sends each villager there once a night).
         #[arg(long)]
         yard: bool,
+        /// The pitch-1 stack (lanes at x = b * pitch) instead of paired lanes (x 0,1 | 3,4 | 6,7 |
+        /// 9 with wiring columns, every other pair's hold ends one nearer: ironspec's ruling).
+        #[arg(long)]
+        unpaired: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -688,6 +714,71 @@ fn load(_version: &str, path: &PathBuf) -> Result<(circuit::Circuit, redsim::ent
     Ok((c, spec))
 }
 
+/// `mobfarm slice`: the plane x = `x` of a design as text (rows y from the top, columns z).
+fn slice_text(d: &mctas::design::Design, x: i32, y_from: Option<i32>, y_to: Option<i32>, z_from: Option<i32>, z_to: Option<i32>) -> String {
+    let ys = d.blocks.keys().map(|p| p[1]);
+    let zs = d.blocks.keys().map(|p| p[2]);
+    let (y0, y1) = (y_from.unwrap_or_else(|| ys.clone().min().unwrap_or(0)), y_to.unwrap_or_else(|| ys.max().unwrap_or(0)));
+    let (z0, z1) = (z_from.unwrap_or_else(|| zs.clone().min().unwrap_or(0)), z_to.unwrap_or_else(|| zs.max().unwrap_or(0)));
+    let mut marks: std::collections::BTreeMap<(i32, i32), char> = Default::default();
+    for e in &d.entities {
+        if e.pos[0].floor() as i32 != x {
+            continue;
+        }
+        let (y, z) = (e.pos[1].floor() as i32, e.pos[2].floor() as i32);
+        if e.kind.ends_with("minecart") {
+            marks.insert((y, z), 'c');
+            marks.insert(((e.pos[1] + 1.62).floor() as i32, z), 'e');
+        } else if e.kind.ends_with("boat") {
+            marks.insert((y, z), 'Z');
+        }
+    }
+    let glyph = |s: &str| -> char {
+        let n = s.strip_prefix("minecraft:").unwrap_or(s);
+        let base = n.split('[').next().unwrap_or(n);
+        let slope = n.contains("shape=ascending");
+        match base {
+            "rail" => if slope { '/' } else { '-' },
+            "powered_rail" => if slope { 'p' } else { 'P' },
+            "activator_rail" => 'A',
+            "detector_rail" => 'D',
+            "redstone_block" => 'R',
+            "target" => 'T',
+            "glass" => 'g',
+            "stone" | "cobblestone" => 's',
+            "iron_trapdoor" => 'h',
+            "observer" => 'O',
+            "repeater" => 'r',
+            "redstone_torch" | "redstone_wall_torch" => 't',
+            "redstone_wire" => '*',
+            _ if base.ends_with("_bed") => 'B',
+            _ if base.ends_with("_leaves") => 'L',
+            _ => '#',
+        }
+    };
+    let mut out = String::new();
+    out.push_str(&format!("x = {x}: rows y {y1}..{y0}, columns z {z0}..{z1}\n"));
+    let mut head = String::from("     ");
+    for z in z0..=z1 {
+        head.push(char::from_digit(z.rem_euclid(10) as u32, 10).unwrap_or('?'));
+    }
+    out.push_str(&head);
+    out.push('\n');
+    for y in (y0..=y1).rev() {
+        let mut row = format!("{y:>4} ");
+        for z in z0..=z1 {
+            let c = match d.blocks.get(&[x, y, z]) {
+                Some(s) => glyph(s),
+                None => *marks.get(&(y, z)).unwrap_or(&'.'),
+            };
+            row.push(c);
+        }
+        out.push_str(&row);
+        out.push('\n');
+    }
+    out
+}
+
 pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
     match cmd {
         MobfarmCmd::Gen { layout, pits, pad, floor, villagers, grid, modules, pitch, regular, dx, dz, gap, period, hide, kill, access, tier, out } => {
@@ -809,8 +900,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::Hold { pitch, levels, level_gap, run, stand_z0, boost_every, margin, no_zombies, yard, out } => {
-            let o = crate::hold::LaneOpts { pitch, levels, level_gap, run, stand_z0, boost_every, margin, zombies: !no_zombies, yard, ..Default::default() };
+        MobfarmCmd::Slice { design, x, y_from, y_to, z_from, z_to } => {
+            let d = mctas::design::Design::parse(&std::fs::read_to_string(&design)?)?;
+            print!("{}", slice_text(&d, x, y_from, y_to, z_from, z_to));
+        }
+        MobfarmCmd::Hold { pitch, levels, level_gap, run, stand_z0, boost_every, margin, no_zombies, yard, unpaired, out } => {
+            let o = crate::hold::LaneOpts { pitch, levels, level_gap, run, stand_z0, boost_every, margin, zombies: !no_zombies, yard, paired: !unpaired, ..Default::default() };
             let text = crate::hold::design(&o)?;
             std::fs::write(&out, text)?;
             println!("{}", out.display());

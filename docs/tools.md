@@ -64,10 +64,15 @@ a carousel's riders at each midday), how many hold and the first failures by kin
 records the count as a row of `<stem>.seeds.tsv` beside the design (`days held of seeds`, in run
 order; a run again on the same days and seeds replaces its row), which the farm's card quotes.
 The carousel's release + hold part (designs/briefs/farm-iron-carousel.md, "The parts" 2): `mctas
-mobfarm hold [--levels 3] [--level-gap 3] [--run 20] [--boost-every 2] [--margin 1] [--pitch 1]
-[--no-zombies] [--yard] --out <file>` writes its bench design (7 lanes of stacked single-cart tracks, one
-villager a track, a batch a lane; each track a cart between two braked one-rail slopes; zombies
-beside every level; one shared bed), and `mctas mobfarm hold-bench <file> --from 1 --to 100
+mobfarm hold [--levels 3] [--level-gap 3] [--run 21] [--stand-z0 1] [--boost-every 2] [--margin 1]
+[--pitch 1] [--unpaired] [--no-zombies] [--yard] --out <file>` writes its bench design (7 lanes of
+stacked single-cart tracks, one villager a track, a batch a lane; each track a cart between two
+braked one-rail slopes; zombies beside every level; one shared bed); the lanes are paired (ironspec's
+ruling: x 0,1 | 3,4 | 6,7 | 9, a wiring column at x -1, 2, 5, 8 beside each lane, every other
+pair's hold ends one nearer, the hold ends' zombies one level with the rails and one a block higher)
+unless `--unpaired` (x = b * pitch). `mctas mobfarm slice <design> --x X [--y-from A --y-to B]
+[--z-from A --z-to B]` prints a design's plane x = X as text (what each cell holds, the carts and
+their riders' eye cells), for laying out wiring in a stacked part. `mctas mobfarm hold-bench <file> --from 1 --to 100
 --days 6 [--jitter 20] [--jobs N] [--verbose]` runs the 7 batches on the 100-gt slot grid with the
 counter's lines ideal (each switch 1 + 0..=jitter gt after a slot) and checks every villager every
 tick: the selected batch at its stand slopes at the slot, every other rider past the golems' follow
@@ -75,7 +80,8 @@ box (19.3 from the pad) and outside the summoner's 10-box, never two batches at 
 rider on its cart and in its lane, REST ticks and CANT_REACH at REST, and every cell a rider took
 scanned for a golem spawn spot; it prints the clean seeds, the arrival margin, the blocks and box;
 `--verbose` adds each slot and the first calm villagers at night with the zombies they see, and
-`--trace ID` prints that villager's position and its cart's to stderr. With `hold --yard` the
+`--trace ID` prints that villager's position and its cart's to stderr. With `hold --unpaired --yard`
+(the paired-lane yard is being re-laid) the
 design carries the sleep routine's part 3 (`mobfarm/src/yard.rs`): a hump of a second braked
 slope at each hold end, each track's extension past it into its level's switched rail junctions
 (an east chain for lanes 0-3, a west chain for lanes 6-4, a Y; the three levels' chains stacked
