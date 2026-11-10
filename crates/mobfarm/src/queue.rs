@@ -1040,11 +1040,19 @@ pub struct LoopTiming {
     pub tail_check_at: Option<i64>,
     /// S1, S2, S3 braked these many gt after the detector rail's rise (one brake line each).
     pub stand_detect_slots: Option<[i64; 3]>,
+    /// The tolerance probes: the release group's start, each advance pulse's time and width,
+    /// each stand slot's departure time (shifts in gt), and a speed kick on the release group's
+    /// carts at the release (b/t along their slopes).
+    pub release_start: i64,
+    pub adv_shift: [i64; 3],
+    pub adv_width: [i64; 3],
+    pub stand_shift: [i64; 3],
+    pub entry_speed: f64,
 }
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0 }
     }
 }
 
@@ -1083,6 +1091,80 @@ pub fn loop_spots(spec: &FarmSpec, o: &LoopOpts) -> Result<String, String> {
         out.push(format!("  {} {} {} (from {} rail cells, e.g. {:?})", cell[0], cell[1], cell[2], from.len(), from[0]));
     }
     Ok(out.join("\n"))
+}
+
+/// The tolerance line of one timed control (ironspec's rule): the bench at the given timing, then
+/// the control's time shifted one gt at a time early and late to the first failure (`seeds` seeds
+/// x `cycles` slots each, pass = 0 problems); `speed` sweeps the release group's entry speed kick
+/// in 0.02 b/t steps instead.
+pub fn loop_sweep(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, control: &str, range: i64, seed: i64, seeds: i64, cycles: i64) -> Result<String, String> {
+    let passes = |t: &LoopTiming| -> Result<bool, String> {
+        for s in seed..seed + seeds {
+            let r = run_loop(spec, o, t, cycles, s, false, None, None)?;
+            if !r.lines().any(|l| l == "0 problems") {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    };
+    let shifted = |s: i64| -> Result<LoopTiming, String> {
+        let mut t = tm.clone();
+        let k = |name: &str| ["1", "2", "3"].iter().position(|d| name.ends_with(d)).unwrap_or(0);
+        match control {
+            "release-start" => t.release_start += s,
+            "release-end" => t.release_for += s,
+            c if c.starts_with("adv") && c.ends_with("-time") => t.adv_shift[k(&c[..4])] += s,
+            c if c.starts_with("adv") && c.ends_with("-width") => t.adv_width[k(&c[..4])] += s,
+            "s1" | "s2" | "s3" => t.stand_shift[k(control)] += s,
+            "stand-brake" => match (&mut t.stand_detect, &mut t.stand_detect_slots) {
+                (_, Some(ds)) => ds.iter_mut().for_each(|d| *d += s),
+                (Some(d), None) => *d += s,
+                (None, None) => return Err("stand-brake: give the brake as --stand-detect or --stand-detect-slots".into()),
+            },
+            "tail12" | "tail0" => match &mut t.intake_brake {
+                Some((a, b)) => {
+                    if control == "tail12" {
+                        *a += s
+                    } else {
+                        *b += s
+                    }
+                }
+                None => return Err("tail brakes: give them as --intake-brake A,B".into()),
+            },
+            _ => return Err(format!("unknown control {control}: release-start, release-end, adv1-time .. adv3-time, adv1-width .. adv3-width, s1, s2, s3, stand-brake, tail12, tail0, speed")),
+        }
+        Ok(t)
+    };
+    if control == "speed" {
+        let at = |v: f64| -> Result<bool, String> { passes(&LoopTiming { entry_speed: v, ..tm.clone() }) };
+        if !at(0.0)? {
+            return Ok("speed: the bench fails with no kick".into());
+        }
+        let (mut lo, mut hi) = (0.0, 0.0);
+        let mut v = -0.02;
+        while v >= -0.6 && at(v)? {
+            lo = v;
+            v -= 0.02;
+        }
+        v = 0.02;
+        while v <= 0.6 && at(v)? {
+            hi = v;
+            v += 0.02;
+        }
+        return Ok(format!("speed: the release group's carts kicked from {lo:+.2} to {hi:+.2} b/t along their slopes all pass ({seeds} seeds x {cycles} slots each)"));
+    }
+    if !passes(&shifted(0)?)? {
+        return Ok(format!("{control}: the bench fails at the nominal timing"));
+    }
+    let (mut early, mut late) = (0, 0);
+    while early > -range && passes(&shifted(early - 1)?)? {
+        early -= 1;
+    }
+    while late < range && passes(&shifted(late + 1)?)? {
+        late += 1;
+    }
+    let edge = |v: i64| if v.abs() == range { format!("{v:+} (the sweep's edge)") } else { format!("{v:+}") };
+    Ok(format!("{control}: passes from {} to {} gt ({seeds} seeds x {cycles} slots each){}", edge(early), edge(late), if early == 0 || late == 0 { "; FLAGGED: no slack on one side" } else { "" }))
 }
 
 pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, seed: i64, verbose: bool, watch: Option<&[usize]>, drive_out: Option<&std::path::Path>) -> Result<String, String> {
@@ -1211,7 +1293,6 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             if rel.len() != 3 || dep.len() != 3 {
                 problems.push(format!("slot {c}: the release group holds {} carts and the stand {} at the slot's start", rel.len(), dep.len()));
             }
-            set(&mut run.world, if tm.release_stagger > 0 { &release_group[2..] } else { &release_group[..] }, true);
             stand_train = Some((c, rel, if wired.is_some() && tm.stand_reset.is_none() && !tm.bench_stand { 2 } else { 0 }));
             detect_at = None;
             rise_at = None;
@@ -1227,6 +1308,21 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
         if let (Some(p), Some(was), true) = (wired, &input_was, c < cycles && dt == tm.golem_for) {
             run.world.set_block(p, was.clone(), redsim::world::flags::ALL);
             drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_spawn, p.x, p.y, p.z, was));
+        }
+        if c < cycles && dt == tm.release_start {
+            set(&mut run.world, if tm.release_stagger > 0 { &release_group[2..] } else { &release_group[..] }, true);
+            // (`entry_speed`: a speed kick along each release cart's slope, the tolerance probe)
+            if tm.entry_speed != 0.0 {
+                if let Some((_, tr, _)) = &stand_train {
+                    for (k, id) in tr.iter().enumerate() {
+                        let d = lay.slot_dir[q - 1 - k];
+                        if let Some(i) = redsim::entity::index_of(&run.world, *id) {
+                            let m = &mut run.world.entities.list[i].delta_movement;
+                            *m = redsim::entity::Vec3::new(m.x + d[0] as f64 * tm.entry_speed, m.y, m.z + d[1] as f64 * tm.entry_speed);
+                        }
+                    }
+                }
+            }
         }
         if let (Some(r), Some(was), true) = (tm.stand_reset, &reset_was, reset_off_at == Some(t)) {
             run.world.set_block(r, was.clone(), redsim::world::flags::ALL);
@@ -1297,7 +1393,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 if shift {
                     break;
                 }
-                let at = tm.stand_offset + if k == 0 { tm.s1_at } else { k as i64 * tm.depart_every };
+                let at = tm.stand_offset + tm.stand_shift[k] + if k == 0 { tm.s1_at } else { k as i64 * tm.depart_every };
                 if let (true, Some(b)) = (dt == at, lay.stand_b.get(k)) {
                     set(&mut run.world, &[*b], true);
                 }
@@ -1306,7 +1402,8 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 }
             }
             for k in 0..3 {
-                let a = tm.advance_at + k * tm.advance_every;
+                let a = tm.advance_at + k * tm.advance_every + tm.adv_shift[k as usize];
+                let w = tm.pulse + tm.adv_width[k as usize];
                 // (the tail's slopes up go on 12 gt before the first pulse and stay on through
                 // the advance and the intake's pass-through: a cart that stopped on one rolls
                 // back onto its braked slope down first, the leaving carts climb out boosted,
@@ -1317,7 +1414,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 if dt == a {
                     set(&mut run.world, &lay.slots, true);
                 }
-                if dt == a + tm.pulse {
+                if dt == a + w {
                     set(&mut run.world, &lay.slots, false);
                     if k == 2 {
                         // the tail open for the returning train: slopes down powered too (slot 0
@@ -1325,7 +1422,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                         set(&mut run.world, if tm.tail0_late > 0 { &intake[1..] } else { &intake[..] }, true);
                     }
                 }
-                if k == 2 && tm.tail0_late > 0 && dt == a + tm.pulse + tm.tail0_late {
+                if k == 2 && tm.tail0_late > 0 && dt == a + w + tm.tail0_late {
                     set(&mut run.world, &intake[..1], true);
                 }
             }

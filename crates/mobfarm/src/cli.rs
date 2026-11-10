@@ -536,6 +536,18 @@ pub enum MobfarmCmd {
         /// S1, S2, S3 braked these many gt after the detector rail's rise (one brake line each).
         #[arg(long, value_delimiter = ',')]
         stand_detect_slots: Vec<i64>,
+        /// Tolerance lines: shift these controls one gt at a time, early and late, to the first
+        /// failure (`--seeds` x `--cycles` each): release-start, release-end, adv1-time ..
+        /// adv3-time, adv1-width .. adv3-width, s1, s2, s3, stand-brake, tail12, tail0, speed
+        /// (the release group's entry speed kick), or `all`.
+        #[arg(long, value_delimiter = ',')]
+        sweep: Vec<String>,
+        /// How far a sweep goes each way (gt).
+        #[arg(long, default_value_t = 30)]
+        sweep_range: i64,
+        /// A speed kick on the release group's carts at the release, b/t along their slopes.
+        #[arg(long, default_value_t = 0.0, allow_hyphen_values = true)]
+        entry_speed: f64,
         #[arg(long)]
         verbose: bool,
         /// Print these carts (design order) every gt.
@@ -1161,7 +1173,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             println!("{}", crate::queue::loop_spots(&spec, &o).map_err(|e| anyhow::anyhow!(e))?);
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, verbose, watch, drive_out } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, sweep, sweep_range, entry_speed, verbose, watch, drive_out } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             let intake_brake = match intake_brake.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--intake-brake takes two values: slots 1-2, then slot 0") };
@@ -1169,7 +1181,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let wired = match wired.as_slice() { [x, y, z] => Some(redsim::pos::BlockPos::new(*x, *y, *z)), [] => None, _ => anyhow::bail!("--wired takes the input cell: x,y,z") };
             let stand_reset = match stand_reset.as_slice() { [x, y, z] => Some(redsim::pos::BlockPos::new(*x, *y, *z)), [] => None, _ => anyhow::bail!("--stand-reset takes a cell: x,y,z") };
             let stand_detect_slots = match stand_detect_slots.as_slice() { [a, b, c] => Some([*a, *b, *c]), [] => None, _ => anyhow::bail!("--stand-detect-slots takes 3 delays: S1,S2,S3") };
-            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots };
+            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, entry_speed, ..Default::default() };
+            if !sweep.is_empty() {
+                // the tolerance lines: one control at a time, to the first failure each way
+                let names: Vec<String> = if sweep == ["all"] { ["release-start", "release-end", "adv1-time", "adv1-width", "adv2-time", "adv2-width", "adv3-time", "adv3-width", "s1", "s2", "s3", "stand-brake", "tail12", "tail0", "speed"].iter().map(|s| s.to_string()).collect() } else { sweep.clone() };
+                for name in &names {
+                    println!("{}", crate::queue::loop_sweep(&spec, &o, &tm, name, sweep_range, seed, seeds, cycles).map_err(|e| anyhow::anyhow!(e))?);
+                }
+                return Ok(());
+            }
             if seeds > 1 {
                 // one line per seed, then the total (the drive log, watch and verbose apply to
                 // single runs)
