@@ -197,7 +197,8 @@ to it in turns instead of waiting out their own lockout in place.
 ## The number
 
 The stage rules of farm-iron.md, unchanged: the carousel competes in the middle and late searches
-against copies with the SAME villagers (6 groups of 3 against 6 three-villager modules), on iron
+against copies with the SAME villagers (7 groups of 3 against 7 three-villager modules: 7 x 408 =
+2,856 iron/h for the 6x6 module, about 2,982 with the 8x8 module at 426), on iron
 an hour and build minutes per module of 3 villagers (late adds volume per module), priced the
 same way. Per villager it cannot win: every golem locks at least 3 villagers for 600 gt
 (`spawnGolemIfNeeded` needs 3 willing and locks everyone in its box), so no design passes 40
@@ -218,9 +219,9 @@ ranked; L0, the single module, is a reference line.
   `spawnGolemIfNeeded` when `timestamp % 100 == 0` while the villager is panicking; panic needs
   `NEAREST_HOSTILE`, which `VillagerHostilesSensor` sets from the visible-entity list
   (`NearestLivingEntitySensor`, a scan every 20 gt): a zombie within 8 blocks, feet to feet, in
-  sight. A group that arrives sees the zombie within about 40 gt (the hostile sensor reads a list
-  the living-entity sensor refreshes every 20 gt on its own phase) and tries at the next
-  multiple of 100.
+  sight. A group that arrives sees the zombie within up to 39 gt (two sensors: the hostile
+  sensor reads a list the living-entity sensor refreshes, each every 20 gt on its own random
+  phase) and tries at the next multiple of 100.
 - **Wanting a golem needs a night in bed.** `wantsToSpawnGolem` = `LAST_SLEPT` within 24,000 gt
   and no `GOLEM_DETECTED_RECENTLY`. A villager sleeps only in its claimed bed (`SleepInBed` in the
   REST activity, walking to HOME), never in a cart.
@@ -245,8 +246,8 @@ ranked; L0, the single module, is a reference line.
 ## The ceiling
 
 One golem per 100 gt per station (the attempt grid): 720 golems an hour, about 2,880 iron an
-hour, needing 6 groups of 3 rotating (each group locked 600 gt: a villager due at T+600 is free
-in its own behavior phase at T+600). With 4 groups on a 200 gt cycle: 360 golems an hour, about
+hour, needing 7 groups of 3 rotating (rule 4: each group locked 600 gt, a turn every 700 gt with
+100 gt of slack). With 4 groups on a 200 gt cycle: 360 golems an hour, about
 1,440 iron. A module's ceiling is one golem per 600 gt (120 an hour, about 480 iron).
 
 What the carousel must beat, the static module's two losses (measured on the bridge, the
@@ -357,8 +358,10 @@ options, judged against each other on the objectives:
 vjeux 23:24: "What's the smallest theorical bounding box for this? (Assuming we use nether portal
 to move the golems away)". A golem leaves the overworld within a tick or two of touching a portal
 (`NetherPortalBlock.getPortalTransitionTime` is 0 for a non-player and `Entity.canUsePortal`
-holds for a golem), so it dwells 1-2 gt in the follow boxes (about 0.5-1% detection a villager a
-golem, measured), and the station needs no drop and no overworld kill.
+holds for a golem), so it dwells 1-2 gt (T to T+2) in the follow boxes; that detection is
+phase-locked to the slot grid (an exposed villager is locked at every other golem), so every
+villager outside the summoning batch stays outside them (rule 2 of the design's rules), and the
+station needs no drop and no overworld kill.
 - **Contact is per cell.** `NetherPortalBlock` keeps the default inside shape (a full block):
   `Entity.checkInsideBlocks` counts every portal cell the entity's box (deflated by 1e-5) meets,
   and `entityInside` sends it, whatever the portal's axis. So the pad is 1-wide trenches with a
@@ -388,7 +391,8 @@ golem, measured), and the station needs no drop and no overworld kill.
   within a ticket (crossings every ~100 gt renew it; lava's 240 gt fits from arrival); drops keep
   out of the Nether portal's cells (items use portals too); the restart rule covers an unloaded
   Nether side (after an absence it resumes with the next crossing).
-- **The smallest box, estimated** (6 groups of 3, the queue in the overworld): the pad is one
+- **The smallest box, estimated** (superseded by the design's rules: 7 groups of 3, the hold past
+  the golems' follow box; this estimate was 6 groups of 3, the queue in the overworld): the pad is one
   portal wall 11 long with a trench on each side (22 trench cells) at 90%, two such walls (44) at
   99%, each about 13 x 3 with its frame and 5 high (the trench floor on the frame's bottom row, a
   3-tall interior, the top row); the station's 3 carts and the zombie (within 8, in sight) beside
@@ -404,12 +408,14 @@ golem, measured), and the station needs no drop and no overworld kill.
 ## Must-haves (hard rules)
 
 - A group at the station is panicking on an attempt tick (it sees the zombie after its sensors'
-  scans, up to about 40 gt after it arrives), unlocked, and slept within 24,000 gt.
-- Every waiting group is more than 10.6 blocks (box) from the summoner at the spawn tick, and out
-  of every live golem's follow box (R + 1 sideways, R + 2.7 below) whenever its GolemSensor scans.
+  scans, up to 39 gt after the zombie becomes visible), unlocked, and slept within 24,000 gt.
+- Every waiting group is more than 10.6 blocks (box) from the summoner at the spawn tick, and
+  outside every golem's follow box (19.3 sideways, 19.8 below or 20.6 above the golem's feet)
+  during its overworld dwell (T to T+2), the arriving batch included.
 - **Every way to summon, at every position a villager occupies** (the loop, the queue, the
   approach, the bed stop), judged along the loop: either the path cannot fire, or every spawn
-  search from there lands only on pad or unspawnable cells. The panic path cannot fire when the
+  search from there lands only on unspawnable cells (the pad counts only for the stand cells: a
+  willing, panicking villager anywhere else summons out of turn). The panic path cannot fire when the
   villager is more than 8 from the farm's zombie or out of its sight except at the station, and no
   natural hostile can stand in its sight on a dark surface (the parent brief's every-villager
   rule); the gossip path (`InteractWith`, `TradeWithVillager`, `Villager.gossip`,
