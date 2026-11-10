@@ -880,6 +880,11 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 let mut v: Vec<(String, u32)> = kinds.into_iter().collect();
                 v.sort_by(|a, b| b.1.cmp(&a.1));
                 println!("Nether part: {} blocks, box x {}..{} y {}..{} z {}..{} ({} with block-entity data): {}", nb.len(), lo[0], hi[0], lo[1], hi[1], lo[2], hi[2], nbes.len(), v.iter().map(|(k, n)| format!("{n} {k}")).collect::<Vec<_>>().join(", "));
+                // the whole design (the farm optimizer's volume: its blocks' and ports' box)
+                let (clo, chi) = c.bounds();
+                let vol = (chi[0] - clo[0] + 1) as i64 * (chi[1] - clo[1] + 1) as i64 * (chi[2] - clo[2] + 1) as i64;
+                let nvol = (hi[0] - lo[0] + 1) as i64 * (hi[1] - lo[1] + 1) as i64 * (hi[2] - lo[2] + 1) as i64;
+                println!("the whole design: {} overworld blocks + {} Nether, overworld box x {}..{} y {}..{} z {}..{} = {} (+ the Nether part's {}), {} entities", c.clock.design.blocks.len(), nb.len(), clo[0], chi[0], clo[1], chi[1], clo[2], chi[2], vol, nvol, c.clock.design.entities.len());
             }
             println!("valid spots per rider (portal contact, not under the batch's own carts): min {} max {}; union {}, in every search {}", ks.iter().min().unwrap_or(&0), ks.iter().max().unwrap_or(&0), union.len(), inter.map_or(0, |i| i.len()));
             for b in 0..crate::hold::BATCHES {
