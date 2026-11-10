@@ -134,6 +134,22 @@ pub fn carousel_quick(side: i32) -> anyhow::Result<String> {
     carousel_impl(side, true, false, true)
 }
 
+/// The gated stop (ironfarm 2026-11-09, `MCTAS_GATE2` with every loop boosted): an iron trapdoor
+/// in the cell over each brake, held open by a torch, its plate on that cell's front face: every
+/// arriving cart rolls down the always-boosting slope into it and parks at the same spot, 0.19
+/// short of the pocket; the release turns the torch off, the trapdoor shuts to its top half (the
+/// brake column's villager-proof cover) and the cart rolls under it, meeting its villager 0.19-0.59
+/// ahead (the pickup's safe window). [`gate_stop`]
+pub fn carousel_gate(side: i32) -> anyhow::Result<String> {
+    // (the experiment flags the generator reads; set for this layout's run only)
+    #[allow(unused_unsafe)]
+    unsafe {
+        std::env::set_var("MCTAS_GATE2", "1");
+        std::env::set_var("MCTAS_BOOSTLOOPS", "012");
+    }
+    carousel_impl(side, true, false, false)
+}
+
 fn carousel_impl(side: i32, latch: bool, free_run: bool, quick: bool) -> anyhow::Result<String> {
     anyhow::ensure!(side >= 28, "the carousel's inner loop needs a side of 28 or more (its waiting stops out of the golems' follow box)");
     let mut b = Builder::new(&format!("iron-carousel-3x4-{side}"));
@@ -200,6 +216,13 @@ fn carousel_impl(side: i32, latch: bool, free_run: bool, quick: bool) -> anyhow:
     night_pulse(&mut b, &mut dust, free_run);
     station(&mut b);
     curtain_latch(&mut b, &mut dust, latch);
+    if gate() {
+        for k in 0..3 {
+            for s in sides(-3 * k, side + 3 * k) {
+                gate_stop(&mut b, &mut dust, &s)?;
+            }
+        }
+    }
     carts(&mut b, side);
     if free_run {
         night_boosters(&mut b, &dust, side);
@@ -251,7 +274,7 @@ fn loop_rails(t: i32, e: i32, boost: bool) -> Vec<([i32; 3], String, &'static st
             let (y, rail, support) = match i {
                 _ if i < act => (0, format!("rail[shape={axis},waterlogged=false]"), STONE),
                 _ if i == act => (0, format!("activator_rail[powered=false,shape={axis},waterlogged=false]"), STONE),
-                _ if i == brake => (-1, format!("powered_rail[powered=false,shape=ascending_{back},waterlogged=false]"), "mud"),
+                _ if i == brake => (-1, format!("powered_rail[powered={},shape=ascending_{back},waterlogged=false]", gate() && !gate_brake()), "mud"),
                 // (under `MCTAS_BIDE` one rail further: beside the brake it would power it through
                 // the powered rails' own line)
                 _ if boost && i == std::env::var(format!("MCTAS_BOOSTAT_{}", -t / 3)).ok().and_then(|v| v.parse::<i32>().ok()).unwrap_or(if bide_at(&s) { BOOST + 1 } else { BOOST }) => (-1, format!("powered_rail[powered=true,shape={axis},waterlogged=false]"), "redstone_block"),
@@ -556,7 +579,9 @@ fn stop(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, s: Side, outer: bool) {
     set(s.at(ACT, 0), 1, &format!("redstone_wall_torch[facing={},lit=true]", name([-s.n[0], -s.n[1]])));
     set(s.at(1, 1), 2, "daylight_detector[inverted=false,power=0]");
     dust.insert([a[0], 2, a[1]]);
-    if std::env::var_os("MCTAS_TRAP").is_some() {
+    // (under `MCTAS_GATE` too: the gate's plate keeps the villager off the parked cart from the
+    // pocket, the trapdoor over the brake from the bed's foot beside it)
+    if std::env::var_os("MCTAS_TRAP").is_some() || (gate() && !gate2()) {
         // (experiment: a closed iron trapdoor at the top of the cell over the brake, y 0.81-1:
         // under it the cart's box (0.7 high, at most y 0.7 on the slope) passes, its riders pass
         // through, but a standing villager (1.95 high from the pocket's floor at y -1, the bed's
@@ -569,6 +594,166 @@ fn stop(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, s: Side, outer: bool) {
         // golem a spawn floor; the station riders' sight lines leave that column under y 1.8)
         set(s.at(BRAKE, 0), 2, GLASS);
     }
+}
+
+/// `MCTAS_GATE` (experiment): the stop's gate. An iron trapdoor in the cell over the pocket (y 0),
+/// open (its plate on the cell's back face, y 0-1: the brake's slope ends under it) while a torch
+/// over it burns: every arriving cart rolls down the always-boosting slope until its box (lifted
+/// to y 0-0.7 on the slope) meets the plate, so it parks at exactly 0.49 short of the pocket, and
+/// the waking villager's back stays 0.19 or more past the plate. A release turns the torch off
+/// (the pulse up the stop's line powers its block), the trapdoor shuts to its top half (y
+/// 0.81-1) and the cart rolls under it: from that fixed spot every pocket position the villager
+/// can hold is 0.19-0.40 ahead of the cart's front, inside the window where the release neither
+/// pins (under 0.11) nor skips it (the 5th boosted step outgrows the pickup's 0.2 reach). The
+/// line: the bus at rail 7 up onto a dust in lane 1 (y 0), up onto the track's column (y 1, on
+/// glass: a rider's eyes pass at y 0.7 there), along it to the torch's block over rail 5.
+fn gate() -> bool {
+    std::env::var_os("MCTAS_GATE").is_some() || gate2()
+}
+
+fn gate2() -> bool {
+    std::env::var_os("MCTAS_GATE2").is_some()
+}
+
+/// (`MCTAS_GATE_BRAKE`: the gate's slope stays the brake, powered only by the release: a
+/// villager's push on a pinned cart is halted there instead of boosted back up the slope)
+fn gate_brake() -> bool {
+    std::env::var_os("MCTAS_GATE_BRAKE").is_some()
+}
+
+fn gate_stop(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, s: &Side) -> anyhow::Result<()> {
+    let cell = |i: i32, lane: i32, y: i32| {
+        let p = s.at(i, lane);
+        [p[0], y, p[1]]
+    };
+    // (`MCTAS_GATE2`: the gate in the cell over the brake instead, its plate on that cell's front
+    // face: the cart parks at 3.32, 0.19 short of the pocket, and shut (its top half) it is the
+    // brake column's villager-proof trapdoor itself, so the villager's back never comes nearer)
+    let g = if gate2() { BRAKE } else { POCKET };
+    let face = if gate2() { name([-s.d[0], -s.d[1]]) } else { name(s.d) };
+    let mut blocks: Vec<([i32; 3], String)> = vec![
+        (cell(g, 0, 0), format!("iron_trapdoor[facing={face},half=top,open=true,powered=true,waterlogged=false]")),
+        (cell(g, 0, 1), format!("redstone_wall_torch[facing={},lit=true]", name([-s.d[0], -s.d[1]]))),
+        (cell(g + 1, 0, 1), STONE.to_string()),
+        // (glass on the torch's block: its top would be a golem spawn floor)
+        (cell(g + 1, 0, 2), GLASS.to_string()),
+    ];
+    if gate2() {
+        // (the booster's cover glass carries the line's first dust)
+        anyhow::ensure!(b.d.blocks.get(&cell(BOOST, 0, 0)).is_some_and(|s| s.contains("glass")), "no glass over the booster");
+        // (an open iron trapdoor, never powered, on the track side of the cell over the bed's foot:
+        // a villager on the foot cannot step sideways into the brake's column behind the gate and
+        // push the parked cart; the dismount lands it at the foot's centre, clear of the plate)
+        if std::env::var_os("MCTAS_GATE2_OPEN_FOOT").is_none() {
+            blocks.push((cell(BRAKE, 1, 0), format!("iron_trapdoor[facing={},half=bottom,open=true,powered=false,waterlogged=false]", name(s.n))));
+        }
+    }
+    // (the line leaves the bus at the first rail from 7 to 9 where its cells are free: a dust up
+    // into lane 1 (y 0), up onto the track's column (y 1, on glass), back along it to the torch's
+    // block; a repeater in the bus one rail before, so it climbs off a full-strength dust)
+    let mut route = None;
+    let mut clash = Vec::new();
+    for c in BOOST + 2..=BOOST + 4 {
+        let mut bl = blocks.clone();
+        let mut ln = vec![cell(c, 1, 0)];
+        for k in g + 2..=c {
+            ln.push(cell(k, 0, 1));
+            if k != BOOST {
+                bl.push((cell(k, 0, 0), GLASS.to_string()));
+            }
+        }
+        bl.push((cell(c, 1, -1), STONE.to_string()));
+        let cl = gate_clash(b, dust, &bl, &ln, cell(c, 2, -1));
+        if cl.is_empty() {
+            let r = cell(c - 1, 2, -1);
+            if dust.contains(&r) && dust.contains(&cell(c - 2, 2, -1)) {
+                dust.remove(&r);
+                b.set(r[0], r[1], r[2], &format!("repeater[delay=1,facing={},locked=false,powered=false]", name([-s.d[0], -s.d[1]])));
+            }
+            route = Some((bl, ln));
+            break;
+        }
+        if clash.is_empty() {
+            clash = cl;
+        }
+    }
+    let _ = &mut blocks;
+    // (the slope always boosts: a torch under its mud powers it, so a cart rolls into the plate and
+    // the release starts it)
+    for (p, block) in [(cell(BRAKE, 0, -3), "redstone_torch[lit=true]"), (cell(BRAKE, 0, -4), STONE)] {
+        if gate_brake() {
+            break;
+        }
+        anyhow::ensure!(!b.d.blocks.contains_key(&p) && !dust.contains(&p), "the gate's slope torch at {p:?} meets {:?}", b.d.blocks.get(&p));
+        b.set(p[0], p[1], p[2], block);
+    }
+    let (blocks, lines) = if let Some(r) = route {
+        r
+    } else {
+        // (GATE2: the climb one rail back of the repeater, leaving the outer loop's own line its
+        // rails 7-8 in that loop's lane 1)
+        let d2 = if gate2() { g } else { g + 2 };
+        let mut alt: Vec<([i32; 3], String)> = vec![
+            blocks[0].clone(),
+            blocks[1].clone(),
+            blocks[2].clone(),
+            blocks[3].clone(),
+            (cell(g + 1, -1, 1), format!("repeater[delay=1,facing={},locked=false,powered=false]", name([-s.n[0], -s.n[1]]))),
+            (cell(g + 1, -2, 0), STONE.to_string()),
+            (cell(d2, -1, 0), GLASS.to_string()),
+            (cell(d2, -2, -1), STONE.to_string()),
+        ];
+        let mut alt_lines = vec![cell(g + 1, -2, 1), cell(d2, -2, 0)];
+        let mut bus_dust = cell(d2, -1, -1);
+        if gate2() {
+            // (GATE2: the dust over the repeater's input climbs from the outer loop's own line,
+            // which leaves that loop's bus one rail further on (its lane 1, y 0, rail 8): no
+            // climb of its own off the next bus)
+            alt.truncate(alt.len() - 2);
+            alt_lines.truncate(1);
+            bus_dust = cell(g + 4, -1, -1);
+        }
+        let mut alt_clash = gate_clash(b, dust, &alt, &alt_lines, bus_dust);
+        // (the repeater replaces the outside lane's cap glass: that cell is past the cage; the glass
+        // over the next bus may be that cap glass already)
+        alt_clash.retain(|c| !c.starts_with(&format!("{:?} holds minecraft:glass", cell(g + 1, -1, 1))) && !c.starts_with(&format!("{:?} holds minecraft:glass", cell(d2, -1, 0))));
+        anyhow::ensure!(alt_clash.is_empty(), "the gate at the stop {:?} {:?}: {}; outside: {}", s.at(0, 0), s.d, clash.join("; "), alt_clash.join("; "));
+        (alt, alt_lines)
+    };
+    for (p, block) in &blocks {
+        b.set(p[0], p[1], p[2], block);
+    }
+    for p in lines {
+        dust.insert(p);
+    }
+    // (the torch powers the block over it: glass there if it would hold another line's dust)
+    let over = cell(g, 0, 2);
+    if dust.contains(&[over[0], 3, over[2]]) && !b.d.blocks.contains_key(&over) {
+        b.set(over[0], 2, over[2], GLASS);
+    }
+    Ok(())
+}
+
+/// The cells a stop's gate would take that are not free, and a missing bus dust it climbs off.
+fn gate_clash(b: &Builder, dust: &BTreeSet<[i32; 3]>, blocks: &[([i32; 3], String)], lines: &[[i32; 3]], bus: [i32; 3]) -> Vec<String> {
+    let mut clash = Vec::new();
+    for (p, _) in blocks {
+        if let Some(old) = b.d.blocks.get(p) {
+            clash.push(format!("{p:?} holds {old}"));
+        }
+        if dust.contains(p) {
+            clash.push(format!("{p:?} holds a dust"));
+        }
+    }
+    for p in lines {
+        if b.d.blocks.contains_key(p) || dust.contains(p) {
+            clash.push(format!("{p:?} (dust) is taken"));
+        }
+    }
+    if !dust.contains(&bus) {
+        clash.push(format!("the bus has no dust at {bus:?}"));
+    }
+    clash
 }
 
 /// Loop (t, e)'s pulse bus at y -1 in its bus lane (2 in from the track) along its north, east
@@ -592,6 +777,21 @@ fn bus(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, t: i32, e: i32) {
         // (the west stop's brake one rail on)
         path.push([t + 2, y, e - 4]);
     }
+    if gate() {
+        // (`MCTAS_GATE`: on to the west stop's rail 7, where its gate's line climbs off the bus;
+        // at loop 0 under the wake kick's observer beside the bed's head (rail 4, y -1), at y -2)
+        let low = if t == 0 { y - 1 } else { y };
+        if t == 0 {
+            // (at loop 0 under the wake kick's observer (rail 4, y -1) a repeater at y -2 reads the
+            // bus end's support: a dust there would join the kick's line beside the observer)
+            let r = [t + 2, y - 1, e - 4];
+            b.set(r[0], r[1], r[2], "repeater[delay=1,facing=south,locked=false,powered=false]");
+            b.set(r[0], r[1] - 1, r[2], STONE);
+            path.extend([[t + 2, low, e - 5], [t + 2, y, e - 6], [t + 2, y, e - 7]]);
+        } else {
+            path.extend([[t + 2, y, e - 4], [t + 2, y, e - 5], [t + 2, y, e - 6], [t + 2, y, e - 7]]);
+        }
+    }
     let stops: Vec<[i32; 3]> = sides(t, e)
         .iter()
         .map(|s| {
@@ -609,9 +809,19 @@ fn bus(b: &mut Builder, dust: &mut BTreeSet<[i32; 3]>, t: i32, e: i32) {
         a[0] != c[0] && a[2] != c[2]
     };
     let mut next = 7usize;
+    // (`MCTAS_GATE`: a repeater one rail before each gate's line leaves the bus (rail 6), so the
+    // line climbs off a full-strength dust)
+    let taps: Vec<[i32; 3]> = if gate() {
+        sides(t, e).iter().map(|s| {
+            let p = s.at(BOOST + 1, 2);
+            [p[0], y, p[1]]
+        }).collect()
+    } else {
+        Vec::new()
+    };
     for i in 0..path.len() {
         let p = path[i];
-        if i == next && !turn(i) && i + 2 < path.len() && !stops.contains(&p) {
+        if (i == next && !turn(i) && i + 2 < path.len() && !stops.contains(&p)) || (taps.contains(&p) && path[i - 1][1] == y) {
             let a = path[i - 1];
             let facing = match [a[0] - p[0], a[2] - p[2]] {
                 [-1, 0] => "west",
@@ -865,8 +1075,10 @@ pub fn carts(b: &mut Builder, side: i32) {
         let (t, e) = (-3 * k, side + 3 * k);
         for s in sides(t, e) {
             let p = s.at(brake_of(&s), 0);
-            // the cart on the slope's middle: half a block down
-            b.entity("minecart", [p[0] as f64 + 0.5, -1.0 + 0.5 + 0.0625, p[1] as f64 + 0.5], Some("{Passengers:[{id:\"minecraft:villager\"}]}"));
+            // the cart on the slope's middle: half a block down (`MCTAS_GATE2`: 0.2 further back,
+            // short of the gate's plate on the cell's front face)
+            let back = if gate2() { 0.2 } else { 0.0 };
+            b.entity("minecart", [p[0] as f64 + 0.5 - back * s.d[0] as f64, -1.0 + 0.5 + back + 0.0625, p[1] as f64 + 0.5 - back * s.d[1] as f64], Some("{Passengers:[{id:\"minecraft:villager\"}]}"));
         }
     }
 }
