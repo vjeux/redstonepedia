@@ -1,53 +1,204 @@
 # The single-lane carousel's loop (prototype): a sawtooth queue register, the release run, the 3-slot stand, the return run.
 name: carousel-loop-scene
 circuit: mob-farm iron_ingot
-queue: scene=Loop carts=21 spacing=3 release=3 riders=1 slots=18 run=20 depart=3 boost=0 boost_first=3 straight=0
+queue: scene=Loop carts=21 spacing=3 release=3 riders=1 slots=18 run=20 depart=3 boost=0 boost_first=3 straight=0 drop=0 vstand=0 tail_v=1 bridge=1
 port output: 0 1 8
-entity: minecraft:minecart -0.5 0.5 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart -3.5 0.5 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart -6.5 0.5 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart -9.5 0.5 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart -12.5 0.5 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart -15.5 0.5 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart -18.5 0.5 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart -21.5 0.5 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart -24.5 0.5 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart -26.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart -23.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart -20.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart -17.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart -14.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart -11.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart -8.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart -5.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart -2.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart 26.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart 23.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-entity: minecraft:minecart 20.5 0.5 2.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
-origin: -28 0 0
+entity: minecraft:minecart 0.5 0.73 21.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.73 25.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.73 29.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.73 33.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.73 36.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.73 39.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.73 42.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.73 45.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.5 0.73 48.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -1.5 0.73 50.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -1.5 0.73 47.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -1.5 0.73 44.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -1.5 0.73 41.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -1.5 0.73 38.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -1.5 0.73 35.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -1.5 0.73 32.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -1.5 0.73 29.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart -1.5 0.73 26.68 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 6.45 0.6000000000000001 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 3.45 0.6000000000000001 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+entity: minecraft:minecart 0.45 0.6000000000000001 0.5 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
+origin: -2 0 0
 palette:
-  A minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
-  B minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
-  C minecraft:rail[shape=east_west,waterlogged=false]
-  D minecraft:rail[shape=north_east,waterlogged=false]
-  E minecraft:rail[shape=north_west,waterlogged=false]
-  F minecraft:rail[shape=south_east,waterlogged=false]
+  A minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
+  B minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
+  C minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  D minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
+  E minecraft:rail[shape=ascending_south,waterlogged=false]
+  F minecraft:rail[shape=east_west,waterlogged=false]
   G minecraft:glass
-  H minecraft:rail[shape=south_west,waterlogged=false]
-  I minecraft:redstone_block
-  P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
+  H minecraft:rail[shape=north_east,waterlogged=false]
+  I minecraft:rail[shape=north_south,waterlogged=false]
+  J minecraft:rail[shape=north_west,waterlogged=false]
+  K minecraft:rail[shape=south_east,waterlogged=false]
+  L minecraft:rail[shape=south_west,waterlogged=false]
+  M minecraft:redstone_block
+  P minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]
   R minecraft:rail[shape=ascending_east,waterlogged=false]
-  p minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
-  r minecraft:rail[shape=ascending_west,waterlogged=false]
+  p minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
+  r minecraft:rail[shape=ascending_north,waterlogged=false]
 layer -1:
-  ..GG.GG.GG.GG.GG.GG.GG.GG.GG
+  ..GG.GG.GG
   .
-  .GG.GG.GG.GG.GG.GG.GG.GG.GG.....................GG.GG.GG
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  .
+  ..G
+  ..G
+  ..G
+  .
+  G.G
+  G.G
+  ..G
+  G
+  G.G
+  ..G
+  G.G
+  G
+  ..G
+  G.G
+  G
+  ..G
+  G.G
+  G
+  ..G
+  G.G
+  G
+  ..G
+  G.G
+  G
+  ..G
+  G.G
+  G
+  ..G
+  G.G
+  G
+  .
 layer 0:
-  GGrPGrPGrPGrPGrPGrPGrPGrPGrPGGGGGGGGGGGGGGGGGGGGGGGGGGGGGIIIG
-  I...........................................................I
-  GpRGpRGpRGpRGpRGpRGpRGpRGpRGIIIGGGGGGGGGGGGGGGGGpRGpRGpRGIIGG
+  GGARGARGARGMG
+  G...........M
+  G...........M
+  G...........M
+  G...........G
+  G...........G
+  G...........G
+  G...........G
+  G...........G
+  G...........G
+  G...........G
+  G...........G
+  G...........G
+  G...........G
+  G...........G
+  G...........G
+  G...........G
+  G...........G
+  G...........G
+  G...........G
+  G.GGGGGGGGGGG
+  M.P
+  M.I
+  M.p
+  G.G
+  r.P
+  p.I
+  G.p
+  r.G
+  p.P
+  G.I
+  r.p
+  p.G
+  G.P
+  r.E
+  p.G
+  G.P
+  r.E
+  p.G
+  G.P
+  r.E
+  p.G
+  G.P
+  r.E
+  p.G
+  G.P
+  r.E
+  p.G
+  G.P
+  r.E
+  p.G
+  GMG
 layer 1:
-  FC..C..C..C..C..C..C..C..C..CCCCCCCCCCCCCCCCCCCCCCCCCCCCCAAAH
-  B...........................................................B
-  D..C..C..C..C..C..C..C..C..CAAACCCCCCCCCCCCCCCCC..C..C..CAACE
+  KB..B..B..FCL
+  I...........D
+  I...........D
+  I...........D
+  I...........I
+  I...........I
+  I...........I
+  I...........I
+  I...........I
+  I...........I
+  I...........I
+  I...........I
+  I...........I
+  I...........I
+  I...........I
+  I...........I
+  I...........I
+  I...........I
+  I...........I
+  I...........I
+  I.KFFFFFFFFFJ
+  D
+  D
+  D
+  I.I
+  .
+  .
+  I
+  ..I
+  .
+  I
+  .
+  ..I
+  I
+  .
+  ..I
+  I
+  .
+  ..I
+  I
+  .
+  ..I
+  I
+  .
+  ..I
+  I
+  .
+  ..I
+  I
+  .
+  ..I
+  HCJ

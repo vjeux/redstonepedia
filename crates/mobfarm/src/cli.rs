@@ -383,6 +383,21 @@ pub enum MobfarmCmd {
         /// The queue in one straight row (else folded in two rows with a U-turn).
         #[arg(long)]
         straight: bool,
+        /// Ledges before the stand and the queue's tail (each cart's speed clamped to 0.4 off its
+        /// rail; slower arrivals).
+        #[arg(long)]
+        drop: bool,
+        /// V stand slots (slope down, valley, its own braked slope up) instead of catch slots.
+        #[arg(long)]
+        vstand: bool,
+        /// The queue's 3 tail slots as plain sawtooth slots (else V slots with their own
+        /// slope-up line).
+        #[arg(long)]
+        no_tail_v: bool,
+        /// The earlier folded layout (the stand at the far end of the release run, the return
+        /// back along it) instead of the bridge layout.
+        #[arg(long)]
+        folded: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -402,6 +417,17 @@ pub enum MobfarmCmd {
         advance_every: i64,
         #[arg(long, default_value_t = 9)]
         pulse: i64,
+        /// The stand's slots powered for the departure front first, this many gt apart.
+        #[arg(long, default_value_t = 12)]
+        depart_every: i64,
+        /// Brake the stand at this gt after its slot's start (a timer) instead of the bench's
+        /// position trigger.
+        #[arg(long)]
+        stand_brake: Option<i64>,
+        /// Brake the queue's tail slots 1-2, then slot 0, at these gt after the returning train's
+        /// departure (timers) instead of the bench's position triggers.
+        #[arg(long, value_delimiter = ',')]
+        intake_brake: Vec<i64>,
         #[arg(long)]
         verbose: bool,
         /// Print these carts (design order) every gt.
@@ -1008,15 +1034,16 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, out } => {
-            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight };
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, out } => {
+            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v, bridge: !folded && !straight };
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             println!("{}", out.display());
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, release_for, advance_at, advance_every, pulse, verbose, watch, drive_out } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, intake_brake, verbose, watch, drive_out } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
-            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse };
+            let intake_brake = match intake_brake.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--intake-brake takes two values: slots 1-2, then slot 0") };
+            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, intake_brake };
             let s = crate::queue::run_loop(&spec, &o, &tm, cycles, seed, verbose, if watch.is_empty() { None } else { Some(&watch) }, drive_out.as_deref()).map_err(|e| anyhow::anyhow!(e))?;
             println!("{s}");
         }
