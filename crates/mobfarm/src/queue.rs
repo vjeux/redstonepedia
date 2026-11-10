@@ -1142,11 +1142,13 @@ pub struct LoopTiming {
     /// by cell in its build order with the game's updates, this many ticks between placements
     /// (the priced rate: prices.tsv's `place`, 1 s = 20 gt at every stage), then the carts.
     pub build_gap: Option<i64>,
+    /// With `build_gap`: each cell's own priced gap instead (20 gt, 40 gt for a place:edge cell).
+    pub build_priced: bool,
 }
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false, s1_at: 0, tail0_late: 0, bench_stand: false, stand_offset: 0, release_stagger: 0, tail_check_at: None, stand_detect_slots: None, release_start: 0, adv_shift: [0; 3], adv_width: [0; 3], stand_shift: [0; 3], entry_speed: 0.0, skew: [0; 24], ideal_stand_at: None, tail_check_rest: false, tail2_at: None, placed_raw: false, build_gap: None, build_priced: false }
     }
 }
 
@@ -1370,6 +1372,23 @@ pub fn build_order(spec: &FarmSpec) -> Vec<(BlockPos, Block, Option<String>)> {
     out
 }
 
+/// The cells the build bill prices as `place:edge` (prices.rs's rule, approximated on the design's
+/// own blocks): more than 2 above the design's lowest level, with no standable surface (a block a
+/// player can stand on, two air above it) within 3 horizontally and 1 or 2 below. A player takes
+/// an extra second to place each (sneaking to an edge), so the in-order build gives it a longer gap.
+pub fn edge_cells(spec: &FarmSpec) -> std::collections::HashSet<BlockPos> {
+    let cells: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(_, b)| !matches!(b, Block::Air)).map(|(p, _)| *p).collect();
+    let standable = |b: &Block| !matches!(b, Block::Air | Block::Wire { .. } | Block::Torch { .. } | Block::WallTorch { .. } | Block::Rail { .. } | Block::PlainRail { .. } | Block::DetectorRail { .. } | Block::Button { .. } | Block::Plate { .. } | Block::Tripwire { .. } | Block::TripwireHook { .. } | Block::Water { .. } | Block::Lava { .. } | Block::Fire { .. } | Block::BubbleColumn { .. });
+    let up = |p: &BlockPos, d: i32| BlockPos::new(p.x, p.y + d, p.z);
+    let surfaces: std::collections::HashSet<BlockPos> = spec.blocks.iter().filter(|(p, b)| standable(b) && !cells.contains(&up(p, 1)) && !cells.contains(&up(p, 2))).map(|(p, _)| *p).collect();
+    let low = spec.blocks.iter().map(|(p, _)| p.y).min().unwrap_or(0);
+    cells
+        .iter()
+        .filter(|c| c.y - low > 2 && !(-3..=3).any(|dx| (-3..=3).any(|dz| (1..=2).any(|dy| surfaces.contains(&BlockPos::new(c.x + dx, c.y - dy, c.z + dz))))))
+        .copied()
+        .collect()
+}
+
 pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, seed: i64, verbose: bool, watch: Option<&[usize]>, drive_out: Option<&std::path::Path>) -> Result<String, String> {
     let ticks = 200 + cycles * 100 + 200;
     let ro = RunOpts { ai: true, raw: tm.placed_raw, ..RunOpts::steady(seed, ticks as u32, WalkMode::Random) };
@@ -1388,6 +1407,9 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     if let Some(g) = tm.build_gap {
         let t_b = run.world.time;
         build_start = Some(t_b);
+        // (`build_priced`: each cell's own priced gap, prices.tsv's place 1 s = 20 gt, and 2 s =
+        // 40 gt for a cell the bill charges place:edge, the longest priced gap; else `g` for all)
+        let edges = edge_cells(spec);
         for (p, b, fill) in build_order(spec) {
             run.world.set_block(p, b, redsim::world::flags::ALL);
             drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_b, p.x, p.y, p.z, b));
@@ -1395,7 +1417,8 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 redsim::redstone::container::apply_block_entities(&mut run.world, [(p, f.as_str())])?;
                 drive.borrow_mut().push(format!("act {} nbt {} {} {} {}", run.world.time - t_b, p.x, p.y, p.z, f));
             }
-            for _ in 0..g.max(1) {
+            let gap = if tm.build_priced { if edges.contains(&p) { 40 } else { 20 } } else { g };
+            for _ in 0..gap.max(1) {
                 run.tick();
             }
         }
@@ -1942,7 +1965,8 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     if let Some(path) = drive_out {
         let mut text = format!("seed {seed}\ndays 0\nwalk random\n# ticks {}\n# t0 {t_spawn}\n# mctas mobfarm queue-loop-run <design> --cycles {cycles} --seed {seed} --release-for {} --advance-at {} --advance-every {} --pulse {}\n# start: Run::start(spec, RunOpts {{ ai: true, ..steady(seed, ticks, Random) }}); settle_tick until false; spawn the design's entity lines in order (e0 .. e20, each a minecart with its villager e<N>.p0); t0 = the time right after that spawn; act t applied when the time is t0 + t, before the next tick\n", run.world.time - t_origin, tm.release_for, tm.advance_at, tm.advance_every, tm.pulse);
         if let (Some(b), Some(g)) = (build_start, tm.build_gap) {
-            text.push_str(&format!("# build: built in order instead: Run::start with the design's blocks and block entities removed (no settle), then each `act t set x y z <state>` a placement with the game's updates (flags 3) and each `act t nbt x y z <snbt>` a container's fill, in the build order, {g} gt between placements; every time here counts from the build's start (time {b}), not from t0\n# spawn {}\n", t_spawn - b));
+            let gaps = if tm.build_priced { "each cell's priced gap between placements (20 gt; 40 gt at a cell the bill charges place:edge)".to_string() } else { format!("{g} gt between placements") };
+            text.push_str(&format!("# build: built in order instead: Run::start with the design's blocks and block entities removed (no settle), then each `act t set x y z <state>` a placement with the game's updates (flags 3) and each `act t nbt x y z <snbt>` a container's fill, in the build order, {gaps}; every time here counts from the build's start (time {b}), not from t0\n# spawn {}\n", t_spawn - b));
         }
         for l in drive.borrow().iter() {
             text.push_str(l);

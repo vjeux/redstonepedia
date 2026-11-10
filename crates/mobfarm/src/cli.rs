@@ -594,16 +594,17 @@ pub enum MobfarmCmd {
         placed_both: bool,
         /// Build the design in order instead (the brief's "built in order"): the world empty, each
         /// cell placed with the game's updates in the default build order (supports, containers
-        /// filled as placed, rails, redstone from its sources outward), this many gt between
-        /// placements (default 20: prices.tsv's `place`, 1 s a block at every stage).
-        #[arg(long, num_args = 0..=1, default_missing_value = "20")]
+        /// filled as placed, rails, redstone from its sources outward), each cell's priced gap
+        /// between placements (prices.tsv: place 1 s = 20 gt; 40 gt at a cell the bill charges
+        /// place:edge), or GAP gt for every cell.
+        #[arg(long, num_args = 0..=1, default_missing_value = "0")]
         placed_in_order: Option<i64>,
-        /// All three placements, each reported: the judge's, the raw paste, built in order at the
-        /// priced gap (or --placed-in-order's).
+        /// All three placements, each reported: the judge's, the raw paste, built in order (each
+        /// cell's priced gap, or --placed-in-order's GAP).
         #[arg(long)]
         placed_all: bool,
-        /// Built in order at every gap from 1 gt up to the priced one (or --placed-in-order's),
-        /// to the first gap that fails.
+        /// Built in order at every gap from 1 gt up to the longest priced one (40 gt, or
+        /// --placed-in-order's GAP), to the first gap that fails.
         #[arg(long)]
         build_gap_sweep: bool,
         #[arg(long)]
@@ -1239,7 +1240,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let wired = match wired.as_slice() { [x, y, z] => Some(redsim::pos::BlockPos::new(*x, *y, *z)), [] => None, _ => anyhow::bail!("--wired takes the input cell: x,y,z") };
             let stand_reset = match stand_reset.as_slice() { [x, y, z] => Some(redsim::pos::BlockPos::new(*x, *y, *z)), [] => None, _ => anyhow::bail!("--stand-reset takes a cell: x,y,z") };
             let stand_detect_slots = match stand_detect_slots.as_slice() { [a, b, c] => Some([*a, *b, *c]), [] => None, _ => anyhow::bail!("--stand-detect-slots takes 3 delays: S1,S2,S3") };
-            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, entry_speed, adv_shift: match adv_shift.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-shift takes 3 shifts") }, adv_width: match adv_width.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-width takes 3 deltas") }, skew: { let mut s = [0i64; 24]; for (i, v) in skew.iter().enumerate().take(24) { s[i] = *v; } s }, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, build_gap: placed_in_order.filter(|_| !placed_all && !build_gap_sweep), ..Default::default() };
+            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, s1_at, tail0_late, bench_stand, stand_offset, release_stagger, tail_check_at, stand_detect_slots, entry_speed, adv_shift: match adv_shift.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-shift takes 3 shifts") }, adv_width: match adv_width.as_slice() { [a, b, c] => [*a, *b, *c], [] => [0; 3], _ => anyhow::bail!("--adv-width takes 3 deltas") }, skew: { let mut s = [0i64; 24]; for (i, v) in skew.iter().enumerate().take(24) { s[i] = *v; } s }, ideal_stand_at, tail_check_rest, tail2_at, placed_raw, build_gap: placed_in_order.filter(|_| !placed_all && !build_gap_sweep).map(|g| if g == 0 { 20 } else { g }), build_priced: placed_in_order == Some(0), ..Default::default() };
             if !sweep.is_empty() {
                 // the tolerance lines: one control at a time, to the first failure each way
                 let names: Vec<String> = if sweep == ["all"] { ["release-start", "release-end", "adv1-time", "adv1-width", "adv2-time", "adv2-width", "adv3-time", "adv3-width", "s1", "s2", "s3", "stand-brake", "tail12", "tail0", "speed"].iter().map(|s| s.to_string()).collect() } else { sweep.clone() };
@@ -1259,22 +1260,24 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 // single runs); `placed_both`: the judge's placement, then the raw paste;
                 // `placed_all`: and the build in order at the priced gap; `build_gap_sweep`: the
                 // build in order at every gap from 1 gt up to the priced one, to the first failure
-                let modes: Vec<(bool, Option<i64>)> = if build_gap_sweep {
-                    (1..=placed_in_order.unwrap_or(20)).map(|g| (false, Some(g))).collect()
+                let priced_in_order = placed_in_order.is_none_or(|g| g == 0);
+                let modes: Vec<(bool, Option<i64>, bool)> = if build_gap_sweep {
+                    (1..=placed_in_order.filter(|g| *g > 0).unwrap_or(40)).map(|g| (false, Some(g), false)).collect()
                 } else if placed_all {
-                    vec![(false, None), (true, None), (false, Some(placed_in_order.unwrap_or(20)))]
+                    vec![(false, None, false), (true, None, false), (false, Some(placed_in_order.filter(|g| *g > 0).unwrap_or(20)), priced_in_order)]
                 } else if placed_both {
-                    vec![(false, None), (true, None)]
+                    vec![(false, None, false), (true, None, false)]
                 } else {
-                    vec![(tm.placed_raw, tm.build_gap)]
+                    vec![(tm.placed_raw, tm.build_gap, tm.build_priced)]
                 };
                 let mut all_clean = true;
-                for (raw, gap) in modes {
-                    let tm = crate::queue::LoopTiming { placed_raw: raw, build_gap: gap, ..tm };
-                    let label = match (raw, gap) {
-                        (_, Some(g)) => format!("built in order, {g} gt between placements"),
-                        (true, None) => "settled as placed (raw paste)".to_string(),
-                        (false, None) => "the judge's placement".to_string(),
+                for (raw, gap, priced) in modes {
+                    let tm = crate::queue::LoopTiming { placed_raw: raw, build_gap: gap, build_priced: priced, ..tm };
+                    let label = match (raw, gap, priced) {
+                        (_, Some(_), true) => "built in order, each cell's priced gap (20 gt, 40 gt at a place:edge cell)".to_string(),
+                        (_, Some(g), false) => format!("built in order, {g} gt between placements"),
+                        (true, None, _) => "settled as placed (raw paste)".to_string(),
+                        (false, None, _) => "the judge's placement".to_string(),
                     };
                     let (mut clean, mut bad) = (0, Vec::new());
                     for s in seed..seed + seeds {
@@ -1297,7 +1300,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                     println!("{}", if all_clean { "works every way placed" } else { "FAILS in at least one placement" });
                 }
                 if build_gap_sweep && all_clean {
-                    println!("built in order: every gap from 1 to {} gt passes", placed_in_order.unwrap_or(20));
+                    println!("built in order: every gap from 1 to {} gt passes", placed_in_order.filter(|g| *g > 0).unwrap_or(40));
                 }
                 return Ok(());
             }
