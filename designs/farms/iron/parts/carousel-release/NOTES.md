@@ -30,6 +30,40 @@ benched by `mctas circuit memory release-bench`.
   - Taps + 8 / + 16 / + 24 plus REL through a diode make the group window.
   - Taps + 38 / + 58 / + 78 make the advance line.
 
+## v1 (2026-11-10 09:40): carousel-release-v1.txt (261 blocks)
+Changes from v0, each found while wiring it into ironfarm's loop:
+- **No release at power-on.** In v0 the empty ring fired the fallback at once. Now ARMED, a one-repeater loop set by the first golem, gates the fallback.
+- **Fixed-length refill.** The refill is a squared 8-gt copy of the release pulse (repeater R_r into a stone, read by the refill comparator, which feeds the ring directly).
+  - In v0 the refill was the whole release pulse, and its width varied.
+  - A first fix (an edge comparator straight on the release dust) could be cut 2 gt short whenever the input's level changed during the refill: a golem handing over to the held request, or the empty-ring torch lighting as a late golem came in. A held golem then released at + 90.
+- **Reset line restored south of every tap.** Consecutive taps reach the bulb at the same distance, so the merge window has no gap.
+- **Release pulse 12 gt.** The group window is 36 gt and the advance pulses 12 gt each. ironfarm accepted both (09:31).
+- **Timing** (the exact model in release-bench), relative to the previous release start:
+  - golem in time: group at golem + 4;
+  - held golem: + 92 exactly;
+  - fallback: + 106.
+- **Bench (10:20):**
+  - 100,000 slots × 2 seeds (5/5/10% and 15/15/30% missed/early/doubled): 0 violations;
+  - 20 restarts and turns 90/180/270°: the same 800,016 output changes, tick for tick;
+  - real game: IDENTICAL over 50,001 ticks (500 slots, 15/15/30%).
+
+## The loop wiring (`release-gen --loop <ironfarm's loop file>`, WIP; 10:42 on explore/ironfarm 9bd8f2ff9)
+The controller is built into a copy of ironfarm's carousel-single-lane-loop-wip.txt, west of row B (turned 180°); 761 blocks of redstone in all.
+- **Release group:** its line feeds the 3 group controls by dust: ON at golem + 4 (= t0) for 36 gt.
+- **Advance:** slots 3..17 all on one tick (t0 + 38/58/78, 12 gt): each feeder's delay pads its path to the slowest (row A). The 3 descending tail slots get it 2 gt later, through their own diodes (ironfarm 10:30: fine).
+- **Tail windows** (merged into the 3rd advance), t0-relative: slots 1-2 OFF at + 120, slot 0 at + 128.
+  - Source: an east-side chain from the delay chain's last advance stone, run under the loop at y -3 and up at x 8; four stones at golem + 86/96/104/114.
+  - Slot 0's taps go into its x 6 feed line; slots 1-2's go through an OR line along x 10.
+- **Stand:** three waxed copper bulb latches.
+  - Set at t0 + 6 / + 14 / + 22 (8 apart: ironfarm 10:30).
+  - Reset by line 4, 28 gt after the release run's detector rail (-3,1,4) powers. That equals ironfarm's bench + 27: his bench brakes after the tick it reads, so its carts feel bench + N on tick + N + 1. Redstone + 26 behaved like his + 25 and missed a cart.
+  - The train's three carts merge in 4 pulse-stretching repeaters; an edge comparator makes one reset per train.
+- **Controls:** all 21 glass control blocks become stone.
+- **Probe file:** `F.probe.txt` holds the controller alone with the 21 controls as ports. `release-trace F.probe.txt --at <golems> --det <detector ticks>` prints every control's on/off ticks.
+- **Cart runs** (`queue-loop-run F --wired=-7,-1,5`, the golem pulse the only input), 60 slots × 3 seeds:
+  - every slot, the release group holds 3 carts and the stand 3, with the same offsets as ironfarm's bench stand;
+  - the wired tail check fails on every slot: the returning train lands in slots 2/1/0, but its 3rd cart is still settling when the tail's first advance comes (t0 + 40). Sent to ironfarm (10:42): loop margin or check rule, his call.
+
 ## Bench (2026-11-10 08:28)
 - 100,000 slots × 2 seeds, 0 violations against the exact model:
   - seed 1 (5% missed, 5% early, 10% doubled) and seed 2 (15/15/30%);
@@ -38,7 +72,7 @@ benched by `mctas circuit memory release-bench`.
 - Turned 90/180/270°: the same output changes, tick for tick.
 - Real game: IDENTICAL over 50,001 ticks (1,154 input actions, 500 slots with 15% missed, 15% early, 30% doubled).
 
-## State (2026-11-10 08:28)
+## State (2026-11-10 08:28; v0)
 - **Wired.** The controller is real redstone in its design file.
 - **Bench-driven.** The golem input (a redstone block driven by the bench). The outputs go to lamps.
 - **Not connected** to the loop: ironfarm's slot cells moved, and the final list comes after his 10-clean-slot bench.

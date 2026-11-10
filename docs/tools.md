@@ -146,7 +146,15 @@ the delay chain; the release group window and the advance pulses off the same ch
 0.05] [--double 0.1] [--restarts R] [--game N]` drives its `golem` cell (golems in time, early ones
 to hold, missed slots, double detections to merge), checks every `group` window's start against an
 exact model and its length, the three `adv` pulses after it (start + 38/58/78, 7..12 gt, identical)
-and that nothing else lights; `--restarts`/`--game` as for loop-bench.
+and that nothing else lights; `--restarts`/`--game` as for loop-bench, `--turns 1,2,3` repeats it
+turned. `release-gen --out F --loop <ironfarm's loop file>` builds the controller into a copy of
+the single-lane loop (work in progress): turned west of row B, its lines wired to the 21 controls
+(the release group, the 18 queue slots on one tick, the tail's close-off windows, the stand's three
+latches and their brake from the release run's detector rail), and writes `F.probe.txt` beside it
+(the controller alone, the controls as ports); `mctas circuit memory release-trace <design> --at
+<golem ticks> [--det <detector ticks>] [--ticks N]` drives the golem cell (and a stand-in for the
+loop's detector rail) and prints each output port's on and off ticks from the first golem
+(`output.lvl_*` ports: the analog level at each change); queue-loop-run's `--wired` runs carts on F.
 A design's Nether part as a design of its own: `mctas mobfarm nether-part <design> --out F` writes
 its `nether layer` blocks, `nether nbt:` data and `port nether-<name>` ports as the blocks, data and
 ports of F, so `web shot F` pictures the Nether side (the kill, the collection); the viewer draws a

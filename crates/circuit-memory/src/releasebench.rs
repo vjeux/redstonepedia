@@ -23,11 +23,11 @@ pub struct Opts {
     pub turns: Vec<u8>,
 }
 
-/// The circuit's constants (sim-measured on release-gen v0): group = golem + 4 when idle; a held
-/// golem releases at the previous group + 92; the fallback at the previous group + 104.
+/// The circuit's constants (sim-measured on release-gen v1): group = golem + 4 when idle; a held
+/// golem releases at the previous group + 92; the fallback at the previous group + 106.
 const IDLE: u64 = 4;
 const HOLD: u64 = 92;
-const FALLBACK: u64 = 104;
+const FALLBACK: u64 = 106;
 
 pub fn bench(design: &Path, o: &Opts) -> Result<bool> {
     let mut recorded = Vec::new();
@@ -91,13 +91,14 @@ fn run_circuit(c: &Circuit, design: &Path, o: &Opts, recorded: &mut Vec<(u32, cl
     let on = redsim::Block::parse("minecraft:redstone_block").map_err(|e| anyhow!(e))?;
     let off = redsim::Block::parse("minecraft:stone").map_err(|e| anyhow!(e))?;
     let mut rng = Rng(o.seed);
-    // the power-on release (the ring starts empty: EXPIRE) opens the group at tick 4
-    let mut prev_group: u64 = 4;
+    // nothing moves at power-on (the fallback waits for the first golem): the first golem at 200
+    let mut prev_group: u64 = 0;
     let mut pulses: Vec<u64> = Vec::new(); // golem rises still to come, sorted
     let mut expect: u64; // the next group start the model predicts
     let (mut n_pulses, mut n_idle, mut n_hold, mut n_fall, mut n_double) = (0u32, 0u32, 0u32, 0u32, 0u32);
-    // draw the slot after the release whose group opened at `g`: returns the predicted next group start
-    let mut draw = |g: u64, rng: &mut Rng, pulses: &mut Vec<u64>, counts: &mut (u32, u32, u32, u32, u32)| -> u64 {
+    // draw the slot after the release whose group opened at `g`: returns the predicted next group
+    // start and its kind (0 a golem in time, 1 a held golem, 2 the fallback)
+    let mut draw = |g: u64, _kind: u8, rng: &mut Rng, pulses: &mut Vec<u64>, counts: &mut (u32, u32, u32, u32, u32)| -> (u64, u8) {
         if rng.unit() < o.double {
             // a double detection 10..44 gt after the release: it ends before the earliest real slot
             // (60), since a pulse overlapping it would be one input pulse
@@ -107,25 +108,28 @@ fn run_circuit(c: &Circuit, design: &Path, o: &Opts, recorded: &mut Vec<(u32, cl
         let u = rng.unit();
         let next = if u < o.miss {
             counts.3 += 1;
-            g + FALLBACK
+            (g + FALLBACK, 2)
         } else if u < o.miss + o.early {
             let at = g + rng.range(60, 84) as u64;
             pulses.push(at);
             counts.2 += 1;
-            g + HOLD
+            (g + HOLD, 1)
         } else {
             // in time: before the fallback (a golem after it is merged into the fallback's release)
             let at = g + rng.range(94, 99) as u64;
             pulses.push(at);
             counts.1 += 1;
-            at + IDLE
+            (at + IDLE, 0)
         };
         pulses.sort_unstable();
         counts.0 += 1;
         next
     };
     let mut counts = (0u32, 0u32, 0u32, 0u32, 0u32);
-    expect = draw(prev_group, &mut rng, &mut pulses, &mut counts);
+    pulses.push(200);
+    expect = 200 + IDLE;
+    let mut expect_fb: u8 = 0;
+    let mut recent: Vec<u64> = Vec::new();
     let ticks_cap = (o.pulses as u64 * 140 + 1000) as u32;
     let (mut group_was, mut adv_was) = (false, false);
     let (mut group_rise, mut adv_rise) = (0u64, 0u64);
@@ -149,6 +153,12 @@ fn run_circuit(c: &Circuit, design: &Path, o: &Opts, recorded: &mut Vec<(u32, cl
             ri += 1;
         }
         let high = pulses.iter().any(|&p| g >= p && g < p + 10) || (pulses.first().is_some_and(|&p| p > g + 100_000));
+        if pulses.first().is_some_and(|&p| p == g) {
+            recent.push(g);
+            if recent.len() > 6 {
+                recent.remove(0);
+            }
+        }
         let is_on = matches!(w.get(golem), redsim::Block::RedstoneBlock);
         if is_on != high {
             w.set_block(golem, if high { on } else { off }, redsim::world::flags::ALL);
@@ -175,14 +185,18 @@ fn run_circuit(c: &Circuit, design: &Path, o: &Opts, recorded: &mut Vec<(u32, cl
                     }
                 }
                 advs.clear();
-                if g != expect && expect != u64::MAX {
-                    report(format!("t={g}: group opened, the model wanted {expect} (previous group {prev_group})"), &mut bad);
+                let ok_t = g == expect;
+                let _ = expect_fb;
+                if !ok_t && expect != u64::MAX {
+                    report(format!("t={g}: group opened, the model wanted {expect} (previous group {prev_group}; recent golem pulses {recent:?})"), &mut bad);
                 }
                 released += 1;
                 prev_group = g;
                 group_rise = g;
                 if counts.0 < o.pulses {
-                    expect = draw(g, &mut rng, &mut pulses, &mut counts);
+                    let (e, fb) = draw(g, expect_fb, &mut rng, &mut pulses, &mut counts);
+                    expect = e;
+                    expect_fb = fb;
                 } else {
                     expect = u64::MAX;
                     done_at.get_or_insert(t + 200);
@@ -224,4 +238,61 @@ fn run_circuit(c: &Circuit, design: &Path, o: &Opts, recorded: &mut Vec<(u32, cl
         );
     }
     Ok(bad == 0 && released > 0)
+}
+
+/// `release-trace`: golem pulses at the given ticks (10 gt each), then every `output.*` port's on
+/// intervals (the loop-wired probe file's controls), relative to the first pulse.
+pub fn trace(design: &Path, at: &[u64], det: &[u64], ticks: u32) -> Result<()> {
+    let c = Circuit::load(design)?;
+    let p = c.clock.design.ports.get("input.golem").ok_or_else(|| anyhow!("no input.golem"))?;
+    let golem = redsim::pos::BlockPos::new(p[0], p[1], p[2]);
+    let outs: Vec<(String, redsim::pos::BlockPos)> = c.clock.design.ports.iter().filter(|(k, _)| k.starts_with("output.")).map(|(k, p)| (k.clone(), redsim::pos::BlockPos::new(p[0], p[1], p[2]))).collect();
+    let cc = c.with_consumers().map_err(|e| anyhow!("{e:#}"))?;
+    let (from, to) = circuit::run::watch_box(&c, 3);
+    let on = redsim::Block::parse("minecraft:redstone_block").map_err(|e| anyhow!(e))?;
+    let off = redsim::Block::parse("minecraft:stone").map_err(|e| anyhow!(e))?;
+    let mut was = vec![false; outs.len()];
+    let mut lvl = vec![0i32; outs.len()];
+    let mut edges: Vec<Vec<String>> = vec![Vec::new(); outs.len()];
+    let base = at.first().copied().unwrap_or(0) as i64;
+    let res = clock::sim::drive_live(&cc.clock, &[], ticks, from, to, |t, w| {
+        let g = t as u64;
+        let high = at.iter().any(|&a| g >= a && g < a + 10);
+        // the release run's detector rail (-3,1,4) stood in by a redstone block, 4 gt from each
+        // `det` tick (the loop probe file has no rail)
+        if !det.is_empty() {
+            let dp = redsim::pos::BlockPos::new(-3, 1, 4);
+            let dh = det.iter().any(|&a| g >= a && g < a + 4);
+            if matches!(w.get(dp), redsim::Block::RedstoneBlock) != dh {
+                w.set_block(dp, if dh { on } else { redsim::Block::Air }, redsim::world::flags::ALL);
+            }
+        }
+        if matches!(w.get(golem), redsim::Block::RedstoneBlock) != high {
+            w.set_block(golem, if high { on } else { off }, redsim::world::flags::ALL);
+        }
+        for (i, (_, q)) in outs.iter().enumerate() {
+            // (`output.lvl_*` ports: the analog level itself, at each change)
+            if outs[i].0.starts_with("output.lvl_") {
+                let lv = w.best_neighbor_signal(*q) as i32;
+                if lv != lvl[i] {
+                    edges[i].push(format!("{}@{}", lv, t as i64 - base));
+                    lvl[i] = lv;
+                }
+                continue;
+            }
+            let v = w.best_neighbor_signal(*q) > 0;
+            if v != was[i] {
+                edges[i].push(format!("{}{}", if v { "+" } else { "-" }, t as i64 - base));
+                was[i] = v;
+            }
+        }
+        true
+    });
+    if let Err((_, why)) = res {
+        bail!("the run failed: {why}");
+    }
+    for (i, (k, _)) in outs.iter().enumerate() {
+        println!("{k:24} {}", edges[i].join(" "));
+    }
+    Ok(())
 }

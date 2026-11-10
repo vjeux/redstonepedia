@@ -124,6 +124,18 @@ enum Cmd {
         #[arg(long, default_value_t = 0)]
         restarts: u32,
     },
+    /// Golem pulses at the given ticks into a release controller design; every output port's on
+    /// intervals relative to the first pulse (the loop-wired probe file: each control).
+    ReleaseTrace {
+        design: PathBuf,
+        #[arg(long, value_delimiter = ',', default_value = "200")]
+        at: Vec<u64>,
+        /// Ticks the loop's detector rail (-3,1,4) switches on (a redstone block for 4 gt).
+        #[arg(long, value_delimiter = ',')]
+        det: Vec<u64>,
+        #[arg(long, default_value_t = 600)]
+        ticks: u32,
+    },
     /// The release controller driven alone (crates/circuit-memory/src/releasebench.rs): golems in
     /// time, early (held), missed (fallback) and doubled (merged), checked against an exact model.
     ReleaseBench {
@@ -153,6 +165,10 @@ enum Cmd {
         out: PathBuf,
         #[arg(long, default_value = "designs/circuits/pulsemult/archive/off-delay-ring-L20.txt")]
         offdelay: PathBuf,
+        /// Build it into this loop file (ironfarm's carousel-single-lane-loop-wip.txt), wired to
+        /// its 21 controls.
+        #[arg(long = "loop")]
+        loop_file: Option<PathBuf>,
     },
     /// The single-lane loop's nightly scheduler, generated (crates/circuit-memory/src/loopgen.rs).
     LoopGen {
@@ -383,7 +399,11 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::SchedGen { out, modules, offdelay } => schedgen::generate(&out, &modules, &offdelay)?,
         Cmd::CounterV8 { v7, out } => counter8::generate(&v7, &out)?,
         Cmd::LoopGen { out, modules, offdelay } => loopgen::generate(&out, &modules, &offdelay)?,
-        Cmd::ReleaseGen { out, offdelay } => releasegen::generate(&out, &offdelay)?,
+        Cmd::ReleaseTrace { design, at, det, ticks } => releasebench::trace(&design, &at, &det, ticks)?,
+        Cmd::ReleaseGen { out, offdelay, loop_file } => match loop_file {
+            Some(l) => releasegen::generate_loop(&out, &l, &offdelay)?,
+            None => releasegen::generate(&out, &offdelay)?,
+        },
         Cmd::ReleaseBench { design, pulses, seed, miss, early, double, restarts, game, turns } => {
             let ok = releasebench::bench(&design, &releasebench::Opts { pulses, seed, miss, early, double, restarts, game, turns })?;
             if !ok {
