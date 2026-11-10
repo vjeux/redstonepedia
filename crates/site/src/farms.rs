@@ -116,6 +116,10 @@ fn carousel_name(name: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
         .replace("-gt ", "-game-tick ")
+        // (the lanes that built a part are no words for a player: "for ironfarm's paired lanes")
+        .replace("ironfarm's ", "the ")
+        .replace("farmopt's ", "the ")
+        .replace("ironspec's ", "the ")
 }
 
 /// A carousel member's number as a player reads it (the owners' catalogs write the bench's terms:
