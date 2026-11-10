@@ -219,7 +219,8 @@ pub fn updating_using_item(w: &mut World, i: usize) {
         return;
     }
     let spear = super::spear::held(w, i).is_some();
-    if !holding_bow(w, i) && !spear {
+    // (ItemStack.isSameItem: the bow, the spear or the trident it started with, still in hand)
+    if !holding_bow(w, i) && !spear && !super::drowned::holds_trident(w, i) {
         stop_using_item(w, i);
         return;
     }

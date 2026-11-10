@@ -141,13 +141,22 @@ pub enum Damage {
     /// mob AI: a spear's stab (`spear`: armor counts; `#no_knockback`, the stab pushes on its
     /// own; `#is_player_attack`, so a panic cause; the attacker is `MobWorld.ai.attacker`).
     Spear,
+    /// mob AI: a thrown trident's hit (`trident`: a projectile, a panic cause; armor counts; its
+    /// owner is `MobWorld.ai.attacker` and its motion `MobWorld.ai.projectile_motion`, as an
+    /// arrow's).
+    Trident,
 }
 
 impl Damage {
     /// Caused by a living attacker (`MobWorld.ai.attacker` during the call): a melee hit, an
-    /// arrow's owner, a spear's holder.
+    /// arrow's or a trident's owner, a spear's holder.
     pub fn by_attacker(self) -> bool {
-        matches!(self, Damage::MobAttack | Damage::Arrow | Damage::Spear)
+        matches!(self, Damage::MobAttack | Damage::Arrow | Damage::Spear | Damage::Trident)
+    }
+
+    /// A projectile's (`#is_projectile` among the modeled): the knockback goes along its motion.
+    pub fn by_projectile(self) -> bool {
+        matches!(self, Damage::Arrow | Damage::Trident)
     }
 }
 
@@ -176,6 +185,7 @@ impl Damage {
             Damage::MobAttack => "mob_attack",
             Damage::Arrow => "arrow",
             Damage::Spear => "spear",
+            Damage::Trident => "trident",
         }
     }
 
@@ -194,6 +204,7 @@ impl Damage {
             Damage::MobAttack => "mob",
             Damage::Arrow => "arrow",
             Damage::Spear => "spear",
+            Damage::Trident => "trident",
         }
     }
 }

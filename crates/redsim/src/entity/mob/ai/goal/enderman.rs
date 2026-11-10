@@ -262,6 +262,19 @@ pub fn speed_bonus(w: &World, i: usize) -> f64 {
     if super::super::target::get_target(w, i).is_some() { 0.15f32 as f64 } else { 0.0 }
 }
 
+/// `Enderman.repeatedlyTryToTeleport()` (a projectile's hit): not a passenger, up to 64
+/// teleports until one lands.
+pub fn repeatedly_try_to_teleport(w: &mut World, i: usize) {
+    if w.entities.list[i].vehicle.is_some() {
+        return;
+    }
+    for _ in 0..64 {
+        if teleport(w, i) {
+            return;
+        }
+    }
+}
+
 /// `Enderman.teleport()`: a cell within 32 (x, z) and 32 (y) drawn from its own random.
 pub fn teleport(w: &mut World, i: usize) -> bool {
     if mob(w, i).health <= 0.0 || mob(w, i).dead {
@@ -336,8 +349,9 @@ fn teleport_to(w: &mut World, i: usize, xx: f64, yy: f64, zz: f64) -> bool {
 /// `Enderman.hurtServer`'s tail: a damage no living entity caused teleports it nine times in ten
 /// (the roll drawn whether it lived or not).
 pub fn after_hurt(w: &mut World, i: usize, src: crate::entity::mob::Damage) {
-    // a living attacker's (a hit, a spear's stab) teleports it not
-    if matches!(src, crate::entity::mob::Damage::MobAttack | crate::entity::mob::Damage::Spear) {
+    // a living attacker's (a hit, a spear's stab, an arrow's or a trident's owner) teleports it
+    // not (`source.getEntity() instanceof LivingEntity`)
+    if src.by_attacker() && w.mob.ai.attacker.is_some() {
         return;
     }
     if rnd(w, i).next_int(10) != 0 {

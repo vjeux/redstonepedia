@@ -233,7 +233,7 @@ pub fn entity_frame(w: &World, e: &crate::entity::Entity) -> EntityFrame {
             EntityKind::Minecart(m) => if m.hopper { "hopper_minecart".into() } else { "minecart".into() },
             EntityKind::ArmorStand(_) => "armor_stand".into(),
             EntityKind::PrimedTnt(_) => "tnt".into(),
-            EntityKind::Arrow(_) => "arrow".into(),
+            EntityKind::Arrow(a) => if a.trident { "trident".into() } else { "arrow".into() },
         },
         pos: v(e.pos),
         motion: v(e.delta_movement),

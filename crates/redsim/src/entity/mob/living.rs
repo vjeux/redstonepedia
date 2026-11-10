@@ -364,6 +364,10 @@ fn ai_step(w: &mut World, i: usize) {
     if super::ai::has_ai(w, i) {
         super::ai::goal::animal::horse_before_ai_step(w, i);
         super::ai::goal::witch::before_ai_step(w, i);
+        // Enderman.aiStep before super.aiStep: updatePersistentAnger(level, true)
+        if super::ai::ai(w, i).enderman.is_some() {
+            super::ai::goal::golem::update_anger(w, i);
+        }
         super::ai::update_no_action_time(w, i);
         // AbstractFish.aiStep: the flop out of the water before super.aiStep
         if super::ai::fish::is_fish(w, i) {

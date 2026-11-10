@@ -966,6 +966,10 @@ mob's move control keeps `180 * yaw / pi` as its direction until a goal sets one
 draws from its own random before it enters (a zombie's `finalizeSpawn` -> `handleAttributes`, a
 salmon's variant) comes from its construction seed; vanilla's siege builds its zombie with
 `new Zombie(level)`, so the bridge runs `ExactVillageSiege` (vanilla's code plus that seeding).
+A mob's projectile (a skeleton's arrow, a drowned's trident) is constructed and shot from an
+unseeded random before it enters: the bridge reseeds it as entity n and redoes the shot from
+that stream toward the shooter's target (an arrow's `setBaseDamageFromMob` triangle, then
+`shoot`'s three), as redsim's `entity::arrow` launches it.
 
 **A world sandbox** (`world` op; one per worker: 26.3 keeps the clock, the weather and the game
 rules server-wide) runs the server clock and weather, in a biome (`biome`: the real-game gate's

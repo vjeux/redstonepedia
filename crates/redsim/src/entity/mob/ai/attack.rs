@@ -112,12 +112,13 @@ fn voice_pitch_draws(w: &mut World, i: usize) {
 /// villager on Hard, or on Normal when its own random's `nextBoolean()` is false, converts it
 /// into a zombie villager: refused (zombie villagers are not modeled).
 pub fn killed_entity(w: &mut World, victim: usize, src: Damage) {
-    // Zombie.killedEntity: whatever the zombie killed it with (its hit, its spear)
-    if !matches!(src, Damage::MobAttack | Damage::Spear) {
+    // Zombie.killedEntity (every Zombie class: a drowned's too): whatever it killed it with (its
+    // hit, its spear, its trident)
+    if !src.by_attacker() {
         return;
     }
     let Some(att) = w.mob.ai.attacker.and_then(|id| crate::entity::index_of(w, id)) else { return };
-    if !matches!(mob(w, att).ty.def().id, "zombie" | "baby_zombie") || mob(w, victim).ty != crate::entity::mob::types::MobType::Villager {
+    if !crate::entity::mob::natural::is_zombie_class(mob(w, att).ty) || mob(w, victim).ty != crate::entity::mob::types::MobType::Villager {
         return;
     }
     let d = super::difficulty_id(w);
@@ -150,10 +151,10 @@ pub fn after_hurt(w: &mut World, i: usize, src: Damage, took_full: bool) {
         s.last_hurt_by_mob_timestamp = tc;
     }
     if took_full
-        && src == Damage::Arrow
+        && src.by_projectile()
         && let Some(m) = w.mob.ai.projectile_motion
     {
-        // Projectile.calculateHorizontalHurtKnockbackDirection: along the arrow's motion
+        // Projectile.calculateHorizontalHurtKnockbackDirection: along the projectile's motion
         knockback(w, i, 0.4f32 as f64, -m.x, -m.z);
     } else if took_full
         // a spear's stab: #no_knockback (stabAttack pushes on its own)

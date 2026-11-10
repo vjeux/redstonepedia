@@ -1197,6 +1197,72 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (mob-AI 2026-11-10) a drowned with a trident in a pool at night and an iron golem on the
+    // shore: its DrownedTridentAttackGoal (the throw every 40 ticks in sight within 10), the
+    // ThrownTrident's flight (0.99 in water), its hit (8, the bounce back), lying in the ground
+    // (dealt damage after 4 ticks); the golem's fight
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        wall(&mut b, (4, 4), (44, 4), 64, 3, stone);
+        wall(&mut b, (4, 44), (44, 44), 64, 3, stone);
+        wall(&mut b, (4, 4), (4, 44), 64, 3, stone);
+        wall(&mut b, (44, 4), (44, 44), 64, 3, stone);
+        // a pool two deep on stone
+        floor(&mut b, 18, 26, 18, 26, 61, stone);
+        for x in 18..=26 {
+            for z in 18..=26 {
+                b.push(([x, 62, z], "minecraft:water[level=0]".to_string()));
+                b.push(([x, 63, z], "minecraft:water[level=0]".to_string()));
+            }
+        }
+        let p = |id: &str, at: [f64; 3], nbt: &str| (id.to_string(), at, Some(nbt.to_string()));
+        v.push(Scene {
+            name: "drowned-trident".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                p("minecraft:drowned", [22.5, 62.0, 22.5], "{PersistenceRequired:1b,equipment:{mainhand:{id:\"minecraft:trident\",count:1}}}"),
+                p("minecraft:iron_golem", [31.5, 64.0, 22.5], "{PersistenceRequired:1b}"),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 58, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (mob-AI 2026-11-10) a skeleton, an enderman and an iron golem in a line in a corridor at
+    // night: the golem fights the enderman (Enderman.aiStep's updatePersistentAnger: its anger
+    // timer's draw each tick it has a target), the skeleton shoots at the golem
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        wall(&mut b, (8, 22), (40, 22), 64, 4, stone);
+        wall(&mut b, (8, 26), (40, 26), 64, 4, stone);
+        wall(&mut b, (8, 22), (8, 26), 64, 4, stone);
+        wall(&mut b, (40, 22), (40, 26), 64, 4, stone);
+        let p = |id: &str, at: [f64; 3], nbt: &str| (id.to_string(), at, Some(nbt.to_string()));
+        v.push(Scene {
+            name: "enderman-golem".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                p("minecraft:skeleton", [14.5, 64.0, 24.5], "{PersistenceRequired:1b,equipment:{mainhand:{id:\"minecraft:bow\",count:1}}}"),
+                p("minecraft:enderman", [21.5, 64.0, 24.5], "{PersistenceRequired:1b}"),
+                p("minecraft:iron_golem", [30.5, 64.0, 24.5], "{PersistenceRequired:1b}"),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: false,
+            watch: ([0, 58, 0], [47, 72, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // a skeleton alone at night: strolls, looks around (RestrictSunGoal idle in the dark)
     {
         let mut b = Vec::new();

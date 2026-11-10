@@ -523,6 +523,24 @@ final class Sandbox {
                 double zd = target.getZ() - shooter.getZ();
                 double dist = Math.sqrt(xd * xd + zd * zd);
                 arrow.shoot(xd, yd + dist * 0.2F, zd, 1.6F, shooter.rangedAttackUncertainty(Sandbox.this.level));
+            } else if (ticking && e instanceof net.minecraft.world.entity.projectile.arrow.ThrownTrident trident
+                    && trident.getOwner() instanceof net.minecraft.world.entity.monster.zombie.Drowned thrower
+                    && thrower.getTarget() != null) {
+                // (mob-AI 2026-11-10) a drowned's trident (Drowned.performRangedAttack): its
+                // constructor's draw (the UUID) and spawnProjectileUsingShoot's (shoot's three)
+                // came from its unseeded random before it entered. Reseeded as entity n and the
+                // shot redone from it toward the thrower's target (nothing moved since), which
+                // redsim mirrors (entity::arrow::throw_trident_from_mob)
+                java.util.UUID old = e.getUUID();
+                Exact.Seeded info = Exact.seed(e, seed, n, false, true, Exact.ItemPath.NONE, ctor);
+                renameUuid(old, e.getUUID());
+                seeded.put(e, info);
+                net.minecraft.world.entity.LivingEntity target = thrower.getTarget();
+                double xd = target.getX() - thrower.getX();
+                double yd = target.getY(0.3333333333333333) - trident.getY();
+                double zd = target.getZ() - thrower.getZ();
+                double dist = Math.sqrt(xd * xd + zd * zd);
+                trident.shoot(xd, yd + dist * 0.2F, zd, 1.6F, thrower.rangedAttackUncertainty(Sandbox.this.level));
             } else if (!e.entityTags().contains(DESIGN_TAG) || (ticking && ctor != null)) {
                 // (tickexact 2026-11-08) every other entity: its own random from the sandbox seed
                 // and its number, the constructor's draws redone (Exact); (mob-AI 2026-11-09) a
