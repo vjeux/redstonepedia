@@ -1079,7 +1079,10 @@ pub fn movement_emission(w: &mut World, i: usize, movement: Vec3) {
         return;
     }
     let (on_ground, in_water) = (e.on_ground, e.was_touching_water);
-    if on_ground {
+    // vibrationAndSoundEffectsFromBlock steps only `(onGround || ...) && !isSwimming()`: a swimming
+    // drowned on the bottom makes the swim sound instead (cross-4-underground t12882)
+    let swimming = mob(w, i).ai.as_deref().is_some_and(|a| a.swimming);
+    if on_ground && !swimming {
         // walkingStepSound on the effect cell (`getOnPosLegacy`: 0.2 down) for a mob whose steps
         // sound: an amethyst block (`#crystal_sound_blocks`) 20 ticks after the last chime draws
         // the chime's pitch from its own random
