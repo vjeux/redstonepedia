@@ -1518,6 +1518,106 @@ pub fn portal_piglin(w: &mut World, at: BlockPos) -> Option<u32> {
     Some(id)
 }
 
+/// (tickexact 2026-11-10; mob-AI's reading of d1-bed-plate's village-edge t4904) `Zombie.hurtServer`
+/// after a hurt that went through: with a target (its own, or the living attacker) on Hard, the
+/// reinforcement roll (`nextFloat() < SPAWN_REINFORCEMENTS_CHANCE`, its own random); passing it with
+/// monsters spawning: `getType().create(level, REINFORCEMENT)` (a construction, used or not), then up
+/// to 50 tries of a cell 7..40 away (or 0) on each axis (`Mth.nextInt(7, 40) x Mth.nextInt(-1, 1)`,
+/// six draws of its own random): `isSpawnPositionOk` and `checkSpawnRules(REINFORCEMENT, the level
+/// random)`, then at the cell's corner no player within 7, unobstructed, no collision, no liquid
+/// (but a drowned): the reinforcement takes the target, `finalizeSpawn(REINFORCEMENT)` (the
+/// natural one's draws, no group data), enters, and the caller's chance and its own each lose 0.05.
+pub fn zombie_reinforcements(w: &mut World, i: usize, attacker: Option<u32>) {
+    let id = w.entities.list[i].id;
+    let EntityKind::Mob(m) = &w.entities.list[i].kind else { return };
+    let (ty, chance) = (m.ty, m.reinforcement_chance);
+    let own_target = if super::ai::has_ai(w, i) { super::ai::target::get_target(w, i) } else { None };
+    let Some(target) = own_target.or(attacker) else { return };
+    if super::ai::difficulty_id(w) != 3 {
+        return;
+    }
+    let roll = match w.entities.list[i].random.as_mut() {
+        Some(r) => r.next_float(),
+        None => return,
+    };
+    if (roll as f64) >= chance {
+        return;
+    }
+    // ServerLevel.isSpawningMonsters
+    let Some(nat) = w.mob.natural.clone() else {
+        model_error(w, "a zombie's reinforcement call outside a natural mob world is not modeled".into());
+        return;
+    };
+    if !(nat.spawning && nat.spawn_enemies) {
+        return;
+    }
+    let Some(k) = kind_of_type(ty) else {
+        model_error(w, format!("a {}'s reinforcements are not modeled", ty.def().id));
+        return;
+    };
+    let p = w.entities.list[i].pos;
+    let (x, y, z) = (p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32);
+    // EntityType.create(level, REINFORCEMENT): an adult of the caller's type
+    let ctor = if w.exact_seed.is_some() { Some(w.construct()) } else { None };
+    for _ in 0..50 {
+        let mut d = [0i32; 3];
+        for v in d.iter_mut() {
+            let r = w.entities.list[i].random.as_mut().expect("random");
+            let far = r.next_int(34) + 7;
+            let sign = r.next_int(3) - 1;
+            *v = far * sign;
+        }
+        let cell = BlockPos::new(x + d[0], y + d[1], z + d[2]);
+        if !placement_ok(w, k, cell) || !spawn_rules(w, k, cell, &nat) {
+            continue;
+        }
+        // setPos at the cell's corner
+        let at = Vec3::new(cell.x as f64, cell.y as f64, cell.z as f64);
+        let near_player = nat.players.iter().any(|q| {
+            let (dx, dy, dz) = (q.x - at.x, q.y - at.y, q.z - at.z);
+            dx * dx + dy * dy + dz * dz < 49.0
+        });
+        let bb = entity_box(k.ty, at.x, at.y, at.z);
+        if near_player || !super::spawn::is_unobstructed(w, bb) || !no_collision(w, bb) || (!k.water_obstruction && super::blocks::box_has_liquid(w, bb)) {
+            continue;
+        }
+        if let Some(n) = w.mob.natural.as_mut() {
+            n.bonuses.clear();
+        }
+        let mut group = GroupData::default();
+        let f = finalize_spawn(w, &nat, k, &mut group, cell);
+        // no snap: the yaw stays the constructor's (the head's)
+        let rid = spawn_mob(w, k, &f, at, f32::NAN);
+        if k.finalize == Finalize::Zombie {
+            let special = special_multiplier(w, &nat);
+            zombie_handle_attributes(w, rid, ctor, special, k.id != "minecraft:drowned");
+        }
+        if let Some(j) = crate::entity::index_of(w, rid) {
+            if super::ai::has_ai(w, j) {
+                super::ai::target::set_target(w, j, Some(target));
+            }
+            if let EntityKind::Mob(r) = &mut w.entities.list[j].kind {
+                r.reinforcement_chance -= 0.05;
+            }
+        }
+        if let Some(ci) = crate::entity::index_of(w, id)
+            && let EntityKind::Mob(c) = &mut w.entities.list[ci].kind
+        {
+            c.reinforcement_chance -= 0.05;
+        }
+        return;
+    }
+}
+
+/// The `Zombie` class's types (its `hurtServer` and reinforcements): zombies, zombie villagers,
+/// husks, drowned, zombified piglins, and their babies.
+pub fn is_zombie_class(ty: MobType) -> bool {
+    matches!(
+        ty.def().id,
+        "zombie" | "baby_zombie" | "zombie_villager" | "baby_zombie_villager" | "husk" | "baby_husk" | "drowned" | "baby_drowned" | "zombified_piglin" | "baby_zombified_piglin"
+    )
+}
+
 /// `Zombie.handleAttributes` from the mob's own random as constructed (an exact world's: the
 /// construction's stream past the constructor's UUID and yaw draws; else the stand-in own random):
 /// `randomizeReinforcementsChance` (a draw unless the type overrides it: the drowned), knockback
@@ -1536,14 +1636,22 @@ fn zombie_handle_attributes(w: &mut World, id: u32, ctor: Option<crate::rng::Leg
         },
     };
     if reinforcements_draw {
-        own.next_double();
+        // randomizeReinforcementsChance: nextDouble() x 0.1F
+        let base = own.next_double() * 0.10000000149011612;
+        if let EntityKind::Mob(m) = &mut w.entities.list[j].kind {
+            m.reinforcement_chance = base;
+        }
     }
     own.next_double(); // knockback resistance
     let follow = own.next_double() * 1.5 * special as f64;
     let roll = own.next_float();
     let leader = roll < special * 0.05;
     let (bonus, health) = if leader {
-        own.next_double();
+        // LEADER_ZOMBIE_BONUS: nextDouble() x 0.25 + 0.5 on the reinforcement chance
+        let b = own.next_double() * 0.25 + 0.5;
+        if let EntityKind::Mob(m) = &mut w.entities.list[j].kind {
+            m.reinforcement_chance += b;
+        }
         (true, own.next_double() * 3.0 + 1.0)
     } else {
         (false, 0.0)
@@ -1958,6 +2066,10 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
     let chicken = (f.jockey == Jockey::NewChicken || f.rider_chicken == Jockey::NewChicken).then(|| {
         let c = super::add(w, MobType::Natural(12), pos, false);
         super::seed_entered(w, c);
+        if yaw.is_nan() {
+            model_error(w, "a zombie reinforcement's new chicken (its jockey) is not modeled".into());
+        }
+        let yaw = if yaw.is_nan() { 0.0 } else { yaw };
         if let Some(j) = crate::entity::index_of(w, c) {
             let e = &mut w.entities.list[j];
             e.y_rot = yaw;
@@ -1969,10 +2081,11 @@ fn spawn_mob_inner(w: &mut World, k: &Kind, f: &Finalized, pos: Vec3, yaw: f32) 
         c
     });
     let id = super::add(w, f.ty, pos, false);
-    super::seed_entered(w, id);
+    let ctor_head = super::seed_entered(w, id);
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
-        // snapTo keeps the drawn yaw as it is (0..360, not wrapped to -180..180)
-        e.y_rot = yaw;
+        // snapTo keeps the drawn yaw as it is (0..360, not wrapped to -180..180); a reinforcement
+        // (NaN: no snap) keeps the constructor's yaw
+        e.y_rot = if yaw.is_nan() { ctor_head.unwrap_or(0.0) } else { yaw };
         // a cube mob whose finalizeSpawn sets a size other than the default 1:
         // onSyncedDataUpdated(ID_SIZE) turns it to its head (the constructor's yaw), the body too
         if let EntityKind::Mob(m) = &mut e.kind

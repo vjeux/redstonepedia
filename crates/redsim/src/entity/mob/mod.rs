@@ -274,6 +274,10 @@ pub struct MobState {
     pub sleeping_pos: Option<BlockPos>,
     /// `FOLLOW_RANGE` with `Mob.finalizeSpawn`'s random bonus.
     pub follow_range: f64,
+    /// (tickexact 2026-11-10) A zombie's `SPAWN_REINFORCEMENTS_CHANCE`: `randomizeReinforcementsChance`
+    /// (nextDouble x 0.1F; 0 for the drowned and zombified piglins), a leader's bonus, the charges
+    /// of its calls (-0.05 each) and of being one (-0.05); 0 where its spawn's draws are not modeled.
+    pub reinforcement_chance: f64,
     /// `xxa`, `zza`, `jumping`, `speed` (the walking input).
     pub xxa: f32,
     pub zza: f32,
@@ -343,6 +347,7 @@ impl MobState {
             last_crystal_tick: 0,
             sleeping_pos: None,
             follow_range: d.follow_range * (1.0 + bonus),
+            reinforcement_chance: 0.0,
             xxa: 0.0,
             zza: 0.0,
             jumping: false,
