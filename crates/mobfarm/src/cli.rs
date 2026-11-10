@@ -671,6 +671,9 @@ pub enum MobfarmCmd {
         /// 0.36 b/t).
         #[arg(long)]
         exit_brake: bool,
+        /// Close the bed's open north front: the bed reachable by path only from the cage.
+        #[arg(long)]
+        cage_only: bool,
         /// Write the cells as the judge's placement leaves them (the generator's own states), not
         /// settled (the default writes every cell as the bench finds it after the settle, comparator
         /// outputs as block entities: "settled as placed", mobfarm::placing::settle_design).
@@ -692,7 +695,7 @@ pub enum MobfarmCmd {
         to: i64,
         #[arg(long, default_value_t = 2)]
         nights: u32,
-        #[arg(long, default_value = "400,600")]
+        #[arg(long, default_value = "400,500")]
         gap: String,
         #[arg(long, default_value = "0.15,1.1")]
         speed: String,
@@ -901,6 +904,18 @@ fn siding_problem(r: &std::result::Result<crate::siding::BenchReport, String>) -
     }
     if !r.errors.is_empty() {
         return Some(format!("errors: {}", r.errors.join("; ")));
+    }
+    // ironspec's check: all 21 hold HOME = the bed at every dawn and midday
+    if let Some((t, day, n)) = r.home_checks.iter().find(|c| c.2 < 21) {
+        return Some(format!("{n} of 21 hold HOME = the bed at time {t} (day time {day}); HOME changes: {}", r.home_events.iter().take(4).cloned().collect::<Vec<_>>().join("; ")));
+    }
+    // and every villager naps once each night it is scheduled
+    let mut per_night: std::collections::BTreeMap<i64, std::collections::BTreeSet<u32>> = Default::default();
+    for v in r.visits.iter().filter(|v| v.slept.is_some()) {
+        per_night.entry(v.night).or_default().insert(v.villager);
+    }
+    if let Some((n, s)) = per_night.iter().find(|(_, s)| s.len() < 21) {
+        return Some(format!("night {n}: {} of 21 villagers napped", s.len()));
     }
     // (a visit the run's end cut short is not counted)
     let counted: Vec<&crate::siding::VisitRec> = r.visits.iter().filter(|v| v.released.is_some() || v.problem.is_some()).collect();
@@ -1451,8 +1466,8 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("golems touching no portal: {strays}; Nether: {deaths} dead, {alive} alive at the end, {back} back in the overworld");
             println!("violations: {viol}; {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::Siding { out, wired, alone, exit_brake, unsettled } => {
-            std::fs::write(&out, crate::siding::design_opts(wired, alone, exit_brake)?)?;
+        MobfarmCmd::Siding { out, wired, alone, exit_brake, cage_only, unsettled } => {
+            std::fs::write(&out, crate::siding::design_opts_cage(wired, alone, exit_brake, cage_only)?)?;
             if !unsettled {
                 let changes = crate::placing::settle_file(&out)?;
                 println!("settled: {} cells written as the settle leaves them", changes.len());
@@ -1678,6 +1693,33 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("speed leaving the exit cell (b/t, stored): min {:.3} median {:.3} max {:.3}; over 0.36: {over} of {}", leaves[0], leaves[leaves.len() / 2], leaves[leaves.len() - 1], leaves.len());
             }
             println!("problems: {problems:?}");
+            // ironspec's check, every seed: HOME at every dawn and midday, naps per villager-night
+            {
+                let oks: Vec<&crate::siding::BenchReport> = rows.iter().filter_map(|r| r.1.as_ref().ok()).collect();
+                let checks: usize = oks.iter().map(|r| r.home_checks.len()).sum();
+                let min_held = oks.iter().flat_map(|r| r.home_checks.iter().map(|c| c.2)).min();
+                let short: usize = oks.iter().map(|r| r.home_checks.iter().filter(|c| c.2 < 21).count()).sum();
+                let changes: usize = oks.iter().map(|r| r.home_events.len()).sum();
+                let mut naps: std::collections::BTreeMap<usize, u64> = Default::default();
+                for r in &oks {
+                    let mut per: std::collections::BTreeMap<(i64, u32), usize> = Default::default();
+                    for v in r.visits.iter().filter(|v| v.slept.is_some()) {
+                        *per.entry((v.night, v.villager)).or_insert(0) += 1;
+                    }
+                    for n in per.values() {
+                        *naps.entry(*n).or_insert(0) += 1;
+                    }
+                }
+                let nights: usize = oks.iter().map(|r| r.visits.iter().map(|v| v.night).collect::<std::collections::BTreeSet<_>>().len()).sum();
+                println!("ironspec's check: {checks} dawn/midday checks over {} seeds, HOME = the bed held by min {:?} of 21 (checks short of 21: {short}); HOME changes (losses and regains): {changes}; villager-nights by naps (naps: count): {naps:?} over {nights} seed-nights (21 each: {})", oks.len(), min_held, 21 * nights);
+                let mut gaps: Vec<i64> = oks.iter().flat_map(|r| r.home_gaps.iter().copied()).collect();
+                gaps.sort();
+                let unregained: usize = oks.iter().map(|r| r.home_events.iter().filter(|e| e.contains("loses")).count()).sum::<usize>().saturating_sub(gaps.len());
+                println!("HOME lost and taken back (the napper's release at its first REST tick and its AcquirePoi reclaim): {} times, without HOME p50 {:?} p99 {:?} max {:?} gt; losses not taken back by the end: {unregained}", gaps.len(), gaps.get(gaps.len() / 2), gaps.get(((gaps.len() as f64 - 1.0) * 0.99) as usize), gaps.last());
+                for e in oks.iter().flat_map(|r| r.home_events.iter()).take(8) {
+                    println!("  HOME change: {e}");
+                }
+            }
             for e in &examples {
                 println!("  {e}");
             }

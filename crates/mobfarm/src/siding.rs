@@ -372,10 +372,21 @@ pub fn design_with(wired: bool) -> Result<String> {
 /// under its dust beside the exit cell would power a powered rail there whenever the slot's
 /// tripwire fires).
 pub fn design_opts(wired: bool, alone: bool, exit_brake: bool) -> Result<String> {
+    design_opts_cage(wired, alone, exit_brake, false)
+}
+
+/// [`design_opts`], and with `cage_only` the bed's open north front (0,0,1) closed with glass, two
+/// high, so the bed head is reachable by path only from the cage's free cell (no villager off the
+/// siding finds a path to it for AcquirePoi).
+pub fn design_opts_cage(wired: bool, alone: bool, exit_brake: bool, cage_only: bool) -> Result<String> {
     let s = layout();
-    let name = format!("carousel-bed-siding{}{}{}", if wired { "-wired" } else { "" }, if exit_brake { "-brake" } else { "" }, if alone { "-alone" } else { "" });
+    let name = format!("carousel-bed-siding{}{}{}{}", if wired { "-wired" } else { "" }, if exit_brake { "-brake" } else { "" }, if cage_only { "-cage" } else { "" }, if alone { "-alone" } else { "" });
     let mut b = Builder::new(&name);
     build(&mut b, &s, !alone)?;
+    if cage_only {
+        put(&mut b, [s.bed_head.x, 0, s.bed_head.z - 1], "glass")?;
+        put(&mut b, [s.bed_head.x, 1, s.bed_head.z - 1], "glass")?;
+    }
     if exit_brake {
         let brake = "powered_rail[powered=false,shape=east_west,waterlogged=false]";
         let c = [s.exit.x + 1, s.exit.y, s.exit.z];
@@ -512,6 +523,8 @@ pub struct VisitRec {
     /// speed past the brake).
     pub leave_speed: Option<f64>,
     pub own_cart: bool,
+    /// The night it belongs to (the day count at its dusk).
+    pub night: i64,
     /// Ticks waiting on the slot at night, and of those panicking.
     pub wait_ticks: u32,
     pub wait_panic: u32,
@@ -537,6 +550,13 @@ pub struct BenchReport {
     /// Built in order: the cells the build left unlike the file (none: the build ends as written),
     /// and the build's steps, cells and ticks.
     pub built_diff: Vec<String>,
+    /// ironspec's check: at every dawn (day time 0) and midday (6000), (time, day time, villagers
+    /// holding HOME = the bed).
+    pub home_checks: Vec<(i64, i64, u32)>,
+    /// Every HOME loss or regain (who, when, where, its activity).
+    pub home_events: Vec<String>,
+    /// Each regained loss's time without HOME (gt).
+    pub home_gaps: Vec<i64>,
     pub build: Option<(usize, usize, i64)>,
 }
 
@@ -594,8 +614,9 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     }
     let drive = drive;
     let bed = s.bed_head;
-    redsim::entity::mob::ai::poi::take(&mut run.world, bed);
-    drive.act(t0, format!("poi-take {} {} {}", bed.x, bed.y, bed.z));
+    // (no bed act: every villager's HOME = the bed comes from the design file's `port home:` line,
+    // the state R1's break-and-replace build steps leave; redsim counts the claims as the bed's
+    // taken ticket; the bench touches no villager memory)
     // the villagers and their carts (by the hold cell they start on)
     let mut pairs: Vec<(u32, u32, i32)> = Vec::new();
     for i in 0..run.world.entities.list.len() {
@@ -610,15 +631,6 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     }
     pairs.sort_by_key(|p| p.2);
     let index_of = |w: &World, id: u32| w.entities.list.iter().position(|e| e.id == id && !e.removed);
-    for (_, v, _) in &pairs {
-        if let Some(i) = index_of(&run.world, *v) {
-            let br = brain::brain_mut(&mut run.world, i);
-            br.home = Some(bed);
-            br.last_slept = Some(t0 - 100);
-            drive.act(t0, format!("home {} {} {} {}", drive.name(*v), bed.x, bed.y, bed.z));
-            drive.act(t0, format!("last-slept {} {}", drive.name(*v), t0 - 100 - origin));
-        }
-    }
     let mut rng = redsim::rng::LegacyRandom::new(bo.seed ^ 0x7369_6469);
     let set = |w: &mut World, p: BlockPos, st: &str| w.set_block(p, block(st), redsim::world::flags::ALL);
     let teleport = |w: &mut World, cart: u32, pos: Vec3, vel: Vec3| {
@@ -633,14 +645,19 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         }
     };
     let mut rep = BenchReport::default();
-    let end = t0 + (bo.nights as i64 + 1) * 24000;
+    // (the visits' nights: the first full night after the spawn and the `nights` after it, so a
+    // spawn after dusk (a build in order ends at any day time) skips the night already under way;
+    // the run ends the day after the last)
+    let first_night = (run.world.day_time() - 12000).div_euclid(24000) + 1;
+    let end = t0 + (bo.nights as i64 + 1) * 24000 + if (run.world.day_time() - 12000).rem_euclid(24000) < 12000 { 24000 } else { 0 };
     if bo.release_held {
         set(&mut run.world, s.release, "redstone_block");
         drive.act(t0, format!("set {} {} {} minecraft:redstone_block", s.release.x, s.release.y, s.release.z));
     }
-    // the schedule: each night's visit ticks
+    // the schedule: each night's visit ticks, every villager once a night
     let mut next_visit: Option<i64> = None;
     let mut last_nap: Vec<i64> = vec![i64::MIN; pairs.len()];
+    let mut night_of_visit: Vec<i64> = vec![-1; pairs.len()];
     let mut active: Option<usize> = None; // the visit inside (not yet on the exit branch)
     let mut waiting: Vec<usize> = Vec::new(); // visits on the slot (not yet released)
     let mut out: Vec<(usize, i64)> = Vec::new(); // visits on the run-out (released)
@@ -650,13 +667,22 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
     let mut release_off: Option<i64> = None;
     let mut reset_pending = false;
     let mut homes_seen: Vec<bool> = vec![true; pairs.len()];
+    let mut home_now: Vec<bool> = pairs.iter().map(|(_, v, _)| index_of(&run.world, *v).is_some_and(|i| brain::brain(&run.world, i).home == Some(bed))).collect();
+    let mut lost_at: Vec<Option<i64>> = vec![None; pairs.len()];
     let mut probe_last: Vec<String> = Vec::new();
     while run.world.time < end {
         let now = run.world.time;
         let day = run.world.day_time().rem_euclid(24000);
         let night = !(10..12000).contains(&day);
+        // (the night a visit belongs to: the day count at its night's dusk)
+        let night_n = (run.world.day_time() - 12000).div_euclid(24000);
+        // ironspec's check: every villager's HOME = the bed at every dawn and every midday
+        if day == 0 || day == 6000 {
+            let held = pairs.iter().filter(|(_, v, _)| index_of(&run.world, *v).is_some_and(|i| brain::brain(&run.world, i).home == Some(bed))).count();
+            rep.home_checks.push((now, day, held as u32));
+        }
         // the next visit: scheduled through the night
-        if next_visit.is_none() && day >= 12000 && day < 23000 {
+        if next_visit.is_none() && day >= 12000 && day < 23000 && night_n >= first_night && night_n < first_night + bo.nights as i64 {
             next_visit = Some(now + rng.next_int(400) as i64);
         }
         if let Some(tv) = next_visit
@@ -665,9 +691,9 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
             if day >= 23000 || day < 12000 {
                 next_visit = None;
             } else if active.is_none() && bo.max_visits.is_none_or(|m| rep.visits.len() < m) {
-                // the villager napped longest ago, not out already
+                // the villager napped longest ago, not out already and not visited this night
                 let busy: Vec<u32> = waiting.iter().chain(out.iter().map(|(v, _)| v)).map(|&k| rep.visits[k].villager).collect();
-                let pick = (0..pairs.len()).filter(|&k| !busy.contains(&pairs[k].1)).min_by_key(|&k| last_nap[k]);
+                let pick = (0..pairs.len()).filter(|&k| !busy.contains(&pairs[k].1) && night_of_visit[k] != night_n).min_by_key(|&k| last_nap[k]);
                 if let Some(k) = pick {
                     let (cart, villager, _) = pairs[k];
                     let v = bo.speed.0 + (bo.speed.1 - bo.speed.0) * rng.next_float() as f64;
@@ -681,9 +707,10 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
                         teleport(&mut run.world, cart, Vec3::new(APPROACH_X, 0.0625, 0.5), Vec3::new(v, 0.0, 0.0));
                     }
                     let eta = if bo.launch { 30 } else { ((-APPROACH_X - 0.0) / v).round() as i64 };
-                    rep.visits.push(VisitRec { villager, cart, arrived: now + eta, ..Default::default() });
+                    rep.visits.push(VisitRec { villager, cart, arrived: now + eta, night: night_n, ..Default::default() });
                     active = Some(rep.visits.len() - 1);
                     last_nap[k] = now;
+                    night_of_visit[k] = night_n;
                 }
                 let gap = bo.gap.0 + rng.next_int((bo.gap.1 - bo.gap.0 + 1) as i32) as i64;
                 next_visit = Some(now + gap);
@@ -745,6 +772,28 @@ pub fn bench(spec: &FarmSpec, bo: &BenchOpts) -> Result<BenchReport, String> {
         }
         run.tick();
         let t = run.world.time;
+        // every villager's HOME every tick: each loss and each regain (ironspec's check reads the
+        // dawn and midday counts; these say who, when, where and in which activity)
+        for (n, (_, v, _)) in pairs.iter().enumerate() {
+            let Some(i) = index_of(&run.world, *v) else { continue };
+            let h = brain::brain(&run.world, i).home == Some(bed);
+            if h != home_now[n] {
+                home_now[n] = h;
+                // (a loss's start, and on the regain the time without HOME)
+                if h {
+                    if let Some(l) = lost_at[n].take() {
+                        rep.home_gaps.push(t - l);
+                    }
+                } else {
+                    lost_at[n] = Some(t);
+                }
+                let w = &run.world;
+                let e = &w.entities.list[i];
+                let act = if brain::has_exact(w, i) { format!("{:?}", brain::ex(w, i).active) } else { "-".into() };
+                let occ = matches!(w.get(bed), Block::Bed { occupied: true, .. });
+                rep.home_events.push(format!("t0+{} (day time {}): villager {} {} at {:.2} {:.2} {:.2}, {act}, riding {}, bed occupied {occ}", t - t0, run.world.day_time().rem_euclid(24000), n, if h { "takes HOME = the bed" } else { "loses HOME" }, e.pos.x, e.pos.y, e.pos.z, e.vehicle.is_some()));
+            }
+        }
         let w = &run.world;
         // the visit inside: its stages
         if let Some(k) = active {

@@ -238,9 +238,14 @@ output merged: a sorter whose locks come with its redstone). `mctas mobfarm sidi
 `linear --out F` write their files settled (`placing::settle_design`: every cell as the bench finds
 it after the settle, flowing fluids included, comparator outputs as `nbt:` lines; `--unsettled` for
 the generator's own states); `siding --alone` writes the siding by itself (no launcher, approach,
-run-out, hold or carts) and `--exit-brake` puts a braked powered rail past its exit cell;
+run-out, hold or carts), `--exit-brake` puts a braked powered rail past its exit cell and
+`--cage-only` closes the bed's open north front (the bed reachable only from the cage);
 `siding-bench --release-held` holds the release input on all run (each napped cart leaves the slot
-as it reaches it). `MCTAS_BUILD_WATCH="x,y,z n1,59,0 ..."` prints the watched cells (`n`: the
+as it reaches it). The siding bench sets no villager memory (HOME = the bed comes from the design's
+`port home:`, R1's state), gives each of the 21 villagers one visit a night (the full nights after
+the spawn) and prints ironspec's check: every villager's HOME at every dawn and midday, naps per
+villager-night, and each HOME loss and its reclaim. A design with `port home:` pays R1's N - 1
+break-and-replace steps in its bill (prices.tsv's `bed_reclaim`). `MCTAS_BUILD_WATCH="x,y,z n1,59,0 ..."` prints the watched cells (`n`: the
 Nether's) on stderr whenever one changes during a build.
 The judge's speed, results unchanged: `mctas farmopt bench <spec> --n 16 --quick 8 [--full N]
 --threads 16 --out <file>` evaluates N candidates spread evenly over the spec's space level by
