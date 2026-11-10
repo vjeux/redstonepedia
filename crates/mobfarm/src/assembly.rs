@@ -206,6 +206,8 @@ pub struct WiringReport {
     pub stuck_count: u32,
     /// Ticks with two or more lines high.
     pub two_lines: u32,
+    /// Advances out of the counter's cycle (0-2-4-6-5-3-1).
+    pub order_faults: u32,
 }
 
 /// The physical wiring's check (`mobfarm assembly-check`): the design's redstone alone on redsim
@@ -230,11 +232,21 @@ pub fn wiring_check(spec: &redsim::entity::mob::farm::FarmSpec, lanes: &crate::h
         let mut v = Vec::new();
         for k in 0..lanes.levels {
             v.push(("stand", k, BlockPos::new(x, lanes.level_gap * k, lanes.stand_z0 + k)));
-            v.push(("hold", k, BlockPos::new(x, lanes.level_gap * k, lanes.run - k)));
+            if !asm.wired {
+                v.push(("hold", k, BlockPos::new(x, lanes.level_gap * k, lanes.hold_slope_z(b, k))));
+            }
+        }
+        if asm.wired {
+            // the wired v0: the hold side is the yard's, from the delivery cell
+            v.push(("delivery", 0, delivery(lanes, b)));
         }
         rails.push(v);
     }
-    let powered = |w: &redsim::world::World, p: BlockPos| matches!(w.get(p), Block::Rail { activator: false, powered: true, .. });
+    let powered = |w: &redsim::world::World, p: BlockPos| match w.get(p) {
+        Block::Rail { activator: false, powered, .. } => powered,
+        Block::Wire { power, .. } => power > 0,
+        _ => false,
+    };
     let line = |w: &redsim::world::World, p: BlockPos| matches!(w.get(p), Block::Comparator { powered: true, .. });
     let mut rep = WiringReport::default();
     let mut rng = redsim::rng::LegacyRandom::new(seed ^ 0x7769_7265);
@@ -251,6 +263,7 @@ pub fn wiring_check(spec: &redsim::entity::mob::farm::FarmSpec, lanes: &crate::h
     let mut rail_state: Vec<Vec<bool>> = rails.iter().map(|v| v.iter().map(|(_, _, p)| powered(&run.world, *p)).collect()).collect();
     let mut wrong_since: Vec<Vec<Option<i64>>> = rails.iter().map(|v| vec![None; v.len()]).collect();
     let mut off_at: Option<i64> = None;
+    let mut last_rise: Option<usize> = None;
     // the counter's power-on settles before the check counts anything
     let warm = first + 300;
     while run.world.time < end {
@@ -276,6 +289,15 @@ pub fn wiring_check(spec: &redsim::entity::mob::farm::FarmSpec, lanes: &crate::h
                 last_change[b] = t;
                 if now[b] && t >= warm {
                     rep.advances += 1;
+                    // the counter's cycle 0-2-4-6-5-3-1
+                    const CYCLE: [usize; 7] = [0, 2, 4, 6, 5, 3, 1];
+                    if let Some(l) = last_rise {
+                        let i = CYCLE.iter().position(|&c| c == l).unwrap_or(0);
+                        if CYCLE[(i + 1) % 7] != b {
+                            rep.order_faults += 1;
+                        }
+                    }
+                    last_rise = Some(b);
                 }
             }
         }
@@ -318,4 +340,216 @@ pub fn wiring_check(spec: &redsim::entity::mob::farm::FarmSpec, lanes: &crate::h
         }
     }
     Ok(rep)
+}
+
+/// The wired v0's counter shift (file -> world): the counter in the yard space at z 30..42.
+pub const T_WIRED: [i32; 3] = [3, -2, 40];
+
+/// Lane `b`'s delivery cell: its line (high = go) under the hold end, for the yard's hold feeds
+/// (A lanes, b even, at y -2; B lanes at y -4).
+pub fn delivery(lanes: &crate::hold::LaneOpts, b: i32) -> BlockPos {
+    BlockPos::new(lanes.x(b), if b % 2 == 0 { -2 } else { -4 }, 20)
+}
+
+const WIRE: &str = "redstone_wire[east=side,north=side,power=0,south=side,west=side]";
+
+fn rep_facing(dir: [i32; 3]) -> &'static str {
+    // a line moving by `dir`: its repeaters' input is behind them (FACING is the input side)
+    match (dir[0], dir[2]) {
+        (0, -1) => "south",
+        (0, 1) => "north",
+        (1, 0) => "west",
+        _ => "east",
+    }
+}
+
+fn wput(d: &mut Design, p: [i32; 3], s: &str, force: bool) -> Result<()> {
+    let s = if s.starts_with("minecraft:") { s.to_string() } else { format!("minecraft:{s}") };
+    if !force
+        && let Some(old) = d.blocks.get(&p)
+        && *old != s
+    {
+        anyhow::bail!("the wiring's {s} at {p:?} meets {old}");
+    }
+    d.blocks.insert(p, s);
+    Ok(())
+}
+
+/// A support under a wire or a diode: stone when the cell above it steps down (power flows down a
+/// step only off a conductive block), glass otherwise (no spawn floor); an existing block stays.
+fn support(d: &mut Design, p: [i32; 3], stone: bool) -> Result<()> {
+    let q = [p[0], p[1] - 1, p[2]];
+    match d.blocks.get(&q) {
+        None => wput(d, q, if stone { "stone" } else { "glass" }, false),
+        Some(s) if stone && s.ends_with(":glass") => wput(d, q, "stone", true),
+        Some(_) => Ok(()),
+    }
+}
+
+/// Lay a line along `cells` (each one horizontal step from the last, possibly one up or down),
+/// `prev` the cell feeding the first one: a repeater where `forced` says (a booster above) or where
+/// the wire has run 12 cells (straight flat cells only, not where `no_rep`), wire elsewhere.
+fn lay(d: &mut Design, prev: [i32; 3], cells: &[[i32; 3]], mut count: i32, forced: &dyn Fn(&Design, [i32; 3]) -> bool, no_rep: &dyn Fn([i32; 3]) -> bool) -> Result<()> {
+    for i in 0..cells.len() {
+        let p = cells[i];
+        let pr = if i == 0 { prev } else { cells[i - 1] };
+        let nx = cells.get(i + 1).copied();
+        let dir = [p[0] - pr[0], 0, p[2] - pr[2]];
+        let straight = pr[1] == p[1] && nx.is_some_and(|n| n[1] == p[1] && [n[0] - p[0], 0, n[2] - p[2]] == dir);
+        let steps_down = nx.is_some_and(|n| n[1] == p[1] - 1);
+        if straight && (forced(d, p) || (count >= 12 && !no_rep(p))) {
+            wput(d, p, &format!("repeater[delay=1,facing={},locked=false,powered=false]", rep_facing(dir)), false)?;
+            count = 0;
+        } else {
+            anyhow::ensure!(!(forced(d, p) && pr[1] == p[1]), "a booster over a non-straight wire cell at {p:?}");
+            wput(d, p, WIRE, false)?;
+            count += 1;
+        }
+        support(d, p, steps_down)?;
+    }
+    Ok(())
+}
+
+fn straight(from: [i32; 3], to: [i32; 3]) -> Vec<[i32; 3]> {
+    let (dx, dz) = ((to[0] - from[0]).signum(), (to[2] - from[2]).signum());
+    assert!(from[1] == to[1] && (dx == 0 || dz == 0));
+    let mut v = vec![from];
+    let mut p = from;
+    while p != to {
+        p = [p[0] + dx, p[1], p[2] + dz];
+        v.push(p);
+    }
+    v
+}
+
+/// Step b of v0 on ironfarm's paired lanes: the station design with counter v7 in the yard
+/// space and every line wired (Space note minecraft-tas/notes/carousel-v0b-wiring-plan): the
+/// pulse wire from the pad to the counter's input; each lane's line from its tap to its stand's
+/// torch chain (NOT line at the three stand slopes) and, at z 20, to its delivery cell (the yard's
+/// hold feeds take it from there; the bench drives the hold controls from it until they land).
+pub fn v0b(pad: &crate::station::PadOpts, lanes: &crate::hold::LaneOpts) -> Result<String> {
+    anyhow::ensure!(lanes.paired && lanes.stand_z0 == 1, "the wired v0 is laid out for the paired lanes (stand_z0 1)");
+    let text = crate::station::design(pad, lanes)?;
+    let mut d = Design::parse(&text)?;
+    let t = T_WIRED;
+    let fw = |f: [i32; 3]| [f[0] + t[0], f[1] + t[1], f[2] + t[2]];
+    let c = counter()?;
+    for (p, s) in &c.blocks {
+        wput(&mut d, fw(*p), s, false)?;
+    }
+    for (p, s) in &c.block_entities {
+        d.block_entities.insert(fw(*p), s.clone());
+    }
+    let booster = |d: &Design, p: [i32; 3]| p[1] == -2 && d.blocks.get(&[p[0], -1, p[2]]).is_some_and(|s| s.ends_with("redstone_block"));
+    let none = |_: &Design, _: [i32; 3]| false;
+    let delivery_z = |p: [i32; 3]| p[2] == 20;
+    // the taps: even repeaters on the north face (world z 30), odd on the south face (z 35)
+    for fx in [-3, -1, 1, 3] {
+        let p = fw([fx, 0, -10]);
+        wput(&mut d, p, "repeater[delay=1,facing=south,locked=false,powered=false]", false)?;
+        support(&mut d, p, false)?;
+    }
+    for fx in [-2, 0, 2] {
+        let p = fw([fx, 0, -5]);
+        wput(&mut d, p, "repeater[delay=1,facing=north,locked=false,powered=false]", false)?;
+        support(&mut d, p, false)?;
+    }
+    // b3's caps over its wire beside the counter's x-1 wire column (no diagonal link into it)
+    for f in [[0, 1, -4], [0, 1, -3], [0, 1, -2], [-1, 1, -2], [2, 1, -4]] {
+        wput(&mut d, fw(f), "stone", false)?;
+    }
+    let mut cat = |parts: &[Vec<[i32; 3]>]| -> Vec<[i32; 3]> {
+        let mut v: Vec<[i32; 3]> = Vec::new();
+        for p in parts {
+            for q in p {
+                if v.last() != Some(q) {
+                    v.push(*q);
+                }
+            }
+        }
+        v
+    };
+    // each lane's path to its inverter's wire (segment 1) and from the inverter (segment 2)
+    let inv_z = |b: i32| if b % 2 == 0 { 9 } else { 8 };
+    let mut seg1: Vec<(i32, [i32; 3], Vec<[i32; 3]>)> = Vec::new();
+    for (b, sx) in [(0, 0), (2, 2), (4, 4), (6, 6)] {
+        let x = lanes.x(b);
+        let jz = match b {
+            6 => 29,
+            4 => 27,
+            2 => 25,
+            _ => 29,
+        };
+        let path = cat(&[straight([sx, -2, 29], [sx, -2, jz]), straight([sx, -2, jz], [x, -2, jz]), straight([x, -2, jz], [x, -2, inv_z(b) + 1])]);
+        seg1.push((b, [sx, -2, 30], path));
+    }
+    let b1 = cat(&[vec![[1, -2, 36]], straight([1, -2, 36], [-2, -2, 36]), straight([-2, -2, 36], [-2, -2, 25]), vec![[-2, -3, 24], [-2, -4, 23]], straight([-2, -4, 22], [1, -4, 22]), straight([1, -4, 22], [1, -4, inv_z(1) + 1])]);
+    let b1 = cat(&[b1[..b1.iter().position(|p| *p == [-2, -4, 23]).unwrap() + 1].to_vec(), vec![[-2, -4, 22]], b1[b1.iter().position(|p| *p == [-2, -4, 22]).unwrap()..].to_vec()]);
+    seg1.push((1, [1, -2, 35], b1));
+    let b3 = cat(&[straight([3, -2, 36], [3, -2, 38]), straight([3, -2, 38], [-4, -2, 38]), straight([-4, -2, 38], [-4, -2, 30]), vec![[-4, -3, 29], [-4, -4, 28]], straight([-4, -4, 28], [-4, -4, 26]), straight([-4, -4, 26], [4, -4, 26]), straight([4, -4, 26], [4, -4, inv_z(3) + 1])]);
+    seg1.push((3, [3, -2, 35], b3));
+    let b5 = cat(&[vec![[5, -2, 36], [5, -3, 37]], straight([5, -4, 38], [-3, -4, 38]), straight([-3, -4, 38], [-3, -4, 31]), straight([-3, -4, 31], [7, -4, 31]), straight([7, -4, 31], [7, -4, inv_z(5) + 1])]);
+    seg1.push((5, [5, -2, 35], b5));
+    for (b, prev, path) in &seg1 {
+        let forced: &dyn Fn(&Design, [i32; 3]) -> bool = if b % 2 == 0 { &booster } else { &none };
+        lay(&mut d, *prev, path, 0, forced, &delivery_z)?;
+    }
+    // the inverters, segment 2 to the stand, the towers and the chains
+    for b in 0..crate::hold::BATCHES {
+        let x = lanes.x(b);
+        let y = if b % 2 == 0 { -2 } else { -4 };
+        let zi = inv_z(b);
+        wput(&mut d, [x, y, zi], "stone", false)?;
+        wput(&mut d, [x, y, zi - 1], "redstone_wall_torch[facing=north,lit=true]", false)?;
+        let forced: &dyn Fn(&Design, [i32; 3]) -> bool = if b % 2 == 0 { &booster } else { &none };
+        let path = if b % 2 == 0 { cat(&[straight([x, -2, zi - 2], [x, -2, 2]), vec![[x, -3, 1]]]) } else { cat(&[straight([x, -4, zi - 2], [x, -4, 3]), vec![[x, -3, 2]]]) };
+        lay(&mut d, [x, y, zi - 1], &path, 0, forced, &delivery_z)?;
+        if b % 2 == 1 {
+            wput(&mut d, [x, -3, 1], "repeater[delay=1,facing=south,locked=false,powered=false]", false)?;
+            support(&mut d, [x, -3, 1], false)?;
+            wput(&mut d, [x, -2, 2], "stone", false)?;
+        }
+        // the 1-torch tower and the stand chain (the control cells become torches, the caps stone)
+        wput(&mut d, [x, -3, 0], "stone", false)?;
+        wput(&mut d, [x, -2, 0], "redstone_torch[lit=true]", false)?;
+        wput(&mut d, [x, -1, 0], "stone", false)?;
+        wput(&mut d, [x, 0, 0], "redstone_torch[lit=true]", true)?;
+        wput(&mut d, [x, 1, 0], "stone", true)?;
+        wput(&mut d, [x, 2, 0], "redstone_torch[lit=true]", false)?;
+        wput(&mut d, [x, 3, 0], "stone", false)?;
+        wput(&mut d, [x, 4, 0], "glass", false)?;
+        wput(&mut d, [x, 3, 1], "redstone_wall_torch[facing=south,lit=true]", true)?;
+        wput(&mut d, [x, 4, 1], "stone", true)?;
+        wput(&mut d, [x, 5, 1], "redstone_torch[lit=true]", false)?;
+        wput(&mut d, [x, 6, 1], "stone", false)?;
+        wput(&mut d, [x, 7, 1], "glass", false)?;
+        wput(&mut d, [x, 6, 2], "redstone_wall_torch[facing=south,lit=true]", true)?;
+    }
+    // the pulse wire: from the pad's last wire along x 13 down to y -1, to z 40, west to the input
+    let from = pad.pulse();
+    let x = from[0];
+    let mut wire = vec![[x, from[1], from[2] + 1]];
+    let (mut y, mut z) = (from[1], from[2] + 1);
+    while y > -1 {
+        y -= 1;
+        z += 1;
+        wire.push([x, y, z]);
+    }
+    let input = counter_input(&AsmOpts { counter_at: t, wired: true })?;
+    let wire = cat(&[wire, straight([x, -1, z], [x, -1, input[2]]), straight([x, -1, input[2]], [input[0], -1, input[2]])]);
+    anyhow::ensure!(input[1] == -1, "the counter's input at y {} (the wire arrives at y -1)", input[1]);
+    lay(&mut d, from, &wire, 1, &none, &|_| false)?;
+    d.name = "carousel-v0-wired".into();
+    d.meta.insert("assembly".into(), AsmOpts { counter_at: t, wired: true }.meta());
+    let mut s = String::new();
+    for l in [
+        "Assembly v0 (wired) of the iron carousel on paired lanes: ironfarm's release + hold, farmopt's station + pad + Nether part, day-1's counter v7 in the yard space,",
+        "the pad's pulse wired to its input, each lane's line to its stand's torch chain (NOT line) and to its delivery cell at z 20 (the yard's hold feeds).",
+    ] {
+        s.push_str("# ");
+        s.push_str(l);
+        s.push('\n');
+    }
+    s.push_str(&d.to_text());
+    Ok(s)
 }
