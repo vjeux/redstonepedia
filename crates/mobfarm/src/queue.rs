@@ -1268,10 +1268,14 @@ pub struct LoopTiming {
 
 /// A nap visit: during slot `slot` the stand's cart `k` (0 = S1, the batch's front, first across
 /// the departure corner) is diverted to the bed siding: the divert control on for 10 gt from
-/// +`divert_at`; T1/T2 set for its drop slot (q-4-k: its hole rests there in the long rest of
-/// slot `slot`+4); the siding's release control on for 10 gt at +`release_at` from slot `slot`'s
-/// start. Checked: the rider sleeps, the cart rolls off its drop rail, rests in its own slot, and
-/// its batch is in order (slots q-4, q-5, q-6) before slot `slot`+5's first advance.
+/// +`divert_at` + 10k; T1/T2 set for its drop slot (q-4-k: its hole rests there in the long rest
+/// of slot `slot`+4) as its siding release comes; the siding's release control on for 10 gt at
+/// +`release_at` from slot `slot`'s start. Checked: the rider sleeps, the cart rolls off its drop
+/// rail, rests in its own slot, and its batch is in order (slots q-4, q-5, q-6) before slot
+/// `slot`+5's first advance. With `every` > 0, a nightly schedule instead: from the first slot
+/// whose day time is `from` or later, a visit every `every` slots, 21 a night, the j-th taking the
+/// stand's cart j div 7 (with `every` prime to 7, every batch and every place in it once); checked
+/// besides: every rider asleep once a night, every rider's HOME unchanged at each dawn and midday.
 #[derive(Clone, Copy, Debug)]
 pub struct Visit {
     pub slot: i64,
@@ -1282,6 +1286,22 @@ pub struct Visit {
     pub t1: BlockPos,
     pub t2: BlockPos,
     pub release: BlockPos,
+    pub every: i64,
+    pub from: i64,
+}
+
+/// One nap visit as it runs (see `Visit`).
+#[derive(Clone, Debug, Default)]
+struct VisitRun {
+    slot: i64,
+    k: usize,
+    cart: Option<u32>,
+    rider: Option<u32>,
+    batch: Vec<u32>,
+    sleep: (Option<i64>, Option<i64>),
+    on_rail: bool,
+    rolled: Option<(i64, f64)>,
+    back: Option<(i64, usize)>,
 }
 
 /// Day-1's merge (b): at cycle `cycle`, +4, the cart in queue slot `park` leaves the loop; at +`at`
@@ -1832,13 +1852,14 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let mut order_ok = 0;
     // (a nap visit's state: the carts off the loop, the visiting cart and its batch, what it did)
     let mut away: std::collections::HashSet<u32> = std::collections::HashSet::new();
-    let mut visit_cart: Option<u32> = None;
-    let mut visit_rider: Option<u32> = None;
-    let mut visit_batch: Vec<u32> = Vec::new();
-    let mut visit_sleep: (Option<i64>, Option<i64>) = (None, None);
-    let mut visit_rolled: Option<(i64, f64)> = None;
-    let mut visit_on_rail = false;
-    let mut visit_back: Option<(i64, usize)> = None;
+    let mut visits: Vec<VisitRun> = Vec::new();
+    // (the nightly schedule: visits started tonight, the next slot one may start, the nights)
+    let mut tonight = 0usize;
+    let mut next_visit = 0i64;
+    let mut night_reports: Vec<String> = Vec::new();
+    let mut slept_tonight: Vec<bool> = vec![false; riders.len()];
+    let mut tod_was = -1i64;
+    let mut home_at_start: Option<Vec<Option<BlockPos>>> = None;
     let mut visit_lines: Vec<String> = Vec::new();
     let mut home_was: Vec<Option<BlockPos>> = vec![None; riders.len()];
     let mut bed_claims: Vec<String> = Vec::new();
@@ -1927,26 +1948,27 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             if rel.len() != 3 || dep.len() != 3 {
                 problems.push(format!("slot {c}: the release group holds {} carts and the stand {} at the slot's start", rel.len(), dep.len()));
             }
-            // (a nap visit: its cart is the stand's cart k now; T1/T2 set for its drop slot)
-            let mut visit_sets: Vec<(BlockPos, Block)> = Vec::new();
+            // (a nap visit starts: its cart is the stand's cart k now; a single visit at its slot,
+            // or the nightly schedule's next)
+            let visit_sets: Vec<(BlockPos, Block)> = Vec::new();
             if let Some(v) = tm.visit {
-                if c == v.slot {
-                    visit_batch = dep.clone();
-                    visit_cart = dep.get(v.k).copied();
-                    let idx = visit_cart.and_then(|id| carts.iter().position(|x| *x == id));
-                    visit_rider = idx.map(|i| riders[i]);
-                    let drop = q - 4 - v.k;
-                    for (cell, powered) in [(v.t1, drop != q - 4), (v.t2, drop == q - 6)] {
-                        // (a T rail reshapes only on an update from a signal source: a block
-                        // placed over glass updates its neighbours as glass and leaves the T as it
-                        // was, so a T's control is off as a target block (a full block, a signal
-                        // source, no power) and switched on from it)
-                        visit_sets.push((cell, target.clone()));
-                        if powered {
-                            visit_sets.push((cell, on.clone()));
-                        }
+                let tod = run.world.day_time().rem_euclid(24000);
+                let start = if v.every == 0 {
+                    (c == v.slot).then_some(v.k)
+                } else if tod >= v.from && tod < 23000 && tonight < riders.len() && c >= next_visit {
+                    Some(tonight / 7)
+                } else {
+                    None
+                };
+                if let Some(k) = start {
+                    let cart = dep.get(k).copied();
+                    let idx = cart.and_then(|id| carts.iter().position(|x| *x == id));
+                    visits.push(VisitRun { slot: c, k, cart, rider: idx.map(|i| riders[i]), batch: dep.clone(), ..Default::default() });
+                    if v.every > 0 {
+                        tonight += 1;
+                        next_visit = c + v.every;
                     }
-                    visit_lines.push(format!("visit: slot {c} (day time {}), the stand's cart {} (e{}) to the siding, its drop slot {drop}", run.world.day_time().rem_euclid(24000), v.k, idx.map_or(-1, |i| i as i64)));
+                    visit_lines.push(format!("visit: slot {c} (day time {tod}), the stand's cart {k} (e{}) to the siding, its drop slot {}", idx.map_or(-1, |i| i as i64), q - 4 - k));
                 }
             }
             // the order at each slot's start, cart by cart (no moment has all 21 at rest with a
@@ -2100,27 +2122,49 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 }
             }
         }
-        // (a nap visit's two timed controls: the divert at the departure corner while its cart
-        // crosses, the siding's release; the cart is off the loop from the divert on)
+        // (each nap visit's timed controls: the divert at the departure corner while its cart
+        // crosses (a T: off as a target block, set one tick before its window: a T reshapes only
+        // on an update from a signal source, and a block placed over glass updates its neighbours
+        // as glass); T1/T2 set for its drop slot the tick before its siding release, the same way;
+        // the siding's release, glass and a redstone block; the cart is off the loop from the
+        // divert on)
         if let Some(v) = tm.visit {
             let now = c * 100 + dt;
-            for (cell, at, is_divert) in [(v.divert, v.divert_at, true), (v.release, v.release_at, false)] {
-                // (the divert, a T: off as a target block, set one tick before its window, see
-                // the T's above; the siding's release: glass and a redstone block)
-                if is_divert && now == v.slot * 100 + at - 1 {
-                    run.world.set_block(cell, target.clone(), redsim::world::flags::ALL);
-                    drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, cell.x, cell.y, cell.z, target));
+            let mut sets: Vec<(BlockPos, Block)> = Vec::new();
+            for vr in visits.iter() {
+                let d0 = vr.slot * 100 + v.divert_at + 10 * vr.k as i64;
+                let r0 = vr.slot * 100 + v.release_at;
+                if now == d0 - 1 {
+                    sets.push((v.divert, target.clone()));
                 }
-                if now == v.slot * 100 + at || now == v.slot * 100 + at + 10 {
-                    let b = if now == v.slot * 100 + at { on.clone() } else if is_divert { target.clone() } else { off.clone() };
-                    run.world.set_block(cell, b.clone(), redsim::world::flags::ALL);
-                    drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, cell.x, cell.y, cell.z, b));
-                    if is_divert && now == v.slot * 100 + at {
-                        if let Some(id) = visit_cart {
-                            away.insert(id);
+                if now == d0 {
+                    sets.push((v.divert, on.clone()));
+                    if let Some(id) = vr.cart {
+                        away.insert(id);
+                    }
+                }
+                if now == d0 + 10 {
+                    sets.push((v.divert, target.clone()));
+                }
+                if now == r0 - 1 {
+                    let drop = q - 4 - vr.k;
+                    for (cell, powered) in [(v.t1, drop != q - 4), (v.t2, drop == q - 6)] {
+                        sets.push((cell, target.clone()));
+                        if powered {
+                            sets.push((cell, on.clone()));
                         }
                     }
                 }
+                if now == r0 {
+                    sets.push((v.release, on.clone()));
+                }
+                if now == r0 + 10 {
+                    sets.push((v.release, off.clone()));
+                }
+            }
+            for (cell, b) in sets {
+                run.world.set_block(cell, b.clone(), redsim::world::flags::ALL);
+                drive.borrow_mut().push(format!("act {} set {} {} {} {}", run.world.time - t_origin, cell.x, cell.y, cell.z, b));
             }
         }
         if c < cycles && dt == tm.tail_check_at.unwrap_or(tm.advance_at) {
@@ -2301,82 +2345,100 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 }
             }
         }
-        // (a nap visit: the rider's sleep, the cart rolling off its drop rail, back at rest in a
-        // slot; its batch's order before the first advance of slot `slot`+5)
-        if let (Some(v), Some(id)) = (tm.visit, visit_cart) {
-            let now = c * 100 + dt - v.slot * 100;
-            let drop = q - 4 - v.k;
-            let cell = lay.slot_cells[drop];
-            let _ = &v;
-            // (the bed's holders again once the napper should be in the cage)
-            if now == 250 {
-                let homes: Vec<String> = riders.iter().enumerate().filter_map(|(k, r)| {
-                    let i = redsim::entity::index_of(&run.world, *r)?;
-                    let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind else { return None };
-                    let h = m.brain.as_deref()?.home?;
-                    Some(format!("e{k} ({},{},{})", h.x, h.y, h.z))
-                }).collect();
-                visit_lines.push(format!("visit: +{now}: riders holding a bed: {}", if homes.is_empty() { "none".to_string() } else { homes.join(", ") }));
+        // (the nap visits: each rider's sleep, each visiting cart rolling off its drop rail and back
+        // at rest in a slot; its batch's order before the first advance of slot `slot`+5; the
+        // single visit's divert rail and bed holders; the nightly checks at dawn and midday)
+        if let Some(v) = tm.visit {
+            let tod = run.world.day_time().rem_euclid(24000);
+            let asleep_now: Vec<bool> = riders.iter().map(|r| redsim::entity::index_of(&run.world, *r).is_some_and(|i| matches!(&run.world.entities.list[i].kind, redsim::entity::EntityKind::Mob(_)) && redsim::entity::mob::mob(&run.world, i).sleeping_pos.is_some())).collect();
+            for (k, a) in asleep_now.iter().enumerate() {
+                if *a {
+                    slept_tonight[k] = true;
+                }
             }
-            // (the divert's rail, above its control, as the window opens and after it shuts; and
-            // the visiting cart's whereabouts then)
-            if now == v.divert_at + 1 || now == v.divert_at + 12 {
-                // (who holds a bed: the riders' HOME memories)
-                if now == v.divert_at + 1 {
-                    let homes: Vec<String> = riders.iter().enumerate().filter_map(|(k, r)| {
-                        let i = redsim::entity::index_of(&run.world, *r)?;
-                        let redsim::entity::EntityKind::Mob(m) = &run.world.entities.list[i].kind else { return None };
-                        let h = m.brain.as_deref()?.home?;
-                        Some(format!("e{k} ({},{},{})", h.x, h.y, h.z))
-                    }).collect();
+            let homes_now: Vec<Option<BlockPos>> = riders.iter().map(|r| redsim::entity::index_of(&run.world, *r).and_then(|i| match &run.world.entities.list[i].kind { redsim::entity::EntityKind::Mob(m) => m.brain.as_deref().and_then(|b| b.home), _ => None })).collect();
+            if home_at_start.is_none() {
+                home_at_start = Some(homes_now.clone());
+            }
+            // (dawn: tonight's sleepers and the schedule reset; dawn and midday: every HOME as at
+            // the start)
+            let dawn = tod_was >= 0 && tod < tod_was;
+            let midday = tod_was >= 0 && tod_was < 6000 && tod >= 6000;
+            if dawn || midday {
+                if let Some(h0) = &home_at_start {
+                    let moved: Vec<String> = (0..riders.len()).filter(|k| homes_now[*k] != h0[*k]).map(|k| format!("e{k} {:?} (was {:?})", homes_now[k].map(|p| (p.x, p.y, p.z)), h0[k].map(|p| (p.x, p.y, p.z)))).collect();
+                    if !moved.is_empty() {
+                        problems.push(format!("t {}: {}: HOME changed: {}", run.world.time - t_start, if dawn { "dawn" } else { "midday" }, moved.join(", ")));
+                    }
+                }
+            }
+            if dawn && v.every > 0 {
+                let n = slept_tonight.iter().filter(|s| **s).count();
+                night_reports.push(format!("night {}: {n} of {} riders asleep, {tonight} visits", night_reports.len() + 1, riders.len()));
+                if n < riders.len() {
+                    let missed: Vec<usize> = (0..riders.len()).filter(|k| !slept_tonight[*k]).collect();
+                    problems.push(format!("night {}: riders never asleep: {missed:?}", night_reports.len()));
+                }
+                slept_tonight = vec![false; riders.len()];
+                tonight = 0;
+            }
+            tod_was = tod;
+            for vr in visits.iter_mut() {
+                let Some(id) = vr.cart else { continue };
+                let now = c * 100 + dt - vr.slot * 100;
+                let drop = q - 4 - vr.k;
+                let cell = lay.slot_cells[drop];
+                if v.every == 0 && (now == v.divert_at + 10 * vr.k as i64 + 1 || now == v.divert_at + 10 * vr.k as i64 + 12 || now == 250) {
+                    // (the single visit: who holds a bed, the divert's rail, the cart then)
+                    let homes: Vec<String> = homes_now.iter().enumerate().filter_map(|(k, h)| h.map(|h| format!("e{k} ({},{},{})", h.x, h.y, h.z))).collect();
                     visit_lines.push(format!("visit: +{now}: riders holding a bed: {}", if homes.is_empty() { "none".to_string() } else { homes.join(", ") }));
-                }
-                let rail = BlockPos::new(v.divert.x, v.divert.y + 1, v.divert.z);
-                let p = pos_of(&run.world, id).map_or("gone".to_string(), |p| format!("{:.2},{:.2},{:.2}", p.x, p.y, p.z));
-                let around: Vec<String> = [("N", 0, -1), ("S", 0, 1), ("W", -1, 0), ("E", 1, 0)].iter().map(|(n, dx, dz)| {
-                    let at: Vec<String> = (-1..=1).map(|dy| BlockPos::new(rail.x + dx, rail.y + dy, rail.z + dz)).map(|b| run.world.get(b).to_string()).filter(|s| s.contains("rail")).collect();
-                    format!("{n}: {}", if at.is_empty() { "-".to_string() } else { at.join("/") })
-                }).collect();
-                visit_lines.push(format!("visit: +{now}: the divert's rail ({},{},{}) is {} over {} (around it {}); the cart at {p}", rail.x, rail.y, rail.z, run.world.get(rail), run.world.get(v.divert), around.join(", ")));
-            }
-            if away.contains(&id) {
-                if let Some(r) = visit_rider.and_then(|r| redsim::entity::index_of(&run.world, r)) {
-                    if matches!(&run.world.entities.list[r].kind, redsim::entity::EntityKind::Mob(_)) && redsim::entity::mob::mob(&run.world, r).sleeping_pos.is_some() {
-                        visit_sleep.0.get_or_insert(now);
-                        visit_sleep.1 = Some(now);
+                    if now != 250 {
+                        let rail = BlockPos::new(v.divert.x, v.divert.y + 1, v.divert.z);
+                        let p = pos_of(&run.world, id).map_or("gone".to_string(), |p| format!("{:.2},{:.2},{:.2}", p.x, p.y, p.z));
+                        visit_lines.push(format!("visit: +{now}: the divert's rail ({},{},{}) is {} over {}; the cart at {p}", rail.x, rail.y, rail.z, run.world.get(rail), run.world.get(v.divert)));
                     }
                 }
-                if visit_rolled.is_none() && now > v.release_at {
-                    if let Some(i) = redsim::entity::index_of(&run.world, id) {
-                        let e = &run.world.entities.list[i];
-                        // (on the drop rail first: west of the slot's cell at the peaks' height;
-                        // then into the slot's column)
-                        let on_rail = e.pos.x >= cell[0] as f64 - 3.0 && e.pos.x < cell[0] as f64 && e.pos.y >= cell[1] as f64 + 0.9 && (e.pos.z - (cell[2] as f64 + 0.5)).abs() < 0.6;
-                        if on_rail {
-                            visit_on_rail = true;
-                        }
-                        if visit_on_rail && e.pos.x >= cell[0] as f64 && e.pos.x < cell[0] as f64 + 1.0 && (e.pos.z - (cell[2] as f64 + 0.5)).abs() < 0.6 {
-                            visit_rolled = Some((now, e.delta_movement.horizontal_distance()));
+                if away.contains(&id) {
+                    if let Some(r) = vr.rider.and_then(|r| riders.iter().position(|x| *x == r)) {
+                        if asleep_now[r] {
+                            vr.sleep.0.get_or_insert(now);
+                            vr.sleep.1 = Some(now);
                         }
                     }
-                }
-                if visit_rolled.is_some() {
-                    if let Some(s) = place_of(&run.world, id) {
-                        visit_back = Some((now, s));
-                        away.remove(&id);
+                    if vr.rolled.is_none() && now > v.release_at {
+                        if let Some(i) = redsim::entity::index_of(&run.world, id) {
+                            let e = &run.world.entities.list[i];
+                            // (on the drop rail first: west of the slot's cell at the peaks'
+                            // height; then into the slot's column)
+                            let on_rail = e.pos.x >= cell[0] as f64 - 3.0 && e.pos.x < cell[0] as f64 && e.pos.y >= cell[1] as f64 + 0.9 && (e.pos.z - (cell[2] as f64 + 0.5)).abs() < 0.6;
+                            if on_rail {
+                                vr.on_rail = true;
+                            }
+                            if vr.on_rail && e.pos.x >= cell[0] as f64 && e.pos.x < cell[0] as f64 + 1.0 && (e.pos.z - (cell[2] as f64 + 0.5)).abs() < 0.6 {
+                                vr.rolled = Some((now, e.delta_movement.horizontal_distance()));
+                            }
+                        }
+                    }
+                    if vr.rolled.is_some() {
+                        if let Some(s) = place_of(&run.world, id) {
+                            vr.back = Some((now, s));
+                            away.remove(&id);
+                        }
                     }
                 }
-            }
-            if c == v.slot + 5 && dt == tm.advance_at - 1 {
-                let at: Vec<Option<usize>> = visit_batch.iter().map(|b| place_of(&run.world, *b)).collect();
-                let want: Vec<Option<usize>> = (0..visit_batch.len()).map(|j| Some(q - 4 - j)).collect();
-                visit_lines.push(format!("visit: the batch at slots {at:?} at slot {c}'s +{dt} (want {want:?})"));
-                if at != want {
-                    problems.push(format!("visit: the batch at slots {at:?} at slot {c}'s +{dt}, not {want:?}"));
-                }
-                let aboard = redsim::entity::index_of(&run.world, id).and_then(|i| run.world.entities.list[i].passengers.first().copied()) == visit_rider;
-                if !aboard {
-                    problems.push("visit: the napper is not back in its own cart".to_string());
+                if c == vr.slot + 5 && dt == tm.advance_at - 1 {
+                    let at: Vec<Option<usize>> = vr.batch.iter().map(|b| place_of(&run.world, *b)).collect();
+                    let want: Vec<Option<usize>> = (0..vr.batch.len()).map(|j| Some(q - 4 - j)).collect();
+                    if v.every == 0 {
+                        visit_lines.push(format!("visit: the batch at slots {at:?} at slot {c}'s +{dt} (want {want:?})"));
+                    }
+                    if at != want {
+                        problems.push(format!("visit (slot {}, cart {}): the batch at slots {at:?} at slot {c}'s +{dt}, not {want:?}", vr.slot, vr.k));
+                    }
+                    let aboard = redsim::entity::index_of(&run.world, id).and_then(|i| run.world.entities.list[i].passengers.first().copied()) == vr.rider;
+                    if !aboard {
+                        problems.push(format!("visit (slot {}, cart {}): the napper is not back in its own cart", vr.slot, vr.k));
+                    }
                 }
             }
         }
@@ -2692,12 +2754,23 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     if let Some(v) = tm.visit {
         out.extend(visit_lines.iter().cloned());
         out.push(format!("visit: bed claims: {}", if bed_claims.is_empty() { "none".to_string() } else { bed_claims.join("; ") }));
-        out.push(format!("visit: rider asleep {}; rolled off its drop rail {}; back at rest {}", match visit_sleep { (Some(a), Some(b)) => format!("+{a}..+{b}"), _ => "never".into() }, visit_rolled.map_or("never".into(), |(t, s)| format!("at +{t} at {s:.2} b/t")), visit_back.map_or("never".into(), |(t, s)| format!("in slot {s} at +{t}"))));
-        if visit_sleep.0.is_none() {
-            problems.push(format!("visit: the napper (slot {}, cart {}) never slept", v.slot, v.k));
+        // (each visit: asleep, rolled off, back; a visit whose 6 slots outran the run is left out)
+        let mut done = 0;
+        for vr in &visits {
+            if vr.slot + 6 > cycles {
+                continue;
+            }
+            done += 1;
+            out.push(format!("visit slot {} cart {}: rider asleep {}; rolled off its drop rail {}; back at rest {}", vr.slot, vr.k, match vr.sleep { (Some(a), Some(b)) => format!("+{a}..+{b}"), _ => "never".into() }, vr.rolled.map_or("never".into(), |(t, s)| format!("at +{t} at {s:.2} b/t")), vr.back.map_or("never".into(), |(t, s)| format!("in slot {s} at +{t}"))));
+            if vr.sleep.0.is_none() {
+                problems.push(format!("visit (slot {}, cart {}): the napper never slept", vr.slot, vr.k));
+            }
+            if vr.back.is_none() {
+                problems.push(format!("visit (slot {}, cart {}): the cart never came back to rest in a slot", vr.slot, vr.k));
+            }
         }
-        if visit_back.is_none() {
-            problems.push(format!("visit: the cart (slot {}, cart {}) never came back to rest in a slot", v.slot, v.k));
+        if v.every > 0 {
+            out.push(format!("visits: {done} complete; {}", if night_reports.is_empty() { "no dawn reached".to_string() } else { night_reports.join("; ") }));
         }
     }
     if !side_changed.is_empty() {
