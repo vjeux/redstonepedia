@@ -194,6 +194,24 @@ S30 (night):
 - the 5-booster entry climb brings carts in at 0.84 (front) and ~1.1 b/t (middle), within the
   siding's tested 0.10-1.2.
 
+The drop window on day-1's pocket loop (side drop, wired, slots 12-14): roll-offs from +88 (the
+earliest tried) to ~+130 of the drop slot's long rest (later at faster speeds, to +134-138), at
+0.10-0.35 b/t. The arrival speed sets the rest depth: 0.10 b/t -> 0.40 into the cell, 0.20 -> 0.32,
+0.30 -> 0.24, 0.35 -> 0.21, 0.40 -> 0.16, 0.45 -> 0.12 (normal carts rest 0.5-0.66); from 0.16 the
+cart crawls over the next peak at 0.09 b/t and makes or misses the 2nd advance by a tick or two
+(on b223f27b3 two visits identical to that tick: S17 K0 made it, S21 K0 stopped a slot short and
+its batch left with 2).
+
+Day-1's exit routes, measured (bench controls, S30, siding release -> roll-off; slots 14 / 13 / 12):
+| commit | the route | T_exit (gt) | arrival (b/t) |
+|---|---|---|---|
+| a60c087da | booster, drag loop | 149 / 193 / 199-223 | 0.38 / 0.32 / 0.27-0.34 |
+| b223f27b3 | booster, no loop | 101 / 124 / 149 | 0.42 / 0.39 / 0.36 |
+| 35a46f6ae | a hold before T1 (kick -> roll-off) | 74 / 112 / ~146 | 0.26 / 0.24 / ~0.19 |
+With the hold the cart is ready on it at +330..+351 and stops 0.72 into the braked cell from 0.64
+b/t; slot 12 still misses the window (kick +400 rolls off at +546). Next: a hold on each drop line,
+~3 rails before its end (T_kick ~15-20 gt for all three).
+
 A T rail reshapes only on an update from a signal source, and a placed block updates its
 neighbours as the old block (vanilla's `blockUpdated(pos, oldState.getBlock())`, as redsim): a
 redstone block placed over glass under a T leaves it as it was. The bench switches its T's from a
