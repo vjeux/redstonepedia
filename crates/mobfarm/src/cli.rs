@@ -555,6 +555,10 @@ pub enum MobfarmCmd {
         /// The counter frame's shift (x,y,z).
         #[arg(long, default_value = "3,-10,15", allow_hyphen_values = true)]
         counter_at: String,
+        /// The wired v0 on the paired lanes (the counter in the yard space, every line wired:
+        /// stand chains, pulse wire, delivery cells at z 20); --counter-at is then ignored.
+        #[arg(long)]
+        wired: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -1006,12 +1010,12 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 std::process::exit(1);
             }
         }
-        MobfarmCmd::Assembly { x0, x1, counter_at, out } => {
+        MobfarmCmd::Assembly { x0, x1, counter_at, wired, out } => {
             let p: Vec<i32> = counter_at.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;
             anyhow::ensure!(p.len() == 3, "--counter-at x,y,z");
             let pad = crate::station::PadOpts { x0, x1, ..Default::default() };
             let o = crate::assembly::AsmOpts { counter_at: [p[0], p[1], p[2]], wired: false };
-            let text = crate::assembly::v0a(&pad, &crate::hold::LaneOpts::default(), &o)?;
+            let text = if wired { crate::assembly::v0b(&pad, &crate::hold::LaneOpts::default())? } else { crate::assembly::v0a(&pad, &crate::hold::LaneOpts::default(), &o)? };
             std::fs::write(&out, text)?;
             println!("{}", out.display());
         }
@@ -1021,13 +1025,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let pad = crate::station::PadOpts::of(&c.clock.design.meta)?;
             let asm = crate::assembly::AsmOpts::of(&c.clock.design.meta)?.ok_or_else(|| anyhow::anyhow!("not an assembly design (no `assembly:` line)"))?;
             let r = crate::assembly::wiring_check(&spec, &lanes, &pad, &asm, slots, miss, seed, tolerance).map_err(|e| anyhow::anyhow!(e))?;
-            println!("{} slots, {} golem pulses ({:.1}% missed), {} advances; ticks with 2+ lines high: {}", r.slots, r.pulses, 100.0 * (1.0 - r.pulses as f64 / r.slots.max(1) as f64), r.advances, r.two_lines);
+            println!("{} slots, {} golem pulses ({:.1}% missed), {} advances ({} out of the cycle); ticks with 2+ lines high: {}", r.slots, r.pulses, 100.0 * (1.0 - r.pulses as f64 / r.slots.max(1) as f64), r.advances, r.order_faults, r.two_lines);
             for (k, (lo, hi, n)) in &r.delays {
                 println!("  {k}: delay {lo}..{hi} gt over {n} changes");
             }
             println!("crosstalk: {} {:?}", r.crosstalk_count, r.crosstalk);
             println!("stuck: {} {:?}", r.stuck_count, r.stuck);
-            let ok = r.crosstalk_count == 0 && r.stuck_count == 0 && r.two_lines == 0 && r.delays.len() == 2 * lanes.levels as usize;
+            let ends = if asm.wired { lanes.levels as usize + 1 } else { 2 * lanes.levels as usize };
+            let ok = r.crosstalk_count == 0 && r.stuck_count == 0 && r.two_lines == 0 && r.order_faults == 0 && r.delays.len() == ends;
             println!("{}", if ok { "PASS" } else { "FAIL" });
         }
         MobfarmCmd::StationStorage { hours, seed, success, official } => {
