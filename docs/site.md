@@ -339,7 +339,8 @@ Failures are never stored. The build's last line says what was reused and comput
 domain's computed thread-seconds and its slowest computations; the 4 most recently used code
 versions of each domain are kept. Every thumbnail's still frame (the viewer's
 own search, `mcview::tools::still_attr`, webrender's `data-still`) is found here too, in the view
-domain: 23 s cold for 4417 designs, nothing warm. The litematics carry their design's archive
+domain: 23 s cold for 4417 designs, nothing warm; so is every terrain farm's site there (the view's
+own search, `mcview::terrain::site_offset`, webrender's `data-site`: ~0.1 s a farm cold). The litematics carry their design's archive
 time, not the build's: an unchanged site rebuilds byte for byte but for site.json's generation
 time, so a deploy sends only what changed.
 

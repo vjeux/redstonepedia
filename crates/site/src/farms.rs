@@ -312,6 +312,8 @@ pub struct Member {
     pub kind: String,
     /// The terrain sample it is judged in, if any (its viewer fetches it, `data-terrain`).
     pub terrain: Option<String>,
+    /// Its site offset there (`x,y,z`: [`crate::pages::site_of`]), for its viewer's `data-site`.
+    pub site: Option<String>,
 }
 
 impl Member {
@@ -354,7 +356,9 @@ pub fn read_members(repo: &Path, farm: &str, part: &str) -> Vec<Member> {
                     }
                 }
             }
-            let terrain = std::fs::read_to_string(repo.join(&src)).ok().and_then(|t| crate::pages::terrain_of(&t)).map(String::from);
+            let design = std::fs::read_to_string(repo.join(&src)).ok();
+            let terrain = design.as_deref().and_then(crate::pages::terrain_of).map(String::from);
+            let site = design.as_deref().filter(|_| terrain.is_some()).and_then(crate::pages::site_of);
             Some(Member {
                 part: part.to_string(),
                 name: r.get("name").cloned().filter(|n| !n.is_empty()).unwrap_or_else(|| file.trim_end_matches(".txt").to_string()),
@@ -364,6 +368,7 @@ pub fn read_members(repo: &Path, farm: &str, part: &str) -> Vec<Member> {
                 src,
                 kind: row.map(|r| r.kind).unwrap_or_default(),
                 terrain,
+                site,
                 file,
             })
         })
@@ -423,6 +428,9 @@ fn member_viewer(prefix: &str, m: &Member) -> String {
     }
     if let Some(t) = &m.terrain {
         a.push_str(&format!(" data-terrain=\"{}\"", esc(&format!("{prefix}{}", crate::pages::terrain_file(t)))));
+    }
+    if let Some(s) = &m.site {
+        a.push_str(&format!(" data-site=\"{}\"", esc(s)));
     }
     let title = part_words(&m.part).0;
     format!(

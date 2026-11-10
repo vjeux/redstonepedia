@@ -245,6 +245,10 @@ pub(crate) struct View {
     /// `data-terrain`: the terrain sample a farm is judged in (its `.mcterrain` file's URL): a live
     /// view fetches it first and shows the farm in it (`mcview::terrain`); a card stays void.
     pub terrain: Option<String>,
+    /// `data-site`: the farm's site offset in its terrain sample (`x,y,z`), found at build time by
+    /// the site through `mcview::terrain::site_offset` (the judge's spot): the view prices that
+    /// spot alone instead of the search over its spots. Absent or unreadable: the view searches.
+    pub site: Option<[i32; 3]>,
     /// `data-still`: the still frame a thumbnail shows, found at build time by the site through
     /// `mcview::tools::still_attr` (`Session::still_attr`): one run to its tick instead of the
     /// period search. Absent or unreadable: the viewer finds it (`Session::go_to_still`).
@@ -1107,6 +1111,12 @@ fn attr_f32(el: &Element, k: &str) -> Option<f32> {
     el.get_attribute(k).and_then(|v| v.trim().parse().ok())
 }
 
+/// A `data-site` value (`x,y,z`: a farm's site offset in its terrain sample); None: unreadable.
+fn site_attr(v: &str) -> Option<[i32; 3]> {
+    let n: Vec<i32> = v.split(',').map(|x| x.trim().parse().ok()).collect::<Option<_>>()?;
+    <[i32; 3]>::try_from(n).ok()
+}
+
 impl App {
     /// A viewer's `data-src` changed (a design swapped in place): every `data-*` attribute is read
     /// again; a live viewer loads the new design keeping its camera when `data-keep-camera` is
@@ -1124,6 +1134,7 @@ impl App {
         v.tick = el.get_attribute("data-tick").and_then(|t| t.trim().parse().ok());
         v.farm_rts = el.get_attribute("data-farm-rts").and_then(|t| t.trim().parse().ok());
         v.terrain = el.get_attribute("data-terrain").filter(|s| !s.trim().is_empty());
+        v.site = el.get_attribute("data-site").and_then(|s| site_attr(&s));
         v.still = el.get_attribute("data-still").filter(|s| !s.trim().is_empty());
         v.asbuilt = el.has_attribute("data-asbuilt");
         v.autoplay = el.has_attribute("data-autoplay");
@@ -1223,6 +1234,7 @@ impl App {
             tick: el.get_attribute("data-tick").and_then(|t| t.trim().parse().ok()),
             farm_rts: el.get_attribute("data-farm-rts").and_then(|t| t.trim().parse().ok()),
             terrain: el.get_attribute("data-terrain").filter(|s| !s.trim().is_empty()),
+            site: el.get_attribute("data-site").and_then(|s| site_attr(&s)),
             still: el.get_attribute("data-still").filter(|s| !s.trim().is_empty()),
             asbuilt: el.has_attribute("data-asbuilt"),
             autoplay: el.has_attribute("data-autoplay"),

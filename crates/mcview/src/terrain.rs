@@ -167,7 +167,7 @@ pub fn sample_bytes(s: &Sample) -> Option<Rc<Vec<u8>>> {
 /// The terrain farm of a design (`text`: its text, the key) whose judge's farm is `spec`: None for
 /// a void design or while its sample's file is not there yet; made once, then shared.
 pub fn farm_for(text: &str, d: &Design, spec: &FarmSpec) -> Result<Option<Rc<TerrainFarm>>, String> {
-    crate::staged::block_on(farm_for_staged(text, d, spec, &crate::staged::Budget::none()))
+    crate::staged::block_on(farm_for_staged(text, d, spec, None, &crate::staged::Budget::none()))
 }
 
 /// Whether a design's terrain farm is made already (or it needs none): a live view makes it over
@@ -176,18 +176,26 @@ pub fn farm_ready(text: &str, d: &Design) -> bool {
     sample_of(d).is_none() || FARMS.with(|m| m.borrow().contains_key(text))
 }
 
-/// [`farm_for`] as staged work (`crate::staged`): the sample decoded, its world built a slice at a
-/// time (`land::Builder`), the judge's spot search and pricing a spot at a time (`site`: the same
-/// calls `Site::with_shared` makes, in its order), the world the farm is built in, its landscape
-/// layer by layer and its biomes, pausing between them when the budget's time is up (no browser
-/// task over ~50 ms: the coordinator 2026-10-22).
-pub async fn farm_for_staged(text: &str, d: &Design, spec: &FarmSpec, b: &crate::staged::Budget) -> Result<Option<Rc<TerrainFarm>>, String> {
+/// The design's site offset in its terrain sample as the view finds it (the judge's spot: the
+/// cheapest of its spots, [`priced_staged`]), worked out natively ahead by the site build for the
+/// page's `data-site` (the view then prices that spot alone: [`farm_for_staged`]'s `chosen`);
+/// None: a void design or no sample file.
+pub fn site_offset(d: &Design, spec: &FarmSpec) -> Result<Option<[i32; 3]>, String> {
+    crate::staged::block_on(async {
+        let Some((world, sample, fp, ground, _, clear_box)) = sample_world_staged(d, spec, &crate::staged::Budget::none()).await? else { return Ok(None) };
+        let priced = priced_staged(&world, sample, spec, fp, ground, clear_box, None, &crate::staged::Budget::none()).await?;
+        Ok(priced.first().map(|p| p.price.offset))
+    })
+}
+
+/// A design's terrain sample world built (decoded, then built a slice at a time: `land::Builder`)
+/// with the site's parameters (its footprint, ground layer, AFK spot, whether its box is cleared);
+/// None: a void design or no sample file.
+#[allow(clippy::type_complexity)]
+async fn sample_world_staged(d: &Design, spec: &FarmSpec, b: &crate::staged::Budget) -> Result<Option<(World, &'static Sample, redsim::entity::mob::site::Footprint, i32, [f64; 3], bool)>, String> {
     use redsim::entity::mob::site;
     let meta = |k: &str| d.meta.get(k).map(String::as_str);
     let Some(sample) = site::sample_of(meta("terrain"), meta("sample"))? else { return Ok(None) };
-    if let Some(f) = FARMS.with(|m| m.borrow().get(text).cloned()) {
-        return Ok(Some(f));
-    }
     let Some(bytes) = sample_bytes(sample) else { return Ok(None) };
     let (ground, afk, clear_box) = site::params(spec, meta("ground"), meta("afk"), meta("terrain"))?;
     let t = redsim::terrain::format::Terrain::decode(&bytes)?;
@@ -200,18 +208,59 @@ pub async fn farm_for_staged(text: &str, d: &Design, spec: &FarmSpec, b: &crate:
     drop(t);
     b.pause().await;
     let fp = site::footprint(spec, ground)?;
-    let spots = site::spots_for_spec(&world, sample, spec, fp, clear_box);
+    Ok(Some((world, sample, fp, ground, afk, clear_box)))
+}
+
+/// The design's spots priced the judge's way (`Site::with_shared`'s calls in its order: the spots,
+/// each priced, the cheapest first, ties in the spots' order), a spot a slice; `chosen`: the spot
+/// at that site offset alone (the page's `data-site`, the site build's [`site_offset`]): each spot
+/// is priced on its own (`site::price_spots`, `site::Priced::at`), so the cheapest's price is the
+/// same and the site built on it the same (test `a_chosen_site_is_the_searched_one`).
+#[allow(clippy::too_many_arguments)]
+async fn priced_staged(world: &World, sample: &Sample, spec: &FarmSpec, fp: redsim::entity::mob::site::Footprint, ground: i32, clear_box: bool, chosen: Option<[i32; 3]>, b: &crate::staged::Budget) -> Result<Vec<redsim::entity::mob::site::Priced>, String> {
+    use redsim::entity::mob::site;
+    // (`site::price_spots`: a spot's offset is [x - fp.lo.x, y - ground, z - fp.lo.z])
+    let spots = match chosen {
+        Some(o) => vec![([o[0] + fp.lo.x, o[2] + fp.lo.z], o[1] + ground)],
+        None => site::spots_for_spec(world, sample, spec, fp, clear_box),
+    };
     if spots.is_empty() {
         return Err(format!("no spot for a {}x{} footprint {} deep in {}", fp.size[0], fp.size[1], fp.below, sample.name));
     }
     b.pause().await;
     let mut priced = Vec::new();
-    for price in site::price_spots(&world, spec, fp, ground, clear_box, &spots) {
+    for price in site::price_spots(world, spec, fp, ground, clear_box, &spots) {
         b.pause().await;
-        priced.push(site::Priced::at(&world, spec, price, clear_box));
+        priced.push(site::Priced::at(world, spec, price, clear_box));
     }
     // (`site::price_all`'s order: cheapest first, ties in the spots' order)
     priced.sort_by(|a, b| a.seconds().total_cmp(&b.seconds()));
+    Ok(priced)
+}
+
+/// [`farm_for`] as staged work (`crate::staged`): the sample decoded, its world built a slice at a
+/// time (`land::Builder`), the judge's spot search and pricing a spot at a time (`site`: the same
+/// calls `Site::with_shared` makes, in its order; `chosen`: the page's `data-site`, that spot alone
+/// priced), the world the farm is built in, its landscape layer by layer and its biomes, pausing
+/// between them when the budget's time is up (no browser task over ~50 ms: the coordinator
+/// 2026-10-22).
+pub async fn farm_for_staged(text: &str, d: &Design, spec: &FarmSpec, chosen: Option<[i32; 3]>, b: &crate::staged::Budget) -> Result<Option<Rc<TerrainFarm>>, String> {
+    if sample_of(d).is_none() {
+        return Ok(None);
+    }
+    if let Some(f) = FARMS.with(|m| m.borrow().get(text).cloned()) {
+        return Ok(Some(f));
+    }
+    let Some(f) = build_farm_staged(d, spec, chosen, b).await? else { return Ok(None) };
+    let f = Rc::new(f);
+    FARMS.with(|m| m.borrow_mut().insert(text.to_string(), f.clone()));
+    Ok(Some(f))
+}
+
+/// [`farm_for_staged`]'s work, not kept.
+async fn build_farm_staged(d: &Design, spec: &FarmSpec, chosen: Option<[i32; 3]>, b: &crate::staged::Budget) -> Result<Option<TerrainFarm>, String> {
+    let Some((world, sample, fp, ground, afk, clear_box)) = sample_world_staged(d, spec, b).await? else { return Ok(None) };
+    let priced = priced_staged(&world, sample, spec, fp, ground, clear_box, chosen, b).await?;
     let site: &'static Site = Box::leak(Box::new(Site::at_priced(std::sync::Arc::new(std::sync::RwLock::new(world)), sample, priced, 0, afk, clear_box)));
     b.pause().await;
     let moved = site.spec(spec);
@@ -236,9 +285,7 @@ pub async fn farm_for_staged(text: &str, d: &Design, spec: &FarmSpec, b: &crate:
     b.pause().await;
     // (the biomes at the farm's ground: the site's ground layer)
     let biomes = Rc::new(biome_colours(&world, site.offset[1] + ground));
-    let f = Rc::new(TerrainFarm { site, farm_box, landscape, hidden, biomes, min_y, cut_z, cut_rows, reach_xz: ([cx - reach, cx + reach], [cz - reach, cz + reach]), landscape_index: Default::default() });
-    FARMS.with(|m| m.borrow_mut().insert(text.to_string(), f.clone()));
-    Ok(Some(f))
+    Ok(Some(TerrainFarm { site, farm_box, landscape, hidden, biomes, min_y, cut_z, cut_rows, reach_xz: ([cx - reach, cx + reach], [cz - reach, cz + reach]), landscape_index: Default::default() }))
 }
 
 /// The terrain sample a design is judged in: the judge's rule (`site::sample_of`: its `sample:`
@@ -328,6 +375,44 @@ pub async fn landscape_staged(w: &World, skip: (BlockPos, BlockPos), min_y: i32,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A page's `data-site` (the site build's [`site_offset`]: the judge's spot, found ahead) gives
+    /// the view the very farm its own search finds: the same site (offset, blocks placed and dug,
+    /// AFK spot, glass covers, seals, fire clearance), the same landscape and hidden cells, for
+    /// every farm judged in terrain on the site (each spot is priced on its own).
+    #[test]
+    fn a_chosen_site_is_the_searched_one() {
+        let root = format!("{}/../../designs/farms/iron", env!("CARGO_MANIFEST_DIR"));
+        let mut checked = 0;
+        for stage in ["day-1", "middle", "late"] {
+            let Ok(dir) = std::fs::read_dir(format!("{root}/{stage}")) else { continue };
+            let mut files: Vec<_> = dir.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "txt")).collect();
+            files.sort();
+            for path in files {
+                let text = std::fs::read_to_string(&path).unwrap();
+                let Ok(d) = Design::parse(&text) else { continue };
+                if sample_of(&d).is_none() {
+                    continue;
+                }
+                let Ok(spec) = crate::mobfarm::spec(&d) else { continue };
+                let none = crate::staged::Budget::none();
+                let Some(offset) = site_offset(&d, &spec).unwrap() else { continue };
+                let searched = crate::staged::block_on(build_farm_staged(&d, &spec, None, &none)).unwrap().unwrap();
+                let chosen = crate::staged::block_on(build_farm_staged(&d, &spec, Some(offset), &none)).unwrap().unwrap();
+                let (a, b) = (searched.site, chosen.site);
+                let name = path.display();
+                assert_eq!(a.offset, offset, "{name}: the searched site's offset");
+                assert_eq!((b.offset, b.dug, b.placed, b.clear_box), (a.offset, a.dug, a.placed, a.clear_box), "{name}");
+                assert_eq!([b.afk.x, b.afk.y, b.afk.z], [a.afk.x, a.afk.y, a.afk.z], "{name}: the AFK spot");
+                assert_eq!((&b.fills, &b.seals, &b.clears), (&a.fills, &a.seals, &a.clears), "{name}: covers, seals, clearance");
+                assert_eq!((chosen.farm_box, chosen.min_y, chosen.cut_z, chosen.reach_xz), (searched.farm_box, searched.min_y, searched.cut_z, searched.reach_xz), "{name}");
+                assert_eq!(chosen.landscape, searched.landscape, "{name}: the landscape");
+                assert_eq!(chosen.hidden, searched.hidden, "{name}: the hidden cells");
+                checked += 1;
+            }
+        }
+        assert!(checked >= 10, "{checked} farms in terrain checked");
+    }
 
     fn read(path: &str) -> Vec<u8> {
         std::fs::read(format!("{}/../../{path}", env!("CARGO_MANIFEST_DIR"))).unwrap()
@@ -454,7 +539,7 @@ mod tests {
             let base = std::time::Instant::now();
             let b = crate::staged::Budget::with_clock(Rc::new(move || base.elapsed().as_secs_f64() * 1000.0));
             let (t2, b2) = (text.clone(), b.clone());
-            let mut task = crate::staged::Task::new(async move { farm_for_staged(&t2, &d, &spec, &b2).await.map(|f| f.is_some()) });
+            let mut task = crate::staged::Task::new(async move { farm_for_staged(&t2, &d, &spec, None, &b2).await.map(|f| f.is_some()) });
             let mut slices = Vec::new();
             loop {
                 b.give(4.0);

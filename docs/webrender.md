@@ -24,6 +24,15 @@ each build's page.
   `data-autoplay` (a full viewer starts playing). (`data-trace`, a real-game recording, is no
   longer played, vjeux 2026-10-20: the view shows only what redsim simulates exactly; a design
   redsim cannot run is shown as built with `not simulated: <reason>`.)
+* `data-site` (a farm judged in its terrain sample, with `data-terrain`): its site offset there,
+  `x,y,z`, found ahead by the site build (`mcview::terrain::site_offset`: the view's own search,
+  the judge's spot, the cheapest of its 12; `site::pages::site_of`, cached in the view domain).
+  The view prices that spot alone instead of searching and pricing all 12 (`site::price_spots`
+  prices each spot on its own: the same site, its covers, seals and clearance, the same
+  landscape: test `a_chosen_site_is_the_searched_one` over every farm in terrain); absent or
+  unreadable, the view searches. 2026-11-09: ~55 ms natively, the first 3D view in WebKitGTK
+  bed-plate-side-chute 1.19-1.31 -> 1.12-1.13 s, bed-plate-two-clusters 1.11-1.15 -> 1.02-1.05,
+  cross-4-underground 2.19-2.23 -> 2.02-2.03 (two loads each).
 * `data-still` (thumbnails): the still frame found ahead, `mcview::tools::still_attr(text)` at
   build time (`mctas web still <designs>` prints it): `<tick>`, then ` out=x,y,z` (the clock
   judge's output it adds when the design declares none) and ` box=x0,y0,z0,x1,y1,z1` (the picture

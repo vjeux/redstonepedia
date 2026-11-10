@@ -383,9 +383,13 @@ fn viewer(prefix: &str, b: &Build, design_text: &str) -> String {
             if let Some(rts) = c.farm_rts {
                 a.push_str(&format!(" data-farm-rts=\"{rts}\""));
             }
-            // (a farm judged in its terrain sample: the view fetches it and shows the farm in it)
+            // (a farm judged in its terrain sample: the view fetches it and shows the farm in it;
+            // its site there found here once, the view pricing that spot alone: `data-site`)
             if let Some(t) = terrain_of(design_text) {
                 a.push_str(&format!(" data-terrain=\"{}\"", esc(&format!("{prefix}{}", terrain_file(t)))));
+                if let Some(s) = site_of(design_text) {
+                    a.push_str(&format!(" data-site=\"{}\"", esc(&s)));
+                }
             }
             // (a design the build found the browser cannot run, the shulker study's own runs
             // aside: the view stays its still, nothing to find out on play; web stall, w86's
@@ -889,6 +893,19 @@ pub fn terrain_file(name: &str) -> String {
 /// `site-model`: the UI never needs it, and its build fingerprint stays the deployed one's.)
 pub fn terrain_of(design_text: &str) -> Option<&'static str> {
     mcview::Design::parse(design_text).ok().and_then(|d| mcview::terrain::sample_of(&d)).map(|s| s.name)
+}
+
+/// A farm judged in its terrain: its site offset there as the view finds it (`x,y,z`:
+/// `mcview::terrain::site_offset`, the judge's spot, ~0.1 s natively), worked out here once per
+/// design and cached with the viewer's code, for its view's `data-site` (the view then prices that
+/// spot alone, ~50 ms less natively before its first frame); None: a void design, or none found.
+pub fn site_of(design_text: &str) -> Option<String> {
+    crate::cache::get_or(crate::cache::Domain::View, &[b"site", design_text.as_bytes()], || {
+        let d = mcview::Design::parse(design_text).ok()?;
+        let spec = mcview::mobfarm::spec(&d).ok()?;
+        let o = mcview::terrain::site_offset(&d, &spec).ok()??;
+        Some(format!("{},{},{}", o[0], o[1], o[2]))
+    })
 }
 
 pub fn page_title(b: &Build) -> String {

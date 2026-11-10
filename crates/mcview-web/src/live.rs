@@ -858,20 +858,21 @@ pub fn load(app: &mut App, id: u32) {
     // (vjeux: the view shows only what redsim simulates exactly: no real-game recording is
     // played; a design redsim cannot run is shown as built, saying why)
     // a farm in its terrain: its terrain made over tasks first (the sample decoded, the judge's
-    // site, the landscape layer by layer: `mcview::terrain::farm_for_staged`; no task over ~50 ms),
-    // then its still at once
+    // site, the landscape layer by layer: `mcview::terrain::farm_for_staged`; no task over ~50 ms;
+    // the page's `data-site`: the judge's spot found ahead, priced alone), then its still at once
     if let Ok(d) = mcview::Design::parse(&text)
         && mcview::mobfarm::is_mob_farm(&d)
         && !mcview::terrain::farm_ready(&text, &d)
     {
         let key = text.to_string();
+        let chosen = app.views.get(&id).and_then(|v| v.site);
         if app.terrain_jobs.insert(key.clone()) {
             wasm_bindgen_futures::spawn_local(async move {
                 let t = crate::window().performance().map(|p| p.now()).unwrap_or(0.0);
                 let r = crate::run_staged(12.0, |b| {
                     mcview::staged::Task::new(async move {
                         let spec = mcview::mobfarm::spec(&d)?;
-                        mcview::terrain::farm_for_staged(&key, &d, &spec, &b).await.map(|_| key)
+                        mcview::terrain::farm_for_staged(&key, &d, &spec, chosen, &b).await.map(|_| key)
                     })
                 })
                 .await;
