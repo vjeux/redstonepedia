@@ -12,6 +12,7 @@ pub mod counter8;
 pub mod loopbench;
 pub mod loopgen;
 pub mod loopmodel;
+pub mod releasegen;
 pub mod schedbench;
 pub mod schedgen;
 pub mod schedmodel;
@@ -121,6 +122,13 @@ enum Cmd {
         /// Repeat the run with this many chunk reloads at random ticks: the outputs must match.
         #[arg(long, default_value_t = 0)]
         restarts: u32,
+    },
+    /// The single-lane loop's release controller, generated (crates/circuit-memory/src/releasegen.rs).
+    ReleaseGen {
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, default_value = "designs/circuits/pulsemult/archive/off-delay-ring-L20.txt")]
+        offdelay: PathBuf,
     },
     /// The single-lane loop's nightly scheduler, generated (crates/circuit-memory/src/loopgen.rs).
     LoopGen {
@@ -351,6 +359,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::SchedGen { out, modules, offdelay } => schedgen::generate(&out, &modules, &offdelay)?,
         Cmd::CounterV8 { v7, out } => counter8::generate(&v7, &out)?,
         Cmd::LoopGen { out, modules, offdelay } => loopgen::generate(&out, &modules, &offdelay)?,
+        Cmd::ReleaseGen { out, offdelay } => releasegen::generate(&out, &offdelay)?,
         Cmd::LoopBench { design, days, seed, miss, burst, dusk, end, game, weather, restarts } => {
             let o = loopbench::Opts { days, seed, miss, burst, dusk, end, game_days: game, weather, restarts, ..Default::default() };
             if !loopbench::bench(&design, &o)? {
