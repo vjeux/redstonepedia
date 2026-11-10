@@ -195,6 +195,10 @@ pub enum SiteCmd {
         /// button is `css:[data-mcview-record]`).
         #[arg(long)]
         click: Vec<String>,
+        /// With --page: film the page's Nth 3D view (from 1) instead of its first (a component
+        /// page's second scene: a part's Nether view under its overworld one).
+        #[arg(long, default_value_t = 1)]
+        view: usize,
         /// With --page: read each page like a visitor instead of filming its 3D view: screenshots
         /// from the top, one window-full at a time (at most --frames), once the page settled
         /// (--interval ms after its first view is ready); prints its height and whatever makes it
@@ -573,7 +577,7 @@ pub fn run(cmd: SiteCmd) -> Result<()> {
             }
             Ok(())
         }
-        SiteCmd::Smoke { dir, chrome, budget, url, engine, page, frames, interval, click, full, only, responsive, controls } => {
+        SiteCmd::Smoke { dir, chrome, budget, url, engine, page, frames, interval, click, view, full, only, responsive, controls } => {
             if controls {
                 if engine != "webkit" {
                     bail!("--controls taps the viewer in WebKit: add --engine webkit");
@@ -601,7 +605,7 @@ pub fn run(cmd: SiteCmd) -> Result<()> {
                 if full {
                     return webkit::look(&dir, url.as_deref(), &page, frames, interval, &click, only.as_deref());
                 }
-                return webkit::film(&dir, url.as_deref(), &page, frames, interval, &click);
+                return webkit::film(&dir, url.as_deref(), &page, frames, interval, &click, view);
             }
             let fails = match engine.as_str() {
                 "webkit" => webkit::smoke(&dir, url.as_deref())?,

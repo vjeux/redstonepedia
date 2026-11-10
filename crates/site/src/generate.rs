@@ -863,6 +863,11 @@ pub fn build(a: &BuildArgs) -> Result<()> {
             let from = repo.join(crate::farms::member_design("iron", m));
             let text = std::fs::read_to_string(&from).with_context(|| format!("reading {}", from.display()))?;
             write(&out.join(crate::farms::member_design("iron", m)), &crate::farms::member_text("iron", m, &text))?;
+            // its bench's drive, for its viewer (`data-drive`)
+            if let Some(d) = &m.drive {
+                let dt = std::fs::read_to_string(repo.join(d)).with_context(|| format!("reading {d}"))?;
+                write(&out.join(d), &dt)?;
+            }
             // the terrain sample a member is judged in, for its viewer (`data-terrain`)
             if let Some(t) = &m.terrain {
                 let to = out.join(crate::pages::terrain_file(t));

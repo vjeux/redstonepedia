@@ -44,6 +44,9 @@ struct FrameStats {
 pub struct Live {
     gpu: Option<Gpu>,
     player: Option<Player>,
+    /// A page's Nether view (`data-part="nether"`): the tick of its overworld view's session whose
+    /// Nether world it shows now (its second scene: one session, two views).
+    mirror_tick: Option<u32>,
     label: HtmlElement,
     bar: HtmlElement,
     status: HtmlElement,
@@ -623,6 +626,7 @@ pub fn start(app: &mut App, id: u32) {
     v.live = Some(Live {
         gpu: None,
         player: None,
+        mirror_tick: None,
         label,
         bar: bar.clone(),
         status,
@@ -1431,6 +1435,25 @@ fn short_reason(why: &str) -> String {
 pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
     let atlas = app.atlas.clone();
     let mut need_ready = false;
+    // (a page's Nether view, `data-part="nether"`, is the second scene of the session its
+    // overworld view of the same design runs: that session's Nether world, as of its tick; and
+    // that overworld view plays on while only its Nether scene is on screen)
+    let nether_scene = app.views.get(&id).is_some_and(|v| v.part.as_deref() == Some("nether"));
+    let (mirror, scene_on_screen) = {
+        let Some(v) = app.views.get(&id) else { return false };
+        let same = |o: &crate::View| o.src.is_some() && o.src == v.src && o.inline == v.inline;
+        if v.part.as_deref() == Some("nether") {
+            let shown = v.live.as_ref().and_then(|l| l.mirror_tick);
+            let has_mob = v.live.as_ref().and_then(|l| l.player.as_ref()).is_some_and(|p| p.session.mob.is_some());
+            let from = app.views.values().filter(|o| o.part.is_none() && same(o)).find_map(|o| o.live.as_ref()?.player.as_ref());
+            // (its world, and once the partner's farm run to draw that world's mobs with: the
+            // golems in the Nether, `MobRun::draw`)
+            let m = from.and_then(|pp| pp.session.world.nether.as_deref().filter(|_| shown != Some(pp.session.tick)).map(|n| (pp.session.tick, n.clone(), if has_mob { None } else { pp.session.mob.clone() })));
+            (m, false)
+        } else {
+            (None, v.part.is_none() && app.views.values().any(|o| o.part.as_deref() == Some("nether") && o.visible && same(o)))
+        }
+    };
     let more = {
         let Some(v) = app.views.get_mut(&id) else { return false };
         let (w, h) = (v.w.max(1), v.h.max(1));
@@ -1441,14 +1464,44 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
             return false;
         }
         // off screen: neither drawn nor played (coordinator: only on-screen live viewers render
-        // and animate); its time stands still until it is back (`App::on_intersect`)
+        // and animate); its time stands still until it is back (`App::on_intersect`), unless its
+        // Nether scene is on screen: then it plays on, drawing nothing here
         if !visible {
+            if scene_on_screen {
+                let dt = l.last_ts.map(|t| ((ts - t) / 1000.0) as f32).unwrap_or(0.0);
+                l.last_ts = Some(ts);
+                let perf = window().performance();
+                let t0 = perf.as_ref().map(|q| q.now()).unwrap_or(0.0);
+                let mut out_of_time = || perf.as_ref().is_some_and(|q| q.now() - t0 > STEP_BUDGET_MS);
+                if let Some(p) = l.player.as_mut() {
+                    p.tps = SPEEDS[l.speed_i].1;
+                    p.update_with(dt, &mut out_of_time);
+                }
+                return true;
+            }
             l.last_ts = None;
             return false;
         }
         let dt = l.last_ts.map(|t| ((ts - t) / 1000.0) as f32).unwrap_or(0.0);
         l.last_ts = Some(ts);
         let Some(p) = l.player.as_mut() else { return false };
+        if let Some((t, n, mob)) = mirror {
+            if let Some(m) = mob {
+                p.session.mob = Some(m);
+            }
+            p.session.show_world(n, t);
+            let s = &mut p.session;
+            if let Some(m) = s.mob.as_mut() {
+                m.follow(&s.world);
+            }
+            l.mirror_tick = Some(t);
+            l.redraw = true;
+        }
+        if nether_scene {
+            // (its controls are its overworld view's: that session plays both scenes)
+            let _ = l.bar.style().set_property("display", "none");
+            l.status.set_text_content(None);
+        }
         // a frame's time for its ticks (the coordinator 2026-10-21: never block the page over
         // ~50 ms a frame): the ticks past it are dropped, never queued
         let perf = window().performance();
@@ -1528,7 +1581,8 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
                 }
                 l.last_camera = Some(cam);
                 // the game's day (a mob farm's run: its sky, sun, moon and light)
-                g.r.env = p.daylight();
+                // (a Nether scene: the Nether's own sky, before its run plays too)
+                g.r.env = if nether_scene { Some(mcview::daylight::nether()) } else { p.daylight() };
                 match g.draw(&Frame { solid: &solid, translucent: &translucent, camera: p.camera, width: w, height: h }) {
                     Ok(()) => need_ready = true,
                     Err(e) => log(&e),

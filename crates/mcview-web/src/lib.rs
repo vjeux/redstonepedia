@@ -277,6 +277,10 @@ pub(crate) struct View {
     /// ([`mcview::design::nether_part_text`]: a mob farm's kill and storage beside its overworld
     /// view, vjeux: "if they are needed you need to show them").
     pub part: Option<String>,
+    /// `data-drive`: a part's bench drive (its `--drive-out` file's URL): the view's run is that
+    /// bench's run, replayed tick for tick ([`mcview::mobfarm::provide_drive`]: a part that does
+    /// not run alone plays on its page, the carousel station's golems through the portals).
+    pub drive: Option<String>,
     pub yaw: Option<f32>,
     pub pitch: Option<f32>,
     /// Canvas size in device pixels.
@@ -1149,6 +1153,7 @@ impl App {
         v.phases = el.get_attribute("data-phases").filter(|s| !s.trim().is_empty());
         v.input_mode = el.get_attribute("data-input-mode").filter(|s| !s.trim().is_empty());
         v.part = el.get_attribute("data-part").filter(|s| !s.trim().is_empty());
+        v.drive = el.get_attribute("data-drive").filter(|s| !s.trim().is_empty());
         v.yaw = attr_f32(el, "data-yaw");
         v.pitch = attr_f32(el, "data-pitch");
         let keep = el.has_attribute("data-keep-camera");
@@ -1250,6 +1255,7 @@ impl App {
             phases: el.get_attribute("data-phases").filter(|s| !s.trim().is_empty()),
             input_mode: el.get_attribute("data-input-mode").filter(|s| !s.trim().is_empty()),
             part: el.get_attribute("data-part").filter(|s| !s.trim().is_empty()),
+            drive: el.get_attribute("data-drive").filter(|s| !s.trim().is_empty()),
             yaw: attr_f32(&el, "data-yaw"),
             pitch: attr_f32(&el, "data-pitch"),
             el: el.clone(),
@@ -1391,11 +1397,29 @@ impl App {
         // (a page's view of the design's Nether part: that part as a design of its own)
         let nether = v.part.as_deref() == Some("nether");
         let part = |r: Result<Rc<str>, String>| if nether { r.and_then(|t| mcview::design::nether_part_text(&t).map(Rc::from)) } else { r };
-        if let Some(t) = &v.inline {
-            return Some(part(Ok(t.clone())));
+        // (a part's bench drive, fetched first, then given to the view's run under the design's
+        // name before its session is built)
+        let drive_url = v.drive.clone().filter(|_| v.full && !nether);
+        let inline = v.inline.clone();
+        let src = v.src.clone();
+        let drive = match drive_url {
+            Some(url) => match self.url_text(&url)? {
+                Ok(t) => Some(t),
+                Err(e) => return Some(Err(format!("its bench's drive: {e}"))),
+            },
+            None => None,
+        };
+        let text = match inline {
+            Some(t) => Ok(t),
+            None => self.url_text(&src?)?,
+        };
+        if let (Some(dt), Ok(t)) = (&drive, &text) {
+            let name = t.lines().find_map(|l| l.trim().strip_prefix("name:")).map(|n| n.split('#').next().unwrap_or(n).trim().to_string()).unwrap_or_default();
+            if let Err(e) = mcview::mobfarm::provide_drive(&name, dt) {
+                return Some(Err(format!("its bench's drive: {e}")));
+            }
         }
-        let src = v.src.clone()?;
-        self.url_text(&src).map(part)
+        Some(part(text))
     }
 
     /// A terrain sample at a URL given to the viewer ([`mcview::terrain::provide_sample`], named
@@ -1444,7 +1468,7 @@ impl App {
                 with_app(|a| {
                     a.fetching.remove(&src);
                     a.texts.insert(src.clone(), r);
-                    let uses = |v: &View| v.src.as_deref() == Some(src.as_str());
+                    let uses = |v: &View| v.src.as_deref() == Some(src.as_str()) || v.drive.as_deref() == Some(src.as_str());
                     let waiting: Vec<u32> = a.views.iter().filter(|(_, v)| uses(v) && (!v.done || v.full) && (v.visible || v.full)).map(|(id, _)| *id).collect();
                     for id in waiting {
                         if !a.queue.contains(&id) {

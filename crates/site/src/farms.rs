@@ -428,6 +428,9 @@ pub struct Member {
     /// Its design has a Nether part (`nether layer Y:` sections: the station's kill and storage),
     /// drawn in a second viewer beside the overworld one (`data-part="nether"`).
     pub nether: bool,
+    /// Its bench's drive beside it (`<stem>.drive.txt`, the bench's `--drive-out`), the path in
+    /// the repository and on the site: its viewer plays that bench's run (`data-drive`).
+    pub drive: Option<String>,
 }
 
 impl Member {
@@ -479,6 +482,7 @@ pub fn read_members(repo: &Path, farm: &str, part: &str) -> Vec<Member> {
             let terrain = design.as_deref().and_then(crate::pages::terrain_of).map(String::from);
             let site = design.as_deref().filter(|_| terrain.is_some()).and_then(crate::pages::site_of);
             let nether = design.as_deref().is_some_and(|d| d.lines().any(|l| l.starts_with("nether layer ")));
+            let drive = Some(format!("{}.drive.txt", src.trim_end_matches(".txt"))).filter(|p| repo.join(p).exists());
             Some(Member {
                 part: part.to_string(),
                 name: r.get("name").cloned().filter(|n| !n.is_empty()).unwrap_or_else(|| file.trim_end_matches(".txt").to_string()),
@@ -490,6 +494,7 @@ pub fn read_members(repo: &Path, farm: &str, part: &str) -> Vec<Member> {
                 terrain,
                 site,
                 nether,
+                drive,
                 file,
             })
         })
@@ -573,13 +578,18 @@ fn member_viewer(prefix: &str, m: &Member) -> String {
     if let Some(s) = &m.site {
         a.push_str(&format!(" data-site=\"{}\"", esc(s)));
     }
+    // (a part that does not run alone plays its bench's run, replayed tick for tick: vjeux 06:58,
+    // "Why does it keep saying not simulated in the viewer")
+    if let Some(d) = &m.drive {
+        a.push_str(&format!(" data-drive=\"{}\"", esc(&format!("{prefix}{d}"))));
+    }
     let title = part_words(&m.part).0;
     let name = if is_carousel(&m.part) { carousel_name(&m.name) } else { m.name.clone() };
     // (its Nether part, a needed part, in its own viewer: vjeux, "if they are needed you need to
-    // show them"; shown as built, the part does not run alone)
+    // show them"; the second scene of the run its overworld viewer plays: one session, two views)
     let nether = if m.nether {
         format!(
-            "<p>Its Nether side, where the golems arrive through the portals: the kill and the storage.</p><div class=\"viewer k-circuit\" data-mcview=\"full\" data-src=\"{}\" data-part=\"nether\" data-asbuilt data-kind=\"circuit\"><div class=\"fallback\"><span class=\"fb-big\">{}</span><span class=\"fb-small\">the Nether side</span></div></div>",
+            "<p>Its Nether side, where the golems arrive through the portals: the kill and the storage.</p><div class=\"viewer k-circuit\" data-mcview=\"full\" data-src=\"{}\" data-part=\"nether\" data-kind=\"circuit\"><div class=\"fallback\"><span class=\"fb-big\">{}</span><span class=\"fb-small\">the Nether side</span></div></div>",
             esc(&format!("{prefix}{}", m.src)),
             esc(&name)
         )
@@ -1460,7 +1470,11 @@ mod tests {
         assert!(!members.is_empty() && members.iter().all(|m| m.nether), "{members:?}");
         let html = member_viewer("../", &members[0]);
         assert_eq!(html.matches("data-mcview=\"full\"").count(), 2, "{html}");
-        assert_eq!(html.matches("data-part=\"nether\" data-asbuilt").count(), 1, "{html}");
+        assert_eq!(html.matches("data-part=\"nether\"").count(), 1, "{html}");
+        // (the linear stand plays its bench's run: its drive beside it, the overworld view's
+        // only; its Nether view is that run's second scene)
+        assert!(members[0].file.contains("linear") && members[0].drive.is_some(), "{:?}", members[0]);
+        assert_eq!(html.matches("data-drive=\"../designs/farms/iron/parts/carousel-station/carousel-linear-stand.drive.txt\"").count(), 1, "{html}");
         let plain = Member { nether: false, ..members[0].clone() };
         assert!(!member_viewer("../", &plain).contains("data-part"));
     }

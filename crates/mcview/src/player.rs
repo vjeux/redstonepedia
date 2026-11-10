@@ -1746,6 +1746,10 @@ impl Player {
         let s = &self.session;
         s.mob.as_ref()?;
         let w = &s.world;
+        // (a page's Nether scene shows the Nether world: its own sky, no day)
+        if w.ultrawarm {
+            return Some(crate::daylight::nether());
+        }
         Some(crate::daylight::at(w.day_time(), w.rain_level(1.0), w.thunder_level(1.0)))
     }
 

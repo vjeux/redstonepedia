@@ -22,6 +22,7 @@ pub mod absence;
 pub mod ai;
 pub mod blocks;
 pub mod custom;
+pub mod drive;
 pub mod enchant;
 pub mod exit;
 pub mod farm;

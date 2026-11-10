@@ -48,9 +48,14 @@ pub struct Design {
     /// flying machine's stop wall), in file order.
     pub stops: Vec<(Pos, String)>,
     /// A mob farm's Nether part (`nether layer Y:` sections from `nether-origin:`, sharing the
-    /// palette, as `mctas::design` reads them), in the file's coordinates: parsed so a design with
-    /// one loads (the carousel station's page); the view draws the overworld blocks only.
+    /// palette, as `mctas::design` reads them), in the file's coordinates: the judge's runner's
+    /// `World::nether` ([`crate::mobfarm::spec`]), a page's Nether view its second scene.
     pub nether_blocks: BTreeMap<Pos, String>,
+    /// Its own ports (`port nether-<name>:` but the overworld's `nether-anchor` and
+    /// `nether-axis`: the Nether output chest `nether-output`), in its coordinates.
+    pub nether_ports: BTreeMap<String, Pos>,
+    /// Its block-entity data (`nether nbt: x y z {snbt}`), in its coordinates.
+    pub nether_block_entities: BTreeMap<Pos, String>,
 }
 
 /// A design's Nether part as a design text of its own (a page's `data-part="nether"` viewer, as
@@ -59,6 +64,22 @@ pub struct Design {
 /// `port <name>:`; the overworld's layers, entities, ports, data and `circuit:` line dropped (the
 /// part does not run alone: it shows as built). Err without a Nether part.
 pub fn nether_part_text(text: &str) -> Result<String, String> {
+    // (in the Nether world's coordinates, as the judge's runner places the part: shifted by the
+    // anchor's Nether image, floor(x / 8), 0, floor(z / 8); `NetherSpec::base`)
+    let anchor = text.lines().find_map(|l| l.trim().strip_prefix("port nether-anchor:")).and_then(|r| parse_pos(&r.split_whitespace().take(3).collect::<Vec<_>>().join(" ")).ok()).unwrap_or([0, 0, 0]);
+    let base = [anchor[0].div_euclid(8), 0, anchor[2].div_euclid(8)];
+    // (`x y z` and the words after it, moved by the base)
+    let moved = |rest: &str| -> String {
+        let words: Vec<&str> = rest.split_whitespace().collect();
+        match words.get(..3).map(|w| w.join(" ")).and_then(|xyz| parse_pos(&xyz).ok()) {
+            Some(p) => {
+                let tail = rest.trim_start();
+                let after = tail.splitn(4, char::is_whitespace).nth(3).unwrap_or("");
+                format!(" {} {} {}{}{}", p[0] + base[0], p[1] + base[1], p[2] + base[2], if after.is_empty() { "" } else { " " }, after)
+            }
+            None => rest.to_string(),
+        }
+    };
     let mut out = String::new();
     // (the rows that follow a kept header: the palette's and the Nether layers')
     let mut keep = false;
@@ -84,11 +105,15 @@ pub fn nether_part_text(text: &str) -> Result<String, String> {
             layers += 1;
             out.push_str(&format!("layer {rest}\n"));
         } else if let Some(rest) = l.strip_prefix("nether-origin:") {
-            out.push_str(&format!("origin:{rest}\n"));
+            out.push_str(&format!("origin:{}\n", moved(rest)));
         } else if let Some(rest) = l.strip_prefix("nether nbt:") {
-            out.push_str(&format!("nbt:{rest}\n"));
+            out.push_str(&format!("nbt:{}\n", moved(rest)));
         } else if let Some(rest) = l.strip_prefix("port nether-") {
-            out.push_str(&format!("port {rest}\n"));
+            if rest.starts_with("anchor:") || rest.starts_with("axis:") {
+                // (the overworld's)
+            } else if let Some((name, pos)) = rest.split_once(':') {
+                out.push_str(&format!("port {name}:{}\n", moved(pos)));
+            }
         } else if let Some(rest) = l.strip_prefix("name:") {
             out.push_str(&format!("name: {} nether part\n", rest.trim()));
         } else if ["layer ", "entity:", "nbt:", "port ", "origin:", "circuit:", "stop:"].iter().any(|p| l.starts_with(p)) {
@@ -218,15 +243,33 @@ impl Design {
                 } else if let Some(y) = l.strip_prefix("nether layer ").and_then(|r| r.strip_suffix(':')) {
                     section = Section::NetherLayer(y.trim().parse().map_err(|_| err("bad nether layer"))?);
                     row = 0;
-                } else if l.starts_with("nether nbt:") {
-                    // (the Nether part's block-entity data: not drawn)
+                } else if let Some(rest) = l.strip_prefix("nether nbt:") {
+                    // (the Nether part's block-entity data, in its coordinates: merged after its
+                    // paste, as the judge's runner does)
+                    let rest = rest.trim();
+                    let brace = rest.find('{').ok_or_else(|| err("expected 'nether nbt: <x> <y> <z> {snbt}'"))?;
+                    let p = parse_pos(&rest[..brace]).map_err(|e| err(&e))?;
+                    let nbt = rest[brace..].trim();
+                    if !nbt.ends_with('}') {
+                        return Err(err("expected 'nether nbt: <x> <y> <z> {snbt}'"));
+                    }
+                    if d.nether_block_entities.insert(p, nbt.to_string()).is_some() {
+                        return Err(err("two nether nbt: lines for one position"));
+                    }
                     section = Section::Header;
                 } else if let Some(rest) = l.strip_prefix("port ") {
                     let (name, pos) = rest.split_once(':').ok_or_else(|| err("bad port"))?;
                     let words: Vec<&str> = pos.split_whitespace().collect();
                     let (xyz, args) = if words.len() > 3 { (words[..3].join(" "), words[3..].join(" ")) } else { (pos.to_string(), String::new()) };
                     let p = parse_pos(&xyz).map_err(|e| err(&e))?;
-                    d.ports.insert(name.trim().to_string(), (p, args));
+                    let name = name.trim();
+                    // a Nether part's own ports (its output chest) are in its coordinates
+                    // (`mctas::design`: the anchor and the axis are the overworld's)
+                    if name.starts_with("nether-") && name != "nether-anchor" && name != "nether-axis" {
+                        d.nether_ports.insert(name.to_string(), p);
+                    } else {
+                        d.ports.insert(name.to_string(), (p, args));
+                    }
                     section = Section::Header;
                 } else if let Some(rest) = l.strip_prefix("entity:") {
                     d.entities.push(parse_entity(rest).map_err(|e| err(&e))?);
@@ -374,8 +417,10 @@ mod tests {
         assert_eq!(d.nether_blocks.len(), 3);
         assert_eq!(d.nether_blocks[&[3, 64, 3]], "minecraft:nether_portal[axis=z]");
         assert_eq!(d.nether_blocks[&[4, 64, 3]], "minecraft:hopper");
-        assert_eq!(d.port("nether-output"), Some([4, 64, 3]));
+        assert_eq!(d.nether_ports["nether-output"], [4, 64, 3]);
+        assert_eq!(d.port("nether-output"), None);
         assert!(d.block_entities.is_empty());
+        assert_eq!(d.nether_block_entities[&[4, 64, 3]], "{Items:[{Slot:0b,id:\"minecraft:paper\",count:1}]}");
     }
 
     #[test]
@@ -389,5 +434,10 @@ mod tests {
         assert_eq!(n.port("output"), Some([4, 64, 3]));
         assert_eq!(n.block_entities[&[4, 64, 3]], "{Items:[{Slot:0b,id:\"minecraft:paper\",count:1}]}");
         assert!(nether_part_text("name: x\npalette:\n  S stone\nlayer 0:\n  S\n").is_err());
+        // (the runner's coordinates: the anchor's Nether image, 17 0 -9 -> 2 0 -2, added)
+        let moved = Design::parse(&nether_part_text(&text.replace("name: n\n", "name: n\nport nether-anchor: 17 0 -9\nport nether-axis: 18 0 -9\n")).unwrap()).unwrap();
+        assert_eq!(moved.blocks.keys().copied().collect::<Vec<_>>(), [[4, 64, 1], [5, 64, 1], [6, 64, 1]]);
+        assert_eq!(moved.port("output"), Some([6, 64, 1]));
+        assert!(moved.block_entities.contains_key(&[6, 64, 1]) && moved.port("anchor").is_none());
     }
 }

@@ -30,6 +30,15 @@ pub enum WebCmd {
         #[arg(long, short)]
         out: PathBuf,
     },
+    /// A part's page plays its bench's run (`data-drive`: the bench's `--drive-out`, replayed by
+    /// `redsim::entity::mob::drive` in the view's own session): run the view's session of
+    /// <design> with <drive> natively for the bench's ticks and hold it to every `expect` line
+    /// (golems' ticks and cells, crossings, Nether deaths, carts' positions, the end's totals).
+    DriveCheck {
+        design: PathBuf,
+        #[arg(long)]
+        drive: PathBuf,
+    },
     /// Render designs to PNG offscreen with the browser viewer's renderer (wgpu, Vulkan headless:
     /// lavapipe on a GPU-less box). Clocks at their most active moment (like `clock shot`), doors
     /// at rest; `--tick N` runs N ticks first, `--flips N` flips a door's lever N times.
@@ -357,6 +366,14 @@ pub enum WebCmd {
         /// The camera this many times closer (a film's framing).
         #[arg(long)]
         zoom: Option<f32>,
+        /// The camera aimed at this point (`x,y,z`, the design's coordinates; a film's subject:
+        /// a long loop's release run).
+        #[arg(long)]
+        look_at: Option<String>,
+        /// Play a part's bench run (its `--drive-out` file, `redsim::entity::mob::drive`): the
+        /// page's `data-drive`.
+        #[arg(long)]
+        drive: Option<PathBuf>,
     },
     /// What a card costs (natively): each design's still (`Session::new` with `Options::still`)
     /// and its picture's mesh, timed; the slowest first. A card over `--budget` ms here is surely
@@ -701,6 +718,7 @@ fn atlas(procedural: bool) -> mcview::atlas::Atlas {
 
 pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
     match cmd {
+        WebCmd::DriveCheck { design, drive } => cmd_drive_check(&design, &drive),
         WebCmd::Shot { designs, out, width, height, tick, flips, yaw, pitch, procedural, live, dpr, crop, day_time, rain, thunder, against, part } => cmd_shot(&designs, &out, mcview::tools::ShotOptions { width, height, tick, flips, yaw, pitch, picture: false, floor_margin: None, live, dpr, as_written: false, full_frame: false }, procedural, crop.as_deref(), day_time.map(|t| mcview::daylight::at(t, rain, thunder)), against.as_deref(), part.as_deref()),
         WebCmd::Check { designs, horizon, quiet, wasm, unverified } => cmd_check(&designs, horizon, quiet, wasm.as_deref(), unverified),
         WebCmd::Bundle { out } => cmd_bundle(&out),
@@ -890,7 +908,23 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
         WebCmd::Recqa { pages, dir, out, engines, window, scale, timeout, browser, chrome } => crate::recqa::cmd_recqa(&dir, &pages, &out, &engines, &window, scale, timeout, &browser, chrome.as_deref()),
         WebCmd::Qa { pages, dir, kinds, clocks, out, window, at, watch, shards } => crate::qa::cmd_qa(&dir, &pages, kinds, clocks, &out, &window, &at, watch, shards),
         WebCmd::Cardcost { designs, budget, top, procedural } => cmd_cardcost(&designs, budget, top, procedural),
-        WebCmd::Framecost { designs, width, height, dpr, warm, frames, ticks, cull, check, budget, png_dir, yaw, pitch, zoom } => {
+        WebCmd::Framecost { designs, width, height, dpr, warm, frames, ticks, cull, check, budget, png_dir, yaw, pitch, zoom, look_at, drive } => {
+            let look_at: Option<[f32; 3]> = match look_at.as_deref() {
+                None => None,
+                Some(s) => {
+                    let v: Vec<f32> = s.split(',').map(|x| x.trim().parse::<f32>()).collect::<Result<_, _>>().with_context(|| format!("--look-at {s}: x,y,z"))?;
+                    let [x, y, z] = v[..] else { bail!("--look-at {s}: x,y,z") };
+                    Some([x, y, z])
+                }
+            };
+            if let Some(dp) = &drive {
+                let dtext = std::fs::read_to_string(dp).with_context(|| format!("reading {}", dp.display()))?;
+                for d in &designs {
+                    let text = std::fs::read_to_string(d).with_context(|| format!("reading {}", d.display()))?;
+                    let name = mcview::design::Design::parse(&text).map_err(anyhow::Error::msg)?.name;
+                    mcview::mobfarm::provide_drive(&name, &dtext).map_err(anyhow::Error::msg)?;
+                }
+            }
             if png_dir.is_some() && designs.len() != 1 {
                 bail!("--png-dir: one design");
             }
@@ -902,7 +936,7 @@ pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
             let mut bad = 0;
             for d in &designs {
                 let text = std::fs::read_to_string(d).with_context(|| format!("reading {}", d.display()))?;
-                match mcview::tools::frame_cost(&mut off, &atlas, &text, width, height, dpr, warm, frames, ticks, cull, check, budget, png_dir.as_deref(), (yaw, pitch), zoom) {
+                match mcview::tools::frame_cost(&mut off, &atlas, &text, width, height, dpr, warm, frames, ticks, cull, check, budget, png_dir.as_deref(), (yaw, pitch), zoom, look_at) {
                     Ok(c) => {
                         println!(
                             "{}: {width}x{height}: mesh {:.2} ms, draw {:.2} ms a frame ({} frames of {ticks} ticks; the blocks' mesh rebuilt {} times); vertices: {} on the GPU, {} solid + {} translucent uploaded a frame",
@@ -1554,6 +1588,120 @@ fn cmd_serve(dir: &Path, port: u16) -> Result<()> {
         let _ = write!(stream, "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-cache\r\n\r\n", body.len());
         let _ = stream.write_all(&body);
     }
+    Ok(())
+}
+
+/// `web drive-check`: the view's session of a part with its bench's drive, run natively, against
+/// the bench's expectations.
+fn cmd_drive_check(design: &Path, drive: &Path) -> Result<()> {
+    let text = std::fs::read_to_string(design).with_context(|| format!("reading {}", design.display()))?;
+    let dtext = std::fs::read_to_string(drive).with_context(|| format!("reading {}", drive.display()))?;
+    let name = mcview::design::Design::parse(&text).map_err(anyhow::Error::msg)?.name;
+    mcview::mobfarm::provide_drive(&name, &dtext).map_err(anyhow::Error::msg)?;
+    let d = mcview::mobfarm::drive_for(&name).context("the drive")?;
+    let t_start = std::time::Instant::now();
+    let mut s = mcview::session::Session::new(&text, &mcview::session::Options::live()).map_err(anyhow::Error::msg)?;
+    if let Some(u) = &s.unsimulated {
+        bail!("{}: the view does not run it: {u}", design.display());
+    }
+    let t0 = s.mob.as_ref().and_then(|m| m.drive.as_ref()).map(|dv| dv.t0).context("the view's run is not the bench's (no drive in its session)")?;
+    // (the carts' positions the bench wrote, by tick)
+    let mut pos_at: std::collections::BTreeMap<i64, Vec<(usize, [f64; 3])>> = Default::default();
+    for (t, e) in &d.expects {
+        let w: Vec<&str> = e.split_whitespace().collect();
+        if w.first() == Some(&"pos")
+            && let (Some(n), Some(x), Some(y), Some(z)) = (w.get(1).and_then(|v| v.strip_prefix('e')).and_then(|v| v.parse::<usize>().ok()), w.get(2).and_then(|v| v.parse().ok()), w.get(3).and_then(|v| v.parse().ok()), w.get(4).and_then(|v| v.parse().ok()))
+        {
+            pos_at.entry(*t).or_default().push((n, [x, y, z]));
+        }
+    }
+    let mut problems: Vec<String> = Vec::new();
+    let mut positions = 0u32;
+    let ticks = d.ticks();
+    while s.world.time - t0 < ticks {
+        s.step();
+        if let Some(u) = &s.unsimulated {
+            bail!("{}: the view stopped at t {}: {u}", design.display(), s.world.time - t0);
+        }
+        let t = s.world.time - t0;
+        if let Some(v) = pos_at.get(&t) {
+            let lines = s.mob.as_ref().and_then(|m| m.drive.as_ref()).map(|dv| dv.lines.clone()).unwrap_or_default();
+            for (n, want) in v {
+                positions += 1;
+                let got = redsim::entity::mob::drive::index_of(&s.world, &lines, redsim::entity::mob::drive::Who::Line(*n)).map(|i| s.world.entities.list[i].pos);
+                match got {
+                    Some(p) if (p.x - want[0]).abs() < 2e-3 && (p.y - want[1]).abs() < 2e-3 && (p.z - want[2]).abs() < 2e-3 => {}
+                    _ => problems.push(format!("t {t}: e{n} at {got:?}, the bench's at {want:?}")),
+                }
+            }
+        }
+    }
+    let m = s.mob.as_ref().context("no farm run")?;
+    let log = &m.log;
+    // the golems by number (their order), their Nether copies
+    let golem_id: Vec<u32> = log.golems.iter().map(|g| g.1).collect();
+    let copy_of = |g: u32| log.crossings.iter().find(|c| c.1 == g).map(|c| c.2);
+    let (mut golems, mut crosses, mut deaths, mut pulses) = (0u32, 0u32, 0u32, 0u32);
+    for (t, e) in &d.expects {
+        let w: Vec<&str> = e.split_whitespace().collect();
+        let g = w.get(1).and_then(|v| v.strip_prefix('g')).and_then(|v| v.parse::<usize>().ok());
+        match (w.first().copied(), g) {
+            (Some("golem"), Some(n)) => {
+                golems += 1;
+                let want = (w.get(2).and_then(|v| v.parse::<i32>().ok()), w.get(3).and_then(|v| v.parse::<i32>().ok()), w.get(4).and_then(|v| v.parse::<i32>().ok()));
+                match log.golems.get(n) {
+                    Some((gt, _, c)) if gt == t && (Some(c.x), Some(c.y), Some(c.z)) == want => {}
+                    got => problems.push(format!("golem g{n}: the bench's at t {t} {want:?}, the view's {got:?}")),
+                }
+            }
+            (Some("cross"), Some(n)) => {
+                crosses += 1;
+                match golem_id.get(n).and_then(|id| log.crossings.iter().find(|c| c.1 == *id)) {
+                    Some((ct, _, _)) if ct == t => {}
+                    got => problems.push(format!("cross g{n}: the bench's at t {t}, the view's {got:?}")),
+                }
+            }
+            (Some("nether-death"), Some(n)) => {
+                deaths += 1;
+                match golem_id.get(n).and_then(|id| copy_of(*id)).and_then(|c| log.nether_deaths.iter().find(|d| d.1 == c)) {
+                    Some((dt, _)) if dt == t => {}
+                    got => problems.push(format!("nether-death g{n}: the bench's at t {t}, the view's {got:?}")),
+                }
+            }
+            (Some("pulse"), _) => pulses += 1,
+            (Some("pos"), _) => {}
+            _ => problems.push(format!("expect {t} {e}: a line this check does not know")),
+        }
+    }
+    let nether_iron: u32 = s.world.nether.as_deref().map(mcview::mobfarm::nether_iron).unwrap_or(0);
+    for e in &d.ends {
+        let w: Vec<&str> = e.split_whitespace().collect();
+        let want = w.get(1).and_then(|v| v.parse::<u32>().ok());
+        let got = match w.first().copied() {
+            Some("golems") => Some(log.golems.len() as u32),
+            Some("nether-deaths") => Some(log.nether_deaths.len() as u32),
+            Some("iron-in-nether-containers") => Some(nether_iron),
+            _ => None,
+        };
+        if got.is_none() || got != want {
+            problems.push(format!("expect-end {e}: the view's {got:?}"));
+        }
+    }
+    println!(
+        "{}: the view's run with its bench's drive ({} acts, t0 {t0}, {ticks} ticks, {:.1} s): {golems} golems, {crosses} crossings, {deaths} Nether deaths, {positions} cart positions and {} end totals held to the bench's{}",
+        design.display(),
+        d.acts.len(),
+        t_start.elapsed().as_secs_f64(),
+        d.ends.len(),
+        if pulses > 0 { format!(" ({pulses} pulse lines: the counter's signal, not checked here)") } else { String::new() }
+    );
+    if !problems.is_empty() {
+        for p in problems.iter().filter(|p| !p.starts_with("nether-death")).take(8).chain(problems.iter().filter(|p| p.starts_with("nether-death")).take(2)) {
+            println!("  {p}");
+        }
+        bail!("{} differences from the bench", problems.len());
+    }
+    println!("ok: the view's run is the bench's");
     Ok(())
 }
 

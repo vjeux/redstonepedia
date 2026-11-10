@@ -38,8 +38,9 @@ pub fn is_mob_farm(d: &Design) -> bool {
 }
 
 /// The judge's farm of a design as written (`circuit::studies::mobfarm::spec_of`): its blocks
-/// (sorted by x, y, z), its entities in file order, the chest at `port output`, and the world box:
-/// the circuit's bounds (blocks and ports) plus [`WATCH_MARGIN`].
+/// (sorted by x, y, z), its entities in file order, the chest at `port output`, the world box:
+/// the circuit's bounds (blocks and ports) plus [`WATCH_MARGIN`], and its Nether part
+/// (`World::nether`: blocks, output chest and data relative to the anchor's Nether image).
 pub fn spec(d: &Design) -> Result<FarmSpec, String> {
     let out = d.ports.get("output").map(|(p, _)| *p).ok_or("no `port output`")?;
     let mut pts = d.blocks.keys().copied().chain(d.ports.values().map(|(p, _)| *p));
@@ -54,12 +55,123 @@ pub fn spec(d: &Design) -> Result<FarmSpec, String> {
     let m = WATCH_MARGIN;
     let mut blocks = Vec::with_capacity(d.blocks.len());
     for (q, s) in &d.blocks {
-        blocks.push((bp(*q), Block::parse(s).map_err(|e| format!("not modeled by redsim: {e}"))?));
+        blocks.push((bp(*q), farm_block(s).map_err(|e| format!("not modeled by redsim: {e}"))?));
     }
     blocks.sort_by_key(|(q, _)| [q.x, q.y, q.z]);
-    let entities = d.entities.iter().map(|e| (e.kind.clone(), e.pos, e.nbt.clone())).collect();
+    // (the judge's `port home`, `studies::mobfarm::spec_of`: every villager holds HOME = that
+    // bed, loaded as a memory, a cart's rider in its own compound)
+    let home = d.ports.get("home").map(|(h, _)| format!("Brain:{{memories:{{\"minecraft:home\":{{value:{{dimension:\"minecraft:overworld\",pos:[I;{},{},{}]}}}}}}}}", h[0], h[1], h[2]));
+    let mut entities = Vec::with_capacity(d.entities.len());
+    for e in &d.entities {
+        let mut nbt = e.nbt.clone();
+        if let Some(h) = &home
+            && e.kind.trim_start_matches("minecraft:") == "villager"
+        {
+            nbt = Some(match nbt.as_deref().map(str::trim) {
+                Some(n) if n.contains("Brain:") => return Err(format!("a villager with its own Brain data and `port home`: {n}")),
+                Some(n) if n.len() > 2 => format!("{},{h}}}", n.strip_suffix('}').unwrap_or(n)),
+                _ => format!("{{{h}}}"),
+            });
+        }
+        if let Some(h) = &home
+            && let Some(n) = nbt.as_deref()
+            && n.contains("Passengers:[")
+        {
+            nbt = Some(with_passenger_home(n, h)?);
+        }
+        entities.push((e.kind.clone(), e.pos, nbt));
+    }
     let block_entities = d.block_entities.iter().map(|(p, s)| (bp(*p), s.clone())).collect();
-    Ok(FarmSpec { blocks, entities, output: bp(out), lo: BlockPos::new(lo[0] - m, lo[1] - m, lo[2] - m), hi: BlockPos::new(hi[0] + m, hi[1] + m, hi[2] + m), block_entities, rock: d.meta.get("terrain").map(|t| t.trim()) == Some("rock"), nether: None })
+    Ok(FarmSpec { blocks, entities, output: bp(out), lo: BlockPos::new(lo[0] - m, lo[1] - m, lo[2] - m), hi: BlockPos::new(hi[0] + m, hi[1] + m, hi[2] + m), block_entities, rock: d.meta.get("terrain").map(|t| t.trim()) == Some("rock"), nether: nether_spec(d)? })
+}
+
+/// The judge's `port home` memory put into each villager passenger's own compound of a vehicle's
+/// NBT (`studies::mobfarm::with_passenger_home`).
+fn with_passenger_home(n: &str, home: &str) -> Result<String, String> {
+    let key = "id:\"minecraft:villager\"";
+    let mut out = String::new();
+    let mut rest = n;
+    while let Some(i) = rest.find(key) {
+        let after = &rest[i + key.len()..];
+        // the passenger's compound from its id to its closing brace (depth 0 again)
+        let mut depth = 0i32;
+        let mut end = after.len();
+        for (k, c) in after.char_indices() {
+            match c {
+                '{' | '[' => depth += 1,
+                '}' | ']' => {
+                    if depth == 0 {
+                        end = k;
+                        break;
+                    }
+                    depth -= 1;
+                }
+                _ => {}
+            }
+        }
+        if after[..end].contains("Brain:") {
+            return Err(format!("a villager passenger with its own Brain data and `port home`: {n}"));
+        }
+        out.push_str(&rest[..i + key.len()]);
+        out.push(',');
+        out.push_str(home);
+        rest = after;
+    }
+    out.push_str(rest);
+    Ok(out)
+}
+
+/// The iron a Nether world's containers hold (ingots, an iron block as 9).
+pub fn nether_iron(n: &World) -> u32 {
+    let (ingot, block) = (redsim::redstone::container::item_id("iron_ingot"), redsim::redstone::container::item_id("iron_block"));
+    n.containers.map.values().flat_map(|c| c.slots.iter().flatten()).map(|s| if Some(s.item) == ingot { s.count as u32 } else if Some(s.item) == block { 9 * s.count as u32 } else { 0 }).sum()
+}
+
+/// A farm block as the judge reads it (`studies::mobfarm::farm_block`): a nether portal through
+/// redsim's terrain conversion (its axis), every other block through [`Block::parse`].
+pub fn farm_block(s: &str) -> Result<Block, String> {
+    if s.starts_with("minecraft:nether_portal[") {
+        return redsim::terrain::land::block_of(s);
+    }
+    Block::parse(s)
+}
+
+/// The quarter turns of a design's Nether part (`mctas::design::Design::nether_turns`): its
+/// `nether-axis` one step from its `nether-anchor` along +x (0), +z (1), -x (2) or -z (3).
+pub fn nether_turns(d: &Design) -> Option<u8> {
+    let a = d.ports.get("nether-anchor")?.0;
+    let b = d.ports.get("nether-axis")?.0;
+    match [b[0] - a[0], b[1] - a[1], b[2] - a[2]] {
+        [1, 0, 0] => Some(0),
+        [0, 0, 1] => Some(1),
+        [-1, 0, 0] => Some(2),
+        [0, 0, -1] => Some(3),
+        _ => None,
+    }
+}
+
+/// The judge's Nether part of a design as written (`studies::mobfarm::spec_of`'s): its blocks,
+/// its output chest (`port nether-output`) and its data (`nether nbt:`) relative to the anchor's
+/// Nether image, the anchor at `port nether-anchor`; None without one.
+pub fn nether_spec(d: &Design) -> Result<Option<redsim::entity::mob::farm::NetherSpec>, String> {
+    if d.nether_blocks.is_empty() {
+        return Ok(None);
+    }
+    let turns = nether_turns(d).ok_or("a Nether part whose `nether-axis` is not one step along x or z from `nether-anchor`")?;
+    // (every published design's part is as written, turns 0; a turned one would need the
+    // judge's state rotation, `clock::canon::rotate_state`, which the view does not carry)
+    if turns != 0 {
+        return Err(format!("a Nether part turned {turns} quarter turn(s) from +x"));
+    }
+    let anchor = d.ports.get("nether-anchor").map(|(p, _)| *p).ok_or("a Nether part without `port nether-anchor`")?;
+    let mut nb = Vec::with_capacity(d.nether_blocks.len());
+    for (q, s) in &d.nether_blocks {
+        nb.push((bp(*q), farm_block(s).map_err(|e| format!("the Nether part: not modeled by redsim: {e}"))?));
+    }
+    nb.sort_by_key(|(q, _)| [q.x, q.y, q.z]);
+    let output = d.nether_ports.get("nether-output").map(|p| bp(*p));
+    let block_entities = d.nether_block_entities.iter().map(|(p, s)| (bp(*p), s.clone())).collect();
+    Ok(Some(redsim::entity::mob::farm::NetherSpec { anchor: bp(anchor), blocks: nb, output, block_entities }))
 }
 
 /// The judge's run of the base build with seed `seed` (steady state, random walking policies): for
@@ -151,6 +263,54 @@ pub struct MobRun {
     /// timeline's marks).
     pub hand: Option<HandHide>,
     pub hand_events: Vec<(i64, HandStep)>,
+    /// A part's bench run (`redsim::entity::mob::drive`: the page's `data-drive`): the bench's
+    /// own start and its acts before each tick instead of the judge's run.
+    pub drive: Option<Driven>,
+    /// The iron the Nether part's containers held when the mobs arrived (the design's own stock:
+    /// not the farm's).
+    pub nether_seed_iron: u32,
+    /// What a driven run did, for its check against the bench's expectations: each golem
+    /// (`t` after t0, its id, its cell), each crossing to the Nether (`t`, the golem's id), each
+    /// golem's death in the Nether (`t`, its Nether id).
+    pub log: DriveLog,
+}
+
+/// A bench's drive in the view's run.
+#[derive(Clone)]
+pub struct Driven {
+    pub drive: std::rc::Rc<redsim::entity::mob::drive::Drive>,
+    /// Each entity line's entity, once spawned; the world's time then.
+    pub lines: Vec<u32>,
+    pub t0: i64,
+    pub cursor: redsim::entity::mob::drive::Cursor,
+}
+
+/// A driven run's record ([`MobRun::log`]).
+#[derive(Clone, Debug, Default)]
+pub struct DriveLog {
+    pub golems: Vec<(i64, u32, BlockPos)>,
+    pub crossings: Vec<(i64, u32, u32)>,
+    pub nether_deaths: Vec<(i64, u32)>,
+    /// The golems' Nether copies still alive there.
+    pub in_nether: Vec<u32>,
+}
+
+thread_local! {
+    /// The drives a page gave its views (`data-drive`, by the design's `name:`): [`provide_drive`].
+    static DRIVES: std::cell::RefCell<HashMap<String, std::rc::Rc<redsim::entity::mob::drive::Drive>>> = std::cell::RefCell::new(HashMap::new());
+}
+
+/// A part's bench drive for the design named `name` (a page's `data-drive`, fetched by the view;
+/// a native check's file): its view's run is that bench's run ([`MobRun::start_driven`]).
+pub fn provide_drive(name: &str, text: &str) -> Result<(), String> {
+    let d = redsim::entity::mob::drive::Drive::parse(text)?;
+    DRIVES.with(|m| m.borrow_mut().insert(name.to_string(), std::rc::Rc::new(d)));
+    Ok(())
+}
+
+/// The drive given for the design named `name`, if any.
+pub fn drive_for(name: &str) -> Option<std::rc::Rc<redsim::entity::mob::drive::Drive>> {
+    DRIVES.with(|m| m.borrow().get(name).cloned())
 }
 
 /// A farm's card prints "hide the zombie by hand the first night" (its design does not claim
@@ -191,7 +351,23 @@ impl MobRun {
             }
         }
         let hand = hand_hide_of(d).then(HandHide::default);
-        Ok(MobRun { run, chests, golems: 0, iron_dropped: 0, poppies_dropped: 0, arrived: 0, walk: HashMap::new(), spots: Vec::new(), spots_key: Vec::new(), spawned: HashMap::new(), last_spawns: Vec::new(), spec, own: Default::default(), hand, hand_events: Vec::new() })
+        Ok(MobRun { run, chests, golems: 0, iron_dropped: 0, poppies_dropped: 0, arrived: 0, walk: HashMap::new(), spots: Vec::new(), spots_key: Vec::new(), spawned: HashMap::new(), last_spawns: Vec::new(), spec, own: Default::default(), hand, hand_events: Vec::new(), drive: None, nether_seed_iron: 0, log: DriveLog::default() })
+    }
+
+    /// Start a part's bench run of `d` (`drive`: the bench's `--drive-out`): the bench's options
+    /// (`Drive::opts`), no judge's static checks (the bench brings its own batches, memories and
+    /// controls), the settle left to run; then [`MobRun::arrive`] spawns the entity lines in file
+    /// order and checks the start time against the bench's.
+    pub fn start_driven(d: &Design, drive: std::rc::Rc<redsim::entity::mob::drive::Drive>) -> Result<MobRun, String> {
+        let spec = spec(d)?;
+        let run = Run::start(&spec, &drive.opts())?;
+        let mut chests = vec![spec.output];
+        for (p, b) in &spec.blocks {
+            if matches!(b, Block::Chest { .. }) && !chests.contains(p) {
+                chests.push(*p);
+            }
+        }
+        Ok(MobRun { run, chests, golems: 0, iron_dropped: 0, poppies_dropped: 0, arrived: 0, walk: HashMap::new(), spots: Vec::new(), spots_key: Vec::new(), spawned: HashMap::new(), last_spawns: Vec::new(), spec, own: Default::default(), hand: None, hand_events: Vec::new(), drive: Some(Driven { drive, lines: Vec::new(), t0: 0, cursor: Default::default() }), nether_seed_iron: 0, log: DriveLog::default() })
     }
 
     /// One tick of the water's settle; false once none is left.
@@ -199,10 +375,21 @@ impl MobRun {
         self.run.settle_tick()
     }
 
-    /// The mobs arrive (the design's entities, their beds, the steady state's last sleep).
+    /// The mobs arrive (the design's entities, their beds, the steady state's last sleep); a
+    /// driven run's arrive as its bench's: the entity lines spawned in file order, the start
+    /// time checked against the bench's `t0`.
     pub fn arrive(&mut self) -> Result<(), String> {
-        self.run.arrive()?;
+        if let Some(dv) = self.drive.as_mut() {
+            dv.lines = redsim::entity::mob::drive::spawn_lines(&mut self.run, &self.spec)?;
+            dv.t0 = self.run.world.time;
+            if let Some(t0) = dv.drive.t0.filter(|t0| *t0 != dv.t0) {
+                return Err(format!("its bench's drive starts at time {t0}, the view's run at {}", dv.t0));
+            }
+        } else {
+            self.run.arrive()?;
+        }
         self.arrived = self.run.world.time;
+        self.nether_seed_iron = self.run.world.nether.as_deref().map(nether_iron).unwrap_or(0);
         self.own = self.run.own.iter().copied().collect();
         let w = std::mem::replace(&mut self.run.world, World::new(BlockPos::new(0, 0, 0), [1, 1, 1]));
         self.refresh_spots(&w, true);
@@ -226,8 +413,30 @@ impl MobRun {
         {
             self.hand_events.push((self.run.world.time, step));
         }
+        // (a bench's acts due before the tick, in its order)
+        if let Some(dv) = self.drive.as_mut() {
+            let (lines, t0) = (&dv.lines, dv.t0);
+            dv.cursor.apply_due(&mut self.run.world, lines, &dv.drive, t0);
+        }
+        let crossed = self.run.world.crossings.len();
         self.run.tick();
         std::mem::swap(w, &mut self.run.world);
+        if let Some(dv) = self.drive.as_ref() {
+            let t = w.time - dv.t0;
+            for (_, from, copy) in &w.crossings[crossed.min(w.crossings.len())..] {
+                self.log.crossings.push((t, *from, *copy));
+                self.log.in_nether.push(*copy);
+            }
+            // (a golem's Nether death as the benches count it: the first tick its copy is no
+            // longer in the Nether's world, its death animation over)
+            if let Some(n) = w.nether.as_deref() {
+                let gone: Vec<u32> = self.log.in_nether.iter().copied().filter(|id| !n.entities.list.iter().any(|e| e.id == *id && !e.removed)).collect();
+                for id in gone {
+                    self.log.nether_deaths.push((t, id));
+                    self.log.in_nether.retain(|x| *x != id);
+                }
+            }
+        }
         self.absorb(w);
         // (a block written this tick: the session's write log, taken after the tick)
         let changed = !w.writes.is_empty();
@@ -249,10 +458,28 @@ impl MobRun {
     /// every tick too): golems summoned, drops; and the client's walk animations.
     fn absorb(&mut self, w: &mut World) {
         self.last_spawns.clear();
+        let t = self.drive.as_ref().map(|dv| w.time - dv.t0);
+        // (the Nether's events too: its level ticks second; a golem dying there is the kill)
+        if let Some(n) = w.nether.as_deref_mut() {
+            for ev in std::mem::take(&mut n.mob.events) {
+                match ev {
+                    MobEvent::Drop { what, count, .. } => match what {
+                        "minecraft:iron_ingot" => self.iron_dropped += count,
+                        "minecraft:poppy" => self.poppies_dropped += count,
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+            n.mob.spawn_tries.clear();
+        }
         for ev in std::mem::take(&mut w.mob.events) {
             match ev {
-                MobEvent::GolemTry { golem: Some(_), at, .. } => {
+                MobEvent::GolemTry { golem: Some(g), at, .. } => {
                     self.golems += 1;
+                    if let (Some(t), Some(a)) = (t, at) {
+                        self.log.golems.push((t, g, BlockPos::new(a[0], a[1], a[2])));
+                    }
                     if let Some(a) = at {
                         let c = BlockPos::new(a[0], a[1], a[2]);
                         *self.spawned.entry(c).or_default() += 1;
@@ -268,6 +495,12 @@ impl MobRun {
             }
         }
         w.mob.spawn_tries.clear();
+        self.follow(w);
+    }
+
+    /// The client's walk animation of each living mob of `w` brought up to its last move (a
+    /// tick's absorb; a page's Nether scene for the world it shows, `Session::show_world`).
+    pub fn follow(&mut self, w: &World) {
         let mut seen: Vec<u32> = Vec::new();
         for e in w.entities.list.iter().filter(|e| !e.removed) {
             let EntityKind::Mob(m) = &e.kind else { continue };
@@ -283,16 +516,20 @@ impl MobRun {
         self.walk.retain(|id, _| seen.contains(id));
     }
 
-    /// Iron ingots in the farm's chests now.
+    /// Iron ingots in the farm's chests now; a farm with a Nether part also the iron its Nether
+    /// containers gained (ingots, an iron block as 9, beyond the design's own stock: the judge's
+    /// and the benches' count): where its golems die.
     pub fn iron_in_chests(&self, w: &World) -> u32 {
         let iron = redsim::redstone::container::item_id("iron_ingot");
-        self.chests
+        let over: u32 = self
+            .chests
             .iter()
             .filter_map(|p| w.containers.map.get(p))
             .flat_map(|c| c.slots.iter().flatten())
             .filter(|s| Some(s.item) == iron)
             .map(|s| s.count as u32)
-            .sum()
+            .sum();
+        over + w.nether.as_deref().map(|n| nether_iron(n).saturating_sub(self.nether_seed_iron)).unwrap_or(0)
     }
 
     /// How the client draws a mob (its `LivingEntityRenderState`) at `partial`: [`draw_mob`] with

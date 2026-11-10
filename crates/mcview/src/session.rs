@@ -477,7 +477,8 @@ pub fn drawn_state(b: &Block) -> String {
 /// A design block as redsim state; quartz-like plain blocks (`crates/piston-door/src/properties.rs`)
 /// fall back to stone like the door tools do.
 fn convert(state: &str) -> Result<(Block, bool), String> {
-    match Block::parse(state) {
+    // (a nether portal as the mob-farm judge reads it: `mobfarm::farm_block`)
+    match crate::mobfarm::farm_block(state) {
         Ok(b) => Ok((b, false)),
         Err(e) => {
             if quartz_like(state) {
@@ -939,7 +940,14 @@ impl Session {
         // judge's first run, its water's settle paused between ticks; nothing else of the session's
         // placement applies
         if crate::mobfarm::is_mob_farm(&s.design) {
-            let started = match crate::mobfarm::MobRun::start(&s.design, o.mob_seed.unwrap_or(crate::mobfarm::JUDGE_SEED), terrain.as_deref()) {
+            // (a part's page plays its bench's run: the drive the page gave for this design,
+            // `data-drive`; `redsim::entity::mob::drive`)
+            let driven = crate::mobfarm::drive_for(&s.design.name).filter(|_| terrain.is_none());
+            let start = match driven {
+                Some(dv) => crate::mobfarm::MobRun::start_driven(&s.design, dv),
+                None => crate::mobfarm::MobRun::start(&s.design, o.mob_seed.unwrap_or(crate::mobfarm::JUDGE_SEED), terrain.as_deref()),
+            };
+            let started = match start {
                 Ok(mut m) => {
                     // (in its terrain: the cells the settle changes, followed like the run's)
                     m.run.world.log_writes = terrain.is_some();
@@ -2428,6 +2436,17 @@ impl Session {
     /// and from now on the changes after this call.
     pub fn take_changed_cells(&mut self) -> Option<Vec<[i32; 3]>> {
         std::mem::replace(&mut self.changed_cells, Some(Vec::new()))
+    }
+
+    /// Show another session's world in this one's view, as of that session's `tick` (a page's
+    /// second scene: a mob farm's Nether view, `data-part="nether"`, drawing the `World::nether`
+    /// of the session its overworld view runs): its blocks and entities drawn from `w`; anything
+    /// may have changed (the mesh is built again). This session's own run never ticks it.
+    pub fn show_world(&mut self, w: World, tick: u32) {
+        self.world = w;
+        self.tick = tick;
+        self.blocks_version += 1;
+        self.changed_cells = None;
     }
 
     /// What [`Session::render_blocks`] draws at the world's cell `c`, a still block (Ok(None):
