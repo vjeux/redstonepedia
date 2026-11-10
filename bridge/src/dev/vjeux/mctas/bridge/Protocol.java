@@ -196,6 +196,7 @@ public final class Protocol {
             case "gameevent" -> gameEvent(r);
             case "random_state" -> randomState(r);
             case "ticking_chunks" -> tickingChunks(r);
+            case "spawn_state" -> spawnState(r);
             case "ticking_sections" -> tickingSections(r);
             case "viewers" -> viewers();
             case "camera" -> camera(r);
@@ -390,6 +391,39 @@ public final class Protocol {
         }
         JsonObject o = new JsonObject();
         o.add("sections", out);
+        return o;
+    }
+
+    /**
+     * The last natural spawn tick's mob counts per category ({@code SpawnState.getMobCategoryCounts}:
+     * the global caps' numbers; empty before the first spawn tick): redsim's are checked against it
+     * (the compare's {@code MCTAS_EXACT_SPAWNSTATE}).
+     */
+    private JsonObject spawnState(JsonObject r) {
+        Sandbox sb = sandbox(r);
+        JsonObject counts = new JsonObject();
+        net.minecraft.world.level.NaturalSpawner.SpawnState st = sb.level.getChunkSource().getLastSpawnState();
+        if (st != null) {
+            for (it.unimi.dsi.fastutil.objects.Object2IntMap.Entry<net.minecraft.world.entity.MobCategory> e : st.getMobCategoryCounts().object2IntEntrySet()) {
+                counts.addProperty(e.getKey().getName(), e.getIntValue());
+            }
+        }
+        JsonObject o = new JsonObject();
+        o.add("counts", counts);
+        // and the live mobs by category and type, as createState filters them (a Mob not
+        // persistent and needing no custom persistence, not MISC), with the persistent ones apart
+        JsonObject byType = new JsonObject();
+        for (net.minecraft.world.entity.Entity e : sb.level.getAllEntities()) {
+            if (!(e instanceof net.minecraft.world.entity.Mob mob)) {
+                continue;
+            }
+            net.minecraft.world.entity.MobCategory c = e.getType().getCategory();
+            String k = c.getName() + " " + net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(e.getType())
+                    + (mob.isPersistenceRequired() || mob.requiresCustomPersistence() ? " (persistent)" : "")
+                    + (e.isRemoved() ? " (removed)" : "");
+            byType.addProperty(k, (byType.has(k) ? byType.get(k).getAsInt() : 0) + 1);
+        }
+        o.add("by_type", byType);
         return o;
     }
 

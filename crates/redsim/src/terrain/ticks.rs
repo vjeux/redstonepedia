@@ -119,7 +119,10 @@ fn block_id(b: &Block) -> String {
 /// world's box is not modeled: a growth past the sample's edge (a bud, a vine) is dropped there
 /// (the game's sandbox holds air beyond the sample and keeps it; nothing inside reacts to it).
 fn set(w: &mut World, p: BlockPos, state: &str, fl: u32) {
-    if !w.contains(p) {
+    // (a terrain world: a natural growth past the sample's edge, a bud on a budding amethyst at
+    // the box's side, goes on in the sandbox's void beyond it, `World::outer`, as in the game;
+    // tickexact 2026-11-09: module-underground's spawning met such a bud's column at t570)
+    if !w.contains(p) && w.land.is_none() {
         return;
     }
     match super::land::block_of(state) {

@@ -429,6 +429,11 @@ pub struct Natural {
     /// bridge sandbox's `getSpawnCandidateChunks`): filtered each tick by the players' positions
     /// now (the AFK player moves when a mob pushes it); empty: `spawn_order` as given.
     pub spawn_candidates: Vec<[i32; 2]>,
+    /// The last spawn tick's mob counts per category (`SpawnState.getMobCategoryCounts`, the
+    /// global caps' numbers), and per player (the local caps'): what the compare's spawn-state
+    /// probe checks against the game's.
+    pub last_counts: [i32; 8],
+    pub last_local: Vec<[i32; 8]>,
     /// The sandbox's `getNaturalSpawnChunkCount()` (None: redsim's count).
     pub spawn_chunk_count: Option<i32>,
     /// The chunks where `canSpawnEntitiesInChunk` holds (entity-ticking); empty: every spawning
@@ -446,7 +451,7 @@ pub struct Natural {
 
 impl Natural {
     pub fn new(players: Vec<Vec3>, difficulty: Difficulty) -> Natural {
-        Natural { players, difficulty, spawning: true, spawn_enemies: true, void_biome: None, world_min_y: -64, world_spawn: None, spawn_order: Vec::new(), spawn_candidates: Vec::new(), spawn_chunk_count: None, entity_ticking: Vec::new(), riders: Vec::new(), bonuses: Vec::new(), log: Vec::new(), ticks: 0 }
+        Natural { players, difficulty, spawning: true, spawn_enemies: true, void_biome: None, world_min_y: -64, world_spawn: None, spawn_order: Vec::new(), spawn_candidates: Vec::new(), last_counts: [0; 8], last_local: Vec::new(), spawn_chunk_count: None, entity_ticking: Vec::new(), riders: Vec::new(), bonuses: Vec::new(), log: Vec::new(), ticks: 0 }
     }
 }
 
@@ -858,6 +863,10 @@ pub fn tick_chunks(w: &mut World) {
         return;
     }
     let mut st = create_state(w, &nat);
+    if let Some(n) = w.mob.natural.as_mut() {
+        n.last_counts = st.counts;
+        n.last_local = st.local.clone();
+    }
     let spawn_persistent = w.time % 400 == 0;
     let enemies = nat.difficulty != Difficulty::Peaceful && nat.spawn_enemies;
     let cats: Vec<Category> = Category::SPAWNING
@@ -932,7 +941,13 @@ fn spawn_category_for_chunk(w: &mut World, nat: &Natural, st: &mut State, cat: C
     let x = cx * 16 + r.next_int(16);
     let z = cz * 16 + r.next_int(16);
     let in_box = x >= w.min.x && z >= w.min.z && x < w.min.x + w.size[0] && z < w.min.z + w.size[2];
-    let h = if in_box { w.height(crate::terrain::Heightmap::WorldSurface, x, z) } else { min_y };
+    // (a column past the box: the void's, but for the blocks a natural update left there,
+    // `World::outer`: its WORLD_SURFACE is above the highest of them)
+    let h = if in_box {
+        w.height(crate::terrain::Heightmap::WorldSurface, x, z)
+    } else {
+        w.outer.iter().filter(|(q, b)| q.x == x && q.z == z && !b.is_air()).map(|(q, _)| q.y + 1).max().unwrap_or(min_y).max(min_y)
+    };
     let top = if w.land.is_none() && h <= w.min.y { min_y } else { h };
     let y = rng(w).next_int(top - min_y + 1) + min_y;
     if probing(w) {

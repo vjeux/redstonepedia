@@ -1239,6 +1239,44 @@ pub fn compare(version: &str, design: &std::path::Path, opts: &Opts, draws_at: O
         eprintln!("ticking sections: the game {}, redsim {} (the ticking chunks'); redsim's box {} size {:?}, {} cells outside it held", theirs.len(), ours.len(), w.min, w.size, w.outer.len());
         eprintln!("redsim's world: land {}, {} errors{}", w.land.is_some(), w.errors.len(), w.errors.first().map(|e| format!(", the first: {e}")).unwrap_or_default());
     }
+    // (a probe: MCTAS_EXACT_SPAWNSTATE=1: at the end, the last spawn tick's mob counts per category,
+    // the game's (SpawnState.getMobCategoryCounts) against redsim's, and redsim's per player)
+    if std::env::var_os("MCTAS_EXACT_SPAWNSTATE").is_some() {
+        let v = game.w.call(json!({"op": "spawn_state", "sandbox": game.sb}))?;
+        if let Some(n) = run.world.mob.natural.as_ref() {
+            for c in redsim::entity::mob::natural::Category::SPAWNING {
+                let theirs = v["counts"][c.name()].as_i64().unwrap_or(0);
+                let ours = n.last_counts[c as usize];
+                eprintln!("spawn state {}: the game {theirs} | redsim {ours}{}; redsim per player {:?}", c.name(), if theirs != ours as i64 { "  <- differs" } else { "" }, n.last_local.iter().map(|l| l[c as usize]).collect::<Vec<_>>());
+            }
+        }
+        eprintln!("the game's mobs by category and type: {}", v["by_type"]);
+        let mut ours: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+        for e in &run.world.entities.list {
+            if let redsim::entity::EntityKind::Mob(m) = &e.kind {
+                let k = format!("{} {}{}{}", redsim::entity::mob::natural::category_of(m.ty).name(), m.ty.def().game_id, if m.persistence_required || e.vehicle.is_some() { " (persistent)" } else { "" }, if e.removed { " (removed)" } else { "" });
+                *ours.entry(k).or_default() += 1;
+            }
+        }
+        eprintln!("redsim's mobs by category and type: {ours:?}");
+    }
+    // (a probe: MCTAS_EXACT_CHUNKS=1: at the end, the game's spawning chunks (collectSpawningChunks'
+    // list, before its shuffle) against redsim's (its candidates within 128 of a player))
+    if std::env::var_os("MCTAS_EXACT_CHUNKS").is_some() {
+        let v = game.w.call(json!({"op": "chunk_lists", "sandbox": game.sb}))?;
+        let list = |k: &str| -> Vec<[i32; 2]> { v[k].as_array().map(|a| a.iter().map(|c| [c[0].as_i64().unwrap_or(0) as i32, c[1].as_i64().unwrap_or(0) as i32]).collect()).unwrap_or_default() };
+        let theirs: std::collections::BTreeSet<[i32; 2]> = list("spawning_chunks").into_iter().collect();
+        let ours: std::collections::BTreeSet<[i32; 2]> = run.world.mob.natural.as_ref().map(|n| n.spawn_candidates.iter().copied().filter(|c| n.players.iter().any(|q| { let (x, z) = ((c[0] * 16 + 8) as f64, (c[1] * 16 + 8) as f64); (x - q.x) * (x - q.x) + (z - q.z) * (z - q.z) < 16384.0 })).collect()).unwrap_or_default();
+        eprintln!("spawning chunks: the game {}, redsim {}; the game's only {:?}; redsim's only {:?}", theirs.len(), ours.len(), theirs.difference(&ours).collect::<Vec<_>>(), ours.difference(&theirs).collect::<Vec<_>>());
+        // and their order (the shuffle's input)
+        let theirs_order = list("spawning_chunks");
+        let ours_order: Vec<[i32; 2]> = run.world.mob.natural.as_ref().map(|n| n.spawn_candidates.iter().copied().filter(|c| n.players.iter().any(|q| { let (x, z) = ((c[0] * 16 + 8) as f64, (c[1] * 16 + 8) as f64); (x - q.x) * (x - q.x) + (z - q.z) * (z - q.z) < 16384.0 })).collect()).unwrap_or_default();
+        if let Some(i) = theirs_order.iter().zip(&ours_order).position(|(a, b)| a != b) {
+            eprintln!("spawning chunk order: first differs at {i}: the game {:?} | redsim {:?}", &theirs_order[i..(i + 4).min(theirs_order.len())], &ours_order[i..(i + 4).min(ours_order.len())]);
+        } else {
+            eprintln!("spawning chunk order: the same");
+        }
+    }
     // (a probe: MCTAS_EXACT_BLOCKS="x0,y0,z0,x1,y1,z1": each cell of the box whose block differs at
     // the end, the game's against redsim's; with `=all:` in front every cell is printed)
     if let Ok(b) = std::env::var("MCTAS_EXACT_BLOCKS") {
