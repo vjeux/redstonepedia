@@ -72,8 +72,7 @@ pub fn do_hurt_target(w: &mut World, i: usize, t: Who) -> bool {
     w.mob.ai.attacker = prev;
     if hurt && golem {
         // the toss: +0.4 up, scaled by the target's knockback resistance
-        let resist = if mob(w, j).ty == crate::entity::mob::types::MobType::IronGolem { 1.0 } else { 0.0 };
-        let scale = (1.0f64 - resist).max(0.0);
+        let scale = (1.0f64 - knockback_resistance(w, j)).max(0.0);
         let e = &mut w.entities.list[j];
         e.delta_movement = e.delta_movement.add(0.0, (0.4f32 as f64) * scale, 0.0);
     }
@@ -179,10 +178,16 @@ pub fn after_hurt(w: &mut World, i: usize, src: Damage, took_full: bool) {
     }
 }
 
-/// `LivingEntity.knockback(power, xd, zd)` (no knockback resistance on the modeled victims but the
-/// iron golem's 1.0).
+/// `getAttributeValue(KNOCKBACK_RESISTANCE)`: the type's (the iron golem's 1.0) plus a zombie's
+/// spawn bonus, clamped to the attribute's 0..1.
+pub fn knockback_resistance(w: &World, i: usize) -> f64 {
+    let m = mob(w, i);
+    (m.ty.def().knockback_resistance + m.knockback_bonus).clamp(0.0, 1.0)
+}
+
+/// `LivingEntity.knockback(power, xd, zd)`: the power scaled by 1 less the knockback resistance.
 pub fn knockback(w: &mut World, i: usize, power: f64, mut xd: f64, mut zd: f64) {
-    let resist = if mob(w, i).ty.def().id == "iron_golem" { 1.0 } else { 0.0 };
+    let resist = knockback_resistance(w, i);
     let power = power * (1.0 - resist);
     if power <= 0.0 {
         return;

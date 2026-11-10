@@ -1780,7 +1780,11 @@ fn zombie_handle_attributes(w: &mut World, id: u32, ctor: Option<crate::rng::Leg
             m.reinforcement_chance = base;
         }
     }
-    own.next_double(); // knockback resistance
+    // RANDOM_SPAWN_BONUS: KNOCKBACK_RESISTANCE + nextDouble() x 0.05F
+    let knockback = own.next_double() * 0.05000000074505806;
+    if let EntityKind::Mob(m) = &mut w.entities.list[j].kind {
+        m.knockback_bonus = knockback;
+    }
     let follow = own.next_double() * 1.5 * special as f64;
     let roll = own.next_float();
     let leader = roll < special * 0.05;
@@ -2551,8 +2555,10 @@ fn discard(w: &mut World, i: usize, id: u32, k: &Kind, far: bool) {
 /// `checkDespawn` calls it too, with its type's game id.
 pub(crate) fn discard_as(w: &mut World, i: usize, id: u32, ty: &'static str, far: bool) {
     w.entities.list[i].removed = true;
-    // Entity.setRemoved: its passengers stop riding at once (a jockey's skeleton is no longer a
+    // Entity.setRemoved (DISCARDED destroys): it stops riding (a jockey zombie leaves its
+    // chicken), then its passengers stop riding at once (a jockey's skeleton is no longer a
     // passenger at its own checkDespawn later in the tick)
+    crate::entity::stop_riding(w, i);
     crate::entity::eject_passengers(w, i);
     let t = w.time;
     if let Some(n) = w.mob.natural.as_mut() {

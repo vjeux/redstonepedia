@@ -89,6 +89,9 @@ pub fn tick(w: &mut World, i: usize) {
                 let (tt, id) = (w.time, w.entities.list[i].id);
                 w.entities.list[i].removed = true;
                 w.mob.events.push(super::MobEvent::Removed { t: tt, id });
+                // discard (setRemoved, DISCARDED destroys): it stops riding, its riders too
+                crate::entity::stop_riding(w, i);
+                crate::entity::eject_passengers(w, i);
                 return;
             }
         }
@@ -323,6 +326,9 @@ fn tick_death(w: &mut World, i: usize) {
         let t = w.time;
         w.entities.list[i].removed = true;
         w.mob.events.push(MobEvent::Removed { t, id });
+        // Entity.setRemoved (KILLED destroys): it stops riding, then its passengers stop riding it
+        // (a dead passenger leaves its boat's seats: the other takes the single seat)
+        crate::entity::stop_riding(w, i);
         crate::entity::eject_passengers(w, i);
     }
 }

@@ -304,6 +304,9 @@ pub struct MobState {
     /// ADD_MULTIPLIED_TOTAL: `nextDouble() * 3 + 1`; 0: none): its max health is the base x (1 +
     /// this), which `setHealth` clamps to (a leader's fall damage left it at 20).
     pub max_health_bonus: f64,
+    /// (mob-AI 2026-11-10) A zombie's KNOCKBACK_RESISTANCE modifier (`RANDOM_SPAWN_BONUS`,
+    /// ADD_VALUE: `nextDouble() * 0.05F`; 0: none), on top of its type's.
+    pub knockback_bonus: f64,
     /// `xxa`, `zza`, `jumping`, `speed` (the walking input).
     pub xxa: f32,
     pub zza: f32,
@@ -384,6 +387,7 @@ impl MobState {
             follow_range: d.follow_range * (1.0 + bonus),
             reinforcement_chance: 0.0,
             max_health_bonus: 0.0,
+            knockback_bonus: 0.0,
             xxa: 0.0,
             zza: 0.0,
             jumping: false,
