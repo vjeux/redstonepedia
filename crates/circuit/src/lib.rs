@@ -770,6 +770,9 @@ impl Circuit {
                         bail!("port {name}: a shared HOME is a bed's head, the design has {:?} at {pos:?}", design.blocks.get(pos).map(|s| s.as_str()).unwrap_or("air"));
                     }
                 }
+                // (tickexact 2026-11-10) a mob farm's Nether part's anchor (its Nether image placed
+                // at floor(anchor / 8)) and x axis (the part's quarter turns): Design::nether_blocks
+                "nether-anchor" | "nether-axis" => {}
                 "items" | "boxes" | "reject" | "pass" | "feed" | "fuel" | "crop" | "bottles" | "wart" | "sugar" => {
                     // a smelter's input and fuel chests may stand where the design has a cover (a
                     // full block on its first line hopper, there for the copies after it: the

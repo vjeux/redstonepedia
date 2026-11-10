@@ -46,6 +46,39 @@ pub struct FarmSpec {
     /// A farm dug wholly into rock (`terrain: rock`, `mobfarm bury`'s): only its own cells dug,
     /// placed at any spot where they lie under the natural surface (`site::spots_for_spec`).
     pub rock: bool,
+    /// (tickexact 2026-11-10, ironspec's portal pad) Its Nether part (`World::nether`), if any.
+    pub nether: Option<NetherSpec>,
+}
+
+/// A mob farm's Nether part as the runner builds it (`World::nether`): its blocks and its output
+/// chest relative to the Nether image of the design's anchor, turned already.
+#[derive(Clone, Debug)]
+pub struct NetherSpec {
+    /// The overworld position of the design's anchor (`port nether-anchor`, moved with the farm).
+    pub anchor: BlockPos,
+    /// The blocks, relative to [`NetherSpec::base`].
+    pub blocks: Vec<(BlockPos, Block)>,
+    /// The Nether output chest (`port nether-output`), relative to [`NetherSpec::base`].
+    pub output: Option<BlockPos>,
+}
+
+impl NetherSpec {
+    /// The anchor's Nether image: floor(x / 8), 0, floor(z / 8) (the y as written).
+    pub fn base(&self) -> BlockPos {
+        BlockPos::new(self.anchor.x.div_euclid(8), 0, self.anchor.z.div_euclid(8))
+    }
+
+    /// The blocks at their Nether positions.
+    pub fn placed(&self) -> Vec<(BlockPos, Block)> {
+        let b = self.base();
+        self.blocks.iter().map(|(p, s)| (BlockPos::new(p.x + b.x, p.y + b.y, p.z + b.z), *s)).collect()
+    }
+
+    /// The output chest's Nether position.
+    pub fn output_at(&self) -> Option<BlockPos> {
+        let b = self.base();
+        self.output.map(|p| BlockPos::new(p.x + b.x, p.y + b.y, p.z + b.z))
+    }
 }
 
 impl FarmSpec {
@@ -130,6 +163,8 @@ pub struct RunReport {
     pub ticks: u32,
     pub golems: u32,
     pub deaths: u32,
+    /// (tickexact 2026-11-10) The farm's golems through a nether portal (the portal pad's).
+    pub crossings: u32,
     pub iron_dropped: u32,
     pub poppies_dropped: u32,
     pub iron_in_chest: u32,
@@ -355,6 +390,44 @@ impl Run {
             w.set_block(spec.output, chest, crate::world::flags::RAW);
         }
         crate::redstone::container::apply_block_entities(&mut w, [(spec.output, "{Items:[]}")])?;
+        // (tickexact 2026-11-10, ironspec's portal pad) the Nether part: its own world
+        // (`World::nether`: ultra-warm, no weather, no player there so no natural spawning, the
+        // mob layer and random ticks like the overworld's), built and settled while its chunks are
+        // loaded (the player builds it there), its output chest emptied; it ticks only while a
+        // crossing's PORTAL ticket holds it
+        if let Some(ns) = &spec.nether {
+            let placed = ns.placed();
+            let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+            for (p, _) in &placed {
+                for (i, v) in [p.x, p.y, p.z].into_iter().enumerate() {
+                    lo[i] = lo[i].min(v);
+                    hi[i] = hi[i].max(v);
+                }
+            }
+            if placed.is_empty() || lo[1] < 1 || hi[1] > 254 {
+                return Err(format!("the Nether part lies at y {}..{}: the Nether's is 0..255", lo[1], hi[1]));
+            }
+            let mut n = World::new(BlockPos::new(lo[0] - 8, 0, lo[2] - 8), [hi[0] - lo[0] + 17, 256, hi[2] - lo[2] + 17]);
+            n.ultrawarm = true;
+            n.mob.seed(o.seed ^ 0x4e45_5448, o.day0 - SETTLE_TICKS);
+            if o.ai {
+                n.mob.ai.on = true;
+                n.mob.ai.difficulty = super::natural::Difficulty::Hard;
+                n.mob.ai.mob_griefing = true;
+            }
+            n.level_random = Some(crate::rng::LegacyRandom::new(o.seed ^ 0x6e6c_7672));
+            n.random_ticks = Some(crate::crops::RandomTicks::new(3, o.seed ^ 0x4e45));
+            n.place_like_judge(&placed);
+            if let Some(out) = ns.output_at() {
+                if !matches!(n.get(out), Block::Chest { .. }) {
+                    n.set_block(out, chest, crate::world::flags::RAW);
+                }
+                crate::redstone::container::apply_block_entities(&mut n, [(out, "{Items:[]}")])?;
+            }
+            n.run_until_idle(4000);
+            n.time = w.time;
+            w.nether = Some(Box::new(n));
+        }
         Ok(Run { world: w, spec: spec.clone(), o: *o, detectors, settle_left: SETTLE_TICKS, walk_rng: crate::rng::LegacyRandom::new(o.seed ^ 0x5741_4c4b), own: Vec::new() })
     }
 
@@ -506,13 +579,15 @@ struct Track {
     /// The villagers seen riding (a minecart carousel's: they move with their carts, and get off
     /// at its night stop; the pod check is not theirs).
     riders: std::collections::HashSet<u32>,
+    /// (tickexact 2026-11-10) The crossings (`World::crossings`) already followed.
+    crossed: usize,
 }
 
 impl Track {
     /// The tracking of a run that just arrived: its own villagers' homes and last sleeps.
     fn new(r: &Run, spec: &FarmSpec) -> Track {
         let own: std::collections::HashSet<u32> = r.own.iter().copied().collect();
-        let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0, own, at_zombie: Default::default(), burnt: Default::default(), cluster_of: Default::default(), summoned_by: Default::default(), seen_by_others: Default::default(), riders: Default::default() };
+        let mut tr = Track { villager_home: Vec::new(), golem_born: Vec::new(), drops: Vec::new(), last_sleep: Vec::new(), seed_iron: container_iron(&r.world, spec.output).1, golem_cells: Default::default(), drop_cells: Default::default(), cell_ticks: 0, own, at_zombie: Default::default(), burnt: Default::default(), cluster_of: Default::default(), summoned_by: Default::default(), seen_by_others: Default::default(), riders: Default::default(), crossed: 0 };
         for e in &r.world.entities.list {
             if let EntityKind::Mob(m) = &e.kind
                 && m.ty == MobType::Villager
@@ -651,7 +726,7 @@ pub fn run_t(spec: &FarmSpec, o: &RunOpts, iron: u32, hand_hide: bool) -> Result
         if rep.failures.len() >= 4 {
             break;
         }
-        if iron != u32::MAX && chest_iron(&r.world, spec.output) >= iron {
+        if iron != u32::MAX && chest_iron(&r.world, spec.output) + spec.nether.as_ref().zip(r.world.nether.as_deref()).and_then(|(ns, n)| ns.output_at().map(|o| chest_iron(n, o))).unwrap_or(0) >= iron {
             reached = Some(k + 1);
             rep.ticks = k + 1;
             break;
@@ -824,7 +899,32 @@ fn pick_walk(r: &mut crate::rng::LegacyRandom) -> Walk {
 }
 
 fn absorb_events(w: &mut World, rep: &mut RunReport, tr: &mut Track, t: i64) {
-    let events = std::mem::take(&mut w.mob.events);
+    // (tickexact 2026-11-10) the portal pad: a farm golem through the portal is the same golem in
+    // the Nether (its copy's id), born when it was; a farm drop through a portal fails the run
+    // (the brief: the layout keeps every drop out of the portal's cells)
+    while tr.crossed < w.crossings.len() {
+        let (at, from, to) = w.crossings[tr.crossed];
+        tr.crossed += 1;
+        if tr.own.contains(&from) {
+            tr.own.insert(to);
+            for b in tr.golem_born.iter_mut().filter(|b| b.0 == from) {
+                b.0 = to;
+            }
+            if let Some(c) = tr.summoned_by.get(&from).copied() {
+                tr.summoned_by.insert(to, c);
+            }
+            rep.crossings += 1;
+        }
+        if tr.drops.contains(&from) {
+            tr.drops.push(to);
+            rep.fail(format!("gt {at}: a drop went through a nether portal (the farm must keep its drops out of the portal's cells)"));
+        }
+    }
+    // the Nether's events after the overworld's (its level ticks second)
+    let mut events = std::mem::take(&mut w.mob.events);
+    if let Some(n) = w.nether.as_deref_mut() {
+        events.extend(std::mem::take(&mut n.mob.events));
+    }
     for ev in events {
         match ev {
             // the farm's villagers' summons only (a terrain run's village summons its own golems;
@@ -1085,18 +1185,54 @@ fn check_tick(w: &World, rep: &mut RunReport, tr: &mut Track, spec: &FarmSpec, t
             MobType::Witch | MobType::Natural(_) => {}
         }
     }
-    // the drops: lava, the zombie's pickup reach, despawning
-    tr.drops.retain(|id| w.entities.list.iter().any(|e| e.id == *id && !e.removed));
+    // (tickexact 2026-11-10, the portal pad) the farm's golems in the Nether: inside its Nether
+    // part, killed within MAX_GOLEM_LIFE of their spawn; and no farm entity frozen there (outside
+    // the 3 x 3 chunks the PORTAL ticket keeps entity-ticking: ironspec's bound)
+    if let (Some(n), Some(ns)) = (w.nether.as_deref(), spec.nether.as_ref()) {
+        let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+        for (p, _) in ns.placed() {
+            for (i, v) in [p.x, p.y, p.z].into_iter().enumerate() {
+                lo[i] = lo[i].min(v);
+                hi[i] = hi[i].max(v);
+            }
+        }
+        let part = Aabb::new(lo[0] as f64, lo[1] as f64, lo[2] as f64, hi[0] as f64 + 1.0, hi[1] as f64 + 1.0, hi[2] as f64 + 1.0);
+        for e in &n.entities.list {
+            let EntityKind::Mob(m) = &e.kind else { continue };
+            if e.removed || m.dead || m.ty != MobType::IronGolem || !tr.own.contains(&e.id) {
+                continue;
+            }
+            if !part.intersects(e.bb) || e.bb.min_y < part.min_y {
+                rep.fail(format!("gt {t}: a golem left the Nether part at {:.1} {:.1} {:.1}", e.pos.x, e.pos.y, e.pos.z));
+            }
+            if let Some((_, born)) = tr.golem_born.iter().find(|(id, _)| *id == e.id)
+                && t - born > MAX_GOLEM_LIFE
+            {
+                rep.fail(format!("gt {t}: a golem spawned at gt {born} is still alive in the Nether (not killed within {MAX_GOLEM_LIFE} gt)"));
+            }
+        }
+        if let Some((ft, id)) = n.frozen.iter().find(|(_, id)| tr.own.contains(id) || tr.drops.contains(id)) {
+            rep.fail(format!("gt {ft}: entity {id} stopped ticking in the Nether (outside the 3 x 3 chunks the PORTAL ticket keeps ticking)"));
+        }
+    }
+    // the drops: lava, the zombie's pickup reach, despawning (a drop in the Nether too: the
+    // occupancy and the zombie's reach are the overworld's)
+    let nether = w.nether.as_deref();
+    let find = |id: u32| w.entities.list.iter().find(|e| e.id == id && !e.removed).map(|e| (e, false)).or_else(|| nether.and_then(|n| n.entities.list.iter().find(|e| e.id == id && !e.removed)).map(|e| (e, true)));
+    tr.drops.retain(|id| find(*id).is_some());
     tr.cell_ticks += 1;
     for id in &tr.drops {
-        let Some(e) = w.entities.list.iter().find(|e| e.id == *id) else { continue };
+        let Some((e, in_nether)) = find(*id) else { continue };
         let c = e.block_position();
         let iron = match &e.kind {
             EntityKind::Item(it) if it.item == "minecraft:iron_ingot" => it.count as u32,
             _ => 0,
         };
-        *tr.drop_cells.entry([c.x, c.y, c.z]).or_insert(0) += iron;
+        if !in_nether {
+            *tr.drop_cells.entry([c.x, c.y, c.z]).or_insert(0) += iron;
+        }
         if let Some(z) = zbox
+            && !in_nether
             && z.inflate(1.0, 0.0, 1.0).intersects(e.bb)
         {
             rep.fail(format!("gt {t}: a drop at {:.1} {:.1} {:.1} is within the zombie's pickup reach", e.pos.x, e.pos.y, e.pos.z));
@@ -1172,6 +1308,12 @@ fn finish(w: &World, rep: &mut RunReport, tr: &Track, spec: &FarmSpec) {
     let (out, rest) = container_iron(w, spec.output);
     rep.iron_in_chest += out;
     rep.iron_in_containers += rest.saturating_sub(tr.seed_iron);
+    // (tickexact 2026-11-10) the Nether part's: its output chest counts as the farm's chest
+    if let (Some(n), Some(ns)) = (w.nether.as_deref(), spec.nether.as_ref()) {
+        let (nout, nrest) = container_iron(n, ns.output_at().unwrap_or(BlockPos::new(i32::MIN, 0, 0)));
+        rep.iron_in_chest += nout;
+        rep.iron_in_containers += nrest;
+    }
     {
         use crate::redstone::container as rc;
         let (ingot, block) = (rc::item_id("iron_ingot"), rc::item_id("iron_block"));
@@ -1184,10 +1326,11 @@ fn finish(w: &World, rep: &mut RunReport, tr: &Track, spec: &FarmSpec) {
         }
         rep.iron_where.sort();
     }
+    let nether = w.nether.as_deref();
     let loose: u32 = tr
         .drops
         .iter()
-        .filter_map(|id| w.entities.list.iter().find(|e| e.id == *id && !e.removed))
+        .filter_map(|id| w.entities.list.iter().find(|e| e.id == *id && !e.removed).or_else(|| nether.and_then(|n| n.entities.list.iter().find(|e| e.id == *id && !e.removed))))
         .filter_map(|e| if let EntityKind::Item(s) = &e.kind { Some(s) } else { None })
         .filter(|s| s.item.ends_with("iron_ingot"))
         .map(|s| s.count as u32)

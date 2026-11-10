@@ -935,6 +935,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             for f in r.failures.iter().chain(r.errors.iter()) {
                 println!("FAIL {f}");
             }
+            // (the portal pad: golems through the Nether portal, the iron burnt on the way)
+            if r.crossings > 0 || spec.nether.is_some() {
+                println!("the Nether: {} golems through the portal, {} iron burnt", r.crossings, r.iron_burnt);
+            }
             if !r.riding_middays.is_empty() {
                 println!(
                     "riding at each midday (of the villagers that rode): {}; golems summoned by riders {} of {}",

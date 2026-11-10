@@ -13,7 +13,7 @@
 //! The farm's own box (`FarmSpec::lo..hi`, translated) stays the box a golem must not leave; the
 //! world is the sample's whole box, with natural spawning around the declared AFK spot.
 
-use super::farm::FarmSpec;
+use super::farm::{FarmSpec, NetherSpec};
 use crate::entity::Vec3;
 use crate::pos::BlockPos;
 use crate::terrain::{place, samples::Sample};
@@ -818,6 +818,8 @@ impl Site {
             hi: at(spec.hi),
             block_entities: spec.block_entities.iter().map(|(p, s)| (at(*p), s.clone())).collect(),
             rock: spec.rock,
+            // the Nether part follows the anchor (its image moves by floor(anchor / 8))
+            nether: spec.nether.as_ref().map(|n| NetherSpec { anchor: at(n.anchor), ..n.clone() }),
         }
     }
 
@@ -919,6 +921,7 @@ mod tests {
             hi: BlockPos::new(8, 8, 8),
             block_entities: Vec::new(),
             rock: false,
+            nether: None,
         };
         let clears = clears_at(&w, &spec, [0, 0, 0], false);
         let got: Vec<([i32; 3], bool)> = clears.iter().map(|(p, b)| ([p.x, p.y, p.z], b.is_air())).collect();

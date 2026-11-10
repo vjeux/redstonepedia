@@ -11,7 +11,7 @@ pub struct Builder {
 
 impl Builder {
     pub fn new(name: &str) -> Builder {
-        Builder { d: Design { name: name.to_string(), meta: BTreeMap::new(), ports: BTreeMap::new(), blocks: BTreeMap::new(), entities: Vec::new(), block_entities: BTreeMap::new() } }
+        Builder { d: Design { name: name.to_string(), meta: BTreeMap::new(), ports: BTreeMap::new(), blocks: BTreeMap::new(), entities: Vec::new(), block_entities: BTreeMap::new(), ..Default::default() } }
     }
 
     pub fn set(&mut self, x: i32, y: i32, z: i32, s: &str) {

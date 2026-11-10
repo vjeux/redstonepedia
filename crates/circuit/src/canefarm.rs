@@ -295,7 +295,7 @@ fn field_of(w: i32, l: i32, crop: &str, water: &dyn Fn(i32, i32) -> bool, skip: 
     let short = crop.trim_start_matches("minecraft:");
     meta.insert("circuit".to_string(), format!("harvester {short}"));
     let name = if short == "sugar_cane" { format!("cane-field-{w}x{l}") } else { format!("{short}-field-{w}x{l}") };
-    Design { name, meta, ports, blocks: b, entities: Vec::new(), block_entities: BTreeMap::new() }
+    Design { name, meta, ports, blocks: b, entities: Vec::new(), block_entities: BTreeMap::new(), ..Default::default() }
 }
 
 /// LAYOUT 4 (designs/briefs/farm-sugar-cane.md): a `w` x `l` field, water on `x + 2z = 0 (mod 5)`
@@ -400,7 +400,7 @@ pub fn lattice(w: i32, l: i32, clock: &Design) -> Design {
     }
     let mut meta = BTreeMap::new();
     meta.insert("circuit".to_string(), "harvester sugar_cane".to_string());
-    tiled(Design { name: format!("cane-lattice-{w}x{l}"), meta, ports, blocks: b, entities: Vec::new(), block_entities })
+    tiled(Design { name: format!("cane-lattice-{w}x{l}"), meta, ports, blocks: b, entities: Vec::new(), block_entities, ..Default::default() })
 }
 
 /// Tileable (a must-have): copies side by side along x with one cell of air between them (the
@@ -498,5 +498,5 @@ pub fn obvious(modules: i32, length: i32) -> Design {
     ports.insert("output".into(), [0, -1, length]);
     let mut meta = BTreeMap::new();
     meta.insert("circuit".to_string(), "harvester sugar_cane".to_string());
-    tiled(Design { name: format!("cane-obvious-{}x{}", 5 * modules + 1, length), meta, ports, blocks: b, entities: Vec::new(), block_entities: BTreeMap::new() })
+    tiled(Design { name: format!("cane-obvious-{}x{}", 5 * modules + 1, length), meta, ports, blocks: b, entities: Vec::new(), block_entities: BTreeMap::new(), ..Default::default() })
 }

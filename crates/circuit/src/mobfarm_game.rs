@@ -210,6 +210,88 @@ fn xyz(p: [i32; 3]) -> String {
     format!("{} {} {}", p[0], p[1], p[2])
 }
 
+/// (tickexact 2026-11-10, ironspec's portal pad) A farm's Nether part in the server's Nether, at
+/// its mapped place (`NetherSpec::placed`): its chunks forced while it is cleared (its box and 4
+/// more to air, the Nether's own terrain out), pasted (`setblock .. strict`, the fluids last by a
+/// plain setblock so each schedules its flow), its output chest emptied and 200 ticks of
+/// settling; then released, so that only the crossings' PORTAL tickets hold it, as in redsim.
+fn paste_nether(s: &mut VanillaServer, ns: &farm::NetherSpec) -> Result<()> {
+    let placed: Vec<([i32; 3], String)> = ns.placed().into_iter().map(|(p, b)| ([p.x, p.y, p.z], b.to_string())).collect();
+    let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+    for (p, _) in &placed {
+        for i in 0..3 {
+            lo[i] = lo[i].min(p[i]);
+            hi[i] = hi[i].max(p[i]);
+        }
+    }
+    let n = "execute in minecraft:the_nether positioned 0 0 0 run";
+    let forced = format!("{} {} {} {}", lo[0] - 8, lo[2] - 8, hi[0] + 8, hi[2] + 8);
+    s.cmd_ok(&format!("{n} forceload add {forced}"))?;
+    s.step(40)?;
+    for y in (lo[1] - 4).max(1)..=(hi[1] + 4).min(254) {
+        let out = s.cmd(&format!("{n} fill {} {y} {} {} {y} {} minecraft:air", lo[0] - 4, lo[2] - 4, hi[0] + 4, hi[2] + 4))?;
+        if !out.contains("Successfully filled") && !out.contains("No blocks were filled") {
+            bail!("clearing the Nether part's y {y}: {out}");
+        }
+    }
+    let fluid = |st: &str| st.starts_with("minecraft:lava") || st.starts_with("minecraft:water");
+    for (p, st) in placed.iter().filter(|(_, st)| !fluid(st)) {
+        let out = s.cmd(&format!("{n} setblock {} {st} strict", xyz(*p)))?;
+        if !out.contains("Changed the block") {
+            bail!("the Nether part: setblock {p:?} {st}: {out}");
+        }
+    }
+    for (p, st) in placed.iter().filter(|(_, st)| fluid(st)) {
+        s.cmd_ok(&format!("{n} setblock {} {st}", xyz(*p)))?;
+    }
+    if let Some(out) = ns.output_at() {
+        let at = [out.x, out.y, out.z];
+        if !s.cmd(&format!("{n} execute if block {} minecraft:chest", xyz(at)))?.contains("passed") {
+            s.cmd_ok(&format!("{n} setblock {} minecraft:chest", xyz(at)))?;
+        }
+        s.cmd(&format!("{n} data merge block {} {{Items:[]}}", xyz(at)))?;
+    }
+    s.step(200)?;
+    s.cmd_ok(&format!("{n} forceload remove {forced}"))?;
+    Ok(())
+}
+
+/// The iron in a farm's Nether part at the end of a run: (its output chest, its other containers,
+/// the items lying in its box), its chunks forced for the reading.
+fn nether_iron(s: &mut VanillaServer, ns: &farm::NetherSpec) -> Result<(u32, u32, u32)> {
+    let placed = ns.placed();
+    let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+    for (p, _) in &placed {
+        for (i, v) in [p.x, p.y, p.z].into_iter().enumerate() {
+            lo[i] = lo[i].min(v);
+            hi[i] = hi[i].max(v);
+        }
+    }
+    let n = "execute in minecraft:the_nether positioned 0 0 0 run";
+    let forced = format!("{} {} {} {}", lo[0] - 8, lo[2] - 8, hi[0] + 8, hi[2] + 8);
+    s.cmd_ok(&format!("{n} forceload add {forced}"))?;
+    s.step(2)?;
+    let out = ns.output_at();
+    let mut chest = 0;
+    let mut rest = 0;
+    for (p, b) in &placed {
+        let st = b.to_string();
+        if !(st.starts_with("minecraft:chest") || st.starts_with("minecraft:hopper") || st.starts_with("minecraft:barrel") || st.starts_with("minecraft:dropper") || st.starts_with("minecraft:dispenser")) {
+            continue;
+        }
+        let iron = count_iron(&s.cmd_long(&format!("{n} data get block {} {} {} Items", p.x, p.y, p.z))?);
+        if Some(*p) == out {
+            chest += iron;
+        } else {
+            rest += iron;
+        }
+    }
+    let near = format!(",x={},y={},z={},dx={},dy={},dz={}", lo[0] - 4, lo[1] - 4, lo[2] - 4, hi[0] - lo[0] + 9, hi[1] - lo[1] + 9, hi[2] - lo[2] + 9);
+    let loose = count_iron(&s.cmd_long(&format!("{n} execute as @e[type=minecraft:item{near}] run data get entity @s Item"))?);
+    s.cmd_ok(&format!("{n} forceload remove {forced}"))?;
+    Ok((chest, rest, loose))
+}
+
 /// The numbers of an SNBT list value after `key:[` (`Pos:[1.5d,2.0d,3.5d]`, `UUID:[I;1,2,3,4]`).
 fn list_after(s: &str, key: &str) -> Option<Vec<f64>> {
     let i = s.find(&format!("{key}:["))? + key.len() + 2;
@@ -663,7 +745,10 @@ struct Scope {
 
 impl Scope {
     fn void() -> Scope {
-        Scope { own: String::new(), near: String::new(), all_golems: true, open: None }
+        // (every entity of the overworld: a position argument keeps a selector to the executing
+        // dimension, so a farm's Nether part's golems and items are not counted here: tickexact
+        // 2026-11-10, the portal pad)
+        Scope { own: String::new(), near: ",distance=0..".into(), all_golems: true, open: None }
     }
 
     fn terrain(spec: &FarmSpec, dug: bool) -> Scope {
@@ -713,6 +798,10 @@ fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, 
         if !out.contains("Modified block data") && !out.contains("Nothing changed") {
             bail!("the comparator at {at:?}: output {n}: {out}");
         }
+    }
+    // (tickexact 2026-11-10, ironspec's portal pad) the Nether part, at its mapped place
+    if let Some(ns) = &spec.nether {
+        paste_nether(&mut s, ns)?;
     }
     // the iron the design placed in its containers (not the farm's output)
     for p in &boxes {
@@ -928,6 +1017,14 @@ fn run_farm(mut s: VanillaServer, p: Prepared, mut run: BuildRun, o: &GateOpts, 
         eprintln!("  loose items: {}", s.cmd_long(&format!("execute as @e[type=minecraft:item{}] run data get entity @s Item", scope.near))?.trim());
     }
     run.iron_loose = count_iron(&s.cmd_long(&format!("execute as @e[type=minecraft:item{}] run data get entity @s Item", scope.near))?);
+    // (tickexact 2026-11-10, the portal pad) the Nether part's iron: its output chest counts as
+    // the farm's chest, its other containers and the items lying there as the farm's
+    if let Some(ns) = &spec.nether {
+        let (chest, rest, loose) = nether_iron(&mut s, ns)?;
+        run.iron_chest += chest;
+        run.iron_containers += rest;
+        run.iron_loose += loose;
+    }
     // what changed in the build: every cell's block type against the paste
     for (p, st) in &blocks {
         let id = st.split('[').next().unwrap_or(st);

@@ -1242,7 +1242,22 @@ kick) before the first input.
   `port home: x y z` (a bed's head) gives every villager HOME = that bed, the R1 double claim's
   shared bed, as a loaded memory (`Brain:{memories:{"minecraft:home":...}}` in its summon data,
   moved with the farm; no POI ticket taken, as the game loads it): redsim, the bridge (which maps
-  the overworld to its sandbox's dimension) and the real-game gate's summons all read it. The judge refuses what the mob layer does not model (static checks:
+  the overworld to its sandbox's dimension) and the real-game gate's summons all read it. A farm
+  that sends its golems through a nether portal (ironspec's portal pad) has a Nether part in the
+  same file: `nether-origin: x y z` and `nether layer Y:` sections (sharing the palette), and its
+  output chest `port nether-output: x y z`, in coordinates relative to the Nether image of the
+  design's anchor (`port nether-anchor`, written for you at the design's 0 0 0 with `port
+  nether-axis` one step along x; both move and turn with the design): the part stands at
+  floor(anchor x / 8), its y as written, floor(anchor z / 8), turned by the design's quarter turns.
+  The judge runs it as redsim's `World::nether` (ticking only while a crossing's PORTAL ticket
+  holds it: entities within 1 chunk of the arrival portal's, blocks within 2; a part reaching
+  past them, a farm entity frozen there, a golem leaving the part or alive 1200 gt after its spawn
+  fail), follows each golem through the portal, counts the iron in both chests, and fails a drop
+  that goes through a portal; the gate pastes the part in the server's Nether (its box cleared)
+  and counts its iron the same way. Not modeled yet (refused): a portal the game would create
+  (no Nether portal within 16 of a crossing's target), riders crossing, zombified piglins from the
+  pad's portal in a void run (`mctas mobai portal-probe --piglins`: they spawn on its bottom frame
+  near a player, on Normal and Hard). The judge refuses what the mob layer does not model (static checks:
   job sites, a zombie that does not ride, villagers that can walk,
   gossip, climbable blocks...), floods every position a golem can stand on from every spawn spot
   (with its edge spots: box sides 0.0005 inside or outside block boundaries, where a current can

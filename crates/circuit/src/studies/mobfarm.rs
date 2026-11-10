@@ -673,6 +673,15 @@ pub fn hostile_farm(w: &redsim::World, spec: &FarmSpec, afk: redsim::entity::Vec
     farm
 }
 
+/// A mob farm's block in redsim: the modeled ones, and (tickexact 2026-11-10, the portal pad) a
+/// nether portal (a terrain block whose entity contact `entity::portal` models).
+fn farm_block(s: &str) -> std::result::Result<Block, String> {
+    if s.starts_with("minecraft:nether_portal[") {
+        return redsim::terrain::land::block_of(s);
+    }
+    Block::parse(s)
+}
+
 /// The redsim farm of a (turned, moved) design: its blocks, entities, output chest and box.
 pub fn spec_of(c: &Circuit) -> std::result::Result<FarmSpec, String> {
     let d = &c.clock.design;
@@ -680,7 +689,7 @@ pub fn spec_of(c: &Circuit) -> std::result::Result<FarmSpec, String> {
     let (from, to) = crate::run::watch_box(c, 4);
     let mut blocks = Vec::new();
     for (q, s) in d.block_list() {
-        blocks.push((bp(q), Block::parse(&s).map_err(|e| format!("not modeled by redsim: {e}"))?));
+        blocks.push((bp(q), farm_block(&s).map_err(|e| format!("not modeled by redsim: {e}"))?));
     }
     blocks.sort_by_key(|(q, _)| [q.x, q.y, q.z]);
     // (tickexact 2026-11-09, ironspec's one-bed carousel) `port home: x y z`: every villager holds
@@ -702,7 +711,24 @@ pub fn spec_of(c: &Circuit) -> std::result::Result<FarmSpec, String> {
         entities.push((e.kind.clone(), e.pos, nbt));
     }
     let block_entities = d.block_entities.iter().map(|(p, s)| (bp(*p), s.clone())).collect();
-    Ok(FarmSpec { blocks, entities, output: bp(out), lo: bp(from), hi: bp(to), block_entities, rock: d.meta.get("terrain").map(|t| t.trim()) == Some("rock") })
+    // (tickexact 2026-11-10, ironspec's portal pad) the Nether part: its blocks and output chest
+    // turned by the design's quarter turns (`nether-axis` from `nether-anchor`), relative to the
+    // anchor's Nether image
+    let nether = if d.nether_blocks.is_empty() {
+        None
+    } else {
+        let turns = d.nether_turns().ok_or("a Nether part whose `nether-axis` is not one step along x or z from `nether-anchor`")?;
+        let anchor = *d.ports.get("nether-anchor").ok_or("a Nether part without `port nether-anchor`")?;
+        let mut nb = Vec::new();
+        for (q, s) in &d.nether_blocks {
+            let t = clock::canon::rotate_state(s, turns);
+            nb.push((bp(clock::rotate_pos(*q, turns)), farm_block(&t).map_err(|e| format!("the Nether part: not modeled by redsim: {e}"))?));
+        }
+        nb.sort_by_key(|(q, _)| [q.x, q.y, q.z]);
+        let output = d.nether_ports.get("nether-output").map(|p| bp(clock::rotate_pos(*p, turns)));
+        Some(redsim::entity::mob::farm::NetherSpec { anchor: bp(anchor), blocks: nb, output })
+    };
+    Ok(FarmSpec { blocks, entities, output: bp(out), lo: bp(from), hi: bp(to), block_entities, rock: d.meta.get("terrain").map(|t| t.trim()) == Some("rock"), nether })
 }
 
 /// What the judge runs.

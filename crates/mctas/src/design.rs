@@ -115,6 +115,16 @@ pub struct Design {
     /// Block-entity data (`nbt: x y z {snbt}` lines): SNBT merged into the block entity at that
     /// position after the raw paste ([`apply_block_entities`]). Most designs have none.
     pub block_entities: BTreeMap<Pos, String>,
+    /// (tickexact 2026-11-10, ironspec's portal pad) A mob farm's Nether part: its blocks
+    /// (`nether layer Y:` sections, from `nether-origin:`, sharing the palette), in coordinates
+    /// relative to the Nether image of the design's anchor (port `nether-anchor`, the design's
+    /// 0 0 0 at first, moved and turned with the design): placed at floor(anchor / 8) in x and z
+    /// (y as written), turned by the design's quarter turns (port `nether-axis` minus the anchor).
+    /// Empty for every other design.
+    pub nether_blocks: BTreeMap<Pos, String>,
+    /// Its ports (`port nether-<name>:`, the Nether output chest `nether-output`), in the same
+    /// coordinates.
+    pub nether_ports: BTreeMap<String, Pos>,
 }
 
 /// `nbt: x y z {snbt}` (the text after `nbt:`): the position and the SNBT.
@@ -165,6 +175,7 @@ impl Design {
             Header,
             Palette,
             Layer(i32),
+            NetherLayer(i32),
         }
         // a merge left unresolved: the file is not a design, and silently parsing the HEAD half
         // archives a broken file (clk-item 2026-10-20: markers reached main and broke the site)
@@ -173,6 +184,7 @@ impl Design {
         }
         let mut d = Design::default();
         let mut origin: Pos = [0, 0, 0];
+        let mut nether_origin: Pos = [0, 0, 0];
         let mut palette: BTreeMap<char, String> = BTreeMap::new();
         let mut section = Section::Header;
         let mut row = 0i32;
@@ -180,7 +192,7 @@ impl Design {
             let err = || format!("line {}: {raw:?}", lineno + 1);
             let line = match raw.find('#') {
                 // '#' starts a comment except inside a layer row, where it can be a palette char.
-                Some(i) if !matches!(section, Section::Layer(_)) || !raw.starts_with("  ") => &raw[..i],
+                Some(i) if !matches!(section, Section::Layer(_) | Section::NetherLayer(_)) || !raw.starts_with("  ") => &raw[..i],
                 _ => raw,
             };
             if line.trim().is_empty() {
@@ -191,6 +203,9 @@ impl Design {
                 let l = line.trim();
                 if l == "palette:" {
                     section = Section::Palette;
+                } else if let Some(y) = l.strip_prefix("nether layer ").and_then(|r| r.strip_suffix(':')) {
+                    section = Section::NetherLayer(y.trim().parse().with_context(err)?);
+                    row = 0;
                 } else if let Some(y) = l.strip_prefix("layer ").and_then(|r| r.strip_suffix(':')) {
                     section = Section::Layer(y.trim().parse().with_context(err)?);
                     row = 0;
@@ -201,9 +216,15 @@ impl Design {
                     // under `port <name>` and written back on the port line.
                     let words: Vec<&str> = pos.split_whitespace().collect();
                     let (xyz, args) = if words.len() > 3 { (words[..3].join(" "), words[3..].join(" ")) } else { (pos.to_string(), String::new()) };
-                    d.ports.insert(name.trim().to_string(), parse_pos(&xyz).with_context(err)?);
+                    let name = name.trim();
+                    // a Nether part's own ports (its output chest) are in its coordinates
+                    if name.starts_with("nether-") && name != "nether-anchor" && name != "nether-axis" {
+                        d.nether_ports.insert(name.to_string(), parse_pos(&xyz).with_context(err)?);
+                    } else {
+                        d.ports.insert(name.to_string(), parse_pos(&xyz).with_context(err)?);
+                    }
                     if !args.is_empty() {
-                        d.meta.insert(format!("port {}", name.trim()), args);
+                        d.meta.insert(format!("port {name}"), args);
                     }
                     section = Section::Header;
                 } else if let Some(rest) = l.strip_prefix("entity:") {
@@ -220,6 +241,7 @@ impl Design {
                     match k {
                         "name" => d.name = v.to_string(),
                         "origin" => origin = parse_pos(v).with_context(err)?,
+                        "nether-origin" => nether_origin = parse_pos(v).with_context(err)?,
                         _ => {
                             d.meta.insert(k.to_string(), v.to_string());
                         }
@@ -255,9 +277,47 @@ impl Design {
                     }
                     row += 1;
                 }
+                Section::NetherLayer(y) => {
+                    let body = &line[2..];
+                    for (col, c) in body.chars().enumerate() {
+                        if c == '.' || c == ' ' {
+                            continue;
+                        }
+                        let state = palette.get(&c).ok_or_else(|| anyhow!("unknown palette char {c:?} at {}", err()))?;
+                        let pos = [nether_origin[0] + col as i32, nether_origin[1] + y, nether_origin[2] + row];
+                        d.nether_blocks.insert(pos, state.clone());
+                    }
+                    row += 1;
+                }
+            }
+        }
+        // a Nether part's anchor: the design's 0 0 0 and its x axis, moved and turned with it
+        if !d.nether_blocks.is_empty() || !d.nether_ports.is_empty() {
+            match (d.ports.contains_key("nether-anchor"), d.ports.contains_key("nether-axis")) {
+                (false, false) => {
+                    d.ports.insert("nether-anchor".into(), [0, 0, 0]);
+                    d.ports.insert("nether-axis".into(), [1, 0, 0]);
+                }
+                (true, true) => {}
+                _ => bail!("a Nether part needs both `port nether-anchor:` and `port nether-axis:`, or neither"),
             }
         }
         Ok(d)
+    }
+
+    /// (tickexact) A Nether part's quarter turns (clockwise from above, as the design's turns):
+    /// how far port `nether-axis` stands from `nether-anchor`; None without a Nether part or for
+    /// a broken pair.
+    pub fn nether_turns(&self) -> Option<u8> {
+        let a = self.ports.get("nether-anchor")?;
+        let b = self.ports.get("nether-axis")?;
+        match [b[0] - a[0], b[1] - a[1], b[2] - a[2]] {
+            [1, 0, 0] => Some(0),
+            [0, 0, 1] => Some(1),
+            [-1, 0, 0] => Some(2),
+            [0, 0, -1] => Some(3),
+            _ => None,
+        }
     }
 
     /// Inclusive bounding box of the blocks.
@@ -296,6 +356,9 @@ impl Design {
                     ..e.clone()
                 })
                 .collect(),
+            // the Nether part follows its anchor port (moved above)
+            nether_blocks: self.nether_blocks.clone(),
+            nether_ports: self.nether_ports.clone(),
         }
     }
 
@@ -310,6 +373,9 @@ impl Design {
         }
         if !self.block_entities.is_empty() {
             key.push_str(&format!("|nbt{:?}", self.block_entities));
+        }
+        if !self.nether_blocks.is_empty() || !self.nether_ports.is_empty() {
+            key.push_str(&format!("|nether{:?}{:?}", self.nether_blocks, self.nether_ports));
         }
         key
     }
@@ -337,6 +403,9 @@ impl Design {
                 None => out.push_str(&format!("port {k}: {} {} {}\n", p[0], p[1], p[2])),
             }
         }
+        for (k, p) in &self.nether_ports {
+            out.push_str(&format!("port {k}: {} {} {}\n", p[0], p[1], p[2]));
+        }
         for e in &self.entities {
             out.push_str(&format!("entity: {}\n", e.to_text()));
         }
@@ -346,7 +415,7 @@ impl Design {
         let Some((lo, hi)) = self.bounds() else { return out };
         out.push_str(&format!("origin: {} 0 {}\n", lo[0], lo[2]));
         // Assign palette characters: uppercase initial, then lowercase, then a fallback pool.
-        let mut states: Vec<&String> = self.blocks.values().collect();
+        let mut states: Vec<&String> = self.blocks.values().chain(self.nether_blocks.values()).collect();
         states.sort();
         states.dedup();
         let mut used: BTreeMap<char, ()> = BTreeMap::new();
@@ -391,6 +460,30 @@ impl Design {
                 out.push('\n');
             }
         }
+        // the Nether part (its own origin and layers, the same palette)
+        let mut it = self.nether_blocks.keys();
+        if let Some(first) = it.next() {
+            let (mut lo, mut hi) = (*first, *first);
+            for p in it {
+                for i in 0..3 {
+                    lo[i] = lo[i].min(p[i]);
+                    hi[i] = hi[i].max(p[i]);
+                }
+            }
+            out.push_str(&format!("nether-origin: {} 0 {}\n", lo[0], lo[2]));
+            for y in lo[1]..=hi[1] {
+                out.push_str(&format!("nether layer {y}:\n"));
+                for z in lo[2]..=hi[2] {
+                    let mut row = String::from("  ");
+                    for x in lo[0]..=hi[0] {
+                        row.push(self.nether_blocks.get(&[x, y, z]).map(|s| chars[s]).unwrap_or('.'));
+                    }
+                    let trimmed = row.trim_end_matches('.');
+                    out.push_str(if trimmed.len() <= 2 { "  ." } else { trimmed });
+                    out.push('\n');
+                }
+            }
+        }
         out
     }
 }
@@ -398,6 +491,26 @@ impl Design {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nether_part_round_trip() {
+        let text = "name: n\nport output: 0 0 0\npalette:\n  S stone\n  P nether_portal[axis=z]\nlayer 0:\n  S\nnether-origin: 2 0 3\nnether layer 64:\n  SP\nport nether-output: 4 64 3\n";
+        let d = Design::parse(text).unwrap();
+        assert_eq!(d.nether_blocks[&[2, 64, 3]], "minecraft:stone");
+        assert_eq!(d.nether_blocks[&[3, 64, 3]], "minecraft:nether_portal[axis=z]");
+        assert_eq!(d.nether_ports["nether-output"], [4, 64, 3]);
+        assert_eq!(d.ports["nether-anchor"], [0, 0, 0]);
+        assert_eq!(d.ports["nether-axis"], [1, 0, 0]);
+        assert_eq!(d.nether_turns(), Some(0));
+        assert!(!d.ports.contains_key("nether-output"));
+        let again = Design::parse(&d.to_text()).unwrap();
+        assert_eq!(again, d);
+        // moved: the anchor moves, the part (relative to its image) stays
+        let moved = d.translated([9, 1, -17]);
+        assert_eq!(moved.nether_blocks, d.nether_blocks);
+        assert_eq!(moved.ports["nether-anchor"], [9, 1, -17]);
+        assert_eq!(moved.nether_turns(), Some(0));
+    }
 
     #[test]
     fn round_trip() {

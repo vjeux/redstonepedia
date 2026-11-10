@@ -544,7 +544,7 @@ fn ring_shared_pad(alone: &mctas::design::Design, p: &Ports, m: &crate::parts::M
     // the pad's centre (cell corners): x0 + n/2, z 2 + n/2
     let (cx2, cz2) = (2 * x0 + n, 2 * 2 + n);
     let is_cage = |q: &[i32; 3]| q[1] >= -1 && q[2] <= 1;
-    let mut out = mctas::design::Design { name: alone.name.clone(), meta: alone.meta.clone(), ports: alone.ports.clone(), blocks: Default::default(), entities: Vec::new(), block_entities: Default::default() };
+    let mut out = mctas::design::Design { name: alone.name.clone(), meta: alone.meta.clone(), ports: alone.ports.clone(), blocks: Default::default(), entities: Vec::new(), block_entities: Default::default(), ..Default::default() };
     // the cell `q` turned `t` quarters clockwise around the pad's centre (doubled coordinates:
     // a cell's centre is 2q + 1)
     let turn = |q: [i32; 3], t: u8| -> [i32; 3] {

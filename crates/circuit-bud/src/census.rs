@@ -164,7 +164,7 @@ fn cell_sets(k: usize, reach: i32) -> Vec<Vec<Pos>> {
 }
 
 fn design(cells: &[Pos], states: &[&String], out: Option<Pos>) -> mctas::design::Design {
-    let mut d = mctas::design::Design { name: "bud-census".into(), meta: BTreeMap::new(), ports: BTreeMap::new(), blocks: BTreeMap::new(), entities: Vec::new(), block_entities: BTreeMap::new() };
+    let mut d = mctas::design::Design { name: "bud-census".into(), meta: BTreeMap::new(), ports: BTreeMap::new(), blocks: BTreeMap::new(), entities: Vec::new(), block_entities: BTreeMap::new(), ..Default::default() };
     d.ports.insert("target".into(), [0, 0, 0]);
     for (p, s) in cells.iter().zip(states) {
         d.blocks.insert(*p, (*s).clone());

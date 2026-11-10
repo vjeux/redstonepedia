@@ -185,6 +185,13 @@ pub enum MobaiCmd {
         /// in (golems arriving one after another, as a farm sends them).
         #[arg(long, default_value_t = 0)]
         stagger: u32,
+        /// Write the judge's portal-pad test farm (day 1's bed-plate with a portal in its pit and a
+        /// Nether part) to this file.
+        #[arg(long)]
+        make_pad: Option<std::path::PathBuf>,
+        /// Zombified piglins from the portal's random ticks (official server, random ticks x1000).
+        #[arg(long)]
+        piglins: bool,
     },
 }
 
@@ -200,7 +207,9 @@ pub fn run(version: &str, cmd: MobaiCmd) -> Result<()> {
         MobaiCmd::Replay { paths } => crate::fixture::replay(&paths),
         MobaiCmd::FarmTrace { design, seed, at, entity, terrain, day0, build, run, no_spawning, weather } => crate::farmtrace::run(version, &design, seed, at, entity, terrain, day0, build.map(|k| (k, run)), no_spawning, weather),
         MobaiCmd::Mathfuzz { n, seed, inputs } => crate::mathfuzz::run(version, n, seed, &inputs),
-        MobaiCmd::PortalProbe { ticks, nether, overworld, nether_design, every, redsim, fluid_test, stagger } => match (nether, overworld, nether_design) {
+        MobaiCmd::PortalProbe { ticks, nether, overworld, nether_design, every, redsim, fluid_test, stagger, make_pad, piglins } => match (nether, overworld, nether_design) {
+            _ if piglins => crate::portal::piglins(version, ticks),
+            _ if make_pad.is_some() => crate::portal::make_pad(make_pad.as_deref().expect("a path")),
             _ if fluid_test => crate::portal::fluid_test(version),
             (true, Some(o), Some(n)) if redsim => crate::portal::nether_designs_redsim(&o, &n, ticks, every, stagger),
             (true, Some(o), Some(n)) => crate::portal::nether_designs(version, &o, &n, ticks, every, stagger),

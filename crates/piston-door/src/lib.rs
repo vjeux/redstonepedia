@@ -231,7 +231,7 @@ pub fn transform_design(w: &mut Worker, d: &Design, turns: u8, mirror: bool) -> 
     };
     // Block-entity data (container contents) does not turn: positions only.
     let block_entities = d.block_entities.iter().map(|(p, s)| (tf(*p), s.clone())).collect();
-    let mut rd = Design { name: d.name.clone(), meta: d.meta.clone(), ports, blocks, entities, block_entities };
+    let mut rd = Design { name: d.name.clone(), meta: d.meta.clone(), ports, blocks, entities, block_entities, ..Default::default() };
     rd.ports.insert("door".into(), door);
     if rspec.along_z {
         rd.meta.insert("door-axis".into(), "z".into());

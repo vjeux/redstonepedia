@@ -452,6 +452,124 @@ pub fn fluid_test(version: &str) -> Result<()> {
     Ok(())
 }
 
+/// `mctas mobai portal-probe --make-pad <out>`: a test farm for the judge's Nether part
+/// (ironspec's portal pad, not a candidate): day 1's bed-plate farm with its pit's east wall a
+/// nether portal (x 5, z 4..5, y -13..-11, in an obsidian frame; the pit's lava corner and water
+/// gone), and a Nether part around the linked portal (x 0, z 0..1, y 64..66, on an obsidian
+/// plate), two lava sources against its west side and a chest (`nether-output`).
+pub fn make_pad(out: &std::path::Path) -> Result<()> {
+    let mut d = mctas::design::Design::load(std::path::Path::new("designs/farms/iron/day-1/d1-bed-plate.txt"))?;
+    d.name = "iron-portal-pad-test".into();
+    let obs = "minecraft:obsidian".to_string();
+    let portal = "minecraft:nether_portal[axis=z]".to_string();
+    for z in 2..=7 {
+        d.blocks.insert([5, -14, z], obs.clone());
+        d.blocks.insert([5, -10, z], obs.clone());
+    }
+    for y in -13..=-11 {
+        d.blocks.insert([5, y, 2], obs.clone());
+        d.blocks.insert([5, y, 7], obs.clone());
+        for z in 3..=6 {
+            d.blocks.insert([5, y, z], portal.clone());
+        }
+    }
+    // the pit's lava corner and water out (the pad's water, which sends the golems down, stays)
+    d.blocks.retain(|p, s| !s.starts_with("minecraft:lava") && !(s.starts_with("minecraft:water") && p[1] <= -13));
+    // water against the pit's west wall pushes its golems east into the portal
+    for z in 4..=5 {
+        d.blocks.insert([1, -13, z], "minecraft:water[level=0]".to_string());
+    }
+    // the Nether plate, with a 2-wide channel west of the portal walled in at y 64 (its lava
+    // spreads 7 cells there and stays on the plate)
+    for x in -10..=4 {
+        for z in -3..=4 {
+            d.nether_blocks.insert([x, 63, z], obs.clone());
+        }
+    }
+    for x in -10..=-1 {
+        d.nether_blocks.insert([x, 64, -1], obs.clone());
+        d.nether_blocks.insert([x, 64, 2], obs.clone());
+    }
+    for z in 0..=1 {
+        d.nether_blocks.insert([-10, 64, z], obs.clone());
+    }
+    for z in -1..=2 {
+        d.nether_blocks.insert([0, 67, z], obs.clone());
+    }
+    for y in 64..=66 {
+        d.nether_blocks.insert([0, y, -1], obs.clone());
+        d.nether_blocks.insert([0, y, 2], obs.clone());
+        for z in 0..=1 {
+            d.nether_blocks.insert([0, y, z], portal.clone());
+        }
+    }
+    for z in 0..=1 {
+        d.nether_blocks.insert([-1, 64, z], "minecraft:lava[level=0]".to_string());
+    }
+    d.nether_blocks.insert([3, 64, 3], "minecraft:chest[facing=north,type=single,waterlogged=false]".to_string());
+    d.nether_ports.insert("nether-output".into(), [3, 64, 3]);
+    d.ports.insert("nether-anchor".into(), [0, 0, 0]);
+    d.ports.insert("nether-axis".into(), [1, 0, 0]);
+    std::fs::write(out, d.to_text())?;
+    println!("wrote {}", out.display());
+    Ok(())
+}
+
+/// `mctas mobai portal-probe --piglins`: zombified piglins from a nether portal's random ticks
+/// (`NetherPortalBlock.randomTick` on Hard: nextInt(2000) < 3), on the official server with the
+/// random tick speed raised 1000 times: the overworld room's portal (with its Nether side built and
+/// released, as in `--nether`), where each piglin is found every 10 ticks: on the portal, through
+/// it in the Nether, or elsewhere.
+pub fn piglins(version: &str, ticks: u32) -> Result<()> {
+    let mut srv = VanillaServer::start(&VanillaOptions { version: version.to_string(), difficulty: "hard".into(), ..Default::default() })?;
+    // (monsters spawning on, as in the gate: `isSpawningMonsters`; no player, so the natural
+    // spawner makes nothing)
+    srv.cmd_ok("gamerule spawn_mobs true")?;
+    srv.cmd_ok("gamerule spawn_monsters true")?;
+    srv.cmd_ok("gamerule advance_time false")?;
+    srv.cmd_ok("time set 6000")?;
+    srv.cmd_ok("forceload add 0 0 47 47")?;
+    srv.step(40)?;
+    for (p, s) in room() {
+        srv.cmd_ok(&format!("setblock {} {} {} {s}", p[0], p[1], p[2]))?;
+    }
+    let n = |c: &str| format!("execute in minecraft:the_nether positioned 0 0 0 run {c}");
+    srv.cmd_ok(&n("forceload add -16 -16 15 15"))?;
+    srv.step(40)?;
+    srv.cmd_ok(&n("fill -8 60 -8 12 72 12 minecraft:air"))?;
+    srv.cmd_ok(&n("fill -8 63 -8 12 63 12 minecraft:obsidian"))?;
+    for z in 1..=4 {
+        srv.cmd(&n(&format!("setblock 3 63 {z} minecraft:obsidian")))?;
+        srv.cmd_ok(&n(&format!("setblock 3 67 {z} minecraft:obsidian")))?;
+    }
+    for y in 64..=66 {
+        srv.cmd_ok(&n(&format!("setblock 3 {y} 1 minecraft:obsidian")))?;
+        srv.cmd_ok(&n(&format!("setblock 3 {y} 4 minecraft:obsidian")))?;
+        for z in 2..=3 {
+            srv.cmd_ok(&n(&format!("setblock 3 {y} {z} minecraft:nether_portal[axis=z]")))?;
+        }
+    }
+    srv.step(5)?;
+    srv.cmd_ok(&n("forceload remove -16 -16 15 15"))?;
+    srv.step(100)?;
+    srv.cmd_ok("gamerule random_tick_speed 3000")?;
+    // a player near the portal: random ticks run only in chunks a player keeps (the gate's AFK
+    // player does), not in force-loaded ones alone (measured: none in 600 ticks without one)
+    srv.teleport_bot(24.5, 80.0, 30.5)?;
+    let count = |srv: &mut VanillaServer, dim: &str| -> Result<u32> {
+        let r = srv.cmd(&format!("execute in {dim} positioned 0 0 0 if entity @e[type=minecraft:zombified_piglin,distance=0..]"))?;
+        Ok(r.rsplit(':').next().and_then(|s| s.trim().parse().ok()).unwrap_or(0))
+    };
+    for k in (10..=ticks).step_by(10) {
+        srv.step(10)?;
+        let ow = count(&mut srv, "minecraft:overworld")?;
+        let ne = count(&mut srv, "minecraft:the_nether")?;
+        let pos = srv.cmd_long("execute in minecraft:the_nether positioned 0 0 0 as @e[type=minecraft:zombified_piglin,distance=0..,limit=3] run data get entity @s Pos")?;
+        println!("t+{k}: zombified piglins: overworld {ow}, Nether {ne}; in the Nether: {}", pos.trim().replace('\n', " | ").chars().take(300).collect::<String>());
+    }
+    Ok(())
+}
+
 /// The chunk box [x0, z0, x1, z1] (block coordinates) of a design's blocks, with a margin.
 fn chunk_box(blocks: &[(mctas::sim::Pos, String)], margin: i32) -> [i32; 4] {
     let (mut x0, mut z0, mut x1, mut z1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
