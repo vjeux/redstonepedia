@@ -13,7 +13,9 @@
 //! * `act <t> tp eN x y z`: line N's entity (the cart) moved there at rest, its riders placed;
 //! * `act <t> home eN.pK x y z`, `act <t> last-slept eN.pK <t'>` (`t0 + t'`): a villager's memories;
 //! * `act <t> poi-take x y z`: the POI there taken (the bed);
-//! * `expect <t> ...`, `expect-end ...`: what the bench saw, for the check.
+//! * `expect <t> ...`, `expect-end ...`: what the bench saw, for the check;
+//! * `# caption <words>`: what the bench drives, in a player's words (vjeux 07:29, "write down
+//!   these details when you show me things"): the view shows it on its badge while the run plays.
 //!
 //! An act at `t` is applied when the world's time is `t0 + t`, before the run's next tick (the
 //! benches' order: their actions at the top of the loop); an expectation at `t` happened in the
@@ -51,6 +53,8 @@ pub struct Drive {
     /// The run's length when the bench gives it in ticks (`# ticks N`: ironfarm's queue loop)
     /// rather than days.
     pub ticks: Option<u32>,
+    /// What the bench drives, in a player's words (`# caption <words>`): the view's badge.
+    pub caption: Option<String>,
     /// The world's time once the entities are spawned, as the bench saw it (None: not given).
     pub t0: Option<i64>,
     /// The acts, by t, in the bench's order within one t.
@@ -93,6 +97,7 @@ impl Drive {
                     Some("days") => d.days = w.get(1).and_then(|v| v.parse().ok()).ok_or_else(|| format!("{l:?}: a number of days"))?,
                     Some("ticks") => d.ticks = Some(w.get(1).and_then(|v| v.parse().ok()).ok_or_else(|| format!("{l:?}: a number of ticks"))?),
                     Some("t0") => d.t0 = Some(w.get(1).and_then(|v| v.parse().ok()).ok_or_else(|| format!("{l:?}: a time"))?),
+                    Some("caption") => d.caption = Some(h.trim_start().trim_start_matches("caption").trim().to_string()).filter(|c| !c.is_empty()),
                     Some("walk") => walk_ok = w.get(1) == Some(&"random"),
                     Some("ai") if w.get(1) != Some(&"on") => return Err(format!("{l:?}: the benches run with the mob AI on")),
                     _ => {}
@@ -101,10 +106,12 @@ impl Drive {
             }
             let w: Vec<&str> = l.split_whitespace().collect();
             // (a header line written bare, without its `#`: ironfarm's queue loop's first lines)
-            if matches!(w.first().copied(), Some("seed" | "days" | "walk" | "ai" | "ticks" | "t0")) {
+            if matches!(w.first().copied(), Some("seed" | "days" | "walk" | "ai" | "ticks" | "t0" | "caption")) {
                 let h = format!("#{l}");
                 let mut sub = Drive::parse(&h)?;
-                if w[0] == "seed" {
+                if w[0] == "caption" {
+                    d.caption = sub.caption.take();
+                } else if w[0] == "seed" {
                     d.seed = sub.seed;
                 } else if w[0] == "days" {
                     d.days = sub.days;
@@ -251,6 +258,10 @@ mod tests {
         assert_eq!(d.expects, vec![(100, "golem g0 1 3 -1".to_string())]);
         assert_eq!(d.ends, vec!["golems 239".to_string()]);
         assert!(Drive::parse("act 1 fly e0\n").is_err());
+        let c = Drive::parse("# seed 1\n# caption arrivals and the release driven by the test bench, no redstone yet\nact 0 poi-take 3 0 66\n").unwrap();
+        assert_eq!(c.caption.as_deref(), Some("arrivals and the release driven by the test bench, no redstone yet"));
+        assert_eq!(Drive::parse("seed 1\ncaption the stand teleported\n").unwrap().caption.as_deref(), Some("the stand teleported"));
+        assert_eq!(d.caption, None);
         assert!(Drive::parse("# walk fixed\n").is_err());
     }
 }

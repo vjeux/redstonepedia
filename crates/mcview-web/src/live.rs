@@ -50,6 +50,8 @@ pub struct Live {
     label: HtmlElement,
     bar: HtmlElement,
     status: HtmlElement,
+    /// The caption line (a part's bench drive: what the bench drives).
+    caption: HtmlElement,
     /// The scrubber (the timelapse, jump between states): its track, the activity strip
     /// inside it, the thumb; a drag in progress; the activity version the strip was
     /// built from.
@@ -587,6 +589,31 @@ pub fn start(app: &mut App, id: u32) {
         ],
     );
     let _ = root.append_child(&status);
+    // a part's bench run: what the bench drives, in a player's words (its drive's `# caption`,
+    // vjeux 07:29: "write down these details when you show me things"): a line of its own over
+    // the view's bottom left, above the scrubber and clear of the Record pill, never cut short
+    let caption = el("div");
+    caption.set_class_name("mcview-caption");
+    style(
+        &caption,
+        &[
+            ("position", "absolute"),
+            ("left", "8px"),
+            ("bottom", "68px"),
+            ("max-width", "calc(100% - 150px)"),
+            ("line-height", "15px"),
+            ("padding", "3px 8px"),
+            ("border-radius", "8px"),
+            ("background", "rgba(0,0,0,0.45)"),
+            ("color", "#fff"),
+            ("font", "11px system-ui, sans-serif"),
+            ("white-space", "normal"),
+            ("pointer-events", "none"),
+            ("z-index", "2"),
+            ("display", "none"),
+        ],
+    );
+    let _ = root.append_child(&caption);
     // the Record button: a labelled pill over the view's bottom right, above the
     // scrubber (its bottom tracks the bar's height in `frame`, so it never overlaps
     // the scrubber or a wrapped bar; a phone's bar is full; critique: a bare red dot
@@ -630,6 +657,7 @@ pub fn start(app: &mut App, id: u32) {
         label,
         bar: bar.clone(),
         status,
+        caption,
         play: play.clone(),
         back: back.clone(),
         scrub: scrub.clone(),
@@ -1498,9 +1526,9 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
             l.redraw = true;
         }
         if nether_scene {
-            // (its controls are its overworld view's: that session plays both scenes)
+            // (its controls are its overworld view's: that session plays both scenes; no badge)
             let _ = l.bar.style().set_property("display", "none");
-            l.status.set_text_content(None);
+            let _ = l.status.style().set_property("display", "none");
         }
         // a frame's time for its ticks (the coordinator 2026-10-21: never block the page over
         // ~50 ms a frame): the ticks past it are dropped, never queued
@@ -1614,6 +1642,20 @@ pub fn frame(app: &mut App, id: u32, ts: f64) -> bool {
             let bar_h = l.bar.offset_height() as f64;
             let _ = l.scrub.style().set_property("bottom", &format!("{}px", bar_h + 6.0));
             let _ = l.record.style().set_property("bottom", &format!("{}px", bar_h + 40.0));
+            // the caption line: its drive's words, over the bottom left (no bar: a Nether scene)
+            match mcview::mobfarm::caption(&p.session) {
+                Some(c) => {
+                    if l.caption.text_content().as_deref() != Some(c.as_str()) {
+                        l.caption.set_text_content(Some(&c));
+                    }
+                    let shown = l.bar.style().get_property_value("display").ok().as_deref() != Some("none");
+                    let _ = l.caption.style().set_property("bottom", &format!("{}px", if shown { bar_h + 40.0 } else { 8.0 }));
+                    let _ = l.caption.style().set_property("display", "block");
+                }
+                None => {
+                    let _ = l.caption.style().set_property("display", "none");
+                }
+            }
             // the back button is live once the run has a tick behind it
             l.back.set_disabled(!p.can_step_back());
             // the scrubber follows the run

@@ -1634,6 +1634,12 @@ pub fn status_words(s: &crate::session::Session) -> String {
     status_text(asleep, panic, calm)
 }
 
+/// What a part's bench drives in its view's run, in a player's words (its drive's `# caption`,
+/// vjeux 07:29: "write down these details when you show me things"): the view's caption line.
+pub fn caption(s: &crate::session::Session) -> Option<String> {
+    s.mob.as_ref()?.drive.as_ref()?.drive.caption.clone()
+}
+
 fn status_text(asleep: u32, panic: u32, calm: u32) -> String {
     let parts: Vec<String> = [(asleep, "asleep"), (panic, "panicking"), (calm, "calm")].iter().filter(|(n, _)| *n > 0).map(|(n, w)| format!("{n} {w}")).collect();
     if parts.is_empty() { String::new() } else { format!("villagers: {}", parts.join(", ")) }
@@ -1668,7 +1674,12 @@ pub fn status_texts(n: u32) -> Vec<String> {
 
 /// The villagers a design brings (its `entity:` lines).
 pub fn villagers(d: &Design) -> u32 {
-    d.entities.iter().filter(|e| e.kind.trim_start_matches("minecraft:") == "villager").count() as u32
+    // (a villager riding a vehicle too: `Passengers:[{id:"minecraft:villager"...}]`, the carousel's
+    // carts: the badge sized for 0 cut "villagers: 21 panicking" on the siding's page)
+    d.entities
+        .iter()
+        .map(|e| (e.kind.trim_start_matches("minecraft:") == "villager") as u32 + e.nbt.as_deref().map(|n| n.matches("id:\"minecraft:villager\"").count() as u32).unwrap_or(0))
+        .sum()
 }
 
 /// The speed a mob farm plays at first (game ticks a second; vjeux's brief: a golem every few
