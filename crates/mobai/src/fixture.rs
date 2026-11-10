@@ -120,11 +120,17 @@ fn next_action(actions: &[(u32, Vec<([i32; 3], String)>)], done: i64) -> Option<
     actions.iter().find(|(t, _)| *t as i64 >= done)
 }
 
-/// redsim's side of an action: each block set with flags 3.
+/// redsim's side of an action: each block set with flags 3; a container's fill (`nbt:<snbt>`)
+/// merged as the game's data merge does ([`redsim::redstone::container::apply_block_entities`]).
 fn apply_redsim(w: &mut World, blocks: &[([i32; 3], String)]) -> Result<()> {
     for (p, s) in blocks {
+        let pos = BlockPos::new(p[0], p[1], p[2]);
+        if let Some(snbt) = s.strip_prefix("nbt:") {
+            redsim::redstone::container::apply_block_entities(w, [(pos, snbt)]).map_err(|e| anyhow!(e))?;
+            continue;
+        }
         let b = Block::parse(s).or_else(|_| redsim::terrain::land::block_of(s)).map_err(|e| anyhow!("action block {s}: {e}"))?;
-        w.set_block(BlockPos::new(p[0], p[1], p[2]), b, redsim::world::flags::ALL);
+        w.set_block(pos, b, redsim::world::flags::ALL);
     }
     Ok(())
 }
@@ -164,6 +170,9 @@ impl Scene {
         } else if scene_placement(&self.name) == Placement::Merged {
             v["placed"] = json!("as written");
             v["block_entities"] = json!(scene_block_entities(&self.name));
+        } else if scene_placement(&self.name) == Placement::Built {
+            v["placed"] = json!("built in order");
+            v["spawn"] = json!(scene_spawn(&self.name));
         }
         v.to_string()
     }
@@ -248,6 +257,8 @@ const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     ("carousel-catch2", include_str!("../scenes/carousel-catch2.txt"), include_str!("../scenes/carousel-catch2-27.drive")),
     ("carousel-wired", include_str!("../scenes/carousel-wired.txt"), include_str!("../scenes/carousel-wired.drive")),
     ("carousel-wired-raw", include_str!("../scenes/carousel-wired.txt"), include_str!("../scenes/carousel-wired-raw.drive")),
+    ("carousel-wired-v2", include_str!("../scenes/carousel-wired-v2.txt"), include_str!("../scenes/carousel-wired-v2-raw.drive")),
+    ("carousel-wired-built", include_str!("../scenes/carousel-wired-v2.txt"), include_str!("../scenes/carousel-wired-v2-built.drive")),
 ];
 
 /// A drive scene's day time at its spawn in its bench's run: the bench's world is
@@ -280,16 +291,23 @@ fn drive_actions(name: &str) -> Option<Vec<(u32, Vec<([i32; 3], String)>)>> {
     let text = drive_text(name)?;
     let mut v: Vec<(u32, Vec<([i32; 3], String)>)> = Vec::new();
     for line in text.lines().filter(|l| l.starts_with("act ")) {
-        let f: Vec<&str> = line.split_whitespace().collect();
-        let parsed = (f.len() == 7 && f[2] == "set").then(|| Some((f[1].parse::<u32>().ok()?, [f[3].parse::<i32>().ok()?, f[4].parse::<i32>().ok()?, f[5].parse::<i32>().ok()?]))).flatten();
-        let Some((t, p)) = parsed else { panic!("the drive log of {name}: {line:?} is not `act T set x y z <state>`") };
-        let c = (p, f[6].to_string());
+        let f: Vec<&str> = line.splitn(7, ' ').collect();
+        let parsed = (f.len() == 7 && (f[2] == "set" || f[2] == "nbt")).then(|| Some((f[1].parse::<u32>().ok()?, [f[3].parse::<i32>().ok()?, f[4].parse::<i32>().ok()?, f[5].parse::<i32>().ok()?]))).flatten();
+        let Some((t, p)) = parsed else { panic!("the drive log of {name}: {line:?} is not `act T set x y z <state>` or `act T nbt x y z <snbt>`") };
+        // (a container's fill in a built-in-order log: `nbt:<snbt>`, merged like the game's
+        // data merge; [`apply_redsim`], [`GameScene::apply`])
+        let c = (p, if f[2] == "nbt" { format!("nbt:{}", f[6].trim()) } else { f[6].trim().to_string() });
         match v.last_mut() {
             Some((lt, b)) if *lt == t => b.push(c),
             _ => v.push((t, vec![c])),
         }
     }
     Some(v)
+}
+
+/// A built-in-order drive log's spawn tick (`# spawn S`, counted from the build's start).
+fn drive_spawn(name: &str) -> Option<u32> {
+    drive_text(name)?.lines().find_map(|l| l.strip_prefix("# spawn "))?.trim().parse().ok()
 }
 
 /// The drive log's `expect T pos eK x y z` lines (the design's minecart K at tick T, the bench's
@@ -335,6 +353,19 @@ fn scene_settle(name: &str) -> u32 {
     if name == "carousel-wired" { redsim::entity::mob::farm::SETTLE_TICKS as u32 } else { 0 }
 }
 
+/// The ticks before a scene's mobs are summoned: a built-in-order scene's build (its drive log's
+/// `# spawn S`, its actions counted from the build's start), else its settle (actions counted from
+/// the summon).
+fn scene_spawn(name: &str) -> u32 {
+    if scene_placement(name) == Placement::Built { drive_spawn(name).unwrap_or(0) } else { scene_settle(name) }
+}
+
+/// Whether a scene's actions and expected positions count from its start (a built-in-order
+/// scene's), not from its summon.
+fn scene_counts_from_start(name: &str) -> bool {
+    scene_placement(name) == Placement::Built
+}
+
 /// (tickexact 2026-11-10) How a scene's blocks are put in the world.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Placement {
@@ -348,6 +379,11 @@ enum Placement {
     /// update of every wire, then a `self` update of every block, in the design's order
     /// (`World::place_updates`; in the game the clock verifier's `Placement::Judge`).
     Judge,
+    /// "Built in order" (the bench's `--placed-in-order`, the brief's second check): the scene
+    /// starts with none of its blocks; its drive log places each one (`act T set`, a placement
+    /// with the game's updates) and fills each container (`act T nbt`) at its tick, counted from
+    /// the build's start, and the mobs come at its `# spawn S`.
+    Built,
 }
 
 /// A scene's [`Placement`]. The wired loop's file (v1) holds every wire as a cross and a
@@ -356,7 +392,8 @@ enum Placement {
 fn scene_placement(name: &str) -> Placement {
     match name {
         "carousel-wired" => Placement::Judge,
-        "carousel-wired-raw" => Placement::Merged,
+        "carousel-wired-raw" | "carousel-wired-v2" => Placement::Merged,
+        "carousel-wired-built" => Placement::Built,
         _ => Placement::Raw,
     }
 }
@@ -369,7 +406,7 @@ fn scene_judge_placed(name: &str) -> bool {
 /// A scene's block-entity data merged after the raw paste (its design's `nbt:` lines; none for a
 /// [`Placement::Raw`] scene).
 fn scene_block_entities(name: &str) -> Vec<([i32; 3], String)> {
-    if scene_placement(name) == Placement::Raw {
+    if matches!(scene_placement(name), Placement::Raw | Placement::Built) {
         return Vec::new();
     }
     drive_design(name).map(|d| d.block_entities.into_iter().collect()).unwrap_or_default()
@@ -1802,7 +1839,8 @@ fn scenes_raw() -> Vec<Scene> {
         v.push(Scene {
             name: name.to_string(),
             chunks: c,
-            blocks,
+            // (a built-in-order scene starts with none of its blocks: its drive log places them)
+            blocks: if scene_placement(name) == Placement::Built { Vec::new() } else { blocks },
             mobs,
             day_time,
             difficulty: if first { Difficulty::Easy } else { Difficulty::Hard },
@@ -1890,8 +1928,22 @@ impl GameScene {
 
     /// A scripted action on the game's side: the blocks set like a player's (flags 3).
     pub fn apply(&mut self, blocks: &[([i32; 3], String)]) -> Result<()> {
-        let list: Vec<([i32; 3], &str)> = blocks.iter().map(|(p, s)| (*p, s.as_str())).collect();
-        self.w.set_blocks(self.sb, &list, PlaceMode::Update)?;
+        // in order: runs of block sets (placed with updates), each container fill merged
+        let mut run: Vec<([i32; 3], &str)> = Vec::new();
+        for (p, s) in blocks {
+            if let Some(snbt) = s.strip_prefix("nbt:") {
+                if !run.is_empty() {
+                    self.w.set_blocks(self.sb, &run, PlaceMode::Update)?;
+                    run.clear();
+                }
+                self.w.merge_block_entity(self.sb, *p, snbt)?;
+            } else {
+                run.push((*p, s.as_str()));
+            }
+        }
+        if !run.is_empty() {
+            self.w.set_blocks(self.sb, &run, PlaceMode::Update)?;
+        }
         Ok(())
     }
 
@@ -2046,12 +2098,30 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
         ours.mob.natural = Some(Natural { spawning: on, spawn_enemies: on, void_biome: Some("minecraft:plains"), spawn_order: game.spawning(), ..Natural::new(vec![pos], s.difficulty) });
     }
     let mut first = true;
-    // (tickexact 2026-11-10) the scene's settle: its blocks alone, then the summon
-    let mut settle = scene_settle(&s.name);
-    while settle > 0 {
-        let frames = game.frames(settle.min(batch), false)?;
+    // (tickexact 2026-11-10) the ticks before the summon: a settle (the blocks alone) or a
+    // built-in-order scene's build (its placements and fills at their ticks, compared every tick)
+    let spawn = scene_spawn(&s.name);
+    let from_start = scene_counts_from_start(&s.name);
+    let actions = scene_actions(&s.name);
+    let (wlo, whi) = (BlockPos::new(s.watch.0[0], s.watch.0[1], s.watch.0[2]), BlockPos::new(s.watch.1[0], s.watch.1[1], s.watch.1[2]));
+    let mut cmp = Compare { probe_at: trace.map(|t| t.0), ..Default::default() };
+    if from_start && let Some((_, b)) = actions.iter().find(|(t, _)| *t == 0) {
+        if let Source::Live(g) = game {
+            g.apply(b)?;
+        }
+        apply_redsim(&mut ours, b)?;
+    }
+    // (the watch's baseline after the actions at 0, as the game's first traced tick has it)
+    let mut early_watch = from_start.then(|| Watch::new(&ours, wlo, whi));
+    let mut pre: i64 = 0;
+    while pre < spawn as i64 {
+        let mut n = (spawn as i64 - pre).min(batch as i64) as u32;
+        if from_start && let Some((t, _)) = next_action(&actions, pre + 1) {
+            n = n.min((*t as i64 - pre).max(1) as u32);
+        }
+        let frames = game.frames(n, false)?;
         if frames.is_empty() {
-            bail!("the game's frames end in the scene's settle");
+            bail!("the game's frames end before the scene's summon");
         }
         for f in &frames {
             if first {
@@ -2062,8 +2132,21 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
                 first = false;
             }
             ours.tick();
+            if let Some(wt) = early_watch.as_mut() {
+                let o = wt.frame(&ours);
+                cmp.tick(f, &o);
+            }
         }
-        settle -= frames.len() as u32;
+        pre += frames.len() as i64;
+        if from_start && let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == pre) {
+            if let Source::Live(g) = game {
+                g.apply(b)?;
+            }
+            apply_redsim(&mut ours, b)?;
+        }
+        if cmp.first.is_some() && !full {
+            break;
+        }
     }
     // (a probe: MOBAI_SETTLED=1: after a scene's settle, each of its blocks redsim holds in
     // another state than the scene placed)
@@ -2075,27 +2158,25 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
             }
         }
     }
-    // (a settled scene's watch starts before its summon: the game's first frame after it lists
-    // the mobs as entered, its baseline the settle's last frame)
-    let settled_watch = (scene_settle(&s.name) > 0).then(|| Watch::new(&ours, BlockPos::new(s.watch.0[0], s.watch.0[1], s.watch.0[2]), BlockPos::new(s.watch.1[0], s.watch.1[1], s.watch.1[2])));
-    // the game time of the summon: a drive log's expected ticks count from it
-    let t_summon = if scene_settle(&s.name) > 0 { ours.time } else { 0 };
+    // (a settled or built scene's watch starts before its summon: the game's first frame after it
+    // lists the mobs as entered, its baseline the last frame before)
+    let settled_watch = early_watch.or_else(|| (spawn > 0).then(|| Watch::new(&ours, wlo, whi)));
+    // the game time a drive log's ticks count from: the summon's after a settle, else the start
+    let t_summon = if spawn > 0 && !from_start { ours.time } else { 0 };
     let game_ids = game.summon(s)?;
     let our_ids = redsim_summon(&mut ours, s)?;
     if game_ids != our_ids {
         bail!("the game's mobs entered as {game_ids:?}, redsim's as {our_ids:?}");
     }
-    let mut watch = settled_watch.unwrap_or_else(|| Watch::new(&ours, BlockPos::new(s.watch.0[0], s.watch.0[1], s.watch.0[2]), BlockPos::new(s.watch.1[0], s.watch.1[1], s.watch.1[2])));
-    let mut cmp = Compare { probe_at: trace.map(|t| t.0), ..Default::default() };
+    let mut watch = settled_watch.unwrap_or_else(|| Watch::new(&ours, wlo, whi));
     let show = std::env::var("MOBAI_SHOW").is_ok();
     let show_until: Option<i64> = std::env::var("MOBAI_SHOW_UNTIL").ok().and_then(|v| v.parse().ok());
-    let mut left = ticks;
+    let mut left = if cmp.first.is_some() && !full { 0 } else { ticks };
     let state_range: Option<(i64, i64)> = std::env::var("MOBAI_STATE").ok().and_then(|v| {
         let (a, b) = v.split_once(',')?;
         Some((a.parse().ok()?, b.parse().ok()?))
     });
-    let mut done: i64 = 0;
-    let actions = scene_actions(&s.name);
+    let mut done: i64 = if from_start { pre } else { 0 };
     // (tickexact 2026-11-10) the scene's expected positions (a drive log's): checked on the game's
     // frames, summed up at the end
     let expects = scene_expects(&s.name);
@@ -2242,18 +2323,30 @@ pub fn record(version: &str, names: &[String], seed: i64, ticks: u32, dir: &std:
     for s in pick {
         let t0 = std::time::Instant::now();
         let mut game = GameScene::start(version, s, seed, false)?;
-        // the scene's settle (its blocks alone) is recorded ahead of the summon
         let mut frames = Vec::new();
-        let mut settle = scene_settle(&s.name);
-        while settle > 0 {
-            let n = settle.min(100);
+        // the ticks before the summon (a settle, or a built scene's build with its placements and
+        // fills at their ticks) are recorded ahead of it
+        let actions = scene_actions(&s.name);
+        let from_start = scene_counts_from_start(&s.name);
+        let spawn = scene_spawn(&s.name) as i64;
+        if from_start && let Some((_, b)) = actions.iter().find(|(t, _)| *t == 0) {
+            game.apply(b)?;
+        }
+        let mut pre: i64 = 0;
+        while pre < spawn {
+            let mut n = (spawn - pre).min(100) as u32;
+            if from_start && let Some((t, _)) = next_action(&actions, pre + 1) {
+                n = n.min((*t as i64 - pre).max(1) as u32);
+            }
             frames.extend(game.trace_raw(n, false)?);
-            settle -= n;
+            pre += n as i64;
+            if from_start && let Some((_, b)) = actions.iter().find(|(t, _)| *t as i64 == pre) {
+                game.apply(b)?;
+            }
         }
         let game_ids = game.summon(s)?;
         let mut left = ticks;
-        let actions = scene_actions(&s.name);
-        let mut done: i64 = 0;
+        let mut done: i64 = if from_start { pre } else { 0 };
         while left > 0 {
             // a batch stops at the next scripted action, applied between its two ticks
             let mut n = left.min(100);
