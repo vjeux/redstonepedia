@@ -1165,8 +1165,10 @@ fn valid_spawn_position_for_type(w: &mut World, nat: &Natural, cat: Category, k:
     if d2 > far * far {
         return false;
     }
-    // still listed at this position (`canSpawnMobAt`)
-    let listed = mobs_at(w, cat, pos).iter().any(|t| *t == s);
+    // still listed at this position (`canSpawnMobAt`: `WeightedList.contains`, the SpawnerData
+    // record's equality: its type and count, not its weight; tickexact 2026-11-09, a group started
+    // in a forest, zombie weight 95, stayed listed in the plains beside it, zombie weight 90)
+    let listed = mobs_at(w, cat, pos).iter().any(|t| t.ty == s.ty && t.min == s.min && t.max == s.max);
     if !listed {
         return false;
     }
