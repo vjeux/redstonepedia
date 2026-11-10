@@ -913,6 +913,9 @@ pub struct LoopTiming {
     /// the stand braked this many gt after its slot's start; the queue's tail slots 1-2 and
     /// slot 0 braked these many gt after the returning train's departure.
     pub stand_brake: Option<i64>,
+    /// The stand braked this many gt after the release train's front cart first stands on S2's
+    /// slope up (a detector rail there), instead of the bench's position trigger.
+    pub stand_detect: Option<i64>,
     pub intake_brake: Option<(i64, i64)>,
     /// The line loop's startup: the gt (in slot 0) at which the bench places the batch that is on
     /// the return at the start into the queue's tail.
@@ -926,7 +929,7 @@ pub struct LoopTiming {
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8 }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8 }
     }
 }
 
@@ -1027,6 +1030,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     let t_start = run.world.time;
     // the triggers: (slot, the train's carts front first)
     let mut stand_train: Option<(i64, Vec<u32>, u8)> = None;
+    let mut detect_at: Option<i64> = None;
     let mut intake_trains: Vec<(i64, Vec<u32>, u8)> = Vec::new();
     let mut arrivals: Vec<String> = Vec::new();
     let mut stand_braked_at: Vec<i64> = Vec::new();
@@ -1044,6 +1048,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             }
             set(&mut run.world, &release_group, true);
             stand_train = Some((c, rel, 0));
+            detect_at = None;
             intake_trains.push((c, dep, 0));
         }
         if c == 0 && tm.inject_at == Some(dt) {
@@ -1169,7 +1174,15 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             // (catch slots: braked once the front cart is 0.45 into its catch cell, S2's peak; it
             // then stops ~0.4 down S1's slope, the train's other two likewise in theirs)
             let caught = |w: &redsim::world::World| if lay.stand_b.is_empty() { pos_of(w, tr[0]).is_some_and(|p| p.x >= s2[0] as f64 + 2.45 && (p.z - (s2[2] as f64 + 0.5)).abs() < 0.6) } else { in_cell(w, tr[0], trig) };
-            let due = tr.len() == 3 && match tm.stand_brake { Some(b) => t - *c0 * 100 == b, None => caught(&run.world) };
+            // (a detector rail on S2's slope up, the cell before S1's catch cell: the brake
+            // `stand_detect` gt after the front cart first stands on it)
+            if let Some(d) = tm.stand_detect {
+                if detect_at.is_none() && tr.len() == 3 && in_cell(&run.world, tr[0], [s2[0] + 1, 0, s2[2]]) {
+                    detect_at = Some(t + d);
+                }
+            }
+            let detected = detect_at == Some(t);
+            let due = tr.len() == 3 && match (tm.stand_brake, tm.stand_detect) { (Some(b), _) => t - *c0 * 100 == b, (None, Some(_)) => detected, (None, None) => caught(&run.world) };
             if *st == 0 && tr.len() == 3 && due {
                 set(&mut run.world, &lay.stand, false);
                 set(&mut run.world, &lay.stand_b, false);
