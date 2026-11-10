@@ -40,6 +40,8 @@ squids.rec	63dbb40561554df8		26.3	2026-11-09T02:42Z on 4381c606f	mctas mobai rec
 sulfur-cubes.rec	595f7493d841a282		26.3	2026-11-09T00:37Z on b6cc475b6	mctas mobai record sulfur-cubes --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 villager-beds.rec	1f4af3add61d842b		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record villager-beds --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 witch.rec	a4648595d1a91707		26.3	2026-11-09T03:26Z on 06c4a9d60	mctas mobai record witch --seed 1 --ticks 4000 --dir designs/redsim/recorded/mobai
+wolf-pack.rec	77cfb2718f101e56		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
+wolf-skeleton.rec	1cbf8fae6aa1722b		26.3	uncommitted	recorded before manifests: see the recording's header and its commit
 zombie-door.rec	ab5e3e201b44edd3		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-door --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 zombie-drowning.rec	8bacb3c82b85ce5c		26.3	2026-11-09T12:30Z on d445b48fa6	mctas mobai record zombie-drowning --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai
 zombie-obstacles.rec	26fc66de4a19d6ae		26.3	2026-11-08T21:43Z on 88512141f	mctas mobai record zombie-obstacles --seed 1 --ticks 3000 --dir designs/redsim/recorded/mobai

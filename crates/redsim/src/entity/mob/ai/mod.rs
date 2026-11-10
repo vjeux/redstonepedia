@@ -98,6 +98,8 @@ pub struct MobAi {
     pub squid: Option<squid::SquidState>,
     /// A fish's school ([`fish`]).
     pub fish: Option<fish::FishState>,
+    /// A wolf's shake ([`goal::wolf`]).
+    pub wolf: Option<goal::wolf::WolfState>,
     /// An enderman's carried block and target change time.
     pub enderman: Option<goal::enderman::EndermanState>,
     /// (tickexact 2026-11-10) A drowned's `searchingForLand` (its swim up's) and the entity's
@@ -200,6 +202,7 @@ impl MobAi {
             cube: None,
             squid: None,
             fish: None,
+            wolf: None,
             enderman: None,
             searching_for_land: false,
             swimming: false,
@@ -768,6 +771,8 @@ pub fn after_ai_step(w: &mut World, i: usize) {
     // inside aiStep, before tickHeadTurn: AgeableMob.aiStep's age (a grown baby's box and its
     // fudge move, which the body's turn sees), Chicken.aiStep's tail (the slow fall, the egg)
     goal::animal::after_ai_step(w, i);
+    // Wolf.aiStep's tail (after Animal's): the shake starts, the persistent anger
+    goal::wolf::after_ai_step(w, i);
     // AgeableMob.aiStep's age (a baby squid's), then Squid.aiStep's tail (after
     // LivingEntity.aiStep): the tentacles, the swim impulse, the turns
     squid::age_step(w, i);
@@ -1002,11 +1007,15 @@ pub fn ambient_sound_tick(w: &mut World, i: usize) {
         ai_mut(w, i).ambient_sound_time = -interval;
         if bat::is_bat(w, i) {
             bat::ambient_sound(w, i);
-        } else if has_ambient_sound(w, i)
-            && let Some(r) = w.entities.list[i].random.as_mut()
-        {
-            r.next_float();
-            r.next_float();
+        } else if has_ambient_sound(w, i) {
+            // a wolf's sound is picked with its own draw first (not angry: nextInt(3))
+            if goal::wolf::is_wolf(w, i) {
+                goal::wolf::ambient_draw(w, i);
+            }
+            if let Some(r) = w.entities.list[i].random.as_mut() {
+                r.next_float();
+                r.next_float();
+            }
         }
     }
 }

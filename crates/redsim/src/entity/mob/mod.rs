@@ -790,12 +790,15 @@ pub fn spawn(w: &mut World, type_id: &str, pos: [f64; 3], nbt: Option<&str>) -> 
             s => return Some(Err(format!("a summoned sulfur cube of size {s} (an adult of that size) is not modeled"))),
         }
     }
-    // a farm animal loaded with a negative Age is its baby
+    // a farm animal loaded with a negative Age is its baby (a wolf's baby is not modeled)
     if let Some(a) = animal_age
         && a < 0
         && let Some(adult) = ai::goal::animal::adult_of(ty.def().id)
     {
-        ty = MobType::from_id(&format!("baby_{adult}")).expect("a baby row");
+        ty = match MobType::from_id(&format!("baby_{adult}")) {
+            Some(t) => t,
+            None => return Some(Err(format!("a summoned baby {adult} is not modeled"))),
+        };
     }
     // a summon (the farm's own mob, a scene's): an unmodeled AI fails closed
     let strict = std::mem::replace(&mut w.mob.ai.strict, true);

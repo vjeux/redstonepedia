@@ -121,6 +121,10 @@ pub fn tick(w: &mut World, i: usize) {
     if super::ai::has_ai(w, i) && super::ai::fish::is_fish(w, i) {
         super::ai::fish::school_tick(w, i);
     }
+    // Wolf.tick after super.tick: wet in water or rain, the shake's draws
+    if super::ai::has_ai(w, i) {
+        super::ai::goal::wolf::after_tick(w, i);
+    }
 }
 
 /// `LivingEntity.baseTick` (with `Entity.baseTick` inside).

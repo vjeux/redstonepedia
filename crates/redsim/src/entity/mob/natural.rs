@@ -1569,9 +1569,7 @@ fn piglin_finalize(w: &mut World, nat: &Natural, hand: &mut Hand) -> (bool, Jock
     // ZombifiedPiglin.populateDefaultEquipmentSlots: a golden spear 1 in 20, else a golden sword
     // (tickexact 2026-11-10: the portal-piglin terrain compare at t1193 drew it)
     let spear = rng(w).next_int(20) == 0;
-    if spear {
-        w.mob.ai.legacy.insert("a zombified piglin's golden spear (SpearUseGoal: it attacks in melee instead)");
-    }
+    // (a golden spear: its SpearUseGoal is modeled, goal::spear)
     let weapon = if spear { super::enchant::Item::GoldenSpear } else { super::enchant::Item::GoldenSword };
     let enchanted = enchant_draws(w, special, Some(weapon), (0, 0));
     hand.weapon = weapon_id(weapon).map(|id| (id, enchanted));

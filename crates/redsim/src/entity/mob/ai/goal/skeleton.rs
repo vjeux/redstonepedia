@@ -30,7 +30,7 @@ pub struct FleeSun {
 pub fn register(ai: &mut MobAi) {
     ai.goals.add(2, Goal::RestrictSun);
     ai.goals.add(3, Goal::FleeSun(FleeSun::default()));
-    ai.goals.add(3, Goal::AvoidEntity);
+    ai.goals.add(3, Goal::AvoidEntity(super::avoid::AvoidEntity::new(super::avoid::AvoidClass::Wolf, 6.0, 1.0, 1.2)));
     ai.goals.add(5, Goal::RandomStroll(RandomStroll::water_avoiding(1.0)));
     ai.goals.add(6, Goal::LookAtPlayer(LookAtPlayer::new(LookType::Player, 8.0)));
     ai.goals.add(6, Goal::RandomLookAround(RandomLookAround::default()));

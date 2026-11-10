@@ -125,6 +125,10 @@ pub enum TargetType {
     Axolotl,
     /// (tickexact 2026-11-10) `Player` with the slime's selector: within 4 up or down of it.
     SlimePlayer,
+    /// (mob-AI 2026-11-10) `Animal` with the wolf's `PREY_SELECTOR`: sheep, rabbits, foxes.
+    WolfPrey,
+    /// `AbstractSkeleton` (skeletons, strays, bogged, parched, wither skeletons): the wolf's.
+    Skeleton,
 }
 
 /// `NearestAttackableTargetGoal`.
@@ -134,12 +138,47 @@ pub struct NearestAttackableTarget {
     pub target_type: TargetType,
     pub random_interval: i32,
     pub found: Option<u32>,
+    /// `NonTameRandomTargetGoal` (a tamable animal's: only untamed, and it keeps its target while
+    /// its own conditions hold).
+    pub non_tame: bool,
 }
 
 impl NearestAttackableTarget {
     /// `new NearestAttackableTargetGoal<>(mob, type, randomInterval, mustSee, mustReach, selector)`.
     pub fn new(target_type: TargetType, interval: i32, must_see: bool, must_reach: bool) -> NearestAttackableTarget {
-        NearestAttackableTarget { base: TargetBase::new(must_see, must_reach), target_type, random_interval: super::reduced_tick_delay(interval), found: None }
+        NearestAttackableTarget { base: TargetBase::new(must_see, must_reach), target_type, random_interval: super::reduced_tick_delay(interval), found: None, non_tame: false }
+    }
+
+    /// `new NonTameRandomTargetGoal<>(mob, type, mustSee false, selector)`: interval 10.
+    pub fn non_tame(target_type: TargetType) -> NearestAttackableTarget {
+        NearestAttackableTarget { non_tame: true, ..NearestAttackableTarget::new(target_type, 10, false, false) }
+    }
+}
+
+/// `NonTameRandomTargetGoal.canContinueToUse()`: its own conditions on the target it found
+/// (`targetConditions.test`: the combat test, the follow range its last search set, the line of
+/// sight, its selector), and no `setTarget` (unlike `TargetGoal`'s).
+pub fn non_tame_can_continue(w: &mut World, i: usize, g: &mut NearestAttackableTarget) -> bool {
+    let Some(t) = g.found.and_then(|id| target::who(w, id)) else { return false };
+    let selected = match t {
+        Who::Entity(_) => target::type_of(w, t).is_some_and(|ty| selects(g.target_type, ty)),
+        Who::Player(_) => false,
+    };
+    let d = follow_range(w, i);
+    selected && Conditions::combat().range(d).test(w, i, t)
+}
+
+/// The mob types a `NearestAttackableTargetGoal` of type `t` looks for (its class and selector);
+/// the player kinds are found among the players.
+fn selects(t: TargetType, ty: MobType) -> bool {
+    match t {
+        TargetType::Villager => ty == MobType::Villager,
+        TargetType::IronGolem | TargetType::SpiderIronGolem => ty == MobType::IronGolem,
+        TargetType::BabyTurtle | TargetType::Endermite | TargetType::Axolotl => false,
+        TargetType::EnemyNotCreeper => is_enemy(ty),
+        TargetType::WolfPrey => matches!(ty.game_id(), "minecraft:sheep" | "minecraft:rabbit" | "minecraft:fox"),
+        TargetType::Skeleton => matches!(ty.game_id(), "minecraft:skeleton" | "minecraft:stray" | "minecraft:bogged" | "minecraft:parched" | "minecraft:wither_skeleton"),
+        TargetType::Player | TargetType::AngryPlayer | TargetType::SpiderPlayer | TargetType::DrownedPlayer | TargetType::SlimePlayer => false,
     }
 }
 
@@ -185,13 +224,7 @@ fn find_target(w: &mut World, i: usize, g: &mut NearestAttackableTarget) {
         }
         t => {
             let area: Aabb = w.entities.list[i].bb.inflate(d, d, d);
-            target::mobs_in(w, area, |ty| match t {
-                TargetType::Villager => ty == MobType::Villager,
-                TargetType::IronGolem | TargetType::SpiderIronGolem => ty == MobType::IronGolem,
-                TargetType::BabyTurtle | TargetType::Endermite | TargetType::Axolotl => false,
-                TargetType::EnemyNotCreeper => is_enemy(ty),
-                TargetType::Player | TargetType::AngryPlayer | TargetType::SpiderPlayer | TargetType::DrownedPlayer | TargetType::SlimePlayer => false,
-            })
+            target::mobs_in(w, area, |ty| selects(t, ty))
         }
     };
     g.found = target::nearest(w, i, &list, &cond, at).map(|t| target::id_of(w, t));

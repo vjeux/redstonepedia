@@ -33,6 +33,8 @@ pub fn base_attack_damage(w: &World, i: usize) -> f32 {
         "spider" | "cave_spider" => 2.0,
         "skeleton" | "stray" | "bogged" => 2.0,
         "pillager" | "vindicator" => 5.0,
+        // Wolf.createAttributes
+        "wolf" => 4.0,
         _ => 2.0,
     }
 }

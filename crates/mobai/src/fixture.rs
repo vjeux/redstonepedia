@@ -1046,6 +1046,70 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 0,
         });
     }
+    // (mob-AI 2026-11-10) a wolf pack, a sheep and a skeleton with a bow in a walled arena at
+    // night, a shallow pool in a corner: the wolves' goals (their prey, the skeleton, the leap and
+    // the bite, the stroll), their anger and alerts, a wet wolf's shake; the skeleton's
+    // AvoidEntityGoal of wolves and its arrows; the sheep's panic and its loot
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        wall(&mut b, (4, 4), (44, 4), 64, 3, stone);
+        wall(&mut b, (4, 44), (44, 44), 64, 3, stone);
+        wall(&mut b, (4, 4), (4, 44), 64, 3, stone);
+        wall(&mut b, (44, 4), (44, 44), 64, 3, stone);
+        for x in 34..=38 {
+            for z in 34..=38 {
+                b.push(([x, 63, z], "minecraft:water[level=0]".to_string()));
+            }
+        }
+        let p = |id: &str, at: [f64; 3], nbt: &str| (id.to_string(), at, Some(nbt.to_string()));
+        v.push(Scene {
+            name: "wolf-pack".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                p("minecraft:wolf", [20.5, 64.0, 20.5], "{PersistenceRequired:1b}"),
+                p("minecraft:wolf", [22.5, 64.0, 21.5], "{PersistenceRequired:1b}"),
+                p("minecraft:sheep", [30.5, 64.0, 26.5], "{PersistenceRequired:1b}"),
+                p("minecraft:skeleton", [12.5, 64.0, 34.5], "{PersistenceRequired:1b,equipment:{mainhand:{id:\"minecraft:bow\",count:1}}}"),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
+    // (mob-AI 2026-11-10) two wolves and a skeleton 8 apart at night: the skeleton's
+    // AvoidEntityGoal of wolves, the wolves' NearestAttackableTarget of skeletons, the fight
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        wall(&mut b, (4, 4), (44, 4), 64, 3, stone);
+        wall(&mut b, (4, 44), (44, 44), 64, 3, stone);
+        wall(&mut b, (4, 4), (4, 44), 64, 3, stone);
+        wall(&mut b, (44, 4), (44, 44), 64, 3, stone);
+        let p = |id: &str, at: [f64; 3], nbt: &str| (id.to_string(), at, Some(nbt.to_string()));
+        v.push(Scene {
+            name: "wolf-skeleton".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                p("minecraft:wolf", [20.5, 64.0, 20.5], "{PersistenceRequired:1b}"),
+                p("minecraft:wolf", [21.5, 64.0, 22.5], "{PersistenceRequired:1b}"),
+                p("minecraft:skeleton", [26.5, 64.0, 26.5], "{PersistenceRequired:1b,equipment:{mainhand:{id:\"minecraft:bow\",count:1}}}"),
+            ],
+            day_time: 18000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // a skeleton alone at night: strolls, looks around (RestrictSunGoal idle in the dark)
     {
         let mut b = Vec::new();

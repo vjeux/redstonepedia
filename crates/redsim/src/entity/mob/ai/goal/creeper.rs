@@ -16,8 +16,8 @@ use crate::world::World;
 pub fn register(ai: &mut MobAi) {
     ai.goals.add(1, Goal::Float);
     ai.goals.add(2, Goal::Swell);
-    ai.goals.add(3, Goal::AvoidEntity);
-    ai.goals.add(3, Goal::AvoidEntity);
+    ai.goals.add(3, Goal::AvoidEntity(super::avoid::AvoidEntity::new(super::avoid::AvoidClass::Ocelot, 6.0, 1.0, 1.2)));
+    ai.goals.add(3, Goal::AvoidEntity(super::avoid::AvoidEntity::new(super::avoid::AvoidClass::Cat, 6.0, 1.0, 1.2)));
     ai.goals.add(4, Goal::MeleeAttack(MeleeAttack::new(MeleeKind::Melee, 1.0, false)));
     ai.goals.add(5, Goal::RandomStroll(RandomStroll::water_avoiding(0.8)));
     ai.goals.add(6, Goal::LookAtPlayer(LookAtPlayer::new(LookType::Player, 8.0)));

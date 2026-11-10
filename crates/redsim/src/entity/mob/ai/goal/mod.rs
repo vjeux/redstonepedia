@@ -19,6 +19,8 @@ pub mod targets;
 pub mod zombie;
 pub mod drowned;
 pub mod spear;
+pub mod wolf;
+pub mod avoid;
 
 use super::{MobAi, ai_mut};
 use crate::entity::mob::types::MobType;
@@ -61,8 +63,9 @@ pub enum Goal {
     DefendVillage,
     /// `SwellGoal` (the creeper's fuse).
     Swell,
-    /// `AvoidEntityGoal` of cats or ocelots (none modeled).
-    AvoidEntity,
+    /// `AvoidEntityGoal` (a skeleton's of wolves, a creeper's of ocelots and cats, a fish's of
+    /// players).
+    AvoidEntity(avoid::AvoidEntity),
     /// `RestrictSunGoal` (the skeleton's: the navigation avoids the sun while it is bright).
     RestrictSun,
     /// `FleeSunGoal` (a burning skeleton's shade).
@@ -106,7 +109,7 @@ impl Goal {
             Goal::MoveTowardsTarget(_) => MOVE,
             Goal::OfferFlower(_) => MOVE | LOOK,
             Goal::DefendVillage => TARGET,
-            Goal::Swell | Goal::AvoidEntity => MOVE,
+            Goal::Swell | Goal::AvoidEntity(_) => MOVE,
             Goal::RestrictSun => 0,
             Goal::FleeSun(_) => MOVE,
             Goal::RangedBow(_) => MOVE | LOOK,
@@ -174,7 +177,7 @@ impl Goal {
             Goal::OfferFlower(_) => "OfferFlowerGoal",
             Goal::DefendVillage => "DefendVillageTargetGoal",
             Goal::Swell => "SwellGoal",
-            Goal::AvoidEntity => "AvoidEntityGoal",
+            Goal::AvoidEntity(_) => "AvoidEntityGoal",
             Goal::RestrictSun => "RestrictSunGoal",
             Goal::FleeSun(_) => "FleeSunGoal",
             Goal::RangedBow(_) => "RangedBowAttackGoal",
@@ -189,6 +192,7 @@ impl Goal {
             Goal::ResetUniversalAnger => "ResetUniversalAngerTargetGoal",
             Goal::HurtByTarget(_) => "HurtByTargetGoal",
             Goal::NearestAttackableTarget(n) => match n.target_type {
+                _ if n.non_tame => "NonTameRandomTargetGoal",
                 targets::TargetType::SpiderPlayer | targets::TargetType::SpiderIronGolem => "SpiderTargetGoal",
                 _ => "NearestAttackableTargetGoal",
             },
@@ -342,7 +346,7 @@ pub fn can_use(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::OfferFlower(g) => golem::flower_can_use(w, i, g),
         Goal::DefendVillage => golem::defend_can_use(w, i),
         Goal::Swell => creeper::swell_can_use(w, i),
-        Goal::AvoidEntity => false,
+        Goal::AvoidEntity(a) => avoid::can_use(w, i, a),
         Goal::RestrictSun => skeleton::restrict_sun_can_use(w, i),
         Goal::FleeSun(g) => skeleton::flee_sun_can_use(w, i, g),
         Goal::RangedBow(_) => skeleton::bow_can_use(w, i),
@@ -376,7 +380,7 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::OfferFlower(g) => g.tick > 0,
         Goal::DefendVillage | Goal::ResetUniversalAnger => false,
         Goal::Swell => creeper::swell_can_use(w, i),
-        Goal::AvoidEntity => false,
+        Goal::AvoidEntity(a) => avoid::can_continue(w, i, a),
         Goal::RestrictSun => skeleton::restrict_sun_can_use(w, i),
         Goal::FleeSun(_) => !super::nav_of(w, i).is_done(),
         Goal::RangedBow(_) => skeleton::bow_can_continue(w, i),
@@ -391,6 +395,7 @@ pub fn can_continue(w: &mut World, i: usize, g: &mut Goal) -> bool {
         Goal::Enderman(g) => enderman::can_use(w, i, g),
         Goal::Drowned(g) => drowned::can_continue(w, i, g),
         Goal::HurtByTarget(h) => targets::target_can_continue(w, i, &mut h.base),
+        Goal::NearestAttackableTarget(n) if n.non_tame => targets::non_tame_can_continue(w, i, n),
         Goal::NearestAttackableTarget(n) => targets::target_can_continue(w, i, &mut n.base),
     }
 }
@@ -411,7 +416,7 @@ pub fn start(w: &mut World, i: usize, g: &mut Goal) {
         Goal::OfferFlower(g) => golem::flower_start(w, i, g),
         Goal::DefendVillage | Goal::ResetUniversalAnger => {}
         Goal::Swell => creeper::swell_start(w, i),
-        Goal::AvoidEntity => {}
+        Goal::AvoidEntity(a) => avoid::start(w, i, a),
         Goal::RestrictSun => super::nav_of_mut(w, i).avoid_sun = true,
         Goal::FleeSun(g) => skeleton::flee_sun_start(w, i, g),
         Goal::RangedBow(_) => skeleton::bow_start(w, i),
@@ -444,7 +449,7 @@ pub fn stop(w: &mut World, i: usize, g: &mut Goal) {
         Goal::OfferFlower(g) => g.entity = None,
         Goal::DefendVillage | Goal::ResetUniversalAnger => {}
         Goal::Swell => super::ai_mut(w, i).swell_target = None,
-        Goal::AvoidEntity => {}
+        Goal::AvoidEntity(a) => avoid::stop(w, i, a),
         Goal::RestrictSun => super::nav_of_mut(w, i).avoid_sun = false,
         Goal::RangedBow(g) => skeleton::bow_stop(w, i, g),
         Goal::FleeSun(_) | Goal::LeapAtTarget | Goal::Cube(_) => {}
@@ -474,7 +479,7 @@ pub fn tick(w: &mut World, i: usize, g: &mut Goal) {
         Goal::OfferFlower(g) => golem::flower_tick(w, i, g),
         Goal::MoveTowardsTarget(_) | Goal::DefendVillage | Goal::ResetUniversalAnger => {}
         Goal::Swell => creeper::swell_tick(w, i),
-        Goal::AvoidEntity => {}
+        Goal::AvoidEntity(a) => avoid::tick(w, i, a),
         Goal::RangedBow(g) => skeleton::bow_tick(w, i, g),
         Goal::RestrictSun | Goal::FleeSun(_) | Goal::LeapAtTarget => {}
         Goal::Cube(c) => super::cube::tick(w, i, c),
