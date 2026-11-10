@@ -26,6 +26,10 @@ Every carousel part with timed controls prints its tolerance: how many ticks eac
 
 Each part's tolerance line also includes two corner runs: every timed control at its measured early limit together, then every one at its late limit, each with the entry-speed extreme, so a part whose margins hold only one at a time shows up; the assembly repeats the corners across its couplings.
 
+#### Works as placed, in build order (every part)
+
+Every carousel part's checks include a raw paste: the design file placed in build order, with no settle ticks and no shape or neighbour updates, must stay clean on the part's bench under the same pass criteria as the settled run. So every cell is written in its settled state (wire and rail shapes, repeater and comparator states, powered states consistent with their inputs), and anything that needs items or a pre-run state (a hopper's or dropper's stock, a sorter's fillers) is a listed build step, not a pre-stocked file state. Why: the wired loop matched the real game only when pasted the judge's way (shape-updated wires, a pre-stocked hopper); placed raw, its release failed from slot 1.
+
 ### Archived: measured, superseded by vjeux's single lane
 
 The 7-lane hold (stacked single carts, 100 of 100 seeds clean), the 7-state counter (v7 and v8, exact in the real game), the paired-lane geometry with its 7-lane junction yard (12,600 visits clean) and the scheduler core (0 lost slots over 120 days) stay as evidence with their benches and numbers. Their mechanisms carry over where the single lane needs them: the counter's fallback, the sensor budgets, the bed's release-and-reclaim, the BLOCK policy.
