@@ -288,7 +288,7 @@ fn turn2(s: &str) -> String {
 /// the module turned 180 degrees west of row B (frame: global = (-2 - x, y - 2, 10 - z)), its
 /// lines wired to the 18 queue controls head first, the tail windows (slots 1-2 ON at +88..+110,
 /// slot 0 +90..+116 from the departure) and the 21 control glass blocks replaced by stone.
-pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Option<&Path>) -> Result<()> {
+pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Option<&Path>, siding_ctl: Option<&Path>) -> Result<()> {
     // the chain, stretched so the group line (x -5, z 15..25) and the advance line (z 27..) do not
     // touch; the advance taps 2 gt early for the feeder repeaters (+36/56/76 -> +38/58/78 at the
     // controls); reset taps 8..44 keep the merge window to ~+58
@@ -598,6 +598,11 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         }
         siding_cells = crate::sidinggen::physical(&mut d, sp)?;
         println!("siding pasted at {:?}: {} cells added; controls divert {:?}, T1 {:?}, T2 {:?}, siding release {:?}", crate::sidinggen::SIDING_AT, siding_cells.len(), crate::sidinggen::DIVERT, crate::sidinggen::T1, crate::sidinggen::T2, crate::sidinggen::RELEASE);
+        if let Some(sched) = siding_ctl {
+            let more = crate::sidinggen::wire_control(&mut d, sched)?;
+            println!("siding control module at {:?}: {} cells (the scheduler, the night window, the windows, R', the visit-delay register, the routes to the 4 controls)", crate::sidinggen::MODULE_AT, more.len());
+            siding_cells.extend(more);
+        }
     }
     // (no ports: a mob-farm design runs by itself; the runner takes the cells as flags)
     let reset = b.ports.get("input.stand_reset").copied();

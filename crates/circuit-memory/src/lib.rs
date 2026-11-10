@@ -130,6 +130,13 @@ enum Cmd {
         #[arg(long)]
         placed_raw: bool,
     },
+    /// The bed siding's control module (crates/circuit-memory/src/sidinggen.rs; WIP).
+    SidingCtlGen {
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, default_value = "designs/farms/iron/parts/carousel-scheduler/carousel-loop-scheduler-v0.txt")]
+        sched: PathBuf,
+    },
     /// The bed siding's rejoin as a side drop into an empty queue slot (crates/circuit-memory/src/droptest.rs).
     DropTest {
         #[arg(long, default_value_t = 0.2)]
@@ -198,6 +205,10 @@ enum Cmd {
         /// routes, T1/T2 and the three side drops (sidinggen.rs; four bench controls for now).
         #[arg(long)]
         siding: Option<PathBuf>,
+        /// (with `--siding`) Wire the junctions' four controls from this scheduler design (the
+        /// siding control module: sidinggen.rs `wire_control`) instead of leaving them bench cells.
+        #[arg(long)]
+        siding_ctl: Option<PathBuf>,
     },
     /// The single-lane loop's nightly scheduler, generated (crates/circuit-memory/src/loopgen.rs).
     LoopGen {
@@ -429,11 +440,12 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::CounterV8 { v7, out } => counter8::generate(&v7, &out)?,
         Cmd::LoopGen { out, modules, offdelay } => loopgen::generate(&out, &modules, &offdelay)?,
         Cmd::ReleaseTrace { design, at, det, ticks } => releasebench::trace(&design, &at, &det, ticks)?,
+        Cmd::SidingCtlGen { out, sched } => sidinggen::control_gen(&out, &sched)?,
         Cmd::DropTest { speed, occupied, ticks, no_stop, staged } => {
             droptest::run(speed, occupied, ticks, !no_stop, staged)?;
         }
-        Cmd::ReleaseGen { out, offdelay, loop_file, siding } => match loop_file {
-            Some(l) => releasegen::generate_loop(&out, &l, &offdelay, siding.as_deref())?,
+        Cmd::ReleaseGen { out, offdelay, loop_file, siding, siding_ctl } => match loop_file {
+            Some(l) => releasegen::generate_loop(&out, &l, &offdelay, siding.as_deref(), siding_ctl.as_deref())?,
             None => releasegen::generate(&out, &offdelay)?,
         },
         Cmd::ReleaseBench { design, pulses, seed, miss, early, double, restarts, game, turns, placed_raw } => {
