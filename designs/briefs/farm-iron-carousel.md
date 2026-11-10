@@ -16,6 +16,14 @@ vjeux 05:58: "Okay, I don't think that my request has been correctly understood.
 4. **The sleep routine inside the loop** (ironfarm's mechanics, day-1's scheduler): each villager once a night, alone, to the one bed and back into its own cart before its batch reaches the head again (a cart reaching the station empty leaves a batch of 2, which can't summon); the BLOCK policy and the gap-window contract carry over, keyed to the queue's release order instead of the counter's lines.
 5. **Assembly**: the timing diagram checks every coupling (golem pulse → release → arrival margin → slot → leave → return → tail; the sleep visits against the queue).
 
+#### Part 1: the stand catch (decided Nov 10, 9:49 AM)
+
+Baseline: the 2-tick redstone catch, which powers the stand's brake at +25/+26 gt after the stand detector fires. It is accepted so the wired run proceeds, and it is bridged against the real game (a bridge scene of the catch, tick-exact against redsim). In parallel, farmopt and ironfarm build a stop-based stand: a physical stop with no brake timing (about 15 gt faster), with re-spacing on the return path to restore the queue's 3-cell period. The stop-based stand replaces the baseline once it passes the same benches (the full-loop bench and the station bench with the real release).
+
+#### Tolerance, a measured line for every part with timed controls
+
+Every carousel part with timed controls prints its tolerance: how many ticks each control's timing can move early and late, and how much cart-speed perturbation at the part's entry (± blocks per tick) it survives with its contract met. Each is measured on the part's bench by sweeping one perturbation at a time to the first failure. The assembly prints the same for its couplings. A part with 0 ticks of tolerance in either direction on any control is flagged.
+
 ### Archived: measured, superseded by vjeux's single lane
 
 The 7-lane hold (stacked single carts, 100 of 100 seeds clean), the 7-state counter (v7 and v8, exact in the real game), the paired-lane geometry with its 7-lane junction yard (12,600 visits clean) and the scheduler core (0 lost slots over 120 days) stay as evidence with their benches and numbers. Their mechanisms carry over where the single lane needs them: the counter's fallback, the sensor budgets, the bed's release-and-reclaim, the BLOCK policy.
