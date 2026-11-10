@@ -196,12 +196,13 @@ fn print_probed(f: &Frame, ours: &Frame) {
         eprintln!("t{} #{n} game:   {:?}", f.t, g.map(|e| (&e.ty, &e.item, e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time, e.yaw, &e.memories)));
         eprintln!("t{} #{n} redsim: {:?}", f.t, o.map(|e| (&e.ty, &e.item, e.pos, e.motion, e.on_ground, e.fire, e.health, e.hurt_time, e.yaw, &e.memories)));
         // (tickexact 2026-11-10) the game's other entities within 3 of it (who picks it up, who
-        // pushes it)
+        // pushes it); MCTAS_EXACT_NEAR=R widens it (whom it targets)
         if let Some(c) = g {
+            let r: f64 = std::env::var("MCTAS_EXACT_NEAR").ok().and_then(|v| v.parse().ok()).unwrap_or(3.0);
             let near: Vec<String> = f
                 .entities
                 .iter()
-                .filter(|e| e.n != n && (0..3).map(|k| (e.pos[k] - c.pos[k]).powi(2)).sum::<f64>() < 9.0)
+                .filter(|e| e.n != n && (0..3).map(|k| (e.pos[k] - c.pos[k]).powi(2)).sum::<f64>() < r * r)
                 .map(|e| format!("#{} {} at {:.2} {:.2} {:.2}", e.n, e.ty, e.pos[0], e.pos[1], e.pos[2]))
                 .collect();
             if !near.is_empty() {

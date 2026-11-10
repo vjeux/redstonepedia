@@ -1038,6 +1038,15 @@ pub fn air_drag() -> f64 {
 /// rafts, whose seat is height x 0.8888889 = 0.5, are refused when mounting: `BoatState` does not
 /// tell them apart) minus the rider's vehicle attachment (`ridingOffset`: a zombie sits 0.7 lower).
 pub fn rider_offset(v: &EntityKind, rider: &MobState) -> Option<f64> {
+    rider_seat(v, rider).map(|(seat, ro)| seat + ro)
+}
+
+/// [`rider_offset`]'s two parts: the vehicle's passenger attachment's y and the rider's
+/// `ridingOffset` (its vehicle attachment, negated). `Entity.positionRider` takes the vehicle's
+/// position plus the first, then minus the rider's attachment: `(y + seat) + ridingOffset` in that
+/// order (tickexact 2026-11-10: `y + (seat + ridingOffset)` rounded a chicken jockey's baby zombie
+/// 2 ulps off, d1u-deep t11517).
+pub fn rider_seat(v: &EntityKind, rider: &MobState) -> Option<(f64, f64)> {
     // (floats where the game's attachment is a float, a double where it is one: the chicken's Vec3)
     let seat: f64 = match v {
         // `AbstractMinecart.getPassengerAttachmentPoint`: a villager (or a wandering trader) sits
@@ -1058,7 +1067,7 @@ pub fn rider_offset(v: &EntityKind, rider: &MobState) -> Option<f64> {
         EntityKind::Mob(m) if m.ty.def().id == "baby_chicken" => 0.375f32 as f64,
         _ => return None,
     };
-    Some(seat + rider.ty.def().riding_offset as f64)
+    Some((seat, rider.ty.def().riding_offset as f64))
 }
 
 /// `Entity.startRiding(vehicle)` as `summon <vehicle> .. {Passengers:[{id:<mob>}]}` sets it up:
@@ -1121,7 +1130,7 @@ pub fn ride_tick(w: &mut World, j: usize) {
     living::tick(w, j);
     if let Some(v) = w.entities.list[j].vehicle
         && let Some(vi) = crate::entity::index_of(w, v)
-        && let Some(off) = rider_offset(&w.entities.list[vi].kind, mob(w, j))
+        && let Some((seat, ro)) = rider_seat(&w.entities.list[vi].kind, mob(w, j))
     {
         let vp = w.entities.list[vi].pos;
         let (dx, dz) = boat_seat_offset(w, vi, j);
@@ -1140,7 +1149,10 @@ pub fn ride_tick(w: &mut World, j: usize) {
         } else {
             Vec3::ZERO
         };
-        w.entities.set_pos(j, vp.add(dx + shift.x, off + shift.y, dz + shift.z));
+        // getPassengerRidingPosition (the position plus the attachment), minus the rider's own
+        // vehicle attachment (0, -ridingOffset, 0)
+        let at = vp.add(dx + shift.x, seat + shift.y, dz + shift.z);
+        w.entities.set_pos(j, Vec3::new(at.x, at.y + ro, at.z));
         // AbstractHorse.positionRider / Chicken.positionRider: the rider's body takes the vehicle's
         if ai::goal::animal::is_horse(vid) || matches!(vid, "chicken" | "baby_chicken") {
             if let Some(vb) = mob(w, vi).ai.as_deref().map(|a| a.y_body_rot)

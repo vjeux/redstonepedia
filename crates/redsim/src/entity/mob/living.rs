@@ -1140,6 +1140,9 @@ fn root_vehicle(w: &World, id: u32) -> u32 {
 /// `Entity.isPushable` of the entities a mob can push.
 fn pushable(e: &entity::Entity) -> bool {
     match &e.kind {
+        // (tickexact 2026-11-10) AbstractHorse.isPushable: not while it carries a rider, nothing
+        // else (a zombie jockey's horse: a creeper pushing it got the push back, d1u-deep t7324)
+        EntityKind::Mob(m) if super::ai::goal::animal::is_horse(m.ty.def().id) => e.passengers.is_empty(),
         // a bat is never pushed (`Bat.isPushable`); a climbing mob is not (`LivingEntity.isPushable`:
         // `!onClimbable()`, a spider's its climbing flag as Spider.tick last set it)
         EntityKind::Mob(m) => {
