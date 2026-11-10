@@ -147,7 +147,8 @@ the delay chain; the release group window and the advance pulses off the same ch
 to hold, missed slots, double detections to merge), checks every `group` window's start against an
 exact model and its length, the three `adv` pulses after it (start + 38/58/78, 7..12 gt, identical)
 and that nothing else lights; `--restarts`/`--game` as for loop-bench, `--turns 1,2,3` repeats it
-turned. `release-gen --out F --loop <ironfarm's loop file>` builds the controller into a copy of
+turned, `--placed-raw` places the design raw (its written states and block entities, no shape or
+neighbour updates, no settle: "works as placed"). `release-gen --out F --loop <ironfarm's loop file>` builds the controller into a copy of
 the single-lane loop (work in progress): turned west of row B, its lines wired to the 21 controls
 (the release group, the 18 queue slots on one tick, the tail's close-off windows, the stand's three
 latches and their brake from the release run's detector rail), and writes `F.probe.txt` beside it

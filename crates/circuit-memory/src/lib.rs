@@ -158,6 +158,10 @@ enum Cmd {
         /// Quarter turns the same run is repeated on (comma-separated, e.g. 1,2,3).
         #[arg(long, value_delimiter = ',')]
         turns: Vec<u8>,
+        /// Place the design raw: written states and block entities, no shape or neighbour
+        /// updates, no settle ("works as placed").
+        #[arg(long)]
+        placed_raw: bool,
     },
     /// The single-lane loop's release controller, generated (crates/circuit-memory/src/releasegen.rs).
     ReleaseGen {
@@ -404,8 +408,8 @@ pub fn run(args: Vec<String>) -> Result<()> {
             Some(l) => releasegen::generate_loop(&out, &l, &offdelay)?,
             None => releasegen::generate(&out, &offdelay)?,
         },
-        Cmd::ReleaseBench { design, pulses, seed, miss, early, double, restarts, game, turns } => {
-            let ok = releasebench::bench(&design, &releasebench::Opts { pulses, seed, miss, early, double, restarts, game, turns })?;
+        Cmd::ReleaseBench { design, pulses, seed, miss, early, double, restarts, game, turns, placed_raw } => {
+            let ok = releasebench::bench(&design, &releasebench::Opts { pulses, seed, miss, early, double, restarts, game, turns, raw: placed_raw })?;
             if !ok {
                 anyhow::bail!("release-bench: violations");
             }

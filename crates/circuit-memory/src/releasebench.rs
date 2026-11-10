@@ -21,6 +21,32 @@ pub struct Opts {
     pub restarts: u32,
     pub game: u32,
     pub turns: Vec<u8>,
+    /// Place the design raw (ironspec 11:40, "works as placed"): written states, block entities
+    /// merged, no shape or neighbour updates, no settle.
+    pub raw: bool,
+}
+
+/// `clock::sim::drive_live` with the design placed RAW: every block in its written state, the block
+/// entities merged, no shape or neighbour updates and no settle ticks; then the ticks, `each`
+/// called before each one (false stops the run).
+pub fn drive_raw(c: &clock::Clock, ticks: u32, from: [i32; 3], to: [i32; 3], mut each: impl FnMut(u32, &mut redsim::world::World) -> bool) -> Result<Option<(u32, String)>, String> {
+    let mut blocks = clock::sim::parse_blocks(c).map_err(|e| format!("not modeled by redsim: {e}"))?;
+    blocks.sort_by_key(|(p, _)| *p);
+    let min = redsim::pos::BlockPos::new(from[0], from[1], from[2]);
+    let size = [to[0] - from[0] + 1, to[1] - from[1] + 1, to[2] - from[2] + 1];
+    let mut w = redsim::world::World::new(min, size);
+    w.place_raw(&blocks);
+    let lines: Vec<(redsim::pos::BlockPos, &str)> = c.design.block_entities.iter().map(|(p, s)| (redsim::pos::BlockPos::new(p[0], p[1], p[2]), s.as_str())).collect();
+    redsim::redstone::container::apply_block_entities(&mut w, lines).map_err(|e| format!("nbt: {e}"))?;
+    for t in 0..=ticks {
+        if !each(t, &mut w) {
+            return Ok(Some((t, String::new())));
+        }
+        if t < ticks {
+            w.tick();
+        }
+    }
+    Ok(None)
 }
 
 /// The circuit's constants (sim-measured on release-gen v1): group = golem + 4 when idle; a held
@@ -144,7 +170,7 @@ fn run_circuit(c: &Circuit, design: &Path, o: &Opts, recorded: &mut Vec<(u32, cl
         }
         *bad += 1;
     };
-    let res = clock::sim::drive_live(&cc.clock, &[], ticks_cap, from, to, |t, w| {
+    let cb = |t: u32, w: &mut redsim::world::World| -> bool {
         let g = t as u64;
         while ri < reloads.len() && reloads[ri] <= t {
             if reloads[ri] == t {
@@ -222,9 +248,10 @@ fn run_circuit(c: &Circuit, design: &Path, o: &Opts, recorded: &mut Vec<(u32, cl
         group_was = gv;
         adv_was = av;
         !done_at.is_some_and(|d| t >= d)
-    });
+    };
+    let res = if o.raw { drive_raw(&cc.clock, ticks_cap, from, to, cb) } else { clock::sim::drive_live(&cc.clock, &[], ticks_cap, from, to, cb).map_err(|(_, why)| why) };
     match res {
-        Err((_, why)) => bail!("the run failed: {why}"),
+        Err(why) => bail!("the run failed: {why}"),
         Ok(Some((t, why))) if !why.is_empty() => bail!("the run stopped at tick {t}: {why}"),
         _ => {}
     }

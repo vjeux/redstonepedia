@@ -119,8 +119,18 @@ fn core(b: &mut B, chain: &[It], group_to: i32) -> Result<(Vec<(i32, u8)>, i32)>
     b.on([1, y, -2], &rep("east", 1))?; // R_r
     b.put([0, y, -2], STONE)?;
     b.on([0, y, -1], &comp("north", "subtract"))?; // the refill, into I2
-    // ---- the delay chain along x 5 from z -5
-    let mut z = -5;
+    // ---- v2: the chain's pulse shortener. C (5,-5) = REL (rear, the dust (5,-4)) minus REL 10 gt
+    // late (side: R4 (6,-3) off the REL dust, dust (7,-3..-5), R1 (6,-5)): the chain carries a
+    // 10-gt copy of REL (ironfarm/ironspec 11:12: 10-gt advance pulses). REL itself stays 12 gt
+    // (the refill and BUSY are unchanged)
+    b.on([5, y, -5], &comp("south", "subtract"))?;
+    b.on([6, y, -3], &rep("west", 4))?;
+    for c in [[7, y, -3], [7, y, -4], [7, y, -5]] {
+        b.on(c, DUST)?;
+    }
+    b.on([6, y, -5], &rep("east", 1))?;
+    // ---- the delay chain along x 5 from z -6
+    let mut z = -6;
     let mut stones = Vec::new();
     for it in chain {
         match *it {
@@ -132,30 +142,34 @@ fn core(b: &mut B, chain: &[It], group_to: i32) -> Result<(Vec<(i32, u8)>, i32)>
                     b.on([4, y, z], &rep("east", 1))?; // out west into x 3
                 }
                 if f & RS != 0 {
-                    b.on([6, y, z], &rep("west", 1))?; // out east into the reset line (x 7)
+                    b.on([6, y, z], &rep("west", 1))?; // out east, dust (7,z) (8,z) into the reset line (x 9)
+                    b.on([7, y, z], DUST)?;
+                    b.on([8, y, z], DUST)?;
                 }
                 stones.push((z, f));
             }
         }
         z -= 1;
     }
-    // the release group: REL through R_g (4,-4) (a diode, so nothing flows back into REL) and the
-    // group taps
-    b.on([4, y, -4], &rep("south", 1))?;
-    b.on([4, y, -5], DUST)?;
+    // the release group: REL through R_g (3,-4) (a diode, so nothing flows back into REL; at x 3, so
+    // the shortener's west side (4,-5) stays empty) and the group taps
+    b.on([3, y, -4], &rep("south", 1))?;
     for zz in group_to..=-5 {
         b.on([3, y, zz], DUST)?;
     }
-    // the bulb's reset line: x 7 from the farthest reset tap to the bulb, restored at z -5, south of
-    // every tap, so all taps reach the bulb with the same delay and consecutive windows overlap
+    // the bulb's reset line: x 9 from the farthest reset tap, restored at z -5 (south of every tap,
+    // so all taps reach the bulb with the same delay and consecutive windows overlap), then west
+    // along z -1 and into the bulb
     let far = stones.iter().filter(|s| s.1 & RS != 0).map(|s| s.0).min().unwrap_or(-1);
     for zz in far..=-1 {
         if zz == -5 {
-            b.on([7, y, zz], &rep("north", 1))?;
+            b.on([9, y, zz], &rep("north", 1))?;
         } else {
-            b.on([7, y, zz], DUST)?;
+            b.on([9, y, zz], DUST)?;
         }
     }
+    b.on([8, y, -1], DUST)?;
+    b.on([7, y, -1], DUST)?;
     b.on([7, y, 0], &rep("north", 1))?; // into the bulb
     // the advance line: x 3 between the advance taps
     let adv: Vec<i32> = stones.iter().filter(|s| s.1 & A != 0).map(|s| s.0).collect();
@@ -176,14 +190,69 @@ fn new_b() -> B {
 pub fn generate(out: &Path, _offdelay: &Path) -> Result<()> {
     let mut b = new_b();
     let y = 1;
-    let chain = [R(4), S(G | RS), R(4), S(G | RS), R(4), S(G | RS), R(4), S(RS), R(3), S(A | RS), R(4), S(RS), R(4), S(0), R(2), S(A), R(4), S(0), R(4), S(0), R(2), S(A)];
+    // v2 (the shortener C at z -5 gives the first 2 gt): stones at REL + 8, 16, 24 (group), 32,
+    // 38 (A1), 46, 48 (the merge window to + 58 with 10-gt copies), 58 (A2), 78 (A3)
+    let chain = [R(3), S(G | RS), R(4), S(G | RS), R(4), S(G | RS), R(4), S(RS), R(3), S(A | RS), R(4), S(RS), R(1), S(RS), R(3), R(2), S(A), R(4), R(4), R(2), S(A)];
     let (stones, _) = core(&mut b, &chain, -11)?;
     b.on([2, y, -11], DUST)?;
     b.ports.insert("output.group".into(), [1, y, -11]);
     let last_a = stones.iter().filter(|s| s.1 & A != 0).map(|s| s.0).min().unwrap_or(0);
     b.on([3, y, last_a - 1], DUST)?;
     b.ports.insert("output.adv".into(), [3, y, last_a - 2]);
-    save(b, out, "carousel-release-controller")
+    save(b, out, "carousel-release-controller")?;
+    // the at-rest state (wire shapes, the torch, the two comparators on at rest with their outputs),
+    // so the file works placed raw, as a player builds it (the parent / tick-exact 11:33)
+    let mut d = Design::load(out)?;
+    let cells: Vec<P3> = d.blocks.keys().copied().collect();
+    let (states, outs) = settle(out, &cells)?;
+    apply_settled(&mut d, &states, &outs);
+    d.save(out)?;
+    Ok(())
+}
+
+/// The design's at-rest block states after the judge's placement and 40 quiet ticks (no input):
+/// each cell's state, and every comparator's stored output.
+fn settle(design: &Path, cells: &[P3]) -> Result<(BTreeMap<P3, String>, BTreeMap<P3, u8>)> {
+    use anyhow::anyhow;
+    let c = circuit::Circuit::load(design)?;
+    let cc = c.with_consumers().map_err(|e| anyhow!("{e:#}"))?;
+    let (from, to) = circuit::run::watch_box(&c, 3);
+    let mut states = BTreeMap::new();
+    let mut outs = BTreeMap::new();
+    let res = clock::sim::drive_live(&cc.clock, &[], 41, from, to, |t, w| {
+        if t == 40 {
+            for p in cells {
+                let bp = redsim::pos::BlockPos::new(p[0], p[1], p[2]);
+                states.insert(*p, w.get(bp).to_string());
+                if let Some(o) = w.comparator_out.get(&bp) {
+                    outs.insert(*p, *o);
+                }
+            }
+            return false;
+        }
+        true
+    });
+    if let Err((_, why)) = res {
+        bail!("settle: {why}");
+    }
+    Ok((states, outs))
+}
+
+/// Writes the settled states into the design (the cells settled), and each comparator's output as
+/// its block entity (`OutputSignal`), so a raw paste starts at rest.
+fn apply_settled(d: &mut Design, states: &BTreeMap<P3, String>, outs: &BTreeMap<P3, u8>) {
+    for (p, s) in states {
+        if let Some(old) = d.blocks.get_mut(p) {
+            if !old.starts_with("minecraft:hopper") {
+                *old = s.clone();
+            }
+        }
+    }
+    for (p, o) in outs {
+        if *o > 0 {
+            d.block_entities.insert(*p, format!("{{OutputSignal:{o}}}"));
+        }
+    }
 }
 
 fn save(b: B, out: &Path, name: &str) -> Result<()> {
@@ -224,16 +293,15 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()
     // touch; the advance taps 2 gt early for the feeder repeaters (+36/56/76 -> +38/58/78 at the
     // controls); reset taps 8..44 keep the merge window to ~+58
     let chain = [
-        R(4), S(G | RS), // +8
+        R(3), S(G | RS), // +8 (after the shortener C at z -5)
         R(4), S(G | RS), // +16
         R(4), S(G | RS), // +24
-        R(1), D, R(1), D, R(1), D, S(A | RS), // +30 (A1; zero skew pads every slot to row A's path)
+        R(1), D, R(2), D, D, S(A | RS), // +30 (A1; zero skew pads every slot to row A's path)
         R(4), S(RS), // +38
         R(4), S(RS), // +46
-        R(2), S(A), // +50 (A2)
-        R(4), S(0), // +58
-        R(4), S(0), // +66
-        R(2), S(A), // +70 (A3)
+        R(1), S(RS), // +48 (10-gt copies: the merge window to + 58)
+        R(1), S(A), // +50 (A2)
+        R(4), R(4), R(2), S(A), // +70 (A3)
     ];
     let mut m = new_b();
     let (stones, _) = core(&mut m, &chain, -15)?;
@@ -344,17 +412,20 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()
     b.on([8, -2, zl - 1], DUST)?;
     b.on([8, -1, zl - 2], DUST)?;
     // the chain (x 8, y -1) from z zl - 3 toward -z
+    // (v2: 10-gt copies, so the stones overlap by 2 gt: N1 86/94/102/106 → control + 92..+ 122,
+    // N0 86/94/102/108 → + 92..+ 124)
     let chain_tail: [(i32, It); 15] = [
         (40, R(2)),
         (39, D), (38, D), (37, D), (36, D), (35, D),
         (34, S(0)), // golem + 86: N1 + N0
-        (33, R(4)), (32, R(1)),
-        (31, S(0)), // + 96: N1 + N0
-        (30, R(4)),
-        (29, S(0)), // + 104: N1
-        (28, R(1)),
-        (27, S(0)), // + 106: N0
-        (26, D),
+        (33, R(4)),
+        (32, S(0)), // + 94: N1 + N0
+        (31, R(4)),
+        (30, S(0)), // + 102: N1 + N0
+        (29, R(2)),
+        (28, S(0)), // + 106: N1
+        (27, R(1)),
+        (26, S(0)), // + 108: N0 (into its climb's support (6,-1,26))
     ];
     for (z, it) in chain_tail {
         match it {
@@ -364,10 +435,10 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()
             S(_) => b.put([8, yy, z], STONE)?,
         }
     }
-    for z in [34, 31, 27] {
+    for z in [34, 32, 30, 26] {
         b.on([7, yy, z], &rep("east", 2))?; // N0 taps (+4)
     }
-    for z in [34, 31, 29] {
+    for z in [34, 32, 30, 28] {
         b.on([9, yy, z], &rep("west", 1))?; // N1 taps into x 10
     }
     for z in 24..=34 {
@@ -521,6 +592,21 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path) -> Result<()
         probe.ports.insert(format!("output.{n}"), *c);
     }
     probe.ports.insert("input.golem".into(), golem);
+    probe.save(&out.with_extension("probe.txt"))?;
+    // the controller's at-rest state, settled with the whole loop's blocks around it (a booster's
+    // redstone block beside a wire counts), written into the loop file and the probe
+    let mut sd = Design::parse("name: carousel-release-loop-settle\n")?;
+    sd.blocks = d.blocks.clone();
+    sd.block_entities = d.block_entities.clone();
+    sd.ports.insert("input.golem".into(), golem);
+    let settle_path = out.with_extension("settle.txt");
+    sd.save(&settle_path)?;
+    let cells: Vec<P3> = b.blocks.keys().copied().collect();
+    let settled = settle(&settle_path, &cells);
+    let _ = std::fs::remove_file(&settle_path);
+    let (states, outs) = settled?;
+    apply_settled(&mut d, &states, &outs);
+    apply_settled(&mut probe, &states, &outs);
     probe.save(&out.with_extension("probe.txt"))?;
     d.name = "carousel-release-loop-wired".into();
     d.save(out)?;

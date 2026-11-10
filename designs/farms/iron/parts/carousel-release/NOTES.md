@@ -30,6 +30,24 @@ benched by `mctas circuit memory release-bench`.
   - Taps + 8 / + 16 / + 24 plus REL through a diode make the group window.
   - Taps + 38 / + 58 / + 78 make the advance line.
 
+## v2 (2026-11-10 11:50): carousel-release-v2.txt (309 blocks)
+- **10-gt advance pulses** (ironfarm's no-catch table, ironspec 11:13: 12-gt pulses left advance 2's width 0 gt late; 10 gt gives − 1..+ 2).
+  - A subtract comparator at the chain's start (REL minus REL 10 gt late, through R4 (6,-3) and R1 (6,-5)) gives the chain a 10-gt copy of REL.
+  - REL itself stays 12 gt, so the refill, BUSY, the hold (+ 92) and the fallback (+ 106) are unchanged.
+  - To make room, the bulb's reset line moved from x 7 to x 9 (each reset tap: a repeater and two dust), and the group's diode R_g moved to (3,-4).
+  - Group window 34 gt (golem + 4..+ 38). An extra reset tap on a + 48 stone keeps the merge window at 58 with the shorter copies.
+  - In the loop, the tail windows' chain stones overlap by 2 gt: slot 1 86/94/102/106, slot 0 86/94/102/108; slot 2 OFF t0 + 98.
+- **Works as placed** (the parent / tick-exact / ironspec 11:33..11:40). Every cell is written in its at-rest state: redsim after the judge's placement and 40 quiet ticks, settled with the whole loop's blocks around the controller. That covers wire shapes and powers, the lit torch, and repeater and comparator flags.
+  - The two comparators on at rest carry their output as block-entity data (`OutputSignal`): the hopper reader = 2 and the ARMED gate's NA = 15.
+  - At rest: no input, the ring empty, every bulb unlit, ARMED off. Nothing is mid-pulse.
+  - **Build step:** put 23 stone (any 23 items of a 64-stack kind) in the hopper. Its comparator reads 2, the busy threshold.
+- **Bench, module alone:**
+  - 100k slots, seed 1 (5/5/10% missed/early/doubled): 0 violations; 20 restarts and turns 90/180/270°: identical tick for tick.
+  - 3,000 slots placed raw (`release-bench --placed-raw`: written states, block entities merged, no updates, no settle): 0 violations; 100k slots seed 2 (15/15/30%) placed raw: 0 violations.
+  - Real game (judge's placement): IDENTICAL over 50,001 ticks (500 slots, 15/15/30%).
+- **Bench, wired loop** (ironfarm a5f46f390), `--tail-check-at 43`: 3 × 60 and 10 × 300 clean (judge's placement); 3 × 60 clean placed raw (ironfarm's `--placed-raw`).
+  - The hopper's stock is what matters placed raw (tick-exact 11:59): with the 23 stone merged, even v1 runs 60 slots at 0 differences against the game placed raw; its earlier raw failure was a run without the container merge.
+
 ## v1 (2026-11-10 09:40): carousel-release-v1.txt (261 blocks)
 Changes from v0, each found while wiring it into ironfarm's loop:
 - **No release at power-on.** In v0 the empty ring fired the fallback at once. Now ARMED, a one-repeater loop set by the first golem, gates the fallback.
@@ -52,7 +70,7 @@ The generated file is designs/farms/iron/parts/carousel-loop/carousel-single-lan
 The controller is built into a copy of ironfarm's carousel-single-lane-loop-wip.txt, west of row B (turned 180°); 761 blocks of redstone in all.
 - **Release group:** its line feeds the 3 group controls by dust: ON at golem + 4 (= t0) for 36 gt.
 - **Advance:** slots 3..17 all on one tick (t0 + 38/58/78, 12 gt): each feeder's delay pads its path to the slowest (row A). The 3 descending tail slots get it 2 gt later, through their own diodes (ironfarm 10:30: fine).
-- **Tail windows** (each slot its own net, merged into the 3rd advance), t0-relative: slot 2 OFF at + 100, slot 1 at + 118, slot 0 at + 120 (ironfarm 10:58).
+- **Tail windows** (each slot its own net, merged into the 3rd advance), t0-relative: slot 2 OFF at + 100 (v2: + 98, inside ironfarm's + 92..+ 114), slot 1 at + 118, slot 0 at + 120 (ironfarm 10:58).
   - Slots 1 and 0: an east-side chain from the delay chain's last advance stone, run under the loop at y -3 and up at x 8; stones at golem + 86/96/104/106. Slot 0's taps go into its x 6 feed line, slot 1's through an OR line along x 10 and the z 24 line.
   - Slot 2: a branch off the y -3 line along x 3, into the support block of slot 2's net.
   - Each net gets the advance through its own diode, so a short window can't leak into a longer one.
@@ -69,7 +87,7 @@ The controller is built into a copy of ironfarm's carousel-single-lane-loop-wip.
 - **Tolerance** (ironfarm's sweeps, bench-driven with these times and a stand forced to deliver, at-rest check, one control at a time; t0-relative):
   - release end − 10..+ 16; S1 − 6..+ 3, S2 − 2..+ 6, S3 − 3..+ 6; tail slot 1 − 3..+ 2, slot 0 − 2..+ 3; slot 2 + 92..+ 114 (wired + 100: − 8..+ 14);
   - corners: every control at its early limit together, then every one at its late limit together: both pass;
-  - **flags:** advance 2's width with 12-gt pulses − 3..0 (0 late; v2 shapes the pulses to 10 gt); the stand brake, the 2-tick catch: redstone + 28 only (0 either way; farmopt's stop-based stand replaces it).
+  - **flags:** advance 2's width with v1's 12-gt pulses − 3..0 (0 late; fixed in v2: 10-gt pulses, − 1..+ 2); the stand brake, the 2-tick catch: redstone + 28 only (0 either way; farmopt's stop-based stand replaces it).
 
 ## Bench (2026-11-10 08:28)
 - 100,000 slots × 2 seeds, 0 violations against the exact model:
