@@ -71,6 +71,29 @@ pub fn props_of(b: &Block) -> Result<LightProps, String> {
     }
 }
 
+/// `BlockState.useShapeForLightOcclusion` of a redsim block (its natural-state row's), for
+/// `LightEngine.hasDifferentLightProperties`.
+pub fn uses_shape(b: &Block) -> bool {
+    let row = match *b {
+        Block::Air | Block::Fire { .. } => return false,
+        Block::Terrain(id) => Some(id),
+        _ => super::blocks::id_of(&b.to_string()),
+    };
+    row.is_some_and(|id| super::blocks::props(id).shape_occlusion)
+}
+
+/// `LightEngine.hasDifferentLightProperties(old, new)`: another state, and another dampening or
+/// emission, or either one occluding by its shape (the cells the game's light engines check).
+pub fn different_light(old: &Block, new: &Block) -> bool {
+    if old == new {
+        return false;
+    }
+    match (props_of(old), props_of(new)) {
+        (Ok(a), Ok(b)) => a.dampening != b.dampening || a.emission != b.emission || uses_shape(old) || uses_shape(new),
+        _ => true,
+    }
+}
+
 /// [`props_of`] of a state with a block of its own, by its name in the natural-state table.
 fn props_of_named(b: &Block) -> Result<LightProps, String> {
     let name = b.to_string();
