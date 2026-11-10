@@ -1288,6 +1288,10 @@ pub struct Visit {
     pub release: BlockPos,
     pub every: i64,
     pub from: i64,
+    /// The siding's release per stand cart (its drop slot's route), `release_at` where unset.
+    pub release_k: [Option<i64>; 3],
+    /// The release control per stand cart (a hold on each drop line), `release` where unset.
+    pub release_cells: [Option<BlockPos>; 3],
 }
 
 /// One nap visit as it runs (see `Visit`).
@@ -1299,6 +1303,7 @@ struct VisitRun {
     rider: Option<u32>,
     batch: Vec<u32>,
     sleep: (Option<i64>, Option<i64>),
+    ready: Option<i64>,
     on_rail: bool,
     rolled: Option<(i64, f64)>,
     back: Option<(i64, usize)>,
@@ -1741,6 +1746,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     }
     let mut side_cart: Option<u32> = None;
     let mut side_rest: Option<(i64, f64, usize)> = None;
+    let mut side_next: Vec<(usize, i64)> = Vec::new();
     let first = run.world.entities.next_id;
     for (ty, pos, nbt) in &spec.entities {
         redsim::entity::spawn(&mut run.world, ty, *pos, nbt.as_deref())?;
@@ -2124,10 +2130,15 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                         away.remove(&id);
                         returned.insert(id);
                     }
+                } else if let Some(s) = place_of(&run.world, id) {
+                    // (then each slot it moves on to, first at rest there: the next advances)
+                    if side_next.last().map_or(side_rest.map(|r| r.2), |l| Some(l.0)) != Some(s) {
+                        side_next.push((s, dt + 100 * (c - cy)));
+                    }
                 }
                 if c == cy + 2 && dt == 99 {
                     match side_rest {
-                        Some((at, along, s)) => arrivals.push(format!("side drop: the cart from slot {park}, back by the side rail at slot {slot} at +{d} ({} {v} b/t), first at rest in slot {s} at +{at} (z offset {along:.2} in the cell)", if sd.staged { "staged, arriving at" } else { "at" })),
+                        Some((at, along, s)) => arrivals.push(format!("side drop: the cart from slot {park}, back by the side rail at slot {slot} at +{d} ({} {v} b/t), first at rest in slot {s} at +{at} (z offset {along:.2} in the cell); then at rest in {}", if sd.staged { "staged, arriving at" } else { "at" }, side_next.iter().map(|(s, t)| format!("slot {s} at +{t}")).collect::<Vec<_>>().join(", "))),
                         None => problems.push(format!("side drop: the cart from slot {park} (back at slot {slot} at +{d}) never at rest in a queue or stand slot by slot {}'s end", cy + 2)),
                     }
                 }
@@ -2144,7 +2155,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             let mut sets: Vec<(BlockPos, Block)> = Vec::new();
             for vr in visits.iter() {
                 let d0 = vr.slot * 100 + v.divert_at + 10 * vr.k as i64;
-                let r0 = vr.slot * 100 + v.release_at;
+                let r0 = vr.slot * 100 + v.release_k[vr.k.min(2)].unwrap_or(v.release_at);
                 if now == d0 - 1 {
                     sets.push((v.divert, target.clone()));
                 }
@@ -2167,10 +2178,10 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                     }
                 }
                 if now == r0 {
-                    sets.push((v.release, on.clone()));
+                    sets.push((v.release_cells[vr.k.min(2)].unwrap_or(v.release), on.clone()));
                 }
                 if now == r0 + 10 {
-                    sets.push((v.release, off.clone()));
+                    sets.push((v.release_cells[vr.k.min(2)].unwrap_or(v.release), off.clone()));
                 }
             }
             for (cell, b) in sets {
@@ -2416,7 +2427,17 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                             vr.sleep.1 = Some(now);
                         }
                     }
-                    if vr.rolled.is_none() && now > v.release_at {
+                    // (ready: at rest on the siding's exit slot, over its release control)
+                    if vr.ready.is_none() {
+                        if let Some(i) = redsim::entity::index_of(&run.world, id) {
+                            let e = &run.world.entities.list[i];
+                            let rc = v.release_cells[vr.k.min(2)].unwrap_or(v.release);
+                            if e.pos.x.floor() as i32 == rc.x && e.pos.z.floor() as i32 == rc.z && (e.pos.y - (rc.y as f64 + 1.0)).abs() < 1.0 && e.delta_movement.horizontal_distance() < 0.01 {
+                                vr.ready = Some(now);
+                            }
+                        }
+                    }
+                    if vr.rolled.is_none() && now > v.release_k[vr.k.min(2)].unwrap_or(v.release_at) {
                         if let Some(i) = redsim::entity::index_of(&run.world, id) {
                             let e = &run.world.entities.list[i];
                             // (on the drop rail first: west of the slot's cell at the peaks'
@@ -2773,7 +2794,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 continue;
             }
             done += 1;
-            out.push(format!("visit slot {} cart {}: rider asleep {}; rolled off its drop rail {}; back at rest {}", vr.slot, vr.k, match vr.sleep { (Some(a), Some(b)) => format!("+{a}..+{b}"), _ => "never".into() }, vr.rolled.map_or("never".into(), |(t, s)| format!("at +{t} at {s:.2} b/t")), vr.back.map_or("never".into(), |(t, s)| format!("in slot {s} at +{t}"))));
+            out.push(format!("visit slot {} cart {}: rider asleep {}; ready at the siding's exit {}; rolled off its drop rail {}; back at rest {}", vr.slot, vr.k, match vr.sleep { (Some(a), Some(b)) => format!("+{a}..+{b}"), _ => "never".into() }, vr.ready.map_or("never".into(), |t| format!("+{t}")), vr.rolled.map_or("never".into(), |(t, s)| format!("at +{t} at {s:.2} b/t")), vr.back.map_or("never".into(), |(t, s)| format!("in slot {s} at +{t}"))));
             if vr.sleep.0.is_none() {
                 problems.push(format!("visit (slot {}, cart {}): the napper never slept", vr.slot, vr.k));
             }
