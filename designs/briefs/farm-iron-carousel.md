@@ -138,9 +138,11 @@ the timing diagram checks every coupling.
    that keep CANT_REACH young (rule 1). Held batches may panic (hold zombies in sight, out of
    reach) so they never run REST: then the hold's own summon search has no spawnable floor (a
    static check), and only the napper is calm. At every night tick, every villager except the
-   napper is in PANIC, the batch in transit included (a zombie in its sight at every
-   VillagerHostilesSensor scan along the lanes, or the transit shorter than the gap between two of
-   its scans with the zombie in sight at both ends). A villager that calms at night enters REST,
+   napper is in PANIC, the batch in transit included. In PANIC at every night tick holds only
+   while NEAREST_HOSTILE never clears, i.e. a zombie within 8 and in the villager's sight at every
+   VillagerHostilesSensor scan; transit and hand-offs keep a zombie in sight throughout (a gap
+   longer than the visible list's 20-gt window lets VillagerCalmDown hand the villager to REST).
+   A villager that calms at night enters REST,
    and if its CANT_REACH (armed by day) is older than 1200 gt it releases the shared bed at its
    first REST tick; with one ticket, only one releaser can re-take it, so a second releaser loses
    HOME for good. The static gate covers every position a villager
