@@ -570,6 +570,66 @@ pub fn piglins(version: &str, ticks: u32) -> Result<()> {
     Ok(())
 }
 
+/// `mctas mobai portal-probe --ticket`: the PORTAL ticket's window on the official server: a golem
+/// through into the probe's Nether build (its chunks released), an item summoned beside the Nether
+/// portal 5 ticks after the crossing, and the item's `Age` read every tick from 280 to 330 ticks
+/// after the crossing: the last tick it grew is the window's last (measured: 305 after the crossing,
+/// the item gone with its chunk at 306; redsim's `entity::portal::PORTAL_TICKS`).
+pub fn ticket(version: &str) -> Result<()> {
+    let mut srv = VanillaServer::start(&VanillaOptions { version: version.to_string(), difficulty: "easy".into(), ..Default::default() })?;
+    srv.cmd_ok("gamerule spawn_mobs false")?;
+    srv.cmd_ok("gamerule advance_time false")?;
+    srv.cmd_ok("forceload add 0 0 47 47")?;
+    srv.step(40)?;
+    for (p, s) in room() {
+        srv.cmd_ok(&format!("setblock {} {} {} {s}", p[0], p[1], p[2]))?;
+    }
+    let n = |c: &str| format!("execute in minecraft:the_nether positioned 0 0 0 run {c}");
+    srv.cmd_ok(&n("forceload add -16 -16 15 15"))?;
+    srv.step(40)?;
+    srv.cmd_ok(&n("fill -8 60 -8 12 72 12 minecraft:air"))?;
+    srv.cmd_ok(&n("fill -8 63 -8 12 63 12 minecraft:obsidian"))?;
+    for z in 1..=4 {
+        srv.cmd(&n(&format!("setblock 3 63 {z} minecraft:obsidian")))?;
+        srv.cmd_ok(&n(&format!("setblock 3 67 {z} minecraft:obsidian")))?;
+    }
+    for y in 64..=66 {
+        srv.cmd_ok(&n(&format!("setblock 3 {y} 1 minecraft:obsidian")))?;
+        srv.cmd_ok(&n(&format!("setblock 3 {y} 4 minecraft:obsidian")))?;
+        for z in 2..=3 {
+            srv.cmd_ok(&n(&format!("setblock 3 {y} {z} minecraft:nether_portal[axis=z]")))?;
+        }
+    }
+    srv.step(5)?;
+    srv.cmd_ok(&n("forceload remove -16 -16 15 15"))?;
+    srv.step(100)?;
+    srv.cmd_ok("summon minecraft:iron_golem 23.4 64 21.5 {PersistenceRequired:1b,Tags:[\"tk\"]}")?;
+    // the crossing's tick: the golem first found in the Nether
+    let mut crossed = 0;
+    for k in 1..=10 {
+        srv.step(1)?;
+        if data_list(&mut srv, &n("data get entity @e[type=minecraft:iron_golem,tag=tk,limit=1,distance=0..] Pos"))?.is_some() {
+            crossed = k;
+            break;
+        }
+    }
+    println!("the golem crossed at tick {crossed} after its summon");
+    srv.step(5)?;
+    srv.cmd_ok(&n("summon minecraft:item -4.5 64 6.5 {Item:{id:\"minecraft:stone\",count:1},PickupDelay:32767,Tags:[\"tk\"]}"))?;
+    srv.step(280 - 5)?;
+    let mut last_age = -1.0;
+    for k in 280..=330u32 {
+        srv.step(1)?;
+        let age = data_list(&mut srv, &n("data get entity @e[type=minecraft:item,tag=tk,limit=1,distance=0..] Age"))?.and_then(|v| v.first().copied());
+        let grew = age.is_some_and(|a| a > last_age);
+        println!("crossing + {}: item Age {age:?}{}", k + 1, if grew { "" } else { " (did not grow)" });
+        if let Some(a) = age {
+            last_age = a;
+        }
+    }
+    Ok(())
+}
+
 /// The chunk box [x0, z0, x1, z1] (block coordinates) of a design's blocks, with a margin.
 fn chunk_box(blocks: &[(mctas::sim::Pos, String)], margin: i32) -> [i32; 4] {
     let (mut x0, mut z0, mut x1, mut z1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);

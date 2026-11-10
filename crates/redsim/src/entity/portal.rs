@@ -17,6 +17,10 @@ use crate::entity::{Aabb, EntityKind, Vec3};
 use crate::pos::BlockPos;
 use crate::world::World;
 
+/// The ticks a crossing keeps the Nether's entities ticking (the arrival tick included): the
+/// PORTAL ticket's 300 and the chunk's unload after it, as measured (`tick_nether`).
+pub const PORTAL_TICKS: i64 = 306;
+
 /// `PortalProcessor`: inside this tick, its time, its entry cell.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct PortalProc {
@@ -357,7 +361,10 @@ fn place(w: &mut World, c: Crossing, radius: i32, ticket: bool) {
 pub fn tick_nether(w: &mut World) {
     let Some(mut n) = w.nether.take() else { return };
     let now = w.time;
-    n.portal_tickets.retain(|(_, made)| now - made < 300);
+    // (measured, `portal-probe --ticket`: an item beside the Nether portal kept ageing through 305
+    // ticks after the crossing, then its chunk unloaded: the ticket's 300 gt, then the unload's
+    // delay, which varies with the server's unload queue: 307 to 311 for a golem's chunk)
+    n.portal_tickets.retain(|(_, made)| now - made < PORTAL_TICKS);
     if let Some(&([cx, cz], _)) = n.portal_tickets.first() {
         let (x0, x1) = (n.min.x.div_euclid(16), (n.min.x + n.size[0] - 1).div_euclid(16));
         let (z0, z1) = (n.min.z.div_euclid(16), (n.min.z + n.size[2] - 1).div_euclid(16));
