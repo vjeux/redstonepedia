@@ -16,6 +16,7 @@ pub mod bat;
 pub mod brain;
 pub mod cube;
 pub mod squid;
+pub mod fish;
 pub mod control;
 pub mod goal;
 pub mod path;
@@ -95,6 +96,8 @@ pub struct MobAi {
     pub cube: Option<cube::CubeState>,
     /// A squid's tentacles and swim direction ([`squid`]).
     pub squid: Option<squid::SquidState>,
+    /// A fish's school ([`fish`]).
+    pub fish: Option<fish::FishState>,
     /// An enderman's carried block and target change time.
     pub enderman: Option<goal::enderman::EndermanState>,
     /// (tickexact 2026-11-10) A drowned's `searchingForLand` (its swim up's) and the entity's
@@ -195,6 +198,7 @@ impl MobAi {
             swell_target: None,
             cube: None,
             squid: None,
+            fish: None,
             enderman: None,
             searching_for_land: false,
             swimming: false,
@@ -211,6 +215,9 @@ impl MobAi {
         }
         if squid::is_squid_id(d.id) {
             squid::register(&mut ai, d.id);
+        }
+        if fish::is_fish_id(d.id) {
+            fish::register(&mut ai, d.id);
         }
         ai
     }
@@ -507,6 +514,10 @@ fn custom_server_ai_step(w: &mut World, i: usize) {
 pub fn move_control_tick(w: &mut World, i: usize) {
     if ai(w, i).cube.is_some() {
         return cube::move_control_tick(w, i);
+    }
+    // AbstractFish.FishMoveControl
+    if ai(w, i).fish.is_some() {
+        return fish::move_control_tick(w, i);
     }
     // DrownedMoveControl.tick: swimming (it wants to and is in water) replaces MoveControl's tick;
     // else 0.008 more fall off the ground first
@@ -1007,7 +1018,8 @@ pub fn ambient_interval(w: &World, i: usize) -> i32 {
     if goal::animal::is_horse(id) {
         return 400;
     }
-    if goal::animal::is_animal(id) || squid::is_squid_id(id) || mob(w, i).ty == MobType::IronGolem { 120 } else { 80 }
+    // WaterAnimal.getAmbientSoundInterval: 120 (the fish)
+    if goal::animal::is_animal(id) || squid::is_squid_id(id) || fish::is_fish_id(id) || mob(w, i).ty == MobType::IronGolem { 120 } else { 80 }
 }
 
 /// `getAmbientSound() != null`: zombies, creepers? (no: `Creeper` has none), skeletons, spiders;

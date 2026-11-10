@@ -975,6 +975,47 @@ fn scenes_raw() -> Vec<Scene> {
             random_tick_speed: 3,
         });
     }
+    // (mob-AI 2026-11-10) fish in a 4-deep pond: three salmon and two cod (FishSwimGoal's random
+    // swims on WaterBoundPathNavigation and SwimNodeEvaluator, FishMoveControl, travelInWater,
+    // FollowFlockLeaderGoal's schools once its constructor's countdown runs out), and a salmon
+    // left on the stone beside it (its flops, its air running out, its death)
+    {
+        let mut b = Vec::new();
+        floor(&mut b, 0, 48, 0, 48, 63, stone);
+        for x in 14..=34 {
+            for z in 14..=34 {
+                let edge = x == 14 || x == 34 || z == 14 || z == 34;
+                for y in 64..=68 {
+                    if edge {
+                        b.push(([x, y, z], stone.to_string()));
+                    } else if y <= 67 {
+                        b.push(([x, y, z], "minecraft:water[level=0]".to_string()));
+                    }
+                }
+            }
+        }
+        let fish = |id: &str, p: [f64; 3]| (id.to_string(), p, Some("{PersistenceRequired:1b}".to_string()));
+        v.push(Scene {
+            name: "salmon-pond".into(),
+            chunks: [0, 0, 2, 2],
+            blocks: b,
+            mobs: vec![
+                fish("minecraft:salmon", [20.5, 65.0, 20.5]),
+                fish("minecraft:salmon", [27.5, 66.0, 22.5]),
+                fish("minecraft:salmon", [24.5, 64.5, 29.5]),
+                fish("minecraft:cod", [18.5, 65.5, 28.5]),
+                fish("minecraft:cod", [30.5, 64.5, 30.5]),
+                fish("minecraft:salmon", [8.5, 64.0, 24.5]),
+            ],
+            day_time: 6000,
+            difficulty: Difficulty::Normal,
+            mob_griefing: true,
+            watch: ([0, 60, 0], [47, 70, 47]),
+            player: None,
+            player_creative: false,
+            random_tick_speed: 0,
+        });
+    }
     // a skeleton in the morning sun beside a roofed shelter: it burns, FleeSunGoal finds the shade,
     // RestrictSunGoal keeps its strolls out of the sky
     {

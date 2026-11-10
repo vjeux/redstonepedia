@@ -418,6 +418,16 @@ final class Exact {
             setFloat(guardian, net.minecraft.world.entity.monster.Guardian.class, "clientSideTailAnimation", r.nextFloat());
         } else if (e instanceof net.minecraft.world.entity.animal.golem.CopperGolem golem) {
             golem.getBrain().setMemory(MemoryModuleType.TRANSPORT_ITEMS_COOLDOWN_TICKS, r.nextInt(60, 100));
+        } else if (e instanceof net.minecraft.world.entity.animal.fish.AbstractSchoolingFish fish) {
+            // (mob-AI 2026-11-10) Mob's constructor runs registerGoals: FollowFlockLeaderGoal's
+            // constructor draws its first nextStartTick, reducedTickDelay(200 + nextInt(200) % 20)
+            int start = Mth.positiveCeilDiv(200 + r.nextInt(200) % 20, 2);
+            net.minecraft.world.entity.ai.goal.GoalSelector goals = (net.minecraft.world.entity.ai.goal.GoalSelector) get(GOAL_SELECTOR, fish);
+            for (WrappedGoal wrapped : goals.getAvailableGoals()) {
+                if (wrapped.getGoal() instanceof net.minecraft.world.entity.ai.goal.FollowFlockLeaderGoal follow) {
+                    setInt(follow, net.minecraft.world.entity.ai.goal.FollowFlockLeaderGoal.class, "nextStartTick", start);
+                }
+            }
         }
         return yaw;
     }

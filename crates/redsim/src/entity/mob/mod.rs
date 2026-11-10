@@ -328,6 +328,9 @@ pub struct MobState {
     pub helmet: Option<(i32, i32)>,
     /// A sheep's `DyeColor` id (0 white; a natural one's from `SheepColorSpawnRules`): its wool.
     pub color: u8,
+    /// Its dimensions' scale (`getDefaultDimensions(pose).scale(..)`): a salmon's variant's
+    /// `boundingBoxScale` (small 0.5, medium 1, large 1.5); 1 for every other mob.
+    pub scale: f32,
     /// The lava tracker's height (`getFluidHeight(LAVA)`; `isInLava` when positive).
     pub lava_height: f64,
     /// This tick's collected block effects.
@@ -387,6 +390,7 @@ impl MobState {
             mainhand: None,
             helmet: None,
             color: 0,
+            scale: 1.0,
             lava_height: 0.0,
             inside: Inside::default(),
             last_damage: None,
@@ -403,13 +407,17 @@ impl MobState {
             (types::SLEEPING.0, types::SLEEPING.1)
         } else {
             let d = self.ty.def();
+            if self.scale != 1.0 {
+                // EntityDimensions.scale(f): the width and height x f
+                return (d.width * self.scale, d.height * self.scale);
+            }
             (d.width, d.height)
         }
     }
 
     /// `getEyeHeight()` in its pose.
     pub fn eye(&self) -> f32 {
-        if self.sleeping_pos.is_some() { types::SLEEPING.2 } else { self.ty.def().eye }
+        if self.sleeping_pos.is_some() { types::SLEEPING.2 } else { self.ty.def().eye * self.scale }
     }
 }
 
@@ -929,6 +937,13 @@ pub fn add(w: &mut World, ty: MobType, pos: Vec3, persistent: bool) -> u32 {
             q.tentacle_speed = s;
         }
     }
+    // a schooling fish's constructor (registerGoals): FollowFlockLeaderGoal's countdown
+    if ai::fish::is_fish_id(ty.def().id) {
+        let v = ai::fish::next_start_tick(&mut own);
+        if let Some(a) = st.ai.as_deref_mut() {
+            ai::fish::set_next_start_tick(a, v);
+        }
+    }
     // ---- mob AI (the mob-AI lane): a mob whose goals are not modeled (villagers have their brain,
     // bats their own flight): a summoned one (the farm's own: `MobAi::strict`) is refused, never
     // run without them; an ambient natural one runs on the legacy walk model, its type named in
@@ -1043,6 +1058,8 @@ pub fn seed_entered(w: &mut World, id: u32) -> Option<f32> {
     });
     let egg = ty.filter(|t| ai::goal::animal::adult_of(t.def().id) == Some("chicken")).map(|_| ai::goal::animal::chicken_egg_time(&mut own));
     let tentacle = ty.filter(|t| ai::squid::is_squid_id(t.def().id)).map(|_| ai::squid::ctor_draw(&mut own));
+    // a schooling fish's: FollowFlockLeaderGoal's countdown (registerGoals in Mob's constructor)
+    let school = ty.filter(|t| ai::fish::is_fish_id(t.def().id)).map(|_| ai::fish::next_start_tick(&mut own));
     if let Some(e) = w.entities.list.iter_mut().rev().find(|e| e.id == id) {
         e.random = Some(own);
         if let crate::entity::EntityKind::Mob(m) = &mut e.kind {
@@ -1055,6 +1072,9 @@ pub fn seed_entered(w: &mut World, id: u32) -> Option<f32> {
                 }
                 if let (Some(q), Some(s)) = (a.squid.as_mut(), tentacle) {
                     q.tentacle_speed = s;
+                }
+                if let Some(v) = school {
+                    ai::fish::set_next_start_tick(a, v);
                 }
             }
         }

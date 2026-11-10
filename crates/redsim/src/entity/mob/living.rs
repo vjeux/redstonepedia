@@ -55,8 +55,9 @@ pub fn tick(w: &mut World, i: usize) {
     // ---- mob AI (the mob-AI lane): the rest of LivingEntity.baseTick and Mob.baseTick ----
     if super::ai::has_ai(w, i) {
         super::ai::after_base_tick(w, i);
-        // AgeableWaterCreature.baseTick's tail: handleAirSupply(the air before the tick)
-        if super::ai::squid::is_water_creature(w, i) && super::ai::squid::handle_air_supply(w, i, pre_air) {
+        // AgeableWaterCreature.baseTick's tail: handleAirSupply(the air before the tick) (a fish:
+        // WaterAnimal's, the same)
+        if (super::ai::squid::is_water_creature(w, i) || super::ai::fish::is_fish(w, i)) && super::ai::squid::handle_air_supply(w, i, pre_air) {
             hurt(w, i, Damage::Drown, 2.0);
         }
         // LivingEntity.tick after super.tick(): updatingUsingItem (a skeleton's drawn bow)
@@ -115,6 +116,10 @@ pub fn tick(w: &mut World, i: usize) {
     // Zombie.tick after super.tick: the drowning tracker (its conversion into a drowned)
     if super::ai::has_ai(w, i) && !w.entities.list[i].removed {
         super::ai::zombie_drowning(w, i);
+    }
+    // AbstractSchoolingFish.tick after super.tick: a lone leader's school forgotten
+    if super::ai::has_ai(w, i) && super::ai::fish::is_fish(w, i) {
+        super::ai::fish::school_tick(w, i);
     }
 }
 
@@ -350,6 +355,10 @@ fn ai_step(w: &mut World, i: usize) {
         super::ai::goal::animal::horse_before_ai_step(w, i);
         super::ai::goal::witch::before_ai_step(w, i);
         super::ai::update_no_action_time(w, i);
+        // AbstractFish.aiStep: the flop out of the water before super.aiStep
+        if super::ai::fish::is_fish(w, i) {
+            super::ai::fish::flop(w, i);
+        }
     }
     {
         let m = mob_mut(w, i);
@@ -600,6 +609,20 @@ fn fluid_falling_adjusted(gravity: f64, falling: bool, m: Vec3) -> Vec3 {
 
 /// `LivingEntity.travelInWater` (no water walker, no dolphin's grace, nobody sprints).
 fn travel_in_water(w: &mut World, i: usize, input: Vec3, gravity: f64, falling: bool, old_y: f64) {
+    // AbstractFish.travelInWater: 0.01 of the input, the move, the motion x 0.9, then 0.005 down
+    // without a target
+    if super::ai::has_ai(w, i) && super::ai::fish::is_fish(w, i) {
+        move_relative(w, i, 0.01, input);
+        let d = w.entities.list[i].delta_movement;
+        entity::move_(w, i, MoverType::Self_, d);
+        let no_target = super::ai::ai(w, i).target.is_none();
+        let e = &mut w.entities.list[i];
+        e.delta_movement = e.delta_movement.scale(0.9);
+        if no_target {
+            e.delta_movement = e.delta_movement.add(0.0, -0.005, 0.0);
+        }
+        return;
+    }
     // (tickexact 2026-11-10) Drowned.travelInWater: under water and wanting to swim, 0.01 of the
     // input, the move, the motion x 0.9 (no gravity, no jump out)
     if super::ai::has_ai(w, i) && super::ai::goal::drowned::is_drowned(w, i) && super::ai::goal::drowned::is_under_water(w, i) && super::ai::goal::drowned::wants_to_swim(w, i) {

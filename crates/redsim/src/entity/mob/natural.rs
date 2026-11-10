@@ -1140,7 +1140,7 @@ fn spawn_category_for_position(w: &mut World, nat: &Natural, st: &mut State, cat
             }
             // getMobForSpawn: EntityType.create (the bridge's construction seeds count every
             // candidate, the ones isValidPositionForMob rejects included)
-            let ctor = if w.exact_seed.is_some() { Some(w.construct()) } else { None };
+            let mut ctor = if w.exact_seed.is_some() { Some(w.construct()) } else { None };
             // the mob: snapTo(xx, y, zz, random yaw, 0)
             let yaw = rng(w).next_float() * 360.0;
             // `isValidPositionForMob` sees the new mob as constructed (an adult, a slime of size
@@ -1151,10 +1151,19 @@ fn spawn_category_for_position(w: &mut World, nat: &Natural, st: &mut State, cat
             if let Some(n) = w.mob.natural.as_mut() {
                 n.bonuses.clear();
             }
+            // Salmon.finalizeSpawn: its variant first, from its own random (the construction's)
+            let scale = if k.finalize == Finalize::Salmon { salmon_scale(w, ctor.as_mut()) } else { 1.0 };
             let f = finalize_spawn(w, nat, k, &mut group, pos);
             cluster += 1;
             group_size += 1;
             let id = spawn_mob(w, k, &f, Vec3::new(xx, start.y as f64, zz), yaw);
+            if scale != 1.0 {
+                set_scale(w, id, scale);
+            }
+            // AbstractSchoolingFish.finalizeSpawn: the pack's first fish leads, the rest follow
+            if matches!(k.finalize, Finalize::Salmon | Finalize::Cod) {
+                super::ai::fish::join_pack(w, id, &mut group.school_leader);
+            }
             if k.finalize == Finalize::Zombie {
                 let special = special_multiplier(w, nat);
                 zombie_handle_attributes(w, id, ctor, special, k.id != "minecraft:drowned");
@@ -1223,6 +1232,8 @@ struct GroupData {
     horse: bool,
     /// `WolfPackData` made (its variant drawn).
     wolf: bool,
+    /// `AbstractSchoolingFish.SchoolSpawnGroupData`: the pack's first fish, its leader.
+    school_leader: Option<u32>,
 }
 
 /// What a `finalizeSpawn` decided that redsim adds: the row (baby, size) and a jockey.
@@ -1307,6 +1318,35 @@ fn model_error(w: &mut World, e: String) {
 
 /// `Mob.finalizeSpawn`: the follow range's `triangle(0, 0.11485)` (2 nextDouble) and the left hand
 /// (nextFloat), on the level random.
+/// `Salmon.finalizeSpawn`'s variant: `WeightedList` (small 30, medium 50, large 15)
+/// `.getRandom(this.random)`: one `nextInt(95)` of its own random (the construction's in an exact
+/// world, the stand-in's otherwise); its `boundingBoxScale`.
+fn salmon_scale(w: &mut World, ctor: Option<&mut crate::rng::LegacyRandom>) -> f32 {
+    let r = match ctor {
+        Some(r) => r.next_int(95),
+        None => w.mob.rng_mut().next_int(95),
+    };
+    if r < 30 {
+        0.5
+    } else if r < 80 {
+        1.0
+    } else {
+        1.5
+    }
+}
+
+/// A mob's dimensions scaled (`refreshDimensions` on the variant's change, in `finalizeSpawn`:
+/// the box at its position, no fudge on the first tick).
+fn set_scale(w: &mut World, id: u32, scale: f32) {
+    let Some(j) = crate::entity::index_of(w, id) else { return };
+    let e = &mut w.entities.list[j];
+    if let EntityKind::Mob(m) = &mut e.kind {
+        m.scale = scale;
+        let (wd, h) = m.dims();
+        e.bb = crate::entity::make_bounding_box(e.pos, wd, h);
+    }
+}
+
 fn mob_base(w: &mut World) {
     let r = rng(w);
     // triangle(0, 0.11485): the FOLLOW_RANGE's random spawn bonus (ADD_MULTIPLIED_BASE)

@@ -607,6 +607,13 @@ pub fn tick_one(w: &mut World, i: usize) {
     if w.mob.natural.is_some() && natural_kind {
         mob::natural::check_despawn(w, i);
         if w.entities.list[i].removed {
+            // (mob-AI 2026-11-10) the game still ticks a mob checkDespawn just discarded
+            // (`tickNonPassenger` follows with no removal test): LivingEntity.tick skips its aiStep
+            // (`!isRemoved()`), what follows `super.tick()` runs: a schooling fish's level-random
+            // school check (forest t651)
+            if w.entity_ticks_at(p.x, p.z) && w.entities.list[i].vehicle.is_none() && mob::ai::has_ai(w, i) && mob::ai::fish::is_fish(w, i) {
+                mob::ai::fish::school_tick(w, i);
+            }
             return;
         }
     } else if w.mob.ai.on && matches!(w.entities.list[i].kind, EntityKind::Mob(_)) {

@@ -957,7 +957,9 @@ constructors); a `LightningBolt`'s seed (`nextLong`) and flashes (`nextInt(3) + 
 `LivingEntity`'s yaw (`nextFloat() * 2 pi`) and each brain sensor's start delay (`nextInt(scanRate)`
 per sensor in its order; a summoned villager's brain is built twice: the constructor's, then
 `load`'s); the leaf classes' draws (`Chicken.eggTime`, `Rabbit`'s idle timeout, `Squid`'s and
-`Guardian`'s animation, `CopperGolem`'s cooldown). A spawn path that snaps the yaw without the
+`Guardian`'s animation, `CopperGolem`'s cooldown); a schooling fish's goals (Mob's constructor runs
+`registerGoals`: `FollowFlockLeaderGoal`'s first `nextStartTick`, `reducedTickDelay(200 +
+nextInt(200) % 20)`, after the yaw). A spawn path that snaps the yaw without the
 head (`NaturalSpawner`'s `snapTo`, the siege) leaves the replayed yaw in the head, and a cube
 mob's move control keeps `180 * yaw / pi` as its direction until a goal sets one;
 `EntityType.create(level, .., pos, ..)` sets the head and the body to its snap yaw. What a mob
