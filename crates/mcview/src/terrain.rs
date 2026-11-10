@@ -496,6 +496,27 @@ mod tests {
         assert!(card.terrain.is_none());
     }
 
+    /// A terrain view draws the mobs in the landscape it draws only (`TerrainFarm::draws`, the
+    /// blocks' rule): an item a plant dropped past the landscape's reach floated in the sky
+    /// (a67650c84's plants popping off their supports, cross-4-underground's run).
+    #[test]
+    fn a_mob_past_the_landscape_drawn_is_not_drawn() {
+        let text = String::from_utf8(read("designs/circuits/mobfarm/tracks/ironfarm/d1u-underground.txt")).unwrap();
+        let mut s = crate::session::Session::new(&text, &crate::session::Options::still()).unwrap();
+        let t = s.terrain.clone().expect("D1U in its terrain");
+        let off = t.offset();
+        let ([x0, x1], [_, z1]) = t.reach_xz;
+        // (above the farm's box and south of its cutaway: drawn by the landscape's rule alone)
+        let (y, z) = ((t.farm_box.1.y + 2) as f64, (z1 - 1) as f64 + 0.5);
+        let mid = ((x0 + x1) / 2) as f64 + 0.5;
+        let n0 = s.entities(0.0).len();
+        redsim::entity::spawn(&mut s.world, "minecraft:zombie", [mid, y, z], None).unwrap();
+        redsim::entity::spawn(&mut s.world, "minecraft:zombie", [(x0 - 3) as f64 + 0.5, y, z], None).unwrap();
+        let e = s.entities(0.0);
+        assert_eq!(e.len(), n0 + 1, "only the mob in the landscape drawn");
+        assert!(e.iter().any(|e| (e.pos[0] - (mid as f32 - off[0] as f32)).abs() < 0.01 && (e.pos[2] - (z as f32 - off[2] as f32)).abs() < 0.01));
+    }
+
     /// ironspec 2026-11-10 on drop-shaft-11 (a dug-only part: "keep it, its file carrying the
     /// terrain sample and its dug cells as air, so the view shows the shaft dug into the ground"):
     /// a part in its terrain is its cells cut into the sample's world at its reference farm's site

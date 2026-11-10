@@ -2283,12 +2283,14 @@ impl Session {
     pub fn entities(&self, partial: f32) -> Vec<crate::mesh::EntityDraw> {
         let mut v = self.world_entities(partial);
         if let Some(t) = &self.terrain {
-            // in its terrain: the mobs in the landscape drawn (none in the caves under it nor
-            // north of the cutaway, where nothing is drawn), in the design's coordinates
+            // in its terrain: the mobs in the landscape drawn (none in the caves under it, north of
+            // the cutaway nor past its reach, where nothing is drawn: `TerrainFarm::draws`, the
+            // blocks' rule; an item a plant dropped out there floated in the sky), in the design's
+            // coordinates
             let (lo, hi) = t.farm_box;
             let shown = |p: [f32; 3]| {
                 let inside = p[0] >= lo.x as f32 && p[1] >= lo.y as f32 && p[2] >= lo.z as f32 && p[0] <= hi.x as f32 + 1.0 && p[1] <= hi.y as f32 + 1.0 && p[2] <= hi.z as f32 + 1.0;
-                inside || (p[1] >= t.min_y as f32 && p[2] >= t.cut_z as f32)
+                inside || (t.draws([p[0].floor() as i32, p[1].floor() as i32, p[2].floor() as i32]) && p[2] >= t.cut_z as f32)
             };
             v.retain(|e| shown(e.pos));
             let off = t.offset();
