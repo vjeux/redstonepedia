@@ -58,11 +58,12 @@ pub fn part_folder(key: &str) -> Option<&'static str> {
 /// can see how it looks like"; the parent: under a "Villager carousel (in progress)" heading on the
 /// iron farm's page): (folder under designs/farms/iron/parts/, name, what it is, for the player).
 /// Each gets its component page as soon as its catalog (`members.tsv`) has a member.
-pub const CAROUSEL: [(&str, &str, &str, &str); 1] = [
+pub const CAROUSEL: [(&str, &str, &str, &str); 2] = [
     // (vjeux 2026-11-10 rejected the 7-lane layout for one lane of 21 carts released 3 by 3: only the
     // station carries over; the counter, the hold, the yard, the scheduler and the assembly were
     // the 7-lane farm's and stay off)
     ("carousel-station", "", "Station, portal pad and Nether kill", "Where each batch of villagers panics and summons its golem: the golem lands on a pad touching a portal, leaves for the Nether at once, dies there in lava, and its iron is sorted and stored."),
+    ("carousel-release", "", "Release controller", "The redstone that sends the villagers out 3 by 3: each golem pulse releases the 3 head carts, then moves the 18-cart queue up 3 slots in three steps; a missed golem falls back to a timed release, and an early one is held."),
 ];
 
 /// A part's name and what it is (`PARTS`, `CAROUSEL`).
@@ -1053,9 +1054,16 @@ pub fn part_page(site: &Site, farm: &str, part: &str, members: &[Member], script
     let (title, what) = part_words(part);
     // (a carousel part: its crumbs and a line naming the farm it is for, being built)
     let (crumb, note) = if is_carousel(part) {
+        // (the release controller's standing, in plain words: vjeux asked where the 3-by-3
+        // release redstone was, 2026-11-10)
+        let extra = if part == "carousel-release" {
+            "<p>Real redstone; tested on its own; its golem input is driven by the test bench and its outputs light lamps; not yet connected to the queue.</p>\n"
+        } else {
+            ""
+        };
         (
             format!(" › <a href=\"{prefix}farms/{farm}/index.html#carousel\">Villager carousel (in progress)</a>"),
-            "<p class=\"hint\">Part of the villager carousel, an iron farm still being built: this part as it stands today, with what it measured.</p>\n".to_string(),
+            format!("<p class=\"hint\">Part of the villager carousel, an iron farm still being built: this part as it stands today, with what it measured.</p>\n{extra}"),
         )
     } else {
         (String::new(), String::new())
