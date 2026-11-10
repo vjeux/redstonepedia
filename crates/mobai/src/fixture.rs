@@ -154,6 +154,14 @@ impl Scene {
         if !actions.is_empty() {
             v["actions"] = json!(actions.iter().map(|(t, b)| json!([t, b.iter().map(|(p, s)| json!([p, s])).collect::<Vec<_>>()])).collect::<Vec<_>>());
         }
+        let settle = scene_settle(&self.name);
+        if settle > 0 {
+            v["settle"] = json!(settle);
+        }
+        if scene_judge_placed(&self.name) {
+            v["judge_placed"] = json!(true);
+            v["block_entities"] = json!(scene_block_entities(&self.name));
+        }
         v.to_string()
     }
 
@@ -216,20 +224,35 @@ fn carousel_loop_actions() -> Vec<(u32, Vec<([i32; 3], String)>)> {
 }
 
 /// (tickexact 2026-11-10) Loop scenes driven by a bench's drive log: (name, the frozen design, the
-/// frozen drive log). Each design is ironfarm's single-lane carousel loop taken as it is (its
-/// blocks and entities, in its own coordinates); its bench's drive log (`mctas mobfarm
-/// queue-loop-run <file> ... --drive-out`) plays every control change at its tick: the bench's
-/// timers, and the stand's brake the bench timed from the design's real detector rail in its
-/// redsim run (the game's detector compared in the watched box). No other redstone drives them.
-/// - carousel-catch: explore/ironfarm 7f6c75643 (the turn slot, the deep tail slots, the detector
-///   rail), `--cycles 6 --stand-detect 28 --intake-brake 110,116`.
+/// frozen drive log). Each design is taken as it is (its blocks and entities, in its own
+/// coordinates); its bench's drive log (`mctas mobfarm queue-loop-run <file> ... --drive-out`)
+/// plays its `act T set` lines at their ticks. What drives each:
+/// - carousel-catch: ironfarm's loop, explore/ironfarm 7f6c75643 (the turn slot, the deep tail
+///   slots, the detector rail), `--cycles 6 --stand-detect 28 --intake-brake 110,116`: the bench's
+///   timers and the stand's brake it timed from the design's real detector rail in its redsim run
+///   (the game's detector compared in the watched box); no other redstone.
 /// - carousel-catch2: explore/ironfarm ab96cd355 (8 release-run boosters, 7 zombies in boats by
 ///   the loop), `--cycles 6 --release-for 36 --pulse 12 --stand-detect 27 --intake-brake 116,124
-///   --stand-offset 6 --tail0-late 2`.
+///   --stand-offset 6 --tail0-late 2`: the same kind of scripted controls.
+/// - carousel-wired: day-1's fully wired loop (main 74d7e62f0,
+///   `designs/farms/iron/parts/carousel-loop/carousel-single-lane-loop-wired.txt`, the same file as
+///   explore/day1-sched-wip d9b20f773's: ironfarm's a5f46f390 loop, day-1's release controller and
+///   its 21 control lines, 791 redstone blocks; 8 zombies in boats), `--wired=-7,-1,5
+///   --tail-check-at 43 --cycles 60`: WIRED, the only bench input the golem pulse (a redstone block
+///   at (-7,-1,5) for 10 gt at each slot's start); every control is the design's own redstone.
 const DRIVE_SCENES: &[(&str, &str, &str)] = &[
     ("carousel-catch", include_str!("../scenes/carousel-catch.txt"), include_str!("../scenes/carousel-catch-28.drive")),
     ("carousel-catch2", include_str!("../scenes/carousel-catch2.txt"), include_str!("../scenes/carousel-catch2-27.drive")),
+    ("carousel-wired", include_str!("../scenes/carousel-wired.txt"), include_str!("../scenes/carousel-wired.drive")),
 ];
+
+/// A drive scene's day time at its spawn in its bench's run: the bench's world is
+/// `RunOpts::steady(seed, ..)` of the drive log's `seed` line (its `day0`).
+fn drive_day0(name: &str) -> Option<i64> {
+    let (_, _, t) = DRIVE_SCENES.iter().find(|(n, _, _)| *n == name)?;
+    let seed: i64 = t.lines().find_map(|l| l.strip_prefix("seed "))?.trim().parse().ok()?;
+    Some(redsim::entity::mob::farm::RunOpts::steady(seed, 0, redsim::entity::mob::farm::WalkMode::Random).day0)
+}
 
 /// A drive scene's design.
 fn drive_design(name: &str) -> Option<mctas::design::Design> {
@@ -297,6 +320,34 @@ fn drive_expects(name: &str) -> Vec<(i64, u32, [f64; 3])> {
 /// A scene's expected positions (tick, entity number, position): a drive scene's drive log.
 fn scene_expects(name: &str) -> Vec<(i64, u32, [f64; 3])> {
     drive_expects(name)
+}
+
+/// (tickexact 2026-11-10) The ticks a scene's blocks run alone before its mobs are summoned (both
+/// sides, uncompared but for the blocks every tick after): the wired loop's bench settles its
+/// design for `SETTLE_TICKS` before it spawns the carts (`Run::arrive`), so its controller starts
+/// from the state its redstone settles in with no cart on its detector rails. Its actions count
+/// from the summon.
+fn scene_settle(name: &str) -> u32 {
+    if name == "carousel-wired" { redsim::entity::mob::farm::SETTLE_TICKS as u32 } else { 0 }
+}
+
+/// (tickexact 2026-11-10) Whether a scene is placed the way the judge places a design (the bench's
+/// `Run::start`): raw writes, its block entities' data merged ([`scene_block_entities`]), a shape
+/// update of every wire, then a `self` update of every block, in the design's order
+/// (`World::place_updates`; in the game the clock verifier's `Placement::Judge`). The wired loop's
+/// file holds every wire as a cross and a container's stock as an `nbt:` line, as its generator
+/// wrote them; its bench builds them this way (every other scene: raw states as written).
+fn scene_judge_placed(name: &str) -> bool {
+    name == "carousel-wired"
+}
+
+/// A judge-placed scene's block-entity data (its design's `nbt:` lines), merged after the raw
+/// paste.
+fn scene_block_entities(name: &str) -> Vec<([i32; 3], String)> {
+    if !scene_judge_placed(name) {
+        return Vec::new();
+    }
+    drive_design(name).map(|d| d.block_entities.into_iter().collect()).unwrap_or_default()
 }
 
 /// A stone floor over `x0..x1`, `z0..z1` at height `y`.
@@ -1665,15 +1716,31 @@ fn scenes_raw() -> Vec<Scene> {
         // (2 cells of margin to the sandbox's edge walls)
         let c = [(min_x - 2).div_euclid(16), (min_z - 2).div_euclid(16), (max_x + 2).div_euclid(16), (max_z + 2).div_euclid(16)];
         let first = *name == "carousel-catch";
+        // (the wired loop starts at its bench's day time: `RunOpts::steady` of the drive log's
+        // seed, less the settle before the summon)
+        let day_time = if first {
+            1000
+        } else if *name == "carousel-wired" {
+            drive_day0(name).unwrap_or(200) - scene_settle(name) as i64
+        } else {
+            200
+        };
+        // (the carousel catches watch y -6..6 as recorded; the wired loop its own height, every
+        // redstone component of its controls)
+        let (wy0, wy1) = if name.starts_with("carousel-catch") {
+            (-6, 6)
+        } else {
+            (blocks.iter().map(|(p, _)| p[1]).min().unwrap_or(0) - 1, blocks.iter().map(|(p, _)| p[1]).max().unwrap_or(0) + 2)
+        };
         v.push(Scene {
             name: name.to_string(),
             chunks: c,
             blocks,
             mobs,
-            day_time: if first { 1000 } else { 200 },
+            day_time,
             difficulty: if first { Difficulty::Easy } else { Difficulty::Hard },
             mob_griefing: true,
-            watch: ([c[0] * 16, -6, c[1] * 16], [c[2] * 16 + 15, 6, c[3] * 16 + 15]),
+            watch: ([c[0] * 16, wy0, c[1] * 16], [c[2] * 16 + 15, wy1, c[3] * 16 + 15]),
             player: None,
             player_creative: false,
             random_tick_speed: 3,
@@ -1712,6 +1779,17 @@ impl GameScene {
         }
         if !s.blocks.is_empty() {
             w.set_blocks(sb, &s.blocks, PlaceMode::Raw)?;
+        }
+        // (tickexact 2026-11-10) a judge-placed scene: the block entities' data, then the shape
+        // update of every wire and the `self` update of every block (`scene_judge_placed`)
+        if scene_judge_placed(&s.name) {
+            for (p, nbt) in scene_block_entities(&s.name) {
+                w.merge_block_entity(sb, p, &nbt)?;
+            }
+            let wires: Vec<[i32; 3]> = s.blocks.iter().filter(|(_, st)| st.starts_with("minecraft:redstone_wire")).map(|(p, _)| *p).collect();
+            w.update(sb, &wires, "shape")?;
+            let all: Vec<[i32; 3]> = s.blocks.iter().map(|(p, _)| *p).collect();
+            w.update(sb, &all, "self")?;
         }
         // the block-ticking and spawning chunks right before the first tick (a player's ring
         // widens them; the spawning list is shuffled every tick, spawning or not)
@@ -1793,6 +1871,12 @@ pub fn redsim_world(s: &Scene, seed: i64) -> Result<World> {
         list.push((BlockPos::new(p[0], p[1], p[2]), Block::parse(st).or_else(|_| redsim::terrain::land::block_of(st)).map_err(|e| anyhow!("{st}: {e}"))?));
     }
     w.place_raw(&list);
+    // (a judge-placed scene: its block entities' data, then the judge's updates)
+    if scene_judge_placed(&s.name) {
+        let bes: Vec<(BlockPos, String)> = scene_block_entities(&s.name).into_iter().map(|(p, nbt)| (BlockPos::new(p[0], p[1], p[2]), nbt)).collect();
+        redsim::redstone::container::apply_block_entities(&mut w, bes.iter().map(|(p, nbt)| (*p, nbt.as_str()))).map_err(|e| anyhow!(e))?;
+        w.place_updates(&list);
+    }
     w.mirror_level_random(seed, s.chunks);
     w.random_ticks = Some(redsim::crops::RandomTicks::new(s.random_tick_speed, seed));
     Ok(w)
@@ -1892,17 +1976,51 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
         let on = scene_spawns(&s.name);
         ours.mob.natural = Some(Natural { spawning: on, spawn_enemies: on, void_biome: Some("minecraft:plains"), spawn_order: game.spawning(), ..Natural::new(vec![pos], s.difficulty) });
     }
+    let mut first = true;
+    // (tickexact 2026-11-10) the scene's settle: its blocks alone, then the summon
+    let mut settle = scene_settle(&s.name);
+    while settle > 0 {
+        let frames = game.frames(settle.min(batch), false)?;
+        if frames.is_empty() {
+            bail!("the game's frames end in the scene's settle");
+        }
+        for f in &frames {
+            if first {
+                ours.time = f.t - 1;
+                if let Some(d) = f.day {
+                    ours.mob.day_offset = d - f.t;
+                }
+                first = false;
+            }
+            ours.tick();
+        }
+        settle -= frames.len() as u32;
+    }
+    // (a probe: MOBAI_SETTLED=1: after a scene's settle, each of its blocks redsim holds in
+    // another state than the scene placed)
+    if scene_settle(&s.name) > 0 && std::env::var_os("MOBAI_SETTLED").is_some() {
+        for (p, st) in &s.blocks {
+            let now = ours.get(BlockPos::new(p[0], p[1], p[2])).to_string();
+            if now != *st {
+                eprintln!("settled {} {} {}: placed {st}, now {now}", p[0], p[1], p[2]);
+            }
+        }
+    }
+    // (a settled scene's watch starts before its summon: the game's first frame after it lists
+    // the mobs as entered, its baseline the settle's last frame)
+    let settled_watch = (scene_settle(&s.name) > 0).then(|| Watch::new(&ours, BlockPos::new(s.watch.0[0], s.watch.0[1], s.watch.0[2]), BlockPos::new(s.watch.1[0], s.watch.1[1], s.watch.1[2])));
+    // the game time of the summon: a drive log's expected ticks count from it
+    let t_summon = if scene_settle(&s.name) > 0 { ours.time } else { 0 };
     let game_ids = game.summon(s)?;
     let our_ids = redsim_summon(&mut ours, s)?;
     if game_ids != our_ids {
         bail!("the game's mobs entered as {game_ids:?}, redsim's as {our_ids:?}");
     }
-    let mut watch = Watch::new(&ours, BlockPos::new(s.watch.0[0], s.watch.0[1], s.watch.0[2]), BlockPos::new(s.watch.1[0], s.watch.1[1], s.watch.1[2]));
+    let mut watch = settled_watch.unwrap_or_else(|| Watch::new(&ours, BlockPos::new(s.watch.0[0], s.watch.0[1], s.watch.0[2]), BlockPos::new(s.watch.1[0], s.watch.1[1], s.watch.1[2])));
     let mut cmp = Compare { probe_at: trace.map(|t| t.0), ..Default::default() };
     let show = std::env::var("MOBAI_SHOW").is_ok();
     let show_until: Option<i64> = std::env::var("MOBAI_SHOW_UNTIL").ok().and_then(|v| v.parse().ok());
     let mut left = ticks;
-    let mut first = true;
     let state_range: Option<(i64, i64)> = std::env::var("MOBAI_STATE").ok().and_then(|v| {
         let (a, b) = v.split_once(',')?;
         Some((a.parse().ok()?, b.parse().ok()?))
@@ -1982,7 +2100,7 @@ pub fn compare_source(game: &mut Source, s: &Scene, seed: i64, ticks: u32, batch
                     }
                 }
             }
-            for (_, n, p) in expects.iter().filter(|(t, _, _)| *t == f.t) {
+            for (_, n, p) in expects.iter().filter(|(t, _, _)| *t == f.t - t_summon) {
                 match f.entities.iter().find(|e| e.n == *n) {
                     Some(e) if (0..3).all(|k| (e.pos[k] - p[k]).abs() < 0.0006) => exp_ok += 1,
                     Some(e) => exp_bad.push(format!("t {} #{n}: the game at {:?}, the drive log expects {:?}", f.t, e.pos, p)),
@@ -2055,8 +2173,15 @@ pub fn record(version: &str, names: &[String], seed: i64, ticks: u32, dir: &std:
     for s in pick {
         let t0 = std::time::Instant::now();
         let mut game = GameScene::start(version, s, seed, false)?;
-        let game_ids = game.summon(s)?;
+        // the scene's settle (its blocks alone) is recorded ahead of the summon
         let mut frames = Vec::new();
+        let mut settle = scene_settle(&s.name);
+        while settle > 0 {
+            let n = settle.min(100);
+            frames.extend(game.trace_raw(n, false)?);
+            settle -= n;
+        }
+        let game_ids = game.summon(s)?;
         let mut left = ticks;
         let actions = scene_actions(&s.name);
         let mut done: i64 = 0;

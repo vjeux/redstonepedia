@@ -14,6 +14,7 @@ bed-shared.rec	dab056dfa27a591c		26.3	2026-11-10T07:21Z on a5d224f10	mctas mobai
 carousel-catch.rec	adbbb8812cfc0947		26.3	2026-11-10T17:26Z on b04e233c2f	mctas mobai record carousel-catch --seed 1 --ticks 800 --dir designs/redsim/recorded/mobai
 carousel-catch2.rec	5188db60b3a98b45		26.3	2026-11-10T18:16Z on d553d16cc2	mctas mobai record carousel-catch2 --seed 1 --ticks 800 --dir designs/redsim/recorded/mobai
 carousel-loop.rec	ec3cee3a9ba1932e		26.3	2026-11-10T15:13Z on 8c648c8c25	mctas mobai record carousel-loop --seed 1 --ticks 600 --dir designs/redsim/recorded/mobai
+carousel-wired.rec	63b26c96584877e3		26.3	2026-11-10T19:31Z on ea79604008	mctas mobai record carousel-wired --seed 1 --ticks 1000 --dir designs/redsim/recorded/mobai
 cart-queue-bend.rec	777599cc15248ab8		26.3	2026-11-10T14:22Z on cf641f4683	mctas mobai record cart-queue-bend --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
 cart-queue-slope.rec	ec9ecf71f00527e3		26.3	2026-11-10T14:14Z on 766fa97189	mctas mobai record cart-queue-slope --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
 cart-queue.rec	03e88b32b3410e96		26.3	2026-11-10T14:14Z on 766fa97189	mctas mobai record cart-queue --seed 1 --ticks 2000 --dir designs/redsim/recorded/mobai
