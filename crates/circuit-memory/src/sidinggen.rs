@@ -34,10 +34,10 @@ const RBLOCK: &str = "minecraft:redstone_block";
 
 pub(crate) const SIDING_AT: P3 = [-20, 2, 10];
 pub(crate) const DIVERT: P3 = [9, -4, 0];
-pub(crate) const T1: P3 = [-13, 0, 28];
-pub(crate) const T2: P3 = [-15, 0, 31];
+pub(crate) const T1: P3 = [-15, 0, 28];
+pub(crate) const T2: P3 = [-17, 0, 31];
 pub(crate) const RELEASE: P3 = [-16, 0, 10];
-pub(crate) const HOLD: P3 = [-13, 0, 23];
+pub(crate) const HOLDS: [P3; 3] = [[-12, 0, 28], [-12, 0, 31], [-12, 0, 34]];
 
 fn rail(shape: &str) -> String {
     format!("minecraft:rail[shape={shape},waterlogged=false]")
@@ -122,42 +122,47 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
     b.put([-13, 0, 11], RBLOCK)?;
     // (no drag loop: ironfarm 14:30 measured this loop's side drop clean at 0.10-0.48 b/t; the
     // booster's 0.49-0.53 decays to ~0.43-0.46 over the ~25 rails to the drop ends)
-    // ---- the hold near T1: the cart climbs to y 2 at (-13, 1, 21) (ascending south), runs flat to
-    // (-13, 2, 22), and rolls down onto a braked powered rail ascending north (-13, 1, 23), where it
-    // stops; powered (its support (-13, 0, 23), a control), it rolls on south to T1. The short leg
-    // keeps the hold -> roll-off time nearly the same for all three drops.
-    for z in 12..=20 {
+    // ---- the exit route on to T1 (-15, 1, 28): x -13 south to z 25, west along z 26 to x -15,
+    // south into T1 (the tree sits west of the release controller's taps, so the cells under the
+    // T's and the holds are free for their drivers)
+    for z in 12..=25 {
         lay(&mut b, [-13, 1, z], &rail("north_south"), false)?;
     }
-    lay(&mut b, [-13, 1, 21], &rail("ascending_south"), false)?;
-    lay(&mut b, [-13, 2, 22], &rail("north_south"), false)?;
-    b.put([-13, 1, 23], "minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]")?;
-    b.put(HOLD, GLASS)?;
-    for z in 24..=27 {
-        lay(&mut b, [-13, 1, z], &rail("north_south"), false)?;
-    }
-    // T1 (-13, 1, 28): stem north, unpowered north_east (east along z 28: slot 14), powered
-    // north_west (T2); its support glass (west of the release controller's taps, so the cells under
-    // the T's are free for their drivers)
-    b.put([-13, 1, 28], &rail("north_east"))?;
+    lay(&mut b, [-13, 1, 26], &rail("north_west"), false)?;
+    lay(&mut b, [-14, 1, 26], &rail("east_west"), false)?;
+    lay(&mut b, [-15, 1, 26], &rail("south_east"), false)?;
+    lay(&mut b, [-15, 1, 27], &rail("north_south"), false)?;
+    // T1: stem north, unpowered north_east (east: slot 14's line), powered north_west (T2)
+    b.put([-15, 1, 28], &rail("north_east"))?;
     b.put(T1, GLASS)?;
-    // T1 west to T2 (-15, 1, 31), stem north: unpowered east along z 31 (slot 13), powered west
-    lay(&mut b, [-14, 1, 28], &rail("east_west"), false)?;
-    lay(&mut b, [-15, 1, 28], &rail("south_east"), false)?;
-    lay(&mut b, [-15, 1, 29], &rail("north_south"), false)?;
-    lay(&mut b, [-15, 1, 30], &rail("north_south"), false)?;
-    b.put([-15, 1, 31], &rail("north_east"))?;
+    // T1 west to T2 (-17, 1, 31), stem north: unpowered east (slot 13's line), powered west
+    lay(&mut b, [-16, 1, 28], &rail("east_west"), false)?;
+    lay(&mut b, [-17, 1, 28], &rail("south_east"), false)?;
+    lay(&mut b, [-17, 1, 29], &rail("north_south"), false)?;
+    lay(&mut b, [-17, 1, 30], &rail("north_south"), false)?;
+    b.put([-17, 1, 31], &rail("north_east"))?;
     b.put(T2, GLASS)?;
-    // T2 west round to z 34 (slot 12)
-    lay(&mut b, [-16, 1, 31], &rail("east_west"), false)?;
-    lay(&mut b, [-17, 1, 31], &rail("south_east"), false)?;
-    lay(&mut b, [-17, 1, 32], &rail("north_south"), false)?;
-    lay(&mut b, [-17, 1, 33], &rail("north_south"), false)?;
-    lay(&mut b, [-17, 1, 34], &rail("north_east"), false)?;
-    // ---- the three drop lines (east ends over the slots' slopes at x -3), glass under the last three
-    let lines: [(i32, i32); 3] = [(28, -12), (31, -14), (34, -16)];
+    // T2 west round to z 34 (slot 12's line)
+    lay(&mut b, [-18, 1, 31], &rail("east_west"), false)?;
+    lay(&mut b, [-19, 1, 31], &rail("south_east"), false)?;
+    lay(&mut b, [-19, 1, 32], &rail("north_south"), false)?;
+    lay(&mut b, [-19, 1, 33], &rail("north_south"), false)?;
+    lay(&mut b, [-19, 1, 34], &rail("north_east"), false)?;
+    // ---- the three drop lines, each with its hold (ironfarm 14:42: one hold per line, a short
+    // leg from the hold to the drop): flat east to x -15, a climb ascending east (-14, 1, z), flat
+    // (-13, 2, z), the hold (-12, 1, z) (a braked powered rail ascending west: the cart rolls down
+    // onto it and stops; its support (-12, 0, z) is the kick control), flat east (-11..-4, 1, z)
+    // (glass under the last three), the stone stop (-2, 1, z)
+    let lines: [(i32, i32); 3] = [(28, -14), (31, -16), (34, -18)];
     for (z, x0) in lines {
-        for x in x0..=-4 {
+        for x in x0..=-15 {
+            lay(&mut b, [x, 1, z], &rail("east_west"), false)?;
+        }
+        lay(&mut b, [-14, 1, z], &rail("ascending_east"), false)?;
+        lay(&mut b, [-13, 2, z], &rail("east_west"), false)?;
+        b.put([-12, 1, z], "minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]")?;
+        b.put([-12, 0, z], GLASS)?;
+        for x in -11..=-4 {
             lay(&mut b, [x, 1, z], &rail("east_west"), x >= -6)?;
         }
         b.put([-2, 1, z], STONE)?;
@@ -392,27 +397,32 @@ pub fn control_blocks(sched: &Path) -> Result<B> {
         b.on([25, -2, z], DUST)?;
     }
     b.on([25, -1, -1], DUST)?;
-    b.on([26, -2, -6], DUST)?;
-    b.on([27, -2, -6], DUST)?;
-    let reld_delay: u8 = 4;
-    for z in -5..=1 {
-        b.on([27, -2, z], &rep("north", reld_delay))?;
-    }
-    b.on([27, -2, 2], DUST)?;
-    b.on([26, -2, 2], DUST)?;
-    b.on([25, -2, 2], DUST)?;
-    b.on([24, -2, 2], DUST)?;
-    // SA = D5 - NOT RELd: D5's comparator (south), a repeater, SA; NOT RELd = a torch on the block
-    // RELd powers, its dust on SA's east side; SA's output south to `output.srel`
+    // (RELd and SA moved out: the hold's kick unit near T1 takes REL from the core; the module
+    // only says which release is the drop's, steadily)
+    // ---- NS5 = NOT (a visit's item in D5): D5's comparator (south), a repeater into a block, a
+    // torch on it, out east along z 3 (`output.ns5`); high except from the clock of the 4th
+    // release after a visit to the clock of the 5th
     b.on([19, -2, 0], &comp("north", "compare"))?;
     b.on([19, -2, 1], &rep("north", 1))?;
-    b.on([19, -2, 2], &comp("north", "subtract"))?;
-    b.on([20, -2, 2], DUST)?;
-    b.put([21, -2, 2], "minecraft:redstone_wall_torch[facing=west,lit=true]")?;
-    b.put([22, -2, 2], STONE)?;
-    b.on([23, -2, 2], &rep("east", 1))?;
-    b.on([19, -2, 3], &rep("north", 1))?;
-    b.ports.insert("output.srel".into(), [19, -2, 4]);
+    b.put([19, -2, 2], STONE)?;
+    b.put([20, -2, 2], "minecraft:redstone_wall_torch[facing=east,lit=true]")?;
+    b.on([21, -2, 2], DUST)?;
+    b.on([22, -2, 2], &rep("west", 1))?;
+    for x in 23..=27 {
+        b.on([x, -2, 2], DUST)?;
+    }
+    b.ports.insert("output.ns5".into(), [27, -2, 2]);
+    // ---- NV out: a dust on NV's block (-4, 0, 3), up two stairs to y 3 (over the D ring), east
+    // along z 3 to `output.nv` (28, 3, 3)
+    if std::env::var("MCTAS_NO_NV_TAP").is_err() {
+    b.on([-4, 1, 3], DUST)?;
+    b.on([-3, 2, 3], DUST)?;
+    let nvo: Vec<P3> = (-2..=28).map(|x| [x, 3, 3]).collect();
+    if std::env::var("MCTAS_NV_SHORT").is_err() {
+    b.wire([-3, 2, 3], &nvo, 10)?;
+    }
+    b.ports.insert("output.nv".into(), [28, 3, 3]);
+    }
     Ok(b)
 }
 
