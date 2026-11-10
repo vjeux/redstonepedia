@@ -632,6 +632,51 @@ pub enum MobfarmCmd {
         #[arg(long)]
         drive_out: Option<PathBuf>,
     },
+    /// The carousel's bed siding (ironfarm's hand-over, vjeux's single lane): write its bench design
+    /// (the siding, the bench's approach and run-out, 21 villagers in carts in a far hold).
+    Siding {
+        #[arg(long)]
+        out: PathBuf,
+        /// The circuit in place of the bench-driven controls (mobfarm::siding::wire).
+        #[arg(long)]
+        wired: bool,
+    },
+    /// The bed siding's static check: every rider and napper cell's golem search (any spot is a
+    /// stray).
+    SidingCheck { design: PathBuf },
+    /// The bed siding's bench: visits through the nights (the villager napped longest ago, its cart
+    /// teleported to the approach moving +x at a drawn speed), the controls driven ideally, the
+    /// release a drawn time after the arrival: re-board rate, ready times, naps, panic while
+    /// waiting, exit speeds.
+    SidingBench {
+        design: PathBuf,
+        #[arg(long, default_value_t = 1)]
+        from: i64,
+        #[arg(long, default_value_t = 20)]
+        to: i64,
+        #[arg(long, default_value_t = 2)]
+        nights: u32,
+        #[arg(long, default_value = "400,600")]
+        gap: String,
+        #[arg(long, default_value = "0.15,1.1")]
+        speed: String,
+        #[arg(long, default_value = "560,610")]
+        release: String,
+        #[arg(long)]
+        jobs: Option<usize>,
+        /// At most this many visits a seed (the first visit alone: no failure carried into the next).
+        #[arg(long)]
+        visits: Option<usize>,
+        /// The design is wired: touch no control (only the release and the arrivals).
+        #[arg(long)]
+        wired: bool,
+        /// The traces' window, gt after the start: "a,b".
+        #[arg(long, default_value = "0,4000")]
+        trace_window: String,
+        /// The first seed's first visits' ticks on stderr.
+        #[arg(long)]
+        trace: bool,
+    },
     /// The station's storage alone: the Nether part's pit floor and collection (sorter, crafter,
     /// composter, the double chest) in a test world, a golem's drops on a random pit cell each 100
     /// gt at the given success rate, for `hours`: the iron where it ends each hour and when the
@@ -1216,6 +1261,146 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("golems' overworld stay (gt: count): {dwell:?}; pulse delay from the spawn (gt: count; None = no pulse): {pdelay:?}; length {plen:?}; pulses without a golem: {spurious}");
             println!("golems touching no portal: {strays}; Nether: {deaths} dead, {alive} alive at the end, {back} back in the overworld");
             println!("violations: {viol}; {:.1} s", t0.elapsed().as_secs_f64());
+        }
+        MobfarmCmd::Siding { out, wired } => {
+            std::fs::write(&out, crate::siding::design_with(wired)?)?;
+            println!("{}", out.display());
+        }
+        MobfarmCmd::SidingCheck { design } => {
+            let (_c, spec) = load(version, &design)?;
+            for l in crate::siding::check(&spec).map_err(|e| anyhow::anyhow!(e))? {
+                println!("{l}");
+            }
+        }
+        MobfarmCmd::SidingBench { design, from, to, nights, gap, speed, release, jobs, visits, wired, trace, trace_window } => {
+            let (_c, spec) = load(version, &design)?;
+            let two_i = |s: &str| -> Result<(i64, i64)> {
+                let v: Vec<i64> = s.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
+                anyhow::ensure!(v.len() == 2, "two numbers a,b");
+                Ok((v[0], v[1]))
+            };
+            let sp: Vec<f64> = speed.split(',').map(|p| p.trim().parse()).collect::<Result<_, _>>()?;
+            anyhow::ensure!(sp.len() == 2, "--speed a,b");
+            let (gap, release) = (two_i(&gap)?, two_i(&release)?);
+            let seeds: Vec<i64> = (from..=to).collect();
+            let jobs = jobs.unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8)).max(1);
+            let next = std::sync::atomic::AtomicUsize::new(0);
+            let out: std::sync::Mutex<Vec<(i64, Result<crate::siding::BenchReport, String>)>> = std::sync::Mutex::new(Vec::new());
+            let t0 = std::time::Instant::now();
+            std::thread::scope(|sc| {
+                for _ in 0..jobs.min(seeds.len()) {
+                    sc.spawn(|| loop {
+                        let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(&seed) = seeds.get(k) else { break };
+                        let r = crate::siding::bench(&spec, &crate::siding::BenchOpts { seed, nights, gap, speed: (sp[0], sp[1]), release, trace: trace && seed == from, max_visits: visits, wired, trace_window: two_i(&trace_window).unwrap_or((0, 4000)) });
+                        out.lock().unwrap().push((seed, r));
+                    });
+                }
+            });
+            let mut rows = out.into_inner().unwrap();
+            rows.sort_by_key(|r| r.0);
+            let (mut visits, mut dropped, mut slept, mut woken, mut reboarded, mut own, mut ready, mut released) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+            let (mut wait_ticks, mut wait_panic) = (0u64, 0u64);
+            let mut ready_t: Vec<i64> = Vec::new();
+            let mut stages: Vec<(i64, i64, i64, i64)> = Vec::new();
+            let mut speeds: Vec<f64> = Vec::new();
+            let mut problems: std::collections::BTreeMap<String, u64> = Default::default();
+            let mut examples: Vec<String> = Vec::new();
+            for (seed, r) in &rows {
+                match r {
+                    Err(e) => println!("seed {seed}: ERROR {e}"),
+                    Ok(r) => {
+                        for v in &r.visits {
+                            // (a visit the run's end cut short is not counted)
+                            if v.released.is_none() && v.problem.is_none() {
+                                continue;
+                            }
+                            visits += 1;
+                            dropped += v.dropped.is_some() as u64;
+                            slept += v.slept.is_some() as u64;
+                            woken += v.woken.is_some() as u64;
+                            reboarded += v.reboarded.is_some() as u64;
+                            own += v.own_cart as u64;
+                            ready += v.ready.is_some() as u64;
+                            released += v.released.is_some() as u64;
+                            wait_ticks += v.wait_ticks as u64;
+                            wait_panic += v.wait_panic as u64;
+                            if let Some(rt) = v.ready {
+                                ready_t.push(rt - v.arrived);
+                            }
+                            if let (Some(d), Some(s), Some(w), Some(b)) = (v.dropped, v.slept, v.woken, v.reboarded) {
+                                stages.push((d - v.arrived, s - v.arrived, w - v.arrived, b - v.arrived));
+                            }
+                            if let Some(e) = v.exit_speed {
+                                speeds.push(e);
+                            }
+                            if let Some(p) = &v.problem {
+                                let key: String = p.split(" (").next().unwrap_or(p).to_string();
+                                *problems.entry(key).or_insert(0) += 1;
+                                if examples.len() < 6 {
+                                    examples.push(format!("seed {seed} villager {} arrived {}: {p}; dropped {:?} slept {:?} woken {:?} reboarded {:?} ready {:?}", v.villager, v.arrived, v.dropped.map(|x| x - v.arrived), v.slept.map(|x| x - v.arrived), v.woken.map(|x| x - v.arrived), v.reboarded.map(|x| x - v.arrived), v.ready.map(|x| x - v.arrived)));
+                                }
+                            }
+                        }
+                        if !r.errors.is_empty() {
+                            println!("seed {seed}: errors {}", r.errors.join("; "));
+                        }
+                    }
+                }
+            }
+            ready_t.sort();
+            speeds.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let pct = |v: &[i64], q: f64| v.get(((v.len() as f64 - 1.0) * q).round() as usize).copied();
+            println!("{} seeds x {nights} nights: {visits} visits; dropped {dropped}, slept {slept}, woken {woken}, re-boarded {reboarded} (own cart {own}), ready on the slot {ready}, released {released}", rows.len());
+            println!("ready after the arrival (gt): min {:?} median {:?} p99 {:?} max {:?}; over 500: {}", ready_t.first(), pct(&ready_t, 0.5), pct(&ready_t, 0.99), ready_t.last(), ready_t.iter().filter(|&&r| r > 500).count());
+            if !stages.is_empty() {
+                let n = stages.len() as f64;
+                let mean = |f: &dyn Fn(&(i64, i64, i64, i64)) -> i64| stages.iter().map(|s| f(s) as f64).sum::<f64>() / n;
+                println!("mean stage ticks after the arrival: dropped {:.1}, asleep {:.1}, woken {:.1}, re-boarded {:.1}", mean(&|s| s.0), mean(&|s| s.1), mean(&|s| s.2), mean(&|s| s.3));
+                let mut naps: Vec<i64> = stages.iter().map(|s| s.2 - s.1).collect();
+                naps.sort();
+                let mut drop_to_board: Vec<i64> = stages.iter().map(|s| s.3 - s.0).collect();
+                drop_to_board.sort();
+                println!("nap length (asleep to woken, gt): min {:?} median {:?} p99 {:?} max {:?}; drop to re-board: min {:?} (the boarding cooldown is 60)", naps.first(), pct(&naps, 0.5), pct(&naps, 0.99), naps.last(), drop_to_board.first());
+            }
+            println!("panicking while waiting on the slot at night: {wait_panic} of {wait_ticks} ticks ({:.2}%)", 100.0 * wait_panic as f64 / wait_ticks.max(1) as f64);
+            {
+                let all: Vec<&crate::siding::VisitRec> = rows.iter().filter_map(|r| r.1.as_ref().ok()).flat_map(|r| r.visits.iter()).collect();
+                let calm: Vec<(i64, i64)> = all.iter().filter_map(|v| v.calm).collect();
+                let mut firsts: Vec<i64> = calm.iter().map(|c| c.0).collect();
+                firsts.sort();
+                let mut lasts: Vec<i64> = calm.iter().map(|c| c.1).collect();
+                lasts.sort();
+                println!("visits with calm waiting ticks: {} of {}; first calm tick after ready: min {:?} median {:?} max {:?}; last: median {:?} max {:?}", calm.len(), all.len(), firsts.first(), firsts.get(firsts.len() / 2), firsts.last(), lasts.get(lasts.len() / 2), lasts.last());
+                let mut xs: std::collections::BTreeMap<String, u32> = Default::default();
+                for v in &all {
+                    if let Some(x) = v.rest_x {
+                        *xs.entry(format!("{:.1}", x)).or_insert(0) += 1;
+                    }
+                }
+                println!("rest x on the slot: {xs:?}");
+                let long: Vec<String> = rows.iter().filter_map(|r| r.1.as_ref().ok().map(|x| (r.0, x))).flat_map(|(seed, r)| r.visits.iter().map(move |v| (seed, v))).filter(|(_, v)| v.calm.is_some_and(|c| c.1 > 20)).take(8).map(|(seed, v)| format!("seed {seed} villager {} arrived {} rest x {:.3} sees {:?} calm {:?} ({} of {} waiting ticks panicking) {:?}", v.villager, v.arrived, v.rest_x.unwrap_or(f64::NAN), v.sees, v.calm, v.wait_panic, v.wait_ticks, v.calm_acts)).collect();
+                for l in long {
+                    println!("  long calm: {l}");
+                }
+                let mut by_x: std::collections::BTreeMap<String, (u32, u32)> = Default::default();
+                for v in &all {
+                    if let (Some(x), Some((s, _, _))) = (v.rest_x, v.sees) {
+                        let e = by_x.entry(format!("{:.1}", x)).or_insert((0, 0));
+                        e.0 += s as u32;
+                        e.1 += 1;
+                    }
+                }
+                println!("rest x: (sees the dorm zombie, of): {by_x:?}");
+            }
+            if !speeds.is_empty() {
+                println!("exit speed at the exit cell (b/t, stored): min {:.3} median {:.3} max {:.3}", speeds[0], speeds[speeds.len() / 2], speeds[speeds.len() - 1]);
+            }
+            println!("problems: {problems:?}");
+            for e in &examples {
+                println!("  {e}");
+            }
+            println!("{:.1} s", t0.elapsed().as_secs_f64());
         }
         MobfarmCmd::StationStorage { hours, seed, success, official } => {
             let lines = if official { crate::station::storage_official(version, hours, seed, success)? } else { crate::station::storage_bench(hours, seed, success).map_err(|e| anyhow::anyhow!(e))? };
