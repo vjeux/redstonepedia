@@ -1,7 +1,7 @@
 # The single-lane carousel's loop (prototype): a sawtooth queue register, the release run, the 3-slot stand, the return run.
 name: carousel-loop-scene
 circuit: mob-farm iron_ingot
-queue: scene=Loop carts=21 spacing=3 release=3 riders=1 slots=18 run=20 depart=3 boost=0 boost_first=3 straight=0 drop=0 vstand=0 tail_v=0 bridge=1 row_gap=3 uturn_boost=0 line=0 tail_deep=1 plain=0
+queue: scene=Loop carts=21 spacing=3 release=3 riders=1 slots=18 run=20 depart=3 boost=0 boost_first=3 straight=0 drop=0 vstand=0 tail_v=0 bridge=1 row_gap=3 uturn_boost=0 line=0 tail_deep=1 plain=0 stand_desc=0 detector=1
 port output: -5 1 -3
 entity: minecraft:minecart 0.5 -0.27 22.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
 entity: minecraft:minecart 0.5 -0.27 27.32 {Rotation:[0f,0f],Passengers:[{id:"minecraft:villager"}]}
@@ -29,19 +29,20 @@ palette:
   A minecraft:powered_rail[powered=false,shape=ascending_south,waterlogged=false]
   B minecraft:powered_rail[powered=false,shape=ascending_west,waterlogged=false]
   C minecraft:powered_rail[powered=false,shape=east_west,waterlogged=false]
-  D minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
-  E minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
-  F minecraft:rail[shape=ascending_south,waterlogged=false]
+  D minecraft:detector_rail[powered=false,shape=north_south,waterlogged=false]
+  E minecraft:powered_rail[powered=true,shape=east_west,waterlogged=false]
+  F minecraft:powered_rail[powered=true,shape=north_south,waterlogged=false]
   G minecraft:glass
-  H minecraft:rail[shape=ascending_west,waterlogged=false]
-  I minecraft:rail[shape=east_west,waterlogged=false]
-  J minecraft:rail[shape=north_east,waterlogged=false]
-  K minecraft:rail[shape=north_south,waterlogged=false]
-  L minecraft:rail[shape=north_west,waterlogged=false]
-  M minecraft:rail[shape=south_east,waterlogged=false]
-  N minecraft:rail[shape=south_west,waterlogged=false]
-  O minecraft:redstone_block
+  H minecraft:rail[shape=ascending_south,waterlogged=false]
+  I minecraft:rail[shape=ascending_west,waterlogged=false]
+  J minecraft:rail[shape=east_west,waterlogged=false]
+  K minecraft:rail[shape=north_east,waterlogged=false]
+  L minecraft:rail[shape=north_south,waterlogged=false]
+  M minecraft:rail[shape=north_west,waterlogged=false]
+  N minecraft:rail[shape=south_east,waterlogged=false]
+  O minecraft:rail[shape=south_west,waterlogged=false]
   P minecraft:powered_rail[powered=false,shape=ascending_east,waterlogged=false]
+  Q minecraft:redstone_block
   R minecraft:rail[shape=ascending_east,waterlogged=false]
   p minecraft:powered_rail[powered=false,shape=ascending_north,waterlogged=false]
   r minecraft:rail[shape=ascending_north,waterlogged=false]
@@ -118,17 +119,17 @@ layer -1:
   .
   G..G
   G..p
-  ...F
+  ...H
   G..G
   G
   ...G
   G..p
-  G..F
+  G..H
   ...G
   G
   G..G
   ...p
-  G..F
+  G..H
   G..G
   .
   G..G
@@ -144,10 +145,10 @@ layer -1:
   G..G
   .GG
 layer 0:
-  GGBRGBRGBRGOG
-  G...........O
-  G...........O
-  G...........O
+  GGBRGBRGBRGQG
+  G...........Q
+  G...........Q
+  G...........Q
   G...........G
   G...........G
   G...........G
@@ -158,9 +159,9 @@ layer 0:
   G...........G
   G...........G
   G...........G
-  O...........G
-  O...........G
-  O...........G
+  Q...........G
+  Q...........G
+  Q...........G
   G...........G
   r...........G
   A...........G
@@ -168,76 +169,76 @@ layer 0:
   r..p
   A
   G
-  r..F
+  r..H
   A..G
   G..p
   r
   A
-  G..F
+  G..H
   r..G
   A..p
   G
   r
-  A..F
+  A..H
   G..G
   r..p
-  A..F
+  A..H
   G..G
   r..p
-  A..F
+  A..H
   G..G
   r..p
-  A..F
+  A..H
   G..G
   r..p
-  A..F
-  GHPG
+  A..H
+  GIPG
 layer 1:
-  MC..C..C..IDN
-  K...........E
-  K...........E
-  K...........E
-  K...........K
-  K...........K
-  K...........K
-  K...........K
-  K...........K
-  K...........K
-  K...........K
-  K...........K
-  K...........K
-  K...........K
-  E...........K
-  E...........K
-  E...........K
-  K...........K
-  ............K
-  ............K
-  K..MIIIIIIIIL
+  NC..C..C..JEO
+  L...........F
+  L...........F
+  L...........F
+  D...........L
+  L...........L
+  L...........L
+  L...........L
+  L...........L
+  L...........L
+  L...........L
+  L...........L
+  L...........L
+  L...........L
+  F...........L
+  F...........L
+  F...........L
+  L...........L
+  ............L
+  ............L
+  L..NJJJJJJJJM
   .
   .
-  K
+  L
   .
-  ...K
-  K
-  .
-  .
-  K
-  ...K
-  .
-  K
+  ...L
+  L
   .
   .
-  K..K
+  L
+  ...L
+  .
+  L
   .
   .
-  K..K
+  L..L
   .
   .
-  K..K
+  L..L
   .
   .
-  K..K
+  L..L
   .
   .
-  J..L
+  L..L
+  .
+  .
+  K..M

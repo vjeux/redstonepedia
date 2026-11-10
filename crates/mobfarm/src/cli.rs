@@ -421,6 +421,10 @@ pub enum MobfarmCmd {
         /// a block lower each slot (the catch is a slope wherever the brake comes).
         #[arg(long)]
         stand_desc: bool,
+        /// A detector rail on the release run, 4 cells before the stand's curve, to time the
+        /// stand's brake (`queue-loop-run --stand-detect D`).
+        #[arg(long)]
+        detector: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -489,6 +493,10 @@ pub enum MobfarmCmd {
         /// redstone block for 2 gt) at its own stand-brake trigger, until that brake is wired.
         #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
         stand_reset: Vec<i32>,
+        /// The stand's batch leaves like a queue advance: 3 pulses on all 3 stand slopes at
+        /// `--depart-at` + k·`--depart-period`, `--pulse` long, then the stand opens.
+        #[arg(long)]
+        shift_depart: bool,
         #[arg(long)]
         verbose: bool,
         /// Print these carts (design order) every gt.
@@ -1095,10 +1103,10 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
             println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
         }
-        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, out } => {
+        MobfarmCmd::QueueLoop { slots, run, depart, boost_every, boost_first, straight, drop, vstand, no_tail_v, folded, row_gap, uturn_boost, line, no_tail_deep, plain, stand_desc, detector, out } => {
             let tail_deep = !no_tail_deep && !plain;
             let slots = if line && slots == 18 { 15 } else { slots };
-            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc };
+            let o = crate::queue::LoopOpts { slots, run, depart, boost_every, boost_first, straight, drop, vstand, tail_v: !no_tail_v && !tail_deep && !plain, bridge: !folded && !straight && !line, row_gap, uturn_boost, line, tail_deep, plain, stand_desc, detector };
             std::fs::write(&out, crate::queue::loop_design(&o)?)?;
             println!("{}", out.display());
             // the control cells (each a block under a powered slope: glass = braked, a redstone
@@ -1109,14 +1117,14 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             println!("release group (the last 3): {}", fmt(&lay.slots[lay.slots.len() - 3..]));
             println!("stand S1 S2 S3: {}", fmt(&lay.stand));
         }
-        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, verbose, watch, drive_out } => {
+        MobfarmCmd::QueueLoopRun { design, cycles, seed, seeds, release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart, verbose, watch, drive_out } => {
             let (c, spec) = load(version, &design)?;
             let o = crate::queue::loop_opts_of(&c.clock.design.meta)?;
             let intake_brake = match intake_brake.as_slice() { [a, b] => Some((*a, *b)), [] => None, _ => anyhow::bail!("--intake-brake takes two values: slots 1-2, then slot 0") };
             let inject_at = inject_at.or(if o.line { Some(110) } else { None });
             let wired = match wired.as_slice() { [x, y, z] => Some(redsim::pos::BlockPos::new(*x, *y, *z)), [] => None, _ => anyhow::bail!("--wired takes the input cell: x,y,z") };
             let stand_reset = match stand_reset.as_slice() { [x, y, z] => Some(redsim::pos::BlockPos::new(*x, *y, *z)), [] => None, _ => anyhow::bail!("--stand-reset takes a cell: x,y,z") };
-            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset };
+            let tm = crate::queue::LoopTiming { release_for, advance_at, advance_every, pulse, depart_every, stand_brake, stand_detect, stand_detect_each, intake_brake, inject_at, depart_at, depart_period, open_after, wired, golem_for, stand_reset, shift_depart };
             if seeds > 1 {
                 // one line per seed, then the total (the drive log, watch and verbose apply to
                 // single runs)

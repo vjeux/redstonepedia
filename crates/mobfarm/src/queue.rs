@@ -313,6 +313,8 @@ pub enum Cell {
     /// A powered rail on a plain support, powered through the slot slope it is linked to (a
     /// powered rail passes power to the powered rails it connects to).
     Linked,
+    /// A detector rail (on stone): its signal times a brake.
+    Detector,
     /// A plain rail (the slope up, the peak, a run, a curve).
     Plain,
     /// A powered rail on a redstone block (always boosting).
@@ -366,11 +368,14 @@ pub struct LoopOpts {
     /// A descending stand: each slot a braked slope linked to its own (C, A) and a plain slope up,
     /// each slot a block lower than the last (the catch is a slope wherever the brake comes).
     pub stand_desc: bool,
+    /// A detector rail on the release run, 4 cells before the stand's curve, to time the stand's
+    /// brake (`queue-loop-run --stand-detect D`: the brake D gt after its signal rises).
+    pub detector: bool,
 }
 
 impl Default for LoopOpts {
     fn default() -> LoopOpts {
-        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false }
+        LoopOpts { slots: 18, run: 20, depart: 3, boost_every: 0, boost_first: 3, straight: false, drop: false, vstand: false, tail_v: true, bridge: true, row_gap: 2, uturn_boost: false, line: false, tail_deep: false, plain: false, stand_desc: false, detector: false }
     }
 }
 
@@ -644,10 +649,13 @@ fn loop_layout_bridge(o: &LoopOpts) -> LoopLayout {
         path.push(([xb, 1, z - 2], Cell::Plain));
         z -= 3;
     }
-    // the release run south along x xb down to z 1, its first cells boosters
+    // the release run south along x xb down to z 1, its first cells boosters; with `detector`, a
+    // detector rail 4 cells before the stand's curve (no powered rail beside it), whose signal
+    // times the stand's brake
     let mut i = 0;
     while z >= 1 {
-        path.push(([xb, 1, z], if i < o.boost_first { Cell::Boost } else { Cell::Plain }));
+        let k = if i < o.boost_first { Cell::Boost } else if o.detector && z == 4 { Cell::Detector } else { Cell::Plain };
+        path.push(([xb, 1, z], k));
         z -= 1;
         i += 1;
     }
@@ -883,6 +891,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
             Cell::Linked => (format!("powered_rail[powered=false,shape={sh},waterlogged=false]"), "glass"),
             Cell::Boost => (format!("powered_rail[powered=true,shape={sh},waterlogged=false]"), "redstone_block"),
             Cell::Plain => (format!("rail[shape={sh},waterlogged=false]"), "glass"),
+            Cell::Detector => (format!("detector_rail[powered=false,shape={sh},waterlogged=false]"), "glass"),
         };
         if b.d.blocks.contains_key(&c) {
             bail!("the loop's path meets itself at {c:?}");
@@ -900,7 +909,7 @@ pub fn loop_design(o: &LoopOpts) -> Result<String> {
         b.entity("minecart", [x, c[1] as f64 + 1.0 - off + 0.05, z], rider);
     }
     b.d.meta.insert("circuit".into(), "mob-farm iron_ingot".into());
-    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32));
+    b.d.meta.insert("queue".into(), format!("scene=Loop carts=21 spacing=3 release=3 riders=1 slots={} run={} depart={} boost={} boost_first={} straight={} drop={} vstand={} tail_v={} bridge={} row_gap={} uturn_boost={} line={} tail_deep={} plain={} stand_desc={} detector={}", o.slots, o.run, o.depart, o.boost_every, o.boost_first, o.straight as i32, o.drop as i32, o.vstand as i32, o.tail_v as i32, o.bridge as i32, o.row_gap, o.uturn_boost as i32, o.line as i32, o.tail_deep as i32, o.plain as i32, o.stand_desc as i32, o.detector as i32));
     b.d.ports.insert("output".into(), [-5, 1, -3]);
     Ok(b.text(&["The single-lane carousel's loop (prototype): a sawtooth queue register, the release run, the 3-slot stand, the return run."]))
 }
@@ -928,6 +937,7 @@ pub fn loop_opts_of(meta: &std::collections::BTreeMap<String, String>) -> Result
             "tail_deep" => o.tail_deep = v != "0",
             "plain" => o.plain = v != "0",
             "stand_desc" => o.stand_desc = v != "0",
+            "detector" => o.detector = v != "0",
             _ => {}
         }
     }
@@ -972,11 +982,14 @@ pub struct LoopTiming {
     /// With `wired`: the stand latch's reset input, which the bench pulses (a redstone block for
     /// 2 gt) at its own stand-brake trigger, until the stand's brake is wired too.
     pub stand_reset: Option<BlockPos>,
+    /// The stand's batch leaves like a queue advance (3 pulses on all 3 stand slopes,
+    /// `depart_at` + k·`depart_period`, then the stand opens) instead of front first.
+    pub shift_depart: bool,
 }
 
 impl Default for LoopTiming {
     fn default() -> LoopTiming {
-        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None }
+        LoopTiming { release_for: 30, advance_at: 40, advance_every: 20, pulse: 9, depart_every: 12, stand_brake: None, stand_detect: None, stand_detect_each: None, intake_brake: None, inject_at: None, depart_at: 4, depart_period: 16, open_after: 8, wired: None, golem_for: 10, stand_reset: None, shift_depart: false }
     }
 }
 
@@ -1087,6 +1100,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
     // the triggers: (slot, the train's carts front first)
     let mut stand_train: Option<(i64, Vec<u32>, u8)> = None;
     let mut detect_at: Option<i64> = None;
+    let det_cell: Option<BlockPos> = lay.path.iter().find(|(_, k)| *k == Cell::Detector).map(|(c, _)| BlockPos::new(c[0], c[1], c[2]));
     let mut each_at: [Option<i64>; 3] = [None; 3];
     let mut each_done = [false; 3];
     let mut intake_trains: Vec<(i64, Vec<u32>, u8)> = Vec::new();
@@ -1157,7 +1171,8 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             // the stand's batch leaves one slot at a time, front first (S1 at the slot's start,
             // S2 and S3 `depart_every` gt apart; a cart behind crosses more powered cells and
             // would catch the one ahead), each slot's slope up `lead` gt before its slope down
-            if o.plain {
+            let shift = o.plain || tm.shift_depart;
+            if shift {
                 // plain stand: the batch leaves like a queue advance, 3 pulses on all 3 stand
                 // slopes (each pulse moves every stand cart one slot on, S1's out), so the 3 leave
                 // one by one at the same speed; then the stand opens for the next batch
@@ -1175,7 +1190,7 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
                 }
             }
             for k in 0..3usize {
-                if o.plain {
+                if shift {
                     break;
                 }
                 let at = k as i64 * tm.depart_every;
@@ -1251,7 +1266,13 @@ pub fn run_loop(spec: &FarmSpec, o: &LoopOpts, tm: &LoopTiming, cycles: i64, see
             // (a detector rail on S2's slope up, the cell before S1's catch cell: the brake
             // `stand_detect` gt after the front cart first stands on it)
             if let Some(d) = tm.stand_detect {
-                if detect_at.is_none() && tr.len() == 3 && in_cell(&run.world, tr[0], [s2[0] + 1, s2[1], s2[2]]) {
+                // (the layout's detector rail if it has one, else the front cart standing on
+                // S2's slope up)
+                let fired = match det_cell {
+                    Some(dp) => matches!(run.world.get(dp), Block::DetectorRail { powered: true, .. }),
+                    None => in_cell(&run.world, tr[0], [s2[0] + 1, s2[1], s2[2]]),
+                };
+                if detect_at.is_none() && tr.len() == 3 && fired {
                     detect_at = Some(t + d);
                 }
             }

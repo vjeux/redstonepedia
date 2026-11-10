@@ -50,16 +50,22 @@ Per slot (t0 = the release start = golem pulse + 4 in day-1's controller; every 
 bench-driven, the times day-1's controller produces):
 - t0: the release group (the queue's front 3 slopes) on for 34 gt: the 3 leave as a train; the
   stand's batch leaves one slot at a time (S1 at t0, S2 +12, S3 +24);
-- the stand braked as the train's front cart is 0.45 into its catch cell (t0+71..73);
+- the stand braked (all 3 slopes) 28 gt after the release train's front cart switches on the
+  detector rail at (-3,1,4) on the release run (t0+71..73). This one is tick-exact: +27 and +29
+  both fail (the catch cell's window is ~0.6 block, one tick of the train's travel); the
+  position trigger (front cart 0.45 into S2's peak) gives the same result;
 - the queue advances 3 slots: pulses at t0+38, +58, +78, 10 gt each;
-- the returning train fills the queue's tail front first: slots 1-2 braked as its front cart
-  reaches slot 1's peak (t0+111 after its departure), slot 0 as its second reaches slot 0's peak
-  (t0+114..115).
+- the queue's tail opens (slots 0-2 powered) at t0+88;
+- the returning train fills the tail front first, by timers from its departure: slots 1-2 braked
+  at +110 (works from +108 to +114), slot 0 at +116 (works from +112 to +120).
 
-Bench-driven result (`queue-loop-run <file> --cycles 60 --seed S`, seeds 1..9): 0 problems in
-every run. Each slot the queue releases exactly its front 3; the batch is settled at the stand at
-t0+81 (offsets 0.41 / 0.55 / 0.58 down the slopes); the previous batch is braked into the queue's
-tail at t0+114..115, before the next advance at t0+138.
+Bench-driven results:
+- position triggers: `queue-loop-run <file> --cycles 60 --seed S`, seeds 1..9, 0 problems;
+- timers and the detector only (what a circuit does): `--stand-detect 28 --intake-brake 110,116`,
+  4 seeds x 200 slots and 3 x 60, 0 problems.
+Each slot the queue releases exactly its front 3; the batch is settled at the stand at t0+81
+(offsets 0.41 / 0.55 / 0.58 down the slopes); the previous batch is in the queue's tail before
+the next advance at t0+138.
 
 Arrival margin: the batch settles at the stand at t0+81 = golem+85, 15 gt before the slot (T+100),
 so the riders must be panicking on arrival (zombies along the loop, not in yet).
