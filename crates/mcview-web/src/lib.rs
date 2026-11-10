@@ -8,7 +8,8 @@
 //!   zoom / pan, play / pause / step the redsim simulation, click a lever to flip it.
 //!
 //! Attributes: `data-src` (URL of a design .txt, relative to the page) or `data-design` (the text),
-//! optional `data-tick` (still-frame tick), `data-yaw` / `data-pitch` (degrees). The element gets
+//! optional `data-tick` (still-frame tick), `data-yaw` / `data-pitch` (degrees), `data-part="nether"`
+//! (the design's Nether part: `mcview::design::nether_part_text`). The element gets
 //! class `mcview-ready` once its canvas shows, `mcview-error` (and a `title`) if it cannot.
 
 #![cfg(target_arch = "wasm32")]
@@ -272,6 +273,10 @@ pub(crate) struct View {
     pub phases: Option<String>,
     /// `data-input-mode`: `pulse` | `toggle` (default from the circuit kind).
     pub input_mode: Option<String>,
+    /// `data-part`: `nether` draws the design's Nether part, as a design of its own
+    /// ([`mcview::design::nether_part_text`]: a mob farm's kill and storage beside its overworld
+    /// view, vjeux: "if they are needed you need to show them").
+    pub part: Option<String>,
     pub yaw: Option<f32>,
     pub pitch: Option<f32>,
     /// Canvas size in device pixels.
@@ -290,7 +295,7 @@ impl View {
             (None, Some(t)) => format!("inline:{:x}", fnv(t)),
             _ => String::new(),
         };
-        format!("{src}|{}x{}|{:?}|{:?}|{:?}", self.w, self.h, self.tick, self.yaw, self.pitch)
+        format!("{src}|{}x{}|{:?}|{:?}|{:?}|{:?}", self.w, self.h, self.tick, self.yaw, self.pitch, self.part)
     }
 }
 
@@ -1143,6 +1148,7 @@ impl App {
         v.levels = el.get_attribute("data-levels").filter(|s| !s.trim().is_empty());
         v.phases = el.get_attribute("data-phases").filter(|s| !s.trim().is_empty());
         v.input_mode = el.get_attribute("data-input-mode").filter(|s| !s.trim().is_empty());
+        v.part = el.get_attribute("data-part").filter(|s| !s.trim().is_empty());
         v.yaw = attr_f32(el, "data-yaw");
         v.pitch = attr_f32(el, "data-pitch");
         let keep = el.has_attribute("data-keep-camera");
@@ -1243,6 +1249,7 @@ impl App {
             levels: el.get_attribute("data-levels").filter(|s| !s.trim().is_empty()),
             phases: el.get_attribute("data-phases").filter(|s| !s.trim().is_empty()),
             input_mode: el.get_attribute("data-input-mode").filter(|s| !s.trim().is_empty()),
+            part: el.get_attribute("data-part").filter(|s| !s.trim().is_empty()),
             yaw: attr_f32(&el, "data-yaw"),
             pitch: attr_f32(&el, "data-pitch"),
             el: el.clone(),
@@ -1381,11 +1388,14 @@ impl App {
             }
         }
         let v = self.views.get(&id)?;
+        // (a page's view of the design's Nether part: that part as a design of its own)
+        let nether = v.part.as_deref() == Some("nether");
+        let part = |r: Result<Rc<str>, String>| if nether { r.and_then(|t| mcview::design::nether_part_text(&t).map(Rc::from)) } else { r };
         if let Some(t) = &v.inline {
-            return Some(Ok(t.clone()));
+            return Some(part(Ok(t.clone())));
         }
         let src = v.src.clone()?;
-        self.url_text(&src)
+        self.url_text(&src).map(part)
     }
 
     /// A terrain sample at a URL given to the viewer ([`mcview::terrain::provide_sample`], named

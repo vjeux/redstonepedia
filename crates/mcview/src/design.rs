@@ -53,6 +53,57 @@ pub struct Design {
     pub nether_blocks: BTreeMap<Pos, String>,
 }
 
+/// A design's Nether part as a design text of its own (a page's `data-part="nether"` viewer, as
+/// `mctas mobfarm nether-part` writes it): its `nether layer Y:` sections as the layers from
+/// `nether-origin:`, its `nether nbt:` lines as `nbt:`, its `port nether-<name>:` lines as
+/// `port <name>:`; the overworld's layers, entities, ports, data and `circuit:` line dropped (the
+/// part does not run alone: it shows as built). Err without a Nether part.
+pub fn nether_part_text(text: &str) -> Result<String, String> {
+    let mut out = String::new();
+    // (the rows that follow a kept header: the palette's and the Nether layers')
+    let mut keep = false;
+    let mut layers = 0;
+    for line in text.lines() {
+        if line.starts_with("  ") {
+            if keep {
+                out.push_str(line);
+                out.push('\n');
+            }
+            continue;
+        }
+        let l = line.trim();
+        keep = false;
+        if l.is_empty() || l.starts_with('#') {
+            out.push_str(line);
+            out.push('\n');
+        } else if l == "palette:" {
+            keep = true;
+            out.push_str("palette:\n");
+        } else if let Some(rest) = l.strip_prefix("nether layer ") {
+            keep = true;
+            layers += 1;
+            out.push_str(&format!("layer {rest}\n"));
+        } else if let Some(rest) = l.strip_prefix("nether-origin:") {
+            out.push_str(&format!("origin:{rest}\n"));
+        } else if let Some(rest) = l.strip_prefix("nether nbt:") {
+            out.push_str(&format!("nbt:{rest}\n"));
+        } else if let Some(rest) = l.strip_prefix("port nether-") {
+            out.push_str(&format!("port {rest}\n"));
+        } else if let Some(rest) = l.strip_prefix("name:") {
+            out.push_str(&format!("name: {} nether part\n", rest.trim()));
+        } else if ["layer ", "entity:", "nbt:", "port ", "origin:", "circuit:", "stop:"].iter().any(|p| l.starts_with(p)) {
+            // (the overworld's)
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    if layers == 0 {
+        return Err("no Nether part (`nether layer Y:` sections)".into());
+    }
+    Ok(out)
+}
+
 /// `+x`, `-y`, `east`, `up`, or `dx dy dz` (a unit vector along one axis), like
 /// `circuit_fly::machine::parse_travel`.
 pub fn parse_travel(s: &str) -> Option<Pos> {
@@ -325,5 +376,18 @@ mod tests {
         assert_eq!(d.nether_blocks[&[4, 64, 3]], "minecraft:hopper");
         assert_eq!(d.port("nether-output"), Some([4, 64, 3]));
         assert!(d.block_entities.is_empty());
+    }
+
+    #[test]
+    fn the_nether_part_is_a_design_of_its_own() {
+        let text = "name: n\ncircuit: mob-farm iron_ingot\nport output: 0 0 0\nentity: minecraft:villager 0.5 1 0.5\npalette:\n  S stone\n  P nether_portal[axis=z]\n  H hopper\nlayer 0:\n  S\nnether-origin: 2 0 3\nnether layer 64:\n  SPH\nport nether-output: 4 64 3\nnether nbt: 4 64 3 {Items:[{Slot:0b,id:\"minecraft:paper\",count:1}]}\n";
+        let n = Design::parse(&nether_part_text(text).unwrap()).unwrap();
+        assert_eq!(n.name, "n nether part");
+        assert_eq!(n.blocks, Design::parse(text).unwrap().nether_blocks);
+        assert!(n.entities.is_empty() && n.nether_blocks.is_empty() && !n.meta.contains_key("circuit"));
+        assert_eq!(n.ports.keys().collect::<Vec<_>>(), ["output"]);
+        assert_eq!(n.port("output"), Some([4, 64, 3]));
+        assert_eq!(n.block_entities[&[4, 64, 3]], "{Items:[{Slot:0b,id:\"minecraft:paper\",count:1}]}");
+        assert!(nether_part_text("name: x\npalette:\n  S stone\nlayer 0:\n  S\n").is_err());
     }
 }

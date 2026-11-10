@@ -82,6 +82,10 @@ pub enum WebCmd {
         /// difference (a renderer change that must keep the pictures).
         #[arg(long)]
         against: Option<PathBuf>,
+        /// `nether`: picture the design's Nether part, as a page's `data-part="nether"` viewer
+        /// draws it (`mcview::design::nether_part_text`).
+        #[arg(long)]
+        part: Option<String>,
     },
     /// Check the viewer against the repo's tools: its design parser against `mctas::design` on
     /// every block and port, and its clock period detector (the code the browser runs) against
@@ -697,7 +701,7 @@ fn atlas(procedural: bool) -> mcview::atlas::Atlas {
 
 pub fn run(_version: &str, cmd: WebCmd) -> Result<()> {
     match cmd {
-        WebCmd::Shot { designs, out, width, height, tick, flips, yaw, pitch, procedural, live, dpr, crop, day_time, rain, thunder, against } => cmd_shot(&designs, &out, mcview::tools::ShotOptions { width, height, tick, flips, yaw, pitch, picture: false, floor_margin: None, live, dpr, as_written: false, full_frame: false }, procedural, crop.as_deref(), day_time.map(|t| mcview::daylight::at(t, rain, thunder)), against.as_deref()),
+        WebCmd::Shot { designs, out, width, height, tick, flips, yaw, pitch, procedural, live, dpr, crop, day_time, rain, thunder, against, part } => cmd_shot(&designs, &out, mcview::tools::ShotOptions { width, height, tick, flips, yaw, pitch, picture: false, floor_margin: None, live, dpr, as_written: false, full_frame: false }, procedural, crop.as_deref(), day_time.map(|t| mcview::daylight::at(t, rain, thunder)), against.as_deref(), part.as_deref()),
         WebCmd::Check { designs, horizon, quiet, wasm, unverified } => cmd_check(&designs, horizon, quiet, wasm.as_deref(), unverified),
         WebCmd::Bundle { out } => cmd_bundle(&out),
         WebCmd::Single { page, out } => single::single_page(&page, &out),
@@ -1553,9 +1557,12 @@ fn cmd_serve(dir: &Path, port: u16) -> Result<()> {
     Ok(())
 }
 
-fn cmd_shot(designs: &[PathBuf], out: &Path, o: mcview::tools::ShotOptions, procedural: bool, crop: Option<&str>, env: Option<mcview::daylight::Env>, against: Option<&Path>) -> Result<()> {
+fn cmd_shot(designs: &[PathBuf], out: &Path, o: mcview::tools::ShotOptions, procedural: bool, crop: Option<&str>, env: Option<mcview::daylight::Env>, against: Option<&Path>, part: Option<&str>) -> Result<()> {
     if designs.is_empty() {
         bail!("no design given");
+    }
+    if let Some(p) = part.filter(|p| *p != "nether") {
+        bail!("--part {p}: only `nether` (the design's Nether part)");
     }
     let crop: Option<[u32; 4]> = match crop {
         None => None,
@@ -1577,6 +1584,7 @@ fn cmd_shot(designs: &[PathBuf], out: &Path, o: mcview::tools::ShotOptions, proc
     }
     for d in designs {
         let text = std::fs::read_to_string(d).with_context(|| format!("reading {}", d.display()))?;
+        let text = if part.is_some() { mcview::design::nether_part_text(&text).map_err(|e| anyhow::anyhow!("{}: {e}", d.display()))? } else { text };
         let name = format!("{}.png", d.file_stem().unwrap_or_default().to_string_lossy());
         let path = if to_dir { out.join(&name) } else { out.to_path_buf() };
         let t = std::time::Instant::now();

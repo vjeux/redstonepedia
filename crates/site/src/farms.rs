@@ -425,6 +425,9 @@ pub struct Member {
     pub terrain: Option<String>,
     /// Its site offset there (`x,y,z`: [`crate::pages::site_of`]), for its viewer's `data-site`.
     pub site: Option<String>,
+    /// Its design has a Nether part (`nether layer Y:` sections: the station's kill and storage),
+    /// drawn in a second viewer beside the overworld one (`data-part="nether"`).
+    pub nether: bool,
 }
 
 impl Member {
@@ -475,6 +478,7 @@ pub fn read_members(repo: &Path, farm: &str, part: &str) -> Vec<Member> {
             let design = std::fs::read_to_string(repo.join(&src)).ok();
             let terrain = design.as_deref().and_then(crate::pages::terrain_of).map(String::from);
             let site = design.as_deref().filter(|_| terrain.is_some()).and_then(crate::pages::site_of);
+            let nether = design.as_deref().is_some_and(|d| d.lines().any(|l| l.starts_with("nether layer ")));
             Some(Member {
                 part: part.to_string(),
                 name: r.get("name").cloned().filter(|n| !n.is_empty()).unwrap_or_else(|| file.trim_end_matches(".txt").to_string()),
@@ -485,6 +489,7 @@ pub fn read_members(repo: &Path, farm: &str, part: &str) -> Vec<Member> {
                 kind: row.map(|r| r.kind).unwrap_or_default(),
                 terrain,
                 site,
+                nether,
                 file,
             })
         })
@@ -569,10 +574,22 @@ fn member_viewer(prefix: &str, m: &Member) -> String {
         a.push_str(&format!(" data-site=\"{}\"", esc(s)));
     }
     let title = part_words(&m.part).0;
+    let name = if is_carousel(&m.part) { carousel_name(&m.name) } else { m.name.clone() };
+    // (its Nether part, a needed part, in its own viewer: vjeux, "if they are needed you need to
+    // show them"; shown as built, the part does not run alone)
+    let nether = if m.nether {
+        format!(
+            "<p>Its Nether side, where the golems arrive through the portals: the kill and the storage.</p><div class=\"viewer k-circuit\" data-mcview=\"full\" data-src=\"{}\" data-part=\"nether\" data-asbuilt data-kind=\"circuit\"><div class=\"fallback\"><span class=\"fb-big\">{}</span><span class=\"fb-small\">the Nether side</span></div></div>",
+            esc(&format!("{prefix}{}", m.src)),
+            esc(&name)
+        )
+    } else {
+        String::new()
+    };
     format!(
-        "<div class=\"viewer k-circuit\" data-mcview=\"full\" data-src=\"{}\"{a} data-kind=\"circuit\"><div class=\"fallback\"><span class=\"fb-big\">{}</span><span class=\"fb-small\">{}</span></div></div>",
+        "<div class=\"viewer k-circuit\" data-mcview=\"full\" data-src=\"{}\"{a} data-kind=\"circuit\"><div class=\"fallback\"><span class=\"fb-big\">{}</span><span class=\"fb-small\">{}</span></div></div>{nether}",
         esc(&format!("{prefix}{}", m.src)),
-        esc(&if is_carousel(&m.part) { carousel_name(&m.name) } else { m.name.clone() }),
+        esc(&name),
         esc(title)
     )
 }
@@ -1434,6 +1451,19 @@ fn pick_value(a: &crate::VariationArgs) -> Result<Option<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_nether_part_gets_its_own_viewer() {
+        // (the carousel station's members: their Nether kill and storage drawn beside the pad)
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let members = read_members(&repo, "iron", "carousel-station");
+        assert!(!members.is_empty() && members.iter().all(|m| m.nether), "{members:?}");
+        let html = member_viewer("../", &members[0]);
+        assert_eq!(html.matches("data-mcview=\"full\"").count(), 2, "{html}");
+        assert_eq!(html.matches("data-part=\"nether\" data-asbuilt").count(), 1, "{html}");
+        let plain = Member { nether: false, ..members[0].clone() };
+        assert!(!member_viewer("../", &plain).contains("data-part"));
+    }
 
     #[test]
     fn stages_and_kinds() {
