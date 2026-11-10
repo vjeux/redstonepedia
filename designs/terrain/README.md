@@ -28,6 +28,24 @@ worlds with `gen --world`: before, the server ran on between the read and the co
 village-edge — beds its 8 sleeping villagers occupy, a wheat age, 2 amethyst buds — differed from the
 kept world; `terrain info A --same-as B` compares two files).
 
+### The banked kept world (2026-11-09)
+
+The kept world the committed crops were cut from was lost with the boxes that made it. A re-made
+`2_-416_240_r192` (village-edge's and plains' world: `gen --seed 2 --at=-416,240 --radius 192
+--margin 2 --days 1 --keep`, 26.3) is banked as an artifact, so a fresh box restores it instead of
+re-making it:
+
+    mkdir -p ~/.cache/mctas/terrain/worlds /tmp/kw
+    meta artifacts.artifact download --id=1428338489461456 --out-dir=/tmp/kw
+    zstd -dc /tmp/kw/2_-416_240_r192.tar.zst | tar -xf - -C ~/.cache/mctas/terrain/worlds
+
+It is a re-made world, not the one the crops were cut from: in village-edge's box 667 of 5,529,600
+cells differ from the committed crop (`terrain info <its crop> --same-as village-edge.mcterrain`):
+ore placements deep underground (deepslate against deepslate gold and diamond ore, a few dozen
+cells), the day's amethyst bud growth and 2 red mushrooms, and the saved light around them (102 sky,
+169 block cells). The real-game checks (the terrain gate's rates) run in it; tick-exact work compares
+on the bridge, which imports the committed crop itself and needs no kept world.
+
 ## Commands
 
 - `gen --seed S --at=X,Z --radius R [--days N] [--keep] [--world W]`: generate (or re-read a kept
