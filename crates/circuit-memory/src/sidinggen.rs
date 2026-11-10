@@ -88,6 +88,19 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
     // the bed's port (R1's home: the runner gives the bed to each napper from it; ironfarm 14:00)
     let home = s.ports.get("home").copied().ok_or_else(|| anyhow::anyhow!("the siding file has no `port home:`"))?;
     d.ports.insert("home".into(), at(&home));
+    // the siding's own build list (`build: last x,y,z ...`, its cells placed after all others),
+    // moved into the loop's frame; joined with the drop ends' below
+    let mut last: Vec<P3> = Vec::new();
+    if let Some(bl) = s.meta.get("build") {
+        let cells = bl.strip_prefix("last ").ok_or_else(|| anyhow::anyhow!("the siding's `build: {bl}` is not a `last` list"))?;
+        for c in cells.split_whitespace() {
+            let v: Vec<i32> = c.split(',').map(|n| n.parse()).collect::<Result<_, _>>().map_err(|e| anyhow::anyhow!("the siding's build cell {c}: {e}"))?;
+            if v.len() != 3 {
+                bail!("the siding's build cell {c} is not x,y,z");
+            }
+            last.push(at(&[v[0], v[1], v[2]]));
+        }
+    }
     // ---- the diverter: the branch north of the corner (the corner's support stays the glass
     // control the bench switches)
     match b.blocks.get(&[9, -3, 0]).map(|s| s.as_str()) {
@@ -181,6 +194,17 @@ pub(crate) fn physical(d: &mut Design, siding: &Path) -> Result<Vec<P3>> {
     }
     let added: Vec<P3> = b.blocks.keys().copied().filter(|p| !before.contains(p)).collect();
     d.blocks = b.blocks;
+    // the drop ends go in after every other rail (ironfarm 15:13): placed by (y, x, z) they would
+    // come before the slots' peaks, and each slot's slope, with one link so far, would take its
+    // drop end (seen built in order: the slopes turned ascending_west)
+    let mut cells: Vec<String> = [[-4, 1, 28], [-4, 1, 31], [-4, 1, 34]].iter().chain(last.iter()).map(|q| format!("{},{},{}", q[0], q[1], q[2])).collect();
+    // (a build list the loop file already has comes first)
+    if let Some(prev) = d.meta.get("build") {
+        let prev = prev.strip_prefix("last ").ok_or_else(|| anyhow::anyhow!("the loop's `build: {prev}` is not a `last` list"))?;
+        cells.splice(0..0, prev.split_whitespace().map(|c| c.to_string()));
+    }
+    cells.dedup();
+    d.meta.insert("build".into(), format!("last {}", cells.join(" ")));
     Ok(added)
 }
 
@@ -403,12 +427,9 @@ pub fn control_blocks(sched: &Path) -> Result<B> {
     // torch on it, out east along z 3 (`output.ns5`); high except from the clock of the 4th
     // release after a visit to the clock of the 5th
     b.on([19, -2, 0], &comp("north", "compare"))?;
-    b.on([19, -2, 1], &rep("north", 1))?;
-    b.put([19, -2, 2], STONE)?;
-    b.put([20, -2, 2], "minecraft:redstone_wall_torch[facing=east,lit=true]")?;
-    b.on([21, -2, 2], DUST)?;
-    b.on([22, -2, 2], &rep("west", 1))?;
-    for x in 23..=27 {
+    b.put([19, -2, 1], STONE)?;
+    b.put([19, -2, 2], "minecraft:redstone_wall_torch[facing=south,lit=true]")?;
+    for x in 20..=27 {
         b.on([x, -2, 2], DUST)?;
     }
     b.ports.insert("output.ns5".into(), [27, -2, 2]);
@@ -738,7 +759,7 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     }
     seg_to(&mut kr, [-21, -4, 18]);
     route(&mut b, [-2, -1, 13], &kr, 6)?;
-    let kick_delay = 8;
+    let kick_delay = 6;
     for k in 0..kick_delay {
         b.on([-21, -4, 19 + k], &rep("north", 4))?;
     }
@@ -755,7 +776,7 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
     seg_to(&mut ns, [-25, -6, 30]);
     ns.push([-24, -5, 30]);
     ns.push([-23, -4, 30]);
-    route(&mut b, ns5_port, &ns, 6)?;
+    route(&mut b, ns5_port, &ns, 14)?;
     b.on([-22, -4, 30], &rep("west", 1))?;
     let mut ko = vec![[-21, -4, 31], [-21, -4, 32], [-21, -4, 33], [-21, -4, 34], [-21, -4, 35], [-21, -4, 36], [-21, -4, 37]];
     seg_to(&mut ko, [-18, -4, 37]);

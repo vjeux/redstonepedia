@@ -1,4 +1,5 @@
 name: carousel-release-loop-wired
+build: last -4,1,28 -4,1,31 -4,1,34
 circuit: mob-farm iron_ingot
 queue: scene=Loop carts=21 spacing=3 release=3 riders=1 slots=18 run=20 depart=3 boost=0 boost_first=8 straight=0 drop=0 vstand=0 tail_v=0 bridge=1 row_gap=3 uturn_boost=0 line=0 tail_deep=0 plain=0 stand_desc=0 detector=1 zombie_every=8 zombie_x=3 stand_deep=0 tail_desc=1 peak_pad=0 short_depart=0 stand_stop=1
 port home: -20 2 12
