@@ -248,6 +248,25 @@ explore/farmopt-stand-faults) measured against the brief's fault rows.
   through the stand while REL still holds G0 open (4..6-cart bursts after a missed REL); an added
   "shut for H gt after REL's rise" passes the missed-REL rows only at H = 15, a single
   non-monotonic point, so it is no design.
+- **Ending REL on cart evidence** (`--rel-end-rear 1,-1,0,30,80`: 30 gt after pocket 3's departing
+  cart enters (1,-1,0), the one cell only it crosses while the release is open): normal flow 0
+  problems at every corner, a constant 43 gt open; with the gate, (i) and the downslope hold, ironspec's
+  fault set at all 12 corners (seed 1) leaves 12 hard failures outside the partial freezes, 7 with the
+  quiet-entry unset-pass and the pocket-1-evidence latch set. The partial freezes split trains, and
+  the stand's 3-cart logic then meets partial batches.
+- **Sensing at today's spacing** (arrivals 9..15 gt apart, departures 10..13; a detector re-checks
+  every 20 gt, so an on-edge is evidence only for the first cart after it was last off): D1, the rear
+  exit's edge, first-edge triggers and busy levels have real sensors; pocket 2/3 occupancy, a
+  pocket-1 evidence independent of D1, an in-gate guard at G2 (a powered slope) and the hold's
+  pocket-3 input do not. A pairwise sweep of the release gaps (G12 3..7 x G23 2..8, 3 corners) fails
+  the hard lines at 24 of 105 pairs on the full emulated stack.
+- **S1t** (metering the train at the hold, one cart per 12..14 gt, tripwire evidence): out. A tripwire
+  sees riders, not carts, and a riderless cart reaches the stand (main's bed stop leaves its napper
+  behind in 6 of 40 mid-nap reloads; dismounts, kills): its count breaks.
+- **Impacts off boosters:** a cart's stored speed builds to 2.0 on boosters while its movement per
+  tick stays capped at 0.4, and collisions use the stored speed, so a stopping point fed off a boosted
+  run (the pockets fed off T, any hold) takes much harder impacts than the visible speed shows
+  (ironspec; 1.33..1.36 b/t measured into a held train).
 
 ## What did not work
 
