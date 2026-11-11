@@ -563,6 +563,40 @@ pub fn release_sweep(loop_file: &Path, offdelay: &Path, siding: Option<&Path>, s
 /// dig's minutes at the stage's price; the void bill's build minutes (the judge's `build minutes`,
 /// `circuit::mobfarm::site_bill` with no site) and its `place:edge` share (blocks placed in the
 /// air, which a dug build places from its dug floor instead).
+/// `circuit memory design-edit`: moves blocks and entities by coordinates (see its CLI doc).
+pub fn design_edit(file: &std::path::Path, out: &std::path::Path, move_block: &[String], move_entity: &[String]) -> Result<()> {
+    let mut d = mctas::design::Design::load(file)?;
+    let nums = |s: &str| -> Result<Vec<f64>> { s.split(',').map(|t| t.trim().parse::<f64>().map_err(|e| anyhow!("{s:?}: {e}"))).collect() };
+    let pair = |m: &str| -> Result<([f64; 3], [f64; 3])> {
+        let (a, b) = m.split_once(':').ok_or_else(|| anyhow!("{m:?}: X,Y,Z:X2,Y2,Z2"))?;
+        let (a, b) = (nums(a)?, nums(b)?);
+        anyhow::ensure!(a.len() == 3 && b.len() == 3, "{m:?}: X,Y,Z:X2,Y2,Z2");
+        Ok(([a[0], a[1], a[2]], [b[0], b[1], b[2]]))
+    };
+    for m in move_block {
+        let (a, b) = pair(m)?;
+        let (a, b) = ([a[0] as i32, a[1] as i32, a[2] as i32], [b[0] as i32, b[1] as i32, b[2] as i32]);
+        let s = d.blocks.remove(&a).filter(|s| !s.ends_with(":air")).ok_or_else(|| anyhow!("--move-block: no block at {a:?}"))?;
+        if let Some(t) = d.blocks.get(&b).filter(|t| !t.ends_with(":air")) {
+            bail!("--move-block: {b:?} holds {t}");
+        }
+        d.blocks.insert(b, s.clone());
+        if let Some(n) = d.block_entities.remove(&a) {
+            d.block_entities.insert(b, n);
+        }
+        println!("moved {s} {a:?} -> {b:?}");
+    }
+    for m in move_entity {
+        let (a, b) = pair(m)?;
+        let e = d.entities.iter_mut().find(|e| (0..3).all(|i| (e.pos[i] - a[i]).abs() < 0.01)).ok_or_else(|| anyhow!("--move-entity: no entity at {a:?}"))?;
+        e.pos = b;
+        println!("moved {} {a:?} -> {b:?}", e.kind);
+    }
+    d.save(out)?;
+    println!("{}", out.display());
+    Ok(())
+}
+
 pub fn price(designs: &[std::path::PathBuf], ground: i32, stage: &str) -> Result<()> {
     let st = redsim::entity::mob::prices::stage_ix(stage);
     let dig = redsim::entity::mob::prices::Prices::get().map_err(|e| anyhow!(e))?.price("dig", st).map_err(|e| anyhow!(e))?;

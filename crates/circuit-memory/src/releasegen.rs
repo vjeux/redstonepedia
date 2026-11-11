@@ -234,6 +234,17 @@ fn feed(b: &mut B, srcs: &[(P3, usize)], end: P3, total: u8, near: &[P3], lo: P3
     for c in corridor {
         avoid.insert([c[0], c[1] + 1, c[2]]);
     }
+    // (no support right over the lower dust of an earlier route's stair: a stone there caps the
+    // stair, which the router checks for its own route only (found 07:59: the G_P side feed's
+    // support (5,2,33) cut the G0 rear feed's step (5,1,33) -> (5,2,32)))
+    let is_dust = |p: &P3| b.blocks.get(p).is_some_and(|s| s.contains("redstone_wire"));
+    for (p, s) in &b.blocks {
+        if s.contains("redstone_wire") && [[1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1]].iter().any(|d| is_dust(&[p[0] + d[0], p[1] + d[1], p[2] + d[2]])) {
+            avoid.insert([p[0], p[1] + 2, p[2]]);
+        }
+    }
+    // (the end is the fixed part's input cell: its support is that part's, declared with them)
+    avoid.remove(&end);
     let mut why: Vec<String> = Vec::new();
     for &(src, run0) in srcs {
         if run0 >= 13 {
@@ -334,12 +345,14 @@ fn escapement_in(b: &mut B, yy: i32, zl: i32, corridor: &std::collections::BTree
     // A off the x 2 line through a repeater (3, yy, 38) into (4, yy, 38); A3 alone off the z 43 line
     // through (8, -3, 42) into (8, -3, 41). MCTAS_ESC_D4 = the A3 side chain's rt, set from the trace)
     let d4: u8 = std::env::var("MCTAS_ESC_D4").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
-    // G_P: CP into the gate from its west side (the gate's east side is in the slot-0 riders' sight
-    // lines to the zombie posts at x 3.5: a support at (1,1,32) cut them). Its rear a dust (-2,2,32)
-    // (west of it is the lane's rider space) at A_l + 6: the hub's repeater and 2 rt on the feed; its
-    // side A_l + 8 through its repeater (-1,2,33), fed off the rear feed past its last repeater
-    put(b, [-1, 2, 32], cmp("west"))?;
-    put(b, [-1, 2, 33], rep("south", 1))?;
+    // G_P: CP into the gate from its east side (ironfarm 07:54: the tail's zombie post moved to x 6;
+    // the east driver's supports still cut 8 slot-0/R lines to that zombie, accepted pending the
+    // integrated loop's stamp and panic lines: MCTAS_SIGHT_ACCEPT names them). Its rear A_l + 6:
+    // the hub's repeater, the chain's 1 and its own 1; its side A_l + 8: 1 + 2 + 1
+    put(b, [1, 2, 32], cmp("east"))?;
+    put(b, [2, 2, 32], rep("east", 1))?;
+    put(b, [1, 2, 33], rep("south", 1))?;
+    put(b, [1, 2, 34], rep("south", 2))?;
     // G0: C0 through its driver into the gate; rear 4 rt from A_l (hub 1, chain 2, its repeater 1);
     // its side A3 alone (the third advance's window cut to its tail, A3_c + 16 on)
     put(b, [1, 3, 31], rep("east", 1))?; // the driver into G0
@@ -360,7 +373,7 @@ fn escapement_in(b: &mut B, yy: i32, zl: i32, corridor: &std::collections::BTree
     if !b.blocks.get(&a3l).is_some_and(|s| s.contains("redstone_wire")) {
         bail!("escapement: the z {zl} line's end {a3l:?} is {:?}", b.blocks.get(&a3l));
     }
-    put(b, [8, -3, zl - 1], rep("north", 1))?;
+    put(b, [8, -3, zl - 1], rep("south", 1))?; // (facing = its input side: the z 43 line)
     let a3h = [8, -3, zl - 2];
     put(b, a3h, DUST.into())?;
     if !in_corridor.borrow().is_empty() {
@@ -390,13 +403,21 @@ fn escapement_in(b: &mut B, yy: i32, zl: i32, corridor: &std::collections::BTree
     let lo = [-4, yy - 3, 24];
     let hi = [10, 5, zl + 1];
     let mut anet: Vec<(P3, usize)> = vec![(ah, 0)];
+    let p = feed(b, &anet, [1, 2, 35], 0, &[[1, 2, 34]], lo, hi, "G_P side", corridor)?;
+    anet.extend(p);
     let p = feed(b, &anet, [5, 3, 31], 0, &[[4, 3, 31]], lo, hi, "G0 rear", corridor)?;
     anet.extend(p);
-    // (the rear's dust end (-2,2,32) is CP's rear: the feed ends on it)
-    let p = feed(b, &anet, [-2, 2, 32], 2, &[[-1, 2, 32]], lo, hi, "G_P rear", corridor)?;
-    let last_rep = p.iter().rposition(|(_, run)| *run == 0).ok_or_else(|| anyhow::anyhow!("escapement: the G_P rear feed has no repeater"))?;
-    let past: Vec<(P3, usize)> = p[last_rep..].to_vec();
-    feed(b, &past, [-1, 2, 34], 0, &[[-1, 2, 33], [-2, 2, 32], [-1, 2, 32]], lo, hi, "G_P side", corridor)?;
+    // (the A net's own dust may be joined: the same pulse at the same tick). CP's rear: the feed
+    // carries 1 rt onto (3,2,32), its repeater's input; failing that, a chain repeater there and a
+    // plain feed onto (4,2,32) (the same 3 rt from A_l either way)
+    let mut near: Vec<P3> = vec![[2, 2, 32]];
+    near.extend(anet.iter().map(|(c, _)| *c));
+    if let Err(e1) = feed(b, &anet, [3, 2, 32], 1, &near, lo, hi, "G_P rear (1 rt on the feed)", corridor) {
+        put(b, [3, 2, 32], rep("east", 1))?;
+        let mut near: Vec<P3> = vec![[3, 2, 32]];
+        near.extend(anet.iter().map(|(c, _)| *c));
+        feed(b, &anet, [4, 2, 32], 0, &near, lo, hi, "G_P rear", corridor).map_err(|e2| anyhow::anyhow!("{e1} | {e2}"))?;
+    }
     let mut ok = false;
     let mut errs = Vec::new();
     for k in 0..=1u8 {
@@ -1368,8 +1389,12 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     }
     if r1 {
         // (R1: no tail windows; the A3 tap's route (the z 43 line, y -3, x 1..8) carries A3 alone to
-        // the escapement's drive, which tells the third advance apart)
-        escapement(&mut b, yy, zl, &Design::load(loop_file)?)?;
+        // the escapement's drive, which tells the third advance apart. ironspec 08:06: the drive is
+        // held (no fixed G_P offset works at 24 with today's stand): only with MCTAS_R1_ESC, the
+        // gates otherwise left to the bench)
+        if std::env::var("MCTAS_R1_ESC").is_ok() {
+            escapement(&mut b, yy, zl, &Design::load(loop_file)?)?;
+        }
     } else {
     b.on([8, -2, zl - 1], DUST)?;
     b.on([8, -1, zl - 2], DUST)?;
@@ -1698,6 +1723,13 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
             for (n, q) in base_ports.into_iter().chain(tail_ports) {
                 sp.ports.insert(format!("output.{n}"), q);
             }
+            if r1 {
+                // (the gates are the loop's fence gates, absent from the probe: a stone in each
+                // reads its drivers, as the controls' stones do)
+                for g in [[0, 2, 32], [0, 3, 31]] {
+                    sp.blocks.entry(g).or_insert_with(|| STONE.into());
+                }
+            }
             for (n, q) in [("stand_rel", [8, -2, 2]), ("x_tap", [0, -1, 10]), ("x_b0", [0, -1, 9]), ("x_b3", [8, -1, 9]), ("x_or", [4, -1, 7]), ("x_or8", [8, -1, 6]), ("x_dr", [8, -2, 4]), ("row7", u([23, -6, 7])), ("row1", u([23, -6, 1])), ("row_5", u([23, -6, -5])), ("step_in", u([20, -4, 12])), ("step_end", u([28, -5, 6])), ("ring_top", u([27, -5, 4])), ("p0", u([22, -6, 9])), ("p1", u([22, -6, 3])), ("p2", u([22, -6, -3])), ("or_out", [11, -4, 0]), ("ns5", [-23, -4, 30]), ("bus", [-15, -1, 33])] {
                 sp.ports.insert(format!("output.{n}"), q);
             }
@@ -1787,6 +1819,18 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
             let base: BTreeMap<P3, String> = d.blocks.iter().filter(|(p, _)| !mine.contains(*p) || siding_cells.contains(*p) || pad_cells.contains(*p)).map(|(p, s)| (*p, s.clone())).collect();
             let zombies: Vec<[f64; 3]> = d.entities.iter().filter(|e| e.nbt.as_deref().is_some_and(|n| n.contains("minecraft:zombie"))).map(|e| e.pos).collect();
             let (n, cuts) = crate::autoroute::sight_cuts(&base, &fin, &zombies);
+            // (MCTAS_SIGHT_ACCEPT "x,y,z;...": the stopping cells whose cuts an owner accepted,
+            // pending a run that checks them (ironfarm 07:54: G_P's east driver, pending the
+            // integrated loop's stamp and panic lines); every accepted cut is printed)
+            let accept: Vec<P3> = std::env::var("MCTAS_SIGHT_ACCEPT").ok().map(|v| v.split(';').filter_map(|c| {
+                let n: Vec<i32> = c.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+                (n.len() == 3).then(|| [n[0], n[1], n[2]])
+            }).collect()).unwrap_or_default();
+            let (accepted, cuts): (Vec<_>, Vec<_>) = cuts.into_iter().partition(|(_, _, b)| accept.contains(b));
+            if !accepted.is_empty() {
+                let show: Vec<String> = accepted.iter().map(|(r, z, b)| format!("rider over {r:?} to the zombie at {z:?}: stopped by {b:?}")).collect();
+                println!("sight lines ACCEPTED as cut (MCTAS_SIGHT_ACCEPT, pending the integrated check): {}: {}", accepted.len(), show.join("; "));
+            }
             if !cuts.is_empty() {
                 let show: Vec<String> = cuts.iter().take(8).map(|(r, z, b)| format!("rider over {r:?} to the zombie at {z:?}: stopped by {b:?} {}", fin.get(b).map(|s| s.as_str()).unwrap_or("?"))).collect();
                 bail!("{} rider-zombie sight lines cut by the added blocks (of {n} checked): {}", cuts.len(), show.join("; "));

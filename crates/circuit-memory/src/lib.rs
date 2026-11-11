@@ -258,6 +258,19 @@ enum Cmd {
         #[arg(long, default_value = "middle")]
         stage: String,
     },
+    /// Edit a design by coordinates instead of by hand in its palette grid: move blocks
+    /// (`--move-block X,Y,Z:X2,Y2,Z2`, its block entity with it) and entities (`--move-entity
+    /// X,Y,Z:X2,Y2,Z2`, the entity within 0.01 of the first point, its passengers with it); a move
+    /// onto an occupied cell, or of a missing block or entity, fails. Written to `--out`.
+    DesignEdit {
+        file: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long = "move-block", allow_hyphen_values = true)]
+        move_block: Vec<String>,
+        #[arg(long = "move-entity", allow_hyphen_values = true)]
+        move_entity: Vec<String>,
+    },
     /// The night-1 lines from a `queue-loop-run --visits-observe` log (one seed): each villager's
     /// first nap, each batch's first fully napped slot, and the startup's slot cost (stand slots
     /// whose batch had a rider not yet napped) (crates/circuit-memory/src/releasebench.rs).
@@ -548,6 +561,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Cmd::TraceDiff { a, b } => releasebench::trace_diff(&a, &b)?,
         Cmd::BedDistance { design, riders } => releasebench::bed_distance(&design, &riders)?,
         Cmd::Price { designs, ground, stage } => releasebench::price(&designs, ground, &stage)?,
+        Cmd::DesignEdit { file, out, move_block, move_entity } => releasebench::design_edit(&file, &out, &move_block, &move_entity)?,
         Cmd::ReleaseSweep { loop_file, offdelay, siding, siding_ctl, pad, knob, values, run, show } => releasebench::release_sweep(&loop_file, &offdelay, siding.as_deref(), siding_ctl.as_deref(), pad.as_deref(), knob.as_deref(), &values, &run, &show)?,
         Cmd::SidingCtlGen { out, sched } => sidinggen::control_gen(&out, &sched)?,
         Cmd::Slice { file, r#box } => {
