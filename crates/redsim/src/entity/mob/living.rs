@@ -23,30 +23,40 @@ fn modified_friction(friction: f32) -> f32 {
     (1.0f32 - (1.0f32 - friction) * 1.0f32).clamp(0.0, 1.0)
 }
 
+/// `onClimbable()` of mob `i` as it stands now: a spider's climbing flag (`Spider.onClimbable`);
+/// else `LivingEntity.onClimbable`, the block at its feet in #minecraft:climbable (a natural ladder
+/// or vine; scaffolding, whose climbing is not modeled, is refused; a trapdoor used as a ladder
+/// is not modeled either).
+pub(crate) fn climbable_now(w: &mut World, i: usize) -> bool {
+    if matches!(mob(w, i).ty.def().id, "spider" | "cave_spider") {
+        return mob(w, i).climbing;
+    }
+    let feet = w.entities.list[i].block_position();
+    match w.get(feet) {
+        Block::Scaffolding { .. } => {
+            let why = "a mob in a climbable (scaffolding): climbing is not modeled".to_string();
+            if !w.errors.contains(&why) {
+                w.errors.push(why);
+            }
+            true
+        }
+        Block::Terrain(id) => crate::terrain::blocks::props(id).has_tag("minecraft:climbable"),
+        _ => false,
+    }
+}
+
 /// `Mob.tick` of entity `i` (`LivingEntity.tick`; `updateControlFlags` changes no modeled state).
 pub fn tick(w: &mut World, i: usize) {
     // ---- mob AI (the mob-AI lane): Creeper.tick's fuse before super.tick ----
     if super::ai::has_ai(w, i) && mob(w, i).ty.def().id == "creeper" {
         super::ai::goal::creeper::creeper_tick(w, i);
     }
-    // LivingEntity.onClimbable (the block at its feet in BlockTags.CLIMBABLE; scaffolding is the
-    // only one redsim has): climbing is not modeled, so it is refused wherever the mob came from,
-    // and `isPushable` reads the flag. A spider's is its climbing flag (`Spider.onClimbable`).
-    let spider = matches!(mob(w, i).ty.def().id, "spider" | "cave_spider");
-    if spider {
-        let c = mob(w, i).climbing;
-        mob_mut(w, i).on_climbable = c;
-    } else {
-        let feet = w.entities.list[i].block_position();
-        let climbing = matches!(w.get(feet), Block::Scaffolding { .. });
-        mob_mut(w, i).on_climbable = climbing;
-        if climbing {
-            let why = "a mob in a climbable (scaffolding): climbing is not modeled".to_string();
-            if !w.errors.contains(&why) {
-                w.errors.push(why);
-            }
-        }
-    }
+    // LivingEntity.onClimbable (the block at its feet in BlockTags.CLIMBABLE: the natural ladders
+    // and vines; scaffolding, whose climbing is not modeled, is refused), read again where the
+    // game reads it (`climbable_now`); `isPushable` reads the flag. A spider's is its climbing
+    // flag (`Spider.onClimbable`).
+    let c = climbable_now(w, i);
+    mob_mut(w, i).on_climbable = c;
     let pre_air = mob(w, i).air;
     base_tick(w, i);
     if w.entities.list[i].removed {
@@ -101,7 +111,7 @@ pub fn tick(w: &mut World, i: usize) {
         super::ai::after_ai_step(w, i);
     }
     // Spider.tick after super.tick: climbing while it collides horizontally
-    if spider {
+    if matches!(mob(w, i).ty.def().id, "spider" | "cave_spider") {
         super::ai::goal::spider::after_tick(w, i);
     }
     // Bat.tick after super.tick: still at its ceiling, or 0.6 of its vertical motion
@@ -596,9 +606,10 @@ fn travel_in_air(w: &mut World, i: usize, input: Vec3) {
         0.02f32
     };
     move_relative(w, i, speed, input);
-    // handleOnClimbable: a climbing mob (a spider on a wall) falls no faster than 0.15 and moves
-    // at most 0.15 sideways; its fall distance resets
-    let climbing = mob(w, i).on_climbable;
+    // handleOnClimbable (onClimbable now): a climbing mob (a spider on a wall, a mob in a vine or
+    // on a ladder) falls no faster than 0.15 and moves at most 0.15 sideways; its fall distance
+    // resets
+    let climbing = climbable_now(w, i);
     if climbing {
         let c = 0.15f32 as f64;
         let e = &mut w.entities.list[i];
@@ -609,8 +620,11 @@ fn travel_in_air(w: &mut World, i: usize, input: Vec3) {
     let d = w.entities.list[i].delta_movement;
     entity::move_(w, i, MoverType::Self_, d);
     let mut movement = w.entities.list[i].delta_movement;
-    // and goes up 0.2 while it pushes against a wall (or jumps)
-    if climbing && (w.entities.list[i].horizontal_collision || mob(w, i).jumping) {
+    // and goes up 0.2 while it pushes against a wall (or jumps) in one (onClimbable after the
+    // move, at its new feet)
+    let climbing_after = climbable_now(w, i);
+    mob_mut(w, i).on_climbable = climbing_after;
+    if climbing_after && (w.entities.list[i].horizontal_collision || mob(w, i).jumping) {
         movement = Vec3::new(movement.x, 0.2, movement.z);
     }
     let movement_y = movement.y - 0.08;
@@ -660,8 +674,8 @@ fn travel_in_water(w: &mut World, i: usize, input: Vec3, gravity: f64, falling: 
     let d = w.entities.list[i].delta_movement;
     entity::move_(w, i, MoverType::Self_, d);
     let mut m = w.entities.list[i].delta_movement;
-    // a climbing mob against a wall goes up 0.2 (a spider in water)
-    if w.entities.list[i].horizontal_collision && mob(w, i).on_climbable {
+    // a climbing mob against a wall goes up 0.2 (a spider in water; onClimbable after the move)
+    if w.entities.list[i].horizontal_collision && climbable_now(w, i) {
         m = Vec3::new(m.x, 0.2, m.z);
     }
     let m = m.multiply(slow as f64, 0.8f32 as f64, slow as f64);
