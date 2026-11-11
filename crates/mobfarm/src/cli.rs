@@ -4670,7 +4670,20 @@ fn phase_sweep_cmd(spec: &redsim::entity::mob::farm::FarmSpec, o: &crate::queue:
             let woke = r.lines().find(|l| l.contains("(phases forced) woke at")).and_then(|l| l.split("woke at ").nth(1)).unwrap_or("not seen").to_string();
             let ok = probs.starts_with("0 problems");
             let names: Vec<String> = ks.iter().zip([a, b]).map(|(k, v)| format!("{}={v}", redsim::entity::mob::villager::SENSORS[*k].0)).collect();
-            println!("order {} phases {}: {probs}{first}; woke {woke}; {forced}", label(ords[oi]), names.join(" "));
+            // (day-1 2026-11-11, ironspec's 05:58 question: the forced villager's own panic on the
+            // slot ticks it spent at the stand after the load, from the stand line's per-villager
+            // counts by its id after the load)
+            let fid = r.lines().find_map(|l| l.split("phases forced on e").nth(1)).and_then(|s| s.split(|c: char| !c.is_ascii_digit()).next()).and_then(|d| d.parse::<u32>().ok());
+            let at_stand = fid
+                .and_then(|id| {
+                    let l = r.lines().find(|l| l.starts_with("stand batch panicking"))?;
+                    let per = l.split("per villager").nth(1)?;
+                    let toks: Vec<&str> = per.split_whitespace().collect();
+                    let k = toks.iter().position(|t| *t == format!("e{id}"))?;
+                    toks.get(k + 1).map(|v| format!("; at the stand e{id} panicking on {v} slot ticks"))
+                })
+                .unwrap_or_else(|| "; at the stand: not seen".into());
+            println!("order {} phases {}: {probs}{first}; woke {woke}{at_stand}; {forced}", label(ords[oi]), names.join(" "));
             use std::io::Write;
             let _ = std::io::stdout().flush();
             results.insert((oi, a, b), (ok, woke));
