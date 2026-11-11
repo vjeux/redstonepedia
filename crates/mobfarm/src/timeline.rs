@@ -266,6 +266,11 @@ pub struct Timeline {
     recording: Option<String>,
     /// Each slot's batch arrival margin (the smallest of its members'), with a station region.
     margins: Vec<(u32, i64)>,
+    /// How many of the golem attempts in the world (`w.mob.spawn_tries`) were already read.
+    spawn_seen: usize,
+    /// Each slot tick's stand batch (villagers at rest in the stand's pocket row: z 0.5, y below 1,
+    /// x -1..9): (tick, how many panic on the tick, how many there).
+    stand_panic: Vec<(u32, u8, u8)>,
 }
 
 /// A check resolved once the run is over.
@@ -324,6 +329,9 @@ struct Snap {
     /// The block state of the cells the checks read: the beds, the tagged blocks, the homes.
     block: HashMap<BlockPos, String>,
     events: Vec<Ev>,
+    /// The golem spawn attempts of the tick (`w.mob.spawn_tries`: each one's start, every try's
+    /// cell or none, the golem's cell); none from a recording.
+    spawn: Vec<(BlockPos, Vec<Option<BlockPos>>, Option<BlockPos>)>,
 }
 
 /// What happened in a tick (a run's mob events; a recording's, read off its frames).
@@ -491,7 +499,7 @@ impl Timeline {
         let nv = villagers.len();
         // (the first dawn closes a whole night only when the run began before that night's dusk)
         let whole_night = day0.rem_euclid(24000) < 12000;
-        let mut tl = Timeline { title: title.to_string(), seed, t0, day0, ticks, offset, regions, villagers, carts, beds, signals, golems: Vec::new(), slots: Vec::new(), flags: Vec::new(), lines: Vec::new(), pending: Vec::new(), counts: Vec::new(), exposed: HashMap::new(), night_sleeps: vec![0; nv], whole_night, marks: Vec::new(), source: None, recording: None, margins: Vec::new() };
+        let mut tl = Timeline { title: title.to_string(), seed, t0, day0, ticks, offset, regions, villagers, carts, beds, signals, golems: Vec::new(), slots: Vec::new(), flags: Vec::new(), lines: Vec::new(), pending: Vec::new(), counts: Vec::new(), exposed: HashMap::new(), night_sleeps: vec![0; nv], whole_night, marks: Vec::new(), source: None, recording: None, margins: Vec::new(), spawn_seen: 0, stand_panic: Vec::new() };
         tl.sample(w, 0, Vec::new());
         Ok(tl)
     }
@@ -556,6 +564,8 @@ impl Timeline {
             source: Some(path.to_string()),
             recording: None,
             margins: Vec::new(),
+            spawn_seen: 0,
+            stand_panic: Vec::new(),
         };
         let mut t0: Option<i64> = None;
         let mut last = 0u32;
@@ -699,6 +709,8 @@ impl Timeline {
             source: None,
             recording: Some(path.to_string()),
             margins: Vec::new(),
+            spawn_seen: 0,
+            stand_panic: Vec::new(),
         };
         let mut blocks: HashMap<BlockPos, String> = HashMap::new();
         let mut golem_at: Vec<(u32, Vec3)> = Vec::new();
@@ -778,7 +790,7 @@ impl Timeline {
             prev = tl.villagers.iter().zip(&reads).filter_map(|(v, r)| r.as_ref().map(|r| (v.id, (r.ttl, r.sleeping, r.home.is_some(), r.willing)))).collect();
             let cells: Vec<BlockPos> = tl.beds.iter().map(|b| b.head).chain(tl.signals.iter().filter_map(|s| s.at)).chain(reads.iter().flatten().filter_map(|r| r.home)).chain(tl.villagers.iter().filter_map(|v| v.prev_home)).collect();
             let block: HashMap<BlockPos, String> = cells.into_iter().filter_map(|p| blocks.get(&p).map(|s| (p, s.clone()))).collect();
-            tl.ingest(k, Snap { t, villagers: reads, carts: riders, ents, block, events });
+            tl.ingest(k, Snap { t, villagers: reads, carts: riders, ents, block, events, spawn: Vec::new() });
         }
         tl.finish();
         Ok(tl)
@@ -842,12 +854,18 @@ impl Timeline {
                 _ => None,
             })
             .collect();
-        self.ingest(k, Snap { t: w.time, villagers, carts, ents, block, events });
+        let spawn = {
+            let n = w.mob.spawn_tries.len();
+            let v = w.mob.spawn_tries[self.spawn_seen.min(n)..].to_vec();
+            self.spawn_seen = n;
+            v
+        };
+        self.ingest(k, Snap { t: w.time, villagers, carts, ents, block, events, spawn });
     }
 
     /// One tick's state through the lanes and the checks.
     fn ingest(&mut self, k: u32, snap: Snap) {
-        let Snap { t, villagers: reads_in, carts: cart_reads, ents, block, events } = snap;
+        let Snap { t, villagers: reads_in, carts: cart_reads, ents, block, events, spawn } = snap;
         let off = self.offset;
         // the events: attempts, golems, sensor locks, releases
         let mut tries: HashMap<u32, (u32, Option<u32>, Option<[i32; 3]>)> = HashMap::new();
@@ -1171,6 +1189,12 @@ impl Timeline {
         // (`VillagerPanicTrigger.tick`); a try off the slots is the gossip path's
         // (`Villager.gossip`: `spawnGolemIfNeeded(5)`), flagged
         let slot_tick = t % 100 == 0;
+        if slot_tick {
+            // (the stand batch's panic on the slot tick: a member between two runs of its panic
+            // trigger does not summon (ironspec 2026-11-11 04:31, the late corner's misses))
+            let at_rest: Vec<bool> = reads.iter().flatten().filter(|r| (r.pos.z - off[2] as f64 - 0.5).abs() < 0.3 && r.pos.y - (off[1] as f64) < 1.0 && (-1.0..9.0).contains(&(r.pos.x - off[0] as f64))).map(|r| r.panic).collect();
+            self.stand_panic.push((k, at_rest.iter().filter(|p| **p).count() as u8, at_rest.len() as u8));
+        }
         let tried_here: Vec<usize> = (0..self.villagers.len()).filter(|&vi| tries.contains_key(&self.villagers[vi].id)).collect();
         if slot_tick || !tried_here.is_empty() {
             let mut summoners: Vec<usize> = if slot_tick { (0..self.villagers.len()).filter(|&vi| reads[vi].as_ref().is_some_and(|r| r.panic)).collect() } else { Vec::new() };
@@ -1207,7 +1231,19 @@ impl Timeline {
                         let gl = self.golems.iter().find(|x| x.id == *g).map(|x| x.label.clone()).unwrap_or_default();
                         (format!("spawned {gl} ({wl} willing)"), Some(gl), *wl)
                     }
-                    Some((wl, None, _)) => (format!("no spot in 10 tries ({wl} willing)"), None, *wl),
+                    Some((wl, None, _)) => {
+                        // (ironspec 04:31: per miss, each try's cell and each member's state)
+                        let bp = BlockPos::new(s.pos.x.floor() as i32, s.pos.y.floor() as i32, s.pos.z.floor() as i32);
+                        let detail = spawn.iter().find(|(st, _, _)| *st == bp).map(|(_, tr, _)| {
+                            let found: Vec<String> = tr.iter().flatten().map(|c| format!("{},{},{}", c.x - off[0], c.y - off[1], c.z - off[2])).collect();
+                            format!("; {} of {} tries found a cell{}", found.len(), tr.len(), if found.is_empty() { String::new() } else { format!(" ({}), each obstructed", found.join(" ")) })
+                        }).unwrap_or_default();
+                        let members: Vec<String> = reads.iter().enumerate().filter_map(|(vi, r)| {
+                            let r = r.as_ref()?;
+                            (vi == si || r.bb.intersects(bx)).then(|| format!("{} panic={} lock={}", self.villagers[vi].label, if r.panic { "on" } else { "off" }, if r.ttl.is_some() { "on" } else { "off" }))
+                        }).collect();
+                        (format!("no spot in 10 tries ({wl} willing){detail}; in its box: {}", members.join(", ")), None, *wl)
+                    }
                     None if !s.willing => (if s.ttl.is_some() { "no try: it is locked".to_string() } else { "no try: it has not slept within 24000 gt".to_string() }, None, 0),
                     None if self.recording.is_some() && in_box_willing >= 3 => (format!("no golem: {} willing in its 10-box, so its tries found no spot (a recording shows no tries)", in_box_willing.min(5)), None, in_box_willing.min(5)),
                     None => (format!("no try: {} willing in its 10-box (3 needed)", in_box_willing.min(5)), None, in_box_willing.min(5)),
@@ -1642,6 +1678,8 @@ impl Timeline {
         let margin = if ms.is_empty() { String::new() } else { format!("; arrival margin min {} mean {:.1} over {} slots", ms.iter().min().unwrap(), ms.iter().sum::<i64>() as f64 / ms.len() as f64, ms.len()) };
         let nights = n("night");
         let margin = if nights == 0 { margin } else { format!("{margin}; second naps {} over {nights} villager-nights", n("second-nap")) };
+        let sp: Vec<u8> = self.stand_panic.iter().filter(|(k, _, m)| *k >= from && *k <= to && *m == 3).map(|(_, p, _)| *p).collect();
+        let margin = if sp.is_empty() { margin } else { format!("{margin}; stand batch panicking on the slot tick (3 at rest): 3 in {}, 2 in {}, 1 in {}, 0 in {} of {} slots", sp.iter().filter(|p| **p == 3).count(), sp.iter().filter(|p| **p == 2).count(), sp.iter().filter(|p| **p == 1).count(), sp.iter().filter(|p| **p == 0).count(), sp.len()) };
         if self.recording.is_some() {
             // (a recording shows no tries without a spot, and its sightings are fresh locks in ticks without a spawn)
             return format!(

@@ -857,7 +857,11 @@ pub(crate) fn stand_rel(d: &mut Design) -> Result<Vec<P3>> {
         let path = crate::autoroute::find(&b, start, [0, -1, 11], &lim)?;
         route_d(&mut b, tap, &path, 14, 0, 1)?;
         let n = path.iter().filter(|p| b.blocks.get(*p).is_some_and(|s| s.contains("repeater"))).count() as u8;
-        let total = tap_delay + crate::releasegen::FAR_SHIFT_RT;
+        // (MCTAS_STAND_REL_SHIFT_RT, B3′ (day-1 05:08, pending ironspec's word): the stand's REL,
+        // the departure, shifted by this many rt instead of FAR_SHIFT_RT, so the departing riders
+        // keep main's distance from the next golem (the follow box))
+        let shift: i32 = std::env::var("MCTAS_STAND_REL_SHIFT_RT").ok().and_then(|v| v.parse().ok()).unwrap_or(crate::releasegen::FAR_SHIFT_RT as i32);
+        let total = (tap_delay as i32 + shift).max(0) as u8;
         if 1 + n >= total || total - 1 - n > 4 {
             bail!("the stand's REL line has {n} repeaters: the old tap cannot make up {total} rt");
         }
@@ -1267,7 +1271,10 @@ fn divert_unit(b: &mut B) -> Result<(P3, P3)> {
         let lim = crate::autoroute::Limits { lo: [-10, -9, 13], hi: [11, -3, 55], avoid, near_ok: [tap].into_iter().collect() };
         let mut rel = crate::autoroute::find(b, start, tail[0], &lim)?;
         rel.extend(tail[1..].iter().copied());
-        let total = 2 + crate::releasegen::FAR_SHIFT_RT;
+        // (MCTAS_UNIT_REL_SHIFT_RT, B3′: the departure-side inputs at main's time with the stand's
+        // REL; default FAR_SHIFT_RT)
+        let unit_shift: i32 = std::env::var("MCTAS_UNIT_REL_SHIFT_RT").ok().and_then(|v| v.parse().ok()).unwrap_or(crate::releasegen::FAR_SHIFT_RT as i32);
+        let total = (2 + unit_shift).max(1) as u8;
         lay_exact(b, tap, &rel, 0, total - 1)?;
     } else {
     b.on([0, -1, 14], &rep("north", 1))?;
@@ -1440,7 +1447,10 @@ pub(crate) fn wire_control(d: &mut Design, sched: &Path) -> Result<Vec<P3>> {
         let stone = crate::releasegen::core_place([0, 1, -3]);
         let lead: Vec<P3> = (4..=8).map(|z| crate::releasegen::core_place([0, 1, -z])).collect();
         let dv = [lead[0][0] - stone[0], 0, lead[0][2] - stone[2]];
-        let total = 7 - 1 + crate::releasegen::FAR_SHIFT_RT;
+        // (MCTAS_MODULE_REL_SHIFT_RT, B3′: the module's REL (its windows: the divert, the T drives,
+        // the holds) at main's time with the stand's REL; default FAR_SHIFT_RT)
+        let module_shift: i32 = std::env::var("MCTAS_MODULE_REL_SHIFT_RT").ok().and_then(|v| v.parse().ok()).unwrap_or(crate::releasegen::FAR_SHIFT_RT as i32);
+        let total = (7 - 1 + module_shift) as u8;
         b.on(lead[0], &rep(facing_in(dv), 1))?;
         b.on(lead[1], DUST)?;
         b.on(lead[2], &rep(facing_in(dv), 4))?;

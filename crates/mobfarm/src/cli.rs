@@ -370,15 +370,20 @@ pub enum MobfarmCmd {
     Timeline {
         /// The design (none with `--from-dump`).
         design: Option<PathBuf>,
-        /// Draw this dump instead of running a design.
-        #[arg(long)]
-        from_dump: Option<PathBuf>,
+        /// Draw this dump instead of running a design (several: each one's summary on its own line,
+        /// prefixed by its file).
+        #[arg(long, num_args = 1..)]
+        from_dump: Vec<PathBuf>,
         /// Read this bridge recording (a `.rec` of `mctas mobai record`: the game's own frames)
         /// instead of running a design; `--tag` coordinates are then the recording's world's.
         #[arg(long)]
         recording: Option<PathBuf>,
         #[arg(long, default_value_t = 1)]
         seed: i64,
+        /// Run every seed from `--seed` to this one (inclusive) in turn, one summary line each
+        /// (each seed's page and dump as a single run writes them).
+        #[arg(long)]
+        seed_to: Option<i64>,
         #[arg(long, default_value_t = 1)]
         days: u32,
         /// Every golem stands still (default: a random policy each).
@@ -1893,7 +1898,7 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             n.save(&out)?;
             println!("{} ({} blocks)", out.display(), n.blocks.len());
         }
-        MobfarmCmd::Timeline { design, from_dump, recording, seed, days, still, terrain, build, tag, from, to, out } => {
+        MobfarmCmd::Timeline { design, from_dump, recording, seed, seed_to, days, still, terrain, build, tag, from, to, out } => {
             if let Some(rec) = recording {
                 let text = mctas::recorded::read_text(&rec)?;
                 let stem = rec.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "recording".into());
@@ -1906,20 +1911,71 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
                 println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
                 return Ok(());
             }
-            if let Some(dump) = from_dump {
-                let text = std::fs::read_to_string(&dump)?;
+            for dump in &from_dump {
+                let text = std::fs::read_to_string(dump)?;
                 let stem = dump.file_stem().map(|s| s.to_string_lossy().trim_end_matches(".timeline").to_string()).unwrap_or_else(|| "dump".into());
+                if from_dump.len() > 1 {
+                    // (several dumps: each one's stand batch on the slot ticks, read off its lines:
+                    // a villager's panic from its `panic=` changes, its place from its `class=.. at`
+                    // lines; the batch is the villagers at rest in the pocket row (z 0.5, y below 1,
+                    // x -1..9) on a slot tick (t % 100 == 0), counted with 3 there)
+                    let mut st: std::collections::HashMap<String, (bool, [f64; 3], bool)> = Default::default();
+                    let mut counts = [0usize; 4];
+                    let mut last_t: i64 = -1;
+                    let eval = |st: &std::collections::HashMap<String, (bool, [f64; 3], bool)>, counts: &mut [usize; 4]| {
+                        let at: Vec<bool> = st.values().filter(|(_, p, rest)| *rest && (p[2] - 0.5).abs() < 0.3 && p[1] < 1.0 && p[0] > -1.0 && p[0] < 9.0).map(|(pn, _, _)| *pn).collect();
+                        if at.len() == 3 {
+                            counts[at.iter().filter(|p| **p).count()] += 1;
+                        }
+                    };
+                    for line in text.lines() {
+                        let tok: Vec<&str> = line.split_whitespace().collect();
+                        let Some(t) = tok.first().and_then(|s| s.strip_prefix("t=")).and_then(|s| s.parse::<i64>().ok()) else { continue };
+                        if t != last_t {
+                            if last_t > 0 && last_t % 100 == 0 && last_t <= to.unwrap_or(u32::MAX) as i64 {
+                                eval(&st, &mut counts);
+                            }
+                            last_t = t;
+                        }
+                        let Some(v) = tok.get(4).filter(|s| s.starts_with('V') && s[1..].chars().all(|c| c.is_ascii_digit())) else { continue };
+                        let e = st.entry(v.to_string()).or_insert((false, [f64::NAN; 3], false));
+                        for (i, w) in tok.iter().enumerate().skip(5) {
+                            match *w {
+                                "panic=on" => e.0 = true,
+                                "panic=off" => e.0 = false,
+                                "class=held" | "class=station" => e.2 = true,
+                                c if c.starts_with("class=") => e.2 = false,
+                                "at" => {
+                                    if let Some(p) = tok.get(i + 1).map(|s| s.split(',').filter_map(|x| x.parse::<f64>().ok()).collect::<Vec<_>>()).filter(|p| p.len() == 3) {
+                                        e.1 = [p[0], p[1], p[2]];
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    if last_t > 0 && last_t % 100 == 0 && last_t <= to.unwrap_or(u32::MAX) as i64 {
+                        eval(&st, &mut counts);
+                    }
+                    let n: usize = counts.iter().sum();
+                    println!("{stem}: stand batch panicking on the slot tick (3 at rest): 3 in {}, 2 in {}, 1 in {}, 0 in {} of {n} slots", counts[3], counts[2], counts[1], counts[0]);
+                    continue;
+                }
                 let tl = crate::timeline::Timeline::from_dump(&stem, &dump.display().to_string(), &text)?;
                 let to = to.unwrap_or(tl.ticks).min(tl.ticks);
                 let (html, _) = crate::timeline::write(&tl, &out, &stem, from.min(to), to)?;
                 println!("{}", tl.summary(from.min(to), to));
                 println!("{} ({} KB)", html.display(), std::fs::metadata(&html)?.len() / 1024);
+            }
+            if !from_dump.is_empty() {
                 return Ok(());
             }
             let design = design.ok_or_else(|| anyhow::anyhow!("timeline: a design, or --from-dump FILE"))?;
-            let (c, spec) = load(version, &design)?;
+            let (c, spec0) = load(version, &design)?;
             use redsim::entity::mob::farm::{RunOpts, WalkMode};
             let walk = if still { WalkMode::Fixed(redsim::entity::mob::walk::Walk::Still) } else { WalkMode::Random };
+            for seed in seed..=seed_to.unwrap_or(seed).max(seed) {
+            let spec = spec0.clone();
             let mut o = RunOpts::steady(seed, days * 24000, walk);
             // (the run `run` makes: the same site, the same options)
             let (spec, offset) = match (&terrain, build) {
@@ -1948,10 +2004,15 @@ pub fn run(version: &str, cmd: MobfarmCmd) -> Result<()> {
             let tl = crate::timeline::record(&stem, &spec, &o, offset, &tags, ticks)?;
             let to = to.unwrap_or(ticks).min(ticks);
             let (html, txt) = crate::timeline::write(&tl, &out, &stem, from.min(to), to)?;
-            println!("{}", tl.summary(from.min(to), to));
-            println!("{} ({} KB)", html.display(), std::fs::metadata(&html)?.len() / 1024);
-            println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
-            println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
+            if seed_to.is_some() {
+                println!("seed {seed}: {}", tl.summary(from.min(to), to));
+            } else {
+                println!("{}", tl.summary(from.min(to), to));
+                println!("{} ({} KB)", html.display(), std::fs::metadata(&html)?.len() / 1024);
+                println!("{} ({} KB)", txt.display(), std::fs::metadata(&txt)?.len() / 1024);
+                println!("{ticks} ticks recorded in {:.1} s", t0.elapsed().as_secs_f64());
+            }
+            }
         }
         MobfarmCmd::Paste { base, part, at, out } => {
             let o: Vec<i32> = at.split(',').map(|s| s.trim().parse()).collect::<Result<_, _>>()?;

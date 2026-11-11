@@ -164,9 +164,12 @@ fn core(b: &mut B, chain: &[It], group_to: i32) -> Result<(Vec<(i32, u8)>, i32)>
     // so all taps reach the bulb with the same delay and consecutive windows overlap), then west
     // along z -1 and into the bulb
     let far = stones.iter().filter(|s| s.1 & RS != 0).map(|s| s.0).min().unwrap_or(-1);
+    // (with MCTAS_CHAIN_HEAD_RT below 3 every stone comes that many rt earlier against REL; the
+    // restore takes the same rt back, so the bulb sees the reset window at main's time)
+    let rs_rt: u8 = 1 + 3u8.saturating_sub(std::env::var("MCTAS_CHAIN_HEAD_RT").ok().and_then(|v| v.parse().ok()).unwrap_or(3u8));
     for zz in far..=-1 {
         if zz == -5 {
-            b.on([9, y, zz], &rep("north", 1))?;
+            b.on([9, y, zz], &rep("north", rs_rt))?;
         } else {
             b.on([9, y, zz], DUST)?;
         }
@@ -359,8 +362,12 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
     // later taps 2 gt earlier against REL, still overlapping)
     let r14 = if far { R(1) } else { R(2) };
     let a1_run = if stagger { [R(1), D, r14, S(G), D, S(A | RS)] } else { [R(1), D, r14, D, D, S(A | RS)] };
+    // (MCTAS_CHAIN_HEAD_RT, option 1 of day-1's 05:47 report: the chain's first repeater, default 3;
+    // 2 moves every chain stone (the group, the resets, the advances) 2 gt earlier against REL, the
+    // arrival side's outputs back to main's time)
+    let head: u8 = std::env::var("MCTAS_CHAIN_HEAD_RT").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
     let mut chain = vec![
-        R(3), S(G | RS), // +8 (after the shortener C at z -5)
+        R(head), S(G | RS), // +8 (after the shortener C at z -5)
         R(4), S(G | RS), // +16
         R(4), S(G | RS), // +24
     ];
@@ -537,8 +544,71 @@ pub fn generate_loop(out: &Path, loop_file: &Path, offdelay: &Path, siding: Opti
         // restored, the take-off at 14 whatever tap holds the window), the advance link two (its 23
         // cells and the row's spread need two refreshes), the first right after the climb, the
         // second 4 cells before the line)
-        lay_link(&mut b, g0, &gl, &[(8, 1)])?;
+        // (MCTAS_GROUP_LINK_REPS=0: the group link without its repeater, REL's rising edge into the
+        // release group at main's time if the dust reaches (B = main, ironspec 05:49))
+        if std::env::var("MCTAS_GROUP_LINK_REPS").ok().as_deref() == Some("0") {
+            eprintln!("group link: {} cells, no repeater", gl.len());
+            lay_link(&mut b, g0, &gl, &[])?;
+        } else {
+            lay_link(&mut b, g0, &gl, &[(8, 1)])?;
+        }
         lay_link(&mut b, a0, &al, &[(3, 1), (al.len() - 5, 1)])?;
+        // (MCTAS_REL_FEED, ironspec 06:02 item 1: R_g moved: REL by its own path from its dust
+        // beside GO, one 1-rt repeater as both the diode and the refresh, into the release group's
+        // line (x -5, y -1, z 19..25); the core's group line keeps only the taps. Tried from each REL
+        // dust cell's free sides to each free cell beside the line; the first that lays wins.
+        // MCTAS_REL_FEED_SKIP=n skips the first n that lay (the trace judges the spread))
+        if std::env::var("MCTAS_REL_FEED").is_ok() {
+            let skip: usize = std::env::var("MCTAS_REL_FEED_SKIP").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+            let rg = at([3, 1, -4]);
+            b.blocks.remove(&rg);
+            let srcs: [([i32; 3], usize); 7] = [([5, 1, -1], 1), ([5, 1, -2], 2), ([5, 1, -3], 3), ([4, 1, -3], 4), ([3, 1, -3], 5), ([2, 1, -3], 6), ([2, 1, -2], 7)];
+            let mut ends: Vec<P3> = vec![[-5, -1, 18]];
+            for z in 19..=25 {
+                ends.push([-6, -1, z]);
+                ends.push([-5, 0, z]);
+            }
+            let mut laid = 0usize;
+            let mut found = None;
+            'feed: for (core_src, run0) in srcs {
+                let src = at(core_src);
+                if !b.blocks.get(&src).is_some_and(|s| s.contains("redstone_wire")) {
+                    continue;
+                }
+                for d in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]] {
+                    let start = [src[0] + d[0], src[1] + d[1], src[2] + d[2]];
+                    if b.blocks.get(&start).is_some_and(|s| !s.ends_with(":air")) {
+                        continue;
+                    }
+                    for &end in &ends {
+                        if b.blocks.get(&end).is_some_and(|s| !s.ends_with(":air")) {
+                            continue;
+                        }
+                        let lim = crate::autoroute::Limits { lo: [-7, -6, 17], hi: [2, 0, 32], avoid: crate::autoroute::rider_space(&b.blocks), near_ok: [src].into_iter().collect() };
+                        let Ok(path) = crate::autoroute::find(&b, start, end, &lim) else { continue };
+                        if path.len() + run0 > 24 {
+                            continue;
+                        }
+                        let mut t = new_b();
+                        t.blocks = b.blocks.clone();
+                        t.ports = b.ports.clone();
+                        t.nbt = b.nbt.clone();
+                        if crate::sidinggen::lay_exact(&mut t, src, &path, run0, 1).is_ok() {
+                            if laid == skip {
+                                eprintln!("REL feed: from {src:?} (REL dust {run0} past GO) by {} cells to {end:?}: {path:?}", path.len());
+                                found = Some(t);
+                                break 'feed;
+                            }
+                            laid += 1;
+                        }
+                    }
+                }
+            }
+            let Some(t) = found else { bail!("REL feed: no path lays with one 1-rt repeater (R_g moved)") };
+            b.blocks = t.blocks;
+            b.ports = t.ports;
+            b.nbt = t.nbt;
+        }
         for z in 19..=25 {
             b.on([-5, yy, z], DUST)?;
         }
